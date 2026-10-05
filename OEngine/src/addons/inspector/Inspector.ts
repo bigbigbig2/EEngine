@@ -1,10 +1,6 @@
 import type { Renderer } from "../../render/Renderer.js";
 import type { FrameProfiler, FrameProfilerMode } from "../../debug/FrameProfiler.js";
-import {
-  InspectorViewModel,
-  type InspectorMode,
-  type InspectorViewState
-} from "./InspectorViewModel.js";
+import { InspectorViewModel, type InspectorMode, type InspectorViewState } from "./InspectorViewModel.js";
 import type { ProfileFrame } from "../../debug/profiling/ProfileFrame.js";
 import { InspectorShell, type InspectorDomainState, type InspectorStyleMode } from "./InspectorShell.js";
 
@@ -71,7 +67,7 @@ export class Inspector {
       initiallyCollapsed: options.initiallyCollapsed ?? false,
       historyCapacity,
       uiRefreshHz: options.uiRefreshHz ?? 5,
-      styles: options.styles ?? "inline"
+      styles: options.styles ?? "inline",
     };
     if (!Number.isFinite(this.options.uiRefreshHz) || this.options.uiRefreshHz <= 0) {
       throw new RangeError("uiRefreshHz must be positive");
@@ -96,8 +92,9 @@ export class Inspector {
       onStopRecording: () => this.stopRecording(),
       onClear: () => this.clear(),
       onSelectFrame: (frameIndex) => this.selectFrame(frameIndex),
-      onSelectRange: (startFrameIndex, endFrameIndex) => this.viewModel.selectRange(startFrameIndex, endFrameIndex),
-      onDomainState: () => this.domainState()
+      onSelectRange: (startFrameIndex, endFrameIndex) =>
+        this.viewModel.selectRange(startFrameIndex, endFrameIndex),
+      onDomainState: () => this.domainState(),
     });
     this.shell.mount();
     if (this.options.initiallyCollapsed) this.shell.setPanelVisible(false);
@@ -209,8 +206,8 @@ export class Inspector {
         gpuSampleInterval: this.profiler.gpuSampleInterval,
         gpuCounterSampleInterval: this.profiler.gpuCounterSampleInterval,
         inspectorOverheadMs: overhead?.availability === "available" ? overhead.value : null,
-        latestFrameIndex: this.profiler.latest?.frameIndex
-      }
+        latestFrameIndex: this.profiler.latest?.frameIndex,
+      },
     };
   }
 
@@ -220,9 +217,21 @@ export class Inspector {
     let frameGraph: StoredDomainEvidence["frameGraph"] = null;
     let resources: StoredDomainEvidence["resources"] = null;
     let memory: StoredDomainEvidence["memory"] = null;
-    try { frameGraph = cloneEvidence(this.renderer.mainFrameGraphEvidence()); } catch { /* renderer not initialized */ }
-    try { resources = cloneEvidence(this.renderer.graphics.profilingResourceSnapshot()); } catch { /* renderer not initialized */ }
-    try { memory = cloneEvidence(this.renderer.memoryEvidence()); } catch { /* renderer not initialized */ }
+    try {
+      frameGraph = cloneEvidence(this.renderer.mainFrameGraphEvidence());
+    } catch {
+      /* renderer not initialized */
+    }
+    try {
+      resources = cloneEvidence(this.renderer.graphics.profilingResourceSnapshot());
+    } catch {
+      /* renderer not initialized */
+    }
+    try {
+      memory = cloneEvidence(this.renderer.memoryEvidence());
+    } catch {
+      /* renderer not initialized */
+    }
     this.domainEvidenceByFrame.set(frame.frameIndex, Object.freeze({ frameGraph, resources, memory }));
     while (this.domainEvidenceByFrame.size > this.options.historyCapacity) {
       const oldest = this.domainEvidenceByFrame.keys().next().value;

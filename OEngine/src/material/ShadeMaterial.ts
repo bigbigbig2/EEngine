@@ -3,11 +3,7 @@
  */
 
 import type { ShadeTexture } from "../texture/ShadeTexture.js";
-import {
-  ShadeDrawMode,
-  ShadeDrawSide,
-  ShadeTransparencyMode
-} from "./enums.js";
+import { ShadeDrawMode, ShadeDrawSide, ShadeTransparencyMode } from "./enums.js";
 
 let nextShadeMaterialId = 0;
 

@@ -23,7 +23,7 @@ export const GPU_SPARSE_SHADING_VIEW_OFFSETS = Object.freeze({
   upscaleRatio: 72,
   cameraPosition: 96,
   currentViewProjection: 112,
-  previousViewProjection: 176
+  previousViewProjection: 176,
 } as const);
 
 export interface GpuSparseShadingViewCpu {
@@ -71,9 +71,7 @@ struct OEngineSparseShadingView {
 }
 `;
 
-export function packGpuSparseShadingView(
-  input: Readonly<GpuSparseShadingViewCpu>
-): ArrayBuffer {
+export function packGpuSparseShadingView(input: Readonly<GpuSparseShadingViewCpu>): ArrayBuffer {
   assertPositiveU32(input.width, "width");
   assertPositiveU32(input.height, "height");
   assertPositiveU32(input.materialCount, "materialCount");
@@ -93,8 +91,9 @@ export function packGpuSparseShadingView(
     ["geometryGenerationWordBase", assets.geometryGenerationWordBase],
     ["meshletVertexWordBase", assets.meshletVertexWordBase],
     ["meshletTriangleWordBase", assets.meshletTriangleWordBase],
-    ["vertexDataWordBase", assets.vertexDataWordBase]
-  ] as const) assertU32(value, `assets.${name}`);
+    ["vertexDataWordBase", assets.vertexDataWordBase],
+  ] as const)
+    assertU32(value, `assets.${name}`);
   assertFinitePositive(input.preExposure, "preExposure");
   assertFinitePositive(input.upscaleRatio[0], "upscaleRatio[0]");
   assertFinitePositive(input.upscaleRatio[1], "upscaleRatio[1]");

@@ -42,23 +42,22 @@ Object.defineProperty(Hd.prototype, "isSamplerDescriptor", {
   value: true,
   writable: true,
   enumerable: true,
-  configurable: true
+  configurable: true,
 });
 
-export const LINEAR_CLAMP_SAMPLER_DESCRIPTOR: GPUSamplerDescriptor =
-  Object.freeze(Hd.from({ magFilter: "linear" }));
+export const LINEAR_CLAMP_SAMPLER_DESCRIPTOR: GPUSamplerDescriptor = Object.freeze(
+  Hd.from({ magFilter: "linear" }),
+);
 
-export const SHADOW_COMPARISON_SAMPLER_DESCRIPTOR: GPUSamplerDescriptor =
-  Object.freeze(
-    Hd.from({
-      compare: "greater",
-      minFilter: "linear",
-      magFilter: "linear"
-    })
-  );
+export const SHADOW_COMPARISON_SAMPLER_DESCRIPTOR: GPUSamplerDescriptor = Object.freeze(
+  Hd.from({
+    compare: "greater",
+    minFilter: "linear",
+    magFilter: "linear",
+  }),
+);
 
-export const DEFAULT_MATERIAL_SAMPLER_DESCRIPTOR: GPUSamplerDescriptor =
-  Object.freeze(Hd.from({}));
+export const DEFAULT_MATERIAL_SAMPLER_DESCRIPTOR: GPUSamplerDescriptor = Object.freeze(Hd.from({}));
 
 export class GPUSamplerCache {
   private readonly cache = new Map<string, GPUSampler>();
@@ -88,6 +87,6 @@ function samplerKey(descriptor: GPUSamplerDescriptor): string {
     lodMinClamp: descriptor.lodMinClamp ?? 0,
     lodMaxClamp: descriptor.lodMaxClamp ?? 32,
     compare: descriptor.compare ?? "",
-    maxAnisotropy: descriptor.maxAnisotropy ?? 1
+    maxAnisotropy: descriptor.maxAnisotropy ?? 1,
   });
 }

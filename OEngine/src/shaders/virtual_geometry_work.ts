@@ -1,14 +1,8 @@
 import { counterByteOffset } from "../debug/GpuFrameCounters.js";
 import { HIERARCHY_LOD_WGSL } from "./hierarchy_lod.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
-import {
-  GPU_MESHLET_RASTER_WORK_WGSL,
-  GPU_MESHLET_DECODE_PROFILE
-} from "../gpu/GpuMeshletRasterWorkAbi.js";
-import {
-  GPU_VISIBLE_CLUSTER_RECORD_SCHEMA,
-  GPU_WORK_GENERATION_WGSL
-} from "../gpu/GpuWorkGenerationAbi.js";
+import { GPU_MESHLET_RASTER_WORK_WGSL, GPU_MESHLET_DECODE_PROFILE } from "../gpu/GpuMeshletRasterWorkAbi.js";
+import { GPU_VISIBLE_CLUSTER_RECORD_SCHEMA, GPU_WORK_GENERATION_WGSL } from "../gpu/GpuWorkGenerationAbi.js";
 import { VIRTUAL_GEOMETRY_PRODUCT_WGSL } from "./virtual_geometry_product.js";
 
 const COUNTER_MESHLET_WORKS = counterByteOffset("geometryMeshletWorksProduced") / 4;
@@ -246,5 +240,4 @@ fn finalize_virtual_geometry_work() {
 }
 `;
 
-export const VIRTUAL_GEOMETRY_MESHLET_WORK_VISIBLE_RECORD_STRIDE =
-  GPU_VISIBLE_CLUSTER_RECORD_SCHEMA.stride;
+export const VIRTUAL_GEOMETRY_MESHLET_WORK_VISIBLE_RECORD_STRIDE = GPU_VISIBLE_CLUSTER_RECORD_SCHEMA.stride;

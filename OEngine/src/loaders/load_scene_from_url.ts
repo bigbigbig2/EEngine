@@ -6,10 +6,7 @@ import type { Scene } from "../scene/Scene.js";
 import { BinaryReader } from "./BinaryReader.js";
 import { deserialize_scene } from "./deserialize_scene.js";
 
-export async function load_scene_from_url(
-  url: string,
-  scene: Scene
-): Promise<Scene> {
+export async function load_scene_from_url(url: string, scene: Scene): Promise<Scene> {
   const n = await fetch(url);
   if (!n.ok) {
     throw new Error(`Failed to fetch scene: ${n.status} ${n.statusText}`);

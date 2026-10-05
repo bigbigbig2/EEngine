@@ -3,14 +3,14 @@ import { HIERARCHY_LOD_WGSL } from "./hierarchy_lod.js";
 import {
   GPU_CLUSTER_RECORD_WGSL,
   GPU_GEOMETRY_RECORD_WGSL,
-  GPU_MESHLET_RECORD_WGSL
+  GPU_MESHLET_RECORD_WGSL,
 } from "../gpu/GpuGeometryAbi.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import {
   GPU_RASTER_WORK_SCHEMA,
   GPU_TRAVERSAL_WORK_SCHEMA,
   GPU_VISIBLE_CLUSTER_RECORD_SCHEMA,
-  GPU_WORK_GENERATION_WGSL
+  GPU_WORK_GENERATION_WGSL,
 } from "../gpu/GpuWorkGenerationAbi.js";
 import { counterByteOffset } from "../debug/GpuFrameCounters.js";
 import { GEOMETRY_PAGE_DEMAND_WGSL } from "../gpu/GeometryPageDemandAbiV1.js";
@@ -27,7 +27,7 @@ export const HIERARCHICAL_VIEW_OFFSETS = Object.freeze({
   scene: 144,
   limits: 160,
   worldToClip: 176,
-  hzb: 240
+  hzb: 240,
 } as const);
 
 const HIERARCHICAL_HZB_DISABLED_WGSL = /* wgsl */ `
@@ -148,11 +148,8 @@ fn hierarchy_leaf_hzb_occluded(
  * subgroup, 64-bit atomics and native command features are intentionally
  * absent from this R3-B shader.
  */
-function createHierarchicalWorkGenerationWgsl(
-  hzbEnabled: boolean,
-  virtualGeometryEnabled = false
-): string {
-return /* wgsl */ `
+function createHierarchicalWorkGenerationWgsl(hzbEnabled: boolean, virtualGeometryEnabled = false): string {
+  return /* wgsl */ `
 ${GPU_INSTANCE_RECORD_WGSL}
 ${GPU_GEOMETRY_RECORD_WGSL}
 ${GPU_CLUSTER_RECORD_WGSL}
@@ -193,7 +190,9 @@ struct OEngineVisibleClusterQueueRead {
   elements: array<OEngineVisibleClusterRecord>,
 };
 
-${virtualGeometryEnabled ? /* wgsl */ `
+${
+  virtualGeometryEnabled
+    ? /* wgsl */ `
 struct OEngineGeometryPageDemandQueueV1 {
   header: OEngineGeometryPageDemandQueueHeaderV1,
   records: array<OEngineGeometryPageDemandV1>,
@@ -218,7 +217,9 @@ fn hierarchy_emit_page_demand_v1(
   );
 }
 
-` : ""}
+`
+    : ""
+}
 
 struct OEngineRasterWorkQueue {
   header: OEngineWorkQueueHeader,
@@ -345,7 +346,10 @@ fn hierarchy_cluster_cone_backfacing(
 }
 
 ${hzbEnabled ? HIERARCHICAL_HZB_ENABLED_WGSL : HIERARCHICAL_HZB_DISABLED_WGSL}
-${virtualGeometryEnabled ? (hzbEnabled ? /* wgsl */ `
+${
+  virtualGeometryEnabled
+    ? hzbEnabled
+      ? /* wgsl */ `
 fn hierarchy_virtual_traversal_hzb_occluded(
   node: OEngineVirtualHierarchyNodeV1,
   instance: OEngineInstanceRecord
@@ -355,14 +359,17 @@ fn hierarchy_virtual_traversal_hzb_occluded(
     node.bounds_min.xyz, node.bounds_max.xyz, instance
   );
 }
-` : /* wgsl */ `
+`
+      : /* wgsl */ `
 fn hierarchy_virtual_traversal_hzb_occluded(
   node: OEngineVirtualHierarchyNodeV1,
   instance: OEngineInstanceRecord
 ) -> bool {
   return false;
 }
-`) : ""}
+`
+    : ""
+}
 
 fn hierarchy_update_dispatch(
   args: ptr<storage, OEngineDispatchIndirectArgs, read_write>,
@@ -477,7 +484,9 @@ fn r3_fused_root_cull(
     if hierarchy_instance_enabled(instance, hierarchy_view.scene.w, hierarchy_view.limits.y) &&
       hierarchy_sphere_in_frustum(instance_sphere, &hierarchy_view) {
       atomicAdd(&hierarchy_wg_visible_instances, 1u);
-${virtualGeometryEnabled ? /* wgsl */ `
+${
+  virtualGeometryEnabled
+    ? /* wgsl */ `
       if oengine_instance_virtual_geometry(instance) {
         let asset = oengine_geometry_product_resolve_asset_v1(
           &hierarchy_product_heap,
@@ -498,7 +507,9 @@ ${virtualGeometryEnabled ? /* wgsl */ `
           expand_fallback_selectable = false;
         }
       } else {
-` : ""}
+`
+    : ""
+}
       atomicAdd(&hierarchy_wg_visited_clusters, 1u);
       let geometry = hierarchy_geometries[instance.geometry_record_index];
       let cluster = hierarchy_clusters[geometry.cluster_root];
@@ -567,14 +578,18 @@ ${virtualGeometryEnabled ? "      }" : ""}
       selected = expand_fallback_selectable;
     } else {
       for (var child = 0u; child < child_count; child++) {
-${virtualGeometryEnabled ? /* wgsl */ `
+${
+  virtualGeometryEnabled
+    ? /* wgsl */ `
         var child_node = 0u;
         if child_source == 1u {
           child_node = hierarchy_product_heap[child_begin + child];
         } else {
           child_node = hierarchy_children[child_begin + child];
         }
-` : ""}
+`
+    : ""
+}
         hierarchy_output.elements[hierarchy_wg_child_base + child_local + child] =
           OEngineTraversalWork(
             selected_instance,
@@ -750,7 +765,9 @@ fn r3_traverse_clusters(
     atomicAdd(&hierarchy_wg_visited_clusters, 1u);
     let work = traversal_input.elements[invocation_index];
     let instance = traversal_instances[work.instance_record_index];
-${virtualGeometryEnabled ? /* wgsl */ `
+${
+  virtualGeometryEnabled
+    ? /* wgsl */ `
     if oengine_instance_virtual_geometry(instance) {
       let asset = oengine_geometry_product_resolve_asset_v1(
         &traversal_product_heap,
@@ -818,7 +835,9 @@ ${virtualGeometryEnabled ? /* wgsl */ `
         }
       }
     } else {
-` : ""}
+`
+    : ""
+}
     let geometry = traversal_geometries[instance.geometry_record_index];
     let cluster = traversal_clusters[work.cluster_record_index];
     let scale = hierarchy_conservative_scale(oengine_instance_current_object_to_world(instance));
@@ -885,12 +904,16 @@ ${virtualGeometryEnabled ? "    }" : ""}
       selected = expand_fallback_selectable;
     } else {
       for (var child = 0u; child < child_count; child++) {
-${virtualGeometryEnabled ? /* wgsl */ `
+${
+  virtualGeometryEnabled
+    ? /* wgsl */ `
         var child_node = child_begin + child;
         if child_source == 0u {
           child_node = traversal_children[child_begin + child];
         }
-` : ""}
+`
+    : ""
+}
         traversal_output.elements[
           hierarchy_wg_child_base + child_local + child
         ] = OEngineTraversalWork(
@@ -1332,14 +1355,10 @@ fn r3_expand_raster_work(
 `;
 }
 
-export const HIERARCHICAL_WORK_GENERATION_WGSL =
-  createHierarchicalWorkGenerationWgsl(false);
+export const HIERARCHICAL_WORK_GENERATION_WGSL = createHierarchicalWorkGenerationWgsl(false);
 
-export const HIERARCHICAL_HZB_WORK_GENERATION_WGSL =
-  createHierarchicalWorkGenerationWgsl(true);
+export const HIERARCHICAL_HZB_WORK_GENERATION_WGSL = createHierarchicalWorkGenerationWgsl(true);
 
-export const HIERARCHICAL_VIRTUAL_WORK_GENERATION_WGSL =
-  createHierarchicalWorkGenerationWgsl(false, true);
+export const HIERARCHICAL_VIRTUAL_WORK_GENERATION_WGSL = createHierarchicalWorkGenerationWgsl(false, true);
 
-export const HIERARCHICAL_VIRTUAL_HZB_WORK_GENERATION_WGSL =
-  createHierarchicalWorkGenerationWgsl(true, true);
+export const HIERARCHICAL_VIRTUAL_HZB_WORK_GENERATION_WGSL = createHierarchicalWorkGenerationWgsl(true, true);

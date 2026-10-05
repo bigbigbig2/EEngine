@@ -1,6 +1,6 @@
 import type {
   ResourceAccounting,
-  ResourceHandle as AccountingResourceHandle
+  ResourceHandle as AccountingResourceHandle,
 } from "../debug/profiling/ResourceAccounting.js";
 
 /**
@@ -16,7 +16,7 @@ export class GPUStagingBufferAllocator {
 
   constructor(
     private readonly device: GPUDevice,
-    private readonly resourceAccounting?: ResourceAccounting
+    private readonly resourceAccounting?: ResourceAccounting,
   ) {}
 
   get gpu_memory_usage(): number {
@@ -29,23 +29,24 @@ export class GPUStagingBufferAllocator {
     if (this.destroyed) throw new Error("GPUStagingBufferAllocator is destroyed");
     const resolvedSize = Math.max(4, Math.ceil(size / 4) * 4);
     const index = this.lowerBound(resolvedSize);
-    const cached = index < this.cache.length
-      ? this.cache.splice(index, 1)[0]
-      : undefined;
+    const cached = index < this.cache.length ? this.cache.splice(index, 1)[0] : undefined;
     if (cached !== undefined) return cached;
     const buffer = this.device.createBuffer({
       label: "",
       size: resolvedSize,
-      usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
+      usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
     });
     this.buffers.add(buffer);
     if (this.resourceAccounting !== undefined) {
-      this.accountingHandles.set(buffer, this.resourceAccounting.created({
-        kind: "buffer",
-        category: "upload",
-        owner: "GPUStagingBufferAllocator",
-        bytes: resolvedSize
-      }));
+      this.accountingHandles.set(
+        buffer,
+        this.resourceAccounting.created({
+          kind: "buffer",
+          category: "upload",
+          owner: "GPUStagingBufferAllocator",
+          bytes: resolvedSize,
+        }),
+      );
     }
     return buffer;
   }
@@ -55,15 +56,18 @@ export class GPUStagingBufferAllocator {
     if (reuseAfter !== undefined) {
       if (this.pending.has(buffer)) return;
       this.pending.add(buffer);
-      void reuseAfter.then(() => {
-        if (this.destroyed) return;
-        this.pending.delete(buffer);
-        this.insert(buffer);
-      }, () => {
-        if (this.destroyed) return;
-        this.pending.delete(buffer);
-        this.insert(buffer);
-      });
+      void reuseAfter.then(
+        () => {
+          if (this.destroyed) return;
+          this.pending.delete(buffer);
+          this.insert(buffer);
+        },
+        () => {
+          if (this.destroyed) return;
+          this.pending.delete(buffer);
+          this.insert(buffer);
+        },
+      );
       return;
     }
     this.insert(buffer);

@@ -2,11 +2,7 @@
  * HashSet：提供渲染器共享的基础数据结构与通用工具。
  */
 
-import {
-  HashMap,
-  type KeyEqualityFunction,
-  type KeyHashFunction
-} from "./HashMap.js";
+import { HashMap, type KeyEqualityFunction, type KeyHashFunction } from "./HashMap.js";
 import { equalsViaMethod, hashViaMethod } from "./memoryUtils.js";
 
 export interface HashSetOptions<K> {
@@ -21,12 +17,12 @@ export class HashSet<K = unknown> {
   constructor({
     keyHashFunction: e = hashViaMethod as KeyHashFunction<K>,
     keyEqualityFunction: t = equalsViaMethod as KeyEqualityFunction<K>,
-    capacity: n
+    capacity: n,
   }: HashSetOptions<K> = {}) {
     this.__map = new HashMap<K, K>({
       keyHashFunction: e,
       keyEqualityFunction: t,
-      capacity: n
+      capacity: n,
     });
   }
 
@@ -76,10 +72,7 @@ export class HashSet<K = unknown> {
     for (const e of this.__map.keys()) yield e;
   }
 
-  forEach(
-    e: (value: K, value2: K, set: HashSet<K>) => void,
-    t?: unknown
-  ): void {
+  forEach(e: (value: K, value2: K, set: HashSet<K>) => void, t?: unknown): void {
     for (const n of this.values()) e.call(t, n, n, this);
   }
 }

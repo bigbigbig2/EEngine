@@ -39,14 +39,11 @@ export class GPUSceneEnvironmentContext {
 
   constructor(
     graphics: GraphicsContext,
-    readonly scene: Scene
+    readonly scene: Scene,
   ) {
     const device = graphics.device;
     this.lights = new GPULightCollection(graphics, scene.lights);
-    this.light_probe_volume = new GPULightProbeVolume(
-      graphics,
-      scene.light_probe_volume
-    );
+    this.light_probe_volume = new GPULightProbeVolume(graphics, scene.light_probe_volume);
     this.volumetric_light_map = new Brick4LightMap(device);
     this.volumetrics = new GPUVolumetrics(device, scene.volumetrics);
   }
@@ -54,7 +51,7 @@ export class GPUSceneEnvironmentContext {
   encodeFrame(
     command: ShadeGPUCommandContext,
     frameIndex: number,
-    timeDeltaSeconds: number
+    timeDeltaSeconds: number,
   ): SceneEnvironmentFrameEvidence {
     if (this.lastPreparedFrame === frameIndex) {
       return { prepareCount: 0, changedLights: 0, fullResync: false };
@@ -68,17 +65,14 @@ export class GPUSceneEnvironmentContext {
 
     const changes = this.scene.changesSince(this.lastSceneChangeRevision);
     this.light_probe_volume.update();
-    this.lights.update(
-      command,
-      changes.fullResyncRequired || changes.changedLights.length > 0
-    );
+    this.lights.update(command, changes.fullResyncRequired || changes.changedLights.length > 0);
     this.volumetrics.update(command, timeDeltaSeconds);
     this.lastSceneChangeRevision = changes.revision;
     this.prepareCount++;
     return {
       prepareCount: 1,
       changedLights: changes.changedLights.length,
-      fullResync: changes.fullResyncRequired
+      fullResync: changes.fullResyncRequired,
     };
   }
 
@@ -86,10 +80,7 @@ export class GPUSceneEnvironmentContext {
   update(command: ShadeGPUCommandContext): void {
     const changes = this.scene.changesSince(this.lastSceneChangeRevision);
     this.light_probe_volume.update();
-    this.lights.update(
-      command,
-      changes.fullResyncRequired || changes.changedLights.length > 0
-    );
+    this.lights.update(command, changes.fullResyncRequired || changes.changedLights.length > 0);
     this.volumetrics.update(command, 0);
     this.lastSceneChangeRevision = changes.revision;
     this.prepareCount++;
@@ -98,14 +89,16 @@ export class GPUSceneEnvironmentContext {
   evidence(): GPUSceneEnvironmentEvidence {
     return Object.freeze({
       prepareCount: this.prepareCount,
-      lastSceneChangeRevision: this.lastSceneChangeRevision
+      lastSceneChangeRevision: this.lastSceneChangeRevision,
     });
   }
 
   get gpu_memory_usage(): number {
-    return this.lights.gpu_memory_usage +
+    return (
+      this.lights.gpu_memory_usage +
       this.light_probe_volume.gpu_memory_usage +
-      this.volumetric_light_map.gpu_memory_usage;
+      this.volumetric_light_map.gpu_memory_usage
+    );
   }
 
   destroy(): void {

@@ -32,8 +32,17 @@ export interface WebCookBootstrapOptions {
 }
 
 export type WebCookCommand =
-  | (WebCookSessionHeader & { readonly type: "CreateSession"; readonly runtimeProfile: WebCookRuntimeProfile; readonly recipe: Readonly<Record<string, unknown>>; readonly budgets: WebCookBudgets; readonly bootstrap?: WebCookBootstrapOptions })
-  | (WebCookSessionHeader & { readonly type: "OpenSource"; readonly source: Readonly<Record<string, unknown>> })
+  | (WebCookSessionHeader & {
+      readonly type: "CreateSession";
+      readonly runtimeProfile: WebCookRuntimeProfile;
+      readonly recipe: Readonly<Record<string, unknown>>;
+      readonly budgets: WebCookBudgets;
+      readonly bootstrap?: WebCookBootstrapOptions;
+    })
+  | (WebCookSessionHeader & {
+      readonly type: "OpenSource";
+      readonly source: Readonly<Record<string, unknown>>;
+    })
   /**
    * Declares that the main thread has finished sending `SetSourcePriority` for
    * the just-published catalog, so cooking may start.
@@ -47,21 +56,73 @@ export type WebCookCommand =
    * deadline, which is why no major version change is required.
    */
   | (WebCookSessionHeader & { readonly type: "CommitCatalogPriorities" })
-  | (WebCookSessionHeader & { readonly type: "SetSourcePriority"; readonly assetKey: string; readonly score: number; readonly cameraHintRevision: number })
-  | (WebCookSessionHeader & { readonly type: "RequestPages"; readonly productId: Uint8Array; readonly revision: number; readonly pageIds: Uint32Array; readonly priority: number })
-  | (WebCookSessionHeader & { readonly type: "GrantOutputCredits"; readonly blockCount: number; readonly bytes: number })
-  | (WebCookSessionHeader & { readonly type: "ReturnOutputCredits"; readonly blockCount: number; readonly bytes: number })
+  | (WebCookSessionHeader & {
+      readonly type: "SetSourcePriority";
+      readonly assetKey: string;
+      readonly score: number;
+      readonly cameraHintRevision: number;
+    })
+  | (WebCookSessionHeader & {
+      readonly type: "RequestPages";
+      readonly productId: Uint8Array;
+      readonly revision: number;
+      readonly pageIds: Uint32Array;
+      readonly priority: number;
+    })
+  | (WebCookSessionHeader & {
+      readonly type: "GrantOutputCredits";
+      readonly blockCount: number;
+      readonly bytes: number;
+    })
+  | (WebCookSessionHeader & {
+      readonly type: "ReturnOutputCredits";
+      readonly blockCount: number;
+      readonly bytes: number;
+    })
   | (WebCookSessionHeader & { readonly type: "CancelScope"; readonly scope: string })
   | (WebCookSessionHeader & { readonly type: "DisposeSession" });
 
 export type WebCookEvent =
-  | (WebCookSessionHeader & { readonly type: "SceneCatalogReady"; readonly catalog: Readonly<Record<string, unknown>> })
-  | (WebCookSessionHeader & { readonly type: "RevisionOffered"; readonly descriptor: ArrayBuffer; readonly sceneAssetIndices?: Uint32Array })
-  | (WebCookSessionHeader & { readonly type: "PageReady"; readonly productId: Uint8Array; readonly revision: number; readonly pageId: number; readonly decodedHash128: Uint8Array; readonly decodedPageHash128: Uint8Array; readonly bytes: ArrayBuffer })
-  | (WebCookSessionHeader & { readonly type: "Progress"; readonly stage: string; readonly units: number; readonly bytes: number; readonly timings: Readonly<Record<string, number>> })
-  | (WebCookSessionHeader & { readonly type: "ProductTaskTrace"; readonly trace: WebCookProductTaskTraceEventV1 })
-  | (WebCookSessionHeader & { readonly type: "RecoverableFailure"; readonly scope: string; readonly code: string; readonly retryAfterMs?: number })
-  | (WebCookSessionHeader & { readonly type: "FatalSessionFailure"; readonly code: string; readonly diagnostics?: Readonly<Record<string, unknown>> });
+  | (WebCookSessionHeader & {
+      readonly type: "SceneCatalogReady";
+      readonly catalog: Readonly<Record<string, unknown>>;
+    })
+  | (WebCookSessionHeader & {
+      readonly type: "RevisionOffered";
+      readonly descriptor: ArrayBuffer;
+      readonly sceneAssetIndices?: Uint32Array;
+    })
+  | (WebCookSessionHeader & {
+      readonly type: "PageReady";
+      readonly productId: Uint8Array;
+      readonly revision: number;
+      readonly pageId: number;
+      readonly decodedHash128: Uint8Array;
+      readonly decodedPageHash128: Uint8Array;
+      readonly bytes: ArrayBuffer;
+    })
+  | (WebCookSessionHeader & {
+      readonly type: "Progress";
+      readonly stage: string;
+      readonly units: number;
+      readonly bytes: number;
+      readonly timings: Readonly<Record<string, number>>;
+    })
+  | (WebCookSessionHeader & {
+      readonly type: "ProductTaskTrace";
+      readonly trace: WebCookProductTaskTraceEventV1;
+    })
+  | (WebCookSessionHeader & {
+      readonly type: "RecoverableFailure";
+      readonly scope: string;
+      readonly code: string;
+      readonly retryAfterMs?: number;
+    })
+  | (WebCookSessionHeader & {
+      readonly type: "FatalSessionFailure";
+      readonly code: string;
+      readonly diagnostics?: Readonly<Record<string, unknown>>;
+    });
 
 export interface WebCookSessionEvidence {
   readonly sessionGeneration: number;
@@ -86,73 +147,216 @@ export class WebCookSessionProtocol {
   #outstandingBytes = 0;
   #peakOutputBytes = 0;
   #droppedLateMessages = 0;
-  constructor(readonly sessionId: string, readonly sessionGeneration: number) {
-    if (!sessionId || !Number.isInteger(sessionGeneration) || sessionGeneration <= 0 || sessionGeneration === 0xffffffff) throw new RangeError("invalid CookSession identity");
+  constructor(
+    readonly sessionId: string,
+    readonly sessionGeneration: number,
+  ) {
+    if (
+      !sessionId ||
+      !Number.isInteger(sessionGeneration) ||
+      sessionGeneration <= 0 ||
+      sessionGeneration === 0xffffffff
+    )
+      throw new RangeError("invalid CookSession identity");
   }
 
   accept(command: WebCookCommand): void {
     this.validateHeader(command);
-    if (command.type === "CreateSession") { this.requireState("created"); this.#budgets = validateBudgets(command.budgets); validateBootstrapOptions(command.bootstrap); this.#state = "open"; return; }
-    if (command.type === "OpenSource") { this.requireState("open"); this.#sourceOpened = true; return; }
+    if (command.type === "CreateSession") {
+      this.requireState("created");
+      this.#budgets = validateBudgets(command.budgets);
+      validateBootstrapOptions(command.bootstrap);
+      this.#state = "open";
+      return;
+    }
+    if (command.type === "OpenSource") {
+      this.requireState("open");
+      this.#sourceOpened = true;
+      return;
+    }
     if (command.type === "GrantOutputCredits") {
       this.requireState("open");
-      if (!Number.isInteger(command.blockCount) || command.blockCount < 0 || !Number.isInteger(command.bytes) || command.bytes !== command.blockCount * WEB_COOK_PAGE_BYTES) throw new RangeError("output credits must describe whole 256-KiB page blocks");
-      if (this.#creditsBlocks + this.#outstandingBlocks + command.blockCount > this.#budgets!.maxQueuedEvents || this.#creditsBytes + this.#outstandingBytes + command.bytes > this.#budgets!.maxOutputBytes) throw new RangeError("output credit grant exceeds CookSession budget");
-      this.#creditsBlocks += command.blockCount; this.#creditsBytes += command.bytes; return;
+      if (
+        !Number.isInteger(command.blockCount) ||
+        command.blockCount < 0 ||
+        !Number.isInteger(command.bytes) ||
+        command.bytes !== command.blockCount * WEB_COOK_PAGE_BYTES
+      )
+        throw new RangeError("output credits must describe whole 256-KiB page blocks");
+      if (
+        this.#creditsBlocks + this.#outstandingBlocks + command.blockCount > this.#budgets!.maxQueuedEvents ||
+        this.#creditsBytes + this.#outstandingBytes + command.bytes > this.#budgets!.maxOutputBytes
+      )
+        throw new RangeError("output credit grant exceeds CookSession budget");
+      this.#creditsBlocks += command.blockCount;
+      this.#creditsBytes += command.bytes;
+      return;
     }
-    if (command.type === "ReturnOutputCredits") { this.requireState("open"); this.returnOutputCredits(command.blockCount, command.bytes); return; }
-    if (command.type === "CancelScope") { if (this.#state === "open") this.#state = "cancelled"; return; }
-    if (command.type === "DisposeSession") { this.#state = "disposed"; this.#events.length = 0; return; }
-    this.requireState("open"); if (!this.#sourceOpened) throw new Error("CookSession source must be opened before work commands");
-    if (command.type === "RequestPages") { if (command.productId.byteLength !== 32 || !Number.isInteger(command.revision) || command.revision < 0 || command.pageIds.some(page => page === 0xffffffff)) throw new RangeError("RequestPages contains an invalid Product key"); }
-    if (command.type === "SetSourcePriority" && (!Number.isFinite(command.score) || !Number.isInteger(command.cameraHintRevision) || command.cameraHintRevision < 0)) throw new RangeError("invalid source priority");
+    if (command.type === "ReturnOutputCredits") {
+      this.requireState("open");
+      this.returnOutputCredits(command.blockCount, command.bytes);
+      return;
+    }
+    if (command.type === "CancelScope") {
+      if (this.#state === "open") this.#state = "cancelled";
+      return;
+    }
+    if (command.type === "DisposeSession") {
+      this.#state = "disposed";
+      this.#events.length = 0;
+      return;
+    }
+    this.requireState("open");
+    if (!this.#sourceOpened) throw new Error("CookSession source must be opened before work commands");
+    if (command.type === "RequestPages") {
+      if (
+        command.productId.byteLength !== 32 ||
+        !Number.isInteger(command.revision) ||
+        command.revision < 0 ||
+        command.pageIds.some((page) => page === 0xffffffff)
+      )
+        throw new RangeError("RequestPages contains an invalid Product key");
+    }
+    if (
+      command.type === "SetSourcePriority" &&
+      (!Number.isFinite(command.score) ||
+        !Number.isInteger(command.cameraHintRevision) ||
+        command.cameraHintRevision < 0)
+    )
+      throw new RangeError("invalid source priority");
   }
 
   emit(event: WebCookEvent): boolean {
     this.validateHeader(event);
-    if (this.#state !== "open") { this.#droppedLateMessages++; return false; }
+    if (this.#state !== "open") {
+      this.#droppedLateMessages++;
+      return false;
+    }
     const max = this.#budgets?.maxQueuedEvents ?? 0;
     if (this.#events.length >= max) throw new RangeError("CookSession event queue capacity exceeded");
     if (event.type === "RevisionOffered") {
       const descriptor = decodeGeometryProductDescriptorBinaryV1(event.descriptor);
       const assetCount = descriptor.assetRecords.byteLength / OEGPACK_V3_ASSET_STRIDE;
-      if (event.sceneAssetIndices !== undefined &&
-          (event.sceneAssetIndices.length !== assetCount ||
-           event.sceneAssetIndices.some(value => !Number.isInteger(value) || value < 0))) {
+      if (
+        event.sceneAssetIndices !== undefined &&
+        (event.sceneAssetIndices.length !== assetCount ||
+          event.sceneAssetIndices.some((value) => !Number.isInteger(value) || value < 0))
+      ) {
         throw new RangeError("RevisionOffered sceneAssetIndices are invalid");
       }
     }
     if (event.type === "PageReady") {
-      if (event.productId.byteLength !== 32 || !Number.isInteger(event.revision) || event.revision < 0 || event.revision === 0xffffffff) throw new RangeError("PageReady contains an invalid Product identity");
-      if (!Number.isInteger(event.pageId) || event.pageId < 0 || event.pageId === 0xffffffff || event.bytes.byteLength !== WEB_COOK_PAGE_BYTES || event.decodedHash128.byteLength !== 16 || event.decodedPageHash128.byteLength !== 16 || this.#creditsBlocks < 1 || this.#creditsBytes < event.bytes.byteLength) return false;
-      this.#creditsBlocks--; this.#creditsBytes -= event.bytes.byteLength;
-      this.#outstandingBlocks++; this.#outstandingBytes += event.bytes.byteLength;
+      if (
+        event.productId.byteLength !== 32 ||
+        !Number.isInteger(event.revision) ||
+        event.revision < 0 ||
+        event.revision === 0xffffffff
+      )
+        throw new RangeError("PageReady contains an invalid Product identity");
+      if (
+        !Number.isInteger(event.pageId) ||
+        event.pageId < 0 ||
+        event.pageId === 0xffffffff ||
+        event.bytes.byteLength !== WEB_COOK_PAGE_BYTES ||
+        event.decodedHash128.byteLength !== 16 ||
+        event.decodedPageHash128.byteLength !== 16 ||
+        this.#creditsBlocks < 1 ||
+        this.#creditsBytes < event.bytes.byteLength
+      )
+        return false;
+      this.#creditsBlocks--;
+      this.#creditsBytes -= event.bytes.byteLength;
+      this.#outstandingBlocks++;
+      this.#outstandingBytes += event.bytes.byteLength;
     }
-    this.#events.push(event); this.#peakOutputBytes = Math.max(this.#peakOutputBytes, maxOutputBytes(this.#events)); return true;
+    this.#events.push(event);
+    this.#peakOutputBytes = Math.max(this.#peakOutputBytes, maxOutputBytes(this.#events));
+    return true;
   }
 
   canEmitPage(byteLength: number): boolean {
-    return this.#state === "open" && Number.isInteger(byteLength) && byteLength > 0 &&
-      this.#creditsBlocks >= 1 && this.#creditsBytes >= byteLength;
+    return (
+      this.#state === "open" &&
+      Number.isInteger(byteLength) &&
+      byteLength > 0 &&
+      this.#creditsBlocks >= 1 &&
+      this.#creditsBytes >= byteLength
+    );
   }
 
-  drain(maxEvents = Number.MAX_SAFE_INTEGER): WebCookEvent[] { if (!Number.isSafeInteger(maxEvents) || maxEvents < 0) throw new RangeError("maxEvents must be non-negative"); return this.#events.splice(0, maxEvents); }
-  returnOutputCredits(blockCount: number, bytes: number): void {
-    if (!Number.isInteger(blockCount) || blockCount < 0 || !Number.isInteger(bytes) || bytes !== blockCount * WEB_COOK_PAGE_BYTES || blockCount > this.#outstandingBlocks || bytes > this.#outstandingBytes) throw new RangeError("returned output credits exceed outstanding ownership");
-    this.#outstandingBlocks -= blockCount; this.#outstandingBytes -= bytes;
-    this.#creditsBlocks += blockCount; this.#creditsBytes += bytes;
+  drain(maxEvents = Number.MAX_SAFE_INTEGER): WebCookEvent[] {
+    if (!Number.isSafeInteger(maxEvents) || maxEvents < 0)
+      throw new RangeError("maxEvents must be non-negative");
+    return this.#events.splice(0, maxEvents);
   }
-  fail(code: string, diagnostics?: Readonly<Record<string, unknown>>): void { if (this.#state === "disposed") return; this.#state = "failed"; this.#events.length = 0; }
-  evidence(): WebCookSessionEvidence { return Object.freeze({ sessionGeneration: this.sessionGeneration, state: this.#state, queuedEvents: this.#events.length, outputCreditsBlocks: this.#creditsBlocks, outputCreditsBytes: this.#creditsBytes, outstandingOutputBlocks: this.#outstandingBlocks, outstandingOutputBytes: this.#outstandingBytes, peakOutputBytes: this.#peakOutputBytes, droppedLateMessages: this.#droppedLateMessages }); }
-  private validateHeader(message: WebCookSessionHeader): void { if (message.protocolVersion !== WEB_COOK_PROTOCOL_VERSION || message.sessionId !== this.sessionId || message.sessionGeneration !== this.sessionGeneration) { this.#droppedLateMessages++; throw new Error("stale or incompatible CookSession message"); } }
-  private requireState(state: WebCookSessionEvidence["state"]): void { if (this.#state !== state) throw new Error(`CookSession expected state '${state}', got '${this.#state}'`); }
+  returnOutputCredits(blockCount: number, bytes: number): void {
+    if (
+      !Number.isInteger(blockCount) ||
+      blockCount < 0 ||
+      !Number.isInteger(bytes) ||
+      bytes !== blockCount * WEB_COOK_PAGE_BYTES ||
+      blockCount > this.#outstandingBlocks ||
+      bytes > this.#outstandingBytes
+    )
+      throw new RangeError("returned output credits exceed outstanding ownership");
+    this.#outstandingBlocks -= blockCount;
+    this.#outstandingBytes -= bytes;
+    this.#creditsBlocks += blockCount;
+    this.#creditsBytes += bytes;
+  }
+  fail(code: string, diagnostics?: Readonly<Record<string, unknown>>): void {
+    if (this.#state === "disposed") return;
+    this.#state = "failed";
+    this.#events.length = 0;
+  }
+  evidence(): WebCookSessionEvidence {
+    return Object.freeze({
+      sessionGeneration: this.sessionGeneration,
+      state: this.#state,
+      queuedEvents: this.#events.length,
+      outputCreditsBlocks: this.#creditsBlocks,
+      outputCreditsBytes: this.#creditsBytes,
+      outstandingOutputBlocks: this.#outstandingBlocks,
+      outstandingOutputBytes: this.#outstandingBytes,
+      peakOutputBytes: this.#peakOutputBytes,
+      droppedLateMessages: this.#droppedLateMessages,
+    });
+  }
+  private validateHeader(message: WebCookSessionHeader): void {
+    if (
+      message.protocolVersion !== WEB_COOK_PROTOCOL_VERSION ||
+      message.sessionId !== this.sessionId ||
+      message.sessionGeneration !== this.sessionGeneration
+    ) {
+      this.#droppedLateMessages++;
+      throw new Error("stale or incompatible CookSession message");
+    }
+  }
+  private requireState(state: WebCookSessionEvidence["state"]): void {
+    if (this.#state !== state) throw new Error(`CookSession expected state '${state}', got '${this.#state}'`);
+  }
 }
 
-function validateBudgets(budgets: WebCookBudgets): WebCookBudgets { for (const [name, value] of Object.entries(budgets)) if (!Number.isSafeInteger(value) || value <= 0) throw new RangeError(`${name} must be a positive safe integer`); return Object.freeze({ ...budgets }); }
+function validateBudgets(budgets: WebCookBudgets): WebCookBudgets {
+  for (const [name, value] of Object.entries(budgets))
+    if (!Number.isSafeInteger(value) || value <= 0)
+      throw new RangeError(`${name} must be a positive safe integer`);
+  return Object.freeze({ ...budgets });
+}
 function validateBootstrapOptions(bootstrap: WebCookBootstrapOptions | undefined): void {
   if (bootstrap === undefined) return;
-  if (bootstrap.unitCount !== undefined && (!Number.isSafeInteger(bootstrap.unitCount) || bootstrap.unitCount <= 0)) throw new RangeError("bootstrap unitCount must be a positive safe integer");
-  if (bootstrap.maxSourceBytes !== undefined && (!Number.isSafeInteger(bootstrap.maxSourceBytes) || bootstrap.maxSourceBytes <= 0)) throw new RangeError("bootstrap maxSourceBytes must be a positive safe integer");
+  if (
+    bootstrap.unitCount !== undefined &&
+    (!Number.isSafeInteger(bootstrap.unitCount) || bootstrap.unitCount <= 0)
+  )
+    throw new RangeError("bootstrap unitCount must be a positive safe integer");
+  if (
+    bootstrap.maxSourceBytes !== undefined &&
+    (!Number.isSafeInteger(bootstrap.maxSourceBytes) || bootstrap.maxSourceBytes <= 0)
+  )
+    throw new RangeError("bootstrap maxSourceBytes must be a positive safe integer");
 }
-function maxOutputBytes(events: readonly WebCookEvent[]): number { return events.reduce((sum, event) => sum + (event.type === "PageReady" ? event.bytes.byteLength : 0), 0); }
+function maxOutputBytes(events: readonly WebCookEvent[]): number {
+  return events.reduce((sum, event) => sum + (event.type === "PageReady" ? event.bytes.byteLength : 0), 0);
+}
 import { decodeGeometryProductDescriptorBinaryV1 } from "../../geometry-product/GeometryProductBinaryV1.js";

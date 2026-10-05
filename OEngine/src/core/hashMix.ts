@@ -24,19 +24,13 @@ export function hashMix(...e: number[]): number {
   return hashU32Range(e, 0, e.length);
 }
 
-export function hashOptional(
-  e: { hash?: () => number } | null | undefined
-): number {
+export function hashOptional(e: { hash?: () => number } | null | undefined): number {
   if (e == null) return 0;
   if (typeof e.hash === "function") return e.hash();
   return 0;
 }
 
-export function hashArrayBuffer(
-  buffer: ArrayBuffer,
-  offset = 0,
-  byteLength?: number
-): number {
+export function hashArrayBuffer(buffer: ArrayBuffer, offset = 0, byteLength?: number): number {
   const off = offset >>> 0;
   const n = (byteLength ?? buffer.byteLength - off) >>> 0;
   const align = (off | n) & 3;
@@ -65,10 +59,7 @@ export function hashArrayBuffer(
     const a = n & 3;
     for (; s < a; s++) r = (r << 5) - r + e[s]!;
     for (; s < n; s += 4) {
-      r =
-        (r << 5) -
-        r +
-        (e[s]! | (e[s + 1]! << 8) | (e[s + 2]! << 16) | (e[s + 3]! << 24));
+      r = (r << 5) - r + (e[s]! | (e[s + 1]! << 8) | (e[s + 2]! << 16) | (e[s + 3]! << 24));
     }
     return r | 0;
   }
@@ -79,7 +70,7 @@ export function arrayBufferEquals(
   aOffset: number,
   b: ArrayBuffer,
   bOffset: number,
-  byteLength: number
+  byteLength: number,
 ): boolean {
   if (a === b && aOffset === bOffset) return true;
   if (byteLength === 0) return true;

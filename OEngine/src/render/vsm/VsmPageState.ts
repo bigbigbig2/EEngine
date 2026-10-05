@@ -11,7 +11,7 @@ export const VSM_PAGE_FLAGS = Object.freeze({
   allocated: 1 << 0,
   dirty: 1 << 1,
   inFlight: 1 << 2,
-  generationValid: 1 << 3
+  generationValid: 1 << 3,
 } as const);
 
 export interface VsmPageEntry {
@@ -72,14 +72,27 @@ export function vsmEntriesPerClipLevel(pagesPerAxis: number): number {
 }
 
 export function vsmPageTableEntryIndex(
-  level: number, mip: number, pageX: number, pageY: number, pagesPerAxis: number
+  level: number,
+  mip: number,
+  pageX: number,
+  pageY: number,
+  pagesPerAxis: number,
 ): number {
   const perLevel = vsmEntriesPerClipLevel(pagesPerAxis);
   const axis = Math.max(1, Math.floor(pagesPerAxis / 2 ** mip));
-  if (!Number.isInteger(level) || level < 0 ||
-      !Number.isInteger(mip) || mip < 0 || mip >= VSM_MIP_LEVELS ||
-      !Number.isInteger(pageX) || pageX < 0 || pageX >= axis ||
-      !Number.isInteger(pageY) || pageY < 0 || pageY >= axis) {
+  if (
+    !Number.isInteger(level) ||
+    level < 0 ||
+    !Number.isInteger(mip) ||
+    mip < 0 ||
+    mip >= VSM_MIP_LEVELS ||
+    !Number.isInteger(pageX) ||
+    pageX < 0 ||
+    pageX >= axis ||
+    !Number.isInteger(pageY) ||
+    pageY < 0 ||
+    pageY >= axis
+  ) {
     throw new RangeError("VSM page coordinate is outside the fixed virtual page domain");
   }
   let offset = level * perLevel;
@@ -91,7 +104,11 @@ export function vsmPageTableEntryIndex(
 }
 
 export function vsmPageTableEntryByteOffset(
-  level: number, mip: number, pageX: number, pageY: number, pagesPerAxis: number
+  level: number,
+  mip: number,
+  pageX: number,
+  pageY: number,
+  pagesPerAxis: number,
 ): number {
   return vsmPageTableEntryIndex(level, mip, pageX, pageY, pagesPerAxis) * VSM_PAGE_ENTRY_WORDS * 4;
 }
@@ -101,8 +118,13 @@ export function vsmMetaEntryByteOffset(slot: number): number {
   return slot * VSM_META_ENTRY_WORDS * 4;
 }
 
-export function vsmPageGenerationMatches(entry: Pick<VsmPageEntry, "flags" | "generation">,
-  generation: number): boolean {
-  return (entry.flags & VSM_PAGE_FLAGS.allocated) !== 0 &&
-    (entry.flags & VSM_PAGE_FLAGS.generationValid) !== 0 && entry.generation === generation;
+export function vsmPageGenerationMatches(
+  entry: Pick<VsmPageEntry, "flags" | "generation">,
+  generation: number,
+): boolean {
+  return (
+    (entry.flags & VSM_PAGE_FLAGS.allocated) !== 0 &&
+    (entry.flags & VSM_PAGE_FLAGS.generationValid) !== 0 &&
+    entry.generation === generation
+  );
 }

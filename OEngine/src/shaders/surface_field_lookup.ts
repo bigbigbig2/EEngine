@@ -1,16 +1,30 @@
 import { WINNER_INTERPOLATION_WGSL } from "./winner_interpolation.js";
 import { APPEARANCE_FIELD_BOUND_WGSL } from "./appearance_field_bounds.js";
 import { SURFACE_CELL_ADDRESS_MATH_WGSL } from "./surface_cell_address_math.js";
-import { SURFACE_CELL_GEOMETRY_WGSL, surfaceCellGeometryArenaWgsl } from "../gpu/GpuSurfaceCellGeometryAbi.js";
+import {
+  SURFACE_CELL_GEOMETRY_WGSL,
+  surfaceCellGeometryArenaWgsl,
+} from "../gpu/GpuSurfaceCellGeometryAbi.js";
 import { SURFACE_CELL_ADDRESS_WORDS } from "../gpu/GpuSurfaceReferenceAbi.js";
 import { surfaceProofAdmissionWgsl } from "../gpu/GpuSurfaceProofAbi.js";
 import { SURFACE_FIELD_REQUEST_WGSL } from "./surface_field_request.js";
 import { SURFACE_REFERENCE_WGSL } from "../gpu/GpuSurfaceReferenceAbi.js";
-import { SURFACE_FIELD_STORE_ENTRY_WORDS, SURFACE_FIELD_STORE_IDENTITY_WORDS, SURFACE_FIELD_STORE_KEY_WORDS,
-  SURFACE_FIELD_STORE_BOUNDS_WORD, SURFACE_FIELD_STORE_DOMAIN_WORD, SURFACE_FIELD_STORE_GRADIENT_WORD,
-  SURFACE_FIELD_STORE_FLAGS_WORD, SURFACE_FIELD_STORE_GENERATION_WORD, SURFACE_FIELD_STORE_STATE_WORD,
-  SURFACE_FIELD_STORE_TOUCHED_WORD } from "../gpu/GpuSurfaceFieldStoreAbi.js";
-import { SURFACE_CELL_FIELD_CERTIFICATE_OFFSETS, SURFACE_CELL_FIELD_CERTIFICATE_WORDS } from "../gpu/GpuSurfaceCellPlanAbi.js";
+import {
+  SURFACE_FIELD_STORE_ENTRY_WORDS,
+  SURFACE_FIELD_STORE_IDENTITY_WORDS,
+  SURFACE_FIELD_STORE_KEY_WORDS,
+  SURFACE_FIELD_STORE_BOUNDS_WORD,
+  SURFACE_FIELD_STORE_DOMAIN_WORD,
+  SURFACE_FIELD_STORE_GRADIENT_WORD,
+  SURFACE_FIELD_STORE_FLAGS_WORD,
+  SURFACE_FIELD_STORE_GENERATION_WORD,
+  SURFACE_FIELD_STORE_STATE_WORD,
+  SURFACE_FIELD_STORE_TOUCHED_WORD,
+} from "../gpu/GpuSurfaceFieldStoreAbi.js";
+import {
+  SURFACE_CELL_FIELD_CERTIFICATE_OFFSETS,
+  SURFACE_CELL_FIELD_CERTIFICATE_WORDS,
+} from "../gpu/GpuSurfaceCellPlanAbi.js";
 import { APPEARANCE_FIELD_WIDTHS } from "../gpu/GpuAppearanceFieldAbi.js";
 
 /** Published value and certificate are independent results. A certificate hit
@@ -33,13 +47,13 @@ ${WINNER_INTERPOLATION_WGSL}
 ${APPEARANCE_FIELD_BOUND_WGSL}
 ${SURFACE_CELL_ADDRESS_MATH_WGSL}
 ${SURFACE_CELL_GEOMETRY_WGSL}
-${surfaceCellGeometryArenaWgsl(referenceCapacity,false)}
+${surfaceCellGeometryArenaWgsl(referenceCapacity, false)}
 @group(0) @binding(6) var<storage,read> field_support_geometry:CellGeometryArenaRead;
 ${SURFACE_REFERENCE_WGSL}
 ${SURFACE_FIELD_REQUEST_WGSL}
 ${surfaceProofAdmissionWgsl("field_request_workspace")}
-const FIELD_LOOKUP_CERTIFICATE_OFFSETS:array<u32,15>=array<u32,15>(${SURFACE_CELL_FIELD_CERTIFICATE_OFFSETS.map(n=>`${n}u`).join(",")});
-const FIELD_LOOKUP_WIDTHS:array<u32,15>=array<u32,15>(${APPEARANCE_FIELD_WIDTHS.map(n=>`${n}u`).join(",")});
+const FIELD_LOOKUP_CERTIFICATE_OFFSETS:array<u32,15>=array<u32,15>(${SURFACE_CELL_FIELD_CERTIFICATE_OFFSETS.map((n) => `${n}u`).join(",")});
+const FIELD_LOOKUP_WIDTHS:array<u32,15>=array<u32,15>(${APPEARANCE_FIELD_WIDTHS.map((n) => `${n}u`).join(",")});
 fn field_lookup_equal(base:u32,leaf:u32,field:u32,words:u32)->bool {
   for(var word=0u;word<words;word++) {
     if atomicLoad(&field_lookup_store[base+word])!=field_request_word(leaf,field,word) { return false; }
@@ -259,7 +273,6 @@ fn commit_field_support(@builtin(global_invocation_id) id: vec3u) {
   field_request_workspace.demands[leaf*4u+1u] = certificates;
 }
 `;
-
 }
 
 export const SURFACE_FIELD_LOOKUP_WGSL = surfaceFieldLookupWgsl(64);

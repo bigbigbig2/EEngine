@@ -13,10 +13,7 @@ export interface FrameExecutionEvidence {
   readonly submitted: true;
 }
 
-type FrameCommandFactory = (
-  graphics: GraphicsContext,
-  label: string
-) => ShadeGPUCommandContext;
+type FrameCommandFactory = (graphics: GraphicsContext, label: string) => ShadeGPUCommandContext;
 
 /**
  * Owns the only command context that may submit work for a render tick.
@@ -35,16 +32,13 @@ export class FrameCoordinator {
 
   constructor(
     private readonly graphics: GraphicsContext,
-    private readonly createCommand: FrameCommandFactory =
-      ShadeGPUCommandContext.create
+    private readonly createCommand: FrameCommandFactory = ShadeGPUCommandContext.create,
   ) {}
 
   beginFrame(frameIndex: number, submitLabel: string): FrameEncoding {
     if (this.destroyed) throw new Error("FrameCoordinator has been destroyed");
     if (this.active !== null) {
-      throw new Error(
-        `FrameCoordinator frame ${this.active.frameIndex} is still active`
-      );
+      throw new Error(`FrameCoordinator frame ${this.active.frameIndex} is still active`);
     }
     if (!this.canBeginFrame) throw new Error("FrameCoordinator is waiting for GPU completion");
     if (!Number.isInteger(frameIndex) || frameIndex < 0) {
@@ -55,7 +49,7 @@ export class FrameCoordinator {
     }
     const frame: FrameEncoding = {
       frameIndex,
-      command: this.createCommand(this.graphics, submitLabel)
+      command: this.createCommand(this.graphics, submitLabel),
     };
     this.active = frame;
     return frame;
@@ -66,12 +60,17 @@ export class FrameCoordinator {
     try {
       frame.command.finish();
       this.inFlight.add(frame);
-      const completed = () => { this.inFlight.delete(frame); };
+      const completed = () => {
+        this.inFlight.delete(frame);
+      };
       void frame.command.gpuDone.then(completed, completed);
     } catch (cause) {
       if (!frame.command.closed) {
-        try { frame.command.abort(cause); }
-        catch (abortError) { console.error("Frame abort failed after submit error", abortError); }
+        try {
+          frame.command.abort(cause);
+        } catch (abortError) {
+          console.error("Frame abort failed after submit error", abortError);
+        }
       }
       throw cause;
     } finally {
@@ -83,7 +82,7 @@ export class FrameCoordinator {
       frameIndex: frame.frameIndex,
       submitLabel: frame.command.label,
       closed: true,
-      submitted: true
+      submitted: true,
     };
   }
 
@@ -98,9 +97,7 @@ export class FrameCoordinator {
     if (this.active !== null) {
       const active = this.active;
       this.active = null;
-      active.command.abort(
-        new Error(`FrameCoordinator destroyed during frame ${active.frameIndex}`)
-      );
+      active.command.abort(new Error(`FrameCoordinator destroyed during frame ${active.frameIndex}`));
     }
     this.destroyed = true;
     this.inFlight.clear();

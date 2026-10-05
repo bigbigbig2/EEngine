@@ -4,7 +4,7 @@
 
 export function create_frame_loop(
   callback: (time_delta_s: number, raw_refresh_time_s: number) => void,
-  frame_cap: number = Number.POSITIVE_INFINITY
+  frame_cap: number = Number.POSITIVE_INFINITY,
 ): () => void {
   const interval = Number.isFinite(frame_cap) ? 1000 / frame_cap : 0;
   const slack = 0.05 * interval;

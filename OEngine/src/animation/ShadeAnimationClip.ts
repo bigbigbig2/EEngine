@@ -7,7 +7,7 @@ import type { AnimationCurve } from "./AnimationCurve.js";
 
 function curveTimes(
   curves: { x?: AnimationCurve; y?: AnimationCurve; z?: AnimationCurve; w?: AnimationCurve },
-  pick: "start" | "end"
+  pick: "start" | "end",
 ): number[] {
   const out: number[] = [];
   for (const k of ["x", "y", "z", "w"] as const) {
@@ -53,7 +53,7 @@ export class ShadeAnimationClip {
 
   static from({
     name = "",
-    channels
+    channels,
   }: {
     name?: string;
     channels: ShadeAnimationChannel[];

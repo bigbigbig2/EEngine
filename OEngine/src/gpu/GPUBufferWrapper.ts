@@ -11,10 +11,7 @@ export interface GPUBufferDescriptorJson {
   mappedAtCreation?: boolean;
 }
 
-export type GPUBufferDescriptorLike = Pick<
-  GPUBufferDescriptor,
-  "size" | "usage" | "mappedAtCreation"
->;
+export type GPUBufferDescriptorLike = Pick<GPUBufferDescriptor, "size" | "usage" | "mappedAtCreation">;
 
 export class GPUBufferDescriptorState {
   label = "";
@@ -57,9 +54,7 @@ export class GPUBufferDescriptorState {
     const sizeDifference = this.size - other.size;
     if (sizeDifference !== 0) return sizeDifference;
     const usageDifference = this.usage - other.usage;
-    return usageDifference !== 0
-      ? usageDifference
-      : this.label.localeCompare(other.label);
+    return usageDifference !== 0 ? usageDifference : this.label.localeCompare(other.label);
   }
 
   fromJSON(json: GPUBufferDescriptorJson): void {
@@ -85,7 +80,7 @@ export class GPUBufferWrapper {
   static from(
     descriptor: GPUBufferDescriptorLike,
     buffer: GPUBuffer,
-    onDestroy?: () => void
+    onDestroy?: () => void,
   ): GPUBufferWrapper {
     const result = new GPUBufferWrapper();
     result.descriptor.copy(descriptor);

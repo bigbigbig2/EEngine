@@ -10,26 +10,14 @@ import type { MeshletGeometryBase } from "../../geometry/BoxGeometry.js";
 import {
   SOURCE_DEFAULT_MATERIAL_ID,
   type SourceAlphaMode,
-  type SourceGeometry
+  type SourceGeometry,
 } from "../../assets/SourceGeometry.js";
 import { Geometry } from "../../geometry/Geometry.js";
-import {
-  geometryToSourceGeometry,
-  sourceGeometryToGeometry
-} from "../../geometry/SourceGeometryAdapter.js";
+import { geometryToSourceGeometry, sourceGeometryToGeometry } from "../../geometry/SourceGeometryAdapter.js";
 import { MeshletAttrName } from "../../geometry/meshletPackedAttrs.js";
 import { niFromGeometry } from "../../geometry/niMeshlets.js";
-import {
-  ShadeDataType,
-  ctorFromDataType,
-  type ShadeDataTypeName
-} from "../../texture/ShadeDataType.js";
-import type {
-  GltfAccessor,
-  GltfBufferView,
-  GltfDocument,
-  GltfPrimitive
-} from "./GltfLoader.js";
+import { ShadeDataType, ctorFromDataType, type ShadeDataTypeName } from "../../texture/ShadeDataType.js";
+import type { GltfAccessor, GltfBufferView, GltfDocument, GltfPrimitive } from "./GltfLoader.js";
 
 export interface GltfAttrCacheKey {
   attribute_accessor: number;
@@ -47,11 +35,11 @@ export function createGltfGeometryBuildContext(): GltfGeometryBuildContext {
   return {
     attrCache: new HashMap<GltfAttrCacheKey, Attribute>({
       keyHashFunction: (k) => deepHash(k),
-      keyEqualityFunction: (a, b) => deepEquals(a, b)
+      keyEqualityFunction: (a, b) => deepEquals(a, b),
     }),
     primJsonCache: new Map(),
     sourcePrimJsonCache: new Map(),
-    geomIntern: new HashSet<MeshletGeometryBase>()
+    geomIntern: new HashSet<MeshletGeometryBase>(),
   };
 }
 
@@ -61,7 +49,7 @@ export const GLTF_COMPONENT = {
   SHORT: 5122,
   UNSIGNED_SHORT: 5123,
   UNSIGNED_INT: 5125,
-  FLOAT: 5126
+  FLOAT: 5126,
 } as const;
 
 export const GLTF_TRIANGLES = 4;
@@ -160,18 +148,12 @@ export interface DecodedAccessor {
   typed: ArrayBufferView;
 }
 
-export function readAccessor(
-  doc: GltfDocument,
-  accessorIndex: number,
-  name: string
-): DecodedAccessor {
+export function readAccessor(doc: GltfDocument, accessorIndex: number, name: string): DecodedAccessor {
   const a = doc.accessors![accessorIndex]!;
   const itemSize = gltfTypeItemSize(a.type);
   const c = componentBytes(a.componentType);
   if (itemSize <= 0 || c <= 0) {
-    throw new Error(
-      `Unsupported accessor layout type=${a.type} componentType=${a.componentType}`
-    );
+    throw new Error(`Unsupported accessor layout type=${a.type} componentType=${a.componentType}`);
   }
   const Ctor = typedArrayCtor(a.componentType);
   const elementByteSize = c * itemSize;
@@ -184,17 +166,11 @@ export function readAccessor(
     const o = doc.buffers![i.buffer]!;
     const stride = i.byteStride ?? elementByteSize;
     if (stride < elementByteSize) {
-      throw new Error(
-        `Accessor byteStride ${stride} is smaller than element size ${elementByteSize}`
-      );
+      throw new Error(`Accessor byteStride ${stride} is smaller than element size ${elementByteSize}`);
     }
     const byteOffset = a.byteOffset! + i.byteOffset!;
     if (stride === elementByteSize && byteOffset % c === 0) {
-      d = new Ctor(
-        o,
-        byteOffset,
-        a.count * itemSize
-      ) as InstanceType<TypedArrayCtor>;
+      d = new Ctor(o, byteOffset, a.count * itemSize) as InstanceType<TypedArrayCtor>;
     } else {
       d = new Ctor(a.count * itemSize) as InstanceType<TypedArrayCtor>;
       const source = new DataView(o);
@@ -202,11 +178,7 @@ export function readAccessor(
         const sourceBase = byteOffset + element * stride;
         const targetBase = element * itemSize;
         for (let component = 0; component < itemSize; component++) {
-          d[targetBase + component] = readComponent(
-            source,
-            sourceBase + component * c,
-            a.componentType
-          );
+          d[targetBase + component] = readComponent(source, sourceBase + component * c, a.componentType);
         }
       }
     }
@@ -227,19 +199,15 @@ export function readAccessor(
       sparse.indices.componentType !== GLTF_COMPONENT.UNSIGNED_SHORT &&
       sparse.indices.componentType !== GLTF_COMPONENT.UNSIGNED_INT
     ) {
-      throw new Error(
-        `Unsupported sparse index type ${sparse.indices.componentType}`
-      );
+      throw new Error(`Unsupported sparse index type ${sparse.indices.componentType}`);
     }
-    const indicesBase =
-      (indicesView.byteOffset ?? 0) + (sparse.indices.byteOffset ?? 0);
-    const valuesBase =
-      (valuesView.byteOffset ?? 0) + (sparse.values.byteOffset ?? 0);
+    const indicesBase = (indicesView.byteOffset ?? 0) + (sparse.indices.byteOffset ?? 0);
+    const valuesBase = (valuesView.byteOffset ?? 0) + (sparse.values.byteOffset ?? 0);
     for (let sparseIndex = 0; sparseIndex < sparse.count; sparseIndex++) {
       const targetIndex = readComponent(
         indices,
         indicesBase + sparseIndex * indexBytes,
-        sparse.indices.componentType
+        sparse.indices.componentType,
       );
       if (targetIndex < 0 || targetIndex >= a.count) {
         throw new Error(`Sparse accessor index ${targetIndex} is out of range`);
@@ -248,7 +216,7 @@ export function readAccessor(
         d[targetIndex * itemSize + component] = readComponent(
           values,
           valuesBase + (sparseIndex * itemSize + component) * c,
-          a.componentType
+          a.componentType,
         );
       }
     }
@@ -259,15 +227,11 @@ export function readAccessor(
     count: a.count,
     normalized: a.normalized === true,
     data: d as unknown as ArrayLike<number> & { length: number },
-    typed: d
+    typed: d,
   };
 }
 
-function readComponent(
-  view: DataView,
-  byteOffset: number,
-  componentType: number
-): number {
+function readComponent(view: DataView, byteOffset: number, componentType: number): number {
   switch (componentType) {
     case GLTF_COMPONENT.BYTE:
       return view.getInt8(byteOffset);
@@ -290,12 +254,12 @@ export function accessorToAttribute(
   doc: GltfDocument,
   accessorIndex: number,
   name: string,
-  ctx?: GltfGeometryBuildContext
+  ctx?: GltfGeometryBuildContext,
 ): Attribute {
   if (ctx) {
     const key: GltfAttrCacheKey = {
       attribute_accessor: accessorIndex,
-      name
+      name,
     };
     const hit = ctx.attrCache.get(key);
     if (hit !== undefined) return hit;
@@ -306,11 +270,7 @@ export function accessorToAttribute(
   return accessorToAttributeUncached(doc, accessorIndex, name);
 }
 
-function accessorToAttributeUncached(
-  doc: GltfDocument,
-  accessorIndex: number,
-  name: string
-): Attribute {
+function accessorToAttributeUncached(doc: GltfDocument, accessorIndex: number, name: string): Attribute {
   const a = doc.accessors![accessorIndex] as GltfAccessor;
   const dec = readAccessor(doc, accessorIndex, name);
   const typed = dec.typed as unknown as ArrayLike<number> & {
@@ -329,13 +289,13 @@ export const GLTF_ATTR_TARGET_SPEC: Record<
   [MeshletAttrName.Position]: {
     type: ShadeDataType.Float32,
     itemSize: 3,
-    normalized: false
+    normalized: false,
   },
   [MeshletAttrName.Color]: {
     type: ShadeDataType.Float32,
     itemSize: 3,
-    normalized: false
-  }
+    normalized: false,
+  },
 };
 
 type AttrConverter = (
@@ -343,7 +303,7 @@ type AttrConverter = (
   t: number,
   n: ArrayLike<number>,
   r: number,
-  s: number
+  s: number,
 ) => void;
 
 const GLTF_ATTR_CONVERTERS: Array<[AttributeSpec, AttributeSpec, AttrConverter]> = [
@@ -360,7 +320,7 @@ const GLTF_ATTR_CONVERTERS: Array<[AttributeSpec, AttributeSpec, AttrConverter]>
         e[i + 1] = o / 65535;
         e[i + 2] = _ / 65535;
       }
-    }
+    },
   ],
   [
     AttributeSpec.from(ShadeDataType.Uint8, 4, true),
@@ -375,7 +335,7 @@ const GLTF_ATTR_CONVERTERS: Array<[AttributeSpec, AttributeSpec, AttrConverter]>
         e[i + 1] = o / 255;
         e[i + 2] = _ / 255;
       }
-    }
+    },
   ],
   [
     AttributeSpec.from(ShadeDataType.Float32, 4, false),
@@ -388,38 +348,26 @@ const GLTF_ATTR_CONVERTERS: Array<[AttributeSpec, AttributeSpec, AttrConverter]>
         e[i + 1] = n[sOff + 1]!;
         e[i + 2] = n[sOff + 2]!;
       }
-    }
-  ]
+    },
+  ],
 ];
 
 function convertAttributeToTarget(
   e: Attribute,
   targetType: ShadeDataTypeName,
   targetItemSize: number,
-  targetNormalized: boolean
+  targetNormalized: boolean,
 ): Attribute {
   const s = e.spec;
-  if (
-    s.type === targetType &&
-    s.itemSize === targetItemSize &&
-    s.normalized === targetNormalized
-  ) {
+  if (s.type === targetType && s.itemSize === targetItemSize && s.normalized === targetNormalized) {
     return e;
   }
   for (let a = 0; a < GLTF_ATTR_CONVERTERS.length; a++) {
     const [i, o, convert] = GLTF_ATTR_CONVERTERS[a]!;
-    if (
-      i.type !== s.type ||
-      i.itemSize !== s.itemSize ||
-      i.normalized !== s.normalized
-    ) {
+    if (i.type !== s.type || i.itemSize !== s.itemSize || i.normalized !== s.normalized) {
       continue;
     }
-    if (
-      o.type !== targetType ||
-      o.itemSize !== targetItemSize ||
-      o.normalized !== targetNormalized
-    ) {
+    if (o.type !== targetType || o.itemSize !== targetItemSize || o.normalized !== targetNormalized) {
       continue;
     }
     const Ctor = ctorFromDataType(o.type);
@@ -439,8 +387,8 @@ function convertAttributeToTarget(
     `No converter found for ${s} -> ${JSON.stringify({
       target_type: targetType,
       target_count: targetItemSize,
-      target_normalized: targetNormalized
-    })}`
+      target_normalized: targetNormalized,
+    })}`,
   );
 }
 
@@ -454,7 +402,7 @@ function primitiveToSourceGeometryUncached(
   doc: GltfDocument,
   primitive: GltfPrimitive,
   name: string,
-  ctx?: GltfGeometryBuildContext
+  ctx?: GltfGeometryBuildContext,
 ): SourceGeometry {
   if ((primitive.mode ?? GLTF_TRIANGLES) !== GLTF_TRIANGLES) {
     throw new Error("Unsupported draw method");
@@ -468,7 +416,7 @@ function primitiveToSourceGeometryUncached(
     const mapped = gltfAttributeName(semantic);
     if (n.getAttribute(mapped) !== undefined) {
       console.warn(
-        `attribute '${mapped}' already exists, skipping. Primitive.attributes = ${JSON.stringify(attrs)}`
+        `attribute '${mapped}' already exists, skipping. Primitive.attributes = ${JSON.stringify(attrs)}`,
       );
     }
     const accIdx = attrs[semantic]!;
@@ -495,18 +443,18 @@ function primitiveToSourceGeometryUncached(
 
   if (name) n.name = name;
 
-  const material = primitive.material === undefined
-    ? undefined
-    : doc.materials?.[primitive.material];
+  const material = primitive.material === undefined ? undefined : doc.materials?.[primitive.material];
   return geometryToSourceGeometry(n, {
     sourceId: name || `gltf:${JSON.stringify(primitive)}`,
-    materialRanges: [{
-      firstTriangle: 0,
-      triangleCount: n.getPrimitiveCount(),
-      materialId: primitive.material ?? SOURCE_DEFAULT_MATERIAL_ID,
-      alphaMode: gltfAlphaMode(material?.alphaMode),
-      doubleSided: material?.doubleSided === true
-    }]
+    materialRanges: [
+      {
+        firstTriangle: 0,
+        triangleCount: n.getPrimitiveCount(),
+        materialId: primitive.material ?? SOURCE_DEFAULT_MATERIAL_ID,
+        alphaMode: gltfAlphaMode(material?.alphaMode),
+        doubleSided: material?.doubleSided === true,
+      },
+    ],
   });
 }
 
@@ -514,7 +462,7 @@ export function primitiveToSourceGeometry(
   doc: GltfDocument,
   primitive: GltfPrimitive,
   name = "",
-  ctx?: GltfGeometryBuildContext
+  ctx?: GltfGeometryBuildContext,
 ): SourceGeometry {
   if (!ctx) {
     return primitiveToSourceGeometryUncached(doc, primitive, name);
@@ -538,7 +486,7 @@ function primitiveToGeometryUncached(
   doc: GltfDocument,
   primitive: GltfPrimitive,
   name: string,
-  ctx?: GltfGeometryBuildContext
+  ctx?: GltfGeometryBuildContext,
 ): MeshletGeometryBase {
   const source = primitiveToSourceGeometry(doc, primitive, name, ctx);
   return niFromGeometry(sourceGeometryToGeometry(source));
@@ -548,7 +496,7 @@ export function primitiveToGeometry(
   doc: GltfDocument,
   primitive: GltfPrimitive,
   name = "",
-  ctx?: GltfGeometryBuildContext
+  ctx?: GltfGeometryBuildContext,
 ): MeshletGeometryBase {
   if (!ctx) {
     return primitiveToGeometryUncached(doc, primitive, name);

@@ -9,10 +9,13 @@ import type { ResourceId } from "../../framegraph/ResourceHandle.js";
  * never maps a GPU buffer and never chooses visible page work on the CPU.
  */
 export class VsmInvalidationPass {
-  addToGraph(graph: FrameGraph, input: {
-    readonly resources: VsmResources;
-    readonly state: VsmGenerationState;
-  }): ResourceId | null {
+  addToGraph(
+    graph: FrameGraph,
+    input: {
+      readonly resources: VsmResources;
+      readonly state: VsmGenerationState;
+    },
+  ): ResourceId | null {
     if (input.resources.profile === "shadow-disabled") return null;
     const generation = input.resources.generation;
     const dirtyMask = input.resources.dirtyMask;
@@ -22,42 +25,55 @@ export class VsmInvalidationPass {
       throw new Error("VSM invalidation resources are unavailable");
     }
     const generationResource = graph.import_resource(
-      "VSM/generation facts", { kind: "imported", label: "VSM generation facts" }, generation);
+      "VSM/generation facts",
+      { kind: "imported", label: "VSM generation facts" },
+      generation,
+    );
     const dirtyResource = graph.import_resource(
-      "VSM/invalidation dirty mask", { kind: "imported", label: "VSM dirty mask" }, dirtyMask);
+      "VSM/invalidation dirty mask",
+      { kind: "imported", label: "VSM dirty mask" },
+      dirtyMask,
+    );
     const overflowResource = graph.import_resource(
-      "VSM/invalidation telemetry", { kind: "imported", label: "VSM overflow telemetry" }, overflowCounters);
-    const contentResource = graph.import_resource("VSM/content publication", { kind: "imported", label: "VSM content version" }, contentVersion);
-    const node = graph.add("VSM/publish invalidation facts", input.state,
-      (state, resources, context) => {
-        const command = context.encoder as ShadeGPUCommandContext;
-        const generationBuffer = resources.get(generationResource) as GPUBuffer;
-        const dirtyBuffer = resources.get(dirtyResource) as GPUBuffer;
-        const overflowBuffer = resources.get(overflowResource) as GPUBuffer;
-        const flags = (state.fullInvalidate ? 1 : 0) |
-          (state.temporalInvalidate ? 2 : 0) |
-          (state.pageQuantumChanged ? 4 : 0) |
-          (state.resized ? 8 : 0);
-        const header = new Uint32Array([
-          state.generation >>> 0,
-          state.deviceEpoch >>> 0,
-          state.reasonMask >>> 0,
-          flags >>> 0,
-          state.sceneRevision >>> 0,
-          state.casterRevision >>> 0,
-          state.sunRevision >>> 0,
-          0
-        ]);
-        command.writeBuffer(generationBuffer, 0, header.buffer, 0, header.byteLength);
-        // A generation mismatch already makes old pages non-sampleable. The
-        // bounded mask is cleared only for a full invalidation; allocation and
-        // raster passes publish new dirty bits in the same frame.
-        if (state.fullInvalidate) command.clearBuffer(dirtyBuffer);
-        // Keep diagnostics frame-local while preserving the GPU-only control
-        // path. Allocation and caster passes overwrite their own ranges.
-        command.clearBuffer(overflowBuffer);
-        command.clearBuffer(resources.get(contentResource) as GPUBuffer, 4, 4);
-      });
+      "VSM/invalidation telemetry",
+      { kind: "imported", label: "VSM overflow telemetry" },
+      overflowCounters,
+    );
+    const contentResource = graph.import_resource(
+      "VSM/content publication",
+      { kind: "imported", label: "VSM content version" },
+      contentVersion,
+    );
+    const node = graph.add("VSM/publish invalidation facts", input.state, (state, resources, context) => {
+      const command = context.encoder as ShadeGPUCommandContext;
+      const generationBuffer = resources.get(generationResource) as GPUBuffer;
+      const dirtyBuffer = resources.get(dirtyResource) as GPUBuffer;
+      const overflowBuffer = resources.get(overflowResource) as GPUBuffer;
+      const flags =
+        (state.fullInvalidate ? 1 : 0) |
+        (state.temporalInvalidate ? 2 : 0) |
+        (state.pageQuantumChanged ? 4 : 0) |
+        (state.resized ? 8 : 0);
+      const header = new Uint32Array([
+        state.generation >>> 0,
+        state.deviceEpoch >>> 0,
+        state.reasonMask >>> 0,
+        flags >>> 0,
+        state.sceneRevision >>> 0,
+        state.casterRevision >>> 0,
+        state.sunRevision >>> 0,
+        0,
+      ]);
+      command.writeBuffer(generationBuffer, 0, header.buffer, 0, header.byteLength);
+      // A generation mismatch already makes old pages non-sampleable. The
+      // bounded mask is cleared only for a full invalidation; allocation and
+      // raster passes publish new dirty bits in the same frame.
+      if (state.fullInvalidate) command.clearBuffer(dirtyBuffer);
+      // Keep diagnostics frame-local while preserving the GPU-only control
+      // path. Allocation and caster passes overwrite their own ranges.
+      command.clearBuffer(overflowBuffer);
+      command.clearBuffer(resources.get(contentResource) as GPUBuffer, 4, 4);
+    });
     node.write(generationResource);
     node.write(dirtyResource);
     node.write(overflowResource);

@@ -11,7 +11,7 @@ export const GPU_TEXTURE_REF_LAYER_MASK = 0x003fffff;
 export const GPU_TEXTURE_REF_ROUTING = Object.freeze({
   Identity: 0,
   AlphaFromRed: 1,
-  AlphaFromAlpha: 2
+  AlphaFromAlpha: 2,
 });
 
 export const GPU_TEXTURE_BANK_SIZES = Object.freeze([256, 512, 1024, 2048, 4096] as const);
@@ -40,11 +40,12 @@ export function encodeGpuTextureRef(bankClass: number, layer: number, routing = 
     throw new RangeError(`TextureRef routing ${routing} is outside the bounded routing table`);
   }
   return (
-    (GPU_TEXTURE_REF_ABI_VERSION << GPU_TEXTURE_REF_VERSION_SHIFT) |
-    (bankClass << GPU_TEXTURE_REF_BANK_SHIFT) |
-    (routing << GPU_TEXTURE_REF_ROUTING_SHIFT) |
-    layer
-  ) >>> 0;
+    ((GPU_TEXTURE_REF_ABI_VERSION << GPU_TEXTURE_REF_VERSION_SHIFT) |
+      (bankClass << GPU_TEXTURE_REF_BANK_SHIFT) |
+      (routing << GPU_TEXTURE_REF_ROUTING_SHIFT) |
+      layer) >>>
+    0
+  );
 }
 
 export function decodeGpuTextureRef(value: number): GpuTextureRef | null {
@@ -54,8 +55,12 @@ export function decodeGpuTextureRef(value: number): GpuTextureRef | null {
   const bankClass = (ref & GPU_TEXTURE_REF_BANK_MASK) >>> GPU_TEXTURE_REF_BANK_SHIFT;
   const routing = (ref & GPU_TEXTURE_REF_ROUTING_MASK) >>> GPU_TEXTURE_REF_ROUTING_SHIFT;
   const layer = ref & GPU_TEXTURE_REF_LAYER_MASK;
-  if (version !== GPU_TEXTURE_REF_ABI_VERSION || bankClass >= GPU_TEXTURE_BANK_COUNT ||
-      routing > GPU_TEXTURE_REF_ROUTING.AlphaFromAlpha || layer === 0) {
+  if (
+    version !== GPU_TEXTURE_REF_ABI_VERSION ||
+    bankClass >= GPU_TEXTURE_BANK_COUNT ||
+    routing > GPU_TEXTURE_REF_ROUTING.AlphaFromAlpha ||
+    layer === 0
+  ) {
     return null;
   }
   return Object.freeze({ version, bankClass, routing, layer });
@@ -115,21 +120,27 @@ const GPU_TEXTURE_BANK_BINDING_NAMES = Object.freeze([
   "oengine_texture_bank_5",
   "oengine_texture_bank_6",
   "oengine_texture_bank_7",
-  "oengine_texture_bank_8"
+  "oengine_texture_bank_8",
 ]);
 
 function sampleGradientBranches(sampler: string, bankMask: number): string {
   return GPU_TEXTURE_BANK_BINDING_NAMES.map((texture, bank) =>
-    (bankMask & (1 << bank)) === 0 ? "" :
-      `  if bank == ${bank}u { return oengine_texture_ref_apply_routing(texture_ref, oengine_sample_texture_clamped(${texture}, ${sampler}, texture_ref, sampler_class, uv, layer, uv_dx, uv_dy)); }`
-  ).filter(Boolean).join("\n");
+    (bankMask & (1 << bank)) === 0
+      ? ""
+      : `  if bank == ${bank}u { return oengine_texture_ref_apply_routing(texture_ref, oengine_sample_texture_clamped(${texture}, ${sampler}, texture_ref, sampler_class, uv, layer, uv_dx, uv_dy)); }`,
+  )
+    .filter(Boolean)
+    .join("\n");
 }
 
 function sampleLevelBranches(sampler: string, bankMask: number): string {
   return GPU_TEXTURE_BANK_BINDING_NAMES.map((texture, bank) =>
-    (bankMask & (1 << bank)) === 0 ? "" :
-      `  if bank == ${bank}u { return oengine_texture_ref_apply_routing(texture_ref, textureSampleLevel(${texture}, ${sampler}, uv, layer, 0.0)); }`
-  ).filter(Boolean).join("\n");
+    (bankMask & (1 << bank)) === 0
+      ? ""
+      : `  if bank == ${bank}u { return oengine_texture_ref_apply_routing(texture_ref, textureSampleLevel(${texture}, ${sampler}, uv, layer, 0.0)); }`,
+  )
+    .filter(Boolean)
+    .join("\n");
 }
 
 /** Same residency/mip policy for direct resource-profile sampling and bank routing. */
@@ -154,8 +165,7 @@ fn oengine_sample_texture_clamped(
 
 /** Shared explicit-bank sampling policy specialized to a static material read set. */
 export function gpuTextureBankSampleWgsl(bankMask = GPU_TEXTURE_BANK_ALL_MASK): string {
-  if (!Number.isInteger(bankMask) || bankMask < 1 ||
-      (bankMask & ~GPU_TEXTURE_BANK_ALL_MASK) !== 0) {
+  if (!Number.isInteger(bankMask) || bankMask < 1 || (bankMask & ~GPU_TEXTURE_BANK_ALL_MASK) !== 0) {
     throw new RangeError("Texture bank sample WGSL requires at least one valid bank");
   }
   return /* wgsl */ `

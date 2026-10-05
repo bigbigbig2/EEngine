@@ -5,5 +5,10 @@
 export const GPU_FRAME_ATTRIBUTE_VECTORS = 6;
 export const GPU_FRAME_ATTRIBUTE_STRIDE = GPU_FRAME_ATTRIBUTE_VECTORS * 16;
 export const GPU_FRAME_ATTRIBUTE_FIELDS = Object.freeze({
-  normal: 0, tangent: 1, uv01: 2, color: 3, uv2: 4, position: 5
+  normal: 0,
+  tangent: 1,
+  uv01: 2,
+  color: 3,
+  uv2: 4,
+  position: 5,
 });

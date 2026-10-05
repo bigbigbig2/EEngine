@@ -1,7 +1,4 @@
-import type {
-  FrameGraphResourceDomain,
-  ResourceId
-} from "../../framegraph/ResourceHandle.js";
+import type { FrameGraphResourceDomain, ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { VsmProfile } from "../vsm/VsmCapabilities.js";
 
 export type ResolutionDomain = FrameGraphResourceDomain;
@@ -36,7 +33,6 @@ export interface VisibilityFrame {
   readonly domain: TextureDomain<"internal-full">;
 }
 
-
 export function meshletWorkFrame(input: MeshletWorkFrame): MeshletWorkFrame {
   requireResourceId(input.records, "MeshletWorkFrame.records");
   if (!Number.isSafeInteger(input.capacity) || input.capacity <= 0) {
@@ -52,7 +48,7 @@ export function textureDomain<D extends ResolutionDomain>(
   domain: D,
   width: number,
   height: number,
-  scale: number
+  scale: number,
 ): TextureDomain<D> {
   if (!Number.isInteger(width) || width <= 0 || !Number.isInteger(height) || height <= 0) {
     throw new RangeError("TextureDomain width and height must be positive integers");
@@ -64,11 +60,13 @@ export function textureDomain<D extends ResolutionDomain>(
 export function requireDomain(
   producer: TextureDomain,
   expected: ResolutionDomain,
-  conversionOwner?: string
+  conversionOwner?: string,
 ): void {
   if (producer.domain === expected) return;
   if (conversionOwner !== undefined && conversionOwner.length > 0) return;
-  throw new Error(`Resolution domain mismatch: received ${producer.domain}, expected ${expected}; declare a conversion owner`);
+  throw new Error(
+    `Resolution domain mismatch: received ${producer.domain}, expected ${expected}; declare a conversion owner`,
+  );
 }
 
 /** 完整不透明 HDR 的统一产品；具体 GI/反射算法不得泄漏到消费者。 */
@@ -85,15 +83,13 @@ export interface DirectLightingFrame {
   readonly domain: TextureDomain<"internal-full">;
 }
 
-
-
 export type LongRangeDiffuseProvider = "brick4" | "probe-volume" | "ibl" | "black";
 
 export const LONG_RANGE_DIFFUSE_PROVIDER_PRECEDENCE = Object.freeze([
   "brick4",
   "probe-volume",
   "ibl",
-  "black"
+  "black",
 ] as const satisfies readonly LongRangeDiffuseProvider[]);
 
 /** Working-linear pre-exposure identity shared by every HDR-like FrameProduct. */
@@ -271,15 +267,9 @@ export function visibilityFrame(input: VisibilityFrame): VisibilityFrame {
   return Object.freeze({
     ...input,
     meshletWork: meshletWorkFrame(input.meshletWork),
-    domain: textureDomain(
-      "internal-full",
-      input.domain.width,
-      input.domain.height,
-      input.domain.scale
-    )
+    domain: textureDomain("internal-full", input.domain.width, input.domain.height, input.domain.scale),
   });
 }
-
 
 /** 创建统一的 Opaque HDR 产品，并在 composition seam 处验证 internal-full 域。 */
 export function opaqueLightingFrame(input: OpaqueLightingFrame): OpaqueLightingFrame {
@@ -291,12 +281,7 @@ export function opaqueLightingFrame(input: OpaqueLightingFrame): OpaqueLightingF
   }
   return Object.freeze({
     ...input,
-    domain: textureDomain(
-      "internal-full",
-      input.domain.width,
-      input.domain.height,
-      input.domain.scale
-    )
+    domain: textureDomain("internal-full", input.domain.width, input.domain.height, input.domain.scale),
   });
 }
 
@@ -308,30 +293,30 @@ export function directLightingFrame(input: DirectLightingFrame): DirectLightingF
   }
   return Object.freeze({
     ...input,
-    domain: textureDomain(
-      "internal-full",
-      input.domain.width,
-      input.domain.height,
-      input.domain.scale
-    )
+    domain: textureDomain("internal-full", input.domain.width, input.domain.height, input.domain.scale),
   });
 }
 
-
 /** Freeze the producer/consumer ABI for one clustered-light frame. */
 export function lightClusterFrame(input: LightClusterFrame): LightClusterFrame {
-  for (const name of [
-    "parameters", "lookup", "data", "candidateLightList", "activeLightList"
-  ] as const) {
+  for (const name of ["parameters", "lookup", "data", "candidateLightList", "activeLightList"] as const) {
     requireResourceId(input[name], `LightClusterFrame.${name}`);
   }
   requireResourceId(input.counters, "LightClusterFrame.counters");
-  if (!Number.isInteger(input.width) || input.width <= 0 ||
-      !Number.isInteger(input.height) || input.height <= 0) {
+  if (
+    !Number.isInteger(input.width) ||
+    input.width <= 0 ||
+    !Number.isInteger(input.height) ||
+    input.height <= 0
+  ) {
     throw new RangeError("LightClusterFrame dimensions must be positive integers");
   }
-  if (!Number.isInteger(input.tileSize) || input.tileSize <= 0 ||
-      !Number.isInteger(input.depthSlices) || input.depthSlices <= 0) {
+  if (
+    !Number.isInteger(input.tileSize) ||
+    input.tileSize <= 0 ||
+    !Number.isInteger(input.depthSlices) ||
+    input.depthSlices <= 0
+  ) {
     throw new RangeError("LightClusterFrame layout must be positive integers");
   }
   return Object.freeze({ ...input });
@@ -340,25 +325,44 @@ export function lightClusterFrame(input: LightClusterFrame): LightClusterFrame {
 /** Freeze and validate the Stage 2B shadow producer/consumer ABI. */
 export function shadowVisibilityFrame(input: ShadowVisibilityFrame): ShadowVisibilityFrame {
   for (const [name, value] of [
-    ["virtualPageTable", input.virtualPageTable], ["physicalAtlasDepth", input.physicalAtlasDepth],
-    ["pageMeta", input.pageMeta], ["lightProjection", input.lightProjection],
-    ["overflowMask", input.overflowMask]
-  ] as const) requireResourceId(value, `ShadowVisibilityFrame.${name}`);
+    ["virtualPageTable", input.virtualPageTable],
+    ["physicalAtlasDepth", input.physicalAtlasDepth],
+    ["pageMeta", input.pageMeta],
+    ["lightProjection", input.lightProjection],
+    ["overflowMask", input.overflowMask],
+  ] as const)
+    requireResourceId(value, `ShadowVisibilityFrame.${name}`);
   if (!Number.isSafeInteger(input.generation) || input.generation < 0) {
     throw new RangeError("ShadowVisibilityFrame generation must be a non-negative integer");
   }
-  if (!Number.isInteger(input.clipLevels) || input.clipLevels < 0 || input.clipLevels > 16 ||
-      !Number.isInteger(input.pageSize) || input.pageSize < 0 ||
-      !Number.isInteger(input.border) || input.border < 0) {
+  if (
+    !Number.isInteger(input.clipLevels) ||
+    input.clipLevels < 0 ||
+    input.clipLevels > 16 ||
+    !Number.isInteger(input.pageSize) ||
+    input.pageSize < 0 ||
+    !Number.isInteger(input.border) ||
+    input.border < 0
+  ) {
     throw new RangeError("ShadowVisibilityFrame page layout is invalid");
   }
-  if (input.enabled !== (input.profile !== "shadow-disabled") ||
-      (!input.enabled && (input.virtualPageTable !== null || input.physicalAtlasDepth !== null ||
-        input.pageMeta !== null || input.lightProjection !== null))) {
+  if (
+    input.enabled !== (input.profile !== "shadow-disabled") ||
+    (!input.enabled &&
+      (input.virtualPageTable !== null ||
+        input.physicalAtlasDepth !== null ||
+        input.pageMeta !== null ||
+        input.lightProjection !== null))
+  ) {
     throw new Error("ShadowVisibilityFrame disabled profile must expose neutral resources");
   }
-  if (input.enabled && (input.virtualPageTable === null || input.physicalAtlasDepth === null ||
-      input.pageMeta === null || input.lightProjection === null)) {
+  if (
+    input.enabled &&
+    (input.virtualPageTable === null ||
+      input.physicalAtlasDepth === null ||
+      input.pageMeta === null ||
+      input.lightProjection === null)
+  ) {
     throw new Error("ShadowVisibilityFrame enabled profile is missing a VSM resource");
   }
   if (!input.enabled && input.fallbackPolicy !== "shadow-disabled") {
@@ -370,22 +374,24 @@ export function shadowVisibilityFrame(input: ShadowVisibilityFrame): ShadowVisib
   for (const [name, value] of [
     ["normalOffsetScale", input.normalOffsetScale],
     ["depthBias", input.depthBias],
-    ["slopeScale", input.slopeScale]
+    ["slopeScale", input.slopeScale],
   ] as const) {
     if (!Number.isFinite(value) || value < 0) {
       throw new RangeError(`ShadowVisibilityFrame ${name} must be finite and non-negative`);
     }
   }
-  if (!Number.isInteger(input.atlasWidth) || input.atlasWidth <= 0 ||
-      !Number.isInteger(input.atlasHeight) || input.atlasHeight <= 0) {
+  if (
+    !Number.isInteger(input.atlasWidth) ||
+    input.atlasWidth <= 0 ||
+    !Number.isInteger(input.atlasHeight) ||
+    input.atlasHeight <= 0
+  ) {
     throw new RangeError("ShadowVisibilityFrame atlas dimensions must be positive integers");
   }
   return Object.freeze({ ...input });
 }
 
-export function preExposureContract(
-  input: PreExposureContract
-): PreExposureContract {
+export function preExposureContract(input: PreExposureContract): PreExposureContract {
   if (!Number.isFinite(input.multiplier) || input.multiplier <= 0) {
     throw new RangeError("PreExposure multiplier must be finite and positive");
   }
@@ -396,61 +402,38 @@ export function preExposureContract(
   return Object.freeze({ ...input });
 }
 
-export function shadingSurfaceLiteFrame(
-  input: ShadingSurfaceLiteFrame
-): ShadingSurfaceLiteFrame {
+export function shadingSurfaceLiteFrame(input: ShadingSurfaceLiteFrame): ShadingSurfaceLiteFrame {
   requireRequiredResourceId(input.normal, "ShadingSurfaceLiteFrame.normal");
-  requireRequiredResourceId(
-    input.roughnessFlags,
-    "ShadingSurfaceLiteFrame.roughnessFlags"
-  );
-  requireResourceId(
-    input.metallicSpecular,
-    "ShadingSurfaceLiteFrame.metallicSpecular"
-  );
+  requireRequiredResourceId(input.roughnessFlags, "ShadingSurfaceLiteFrame.roughnessFlags");
+  requireResourceId(input.metallicSpecular, "ShadingSurfaceLiteFrame.metallicSpecular");
   if (input.normalSpace !== "world") {
     throw new Error("ShadingSurfaceLiteFrame normal space must be world");
   }
   return Object.freeze({
     ...input,
-    domain: requireInternalFullDomain(input.domain, "ShadingSurfaceLiteFrame")
+    domain: requireInternalFullDomain(input.domain, "ShadingSurfaceLiteFrame"),
   });
 }
 
-export function diffuseSurfaceLiteFrame(
-  input: DiffuseSurfaceLiteFrame
-): DiffuseSurfaceLiteFrame {
-  requireRequiredResourceId(
-    input.diffuseReflectance,
-    "DiffuseSurfaceLiteFrame.diffuseReflectance"
-  );
+export function diffuseSurfaceLiteFrame(input: DiffuseSurfaceLiteFrame): DiffuseSurfaceLiteFrame {
+  requireRequiredResourceId(input.diffuseReflectance, "DiffuseSurfaceLiteFrame.diffuseReflectance");
   requireRequiredResourceId(input.materialAo, "DiffuseSurfaceLiteFrame.materialAo");
-  requireRequiredResourceId(
-    input.receiverFlags,
-    "DiffuseSurfaceLiteFrame.receiverFlags"
-  );
+  requireRequiredResourceId(input.receiverFlags, "DiffuseSurfaceLiteFrame.receiverFlags");
   if (input.colorSpace !== "working-linear") {
     throw new Error("DiffuseSurfaceLiteFrame color space must be working-linear");
   }
   if (input.receiverModulation !== "unapplied") {
-    throw new Error(
-      "DiffuseSurfaceLiteFrame must carry un-applied receiver modulation"
-    );
+    throw new Error("DiffuseSurfaceLiteFrame must carry un-applied receiver modulation");
   }
   return Object.freeze({
     ...input,
-    domain: requireInternalFullDomain(input.domain, "DiffuseSurfaceLiteFrame")
+    domain: requireInternalFullDomain(input.domain, "DiffuseSurfaceLiteFrame"),
   });
 }
 
-export function longRangeDiffuseFrame(
-  input: LongRangeDiffuseFrame
-): LongRangeDiffuseFrame {
+export function longRangeDiffuseFrame(input: LongRangeDiffuseFrame): LongRangeDiffuseFrame {
   requireRequiredResourceId(input.radiance, "LongRangeDiffuseFrame.radiance");
-  requireResourceId(
-    input.providerSelection,
-    "LongRangeDiffuseFrame.providerSelection"
-  );
+  requireResourceId(input.providerSelection, "LongRangeDiffuseFrame.providerSelection");
   requireResourceId(input.counters, "LongRangeDiffuseFrame.counters");
   if (input.selection !== "receiver-validity") {
     throw new Error("LongRangeDiffuseFrame requires receiver-validity selection");
@@ -463,91 +446,67 @@ export function longRangeDiffuseFrame(
   }
   if (
     input.precedence.length !== LONG_RANGE_DIFFUSE_PROVIDER_PRECEDENCE.length ||
-    input.precedence.some(
-      (provider, index) => provider !== LONG_RANGE_DIFFUSE_PROVIDER_PRECEDENCE[index]
-    )
+    input.precedence.some((provider, index) => provider !== LONG_RANGE_DIFFUSE_PROVIDER_PRECEDENCE[index])
   ) {
-    throw new Error(
-      "LongRangeDiffuseFrame provider precedence must be brick4 > probe-volume > ibl > black"
-    );
+    throw new Error("LongRangeDiffuseFrame provider precedence must be brick4 > probe-volume > ibl > black");
   }
   requirePositiveInteger(input.generation, "LongRangeDiffuseFrame generation");
   return Object.freeze({
     ...input,
     precedence: LONG_RANGE_DIFFUSE_PROVIDER_PRECEDENCE,
     preExposure: preExposureContract(input.preExposure),
-    domain: requireInternalFullDomain(input.domain, "LongRangeDiffuseFrame")
+    domain: requireInternalFullDomain(input.domain, "LongRangeDiffuseFrame"),
   });
 }
 
 export function preExposedOpaqueHdrBaselineFrame(
-  input: PreExposedOpaqueHdrBaselineFrame
+  input: PreExposedOpaqueHdrBaselineFrame,
 ): PreExposedOpaqueHdrBaselineFrame {
   requireRequiredResourceId(input.hdr, "PreExposedOpaqueHdrBaselineFrame.hdr");
-  requireResourceId(
-    input.baselineSpecular,
-    "PreExposedOpaqueHdrBaselineFrame.baselineSpecular"
-  );
+  requireResourceId(input.baselineSpecular, "PreExposedOpaqueHdrBaselineFrame.baselineSpecular");
   if (input.stage !== "post-screen-space-diffuse-pre-ssr") {
     throw new Error("Opaque HDR baseline has an invalid source stage");
   }
   if (input.reflectionCorrectionExpected !== (input.baselineSpecular !== null)) {
     throw new Error(
-      "Opaque HDR baseline must materialize baseline specular iff reflection correction is expected"
+      "Opaque HDR baseline must materialize baseline specular iff reflection correction is expected",
     );
   }
   return Object.freeze({
     ...input,
     preExposure: preExposureContract(input.preExposure),
-    domain: requireInternalFullDomain(
-      input.domain,
-      "PreExposedOpaqueHdrBaselineFrame"
-    )
+    domain: requireInternalFullDomain(input.domain, "PreExposedOpaqueHdrBaselineFrame"),
   });
 }
 
-export function opaqueColorPyramidFrame(
-  input: OpaqueColorPyramidFrame
-): OpaqueColorPyramidFrame {
+export function opaqueColorPyramidFrame(input: OpaqueColorPyramidFrame): OpaqueColorPyramidFrame {
   requireRequiredResourceId(input.texture, "OpaqueColorPyramidFrame.texture");
   requirePositiveInteger(input.mipLevelCount, "OpaqueColorPyramidFrame.mipLevelCount");
-  requireNonNegativeInteger(
-    input.sourceGeneration,
-    "OpaqueColorPyramidFrame.sourceGeneration"
-  );
+  requireNonNegativeInteger(input.sourceGeneration, "OpaqueColorPyramidFrame.sourceGeneration");
   if (input.stage !== "post-screen-space-diffuse-pre-ssr") {
     throw new Error("OpaqueColorPyramidFrame has an invalid source stage");
   }
-  const maxMipLevelCount = Math.floor(
-    Math.log2(Math.max(input.domain.width, input.domain.height))
-  ) + 1;
+  const maxMipLevelCount = Math.floor(Math.log2(Math.max(input.domain.width, input.domain.height))) + 1;
   if (input.mipLevelCount > maxMipLevelCount) {
-    throw new RangeError(
-      "OpaqueColorPyramidFrame mipLevelCount exceeds the declared extent"
-    );
+    throw new RangeError("OpaqueColorPyramidFrame mipLevelCount exceeds the declared extent");
   }
   return Object.freeze({
     ...input,
     preExposure: preExposureContract(input.preExposure),
-    domain: requireInternalFullDomain(input.domain, "OpaqueColorPyramidFrame")
+    domain: requireInternalFullDomain(input.domain, "OpaqueColorPyramidFrame"),
   });
 }
 
-export function finalColorPyramidFrame(
-  input: FinalColorPyramidFrame
-): FinalColorPyramidFrame {
+export function finalColorPyramidFrame(input: FinalColorPyramidFrame): FinalColorPyramidFrame {
   requireRequiredResourceId(input.source, "FinalColorPyramidFrame.source");
   requireRequiredResourceId(input.texture, "FinalColorPyramidFrame.texture");
   if (input.source === input.texture) {
     throw new Error(
-      "FinalColorPyramidFrame must preserve a source resource distinct from its mipmapped texture"
+      "FinalColorPyramidFrame must preserve a source resource distinct from its mipmapped texture",
     );
   }
   requirePositiveInteger(input.mipLevelCount, "FinalColorPyramidFrame.mipLevelCount");
-  requireNonNegativeInteger(
-    input.sourceGeneration,
-    "FinalColorPyramidFrame.sourceGeneration"
-  );
+  requireNonNegativeInteger(input.sourceGeneration, "FinalColorPyramidFrame.sourceGeneration");
   if (input.stage !== "post-transparency-temporal") {
     throw new Error("FinalColorPyramidFrame has an invalid source stage");
   }
@@ -559,17 +518,17 @@ export function finalColorPyramidFrame(
   return Object.freeze({
     ...input,
     preExposure: preExposureContract(input.preExposure),
-    domain
+    domain,
   });
 }
 
-export function temporalReconstructionFrame(
-  input: TemporalReconstructionFrame
-): TemporalReconstructionFrame {
+export function temporalReconstructionFrame(input: TemporalReconstructionFrame): TemporalReconstructionFrame {
   requireRequiredResourceId(input.hdr, "TemporalReconstructionFrame.hdr");
   requireResourceId(input.confidence, "TemporalReconstructionFrame.confidence");
-  if (input.historyGenerationSource !== "TemporalHistoryRegistry.color" ||
-      input.representationRevisionSource !== "MainHistoryRevision.representation") {
+  if (
+    input.historyGenerationSource !== "TemporalHistoryRegistry.color" ||
+    input.representationRevisionSource !== "MainHistoryRevision.representation"
+  ) {
     throw new Error("TemporalReconstructionFrame must use authoritative history revision sources");
   }
   if (input.stage !== "post-transparency-temporal") {
@@ -589,35 +548,28 @@ export function temporalReconstructionFrame(
   return Object.freeze({
     ...input,
     preExposure: preExposureContract(input.preExposure),
-    inputDomain: requireInternalFullDomain(
-      input.inputDomain,
-      "TemporalReconstructionFrame input"
-    ),
-    domain: requireOutputFullDomain(input.domain, "TemporalReconstructionFrame")
+    inputDomain: requireInternalFullDomain(input.inputDomain, "TemporalReconstructionFrame input"),
+    domain: requireOutputFullDomain(input.domain, "TemporalReconstructionFrame"),
   });
 }
 
-export function reflectionCorrectionFrame(
-  input: ReflectionCorrectionFrame
-): ReflectionCorrectionFrame {
+export function reflectionCorrectionFrame(input: ReflectionCorrectionFrame): ReflectionCorrectionFrame {
   for (const name of [
     "baselineSpecular",
     "ssrSpecular",
     "resolvedSpecular",
     "confidence",
-    "variance"
+    "variance",
   ] as const) {
     requireRequiredResourceId(input[name], `ReflectionCorrectionFrame.${name}`);
   }
   if (input.composition !== "confidence-replacement") {
-    throw new Error(
-      "ReflectionCorrectionFrame must replace baseline specular by confidence"
-    );
+    throw new Error("ReflectionCorrectionFrame must replace baseline specular by confidence");
   }
   return Object.freeze({
     ...input,
     preExposure: preExposureContract(input.preExposure),
-    domain: requireInternalFullDomain(input.domain, "ReflectionCorrectionFrame")
+    domain: requireInternalFullDomain(input.domain, "ReflectionCorrectionFrame"),
   });
 }
 
@@ -626,33 +578,27 @@ function requireRequiredResourceId(value: ResourceId, name: string): void {
   if (value === null) throw new RangeError(`${name} must not be null`);
 }
 
-function requireInternalFullDomain(
-  domain: TextureDomain,
-  name: string
-): TextureDomain<"internal-full"> {
+function requireInternalFullDomain(domain: TextureDomain, name: string): TextureDomain<"internal-full"> {
   if (domain.domain !== "internal-full") {
     throw new Error(`${name} must be produced at internal-full resolution`);
   }
   return textureDomain("internal-full", domain.width, domain.height, domain.scale);
 }
 
-function requireOutputFullDomain(
-  domain: TextureDomain,
-  name: string
-): TextureDomain<"output-full"> {
+function requireOutputFullDomain(domain: TextureDomain, name: string): TextureDomain<"output-full"> {
   if (domain.domain !== "output-full") {
     throw new Error(`${name} must be produced at output-full resolution`);
   }
   return textureDomain("output-full", domain.width, domain.height, domain.scale);
 }
 
-function requireMatchingDomain(
-  producer: TextureDomain,
-  expected: TextureDomain,
-  name: string
-): void {
-  if (producer.domain !== expected.domain || producer.width !== expected.width ||
-      producer.height !== expected.height || producer.scale !== expected.scale) {
+function requireMatchingDomain(producer: TextureDomain, expected: TextureDomain, name: string): void {
+  if (
+    producer.domain !== expected.domain ||
+    producer.width !== expected.width ||
+    producer.height !== expected.height ||
+    producer.scale !== expected.scale
+  ) {
     throw new Error(`${name} does not match the SpecializedShadingFrame domain`);
   }
 }

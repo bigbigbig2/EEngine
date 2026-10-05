@@ -31,11 +31,11 @@ export const DEFAULT_GEOMETRY_WORK_BUDGET: GeometryWorkBudget = Object.freeze({
   targetRasterVertices: 3 * 1024 * 1024,
   maxRasterVertices: 0xffffffff,
   maxRiskyTriangles: 262144,
-  maxSetupBytes: 8 * 1024 * 1024
+  maxSetupBytes: 8 * 1024 * 1024,
 });
 
 export function normalizeGeometryWorkBudget(
-  value: GeometryWorkBudget = DEFAULT_GEOMETRY_WORK_BUDGET
+  value: GeometryWorkBudget = DEFAULT_GEOMETRY_WORK_BUDGET,
 ): GeometryWorkBudget {
   const fields = Object.entries(value) as [keyof GeometryWorkBudget, number][];
   for (const [name, count] of fields) {
@@ -43,9 +43,14 @@ export function normalizeGeometryWorkBudget(
       throw new RangeError(`GeometryWorkBudget.${name} must be a non-negative u32`);
     }
   }
-  if (value.maxTestedHierarchyNodes === 0 || value.targetMeshletWork === 0 ||
-      value.maxMeshletWork === 0 || value.targetRasterVertices === 0 ||
-      value.maxRasterVertices === 0 || value.maxRiskyTriangles === 0) {
+  if (
+    value.maxTestedHierarchyNodes === 0 ||
+    value.targetMeshletWork === 0 ||
+    value.maxMeshletWork === 0 ||
+    value.targetRasterVertices === 0 ||
+    value.maxRasterVertices === 0 ||
+    value.maxRiskyTriangles === 0
+  ) {
     throw new RangeError("GeometryWorkBudget work limits must be positive");
   }
   if (value.targetMeshletWork > value.maxMeshletWork) {
@@ -74,7 +79,7 @@ export class GeometryAdaptiveSseController {
   constructor(
     private readonly baseSse: number,
     private readonly budget: GeometryWorkBudget,
-    options: GeometryAdaptiveSseOptions = {}
+    options: GeometryAdaptiveSseOptions = {},
   ) {
     if (!Number.isFinite(baseSse) || baseSse < 0) {
       throw new RangeError("Geometry adaptive SSE base must be finite and non-negative");
@@ -86,13 +91,15 @@ export class GeometryAdaptiveSseController {
       options.qualityFloorSse ?? Math.max(baseSse, 16),
       "qualityFloorSse",
       baseSse,
-      1e6
+      1e6,
     );
     this.budget = normalizeGeometryWorkBudget(budget);
     this.currentSse = baseSse;
   }
 
-  get value(): number { return this.currentSse; }
+  get value(): number {
+    return this.currentSse;
+  }
 
   resetForCameraCut(): number {
     this.currentSse = this.baseSse;
@@ -105,18 +112,15 @@ export class GeometryAdaptiveSseController {
       sample.testedHierarchyNodes / this.budget.maxTestedHierarchyNodes,
       sample.meshletWork / this.budget.targetMeshletWork,
       sample.rasterVertices / this.budget.targetRasterVertices,
-      sample.riskyTriangles / this.budget.maxRiskyTriangles
+      sample.riskyTriangles / this.budget.maxRiskyTriangles,
     );
     if (pressure > 1 + this.deadZone) {
       const multiplier = 1 + Math.min(pressure - 1, 2) * this.overloadGain;
-      this.currentSse = Math.min(
-        this.qualityFloorSse,
-        Math.max(this.baseSse, this.currentSse * multiplier)
-      );
+      this.currentSse = Math.min(this.qualityFloorSse, Math.max(this.baseSse, this.currentSse * multiplier));
     } else if (pressure < 1 - this.deadZone && this.currentSse > this.baseSse) {
       this.currentSse = Math.max(
         this.baseSse,
-        this.currentSse + (this.baseSse - this.currentSse) * this.recoveryRate
+        this.currentSse + (this.baseSse - this.currentSse) * this.recoveryRate,
       );
     }
     return this.currentSse;

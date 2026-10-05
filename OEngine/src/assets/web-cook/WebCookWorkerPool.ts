@@ -1,4 +1,8 @@
-import { WEB_COOK_PROTOCOL_VERSION, type WebCookCommand, type WebCookEvent } from "./protocol/CookSessionProtocol.js";
+import {
+  WEB_COOK_PROTOCOL_VERSION,
+  type WebCookCommand,
+  type WebCookEvent,
+} from "./protocol/CookSessionProtocol.js";
 import type { WebCookWorkerPort } from "./WebCookWorkerTransport.js";
 
 export interface WebCookWorkerPoolOptions {
@@ -34,7 +38,8 @@ export class WebCookWorkerPool implements WebCookWorkerPort {
   #closed = false;
 
   constructor(options: WebCookWorkerPoolOptions) {
-    if (!Number.isSafeInteger(options.maxWorkers) || options.maxWorkers <= 0) throw new RangeError("Web Cook Worker pool maxWorkers must be positive");
+    if (!Number.isSafeInteger(options.maxWorkers) || options.maxWorkers <= 0)
+      throw new RangeError("Web Cook Worker pool maxWorkers must be positive");
     this.#options = options;
     for (let index = 0; index < options.maxWorkers; index++) this.#addWorker(options.createWorker(), index);
   }
@@ -42,21 +47,25 @@ export class WebCookWorkerPool implements WebCookWorkerPort {
   postMessage(message: unknown, transfer?: Transferable[]): void {
     if (this.#closed) throw new Error("Web Cook Worker pool is closed");
     const command = message as Partial<WebCookCommand> | null | undefined;
-    const sessionKey = command && typeof command.sessionId === "string" && Number.isInteger(command.sessionGeneration)
-      ? `${command.sessionId}:${command.sessionGeneration}`
-      : undefined;
+    const sessionKey =
+      command && typeof command.sessionId === "string" && Number.isInteger(command.sessionGeneration)
+        ? `${command.sessionId}:${command.sessionGeneration}`
+        : undefined;
     if (sessionKey === undefined) throw new Error("Web Cook Worker pool requires a session command header");
     let slot = this.#sessionWorkers.get(sessionKey);
     if (command?.type === "CreateSession") {
-      if (command.protocolVersion !== WEB_COOK_PROTOCOL_VERSION) throw new Error("Web Cook Worker pool received an incompatible command");
-      if (this.#invalidSessions.has(sessionKey)) throw new Error("Web Cook session generation was invalidated by a Worker failure");
+      if (command.protocolVersion !== WEB_COOK_PROTOCOL_VERSION)
+        throw new Error("Web Cook Worker pool received an incompatible command");
+      if (this.#invalidSessions.has(sessionKey))
+        throw new Error("Web Cook session generation was invalidated by a Worker failure");
       if (slot !== undefined) throw new Error("Web Cook session is already assigned to a Worker");
       slot = this.#chooseWorker();
       this.#sessionWorkers.set(sessionKey, slot);
       slot.sessions.add(sessionKey);
     }
     if (slot === undefined || slot.failed) {
-      if (this.#invalidSessions.has(sessionKey)) throw new Error("Web Cook session generation was invalidated by a Worker failure");
+      if (this.#invalidSessions.has(sessionKey))
+        throw new Error("Web Cook session generation was invalidated by a Worker failure");
       throw new Error("Web Cook session is not assigned to a live Worker");
     }
     slot.port.postMessage(message, transfer);
@@ -64,7 +73,10 @@ export class WebCookWorkerPool implements WebCookWorkerPort {
 
   addEventListener(type: "message", listener: MessageListener): void;
   addEventListener(type: "error" | "messageerror", listener: ErrorListener): void;
-  addEventListener(type: "message" | "error" | "messageerror", listener: MessageListener | ErrorListener): void {
+  addEventListener(
+    type: "message" | "error" | "messageerror",
+    listener: MessageListener | ErrorListener,
+  ): void {
     if (type === "message") this.#messageListeners.add(listener as MessageListener);
     else if (type === "error") this.#errorListeners.add(listener as ErrorListener);
     else this.#messageErrorListeners.add(listener as ErrorListener);
@@ -72,7 +84,10 @@ export class WebCookWorkerPool implements WebCookWorkerPort {
 
   removeEventListener(type: "message", listener: MessageListener): void;
   removeEventListener(type: "error" | "messageerror", listener: ErrorListener): void;
-  removeEventListener(type: "message" | "error" | "messageerror", listener: MessageListener | ErrorListener): void {
+  removeEventListener(
+    type: "message" | "error" | "messageerror",
+    listener: MessageListener | ErrorListener,
+  ): void {
     if (type === "message") this.#messageListeners.delete(listener as MessageListener);
     else if (type === "error") this.#errorListeners.delete(listener as ErrorListener);
     else this.#messageErrorListeners.delete(listener as ErrorListener);
@@ -87,27 +102,33 @@ export class WebCookWorkerPool implements WebCookWorkerPort {
     for (const slot of this.#workers) slot.sessions.clear();
   }
 
-  evidence(): Readonly<{ readonly workerCount: number; readonly liveWorkers: number; readonly assignedSessions: number; readonly invalidatedSessions: number; readonly closed: boolean }> {
+  evidence(): Readonly<{
+    readonly workerCount: number;
+    readonly liveWorkers: number;
+    readonly assignedSessions: number;
+    readonly invalidatedSessions: number;
+    readonly closed: boolean;
+  }> {
     return Object.freeze({
       workerCount: this.#workers.length,
-      liveWorkers: this.#workers.filter(slot => !slot.failed).length,
+      liveWorkers: this.#workers.filter((slot) => !slot.failed).length,
       assignedSessions: this.#sessionWorkers.size,
       invalidatedSessions: this.#invalidSessions.size,
-      closed: this.#closed
+      closed: this.#closed,
     });
   }
 
   #addWorker(port: WebCookWorkerPort, index: number): WorkerSlot {
     const slot: WorkerSlot = { port, index, sessions: new Set(), failed: false };
     this.#workers.push(slot);
-    port.addEventListener("message", event => this.#forwardMessage(event));
-    port.addEventListener("error", event => this.#failWorker(slot, event, false));
-    port.addEventListener("messageerror", event => this.#failWorker(slot, event, true));
+    port.addEventListener("message", (event) => this.#forwardMessage(event));
+    port.addEventListener("error", (event) => this.#failWorker(slot, event, false));
+    port.addEventListener("messageerror", (event) => this.#failWorker(slot, event, true));
     return slot;
   }
 
   #chooseWorker(): WorkerSlot {
-    const live = this.#workers.filter(slot => !slot.failed);
+    const live = this.#workers.filter((slot) => !slot.failed);
     if (live.length === 0) throw new Error("Web Cook Worker pool has no live Worker");
     const slot = live[this.#roundRobin % live.length]!;
     this.#roundRobin++;
@@ -129,7 +150,15 @@ export class WebCookWorkerPool implements WebCookWorkerPort {
       const sessionGeneration = Number(sessionKey.slice(separator + 1));
       this.#sessionWorkers.delete(sessionKey);
       this.#invalidSessions.add(sessionKey);
-      this.#forwardMessage({ data: { protocolVersion: WEB_COOK_PROTOCOL_VERSION, sessionId, sessionGeneration, type: "FatalSessionFailure", code } } as MessageEvent<unknown>);
+      this.#forwardMessage({
+        data: {
+          protocolVersion: WEB_COOK_PROTOCOL_VERSION,
+          sessionId,
+          sessionGeneration,
+          type: "FatalSessionFailure",
+          code,
+        },
+      } as MessageEvent<unknown>);
     }
     slot.sessions.clear();
     slot.port.terminate?.();

@@ -9,12 +9,10 @@ import { readWgslValue } from "../core/WgslBufferIO.js";
 import { BinaryReader } from "../loaders/BinaryReader.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import type { CachedComputePipelineDescriptor } from "./GPUDescriptorCaches.js";
-import {
-  recordGpuReadback,
-  submitGpuCommands
-} from "./GpuQueueEvidence.js";
+import { recordGpuReadback, submitGpuCommands } from "./GpuQueueEvidence.js";
 
-const GPU_INDEXED_RECORD_UPLOAD_WGSL = `struct Struct_48{
+const GPU_INDEXED_RECORD_UPLOAD_WGSL =
+  `struct Struct_48{
     count : u32,
     record_size : u32,
 }
@@ -51,36 +49,36 @@ export const GPU_INDEXED_RECORD_UPLOAD_LAYOUT: GPUBindGroupLayoutDescriptor = {
     {
       binding: 0,
       visibility: GPUShaderStage.COMPUTE,
-      buffer: { type: "uniform" }
+      buffer: { type: "uniform" },
     },
     {
       binding: 1,
       visibility: GPUShaderStage.COMPUTE,
-      buffer: { type: "read-only-storage" }
+      buffer: { type: "read-only-storage" },
     },
     {
       binding: 2,
       visibility: GPUShaderStage.COMPUTE,
-      buffer: { type: "storage" }
-    }
-  ]
+      buffer: { type: "storage" },
+    },
+  ],
 };
 
 export const GPU_INDEXED_RECORD_UPLOAD_PIPELINE: CachedComputePipelineDescriptor = {
   label: "",
   layout: {
     label: "",
-    bindGroupLayouts: [GPU_INDEXED_RECORD_UPLOAD_LAYOUT]
+    bindGroupLayouts: [GPU_INDEXED_RECORD_UPLOAD_LAYOUT],
   },
   compute: {
     module: { label: "", code: GPU_INDEXED_RECORD_UPLOAD_WGSL },
-    constants: {}
-  }
+    constants: {},
+  },
 };
 
 const GPU_INDEXED_RECORD_UPLOAD_SETTINGS_TYPE = StructType.from({
   count: WGSL_u32,
-  record_size: WGSL_u32
+  record_size: WGSL_u32,
 }).pack();
 
 export type GPUIndexedRecordTableOptions<T> = {
@@ -102,31 +100,19 @@ export class GPUIndexedRecordTable<T> {
   private readonly uploadRecordSize: number;
 
   constructor(private readonly options: GPUIndexedRecordTableOptions<T>) {
-    if (
-      options.recordSizeBytes <= 0 ||
-      options.recordSizeBytes % Uint32Array.BYTES_PER_ELEMENT !== 0
-    ) {
+    if (options.recordSizeBytes <= 0 || options.recordSizeBytes % Uint32Array.BYTES_PER_ELEMENT !== 0) {
       throw new RangeError("GPU indexed record size must be a positive u32 multiple");
     }
     if (options.recordSizeBytes !== options.type.aligned_size) {
-      throw new RangeError(
-        "GPU indexed record size must equal the WGSL type aligned size"
-      );
+      throw new RangeError("GPU indexed record size must equal the WGSL type aligned size");
     }
-    this.uploadRecordSize =
-      Uint32Array.BYTES_PER_ELEMENT + options.recordSizeBytes;
+    this.uploadRecordSize = Uint32Array.BYTES_PER_ELEMENT + options.recordSizeBytes;
     this.type = options.type;
-    const initialSize = alignUp(
-      Math.max(1, options.initialSizeBytes ?? 4096),
-      options.recordSizeBytes
-    );
+    const initialSize = alignUp(Math.max(1, options.initialSizeBytes ?? 4096), options.recordSizeBytes);
     this.buffer = options.device.createBuffer({
       size: initialSize,
-      usage:
-        GPUBufferUsage.STORAGE |
-        GPUBufferUsage.COPY_SRC |
-        GPUBufferUsage.COPY_DST,
-      mappedAtCreation: false
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+      mappedAtCreation: false,
     });
   }
 
@@ -148,11 +134,7 @@ export class GPUIndexedRecordTable<T> {
     this.ensureUploadCapacity(this.uploadSize + this.uploadRecordSize);
     const view = new DataView(this.uploadBuffer);
     view.setUint32(this.uploadSize, destinationIndex, true);
-    this.options.pack(
-      value,
-      this.uploadBuffer,
-      this.uploadSize + Uint32Array.BYTES_PER_ELEMENT
-    );
+    this.options.pack(value, this.uploadBuffer, this.uploadSize + Uint32Array.BYTES_PER_ELEMENT);
     this.uploadSize += this.uploadRecordSize;
   }
 
@@ -161,27 +143,19 @@ export class GPUIndexedRecordTable<T> {
 
     this.ensureDestinationCapacity(command, this.occupancy.size());
     const count = this.uploadSize / this.uploadRecordSize;
-    const settings = command.allocateTransientValueBuffer(
-      GPU_INDEXED_RECORD_UPLOAD_SETTINGS_TYPE,
-      {
-        count,
-        record_size:
-          this.options.recordSizeBytes / Uint32Array.BYTES_PER_ELEMENT
-      }
-    );
+    const settings = command.allocateTransientValueBuffer(GPU_INDEXED_RECORD_UPLOAD_SETTINGS_TYPE, {
+      count,
+      record_size: this.options.recordSizeBytes / Uint32Array.BYTES_PER_ELEMENT,
+    });
     const records = command.allocateTransientBufferAndLoad(
       this.uploadBuffer,
       GPUBufferUsage.STORAGE,
       0,
-      this.uploadSize
+      this.uploadSize,
     );
     const pass = command.constructComputePass({
       pipeline: GPU_INDEXED_RECORD_UPLOAD_PIPELINE,
-      bindings: [[
-        { buffer: settings },
-        { buffer: records },
-        { buffer: this.buffer }
-      ]]
+      bindings: [[{ buffer: settings }, { buffer: records }, { buffer: this.buffer }]],
     });
     pass.dispatchWorkgroups(Math.ceil(count / 128), 1, 1);
     pass.end();
@@ -216,14 +190,12 @@ export class GPUIndexedRecordTable<T> {
   private async readBytes(offset: number, size: number): Promise<ArrayBuffer> {
     const readback = this.options.device.createBuffer({
       size,
-      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
     });
     const encoder = this.options.device.createCommandEncoder({ label: "" });
     encoder.copyBufferToBuffer(this.buffer, offset, readback, 0, size);
     recordGpuReadback(this.options.device, "GPUIndexedRecordTable/read", size);
-    submitGpuCommands(this.options.device, "GPUIndexedRecordTable/read", [
-      encoder.finish()
-    ]);
+    submitGpuCommands(this.options.device, "GPUIndexedRecordTable/read", [encoder.finish()]);
     await readback.mapAsync(GPUMapMode.READ);
     const result = readback.getMappedRange(0, size).slice(0);
     readback.unmap();
@@ -247,23 +219,17 @@ export class GPUIndexedRecordTable<T> {
     this.uploadBuffer = new ArrayBuffer(0);
   }
 
-  private ensureDestinationCapacity(
-    command: ShadeGPUCommandContext,
-    slotCount: number
-  ): void {
+  private ensureDestinationCapacity(command: ShadeGPUCommandContext, slotCount: number): void {
     const recordSize = this.options.recordSizeBytes;
     const requiredSize = slotCount * recordSize;
     const previous = this.buffer;
     if (previous.size >= requiredSize) return;
 
-    const nextSize = Math.max(
-      requiredSize,
-      alignUp(1.25 * previous.size, recordSize)
-    );
+    const nextSize = Math.max(requiredSize, alignUp(1.25 * previous.size, recordSize));
     const next = this.options.device.createBuffer({
       size: nextSize,
       usage: previous.usage,
-      mappedAtCreation: false
+      mappedAtCreation: false,
     });
     command.copyBufferToBuffer(previous, 0, next, 0, previous.size);
     command.onFinished.addOne(() => {
@@ -277,9 +243,7 @@ export class GPUIndexedRecordTable<T> {
     let capacity = Math.max(256, this.uploadBuffer.byteLength);
     while (capacity < required) capacity *= 2;
     const next = new ArrayBuffer(capacity);
-    new Uint8Array(next).set(
-      new Uint8Array(this.uploadBuffer, 0, this.uploadSize)
-    );
+    new Uint8Array(next).set(new Uint8Array(this.uploadBuffer, 0, this.uploadSize));
     this.uploadBuffer = next;
   }
 }

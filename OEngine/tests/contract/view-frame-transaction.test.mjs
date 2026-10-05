@@ -4,21 +4,30 @@ import test from "node:test";
 globalThis.GPUShaderStage = { COMPUTE: 1 };
 const [{ GPUViewContext }, { GPUCameraState }] = await Promise.all([
   import("../../.test-dist/render/ViewContext.js"),
-  import("../../.test-dist/render/GPUCameraState.js")
+  import("../../.test-dist/render/GPUCameraState.js"),
 ]);
 
 function signal() {
   const handlers = [];
   return {
-    addOne(handler) { handlers.push(handler); },
-    dispatch(...args) { for (const handler of handlers.splice(0)) handler(...args); }
+    addOne(handler) {
+      handlers.push(handler);
+    },
+    dispatch(...args) {
+      for (const handler of handlers.splice(0)) handler(...args);
+    },
   };
 }
 
 function command(copies) {
   return {
-    gpu_encoder: { copyBufferToBuffer(...args) { copies.push(args); } },
-    onFinished: signal(), onAborted: signal()
+    gpu_encoder: {
+      copyBufferToBuffer(...args) {
+        copies.push(args);
+      },
+    },
+    onFinished: signal(),
+    onAborted: signal(),
   };
 }
 
@@ -30,11 +39,22 @@ test("View camera mirror, HZB publication and frame index commit only after subm
   let hzbCommits = 0;
   let hzbInvalidations = 0;
   view.camera = { buffer: sourceBuffer };
-  view.gpu_previous_camera_state = { buffer: previousBuffer,
-    copyCpu(source) { assert.equal(source, view.camera); cpuCopies++; } };
+  view.gpu_previous_camera_state = {
+    buffer: previousBuffer,
+    copyCpu(source) {
+      assert.equal(source, view.camera);
+      cpuCopies++;
+    },
+  };
   view.hierarchical_z_buffer = {
-    commitHistory(index) { assert.equal(index, 9); hzbCommits++; },
-    invalidate(reason) { assert.equal(reason, "explicit"); hzbInvalidations++; }
+    commitHistory(index) {
+      assert.equal(index, 9);
+      hzbCommits++;
+    },
+    invalidate(reason) {
+      assert.equal(reason, "explicit");
+      hzbInvalidations++;
+    },
   };
   view.frame_index = 3;
   const copies = [];
@@ -63,9 +83,19 @@ test("new View seeds previous camera from the uploaded current camera within its
   const previous = { size: 64 };
   const order = [];
   view.frame_index = 0;
-  view.camera = { buffer: current, update() { order.push("upload-current"); } };
-  view.gpu_previous_camera_state = { buffer: previous,
-    copyCpu(source) { assert.equal(source, view.camera); order.push("seed-cpu"); } };
+  view.camera = {
+    buffer: current,
+    update() {
+      order.push("upload-current");
+    },
+  };
+  view.gpu_previous_camera_state = {
+    buffer: previous,
+    copyCpu(source) {
+      assert.equal(source, view.camera);
+      order.push("seed-cpu");
+    },
+  };
   view.update_uniforms = () => order.push("upload-view");
   view.graphics = { profiler: { addCounter() {} } };
   const frame = command([]);
@@ -84,13 +114,20 @@ test("new View seeds previous camera from the uploaded current camera within its
 test("GPUCameraState can update its CPU mirror without a separate GPU submission", () => {
   const mirror = Object.create(GPUCameraState.prototype);
   let copiedCamera;
-  mirror.cameraValue = { copy(value) { copiedCamera = value; } };
+  mirror.cameraValue = {
+    copy(value) {
+      copiedCamera = value;
+    },
+  };
   mirror.viewportOffset = new Float32Array(2);
   mirror.viewProjection = new Float32Array(16);
   mirror.currentProjection = new Float32Array(16);
-  const source = { camera: { id: 7 }, viewportOffset: new Float32Array([0.2, -0.3]),
+  const source = {
+    camera: { id: 7 },
+    viewportOffset: new Float32Array([0.2, -0.3]),
     viewProjection: Float32Array.from({ length: 16 }, (_, index) => index + 1),
-    currentProjection: Float32Array.from({ length: 16 }, (_, index) => index + 17) };
+    currentProjection: Float32Array.from({ length: 16 }, (_, index) => index + 17),
+  };
   mirror.copyCpu(source);
   assert.equal(copiedCamera, source.camera);
   assert.deepEqual([...mirror.viewportOffset], [...source.viewportOffset]);

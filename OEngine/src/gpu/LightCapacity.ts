@@ -6,7 +6,7 @@ export function assertDirectionalLightCapacity(count: number): void {
   }
   if (count > MAX_DIRECTIONAL_LIGHTS) {
     throw new RangeError(
-      `Directional light count ${count} exceeds the explicit capacity ${MAX_DIRECTIONAL_LIGHTS}`
+      `Directional light count ${count} exceeds the explicit capacity ${MAX_DIRECTIONAL_LIGHTS}`,
     );
   }
 }

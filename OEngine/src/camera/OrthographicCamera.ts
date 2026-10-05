@@ -39,12 +39,14 @@ export class OrthographicCamera extends Camera {
 
   override equals(other: Camera): boolean {
     const camera = other as OrthographicCamera;
-    return camera.isOrthographicCamera === true &&
+    return (
+      camera.isOrthographicCamera === true &&
       camera.left === this.left &&
       camera.right === this.right &&
       camera.bottom === this.bottom &&
       camera.top === this.top &&
-      super.equals(other);
+      super.equals(other)
+    );
   }
 
   override update_projection(): void {

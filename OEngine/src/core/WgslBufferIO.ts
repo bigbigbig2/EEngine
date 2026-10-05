@@ -25,7 +25,7 @@ import {
   WGSL_mat3x2f,
   WGSL_mat2x3f,
   WGSL_atomic_u32,
-  WGSL_atomic_i32
+  WGSL_atomic_i32,
 } from "./WebGPUTypes.js";
 import { StructType } from "./WgslStruct.js";
 
@@ -114,11 +114,7 @@ export function readWgslValue(e: BinaryReader, t: WebGPUType): unknown {
   }
 }
 
-export function writeWgslValue(
-  e: unknown,
-  t: BinaryReader,
-  n: WebGPUType
-): void {
+export function writeWgslValue(e: unknown, t: BinaryReader, n: WebGPUType): void {
   if (n instanceof ArrayType) {
     const r = n.count;
     const s = n.type!.aligned_size;
@@ -204,12 +200,7 @@ export function writeWgslValue(
 export const wgslScratchReader = new BinaryReader();
 wgslScratchReader.endianness = detectNativeEndianness();
 
-export function writeWgslToBuffer(
-  e: unknown,
-  t: WebGPUType,
-  n: ArrayBuffer,
-  r = 0
-): void {
+export function writeWgslToBuffer(e: unknown, t: WebGPUType, n: ArrayBuffer, r = 0): void {
   wgslScratchReader.fromArrayBuffer(n);
   wgslScratchReader.position = r;
   writeWgslValue(e, wgslScratchReader, t);

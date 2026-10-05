@@ -4,7 +4,7 @@ import {
   SSR_CAMERA_WGSL,
   SSR_COLOR_HISTORY_WGSL,
   SSR_FULLSCREEN_VERTEX_WGSL,
-  SSR_MATH_WGSL
+  SSR_MATH_WGSL,
 } from "./ssr_common.js";
 
 export const SSR_DENOISE_FORMAT = "rgba16float" as const;

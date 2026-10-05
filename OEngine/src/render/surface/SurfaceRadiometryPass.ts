@@ -1,8 +1,12 @@
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
-import { LIGHT_DATABASE_READ_WGSL, DIRECTIONAL_LIGHT_DESCRIPTOR,
-    POINT_LIGHT_DESCRIPTOR, SPOT_LIGHT_DESCRIPTOR } from "../../gpu/LightDatabase.js";
+import {
+  LIGHT_DATABASE_READ_WGSL,
+  DIRECTIONAL_LIGHT_DESCRIPTOR,
+  POINT_LIGHT_DESCRIPTOR,
+  SPOT_LIGHT_DESCRIPTOR,
+} from "../../gpu/LightDatabase.js";
 import type { SurfaceFrameResources } from "./SurfaceFrameResources.js";
 
 /** One current-provider numeric proof, before material publication and lookup.
@@ -75,76 +79,97 @@ fn prove_radiometry(@builtin(local_invocation_index) lane: u32) {
 `;
 
 export class SurfaceRadiometryPass {
-    private readonly pipeline: GPUComputePipeline;
-    private readonly disabledSun: GPUBuffer;
-    private readonly disabledTransmittance: GPUTexture;
-    private readonly disabledTransmittanceView: GPUTextureView;
-    private readonly settings: GPUBuffer;
+  private readonly pipeline: GPUComputePipeline;
+  private readonly disabledSun: GPUBuffer;
+  private readonly disabledTransmittance: GPUTexture;
+  private readonly disabledTransmittanceView: GPUTextureView;
+  private readonly settings: GPUBuffer;
 
-    constructor(private readonly device: GPUDevice, private readonly scratch: SurfaceFrameResources) {
-        this.settings = device.createBuffer({label:"Surface/radiometry settings",size:16,
-            usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
-        this.pipeline = device.createComputePipeline({
-            label: "Surface/current radiometry envelope",
-            layout: "auto",
-            compute: {
-                module: device.createShaderModule({ code: SURFACE_RADIOMETRY_WGSL }),
-                entryPoint: "prove_radiometry"
-            }
-        });
-        this.disabledSun = device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM });
-        this.disabledTransmittance = device.createTexture({
-            size: [1, 1], format: "rgba8unorm", usage: GPUTextureUsage.TEXTURE_BINDING
-        });
-        this.disabledTransmittanceView = this.disabledTransmittance.createView();
-    }
+  constructor(
+    private readonly device: GPUDevice,
+    private readonly scratch: SurfaceFrameResources,
+  ) {
+    this.settings = device.createBuffer({
+      label: "Surface/radiometry settings",
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    this.pipeline = device.createComputePipeline({
+      label: "Surface/current radiometry envelope",
+      layout: "auto",
+      compute: {
+        module: device.createShaderModule({ code: SURFACE_RADIOMETRY_WGSL }),
+        entryPoint: "prove_radiometry",
+      },
+    });
+    this.disabledSun = device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM });
+    this.disabledTransmittance = device.createTexture({
+      size: [1, 1],
+      format: "rgba8unorm",
+      usage: GPUTextureUsage.TEXTURE_BINDING,
+    });
+    this.disabledTransmittanceView = this.disabledTransmittance.createView();
+  }
 
-    addToGraph(graph: FrameGraph, input: {
-        readonly metadata: ResourceId;
-        readonly offset: number;
-        readonly lightRecords: ResourceId;
-        readonly clusters: ResourceId;
-        readonly sun: ResourceId | null;
-        readonly transmittance: ResourceId | null;
-    }): void {
-        if (input.sun !== null && input.transmittance === null) {
-            throw new Error("Surface radiometry requires the actual solar transmittance publication");
-        }
-        const sun = input.sun ?? graph.import_resource("Surface/radiometry disabled solar",
-            { kind: "imported" }, this.disabledSun);
-        const transmittance = input.transmittance ?? graph.import_resource("Surface/radiometry disabled transmission",
-            { kind: "imported" }, this.disabledTransmittanceView);
-        const node = graph.add("Surface/current radiometry envelope", input, (_data, resources, context) => {
-            const command = context.encoder as ShadeGPUCommandContext;
-            const settings = this.settings;
-            command.writeBuffer(settings, 0, new Uint32Array([
-                input.offset, input.sun === null ? 0 : 1, 0, 0
-            ]).buffer, 0, 16);
-            const group = this.scratch.obtainBindGroup(this.pipeline, 0, [
-                    { binding: 0, resource: { buffer: settings } },
-                    { binding: 1, resource: { buffer: resources.get(input.lightRecords) as GPUBuffer } },
-                    { binding: 2, resource: { buffer: resources.get(input.clusters) as GPUBuffer } },
-                    { binding: 3, resource: { buffer: resources.get(sun) as GPUBuffer } },
-                    { binding: 4, resource: this.scratch.resolveTextureView(resources.get(transmittance)) },
-                    { binding: 5, resource: { buffer: resources.get(input.metadata) as GPUBuffer } }
-                ]);
-            const pass = command.beginComputePass({ label: "Surface/current radiometry envelope" });
-            pass.setPipeline(this.pipeline);
-            pass.setBindGroup(0, group);
-            pass.dispatchWorkgroups(1);
-            pass.end();
-        });
-        node.read(input.lightRecords);
-        node.read(input.clusters);
-        node.read(sun);
-        node.read(transmittance);
-        node.read(input.metadata);
-        node.write(input.metadata);
+  addToGraph(
+    graph: FrameGraph,
+    input: {
+      readonly metadata: ResourceId;
+      readonly offset: number;
+      readonly lightRecords: ResourceId;
+      readonly clusters: ResourceId;
+      readonly sun: ResourceId | null;
+      readonly transmittance: ResourceId | null;
+    },
+  ): void {
+    if (input.sun !== null && input.transmittance === null) {
+      throw new Error("Surface radiometry requires the actual solar transmittance publication");
     }
+    const sun =
+      input.sun ??
+      graph.import_resource("Surface/radiometry disabled solar", { kind: "imported" }, this.disabledSun);
+    const transmittance =
+      input.transmittance ??
+      graph.import_resource(
+        "Surface/radiometry disabled transmission",
+        { kind: "imported" },
+        this.disabledTransmittanceView,
+      );
+    const node = graph.add("Surface/current radiometry envelope", input, (_data, resources, context) => {
+      const command = context.encoder as ShadeGPUCommandContext;
+      const settings = this.settings;
+      command.writeBuffer(
+        settings,
+        0,
+        new Uint32Array([input.offset, input.sun === null ? 0 : 1, 0, 0]).buffer,
+        0,
+        16,
+      );
+      const group = this.scratch.obtainBindGroup(this.pipeline, 0, [
+        { binding: 0, resource: { buffer: settings } },
+        { binding: 1, resource: { buffer: resources.get(input.lightRecords) as GPUBuffer } },
+        { binding: 2, resource: { buffer: resources.get(input.clusters) as GPUBuffer } },
+        { binding: 3, resource: { buffer: resources.get(sun) as GPUBuffer } },
+        { binding: 4, resource: this.scratch.resolveTextureView(resources.get(transmittance)) },
+        { binding: 5, resource: { buffer: resources.get(input.metadata) as GPUBuffer } },
+      ]);
+      const pass = command.beginComputePass({ label: "Surface/current radiometry envelope" });
+      pass.setPipeline(this.pipeline);
+      pass.setBindGroup(0, group);
+      pass.dispatchWorkgroups(1);
+      pass.end();
+    });
+    node.read(input.lightRecords);
+    node.read(input.clusters);
+    node.read(sun);
+    node.read(transmittance);
+    node.read(input.metadata);
+    node.write(input.metadata);
+  }
 
-    destroy(): void {
-        this.settings.destroy();
-        this.disabledSun.destroy();
-        this.disabledTransmittance.destroy();
-    }
+  destroy(): void {
+    this.settings.destroy();
+    this.disabledSun.destroy();
+    this.disabledTransmittance.destroy();
+  }
 }

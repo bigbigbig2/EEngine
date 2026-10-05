@@ -14,11 +14,7 @@ export function unpackUsdz(buffer: ArrayBuffer): {
   const t = BinaryReader.fromArrayBuffer(buffer);
   const n = new Map<string, Uint8Array>();
   let r = "";
-  while (
-    t.position < t.capacity &&
-    !(t.position + 4 > t.capacity) &&
-    t.readUint32() === ZIP_LOCAL_SIG
-  ) {
+  while (t.position < t.capacity && !(t.position + 4 > t.capacity) && t.readUint32() === ZIP_LOCAL_SIG) {
     t.skip(4);
     const s = t.readUint16();
     t.skip(8);
@@ -29,10 +25,10 @@ export function unpackUsdz(buffer: ArrayBuffer): {
     const c = t.readASCIICharacters(o);
     t.skip(_);
     if (s !== 0) {
-      throw new UsdParseError(
-        `USDZ requires uncompressed entries, but "${c}" uses method ${s}`,
-        { section: "unpack_usdz", offset: t.position }
-      );
+      throw new UsdParseError(`USDZ requires uncompressed entries, but "${c}" uses method ${s}`, {
+        section: "unpack_usdz",
+        offset: t.position,
+      });
     }
     const d = t.position;
     const u = new Uint8Array(buffer, d, i);
@@ -42,7 +38,7 @@ export function unpackUsdz(buffer: ArrayBuffer): {
   }
   if (r === "") {
     throw new UsdParseError("Empty USDZ archive — no files found", {
-      section: "unpack_usdz"
+      section: "unpack_usdz",
     });
   }
   return { files: n, rootFileName: r };

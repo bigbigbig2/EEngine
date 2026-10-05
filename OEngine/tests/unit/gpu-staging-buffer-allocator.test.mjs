@@ -10,11 +10,16 @@ test("staging allocator reuses unmapped copy buffers without remapping", () => {
   let descriptor;
   const buffer = {
     size: 64,
-    destroy() { destroyed = true; }
+    destroy() {
+      destroyed = true;
+    },
   };
   try {
     const allocator = new GPUStagingBufferAllocator({
-      createBuffer(value) { descriptor = value; return buffer; }
+      createBuffer(value) {
+        descriptor = value;
+        return buffer;
+      },
     });
     const allocated = allocator.get(64);
     assert.equal(allocator.gpu_memory_usage, 64, "active upload buffers remain allocated");
@@ -37,12 +42,14 @@ test("staging allocator waits for submitted work before reusing upload memory", 
   const previousUsage = globalThis.GPUBufferUsage;
   globalThis.GPUBufferUsage = { COPY_SRC: 1, COPY_DST: 2 };
   let complete;
-  const submitted = new Promise(resolve => { complete = resolve; });
+  const submitted = new Promise((resolve) => {
+    complete = resolve;
+  });
   try {
     const allocator = new GPUStagingBufferAllocator({
       createBuffer({ size }) {
         return { size, destroy() {} };
-      }
+      },
     });
     const inFlight = allocator.get(64);
     allocator.release(inFlight, submitted);

@@ -67,12 +67,15 @@ function phase(pass: FrameGraphPassLike): FrameGraphPassRow["phase"] {
 
 export function buildFrameGraphRows(
   evidence: FrameGraphEvidenceLike | null,
-  frame: ProfileFrame | undefined
+  frame: ProfileFrame | undefined,
 ): readonly FrameGraphPassRow[] {
   const passes = evidence?.dump?.passes ?? [];
   return passes.map((pass) => {
-    const span = frame?.spans.find((candidate) =>
-      candidate.name === pass.name && candidate.clockDomain === "gpu-device" && candidate.availability === "available"
+    const span = frame?.spans.find(
+      (candidate) =>
+        candidate.name === pass.name &&
+        candidate.clockDomain === "gpu-device" &&
+        candidate.availability === "available",
     );
     return Object.freeze({
       id: pass.id,
@@ -82,7 +85,7 @@ export function buildFrameGraphRows(
       scheduleIndex: pass.scheduleIndex ?? null,
       reads: pass.reads.length,
       writes: pass.writes.length,
-      gpuDurationMs: span?.duration ?? null
+      gpuDurationMs: span?.duration ?? null,
     });
   });
 }
@@ -106,13 +109,20 @@ export class FrameGraphPanel {
     const rows = buildFrameGraphRows(evidence, frame);
     const dump = evidence?.dump;
     const resources = evidence?.resources;
-    this.summary.textContent = dump === undefined
-      ? "FrameGraph unavailable"
-      : resources === undefined
-        ? `active ${rows.filter((row) => row.state === "active").length} · pruned ${rows.filter((row) => row.state === "pruned").length} · resources ${dump.resources.length}`
-        : `active ${rows.filter((row) => row.state === "active").length} · pruned ${rows.filter((row) => row.state === "pruned").length} · imported ${resources.liveImported ?? resources.imported} · transient ${resources.liveTransient ?? resources.transient}`;
-    this.table.textContent = rows.length === 0
-      ? "No pass evidence"
-      : rows.map((row) => `${row.scheduleIndex ?? "—"} ${row.state} ${row.phase} ${row.name} · R${row.reads}/W${row.writes} · GPU ${row.gpuDurationMs === null ? "unsupported" : `${row.gpuDurationMs.toFixed(2)} ms`}`).join("\n");
+    this.summary.textContent =
+      dump === undefined
+        ? "FrameGraph unavailable"
+        : resources === undefined
+          ? `active ${rows.filter((row) => row.state === "active").length} · pruned ${rows.filter((row) => row.state === "pruned").length} · resources ${dump.resources.length}`
+          : `active ${rows.filter((row) => row.state === "active").length} · pruned ${rows.filter((row) => row.state === "pruned").length} · imported ${resources.liveImported ?? resources.imported} · transient ${resources.liveTransient ?? resources.transient}`;
+    this.table.textContent =
+      rows.length === 0
+        ? "No pass evidence"
+        : rows
+            .map(
+              (row) =>
+                `${row.scheduleIndex ?? "—"} ${row.state} ${row.phase} ${row.name} · R${row.reads}/W${row.writes} · GPU ${row.gpuDurationMs === null ? "unsupported" : `${row.gpuDurationMs.toFixed(2)} ms`}`,
+            )
+            .join("\n");
   }
 }

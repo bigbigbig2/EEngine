@@ -99,7 +99,12 @@ class QuadTreeNode extends AABB2 {
     const { x0, y0, x1, y1 } = this;
     if (datum.x0 < x0 || datum.x1 > x1 || datum.y0 < y0 || datum.y1 > y1) {
       if (this.parentNode === null) {
-        this.resize(Math.min(x0, datum.x0), Math.min(y0, datum.y0), Math.max(x1, datum.x1), Math.max(y1, datum.y1));
+        this.resize(
+          Math.min(x0, datum.x0),
+          Math.min(y0, datum.y0),
+          Math.max(x1, datum.x1),
+          Math.max(y1, datum.y1),
+        );
         this.addDatum(datum);
       } else {
         this.parentNode.insertDatum(datum);
@@ -230,9 +235,16 @@ class QuadTreeNode extends AABB2 {
     this.bottomRight!.traversePreOrder(visitor);
   }
 
-  traverseRectangleIntersections(x0: number, y0: number, x1: number, y1: number, visitor: (datum: QuadTreeDatum) => boolean | void): void {
+  traverseRectangleIntersections(
+    x0: number,
+    y0: number,
+    x1: number,
+    y1: number,
+    visitor: (datum: QuadTreeDatum) => boolean | void,
+  ): void {
     for (const datum of this.data) {
-      if (datum.x0 < x1 && datum.x1 > x0 && datum.y0 < y1 && datum.y1 > y0 && visitor(datum) === false) return;
+      if (datum.x0 < x1 && datum.x1 > x0 && datum.y0 < y1 && datum.y1 > y0 && visitor(datum) === false)
+        return;
     }
     if (!this.isSplit()) return;
     const midX = 0.5 * (this.x0 + this.x1);
@@ -285,9 +297,19 @@ function removeContainedFreeRectangles(root: QuadTreeNode): void {
   let current: QuadTreeDatum;
   const compare = (datum: QuadTreeDatum): boolean | void => {
     if (current === datum) return;
-    if (datum.x0 >= current.x0 && datum.x1 <= current.x1 && datum.y0 >= current.y0 && datum.y1 <= current.y1) {
+    if (
+      datum.x0 >= current.x0 &&
+      datum.x1 <= current.x1 &&
+      datum.y0 >= current.y0 &&
+      datum.y1 <= current.y1
+    ) {
       remove.push(datum);
-    } else if (current.x0 >= datum.x0 && current.x1 <= datum.x1 && current.y0 >= datum.y0 && current.y1 <= datum.y1) {
+    } else if (
+      current.x0 >= datum.x0 &&
+      current.x1 <= datum.x1 &&
+      current.y0 >= datum.y0 &&
+      current.y1 <= datum.y1
+    ) {
       remove.push(current);
       return false;
     }
@@ -366,7 +388,11 @@ export class ShadowAtlasAllocator {
 
   addMany(boxes: AABB2[]): boolean {
     const placed: AABB2[] = [];
-    const order = boxes.map((_, index) => index).sort((a, b) => Math.min(boxes[b]!.width, boxes[b]!.height) - Math.min(boxes[a]!.width, boxes[a]!.height));
+    const order = boxes
+      .map((_, index) => index)
+      .sort(
+        (a, b) => Math.min(boxes[b]!.width, boxes[b]!.height) - Math.min(boxes[a]!.width, boxes[a]!.height),
+      );
     for (const index of order) {
       const box = boxes[index]!;
       if (!placeRectangle(box, this.free)) {
@@ -459,7 +485,12 @@ export class ShadowAtlasResolutionController {
     for (const map of this.candidates) {
       const currentSize = map.layout[0]!.width;
       const pendingSize = map.pending_layout?.[0]?.width ?? 0;
-      const desired = this.selectSize(pendingSize || currentSize, map.projected_area_px, map.last_resize_frame_index, frameIndex);
+      const desired = this.selectSize(
+        pendingSize || currentSize,
+        map.projected_area_px,
+        map.last_resize_frame_index,
+        frameIndex,
+      );
       if (desired !== currentSize) {
         if (desired !== pendingSize) {
           if (map.pending_layout !== null) this.removePending(map);
@@ -496,8 +527,16 @@ export class ShadowAtlasResolutionController {
     return true;
   }
 
-  private selectSize(current: number, projectedArea: number, lastResizeFrame: number, frameIndex: number): number {
-    const targetLog = Math.min(Math.max(Math.log2(Math.max(0.015625 * projectedArea * this.dropSizeScale, 1)), 5), 10);
+  private selectSize(
+    current: number,
+    projectedArea: number,
+    lastResizeFrame: number,
+    frameIndex: number,
+  ): number {
+    const targetLog = Math.min(
+      Math.max(Math.log2(Math.max(0.015625 * projectedArea * this.dropSizeScale, 1)), 5),
+      10,
+    );
     const currentLog = Math.log2(current);
     const distance = targetLog - currentLog;
     const absoluteDistance = Math.abs(distance);
@@ -505,7 +544,8 @@ export class ShadowAtlasResolutionController {
     let selected = absoluteDistance >= 1.7 ? Math.round(targetLog) : currentLog + Math.sign(distance);
     selected = Math.min(Math.max(selected, 5), 10);
     const delta = selected - currentLog;
-    if (delta === 0 || (Math.abs(delta) === 1 && lastResizeFrame !== -1 && frameIndex - lastResizeFrame < 3)) return current;
+    if (delta === 0 || (Math.abs(delta) === 1 && lastResizeFrame !== -1 && frameIndex - lastResizeFrame < 3))
+      return current;
     return 1 << selected;
   }
 }

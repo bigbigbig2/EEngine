@@ -5,7 +5,7 @@ import {
   decodeGeometryProductPageRecordV1,
   type GeometryProductDescriptorV1,
   type GeometryProductSourceIdentityKind,
-  type GeometryPageProductV1
+  type GeometryPageProductV1,
 } from "./GeometryProductV1.js";
 import {
   beginWebGeometryCookWasmBuilderV1,
@@ -15,12 +15,12 @@ import {
   WEB_GEOMETRY_PAGE_BYTES,
   type EmscriptenWebGeometryCookerModuleV1,
   type WebGeometryCookWasmHandleV1,
-  type WebGeometryCookWasmPlanV1
+  type WebGeometryCookWasmPlanV1,
 } from "../web-cook/wasm/WebGeometryCookerAbi.js";
 import type {
   WebGeometryPageArtifactInputV1,
   WebGeometryPageSpillKeyV1,
-  WebGeometryPageSpillStoreV1
+  WebGeometryPageSpillStoreV1,
 } from "./WebGeometryPageSpillStoreV1.js";
 import { pageSpillKeyV1 } from "./WebGeometryPageSpillStoreV1.js";
 
@@ -91,9 +91,14 @@ export async function deriveGeometryProductIdV1(
   sourceIdentityHash: Uint8Array,
   recipeHash: Uint8Array,
   contentManifestHash: Uint8Array,
-  productScopeHash: Uint8Array
+  productScopeHash: Uint8Array,
 ): Promise<Uint8Array> {
-  for (const [name, value] of [["sourceIdentityHash", sourceIdentityHash], ["recipeHash", recipeHash], ["contentManifestHash", contentManifestHash], ["productScopeHash", productScopeHash]] as const) {
+  for (const [name, value] of [
+    ["sourceIdentityHash", sourceIdentityHash],
+    ["recipeHash", recipeHash],
+    ["contentManifestHash", contentManifestHash],
+    ["productScopeHash", productScopeHash],
+  ] as const) {
     if (value.byteLength !== 32) throw new RangeError(`${name} must be exactly 32 bytes`);
   }
   const fields = [
@@ -106,7 +111,7 @@ export async function deriveGeometryProductIdV1(
     recipeHash.slice(),
     textBytes(GEOMETRY_PRODUCT_RUNTIME_PROFILE),
     contentManifestHash.slice(),
-    productScopeHash.slice()
+    productScopeHash.slice(),
   ];
   const encoded = encodeLengthPrefixed(fields);
   return new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", encoded));
@@ -117,12 +122,19 @@ export async function cookWasmGeometryProductRevisionV1(
   module: EmscriptenWebGeometryCookerModuleV1,
   canonicalInput: ArrayBuffer,
   recipeInput: ArrayBuffer,
-  options: Readonly<WasmGeometryProductIdentifyInputV1 & { readonly maxDecodedProductBytes: number }>
+  options: Readonly<WasmGeometryProductIdentifyInputV1 & { readonly maxDecodedProductBytes: number }>,
 ): Promise<WasmGeometryProductRevisionV1> {
   const result = cookWebGeometryWasmV1(module, canonicalInput, recipeInput, options.maxDecodedProductBytes);
   try {
-    const productScopeHash = await resolveProductScopeHash(options, [await digestCanonicalWindow(canonicalInput)]);
-    return await assembleWasmGeometryProductRevisionV1(result, options, productScopeHash, () => new MonolithicPageSource(result));
+    const productScopeHash = await resolveProductScopeHash(options, [
+      await digestCanonicalWindow(canonicalInput),
+    ]);
+    return await assembleWasmGeometryProductRevisionV1(
+      result,
+      options,
+      productScopeHash,
+      () => new MonolithicPageSource(result),
+    );
   } catch (error) {
     result.release();
     throw error;
@@ -149,12 +161,26 @@ export async function planWasmGeometryProductRevisionV1(
   module: EmscriptenWebGeometryCookerModuleV1,
   canonicalInput: ArrayBuffer,
   recipeInput: ArrayBuffer,
-  options: Readonly<WasmGeometryProductIdentifyInputV1 & { readonly maxDecodedProductBytes: number }>
+  options: Readonly<WasmGeometryProductIdentifyInputV1 & { readonly maxDecodedProductBytes: number }>,
 ): Promise<WasmGeometryProductRevisionV1> {
   const result = planWebGeometryWasmV1(module, canonicalInput, recipeInput, options.maxDecodedProductBytes);
   try {
-    const productScopeHash = await resolveProductScopeHash(options, [await digestCanonicalWindow(canonicalInput)]);
-    return await assembleWasmGeometryProductRevisionV1(result, options, productScopeHash, descriptor => new WasmPlanPageSource(result!, descriptor, options.spillStore, options.sessionGeneration, options.signal));
+    const productScopeHash = await resolveProductScopeHash(options, [
+      await digestCanonicalWindow(canonicalInput),
+    ]);
+    return await assembleWasmGeometryProductRevisionV1(
+      result,
+      options,
+      productScopeHash,
+      (descriptor) =>
+        new WasmPlanPageSource(
+          result!,
+          descriptor,
+          options.spillStore,
+          options.sessionGeneration,
+          options.signal,
+        ),
+    );
   } catch (error) {
     result.release();
     throw error;
@@ -166,7 +192,7 @@ export async function planWasmGeometryProductRevisionWindowsV1(
   module: EmscriptenWebGeometryCookerModuleV1,
   canonicalWindows: AsyncIterable<ArrayBuffer>,
   recipeInput: ArrayBuffer,
-  options: Readonly<WasmGeometryProductIdentifyInputV1 & { readonly maxDecodedProductBytes: number }>
+  options: Readonly<WasmGeometryProductIdentifyInputV1 & { readonly maxDecodedProductBytes: number }>,
 ): Promise<WasmGeometryProductRevisionV1> {
   const builder = beginWebGeometryCookWasmBuilderV1(module, recipeInput, options.maxDecodedProductBytes);
   let result: WebGeometryCookWasmPlanV1 | undefined;
@@ -181,7 +207,19 @@ export async function planWasmGeometryProductRevisionWindowsV1(
     if (windows === 0) throw new Error("canonical window stream produced no inputs");
     result = builder.finish();
     const productScopeHash = await resolveProductScopeHash(options, canonicalWindowHashes);
-    return await assembleWasmGeometryProductRevisionV1(result, options, productScopeHash, descriptor => new WasmPlanPageSource(result!, descriptor, options.spillStore, options.sessionGeneration, options.signal));
+    return await assembleWasmGeometryProductRevisionV1(
+      result,
+      options,
+      productScopeHash,
+      (descriptor) =>
+        new WasmPlanPageSource(
+          result!,
+          descriptor,
+          options.spillStore,
+          options.sessionGeneration,
+          options.signal,
+        ),
+    );
   } catch (error) {
     result?.release();
     builder.release();
@@ -202,7 +240,7 @@ async function assembleWasmGeometryProductRevisionV1(
   result: WebGeometryCookWasmHandleV1,
   options: Readonly<WasmGeometryProductIdentifyInputV1 & { readonly maxDecodedProductBytes: number }>,
   productScopeHash: Uint8Array,
-  createPageSource: (descriptor: GeometryProductDescriptorV1) => GeometryProductPageSourceV1
+  createPageSource: (descriptor: GeometryProductDescriptorV1) => GeometryProductPageSourceV1,
 ): Promise<WasmGeometryProductRevisionV1> {
   const sections = result.descriptorSections();
   const productId = await deriveGeometryProductIdV1(
@@ -212,13 +250,20 @@ async function assembleWasmGeometryProductRevisionV1(
     options.sourceIdentityHash,
     sections.recipeHash,
     sections.contentManifestHash,
-    productScopeHash
+    productScopeHash,
   );
   const descriptor: GeometryProductDescriptorV1 = Object.freeze({
     schemaVersion: 1,
     productId,
     revision: options.revision,
-    ...(options.replaces === undefined ? {} : { replaces: Object.freeze({ productId: options.replaces.productId.slice(), revision: options.replaces.revision }) }),
+    ...(options.replaces === undefined
+      ? {}
+      : {
+          replaces: Object.freeze({
+            productId: options.replaces.productId.slice(),
+            revision: options.replaces.revision,
+          }),
+        }),
     producerKind: "web-runtime",
     producerId: options.producerId,
     producerVersion: options.producerVersion,
@@ -234,7 +279,7 @@ async function assembleWasmGeometryProductRevisionV1(
     pageRecords: sections.pageRecords,
     bootstrapPageIds: sections.bootstrapPageIds,
     activationPageIds: sections.activationPageIds,
-    vertexFormats: sections.vertexFormats
+    vertexFormats: sections.vertexFormats,
   });
   assertGeometryProductDescriptorV1(descriptor);
   return new WasmGeometryProductRevision(createPageSource(descriptor), descriptor, options.sceneAssetIndices);
@@ -244,9 +289,15 @@ async function assembleWasmGeometryProductRevisionV1(
 class MonolithicPageSource implements GeometryProductPageSourceV1 {
   readonly hasPendingPages = false;
   constructor(private readonly handle: WebGeometryCookWasmHandleV1) {}
-  async copyPage(pageId: number): Promise<ArrayBuffer> { return this.handle.copyPage(pageId); }
-  async spillAllPages(): Promise<void> { /* monolithic pages are already materialised */ }
-  release(): void { this.handle.release(); }
+  async copyPage(pageId: number): Promise<ArrayBuffer> {
+    return this.handle.copyPage(pageId);
+  }
+  async spillAllPages(): Promise<void> {
+    /* monolithic pages are already materialised */
+  }
+  release(): void {
+    this.handle.release();
+  }
 }
 
 /**
@@ -268,7 +319,13 @@ class WasmPlanPageSource implements GeometryProductPageSourceV1 {
   readonly #inflight = new Map<number, Promise<ArrayBuffer | null>>();
   #released = false;
 
-  constructor(plan: WebGeometryCookWasmPlanV1, descriptor: GeometryProductDescriptorV1, spillStore?: WebGeometryPageSpillStoreV1, sessionGeneration?: number, signal?: AbortSignal) {
+  constructor(
+    plan: WebGeometryCookWasmPlanV1,
+    descriptor: GeometryProductDescriptorV1,
+    spillStore?: WebGeometryPageSpillStoreV1,
+    sessionGeneration?: number,
+    signal?: AbortSignal,
+  ) {
     this.#plan = plan;
     this.#descriptor = descriptor;
     this.#spillStore = spillStore;
@@ -288,7 +345,7 @@ class WasmPlanPageSource implements GeometryProductPageSourceV1 {
     const cached = this.#produced.get(pageId);
     if (cached !== undefined) return cached.slice(0);
     const pending = this.#inflight.get(pageId);
-    if (pending !== undefined) return pending.then(bytes => bytes?.slice(0) ?? null);
+    if (pending !== undefined) return pending.then((bytes) => bytes?.slice(0) ?? null);
     const key = this.spillKey(pageId);
     const run = this.readOrMaterialize(pageId, key);
     this.#inflight.set(pageId, run);
@@ -302,9 +359,11 @@ class WasmPlanPageSource implements GeometryProductPageSourceV1 {
 
   async spillAllPages(): Promise<void> {
     if (this.#released) throw new Error("WASM Geometry Product plan has been released");
-    if (this.#spillStore === undefined) throw new Error("WASM Geometry Product eager spill requires a spill store");
+    if (this.#spillStore === undefined)
+      throw new Error("WASM Geometry Product eager spill requires a spill store");
     for (let pageId = 0; pageId < this.#plan.pageCount; pageId++) {
-      if (await this.copyPage(pageId) === null) throw new Error(`WASM Geometry Product page ${pageId} could not be spilled`);
+      if ((await this.copyPage(pageId)) === null)
+        throw new Error(`WASM Geometry Product page ${pageId} could not be spilled`);
     }
   }
 
@@ -312,14 +371,18 @@ class WasmPlanPageSource implements GeometryProductPageSourceV1 {
     if (this.#released) return;
     this.#released = true;
     const store = this.#spillStore;
-    if (store !== undefined) for (const key of this.#ownedSpill.values()) void store.release(key).catch(() => undefined);
+    if (store !== undefined)
+      for (const key of this.#ownedSpill.values()) void store.release(key).catch(() => undefined);
     this.#ownedSpill.clear();
     this.#produced.clear();
     this.#inflight.clear();
     this.#plan.release();
   }
 
-  private async readOrMaterialize(pageId: number, key: WebGeometryPageSpillKeyV1): Promise<ArrayBuffer | null> {
+  private async readOrMaterialize(
+    pageId: number,
+    key: WebGeometryPageSpillKeyV1,
+  ): Promise<ArrayBuffer | null> {
     if (this.#released) throw new Error("WASM Geometry Product plan has been released");
     if (this.#spillStore !== undefined) {
       const artifact = await this.#spillStore.read(key);
@@ -327,7 +390,13 @@ class WasmPlanPageSource implements GeometryProductPageSourceV1 {
       if (this.#released) throw new Error("WASM Geometry Product plan has been released");
       if (artifact !== null) {
         const expected = decodeGeometryProductPageRecordV1(this.#descriptor, pageId);
-        if (!sameBytes(artifact.productId, key.productId) || artifact.revision !== key.revision || artifact.pageId !== key.pageId || !sameBytes(artifact.decodedHash128, expected.decodedHash128)) throw new Error("spill page key or identity does not match the Product revision");
+        if (
+          !sameBytes(artifact.productId, key.productId) ||
+          artifact.revision !== key.revision ||
+          artifact.pageId !== key.pageId ||
+          !sameBytes(artifact.decodedHash128, expected.decodedHash128)
+        )
+          throw new Error("spill page key or identity does not match the Product revision");
         this.#ownedSpill.set(pageSpillKeyV1(artifact), key);
         return artifact.bytes;
       }
@@ -338,7 +407,11 @@ class WasmPlanPageSource implements GeometryProductPageSourceV1 {
   private async materialize(pageId: number, key: WebGeometryPageSpillKeyV1): Promise<ArrayBuffer | null> {
     if (this.#released) throw new Error("WASM Geometry Product plan has been released");
     let produced: ReturnType<WebGeometryCookWasmPlanV1["producePage"]>;
-    try { produced = this.#plan.producePage(pageId); } catch { return null; }
+    try {
+      produced = this.#plan.producePage(pageId);
+    } catch {
+      return null;
+    }
     if (produced.status !== WEB_GEOMETRY_COOK_PAGE_READY || produced.bytes === null) return null;
     if (this.#released) throw new Error("WASM Geometry Product plan was released while producing a page");
     this.throwIfAborted();
@@ -347,19 +420,35 @@ class WasmPlanPageSource implements GeometryProductPageSourceV1 {
       return produced.bytes;
     }
     const expected = decodeGeometryProductPageRecordV1(this.#descriptor, pageId);
-    const input: WebGeometryPageArtifactInputV1 = { ...key, decodedHash128: expected.decodedHash128, bytes: produced.bytes };
+    const input: WebGeometryPageArtifactInputV1 = {
+      ...key,
+      decodedHash128: expected.decodedHash128,
+      bytes: produced.bytes,
+    };
     const artifact = await this.#spillStore.put(input);
     if (this.#released || this.#signal?.aborted) {
       void this.#spillStore.release(key).catch(() => undefined);
-      throw this.#signal?.reason ?? new Error("WASM Geometry Product plan was released while committing a page");
+      throw (
+        this.#signal?.reason ?? new Error("WASM Geometry Product plan was released while committing a page")
+      );
     }
     this.#plan.releasePage(pageId);
     this.#ownedSpill.set(pageSpillKeyV1(artifact), key);
     return artifact.bytes;
   }
 
-  private spillKey(pageId: number): WebGeometryPageSpillKeyV1 { return { productId: this.#descriptor.productId.slice(), revision: this.#descriptor.revision, pageId, ...(this.#sessionGeneration === undefined ? {} : { sessionGeneration: this.#sessionGeneration }) }; }
-  private throwIfAborted(): void { if (this.#signal?.aborted) throw this.#signal.reason ?? new DOMException("The operation was aborted", "AbortError"); }
+  private spillKey(pageId: number): WebGeometryPageSpillKeyV1 {
+    return {
+      productId: this.#descriptor.productId.slice(),
+      revision: this.#descriptor.revision,
+      pageId,
+      ...(this.#sessionGeneration === undefined ? {} : { sessionGeneration: this.#sessionGeneration }),
+    };
+  }
+  private throwIfAborted(): void {
+    if (this.#signal?.aborted)
+      throw this.#signal.reason ?? new DOMException("The operation was aborted", "AbortError");
+  }
 }
 
 class WasmGeometryProductRevision implements WasmGeometryProductRevisionV1 {
@@ -370,23 +459,31 @@ class WasmGeometryProductRevision implements WasmGeometryProductRevisionV1 {
   readonly sceneAssetIndices?: readonly number[];
   #source: GeometryProductPageSourceV1 | undefined;
 
-  constructor(source: GeometryProductPageSourceV1, readonly product: GeometryProductDescriptorV1, sceneAssetIndices?: readonly number[]) {
+  constructor(
+    source: GeometryProductPageSourceV1,
+    readonly product: GeometryProductDescriptorV1,
+    sceneAssetIndices?: readonly number[],
+  ) {
     this.#source = source;
     this.descriptor = encodeGeometryProductDescriptorBinaryV1(product);
     this.productId = product.productId.slice();
     this.revision = product.revision;
     this.pageCount = product.pageRecords.byteLength / 32;
-    this.sceneAssetIndices = sceneAssetIndices === undefined ? undefined : Object.freeze([...sceneAssetIndices]);
+    this.sceneAssetIndices =
+      sceneAssetIndices === undefined ? undefined : Object.freeze([...sceneAssetIndices]);
   }
 
-  get hasPendingPages(): boolean { return this.#source?.hasPendingPages ?? false; }
+  get hasPendingPages(): boolean {
+    return this.#source?.hasPendingPages ?? false;
+  }
 
   async readPage(pageId: number): Promise<GeometryPageProductV1> {
     const source = this.#source;
     if (!source) throw new Error("WASM Geometry Product revision has been released");
     const expected = decodeGeometryProductPageRecordV1(this.product, pageId);
     const bytes = await source.copyPage(pageId);
-    if (bytes === null) throw new Error(`WASM Geometry Product page ${pageId} is not declared by the descriptor`);
+    if (bytes === null)
+      throw new Error(`WASM Geometry Product page ${pageId} is not declared by the descriptor`);
     // The page record carries rolled-up identity, not the whole-page digest, so a
     // whole-page hash comparison would always mismatch. Whole-page digest is
     // reported separately for transport integrity only.
@@ -397,7 +494,7 @@ class WasmGeometryProductRevision implements WasmGeometryProductRevisionV1 {
       pageId,
       decodedHash128: expected.decodedHash128.slice(),
       decodedPageHash128: digest.subarray(0, 16).slice(),
-      bytes
+      bytes,
     });
   }
 
@@ -407,12 +504,16 @@ class WasmGeometryProductRevision implements WasmGeometryProductRevisionV1 {
     await source.spillAllPages();
   }
 
-  release(): void { this.#source?.release(); this.#source = undefined; }
+  release(): void {
+    this.#source?.release();
+    this.#source = undefined;
+  }
 }
 
 function encodeLengthPrefixed(fields: readonly Uint8Array[]): Uint8Array<ArrayBuffer> {
   const byteLength = fields.reduce((sum, field) => checkedAdd(sum, 8 + field.byteLength), 0);
-  const output = new Uint8Array(byteLength), view = new DataView(output.buffer);
+  const output = new Uint8Array(byteLength),
+    view = new DataView(output.buffer);
   let offset = 0;
   for (const field of fields) {
     const length = BigInt(field.byteLength);
@@ -430,30 +531,45 @@ async function digestCanonicalWindow(canonical: ArrayBuffer): Promise<Uint8Array
 
 async function resolveProductScopeHash(
   options: Readonly<WasmGeometryProductIdentifyInputV1>,
-  canonicalWindowHashes: readonly Uint8Array[]
+  canonicalWindowHashes: readonly Uint8Array[],
 ): Promise<Uint8Array> {
   if (options.productScopeHash !== undefined) {
-    if (options.productScopeHash.byteLength !== 32) throw new RangeError("productScopeHash must be exactly 32 bytes");
+    if (options.productScopeHash.byteLength !== 32)
+      throw new RangeError("productScopeHash must be exactly 32 bytes");
     return options.productScopeHash.slice();
   }
-  if (canonicalWindowHashes.length === 0) throw new RangeError("Product scope requires at least one canonical window hash");
-  for (const hash of canonicalWindowHashes) if (hash.byteLength !== 32) throw new RangeError("canonical window hash must be exactly 32 bytes");
+  if (canonicalWindowHashes.length === 0)
+    throw new RangeError("Product scope requires at least one canonical window hash");
+  for (const hash of canonicalWindowHashes)
+    if (hash.byteLength !== 32) throw new RangeError("canonical window hash must be exactly 32 bytes");
   const sceneAssetIndices = options.sceneAssetIndices ?? [];
-  const mapping = new Uint8Array(sceneAssetIndices.length * 4), mappingView = new DataView(mapping.buffer);
+  const mapping = new Uint8Array(sceneAssetIndices.length * 4),
+    mappingView = new DataView(mapping.buffer);
   for (let index = 0; index < sceneAssetIndices.length; index++) {
     const value = sceneAssetIndices[index]!;
-    if (!Number.isSafeInteger(value) || value < 0 || value > 0xffffffff) throw new RangeError("sceneAssetIndices must contain u32 values");
+    if (!Number.isSafeInteger(value) || value < 0 || value > 0xffffffff)
+      throw new RangeError("sceneAssetIndices must contain u32 values");
     mappingView.setUint32(index * 4, value, true);
   }
   const encoded = encodeLengthPrefixed([
     textBytes("OENGINE-GEOMETRY-PRODUCT-SCOPE-V2"),
     textBytes(options.partitionIdentity ?? "canonical-content"),
     mapping,
-    ...canonicalWindowHashes.map(hash => hash.slice())
+    ...canonicalWindowHashes.map((hash) => hash.slice()),
   ]);
   return new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", encoded));
 }
 
-function textBytes(value: string): Uint8Array { return new TextEncoder().encode(value); }
-function checkedAdd(a: number, b: number): number { const value = a + b; if (!Number.isSafeInteger(value)) throw new RangeError("Product identity input exceeds safe integer range"); return value; }
-function sameBytes(left: Uint8Array, right: Uint8Array): boolean { if (left.byteLength !== right.byteLength) return false; for (let index = 0; index < left.byteLength; index++) if (left[index] !== right[index]) return false; return true; }
+function textBytes(value: string): Uint8Array {
+  return new TextEncoder().encode(value);
+}
+function checkedAdd(a: number, b: number): number {
+  const value = a + b;
+  if (!Number.isSafeInteger(value)) throw new RangeError("Product identity input exceeds safe integer range");
+  return value;
+}
+function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.byteLength !== right.byteLength) return false;
+  for (let index = 0; index < left.byteLength; index++) if (left[index] !== right[index]) return false;
+  return true;
+}

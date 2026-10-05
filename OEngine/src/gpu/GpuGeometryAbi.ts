@@ -81,7 +81,7 @@ const GEOMETRY_FIELDS: readonly GpuAbiField[] = [
   { name: "color_normalized", kind: "u32", byteOffset: 224 },
   { name: "color_components", kind: "u32", byteOffset: 228 },
   { name: "resident_attribute_word_offset", kind: "u32", byteOffset: 232 },
-  { name: "_pad2", kind: "u32", byteOffset: 236 }
+  { name: "_pad2", kind: "u32", byteOffset: 236 },
 ];
 
 const CLUSTER_FIELDS: readonly GpuAbiField[] = [
@@ -101,7 +101,7 @@ const CLUSTER_FIELDS: readonly GpuAbiField[] = [
   { name: "bounds_max", kind: "vec4f", byteOffset: 64 },
   { name: "bounds_sphere", kind: "vec4f", byteOffset: 80 },
   { name: "cone_apex", kind: "vec4f", byteOffset: 96 },
-  { name: "cone_axis_cutoff", kind: "vec4f", byteOffset: 112 }
+  { name: "cone_axis_cutoff", kind: "vec4f", byteOffset: 112 },
 ];
 
 const MESHLET_FIELDS: readonly GpuAbiField[] = [
@@ -121,23 +121,23 @@ const MESHLET_FIELDS: readonly GpuAbiField[] = [
   { name: "surface_metadata_word_offset", kind: "u32", byteOffset: 112 },
   { name: "surface_metadata_version", kind: "u32", byteOffset: 116 },
   { name: "_pad0", kind: "u32", byteOffset: 120 },
-  { name: "_pad1", kind: "u32", byteOffset: 124 }
+  { name: "_pad1", kind: "u32", byteOffset: 124 },
 ];
 
 export const GPU_GEOMETRY_RECORD_SCHEMA = createSchema(
   "GpuGeometryRecord",
   GPU_GEOMETRY_RECORD_STRIDE,
-  GEOMETRY_FIELDS
+  GEOMETRY_FIELDS,
 );
 export const GPU_CLUSTER_RECORD_SCHEMA = createSchema(
   "GpuClusterRecord",
   GPU_CLUSTER_RECORD_STRIDE,
-  CLUSTER_FIELDS
+  CLUSTER_FIELDS,
 );
 export const GPU_MESHLET_RECORD_SCHEMA = createSchema(
   "GpuMeshletRecord",
   GPU_MESHLET_RECORD_STRIDE,
-  MESHLET_FIELDS
+  MESHLET_FIELDS,
 );
 
 export const GPU_GEOMETRY_RECORD_WGSL = GPU_GEOMETRY_RECORD_SCHEMA.wgsl;
@@ -148,7 +148,7 @@ export const GPU_POSITION_FORMAT = Object.freeze({
   Unknown: 0,
   Float32x3: 1,
   Float32x4: 2,
-  AabbUnorm16x3: 3
+  AabbUnorm16x3: 3,
 });
 
 export const GPU_UV_FORMAT = Object.freeze({
@@ -156,11 +156,11 @@ export const GPU_UV_FORMAT = Object.freeze({
   Float32x2: 1,
   Unorm8x2: 2,
   Unorm16x2: 3,
-  Float16x2: 4
+  Float16x2: 4,
 });
 
 export const GPU_NORMAL_FORMAT = Object.freeze({
-  OctSnorm16x2: 0x100
+  OctSnorm16x2: 0x100,
 });
 
 /** Single source of truth for byte-addressed position decoding in production shaders. */
@@ -342,7 +342,7 @@ export function packGpuGeometryRecord(record: GpuGeometryRecordCpu): Uint8Array 
     record.colorFormat ?? 0,
     record.colorNormalized ?? 0,
     record.colorComponents ?? 3,
-    record.residentAttributeWordOffset ?? 0
+    record.residentAttributeWordOffset ?? 0,
   ];
   for (let index = 0; index < values.length; index++) {
     view.setUint32(48 + index * 4, checkedU32(values[index]!, "GeometryRecord"), true);
@@ -350,9 +350,7 @@ export function packGpuGeometryRecord(record: GpuGeometryRecordCpu): Uint8Array 
   return bytes;
 }
 
-export function packGpuClusterRecords(
-  records: readonly GpuClusterRecordCpu[]
-): Uint8Array {
+export function packGpuClusterRecords(records: readonly GpuClusterRecordCpu[]): Uint8Array {
   const bytes = new Uint8Array(records.length * GPU_CLUSTER_RECORD_STRIDE);
   const view = new DataView(bytes.buffer);
   for (let index = 0; index < records.length; index++) {
@@ -366,7 +364,7 @@ export function packGpuClusterRecords(
       record.parent,
       record.depth,
       record.materialId,
-      record.flags
+      record.flags,
     ];
     for (let field = 0; field < integers.length; field++) {
       view.setUint32(base + field * 4, checkedU32(integers[field]!, "ClusterRecord"), true);
@@ -381,9 +379,7 @@ export function packGpuClusterRecords(
   return bytes;
 }
 
-export function packGpuMeshletRecords(
-  records: readonly GpuMeshletRecordCpu[]
-): Uint8Array {
+export function packGpuMeshletRecords(records: readonly GpuMeshletRecordCpu[]): Uint8Array {
   const bytes = new Uint8Array(records.length * GPU_MESHLET_RECORD_STRIDE);
   const view = new DataView(bytes.buffer);
   for (let index = 0; index < records.length; index++) {
@@ -397,7 +393,7 @@ export function packGpuMeshletRecords(
       record.materialRangeIndex,
       record.materialId,
       record.flags,
-      record.surfacePrimitiveWordOffset ?? 0
+      record.surfacePrimitiveWordOffset ?? 0,
     ];
     for (let field = 0; field < integers.length; field++) {
       view.setUint32(base + field * 4, checkedU32(integers[field]!, "MeshletRecord"), true);
@@ -407,17 +403,21 @@ export function packGpuMeshletRecords(
     writeVec4(view, base + 64, record.boundsSphere);
     writeVec4(view, base + 80, record.coneApex);
     writeVec4(view, base + 96, record.coneAxisCutoff);
-    view.setUint32(base + 112, checkedU32(record.surfaceMetadataWordOffset ?? 0, "Surface metadata offset"), true);
-    view.setUint32(base + 116, checkedU32(record.surfaceMetadataVersion ?? 0, "Surface metadata version"), true);
+    view.setUint32(
+      base + 112,
+      checkedU32(record.surfaceMetadataWordOffset ?? 0, "Surface metadata offset"),
+      true,
+    );
+    view.setUint32(
+      base + 116,
+      checkedU32(record.surfaceMetadataVersion ?? 0, "Surface metadata version"),
+      true,
+    );
   }
   return bytes;
 }
 
-function createSchema(
-  name: string,
-  stride: number,
-  fields: readonly GpuAbiField[]
-): GpuRecordSchema {
+function createSchema(name: string, stride: number, fields: readonly GpuAbiField[]): GpuRecordSchema {
   const offsets: Record<string, number> = {};
   let cursor = 0;
   let structAlignment = 1;
@@ -445,7 +445,7 @@ function createSchema(
     stride,
     fields: Object.freeze([...fields]),
     offsets: Object.freeze(offsets),
-    wgsl: lines.join("\n")
+    wgsl: lines.join("\n"),
   });
 }
 

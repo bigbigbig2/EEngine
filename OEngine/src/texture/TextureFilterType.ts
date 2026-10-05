@@ -17,7 +17,7 @@ export const TextureFilterType: {
   LinearNormal: 3,
   MagicKernelSharp: 4,
   CatmullRom: 5,
-  Wronski2021: 6
+  Wronski2021: 6,
 };
 
 export type TextureFilterType = number;

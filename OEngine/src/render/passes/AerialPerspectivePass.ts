@@ -46,50 +46,95 @@ export class AerialPerspectivePass {
   private readonly sampler: GPUSampler;
   constructor(private readonly device: GPUDevice) {
     const module = device.createShaderModule({ label: "Environment/Aerial Perspective", code: WGSL });
-    this.layout = device.createBindGroupLayout({ entries: [
-      { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
-      { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "depth" } },
-      { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float", viewDimension: "2d" } },
-      { binding: 3, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float", viewDimension: "3d" } },
-      { binding: 4, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float", viewDimension: "3d" } },
-      { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-      { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-      { binding: 7, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba16float" } },
-      { binding: 8, visibility: GPUShaderStage.COMPUTE, sampler: { type: "filtering" } },
-      { binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-    ] });
-    this.pipeline = device.createComputePipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }), compute: { module, entryPoint: "main" } });
+    this.layout = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "depth" } },
+        {
+          binding: 2,
+          visibility: GPUShaderStage.COMPUTE,
+          texture: { sampleType: "float", viewDimension: "2d" },
+        },
+        {
+          binding: 3,
+          visibility: GPUShaderStage.COMPUTE,
+          texture: { sampleType: "float", viewDimension: "3d" },
+        },
+        {
+          binding: 4,
+          visibility: GPUShaderStage.COMPUTE,
+          texture: { sampleType: "float", viewDimension: "3d" },
+        },
+        { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+        { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+        {
+          binding: 7,
+          visibility: GPUShaderStage.COMPUTE,
+          storageTexture: { access: "write-only", format: "rgba16float" },
+        },
+        { binding: 8, visibility: GPUShaderStage.COMPUTE, sampler: { type: "filtering" } },
+        { binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+      ],
+    });
+    this.pipeline = device.createComputePipeline({
+      layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }),
+      compute: { module, entryPoint: "main" },
+    });
     this.sampler = device.createSampler({ minFilter: "linear", magFilter: "linear" });
   }
-  addToGraph(graph: FrameGraph, input: {
-    scene: ResourceId; depth: ResourceId; camera: ResourceId; environment: ResourceId;
-    transmittance: ResourceId; scattering: ResourceId; higherOrder: ResourceId; width: number; height: number;
-    preExposure: ResourceId;
-  }): ResourceId {
+  addToGraph(
+    graph: FrameGraph,
+    input: {
+      scene: ResourceId;
+      depth: ResourceId;
+      camera: ResourceId;
+      environment: ResourceId;
+      transmittance: ResourceId;
+      scattering: ResourceId;
+      higherOrder: ResourceId;
+      width: number;
+      height: number;
+      preExposure: ResourceId;
+    },
+  ): ResourceId {
     const node = graph.add("Environment/Aerial Perspective", input, (_data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
-      const bind = this.device.createBindGroup({ layout: this.layout, entries: [
-        { binding: 0, resource: resolveTextureView(resources.get(input.scene)) },
-        { binding: 1, resource: resolveTextureView(resources.get(input.depth)) },
-        { binding: 2, resource: resolveTextureView(resources.get(input.transmittance)) },
-        { binding: 3, resource: resolveTextureView(resources.get(input.scattering)) },
-        { binding: 4, resource: resolveTextureView(resources.get(input.higherOrder)) },
-        { binding: 5, resource: { buffer: resources.get(input.camera) as GPUBuffer } },
-        { binding: 6, resource: { buffer: resources.get(input.environment) as GPUBuffer } },
-        { binding: 7, resource: resolveTextureView(resources.get(output)) },
-        { binding: 8, resource: this.sampler },
-        { binding: 9, resource: { buffer: resources.get(input.preExposure) as GPUBuffer } }
-      ] });
+      const bind = this.device.createBindGroup({
+        layout: this.layout,
+        entries: [
+          { binding: 0, resource: resolveTextureView(resources.get(input.scene)) },
+          { binding: 1, resource: resolveTextureView(resources.get(input.depth)) },
+          { binding: 2, resource: resolveTextureView(resources.get(input.transmittance)) },
+          { binding: 3, resource: resolveTextureView(resources.get(input.scattering)) },
+          { binding: 4, resource: resolveTextureView(resources.get(input.higherOrder)) },
+          { binding: 5, resource: { buffer: resources.get(input.camera) as GPUBuffer } },
+          { binding: 6, resource: { buffer: resources.get(input.environment) as GPUBuffer } },
+          { binding: 7, resource: resolveTextureView(resources.get(output)) },
+          { binding: 8, resource: this.sampler },
+          { binding: 9, resource: { buffer: resources.get(input.preExposure) as GPUBuffer } },
+        ],
+      });
       const pass = command.beginComputePass({ label: "Environment/Aerial Perspective" });
-      pass.setPipeline(this.pipeline); pass.setBindGroup(0, bind);
-      pass.dispatchWorkgroups(Math.ceil(input.width / 8), Math.ceil(input.height / 8)); pass.end();
+      pass.setPipeline(this.pipeline);
+      pass.setBindGroup(0, bind);
+      pass.dispatchWorkgroups(Math.ceil(input.width / 8), Math.ceil(input.height / 8));
+      pass.end();
     });
     const output = node.create("Environment/aerial-composited-radiance", {
-      kind: "transient_texture", width: input.width, height: input.height, format: "rgba16float",
-      domain: "internal-full", usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
+      kind: "transient_texture",
+      width: input.width,
+      height: input.height,
+      format: "rgba16float",
+      domain: "internal-full",
+      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
     });
-    node.read(input.scene); node.read(input.depth); node.read(input.camera); node.read(input.environment);
-    node.read(input.transmittance); node.read(input.scattering); node.read(input.higherOrder);
+    node.read(input.scene);
+    node.read(input.depth);
+    node.read(input.camera);
+    node.read(input.environment);
+    node.read(input.transmittance);
+    node.read(input.scattering);
+    node.read(input.higherOrder);
     node.read(input.preExposure);
     return node.write(output);
   }

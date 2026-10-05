@@ -38,10 +38,11 @@ export class LiveProfilerStore {
     this.profiler = profiler;
     this.modeValue = fromProfilerMode(profiler.mode);
     this.recordingValue = this.modeValue === "record";
-    this.unsubscribeHistory = profiler.historyStore?.subscribe((frame) => {
-      this.syncTimeline(frame);
-      if (!this.pausedValue) this.notify();
-    }) ?? (() => {});
+    this.unsubscribeHistory =
+      profiler.historyStore?.subscribe((frame) => {
+        this.syncTimeline(frame);
+        if (!this.pausedValue) this.notify();
+      }) ?? (() => {});
   }
 
   get state(): LiveProfilerStoreState {
@@ -53,13 +54,17 @@ export class LiveProfilerStore {
       selectedFrameIndex: this.selectedFrameIndexValue,
       range: this.rangeValue,
       frames: this.frames,
-      timelineFrames: this.timelineFrames
+      timelineFrames: this.timelineFrames,
     });
   }
 
-  get frames(): readonly ProfileFrame[] { return this.profiler.historyStore?.values() ?? []; }
+  get frames(): readonly ProfileFrame[] {
+    return this.profiler.historyStore?.values() ?? [];
+  }
 
-  get recording(): boolean { return this.recordingValue; }
+  get recording(): boolean {
+    return this.recordingValue;
+  }
 
   get timelineFrames(): readonly ProfileFrame[] {
     return Object.freeze([...this.timelineFrameMap.values()]);
@@ -67,11 +72,15 @@ export class LiveProfilerStore {
 
   get selectedFrame(): ProfileFrame | undefined {
     if (this.selectedFrameIndexValue === null) return undefined;
-    return this.frames.find((frame) => frame.frameIndex === this.selectedFrameIndexValue)
-      ?? this.timelineFrames.find((frame) => frame.frameIndex === this.selectedFrameIndexValue);
+    return (
+      this.frames.find((frame) => frame.frameIndex === this.selectedFrameIndexValue) ??
+      this.timelineFrames.find((frame) => frame.frameIndex === this.selectedFrameIndexValue)
+    );
   }
 
-  get latestFrame(): ProfileFrame | undefined { return this.frames.at(-1); }
+  get latestFrame(): ProfileFrame | undefined {
+    return this.frames.at(-1);
+  }
 
   setMode(mode: LiveProfilerMode): void {
     this.assertAlive();
@@ -82,8 +91,12 @@ export class LiveProfilerStore {
     this.notify();
   }
 
-  pause(): void { this.setPaused(true); }
-  resume(): void { this.setPaused(false); }
+  pause(): void {
+    this.setPaused(true);
+  }
+  resume(): void {
+    this.setPaused(false);
+  }
 
   setFollowLatest(follow: boolean): void {
     this.assertAlive();
@@ -98,8 +111,10 @@ export class LiveProfilerStore {
   selectFrame(frameIndex: number): void {
     this.assertAlive();
     validateFrameIndex(frameIndex);
-    if (!this.frames.some((frame) => frame.frameIndex === frameIndex) &&
-        !this.timelineFrames.some((frame) => frame.frameIndex === frameIndex)) {
+    if (
+      !this.frames.some((frame) => frame.frameIndex === frameIndex) &&
+      !this.timelineFrames.some((frame) => frame.frameIndex === frameIndex)
+    ) {
       throw new RangeError(`Unknown frame '${frameIndex}'`);
     }
     this.selectedFrameIndexValue = frameIndex;
@@ -117,9 +132,11 @@ export class LiveProfilerStore {
     this.notify();
     const source = new Map<string, ProfileFrame>();
     for (const frame of [...this.frames, ...this.timelineFrames]) source.set(frameKey(frame), frame);
-    return Object.freeze([...source.values()].filter((frame) =>
-      frame.frameIndex >= startFrameIndex && frame.frameIndex <= endFrameIndex
-    ));
+    return Object.freeze(
+      [...source.values()].filter(
+        (frame) => frame.frameIndex >= startFrameIndex && frame.frameIndex <= endFrameIndex,
+      ),
+    );
   }
 
   clearSelection(): void {

@@ -1,4 +1,7 @@
-import { SURFACE_FIELD_STORE_ENTRY_WORDS, SURFACE_FIELD_STORE_VALUE_WORD } from "../gpu/GpuSurfaceFieldStoreAbi.js";
+import {
+  SURFACE_FIELD_STORE_ENTRY_WORDS,
+  SURFACE_FIELD_STORE_VALUE_WORD,
+} from "../gpu/GpuSurfaceFieldStoreAbi.js";
 import { SURFACE_REFERENCE_WGSL } from "../gpu/GpuSurfaceReferenceAbi.js";
 import { surfaceCellSelectionWgsl } from "../gpu/GpuSurfaceCellPlanAbi.js";
 

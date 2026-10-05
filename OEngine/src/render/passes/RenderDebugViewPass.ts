@@ -10,7 +10,7 @@ import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCach
 import {
   GPU_SHADING_SURFACE_LITE_PROFILE,
   type GpuShadingSurfaceLiteProfile,
-  gpuShadingSurfaceNormalPipelineConstants
+  gpuShadingSurfaceNormalPipelineConstants,
 } from "../../gpu/GpuComputeMaterialAbi.js";
 import { GPU_VISIBILITY_DEBUG_SETTINGS_SIZE } from "../../gpu/GpuVisibilityDebugResolve.js";
 import type { PackedVisibilityDebugSource } from "./PackedVisibilityPass.js";
@@ -29,7 +29,7 @@ import {
   SSR_HIT_MISS_DEBUG_WGSL,
   VELOCITY_DEBUG_WGSL,
   VISIBILITY_KEY_DEBUG_WGSL,
-  LINEAR_HDR_DEBUG_WGSL
+  LINEAR_HDR_DEBUG_WGSL,
 } from "../../shaders/render_debug_view.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
 
@@ -53,16 +53,13 @@ export type RenderDebugViewResources = {
 };
 
 export class RenderDebugViewPass {
-  private readonly pipelines: ReadonlyMap<
-    RenderDebugView,
-    CachedRenderPipelineDescriptor
-  >;
+  private readonly pipelines: ReadonlyMap<RenderDebugView, CachedRenderPipelineDescriptor>;
   private readonly packedVisibilityPipeline: CachedRenderPipelineDescriptor;
   private readonly meshletIdPipeline: CachedRenderPipelineDescriptor;
 
   constructor(
     graphics: GraphicsContext,
-    surfaceProfile: GpuShadingSurfaceLiteProfile = GPU_SHADING_SURFACE_LITE_PROFILE
+    surfaceProfile: GpuShadingSurfaceLiteProfile = GPU_SHADING_SURFACE_LITE_PROFILE,
   ) {
     if (graphics.device === null) {
       throw new Error("RenderDebugViewPass: GraphicsContext has no device");
@@ -74,8 +71,8 @@ export class RenderDebugViewPass {
           "Render debug/Visibility key",
           VISIBILITY_KEY_DEBUG_WGSL,
           [uintTextureEntry(0), uintTextureEntry(1), uniformEntry(2)],
-          surfaceProfile
-        )
+          surfaceProfile,
+        ),
       ],
       [
         RenderDebugViewValue.Depth,
@@ -83,8 +80,8 @@ export class RenderDebugViewPass {
           "Render debug/Reverse-Z depth",
           DEPTH_DEBUG_WGSL,
           [depthTextureEntry(0), uniformEntry(1)],
-          surfaceProfile
-        )
+          surfaceProfile,
+        ),
       ],
       [
         RenderDebugViewValue.Velocity,
@@ -92,73 +89,151 @@ export class RenderDebugViewPass {
           "Render debug/Velocity",
           VELOCITY_DEBUG_WGSL,
           [floatTextureEntry(0), uintTextureEntry(1), depthTextureEntry(2), uniformEntry(3)],
-          surfaceProfile
-        )
+          surfaceProfile,
+        ),
       ],
       [
         RenderDebugViewValue.BaseColor,
-        createPipeline("Render debug/Base color", SURFACE_COLOR_DEBUG_WGSL, [floatTextureEntry(0), uintTextureEntry(1), depthTextureEntry(2), uniformEntry(3)], surfaceProfile)
+        createPipeline(
+          "Render debug/Base color",
+          SURFACE_COLOR_DEBUG_WGSL,
+          [floatTextureEntry(0), uintTextureEntry(1), depthTextureEntry(2), uniformEntry(3)],
+          surfaceProfile,
+        ),
       ],
       [
         RenderDebugViewValue.ShadingNormal,
-        createPipeline("Render debug/Shading normal", SURFACE_NORMAL_DEBUG_WGSL, [uintTextureEntry(0), uintTextureEntry(1), depthTextureEntry(2), uniformEntry(3)], surfaceProfile)
+        createPipeline(
+          "Render debug/Shading normal",
+          SURFACE_NORMAL_DEBUG_WGSL,
+          [uintTextureEntry(0), uintTextureEntry(1), depthTextureEntry(2), uniformEntry(3)],
+          surfaceProfile,
+        ),
       ],
       [
         RenderDebugViewValue.Metallic,
-        createPipeline("Render debug/Metallic", SURFACE_PBR_DEBUG_WGSL, [uintTextureEntry(0), uintTextureEntry(1), depthTextureEntry(2), uniformEntry(3), uniformEntry(4, 16)], surfaceProfile)
+        createPipeline(
+          "Render debug/Metallic",
+          SURFACE_PBR_DEBUG_WGSL,
+          [
+            uintTextureEntry(0),
+            uintTextureEntry(1),
+            depthTextureEntry(2),
+            uniformEntry(3),
+            uniformEntry(4, 16),
+          ],
+          surfaceProfile,
+        ),
       ],
       [
         RenderDebugViewValue.Roughness,
-        createPipeline("Render debug/Roughness", SURFACE_PBR_DEBUG_WGSL, [uintTextureEntry(0), uintTextureEntry(1), depthTextureEntry(2), uniformEntry(3), uniformEntry(4, 16)], surfaceProfile)
+        createPipeline(
+          "Render debug/Roughness",
+          SURFACE_PBR_DEBUG_WGSL,
+          [
+            uintTextureEntry(0),
+            uintTextureEntry(1),
+            depthTextureEntry(2),
+            uniformEntry(3),
+            uniformEntry(4, 16),
+          ],
+          surfaceProfile,
+        ),
       ],
       [
         RenderDebugViewValue.Occlusion,
-        createPipeline("Render debug/Occlusion", SURFACE_AO_DEBUG_WGSL, [floatTextureEntry(0), uintTextureEntry(1), depthTextureEntry(2), uniformEntry(3)], surfaceProfile)
+        createPipeline(
+          "Render debug/Occlusion",
+          SURFACE_AO_DEBUG_WGSL,
+          [floatTextureEntry(0), uintTextureEntry(1), depthTextureEntry(2), uniformEntry(3)],
+          surfaceProfile,
+        ),
       ],
       [
         RenderDebugViewValue.Emissive,
-        createPipeline("Render debug/Emissive", SURFACE_EMISSIVE_DEBUG_WGSL, [uintTextureEntry(0), uintTextureEntry(1), depthTextureEntry(2), uniformEntry(3)], surfaceProfile)
+        createPipeline(
+          "Render debug/Emissive",
+          SURFACE_EMISSIVE_DEBUG_WGSL,
+          [uintTextureEntry(0), uintTextureEntry(1), depthTextureEntry(2), uniformEntry(3)],
+          surfaceProfile,
+        ),
       ],
       [
         RenderDebugViewValue.MaterialId,
-        createPipeline("Render debug/Material ID", SURFACE_FLAGS_DEBUG_WGSL, [uintTextureEntry(0), depthTextureEntry(1), uniformEntry(2), uniformEntry(3, 16)], surfaceProfile)
+        createPipeline(
+          "Render debug/Material ID",
+          SURFACE_FLAGS_DEBUG_WGSL,
+          [uintTextureEntry(0), depthTextureEntry(1), uniformEntry(2), uniformEntry(3, 16)],
+          surfaceProfile,
+        ),
       ],
       [
         RenderDebugViewValue.HistoryValidity,
-        createPipeline("Render debug/History validity", SURFACE_FLAGS_DEBUG_WGSL, [uintTextureEntry(0), depthTextureEntry(1), uniformEntry(2), uniformEntry(3, 16)], surfaceProfile)
+        createPipeline(
+          "Render debug/History validity",
+          SURFACE_FLAGS_DEBUG_WGSL,
+          [uintTextureEntry(0), depthTextureEntry(1), uniformEntry(2), uniformEntry(3, 16)],
+          surfaceProfile,
+        ),
       ],
       [
         RenderDebugViewValue.Reactive,
-        createPipeline("Render debug/Reactive", SURFACE_FLAGS_DEBUG_WGSL, [uintTextureEntry(0), depthTextureEntry(1), uniformEntry(2), uniformEntry(3, 16)], surfaceProfile)
+        createPipeline(
+          "Render debug/Reactive",
+          SURFACE_FLAGS_DEBUG_WGSL,
+          [uintTextureEntry(0), depthTextureEntry(1), uniformEntry(2), uniformEntry(3, 16)],
+          surfaceProfile,
+        ),
       ],
       [
         RenderDebugViewValue.ScreenSpaceReflectionHitMiss,
-        createPipeline("Render debug/SSR hit-miss", SSR_HIT_MISS_DEBUG_WGSL, [uintTextureEntry(0), uniformEntry(1)])
+        createPipeline("Render debug/SSR hit-miss", SSR_HIT_MISS_DEBUG_WGSL, [
+          uintTextureEntry(0),
+          uniformEntry(1),
+        ]),
       ],
       [
         RenderDebugViewValue.ScreenSpaceReflectionResolve,
-        createPipeline("Render debug/SSR resolve", LINEAR_HDR_DEBUG_WGSL, [floatTextureEntry(0), uniformEntry(1)])
+        createPipeline("Render debug/SSR resolve", LINEAR_HDR_DEBUG_WGSL, [
+          floatTextureEntry(0),
+          uniformEntry(1),
+        ]),
       ],
       [
         RenderDebugViewValue.ScreenSpaceReflectionTemporal,
-        createPipeline("Render debug/SSR temporal", LINEAR_HDR_DEBUG_WGSL, [floatTextureEntry(0), uniformEntry(1)])
+        createPipeline("Render debug/SSR temporal", LINEAR_HDR_DEBUG_WGSL, [
+          floatTextureEntry(0),
+          uniformEntry(1),
+        ]),
       ],
       [
         RenderDebugViewValue.ScreenSpaceReflectionHistoryConfidence,
-        createPipeline("Render debug/SSR history confidence", SSR_HISTORY_CONFIDENCE_DEBUG_WGSL, [floatTextureEntry(0), uniformEntry(1)])
+        createPipeline("Render debug/SSR history confidence", SSR_HISTORY_CONFIDENCE_DEBUG_WGSL, [
+          floatTextureEntry(0),
+          uniformEntry(1),
+        ]),
       ],
       [
         RenderDebugViewValue.IndirectDiffuse,
-        createPipeline("Render debug/Diffuse IBL", LINEAR_HDR_DEBUG_WGSL, [floatTextureEntry(0), uniformEntry(1)])
+        createPipeline("Render debug/Diffuse IBL", LINEAR_HDR_DEBUG_WGSL, [
+          floatTextureEntry(0),
+          uniformEntry(1),
+        ]),
       ],
       [
         RenderDebugViewValue.IndirectSpecular,
-        createPipeline("Render debug/Specular IBL", LINEAR_HDR_DEBUG_WGSL, [floatTextureEntry(0), uniformEntry(1)])
+        createPipeline("Render debug/Specular IBL", LINEAR_HDR_DEBUG_WGSL, [
+          floatTextureEntry(0),
+          uniformEntry(1),
+        ]),
       ],
       [
         RenderDebugViewValue.LinearHdr,
-        createPipeline("Render debug/Linear HDR", LINEAR_HDR_DEBUG_WGSL, [floatTextureEntry(0), uniformEntry(1)])
-      ]
+        createPipeline("Render debug/Linear HDR", LINEAR_HDR_DEBUG_WGSL, [
+          floatTextureEntry(0),
+          uniformEntry(1),
+        ]),
+      ],
     ]);
     this.packedVisibilityPipeline = createPipeline(
       "Render debug/Packed Visibility resolve",
@@ -167,15 +242,15 @@ export class RenderDebugViewPass {
         uintTextureEntry(0),
         storageBufferEntry(1),
         storageBufferEntry(2),
-        uniformEntry(3, GPU_VISIBILITY_DEBUG_SETTINGS_SIZE)
+        uniformEntry(3, GPU_VISIBILITY_DEBUG_SETTINGS_SIZE),
       ],
-      surfaceProfile
+      surfaceProfile,
     );
     this.meshletIdPipeline = createPipeline(
       "Render debug/Meshlet ID",
       MESHLET_ID_DEBUG_WGSL,
       [uintTextureEntry(0), storageBufferEntry(1), uniformEntry(2, 16)],
-      surfaceProfile
+      surfaceProfile,
     );
   }
 
@@ -184,7 +259,7 @@ export class RenderDebugViewPass {
     view: RenderDebugView,
     resources: RenderDebugViewResources,
     outputWidth: number,
-    outputHeight: number
+    outputHeight: number,
   ): ResourceId {
     const packedVisibility =
       (view === RenderDebugViewValue.VisibilityKey ||
@@ -196,11 +271,12 @@ export class RenderDebugViewPass {
     if (view === RenderDebugViewValue.MeshletId && packedVisibility === null) {
       throw new Error("Meshlet ID debug view requires Packed Visibility work");
     }
-    const pipeline = view === RenderDebugViewValue.MeshletId && packedVisibility !== null
-      ? this.meshletIdPipeline
-      : packedVisibility === null
-      ? this.pipelines.get(view)
-      : this.packedVisibilityPipeline;
+    const pipeline =
+      view === RenderDebugViewValue.MeshletId && packedVisibility !== null
+        ? this.meshletIdPipeline
+        : packedVisibility === null
+          ? this.pipelines.get(view)
+          : this.packedVisibilityPipeline;
     if (pipeline === undefined) {
       throw new Error(`RenderDebugViewPass cannot render '${view}'`);
     }
@@ -213,43 +289,40 @@ export class RenderDebugViewPass {
         outputHeight,
         packedVisibility,
         packedMaterialOnly: view === RenderDebugViewValue.MaterialId,
-        meshletId: view === RenderDebugViewValue.MeshletId
+        meshletId: view === RenderDebugViewValue.MeshletId,
       },
       (data, resolved, context) => {
         const command = requireShadeCommandContext(context.encoder);
         const lookup = data.packedVisibility?.resolve() ?? null;
         const settings = command.allocateTransientBufferAndLoad(
-          new Uint32Array(data.meshletId || lookup === null
-            ? [data.outputWidth, data.outputHeight, 0, 0]
-            : [
-              data.outputWidth,
-              data.outputHeight,
-              lookup.meshletRecordCount,
-              lookup.instanceCount,
-              lookup.geometryRecordCount,
-              lookup.materialCapacity,
-              data.packedMaterialOnly ? 1 : 0,
-              0
-            ]).buffer,
-          GPUBufferUsage.UNIFORM
+          new Uint32Array(
+            data.meshletId || lookup === null
+              ? [data.outputWidth, data.outputHeight, 0, 0]
+              : [
+                  data.outputWidth,
+                  data.outputHeight,
+                  lookup.meshletRecordCount,
+                  lookup.instanceCount,
+                  lookup.geometryRecordCount,
+                  lookup.materialCapacity,
+                  data.packedMaterialOnly ? 1 : 0,
+                  0,
+                ],
+          ).buffer,
+          GPUBufferUsage.UNIFORM,
         );
-        const bindings: GPUBindingResource[] = inputIds.map((id) =>
-          resolveTextureView(resolved.get(id))
-        );
+        const bindings: GPUBindingResource[] = inputIds.map((id) => resolveTextureView(resolved.get(id)));
         if (data.meshletId && lookup !== null) {
           bindings.push({ buffer: lookup.meshletWork });
         } else if (lookup !== null) {
-          bindings.push(
-            { buffer: lookup.meshletWork },
-            { buffer: lookup.materials }
-          );
+          bindings.push({ buffer: lookup.meshletWork }, { buffer: lookup.materials });
         }
         bindings.push({ buffer: settings });
         const mode = debugMode(view);
         if (mode !== null) {
           const modeBuffer = command.allocateTransientBufferAndLoad(
             new Uint32Array([mode, 0, 0, 0]).buffer,
-            GPUBufferUsage.UNIFORM
+            GPUBufferUsage.UNIFORM,
           );
           bindings.push({ buffer: modeBuffer });
         }
@@ -257,16 +330,18 @@ export class RenderDebugViewPass {
           label: `Render debug/${view}`,
           pipeline,
           bindings: [bindings],
-          colorAttachments: [{
-            view: resolveTextureView(resolved.get(output)),
-            clearValue: { r: 0, g: 0, b: 0, a: 1 },
-            loadOp: "clear",
-            storeOp: "store"
-          }]
+          colorAttachments: [
+            {
+              view: resolveTextureView(resolved.get(output)),
+              clearValue: { r: 0, g: 0, b: 0, a: 1 },
+              loadOp: "clear",
+              storeOp: "store",
+            },
+          ],
         });
         pass.draw(3, 1, 0, 0);
         pass.end();
-      }
+      },
     );
     for (const input of inputIds) builder.read(input);
     if (
@@ -284,7 +359,7 @@ export class RenderDebugViewPass {
       width: outputWidth,
       height: outputHeight,
       format: RENDER_DEBUG_VIEW_FORMAT,
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT,
     });
     return output;
   }
@@ -295,52 +370,46 @@ export class RenderDebugViewPass {
 function inputResourceIds(
   view: RenderDebugView,
   resources: RenderDebugViewResources,
-  packedVisibility: boolean
+  packedVisibility: boolean,
 ): ResourceId[] {
   switch (view) {
     case RenderDebugViewValue.VisibilityKey:
     case RenderDebugViewValue.MeshletId:
       return [resources.visibilityKey];
     case RenderDebugViewValue.MaterialId:
-      return packedVisibility
-        ? [resources.visibilityKey]
-        : [resources.visibilityKey, resources.depth];
+      return packedVisibility ? [resources.visibilityKey] : [resources.visibilityKey, resources.depth];
     case RenderDebugViewValue.Depth:
       return [resources.depth];
     case RenderDebugViewValue.Velocity:
       if (resources.velocity === null) {
         throw new Error("RenderDebugViewPass requires a velocity resource");
       }
-      return [
-        resources.velocity,
-        requireSurfaceMetadata(view, resources),
-        resources.depth
-      ];
+      return [resources.velocity, requireSurfaceMetadata(view, resources), resources.depth];
     case RenderDebugViewValue.BaseColor:
     case RenderDebugViewValue.Occlusion:
       return [
         requireOptionalTexture(view, resources.gAlbedo),
         requireSurfaceMetadata(view, resources),
-        resources.depth
+        resources.depth,
       ];
     case RenderDebugViewValue.ShadingNormal:
       return [
         requireOptionalTexture(view, resources.gNormal),
         requireSurfaceMetadata(view, resources),
-        resources.depth
+        resources.depth,
       ];
     case RenderDebugViewValue.Metallic:
     case RenderDebugViewValue.Roughness:
       return [
         requireOptionalTexture(view, resources.gPbr),
         requireSurfaceMetadata(view, resources),
-        resources.depth
+        resources.depth,
       ];
     case RenderDebugViewValue.Emissive:
       return [
         requireOptionalTexture(view, resources.gEmissive),
         requireSurfaceMetadata(view, resources),
-        resources.depth
+        resources.depth,
       ];
     case RenderDebugViewValue.HistoryValidity:
     case RenderDebugViewValue.Reactive:
@@ -373,28 +442,28 @@ function createPipeline(
   label: string,
   code: string,
   entries: GPUBindGroupLayoutEntry[],
-  surfaceProfile?: GpuShadingSurfaceLiteProfile
+  surfaceProfile?: GpuShadingSurfaceLiteProfile,
 ): CachedRenderPipelineDescriptor {
   const module = { label, code };
   const constants = code.includes("OENGINE_SURFACE_NORMAL_MAX_VALUE")
     ? gpuShadingSurfaceNormalPipelineConstants(
-      surfaceProfile?.normalEncoding ?? GPU_SHADING_SURFACE_LITE_PROFILE.normalEncoding
-    )
+        surfaceProfile?.normalEncoding ?? GPU_SHADING_SURFACE_LITE_PROFILE.normalEncoding,
+      )
     : undefined;
   return {
     label,
     layout: {
       label: `${label} layout`,
-      bindGroupLayouts: [{ label: `${label} group0`, entries }]
+      bindGroupLayouts: [{ label: `${label} group0`, entries }],
     },
     vertex: { module, entryPoint: "vs_main" },
     fragment: {
       module,
       entryPoint: "fs_main",
       ...(constants === undefined ? {} : { constants }),
-      targets: [{ format: RENDER_DEBUG_VIEW_FORMAT }]
+      targets: [{ format: RENDER_DEBUG_VIEW_FORMAT }],
     },
-    primitive: { topology: "triangle-list", cullMode: "none" }
+    primitive: { topology: "triangle-list", cullMode: "none" },
   };
 }
 
@@ -402,7 +471,7 @@ function uintTextureEntry(binding: number): GPUBindGroupLayoutEntry {
   return {
     binding,
     visibility: GPUShaderStage.FRAGMENT,
-    texture: { sampleType: "uint", viewDimension: "2d" }
+    texture: { sampleType: "uint", viewDimension: "2d" },
   };
 }
 
@@ -410,7 +479,7 @@ function floatTextureEntry(binding: number): GPUBindGroupLayoutEntry {
   return {
     binding,
     visibility: GPUShaderStage.FRAGMENT,
-    texture: { sampleType: "unfilterable-float", viewDimension: "2d" }
+    texture: { sampleType: "unfilterable-float", viewDimension: "2d" },
   };
 }
 
@@ -418,18 +487,15 @@ function depthTextureEntry(binding: number): GPUBindGroupLayoutEntry {
   return {
     binding,
     visibility: GPUShaderStage.FRAGMENT,
-    texture: { sampleType: "depth", viewDimension: "2d" }
+    texture: { sampleType: "depth", viewDimension: "2d" },
   };
 }
 
-function uniformEntry(
-  binding: number,
-  minBindingSize?: number
-): GPUBindGroupLayoutEntry {
+function uniformEntry(binding: number, minBindingSize?: number): GPUBindGroupLayoutEntry {
   return {
     binding,
     visibility: GPUShaderStage.FRAGMENT,
-    buffer: { type: "uniform", minBindingSize }
+    buffer: { type: "uniform", minBindingSize },
   };
 }
 
@@ -447,10 +513,7 @@ function debugMode(view: RenderDebugView): number | null {
   }
 }
 
-function requireSurfaceMetadata(
-  view: RenderDebugView,
-  resources: RenderDebugViewResources
-): ResourceId {
+function requireSurfaceMetadata(view: RenderDebugView, resources: RenderDebugViewResources): ResourceId {
   if (resources.surfaceFlags === null) {
     throw new Error(`RenderDebugViewPass requires '${view}' SurfaceLite metadata`);
   }
@@ -461,7 +524,7 @@ function storageBufferEntry(binding: number): GPUBindGroupLayoutEntry {
   return {
     binding,
     visibility: GPUShaderStage.FRAGMENT,
-    buffer: { type: "read-only-storage" }
+    buffer: { type: "read-only-storage" },
   };
 }
 

@@ -4,10 +4,7 @@
 
 import { hashFloat } from "./hashMix.js";
 
-export function arrayShallowEquals(
-  e: ArrayLike<unknown>,
-  t: ArrayLike<unknown>
-): boolean {
+export function arrayShallowEquals(e: ArrayLike<unknown>, t: ArrayLike<unknown>): boolean {
   const n = e.length;
   if (n !== t.length) return false;
   for (let r = 0; r < n; r++) if (e[r] !== t[r]) return false;
@@ -36,12 +33,7 @@ export function isTypedArray(e: unknown): e is ArrayBufferView {
   return F16 !== undefined && c === F16;
 }
 
-export function arrayRemoveFirst<T>(
-  e: T[],
-  t: T,
-  n = 0,
-  r = e.length
-): boolean {
+export function arrayRemoveFirst<T>(e: T[], t: T, n = 0, r = e.length): boolean {
   const s = n + r;
   for (let i = n; i < s; i++) {
     if (e[i] === t) {
@@ -63,17 +55,10 @@ export function arrayHashFloats(e: ArrayLike<number>): number {
 }
 
 export function isInstanceOf(e: unknown, t: unknown): boolean {
-  return (
-    t != null &&
-    typeof t === "object" &&
-    e instanceof (t as new (...args: never[]) => unknown)
-  );
+  return t != null && typeof t === "object" && e instanceof (t as new (...args: never[]) => unknown);
 }
 
-export function isInstanceOfCtor(
-  e: unknown,
-  t: unknown
-): boolean {
+export function isInstanceOfCtor(e: unknown, t: unknown): boolean {
   if (t == null) return false;
   if (typeof t === "function") {
     try {

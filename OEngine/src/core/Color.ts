@@ -89,8 +89,7 @@ function parseHexByte(e: string): number {
   return parseInt(e, 16);
 }
 
-const RE_RGB =
-  /rgb\(\s*([0-9]+(?:\.[0-9]*)?),\s*([0-9]+(?:\.[0-9]*)?),\s*([0-9]+(?:\.[0-9]*)?)\s*\)/;
+const RE_RGB = /rgb\(\s*([0-9]+(?:\.[0-9]*)?),\s*([0-9]+(?:\.[0-9]*)?),\s*([0-9]+(?:\.[0-9]*)?)\s*\)/;
 const RE_RGBA =
   /rgba\(\s*([0-9]+(?:\.[0-9]*)?),\s*([0-9]+(?:\.[0-9]*)?),\s*([0-9]+(?:\.[0-9]*)?),\s*([0-9]+(?:\.[0-9]*)?)\s*\)/;
 const RE_HSV = /hsv\(([0-9]+(?:\.[0-9]*)?),\s*([0-9]+(?:\.[0-9]*)?),\s*([0-9]+(?:\.[0-9]*)?)\)/;
@@ -350,7 +349,7 @@ export class Color {
       v[offset] as number,
       v[offset + 1] as number,
       v[offset + 2] as number,
-      v[offset + 3] ?? 1
+      v[offset + 3] ?? 1,
     );
   }
 
@@ -381,12 +380,7 @@ export class Color {
   }
 
   equals(other: Color): boolean {
-    return (
-      this.r === other.r &&
-      this.g === other.g &&
-      this.b === other.b &&
-      this.a === other.a
-    );
+    return this.r === other.r && this.g === other.g && this.b === other.b && this.a === other.a;
   }
 
   toUint(): number {
@@ -483,7 +477,7 @@ export class Color {
           r: parseHexByte(str.slice(1, 3)),
           g: parseHexByte(str.slice(3, 5)),
           b: parseHexByte(str.slice(5, 7)),
-          a: str.length > 7 ? parseHexByte(str.slice(7, 9)) : 255
+          a: str.length > 7 ? parseHexByte(str.slice(7, 9)) : 255,
         };
         r = hex.r;
         s = hex.g;
@@ -506,12 +500,7 @@ export class Color {
   }
 
   lerpColors(e: Color, t: Color, n: number): this {
-    return this.set(
-      lerp(e.r, t.r, n),
-      lerp(e.g, t.g, n),
-      lerp(e.b, t.b, n),
-      lerp(e.a, t.a, n)
-    );
+    return this.set(lerp(e.r, t.r, n), lerp(e.g, t.g, n), lerp(e.b, t.b, n), lerp(e.a, t.a, n));
   }
 
   static fromArray(e: ArrayLike<number>, t = 0): Color {
@@ -536,20 +525,14 @@ export class Color {
     return t;
   }
 
-  static from_linear_to_sRGB(
-    e: ArrayLike<number>,
-    t: Color = new Color()
-  ): Color {
+  static from_linear_to_sRGB(e: ArrayLike<number>, t: Color = new Color()): Color {
     t.r = linearToSrgbChannel(e[0] ?? 0);
     t.g = linearToSrgbChannel(e[1] ?? 0);
     t.b = linearToSrgbChannel(e[2] ?? 0);
     return t;
   }
 
-  static from_sRGB_to_linear(
-    e: ArrayLike<number>,
-    t: Color = new Color()
-  ): Color {
+  static from_sRGB_to_linear(e: ArrayLike<number>, t: Color = new Color()): Color {
     t.r = srgbToLinearChannel(e[0] ?? 0);
     t.g = srgbToLinearChannel(e[1] ?? 0);
     t.b = srgbToLinearChannel(e[2] ?? 0);

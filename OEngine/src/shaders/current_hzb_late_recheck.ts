@@ -111,7 +111,7 @@ fn current_hzb_late_recheck(@builtin(global_invocation_id) id: vec3u) {
 export const CURRENT_HZB_LATE_RECHECK_COUNTER_OFFSETS = Object.freeze({
   attempted: counterByteOffset("meshletQueueAttempted"),
   written: counterByteOffset("meshletQueueWritten"),
-  overflow: counterByteOffset("meshletQueueOverflow")
+  overflow: counterByteOffset("meshletQueueOverflow"),
 });
 
 const CURRENT_HZB_REJECTED_COUNTER_WORD = counterByteOffset("rejectedHzb") / 4;

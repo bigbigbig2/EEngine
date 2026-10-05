@@ -5,11 +5,7 @@
 import { Node3D } from "./Node3D.js";
 import type { MeshletGeometryBase } from "../geometry/BoxGeometry.js";
 import type { ShadeMaterial } from "../material/ShadeMaterial.js";
-import {
-  mat4MaxColumnScale,
-  mat4TransformAABB,
-  mat4TransformPoint
-} from "../core/math/Mat4.js";
+import { mat4MaxColumnScale, mat4TransformAABB, mat4TransformPoint } from "../core/math/Mat4.js";
 import { deepOrRefEquals } from "../core/math/mathUtils.js";
 import { ChangeSignal } from "../core/Signal.js";
 
@@ -56,7 +52,7 @@ export class Mesh extends Node3D {
   static from(
     geometry: MeshletGeometryBase,
     material: ShadeMaterial,
-    transform?: Float32Array | number[] | ArrayLike<number>
+    transform?: Float32Array | number[] | ArrayLike<number>,
   ): Mesh {
     const r = new Mesh();
     r.geometry = geometry;

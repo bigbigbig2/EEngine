@@ -89,9 +89,7 @@ function findNextSet(value: number, start: number): number {
 function binToMinimumSize(bin: number): number {
   const exponent = bin >>> 3;
   const mantissa = bin & 7;
-  return exponent === 0
-    ? mantissa
-    : ((8 | mantissa) << (exponent - 1)) >>> 0;
+  return exponent === 0 ? mantissa : ((8 | mantissa) << (exponent - 1)) >>> 0;
 }
 
 export class MeshletRangeAllocator {
@@ -187,9 +185,7 @@ export class MeshletRangeAllocator {
       totalFreeSpace = this.freeStorage;
       if (this.usedBinsTop !== 0) {
         const top = findLastSet(this.usedBinsTop);
-        largestFreeRegion = binToMinimumSize(
-          (top << 3) | findLastSet(this.usedBins[top]!)
-        );
+        largestFreeRegion = binToMinimumSize((top << 3) | findLastSet(this.usedBins[top]!));
       }
     }
     return { totalFreeSpace, largestFreeRegion };
@@ -200,32 +196,18 @@ export class MeshletRangeAllocator {
     let size = this.read(node, NODE_SIZE);
 
     const physicalPrev = this.read(node, NODE_PHYSICAL_PREV);
-    if (
-      physicalPrev !== INVALID_MESHLET_ALLOCATION &&
-      (this.read(physicalPrev, NODE_USED) & 1) === 0
-    ) {
+    if (physicalPrev !== INVALID_MESHLET_ALLOCATION && (this.read(physicalPrev, NODE_USED) & 1) === 0) {
       offset = this.read(physicalPrev, NODE_OFFSET);
       size += this.read(physicalPrev, NODE_SIZE);
       this.removeFreeRegion(physicalPrev);
-      this.write(
-        node,
-        NODE_PHYSICAL_PREV,
-        this.read(physicalPrev, NODE_PHYSICAL_PREV)
-      );
+      this.write(node, NODE_PHYSICAL_PREV, this.read(physicalPrev, NODE_PHYSICAL_PREV));
     }
 
     const physicalNext = this.read(node, NODE_PHYSICAL_NEXT);
-    if (
-      physicalNext !== INVALID_MESHLET_ALLOCATION &&
-      (this.read(physicalNext, NODE_USED) & 1) === 0
-    ) {
+    if (physicalNext !== INVALID_MESHLET_ALLOCATION && (this.read(physicalNext, NODE_USED) & 1) === 0) {
       size += this.read(physicalNext, NODE_SIZE);
       this.removeFreeRegion(physicalNext);
-      this.write(
-        node,
-        NODE_PHYSICAL_NEXT,
-        this.read(physicalNext, NODE_PHYSICAL_NEXT)
-      );
+      this.write(node, NODE_PHYSICAL_NEXT, this.read(physicalNext, NODE_PHYSICAL_NEXT));
     }
 
     const next = this.read(node, NODE_PHYSICAL_NEXT);
@@ -304,7 +286,7 @@ export class MeshletRangeAllocator {
   private invalid(): MeshletRangeAllocation {
     return {
       offset: INVALID_MESHLET_ALLOCATION,
-      metadata: INVALID_MESHLET_ALLOCATION
+      metadata: INVALID_MESHLET_ALLOCATION,
     };
   }
 }

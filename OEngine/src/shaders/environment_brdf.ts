@@ -33,7 +33,7 @@ export type EnvironmentBrdfVec3 = readonly [number, number, number];
 export function evaluateEnvironmentBrdfReference(
   splitSum: readonly [number, number],
   specularF0: EnvironmentBrdfVec3,
-  specularF90: number
+  specularF90: number,
 ): Readonly<{
   directionalAlbedo: EnvironmentBrdfVec3;
   diffuseEnergy: EnvironmentBrdfVec3;
@@ -49,9 +49,10 @@ export function evaluateEnvironmentBrdfReference(
     return singleScatter + singleScatter * f0 * ratio;
   }) as unknown as EnvironmentBrdfVec3;
   const diffuseEnergy = directionalAlbedo.map((value) =>
-    Math.min(1, Math.max(0, 1 - value))) as unknown as EnvironmentBrdfVec3;
+    Math.min(1, Math.max(0, 1 - value)),
+  ) as unknown as EnvironmentBrdfVec3;
   return Object.freeze({
     directionalAlbedo: Object.freeze(directionalAlbedo),
-    diffuseEnergy: Object.freeze(diffuseEnergy)
+    diffuseEnergy: Object.freeze(diffuseEnergy),
   });
 }

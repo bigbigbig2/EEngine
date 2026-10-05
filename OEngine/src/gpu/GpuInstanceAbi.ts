@@ -10,8 +10,7 @@ export const GPU_INSTANCE_FALLBACK_RECORD_INDEX = 0;
 export const GPU_INSTANCE_MOTION_RELATIVE_DETERMINANT_EPSILON = 1e-8;
 /** ADR-0013 compile-time ShadingBinId copied unchanged into MeshletWork. */
 export const GPU_INSTANCE_SHADING_BIN_SHIFT = 8;
-export const GPU_INSTANCE_SHADING_BIN_MASK =
-  (GPU_SHADING_BIN_COUNT - 1) << GPU_INSTANCE_SHADING_BIN_SHIFT;
+export const GPU_INSTANCE_SHADING_BIN_MASK = (GPU_SHADING_BIN_COUNT - 1) << GPU_INSTANCE_SHADING_BIN_SHIFT;
 
 export const GPU_INSTANCE_FLAGS = Object.freeze({
   Active: 1 << 0,
@@ -24,7 +23,7 @@ export const GPU_INSTANCE_FLAGS = Object.freeze({
   /** BLEND material routed to a bounded transparent SecondaryRasterWork queue. */
   Transparent: 1 << 6,
   /** geometry_record_index addresses GeometryProductAssetReferenceV1, not GpuGeometryRecord. */
-  VirtualGeometry: 1 << 7
+  VirtualGeometry: 1 << 7,
 } as const);
 
 /** Bits replaced by an InstanceMaterialPatch; every other instance bit persists. */
@@ -36,9 +35,7 @@ export const GPU_INSTANCE_MATERIAL_CLASSIFICATION_MASK =
 
 /** Bits replaced by an InstanceVisibilityPatch; material routing remains intact. */
 export const GPU_INSTANCE_VISIBILITY_FLAGS_MASK =
-  GPU_INSTANCE_FLAGS.Active |
-  GPU_INSTANCE_FLAGS.CastsShadow |
-  GPU_INSTANCE_FLAGS.ReceivesShadow;
+  GPU_INSTANCE_FLAGS.Active | GPU_INSTANCE_FLAGS.CastsShadow | GPU_INSTANCE_FLAGS.ReceivesShadow;
 
 export const GPU_INSTANCE_RECORD_OFFSETS = Object.freeze({
   geometry_record_index: 0,
@@ -56,7 +53,7 @@ export const GPU_INSTANCE_RECORD_OFFSETS = Object.freeze({
   motion_flags: 164,
   /** Explicit ProductTableSlot for virtual-geometry instance identity. */
   product_table_slot: 168,
-  instance_set_generation: 172
+  instance_set_generation: 172,
 } as const);
 
 export const GPU_INSTANCE_RECORD_SCHEMA = Object.freeze({
@@ -64,7 +61,7 @@ export const GPU_INSTANCE_RECORD_SCHEMA = Object.freeze({
   stride: GPU_INSTANCE_RECORD_STRIDE,
   staticStride: GPU_INSTANCE_STATIC_RECORD_STRIDE,
   dynamicStride: GPU_INSTANCE_DYNAMIC_RECORD_STRIDE,
-  offsets: GPU_INSTANCE_RECORD_OFFSETS
+  offsets: GPU_INSTANCE_RECORD_OFFSETS,
 } as const);
 
 export interface GpuInstanceRecordCpu {
@@ -163,7 +160,7 @@ fn oengine_instance_product_table_slot(instance: OEngineInstanceRecord) -> u32 {
 
 fn oengine_instance_shading_bin_id(flags: u32) -> u32 {
   return (flags >> ${GPU_INSTANCE_SHADING_BIN_SHIFT}u) &
-    ${(GPU_INSTANCE_SHADING_BIN_MASK >>> GPU_INSTANCE_SHADING_BIN_SHIFT)}u;
+    ${GPU_INSTANCE_SHADING_BIN_MASK >>> GPU_INSTANCE_SHADING_BIN_SHIFT}u;
 }
 `;
 
@@ -174,8 +171,7 @@ export function encodeInstanceShadingBinId(flags: number, binId: number): number
   if (!Number.isInteger(binId) || binId < 0 || binId >= GPU_SHADING_BIN_COUNT) {
     throw new RangeError(`Instance ShadingBinId must be in [0, ${GPU_SHADING_BIN_COUNT - 1}]`);
   }
-  return ((flags & ~GPU_INSTANCE_SHADING_BIN_MASK) |
-    (binId << GPU_INSTANCE_SHADING_BIN_SHIFT)) >>> 0;
+  return ((flags & ~GPU_INSTANCE_SHADING_BIN_MASK) | (binId << GPU_INSTANCE_SHADING_BIN_SHIFT)) >>> 0;
 }
 
 export function decodeInstanceShadingBinId(flags: number): number {
@@ -185,17 +181,13 @@ export function decodeInstanceShadingBinId(flags: number): number {
   return (flags & GPU_INSTANCE_SHADING_BIN_MASK) >>> GPU_INSTANCE_SHADING_BIN_SHIFT;
 }
 
-export function packGpuInstanceRecord(
-  record: GpuInstanceRecordCpu
-): Uint8Array<ArrayBuffer> {
+export function packGpuInstanceRecord(record: GpuInstanceRecordCpu): Uint8Array<ArrayBuffer> {
   const bytes = new Uint8Array(GPU_INSTANCE_RECORD_STRIDE);
   writeGpuInstanceRecord(bytes, 0, record);
   return bytes;
 }
 
-export function packGpuInstanceRecords(
-  records: readonly GpuInstanceRecordCpu[]
-): Uint8Array<ArrayBuffer> {
+export function packGpuInstanceRecords(records: readonly GpuInstanceRecordCpu[]): Uint8Array<ArrayBuffer> {
   assertU32(records.length, "Instance record count");
   const byteLength = records.length * GPU_INSTANCE_RECORD_STRIDE;
   if (!Number.isSafeInteger(byteLength)) {
@@ -204,12 +196,7 @@ export function packGpuInstanceRecords(
   const bytes = new Uint8Array(byteLength);
   const scratch = createGpuInstanceMotionScratch();
   for (let index = 0; index < records.length; index++) {
-    writeGpuInstanceRecord(
-      bytes,
-      index * GPU_INSTANCE_RECORD_STRIDE,
-      records[index]!,
-      scratch
-    );
+    writeGpuInstanceRecord(bytes, index * GPU_INSTANCE_RECORD_STRIDE, records[index]!, scratch);
   }
   return bytes;
 }
@@ -218,7 +205,7 @@ export function writeGpuInstanceRecord(
   destination: Uint8Array,
   byteOffset: number,
   record: GpuInstanceRecordCpu,
-  scratch = createGpuInstanceMotionScratch()
+  scratch = createGpuInstanceMotionScratch(),
 ): void {
   if (
     !Number.isSafeInteger(byteOffset) ||
@@ -230,15 +217,32 @@ export function writeGpuInstanceRecord(
   const view = new DataView(
     destination.buffer,
     destination.byteOffset + byteOffset,
-    GPU_INSTANCE_RECORD_STRIDE
+    GPU_INSTANCE_RECORD_STRIDE,
   );
-  writeU32(view, GPU_INSTANCE_RECORD_OFFSETS.geometry_record_index, record.geometryRecordIndex, "geometryRecordIndex");
-  writeU32(view, GPU_INSTANCE_RECORD_OFFSETS.geometry_generation,
-    requireNonZeroU32(record.geometryGeneration, "geometryGeneration"), "geometryGeneration");
-  writeU32(view, GPU_INSTANCE_RECORD_OFFSETS.product_table_slot,
-    record.productTableSlot ?? 0, "productTableSlot");
-  writeU32(view, GPU_INSTANCE_RECORD_OFFSETS.instance_set_generation,
-    record.instanceSetGeneration ?? 0, "instanceSetGeneration");
+  writeU32(
+    view,
+    GPU_INSTANCE_RECORD_OFFSETS.geometry_record_index,
+    record.geometryRecordIndex,
+    "geometryRecordIndex",
+  );
+  writeU32(
+    view,
+    GPU_INSTANCE_RECORD_OFFSETS.geometry_generation,
+    requireNonZeroU32(record.geometryGeneration, "geometryGeneration"),
+    "geometryGeneration",
+  );
+  writeU32(
+    view,
+    GPU_INSTANCE_RECORD_OFFSETS.product_table_slot,
+    record.productTableSlot ?? 0,
+    "productTableSlot",
+  );
+  writeU32(
+    view,
+    GPU_INSTANCE_RECORD_OFFSETS.instance_set_generation,
+    record.instanceSetGeneration ?? 0,
+    "instanceSetGeneration",
+  );
   writeU32(view, GPU_INSTANCE_RECORD_OFFSETS.material_handle, record.materialHandle, "materialHandle");
   const previousFromCurrent = scratch.previousFromCurrent;
   const motionValid = computePreviousFromCurrent(
@@ -247,22 +251,44 @@ export function writeGpuInstanceRecord(
     record.previousObjectToWorld,
     0,
     0,
-    scratch
+    scratch,
   );
-  writeU32(view, GPU_INSTANCE_RECORD_OFFSETS.flags,
-    record.flags & ~GPU_INSTANCE_FLAGS.MotionInvalid, "flags");
+  writeU32(
+    view,
+    GPU_INSTANCE_RECORD_OFFSETS.flags,
+    record.flags & ~GPU_INSTANCE_FLAGS.MotionInvalid,
+    "flags",
+  );
   writeU32(view, GPU_INSTANCE_RECORD_OFFSETS.debug_id, record.debugId, "debugId");
   writeF32Array(view, GPU_INSTANCE_RECORD_OFFSETS.bounds_sphere, record.boundsSphere, 4, "boundsSphere");
   writeF32Array(view, GPU_INSTANCE_RECORD_OFFSETS.bounds_min, record.boundsMin, 3, "boundsMin");
   writeF32Array(view, GPU_INSTANCE_RECORD_OFFSETS.bounds_max, record.boundsMax, 3, "boundsMax");
-  writeGpuInstanceAffineMatrix(destination, byteOffset + GPU_INSTANCE_RECORD_OFFSETS.current_affine,
-    record.currentObjectToWorld, 0, "currentObjectToWorld");
-  writeGpuInstanceAffineMatrix(destination, byteOffset + GPU_INSTANCE_RECORD_OFFSETS.previous_from_current_affine,
-    previousFromCurrent, 0, "previousFromCurrent");
-  writeU32(view, GPU_INSTANCE_RECORD_OFFSETS.dynamic_revision,
-    record.dynamicRevision ?? 0, "dynamicRevision");
-  writeU32(view, GPU_INSTANCE_RECORD_OFFSETS.motion_flags,
-    motionValid && (record.deformationMotionValid ?? true) ? 0 : GPU_INSTANCE_FLAGS.MotionInvalid, "motionFlags");
+  writeGpuInstanceAffineMatrix(
+    destination,
+    byteOffset + GPU_INSTANCE_RECORD_OFFSETS.current_affine,
+    record.currentObjectToWorld,
+    0,
+    "currentObjectToWorld",
+  );
+  writeGpuInstanceAffineMatrix(
+    destination,
+    byteOffset + GPU_INSTANCE_RECORD_OFFSETS.previous_from_current_affine,
+    previousFromCurrent,
+    0,
+    "previousFromCurrent",
+  );
+  writeU32(
+    view,
+    GPU_INSTANCE_RECORD_OFFSETS.dynamic_revision,
+    record.dynamicRevision ?? 0,
+    "dynamicRevision",
+  );
+  writeU32(
+    view,
+    GPU_INSTANCE_RECORD_OFFSETS.motion_flags,
+    motionValid && (record.deformationMotionValid ?? true) ? 0 : GPU_INSTANCE_FLAGS.MotionInvalid,
+    "motionFlags",
+  );
 }
 
 export function createGpuInstanceMotionScratch(): GpuInstanceMotionScratch {
@@ -270,7 +296,7 @@ export function createGpuInstanceMotionScratch(): GpuInstanceMotionScratch {
     current: new Float32Array(16),
     previous: new Float32Array(16),
     inverseCurrent: new Float32Array(16),
-    previousFromCurrent: new Float32Array(16)
+    previousFromCurrent: new Float32Array(16),
   };
 }
 
@@ -280,7 +306,7 @@ export function writeGpuInstanceAffineMatrix(
   byteOffset: number,
   source: ArrayLike<number>,
   sourceOffset = 0,
-  label = "affineMatrix"
+  label = "affineMatrix",
 ): void {
   if (byteOffset < 0 || byteOffset + 48 > destination.byteLength || source.length < sourceOffset + 16) {
     throw new RangeError(`${label} compact affine range is invalid`);
@@ -288,16 +314,27 @@ export function writeGpuInstanceAffineMatrix(
   const values = new Float32Array(16);
   copyFiniteMatrix(values, source, sourceOffset, label);
   if (
-    Math.abs(values[3]!) > 1e-6 || Math.abs(values[7]!) > 1e-6 ||
-    Math.abs(values[11]!) > 1e-6 || Math.abs(values[15]! - 1) > 1e-6
+    Math.abs(values[3]!) > 1e-6 ||
+    Math.abs(values[7]!) > 1e-6 ||
+    Math.abs(values[11]!) > 1e-6 ||
+    Math.abs(values[15]! - 1) > 1e-6
   ) {
     throw new RangeError(`${label} must be affine for Instance ABI V4`);
   }
   const view = new DataView(destination.buffer, destination.byteOffset, destination.byteLength);
   const packed = [
-    values[0]!, values[1]!, values[2]!, values[12]!,
-    values[4]!, values[5]!, values[6]!, values[13]!,
-    values[8]!, values[9]!, values[10]!, values[14]!
+    values[0]!,
+    values[1]!,
+    values[2]!,
+    values[12]!,
+    values[4]!,
+    values[5]!,
+    values[6]!,
+    values[13]!,
+    values[8]!,
+    values[9]!,
+    values[10]!,
+    values[14]!,
   ];
   for (let index = 0; index < packed.length; index++) {
     view.setFloat32(byteOffset + index * 4, packed[index]!, true);
@@ -308,7 +345,7 @@ export function writeGpuInstanceAffineMatrix(
 export function readGpuInstanceAffineMatrix(
   destination: Float32Array,
   source: Uint8Array,
-  byteOffset: number
+  byteOffset: number,
 ): void {
   if (destination.length < 16 || byteOffset < 0 || byteOffset + 48 > source.byteLength) {
     throw new RangeError("Compact instance affine range is invalid");
@@ -335,7 +372,7 @@ export function computePreviousFromCurrent(
   previousObjectToWorld: ArrayLike<number>,
   currentOffset = 0,
   previousOffset = 0,
-  scratch = createGpuInstanceMotionScratch()
+  scratch = createGpuInstanceMotionScratch(),
 ): boolean {
   if (destination.length < 16) {
     throw new RangeError("previousFromCurrent destination must contain 16 values");
@@ -368,7 +405,7 @@ function copyFiniteMatrix(
   destination: Float32Array,
   source: ArrayLike<number>,
   sourceOffset: number,
-  label: string
+  label: string,
 ): void {
   if (source.length < sourceOffset + 16) {
     throw new RangeError(`${label} must contain 16 values from offset ${sourceOffset}`);
@@ -405,16 +442,10 @@ function isConditionedAffineTransform(matrix: Float32Array): boolean {
   const crossY = matrix[6]! * matrix[8]! - matrix[4]! * matrix[10]!;
   const crossZ = matrix[4]! * matrix[9]! - matrix[5]! * matrix[8]!;
   const determinant = matrix[0]! * crossX + matrix[1]! * crossY + matrix[2]! * crossZ;
-  return Math.abs(determinant) >
-    scaleProduct * GPU_INSTANCE_MOTION_RELATIVE_DETERMINANT_EPSILON;
+  return Math.abs(determinant) > scaleProduct * GPU_INSTANCE_MOTION_RELATIVE_DETERMINANT_EPSILON;
 }
 
-function writeU32(
-  view: DataView,
-  offset: number,
-  value: number,
-  label: string
-): void {
+function writeU32(view: DataView, offset: number, value: number, label: string): void {
   assertU32(value, label);
   view.setUint32(offset, value, true);
 }
@@ -424,7 +455,7 @@ function writeF32Array(
   byteOffset: number,
   values: ArrayLike<number>,
   count: number,
-  label: string
+  label: string,
 ): void {
   if (values.length < count) {
     throw new RangeError(`${label} must contain at least ${count} values`);

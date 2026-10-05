@@ -40,20 +40,19 @@ export function createBrick4LightMapPackageV1(input: {
     schemaVersion: BRICK4_LIGHT_MAP_SCHEMA_VERSION,
     generation: input.generation,
     storage,
-    sourceUri: input.sourceUri
+    sourceUri: input.sourceUri,
   });
   validateBrick4LightMapPackageV1(result);
   return result;
 }
 
 export function validateBrick4LightMapPackageV1(
-  value: Brick4LightMapPackageV1
+  value: Brick4LightMapPackageV1,
 ): Brick4LightMapPackageValidation {
   if (value.schemaVersion !== BRICK4_LIGHT_MAP_SCHEMA_VERSION) {
     throw new RangeError(`Unsupported Brick4 schema ${String(value.schemaVersion)}`);
   }
-  if (!Number.isSafeInteger(value.generation) || value.generation <= 0 ||
-      value.generation > 0xffffffff) {
+  if (!Number.isSafeInteger(value.generation) || value.generation <= 0 || value.generation > 0xffffffff) {
     throw new RangeError("Brick4 generation must be a non-zero uint32");
   }
   if (typeof value.sourceUri !== "string" || value.sourceUri.length === 0) {
@@ -72,21 +71,24 @@ export function validateBrick4LightMapPackageV1(
 
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const bounds = [
-    view.getFloat32(0, true), view.getFloat32(4, true), view.getFloat32(8, true),
-    view.getFloat32(16, true), view.getFloat32(20, true), view.getFloat32(24, true)
+    view.getFloat32(0, true),
+    view.getFloat32(4, true),
+    view.getFloat32(8, true),
+    view.getFloat32(16, true),
+    view.getFloat32(20, true),
+    view.getFloat32(24, true),
   ];
   if (!bounds.every(Number.isFinite)) {
     throw new RangeError("Brick4 bounds must contain finite float32 values");
   }
-  if (!(bounds[0]! < bounds[3]!) || !(bounds[1]! < bounds[4]!) ||
-      !(bounds[2]! < bounds[5]!)) {
+  if (!(bounds[0]! < bounds[3]!) || !(bounds[1]! < bounds[4]!) || !(bounds[2]! < bounds[5]!)) {
     throw new RangeError("Brick4 bounds must have positive extent on every axis");
   }
 
   const words = new Uint32Array(
     bytes.buffer,
     bytes.byteOffset + BRICK4_STORAGE_HEADER_BYTES,
-    (bytes.byteLength - BRICK4_STORAGE_HEADER_BYTES) >>> 2
+    (bytes.byteLength - BRICK4_STORAGE_HEADER_BYTES) >>> 2,
   );
   const pending = [0x80000000];
   const visited = new Set<number>();
@@ -107,9 +109,7 @@ export function validateBrick4LightMapPackageV1(
     for (let local = 0; local < BRICK4_NODE_PROBE_COUNT; local++) {
       const probeAddress = words[address + local]!;
       if (probeAddress + BRICK4_PROBE_WORDS > words.length) {
-        throw new RangeError(
-          `Brick4 node ${address} references incomplete probe ${probeAddress}`
-        );
+        throw new RangeError(`Brick4 node ${address} references incomplete probe ${probeAddress}`);
       }
       referencedProbes.add(probeAddress);
     }
@@ -143,7 +143,7 @@ export function validateBrick4LightMapPackageV1(
     byteLength: bytes.byteLength,
     branchNodeCount,
     leafNodeCount,
-    referencedProbeCount: referencedProbes.size
+    referencedProbeCount: referencedProbes.size,
   });
 }
 

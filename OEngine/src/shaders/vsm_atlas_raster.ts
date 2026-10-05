@@ -47,7 +47,9 @@ const corners = array<vec2f, 6>(
 @fragment fn clear_depth() -> @builtin(frag_depth) f32 { return 0.0; }
 `;
 
-const VSM_PAGE_ALLOCATED=1, VSM_PAGE_DIRTY=2, VSM_PAGE_GENERATION_VALID=8;
+const VSM_PAGE_ALLOCATED = 1,
+  VSM_PAGE_DIRTY = 2,
+  VSM_PAGE_GENERATION_VALID = 8;
 const ATLAS_PAGE_MATH = /* wgsl */ `
 fn atlas_position(light: vec3f, entry: VsmPageEntry, virtual_page: u32) -> vec4f {
   let pages = constants.dimensions.x;
@@ -86,14 +88,14 @@ fn product_meshlet_header(bank: u32, location: OEngineGeometryPageLookupV1, grou
 
 /** Caster record is selected by instance_index; vertex_index only selects the
  * triangle and corner within that caster's meshlet. */
-export function vsmAtlasRasterWgsl(product:boolean,coverage?:AppearancePublishedCoverage):string {
+export function vsmAtlasRasterWgsl(product: boolean, coverage?: AppearancePublishedCoverage): string {
   return /* wgsl */ `
 ${VSM_PAGE_TABLE_WGSL}
 ${GPU_INSTANCE_RECORD_WGSL}
 ${GPU_FRAME_INSTANCE_WGSL}
 ${PACKED_CAMERA_TYPE.wgsl_declaration}
 ${GPU_SHADING_MATERIAL_WGSL}
-${product ? VIRTUAL_GEOMETRY_PRODUCT_WGSL : GPU_GEOMETRY_RECORD_WGSL+GPU_MESHLET_RECORD_WGSL}
+${product ? VIRTUAL_GEOMETRY_PRODUCT_WGSL : GPU_GEOMETRY_RECORD_WGSL + GPU_MESHLET_RECORD_WGSL}
 ${RASTER_PARTITION_CONSUMER_WGSL}
 struct VsmAtlasConstants { light_view:mat4x4f,clip_origin_extent:array<vec4f,6>,dimensions:vec4u,control:vec4u }
 struct VsmCasterRecord { instance_record_index:u32,geometry_record_index:u32,meshlet_record_index:u32,
@@ -105,31 +107,48 @@ struct VsmPageTableBuffer { entries:array<VsmPageEntry> }
 @group(0) @binding(1) var<storage,read> caster:VsmCasterBuffer;
 @group(0) @binding(2) var<storage,read> page_table:VsmPageTableBuffer;
 @group(0) @binding(3) var<storage,read> instances:array<OEngineInstanceRecord>;
-${product ? `@group(0) @binding(4) var<storage,read> product_heap:array<u32>;
-${Array.from({length:4},(_,i)=>`@group(0) @binding(${5+i}) var<storage,read> product_bank_${i}:array<u32>;`).join("\n")}` : `
+${
+  product
+    ? `@group(0) @binding(4) var<storage,read> product_heap:array<u32>;
+${Array.from({ length: 4 }, (_, i) => `@group(0) @binding(${5 + i}) var<storage,read> product_bank_${i}:array<u32>;`).join("\n")}`
+    : `
 @group(0) @binding(4) var<storage,read> meshlets:array<GpuMeshletRecord>;
 @group(0) @binding(5) var<storage,read> meshlet_vertices:array<u32>;
 @group(0) @binding(6) var<storage,read> meshlet_triangles:array<u32>;
 @group(0) @binding(7) var<storage,read> vertex_data:array<u32>;
-@group(0) @binding(8) var<storage,read> geometries:array<GpuGeometryRecord>;`}
+@group(0) @binding(8) var<storage,read> geometries:array<GpuGeometryRecord>;`
+}
 @group(0) @binding(9) var<storage,read> materials:array<OEngineShadingMaterialRecord>;
-${coverage ? `@group(0) @binding(30) var<storage,read> frame_instances:array<OEngineFrameInstanceRecord>;
-@group(0) @binding(31) var<uniform> camera:CommandEncoder;` : ""}
+${
+  coverage
+    ? `@group(0) @binding(30) var<storage,read> frame_instances:array<OEngineFrameInstanceRecord>;
+@group(0) @binding(31) var<uniform> camera:CommandEncoder;`
+    : ""
+}
 ${ATLAS_PAGE_MATH}
-${product ? PRODUCT_READERS+`fn resident_attribute(address:u32,vertex:u32,field:u32)->vec4f {
+${
+  product
+    ? PRODUCT_READERS +
+      `fn resident_attribute(address:u32,vertex:u32,field:u32)->vec4f {
   let bank=address>>30u;
   let at=(address & 0x3fffffffu)+(vertex*${GPU_FRAME_ATTRIBUTE_VECTORS}u+field)*4u;
   return bitcast<vec4f>(vec4u(product_word(bank,at),product_word(bank,at+1u),product_word(bank,at+2u),product_word(bank,at+3u)));
-}` : `fn resident_attribute(base:u32,vertex:u32,field:u32)->vec4f {
+}`
+    : `fn resident_attribute(base:u32,vertex:u32,field:u32)->vec4f {
   let at=base+(vertex*${GPU_FRAME_ATTRIBUTE_VECTORS}u+field)*4u;
   return bitcast<vec4f>(vec4u(vertex_data[at],vertex_data[at+1u],vertex_data[at+2u],vertex_data[at+3u]));
-}`}
+}`
+}
 struct AtlasVertex {
   @builtin(position) position:vec4f,
   @location(0) @interpolate(flat) page_bounds:vec4f,
-${coverage ? `  @location(1) uv0:vec2f,@location(2) uv1:vec2f,@location(3) uv2:vec2f,
+${
+  coverage
+    ? `  @location(1) uv0:vec2f,@location(2) uv1:vec2f,@location(3) uv2:vec2f,
   @location(4) @interpolate(flat) material:u32,@location(5) @interpolate(flat) instance:u32,
-  @location(6) normal:vec4f,@location(7) tangent:vec4f,@location(8) color:vec4f,@location(9) local_position:vec3f,` : ""}
+  @location(6) normal:vec4f,@location(7) tangent:vec4f,@location(8) color:vec4f,@location(9) local_position:vec3f,`
+    : ""
+}
 }
 @vertex fn vsm_atlas_vertex(@builtin(vertex_index) vertex:u32,@builtin(instance_index) instance_id:u32)->AtlasVertex {
   var out:AtlasVertex;
@@ -143,7 +162,9 @@ ${coverage ? `  @location(1) uv0:vec2f,@location(2) uv1:vec2f,@location(3) uv2:v
   let triangle=vertex/3u; let input_corner=vertex%3u;
   let corner=select(input_corner,3u-input_corner,mirrored && input_corner!=0u);
   var address:u32; var source_vertex:u32;
-${product ? `  let asset=oengine_geometry_product_resolve_asset_v1(&product_heap,record.geometry_record_index,oengine_instance_geometry_generation(instance));
+${
+  product
+    ? `  let asset=oengine_geometry_product_resolve_asset_v1(&product_heap,record.geometry_record_index,oengine_instance_geometry_generation(instance));
   let group=oengine_virtual_group_v1(&product_heap,asset,record.meshlet_record_index>>7u);
   let location=oengine_geometry_product_lookup_page_heap_v1(&product_heap,asset,group.page_id);
   if !asset.valid || !group.valid || !location.valid { return out; }
@@ -153,30 +174,40 @@ ${product ? `  let asset=oengine_geometry_product_resolve_asset_v1(&product_heap
   let byte=location.byte_offset+group.offset_in_page+meshlet.triangle_byte_offset+triangle*3u+corner;
   source_vertex=(product_word(location.bank_index,byte>>2u)>>((byte & 3u)*8u)) & 255u;
   let directory=product_word(location.resident_bank,location.resident_word+group.offset_in_page/16u);
-  address=product_word(location.resident_bank,location.resident_word+directory+(record.meshlet_record_index & 127u));` : `
+  address=product_word(location.resident_bank,location.resident_word+directory+(record.meshlet_record_index & 127u));`
+    : `
   let meshlet=meshlets[record.meshlet_record_index];
   if triangle>=meshlet.triangle_count { return out; }
   let byte=meshlet.triangle_byte_offset+triangle*3u+corner;
   let local=(meshlet_triangles[byte>>2u]>>((byte & 3u)*8u)) & 255u;
   source_vertex=meshlet_vertices[meshlet.vertex_offset+local];
-  address=geometries[record.geometry_record_index].resident_attribute_word_offset;`}
+  address=geometries[record.geometry_record_index].resident_attribute_word_offset;`
+}
   let position=resident_attribute(address,source_vertex,5u).xyz;
   let world=transform*vec4f(position,1.0);
   out.position=atlas_position((constants.light_view*world).xyz,page,record.virtual_page);
   let pitch=constants.dimensions.y+constants.dimensions.z*2u;
   let origin=vec2f(vec2u(page.slot_x,page.slot_y)*pitch);
   out.page_bounds=vec4f(origin,origin+f32(pitch));
-${coverage ? `  let uv=resident_attribute(address,source_vertex,2u);
+${
+  coverage
+    ? `  let uv=resident_attribute(address,source_vertex,2u);
   out.uv0=uv.xy;out.uv1=uv.zw;out.uv2=resident_attribute(address,source_vertex,4u).xy;
   out.material=record.material_handle;out.instance=record.instance_record_index;
   out.normal=resident_attribute(address,source_vertex,0u);out.tangent=resident_attribute(address,source_vertex,1u);
-  out.color=resident_attribute(address,source_vertex,3u);out.local_position=position;` : ""}
+  out.color=resident_attribute(address,source_vertex,3u);out.local_position=position;`
+    : ""
+}
   return out;
 }
 ${coverage?.kernel.descriptor.source ?? ""}
 @fragment fn vsm_atlas_fragment(input:AtlasVertex) {
-${coverage ? `  let alpha=appearance_fragment_alpha(input.material,frame_instances[input.instance],camera,
-    input.uv0,input.uv1,input.uv2,input.color,input.normal,input.tangent,input.local_position);` : ""}
+${
+  coverage
+    ? `  let alpha=appearance_fragment_alpha(input.material,frame_instances[input.instance],camera,
+    input.uv0,input.uv1,input.uv2,input.color,input.normal,input.tangent,input.local_position);`
+    : ""
+}
   if any(input.position.xy<input.page_bounds.xy) || any(input.position.xy>=input.page_bounds.zw) { discard; }
 ${coverage ? `  if alpha<appearance_fragment_cutoff() { discard; }` : ""}
 }

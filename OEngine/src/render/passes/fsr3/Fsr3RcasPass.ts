@@ -79,30 +79,46 @@ export class Fsr3RcasPass {
 
   constructor(private readonly device: GPUDevice) {
     const module = device.createShaderModule({ label: "FSR3 RCAS", code: FSR3_RCAS_WGSL });
-    this.layout = device.createBindGroupLayout({ entries: [
-      { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
-      { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "unfilterable-float" } },
-      { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-      { binding: 3, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba16float" } }
-    ] });
+    this.layout = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "unfilterable-float" } },
+        { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+        {
+          binding: 3,
+          visibility: GPUShaderStage.COMPUTE,
+          storageTexture: { access: "write-only", format: "rgba16float" },
+        },
+      ],
+    });
     this.pipeline = device.createComputePipeline({
-      label: "FSR3 RCAS", layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }),
-      compute: { module, entryPoint: "main" }
+      label: "FSR3 RCAS",
+      layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }),
+      compute: { module, entryPoint: "main" },
     });
   }
 
-  addToGraph(graph: FrameGraph, input: {
-    color: ResourceId; exposure: ResourceId; constants: ResourceId;
-    width: number; height: number;
-  }): ResourceId {
+  addToGraph(
+    graph: FrameGraph,
+    input: {
+      color: ResourceId;
+      exposure: ResourceId;
+      constants: ResourceId;
+      width: number;
+      height: number;
+    },
+  ): ResourceId {
     const builder = graph.add("FSR3/RCAS", input, (data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
-      const bind = this.device.createBindGroup({ layout: this.layout, entries: [
-        { binding: 0, resource: resolveTextureView(resources.get(data.color)) },
-        { binding: 1, resource: resolveTextureView(resources.get(data.exposure)) },
-        { binding: 2, resource: { buffer: resources.get(data.constants) as GPUBuffer } },
-        { binding: 3, resource: resolveTextureView(resources.get(output)) }
-      ] });
+      const bind = this.device.createBindGroup({
+        layout: this.layout,
+        entries: [
+          { binding: 0, resource: resolveTextureView(resources.get(data.color)) },
+          { binding: 1, resource: resolveTextureView(resources.get(data.exposure)) },
+          { binding: 2, resource: { buffer: resources.get(data.constants) as GPUBuffer } },
+          { binding: 3, resource: resolveTextureView(resources.get(output)) },
+        ],
+      });
       const pass = command.beginComputePass({ label: "FSR3 RCAS" });
       pass.setPipeline(this.pipeline);
       pass.setBindGroup(0, bind);
@@ -110,9 +126,12 @@ export class Fsr3RcasPass {
       pass.end();
     });
     const output = builder.create("FSR3/sharpened output", {
-      kind: "transient_texture", width: input.width, height: input.height,
-      format: "rgba16float", domain: "output-full",
-      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
+      kind: "transient_texture",
+      width: input.width,
+      height: input.height,
+      format: "rgba16float",
+      domain: "output-full",
+      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
     });
     builder.read(input.color);
     builder.read(input.exposure);

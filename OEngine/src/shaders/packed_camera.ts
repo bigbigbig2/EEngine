@@ -14,7 +14,7 @@ export const PACKED_CAMERA_TYPE = StructType.from(
     view_projection_matrix: WGSL_mat4x4f,
     view_projection_matrix_inverse: WGSL_mat4x4f,
     frustum: ArrayType.from(WGSL_vec4f, 6),
-    device_depth_to_view_space: WGSL_vec4f
+    device_depth_to_view_space: WGSL_vec4f,
   },
-  "CommandEncoder"
+  "CommandEncoder",
 ).pack();

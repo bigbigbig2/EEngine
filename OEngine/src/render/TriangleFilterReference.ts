@@ -29,15 +29,19 @@ export interface TriangleFilterReferenceResult {
  */
 export function filterTriangleClipReference(
   clip: readonly [ArrayLike<number>, ArrayLike<number>, ArrayLike<number>],
-  options: TriangleFilterReferenceOptions
+  options: TriangleFilterReferenceOptions,
 ): TriangleFilterReferenceResult {
   validateOptions(options);
-  const vertices = clip.map((value, index) => readClip(value, index)) as
-    [readonly number[], readonly number[], readonly number[]];
+  const vertices = clip.map((value, index) => readClip(value, index)) as [
+    readonly number[],
+    readonly number[],
+    readonly number[],
+  ];
   if (vertices.some((value) => value.some((component) => !Number.isFinite(component)))) {
     return rejected("invalid", false);
   }
-  const crossesNearPlane = vertices.some((value) => value[2]! < 0 || value[3]! <= 0) &&
+  const crossesNearPlane =
+    vertices.some((value) => value[2]! < 0 || value[3]! <= 0) &&
     vertices.some((value) => value[2]! >= 0 && value[3]! > 0);
   if (outsideClipVolume(vertices)) return rejected("frustum", crossesNearPlane);
 
@@ -50,44 +54,49 @@ export function filterTriangleClipReference(
   const determinant = homogeneousOrientation(vertices);
   const determinantScale = Math.max(
     ...vertices.flatMap((value) => [Math.abs(value[0]!), Math.abs(value[1]!), Math.abs(value[3]!)]),
-    1
+    1,
   );
   if (Math.abs(determinant) <= Number.EPSILON * determinantScale * determinantScale * determinantScale * 16) {
     return rejected("degenerate", false);
   }
   if (!options.doubleSided) {
     const expectedPositive = (options.frontFace === "ccw") !== options.mirrored;
-    if ((determinant > 0) !== expectedPositive) return rejected("backface", false);
+    if (determinant > 0 !== expectedPositive) return rejected("backface", false);
   }
 
-  if (options.cullSmallPrimitives && fixedPointSmallPrimitiveRejected(
-    vertices,
-    options.viewportWidth,
-    options.viewportHeight,
-    options.sampleCount
-  )) {
+  if (
+    options.cullSmallPrimitives &&
+    fixedPointSmallPrimitiveRejected(
+      vertices,
+      options.viewportWidth,
+      options.viewportHeight,
+      options.sampleCount,
+    )
+  ) {
     return rejected("small-primitive", false);
   }
   return kept(false);
 }
 
-function outsideClipVolume(
-  vertices: readonly (readonly number[])[]
-): boolean {
+function outsideClipVolume(vertices: readonly (readonly number[])[]): boolean {
   // WebGPU homogeneous clip volume: -w <= x/y <= w and 0 <= z <= w.
-  return vertices.every((value) => value[0]! < -value[3]!) ||
+  return (
+    vertices.every((value) => value[0]! < -value[3]!) ||
     vertices.every((value) => value[0]! > value[3]!) ||
     vertices.every((value) => value[1]! < -value[3]!) ||
     vertices.every((value) => value[1]! > value[3]!) ||
     vertices.every((value) => value[2]! < 0) ||
-    vertices.every((value) => value[2]! > value[3]!);
+    vertices.every((value) => value[2]! > value[3]!)
+  );
 }
 
 function homogeneousOrientation(vertices: readonly (readonly number[])[]): number {
   const [a, b, c] = vertices;
-  return a![0]! * (b![1]! * c![3]! - b![3]! * c![1]!) -
+  return (
+    a![0]! * (b![1]! * c![3]! - b![3]! * c![1]!) -
     a![1]! * (b![0]! * c![3]! - b![3]! * c![0]!) +
-    a![3]! * (b![0]! * c![1]! - b![1]! * c![0]!);
+    a![3]! * (b![0]! * c![1]! - b![1]! * c![0]!)
+  );
 }
 
 /**
@@ -98,23 +107,23 @@ function fixedPointSmallPrimitiveRejected(
   vertices: readonly (readonly number[])[],
   width: number,
   height: number,
-  samples: number
+  samples: number,
 ): boolean {
   const subpixelSamples = 256;
   const subpixelMask = 0xff;
   const sampleCenter = subpixelSamples / 2;
   const sampleSize = subpixelSamples - 1;
-  const fixed = vertices.map((value) => [
-    (value[0]! / value[3]! * 0.5 + 0.5) * width,
-    (0.5 - value[1]! / value[3]! * 0.5) * height
-  ].map((component) => Math.trunc(component * subpixelSamples * samples)) as
-    [number, number]);
+  const fixed = vertices.map(
+    (value) =>
+      [((value[0]! / value[3]!) * 0.5 + 0.5) * width, (0.5 - (value[1]! / value[3]!) * 0.5) * height].map(
+        (component) => Math.trunc(component * subpixelSamples * samples),
+      ) as [number, number],
+  );
   for (let axis = 0; axis < 2; axis++) {
     const minimum = Math.min(...fixed.map((value) => value[axis]!));
     const maximum = Math.max(...fixed.map((value) => value[axis]!));
     const fractionalMinimum = minimum & subpixelMask;
-    const distanceFromFirstCenter = maximum -
-      ((minimum & ~subpixelMask) + sampleCenter);
+    const distanceFromFirstCenter = maximum - ((minimum & ~subpixelMask) + sampleCenter);
     if (fractionalMinimum > sampleCenter && distanceFromFirstCenter < sampleSize) {
       return true;
     }
@@ -131,7 +140,7 @@ function validateOptions(options: TriangleFilterReferenceOptions): void {
   for (const [label, value] of [
     ["viewportWidth", options.viewportWidth],
     ["viewportHeight", options.viewportHeight],
-    ["sampleCount", options.sampleCount]
+    ["sampleCount", options.sampleCount],
   ] as const) {
     if (!Number.isSafeInteger(value) || value <= 0) {
       throw new RangeError(`${label} must be a positive integer`);
@@ -147,7 +156,7 @@ function validateOptions(options: TriangleFilterReferenceOptions): void {
 
 function rejected(
   reason: TriangleFilterRejectReason,
-  crossesNearPlane: boolean
+  crossesNearPlane: boolean,
 ): TriangleFilterReferenceResult {
   return Object.freeze({ keep: false, reason, crossesNearPlane });
 }

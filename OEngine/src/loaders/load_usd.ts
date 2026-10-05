@@ -10,7 +10,7 @@ import {
   defaultUsdExtensions,
   type LoadUsdOptionsInternal,
   type UsdExtensionRegistry,
-  type UsdSpecsByPath
+  type UsdSpecsByPath,
 } from "./usd/UsdExtensionRegistry.js";
 import { UsdParseError, UsdUnsupportedError } from "./usd/UsdErrors.js";
 import { decodeUtf8, isPrimSpec, parseUsda } from "./usd/parseUsda.js";
@@ -20,7 +20,7 @@ import { buildUsdMaterials } from "./usd/usdPreviewSurface.js";
 import {
   applyUsdStageRootToNode,
   composeUsdStageRootMatrix,
-  readUsdStageRootMeta
+  readUsdStageRootMeta,
 } from "./usd/usdStageRoot.js";
 import { composeLocalXform } from "./usd/usdXform.js";
 
@@ -30,10 +30,7 @@ export type LoadUsdOptions = {
 };
 
 export { UsdParseError, UsdUnsupportedError } from "./usd/UsdErrors.js";
-export {
-  UsdExtensionRegistry,
-  defaultUsdExtensions
-} from "./usd/UsdExtensionRegistry.js";
+export { UsdExtensionRegistry, defaultUsdExtensions } from "./usd/UsdExtensionRegistry.js";
 export type { UsdExtension } from "./usd/UsdExtensionRegistry.js";
 
 const buildMaterials = buildUsdMaterials;
@@ -44,7 +41,7 @@ function processPrim(
   materials: Map<string, StandardShadeMaterial>,
   parentXform: Float32Array,
   options: LoadUsdOptionsInternal,
-  extensions: UsdExtensionRegistry | null
+  extensions: UsdExtensionRegistry | null,
 ): Node3D | null {
   const i = specs[path];
   if (!isPrimSpec(i)) return null;
@@ -58,7 +55,7 @@ function processPrim(
         const a = ext.processPrim(path, o, {
           specs_by_path: specs,
           materials,
-          options
+          options,
         });
         if (a != null) return a;
       }
@@ -74,14 +71,7 @@ function processPrim(
     if ((w as { isMesh?: boolean }).isMesh !== true) return w;
     const children = (o.primChildren as string[]) || [];
     for (const child of children) {
-      const n = processPrim(
-        `${path}/${child}`,
-        specs,
-        materials,
-        worldish,
-        options,
-        null
-      );
+      const n = processPrim(`${path}/${child}`, specs, materials, worldish, options, null);
       if (n !== null) w.addChild(n);
     }
     return w;
@@ -94,9 +84,7 @@ function processPrim(
     typeName !== "Material" &&
     typeName !== "Shader"
   ) {
-    console.warn(
-      `[USD] Unhandled prim type "${typeName}" at ${path}, treating as group node`
-    );
+    console.warn(`[USD] Unhandled prim type "${typeName}" at ${path}, treating as group node`);
   }
 
   const l = new Node3D();
@@ -104,23 +92,13 @@ function processPrim(
   l.transform_local.fromMatrix(localXform);
   const f = (o.primChildren as string[]) || [];
   for (const child of f) {
-    const n = processPrim(
-      `${path}/${child}`,
-      specs,
-      materials,
-      worldish,
-      options,
-      extensions
-    );
+    const n = processPrim(`${path}/${child}`, specs, materials, worldish, options, extensions);
     if (n !== null) l.addChild(n);
   }
   return l;
 }
 
-function buildNodes(
-  specs: UsdSpecsByPath,
-  options: LoadUsdOptionsInternal
-): Node3D[] {
+function buildNodes(specs: UsdSpecsByPath, options: LoadUsdOptionsInternal): Node3D[] {
   const n = specs["/"];
   const r = n ? n.fields : {};
   const meta = readUsdStageRootMeta(specs);
@@ -142,10 +120,7 @@ function buildNodes(
   return d;
 }
 
-export async function load_usd(
-  buffer: ArrayBuffer,
-  options: LoadUsdOptions = {}
-): Promise<Node3D[]> {
+export async function load_usd(buffer: ArrayBuffer, options: LoadUsdOptions = {}): Promise<Node3D[]> {
   const n = detectUsdFormat(buffer, options.fileName);
   const r = options.extensions || defaultUsdExtensions;
   let s: { specsByPath: UsdSpecsByPath };
@@ -156,32 +131,24 @@ export async function load_usd(
       s = parseUsda(decodeUtf8(buffer));
       break;
     case "usdc":
-      throw new UsdUnsupportedError(
-        "USDC binary crate format is not yet implemented"
-      );
+      throw new UsdUnsupportedError("USDC binary crate format is not yet implemented");
     case "usdz": {
       const unpacked = unpackUsdz(buffer);
       a = unpacked.files;
       const rootBytes = a.get(unpacked.rootFileName);
       if (!rootBytes) {
-        throw new UsdParseError(
-          `Root layer "${unpacked.rootFileName}" not found in USDZ archive`
-        );
+        throw new UsdParseError(`Root layer "${unpacked.rootFileName}" not found in USDZ archive`);
       }
       const i = rootBytes.buffer.slice(
         rootBytes.byteOffset,
-        rootBytes.byteOffset + rootBytes.byteLength
+        rootBytes.byteOffset + rootBytes.byteLength,
       ) as ArrayBuffer;
       const o = detectUsdFormat(i, unpacked.rootFileName);
       if (o !== "usda") {
         if (o === "usdc") {
-          throw new UsdUnsupportedError(
-            "USDC binary crate format is not yet implemented"
-          );
+          throw new UsdUnsupportedError("USDC binary crate format is not yet implemented");
         }
-        throw new UsdParseError(
-          `Unknown format for root layer "${unpacked.rootFileName}" inside USDZ`
-        );
+        throw new UsdParseError(`Unknown format for root layer "${unpacked.rootFileName}" inside USDZ`);
       }
       s = parseUsda(decodeUtf8(i));
       break;
@@ -195,6 +162,6 @@ export async function load_usd(
   }
 
   return buildNodes(s.specsByPath, {
-    assetFiles: a
+    assetFiles: a,
   });
 }

@@ -4,16 +4,12 @@
 
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import type { GPUBufferAllocator } from "./GPUBufferAllocator.js";
-import {
-  recordGpuReadback,
-  submitGpuCommands,
-  writeGpuBuffer
-} from "./GpuQueueEvidence.js";
+import { recordGpuReadback, submitGpuCommands, writeGpuBuffer } from "./GpuQueueEvidence.js";
 
 export enum GPUCollectionKind {
   Meshes = 0,
   Meshlets = 1,
-  ObjectPropertyReference = 2
+  ObjectPropertyReference = 2,
 }
 
 const COLLECTION_COUNT = 3;
@@ -21,8 +17,7 @@ const HISTORY_LENGTH = 512;
 const COLLECTION_ELEMENT_BYTES: Readonly<Record<GPUCollectionKind, number>> = {
   [GPUCollectionKind.Meshes]: Uint32Array.BYTES_PER_ELEMENT,
   [GPUCollectionKind.Meshlets]: 2 * Uint32Array.BYTES_PER_ELEMENT,
-  [GPUCollectionKind.ObjectPropertyReference]:
-    2 * Uint32Array.BYTES_PER_ELEMENT
+  [GPUCollectionKind.ObjectPropertyReference]: 2 * Uint32Array.BYTES_PER_ELEMENT,
 };
 
 export class GPUCollectionStatistics {
@@ -34,7 +29,7 @@ export class GPUCollectionStatistics {
   constructor(
     private readonly device: GPUDevice,
     readonly columns: number,
-    private readonly historyLength: number
+    private readonly historyLength: number,
   ) {
     this.cursors = new Uint32Array(columns);
     this.records = new Uint32Array(columns * historyLength);
@@ -42,14 +37,12 @@ export class GPUCollectionStatistics {
     this.stat_buffer = device.createBuffer({
       label: "",
       usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
-      size: columns * Uint32Array.BYTES_PER_ELEMENT * historyLength
+      size: columns * Uint32Array.BYTES_PER_ELEMENT * historyLength,
     });
   }
 
   getLastRecord(column: number): number {
-    const row =
-      ((this.cursors[column] ?? 0) - 1 + this.historyLength) %
-      this.historyLength;
+    const row = ((this.cursors[column] ?? 0) - 1 + this.historyLength) % this.historyLength;
     return this.records[row * this.columns + column] ?? 0;
   }
 
@@ -78,12 +71,7 @@ export class GPUCollectionStatistics {
     this.upload();
   }
 
-  record(
-    command: ShadeGPUCommandContext,
-    column: number,
-    source: GPUBuffer,
-    sourceOffset = 0
-  ): void {
+  record(command: ShadeGPUCommandContext, column: number, source: GPUBuffer, sourceOffset = 0): void {
     if (this.stat_buffer.mapState !== "unmapped") return;
     const row = this.cursors[column] ?? 0;
     this.cursors[column] = (row + 1) % this.historyLength;
@@ -92,21 +80,18 @@ export class GPUCollectionStatistics {
       sourceOffset,
       this.stat_buffer,
       (row * this.columns + column) * Uint32Array.BYTES_PER_ELEMENT,
-      Uint32Array.BYTES_PER_ELEMENT
+      Uint32Array.BYTES_PER_ELEMENT,
     );
   }
 
-  async readback_explicit(
-    command: ShadeGPUCommandContext,
-    allocator: GPUBufferAllocator
-  ): Promise<void> {
+  async readback_explicit(command: ShadeGPUCommandContext, allocator: GPUBufferAllocator): Promise<void> {
     const size = this.stat_buffer.size;
     const readback = allocator.get(
       {
         size,
-        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
       },
-      command
+      command,
     );
     command.recordReadback("collection-limits", size);
     command.copyBufferToBuffer(this.stat_buffer, 0, readback, 0, size);
@@ -123,7 +108,7 @@ export class GPUCollectionStatistics {
       label: "",
       size,
       usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
-      mappedAtCreation: false
+      mappedAtCreation: false,
     });
     const encoder = this.device.createCommandEncoder({ label: "" });
     encoder.copyBufferToBuffer(this.stat_buffer, 0, readback, 0, size);
@@ -136,13 +121,7 @@ export class GPUCollectionStatistics {
   }
 
   upload(): void {
-    writeGpuBuffer(
-      this.device.queue,
-      "GPUCollectionLimits/upload",
-      this.stat_buffer,
-      0,
-      this.records.buffer
-    );
+    writeGpuBuffer(this.device.queue, "GPUCollectionLimits/upload", this.stat_buffer, 0, this.records.buffer);
   }
 
   destroy(): void {
@@ -167,11 +146,7 @@ export class GPUCollectionLimits {
   private readonly previousLimits = new Uint32Array(COLLECTION_COUNT);
 
   constructor(private readonly device: GPUDevice) {
-    this.stats = new GPUCollectionStatistics(
-      device,
-      COLLECTION_COUNT,
-      HISTORY_LENGTH
-    );
+    this.stats = new GPUCollectionStatistics(device, COLLECTION_COUNT, HISTORY_LENGTH);
     this.stats.setGlobalMax(GPUCollectionKind.Meshes, 10_000);
     this.stats.setGlobalMax(GPUCollectionKind.Meshlets, 200_000);
     this.stats.setGlobalMax(GPUCollectionKind.ObjectPropertyReference, 1_024);
@@ -188,18 +163,13 @@ export class GPUCollectionLimits {
   }
 
   compute_buffer_size(kind: GPUCollectionKind): number {
-    const requested = alignUp(
-      COLLECTION_ELEMENT_BYTES[kind] * this.get_limit(kind) + 16,
-      4096
-    );
+    const requested = alignUp(COLLECTION_ELEMENT_BYTES[kind] * this.get_limit(kind) + 16, 4096);
     const maximum = Math.min(
       this.device.limits.maxStorageBufferBindingSize,
-      this.device.limits.maxBufferSize
+      this.device.limits.maxBufferSize,
     );
     if (requested > maximum) {
-      console.warn(
-        `Requesting collection buffer larger than device limit '${requested}' > '${maximum}'`
-      );
+      console.warn(`Requesting collection buffer larger than device limit '${requested}' > '${maximum}'`);
     }
     return Math.min(maximum, Math.max(16, requested));
   }
@@ -208,15 +178,12 @@ export class GPUCollectionLimits {
     command: ShadeGPUCommandContext,
     kind: GPUCollectionKind,
     source: GPUBuffer,
-    sourceOffset = 0
+    sourceOffset = 0,
   ): void {
     this.stats.record(command, kind, source, sourceOffset);
   }
 
-  async update(
-    command: ShadeGPUCommandContext,
-    allocator: GPUBufferAllocator
-  ): Promise<void> {
+  async update(command: ShadeGPUCommandContext, allocator: GPUBufferAllocator): Promise<void> {
     await this.stats.readback_explicit(command, allocator);
     this.resetFollowingLimitsAfterGrowth();
     this.snapshotLimits();

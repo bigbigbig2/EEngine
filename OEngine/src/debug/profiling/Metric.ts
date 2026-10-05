@@ -1,10 +1,4 @@
-export type MetricUnit =
-  | "ms"
-  | "bytes"
-  | "count"
-  | "ratio"
-  | "pixels"
-  | "triangles";
+export type MetricUnit = "ms" | "bytes" | "count" | "ratio" | "pixels" | "triangles";
 
 export type MetricSource =
   | "cpu-clock"

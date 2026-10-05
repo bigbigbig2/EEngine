@@ -3,21 +3,15 @@
  */
 
 import { TextureFilterType } from "../texture/TextureFilterType.js";
-import {
-  createNativeTexture,
-  createNativeTextureView
-} from "./GPUTextureDescriptors.js";
+import { createNativeTexture, createNativeTextureView } from "./GPUTextureDescriptors.js";
 import {
   MIPMAP_FILTER_WGSL_BY_ID,
   MIPMAP_FULLSCREEN_VERTEX_WGSL,
-  MIPMAP_PARAMS_BYTES
+  MIPMAP_PARAMS_BYTES,
 } from "../shaders/mipmap_filters.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
-import {
-  submitGpuCommands,
-  writeGpuBuffer
-} from "./GpuQueueEvidence.js";
+import { submitGpuCommands, writeGpuBuffer } from "./GpuQueueEvidence.js";
 import type { CachedRenderPipelineDescriptor, CachedShaderModuleDescriptor } from "./GPUDescriptorCaches.js";
 
 export type MipmapFilterConfig = {
@@ -32,38 +26,38 @@ export const MIPMAP_FILTER_CONFIGS: Readonly<Record<number, MipmapFilterConfig>>
     filter: 0,
     base_filter: 0,
     support: 1,
-    skip_distance: 0
+    skip_distance: 0,
   },
   [TextureFilterType.LinearNormal]: {
     filter: 1,
     base_filter: 0,
     support: 1,
-    skip_distance: 0
+    skip_distance: 0,
   },
   [TextureFilterType.Mitchell]: {
     filter: 2,
     base_filter: 3,
     support: 2,
-    skip_distance: 2
+    skip_distance: 2,
   },
   [TextureFilterType.MagicKernelSharp]: {
     filter: 4,
     base_filter: 4,
     support: 3.5,
-    skip_distance: 1
+    skip_distance: 1,
   },
   [TextureFilterType.CatmullRom]: {
     filter: 6,
     base_filter: 0,
     support: 2,
-    skip_distance: 2
+    skip_distance: 2,
   },
   [TextureFilterType.Wronski2021]: {
     filter: 7,
     base_filter: 0,
     support: 5,
-    skip_distance: 1
-  }
+    skip_distance: 1,
+  },
 };
 
 type ScheduledMipmap = {
@@ -95,7 +89,7 @@ const SRGB_TO_LINEAR_FORMAT: Readonly<Record<string, GPUTextureFormat>> = {
   "astc-10x8-unorm-srgb": "astc-10x8-unorm",
   "astc-10x10-unorm-srgb": "astc-10x10-unorm",
   "astc-12x10-unorm-srgb": "astc-12x10-unorm",
-  "astc-12x12-unorm-srgb": "astc-12x12-unorm"
+  "astc-12x12-unorm-srgb": "astc-12x12-unorm",
 };
 
 export class MipmapGenerator {
@@ -111,14 +105,11 @@ export class MipmapGenerator {
     const device = graphics.device;
     this.device = device;
     this.sampler = device.createSampler({ minFilter: "linear" });
-    this.paramsStride = alignUp(
-      MIPMAP_PARAMS_BYTES,
-      device.limits.minUniformBufferOffsetAlignment
-    );
+    this.paramsStride = alignUp(MIPMAP_PARAMS_BYTES, device.limits.minUniformBufferOffsetAlignment);
     this.paramsBuffer = device.createBuffer({
       label: "",
       size: 32 * this.paramsStride,
-      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.UNIFORM
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.UNIFORM,
     });
   }
 
@@ -129,24 +120,16 @@ export class MipmapGenerator {
   schedule(
     texture: GPUTexture,
     descriptor: GPUTextureDescriptor,
-    filter: number = TextureFilterType.Linear
+    filter: number = TextureFilterType.Linear,
   ): void {
     this.queue.push({ texture, descriptor, filter });
   }
 
-  update(
-    timeBudgetMs = Number.POSITIVE_INFINITY,
-    command?: ShadeGPUCommandContext
-  ): void {
+  update(timeBudgetMs = Number.POSITIVE_INFINITY, command?: ShadeGPUCommandContext): void {
     const started = performance.now();
     while (this.queue.length > 0) {
       const scheduled = this.queue.shift()!;
-      this.generateMipmap(
-        scheduled.texture,
-        scheduled.descriptor,
-        scheduled.filter,
-        command
-      );
+      this.generateMipmap(scheduled.texture, scheduled.descriptor, scheduled.filter, command);
       if (performance.now() - started >= timeBudgetMs) break;
     }
   }
@@ -163,7 +146,7 @@ export class MipmapGenerator {
     source: GPUTexture,
     descriptor: GPUTextureDescriptor,
     filter: number = TextureFilterType.Linear,
-    command?: ShadeGPUCommandContext
+    command?: ShadeGPUCommandContext,
   ): GPUTexture {
     const mipLevelCount = source.mipLevelCount;
     if (mipLevelCount <= 1) return source;
@@ -179,14 +162,13 @@ export class MipmapGenerator {
 
     if (SRGB_TO_LINEAR_FORMAT[source.format] !== undefined) {
       const canUseLinearView =
-        descriptor.viewFormats !== undefined &&
-        Array.from(descriptor.viewFormats).includes(linearFormat);
+        descriptor.viewFormats !== undefined && Array.from(descriptor.viewFormats).includes(linearFormat);
       if (!canUseLinearView) {
         const linearTexture = createNativeTexture(this.device, {
           size: {
             width: Math.max(1, width),
             height: Math.max(1, height),
-            depthOrArrayLayers: layers
+            depthOrArrayLayers: layers,
           },
           format: linearFormat,
           usage:
@@ -194,13 +176,13 @@ export class MipmapGenerator {
             GPUTextureUsage.RENDER_ATTACHMENT |
             GPUTextureUsage.COPY_SRC |
             GPUTextureUsage.COPY_DST,
-          mipLevelCount
+          mipLevelCount,
         });
         ownedTextures.push(linearTexture);
         commandEncoder.copyTextureToTexture(
           { texture: inputTexture },
           { texture: linearTexture, mipLevel: 0 },
-          { width, height, depthOrArrayLayers: layers }
+          { width, height, depthOrArrayLayers: layers },
         );
         inputTexture = linearTexture;
       }
@@ -211,7 +193,7 @@ export class MipmapGenerator {
       : this.device.createBuffer({
           label: "",
           size: this.paramsBuffer.size,
-          usage: this.paramsBuffer.usage
+          usage: this.paramsBuffer.usage,
         });
     if (!ownEncoder) command.destroyAfterSubmit(params);
     this.writeParams(params, width, height);
@@ -222,33 +204,25 @@ export class MipmapGenerator {
     }
     const onePass = config.filter === config.base_filter;
     const basePipeline = this.obtainPipeline(linearFormat, config.base_filter);
-    const finalPipeline = onePass
-      ? null
-      : this.obtainPipeline(linearFormat, config.filter);
+    const finalPipeline = onePass ? null : this.obtainPipeline(linearFormat, config.filter);
 
     const dimension = descriptor.dimension ?? "2d";
     if (dimension === "3d" || dimension === "1d") {
-      throw new Error(
-        "Generating mipmaps for non-2d textures is currently unsupported!"
-      );
+      throw new Error("Generating mipmaps for non-2d textures is currently unsupported!");
     }
 
-    const inputIsRenderable =
-      (inputTexture.usage & GPUTextureUsage.RENDER_ATTACHMENT) !== 0;
+    const inputIsRenderable = (inputTexture.usage & GPUTextureUsage.RENDER_ATTACHMENT) !== 0;
     let outputTexture = inputTexture;
     if (!inputIsRenderable) {
       outputTexture = createNativeTexture(this.device, {
         size: {
           width: Math.max(1, width >>> 1),
           height: Math.max(1, height >>> 1),
-          depthOrArrayLayers: layers
+          depthOrArrayLayers: layers,
         },
         format: linearFormat,
-        usage:
-          GPUTextureUsage.TEXTURE_BINDING |
-          GPUTextureUsage.COPY_SRC |
-          GPUTextureUsage.RENDER_ATTACHMENT,
-        mipLevelCount: mipLevelCount - 1
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC | GPUTextureUsage.RENDER_ATTACHMENT,
+        mipLevelCount: mipLevelCount - 1,
       });
       ownedTextures.push(outputTexture);
     }
@@ -260,14 +234,11 @@ export class MipmapGenerator {
         size: {
           width: Math.max(1, width >>> 1),
           height: Math.max(1, height >>> 1),
-          depthOrArrayLayers: layers
+          depthOrArrayLayers: layers,
         },
         format: linearFormat,
-        usage:
-          GPUTextureUsage.TEXTURE_BINDING |
-          GPUTextureUsage.COPY_SRC |
-          GPUTextureUsage.RENDER_ATTACHMENT,
-        mipLevelCount: mipLevelCount - 1
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC | GPUTextureUsage.RENDER_ATTACHMENT,
+        mipLevelCount: mipLevelCount - 1,
       });
       ownedTextures.push(filteredTexture);
     }
@@ -279,7 +250,7 @@ export class MipmapGenerator {
         dimension: "2d",
         baseArrayLayer: layer,
         arrayLayerCount: 1,
-        format: linearFormat
+        format: linearFormat,
       });
       let targetMip = filteredTexture === inputTexture ? 1 : 0;
       for (let mipLevel = 1; mipLevel < mipLevelCount; mipLevel++) {
@@ -289,7 +260,7 @@ export class MipmapGenerator {
           dimension: "2d",
           baseArrayLayer: layer,
           arrayLayerCount: 1,
-          format: linearFormat
+          format: linearFormat,
         });
         this.encodeFilterPass(
           commandEncoder,
@@ -297,7 +268,7 @@ export class MipmapGenerator {
           previousView,
           targetView,
           params,
-          mipLevel * this.paramsStride
+          mipLevel * this.paramsStride,
         );
         previousView = targetView;
       }
@@ -310,19 +281,15 @@ export class MipmapGenerator {
         if (filteredTexture !== source && sourceMip > 0) {
           filteredSourceMip--;
         }
-        const destinationTexture = inputIsRenderable
-          ? inputTexture
-          : outputTexture;
-        const destinationMip = inputIsRenderable
-          ? mipLevel
-          : mipLevel - 1;
+        const destinationTexture = inputIsRenderable ? inputTexture : outputTexture;
+        const destinationMip = inputIsRenderable ? mipLevel : mipLevel - 1;
         const sourceView = createNativeTextureView(filteredTexture, {
           baseMipLevel: filteredSourceMip,
           mipLevelCount: 1,
           dimension: "2d",
           baseArrayLayer: layer,
           arrayLayerCount: 1,
-          format: linearFormat
+          format: linearFormat,
         });
         const destinationView = createNativeTextureView(destinationTexture, {
           baseMipLevel: destinationMip,
@@ -330,7 +297,7 @@ export class MipmapGenerator {
           dimension: "2d",
           baseArrayLayer: layer,
           arrayLayerCount: 1,
-          format: linearFormat
+          format: linearFormat,
         });
         this.encodeFilterPass(
           commandEncoder,
@@ -338,7 +305,7 @@ export class MipmapGenerator {
           sourceView,
           destinationView,
           params,
-          destinationMip * this.paramsStride
+          destinationMip * this.paramsStride,
         );
       }
     }
@@ -347,17 +314,17 @@ export class MipmapGenerator {
       const copySize = {
         width: Math.max(1, width >>> 1),
         height: Math.max(1, height >>> 1),
-        depthOrArrayLayers: layers
+        depthOrArrayLayers: layers,
       };
       const sourceMipOffset = outputTexture.width === source.width ? 0 : 1;
       for (let mipLevel = 1; mipLevel < mipLevelCount; mipLevel++) {
         commandEncoder.copyTextureToTexture(
           {
             texture: outputTexture,
-            mipLevel: mipLevel - sourceMipOffset
+            mipLevel: mipLevel - sourceMipOffset,
           },
           { texture: source, mipLevel },
-          copySize
+          copySize,
         );
         copySize.width = Math.max(1, copySize.width >>> 1);
         copySize.height = Math.max(1, copySize.height >>> 1);
@@ -365,9 +332,7 @@ export class MipmapGenerator {
     }
 
     if (ownEncoder) {
-      submitGpuCommands(this.device, "MipmapGenerator/generate", [
-        commandEncoder.finish()
-      ]);
+      submitGpuCommands(this.device, "MipmapGenerator/generate", [commandEncoder.finish()]);
       for (const texture of ownedTextures) texture.destroy();
     } else {
       for (const texture of ownedTextures) {
@@ -383,7 +348,7 @@ export class MipmapGenerator {
     input: GPUTextureView,
     output: GPUTextureView,
     params: GPUBuffer,
-    paramsOffset: number
+    paramsOffset: number,
   ): void {
     const pass = encoder.beginRenderPass({
       label: "",
@@ -391,17 +356,13 @@ export class MipmapGenerator {
         {
           view: output,
           loadOp: "clear",
-          storeOp: "store"
-        }
-      ]
+          storeOp: "store",
+        },
+      ],
     });
     const group = this.graphics.bind_groups.obtain({
       layout: MIPMAP_BIND_GROUP_LAYOUT,
-      entries: [
-        this.sampler,
-        input,
-        { buffer: params, offset: paramsOffset, size: MIPMAP_PARAMS_BYTES }
-      ]
+      entries: [this.sampler, input, { buffer: params, offset: paramsOffset, size: MIPMAP_PARAMS_BYTES }],
     });
     pass.setPipeline(this.graphics.render_pipelines.obtain(pipeline));
     pass.setBindGroup(0, group);
@@ -420,20 +381,10 @@ export class MipmapGenerator {
       words[wordOffset + 1] = mipHeight;
       if (mipWidth === 1 && mipHeight === 1) break;
     }
-    writeGpuBuffer(
-      this.device.queue,
-      "MipmapGenerator/parameters",
-      buffer,
-      0,
-      bytes,
-      0
-    );
+    writeGpuBuffer(this.device.queue, "MipmapGenerator/parameters", buffer, 0, bytes, 0);
   }
 
-  private obtainPipeline(
-    format: GPUTextureFormat,
-    filter: number
-  ): CachedRenderPipelineDescriptor {
+  private obtainPipeline(format: GPUTextureFormat, filter: number): CachedRenderPipelineDescriptor {
     const key = `${format}:${filter}`;
     let pipeline = this.pipelines.get(key);
     if (pipeline !== undefined) return pipeline;
@@ -443,14 +394,14 @@ export class MipmapGenerator {
       layout: { label: "", bindGroupLayouts: [MIPMAP_BIND_GROUP_LAYOUT] },
       vertex: {
         module: this.obtainVertexModule(),
-        entryPoint: "main"
+        entryPoint: "main",
       },
       fragment: {
         module: fragment,
         entryPoint: "main",
-        targets: [{ format }]
+        targets: [{ format }],
       },
-      primitive: { topology: "triangle-list", cullMode: "none" }
+      primitive: { topology: "triangle-list", cullMode: "none" },
     };
     this.pipelines.set(key, pipeline);
     return pipeline;
@@ -478,8 +429,8 @@ const MIPMAP_BIND_GROUP_LAYOUT: GPUBindGroupLayoutDescriptor = {
   entries: [
     { binding: 0, visibility: GPUShaderStage.FRAGMENT, sampler: {} },
     { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: {} },
-    { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: {} }
-  ]
+    { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: {} },
+  ],
 };
 
 function alignUp(value: number, alignment: number): number {

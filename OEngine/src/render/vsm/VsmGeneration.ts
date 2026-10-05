@@ -51,7 +51,7 @@ const REASON_MASK: Record<VsmInvalidationReason, number> = {
   "caster-publication": 1 << 5,
   resize: 1 << 6,
   "page-quantum": 1 << 7,
-  none: 0
+  none: 0,
 };
 
 function finiteRevision(value: number, label: string): number {
@@ -62,12 +62,18 @@ function finiteRevision(value: number, label: string): number {
 }
 
 function clipSignature(levels: readonly (readonly [number, number, number, number])[]): string {
-  return levels.map(level => level.map(value => Math.round(value * 1e5) / 1e5).join(",")).join(";");
+  return levels.map((level) => level.map((value) => Math.round(value * 1e5) / 1e5).join(",")).join(";");
 }
 
-function sameDirection(left: readonly [number, number, number], right: readonly [number, number, number]): boolean {
-  return Math.abs(left[0] - right[0]) < 1e-5 &&
-    Math.abs(left[1] - right[1]) < 1e-5 && Math.abs(left[2] - right[2]) < 1e-5;
+function sameDirection(
+  left: readonly [number, number, number],
+  right: readonly [number, number, number],
+): boolean {
+  return (
+    Math.abs(left[0] - right[0]) < 1e-5 &&
+    Math.abs(left[1] - right[1]) < 1e-5 &&
+    Math.abs(left[2] - right[2]) < 1e-5
+  );
 }
 
 /** Monotonic, non-zero generation state. It is reset by constructing a new owner after device loss. */
@@ -85,18 +91,26 @@ export class VsmGeneration {
     readonly height: number;
   } | null = null;
 
-  get currentGeneration(): number { return this.generation; }
+  get currentGeneration(): number {
+    return this.generation;
+  }
 
   /** Force the next active shadow frame to rebuild page contents. */
-  invalidate(): void { this.previous = null; }
+  invalidate(): void {
+    this.previous = null;
+  }
 
   begin(input: VsmGenerationInput): VsmGenerationState {
     finiteRevision(input.deviceEpoch, "device epoch");
     finiteRevision(input.sceneRevision, "scene revision");
     finiteRevision(input.casterRevision, "caster revision");
     finiteRevision(input.sunRevision, "sun revision");
-    if (!Number.isSafeInteger(input.width) || input.width < 1 ||
-        !Number.isSafeInteger(input.height) || input.height < 1) {
+    if (
+      !Number.isSafeInteger(input.width) ||
+      input.width < 1 ||
+      !Number.isSafeInteger(input.height) ||
+      input.height < 1
+    ) {
       throw new RangeError("VSM render extent is invalid");
     }
     const signature = clipSignature(input.clipOriginExtent);
@@ -123,8 +137,10 @@ export class VsmGeneration {
       reason = "camera-cut";
       fullInvalidate = true;
       temporalInvalidate = true;
-    } else if (previous.sunRevision !== input.sunRevision ||
-      !sameDirection(previous.sunDirection, input.sunDirection)) {
+    } else if (
+      previous.sunRevision !== input.sunRevision ||
+      !sameDirection(previous.sunDirection, input.sunDirection)
+    ) {
       reason = "sun";
       fullInvalidate = true;
       temporalInvalidate = true;
@@ -162,7 +178,7 @@ export class VsmGeneration {
       sunDirection: [...input.sunDirection] as [number, number, number],
       clipSignature: signature,
       width: input.width,
-      height: input.height
+      height: input.height,
     };
     return Object.freeze({
       generation: this.generation,
@@ -176,7 +192,7 @@ export class VsmGeneration {
       temporalInvalidate,
       pageQuantumChanged,
       resized,
-      clipSignature: signature
+      clipSignature: signature,
     });
   }
 }

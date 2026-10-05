@@ -13,7 +13,7 @@ export const ShadeDataType = {
   Int64: "int64",
   Float16: "float16",
   Float32: "float32",
-  Float64: "float64"
+  Float64: "float64",
 } as const;
 
 export type ShadeDataTypeName = (typeof ShadeDataType)[keyof typeof ShadeDataType];
@@ -48,8 +48,11 @@ export function inferDataTypeFromArray(data: ArrayLike<number> | ArrayBufferView
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type TypedArrayCtor = new (lengthOrBuffer: any, byteOffset?: number, length?: number) => ArrayBufferView &
-  ArrayLike<number>;
+type TypedArrayCtor = new (
+  lengthOrBuffer: any,
+  byteOffset?: number,
+  length?: number,
+) => ArrayBufferView & ArrayLike<number>;
 
 function float16ArrayCtor(): TypedArrayCtor | undefined {
   const g = globalThis as { Float16Array?: TypedArrayCtor };
@@ -65,7 +68,7 @@ const DATA_TYPE_CTOR: Record<string, TypedArrayCtor | undefined> = {
   [ShadeDataType.Int32]: Int32Array,
   [ShadeDataType.Float16]: float16ArrayCtor(),
   [ShadeDataType.Float32]: Float32Array,
-  [ShadeDataType.Float64]: Float64Array
+  [ShadeDataType.Float64]: Float64Array,
 };
 
 export function ctorFromDataType(e: string): TypedArrayCtor {

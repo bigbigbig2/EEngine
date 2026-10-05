@@ -2,10 +2,7 @@
  * gltfAnimations：解析 glTF 数据并转换为引擎运行时对象。
  */
 
-import {
-  AnimationCurve,
-  AnimationKeyframeData
-} from "../../animation/AnimationCurve.js";
+import { AnimationCurve, AnimationKeyframeData } from "../../animation/AnimationCurve.js";
 import { ShadeAnimationChannel } from "../../animation/ShadeAnimationChannel.js";
 import { ShadeAnimationClip } from "../../animation/ShadeAnimationClip.js";
 import type { Node3D } from "../../scene/Node3D.js";
@@ -15,11 +12,10 @@ import { readAccessor } from "./gltfGeometry.js";
 export const GltfInterpolation = {
   Step: 0,
   Linear: 1,
-  CubicSpline: 2
+  CubicSpline: 2,
 } as const;
 
-export type GltfInterpolation =
-  (typeof GltfInterpolation)[keyof typeof GltfInterpolation];
+export type GltfInterpolation = (typeof GltfInterpolation)[keyof typeof GltfInterpolation];
 
 export interface GltfAnimationChannel {
   sampler: number;
@@ -80,7 +76,7 @@ export function gltfInterpolationCode(e: string | undefined): GltfInterpolation 
 export function flipQuaternionHemisphere(
   output: Float32Array,
   keyCount: number,
-  interpolation: GltfInterpolation
+  interpolation: GltfInterpolation,
 ): void {
   const cubic = interpolation === GltfInterpolation.CubicSpline;
   const stride = cubic ? 12 : 4;
@@ -108,7 +104,7 @@ export function fillCurveFromSampler(
   output: ArrayLike<number>,
   times: ArrayLike<number>,
   componentCount: number,
-  componentIndex: number
+  componentIndex: number,
 ): void {
   const keyCount = times.length;
   switch (interpolation) {
@@ -119,22 +115,13 @@ export function fillCurveFromSampler(
             times[i] as number,
             output[i * componentCount + componentIndex] as number,
             0,
-            0
-          )
+            0,
+          ),
         );
       }
       const keys = curve.keys;
       for (let e = keyCount - 1; e > 0; e--) {
-        keys.splice(
-          e,
-          0,
-          AnimationKeyframeData.from(
-            keys[e]!.time,
-            keys[e - 1]!.value,
-            0,
-            0
-          )
-        );
+        keys.splice(e, 0, AnimationKeyframeData.from(keys[e]!.time, keys[e - 1]!.value, 0, 0));
       }
       break;
     }
@@ -145,8 +132,8 @@ export function fillCurveFromSampler(
             times[i] as number,
             output[i * componentCount + componentIndex] as number,
             0,
-            0
-          )
+            0,
+          ),
         );
       }
       for (let t = 0; t < keyCount; t++) curve.alignTangents(t);
@@ -160,8 +147,8 @@ export function fillCurveFromSampler(
             times[i] as number,
             output[base + componentCount + componentIndex] as number,
             output[base + componentIndex] as number,
-            output[base + 2 * componentCount + componentIndex] as number
-          )
+            output[base + 2 * componentCount + componentIndex] as number,
+          ),
         );
       }
       break;
@@ -171,22 +158,17 @@ export function fillCurveFromSampler(
   }
 }
 
-export function readFloatAccessor(
-  doc: GltfDocument,
-  accessorIndex: number
-): Float32Array {
+export function readFloatAccessor(doc: GltfDocument, accessorIndex: number): Float32Array {
   const accessor = doc.accessors![accessorIndex]!;
   if (accessor.componentType !== 5126) {
-    throw new Error(
-      `Animation accessor ${accessorIndex} must use FLOAT components`
-    );
+    throw new Error(`Animation accessor ${accessorIndex} must use FLOAT components`);
   }
   return Float32Array.from(readAccessor(doc, accessorIndex, "animation").data);
 }
 
 export function buildGltfAnimationClips(
   doc: GltfDocument,
-  nodeObjects: (Node3D | undefined)[]
+  nodeObjects: (Node3D | undefined)[],
 ): ShadeAnimationClip[] {
   const z: ShadeAnimationClip[] = [];
   const animations = (doc.animations ?? []) as GltfAnimation[];
@@ -217,28 +199,21 @@ export function buildGltfAnimationClips(
       } = {};
       for (let i = 0; i < compCount; i++) {
         const curve = new AnimationCurve();
-        fillCurveFromSampler(
-          curve,
-          interpolation,
-          values,
-          times,
-          compCount,
-          i
-        );
+        fillCurveFromSampler(curve, interpolation, values, times, compCount, i);
         curves[axis[i]!] = curve;
       }
       channels.push(
         ShadeAnimationChannel.from({
           target: node,
           property,
-          curves
-        })
+          curves,
+        }),
       );
     }
     if (channels.length === 0) continue;
     const clip = ShadeAnimationClip.from({
       name: anim.name ?? "",
-      channels
+      channels,
     });
     let curveCountBefore = 0;
     for (let e = 0; e < clip.channels.length; e++) {

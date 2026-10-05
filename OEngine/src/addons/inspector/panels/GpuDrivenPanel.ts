@@ -30,18 +30,18 @@ const DEFAULT_QUEUE_SPECS: readonly QueueMetricSpec[] = Object.freeze([
   {
     label: "Selected meshlets",
     current: "gpu.counter.geometryMeshletsSelected",
-    capacity: "packed.visibility.meshletWorkCapacity"
+    capacity: "packed.visibility.meshletWorkCapacity",
   },
   {
     label: "Meshlet work",
     current: "gpu.counter.geometryMeshletWorksProduced",
-    capacity: "packed.visibility.meshletWorkCapacity"
+    capacity: "packed.visibility.meshletWorkCapacity",
   },
   {
     label: "TriangleSetup candidates",
     current: "gpu.counter.setupWritten",
-    overflow: "gpu.counter.setupOverflow"
-  }
+    overflow: "gpu.counter.setupOverflow",
+  },
 ]);
 
 const FUNNEL_SPECS = Object.freeze([
@@ -54,17 +54,23 @@ const FUNNEL_SPECS = Object.freeze([
   ["Risky triangles", "gpu.counter.geometryRiskyTriangles", "triangles"],
   ["Exact survived", "gpu.counter.geometryExactSurvivedTriangles", "triangles"],
   ["Raster triangles", "gpu.counter.geometryRasterTriangles", "triangles"],
-  ["Visible pixels", "gpu.counter.geometryVisiblePixels", "pixels"]
+  ["Visible pixels", "gpu.counter.geometryVisiblePixels", "pixels"],
 ] as const);
 
 function latest(frames: readonly ProfileFrame[]): ProfileFrame | undefined {
   return frames.at(-1);
 }
 
-function read(frame: ProfileFrame | undefined, metricId: string): Pick<FunnelStage, "value" | "availability"> {
+function read(
+  frame: ProfileFrame | undefined,
+  metricId: string,
+): Pick<FunnelStage, "value" | "availability"> {
   const sample = frame?.samples[metricId];
   if (sample === undefined) return { value: null, availability: "not-sampled" };
-  return { value: sample.availability === "available" ? sample.value : null, availability: sample.availability };
+  return {
+    value: sample.availability === "available" ? sample.value : null,
+    availability: sample.availability,
+  };
 }
 
 export function buildGpuDrivenFunnel(frames: readonly ProfileFrame[]): readonly FunnelStage[] {
@@ -74,9 +80,7 @@ export function buildGpuDrivenFunnel(frames: readonly ProfileFrame[]): readonly 
   return FUNNEL_SPECS.map(([label, metricId, group]) => {
     const sample = read(frame, metricId);
     if (group !== previousGroup) previous = null;
-    const ratio = sample.value !== null && previous !== null && previous > 0
-      ? sample.value / previous
-      : null;
+    const ratio = sample.value !== null && previous !== null && previous > 0 ? sample.value / previous : null;
     if (sample.value !== null) previous = sample.value;
     previousGroup = group;
     return Object.freeze({ label, metricId, ...sample, ratio });
@@ -85,23 +89,31 @@ export function buildGpuDrivenFunnel(frames: readonly ProfileFrame[]): readonly 
 
 export function buildQueueSummaries(
   frames: readonly ProfileFrame[],
-  specs: readonly QueueMetricSpec[] = DEFAULT_QUEUE_SPECS
+  specs: readonly QueueMetricSpec[] = DEFAULT_QUEUE_SPECS,
 ): readonly QueueSummary[] {
   const frame = latest(frames);
   return specs.map((spec) => {
     const current = read(frame, spec.current);
-    const capacity = spec.capacity === undefined
-      ? { value: null, availability: "unsupported" as const }
-      : read(frame, spec.capacity);
-    const peak = spec.peak === undefined ? { value: null, availability: "unsupported" as const } : read(frame, spec.peak);
-    const overflow = spec.overflow === undefined ? { value: null, availability: "unsupported" as const } : read(frame, spec.overflow);
+    const capacity =
+      spec.capacity === undefined
+        ? { value: null, availability: "unsupported" as const }
+        : read(frame, spec.capacity);
+    const peak =
+      spec.peak === undefined
+        ? { value: null, availability: "unsupported" as const }
+        : read(frame, spec.peak);
+    const overflow =
+      spec.overflow === undefined
+        ? { value: null, availability: "unsupported" as const }
+        : read(frame, spec.overflow);
     return Object.freeze({
       label: spec.label,
       current: current.value,
       capacity: capacity.value,
       peak: peak.value,
       overflow: overflow.value,
-      available: current.value !== null || capacity.value !== null || peak.value !== null || overflow.value !== null
+      available:
+        current.value !== null || capacity.value !== null || peak.value !== null || overflow.value !== null,
     });
   });
 }
@@ -123,11 +135,15 @@ export class GpuDrivenPanel {
 
   update(frames: readonly ProfileFrame[], focusFrame: ProfileFrame | undefined = latest(frames)): void {
     const focused = focusFrame === undefined ? [] : [focusFrame];
-    this.funnel.textContent = buildGpuDrivenFunnel(focused).map((stage) =>
-      `${stage.label}: ${stage.value === null ? stage.availability : stage.value} (${stage.ratio === null ? "—" : `${(stage.ratio * 100).toFixed(1)}%`})`
-    ).join("\n");
-    const queueLines = buildQueueSummaries(focused).map((queue) =>
-      `${queue.label}: current ${queue.current ?? "unsupported"} / capacity ${queue.capacity ?? "unsupported"} / peak ${queue.peak ?? "unsupported"} / overflow ${queue.overflow ?? "unsupported"}`
+    this.funnel.textContent = buildGpuDrivenFunnel(focused)
+      .map(
+        (stage) =>
+          `${stage.label}: ${stage.value === null ? stage.availability : stage.value} (${stage.ratio === null ? "—" : `${(stage.ratio * 100).toFixed(1)}%`})`,
+      )
+      .join("\n");
+    const queueLines = buildQueueSummaries(focused).map(
+      (queue) =>
+        `${queue.label}: current ${queue.current ?? "unsupported"} / capacity ${queue.capacity ?? "unsupported"} / peak ${queue.peak ?? "unsupported"} / overflow ${queue.overflow ?? "unsupported"}`,
     );
     queueLines.push(geometryAmplificationSummary(focused[0]));
     queueLines.push(shadingSummary(focused[0]));
@@ -146,9 +162,7 @@ function shadingSummary(frame: ProfileFrame | undefined): string {
   const heapBytes = read(frame, "sparseShading.heapBytes").value;
   const demandMask = read(frame, "sparseShading.demandMask").value;
   if (mode === null && valid === null && internal === null) return "Shading: unsupported";
-  const pixelText = valid === null || internal === null
-    ? "P/N unsupported"
-    : `P/N ${valid}/${internal}`;
+  const pixelText = valid === null || internal === null ? "P/N unsupported" : `P/N ${valid}/${internal}`;
   return `Shading: ${modeLabel}, bins ${bins ?? "unsupported"}, demand ${demandMask ?? "unsupported"}, ${pixelText}, W ${workgroups ?? "unsupported"}, surface ${surfaceBytes ?? "unsupported"} B/px, heap ${heapBytes ?? "unsupported"} B`;
 }
 
@@ -162,8 +176,7 @@ function geometryAmplificationSummary(frame: ProfileFrame | undefined): string {
   }
   const bytesPerMeshlet = meshlets > 0 ? queueBytes / meshlets : 0;
   const rasterVertices = rasterTriangles * 3;
-  const paddingRatio = rasterVertices + paddedVertices > 0
-    ? paddedVertices / (rasterVertices + paddedVertices)
-    : 0;
+  const paddingRatio =
+    rasterVertices + paddedVertices > 0 ? paddedVertices / (rasterVertices + paddedVertices) : 0;
   return `Geometry amplification: ${queueBytes} queue B · ${bytesPerMeshlet.toFixed(1)} B/meshlet · ${(paddingRatio * 100).toFixed(1)}% padding`;
 }

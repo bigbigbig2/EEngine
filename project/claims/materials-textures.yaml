@@ -13,7 +13,12 @@ claims:
       diagnosticCases: []
       checkOnly: false
     allowedDeclarations: [ImplementationComplete, RuntimeValidated, PipelineFeatureComplete]
-    watch: [OEngine/src/assets/TextureAssetPackage.ts, OEngine/src/gpu/TextureResidency.ts, OEngine/src/gpu/GpuMaterialVisibilityAbi.ts]
+    watch:
+      [
+        OEngine/src/assets/TextureAssetPackage.ts,
+        OEngine/src/gpu/TextureResidency.ts,
+        OEngine/src/gpu/GpuMaterialVisibilityAbi.ts,
+      ]
   - id: materials.mip-convergence
     domain: materials-textures
     owner: materials-textures

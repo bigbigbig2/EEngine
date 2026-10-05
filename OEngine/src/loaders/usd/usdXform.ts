@@ -2,21 +2,13 @@
  * usdXform：解析 USD 数据并转换为引擎运行时对象。
  */
 
-import {
-  mat4Copy,
-  mat4Identity,
-  mat4Multiply
-} from "../../core/math/Mat4.js";
+import { mat4Copy, mat4Identity, mat4Multiply } from "../../core/math/Mat4.js";
 import type { UsdSpecsByPath } from "./UsdExtensionRegistry.js";
 import { getXformOpValue } from "./usdAttrs.js";
 
 const DEG2RAD = Math.PI / 180;
 
-function mat4Scale(
-  out: Float32Array,
-  a: Float32Array,
-  v: [number, number, number]
-): Float32Array {
+function mat4Scale(out: Float32Array, a: Float32Array, v: [number, number, number]): Float32Array {
   const [r, s, sc] = v;
   out[0] = a[0]! * r;
   out[1] = a[1]! * r;
@@ -37,11 +29,7 @@ function mat4Scale(
   return out;
 }
 
-function mat4RotateX(
-  out: Float32Array,
-  a: Float32Array,
-  rad: number
-): Float32Array {
+function mat4RotateX(out: Float32Array, a: Float32Array, rad: number): Float32Array {
   const r = Math.sin(rad);
   const s = Math.cos(rad);
   const a10 = a[4]!,
@@ -73,11 +61,7 @@ function mat4RotateX(
   return out;
 }
 
-function mat4RotateY(
-  out: Float32Array,
-  a: Float32Array,
-  rad: number
-): Float32Array {
+function mat4RotateY(out: Float32Array, a: Float32Array, rad: number): Float32Array {
   const r = Math.sin(rad);
   const s = Math.cos(rad);
   const a00 = a[0]!,
@@ -109,11 +93,7 @@ function mat4RotateY(
   return out;
 }
 
-function mat4RotateZ(
-  out: Float32Array,
-  a: Float32Array,
-  rad: number
-): Float32Array {
+function mat4RotateZ(out: Float32Array, a: Float32Array, rad: number): Float32Array {
   const r = Math.sin(rad);
   const s = Math.cos(rad);
   const a00 = a[0]!,
@@ -145,11 +125,7 @@ function mat4RotateZ(
   return out;
 }
 
-function mat4Translate(
-  out: Float32Array,
-  a: Float32Array,
-  v: [number, number, number]
-): Float32Array {
+function mat4Translate(out: Float32Array, a: Float32Array, v: [number, number, number]): Float32Array {
   const [m, g, p] = v;
   if (out === a) {
     out[12] = a[0]! * m + a[4]! * g + a[8]! * p + a[12]!;
@@ -166,10 +142,7 @@ function mat4Translate(
   return out;
 }
 
-function mat4FromRowMajor(
-  out: Float32Array,
-  t: ArrayLike<number>
-): Float32Array {
+function mat4FromRowMajor(out: Float32Array, t: ArrayLike<number>): Float32Array {
   out[0] = t[0]!;
   out[1] = t[4]!;
   out[2] = t[8]!;
@@ -189,13 +162,7 @@ function mat4FromRowMajor(
   return out;
 }
 
-function mat4FromQuatXYZW(
-  out: Float32Array,
-  x: number,
-  y: number,
-  z: number,
-  w: number
-): Float32Array {
+function mat4FromQuatXYZW(out: Float32Array, x: number, y: number, z: number, w: number): Float32Array {
   const a = x + x,
     i = y + y,
     o = z + z;
@@ -230,11 +197,7 @@ function mat4FromQuatXYZW(
 const _op = mat4Identity();
 const _acc = mat4Identity();
 
-export function applyXformOp(
-  e: Float32Array,
-  opToken: string,
-  value: unknown
-): void {
+export function applyXformOp(e: Float32Array, opToken: string, value: unknown): void {
   const r = opToken.replace(/^xformOp:/, "");
   mat4Identity(_op);
   const n = value as ArrayLike<number>;
@@ -268,13 +231,7 @@ export function applyXformOp(
       else if (axis === "Z") mat4RotateZ(_op, _op, rz);
     }
   } else if (r === "orient") {
-    mat4FromQuatXYZW(
-      _op,
-      n[1]!,
-      n[2]!,
-      n[3]!,
-      n[0]!
-    );
+    mat4FromQuatXYZW(_op, n[1]!, n[2]!, n[3]!, n[0]!);
   } else if (r === "transform") {
     mat4FromRowMajor(_op, n);
   } else {
@@ -289,7 +246,7 @@ export function applyXformOp(
 export function composeLocalXform(
   fields: Record<string, unknown>,
   specs: UsdSpecsByPath,
-  primPath: string
+  primPath: string,
 ): Float32Array {
   const order = fields.xformOpOrder as string[] | undefined;
   if (!order || order.length === 0) return mat4Identity();

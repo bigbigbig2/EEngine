@@ -32,8 +32,12 @@ struct FrameVertexControl { vertices: atomic<u32>, triangles: atomic<u32>, commi
 @group(1) @binding(0) var<storage, read_write> frame_indirect: vec4u;
 @group(0) @binding(3) var<storage, read> asset_heap: array<u32>;
 @group(0) @binding(7) var<storage, read> vertex_payload: array<u32>;
-${product ? `@group(0) @binding(8) var<storage, read> product_heap: array<u32>;
-${Array.from({length:4},(_,i)=>`@group(0) @binding(${9+i}) var<storage, read> product_bank_${i}: array<u32>;`).join("\n")}` : ""}
+${
+  product
+    ? `@group(0) @binding(8) var<storage, read> product_heap: array<u32>;
+${Array.from({ length: 4 }, (_, i) => `@group(0) @binding(${9 + i}) var<storage, read> product_bank_${i}: array<u32>;`).join("\n")}`
+    : ""
+}
 ${sources}
 var<workgroup> vertex_base: u32;
 var<workgroup> triangle_base: u32;

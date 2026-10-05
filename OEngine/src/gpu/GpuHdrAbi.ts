@@ -22,13 +22,13 @@ export const GPU_HDR_PROFILE = Object.freeze({
   storageWrite: true,
   filterable: true,
   historyCompatible: true,
-  preExposure: "scene-referred-times-frame-pre-exposure"
+  preExposure: "scene-referred-times-frame-pre-exposure",
 } as const);
 
 export const GPU_HDR_REJECTED_MAIN_CANDIDATES = Object.freeze({
   rg11b10ufloat: Object.freeze([
     "no alpha channel",
     "unsigned-only representation",
-    "not one uniform render/storage/history contract"
-  ] as const)
+    "not one uniform render/storage/history contract",
+  ] as const),
 } as const);

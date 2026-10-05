@@ -1,9 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
-  GpuBindGroupResourceCache
-} from "../../.test-dist/gpu/GpuBindGroupResourceCache.js";
+import { GpuBindGroupResourceCache } from "../../.test-dist/gpu/GpuBindGroupResourceCache.js";
 
 test("last tuple captures mutable binding ranges and still reuses earlier tuples", () => {
   const cache = new GpuBindGroupResourceCache();
@@ -34,10 +32,7 @@ test("bind-group resource tuples canonicalize buffer bindings and resource ident
   const first = cache.obtain([{ buffer, offset: 16, size: 32 }, view], create);
   const sameTuple = cache.obtain([{ buffer, offset: 16, size: 32 }, view], create);
   const changedRange = cache.obtain([{ buffer, offset: 32, size: 32 }, view], create);
-  const changedView = cache.obtain(
-    [{ buffer, offset: 16, size: 32 }, { label: "replacement view" }],
-    create
-  );
+  const changedView = cache.obtain([{ buffer, offset: 16, size: 32 }, { label: "replacement view" }], create);
 
   assert.equal(sameTuple, first);
   assert.notEqual(changedRange, first);
@@ -49,8 +44,11 @@ test("failed creation does not poison a tuple and clear drops retained groups", 
   const cache = new GpuBindGroupResourceCache();
   const resource = { label: "resource" };
   assert.throws(
-    () => cache.obtain([resource], () => { throw new Error("creation failed"); }),
-    /creation failed/u
+    () =>
+      cache.obtain([resource], () => {
+        throw new Error("creation failed");
+      }),
+    /creation failed/u,
   );
   const recovered = cache.obtain([resource], () => ({ generation: 1 }));
   assert.equal(recovered.generation, 1);

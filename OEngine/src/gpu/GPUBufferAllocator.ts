@@ -3,7 +3,7 @@
  */
 import type {
   ResourceAccounting,
-  ResourceHandle as AccountingResourceHandle
+  ResourceHandle as AccountingResourceHandle,
 } from "../debug/profiling/ResourceAccounting.js";
 
 export type GPUBufferPoolDescriptor = {
@@ -48,17 +48,14 @@ export class GPUBufferAllocator {
 
   constructor(
     private device: GPUDevice,
-    private readonly resourceAccounting?: ResourceAccounting
+    private readonly resourceAccounting?: ResourceAccounting,
   ) {}
 
   increment_time(): void {
     this.time++;
   }
 
-  get(
-    descriptor: GPUBufferPoolDescriptor,
-    encoder?: GPUBufferClearEncoder
-  ): GPUBuffer {
+  get(descriptor: GPUBufferPoolDescriptor, encoder?: GPUBufferClearEncoder): GPUBuffer {
     if (this.destroyed) {
       throw new Error("GPUBufferAllocator has been destroyed");
     }
@@ -69,30 +66,31 @@ export class GPUBufferAllocator {
     if (!buffer) {
       if (request.size > this.device.limits.maxBufferSize) {
         throw new Error(
-          `Buffer size ${request.size} is larger than max buffer size ${this.device.limits.maxBufferSize}`
+          `Buffer size ${request.size} is larger than max buffer size ${this.device.limits.maxBufferSize}`,
         );
       }
       buffer = this.device.createBuffer({
         label: "",
         size: request.size,
-        usage: request.usage
+        usage: request.usage,
       });
       if (this.resourceAccounting !== undefined) {
-        this.accountingHandles.set(buffer, this.resourceAccounting.created({
-          kind: "buffer",
-          category: "transient",
-          owner: "GPUBufferAllocator",
-          bytes: request.size
-        }));
+        this.accountingHandles.set(
+          buffer,
+          this.resourceAccounting.created({
+            kind: "buffer",
+            category: "transient",
+            owner: "GPUBufferAllocator",
+            bytes: request.size,
+          }),
+        );
       }
       this.creationCount++;
     } else {
       const clear = request.ensure_cleared;
       if (clear && clear[1] > 0) {
         if (!encoder) {
-          throw new Error(
-            "GPUBufferAllocator: ensure_cleared requires a command encoder"
-          );
+          throw new Error("GPUBufferAllocator: ensure_cleared requires a command encoder");
         }
         encoder.clearBuffer(buffer, clear[0], clear[1]);
       }
@@ -109,7 +107,7 @@ export class GPUBufferAllocator {
       this.pending.add(buffer);
       void reuseAfter.then(
         () => this.finishPendingRelease(buffer),
-        () => this.finishPendingRelease(buffer)
+        () => this.finishPendingRelease(buffer),
       );
       return true;
     }
@@ -155,7 +153,7 @@ export class GPUBufferAllocator {
       activeCount: this.active.size,
       pendingCount: this.pending.size,
       cachedCount: this.recent.length + this.aged.length,
-      creationCount: this.creationCount
+      creationCount: this.creationCount,
     });
   }
 
@@ -190,7 +188,7 @@ export class GPUBufferAllocator {
   private takeCompatible(
     cache: CachedBuffer[],
     request: GPUBufferPoolDescriptor,
-    recent: boolean
+    recent: boolean,
   ): GPUBuffer | null {
     const index = findCompatible(cache, request);
     if (index < 0) return null;
@@ -204,10 +202,7 @@ export class GPUBufferAllocator {
   private ageRecent(minimumIterations = 4): void {
     let length = this.recent.length;
     if (length === 0) return;
-    let iterations = Math.min(
-      length,
-      Math.max(Math.ceil(1.1 * this.creationCount), minimumIterations)
-    );
+    let iterations = Math.min(length, Math.max(Math.ceil(1.1 * this.creationCount), minimumIterations));
     let moved = 0;
     while (iterations-- > 0 && this.recent.length > 0) {
       const index = this.scanIndex++ % this.recent.length;
@@ -227,15 +222,8 @@ export class GPUBufferAllocator {
 
   private trimAged(): void {
     const byteLimit = Math.max(0, 16384, 0.2 * this.recentBytes);
-    const countLimit = Math.max(
-      0,
-      16,
-      Math.ceil(0.5 * this.recent.length)
-    );
-    while (
-      this.agedBytes > byteLimit ||
-      this.aged.length > countLimit
-    ) {
+    const countLimit = Math.max(0, 16, Math.ceil(0.5 * this.recent.length));
+    while (this.agedBytes > byteLimit || this.aged.length > countLimit) {
       if (!this.destroyOldestAged()) break;
     }
   }
@@ -283,33 +271,22 @@ export class GPUNativeBufferAllocator {
   destroy(): void {}
 }
 
-function normalizeDescriptor(
-  descriptor: GPUBufferPoolDescriptor
-): GPUBufferPoolDescriptor {
+function normalizeDescriptor(descriptor: GPUBufferPoolDescriptor): GPUBufferPoolDescriptor {
   return {
     size: Math.max(4, Math.ceil(descriptor.size / 4) * 4),
     usage: descriptor.usage,
-    ensure_cleared: descriptor.ensure_cleared
+    ensure_cleared: descriptor.ensure_cleared,
   };
 }
 
-function findCompatible(
-  cache: CachedBuffer[],
-  request: GPUBufferPoolDescriptor
-): number {
+function findCompatible(cache: CachedBuffer[], request: GPUBufferPoolDescriptor): number {
   let index = lowerBound(cache, request);
   for (; index < cache.length; index++) {
     const buffer = cache[index]!.buffer;
-    if (
-      buffer.size > 2 * request.size &&
-      buffer.size - request.size > 1024
-    ) {
+    if (buffer.size > 2 * request.size && buffer.size - request.size > 1024) {
       break;
     }
-    if (
-      buffer.size >= request.size &&
-      (buffer.usage & request.usage) === request.usage
-    ) {
+    if (buffer.size >= request.size && (buffer.usage & request.usage) === request.usage) {
       return index;
     }
   }
@@ -322,7 +299,7 @@ function insertSorted(cache: CachedBuffer[], entry: CachedBuffer): void {
 
 function lowerBound(
   cache: CachedBuffer[],
-  value: Pick<GPUBuffer, "size" | "usage"> | GPUBufferPoolDescriptor
+  value: Pick<GPUBuffer, "size" | "usage"> | GPUBufferPoolDescriptor,
 ): number {
   let low = 0;
   let high = cache.length;
@@ -334,10 +311,7 @@ function lowerBound(
   return low;
 }
 
-function compareBuffer(
-  a: Pick<GPUBuffer, "size" | "usage">,
-  b: Pick<GPUBuffer, "size" | "usage">
-): number {
+function compareBuffer(a: Pick<GPUBuffer, "size" | "usage">, b: Pick<GPUBuffer, "size" | "usage">): number {
   const size = a.size - b.size;
   if (size !== 0) return size;
   const usageBits = popcount(a.usage) - popcount(b.usage);

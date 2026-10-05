@@ -21,8 +21,20 @@ export const SURFACE_FIELD_STORE_FLAGS_WORD = 56;
 export const SURFACE_FIELD_STORE_GENERATION_WORD = 57;
 export const SURFACE_FIELD_STORE_STATE_WORD = 58;
 export const SURFACE_FIELD_STORE_TOUCHED_WORD = 59;
-export const SURFACE_FIELD_STORE_STATE = Object.freeze({ empty: 0, reserved: 1, published: 2, produced: 3, retiring: 4 });
-export const SURFACE_FIELD_STORE_FLAGS = Object.freeze({ value: 1, certificate: 2, certifiedValue: 4, negativeCertificate: 8, boundedValue: 16 });
+export const SURFACE_FIELD_STORE_STATE = Object.freeze({
+  empty: 0,
+  reserved: 1,
+  published: 2,
+  produced: 3,
+  retiring: 4,
+});
+export const SURFACE_FIELD_STORE_FLAGS = Object.freeze({
+  value: 1,
+  certificate: 2,
+  certifiedValue: 4,
+  negativeCertificate: 8,
+  boundedValue: 16,
+});
 
 export interface SurfaceFieldStoreKey {
   readonly producer: number;
@@ -54,31 +66,68 @@ export interface SurfaceFieldStoreCapacity {
   readonly segmentBytes: readonly number[];
 }
 function uint(value: number): number {
-  if (!Number.isSafeInteger(value) || value < 0 || value > 0xffffffff) { throw new RangeError("Field identity must be uint32"); }
+  if (!Number.isSafeInteger(value) || value < 0 || value > 0xffffffff) {
+    throw new RangeError("Field identity must be uint32");
+  }
   return value >>> 0;
 }
 export function encodeSurfaceFieldStoreKey(key: SurfaceFieldStoreKey): Uint32Array<ArrayBuffer> {
-  if (key.pointWitness.length > SURFACE_FIELD_STORE_KEY_WORDS-SURFACE_FIELD_STORE_IDENTITY_WORDS) {
+  if (key.pointWitness.length > SURFACE_FIELD_STORE_KEY_WORDS - SURFACE_FIELD_STORE_IDENTITY_WORDS) {
     throw new RangeError("Field point witness exceeds the negotiated key");
   }
-  const words=new Uint32Array(SURFACE_FIELD_STORE_KEY_WORDS);
-  words.set([key.producer,key.version,key.dependencyEpoch,key.material,key.instance,key.instanceGeneration,key.geometry,
-    key.geometryGeneration,key.sourceMeshlet,key.sourcePrimitive,key.lod,key.chart,key.side,key.scope,key.cellX,key.cellY,
-    key.gradientX,key.gradientY,key.geometryRevision,key.viewRevision].map(uint));
-  words.set(key.pointWitness.map(uint),SURFACE_FIELD_STORE_IDENTITY_WORDS);
+  const words = new Uint32Array(SURFACE_FIELD_STORE_KEY_WORDS);
+  words.set(
+    [
+      key.producer,
+      key.version,
+      key.dependencyEpoch,
+      key.material,
+      key.instance,
+      key.instanceGeneration,
+      key.geometry,
+      key.geometryGeneration,
+      key.sourceMeshlet,
+      key.sourcePrimitive,
+      key.lod,
+      key.chart,
+      key.side,
+      key.scope,
+      key.cellX,
+      key.cellY,
+      key.gradientX,
+      key.gradientY,
+      key.geometryRevision,
+      key.viewRevision,
+    ].map(uint),
+  );
+  words.set(key.pointWitness.map(uint), SURFACE_FIELD_STORE_IDENTITY_WORDS);
   return words;
 }
-export function planSurfaceFieldStoreCapacity(limits: Pick<GPUSupportedLimits,"maxBufferSize"|"maxStorageBufferBindingSize">,
-  budgetBytes=SURFACE_FIELD_STORE_BUDGET_BYTES): SurfaceFieldStoreCapacity {
-  const setBytes=SURFACE_FIELD_STORE_ENTRY_BYTES*SURFACE_FIELD_STORE_WAYS;
-  const binding=Math.floor(Math.min(Number(limits.maxBufferSize),Number(limits.maxStorageBufferBindingSize))/setBytes)*setBytes;
-  if (!Number.isSafeInteger(budgetBytes) || budgetBytes<setBytes || binding<setBytes) {
+export function planSurfaceFieldStoreCapacity(
+  limits: Pick<GPUSupportedLimits, "maxBufferSize" | "maxStorageBufferBindingSize">,
+  budgetBytes = SURFACE_FIELD_STORE_BUDGET_BYTES,
+): SurfaceFieldStoreCapacity {
+  const setBytes = SURFACE_FIELD_STORE_ENTRY_BYTES * SURFACE_FIELD_STORE_WAYS;
+  const binding =
+    Math.floor(
+      Math.min(Number(limits.maxBufferSize), Number(limits.maxStorageBufferBindingSize)) / setBytes,
+    ) * setBytes;
+  if (!Number.isSafeInteger(budgetBytes) || budgetBytes < setBytes || binding < setBytes) {
     throw new RangeError("FieldStore cannot fit one complete four-way set");
   }
-  const bytes=Math.floor(budgetBytes/setBytes)*setBytes;
-  const segments: number[]=[];
-  for(let remaining=bytes;remaining>0;) { const part=Math.min(remaining,binding);segments.push(part);remaining-=part; }
-  return Object.freeze({bytes,entries:bytes/SURFACE_FIELD_STORE_ENTRY_BYTES,sets:bytes/setBytes,segmentBytes:Object.freeze(segments)});
+  const bytes = Math.floor(budgetBytes / setBytes) * setBytes;
+  const segments: number[] = [];
+  for (let remaining = bytes; remaining > 0; ) {
+    const part = Math.min(remaining, binding);
+    segments.push(part);
+    remaining -= part;
+  }
+  return Object.freeze({
+    bytes,
+    entries: bytes / SURFACE_FIELD_STORE_ENTRY_BYTES,
+    sets: bytes / setBytes,
+    segmentBytes: Object.freeze(segments),
+  });
 }
 
 export const SURFACE_FIELD_STORE_WGSL = /* wgsl */ `

@@ -11,7 +11,7 @@ export {
   encodeGroupDirectoryV3,
   encodeVertexFormatsV3,
   hierarchyNodesFromBytes,
-  validateGeometryProductDescriptorV1
+  validateGeometryProductDescriptorV1,
 } from "./GeometryProductV1.js";
 export type {
   GeometryPageProductV1,
@@ -23,16 +23,26 @@ export type {
   GeometryProductRevisionSourceV1,
   GeometryProductSourceIdentityKind,
   GeometryProductValidationIssue,
-  GeometryProductValidationReport
+  GeometryProductValidationReport,
 } from "./GeometryProductV1.js";
-export { descriptorFromOegPack, OegPackProductProvider, OegPackProductRevisionSource } from "./OegPackProductProvider.js";
-export { GEOMETRY_PRODUCT_BINARY_HEADER_BYTES_V1, GEOMETRY_PRODUCT_BINARY_MAGIC_V1, GEOMETRY_PRODUCT_BINARY_VERSION_V1, decodeGeometryProductDescriptorBinaryV1, encodeGeometryProductDescriptorBinaryV1 } from "./GeometryProductBinaryV1.js";
+export {
+  descriptorFromOegPack,
+  OegPackProductProvider,
+  OegPackProductRevisionSource,
+} from "./OegPackProductProvider.js";
+export {
+  GEOMETRY_PRODUCT_BINARY_HEADER_BYTES_V1,
+  GEOMETRY_PRODUCT_BINARY_MAGIC_V1,
+  GEOMETRY_PRODUCT_BINARY_VERSION_V1,
+  decodeGeometryProductDescriptorBinaryV1,
+  encodeGeometryProductDescriptorBinaryV1,
+} from "./GeometryProductBinaryV1.js";
 export {
   MemoryWebGeometryPageSpillStoreV1,
   OpfsWebGeometryPageSpillStoreV1,
   createPreferredWebGeometryPageSpillStoreV1,
   pageSpillKeyV1,
-  WEB_GEOMETRY_PAGE_ARTIFACT_VERSION_V1
+  WEB_GEOMETRY_PAGE_ARTIFACT_VERSION_V1,
 } from "./WebGeometryPageSpillStoreV1.js";
 export type {
   OpfsWebGeometryPageSpillStoreOptionsV1,
@@ -41,5 +51,5 @@ export type {
   WebGeometryPageSpillEvidenceV1,
   WebGeometryPageSpillKeyV1,
   WebGeometryPageSpillStoreOptionsV1,
-  WebGeometryPageSpillStoreV1
+  WebGeometryPageSpillStoreV1,
 } from "./WebGeometryPageSpillStoreV1.js";

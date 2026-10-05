@@ -3,7 +3,7 @@ import type { Ktx2SourceEncoding, Ktx2TranscodeTargetFormat } from "./AssetCodec
 import {
   isTextureFormatEnabled,
   selectTextureTranscodeTarget,
-  type TextureCodecCapabilities
+  type TextureCodecCapabilities,
 } from "./TextureCodecPolicy.js";
 
 export interface TexturePlanVariant {
@@ -45,14 +45,14 @@ export function planTextureDecode(request: TextureDecodePlanRequest): TextureDec
     const targetFormat = selectTextureTranscodeTarget({
       semantic: request.semantic,
       sourceEncoding: variant.encoding,
-      capabilities: request.capabilities
+      capabilities: request.capabilities,
     });
     if (targetFormat !== null) {
       return Object.freeze({
         mode: "worker-transcode",
         variantId: variant.variantId,
         sourceEncoding: variant.encoding,
-        targetFormat
+        targetFormat,
       });
     }
   }
@@ -62,9 +62,10 @@ export function planTextureDecode(request: TextureDecodePlanRequest): TextureDec
       return Object.freeze({
         mode: "uncompressed",
         variantId: fallback.variantId,
-        targetFormat: request.semantic === "base-color-srgb" || request.semantic === "emissive-srgb"
-          ? "rgba8unorm-srgb"
-          : "rgba8unorm"
+        targetFormat:
+          request.semantic === "base-color-srgb" || request.semantic === "emissive-srgb"
+            ? "rgba8unorm-srgb"
+            : "rgba8unorm",
       });
     }
   }

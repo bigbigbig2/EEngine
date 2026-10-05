@@ -26,10 +26,7 @@ export class GPUCameraState {
       label: "GPUCameraState/Ud",
       size: PACKED_CAMERA_TYPE.size,
       usage:
-        GPUBufferUsage.STORAGE |
-        GPUBufferUsage.UNIFORM |
-        GPUBufferUsage.COPY_DST |
-        GPUBufferUsage.COPY_SRC,
+        GPUBufferUsage.STORAGE | GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
   }
 
@@ -106,13 +103,7 @@ export class GPUCameraState {
       PACKED_CAMERA_TYPE,
       this.packed,
     );
-    command.writeBuffer(
-      this.buffer,
-      0,
-      this.packed,
-      0,
-      this.packed.byteLength
-    );
+    command.writeBuffer(this.buffer, 0, this.packed, 0, this.packed.byteLength);
   }
 
   /** Commit the CPU mirror of an already encoded camera copy after submission. */
@@ -148,10 +139,7 @@ export class GPUCameraStateManager {
   }
 }
 
-function multiplyMat4(
-  a: ArrayLike<number>,
-  b: ArrayLike<number>,
-): Float32Array {
+function multiplyMat4(a: ArrayLike<number>, b: ArrayLike<number>): Float32Array {
   const output = new Float32Array(16);
   for (let column = 0; column < 4; column++) {
     const offset = column * 4;
@@ -159,26 +147,10 @@ function multiplyMat4(
     const b1 = b[offset + 1] ?? 0;
     const b2 = b[offset + 2] ?? 0;
     const b3 = b[offset + 3] ?? 0;
-    output[offset] =
-      b0 * (a[0] ?? 0) +
-      b1 * (a[4] ?? 0) +
-      b2 * (a[8] ?? 0) +
-      b3 * (a[12] ?? 0);
-    output[offset + 1] =
-      b0 * (a[1] ?? 0) +
-      b1 * (a[5] ?? 0) +
-      b2 * (a[9] ?? 0) +
-      b3 * (a[13] ?? 0);
-    output[offset + 2] =
-      b0 * (a[2] ?? 0) +
-      b1 * (a[6] ?? 0) +
-      b2 * (a[10] ?? 0) +
-      b3 * (a[14] ?? 0);
-    output[offset + 3] =
-      b0 * (a[3] ?? 0) +
-      b1 * (a[7] ?? 0) +
-      b2 * (a[11] ?? 0) +
-      b3 * (a[15] ?? 0);
+    output[offset] = b0 * (a[0] ?? 0) + b1 * (a[4] ?? 0) + b2 * (a[8] ?? 0) + b3 * (a[12] ?? 0);
+    output[offset + 1] = b0 * (a[1] ?? 0) + b1 * (a[5] ?? 0) + b2 * (a[9] ?? 0) + b3 * (a[13] ?? 0);
+    output[offset + 2] = b0 * (a[2] ?? 0) + b1 * (a[6] ?? 0) + b2 * (a[10] ?? 0) + b3 * (a[14] ?? 0);
+    output[offset + 3] = b0 * (a[3] ?? 0) + b1 * (a[7] ?? 0) + b2 * (a[11] ?? 0) + b3 * (a[15] ?? 0);
   }
   return output;
 }
@@ -212,15 +184,9 @@ function invertMat4(a: ArrayLike<number>): Float32Array {
   const b09 = a21 * a32 - a22 * a31;
   const b10 = a21 * a33 - a23 * a31;
   const b11 = a22 * a33 - a23 * a32;
-  let determinant =
-    b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
+  let determinant = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
   if (determinant === 0) {
-    return new Float32Array([
-      1, 0, 0, 0,
-      0, 1, 0, 0,
-      0, 0, 1, 0,
-      0, 0, 0, 1
-    ]);
+    return new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
   }
   determinant = 1 / determinant;
   return new Float32Array([

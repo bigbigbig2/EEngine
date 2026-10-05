@@ -1,8 +1,5 @@
 import type { TextureSemanticV2 } from "../TextureAssetPackage.js";
-import type {
-  Ktx2SourceEncoding,
-  Ktx2TranscodeTargetFormat
-} from "./AssetCodecTypes.js";
+import type { Ktx2SourceEncoding, Ktx2TranscodeTargetFormat } from "./AssetCodecTypes.js";
 
 export interface TextureCodecCapabilities {
   readonly enabledFeatures: ReadonlySet<string>;
@@ -17,7 +14,7 @@ export interface TextureCodecTargetRequest {
 }
 
 export function selectTextureTranscodeTarget(
-  request: TextureCodecTargetRequest
+  request: TextureCodecTargetRequest,
 ): Ktx2TranscodeTargetFormat | null {
   const { enabledFeatures, transcoderTargets } = request.capabilities;
   const srgb = request.semantic === "base-color-srgb" || request.semantic === "emissive-srgb";
@@ -26,8 +23,7 @@ export function selectTextureTranscodeTarget(
     if (request.semantic === "normal-linear") candidates.push("bc5-rg-unorm", "bc7-rgba-unorm");
     else if (request.semantic === "alpha-mask" || request.semantic === "occlusion-linear") {
       candidates.push("bc4-r-unorm", "bc7-rgba-unorm");
-    }
-    else if (request.semantic === "orm-linear") candidates.push("bc7-rgba-unorm", "bc3-rgba-unorm");
+    } else if (request.semantic === "orm-linear") candidates.push("bc7-rgba-unorm", "bc3-rgba-unorm");
     else if (request.semantic !== "hdr-linear") {
       candidates.push(srgb ? "bc7-rgba-unorm-srgb" : "bc7-rgba-unorm");
       candidates.push(srgb ? "bc3-rgba-unorm-srgb" : "bc3-rgba-unorm");
@@ -40,8 +36,7 @@ export function selectTextureTranscodeTarget(
     if (request.semantic === "normal-linear") candidates.push("eac-rg11unorm", "etc2-rgba8unorm");
     else if (request.semantic === "alpha-mask" || request.semantic === "occlusion-linear") {
       candidates.push("eac-r11unorm", "etc2-rgba8unorm");
-    }
-    else candidates.push(srgb ? "etc2-rgba8unorm-srgb" : "etc2-rgba8unorm");
+    } else candidates.push(srgb ? "etc2-rgba8unorm-srgb" : "etc2-rgba8unorm");
   }
   return candidates.find((format) => transcoderTargets.has(format)) ?? null;
 }
@@ -55,7 +50,7 @@ export function requiredTextureCompressionFeature(format: GPUTextureFormat): str
 
 export function isTextureFormatEnabled(
   format: GPUTextureFormat,
-  enabledFeatures: ReadonlySet<string>
+  enabledFeatures: ReadonlySet<string>,
 ): boolean {
   const feature = requiredTextureCompressionFeature(format);
   return feature === null || enabledFeatures.has(feature);

@@ -8,7 +8,7 @@ import {
   GPU_SHADING_BIN_COUNT,
   GPU_SHADING_BIN_FRAME_FLAG,
   GPU_SHADING_BIN_INVALID_ID,
-  shadingBinActiveMask
+  shadingBinActiveMask,
 } from "../../.test-dist/gpu/GpuShadingBinAbi.js";
 
 function classify({
@@ -18,7 +18,7 @@ function classify({
   activeBinIds,
   capacityOverrides,
   layoutRevisionOverrides,
-  maxDispatchDimension = 65535
+  maxDispatchDimension = 65535,
 }) {
   return classifyGpuShadingBinsReference({
     width,
@@ -29,7 +29,7 @@ function classify({
     layoutRevision: 7,
     maxDispatchDimension,
     capacityOverrides,
-    layoutRevisionOverrides
+    layoutRevisionOverrides,
   });
 }
 
@@ -52,7 +52,7 @@ test("empty and background-only images produce no records and complete zero disp
     width: 3,
     height: 2,
     pixels: Array(6).fill(GPU_SHADING_BIN_INVALID_ID),
-    activeBinIds: [0]
+    activeBinIds: [0],
   });
   assert.deepEqual(background.recordsByBin[0], []);
   assert.equal(background.control.generatedMaskLo, 0);
@@ -64,16 +64,19 @@ test("a uniform 64 by 64 macro emits one record for every covered microtile", ()
     width: 64,
     height: 64,
     pixels: Array(64 * 64).fill(15),
-    activeBinIds: [15]
+    activeBinIds: [15],
   });
   assert.equal(result.counters[15].attemptedCount, 64);
   assert.equal(result.counters[15].writtenCount, 64);
   assert.equal(result.counters[15].overflowCount, 0);
-  assert.deepEqual(result.recordsByBin[15], Array.from({ length: 64 }, (_, index) => index));
+  assert.deepEqual(
+    result.recordsByBin[15],
+    Array.from({ length: 64 }, (_, index) => index),
+  );
   assert.deepEqual(result.indirectArgs[15], {
     workgroupCountX: 64,
     workgroupCountY: 1,
-    workgroupCountZ: 1
+    workgroupCountZ: 1,
   });
   assert.equal(result.control.generatedMaskLo, 1 << 15);
   assert.equal(result.control.frameFlags, 0);
@@ -84,7 +87,7 @@ test("all 64 bins in one microtile each produce the same global microtile id onc
     width: 8,
     height: 8,
     pixels: Array.from({ length: 64 }, (_, index) => index),
-    activeBinIds: Array.from({ length: 64 }, (_, index) => index)
+    activeBinIds: Array.from({ length: 64 }, (_, index) => index),
   });
   for (let binId = 0; binId < 64; binId++) {
     assert.deepEqual(result.recordsByBin[binId], [0]);
@@ -92,7 +95,7 @@ test("all 64 bins in one microtile each produce the same global microtile id onc
     assert.deepEqual(result.indirectArgs[binId], {
       workgroupCountX: 1,
       workgroupCountY: 1,
-      workgroupCountZ: 1
+      workgroupCountZ: 1,
     });
   }
   assert.equal(result.control.generatedMaskLo, 0xffffffff);
@@ -120,7 +123,13 @@ test("deterministic property matrix matches an independent per-microtile set ora
     return state;
   };
   const activeBinIds = [0, 5, 15, 31, 32, 47, 63];
-  const extents = [[1, 1], [7, 9], [17, 15], [65, 67], [129, 17]];
+  const extents = [
+    [1, 1],
+    [7, 9],
+    [17, 15],
+    [65, 67],
+    [129, 17],
+  ];
   for (const [width, height] of extents) {
     const pixels = Array.from({ length: width * height }, () => {
       const sample = random() % 10;
@@ -141,7 +150,7 @@ test("deterministic property matrix matches an independent per-microtile set ora
       assert.deepEqual(
         [...result.recordsByBin[binId]].sort((left, right) => left - right),
         [...expected[binId]].sort((left, right) => left - right),
-        `${width}x${height} bin ${binId}`
+        `${width}x${height} bin ${binId}`,
       );
       assert.equal(result.counters[binId].overflowCount, 0);
     }
@@ -153,15 +162,15 @@ test("invalid and inactive bins fail closed while background remains ignored", (
     width: 3,
     height: 1,
     pixels: [GPU_SHADING_BIN_INVALID_ID, 64, 5],
-    activeBinIds: [0]
+    activeBinIds: [0],
   });
   assert.equal(
     result.control.frameFlags & GPU_SHADING_BIN_FRAME_FLAG.InvalidBin,
-    GPU_SHADING_BIN_FRAME_FLAG.InvalidBin
+    GPU_SHADING_BIN_FRAME_FLAG.InvalidBin,
   );
   assert.equal(
     result.control.frameFlags & GPU_SHADING_BIN_FRAME_FLAG.InactiveBin,
-    GPU_SHADING_BIN_FRAME_FLAG.InactiveBin
+    GPU_SHADING_BIN_FRAME_FLAG.InactiveBin,
   );
   assert.equal(result.control.errorCount, 2);
   zeroArgs(result.indirectArgs);
@@ -173,14 +182,14 @@ test("macro reservation is all-or-nothing at exact capacity and overflow", () =>
     height: 8,
     pixels: Array(128).fill(1),
     activeBinIds: [1],
-    capacityOverrides: { 1: 2 }
+    capacityOverrides: { 1: 2 },
   });
   assert.deepEqual(exact.recordsByBin[1], [0, 1]);
   assert.deepEqual(exact.counters[1], {
     attemptedCount: 2,
     writtenCount: 2,
     overflowCount: 0,
-    flags: 0
+    flags: 0,
   });
 
   const oneShort = classify({
@@ -188,14 +197,14 @@ test("macro reservation is all-or-nothing at exact capacity and overflow", () =>
     height: 8,
     pixels: Array(128).fill(1),
     activeBinIds: [1],
-    capacityOverrides: { 1: 1 }
+    capacityOverrides: { 1: 1 },
   });
   assert.deepEqual(oneShort.recordsByBin[1], []);
   assert.deepEqual(oneShort.counters[1], {
     attemptedCount: 2,
     writtenCount: 0,
     overflowCount: 2,
-    flags: GPU_SHADING_BIN_FRAME_FLAG.ReservationOverflow
+    flags: GPU_SHADING_BIN_FRAME_FLAG.ReservationOverflow,
   });
   zeroArgs(oneShort.indirectArgs);
 });
@@ -206,14 +215,17 @@ test("later macro overflow preserves prior complete reservation but final output
     height: 8,
     pixels: Array(1024).fill(4),
     activeBinIds: [4],
-    capacityOverrides: { 4: 8 }
+    capacityOverrides: { 4: 8 },
   });
-  assert.deepEqual(result.recordsByBin[4], Array.from({ length: 8 }, (_, index) => index));
+  assert.deepEqual(
+    result.recordsByBin[4],
+    Array.from({ length: 8 }, (_, index) => index),
+  );
   assert.deepEqual(result.counters[4], {
     attemptedCount: 16,
     writtenCount: 8,
     overflowCount: 8,
-    flags: GPU_SHADING_BIN_FRAME_FLAG.ReservationOverflow
+    flags: GPU_SHADING_BIN_FRAME_FLAG.ReservationOverflow,
   });
   assert.equal(result.records.length, 8);
   zeroArgs(result.indirectArgs);
@@ -225,12 +237,12 @@ test("layout revision mismatch is detected before reservation and zeros every bi
     height: 8,
     pixels: Array(64).fill(2),
     activeBinIds: [2],
-    layoutRevisionOverrides: { 2: 8 }
+    layoutRevisionOverrides: { 2: 8 },
   });
   assert.equal(result.counters[2].attemptedCount, 0);
   assert.equal(
     result.control.frameFlags & GPU_SHADING_BIN_FRAME_FLAG.LayoutRevisionMismatch,
-    GPU_SHADING_BIN_FRAME_FLAG.LayoutRevisionMismatch
+    GPU_SHADING_BIN_FRAME_FLAG.LayoutRevisionMismatch,
   );
   zeroArgs(result.indirectArgs);
 });
@@ -246,7 +258,7 @@ test("finalizer catches counter closure and 2D dispatch overflow independently",
     allowedMaskLo: mask.lo,
     allowedMaskHi: mask.hi,
     maxDispatchDimension: 2,
-    layoutRevision: 1
+    layoutRevision: 1,
   };
   const layouts = createGpuShadingBinLayouts(8, 8, activeBinIds, 1, { 0: 5 });
   const zero = Object.freeze({ attemptedCount: 0, writtenCount: 0, overflowCount: 0, flags: 0 });
@@ -255,7 +267,7 @@ test("finalizer catches counter closure and 2D dispatch overflow independently",
   const dispatchOverflow = finalizeGpuShadingBinsReference({ settings, layouts, counters });
   assert.equal(
     dispatchOverflow.control.frameFlags & GPU_SHADING_BIN_FRAME_FLAG.CounterInvariantFailure,
-    GPU_SHADING_BIN_FRAME_FLAG.CounterInvariantFailure
+    GPU_SHADING_BIN_FRAME_FLAG.CounterInvariantFailure,
   );
   zeroArgs(dispatchOverflow.indirectArgs);
 
@@ -263,26 +275,24 @@ test("finalizer catches counter closure and 2D dispatch overflow independently",
   const closureFailure = finalizeGpuShadingBinsReference({ settings, layouts, counters });
   assert.equal(
     closureFailure.control.frameFlags & GPU_SHADING_BIN_FRAME_FLAG.CounterInvariantFailure,
-    GPU_SHADING_BIN_FRAME_FLAG.CounterInvariantFailure
+    GPU_SHADING_BIN_FRAME_FLAG.CounterInvariantFailure,
   );
   zeroArgs(closureFailure.indirectArgs);
 });
 
 test("reference classifier rejects source-size and generation boundary errors", () => {
+  assert.throws(() => classify({ width: 2, height: 2, pixels: [0], activeBinIds: [0] }), /source length/u);
   assert.throws(
-    () => classify({ width: 2, height: 2, pixels: [0], activeBinIds: [0] }),
-    /source length/u
-  );
-  assert.throws(
-    () => classifyGpuShadingBinsReference({
-      width: 1,
-      height: 1,
-      binIds: Uint8Array.of(0),
-      activeBinIds: [0],
-      generation: 0,
-      layoutRevision: 1,
-      maxDispatchDimension: 65535
-    }),
-    /generation must be non-zero/u
+    () =>
+      classifyGpuShadingBinsReference({
+        width: 1,
+        height: 1,
+        binIds: Uint8Array.of(0),
+        activeBinIds: [0],
+        generation: 0,
+        layoutRevision: 1,
+        maxDispatchDimension: 65535,
+      }),
+    /generation must be non-zero/u,
   );
 });

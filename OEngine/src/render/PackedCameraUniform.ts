@@ -18,12 +18,12 @@ export class PackedCameraUniform {
 
   constructor(
     private readonly device: GPUDevice,
-    label: string
+    label: string,
   ) {
     this.buffer = device.createBuffer({
       label,
       size: PACKED_CAMERA_TYPE.size,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
   }
 
@@ -46,7 +46,7 @@ export class PackedCameraUniform {
       0,
       Math.min(camera.near, camera.far),
       camera.aspect / cotangent,
-      1 / cotangent
+      1 / cotangent,
     ]);
     writeWgslToBuffer(
       {
@@ -59,18 +59,12 @@ export class PackedCameraUniform {
         view_projection_matrix: camera.view_projection_matrix,
         view_projection_matrix_inverse: this.viewProjectionInverse,
         frustum,
-        device_depth_to_view_space: depthToView
+        device_depth_to_view_space: depthToView,
       },
       PACKED_CAMERA_TYPE,
-      this.data
+      this.data,
     );
-    writeGpuBuffer(
-      this.device.queue,
-      "PackedCameraUniform/update",
-      this.buffer,
-      0,
-      this.data
-    );
+    writeGpuBuffer(this.device.queue, "PackedCameraUniform/update", this.buffer, 0, this.data);
   }
 
   destroy(): void {

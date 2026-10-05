@@ -27,14 +27,22 @@ export function decodeSurfacePrimitive(bytes: Uint8Array, offset: number): Surfa
     throw new RangeError("Surface primitive metadata range is invalid");
   }
   const view = new DataView(bytes.buffer, bytes.byteOffset + offset, SURFACE_PRIMITIVE_BYTES);
-  return Object.freeze({ domain: view.getUint32(0, true), uv0Domain: view.getUint32(4, true),
-    uv1Domain: view.getUint32(8, true), normalDomain: view.getUint32(12, true),
-    tangentDomain: view.getUint32(16, true), colorDomain: view.getUint32(20, true),
-    risk: view.getUint32(24, true), fieldRisk: view.getUint32(28, true),
-    tangentVariation: 1 - Math.cos((view.getUint32(28, true) >>> 24) / 255 * Math.PI),
+  return Object.freeze({
+    domain: view.getUint32(0, true),
+    uv0Domain: view.getUint32(4, true),
+    uv1Domain: view.getUint32(8, true),
+    normalDomain: view.getUint32(12, true),
+    tangentDomain: view.getUint32(16, true),
+    colorDomain: view.getUint32(20, true),
+    risk: view.getUint32(24, true),
+    fieldRisk: view.getUint32(28, true),
+    tangentVariation: 1 - Math.cos(((view.getUint32(28, true) >>> 24) / 255) * Math.PI),
     lodLocalFieldMask: (view.getUint32(28, true) >>> 16) & 63,
-    normalVariation: view.getFloat32(32, true), colorVariation: view.getFloat32(36, true),
+    normalVariation: view.getFloat32(32, true),
+    colorVariation: view.getFloat32(36, true),
     uv0Span: [view.getFloat32(40, true), view.getFloat32(44, true)] as const,
     uv1Span: [view.getFloat32(48, true), view.getFloat32(52, true)] as const,
-    positionError: view.getFloat32(56, true), attributeError: view.getFloat32(60, true) });
+    positionError: view.getFloat32(56, true),
+    attributeError: view.getFloat32(60, true),
+  });
 }

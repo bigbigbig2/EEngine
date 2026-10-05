@@ -21,10 +21,7 @@ export class GPUTypedBuffer<T = unknown> {
   private readonly gpuType: WebGPUType;
   private readonly gpuBuffer: GPUBuffer;
 
-  constructor(
-    type: WebGPUType,
-    buffer: GPUBuffer
-  ) {
+  constructor(type: WebGPUType, buffer: GPUBuffer) {
     this.gpuType = type;
     this.gpuBuffer = buffer;
   }
@@ -45,9 +42,7 @@ export class GPUTypedBuffer<T = unknown> {
     return this.buffer.size;
   }
 
-  static create<T>(
-    options: GPUTypedBufferCreateOptions<T>
-  ): GPUTypedBuffer<T> {
+  static create<T>(options: GPUTypedBufferCreateOptions<T>): GPUTypedBuffer<T> {
     let mappedAtCreation = options.mappedAtCreation ?? false;
     let unmapAfterInitialValue = false;
     if (options.initial_value !== undefined && !mappedAtCreation) {
@@ -58,14 +53,10 @@ export class GPUTypedBuffer<T = unknown> {
       label: options.label ?? options.type.wgsl_ref,
       size: options.type.size,
       usage: options.usage,
-      mappedAtCreation
+      mappedAtCreation,
     });
     if (options.initial_value !== undefined) {
-      writeWgslToBuffer(
-        options.initial_value,
-        options.type,
-        buffer.getMappedRange()
-      );
+      writeWgslToBuffer(options.initial_value, options.type, buffer.getMappedRange());
       if (unmapAfterInitialValue) buffer.unmap();
     }
     return new GPUTypedBuffer<T>(options.type, buffer);
@@ -73,20 +64,9 @@ export class GPUTypedBuffer<T = unknown> {
 
   upload(newValue: T, queue: GPUQueue): void {
     const size = this.type.size;
-    const data =
-      size <= TYPED_BUFFER_SCRATCH.byteLength
-        ? TYPED_BUFFER_SCRATCH
-        : new ArrayBuffer(size);
+    const data = size <= TYPED_BUFFER_SCRATCH.byteLength ? TYPED_BUFFER_SCRATCH : new ArrayBuffer(size);
     writeWgslToBuffer(newValue, this.type, data);
-    writeGpuBuffer(
-      queue,
-      "GPUTypedBuffer/upload",
-      this.buffer,
-      0,
-      data,
-      0,
-      size
-    );
+    writeGpuBuffer(queue, "GPUTypedBuffer/upload", this.buffer, 0, data, 0, size);
   }
 
   destroy(): void {

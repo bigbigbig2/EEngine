@@ -1,10 +1,20 @@
 import type { GeometryProductRevisionSourceV1 } from "../assets/geometry-product/GeometryProductV1.js";
 import {
   GpuGeometryDemandReadbackRingV1,
-  type GpuGeometryDemandReadbackRingOptionsV1
+  type GpuGeometryDemandReadbackRingOptionsV1,
 } from "./GeometryDemandReadbackRing.js";
-import { GeometryPageSchedulerV1, type GeometryPageSchedulerEvidenceV1, type GeometryPageSchedulerOptionsV1, type GeometryPageSchedulerPressureV1, type GeometryPageSchedulerBudgetV1 } from "./GeometryPageScheduler.js";
-import { GEOMETRY_PAGE_LOCATION_PINNED, VirtualGeometryResidency, type VirtualGeometryResidencyEvidenceV1 } from "./VirtualGeometryResidency.js";
+import {
+  GeometryPageSchedulerV1,
+  type GeometryPageSchedulerEvidenceV1,
+  type GeometryPageSchedulerOptionsV1,
+  type GeometryPageSchedulerPressureV1,
+  type GeometryPageSchedulerBudgetV1,
+} from "./GeometryPageScheduler.js";
+import {
+  GEOMETRY_PAGE_LOCATION_PINNED,
+  VirtualGeometryResidency,
+  type VirtualGeometryResidencyEvidenceV1,
+} from "./VirtualGeometryResidency.js";
 import { unpackGeometryPageDemandHeaderV1, unpackGeometryPageDemandV1 } from "./GeometryPageDemandAbiV1.js";
 
 export interface GeometryPageStreamingRuntimeOptionsV1 {
@@ -46,23 +56,27 @@ export class GeometryPageStreamingRuntimeV1 {
   constructor(
     device: GPUDevice,
     residency: VirtualGeometryResidency,
-    options: GeometryPageStreamingRuntimeOptionsV1 = {}
+    options: GeometryPageStreamingRuntimeOptionsV1 = {},
   ) {
     this.#device = device;
     this.#residency = residency;
-    this.#scheduler = options.scheduler ?? new GeometryPageSchedulerV1(
-      options.schedulerOptions ?? {
-        maxConcurrentReads: 2,
-        maxInFlightBytes: 4 * 1024 * 1024
-      }
-    );
+    this.#scheduler =
+      options.scheduler ??
+      new GeometryPageSchedulerV1(
+        options.schedulerOptions ?? {
+          maxConcurrentReads: 2,
+          maxInFlightBytes: 4 * 1024 * 1024,
+        },
+      );
     this.#readback = new GpuGeometryDemandReadbackRingV1({
       device,
-      ...(options.readback ?? {})
+      ...(options.readback ?? {}),
     });
   }
 
-  get scheduler(): GeometryPageSchedulerV1 { return this.#scheduler; }
+  get scheduler(): GeometryPageSchedulerV1 {
+    return this.#scheduler;
+  }
 
   /** Applies delayed camera/IO/GPU/frame pressure without changing Product identity. */
   updatePressure(pressure: GeometryPageSchedulerPressureV1): GeometryPageSchedulerBudgetV1 {
@@ -72,16 +86,15 @@ export class GeometryPageStreamingRuntimeV1 {
 
   /** Registers a Product source without transferring source ownership. */
   registerProduct(source: GeometryProductRevisionSourceV1, residency = this.#residency): void {
-    if (source.descriptor.revision !== residency.descriptor.revision ||
-        !sameBytes(source.descriptor.productId, residency.descriptor.productId)) {
+    if (
+      source.descriptor.revision !== residency.descriptor.revision ||
+      !sameBytes(source.descriptor.productId, residency.descriptor.productId)
+    ) {
       throw new Error("Geometry page source does not match the active residency Product");
     }
-    this.#scheduler.registerProduct(
-      residency.productTableSlot,
-      residency.productGeneration,
-      source,
-      { sourceOwnership: "external" }
-    );
+    this.#scheduler.registerProduct(residency.productTableSlot, residency.productGeneration, source, {
+      sourceOwnership: "external",
+    });
     this.#residencies.set(residency.productGeneration, residency);
   }
 
@@ -113,7 +126,10 @@ export class GeometryPageStreamingRuntimeV1 {
       this.#residency.beginRetirePage(pageId);
       this.#scheduler.markRetiring(this.#residency.productGeneration, pageId);
     }
-    await Promise.resolve(completion).then(() => undefined, () => undefined);
+    await Promise.resolve(completion).then(
+      () => undefined,
+      () => undefined,
+    );
     for (const pageId of unique) {
       this.#residency.completeRetirePage(pageId);
       this.#scheduler.markRetired(this.#residency.productGeneration, pageId);
@@ -124,7 +140,7 @@ export class GeometryPageStreamingRuntimeV1 {
   encodeDemandReadback(
     encoder: GPUCommandEncoder,
     demandBuffer: GPUBuffer,
-    frameIndex: number
+    frameIndex: number,
   ): number | undefined {
     this.assertAlive();
     return this.#readback.encode(encoder, demandBuffer, frameIndex);
@@ -134,11 +150,11 @@ export class GeometryPageStreamingRuntimeV1 {
   encodeShadowDemandReadback(
     encoder: GPUCommandEncoder,
     demandBuffer: GPUBuffer,
-    frameIndex: number
+    frameIndex: number,
   ): number | undefined {
     this.assertAlive();
     this.#shadowReadback ??= new GpuGeometryDemandReadbackRingV1({
-      device: this.#device
+      device: this.#device,
     });
     return this.#shadowReadback.encode(encoder, demandBuffer, frameIndex);
   }
@@ -148,18 +164,14 @@ export class GeometryPageStreamingRuntimeV1 {
    * must establish GPU completion (for example via a submission token) before
    * invoking this method; it never waits for the current frame.
    */
-  async consumeCompleted(
-    completedFrame: number,
-    nowMs = 0
-  ): Promise<GeometryPageStreamingPollEvidenceV1> {
+  async consumeCompleted(completedFrame: number, nowMs = 0): Promise<GeometryPageStreamingPollEvidenceV1> {
     this.assertAlive();
     // A frame completion is also the scheduler clock. This advances delayed
     // retries even when the GPU produced no new demand this frame.
     this.#scheduler.tick(nowMs);
     const results = await this.#readback.poll(completedFrame);
-    const shadowResults = this.#shadowReadback === null
-      ? []
-      : await this.#shadowReadback.poll(completedFrame);
+    const shadowResults =
+      this.#shadowReadback === null ? [] : await this.#shadowReadback.poll(completedFrame);
     let consumedReadbacks = 0;
     let malformedReadbacks = 0;
     for (const result of results) {
@@ -185,24 +197,28 @@ export class GeometryPageStreamingRuntimeV1 {
       }
     }
     this.#scheduler.tick(nowMs);
-    const pageResidency = (page: import("../assets/geometry-product/GeometryProductV1.js").GeometryPageProductV1) => {
-        const residency = [...this.#residencies.values()].find((candidate) =>
+    const pageResidency = (
+      page: import("../assets/geometry-product/GeometryProductV1.js").GeometryPageProductV1,
+    ) => {
+      const residency = [...this.#residencies.values()].find(
+        (candidate) =>
           candidate.descriptor.revision === page.revision &&
-          sameBytes(candidate.descriptor.productId, page.productId)
-        );
-        if (residency === undefined) throw new Error("Geometry page completion targets an unregistered Product");
-        return residency;
+          sameBytes(candidate.descriptor.productId, page.productId),
+      );
+      if (residency === undefined)
+        throw new Error("Geometry page completion targets an unregistered Product");
+      return residency;
     };
     const uploadedBytes = this.#scheduler.drainUploadBudget({
-      uploadCost: page => pageResidency(page).uploadCost(page),
-      uploadPage: page => pageResidency(page).tryUploadPage(page)
+      uploadCost: (page) => pageResidency(page).uploadCost(page),
+      uploadPage: (page) => pageResidency(page).tryUploadPage(page),
     });
     this.#lastPoll = Object.freeze({
       completedFrame,
       mappedSlots: results.length,
       consumedReadbacks,
       malformedReadbacks,
-      uploadedBytes
+      uploadedBytes,
     });
     return this.#lastPoll;
   }
@@ -213,9 +229,18 @@ export class GeometryPageStreamingRuntimeV1 {
     for (let index = 0; index < Math.min(header.attempted, header.capacity); index++) {
       const demand = unpackGeometryPageDemandV1(view, 16 + index * 16);
       const residency = this.#residencies.get(demand.productGeneration);
-      if (residency === undefined || demand.productTableSlot !== residency.productTableSlot ||
-          demand.pageId >= residency.descriptor.pageRecords.byteLength / 32) continue;
-      residency.recordDemand(demand.pageId, frameIndex, demand.currentViewMissing || demand.shadow, demand.predictive);
+      if (
+        residency === undefined ||
+        demand.productTableSlot !== residency.productTableSlot ||
+        demand.pageId >= residency.descriptor.pageRecords.byteLength / 32
+      )
+        continue;
+      residency.recordDemand(
+        demand.pageId,
+        frameIndex,
+        demand.currentViewMissing || demand.shadow,
+        demand.predictive,
+      );
     }
   }
 
@@ -223,7 +248,7 @@ export class GeometryPageStreamingRuntimeV1 {
   async consumeAfterCompletion(
     frameIndex: number,
     completion: PromiseLike<void>,
-    nowMs = 0
+    nowMs = 0,
   ): Promise<GeometryPageStreamingPollEvidenceV1> {
     if (!Number.isSafeInteger(frameIndex) || frameIndex < 0) {
       throw new RangeError("Geometry page streaming frame index must be non-negative");
@@ -238,7 +263,7 @@ export class GeometryPageStreamingRuntimeV1 {
       ...(this.#shadowReadback === null ? {} : { shadowReadback: this.#shadowReadback.evidence() }),
       scheduler: this.#scheduler.evidence(),
       residency: this.#residency.evidence(),
-      lastPoll: this.#lastPoll
+      lastPoll: this.#lastPoll,
     });
   }
 
@@ -258,7 +283,6 @@ export class GeometryPageStreamingRuntimeV1 {
   private assertAlive(): void {
     if (this.#destroyed) throw new Error("Geometry page streaming runtime is destroyed");
   }
-
 }
 
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean {

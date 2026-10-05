@@ -11,17 +11,14 @@ import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
-import {
-  LINEAR_CLAMP_SAMPLER_DESCRIPTOR,
-  type GPUSamplerCache
-} from "../../gpu/GPUSamplerCache.js";
+import { LINEAR_CLAMP_SAMPLER_DESCRIPTOR, type GPUSamplerCache } from "../../gpu/GPUSamplerCache.js";
 import { textureMipLevelCount } from "../../gpu/GPUTextureContext.js";
 import { createNativeTextureView } from "../../gpu/GPUTextureDescriptors.js";
 import {
   SHARED_COLOR_PYRAMID_COPY_WGSL,
   SHARED_COLOR_PYRAMID_DOWNSAMPLE_WGSL,
   SHARED_COLOR_PYRAMID_FORMAT,
-  SHARED_OPAQUE_PYRAMID_DEPTH_AWARE_WGSL
+  SHARED_OPAQUE_PYRAMID_DEPTH_AWARE_WGSL,
 } from "../../shaders/shared_color_pyramid.js";
 import {
   finalColorPyramidFrame,
@@ -30,7 +27,7 @@ import {
   type FinalColorPyramidFrame,
   type PreExposedOpaqueHdrBaselineFrame,
   type OpaqueColorPyramidFrame,
-  type PreExposureContract
+  type PreExposureContract,
 } from "../pipeline/FrameProducts.js";
 import { resolveDepthAttachmentView, resolveTextureView } from "../RenderTargetViews.js";
 
@@ -77,17 +74,17 @@ export class SharedColorPyramidPass {
     this.copyPipeline = pipeline(
       "SharedColorPyramid/copy-mip0",
       SHARED_COLOR_PYRAMID_COPY_WGSL,
-      copyLayout()
+      copyLayout(),
     );
     this.depthAwarePipeline = pipeline(
       "SharedColorPyramid/opaque-depth-aware-mip1",
       SHARED_OPAQUE_PYRAMID_DEPTH_AWARE_WGSL,
-      depthAwareLayout()
+      depthAwareLayout(),
     );
     this.downsamplePipeline = pipeline(
       "SharedColorPyramid/downsample",
       SHARED_COLOR_PYRAMID_DOWNSAMPLE_WGSL,
-      downsampleLayout()
+      downsampleLayout(),
     );
   }
 
@@ -95,7 +92,7 @@ export class SharedColorPyramidPass {
     graph: FrameGraph,
     source: PreExposedOpaqueHdrBaselineFrame,
     depth: ResourceId,
-    job: SharedColorPyramidJob
+    job: SharedColorPyramidJob,
   ): OpaqueColorPyramidFrame {
     validateJob(job, source.domain.width, source.domain.height);
     const mipLevelCount = boundedMipCount(job, OPAQUE_COLOR_PYRAMID_MAX_MIPS);
@@ -105,7 +102,7 @@ export class SharedColorPyramidPass {
       source.hdr,
       depth,
       { ...job, mipLevelCount },
-      true
+      true,
     );
     return opaqueColorPyramidFrame({
       texture,
@@ -113,15 +110,11 @@ export class SharedColorPyramidPass {
       stage: "post-screen-space-diffuse-pre-ssr",
       sourceGeneration: job.sourceGeneration,
       preExposure: job.preExposure,
-      domain: source.domain
+      domain: source.domain,
     });
   }
 
-  addFinalToGraph(
-    graph: FrameGraph,
-    source: ResourceId,
-    job: SharedColorPyramidJob
-  ): FinalColorPyramidFrame {
+  addFinalToGraph(graph: FrameGraph, source: ResourceId, job: SharedColorPyramidJob): FinalColorPyramidFrame {
     validateJob(job, job.width, job.height);
     const mipLevelCount = boundedMipCount(job, FINAL_COLOR_PYRAMID_MAX_MIPS);
     const texture = this.addProducer(
@@ -130,7 +123,7 @@ export class SharedColorPyramidPass {
       source,
       null,
       { ...job, mipLevelCount },
-      false
+      false,
     );
     return finalColorPyramidFrame({
       // Preserve the exact pre-pyramid HDR resource. Bloom's optional
@@ -142,7 +135,7 @@ export class SharedColorPyramidPass {
       stage: "post-transparency-temporal",
       sourceGeneration: job.sourceGeneration,
       preExposure: job.preExposure,
-      domain: textureDomain("output-full", job.width, job.height, 1)
+      domain: textureDomain("output-full", job.width, job.height, 1),
     });
   }
 
@@ -164,7 +157,7 @@ export class SharedColorPyramidPass {
       finalBuilds: this.finalBuilds,
       finalRenderPasses: this.finalRenderPasses,
       finalMipLevelCount: this.finalMipLevelCount,
-      allocatedBytes: this.allocatedBytes
+      allocatedBytes: this.allocatedBytes,
     });
   }
 
@@ -176,7 +169,7 @@ export class SharedColorPyramidPass {
     source: ResourceId,
     depth: ResourceId | null,
     job: SharedColorPyramidJob,
-    depthAwareFirstReduction: boolean
+    depthAwareFirstReduction: boolean,
   ): ResourceId {
     let output = -1;
     const builder = graph.add(
@@ -192,34 +185,28 @@ export class SharedColorPyramidPass {
           this.copyPipeline,
           `${label}/copy-mip0`,
           createNativeTextureView(texture, { baseMipLevel: 0, mipLevelCount: 1 }),
-          [sourceView, sampler]
+          [sourceView, sampler],
         );
         let renderPasses = 1;
         for (let mip = 1; mip < data.mipLevelCount; mip++) {
           const previous = createNativeTextureView(texture, {
             baseMipLevel: mip - 1,
-            mipLevelCount: 1
+            mipLevelCount: 1,
           });
           const target = createNativeTextureView(texture, {
             baseMipLevel: mip,
-            mipLevelCount: 1
+            mipLevelCount: 1,
           });
           if (mip === 1 && data.depthAwareFirstReduction) {
-            this.draw(
-              command,
-              this.depthAwarePipeline,
-              `${label}/depth-aware-mip1`,
-              target,
-              [previous, resolveDepthAttachmentView(resources.get(depth!))]
-            );
+            this.draw(command, this.depthAwarePipeline, `${label}/depth-aware-mip1`, target, [
+              previous,
+              resolveDepthAttachmentView(resources.get(depth!)),
+            ]);
           } else {
-            this.draw(
-              command,
-              this.downsamplePipeline,
-              `${label}/downsample-mip${mip}`,
-              target,
-              [previous, sampler]
-            );
+            this.draw(command, this.downsamplePipeline, `${label}/downsample-mip${mip}`, target, [
+              previous,
+              sampler,
+            ]);
           }
           renderPasses++;
         }
@@ -234,7 +221,7 @@ export class SharedColorPyramidPass {
           this.finalMipLevelCount = Math.max(this.finalMipLevelCount, data.mipLevelCount);
         }
         this.allocatedBytes += bytes;
-      }
+      },
     );
     output = builder.create(label, {
       kind: "transient_texture",
@@ -244,7 +231,7 @@ export class SharedColorPyramidPass {
       format: SHARED_COLOR_PYRAMID_FORMAT,
       mipLevelCount: job.mipLevelCount,
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-      domain: label === "OpaqueColorPyramid" ? "internal-full" : "output-full"
+      domain: label === "OpaqueColorPyramid" ? "internal-full" : "output-full",
     });
     builder.read(source);
     if (depth !== null) builder.read(depth);
@@ -256,18 +243,20 @@ export class SharedColorPyramidPass {
     descriptor: CachedRenderPipelineDescriptor,
     label: string,
     output: GPUTextureView,
-    bindings: GPUBindingResource[]
+    bindings: GPUBindingResource[],
   ): void {
     const pass = command.constructRenderPass({
       label,
       pipeline: descriptor,
       bindings: [bindings],
-      colorAttachments: [{
-        view: output,
-        clearValue: { r: 0, g: 0, b: 0, a: 0 },
-        loadOp: "clear",
-        storeOp: "store"
-      }]
+      colorAttachments: [
+        {
+          view: output,
+          clearValue: { r: 0, g: 0, b: 0, a: 0 },
+          loadOp: "clear",
+          storeOp: "store",
+        },
+      ],
     });
     pass.draw(3, 1, 0, 0);
     pass.end();
@@ -275,15 +264,11 @@ export class SharedColorPyramidPass {
 }
 
 function boundedMipCount(job: SharedColorPyramidJob, maximum: number): number {
-  return Math.max(
-    1,
-    Math.min(job.mipLevelCount, maximum, textureMipLevelCount(job.width, job.height))
-  );
+  return Math.max(1, Math.min(job.mipLevelCount, maximum, textureMipLevelCount(job.width, job.height)));
 }
 
 function validateJob(job: SharedColorPyramidJob, width: number, height: number): void {
-  if (!Number.isInteger(job.width) || job.width <= 0 ||
-      !Number.isInteger(job.height) || job.height <= 0) {
+  if (!Number.isInteger(job.width) || job.width <= 0 || !Number.isInteger(job.height) || job.height <= 0) {
     throw new RangeError("SharedColorPyramid dimensions must be positive integers");
   }
   if (job.width !== width || job.height !== height) {
@@ -308,7 +293,7 @@ function pyramidBytes(width: number, height: number, mipCount: number, bytesPerP
 function pipeline(
   label: string,
   code: string,
-  group0: GPUBindGroupLayoutDescriptor
+  group0: GPUBindGroupLayoutDescriptor,
 ): CachedRenderPipelineDescriptor {
   const module = { label, code };
   return {
@@ -318,37 +303,34 @@ function pipeline(
     fragment: {
       module,
       entryPoint: "fs_main",
-      targets: [{ format: SHARED_COLOR_PYRAMID_FORMAT }]
+      targets: [{ format: SHARED_COLOR_PYRAMID_FORMAT }],
     },
-    primitive: { topology: "triangle-list", cullMode: "none" }
+    primitive: { topology: "triangle-list", cullMode: "none" },
   };
 }
 
 function copyLayout(): GPUBindGroupLayoutDescriptor {
   return textureLayout("SharedColorPyramid/copy-group0", [
     { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
-    { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } }
+    { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
   ]);
 }
 
 function depthAwareLayout(): GPUBindGroupLayoutDescriptor {
   return textureLayout("SharedColorPyramid/depth-aware-group0", [
     { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
-    { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "depth" } }
+    { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "depth" } },
   ]);
 }
 
 function downsampleLayout(): GPUBindGroupLayoutDescriptor {
   return textureLayout("SharedColorPyramid/downsample-group0", [
     { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
-    { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } }
+    { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
   ]);
 }
 
-function textureLayout(
-  label: string,
-  entries: GPUBindGroupLayoutEntry[]
-): GPUBindGroupLayoutDescriptor {
+function textureLayout(label: string, entries: GPUBindGroupLayoutEntry[]): GPUBindGroupLayoutDescriptor {
   return { label, entries };
 }
 
@@ -366,10 +348,12 @@ function resolveTexture(resource: unknown, label: string): GPUTexture {
 
 function requireCommand(value: unknown): ShadeGPUCommandContext {
   if (
-    value && typeof value === "object" &&
+    value &&
+    typeof value === "object" &&
     "isGPUCommandContext" in value &&
     (value as { isGPUCommandContext?: unknown }).isGPUCommandContext === true &&
     "constructRenderPass" in value
-  ) return value as ShadeGPUCommandContext;
+  )
+    return value as ShadeGPUCommandContext;
   throw new Error("SharedColorPyramidPass requires ShadeGPUCommandContext");
 }

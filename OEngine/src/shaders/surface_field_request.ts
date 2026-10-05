@@ -1,6 +1,12 @@
 import { SURFACE_CELL_ADDRESS_WORDS } from "../gpu/GpuSurfaceReferenceAbi.js";
-import { SURFACE_FIELD_IDENTITY_WORDS, SURFACE_FIELD_EXECUTION_PROFILE_WORD } from "../gpu/GpuSurfaceFieldIdentityAbi.js";
-import { SURFACE_FIELD_STORE_KEY_WORDS, SURFACE_FIELD_STORE_IDENTITY_WORDS } from "../gpu/GpuSurfaceFieldStoreAbi.js";
+import {
+  SURFACE_FIELD_IDENTITY_WORDS,
+  SURFACE_FIELD_EXECUTION_PROFILE_WORD,
+} from "../gpu/GpuSurfaceFieldIdentityAbi.js";
+import {
+  SURFACE_FIELD_STORE_KEY_WORDS,
+  SURFACE_FIELD_STORE_IDENTITY_WORDS,
+} from "../gpu/GpuSurfaceFieldStoreAbi.js";
 
 /** A request is a narrow (leaf,field) pair. Its complete witness is generated
  * from shared immutable address/publication products at lookup/dedup/admission.

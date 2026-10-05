@@ -13,10 +13,10 @@ export const PHASE3_PRODUCT = Object.freeze({
   Motion: "Motion",
   TemporalDepth: "TemporalDepth",
   PreExposure: "PreExposure",
-  TemporalReconstructedColor: "TemporalReconstructedColor"
+  TemporalReconstructedColor: "TemporalReconstructedColor",
 } as const);
 
-export type Phase3ProductName = typeof PHASE3_PRODUCT[keyof typeof PHASE3_PRODUCT];
+export type Phase3ProductName = (typeof PHASE3_PRODUCT)[keyof typeof PHASE3_PRODUCT];
 export type Phase3ProductState = "production" | "declared-not-wired" | "blocked";
 
 export interface Phase3ProductContract {
@@ -36,7 +36,8 @@ export const PHASE3_PRODUCT_CONTRACTS: Readonly<Record<Phase3ProductName, Phase3
       consumers: Object.freeze(["Surface direct lighting"]),
       generation: "environment",
       state: "production",
-      reason: "PhysicalEnvironmentRuntime writes the immutable Sun buffer and Surface direct lighting consumes it with DirectVisibility=1."
+      reason:
+        "PhysicalEnvironmentRuntime writes the immutable Sun buffer and Surface direct lighting consumes it with DirectVisibility=1.",
     }),
     SkyRadiance: Object.freeze({
       name: PHASE3_PRODUCT.SkyRadiance,
@@ -44,7 +45,8 @@ export const PHASE3_PRODUCT_CONTRACTS: Readonly<Record<Phase3ProductName, Phase3
       consumers: Object.freeze(["PhysicalSkyPass", "AerialPerspectivePass"]),
       generation: "environment",
       state: "production",
-      reason: "PhysicalSkyPass and AerialPerspectivePass sample the shared 3D combined-scattering LUT and higher-order LUT."
+      reason:
+        "PhysicalSkyPass and AerialPerspectivePass sample the shared 3D combined-scattering LUT and higher-order LUT.",
     }),
     SkyIrradiance: Object.freeze({
       name: PHASE3_PRODUCT.SkyIrradiance,
@@ -52,7 +54,7 @@ export const PHASE3_PRODUCT_CONTRACTS: Readonly<Record<Phase3ProductName, Phase3
       consumers: Object.freeze(["Environment lighting"]),
       generation: "environment",
       state: "production",
-      reason: "Surface direct programs sample the pinned 2D SkyIrradiance LUT for the indirect diffuse term."
+      reason: "Surface direct programs sample the pinned 2D SkyIrradiance LUT for the indirect diffuse term.",
     }),
     AerialScattering: Object.freeze({
       name: PHASE3_PRODUCT.AerialScattering,
@@ -60,7 +62,8 @@ export const PHASE3_PRODUCT_CONTRACTS: Readonly<Record<Phase3ProductName, Phase3
       consumers: Object.freeze(["FSR3 Upscaler", "Present"]),
       generation: "environment",
       state: "production",
-      reason: "AerialPerspectivePass reconstructs the camera-to-point segment and applies Takram LUT transmittance plus in-scattering."
+      reason:
+        "AerialPerspectivePass reconstructs the camera-to-point segment and applies Takram LUT transmittance plus in-scattering.",
     }),
     Motion: Object.freeze({
       name: PHASE3_PRODUCT.Motion,
@@ -68,7 +71,8 @@ export const PHASE3_PRODUCT_CONTRACTS: Readonly<Record<Phase3ProductName, Phase3
       consumers: Object.freeze(["FSR3 Upscaler", "Temporal Fabric"]),
       generation: "frame",
       state: "production",
-      reason: "Surface material programs write rg16float motion; spatial frequency resolves it before the FSR3 input preparation pass."
+      reason:
+        "Surface material programs write rg16float motion; spatial frequency resolves it before the FSR3 input preparation pass.",
     }),
     TemporalDepth: Object.freeze({
       name: PHASE3_PRODUCT.TemporalDepth,
@@ -76,7 +80,8 @@ export const PHASE3_PRODUCT_CONTRACTS: Readonly<Record<Phase3ProductName, Phase3
       consumers: Object.freeze(["FSR3 Upscaler", "Temporal Fabric"]),
       generation: "frame",
       state: "production",
-      reason: "FSR3 consumes current visibility depth and reconstructs previous-frame depth on the GPU; Temporal Fabric tracks the logical depth revision."
+      reason:
+        "FSR3 consumes current visibility depth and reconstructs previous-frame depth on the GPU; Temporal Fabric tracks the logical depth revision.",
     }),
     PreExposure: Object.freeze({
       name: PHASE3_PRODUCT.PreExposure,
@@ -84,7 +89,8 @@ export const PHASE3_PRODUCT_CONTRACTS: Readonly<Record<Phase3ProductName, Phase3
       consumers: Object.freeze(["Surface radiance", "FSR3 Upscaler", "Temporal Fabric"]),
       generation: "pre-exposure",
       state: "production",
-      reason: "RadiometryRuntime owns one immutable frame contract; environment-generation and multiplier changes advance the shared generation consumed by Surface and Temporal Fabric."
+      reason:
+        "RadiometryRuntime owns one immutable frame contract; environment-generation and multiplier changes advance the shared generation consumed by Surface and Temporal Fabric.",
     }),
     TemporalReconstructedColor: Object.freeze({
       name: PHASE3_PRODUCT.TemporalReconstructedColor,
@@ -92,8 +98,9 @@ export const PHASE3_PRODUCT_CONTRACTS: Readonly<Record<Phase3ProductName, Phase3
       consumers: Object.freeze(["Present"]),
       generation: "frame",
       state: "production",
-      reason: "The pinned FSR3 Upscaler stages write output-full radiance in the unified FrameGraph before Present."
-    })
+      reason:
+        "The pinned FSR3 Upscaler stages write output-full radiance in the unified FrameGraph before Present.",
+    }),
   });
 
 export function phase3ProductContract(name: Phase3ProductName): Phase3ProductContract {

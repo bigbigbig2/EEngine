@@ -1,11 +1,8 @@
-import {
-  openRuntimeAssetPackageV2,
-  type RuntimeAssetPackageV2
-} from "./RuntimeAssetManifestV2.js";
+import { openRuntimeAssetPackageV2, type RuntimeAssetPackageV2 } from "./RuntimeAssetManifestV2.js";
 import {
   type RuntimeAssetPackage,
   type RuntimeAssetSectionView,
-  type RuntimeAssetValidationIssue
+  type RuntimeAssetValidationIssue,
 } from "./RuntimeAssetPackage.js";
 
 export const GEOMETRY_ASSET_SCHEMA_VERSION = 3;
@@ -31,7 +28,7 @@ export const GEOMETRY_SECTION_TYPES = Object.freeze({
   ClusterChildren: 0x3001,
   Bvh8Nodes: 0x4000,
   MaterialRanges: 0x5000,
-  OptionalDebugNames: 0xf000
+  OptionalDebugNames: 0xf000,
 });
 
 export const GEOMETRY_DIRECTORY_FLAGS = Object.freeze({
@@ -42,7 +39,7 @@ export const GEOMETRY_DIRECTORY_FLAGS = Object.freeze({
   CompactStaticPbr: 1 << 4,
   VisibilityFlat: 1 << 5,
   VisibilityShallow: 1 << 6,
-  VisibilityFull: 1 << 7
+  VisibilityFull: 1 << 7,
 });
 
 export type GeometryVisibilityPath = "flat" | "shallow" | "full";
@@ -56,7 +53,7 @@ export const GEOMETRY_VISIBILITY_PATH_MASK =
 export function recommendGeometryVisibilityPath(
   meshletCount: number,
   hierarchyDepth: number,
-  hierarchyPresent: boolean
+  hierarchyPresent: boolean,
 ): GeometryVisibilityPath {
   if (!Number.isSafeInteger(meshletCount) || meshletCount <= 0) {
     throw new RangeError("Geometry visibility hint requires a positive Meshlet count");
@@ -70,9 +67,12 @@ export function recommendGeometryVisibilityPath(
 
 export function geometryVisibilityPathFlag(path: GeometryVisibilityPath): number {
   switch (path) {
-    case "flat": return GEOMETRY_DIRECTORY_FLAGS.VisibilityFlat;
-    case "shallow": return GEOMETRY_DIRECTORY_FLAGS.VisibilityShallow;
-    case "full": return GEOMETRY_DIRECTORY_FLAGS.VisibilityFull;
+    case "flat":
+      return GEOMETRY_DIRECTORY_FLAGS.VisibilityFlat;
+    case "shallow":
+      return GEOMETRY_DIRECTORY_FLAGS.VisibilityShallow;
+    case "full":
+      return GEOMETRY_DIRECTORY_FLAGS.VisibilityFull;
   }
 }
 
@@ -88,7 +88,7 @@ export function geometryVisibilityPathFromFlags(flags: number): GeometryVisibili
 
 export const GEOMETRY_VERTEX_PROFILE = Object.freeze({
   StaticPbrCompactV2: 1,
-  ExplicitFloat32FallbackV2: 2
+  ExplicitFloat32FallbackV2: 2,
 } as const);
 
 export const GEOMETRY_VERTEX_STREAM_FLAGS = Object.freeze({
@@ -96,7 +96,7 @@ export const GEOMETRY_VERTEX_STREAM_FLAGS = Object.freeze({
   NormalOctSnorm16: 1 << 1,
   TangentSnorm16: 1 << 2,
   UvFloat16: 1 << 3,
-  ColorUnorm8: 1 << 4
+  ColorUnorm8: 1 << 4,
 } as const);
 
 const GEOMETRY_REQUIRED_R2_B_01_FLAGS =
@@ -106,18 +106,16 @@ const GEOMETRY_REQUIRED_R2_B_01_FLAGS =
 const MESHLET_ALPHA_MASK = 0x3;
 const MESHLET_DOUBLE_SIDED = 1 << 2;
 const MESHLET_CONE_VALID = 1 << 3;
-const MESHLET_KNOWN_FLAGS =
-  MESHLET_ALPHA_MASK | MESHLET_DOUBLE_SIDED | MESHLET_CONE_VALID;
+const MESHLET_KNOWN_FLAGS = MESHLET_ALPHA_MASK | MESHLET_DOUBLE_SIDED | MESHLET_CONE_VALID;
 export const GEOMETRY_CLUSTER_FLAGS = Object.freeze({
   Leaf: 1 << 0,
   SyntheticRoot: 1 << 1,
   MixedMaterial: 1 << 2,
   ConeValid: 1 << 3,
   DoubleSided: 1 << 4,
-  SimplificationFallback: 1 << 5
+  SimplificationFallback: 1 << 5,
 });
-const CLUSTER_KNOWN_FLAGS = Object.values(GEOMETRY_CLUSTER_FLAGS)
-  .reduce((flags, value) => flags | value, 0);
+const CLUSTER_KNOWN_FLAGS = Object.values(GEOMETRY_CLUSTER_FLAGS).reduce((flags, value) => flags | value, 0);
 const HASH_BYTES = 32;
 const VERTEX_STREAM_SEMANTIC_BYTES = 32;
 
@@ -140,7 +138,7 @@ export const GEOMETRY_VERTEX_DATA_TYPE_CODE = Object.freeze({
   int32: 5,
   uint32: 6,
   float32: 7,
-  float64: 8
+  float64: 8,
 } satisfies Readonly<Record<GeometryVertexDataType, number>>);
 
 export type GeometryMeshletAlphaMode = "opaque" | "mask" | "blend";
@@ -306,84 +304,64 @@ export class GeometryAssetPackageError extends Error {
   }
 }
 
-export async function openGeometryAssetPackage(
-  bytes: ArrayBuffer
-): Promise<GeometryAssetPackage> {
+export async function openGeometryAssetPackage(bytes: ArrayBuffer): Promise<GeometryAssetPackage> {
   const runtime = await openRuntimeAssetPackageV2(bytes);
   const pkg = runtime.package;
   const issues: RuntimeAssetValidationIssue[] = [];
   const error = (code: string, message: string, sectionType?: number): void => {
     issues.push({ severity: "error", code, message, sectionType });
   };
-  if (runtime.manifest.assetType !== "geometry-static-pbr" ||
-      runtime.manifest.assetSchemaVersion !== GEOMETRY_ASSET_SCHEMA_VERSION ||
-      runtime.manifest.cookerVersion !== GEOMETRY_COOKER_VERSION) {
+  if (
+    runtime.manifest.assetType !== "geometry-static-pbr" ||
+    runtime.manifest.assetSchemaVersion !== GEOMETRY_ASSET_SCHEMA_VERSION ||
+    runtime.manifest.cookerVersion !== GEOMETRY_COOKER_VERSION
+  ) {
     error("geometry-manifest-contract", "Geometry manifest type, schema, or cooker version is unsupported");
   }
   if (runtime.manifest.variants.length !== 1) {
-    error("geometry-manifest-variant-count", "Geometry package must contain exactly one cooked vertex profile variant");
+    error(
+      "geometry-manifest-variant-count",
+      "Geometry package must contain exactly one cooked vertex profile variant",
+    );
   }
   const directorySection = requiredSection(
     pkg,
     GEOMETRY_SECTION_TYPES.GeometryDirectory,
     GEOMETRY_DIRECTORY_RECORD_STRIDE,
-    error
+    error,
   );
   const meshletSection = requiredSection(
     pkg,
     GEOMETRY_SECTION_TYPES.MeshletRecords,
     GEOMETRY_MESHLET_RECORD_STRIDE,
-    error
+    error,
   );
-  const vertexSection = requiredSection(
-    pkg,
-    GEOMETRY_SECTION_TYPES.MeshletVertexIndices,
-    4,
-    error
-  );
-  const triangleSection = requiredSection(
-    pkg,
-    GEOMETRY_SECTION_TYPES.MeshletTriangleIndices,
-    1,
-    error
-  );
+  const vertexSection = requiredSection(pkg, GEOMETRY_SECTION_TYPES.MeshletVertexIndices, 4, error);
+  const triangleSection = requiredSection(pkg, GEOMETRY_SECTION_TYPES.MeshletTriangleIndices, 1, error);
   const surfaceSection = requiredSection(pkg, GEOMETRY_SECTION_TYPES.SurfacePrimitiveIds, 4, error);
   const clusterSection = pkg.section(GEOMETRY_SECTION_TYPES.ClusterRecords);
   const clusterChildrenSection = pkg.section(GEOMETRY_SECTION_TYPES.ClusterChildren);
   const bvhSection = pkg.section(GEOMETRY_SECTION_TYPES.Bvh8Nodes);
-  const streamDescriptorSection = pkg.section(
-    GEOMETRY_SECTION_TYPES.VertexStreamDescriptors
-  );
+  const streamDescriptorSection = pkg.section(GEOMETRY_SECTION_TYPES.VertexStreamDescriptors);
   const vertexDataSection = pkg.section(GEOMETRY_SECTION_TYPES.VertexStreamData);
   const indexSection = pkg.section(GEOMETRY_SECTION_TYPES.IndexData);
   const materialSection = pkg.section(GEOMETRY_SECTION_TYPES.MaterialRanges);
-  const payloadSections = [
-    streamDescriptorSection,
-    vertexDataSection,
-    indexSection,
-    materialSection
-  ];
-  const payloadSectionCount = payloadSections.filter(
-    (section) => section !== undefined
-  ).length;
+  const payloadSections = [streamDescriptorSection, vertexDataSection, indexSection, materialSection];
+  const payloadSectionCount = payloadSections.filter((section) => section !== undefined).length;
   if (payloadSectionCount !== 0 && payloadSectionCount !== payloadSections.length) {
     error(
       "geometry-payload-section-set",
-      "Vertex descriptors/data, indices and material ranges must be present or absent together"
+      "Vertex descriptors/data, indices and material ranges must be present or absent together",
     );
   }
   if ((clusterSection === undefined) !== (clusterChildrenSection === undefined)) {
     error(
       "geometry-hierarchy-section-pair",
-      "ClusterRecords and ClusterChildren must be present or absent together"
+      "ClusterRecords and ClusterChildren must be present or absent together",
     );
   }
   if (clusterSection !== undefined) {
-    validateSectionContract(
-      clusterSection,
-      GEOMETRY_CLUSTER_RECORD_STRIDE,
-      error
-    );
+    validateSectionContract(clusterSection, GEOMETRY_CLUSTER_RECORD_STRIDE, error);
   }
   if (clusterChildrenSection !== undefined) {
     validateSectionContract(clusterChildrenSection, 4, error);
@@ -392,11 +370,7 @@ export async function openGeometryAssetPackage(
     validateSectionContract(bvhSection, GEOMETRY_BVH8_NODE_STRIDE, error);
   }
   if (streamDescriptorSection !== undefined) {
-    validateSectionContract(
-      streamDescriptorSection,
-      GEOMETRY_VERTEX_STREAM_DESCRIPTOR_STRIDE,
-      error
-    );
+    validateSectionContract(streamDescriptorSection, GEOMETRY_VERTEX_STREAM_DESCRIPTOR_STRIDE, error);
   }
   if (vertexDataSection !== undefined) {
     validateSectionContract(vertexDataSection, 1, error);
@@ -411,7 +385,8 @@ export async function openGeometryAssetPackage(
     directorySection === undefined ||
     meshletSection === undefined ||
     vertexSection === undefined ||
-    triangleSection === undefined || surfaceSection === undefined
+    triangleSection === undefined ||
+    surfaceSection === undefined
   ) {
     throw new GeometryAssetPackageError(freezeReport(issues));
   }
@@ -419,7 +394,7 @@ export async function openGeometryAssetPackage(
     error(
       "geometry-directory-count",
       "R2-B-01 packages must contain exactly one GeometryDirectory record",
-      directorySection.type
+      directorySection.type,
     );
   }
   validateReservedBytes(directorySection.bytes, meshletSection.bytes, issues);
@@ -441,11 +416,12 @@ export async function openGeometryAssetPackage(
 
   const directory = readGeometryDirectoryRecord(directorySection.bytes, 0);
   const manifestVariant = runtime.manifest.variants[0]!;
-  const expectedProfileId = manifestVariant.profile === "static-pbr-compact-v2"
-    ? GEOMETRY_VERTEX_PROFILE.StaticPbrCompactV2
-    : manifestVariant.profile === "explicit-float32-fallback-v2"
-      ? GEOMETRY_VERTEX_PROFILE.ExplicitFloat32FallbackV2
-      : 0;
+  const expectedProfileId =
+    manifestVariant.profile === "static-pbr-compact-v2"
+      ? GEOMETRY_VERTEX_PROFILE.StaticPbrCompactV2
+      : manifestVariant.profile === "explicit-float32-fallback-v2"
+        ? GEOMETRY_VERTEX_PROFILE.ExplicitFloat32FallbackV2
+        : 0;
   if (expectedProfileId === 0 || directory.vertexProfileId !== expectedProfileId) {
     error("geometry-profile-identity", "Geometry directory profile does not match the manifest variant");
   }
@@ -462,56 +438,54 @@ export async function openGeometryAssetPackage(
   const meshletVertexIndices = new Uint32Array(
     vertexSection.bytes.buffer,
     vertexSection.bytes.byteOffset,
-    vertexSection.elementCount
+    vertexSection.elementCount,
   );
   const meshletTriangleIndices = triangleSection.bytes;
-  const surfacePrimitiveIds = new Uint32Array(surfaceSection.bytes.buffer, surfaceSection.bytes.byteOffset,
-    surfaceSection.elementCount);
-  const clusters = clusterSection === undefined
-    ? []
-    : new Array<GeometryClusterRecord>(clusterSection.elementCount);
+  const surfacePrimitiveIds = new Uint32Array(
+    surfaceSection.bytes.buffer,
+    surfaceSection.bytes.byteOffset,
+    surfaceSection.elementCount,
+  );
+  const clusters =
+    clusterSection === undefined ? [] : new Array<GeometryClusterRecord>(clusterSection.elementCount);
   if (clusterSection !== undefined) {
     for (let index = 0; index < clusters.length; index++) {
       clusters[index] = readGeometryClusterRecord(clusterSection.bytes, index);
     }
   }
-  const clusterChildren = clusterChildrenSection === undefined
-    ? new Uint32Array(0)
-    : new Uint32Array(
-      clusterChildrenSection.bytes.buffer,
-      clusterChildrenSection.bytes.byteOffset,
-      clusterChildrenSection.elementCount
-    );
-  const bvh8Nodes = bvhSection === undefined
-    ? []
-    : new Array<GeometryBvh8Node>(bvhSection.elementCount);
+  const clusterChildren =
+    clusterChildrenSection === undefined
+      ? new Uint32Array(0)
+      : new Uint32Array(
+          clusterChildrenSection.bytes.buffer,
+          clusterChildrenSection.bytes.byteOffset,
+          clusterChildrenSection.elementCount,
+        );
+  const bvh8Nodes = bvhSection === undefined ? [] : new Array<GeometryBvh8Node>(bvhSection.elementCount);
   if (bvhSection !== undefined) {
     for (let index = 0; index < bvh8Nodes.length; index++) {
       bvh8Nodes[index] = readGeometryBvh8Node(bvhSection.bytes, index);
     }
   }
-  const vertexStreamDescriptors = streamDescriptorSection === undefined
-    ? []
-    : new Array<GeometryVertexStreamDescriptor>(streamDescriptorSection.elementCount);
+  const vertexStreamDescriptors =
+    streamDescriptorSection === undefined
+      ? []
+      : new Array<GeometryVertexStreamDescriptor>(streamDescriptorSection.elementCount);
   if (streamDescriptorSection !== undefined) {
     for (let index = 0; index < vertexStreamDescriptors.length; index++) {
       vertexStreamDescriptors[index] = readGeometryVertexStreamDescriptor(
         streamDescriptorSection.bytes,
-        index
+        index,
       );
     }
   }
   const vertexStreamData = vertexDataSection?.bytes ?? new Uint8Array(0);
-  const indices = indexSection === undefined
-    ? new Uint32Array(0)
-    : new Uint32Array(
-      indexSection.bytes.buffer,
-      indexSection.bytes.byteOffset,
-      indexSection.elementCount
-    );
-  const materialRanges = materialSection === undefined
-    ? []
-    : new Array<GeometryMaterialRangeRecord>(materialSection.elementCount);
+  const indices =
+    indexSection === undefined
+      ? new Uint32Array(0)
+      : new Uint32Array(indexSection.bytes.buffer, indexSection.bytes.byteOffset, indexSection.elementCount);
+  const materialRanges =
+    materialSection === undefined ? [] : new Array<GeometryMaterialRangeRecord>(materialSection.elementCount);
   if (materialSection !== undefined) {
     for (let index = 0; index < materialRanges.length; index++) {
       materialRanges[index] = readGeometryMaterialRange(materialSection.bytes, index);
@@ -526,42 +500,30 @@ export async function openGeometryAssetPackage(
     vertexStreamData.byteLength,
     indices.length,
     materialRanges.length,
-    issues
+    issues,
   );
-  validateMeshlets(
-    directory,
-    meshlets,
-    meshletVertexIndices,
-    meshletTriangleIndices,
-    issues
-  );
-  validateClusters(
-    directory,
-    clusters,
-    clusterChildren,
-    meshlets,
-    issues
-  );
+  validateMeshlets(directory, meshlets, meshletVertexIndices, meshletTriangleIndices, issues);
+  validateClusters(directory, clusters, clusterChildren, meshlets, issues);
   validateBvh8(directory, bvh8Nodes, clusters, issues);
-  validateVertexAndIndexPayload(
-    directory,
-    vertexStreamDescriptors,
-    vertexStreamData,
-    indices,
-    issues
-  );
+  validateVertexAndIndexPayload(directory, vertexStreamDescriptors, vertexStreamData, indices, issues);
   validateMaterials(directory, materialRanges, meshlets, clusters, issues);
   const surfaceCount = meshlets.reduce((sum, meshlet) => sum + meshlet.triangleCount, 0);
-  if (surfacePrimitiveIds.length !== surfaceCount || surfacePrimitiveIds.some(id => id >= directory.sourceTriangleCount + surfaceCount)) {
-    error("geometry-surface-address-range", "Cooked Surface identities must cover every meshlet triangle in the source/representation namespace",
-      GEOMETRY_SECTION_TYPES.SurfacePrimitiveIds);
+  if (
+    surfacePrimitiveIds.length !== surfaceCount ||
+    surfacePrimitiveIds.some((id) => id >= directory.sourceTriangleCount + surfaceCount)
+  ) {
+    error(
+      "geometry-surface-address-range",
+      "Cooked Surface identities must cover every meshlet triangle in the source/representation namespace",
+      GEOMETRY_SECTION_TYPES.SurfacePrimitiveIds,
+    );
   }
   validateMeshletPositionBounds(
     vertexStreamDescriptors,
     vertexStreamData,
     meshlets,
     meshletVertexIndices,
-    issues
+    issues,
   );
   const report = freezeReport(issues);
   if (!report.valid) throw new GeometryAssetPackageError(report);
@@ -582,13 +544,11 @@ export async function openGeometryAssetPackage(
     vertexStreamData,
     indices,
     materialRanges: Object.freeze(materialRanges),
-    validate: () => report
+    validate: () => report,
   };
 }
 
-export function encodeGeometryDirectoryRecord(
-  record: GeometryDirectoryRecord
-): Uint8Array {
+export function encodeGeometryDirectoryRecord(record: GeometryDirectoryRecord): Uint8Array {
   if (record.boundsBox.length !== 6 || record.boundsSphere.length !== 4) {
     throw new RangeError("GeometryDirectory bounds must contain box[6] and sphere[4]");
   }
@@ -617,7 +577,7 @@ export function encodeGeometryDirectoryRecord(
     record.materialRangeBegin,
     record.materialRangeCount,
     record.maxMeshletVertices,
-    record.maxMeshletTriangles
+    record.maxMeshletTriangles,
   ];
   for (let index = 0; index < integers.length; index++) {
     view.setUint32(index * 4, integers[index]!, true);
@@ -630,9 +590,7 @@ export function encodeGeometryDirectoryRecord(
   return bytes;
 }
 
-export function encodeGeometryMeshletRecords(
-  records: readonly GeometryMeshletRecord[]
-): Uint8Array {
+export function encodeGeometryMeshletRecords(records: readonly GeometryMeshletRecord[]): Uint8Array {
   const bytes = new Uint8Array(records.length * GEOMETRY_MESHLET_RECORD_STRIDE);
   const view = new DataView(bytes.buffer);
   for (let index = 0; index < records.length; index++) {
@@ -646,30 +604,31 @@ export function encodeGeometryMeshletRecords(
     view.setUint32(offset + 20, record.materialId, true);
     view.setUint32(offset + 24, record.flags, true);
     writeFloatArray(view, offset + 32, record.boundsBox);
-    writeFloatArray(view, offset + 64, new Float32Array([
-      record.bounds.centerX,
-      record.bounds.centerY,
-      record.bounds.centerZ,
-      record.bounds.radius
-    ]));
-    writeFloatArray(view, offset + 80, new Float32Array([
-      record.cone.apexX,
-      record.cone.apexY,
-      record.cone.apexZ
-    ]));
-    writeFloatArray(view, offset + 96, new Float32Array([
-      record.cone.axisX,
-      record.cone.axisY,
-      record.cone.axisZ,
-      record.cone.cutoff
-    ]));
+    writeFloatArray(
+      view,
+      offset + 64,
+      new Float32Array([
+        record.bounds.centerX,
+        record.bounds.centerY,
+        record.bounds.centerZ,
+        record.bounds.radius,
+      ]),
+    );
+    writeFloatArray(
+      view,
+      offset + 80,
+      new Float32Array([record.cone.apexX, record.cone.apexY, record.cone.apexZ]),
+    );
+    writeFloatArray(
+      view,
+      offset + 96,
+      new Float32Array([record.cone.axisX, record.cone.axisY, record.cone.axisZ, record.cone.cutoff]),
+    );
   }
   return bytes;
 }
 
-export function encodeGeometryClusterRecords(
-  records: readonly GeometryClusterRecord[]
-): Uint8Array {
+export function encodeGeometryClusterRecords(records: readonly GeometryClusterRecord[]): Uint8Array {
   const bytes = new Uint8Array(records.length * GEOMETRY_CLUSTER_RECORD_STRIDE);
   const view = new DataView(bytes.buffer);
   for (let index = 0; index < records.length; index++) {
@@ -685,30 +644,31 @@ export function encodeGeometryClusterRecords(
     view.setUint32(offset + 28, record.flags, true);
     view.setFloat32(offset + 32, record.geometricError, true);
     writeFloatArray(view, offset + 36, record.boundsBox);
-    writeFloatArray(view, offset + 64, new Float32Array([
-      record.bounds.centerX,
-      record.bounds.centerY,
-      record.bounds.centerZ,
-      record.bounds.radius
-    ]));
-    writeFloatArray(view, offset + 80, new Float32Array([
-      record.cone.apexX,
-      record.cone.apexY,
-      record.cone.apexZ
-    ]));
-    writeFloatArray(view, offset + 96, new Float32Array([
-      record.cone.axisX,
-      record.cone.axisY,
-      record.cone.axisZ,
-      record.cone.cutoff
-    ]));
+    writeFloatArray(
+      view,
+      offset + 64,
+      new Float32Array([
+        record.bounds.centerX,
+        record.bounds.centerY,
+        record.bounds.centerZ,
+        record.bounds.radius,
+      ]),
+    );
+    writeFloatArray(
+      view,
+      offset + 80,
+      new Float32Array([record.cone.apexX, record.cone.apexY, record.cone.apexZ]),
+    );
+    writeFloatArray(
+      view,
+      offset + 96,
+      new Float32Array([record.cone.axisX, record.cone.axisY, record.cone.axisZ, record.cone.cutoff]),
+    );
   }
   return bytes;
 }
 
-export function encodeGeometryBvh8Nodes(
-  nodes: readonly GeometryBvh8Node[]
-): Uint8Array {
+export function encodeGeometryBvh8Nodes(nodes: readonly GeometryBvh8Node[]): Uint8Array {
   const bytes = new Uint8Array(nodes.length * GEOMETRY_BVH8_NODE_STRIDE);
   const view = new DataView(bytes.buffer);
   for (let index = 0; index < nodes.length; index++) {
@@ -740,11 +700,9 @@ export function encodeGeometryBvh8Nodes(
 }
 
 export function encodeGeometryVertexStreamDescriptors(
-  descriptors: readonly GeometryVertexStreamDescriptor[]
+  descriptors: readonly GeometryVertexStreamDescriptor[],
 ): Uint8Array {
-  const bytes = new Uint8Array(
-    descriptors.length * GEOMETRY_VERTEX_STREAM_DESCRIPTOR_STRIDE
-  );
+  const bytes = new Uint8Array(descriptors.length * GEOMETRY_VERTEX_STREAM_DESCRIPTOR_STRIDE);
   const view = new DataView(bytes.buffer);
   const encoder = new TextEncoder();
   for (let index = 0; index < descriptors.length; index++) {
@@ -783,9 +741,7 @@ export function encodeGeometryVertexStreamDescriptors(
   return bytes;
 }
 
-export function encodeGeometryMaterialRanges(
-  ranges: readonly GeometryMaterialRangeRecord[]
-): Uint8Array {
+export function encodeGeometryMaterialRanges(ranges: readonly GeometryMaterialRangeRecord[]): Uint8Array {
   const bytes = new Uint8Array(ranges.length * GEOMETRY_MATERIAL_RANGE_STRIDE);
   const view = new DataView(bytes.buffer);
   for (let index = 0; index < ranges.length; index++) {
@@ -794,19 +750,12 @@ export function encodeGeometryMaterialRanges(
     view.setUint32(offset, range.firstTriangle, true);
     view.setUint32(offset + 4, range.triangleCount, true);
     view.setUint32(offset + 8, range.materialId, true);
-    view.setUint32(
-      offset + 12,
-      encodeMaterialRangeFlags(range.alphaMode, range.doubleSided),
-      true
-    );
+    view.setUint32(offset + 12, encodeMaterialRangeFlags(range.alphaMode, range.doubleSided), true);
   }
   return bytes;
 }
 
-export function readGeometryDirectoryRecord(
-  bytes: Uint8Array,
-  index: number
-): GeometryDirectoryRecord {
+export function readGeometryDirectoryRecord(bytes: Uint8Array, index: number): GeometryDirectoryRecord {
   const offset = index * GEOMETRY_DIRECTORY_RECORD_STRIDE;
   assertRecordRange(bytes, offset, GEOMETRY_DIRECTORY_RECORD_STRIDE, "GeometryDirectory");
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -835,14 +784,11 @@ export function readGeometryDirectoryRecord(
     boundsBox: readFloatArray(view, offset + 80, 6),
     boundsSphere: readFloatArray(view, offset + 104, 4),
     sourceHash: bytes.slice(offset + 120, offset + 152),
-    recipeHash: bytes.slice(offset + 152, offset + 184)
+    recipeHash: bytes.slice(offset + 152, offset + 184),
   };
 }
 
-export function readGeometryMeshletRecord(
-  bytes: Uint8Array,
-  index: number
-): GeometryMeshletRecord {
+export function readGeometryMeshletRecord(bytes: Uint8Array, index: number): GeometryMeshletRecord {
   const offset = index * GEOMETRY_MESHLET_RECORD_STRIDE;
   assertRecordRange(bytes, offset, GEOMETRY_MESHLET_RECORD_STRIDE, "MeshletRecord");
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -866,7 +812,7 @@ export function readGeometryMeshletRecord(
       centerX: sphere[0]!,
       centerY: sphere[1]!,
       centerZ: sphere[2]!,
-      radius: sphere[3]!
+      radius: sphere[3]!,
     }),
     cone: Object.freeze({
       apexX: coneApex[0]!,
@@ -875,15 +821,12 @@ export function readGeometryMeshletRecord(
       axisX: cone[0]!,
       axisY: cone[1]!,
       axisZ: cone[2]!,
-      cutoff: cone[3]!
-    })
+      cutoff: cone[3]!,
+    }),
   });
 }
 
-export function readGeometryClusterRecord(
-  bytes: Uint8Array,
-  index: number
-): GeometryClusterRecord {
+export function readGeometryClusterRecord(bytes: Uint8Array, index: number): GeometryClusterRecord {
   const offset = index * GEOMETRY_CLUSTER_RECORD_STRIDE;
   assertRecordRange(bytes, offset, GEOMETRY_CLUSTER_RECORD_STRIDE, "ClusterRecord");
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -905,7 +848,7 @@ export function readGeometryClusterRecord(
       centerX: sphere[0]!,
       centerY: sphere[1]!,
       centerZ: sphere[2]!,
-      radius: sphere[3]!
+      radius: sphere[3]!,
     }),
     cone: Object.freeze({
       apexX: coneApex[0]!,
@@ -914,15 +857,12 @@ export function readGeometryClusterRecord(
       axisX: cone[0]!,
       axisY: cone[1]!,
       axisZ: cone[2]!,
-      cutoff: cone[3]!
-    })
+      cutoff: cone[3]!,
+    }),
   });
 }
 
-export function readGeometryBvh8Node(
-  bytes: Uint8Array,
-  index: number
-): GeometryBvh8Node {
+export function readGeometryBvh8Node(bytes: Uint8Array, index: number): GeometryBvh8Node {
   const offset = index * GEOMETRY_BVH8_NODE_STRIDE;
   assertRecordRange(bytes, offset, GEOMETRY_BVH8_NODE_STRIDE, "Bvh8Node");
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -935,8 +875,12 @@ export function readGeometryBvh8Node(
     const minimum = readFloatArray(view, offset + 96 + slot * 16, 3);
     const maximum = readFloatArray(view, offset + 224 + slot * 16, 3);
     childBoundsBox[slot] = new Float32Array([
-      minimum[0]!, minimum[1]!, minimum[2]!,
-      maximum[0]!, maximum[1]!, maximum[2]!
+      minimum[0]!,
+      minimum[1]!,
+      minimum[2]!,
+      maximum[0]!,
+      maximum[1]!,
+      maximum[2]!,
     ]);
   }
   return Object.freeze({
@@ -948,26 +892,21 @@ export function readGeometryBvh8Node(
     flags: view.getUint32(offset + 20, true),
     childRefs,
     childRangeCounts,
-    childBoundsBox: Object.freeze(childBoundsBox)
+    childBoundsBox: Object.freeze(childBoundsBox),
   });
 }
 
 export function readGeometryVertexStreamDescriptor(
   bytes: Uint8Array,
-  index: number
+  index: number,
 ): GeometryVertexStreamDescriptor {
   const offset = index * GEOMETRY_VERTEX_STREAM_DESCRIPTOR_STRIDE;
-  assertRecordRange(
-    bytes,
-    offset,
-    GEOMETRY_VERTEX_STREAM_DESCRIPTOR_STRIDE,
-    "VertexStreamDescriptor"
-  );
+  assertRecordRange(bytes, offset, GEOMETRY_VERTEX_STREAM_DESCRIPTOR_STRIDE, "VertexStreamDescriptor");
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const semanticBytes = bytes.subarray(offset, offset + VERTEX_STREAM_SEMANTIC_BYTES);
   const terminator = semanticBytes.indexOf(0);
   const semantic = new TextDecoder("utf-8", { fatal: true }).decode(
-    terminator < 0 ? semanticBytes : semanticBytes.subarray(0, terminator)
+    terminator < 0 ? semanticBytes : semanticBytes.subarray(0, terminator),
   );
   return Object.freeze({
     semantic,
@@ -982,14 +921,11 @@ export function readGeometryVertexStreamDescriptor(
     decodeScale: readFloatArray(view, offset + 64, 4),
     decodeBias: readFloatArray(view, offset + 80, 4),
     componentMinimum: readFloatArray(view, offset + 96, 4),
-    componentMaximum: readFloatArray(view, offset + 112, 4)
+    componentMaximum: readFloatArray(view, offset + 112, 4),
   });
 }
 
-export function readGeometryMaterialRange(
-  bytes: Uint8Array,
-  index: number
-): GeometryMaterialRangeRecord {
+export function readGeometryMaterialRange(bytes: Uint8Array, index: number): GeometryMaterialRangeRecord {
   const offset = index * GEOMETRY_MATERIAL_RANGE_STRIDE;
   assertRecordRange(bytes, offset, GEOMETRY_MATERIAL_RANGE_STRIDE, "MaterialRange");
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -1000,26 +936,24 @@ export function readGeometryMaterialRange(
     materialId: view.getUint32(offset + 8, true),
     flags,
     alphaMode: decodeAlphaMode(flags),
-    doubleSided: (flags & MESHLET_DOUBLE_SIDED) !== 0
+    doubleSided: (flags & MESHLET_DOUBLE_SIDED) !== 0,
   });
 }
 
 export function encodeMeshletFlags(
   alphaMode: GeometryMeshletAlphaMode,
   doubleSided: boolean,
-  coneValid: boolean
+  coneValid: boolean,
 ): number {
   const alpha = alphaMode === "mask" ? 1 : alphaMode === "blend" ? 2 : 0;
-  return alpha |
-    (doubleSided ? MESHLET_DOUBLE_SIDED : 0) |
-    (coneValid ? MESHLET_CONE_VALID : 0);
+  return alpha | (doubleSided ? MESHLET_DOUBLE_SIDED : 0) | (coneValid ? MESHLET_CONE_VALID : 0);
 }
 
 function requiredSection(
   pkg: RuntimeAssetPackage,
   type: number,
   stride: number,
-  error: (code: string, message: string, sectionType?: number) => void
+  error: (code: string, message: string, sectionType?: number) => void,
 ) {
   const section = pkg.section(type);
   if (section === undefined) {
@@ -1033,13 +967,13 @@ function requiredSection(
 function validateSectionContract(
   section: RuntimeAssetSectionView,
   stride: number,
-  error: (code: string, message: string, sectionType?: number) => void
+  error: (code: string, message: string, sectionType?: number) => void,
 ): boolean {
   if (section.elementStride !== stride) {
     error(
       "geometry-section-stride",
       `Geometry section ${section.type} stride ${section.elementStride} must be ${stride}`,
-      section.type
+      section.type,
     );
     return false;
   }
@@ -1049,14 +983,14 @@ function validateSectionContract(
 function validateReservedBytes(
   directoryBytes: Uint8Array,
   meshletBytes: Uint8Array,
-  issues: RuntimeAssetValidationIssue[]
+  issues: RuntimeAssetValidationIssue[],
 ): void {
   if (!rangeIsZero(directoryBytes, 188, 192)) {
     issues.push({
       severity: "error",
       code: "geometry-directory-reserved",
       message: "GeometryDirectory reserved bytes must be zero",
-      sectionType: GEOMETRY_SECTION_TYPES.GeometryDirectory
+      sectionType: GEOMETRY_SECTION_TYPES.GeometryDirectory,
     });
   }
   const count = meshletBytes.byteLength / GEOMETRY_MESHLET_RECORD_STRIDE;
@@ -1070,16 +1004,13 @@ function validateReservedBytes(
         severity: "error",
         code: "meshlet-record-reserved",
         message: `Meshlet ${index}: reserved bytes must be zero`,
-        sectionType: GEOMETRY_SECTION_TYPES.MeshletRecords
+        sectionType: GEOMETRY_SECTION_TYPES.MeshletRecords,
       });
     }
   }
 }
 
-function validateClusterReservedBytes(
-  bytes: Uint8Array,
-  issues: RuntimeAssetValidationIssue[]
-): void {
+function validateClusterReservedBytes(bytes: Uint8Array, issues: RuntimeAssetValidationIssue[]): void {
   const count = bytes.byteLength / GEOMETRY_CLUSTER_RECORD_STRIDE;
   for (let index = 0; index < count; index++) {
     const begin = index * GEOMETRY_CLUSTER_RECORD_STRIDE;
@@ -1092,16 +1023,13 @@ function validateClusterReservedBytes(
         severity: "error",
         code: "cluster-record-reserved",
         message: `Cluster ${index}: reserved bytes must be zero`,
-        sectionType: GEOMETRY_SECTION_TYPES.ClusterRecords
+        sectionType: GEOMETRY_SECTION_TYPES.ClusterRecords,
       });
     }
   }
 }
 
-function validateBvhReservedBytes(
-  bytes: Uint8Array,
-  issues: RuntimeAssetValidationIssue[]
-): void {
+function validateBvhReservedBytes(bytes: Uint8Array, issues: RuntimeAssetValidationIssue[]): void {
   const count = bytes.byteLength / GEOMETRY_BVH8_NODE_STRIDE;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   for (let index = 0; index < count; index++) {
@@ -1116,16 +1044,13 @@ function validateBvhReservedBytes(
         severity: "error",
         code: "bvh8-record-reserved",
         message: `BVH8 node ${index}: reserved bytes/lanes must be zero`,
-        sectionType: GEOMETRY_SECTION_TYPES.Bvh8Nodes
+        sectionType: GEOMETRY_SECTION_TYPES.Bvh8Nodes,
       });
     }
   }
 }
 
-function validateVertexDescriptorEncoding(
-  bytes: Uint8Array,
-  issues: RuntimeAssetValidationIssue[]
-): void {
+function validateVertexDescriptorEncoding(bytes: Uint8Array, issues: RuntimeAssetValidationIssue[]): void {
   const count = bytes.byteLength / GEOMETRY_VERTEX_STREAM_DESCRIPTOR_STRIDE;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   for (let index = 0; index < count; index++) {
@@ -1134,14 +1059,10 @@ function validateVertexDescriptorEncoding(
     const terminator = semanticBytes.indexOf(0);
     let validSemantic = terminator > 0;
     if (terminator > 0) {
-      validSemantic = rangeIsZero(
-        bytes,
-        begin + terminator,
-        begin + VERTEX_STREAM_SEMANTIC_BYTES
-      );
+      validSemantic = rangeIsZero(bytes, begin + terminator, begin + VERTEX_STREAM_SEMANTIC_BYTES);
       try {
         const semantic = new TextDecoder("utf-8", { fatal: true }).decode(
-          semanticBytes.subarray(0, terminator)
+          semanticBytes.subarray(0, terminator),
         );
         validSemantic = validSemantic && semantic.length > 0 && !semantic.includes("\0");
       } catch {
@@ -1150,26 +1071,18 @@ function validateVertexDescriptorEncoding(
     }
     const dataTypeCode = view.getUint32(begin + 52, true);
     const normalized = view.getUint32(begin + 56, true);
-    if (
-      !validSemantic ||
-      dataTypeCode < 1 ||
-      dataTypeCode > 8 ||
-      normalized > 1
-    ) {
+    if (!validSemantic || dataTypeCode < 1 || dataTypeCode > 8 || normalized > 1) {
       issues.push({
         severity: "error",
         code: "vertex-stream-descriptor-encoding",
         message: `Vertex stream descriptor ${index}: semantic/type/normalized encoding is invalid`,
-        sectionType: GEOMETRY_SECTION_TYPES.VertexStreamDescriptors
+        sectionType: GEOMETRY_SECTION_TYPES.VertexStreamDescriptors,
       });
     }
   }
 }
 
-function validateMaterialReservedBytes(
-  bytes: Uint8Array,
-  issues: RuntimeAssetValidationIssue[]
-): void {
+function validateMaterialReservedBytes(bytes: Uint8Array, issues: RuntimeAssetValidationIssue[]): void {
   const count = bytes.byteLength / GEOMETRY_MATERIAL_RANGE_STRIDE;
   for (let index = 0; index < count; index++) {
     const begin = index * GEOMETRY_MATERIAL_RANGE_STRIDE;
@@ -1178,7 +1091,7 @@ function validateMaterialReservedBytes(
         severity: "error",
         code: "material-range-reserved",
         message: `Material range ${index}: reserved bytes must be zero`,
-        sectionType: GEOMETRY_SECTION_TYPES.MaterialRanges
+        sectionType: GEOMETRY_SECTION_TYPES.MaterialRanges,
       });
     }
   }
@@ -1193,14 +1106,14 @@ function validateDirectory(
   vertexDataBytes: number,
   indexCount: number,
   materialRangeCount: number,
-  issues: RuntimeAssetValidationIssue[]
+  issues: RuntimeAssetValidationIssue[],
 ): void {
   const error = (code: string, message: string): void => {
     issues.push({
       severity: "error",
       code,
       message,
-      sectionType: GEOMETRY_SECTION_TYPES.GeometryDirectory
+      sectionType: GEOMETRY_SECTION_TYPES.GeometryDirectory,
     });
   };
   if (directory.schemaVersion !== GEOMETRY_ASSET_SCHEMA_VERSION) {
@@ -1208,19 +1121,17 @@ function validateDirectory(
   }
   const hierarchyPresent = clusterRecordCount > 0;
   const bvhPresent = bvhRecordCount > 0;
-  const profileFlag = directory.vertexProfileId === GEOMETRY_VERTEX_PROFILE.StaticPbrCompactV2
-    ? GEOMETRY_DIRECTORY_FLAGS.CompactStaticPbr
-    : directory.vertexProfileId === GEOMETRY_VERTEX_PROFILE.ExplicitFloat32FallbackV2
-      ? GEOMETRY_DIRECTORY_FLAGS.ExplicitFloat32Fallback
-      : 0;
+  const profileFlag =
+    directory.vertexProfileId === GEOMETRY_VERTEX_PROFILE.StaticPbrCompactV2
+      ? GEOMETRY_DIRECTORY_FLAGS.CompactStaticPbr
+      : directory.vertexProfileId === GEOMETRY_VERTEX_PROFILE.ExplicitFloat32FallbackV2
+        ? GEOMETRY_DIRECTORY_FLAGS.ExplicitFloat32Fallback
+        : 0;
   if (profileFlag === 0) {
     error("geometry-vertex-profile", "GeometryDirectory vertex profile is unsupported");
   }
-  const hierarchyFlags = (bvhPresent ? 0 : GEOMETRY_DIRECTORY_FLAGS.NoBvh) |
-    profileFlag;
-  const expectedBaseFlags = hierarchyPresent
-    ? hierarchyFlags
-    : GEOMETRY_REQUIRED_R2_B_01_FLAGS | profileFlag;
+  const hierarchyFlags = (bvhPresent ? 0 : GEOMETRY_DIRECTORY_FLAGS.NoBvh) | profileFlag;
+  const expectedBaseFlags = hierarchyPresent ? hierarchyFlags : GEOMETRY_REQUIRED_R2_B_01_FLAGS | profileFlag;
   const pathFlags = directory.flags & GEOMETRY_VISIBILITY_PATH_MASK;
   if (pathFlags !== 0 && (pathFlags & (pathFlags - 1)) !== 0) {
     error("geometry-visibility-path", "GeometryDirectory must encode at most one visibility path hint");
@@ -1235,16 +1146,10 @@ function validateDirectory(
     error("geometry-meshlet-range", "GeometryDirectory Meshlet range does not cover MeshletRecords");
   }
   if (hierarchyPresent) {
-    if (
-      directory.clusterRoot >= directory.clusterCount ||
-      directory.clusterCount !== clusterRecordCount
-    ) {
+    if (directory.clusterRoot >= directory.clusterCount || directory.clusterCount !== clusterRecordCount) {
       error("geometry-cluster-range", "GeometryDirectory hierarchy root/count are invalid");
     }
-  } else if (
-    directory.clusterRoot !== GEOMETRY_INVALID_INDEX ||
-    directory.clusterCount !== 0
-  ) {
+  } else if (directory.clusterRoot !== GEOMETRY_INVALID_INDEX || directory.clusterCount !== 0) {
     error("geometry-r2-b-01-future-range", "Single-level hierarchy range must be explicitly absent");
   }
   if (bvhPresent) {
@@ -1257,23 +1162,29 @@ function validateDirectory(
   } else if (directory.bvhRoot !== GEOMETRY_INVALID_INDEX || directory.bvhCount !== 0) {
     error("geometry-bvh-range", "Absent BVH8 must use invalid root and zero count");
   }
-  const payloadPresent = vertexDescriptorCount > 0 || vertexDataBytes > 0 ||
-    indexCount > 0 || materialRangeCount > 0;
+  const payloadPresent =
+    vertexDescriptorCount > 0 || vertexDataBytes > 0 || indexCount > 0 || materialRangeCount > 0;
   if (hierarchyPresent && !bvhPresent) {
     error("geometry-hierarchy-bvh-missing", "Renderable hierarchy requires its BVH8 acceleration section");
   }
   if (hierarchyPresent && !payloadPresent) {
-    error("geometry-hierarchy-payload-missing", "Renderable hierarchy requires stream/index/material payload");
+    error(
+      "geometry-hierarchy-payload-missing",
+      "Renderable hierarchy requires stream/index/material payload",
+    );
   }
   if (payloadPresent) {
     if (
-      vertexDescriptorCount === 0 || vertexDataBytes === 0 ||
-      indexCount === 0 || materialRangeCount === 0 ||
+      vertexDescriptorCount === 0 ||
+      vertexDataBytes === 0 ||
+      indexCount === 0 ||
+      materialRangeCount === 0 ||
       directory.vertexStreamDescriptorBegin !== 0 ||
       directory.vertexStreamDescriptorCount !== vertexDescriptorCount ||
       directory.vertexDataByteBegin !== 0 ||
       directory.vertexDataByteLength !== vertexDataBytes ||
-      directory.indexBegin !== 0 || directory.indexCount !== indexCount ||
+      directory.indexBegin !== 0 ||
+      directory.indexCount !== indexCount ||
       directory.materialRangeBegin !== 0 ||
       directory.materialRangeCount !== materialRangeCount
     ) {
@@ -1320,7 +1231,7 @@ function validateMeshlets(
   meshlets: readonly GeometryMeshletRecord[],
   vertices: Uint32Array,
   triangles: Uint8Array,
-  issues: RuntimeAssetValidationIssue[]
+  issues: RuntimeAssetValidationIssue[],
 ): void {
   let vertexCursor = 0;
   let triangleCursor = 0;
@@ -1332,7 +1243,7 @@ function validateMeshlets(
         severity: "error",
         code,
         message: `Meshlet ${index}: ${message}`,
-        sectionType: GEOMETRY_SECTION_TYPES.MeshletRecords
+        sectionType: GEOMETRY_SECTION_TYPES.MeshletRecords,
       });
     };
     if (meshlet.vertexCount === 0 || meshlet.vertexCount > directory.maxMeshletVertices) {
@@ -1382,19 +1293,11 @@ function validateMeshlets(
     ) {
       error("meshlet-bounds", "bounds or cone contain invalid values");
     }
-    const coneAxisLength = Math.hypot(
-      meshlet.cone.axisX,
-      meshlet.cone.axisY,
-      meshlet.cone.axisZ
-    );
+    const coneAxisLength = Math.hypot(meshlet.cone.axisX, meshlet.cone.axisY, meshlet.cone.axisZ);
     if (
       meshlet.cone.cutoff < -1 ||
       meshlet.cone.cutoff > 1 ||
-      (meshlet.coneValid && (
-        meshlet.doubleSided ||
-        coneAxisLength < 0.5 ||
-        coneAxisLength > 1.5
-      ))
+      (meshlet.coneValid && (meshlet.doubleSided || coneAxisLength < 0.5 || coneAxisLength > 1.5))
     ) {
       error("meshlet-cone", "normal cone flags or values are invalid");
     }
@@ -1407,7 +1310,7 @@ function validateMeshlets(
       severity: "error",
       code: "meshlet-vertex-trailing-data",
       message: "Meshlet vertex payload has missing or trailing elements",
-      sectionType: GEOMETRY_SECTION_TYPES.MeshletVertexIndices
+      sectionType: GEOMETRY_SECTION_TYPES.MeshletVertexIndices,
     });
   }
   if (triangleCursor !== triangles.length) {
@@ -1415,7 +1318,7 @@ function validateMeshlets(
       severity: "error",
       code: "meshlet-triangle-trailing-data",
       message: "Meshlet triangle payload has missing or trailing elements",
-      sectionType: GEOMETRY_SECTION_TYPES.MeshletTriangleIndices
+      sectionType: GEOMETRY_SECTION_TYPES.MeshletTriangleIndices,
     });
   }
   if (directory.clusterCount === 0 && triangleCount !== directory.sourceTriangleCount) {
@@ -1423,7 +1326,7 @@ function validateMeshlets(
       severity: "error",
       code: "meshlet-triangle-coverage",
       message: "Meshlet triangle count does not cover SourceGeometry exactly once",
-      sectionType: GEOMETRY_SECTION_TYPES.MeshletRecords
+      sectionType: GEOMETRY_SECTION_TYPES.MeshletRecords,
     });
   }
 }
@@ -1433,7 +1336,7 @@ function validateClusters(
   clusters: readonly GeometryClusterRecord[],
   children: Uint32Array,
   meshlets: readonly GeometryMeshletRecord[],
-  issues: RuntimeAssetValidationIssue[]
+  issues: RuntimeAssetValidationIssue[],
 ): void {
   if (clusters.length === 0) {
     if (children.length !== 0) {
@@ -1441,7 +1344,7 @@ function validateClusters(
         severity: "error",
         code: "cluster-children-without-hierarchy",
         message: "ClusterChildren must be empty when hierarchy is absent",
-        sectionType: GEOMETRY_SECTION_TYPES.ClusterChildren
+        sectionType: GEOMETRY_SECTION_TYPES.ClusterChildren,
       });
     }
     return;
@@ -1459,7 +1362,7 @@ function validateClusters(
         severity: "error",
         code,
         message: `Cluster ${index}: ${message}`,
-        sectionType: GEOMETRY_SECTION_TYPES.ClusterRecords
+        sectionType: GEOMETRY_SECTION_TYPES.ClusterRecords,
       });
     };
     if (cluster.childBegin !== childCursor) {
@@ -1494,10 +1397,7 @@ function validateClusters(
     if ((cluster.flags & ~CLUSTER_KNOWN_FLAGS) !== 0) {
       error("cluster-flags", "flags contain an unsupported bit");
     }
-    if (
-      !Number.isFinite(cluster.geometricError) ||
-      cluster.geometricError < 0
-    ) {
+    if (!Number.isFinite(cluster.geometricError) || cluster.geometricError < 0) {
       error("cluster-error", "geometric error must be finite and non-negative");
     }
     if (
@@ -1520,7 +1420,7 @@ function validateClusters(
       severity: "error",
       code: "cluster-children-trailing-data",
       message: "ClusterChildren has missing or trailing elements",
-      sectionType: GEOMETRY_SECTION_TYPES.ClusterChildren
+      sectionType: GEOMETRY_SECTION_TYPES.ClusterChildren,
     });
   }
 
@@ -1534,7 +1434,7 @@ function validateClusters(
           severity: "error",
           code: "cluster-child-index",
           message: `Cluster ${parentIndex}: child index is out of bounds`,
-          sectionType: GEOMETRY_SECTION_TYPES.ClusterChildren
+          sectionType: GEOMETRY_SECTION_TYPES.ClusterChildren,
         });
         continue;
       }
@@ -1543,7 +1443,7 @@ function validateClusters(
           severity: "error",
           code: "cluster-cycle",
           message: `Cluster ${parentIndex}: cluster directly references itself`,
-          sectionType: GEOMETRY_SECTION_TYPES.ClusterChildren
+          sectionType: GEOMETRY_SECTION_TYPES.ClusterChildren,
         });
       }
       incoming[childIndex] = incoming[childIndex]! + 1;
@@ -1553,7 +1453,7 @@ function validateClusters(
           severity: "error",
           code: "cluster-parent",
           message: `Cluster ${childIndex}: parent/depth does not match its incoming edge`,
-          sectionType: GEOMETRY_SECTION_TYPES.ClusterRecords
+          sectionType: GEOMETRY_SECTION_TYPES.ClusterRecords,
         });
       }
       if (child.geometricError > parent.geometricError + 1e-6) {
@@ -1561,16 +1461,15 @@ function validateClusters(
           severity: "error",
           code: "cluster-error-monotonic",
           message: `Cluster ${parentIndex}: geometric error is below child ${childIndex}`,
-          sectionType: GEOMETRY_SECTION_TYPES.ClusterRecords
+          sectionType: GEOMETRY_SECTION_TYPES.ClusterRecords,
         });
       }
-      if (!boundsContain(parent.boundsBox, child.boundsBox) ||
-          !sphereContains(parent.bounds, child.bounds)) {
+      if (!boundsContain(parent.boundsBox, child.boundsBox) || !sphereContains(parent.bounds, child.bounds)) {
         issues.push({
           severity: "error",
           code: "cluster-bounds-containment",
           message: `Cluster ${parentIndex}: bounds do not conservatively contain child ${childIndex}`,
-          sectionType: GEOMETRY_SECTION_TYPES.ClusterRecords
+          sectionType: GEOMETRY_SECTION_TYPES.ClusterRecords,
         });
       }
     }
@@ -1583,7 +1482,7 @@ function validateClusters(
         severity: "error",
         code: "cluster-root",
         message: "Hierarchy root must have invalid parent and depth zero",
-        sectionType: GEOMETRY_SECTION_TYPES.ClusterRecords
+        sectionType: GEOMETRY_SECTION_TYPES.ClusterRecords,
       });
     }
     const state = new Uint8Array(clusters.length);
@@ -1593,7 +1492,7 @@ function validateClusters(
           severity: "error",
           code: "cluster-cycle",
           message: `Cluster ${index}: hierarchy contains a cycle`,
-          sectionType: GEOMETRY_SECTION_TYPES.ClusterChildren
+          sectionType: GEOMETRY_SECTION_TYPES.ClusterChildren,
         });
         return;
       }
@@ -1615,7 +1514,7 @@ function validateClusters(
           severity: "error",
           code: incoming[index]! > 1 ? "cluster-multi-parent" : "cluster-orphan",
           message: `Cluster ${index}: hierarchy reachability/ownership is invalid`,
-          sectionType: GEOMETRY_SECTION_TYPES.ClusterRecords
+          sectionType: GEOMETRY_SECTION_TYPES.ClusterRecords,
         });
       }
     }
@@ -1625,7 +1524,7 @@ function validateClusters(
       severity: "error",
       code: "cluster-leaf-triangle-coverage",
       message: "Leaf Cluster Meshlets do not cover SourceGeometry exactly once",
-      sectionType: GEOMETRY_SECTION_TYPES.ClusterRecords
+      sectionType: GEOMETRY_SECTION_TYPES.ClusterRecords,
     });
   }
   for (let index = 0; index < referencedMeshlets.length; index++) {
@@ -1634,7 +1533,7 @@ function validateClusters(
         severity: "error",
         code: "cluster-meshlet-orphan",
         message: `Meshlet ${index} is not referenced by any Cluster`,
-        sectionType: GEOMETRY_SECTION_TYPES.MeshletRecords
+        sectionType: GEOMETRY_SECTION_TYPES.MeshletRecords,
       });
       break;
     }
@@ -1645,7 +1544,7 @@ function validateBvh8(
   directory: GeometryDirectoryRecord,
   nodes: readonly GeometryBvh8Node[],
   clusters: readonly GeometryClusterRecord[],
-  issues: RuntimeAssetValidationIssue[]
+  issues: RuntimeAssetValidationIssue[],
 ): void {
   if (nodes.length === 0) return;
   const incomingNodes = new Uint32Array(nodes.length);
@@ -1658,12 +1557,10 @@ function validateBvh8(
         severity: "error",
         code,
         message: `BVH8 node ${index}: ${message}`,
-        sectionType: GEOMETRY_SECTION_TYPES.Bvh8Nodes
+        sectionType: GEOMETRY_SECTION_TYPES.Bvh8Nodes,
       });
     };
-    const expectedMask = node.childCount === 8
-      ? 0xff
-      : (1 << node.childCount) - 1;
+    const expectedMask = node.childCount === 8 ? 0xff : (1 << node.childCount) - 1;
     if (
       node.childCount < 1 ||
       node.childCount > 8 ||
@@ -1682,11 +1579,7 @@ function validateBvh8(
       const rangeCount = node.childRangeCounts[slot]!;
       const box = node.childBoundsBox[slot]!;
       if (!valid) {
-        if (
-          ref !== GEOMETRY_INVALID_INDEX ||
-          rangeCount !== 0 ||
-          !allZero(box)
-        ) {
+        if (ref !== GEOMETRY_INVALID_INDEX || rangeCount !== 0 || !allZero(box)) {
           error("bvh8-unused-slot", `unused child slot ${slot} is not canonical zero/invalid`);
         }
         continue;
@@ -1734,7 +1627,7 @@ function validateBvh8(
         severity: "error",
         code: "bvh8-root",
         message: "BVH8 root must have invalid parent and depth zero",
-        sectionType: GEOMETRY_SECTION_TYPES.Bvh8Nodes
+        sectionType: GEOMETRY_SECTION_TYPES.Bvh8Nodes,
       });
     }
     const state = new Uint8Array(nodes.length);
@@ -1744,7 +1637,7 @@ function validateBvh8(
           severity: "error",
           code: "bvh8-cycle",
           message: `BVH8 node ${index}: hierarchy contains a cycle`,
-          sectionType: GEOMETRY_SECTION_TYPES.Bvh8Nodes
+          sectionType: GEOMETRY_SECTION_TYPES.Bvh8Nodes,
         });
         return;
       }
@@ -1752,10 +1645,7 @@ function validateBvh8(
       state[index] = 1;
       const node = nodes[index]!;
       for (let slot = 0; slot < 8; slot++) {
-        if (
-          (node.validMask & (1 << slot)) !== 0 &&
-          (node.leafMask & (1 << slot)) === 0
-        ) {
+        if ((node.validMask & (1 << slot)) !== 0 && (node.leafMask & (1 << slot)) === 0) {
           const child = node.childRefs[slot]!;
           if (child < nodes.length) visit(child);
         }
@@ -1770,7 +1660,7 @@ function validateBvh8(
           severity: "error",
           code: incomingNodes[index]! > 1 ? "bvh8-multi-parent" : "bvh8-orphan",
           message: `BVH8 node ${index}: reachability/ownership is invalid`,
-          sectionType: GEOMETRY_SECTION_TYPES.Bvh8Nodes
+          sectionType: GEOMETRY_SECTION_TYPES.Bvh8Nodes,
         });
       }
     }
@@ -1779,11 +1669,9 @@ function validateBvh8(
     if (referencedClusters[cluster] !== 1) {
       issues.push({
         severity: "error",
-        code: referencedClusters[cluster]! > 1
-          ? "bvh8-cluster-duplicate"
-          : "bvh8-cluster-orphan",
+        code: referencedClusters[cluster]! > 1 ? "bvh8-cluster-duplicate" : "bvh8-cluster-orphan",
         message: `Cluster ${cluster}: BVH8 leaf ownership is invalid`,
-        sectionType: GEOMETRY_SECTION_TYPES.Bvh8Nodes
+        sectionType: GEOMETRY_SECTION_TYPES.Bvh8Nodes,
       });
     }
   }
@@ -1794,7 +1682,7 @@ function validateVertexAndIndexPayload(
   descriptors: readonly GeometryVertexStreamDescriptor[],
   data: Uint8Array,
   indices: Uint32Array,
-  issues: RuntimeAssetValidationIssue[]
+  issues: RuntimeAssetValidationIssue[],
 ): void {
   if (descriptors.length === 0) return;
   const semantics = new Set<string>();
@@ -1807,7 +1695,7 @@ function validateVertexAndIndexPayload(
         severity: "error",
         code,
         message: `Vertex stream ${index} '${descriptor.semantic}': ${message}`,
-        sectionType: GEOMETRY_SECTION_TYPES.VertexStreamDescriptors
+        sectionType: GEOMETRY_SECTION_TYPES.VertexStreamDescriptors,
       });
     };
     cursor = alignUp(cursor, 16);
@@ -1815,7 +1703,8 @@ function validateVertexAndIndexPayload(
       error("vertex-stream-range-noncanonical", "stream offsets must be canonical 16-byte ranges");
     }
     if (
-      descriptor.componentCount < 1 || descriptor.componentCount > 4 ||
+      descriptor.componentCount < 1 ||
+      descriptor.componentCount > 4 ||
       descriptor.vertexCount !== directory.vertexCount ||
       descriptor.elementStride !== expectedGeometryStreamStride(descriptor) ||
       descriptor.dataByteLength !== descriptor.elementStride * descriptor.vertexCount ||
@@ -1824,10 +1713,7 @@ function validateVertexAndIndexPayload(
       error("vertex-stream-layout", "component, stride, count or byte range is invalid");
     }
     validateVertexProfileStream(directory.vertexProfileId, descriptor, error);
-    if (
-      descriptor.normalized &&
-      (descriptor.dataType === "float32" || descriptor.dataType === "float64")
-    ) {
+    if (descriptor.normalized && (descriptor.dataType === "float32" || descriptor.dataType === "float64")) {
       error("vertex-stream-normalized", "floating-point streams cannot use integer normalized semantics");
     }
     if (semantics.has(descriptor.semantic)) {
@@ -1844,10 +1730,7 @@ function validateVertexAndIndexPayload(
     }
     for (let component = 0; component < 4; component++) {
       if (component < descriptor.componentCount) {
-        if (
-          descriptor.componentMinimum[component]! >
-          descriptor.componentMaximum[component]!
-        ) {
+        if (descriptor.componentMinimum[component]! > descriptor.componentMaximum[component]!) {
           error("vertex-stream-component-bounds", "component bounds are reversed");
         }
       } else if (
@@ -1856,8 +1739,10 @@ function validateVertexAndIndexPayload(
       ) {
         error("vertex-stream-component-bounds", "unused component bounds must be zero");
       }
-      if (directory.vertexProfileId === GEOMETRY_VERTEX_PROFILE.ExplicitFloat32FallbackV2 &&
-          (descriptor.decodeScale[component] !== 1 || descriptor.decodeBias[component] !== 0)) {
+      if (
+        directory.vertexProfileId === GEOMETRY_VERTEX_PROFILE.ExplicitFloat32FallbackV2 &&
+        (descriptor.decodeScale[component] !== 1 || descriptor.decodeBias[component] !== 0)
+      ) {
         error("vertex-stream-decode", "explicit float32 fallback decode must be identity");
       }
     }
@@ -1866,7 +1751,8 @@ function validateVertexAndIndexPayload(
       if (
         (directory.vertexProfileId === GEOMETRY_VERTEX_PROFILE.StaticPbrCompactV2
           ? descriptor.flags !== GEOMETRY_VERTEX_STREAM_FLAGS.PositionAabbUnorm16 ||
-            descriptor.dataType !== "uint16" || descriptor.elementStride !== 8
+            descriptor.dataType !== "uint16" ||
+            descriptor.elementStride !== 8
           : descriptor.dataType !== "float32") ||
         descriptor.componentCount !== 3 ||
         (directory.vertexProfileId === GEOMETRY_VERTEX_PROFILE.StaticPbrCompactV2
@@ -1897,7 +1783,7 @@ function validateVertexAndIndexPayload(
       severity: "error",
       code: "vertex-position-count",
       message: "Exactly one position stream is required",
-      sectionType: GEOMETRY_SECTION_TYPES.VertexStreamDescriptors
+      sectionType: GEOMETRY_SECTION_TYPES.VertexStreamDescriptors,
     });
   }
   const paddedEnd = alignUp(cursor, 16);
@@ -1906,7 +1792,7 @@ function validateVertexAndIndexPayload(
       severity: "error",
       code: "vertex-stream-trailing-data",
       message: "Vertex stream payload has non-canonical padding or trailing bytes",
-      sectionType: GEOMETRY_SECTION_TYPES.VertexStreamData
+      sectionType: GEOMETRY_SECTION_TYPES.VertexStreamData,
     });
   }
   if (indices.length !== directory.sourceTriangleCount * 3) {
@@ -1914,7 +1800,7 @@ function validateVertexAndIndexPayload(
       severity: "error",
       code: "geometry-index-count",
       message: "IndexData must contain exactly three u32 indices per source triangle",
-      sectionType: GEOMETRY_SECTION_TYPES.IndexData
+      sectionType: GEOMETRY_SECTION_TYPES.IndexData,
     });
   }
   for (let index = 0; index < indices.length; index++) {
@@ -1923,7 +1809,7 @@ function validateVertexAndIndexPayload(
         severity: "error",
         code: "geometry-index-range",
         message: `IndexData element ${index} is outside vertexCount`,
-        sectionType: GEOMETRY_SECTION_TYPES.IndexData
+        sectionType: GEOMETRY_SECTION_TYPES.IndexData,
       });
       break;
     }
@@ -1934,7 +1820,7 @@ function validateStreamFiniteValues(
   descriptor: GeometryVertexStreamDescriptor,
   data: Uint8Array,
   descriptorIndex: number,
-  issues: RuntimeAssetValidationIssue[]
+  issues: RuntimeAssetValidationIssue[],
 ): void {
   if (
     descriptor.componentCount < 1 ||
@@ -1960,7 +1846,7 @@ function validateStreamFiniteValues(
           severity: "error",
           code: "vertex-stream-nonfinite",
           message: `Vertex stream descriptor ${descriptorIndex} contains a non-finite component`,
-          sectionType: GEOMETRY_SECTION_TYPES.VertexStreamData
+          sectionType: GEOMETRY_SECTION_TYPES.VertexStreamData,
         });
         return;
       }
@@ -1977,7 +1863,7 @@ function validateStreamFiniteValues(
         severity: "error",
         code: "vertex-stream-component-bounds",
         message: `Vertex stream descriptor ${descriptorIndex} component bounds do not match payload`,
-        sectionType: GEOMETRY_SECTION_TYPES.VertexStreamData
+        sectionType: GEOMETRY_SECTION_TYPES.VertexStreamData,
       });
       return;
     }
@@ -1992,23 +1878,24 @@ function expectedGeometryStreamStride(descriptor: GeometryVertexStreamDescriptor
 function validateVertexProfileStream(
   profileId: number,
   descriptor: GeometryVertexStreamDescriptor,
-  error: (code: string, message: string) => void
+  error: (code: string, message: string) => void,
 ): void {
   if (profileId === GEOMETRY_VERTEX_PROFILE.ExplicitFloat32FallbackV2) {
     if (descriptor.flags !== 0) error("vertex-stream-flags", "fallback streams must use identity encoding");
     return;
   }
-  const expected = descriptor.semantic === "position"
-    ? GEOMETRY_VERTEX_STREAM_FLAGS.PositionAabbUnorm16
-    : descriptor.semantic === "normal"
-      ? GEOMETRY_VERTEX_STREAM_FLAGS.NormalOctSnorm16
-      : descriptor.semantic === "tangent"
-        ? GEOMETRY_VERTEX_STREAM_FLAGS.TangentSnorm16
-        : descriptor.semantic === "uv0" || descriptor.semantic === "uv1" || descriptor.semantic === "uv2"
-          ? GEOMETRY_VERTEX_STREAM_FLAGS.UvFloat16
-          : descriptor.semantic === "color"
-            ? GEOMETRY_VERTEX_STREAM_FLAGS.ColorUnorm8
-            : 0;
+  const expected =
+    descriptor.semantic === "position"
+      ? GEOMETRY_VERTEX_STREAM_FLAGS.PositionAabbUnorm16
+      : descriptor.semantic === "normal"
+        ? GEOMETRY_VERTEX_STREAM_FLAGS.NormalOctSnorm16
+        : descriptor.semantic === "tangent"
+          ? GEOMETRY_VERTEX_STREAM_FLAGS.TangentSnorm16
+          : descriptor.semantic === "uv0" || descriptor.semantic === "uv1" || descriptor.semantic === "uv2"
+            ? GEOMETRY_VERTEX_STREAM_FLAGS.UvFloat16
+            : descriptor.semantic === "color"
+              ? GEOMETRY_VERTEX_STREAM_FLAGS.ColorUnorm8
+              : 0;
   if (expected === 0 || descriptor.flags !== expected) {
     error("vertex-stream-profile", "stream semantic or encoding is outside Static PBR compact V2");
   }
@@ -2018,15 +1905,16 @@ function decodeStoredVertexComponent(
   view: DataView,
   byteOffset: number,
   descriptor: GeometryVertexStreamDescriptor,
-  component: number
+  component: number,
 ): number {
-  const raw = descriptor.flags === GEOMETRY_VERTEX_STREAM_FLAGS.UvFloat16
-    ? decodeFloat16(view.getUint16(byteOffset, true))
-    : decodeGeometryVertexComponent(
-      readVertexComponent(view, byteOffset, descriptor.dataType),
-      descriptor.dataType,
-      descriptor.normalized
-    );
+  const raw =
+    descriptor.flags === GEOMETRY_VERTEX_STREAM_FLAGS.UvFloat16
+      ? decodeFloat16(view.getUint16(byteOffset, true))
+      : decodeGeometryVertexComponent(
+          readVertexComponent(view, byteOffset, descriptor.dataType),
+          descriptor.dataType,
+          descriptor.normalized,
+        );
   return raw * descriptor.decodeScale[component]! + descriptor.decodeBias[component]!;
 }
 
@@ -2035,7 +1923,7 @@ function validateMaterials(
   materials: readonly GeometryMaterialRangeRecord[],
   meshlets: readonly GeometryMeshletRecord[],
   clusters: readonly GeometryClusterRecord[],
-  issues: RuntimeAssetValidationIssue[]
+  issues: RuntimeAssetValidationIssue[],
 ): void {
   if (materials.length === 0) return;
   let triangleCursor = 0;
@@ -2045,8 +1933,8 @@ function validateMaterials(
     if (
       material.firstTriangle !== triangleCursor ||
       material.triangleCount === 0 ||
-      material.triangleCount > directory.sourceTriangleCount -
-        Math.min(directory.sourceTriangleCount, material.firstTriangle) ||
+      material.triangleCount >
+        directory.sourceTriangleCount - Math.min(directory.sourceTriangleCount, material.firstTriangle) ||
       (material.flags & ~(MESHLET_ALPHA_MASK | MESHLET_DOUBLE_SIDED)) !== 0 ||
       (material.flags & MESHLET_ALPHA_MASK) === 3
     ) {
@@ -2054,7 +1942,7 @@ function validateMaterials(
         severity: "error",
         code: "material-range",
         message: `Material range ${index}: coverage or flags are invalid`,
-        sectionType: GEOMETRY_SECTION_TYPES.MaterialRanges
+        sectionType: GEOMETRY_SECTION_TYPES.MaterialRanges,
       });
     }
     triangleCursor += material.triangleCount;
@@ -2065,7 +1953,7 @@ function validateMaterials(
       severity: "error",
       code: "material-range-coverage",
       message: "Material ranges do not cover source triangles exactly once",
-      sectionType: GEOMETRY_SECTION_TYPES.MaterialRanges
+      sectionType: GEOMETRY_SECTION_TYPES.MaterialRanges,
     });
   }
   for (let index = 0; index < meshlets.length; index++) {
@@ -2075,7 +1963,7 @@ function validateMaterials(
         severity: "error",
         code: "meshlet-material-range",
         message: `Meshlet ${index}: material range reference is out of bounds`,
-        sectionType: GEOMETRY_SECTION_TYPES.MeshletRecords
+        sectionType: GEOMETRY_SECTION_TYPES.MeshletRecords,
       });
       continue;
     }
@@ -2089,7 +1977,7 @@ function validateMaterials(
         severity: "error",
         code: "meshlet-material-mismatch",
         message: `Meshlet ${index}: material ID/classification does not match MaterialRanges`,
-        sectionType: GEOMETRY_SECTION_TYPES.MeshletRecords
+        sectionType: GEOMETRY_SECTION_TYPES.MeshletRecords,
       });
     }
   }
@@ -2100,7 +1988,7 @@ function validateMaterials(
         severity: "error",
         code: "cluster-material",
         message: `Cluster ${index}: material ID is not declared by MaterialRanges`,
-        sectionType: GEOMETRY_SECTION_TYPES.ClusterRecords
+        sectionType: GEOMETRY_SECTION_TYPES.ClusterRecords,
       });
     }
   }
@@ -2111,7 +1999,7 @@ function validateMeshletPositionBounds(
   data: Uint8Array,
   meshlets: readonly GeometryMeshletRecord[],
   meshletVertices: Uint32Array,
-  issues: RuntimeAssetValidationIssue[]
+  issues: RuntimeAssetValidationIssue[],
 ): void {
   const position = descriptors.find((descriptor) => descriptor.semantic === "position");
   if (position === undefined || position.componentCount !== 3) {
@@ -2120,10 +2008,7 @@ function validateMeshletPositionBounds(
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
   for (let index = 0; index < meshlets.length; index++) {
     const meshlet = meshlets[index]!;
-    const end = Math.min(
-      meshletVertices.length,
-      meshlet.vertexOffset + meshlet.vertexCount
-    );
+    const end = Math.min(meshletVertices.length, meshlet.vertexOffset + meshlet.vertexCount);
     for (let offset = meshlet.vertexOffset; offset < end; offset++) {
       const vertex = meshletVertices[offset]!;
       const byteOffset = position.dataByteOffset + vertex * position.elementStride;
@@ -2148,7 +2033,7 @@ function validateMeshletPositionBounds(
           severity: "error",
           code: "meshlet-position-bounds-containment",
           message: `Meshlet ${index}: bounds do not conservatively contain vertex ${vertex}`,
-          sectionType: GEOMETRY_SECTION_TYPES.MeshletRecords
+          sectionType: GEOMETRY_SECTION_TYPES.MeshletRecords,
         });
         break;
       }
@@ -2157,9 +2042,7 @@ function validateMeshletPositionBounds(
 }
 
 function boundsOfBvhNode(node: GeometryBvh8Node): Float32Array {
-  const result = new Float32Array([
-    Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity
-  ]);
+  const result = new Float32Array([Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity]);
   for (let slot = 0; slot < 8; slot++) {
     if ((node.validMask & (1 << slot)) === 0) continue;
     const box = node.childBoundsBox[slot]!;
@@ -2174,17 +2057,14 @@ function boundsOfBvhNode(node: GeometryBvh8Node): Float32Array {
 }
 
 function validBoundsBox(box: Float32Array): boolean {
-  return box.length === 6 &&
-    box[0]! <= box[3]! && box[1]! <= box[4]! && box[2]! <= box[5]!;
+  return box.length === 6 && box[0]! <= box[3]! && box[1]! <= box[4]! && box[2]! <= box[5]!;
 }
 
-function freezeReport(
-  issues: RuntimeAssetValidationIssue[]
-): GeometryAssetValidationReport {
+function freezeReport(issues: RuntimeAssetValidationIssue[]): GeometryAssetValidationReport {
   const frozen = Object.freeze(issues.map((issue) => Object.freeze(issue)));
   return Object.freeze({
     valid: !frozen.some((issue) => issue.severity === "error"),
-    issues: frozen
+    issues: frozen,
   });
 }
 
@@ -2202,12 +2082,7 @@ function readFloatArray(view: DataView, offset: number, count: number): Float32A
   return result;
 }
 
-function assertRecordRange(
-  bytes: Uint8Array,
-  offset: number,
-  length: number,
-  name: string
-): void {
+function assertRecordRange(bytes: Uint8Array, offset: number, length: number, name: string): void {
   if (offset < 0 || length > bytes.length - offset) {
     throw new RangeError(`${name} record is out of range`);
   }
@@ -2220,92 +2095,121 @@ function decodeAlphaMode(flags: number): GeometryMeshletAlphaMode {
   return "opaque";
 }
 
-function encodeMaterialRangeFlags(
-  alphaMode: GeometryMeshletAlphaMode,
-  doubleSided: boolean
-): number {
+function encodeMaterialRangeFlags(alphaMode: GeometryMeshletAlphaMode, doubleSided: boolean): number {
   return encodeMeshletFlags(alphaMode, doubleSided, false);
 }
 
 export function encodeGeometryVertexDataType(type: GeometryVertexDataType): number {
   switch (type) {
-    case "int8": return GEOMETRY_VERTEX_DATA_TYPE_CODE.int8;
-    case "uint8": return GEOMETRY_VERTEX_DATA_TYPE_CODE.uint8;
-    case "int16": return GEOMETRY_VERTEX_DATA_TYPE_CODE.int16;
-    case "uint16": return GEOMETRY_VERTEX_DATA_TYPE_CODE.uint16;
-    case "int32": return GEOMETRY_VERTEX_DATA_TYPE_CODE.int32;
-    case "uint32": return GEOMETRY_VERTEX_DATA_TYPE_CODE.uint32;
-    case "float32": return GEOMETRY_VERTEX_DATA_TYPE_CODE.float32;
-    case "float64": return GEOMETRY_VERTEX_DATA_TYPE_CODE.float64;
+    case "int8":
+      return GEOMETRY_VERTEX_DATA_TYPE_CODE.int8;
+    case "uint8":
+      return GEOMETRY_VERTEX_DATA_TYPE_CODE.uint8;
+    case "int16":
+      return GEOMETRY_VERTEX_DATA_TYPE_CODE.int16;
+    case "uint16":
+      return GEOMETRY_VERTEX_DATA_TYPE_CODE.uint16;
+    case "int32":
+      return GEOMETRY_VERTEX_DATA_TYPE_CODE.int32;
+    case "uint32":
+      return GEOMETRY_VERTEX_DATA_TYPE_CODE.uint32;
+    case "float32":
+      return GEOMETRY_VERTEX_DATA_TYPE_CODE.float32;
+    case "float64":
+      return GEOMETRY_VERTEX_DATA_TYPE_CODE.float64;
   }
 }
 
 export function decodeGeometryVertexDataType(value: number): GeometryVertexDataType {
   switch (value) {
-    case GEOMETRY_VERTEX_DATA_TYPE_CODE.int8: return "int8";
-    case GEOMETRY_VERTEX_DATA_TYPE_CODE.uint8: return "uint8";
-    case GEOMETRY_VERTEX_DATA_TYPE_CODE.int16: return "int16";
-    case GEOMETRY_VERTEX_DATA_TYPE_CODE.uint16: return "uint16";
-    case GEOMETRY_VERTEX_DATA_TYPE_CODE.int32: return "int32";
-    case GEOMETRY_VERTEX_DATA_TYPE_CODE.uint32: return "uint32";
-    case GEOMETRY_VERTEX_DATA_TYPE_CODE.float32: return "float32";
-    case GEOMETRY_VERTEX_DATA_TYPE_CODE.float64: return "float64";
-    default: throw new RangeError(`Unsupported vertex data type code ${value}`);
+    case GEOMETRY_VERTEX_DATA_TYPE_CODE.int8:
+      return "int8";
+    case GEOMETRY_VERTEX_DATA_TYPE_CODE.uint8:
+      return "uint8";
+    case GEOMETRY_VERTEX_DATA_TYPE_CODE.int16:
+      return "int16";
+    case GEOMETRY_VERTEX_DATA_TYPE_CODE.uint16:
+      return "uint16";
+    case GEOMETRY_VERTEX_DATA_TYPE_CODE.int32:
+      return "int32";
+    case GEOMETRY_VERTEX_DATA_TYPE_CODE.uint32:
+      return "uint32";
+    case GEOMETRY_VERTEX_DATA_TYPE_CODE.float32:
+      return "float32";
+    case GEOMETRY_VERTEX_DATA_TYPE_CODE.float64:
+      return "float64";
+    default:
+      throw new RangeError(`Unsupported vertex data type code ${value}`);
   }
 }
 
 export function geometryVertexDataTypeBytes(type: GeometryVertexDataType): number {
   switch (type) {
     case "int8":
-    case "uint8": return 1;
+    case "uint8":
+      return 1;
     case "int16":
-    case "uint16": return 2;
+    case "uint16":
+      return 2;
     case "int32":
     case "uint32":
-    case "float32": return 4;
-    case "float64": return 8;
+    case "float32":
+      return 4;
+    case "float64":
+      return 8;
   }
 }
 
-function readVertexComponent(
-  view: DataView,
-  offset: number,
-  type: GeometryVertexDataType
-): number {
+function readVertexComponent(view: DataView, offset: number, type: GeometryVertexDataType): number {
   switch (type) {
-    case "int8": return view.getInt8(offset);
-    case "uint8": return view.getUint8(offset);
-    case "int16": return view.getInt16(offset, true);
-    case "uint16": return view.getUint16(offset, true);
-    case "int32": return view.getInt32(offset, true);
-    case "uint32": return view.getUint32(offset, true);
-    case "float32": return view.getFloat32(offset, true);
-    case "float64": return view.getFloat64(offset, true);
+    case "int8":
+      return view.getInt8(offset);
+    case "uint8":
+      return view.getUint8(offset);
+    case "int16":
+      return view.getInt16(offset, true);
+    case "uint16":
+      return view.getUint16(offset, true);
+    case "int32":
+      return view.getInt32(offset, true);
+    case "uint32":
+      return view.getUint32(offset, true);
+    case "float32":
+      return view.getFloat32(offset, true);
+    case "float64":
+      return view.getFloat64(offset, true);
   }
 }
 
 export function decodeGeometryVertexComponent(
   value: number,
   type: GeometryVertexDataType,
-  normalized: boolean
+  normalized: boolean,
 ): number {
   if (!normalized) return value;
   switch (type) {
-    case "int8": return Math.max(value / 127, -1);
-    case "uint8": return value / 255;
-    case "int16": return Math.max(value / 32767, -1);
-    case "uint16": return value / 65535;
-    case "int32": return Math.max(value / 2147483647, -1);
-    case "uint32": return value / 4294967295;
+    case "int8":
+      return Math.max(value / 127, -1);
+    case "uint8":
+      return value / 255;
+    case "int16":
+      return Math.max(value / 32767, -1);
+    case "uint16":
+      return value / 65535;
+    case "int32":
+      return Math.max(value / 2147483647, -1);
+    case "uint32":
+      return value / 4294967295;
     case "float32":
-    case "float64": return value;
+    case "float64":
+      return value;
   }
 }
 
 /** CPU oracle for the Static PBR compact position consumer. */
 export function decodeGeometryPosition(
   asset: Pick<GeometryAssetPackage, "vertexStreamDescriptors" | "vertexStreamData">,
-  vertex: number
+  vertex: number,
 ): Float32Array {
   const descriptor = asset.vertexStreamDescriptors.find((stream) => stream.semantic === "position");
   if (descriptor === undefined || vertex < 0 || vertex >= descriptor.vertexCount) {
@@ -2314,32 +2218,47 @@ export function decodeGeometryPosition(
   const view = new DataView(
     asset.vertexStreamData.buffer,
     asset.vertexStreamData.byteOffset,
-    asset.vertexStreamData.byteLength
+    asset.vertexStreamData.byteLength,
   );
   const bytes = geometryVertexDataTypeBytes(descriptor.dataType);
   const offset = descriptor.dataByteOffset + vertex * descriptor.elementStride;
   return new Float32Array([
     decodeStoredVertexComponent(view, offset, descriptor, 0),
     decodeStoredVertexComponent(view, offset + bytes, descriptor, 1),
-    decodeStoredVertexComponent(view, offset + bytes * 2, descriptor, 2)
+    decodeStoredVertexComponent(view, offset + bytes * 2, descriptor, 2),
   ]);
 }
 
 /** CPU oracle for octahedral compact normals. */
 export function decodeGeometryNormal(
   asset: Pick<GeometryAssetPackage, "vertexStreamDescriptors" | "vertexStreamData">,
-  vertex: number
+  vertex: number,
 ): Float32Array | null {
   const descriptor = asset.vertexStreamDescriptors.find((stream) => stream.semantic === "normal");
   if (descriptor === undefined) return null;
-  if (vertex < 0 || vertex >= descriptor.vertexCount) throw new RangeError("Geometry normal vertex is outside the selected stream");
-  const view = new DataView(asset.vertexStreamData.buffer, asset.vertexStreamData.byteOffset, asset.vertexStreamData.byteLength);
+  if (vertex < 0 || vertex >= descriptor.vertexCount)
+    throw new RangeError("Geometry normal vertex is outside the selected stream");
+  const view = new DataView(
+    asset.vertexStreamData.buffer,
+    asset.vertexStreamData.byteOffset,
+    asset.vertexStreamData.byteLength,
+  );
   const offset = descriptor.dataByteOffset + vertex * descriptor.elementStride;
   if (descriptor.flags !== GEOMETRY_VERTEX_STREAM_FLAGS.NormalOctSnorm16) {
     return new Float32Array([
       decodeStoredVertexComponent(view, offset, descriptor, 0),
-      decodeStoredVertexComponent(view, offset + geometryVertexDataTypeBytes(descriptor.dataType), descriptor, 1),
-      decodeStoredVertexComponent(view, offset + geometryVertexDataTypeBytes(descriptor.dataType) * 2, descriptor, 2)
+      decodeStoredVertexComponent(
+        view,
+        offset + geometryVertexDataTypeBytes(descriptor.dataType),
+        descriptor,
+        1,
+      ),
+      decodeStoredVertexComponent(
+        view,
+        offset + geometryVertexDataTypeBytes(descriptor.dataType) * 2,
+        descriptor,
+        2,
+      ),
     ]);
   }
   const x = Math.max(view.getInt16(offset, true) / 32767, -1);
@@ -2359,7 +2278,7 @@ export function decodeGeometryNormal(
 export function decodeGeometryUv(
   asset: Pick<GeometryAssetPackage, "vertexStreamDescriptors" | "vertexStreamData">,
   semantic: "uv0" | "uv1" | "uv2",
-  vertex: number
+  vertex: number,
 ): Float32Array | null {
   const descriptor = asset.vertexStreamDescriptors.find((stream) => stream.semantic === semantic);
   if (descriptor === undefined) return null;
@@ -2369,20 +2288,20 @@ export function decodeGeometryUv(
   const view = new DataView(
     asset.vertexStreamData.buffer,
     asset.vertexStreamData.byteOffset,
-    asset.vertexStreamData.byteLength
+    asset.vertexStreamData.byteLength,
   );
   const bytes = geometryVertexDataTypeBytes(descriptor.dataType);
   const offset = descriptor.dataByteOffset + vertex * descriptor.elementStride;
   return new Float32Array([
     decodeStoredVertexComponent(view, offset, descriptor, 0),
-    decodeStoredVertexComponent(view, offset + bytes, descriptor, 1)
+    decodeStoredVertexComponent(view, offset + bytes, descriptor, 1),
   ]);
 }
 
 /** CPU oracle matching the compact signed-normalized tangent consumer. */
 export function decodeGeometryTangent(
   asset: Pick<GeometryAssetPackage, "vertexStreamDescriptors" | "vertexStreamData">,
-  vertex: number
+  vertex: number,
 ): Float32Array | null {
   return decodeDirectGeometryAttribute(asset, "tangent", vertex, 4);
 }
@@ -2390,17 +2309,17 @@ export function decodeGeometryTangent(
 /** CPU oracle matching the compact unsigned-normalized color consumer. */
 export function decodeGeometryColor(
   asset: Pick<GeometryAssetPackage, "vertexStreamDescriptors" | "vertexStreamData">,
-  vertex: number
+  vertex: number,
 ): Float32Array | null {
-  const descriptor=asset.vertexStreamDescriptors.find(stream=>stream.semantic==="color");
-  return decodeDirectGeometryAttribute(asset, "color", vertex, descriptor?.componentCount===3?3:4);
+  const descriptor = asset.vertexStreamDescriptors.find((stream) => stream.semantic === "color");
+  return decodeDirectGeometryAttribute(asset, "color", vertex, descriptor?.componentCount === 3 ? 3 : 4);
 }
 
 function decodeDirectGeometryAttribute(
   asset: Pick<GeometryAssetPackage, "vertexStreamDescriptors" | "vertexStreamData">,
   semantic: string,
   vertex: number,
-  componentCount: number
+  componentCount: number,
 ): Float32Array | null {
   const descriptor = asset.vertexStreamDescriptors.find((stream) => stream.semantic === semantic);
   if (descriptor === undefined) return null;
@@ -2410,12 +2329,13 @@ function decodeDirectGeometryAttribute(
   const view = new DataView(
     asset.vertexStreamData.buffer,
     asset.vertexStreamData.byteOffset,
-    asset.vertexStreamData.byteLength
+    asset.vertexStreamData.byteLength,
   );
   const bytes = geometryVertexDataTypeBytes(descriptor.dataType);
   const offset = descriptor.dataByteOffset + vertex * descriptor.elementStride;
   return Float32Array.from({ length: componentCount }, (_, component) =>
-    decodeStoredVertexComponent(view, offset + bytes * component, descriptor, component));
+    decodeStoredVertexComponent(view, offset + bytes * component, descriptor, component),
+  );
 }
 
 function decodeFloat16(bits: number): number {
@@ -2465,22 +2385,24 @@ function rangeIsZero(bytes: Uint8Array, begin: number, end: number): boolean {
 
 function boundsContain(parent: Float32Array, child: Float32Array): boolean {
   const epsilon = 1e-5;
-  return parent[0]! <= child[0]! + epsilon &&
+  return (
+    parent[0]! <= child[0]! + epsilon &&
     parent[1]! <= child[1]! + epsilon &&
     parent[2]! <= child[2]! + epsilon &&
     parent[3]! + epsilon >= child[3]! &&
     parent[4]! + epsilon >= child[4]! &&
-    parent[5]! + epsilon >= child[5]!;
+    parent[5]! + epsilon >= child[5]!
+  );
 }
 
 function sphereContains(
   parent: GeometryClusterRecord["bounds"],
-  child: GeometryClusterRecord["bounds"]
+  child: GeometryClusterRecord["bounds"],
 ): boolean {
   const distance = Math.hypot(
     parent.centerX - child.centerX,
     parent.centerY - child.centerY,
-    parent.centerZ - child.centerZ
+    parent.centerZ - child.centerZ,
   );
   return distance + child.radius <= parent.radius + 1e-4;
 }

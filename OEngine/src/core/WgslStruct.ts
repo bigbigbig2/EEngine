@@ -8,17 +8,11 @@ import { arrayShallowEquals } from "./arrayUtils.js";
 import { arrayDeepEquals } from "./math/mathUtils.js";
 import { BitSet } from "./BitSet.js";
 import { LineBuilder } from "./LineBuilder.js";
-import {
-  WebGPUType,
-  ArrayType,
-  CodeChunk,
-  PRIMITIVE_BY_TAG
-} from "./WebGPUTypes.js";
+import { WebGPUType, ArrayType, CodeChunk, PRIMITIVE_BY_TAG } from "./WebGPUTypes.js";
 
 export const STRUCT_PACK_ALIGN = 16;
 
-const ARRAY_TYPE_RE =
-  /array\s*<\s*(?<type>[^,]+)\s*(?:,\s*(?<count>[0-9]+))?\s*>/;
+const ARRAY_TYPE_RE = /array\s*<\s*(?<type>[^,]+)\s*(?:,\s*(?<count>[0-9]+))?\s*>/;
 
 export function parseWgslType(e: string): WebGPUType {
   const t = e.match(ARRAY_TYPE_RE);
@@ -34,12 +28,7 @@ export function parseWgslType(e: string): WebGPUType {
   return n;
 }
 
-export function findAlignedClearRange(
-  e: BitSet,
-  t: number,
-  n: number,
-  r: number
-): number {
+export function findAlignedClearRange(e: BitSet, t: number, n: number, r: number): number {
   let s = alignCeil(r, t);
   for (;;) {
     s = alignCeil(e.nextClearBit(s), t);
@@ -176,8 +165,7 @@ export class WgslStructField {
   }
 }
 
-(WgslStructField.prototype as { isWGSLStructField?: boolean }).isWGSLStructField =
-  true;
+(WgslStructField.prototype as { isWGSLStructField?: boolean }).isWGSLStructField = true;
 
 let structNameSeq = 0;
 
@@ -292,10 +280,7 @@ export class StructType extends WebGPUType {
 
   override equals(e: unknown): boolean {
     return (
-      e === this ||
-      (e instanceof StructType &&
-        this.#ee === e.#ee &&
-        arrayDeepEquals(this.fields, e.fields))
+      e === this || (e instanceof StructType && this.#ee === e.#ee && arrayDeepEquals(this.fields, e.fields))
     );
   }
 
@@ -304,7 +289,7 @@ export class StructType extends WebGPUType {
       hashString((this as { name?: string }).name as string),
       this.#W,
       this.#Z,
-      this.fields.length
+      this.fields.length,
     );
   }
 
@@ -320,10 +305,7 @@ export class StructType extends WebGPUType {
     return false;
   }
 
-  static from(
-    e: Record<string, string | WebGPUType>,
-    t: string = nextStructName()
-  ): StructType {
+  static from(e: Record<string, string | WebGPUType>, t: string = nextStructName()): StructType {
     const n = new StructType();
     n.#ee = t;
     for (const key in e) {

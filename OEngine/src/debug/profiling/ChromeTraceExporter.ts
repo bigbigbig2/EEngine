@@ -27,7 +27,7 @@ export function exportChromeTrace(input: ChromeTraceInput): ChromeTraceDocument 
   const events = [...traceEvents(input)].map((event) => Object.freeze(event));
   return Object.freeze({
     traceEvents: Object.freeze(events),
-    metadata: Object.freeze({ cpuGpuClockAligned: false })
+    metadata: Object.freeze({ cpuGpuClockAligned: false }),
   });
 }
 
@@ -58,9 +58,7 @@ function* traceEvents(input: ChromeTraceInput): IterableIterator<ChromeTraceEven
       const event = spanEvent(frame.frameIndex, span);
       if (event !== null) yield event;
     }
-    const samples = Object.values(frame.samples).sort((a, b) =>
-      a.metricId.localeCompare(b.metricId)
-    );
+    const samples = Object.values(frame.samples).sort((a, b) => a.metricId.localeCompare(b.metricId));
     for (const sample of samples) yield sampleEvent(sample);
   }
 }
@@ -70,7 +68,7 @@ function spanEvent(frameIndex: number, span: ProfileSpan): ChromeTraceEvent | nu
   const args = {
     frameIndex,
     instrumented: span.instrumented,
-    availability: span.availability
+    availability: span.availability,
   };
   if (span.start === null) {
     return {
@@ -80,7 +78,7 @@ function spanEvent(frameIndex: number, span: ProfileSpan): ChromeTraceEvent | nu
       ts: frameIndex,
       pid: "oengine",
       tid: span.clockDomain,
-      args: { ...args, durationMs: span.duration }
+      args: { ...args, durationMs: span.duration },
     };
   }
   return {
@@ -91,7 +89,7 @@ function spanEvent(frameIndex: number, span: ProfileSpan): ChromeTraceEvent | nu
     dur: span.duration * 1000,
     pid: "oengine",
     tid: span.clockDomain,
-    args
+    args,
   };
 }
 
@@ -109,8 +107,8 @@ function sampleEvent(sample: MetricSample): ChromeTraceEvent {
       sourceFrameIndex: sample.sourceFrameIndex,
       resolvedAtFrameIndex: sample.resolvedAtFrameIndex,
       instrumented: sample.instrumented,
-      availability: sample.availability
-    }
+      availability: sample.availability,
+    },
   };
 }
 

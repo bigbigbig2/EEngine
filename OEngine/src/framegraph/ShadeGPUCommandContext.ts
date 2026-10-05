@@ -11,13 +11,13 @@ import type { GraphicsContext } from "../gpu/GraphicsContext.js";
 import { submitGpuCommands } from "../gpu/GpuQueueEvidence.js";
 import type {
   CachedComputePipelineDescriptor,
-  CachedRenderPipelineDescriptor
+  CachedRenderPipelineDescriptor,
 } from "../gpu/GPUDescriptorCaches.js";
 import {
   CompiledFrameGraph,
   FrameGraph,
   FrameGraphContext,
-  FrameGraphResourceManager
+  FrameGraphResourceManager,
 } from "./FrameGraph.js";
 import { GPUTimer, type GPUTimerResult } from "./GPUTimer.js";
 
@@ -41,7 +41,7 @@ let openContextWarningCount = 0;
 const openContexts: ShadeGPUCommandContext[] = [];
 const transientBufferDescriptor: GPUBufferPoolDescriptor = {
   size: 0,
-  usage: 0
+  usage: 0,
 };
 
 export class ShadeGPUCommandContext {
@@ -92,12 +92,10 @@ export class ShadeGPUCommandContext {
     this.#timedEncoderFacade = new Proxy(encoder, {
       get(target, property): unknown {
         if (property === "beginComputePass") {
-          return (descriptor?: GPUComputePassDescriptor) =>
-            context.beginComputePass(descriptor);
+          return (descriptor?: GPUComputePassDescriptor) => context.beginComputePass(descriptor);
         }
         if (property === "beginRenderPass") {
-          return (descriptor: GPURenderPassDescriptor) =>
-            context.beginRenderPass(descriptor);
+          return (descriptor: GPURenderPassDescriptor) => context.beginRenderPass(descriptor);
         }
         const value = Reflect.get(target, property, target) as unknown;
         if (typeof value !== "function") return value;
@@ -111,7 +109,7 @@ export class ShadeGPUCommandContext {
       },
       set(target, property, value): boolean {
         return Reflect.set(target, property, value, target);
-      }
+      },
     }) as GPUCommandEncoder;
     return this.#timedEncoderFacade;
   }
@@ -135,30 +133,21 @@ export class ShadeGPUCommandContext {
   /** Resolves once the command buffer has been handed to GPUQueue. */
   get submitted(): Promise<void> {
     if (this.#finished) {
-      return this.#abortCause === undefined
-        ? Promise.resolve()
-        : Promise.reject(this.#abortCause);
+      return this.#abortCause === undefined ? Promise.resolve() : Promise.reject(this.#abortCause);
     }
     return new Promise((resolve, reject) => {
       this.onFinished.addOne(resolve);
-      this.onAborted.addOne(
-        (_context: ShadeGPUCommandContext, cause: unknown) => reject(cause)
-      );
+      this.onAborted.addOne((_context: ShadeGPUCommandContext, cause: unknown) => reject(cause));
       if (this.#finished) resolve();
     });
   }
 
   /** Resolves only after the queue has completed all work submitted so far. */
   get gpuDone(): Promise<void> {
-    return this.#gpuDonePromise ??= this.submitted.then(
-      () => this.device.queue.onSubmittedWorkDone()
-    );
+    return (this.#gpuDonePromise ??= this.submitted.then(() => this.device.queue.onSubmittedWorkDone()));
   }
 
-  static create(
-    graphics: GraphicsContext,
-    label = ""
-  ): ShadeGPUCommandContext {
+  static create(graphics: GraphicsContext, label = ""): ShadeGPUCommandContext {
     const context = new ShadeGPUCommandContext();
     context.#graphics = graphics;
     context.#label = label;
@@ -175,7 +164,7 @@ export class ShadeGPUCommandContext {
 
   enable_debug_timers(
     callback: (results: GPUTimerResult[]) => void,
-    onError?: (error: unknown) => void
+    onError?: (error: unknown) => void,
   ): void {
     this.#gpuTimer ??= new GPUTimer(this.device);
     this.#debugTimersCallbacks.add(callback);
@@ -191,7 +180,7 @@ export class ShadeGPUCommandContext {
       resource_manager: new FrameGraphResourceManager(this.device, this.gpuDone),
       passCpuProfiler: profiler.shouldSampleCpuPasses()
         ? (label, callback) => profiler.measure(label, callback)
-        : undefined
+        : undefined,
     });
   }
 
@@ -247,9 +236,7 @@ export class ShadeGPUCommandContext {
   }
 
   clearTexture(): void {
-    throw new Error(
-      "Documentation hint only, use texture_fill_rectangle instead"
-    );
+    throw new Error("Documentation hint only, use texture_fill_rectangle instead");
   }
 
   copyBufferToBuffer(
@@ -257,44 +244,32 @@ export class ShadeGPUCommandContext {
     sourceOffset: number,
     destination: GPUBuffer,
     destinationOffset: number,
-    size?: number
+    size?: number,
   ): void {
-    this.#encoder!.copyBufferToBuffer(
-      source,
-      sourceOffset,
-      destination,
-      destinationOffset,
-      size
-    );
+    this.#encoder!.copyBufferToBuffer(source, sourceOffset, destination, destinationOffset, size);
   }
 
   copyTextureToTexture(
     source: GPUImageCopyTexture,
     destination: GPUImageCopyTexture,
-    copySize: GPUExtent3DStrict
+    copySize: GPUExtent3DStrict,
   ): void {
     this.#encoder!.copyTextureToTexture(source, destination, copySize);
   }
 
   /** Transactional cooked texture upload; encoded in the existing command/submit. */
-  copyBufferToTexture(source: GPUTexelCopyBufferInfo, destination: GPUTexelCopyTextureInfo,
-    copySize: GPUExtent3DStrict): void {
+  copyBufferToTexture(
+    source: GPUTexelCopyBufferInfo,
+    destination: GPUTexelCopyTextureInfo,
+    copySize: GPUExtent3DStrict,
+  ): void {
     this.#encoder!.copyBufferToTexture(source, destination, copySize);
   }
 
-  beginComputePass(
-    descriptor?: GPUComputePassDescriptor
-  ): GPUComputePassEncoder {
-    const resolved: GPUComputePassDescriptor = descriptor === undefined
-      ? {}
-      : { ...descriptor };
-    if (
-      this.#gpuTimer !== undefined &&
-      this.device.features.has("timestamp-query")
-    ) {
-      resolved.timestampWrites = this.#gpuTimer.getComputeWrites(
-        descriptor?.label
-      );
+  beginComputePass(descriptor?: GPUComputePassDescriptor): GPUComputePassEncoder {
+    const resolved: GPUComputePassDescriptor = descriptor === undefined ? {} : { ...descriptor };
+    if (this.#gpuTimer !== undefined && this.device.features.has("timestamp-query")) {
+      resolved.timestampWrites = this.#gpuTimer.getComputeWrites(descriptor?.label);
     }
     const pass = this.#encoder!.beginComputePass(resolved);
     const profiler = this.#graphics.profiler;
@@ -306,7 +281,7 @@ export class ShadeGPUCommandContext {
   constructComputePass({
     pipeline,
     label,
-    bindings = []
+    bindings = [],
   }: ConstructComputePassOptions): GPUComputePassEncoder {
     const descriptor: GPUComputePassDescriptor = { label };
     if (label === undefined) descriptor.label = pipeline.label;
@@ -332,12 +307,12 @@ export class ShadeGPUCommandContext {
     pipeline,
     bindings,
     colorAttachments,
-    depthStencilAttachment
+    depthStencilAttachment,
   }: ConstructRenderPassOptions): GPURenderPassEncoder {
     const descriptor: GPURenderPassDescriptor = {
       label,
       colorAttachments,
-      depthStencilAttachment
+      depthStencilAttachment,
     };
     if (label === undefined) descriptor.label = pipeline.label;
     const nativePipeline = this.#graphics.render_pipelines.obtain(pipeline);
@@ -347,16 +322,9 @@ export class ShadeGPUCommandContext {
     return pass;
   }
 
-  beginRenderPass(
-    descriptor: GPURenderPassDescriptor
-  ): GPURenderPassEncoder {
-    if (
-      this.#gpuTimer !== undefined &&
-      this.device.features.has("timestamp-query")
-    ) {
-      descriptor.timestampWrites = this.#gpuTimer.getRenderWrites(
-        descriptor.label
-      );
+  beginRenderPass(descriptor: GPURenderPassDescriptor): GPURenderPassEncoder {
+    if (this.#gpuTimer !== undefined && this.device.features.has("timestamp-query")) {
+      descriptor.timestampWrites = this.#gpuTimer.getRenderWrites(descriptor.label);
     }
     const pass = this.#encoder!.beginRenderPass(descriptor);
     const profiler = this.#graphics.profiler;
@@ -370,34 +338,21 @@ export class ShadeGPUCommandContext {
     firstQuery: number,
     queryCount: number,
     destination: GPUBuffer,
-    destinationOffset: number
+    destinationOffset: number,
   ): void {
-    this.#encoder!.resolveQuerySet(
-      querySet,
-      firstQuery,
-      queryCount,
-      destination,
-      destinationOffset
-    );
+    this.#encoder!.resolveQuerySet(querySet, firstQuery, queryCount, destination, destinationOffset);
   }
 
   releaseTransientBuffer(buffer: GPUBuffer): boolean {
     return (
-      arrayRemoveFirst(this.#transientBuffers, buffer) &&
-      this.#graphics.buffer_allocator_main.release(buffer)
+      arrayRemoveFirst(this.#transientBuffers, buffer) && this.#graphics.buffer_allocator_main.release(buffer)
     );
   }
 
-  allocateTransientBuffer(
-    usage: GPUBufferUsageFlags = GPUBufferUsage.UNIFORM,
-    size: number
-  ): GPUBuffer {
+  allocateTransientBuffer(usage: GPUBufferUsageFlags = GPUBufferUsage.UNIFORM, size: number): GPUBuffer {
     transientBufferDescriptor.size = size;
     transientBufferDescriptor.usage = usage | GPUBufferUsage.COPY_DST;
-    const buffer = this.#graphics.buffer_allocator_main.get(
-      transientBufferDescriptor,
-      this
-    );
+    const buffer = this.#graphics.buffer_allocator_main.get(transientBufferDescriptor, this);
     this.#transientBuffers.push(buffer);
     return buffer;
   }
@@ -406,29 +361,20 @@ export class ShadeGPUCommandContext {
     data: ArrayBuffer,
     usage: GPUBufferUsageFlags = GPUBufferUsage.UNIFORM,
     offset = 0,
-    size = data.byteLength
+    size = data.byteLength,
   ): GPUBuffer {
     const buffer = this.allocateTransientBuffer(usage, size);
     this.writeBuffer(buffer, 0, data, offset, size);
     return buffer;
   }
 
-  allocateTransientValueBuffer<T>(
-    type: WebGPUType,
-    value: T,
-    usage?: GPUBufferUsageFlags
-  ): GPUBuffer {
+  allocateTransientValueBuffer<T>(type: WebGPUType, value: T, usage?: GPUBufferUsageFlags): GPUBuffer {
     const buffer = this.allocateTransientBuffer(usage, type.aligned_size);
     this.writeValueBuffer(buffer, 0, type, value);
     return buffer;
   }
 
-  writeValueBuffer<T>(
-    buffer: GPUBuffer,
-    buffer_offset: number,
-    type: WebGPUType,
-    value: T
-  ): void {
+  writeValueBuffer<T>(buffer: GPUBuffer, buffer_offset: number, type: WebGPUType, value: T): void {
     const size = type.aligned_size;
     const bytes = new ArrayBuffer(size);
     writeWgslToBuffer(value, type, bytes, 0);
@@ -440,7 +386,7 @@ export class ShadeGPUCommandContext {
     buffer_offset: number,
     data: ArrayBuffer,
     data_offset: number,
-    size: number
+    size: number,
   ): void {
     const staging = this.#graphics.buffer_allocator_staging.get(size);
     this.device.queue.writeBuffer(staging, 0, data, data_offset, size);
@@ -472,18 +418,11 @@ export class ShadeGPUCommandContext {
         timer.resolve(encoder);
         const readbackByteLength = timer.readbackByteLength;
         if (readbackByteLength > 0) {
-          this.#graphics.profiler.recordReadback(
-            "gpu-timestamps",
-            readbackByteLength
-          );
+          this.#graphics.profiler.recordReadback("gpu-timestamps", readbackByteLength);
         }
       }
       const commandBuffer = encoder.finish();
-      submitGpuCommands(
-        this.#graphics.device!,
-        this.#label || "unlabeled-command-context",
-        [commandBuffer]
-      );
+      submitGpuCommands(this.#graphics.device!, this.#label || "unlabeled-command-context", [commandBuffer]);
     } catch (cause) {
       this.abort(cause);
       throw cause;
@@ -565,11 +504,7 @@ export class ShadeGPUCommandContext {
 
   #releaseBuffers(reuseAfter?: Promise<void>): void {
     const transientAllocator = this.#graphics.buffer_allocator_main;
-    for (
-      let index = this.#transientBuffers.length - 1;
-      index >= 0;
-      index--
-    ) {
+    for (let index = this.#transientBuffers.length - 1; index >= 0; index--) {
       transientAllocator.release(this.#transientBuffers[index]!, reuseAfter);
     }
     const stagingAllocator = this.#graphics.buffer_allocator_staging;
@@ -579,25 +514,16 @@ export class ShadeGPUCommandContext {
   }
 }
 
-type GpuCommandCounter = Pick<
-  import("../debug/FrameProfiler.js").FrameProfiler,
-  "recordGpuCommand"
->;
+type GpuCommandCounter = Pick<import("../debug/FrameProfiler.js").FrameProfiler, "recordGpuCommand">;
 
-function profileComputePass(
-  pass: GPUComputePassEncoder,
-  profiler: GpuCommandCounter
-): GPUComputePassEncoder {
+function profileComputePass(pass: GPUComputePassEncoder, profiler: GpuCommandCounter): GPUComputePassEncoder {
   return proxyEncoderMethods(pass, {
     dispatchWorkgroups: () => profiler.recordGpuCommand("dispatch"),
-    dispatchWorkgroupsIndirect: () => profiler.recordGpuCommand("dispatch")
+    dispatchWorkgroupsIndirect: () => profiler.recordGpuCommand("dispatch"),
   });
 }
 
-function profileRenderPass(
-  pass: GPURenderPassEncoder,
-  profiler: GpuCommandCounter
-): GPURenderPassEncoder {
+function profileRenderPass(pass: GPURenderPassEncoder, profiler: GpuCommandCounter): GPURenderPassEncoder {
   return proxyEncoderMethods(pass, {
     draw: () => profiler.recordGpuCommand("draw"),
     drawIndexed: () => profiler.recordGpuCommand("draw"),
@@ -605,17 +531,14 @@ function profileRenderPass(
     drawIndexedIndirect: () => profiler.recordGpuCommand("draw"),
     executeBundles: (args) => {
       const bundles = args[0] as Iterable<GPURenderBundle> | undefined;
-      profiler.recordGpuCommand(
-        "bundleExecution",
-        bundles === undefined ? 0 : Array.from(bundles).length
-      );
-    }
+      profiler.recordGpuCommand("bundleExecution", bundles === undefined ? 0 : Array.from(bundles).length);
+    },
   });
 }
 
 function proxyEncoderMethods<T extends object>(
   target: T,
-  before: Record<string, (args: unknown[]) => void>
+  before: Record<string, (args: unknown[]) => void>,
 ): T {
   const boundMethods = new Map<PropertyKey, Function>();
   return new Proxy(target, {
@@ -625,12 +548,13 @@ function proxyEncoderMethods<T extends object>(
       let bound = boundMethods.get(property);
       if (bound === undefined) {
         const invoke = before[String(property)];
-        const created = invoke === undefined
-          ? member.bind(value)
-          : (...args: unknown[]) => {
-              invoke(args);
-              return member.apply(value, args);
-            };
+        const created =
+          invoke === undefined
+            ? member.bind(value)
+            : (...args: unknown[]) => {
+                invoke(args);
+                return member.apply(value, args);
+              };
         boundMethods.set(property, created);
         bound = created;
       }
@@ -638,6 +562,6 @@ function proxyEncoderMethods<T extends object>(
     },
     set(value, property, member): boolean {
       return Reflect.set(value, property, member, value);
-    }
+    },
   });
 }

@@ -12,18 +12,11 @@ export function hzbMipLevelCount(width: number, height: number): number {
   return maximum <= 0 ? 0 : Math.floor(Math.log2(maximum)) + 1;
 }
 
-export function hzbLevelDimensions(
-  width: number,
-  height: number,
-  mip: number
-): readonly [number, number] {
+export function hzbLevelDimensions(width: number, height: number, mip: number): readonly [number, number] {
   if (mip < 0 || !Number.isInteger(mip)) {
     throw new RangeError(`HZB mip must be a non-negative integer, got ${mip}`);
   }
-  return [
-    Math.max(1, Math.floor(width) >> mip),
-    Math.max(1, Math.floor(height) >> mip)
-  ];
+  return [Math.max(1, Math.floor(width) >> mip), Math.max(1, Math.floor(height) >> mip)];
 }
 
 export function sanitizeReverseZDepth(value: number): number {
@@ -34,10 +27,10 @@ export function sanitizeReverseZDepth(value: number): number {
 function coverageBounds(
   outputCoordinate: number,
   sourceSize: number,
-  outputSize: number
+  outputSize: number,
 ): readonly [number, number] {
-  const first = Math.floor(outputCoordinate * sourceSize / outputSize);
-  const end = Math.ceil((outputCoordinate + 1) * sourceSize / outputSize);
+  const first = Math.floor((outputCoordinate * sourceSize) / outputSize);
+  const end = Math.ceil(((outputCoordinate + 1) * sourceSize) / outputSize);
   return [Math.max(0, first), Math.min(sourceSize, Math.max(first + 1, end))];
 }
 
@@ -46,7 +39,7 @@ export function reduceDepthToHzbLevel(
   sourceWidth: number,
   sourceHeight: number,
   outputWidth = Math.max(1, Math.floor(sourceWidth) >> 1),
-  outputHeight = Math.max(1, Math.floor(sourceHeight) >> 1)
+  outputHeight = Math.max(1, Math.floor(sourceHeight) >> 1),
 ): HzbLevel {
   if (sourceWidth < 1 || sourceHeight < 1) {
     throw new RangeError("HZB source dimensions must be positive");
@@ -104,13 +97,11 @@ export function reduceHzbLevel(source: HzbLevel): HzbLevel {
 export function buildHzbReference(
   depth: ArrayLike<number>,
   width: number,
-  height: number
+  height: number,
 ): readonly HzbLevel[] {
   const firstWidth = Math.max(1, Math.floor(width) >> 1);
   const firstHeight = Math.max(1, Math.floor(height) >> 1);
-  const levels: HzbLevel[] = [
-    reduceDepthToHzbLevel(depth, width, height, firstWidth, firstHeight)
-  ];
+  const levels: HzbLevel[] = [reduceDepthToHzbLevel(depth, width, height, firstWidth, firstHeight)];
   const count = hzbMipLevelCount(firstWidth, firstHeight);
   while (levels.length < count) {
     levels.push(reduceHzbLevel(levels[levels.length - 1]!));
@@ -122,7 +113,7 @@ export function buildHzbReference(
 export function isReverseZOccluded(
   candidateNearestDepth: number,
   hzbFarthestDepth: number,
-  epsilon = 1e-6
+  epsilon = 1e-6,
 ): boolean {
   const candidate = sanitizeReverseZDepth(candidateNearestDepth);
   const occluder = sanitizeReverseZDepth(hzbFarthestDepth);

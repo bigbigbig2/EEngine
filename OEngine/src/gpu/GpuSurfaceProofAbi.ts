@@ -3,8 +3,21 @@
  * local bounded protocol, not an upstream cache or proof algorithm transplant. */
 export const SURFACE_PROOF_RECORD_WORDS = 8;
 export const SURFACE_PROOF_RECORD_BYTES = SURFACE_PROOF_RECORD_WORDS * 4;
-export const SURFACE_PROOF_KIND = Object.freeze({ support: 0, geometry: 1, canonical: 2, screen: 3, provider: 4 });
-export const SURFACE_PROOF_STATE = Object.freeze({ unknown: 0, publication: 1, point: 2, constantDomain: 3, boundedDomain: 4, pending: 5 });
+export const SURFACE_PROOF_KIND = Object.freeze({
+  support: 0,
+  geometry: 1,
+  canonical: 2,
+  screen: 3,
+  provider: 4,
+});
+export const SURFACE_PROOF_STATE = Object.freeze({
+  unknown: 0,
+  publication: 1,
+  point: 2,
+  constantDomain: 3,
+  boundedDomain: 4,
+  pending: 5,
+});
 export const SURFACE_PROOF_MAX_NODES = 64;
 export const SURFACE_PROOF_MAX_QUERIES = 4;
 export const SURFACE_PROOF_MAX_VISITS = 32;

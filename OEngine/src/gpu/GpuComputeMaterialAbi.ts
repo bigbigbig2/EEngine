@@ -14,7 +14,7 @@ export const GPU_COMPUTE_MATERIAL_FORMATS = Object.freeze({
   normal: "rgba16uint",
   albedoAo: "rgba8unorm",
   material: "rg32uint",
-  velocity: "rg16float"
+  velocity: "rg16float",
 } as const);
 
 export interface GpuShadingSurfaceNormalEncoding {
@@ -22,14 +22,12 @@ export interface GpuShadingSurfaceNormalEncoding {
   readonly maxValue: 65535;
 }
 
-export const GPU_SHADING_SURFACE_NORMAL_OVERRIDE_NAME =
-  "OENGINE_SURFACE_NORMAL_MAX_VALUE" as const;
+export const GPU_SHADING_SURFACE_NORMAL_OVERRIDE_NAME = "OENGINE_SURFACE_NORMAL_MAX_VALUE" as const;
 
-export const GPU_SHADING_SURFACE_NORMAL_ENCODING: GpuShadingSurfaceNormalEncoding =
-  Object.freeze({
-    format: GPU_COMPUTE_MATERIAL_FORMATS.normal,
-    maxValue: 65535
-  });
+export const GPU_SHADING_SURFACE_NORMAL_ENCODING: GpuShadingSurfaceNormalEncoding = Object.freeze({
+  format: GPU_COMPUTE_MATERIAL_FORMATS.normal,
+  maxValue: 65535,
+});
 
 /** WGSL declaration shared by compact ShadingSurfaceLite normal consumers. */
 export const GPU_SHADING_SURFACE_NORMAL_WGSL = /* wgsl */ `
@@ -37,13 +35,13 @@ override ${GPU_SHADING_SURFACE_NORMAL_OVERRIDE_NAME}: f32 = ${GPU_SHADING_SURFAC
 `;
 
 export function gpuShadingSurfaceNormalPipelineConstants(
-  encoding: GpuShadingSurfaceNormalEncoding = GPU_SHADING_SURFACE_NORMAL_ENCODING
+  encoding: GpuShadingSurfaceNormalEncoding = GPU_SHADING_SURFACE_NORMAL_ENCODING,
 ): Readonly<Record<typeof GPU_SHADING_SURFACE_NORMAL_OVERRIDE_NAME, number>> {
   if (encoding.maxValue !== 65535) {
     throw new RangeError("Unsupported ShadingSurfaceLite normal encoding max value");
   }
   return Object.freeze({
-    [GPU_SHADING_SURFACE_NORMAL_OVERRIDE_NAME]: encoding.maxValue
+    [GPU_SHADING_SURFACE_NORMAL_OVERRIDE_NAME]: encoding.maxValue,
   }) as Readonly<Record<typeof GPU_SHADING_SURFACE_NORMAL_OVERRIDE_NAME, number>>;
 }
 
@@ -55,7 +53,7 @@ export const GPU_SHADING_SURFACE_FLAGS = Object.freeze({
   NormalTexture: 1 << 4,
   OrmTexture: 1 << 5,
   EmissiveTexture: 1 << 6,
-  Unlit: 1 << 7
+  Unlit: 1 << 7,
 } as const);
 
 export const GPU_SHADING_SURFACE_DEFINED_FLAGS_MASK = 0x00ff;
@@ -96,9 +94,7 @@ export const GPU_COMPUTE_MATERIAL_BYTES_PER_PIXEL = 24;
 /** Frozen Step 2 transition footprint: 32 B compute outputs + 26 B Surface V1 bridge. */
 export const GPU_COMPUTE_MATERIAL_STEP2_TRANSITION_BYTES_PER_PIXEL = 58;
 
-export function gpuComputeMaterialBytesPerPixel(
-  options: Readonly<{ velocity: boolean }>
-): number {
+export function gpuComputeMaterialBytesPerPixel(options: Readonly<{ velocity: boolean }>): number {
   return options.velocity
     ? GPU_COMPUTE_MATERIAL_BYTES_PER_PIXEL
     : GPU_COMPUTE_MATERIAL_BYTES_PER_PIXEL_WITHOUT_VELOCITY;
@@ -112,37 +108,27 @@ export interface GpuShadingSurfaceLiteProfile {
 }
 
 /** The sole production compact ShadingSurfaceLite physical profile. */
-export const GPU_SHADING_SURFACE_LITE_PROFILE: GpuShadingSurfaceLiteProfile =
-  Object.freeze({
-    version: GPU_COMPUTE_MATERIAL_ABI_VERSION,
-    normalEncoding: GPU_SHADING_SURFACE_NORMAL_ENCODING,
-    bytesPerPixelWithVelocity: GPU_COMPUTE_MATERIAL_BYTES_PER_PIXEL,
-    bytesPerPixelWithoutVelocity:
-      GPU_COMPUTE_MATERIAL_BYTES_PER_PIXEL_WITHOUT_VELOCITY
-  });
+export const GPU_SHADING_SURFACE_LITE_PROFILE: GpuShadingSurfaceLiteProfile = Object.freeze({
+  version: GPU_COMPUTE_MATERIAL_ABI_VERSION,
+  normalEncoding: GPU_SHADING_SURFACE_NORMAL_ENCODING,
+  bytesPerPixelWithVelocity: GPU_COMPUTE_MATERIAL_BYTES_PER_PIXEL,
+  bytesPerPixelWithoutVelocity: GPU_COMPUTE_MATERIAL_BYTES_PER_PIXEL_WITHOUT_VELOCITY,
+});
 
 export const GPU_COMPUTE_MATERIAL_PACKED_CHANNELS = Object.freeze({
   pbrFlags: 0,
-  emissive: 1
+  emissive: 1,
 } as const);
 
-export function packComputeMaterialPbr(
-  metallic: number,
-  roughness: number
-): number {
+export function packComputeMaterialPbr(metallic: number, roughness: number): number {
   return packUnorm8(metallic) | (packUnorm8(roughness) << 8);
 }
 
-export function unpackComputeMaterialPbr(
-  packed: number
-): readonly [number, number] {
+export function unpackComputeMaterialPbr(packed: number): readonly [number, number] {
   if (!Number.isInteger(packed) || packed < 0 || packed > 0xffff) {
     throw new RangeError("Packed SurfaceLite PBR must be a u16");
   }
-  return Object.freeze([
-    (packed & 0xff) / 0xff,
-    ((packed >>> 8) & 0xff) / 0xff
-  ] as const);
+  return Object.freeze([(packed & 0xff) / 0xff, ((packed >>> 8) & 0xff) / 0xff] as const);
 }
 
 export const GPU_COMPUTE_MATERIAL_ABI_WGSL = /* wgsl */ `

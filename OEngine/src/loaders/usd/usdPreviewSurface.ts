@@ -10,7 +10,7 @@ import { getAttrDefault } from "./usdAttrs.js";
 
 export function buildUsdPreviewSurfaceMaterial(
   materialPath: string,
-  specs: UsdSpecsByPath
+  specs: UsdSpecsByPath,
 ): StandardShadeMaterial {
   const n = new StandardShadeMaterial();
   n.name = materialPath.split("/").pop() as string;
@@ -37,11 +37,7 @@ export function buildUsdPreviewSurfaceMaterial(
       n.transparency_mode = ShadeTransparencyMode.Transparent;
     }
     const d = getAttrDefault(specs, shaderPath, "inputs:emissiveColor");
-    if (
-      d &&
-      Array.isArray(d) &&
-      Math.max(d[0] as number, d[1] as number, d[2] as number) > 0
-    ) {
+    if (d && Array.isArray(d) && Math.max(d[0] as number, d[1] as number, d[2] as number) > 0) {
       n.emissive_factor.setRGB(d[0] as number, d[1] as number, d[2] as number);
     }
     break;
@@ -51,9 +47,7 @@ export function buildUsdPreviewSurfaceMaterial(
 
 export const oc = buildUsdPreviewSurfaceMaterial;
 
-export function buildUsdMaterials(
-  specs: UsdSpecsByPath
-): Map<string, StandardShadeMaterial> {
+export function buildUsdMaterials(specs: UsdSpecsByPath): Map<string, StandardShadeMaterial> {
   const t = new Map<string, StandardShadeMaterial>();
   for (const n of Object.keys(specs)) {
     const r = specs[n]!;

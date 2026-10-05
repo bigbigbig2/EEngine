@@ -8,10 +8,7 @@ import type { ShadeTexture } from "../texture/ShadeTexture.js";
 import { ShadeTextureFlags } from "../texture/ShadeTextureFlags.js";
 import { textureMipLevelCount } from "./GPUTextureContext.js";
 import { id } from "./GPUTextureDescriptors.js";
-import {
-  recordGpuQueueUpload,
-  writeGpuTexture
-} from "./GpuQueueEvidence.js";
+import { recordGpuQueueUpload, writeGpuTexture } from "./GpuQueueEvidence.js";
 
 export type ShadeGpuImage = Pick<
   ShadeImage,
@@ -26,14 +23,9 @@ export type ShadeGpuImage = Pick<
   | "source"
 >;
 
-export function shadeTextureDescriptor(
-  texture: ShadeTexture
-): id {
+export function shadeTextureDescriptor(texture: ShadeTexture): id {
   const image = requireShadeImage(texture);
-  let usage =
-    GPUTextureUsage.TEXTURE_BINDING |
-    GPUTextureUsage.COPY_DST |
-    GPUTextureUsage.COPY_SRC;
+  let usage = GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC;
   let mipLevelCount = 1;
   if ((texture.flags & ShadeTextureFlags.GenerateMipMaps) !== 0) {
     usage |= GPUTextureUsage.RENDER_ATTACHMENT;
@@ -48,7 +40,7 @@ export function shadeTextureDescriptor(
     format: shadeImageTextureFormat(image),
     usage,
     mipLevelCount,
-    dimension
+    dimension,
   });
 }
 
@@ -57,10 +49,7 @@ export function shadeImageTextureFormat(image: ShadeGpuImage): GPUTextureFormat 
     if (image.data_type === ShadeDataType.Float16) return "rgba16float";
     return image.color_space === 1 ? "rgba8unorm-srgb" : "rgba8unorm";
   }
-  if (
-    !isSampler2DSource(image.source) &&
-    !(image.source instanceof ArrayBuffer)
-  ) {
+  if (!isSampler2DSource(image.source) && !(image.source instanceof ArrayBuffer)) {
     throw new Error("Unsupported image data");
   }
   const supportedChannels = [1, 2, 4];
@@ -88,10 +77,7 @@ export function shadeImageTextureFormat(image: ShadeGpuImage): GPUTextureFormat 
       image.data_type === ShadeDataType.Uint32
     ) {
       suffix = image.normalized ? "unorm" : "uint";
-    } else if (
-      image.data_type === ShadeDataType.Float32 ||
-      image.data_type === ShadeDataType.Float16
-    ) {
+    } else if (image.data_type === ShadeDataType.Float32 || image.data_type === ShadeDataType.Float16) {
       suffix = "float";
     } else {
       throw new Error(`Unsupported data type '${image.data_type}'`);
@@ -107,20 +93,12 @@ export function shadeImageTextureFormat(image: ShadeGpuImage): GPUTextureFormat 
   return `${prefix}${bits}${suffix}` as GPUTextureFormat;
 }
 
-export function uploadShadeImage(
-  image: ShadeGpuImage,
-  texture: GPUTexture,
-  queue: GPUQueue
-): void {
+export function uploadShadeImage(image: ShadeGpuImage, texture: GPUTexture, queue: GPUQueue): void {
   const source = image.source;
   if (source === null || source === undefined) {
     throw new Error("source is undefined or null");
   }
-  const size: GPUExtent3DStrict = [
-    texture.width,
-    texture.height,
-    texture.depthOrArrayLayers
-  ];
+  const size: GPUExtent3DStrict = [texture.width, texture.height, texture.depthOrArrayLayers];
   const premultipliedAlpha = image.color_space !== 0;
   if (isSampler2DSource(source)) {
     const data = source.data;
@@ -130,33 +108,16 @@ export function uploadShadeImage(
     if (!(data.buffer instanceof ArrayBuffer)) {
       throw new Error("Sampler2D SharedArrayBuffer data is unsupported");
     }
-    uploadRawShadeImage(
-      image,
-      data.buffer,
-      queue,
-      texture,
-      premultipliedAlpha
-    );
+    uploadRawShadeImage(image, data.buffer, queue, texture, premultipliedAlpha);
   } else if (source instanceof ArrayBuffer) {
-    uploadRawShadeImage(
-      image,
-      source,
-      queue,
-      texture,
-      premultipliedAlpha
-    );
+    uploadRawShadeImage(image, source, queue, texture, premultipliedAlpha);
   } else if (isImageBitmapSource(source)) {
     recordGpuQueueUpload(
       queue,
       "GPUTextureUpload/external-image",
-      image.width * image.height * image.depth * image.channel_count *
-        dataTypeBytes(image.data_type)
+      image.width * image.height * image.depth * image.channel_count * dataTypeBytes(image.data_type),
     );
-    queue.copyExternalImageToTexture(
-      { source },
-      { texture, premultipliedAlpha },
-      size
-    );
+    queue.copyExternalImageToTexture({ source }, { texture, premultipliedAlpha }, size);
   } else {
     throw new Error("Unsupported image data");
   }
@@ -175,16 +136,14 @@ function uploadRawShadeImage(
   source: ArrayBuffer,
   queue: GPUQueue,
   texture: GPUTexture,
-  premultipliedAlpha: boolean
+  premultipliedAlpha: boolean,
 ): void {
   const bytesPerComponent = dataTypeBytes(image.data_type);
   let bytesPerRow = image.channel_count * bytesPerComponent * image.width;
   let upload = source;
   if (image.channel_count === 3) {
     if (textureFormatChannelCount(texture.format) !== 4) {
-      throw new Error(
-        `Unsupported texture format '${texture.format}', expected 4 channels`
-      );
+      throw new Error(`Unsupported texture format '${texture.format}', expected 4 channels`);
     }
     const pixelCount = image.width * image.height * image.depth;
     upload = new ArrayBuffer(4 * bytesPerComponent * pixelCount);
@@ -192,18 +151,15 @@ function uploadRawShadeImage(
     const output = new Uint8Array(upload);
     for (let pixel = 0; pixel < pixelCount; pixel++) {
       output.set(
-        input.subarray(
-          pixel * bytesPerComponent * 3,
-          (pixel + 1) * bytesPerComponent * 3
-        ),
-        pixel * bytesPerComponent * 4
+        input.subarray(pixel * bytesPerComponent * 3, (pixel + 1) * bytesPerComponent * 3),
+        pixel * bytesPerComponent * 4,
       );
     }
     bytesPerRow = bytesPerComponent * image.width * 4;
   }
   const layout: GPUImageDataLayout = {
     offset: 0,
-    bytesPerRow
+    bytesPerRow,
   };
   if (image.depth > 1) layout.rowsPerImage = image.height;
   writeGpuTexture(
@@ -214,7 +170,7 @@ function uploadRawShadeImage(
     },
     upload,
     layout,
-    [image.width, image.height, image.depth]
+    [image.width, image.height, image.depth],
   );
 }
 
@@ -246,9 +202,7 @@ function textureFormatChannelCount(format: GPUTextureFormat): number {
   return 1;
 }
 
-function isSampler2DSource(
-  source: unknown
-): source is { isSampler2D: true; data: ArrayBufferView } {
+function isSampler2DSource(source: unknown): source is { isSampler2D: true; data: ArrayBufferView } {
   return (
     typeof source === "object" &&
     source !== null &&

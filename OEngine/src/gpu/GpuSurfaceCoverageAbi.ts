@@ -4,12 +4,18 @@ export const SURFACE_ACTIVE_TILE_COUNT_WORD = 127;
 export const SURFACE_MIXED_MAP_CURSOR_WORD = 126;
 export const SURFACE_WORK_MODE = Object.freeze({ implicitFine: 2, uniform: 3, mixed: 4 });
 
-export function surfaceCoverageLayout(tiles: number): Readonly<{ tileOffset: number; activeOffset: number; bytes: number }> {
+export function surfaceCoverageLayout(
+  tiles: number,
+): Readonly<{ tileOffset: number; activeOffset: number; bytes: number }> {
   if (!Number.isSafeInteger(tiles) || tiles < 1 || tiles > 0x1fffffff) {
     throw new RangeError("Invalid Surface coverage capacity");
   }
   const activeOffset = SURFACE_COVERAGE_HEADER_WORDS + tiles * SURFACE_COVERAGE_TILE_WORDS;
-  return Object.freeze({ tileOffset: SURFACE_COVERAGE_HEADER_WORDS, activeOffset, bytes: (activeOffset + tiles) * 4 });
+  return Object.freeze({
+    tileOffset: SURFACE_COVERAGE_HEADER_WORDS,
+    activeOffset,
+    bytes: (activeOffset + tiles) * 4,
+  });
 }
 
 export const SURFACE_COVERAGE_WGSL = /* wgsl */ `

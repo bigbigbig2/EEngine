@@ -13,36 +13,36 @@ import type { MeshletGeometryBase } from "../geometry/BoxGeometry.js";
 import {
   createSourceGeometry,
   type SourceGeometry,
-  type SourceNumericArray
+  type SourceNumericArray,
 } from "../assets/SourceGeometry.js";
 import { SceneBundle } from "./SceneBundle.js";
-import {
-  GltfLoader,
-  type GltfDocument,
-  type GltfFileMap,
-  type GltfPrimitive
-} from "./gltf/GltfLoader.js";
+import { GltfLoader, type GltfDocument, type GltfFileMap, type GltfPrimitive } from "./gltf/GltfLoader.js";
 import {
   readAccessor,
   createGltfGeometryBuildContext,
   primitiveToGeometry,
-  primitiveToSourceGeometry
+  primitiveToSourceGeometry,
 } from "./gltf/gltfGeometry.js";
 import { parseGltfMaterial } from "./gltf/gltfMaterials.js";
 import { buildGltfTextures } from "./gltf/gltfTextures.js";
 import { buildGltfAnimationClips } from "./gltf/gltfAnimations.js";
 import { dedupeByHashEquals } from "./gltf/gltfDedup.js";
-import {
-  applyDirSpotLookRotation,
-  parsePunctualLight
-} from "./gltf/gltfLights.js";
+import { applyDirSpotLookRotation, parsePunctualLight } from "./gltf/gltfLights.js";
 import { WebCookRuntimeAsset } from "../assets/web-cook/WebCookRuntimeAsset.js";
-import type { WebCookClientOptions, WebCookProgress, WebCookSceneCatalogSnapshot } from "../assets/web-cook/WebCookClient.js";
+import type {
+  WebCookClientOptions,
+  WebCookProgress,
+  WebCookSceneCatalogSnapshot,
+} from "../assets/web-cook/WebCookClient.js";
 import type { WebCookProductTaskTraceEventV1 } from "../assets/web-cook/ProductTaskTrace.js";
 import { createDefaultWebCookWorker } from "../assets/web-cook/WebCookWorkerFactory.js";
 import type { WebCookWorkerPort } from "../assets/web-cook/WebCookWorkerTransport.js";
 import { WebCookBudgetLedger } from "../assets/web-cook/WebCookBudget.js";
-import type { WebCookBudgets, WebCookBootstrapOptions, WebCookRuntimeProfile } from "../assets/web-cook/protocol/CookSessionProtocol.js";
+import type {
+  WebCookBudgets,
+  WebCookBootstrapOptions,
+  WebCookRuntimeProfile,
+} from "../assets/web-cook/protocol/CookSessionProtocol.js";
 import type { GlbRangeSourceOptions } from "./gltf/streaming/GlbRangeSource.js";
 
 /** Options for the public Product-first glTF facade. */
@@ -58,7 +58,11 @@ export interface LoadGltfOptions {
   readonly maxBufferedBytes?: number;
   readonly ledger?: WebCookBudgetLedger;
   readonly priority?: number;
-  readonly initialSourcePriorities?: readonly { readonly assetKey: string; readonly score: number; readonly cameraHintRevision: number }[];
+  readonly initialSourcePriorities?: readonly {
+    readonly assetKey: string;
+    readonly score: number;
+    readonly cameraHintRevision: number;
+  }[];
   /** Bounds the first Product cut; omit to use the visibility-driven automatic selection. */
   readonly bootstrap?: WebCookBootstrapOptions;
   readonly source?: GlbRangeSourceOptions;
@@ -74,13 +78,13 @@ const DEFAULT_LOAD_GLTF_BUDGETS: WebCookBudgets = Object.freeze({
   maxSourceBytes: 128 * 1024 * 1024,
   maxWasmBytes: 128 * 1024 * 1024,
   maxOutputBytes: 256 * 1024 * 1024,
-  maxQueuedEvents: 1024
+  maxQueuedEvents: 1024,
 });
 const DEFAULT_LOAD_GLTF_LEDGER = new WebCookBudgetLedger({
   maxActiveSessions: 4,
   maxOutputBytes: 512 * 1024 * 1024,
   maxSourceBytes: 512 * 1024 * 1024,
-  maxWasmBytes: 512 * 1024 * 1024
+  maxWasmBytes: 512 * 1024 * 1024,
 });
 
 function buildSceneBundle(doc: GltfDocument): SceneBundle {
@@ -100,10 +104,7 @@ function buildSceneBundle(doc: GltfDocument): SceneBundle {
   let geometryCount = 0;
   const geometryErrors: string[] = [];
 
-  function obtainGeometry(
-    primitive: GltfPrimitive,
-    primIndex: number
-  ): MeshletGeometryBase | null {
+  function obtainGeometry(primitive: GltfPrimitive, primIndex: number): MeshletGeometryBase | null {
     primitiveCount++;
     try {
       const geometry = primitiveToGeometry(doc, primitive, "", geomCtx);
@@ -112,19 +113,12 @@ function buildSceneBundle(doc: GltfDocument): SceneBundle {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       geometryErrors.push(`primitive ${primIndex}: ${message}`);
-      console.error(
-        `Failed to obtain geometry for primitive [${primIndex}] ${primitive}. `,
-        err
-      );
+      console.error(`Failed to obtain geometry for primitive [${primIndex}] ${primitive}. `, err);
       return null;
     }
   }
 
-  function buildMeshInstances(
-    meshIndex: number,
-    gltfNode: (typeof nodes)[number],
-    skinned: boolean
-  ): Mesh[] {
+  function buildMeshInstances(meshIndex: number, gltfNode: (typeof nodes)[number], skinned: boolean): Mesh[] {
     const r = meshes[meshIndex]!;
     const s = r.primitives;
     const o: Mesh[] = [];
@@ -198,7 +192,7 @@ function buildSceneBundle(doc: GltfDocument): SceneBundle {
     if (c !== null) {
       skinPending.push({
         skin_index: skinIdx,
-        meshes: c as SkinnedMesh[]
+        meshes: c as SkinnedMesh[],
       });
     }
     if (r.children !== undefined) {
@@ -220,12 +214,10 @@ function buildSceneBundle(doc: GltfDocument): SceneBundle {
   }
 
   if (primitiveCount > 0 && geometryCount === 0) {
-    const extensions = doc.extensionsUsed?.length
-      ? ` extensionsUsed=${doc.extensionsUsed.join(",")}.`
-      : "";
+    const extensions = doc.extensionsUsed?.length ? ` extensionsUsed=${doc.extensionsUsed.join(",")}.` : "";
     throw new Error(
       `glTF contains ${primitiveCount} mesh primitive(s), but none could be decoded.${extensions} ` +
-        geometryErrors.slice(0, 4).join("; ")
+        geometryErrors.slice(0, 4).join("; "),
     );
   }
 
@@ -238,13 +230,7 @@ function buildSceneBundle(doc: GltfDocument): SceneBundle {
     }
     let c: Float32Array;
     if (e.inverseBindMatrices !== undefined) {
-      c = Float32Array.from(
-        readAccessor(
-          doc,
-          e.inverseBindMatrices,
-          "inverse_bind_matrices"
-        ).data
-      );
+      c = Float32Array.from(readAccessor(doc, e.inverseBindMatrices, "inverse_bind_matrices").data);
     } else {
       c = new Float32Array(16 * i);
       for (let j = 0; j < i; j++) {
@@ -258,7 +244,7 @@ function buildSceneBundle(doc: GltfDocument): SceneBundle {
       name: e.name ?? "",
       joints: _,
       inverse_bind_matrices: c,
-      meshes: []
+      meshes: [],
     });
   });
 
@@ -297,9 +283,7 @@ export interface PackedGltfSource {
 
 export function buildPackedGltfSource(doc: GltfDocument): PackedGltfSource {
   const textures = buildGltfTextures(doc);
-  const materials = (doc.materials ?? []).map((material) =>
-    parseGltfMaterial(material, textures)
-  );
+  const materials = (doc.materials ?? []).map((material) => parseGltfMaterial(material, textures));
   const defaultMaterial = new StandardShadeMaterial();
   const geometryContext = createGltfGeometryBuildContext();
   // A glTF mesh primitive is immutable within one parsed document. Cache by
@@ -339,17 +323,20 @@ export function buildPackedGltfSource(doc: GltfDocument): PackedGltfSource {
     if (cached !== undefined) return cached;
     const mesh = meshes[meshIndex];
     if (mesh === undefined) throw new Error(`glTF references missing mesh ${meshIndex}`);
-    const groups = new Map<string, {
-      materialIndex: number;
-      sources: SourceGeometry[];
-    }>();
+    const groups = new Map<
+      string,
+      {
+        materialIndex: number;
+        sources: SourceGeometry[];
+      }
+    >();
     for (let primitiveIndex = 0; primitiveIndex < mesh.primitives.length; primitiveIndex++) {
       const primitive = mesh.primitives[primitiveIndex]!;
       const source = primitiveToSourceGeometry(
         doc,
         primitive,
         `${mesh.name ?? `mesh-${meshIndex}`}/primitive-${primitiveIndex}`,
-        geometryContext
+        geometryContext,
       );
       const materialIndex = resolveMaterialIndex(primitive);
       const key = `${materialIndex}|${sourceGeometryMergeKey(source)}`;
@@ -360,17 +347,20 @@ export function buildPackedGltfSource(doc: GltfDocument): PackedGltfSource {
       }
       group.sources.push(source);
     }
-    const normalized = Object.freeze([...groups.values()].map((group, groupIndex) =>
-      Object.freeze({
-        source: group.sources.length === 1
-          ? group.sources[0]!
-          : mergeSourceGeometryGroup(
-              group.sources,
-              `${mesh.name ?? `mesh-${meshIndex}`}/static-merge-${groupIndex}`
-            ),
-        materialIndex: group.materialIndex
-      })
-    ));
+    const normalized = Object.freeze(
+      [...groups.values()].map((group, groupIndex) =>
+        Object.freeze({
+          source:
+            group.sources.length === 1
+              ? group.sources[0]!
+              : mergeSourceGeometryGroup(
+                  group.sources,
+                  `${mesh.name ?? `mesh-${meshIndex}`}/static-merge-${groupIndex}`,
+                ),
+          materialIndex: group.materialIndex,
+        }),
+      ),
+    );
     normalizedMeshes.set(meshIndex, normalized);
     return normalized;
   };
@@ -382,7 +372,7 @@ export function buildPackedGltfSource(doc: GltfDocument): PackedGltfSource {
     if (node.mesh === undefined) continue;
     if (node.skin !== undefined) {
       throw new Error(
-        `GpuRenderWorld does not support skinned glTF node ${nodeIndex}; animated rendering is outside the current product scope`
+        `GpuRenderWorld does not support skinned glTF node ${nodeIndex}; animated rendering is outside the current product scope`,
       );
     }
     const normalized = normalizeMesh(node.mesh);
@@ -434,7 +424,7 @@ export function buildPackedGltfSource(doc: GltfDocument): PackedGltfSource {
     boundsMin: Float32Array.from(boundsMin),
     boundsMax: Float32Array.from(boundsMax),
     flags: Uint32Array.from(flags),
-    debugIds: Uint32Array.from(debugIds)
+    debugIds: Uint32Array.from(debugIds),
   });
 }
 
@@ -447,16 +437,13 @@ function sourceGeometryMergeKey(source: SourceGeometry): string {
       stream.semantic,
       stream.componentCount,
       stream.normalized,
-      stream.dataType
-    ])
+      stream.dataType,
+    ]),
   });
 }
 
 /** Merges material/layout-compatible primitives without baking node transforms. */
-function mergeSourceGeometryGroup(
-  sources: readonly SourceGeometry[],
-  sourceId: string
-): SourceGeometry {
+function mergeSourceGeometryGroup(sources: readonly SourceGeometry[], sourceId: string): SourceGeometry {
   if (sources.length < 2) throw new RangeError("Static merge requires at least two sources");
   const first = sources[0]!;
   const key = sourceGeometryMergeKey(first);
@@ -465,8 +452,12 @@ function mergeSourceGeometryGroup(
   }
   const totalVertices = sources.reduce((sum, source) => sum + source.vertexCount, 0);
   const totalIndices = sources.reduce((sum, source) => sum + source.indices.length, 0);
-  if (!Number.isSafeInteger(totalVertices) || totalVertices > 0xffffffff ||
-    !Number.isSafeInteger(totalIndices) || totalIndices > 0xffffffff) {
+  if (
+    !Number.isSafeInteger(totalVertices) ||
+    totalVertices > 0xffffffff ||
+    !Number.isSafeInteger(totalIndices) ||
+    totalIndices > 0xffffffff
+  ) {
     throw new RangeError("Static merge exceeds u32 geometry capacity");
   }
   const indices = new Uint32Array(totalIndices);
@@ -482,21 +473,22 @@ function mergeSourceGeometryGroup(
   }
   const attributes = [...first.attributes.values()].map((firstStream) => {
     const totalValues = totalVertices * firstStream.componentCount;
-    const Constructor = firstStream.data.constructor as unknown as
-      new (length: number) => SourceNumericArray;
+    const Constructor = firstStream.data.constructor as unknown as new (length: number) => SourceNumericArray;
     const data = new Constructor(totalValues);
     let valueCursor = 0;
     for (const source of sources) {
       const stream = source.attributes.get(firstStream.semantic)!;
-      (data as SourceNumericArray & { set(values: ArrayLike<number>, offset: number): void })
-        .set(stream.data, valueCursor);
+      (data as SourceNumericArray & { set(values: ArrayLike<number>, offset: number): void }).set(
+        stream.data,
+        valueCursor,
+      );
       valueCursor += stream.data.length;
     }
     return {
       semantic: firstStream.semantic,
       componentCount: firstStream.componentCount,
       normalized: firstStream.normalized,
-      data
+      data,
     };
   });
   const material = first.materialRanges[0]!;
@@ -504,13 +496,15 @@ function mergeSourceGeometryGroup(
     sourceId,
     indices,
     attributes,
-    materialRanges: [{
-      firstTriangle: 0,
-      triangleCount: totalIndices / 3,
-      materialId: material.materialId,
-      alphaMode: material.alphaMode,
-      doubleSided: material.doubleSided
-    }]
+    materialRanges: [
+      {
+        firstTriangle: 0,
+        triangleCount: totalIndices / 3,
+        materialId: material.materialId,
+        alphaMode: material.alphaMode,
+        doubleSided: material.doubleSided,
+      },
+    ],
   });
 }
 
@@ -522,21 +516,20 @@ function mergeSourceGeometryGroup(
  * This keeps the public load path out of the legacy full-array-buffer
  * SceneBundle/V2 geometry route.
  */
-export function load_gltf(
-  source: string | Blob,
-  options: LoadGltfOptions = {}
-): WebCookRuntimeAsset {
+export function load_gltf(source: string | Blob, options: LoadGltfOptions = {}): WebCookRuntimeAsset {
   const budgets: WebCookBudgets = Object.freeze({
     ...DEFAULT_LOAD_GLTF_BUDGETS,
-    ...(options.budgets ?? {})
+    ...(options.budgets ?? {}),
   });
-  const worker = options.worker ?? createDefaultWebCookWorker({
-    maxCanonicalInputBytes: budgets.maxSourceBytes,
-    maxSourceWindowBytes: budgets.maxSourceBytes,
-    maxDecodedProductBytes: budgets.maxOutputBytes,
-    runtimeProfile: options.runtimeProfile,
-    maxWorkers: budgets.maxConcurrentWorkers
-  });
+  const worker =
+    options.worker ??
+    createDefaultWebCookWorker({
+      maxCanonicalInputBytes: budgets.maxSourceBytes,
+      maxSourceWindowBytes: budgets.maxSourceBytes,
+      maxDecodedProductBytes: budgets.maxOutputBytes,
+      runtimeProfile: options.runtimeProfile,
+      maxWorkers: budgets.maxConcurrentWorkers,
+    });
   const sessionId = options.sessionId ?? `load-gltf-${crypto.randomUUID()}`;
   const sessionGeneration = options.sessionGeneration ?? 1;
   const initialOutputPageCredits = options.initialOutputPageCredits ?? 64;
@@ -557,7 +550,7 @@ export function load_gltf(
     source: options.source,
     onSceneCatalogReady: options.onSceneCatalogReady,
     onProgress: options.onProgress,
-    onProductTaskTrace: options.onProductTaskTrace
+    onProductTaskTrace: options.onProductTaskTrace,
   });
 }
 
@@ -568,7 +561,7 @@ export function load_gltf(
 /** @internal Legacy oracle/tool route; not exported from the public package. */
 export async function load_gltf_packed(
   url: string,
-  { fileMap }: { fileMap?: GltfFileMap } = {}
+  { fileMap }: { fileMap?: GltfFileMap } = {},
 ): Promise<PackedGltfSource> {
   const loader = new GltfLoader();
   if (fileMap) loader.fileMap = fileMap;
@@ -582,7 +575,7 @@ export async function load_gltf_packed(
  */
 export function load_gltf_web_product(
   source: string | Blob,
-  options: WebCookClientOptions
+  options: WebCookClientOptions,
 ): WebCookRuntimeAsset {
   return WebCookRuntimeAsset.open(source, options);
 }

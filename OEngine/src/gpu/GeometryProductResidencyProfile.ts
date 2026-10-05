@@ -59,12 +59,12 @@ export interface GeometryProductResidencyProfilePlanV1 {
 const PROFILE_BANK_BYTES: Readonly<Record<GeometryProductResidencyProfileIdV1, number>> = Object.freeze({
   Portable: GEOMETRY_PRODUCT_PORTABLE_BANK_BYTES_V1,
   Balanced: GEOMETRY_PRODUCT_BALANCED_BANK_BYTES_V1,
-  HighEnd: GEOMETRY_PRODUCT_HIGH_END_BANK_BYTES_V1
+  HighEnd: GEOMETRY_PRODUCT_HIGH_END_BANK_BYTES_V1,
 });
 const PROFILE_ORDER: readonly GeometryProductResidencyProfileIdV1[] = Object.freeze([
   "Portable",
   "Balanced",
-  "HighEnd"
+  "HighEnd",
 ]);
 
 /**
@@ -73,14 +73,17 @@ const PROFILE_ORDER: readonly GeometryProductResidencyProfileIdV1[] = Object.fre
  */
 export function selectGeometryProductResidencyProfileV1(
   limits: GeometryProductResidencyLimitsV1,
-  options: GeometryProductResidencyProfileOptionsV1 = {}
+  options: GeometryProductResidencyProfileOptionsV1 = {},
 ): GeometryProductResidencyProfilePlanV1 {
   const normalizedLimits = normalizeLimits(limits);
   const requestedProfile = options.requestedProfile ?? "auto";
   const evidence = normalizeEvidence(options.runtimeEvidence);
   const featureEnabled = options.featureEnabled ?? true;
   const configuredCapacityBytes = options.configuredCapacityBytes ?? Number.POSITIVE_INFINITY;
-  if (!(configuredCapacityBytes > 0) || !Number.isFinite(configuredCapacityBytes) && configuredCapacityBytes !== Number.POSITIVE_INFINITY) {
+  if (
+    !(configuredCapacityBytes > 0) ||
+    (!Number.isFinite(configuredCapacityBytes) && configuredCapacityBytes !== Number.POSITIVE_INFINITY)
+  ) {
     throw new RangeError("Geometry Product configuredCapacityBytes must be positive or infinite");
   }
   if (!featureEnabled) return disabledPlan(normalizedLimits, requestedProfile, evidence, "feature-off");
@@ -90,24 +93,31 @@ export function selectGeometryProductResidencyProfileV1(
 
   const maximumBankBytes = Math.min(
     normalizedLimits.maxBufferSize,
-    normalizedLimits.maxStorageBufferBindingSize
+    normalizedLimits.maxStorageBufferBindingSize,
   );
-  const capacityLimit = Math.min(configuredCapacityBytes, maximumBankBytes * GEOMETRY_PRODUCT_RESIDENCY_BANK_COUNT_V1);
+  const capacityLimit = Math.min(
+    configuredCapacityBytes,
+    maximumBankBytes * GEOMETRY_PRODUCT_RESIDENCY_BANK_COUNT_V1,
+  );
   const autoPressure = evidence.pressure ?? derivePressure(evidence);
-  const requested = requestedProfile === "auto"
-    ? autoPressure >= 0.75 || (evidence.demandOverflow ?? 0) > 0 || (evidence.fallbackGroups ?? 0) > 0
-      ? "HighEnd"
-      : "Portable"
-    : requestedProfile;
+  const requested =
+    requestedProfile === "auto"
+      ? autoPressure >= 0.75 || (evidence.demandOverflow ?? 0) > 0 || (evidence.fallbackGroups ?? 0) > 0
+        ? "HighEnd"
+        : "Portable"
+      : requestedProfile;
   const requestedIndex = PROFILE_ORDER.indexOf(requested);
   for (let index = requestedIndex; index >= 0; index--) {
     const profile = PROFILE_ORDER[index]!;
     const bankBytes = PROFILE_BANK_BYTES[profile]!;
     const capacityBytes = bankBytes * GEOMETRY_PRODUCT_RESIDENCY_BANK_COUNT_V1;
     if (bankBytes > maximumBankBytes || capacityBytes > configuredCapacityBytes) continue;
-    const fallbackFrom = profile === requestedProfile || requestedProfile === "auto"
-      ? undefined
-      : profile === requested ? undefined : requestedProfile;
+    const fallbackFrom =
+      profile === requestedProfile || requestedProfile === "auto"
+        ? undefined
+        : profile === requested
+          ? undefined
+          : requestedProfile;
     return Object.freeze({
       abiVersion: GEOMETRY_PRODUCT_RESIDENCY_PROFILE_ABI_VERSION_V1,
       enabled: true,
@@ -121,31 +131,44 @@ export function selectGeometryProductResidencyProfileV1(
       capacityBytes,
       negotiatedLimits: normalizedLimits,
       runtimeEvidence: evidence,
-      ...(fallbackFrom === undefined ? {} : { fallbackFrom })
+      ...(fallbackFrom === undefined ? {} : { fallbackFrom }),
     });
   }
   return disabledPlan(normalizedLimits, requestedProfile, evidence, "configured-budget");
 }
 
-function normalizeLimits(limits: GeometryProductResidencyLimitsV1): Readonly<GeometryProductResidencyLimitsV1> {
+function normalizeLimits(
+  limits: GeometryProductResidencyLimitsV1,
+): Readonly<GeometryProductResidencyLimitsV1> {
   const normalized = {
     maxBufferSize: Number(limits.maxBufferSize),
     maxStorageBufferBindingSize: Number(limits.maxStorageBufferBindingSize),
-    maxStorageBuffersPerShaderStage: Number(limits.maxStorageBuffersPerShaderStage)
+    maxStorageBuffersPerShaderStage: Number(limits.maxStorageBuffersPerShaderStage),
   };
   for (const [name, value] of Object.entries(normalized)) {
-    if (!Number.isSafeInteger(value) || value <= 0) throw new RangeError(`Geometry Product ${name} limit is invalid`);
+    if (!Number.isSafeInteger(value) || value <= 0)
+      throw new RangeError(`Geometry Product ${name} limit is invalid`);
   }
   return Object.freeze(normalized);
 }
 
-function normalizeEvidence(evidence: GeometryProductResidencyRuntimeEvidenceV1 | undefined): Readonly<GeometryProductResidencyRuntimeEvidenceV1> {
+function normalizeEvidence(
+  evidence: GeometryProductResidencyRuntimeEvidenceV1 | undefined,
+): Readonly<GeometryProductResidencyRuntimeEvidenceV1> {
   const normalized: GeometryProductResidencyRuntimeEvidenceV1 = Object.freeze({
-    ...(evidence?.residentBytes === undefined ? {} : { residentBytes: nonNegative(evidence.residentBytes, "residentBytes") }),
-    ...(evidence?.retiringBytes === undefined ? {} : { retiringBytes: nonNegative(evidence.retiringBytes, "retiringBytes") }),
-    ...(evidence?.demandOverflow === undefined ? {} : { demandOverflow: nonNegative(evidence.demandOverflow, "demandOverflow") }),
-    ...(evidence?.fallbackGroups === undefined ? {} : { fallbackGroups: nonNegative(evidence.fallbackGroups, "fallbackGroups") }),
-    ...(evidence?.pressure === undefined ? {} : { pressure: finiteRatio(evidence.pressure, "pressure") })
+    ...(evidence?.residentBytes === undefined
+      ? {}
+      : { residentBytes: nonNegative(evidence.residentBytes, "residentBytes") }),
+    ...(evidence?.retiringBytes === undefined
+      ? {}
+      : { retiringBytes: nonNegative(evidence.retiringBytes, "retiringBytes") }),
+    ...(evidence?.demandOverflow === undefined
+      ? {}
+      : { demandOverflow: nonNegative(evidence.demandOverflow, "demandOverflow") }),
+    ...(evidence?.fallbackGroups === undefined
+      ? {}
+      : { fallbackGroups: nonNegative(evidence.fallbackGroups, "fallbackGroups") }),
+    ...(evidence?.pressure === undefined ? {} : { pressure: finiteRatio(evidence.pressure, "pressure") }),
   });
   return normalized;
 }
@@ -161,7 +184,7 @@ function disabledPlan(
   limits: Readonly<GeometryProductResidencyLimitsV1>,
   requestedProfile: GeometryProductResidencyProfileRequestV1,
   runtimeEvidence: Readonly<GeometryProductResidencyRuntimeEvidenceV1>,
-  reason: "feature-off" | "unsupported-limits" | "configured-budget"
+  reason: "feature-off" | "unsupported-limits" | "configured-budget",
 ): GeometryProductResidencyProfilePlanV1 {
   return Object.freeze({
     abiVersion: GEOMETRY_PRODUCT_RESIDENCY_PROFILE_ABI_VERSION_V1,
@@ -175,16 +198,18 @@ function disabledPlan(
     slotCapacity: 0,
     capacityBytes: 0,
     negotiatedLimits: limits,
-    runtimeEvidence
+    runtimeEvidence,
   });
 }
 
 function nonNegative(value: number, label: string): number {
-  if (!Number.isSafeInteger(value) || value < 0) throw new RangeError(`Geometry Product ${label} must be a non-negative safe integer`);
+  if (!Number.isSafeInteger(value) || value < 0)
+    throw new RangeError(`Geometry Product ${label} must be a non-negative safe integer`);
   return value;
 }
 
 function finiteRatio(value: number, label: string): number {
-  if (!Number.isFinite(value) || value < 0 || value > 1) throw new RangeError(`Geometry Product ${label} must be within [0, 1]`);
+  if (!Number.isFinite(value) || value < 0 || value > 1)
+    throw new RangeError(`Geometry Product ${label} must be within [0, 1]`);
   return value;
 }

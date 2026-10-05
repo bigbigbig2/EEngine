@@ -23,14 +23,7 @@ function sign1(e: number): number {
   return e > 0 ? 1 : e < 0 ? -1 : 0;
 }
 
-function dot3(
-  e: number,
-  t: number,
-  n: number,
-  r: number,
-  s: number,
-  a: number
-): number {
+function dot3(e: number, t: number, n: number, r: number, s: number, a: number): number {
   return e * r + t * s + n * a;
 }
 
@@ -43,14 +36,7 @@ function len3(e: number, t: number, n: number): number {
 }
 
 export class Vec3 extends Float64VectorBase {
-  readonly onChanged = new ChangeSignal<
-    number,
-    number,
-    number,
-    number,
-    number,
-    number
-  >();
+  readonly onChanged = new ChangeSignal<number, number, number, number, number, number>();
 
   constructor(x = 0, y = 0, z = 0) {
     super(3);
@@ -161,11 +147,7 @@ export class Vec3 extends Float64VectorBase {
   }
 
   fromArray(v: ArrayLike<number>, offset = 0): this {
-    return this.set(
-      v[offset] as number,
-      v[offset + 1] as number,
-      v[offset + 2] as number
-    );
+    return this.set(v[offset] as number, v[offset + 1] as number, v[offset + 2] as number);
   }
 
   toArray(e: number[] = [], t = 0): number[] {
@@ -195,27 +177,18 @@ export class Vec3 extends Float64VectorBase {
     return this.x === x && this.y === y && this.z === z;
   }
 
-  roughlyEquals(
-    other: { x: number; y: number; z: number },
-    tolerance?: number
-  ): boolean {
+  roughlyEquals(other: { x: number; y: number; z: number }, tolerance?: number): boolean {
     return this._roughlyEquals(other.x, other.y, other.z, tolerance);
   }
 
   _roughlyEquals(x: number, y: number, z: number, tolerance = 1e-7): boolean {
     return (
-      roughlyEq(this.x, x, tolerance) &&
-      roughlyEq(this.y, y, tolerance) &&
-      roughlyEq(this.z, z, tolerance)
+      roughlyEq(this.x, x, tolerance) && roughlyEq(this.y, y, tolerance) && roughlyEq(this.z, z, tolerance)
     );
   }
 
   hash(): number {
-    return (
-      hashFloat(this.x) ^
-      (hashFloat(this.y) << 1) ^
-      (hashFloat(this.z) << 2)
-    ) | 0;
+    return (hashFloat(this.x) ^ (hashFloat(this.y) << 1) ^ (hashFloat(this.z) << 2)) | 0;
   }
 
   add(other: { x: number; y: number; z: number }): this {
@@ -226,10 +199,7 @@ export class Vec3 extends Float64VectorBase {
     return this.set(this.x + x, this.y + y, this.z + z);
   }
 
-  addVectors(
-    e: { x: number; y: number; z: number },
-    t: { x: number; y: number; z: number }
-  ): this {
+  addVectors(e: { x: number; y: number; z: number }, t: { x: number; y: number; z: number }): this {
     return this.set(e.x + t.x, e.y + t.y, e.z + t.z);
   }
 
@@ -249,10 +219,7 @@ export class Vec3 extends Float64VectorBase {
     return this.set(this.x - x, this.y - y, this.z - z);
   }
 
-  subVectors(
-    e: { x: number; y: number; z: number },
-    t: { x: number; y: number; z: number }
-  ): this {
+  subVectors(e: { x: number; y: number; z: number }, t: { x: number; y: number; z: number }): this {
     return this.set(e.x - t.x, e.y - t.y, e.z - t.z);
   }
 
@@ -268,10 +235,7 @@ export class Vec3 extends Float64VectorBase {
     return this.set(this.x * x, this.y * y, this.z * z);
   }
 
-  multiplyVectors(
-    e: { x: number; y: number; z: number },
-    t: { x: number; y: number; z: number }
-  ): this {
+  multiplyVectors(e: { x: number; y: number; z: number }, t: { x: number; y: number; z: number }): this {
     return this.set(e.x * t.x, e.y * t.y, e.z * t.z);
   }
 
@@ -287,10 +251,7 @@ export class Vec3 extends Float64VectorBase {
     return this.set(this.x / x, this.y / y, this.z / z);
   }
 
-  divideVectors(
-    e: { x: number; y: number; z: number },
-    t: { x: number; y: number; z: number }
-  ): this {
+  divideVectors(e: { x: number; y: number; z: number }, t: { x: number; y: number; z: number }): this {
     return this.set(e.x / t.x, e.y / t.y, e.z / t.z);
   }
 
@@ -310,26 +271,12 @@ export class Vec3 extends Float64VectorBase {
     return this.crossVectors(this, e);
   }
 
-  crossVectors(
-    e: { x: number; y: number; z: number },
-    t: { x: number; y: number; z: number }
-  ): this {
+  crossVectors(e: { x: number; y: number; z: number }, t: { x: number; y: number; z: number }): this {
     return this._crossVectors(e.x, e.y, e.z, t.x, t.y, t.z);
   }
 
-  _crossVectors(
-    ax: number,
-    ay: number,
-    az: number,
-    bx: number,
-    by: number,
-    bz: number
-  ): this {
-    return this.set(
-      ay * bz - az * by,
-      az * bx - ax * bz,
-      ax * by - ay * bx
-    );
+  _crossVectors(ax: number, ay: number, az: number, bx: number, by: number, bz: number): this {
+    return this.set(ay * bz - az * by, az * bx - ax * bz, ax * by - ay * bx);
   }
 
   dot(e: { x: number; y: number; z: number }): number {
@@ -405,7 +352,7 @@ export class Vec3 extends Float64VectorBase {
     return this.set(
       _ * o + u * -s + c * -i - d * -a,
       c * o + u * -a + d * -s - _ * -i,
-      d * o + u * -i + _ * -a - c * -s
+      d * o + u * -i + _ * -a - c * -s,
     );
   }
 
@@ -416,13 +363,9 @@ export class Vec3 extends Float64VectorBase {
   lerpVectors(
     e: { x: number; y: number; z: number },
     t: { x: number; y: number; z: number },
-    n: number
+    n: number,
   ): this {
-    return this.set(
-      lerpNum(e.x, t.x, n),
-      lerpNum(e.y, t.y, n),
-      lerpNum(e.z, t.z, n)
-    );
+    return this.set(lerpNum(e.x, t.x, n), lerpNum(e.y, t.y, n), lerpNum(e.z, t.z, n));
   }
 
   slerp(e: { x: number; y: number; z: number }, t: number): this {
@@ -432,7 +375,7 @@ export class Vec3 extends Float64VectorBase {
   slerpVectors(
     e: { x: number; y: number; z: number },
     t: { x: number; y: number; z: number },
-    n: number
+    n: number,
   ): this {
     const _ = dot3(e.x, e.y, e.z, t.x, t.y, t.z);
     if (_ >= 1 || _ <= -1) {
@@ -453,7 +396,7 @@ export class Vec3 extends Float64VectorBase {
     return this.set(
       (e[0]! * t + e[4]! * n + e[8]! * r + e[12]!) * s,
       (e[1]! * t + e[5]! * n + e[9]! * r + e[13]!) * s,
-      (e[2]! * t + e[6]! * n + e[10]! * r + e[14]!) * s
+      (e[2]! * t + e[6]! * n + e[10]! * r + e[14]!) * s,
     );
   }
 
@@ -475,7 +418,7 @@ export class Vec3 extends Float64VectorBase {
     return this.set(
       e[0]! * t + e[3]! * n + e[6]! * r,
       e[1]! * t + e[4]! * n + e[7]! * r,
-      e[2]! * t + e[5]! * n + e[8]! * r
+      e[2]! * t + e[5]! * n + e[8]! * r,
     );
   }
 
@@ -499,17 +442,8 @@ export class Vec3 extends Float64VectorBase {
     return this._projectVectors(this.x, this.y, this.z, e.x, e.y, e.z);
   }
 
-  _projectVectors(
-    x0: number,
-    y0: number,
-    z0: number,
-    x1: number,
-    y1: number,
-    z1: number
-  ): this {
-    const scale =
-      dot3(x0, y0, z0, x1, y1, z1) /
-      (x1 * x1 + y1 * y1 + z1 * z1);
+  _projectVectors(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number): this {
+    const scale = dot3(x0, y0, z0, x1, y1, z1) / (x1 * x1 + y1 * y1 + z1 * z1);
     return this.set(x1 * scale, y1 * scale, z1 * scale);
   }
 
@@ -563,17 +497,11 @@ export class Vec3 extends Float64VectorBase {
     this.set(buffer.readFloat32(), buffer.readFloat32(), buffer.readFloat32());
   }
 
-  static dot(
-    e: { x: number; y: number; z: number },
-    t: { x: number; y: number; z: number }
-  ): number {
+  static dot(e: { x: number; y: number; z: number }, t: { x: number; y: number; z: number }): number {
     return e.x * t.x + e.y * t.y + e.z * t.z;
   }
 
-  static distance(
-    a: { x: number; y: number; z: number },
-    b: { x: number; y: number; z: number }
-  ): number {
+  static distance(a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }): number {
     return len3(a.x - b.x, a.y - b.y, a.z - b.z);
   }
 

@@ -14,13 +14,18 @@ export interface TextureSurfacePublication {
   readonly localVariationSlot: number;
   readonly variation: TextureVariation;
 }
-const UNKNOWN: TextureVariation = Object.freeze({ known: false,
-  low: [0, 0, 0, 0] as const, high: [1, 1, 1, 1] as const });
-const linear = (value: number): number => value <= 0.04045
-  ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
+const UNKNOWN: TextureVariation = Object.freeze({
+  known: false,
+  low: [0, 0, 0, 0] as const,
+  high: [1, 1, 1, 1] as const,
+});
+const linear = (value: number): number =>
+  value <= 0.04045 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
 
-export function decodedTextureVariation(texture: ShadeTexture,
-  selected?: SelectedTextureVariantV2): TextureVariation {
+export function decodedTextureVariation(
+  texture: ShadeTexture,
+  selected?: SelectedTextureVariantV2,
+): TextureVariation {
   let payloads: readonly Uint8Array[];
   let srgb: boolean;
   if (selected !== undefined) {
@@ -29,13 +34,17 @@ export function decodedTextureVariation(texture: ShadeTexture,
     srgb = selected.format === "rgba8unorm-srgb";
   } else {
     const image = texture.image;
-    if (!image || image.depth !== 1 || image.channel_count !== 4 || image.data_type !== "uint8") return UNKNOWN;
+    if (!image || image.depth !== 1 || image.channel_count !== 4 || image.data_type !== "uint8")
+      return UNKNOWN;
     const source = image.source;
-    const data = source && typeof source === "object" && "data" in source
-      ? (source as { data: unknown }).data : source;
-    const bytes = data instanceof Uint8Array || data instanceof Uint8ClampedArray
-      ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
-      : data instanceof ArrayBuffer ? new Uint8Array(data) : undefined;
+    const data =
+      source && typeof source === "object" && "data" in source ? (source as { data: unknown }).data : source;
+    const bytes =
+      data instanceof Uint8Array || data instanceof Uint8ClampedArray
+        ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+        : data instanceof ArrayBuffer
+          ? new Uint8Array(data)
+          : undefined;
     if (!bytes || bytes.byteLength !== image.width * image.height * 4) return UNKNOWN;
     payloads = [bytes];
     srgb = image.color_space === 1;

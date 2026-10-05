@@ -10,14 +10,14 @@ import {
   id,
   nativeTextureDescriptor,
   nativeTextureViewDescriptor,
-  type NativeTextureExtent
+  type NativeTextureExtent,
 } from "./GPUTextureDescriptors.js";
 import { submitGpuCommands } from "./GpuQueueEvidence.js";
 import {
   estimateTextureBytes,
   type AccountedResourceCategory,
   type ResourceAccounting,
-  type ResourceHandle
+  type ResourceHandle,
 } from "../debug/profiling/ResourceAccounting.js";
 
 let nextTextureContextId = 0;
@@ -41,11 +41,9 @@ export class GPUTextureContext {
   constructor(
     private readonly device: GPUDevice,
     descriptor?: GPUTextureDescriptor,
-    private readonly accounting?: GPUTextureAccountingOptions
+    private readonly accounting?: GPUTextureAccountingOptions,
   ) {
-    this.descriptor = descriptor === undefined
-      ? new id()
-      : nativeTextureDescriptor(descriptor);
+    this.descriptor = descriptor === undefined ? new id() : nativeTextureDescriptor(descriptor);
   }
 
   descriptor: id;
@@ -100,9 +98,7 @@ export class GPUTextureContext {
 
   set version(value: number) {
     if (value < this.versionValue) {
-      throw new Error(
-        `Texture version cannot decrease. Current: ${this.versionValue}, new: ${value}`
-      );
+      throw new Error(`Texture version cannot decrease. Current: ${this.versionValue}, new: ${value}`);
     }
     this.versionValue = value;
   }
@@ -123,9 +119,7 @@ export class GPUTextureContext {
     return this.descriptor.memory_footprint;
   }
 
-  obtainView(
-    descriptor: GPUTextureViewDescriptor | gd = DEFAULT_TEXTURE_VIEW_DESCRIPTOR
-  ): GPUTextureView {
+  obtainView(descriptor: GPUTextureViewDescriptor | gd = DEFAULT_TEXTURE_VIEW_DESCRIPTOR): GPUTextureView {
     const nativeDescriptor = nativeTextureViewDescriptor(descriptor);
     const key = viewDescriptorKey(nativeDescriptor);
     let view = this.views.get(key);
@@ -145,14 +139,10 @@ export class GPUTextureContext {
     const previous = this.textureValue;
     if (preserve && previous !== null) {
       if ((previous.usage & GPUTextureUsage.COPY_SRC) === 0) {
-        throw new Error(
-          "preserve_data flag is on, but usage does not include COPY_SRC. Can't copy"
-        );
+        throw new Error("preserve_data flag is on, but usage does not include COPY_SRC. Can't copy");
       }
       if ((this.descriptor.usage & GPUTextureUsage.COPY_DST) === 0) {
-        throw new Error(
-          "preserve_data flag is on, but usage does not include COPY_DST. Can't copy"
-        );
+        throw new Error("preserve_data flag is on, but usage does not include COPY_DST. Can't copy");
       }
     } else {
       preserve = false;
@@ -160,21 +150,22 @@ export class GPUTextureContext {
     }
 
     const next = createNativeTexture(this.device, this.descriptor);
-    const nextHandle = this.accounting?.accounting?.created({
-      kind: "texture",
-      category: this.accounting.category,
-      owner: this.accounting.owner,
-      bytes: estimateTextureBytes({
-        format: this.format,
-        width: this.width,
-        height: this.height,
-        depthOrArrayLayers: this.depthOrArrayLayers,
-        mipLevelCount: this.mipLevelCount,
-        sampleCount: this.sampleCount,
-        dimension: this.dimension
-      }),
-      label: this.label
-    }) ?? null;
+    const nextHandle =
+      this.accounting?.accounting?.created({
+        kind: "texture",
+        category: this.accounting.category,
+        owner: this.accounting.owner,
+        bytes: estimateTextureBytes({
+          format: this.format,
+          width: this.width,
+          height: this.height,
+          depthOrArrayLayers: this.depthOrArrayLayers,
+          mipLevelCount: this.mipLevelCount,
+          sampleCount: this.sampleCount,
+          dimension: this.dimension,
+        }),
+        label: this.label,
+      }) ?? null;
     try {
       if (preserve && previous !== null) {
         const encoder = this.device.createCommandEncoder({ label: "" });
@@ -184,12 +175,10 @@ export class GPUTextureContext {
           [
             Math.min(previous.width, next.width),
             Math.min(previous.height, next.height),
-            Math.min(previous.depthOrArrayLayers, next.depthOrArrayLayers)
-          ]
+            Math.min(previous.depthOrArrayLayers, next.depthOrArrayLayers),
+          ],
         );
-        submitGpuCommands(this.device, "GPUTextureContext/resize-copy", [
-          encoder.finish()
-        ]);
+        submitGpuCommands(this.device, "GPUTextureContext/resize-copy", [encoder.finish()]);
         previous.destroy();
         this.releaseResourceHandle();
       }
@@ -255,6 +244,6 @@ function viewDescriptorKey(descriptor: GPUTextureViewDescriptor): string {
     baseMipLevel: descriptor.baseMipLevel ?? 0,
     mipLevelCount: descriptor.mipLevelCount ?? -1,
     baseArrayLayer: descriptor.baseArrayLayer ?? 0,
-    arrayLayerCount: descriptor.arrayLayerCount ?? -1
+    arrayLayerCount: descriptor.arrayLayerCount ?? -1,
   });
 }

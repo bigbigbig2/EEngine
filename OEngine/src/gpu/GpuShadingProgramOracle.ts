@@ -1,5 +1,8 @@
 import { GPU_SHADING_PROGRAM_COUNT } from "./GpuShadingProgramAbi.js";
-import { gpuSurfaceProgramSpecialization as gpuShadingProgramSpecialization, type GpuSurfaceProgramSpecialization } from "./GpuSurfaceProgramSpecialization.js";
+import {
+  gpuSurfaceProgramSpecialization as gpuShadingProgramSpecialization,
+  type GpuSurfaceProgramSpecialization,
+} from "./GpuSurfaceProgramSpecialization.js";
 
 export type Vec2 = readonly [number, number];
 export type Vec3 = readonly [number, number, number];
@@ -70,33 +73,39 @@ export function perspectiveBarycentricReference(
   pixel: Vec2,
   projected0: Vec4,
   projected1: Vec4,
-  projected2: Vec4
+  projected2: Vec4,
 ): Readonly<PerspectiveBarycentricReference> {
-  const fallback = (): Readonly<PerspectiveBarycentricReference> => Object.freeze({
-    weights: freeze3([1, 0, 0]), ddx: freeze3([0, 0, 0]), ddy: freeze3([0, 0, 0]), valid: false
-  });
-  if (![...pixel, ...projected0, ...projected1, ...projected2].every(Number.isFinite) ||
-      projected0[3] === 0 || projected1[3] === 0 || projected2[3] === 0) return fallback();
+  const fallback = (): Readonly<PerspectiveBarycentricReference> =>
+    Object.freeze({
+      weights: freeze3([1, 0, 0]),
+      ddx: freeze3([0, 0, 0]),
+      ddy: freeze3([0, 0, 0]),
+      valid: false,
+    });
+  if (
+    ![...pixel, ...projected0, ...projected1, ...projected2].every(Number.isFinite) ||
+    projected0[3] === 0 ||
+    projected1[3] === 0 ||
+    projected2[3] === 0
+  )
+    return fallback();
   const p0: Vec2 = [projected0[0] / projected0[3], projected0[1] / projected0[3]];
   const p1: Vec2 = [projected1[0] / projected1[3], projected1[1] / projected1[3]];
   const p2: Vec2 = [projected2[0] / projected2[3], projected2[1] / projected2[3]];
-  const denominator = (p1[1] - p2[1]) * (p0[0] - p2[0]) +
-    (p2[0] - p1[0]) * (p0[1] - p2[1]);
+  const denominator = (p1[1] - p2[1]) * (p0[0] - p2[0]) + (p2[0] - p1[0]) * (p0[1] - p2[1]);
   if (Math.abs(denominator) < 1e-8) return fallback();
-  const l0 = ((p1[1] - p2[1]) * (pixel[0] - p2[0]) +
-    (p2[0] - p1[0]) * (pixel[1] - p2[1])) / denominator;
-  const l1 = ((p2[1] - p0[1]) * (pixel[0] - p2[0]) +
-    (p0[0] - p2[0]) * (pixel[1] - p2[1])) / denominator;
+  const l0 = ((p1[1] - p2[1]) * (pixel[0] - p2[0]) + (p2[0] - p1[0]) * (pixel[1] - p2[1])) / denominator;
+  const l1 = ((p2[1] - p0[1]) * (pixel[0] - p2[0]) + (p0[0] - p2[0]) * (pixel[1] - p2[1])) / denominator;
   const screen: Vec3 = [l0, l1, 1 - l0 - l1];
   const screenDdx: Vec3 = [
     (p1[1] - p2[1]) / denominator,
     (p2[1] - p0[1]) / denominator,
-    (p0[1] - p1[1]) / denominator
+    (p0[1] - p1[1]) / denominator,
   ];
   const screenDdy: Vec3 = [
     (p2[0] - p1[0]) / denominator,
     (p0[0] - p2[0]) / denominator,
-    (p1[0] - p0[0]) / denominator
+    (p1[0] - p0[0]) / denominator,
   ];
   const reciprocalW: Vec3 = [1 / projected0[3], 1 / projected1[3], 1 / projected2[3]];
   const weighted = multiply3(screen, reciprocalW);
@@ -110,9 +119,13 @@ export function perspectiveBarycentricReference(
   const inverseSquared = inverse * inverse;
   return Object.freeze({
     weights: freeze3(scale3(weighted, inverse)),
-    ddx: freeze3(scale3(subtract3(scale3(weightedDdx, weightedSum), scale3(weighted, sumDdx)), inverseSquared)),
-    ddy: freeze3(scale3(subtract3(scale3(weightedDdy, weightedSum), scale3(weighted, sumDdy)), inverseSquared)),
-    valid: true
+    ddx: freeze3(
+      scale3(subtract3(scale3(weightedDdx, weightedSum), scale3(weighted, sumDdx)), inverseSquared),
+    ),
+    ddy: freeze3(
+      scale3(subtract3(scale3(weightedDdy, weightedSum), scale3(weighted, sumDdy)), inverseSquared),
+    ),
+    valid: true,
   });
 }
 
@@ -122,21 +135,21 @@ export function reconstructAttributeReference(
   upscaleRatio: Vec2,
   offset: Vec2 = [0, 0],
   scale: Vec2 = [1, 1],
-  rotation: Vec2 = [1, 0]
+  rotation: Vec2 = [1, 0],
 ): Readonly<{ uv: Vec2; ddx: Vec2; ddy: Vec2 }> {
   if (!upscaleRatio.every((value) => Number.isFinite(value) && value > 0)) {
     throw new RangeError("UV reconstruction upscale ratio must be finite and positive");
   }
   const interpolate = (weights: Vec3): Vec2 => [
     values[0][0] * weights[0] + values[1][0] * weights[1] + values[2][0] * weights[2],
-    values[0][1] * weights[0] + values[1][1] * weights[1] + values[2][1] * weights[2]
+    values[0][1] * weights[0] + values[1][1] * weights[1] + values[2][1] * weights[2],
   ];
   const transform = (value: Vec2, includeOffset: boolean): Vec2 => {
     const x = value[0] * scale[0];
     const y = value[1] * scale[1];
     return Object.freeze([
       (includeOffset ? offset[0] : 0) + rotation[0] * x - rotation[1] * y,
-      (includeOffset ? offset[1] : 0) + rotation[1] * x + rotation[0] * y
+      (includeOffset ? offset[1] : 0) + rotation[1] * x + rotation[0] * y,
     ] as const);
   };
   const ddx = interpolate(barycentric.ddx);
@@ -144,22 +157,24 @@ export function reconstructAttributeReference(
   return Object.freeze({
     uv: transform(interpolate(barycentric.weights), true),
     ddx: transform([ddx[0] / upscaleRatio[0], ddx[1] / upscaleRatio[0]], false),
-    ddy: transform([ddy[0] / upscaleRatio[1], ddy[1] / upscaleRatio[1]], false)
+    ddy: transform([ddy[0] / upscaleRatio[1], ddy[1] / upscaleRatio[1]], false),
   });
 }
 
 export function evaluateGpuShadingProgramReference(
-  input: GpuShadingProgramReferenceInput
+  input: GpuShadingProgramReferenceInput,
 ): Readonly<GpuShadingProgramReferenceResult> {
   const specialization = gpuShadingProgramSpecialization(input.programId, input.outputDependencyMask);
   assertFinitePositive(input.preExposure, "preExposure");
   const material = input.material;
-  const vertexColor = specialization.authoredVertexColor === "never"
-    ? [1, 1, 1] as const
-    : material.vertexColor ?? [1, 1, 1] as const;
-  const baseSample = specialization.baseTexture === "never"
-    ? [1, 1, 1, 1] as const
-    : material.baseSample ?? [1, 1, 1, 1] as const;
+  const vertexColor =
+    specialization.authoredVertexColor === "never"
+      ? ([1, 1, 1] as const)
+      : (material.vertexColor ?? ([1, 1, 1] as const));
+  const baseSample =
+    specialization.baseTexture === "never"
+      ? ([1, 1, 1, 1] as const)
+      : (material.baseSample ?? ([1, 1, 1, 1] as const));
   const albedo = multiply3(multiply3(material.baseColorFactor, vertexColor), baseSample);
   const geometricNormal = normalize3(material.geometricNormal, [0, 0, 1]);
   let shadingNormal = normalize3(material.shadingNormal, geometricNormal);
@@ -167,30 +182,35 @@ export function evaluateGpuShadingProgramReference(
     const sampled = material.normalSample ?? [0.5, 0.5, 1, 1];
     const tangent = material.tangent ?? [1, 0, 0, 1];
     const tangentDirection = normalize3([tangent[0], tangent[1], tangent[2]], [1, 0, 0]);
-    const bitangent = scale3(normalize3(cross3(shadingNormal, tangentDirection), [0, 1, 0]),
-      tangent[3] < 0 ? -1 : 1);
+    const bitangent = scale3(
+      normalize3(cross3(shadingNormal, tangentDirection), [0, 1, 0]),
+      tangent[3] < 0 ? -1 : 1,
+    );
     const mapped: Vec3 = [
       (sampled[0] * 2 - 1) * material.normalScale,
       (sampled[1] * 2 - 1) * material.normalScale,
-      sampled[2] * 2 - 1
+      sampled[2] * 2 - 1,
     ];
-    shadingNormal = normalize3(add3(add3(
-      scale3(tangentDirection, mapped[0]),
-      scale3(bitangent, mapped[1])
-    ), scale3(shadingNormal, mapped[2])), shadingNormal);
+    shadingNormal = normalize3(
+      add3(
+        add3(scale3(tangentDirection, mapped[0]), scale3(bitangent, mapped[1])),
+        scale3(shadingNormal, mapped[2]),
+      ),
+      shadingNormal,
+    );
   }
-  const orm = specialization.ormTexture === "never"
-    ? [1, 1, 1, 1] as const
-    : material.ormSample ?? [1, 1, 1, 1] as const;
-  const occlusion = specialization.occlusionTexture === "never"
-    ? orm
-    : material.occlusionSample ?? orm;
+  const orm =
+    specialization.ormTexture === "never"
+      ? ([1, 1, 1, 1] as const)
+      : (material.ormSample ?? ([1, 1, 1, 1] as const));
+  const occlusion = specialization.occlusionTexture === "never" ? orm : (material.occlusionSample ?? orm);
   const ambientOcclusion = mix(1, occlusion[0], clamp01(material.occlusionStrength));
   const metallic = clamp01(orm[2] * material.metallicFactor);
   const roughness = clamp01(orm[1] * material.roughnessFactor);
-  const emissiveSample = specialization.emissiveTexture === "never"
-    ? [1, 1, 1, 1] as const
-    : material.emissiveSample ?? [1, 1, 1, 1] as const;
+  const emissiveSample =
+    specialization.emissiveTexture === "never"
+      ? ([1, 1, 1, 1] as const)
+      : (material.emissiveSample ?? ([1, 1, 1, 1] as const));
   const emissive = multiply3(material.emissiveFactor, emissiveSample);
   let radiance: Vec3;
   if (!specialization.lit) {
@@ -209,13 +229,13 @@ export function evaluateGpuShadingProgramReference(
       const voH = clamp01(dot3(view, half));
       const alpha = Math.max(roughness * roughness, 0.02);
       const fresnel = fresnelSchlickReference(f0, 1, voH);
-      const specular = scale3(fresnel,
-        visibilityGgxSmithCorrelated(alpha, noL, noV) *
-        distributionGgx(alpha * alpha, noH * noH));
+      const specular = scale3(
+        fresnel,
+        visibilityGgxSmithCorrelated(alpha, noL, noV) * distributionGgx(alpha * alpha, noH * noH),
+      );
       const diffuseEnergy = multiply3(diffuse, subtract3([1, 1, 1], fresnel));
       const incident = scale3(light.radiance, noL * clamp01(light.visibility));
-      direct = add3(direct, multiply3(incident,
-        add3(specular, scale3(diffuseEnergy, 1 / Math.PI))));
+      direct = add3(direct, multiply3(incident, add3(specular, scale3(diffuseEnergy, 1 / Math.PI))));
     }
     radiance = scale3(add3(direct, emissive), input.preExposure);
   }
@@ -228,13 +248,17 @@ export function evaluateGpuShadingProgramReference(
     shadingNormal: freeze3(shadingNormal),
     geometricNormal: freeze3(geometricNormal),
     emissive: freeze3(emissive),
-    gradientFallback: specialization.baseTexture !== "never" ||
-      specialization.ormTexture !== "never" || specialization.normalTexture !== "never" ||
-      specialization.emissiveTexture !== "never" || specialization.occlusionTexture !== "never"
-      ? !input.gradientValid : false,
+    gradientFallback:
+      specialization.baseTexture !== "never" ||
+      specialization.ormTexture !== "never" ||
+      specialization.normalTexture !== "never" ||
+      specialization.emissiveTexture !== "never" ||
+      specialization.occlusionTexture !== "never"
+        ? !input.gradientValid
+        : false,
     publishesShadingSurface: specialization.publishesShadingSurface,
     publishesDiffuseSurface: specialization.publishesDiffuseSurface,
-    publishesVelocity: specialization.publishesVelocity
+    publishesVelocity: specialization.publishesVelocity,
   });
 }
 
@@ -302,7 +326,7 @@ function cross3(left: Vec3, right: Vec3): Vec3 {
   return [
     left[1] * right[2] - left[2] * right[1],
     left[2] * right[0] - left[0] * right[2],
-    left[0] * right[1] - left[1] * right[0]
+    left[0] * right[1] - left[1] * right[0],
   ];
 }
 

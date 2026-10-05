@@ -4,29 +4,17 @@
 
 import type { PerspectiveCamera } from "../../camera/PerspectiveCamera.js";
 import { mat4Invert } from "../../core/math/Mat4.js";
-import type {
-  FrameGraph,
-  FrameGraphContext
-} from "../../framegraph/FrameGraph.js";
+import type { FrameGraph, FrameGraphContext } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
-import {
-  counterByteOffset,
-  GPU_QUEUE_OVERFLOW_BITS
-} from "../../debug/GpuFrameCounters.js";
+import { counterByteOffset, GPU_QUEUE_OVERFLOW_BITS } from "../../debug/GpuFrameCounters.js";
 import type { GPULightCollection } from "../../gpu/LightDatabase.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
-import {
-  lightClusterFrame,
-  type LightClusterFrame
-} from "../pipeline/FrameProducts.js";
+import { lightClusterFrame, type LightClusterFrame } from "../pipeline/FrameProducts.js";
 import type { CachedComputePipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
 import { createNativeTextureView } from "../../gpu/GPUTextureDescriptors.js";
 import { writeGpuBuffer } from "../../gpu/GpuQueueEvidence.js";
-import {
-  assertLightListCapacity,
-  LIGHT_LIST_HEADER_BYTES
-} from "../ClusteredLightingReference.js";
+import { assertLightListCapacity, LIGHT_LIST_HEADER_BYTES } from "../ClusteredLightingReference.js";
 import {
   LIGHT_CLUSTER_ASSIGN_WGSL,
   LIGHT_CLUSTER_ASSIGN_WORKGROUP,
@@ -40,7 +28,7 @@ import {
   LIGHT_CLUSTER_POINT_LIST_WGSL,
   LIGHT_CLUSTER_SETTINGS_BYTES,
   LIGHT_CLUSTER_SPOT_LIST_WGSL,
-  LIGHT_CLUSTER_TILE_SIZE
+  LIGHT_CLUSTER_TILE_SIZE,
 } from "../../shaders/light_cluster.js";
 
 export type LightClusterOutputs = LightClusterFrame;
@@ -55,38 +43,46 @@ export type LightClusterJob = {
 const LIGHT_CLUSTER_LIST_GROUPS: readonly GPUBindGroupLayoutDescriptor[] = [
   {
     label: "",
-    entries: [{
-      binding: 0,
-      visibility: GPUShaderStage.COMPUTE,
-      buffer: { type: "uniform" }
-    }]
+    entries: [
+      {
+        binding: 0,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: { type: "uniform" },
+      },
+    ],
   },
   {
     label: "",
-    entries: [{
-      binding: 0,
-      visibility: GPUShaderStage.COMPUTE,
-      buffer: { type: "read-only-storage" }
-    }]
+    entries: [
+      {
+        binding: 0,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: { type: "read-only-storage" },
+      },
+    ],
   },
   {
     label: "",
-    entries: [{
-      binding: 0,
-      visibility: GPUShaderStage.COMPUTE,
-      buffer: { type: "storage" }
-    }]
-  }
+    entries: [
+      {
+        binding: 0,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: { type: "storage" },
+      },
+    ],
+  },
 ];
 
 const LIGHT_CLUSTER_HZB_GROUPS: readonly GPUBindGroupLayoutDescriptor[] = [
   {
     label: "",
-    entries: [{
-      binding: 0,
-      visibility: GPUShaderStage.COMPUTE,
-      buffer: { type: "read-only-storage" }
-    }]
+    entries: [
+      {
+        binding: 0,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: { type: "read-only-storage" },
+      },
+    ],
   },
   {
     label: "",
@@ -94,14 +90,14 @@ const LIGHT_CLUSTER_HZB_GROUPS: readonly GPUBindGroupLayoutDescriptor[] = [
       {
         binding: 0,
         visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: "uniform" }
+        buffer: { type: "uniform" },
       },
       {
         binding: 1,
         visibility: GPUShaderStage.COMPUTE,
-        texture: { sampleType: "unfilterable-float", viewDimension: "2d" }
-      }
-    ]
+        texture: { sampleType: "unfilterable-float", viewDimension: "2d" },
+      },
+    ],
   },
   {
     label: "",
@@ -109,15 +105,15 @@ const LIGHT_CLUSTER_HZB_GROUPS: readonly GPUBindGroupLayoutDescriptor[] = [
       {
         binding: 0,
         visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: "read-only-storage" }
+        buffer: { type: "read-only-storage" },
       },
       {
         binding: 1,
         visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: "storage" }
-      }
-    ]
-  }
+        buffer: { type: "storage" },
+      },
+    ],
+  },
 ];
 
 const LIGHT_CLUSTER_ASSIGN_GROUPS: readonly GPUBindGroupLayoutDescriptor[] = [
@@ -126,36 +122,40 @@ const LIGHT_CLUSTER_ASSIGN_GROUPS: readonly GPUBindGroupLayoutDescriptor[] = [
     entries: [
       { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
       { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-      { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } }
-    ]
+      { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+    ],
   },
   {
     label: "",
-    entries: [{
-      binding: 0,
-      visibility: GPUShaderStage.COMPUTE,
-      buffer: { type: "read-only-storage" }
-    }]
+    entries: [
+      {
+        binding: 0,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: { type: "read-only-storage" },
+      },
+    ],
   },
   {
     label: "",
     entries: [
       { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-      { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }
-    ]
-  }
+      { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+    ],
+  },
 ];
 
-const LIGHT_CLUSTER_STATS_GROUPS: readonly GPUBindGroupLayoutDescriptor[] = [{
-  label: "LightCluster/FX-02 stats",
-  entries: [
-    { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-    { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-    { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-    { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-    { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }
-  ]
-}];
+const LIGHT_CLUSTER_STATS_GROUPS: readonly GPUBindGroupLayoutDescriptor[] = [
+  {
+    label: "LightCluster/FX-02 stats",
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+      { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+      { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+      { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+      { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+    ],
+  },
+];
 
 const LIGHT_CLUSTER_STATS_WGSL = /* wgsl */ `
 struct LightList { attempted: u32, written: u32, capacity: u32, overflow: u32, data: array<u32>, }
@@ -244,26 +244,11 @@ export class LightClusterPass {
       throw new Error("LightClusterPass: GraphicsContext has no device");
     }
     this.device = device;
-    this.pointListPipeline = this.createPipeline(
-      LIGHT_CLUSTER_POINT_LIST_WGSL,
-      LIGHT_CLUSTER_LIST_GROUPS
-    );
-    this.spotListPipeline = this.createPipeline(
-      LIGHT_CLUSTER_SPOT_LIST_WGSL,
-      LIGHT_CLUSTER_LIST_GROUPS
-    );
-    this.hzbFilterPipeline = this.createPipeline(
-      LIGHT_CLUSTER_HZB_FILTER_WGSL,
-      LIGHT_CLUSTER_HZB_GROUPS
-    );
-    this.assignPipeline = this.createPipeline(
-      LIGHT_CLUSTER_ASSIGN_WGSL,
-      LIGHT_CLUSTER_ASSIGN_GROUPS
-    );
-    this.statsPipeline = this.createPipeline(
-      LIGHT_CLUSTER_STATS_WGSL,
-      LIGHT_CLUSTER_STATS_GROUPS
-    );
+    this.pointListPipeline = this.createPipeline(LIGHT_CLUSTER_POINT_LIST_WGSL, LIGHT_CLUSTER_LIST_GROUPS);
+    this.spotListPipeline = this.createPipeline(LIGHT_CLUSTER_SPOT_LIST_WGSL, LIGHT_CLUSTER_LIST_GROUPS);
+    this.hzbFilterPipeline = this.createPipeline(LIGHT_CLUSTER_HZB_FILTER_WGSL, LIGHT_CLUSTER_HZB_GROUPS);
+    this.assignPipeline = this.createPipeline(LIGHT_CLUSTER_ASSIGN_WGSL, LIGHT_CLUSTER_ASSIGN_GROUPS);
+    this.statsPipeline = this.createPipeline(LIGHT_CLUSTER_STATS_WGSL, LIGHT_CLUSTER_STATS_GROUPS);
   }
 
   addToGraph(
@@ -274,14 +259,13 @@ export class LightClusterPass {
       lightDatabase: ResourceId;
       hzb: ResourceId;
       counters?: ResourceId;
-    }
+    },
   ): LightClusterOutputs {
     const width = Math.max(1, job.width | 0);
     const height = Math.max(1, job.height | 0);
     const clusterWidth = Math.ceil(width / LIGHT_CLUSTER_TILE_SIZE);
     const clusterHeight = Math.ceil(height / LIGHT_CLUSTER_TILE_SIZE);
-    const clusterCount =
-      LIGHT_CLUSTER_DEPTH_SLICES * clusterWidth * clusterHeight;
+    const clusterCount = LIGHT_CLUSTER_DEPTH_SLICES * clusterWidth * clusterHeight;
     const lookupBytes = LIGHT_CLUSTER_METADATA_BYTES * clusterCount;
     const dataBytes =
       LIGHT_CLUSTER_DATA_HEADER_BYTES +
@@ -290,110 +274,89 @@ export class LightClusterPass {
 
     let visibleList = -1;
     let parameters = -1;
-    const listBuilder = graph.add(
-      "LightCluster/qz+Nz visible list",
-      job,
-      (passJob, resources, context) => {
-        const encoder = requireGpuEncoder(context);
-        const activeLocalLightCount =
-          passJob.lights.pointLights.count + passJob.lights.spotLights.count;
-        // Compiled FrameGraphs late-bind `passJob`. Validate the current frame
-        // before even clearing a LightList header so a warm graph cannot admit
-        // more resident lights than the bounded GPU consumer can preserve.
-        assertLightListCapacity(
-          activeLocalLightCount,
-          LIGHT_CLUSTER_LIST_CAPACITY
-        );
-        const camera = requireGpuBuffer(resources.get(inputs.camera));
-        const database = requireGpuBuffer(resources.get(inputs.lightDatabase));
-        const output = requireGpuBuffer(resources.get(visibleList));
-        const settings = requireGpuBuffer(resources.get(parameters));
-        encoder.clearBuffer(output, 0, 16);
-        this.packSettings(passJob.camera, width, height);
-        writeBuffer(context, this.device, settings, this.settingsData);
-        if (activeLocalLightCount === 0) return;
-        this.dispatchPagedList(
-          encoder,
-          this.pointListPipeline,
-          camera,
-          database,
-          output,
-          passJob.lights.pointLights.dispatch_page_count *
-            passJob.lights.pointLights.descriptor.elements_per_page,
-          true
-        );
-        this.dispatchPagedList(
-          encoder,
-          this.spotListPipeline,
-          camera,
-          database,
-          output,
-          passJob.lights.spotLights.dispatch_page_count *
-            passJob.lights.spotLights.descriptor.elements_per_page
-        );
-      }
-    );
+    const listBuilder = graph.add("LightCluster/qz+Nz visible list", job, (passJob, resources, context) => {
+      const encoder = requireGpuEncoder(context);
+      const activeLocalLightCount = passJob.lights.pointLights.count + passJob.lights.spotLights.count;
+      // Compiled FrameGraphs late-bind `passJob`. Validate the current frame
+      // before even clearing a LightList header so a warm graph cannot admit
+      // more resident lights than the bounded GPU consumer can preserve.
+      assertLightListCapacity(activeLocalLightCount, LIGHT_CLUSTER_LIST_CAPACITY);
+      const camera = requireGpuBuffer(resources.get(inputs.camera));
+      const database = requireGpuBuffer(resources.get(inputs.lightDatabase));
+      const output = requireGpuBuffer(resources.get(visibleList));
+      const settings = requireGpuBuffer(resources.get(parameters));
+      encoder.clearBuffer(output, 0, 16);
+      this.packSettings(passJob.camera, width, height);
+      writeBuffer(context, this.device, settings, this.settingsData);
+      if (activeLocalLightCount === 0) return;
+      this.dispatchPagedList(
+        encoder,
+        this.pointListPipeline,
+        camera,
+        database,
+        output,
+        passJob.lights.pointLights.dispatch_page_count *
+          passJob.lights.pointLights.descriptor.elements_per_page,
+        true,
+      );
+      this.dispatchPagedList(
+        encoder,
+        this.spotListPipeline,
+        camera,
+        database,
+        output,
+        passJob.lights.spotLights.dispatch_page_count *
+          passJob.lights.spotLights.descriptor.elements_per_page,
+      );
+    });
     visibleList = listBuilder.create("LightCluster/list", {
       kind: "transient_buffer",
       label: "LightCluster/list",
       size: LIGHT_CLUSTER_LIST_BYTES,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
     parameters = listBuilder.create("LightCluster/parameters", {
       kind: "transient_buffer",
       label: "LightCluster/parameters",
       size: LIGHT_CLUSTER_SETTINGS_BYTES,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     listBuilder.read(inputs.camera);
     listBuilder.read(inputs.lightDatabase);
 
     let filteredList = -1;
-    const filterBuilder = graph.add(
-      "LightCluster/nE HZB filter",
-      job,
-      (passJob, resources, context) => {
-        const encoder = requireGpuEncoder(context);
-        const input = requireGpuBuffer(resources.get(visibleList));
-        const output = requireGpuBuffer(resources.get(filteredList));
-        encoder.clearBuffer(output, 0, 16);
-        const activeLocalLightCount =
-          passJob.lights.pointLights.count + passJob.lights.spotLights.count;
-        this.lastLocalLightCount = activeLocalLightCount;
-        if (activeLocalLightCount === 0) return;
-        const pipeline = this.hzbFilterPipeline;
-        const database = requireGpuBuffer(resources.get(inputs.lightDatabase));
-        const camera = requireGpuBuffer(resources.get(inputs.camera));
-        const hzb = requireTextureView(resources.get(inputs.hzb));
-        const group0 = this.graphics.bind_groups.obtain({
-          layout: LIGHT_CLUSTER_HZB_GROUPS[0]!,
-          entries: [{ buffer: database }]
-        });
-        const group1 = this.graphics.bind_groups.obtain({
-          layout: LIGHT_CLUSTER_HZB_GROUPS[1]!,
-          entries: [
-            { buffer: camera },
-            hzb
-          ]
-        });
-        const group2 = this.graphics.bind_groups.obtain({
-          layout: LIGHT_CLUSTER_HZB_GROUPS[2]!,
-          entries: [
-            { buffer: input },
-            { buffer: output }
-          ]
-        });
-        const pass = encoder.beginComputePass({ label: "LightCluster/nE" });
-        pass.setPipeline(pipeline);
-        pass.setBindGroup(0, group0);
-        pass.setBindGroup(1, group1);
-        pass.setBindGroup(2, group2);
-        pass.dispatchWorkgroups(
-          Math.max(1, Math.ceil(activeLocalLightCount / 256))
-        );
-        pass.end();
-      }
-    );
+    const filterBuilder = graph.add("LightCluster/nE HZB filter", job, (passJob, resources, context) => {
+      const encoder = requireGpuEncoder(context);
+      const input = requireGpuBuffer(resources.get(visibleList));
+      const output = requireGpuBuffer(resources.get(filteredList));
+      encoder.clearBuffer(output, 0, 16);
+      const activeLocalLightCount = passJob.lights.pointLights.count + passJob.lights.spotLights.count;
+      this.lastLocalLightCount = activeLocalLightCount;
+      if (activeLocalLightCount === 0) return;
+      const pipeline = this.hzbFilterPipeline;
+      const database = requireGpuBuffer(resources.get(inputs.lightDatabase));
+      const camera = requireGpuBuffer(resources.get(inputs.camera));
+      const hzb = requireTextureView(resources.get(inputs.hzb));
+      const group0 = this.graphics.bind_groups.obtain({
+        layout: LIGHT_CLUSTER_HZB_GROUPS[0]!,
+        entries: [{ buffer: database }],
+      });
+      const group1 = this.graphics.bind_groups.obtain({
+        layout: LIGHT_CLUSTER_HZB_GROUPS[1]!,
+        entries: [{ buffer: camera }, hzb],
+      });
+      const group2 = this.graphics.bind_groups.obtain({
+        layout: LIGHT_CLUSTER_HZB_GROUPS[2]!,
+        entries: [{ buffer: input }, { buffer: output }],
+      });
+      const pass = encoder.beginComputePass({ label: "LightCluster/nE" });
+      pass.setPipeline(pipeline);
+      pass.setBindGroup(0, group0);
+      pass.setBindGroup(1, group1);
+      pass.setBindGroup(2, group2);
+      pass.dispatchWorkgroups(Math.max(1, Math.ceil(activeLocalLightCount / 256)));
+      pass.end();
+    });
     filterBuilder.read(visibleList);
     filterBuilder.read(inputs.camera);
     filterBuilder.read(inputs.lightDatabase);
@@ -402,81 +365,58 @@ export class LightClusterPass {
       kind: "transient_buffer",
       label: "LightCluster/filtered",
       size: LIGHT_CLUSTER_LIST_BYTES,
-      usage:
-        GPUBufferUsage.STORAGE |
-        GPUBufferUsage.COPY_DST |
-        GPUBufferUsage.COPY_SRC
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
 
     let lookup = -1;
     let data = -1;
-    const assignBuilder = graph.add(
-      "LightCluster/yh assign",
-      job,
-      (passJob, resources, context) => {
-        const encoder = requireGpuEncoder(context);
-        const pipeline = this.assignPipeline;
-        const camera = requireGpuBuffer(resources.get(inputs.camera));
-        const database = requireGpuBuffer(resources.get(inputs.lightDatabase));
-        const input = requireGpuBuffer(resources.get(filteredList));
-        const settings = requireGpuBuffer(resources.get(parameters));
-        const lookupBuffer = requireGpuBuffer(resources.get(lookup));
-        const dataBuffer = requireGpuBuffer(resources.get(data));
-        encoder.clearBuffer(dataBuffer, 0, LIGHT_CLUSTER_DATA_HEADER_BYTES);
-        const activeLocalLightCount =
-          passJob.lights.pointLights.count + passJob.lights.spotLights.count;
-        if (activeLocalLightCount === 0) return;
-        // ClusterData owns the active-list snapshot used by overflow fallback.
-        // Preserve the filtered list's GPU-written count and tuple payload in
-        // the fixed prefix; normal cluster reservations begin after it.
-        encoder.copyBufferToBuffer(
-          input,
-          4,
-          dataBuffer,
-          LIGHT_CLUSTER_DATA_ACTIVE_WRITTEN_OFFSET,
-          4
-        );
-        encoder.copyBufferToBuffer(
-          input,
-          LIGHT_LIST_HEADER_BYTES,
-          dataBuffer,
-          LIGHT_CLUSTER_DATA_HEADER_BYTES,
-          LIGHT_CLUSTER_LIST_CAPACITY * 4
-        );
-        const group0 = this.graphics.bind_groups.obtain({
-          layout: LIGHT_CLUSTER_ASSIGN_GROUPS[0]!,
-          entries: [
-            { buffer: camera },
-            { buffer: input },
-            { buffer: settings }
-          ]
-        });
-        const group1 = this.graphics.bind_groups.obtain({
-          layout: LIGHT_CLUSTER_ASSIGN_GROUPS[1]!,
-          entries: [{ buffer: database }]
-        });
-        const group2 = this.graphics.bind_groups.obtain({
-          layout: LIGHT_CLUSTER_ASSIGN_GROUPS[2]!,
-          entries: [
-            { buffer: lookupBuffer },
-            { buffer: dataBuffer }
-          ]
-        });
-        const pass = encoder.beginComputePass({ label: "LightCluster/yh" });
-        pass.setPipeline(pipeline);
-        pass.setBindGroup(0, group0);
-        pass.setBindGroup(1, group1);
-        pass.setBindGroup(2, group2);
-        pass.dispatchWorkgroups(
-          Math.ceil(clusterWidth / LIGHT_CLUSTER_ASSIGN_WORKGROUP),
-          Math.ceil(clusterHeight / LIGHT_CLUSTER_ASSIGN_WORKGROUP),
-          Math.ceil(
-            LIGHT_CLUSTER_DEPTH_SLICES / LIGHT_CLUSTER_ASSIGN_WORKGROUP
-          )
-        );
-        pass.end();
-      }
-    );
+    const assignBuilder = graph.add("LightCluster/yh assign", job, (passJob, resources, context) => {
+      const encoder = requireGpuEncoder(context);
+      const pipeline = this.assignPipeline;
+      const camera = requireGpuBuffer(resources.get(inputs.camera));
+      const database = requireGpuBuffer(resources.get(inputs.lightDatabase));
+      const input = requireGpuBuffer(resources.get(filteredList));
+      const settings = requireGpuBuffer(resources.get(parameters));
+      const lookupBuffer = requireGpuBuffer(resources.get(lookup));
+      const dataBuffer = requireGpuBuffer(resources.get(data));
+      encoder.clearBuffer(dataBuffer, 0, LIGHT_CLUSTER_DATA_HEADER_BYTES);
+      const activeLocalLightCount = passJob.lights.pointLights.count + passJob.lights.spotLights.count;
+      if (activeLocalLightCount === 0) return;
+      // ClusterData owns the active-list snapshot used by overflow fallback.
+      // Preserve the filtered list's GPU-written count and tuple payload in
+      // the fixed prefix; normal cluster reservations begin after it.
+      encoder.copyBufferToBuffer(input, 4, dataBuffer, LIGHT_CLUSTER_DATA_ACTIVE_WRITTEN_OFFSET, 4);
+      encoder.copyBufferToBuffer(
+        input,
+        LIGHT_LIST_HEADER_BYTES,
+        dataBuffer,
+        LIGHT_CLUSTER_DATA_HEADER_BYTES,
+        LIGHT_CLUSTER_LIST_CAPACITY * 4,
+      );
+      const group0 = this.graphics.bind_groups.obtain({
+        layout: LIGHT_CLUSTER_ASSIGN_GROUPS[0]!,
+        entries: [{ buffer: camera }, { buffer: input }, { buffer: settings }],
+      });
+      const group1 = this.graphics.bind_groups.obtain({
+        layout: LIGHT_CLUSTER_ASSIGN_GROUPS[1]!,
+        entries: [{ buffer: database }],
+      });
+      const group2 = this.graphics.bind_groups.obtain({
+        layout: LIGHT_CLUSTER_ASSIGN_GROUPS[2]!,
+        entries: [{ buffer: lookupBuffer }, { buffer: dataBuffer }],
+      });
+      const pass = encoder.beginComputePass({ label: "LightCluster/yh" });
+      pass.setPipeline(pipeline);
+      pass.setBindGroup(0, group0);
+      pass.setBindGroup(1, group1);
+      pass.setBindGroup(2, group2);
+      pass.dispatchWorkgroups(
+        Math.ceil(clusterWidth / LIGHT_CLUSTER_ASSIGN_WORKGROUP),
+        Math.ceil(clusterHeight / LIGHT_CLUSTER_ASSIGN_WORKGROUP),
+        Math.ceil(LIGHT_CLUSTER_DEPTH_SLICES / LIGHT_CLUSTER_ASSIGN_WORKGROUP),
+      );
+      pass.end();
+    });
     assignBuilder.read(filteredList);
     assignBuilder.read(inputs.camera);
     assignBuilder.read(inputs.lightDatabase);
@@ -485,55 +425,50 @@ export class LightClusterPass {
       kind: "transient_buffer",
       label: "LightCluster/lookup",
       size: lookupBytes,
-      usage: GPUBufferUsage.STORAGE
+      usage: GPUBufferUsage.STORAGE,
     });
     data = assignBuilder.create("LightCluster/data", {
       kind: "transient_buffer",
       label: "LightCluster/data",
       size: dataBytes,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
     let counters: ResourceId | null = null;
     if (inputs.counters !== undefined) {
-      const statsBuilder = graph.add(
-        "LightCluster/FX-02 stats",
-        job,
-        (passJob, resources, context) => {
-          const encoder = requireGpuEncoder(context);
-          const activeLocalLightCount =
-            passJob.lights.pointLights.count + passJob.lights.spotLights.count;
-          if (activeLocalLightCount === 0) {
-            this.zeroLightHistogramData[0] = clusterCount;
-            writeBuffer(
-              context,
-              this.device,
-              requireGpuBuffer(resources.get(inputs.counters!)),
-              this.zeroLightHistogramData.buffer,
-              counterByteOffset("clusterHistogram0"),
-              "LightCluster/zero-light-stats"
-            );
-            return;
-          }
-          const group = this.graphics.bind_groups.obtain({
-            layout: LIGHT_CLUSTER_STATS_GROUPS[0]!,
-            entries: [
-              { buffer: requireGpuBuffer(resources.get(visibleList)) },
-              { buffer: requireGpuBuffer(resources.get(filteredList)) },
-              { buffer: requireGpuBuffer(resources.get(lookup)) },
-              { buffer: requireGpuBuffer(resources.get(data)) },
-              { buffer: requireGpuBuffer(resources.get(inputs.counters!)) }
-            ]
-          });
-          const pass = encoder.beginComputePass({
-            label: "LightCluster/FX-02 stats"
-          });
-          pass.setPipeline(this.statsPipeline);
-          pass.setBindGroup(0, group);
-          pass.dispatchWorkgroups(Math.max(1, Math.ceil(clusterCount / 256)));
-          pass.end();
+      const statsBuilder = graph.add("LightCluster/FX-02 stats", job, (passJob, resources, context) => {
+        const encoder = requireGpuEncoder(context);
+        const activeLocalLightCount = passJob.lights.pointLights.count + passJob.lights.spotLights.count;
+        if (activeLocalLightCount === 0) {
+          this.zeroLightHistogramData[0] = clusterCount;
+          writeBuffer(
+            context,
+            this.device,
+            requireGpuBuffer(resources.get(inputs.counters!)),
+            this.zeroLightHistogramData.buffer,
+            counterByteOffset("clusterHistogram0"),
+            "LightCluster/zero-light-stats",
+          );
+          return;
         }
-      );
+        const group = this.graphics.bind_groups.obtain({
+          layout: LIGHT_CLUSTER_STATS_GROUPS[0]!,
+          entries: [
+            { buffer: requireGpuBuffer(resources.get(visibleList)) },
+            { buffer: requireGpuBuffer(resources.get(filteredList)) },
+            { buffer: requireGpuBuffer(resources.get(lookup)) },
+            { buffer: requireGpuBuffer(resources.get(data)) },
+            { buffer: requireGpuBuffer(resources.get(inputs.counters!)) },
+          ],
+        });
+        const pass = encoder.beginComputePass({
+          label: "LightCluster/FX-02 stats",
+        });
+        pass.setPipeline(this.statsPipeline);
+        pass.setBindGroup(0, group);
+        pass.dispatchWorkgroups(Math.max(1, Math.ceil(clusterCount / 256)));
+        pass.end();
+      });
       statsBuilder.read(visibleList);
       statsBuilder.read(filteredList);
       statsBuilder.read(lookup);
@@ -552,7 +487,7 @@ export class LightClusterPass {
       width,
       height,
       tileSize: LIGHT_CLUSTER_TILE_SIZE,
-      depthSlices: LIGHT_CLUSTER_DEPTH_SLICES
+      depthSlices: LIGHT_CLUSTER_DEPTH_SLICES,
     });
   }
 
@@ -563,20 +498,20 @@ export class LightClusterPass {
     database: GPUBuffer,
     output: GPUBuffer,
     elementSlots: number,
-    initializeEmpty = false
+    initializeEmpty = false,
   ): void {
     if (elementSlots <= 0 && !initializeEmpty) return;
     const group0 = this.graphics.bind_groups.obtain({
       layout: LIGHT_CLUSTER_LIST_GROUPS[0]!,
-      entries: [{ buffer: camera }]
+      entries: [{ buffer: camera }],
     });
     const group1 = this.graphics.bind_groups.obtain({
       layout: LIGHT_CLUSTER_LIST_GROUPS[1]!,
-      entries: [{ buffer: database }]
+      entries: [{ buffer: database }],
     });
     const group2 = this.graphics.bind_groups.obtain({
       layout: LIGHT_CLUSTER_LIST_GROUPS[2]!,
-      entries: [{ buffer: output }]
+      entries: [{ buffer: output }],
     });
     const pass = encoder.beginComputePass({ label: "LightCluster/list" });
     pass.setPipeline(pipeline);
@@ -587,11 +522,7 @@ export class LightClusterPass {
     pass.end();
   }
 
-  private packSettings(
-    camera: PerspectiveCamera,
-    width: number,
-    height: number
-  ): void {
+  private packSettings(camera: PerspectiveCamera, width: number, height: number): void {
     camera.update();
     const f32 = new Float32Array(this.settingsData);
     const u32 = new Uint32Array(this.settingsData);
@@ -599,9 +530,7 @@ export class LightClusterPass {
     const offsetNear = camera.near + 0.2;
     const zScale = 4.06;
     const blend =
-      (camera.far -
-        offsetNear *
-          Math.pow(2, (LIGHT_CLUSTER_DEPTH_SLICES - 1) / zScale)) /
+      (camera.far - offsetNear * Math.pow(2, (LIGHT_CLUSTER_DEPTH_SLICES - 1) / zScale)) /
       (camera.far - offsetNear);
     f32[0] = (1 - blend) / offsetNear;
     f32[1] = blend;
@@ -635,15 +564,15 @@ export class LightClusterPass {
 
   private createPipeline(
     code: string,
-    bindGroupLayouts: readonly GPUBindGroupLayoutDescriptor[]
+    bindGroupLayouts: readonly GPUBindGroupLayoutDescriptor[],
   ): GPUComputePipeline {
     const descriptor: CachedComputePipelineDescriptor = {
       label: "",
       layout: { label: "", bindGroupLayouts },
       compute: {
         module: { label: "", code },
-        entryPoint: "main"
-      }
+        entryPoint: "main",
+      },
     };
     return this.graphics.compute_pipelines.obtain(descriptor);
   }
@@ -653,11 +582,10 @@ export function lightClusterDataCapacity(clusterCount: number): number {
   const expensiveClusters = Math.ceil(clusterCount * 0.5);
   return Math.ceil(
     Math.max(
-      Math.max(0, clusterCount - expensiveClusters) +
-        128 * expensiveClusters,
+      Math.max(0, clusterCount - expensiveClusters) + 128 * expensiveClusters,
       128 * clusterCount * 0.5,
-      1
-    )
+      1,
+    ),
   );
 }
 
@@ -695,7 +623,7 @@ function writeBuffer(
   buffer: GPUBuffer,
   data: ArrayBuffer,
   bufferOffset = 0,
-  label = "LightCluster/settings"
+  label = "LightCluster/settings",
 ): void {
   const command = context.encoder as ShadeGPUCommandContext | undefined;
   if (command && typeof command.writeBuffer === "function") {

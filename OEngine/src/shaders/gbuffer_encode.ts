@@ -4,7 +4,7 @@
 
 import {
   GPU_SHADING_SURFACE_NORMAL_ENCODING,
-  GPU_SHADING_SURFACE_NORMAL_OVERRIDE_NAME
+  GPU_SHADING_SURFACE_NORMAL_OVERRIDE_NAME,
 } from "../gpu/GpuComputeMaterialAbi.js";
 
 /** Pipeline-overridable constant used by the M6 candidate normal layout. */

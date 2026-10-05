@@ -11,10 +11,9 @@ const { GpuGeometryDemandReadbackRingV1 } = await import(
 const { GeometryPageStreamingRuntimeV1 } = await import(
   "../../.test-dist/gpu/GeometryPageStreamingRuntime.js"
 );
-const {
-  packGeometryPageDemandHeaderV1,
-  packGeometryPageDemandV1
-} = await import("../../.test-dist/gpu/GeometryPageDemandAbiV1.js");
+const { packGeometryPageDemandHeaderV1, packGeometryPageDemandV1 } = await import(
+  "../../.test-dist/gpu/GeometryPageDemandAbiV1.js"
+);
 
 class FakeBuffer {
   constructor(descriptor) {
@@ -24,18 +23,26 @@ class FakeBuffer {
     this.destroyed = false;
     this.mapped = false;
   }
-  async mapAsync() { this.mapped = true; }
+  async mapAsync() {
+    this.mapped = true;
+  }
   getMappedRange(offset, size) {
     if (!this.mapped) throw new Error("buffer is not mapped");
     return this.bytes.slice(offset, offset + size).buffer;
   }
-  unmap() { this.mapped = false; }
-  destroy() { this.destroyed = true; }
+  unmap() {
+    this.mapped = false;
+  }
+  destroy() {
+    this.destroyed = true;
+  }
 }
 
 function device() {
   return {
-    createBuffer(descriptor) { return new FakeBuffer(descriptor); }
+    createBuffer(descriptor) {
+      return new FakeBuffer(descriptor);
+    },
   };
 }
 
@@ -43,13 +50,15 @@ function encoder() {
   return {
     copyBufferToBuffer(source, sourceOffset, destination, destinationOffset, size) {
       destination.bytes.set(source.bytes.slice(sourceOffset, sourceOffset + size), destinationOffset);
-    }
+    },
   };
 }
 
 test("GPU demand ring copies in-frame and maps only after a later completion", async () => {
   const ring = new GpuGeometryDemandReadbackRingV1({
-    device: device(), slotCount: 2, bytesPerSlot: 64
+    device: device(),
+    slotCount: 2,
+    bytesPerSlot: 64,
   });
   const source = new FakeBuffer({ size: 32, usage: 0 });
   source.bytes.set([1, 2, 3, 4]);
@@ -73,27 +82,48 @@ test("streaming runtime consumes delayed demand and uploads through residency", 
   const source = {
     descriptor,
     async readPage(pageId) {
-      return { productId: productId.slice(), revision: 0, pageId,
-        decodedHash128: hash.subarray(0, 16), decodedPageHash128: hash.subarray(0, 16), bytes: page.slice().buffer };
+      return {
+        productId: productId.slice(),
+        revision: 0,
+        pageId,
+        decodedHash128: hash.subarray(0, 16),
+        decodedPageHash128: hash.subarray(0, 16),
+        bytes: page.slice().buffer,
+      };
     },
-    release() {}
+    release() {},
   };
   const uploaded = [];
   const residency = {
     productGeneration: 9,
     productTableSlot: 3,
     descriptor,
-    uploadPage(value) { uploaded.push(value); },
-    evidence() { return { productGeneration: 9, residentPages: uploaded.length }; }
+    uploadPage(value) {
+      uploaded.push(value);
+    },
+    evidence() {
+      return { productGeneration: 9, residentPages: uploaded.length };
+    },
   };
   const runtime = new GeometryPageStreamingRuntimeV1(device(), residency, {
     schedulerOptions: { maxConcurrentReads: 1, maxInFlightBytes: 262144 },
-    readback: { slotCount: 2, bytesPerSlot: 64 }
+    readback: { slotCount: 2, bytesPerSlot: 64 },
   });
   runtime.registerProduct(source);
   const demand = new Uint8Array(32);
   demand.set(packGeometryPageDemandHeaderV1({ attempted: 1, capacity: 1, overflow: 0, frameRevisionLow: 4 }));
-  demand.set(packGeometryPageDemandV1({ productTableSlot: 3, productGeneration: 9, pageId: 0, priority: 10, currentViewMissing: true, shadow: false, predictive: false }), 16);
+  demand.set(
+    packGeometryPageDemandV1({
+      productTableSlot: 3,
+      productGeneration: 9,
+      pageId: 0,
+      priority: 10,
+      currentViewMissing: true,
+      shadow: false,
+      predictive: false,
+    }),
+    16,
+  );
   const gpuDemand = new FakeBuffer({ size: 32, usage: 0 });
   gpuDemand.bytes.set(demand);
   runtime.encodeDemandReadback(encoder(), gpuDemand, 10);
@@ -120,19 +150,29 @@ test("one streaming runtime routes Product-local pages to multiple shard residen
     const source = {
       descriptor,
       async readPage(pageId) {
-        return { productId: productId.slice(), revision: 0, pageId,
-          decodedHash128: hash.subarray(0, 16), decodedPageHash128: hash.subarray(0, 16), bytes: page.slice().buffer };
+        return {
+          productId: productId.slice(),
+          revision: 0,
+          pageId,
+          decodedHash128: hash.subarray(0, 16),
+          decodedPageHash128: hash.subarray(0, 16),
+          bytes: page.slice().buffer,
+        };
       },
-      release() {}
+      release() {},
     };
     const uploaded = [];
     const residency = {
       productGeneration: generation,
       productTableSlot: slot,
       descriptor,
-      uploadPage(value) { uploaded.push(value); },
+      uploadPage(value) {
+        uploaded.push(value);
+      },
       recordDemand() {},
-      evidence() { return { productGeneration: generation, residentPages: uploaded.length }; }
+      evidence() {
+        return { productGeneration: generation, residentPages: uploaded.length };
+      },
     };
     return { source, residency, uploaded };
   };
@@ -140,14 +180,36 @@ test("one streaming runtime routes Product-local pages to multiple shard residen
   const second = makeProduct(6, 4, 10);
   const runtime = new GeometryPageStreamingRuntimeV1(device(), first.residency, {
     schedulerOptions: { maxConcurrentReads: 2, maxInFlightBytes: 2 * 262144 },
-    readback: { slotCount: 2, bytesPerSlot: 64 }
+    readback: { slotCount: 2, bytesPerSlot: 64 },
   });
   runtime.registerProduct(first.source, first.residency);
   runtime.registerProduct(second.source, second.residency);
   const demand = new Uint8Array(48);
   demand.set(packGeometryPageDemandHeaderV1({ attempted: 2, capacity: 2, overflow: 0, frameRevisionLow: 4 }));
-  demand.set(packGeometryPageDemandV1({ productTableSlot: 3, productGeneration: 9, pageId: 0, priority: 10, currentViewMissing: true, shadow: false, predictive: false }), 16);
-  demand.set(packGeometryPageDemandV1({ productTableSlot: 4, productGeneration: 10, pageId: 0, priority: 9, currentViewMissing: true, shadow: false, predictive: false }), 32);
+  demand.set(
+    packGeometryPageDemandV1({
+      productTableSlot: 3,
+      productGeneration: 9,
+      pageId: 0,
+      priority: 10,
+      currentViewMissing: true,
+      shadow: false,
+      predictive: false,
+    }),
+    16,
+  );
+  demand.set(
+    packGeometryPageDemandV1({
+      productTableSlot: 4,
+      productGeneration: 10,
+      pageId: 0,
+      priority: 9,
+      currentViewMissing: true,
+      shadow: false,
+      predictive: false,
+    }),
+    32,
+  );
   const gpuDemand = new FakeBuffer({ size: 48, usage: 0 });
   gpuDemand.bytes.set(demand);
   runtime.encodeDemandReadback(encoder(), gpuDemand, 20);
@@ -162,28 +224,61 @@ test("one streaming runtime routes Product-local pages to multiple shard residen
 });
 
 test("streaming runtime revokes pages before the settled submission boundary", async () => {
-  const descriptor = { pageRecords: new Uint8Array(160), decodedPageBytes: 262144, productId: new Uint8Array(32).fill(4), revision: 0 };
-  const page = { productId: descriptor.productId.slice(), revision: 0, pageId: 4, decodedHash128: new Uint8Array(16), decodedPageHash128: new Uint8Array(16), bytes: new ArrayBuffer(262144) };
-  const source = { descriptor, async readPage() { return page; }, release() {} };
+  const descriptor = {
+    pageRecords: new Uint8Array(160),
+    decodedPageBytes: 262144,
+    productId: new Uint8Array(32).fill(4),
+    revision: 0,
+  };
+  const page = {
+    productId: descriptor.productId.slice(),
+    revision: 0,
+    pageId: 4,
+    decodedHash128: new Uint8Array(16),
+    decodedPageHash128: new Uint8Array(16),
+    bytes: new ArrayBuffer(262144),
+  };
+  const source = {
+    descriptor,
+    async readPage() {
+      return page;
+    },
+    release() {},
+  };
   const events = [];
   const residency = {
     productGeneration: 12,
     productTableSlot: 1,
     descriptor,
     uploadPage() {},
-    pageLocation(pageId) { return pageId === 4 ? { flags: 1 } : undefined; },
-    beginRetirePage(pageId) { events.push(`begin:${pageId}`); },
-    completeRetirePage(pageId) { events.push(`complete:${pageId}`); },
-    selectEvictionCandidates() { return []; },
-    evidence() { return { productGeneration: 12, residentPages: 0 }; }
+    pageLocation(pageId) {
+      return pageId === 4 ? { flags: 1 } : undefined;
+    },
+    beginRetirePage(pageId) {
+      events.push(`begin:${pageId}`);
+    },
+    completeRetirePage(pageId) {
+      events.push(`complete:${pageId}`);
+    },
+    selectEvictionCandidates() {
+      return [];
+    },
+    evidence() {
+      return { productGeneration: 12, residentPages: 0 };
+    },
   };
   const runtime = new GeometryPageStreamingRuntimeV1(device(), residency, {
     schedulerOptions: { maxConcurrentReads: 1, maxInFlightBytes: 262144 },
-    readback: { slotCount: 2, bytesPerSlot: 64 }
+    readback: { slotCount: 2, bytesPerSlot: 64 },
   });
   runtime.registerProduct(source);
   let settled = false;
-  const completion = new Promise((resolve) => setTimeout(() => { settled = true; resolve(); }, 0));
+  const completion = new Promise((resolve) =>
+    setTimeout(() => {
+      settled = true;
+      resolve();
+    }, 0),
+  );
   const retirement = runtime.retirePages([4], completion);
   assert.deepEqual(events, ["begin:4"]);
   await retirement;
@@ -199,7 +294,7 @@ test("runtime destruction unregisters the Product and aborts pending page reads"
     pageRecords: new Uint8Array(32),
     decodedPageBytes: page.byteLength,
     productId: new Uint8Array(32).fill(8),
-    revision: 0
+    revision: 0,
   };
   descriptor.pageRecords.set(hash.subarray(0, 16));
   new DataView(descriptor.pageRecords.buffer).setUint32(20, 1, true);
@@ -208,28 +303,59 @@ test("runtime destruction unregisters the Product and aborts pending page reads"
   const source = {
     descriptor,
     readPage(_pageId, signal) {
-      signal.addEventListener("abort", () => { aborted = true; resolveRead?.(); }, { once: true });
-      return new Promise((resolve) => { resolveRead = () => resolve({ productId: descriptor.productId.slice(), revision: 0, pageId: 0, decodedHash128: hash.subarray(0, 16), decodedPageHash128: hash.subarray(0, 16), bytes: page.slice().buffer }); });
+      signal.addEventListener(
+        "abort",
+        () => {
+          aborted = true;
+          resolveRead?.();
+        },
+        { once: true },
+      );
+      return new Promise((resolve) => {
+        resolveRead = () =>
+          resolve({
+            productId: descriptor.productId.slice(),
+            revision: 0,
+            pageId: 0,
+            decodedHash128: hash.subarray(0, 16),
+            decodedPageHash128: hash.subarray(0, 16),
+            bytes: page.slice().buffer,
+          });
+      });
     },
-    release() {}
+    release() {},
   };
-  const scheduler = new (await import("../../.test-dist/gpu/GeometryPageScheduler.js")).GeometryPageSchedulerV1({
+  const scheduler = new (
+    await import("../../.test-dist/gpu/GeometryPageScheduler.js")
+  ).GeometryPageSchedulerV1({
     maxConcurrentReads: 1,
-    maxInFlightBytes: page.byteLength
+    maxInFlightBytes: page.byteLength,
   });
   const residency = {
     productGeneration: 21,
     productTableSlot: 5,
     descriptor,
     uploadPage() {},
-    evidence() { return { productGeneration: 21, residentPages: 0 }; }
+    evidence() {
+      return { productGeneration: 21, residentPages: 0 };
+    },
   };
   const runtime = new GeometryPageStreamingRuntimeV1(device(), residency, {
     scheduler,
-    readback: { slotCount: 2, bytesPerSlot: 64 }
+    readback: { slotCount: 2, bytesPerSlot: 64 },
   });
   runtime.registerProduct(source);
-  scheduler.ingestDemands([{ productTableSlot: 5, productGeneration: 21, pageId: 0, priority: 10, currentViewMissing: true, shadow: false, predictive: false }]);
+  scheduler.ingestDemands([
+    {
+      productTableSlot: 5,
+      productGeneration: 21,
+      pageId: 0,
+      priority: 10,
+      currentViewMissing: true,
+      shadow: false,
+      predictive: false,
+    },
+  ]);
   assert.equal(scheduler.state(21, 0), "producing-or-reading");
   runtime.destroy();
   assert.equal(aborted, true);

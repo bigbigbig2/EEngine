@@ -23,10 +23,7 @@ export type TemporalHistoryResolutionDomain =
   | "effect-resolution"
   | "scalar";
 
-export type TemporalHistoryPreExposureConvention =
-  | "none"
-  | "working-linear-rescale"
-  | "invalidate-on-change";
+export type TemporalHistoryPreExposureConvention = "none" | "working-linear-rescale" | "invalidate-on-change";
 
 /** Immutable logical declaration; GPU allocation remains with the effect owner. */
 export interface TemporalHistoryDescriptor {
@@ -122,7 +119,7 @@ export class TemporalHistoryRegistry {
       lastInvalidationReason: "initial",
       committedPreExposure: null,
       lastReadValid: false,
-      lastReadPreExposureScale: 0
+      lastReadPreExposureScale: 0,
     });
   }
 
@@ -130,7 +127,7 @@ export class TemporalHistoryRegistry {
     frameIndex: number,
     revision: TemporalHistoryRevision,
     activeNames: readonly string[],
-    preExposure: PreExposureContract
+    preExposure: PreExposureContract,
   ): void {
     assertFrameIndex(frameIndex);
     if (this.activeFrame !== null) {
@@ -157,14 +154,14 @@ export class TemporalHistoryRegistry {
       const next = nextActive.has(name);
       // The initial global invalidation establishes every declaration once.
       // Do not immediately overwrite its evidence with a second toggle reset.
+      if (!firstFrame && globalReason !== "feature-toggle" && state.active !== next)
+        invalidateState(state, "feature-toggle");
       if (
-        !firstFrame &&
-        globalReason !== "feature-toggle" &&
-        state.active !== next
-      ) invalidateState(state, "feature-toggle");
-      if (next && state.valid &&
-          state.descriptor.preExposure === "invalidate-on-change" &&
-          state.committedPreExposure?.multiplier !== preExposure.multiplier) {
+        next &&
+        state.valid &&
+        state.descriptor.preExposure === "invalidate-on-change" &&
+        state.committedPreExposure?.multiplier !== preExposure.multiplier
+      ) {
         invalidateState(state, "exposure-discontinuity");
       }
       state.active = next;
@@ -191,9 +188,8 @@ export class TemporalHistoryRegistry {
         state.committedIndex = otherIndex(state.committedIndex);
         state.valid = true;
         state.produced = false;
-        state.committedPreExposure = state.descriptor.preExposure === "none"
-          ? null
-          : Object.freeze({ ...this.activePreExposure! });
+        state.committedPreExposure =
+          state.descriptor.preExposure === "none" ? null : Object.freeze({ ...this.activePreExposure! });
         committed = true;
       }
     }
@@ -215,10 +211,7 @@ export class TemporalHistoryRegistry {
     for (const state of this.histories.values()) invalidateState(state, reason);
   }
 
-  invalidateNames(
-    names: readonly string[],
-    reason: TemporalHistoryInvalidationReason = "explicit"
-  ): void {
+  invalidateNames(names: readonly string[], reason: TemporalHistoryInvalidationReason = "explicit"): void {
     const unique = new Set(names);
     for (const name of unique) invalidateState(this.require(name), reason);
   }
@@ -240,7 +233,7 @@ export class TemporalHistoryRegistry {
         ? 0
         : this.activeFrame === null
           ? state.lastReadPreExposureScale
-          : this.currentPreExposureScale(state)
+          : this.currentPreExposureScale(state),
     });
   }
 
@@ -254,8 +247,7 @@ export class TemporalHistoryRegistry {
     if (state.descriptor.preExposure === "invalidate-on-change") return 1;
     const current = this.activePreExposure;
     const committed = state.committedPreExposure;
-    if (current === null || committed === null ||
-        current.generation !== committed.generation) return 0;
+    if (current === null || committed === null || current.generation !== committed.generation) return 0;
     return current.multiplier / committed.multiplier;
   }
 
@@ -263,12 +255,12 @@ export class TemporalHistoryRegistry {
     for (const state of this.histories.values()) {
       // A reconstruction history at output resolution survives changes to the
       // internal sampling domain when its backend keeps the physical slot.
-      if ((reason === "internal-resize" || reason === "render-scale") &&
-          state.descriptor.resolutionDomain === "output-full") continue;
       if (
-        reason === "exposure-discontinuity" &&
-        state.descriptor.preExposure === "none"
-      ) continue;
+        (reason === "internal-resize" || reason === "render-scale") &&
+        state.descriptor.resolutionDomain === "output-full"
+      )
+        continue;
+      if (reason === "exposure-discontinuity" && state.descriptor.preExposure === "none") continue;
       if (reason === "lighting-change" && state.descriptor.lightingDependent === false) {
         continue;
       }
@@ -285,16 +277,14 @@ export class TemporalHistoryRegistry {
   private assertActiveFrame(frameIndex: number): void {
     assertFrameIndex(frameIndex);
     if (this.activeFrame !== frameIndex) {
-      throw new Error(
-        `Temporal history frame ${frameIndex} does not match active frame ${this.activeFrame}`
-      );
+      throw new Error(`Temporal history frame ${frameIndex} does not match active frame ${this.activeFrame}`);
     }
   }
 }
 
 function invalidationReason(
   previous: TemporalHistoryRevision | null,
-  next: TemporalHistoryRevision
+  next: TemporalHistoryRevision,
 ): TemporalHistoryInvalidationReason | null {
   if (previous === null) return "initial";
   if (previous.device !== next.device) return "device-loss";
@@ -321,10 +311,7 @@ function invalidationReason(
   return null;
 }
 
-function invalidateState(
-  state: MutableHistoryState,
-  reason: TemporalHistoryInvalidationReason
-): void {
+function invalidateState(state: MutableHistoryState, reason: TemporalHistoryInvalidationReason): void {
   state.valid = false;
   state.produced = false;
   state.committedPreExposure = null;
@@ -340,8 +327,7 @@ function validateDescriptor(descriptor: TemporalHistoryDescriptor): void {
     throw new Error("Temporal history name and semantic must not be empty");
   }
   if (descriptor.format.length === 0) throw new Error("Temporal history format must not be empty");
-  if (descriptor.lightingDependent !== undefined &&
-      typeof descriptor.lightingDependent !== "boolean") {
+  if (descriptor.lightingDependent !== undefined && typeof descriptor.lightingDependent !== "boolean") {
     throw new TypeError("Temporal history lightingDependent must be boolean");
   }
   if (!Number.isInteger(descriptor.bufferCount) || descriptor.bufferCount <= 0) {
@@ -371,7 +357,7 @@ function validateRevision(revision: TemporalHistoryRevision): void {
     ["scene", revision.scene],
     ["representation", revision.representation],
     ["device", revision.device],
-    ["preExposureGeneration", revision.preExposureGeneration]
+    ["preExposureGeneration", revision.preExposureGeneration],
   ];
   for (const [name, value] of integerFields) {
     if (!Number.isInteger(value) || value < 0) {
@@ -388,9 +374,13 @@ function validateRevision(revision: TemporalHistoryRevision): void {
 }
 
 function validatePreExposure(value: PreExposureContract): void {
-  if (!Number.isFinite(value.multiplier) || value.multiplier <= 0 ||
-      !Number.isInteger(value.generation) || value.generation < 0 ||
-      value.colorSpace !== "working-linear") {
+  if (
+    !Number.isFinite(value.multiplier) ||
+    value.multiplier <= 0 ||
+    !Number.isInteger(value.generation) ||
+    value.generation < 0 ||
+    value.colorSpace !== "working-linear"
+  ) {
     throw new Error("Temporal history pre-exposure contract is invalid");
   }
 }

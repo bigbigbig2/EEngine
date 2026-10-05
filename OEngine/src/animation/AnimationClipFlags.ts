@@ -4,7 +4,7 @@
 
 export const AnimationClipFlags: { Playing: number; Loop: number } = {
   Playing: 1,
-  Loop: 2
+  Loop: 2,
 };
 
 export type AnimationClipFlags = number;

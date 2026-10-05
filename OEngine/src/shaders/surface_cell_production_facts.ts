@@ -6,15 +6,26 @@ import { surfaceCellGeometryMathWgsl } from "./surface_cell_geometry_setup.js";
 import { textureLocalVariationQueryWgsl } from "./texture_local_variation_query.js";
 import { PACKED_CAMERA_TYPE } from "./packed_camera.js";
 import { surfaceCellGeometryArenaWgsl } from "../gpu/GpuSurfaceCellGeometryAbi.js";
-import { GPU_TEXTURE_REF_ROUTING_SHIFT, GPU_TEXTURE_REF_ROUTING_MASK, GPU_TEXTURE_REF_INVALID } from "../gpu/GpuTextureRefAbi.js";
+import {
+  GPU_TEXTURE_REF_ROUTING_SHIFT,
+  GPU_TEXTURE_REF_ROUTING_MASK,
+  GPU_TEXTURE_REF_INVALID,
+} from "../gpu/GpuTextureRefAbi.js";
 import { GPU_MATERIAL_VISIBILITY_SAMPLER as S } from "../gpu/GpuMaterialVisibilityAbi.js";
 import { APPEARANCE_MATERIAL_CONSTANT_WGSL } from "./appearance_material_constants.js";
 import { SURFACE_APPEARANCE_BOUND_PROGRAM_WORDS } from "../gpu/GpuSurfaceAppearanceBoundsAbi.js";
 import { SURFACE_CELL_CERTIFICATE_WGSL } from "./surface_cell_certificates.js";
 import { SURFACE_CELL_ADDRESSES_WGSL } from "./surface_cell_addresses.js";
 import { APPEARANCE_FIELD_NAMES } from "../gpu/GpuAppearanceFieldAbi.js";
-import { SURFACE_EXECUTION_WORDS, SURFACE_FIELD_EXECUTION_WORDS, SURFACE_SIGNAL_EXECUTION_WORDS } from "../gpu/GpuSurfaceExecutionProfileAbi.js";
-import { SURFACE_DIRECT_RESIDUAL_FIELDS, SURFACE_DIRECT_TRANSPORT_FIELDS } from "../material/AppearanceExecutionProfile.js";
+import {
+  SURFACE_EXECUTION_WORDS,
+  SURFACE_FIELD_EXECUTION_WORDS,
+  SURFACE_SIGNAL_EXECUTION_WORDS,
+} from "../gpu/GpuSurfaceExecutionProfileAbi.js";
+import {
+  SURFACE_DIRECT_RESIDUAL_FIELDS,
+  SURFACE_DIRECT_TRANSPORT_FIELDS,
+} from "../material/AppearanceExecutionProfile.js";
 import { SURFACE_REFERENCE_WGSL, SURFACE_CELL_ADDRESS_WORDS } from "../gpu/GpuSurfaceReferenceAbi.js";
 import { surfaceCellSelectionWgsl } from "../gpu/GpuSurfaceCellPlanAbi.js";
 
@@ -22,64 +33,102 @@ import { surfaceCellSelectionWgsl } from "../gpu/GpuSurfaceCellPlanAbi.js";
  * Lighting owner supplies the direct-light set/shadow/spatial predicate; the
  * Appearance static owner supplies actual product bounds. Neither has a silent
  * always-false/unknown implementation in this production library. */
-export function surfaceCellProductionFactsWgsl(programs: readonly AppearanceFieldBoundProgram[],
-  product: boolean, directRiskLibrary: string, productBoundLibrary: string | null, referenceCapacity=65536,
-  fieldMask: ReadonlySet<number> | null = null, signalBounds = true, parameterBounds = false, proofQueue=0): string {
-  const selected = programs.map(program => {
+export function surfaceCellProductionFactsWgsl(
+  programs: readonly AppearanceFieldBoundProgram[],
+  product: boolean,
+  directRiskLibrary: string,
+  productBoundLibrary: string | null,
+  referenceCapacity = 65536,
+  fieldMask: ReadonlySet<number> | null = null,
+  signalBounds = true,
+  parameterBounds = false,
+  proofQueue = 0,
+): string {
+  const selected = programs.map((program) => {
     // The generated switch uses program-local output ordinals, not Surface ABI
     // field indices. A sparse/reordered graph must select by output name.
     const ordinals = new Set<number>();
     for (let ordinal = 0; ordinal < program.fields.length; ordinal++) {
-      const field = APPEARANCE_FIELD_NAMES.indexOf(program.fields[ordinal] as typeof APPEARANCE_FIELD_NAMES[number]);
-      if (fieldMask === null || fieldMask.has(field)) { ordinals.add(ordinal); }
+      const field = APPEARANCE_FIELD_NAMES.indexOf(
+        program.fields[ordinal] as (typeof APPEARANCE_FIELD_NAMES)[number],
+      );
+      if (fieldMask === null || fieldMask.has(field)) {
+        ordinals.add(ordinal);
+      }
     }
     let source = restrictAppearanceBoundSource(program.source, ordinals);
     if (program.inputSemantics !== undefined) {
       source = source.replace(/ab_input\(context,(\d+)u,/g, (_, index: string) => {
         const kind = program.inputSemantics![Number(index)];
-        if (kind === undefined) { throw new Error("Missing Appearance input semantic"); }
+        if (kind === undefined) {
+          throw new Error("Missing Appearance input semantic");
+        }
         return `cell_input_value_kind(${kind}u,`;
       });
       source = source.replace(/ab_input_gradient\(context,(\d+)u,/g, (_, index: string) => {
         const kind = program.inputSemantics![Number(index)];
-        if (kind === undefined) { throw new Error("Missing Appearance gradient semantic"); }
+        if (kind === undefined) {
+          throw new Error("Missing Appearance gradient semantic");
+        }
         return `cell_input_gradient_kind(${kind}u,`;
       });
     }
     return { ...program, source };
   });
-  const hasProductSamples=selected.some(program=>program.source.includes("=ab_product("));
+  const hasProductSamples = selected.some((program) => program.source.includes("=ab_product("));
   let textureBoundSlots = 1;
   let productBoundSlots = 1;
-  let attributeMask = signalBounds ? (0xff | (0xf << 20)) : 0;
+  let attributeMask = signalBounds ? 0xff | (0xf << 20) : 0;
   for (const program of selected) {
     for (const [field, profile] of Object.entries(program.dependencyProfiles)) {
-      const fieldIndex = APPEARANCE_FIELD_NAMES.indexOf(field as typeof APPEARANCE_FIELD_NAMES[number]);
-      if (fieldMask !== null && !fieldMask.has(fieldIndex)) { continue; }
-      for (const product of profile.products) { productBoundSlots = Math.max(productBoundSlots,product+1); }
-      for (const sample of profile.samples) { textureBoundSlots = Math.max(textureBoundSlots, sample + 1); }
+      const fieldIndex = APPEARANCE_FIELD_NAMES.indexOf(field as (typeof APPEARANCE_FIELD_NAMES)[number]);
+      if (fieldMask !== null && !fieldMask.has(fieldIndex)) {
+        continue;
+      }
+      for (const product of profile.products) {
+        productBoundSlots = Math.max(productBoundSlots, product + 1);
+      }
+      for (const sample of profile.samples) {
+        textureBoundSlots = Math.max(textureBoundSlots, sample + 1);
+      }
       for (const input of profile.inputs) {
-        if (input.domain === "dynamic" || input.domain === "nonlocal") { continue; }
+        if (input.domain === "dynamic" || input.domain === "nonlocal") {
+          continue;
+        }
         const kind = program.inputSemantics?.[input.index];
-        if (kind === undefined) { attributeMask = 0xffffff; continue; }
-        if (kind === 1) { attributeMask |= 1 << (8 + input.channel); }
-        else if (kind === 2) { attributeMask |= 1 << (10 + input.channel); }
-        else if (kind === 3) { attributeMask |= 1 << (16 + input.channel); }
-        else if (kind === 4) { attributeMask |= 1 << (12 + input.channel); }
-        else if (kind === 5 || kind === 11 || kind === 14) { attributeMask |= 0x7; }
-        else if (kind === 6 || kind === 12) { attributeMask |= 0x77; }
-        else if (kind === 7 || kind === 10) { attributeMask |= 1 << (20 + input.channel); }
-        else if (kind === 8 || kind === 13) { attributeMask |= 0x7 << 20; }
+        if (kind === undefined) {
+          attributeMask = 0xffffff;
+          continue;
+        }
+        if (kind === 1) {
+          attributeMask |= 1 << (8 + input.channel);
+        } else if (kind === 2) {
+          attributeMask |= 1 << (10 + input.channel);
+        } else if (kind === 3) {
+          attributeMask |= 1 << (16 + input.channel);
+        } else if (kind === 4) {
+          attributeMask |= 1 << (12 + input.channel);
+        } else if (kind === 5 || kind === 11 || kind === 14) {
+          attributeMask |= 0x7;
+        } else if (kind === 6 || kind === 12) {
+          attributeMask |= 0x77;
+        } else if (kind === 7 || kind === 10) {
+          attributeMask |= 1 << (20 + input.channel);
+        } else if (kind === 8 || kind === 13) {
+          attributeMask |= 0x7 << 20;
+        }
       }
     }
   }
   const attributeComponents: number[] = [];
   for (let component = 0; component < 24; component++) {
-    if ((attributeMask & (1 << component)) !== 0) { attributeComponents.push(component); }
+    if ((attributeMask & (1 << component)) !== 0) {
+      attributeComponents.push(component);
+    }
   }
-  const attributeSlots = Array.from({length:24},(_unused,component) => {
-    const slot=attributeComponents.indexOf(component);
-    return slot<0 ? "0xffffffffu" : `${slot}u`;
+  const attributeSlots = Array.from({ length: 24 }, (_unused, component) => {
+    const slot = attributeComponents.indexOf(component);
+    return slot < 0 ? "0xffffffffu" : `${slot}u`;
   });
   // Materials with identical bound topology use one function. The context still
   // selects each material's own constants/routes, so sharing code changes no data.
@@ -91,7 +140,9 @@ export function surfaceCellProductionFactsWgsl(programs: readonly AppearanceFiel
   const canonicalMaterials = new Map<string, string>();
   for (const program of selected) {
     const declaration = /fn\s+(\w+)\s*\(/.exec(program.source);
-    if (declaration === null) { throw new Error("Missing generated Appearance bound function"); }
+    if (declaration === null) {
+      throw new Error("Missing generated Appearance bound function");
+    }
     const name = declaration[1]!;
     const key = program.source.replace(`fn ${name}(`, "fn canonical_bound(");
     let canonical = canonicalBounds.get(key);
@@ -136,12 +187,19 @@ export function surfaceCellProductionFactsWgsl(programs: readonly AppearanceFiel
   const boundDispatch: string[] = [];
   const materialDispatch: string[] = [];
   for (const [name, selectors] of boundSelectors) {
-    boundDispatch.push(`case ${selectors.map(index => `${index}u`).join(", ")}:{return ${name}(descriptor.x,context);}`);
+    boundDispatch.push(
+      `case ${selectors.map((index) => `${index}u`).join(", ")}:{return ${name}(descriptor.x,context);}`,
+    );
   }
   for (const [name, selectors] of materialSelectors) {
-    materialDispatch.push(`case ${selectors.map(index => `${index}u`).join(", ")}:{result=${name}(context);}`);
+    materialDispatch.push(
+      `case ${selectors.map((index) => `${index}u`).join(", ")}:{result=${name}(context);}`,
+    );
   }
-  if (!directRiskLibrary.includes("fn cell_direct_node_safe(") || (hasProductSamples&&!productBoundLibrary?.includes("fn ab_product("))) {
+  if (
+    !directRiskLibrary.includes("fn cell_direct_node_safe(") ||
+    (hasProductSamples && !productBoundLibrary?.includes("fn ab_product("))
+  ) {
     throw new Error("Surface cell facts require real Lighting and static-product bound providers");
   }
   const source = /* wgsl */ `
@@ -161,12 +219,16 @@ struct CellFactSettings {
 @group(1) @binding(6) var<storage,read> frame_instances:array<OEngineFrameInstanceRecord>;
 @group(1) @binding(7) var<storage,read_write> appearance_metadata:array<u32>;
 @group(1) @binding(8) var<storage,read> texture_variation:array<u32>;
-${product ? `@group(1) @binding(9) var<storage,read> product_heap:array<u32>;
-${Array.from({length:4},(_,i)=>`@group(1) @binding(${i+10}) var<storage,read> product_bank_${i}:array<u32>;`).join("\n")}` : ""}
+${
+  product
+    ? `@group(1) @binding(9) var<storage,read> product_heap:array<u32>;
+${Array.from({ length: 4 }, (_, i) => `@group(1) @binding(${i + 10}) var<storage,read> product_bank_${i}:array<u32>;`).join("\n")}`
+    : ""
+}
 ${PACKED_CAMERA_TYPE.wgsl_declaration}
 @group(1) @binding(14) var<uniform> cell_camera:CommandEncoder;
 ${surfaceCellGeometryMathWgsl(product, false)}
-${surfaceCellGeometryArenaWgsl(referenceCapacity,false)}
+${surfaceCellGeometryArenaWgsl(referenceCapacity, false)}
 ${APPEARANCE_FIELD_BOUND_WGSL}
 ${APPEARANCE_MATERIAL_CONSTANT_WGSL}
 ${SURFACE_CELL_ADDRESS_MATH_WGSL}
@@ -240,10 +302,13 @@ fn cell_scalar_attribute(field:u32,channel:u32)->CellScalarFootprint {
  if slot==0xffffffffu { return cell_address_unknown(); }
  if (cell_bound_attribute_valid&(1u<<component))==0u {
   let values=vec3f(cell_bound_setup.corners[field][channel],cell_bound_setup.corners[field+6u][channel],cell_bound_setup.corners[field+12u][channel]);
-  ${parameterBounds ? `cell_bound_attributes[slot]=cell_parameter_scalar_footprint(cell_parameter_coefficients,values,cell_parameter_domain,
-    cell_parameter_gradient_low,cell_parameter_gradient_high);` :
-    `cell_bound_attributes[slot]=cell_scalar_footprint(cell_bound_setup.coefficients,values,cell_current_rect.xy,cell_current_rect.zw,
-    vec2f(f32(cell_settings.width),f32(cell_settings.height)));`}
+  ${
+    parameterBounds
+      ? `cell_bound_attributes[slot]=cell_parameter_scalar_footprint(cell_parameter_coefficients,values,cell_parameter_domain,
+    cell_parameter_gradient_low,cell_parameter_gradient_high);`
+      : `cell_bound_attributes[slot]=cell_scalar_footprint(cell_bound_setup.coefficients,values,cell_current_rect.xy,cell_current_rect.zw,
+    vec2f(f32(cell_settings.width),f32(cell_settings.height)));`
+  }
   cell_bound_attribute_valid|=1u<<component;
  }
  return cell_bound_attributes[slot];
@@ -400,7 +465,7 @@ fn cell_texture_bound(context:vec4u,sample:u32,u:AppearanceBound,v:AppearanceBou
   result=AppearanceBound4(vec4f(1.0,1.0,1.0,alpha.low),vec4f(1.0,1.0,1.0,alpha.high),vec4u(1u,1u,1u,alpha.known));}
  return result;
 }
-${productBoundLibrary??""}
+${productBoundLibrary ?? ""}
 ${boundSources.join("\n")}
 ${materialSources.join("\n")}
 fn cell_constant_palette(entry:u32)->u32 {return settings.appearance2.x+entry*64u;}
@@ -538,13 +603,18 @@ fn cell_field_budget(field:u32,value:AppearanceBound4)->bool {
 }
 ${directRiskLibrary}
 ${SURFACE_REFERENCE_WGSL}
-${surfaceCellSelectionWgsl("cell_workspace","appearance_metadata","settings.appearance2.x")}
+${surfaceCellSelectionWgsl("cell_workspace", "appearance_metadata", "settings.appearance2.x")}
 ${SURFACE_CELL_ADDRESSES_WGSL}
 ${SURFACE_CELL_CERTIFICATE_WGSL}
-`.replaceAll("geometry_setups[","geometry_arena.setups[");
-  const activeFields=fieldMask===null ? 0x7fff : [...fieldMask].reduce((mask,field) => mask | (1<<field),0);
-  return source.replace("const CELL_CERTIFICATE_ACTIVE_FIELDS:u32=32767u;",`const CELL_CERTIFICATE_ACTIVE_FIELDS:u32=${activeFields}u;`)
-    .replace("const CELL_CERTIFICATE_QUEUE:u32=0u;",`const CELL_CERTIFICATE_QUEUE:u32=${proofQueue}u;`);
+`.replaceAll("geometry_setups[", "geometry_arena.setups[");
+  const activeFields =
+    fieldMask === null ? 0x7fff : [...fieldMask].reduce((mask, field) => mask | (1 << field), 0);
+  return source
+    .replace(
+      "const CELL_CERTIFICATE_ACTIVE_FIELDS:u32=32767u;",
+      `const CELL_CERTIFICATE_ACTIVE_FIELDS:u32=${activeFields}u;`,
+    )
+    .replace("const CELL_CERTIFICATE_QUEUE:u32=0u;", `const CELL_CERTIFICATE_QUEUE:u32=${proofQueue}u;`);
 }
 
 /** Keep the complete generated function envelope while removing unreachable
@@ -564,7 +634,8 @@ function restrictAppearanceBoundSource(source: string, fields: ReadonlySet<numbe
     if (!match) break;
     const number = Number(match[1]);
     const bodyOpen = match.index + match[0].length - 1;
-    let depth = 0, end = bodyOpen;
+    let depth = 0,
+      end = bodyOpen;
     for (; end < source.length; end++) {
       const character = source[end];
       if (character === "{") depth++;

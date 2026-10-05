@@ -40,7 +40,7 @@ export interface SceneResidencyManifestLimits {
 /** Validates every scene reference before any GPU reservation or write. */
 export function createSceneResidencyManifest(
   source: PackedSceneSource,
-  limits: SceneResidencyManifestLimits
+  limits: SceneResidencyManifestLimits,
 ): SceneResidencyManifest {
   validateSourceShape(source);
   validateLimits(limits);
@@ -55,7 +55,7 @@ export function createSceneResidencyManifest(
     if (!report.valid) {
       const issue = report.issues.find((candidate) => candidate.severity === "error");
       throw new Error(
-        `SceneResidencyManifest geometry ${index} is invalid: ${issue?.message ?? "unknown package error"}`
+        `SceneResidencyManifest geometry ${index} is invalid: ${issue?.message ?? "unknown package error"}`,
       );
     }
     if (geometry.package.manifest.contentHash.length === 0) {
@@ -64,27 +64,15 @@ export function createSceneResidencyManifest(
     sourceTriangles = safeAdd(sourceTriangles, geometry.directory.sourceTriangleCount, "source triangles");
     meshlets = safeAdd(meshlets, geometry.meshlets.length, "meshlets");
     clusters = safeAdd(clusters, Math.max(geometry.clusters.length, 1), "clusters");
-    packageBytes = safeAdd(
-      packageBytes,
-      geometry.package.manifest.totalByteLength,
-      "package bytes"
-    );
+    packageBytes = safeAdd(packageBytes, geometry.package.manifest.totalByteLength, "package bytes");
     hashes.push(geometry.package.manifest.contentHash);
   }
-  const hierarchy = computeIndexedPackedHierarchyWorkCapacity(
-    source.geometries,
-    source.geometryIndices
-  );
-  const rasterBytes = gpuMeshletWorkQueueByteLength(
-    hierarchy.rasterWorkCapacity
-  );
-  const bindingLimit = Math.min(
-    limits.maxBufferSize,
-    limits.maxStorageBufferBindingSize
-  );
+  const hierarchy = computeIndexedPackedHierarchyWorkCapacity(source.geometries, source.geometryIndices);
+  const rasterBytes = gpuMeshletWorkQueueByteLength(hierarchy.rasterWorkCapacity);
+  const bindingLimit = Math.min(limits.maxBufferSize, limits.maxStorageBufferBindingSize);
   if (rasterBytes > bindingLimit) {
     throw new RangeError(
-      `SceneResidencyManifest MeshletWork requires ${rasterBytes} bytes but the adapter limit is ${bindingLimit}`
+      `SceneResidencyManifest MeshletWork requires ${rasterBytes} bytes but the adapter limit is ${bindingLimit}`,
     );
   }
   return Object.freeze({
@@ -103,8 +91,8 @@ export function createSceneResidencyManifest(
       clusters,
       packageBytes,
       maxSelectedClusterCut: hierarchy.visibleClusterCapacity,
-      maxRasterTriangleCut: hierarchy.rasterWorkCapacity
-    })
+      maxRasterTriangleCut: hierarchy.rasterWorkCapacity,
+    }),
   });
 }
 

@@ -27,12 +27,12 @@ export const SHADE_DATA_TYPE: Record<number, string> = {
   5: ShadeDataType.Int32,
   6: ShadeDataType.Float32,
   7: ShadeDataType.Float64,
-  8: ShadeDataType.Float16
+  8: ShadeDataType.Float16,
 };
 
 export function deserializeMeshletGeometry(
   e: BinaryReader,
-  t: MeshletGeometryBase = new MeshletGeometryBase()
+  t: MeshletGeometryBase = new MeshletGeometryBase(),
 ): MeshletGeometryBase {
   t.primitive_count = e.readUint32();
   e.readFloat32Array(t.bounding_box, 0, 6);
@@ -64,7 +64,7 @@ export function deserializeMeshletGeometry(
 export function deserializeMaterialTextures(
   e: BinaryReader,
   t: StandardShadeMaterial,
-  textures: ShadeTexture[]
+  textures: ShadeTexture[],
 ): void {
   const albedo = e.readUint32();
   const normal = e.readUint32();
@@ -131,7 +131,7 @@ export async function decodeSourceBlob(e: ArrayBuffer): Promise<ImageBitmap> {
   const blob = new Blob([e], { type: "image/avif" });
   return createImageBitmap(blob, {
     colorSpaceConversion: "none",
-    premultiplyAlpha: "none"
+    premultiplyAlpha: "none",
   });
 }
 

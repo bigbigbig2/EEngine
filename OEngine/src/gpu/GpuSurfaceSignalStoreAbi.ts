@@ -7,10 +7,17 @@ export const SURFACE_SIGNAL_STORE_PAYLOAD_WORDS = 4;
 export const SURFACE_SIGNAL_STORE_ENTRY_WORDS = 88;
 export const SURFACE_SIGNAL_STORE_REQUEST_WORDS = SURFACE_SIGNAL_STORE_ENTRY_WORDS;
 export const SURFACE_SIGNAL_STORE_WAYS = 4;
-export const SURFACE_SIGNAL_STORE_STATE = Object.freeze({ empty: 0, reserved: 1, published: 2, produced: 3, retiring: 4 });
+export const SURFACE_SIGNAL_STORE_STATE = Object.freeze({
+  empty: 0,
+  reserved: 1,
+  published: 2,
+  produced: 3,
+  retiring: 4,
+});
 export const SURFACE_SIGNAL_STORE_ENTRY_BYTES = SURFACE_SIGNAL_STORE_ENTRY_WORDS * 4;
 export const SURFACE_SIGNAL_STORE_PAYLOAD_WORD = SURFACE_SIGNAL_STORE_KEY_WORDS;
-export const SURFACE_SIGNAL_STORE_FLAGS_WORD = SURFACE_SIGNAL_STORE_PAYLOAD_WORD + SURFACE_SIGNAL_STORE_PAYLOAD_WORDS;
+export const SURFACE_SIGNAL_STORE_FLAGS_WORD =
+  SURFACE_SIGNAL_STORE_PAYLOAD_WORD + SURFACE_SIGNAL_STORE_PAYLOAD_WORDS;
 export const SURFACE_SIGNAL_STORE_GENERATION_WORD = SURFACE_SIGNAL_STORE_FLAGS_WORD + 1;
 export const SURFACE_SIGNAL_STORE_AGE_CONFIDENCE_WORD = SURFACE_SIGNAL_STORE_GENERATION_WORD + 1;
 export const SURFACE_SIGNAL_STORE_TOUCHED_GENERATION_WORD = SURFACE_SIGNAL_STORE_AGE_CONFIDENCE_WORD + 1;
@@ -25,11 +32,11 @@ export const SURFACE_SIGNAL_STORE_KIND = Object.freeze({
   directSpecular: 2,
   environmentSpecular: 3,
   directCoat: 4,
-  environmentCoat: 5
+  environmentCoat: 5,
 });
 export const SURFACE_SIGNAL_STORE_FLAG = Object.freeze({
   valid: 1,
-  spill: 2
+  spill: 2,
 });
 
 export interface SurfaceSignalStoreKey {
@@ -42,21 +49,27 @@ export function encodeSurfaceSignalStoreKey(key: SurfaceSignalStoreKey): Uint32A
   if (key.words.length !== SURFACE_SIGNAL_STORE_KEY_WORDS) {
     throw new RangeError("Signal identity requires every complete witness word");
   }
-  return Uint32Array.from(key.words.map((value, index) => {
-    if (!Number.isSafeInteger(value) || value < 0 || value > 0xffffffff) {
-      throw new RangeError(`Signal key word ${index} is invalid`);
-    }
-    return value >>> 0;
-  }));
+  return Uint32Array.from(
+    key.words.map((value, index) => {
+      if (!Number.isSafeInteger(value) || value < 0 || value > 0xffffffff) {
+        throw new RangeError(`Signal key word ${index} is invalid`);
+      }
+      return value >>> 0;
+    }),
+  );
 }
 
 export function planSurfaceSignalStoreCapacity(
   limits: Pick<GPUSupportedLimits, "maxBufferSize" | "maxStorageBufferBindingSize">,
-  budgetBytes = SURFACE_SIGNAL_STORE_BUDGET_BYTES
+  budgetBytes = SURFACE_SIGNAL_STORE_BUDGET_BYTES,
 ) {
-  const binding = Math.floor(Math.min(Number(limits.maxBufferSize), Number(limits.maxStorageBufferBindingSize)) / 256) * 256;
-  const bytes = Math.floor(budgetBytes / (SURFACE_SIGNAL_STORE_ENTRY_BYTES * SURFACE_SIGNAL_STORE_WAYS)) *
-    SURFACE_SIGNAL_STORE_ENTRY_BYTES * SURFACE_SIGNAL_STORE_WAYS;
+  const binding =
+    Math.floor(Math.min(Number(limits.maxBufferSize), Number(limits.maxStorageBufferBindingSize)) / 256) *
+    256;
+  const bytes =
+    Math.floor(budgetBytes / (SURFACE_SIGNAL_STORE_ENTRY_BYTES * SURFACE_SIGNAL_STORE_WAYS)) *
+    SURFACE_SIGNAL_STORE_ENTRY_BYTES *
+    SURFACE_SIGNAL_STORE_WAYS;
   if (bytes < SURFACE_SIGNAL_STORE_ENTRY_BYTES * SURFACE_SIGNAL_STORE_WAYS) {
     throw new RangeError("SignalStore cannot fit one four-way set");
   }
@@ -66,7 +79,7 @@ export function planSurfaceSignalStoreCapacity(
     throw new RangeError("SignalStore binding cannot fit one entry");
   }
   const segments: number[] = [];
-  for (let remaining = bytes; remaining > 0;) {
+  for (let remaining = bytes; remaining > 0; ) {
     const part = Math.min(remaining, segmentLimit);
     segments.push(part);
     remaining -= part;
@@ -75,7 +88,7 @@ export function planSurfaceSignalStoreCapacity(
     bytes,
     entries: bytes / SURFACE_SIGNAL_STORE_ENTRY_BYTES,
     sets: bytes / (SURFACE_SIGNAL_STORE_ENTRY_BYTES * SURFACE_SIGNAL_STORE_WAYS),
-    segmentBytes: Object.freeze(segments)
+    segmentBytes: Object.freeze(segments),
   });
 }
 

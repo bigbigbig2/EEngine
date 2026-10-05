@@ -45,38 +45,56 @@ export class Fsr3ShadingChangePass {
 
   constructor(private readonly device: GPUDevice) {
     this.sampler = device.createSampler({ minFilter: "linear", magFilter: "linear", mipmapFilter: "linear" });
-    const module = device.createShaderModule({ label: "FSR3 Shading Change", code: FSR3_SHADING_CHANGE_WGSL });
-    this.layout = device.createBindGroupLayout({ entries: [
-      { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
-      { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
-      { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
-      { binding: 3, visibility: GPUShaderStage.COMPUTE, sampler: { type: "filtering" } },
-      { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-      { binding: 5, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "r8unorm" } }
-    ] });
+    const module = device.createShaderModule({
+      label: "FSR3 Shading Change",
+      code: FSR3_SHADING_CHANGE_WGSL,
+    });
+    this.layout = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
+        { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
+        { binding: 3, visibility: GPUShaderStage.COMPUTE, sampler: { type: "filtering" } },
+        { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+        {
+          binding: 5,
+          visibility: GPUShaderStage.COMPUTE,
+          storageTexture: { access: "write-only", format: "r8unorm" },
+        },
+      ],
+    });
     this.pipeline = device.createComputePipeline({
       label: "FSR3 Shading Change",
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }),
-      compute: { module, entryPoint: "main" }
+      compute: { module, entryPoint: "main" },
     });
   }
 
-  addToGraph(graph: FrameGraph, input: {
-    spdMips: readonly ResourceId[]; constants: ResourceId; width: number; height: number;
-  }): ResourceId {
+  addToGraph(
+    graph: FrameGraph,
+    input: {
+      spdMips: readonly ResourceId[];
+      constants: ResourceId;
+      width: number;
+      height: number;
+    },
+  ): ResourceId {
     if (input.spdMips.length < 3) throw new RangeError("FSR3 Shading Change requires three SPD mips");
     const width = Math.floor(input.width / 2);
     const height = Math.floor(input.height / 2);
     const builder = graph.add("FSR3/Shading Change", input, (data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
-      const bind = this.device.createBindGroup({ layout: this.layout, entries: [
-        { binding: 0, resource: resolveTextureView(resources.get(data.spdMips[0]!)) },
-        { binding: 1, resource: resolveTextureView(resources.get(data.spdMips[1]!)) },
-        { binding: 2, resource: resolveTextureView(resources.get(data.spdMips[2]!)) },
-        { binding: 3, resource: this.sampler },
-        { binding: 4, resource: { buffer: resources.get(data.constants) as GPUBuffer } },
-        { binding: 5, resource: resolveTextureView(resources.get(output)) }
-      ] });
+      const bind = this.device.createBindGroup({
+        layout: this.layout,
+        entries: [
+          { binding: 0, resource: resolveTextureView(resources.get(data.spdMips[0]!)) },
+          { binding: 1, resource: resolveTextureView(resources.get(data.spdMips[1]!)) },
+          { binding: 2, resource: resolveTextureView(resources.get(data.spdMips[2]!)) },
+          { binding: 3, resource: this.sampler },
+          { binding: 4, resource: { buffer: resources.get(data.constants) as GPUBuffer } },
+          { binding: 5, resource: resolveTextureView(resources.get(output)) },
+        ],
+      });
       const pass = command.beginComputePass({ label: "FSR3 Shading Change" });
       pass.setPipeline(this.pipeline);
       pass.setBindGroup(0, bind);
@@ -84,8 +102,12 @@ export class Fsr3ShadingChangePass {
       pass.end();
     });
     const output = builder.create("FSR3/shading change", {
-      kind: "transient_texture", width, height, format: "r8unorm", domain: "internal-half",
-      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
+      kind: "transient_texture",
+      width,
+      height,
+      format: "r8unorm",
+      domain: "internal-half",
+      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
     });
     for (const mip of input.spdMips.slice(0, 3)) builder.read(mip);
     builder.read(input.constants);

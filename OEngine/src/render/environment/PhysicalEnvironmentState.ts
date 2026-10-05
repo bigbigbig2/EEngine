@@ -33,19 +33,21 @@ export class PhysicalEnvironmentInput {
   }
 
   setWorldScale(worldToUnit: number): void {
-    if (!Number.isFinite(worldToUnit) || worldToUnit <= 0) throw new RangeError("worldToUnit must be positive");
+    if (!Number.isFinite(worldToUnit) || worldToUnit <= 0)
+      throw new RangeError("worldToUnit must be positive");
     this.worldToUnit = worldToUnit;
     this.revision++;
   }
 
   setSkyLuminanceScale(scale: number): void {
-    if (!Number.isFinite(scale) || scale < 0) throw new RangeError("sky luminance scale must be non-negative");
+    if (!Number.isFinite(scale) || scale < 0)
+      throw new RangeError("sky luminance scale must be non-negative");
     this.skyLuminanceScale = scale;
     this.revision++;
   }
 
   setShadowLength(length: readonly [number, number]): void {
-    if (length.length !== 2 || length.some(value => !Number.isFinite(value) || value < 0)) {
+    if (length.length !== 2 || length.some((value) => !Number.isFinite(value) || value < 0)) {
       throw new RangeError("shadow lengths must be finite and non-negative");
     }
     if (length[0] !== 0 || length[1] !== 0) {
@@ -62,7 +64,7 @@ export class PhysicalEnvironmentInput {
       sunDirectionWorld: Object.freeze([...this.sunDirectionWorld]) as readonly [number, number, number],
       sunIrradiance: Object.freeze([...this.sunIrradiance]) as readonly [number, number, number],
       skyLuminanceScale: this.skyLuminanceScale,
-      shadowLength: Object.freeze([...this.shadowLength]) as readonly [number, number]
+      shadowLength: Object.freeze([...this.shadowLength]) as readonly [number, number],
     });
   }
 }
@@ -79,7 +81,9 @@ export class PhysicalEnvironmentState {
   private current: EnvironmentPublication | null = null;
   private pending: { snapshot: PhysicalEnvironmentSnapshot; lutReady: boolean } | null = null;
 
-  get active(): EnvironmentPublication | null { return this.current; }
+  get active(): EnvironmentPublication | null {
+    return this.current;
+  }
 
   stage(snapshot: Omit<PhysicalEnvironmentSnapshot, "generation">, lutReady: boolean): number {
     validateSnapshot(snapshot);
@@ -115,8 +119,12 @@ function validateSnapshot(snapshot: Omit<PhysicalEnvironmentSnapshot, "generatio
   if (!Number.isFinite(snapshot.skyLuminanceScale) || snapshot.skyLuminanceScale < 0) {
     throw new RangeError("Environment sky luminance scale must be non-negative");
   }
-  if (snapshot.sunDirectionWorld.length !== 3 || snapshot.sunIrradiance.length !== 3 ||
-      snapshot.shadowLength.length !== 2) throw new RangeError("Environment vectors have invalid dimensions");
+  if (
+    snapshot.sunDirectionWorld.length !== 3 ||
+    snapshot.sunIrradiance.length !== 3 ||
+    snapshot.shadowLength.length !== 2
+  )
+    throw new RangeError("Environment vectors have invalid dimensions");
   for (const value of [...snapshot.sunDirectionWorld, ...snapshot.sunIrradiance, ...snapshot.shadowLength]) {
     if (!Number.isFinite(value)) throw new RangeError("Environment snapshot contains a non-finite value");
   }

@@ -1,4 +1,8 @@
-import { SURFACE_EXECUTION_WORDS, SURFACE_FIELD_EXECUTION_WORDS, SURFACE_SIGNAL_EXECUTION_WORDS } from "../gpu/GpuSurfaceExecutionProfileAbi.js";
+import {
+  SURFACE_EXECUTION_WORDS,
+  SURFACE_FIELD_EXECUTION_WORDS,
+  SURFACE_SIGNAL_EXECUTION_WORDS,
+} from "../gpu/GpuSurfaceExecutionProfileAbi.js";
 import { SURFACE_CELL_ADDRESS_WORDS } from "../gpu/GpuSurfaceReferenceAbi.js";
 
 /** Complete dynamic DomainKey equality. Interned dependency tokens only allow

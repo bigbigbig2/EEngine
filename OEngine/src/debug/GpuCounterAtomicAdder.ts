@@ -1,7 +1,4 @@
-import {
-  counterByteOffset,
-  type GpuCounterFieldName
-} from "./GpuFrameCounters.js";
+import { counterByteOffset, type GpuCounterFieldName } from "./GpuFrameCounters.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import type { CachedComputePipelineDescriptor } from "../gpu/GPUDescriptorCaches.js";
 
@@ -31,29 +28,29 @@ const GROUP_LAYOUT: GPUBindGroupLayoutDescriptor = {
     {
       binding: 0,
       visibility: GPUShaderStage.COMPUTE,
-      buffer: { type: "storage" }
+      buffer: { type: "storage" },
     },
     {
       binding: 1,
       visibility: GPUShaderStage.COMPUTE,
-      buffer: { type: "uniform" }
-    }
-  ]
+      buffer: { type: "uniform" },
+    },
+  ],
 };
 
 const PIPELINE: CachedComputePipelineDescriptor = {
   label: "R0 GPU counter atomic add",
   layout: {
     label: "R0 GPU counter atomic add/layout",
-    bindGroupLayouts: [GROUP_LAYOUT]
+    bindGroupLayouts: [GROUP_LAYOUT],
   },
   compute: {
     module: {
       label: "R0 GPU counter atomic add",
-      code: GPU_COUNTER_ATOMIC_ADD_WGSL
+      code: GPU_COUNTER_ATOMIC_ADD_WGSL,
     },
-    entryPoint: "main"
-  }
+    entryPoint: "main",
+  },
 };
 
 /** Sampling-only constant adder for exact CPU-known GPU work counts. */
@@ -62,7 +59,7 @@ export class GpuCounterAtomicAdder {
     command: ShadeGPUCommandContext,
     counters: GPUBuffer,
     field: GpuCounterFieldName,
-    value: number
+    value: number,
   ): void {
     if (!Number.isInteger(value) || value < 0 || value > 0xffffffff) {
       throw new RangeError("GPU counter add value must be a non-negative u32");
@@ -70,14 +67,11 @@ export class GpuCounterAtomicAdder {
     const params = new Uint32Array(PARAM_WORDS);
     params[0] = counterByteOffset(field) / Uint32Array.BYTES_PER_ELEMENT;
     params[1] = value;
-    const paramsBuffer = command.allocateTransientBufferAndLoad(
-      params.buffer,
-      GPUBufferUsage.UNIFORM
-    );
+    const paramsBuffer = command.allocateTransientBufferAndLoad(params.buffer, GPUBufferUsage.UNIFORM);
     const pass = command.constructComputePass({
       label: `R0 GPU counter atomic add/${field}`,
       pipeline: PIPELINE,
-      bindings: [[{ buffer: counters }, { buffer: paramsBuffer }]]
+      bindings: [[{ buffer: counters }, { buffer: paramsBuffer }]],
     });
     pass.dispatchWorkgroups(1, 1, 1);
     pass.end();

@@ -22,7 +22,7 @@ export function iblRoughnessToLod(perceptualRoughness: number, mipLevelCount: nu
 /** CPU oracle for the metallic workflow consumed by OPAQUE_LIGHTING_RESOLVE_WGSL. */
 export function iblMaterialTerms(
   baseColor: readonly [number, number, number],
-  metallic: number
+  metallic: number,
 ): IblMaterialTerms {
   if (!baseColor.every(Number.isFinite) || !Number.isFinite(metallic)) {
     throw new RangeError("IBL material inputs must be finite");
@@ -30,9 +30,11 @@ export function iblMaterialTerms(
   const factor = Math.min(1, Math.max(0, metallic));
   return {
     diffuseColor: baseColor.map((channel) => channel * (1 - factor)) as [number, number, number],
-    specularF0: baseColor.map(
-      (channel) => IBL_DIELECTRIC_F0 * (1 - factor) + channel * factor
-    ) as [number, number, number]
+    specularF0: baseColor.map((channel) => IBL_DIELECTRIC_F0 * (1 - factor) + channel * factor) as [
+      number,
+      number,
+      number,
+    ],
   };
 }
 
@@ -75,6 +77,8 @@ export function octDecode(encoded: readonly [number, number]): [number, number, 
   return [x * inverseLength, y * inverseLength, z * inverseLength];
 }
 
-export function estimateConstantDiffuseIrradiance(radiance: readonly [number, number, number]): [number, number, number] {
+export function estimateConstantDiffuseIrradiance(
+  radiance: readonly [number, number, number],
+): [number, number, number] {
   return [radiance[0] * Math.PI, radiance[1] * Math.PI, radiance[2] * Math.PI];
 }

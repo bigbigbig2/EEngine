@@ -4,17 +4,11 @@
 
 import type { UsdSpecsByPath } from "./UsdExtensionRegistry.js";
 
-export function getAttrDefault(
-  specs: UsdSpecsByPath,
-  primPath: string,
-  attrName: string
-): unknown {
+export function getAttrDefault(specs: UsdSpecsByPath, primPath: string, attrName: string): unknown {
   const r = specs[`${primPath}.${attrName}`];
   if (!r?.fields) return undefined;
   if (r.fields.default !== undefined) return r.fields.default;
-  const ts = r.fields.timeSamples as
-    | { times?: number[]; values?: unknown[] }
-    | undefined;
+  const ts = r.fields.timeSamples as { times?: number[]; values?: unknown[] } | undefined;
   if (ts?.values && ts.values.length > 0) return ts.values[0];
   return undefined;
 }
@@ -23,14 +17,12 @@ export function getXformOpValue(
   fields: Record<string, unknown>,
   specs: UsdSpecsByPath,
   primPath: string,
-  opName: string
+  opName: string,
 ): unknown {
   if (fields[opName] !== undefined) return fields[opName];
   const spec = specs[`${primPath}.${opName}`];
   if (spec?.fields) {
-    const timeSamples = spec.fields.timeSamples as
-      | { values?: unknown[] }
-      | undefined;
+    const timeSamples = spec.fields.timeSamples as { values?: unknown[] } | undefined;
     if (timeSamples?.values && timeSamples.values.length > 0) {
       return timeSamples.values[0];
     }
@@ -39,15 +31,9 @@ export function getXformOpValue(
   return null;
 }
 
-export function getAttrInterpolation(
-  specs: UsdSpecsByPath,
-  primPath: string,
-  attrName: string
-): string {
+export function getAttrInterpolation(specs: UsdSpecsByPath, primPath: string, attrName: string): string {
   const r = specs[`${primPath}.${attrName}`];
-  return r?.fields?.interpolation
-    ? (r.fields.interpolation as string)
-    : "vertex";
+  return r?.fields?.interpolation ? (r.fields.interpolation as string) : "vertex";
 }
 
 export function parseUsdValue(typeName: string, raw: unknown): unknown {
@@ -58,11 +44,7 @@ export function parseUsdValue(typeName: string, raw: unknown): unknown {
       let e = n.replace(/\(/g, "[").replace(/\)/g, "]");
       if (e.endsWith(",")) e = e.slice(0, -1);
       const parsed = JSON.parse(e) as unknown;
-      if (
-        Array.isArray(parsed) &&
-        parsed.length > 0 &&
-        Array.isArray(parsed[0])
-      ) {
+      if (Array.isArray(parsed) && parsed.length > 0 && Array.isArray(parsed[0])) {
         return (parsed as unknown[][]).flat();
       }
       return parsed;
@@ -113,10 +95,7 @@ export function parseXformOpOrder(raw: unknown): string[] {
 }
 
 export function stripQuotes(e: string): string {
-  if (
-    (e.startsWith('"') && e.endsWith('"')) ||
-    (e.startsWith("'") && e.endsWith("'"))
-  ) {
+  if ((e.startsWith('"') && e.endsWith('"')) || (e.startsWith("'") && e.endsWith("'"))) {
     return e.slice(1, -1);
   }
   return e;

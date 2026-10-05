@@ -1,7 +1,10 @@
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
-import { GPU_SHADING_MATERIAL_WGSL, GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL } from "../gpu/GpuShadingMaterialAbi.js";
+import {
+  GPU_SHADING_MATERIAL_WGSL,
+  GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL,
+} from "../gpu/GpuShadingMaterialAbi.js";
 import { PACKED_CAMERA_TYPE } from "./packed_camera.js";
 import { GPU_MESHLET_RECORD_SCHEMA } from "../gpu/GpuGeometryAbi.js";
 
@@ -54,8 +57,8 @@ fn geometry_signature(instance: OEngineInstanceRecord,
   signature = hash_step(signature, oengine_instance_geometry_generation(instance));
   signature = hash_step(signature, work.geometry_slot);
   if !oengine_instance_virtual_geometry(instance) {
-    let at=facts.source.x+work.meshlet_slot*${GPU_MESHLET_RECORD_SCHEMA.stride/4}u;
-    let map=asset_metadata[at+${GPU_MESHLET_RECORD_SCHEMA.offsets.surface_primitive_word_offset!/4}u];
+    let at=facts.source.x+work.meshlet_slot*${GPU_MESHLET_RECORD_SCHEMA.stride / 4}u;
+    let map=asset_metadata[at+${GPU_MESHLET_RECORD_SCHEMA.offsets.surface_primitive_word_offset! / 4}u];
     return hash_step(signature,vertex_payload[facts.source.y+map+primitive]);
   }
   // Product currently has no source-correspondence section. Its logical

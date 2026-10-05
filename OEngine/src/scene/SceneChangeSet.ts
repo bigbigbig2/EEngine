@@ -57,21 +57,17 @@ export class SceneChangeSet {
   recordInstanceStructureChanged(): void {
     this.push({
       revision: ++this.currentRevision,
-      kind: "instance-structure"
+      kind: "instance-structure",
     });
   }
 
-  recordTransform(
-    node: Node3D,
-    previousGlobal: ArrayLike<number>,
-    boundsChanged = false
-  ): void {
+  recordTransform(node: Node3D, previousGlobal: ArrayLike<number>, boundsChanged = false): void {
     this.push({
       revision: ++this.currentRevision,
       kind: "transform",
       node,
       previousGlobal: Float32Array.from(previousGlobal),
-      boundsChanged
+      boundsChanged,
     });
   }
 
@@ -79,7 +75,7 @@ export class SceneChangeSet {
     this.push({
       revision: ++this.currentRevision,
       kind: "light",
-      light
+      light,
     });
   }
 
@@ -87,14 +83,13 @@ export class SceneChangeSet {
     this.push({
       revision: ++this.currentRevision,
       kind: "material",
-      mesh
+      mesh,
     });
   }
 
   changesSince(lastRevision: number): SceneChangeSnapshot {
     const fullResyncRequired =
-      lastRevision < this.historyFloorRevision ||
-      lastRevision > this.currentRevision;
+      lastRevision < this.historyFloorRevision || lastRevision > this.currentRevision;
     const firstPreviousGlobal = new Map<Node3D, Float32Array>();
     const changedMeshBounds = new Set<Mesh>();
     const changedMeshMaterials = new Set<Mesh>();
@@ -126,13 +121,13 @@ export class SceneChangeSet {
       revision: this.currentRevision,
       fullResyncRequired,
       instanceStructureChanged,
-      transformedNodes: Array.from(
-        firstPreviousGlobal,
-        ([node, previousGlobal]) => ({ node, previousGlobal })
-      ),
+      transformedNodes: Array.from(firstPreviousGlobal, ([node, previousGlobal]) => ({
+        node,
+        previousGlobal,
+      })),
       changedMeshBounds: Array.from(changedMeshBounds),
       changedMeshMaterials: Array.from(changedMeshMaterials),
-      changedLights: Array.from(changedLights)
+      changedLights: Array.from(changedLights),
     };
   }
 
@@ -143,10 +138,7 @@ export class SceneChangeSet {
       this.historyFloorRevision = removed.revision;
     }
     // 避免每次溢出都 shift 整个数组，同时把物理存储保持在有界范围。
-    if (
-      this.eventHead >= this.historyCapacity &&
-      this.eventHead * 2 >= this.events.length
-    ) {
+    if (this.eventHead >= this.historyCapacity && this.eventHead * 2 >= this.events.length) {
       this.events.splice(0, this.eventHead);
       this.eventHead = 0;
     }

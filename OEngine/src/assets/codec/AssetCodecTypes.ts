@@ -1,14 +1,7 @@
 import type { TextureSemanticV2 } from "../TextureAssetPackage.js";
-import {
-  encodedTextureMipByteLength,
-  physicalTextureExtent
-} from "./TextureFormatLayout.js";
+import { encodedTextureMipByteLength, physicalTextureExtent } from "./TextureFormatLayout.js";
 
-export type AssetCodecTaskKind =
-  | "ktx2-transcode"
-  | "draco-decode"
-  | "meshopt-decode"
-  | "zstd-decode";
+export type AssetCodecTaskKind = "ktx2-transcode" | "draco-decode" | "meshopt-decode" | "zstd-decode";
 
 export type AssetCodecPriority = 0 | 1 | 2;
 
@@ -32,10 +25,10 @@ export const KTX2_TRANSCODE_TARGET_FORMATS = Object.freeze([
   "astc-4x4-unorm",
   "astc-4x4-unorm-srgb",
   "rgba8unorm",
-  "rgba8unorm-srgb"
+  "rgba8unorm-srgb",
 ] as const satisfies readonly GPUTextureFormat[]);
 
-export type Ktx2TranscodeTargetFormat = typeof KTX2_TRANSCODE_TARGET_FORMATS[number];
+export type Ktx2TranscodeTargetFormat = (typeof KTX2_TRANSCODE_TARGET_FORMATS)[number];
 
 export interface AssetCodecTaskBase {
   readonly taskId: number;
@@ -181,8 +174,12 @@ export function validateAssetCodecWorkerResult(value: unknown): asserts value is
     throw new RangeError("Asset codec result taskId must be a non-negative safe integer");
   }
   if (value.ok === false) {
-    if (typeof value.code !== "string" || value.code.length === 0 ||
-        typeof value.message !== "string" || value.message.length === 0) {
+    if (
+      typeof value.code !== "string" ||
+      value.code.length === 0 ||
+      typeof value.message !== "string" ||
+      value.message.length === 0
+    ) {
       throw new TypeError("Asset codec error result must include code and message");
     }
     return;
@@ -200,38 +197,63 @@ export function validateAssetCodecWorkerResult(value: unknown): asserts value is
   let outputBytes = 0;
   for (let index = 0; index < value.mips.length; index++) {
     const mip = value.mips[index];
-    if (!isRecord(mip) || mip.level !== index ||
-        !isPositiveInteger(mip.logicalWidth) || !isPositiveInteger(mip.logicalHeight) ||
-        !isPositiveInteger(mip.physicalWidth) || !isPositiveInteger(mip.physicalHeight) ||
-        !(mip.payload instanceof ArrayBuffer)) {
+    if (
+      !isRecord(mip) ||
+      mip.level !== index ||
+      !isPositiveInteger(mip.logicalWidth) ||
+      !isPositiveInteger(mip.logicalHeight) ||
+      !isPositiveInteger(mip.physicalWidth) ||
+      !isPositiveInteger(mip.physicalHeight) ||
+      !(mip.payload instanceof ArrayBuffer)
+    ) {
       throw new TypeError(`Asset codec result mip ${index} is malformed`);
     }
-    const physical = physicalTextureExtent(value.targetFormat as Ktx2TranscodeTargetFormat, mip.logicalWidth, mip.logicalHeight);
+    const physical = physicalTextureExtent(
+      value.targetFormat as Ktx2TranscodeTargetFormat,
+      mip.logicalWidth,
+      mip.logicalHeight,
+    );
     if (mip.physicalWidth !== physical[0] || mip.physicalHeight !== physical[1]) {
       throw new RangeError(`Asset codec result mip ${index} physical extent is invalid`);
     }
     const expectedBytes = encodedTextureMipByteLength(
       value.targetFormat as Ktx2TranscodeTargetFormat,
       mip.logicalWidth,
-      mip.logicalHeight
+      mip.logicalHeight,
     );
     if (mip.payload.byteLength !== expectedBytes) {
-      throw new RangeError(`Asset codec result mip ${index} payload length is ${mip.payload.byteLength}, expected ${expectedBytes}`);
+      throw new RangeError(
+        `Asset codec result mip ${index} payload length is ${mip.payload.byteLength}, expected ${expectedBytes}`,
+      );
     }
     outputBytes += mip.payload.byteLength;
   }
   if (!isRecord(value.evidence)) throw new TypeError("Asset codec result evidence is malformed");
-  for (const key of ["queueWaitMs", "workerMs", "wallMs", "inputBytes", "outputBytes", "estimatedPeakBytes"] as const) {
+  for (const key of [
+    "queueWaitMs",
+    "workerMs",
+    "wallMs",
+    "inputBytes",
+    "outputBytes",
+    "estimatedPeakBytes",
+  ] as const) {
     if (!Number.isFinite(value.evidence[key]) || Number(value.evidence[key]) < 0) {
       throw new RangeError(`Asset codec result evidence ${key} is invalid`);
     }
   }
   if (value.evidence.outputBytes !== outputBytes) {
-    throw new RangeError(`Asset codec result evidence outputBytes is ${String(value.evidence.outputBytes)}, expected ${outputBytes}`);
+    throw new RangeError(
+      `Asset codec result evidence outputBytes is ${String(value.evidence.outputBytes)}, expected ${outputBytes}`,
+    );
   }
-  if (typeof value.evidence.codecId !== "string" || value.evidence.codecId.length === 0 ||
-      typeof value.evidence.codecRevision !== "string" || value.evidence.codecRevision.length === 0 ||
-      typeof value.evidence.codecBinaryHash !== "string" || !/^[0-9a-f]{64}$/i.test(value.evidence.codecBinaryHash)) {
+  if (
+    typeof value.evidence.codecId !== "string" ||
+    value.evidence.codecId.length === 0 ||
+    typeof value.evidence.codecRevision !== "string" ||
+    value.evidence.codecRevision.length === 0 ||
+    typeof value.evidence.codecBinaryHash !== "string" ||
+    !/^[0-9a-f]{64}$/i.test(value.evidence.codecBinaryHash)
+  ) {
     throw new TypeError("Asset codec result codec identity is invalid");
   }
 }
@@ -241,9 +263,14 @@ export function assetCodecResultTransferList(result: AssetCodecTaskResult): Tran
 }
 
 function isTextureSemantic(value: unknown): value is TextureSemanticV2 {
-  return value === "base-color-srgb" || value === "normal-linear" ||
-    value === "orm-linear" || value === "occlusion-linear" ||
-    value === "alpha-mask" || value === "emissive-srgb";
+  return (
+    value === "base-color-srgb" ||
+    value === "normal-linear" ||
+    value === "orm-linear" ||
+    value === "occlusion-linear" ||
+    value === "alpha-mask" ||
+    value === "emissive-srgb"
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, any> {

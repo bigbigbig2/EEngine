@@ -64,7 +64,7 @@ export class GPUPerformanceTimer {
 
   constructor(
     readonly device: GPUDevice,
-    name = "Timer"
+    name = "Timer",
   ) {
     this.#name = name;
     if (!device.features.has("timestamp-query")) {
@@ -104,21 +104,19 @@ export class GPUPerformanceTimer {
     const unreadCount = this.#submissionCount - this.#lastReadSubmission;
     if (unreadCount === 0) return this.#data;
     this.#lastReadSubmission = this.#submissionCount;
-    const pending = this.#buffers.splice(
-      this.#buffers.length - unreadCount,
-      unreadCount
-    );
+    const pending = this.#buffers.splice(this.#buffers.length - unreadCount, unreadCount);
     await this.#readResults(pending);
     return this.#data;
   }
 
   buildLogTextAverage(): string {
     const average = this.#stats.average;
-    const text = average > 1e6
-      ? `${(1e-6 * average).toFixed(2)} ms`
-      : average > 1e3
-        ? `${(0.001 * average).toFixed(2)} µs`
-        : `${average.toFixed(2)} ns`;
+    const text =
+      average > 1e6
+        ? `${(1e-6 * average).toFixed(2)} ms`
+        : average > 1e3
+          ? `${(0.001 * average).toFixed(2)} µs`
+          : `${average.toFixed(2)} ns`;
     return `${this.#name} : ${text}`;
   }
 
@@ -129,26 +127,14 @@ export class GPUPerformanceTimer {
       readback = this.device.createBuffer({
         label: "",
         size: 16,
-        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
       });
     }
     this.#buffers.push(readback);
     command.recordReadback("gpu-performance-timer", this.#resolveBuffer!.size);
     command.insertDebugMarker(`GPUTimer[${this.#name}] / Resolve`);
-    command.resolveQuerySet(
-      this.#querySet,
-      0,
-      this.#querySet.count,
-      this.#resolveBuffer!,
-      0
-    );
-    command.copyBufferToBuffer(
-      this.#resolveBuffer!,
-      0,
-      readback,
-      0,
-      this.#resolveBuffer!.size
-    );
+    command.resolveQuerySet(this.#querySet, 0, this.#querySet.count, this.#resolveBuffer!, 0);
+    command.copyBufferToBuffer(this.#resolveBuffer!, 0, readback, 0, this.#resolveBuffer!.size);
     this.#submissionCount++;
   }
 
@@ -163,7 +149,7 @@ export class GPUPerformanceTimer {
     return {
       querySet: this.#querySet!,
       beginningOfPassWriteIndex: 0,
-      endOfPassWriteIndex: 1
+      endOfPassWriteIndex: 1,
     };
   }
 
@@ -171,19 +157,19 @@ export class GPUPerformanceTimer {
     return {
       querySet: this.#querySet!,
       beginningOfPassWriteIndex: 0,
-      endOfPassWriteIndex: 1
+      endOfPassWriteIndex: 1,
     };
   }
 
   #createResources(): void {
     this.#querySet = this.device.createQuerySet({
       type: "timestamp",
-      count: 2
+      count: 2,
     });
     this.#resolveBuffer = this.device.createBuffer({
       label: "",
       size: 16,
-      usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC
+      usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
     });
   }
 

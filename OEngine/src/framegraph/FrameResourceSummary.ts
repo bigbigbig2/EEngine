@@ -19,9 +19,7 @@ export interface FrameResourceSummary {
  * 从已编译 Graph 的真实资源 dump 生成生命周期摘要。
  * 不读取 GPU 对象，也不会创建资源，因此可在 graph compile 后无额外 GPU 成本调用。
  */
-export function summarizeFrameGraphResources(
-  graph: CompiledFrameGraph
-): FrameResourceSummary {
+export function summarizeFrameGraphResources(graph: CompiledFrameGraph): FrameResourceSummary {
   const dump = graph.dump();
   let transientTextures = 0;
   let transientBuffers = 0;
@@ -57,6 +55,6 @@ export function summarizeFrameGraphResources(
     liveTransient,
     liveTransientTextures,
     liveTransientBuffers,
-    culledResources
+    culledResources,
   });
 }

@@ -2,21 +2,16 @@
 
 export const GEOMETRY_COOK_RECIPE_VERSION = 2;
 export const GEOMETRY_COOK_RECIPE_V3_VERSION = 3;
-export const NYX_GEOMETRY_REFERENCE_COMMIT =
-  "bc7e5b1e51f6b3b8af4771db81ffaa714fcbe64b";
-export const MESHOPTIMIZER_COOKER_COMMIT =
-  "73583c335e541c139821d0de2bf5f12960a04941";
-export const BEVY_MESHLET_REFERENCE_COMMIT =
-  "5f8270f2e049f90139a503d1e930070d926f9427";
+export const NYX_GEOMETRY_REFERENCE_COMMIT = "bc7e5b1e51f6b3b8af4771db81ffaa714fcbe64b";
+export const MESHOPTIMIZER_COOKER_COMMIT = "73583c335e541c139821d0de2bf5f12960a04941";
+export const BEVY_MESHLET_REFERENCE_COMMIT = "5f8270f2e049f90139a503d1e930070d926f9427";
 
 export type DegenerateTrianglePolicy = "warn" | "reject";
 export type NonManifoldPolicy = "warn" | "reject";
 export type MissingAttributePolicy = "preserve-optional";
 export type GeometryFloatMode = "ieee754-nearest-no-fast-math";
 export type GeometryHierarchyMode = "single-level" | "renderable";
-export type GeometryVertexProfile =
-  | "static-pbr-compact-v2"
-  | "explicit-float32-fallback-v2";
+export type GeometryVertexProfile = "static-pbr-compact-v2" | "explicit-float32-fallback-v2";
 
 /** Runtime/debug mirror only; the native C++ recipe is production-authoritative. */
 export interface GeometryCookRecipeV3 {
@@ -50,9 +45,7 @@ export interface GeometryCookRecipeV3 {
   readonly floatMode: "ieee754-nearest-no-fast-math";
 }
 
-export function createGeometryCookRecipeV3(
-  input: Partial<GeometryCookRecipeV3> = {}
-): GeometryCookRecipeV3 {
+export function createGeometryCookRecipeV3(input: Partial<GeometryCookRecipeV3> = {}): GeometryCookRecipeV3 {
   const recipe: GeometryCookRecipeV3 = {
     recipeVersion: 3,
     meshoptimizerRevision: "meshoptimizer-1.3-9e1f07b159d3",
@@ -82,20 +75,46 @@ export function createGeometryCookRecipeV3(
     bootstrapBudgetPolicy: "scene-decoded-payload-hard-fail-v1",
     deterministicSeed: 0,
     floatMode: "ieee754-nearest-no-fast-math",
-    ...input
+    ...input,
   };
-  if (recipe.recipeVersion !== 3 || recipe.hierarchyAlgorithmVersion !== "nyx-hierarchy-v4.0-attribute-update") throw new RangeError("invalid GeometryCookRecipeV3 identity");
+  if (
+    recipe.recipeVersion !== 3 ||
+    recipe.hierarchyAlgorithmVersion !== "nyx-hierarchy-v4.0-attribute-update"
+  )
+    throw new RangeError("invalid GeometryCookRecipeV3 identity");
   assertIntegerInRange(recipe.meshletMaxVertices, 3, 128, "meshletMaxVertices");
   assertIntegerInRange(recipe.meshletMinTriangles, 1, recipe.meshletMaxTriangles, "meshletMinTriangles");
   assertIntegerInRange(recipe.meshletMaxTriangles, 1, 128, "meshletMaxTriangles");
   assertIntegerInRange(recipe.groupTargetMeshlets, 1, 128, "groupTargetMeshlets");
   assertFiniteInRange(recipe.simplifyTargetRatio, 0, 1, false, "simplifyTargetRatio");
-  assertFiniteInRange(recipe.simplifyFailureRatio, recipe.simplifyTargetRatio, 1, true, "simplifyFailureRatio");
-  if (recipe.hierarchyFanout !== 8 || recipe.pageShift !== 18 || recipe.pagePackingAlgorithmVersion !== "tier-locality-bounded-best-fit-16-v1" || recipe.pageCodecPolicy !== "lz4-or-raw" || recipe.positionQuantization !== "float32-object-space" || recipe.bootstrapBudgetPolicy !== "scene-decoded-payload-hard-fail-v1") throw new RangeError("Geometry V3 ABI constants cannot be specialized per pack");
-  assertFiniteInRange(recipe.simplifyUpdateFailureRatio, recipe.simplifyTargetRatio, 1, true, "simplifyUpdateFailureRatio");
+  assertFiniteInRange(
+    recipe.simplifyFailureRatio,
+    recipe.simplifyTargetRatio,
+    1,
+    true,
+    "simplifyFailureRatio",
+  );
+  if (
+    recipe.hierarchyFanout !== 8 ||
+    recipe.pageShift !== 18 ||
+    recipe.pagePackingAlgorithmVersion !== "tier-locality-bounded-best-fit-16-v1" ||
+    recipe.pageCodecPolicy !== "lz4-or-raw" ||
+    recipe.positionQuantization !== "float32-object-space" ||
+    recipe.bootstrapBudgetPolicy !== "scene-decoded-payload-hard-fail-v1"
+  )
+    throw new RangeError("Geometry V3 ABI constants cannot be specialized per pack");
+  assertFiniteInRange(
+    recipe.simplifyUpdateFailureRatio,
+    recipe.simplifyTargetRatio,
+    1,
+    true,
+    "simplifyUpdateFailureRatio",
+  );
   assertFiniteInRange(recipe.minimumLodReduction, 0, 1, true, "minimumLodReduction");
-  if (!Number.isFinite(recipe.attributeErrorScale) || recipe.attributeErrorScale < 1) throw new RangeError("attributeErrorScale must be finite and >= 1");
-  if (!Number.isFinite(recipe.lodErrorMergeFactor) || recipe.lodErrorMergeFactor < 1) throw new RangeError("lodErrorMergeFactor must be finite and >= 1");
+  if (!Number.isFinite(recipe.attributeErrorScale) || recipe.attributeErrorScale < 1)
+    throw new RangeError("attributeErrorScale must be finite and >= 1");
+  if (!Number.isFinite(recipe.lodErrorMergeFactor) || recipe.lodErrorMergeFactor < 1)
+    throw new RangeError("lodErrorMergeFactor must be finite and >= 1");
   assertIntegerInRange(recipe.deterministicSeed, 0, 0xffffffff, "deterministicSeed");
   return Object.freeze(recipe);
 }
@@ -128,7 +147,7 @@ export function geometryCookRecipeV3Key(recipe: GeometryCookRecipeV3): string {
     simplifyTargetRatio: canonicalRecipeF32(recipe.simplifyTargetRatio),
     simplifyUpdateFailureRatio: canonicalRecipeF32(recipe.simplifyUpdateFailureRatio),
     simplifyWithUpdate: recipe.simplifyWithUpdate,
-    vertexProfileVersion: recipe.vertexProfileVersion
+    vertexProfileVersion: recipe.vertexProfileVersion,
   });
 }
 
@@ -193,9 +212,7 @@ export interface GeometryCookRecipeInput {
   readonly floatingPointMode?: string;
 }
 
-export function createGeometryCookRecipe(
-  input: GeometryCookRecipeInput = {}
-): GeometryCookRecipe {
+export function createGeometryCookRecipe(input: GeometryCookRecipeInput = {}): GeometryCookRecipe {
   const meshletMaxVertices = input.meshletMaxVertices ?? 64;
   const hierarchyMode = input.hierarchyMode ?? "renderable";
   const meshletMaxTriangles = input.meshletMaxTriangles ?? 128;
@@ -232,13 +249,7 @@ export function createGeometryCookRecipe(
   assertIntegerInRange(meshletMaxVertices, 3, 256, "meshletMaxVertices");
   assertIntegerInRange(meshletMaxTriangles, 1, 512, "meshletMaxTriangles");
   assertFiniteInRange(coneWeight, 0, 1, true, "coneWeight");
-  assertFiniteInRange(
-    simplificationTargetRatio,
-    0,
-    1,
-    false,
-    "simplificationTargetRatio"
-  );
+  assertFiniteInRange(simplificationTargetRatio, 0, 1, false, "simplificationTargetRatio");
   if (simplificationErrorMode !== "absolute") {
     throw new RangeError("simplificationErrorMode must be 'absolute' for recipe v2");
   }
@@ -250,7 +261,7 @@ export function createGeometryCookRecipe(
     simplificationTargetRatio,
     1,
     true,
-    "simplificationFailureRatio"
+    "simplificationFailureRatio",
   );
   assertIntegerInRange(hierarchyTargetFanout, 2, 32, "hierarchyTargetFanout");
   assertIntegerInRange(hierarchyMaxDepth, 1, 64, "hierarchyMaxDepth");
@@ -263,10 +274,7 @@ export function createGeometryCookRecipe(
   if (bvhQuantizationBits !== 0) {
     throw new RangeError("bvhQuantizationBits must be 0 while BVH bounds are unquantized in recipe v2");
   }
-  if (
-    vertexProfile !== "static-pbr-compact-v2" &&
-    vertexProfile !== "explicit-float32-fallback-v2"
-  ) {
+  if (vertexProfile !== "static-pbr-compact-v2" && vertexProfile !== "explicit-float32-fallback-v2") {
     throw new RangeError("vertexProfile must be a bounded Geometry V2 profile");
   }
   const expectedPositionFormat = compact ? "unorm16x3-aabb" : "float32x3";
@@ -275,32 +283,21 @@ export function createGeometryCookRecipe(
     throw new RangeError(`positionFormat must be '${expectedPositionFormat}' for ${vertexProfile}`);
   }
   if (vertexQuantizationBits !== expectedQuantizationBits || vertexQuantizationRange !== "source-bounds") {
-    throw new RangeError(`${vertexProfile} requires ${expectedQuantizationBits}-bit source-bounds position quantization`);
+    throw new RangeError(
+      `${vertexProfile} requires ${expectedQuantizationBits}-bit source-bounds position quantization`,
+    );
   }
   if (missingAttributePolicy !== "preserve-optional") {
     throw new RangeError("missingAttributePolicy must preserve missing optional attributes in recipe v2");
   }
-  if (
-    degenerateTrianglePolicy !== "warn" &&
-    degenerateTrianglePolicy !== "reject"
-  ) {
+  if (degenerateTrianglePolicy !== "warn" && degenerateTrianglePolicy !== "reject") {
     throw new RangeError("degenerateTrianglePolicy must be 'warn' or 'reject'");
   }
-  assertIntegerInRange(
-    degenerateTriangleThreshold,
-    1,
-    0xffffffff,
-    "degenerateTriangleThreshold"
-  );
+  assertIntegerInRange(degenerateTriangleThreshold, 1, 0xffffffff, "degenerateTriangleThreshold");
   if (nonManifoldPolicy !== "warn" && nonManifoldPolicy !== "reject") {
     throw new RangeError("nonManifoldPolicy must be 'warn' or 'reject'");
   }
-  assertIntegerInRange(
-    nonManifoldEdgeThreshold,
-    1,
-    0xffffffff,
-    "nonManifoldEdgeThreshold"
-  );
+  assertIntegerInRange(nonManifoldEdgeThreshold, 1, 0xffffffff, "nonManifoldEdgeThreshold");
   assertIntegerInRange(deterministicSeed, 0, 0xffffffff, "deterministicSeed");
   if (floatingPointMode !== "ieee754-nearest-no-fast-math") {
     throw new RangeError("floatingPointMode must be 'ieee754-nearest-no-fast-math' for recipe v2");
@@ -333,7 +330,7 @@ export function createGeometryCookRecipe(
     nonManifoldPolicy,
     nonManifoldEdgeThreshold,
     deterministicSeed,
-    floatingPointMode: "ieee754-nearest-no-fast-math"
+    floatingPointMode: "ieee754-nearest-no-fast-math",
   });
 }
 
@@ -365,16 +362,11 @@ export function geometryCookRecipeKey(recipe: GeometryCookRecipe): string {
     nonManifoldPolicy: recipe.nonManifoldPolicy,
     nonManifoldEdgeThreshold: recipe.nonManifoldEdgeThreshold,
     deterministicSeed: recipe.deterministicSeed,
-    floatingPointMode: recipe.floatingPointMode
+    floatingPointMode: recipe.floatingPointMode,
   });
 }
 
-function assertIntegerInRange(
-  value: number,
-  minimum: number,
-  maximum: number,
-  name: string
-): void {
+function assertIntegerInRange(value: number, minimum: number, maximum: number, name: string): void {
   if (!Number.isInteger(value) || value < minimum || value > maximum) {
     throw new RangeError(`${name} must be an integer in [${minimum}, ${maximum}]`);
   }
@@ -385,11 +377,9 @@ function assertFiniteInRange(
   minimum: number,
   maximum: number,
   inclusive: boolean,
-  name: string
+  name: string,
 ): void {
-  const inRange = inclusive
-    ? value >= minimum && value <= maximum
-    : value > minimum && value < maximum;
+  const inRange = inclusive ? value >= minimum && value <= maximum : value > minimum && value < maximum;
   if (!Number.isFinite(value) || !inRange) {
     const interval = inclusive ? `[${minimum}, ${maximum}]` : `(${minimum}, ${maximum})`;
     throw new RangeError(`${name} must be finite and in ${interval}`);

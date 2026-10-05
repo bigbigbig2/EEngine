@@ -61,78 +61,106 @@ export function assertFrameProgramBindings(plan: FrameProgram, bindings: FramePr
     throw new Error("Frame Program device epoch changed");
   }
   if (request.kind === "empty" || bindings.kind === "empty") return;
-  if (bindings.depth.width !== request.internalWidth || bindings.depth.height !== request.internalHeight ||
-      bindings.depth.format !== "depth32float") {
+  if (
+    bindings.depth.width !== request.internalWidth ||
+    bindings.depth.height !== request.internalHeight ||
+    bindings.depth.format !== "depth32float"
+  ) {
     throw new Error("Frame Program depth descriptor changed");
   }
   if (plan.buildHzb) {
     const width = Math.max(1, request.internalWidth >>> 1);
     const height = Math.max(1, request.internalHeight >>> 1);
     const current = bindings.hzb.getCurrentTexture();
-    if (bindings.hzb.width !== width || bindings.hzb.height !== height ||
-        current.width !== width || current.height !== height || current.format !== "rg16float") {
+    if (
+      bindings.hzb.width !== width ||
+      bindings.hzb.height !== height ||
+      current.width !== width ||
+      current.height !== height ||
+      current.format !== "rg16float"
+    ) {
       throw new Error("Frame Program current HZB descriptor changed");
     }
     if (request.previousHzb) {
       const previous = bindings.hzb.getPreviousTexture();
-      if (previous.width !== width || previous.height !== height || previous.format !== "rg16float" ||
-          previous === current) {
+      if (
+        previous.width !== width ||
+        previous.height !== height ||
+        previous.format !== "rg16float" ||
+        previous === current
+      ) {
         throw new Error("Frame Program previous HZB descriptor changed or aliases current");
       }
     }
   }
-  if (bindings.job.runtime !== bindings.runtime ||
-      bindings.job.width !== request.internalWidth || bindings.job.height !== request.internalHeight) {
+  if (
+    bindings.job.runtime !== bindings.runtime ||
+    bindings.job.width !== request.internalWidth ||
+    bindings.job.height !== request.internalHeight
+  ) {
     throw new Error("Frame Program scene publication or render domain changed");
   }
-  if (bindings.view.camera.camera !== bindings.camera ||
-      bindings.view.hierarchical_z_buffer !== bindings.hzb ||
-      bindings.view.width !== request.internalWidth || bindings.view.height !== request.internalHeight) {
+  if (
+    bindings.view.camera.camera !== bindings.camera ||
+    bindings.view.hierarchical_z_buffer !== bindings.hzb ||
+    bindings.view.width !== request.internalWidth ||
+    bindings.view.height !== request.internalHeight
+  ) {
     throw new Error("Frame Program View publication or render domain changed");
   }
   if ((bindings.job.virtualGeometry ?? null) !== bindings.runtime.virtualGeometry) {
     throw new Error("Frame Program virtual Product publication changed");
   }
-  if (!bindings.job.scene.instances ||
-      !bindings.job.assets.sparseShading.assetMetadataHeap ||
-      !bindings.job.assets.sparseShading.vertexPayloadHeap ||
-      !bindings.runtime.materialResources.materialRecords ||
-      !bindings.runtime.materialResources.textureRouteRecords ||
-      !bindings.runtime.counterSink ||
-      !bindings.view.gpu_camera_state.buffer ||
-      !bindings.view.gpu_previous_camera_state.buffer) {
+  if (
+    !bindings.job.scene.instances ||
+    !bindings.job.assets.sparseShading.assetMetadataHeap ||
+    !bindings.job.assets.sparseShading.vertexPayloadHeap ||
+    !bindings.runtime.materialResources.materialRecords ||
+    !bindings.runtime.materialResources.textureRouteRecords ||
+    !bindings.runtime.counterSink ||
+    !bindings.view.gpu_camera_state.buffer ||
+    !bindings.view.gpu_previous_camera_state.buffer
+  ) {
     throw new Error("Frame Program Scene/View publication is incomplete");
   }
-  if ((bindings.runtime.virtualGeometry !== null) !== request.virtualGeometry ||
-      (bindings.runtime.virtualGeometry?.banks.length ?? 0) !== request.virtualBankCount) {
+  if (
+    (bindings.runtime.virtualGeometry !== null) !== request.virtualGeometry ||
+    (bindings.runtime.virtualGeometry?.banks.length ?? 0) !== request.virtualBankCount
+  ) {
     throw new Error("Frame Program virtual geometry layout changed");
   }
-  if (bindings.runtime.virtualGeometry !== null &&
-      (!bindings.runtime.virtualGeometry.metadata ||
-        bindings.runtime.virtualGeometry.banks.some(bank => !bank))) {
+  if (
+    bindings.runtime.virtualGeometry !== null &&
+    (!bindings.runtime.virtualGeometry.metadata ||
+      bindings.runtime.virtualGeometry.banks.some((bank) => !bank))
+  ) {
     throw new Error("Frame Program virtual geometry bank publication is incomplete");
   }
-  if ((bindings.job.prepared.currentHzbLateRecheck !== null) !== request.currentHzbLateRecheck ||
-      bindings.job.prepared.workSet.meshletWorkCandidate === null) {
+  if (
+    (bindings.job.prepared.currentHzbLateRecheck !== null) !== request.currentHzbLateRecheck ||
+    bindings.job.prepared.workSet.meshletWorkCandidate === null
+  ) {
     throw new Error("Frame Program visibility shape changed");
   }
   const counts = bindings.runtime.activeShadingSummary.binRefCounts;
-  const activeSets = Array.from({ length: 4 }, (_, setId) => setId)
-    .filter(setId => counts.slice(setId * 16, setId * 16 + 16).some(count => count > 0));
+  const activeSets = Array.from({ length: 4 }, (_, setId) => setId).filter((setId) =>
+    counts.slice(setId * 16, setId * 16 + 16).some((count) => count > 0),
+  );
   const hasLit = counts.some((count, classId) => count > 0 && (classId & 15) >= 4);
-  if (activeSets.length !== request.activeSets.length ||
-      activeSets.some((id, index) => id !== request.activeSets[index]) ||
-      hasLit !== request.hasLit) {
+  if (
+    activeSets.length !== request.activeSets.length ||
+    activeSets.some((id, index) => id !== request.activeSets[index]) ||
+    hasLit !== request.hasLit
+  ) {
     throw new Error("Frame Program material set or lighting shape changed");
   }
   let textureBankMask = 0;
   for (const setId of activeSets) {
-    const bindingSet = bindings.runtime.materialResources.bindingSets.find(set => set.id === setId);
+    const bindingSet = bindings.runtime.materialResources.bindingSets.find((set) => set.id === setId);
     if (!bindingSet) throw new Error(`Frame Program texture set ${setId} is not resident`);
     textureBankMask |= bindingSet.textureBankMask;
     for (let bank = 0; bank < 9; bank++) {
-      if (!bindingSet.textureBanks[bank] ||
-          bindingSet.bankDescriptors[bank]?.bindingSlot !== bank) {
+      if (!bindingSet.textureBanks[bank] || bindingSet.bankDescriptors[bank]?.bindingSlot !== bank) {
         throw new Error(`Frame Program texture bank ${setId}:${bank} publication is incomplete`);
       }
     }
@@ -147,15 +175,21 @@ export function assertFrameProgramBindings(plan: FrameProgram, bindings: FramePr
   if (shadowProfile !== "off" && shadowProfile !== "shadow-disabled" && bindings.vsm === null) {
     throw new Error("Frame Program VSM profile requires a persistent VSM owner");
   }
-  if (bindings.vsm !== null && shadowProfile !== "off" &&
-      shadowProfile !== "shadow-disabled" && bindings.vsm.profile !== shadowProfile) {
+  if (
+    bindings.vsm !== null &&
+    shadowProfile !== "off" &&
+    shadowProfile !== "shadow-disabled" &&
+    bindings.vsm.profile !== shadowProfile
+  ) {
     throw new Error("Frame Program VSM capability profile changed");
   }
   if (shadowProfile !== "off" && shadowProfile !== "shadow-disabled" && bindings.vsmFrame === null) {
     throw new Error("Frame Program VSM profile requires directional clipmap constants");
   }
-  if (bindings.vsmGeneration.deviceEpoch !== bindings.deviceEpoch ||
-      bindings.vsmFrame !== null && bindings.vsmFrame.generation !== bindings.vsmGeneration.generation) {
+  if (
+    bindings.vsmGeneration.deviceEpoch !== bindings.deviceEpoch ||
+    (bindings.vsmFrame !== null && bindings.vsmFrame.generation !== bindings.vsmGeneration.generation)
+  ) {
     throw new Error("Frame Program VSM generation facts are stale");
   }
   if (bindings.environment !== null) {
@@ -163,12 +197,15 @@ export function assertFrameProgramBindings(plan: FrameProgram, bindings: FramePr
       throw new Error("Frame Program environment parameter descriptor changed");
     }
     const views = bindings.environment.luts.views;
-    if (!views.transmittance || !views.scattering || !views.higherOrderScattering ||
-        !views.irradiance) {
+    if (!views.transmittance || !views.scattering || !views.higherOrderScattering || !views.irradiance) {
       throw new Error("Frame Program environment LUT publication is incomplete");
     }
   }
-  bindings.fsr3.assertPreparedFrame(request.internalWidth, request.internalHeight,
-    request.outputWidth, request.outputHeight);
+  bindings.fsr3.assertPreparedFrame(
+    request.internalWidth,
+    request.internalHeight,
+    request.outputWidth,
+    request.outputHeight,
+  );
   bindings.temporalFacts.assertPreparedFrame(request.internalWidth, request.internalHeight);
 }

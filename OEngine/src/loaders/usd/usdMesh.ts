@@ -11,28 +11,19 @@ import { StandardShadeMaterial } from "../../material/StandardShadeMaterial.js";
 import { Mesh } from "../../scene/Mesh.js";
 import { Node3D } from "../../scene/Node3D.js";
 import type { UsdSpecsByPath } from "./UsdExtensionRegistry.js";
-import {
-  getAttrDefault,
-  getAttrInterpolation,
-  toFloat32Array,
-  toNumberArray
-} from "./usdAttrs.js";
-import {
-  expandFaceVaryingAttr,
-  gatherIndexedAttr,
-  gatherPrimvarIndices
-} from "./usdFaceVarying.js";
+import { getAttrDefault, getAttrInterpolation, toFloat32Array, toNumberArray } from "./usdAttrs.js";
+import { expandFaceVaryingAttr, gatherIndexedAttr, gatherPrimvarIndices } from "./usdFaceVarying.js";
 
 export function triangulateFaces(
   counts: ArrayLike<number>,
-  indices: ArrayLike<number>
+  indices: ArrayLike<number>,
 ): { indices: Uint32Array; triangle_count: number; face_map: Uint32Array } {
   const count = counts.length;
   let indexCount = 0;
   for (let i = 0; i < count; i++) indexCount += counts[i]!;
   if (indexCount !== indices.length) {
     console.warn(
-      `[USD] faceVertexCounts sum (${indexCount}) does not match faceVertexIndices length (${indices.length})`
+      `[USD] faceVertexCounts sum (${indexCount}) does not match faceVertexIndices length (${indices.length})`,
     );
   }
   let triangleCount = 0;
@@ -62,14 +53,14 @@ export function triangulateFaces(
   return {
     indices: output,
     face_map: faceMap,
-    triangle_count: triangleCount
+    triangle_count: triangleCount,
   };
 }
 
 export function gatherIndexedAttrUsd(
   indices: ArrayLike<number>,
   source: Float32Array,
-  itemSize: number
+  itemSize: number,
 ): Float32Array {
   return gatherIndexedAttr(indices, source, itemSize);
 }
@@ -77,7 +68,7 @@ export function gatherIndexedAttrUsd(
 export function deindexUsdGeometry(
   geometry: Geometry,
   positions: Float32Array,
-  normals: Float32Array | null
+  normals: Float32Array | null,
 ): void {
   geometry.index = null;
   const position = Attribute.from(positions, 3, MeshletAttrName.Position);
@@ -95,7 +86,7 @@ export function buildUsdMeshNode(
   name: string,
   specs: UsdSpecsByPath,
   materials: Map<string, StandardShadeMaterial>,
-  localXform: Float32Array
+  localXform: Float32Array,
 ): Node3D {
   const faceVertexCountsRaw = getAttrDefault(specs, path, "faceVertexCounts");
   const faceVertexIndicesRaw = getAttrDefault(specs, path, "faceVertexIndices");
@@ -114,41 +105,26 @@ export function buildUsdMeshNode(
   for (let i = 0; i < faceVertexIndices.length; i++) {
     if (faceVertexIndices[i]! >= vertexCount || faceVertexIndices[i]! < 0) {
       console.warn(
-        `[USD] faceVertexIndices[${i}] = ${faceVertexIndices[i]} is out of bounds (vertex count: ${vertexCount}) at ${path}`
+        `[USD] faceVertexIndices[${i}] = ${faceVertexIndices[i]} is out of bounds (vertex count: ${vertexCount}) at ${path}`,
       );
       break;
     }
   }
 
   const positionSource = toFloat32Array(points);
-  const { indices } = triangulateFaces(
-    faceVertexCounts,
-    faceVertexIndices
-  );
+  const { indices } = triangulateFaces(faceVertexCounts, faceVertexIndices);
   const geometry = new Geometry();
-  geometry.addAttribute(
-    Attribute.from(positionSource, 3, MeshletAttrName.Position)
-  );
+  geometry.addAttribute(Attribute.from(positionSource, 3, MeshletAttrName.Position));
   geometry.index = Attribute.from(indices, 1, "index");
 
   const normalsRaw = getAttrDefault(specs, path, "normals");
   if (normalsRaw) {
     const normals = toFloat32Array(normalsRaw);
     if (getAttrInterpolation(specs, path, "normals") === "faceVarying") {
-      const expandedNormals = expandFaceVaryingAttr(
-        faceVertexCounts,
-        normals,
-        3
-      );
-      deindexUsdGeometry(
-        geometry,
-        gatherIndexedAttrUsd(indices, positionSource, 3),
-        expandedNormals
-      );
+      const expandedNormals = expandFaceVaryingAttr(faceVertexCounts, normals, 3);
+      deindexUsdGeometry(geometry, gatherIndexedAttrUsd(indices, positionSource, 3), expandedNormals);
     } else {
-      geometry.addAttribute(
-        Attribute.from(normals, 3, MeshletAttrName.Normal)
-      );
+      geometry.addAttribute(Attribute.from(normals, 3, MeshletAttrName.Normal));
     }
   }
 
@@ -164,11 +140,7 @@ export function buildUsdMeshNode(
     if (interpolation === "faceVarying") {
       st = expandFaceVaryingAttr(faceVertexCounts, st, 2);
       if (!geometry.getAttribute(MeshletAttrName.Normal)) {
-        deindexUsdGeometry(
-          geometry,
-          gatherIndexedAttrUsd(indices, positionSource, 3),
-          null
-        );
+        deindexUsdGeometry(geometry, gatherIndexedAttrUsd(indices, positionSource, 3), null);
       }
     }
     geometry.addAttribute(Attribute.from(st, 2, MeshletAttrName.Uv0));
@@ -181,9 +153,7 @@ export function buildUsdMeshNode(
     if (materials.has(materialPath)) {
       material = materials.get(materialPath)!;
     } else {
-      console.warn(
-        `[USD] Material binding at ${path} references "${materialPath}" which was not found`
-      );
+      console.warn(`[USD] Material binding at ${path} references "${materialPath}" which was not found`);
     }
   }
   if (getAttrDefault(specs, path, "doubleSided") === true) {

@@ -1,6 +1,11 @@
 import { APPEARANCE_FIELD_WIDTHS } from "./GpuAppearanceFieldAbi.js";
-import { SURFACE_CELL_ADDRESS_WORDS, SURFACE_CELL_UV_WITNESS_WORDS, SURFACE_CELL_SIGNAL_WITNESS_WORDS,
-  SURFACE_CELL_DEMAND_WORDS, SURFACE_STORE_REFERENCE_WORDS } from "./GpuSurfaceReferenceAbi.js";
+import {
+  SURFACE_CELL_ADDRESS_WORDS,
+  SURFACE_CELL_UV_WITNESS_WORDS,
+  SURFACE_CELL_SIGNAL_WITNESS_WORDS,
+  SURFACE_CELL_DEMAND_WORDS,
+  SURFACE_STORE_REFERENCE_WORDS,
+} from "./GpuSurfaceReferenceAbi.js";
 import { SURFACE_PROOF_RECORD_BYTES } from "./GpuSurfaceProofAbi.js";
 
 /** Batch work templates: publication, implicit fine, uniform rate or mixed
@@ -14,7 +19,8 @@ export const SURFACE_CELL_TILE_HEADER_BYTES = 64;
 // Field coverage is independent: an absent coat/output in one material must not
 // become a representative for a neighbouring material that needs the plane.
 export const SURFACE_CELL_PLANE_BYTES = 24;
-export const SURFACE_CELL_TILE_PLAN_BYTES = SURFACE_CELL_TILE_HEADER_BYTES + SURFACE_CELL_PLANE_COUNT * SURFACE_CELL_PLANE_BYTES;
+export const SURFACE_CELL_TILE_PLAN_BYTES =
+  SURFACE_CELL_TILE_HEADER_BYTES + SURFACE_CELL_PLANE_COUNT * SURFACE_CELL_PLANE_BYTES;
 export const SURFACE_CELL_MAP_WORDS = 12;
 export const SURFACE_CELL_MAP_BYTES = 48;
 export const SURFACE_CELL_MASKED_PLANE_BYTES = SURFACE_CELL_MAP_BYTES * 2;
@@ -26,71 +32,137 @@ export const SURFACE_CELL_CHEAP_FACT_BYTES = 16;
 export const SURFACE_CELL_PROOF_RESULT_WORDS = 52;
 export const SURFACE_CELL_GEOMETRY_CERTIFICATE_WORDS = 32;
 export const SURFACE_CELL_FIELD_CERTIFICATE_WORDS = 52;
-export const SURFACE_CELL_CERTIFICATE_BYTES_PER_TARGET = (SURFACE_CELL_PROOF_RESULT_WORDS / 2 + SURFACE_CELL_FIELD_COUNT + 5 + 1 +
-  SURFACE_CELL_ADDRESS_WORDS + SURFACE_CELL_DEMAND_WORDS + SURFACE_STORE_REFERENCE_WORDS * SURFACE_CELL_PLANE_COUNT + 2) * 4;
-export const SURFACE_CELL_FIELD_CERTIFICATE_OFFSETS = Object.freeze(APPEARANCE_FIELD_WIDTHS.map((_width, field) =>
-  APPEARANCE_FIELD_WIDTHS.slice(0,field).reduce((sum,width) => sum + width * 2,0)));
-export function surfaceCellWorkspaceLayout(tiles: number): Readonly<{ counters: number; plans: number; maps: number;
-  proofResults: number; geometryProofs: number; screenProofSlots: number; screenFieldProofs: number; persistentFieldProofs: number;
-  fieldKnownMasks: number; persistentFieldMasks: number; primitives: number; addresses: number; uvWitnesses: number; signalWitnesses: number; fieldReferences: number;
-  signalReferences: number; fieldStoreMasks: number; signalStoreMasks: number; demands: number; facts: number; proofs: number; pendingSupport: number;
-  proofTileCounts:number; proofDispatch:number; proofTiles:number; bytes: number; tiles: number }> {
-  if(!Number.isSafeInteger(tiles)||tiles<1)throw new RangeError("Invalid Surface workspace tile capacity");
-  const plans=SURFACE_CELL_CONTROL_HEADER_WORDS*4,maps=plans+tiles*SURFACE_CELL_TILE_PLAN_BYTES;
-  const proofResults=maps+tiles*SURFACE_CELL_TILE_MAP_BYTES;
-  const geometryProofs=proofResults+tiles*32*SURFACE_CELL_PROOF_RESULT_WORDS*4;
-  const screenProofSlots=geometryProofs+tiles*64*4;
-  const screenFieldProofs=screenProofSlots+tiles*64*4;
-  const persistentFieldProofs=screenFieldProofs+tiles*64*SURFACE_CELL_FIELD_COUNT*4;
-  const fieldKnownMasks=persistentFieldProofs+tiles*64*4;
-  const persistentFieldMasks=fieldKnownMasks+tiles*64*4;
-  const primitives=persistentFieldMasks+tiles*64*4;
-  const addresses=primitives+tiles*64*4;
-  const uvWitnesses=addresses+tiles*64*SURFACE_CELL_ADDRESS_WORDS*4;
-  const signalWitnesses=uvWitnesses+tiles*64*SURFACE_CELL_UV_WITNESS_WORDS*4;
-  const fieldReferences=signalWitnesses+tiles*64*SURFACE_CELL_SIGNAL_WITNESS_WORDS*4;
-  const signalReferences=fieldReferences+tiles*64*SURFACE_CELL_FIELD_COUNT*SURFACE_STORE_REFERENCE_WORDS*4;
-  const fieldStoreMasks=signalReferences+tiles*64*SURFACE_CELL_SIGNAL_COUNT*SURFACE_STORE_REFERENCE_WORDS*4;
-  const signalStoreMasks=fieldStoreMasks+tiles*64*4;
-  const demands=signalStoreMasks+tiles*64*4;
-  const facts=Math.ceil((demands+tiles*64*SURFACE_CELL_DEMAND_WORDS*4)/16)*16;
+export const SURFACE_CELL_CERTIFICATE_BYTES_PER_TARGET =
+  (SURFACE_CELL_PROOF_RESULT_WORDS / 2 +
+    SURFACE_CELL_FIELD_COUNT +
+    5 +
+    1 +
+    SURFACE_CELL_ADDRESS_WORDS +
+    SURFACE_CELL_DEMAND_WORDS +
+    SURFACE_STORE_REFERENCE_WORDS * SURFACE_CELL_PLANE_COUNT +
+    2) *
+  4;
+export const SURFACE_CELL_FIELD_CERTIFICATE_OFFSETS = Object.freeze(
+  APPEARANCE_FIELD_WIDTHS.map((_width, field) =>
+    APPEARANCE_FIELD_WIDTHS.slice(0, field).reduce((sum, width) => sum + width * 2, 0),
+  ),
+);
+export function surfaceCellWorkspaceLayout(tiles: number): Readonly<{
+  counters: number;
+  plans: number;
+  maps: number;
+  proofResults: number;
+  geometryProofs: number;
+  screenProofSlots: number;
+  screenFieldProofs: number;
+  persistentFieldProofs: number;
+  fieldKnownMasks: number;
+  persistentFieldMasks: number;
+  primitives: number;
+  addresses: number;
+  uvWitnesses: number;
+  signalWitnesses: number;
+  fieldReferences: number;
+  signalReferences: number;
+  fieldStoreMasks: number;
+  signalStoreMasks: number;
+  demands: number;
+  facts: number;
+  proofs: number;
+  pendingSupport: number;
+  proofTileCounts: number;
+  proofDispatch: number;
+  proofTiles: number;
+  bytes: number;
+  tiles: number;
+}> {
+  if (!Number.isSafeInteger(tiles) || tiles < 1)
+    throw new RangeError("Invalid Surface workspace tile capacity");
+  const plans = SURFACE_CELL_CONTROL_HEADER_WORDS * 4,
+    maps = plans + tiles * SURFACE_CELL_TILE_PLAN_BYTES;
+  const proofResults = maps + tiles * SURFACE_CELL_TILE_MAP_BYTES;
+  const geometryProofs = proofResults + tiles * 32 * SURFACE_CELL_PROOF_RESULT_WORDS * 4;
+  const screenProofSlots = geometryProofs + tiles * 64 * 4;
+  const screenFieldProofs = screenProofSlots + tiles * 64 * 4;
+  const persistentFieldProofs = screenFieldProofs + tiles * 64 * SURFACE_CELL_FIELD_COUNT * 4;
+  const fieldKnownMasks = persistentFieldProofs + tiles * 64 * 4;
+  const persistentFieldMasks = fieldKnownMasks + tiles * 64 * 4;
+  const primitives = persistentFieldMasks + tiles * 64 * 4;
+  const addresses = primitives + tiles * 64 * 4;
+  const uvWitnesses = addresses + tiles * 64 * SURFACE_CELL_ADDRESS_WORDS * 4;
+  const signalWitnesses = uvWitnesses + tiles * 64 * SURFACE_CELL_UV_WITNESS_WORDS * 4;
+  const fieldReferences = signalWitnesses + tiles * 64 * SURFACE_CELL_SIGNAL_WITNESS_WORDS * 4;
+  const signalReferences =
+    fieldReferences + tiles * 64 * SURFACE_CELL_FIELD_COUNT * SURFACE_STORE_REFERENCE_WORDS * 4;
+  const fieldStoreMasks =
+    signalReferences + tiles * 64 * SURFACE_CELL_SIGNAL_COUNT * SURFACE_STORE_REFERENCE_WORDS * 4;
+  const signalStoreMasks = fieldStoreMasks + tiles * 64 * 4;
+  const demands = signalStoreMasks + tiles * 64 * 4;
+  const facts = Math.ceil((demands + tiles * 64 * SURFACE_CELL_DEMAND_WORDS * 4) / 16) * 16;
   const proofs = facts + tiles * 64 * SURFACE_CELL_CHEAP_FACT_BYTES;
   const pendingSupport = proofs + tiles * 32 * SURFACE_PROOF_RECORD_BYTES;
-  const proofTileCounts=pendingSupport+tiles*64*15*4;
-  const proofDispatch=proofTileCounts+7*4;
-  const proofTiles=proofDispatch+7*4*4;
-  return Object.freeze({counters:0,plans,maps,proofResults,geometryProofs,screenProofSlots,screenFieldProofs,persistentFieldProofs,fieldKnownMasks,persistentFieldMasks,primitives,addresses,uvWitnesses,signalWitnesses,fieldReferences,signalReferences,fieldStoreMasks,signalStoreMasks,demands,facts,proofs,pendingSupport,
-    proofTileCounts,proofDispatch,proofTiles,bytes:Math.ceil((proofTiles+7*tiles*4)/16)*16,tiles});
+  const proofTileCounts = pendingSupport + tiles * 64 * 15 * 4;
+  const proofDispatch = proofTileCounts + 7 * 4;
+  const proofTiles = proofDispatch + 7 * 4 * 4;
+  return Object.freeze({
+    counters: 0,
+    plans,
+    maps,
+    proofResults,
+    geometryProofs,
+    screenProofSlots,
+    screenFieldProofs,
+    persistentFieldProofs,
+    fieldKnownMasks,
+    persistentFieldMasks,
+    primitives,
+    addresses,
+    uvWitnesses,
+    signalWitnesses,
+    fieldReferences,
+    signalReferences,
+    fieldStoreMasks,
+    signalStoreMasks,
+    demands,
+    facts,
+    proofs,
+    pendingSupport,
+    proofTileCounts,
+    proofDispatch,
+    proofTiles,
+    bytes: Math.ceil((proofTiles + 7 * tiles * 4) / 16) * 16,
+    tiles,
+  });
 }
-export function surfaceCellWorkspaceWgsl(tiles:number):string {
+export function surfaceCellWorkspaceWgsl(tiles: number): string {
   surfaceCellWorkspaceLayout(tiles);
-  return `const SURFACE_PROOF_CAPACITY: u32 = ${tiles*32}u;
+  return `const SURFACE_PROOF_CAPACITY: u32 = ${tiles * 32}u;
 struct SurfaceCellWorkspace {
  counters:array<atomic<u32>,${SURFACE_CELL_CONTROL_HEADER_WORDS}>,
- plans:array<u32,${tiles*SURFACE_CELL_TILE_PLAN_BYTES/4}>,
- maps:array<u32,${tiles*SURFACE_CELL_TILE_MAP_BYTES/4}>,
-  proof_results:array<u32,${tiles*32*SURFACE_CELL_PROOF_RESULT_WORDS}>,
-  geometry_proofs:array<u32,${tiles*64}>,
-  screen_proof_slots:array<u32,${tiles*64}>,
-  screen_field_proofs:array<u32,${tiles*64*SURFACE_CELL_FIELD_COUNT}>,
-  persistent_field_proofs:array<u32,${tiles*64}>,
-  field_known_masks:array<u32,${tiles*64}>,
-  persistent_field_masks:array<u32,${tiles*64}>,
- primitives:array<u32,${tiles*64}>,
- addresses:array<u32,${tiles*64*SURFACE_CELL_ADDRESS_WORDS}>,
- uv_witnesses:array<u32,${tiles*64*SURFACE_CELL_UV_WITNESS_WORDS}>,
- signal_witnesses:array<u32,${tiles*64*SURFACE_CELL_SIGNAL_WITNESS_WORDS}>,
- field_references:array<u32,${tiles*64*SURFACE_CELL_FIELD_COUNT*SURFACE_STORE_REFERENCE_WORDS}>,
- signal_references:array<u32,${tiles*64*SURFACE_CELL_SIGNAL_COUNT*SURFACE_STORE_REFERENCE_WORDS}>,
- field_store_masks:array<atomic<u32>,${tiles*64}>,
- signal_store_masks:array<atomic<u32>,${tiles*64}>,
- demands:array<u32,${tiles*64*SURFACE_CELL_DEMAND_WORDS}>,
- facts:array<vec4u,${tiles*64}>,
- proof_requests:array<array<u32,8>,${tiles*32}>,
- pending_support:array<u32,${tiles*64*15}>,
+ plans:array<u32,${(tiles * SURFACE_CELL_TILE_PLAN_BYTES) / 4}>,
+ maps:array<u32,${(tiles * SURFACE_CELL_TILE_MAP_BYTES) / 4}>,
+  proof_results:array<u32,${tiles * 32 * SURFACE_CELL_PROOF_RESULT_WORDS}>,
+  geometry_proofs:array<u32,${tiles * 64}>,
+  screen_proof_slots:array<u32,${tiles * 64}>,
+  screen_field_proofs:array<u32,${tiles * 64 * SURFACE_CELL_FIELD_COUNT}>,
+  persistent_field_proofs:array<u32,${tiles * 64}>,
+  field_known_masks:array<u32,${tiles * 64}>,
+  persistent_field_masks:array<u32,${tiles * 64}>,
+ primitives:array<u32,${tiles * 64}>,
+ addresses:array<u32,${tiles * 64 * SURFACE_CELL_ADDRESS_WORDS}>,
+ uv_witnesses:array<u32,${tiles * 64 * SURFACE_CELL_UV_WITNESS_WORDS}>,
+ signal_witnesses:array<u32,${tiles * 64 * SURFACE_CELL_SIGNAL_WITNESS_WORDS}>,
+ field_references:array<u32,${tiles * 64 * SURFACE_CELL_FIELD_COUNT * SURFACE_STORE_REFERENCE_WORDS}>,
+ signal_references:array<u32,${tiles * 64 * SURFACE_CELL_SIGNAL_COUNT * SURFACE_STORE_REFERENCE_WORDS}>,
+ field_store_masks:array<atomic<u32>,${tiles * 64}>,
+ signal_store_masks:array<atomic<u32>,${tiles * 64}>,
+ demands:array<u32,${tiles * 64 * SURFACE_CELL_DEMAND_WORDS}>,
+ facts:array<vec4u,${tiles * 64}>,
+ proof_requests:array<array<u32,8>,${tiles * 32}>,
+ pending_support:array<u32,${tiles * 64 * 15}>,
  proof_tile_counts:array<atomic<u32>,7>,
  proof_dispatch:array<u32,28>,
- proof_tiles:array<u32,${tiles*7}>,
+ proof_tiles:array<u32,${tiles * 7}>,
 }`;
 }
 /** Payload validity is published by masks/counts. Reset only shared state
@@ -101,38 +173,69 @@ export function surfaceCellWorkspaceResetRanges(tiles: number): readonly (readon
     Object.freeze([0, SURFACE_CELL_CONTROL_HEADER_WORDS * 4] as const),
     Object.freeze([layout.geometryProofs, layout.primitives - layout.geometryProofs] as const),
     Object.freeze([layout.fieldStoreMasks, layout.demands - layout.fieldStoreMasks] as const),
-    Object.freeze([layout.proofTileCounts, 7 * 4] as const)
+    Object.freeze([layout.proofTileCounts, 7 * 4] as const),
   ]);
 }
-export const SURFACE_CELL_PLAN_MODE = Object.freeze({ empty: 0, publication: 1, fine: 2, grid: 3, masked: 4 });
-export const SURFACE_CELL_SIGNAL = Object.freeze({ directDiffuse: 15, environmentDiffuse: 16,
-  directSpecular: 17, environmentSpecular: 18, directCoat: 19, environmentCoat: 20 });
+export const SURFACE_CELL_PLAN_MODE = Object.freeze({
+  empty: 0,
+  publication: 1,
+  fine: 2,
+  grid: 3,
+  masked: 4,
+});
+export const SURFACE_CELL_SIGNAL = Object.freeze({
+  directDiffuse: 15,
+  environmentDiffuse: 16,
+  directSpecular: 17,
+  environmentSpecular: 18,
+  directCoat: 19,
+  environmentCoat: 20,
+});
 /** rate axis exponents; 1x1/2x1/1x2/2x2/4x4/8x8. */
-export const SURFACE_CELL_RATE = Object.freeze({ fine: 0, horizontal: 1, vertical: 4, quad: 5, four: 10, eight: 15 });
+export const SURFACE_CELL_RATE = Object.freeze({
+  fine: 0,
+  horizontal: 1,
+  vertical: 4,
+  quad: 5,
+  four: 10,
+  eight: 15,
+});
 
 export function packSurfaceCellSixBit(values: ArrayLike<number>): Uint32Array<ArrayBuffer> {
   if (values.length !== 64) throw new RangeError("A Surface cell map contains exactly 64 entries");
   const words = new Uint32Array(SURFACE_CELL_MAP_WORDS);
   for (let i = 0; i < 64; i++) {
     const value = values[i]!;
-    if (!Number.isInteger(value) || value < 0 || value > 63) throw new RangeError("Surface cell map entry exceeds six bits");
-    const bit = i * 6, index = bit >>> 5, shift = bit & 31;
+    if (!Number.isInteger(value) || value < 0 || value > 63)
+      throw new RangeError("Surface cell map entry exceeds six bits");
+    const bit = i * 6,
+      index = bit >>> 5,
+      shift = bit & 31;
     words[index]! |= value << shift;
     if (shift > 26) words[index + 1]! |= value >>> (32 - shift);
   }
   return words;
 }
 export function surfaceCellSixBit(words: ArrayLike<number>, entry: number, wordOffset = 0): number {
-  if (!Number.isInteger(entry) || entry < 0 || entry >= 64 || !Number.isInteger(wordOffset) || wordOffset < 0 ||
-    wordOffset + SURFACE_CELL_MAP_WORDS > words.length) throw new RangeError("Invalid Surface packed cell map address");
-  const bit = entry * 6, at = wordOffset + (bit >>> 5), shift = bit & 31;
+  if (
+    !Number.isInteger(entry) ||
+    entry < 0 ||
+    entry >= 64 ||
+    !Number.isInteger(wordOffset) ||
+    wordOffset < 0 ||
+    wordOffset + SURFACE_CELL_MAP_WORDS > words.length
+  )
+    throw new RangeError("Invalid Surface packed cell map address");
+  const bit = entry * 6,
+    at = wordOffset + (bit >>> 5),
+    shift = bit & 31;
   const low = words[at]! >>> shift;
   return (low | (shift > 26 ? words[at + 1]! << (32 - shift) : 0)) & 63;
 }
 export function surfaceCellSelectionWgsl(workspace: string, metadata: string, constants: string): string {
   return /* wgsl */ `
 fn reference_plan_word(leaf:u32,plane:u32,word:u32)->u32 {
-  return ${workspace}.plans[(leaf/64u)*${SURFACE_CELL_TILE_PLAN_BYTES/4}u+16u+plane*6u+word];
+  return ${workspace}.plans[(leaf/64u)*${SURFACE_CELL_TILE_PLAN_BYTES / 4}u+16u+plane*6u+word];
 }
 fn reference_plan_map(leaf:u32,plane:u32,entry:u32)->u32 {
   let base=reference_plan_word(leaf,plane,2u);

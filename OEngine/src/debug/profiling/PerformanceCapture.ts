@@ -1,7 +1,4 @@
-import {
-  MetricRegistry,
-  type MetricDescriptor
-} from "./MetricRegistry.js";
+import { MetricRegistry, type MetricDescriptor } from "./MetricRegistry.js";
 import type { MetricSample, MetricSampleAvailability } from "./Metric.js";
 import type { ProfileFrame } from "./ProfileFrame.js";
 import type { ProfileSpan } from "./ProfileSpan.js";
@@ -38,7 +35,11 @@ const CAPTURE_FORMAT = "oengine-performance-capture";
 const CAPTURE_SCHEMA_VERSION = 1;
 const METRIC_ID_PATTERN = /^[a-z][a-zA-Z0-9]*(?:\.[a-zA-Z0-9]+)*$/;
 const AVAILABILITIES: readonly MetricSampleAvailability[] = [
-  "available", "pending", "unsupported", "invalid", "dropped"
+  "available",
+  "pending",
+  "unsupported",
+  "invalid",
+  "dropped",
 ];
 
 export function createPerformanceCapture(input: PerformanceCaptureInput): PerformanceCapture {
@@ -51,7 +52,7 @@ export function createPerformanceCapture(input: PerformanceCaptureInput): Perfor
     sampling: input.sampling,
     metricCatalog: input.metricCatalog,
     frames: input.frames,
-    diagnostics: input.diagnostics ?? {}
+    diagnostics: input.diagnostics ?? {},
   });
 }
 
@@ -78,7 +79,8 @@ function normalizeCapture(value: unknown): PerformanceCapture {
     throw new RangeError(`Unsupported capture schema ${String(capture.schemaVersion)}`);
   }
   const createdAt = requireString(capture.createdAt, "Capture createdAt");
-  if (!Number.isFinite(Date.parse(createdAt))) throw new TypeError("Capture createdAt must be an ISO-compatible date");
+  if (!Number.isFinite(Date.parse(createdAt)))
+    throw new TypeError("Capture createdAt must be an ISO-compatible date");
   const metricCatalog = normalizeMetricCatalog(capture.metricCatalog);
   const metricIds = new Set(metricCatalog.map(({ id }) => id));
   const frames = normalizeFrames(capture.frames, metricIds);
@@ -91,7 +93,7 @@ function normalizeCapture(value: unknown): PerformanceCapture {
     sampling: normalizeSampling(capture.sampling),
     metricCatalog: Object.freeze(metricCatalog),
     frames: Object.freeze(frames),
-    diagnostics: canonicalJsonRecord(capture.diagnostics ?? {}, "Capture diagnostics")
+    diagnostics: canonicalJsonRecord(capture.diagnostics ?? {}, "Capture diagnostics"),
   };
   return deepFreeze(normalized);
 }
@@ -107,7 +109,7 @@ function normalizeSampling(value: unknown): PerformanceCapture["sampling"] {
     warmupFrames: requireNonNegativeInteger(sampling.warmupFrames, "sampling warmupFrames"),
     timestampInterval: requirePositiveInteger(sampling.timestampInterval, "sampling timestampInterval"),
     counterInterval: requirePositiveInteger(sampling.counterInterval, "sampling counterInterval"),
-    historyCapacity: requirePositiveInteger(sampling.historyCapacity, "sampling historyCapacity")
+    historyCapacity: requirePositiveInteger(sampling.historyCapacity, "sampling historyCapacity"),
   });
 }
 
@@ -122,11 +124,17 @@ function normalizeMetricCatalog(value: unknown): MetricDescriptor[] {
       group: requireString(descriptor.group, "Metric group"),
       unit: requireString(descriptor.unit, "Metric unit") as MetricDescriptor["unit"],
       source: requireString(descriptor.source, "Metric source") as MetricDescriptor["source"],
-      measurement: requireString(descriptor.measurement, "Metric measurement") as MetricDescriptor["measurement"],
+      measurement: requireString(
+        descriptor.measurement,
+        "Metric measurement",
+      ) as MetricDescriptor["measurement"],
       cost: requireString(descriptor.cost, "Metric cost") as MetricDescriptor["cost"],
       scope: requireString(descriptor.scope, "Metric scope") as MetricDescriptor["scope"],
-      aggregation: requireString(descriptor.aggregation, "Metric aggregation") as MetricDescriptor["aggregation"],
-      description: requireString(descriptor.description, "Metric description")
+      aggregation: requireString(
+        descriptor.aggregation,
+        "Metric aggregation",
+      ) as MetricDescriptor["aggregation"],
+      description: requireString(descriptor.description, "Metric description"),
     });
   }
   return [...registry.values()];
@@ -149,7 +157,8 @@ function normalizeFrames(value: unknown, metricIds: ReadonlySet<string>): Profil
 
 function normalizeFrame(value: unknown, metricIds: ReadonlySet<string>): ProfileFrame {
   const frame = requireRecord(value, "Capture frame");
-  if (frame.schemaVersion !== 1) throw new RangeError(`Unsupported profile frame schema ${String(frame.schemaVersion)}`);
+  if (frame.schemaVersion !== 1)
+    throw new RangeError(`Unsupported profile frame schema ${String(frame.schemaVersion)}`);
   const frameIndex = requireNonNegativeInteger(frame.frameIndex, "frameIndex");
   const samples = normalizeSamples(frame.samples, frameIndex, metricIds);
   const spans = normalizeSpans(frame.spans, frameIndex);
@@ -161,26 +170,31 @@ function normalizeFrame(value: unknown, metricIds: ReadonlySet<string>): Profile
     visibilityState: requireString(frame.visibilityState, "frame visibilityState"),
     samples: Object.freeze(samples),
     spans: Object.freeze(spans),
-    gpuCounterSchemaVersion: requireNonNegativeInteger(frame.gpuCounterSchemaVersion, "frame gpuCounterSchemaVersion"),
+    gpuCounterSchemaVersion: requireNonNegativeInteger(
+      frame.gpuCounterSchemaVersion,
+      "frame gpuCounterSchemaVersion",
+    ),
     timestampInstrumented: requireBoolean(frame.timestampInstrumented, "frame timestampInstrumented"),
     counterInstrumented: requireBoolean(frame.counterInstrumented, "frame counterInstrumented"),
-    complete: requireBoolean(frame.complete, "frame complete")
+    complete: requireBoolean(frame.complete, "frame complete"),
   });
 }
 
 function normalizeSamples(
   value: unknown,
   frameIndex: number,
-  metricIds: ReadonlySet<string>
+  metricIds: ReadonlySet<string>,
 ): Record<string, MetricSample> {
   const input = requireRecord(value, "Capture frame samples");
   const output: Record<string, MetricSample> = {};
   for (const key of Object.keys(input).sort()) {
     if (!METRIC_ID_PATTERN.test(key)) throw new TypeError(`Capture sample key '${key}' is invalid`);
-    if (!metricIds.has(key)) throw new TypeError(`Capture sample '${key}' is missing from the metric catalog`);
+    if (!metricIds.has(key))
+      throw new TypeError(`Capture sample '${key}' is missing from the metric catalog`);
     const raw = requireRecord(input[key], `Capture sample '${key}'`);
     const metricId = requireString(raw.metricId, "Capture sample metricId");
-    if (metricId !== key) throw new TypeError(`Capture sample key '${key}' does not match metricId '${metricId}'`);
+    if (metricId !== key)
+      throw new TypeError(`Capture sample key '${key}' does not match metricId '${metricId}'`);
     const availability = requireAvailability(raw.availability);
     const rawValue = raw.value;
     let sampleValue: number | null;
@@ -191,10 +205,14 @@ function normalizeSamples(
       sampleValue = null;
     }
     const sourceFrameIndex = requireNonNegativeInteger(raw.sourceFrameIndex, "sample sourceFrameIndex");
-    if (sourceFrameIndex !== frameIndex) throw new RangeError("Capture sample sourceFrameIndex must match its frame");
+    if (sourceFrameIndex !== frameIndex)
+      throw new RangeError("Capture sample sourceFrameIndex must match its frame");
     let resolvedAtFrameIndex: number | null = null;
     if (availability === "available") {
-      resolvedAtFrameIndex = requireNonNegativeInteger(raw.resolvedAtFrameIndex, "sample resolvedAtFrameIndex");
+      resolvedAtFrameIndex = requireNonNegativeInteger(
+        raw.resolvedAtFrameIndex,
+        "sample resolvedAtFrameIndex",
+      );
       if (resolvedAtFrameIndex < sourceFrameIndex) {
         throw new RangeError("Capture sample cannot resolve before its source frame");
       }
@@ -207,7 +225,7 @@ function normalizeSamples(
       availability,
       sourceFrameIndex,
       resolvedAtFrameIndex,
-      instrumented: requireBoolean(raw.instrumented, "sample instrumented")
+      instrumented: requireBoolean(raw.instrumented, "sample instrumented"),
     });
   }
   return output;
@@ -224,9 +242,7 @@ function normalizeSpans(value: unknown, frameIndex: number): ProfileSpan[] {
     const spanFrameIndex = requireNonNegativeInteger(raw.frameIndex, "span frameIndex");
     if (spanFrameIndex !== frameIndex) throw new RangeError("Capture span frameIndex must match its frame");
     const availability = requireAvailability(raw.availability);
-    const duration = raw.duration === null
-      ? null
-      : requireNonNegativeFinite(raw.duration, "span duration");
+    const duration = raw.duration === null ? null : requireNonNegativeFinite(raw.duration, "span duration");
     if (availability === "available" && duration === null) {
       throw new RangeError("Available capture spans require a duration");
     }
@@ -237,9 +253,7 @@ function normalizeSpans(value: unknown, frameIndex: number): ProfileSpan[] {
     if (clockDomain !== "cpu-main" && clockDomain !== "gpu-device") {
       throw new TypeError(`Unknown capture span clock domain '${String(clockDomain)}'`);
     }
-    const parentId = raw.parentId === null
-      ? null
-      : requireNonNegativeInteger(raw.parentId, "span parentId");
+    const parentId = raw.parentId === null ? null : requireNonNegativeInteger(raw.parentId, "span parentId");
     return Object.freeze({
       id,
       parentId,
@@ -250,7 +264,7 @@ function normalizeSpans(value: unknown, frameIndex: number): ProfileSpan[] {
       start: raw.start === null ? null : requireFiniteNumber(raw.start, "span start"),
       duration,
       availability,
-      instrumented: requireBoolean(raw.instrumented, "span instrumented")
+      instrumented: requireBoolean(raw.instrumented, "span instrumented"),
     });
   });
   for (const span of spans) {
@@ -269,7 +283,7 @@ function canonicalJsonRecord(value: unknown, label: string): Readonly<Record<str
 function canonicalJsonObject(
   record: Record<string, unknown>,
   label: string,
-  ancestors: Set<object>
+  ancestors: Set<object>,
 ): Record<string, unknown> {
   const prototype = Object.getPrototypeOf(record);
   if (prototype !== Object.prototype && prototype !== null) {
@@ -309,7 +323,8 @@ function requireRecord(value: unknown, label: string): Record<string, unknown> {
 }
 
 function requireString(value: unknown, label: string): string {
-  if (typeof value !== "string" || value.length === 0) throw new TypeError(`${label} must be a non-empty string`);
+  if (typeof value !== "string" || value.length === 0)
+    throw new TypeError(`${label} must be a non-empty string`);
   return value;
 }
 
@@ -330,12 +345,14 @@ function requireNonNegativeFinite(value: unknown, label: string): number {
 }
 
 function requireNonNegativeInteger(value: unknown, label: string): number {
-  if (!Number.isInteger(value) || (value as number) < 0) throw new RangeError(`${label} must be a non-negative integer`);
+  if (!Number.isInteger(value) || (value as number) < 0)
+    throw new RangeError(`${label} must be a non-negative integer`);
   return value as number;
 }
 
 function requirePositiveInteger(value: unknown, label: string): number {
-  if (!Number.isInteger(value) || (value as number) <= 0) throw new RangeError(`${label} must be a positive integer`);
+  if (!Number.isInteger(value) || (value as number) <= 0)
+    throw new RangeError(`${label} must be a positive integer`);
   return value as number;
 }
 

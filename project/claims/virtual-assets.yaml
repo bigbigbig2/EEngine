@@ -12,7 +12,13 @@ claims:
       diagnosticCases: []
       checkOnly: false
     allowedDeclarations: [ImplementationComplete, RuntimeValidated]
-    watch: [OEngine/src/assets/web-cook/**, OEngine/src/assets/geometry-product/**, validation/cases/web-authored-large-cook-k0/**, validation/workloads/web-authored-large-cook-k0-v1.yaml]
+    watch:
+      [
+        OEngine/src/assets/web-cook/**,
+        OEngine/src/assets/geometry-product/**,
+        validation/cases/web-authored-large-cook-k0/**,
+        validation/workloads/web-authored-large-cook-k0-v1.yaml,
+      ]
   - id: virtual-assets.product-consumer
     lifecycle: retired
     domain: virtual-assets
@@ -26,7 +32,15 @@ claims:
       diagnosticCases: [oegpack-v3-component, virtual-geometry-component, virtual-product-observer]
       checkOnly: true
     allowedDeclarations: [ImplementationComplete, RuntimeValidated, PipelineFeatureComplete]
-    watch: [OEngine/src/assets/**, OEngine/src/gpu/GeometryProductAdmission.ts, OEngine/src/gpu/VirtualGeometryResidency.ts, OEngine/src/gpu/GpuRenderWorld.ts, OEngine/src/gpu/GpuScene.ts, OEngine/src/render/pipeline/RendererCore.ts]
+    watch:
+      [
+        OEngine/src/assets/**,
+        OEngine/src/gpu/GeometryProductAdmission.ts,
+        OEngine/src/gpu/VirtualGeometryResidency.ts,
+        OEngine/src/gpu/GpuRenderWorld.ts,
+        OEngine/src/gpu/GpuScene.ts,
+        OEngine/src/render/pipeline/RendererCore.ts,
+      ]
   - id: virtual-assets.web-cook
     lifecycle: retired
     domain: virtual-assets
@@ -54,7 +68,12 @@ claims:
       diagnosticCases: []
       checkOnly: true
     allowedDeclarations: [ImplementationComplete, RuntimeValidated, PipelineFeatureComplete, ADRComplete]
-    watch: [OEngine/src/gpu/VirtualGeometryResidency.ts, OEngine/src/gpu/GeometryPageStreamingRuntime.ts, OEngine/src/render/Renderer.ts]
+    watch:
+      [
+        OEngine/src/gpu/VirtualGeometryResidency.ts,
+        OEngine/src/gpu/GeometryPageStreamingRuntime.ts,
+        OEngine/src/render/Renderer.ts,
+      ]
   - id: virtual-assets.performance
     lifecycle: retired
     domain: virtual-assets
@@ -68,4 +87,13 @@ claims:
       diagnosticCases: [web-authored-large-cook-k0]
       checkOnly: true
     allowedDeclarations: [PerformanceEvaluated]
-    watch: [validation/cases/web-authored-large-perf/**, validation/workloads/web-authored-large-cook-k0-v1.yaml, validation/workloads/web-authored-large-runtime-smoke-v1.yaml, validation/workloads/web-authored-large-perf-v1.yaml, OEngine/src/debug/FormalPerfFreeze.ts, docs/specs/web-geometry-authored-large-gate-v1.md, docs/specs/web-geometry-formal-perf-freeze-v1.md]
+    watch:
+      [
+        validation/cases/web-authored-large-perf/**,
+        validation/workloads/web-authored-large-cook-k0-v1.yaml,
+        validation/workloads/web-authored-large-runtime-smoke-v1.yaml,
+        validation/workloads/web-authored-large-perf-v1.yaml,
+        OEngine/src/debug/FormalPerfFreeze.ts,
+        docs/specs/web-geometry-authored-large-gate-v1.md,
+        docs/specs/web-geometry-formal-perf-freeze-v1.md,
+      ]

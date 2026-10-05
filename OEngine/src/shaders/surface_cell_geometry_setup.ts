@@ -4,7 +4,10 @@ import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js"
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
 import { WINNER_INTERPOLATION_WGSL } from "./winner_interpolation.js";
 import { surfaceGeometryDecodeWgsl } from "./surface_geometry_reader.js";
-import { SURFACE_CELL_GEOMETRY_WGSL, surfaceCellGeometryArenaWgsl } from "../gpu/GpuSurfaceCellGeometryAbi.js";
+import {
+  SURFACE_CELL_GEOMETRY_WGSL,
+  surfaceCellGeometryArenaWgsl,
+} from "../gpu/GpuSurfaceCellGeometryAbi.js";
 import { SURFACE_CELL_TILE_PLAN_BYTES } from "../gpu/GpuSurfaceCellPlanAbi.js";
 
 /** Geometry-owned setup math, shared between admitted build and bounded direct
@@ -69,7 +72,7 @@ fn cell_build_geometry_setup(key:u32)->CellGeometrySetup {
 /** Reset -> sorted tile runs -> guaranteed local build -> consume.
  * One explicit reference per covered leaf; no hash admission on the mandatory
  * path. Baseline f32/storage atomics and 64 invocations, no global spin. */
-export function surfaceCellGeometrySetupWgsl(product: boolean,referenceCapacity = 65536): string {
+export function surfaceCellGeometrySetupWgsl(product: boolean, referenceCapacity = 65536): string {
   return /* wgsl */ `
 struct CellGeometrySettings {
  width:u32,height:u32,tiles_x:u32,first_tile:u32,
@@ -82,8 +85,12 @@ struct CellGeometrySettings {
 @group(0) @binding(2) var<storage,read> source_heap:array<u32>;
 @group(0) @binding(3) var<storage,read> vertex_payload:array<u32>;
 @group(0) @binding(4) var<storage,read> frame_instances:array<OEngineFrameInstanceRecord>;
-${product ? `@group(0) @binding(5) var<storage,read> product_heap:array<u32>;
-${Array.from({length:4},(_,i)=>`@group(0) @binding(${i+6}) var<storage,read> product_bank_${i}:array<u32>;`).join("\n")}` : ""}
+${
+  product
+    ? `@group(0) @binding(5) var<storage,read> product_heap:array<u32>;
+${Array.from({ length: 4 }, (_, i) => `@group(0) @binding(${i + 6}) var<storage,read> product_bank_${i}:array<u32>;`).join("\n")}`
+    : ""
+}
 @group(1) @binding(0) var<storage,read_write> geometry_arena:CellGeometryArena;
 @group(1) @binding(2) var<storage,read_write> setup_counts:array<atomic<u32>>;
 @group(1) @binding(3) var setup_visibility:texture_2d<u32>;
@@ -95,7 +102,7 @@ struct CellGeometryMemoEntry {
 }
 @group(1) @binding(6) var<storage,read_write> setup_memo:array<CellGeometryMemoEntry>;
 ${surfaceCellGeometryMathWgsl(product)}
-${surfaceCellGeometryArenaWgsl(referenceCapacity,true)}
+${surfaceCellGeometryArenaWgsl(referenceCapacity, true)}
 fn cell_setup_hash(key:u32)->u32 {var v=key;v^=v>>16u;v*=0x7feb352du;v^=v>>15u;v*=0x846ca68bu;return v^(v>>16u);}
 @compute @workgroup_size(64) fn reset_cell_geometry(@builtin(global_invocation_id) id:vec3u){
  if id.x<settings.reference_capacity{geometry_arena.references[id.x].key=0xffffffffu;geometry_arena.references[id.x].slot=0xffffffffu;}
@@ -231,5 +238,5 @@ fn commit_cell_geometry_memo(@builtin(global_invocation_id) id: vec3u) {
  let count=min(atomicLoad(&setup_counts[0]),settings.setup_capacity);
  setup_indirect[0]=(count+63u)/64u;setup_indirect[1]=1u;setup_indirect[2]=1u;setup_indirect[3]=count;
 }
-`.replaceAll("geometry_setups[","geometry_arena.setups[");
+`.replaceAll("geometry_setups[", "geometry_arena.setups[");
 }

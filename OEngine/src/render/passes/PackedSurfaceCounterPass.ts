@@ -71,8 +71,8 @@ const GROUP: GPUBindGroupLayoutDescriptor = {
     { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } },
     { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
     { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-    { binding: 4, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "depth" } }
-  ]
+    { binding: 4, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "depth" } },
+  ],
 };
 
 const PIPELINE: CachedComputePipelineDescriptor = {
@@ -80,8 +80,8 @@ const PIPELINE: CachedComputePipelineDescriptor = {
   layout: { label: "R4-B GPU Surface counters/layout", bindGroupLayouts: [GROUP] },
   compute: {
     module: { label: "R4-B GPU Surface counters", code: PACKED_SURFACE_COUNTER_WGSL },
-    entryPoint: "main"
-  }
+    entryPoint: "main",
+  },
 };
 
 /** Optional sampled observability; absent when the frame owns no GPU counter resource. */
@@ -98,7 +98,7 @@ export class PackedSurfaceCounterPass {
       environment: ResourceId;
       counters: ResourceId;
       depth: ResourceId;
-    }
+    },
   ): ResourceId {
     const builder = graph.add(
       "R4-B GPU Surface counters",
@@ -108,21 +108,19 @@ export class PackedSurfaceCounterPass {
         const pass = command.constructComputePass({
           label: "R4-B GPU Surface counters",
           pipeline: PIPELINE,
-          bindings: [[
-            resolveTextureView(resources.get(inputs.surfaceFlags)),
-            resolveTextureView(resources.get(inputs.pbr)),
-            resolveTextureView(resources.get(inputs.environment)),
-            { buffer: requireBuffer(resources.get(inputs.counters), "GPU counters") },
-            resolveTextureView(resources.get(inputs.depth), { aspect: "depth-only" })
-          ]]
+          bindings: [
+            [
+              resolveTextureView(resources.get(inputs.surfaceFlags)),
+              resolveTextureView(resources.get(inputs.pbr)),
+              resolveTextureView(resources.get(inputs.environment)),
+              { buffer: requireBuffer(resources.get(inputs.counters), "GPU counters") },
+              resolveTextureView(resources.get(inputs.depth), { aspect: "depth-only" }),
+            ],
+          ],
         });
-        pass.dispatchWorkgroups(
-          Math.ceil(data.width / WORKGROUP),
-          Math.ceil(data.height / WORKGROUP),
-          1
-        );
+        pass.dispatchWorkgroups(Math.ceil(data.width / WORKGROUP), Math.ceil(data.height / WORKGROUP), 1);
         pass.end();
-      }
+      },
     );
     builder.read(inputs.surfaceFlags);
     builder.read(inputs.pbr);

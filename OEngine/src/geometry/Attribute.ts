@@ -6,15 +6,12 @@ import { arrayShallowEquals } from "../core/arrayUtils.js";
 import { hashFloat, hashMix } from "../core/hashMix.js";
 import { bufferCopyStride, hashString } from "../core/memoryUtils.js";
 import { fmin } from "../core/math/mathUtils.js";
-import {
-  DATA_TYPE_BYTE_SIZE,
-  enumKeyOf
-} from "../core/TableSpec.js";
+import { DATA_TYPE_BYTE_SIZE, enumKeyOf } from "../core/TableSpec.js";
 import {
   ShadeDataType,
   type ShadeDataTypeName,
   inferDataTypeFromArray,
-  ctorFromDataType
+  ctorFromDataType,
 } from "../texture/ShadeDataType.js";
 import type { BinaryReader } from "../loaders/BinaryReader.js";
 
@@ -28,19 +25,14 @@ export class AttributeSpec {
     type: ShadeDataTypeName | string,
     itemSize: number,
     normalized = false,
-    name = ""
+    name = "",
   ): AttributeSpec {
     const s = new AttributeSpec();
     s.fromJSON({ name, type: type as ShadeDataTypeName, itemSize, normalized });
     return s;
   }
 
-  static fromJSON(e: {
-    name?: string;
-    type: string;
-    itemSize: number;
-    normalized?: boolean;
-  }): AttributeSpec {
+  static fromJSON(e: { name?: string; type: string; itemSize: number; normalized?: boolean }): AttributeSpec {
     const t = new AttributeSpec();
     t.fromJSON(e);
     return t;
@@ -50,7 +42,7 @@ export class AttributeSpec {
     name: e = "",
     type: t,
     itemSize: n,
-    normalized: r = false
+    normalized: r = false,
   }: {
     name?: string;
     type: string;
@@ -73,7 +65,7 @@ export class AttributeSpec {
       name: this.name,
       type: this.type,
       itemSize: this.itemSize,
-      normalized: this.normalized
+      normalized: this.normalized,
     };
   }
 
@@ -140,7 +132,7 @@ export function typedArrayEquals(
     byteLength?: number;
     buffer?: ArrayBuffer;
     byteOffset?: number;
-  }
+  },
 ): boolean {
   if (t === n) return true;
   const r = t.length;
@@ -160,8 +152,7 @@ export function typedArrayEquals(
 
   let d: ArrayLike<number> = t;
   let u: ArrayLike<number> = n;
-  const bpe =
-    (s as { BYTES_PER_ELEMENT?: number }).BYTES_PER_ELEMENT ?? 1;
+  const bpe = (s as { BYTES_PER_ELEMENT?: number }).BYTES_PER_ELEMENT ?? 1;
   const f = bufferCopyStride(_, c, a);
   if (i != null && o != null) {
     if (bpe < 4 && f === 4) {
@@ -204,11 +195,7 @@ export class Attribute {
   }
 
   equals(e: Attribute): boolean {
-    return (
-      this.spec.equals(e.spec) &&
-      this.count === e.count &&
-      typedArrayEquals(this.data, e.data)
-    );
+    return this.spec.equals(e.spec) && this.count === e.count && typedArrayEquals(this.data, e.data);
   }
 
   hash(): number {
@@ -226,9 +213,7 @@ export class Attribute {
   copy(e: Attribute): void {
     this.spec.copy(e.spec);
     this.count = e.count;
-    const Ctor = e.data.constructor as new (
-      src: ArrayLike<number>
-    ) => typeof e.data;
+    const Ctor = e.data.constructor as new (src: ArrayLike<number>) => typeof e.data;
     this.data = new Ctor(e.data as ArrayLike<number>);
   }
 
@@ -238,11 +223,7 @@ export class Attribute {
     return e;
   }
 
-  static from(
-    e: ArrayLike<number> & { length: number; constructor: unknown },
-    t = 1,
-    n = ""
-  ): Attribute {
+  static from(e: ArrayLike<number> & { length: number; constructor: unknown }, t = 1, n = ""): Attribute {
     const r = inferDataTypeFromArray(e as unknown as ArrayBufferView);
     const s = new Attribute();
     s.spec.type = r as ShadeDataTypeName;
@@ -267,7 +248,7 @@ export function gatherAttributeByIndices(
   e: { [i: number]: number },
   t: BinaryReader,
   n: Attribute,
-  r: number
+  r: number,
 ): void {
   const s = n.data;
   const a = n.spec.itemSize;

@@ -25,7 +25,7 @@ function packConstants(input: VsmAllocatePagesInputs): ArrayBuffer {
     capabilities.virtualPagesPerAxis >>> 0,
     capabilities.atlasPagesPerAxis >>> 0,
     capabilities.virtualEntryCount,
-    0
+    0,
   ]);
   return data;
 }
@@ -40,26 +40,32 @@ export class VsmAllocatePagesPass {
     this.constants = device.createBuffer({
       label: "VSM/allocation constants",
       size: CONSTANT_BYTES,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
-    this.layout = device.createBindGroupLayout({ label: "VSM/allocation layout", entries: [
-      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-      { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-      { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-      { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-      { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-      { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-      { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-      { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-      { binding: 8, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }
-    ] });
+    this.layout = device.createBindGroupLayout({
+      label: "VSM/allocation layout",
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+        { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+        { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+        { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+        { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+        { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+        { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+        { binding: 8, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      ],
+    });
     this.pipeline = device.createComputePipeline({
       label: "VSM/allocate pages",
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }),
       compute: {
-        module: device.createShaderModule({ label: "VSM/allocate pages WGSL", code: VSM_ALLOCATE_PAGES_WGSL }),
-        entryPoint: "main"
-      }
+        module: device.createShaderModule({
+          label: "VSM/allocate pages WGSL",
+          code: VSM_ALLOCATE_PAGES_WGSL,
+        }),
+        entryPoint: "main",
+      },
     });
   }
 
@@ -75,26 +81,51 @@ export class VsmAllocatePagesPass {
     if (!demandBuffer) throw new Error("VSM demand buffer is unavailable");
 
     const constants = graph.import_resource(
-      "VSM/allocation constants", { kind: "imported", label: "VSM allocation constants" }, this.constants);
+      "VSM/allocation constants",
+      { kind: "imported", label: "VSM allocation constants" },
+      this.constants,
+    );
     const demand = input.demand;
     const pageTable = graph.import_resource(
-      "VSM/page table allocation", { kind: "imported", label: "VSM page table" }, resources.pageTable);
+      "VSM/page table allocation",
+      { kind: "imported", label: "VSM page table" },
+      resources.pageTable,
+    );
     const metaTable = graph.import_resource(
-      "VSM/meta table allocation", { kind: "imported", label: "VSM meta table" }, resources.metaTable);
+      "VSM/meta table allocation",
+      { kind: "imported", label: "VSM meta table" },
+      resources.metaTable,
+    );
     const allocation = graph.import_resource(
-      "VSM/allocation work", { kind: "imported", label: "VSM allocation work" }, resources.allocation);
+      "VSM/allocation work",
+      { kind: "imported", label: "VSM allocation work" },
+      resources.allocation,
+    );
     const pageLocks = graph.import_resource(
-      "VSM/page locks", { kind: "imported", label: "VSM page locks" }, resources.pageLocks);
+      "VSM/page locks",
+      { kind: "imported", label: "VSM page locks" },
+      resources.pageLocks,
+    );
     const slotLocks = graph.import_resource(
-      "VSM/slot locks", { kind: "imported", label: "VSM slot locks" }, resources.slotLocks);
+      "VSM/slot locks",
+      { kind: "imported", label: "VSM slot locks" },
+      resources.slotLocks,
+    );
     const telemetry = graph.import_resource(
-      "VSM/allocation telemetry", { kind: "imported", label: "VSM allocation telemetry" }, resources.overflowCounters);
+      "VSM/allocation telemetry",
+      { kind: "imported", label: "VSM allocation telemetry" },
+      resources.overflowCounters,
+    );
 
-    const update = graph.add("VSM/update allocation constants", input,
-      (data, _resources, context) => {
-        (context.encoder as ShadeGPUCommandContext).writeBuffer(
-          this.constants, 0, packConstants(data), 0, CONSTANT_BYTES);
-      });
+    const update = graph.add("VSM/update allocation constants", input, (data, _resources, context) => {
+      (context.encoder as ShadeGPUCommandContext).writeBuffer(
+        this.constants,
+        0,
+        packConstants(data),
+        0,
+        CONSTANT_BYTES,
+      );
+    });
     const currentConstants = update.write(constants);
     const produce = graph.add("VSM/allocate pages", {}, (_data, resolved, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
@@ -106,7 +137,9 @@ export class VsmAllocatePagesPass {
       command.clearBuffer(pageLocksBuffer, 0, pageLocksBuffer.size);
       command.clearBuffer(slotLocksBuffer, 0, slotLocksBuffer.size);
       command.clearBuffer(telemetryBuffer, 0, 16);
-      const group = this.device.createBindGroup({ label: "VSM/allocate pages bindings", layout: this.layout,
+      const group = this.device.createBindGroup({
+        label: "VSM/allocate pages bindings",
+        layout: this.layout,
         entries: [
           { binding: 0, resource: { buffer: resolved.get(currentConstants) as GPUBuffer } },
           { binding: 1, resource: { buffer: resolved.get(demand) as GPUBuffer } },
@@ -116,8 +149,9 @@ export class VsmAllocatePagesPass {
           { binding: 5, resource: { buffer: pageLocksBuffer } },
           { binding: 6, resource: { buffer: slotLocksBuffer } },
           { binding: 7, resource: { buffer: telemetryBuffer } },
-          { binding: 8, resource: { buffer: resolved.get(input.contentVersion) as GPUBuffer } }
-        ] });
+          { binding: 8, resource: { buffer: resolved.get(input.contentVersion) as GPUBuffer } },
+        ],
+      });
       const pass = command.beginComputePass({ label: "VSM/allocate pages" });
       pass.setPipeline(this.pipeline);
       pass.setBindGroup(0, group);
@@ -126,25 +160,27 @@ export class VsmAllocatePagesPass {
     });
     produce.read(currentConstants);
     produce.read(demand);
-    const publishedPageTable=produce.write(pageTable);
-    const publishedMetaTable=produce.write(metaTable);
-    const publishedAllocation=produce.write(allocation);
-    const publishedPageLocks=produce.write(pageLocks);
-    const publishedContent=produce.write(input.contentVersion);
+    const publishedPageTable = produce.write(pageTable);
+    const publishedMetaTable = produce.write(metaTable);
+    const publishedAllocation = produce.write(allocation);
+    const publishedPageLocks = produce.write(pageLocks);
+    const publishedContent = produce.write(input.contentVersion);
     produce.write(slotLocks);
     produce.write(telemetry);
     produce.make_side_effect();
     return {
-      allocation:publishedAllocation,
+      allocation: publishedAllocation,
       demand,
-      pageTable:publishedPageTable,
-      metaTable:publishedMetaTable,
-      pageLocks:publishedPageLocks,
-      contentVersion:publishedContent,
+      pageTable: publishedPageTable,
+      metaTable: publishedMetaTable,
+      pageLocks: publishedPageLocks,
+      contentVersion: publishedContent,
       generation: input.generation,
-      capacity: input.resources.capabilities.residentSlots
+      capacity: input.resources.capabilities.residentSlots,
     };
   }
 
-  destroy(): void { this.constants.destroy(); }
+  destroy(): void {
+    this.constants.destroy();
+  }
 }

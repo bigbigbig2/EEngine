@@ -19,7 +19,7 @@ export function aabb2Overlaps(
   s: number,
   a: number,
   i: number,
-  o: number
+  o: number,
 ): boolean {
   return intervalOverlaps1D(e, n, s, i) && intervalOverlaps1D(t, r, a, o);
 }
@@ -33,7 +33,7 @@ export function lineSegmentIntersect2D(
   a: number,
   i: number,
   o: number,
-  out: { fromArray(arr: ArrayLike<number>): unknown }
+  out: { fromArray(arr: ArrayLike<number>): unknown },
 ): boolean {
   const d = n - e;
   const u = r - t;
@@ -158,16 +158,7 @@ export class AABB2 {
   }
 
   overlapExists(e: AABB2): boolean {
-    return aabb2Overlaps(
-      this.x0,
-      this.y0,
-      this.x1,
-      this.y1,
-      e.x0,
-      e.y0,
-      e.x1,
-      e.y1
-    );
+    return aabb2Overlaps(this.x0, this.y0, this.x1, this.y1, e.x0, e.y0, e.x1, e.y1);
   }
 
   _expandToFit(e: number, t: number, n: number, r: number): void {
@@ -184,7 +175,7 @@ export class AABB2 {
   lineIntersectionPoint(
     e: { x: number; y: number },
     t: { x: number; y: number },
-    n: { fromArray(arr: ArrayLike<number>): unknown }
+    n: { fromArray(arr: ArrayLike<number>): unknown },
   ): boolean {
     const r = this.x0;
     const s = this.y0;
@@ -198,10 +189,7 @@ export class AABB2 {
     );
   }
 
-  computeNearestPointToPoint(
-    e: { x: number; y: number },
-    t: { set(x: number, y: number): unknown }
-  ): void {
+  computeNearestPointToPoint(e: { x: number; y: number }, t: { set(x: number, y: number): unknown }): void {
     t.set(clamp(e.x, this.x0, this.x1), clamp(e.y, this.y0, this.y1));
   }
 
@@ -347,7 +335,7 @@ export class AABB2 {
       Number.POSITIVE_INFINITY,
       Number.POSITIVE_INFINITY,
       Number.NEGATIVE_INFINITY,
-      Number.NEGATIVE_INFINITY
+      Number.NEGATIVE_INFINITY,
     );
   }
 
@@ -375,7 +363,7 @@ export class AABB2 {
     e: AABB2,
     t: AABB2,
     n: { fromArray(arr: ArrayLike<number>): unknown },
-    r: { fromArray(arr: ArrayLike<number>): unknown }
+    r: { fromArray(arr: ArrayLike<number>): unknown },
   ): boolean {
     const s = new Vec2(e.centerX, e.centerY);
     const a = new Vec2(t.centerX, t.centerY);

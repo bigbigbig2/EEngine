@@ -27,9 +27,12 @@ export class ShadeTexture {
    * This is CPU provenance, not a GPU residency generation or per-frame upload trigger.
    */
   private appearanceContentVersion: string | undefined;
-  get appearance_content_version(): string | undefined { return this.appearanceContentVersion; }
+  get appearance_content_version(): string | undefined {
+    return this.appearanceContentVersion;
+  }
   set appearance_content_version(value: string | undefined) {
-    if (value !== undefined && (typeof value !== "string" || value.length === 0)) throw new RangeError("Appearance content version must be nonempty");
+    if (value !== undefined && (typeof value !== "string" || value.length === 0))
+      throw new RangeError("Appearance content version must be nonempty");
     if (this.appearanceContentVersion !== undefined && value !== this.appearanceContentVersion) {
       throw new Error("Replace the immutable raw image and ShadeTexture for a new content version");
     }
@@ -110,7 +113,7 @@ export class ShadeTexture {
       this.mipmapFilter,
       this.wrapS,
       this.wrapT,
-      this.wrapR
+      this.wrapR,
     );
   }
 

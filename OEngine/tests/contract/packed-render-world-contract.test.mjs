@@ -7,8 +7,6 @@ import { AppearanceProgramRegistry } from "../../.test-dist/gpu/AppearanceProgra
 
 installWebGpuConstants();
 
-
-
 const [
   { FrameProfiler },
   { FrameCoordinator },
@@ -19,24 +17,17 @@ const [
   { cookReferenceTextureAssetPackageV2: cookTextureAssetPackageV2 },
   { openTextureAssetPackageV2, writeEncodedTextureAssetPackageV2 },
   { createEnvironmentManifest },
-  {
-    createWorkQueueReservationState,
-    reserveWorkQueueGroupReference,
-    GPU_WORK_QUEUE_INVALID_OFFSET
-  },
+  { createWorkQueueReservationState, reserveWorkQueueGroupReference, GPU_WORK_QUEUE_INVALID_OFFSET },
   {
     decodeGpuTextureRef,
     encodeGpuTextureRef,
     GPU_TEXTURE_REF_INVALID,
     GPU_TEXTURE_BANK_MAX_CAPACITIES,
-    gpuTextureBankSampleWgsl
+    gpuTextureBankSampleWgsl,
   },
   { decodeTextureHandle },
   { textureBindingSetPolicy },
-  {
-    MESHLET_BUCKET_VISIBILITY_WGSL,
-    MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_WGSL
-  },
+  { MESHLET_BUCKET_VISIBILITY_WGSL, MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_WGSL },
   { StandardShadeMaterial },
   { ShadeDrawSide, ShadeTransparencyMode },
   { GPU_INSTANCE_FLAGS, decodeInstanceShadingBinId },
@@ -45,7 +36,7 @@ const [
   { Mesh },
   { Node3D },
   { Scene },
-  { SkinnedMesh }
+  { SkinnedMesh },
 ] = await Promise.all([
   import("../../.test-dist/debug/FrameProfiler.js"),
   import("../../.test-dist/render/FrameCoordinator.js"),
@@ -69,7 +60,7 @@ const [
   import("../../.test-dist/scene/Mesh.js"),
   import("../../.test-dist/scene/Node3D.js"),
   import("../../.test-dist/scene/Scene.js"),
-  import("../../.test-dist/scene/SkinnedMesh.js")
+  import("../../.test-dist/scene/SkinnedMesh.js"),
 ]);
 
 test("benchmark environment preserves clean-build content provenance", () => {
@@ -123,7 +114,7 @@ test("FrameCoordinator owns one close path for each render tick", () => {
     frameIndex: 4,
     submitLabel: "main",
     closed: true,
-    submitted: true
+    submitted: true,
   });
   assert.equal(commands.length, 1);
   assert.equal(commands[0].submitted, true);
@@ -139,22 +130,41 @@ test("FrameCoordinator releases an active frame when submission fails", () => {
   const failure = new Error("submit rejected");
   const abortCauses = [];
   const coordinator = new FrameCoordinator({}, (_graphics, label) => ({
-    label, closed: false, finish() { throw failure; },
-    abort(cause) { this.closed = true; abortCauses.push(cause); }
+    label,
+    closed: false,
+    finish() {
+      throw failure;
+    },
+    abort(cause) {
+      this.closed = true;
+      abortCauses.push(cause);
+    },
   }));
   const failed = coordinator.beginFrame(0, "main");
-  assert.throws(() => coordinator.submitFrame(failed), error => error === failure);
+  assert.throws(
+    () => coordinator.submitFrame(failed),
+    (error) => error === failure,
+  );
   assert.deepEqual(abortCauses, [failure]);
   const next = coordinator.beginFrame(1, "main");
   coordinator.abortFrame(next, new Error("cleanup"));
   assert.equal(abortCauses.length, 2);
 
   const closedCoordinator = new FrameCoordinator({}, (_graphics, label) => ({
-    label, closed: false, finish() { this.closed = true; throw failure; },
-    abort() { assert.fail("closed command must not be aborted twice"); }
+    label,
+    closed: false,
+    finish() {
+      this.closed = true;
+      throw failure;
+    },
+    abort() {
+      assert.fail("closed command must not be aborted twice");
+    },
   }));
-  assert.throws(() => closedCoordinator.submitFrame(closedCoordinator.beginFrame(0, "main")),
-    error => error === failure);
+  assert.throws(
+    () => closedCoordinator.submitFrame(closedCoordinator.beginFrame(0, "main")),
+    (error) => error === failure,
+  );
   closedCoordinator.beginFrame(1, "main");
 });
 
@@ -200,13 +210,11 @@ test("Ordinary Scene adapter creates deterministic Packed dictionaries without G
     package: { manifest: { contentHash: "scene-asset" } },
     directory: {
       boundsSphere: new Float32Array([7, 8, 9, 10]),
-      boundsBox: new Float32Array([-7, -8, -9, 7, 8, 9])
-    }
+      boundsBox: new Float32Array([-7, -8, -9, 7, 8, 9]),
+    },
   };
 
-  const adapted = createPackedSceneSourceFromScene(scene, [
-    { geometry, asset }
-  ]);
+  const adapted = createPackedSceneSourceFromScene(scene, [{ geometry, asset }]);
 
   assert.equal(adapted.source.count, 2);
   assert.deepEqual(adapted.meshes, [first, second]);
@@ -217,10 +225,7 @@ test("Ordinary Scene adapter creates deterministic Packed dictionaries without G
   assert.deepEqual([...adapted.source.boundsSpheres.slice(0, 4)], [7, 8, 9, 10]);
   assert.deepEqual([...adapted.source.boundsMin.slice(0, 3)], [-7, -8, -9]);
   assert.deepEqual([...adapted.source.boundsMax.slice(0, 3)], [7, 8, 9]);
-  assert.deepEqual(
-    [...adapted.source.currentTransforms.slice(12, 15)],
-    [1, 2, 3]
-  );
+  assert.deepEqual([...adapted.source.currentTransforms.slice(12, 15)], [1, 2, 3]);
 });
 
 test("Ordinary Scene adapter fails visibly for missing residency and deferred skinning", () => {
@@ -229,7 +234,7 @@ test("Ordinary Scene adapter fails visibly for missing residency and deferred sk
   missing.add(Mesh.from(new BoxGeometry(1, 1, 1), material));
   assert.throws(
     () => createPackedSceneSourceFromScene(missing, []),
-    /has no cooked GeometryAssetPackage binding/
+    /has no cooked GeometryAssetPackage binding/,
   );
 
   const skinned = new Scene();
@@ -241,7 +246,7 @@ test("Ordinary Scene adapter fails visibly for missing residency and deferred sk
   skinned.add(skinnedMesh);
   assert.throws(
     () => createPackedSceneSourceFromScene(skinned, [{ geometry, asset: {} }]),
-    /SkinnedMesh is unsupported/
+    /SkinnedMesh is unsupported/,
   );
 });
 
@@ -255,7 +260,7 @@ test("Bounded work queue overflow is fail-visible and never partially publishes 
     attempted: 5,
     peak: 3,
     overflow: 1,
-    fallback: 1
+    fallback: 1,
   });
   assert.equal(reserveWorkQueueGroupReference(state, 1), 3);
   assert.equal(state.written, 4);
@@ -265,12 +270,7 @@ test("Bounded work queue overflow is fail-visible and never partially publishes 
 test("GPU Render World publishes stage and release only when their command commits", async () => {
   const fixture = createPackedRegistryFixture();
   const command = new FakeCommand("packed-stage");
-  const handle = fixture.registry.stage(
-    fixture.scene,
-    fixture.manifest,
-    fixture.assetHandles,
-    command
-  );
+  const handle = fixture.registry.stage(fixture.scene, fixture.manifest, fixture.assetHandles, command);
 
   assert.equal(fixture.registry.runtime(fixture.scene), null);
   assert.equal(fixture.registry.evidence().sceneCount, 0);
@@ -289,10 +289,7 @@ test("GPU Render World publishes stage and release only when their command commi
   assert.strictEqual(shadingPublication.summary, runtime.activeShadingSummary);
   assert.equal(shadingPublication.materialGeneration, runtime.materialGeneration);
   assert.equal(shadingPublication.textureGeneration, runtime.textureGeneration);
-  assert.equal(
-    shadingPublication.materialPublicationRevision,
-    runtime.materialPublicationRevision
-  );
+  assert.equal(shadingPublication.materialPublicationRevision, runtime.materialPublicationRevision);
   assert.equal(Object.isFrozen(shadingPublication), true);
   assert.equal(Object.isFrozen(shadingPublication.source), true);
   assert.equal(Object.isFrozen(shadingPublication.source.materials), true);
@@ -300,14 +297,16 @@ test("GPU Render World publishes stage and release only when their command commi
   assert.equal(Object.isFrozen(shadingPublication.source.instances), true);
   assert.equal(shadingPublication.source.geometries[0].id, 5);
   assert.equal(shadingPublication.source.geometries[0].generation, 1);
-  assert.deepEqual(shadingPublication.source.instances, [{
-    id: 0,
-    materialId: 0,
-    geometryId: 5,
-    active: true,
-    transparent: false,
-    generation: 1
-  }]);
+  assert.deepEqual(shadingPublication.source.instances, [
+    {
+      id: 0,
+      materialId: 0,
+      geometryId: 5,
+      active: true,
+      transparent: false,
+      generation: 1,
+    },
+  ]);
   assert.equal(decodeInstanceShadingBinId(fixture.calls.instanceSources[0].flags[0]), 4);
   assert.equal(fixture.registry.evidence().sceneCount, 1);
   assert.equal(fixture.registry.evidence().instanceCount, 1);
@@ -335,7 +334,8 @@ test("GPU Render World publishes stage and release only when their command commi
 test("RenderWorld retains Appearance programs and awaits GPU publication readiness before commit", async () => {
   const fixture = createPackedRegistryFixture();
   const programs = installAppearanceDevice(fixture.graphics);
-  const command = new FakeCommand("appearance-stage"); command.device = fixture.graphics.device;
+  const command = new FakeCommand("appearance-stage");
+  command.device = fixture.graphics.device;
   const handle = fixture.registry.stage(fixture.scene, fixture.manifest, fixture.assetHandles, command);
   const pending = fixture.registry.previewStagedRuntime(handle);
   assert.equal(pending.appearancePrograms.length, 1);
@@ -343,24 +343,34 @@ test("RenderWorld retains Appearance programs and awaits GPU publication readine
   await fixture.registry.prepareAppearance(handle, command);
   assert.equal(fixture.registry.runtime(fixture.scene), null);
   assert.ok(pending.appearancePublication.program(0));
-  command.finish(); assert.equal(fixture.registry.runtime(fixture.scene).appearancePublication, pending.appearancePublication);
-  assert.equal(fixture.registry.appearanceMemoryEvidence().residentBytes, pending.appearancePublication.allocatedBytes);
-  const release = new FakeCommand("appearance-release"); release.device = fixture.graphics.device;
-  fixture.registry.release(fixture.scene, release); release.finish(); await settlePromises();
-  assert.ok(fixture.buffers.every(buffer => buffer.destroyed)); programs.destroy();
+  command.finish();
+  assert.equal(fixture.registry.runtime(fixture.scene).appearancePublication, pending.appearancePublication);
+  assert.equal(
+    fixture.registry.appearanceMemoryEvidence().residentBytes,
+    pending.appearancePublication.allocatedBytes,
+  );
+  const release = new FakeCommand("appearance-release");
+  release.device = fixture.graphics.device;
+  fixture.registry.release(fixture.scene, release);
+  release.finish();
+  await settlePromises();
+  assert.ok(fixture.buffers.every((buffer) => buffer.destroyed));
+  programs.destroy();
   assert.equal(fixture.registry.appearanceMemoryEvidence().allocatedBytes, 0);
 });
 
 test("RenderWorld async Appearance pipeline failure aborts without publishing a candidate", async () => {
   const fixture = createPackedRegistryFixture();
   const programs = installAppearanceDevice(fixture.graphics, new Error("injected async PSO failure"));
-  const command = new FakeCommand("appearance-failure"); command.device = fixture.graphics.device;
+  const command = new FakeCommand("appearance-failure");
+  command.device = fixture.graphics.device;
   const handle = fixture.registry.stage(fixture.scene, fixture.manifest, fixture.assetHandles, command);
   await assert.rejects(fixture.registry.prepareAppearance(handle, command), /injected async PSO failure/);
   command.abort(new Error("PSO failed"));
   assert.equal(fixture.registry.runtime(fixture.scene), null);
   assert.equal(fixture.registry.evidence().sceneCount, 0);
-  assert.ok(fixture.buffers.every(buffer => buffer.destroyed)); programs.destroy();
+  assert.ok(fixture.buffers.every((buffer) => buffer.destroyed));
+  programs.destroy();
 });
 
 function installAppearanceDevice(graphics, failure) {
@@ -371,15 +381,32 @@ function installAppearanceDevice(graphics, failure) {
   graphics.render_pipelines.prepare = async () => ({});
   graphics.device.features = new Set();
   void graphics.frame_instances.ready.catch(() => undefined);
-  Object.assign(graphics.device, { limits: {
-    maxBindGroups: 4, maxBindingsPerBindGroup: 1000, maxComputeWorkgroupSizeX: 256,
-    maxComputeInvocationsPerWorkgroup: 256, maxBufferSize: 1e8, maxStorageBufferBindingSize: 1e8,
-    maxUniformBufferBindingSize: 65536, maxStorageBuffersPerShaderStage: 8, maxUniformBuffersPerShaderStage: 12,
-    maxSampledTexturesPerShaderStage: 16, maxSamplersPerShaderStage: 16, maxStorageTexturesPerShaderStage: 4
-  }, lost: new Promise(() => {}), pushErrorScope() {}, popErrorScope: async () => null,
-  createShaderModule: () => ({ getCompilationInfo: async () => ({ messages: [] }) }),
-  createBindGroupLayout: descriptor => descriptor, createPipelineLayout: descriptor => descriptor,
-  createComputePipelineAsync: async descriptor => { if (failure) throw failure; return { descriptor }; } });
+  Object.assign(graphics.device, {
+    limits: {
+      maxBindGroups: 4,
+      maxBindingsPerBindGroup: 1000,
+      maxComputeWorkgroupSizeX: 256,
+      maxComputeInvocationsPerWorkgroup: 256,
+      maxBufferSize: 1e8,
+      maxStorageBufferBindingSize: 1e8,
+      maxUniformBufferBindingSize: 65536,
+      maxStorageBuffersPerShaderStage: 8,
+      maxUniformBuffersPerShaderStage: 12,
+      maxSampledTexturesPerShaderStage: 16,
+      maxSamplersPerShaderStage: 16,
+      maxStorageTexturesPerShaderStage: 4,
+    },
+    lost: new Promise(() => {}),
+    pushErrorScope() {},
+    popErrorScope: async () => null,
+    createShaderModule: () => ({ getCompilationInfo: async () => ({ messages: [] }) }),
+    createBindGroupLayout: (descriptor) => descriptor,
+    createPipelineLayout: (descriptor) => descriptor,
+    createComputePipelineAsync: async (descriptor) => {
+      if (failure) throw failure;
+      return { descriptor };
+    },
+  });
   graphics.appearance_programs = new AppearanceProgramRegistry(graphics.device);
   return graphics.appearance_programs;
 }
@@ -387,8 +414,12 @@ function installAppearanceDevice(graphics, failure) {
 test("Virtual Product append keeps the instance handle across abort, commit, and release", async () => {
   const fixture = createPackedRegistryFixture();
   const profile = {
-    hasAuthoredVertexColor: true, hasUv0: true, hasUv1: false,
-    hasUv2: false, hasNormal: true, hasTangent: true
+    hasAuthoredVertexColor: true,
+    hasUv0: true,
+    hasUv1: false,
+    hasUv2: false,
+    hasNormal: true,
+    hasTangent: true,
   };
   const bindings = { productTableSlot: 2, productGeneration: 1 };
   const source = (count) => ({
@@ -405,7 +436,7 @@ test("Virtual Product append keeps the instance handle across abort, commit, and
     productGenerations: new Uint32Array(count).fill(1),
     materialIndices: new Uint32Array(count),
     currentTransforms: identityMatrices(count),
-    boundsSpheres: new Float32Array(count * 4).fill(1)
+    boundsSpheres: new Float32Array(count * 4).fill(1),
   });
   const first = new FakeCommand("virtual-first");
   fixture.registry.stageVirtualProduct(fixture.scene, source(1), bindings, first);
@@ -443,7 +474,7 @@ test("GPU Render World publishes distinct material slots for geometry-dependent 
   const withoutColor = {
     clusters: [],
     meshlets: [{ triangleCount: 12 }],
-    vertexStreamDescriptors: [{ semantic: "position" }]
+    vertexStreamDescriptors: [{ semantic: "position" }],
   };
   fixture.manifest.source.geometries.push(withoutColor);
   fixture.manifest.packages = fixture.manifest.source.geometries;
@@ -452,30 +483,24 @@ test("GPU Render World publishes distinct material slots for geometry-dependent 
   fixture.manifest.source.geometryIndices = new Uint32Array([0, 1]);
   fixture.manifest.source.materialIndices = new Uint32Array([0, 0]);
   fixture.manifest.source.currentTransforms = identityMatrices(2);
-  fixture.manifest.source.boundsSpheres = new Float32Array([
-    0, 0, 0, 1,
-    2, 0, 0, 1
-  ]);
+  fixture.manifest.source.boundsSpheres = new Float32Array([0, 0, 0, 1, 2, 0, 0, 1]);
 
   const command = new FakeCommand("geometry-dependent-material-stage");
-  fixture.registry.stage(
-    fixture.scene,
-    fixture.manifest,
-    fixture.assetHandles,
-    command
-  );
+  fixture.registry.stage(fixture.scene, fixture.manifest, fixture.assetHandles, command);
   command.finish();
 
   assert.deepEqual(
-    fixture.calls.materialAssociations[0].map(({ programId, textureBindingSetId }) =>
-      [programId, textureBindingSetId]),
-    [[1, 0], [0, 0]]
+    fixture.calls.materialAssociations[0].map(({ programId, textureBindingSetId }) => [
+      programId,
+      textureBindingSetId,
+    ]),
+    [
+      [1, 0],
+      [0, 0],
+    ],
   );
   assert.deepEqual([...fixture.calls.instanceSources[0].materialHandles], [7, 8]);
-  assert.deepEqual(
-    [...fixture.calls.instanceSources[0].flags].map(decodeInstanceShadingBinId),
-    [1, 0]
-  );
+  assert.deepEqual([...fixture.calls.instanceSources[0].flags].map(decodeInstanceShadingBinId), [1, 0]);
   const summary = fixture.registry.runtime(fixture.scene).activeShadingSummary;
   assert.equal(summary.binRefCounts[0], 1);
   assert.equal(summary.binRefCounts[1], 1);
@@ -492,11 +517,7 @@ test("GPU Render World skips unused cross-UV pairs while publishing valid UV0 an
   fixture.manifest.source.geometries.push({
     clusters: [],
     meshlets: [{ triangleCount: 12 }],
-    vertexStreamDescriptors: [
-      { semantic: "position" },
-      { semantic: "normal" },
-      { semantic: "uv1" }
-    ]
+    vertexStreamDescriptors: [{ semantic: "position" }, { semantic: "normal" }, { semantic: "uv1" }],
   });
   fixture.manifest.packages = fixture.manifest.source.geometries;
   fixture.assetHandles.push({});
@@ -504,24 +525,18 @@ test("GPU Render World skips unused cross-UV pairs while publishing valid UV0 an
   fixture.manifest.source.geometryIndices = new Uint32Array([0, 1]);
   fixture.manifest.source.materialIndices = new Uint32Array([0, 1]);
   fixture.manifest.source.currentTransforms = identityMatrices(2);
-  fixture.manifest.source.boundsSpheres = new Float32Array([
-    0, 0, 0, 1,
-    2, 0, 0, 1
-  ]);
+  fixture.manifest.source.boundsSpheres = new Float32Array([0, 0, 0, 1, 2, 0, 0, 1]);
 
   const command = new FakeCommand("cross-uv-material-stage");
-  fixture.registry.stage(
-    fixture.scene,
-    fixture.manifest,
-    fixture.assetHandles,
-    command
-  );
+  fixture.registry.stage(fixture.scene, fixture.manifest, fixture.assetHandles, command);
   command.finish();
 
   assert.deepEqual(
-    fixture.calls.materialAssociations[0].map(({ material, programId }) =>
-      [material.name, programId]),
-    [["association-uv0", 5], ["association-uv1", 5]]
+    fixture.calls.materialAssociations[0].map(({ material, programId }) => [material.name, programId]),
+    [
+      ["association-uv0", 5],
+      ["association-uv1", 5],
+    ],
   );
   assert.deepEqual([...fixture.calls.instanceSources[0].materialHandles], [7, 8]);
 });
@@ -529,25 +544,18 @@ test("GPU Render World skips unused cross-UV pairs while publishing valid UV0 an
 test("GPU Render World abort leaves no published scene and release abort preserves ownership", () => {
   const fixture = createPackedRegistryFixture();
   const abortedStage = new FakeCommand("packed-stage-abort");
-  fixture.registry.stage(
-    fixture.scene,
-    fixture.manifest,
-    fixture.assetHandles,
-    abortedStage
-  );
+  fixture.registry.stage(fixture.scene, fixture.manifest, fixture.assetHandles, abortedStage);
   abortedStage.abort(new Error("injected stage failure"));
 
   assert.equal(fixture.registry.runtime(fixture.scene), null);
   assert.equal(fixture.registry.evidence().sceneCount, 0);
-  assert.equal(fixture.buffers.every((buffer) => buffer.destroyed), true);
+  assert.equal(
+    fixture.buffers.every((buffer) => buffer.destroyed),
+    true,
+  );
 
   const committedStage = new FakeCommand("packed-stage-commit");
-  fixture.registry.stage(
-    fixture.scene,
-    fixture.manifest,
-    fixture.assetHandles,
-    committedStage
-  );
+  fixture.registry.stage(fixture.scene, fixture.manifest, fixture.assetHandles, committedStage);
   committedStage.finish();
 
   const abortedRelease = new FakeCommand("packed-release-abort");
@@ -569,12 +577,7 @@ test("Packed material patch commits classification and restores the queued patch
   fixture.manifest.source.materials.push(transparent);
 
   const stage = new FakeCommand("packed-material-patch-stage");
-  fixture.registry.stage(
-    fixture.scene,
-    fixture.manifest,
-    fixture.assetHandles,
-    stage
-  );
+  fixture.registry.stage(fixture.scene, fixture.manifest, fixture.assetHandles, stage);
   stage.finish();
   assert.equal(fixture.registry.transparentInstanceCount(fixture.scene), 0);
   const initialSummary = fixture.registry.runtime(fixture.scene).activeShadingSummary;
@@ -585,8 +588,8 @@ test("Packed material patch commits classification and restores the queued patch
     frameId: 11,
     materials: {
       indices: new Uint32Array([0]),
-      materialIndices: new Uint32Array([1])
-    }
+      materialIndices: new Uint32Array([1]),
+    },
   });
   const preview = fixture.registry.previewNextShadingPublication(fixture.scene);
   assert.equal(preview.revision, 2);
@@ -595,7 +598,7 @@ test("Packed material patch commits classification and restores the queued patch
   assert.strictEqual(
     fixture.registry.runtime(fixture.scene).shadingPublication,
     initialPublication,
-    "preview must not mutate or consume the live publication"
+    "preview must not mutate or consume the live publication",
   );
   const aborted = new FakeCommand("packed-material-patch-abort");
   const abortedResult = fixture.registry.encodePendingPatch(fixture.scene, aborted);
@@ -608,14 +611,17 @@ test("Packed material patch commits classification and restores the queued patch
   assert.notStrictEqual(abortedPublication, preview);
   assert.deepEqual(abortedPublication, preview);
   assert.equal(abortedPublication.revision, 2);
-  assert.strictEqual(abortedPublication.summary, fixture.registry.runtime(fixture.scene).activeShadingSummary);
+  assert.strictEqual(
+    abortedPublication.summary,
+    fixture.registry.runtime(fixture.scene).activeShadingSummary,
+  );
   assert.deepEqual(abortedPublication.source.instances[0], {
     id: 0,
     materialId: 1,
     geometryId: 5,
     active: true,
     transparent: true,
-    generation: 2
+    generation: 2,
   });
   aborted.abort(new Error("injected material patch failure"));
   assert.equal(fixture.registry.transparentInstanceCount(fixture.scene), 0);
@@ -646,7 +652,7 @@ test("Packed material family counts use the prior instance classification during
   fixture.manifest.source.materials[0].clearcoat_factor = 1;
   fixture.registry.queuePatch(fixture.scene, {
     frameId: 13,
-    materials: { indices: new Uint32Array([0]), materialIndices: new Uint32Array([0]) }
+    materials: { indices: new Uint32Array([0]), materialIndices: new Uint32Array([0]) },
   });
   const preview = fixture.registry.previewNextShadingPublication(fixture.scene).summary;
   assert.equal(preview.standardSetRefCounts[setId], 0);
@@ -679,8 +685,8 @@ test("Packed visibility patch updates ActiveShadingSummary once and abort restor
     frameId: 12,
     visibility: {
       indices: new Uint32Array([0]),
-      flags: new Uint32Array([0])
-    }
+      flags: new Uint32Array([0]),
+    },
   });
   const aborted = new FakeCommand("packed-visibility-patch-abort");
   fixture.registry.encodePendingPatch(fixture.scene, aborted);
@@ -718,13 +724,7 @@ test("Ordinary Scene registration consumes transform and material SceneChangeSet
   firstParent.addChild(mesh);
 
   const stage = new FakeCommand("ordinary-scene-stage");
-  fixture.registry.stageOrdinaryScene(
-    scene,
-    fixture.manifest,
-    fixture.assetHandles,
-    [mesh],
-    stage
-  );
+  fixture.registry.stageOrdinaryScene(scene, fixture.manifest, fixture.assetHandles, [mesh], stage);
   stage.finish();
   const stagedFlags = fixture.calls.instanceSources.at(-1).flags[0];
   assert.notEqual(stagedFlags & GPU_INSTANCE_FLAGS.AlphaTested, 0);
@@ -733,7 +733,7 @@ test("Ordinary Scene registration consumes transform and material SceneChangeSet
   assert.equal(fixture.registry.evidence().ordinarySceneAdapterCount, 1);
   assert.throws(
     () => fixture.registry.queuePatch(scene, { frameId: 1 }),
-    /patched only through SceneChangeSet/
+    /patched only through SceneChangeSet/,
   );
 
   mesh.transform_local.position.set(2, 3, 4);
@@ -743,10 +743,7 @@ test("Ordinary Scene registration consumes transform and material SceneChangeSet
   assert.equal(result?.patchedTransforms, 1);
   assert.equal(result?.patchedMaterials, 1);
   assert.deepEqual([...fixture.calls.patches.at(-1).transforms.indices], [0]);
-  assert.deepEqual(
-    [...fixture.calls.patches.at(-1).transforms.transforms.slice(12, 15)],
-    [2, 3, 4]
-  );
+  assert.deepEqual([...fixture.calls.patches.at(-1).transforms.transforms.slice(12, 15)], [2, 3, 4]);
   assert.deepEqual([...fixture.calls.patches.at(-1).materials.materialHandles], [8]);
   patch.finish();
   assert.equal(fixture.registry.evidence().ordinaryScenePatchCount, 1);
@@ -760,10 +757,7 @@ test("Ordinary Scene registration consumes transform and material SceneChangeSet
   const reparent = new FakeCommand("ordinary-scene-reparent");
   const reparentResult = fixture.registry.encodePendingPatch(scene, reparent);
   assert.equal(reparentResult?.patchedTransforms, 1);
-  assert.deepEqual(
-    [...fixture.calls.patches.at(-1).transforms.transforms.slice(12, 15)],
-    [12, 3, 4]
-  );
+  assert.deepEqual([...fixture.calls.patches.at(-1).transforms.transforms.slice(12, 15)], [12, 3, 4]);
   reparent.finish();
   assert.equal(fixture.registry.evidence().ordinaryScenePatchCount, 2);
 });
@@ -775,13 +769,7 @@ test("Ordinary Scene patch abort retries and structural edits require explicit f
   const mesh = Mesh.from(geometry, fixture.manifest.source.materials[0]);
   scene.add(mesh);
   const stage = new FakeCommand("ordinary-scene-stage");
-  fixture.registry.stageOrdinaryScene(
-    scene,
-    fixture.manifest,
-    fixture.assetHandles,
-    [mesh],
-    stage
-  );
+  fixture.registry.stageOrdinaryScene(scene, fixture.manifest, fixture.assetHandles, [mesh], stage);
   stage.finish();
 
   mesh.transform_local.position.set(5, 0, 0);
@@ -795,16 +783,10 @@ test("Ordinary Scene patch abort retries and structural edits require explicit f
 
   scene.add(Mesh.from(geometry, fixture.manifest.source.materials[0]));
   assert.throws(
-    () => fixture.registry.encodePendingPatch(
-      scene,
-      new FakeCommand("ordinary-scene-structural-change")
-    ),
-    /requires explicit resyncScene\(\)/
+    () => fixture.registry.encodePendingPatch(scene, new FakeCommand("ordinary-scene-structural-change")),
+    /requires explicit resyncScene\(\)/,
   );
-  assert.equal(
-    fixture.registry.evidence().ordinarySceneFullResyncRequiredCount,
-    1
-  );
+  assert.equal(fixture.registry.evidence().ordinarySceneFullResyncRequiredCount, 1);
 });
 
 test("TextureResidency publishes a cooked mip tail before generation-safe promotion", async () => {
@@ -858,9 +840,15 @@ test("TextureResidency publishes a cooked mip tail before generation-safe promot
 
 test("Texture sampling ABI clamps array-texture LOD with an explicit layer", () => {
   const source = gpuTextureBankSampleWgsl(1);
-  assert.match(source, /oengine_sample_texture_clamped\(oengine_texture_bank_0, sampler_clamp_linear, texture_ref, sampler_class, uv, layer, uv_dx, uv_dy\)/u);
+  assert.match(
+    source,
+    /oengine_sample_texture_clamped\(oengine_texture_bank_0, sampler_clamp_linear, texture_ref, sampler_class, uv, layer, uv_dx, uv_dy\)/u,
+  );
   assert.match(source, /textureSampleGrad\(texture, texture_sampler, uv, layer, uv_dx, uv_dy\)/u);
-  assert.match(source, /textureSampleLevel\(texture, texture_sampler, uv, layer, max\(lod, f32\(min_mip\)\)\)/u);
+  assert.match(
+    source,
+    /textureSampleLevel\(texture, texture_sampler, uv, layer, max\(lod, f32\(min_mip\)\)\)/u,
+  );
 });
 
 test("Texture residency rolls back failed commands and reuses a released base layer", async () => {
@@ -898,10 +886,7 @@ test("Texture residency rolls back failed commands and reuses a released base la
   const secondRef = secondStage.textureRefs.get(secondTexture);
   assert.notEqual(secondRef, firstRef);
   assert.equal(decodeTextureHandle(secondRef)?.slot, decodeTextureHandle(firstRef)?.slot);
-  assert.equal(
-    decodeTextureHandle(secondRef)?.generation,
-    decodeTextureHandle(firstRef).generation + 1
-  );
+  assert.equal(decodeTextureHandle(secondRef)?.generation, decodeTextureHandle(firstRef).generation + 1);
   assert.equal(residency.descriptor(firstRef), null);
   assert.notEqual(residency.descriptor(secondRef), null);
 
@@ -912,7 +897,7 @@ test("Texture residency enforces its declared base capacity without partial muta
   const fixture = createTextureResidencyFixture();
   const residency = new TextureResidency(fixture.graphics, 4096);
   const materials = Array.from({ length: 63 }, (_, index) =>
-    createTexturedMaterial(createTexture(64, `base-${index}`), `base-material-${index}`)
+    createTexturedMaterial(createTexture(64, `base-${index}`), `base-material-${index}`),
   );
   const full = new FakeCommand("texture-capacity-fill");
   residency.stage(materials, full);
@@ -924,10 +909,9 @@ test("Texture residency enforces its declared base capacity without partial muta
 
   const overflow = new FakeCommand("texture-capacity-overflow");
   assert.throws(
-    () => residency.stage([
-      createTexturedMaterial(createTexture(64, "overflow"), "overflow-material")
-    ], overflow),
-    /requires 65 layers but policy\/device permits 64/
+    () =>
+      residency.stage([createTexturedMaterial(createTexture(64, "overflow"), "overflow-material")], overflow),
+    /requires 65 layers but policy\/device permits 64/,
   );
   const after = residency.evidence();
   assert.deepEqual(after.banks, before.banks);
@@ -944,13 +928,13 @@ test("Texture residency accepts 512 -> 2048 and the reverse independent of relea
     firstSize: 512,
     secondSize: 2048,
     secondAccepted: true,
-    secondBankClass: 3
+    secondBankClass: 3,
   });
   assert.deepEqual(largeThenSmall, {
     firstSize: 2048,
     secondSize: 512,
     secondAccepted: true,
-    secondBankClass: 1
+    secondBankClass: 1,
   });
 });
 
@@ -959,7 +943,7 @@ test("TextureRef CPU ABI explicitly rejects invalid version, bank, and layer val
     version: 2,
     bankClass: 4,
     routing: 0,
-    layer: 1
+    layer: 1,
   });
   assert.equal(decodeGpuTextureRef(GPU_TEXTURE_REF_INVALID), null);
   assert.equal(decodeGpuTextureRef(0x00000001), null);
@@ -970,40 +954,34 @@ test("TextureRef CPU ABI explicitly rejects invalid version, bank, and layer val
 test("TextureBindingSet freezes the current slot, sampler, set, and dispatch limits", () => {
   const policy = textureBindingSetPolicy({
     maxSampledTexturesPerShaderStage: 16,
-    maxSamplersPerShaderStage: 16
+    maxSamplersPerShaderStage: 16,
   });
   assert.deepEqual(policy, {
     textureSlotsPerBindingSet: 9,
     samplerClassCount: 6,
     maxResidentBindingSets: 4,
     reservedSampledTextureBindings: 7,
-    maxShadingDispatchClasses: 64
+    maxShadingDispatchClasses: 64,
   });
   assert.throws(
     () => textureBindingSetPolicy({ maxSampledTexturesPerShaderStage: 15, maxSamplersPerShaderStage: 16 }),
-    /requires 16 sampled textures/i
+    /requires 16 sampled textures/i,
   );
   assert.throws(
     () => textureBindingSetPolicy({ maxSampledTexturesPerShaderStage: 16, maxSamplersPerShaderStage: 5 }),
-    /requires 6 samplers/i
+    /requires 6 samplers/i,
   );
 });
 
 test("Meshlet visibility primitive-index specialization removes the triangle varying", () => {
   assert.match(MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_WGSL, /enable primitive_index;/);
-  assert.match(
-    MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_WGSL,
-    /@builtin\(primitive_index\) triangle: u32/
-  );
+  assert.match(MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_WGSL, /@builtin\(primitive_index\) triangle: u32/);
   assert.doesNotMatch(
     MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_WGSL,
-    /@location\(2\) @interpolate\(flat\) triangle/
+    /@location\(2\) @interpolate\(flat\) triangle/,
   );
   assert.doesNotMatch(MESHLET_BUCKET_VISIBILITY_WGSL, /enable primitive_index;/);
-  assert.match(
-    MESHLET_BUCKET_VISIBILITY_WGSL,
-    /@location\(2\) @interpolate\(flat\) triangle: u32/
-  );
+  assert.match(MESHLET_BUCKET_VISIBILITY_WGSL, /@location\(2\) @interpolate\(flat\) triangle: u32/);
 });
 
 test("Texture residency publishes cooked BC packages as authoritative material resources", async () => {
@@ -1015,25 +993,32 @@ test("Texture residency publishes cooked BC packages as authoritative material r
     "orm-linear",
     "emissive-srgb",
     "occlusion-linear",
-    "alpha-mask"
+    "alpha-mask",
   ];
-  const assets = await Promise.all(semantics.map(async (semantic) => {
-    const rgba8 = new Uint8Array(8 * 8 * 4);
-    for (let index = 0; index < 64; index++) {
-      rgba8.set(semantic === "normal-linear"
-        ? [128, 128, 255, 255]
-        : semantic === "alpha-mask"
-          ? [255, 255, 255, index % 2 === 0 ? 255 : 0]
-          : [180, 96, 48, 255], index * 4);
-    }
-    return openTextureAssetPackageV2(await cookTextureAssetPackageV2({
-      width: 8,
-      height: 8,
-      rgba8,
-      semantic,
-      sourceUri: `fixture://production-${semantic}`
-    }));
-  }));
+  const assets = await Promise.all(
+    semantics.map(async (semantic) => {
+      const rgba8 = new Uint8Array(8 * 8 * 4);
+      for (let index = 0; index < 64; index++) {
+        rgba8.set(
+          semantic === "normal-linear"
+            ? [128, 128, 255, 255]
+            : semantic === "alpha-mask"
+              ? [255, 255, 255, index % 2 === 0 ? 255 : 0]
+              : [180, 96, 48, 255],
+          index * 4,
+        );
+      }
+      return openTextureAssetPackageV2(
+        await cookTextureAssetPackageV2({
+          width: 8,
+          height: 8,
+          rgba8,
+          semantic,
+          sourceUri: `fixture://production-${semantic}`,
+        }),
+      );
+    }),
+  );
   const textures = assets.map((asset) => ShadeTexture.fromAssetPackageV2(asset));
   const pbr = new StandardShadeMaterial();
   pbr.name = "cooked-pbr";
@@ -1052,27 +1037,34 @@ test("Texture residency publishes cooked BC packages as authoritative material r
   assert.equal(staged.bindings.bindingSets[0].textureBanks.length, 9);
   const cookedRouting = new Map([
     ...staged.materialTextureRoutingRefs.get(pbr),
-    ...staged.materialTextureRoutingRefs.get(mask)
+    ...staged.materialTextureRoutingRefs.get(mask),
   ]);
-  assert.ok(textures.every((texture) =>
-    decodeGpuTextureRef(cookedRouting.get(texture)).bankClass >= 5));
-  assert.ok(textures.every((texture) =>
-    residency.descriptor(staged.textureRefs.get(texture)) === null));
+  assert.ok(textures.every((texture) => decodeGpuTextureRef(cookedRouting.get(texture)).bankClass >= 5));
+  assert.ok(textures.every((texture) => residency.descriptor(staged.textureRefs.get(texture)) === null));
   command.finish();
 
   const evidence = residency.evidence();
   assert.equal(evidence.schemaVersion, 6);
   assert.equal(evidence.textureLedger.length, 6);
-  assert.ok(evidence.textureLedger.every((entry) =>
-    entry.state === "resident" &&
-    entry.sourceWidth === 8 && entry.sourceHeight === 8 &&
-    entry.decodedWidth === 8 && entry.decodedHeight === 8 &&
-    entry.gpuWidth >= 8 && entry.gpuHeight >= 8 &&
-    entry.mipLevelCount > 0 && entry.logicalBytes > 0 &&
-    entry.residentBytes > 0 && entry.allocatedBytes > 0 &&
-    entry.assetIdentity === assets.find((asset) =>
-      asset.runtime.manifest.assetId === entry.assetIdentity)?.runtime.manifest.assetId
-  ));
+  assert.ok(
+    evidence.textureLedger.every(
+      (entry) =>
+        entry.state === "resident" &&
+        entry.sourceWidth === 8 &&
+        entry.sourceHeight === 8 &&
+        entry.decodedWidth === 8 &&
+        entry.decodedHeight === 8 &&
+        entry.gpuWidth >= 8 &&
+        entry.gpuHeight >= 8 &&
+        entry.mipLevelCount > 0 &&
+        entry.logicalBytes > 0 &&
+        entry.residentBytes > 0 &&
+        entry.allocatedBytes > 0 &&
+        entry.assetIdentity ===
+          assets.find((asset) => asset.runtime.manifest.assetId === entry.assetIdentity)?.runtime.manifest
+            .assetId,
+    ),
+  );
   assert.equal(evidence.cookedResidentTextureCount, 6);
   assert.equal(evidence.compressedResidentTextureCount, 6);
   assert.equal(evidence.runtimeMipGenerationCount, 0);
@@ -1080,33 +1072,37 @@ test("Texture residency publishes cooked BC packages as authoritative material r
   assert.equal(evidence.resizeDispatchCount, 0);
   assert.ok(evidence.uploadBytes > 0);
   assert.deepEqual(
-    evidence.packageSegments.filter(({ allocatedCapacity }) => allocatedCapacity > 0)
-      .map(({ format }) => format).sort(),
-    ["bc1-rgba-unorm", "bc3-rgba-unorm-srgb", "bc4-r-unorm", "bc5-rg-unorm"]
+    evidence.packageSegments
+      .filter(({ allocatedCapacity }) => allocatedCapacity > 0)
+      .map(({ format }) => format)
+      .sort(),
+    ["bc1-rgba-unorm", "bc3-rgba-unorm-srgb", "bc4-r-unorm", "bc5-rg-unorm"],
   );
   assert.ok(fixture.writes.length > 0 && fixture.writes.length < 24);
-  assert.ok(textures.every((texture) =>
-    residency.descriptor(staged.textureRefs.get(texture)) !== null));
+  assert.ok(textures.every((texture) => residency.descriptor(staged.textureRefs.get(texture)) !== null));
   residency.destroy();
 });
 
 test("Texture residency reclaims an unused cooked segment after GPU retirement", async () => {
   const fixture = createTextureResidencyFixture({ features: ["texture-compression-bc"] });
   const residency = new TextureResidency(fixture.graphics, 4096);
-  const asset = await openTextureAssetPackageV2(await cookTextureAssetPackageV2({
-    width: 8,
-    height: 8,
-    rgba8: new Uint8Array(8 * 8 * 4).fill(191),
-    semantic: "base-color-srgb",
-    sourceUri: "fixture://cooked-segment-retirement"
-  }));
+  const asset = await openTextureAssetPackageV2(
+    await cookTextureAssetPackageV2({
+      width: 8,
+      height: 8,
+      rgba8: new Uint8Array(8 * 8 * 4).fill(191),
+      semantic: "base-color-srgb",
+      sourceUri: "fixture://cooked-segment-retirement",
+    }),
+  );
   const texture = ShadeTexture.fromAssetPackageV2(asset);
   const material = createTexturedMaterial(texture, "cooked-segment-retirement");
   const stage = new FakeCommand("cooked-segment-retirement-stage");
   residency.stage([material], stage);
   stage.finish();
   const segmentTexture = fixture.textures.find(({ descriptor }) =>
-    String(descriptor.label).includes("TextureResidency/package-"));
+    String(descriptor.label).includes("TextureResidency/package-"),
+  );
   assert.ok(segmentTexture);
 
   const release = new FakeCommand("cooked-segment-retirement-release");
@@ -1122,12 +1118,7 @@ test("Texture residency reclaims an unused cooked segment after GPU retirement",
 test("TextureBindingSet colocates materials across four bounded sets and rejects cross-full-set sampling", async () => {
   const fixture = createTextureResidencyFixture({ features: ["texture-compression-bc"] });
   const residency = new TextureResidency(fixture.graphics, 4096);
-  const formats = [
-    "bc1-rgba-unorm-srgb",
-    "bc3-rgba-unorm-srgb",
-    "bc7-rgba-unorm-srgb",
-    "bc1-rgba-unorm"
-  ];
+  const formats = ["bc1-rgba-unorm-srgb", "bc3-rgba-unorm-srgb", "bc7-rgba-unorm-srgb", "bc1-rgba-unorm"];
   const textures = [];
   const materials = [];
   for (let index = 0; index < 16; index++) {
@@ -1136,7 +1127,7 @@ test("TextureBindingSet colocates materials across four bounded sets and rejects
       8 * 2 ** Math.floor(index / 4),
       formats[index % formats.length],
       semantic,
-      `fixture://binding-set-${index}`
+      `fixture://binding-set-${index}`,
     );
     const texture = ShadeTexture.fromAssetPackageV2(asset);
     textures.push(texture);
@@ -1150,13 +1141,14 @@ test("TextureBindingSet colocates materials across four bounded sets and rejects
   const staged = residency.stage(materials, stage);
   assert.equal(staged.bindings.bindingSets.length, 4);
   assert.deepEqual(
-    staged.bindings.bindingSets.map(({ bankDescriptors }) =>
-      bankDescriptors.filter(({ segment }) => segment >= 0).length),
-    [4, 4, 4, 4]
+    staged.bindings.bindingSets.map(
+      ({ bankDescriptors }) => bankDescriptors.filter(({ segment }) => segment >= 0).length,
+    ),
+    [4, 4, 4, 4],
   );
   assert.deepEqual(
     materials.map((material) => staged.materialBindingSetIds.get(material)),
-    [0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3]
+    [0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3],
   );
   stage.finish();
 
@@ -1167,7 +1159,7 @@ test("TextureBindingSet colocates materials across four bounded sets and rejects
   const before = residency.evidence();
   assert.throws(
     () => residency.stage([conflict], new FakeCommand("cross-full-binding-set")),
-    /cannot be colocated/
+    /cannot be colocated/,
   );
   const after = residency.evidence();
   assert.equal(after.residentTextureCount, before.residentTextureCount);
@@ -1189,7 +1181,7 @@ test("Texture residency fills and rejects overflow in every bounded bank without
     const residency = new TextureResidency(fixture.graphics, 4096);
     const usable = GPU_TEXTURE_BANK_MAX_CAPACITIES[actualBankClass] - 1;
     const materials = Array.from({ length: usable }, (_, index) =>
-      createTexturedMaterial(createTexture(size, `bank-${size}-${index}`), `bank-material-${size}-${index}`)
+      createTexturedMaterial(createTexture(size, `bank-${size}-${index}`), `bank-material-${size}-${index}`),
     );
     const fill = new FakeCommand(`texture-${size}-fill`);
     residency.stage(materials, fill);
@@ -1199,10 +1191,17 @@ test("Texture residency fills and rejects overflow in every bounded bank without
     assert.equal(before.banks[actualBankClass].freeLayerCount, 0);
 
     assert.throws(
-      () => residency.stage([
-        createTexturedMaterial(createTexture(size, `bank-${size}-overflow`), `bank-material-${size}-overflow`)
-      ], new FakeCommand(`texture-${size}-overflow`)),
-      /requires .* layers but policy\/device permits/
+      () =>
+        residency.stage(
+          [
+            createTexturedMaterial(
+              createTexture(size, `bank-${size}-overflow`),
+              `bank-material-${size}-overflow`,
+            ),
+          ],
+          new FakeCommand(`texture-${size}-overflow`),
+        ),
+      /requires .* layers but policy\/device permits/,
     );
     const after = residency.evidence();
     assert.deepEqual(after.banks, before.banks);
@@ -1216,7 +1215,7 @@ test("Texture residency keeps bank choice legal for multiple small textures foll
   const fixture = createTextureResidencyFixture();
   const residency = new TextureResidency(fixture.graphics, 4096);
   const small = Array.from({ length: 5 }, (_, index) =>
-    createTexturedMaterial(createTexture(512, `small-${index}`), `small-material-${index}`)
+    createTexturedMaterial(createTexture(512, `small-${index}`), `small-material-${index}`),
   );
   const first = new FakeCommand("texture-multiple-small");
   residency.stage(small, first);
@@ -1226,7 +1225,10 @@ test("Texture residency keeps bank choice legal for multiple small textures foll
   const large = new FakeCommand("texture-large-after-small");
   const staged = residency.stage([largeMaterial], large);
   large.finish();
-  assert.equal(decodeGpuTextureRef(staged.materialTextureRoutingRefs.get(largeMaterial).get(largeTexture))?.bankClass, 4);
+  assert.equal(
+    decodeGpuTextureRef(staged.materialTextureRoutingRefs.get(largeMaterial).get(largeTexture))?.bankClass,
+    4,
+  );
   assert.equal(residency.evidence().banks[1].residentTextureCount, 5);
   assert.equal(residency.evidence().banks[4].residentTextureCount, 1);
   residency.destroy();
@@ -1237,7 +1239,10 @@ test("Texture residency preserves success while a 2048 bank grows one layer at a
   const residency = new TextureResidency(fixture.graphics, 4096);
   const materials = [];
   for (let index = 0; index < 31; index++) {
-    const material = createTexturedMaterial(createTexture(2048, `incremental-2048-${index}`), `incremental-material-${index}`);
+    const material = createTexturedMaterial(
+      createTexture(2048, `incremental-2048-${index}`),
+      `incremental-material-${index}`,
+    );
     materials.push(material);
     const command = new FakeCommand(`texture-incremental-2048-${index}`);
     residency.stage([material], command);
@@ -1260,16 +1265,22 @@ test("Texture residency accepts every permutation of the same legal texture set"
   for (const [permutationIndex, permutation] of permutations(sizes).entries()) {
     const fixture = createTextureResidencyFixture();
     const residency = new TextureResidency(fixture.graphics, 4096);
-    const textures = permutation.map((size, index) => createTexture(size, `permutation-${permutationIndex}-${index}`));
-    const materials = textures.map((texture, index) => createTexturedMaterial(texture, `permutation-material-${index}`));
+    const textures = permutation.map((size, index) =>
+      createTexture(size, `permutation-${permutationIndex}-${index}`),
+    );
+    const materials = textures.map((texture, index) =>
+      createTexturedMaterial(texture, `permutation-material-${index}`),
+    );
     const command = new FakeCommand(`texture-permutation-${permutationIndex}`);
     const staged = residency.stage(materials, command);
     command.finish();
     assert.deepEqual(
-      textures.map((texture, index) => decodeGpuTextureRef(
-        staged.materialTextureRoutingRefs.get(materials[index]).get(texture)
-      )?.bankClass),
-      permutation.map((size) => sizes.indexOf(size))
+      textures.map(
+        (texture, index) =>
+          decodeGpuTextureRef(staged.materialTextureRoutingRefs.get(materials[index]).get(texture))
+            ?.bankClass,
+      ),
+      permutation.map((size) => sizes.indexOf(size)),
     );
     assert.equal(residency.evidence().residentTextureCount, sizes.length);
     residency.destroy();
@@ -1280,10 +1291,7 @@ test("Texture residency deduplicates shared textures and releases the final refe
   const fixture = createTextureResidencyFixture();
   const residency = new TextureResidency(fixture.graphics, 4096);
   const shared = createTexture(1024, "shared");
-  const materials = [
-    createTexturedMaterial(shared, "shared-a"),
-    createTexturedMaterial(shared, "shared-b")
-  ];
+  const materials = [createTexturedMaterial(shared, "shared-a"), createTexturedMaterial(shared, "shared-b")];
   const stage = new FakeCommand("texture-shared-stage");
   const staged = residency.stage(materials, stage);
   stage.finish();
@@ -1315,18 +1323,27 @@ test("Texture residency abort restores a grown bank and destroys its provisional
 
 test("Texture residency rolls back earlier bank growth when a later allocation fails", () => {
   const fixture = createTextureResidencyFixture({
-    failTexture: (descriptor) => descriptor.label.includes("bank-2-")
+    failTexture: (descriptor) => descriptor.label.includes("bank-2-"),
   });
   const residency = new TextureResidency(fixture.graphics, 4096);
   const before = residency.evidence();
-  assert.throws(() => residency.stage([
-    createTexturedMaterial(createTexture(512, "fault-512"), "fault-material-512"),
-    createTexturedMaterial(createTexture(1024, "fault-1024"), "fault-material-1024")
-  ], new FakeCommand("texture-growth-fault")), /injected texture allocation failure/);
+  assert.throws(
+    () =>
+      residency.stage(
+        [
+          createTexturedMaterial(createTexture(512, "fault-512"), "fault-material-512"),
+          createTexturedMaterial(createTexture(1024, "fault-1024"), "fault-material-1024"),
+        ],
+        new FakeCommand("texture-growth-fault"),
+      ),
+    /injected texture allocation failure/,
+  );
   const after = residency.evidence();
   assert.equal(after.residentTextureCount, before.residentTextureCount);
-  assert.deepEqual(after.banks.map(({ allocatedCapacity }) => allocatedCapacity),
-    before.banks.map(({ allocatedCapacity }) => allocatedCapacity));
+  assert.deepEqual(
+    after.banks.map(({ allocatedCapacity }) => allocatedCapacity),
+    before.banks.map(({ allocatedCapacity }) => allocatedCapacity),
+  );
   assert.equal(after.abortedBankGrowCount, 1);
   residency.destroy();
 });
@@ -1336,37 +1353,38 @@ test("Texture residency quality and device resolution caps preserve logical text
   const residency = new TextureResidency(fixture.graphics, 1024);
   const before = residency.evidence();
   assert.equal(before.textureCapacity, 141);
-  assert.deepEqual(before.banks.map(({ physicalSize }) => physicalSize), [256, 512, 1024, 1024, 1024]);
+  assert.deepEqual(
+    before.banks.map(({ physicalSize }) => physicalSize),
+    [256, 512, 1024, 1024, 1024],
+  );
   const texture = createTexture(4096, "quality-capped-large");
   const material = createTexturedMaterial(texture, "quality-capped-material");
   const command = new FakeCommand("texture-quality-cap");
   const staged = residency.stage([material], command);
   command.finish();
-  assert.equal(decodeGpuTextureRef(staged.materialTextureRoutingRefs.get(material).get(texture))?.bankClass, 4);
+  assert.equal(
+    decodeGpuTextureRef(staged.materialTextureRoutingRefs.get(material).get(texture))?.bankClass,
+    4,
+  );
   assert.equal(residency.evidence().banks[4].physicalSize, 1024);
   residency.destroy();
 });
 
 test("Texture residency spills capped textures across physically compatible banks", () => {
   const fixture = createTextureResidencyFixture({ maxTextureArrayLayers: 256 });
-  const residency = new TextureResidency(
-    fixture.graphics,
-    256,
-    [64, 40, 72, 160, 288]
-  );
-  const textures = Array.from({ length: 267 }, (_, index) =>
-    createTexture(4096, `capped-4096-${index}`)
-  );
+  const residency = new TextureResidency(fixture.graphics, 256, [64, 40, 72, 160, 288]);
+  const textures = Array.from({ length: 267 }, (_, index) => createTexture(4096, `capped-4096-${index}`));
   const materials = textures.map((texture, index) =>
-    createTexturedMaterial(texture, `capped-4096-material-${index}`)
+    createTexturedMaterial(texture, `capped-4096-material-${index}`),
   );
   const command = new FakeCommand("texture-compatible-bank-spill");
   const staged = residency.stage(materials, command);
   command.finish();
 
-  const bankClasses = textures.map((texture, index) => decodeGpuTextureRef(
-    staged.materialTextureRoutingRefs.get(materials[index]).get(texture)
-  )?.bankClass);
+  const bankClasses = textures.map(
+    (texture, index) =>
+      decodeGpuTextureRef(staged.materialTextureRoutingRefs.get(materials[index]).get(texture))?.bankClass,
+  );
   assert.equal(bankClasses.filter((bankClass) => bankClass === 4).length, 255);
   assert.equal(bankClasses.filter((bankClass) => bankClass === 3).length, 12);
   assert.equal(residency.evidence().residentTextureCount, 267);
@@ -1392,7 +1410,7 @@ test("Frame evidence detects extra submit, stable-graph rebuild, IO, and feature
     kind: "texture",
     category: "history",
     owner: "disabled-feature",
-    bytes: 256
+    bytes: 256,
   });
   const issues = stableFrameContractIssues(profile, accounting.snapshot());
 
@@ -1401,7 +1419,7 @@ test("Frame evidence detects extra submit, stable-graph rebuild, IO, and feature
     "stable frame rebuilt or missed the graph cache",
     "unexpected stable-frame upload",
     "unexpected stable-frame readback",
-    "disabled feature retained resources"
+    "disabled feature retained resources",
   ]);
 });
 
@@ -1414,7 +1432,7 @@ function createPackedRegistryFixture() {
     patches: [],
     instanceSources: [],
     appends: [],
-    materialAssociations: []
+    materialAssociations: [],
   };
   const dummyBuffer = {};
   const dummyView = {};
@@ -1428,8 +1446,8 @@ function createPackedRegistryFixture() {
       { semantic: "normal" },
       { semantic: "tangent" },
       { semantic: "uv0" },
-      { semantic: "color" }
-    ]
+      { semantic: "color" },
+    ],
   };
   const source = {
     geometries: [geometry],
@@ -1438,7 +1456,7 @@ function createPackedRegistryFixture() {
     geometryIndices: new Uint32Array([0]),
     materialIndices: new Uint32Array([0]),
     currentTransforms: identityMatrices(1),
-    boundsSpheres: new Float32Array([0, 0, 0, 1])
+    boundsSpheres: new Float32Array([0, 0, 0, 1]),
   };
   const instanceHandle = {};
   const graphics = {
@@ -1449,12 +1467,12 @@ function createPackedRegistryFixture() {
           destroyed: false,
           destroy() {
             this.destroyed = true;
-          }
+          },
         };
         buffers.push(buffer);
         return buffer;
       },
-      queue: { onSubmittedWorkDone: () => Promise.resolve() }
+      queue: { onSubmittedWorkDone: () => Promise.resolve() },
     },
     resource_accounting: accounting,
     texture_residency: {
@@ -1464,24 +1482,26 @@ function createPackedRegistryFixture() {
         return {
           bindings: {
             textureCapacity: 64,
-            bindingSets: [{
-              id: 0,
-              generation: 1,
-              textureBanks: Array.from({ length: 9 }, () => dummyView),
-              bankDescriptors: []
-            }]
+            bindingSets: [
+              {
+                id: 0,
+                generation: 1,
+                textureBanks: Array.from({ length: 9 }, () => dummyView),
+                bankDescriptors: [],
+              },
+            ],
           },
           materialBindingSetIds: new Map(materials.map((material) => [material, 0])),
           textureRefs: new Map(),
           textureMipRanges: new Map(),
           surfacePublications: new Map(),
-          materialTextureRoutingRefs: new Map(materials.map((material) => [material, new Map()]))
+          materialTextureRoutingRefs: new Map(materials.map((material) => [material, new Map()])),
         };
       },
       release(_materials, command) {
         calls.releases.push("texture");
         command.onAborted.addOne(() => calls.releases.push("texture-release-abort"));
-      }
+      },
     },
     material_store: {
       stage(associations, _textureRefs, command) {
@@ -1494,20 +1514,24 @@ function createPackedRegistryFixture() {
             abiVersion: 1,
             materialCapacity: 8192,
             materialRecords: dummyBuffer,
-            textureRouteRecords: dummyBuffer
+            textureRouteRecords: dummyBuffer,
           },
           associationSlots: associations.map((_association, index) => 7 + index),
-          appearancePrograms: associations.map(association => compileCanonicalMaterial(association.material).appearance),
-          appearanceFieldVersions: associations.map(association => updateAppearanceFieldVersions(compileCanonicalMaterial(association.material).appearance)),
+          appearancePrograms: associations.map(
+            (association) => compileCanonicalMaterial(association.material).appearance,
+          ),
+          appearanceFieldVersions: associations.map((association) =>
+            updateAppearanceFieldVersions(compileCanonicalMaterial(association.material).appearance),
+          ),
           materialGeneration: 1,
           textureGeneration: 1,
-          publicationRevision: 1
+          publicationRevision: 1,
         };
       },
       release(_publication, command) {
         calls.releases.push("material");
         command.onAborted.addOne(() => calls.releases.push("material-release-abort"));
-      }
+      },
     },
     gpu_scene: {
       instantiate(source, command) {
@@ -1531,17 +1555,17 @@ function createPackedRegistryFixture() {
         calls.patches.push(batch);
         return {
           patchedTransforms: batch.transforms?.indices.length ?? 0,
-          patchedMaterials: batch.materials?.indices.length ?? 0
+          patchedMaterials: batch.materials?.indices.length ?? 0,
         };
       },
       bindings() {
         return {};
-      }
+      },
     },
     assets: {
       bindings: () => ({}),
-      publicationIdentity: (_handle) => Object.freeze({ slot: 5, generation: 1 })
-    }
+      publicationIdentity: (_handle) => Object.freeze({ slot: 5, generation: 1 }),
+    },
   };
   return {
     registry: new GpuRenderWorld(graphics),
@@ -1550,7 +1574,7 @@ function createPackedRegistryFixture() {
     manifest: { source, packages: source.geometries, materials: source.materials },
     assetHandles: [{}],
     buffers,
-    calls
+    calls,
   };
 }
 
@@ -1567,11 +1591,18 @@ function createTextureResidencyFixture(options = {}) {
         maxTextureArrayLayers: options.maxTextureArrayLayers ?? 2048,
         maxTextureDimension2D: options.maxTextureDimension2D ?? 8192,
         maxSampledTexturesPerShaderStage: 16,
-        maxSamplersPerShaderStage: 16
+        maxSamplersPerShaderStage: 16,
       },
       createBuffer(descriptor) {
-        return { descriptor, size: descriptor.size, bytes: new Uint8Array(descriptor.size),
-          destroyed: false, destroy() { this.destroyed = true; } };
+        return {
+          descriptor,
+          size: descriptor.size,
+          bytes: new Uint8Array(descriptor.size),
+          destroyed: false,
+          destroy() {
+            this.destroyed = true;
+          },
+        };
       },
       createTexture(descriptor) {
         if (options.failTexture?.(descriptor)) throw new Error("injected texture allocation failure");
@@ -1583,7 +1614,7 @@ function createTextureResidencyFixture(options = {}) {
           },
           destroy() {
             texture.destroyed = true;
-          }
+          },
         };
         textures.push(texture);
         return texture;
@@ -1591,8 +1622,8 @@ function createTextureResidencyFixture(options = {}) {
       queue: {
         writeTexture(destination, data, layout, size) {
           writes.push({ destination, data, layout, size });
-        }
-      }
+        },
+      },
     },
     resource_accounting: accounting,
     textures: {
@@ -1600,16 +1631,16 @@ function createTextureResidencyFixture(options = {}) {
         return {
           width: source.image.width,
           height: source.image.height,
-          obtainView: () => ({ source })
+          obtainView: () => ({ source }),
         };
       },
       mipmaps: {
         flush() {},
-        generateMipmap() {}
-      }
+        generateMipmap() {},
+      },
     },
     bind_groups: { obtain: () => ({}) },
-    render_pipelines: { obtain: () => ({}) }
+    render_pipelines: { obtain: () => ({}) },
   };
   return { graphics, accounting, textures, writes };
 }
@@ -1633,8 +1664,10 @@ async function runReleasedHighTextureSequence([firstSize, secondSize]) {
   let secondAccepted = true;
   let secondRef;
   try {
-    secondRef = residency.stage([secondMaterial], second)
-      .materialTextureRoutingRefs.get(secondMaterial).get(secondTexture);
+    secondRef = residency
+      .stage([secondMaterial], second)
+      .materialTextureRoutingRefs.get(secondMaterial)
+      .get(secondTexture);
     second.finish();
   } catch (error) {
     secondAccepted = false;
@@ -1763,7 +1796,7 @@ class FakeCommand {
       setPipeline() {},
       setBindGroup() {},
       draw() {},
-      end() {}
+      end() {},
     };
   }
 
@@ -1793,28 +1826,33 @@ async function encodedBcAsset(size, format, semantic, sourceUri) {
       logicalHeight,
       physicalWidth,
       physicalHeight,
-      payload: new Uint8Array(physicalWidth / 4 * physicalHeight / 4 * bytesPerBlock)
+      payload: new Uint8Array((((physicalWidth / 4) * physicalHeight) / 4) * bytesPerBlock),
     };
   });
-  const encoded = await writeEncodedTextureAssetPackageV2({
-    width: size,
-    height: size,
-    semantic,
-    sourceUri,
-    sourceByteLength: size * size * 4,
-    sourceContentHash: "1".repeat(64)
-  }, [{
-    profile: "desktop-bc",
-    semantic,
-    format,
-    blockWidth: 4,
-    blockHeight: 4,
-    bytesPerBlock,
-    codecId: "fixture-codec",
-    codecRevision: "fixture-v1",
-    codecBinaryHash: "2".repeat(64),
-    mips
-  }]);
+  const encoded = await writeEncodedTextureAssetPackageV2(
+    {
+      width: size,
+      height: size,
+      semantic,
+      sourceUri,
+      sourceByteLength: size * size * 4,
+      sourceContentHash: "1".repeat(64),
+    },
+    [
+      {
+        profile: "desktop-bc",
+        semantic,
+        format,
+        blockWidth: 4,
+        blockHeight: 4,
+        bytesPerBlock,
+        codecId: "fixture-codec",
+        codecRevision: "fixture-v1",
+        codecBinaryHash: "2".repeat(64),
+        mips,
+      },
+    ],
+  );
   return openTextureAssetPackageV2(encoded);
 }
 
@@ -1829,18 +1867,18 @@ function installWebGpuConstants() {
     UNIFORM: 64,
     STORAGE: 128,
     INDIRECT: 256,
-    QUERY_RESOLVE: 512
+    QUERY_RESOLVE: 512,
   });
   globalThis.GPUTextureUsage ??= Object.freeze({
     COPY_SRC: 1,
     COPY_DST: 2,
     TEXTURE_BINDING: 4,
     STORAGE_BINDING: 8,
-    RENDER_ATTACHMENT: 16
+    RENDER_ATTACHMENT: 16,
   });
   globalThis.GPUShaderStage ??= Object.freeze({
     VERTEX: 1,
     FRAGMENT: 2,
-    COMPUTE: 4
+    COMPUTE: 4,
   });
 }

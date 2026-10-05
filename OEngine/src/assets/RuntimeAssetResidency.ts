@@ -1,14 +1,10 @@
 import type {
   RuntimeAssetChunkV2,
   RuntimeAssetManifestV2,
-  RuntimeAssetVariantV2
+  RuntimeAssetVariantV2,
 } from "./RuntimeAssetManifestV2.js";
 
-export type RuntimeAssetRequestState =
-  | "unrequested"
-  | "requested"
-  | "resident"
-  | "retiring";
+export type RuntimeAssetRequestState = "unrequested" | "requested" | "resident" | "retiring";
 
 export interface RuntimeAssetResidentRange {
   readonly assetId: string;
@@ -92,7 +88,7 @@ export class RuntimeAssetResidencyState {
   constructor(
     readonly manifest: RuntimeAssetManifestV2,
     readonly variant: RuntimeAssetVariantV2,
-    private readonly hooks?: RuntimeAssetResidencyBudgetHooks
+    private readonly hooks?: RuntimeAssetResidencyBudgetHooks,
   ) {
     const chunks = new Map(manifest.chunks.map((chunk) => [chunk.id, chunk]));
     for (const chunkId of variant.chunkIds) {
@@ -103,21 +99,22 @@ export class RuntimeAssetResidencyState {
         state: "unrequested",
         residentResourceId: null,
         residentByteOffset: null,
-        residentByteLength: 0
+        residentByteLength: 0,
       });
     }
   }
 
   request(
     chunkIds: readonly string[],
-    budget: RuntimeAssetResidencyBudget
+    budget: RuntimeAssetResidencyBudget,
   ): RuntimeAssetResidencyReservation {
     const ids = [...new Set(chunkIds)].sort();
     if (ids.length === 0) throw new RangeError("Residency request must contain at least one chunk");
     const pending: MutableRange[] = [];
     for (const id of ids) {
       const range = this.ranges.get(id);
-      if (range === undefined) throw new RangeError(`Chunk '${id}' is outside residency variant '${this.variant.id}'`);
+      if (range === undefined)
+        throw new RangeError(`Chunk '${id}' is outside residency variant '${this.variant.id}'`);
       if (range.state !== "unrequested") throw new Error(`Chunk '${id}' is already ${range.state}`);
       pending.push(range);
     }
@@ -128,12 +125,18 @@ export class RuntimeAssetResidencyState {
       variantId: this.variant.id,
       chunkIds: Object.freeze(ids),
       uploadBytes,
-      residentBytes
+      residentBytes,
     });
-    if (!validBudget(budget) || uploadBytes > budget.maxUploadBytes ||
-        residentBytes > budget.maxResidentBytes || this.hooks?.reserve(request) === false) {
+    if (
+      !validBudget(budget) ||
+      uploadBytes > budget.maxUploadBytes ||
+      residentBytes > budget.maxResidentBytes ||
+      this.hooks?.reserve(request) === false
+    ) {
       this.rejectedRequestCount++;
-      throw new RangeError(`Residency request for '${this.manifest.assetId}' exceeds its upload/resident budget`);
+      throw new RangeError(
+        `Residency request for '${this.manifest.assetId}' exceeds its upload/resident budget`,
+      );
     }
     for (const range of pending) range.state = "requested";
     this.activeReservations.add(request);
@@ -143,15 +146,17 @@ export class RuntimeAssetResidencyState {
 
   commit(
     reservation: RuntimeAssetResidencyReservation,
-    residentRanges: Readonly<Record<string, RuntimeAssetPhysicalRange>> = {}
+    residentRanges: Readonly<Record<string, RuntimeAssetPhysicalRange>> = {},
   ): void {
     this.requireReservation(reservation);
     for (const chunkId of reservation.chunkIds) {
       const range = this.ranges.get(chunkId)!;
       const physical = residentRanges[chunkId];
       if (range.state !== "requested") throw new Error(`Chunk '${chunkId}' is not awaiting commit`);
-      if (physical !== undefined && (!validNonNegativeInteger(physical.byteOffset) ||
-          !validNonNegativeInteger(physical.byteLength))) {
+      if (
+        physical !== undefined &&
+        (!validNonNegativeInteger(physical.byteOffset) || !validNonNegativeInteger(physical.byteLength))
+      ) {
         throw new RangeError(`Chunk '${chunkId}' resident range is invalid`);
       }
     }
@@ -199,32 +204,33 @@ export class RuntimeAssetResidencyState {
       range.residentByteOffset = null;
       range.residentByteLength = 0;
     }
-    this.hooks?.release(Object.freeze({
-      assetId: this.manifest.assetId,
-      variantId: this.variant.id,
-      chunkIds: Object.freeze(ids.sort()),
-      uploadBytes,
-      residentBytes
-    }));
+    this.hooks?.release(
+      Object.freeze({
+        assetId: this.manifest.assetId,
+        variantId: this.variant.id,
+        chunkIds: Object.freeze(ids.sort()),
+        uploadBytes,
+        residentBytes,
+      }),
+    );
   }
 
   resetAfterDeviceLoss(): void {
     for (const reservation of this.activeReservations) this.hooks?.release(reservation);
     this.activeReservations.clear();
     const committed = [...this.ranges.values()].filter(
-      (range) => range.state === "resident" || range.state === "retiring"
+      (range) => range.state === "resident" || range.state === "retiring",
     );
     if (committed.length > 0) {
-      this.hooks?.release(Object.freeze({
-        assetId: this.manifest.assetId,
-        variantId: this.variant.id,
-        chunkIds: Object.freeze(committed.map((range) => range.chunk.id).sort()),
-        uploadBytes: committed.reduce((sum, range) => sum + range.chunk.compressedBytes, 0),
-        residentBytes: committed.reduce(
-          (sum, range) => sum + range.chunk.expectedResidentBytes,
-          0
-        )
-      }));
+      this.hooks?.release(
+        Object.freeze({
+          assetId: this.manifest.assetId,
+          variantId: this.variant.id,
+          chunkIds: Object.freeze(committed.map((range) => range.chunk.id).sort()),
+          uploadBytes: committed.reduce((sum, range) => sum + range.chunk.compressedBytes, 0),
+          residentBytes: committed.reduce((sum, range) => sum + range.chunk.expectedResidentBytes, 0),
+        }),
+      );
     }
     for (const range of this.ranges.values()) {
       range.state = "unrequested";
@@ -241,9 +247,11 @@ export class RuntimeAssetResidencyState {
   }
 
   snapshot(): readonly RuntimeAssetResidentRange[] {
-    return Object.freeze([...this.ranges.values()]
-      .sort((left, right) => left.chunk.id.localeCompare(right.chunk.id))
-      .map((range) => freezeRange(this.manifest.assetId, range)));
+    return Object.freeze(
+      [...this.ranges.values()]
+        .sort((left, right) => left.chunk.id.localeCompare(right.chunk.id))
+        .map((range) => freezeRange(this.manifest.assetId, range)),
+    );
   }
 
   evidence(): RuntimeAssetResidencyEvidence {
@@ -255,13 +263,15 @@ export class RuntimeAssetResidencyState {
       requestedChunkCount: ranges.filter((range) => range.state === "requested").length,
       residentChunkCount: ranges.filter((range) => range.state === "resident").length,
       retiringChunkCount: ranges.filter((range) => range.state === "retiring").length,
-      uploadBytes: ranges.filter((range) => range.state === "resident" || range.state === "retiring")
+      uploadBytes: ranges
+        .filter((range) => range.state === "resident" || range.state === "retiring")
         .reduce((sum, range) => sum + range.chunk.compressedBytes, 0),
-      residentBytes: ranges.filter((range) => range.state === "resident" || range.state === "retiring")
+      residentBytes: ranges
+        .filter((range) => range.state === "resident" || range.state === "retiring")
         .reduce((sum, range) => sum + range.residentByteLength, 0),
       rejectedRequestCount: this.rejectedRequestCount,
       abortedRequestCount: this.abortedRequestCount,
-      deviceLossResetCount: this.deviceLossResetCount
+      deviceLossResetCount: this.deviceLossResetCount,
     });
   }
 
@@ -289,13 +299,17 @@ function freezeRange(assetId: string, range: MutableRange): RuntimeAssetResident
     residentResourceId: range.residentResourceId,
     residentByteOffset: range.residentByteOffset,
     residentByteLength: range.residentByteLength,
-    state: range.state
+    state: range.state,
   });
 }
 
 function validBudget(budget: RuntimeAssetResidencyBudget): boolean {
-  return Number.isFinite(budget.maxUploadBytes) && budget.maxUploadBytes >= 0 &&
-    Number.isFinite(budget.maxResidentBytes) && budget.maxResidentBytes >= 0;
+  return (
+    Number.isFinite(budget.maxUploadBytes) &&
+    budget.maxUploadBytes >= 0 &&
+    Number.isFinite(budget.maxResidentBytes) &&
+    budget.maxResidentBytes >= 0
+  );
 }
 
 function validNonNegativeInteger(value: number): boolean {

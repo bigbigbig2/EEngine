@@ -64,34 +64,55 @@ export function webCookCatalogSceneBounds(catalog: WebCookSceneBoundsSourceV1): 
   const instanceMatrices = new Map<number, readonly number[]>();
   for (const instance of catalog.instances) instanceMatrices.set(instance.nodeIndex, instance.worldMatrix);
 
-  let minX = Infinity, minY = Infinity, minZ = Infinity;
-  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  let minX = Infinity,
+    minY = Infinity,
+    minZ = Infinity;
+  let maxX = -Infinity,
+    maxY = -Infinity,
+    maxZ = -Infinity;
   let bounded = 0;
   let unknownBoundPrimitives = 0;
 
   for (const primitive of catalog.primitives) {
-    const min = primitive.boundsMin, max = primitive.boundsMax;
-    if (!isFiniteBox(min, max)) { unknownBoundPrimitives++; continue; }
-    const owners = primitive.instanceNodeIndices.length > 0 ? primitive.instanceNodeIndices : [primitive.nodeIndex];
+    const min = primitive.boundsMin,
+      max = primitive.boundsMax;
+    if (!isFiniteBox(min, max)) {
+      unknownBoundPrimitives++;
+      continue;
+    }
+    const owners =
+      primitive.instanceNodeIndices.length > 0 ? primitive.instanceNodeIndices : [primitive.nodeIndex];
     for (const owner of owners) {
       const matrix = instanceMatrices.get(owner);
       for (let corner = 0; corner < 8; corner++) {
         const local: [number, number, number] = [
           corner & 1 ? (max[0] as number) : (min[0] as number),
           corner & 2 ? (max[1] as number) : (min[1] as number),
-          corner & 4 ? (max[2] as number) : (min[2] as number)
+          corner & 4 ? (max[2] as number) : (min[2] as number),
         ];
         const world = matrix === undefined ? local : transformPoint(matrix, local);
         if (!Number.isFinite(world[0]) || !Number.isFinite(world[1]) || !Number.isFinite(world[2])) continue;
-        minX = Math.min(minX, world[0]); minY = Math.min(minY, world[1]); minZ = Math.min(minZ, world[2]);
-        maxX = Math.max(maxX, world[0]); maxY = Math.max(maxY, world[1]); maxZ = Math.max(maxZ, world[2]);
+        minX = Math.min(minX, world[0]);
+        minY = Math.min(minY, world[1]);
+        minZ = Math.min(minZ, world[2]);
+        maxX = Math.max(maxX, world[0]);
+        maxY = Math.max(maxY, world[1]);
+        maxZ = Math.max(maxZ, world[2]);
       }
     }
     bounded++;
   }
 
-  if (bounded === 0) throw new Error("Web Cook catalog published no bounded primitive to frame the scene with");
-  if (!Number.isFinite(minX) || !Number.isFinite(maxX) || !Number.isFinite(minY) || !Number.isFinite(maxY) || !Number.isFinite(minZ) || !Number.isFinite(maxZ)) {
+  if (bounded === 0)
+    throw new Error("Web Cook catalog published no bounded primitive to frame the scene with");
+  if (
+    !Number.isFinite(minX) ||
+    !Number.isFinite(maxX) ||
+    !Number.isFinite(minY) ||
+    !Number.isFinite(maxY) ||
+    !Number.isFinite(minZ) ||
+    !Number.isFinite(maxZ)
+  ) {
     throw new Error("Web Cook catalog scene bounds overflowed to a non-finite box");
   }
 
@@ -100,13 +121,14 @@ export function webCookCatalogSceneBounds(catalog: WebCookSceneBoundsSourceV1): 
     max: Object.freeze([maxX, maxY, maxZ] as const),
     center: Object.freeze([(minX + maxX) * 0.5, (minY + maxY) * 0.5, (minZ + maxZ) * 0.5] as const),
     radius: Math.max(0.01, Math.hypot(maxX - minX, maxY - minY, maxZ - minZ) * 0.5),
-    unknownBoundPrimitives
+    unknownBoundPrimitives,
   });
 }
 
 function isFiniteBox(min: readonly number[], max: readonly number[]): boolean {
   for (let axis = 0; axis < 3; axis++) {
-    const low = min[axis], high = max[axis];
+    const low = min[axis],
+      high = max[axis];
     if (!Number.isFinite(low) || !Number.isFinite(high) || (high as number) < (low as number)) return false;
   }
   return true;
@@ -157,13 +179,14 @@ export interface WebCookCatalogSceneFramingV1 {
  */
 export function webCookCatalogSceneFraming(
   catalog: WebCookSceneBoundsSourceV1,
-  options: WebCookCatalogSceneFramingOptionsV1 = {}
+  options: WebCookCatalogSceneFramingOptionsV1 = {},
 ): WebCookCatalogSceneFramingV1 {
   const bounds = webCookCatalogSceneBounds(catalog);
   let scale = 1;
   let offset: readonly [number, number, number] = Object.freeze([0, 0, 0] as const);
   if (options.fitHeight !== undefined) {
-    if (!Number.isFinite(options.fitHeight) || options.fitHeight <= 0) throw new RangeError("Web Cook catalog fitHeight must be positive and finite");
+    if (!Number.isFinite(options.fitHeight) || options.fitHeight <= 0)
+      throw new RangeError("Web Cook catalog fitHeight must be positive and finite");
     const base = options.fitBase ?? [0, 0, 0];
     if (!Number.isFinite(base[0]) || !Number.isFinite(base[1]) || !Number.isFinite(base[2])) {
       throw new RangeError("Web Cook catalog fitBase must be finite");
@@ -175,32 +198,43 @@ export function webCookCatalogSceneFraming(
     offset = Object.freeze([
       (base[0] as number) - bounds.center[0] * scale,
       (base[1] as number) + (bounds.center[1] - bounds.min[1]) * scale - bounds.center[1] * scale,
-      (base[2] as number) - bounds.center[2] * scale
+      (base[2] as number) - bounds.center[2] * scale,
     ] as const);
   } else if (!Number.isFinite(scale) || scale <= 0) {
     throw new RangeError("Web Cook catalog scale must be positive and finite");
   }
   const min = Object.freeze([
-    bounds.min[0] * scale + offset[0], bounds.min[1] * scale + offset[1], bounds.min[2] * scale + offset[2]
+    bounds.min[0] * scale + offset[0],
+    bounds.min[1] * scale + offset[1],
+    bounds.min[2] * scale + offset[2],
   ] as const);
   const max = Object.freeze([
-    bounds.max[0] * scale + offset[0], bounds.max[1] * scale + offset[1], bounds.max[2] * scale + offset[2]
+    bounds.max[0] * scale + offset[0],
+    bounds.max[1] * scale + offset[1],
+    bounds.max[2] * scale + offset[2],
   ] as const);
   return Object.freeze({
     scale,
     offset,
     min,
     max,
-    center: Object.freeze([(min[0] + max[0]) * 0.5, (min[1] + max[1]) * 0.5, (min[2] + max[2]) * 0.5] as const),
+    center: Object.freeze([
+      (min[0] + max[0]) * 0.5,
+      (min[1] + max[1]) * 0.5,
+      (min[2] + max[2]) * 0.5,
+    ] as const),
     radius: Math.max(0.01, Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]) * 0.5),
-    unknownBoundPrimitives: bounds.unknownBoundPrimitives
+    unknownBoundPrimitives: bounds.unknownBoundPrimitives,
   });
 }
 
-function transformPoint(matrix: readonly number[], point: readonly [number, number, number]): [number, number, number] {
+function transformPoint(
+  matrix: readonly number[],
+  point: readonly [number, number, number],
+): [number, number, number] {
   return [
     matrix[0]! * point[0] + matrix[4]! * point[1] + matrix[8]! * point[2] + matrix[12]!,
     matrix[1]! * point[0] + matrix[5]! * point[1] + matrix[9]! * point[2] + matrix[13]!,
-    matrix[2]! * point[0] + matrix[6]! * point[1] + matrix[10]! * point[2] + matrix[14]!
+    matrix[2]! * point[0] + matrix[6]! * point[1] + matrix[10]! * point[2] + matrix[14]!,
   ];
 }

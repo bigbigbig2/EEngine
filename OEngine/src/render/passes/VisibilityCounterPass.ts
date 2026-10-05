@@ -6,8 +6,7 @@ import type { CachedComputePipelineDescriptor } from "../../gpu/GPUDescriptorCac
 import { GPU_VISIBILITY_KEY_WGSL } from "../../gpu/GpuVisibilityKeyAbi.js";
 
 export const VISIBILITY_COUNTER_WORKGROUP_SIZE = 8;
-const WORKGROUP_ELEMENT_COUNT =
-  VISIBILITY_COUNTER_WORKGROUP_SIZE * VISIBILITY_COUNTER_WORKGROUP_SIZE;
+const WORKGROUP_ELEMENT_COUNT = VISIBILITY_COUNTER_WORKGROUP_SIZE * VISIBILITY_COUNTER_WORKGROUP_SIZE;
 const SHADED_PIXEL_INDEX = counterByteOffset("shadedPixels") / 4;
 const EMPTY_PIXEL_INDEX = counterByteOffset("emptyVisibilityPixels") / 4;
 const INVALID_KEY_INDEX = counterByteOffset("invalidVisibilityKeys") / 4;
@@ -80,39 +79,39 @@ const VISIBILITY_COUNTER_LAYOUT: GPUBindGroupLayoutDescriptor = {
     {
       binding: 0,
       visibility: GPUShaderStage.COMPUTE,
-      texture: { sampleType: "uint", viewDimension: "2d" }
+      texture: { sampleType: "uint", viewDimension: "2d" },
     },
     {
       binding: 1,
       visibility: GPUShaderStage.COMPUTE,
-      buffer: { type: "storage" }
-    }
-  ]
+      buffer: { type: "storage" },
+    },
+  ],
 };
 
 const VISIBILITY_COUNTER_PIPELINES: Readonly<
   Record<VisibilityCounterContract, CachedComputePipelineDescriptor>
 > = Object.freeze({
-  "visibility-key": createPipeline("count_visibility_keys", "VisibilityKey")
+  "visibility-key": createPipeline("count_visibility_keys", "VisibilityKey"),
 });
 
 function createPipeline(
   entryPoint: "count_visibility_keys",
-  contractLabel: string
+  contractLabel: string,
 ): CachedComputePipelineDescriptor {
   return {
     label: `R0 visibility pixel counters/${contractLabel}`,
     layout: {
       label: `R0 visibility counters/${contractLabel}/layout`,
-      bindGroupLayouts: [VISIBILITY_COUNTER_LAYOUT]
+      bindGroupLayouts: [VISIBILITY_COUNTER_LAYOUT],
     },
     compute: {
       module: {
         label: `R0 visibility pixel counters/${contractLabel}`,
-        code: VISIBILITY_COUNTER_WGSL
+        code: VISIBILITY_COUNTER_WGSL,
       },
-      entryPoint
-    }
+      entryPoint,
+    },
   };
 }
 
@@ -122,7 +121,7 @@ export class VisibilityCounterPass {
     size: { width: number; height: number },
     inputs: { visibility: ResourceId; counters: ResourceId },
     contract: VisibilityCounterContract = "visibility-key",
-    sampling: Readonly<{ enabled: boolean }> = { enabled: true }
+    sampling: Readonly<{ enabled: boolean }> = { enabled: true },
   ): ResourceId {
     const dispatch = visibilityCounterDispatchSize(size.width, size.height);
     const builder = graph.add(
@@ -134,14 +133,16 @@ export class VisibilityCounterPass {
         const pass = command.constructComputePass({
           label: "R0 visibility pixel counters",
           pipeline: VISIBILITY_COUNTER_PIPELINES[data.contract],
-          bindings: [[
-            resolveTextureView(resources.get(inputs.visibility)),
-            { buffer: resolveBuffer(resources.get(inputs.counters)) }
-          ]]
+          bindings: [
+            [
+              resolveTextureView(resources.get(inputs.visibility)),
+              { buffer: resolveBuffer(resources.get(inputs.counters)) },
+            ],
+          ],
         });
         pass.dispatchWorkgroups(data.dispatch[0], data.dispatch[1], 1);
         pass.end();
-      }
+      },
     );
     builder.read(inputs.visibility);
     const nextCounters = builder.write(inputs.counters);
@@ -150,15 +151,12 @@ export class VisibilityCounterPass {
   }
 }
 
-export function visibilityCounterDispatchSize(
-  width: number,
-  height: number
-): [number, number] {
+export function visibilityCounterDispatchSize(width: number, height: number): [number, number] {
   assertPositiveInteger(width, "width");
   assertPositiveInteger(height, "height");
   return [
     Math.ceil(width / VISIBILITY_COUNTER_WORKGROUP_SIZE),
-    Math.ceil(height / VISIBILITY_COUNTER_WORKGROUP_SIZE)
+    Math.ceil(height / VISIBILITY_COUNTER_WORKGROUP_SIZE),
   ];
 }
 
@@ -175,12 +173,7 @@ function requireCommandContext(value: unknown): ShadeGPUCommandContext {
 }
 
 function resolveBuffer(value: unknown): GPUBuffer {
-  if (
-    value &&
-    typeof value === "object" &&
-    "size" in value &&
-    "usage" in value
-  ) {
+  if (value && typeof value === "object" && "size" in value && "usage" in value) {
     return value as GPUBuffer;
   }
   throw new Error("VisibilityCounterPass expected a GPUBuffer");
@@ -190,10 +183,7 @@ function resolveTextureView(value: unknown): GPUTextureView {
   if (!value || typeof value !== "object") {
     throw new Error("VisibilityCounterPass expected a texture resource");
   }
-  if (
-    "createView" in value &&
-    typeof (value as { createView?: unknown }).createView === "function"
-  ) {
+  if ("createView" in value && typeof (value as { createView?: unknown }).createView === "function") {
     return (value as { createView: () => GPUTextureView }).createView();
   }
   return value as GPUTextureView;

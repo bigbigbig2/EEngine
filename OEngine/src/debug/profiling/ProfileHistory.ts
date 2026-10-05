@@ -1,8 +1,4 @@
-import {
-  cloneProfileFrame,
-  type ProfileFrame,
-  type ProfileFramePatch
-} from "./ProfileFrame.js";
+import { cloneProfileFrame, type ProfileFrame, type ProfileFramePatch } from "./ProfileFrame.js";
 
 export type ProfilePatchStatus = "updated" | "orphaned";
 
@@ -75,8 +71,8 @@ export class ProfileHistory {
 
   selectRange(startFrameIndex: number, endFrameIndex: number): ProfileFrame[] {
     if (startFrameIndex > endFrameIndex) throw new RangeError("Invalid frame range");
-    return this.values().filter((frame) =>
-      frame.frameIndex >= startFrameIndex && frame.frameIndex <= endFrameIndex
+    return this.values().filter(
+      (frame) => frame.frameIndex >= startFrameIndex && frame.frameIndex <= endFrameIndex,
     );
   }
 
@@ -114,7 +110,8 @@ function validateProfileFrame(frame: ProfileFrame): void {
     }
   }
   for (const span of frame.spans) {
-    if (span.start !== null && !Number.isFinite(span.start)) throw new RangeError("Profile span start must be finite or null");
+    if (span.start !== null && !Number.isFinite(span.start))
+      throw new RangeError("Profile span start must be finite or null");
     if (span.duration !== null && (!Number.isFinite(span.duration) || span.duration < 0)) {
       throw new RangeError("Profile span duration must be finite and non-negative or null");
     }

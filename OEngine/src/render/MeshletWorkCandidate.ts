@@ -1,21 +1,19 @@
 import { GPU_COUNTER_BYTE_SIZE } from "../debug/GpuFrameCounters.js";
 import type {
   ResourceAccounting,
-  ResourceHandle as AccountingResourceHandle
+  ResourceHandle as AccountingResourceHandle,
 } from "../debug/profiling/ResourceAccounting.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import type { GpuAssetBindings } from "../gpu/GpuAssetStore.js";
 import { planBoundedGpuWorkStream } from "../gpu/BoundedGpuWorkProtocol.js";
-import {
-  MESHLET_BUCKET_SETTINGS_STRIDE,
-} from "../shaders/meshlet_bucket_visibility.js";
+import { MESHLET_BUCKET_SETTINGS_STRIDE } from "../shaders/meshlet_bucket_visibility.js";
 import {
   GPU_MESHLET_BUCKET_COUNT,
   GPU_MESHLET_DRAW_COUNT,
   GPU_MESHLET_RASTER_WORK_RECORD_STRIDE,
   GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE,
   gpuMeshletWorkQueueByteLength,
-  packGpuMeshletWorkQueueHeader
+  packGpuMeshletWorkQueueHeader,
 } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import type { GpuSceneBindings } from "../gpu/GpuScene.js";
 import type { GeometryProductGpuBindingsV1 } from "../gpu/VirtualGeometryResidency.js";
@@ -27,7 +25,7 @@ import {
   MESHLET_WORK_COMPACTION_PORTABLE_WGSL,
   MESHLET_WORK_COMPACTION_SETTINGS_SIZE,
   MESHLET_WORK_COMPACTION_SUBGROUP_WGSL,
-  type MeshletWorkCompactionPath
+  type MeshletWorkCompactionPath,
 } from "../shaders/meshlet_work_compaction.js";
 import { VIRTUAL_GEOMETRY_MESHLET_WORK_WGSL } from "../shaders/virtual_geometry_work.js";
 
@@ -86,7 +84,10 @@ interface CandidateState {
   writeBindGroup: GPUBindGroup;
   consumeBindGroup: GPUBindGroup;
   riskBindGroup: GPUBindGroup;
-  readonly inputs: Omit<MeshletWorkCandidateInputs, "camera" | "counterBuffer" | "countersEnabled" | "compactionPath">;
+  readonly inputs: Omit<
+    MeshletWorkCandidateInputs,
+    "camera" | "counterBuffer" | "countersEnabled" | "compactionPath"
+  >;
   readonly buffers: readonly GPUBuffer[];
   readonly accounting: readonly AccountingResourceHandle[];
   destroyed: boolean;
@@ -108,71 +109,136 @@ export class MeshletWorkCandidate {
 
   constructor(
     private readonly device: GPUDevice,
-    private readonly resourceAccounting?: ResourceAccounting
+    private readonly resourceAccounting?: ResourceAccounting,
   ) {
     const commonEntries: GPUBindGroupLayoutEntry[] = [
       { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
       { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
       { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
       { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-      { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE + GPU_MESHLET_RASTER_WORK_RECORD_STRIDE } },
-      { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: MESHLET_WORK_COMPACTION_SETTINGS_SIZE } },
-      { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GPU_COUNTER_BYTE_SIZE } },
-      { binding: 8, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: MESHLET_WORK_BUCKET_STATE_SIZE } },
-      { binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE + GPU_MESHLET_RASTER_WORK_RECORD_STRIDE } },
-      { binding: 10, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: MESHLET_WORK_BUCKET_INDIRECT_SIZE } }
+      {
+        binding: 4,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: {
+          type: "storage",
+          minBindingSize: GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE + GPU_MESHLET_RASTER_WORK_RECORD_STRIDE,
+        },
+      },
+      {
+        binding: 6,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: { type: "uniform", minBindingSize: MESHLET_WORK_COMPACTION_SETTINGS_SIZE },
+      },
+      {
+        binding: 7,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: { type: "storage", minBindingSize: GPU_COUNTER_BYTE_SIZE },
+      },
+      {
+        binding: 8,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: { type: "storage", minBindingSize: MESHLET_WORK_BUCKET_STATE_SIZE },
+      },
+      {
+        binding: 9,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: {
+          type: "storage",
+          minBindingSize: GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE + GPU_MESHLET_RASTER_WORK_RECORD_STRIDE,
+        },
+      },
+      {
+        binding: 10,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: { type: "storage", minBindingSize: MESHLET_WORK_BUCKET_INDIRECT_SIZE },
+      },
     ];
     this.writeLayout = device.createBindGroupLayout({
       label: "ADR-0008 MeshletWork candidate write group0",
       entries: [
         ...commonEntries,
-        { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GPU_DISPATCH_INDIRECT_ARGS_SIZE } },
-      ]
+        {
+          binding: 5,
+          visibility: GPUShaderStage.COMPUTE,
+          buffer: { type: "storage", minBindingSize: GPU_DISPATCH_INDIRECT_ARGS_SIZE },
+        },
+      ],
     });
     this.consumeLayout = device.createBindGroupLayout({
       label: "ADR-0008 MeshletWork candidate consume group0",
-      entries: commonEntries
+      entries: commonEntries,
     });
     this.riskLayout = device.createBindGroupLayout({
       label: "ADR-0008 selective projection-risk classifier group1",
       entries: [
         { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: MESHLET_WORK_COMPACTION_SETTINGS_SIZE } },
-        { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE + GPU_MESHLET_RASTER_WORK_RECORD_STRIDE } },
+        {
+          binding: 1,
+          visibility: GPUShaderStage.COMPUTE,
+          buffer: { type: "uniform", minBindingSize: MESHLET_WORK_COMPACTION_SETTINGS_SIZE },
+        },
+        {
+          binding: 2,
+          visibility: GPUShaderStage.COMPUTE,
+          buffer: {
+            type: "storage",
+            minBindingSize: GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE + GPU_MESHLET_RASTER_WORK_RECORD_STRIDE,
+          },
+        },
         ...Array.from({ length: 6 }, (_, index) => ({
           binding: index + 3,
           visibility: GPUShaderStage.COMPUTE,
-          buffer: { type: "read-only-storage" as GPUBufferBindingType }
+          buffer: { type: "read-only-storage" as GPUBufferBindingType },
         })),
-        { binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: MESHLET_WORK_BUCKET_STATE_SIZE } },
-        { binding: 10, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GPU_COUNTER_BYTE_SIZE } }
-      ]
+        {
+          binding: 9,
+          visibility: GPUShaderStage.COMPUTE,
+          buffer: { type: "storage", minBindingSize: MESHLET_WORK_BUCKET_STATE_SIZE },
+        },
+        {
+          binding: 10,
+          visibility: GPUShaderStage.COMPUTE,
+          buffer: { type: "storage", minBindingSize: GPU_COUNTER_BYTE_SIZE },
+        },
+      ],
     });
     const writePipelineLayout = device.createPipelineLayout({
       label: "ADR-0008 MeshletWork candidate write layout",
-      bindGroupLayouts: [this.writeLayout]
+      bindGroupLayouts: [this.writeLayout],
     });
     const consumePipelineLayout = device.createPipelineLayout({
       label: "ADR-0008 MeshletWork candidate consume layout",
-      bindGroupLayouts: [this.consumeLayout]
+      bindGroupLayouts: [this.consumeLayout],
     });
     const empty = device.createBindGroupLayout({
       label: "ADR-0008 selective projection-risk empty group0",
-      entries: []
+      entries: [],
     });
     const riskPipelineLayout = device.createPipelineLayout({
       label: "ADR-0008 selective projection-risk layout",
-      bindGroupLayouts: [empty, this.riskLayout]
+      bindGroupLayouts: [empty, this.riskLayout],
     });
-    this.pipelines.set("portable", this.createPipelines(
-      "portable", MESHLET_WORK_COMPACTION_PORTABLE_WGSL,
-      writePipelineLayout, consumePipelineLayout, riskPipelineLayout
-    ));
+    this.pipelines.set(
+      "portable",
+      this.createPipelines(
+        "portable",
+        MESHLET_WORK_COMPACTION_PORTABLE_WGSL,
+        writePipelineLayout,
+        consumePipelineLayout,
+        riskPipelineLayout,
+      ),
+    );
     if (device.features.has("subgroups")) {
-      this.pipelines.set("subgroup", this.createPipelines(
-        "subgroup", MESHLET_WORK_COMPACTION_SUBGROUP_WGSL,
-        writePipelineLayout, consumePipelineLayout, riskPipelineLayout
-      ));
+      this.pipelines.set(
+        "subgroup",
+        this.createPipelines(
+          "subgroup",
+          MESHLET_WORK_COMPACTION_SUBGROUP_WGSL,
+          writePipelineLayout,
+          consumePipelineLayout,
+          riskPipelineLayout,
+        ),
+      );
     }
   }
 
@@ -183,51 +249,84 @@ export class MeshletWorkCandidate {
     if (inputs.capacity > GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_CAPACITY) {
       throw new RangeError(
         `MeshletWork capacity ${inputs.capacity} exceeds VisibilityKey V2 capacity ` +
-        `${GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_CAPACITY}`
+          `${GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_CAPACITY}`,
       );
     }
-    const queueBytes = planMeshletWorkBuffer(
-      inputs.capacity, this.device.limits, "MeshletWork candidate"
-    );
+    const queueBytes = planMeshletWorkBuffer(inputs.capacity, this.device.limits, "MeshletWork candidate");
     const buffers: GPUBuffer[] = [];
     const accounting: AccountingResourceHandle[] = [];
     try {
       const compactionPath = this.resolveCompactionPath(inputs.compactionPath ?? "auto");
-      const settings = this.createBuffer({
-        label: "ADR-0008 MeshletWork candidate settings",
-        size: MESHLET_WORK_COMPACTION_SETTINGS_SIZE,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-      }, buffers, accounting, "uniform");
-      const staging = this.createBuffer({
-        label: "ADR-0008 correctness-critical MeshletWork compact staging queue",
-        size: queueBytes,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-      }, buffers, accounting, "work-queue");
-      const queue = this.createBuffer({
-        label: "ADR-0008 correctness-critical bucketed MeshletWork queue",
-        size: queueBytes,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-      }, buffers, accounting, "work-queue");
-      const bucketStates = this.createBuffer({
-        label: "ADR-0008 MeshletWork bounded bucket states",
-        size: MESHLET_WORK_BUCKET_STATE_SIZE,
-        usage: GPUBufferUsage.STORAGE
-      }, buffers, accounting, "work-queue");
-      const drawIndirect = this.createBuffer({
-        label: "ADR-0008 MeshletWork complete bucket drawIndirect records",
-        size: MESHLET_WORK_BUCKET_INDIRECT_SIZE,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT
-      }, buffers, accounting, "indirect");
-      const bucketSettings = this.createBuffer({
-        label: "ADR-0008 MeshletWork bucket dynamic settings",
-        size: GPU_MESHLET_DRAW_COUNT * MESHLET_BUCKET_SETTINGS_STRIDE,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-      }, buffers, accounting, "uniform");
-      const dispatch = this.createBuffer({
-        label: "ADR-0008 MeshletWork candidate dispatchIndirect",
-        size: GPU_DISPATCH_INDIRECT_ARGS_SIZE,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST
-      }, buffers, accounting, "indirect");
+      const settings = this.createBuffer(
+        {
+          label: "ADR-0008 MeshletWork candidate settings",
+          size: MESHLET_WORK_COMPACTION_SETTINGS_SIZE,
+          usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        },
+        buffers,
+        accounting,
+        "uniform",
+      );
+      const staging = this.createBuffer(
+        {
+          label: "ADR-0008 correctness-critical MeshletWork compact staging queue",
+          size: queueBytes,
+          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        },
+        buffers,
+        accounting,
+        "work-queue",
+      );
+      const queue = this.createBuffer(
+        {
+          label: "ADR-0008 correctness-critical bucketed MeshletWork queue",
+          size: queueBytes,
+          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        },
+        buffers,
+        accounting,
+        "work-queue",
+      );
+      const bucketStates = this.createBuffer(
+        {
+          label: "ADR-0008 MeshletWork bounded bucket states",
+          size: MESHLET_WORK_BUCKET_STATE_SIZE,
+          usage: GPUBufferUsage.STORAGE,
+        },
+        buffers,
+        accounting,
+        "work-queue",
+      );
+      const drawIndirect = this.createBuffer(
+        {
+          label: "ADR-0008 MeshletWork complete bucket drawIndirect records",
+          size: MESHLET_WORK_BUCKET_INDIRECT_SIZE,
+          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT,
+        },
+        buffers,
+        accounting,
+        "indirect",
+      );
+      const bucketSettings = this.createBuffer(
+        {
+          label: "ADR-0008 MeshletWork bucket dynamic settings",
+          size: GPU_MESHLET_DRAW_COUNT * MESHLET_BUCKET_SETTINGS_STRIDE,
+          usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        },
+        buffers,
+        accounting,
+        "uniform",
+      );
+      const dispatch = this.createBuffer(
+        {
+          label: "ADR-0008 MeshletWork candidate dispatchIndirect",
+          size: GPU_DISPATCH_INDIRECT_ARGS_SIZE,
+          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST,
+        },
+        buffers,
+        accounting,
+        "indirect",
+      );
       const initialHeader = packGpuMeshletWorkQueueHeader({
         attemptedCount: 0,
         writtenCount: 0,
@@ -235,16 +334,16 @@ export class MeshletWorkCandidate {
         capacity: inputs.capacity,
         overflowCount: 0,
         generation: 0,
-        invalidCount: 0
+        invalidCount: 0,
       });
       this.device.queue.writeBuffer(staging, 0, initialHeader);
       this.device.queue.writeBuffer(queue, 0, initialHeader);
       this.device.queue.writeBuffer(dispatch, 0, new Uint32Array([0, 1, 1]));
       const bucketSettingsData = new Uint32Array(
-        GPU_MESHLET_DRAW_COUNT * MESHLET_BUCKET_SETTINGS_STRIDE / 4
+        (GPU_MESHLET_DRAW_COUNT * MESHLET_BUCKET_SETTINGS_STRIDE) / 4,
       );
       for (let bucket = 0; bucket < GPU_MESHLET_DRAW_COUNT; bucket++) {
-        const word = bucket * MESHLET_BUCKET_SETTINGS_STRIDE / 4;
+        const word = (bucket * MESHLET_BUCKET_SETTINGS_STRIDE) / 4;
         bucketSettingsData[word] = bucket;
         bucketSettingsData[word + 1] = this.device.features.has("indirect-first-instance") ? 1 : 0;
       }
@@ -255,14 +354,25 @@ export class MeshletWorkCandidate {
         visibleClusterCapacity: inputs.visibleClusterCapacity,
         capacity: inputs.capacity,
         assets: inputs.assets,
-        scene: inputs.scene
+        scene: inputs.scene,
       });
       const bindGroups = this.createBindGroups(
-        fixedInputs, staging, queue, bucketStates, drawIndirect,
-        dispatch, settings, inputs.counterBuffer
+        fixedInputs,
+        staging,
+        queue,
+        bucketStates,
+        drawIndirect,
+        dispatch,
+        settings,
+        inputs.counterBuffer,
       );
       const riskBindGroup = this.createRiskBindGroup(
-        inputs.camera, fixedInputs, staging, bucketStates, settings, inputs.counterBuffer
+        inputs.camera,
+        fixedInputs,
+        staging,
+        bucketStates,
+        settings,
+        inputs.counterBuffer,
       );
       const prepared = Object.freeze({
         [PREPARED_MESHLET_WORK_CANDIDATE]: true as const,
@@ -272,7 +382,7 @@ export class MeshletWorkCandidate {
         bucketSettings,
         bucketCount: GPU_MESHLET_DRAW_COUNT,
         compactionPath,
-        capacity: inputs.capacity
+        capacity: inputs.capacity,
       });
       CANDIDATE_STATE.set(prepared, {
         camera: inputs.camera,
@@ -292,7 +402,7 @@ export class MeshletWorkCandidate {
         inputs: fixedInputs,
         buffers,
         accounting,
-        destroyed: false
+        destroyed: false,
       });
       this.prepared.add(prepared);
       return prepared;
@@ -305,11 +415,15 @@ export class MeshletWorkCandidate {
 
   rebind(
     prepared: PreparedMeshletWorkCandidate,
-    binding: { camera: GPUBuffer; counterBuffer: GPUBuffer; countersEnabled: boolean }
+    binding: { camera: GPUBuffer; counterBuffer: GPUBuffer; countersEnabled: boolean },
   ): void {
     const state = this.requireState(prepared);
-    if (state.camera === binding.camera && state.counterBuffer === binding.counterBuffer &&
-      state.countersEnabled === binding.countersEnabled) return;
+    if (
+      state.camera === binding.camera &&
+      state.counterBuffer === binding.counterBuffer &&
+      state.countersEnabled === binding.countersEnabled
+    )
+      return;
     state.camera = binding.camera;
     state.counterBuffer = binding.counterBuffer;
     state.countersEnabled = binding.countersEnabled;
@@ -322,31 +436,77 @@ export class MeshletWorkCandidate {
       state.drawIndirect,
       state.dispatch,
       state.settings,
-      state.counterBuffer
+      state.counterBuffer,
     );
     state.writeBindGroup = bindGroups.write;
     state.consumeBindGroup = bindGroups.consume;
     state.riskBindGroup = this.createRiskBindGroup(
-      state.camera, state.inputs, state.staging, state.bucketStates,
-      state.settings, state.counterBuffer
+      state.camera,
+      state.inputs,
+      state.staging,
+      state.bucketStates,
+      state.settings,
+      state.counterBuffer,
     );
   }
 
-  encode(
-    command: ShadeGPUCommandContext,
-    prepared: PreparedMeshletWorkCandidate
-  ): void {
+  encode(command: ShadeGPUCommandContext, prepared: PreparedMeshletWorkCandidate): void {
     const state = this.requireState(prepared);
     const pipelines = this.pipelines.get(state.compactionPath)!;
     this.encodeDirect(command.gpu_encoder, "prepare", pipelines.prepare, state.writeBindGroup, false);
-    this.encodeDirect(command.gpu_encoder, `${state.compactionPath} compact`, pipelines.generate, state.consumeBindGroup, true, state.dispatch);
-    this.encodeDirect(command.gpu_encoder, "prepare selective-risk dispatch", pipelines.prepareRisk, state.writeBindGroup, false);
+    this.encodeDirect(
+      command.gpu_encoder,
+      `${state.compactionPath} compact`,
+      pipelines.generate,
+      state.consumeBindGroup,
+      true,
+      state.dispatch,
+    );
+    this.encodeDirect(
+      command.gpu_encoder,
+      "prepare selective-risk dispatch",
+      pipelines.prepareRisk,
+      state.writeBindGroup,
+      false,
+    );
     this.encodeRisk(command.gpu_encoder, pipelines.classifyRisk, state.riskBindGroup, state.dispatch);
-    this.encodeDirect(command.gpu_encoder, "bucket prefix + indirect args", pipelines.finalize, state.writeBindGroup, false);
-    this.encodeDirect(command.gpu_encoder, "bucket scatter", pipelines.scatter, state.consumeBindGroup, true, state.dispatch);
-    this.encodeDirect(command.gpu_encoder, "prepare validation", pipelines.prepareValidation, state.writeBindGroup, false);
-    this.encodeDirect(command.gpu_encoder, "validate", pipelines.validate, state.consumeBindGroup, true, state.dispatch);
-    this.encodeDirect(command.gpu_encoder, "publish counters", pipelines.publish, state.consumeBindGroup, false);
+    this.encodeDirect(
+      command.gpu_encoder,
+      "bucket prefix + indirect args",
+      pipelines.finalize,
+      state.writeBindGroup,
+      false,
+    );
+    this.encodeDirect(
+      command.gpu_encoder,
+      "bucket scatter",
+      pipelines.scatter,
+      state.consumeBindGroup,
+      true,
+      state.dispatch,
+    );
+    this.encodeDirect(
+      command.gpu_encoder,
+      "prepare validation",
+      pipelines.prepareValidation,
+      state.writeBindGroup,
+      false,
+    );
+    this.encodeDirect(
+      command.gpu_encoder,
+      "validate",
+      pipelines.validate,
+      state.consumeBindGroup,
+      true,
+      state.dispatch,
+    );
+    this.encodeDirect(
+      command.gpu_encoder,
+      "publish counters",
+      pipelines.publish,
+      state.consumeBindGroup,
+      false,
+    );
   }
 
   release(prepared: PreparedMeshletWorkCandidate): void {
@@ -367,12 +527,12 @@ export class MeshletWorkCandidate {
   private createPipeline(
     module: GPUShaderModule,
     layout: GPUPipelineLayout,
-    entryPoint: string
+    entryPoint: string,
   ): GPUComputePipeline {
     return this.device.createComputePipeline({
       label: `ADR-0008 MeshletWork candidate/${entryPoint}`,
       layout,
-      compute: { module, entryPoint }
+      compute: { module, entryPoint },
     });
   }
 
@@ -381,11 +541,11 @@ export class MeshletWorkCandidate {
     code: string,
     writeLayout: GPUPipelineLayout,
     consumeLayout: GPUPipelineLayout,
-    riskLayout: GPUPipelineLayout
+    riskLayout: GPUPipelineLayout,
   ): CandidatePipelines {
     const module = this.device.createShaderModule({
       label: `ADR-0008 MeshletWork ${path} compaction`,
-      code
+      code,
     });
     return Object.freeze({
       prepare: this.createPipeline(module, writeLayout, "prepare_meshlet_work_candidate"),
@@ -396,7 +556,7 @@ export class MeshletWorkCandidate {
       scatter: this.createPipeline(module, consumeLayout, "scatter_meshlet_work_buckets"),
       prepareValidation: this.createPipeline(module, writeLayout, "prepare_meshlet_work_validation"),
       validate: this.createPipeline(module, consumeLayout, "validate_meshlet_work_candidate"),
-      publish: this.createPipeline(module, consumeLayout, "publish_meshlet_work_candidate_counters")
+      publish: this.createPipeline(module, consumeLayout, "publish_meshlet_work_candidate_counters"),
     });
   }
 
@@ -406,7 +566,7 @@ export class MeshletWorkCandidate {
     staging: GPUBuffer,
     bucketStates: GPUBuffer,
     settings: GPUBuffer,
-    counters: GPUBuffer
+    counters: GPUBuffer,
   ): GPUBindGroup {
     return this.device.createBindGroup({
       label: "ADR-0008 selective projection-risk bindings",
@@ -422,8 +582,8 @@ export class MeshletWorkCandidate {
         { binding: 7, resource: { buffer: inputs.assets.meshletTriangleIndices } },
         { binding: 8, resource: { buffer: inputs.assets.vertexStreamData } },
         { binding: 9, resource: { buffer: bucketStates } },
-        { binding: 10, resource: { buffer: counters } }
-      ]
+        { binding: 10, resource: { buffer: counters } },
+      ],
     });
   }
 
@@ -431,10 +591,10 @@ export class MeshletWorkCandidate {
     encoder: GPUCommandEncoder,
     pipeline: GPUComputePipeline,
     bindGroup: GPUBindGroup,
-    dispatch: GPUBuffer
+    dispatch: GPUBuffer,
   ): void {
     const pass = encoder.beginComputePass({
-      label: "ADR-0008 MeshletWork/selective projection-risk classification"
+      label: "ADR-0008 MeshletWork/selective projection-risk classification",
     });
     pass.setPipeline(pipeline);
     pass.setBindGroup(1, bindGroup);
@@ -442,15 +602,11 @@ export class MeshletWorkCandidate {
     pass.end();
   }
 
-  private resolveCompactionPath(
-    requested: "auto" | MeshletWorkCompactionPath
-  ): MeshletWorkCompactionPath {
+  private resolveCompactionPath(requested: "auto" | MeshletWorkCompactionPath): MeshletWorkCompactionPath {
     if (requested === "subgroup" && !this.pipelines.has("subgroup")) {
       throw new Error("MeshletWork subgroup compaction was forced but the device lacks 'subgroups'");
     }
-    return requested === "auto"
-      ? (this.pipelines.has("subgroup") ? "subgroup" : "portable")
-      : requested;
+    return requested === "auto" ? (this.pipelines.has("subgroup") ? "subgroup" : "portable") : requested;
   }
 
   private createBindGroups(
@@ -461,31 +617,31 @@ export class MeshletWorkCandidate {
     drawIndirect: GPUBuffer,
     dispatch: GPUBuffer,
     settings: GPUBuffer,
-    counters: GPUBuffer
+    counters: GPUBuffer,
   ): Readonly<{ write: GPUBindGroup; consume: GPUBindGroup }> {
     const commonEntries: GPUBindGroupEntry[] = [
-        { binding: 0, resource: { buffer: inputs.visibleClusters } },
-        { binding: 1, resource: { buffer: inputs.assets.clusterRecords } },
-        { binding: 2, resource: { buffer: inputs.assets.geometryRecords } },
-        { binding: 3, resource: { buffer: inputs.assets.meshletRecords } },
-        { binding: 4, resource: { buffer: staging } },
-        { binding: 6, resource: { buffer: settings } },
-        { binding: 7, resource: { buffer: counters } },
-        { binding: 8, resource: { buffer: bucketStates } },
-        { binding: 9, resource: { buffer: queue } },
-        { binding: 10, resource: { buffer: drawIndirect } }
+      { binding: 0, resource: { buffer: inputs.visibleClusters } },
+      { binding: 1, resource: { buffer: inputs.assets.clusterRecords } },
+      { binding: 2, resource: { buffer: inputs.assets.geometryRecords } },
+      { binding: 3, resource: { buffer: inputs.assets.meshletRecords } },
+      { binding: 4, resource: { buffer: staging } },
+      { binding: 6, resource: { buffer: settings } },
+      { binding: 7, resource: { buffer: counters } },
+      { binding: 8, resource: { buffer: bucketStates } },
+      { binding: 9, resource: { buffer: queue } },
+      { binding: 10, resource: { buffer: drawIndirect } },
     ];
     return Object.freeze({
       write: this.device.createBindGroup({
         label: "ADR-0008 MeshletWork candidate write bindings",
         layout: this.writeLayout,
-        entries: [...commonEntries, { binding: 5, resource: { buffer: dispatch } }]
+        entries: [...commonEntries, { binding: 5, resource: { buffer: dispatch } }],
       }),
       consume: this.device.createBindGroup({
         label: "ADR-0008 MeshletWork candidate consume bindings",
         layout: this.consumeLayout,
-        entries: commonEntries
-      })
+        entries: commonEntries,
+      }),
     });
   }
 
@@ -495,10 +651,10 @@ export class MeshletWorkCandidate {
     pipeline: GPUComputePipeline,
     bindGroup: GPUBindGroup,
     indirect: boolean,
-    dispatch?: GPUBuffer
+    dispatch?: GPUBuffer,
   ): void {
     const pass = encoder.beginComputePass({
-      label: `ADR-0008 MeshletWork candidate/${phase}`
+      label: `ADR-0008 MeshletWork candidate/${phase}`,
     });
     pass.setPipeline(pipeline);
     pass.setBindGroup(0, bindGroup);
@@ -508,19 +664,23 @@ export class MeshletWorkCandidate {
   }
 
   private writeSettings(settings: GPUBuffer, countersEnabled: boolean): void {
-    this.device.queue.writeBuffer(settings, 0, new Uint32Array([
-      Number(this.device.limits.maxComputeWorkgroupsPerDimension),
-      countersEnabled ? 1 : 0,
-      this.device.features.has("indirect-first-instance") ? 1 : 0,
-      0
-    ]));
+    this.device.queue.writeBuffer(
+      settings,
+      0,
+      new Uint32Array([
+        Number(this.device.limits.maxComputeWorkgroupsPerDimension),
+        countersEnabled ? 1 : 0,
+        this.device.features.has("indirect-first-instance") ? 1 : 0,
+        0,
+      ]),
+    );
   }
 
   private createBuffer(
     descriptor: GPUBufferDescriptor,
     buffers: GPUBuffer[],
     accounting: AccountingResourceHandle[],
-    category: "uniform" | "work-queue" | "indirect"
+    category: "uniform" | "work-queue" | "indirect",
   ): GPUBuffer {
     const buffer = this.device.createBuffer(descriptor);
     buffers.push(buffer);
@@ -529,7 +689,7 @@ export class MeshletWorkCandidate {
       category: "transient",
       owner: "VisibilityWorkSet/MeshletWorkCandidate",
       bytes: Number(descriptor.size),
-      label: descriptor.label?.toString()
+      label: descriptor.label?.toString(),
     });
     if (handle !== undefined) accounting.push(handle);
     return buffer;
@@ -560,33 +720,56 @@ export class VirtualGeometryMeshletWorkCandidate {
     this.layout = device.createBindGroupLayout({
       label: "S1 Product MeshletWork layout",
       entries: [
-        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 56 } },
-        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE + GPU_MESHLET_RASTER_WORK_RECORD_STRIDE } },
+        {
+          binding: 0,
+          visibility: GPUShaderStage.COMPUTE,
+          buffer: { type: "read-only-storage", minBindingSize: 56 },
+        },
+        {
+          binding: 1,
+          visibility: GPUShaderStage.COMPUTE,
+          buffer: {
+            type: "storage",
+            minBindingSize: GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE + GPU_MESHLET_RASTER_WORK_RECORD_STRIDE,
+          },
+        },
         { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 16 } },
-        { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GPU_COUNTER_BYTE_SIZE } },
+        {
+          binding: 3,
+          visibility: GPUShaderStage.COMPUTE,
+          buffer: { type: "storage", minBindingSize: GPU_COUNTER_BYTE_SIZE },
+        },
         { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: 16 } },
-        { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 64 } },
+        {
+          binding: 5,
+          visibility: GPUShaderStage.COMPUTE,
+          buffer: { type: "read-only-storage", minBindingSize: 64 },
+        },
         ...Array.from({ length: 4 }, (_, index) => ({
           binding: index + 6,
           visibility: GPUShaderStage.COMPUTE,
-          buffer: { type: "read-only-storage" as GPUBufferBindingType, minBindingSize: 4 }
+          buffer: { type: "read-only-storage" as GPUBufferBindingType, minBindingSize: 4 },
         })),
-        { binding: 10, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 176 } },
-        { binding: 11, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 256 } }
-      ]
+        {
+          binding: 10,
+          visibility: GPUShaderStage.COMPUTE,
+          buffer: { type: "read-only-storage", minBindingSize: 176 },
+        },
+        { binding: 11, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 256 } },
+      ],
     });
     const module = device.createShaderModule({
       label: "S1 Product MeshletWork shader",
-      code: VIRTUAL_GEOMETRY_MESHLET_WORK_WGSL
+      code: VIRTUAL_GEOMETRY_MESHLET_WORK_WGSL,
     });
     const pipelineLayout = device.createPipelineLayout({
       label: "S1 Product MeshletWork pipeline layout",
-      bindGroupLayouts: [this.layout]
+      bindGroupLayouts: [this.layout],
     });
     this.pipeline = device.createComputePipeline({
       label: "S1 Product MeshletWork pipeline",
       layout: pipelineLayout,
-      compute: { module, entryPoint: "generate_virtual_geometry_work" }
+      compute: { module, entryPoint: "generate_virtual_geometry_work" },
     });
   }
 
@@ -607,67 +790,80 @@ export class VirtualGeometryMeshletWorkCandidate {
     if (!Number.isInteger(input.visibleClusterCapacity) || input.visibleClusterCapacity <= 0) {
       throw new RangeError("S1 Product visible cluster capacity must be positive");
     }
-    if (!Number.isInteger(input.capacity) || input.capacity <= 0 ||
-        input.capacity > GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_CAPACITY) {
+    if (
+      !Number.isInteger(input.capacity) ||
+      input.capacity <= 0 ||
+      input.capacity > GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_CAPACITY
+    ) {
       throw new RangeError("S1 Product MeshletWork capacity is invalid");
     }
     if (input.visibleClusterCapacity > Number(this.device.limits.maxComputeWorkgroupsPerDimension)) {
       throw new RangeError("S1 Product visible cluster capacity exceeds dispatch dimension");
     }
-    const queueBytes = planMeshletWorkBuffer(
-      input.capacity, this.device.limits, "Product MeshletWork"
-    );
+    const queueBytes = planMeshletWorkBuffer(input.capacity, this.device.limits, "Product MeshletWork");
     const queue = this.device.createBuffer({
       label: "S1 Product MeshletWork queue",
       size: queueBytes,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
     const drawIndirect = this.device.createBuffer({
       label: "S1 Product MeshletWork drawIndirect",
       size: 16,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST,
     });
     const settings = this.device.createBuffer({
       label: "S1 Product MeshletWork settings",
       size: 16,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     const banks: GPUBuffer[] = [...input.virtualGeometry.banks];
     while (banks.length < 4) {
-      banks.push(this.device.createBuffer({
-        label: "S1 Product MeshletWork empty bank",
-        size: 4,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-      }));
+      banks.push(
+        this.device.createBuffer({
+          label: "S1 Product MeshletWork empty bank",
+          size: 4,
+          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        }),
+      );
     }
-    this.device.queue.writeBuffer(queue, 0, packGpuMeshletWorkQueueHeader({
-      attemptedCount: 0,
-      writtenCount: 0,
-      consumedCount: 0,
-      capacity: input.capacity,
-      overflowCount: 0,
-      generation: 0,
-      invalidCount: 0
-    }));
-    this.device.queue.writeBuffer(settings, 0, new Uint32Array([
-      input.countersEnabled ? 1 : 0,
-      input.virtualGeometry.productGeneration,
-      input.visibleClusterCapacity,
-      0
-    ]));
+    this.device.queue.writeBuffer(
+      queue,
+      0,
+      packGpuMeshletWorkQueueHeader({
+        attemptedCount: 0,
+        writtenCount: 0,
+        consumedCount: 0,
+        capacity: input.capacity,
+        overflowCount: 0,
+        generation: 0,
+        invalidCount: 0,
+      }),
+    );
+    this.device.queue.writeBuffer(
+      settings,
+      0,
+      new Uint32Array([
+        input.countersEnabled ? 1 : 0,
+        input.virtualGeometry.productGeneration,
+        input.visibleClusterCapacity,
+        0,
+      ]),
+    );
     const entries: GPUBindGroupEntry[] = [
-        { binding: 0, resource: { buffer: input.visibleClusters } },
-        { binding: 1, resource: { buffer: queue } },
-        { binding: 2, resource: { buffer: settings } },
-        { binding: 3, resource: { buffer: input.counterBuffer } },
-        { binding: 4, resource: { buffer: drawIndirect } },
-        { binding: 5, resource: { buffer: input.virtualGeometry.metadata } },
-        ...banks.map((buffer, index) => ({ binding: index + 6, resource: { buffer } })),
-        { binding: 10, resource: { buffer: input.scene.instances } },
-        { binding: 11, resource: { buffer: input.viewUniform } }
-      ];
+      { binding: 0, resource: { buffer: input.visibleClusters } },
+      { binding: 1, resource: { buffer: queue } },
+      { binding: 2, resource: { buffer: settings } },
+      { binding: 3, resource: { buffer: input.counterBuffer } },
+      { binding: 4, resource: { buffer: drawIndirect } },
+      { binding: 5, resource: { buffer: input.virtualGeometry.metadata } },
+      ...banks.map((buffer, index) => ({ binding: index + 6, resource: { buffer } })),
+      { binding: 10, resource: { buffer: input.scene.instances } },
+      { binding: 11, resource: { buffer: input.viewUniform } },
+    ];
     const bindGroup = this.device.createBindGroup({
-      label: "S1 Product MeshletWork bindings", layout: this.layout, entries
+      label: "S1 Product MeshletWork bindings",
+      layout: this.layout,
+      entries,
     });
     const prepared = Object.freeze({
       [PREPARED_MESHLET_WORK_CANDIDATE]: true as const,
@@ -680,7 +876,7 @@ export class VirtualGeometryMeshletWorkCandidate {
       capacity: input.capacity,
       productMode: true as const,
       productBindings: input.virtualGeometry,
-      productBanks: Object.freeze(banks)
+      productBanks: Object.freeze(banks),
     });
     PRODUCT_CANDIDATE_STATE.set(prepared, {
       queue,
@@ -693,15 +889,19 @@ export class VirtualGeometryMeshletWorkCandidate {
       ownedBankBegin: input.virtualGeometry.banks.length,
       banks: Object.freeze(banks),
       visibleClusterCapacity: input.visibleClusterCapacity,
-      destroyed: false
+      destroyed: false,
     });
     this.prepared.add(prepared);
     return prepared;
   }
 
-  rebind(prepared: PreparedMeshletWorkCandidate, input: {
-    counterBuffer: GPUBuffer; countersEnabled: boolean;
-  }): void {
+  rebind(
+    prepared: PreparedMeshletWorkCandidate,
+    input: {
+      counterBuffer: GPUBuffer;
+      countersEnabled: boolean;
+    },
+  ): void {
     const state = this.requireState(prepared);
     if (state.countersEnabled !== input.countersEnabled) {
       this.device.queue.writeBuffer(state.settings, 0, new Uint32Array([input.countersEnabled ? 1 : 0]));
@@ -710,7 +910,9 @@ export class VirtualGeometryMeshletWorkCandidate {
     if (state.counterBuffer !== input.counterBuffer) {
       state.entries[3] = { binding: 3, resource: { buffer: input.counterBuffer } };
       state.bindGroup = this.device.createBindGroup({
-        label: "S1 Product MeshletWork bindings", layout: this.layout, entries: state.entries
+        label: "S1 Product MeshletWork bindings",
+        layout: this.layout,
+        entries: state.entries,
       });
       state.counterBuffer = input.counterBuffer;
     }
@@ -751,19 +953,21 @@ export class VirtualGeometryMeshletWorkCandidate {
     const key = `${entryPoint}`;
     const cache = PRODUCT_CANDIDATE_PIPELINES.get(this);
     if (cache?.has(key)) return cache.get(key)!;
-    const module = PRODUCT_CANDIDATE_MODULES.get(this) ?? this.device.createShaderModule({
-      label: "S1 Product MeshletWork shader",
-      code: VIRTUAL_GEOMETRY_MESHLET_WORK_WGSL
-    });
+    const module =
+      PRODUCT_CANDIDATE_MODULES.get(this) ??
+      this.device.createShaderModule({
+        label: "S1 Product MeshletWork shader",
+        code: VIRTUAL_GEOMETRY_MESHLET_WORK_WGSL,
+      });
     PRODUCT_CANDIDATE_MODULES.set(this, module);
     const layout = this.device.createPipelineLayout({
       label: `S1 Product MeshletWork ${entryPoint} layout`,
-      bindGroupLayouts: [this.layout]
+      bindGroupLayouts: [this.layout],
     });
     const pipeline = this.device.createComputePipeline({
       label: `S1 Product MeshletWork ${entryPoint}`,
       layout,
-      compute: { module, entryPoint }
+      compute: { module, entryPoint },
     });
     if (cache === undefined) PRODUCT_CANDIDATE_PIPELINES.set(this, new Map([[key, pipeline]]));
     else cache.set(key, pipeline);
@@ -799,7 +1003,10 @@ interface ProductCandidateState {
 
 const PRODUCT_CANDIDATE_STATE = new WeakMap<object, ProductCandidateState>();
 const PRODUCT_CANDIDATE_MODULES = new WeakMap<VirtualGeometryMeshletWorkCandidate, GPUShaderModule>();
-const PRODUCT_CANDIDATE_PIPELINES = new WeakMap<VirtualGeometryMeshletWorkCandidate, Map<string, GPUComputePipeline>>();
+const PRODUCT_CANDIDATE_PIPELINES = new WeakMap<
+  VirtualGeometryMeshletWorkCandidate,
+  Map<string, GPUComputePipeline>
+>();
 
 function planMeshletWorkBuffer(capacity: number, limits: GPUSupportedLimits, name: string): number {
   const plan = planBoundedGpuWorkStream({
@@ -814,7 +1021,7 @@ function planMeshletWorkBuffer(capacity: number, limits: GPUSupportedLimits, nam
     overflow: "suppress-indirect-output",
     execution: "draw-indirect",
     maxBufferBytes: Number(limits.maxBufferSize),
-    maxStorageBindingBytes: Number(limits.maxStorageBufferBindingSize)
+    maxStorageBindingBytes: Number(limits.maxStorageBufferBindingSize),
   });
   if (plan.bufferBytes !== gpuMeshletWorkQueueByteLength(capacity)) {
     throw new Error(`${name} control plan differs from its physical ABI`);

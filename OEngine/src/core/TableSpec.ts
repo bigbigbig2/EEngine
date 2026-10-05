@@ -10,15 +10,12 @@ import {
   copyArrayBufferRange,
   copyArrayRange,
   hashViaMethod,
-  equalsViaMethod
+  equalsViaMethod,
 } from "./memoryUtils.js";
 import { arrayShallowEquals } from "./arrayUtils.js";
 import { hashMix } from "./hashMix.js";
 import { hashArrayItems, fmax } from "./math/mathUtils.js";
-import {
-  BinaryEndianness,
-  type BinaryEndiannessValue
-} from "../loaders/BinaryReader.js";
+import { BinaryEndianness, type BinaryEndiannessValue } from "../loaders/BinaryReader.js";
 import { ShadeDataType, type ShadeDataTypeName } from "../texture/ShadeDataType.js";
 
 export const DATA_TYPE_BYTE_SIZE: Record<string, number> = {
@@ -32,7 +29,7 @@ export const DATA_TYPE_BYTE_SIZE: Record<string, number> = {
   [ShadeDataType.Int64]: 8,
   [ShadeDataType.Float16]: 2,
   [ShadeDataType.Float32]: 4,
-  [ShadeDataType.Float64]: 8
+  [ShadeDataType.Float64]: 8,
 };
 
 export const DATA_VIEW_GETTERS: Record<string, string> = {
@@ -45,7 +42,7 @@ export const DATA_VIEW_GETTERS: Record<string, string> = {
   [ShadeDataType.Int32]: "getInt32",
   [ShadeDataType.Int64]: "getBigInt64",
   [ShadeDataType.Float32]: "getFloat32",
-  [ShadeDataType.Float64]: "getFloat64"
+  [ShadeDataType.Float64]: "getFloat64",
 };
 
 export const DATA_VIEW_SETTERS: Record<string, string> = {
@@ -58,7 +55,7 @@ export const DATA_VIEW_SETTERS: Record<string, string> = {
   [ShadeDataType.Int32]: "setInt32",
   [ShadeDataType.Int64]: "setBigInt64",
   [ShadeDataType.Float32]: "setFloat32",
-  [ShadeDataType.Float64]: "setFloat64"
+  [ShadeDataType.Float64]: "setFloat64",
 };
 
 export function sizeOfDataType(e: string): number {
@@ -80,15 +77,7 @@ export class CompiledFunctionKey {
   body: string;
   __hash = 0.1;
 
-  constructor({
-    name: e,
-    body: t,
-    args: n = []
-  }: {
-    name?: string;
-    body: string;
-    args?: string[];
-  }) {
+  constructor({ name: e, body: t, args: n = [] }: { name?: string; body: string; args?: string[] }) {
     this.name = e;
     this.args = n;
     this.body = t;
@@ -99,7 +88,7 @@ export class CompiledFunctionKey {
     this.__hash = hashMix(
       hashString(this.name as string),
       hashString(this.body),
-      hashArrayItems(this.args, hashString)
+      hashArrayItems(this.args, hashString),
     );
   }
 
@@ -112,11 +101,7 @@ export class CompiledFunctionKey {
   }
 
   equals(t: CompiledFunctionKey): boolean {
-    return (
-      this.name === t.name &&
-      this.body === t.body &&
-      arrayShallowEquals(this.args, t.args)
-    );
+    return this.name === t.name && this.body === t.body && arrayShallowEquals(this.args, t.args);
   }
 
   hash(): number {
@@ -133,22 +118,11 @@ export class FunctionCompiler {
       maxWeight: 10383360,
       keyWeigher: (e) => e.computeByteSize(),
       keyHashFunction: hashViaMethod as (k: CompiledFunctionKey) => number,
-      keyEqualityFunction: equalsViaMethod as (
-        a: CompiledFunctionKey,
-        b: CompiledFunctionKey
-      ) => boolean
+      keyEqualityFunction: equalsViaMethod as (a: CompiledFunctionKey, b: CompiledFunctionKey) => boolean,
     });
   }
 
-  compile({
-    code: e,
-    args: t = [],
-    name: n
-  }: {
-    code: string;
-    args?: string[];
-    name?: string;
-  }): Function {
+  compile({ code: e, args: t = [], name: n }: { code: string; args?: string[]; name?: string }): Function {
     const r = new CompiledFunctionKey({ body: e, args: t, name: n });
     const s = this.cache.get(r);
     if (s === null) {
@@ -169,57 +143,43 @@ export class FunctionCompiler {
 export function compileCellWriter(
   e: string,
   t: number,
-  n: BinaryEndiannessValue = BinaryEndianness.BigEndian
+  n: BinaryEndiannessValue = BinaryEndianness.BigEndian,
 ): (dataView: DataView, byteOffset: number, value: unknown) => void {
   const setter = DATA_VIEW_SETTERS[e];
   if (setter === undefined) throw new Error(`Unsupported type '${e}'`);
   const le = n === BinaryEndianness.BigEndian ? "false" : "true";
-  const needsEndian =
-    e !== ShadeDataType.Uint8 && e !== ShadeDataType.Int8;
+  const needsEndian = e !== ShadeDataType.Uint8 && e !== ShadeDataType.Int8;
   const code = needsEndian
     ? `dataView.${setter}(byteOffset+${t}, value, ${le});`
     : `dataView.${setter}(byteOffset+${t}, value);`;
   return FunctionCompiler.INSTANCE.compile({
     args: ["dataView, byteOffset, value"],
-    code
+    code,
   }) as (dataView: DataView, byteOffset: number, value: unknown) => void;
 }
 
 export function compileCellReader(
   e: string,
   t: number,
-  n: BinaryEndiannessValue = BinaryEndianness.BigEndian
+  n: BinaryEndiannessValue = BinaryEndianness.BigEndian,
 ): (dataView: DataView, byteOffset: number) => unknown {
   const getter = DATA_VIEW_GETTERS[e];
   if (getter === undefined) throw new Error(`Unsupported type '${e}'`);
   const le = n === BinaryEndianness.BigEndian ? "false" : "true";
-  const needsEndian =
-    e !== ShadeDataType.Uint8 && e !== ShadeDataType.Int8;
+  const needsEndian = e !== ShadeDataType.Uint8 && e !== ShadeDataType.Int8;
   const code = needsEndian
     ? `return dataView.${getter}(byteOffset+${t}, ${le});`
     : `return dataView.${getter}(byteOffset+${t});`;
   return FunctionCompiler.INSTANCE.compile({
     args: ["dataView, byteOffset"],
-    code
+    code,
   }) as (dataView: DataView, byteOffset: number) => unknown;
 }
 
 export type CellReader = (dataView: DataView, byteOffset: number) => unknown;
-export type CellWriter = (
-  dataView: DataView,
-  byteOffset: number,
-  value: unknown
-) => void;
-export type RowReader = (
-  dataView: DataView,
-  byteOffset: number,
-  result: unknown[]
-) => void;
-export type RowWriter = (
-  dataView: DataView,
-  byteOffset: number,
-  record: ArrayLike<unknown>
-) => void;
+export type CellWriter = (dataView: DataView, byteOffset: number, value: unknown) => void;
+export type RowReader = (dataView: DataView, byteOffset: number, result: unknown[]) => void;
+export type RowWriter = (dataView: DataView, byteOffset: number, record: ArrayLike<unknown>) => void;
 
 export class TableSpec {
   readonly types: ShadeDataTypeName[] | string[];
@@ -231,10 +191,7 @@ export class TableSpec {
   readonly cellWriters: CellWriter[];
   readonly cellReaders: CellReader[];
 
-  constructor(
-    e: string[],
-    t: BinaryEndiannessValue = BinaryEndianness.LittleEndian
-  ) {
+  constructor(e: string[], t: BinaryEndiannessValue = BinaryEndianness.LittleEndian) {
     const n = e.length;
     this.types = e;
     this.endianType = t;
@@ -257,12 +214,9 @@ export class TableSpec {
         const getter = DATA_VIEW_GETTERS[ty];
         if (getter === undefined) throw new Error(`Unsupported type '${ty}'`);
         const le = end === BinaryEndianness.BigEndian ? "false" : "true";
-        const needsEndian =
-          ty !== ShadeDataType.Uint8 && ty !== ShadeDataType.Int8;
+        const needsEndian = ty !== ShadeDataType.Uint8 && ty !== ShadeDataType.Int8;
         if (needsEndian) {
-          lines.push(
-            `result[${a}] = dataView.${getter}(${off} + byteOffset, ${le});`
-          );
+          lines.push(`result[${a}] = dataView.${getter}(${off} + byteOffset, ${le});`);
         } else {
           lines.push(`result[${a}] = dataView.${getter}(${off} + byteOffset);`);
         }
@@ -270,7 +224,7 @@ export class TableSpec {
       }
       return FunctionCompiler.INSTANCE.compile({
         args: ["dataView, byteOffset, result"],
-        code: lines.join("\n")
+        code: lines.join("\n"),
       }) as RowReader;
     })(e, endian);
 
@@ -283,22 +237,17 @@ export class TableSpec {
         const setter = DATA_VIEW_SETTERS[ty];
         if (setter === undefined) throw new Error(`Unsupported type '${ty}'`);
         const le = end === BinaryEndianness.BigEndian ? "false" : "true";
-        const needsEndian =
-          ty !== ShadeDataType.Uint8 && ty !== ShadeDataType.Int8;
+        const needsEndian = ty !== ShadeDataType.Uint8 && ty !== ShadeDataType.Int8;
         if (needsEndian) {
-          lines.push(
-            `dataView.${setter}(${off} + byteOffset, record[${a}], ${le});`
-          );
+          lines.push(`dataView.${setter}(${off} + byteOffset, record[${a}], ${le});`);
         } else {
-          lines.push(
-            `dataView.${setter}(${off} + byteOffset, record[${a}]);`
-          );
+          lines.push(`dataView.${setter}(${off} + byteOffset, record[${a}]);`);
         }
         off += sizeOfDataType(ty);
       }
       return FunctionCompiler.INSTANCE.compile({
         args: ["dataView, byteOffset, record"],
-        code: lines.join("\n")
+        code: lines.join("\n"),
       }) as RowWriter;
     })(e, endian);
 
@@ -321,20 +270,14 @@ export class TableSpec {
   }
 
   equals(t: TableSpec): boolean {
-    return (
-      this.endianType === t.endianType &&
-      arrayShallowEquals(this.types, t.types)
-    );
+    return this.endianType === t.endianType && arrayShallowEquals(this.types, t.types);
   }
 
   toString(): string {
     return `TableSpec{types=[${this.types.join(", ")}], endian=${enumKeyOf(BinaryEndianness as unknown as Record<string, unknown>, this.endianType)}}`;
   }
 
-  static get(
-    e: string[],
-    t: BinaryEndiannessValue = BinaryEndianness.BigEndian
-  ): TableSpec {
+  static get(e: string[], t: BinaryEndiannessValue = BinaryEndianness.BigEndian): TableSpec {
     const n = e.join(".") + ":" + t;
     const r = tableSpecCache.get(n);
     if (r !== null) return r;
@@ -344,11 +287,10 @@ export class TableSpec {
   }
 }
 
-(TableSpec.prototype as { isRowFirstTableSpec?: boolean }).isRowFirstTableSpec =
-  true;
+(TableSpec.prototype as { isRowFirstTableSpec?: boolean }).isRowFirstTableSpec = true;
 
 export const tableSpecCache = new WeightedCache<string, TableSpec>({
-  keyHashFunction: hashString as (k: string) => number
+  keyHashFunction: hashString as (k: string) => number,
 });
 
 function allocTableBuffer(byteLength: number, shared = false): ArrayBuffer {
@@ -361,7 +303,7 @@ function allocTableBuffer(byteLength: number, shared = false): ArrayBuffer {
       return new g.SharedArrayBuffer(byteLength) as unknown as ArrayBuffer;
     }
     console.error(
-      "SharedArrayBuffer not supported because origin is not isolated, defaulting to ArrayBuffer instead"
+      "SharedArrayBuffer not supported because origin is not isolated, defaulting to ArrayBuffer instead",
     );
   }
   return new ArrayBuffer(byteLength);
@@ -421,12 +363,7 @@ export class StructuredTable {
       throw new Error("failed to create a new array buffer of size: " + r);
     }
     if (next.byteLength !== r) {
-      throw new Error(
-        "Generated array was truncated unexpectedly from " +
-          r +
-          " to " +
-          next.byteLength
-      );
+      throw new Error("Generated array was truncated unexpectedly from " + r + " to " + next.byteLength);
     }
     const s = new Uint8Array(next);
     const a = new Uint8Array(t);
@@ -439,7 +376,7 @@ export class StructuredTable {
           "Failed to copy contents of original due to to size violation. OldSize: " +
             i +
             ", NewSize: " +
-            next.byteLength
+            next.byteLength,
         );
       }
       throw err;
@@ -499,11 +436,7 @@ export class StructuredTable {
 
   addRow(e: ArrayLike<unknown>): number {
     const t = this.createEmptyRow();
-    this.spec.writeRowMethod(
-      this.dataView,
-      this.spec.bytesPerRecord * t,
-      e
-    );
+    this.spec.writeRowMethod(this.dataView, this.spec.bytesPerRecord * t, e);
     this.on.added.send2(t, e);
     return t;
   }
@@ -581,13 +514,7 @@ export class StructuredTable {
     const t = e.length;
     this.resize(t);
     this.length = e.length;
-    copyArrayBufferRange(
-      e.data,
-      0,
-      this.data,
-      0,
-      e.spec.bytesPerRecord * t
-    );
+    copyArrayBufferRange(e.data, 0, this.data, 0, e.spec.bytesPerRecord * t);
   }
 
   equals(e: StructuredTable | null | undefined): boolean {
@@ -605,4 +532,3 @@ export class StructuredTable {
     return true;
   }
 }
-

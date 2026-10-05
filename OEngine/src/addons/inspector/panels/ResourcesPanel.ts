@@ -1,4 +1,8 @@
-import type { ResourceAccountingSnapshot, AccountedResourceCategory, AccountedResourceKind } from "../../../debug/profiling/ResourceAccounting.js";
+import type {
+  ResourceAccountingSnapshot,
+  AccountedResourceCategory,
+  AccountedResourceKind,
+} from "../../../debug/profiling/ResourceAccounting.js";
 
 export interface RendererMemoryEvidenceLike {
   readonly allocatedBytes: number;
@@ -20,49 +24,62 @@ export interface ResourceDisplayRow {
 }
 
 const CATEGORIES: readonly AccountedResourceCategory[] = [
-  "resident", "work-cache", "transient", "history", "atlas", "upload", "readback", "profiler"
+  "resident",
+  "work-cache",
+  "transient",
+  "history",
+  "atlas",
+  "upload",
+  "readback",
+  "profiler",
 ];
 
 export function buildResourceRows(
   accounting: ResourceAccountingSnapshot | null,
-  memory: RendererMemoryEvidenceLike | null = null
+  memory: RendererMemoryEvidenceLike | null = null,
 ): readonly ResourceDisplayRow[] {
   const rows: ResourceDisplayRow[] = [];
   if (accounting !== null) {
     for (const category of CATEGORIES) {
       const values = accounting.categories[category];
       if (values === undefined) continue;
-      rows.push(Object.freeze({
-        owner: category,
-        kind: "aggregate" as const,
-        count: values.count,
-        currentBytes: values.bytes,
-        peakBytes: values.peakBytes,
-        measurement: "accounted" as const
-      }));
+      rows.push(
+        Object.freeze({
+          owner: category,
+          kind: "aggregate" as const,
+          count: values.count,
+          currentBytes: values.bytes,
+          peakBytes: values.peakBytes,
+          measurement: "accounted" as const,
+        }),
+      );
     }
     for (const [owner, kinds] of Object.entries(accounting.owners)) {
       for (const [kind, bytes] of Object.entries(kinds)) {
-        rows.push(Object.freeze({
-          owner,
-          kind: kind as AccountedResourceKind,
-          count: null,
-          currentBytes: bytes,
-          peakBytes: null,
-          measurement: "accounted" as const
-        }));
+        rows.push(
+          Object.freeze({
+            owner,
+            kind: kind as AccountedResourceKind,
+            count: null,
+            currentBytes: bytes,
+            peakBytes: null,
+            measurement: "accounted" as const,
+          }),
+        );
       }
     }
   }
   if (memory !== null) {
-    rows.push(Object.freeze({
-      owner: "GraphicsContext",
-      kind: "memory" as const,
-      count: 1,
-      currentBytes: memory.allocatedBytes,
-      peakBytes: null,
-      measurement: "estimated" as const
-    }));
+    rows.push(
+      Object.freeze({
+        owner: "GraphicsContext",
+        kind: "memory" as const,
+        count: 1,
+        currentBytes: memory.allocatedBytes,
+        peakBytes: null,
+        measurement: "estimated" as const,
+      }),
+    );
   }
   return Object.freeze(rows);
 }
@@ -82,8 +99,14 @@ export class ResourcesPanel {
 
   update(accounting: ResourceAccountingSnapshot | null, memory: RendererMemoryEvidenceLike | null): void {
     const rows = buildResourceRows(accounting, memory);
-    this.table.textContent = rows.length === 0
-      ? "Resource accounting unavailable"
-      : rows.map((row) => `${row.owner} · ${row.kind} · count ${row.count ?? "not-sampled"} · current ${row.currentBytes} B · peak ${row.peakBytes ?? "not-sampled"} B · ${row.measurement}`).join("\n");
+    this.table.textContent =
+      rows.length === 0
+        ? "Resource accounting unavailable"
+        : rows
+            .map(
+              (row) =>
+                `${row.owner} · ${row.kind} · count ${row.count ?? "not-sampled"} · current ${row.currentBytes} B · peak ${row.peakBytes ?? "not-sampled"} B · ${row.measurement}`,
+            )
+            .join("\n");
   }
 }

@@ -22,13 +22,12 @@ export const STATIC_GRAPHICS_ENGINE_ASSETS = new (class {
   }
 
   async #load(): Promise<void> {
-    const url = (name: string): string =>
-      new URL(`./assets/textures/${name}`, import.meta.url).href;
+    const url = (name: string): string => new URL(`./assets/textures/${name}`, import.meta.url).href;
     const [stbnVec1, stbnVec2, stbnVec3, splitSum] = await Promise.all([
       load_shade_image_from_url(url("stbn_vec1.bin")),
       load_shade_image_from_url(url("stbn_vec2.bin")),
       load_shade_image_from_url(url("stbn_vec3.bin")),
-      load_shade_image_from_url(url("split_sum.bin"))
+      load_shade_image_from_url(url("split_sum.bin")),
     ]);
 
     this.stbn_vec1 = ShadeTexture.from(stbnVec1);

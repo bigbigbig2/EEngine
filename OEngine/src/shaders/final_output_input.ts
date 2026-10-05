@@ -13,15 +13,11 @@ export interface FinalOutputBindingPlan {
 }
 
 /** Shared binding arithmetic used by WGSL generation and TonemapPass layouts. */
-export function finalOutputBindingPlan(
-  options: FinalOutputShaderOptions
-): FinalOutputBindingPlan {
+export function finalOutputBindingPlan(options: FinalOutputShaderOptions): FinalOutputBindingPlan {
   let next = 1;
   const bloom = options.bloom ? next++ : null;
   const sampler = options.bloom ? next++ : null;
-  const effects = options.bloom || options.sharpening || options.colorGrading
-    ? next++
-    : null;
+  const effects = options.bloom || options.sharpening || options.colorGrading ? next++ : null;
   return Object.freeze({ source: 0, bloom, sampler, effects, next });
 }
 
@@ -29,11 +25,12 @@ export function finalOutputBindingPlan(
  * Produces the scene-linear input stage fused into the swapchain pass.
  * Static variants physically omit Bloom and/or the 4-neighbor sharpen reads.
  */
-export function finalOutputInputWgsl(
-  options: FinalOutputShaderOptions
-): string {
+export function finalOutputInputWgsl(options: FinalOutputShaderOptions): string {
   const bindings = finalOutputBindingPlan(options);
-  const effects = bindings.effects === null ? "" : `
+  const effects =
+    bindings.effects === null
+      ? ""
+      : `
 struct FinalOutputEffects {
   lift: vec3f,
   gamma: vec3f,
@@ -46,11 +43,15 @@ struct FinalOutputEffects {
 }
 @group(0) @binding(${bindings.effects}) var<uniform> final_effects: FinalOutputEffects;
 `;
-  const bloomBindings = !options.bloom ? "" : `
+  const bloomBindings = !options.bloom
+    ? ""
+    : `
 @group(0) @binding(${bindings.bloom}) var final_bloom: texture_2d<f32>;
 @group(0) @binding(${bindings.sampler}) var final_linear_clamp: sampler;
 `;
-  const grading = !options.colorGrading ? "" : `
+  const grading = !options.colorGrading
+    ? ""
+    : `
 fn final_grade(input: vec3f) -> vec3f {
   let slope = input * final_effects.gain + final_effects.lift;
   var color = pow(
@@ -62,7 +63,9 @@ fn final_grade(input: vec3f) -> vec3f {
   return exp2(log2(max(color, vec3f(1e-5))) * final_effects.contrast);
 }
 `;
-  const bloom = !options.bloom ? "" : `
+  const bloom = !options.bloom
+    ? ""
+    : `
   let uv = (vec2f(pixel) + 0.5) / vec2f(size);
   color += textureSampleLevel(
     final_bloom,
@@ -72,11 +75,13 @@ fn final_grade(input: vec3f) -> vec3f {
   ).rgb * final_effects.bloom_intensity;
 `;
   const gradeCall = options.colorGrading ? "color = final_grade(color);" : "";
-  const sharpen = !options.sharpening ? `
+  const sharpen = !options.sharpening
+    ? `
 fn load_final_hdr(pixel: vec2i) -> vec4f {
   return load_post_color(pixel);
 }
-` : `
+`
+    : `
 fn final_luminance(rgb: vec3f) -> f32 {
   return dot(rgb, vec3f(0.212639, 0.715169, 0.072192));
 }

@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const { resolveWebCookRuntimeProfile } = await import("../../.test-dist/assets/web-cook/WebCookWorkerFactory.js");
+const { resolveWebCookRuntimeProfile } = await import(
+  "../../.test-dist/assets/web-cook/WebCookWorkerFactory.js"
+);
 
 test("auto never claims pthread support on an unisolated page", () => {
   // Node has no crossOriginIsolated, so auto must never select the pthread cooker.
@@ -11,7 +13,11 @@ test("auto never claims pthread support on an unisolated page", () => {
   assert.equal(typeof capability.hardwareConcurrency, "number");
   if (capability.hardwareConcurrency >= 4) {
     assert.equal(capability.selected, "portable-pool");
-    assert.equal(capability.fallbackReason, "cross-origin-isolation-unavailable", "a pool on an unisolated page must be labelled, not passed off as pthread");
+    assert.equal(
+      capability.fallbackReason,
+      "cross-origin-isolation-unavailable",
+      "a pool on an unisolated page must be labelled, not passed off as pthread",
+    );
   } else {
     assert.equal(capability.selected, "portable-single");
   }

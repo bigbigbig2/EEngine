@@ -215,57 +215,98 @@ export class Fsr3PrepareReactivityPass {
 
   constructor(private readonly device: GPUDevice) {
     this.sampler = device.createSampler({ minFilter: "linear", magFilter: "linear" });
-    const module = device.createShaderModule({ label: "FSR3 Prepare Reactivity", code: FSR3_PREPARE_REACTIVITY_WGSL });
-    this.layout = device.createBindGroupLayout({ entries: [
-      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-      { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
-      // Dilated depth is R32Float. It is loaded without filtering and must use
-      // the unfilterable-float view class on adapters without float filtering.
-      { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "unfilterable-float" } },
-      ...[3, 4, 5, 6, 7].map(binding => ({ binding, visibility: GPUShaderStage.COMPUTE,
-        texture: { sampleType: "float" as const } })),
-      { binding: 8, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "unfilterable-float" } },
-      { binding: 9, visibility: GPUShaderStage.COMPUTE, sampler: { type: "filtering" } },
-      { binding: 10, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-      { binding: 11, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba8unorm" } },
-      { binding: 12, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "r8unorm" } },
-      { binding: 13, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "r8unorm" } }
-    ] });
-    this.pipeline = device.createComputePipeline({ label: "FSR3 Prepare Reactivity",
+    const module = device.createShaderModule({
+      label: "FSR3 Prepare Reactivity",
+      code: FSR3_PREPARE_REACTIVITY_WGSL,
+    });
+    this.layout = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
+        // Dilated depth is R32Float. It is loaded without filtering and must use
+        // the unfilterable-float view class on adapters without float filtering.
+        { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "unfilterable-float" } },
+        ...[3, 4, 5, 6, 7].map((binding) => ({
+          binding,
+          visibility: GPUShaderStage.COMPUTE,
+          texture: { sampleType: "float" as const },
+        })),
+        { binding: 8, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "unfilterable-float" } },
+        { binding: 9, visibility: GPUShaderStage.COMPUTE, sampler: { type: "filtering" } },
+        { binding: 10, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+        {
+          binding: 11,
+          visibility: GPUShaderStage.COMPUTE,
+          storageTexture: { access: "write-only", format: "rgba8unorm" },
+        },
+        {
+          binding: 12,
+          visibility: GPUShaderStage.COMPUTE,
+          storageTexture: { access: "write-only", format: "r8unorm" },
+        },
+        {
+          binding: 13,
+          visibility: GPUShaderStage.COMPUTE,
+          storageTexture: { access: "write-only", format: "r8unorm" },
+        },
+      ],
+    });
+    this.pipeline = device.createComputePipeline({
+      label: "FSR3 Prepare Reactivity",
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }),
-      compute: { module, entryPoint: "main" } });
+      compute: { module, entryPoint: "main" },
+    });
   }
 
-  addToGraph(graph: FrameGraph, input: {
-    reconstructedDepth: ResourceId; dilatedMotion: ResourceId; dilatedDepth: ResourceId;
-    reactiveMask: ResourceId; transparencyMask: ResourceId;
-    previousAccumulation: ResourceId; currentAccumulation: ResourceId;
-    shadingChange: ResourceId; currentLuma: ResourceId; exposure: ResourceId;
-    constants: ResourceId; width: number; height: number; outputWidth: number; outputHeight: number;
-  }): Fsr3ReactivityOutput {
+  addToGraph(
+    graph: FrameGraph,
+    input: {
+      reconstructedDepth: ResourceId;
+      dilatedMotion: ResourceId;
+      dilatedDepth: ResourceId;
+      reactiveMask: ResourceId;
+      transparencyMask: ResourceId;
+      previousAccumulation: ResourceId;
+      currentAccumulation: ResourceId;
+      shadingChange: ResourceId;
+      currentLuma: ResourceId;
+      exposure: ResourceId;
+      constants: ResourceId;
+      width: number;
+      height: number;
+      outputWidth: number;
+      outputHeight: number;
+    },
+  ): Fsr3ReactivityOutput {
     const builder = graph.add("FSR3/Prepare Reactivity", input, (data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
       const locks = resolveTextureView(resources.get(newLocks));
-      const clear = command.gpu_encoder.beginRenderPass({ label: "FSR3 Clear New Locks",
-        colorAttachments: [{ view: locks, loadOp: "clear", storeOp: "store",
-          clearValue: { r: 0, g: 0, b: 0, a: 0 } }] });
+      const clear = command.gpu_encoder.beginRenderPass({
+        label: "FSR3 Clear New Locks",
+        colorAttachments: [
+          { view: locks, loadOp: "clear", storeOp: "store", clearValue: { r: 0, g: 0, b: 0, a: 0 } },
+        ],
+      });
       clear.end();
-      const bind = this.device.createBindGroup({ layout: this.layout, entries: [
-        { binding: 0, resource: { buffer: resources.get(data.reconstructedDepth) as GPUBuffer } },
-        { binding: 1, resource: resolveTextureView(resources.get(data.dilatedMotion)) },
-        { binding: 2, resource: resolveTextureView(resources.get(data.dilatedDepth)) },
-        { binding: 3, resource: resolveTextureView(resources.get(data.reactiveMask)) },
-        { binding: 4, resource: resolveTextureView(resources.get(data.transparencyMask)) },
-        { binding: 5, resource: resolveTextureView(resources.get(data.previousAccumulation)) },
-        { binding: 6, resource: resolveTextureView(resources.get(data.shadingChange)) },
-        { binding: 7, resource: resolveTextureView(resources.get(data.currentLuma)) },
-        { binding: 8, resource: resolveTextureView(resources.get(data.exposure)) },
-        { binding: 9, resource: this.sampler },
-        { binding: 10, resource: { buffer: resources.get(data.constants) as GPUBuffer } },
-        { binding: 11, resource: resolveTextureView(resources.get(masks)) },
-        { binding: 12, resource: locks },
-        { binding: 13, resource: resolveTextureView(resources.get(data.currentAccumulation)) }
-      ] });
+      const bind = this.device.createBindGroup({
+        layout: this.layout,
+        entries: [
+          { binding: 0, resource: { buffer: resources.get(data.reconstructedDepth) as GPUBuffer } },
+          { binding: 1, resource: resolveTextureView(resources.get(data.dilatedMotion)) },
+          { binding: 2, resource: resolveTextureView(resources.get(data.dilatedDepth)) },
+          { binding: 3, resource: resolveTextureView(resources.get(data.reactiveMask)) },
+          { binding: 4, resource: resolveTextureView(resources.get(data.transparencyMask)) },
+          { binding: 5, resource: resolveTextureView(resources.get(data.previousAccumulation)) },
+          { binding: 6, resource: resolveTextureView(resources.get(data.shadingChange)) },
+          { binding: 7, resource: resolveTextureView(resources.get(data.currentLuma)) },
+          { binding: 8, resource: resolveTextureView(resources.get(data.exposure)) },
+          { binding: 9, resource: this.sampler },
+          { binding: 10, resource: { buffer: resources.get(data.constants) as GPUBuffer } },
+          { binding: 11, resource: resolveTextureView(resources.get(masks)) },
+          { binding: 12, resource: locks },
+          { binding: 13, resource: resolveTextureView(resources.get(data.currentAccumulation)) },
+        ],
+      });
       const pass = command.beginComputePass({ label: "FSR3 Prepare Reactivity" });
       pass.setPipeline(this.pipeline);
       pass.setBindGroup(0, bind);
@@ -273,18 +314,35 @@ export class Fsr3PrepareReactivityPass {
       pass.end();
     });
     const masks = builder.create("FSR3/dilated reactive masks", {
-      kind: "transient_texture", width: input.width, height: input.height,
-      format: "rgba8unorm", domain: "internal-full",
-      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
+      kind: "transient_texture",
+      width: input.width,
+      height: input.height,
+      format: "rgba8unorm",
+      domain: "internal-full",
+      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
     });
     const newLocks = builder.create("FSR3/new locks", {
-      kind: "transient_texture", width: input.outputWidth, height: input.outputHeight,
-      format: "r8unorm", domain: "output-full",
-      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
+      kind: "transient_texture",
+      width: input.outputWidth,
+      height: input.outputHeight,
+      format: "r8unorm",
+      domain: "output-full",
+      usage:
+        GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
     });
-    for (const resource of [input.reconstructedDepth, input.dilatedMotion, input.dilatedDepth,
-      input.reactiveMask, input.transparencyMask, input.previousAccumulation,
-      input.shadingChange, input.currentLuma, input.exposure, input.constants]) builder.read(resource);
+    for (const resource of [
+      input.reconstructedDepth,
+      input.dilatedMotion,
+      input.dilatedDepth,
+      input.reactiveMask,
+      input.transparencyMask,
+      input.previousAccumulation,
+      input.shadingChange,
+      input.currentLuma,
+      input.exposure,
+      input.constants,
+    ])
+      builder.read(resource);
     const accumulation = builder.write(input.currentAccumulation);
     return { masks, newLocks, accumulation };
   }

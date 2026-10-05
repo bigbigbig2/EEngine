@@ -12,12 +12,7 @@ export interface EnvSampler2D {
   data: ArrayLike<number>;
 }
 
-function octahedralToDirection(
-  out: Float32Array,
-  offset: number,
-  u: number,
-  v: number
-): void {
+function octahedralToDirection(out: Float32Array, offset: number, u: number, v: number): void {
   let s = u;
   let a = v;
   const i = Math.abs(s);
@@ -42,9 +37,7 @@ export function estimateSunDirection(e: EnvSampler2D): Float32Array {
   for (let p = 0; p < i; p++) {
     const base = p * s;
     const y =
-      0.2126 * (r[base] as number) +
-      0.7152 * (r[base + 1] as number) +
-      0.0722 * (r[base + 2] as number);
+      0.2126 * (r[base] as number) + 0.7152 * (r[base + 1] as number) + 0.0722 * (r[base + 2] as number);
     if (y > a) a = y;
   }
   const o = 0.95 * a;
@@ -57,16 +50,9 @@ export function estimateSunDirection(e: EnvSampler2D): Float32Array {
     for (let col = 0; col < t; col++) {
       const base = (row * t + col) * s;
       const f =
-        0.2126 * (r[base] as number) +
-        0.7152 * (r[base + 1] as number) +
-        0.0722 * (r[base + 2] as number);
+        0.2126 * (r[base] as number) + 0.7152 * (r[base + 1] as number) + 0.0722 * (r[base + 2] as number);
       if (f < o) continue;
-      octahedralToDirection(
-        l,
-        0,
-        ((col + 0.5) / t) * 2 - 1,
-        ((row + 0.5) / n) * 2 - 1
-      );
+      octahedralToDirection(l, 0, ((col + 0.5) / t) * 2 - 1, ((row + 0.5) / n) * 2 - 1);
       _ += l[0]! * f;
       c += l[2]! * f;
       d += l[1]! * f;
@@ -101,9 +87,7 @@ export async function load_environment_avif(url: string): Promise<{
 }> {
   const t = await fetch(url);
   if (!t.ok) {
-    throw new Error(
-      `Failed to fetch environment AVIF: ${t.status} ${t.statusText}`
-    );
+    throw new Error(`Failed to fetch environment AVIF: ${t.status} ${t.statusText}`);
   }
   const n = await t.arrayBuffer();
 

@@ -2,13 +2,8 @@
  * MeshletTypes：负责几何数据、Meshlet 或空间结构处理。
  */
 
-export function encode_meshlet_element(
-  meshlet_id: number,
-  local_tri: number
-): number {
-  return (
-    (((meshlet_id >>> 0) & 0x00ffffff) << 8) | ((local_tri >>> 0) & 0xff)
-  ) >>> 0;
+export function encode_meshlet_element(meshlet_id: number, local_tri: number): number {
+  return ((((meshlet_id >>> 0) & 0x00ffffff) << 8) | ((local_tri >>> 0) & 0xff)) >>> 0;
 }
 
 export function decode_meshlet_element(packed: number): {
@@ -18,7 +13,7 @@ export function decode_meshlet_element(packed: number): {
   const p = packed >>> 0;
   return {
     meshlet_id: p >>> 8,
-    local_tri: p & 0xff
+    local_tri: p & 0xff,
   };
 }
 

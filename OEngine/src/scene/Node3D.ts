@@ -67,11 +67,7 @@ export class Node3D {
   }
 
   set position(v: Vec3 | ArrayLike<number>) {
-    this.transform_local.position.set(
-      v[0] as number,
-      v[1] as number,
-      v[2] as number
-    );
+    this.transform_local.position.set(v[0] as number, v[1] as number, v[2] as number);
   }
 
   copy(other: Node3D): void {
@@ -100,10 +96,7 @@ export class Node3D {
     if (this.parent === null) {
       this.transform_global.copy(this.transform_local);
     } else {
-      this.transform_global.multiplyTransforms(
-        this.parent.transform_global,
-        this.transform_local
-      );
+      this.transform_global.multiplyTransforms(this.parent.transform_global, this.transform_local);
     }
     for (const c of this.children) c.updateMatrices();
   }
@@ -141,11 +134,7 @@ export class Node3D {
       return;
     }
     // 在解除旧 parent 前完成校验；失败的 reparent 不得留下半拆状态。
-    for (
-      let ancestor: Node3D | null = parent;
-      ancestor !== null;
-      ancestor = ancestor.parent
-    ) {
+    for (let ancestor: Node3D | null = parent; ancestor !== null; ancestor = ancestor.parent) {
       if (ancestor === this) {
         throw new Error("Can't create a scene hierarchy cycle");
       }
@@ -160,7 +149,7 @@ export class Node3D {
     this.traverse((node) => {
       previousGlobals.push({
         node,
-        matrix: Float32Array.from(node.transform_global.matrix)
+        matrix: Float32Array.from(node.transform_global.matrix),
       });
     });
     const oldIndex = oldParent.children.indexOf(this);
@@ -175,7 +164,7 @@ export class Node3D {
       node: this,
       oldParent,
       newParent: parent,
-      previousGlobals
+      previousGlobals,
     });
     // 新 Scene（跨 Scene reparent）通过目标 parent 的 attach 信号注册子树；
     // 同 Scene 中 registerSubtree 会看到节点已注册，因此不会产生结构 dirty。

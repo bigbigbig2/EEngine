@@ -48,7 +48,7 @@ export function resolveFrameJitter(
   temporalEnabled: boolean,
   nssEnabled: boolean,
   taaJitter: readonly [number, number],
-  nssJitter: readonly [number, number]
+  nssJitter: readonly [number, number],
 ): readonly [number, number] {
   if (nssEnabled) return nssJitter;
   return temporalEnabled ? taaJitter : ZERO_FRAME_JITTER;
@@ -58,15 +58,14 @@ export function recommendedTaaJitterSequenceSize(
   renderWidth: number,
   renderHeight: number,
   outputWidth: number,
-  outputHeight: number
+  outputHeight: number,
 ): number {
   const ratio = Math.max(1, outputWidth / Math.max(1, renderWidth));
   const normalized = Math.min(1, Math.max(0, ratio - 1));
   const base = 16 + (4 - 16) * normalized;
   const areaRatio = Math.max(
     1,
-    (outputWidth / Math.max(1, renderWidth)) *
-      (outputHeight / Math.max(1, renderHeight))
+    (outputWidth / Math.max(1, renderWidth)) * (outputHeight / Math.max(1, renderHeight)),
   );
   return Math.ceil(base * areaRatio);
 }

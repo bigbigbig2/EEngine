@@ -35,12 +35,12 @@ export function summarizeProfileSeries(values: readonly number[]): ProfileSeries
     mean: sum / sorted.length,
     p50: nearestRank(sorted, 0.5),
     p95: nearestRank(sorted, 0.95),
-    p99: nearestRank(sorted, 0.99)
+    p99: nearestRank(sorted, 0.99),
   };
 }
 
 export function summarizeMetricCoverage(
-  samples: readonly Pick<MetricSample, "availability">[]
+  samples: readonly Pick<MetricSample, "availability">[],
 ): ProfileCoverageSummary {
   const counts: Record<MetricSampleAvailability, number> = {
     available: 0,
@@ -49,7 +49,7 @@ export function summarizeMetricCoverage(
     pending: 0,
     unsupported: 0,
     invalid: 0,
-    dropped: 0
+    dropped: 0,
   };
   for (const sample of samples) counts[sample.availability]++;
   const total = samples.length;
@@ -60,7 +60,7 @@ export function summarizeMetricCoverage(
     unsupported: counts.unsupported,
     invalid: counts.invalid,
     dropped: counts.dropped,
-    availableRatio: total === 0 ? 0 : counts.available / total
+    availableRatio: total === 0 ? 0 : counts.available / total,
   };
 }
 

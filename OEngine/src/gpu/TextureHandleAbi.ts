@@ -21,10 +21,11 @@ export function encodeTextureHandle(slot: number, generation: number): number {
     throw new RangeError(`Texture handle generation ${generation} is outside the usable range`);
   }
   return (
-    (TEXTURE_HANDLE_ABI_VERSION << TEXTURE_HANDLE_VERSION_SHIFT) |
-    (generation << TEXTURE_HANDLE_GENERATION_SHIFT) |
-    slot
-  ) >>> 0;
+    ((TEXTURE_HANDLE_ABI_VERSION << TEXTURE_HANDLE_VERSION_SHIFT) |
+      (generation << TEXTURE_HANDLE_GENERATION_SHIFT) |
+      slot) >>>
+    0
+  );
 }
 
 export function decodeTextureHandle(value: number): TextureHandle | null {

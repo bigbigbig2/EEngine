@@ -34,17 +34,13 @@ export interface VisibilityWorkSet {
   readonly meshletWorkCandidate: PreparedMeshletWorkCandidate | null;
 }
 
-export function visibilityWorkSetKey(
-  input: VisibilityWorkSetKey
-): VisibilityWorkSetKey {
+export function visibilityWorkSetKey(input: VisibilityWorkSetKey): VisibilityWorkSetKey {
   return Object.freeze({ ...input, frameGeometryBudget: Object.freeze({ ...input.frameGeometryBudget }) });
 }
 
-export function sameVisibilityWorkSetKey(
-  left: VisibilityWorkSetKey,
-  right: VisibilityWorkSetKey
-): boolean {
-  return left.runtime === right.runtime &&
+export function sameVisibilityWorkSetKey(left: VisibilityWorkSetKey, right: VisibilityWorkSetKey): boolean {
+  return (
+    left.runtime === right.runtime &&
     left.assetEpoch === right.assetEpoch &&
     left.sceneResourceEpoch === right.sceneResourceEpoch &&
     left.instanceBegin === right.instanceBegin &&
@@ -63,7 +59,8 @@ export function sameVisibilityWorkSetKey(
     left.frameGeometryBudget.dictionaryCapacity === right.frameGeometryBudget.dictionaryCapacity &&
     left.frameGeometryBudget.coefficientCapacity === right.frameGeometryBudget.coefficientCapacity &&
     left.frameGeometryBudget.probeLimit === right.frameGeometryBudget.probeLimit &&
-    left.frameGeometryBudget.maxBytes === right.frameGeometryBudget.maxBytes;
+    left.frameGeometryBudget.maxBytes === right.frameGeometryBudget.maxBytes
+  );
 }
 
 export function visibilityWorkSet(input: VisibilityWorkSet): VisibilityWorkSet {

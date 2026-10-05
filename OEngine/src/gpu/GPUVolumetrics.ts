@@ -2,19 +2,11 @@
  * GPUVolumetrics：负责 GPU 资源、数据上传或 GPU 驱动渲染基础设施。
  */
 
-import {
-  WGSL_f32,
-  WGSL_mat4x4f,
-  WGSL_u32,
-  WGSL_vec3f
-} from "../core/WebGPUTypes.js";
+import { WGSL_f32, WGSL_mat4x4f, WGSL_u32, WGSL_vec3f } from "../core/WebGPUTypes.js";
 import { StructType } from "../core/WgslStruct.js";
 import { writeWgslToBuffer } from "../core/WgslBufferIO.js";
 import { mat4Invert } from "../core/math/Mat4.js";
-import type {
-  ParticipatingMediaVolume,
-  SceneVolumetrics
-} from "../scene/Scene.js";
+import type { ParticipatingMediaVolume, SceneVolumetrics } from "../scene/Scene.js";
 import { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import { GPUIndexedRecordTable } from "./GPUIndexedRecordTable.js";
 import { GPUTypedBuffer } from "./GPUTypedBuffer.js";
@@ -24,9 +16,9 @@ export const GPU_VOLUMETRIC_PARTICLE_TYPE = StructType.from(
     scattering: WGSL_vec3f,
     extinction: WGSL_vec3f,
     diameter_micron: WGSL_f32,
-    g: WGSL_f32
+    g: WGSL_f32,
   },
-  "GPUVolumetricParticleSpec"
+  "GPUVolumetricParticleSpec",
 );
 
 export const GPU_VOLUMETRIC_INSTANCE_TYPE = StructType.from(
@@ -35,20 +27,18 @@ export const GPU_VOLUMETRIC_INSTANCE_TYPE = StructType.from(
     transform: WGSL_mat4x4f,
     transform_inverse: WGSL_mat4x4f,
     fade_distance: WGSL_f32,
-    density: WGSL_f32
+    density: WGSL_f32,
   },
-  "GPUVolumetricInstance"
+  "GPUVolumetricInstance",
 );
 
 export const GPU_VOLUMETRIC_METADATA_TYPE = StructType.from(
   { instance_count: WGSL_u32 },
-  "GPUVolumetricMetadata"
+  "GPUVolumetricMetadata",
 );
 
-export const GPU_VOLUMETRIC_RECORD_BYTES =
-  GPU_VOLUMETRIC_INSTANCE_TYPE.aligned_size;
-export const GPU_VOLUMETRIC_METADATA_BYTES =
-  GPU_VOLUMETRIC_METADATA_TYPE.size;
+export const GPU_VOLUMETRIC_RECORD_BYTES = GPU_VOLUMETRIC_INSTANCE_TYPE.aligned_size;
+export const GPU_VOLUMETRIC_METADATA_BYTES = GPU_VOLUMETRIC_METADATA_TYPE.size;
 export const GPU_VOLUMETRICS_UPDATE_LABEL = "volumetrics update";
 
 export type GPUVolumetricRecord = {
@@ -67,14 +57,9 @@ export type GPUVolumetricRecord = {
 export function packGPUVolumetricRecord(
   value: GPUVolumetricRecord,
   target: ArrayBuffer,
-  byteOffset = 0
+  byteOffset = 0,
 ): void {
-  writeWgslToBuffer(
-    value,
-    GPU_VOLUMETRIC_INSTANCE_TYPE,
-    target,
-    byteOffset
-  );
+  writeWgslToBuffer(value, GPU_VOLUMETRIC_INSTANCE_TYPE, target, byteOffset);
 }
 
 export class GPUVolumetrics {
@@ -100,13 +85,13 @@ export class GPUVolumetrics {
       device,
       type: GPU_VOLUMETRIC_INSTANCE_TYPE,
       recordSizeBytes: GPU_VOLUMETRIC_RECORD_BYTES,
-      pack: packGPUVolumetricRecord
+      pack: packGPUVolumetricRecord,
     });
     this.metadataBuffer = GPUTypedBuffer.create({
       label: "",
       device,
       type: GPU_VOLUMETRIC_METADATA_TYPE,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
   }
 
@@ -118,10 +103,7 @@ export class GPUVolumetrics {
       this.queueVolume(index, volume, transformInverse);
     });
     this.gpuTable.update(command);
-    this.metadataBuffer.upload(
-      { instance_count: this.source.volumes.length },
-      this.device.queue
-    );
+    this.metadataBuffer.upload({ instance_count: this.source.volumes.length }, this.device.queue);
     this.version = this.source.version;
     return true;
   }
@@ -130,23 +112,19 @@ export class GPUVolumetrics {
     this.gpuTable.destroy();
   }
 
-  private queueVolume(
-    index: number,
-    volume: ParticipatingMediaVolume,
-    transformInverse: Float32Array
-  ): void {
+  private queueVolume(index: number, volume: ParticipatingMediaVolume, transformInverse: Float32Array): void {
     mat4Invert(transformInverse, volume.transform.matrix);
     this.gpuTable.set(index, {
       particle_spec: {
         scattering: volume.particle_spec.scattering,
         extinction: volume.particle_spec.extinction,
         diameter_micron: 2 * volume.particle_spec.radius * 1e6,
-        g: volume.particle_spec.g
+        g: volume.particle_spec.g,
       },
       transform: volume.transform.matrix,
       transform_inverse: transformInverse,
       fade_distance: volume.fade_distance,
-      density: volume.density
+      density: volume.density,
     });
   }
 }

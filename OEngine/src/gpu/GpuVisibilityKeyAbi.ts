@@ -16,10 +16,8 @@ export const GPU_VISIBILITY_KEY_LOCAL_PRIMITIVE_SHIFT = 24;
 export const GPU_VISIBILITY_KEY_LOCAL_PRIMITIVE_MASK = 0xff000000;
 /** Cooker/meshlet ABI ceiling is 128 triangles, indexed 0..127. */
 export const GPU_VISIBILITY_KEY_MAX_LOCAL_PRIMITIVE = 127;
-export const GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_SLOT =
-  GPU_VISIBILITY_KEY_MESHLET_WORK_SLOT_MASK;
-export const GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_CAPACITY =
-  GPU_VISIBILITY_KEY_MESHLET_WORK_SLOT_MASK + 1;
+export const GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_SLOT = GPU_VISIBILITY_KEY_MESHLET_WORK_SLOT_MASK;
+export const GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_CAPACITY = GPU_VISIBILITY_KEY_MESHLET_WORK_SLOT_MASK + 1;
 /** V2 currently binds exactly one queue partition. */
 export const GPU_VISIBILITY_KEY_PARTITION = 0;
 export const GPU_VISIBILITY_KEY_PARTITION_COUNT = 1;
@@ -34,22 +32,22 @@ export const GPU_VISIBILITY_KEY_SCHEMA = Object.freeze({
       bitOffset: 0,
       bitCount: GPU_VISIBILITY_KEY_MESHLET_WORK_SLOT_BITS,
       mask: GPU_VISIBILITY_KEY_MESHLET_WORK_SLOT_MASK,
-      maxValue: GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_SLOT
+      maxValue: GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_SLOT,
     }),
     Object.freeze({
       name: "localPrimitive" as const,
       bitOffset: GPU_VISIBILITY_KEY_LOCAL_PRIMITIVE_SHIFT,
       bitCount: GPU_VISIBILITY_KEY_LOCAL_PRIMITIVE_BITS,
       mask: GPU_VISIBILITY_KEY_LOCAL_PRIMITIVE_MASK,
-      maxValue: GPU_VISIBILITY_KEY_MAX_LOCAL_PRIMITIVE
-    })
+      maxValue: GPU_VISIBILITY_KEY_MAX_LOCAL_PRIMITIVE,
+    }),
   ]),
   empty: GPU_VISIBILITY_KEY_EMPTY,
   invalid: GPU_VISIBILITY_KEY_INVALID,
   maxMeshletWorkCapacity: GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_CAPACITY,
   partition: GPU_VISIBILITY_KEY_PARTITION,
   partitionCount: GPU_VISIBILITY_KEY_PARTITION_COUNT,
-  generation: "external-queue-header" as const
+  generation: "external-queue-header" as const,
 });
 
 export const GPU_VISIBILITY_KEY_WGSL = /* wgsl */ `
@@ -194,9 +192,10 @@ export interface GpuVisibilityBufferLimits {
 
 export function tryEncodeVisibilityKey(
   meshletWorkSlot: number,
-  localPrimitive: number
+  localPrimitive: number,
 ): Readonly<{ key: number; valid: boolean }> {
-  const valid = Number.isInteger(meshletWorkSlot) &&
+  const valid =
+    Number.isInteger(meshletWorkSlot) &&
     meshletWorkSlot >= 0 &&
     meshletWorkSlot <= GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_SLOT &&
     Number.isInteger(localPrimitive) &&
@@ -204,10 +203,9 @@ export function tryEncodeVisibilityKey(
     localPrimitive <= GPU_VISIBILITY_KEY_MAX_LOCAL_PRIMITIVE;
   return Object.freeze({
     key: valid
-      ? ((meshletWorkSlot |
-          (localPrimitive << GPU_VISIBILITY_KEY_LOCAL_PRIMITIVE_SHIFT)) >>> 0)
+      ? (meshletWorkSlot | (localPrimitive << GPU_VISIBILITY_KEY_LOCAL_PRIMITIVE_SHIFT)) >>> 0
       : GPU_VISIBILITY_KEY_INVALID,
-    valid
+    valid,
   });
 }
 
@@ -217,13 +215,13 @@ export function encodeVisibilityKey(meshletWorkSlot: number, localPrimitive: num
     meshletWorkSlot,
     0,
     GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_SLOT,
-    "VisibilityKey meshletWorkSlot"
+    "VisibilityKey meshletWorkSlot",
   );
   assertIntegerInRange(
     localPrimitive,
     0,
     GPU_VISIBILITY_KEY_MAX_LOCAL_PRIMITIVE,
-    "VisibilityKey localPrimitive"
+    "VisibilityKey localPrimitive",
   );
   return tryEncodeVisibilityKey(meshletWorkSlot, localPrimitive).key;
 }
@@ -232,14 +230,13 @@ export function decodeVisibilityKey(key: number): VisibilityKeyDecodeResult {
   assertU32(key, "VisibilityKey");
   if (key === GPU_VISIBILITY_KEY_EMPTY) return Object.freeze({ kind: "empty" });
   const localPrimitive = key >>> GPU_VISIBILITY_KEY_LOCAL_PRIMITIVE_SHIFT;
-  if (key === GPU_VISIBILITY_KEY_INVALID ||
-      localPrimitive > GPU_VISIBILITY_KEY_MAX_LOCAL_PRIMITIVE) {
+  if (key === GPU_VISIBILITY_KEY_INVALID || localPrimitive > GPU_VISIBILITY_KEY_MAX_LOCAL_PRIMITIVE) {
     return Object.freeze({ kind: "invalid", key });
   }
   return Object.freeze({
     kind: "valid",
     meshletWorkSlot: key & GPU_VISIBILITY_KEY_MESHLET_WORK_SLOT_MASK,
-    localPrimitive
+    localPrimitive,
   });
 }
 
@@ -255,14 +252,16 @@ export function isVisibilityKeyValid(key: number): boolean {
 export function isVisibilityKeyContextValid(
   visibilityGeneration: number,
   queueGeneration: number,
-  partition: number
+  partition: number,
 ): boolean {
   assertU32(visibilityGeneration, "VisibilityKey generation");
   assertU32(queueGeneration, "MeshletWork generation");
   assertU32(partition, "VisibilityKey partition");
-  return visibilityGeneration !== 0 &&
+  return (
+    visibilityGeneration !== 0 &&
     visibilityGeneration === queueGeneration &&
-    partition === GPU_VISIBILITY_KEY_PARTITION;
+    partition === GPU_VISIBILITY_KEY_PARTITION
+  );
 }
 
 /** CPU oracle for VisibilityKey V2 plus its external queue lifetime context. */
@@ -270,7 +269,7 @@ export function resolveVisibilityKeyReference(
   key: number,
   meshletWorkRecords: readonly GpuMeshletRasterWorkCpu[],
   keyContext: VisibilityKeyQueueContext,
-  queueContext: VisibilityKeyQueueContext
+  queueContext: VisibilityKeyQueueContext,
 ): VisibilityKeyLookupResult {
   const decoded = decodeVisibilityKey(key);
   if (decoded.kind === "empty") return decoded;
@@ -279,28 +278,42 @@ export function resolveVisibilityKeyReference(
   }
   const identity = {
     meshletWorkSlot: decoded.meshletWorkSlot,
-    localPrimitive: decoded.localPrimitive
+    localPrimitive: decoded.localPrimitive,
   };
-  if (keyContext.partition !== GPU_VISIBILITY_KEY_PARTITION ||
-      queueContext.partition !== keyContext.partition) {
+  if (
+    keyContext.partition !== GPU_VISIBILITY_KEY_PARTITION ||
+    queueContext.partition !== keyContext.partition
+  ) {
     return Object.freeze({
-      kind: "invalid", key, ...identity, reason: "unsupported-partition" as const
+      kind: "invalid",
+      key,
+      ...identity,
+      reason: "unsupported-partition" as const,
     });
   }
   if (keyContext.generation === 0 || queueContext.generation !== keyContext.generation) {
     return Object.freeze({
-      kind: "invalid", key, ...identity, reason: "generation-mismatch" as const
+      kind: "invalid",
+      key,
+      ...identity,
+      reason: "generation-mismatch" as const,
     });
   }
   const meshletWork = meshletWorkRecords[decoded.meshletWorkSlot];
   if (meshletWork === undefined) {
     return Object.freeze({
-      kind: "invalid", key, ...identity, reason: "meshlet-work-out-of-range" as const
+      kind: "invalid",
+      key,
+      ...identity,
+      reason: "meshlet-work-out-of-range" as const,
     });
   }
   if (!isMeshletWorkValid(meshletWork)) {
     return Object.freeze({
-      kind: "invalid", key, ...identity, reason: "invalid-meshlet-work" as const
+      kind: "invalid",
+      key,
+      ...identity,
+      reason: "invalid-meshlet-work" as const,
     });
   }
   return Object.freeze({
@@ -308,18 +321,20 @@ export function resolveVisibilityKeyReference(
     key,
     ...identity,
     meshletWork,
-    context: Object.freeze({ ...queueContext })
+    context: Object.freeze({ ...queueContext }),
   });
 }
 
 function isMeshletWorkValid(work: GpuMeshletRasterWorkCpu): boolean {
-  return isU32(work.instanceSlot) &&
+  return (
+    isU32(work.instanceSlot) &&
     isU32(work.geometrySlot) &&
     isU32(work.meshletSlot) &&
     isU32(work.materialSlotOrRange) &&
     isU32(work.packedRasterFlags) &&
     isU32(work.packedProfileLod) &&
-    (work.packedProfileLod >>> 24) === GPU_VISIBILITY_KEY_PARTITION;
+    work.packedProfileLod >>> 24 === GPU_VISIBILITY_KEY_PARTITION
+  );
 }
 
 function isU32(value: number): boolean {
@@ -330,12 +345,7 @@ function assertU32(value: number, label: string): void {
   if (!isU32(value)) throw new RangeError(`${label} must be a u32`);
 }
 
-function assertIntegerInRange(
-  value: number,
-  minimum: number,
-  maximum: number,
-  label: string
-): void {
+function assertIntegerInRange(value: number, minimum: number, maximum: number, label: string): void {
   if (!Number.isInteger(value) || value < minimum || value > maximum) {
     throw new RangeError(`${label} must be an integer in [${minimum}, ${maximum}]`);
   }

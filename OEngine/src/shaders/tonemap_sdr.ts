@@ -6,7 +6,7 @@ import { GPU_SHADING_BIN_WGSL } from "../gpu/GpuShadingBinAbi.js";
 import {
   finalOutputBindingPlan,
   finalOutputInputWgsl,
-  type FinalOutputShaderOptions
+  type FinalOutputShaderOptions,
 } from "./final_output_input.js";
 
 export const TONEMAP_EXPOSURE_SIZE = 4;
@@ -110,5 +110,5 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 export const TONEMAP_SDR_WGSL = tonemapSdrWgsl({
   bloom: false,
   sharpening: false,
-  colorGrading: false
+  colorGrading: false,
 });

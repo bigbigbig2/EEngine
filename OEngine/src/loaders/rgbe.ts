@@ -84,7 +84,7 @@ function parseHeader(buf: PosBuf): RgbeHeader {
     gamma: 1,
     exposure: 1,
     width: 0,
-    height: 0
+    height: 0,
   };
 
   let line: string | false;
@@ -121,11 +121,7 @@ function parseHeader(buf: PosBuf): RgbeHeader {
   return a;
 }
 
-function decodeRleScanlines(
-  e: Uint8Array,
-  width: number,
-  height: number
-): Uint8Array {
+function decodeRleScanlines(e: Uint8Array, width: number, height: number): Uint8Array {
   const r = width;
   if (r < 8 || r > 32767 || e[0] !== 2 || e[1] !== 2 || (e[2]! & 128) !== 0) {
     return new Uint8Array(e);
@@ -179,12 +175,7 @@ function decodeRleScanlines(
   return s;
 }
 
-export function rgbeToFloat32(
-  src: Uint8Array,
-  srcOff: number,
-  dst: Float32Array,
-  dstOff: number
-): void {
+export function rgbeToFloat32(src: Uint8Array, srcOff: number, dst: Float32Array, dstOff: number): void {
   const s = Math.pow(2, src[srcOff + 3]! - 128) / 255;
   dst[dstOff + 0] = src[srcOff + 0]! * s;
   dst[dstOff + 1] = src[srcOff + 1]! * s;
@@ -192,12 +183,7 @@ export function rgbeToFloat32(
   dst[dstOff + 3] = 1;
 }
 
-export function rgbeToHalf(
-  src: Uint8Array,
-  srcOff: number,
-  dst: Uint16Array,
-  dstOff: number
-): void {
+export function rgbeToHalf(src: Uint8Array, srcOff: number, dst: Uint16Array, dstOff: number): void {
   const s = Math.pow(2, src[srcOff + 3]! - 128) / 255;
   dst[dstOff + 0] = floatToHalf(Math.min(src[srcOff + 0]! * s, 65504));
   dst[dstOff + 1] = floatToHalf(Math.min(src[srcOff + 1]! * s, 65504));
@@ -226,12 +212,7 @@ function frexpMantissa(e: number, expOut: Uint8Array, expOff: number): number {
   return a;
 }
 
-export function floatRgbToRgbe(
-  out: Uint8Array,
-  r: number,
-  g: number,
-  b: number
-): void {
+export function floatRgbToRgbe(out: Uint8Array, r: number, g: number, b: number): void {
   let s = r;
   if (g > s) s = g;
   if (b > s) s = b;
@@ -278,11 +259,7 @@ function writeRleChannel(out: number[], t: Uint8Array, n: number): void {
   }
 }
 
-export function encodeRgbe(
-  rgba: Float32Array,
-  width: number,
-  height: number
-): ArrayBuffer {
+export function encodeRgbe(rgba: Float32Array, width: number, height: number): ArrayBuffer {
   if (width < 8 || width > 32767) {
     throw new Error("RGBE_WritePixels unsupported");
   }
@@ -339,7 +316,7 @@ export function decodeRgbe(buffer: ArrayBuffer): RgbeDecodeResult {
     header: header.string,
     gamma: header.gamma,
     exposure: header.exposure,
-    type: "float32"
+    type: "float32",
   };
 }
 
@@ -362,6 +339,6 @@ export function decodeRgbeHalf(buffer: ArrayBuffer): RgbeDecodeHalfResult {
     header: header.string,
     gamma: header.gamma,
     exposure: header.exposure,
-    type: "float16"
+    type: "float16",
   };
 }

@@ -1,6 +1,11 @@
 import type { ResourceAccounting, ResourceHandle } from "../debug/profiling/ResourceAccounting.js";
-import { frameGeometryArenaHeader, frameGeometryArenaLayout, type FrameGeometryArenaBudget,
-  type FrameGeometryArenaLayout, type FrameGeometryArenaRegion } from "../gpu/GpuFrameGeometryArenaAbi.js";
+import {
+  frameGeometryArenaHeader,
+  frameGeometryArenaLayout,
+  type FrameGeometryArenaBudget,
+  type FrameGeometryArenaLayout,
+  type FrameGeometryArenaRegion,
+} from "../gpu/GpuFrameGeometryArenaAbi.js";
 import type { GpuStorageRange } from "../gpu/GpuStorageRange.js";
 
 export interface PreparedFrameGeometryArena {
@@ -16,7 +21,12 @@ export interface PreparedFrameGeometryArena {
   readonly work: GpuStorageRange;
   readonly control: GpuStorageRange;
 }
-interface State { readonly metadata: GPUBuffer; readonly handle?: ResourceHandle; metadataPublished: boolean; readonly released: Set<() => void>; }
+interface State {
+  readonly metadata: GPUBuffer;
+  readonly handle?: ResourceHandle;
+  metadataPublished: boolean;
+  readonly released: Set<() => void>;
+}
 
 /** Sole physical owner. Borrowers never destroy subrange storage. Immutable
  * metadata is copied once per committed asset/workset publication, with the
@@ -24,36 +34,73 @@ interface State { readonly metadata: GPUBuffer; readonly handle?: ResourceHandle
 export class FrameGeometryArena {
   private readonly states = new Map<PreparedFrameGeometryArena, State>();
   private destroyed = false;
-  constructor(private readonly device: GPUDevice, private readonly accounting?: ResourceAccounting,
-    private readonly maxBytes = 256 * 1024 * 1024) {
-    if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) throw new RangeError("Invalid frame geometry owner budget");
+  constructor(
+    private readonly device: GPUDevice,
+    private readonly accounting?: ResourceAccounting,
+    private readonly maxBytes = 256 * 1024 * 1024,
+  ) {
+    if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0)
+      throw new RangeError("Invalid frame geometry owner budget");
     void device.lost.then(() => this.destroy());
   }
   get allocatedBytes(): number {
-    let bytes = 0; for (const p of this.states.keys()) bytes += p.layout.byteLength; return bytes;
+    let bytes = 0;
+    for (const p of this.states.keys()) bytes += p.layout.byteLength;
+    return bytes;
   }
-  prepare(metadata: GPUBuffer, metadataBytes: number, budget: FrameGeometryArenaBudget): PreparedFrameGeometryArena {
+  prepare(
+    metadata: GPUBuffer,
+    metadataBytes: number,
+    budget: FrameGeometryArenaBudget,
+  ): PreparedFrameGeometryArena {
     if (this.destroyed) throw new Error("Frame geometry arena owner is destroyed");
     const layout = frameGeometryArenaLayout(metadataBytes, budget, this.device.limits);
-    if ((metadata.usage & GPUBufferUsage.COPY_SRC) === 0 || metadata.size < metadataBytes ||
-      this.allocatedBytes + layout.byteLength > this.maxBytes) {
+    if (
+      (metadata.usage & GPUBufferUsage.COPY_SRC) === 0 ||
+      metadata.size < metadataBytes ||
+      this.allocatedBytes + layout.byteLength > this.maxBytes
+    ) {
       throw new RangeError("Frame geometry metadata source or cumulative owner budget is invalid");
     }
-    const buffer = this.device.createBuffer({ label: "Geometry shared frame arena", size: layout.byteLength,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC, mappedAtCreation: true });
+    const buffer = this.device.createBuffer({
+      label: "Geometry shared frame arena",
+      size: layout.byteLength,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+      mappedAtCreation: true,
+    });
     let handle: ResourceHandle | undefined;
     try {
-      new Uint32Array(buffer.getMappedRange(), layout.header.offset, 16).set(frameGeometryArenaHeader(layout, budget));
+      new Uint32Array(buffer.getMappedRange(), layout.header.offset, 16).set(
+        frameGeometryArenaHeader(layout, budget),
+      );
       buffer.unmap();
-      handle = this.accounting?.created({ kind: "buffer", category: "work-cache", owner: "Geometry/FrameGeometryArena", bytes: layout.byteLength,
-        label: "Geometry shared frame arena" });
+      handle = this.accounting?.created({
+        kind: "buffer",
+        category: "work-cache",
+        owner: "Geometry/FrameGeometryArena",
+        bytes: layout.byteLength,
+        label: "Geometry shared frame arena",
+      });
       const range = (r: FrameGeometryArenaRegion): GpuStorageRange => Object.freeze({ buffer, ...r });
-      const p = Object.freeze({ buffer, layout, budget: Object.freeze({ ...budget }), sourceDirectory: range(layout.sourceDirectory),
-        filteredDirectory: range(layout.filteredDirectory), clips: range(layout.clips), triangles: range(layout.triangles),
-        dictionary: range(layout.dictionary), coefficients: range(layout.coefficients), work: range(layout.work), control: range(layout.control) });
-      this.states.set(p, { metadata, handle, metadataPublished: false, released: new Set() }); return p;
+      const p = Object.freeze({
+        buffer,
+        layout,
+        budget: Object.freeze({ ...budget }),
+        sourceDirectory: range(layout.sourceDirectory),
+        filteredDirectory: range(layout.filteredDirectory),
+        clips: range(layout.clips),
+        triangles: range(layout.triangles),
+        dictionary: range(layout.dictionary),
+        coefficients: range(layout.coefficients),
+        work: range(layout.work),
+        control: range(layout.control),
+      });
+      this.states.set(p, { metadata, handle, metadataPublished: false, released: new Set() });
+      return p;
     } catch (error) {
-      buffer.destroy(); if (handle) this.accounting?.destroyed(handle); throw error;
+      buffer.destroy();
+      if (handle) this.accounting?.destroyed(handle);
+      throw error;
     }
   }
   /** Invoke the returned commit only after successful submission of this
@@ -62,17 +109,25 @@ export class FrameGeometryArena {
     const s = this.require(p);
     if (s.metadataPublished) return () => undefined;
     encoder.copyBufferToBuffer(s.metadata, 0, p.buffer, 0, p.layout.metadataBytes);
-    return () => { if (this.states.get(p) === s) s.metadataPublished = true; };
+    return () => {
+      if (this.states.get(p) === s) s.metadataPublished = true;
+    };
   }
-  metadataPublished(p: PreparedFrameGeometryArena): boolean { return this.require(p).metadataPublished; }
+  metadataPublished(p: PreparedFrameGeometryArena): boolean {
+    return this.require(p).metadataPublished;
+  }
   /** Borrowers retire alongside the arena after its final GPU consumer. */
   onReleased(p: PreparedFrameGeometryArena, callback: () => void): () => void {
     const callbacks = this.require(p).released;
-    callbacks.add(callback); return () => { callbacks.delete(callback); };
+    callbacks.add(callback);
+    return () => {
+      callbacks.delete(callback);
+    };
   }
   release(p: PreparedFrameGeometryArena): void {
     if (this.destroyed) return;
-    const s = this.require(p); this.states.delete(p);
+    const s = this.require(p);
+    this.states.delete(p);
     for (const callback of s.released) callback();
     p.buffer.destroy();
     if (s.handle) this.accounting?.destroyed(s.handle);
@@ -83,6 +138,8 @@ export class FrameGeometryArena {
     this.destroyed = true;
   }
   private require(p: PreparedFrameGeometryArena): State {
-    const s = this.states.get(p); if (!s) throw new Error("Frame geometry arena is stale or foreign"); return s;
+    const s = this.states.get(p);
+    if (!s) throw new Error("Frame geometry arena is stale or foreign");
+    return s;
   }
 }

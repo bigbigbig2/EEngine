@@ -39,7 +39,11 @@ interface WorkerSlot {
 }
 
 export class AssetWorkerPool {
-  private readonly queues: [QueueEntry<any, any>[], QueueEntry<any, any>[], QueueEntry<any, any>[]] = [[], [], []];
+  private readonly queues: [QueueEntry<any, any>[], QueueEntry<any, any>[], QueueEntry<any, any>[]] = [
+    [],
+    [],
+    [],
+  ];
   private readonly workers: WorkerSlot[] = [];
   private creatingWorkers = 0;
   private activeWorkers = 0;
@@ -61,9 +65,11 @@ export class AssetWorkerPool {
     if (this.disposed) return Promise.reject(new Error("AssetWorkerPool is disposed"));
     assertPositiveInteger(task.estimatedPeakBytes, "estimatedPeakBytes");
     if (task.estimatedPeakBytes > this.options.maxInFlightEstimatedBytes) {
-      return Promise.reject(new RangeError(
-        `Asset worker task requires ${task.estimatedPeakBytes} estimated bytes, budget is ${this.options.maxInFlightEstimatedBytes}`
-      ));
+      return Promise.reject(
+        new RangeError(
+          `Asset worker task requires ${task.estimatedPeakBytes} estimated bytes, budget is ${this.options.maxInFlightEstimatedBytes}`,
+        ),
+      );
     }
     if (task.priority !== 0 && task.priority !== 1 && task.priority !== 2) {
       return Promise.reject(new RangeError("Asset worker task priority must be 0, 1, or 2"));
@@ -77,7 +83,7 @@ export class AssetWorkerPool {
         task,
         resolve,
         reject,
-        abort: () => this.cancelEntry(entry)
+        abort: () => this.cancelEntry(entry),
       };
       task.signal?.addEventListener("abort", entry.abort, { once: true });
       this.queues[task.priority].push(entry);
@@ -92,7 +98,7 @@ export class AssetWorkerPool {
       inFlightEstimatedBytes: this.inFlightEstimatedBytes,
       peakInFlightEstimatedBytes: this.peakInFlightEstimatedBytes,
       queuedTasks: this.queuedCount(),
-      workerFailures: this.workerFailures
+      workerFailures: this.workerFailures,
     });
   }
 
@@ -122,36 +128,44 @@ export class AssetWorkerPool {
     for (const slot of this.workers) {
       if (!slot.busy) this.assign(slot);
     }
-    while (this.hasAdmissibleTask() &&
+    while (
+      this.hasAdmissibleTask() &&
       this.workers.length + this.creatingWorkers < this.options.maxWorkers &&
-      this.creatingWorkers < this.queuedCount()) {
+      this.creatingWorkers < this.queuedCount()
+    ) {
       this.creatingWorkers++;
-      void Promise.resolve(this.options.createWorker()).then((worker) => {
-        this.creatingWorkers--;
-        if (this.disposed) {
-          worker.terminate();
-          return;
-        }
-        const slot: WorkerSlot = { worker, busy: false, entry: null };
-        worker.onmessage = (event: MessageEvent<unknown>) => this.finish(slot, event.data);
-        worker.onerror = (event: ErrorEvent) => {
-          event.preventDefault?.();
-          this.failWorker(slot, new Error(event.message || "Asset codec Worker failed"));
-        };
-        worker.onmessageerror = () => this.failWorker(slot, new Error("Asset codec Worker message deserialization failed"));
-        this.workers.push(slot);
-        this.assign(slot);
-        this.pump();
-      }, (error: unknown) => {
-        this.creatingWorkers--;
-        this.workerFailures++;
-        this.consecutiveWorkerFailures++;
-        if (this.consecutiveWorkerFailures >= (this.options.maxConsecutiveWorkerFailures ?? 3)) {
-          this.rejectAll(new Error(`Asset codec Worker initialization failed repeatedly: ${errorMessage(error)}`));
-        } else {
+      void Promise.resolve(this.options.createWorker()).then(
+        (worker) => {
+          this.creatingWorkers--;
+          if (this.disposed) {
+            worker.terminate();
+            return;
+          }
+          const slot: WorkerSlot = { worker, busy: false, entry: null };
+          worker.onmessage = (event: MessageEvent<unknown>) => this.finish(slot, event.data);
+          worker.onerror = (event: ErrorEvent) => {
+            event.preventDefault?.();
+            this.failWorker(slot, new Error(event.message || "Asset codec Worker failed"));
+          };
+          worker.onmessageerror = () =>
+            this.failWorker(slot, new Error("Asset codec Worker message deserialization failed"));
+          this.workers.push(slot);
+          this.assign(slot);
           this.pump();
-        }
-      });
+        },
+        (error: unknown) => {
+          this.creatingWorkers--;
+          this.workerFailures++;
+          this.consecutiveWorkerFailures++;
+          if (this.consecutiveWorkerFailures >= (this.options.maxConsecutiveWorkerFailures ?? 3)) {
+            this.rejectAll(
+              new Error(`Asset codec Worker initialization failed repeatedly: ${errorMessage(error)}`),
+            );
+          } else {
+            this.pump();
+          }
+        },
+      );
     }
   }
 
@@ -164,10 +178,7 @@ export class AssetWorkerPool {
     this.activeWorkers++;
     this.peakActiveWorkers = Math.max(this.peakActiveWorkers, this.activeWorkers);
     this.inFlightEstimatedBytes += entry.task.estimatedPeakBytes;
-    this.peakInFlightEstimatedBytes = Math.max(
-      this.peakInFlightEstimatedBytes,
-      this.inFlightEstimatedBytes
-    );
+    this.peakInFlightEstimatedBytes = Math.max(this.peakInFlightEstimatedBytes, this.inFlightEstimatedBytes);
     try {
       slot.worker.postMessage(entry.task.request, [...entry.task.transfer]);
     } catch (error) {
@@ -245,7 +256,10 @@ export class AssetWorkerPool {
     for (const queue of this.queues) {
       const entry = queue[0];
       if (entry === undefined) continue;
-      if (this.inFlightEstimatedBytes + entry.task.estimatedPeakBytes <= this.options.maxInFlightEstimatedBytes) {
+      if (
+        this.inFlightEstimatedBytes + entry.task.estimatedPeakBytes <=
+        this.options.maxInFlightEstimatedBytes
+      ) {
         return queue.shift()!;
       }
     }
@@ -255,8 +269,10 @@ export class AssetWorkerPool {
   private hasAdmissibleTask(): boolean {
     return this.queues.some((queue) => {
       const entry = queue[0];
-      return entry !== undefined &&
-        this.inFlightEstimatedBytes + entry.task.estimatedPeakBytes <= this.options.maxInFlightEstimatedBytes;
+      return (
+        entry !== undefined &&
+        this.inFlightEstimatedBytes + entry.task.estimatedPeakBytes <= this.options.maxInFlightEstimatedBytes
+      );
     });
   }
 
@@ -275,7 +291,8 @@ export class AssetWorkerPool {
 }
 
 function assertPositiveInteger(value: number, name: string): void {
-  if (!Number.isSafeInteger(value) || value <= 0) throw new RangeError(`${name} must be a positive safe integer`);
+  if (!Number.isSafeInteger(value) || value <= 0)
+    throw new RangeError(`${name} must be a positive safe integer`);
 }
 
 function abortError(): Error {

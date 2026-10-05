@@ -7,7 +7,7 @@ import {
   buildVirtualGeometrySceneSourceV1,
   type VirtualGeometrySceneInstanceV1,
   type VirtualGeometrySceneSourceOptionsV1,
-  type VirtualGeometrySceneSourceResultV1
+  type VirtualGeometrySceneSourceResultV1,
 } from "../geometry-product/VirtualGeometrySceneSourceV1.js";
 import type { WebCookSceneCatalogSnapshot } from "./WebCookClient.js";
 import type { VirtualGeometryGeometryProfile } from "../../gpu/GpuRenderWorld.js";
@@ -46,7 +46,10 @@ export interface WebCookSceneMappingTiming {
   readonly imageDecodeMs: number;
 }
 export type WebCookSceneSourceResult = VirtualGeometrySceneSourceResultV1;
-export type WebCookImageReader = (imageIndex: number, signal?: AbortSignal) => Promise<{ readonly bytes: ArrayBuffer; readonly mimeType?: string }>;
+export type WebCookImageReader = (
+  imageIndex: number,
+  signal?: AbortSignal,
+) => Promise<{ readonly bytes: ArrayBuffer; readonly mimeType?: string }>;
 
 /**
  * Web Runtime Cooker producer adapter: maps a Cook catalog revision plus the
@@ -59,17 +62,23 @@ export type WebCookImageReader = (imageIndex: number, signal?: AbortSignal) => P
 export function createWebCookSceneSource(
   catalog: WebCookSceneCatalogSnapshot,
   descriptor: Readonly<Pick<GeometryProductDescriptorV1, "assetRecords">>,
-  options: WebCookSceneSourceOptions = {}
+  options: WebCookSceneSourceOptions = {},
 ): WebCookSceneSourceResult {
   const assetCount = descriptor.assetRecords.byteLength / OEGPACK_V3_ASSET_STRIDE;
   if (assetCount === 0) throw new Error("The Web Cook Product asset dictionary must not be empty");
-  const catalogIndices = options.sceneAssetIndices === undefined
-    ? Array.from({ length: assetCount }, (_, index) => index)
-    : [...options.sceneAssetIndices];
-  if (catalogIndices.length !== assetCount || catalogIndices.some(index => !Number.isSafeInteger(index) || index < 0 || index >= catalog.primitives.length)) {
+  const catalogIndices =
+    options.sceneAssetIndices === undefined
+      ? Array.from({ length: assetCount }, (_, index) => index)
+      : [...options.sceneAssetIndices];
+  if (
+    catalogIndices.length !== assetCount ||
+    catalogIndices.some(
+      (index) => !Number.isSafeInteger(index) || index < 0 || index >= catalog.primitives.length,
+    )
+  ) {
     throw new Error("The Web Cook Product sceneAssetIndices do not identify catalog primitives");
   }
-  const instanceByNode = new Map(catalog.instances.map(item => [item.nodeIndex, item]));
+  const instanceByNode = new Map(catalog.instances.map((item) => [item.nodeIndex, item]));
   const materials: StandardShadeMaterial[] = [];
   const materialForIndex = new Map<number, StandardShadeMaterial>();
   const materialFor = (index: number, value: Readonly<Record<string, unknown>>): number => {
@@ -85,8 +94,14 @@ export function createWebCookSceneSource(
       material.alpha_cutoff = finiteScalar(value.alphaCutoff, 0.5);
       material.is_unlit = value.unlit === true;
       material.draw_side = value.doubleSided === true ? ShadeDrawSide.Double : ShadeDrawSide.Front;
-      material.transparency_mode = value.alphaMode === "MASK" ? ShadeTransparencyMode.AlphaTested : value.alphaMode === "BLEND" ? ShadeTransparencyMode.Transparent : ShadeTransparencyMode.Opaque;
-      materialForIndex.set(key, material); materials[key] = material;
+      material.transparency_mode =
+        value.alphaMode === "MASK"
+          ? ShadeTransparencyMode.AlphaTested
+          : value.alphaMode === "BLEND"
+            ? ShadeTransparencyMode.Transparent
+            : ShadeTransparencyMode.Opaque;
+      materialForIndex.set(key, material);
+      materials[key] = material;
     }
     return key;
   };
@@ -101,15 +116,17 @@ export function createWebCookSceneSource(
       hasUv1: primitive.attributeSemantics.includes("TEXCOORD_1"),
       hasUv2: false,
       hasNormal: true,
-      hasTangent: primitive.attributeSemantics.includes("TANGENT")
+      hasTangent: primitive.attributeSemantics.includes("TANGENT"),
     });
     for (const nodeIndex of primitive.instanceNodeIndices) {
       const instance = instanceByNode.get(nodeIndex);
-      if (!instance) throw new Error(`Web Cook Product instance node ${nodeIndex} is missing from the GLB catalog`);
+      if (!instance)
+        throw new Error(`Web Cook Product instance node ${nodeIndex} is missing from the GLB catalog`);
       instances.push({ assetIndex, materialIndex, transform: Float32Array.from(instance.worldMatrix) });
     }
   }
-  for (let index = 0; index < materials.length; index++) if (!materials[index]) materials[index] = new StandardShadeMaterial();
+  for (let index = 0; index < materials.length; index++)
+    if (!materials[index]) materials[index] = new StandardShadeMaterial();
   return buildVirtualGeometrySceneSourceV1(descriptor.assetRecords, profiles, instances, materials, options);
 }
 
@@ -123,42 +140,70 @@ export async function createWebCookSceneSourceAsync(
   descriptor: Readonly<Pick<GeometryProductDescriptorV1, "assetRecords">>,
   readImage: WebCookImageReader,
   signal?: AbortSignal,
-  options: WebCookSceneSourceOptions = {}
+  options: WebCookSceneSourceOptions = {},
 ): Promise<WebCookSceneSourceResult> {
   const assetCount = descriptor.assetRecords.byteLength / OEGPACK_V3_ASSET_STRIDE;
   if (assetCount === 0) throw new Error("The Web Cook Product asset dictionary must not be empty");
   const catalogIndices = sceneAssetIndices(catalog, assetCount, options.sceneAssetIndices);
   if (options.geometryOnly || options.singleLitMaterial) {
     const material = new StandardShadeMaterial();
-    material.diffuse_color.set(0.04, 0.38, 0.30, 1);
+    material.diffuse_color.set(0.04, 0.38, 0.3, 1);
     material.is_unlit = !options.singleLitMaterial;
     material.draw_side = ShadeDrawSide.Double;
-    const { profiles, instances } = buildProfilesAndInstances(catalog, catalogIndices, catalogIndices.map(() => 0));
-    const result = buildVirtualGeometrySceneSourceV1(descriptor.assetRecords, profiles, instances, [material], options);
-    options.onMappingTiming?.({ textureCacheHits: 0, textureCacheMisses: 0, imageReadMs: 0, imageDecodeMs: 0 });
+    const { profiles, instances } = buildProfilesAndInstances(
+      catalog,
+      catalogIndices,
+      catalogIndices.map(() => 0),
+    );
+    const result = buildVirtualGeometrySceneSourceV1(
+      descriptor.assetRecords,
+      profiles,
+      instances,
+      [material],
+      options,
+    );
+    options.onMappingTiming?.({
+      textureCacheHits: 0,
+      textureCacheMisses: 0,
+      imageReadMs: 0,
+      imageDecodeMs: 0,
+    });
     return result;
   }
   const materialByIndex = new Map<number, StandardShadeMaterial>();
   const textureBySource = options.textureCache ?? new Map<string, Promise<ShadeTexture>>();
-  const timing = options.onMappingTiming ? { textureCacheHits: 0, textureCacheMisses: 0, imageReadMs: 0, imageDecodeMs: 0 } : undefined;
+  const timing = options.onMappingTiming
+    ? { textureCacheHits: 0, textureCacheMisses: 0, imageReadMs: 0, imageDecodeMs: 0 }
+    : undefined;
   const textureFor = (textureIndex: number, usage: "srgb" | "linear" | "normal"): Promise<ShadeTexture> => {
-    const info = catalog.textures.find(value => value.textureIndex === textureIndex);
+    const info = catalog.textures.find((value) => value.textureIndex === textureIndex);
     if (!info) throw new Error(`Web Cook material references missing texture ${textureIndex}`);
-    const imageInfo = catalog.images.find(value => value.imageIndex === info.sourceIndex);
-    if (!imageInfo) throw new Error(`Web Cook texture ${textureIndex} references missing image ${info.sourceIndex}`);
+    const imageInfo = catalog.images.find((value) => value.imageIndex === info.sourceIndex);
+    if (!imageInfo)
+      throw new Error(`Web Cook texture ${textureIndex} references missing image ${info.sourceIndex}`);
     const key = JSON.stringify([
-      info.sourceIndex, info.sampler.magFilter ?? null, info.sampler.minFilter ?? null,
-      info.sampler.wrapS ?? null, info.sampler.wrapT ?? null, usage
+      info.sourceIndex,
+      info.sampler.magFilter ?? null,
+      info.sampler.minFilter ?? null,
+      info.sampler.wrapS ?? null,
+      info.sampler.wrapT ?? null,
+      usage,
     ]);
     let pending = textureBySource.get(key);
     if (!pending) {
       if (timing) timing.textureCacheMisses++;
       const readStarted = timing ? performance.now() : 0;
-      pending = readImage(info.sourceIndex, signal).then(async payload => {
+      pending = readImage(info.sourceIndex, signal).then(async (payload) => {
         if (timing) timing.imageReadMs += performance.now() - readStarted;
-        if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : new DOMException("The operation was aborted", "AbortError");
-        const blob = new Blob([payload.bytes], { type: payload.mimeType ?? imageInfo.mimeType ?? "application/octet-stream" });
-        if (typeof createImageBitmap !== "function") throw new Error("Web Cook authored textures require createImageBitmap support");
+        if (signal?.aborted)
+          throw signal.reason instanceof Error
+            ? signal.reason
+            : new DOMException("The operation was aborted", "AbortError");
+        const blob = new Blob([payload.bytes], {
+          type: payload.mimeType ?? imageInfo.mimeType ?? "application/octet-stream",
+        });
+        if (typeof createImageBitmap !== "function")
+          throw new Error("Web Cook authored textures require createImageBitmap support");
         const decodeStarted = timing ? performance.now() : 0;
         const bitmap = await decodeWebCookImageBitmap(blob, options.maxImageDimension);
         if (timing) timing.imageDecodeMs += performance.now() - decodeStarted;
@@ -190,15 +235,41 @@ export async function createWebCookSceneSourceAsync(
     }
     if (!material.is_unlit) {
       const normal = value.normalTexture;
-      if (normal && typeof normal === "object") { const slot = normal as Readonly<Record<string, unknown>>; material.texture_normal = await textureFor(requireTextureIndex(slot, "normalTexture"), "normal"); applyUv(material, "normal", slot); material.normal_scale = finiteScalar(slot.normalScale, 1); }
+      if (normal && typeof normal === "object") {
+        const slot = normal as Readonly<Record<string, unknown>>;
+        material.texture_normal = await textureFor(requireTextureIndex(slot, "normalTexture"), "normal");
+        applyUv(material, "normal", slot);
+        material.normal_scale = finiteScalar(slot.normalScale, 1);
+      }
       const orm = value.metallicRoughnessTexture;
-      if (orm && typeof orm === "object") { const slot = orm as Readonly<Record<string, unknown>>; material.texture_orm = await textureFor(requireTextureIndex(slot, "metallicRoughnessTexture"), "linear"); applyUv(material, "orm", slot); }
+      if (orm && typeof orm === "object") {
+        const slot = orm as Readonly<Record<string, unknown>>;
+        material.texture_orm = await textureFor(
+          requireTextureIndex(slot, "metallicRoughnessTexture"),
+          "linear",
+        );
+        applyUv(material, "orm", slot);
+      }
       const occlusion = value.occlusionTexture;
-      if (occlusion && typeof occlusion === "object") { const slot = occlusion as Readonly<Record<string, unknown>>; material.texture_occlusion = await textureFor(requireTextureIndex(slot, "occlusionTexture"), "linear"); applyUv(material, "occlusion", slot); material.ambient_factors.a = finiteScalar(slot.occlusionStrength, 1); }
+      if (occlusion && typeof occlusion === "object") {
+        const slot = occlusion as Readonly<Record<string, unknown>>;
+        material.texture_occlusion = await textureFor(
+          requireTextureIndex(slot, "occlusionTexture"),
+          "linear",
+        );
+        applyUv(material, "occlusion", slot);
+        material.ambient_factors.a = finiteScalar(slot.occlusionStrength, 1);
+      }
       const emissive = value.emissiveTexture;
-      if (emissive && typeof emissive === "object") { const slot = emissive as Readonly<Record<string, unknown>>; material.texture_emissive = await textureFor(requireTextureIndex(slot, "emissiveTexture"), "srgb"); applyUv(material, "emissive", slot); }
+      if (emissive && typeof emissive === "object") {
+        const slot = emissive as Readonly<Record<string, unknown>>;
+        material.texture_emissive = await textureFor(requireTextureIndex(slot, "emissiveTexture"), "srgb");
+        applyUv(material, "emissive", slot);
+      }
     } else if (value.emissiveTexture && typeof value.emissiveTexture === "object") {
-      const slot = value.emissiveTexture as Readonly<Record<string, unknown>>; material.texture_emissive = await textureFor(requireTextureIndex(slot, "emissiveTexture"), "srgb"); applyUv(material, "emissive", slot);
+      const slot = value.emissiveTexture as Readonly<Record<string, unknown>>;
+      material.texture_emissive = await textureFor(requireTextureIndex(slot, "emissiveTexture"), "srgb");
+      applyUv(material, "emissive", slot);
     }
     return key;
   };
@@ -210,9 +281,16 @@ export async function createWebCookSceneSourceAsync(
     materialIndices.push(materialIndex);
   }
   for (const [index, material] of materialByIndex) materials[index] = material;
-  for (let index = 0; index < materials.length; index++) if (!materials[index]) materials[index] = new StandardShadeMaterial();
+  for (let index = 0; index < materials.length; index++)
+    if (!materials[index]) materials[index] = new StandardShadeMaterial();
   const { profiles, instances } = buildProfilesAndInstances(catalog, catalogIndices, materialIndices);
-  const result = buildVirtualGeometrySceneSourceV1(descriptor.assetRecords, profiles, instances, materials, options);
+  const result = buildVirtualGeometrySceneSourceV1(
+    descriptor.assetRecords,
+    profiles,
+    instances,
+    materials,
+    options,
+  );
   if (timing) options.onMappingTiming?.(timing);
   return result;
 }
@@ -230,45 +308,115 @@ export async function decodeWebCookImageBitmap(blob: Blob, maxDimension?: number
     return await createImageBitmap(bitmap, {
       resizeWidth: Math.max(1, Math.round(bitmap.width * scale)),
       resizeHeight: Math.max(1, Math.round(bitmap.height * scale)),
-      resizeQuality: "high"
+      resizeQuality: "high",
     });
   } finally {
     bitmap.close();
   }
 }
 
-function sceneAssetIndices(catalog: WebCookSceneCatalogSnapshot, assetCount: number, requested?: readonly number[]): number[] {
-  const values = requested === undefined ? Array.from({ length: assetCount }, (_, index) => index) : [...requested];
-  if (values.length !== assetCount || values.some(index => !Number.isSafeInteger(index) || index < 0 || index >= catalog.primitives.length)) throw new Error("The Web Cook Product sceneAssetIndices do not identify catalog primitives");
+function sceneAssetIndices(
+  catalog: WebCookSceneCatalogSnapshot,
+  assetCount: number,
+  requested?: readonly number[],
+): number[] {
+  const values =
+    requested === undefined ? Array.from({ length: assetCount }, (_, index) => index) : [...requested];
+  if (
+    values.length !== assetCount ||
+    values.some((index) => !Number.isSafeInteger(index) || index < 0 || index >= catalog.primitives.length)
+  )
+    throw new Error("The Web Cook Product sceneAssetIndices do not identify catalog primitives");
   return values;
 }
 
 function createMaterial(value: Readonly<Record<string, unknown>>): StandardShadeMaterial {
   const material = new StandardShadeMaterial();
-  const base = finiteTuple(value.baseColorFactor, 4, [1, 1, 1, 1]); material.diffuse_color.set(base[0]!, base[1]!, base[2]!, base[3]!);
-  material.metallic_factor = finiteScalar(value.metallicFactor, 1); material.roughness_factor = finiteScalar(value.roughnessFactor, 1);
-  const emissive = finiteTuple(value.emissiveFactor, 3, [0, 0, 0]); material.emissive_factor.set(emissive[0]!, emissive[1]!, emissive[2]!);
-  material.alpha_cutoff = finiteScalar(value.alphaCutoff, 0.5); material.is_unlit = value.unlit === true;
+  const base = finiteTuple(value.baseColorFactor, 4, [1, 1, 1, 1]);
+  material.diffuse_color.set(base[0]!, base[1]!, base[2]!, base[3]!);
+  material.metallic_factor = finiteScalar(value.metallicFactor, 1);
+  material.roughness_factor = finiteScalar(value.roughnessFactor, 1);
+  const emissive = finiteTuple(value.emissiveFactor, 3, [0, 0, 0]);
+  material.emissive_factor.set(emissive[0]!, emissive[1]!, emissive[2]!);
+  material.alpha_cutoff = finiteScalar(value.alphaCutoff, 0.5);
+  material.is_unlit = value.unlit === true;
   material.draw_side = value.doubleSided === true ? ShadeDrawSide.Double : ShadeDrawSide.Front;
-  material.transparency_mode = value.alphaMode === "MASK" ? ShadeTransparencyMode.AlphaTested : value.alphaMode === "BLEND" ? ShadeTransparencyMode.Transparent : ShadeTransparencyMode.Opaque;
+  material.transparency_mode =
+    value.alphaMode === "MASK"
+      ? ShadeTransparencyMode.AlphaTested
+      : value.alphaMode === "BLEND"
+        ? ShadeTransparencyMode.Transparent
+        : ShadeTransparencyMode.Opaque;
   return material;
 }
 
-function buildProfilesAndInstances(catalog: WebCookSceneCatalogSnapshot, catalogIndices: readonly number[], materialIndices: readonly number[]): { profiles: VirtualGeometryGeometryProfile[]; instances: VirtualGeometrySceneInstanceV1[] } {
-  const instanceByNode = new Map(catalog.instances.map(item => [item.nodeIndex, item]));
-  const profiles: VirtualGeometryGeometryProfile[] = []; const instances: VirtualGeometrySceneInstanceV1[] = [];
+function buildProfilesAndInstances(
+  catalog: WebCookSceneCatalogSnapshot,
+  catalogIndices: readonly number[],
+  materialIndices: readonly number[],
+): { profiles: VirtualGeometryGeometryProfile[]; instances: VirtualGeometrySceneInstanceV1[] } {
+  const instanceByNode = new Map(catalog.instances.map((item) => [item.nodeIndex, item]));
+  const profiles: VirtualGeometryGeometryProfile[] = [];
+  const instances: VirtualGeometrySceneInstanceV1[] = [];
   for (let assetIndex = 0; assetIndex < catalogIndices.length; assetIndex++) {
     const primitive = catalog.primitives[catalogIndices[assetIndex]!]!;
-    profiles.push({ hasAuthoredVertexColor: primitive.attributeSemantics.includes("COLOR_0"), hasUv0: primitive.attributeSemantics.includes("TEXCOORD_0"), hasUv1: primitive.attributeSemantics.includes("TEXCOORD_1"), hasUv2: false, hasNormal: true, hasTangent: primitive.attributeSemantics.includes("TANGENT") });
-    for (const nodeIndex of primitive.instanceNodeIndices) { const instance = instanceByNode.get(nodeIndex); if (!instance) throw new Error(`Web Cook Product instance node ${nodeIndex} is missing from the GLB catalog`); instances.push({ assetIndex, materialIndex: materialIndices[assetIndex]!, transform: Float32Array.from(instance.worldMatrix) }); }
+    profiles.push({
+      hasAuthoredVertexColor: primitive.attributeSemantics.includes("COLOR_0"),
+      hasUv0: primitive.attributeSemantics.includes("TEXCOORD_0"),
+      hasUv1: primitive.attributeSemantics.includes("TEXCOORD_1"),
+      hasUv2: false,
+      hasNormal: true,
+      hasTangent: primitive.attributeSemantics.includes("TANGENT"),
+    });
+    for (const nodeIndex of primitive.instanceNodeIndices) {
+      const instance = instanceByNode.get(nodeIndex);
+      if (!instance)
+        throw new Error(`Web Cook Product instance node ${nodeIndex} is missing from the GLB catalog`);
+      instances.push({
+        assetIndex,
+        materialIndex: materialIndices[assetIndex]!,
+        transform: Float32Array.from(instance.worldMatrix),
+      });
+    }
   }
   return { profiles, instances };
 }
 
-function requireTextureIndex(slot: Readonly<Record<string, unknown>>, role: string): number { const value = slot.textureIndex; if (!Number.isSafeInteger(value) || (value as number) < 0) throw new Error(`Web Cook ${role} texture index is invalid`); return value as number; }
-function applyUv(material: StandardShadeMaterial, role: "base_color" | "normal" | "orm" | "occlusion" | "emissive", slot: Readonly<Record<string, unknown>>): void { const texCoord = Number.isSafeInteger(slot.texCoord) ? slot.texCoord as number : 0; const offset = finiteTuple(slot.offset, 2, [0, 0]); const scale = finiteTuple(slot.scale, 2, [1, 1]); const rotation = finiteScalar(slot.rotation, 0); material[`${role}_uv_set`] = texCoord; material[`${role}_uv_offset`] = [offset[0]!, offset[1]!]; material[`${role}_uv_scale`] = [scale[0]!, scale[1]!]; material[`${role}_uv_rotation`] = rotation; }
-function filterValue(value: number | undefined, mipmap: boolean): number { if (value === 9728 || value === 9984 || value === 9986) return TextureFilterType.Nearest; return TextureFilterType.Linear; }
-function wrapValue(value: number | undefined): number { return value === 33071 ? 0 : value === 33648 ? 2 : 1; }
+function requireTextureIndex(slot: Readonly<Record<string, unknown>>, role: string): number {
+  const value = slot.textureIndex;
+  if (!Number.isSafeInteger(value) || (value as number) < 0)
+    throw new Error(`Web Cook ${role} texture index is invalid`);
+  return value as number;
+}
+function applyUv(
+  material: StandardShadeMaterial,
+  role: "base_color" | "normal" | "orm" | "occlusion" | "emissive",
+  slot: Readonly<Record<string, unknown>>,
+): void {
+  const texCoord = Number.isSafeInteger(slot.texCoord) ? (slot.texCoord as number) : 0;
+  const offset = finiteTuple(slot.offset, 2, [0, 0]);
+  const scale = finiteTuple(slot.scale, 2, [1, 1]);
+  const rotation = finiteScalar(slot.rotation, 0);
+  material[`${role}_uv_set`] = texCoord;
+  material[`${role}_uv_offset`] = [offset[0]!, offset[1]!];
+  material[`${role}_uv_scale`] = [scale[0]!, scale[1]!];
+  material[`${role}_uv_rotation`] = rotation;
+}
+function filterValue(value: number | undefined, mipmap: boolean): number {
+  if (value === 9728 || value === 9984 || value === 9986) return TextureFilterType.Nearest;
+  return TextureFilterType.Linear;
+}
+function wrapValue(value: number | undefined): number {
+  return value === 33071 ? 0 : value === 33648 ? 2 : 1;
+}
 
-function finiteScalar(value: unknown, fallback: number): number { return typeof value === "number" && Number.isFinite(value) ? value : fallback; }
-function finiteTuple(value: unknown, length: number, fallback: readonly number[]): readonly number[] { return Array.isArray(value) && value.length === length && value.every(item => typeof item === "number" && Number.isFinite(item)) ? value : fallback; }
+function finiteScalar(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+function finiteTuple(value: unknown, length: number, fallback: readonly number[]): readonly number[] {
+  return Array.isArray(value) &&
+    value.length === length &&
+    value.every((item) => typeof item === "number" && Number.isFinite(item))
+    ? value
+    : fallback;
+}

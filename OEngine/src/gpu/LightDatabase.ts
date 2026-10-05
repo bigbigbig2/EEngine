@@ -9,7 +9,7 @@ import {
   WGSL_mat4x4f,
   WGSL_u32,
   WGSL_vec3f,
-  WGSL_vec4f
+  WGSL_vec4f,
 } from "../core/WebGPUTypes.js";
 import { StructType } from "../core/WgslStruct.js";
 import { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
@@ -18,17 +18,10 @@ import type { Light } from "../light/Light.js";
 import type { PointLight } from "../light/PointLight.js";
 import type { SpotLight } from "../light/SpotLight.js";
 import type { SceneLights } from "../scene/Scene.js";
-import {
-  GPUDatabase,
-  GPUDatabaseDefinition,
-  type GPUTypedTable
-} from "./GPUDatabase.js";
+import { GPUDatabase, GPUDatabaseDefinition, type GPUTypedTable } from "./GPUDatabase.js";
 import { GpuAuthoredEnvironment } from "./GpuAuthoredEnvironment.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
-import {
-  assertDirectionalLightCapacity,
-  MAX_DIRECTIONAL_LIGHTS
-} from "./LightCapacity.js";
+import { assertDirectionalLightCapacity, MAX_DIRECTIONAL_LIGHTS } from "./LightCapacity.js";
 
 export { assertDirectionalLightCapacity, MAX_DIRECTIONAL_LIGHTS } from "./LightCapacity.js";
 export const LIGHT_FLAG_CASTS_SHADOW = 1;
@@ -70,9 +63,9 @@ export const DIRECTIONAL_LIGHT_RECORD_TYPE = StructType.from(
     disk_radius: WGSL_f32,
     flags: WGSL_u32,
     near_clip_distance: WGSL_f32,
-    shadow_id: WGSL_u32
+    shadow_id: WGSL_u32,
   },
-  "GpuSceneManager"
+  "GpuSceneManager",
 ).pack();
 
 export const POINT_LIGHT_RECORD_TYPE = StructType.from(
@@ -83,9 +76,9 @@ export const POINT_LIGHT_RECORD_TYPE = StructType.from(
     radius: WGSL_f32,
     flags: WGSL_u32,
     near_clip_distance: WGSL_f32,
-    shadow_id: WGSL_u32
+    shadow_id: WGSL_u32,
   },
-  "AtlasPacker"
+  "AtlasPacker",
 ).pack();
 
 export const SPOT_LIGHT_RECORD_TYPE = StructType.from({
@@ -98,30 +91,27 @@ export const SPOT_LIGHT_RECORD_TYPE = StructType.from({
   penumbraCos: WGSL_f32,
   flags: WGSL_u32,
   near_clip_distance: WGSL_f32,
-  shadow_id: WGSL_u32
+  shadow_id: WGSL_u32,
 }).pack();
 
 export const SHADOW_SPOT_RECORD_TYPE = StructType.from(
   {
     atlas: WGSL_vec4f,
-    projection: WGSL_mat4x4f
+    projection: WGSL_mat4x4f,
   },
-  "WgslJavaScriptCompiler"
+  "WgslJavaScriptCompiler",
 );
 
-export const SHADOW_DIRECTIONAL_RECORD_TYPE = ArrayType.from(
-  SHADOW_SPOT_RECORD_TYPE,
-  3
-);
+export const SHADOW_DIRECTIONAL_RECORD_TYPE = ArrayType.from(SHADOW_SPOT_RECORD_TYPE, 3);
 
 export const LIGHT_INCIDENT_TYPE = StructType.from(
   {
     direction: WGSL_vec3f,
     color: WGSL_vec3f,
     radius: WGSL_f32,
-    distance: WGSL_f32
+    distance: WGSL_f32,
   },
-  "GpuPrimitiveTypeTable"
+  "GpuPrimitiveTypeTable",
 ).pack();
 
 export const LIGHT_DATABASE_DEFINITION = GPUDatabaseDefinition.from({
@@ -130,21 +120,15 @@ export const LIGHT_DATABASE_DEFINITION = GPUDatabaseDefinition.from({
   light_spot: SPOT_LIGHT_RECORD_TYPE,
   shadow_point: WGSL_vec4f,
   shadow_spot: SHADOW_SPOT_RECORD_TYPE,
-  shadow_directional: SHADOW_DIRECTIONAL_RECORD_TYPE
+  shadow_directional: SHADOW_DIRECTIONAL_RECORD_TYPE,
 });
 
-export const POINT_LIGHT_DESCRIPTOR =
-  LIGHT_DATABASE_DEFINITION.get("light_point")!;
-export const DIRECTIONAL_LIGHT_DESCRIPTOR =
-  LIGHT_DATABASE_DEFINITION.get("light_directional")!;
-export const SPOT_LIGHT_DESCRIPTOR =
-  LIGHT_DATABASE_DEFINITION.get("light_spot")!;
-export const SHADOW_POINT_DESCRIPTOR =
-  LIGHT_DATABASE_DEFINITION.get("shadow_point")!;
-export const SHADOW_SPOT_DESCRIPTOR =
-  LIGHT_DATABASE_DEFINITION.get("shadow_spot")!;
-export const SHADOW_DIRECTIONAL_DESCRIPTOR =
-  LIGHT_DATABASE_DEFINITION.get("shadow_directional")!;
+export const POINT_LIGHT_DESCRIPTOR = LIGHT_DATABASE_DEFINITION.get("light_point")!;
+export const DIRECTIONAL_LIGHT_DESCRIPTOR = LIGHT_DATABASE_DEFINITION.get("light_directional")!;
+export const SPOT_LIGHT_DESCRIPTOR = LIGHT_DATABASE_DEFINITION.get("light_spot")!;
+export const SHADOW_POINT_DESCRIPTOR = LIGHT_DATABASE_DEFINITION.get("shadow_point")!;
+export const SHADOW_SPOT_DESCRIPTOR = LIGHT_DATABASE_DEFINITION.get("shadow_spot")!;
+export const SHADOW_DIRECTIONAL_DESCRIPTOR = LIGHT_DATABASE_DEFINITION.get("shadow_directional")!;
 
 const lightPageAccessChunk = CodeChunk.from(`
 fn directional_lights_iteration_mask(database: ptr<storage, array<u32>, read>) -> u32 {
@@ -283,8 +267,8 @@ fn get_spot_light_info_by_index(database: ptr<storage, array<u32>>, index: u32, 
     DIRECTIONAL_LIGHT_DESCRIPTOR.chunk_read,
     POINT_LIGHT_DESCRIPTOR.chunk_read,
     SPOT_LIGHT_DESCRIPTOR.chunk_read,
-    LIGHT_INCIDENT_TYPE.declaration_chunk
-  ]
+    LIGHT_INCIDENT_TYPE.declaration_chunk,
+  ],
 );
 
 const lightSamplingChunk = CodeChunk.from(
@@ -447,8 +431,8 @@ fn sample_spot_light_record(
     lightIncidentChunk,
     DIRECTIONAL_LIGHT_DESCRIPTOR.chunk_read,
     POINT_LIGHT_DESCRIPTOR.chunk_read,
-    SPOT_LIGHT_DESCRIPTOR.chunk_read
-  ]
+    SPOT_LIGHT_DESCRIPTOR.chunk_read,
+  ],
 );
 
 const pathTracingLightImportanceChunk = CodeChunk.from(
@@ -529,24 +513,20 @@ fn path_light_importance_spot(
     DIRECTIONAL_LIGHT_DESCRIPTOR.chunk_read,
     POINT_LIGHT_DESCRIPTOR.chunk_read,
     SPOT_LIGHT_DESCRIPTOR.chunk_read,
-    lightIncidentChunk
-  ]
+    lightIncidentChunk,
+  ],
 );
 
-export const LIGHT_DATABASE_READ_CHUNK = CodeChunk.from("", [
-  lightPageAccessChunk,
-  lightIncidentChunk
-]);
-export const LIGHT_DATABASE_READ_WGSL =
-  LIGHT_DATABASE_READ_CHUNK.compile().text;
+export const LIGHT_DATABASE_READ_CHUNK = CodeChunk.from("", [lightPageAccessChunk, lightIncidentChunk]);
+export const LIGHT_DATABASE_READ_WGSL = LIGHT_DATABASE_READ_CHUNK.compile().text;
 export const LIGHT_DATABASE_SAMPLE_WGSL = CodeChunk.from("", [
   LIGHT_DATABASE_READ_CHUNK,
-  lightSamplingChunk
+  lightSamplingChunk,
 ]).compile().text;
 export const LIGHT_DATABASE_PATH_TRACING_WGSL = CodeChunk.from("", [
   LIGHT_DATABASE_READ_CHUNK,
   lightSamplingChunk,
-  pathTracingLightImportanceChunk
+  pathTracingLightImportanceChunk,
 ]).compile().text;
 
 function lightFlags(castsShadow: boolean): number {
@@ -558,10 +538,7 @@ function hasShadow(light: Light): boolean {
   return light.casts_shadow && shadowId !== undefined && shadowId >= 0;
 }
 
-function writeLightColor(
-  out: Float32Array,
-  light: Light
-): Float32Array {
+function writeLightColor(out: Float32Array, light: Light): Float32Array {
   const luminance = light.color.computeLuminance();
   if (luminance < 1e-6) {
     out.fill(0);
@@ -582,9 +559,7 @@ const spotPositionScratch = new Float32Array(3);
 const spotDirectionScratch = new Float32Array(3);
 const spotColorScratch = new Float32Array(3);
 
-export function packDirectionalLightRecord(
-  light: DirectionalLight
-): DirectionalLightRecord {
+export function packDirectionalLightRecord(light: DirectionalLight): DirectionalLightRecord {
   const direction = light.forward;
   directionalDirectionScratch[0] = direction.x;
   directionalDirectionScratch[1] = direction.y;
@@ -597,7 +572,7 @@ export function packDirectionalLightRecord(
     disk_radius: light.radius,
     flags: lightFlags(castsShadow),
     near_clip_distance: light.near_clip_distance,
-    shadow_id: castsShadow ? light._gpu_shadowmap_id : 0
+    shadow_id: castsShadow ? light._gpu_shadowmap_id : 0,
   };
 }
 
@@ -615,7 +590,7 @@ export function packPointLightRecord(light: PointLight): PointLightRecord {
     radius: light.radius,
     flags: lightFlags(castsShadow),
     near_clip_distance: light.near_clip_distance,
-    shadow_id: castsShadow ? light._gpu_shadowmap_id : 0
+    shadow_id: castsShadow ? light._gpu_shadowmap_id : 0,
   };
 }
 
@@ -640,7 +615,7 @@ export function packSpotLightRecord(light: SpotLight): SpotLightRecord {
     penumbraCos: Math.cos(light.angle * (1 - light.penumbra)),
     flags: lightFlags(castsShadow),
     near_clip_distance: light.near_clip_distance,
-    shadow_id: castsShadow ? light._gpu_shadowmap_id : 0
+    shadow_id: castsShadow ? light._gpu_shadowmap_id : 0,
   };
 }
 
@@ -651,8 +626,10 @@ export class GPULightCollection {
   readonly authoredIbl: GpuAuthoredEnvironment;
   private lastSourceVersion = -1;
   private lightingRevision = 0;
-  private readonly publishingCommands=new WeakSet<ShadeGPUCommandContext>();
-  get publicationRevision(): number { return this.lightingRevision; }
+  private readonly publishingCommands = new WeakSet<ShadeGPUCommandContext>();
+  get publicationRevision(): number {
+    return this.lightingRevision;
+  }
   private previousPointCount = 0;
   private previousSpotCount = 0;
   private previousDirectionalCount = 0;
@@ -665,13 +642,17 @@ export class GPULightCollection {
     this.source = source;
     this.database = new GPUDatabase({
       device,
-      definition: LIGHT_DATABASE_DEFINITION
+      definition: LIGHT_DATABASE_DEFINITION,
     });
     this.authoredIbl = new GpuAuthoredEnvironment(graphics);
   }
 
-  get buffer_data(): GPUBuffer { return this.database.buffer; }
-  get gpu_memory_usage(): number { return this.authoredIbl.allocatedBytes + this.database.gpu_memory_usage; }
+  get buffer_data(): GPUBuffer {
+    return this.database.buffer;
+  }
+  get gpu_memory_usage(): number {
+    return this.authoredIbl.allocatedBytes + this.database.gpu_memory_usage;
+  }
 
   get pointLights(): GPUTypedTable<PointLightRecord> {
     return this.database.get("light_point") as GPUTypedTable<PointLightRecord>;
@@ -682,35 +663,26 @@ export class GPULightCollection {
   }
 
   get directionalLights(): GPUTypedTable<DirectionalLightRecord> {
-    return this.database.get(
-      "light_directional"
-    ) as GPUTypedTable<DirectionalLightRecord>;
+    return this.database.get("light_directional") as GPUTypedTable<DirectionalLightRecord>;
   }
 
   get shadowPoints(): GPUTypedTable<ArrayLike<number>> {
-    return this.database.get(
-      "shadow_point"
-    ) as GPUTypedTable<ArrayLike<number>>;
+    return this.database.get("shadow_point") as GPUTypedTable<ArrayLike<number>>;
   }
 
   get shadowSpots(): GPUTypedTable<ShadowSpotRecord> {
-    return this.database.get(
-      "shadow_spot"
-    ) as GPUTypedTable<ShadowSpotRecord>;
+    return this.database.get("shadow_spot") as GPUTypedTable<ShadowSpotRecord>;
   }
 
   get shadowDirectionals(): GPUTypedTable<ShadowSpotRecord[]> {
-    return this.database.get(
-      "shadow_directional"
-    ) as GPUTypedTable<ShadowSpotRecord[]>;
+    return this.database.get("shadow_directional") as GPUTypedTable<ShadowSpotRecord[]>;
   }
 
-  update(
-    command: ShadeGPUCommandContext,
-    sceneChanged = false
-  ): boolean {
-    const environmentChanged = this.source.environment === undefined ? false :
-      this.authoredIbl.record(command, this.source.environment);
+  update(command: ShadeGPUCommandContext, sceneChanged = false): boolean {
+    const environmentChanged =
+      this.source.environment === undefined
+        ? false
+        : this.authoredIbl.record(command, this.source.environment);
     if (!sceneChanged && this.lastSourceVersion === this.source.version) {
       return environmentChanged;
     }
@@ -720,18 +692,22 @@ export class GPULightCollection {
 
   build(command: ShadeGPUCommandContext): void {
     const previousRevision = this.lightingRevision;
-    const previousSourceVersion=this.lastSourceVersion;
-    const previousCounts=[this.previousPointCount,this.previousSpotCount,this.previousDirectionalCount] as const;
+    const previousSourceVersion = this.lastSourceVersion;
+    const previousCounts = [
+      this.previousPointCount,
+      this.previousSpotCount,
+      this.previousDirectionalCount,
+    ] as const;
     this.lightingRevision = (this.lightingRevision + 1) >>> 0;
-    if(!this.publishingCommands.has(command)) {
+    if (!this.publishingCommands.has(command)) {
       this.publishingCommands.add(command);
       command.onAborted.addOne(() => {
         this.lightingRevision = previousRevision;
-        this.lastSourceVersion=previousSourceVersion;
-        [this.previousPointCount,this.previousSpotCount,this.previousDirectionalCount]=previousCounts;
+        this.lastSourceVersion = previousSourceVersion;
+        [this.previousPointCount, this.previousSpotCount, this.previousDirectionalCount] = previousCounts;
         this.publishingCommands.delete(command);
       });
-      command.onFinished.addOne(()=>this.publishingCommands.delete(command));
+      command.onFinished.addOne(() => this.publishingCommands.delete(command));
     }
     const pointTable = this.pointLights;
     const spotTable = this.spotLights;
@@ -751,20 +727,11 @@ export class GPULightCollection {
 
     for (const light of lights) {
       if ((light as PointLight).isPointLight === true) {
-        pointTable.set(
-          pointCount++,
-          packPointLightRecord(light as PointLight)
-        );
+        pointTable.set(pointCount++, packPointLightRecord(light as PointLight));
       } else if ((light as DirectionalLight).isDirectionalLight === true) {
-        directionalTable.set(
-          directionalCount++,
-          packDirectionalLightRecord(light as DirectionalLight)
-        );
+        directionalTable.set(directionalCount++, packDirectionalLightRecord(light as DirectionalLight));
       } else if ((light as SpotLight).isSpotLight === true) {
-        spotTable.set(
-          spotCount++,
-          packSpotLightRecord(light as SpotLight)
-        );
+        spotTable.set(spotCount++, packSpotLightRecord(light as SpotLight));
       }
     }
 
@@ -774,11 +741,7 @@ export class GPULightCollection {
     for (let i = spotCount; i < this.previousSpotCount; i++) {
       spotTable.remove(i);
     }
-    for (
-      let i = directionalCount;
-      i < this.previousDirectionalCount;
-      i++
-    ) {
+    for (let i = directionalCount; i < this.previousDirectionalCount; i++) {
       directionalTable.remove(i);
     }
 

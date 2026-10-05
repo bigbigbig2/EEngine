@@ -1,6 +1,11 @@
 import { SURFACE_SIGNAL_REQUEST_WGSL } from "./surface_signal_request.js";
-import { SURFACE_SIGNAL_STORE_ENTRY_WORDS, SURFACE_SIGNAL_STORE_STATE_WORD, SURFACE_SIGNAL_STORE_GENERATION_WORD,
-  SURFACE_SIGNAL_STORE_TOUCHED_GENERATION_WORD, SURFACE_SIGNAL_STORE_AGE_CONFIDENCE_WORD } from "../gpu/GpuSurfaceSignalStoreAbi.js";
+import {
+  SURFACE_SIGNAL_STORE_ENTRY_WORDS,
+  SURFACE_SIGNAL_STORE_STATE_WORD,
+  SURFACE_SIGNAL_STORE_GENERATION_WORD,
+  SURFACE_SIGNAL_STORE_TOUCHED_GENERATION_WORD,
+  SURFACE_SIGNAL_STORE_AGE_CONFIDENCE_WORD,
+} from "../gpu/GpuSurfaceSignalStoreAbi.js";
 
 /** Value-only signal hits do not authorize a stale rate plan. The current
  * classifier still composes Geometry/Field certificates for sharing. Every hit

@@ -15,7 +15,7 @@ import { HDR_COLOR_FORMAT } from "../RenderTargets.js";
 import {
   HierarchicalWorkGenerator,
   type GeneratedHierarchyWork,
-  type PreparedHierarchyWork
+  type PreparedHierarchyWork,
 } from "../HierarchicalWorkGenerator.js";
 import {
   PACKED_TRANSPARENT_COMPOSITE_WGSL,
@@ -25,37 +25,44 @@ import {
   PACKED_TRANSPARENT_MOMENT_WGSL,
   PACKED_TRANSPARENT_OPTICAL_FORMAT,
   PACKED_TRANSPARENT_REACTIVE_FORMAT,
-  PACKED_TRANSPARENT_RESOLVED_FORMAT
+  PACKED_TRANSPARENT_RESOLVED_FORMAT,
 } from "../../shaders/packed_transparent_oit.js";
 import { resolveDepthAttachmentView, resolveTextureView } from "../RenderTargetViews.js";
 
 const COMMON_GROUP: GPUBindGroupLayoutDescriptor = {
   label: "FX-05 Packed MBOIT Geometry/Material group0",
   entries: [
-    { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-      buffer: { type: "uniform" } },
+    { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
     ...Array.from({ length: 7 }, (_, index) => ({
       binding: index + 1,
       visibility: GPUShaderStage.VERTEX,
-      buffer: { type: "read-only-storage" as GPUBufferBindingType }
+      buffer: { type: "read-only-storage" as GPUBufferBindingType },
     })),
-    { binding: 8, visibility: GPUShaderStage.FRAGMENT,
-      buffer: { type: "read-only-storage" } },
-    { binding: 9, visibility: GPUShaderStage.FRAGMENT,
-      texture: { sampleType: "float", viewDimension: "2d-array" } },
+    { binding: 8, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
+    {
+      binding: 9,
+      visibility: GPUShaderStage.FRAGMENT,
+      texture: { sampleType: "float", viewDimension: "2d-array" },
+    },
     ...Array.from({ length: 6 }, (_, index) => ({
       binding: index + 10,
       visibility: GPUShaderStage.FRAGMENT,
-      sampler: { type: "filtering" as GPUSamplerBindingType }
+      sampler: { type: "filtering" as GPUSamplerBindingType },
     })),
-    { binding: 16, visibility: GPUShaderStage.FRAGMENT,
-      texture: { sampleType: "float", viewDimension: "2d-array" } },
+    {
+      binding: 16,
+      visibility: GPUShaderStage.FRAGMENT,
+      texture: { sampleType: "float", viewDimension: "2d-array" },
+    },
     ...Array.from({ length: 7 }, (_, index) => ({
       binding: index + 17,
       visibility: GPUShaderStage.FRAGMENT,
-      texture: { sampleType: "float" as GPUTextureSampleType, viewDimension: "2d-array" as GPUTextureViewDimension }
-    }))
-  ]
+      texture: {
+        sampleType: "float" as GPUTextureSampleType,
+        viewDimension: "2d-array" as GPUTextureViewDimension,
+      },
+    })),
+  ],
 };
 
 const FORWARD_GROUP: GPUBindGroupLayoutDescriptor = {
@@ -66,8 +73,8 @@ const FORWARD_GROUP: GPUBindGroupLayoutDescriptor = {
     { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
     { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
     { binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
-    { binding: 5, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } }
-  ]
+    { binding: 5, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+  ],
 };
 
 const LIGHTING_GROUP: GPUBindGroupLayoutDescriptor = {
@@ -80,82 +87,100 @@ const LIGHTING_GROUP: GPUBindGroupLayoutDescriptor = {
     { binding: 4, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
     { binding: 5, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "depth" } },
     { binding: 6, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "comparison" } },
-    { binding: 7, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } }
-  ]
+    { binding: 7, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
+  ],
 };
 
 const VIEW_GROUP: GPUBindGroupLayoutDescriptor = {
   label: "FX-05 Packed MBOIT view group3",
-  entries: [
-    { binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } }
-  ]
+  entries: [{ binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } }],
 };
 
 const COMPOSITE_GROUP: GPUBindGroupLayoutDescriptor = {
   label: "FX-05 Packed MBOIT composite group0",
   entries: [
     { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float" } },
-    { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } }
-  ]
+    { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+  ],
 };
 
 const EVIDENCE_GROUP: GPUBindGroupLayoutDescriptor = {
   label: "FX-05 sampled transparency evidence group0",
   entries: [
-    { binding: 0, visibility: GPUShaderStage.COMPUTE,
-      buffer: { type: "read-only-storage", minBindingSize:
-        GPU_WORK_QUEUE_HEADER_SCHEMA.stride + GPU_RASTER_WORK_SCHEMA.stride } },
+    {
+      binding: 0,
+      visibility: GPUShaderStage.COMPUTE,
+      buffer: {
+        type: "read-only-storage",
+        minBindingSize: GPU_WORK_QUEUE_HEADER_SCHEMA.stride + GPU_RASTER_WORK_SCHEMA.stride,
+      },
+    },
     { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
     { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "unfilterable-float" } },
     { binding: 3, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "unfilterable-float" } },
     { binding: 4, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
-    { binding: 5, visibility: GPUShaderStage.COMPUTE,
-      buffer: { type: "storage", minBindingSize: GPU_COUNTER_BYTE_SIZE } }
-  ]
+    {
+      binding: 5,
+      visibility: GPUShaderStage.COMPUTE,
+      buffer: { type: "storage", minBindingSize: GPU_COUNTER_BYTE_SIZE },
+    },
+  ],
 };
 
 const ADDITIVE_BLEND: GPUBlendState = {
   color: { operation: "add", srcFactor: "one", dstFactor: "one" },
-  alpha: { operation: "add", srcFactor: "one", dstFactor: "one" }
+  alpha: { operation: "add", srcFactor: "one", dstFactor: "one" },
 };
 const DEPTH_STATE: GPUDepthStencilState = {
   format: "depth32float",
   depthCompare: "greater",
-  depthWriteEnabled: false
+  depthWriteEnabled: false,
 };
 
 const MOMENT_PIPELINE: CachedRenderPipelineDescriptor = {
   label: "FX-05 Packed MBOIT moments",
   layout: { label: "FX-05 Packed MBOIT moments layout", bindGroupLayouts: [COMMON_GROUP] },
-  vertex: { module: { label: "FX-05 Packed MBOIT moments", code: PACKED_TRANSPARENT_MOMENT_WGSL },
-    entryPoint: "packed_transparent_vertex" },
-  fragment: { module: { label: "FX-05 Packed MBOIT moments", code: PACKED_TRANSPARENT_MOMENT_WGSL },
-    entryPoint: "packed_transparent_moment", targets: [
+  vertex: {
+    module: { label: "FX-05 Packed MBOIT moments", code: PACKED_TRANSPARENT_MOMENT_WGSL },
+    entryPoint: "packed_transparent_vertex",
+  },
+  fragment: {
+    module: { label: "FX-05 Packed MBOIT moments", code: PACKED_TRANSPARENT_MOMENT_WGSL },
+    entryPoint: "packed_transparent_moment",
+    targets: [
       { format: PACKED_TRANSPARENT_OPTICAL_FORMAT, blend: ADDITIVE_BLEND },
-      { format: PACKED_TRANSPARENT_MOMENT_FORMAT, blend: ADDITIVE_BLEND }
-    ] },
+      { format: PACKED_TRANSPARENT_MOMENT_FORMAT, blend: ADDITIVE_BLEND },
+    ],
+  },
   primitive: { topology: "triangle-list", cullMode: "none" },
-  depthStencil: DEPTH_STATE
+  depthStencil: DEPTH_STATE,
 };
 
 const FORWARD_PIPELINE: CachedRenderPipelineDescriptor = {
   label: "FX-05 Packed MBOIT forward",
-  layout: { label: "FX-05 Packed MBOIT forward layout",
-    bindGroupLayouts: [COMMON_GROUP, FORWARD_GROUP, LIGHTING_GROUP, VIEW_GROUP] },
-  vertex: { module: { label: "FX-05 Packed MBOIT forward", code: PACKED_TRANSPARENT_FORWARD_WGSL },
-    entryPoint: "packed_transparent_vertex" },
-  fragment: { module: { label: "FX-05 Packed MBOIT forward", code: PACKED_TRANSPARENT_FORWARD_WGSL },
-    entryPoint: "packed_transparent_forward", targets: [
+  layout: {
+    label: "FX-05 Packed MBOIT forward layout",
+    bindGroupLayouts: [COMMON_GROUP, FORWARD_GROUP, LIGHTING_GROUP, VIEW_GROUP],
+  },
+  vertex: {
+    module: { label: "FX-05 Packed MBOIT forward", code: PACKED_TRANSPARENT_FORWARD_WGSL },
+    entryPoint: "packed_transparent_vertex",
+  },
+  fragment: {
+    module: { label: "FX-05 Packed MBOIT forward", code: PACKED_TRANSPARENT_FORWARD_WGSL },
+    entryPoint: "packed_transparent_forward",
+    targets: [
       { format: PACKED_TRANSPARENT_RESOLVED_FORMAT, blend: ADDITIVE_BLEND },
-      { format: PACKED_TRANSPARENT_REACTIVE_FORMAT, blend: ADDITIVE_BLEND }
-    ] },
+      { format: PACKED_TRANSPARENT_REACTIVE_FORMAT, blend: ADDITIVE_BLEND },
+    ],
+  },
   primitive: { topology: "triangle-list", cullMode: "none" },
-  depthStencil: DEPTH_STATE
+  depthStencil: DEPTH_STATE,
 };
 
 function transparentSetPipeline(
   base: CachedRenderPipelineDescriptor,
-  textureBindingSetId: number
+  textureBindingSetId: number,
 ): CachedRenderPipelineDescriptor {
   if (base.fragment === undefined) throw new Error("Transparent set pipeline requires a fragment stage");
   return {
@@ -165,26 +190,33 @@ function transparentSetPipeline(
       ...base.fragment,
       constants: {
         ...base.fragment.constants,
-        OENGINE_ACTIVE_TEXTURE_BINDING_SET: textureBindingSetId
-      }
-    }
+        OENGINE_ACTIVE_TEXTURE_BINDING_SET: textureBindingSetId,
+      },
+    },
   };
 }
 
 const COMPOSITE_PIPELINE: CachedRenderPipelineDescriptor = {
   label: "FX-05 Packed MBOIT composite",
   layout: { label: "FX-05 Packed MBOIT composite layout", bindGroupLayouts: [COMPOSITE_GROUP] },
-  vertex: { module: { label: "FX-05 Packed MBOIT composite", code: PACKED_TRANSPARENT_COMPOSITE_WGSL },
-    entryPoint: "packed_transparent_composite_vertex" },
-  fragment: { module: { label: "FX-05 Packed MBOIT composite", code: PACKED_TRANSPARENT_COMPOSITE_WGSL },
-    entryPoint: "packed_transparent_composite", targets: [{
-      format: HDR_COLOR_FORMAT,
-      blend: {
-        color: { operation: "add", srcFactor: "one", dstFactor: "src-alpha" },
-        alpha: { operation: "add", srcFactor: "one", dstFactor: "zero" }
-      }
-    }] },
-  primitive: { topology: "triangle-list", cullMode: "none" }
+  vertex: {
+    module: { label: "FX-05 Packed MBOIT composite", code: PACKED_TRANSPARENT_COMPOSITE_WGSL },
+    entryPoint: "packed_transparent_composite_vertex",
+  },
+  fragment: {
+    module: { label: "FX-05 Packed MBOIT composite", code: PACKED_TRANSPARENT_COMPOSITE_WGSL },
+    entryPoint: "packed_transparent_composite",
+    targets: [
+      {
+        format: HDR_COLOR_FORMAT,
+        blend: {
+          color: { operation: "add", srcFactor: "one", dstFactor: "src-alpha" },
+          alpha: { operation: "add", srcFactor: "one", dstFactor: "zero" },
+        },
+      },
+    ],
+  },
+  primitive: { topology: "triangle-list", cullMode: "none" },
 };
 
 export interface PackedTransparentOitJob {
@@ -253,7 +285,7 @@ export class PackedTransparentOitPass {
       sampler(graphics.device, "mirror-repeat", "linear"),
       sampler(graphics.device, "repeat", "nearest"),
       sampler(graphics.device, "clamp-to-edge", "nearest"),
-      sampler(graphics.device, "mirror-repeat", "nearest")
+      sampler(graphics.device, "mirror-repeat", "nearest"),
     ]);
     this.evidenceLayout = graphics.device.createBindGroupLayout(EVIDENCE_GROUP);
     this.evidencePipeline = graphics.device.createComputePipeline({
@@ -262,17 +294,17 @@ export class PackedTransparentOitPass {
       compute: {
         module: graphics.device.createShaderModule({
           label: "FX-05 sampled transparency evidence",
-          code: PACKED_TRANSPARENT_EVIDENCE_WGSL
+          code: PACKED_TRANSPARENT_EVIDENCE_WGSL,
         }),
-        entryPoint: "packed_transparent_evidence"
-      }
+        entryPoint: "packed_transparent_evidence",
+      },
     });
   }
 
   addToGraph(
     graph: FrameGraph,
     job: PackedTransparentOitJob,
-    inputs: PackedTransparentOitInputs
+    inputs: PackedTransparentOitInputs,
   ): PackedTransparentOitOutputs {
     if (this.retired) throw new Error("FX-05 transparent owner is retired");
     const bindingSetCount = job.runtime.materialResources.bindingSets.length;
@@ -284,7 +316,9 @@ export class PackedTransparentOitPass {
     const width = Math.max(1, job.width | 0);
     const height = Math.max(1, job.height | 0);
     const momentData = { optical: -1, moments: -1 };
-    const moment = graph.add("FX-05 Packed TransparentRasterWork + MBOIT moments", job,
+    const moment = graph.add(
+      "FX-05 Packed TransparentRasterWork + MBOIT moments",
+      job,
       (data, resources, context) => {
         const command = requireCommand(context.encoder);
         const generated = this.generate(data, command);
@@ -293,101 +327,144 @@ export class PackedTransparentOitPass {
           label: "FX-05 Packed MBOIT moment drawIndirect",
           colorAttachments: [
             attachment(resources.get(momentData.optical), true),
-            attachment(resources.get(momentData.moments), true)
+            attachment(resources.get(momentData.moments), true),
           ],
           depthStencilAttachment: {
             view: resolveDepthAttachmentView(resources.get(inputs.depth)),
-            depthReadOnly: true
-          }
+            depthReadOnly: true,
+          },
         });
         for (const bindingSet of data.runtime.materialResources.bindingSets) {
-          pass.setPipeline(this.graphics.render_pipelines.obtain(
-            transparentSetPipeline(MOMENT_PIPELINE, bindingSet.id)
-          ));
-          pass.setBindGroup(0, this.commonGroup(data, generated,
-            requireBuffer(resources.get(inputs.camera), "camera"), bindingSet.textureBanks));
+          pass.setPipeline(
+            this.graphics.render_pipelines.obtain(transparentSetPipeline(MOMENT_PIPELINE, bindingSet.id)),
+          );
+          pass.setBindGroup(
+            0,
+            this.commonGroup(
+              data,
+              generated,
+              requireBuffer(resources.get(inputs.camera), "camera"),
+              bindingSet.textureBanks,
+            ),
+          );
           pass.drawIndirect(generated.drawIndirect!, 0);
         }
         pass.end();
-      });
-    momentData.optical = moment.create("FX-05 optical depth",
-      texture(width, height, PACKED_TRANSPARENT_OPTICAL_FORMAT));
-    momentData.moments = moment.create("FX-05 four power moments",
-      texture(width, height, PACKED_TRANSPARENT_MOMENT_FORMAT));
+      },
+    );
+    momentData.optical = moment.create(
+      "FX-05 optical depth",
+      texture(width, height, PACKED_TRANSPARENT_OPTICAL_FORMAT),
+    );
+    momentData.moments = moment.create(
+      "FX-05 four power moments",
+      texture(width, height, PACKED_TRANSPARENT_MOMENT_FORMAT),
+    );
     moment.read(inputs.depth);
     moment.read(inputs.camera);
     moment.make_side_effect();
 
     const forwardData = { resolved: -1, reactive: -1 };
-    const forward = graph.add("FX-05 Packed transparent forward", job,
-      (data, resources, context) => {
-        const command = requireCommand(context.encoder);
-        const generated = this.requireGenerated(data.runtime);
-        const pass = command.beginRenderPass({
-          label: "FX-05 Packed MBOIT forward drawIndirect",
-          colorAttachments: [
-            attachment(resources.get(forwardData.resolved), true),
-            attachment(resources.get(forwardData.reactive), true)
-          ],
-          depthStencilAttachment: {
-            view: resolveDepthAttachmentView(resources.get(inputs.depth)),
-            depthReadOnly: true
-          }
-        });
-        for (const bindingSet of data.runtime.materialResources.bindingSets) {
-          pass.setPipeline(this.graphics.render_pipelines.obtain(
-            transparentSetPipeline(FORWARD_PIPELINE, bindingSet.id)
-          ));
-          pass.setBindGroup(0, this.commonGroup(data, generated,
-            requireBuffer(resources.get(inputs.camera), "camera"), bindingSet.textureBanks));
-        pass.setBindGroup(1, this.graphics.bind_groups.obtain({
-          layout: FORWARD_GROUP,
-          entries: [
-            resolveTextureView(resources.get(momentData.moments)),
-            resolveTextureView(resources.get(momentData.optical)),
-            resolveTextureView(resources.get(inputs.environment)),
-            resolveTextureView(resources.get(inputs.diffuseIrradiance)),
-            resolveTextureView(resources.get(inputs.splitSum)),
-            this.samplers[1]!
-          ]
-        }));
-        pass.setBindGroup(2, this.graphics.bind_groups.obtain({
-          layout: LIGHTING_GROUP,
-          entries: [
-            { buffer: requireBuffer(resources.get(inputs.lightDatabase), "light database") },
-            resolveTextureView(resources.get(inputs.environment)),
-            { buffer: requireBuffer(resources.get(inputs.clusterParameters), "cluster parameters") },
-            { buffer: requireBuffer(resources.get(inputs.clusterLookup), "cluster lookup") },
-            { buffer: requireBuffer(resources.get(inputs.clusterData), "cluster data") },
-            resolveTextureView(resources.get(inputs.shadowAtlas)),
-            this.graphics.samplers.obtain(SHADOW_COMPARISON_SAMPLER_DESCRIPTOR),
-            { buffer: requireBuffer(resources.get(inputs.activeLightList), "active light list") }
-          ]
-        }));
-        pass.setBindGroup(3, this.graphics.bind_groups.obtain({
-          layout: VIEW_GROUP,
-          entries: [
-            { buffer: requireBuffer(resources.get(inputs.view), "view") }
-          ]
-        }));
-          pass.drawIndirect(generated.drawIndirect!, 0);
-        }
-        pass.end();
+    const forward = graph.add("FX-05 Packed transparent forward", job, (data, resources, context) => {
+      const command = requireCommand(context.encoder);
+      const generated = this.requireGenerated(data.runtime);
+      const pass = command.beginRenderPass({
+        label: "FX-05 Packed MBOIT forward drawIndirect",
+        colorAttachments: [
+          attachment(resources.get(forwardData.resolved), true),
+          attachment(resources.get(forwardData.reactive), true),
+        ],
+        depthStencilAttachment: {
+          view: resolveDepthAttachmentView(resources.get(inputs.depth)),
+          depthReadOnly: true,
+        },
       });
-    forwardData.resolved = forward.create("FX-05 transparent resolved",
-      texture(width, height, PACKED_TRANSPARENT_RESOLVED_FORMAT));
-    forwardData.reactive = forward.create("FX-05 transparent reactive",
-      texture(width, height, PACKED_TRANSPARENT_REACTIVE_FORMAT));
-    for (const id of [inputs.depth, inputs.camera, inputs.view, inputs.environment,
-      inputs.diffuseIrradiance, inputs.splitSum, inputs.lightDatabase,
-      inputs.clusterParameters, inputs.clusterLookup, inputs.clusterData,
-      inputs.activeLightList, inputs.shadowAtlas, momentData.optical, momentData.moments]) {
+      for (const bindingSet of data.runtime.materialResources.bindingSets) {
+        pass.setPipeline(
+          this.graphics.render_pipelines.obtain(transparentSetPipeline(FORWARD_PIPELINE, bindingSet.id)),
+        );
+        pass.setBindGroup(
+          0,
+          this.commonGroup(
+            data,
+            generated,
+            requireBuffer(resources.get(inputs.camera), "camera"),
+            bindingSet.textureBanks,
+          ),
+        );
+        pass.setBindGroup(
+          1,
+          this.graphics.bind_groups.obtain({
+            layout: FORWARD_GROUP,
+            entries: [
+              resolveTextureView(resources.get(momentData.moments)),
+              resolveTextureView(resources.get(momentData.optical)),
+              resolveTextureView(resources.get(inputs.environment)),
+              resolveTextureView(resources.get(inputs.diffuseIrradiance)),
+              resolveTextureView(resources.get(inputs.splitSum)),
+              this.samplers[1]!,
+            ],
+          }),
+        );
+        pass.setBindGroup(
+          2,
+          this.graphics.bind_groups.obtain({
+            layout: LIGHTING_GROUP,
+            entries: [
+              { buffer: requireBuffer(resources.get(inputs.lightDatabase), "light database") },
+              resolveTextureView(resources.get(inputs.environment)),
+              { buffer: requireBuffer(resources.get(inputs.clusterParameters), "cluster parameters") },
+              { buffer: requireBuffer(resources.get(inputs.clusterLookup), "cluster lookup") },
+              { buffer: requireBuffer(resources.get(inputs.clusterData), "cluster data") },
+              resolveTextureView(resources.get(inputs.shadowAtlas)),
+              this.graphics.samplers.obtain(SHADOW_COMPARISON_SAMPLER_DESCRIPTOR),
+              { buffer: requireBuffer(resources.get(inputs.activeLightList), "active light list") },
+            ],
+          }),
+        );
+        pass.setBindGroup(
+          3,
+          this.graphics.bind_groups.obtain({
+            layout: VIEW_GROUP,
+            entries: [{ buffer: requireBuffer(resources.get(inputs.view), "view") }],
+          }),
+        );
+        pass.drawIndirect(generated.drawIndirect!, 0);
+      }
+      pass.end();
+    });
+    forwardData.resolved = forward.create(
+      "FX-05 transparent resolved",
+      texture(width, height, PACKED_TRANSPARENT_RESOLVED_FORMAT),
+    );
+    forwardData.reactive = forward.create(
+      "FX-05 transparent reactive",
+      texture(width, height, PACKED_TRANSPARENT_REACTIVE_FORMAT),
+    );
+    for (const id of [
+      inputs.depth,
+      inputs.camera,
+      inputs.view,
+      inputs.environment,
+      inputs.diffuseIrradiance,
+      inputs.splitSum,
+      inputs.lightDatabase,
+      inputs.clusterParameters,
+      inputs.clusterLookup,
+      inputs.clusterData,
+      inputs.activeLightList,
+      inputs.shadowAtlas,
+      momentData.optical,
+      momentData.moments,
+    ]) {
       forward.read(id);
     }
 
     let counterOutput: ResourceId | null = null;
     if (inputs.counters !== undefined) {
-      const evidence = graph.add("FX-05 sampled transparent queue/numeric evidence", job,
+      const evidence = graph.add(
+        "FX-05 sampled transparent queue/numeric evidence",
+        job,
         (data, resources, context) => {
           const command = requireCommand(context.encoder);
           const generated = this.requireGenerated(data.runtime);
@@ -400,15 +477,19 @@ export class PackedTransparentOitPass {
               { binding: 2, resource: resolveTextureView(resources.get(momentData.optical)) },
               { binding: 3, resource: resolveTextureView(resources.get(momentData.moments)) },
               { binding: 4, resource: resolveTextureView(resources.get(forwardData.reactive)) },
-              { binding: 5, resource: { buffer: requireBuffer(resources.get(inputs.counters!), "counters") } }
-            ]
+              {
+                binding: 5,
+                resource: { buffer: requireBuffer(resources.get(inputs.counters!), "counters") },
+              },
+            ],
           });
           const pass = command.beginComputePass({ label: "FX-05 sampled transparent evidence" });
           pass.setPipeline(this.evidencePipeline);
           pass.setBindGroup(0, group);
           pass.dispatchWorkgroups(Math.ceil(width / 8), Math.ceil(height / 8));
           pass.end();
-        });
+        },
+      );
       evidence.read(momentData.optical);
       evidence.read(momentData.moments);
       evidence.read(forwardData.reactive);
@@ -421,28 +502,32 @@ export class PackedTransparentOitPass {
     }
 
     const compositeData = { hdrOut: -1 };
-    const composite = graph.add("FX-05 Packed MBOIT composite", {},
-      (_data, resources, context) => {
-        const command = requireCommand(context.encoder);
-        const pass = command.beginRenderPass({
-          label: "FX-05 Packed MBOIT composite",
-          colorAttachments: [{
+    const composite = graph.add("FX-05 Packed MBOIT composite", {}, (_data, resources, context) => {
+      const command = requireCommand(context.encoder);
+      const pass = command.beginRenderPass({
+        label: "FX-05 Packed MBOIT composite",
+        colorAttachments: [
+          {
             view: resolveTextureView(resources.get(compositeData.hdrOut)),
             loadOp: "load",
-            storeOp: "store"
-          }]
-        });
-        pass.setPipeline(this.graphics.render_pipelines.obtain(COMPOSITE_PIPELINE));
-        pass.setBindGroup(0, this.graphics.bind_groups.obtain({
+            storeOp: "store",
+          },
+        ],
+      });
+      pass.setPipeline(this.graphics.render_pipelines.obtain(COMPOSITE_PIPELINE));
+      pass.setBindGroup(
+        0,
+        this.graphics.bind_groups.obtain({
           layout: COMPOSITE_GROUP,
           entries: [
             resolveTextureView(resources.get(momentData.optical)),
-            resolveTextureView(resources.get(forwardData.resolved))
-          ]
-        }));
-        pass.draw(3);
-        pass.end();
-      });
+            resolveTextureView(resources.get(forwardData.resolved)),
+          ],
+        }),
+      );
+      pass.draw(3);
+      pass.end();
+    });
     composite.read(inputs.hdr);
     composite.read(momentData.optical);
     composite.read(forwardData.resolved);
@@ -450,7 +535,7 @@ export class PackedTransparentOitPass {
     return Object.freeze({
       hdr: compositeData.hdrOut,
       reactive: forwardData.reactive,
-      counters: counterOutput
+      counters: counterOutput,
     });
   }
 
@@ -482,26 +567,37 @@ export class PackedTransparentOitPass {
 
   private generate(job: PackedTransparentOitJob, command: ShadeGPUCommandContext): GeneratedHierarchyWork {
     let entry = this.prepared.get(job.runtime);
-    if (entry === undefined || entry.assetEpoch !== job.assets.epoch ||
-      entry.sceneEpoch !== job.scene.resourceEpoch || entry.sseThreshold !== job.sseThreshold) {
+    if (
+      entry === undefined ||
+      entry.assetEpoch !== job.assets.epoch ||
+      entry.sceneEpoch !== job.scene.resourceEpoch ||
+      entry.sseThreshold !== job.sseThreshold
+    ) {
       const previous = entry;
-      const prepared = this.generator.prepare({
-        assets: job.assets,
-        scene: job.scene,
-        instanceBegin: job.runtime.instanceBegin,
-        instanceCount: job.runtime.instanceCount,
-        maxHierarchyDepth: job.runtime.hierarchyMaxDepth,
-        traversalWorkCapacity: job.runtime.hierarchyTraversalCapacity,
-        visibleClusterCapacity: job.runtime.hierarchyVisibleClusterCapacity,
-        rasterWorkCapacity: job.runtime.hierarchyRasterWorkCapacity,
-        counterBuffer: job.runtime.counterSink
-      }, {
+      const prepared = this.generator.prepare(
+        {
+          assets: job.assets,
+          scene: job.scene,
+          instanceBegin: job.runtime.instanceBegin,
+          instanceCount: job.runtime.instanceCount,
+          maxHierarchyDepth: job.runtime.hierarchyMaxDepth,
+          traversalWorkCapacity: job.runtime.hierarchyTraversalCapacity,
+          visibleClusterCapacity: job.runtime.hierarchyVisibleClusterCapacity,
+          rasterWorkCapacity: job.runtime.hierarchyRasterWorkCapacity,
+          counterBuffer: job.runtime.counterSink,
+        },
+        {
+          sseThreshold: job.sseThreshold,
+          countersEnabled: false,
+          diagnosticsEnabled: false,
+        },
+      );
+      entry = {
+        prepared,
+        assetEpoch: job.assets.epoch,
+        sceneEpoch: job.scene.resourceEpoch,
         sseThreshold: job.sseThreshold,
-        countersEnabled: false,
-        diagnosticsEnabled: false
-      });
-      entry = { prepared, assetEpoch: job.assets.epoch, sceneEpoch: job.scene.resourceEpoch,
-        sseThreshold: job.sseThreshold };
+      };
       this.prepared.set(job.runtime, entry);
       if (previous !== undefined) {
         command.destroyAfterGpuDone({ destroy: () => this.generator.release(previous.prepared) });
@@ -511,7 +607,7 @@ export class PackedTransparentOitPass {
       // The transparent pass mixes one- and double-sided materials in one bin;
       // fragment-facing rejection remains the authoritative sidedness test.
       coneEnabled: false,
-      requiredInstanceFlags: GPU_INSTANCE_FLAGS.Transparent
+      requiredInstanceFlags: GPU_INSTANCE_FLAGS.Transparent,
     });
   }
 
@@ -519,7 +615,7 @@ export class PackedTransparentOitPass {
     job: PackedTransparentOitJob,
     generated: GeneratedHierarchyWork,
     camera: GPUBuffer,
-    textureBanks: GpuRenderWorldRuntime["materialResources"]["bindingSets"][number]["textureBanks"]
+    textureBanks: GpuRenderWorldRuntime["materialResources"]["bindingSets"][number]["textureBanks"],
   ): GPUBindGroup {
     return this.graphics.bind_groups.obtain({
       layout: COMMON_GROUP,
@@ -535,8 +631,8 @@ export class PackedTransparentOitPass {
         { buffer: job.runtime.materialResources.materialRecords },
         textureBanks[0],
         ...this.samplers,
-        ...textureBanks.slice(1)
-      ]
+        ...textureBanks.slice(1),
+      ],
     });
   }
 
@@ -552,27 +648,46 @@ export const PACKED_TRANSPARENT_COUNTER_OFFSETS = Object.freeze({
   triangles: counterByteOffset("transparentTriangles"),
   reactive: counterByteOffset("transparentReactivePixels"),
   finiteFailures: counterByteOffset("transparentMomentFiniteFailures"),
-  overflow: counterByteOffset("transparentQueueOverflowMask")
+  overflow: counterByteOffset("transparentQueueOverflowMask"),
 });
 
 function sampler(device: GPUDevice, addressMode: GPUAddressMode, filter: GPUFilterMode): GPUSampler {
-  return device.createSampler({ addressModeU: addressMode, addressModeV: addressMode,
-    minFilter: filter, magFilter: filter, mipmapFilter: filter });
+  return device.createSampler({
+    addressModeU: addressMode,
+    addressModeV: addressMode,
+    minFilter: filter,
+    magFilter: filter,
+    mipmapFilter: filter,
+  });
 }
 
 function attachment(value: unknown, clear: boolean): GPURenderPassColorAttachment {
-  return { view: resolveTextureView(value), clearValue: [0, 0, 0, 0],
-    loadOp: clear ? "clear" : "load", storeOp: "store" };
+  return {
+    view: resolveTextureView(value),
+    clearValue: [0, 0, 0, 0],
+    loadOp: clear ? "clear" : "load",
+    storeOp: "store",
+  };
 }
 
 function texture(width: number, height: number, format: GPUTextureFormat) {
-  return { kind: "transient_texture" as const, label: `FX-05 ${format}`, width, height, format,
-    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING };
+  return {
+    kind: "transient_texture" as const,
+    label: `FX-05 ${format}`,
+    width,
+    height,
+    format,
+    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+  };
 }
 
 function requireCommand(value: unknown): ShadeGPUCommandContext {
-  if (value && typeof value === "object" && "isGPUCommandContext" in value &&
-    (value as { isGPUCommandContext?: boolean }).isGPUCommandContext === true) {
+  if (
+    value &&
+    typeof value === "object" &&
+    "isGPUCommandContext" in value &&
+    (value as { isGPUCommandContext?: boolean }).isGPUCommandContext === true
+  ) {
     return value as ShadeGPUCommandContext;
   }
   throw new Error("FX-05 Packed MBOIT requires ShadeGPUCommandContext");

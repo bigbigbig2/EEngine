@@ -9,10 +9,17 @@ globalThis.GPUBufferUsage = { UNIFORM: 1, COPY_DST: 2 };
 globalThis.GPUTextureUsage = { STORAGE_BINDING: 4, TEXTURE_BINDING: 8, COPY_SRC: 16 };
 
 test("Non-Geospatial port has no direct or transitive Takram npm dependency", () => {
-  const lock = JSON.parse(readFileSync(new URL("../../../tools/atmosphere-port/package-lock.json", import.meta.url), "utf8"));
-  assert.equal(Object.keys(lock.packages).some(name => name.includes("node_modules/@takram/")), false);
-  const manifest = JSON.parse(readFileSync(new URL("../../../tools/atmosphere-port/sources.json", import.meta.url), "utf8"));
-  assert.ok(manifest.files.some(file => file.path.endsWith("NonGeospatial-Story.tsx")));
+  const lock = JSON.parse(
+    readFileSync(new URL("../../../tools/atmosphere-port/package-lock.json", import.meta.url), "utf8"),
+  );
+  assert.equal(
+    Object.keys(lock.packages).some((name) => name.includes("node_modules/@takram/")),
+    false,
+  );
+  const manifest = JSON.parse(
+    readFileSync(new URL("../../../tools/atmosphere-port/sources.json", import.meta.url), "utf8"),
+  );
+  assert.ok(manifest.files.some((file) => file.path.endsWith("NonGeospatial-Story.tsx")));
 });
 
 test("Takram copied assets match pinned LFS objects, not pointer files", () => {
@@ -32,27 +39,55 @@ function harness() {
   const textures = [];
   const device = {
     queue: { onSubmittedWorkDone: () => Promise.resolve() },
-    limits: { maxTextureDimension2D: 8192, maxTextureDimension3D: 2048,
-      maxStorageTexturesPerShaderStage: 4, maxComputeInvocationsPerWorkgroup: 256,
-      maxComputeWorkgroupSizeZ: 64, maxComputeWorkgroupStorageSize: 16384 },
-    createTexture: descriptor => {
-      const texture = { ...descriptor, destroyed: false, createView: () => ({}), destroy: () => {
-        assert.equal(texture.destroyed, false, `Texture destroyed twice: ${descriptor.label}`);
-        texture.destroyed = true; destroyed++; destroyedTextures++;
-      } };
-      textures.push(texture); return texture;
+    limits: {
+      maxTextureDimension2D: 8192,
+      maxTextureDimension3D: 2048,
+      maxStorageTexturesPerShaderStage: 4,
+      maxComputeInvocationsPerWorkgroup: 256,
+      maxComputeWorkgroupSizeZ: 64,
+      maxComputeWorkgroupStorageSize: 16384,
+    },
+    createTexture: (descriptor) => {
+      const texture = {
+        ...descriptor,
+        destroyed: false,
+        createView: () => ({}),
+        destroy: () => {
+          assert.equal(texture.destroyed, false, `Texture destroyed twice: ${descriptor.label}`);
+          texture.destroyed = true;
+          destroyed++;
+          destroyedTextures++;
+        },
+      };
+      textures.push(texture);
+      return texture;
     },
     createSampler: () => ({}),
-    createBuffer: () => ({ getMappedRange: () => new ArrayBuffer(96), unmap() {}, destroy: () => destroyed++ }),
+    createBuffer: () => ({
+      getMappedRange: () => new ArrayBuffer(96),
+      unmap() {},
+      destroy: () => destroyed++,
+    }),
     createShaderModule: () => ({}),
     createComputePipeline: () => ({ getBindGroupLayout: () => ({}) }),
-    createBindGroup: () => ({})
+    createBindGroup: () => ({}),
   };
-  const encoder = { beginComputePass: ({ label }) => ({
-    setPipeline() {}, setBindGroup() {}, dispatchWorkgroups: (...size) => dispatches.push([label, size]), end() {}
-  }) };
-  return { device, encoder, dispatches, textures, destroyed: () => destroyed,
-    destroyedTextures: () => destroyedTextures };
+  const encoder = {
+    beginComputePass: ({ label }) => ({
+      setPipeline() {},
+      setBindGroup() {},
+      dispatchWorkgroups: (...size) => dispatches.push([label, size]),
+      end() {},
+    }),
+  };
+  return {
+    device,
+    encoder,
+    dispatches,
+    textures,
+    destroyed: () => destroyed,
+    destroyedTextures: () => destroyedTextures,
+  };
 }
 
 test("aborted LUT encoding is regenerated; only successful submission publishes the complete generation", () => {
@@ -71,10 +106,11 @@ test("aborted LUT encoding is regenerated; only successful submission publishes 
     ["Atmosphere/Transmittance", [32, 8, 1]],
     ["Atmosphere/MultipleScattering", [64, 64, 1]],
     ["Atmosphere/Scattering", [64, 32, 8]],
-    ["Atmosphere/Irradiance", [8, 2, 1]]
+    ["Atmosphere/Irradiance", [8, 2, 1]],
   ]);
   assert.equal(h.dispatches.length, 8);
-  luts.destroy(); luts.destroy();
+  luts.destroy();
+  luts.destroy();
   assert.equal(h.destroyed(), 6);
   assert.throws(() => luts.record(h.encoder), /destroyed/);
 });
@@ -89,17 +125,27 @@ test("unsupported atmosphere limits fail before allocating resources", () => {
 test("sun and sky edits publish parameters without regenerating the fixed Earth LUT", () => {
   const h = harness();
   const environment = new PhysicalEnvironmentRuntime(h.device);
-  const initial = { lutGeneration: 1, worldToUnit: 0.001,
-    sunDirectionWorld: [0, 1, 0], sunIrradiance: [1, 1, 1],
-    skyLuminanceScale: 1, shadowLength: [0, 0] };
+  const initial = {
+    lutGeneration: 1,
+    worldToUnit: 0.001,
+    sunDirectionWorld: [0, 1, 0],
+    sunIrradiance: [1, 1, 1],
+    skyLuminanceScale: 1,
+    shadowLength: [0, 0],
+  };
   const first = environment.record(h.encoder, initial, [0, 0, 0]);
   environment.commit(first, Promise.resolve());
   const lutDispatches = () => h.dispatches.filter(([label]) => label.startsWith("Atmosphere/"));
   assert.equal(lutDispatches().length, 4);
-  const second = environment.record(h.encoder, { ...initial,
-    sunIrradiance: [2, 1, 1], skyLuminanceScale: 1.5 }, [0, 0, 0]);
+  const second = environment.record(
+    h.encoder,
+    { ...initial, sunIrradiance: [2, 1, 1], skyLuminanceScale: 1.5 },
+    [0, 0, 0],
+  );
   let parameters;
-  environment.writeParameters((_buffer, data) => { parameters = new DataView(data); });
+  environment.writeParameters((_buffer, data) => {
+    parameters = new DataView(data);
+  });
   assert.equal(parameters.getFloat32(16, true), 2);
   assert.equal(parameters.getFloat32(32, true), 1.5);
   environment.commit(second, Promise.resolve());
@@ -110,28 +156,54 @@ test("sun and sky edits publish parameters without regenerating the fixed Earth 
 test("replaced LUT generation retires only after the submitted frame completes", async () => {
   const h = harness();
   let complete;
-  h.device.queue = { onSubmittedWorkDone: () => new Promise(resolve => { complete = resolve; }) };
+  h.device.queue = {
+    onSubmittedWorkDone: () =>
+      new Promise((resolve) => {
+        complete = resolve;
+      }),
+  };
   const environment = new PhysicalEnvironmentRuntime(h.device);
-  const snapshot = { lutGeneration: 1, worldToUnit: 0.001,
-    sunDirectionWorld: [0, 1, 0], sunIrradiance: [1, 1, 1],
-    skyLuminanceScale: 1, shadowLength: [0, 0] };
+  const snapshot = {
+    lutGeneration: 1,
+    worldToUnit: 0.001,
+    sunDirectionWorld: [0, 1, 0],
+    sunIrradiance: [1, 1, 1],
+    skyLuminanceScale: 1,
+    shadowLength: [0, 0],
+  };
   let submittedComplete;
-  const submitted = new Promise(resolve => { submittedComplete = resolve; });
+  const submitted = new Promise((resolve) => {
+    submittedComplete = resolve;
+  });
   environment.commit(environment.record(h.encoder, snapshot, [0, 0, 0]), submitted);
   const firstTextures = h.textures.slice();
   environment.commit(environment.record(h.encoder, { ...snapshot, lutGeneration: 2 }, [0, 0, 0]), submitted);
   await Promise.resolve();
   assert.equal(h.destroyed(), 0);
-  complete(); submittedComplete();
+  complete();
+  submittedComplete();
   await Promise.resolve();
   // Five Earth LUTs plus source, filtered specular and diffuse irradiance retire.
   // DFG is shared across generations and must remain alive.
-  const retiredLabels = ["Atmosphere/transmittance", "Atmosphere/multipleScattering", "Atmosphere/scattering",
-    "Atmosphere/higherOrderScattering", "Atmosphere/irradiance", "PhysicalSkyIBL/source radiance",
-    "PhysicalSkyIBL/prefiltered specular", "PhysicalSkyIBL/diffuse irradiance"];
-  assert.deepEqual(firstTextures.filter(texture => texture.destroyed).map(texture => texture.label).sort(), retiredLabels.sort());
+  const retiredLabels = [
+    "Atmosphere/transmittance",
+    "Atmosphere/multipleScattering",
+    "Atmosphere/scattering",
+    "Atmosphere/higherOrderScattering",
+    "Atmosphere/irradiance",
+    "PhysicalSkyIBL/source radiance",
+    "PhysicalSkyIBL/prefiltered specular",
+    "PhysicalSkyIBL/diffuse irradiance",
+  ];
+  assert.deepEqual(
+    firstTextures
+      .filter((texture) => texture.destroyed)
+      .map((texture) => texture.label)
+      .sort(),
+    retiredLabels.sort(),
+  );
   assert.equal(h.destroyedTextures(), 8);
-  assert.equal(firstTextures.find(texture => texture.label === "PhysicalSkyIBL/DFG").destroyed, false);
-  assert.ok(h.textures.slice(firstTextures.length).every(texture => !texture.destroyed));
+  assert.equal(firstTextures.find((texture) => texture.label === "PhysicalSkyIBL/DFG").destroyed, false);
+  assert.ok(h.textures.slice(firstTextures.length).every((texture) => !texture.destroyed));
   environment.destroy();
 });

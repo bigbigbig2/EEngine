@@ -4,10 +4,7 @@
 
 import { base64Decode, base64Encode } from "../core/base64Codec.js";
 import { orient3d } from "./orient3d.js";
-import {
-  BinaryEndianness,
-  BinaryReader
-} from "../loaders/BinaryReader.js";
+import { BinaryEndianness, BinaryReader } from "../loaders/BinaryReader.js";
 
 export const TETRAHEDRAL_MESH_RECORD_BYTES = 32;
 export const TETRAHEDRAL_MESH_INVALID_NEIGHBOUR = 0xffff_ffff;
@@ -67,12 +64,12 @@ export class TetrahedralMesh {
     if (capacity === this.capacityValue) return;
     if (capacity < this.capacityValue && capacity < this.usedEnd) {
       throw new Error(
-        "Reducing capacity would result in dropping information. This is an illegal operation. If you need to reduce capacity - either drop data or compact the layout first."
+        "Reducing capacity would result in dropping information. This is an illegal operation. If you need to reduce capacity - either drop data or compact the layout first.",
       );
     }
     const next = new ArrayBuffer(capacity * TETRAHEDRAL_MESH_RECORD_BYTES);
     new Uint8Array(next).set(
-      new Uint8Array(this.bufferValue, 0, Math.min(this.bufferValue.byteLength, next.byteLength))
+      new Uint8Array(this.bufferValue, 0, Math.min(this.bufferValue.byteLength, next.byteLength)),
     );
     this.bufferValue = next;
     this.viewValue = new DataView(next);
@@ -107,29 +104,19 @@ export class TetrahedralMesh {
   }
 
   getNeighbour(tetra: number, face: number): number {
-    return this.viewValue.getUint32(
-      TETRAHEDRAL_MESH_RECORD_BYTES * tetra + 4 * (4 + face)
-    );
+    return this.viewValue.getUint32(TETRAHEDRAL_MESH_RECORD_BYTES * tetra + 4 * (4 + face));
   }
 
   setNeighbour(tetra: number, face: number, neighbour: number): void {
-    this.viewValue.setUint32(
-      TETRAHEDRAL_MESH_RECORD_BYTES * tetra + 4 * (4 + face),
-      neighbour
-    );
+    this.viewValue.setUint32(TETRAHEDRAL_MESH_RECORD_BYTES * tetra + 4 * (4 + face), neighbour);
   }
 
   getVertexIndex(tetra: number, corner: number): number {
-    return this.viewValue.getUint32(
-      TETRAHEDRAL_MESH_RECORD_BYTES * tetra + 4 * corner
-    );
+    return this.viewValue.getUint32(TETRAHEDRAL_MESH_RECORD_BYTES * tetra + 4 * corner);
   }
 
   setVertexIndex(tetra: number, corner: number, vertex: number): void {
-    this.viewValue.setUint32(
-      TETRAHEDRAL_MESH_RECORD_BYTES * tetra + 4 * corner,
-      vertex
-    );
+    this.viewValue.setUint32(TETRAHEDRAL_MESH_RECORD_BYTES * tetra + 4 * corner, vertex);
   }
 
   tetContainsVertex(tetra: number, vertex: number): boolean {
@@ -161,10 +148,7 @@ export class TetrahedralMesh {
     this.viewValue.setUint32(byteOffset + 8, c);
     this.viewValue.setUint32(byteOffset + 12, d);
     for (let face = 0; face < 4; face++) {
-      this.viewValue.setUint32(
-        byteOffset + 16 + face * 4,
-        TETRAHEDRAL_MESH_INVALID_NEIGHBOUR
-      );
+      this.viewValue.setUint32(byteOffset + 16 + face * 4, TETRAHEDRAL_MESH_INVALID_NEIGHBOUR);
     }
     return tetra;
   }
@@ -173,11 +157,7 @@ export class TetrahedralMesh {
     for (let face = 0; face < 4; face++) {
       const neighbour = this.getNeighbour(tetra, face);
       if (neighbour !== TETRAHEDRAL_MESH_INVALID_NEIGHBOUR) {
-        this.setNeighbour(
-          neighbour >>> 2,
-          neighbour & 3,
-          TETRAHEDRAL_MESH_INVALID_NEIGHBOUR
-        );
+        this.setNeighbour(neighbour >>> 2, neighbour & 3, TETRAHEDRAL_MESH_INVALID_NEIGHBOUR);
       }
     }
   }
@@ -209,7 +189,7 @@ export class TetrahedralMesh {
     y: number,
     z: number,
     points: number[],
-    startTetrahedron = 0
+    startTetrahedron = 0,
   ): number {
     let face: number;
     let previousFace = 4;
@@ -236,7 +216,7 @@ export class TetrahedralMesh {
             points[c + 2]!,
             x,
             y,
-            z
+            z,
           ) < 0
         ) {
           const neighbour = this.getNeighbour(tetra, face);
@@ -248,9 +228,7 @@ export class TetrahedralMesh {
       }
       if (face === 4) return tetra;
     }
-    throw new Error(
-      "Failed to find tet, likely mesh is corrupted or non-convex"
-    );
+    throw new Error("Failed to find tet, likely mesh is corrupted or non-convex");
   }
 
   relocate(source: number, destination: number): void {
@@ -258,23 +236,18 @@ export class TetrahedralMesh {
     for (let face = 0; face < 4; face++) {
       const neighbour = this.getNeighbour(source, face);
       if (neighbour !== TETRAHEDRAL_MESH_INVALID_NEIGHBOUR) {
-        this.setNeighbour(
-          neighbour >>> 2,
-          neighbour & 3,
-          (destination << 2) | (face & 3)
-        );
+        this.setNeighbour(neighbour >>> 2, neighbour & 3, (destination << 2) | (face & 3));
       }
     }
     this.dataUint32Value.copyWithin(
       destination * TETRA_WORDS,
       source * TETRA_WORDS,
-      source * TETRA_WORDS + TETRA_WORDS
+      source * TETRA_WORDS + TETRA_WORDS,
     );
   }
 
   compact(): number {
-    this.free
-      .splice(0, this.freePointer, ...this.free.slice(0, this.freePointer).sort((a, b) => b - a));
+    this.free.splice(0, this.freePointer, ...this.free.slice(0, this.freePointer).sort((a, b) => b - a));
     let relocated = 0;
     let freeStart = 0;
     while (this.freePointer > freeStart) {
@@ -300,29 +273,19 @@ export class TetrahedralMesh {
     buffer.writeUint32(1);
     buffer.writeUintVar(this.usedEnd);
     buffer.writeUintVar(this.freePointer);
-    buffer.writeUint32Array(
-      this.dataUint32Value,
-      0,
-      TETRA_WORDS * this.usedEnd
-    );
+    buffer.writeUint32Array(this.dataUint32Value, 0, TETRA_WORDS * this.usedEnd);
     buffer.writeUint32Array(this.free, 0, this.freePointer);
   }
 
   deserialize(buffer: BinaryReader): void {
     const version = buffer.readUint32();
     if (version !== 1) {
-      throw new Error(
-        `Unsupported version number, expected 1, instead got ${version}`
-      );
+      throw new Error(`Unsupported version number, expected 1, instead got ${version}`);
     }
     this.usedEnd = buffer.readUintVar();
     this.freePointer = buffer.readUintVar();
     this.ensureCapacity(this.usedEnd);
-    buffer.readUint32Array(
-      this.dataUint32Value,
-      0,
-      TETRA_WORDS * this.usedEnd
-    );
+    buffer.readUint32Array(this.dataUint32Value, 0, TETRA_WORDS * this.usedEnd);
     buffer.readUint32Array(this.free, 0, this.freePointer);
   }
 

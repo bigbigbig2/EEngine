@@ -1,22 +1,44 @@
 import { surfaceCellGroupValidationWgsl } from "./surface_cell_group_validation.js";
-import { SURFACE_CELL_PLANE_COUNT, SURFACE_CELL_TILE_PLAN_BYTES, SURFACE_CELL_PLANE_BYTES, surfaceCellWorkspaceWgsl } from "../gpu/GpuSurfaceCellPlanAbi.js";
+import {
+  SURFACE_CELL_PLANE_COUNT,
+  SURFACE_CELL_TILE_PLAN_BYTES,
+  SURFACE_CELL_PLANE_BYTES,
+  surfaceCellWorkspaceWgsl,
+} from "../gpu/GpuSurfaceCellPlanAbi.js";
 
 /** Exactly 16 quads, four parents and one root. Each node merges four children;
  * rejected parents retain their children. No arbitrary domain subsets. */
-export function surfaceCellClassifyStageWgsl(factLibrary: string, tileCapacity = 4096,
-  stageIndex = 0, planeStart = 0, planeCount = SURFACE_CELL_PLANE_COUNT,
-  entryPoint = "classify_cells", validateBounds: boolean | "field" | "field-geometry" | "full" | "single" = true): string {
-  if (!factLibrary.includes("fn surface_cell_load(") || !factLibrary.includes("fn surface_cell_compatible(")) {
+export function surfaceCellClassifyStageWgsl(
+  factLibrary: string,
+  tileCapacity = 4096,
+  stageIndex = 0,
+  planeStart = 0,
+  planeCount = SURFACE_CELL_PLANE_COUNT,
+  entryPoint = "classify_cells",
+  validateBounds: boolean | "field" | "field-geometry" | "full" | "single" = true,
+): string {
+  if (
+    !factLibrary.includes("fn surface_cell_load(") ||
+    !factLibrary.includes("fn surface_cell_compatible(")
+  ) {
     throw new Error("Surface classifier requires complete fact producers");
   }
   const specialized = typeof validateBounds === "string";
-  const valueHit = factLibrary.includes("fn surface_cell_value_hit(") ? "surface_cell_value_hit(plane, child)" : "false";
-  const pointHit = factLibrary.includes("fn surface_cell_value_hit(") ? "surface_cell_value_hit(plane, lane)" : "false";
+  const valueHit = factLibrary.includes("fn surface_cell_value_hit(")
+    ? "surface_cell_value_hit(plane, child)"
+    : "false";
+  const pointHit = factLibrary.includes("fn surface_cell_value_hit(")
+    ? "surface_cell_value_hit(plane, lane)"
+    : "false";
   const domainCache = factLibrary.includes("fn surface_cell_domain_token(");
-  const genericPredicate = validateBounds === true
-    ? "surface_cell_group_valid(plane, result.coverage, &cell_facts, origin)" : "true";
-  const library = factLibrary.replaceAll("cell_counts[", "cell_workspace.counters[")
-    .replaceAll("cell_plans[", "cell_workspace.plans[").replaceAll("cell_maps[", "cell_workspace.maps[");
+  const genericPredicate =
+    validateBounds === true
+      ? "surface_cell_group_valid(plane, result.coverage, &cell_facts, origin)"
+      : "true";
+  const library = factLibrary
+    .replaceAll("cell_counts[", "cell_workspace.counters[")
+    .replaceAll("cell_plans[", "cell_workspace.plans[")
+    .replaceAll("cell_maps[", "cell_workspace.maps[");
   return /* wgsl */ `
 struct CellSettings {
   width: u32, height: u32, tiles_x: u32, first_tile: u32,
@@ -166,13 +188,17 @@ fn ${entryPoint}(@builtin(workgroup_id) group: vec3u, @builtin(local_invocation_
           var result: CellTreeNode;
           result.source = 0xffffffffu;
           result.homogeneous = 1u;
-          ${domainCache ? `let expected = cell_tree_rectangle(node) & state.xy;
+          ${
+            domainCache
+              ? `let expected = cell_tree_rectangle(node) & state.xy;
           let anchor = cell_first(expected);
           var token = 0u;
           if anchor != 0xffffffffu { token = surface_cell_domain_token(plane, anchor); }
           let cached = cell_domain_cache[node];
           let reuse_domain = token != 0u && cached.z == token && all(cached.xy == expected);
-          if reuse_domain { result.homogeneous = cached.w; }` : ""}
+          if reuse_domain { result.homogeneous = cached.w; }`
+              : ""
+          }
           for (var ordinal = 0u; ordinal < 4u; ordinal++) {
             let child = cell_tree_child(node, ordinal);
             let coverage = cell_tree_coverage(node, ordinal);

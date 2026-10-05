@@ -3,11 +3,7 @@
  */
 
 import type { UsdSpec, UsdSpecsByPath } from "./UsdExtensionRegistry.js";
-import {
-  parseUsdValue,
-  parseXformOpOrder,
-  stripQuotes
-} from "./usdAttrs.js";
+import { parseUsdValue, parseXformOpOrder, stripQuotes } from "./usdAttrs.js";
 
 const PRIM_RE = /^(def|over|class)\s+(?:(\w+)\s+)?"([^"]+)"$/;
 const ATTR_RE = /^(?:(uniform|custom)\s+)?(\w+(?:\[\])?)\s+(.+)$/;
@@ -83,10 +79,7 @@ export function flattenTripleQuotedStrings(text: string): string {
         cursor += 3;
         const body: string[] = [];
         while (cursor < text.length) {
-          if (
-            cursor + 2 < text.length &&
-            text.slice(cursor, cursor + 3) === delimiter
-          ) {
+          if (cursor + 2 < text.length && text.slice(cursor, cursor + 3) === delimiter) {
             output.push(body.join(""));
             output.push(delimiter);
             cursor += 3;
@@ -152,9 +145,7 @@ export function joinMultilineBracketValues(text: string): string {
 }
 
 export function preprocessUsdaText(text: string): string {
-  return joinMultilineBracketValues(
-    flattenTripleQuotedStrings(stripBlockComments(text))
-  );
+  return joinMultilineBracketValues(flattenTripleQuotedStrings(stripBlockComments(text)));
 }
 
 export interface BraceNode {
@@ -227,27 +218,19 @@ function collectFields(
   body: BraceNode,
   path: string,
   primFields: Record<string, unknown>,
-  specs: UsdSpecsByPath
+  specs: UsdSpecsByPath,
 ): void {
   if (!body || typeof body !== "object") return;
   for (const key in body) {
-    if (
-      key.startsWith("def ") ||
-      key.startsWith("over ") ||
-      key.startsWith("class ")
-    ) {
+    if (key.startsWith("def ") || key.startsWith("over ") || key.startsWith("class ")) {
       continue;
     }
     if (key === "prepend references" || key === "references") {
-      console.warn(
-        `[USD] Composition arc "references" at ${path} is not supported, skipping`
-      );
+      console.warn(`[USD] Composition arc "references" at ${path} is not supported, skipping`);
       continue;
     }
     if (key === "payload") {
-      console.warn(
-        `[USD] Composition arc "payload" at ${path} is not supported, skipping`
-      );
+      console.warn(`[USD] Composition arc "payload" at ${path} is not supported, skipping`);
       continue;
     }
     if (key.startsWith("rel ")) {
@@ -255,7 +238,7 @@ function collectFields(
       const target = String(body[key]).replace(/[<>]/g, "");
       specs[specPath] = {
         specType: 8,
-        fields: { targetPaths: [target] }
+        fields: { targetPaths: [target] },
       };
       continue;
     }
@@ -279,10 +262,7 @@ function collectFields(
       specs[specPath]!.fields.connectionPaths = [target];
       continue;
     }
-    if (
-      attrName.endsWith(".timeSamples") &&
-      typeof raw === "object"
-    ) {
+    if (attrName.endsWith(".timeSamples") && typeof raw === "object") {
       const specPath = path + "." + attrName.slice(0, -12);
       const times: number[] = [];
       const values: unknown[] = [];
@@ -301,25 +281,21 @@ function collectFields(
         fields: {
           timeSamples: {
             times: sorted.map((sample) => sample.time),
-            values: sorted.map((sample) => sample.value)
+            values: sorted.map((sample) => sample.value),
           },
-          typeName
-        }
+          typeName,
+        },
       };
       continue;
     }
     specs[path + "." + attrName] = {
       specType: 1,
-      fields: { default: parseUsdValue(typeName, raw), typeName }
+      fields: { default: parseUsdValue(typeName, raw), typeName },
     };
   }
 }
 
-function visitPrims(
-  node: BraceNode,
-  path: string,
-  specs: UsdSpecsByPath
-): void {
+function visitPrims(node: BraceNode, path: string, specs: UsdSpecsByPath): void {
   const children: string[] = [];
   for (const key in node) {
     if (key === "#usda 1.0" || key === "variants") continue;

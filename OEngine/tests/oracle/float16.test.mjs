@@ -4,7 +4,8 @@ import { encodeFloat16, decodeFloat16 } from "../../.test-dist/core/Float16.js";
 
 test("binary16 all finite encodings and signed infinities round-trip exactly", () => {
   for (let word = 0; word <= 65535; word++) {
-    const exponent = (word >>> 10) & 31, fraction = word & 1023;
+    const exponent = (word >>> 10) & 31,
+      fraction = word & 1023;
     const value = decodeFloat16(word);
     if (exponent === 31 && fraction !== 0) assert.ok(Number.isNaN(value));
     else assert.equal(encodeFloat16(value), word, `word ${word.toString(16)}`);

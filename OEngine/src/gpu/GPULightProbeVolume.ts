@@ -4,18 +4,10 @@
 
 import type { LightProbeVolume } from "../scene/Scene.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
-import {
-  recordGpuReadback,
-  submitGpuCommands,
-  writeGpuBuffer
-} from "./GpuQueueEvidence.js";
+import { recordGpuReadback, submitGpuCommands, writeGpuBuffer } from "./GpuQueueEvidence.js";
 import { LightProbeAtlas } from "./LightProbeAtlas.js";
 export { LIGHT_PROBE_RECORD_WGSL } from "./LightProbeRecord.js";
-import {
-  DynamicBvh,
-  DYNAMIC_BVH_GPU_NODE_BYTES,
-  exportDynamicBvhNodes
-} from "./DynamicBvh.js";
+import { DynamicBvh, DYNAMIC_BVH_GPU_NODE_BYTES, exportDynamicBvhNodes } from "./DynamicBvh.js";
 
 export const LIGHT_PROBE_COEFFICIENT_COUNT = 12;
 export const LIGHT_PROBE_CPU_COEFFICIENT_COUNT = 27;
@@ -28,7 +20,7 @@ export const LIGHT_PROBE_RECORD_WORD_OFFSETS = {
   position: 0,
   distanceMax: 3,
   accumulatedSamples: 4,
-  coefficients: 5
+  coefficients: 5,
 } as const;
 
 export class GPULightProbeVolume {
@@ -45,34 +37,25 @@ export class GPULightProbeVolume {
   // buffers on its first production frame.
   private uploadedVersion = -1;
 
-  constructor(
-    graphics: GraphicsContext,
-    source: LightProbeVolume
-  ) {
+  constructor(graphics: GraphicsContext, source: LightProbeVolume) {
     const device = graphics.device;
     this.device = device;
     this.source = source;
-    this.probeBuffer = this.createProbeBuffer(
-      LIGHT_PROBE_RECORD_STRIDE_BYTES,
-      false
-    );
+    this.probeBuffer = this.createProbeBuffer(LIGHT_PROBE_RECORD_STRIDE_BYTES, false);
     this.metadataBuffer = device.createBuffer({
       label: "Light Probe Volume / metadata",
       size: LIGHT_PROBE_METADATA_BYTES,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     this.meshBuffer = device.createBuffer({
       label: "Tetrahedral Mesh",
       size: LIGHT_PROBE_TETRA_RECORD_BYTES,
-      usage:
-        GPUBufferUsage.STORAGE |
-        GPUBufferUsage.COPY_SRC |
-        GPUBufferUsage.COPY_DST
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
     });
     this.meshBvhBuffer = device.createBuffer({
       label: "LPV Mesh BVH",
       size: LIGHT_PROBE_EMPTY_BVH_BYTES,
-      usage: GPUBufferUsage.STORAGE
+      usage: GPUBufferUsage.STORAGE,
     });
     this.atlas = new LightProbeAtlas(graphics);
   }
@@ -107,8 +90,11 @@ export class GPULightProbeVolume {
    * a tetrahedral coverage domain actually exists.
    */
   get available(): boolean {
-    return this.uploadedVersion === this.source.version &&
-      this.source.probe_count >= 4 && this.source.mesh.count > 0;
+    return (
+      this.uploadedVersion === this.source.version &&
+      this.source.probe_count >= 4 &&
+      this.source.mesh.count > 0
+    );
   }
 
   update(): void {
@@ -127,26 +113,14 @@ export class GPULightProbeVolume {
   push_to_gpu(): void {
     this.rebuildMeshBuffer();
     this.rebuildProbeBuffer();
-    const metadata = new Uint32Array([
-      this.source.probe_count >>> 0,
-      this.probe_resolution >>> 0
-    ]);
-    writeGpuBuffer(
-      this.device.queue,
-      "LightProbeVolume/metadata",
-      this.metadataBuffer,
-      0,
-      metadata
-    );
+    const metadata = new Uint32Array([this.source.probe_count >>> 0, this.probe_resolution >>> 0]);
+    writeGpuBuffer(this.device.queue, "LightProbeVolume/metadata", this.metadataBuffer, 0, metadata);
     this.rebuildMeshBvh();
   }
 
   get gpu_memory_usage(): number {
     return (
-      this.meshBuffer.size +
-      this.probeBuffer.size +
-      this.metadataBuffer.size +
-      this.atlas.gpu_memory_usage
+      this.meshBuffer.size + this.probeBuffer.size + this.metadataBuffer.size + this.atlas.gpu_memory_usage
     );
   }
 
@@ -164,13 +138,8 @@ export class GPULightProbeVolume {
       const record = probes[probe]!;
       const coefficientOffset = probe * LIGHT_PROBE_CPU_COEFFICIENT_COUNT;
       const positionOffset = probe * 3;
-      for (
-        let coefficient = 0;
-        coefficient < LIGHT_PROBE_CPU_COEFFICIENT_COUNT;
-        coefficient++
-      ) {
-        this.source.coefficients[coefficientOffset + coefficient] =
-          record.coefficients[coefficient]!;
+      for (let coefficient = 0; coefficient < LIGHT_PROBE_CPU_COEFFICIENT_COUNT; coefficient++) {
+        this.source.coefficients[coefficientOffset + coefficient] = record.coefficients[coefficient]!;
       }
       this.source.positions[positionOffset] = record.position[0]!;
       this.source.positions[positionOffset + 1] = record.position[1]!;
@@ -185,8 +154,7 @@ export class GPULightProbeVolume {
   private rebuildProbeBuffer(): void {
     const previous = this.probeBuffer;
     const probeCount = this.source.probe_count;
-    const byteSize =
-      Math.max(1, probeCount) * LIGHT_PROBE_RECORD_STRIDE_BYTES;
+    const byteSize = Math.max(1, probeCount) * LIGHT_PROBE_RECORD_STRIDE_BYTES;
     const next = this.createProbeBuffer(byteSize, true);
     const mapped = next.getMappedRange();
     const f32 = new Float32Array(mapped);
@@ -199,27 +167,15 @@ export class GPULightProbeVolume {
     for (let probeIndex = 0; probeIndex < probeCount; probeIndex++) {
       const record = probeIndex * strideWords;
       const position = probeIndex * 3;
-      f32[record + LIGHT_PROBE_RECORD_WORD_OFFSETS.position] =
-        positions[position]!;
-      f32[record + LIGHT_PROBE_RECORD_WORD_OFFSETS.position + 1] =
-        positions[position + 1]!;
-      f32[record + LIGHT_PROBE_RECORD_WORD_OFFSETS.position + 2] =
-        positions[position + 2]!;
+      f32[record + LIGHT_PROBE_RECORD_WORD_OFFSETS.position] = positions[position]!;
+      f32[record + LIGHT_PROBE_RECORD_WORD_OFFSETS.position + 1] = positions[position + 1]!;
+      f32[record + LIGHT_PROBE_RECORD_WORD_OFFSETS.position + 2] = positions[position + 2]!;
       f32[record + LIGHT_PROBE_RECORD_WORD_OFFSETS.distanceMax] = 0;
       u32[record + LIGHT_PROBE_RECORD_WORD_OFFSETS.accumulatedSamples] = 0;
 
-      for (
-        let coefficient = 0;
-        coefficient < LIGHT_PROBE_CPU_COEFFICIENT_COUNT;
-        coefficient++
-      ) {
-        f32[
-          record +
-            LIGHT_PROBE_RECORD_WORD_OFFSETS.coefficients +
-            coefficient
-        ] = coefficients[
-          probeIndex * LIGHT_PROBE_CPU_COEFFICIENT_COUNT + coefficient
-        ]!;
+      for (let coefficient = 0; coefficient < LIGHT_PROBE_CPU_COEFFICIENT_COUNT; coefficient++) {
+        f32[record + LIGHT_PROBE_RECORD_WORD_OFFSETS.coefficients + coefficient] =
+          coefficients[probeIndex * LIGHT_PROBE_CPU_COEFFICIENT_COUNT + coefficient]!;
       }
     }
 
@@ -238,10 +194,8 @@ export class GPULightProbeVolume {
           const dy = ay - positions[offsetB + 1]!;
           const dz = az - positions[offsetB + 2]!;
           const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-          const distanceA =
-            vertexA * strideWords + LIGHT_PROBE_RECORD_WORD_OFFSETS.distanceMax;
-          const distanceB =
-            vertexB * strideWords + LIGHT_PROBE_RECORD_WORD_OFFSETS.distanceMax;
+          const distanceA = vertexA * strideWords + LIGHT_PROBE_RECORD_WORD_OFFSETS.distanceMax;
+          const distanceB = vertexB * strideWords + LIGHT_PROBE_RECORD_WORD_OFFSETS.distanceMax;
           f32[distanceA] = Math.max(f32[distanceA]!, distance);
           f32[distanceB] = Math.max(f32[distanceB]!, distance);
         }
@@ -260,7 +214,7 @@ export class GPULightProbeVolume {
       label: previous.label,
       usage: previous.usage,
       size: Math.max(1, mesh.count) * LIGHT_PROBE_TETRA_RECORD_BYTES,
-      mappedAtCreation: true
+      mappedAtCreation: true,
     });
     const words = new Uint32Array(next.getMappedRange());
     for (let tetra = 0; tetra < mesh.count; tetra++) {
@@ -298,7 +252,7 @@ export class GPULightProbeVolume {
       label: previous.label,
       usage: previous.usage,
       size: Math.max(DYNAMIC_BVH_GPU_NODE_BYTES, bvh.node_capacity * DYNAMIC_BVH_GPU_NODE_BYTES) + 4,
-      mappedAtCreation: true
+      mappedAtCreation: true,
     });
     const mapped = next.getMappedRange();
     new Uint32Array(mapped, 0, 1)[0] = bvh.root;
@@ -312,11 +266,8 @@ export class GPULightProbeVolume {
     return this.device.createBuffer({
       label: "Light Probes",
       size,
-      usage:
-        GPUBufferUsage.STORAGE |
-        GPUBufferUsage.COPY_SRC |
-        GPUBufferUsage.COPY_DST,
-      mappedAtCreation
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+      mappedAtCreation,
     });
   }
 
@@ -334,7 +285,7 @@ export class GPULightProbeVolume {
     const readback = this.device.createBuffer({
       label: "Light Probes/readback",
       size: byteSize,
-      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
     });
     const encoder = this.device.createCommandEncoder({ label: "" });
     encoder.copyBufferToBuffer(this.probeBuffer, 0, readback, 0, byteSize);
@@ -353,16 +304,12 @@ export class GPULightProbeVolume {
       const record = probe * strideWords;
       result.push({
         position: f32.slice(record, record + 3),
-        distance_max:
-          f32[record + LIGHT_PROBE_RECORD_WORD_OFFSETS.distanceMax]!,
-        accumulated_samples:
-          u32[record + LIGHT_PROBE_RECORD_WORD_OFFSETS.accumulatedSamples]!,
+        distance_max: f32[record + LIGHT_PROBE_RECORD_WORD_OFFSETS.distanceMax]!,
+        accumulated_samples: u32[record + LIGHT_PROBE_RECORD_WORD_OFFSETS.accumulatedSamples]!,
         coefficients: f32.slice(
           record + LIGHT_PROBE_RECORD_WORD_OFFSETS.coefficients,
-          record +
-            LIGHT_PROBE_RECORD_WORD_OFFSETS.coefficients +
-            LIGHT_PROBE_COEFFICIENT_COUNT
-        )
+          record + LIGHT_PROBE_RECORD_WORD_OFFSETS.coefficients + LIGHT_PROBE_COEFFICIENT_COUNT,
+        ),
       });
     }
     return result;
@@ -374,7 +321,7 @@ function writeTetraBounds(
   outputOffset: number,
   mesh: LightProbeVolume["mesh"],
   tetra: number,
-  positions: Float32Array
+  positions: Float32Array,
 ): void {
   const first = mesh.getVertexIndex(tetra, 0) * 3;
   output[outputOffset] = output[outputOffset + 3] = positions[first]!;

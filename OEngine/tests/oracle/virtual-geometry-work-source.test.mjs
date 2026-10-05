@@ -4,10 +4,9 @@ import test from "node:test";
 import {
   HIERARCHICAL_VIRTUAL_HZB_WORK_GENERATION_WGSL,
   HIERARCHICAL_VIRTUAL_WORK_GENERATION_WGSL,
-  HIERARCHICAL_WORK_GENERATION_WGSL
+  HIERARCHICAL_WORK_GENERATION_WGSL,
 } from "../../.test-dist/shaders/hierarchical_work_generation.js";
-import { VIRTUAL_GEOMETRY_PRODUCT_WGSL } from
-  "../../.test-dist/shaders/virtual_geometry_product.js";
+import { VIRTUAL_GEOMETRY_PRODUCT_WGSL } from "../../.test-dist/shaders/virtual_geometry_product.js";
 
 test("Product work specialization preserves the V2 feature-off shader and existing wavefront ABI", () => {
   assert.doesNotMatch(HIERARCHICAL_WORK_GENERATION_WGSL, /hierarchy_product_heap|traversal_product_heap/u);
@@ -21,7 +20,10 @@ test("Product work specialization preserves the V2 feature-off shader and existi
   assert.match(HIERARCHICAL_VIRTUAL_WORK_GENERATION_WGSL, /atomicOr\(&\(\*mask\)\.words\[word\]/u);
   assert.match(HIERARCHICAL_VIRTUAL_WORK_GENERATION_WGSL, /@group\(1\) @binding\(14\)/u);
   assert.match(HIERARCHICAL_VIRTUAL_WORK_GENERATION_WGSL, /traversal_page_demand/u);
-  assert.doesNotMatch(HIERARCHICAL_VIRTUAL_WORK_GENERATION_WGSL, /hierarchy_virtual_find_resident_ancestor_v1/u);
+  assert.doesNotMatch(
+    HIERARCHICAL_VIRTUAL_WORK_GENERATION_WGSL,
+    /hierarchy_virtual_find_resident_ancestor_v1/u,
+  );
   assert.doesNotMatch(HIERARCHICAL_VIRTUAL_WORK_GENERATION_WGSL, /selected_cluster = fallback.group_id/u);
   assert.match(HIERARCHICAL_VIRTUAL_WORK_GENERATION_WGSL, /hierarchy_try_reserve_profiled/u);
   assert.match(HIERARCHICAL_VIRTUAL_WORK_GENERATION_WGSL, /r3_traverse_clusters/u);
@@ -34,5 +36,8 @@ test("V3 Product decoder retains hierarchy, Group and Meshlet record boundaries"
   assert.match(VIRTUAL_GEOMETRY_PRODUCT_WGSL, /OENGINE_VIRTUAL_GEOMETRY_GROUP_HEADER_BYTES_V1: u32 = 64u/u);
   assert.match(VIRTUAL_GEOMETRY_PRODUCT_WGSL, /OENGINE_VIRTUAL_GEOMETRY_MESHLET_HEADER_BYTES_V1: u32 = 48u/u);
   assert.match(VIRTUAL_GEOMETRY_PRODUCT_WGSL, /meshlet_count <= \(payload_bytes - meshlet_offset\)/u);
-  assert.match(VIRTUAL_GEOMETRY_PRODUCT_WGSL, /triangle_count \* 3u <= header\.vertex_data_offset - triangle_offset/u);
+  assert.match(
+    VIRTUAL_GEOMETRY_PRODUCT_WGSL,
+    /triangle_count \* 3u <= header\.vertex_data_offset - triangle_offset/u,
+  );
 });

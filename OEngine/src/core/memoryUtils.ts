@@ -7,7 +7,7 @@ export function copyArrayRange(
   t: number,
   n: { [i: number]: number },
   r: number,
-  s: number
+  s: number,
 ): void {
   for (let o = 0; o < s; o++) {
     n[r + o] = e[t + o]!;
@@ -19,13 +19,7 @@ export function bufferCopyStride(e: number, t: number, n: number): number {
   return (r & 3) !== 0 ? ((r & 1) !== 0 ? 1 : 2) : 4;
 }
 
-export function copyArrayBufferRange(
-  e: ArrayBuffer,
-  t: number,
-  n: ArrayBuffer,
-  r: number,
-  s: number
-): void {
+export function copyArrayBufferRange(e: ArrayBuffer, t: number, n: ArrayBuffer, r: number, s: number): void {
   const o = bufferCopyStride(t, r, s);
   let a: ArrayLike<number>;
   let i: { set(src: ArrayLike<number>): void };
@@ -56,7 +50,7 @@ export function copyTypedArrayContents(
     buffer?: ArrayBuffer;
     byteOffset?: number;
     constructor?: unknown;
-  }
+  },
 ): void {
   const n = t.length;
   if (n >= e.length) {
@@ -76,7 +70,7 @@ export function copyTypedArrayContents(
       e.byteOffset,
       t.buffer,
       t.byteOffset,
-      Math.min(e.byteLength, t.buffer.byteLength - t.byteOffset)
+      Math.min(e.byteLength, t.buffer.byteLength - t.byteOffset),
     );
     return;
   }
@@ -146,10 +140,7 @@ export function isPowerOfTwo(e: number): boolean {
   return (e & (e - 1)) === 0;
 }
 
-export function equalsViaMethod(
-  e: { equals?: (o: unknown) => boolean },
-  t: unknown
-): boolean {
+export function equalsViaMethod(e: { equals?: (o: unknown) => boolean }, t: unknown): boolean {
   return typeof e.equals === "function" ? e.equals(t) : false;
 }
 
@@ -158,8 +149,8 @@ export function hashMapSlot(e: number, t: number): number {
 }
 
 const DEBRUIJN_CTZ = new Uint8Array([
-  0, 1, 28, 2, 29, 14, 24, 3, 30, 22, 20, 15, 25, 17, 4, 8, 31, 27, 13, 23, 21,
-  19, 16, 7, 26, 12, 18, 6, 11, 5, 10, 9
+  0, 1, 28, 2, 29, 14, 24, 3, 30, 22, 20, 15, 25, 17, 4, 8, 31, 27, 13, 23, 21, 19, 16, 7, 26, 12, 18, 6, 11,
+  5, 10, 9,
 ]);
 
 export function trailingZeroIndex32(e: number): number {
@@ -179,11 +170,7 @@ export function hashViaMethod(e: { hash?: () => number }): number {
   return 0;
 }
 
-export function hashString(
-  e: string | null | undefined,
-  t?: number,
-  n?: number
-): number {
+export function hashString(e: string | null | undefined, t?: number, n?: number): number {
   if (e === null) return 0;
   if (e === undefined) return 1;
   let r = t ?? 0;
@@ -215,7 +202,7 @@ export function alignCeil(e: number, t: number): number {
 export function aabbFromPositions(
   out: { [i: number]: number } | Float32Array | number[],
   positions: ArrayLike<number>,
-  floatCount: number
+  floatCount: number,
 ): void {
   let r = Number.POSITIVE_INFINITY;
   let s = Number.POSITIVE_INFINITY;

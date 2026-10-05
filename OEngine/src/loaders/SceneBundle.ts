@@ -18,5 +18,5 @@ Object.defineProperty(SceneBundle.prototype, "isSceneBundle", {
   value: true,
   writable: true,
   enumerable: true,
-  configurable: true
+  configurable: true,
 });

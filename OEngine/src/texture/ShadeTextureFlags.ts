@@ -3,7 +3,7 @@
  */
 
 export const ShadeTextureFlags: { GenerateMipMaps: number } = {
-  GenerateMipMaps: 1
+  GenerateMipMaps: 1,
 };
 
 export type ShadeTextureFlags = number;

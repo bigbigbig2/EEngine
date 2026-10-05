@@ -15,17 +15,19 @@ export interface RenderFrameContract {
   readonly historyFormatRevision: number;
 }
 
-export function createRenderFrameContract(
-  input: RenderFrameContract
-): RenderFrameContract {
+export function createRenderFrameContract(input: RenderFrameContract): RenderFrameContract {
   for (const [name, value] of Object.entries(input)) {
     if (name === "jitter") continue;
     if (!Number.isSafeInteger(value) || value < 0) {
       throw new RangeError(`Render frame contract '${name}' must be a non-negative integer`);
     }
   }
-  if (input.internalWidth <= 0 || input.internalHeight <= 0 ||
-      input.outputWidth <= 0 || input.outputHeight <= 0) {
+  if (
+    input.internalWidth <= 0 ||
+    input.internalHeight <= 0 ||
+    input.outputWidth <= 0 ||
+    input.outputHeight <= 0
+  ) {
     throw new RangeError("Render frame contract dimensions must be positive");
   }
   if (!Number.isFinite(input.jitter[0]) || !Number.isFinite(input.jitter[1])) {
@@ -33,6 +35,6 @@ export function createRenderFrameContract(
   }
   return Object.freeze({
     ...input,
-    jitter: Object.freeze([input.jitter[0], input.jitter[1]]) as readonly [number, number]
+    jitter: Object.freeze([input.jitter[0], input.jitter[1]]) as readonly [number, number],
   });
 }

@@ -125,7 +125,10 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 }
 `;
 
-interface PipelinePair { readonly layout: GPUBindGroupLayout; readonly pipeline: GPUComputePipeline }
+interface PipelinePair {
+  readonly layout: GPUBindGroupLayout;
+  readonly pipeline: GPUComputePipeline;
+}
 
 export class Fsr3ShadingChangePyramidPass {
   private readonly source: PipelinePair;
@@ -133,52 +136,89 @@ export class Fsr3ShadingChangePyramidPass {
 
   constructor(private readonly device: GPUDevice) {
     const texture = (binding: number): GPUBindGroupLayoutEntry => ({
-      binding, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "unfilterable-float" }
+      binding,
+      visibility: GPUShaderStage.COMPUTE,
+      texture: { sampleType: "unfilterable-float" },
     });
     const storage = (binding: number, format: GPUTextureFormat): GPUBindGroupLayoutEntry => ({
-      binding, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format }
+      binding,
+      visibility: GPUShaderStage.COMPUTE,
+      storageTexture: { access: "write-only", format },
     });
     const make = (label: string, code: string, entries: GPUBindGroupLayoutEntry[]): PipelinePair => {
       const layout = device.createBindGroupLayout({ label, entries });
       const module = device.createShaderModule({ label, code });
-      return { layout, pipeline: device.createComputePipeline({ label,
-        layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
-        compute: { module, entryPoint: "main" } }) };
+      return {
+        layout,
+        pipeline: device.createComputePipeline({
+          label,
+          layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
+          compute: { module, entryPoint: "main" },
+        }),
+      };
     };
     this.source = make("FSR3 Shading SPD source", FSR3_SHADING_PYRAMID_SOURCE_WGSL, [
-      texture(0), texture(1), texture(2), texture(3),
+      texture(0),
+      texture(1),
+      texture(2),
+      texture(3),
       { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-      storage(5, "rgba32float"), storage(6, "rg16float")
+      storage(5, "rgba32float"),
+      storage(6, "rg16float"),
     ]);
-    this.reduce = make("FSR3 Shading SPD reduce", FSR3_SHADING_PYRAMID_REDUCE_WGSL,
-      [texture(0), storage(1, "rgba32float"), storage(2, "rg16float")]);
+    this.reduce = make("FSR3 Shading SPD reduce", FSR3_SHADING_PYRAMID_REDUCE_WGSL, [
+      texture(0),
+      storage(1, "rgba32float"),
+      storage(2, "rg16float"),
+    ]);
   }
 
-  addToGraph(graph: FrameGraph, input: {
-    dilatedMotion: ResourceId; currentLuma: ResourceId; previousLuma: ResourceId;
-    exposure: ResourceId; constants: ResourceId; width: number; height: number;
-  }): readonly ResourceId[] {
-    if (input.width < 8 || input.height < 8) throw new RangeError("FSR3 Shading SPD requires at least 8x8 render size");
+  addToGraph(
+    graph: FrameGraph,
+    input: {
+      dilatedMotion: ResourceId;
+      currentLuma: ResourceId;
+      previousLuma: ResourceId;
+      exposure: ResourceId;
+      constants: ResourceId;
+      width: number;
+      height: number;
+    },
+  ): readonly ResourceId[] {
+    if (input.width < 8 || input.height < 8)
+      throw new RangeError("FSR3 Shading SPD requires at least 8x8 render size");
     const mipCount = Math.min(12, Math.ceil(Math.log2(Math.max(input.width, input.height))));
     let width = Math.ceil(input.width / 2);
     let height = Math.ceil(input.height / 2);
     const firstWidth = width;
     const firstHeight = height;
     const first = graph.add("FSR3/Shading SPD source", input, (data, resources, context) => {
-      this.dispatch(this.source, context.encoder as ShadeGPUCommandContext, [
-        resolveTextureView(resources.get(data.dilatedMotion)),
-        resolveTextureView(resources.get(data.currentLuma)),
-        resolveTextureView(resources.get(data.previousLuma)),
-        resolveTextureView(resources.get(data.exposure)),
-        { buffer: resources.get(data.constants) as GPUBuffer },
-        resolveTextureView(resources.get(scratch0)),
-        resolveTextureView(resources.get(mip0))
-      ], firstWidth, firstHeight);
+      this.dispatch(
+        this.source,
+        context.encoder as ShadeGPUCommandContext,
+        [
+          resolveTextureView(resources.get(data.dilatedMotion)),
+          resolveTextureView(resources.get(data.currentLuma)),
+          resolveTextureView(resources.get(data.previousLuma)),
+          resolveTextureView(resources.get(data.exposure)),
+          { buffer: resources.get(data.constants) as GPUBuffer },
+          resolveTextureView(resources.get(scratch0)),
+          resolveTextureView(resources.get(mip0)),
+        ],
+        firstWidth,
+        firstHeight,
+      );
     });
     const scratch0 = this.createTexture(first, "FSR3/shading SPD scratch0", width, height, "rgba32float");
     const mip0 = this.createTexture(first, "FSR3/shading SPD mip0", width, height, "rg16float");
-    for (const resource of [input.dilatedMotion, input.currentLuma, input.previousLuma,
-      input.exposure, input.constants]) first.read(resource);
+    for (const resource of [
+      input.dilatedMotion,
+      input.currentLuma,
+      input.previousLuma,
+      input.exposure,
+      input.constants,
+    ])
+      first.read(resource);
     const mips: ResourceId[] = [mip0];
     let previous = scratch0;
     for (let index = 1; index < mipCount; index++) {
@@ -188,13 +228,25 @@ export class Fsr3ShadingChangePyramidPass {
       const targetHeight = height;
       const from = previous;
       const builder = graph.add(`FSR3/Shading SPD mip${index}`, { from }, (data, resources, context) => {
-        this.dispatch(this.reduce, context.encoder as ShadeGPUCommandContext, [
-          resolveTextureView(resources.get(data.from)),
-          resolveTextureView(resources.get(scratch)),
-          resolveTextureView(resources.get(mip))
-        ], targetWidth, targetHeight);
+        this.dispatch(
+          this.reduce,
+          context.encoder as ShadeGPUCommandContext,
+          [
+            resolveTextureView(resources.get(data.from)),
+            resolveTextureView(resources.get(scratch)),
+            resolveTextureView(resources.get(mip)),
+          ],
+          targetWidth,
+          targetHeight,
+        );
       });
-      const scratch = this.createTexture(builder, `FSR3/shading SPD scratch${index}`, width, height, "rgba32float");
+      const scratch = this.createTexture(
+        builder,
+        `FSR3/shading SPD scratch${index}`,
+        width,
+        height,
+        "rgba32float",
+      );
       const mip = this.createTexture(builder, `FSR3/shading SPD mip${index}`, width, height, "rg16float");
       builder.read(from);
       mips.push(mip);
@@ -203,15 +255,32 @@ export class Fsr3ShadingChangePyramidPass {
     return mips;
   }
 
-  private createTexture(builder: ReturnType<FrameGraph["add"]>, label: string,
-    width: number, height: number, format: GPUTextureFormat): ResourceId {
-    return builder.create(label, { kind: "transient_texture", width, height, format,
-      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING });
+  private createTexture(
+    builder: ReturnType<FrameGraph["add"]>,
+    label: string,
+    width: number,
+    height: number,
+    format: GPUTextureFormat,
+  ): ResourceId {
+    return builder.create(label, {
+      kind: "transient_texture",
+      width,
+      height,
+      format,
+      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
+    });
   }
-  private dispatch(pair: PipelinePair, command: ShadeGPUCommandContext,
-    resources: GPUBindingResource[], width: number, height: number): void {
-    const bind = this.device.createBindGroup({ layout: pair.layout,
-      entries: resources.map((resource, binding) => ({ binding, resource })) });
+  private dispatch(
+    pair: PipelinePair,
+    command: ShadeGPUCommandContext,
+    resources: GPUBindingResource[],
+    width: number,
+    height: number,
+  ): void {
+    const bind = this.device.createBindGroup({
+      layout: pair.layout,
+      entries: resources.map((resource, binding) => ({ binding, resource })),
+    });
     const pass = command.beginComputePass({ label: "FSR3 Shading SPD" });
     pass.setPipeline(pair.pipeline);
     pass.setBindGroup(0, bind);

@@ -5,17 +5,10 @@
 import type { GraphicsContext } from "../gpu/GraphicsContext.js";
 import type { GPUSceneEnvironmentContext } from "../gpu/GPUSceneEnvironmentContext.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
-import {
-  WGSL_mat4x4f,
-  WGSL_u32,
-  WGSL_vec2f
-} from "../core/WebGPUTypes.js";
+import { WGSL_mat4x4f, WGSL_u32, WGSL_vec2f } from "../core/WebGPUTypes.js";
 import { StructType } from "../core/WgslStruct.js";
 import { writeWgslToBuffer } from "../core/WgslBufferIO.js";
-import {
-  mat4FromTranslationScale,
-  mat4Multiply
-} from "../core/math/Mat4.js";
+import { mat4FromTranslationScale, mat4Multiply } from "../core/math/Mat4.js";
 import { GPUCameraState } from "./GPUCameraState.js";
 import { HierarchicalZBuffer } from "./HierarchicalZBuffer.js";
 
@@ -26,9 +19,9 @@ export const GPU_VIEW_TYPE = StructType.from(
     height: WGSL_u32,
     frame_index: WGSL_u32,
     upscale_ratio: WGSL_vec2f,
-    jitter: WGSL_vec2f
+    jitter: WGSL_vec2f,
   },
-  "PipelineCacheKey"
+  "PipelineCacheKey",
 ).pack();
 
 let nextGpuViewContextId = 0;
@@ -56,11 +49,7 @@ export class GPUViewContext {
   private readonly upscaleRatio = new Float32Array([1, 1]);
   private readonly jitter = new Float32Array(2);
 
-  constructor(
-    graphics: GraphicsContext,
-    environment: GPUSceneEnvironmentContext,
-    camera: GPUCameraState
-  ) {
+  constructor(graphics: GraphicsContext, environment: GPUSceneEnvironmentContext, camera: GPUCameraState) {
     const device = graphics.device;
     if (device === null) {
       throw new Error("GPUViewContext: GraphicsContext has no device");
@@ -76,7 +65,7 @@ export class GPUViewContext {
     this.uniform_buffer = device.createBuffer({
       label: "GPUViewContext/uj/Yu",
       size: GPU_VIEW_TYPE.size,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
   }
 
@@ -118,10 +107,9 @@ export class GPUViewContext {
   }
 
   equals(other: GPUViewContext): boolean {
-    return this === other || (
-      this.device === other.device &&
-      this.environment === other.environment &&
-      this.camera === other.camera
+    return (
+      this === other ||
+      (this.device === other.device && this.environment === other.environment && this.camera === other.camera)
     );
   }
 
@@ -133,13 +121,9 @@ export class GPUViewContext {
     mat4FromTranslationScale(
       this.viewportMatrix,
       { x: 0.5 * this.width, y: 0.5 * this.height, z: 0 },
-      { x: 0.5 * this.width, y: -0.5 * this.height, z: 1 }
+      { x: 0.5 * this.width, y: -0.5 * this.height, z: 1 },
     );
-    mat4Multiply(
-      this.projectionMatrix,
-      this.viewportMatrix,
-      this.camera.view_projection_matrix
-    );
+    mat4Multiply(this.projectionMatrix, this.viewportMatrix, this.camera.view_projection_matrix);
     writeWgslToBuffer(
       {
         projection_matrix: this.projectionMatrix,
@@ -147,18 +131,12 @@ export class GPUViewContext {
         height: this.height,
         frame_index: this.frame_index,
         upscale_ratio: this.upscaleRatio,
-        jitter: this.jitter
+        jitter: this.jitter,
       },
       GPU_VIEW_TYPE,
-      this.uniformData
-    );
-    command.writeBuffer(
-      this.uniform_buffer,
-      0,
       this.uniformData,
-      0,
-      this.uniformData.byteLength
     );
+    command.writeBuffer(this.uniform_buffer, 0, this.uniformData, 0, this.uniformData.byteLength);
   }
 
   update(command: ShadeGPUCommandContext): void {
@@ -166,8 +144,13 @@ export class GPUViewContext {
     if (this.frame_index === 0) {
       // First frame (also a retry after abort): motion starts from the current
       // camera. Both copies are encoded in the owning frame, before Surface.
-      command.gpu_encoder.copyBufferToBuffer(this.camera.buffer, 0,
-        this.gpu_previous_camera_state.buffer, 0, this.gpu_previous_camera_state.buffer.size);
+      command.gpu_encoder.copyBufferToBuffer(
+        this.camera.buffer,
+        0,
+        this.gpu_previous_camera_state.buffer,
+        0,
+        this.gpu_previous_camera_state.buffer.size,
+      );
       this.gpu_previous_camera_state.copyCpu(this.camera);
     }
     this.update_uniforms(command);
@@ -177,8 +160,13 @@ export class GPUViewContext {
   finish_frame(command: ShadeGPUCommandContext, hzbFrameIndex = this.frame_index): void {
     // The GPU copy belongs to this frame encoder. Its CPU mirror and the view
     // counter become visible only if that encoder is actually submitted.
-    command.gpu_encoder.copyBufferToBuffer(this.camera.buffer, 0,
-      this.gpu_previous_camera_state.buffer, 0, this.gpu_previous_camera_state.buffer.size);
+    command.gpu_encoder.copyBufferToBuffer(
+      this.camera.buffer,
+      0,
+      this.gpu_previous_camera_state.buffer,
+      0,
+      this.gpu_previous_camera_state.buffer.size,
+    );
     // History becomes visible only after the owning command context has been submitted.
     command.onFinished.addOne(() => {
       this.gpu_previous_camera_state.copyCpu(this.camera);

@@ -4,20 +4,14 @@
 
 import { Vec3 } from "./Vec3.js";
 import { Quat } from "./Quat.js";
-import {
-  mat4Copy,
-  mat4FromTRS,
-  mat4Multiply
-} from "./Mat4.js";
+import { mat4Copy, mat4FromTRS, mat4Multiply } from "./Mat4.js";
 
 const _scratchMat = new Float32Array(16);
 const IDENTITY_QUAT = { x: 0, y: 0, z: 0, w: 1 };
-const IDENTITY_MAT4 = Object.freeze([
-  1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1
-] as const);
+const IDENTITY_MAT4 = Object.freeze([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1] as const);
 
 export const TransformFlag = {
-  AutoUpdateMatrix: 2
+  AutoUpdateMatrix: 2,
 } as const;
 
 export class Transform3D {
@@ -92,7 +86,7 @@ export class Transform3D {
 
   lookAt(
     target: { x: number; y: number; z: number } | Vec3,
-    up: { x: number; y: number; z: number } = { x: 0, y: 1, z: 0 }
+    up: { x: number; y: number; z: number } = { x: 0, y: 1, z: 0 },
   ): void {
     const n = this.position;
     const dx = target.x - n.x;
@@ -134,9 +128,9 @@ export class Transform3D {
         x: this.rotation.x,
         y: this.rotation.y,
         z: this.rotation.z,
-        w: this.rotation.w
+        w: this.rotation.w,
       },
-      scale: this.scale.toJSON()
+      scale: this.scale.toJSON(),
     };
   }
 
@@ -211,9 +205,7 @@ export class Transform3D {
 
   isIdentity(): boolean {
     return (
-      this.position.equals(Vec3.zero) &&
-      this.rotation.equals(IDENTITY_QUAT) &&
-      this.scale.equals(Vec3.one)
+      this.position.equals(Vec3.zero) && this.rotation.equals(IDENTITY_QUAT) && this.scale.equals(Vec3.one)
     );
   }
 
@@ -239,11 +231,7 @@ export class Transform3D {
   static readonly typeName = "Transform";
   readonly isTransform = true;
 
-  static adjustRotation(
-    e: Quat,
-    t: { x: number; y: number; z: number },
-    n = Infinity
-  ): void {
+  static adjustRotation(e: Quat, t: { x: number; y: number; z: number }, n = Infinity): void {
     console.warn("deprecated, use Transform.rotation.rotateTowards instead");
     const r = new Quat();
     r.lookRotation(t);
@@ -261,5 +249,4 @@ export class Transform3D {
   hash(): number {
     return this.position.hash();
   }
-
 }

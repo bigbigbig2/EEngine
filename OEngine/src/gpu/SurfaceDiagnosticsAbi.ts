@@ -11,17 +11,11 @@ export const SURFACE_DIAGNOSTICS_SCHEMA_VERSION = 6;
 export const SURFACE_DIAGNOSTICS_MAGIC = 0x53564433; // "SVD3"
 export const SURFACE_DIAGNOSTICS_HEADER_WORDS = 16;
 export const SURFACE_DIAGNOSTICS_COUNTER_WORDS = 112;
-export const SURFACE_DIAGNOSTICS_WORDS =
-  SURFACE_DIAGNOSTICS_HEADER_WORDS + SURFACE_DIAGNOSTICS_COUNTER_WORDS;
+export const SURFACE_DIAGNOSTICS_WORDS = SURFACE_DIAGNOSTICS_HEADER_WORDS + SURFACE_DIAGNOSTICS_COUNTER_WORDS;
 export const SURFACE_DIAGNOSTICS_BYTE_SIZE = SURFACE_DIAGNOSTICS_WORDS * 4;
 
 export type SurfaceDiagnosticsMode = "off" | "timing" | "detailed";
-export type SurfaceDiagnosticsAvailability =
-  | "available"
-  | "pending"
-  | "dropped"
-  | "unavailable"
-  | "invalid";
+export type SurfaceDiagnosticsAvailability = "available" | "pending" | "dropped" | "unavailable" | "invalid";
 export type SurfaceCoverageStatus = "pass" | "fail" | "unknown";
 
 export const SURFACE_DIAGNOSTIC_COUNTERS = Object.freeze({
@@ -89,8 +83,8 @@ export const SURFACE_DIAGNOSTIC_COUNTERS = Object.freeze({
   geometryDirectoryRejected: 61,
   geometryTriangleRangeRejected: 62,
   geometryVertexRangeRejected: 63,
-  geometryCoefficientDegenerate: 64
-  ,geometryPrimitiveRangeRejected: 65,
+  geometryCoefficientDegenerate: 64,
+  geometryPrimitiveRangeRejected: 65,
   geometryBaseRangeRejected: 66,
   geometrySpanRangeRejected: 67,
   geometryFirstTriangleCount: 68,
@@ -103,19 +97,37 @@ export const SURFACE_DIAGNOSTIC_COUNTERS = Object.freeze({
   reconstructMappedPixels: 75,
   reconstructReadBytes: 76,
   reconstructWriteBytes: 77,
-  fieldCacheRequests: 78, fieldCacheProbes: 79, fieldCacheUnique: 80,
-  fieldCacheAdmissions: 81, fieldCacheQueueRejected: 82,
-  signalCacheRequests: 83, signalCacheProbes: 84, signalCacheUnique: 85,
-  signalCacheAdmissions: 86, signalCacheQueueRejected: 87,
-  fieldValuesProduced: 88, signalValuesProduced: 89,
-  candidateLeaves: 90, uvWitnessGroups: 91, uvWitnessWriteBytes: 92,
-  signalWitnessLeaves: 93, signalWitnessWriteBytes: 94, proofResultWriteBytes: 95,
-  proofAdmitted: 96, proofRejected: 97, geometryHotWriteBytes: 98, geometryColdWriteBytes: 99,
+  fieldCacheRequests: 78,
+  fieldCacheProbes: 79,
+  fieldCacheUnique: 80,
+  fieldCacheAdmissions: 81,
+  fieldCacheQueueRejected: 82,
+  signalCacheRequests: 83,
+  signalCacheProbes: 84,
+  signalCacheUnique: 85,
+  signalCacheAdmissions: 86,
+  signalCacheQueueRejected: 87,
+  fieldValuesProduced: 88,
+  signalValuesProduced: 89,
+  candidateLeaves: 90,
+  uvWitnessGroups: 91,
+  uvWitnessWriteBytes: 92,
+  signalWitnessLeaves: 93,
+  signalWitnessWriteBytes: 94,
+  proofResultWriteBytes: 95,
+  proofAdmitted: 96,
+  proofRejected: 97,
+  geometryHotWriteBytes: 98,
+  geometryColdWriteBytes: 99,
   explicitStoreRefWriteBytes: 100,
-  fullDirectLightEvaluations: 101, sharedDirectTransportEvaluations: 102,
+  fullDirectLightEvaluations: 101,
+  sharedDirectTransportEvaluations: 102,
   transportOnlyLightEvaluations: 103,
-  fieldLookupCandidates: 104, nonPublicationFields: 105, fieldLookupProbes: 106,
-  transportEligibleLeaves: 107, residualLeaves: 108
+  fieldLookupCandidates: 104,
+  nonPublicationFields: 105,
+  fieldLookupProbes: 106,
+  transportEligibleLeaves: 107,
+  residualLeaves: 108,
 } as const);
 
 export const SURFACE_DIAGNOSTICS_COUNTERS = SURFACE_DIAGNOSTIC_COUNTERS;
@@ -132,7 +144,7 @@ export const SURFACE_DIAGNOSTIC_FLAGS = Object.freeze({
   completionAuditMissing: 1 << 6,
   snapshotDropped: 1 << 7,
   incompleteProducerCounters: 1 << 8,
-  lightingPacketWritesUnknown: 1 << 9
+  lightingPacketWritesUnknown: 1 << 9,
 } as const);
 
 export interface SurfaceDiagnosticsIdentity {
@@ -167,37 +179,40 @@ export function surfaceDiagnosticsByteOffset(counter: SurfaceDiagnosticCounter):
 export function writeSurfaceDiagnosticsHeader(
   target: Uint32Array,
   identity: SurfaceDiagnosticsIdentity,
-  mode: SurfaceDiagnosticsMode
+  mode: SurfaceDiagnosticsMode,
 ): void {
   if (target.length < SURFACE_DIAGNOSTICS_HEADER_WORDS) {
     throw new RangeError("Surface diagnostics header target is too small");
   }
   const runHash = hashRunId(identity.runId);
   target.fill(0, 0, SURFACE_DIAGNOSTICS_HEADER_WORDS);
-  target.set([
-    SURFACE_DIAGNOSTICS_MAGIC,
-    SURFACE_DIAGNOSTICS_SCHEMA_VERSION,
-    runHash,
-    identity.deviceEpoch >>> 0,
-    identity.frameId >>> 0,
-    mode === "off" ? 0 : mode === "timing" ? 1 : 2,
-    SURFACE_DIAGNOSTICS_COUNTER_WORDS,
+  target.set(
+    [
+      SURFACE_DIAGNOSTICS_MAGIC,
+      SURFACE_DIAGNOSTICS_SCHEMA_VERSION,
+      runHash,
+      identity.deviceEpoch >>> 0,
+      identity.frameId >>> 0,
+      mode === "off" ? 0 : mode === "timing" ? 1 : 2,
+      SURFACE_DIAGNOSTICS_COUNTER_WORDS,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+    ],
     0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0
-  ], 0);
+  );
 }
 
 export function decodeSurfaceDiagnostics(
   data: ArrayBuffer,
   identity: SurfaceDiagnosticsIdentity,
-  mode: SurfaceDiagnosticsMode
+  mode: SurfaceDiagnosticsMode,
 ): SurfaceDiagnosticsSnapshot {
   if (data.byteLength < SURFACE_DIAGNOSTICS_BYTE_SIZE) {
     return unavailableSnapshot(identity, mode, "snapshot-too-small");
@@ -207,7 +222,10 @@ export function decodeSurfaceDiagnostics(
     return unavailableSnapshot(identity, mode, "snapshot-schema-mismatch");
   }
   const values: Record<string, number> = {};
-  for (const [name, index] of Object.entries(SURFACE_DIAGNOSTICS_COUNTERS) as [SurfaceDiagnosticCounter, number][]) {
+  for (const [name, index] of Object.entries(SURFACE_DIAGNOSTICS_COUNTERS) as [
+    SurfaceDiagnosticCounter,
+    number,
+  ][]) {
     values[name] = words[SURFACE_DIAGNOSTICS_HEADER_WORDS + index] ?? 0;
   }
   const coverage = evaluateSurfaceCoverage(values);
@@ -218,30 +236,52 @@ export function decodeSurfaceDiagnostics(
     availability: "available",
     values,
     coverage,
-    reconstructLogicalBytes: reconstructLogicalBytes(values)
+    reconstructLogicalBytes: reconstructLogicalBytes(values),
   };
 }
 
 export function evaluateSurfaceCoverage(values: SurfaceDiagnosticsValues): SurfaceCoverageReport {
   const violations: string[] = [];
-  const incomplete = ((values.diagnosticsFlags ?? 0) & SURFACE_DIAGNOSTIC_FLAGS.incompleteProducerCounters) !== 0;
+  const incomplete =
+    ((values.diagnosticsFlags ?? 0) & SURFACE_DIAGNOSTIC_FLAGS.incompleteProducerCounters) !== 0;
   if (!incomplete) {
     sumEquals(values, "totalTiles", ["emptyTiles", "uniformTiles", "mixedTiles"], violations);
     sumEquals(values, "sampleRequested", ["sampleAccepted", "sampleOverflow"], violations);
-    sumEquals(values, "materialLookup", ["materialHit", "materialMissRequested", "materialRejected"], violations);
-    sumEquals(values, "geometryRecordsRequested", ["geometryCacheHit", "geometryMissQueued", "geometryRejected"], violations);
-    if (counterValue(values, "materialMissQueued") < counterValue(values, "materialEvaluatorCompleted") + counterValue(values, "materialEvaluatorSkippedOrRejected")) {
+    sumEquals(
+      values,
+      "materialLookup",
+      ["materialHit", "materialMissRequested", "materialRejected"],
+      violations,
+    );
+    sumEquals(
+      values,
+      "geometryRecordsRequested",
+      ["geometryCacheHit", "geometryMissQueued", "geometryRejected"],
+      violations,
+    );
+    if (
+      counterValue(values, "materialMissQueued") <
+      counterValue(values, "materialEvaluatorCompleted") +
+        counterValue(values, "materialEvaluatorSkippedOrRejected")
+    ) {
       violations.push("material queued less than completed plus skipped/rejected");
     }
-    if (counterValue(values, "geometryMissCompleted") > counterValue(values, "geometryMissQueued")) violations.push("geometry miss completed exceeds queued");
-    if (counterValue(values, "reconstructOutputPixels") + counterValue(values, "reconstructUncoveredPixels") !== counterValue(values, "outputPixels")) {
+    if (counterValue(values, "geometryMissCompleted") > counterValue(values, "geometryMissQueued"))
+      violations.push("geometry miss completed exceeds queued");
+    if (
+      counterValue(values, "reconstructOutputPixels") + counterValue(values, "reconstructUncoveredPixels") !==
+      counterValue(values, "outputPixels")
+    ) {
       violations.push("reconstruct output coverage mismatch");
     }
   }
   if (values.geometryProducerBaseWords !== values.geometryConsumerBaseWords) {
     violations.push("geometry producer/consumer base mismatch");
   }
-  if (values.geometryRecordStrideWords !== SURFACE_GEOMETRY_RECORD_VECTORS && values.geometryRecordStrideWords !== 0) {
+  if (
+    values.geometryRecordStrideWords !== SURFACE_GEOMETRY_RECORD_VECTORS &&
+    values.geometryRecordStrideWords !== 0
+  ) {
     violations.push("geometry record stride mismatch");
   }
   const status = violations.length !== 0 ? "fail" : incomplete ? "unknown" : "pass";
@@ -262,7 +302,7 @@ function sumEquals(
   values: SurfaceDiagnosticsValues,
   total: SurfaceDiagnosticCounter,
   terms: readonly SurfaceDiagnosticCounter[],
-  violations: string[]
+  violations: string[],
 ): void {
   const expected = terms.reduce((sum, name) => sum + (values[name] ?? 0), 0);
   if (values[total] !== expected) {
@@ -286,7 +326,7 @@ function hashRunId(runId: string): number {
 function unavailableSnapshot(
   identity: SurfaceDiagnosticsIdentity,
   mode: SurfaceDiagnosticsMode,
-  reason: string
+  reason: string,
 ): SurfaceDiagnosticsSnapshot {
   return {
     ...identity,
@@ -295,6 +335,6 @@ function unavailableSnapshot(
     availability: "invalid",
     values: {},
     coverage: { status: "unknown", violations: [reason] },
-    reconstructLogicalBytes: null
+    reconstructLogicalBytes: null,
   };
 }

@@ -13,30 +13,45 @@ export function createSurfaceCellPipelineLayout(device: GPUDevice, product: bool
   }
   const compute = GPUShaderStage.COMPUTE;
   const buffer = (binding: number, type: GPUBufferBindingType): GPUBindGroupLayoutEntry => ({
-    binding, visibility: compute, buffer: { type }
+    binding,
+    visibility: compute,
+    buffer: { type },
   });
   const geometry: GPUBindGroupLayoutEntry[] = [
-    buffer(0, 'uniform'), buffer(1, 'read-only-storage'),
-    buffer(3, 'read-only-storage'), buffer(4, 'read-only-storage'),
-    buffer(5, 'read-only-storage'), buffer(6, 'read-only-storage'),
-    buffer(7, 'storage'), buffer(8, 'read-only-storage'), buffer(14, 'uniform')
+    buffer(0, "uniform"),
+    buffer(1, "read-only-storage"),
+    buffer(3, "read-only-storage"),
+    buffer(4, "read-only-storage"),
+    buffer(5, "read-only-storage"),
+    buffer(6, "read-only-storage"),
+    buffer(7, "storage"),
+    buffer(8, "read-only-storage"),
+    buffer(14, "uniform"),
   ];
   if (product) {
     for (let binding = 9; binding <= 13; binding++) {
-      geometry.push(buffer(binding, 'read-only-storage'));
+      geometry.push(buffer(binding, "read-only-storage"));
     }
   }
   const groups = [
-    device.createBindGroupLayout({ label: 'Surface/cell work inputs', entries: [
-      buffer(0, 'uniform'),
-      { binding: 1, visibility: compute, texture: { sampleType: 'uint', viewDimension: '2d' } },
-      buffer(2, 'storage')
-    ] }),
-    device.createBindGroupLayout({ label: 'Surface/cell geometry and appearance', entries: geometry }),
-    device.createBindGroupLayout({ label: 'Surface/cell lighting providers', entries: [
-      buffer(0, 'read-only-storage'), buffer(1, 'read-only-storage'),
-      buffer(2, 'read-only-storage'), buffer(3, 'uniform')
-    ] })
+    device.createBindGroupLayout({
+      label: "Surface/cell work inputs",
+      entries: [
+        buffer(0, "uniform"),
+        { binding: 1, visibility: compute, texture: { sampleType: "uint", viewDimension: "2d" } },
+        buffer(2, "storage"),
+      ],
+    }),
+    device.createBindGroupLayout({ label: "Surface/cell geometry and appearance", entries: geometry }),
+    device.createBindGroupLayout({
+      label: "Surface/cell lighting providers",
+      entries: [
+        buffer(0, "read-only-storage"),
+        buffer(1, "read-only-storage"),
+        buffer(2, "read-only-storage"),
+        buffer(3, "uniform"),
+      ],
+    }),
   ];
-  return device.createPipelineLayout({ label: 'Surface/cell production layout', bindGroupLayouts: groups });
+  return device.createPipelineLayout({ label: "Surface/cell production layout", bindGroupLayouts: groups });
 }

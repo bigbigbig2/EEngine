@@ -34,22 +34,20 @@ import {
   type GeometryDirectoryRecord,
   type GeometryMaterialRangeRecord,
   type GeometryMeshletRecord,
-  type GeometryVertexStreamDescriptor
+  type GeometryVertexStreamDescriptor,
 } from "../assets/GeometryAssetPackage.js";
 import {
   createGeometryCookRecipe,
   geometryCookRecipeKey,
-  type GeometryCookRecipe
+  type GeometryCookRecipe,
 } from "../assets/GeometryCookRecipe.js";
-import {
-  writeRuntimeAssetPackageV2
-} from "../assets/RuntimeAssetManifestV2.js";
+import { writeRuntimeAssetPackageV2 } from "../assets/RuntimeAssetManifestV2.js";
 import type { RuntimeAssetSectionInput } from "../assets/RuntimeAssetPackage.js";
 import type {
   SourceGeometry,
   SourceMaterialRange,
   SourceNumericArray,
-  SourceVertexStream
+  SourceVertexStream,
 } from "../assets/SourceGeometry.js";
 import { buildGeometryBvh8 } from "./GeometryBvh8.js";
 
@@ -150,7 +148,7 @@ interface GeometryPayloadBuildResult {
 
 export async function cookGeometryAssetPackage(
   source: SourceGeometry,
-  inputRecipe: GeometryCookRecipe
+  inputRecipe: GeometryCookRecipe,
 ): Promise<GeometryCookResult> {
   const cookStarted = nowMilliseconds();
   if (!MeshoptClusterizer.supported || !MeshoptSimplifier.supported) {
@@ -163,39 +161,41 @@ export async function cookGeometryAssetPackage(
   const warnings = validateCookInput(source, positions, recipe);
   const state = buildMeshlets(source, positions, recipe, warnings);
   const leafMeshletCount = state.records.length;
-  const hierarchy = recipe.hierarchyMode === "renderable"
-    ? buildRenderableHierarchy(source, positions, recipe, state, warnings)
-    : null;
+  const hierarchy =
+    recipe.hierarchyMode === "renderable"
+      ? buildRenderableHierarchy(source, positions, recipe, state, warnings)
+      : null;
   if (recipe.vertexProfile === "static-pbr-compact-v2") {
     expandBoundsForPositionQuantization(state.records, hierarchy?.clusters ?? [], source.bounds.box);
   }
   const built = finalizeMeshlets(state);
-  const surfaceMapping = prepareSurfacePrimitiveMapping({ indices: source.indices, meshlets: built.records,
-    meshletVertexIndices: built.vertices, meshletTriangleIndices: built.triangles });
+  const surfaceMapping = prepareSurfacePrimitiveMapping({
+    indices: source.indices,
+    meshlets: built.records,
+    meshletVertexIndices: built.vertices,
+    meshletTriangleIndices: built.triangles,
+  });
   const bvh8Nodes = hierarchy === null ? Object.freeze([]) : buildGeometryBvh8(hierarchy.clusters);
-  const payload = recipe.hierarchyMode === "single-level"
-    ? null
-    : buildGeometryPayload(source, positions, recipe);
+  const payload =
+    recipe.hierarchyMode === "single-level" ? null : buildGeometryPayload(source, positions, recipe);
   const canonicalSourceBytes = canonicalSourceGeometryBytes(source);
   const sourceHash = await sha256(canonicalSourceBytes);
-  const recipeHash = await sha256(
-    new TextEncoder().encode(geometryCookRecipeKey(recipe))
-  );
+  const recipeHash = await sha256(new TextEncoder().encode(geometryCookRecipeKey(recipe)));
   const recommendedVisibilityPath = recommendGeometryVisibilityPath(
     built.records.length,
     hierarchy?.depth ?? 0,
-    hierarchy !== null
+    hierarchy !== null,
   );
   const directory: GeometryDirectoryRecord = {
     schemaVersion: GEOMETRY_ASSET_SCHEMA_VERSION,
-    flags: hierarchy === null
-      ? GEOMETRY_DIRECTORY_FLAGS.SingleLevel |
-        GEOMETRY_DIRECTORY_FLAGS.NoHierarchy |
-        GEOMETRY_DIRECTORY_FLAGS.NoBvh |
-        profileDirectoryFlag(recipe) |
-        geometryVisibilityPathFlag(recommendedVisibilityPath)
-      : profileDirectoryFlag(recipe) |
-        geometryVisibilityPathFlag(recommendedVisibilityPath),
+    flags:
+      hierarchy === null
+        ? GEOMETRY_DIRECTORY_FLAGS.SingleLevel |
+          GEOMETRY_DIRECTORY_FLAGS.NoHierarchy |
+          GEOMETRY_DIRECTORY_FLAGS.NoBvh |
+          profileDirectoryFlag(recipe) |
+          geometryVisibilityPathFlag(recommendedVisibilityPath)
+        : profileDirectoryFlag(recipe) | geometryVisibilityPathFlag(recommendedVisibilityPath),
     vertexCount: source.vertexCount,
     sourceTriangleCount: source.triangleCount,
     vertexStreamDescriptorBegin: 0,
@@ -214,22 +214,19 @@ export async function cookGeometryAssetPackage(
     materialRangeCount: payload?.materialRanges.length ?? 0,
     maxMeshletVertices: recipe.meshletMaxVertices,
     maxMeshletTriangles: recipe.meshletMaxTriangles,
-    vertexProfileId: recipe.vertexProfile === "static-pbr-compact-v2"
-      ? GEOMETRY_VERTEX_PROFILE.StaticPbrCompactV2
-      : GEOMETRY_VERTEX_PROFILE.ExplicitFloat32FallbackV2,
+    vertexProfileId:
+      recipe.vertexProfile === "static-pbr-compact-v2"
+        ? GEOMETRY_VERTEX_PROFILE.StaticPbrCompactV2
+        : GEOMETRY_VERTEX_PROFILE.ExplicitFloat32FallbackV2,
     boundsBox: source.bounds.box,
     boundsSphere: source.bounds.sphere,
     sourceHash,
-    recipeHash
+    recipeHash,
   };
   const directoryBytes = encodeGeometryDirectoryRecord(directory);
   const recordBytes = encodeGeometryMeshletRecords(built.records);
-  const clusterBytes = hierarchy === null
-    ? null
-    : encodeGeometryClusterRecords(hierarchy.clusters);
-  const bvhBytes = bvh8Nodes.length === 0
-    ? null
-    : encodeGeometryBvh8Nodes(bvh8Nodes);
+  const clusterBytes = hierarchy === null ? null : encodeGeometryClusterRecords(hierarchy.clusters);
+  const bvhBytes = bvh8Nodes.length === 0 ? null : encodeGeometryBvh8Nodes(bvh8Nodes);
   const sections: RuntimeAssetSectionInput[] = [
     {
       type: GEOMETRY_SECTION_TYPES.GeometryDirectory,
@@ -237,7 +234,7 @@ export async function cookGeometryAssetPackage(
       data: directoryBytes,
       elementStride: GEOMETRY_DIRECTORY_RECORD_STRIDE,
       elementCount: 1,
-      alignment: 16
+      alignment: 16,
     },
     {
       type: GEOMETRY_SECTION_TYPES.MeshletRecords,
@@ -245,7 +242,7 @@ export async function cookGeometryAssetPackage(
       data: recordBytes,
       elementStride: GEOMETRY_MESHLET_RECORD_STRIDE,
       elementCount: built.records.length,
-      alignment: 16
+      alignment: 16,
     },
     {
       type: GEOMETRY_SECTION_TYPES.MeshletVertexIndices,
@@ -253,7 +250,7 @@ export async function cookGeometryAssetPackage(
       data: built.vertices,
       elementStride: 4,
       elementCount: built.vertices.length,
-      alignment: 16
+      alignment: 16,
     },
     {
       type: GEOMETRY_SECTION_TYPES.MeshletTriangleIndices,
@@ -261,7 +258,7 @@ export async function cookGeometryAssetPackage(
       data: built.triangles,
       elementStride: 1,
       elementCount: built.triangles.length,
-      alignment: 16
+      alignment: 16,
     },
     {
       type: GEOMETRY_SECTION_TYPES.SurfacePrimitiveIds,
@@ -269,8 +266,8 @@ export async function cookGeometryAssetPackage(
       data: surfaceMapping.words,
       elementStride: 4,
       elementCount: surfaceMapping.words.length,
-      alignment: 16
-    }
+      alignment: 16,
+    },
   ];
   if (hierarchy !== null && clusterBytes !== null) {
     sections.push(
@@ -280,7 +277,7 @@ export async function cookGeometryAssetPackage(
         data: clusterBytes,
         elementStride: GEOMETRY_CLUSTER_RECORD_STRIDE,
         elementCount: hierarchy.clusters.length,
-        alignment: 16
+        alignment: 16,
       },
       {
         type: GEOMETRY_SECTION_TYPES.ClusterChildren,
@@ -288,8 +285,8 @@ export async function cookGeometryAssetPackage(
         data: hierarchy.children,
         elementStride: 4,
         elementCount: hierarchy.children.length,
-        alignment: 16
-      }
+        alignment: 16,
+      },
     );
   }
   if (bvhBytes !== null) {
@@ -299,7 +296,7 @@ export async function cookGeometryAssetPackage(
       data: bvhBytes,
       elementStride: GEOMETRY_BVH8_NODE_STRIDE,
       elementCount: bvh8Nodes.length,
-      alignment: 16
+      alignment: 16,
     });
   }
   if (payload !== null) {
@@ -310,7 +307,7 @@ export async function cookGeometryAssetPackage(
         data: payload.descriptorBytes,
         elementStride: GEOMETRY_VERTEX_STREAM_DESCRIPTOR_STRIDE,
         elementCount: payload.descriptors.length,
-        alignment: 16
+        alignment: 16,
       },
       {
         type: GEOMETRY_SECTION_TYPES.VertexStreamData,
@@ -318,7 +315,7 @@ export async function cookGeometryAssetPackage(
         data: payload.vertexDataBytes,
         elementStride: 1,
         elementCount: payload.vertexDataBytes.byteLength,
-        alignment: 16
+        alignment: 16,
       },
       {
         type: GEOMETRY_SECTION_TYPES.IndexData,
@@ -326,7 +323,7 @@ export async function cookGeometryAssetPackage(
         data: payload.indexBytes,
         elementStride: 4,
         elementCount: source.indices.length,
-        alignment: 16
+        alignment: 16,
       },
       {
         type: GEOMETRY_SECTION_TYPES.MaterialRanges,
@@ -334,15 +331,15 @@ export async function cookGeometryAssetPackage(
         data: payload.materialRangeBytes,
         elementStride: GEOMETRY_MATERIAL_RANGE_STRIDE,
         elementCount: payload.materialRanges.length,
-        alignment: 16
-      }
+        alignment: 16,
+      },
     );
   }
   const sourceHashHex = toHex(sourceHash);
   const recipeHashHex = toHex(recipeHash);
-  const assetId = toHex(await sha256(new TextEncoder().encode(
-    `${sourceHashHex}:${recipeHashHex}:geometry-v2`
-  )));
+  const assetId = toHex(
+    await sha256(new TextEncoder().encode(`${sourceHashHex}:${recipeHashHex}:geometry-v2`)),
+  );
   const maxChunkBytes = Math.max(4, ...sections.map((section) => byteLengthOf(section.data)));
   const chunks = sections.map((section) => ({
     id: geometryChunkId(section.type),
@@ -354,7 +351,7 @@ export async function cookGeometryAssetPackage(
     elementCount: section.elementCount,
     decodedBytes: byteLengthOf(section.data),
     expectedResidentBytes: byteLengthOf(section.data),
-    data: section.data
+    data: section.data,
   }));
   const bytes = await writeRuntimeAssetPackageV2({
     manifest: {
@@ -365,18 +362,20 @@ export async function cookGeometryAssetPackage(
       recipeHash: recipeHashHex,
       sourceProvenance: { uri: source.sourceId, contentHash: sourceHashHex },
       dependencies: [],
-      variants: [{
-        id: recipe.vertexProfile,
-        profile: recipe.vertexProfile,
-        requiredFeatures: [],
-        requiredLimits: [
-          { name: "maxBufferSize", min: maxChunkBytes },
-          { name: "maxStorageBufferBindingSize", min: maxChunkBytes }
-        ],
-        chunkIds: chunks.map((chunk) => chunk.id)
-      }]
+      variants: [
+        {
+          id: recipe.vertexProfile,
+          profile: recipe.vertexProfile,
+          requiredFeatures: [],
+          requiredLimits: [
+            { name: "maxBufferSize", min: maxChunkBytes },
+            { name: "maxStorageBufferBindingSize", min: maxChunkBytes },
+          ],
+          chunkIds: chunks.map((chunk) => chunk.id),
+        },
+      ],
     },
-    chunks
+    chunks,
   });
   const asset = await openGeometryAssetPackage(bytes);
   const packageHash = await sha256(new Uint8Array(bytes));
@@ -387,10 +386,7 @@ export async function cookGeometryAssetPackage(
     sourceTriangleCount: source.triangleCount,
     meshletCount: built.records.length,
     meshletVertexIndexCount: built.vertices.length,
-    meshletTriangleCount: built.records.reduce(
-      (total, record) => total + record.triangleCount,
-      0
-    ),
+    meshletTriangleCount: built.records.reduce((total, record) => total + record.triangleCount, 0),
     leafMeshletCount,
     parentMeshletCount: built.records.length - leafMeshletCount,
     clusterCount: hierarchy?.clusters.length ?? 0,
@@ -416,7 +412,7 @@ export async function cookGeometryAssetPackage(
     contentHash: asset.package.manifest.contentHash,
     packageHash: toHex(packageHash),
     geometricError: errorDistribution,
-    warnings: Object.freeze(warnings)
+    warnings: Object.freeze(warnings),
   });
   const timing = Object.freeze({ cookTimeMs: nowMilliseconds() - cookStarted });
   return Object.freeze({ bytes, asset, evidence, timing });
@@ -426,22 +422,19 @@ function buildMeshlets(
   source: SourceGeometry,
   positions: Float32Array,
   recipe: GeometryCookRecipe,
-  warnings: string[]
+  warnings: string[],
 ): MeshletBuildState {
   const state: MeshletBuildState = {
     records: [],
     vertexChunks: [],
     triangleChunks: [],
     vertexOffset: 0,
-    triangleOffset: 0
+    triangleOffset: 0,
   };
   for (let rangeIndex = 0; rangeIndex < source.materialRanges.length; rangeIndex++) {
     const range = source.materialRanges[rangeIndex]!;
     const indexBegin = range.firstTriangle * 3;
-    const indices = source.indices.slice(
-      indexBegin,
-      indexBegin + range.triangleCount * 3
-    );
+    const indices = source.indices.slice(indexBegin, indexBegin + range.triangleCount * 3);
     appendMeshlets(state, indices, positions, recipe, warnings, range, rangeIndex);
   }
   return state;
@@ -454,7 +447,7 @@ function appendMeshlets(
   recipe: GeometryCookRecipe,
   warnings: string[],
   range: SourceMaterialRange,
-  rangeIndex: number
+  rangeIndex: number,
 ): { meshletBegin: number; meshletCount: number } {
   const buffers = MeshoptClusterizer.buildMeshlets(
     indices,
@@ -462,7 +455,7 @@ function appendMeshlets(
     3,
     recipe.meshletMaxVertices,
     recipe.meshletMaxTriangles,
-    recipe.coneWeight
+    recipe.coneWeight,
   );
   if (buffers.meshletCount === 0) {
     throw new Error(`meshoptimizer produced no Meshlets for material range ${rangeIndex}`);
@@ -481,12 +474,8 @@ function appendMeshlets(
       throw new Error(`meshoptimizer produced a non-triangle Meshlet at ${rangeIndex}:${index}`);
     }
     const boundsBox = meshletBoundsBox(meshlet.vertices, positions);
-    const bounds = normalizeUpstreamBounds(
-      upstreamBounds[index]!, boundsBox, warnings, rangeIndex, index
-    );
-    const coneAxisLength = Math.hypot(
-      bounds.coneAxisX, bounds.coneAxisY, bounds.coneAxisZ
-    );
+    const bounds = normalizeUpstreamBounds(upstreamBounds[index]!, boundsBox, warnings, rangeIndex, index);
+    const coneAxisLength = Math.hypot(bounds.coneAxisX, bounds.coneAxisY, bounds.coneAxisZ);
     const coneValid =
       !range.doubleSided &&
       Number.isFinite(bounds.coneCutoff) &&
@@ -494,36 +483,36 @@ function appendMeshlets(
       bounds.coneCutoff < 1 &&
       coneAxisLength >= 0.5 &&
       coneAxisLength <= 1.5;
-    state.records.push(Object.freeze({
-      vertexOffset: state.vertexOffset,
-      vertexCount: meshlet.vertices.length,
-      triangleOffset: state.triangleOffset,
-      triangleCount: meshlet.triangles.length / 3,
-      materialRangeIndex: rangeIndex,
-      materialId: range.materialId,
-      flags: encodeMeshletFlags(range.alphaMode, range.doubleSided, coneValid),
-      alphaMode: range.alphaMode,
-      doubleSided: range.doubleSided,
-      coneValid,
-      boundsBox,
-      bounds: Object.freeze({
-        centerX: bounds.centerX,
-        centerY: bounds.centerY,
-        centerZ: bounds.centerZ,
-        radius: conservativeMeshletRadius(
-          bounds, meshlet.vertices, positions, warnings, rangeIndex, index
-        )
+    state.records.push(
+      Object.freeze({
+        vertexOffset: state.vertexOffset,
+        vertexCount: meshlet.vertices.length,
+        triangleOffset: state.triangleOffset,
+        triangleCount: meshlet.triangles.length / 3,
+        materialRangeIndex: rangeIndex,
+        materialId: range.materialId,
+        flags: encodeMeshletFlags(range.alphaMode, range.doubleSided, coneValid),
+        alphaMode: range.alphaMode,
+        doubleSided: range.doubleSided,
+        coneValid,
+        boundsBox,
+        bounds: Object.freeze({
+          centerX: bounds.centerX,
+          centerY: bounds.centerY,
+          centerZ: bounds.centerZ,
+          radius: conservativeMeshletRadius(bounds, meshlet.vertices, positions, warnings, rangeIndex, index),
+        }),
+        cone: Object.freeze({
+          apexX: bounds.coneApexX,
+          apexY: bounds.coneApexY,
+          apexZ: bounds.coneApexZ,
+          axisX: bounds.coneAxisX,
+          axisY: bounds.coneAxisY,
+          axisZ: bounds.coneAxisZ,
+          cutoff: bounds.coneCutoff,
+        }),
       }),
-      cone: Object.freeze({
-        apexX: bounds.coneApexX,
-        apexY: bounds.coneApexY,
-        apexZ: bounds.coneApexZ,
-        axisX: bounds.coneAxisX,
-        axisY: bounds.coneAxisY,
-        axisZ: bounds.coneAxisZ,
-        cutoff: bounds.coneCutoff
-      })
-    }));
+    );
     state.vertexChunks.push(meshlet.vertices.slice());
     state.triangleChunks.push(meshlet.triangles.slice());
     state.vertexOffset += meshlet.vertices.length;
@@ -536,14 +525,14 @@ function finalizeMeshlets(state: MeshletBuildState): MeshletBuildResult {
   return {
     records: state.records,
     vertices: concatenateUint32(state.vertexChunks, state.vertexOffset),
-    triangles: concatenateUint8(state.triangleChunks, state.triangleOffset)
+    triangles: concatenateUint8(state.triangleChunks, state.triangleOffset),
   };
 }
 
 function buildGeometryPayload(
   source: SourceGeometry,
   positions: Float32Array,
-  recipe: GeometryCookRecipe
+  recipe: GeometryCookRecipe,
 ): GeometryPayloadBuildResult {
   return recipe.vertexProfile === "static-pbr-compact-v2"
     ? buildCompactGeometryPayload(source, positions)
@@ -552,52 +541,56 @@ function buildGeometryPayload(
 
 function buildCompactGeometryPayload(
   source: SourceGeometry,
-  positions: Float32Array
+  positions: Float32Array,
 ): GeometryPayloadBuildResult {
   const descriptors: GeometryVertexStreamDescriptor[] = [];
   const streams: Uint8Array[] = [];
   let byteLength = 0;
-  const orderedStreams = [...source.attributes.values()].sort((left, right) =>
-    vertexSemanticOrder(left.semantic) - vertexSemanticOrder(right.semantic) ||
-    left.semantic.localeCompare(right.semantic)
+  const orderedStreams = [...source.attributes.values()].sort(
+    (left, right) =>
+      vertexSemanticOrder(left.semantic) - vertexSemanticOrder(right.semantic) ||
+      left.semantic.localeCompare(right.semantic),
   );
   for (const sourceStream of orderedStreams) {
     const semantic = sourceStream.semantic;
-    const packed = semantic === "position"
-      ? packCompactPosition(positions, source.bounds.box)
-      : semantic === "normal"
-        ? packCompactNormal(sourceStream)
-        : semantic === "tangent"
-          ? packCompactTangent(sourceStream)
-          : semantic === "uv0" || semantic === "uv1" || semantic === "uv2"
-            ? packCompactUv(sourceStream)
-            : semantic === "color"
-              ? packCompactColor(sourceStream)
-              : null;
+    const packed =
+      semantic === "position"
+        ? packCompactPosition(positions, source.bounds.box)
+        : semantic === "normal"
+          ? packCompactNormal(sourceStream)
+          : semantic === "tangent"
+            ? packCompactTangent(sourceStream)
+            : semantic === "uv0" || semantic === "uv1" || semantic === "uv2"
+              ? packCompactUv(sourceStream)
+              : semantic === "color"
+                ? packCompactColor(sourceStream)
+                : null;
     if (packed === null) {
       throw new RangeError(
-        `Vertex stream '${semantic}' is outside Static PBR compact V2; select explicit-float32-fallback-v2 to retain it`
+        `Vertex stream '${semantic}' is outside Static PBR compact V2; select explicit-float32-fallback-v2 to retain it`,
       );
     }
     byteLength = alignUp(byteLength, 16);
     const dataByteOffset = byteLength;
     byteLength += packed.bytes.byteLength;
     streams.push(packed.bytes);
-    descriptors.push(Object.freeze({
-      semantic,
-      dataByteOffset,
-      dataByteLength: packed.bytes.byteLength,
-      elementStride: packed.stride,
-      vertexCount: source.vertexCount,
-      componentCount: packed.componentCount,
-      dataType: packed.dataType,
-      normalized: packed.normalized,
-      flags: packed.flags,
-      decodeScale: packed.decodeScale,
-      decodeBias: packed.decodeBias,
-      componentMinimum: packed.minimum,
-      componentMaximum: packed.maximum
-    }));
+    descriptors.push(
+      Object.freeze({
+        semantic,
+        dataByteOffset,
+        dataByteLength: packed.bytes.byteLength,
+        elementStride: packed.stride,
+        vertexCount: source.vertexCount,
+        componentCount: packed.componentCount,
+        dataType: packed.dataType,
+        normalized: packed.normalized,
+        flags: packed.flags,
+        decodeScale: packed.decodeScale,
+        decodeBias: packed.decodeBias,
+        componentMinimum: packed.minimum,
+        componentMaximum: packed.maximum,
+      }),
+    );
   }
   const vertexDataBytes = new Uint8Array(alignUp(byteLength, 16));
   for (let index = 0; index < descriptors.length; index++) {
@@ -638,8 +631,18 @@ function packCompactPosition(positions: Float32Array, bounds: Float32Array): Pac
       maximum[axis] = Math.max(maximum[axis]!, decoded);
     }
   }
-  return compactStream(bytes, 8, 3, "uint16", true,
-    GEOMETRY_VERTEX_STREAM_FLAGS.PositionAabbUnorm16, scale, bias, minimum, maximum);
+  return compactStream(
+    bytes,
+    8,
+    3,
+    "uint16",
+    true,
+    GEOMETRY_VERTEX_STREAM_FLAGS.PositionAabbUnorm16,
+    scale,
+    bias,
+    minimum,
+    maximum,
+  );
 }
 
 function packCompactNormal(stream: SourceVertexStream): PackedCompactStream {
@@ -653,9 +656,13 @@ function packCompactNormal(stream: SourceVertexStream): PackedCompactStream {
     let y = sourceStreamValue(stream, vertex, 1);
     let z = sourceStreamValue(stream, vertex, 2);
     const inverseLength = 1 / Math.max(Math.hypot(x, y, z), 1e-20);
-    x *= inverseLength; y *= inverseLength; z *= inverseLength;
+    x *= inverseLength;
+    y *= inverseLength;
+    z *= inverseLength;
     const inverseL1 = 1 / Math.max(Math.abs(x) + Math.abs(y) + Math.abs(z), 1e-20);
-    x *= inverseL1; y *= inverseL1; z *= inverseL1;
+    x *= inverseL1;
+    y *= inverseL1;
+    z *= inverseL1;
     if (z < 0) {
       const oldX = x;
       x = (1 - Math.abs(y)) * Math.sign(oldX || 1);
@@ -667,11 +674,23 @@ function packCompactNormal(stream: SourceVertexStream): PackedCompactStream {
     view.setInt16(vertex * 4 + 2, qy, true);
     const dx = Math.max(qx / 32767, -1);
     const dy = Math.max(qy / 32767, -1);
-    minimum[0] = Math.min(minimum[0]!, dx); minimum[1] = Math.min(minimum[1]!, dy);
-    maximum[0] = Math.max(maximum[0]!, dx); maximum[1] = Math.max(maximum[1]!, dy);
+    minimum[0] = Math.min(minimum[0]!, dx);
+    minimum[1] = Math.min(minimum[1]!, dy);
+    maximum[0] = Math.max(maximum[0]!, dx);
+    maximum[1] = Math.max(maximum[1]!, dy);
   }
-  return compactStream(bytes, 4, 2, "int16", true,
-    GEOMETRY_VERTEX_STREAM_FLAGS.NormalOctSnorm16, identityScale(), new Float32Array(4), minimum, maximum);
+  return compactStream(
+    bytes,
+    4,
+    2,
+    "int16",
+    true,
+    GEOMETRY_VERTEX_STREAM_FLAGS.NormalOctSnorm16,
+    identityScale(),
+    new Float32Array(4),
+    minimum,
+    maximum,
+  );
 }
 
 function packCompactTangent(stream: SourceVertexStream): PackedCompactStream {
@@ -682,9 +701,10 @@ function packCompactTangent(stream: SourceVertexStream): PackedCompactStream {
   const maximum = new Float32Array([-Infinity, -Infinity, -Infinity, -Infinity]);
   for (let vertex = 0; vertex < stream.vertexCount; vertex++) {
     for (let component = 0; component < 4; component++) {
-      const value = component === 3
-        ? Math.sign(sourceStreamValue(stream, vertex, component) || 1)
-        : sourceStreamValue(stream, vertex, component);
+      const value =
+        component === 3
+          ? Math.sign(sourceStreamValue(stream, vertex, component) || 1)
+          : sourceStreamValue(stream, vertex, component);
       const q = packSnorm16(value);
       view.setInt16(vertex * 8 + component * 2, q, true);
       const decoded = Math.max(q / 32767, -1);
@@ -692,12 +712,23 @@ function packCompactTangent(stream: SourceVertexStream): PackedCompactStream {
       maximum[component] = Math.max(maximum[component]!, decoded);
     }
   }
-  return compactStream(bytes, 8, 4, "int16", true,
-    GEOMETRY_VERTEX_STREAM_FLAGS.TangentSnorm16, identityScale(), new Float32Array(4), minimum, maximum);
+  return compactStream(
+    bytes,
+    8,
+    4,
+    "int16",
+    true,
+    GEOMETRY_VERTEX_STREAM_FLAGS.TangentSnorm16,
+    identityScale(),
+    new Float32Array(4),
+    minimum,
+    maximum,
+  );
 }
 
 function packCompactUv(stream: SourceVertexStream): PackedCompactStream {
-  if (stream.componentCount !== 2) throw new RangeError(`Static PBR ${stream.semantic} must contain two components`);
+  if (stream.componentCount !== 2)
+    throw new RangeError(`Static PBR ${stream.semantic} must contain two components`);
   const bytes = new Uint8Array(stream.vertexCount * 4);
   const view = new DataView(bytes.buffer);
   const minimum = new Float32Array([Infinity, Infinity, 0, 0]);
@@ -707,25 +738,38 @@ function packCompactUv(stream: SourceVertexStream): PackedCompactStream {
       const source = sourceStreamValue(stream, vertex, component);
       const bits = encodeFloat16(source);
       const decoded = decodeFloat16(bits);
-      if (!Number.isFinite(decoded)) throw new RangeError(`${stream.semantic} cannot be represented as finite float16`);
+      if (!Number.isFinite(decoded))
+        throw new RangeError(`${stream.semantic} cannot be represented as finite float16`);
       view.setUint16(vertex * 4 + component * 2, bits, true);
       minimum[component] = Math.min(minimum[component]!, decoded);
       maximum[component] = Math.max(maximum[component]!, decoded);
     }
   }
-  return compactStream(bytes, 4, 2, "uint16", false,
-    GEOMETRY_VERTEX_STREAM_FLAGS.UvFloat16, identityScale(), new Float32Array(4), minimum, maximum);
+  return compactStream(
+    bytes,
+    4,
+    2,
+    "uint16",
+    false,
+    GEOMETRY_VERTEX_STREAM_FLAGS.UvFloat16,
+    identityScale(),
+    new Float32Array(4),
+    minimum,
+    maximum,
+  );
 }
 
 function packCompactColor(stream: SourceVertexStream): PackedCompactStream {
-  if (stream.componentCount !== 3 && stream.componentCount !== 4) throw new RangeError("Static PBR color must contain three or four components");
+  if (stream.componentCount !== 3 && stream.componentCount !== 4)
+    throw new RangeError("Static PBR color must contain three or four components");
   const bytes = new Uint8Array(stream.vertexCount * 4);
   const minimum = new Float32Array([Infinity, Infinity, Infinity, Infinity]);
   const maximum = new Float32Array([-Infinity, -Infinity, -Infinity, -Infinity]);
   for (let vertex = 0; vertex < stream.vertexCount; vertex++) {
     for (let component = 0; component < 4; component++) {
       const source = component < stream.componentCount ? sourceStreamValue(stream, vertex, component) : 1;
-      if (source < 0 || source > 1) throw new RangeError("Static PBR color must be representable as rgba8unorm");
+      if (source < 0 || source > 1)
+        throw new RangeError("Static PBR color must be representable as rgba8unorm");
       const q = Math.round(source * 255);
       bytes[vertex * 4 + component] = q;
       const decoded = q / 255;
@@ -733,8 +777,18 @@ function packCompactColor(stream: SourceVertexStream): PackedCompactStream {
       maximum[component] = Math.max(maximum[component]!, decoded);
     }
   }
-  return compactStream(bytes, 4, 4, "uint8", true,
-    GEOMETRY_VERTEX_STREAM_FLAGS.ColorUnorm8, identityScale(), new Float32Array(4), minimum, maximum);
+  return compactStream(
+    bytes,
+    4,
+    4,
+    "uint8",
+    true,
+    GEOMETRY_VERTEX_STREAM_FLAGS.ColorUnorm8,
+    identityScale(),
+    new Float32Array(4),
+    minimum,
+    maximum,
+  );
 }
 
 function compactStream(
@@ -747,59 +801,73 @@ function compactStream(
   decodeScale: Float32Array,
   decodeBias: Float32Array,
   minimum: Float32Array,
-  maximum: Float32Array
+  maximum: Float32Array,
 ): PackedCompactStream {
-  return { bytes, stride, componentCount, dataType, normalized, flags, decodeScale, decodeBias, minimum, maximum };
+  return {
+    bytes,
+    stride,
+    componentCount,
+    dataType,
+    normalized,
+    flags,
+    decodeScale,
+    decodeBias,
+    minimum,
+    maximum,
+  };
 }
 
 function finishGeometryPayload(
   source: SourceGeometry,
   descriptors: readonly GeometryVertexStreamDescriptor[],
-  vertexDataBytes: Uint8Array
+  vertexDataBytes: Uint8Array,
 ): GeometryPayloadBuildResult {
-  const materialRanges = source.materialRanges.map((range) => Object.freeze({
-    firstTriangle: range.firstTriangle,
-    triangleCount: range.triangleCount,
-    materialId: range.materialId,
-    flags: encodeMeshletFlags(range.alphaMode, range.doubleSided, false),
-    alphaMode: range.alphaMode,
-    doubleSided: range.doubleSided
-  }));
+  const materialRanges = source.materialRanges.map((range) =>
+    Object.freeze({
+      firstTriangle: range.firstTriangle,
+      triangleCount: range.triangleCount,
+      materialId: range.materialId,
+      flags: encodeMeshletFlags(range.alphaMode, range.doubleSided, false),
+      alphaMode: range.alphaMode,
+      doubleSided: range.doubleSided,
+    }),
+  );
   return {
     descriptors: Object.freeze([...descriptors]),
     descriptorBytes: encodeGeometryVertexStreamDescriptors(descriptors),
     vertexDataBytes,
     indexBytes: encodeNumericArrayLittleEndian(source.indices, "uint32"),
     materialRanges: Object.freeze(materialRanges),
-    materialRangeBytes: encodeGeometryMaterialRanges(materialRanges)
+    materialRangeBytes: encodeGeometryMaterialRanges(materialRanges),
   };
 }
 
 function buildFallbackGeometryPayload(
   source: SourceGeometry,
-  positions: Float32Array
+  positions: Float32Array,
 ): GeometryPayloadBuildResult {
   const descriptors: GeometryVertexStreamDescriptor[] = [];
   const streams: Uint8Array[] = [];
   let byteLength = 0;
-  const orderedStreams = [...source.attributes.values()].sort((left, right) =>
-    vertexSemanticOrder(left.semantic) - vertexSemanticOrder(right.semantic) ||
-    (left.semantic < right.semantic ? -1 : left.semantic > right.semantic ? 1 : 0)
+  const orderedStreams = [...source.attributes.values()].sort(
+    (left, right) =>
+      vertexSemanticOrder(left.semantic) - vertexSemanticOrder(right.semantic) ||
+      (left.semantic < right.semantic ? -1 : left.semantic > right.semantic ? 1 : 0),
   );
   for (const sourceStream of orderedStreams) {
     if (sourceStream.componentCount > 4) {
       throw new RangeError(
-        `Vertex stream '${sourceStream.semantic}' has ${sourceStream.componentCount} components; the explicit fallback supports at most 4`
+        `Vertex stream '${sourceStream.semantic}' has ${sourceStream.componentCount} components; the explicit fallback supports at most 4`,
       );
     }
-    const convertToFloat32 = sourceStream.semantic === "position" ||
-      sourceStream.dataType === "float64";
-    const streamData = sourceStream.semantic === "position"
-      ? positions
-      : convertToFloat32
-        ? new Float32Array(sourceStream.data)
-        : sourceStream.data;
-    const dataType = convertToFloat32 ? "float32" as const : sourceStream.dataType;
+    const convertToFloat32 = sourceStream.semantic === "position" || sourceStream.dataType === "float64";
+    const streamData =
+      sourceStream.semantic === "position"
+        ? positions
+        : convertToFloat32
+          ? new Float32Array(sourceStream.data)
+          : sourceStream.data;
+    const dataType = convertToFloat32 ? ("float32" as const) : sourceStream.dataType;
     const componentBytes = geometryVertexDataTypeBytes(dataType);
     const elementStride = sourceStream.componentCount * componentBytes;
     const dataBytes = encodeNumericArrayLittleEndian(streamData, dataType);
@@ -814,9 +882,10 @@ function buildFallbackGeometryPayload(
     for (let vertex = 0; vertex < source.vertexCount; vertex++) {
       for (let component = 0; component < sourceStream.componentCount; component++) {
         const raw = streamData[vertex * sourceStream.componentCount + component]!;
-        const value = dataType === "float32"
-          ? raw
-          : decodeGeometryVertexComponent(raw, dataType, sourceStream.normalized);
+        const value =
+          dataType === "float32"
+            ? raw
+            : decodeGeometryVertexComponent(raw, dataType, sourceStream.normalized);
         componentMinimum[component] = Math.min(componentMinimum[component]!, value);
         componentMaximum[component] = Math.max(componentMaximum[component]!, value);
       }
@@ -824,47 +893,51 @@ function buildFallbackGeometryPayload(
     if (!componentMinimum.every(Number.isFinite) || !componentMaximum.every(Number.isFinite)) {
       throw new RangeError(`Vertex stream '${sourceStream.semantic}' bounds are not finite float32`);
     }
-    descriptors.push(Object.freeze({
-      semantic: sourceStream.semantic,
-      dataByteOffset,
-      dataByteLength: dataBytes.byteLength,
-      elementStride,
-      vertexCount: source.vertexCount,
-      componentCount: sourceStream.componentCount,
-      dataType,
-      normalized: dataType === "float32" ? false : sourceStream.normalized,
-      flags: 0,
-      decodeScale: new Float32Array([1, 1, 1, 1]),
-      decodeBias: new Float32Array(4),
-      componentMinimum,
-      componentMaximum
-    }));
+    descriptors.push(
+      Object.freeze({
+        semantic: sourceStream.semantic,
+        dataByteOffset,
+        dataByteLength: dataBytes.byteLength,
+        elementStride,
+        vertexCount: source.vertexCount,
+        componentCount: sourceStream.componentCount,
+        dataType,
+        normalized: dataType === "float32" ? false : sourceStream.normalized,
+        flags: 0,
+        decodeScale: new Float32Array([1, 1, 1, 1]),
+        decodeBias: new Float32Array(4),
+        componentMinimum,
+        componentMaximum,
+      }),
+    );
   }
   const vertexDataBytes = new Uint8Array(alignUp(byteLength, 16));
   for (let index = 0; index < descriptors.length; index++) {
     vertexDataBytes.set(streams[index]!, descriptors[index]!.dataByteOffset);
   }
-  const materialRanges = source.materialRanges.map((range) => Object.freeze({
-    firstTriangle: range.firstTriangle,
-    triangleCount: range.triangleCount,
-    materialId: range.materialId,
-    flags: encodeMeshletFlags(range.alphaMode, range.doubleSided, false),
-    alphaMode: range.alphaMode,
-    doubleSided: range.doubleSided
-  }));
+  const materialRanges = source.materialRanges.map((range) =>
+    Object.freeze({
+      firstTriangle: range.firstTriangle,
+      triangleCount: range.triangleCount,
+      materialId: range.materialId,
+      flags: encodeMeshletFlags(range.alphaMode, range.doubleSided, false),
+      alphaMode: range.alphaMode,
+      doubleSided: range.doubleSided,
+    }),
+  );
   return {
     descriptors: Object.freeze(descriptors),
     descriptorBytes: encodeGeometryVertexStreamDescriptors(descriptors),
     vertexDataBytes,
     indexBytes: encodeNumericArrayLittleEndian(source.indices, "uint32"),
     materialRanges: Object.freeze(materialRanges),
-    materialRangeBytes: encodeGeometryMaterialRanges(materialRanges)
+    materialRangeBytes: encodeGeometryMaterialRanges(materialRanges),
   };
 }
 
 function encodeNumericArrayLittleEndian(
   values: SourceNumericArray,
-  dataType: GeometryVertexStreamDescriptor["dataType"]
+  dataType: GeometryVertexStreamDescriptor["dataType"],
 ): Uint8Array {
   const componentBytes = geometryVertexDataTypeBytes(dataType);
   const bytes = new Uint8Array(values.length * componentBytes);
@@ -873,14 +946,30 @@ function encodeNumericArrayLittleEndian(
     const offset = index * componentBytes;
     const value = values[index]!;
     switch (dataType) {
-      case "int8": view.setInt8(offset, value); break;
-      case "uint8": view.setUint8(offset, value); break;
-      case "int16": view.setInt16(offset, value, true); break;
-      case "uint16": view.setUint16(offset, value, true); break;
-      case "int32": view.setInt32(offset, value, true); break;
-      case "uint32": view.setUint32(offset, value, true); break;
-      case "float32": view.setFloat32(offset, value, true); break;
-      case "float64": view.setFloat64(offset, value, true); break;
+      case "int8":
+        view.setInt8(offset, value);
+        break;
+      case "uint8":
+        view.setUint8(offset, value);
+        break;
+      case "int16":
+        view.setInt16(offset, value, true);
+        break;
+      case "uint16":
+        view.setUint16(offset, value, true);
+        break;
+      case "int32":
+        view.setInt32(offset, value, true);
+        break;
+      case "uint32":
+        view.setUint32(offset, value, true);
+        break;
+      case "float32":
+        view.setFloat32(offset, value, true);
+        break;
+      case "float64":
+        view.setFloat64(offset, value, true);
+        break;
     }
   }
   return bytes;
@@ -939,9 +1028,7 @@ function alignUp(value: number, alignment: number): number {
 }
 
 function vertexSemanticOrder(semantic: string): number {
-  const order = [
-    "position", "normal", "tangent", "color", "uv0", "uv1", "uv2", "joints", "weights"
-  ];
+  const order = ["position", "normal", "tangent", "color", "uv0", "uv1", "uv2", "joints", "weights"];
   const index = order.indexOf(semantic);
   return index < 0 ? order.length : index;
 }
@@ -951,7 +1038,7 @@ function buildRenderableHierarchy(
   positions: Float32Array,
   recipe: GeometryCookRecipe,
   state: MeshletBuildState,
-  warnings: string[]
+  warnings: string[],
 ): HierarchyBuildResult | null {
   const leafCount = state.records.length;
   const leavesByRange = new Map<number, HierarchyNode[]>();
@@ -968,7 +1055,7 @@ function buildRenderableHierarchy(
       alphaMode: record.alphaMode,
       doubleSided: record.doubleSided,
       simplificationFallback: false,
-      syntheticRoot: false
+      syntheticRoot: false,
     });
     leavesByRange.set(record.materialRangeIndex, nodes);
   }
@@ -992,7 +1079,7 @@ function buildRenderableHierarchy(
         const combined = globalIndicesForNodes(group, state);
         const targetTriangles = Math.max(
           1,
-          Math.floor((combined.length / 3) * recipe.simplificationTargetRatio)
+          Math.floor((combined.length / 3) * recipe.simplificationTargetRatio),
         );
         const targetIndexCount = targetTriangles * 3;
         const [candidate, simplificationError] = MeshoptSimplifier.simplify(
@@ -1001,7 +1088,7 @@ function buildRenderableHierarchy(
           3,
           targetIndexCount,
           recipe.simplificationErrorLimit,
-          ["LockBorder", "Sparse", "ErrorAbsolute"]
+          ["LockBorder", "Sparse", "ErrorAbsolute"],
         );
         const ratio = candidate.length / combined.length;
         const fallback =
@@ -1021,21 +1108,21 @@ function buildRenderableHierarchy(
           recipe,
           warnings,
           range,
-          rangeIndex
+          rangeIndex,
         );
         next.push({
           children: group,
           ...parentMeshlets,
           geometricError: Math.max(
             fallback ? 0 : simplificationError,
-            ...group.map((node) => node.geometricError)
+            ...group.map((node) => node.geometricError),
           ),
           materialRangeIndex: rangeIndex,
           materialId: range.materialId,
           alphaMode: range.alphaMode,
           doubleSided: range.doubleSided,
           simplificationFallback: fallback,
-          syntheticRoot: false
+          syntheticRoot: false,
         });
       }
       level = next;
@@ -1061,7 +1148,7 @@ function buildRenderableHierarchy(
         recipe,
         warnings,
         source.materialRanges[rangeIndex]!,
-        rangeIndex
+        rangeIndex,
       );
       meshletCount += appended.meshletCount;
     }
@@ -1075,7 +1162,7 @@ function buildRenderableHierarchy(
       alphaMode: "opaque",
       doubleSided: materialRoots.some((node) => node.doubleSided),
       simplificationFallback: false,
-      syntheticRoot: true
+      syntheticRoot: true,
     };
   }
   return flattenHierarchy(root, state, positions, fallbackCount, warnings);
@@ -1084,7 +1171,7 @@ function buildRenderableHierarchy(
 function groupHierarchyNodes(
   nodes: readonly HierarchyNode[],
   state: MeshletBuildState,
-  fanout: number
+  fanout: number,
 ): HierarchyNode[][] {
   const vertices = nodes.map((node) => uniqueVerticesForNode(node, state));
   const owners = new Map<number, number[]>();
@@ -1132,43 +1219,25 @@ function groupHierarchyNodes(
   return groups;
 }
 
-function uniqueVerticesForNode(
-  node: HierarchyNode,
-  state: MeshletBuildState
-): Set<number> {
+function uniqueVerticesForNode(node: HierarchyNode, state: MeshletBuildState): Set<number> {
   const result = new Set<number>();
-  for (
-    let meshlet = node.meshletBegin;
-    meshlet < node.meshletBegin + node.meshletCount;
-    meshlet++
-  ) {
+  for (let meshlet = node.meshletBegin; meshlet < node.meshletBegin + node.meshletCount; meshlet++) {
     for (const vertex of state.vertexChunks[meshlet]!) result.add(vertex);
   }
   return result;
 }
 
-function globalIndicesForNodes(
-  nodes: readonly HierarchyNode[],
-  state: MeshletBuildState
-): Uint32Array {
+function globalIndicesForNodes(nodes: readonly HierarchyNode[], state: MeshletBuildState): Uint32Array {
   let length = 0;
   for (const node of nodes) {
-    for (
-      let meshlet = node.meshletBegin;
-      meshlet < node.meshletBegin + node.meshletCount;
-      meshlet++
-    ) {
+    for (let meshlet = node.meshletBegin; meshlet < node.meshletBegin + node.meshletCount; meshlet++) {
       length += state.triangleChunks[meshlet]!.length;
     }
   }
   const output = new Uint32Array(length);
   let offset = 0;
   for (const node of nodes) {
-    for (
-      let meshlet = node.meshletBegin;
-      meshlet < node.meshletBegin + node.meshletCount;
-      meshlet++
-    ) {
+    for (let meshlet = node.meshletBegin; meshlet < node.meshletBegin + node.meshletCount; meshlet++) {
       const vertices = state.vertexChunks[meshlet]!;
       for (const local of state.triangleChunks[meshlet]!) {
         output[offset++] = vertices[local]!;
@@ -1183,7 +1252,7 @@ function flattenHierarchy(
   state: MeshletBuildState,
   positions: Float32Array,
   fallbackCount: number,
-  warnings: string[]
+  warnings: string[],
 ): HierarchyBuildResult {
   const nodes = [root];
   const parents = [GEOMETRY_INVALID_INDEX];
@@ -1225,14 +1294,14 @@ function flattenHierarchy(
       geometricError: Math.fround(node.geometricError),
       boundsBox: bounds.box,
       bounds: bounds.sphere,
-      cone: bounds.cone
+      cone: bounds.cone,
     });
   });
   return {
     clusters,
     children: new Uint32Array(childIndices),
     depth: Math.max(...depths),
-    fallbackCount
+    fallbackCount,
   };
 }
 
@@ -1254,7 +1323,7 @@ function hierarchyNodeBounds(
   state: MeshletBuildState,
   positions: Float32Array,
   cache: Map<HierarchyNode, ClusterBounds>,
-  warnings: string[]
+  warnings: string[],
 ): ClusterBounds {
   const cached = cache.get(node);
   if (cached !== undefined) return cached;
@@ -1266,10 +1335,7 @@ function hierarchyNodeBounds(
   const usesClusterBounds = triangleCount <= MESHOPT_CLUSTER_BOUNDS_MAX_TRIANGLES;
   const upstream = usesClusterBounds
     ? MeshoptClusterizer.computeClusterBounds(indices, positions, 3)
-    : MeshoptClusterizer.computeSphereBounds(
-        compactVertexPositions(vertexArray, positions),
-        3
-      );
+    : MeshoptClusterizer.computeSphereBounds(compactVertexPositions(vertexArray, positions), 3);
   if (!usesClusterBounds) {
     warnings.push(`hierarchy-bounds-sphere-only:${triangleCount}`);
   }
@@ -1278,55 +1344,51 @@ function hierarchyNodeBounds(
     centerX: normalized.centerX,
     centerY: normalized.centerY,
     centerZ: normalized.centerZ,
-    radius: conservativeMeshletRadius(
-      normalized,
-      vertexArray,
-      positions,
-      warnings,
-      -1,
-      triangleCount
-    )
+    radius: conservativeMeshletRadius(normalized, vertexArray, positions, warnings, -1, triangleCount),
   });
   for (const child of node.children) {
     const childBounds = hierarchyNodeBounds(child, state, positions, cache, warnings);
     box = mergeBoxes(box, childBounds.box);
     sphere = mergeSpheres(sphere, childBounds.sphere);
   }
-  const axisLength = Math.hypot(
-    normalized.coneAxisX, normalized.coneAxisY, normalized.coneAxisZ
-  );
+  const axisLength = Math.hypot(normalized.coneAxisX, normalized.coneAxisY, normalized.coneAxisZ);
   const result: ClusterBounds = {
     box,
     sphere,
-    cone: Object.freeze(usesClusterBounds ? {
-      apexX: normalized.coneApexX,
-      apexY: normalized.coneApexY,
-      apexZ: normalized.coneApexZ,
-      axisX: normalized.coneAxisX,
-      axisY: normalized.coneAxisY,
-      axisZ: normalized.coneAxisZ,
-      cutoff: normalized.coneCutoff
-    } : {
-      apexX: sphere.centerX,
-      apexY: sphere.centerY,
-      apexZ: sphere.centerZ,
-      axisX: 0,
-      axisY: 0,
-      axisZ: 1,
-      cutoff: 1
-    }),
-    coneValid: usesClusterBounds && Number.isFinite(normalized.coneCutoff) &&
-      normalized.coneCutoff >= -1 && normalized.coneCutoff < 1 &&
-      axisLength >= 0.5 && axisLength <= 1.5
+    cone: Object.freeze(
+      usesClusterBounds
+        ? {
+            apexX: normalized.coneApexX,
+            apexY: normalized.coneApexY,
+            apexZ: normalized.coneApexZ,
+            axisX: normalized.coneAxisX,
+            axisY: normalized.coneAxisY,
+            axisZ: normalized.coneAxisZ,
+            cutoff: normalized.coneCutoff,
+          }
+        : {
+            apexX: sphere.centerX,
+            apexY: sphere.centerY,
+            apexZ: sphere.centerZ,
+            axisX: 0,
+            axisY: 0,
+            axisZ: 1,
+            cutoff: 1,
+          },
+    ),
+    coneValid:
+      usesClusterBounds &&
+      Number.isFinite(normalized.coneCutoff) &&
+      normalized.coneCutoff >= -1 &&
+      normalized.coneCutoff < 1 &&
+      axisLength >= 0.5 &&
+      axisLength <= 1.5,
   };
   cache.set(node, result);
   return result;
 }
 
-function compactVertexPositions(
-  vertices: Uint32Array,
-  positions: Float32Array
-): Float32Array {
+function compactVertexPositions(vertices: Uint32Array, positions: Float32Array): Float32Array {
   const compact = new Float32Array(vertices.length * 3);
   for (let index = 0; index < vertices.length; index++) {
     const source = vertices[index]! * 3;
@@ -1339,14 +1401,18 @@ function compactVertexPositions(
 
 function mergeBoxes(a: Float32Array, b: Float32Array): Float32Array {
   return new Float32Array([
-    Math.min(a[0]!, b[0]!), Math.min(a[1]!, b[1]!), Math.min(a[2]!, b[2]!),
-    Math.max(a[3]!, b[3]!), Math.max(a[4]!, b[4]!), Math.max(a[5]!, b[5]!)
+    Math.min(a[0]!, b[0]!),
+    Math.min(a[1]!, b[1]!),
+    Math.min(a[2]!, b[2]!),
+    Math.max(a[3]!, b[3]!),
+    Math.max(a[4]!, b[4]!),
+    Math.max(a[5]!, b[5]!),
   ]);
 }
 
 function mergeSpheres(
   a: GeometryClusterRecord["bounds"],
-  b: GeometryClusterRecord["bounds"]
+  b: GeometryClusterRecord["bounds"],
 ): GeometryClusterRecord["bounds"] {
   const dx = b.centerX - a.centerX;
   const dy = b.centerY - a.centerY;
@@ -1367,20 +1433,20 @@ function mergeSpheres(
   const centerZ = Math.fround(a.centerZ + dz * t);
   const requiredRadius = Math.max(
     Math.hypot(centerX - a.centerX, centerY - a.centerY, centerZ - a.centerZ) + a.radius,
-    Math.hypot(centerX - b.centerX, centerY - b.centerY, centerZ - b.centerZ) + b.radius
+    Math.hypot(centerX - b.centerX, centerY - b.centerY, centerZ - b.centerZ) + b.radius,
   );
   return Object.freeze({
     centerX,
     centerY,
     centerZ,
-    radius: conservativeRadius(Math.max(radius, requiredRadius))
+    radius: conservativeRadius(Math.max(radius, requiredRadius)),
   });
 }
 
 function validateCookInput(
   source: SourceGeometry,
   positions: Float32Array,
-  recipe: GeometryCookRecipe
+  recipe: GeometryCookRecipe,
 ): string[] {
   const warnings: string[] = [];
   if (recipe.hierarchyMode === "renderable") {
@@ -1394,18 +1460,13 @@ function validateCookInput(
         stream.semantic.includes("\0")
       ) {
         throw new RangeError(
-          `Vertex stream '${stream.semantic}' cannot be represented by Geometry package v1`
+          `Vertex stream '${stream.semantic}' cannot be represented by Geometry package v1`,
         );
       }
     }
     const position = source.attributes.get("position")!;
-    if (
-      position.normalized ||
-      (position.dataType !== "float32" && position.dataType !== "float64")
-    ) {
-      throw new RangeError(
-        "Geometry package v1 position input must be non-normalized float32/float64"
-      );
+    if (position.normalized || (position.dataType !== "float32" && position.dataType !== "float64")) {
+      throw new RangeError("Geometry package v1 position input must be non-normalized float32/float64");
     }
   }
   let degenerateTriangles = 0;
@@ -1424,7 +1485,7 @@ function validateCookInput(
   if (degenerateTriangles >= recipe.degenerateTriangleThreshold) {
     if (recipe.degenerateTrianglePolicy === "reject") {
       throw new RangeError(
-        `SourceGeometry contains ${degenerateTriangles} degenerate triangles; recipe rejects at ${recipe.degenerateTriangleThreshold}`
+        `SourceGeometry contains ${degenerateTriangles} degenerate triangles; recipe rejects at ${recipe.degenerateTriangleThreshold}`,
       );
     }
     warnings.push(`degenerate-triangles:${degenerateTriangles}`);
@@ -1432,7 +1493,7 @@ function validateCookInput(
   if (nonManifoldEdges >= recipe.nonManifoldEdgeThreshold) {
     if (recipe.nonManifoldPolicy === "reject") {
       throw new RangeError(
-        `SourceGeometry contains ${nonManifoldEdges} non-manifold edges; recipe rejects at ${recipe.nonManifoldEdgeThreshold}`
+        `SourceGeometry contains ${nonManifoldEdges} non-manifold edges; recipe rejects at ${recipe.nonManifoldEdgeThreshold}`,
       );
     }
     warnings.push(`non-manifold-edges:${nonManifoldEdges}`);
@@ -1453,10 +1514,7 @@ function normalizedPositions(source: SourceGeometry): Float32Array {
     : ensureFiniteFloat32(new Float32Array(position.data));
 }
 
-function meshletBoundsBox(
-  vertices: Uint32Array,
-  positions: Float32Array
-): Float32Array {
+function meshletBoundsBox(vertices: Uint32Array, positions: Float32Array): Float32Array {
   let minX = Infinity;
   let minY = Infinity;
   let minZ = Infinity;
@@ -1495,7 +1553,7 @@ function normalizeUpstreamBounds(
   box: Float32Array,
   warnings: string[],
   rangeIndex: number,
-  meshletIndex: number
+  meshletIndex: number,
 ) {
   if (Object.values(bounds).every((value) => Number.isFinite(value)) && bounds.radius >= 0) {
     return bounds;
@@ -1508,18 +1566,14 @@ function normalizeUpstreamBounds(
     centerX,
     centerY,
     centerZ,
-    radius: 0.5 * Math.hypot(
-      box[3]! - box[0]!,
-      box[4]! - box[1]!,
-      box[5]! - box[2]!
-    ),
+    radius: 0.5 * Math.hypot(box[3]! - box[0]!, box[4]! - box[1]!, box[5]! - box[2]!),
     coneApexX: centerX,
     coneApexY: centerY,
     coneApexZ: centerZ,
     coneAxisX: 0,
     coneAxisY: 0,
     coneAxisZ: 1,
-    coneCutoff: 1
+    coneCutoff: 1,
   };
 }
 
@@ -1560,7 +1614,7 @@ function conservativeMeshletRadius(
   positions: Float32Array,
   warnings: string[],
   rangeIndex: number,
-  meshletIndex: number
+  meshletIndex: number,
 ): number {
   let requiredRadius = 0;
   for (const vertex of vertices) {
@@ -1570,8 +1624,8 @@ function conservativeMeshletRadius(
       Math.hypot(
         positions[offset]! - bounds.centerX,
         positions[offset + 1]! - bounds.centerY,
-        positions[offset + 2]! - bounds.centerZ
-      )
+        positions[offset + 2]! - bounds.centerZ,
+      ),
     );
   }
   if (requiredRadius > bounds.radius) {
@@ -1589,12 +1643,7 @@ function ensureFiniteFloat32(values: Float32Array): Float32Array {
   return values;
 }
 
-function triangleIsDegenerate(
-  a: number,
-  b: number,
-  c: number,
-  positions: Float32Array
-): boolean {
+function triangleIsDegenerate(a: number, b: number, c: number, positions: Float32Array): boolean {
   if (a === b || b === c || c === a) return true;
   const ax = positions[a * 3]!;
   const ay = positions[a * 3 + 1]!;
@@ -1638,23 +1687,23 @@ function concatenateUint8(chunks: readonly Uint8Array[], length: number): Uint8A
 
 function canonicalSourceGeometryBytes(source: SourceGeometry): Uint8Array {
   const attributes = [...source.attributes.values()]
-    .sort((left, right) =>
-      left.semantic < right.semantic ? -1 : left.semantic > right.semantic ? 1 : 0
-    )
+    .sort((left, right) => (left.semantic < right.semantic ? -1 : left.semantic > right.semantic ? 1 : 0))
     .map((attribute) => ({
       semantic: attribute.semantic,
       componentCount: attribute.componentCount,
       normalized: attribute.normalized,
       dataType: attribute.dataType,
-      data: numericArrayValues(attribute.data)
+      data: numericArrayValues(attribute.data),
     }));
-  return new TextEncoder().encode(JSON.stringify({
-    topology: source.topology,
-    sourceId: source.sourceId,
-    indices: [...source.indices],
-    attributes,
-    materialRanges: source.materialRanges
-  }));
+  return new TextEncoder().encode(
+    JSON.stringify({
+      topology: source.topology,
+      sourceId: source.sourceId,
+      indices: [...source.indices],
+      attributes,
+      materialRanges: source.materialRanges,
+    }),
+  );
 }
 
 function numericArrayValues(data: SourceNumericArray): number[] {
@@ -1667,28 +1716,24 @@ async function sha256(bytes: Uint8Array): Promise<Uint8Array> {
 }
 
 function geometryErrorDistribution(
-  clusters: readonly GeometryClusterRecord[]
+  clusters: readonly GeometryClusterRecord[],
 ): GeometryCookEvidence["geometricError"] {
   if (clusters.length === 0) {
     return Object.freeze({ minimum: 0, maximum: 0, mean: 0, p50: 0, p95: 0 });
   }
-  const values = clusters.map((cluster) => cluster.geometricError)
-    .sort((a, b) => a - b);
+  const values = clusters.map((cluster) => cluster.geometricError).sort((a, b) => a - b);
   const sum = values.reduce((total, value) => total + value, 0);
   return Object.freeze({
     minimum: values[0]!,
     maximum: values[values.length - 1]!,
     mean: sum / values.length,
     p50: percentile(values, 0.5),
-    p95: percentile(values, 0.95)
+    p95: percentile(values, 0.95),
   });
 }
 
 function percentile(values: readonly number[], quantile: number): number {
-  const index = Math.min(
-    values.length - 1,
-    Math.max(0, Math.ceil(values.length * quantile) - 1)
-  );
+  const index = Math.min(values.length - 1, Math.max(0, Math.ceil(values.length * quantile) - 1));
   return values[index]!;
 }
 
@@ -1708,19 +1753,32 @@ function profileDirectoryFlag(recipe: GeometryCookRecipe): number {
 
 function geometryChunkId(sectionType: number): string {
   switch (sectionType) {
-    case GEOMETRY_SECTION_TYPES.GeometryDirectory: return "geometry-directory";
-    case GEOMETRY_SECTION_TYPES.VertexStreamDescriptors: return "vertex-stream-descriptors";
-    case GEOMETRY_SECTION_TYPES.VertexStreamData: return "vertex-stream-data";
-    case GEOMETRY_SECTION_TYPES.IndexData: return "source-index-data";
-    case GEOMETRY_SECTION_TYPES.MeshletRecords: return "meshlet-records";
-    case GEOMETRY_SECTION_TYPES.MeshletVertexIndices: return "meshlet-vertex-indices";
-    case GEOMETRY_SECTION_TYPES.MeshletTriangleIndices: return "meshlet-triangle-indices";
-    case GEOMETRY_SECTION_TYPES.SurfacePrimitiveIds: return "surface-primitive-identities";
-    case GEOMETRY_SECTION_TYPES.ClusterRecords: return "cluster-records";
-    case GEOMETRY_SECTION_TYPES.ClusterChildren: return "cluster-children";
-    case GEOMETRY_SECTION_TYPES.Bvh8Nodes: return "bvh8-nodes";
-    case GEOMETRY_SECTION_TYPES.MaterialRanges: return "material-ranges";
-    default: throw new RangeError(`Geometry section ${sectionType} has no canonical chunk identity`);
+    case GEOMETRY_SECTION_TYPES.GeometryDirectory:
+      return "geometry-directory";
+    case GEOMETRY_SECTION_TYPES.VertexStreamDescriptors:
+      return "vertex-stream-descriptors";
+    case GEOMETRY_SECTION_TYPES.VertexStreamData:
+      return "vertex-stream-data";
+    case GEOMETRY_SECTION_TYPES.IndexData:
+      return "source-index-data";
+    case GEOMETRY_SECTION_TYPES.MeshletRecords:
+      return "meshlet-records";
+    case GEOMETRY_SECTION_TYPES.MeshletVertexIndices:
+      return "meshlet-vertex-indices";
+    case GEOMETRY_SECTION_TYPES.MeshletTriangleIndices:
+      return "meshlet-triangle-indices";
+    case GEOMETRY_SECTION_TYPES.SurfacePrimitiveIds:
+      return "surface-primitive-identities";
+    case GEOMETRY_SECTION_TYPES.ClusterRecords:
+      return "cluster-records";
+    case GEOMETRY_SECTION_TYPES.ClusterChildren:
+      return "cluster-children";
+    case GEOMETRY_SECTION_TYPES.Bvh8Nodes:
+      return "bvh8-nodes";
+    case GEOMETRY_SECTION_TYPES.MaterialRanges:
+      return "material-ranges";
+    default:
+      throw new RangeError(`Geometry section ${sectionType} has no canonical chunk identity`);
   }
 }
 
@@ -1731,11 +1789,11 @@ function byteLengthOf(data: ArrayBuffer | ArrayBufferView): number {
 function expandBoundsForPositionQuantization(
   meshlets: GeometryMeshletRecord[],
   clusters: GeometryClusterRecord[],
-  sourceBounds: Float32Array
+  sourceBounds: Float32Array,
 ): void {
   const halfStep = new Float32Array(3);
   for (let axis = 0; axis < 3; axis++) {
-    halfStep[axis] = (sourceBounds[axis + 3]! - sourceBounds[axis]!) / 65535 * 0.5;
+    halfStep[axis] = ((sourceBounds[axis + 3]! - sourceBounds[axis]!) / 65535) * 0.5;
   }
   const radiusExpansion = Math.hypot(halfStep[0]!, halfStep[1]!, halfStep[2]!);
   const expand = <T extends GeometryMeshletRecord | GeometryClusterRecord>(record: T): T => ({
@@ -1746,12 +1804,12 @@ function expandBoundsForPositionQuantization(
       conservativeFloat32Minimum(record.boundsBox[2]! - halfStep[2]!),
       conservativeFloat32Maximum(record.boundsBox[3]! + halfStep[0]!),
       conservativeFloat32Maximum(record.boundsBox[4]! + halfStep[1]!),
-      conservativeFloat32Maximum(record.boundsBox[5]! + halfStep[2]!)
+      conservativeFloat32Maximum(record.boundsBox[5]! + halfStep[2]!),
     ]),
     bounds: {
       ...record.bounds,
-      radius: conservativeFloat32Maximum(record.bounds.radius + radiusExpansion)
-    }
+      radius: conservativeFloat32Maximum(record.bounds.radius + radiusExpansion),
+    },
   });
   for (let index = 0; index < meshlets.length; index++) meshlets[index] = expand(meshlets[index]!);
   for (let index = 0; index < clusters.length; index++) clusters[index] = expand(clusters[index]!);

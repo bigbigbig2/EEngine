@@ -11,7 +11,7 @@ import { reprojectEquirectToOctahedral } from "./octahedralReproject.js";
 
 export async function load_environment_map(
   url: string,
-  projection: number = ProjectionMappingType.Equirectangular
+  projection: number = ProjectionMappingType.Equirectangular,
 ): Promise<ShadeTexture> {
   const n = await fetch(url);
   const r = await n.arrayBuffer();
@@ -23,16 +23,8 @@ export async function load_environment_map(
     sampler = new Sampler2D(decoded.data, 4, decoded.width, decoded.height);
   } else {
     const decoded = decodeRgbe(r);
-    const source = new Sampler2D(
-      decoded.data,
-      4,
-      decoded.width,
-      decoded.height
-    );
-    const reprojected = reprojectEquirectToOctahedral(
-      source,
-      Math.min(source.width, source.height)
-    );
+    const source = new Sampler2D(decoded.data, 4, decoded.width, decoded.height);
+    const reprojected = reprojectEquirectToOctahedral(source, Math.min(source.width, source.height));
     sampler = toHalfSampler(reprojected);
   }
 

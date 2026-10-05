@@ -2,7 +2,7 @@ import {
   GPU_GEOMETRY_RECORD_WGSL,
   GPU_GEOMETRY_VERTEX_DECODE_WGSL,
   GPU_MESHLET_RECORD_WGSL,
-  GPU_UV_FORMAT
+  GPU_UV_FORMAT,
 } from "../gpu/GpuGeometryAbi.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { GPU_SHADING_MATERIAL_WGSL } from "../gpu/GpuShadingMaterialAbi.js";
@@ -32,8 +32,7 @@ function removeWgslFunction(source: string, name: string): string {
 }
 
 function packedDirectLightingCore(): string {
-  let source = LIGHTING_DIRECT_WGSL
-    .replace(PACKED_CAMERA_TYPE.wgsl_declaration, "")
+  let source = LIGHTING_DIRECT_WGSL.replace(PACKED_CAMERA_TYPE.wgsl_declaration, "")
     .replace(/^@group\(0\).*$/gm, "")
     .replace(/@group\(2\)/g, "@group(3)")
     .replace(/@group\(1\)/g, "@group(2)")

@@ -20,23 +20,36 @@ export function transcodeKtx2Basis(
   module: KtxTextureModule,
   task: Ktx2TranscodeTask,
   identity: Readonly<{ codecId: string; codecRevision: string; codecBinaryHash: string }>,
-  now: () => number = () => performance.now()
+  now: () => number = () => performance.now(),
 ): AssetCodecTaskResult {
   const startedAt = now();
   const header = readKtx2Header(task.input);
   if (header.sourceEncoding !== task.sourceEncoding) {
-    throw new Ktx2CodecError("source-encoding", `KTX2 payload is ${header.sourceEncoding}, request declared ${task.sourceEncoding}`);
+    throw new Ktx2CodecError(
+      "source-encoding",
+      `KTX2 payload is ${header.sourceEncoding}, request declared ${task.sourceEncoding}`,
+    );
   }
   if (header.layerCount > 1 || header.faceCount !== 1 || header.pixelDepth > 1) {
-    throw new Ktx2CodecError("texture-shape", "KTX2 codec path currently accepts only one 2D, non-array face");
+    throw new Ktx2CodecError(
+      "texture-shape",
+      "KTX2 codec path currently accepts only one 2D, non-array face",
+    );
   }
   const texture = new module.texture(new Uint8Array(task.input));
   try {
     if (!texture.needsTranscoding) {
-      throw new Ktx2CodecError("not-transcodable", "KTX2 payload does not contain Basis/UASTC transcodable data");
+      throw new Ktx2CodecError(
+        "not-transcodable",
+        "KTX2 payload does not contain Basis/UASTC transcodable data",
+      );
     }
     const target = module.transcode_fmt[transcodeEnumName(task.targetFormat)];
-    if (target === undefined) throw new Ktx2CodecError("target-unavailable", `Pinned KTX binary does not expose ${task.targetFormat}`);
+    if (target === undefined)
+      throw new Ktx2CodecError(
+        "target-unavailable",
+        `Pinned KTX binary does not expose ${task.targetFormat}`,
+      );
     if (texture.transcodeBasis(target, 0) !== module.error_code.SUCCESS) {
       throw new Ktx2CodecError("transcode-failed", `KTX2 transcode to ${task.targetFormat} failed`);
     }
@@ -48,9 +61,15 @@ export function transcodeKtx2Basis(
       const image = texture.getImage(level, 0, 0);
       if (image === null) throw new Ktx2CodecError("mip-missing", `KTX2 mip ${level} is missing`);
       const payload = image.slice().buffer;
-      const [physicalWidth, physicalHeight] = physicalTextureExtent(task.targetFormat, logicalWidth, logicalHeight);
+      const [physicalWidth, physicalHeight] = physicalTextureExtent(
+        task.targetFormat,
+        logicalWidth,
+        logicalHeight,
+      );
       outputBytes += payload.byteLength;
-      mips.push(Object.freeze({ level, logicalWidth, logicalHeight, physicalWidth, physicalHeight, payload }));
+      mips.push(
+        Object.freeze({ level, logicalWidth, logicalHeight, physicalWidth, physicalHeight, payload }),
+      );
     }
     const workerMs = now() - startedAt;
     return Object.freeze({
@@ -66,8 +85,8 @@ export function transcodeKtx2Basis(
         inputBytes: task.input.byteLength,
         outputBytes,
         estimatedPeakBytes: task.estimatedPeakBytes,
-        ...identity
-      })
+        ...identity,
+      }),
     });
   } finally {
     texture.delete();
@@ -75,7 +94,10 @@ export function transcodeKtx2Basis(
 }
 
 export class Ktx2CodecError extends Error {
-  constructor(readonly code: string, message: string) {
+  constructor(
+    readonly code: string,
+    message: string,
+  ) {
     super(message);
     this.name = "Ktx2CodecError";
   }
@@ -90,7 +112,8 @@ function readKtx2Header(input: ArrayBuffer): Readonly<{
   levelCount: number;
   sourceEncoding: "ktx2-uastc" | "ktx2-etc1s";
 }> {
-  if (input.byteLength < 80) throw new Ktx2CodecError("ktx2-header", "KTX2 payload is shorter than its header");
+  if (input.byteLength < 80)
+    throw new Ktx2CodecError("ktx2-header", "KTX2 payload is shorter than its header");
   const bytes = new Uint8Array(input, 0, 12);
   const identifier = [0xab, 0x4b, 0x54, 0x58, 0x20, 0x32, 0x30, 0xbb, 0x0d, 0x0a, 0x1a, 0x0a];
   if (!identifier.every((value, index) => bytes[index] === value)) {
@@ -109,7 +132,10 @@ function readKtx2Header(input: ArrayBuffer): Readonly<{
     throw new Ktx2CodecError("ktx2-header", "KTX2 is not a complete Basis/UASTC 2D texture");
   }
   if (supercompression !== 0 && supercompression !== 1) {
-    throw new Ktx2CodecError("supercompression", `KTX2 supercompression scheme ${supercompression} is unsupported`);
+    throw new Ktx2CodecError(
+      "supercompression",
+      `KTX2 supercompression scheme ${supercompression} is unsupported`,
+    );
   }
   return Object.freeze({
     pixelWidth,
@@ -118,7 +144,7 @@ function readKtx2Header(input: ArrayBuffer): Readonly<{
     layerCount,
     faceCount,
     levelCount,
-    sourceEncoding: supercompression === 1 ? "ktx2-etc1s" : "ktx2-uastc"
+    sourceEncoding: supercompression === 1 ? "ktx2-etc1s" : "ktx2-uastc",
   });
 }
 

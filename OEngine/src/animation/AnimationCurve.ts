@@ -67,7 +67,7 @@ export class AnimationKeyframeData implements AnimationKeyframe {
       value: this.value,
       time: this.time,
       inTangent: this.inTangent,
-      outTangent: this.outTangent
+      outTangent: this.outTangent,
     };
   }
 
@@ -78,45 +78,20 @@ export class AnimationKeyframeData implements AnimationKeyframe {
 
 const OS_EPS = 1e-5;
 
-function hermiteBasis(
-  e: number,
-  t: number,
-  n: number,
-  r: number,
-  s: number
-): number {
+function hermiteBasis(e: number, t: number, n: number, r: number, s: number): number {
   const a = e * e;
   const i = a * e;
-  return (
-    (2 * i - 3 * a + 1) * t +
-    (i - 2 * a + e) * r +
-    (i - a) * s +
-    (3 * a - 2 * i) * n
-  );
+  return (2 * i - 3 * a + 1) * t + (i - 2 * a + e) * r + (i - a) * s + (3 * a - 2 * i) * n;
 }
 
-function evaluateSegment(
-  time: number,
-  a: AnimationKeyframe,
-  b: AnimationKeyframe
-): number {
+function evaluateSegment(time: number, a: AnimationKeyframe, b: AnimationKeyframe): number {
   const s = b.time - a.time;
   if (s === 0) return a.value;
   const u = (time - a.time) / s;
-  return hermiteBasis(
-    u,
-    a.value,
-    b.value,
-    (a.outTangent ?? 0) * s,
-    (b.inTangent ?? 0) * s
-  );
+  return hermiteBasis(u, a.value, b.value, (a.outTangent ?? 0) * s, (b.inTangent ?? 0) * s);
 }
 
-function keyframeError(
-  e: AnimationKeyframe,
-  t: AnimationKeyframe,
-  n: AnimationKeyframe
-): number {
+function keyframeError(e: AnimationKeyframe, t: AnimationKeyframe, n: AnimationKeyframe): number {
   const r = n.time - t.time;
   if (r < 1e-9) return 0;
   const s = (e.time - t.time) / r;
@@ -135,14 +110,7 @@ function keyframeError(
   return Math.max(i, _ * r * 0.125);
 }
 
-
-function hermiteValueRange(
-  out: Float32Array,
-  v0: number,
-  v1: number,
-  m0: number,
-  m1: number
-): void {
+function hermiteValueRange(out: Float32Array, v0: number, v1: number, m0: number, m1: number): void {
   const o = 3 * (m0 + m1 + 2 * v0 - 2 * v1);
   const _ = -2 * (2 * m0 + m1 + 3 * v0 - 3 * v1);
   const c = m0;
@@ -190,13 +158,7 @@ function curveValueHeight(curve: AnimationCurve): number {
   for (let t = 1; t < o; t++) {
     const cur = keys[t]!;
     const dt = cur.time - prev.time;
-    hermiteValueRange(
-      rs,
-      prev.value,
-      cur.value,
-      (prev.outTangent ?? 0) * dt,
-      (cur.inTangent ?? 0) * dt
-    );
+    hermiteValueRange(rs, prev.value, cur.value, (prev.outTangent ?? 0) * dt, (cur.inTangent ?? 0) * dt);
     if (rs[0]! < minV) minV = rs[0]!;
     if (rs[1]! > maxV) maxV = rs[1]!;
     prev = cur;
@@ -415,14 +377,14 @@ export class AnimationCurve {
   static easeInOut(e = 0, t = 0, n = 1, r = 1): AnimationCurve {
     return AnimationCurve.from([
       AnimationKeyframeData.from(e, t, 0, 0),
-      AnimationKeyframeData.from(n, r, 0, 0)
+      AnimationKeyframeData.from(n, r, 0, 0),
     ]);
   }
 
   static constant(e = 0, t = 1, n = 0): AnimationCurve {
     return AnimationCurve.from([
       AnimationKeyframeData.from(e, n, 0, 0),
-      AnimationKeyframeData.from(t, n, 0, 0)
+      AnimationKeyframeData.from(t, n, 0, 0),
     ]);
   }
 
@@ -431,7 +393,7 @@ export class AnimationCurve {
     const a = s === 0 ? 0 : (r - t) / s;
     return AnimationCurve.from([
       AnimationKeyframeData.from(e, t, 0, a),
-      AnimationKeyframeData.from(n, r, a, 0)
+      AnimationKeyframeData.from(n, r, a, 0),
     ]);
   }
 }

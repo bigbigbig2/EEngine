@@ -12,7 +12,7 @@ export {
   hashU32Range,
   hashOptional,
   hashArrayBuffer,
-  arrayBufferEquals
+  arrayBufferEquals,
 } from "./hashMix.js";
 export {
   arrayShallowEquals,
@@ -20,7 +20,7 @@ export {
   arrayRemoveFirst,
   arrayHashFloats,
   isInstanceOf,
-  isInstanceOfCtor
+  isInstanceOfCtor,
 } from "./arrayUtils.js";
 export { assert, assertIsOneOf, Assert, _ } from "./assert.js";
 export {
@@ -41,24 +41,15 @@ export {
   hashString,
   stringApproxByteSize,
   alignCeil,
-  aabbFromPositions
+  aabbFromPositions,
 } from "./memoryUtils.js";
 export { HashMap, HashMapEntry } from "./HashMap.js";
-export type {
-  KeyHashFunction,
-  KeyEqualityFunction,
-  HashMapOptions
-} from "./HashMap.js";
+export type { KeyHashFunction, KeyEqualityFunction, HashMapOptions } from "./HashMap.js";
 export { HashSet, Wo } from "./HashSet.js";
 export type { HashSetOptions } from "./HashSet.js";
 export { deepHash, deepEquals, Zo, e_ } from "./deepHashEquals.js";
 export { BitSet } from "./BitSet.js";
-export {
-  WeightedCache,
-  CacheElement,
-  weightOne,
-  weightZero
-} from "./WeightedCache.js";
+export { WeightedCache, CacheElement, weightOne, weightZero } from "./WeightedCache.js";
 export type { WeightedCacheOptions } from "./WeightedCache.js";
 export {
   TableSpec,
@@ -72,14 +63,9 @@ export {
   compileCellWriter,
   DATA_TYPE_BYTE_SIZE,
   DATA_VIEW_GETTERS,
-  DATA_VIEW_SETTERS
+  DATA_VIEW_SETTERS,
 } from "./TableSpec.js";
-export type {
-  CellReader,
-  CellWriter,
-  RowReader,
-  RowWriter
-} from "./TableSpec.js";
+export type { CellReader, CellWriter, RowReader, RowWriter } from "./TableSpec.js";
 export {
   WebGPUType,
   PrimitiveType,
@@ -100,7 +86,7 @@ export {
   WGSL_vec4f,
   WGSL_mat4x4f,
   WGSL_atomic_u32,
-  WGSL_atomic_i32
+  WGSL_atomic_i32,
 } from "./WebGPUTypes.js";
 export { Line, LineBuilder } from "./LineBuilder.js";
 export {
@@ -112,7 +98,7 @@ export {
   nextStructName,
   resetStructNameSeq,
   STRUCT_PACK_ALIGN,
-  ATTR_ALIGN
+  ATTR_ALIGN,
 } from "./WgslStruct.js";
 export {
   readWgslValue,
@@ -121,7 +107,7 @@ export {
   readFloat32N,
   readInt32N,
   readUint32N,
-  wgslScratchReader
+  wgslScratchReader,
 } from "./WgslBufferIO.js";
 export { Vec2 } from "./math/Vec2.js";
 export { Vec3 } from "./math/Vec3.js";
@@ -151,7 +137,7 @@ export {
   lengthSquared2,
   hypot2,
   nowSeconds,
-  deepOrRefEquals
+  deepOrRefEquals,
 } from "./math/mathUtils.js";
 export { base64Encode, base64Decode, Base64Codec, ir } from "./base64Codec.js";
 export {
@@ -187,11 +173,6 @@ export {
   vec3TransformMat4,
   quatCreate,
   aabbExtentLength,
-  aabbToBoundingSphere
+  aabbToBoundingSphere,
 } from "./math/Mat4.js";
-export {
-  AABB2,
-  intervalOverlaps1D,
-  aabb2Overlaps,
-  lineSegmentIntersect2D
-} from "./math/AABB2.js";
+export { AABB2, intervalOverlaps1D, aabb2Overlaps, lineSegmentIntersect2D } from "./math/AABB2.js";

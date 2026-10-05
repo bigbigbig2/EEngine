@@ -1,5 +1,12 @@
 import { WebCookCoordinator, type WebRuntimeCooker } from "./WebCookCoordinator.js";
-import { WEB_COOK_PAGE_BYTES, WEB_COOK_PROTOCOL_VERSION, type WebCookBudgets, type WebCookCommand, type WebCookEvent, type WebCookRuntimeProfile } from "./protocol/CookSessionProtocol.js";
+import {
+  WEB_COOK_PAGE_BYTES,
+  WEB_COOK_PROTOCOL_VERSION,
+  type WebCookBudgets,
+  type WebCookCommand,
+  type WebCookEvent,
+  type WebCookRuntimeProfile,
+} from "./protocol/CookSessionProtocol.js";
 import type { GlbRangeSourceOptions } from "../../loaders/gltf/streaming/GlbRangeSource.js";
 
 export interface WebCookWorkerHostPort {
@@ -38,7 +45,9 @@ const DEFAULT_CATALOG_PRIORITY_WINDOW_MS = 250;
 /** Dedicated Worker-side command host. It owns CPU/WASM cook state only. */
 export class WebCookWorkerHost {
   readonly #options: WebCookWorkerHostOptions;
-  readonly #listener = (event: MessageEvent<unknown>): void => { void this.receive(event.data); };
+  readonly #listener = (event: MessageEvent<unknown>): void => {
+    void this.receive(event.data);
+  };
   #coordinator: WebCookCoordinator | undefined;
   #running = false;
   #closed = false;
@@ -68,7 +77,8 @@ export class WebCookWorkerHost {
     // output credit, otherwise RequestPages/emitPage would deadlock behind its
     // own ReturnOutputCredits.
     const type = (value as { readonly type?: unknown } | null | undefined)?.type;
-    if ((type === "GrantOutputCredits" || type === "ReturnOutputCredits") && this.#coordinator) return this.#accept(value);
+    if ((type === "GrantOutputCredits" || type === "ReturnOutputCredits") && this.#coordinator)
+      return this.#accept(value);
     const operation = this.#commandTail.then(() => this.#accept(value));
     this.#commandTail = operation.catch(() => undefined);
     return operation;
@@ -82,10 +92,16 @@ export class WebCookWorkerHost {
         this.#create(command);
         return;
       }
-      if (!this.#coordinator || command.sessionId !== this.#sessionId || command.sessionGeneration !== this.#generation) return;
+      if (
+        !this.#coordinator ||
+        command.sessionId !== this.#sessionId ||
+        command.sessionGeneration !== this.#generation
+      )
+        return;
       if (command.type === "OpenSource") {
         const url = command.source.url;
-        if (typeof url !== "string" || url.length === 0) throw new Error("OpenSource requires a URL source descriptor");
+        if (typeof url !== "string" || url.length === 0)
+          throw new Error("OpenSource requires a URL source descriptor");
         await this.#coordinator.open(url);
         // Flush catalog metadata before starting any BIN/WASM work, then wait
         // for the main thread to rank it and commit. The commit is what proves
@@ -103,17 +119,37 @@ export class WebCookWorkerHost {
         this.#coordinator.cancel(new Error(`Web Cook cancelled: ${command.scope}`));
       } else if (command.type === "DisposeSession") {
         this.close();
-        const timings = await this.#options.disposeArtifacts?.() ?? {};
-        this.#options.port.postMessage({ protocolVersion: WEB_COOK_PROTOCOL_VERSION, sessionId: this.#sessionId, sessionGeneration: this.#generation, type: "Progress", stage: "session-disposed", units: 0, bytes: 0, timings });
+        const timings = (await this.#options.disposeArtifacts?.()) ?? {};
+        this.#options.port.postMessage({
+          protocolVersion: WEB_COOK_PROTOCOL_VERSION,
+          sessionId: this.#sessionId,
+          sessionGeneration: this.#generation,
+          type: "Progress",
+          stage: "session-disposed",
+          units: 0,
+          bytes: 0,
+          timings,
+        });
         return;
       } else if (command.type === "RequestPages") {
-        await this.#coordinator.requestPages(command.productId, command.revision, command.pageIds, command.priority);
+        await this.#coordinator.requestPages(
+          command.productId,
+          command.revision,
+          command.pageIds,
+          command.priority,
+        );
       } else if (command.type === "SetSourcePriority") {
         this.#coordinator.setSourcePriority(command.assetKey, command.score, command.cameraHintRevision);
       }
       this.#flushEvents();
     } catch (error) {
-      this.#emit({ protocolVersion: WEB_COOK_PROTOCOL_VERSION, sessionId: this.#sessionId, sessionGeneration: this.#generation, type: "FatalSessionFailure", code: error instanceof Error ? error.message : String(error) });
+      this.#emit({
+        protocolVersion: WEB_COOK_PROTOCOL_VERSION,
+        sessionId: this.#sessionId,
+        sessionGeneration: this.#generation,
+        type: "FatalSessionFailure",
+        code: error instanceof Error ? error.message : String(error),
+      });
       this.#coordinator?.dispose();
       this.#coordinator = undefined;
     }
@@ -129,10 +165,12 @@ export class WebCookWorkerHost {
       runtimeProfile: command.runtimeProfile,
       recipe: command.recipe,
       ...(bootstrap?.unitCount === undefined ? {} : { bootstrapUnitCount: bootstrap.unitCount }),
-      ...(bootstrap?.maxSourceBytes === undefined ? {} : { bootstrapMaxSourceBytes: bootstrap.maxSourceBytes }),
+      ...(bootstrap?.maxSourceBytes === undefined
+        ? {}
+        : { bootstrapMaxSourceBytes: bootstrap.maxSourceBytes }),
       source: this.#options.source,
       cooker: this.#options.cooker,
-      onEvent: () => this.#flushEvents()
+      onEvent: () => this.#flushEvents(),
     });
   }
 
@@ -145,7 +183,13 @@ export class WebCookWorkerHost {
   #awaitCatalogPriorities(): void {
     this.#clearCatalogDeadline();
     const windowMs = this.#options.catalogPriorityWindowMs ?? DEFAULT_CATALOG_PRIORITY_WINDOW_MS;
-    this.#catalogDeadline = setTimeout(() => { this.#catalogDeadline = undefined; this.#startCooking(); }, Math.max(0, windowMs));
+    this.#catalogDeadline = setTimeout(
+      () => {
+        this.#catalogDeadline = undefined;
+        this.#startCooking();
+      },
+      Math.max(0, windowMs),
+    );
   }
 
   /** Closes the priority window early because the main thread committed. */
@@ -164,10 +208,19 @@ export class WebCookWorkerHost {
   #startCooking(): void {
     if (this.#running || !this.#coordinator) return;
     this.#running = true;
-    void this.#coordinator.cookBootstrap().then(() => this.#flushEvents()).catch(error => {
-      this.#flushEvents();
-      this.#emit({ protocolVersion: WEB_COOK_PROTOCOL_VERSION, sessionId: this.#sessionId, sessionGeneration: this.#generation, type: "FatalSessionFailure", code: error instanceof Error ? error.message : String(error) });
-    });
+    void this.#coordinator
+      .cookBootstrap()
+      .then(() => this.#flushEvents())
+      .catch((error) => {
+        this.#flushEvents();
+        this.#emit({
+          protocolVersion: WEB_COOK_PROTOCOL_VERSION,
+          sessionId: this.#sessionId,
+          sessionGeneration: this.#generation,
+          type: "FatalSessionFailure",
+          code: error instanceof Error ? error.message : String(error),
+        });
+      });
   }
 
   #flushEvents(): void {
@@ -179,15 +232,23 @@ export class WebCookWorkerHost {
       if (event.type === "RevisionOffered") {
         const descriptor = event.descriptor.slice(0);
         const sceneAssetIndices = event.sceneAssetIndices?.slice();
-        this.#emit({ ...event, descriptor, ...(sceneAssetIndices === undefined ? {} : { sceneAssetIndices }) }, [descriptor, ...(sceneAssetIndices === undefined ? [] : [sceneAssetIndices.buffer])]);
+        this.#emit(
+          { ...event, descriptor, ...(sceneAssetIndices === undefined ? {} : { sceneAssetIndices }) },
+          [descriptor, ...(sceneAssetIndices === undefined ? [] : [sceneAssetIndices.buffer])],
+        );
         continue;
       }
-      if (event.type === "PageReady") { this.#emit(event, [event.bytes]); continue; }
+      if (event.type === "PageReady") {
+        this.#emit(event, [event.bytes]);
+        continue;
+      }
       this.#emit(event);
     }
   }
 
-  #emit(event: WebCookEvent, transfer: Transferable[] = []): void { if (!this.#closed) this.#options.port.postMessage(event, transfer); }
+  #emit(event: WebCookEvent, transfer: Transferable[] = []): void {
+    if (!this.#closed) this.#options.port.postMessage(event, transfer);
+  }
 }
 
 export function installWebCookWorkerHost(options: WebCookWorkerHostOptions): WebCookWorkerHost {
@@ -195,9 +256,28 @@ export function installWebCookWorkerHost(options: WebCookWorkerHostOptions): Web
 }
 
 function assertCommand(value: unknown): WebCookCommand {
-  if (!value || typeof value !== "object") throw new TypeError("Web Cook Worker received a non-object command");
+  if (!value || typeof value !== "object")
+    throw new TypeError("Web Cook Worker received a non-object command");
   const command = value as Partial<WebCookCommand>;
-  if (command.protocolVersion !== WEB_COOK_PROTOCOL_VERSION || typeof command.sessionId !== "string" || !Number.isInteger(command.sessionGeneration)) throw new Error("Web Cook Worker received an incompatible command header");
-  if (!["CreateSession", "OpenSource", "CommitCatalogPriorities", "SetSourcePriority", "RequestPages", "GrantOutputCredits", "ReturnOutputCredits", "CancelScope", "DisposeSession"].includes(String(command.type))) throw new Error(`Web Cook Worker received unknown command '${String(command.type)}'`);
+  if (
+    command.protocolVersion !== WEB_COOK_PROTOCOL_VERSION ||
+    typeof command.sessionId !== "string" ||
+    !Number.isInteger(command.sessionGeneration)
+  )
+    throw new Error("Web Cook Worker received an incompatible command header");
+  if (
+    ![
+      "CreateSession",
+      "OpenSource",
+      "CommitCatalogPriorities",
+      "SetSourcePriority",
+      "RequestPages",
+      "GrantOutputCredits",
+      "ReturnOutputCredits",
+      "CancelScope",
+      "DisposeSession",
+    ].includes(String(command.type))
+  )
+    throw new Error(`Web Cook Worker received unknown command '${String(command.type)}'`);
   return command as WebCookCommand;
 }

@@ -8,27 +8,13 @@ export function assert(e: unknown, t?: string): asserts e {
   if (!e) throw new Error(t || "AssertionError");
 }
 
-export function assertIsOneOf(
-  e: unknown,
-  t: unknown[],
-  n = "value"
-): void {
+export function assertIsOneOf(e: unknown, t: unknown[], n = "value"): void {
   if (t.indexOf(e) === -1) {
-    throw new Error(
-      `${n} must be one of [${t.join(", ")}], instead was '${e}'`
-    );
+    throw new Error(`${n} must be one of [${t.join(", ")}], instead was '${e}'`);
   }
 }
 
-const TYPEOF_KINDS = [
-  "string",
-  "boolean",
-  "number",
-  "object",
-  "undefined",
-  "function",
-  "symbol"
-];
+const TYPEOF_KINDS = ["string", "boolean", "number", "object", "undefined", "function", "symbol"];
 
 export const Assert = {
   ok: assert,
@@ -38,7 +24,7 @@ export const Assert = {
       if (Object.prototype.hasOwnProperty.call(t, k) && t[k] === e) return;
     }
     throw new Error(
-      `${n}(=${e}) is not a valid enumerable value, valid values are: [${Object.values(t).join(", ")}]`
+      `${n}(=${e}) is not a valid enumerable value, valid values are: [${Object.values(t).join(", ")}]`,
     );
   },
 
@@ -107,22 +93,13 @@ export const Assert = {
 
   arrayHasNo(_e: unknown, _t: unknown, _n = "Array contains the item"): void {},
 
-  arrayEqual(
-    t: ArrayLike<unknown>,
-    n: ArrayLike<unknown>,
-    r = "Arrays are not equal"
-  ): void {
+  arrayEqual(t: ArrayLike<unknown>, n: ArrayLike<unknown>, r = "Arrays are not equal"): void {
     if (!arrayShallowEquals(t, n)) throw new Error(r);
   },
 
   isOneOf: assertIsOneOf,
 
-  isInstanceOf(
-    _e: unknown,
-    _t: unknown,
-    _n = "value",
-    _r?: string
-  ): void {},
+  isInstanceOf(_e: unknown, _t: unknown, _n = "value", _r?: string): void {},
 
   isNumber(e: unknown, t = "value"): void {
     const n = typeof e;
@@ -175,9 +152,7 @@ export const Assert = {
 
   isArray(e: unknown, t = "value"): void {
     if (!Array.isArray(e)) {
-      throw new Error(
-        `expected ${t} to be an array, instead was something else (typeof ='${typeof e}')`
-      );
+      throw new Error(`expected ${t} to be an array, instead was something else (typeof ='${typeof e}')`);
     }
   },
 
@@ -188,14 +163,11 @@ export const Assert = {
       if (e === null) return false;
       if (isTypedArray(e)) return true;
       const len = (e as { length?: unknown }).length;
-      return !(
-        (typeof len !== "number" && !Number.isInteger(len as number)) ||
-        (len as number) < 0
-      );
+      return !((typeof len !== "number" && !Number.isInteger(len as number)) || (len as number) < 0);
     })();
     if (!ok) {
       throw new Error(
-        `expected ${n} to be an array-like structure, instead was something else (typeof ='${typeof e}')`
+        `expected ${n} to be an array-like structure, instead was something else (typeof ='${typeof e}')`,
       );
     }
   },
@@ -234,11 +206,8 @@ export const Assert = {
     n: {
       matches(v: unknown): boolean;
       describeTo(r: { appendText(s: string): void }): void;
-      describeMismatch(
-        v: unknown,
-        r: { appendText(s: string): void }
-      ): void;
-    }
+      describeMismatch(v: unknown, r: { appendText(s: string): void }): void;
+    },
   ): void {
     if (n.matches(e)) return;
     const parts: string[] = [];
@@ -248,14 +217,14 @@ export const Assert = {
       },
       get value() {
         return parts.join("");
-      }
+      },
     };
     r.appendText(`Expected ${t} to be `);
     n.describeTo(r);
     r.appendText(" instead ");
     n.describeMismatch(e, r);
     throw new Error(r.value);
-  }
+  },
 } as const;
 
 export const _ = Assert;

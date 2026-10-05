@@ -21,9 +21,7 @@ const MAX_ALIGNMENT = 1 << 20;
 const CONTENT_HASH_OFFSET = 48;
 const CONTENT_HASH_BYTES = 32;
 const HEADER_RESERVED_OFFSET = CONTENT_HASH_OFFSET + CONTENT_HASH_BYTES;
-const PACKAGE_MAGIC = new Uint8Array([
-  0x4f, 0x45, 0x4e, 0x47, 0x49, 0x4e, 0x45, 0x00
-]);
+const PACKAGE_MAGIC = new Uint8Array([0x4f, 0x45, 0x4e, 0x47, 0x49, 0x4e, 0x45, 0x00]);
 
 export type RuntimeAssetValidationSeverity = "warning" | "error";
 
@@ -126,9 +124,7 @@ interface ParsedPackage {
   sections: RuntimeAssetSectionView[];
 }
 
-export async function writeRuntimeAssetPackage(
-  input: RuntimeAssetPackageWriteInput
-): Promise<ArrayBuffer> {
+export async function writeRuntimeAssetPackage(input: RuntimeAssetPackageWriteInput): Promise<ArrayBuffer> {
   const formatVersion = input.formatVersion ?? RUNTIME_ASSET_FORMAT_VERSION;
   if (formatVersion !== RUNTIME_ASSET_FORMAT_VERSION && formatVersion !== RUNTIME_ASSET_FORMAT_VERSION_V2) {
     throw new RangeError(`Unsupported Runtime Asset Package format version ${String(formatVersion)}`);
@@ -139,16 +135,14 @@ export async function writeRuntimeAssetPackage(
     throw new RangeError("Package flags must be zero for the current Runtime Asset envelope");
   }
   if (input.sections.length > MAX_SECTION_COUNT) {
-    throw new RangeError(
-      `Package section count exceeds ${MAX_SECTION_COUNT}`
-    );
+    throw new RangeError(`Package section count exceeds ${MAX_SECTION_COUNT}`);
   }
 
   const sorted = [...input.sections].sort((left, right) => left.type - right.type);
   const sections = new Array<WritableSection>(sorted.length);
   let cursor = safeAdd(
     RUNTIME_ASSET_HEADER_SIZE,
-    safeMultiply(sorted.length, RUNTIME_ASSET_DIRECTORY_ENTRY_SIZE)
+    safeMultiply(sorted.length, RUNTIME_ASSET_DIRECTORY_ENTRY_SIZE),
   );
   let previousType = -1;
   for (let index = 0; index < sorted.length; index++) {
@@ -166,19 +160,16 @@ export async function writeRuntimeAssetPackage(
     const compression = source.compression ?? RUNTIME_ASSET_COMPRESSION_NONE;
     if (compression !== RUNTIME_ASSET_COMPRESSION_NONE) {
       throw new RangeError(
-        `sections[${index}].compression is unsupported in the current Runtime Asset envelope`
+        `sections[${index}].compression is unsupported in the current Runtime Asset envelope`,
       );
     }
     assertPositiveU32(source.elementStride, `sections[${index}].elementStride`);
     assertU32(source.elementCount, `sections[${index}].elementCount`);
     const bytes = copyBytes(source.data);
-    const expectedByteLength = safeMultiply(
-      source.elementStride,
-      source.elementCount
-    );
+    const expectedByteLength = safeMultiply(source.elementStride, source.elementCount);
     if (bytes.byteLength !== expectedByteLength) {
       throw new RangeError(
-        `Section byte length ${bytes.byteLength} must equal elementStride × elementCount (${expectedByteLength})`
+        `Section byte length ${bytes.byteLength} must equal elementStride × elementCount (${expectedByteLength})`,
       );
     }
     cursor = alignUp(cursor, alignment);
@@ -194,7 +185,7 @@ export async function writeRuntimeAssetPackage(
       compression,
       checksum: digestU32(digest),
       bytes,
-      digest
+      digest,
     };
     cursor = safeAdd(cursor, bytes.byteLength);
   }
@@ -209,11 +200,7 @@ export async function writeRuntimeAssetPackage(
   view.setUint32(20, flags, true);
   view.setUint32(24, sections.length, true);
   view.setUint32(28, RUNTIME_ASSET_HEADER_SIZE, true);
-  view.setUint32(
-    32,
-    sections.length * RUNTIME_ASSET_DIRECTORY_ENTRY_SIZE,
-    true
-  );
+  view.setUint32(32, sections.length * RUNTIME_ASSET_DIRECTORY_ENTRY_SIZE, true);
   view.setUint32(36, 0, true);
   view.setBigUint64(40, BigInt(output.byteLength), true);
 
@@ -222,7 +209,7 @@ export async function writeRuntimeAssetPackage(
     writeDirectoryEntry(
       view,
       RUNTIME_ASSET_HEADER_SIZE + index * RUNTIME_ASSET_DIRECTORY_ENTRY_SIZE,
-      section
+      section,
     );
     outputBytes.set(section.bytes, section.byteOffset);
   }
@@ -231,7 +218,7 @@ export async function writeRuntimeAssetPackage(
     RUNTIME_ASSET_PACKAGE_SCHEMA_HASH,
     flags,
     sections,
-    sections.map((section) => section.digest)
+    sections.map((section) => section.digest),
   );
   outputBytes.set(contentHash, CONTENT_HASH_OFFSET);
   return output;
@@ -239,24 +226,20 @@ export async function writeRuntimeAssetPackage(
 
 export async function validateRuntimeAssetPackage(
   bytes: ArrayBuffer,
-  options: RuntimeAssetPackageOpenOptions
+  options: RuntimeAssetPackageOpenOptions,
 ): Promise<RuntimeAssetValidationReport> {
   return (await parseAndValidate(bytes, options)).report;
 }
 
 export async function openRuntimeAssetPackage(
   bytes: ArrayBuffer,
-  options: RuntimeAssetPackageOpenOptions
+  options: RuntimeAssetPackageOpenOptions,
 ): Promise<RuntimeAssetPackage> {
   const parsed = await parseAndValidate(bytes, options);
   if (!parsed.report.valid || parsed.manifest === null) {
     throw new RuntimeAssetPackageError(parsed.report);
   }
-  return new OpenedRuntimeAssetPackage(
-    parsed.manifest,
-    parsed.sections,
-    parsed.report
-  );
+  return new OpenedRuntimeAssetPackage(parsed.manifest, parsed.sections, parsed.report);
 }
 
 class OpenedRuntimeAssetPackage implements RuntimeAssetPackage {
@@ -267,7 +250,7 @@ class OpenedRuntimeAssetPackage implements RuntimeAssetPackage {
   constructor(
     manifest: RuntimeAssetManifest,
     sections: RuntimeAssetSectionView[],
-    private readonly report: RuntimeAssetValidationReport
+    private readonly report: RuntimeAssetValidationReport,
   ) {
     this.manifest = Object.freeze(manifest);
     this.sections = Object.freeze(sections);
@@ -285,7 +268,7 @@ class OpenedRuntimeAssetPackage implements RuntimeAssetPackage {
 
 async function parseAndValidate(
   buffer: ArrayBuffer,
-  options: RuntimeAssetPackageOpenOptions
+  options: RuntimeAssetPackageOpenOptions,
 ): Promise<ParsedPackage> {
   const issues: RuntimeAssetValidationIssue[] = [];
   const error = (code: string, message: string, sectionType?: number): void => {
@@ -297,7 +280,7 @@ async function parseAndValidate(
   if (buffer.byteLength < RUNTIME_ASSET_HEADER_SIZE) {
     error(
       "header-too-small",
-      `Package is ${buffer.byteLength} bytes; header requires ${RUNTIME_ASSET_HEADER_SIZE}`
+      `Package is ${buffer.byteLength} bytes; header requires ${RUNTIME_ASSET_HEADER_SIZE}`,
     );
     return parsedResult(issues, null, []);
   }
@@ -319,22 +302,12 @@ async function parseAndValidate(
   const directoryByteLength = view.getUint32(32, true);
   const headerReserved = view.getUint32(36, true);
   const totalByteLengthBig = view.getBigUint64(40, true);
-  const storedContentHash = bytes.slice(
-    CONTENT_HASH_OFFSET,
-    CONTENT_HASH_OFFSET + CONTENT_HASH_BYTES
-  );
-  if (formatVersion !== RUNTIME_ASSET_FORMAT_VERSION &&
-      formatVersion !== RUNTIME_ASSET_FORMAT_VERSION_V2) {
-    error(
-      "unsupported-format-version",
-      `Unsupported package format version ${formatVersion}`
-    );
+  const storedContentHash = bytes.slice(CONTENT_HASH_OFFSET, CONTENT_HASH_OFFSET + CONTENT_HASH_BYTES);
+  if (formatVersion !== RUNTIME_ASSET_FORMAT_VERSION && formatVersion !== RUNTIME_ASSET_FORMAT_VERSION_V2) {
+    error("unsupported-format-version", `Unsupported package format version ${formatVersion}`);
   }
   if (schemaHash !== RUNTIME_ASSET_PACKAGE_SCHEMA_HASH) {
-    error(
-      "schema-hash-mismatch",
-      `Package schema hash 0x${schemaHash.toString(16)} is not supported`
-    );
+    error("schema-hash-mismatch", `Package schema hash 0x${schemaHash.toString(16)} is not supported`);
   }
   if (endianness !== RUNTIME_ASSET_ENDIANNESS_MARKER) {
     error("endianness-mismatch", "Package endianness marker is invalid");
@@ -343,39 +316,30 @@ async function parseAndValidate(
     error("unsupported-header-flags", "Runtime Asset envelope header flags/reserved fields must be zero");
   }
   if (!paddingIsZero(bytes, HEADER_RESERVED_OFFSET, RUNTIME_ASSET_HEADER_SIZE)) {
-    error(
-      "nonzero-header-reserved",
-      "Runtime Asset envelope trailing header reserved bytes must be zero"
-    );
+    error("nonzero-header-reserved", "Runtime Asset envelope trailing header reserved bytes must be zero");
   }
   if (sectionCount > MAX_SECTION_COUNT) {
     error("section-count-overflow", `Package section count exceeds ${MAX_SECTION_COUNT}`);
   }
   if (directoryOffset !== RUNTIME_ASSET_HEADER_SIZE) {
-    error(
-      "directory-offset-noncanonical",
-      `Package directory offset must be ${RUNTIME_ASSET_HEADER_SIZE}`
-    );
+    error("directory-offset-noncanonical", `Package directory offset must be ${RUNTIME_ASSET_HEADER_SIZE}`);
   }
   const expectedDirectoryBytes = sectionCount * RUNTIME_ASSET_DIRECTORY_ENTRY_SIZE;
   if (directoryByteLength !== expectedDirectoryBytes) {
     error(
       "directory-length-mismatch",
-      `Directory byte length ${directoryByteLength} does not match section count`
+      `Directory byte length ${directoryByteLength} does not match section count`,
     );
   }
   const totalByteLength = safeBigIntToNumber(totalByteLengthBig);
   if (totalByteLength === null || totalByteLength !== buffer.byteLength) {
     error(
       "total-length-mismatch",
-      `Header total byte length ${totalByteLengthBig} does not match ${buffer.byteLength}`
+      `Header total byte length ${totalByteLengthBig} does not match ${buffer.byteLength}`,
     );
   }
   const directoryEnd = directoryOffset + directoryByteLength;
-  if (
-    directoryOffset > buffer.byteLength ||
-    directoryByteLength > buffer.byteLength - directoryOffset
-  ) {
+  if (directoryOffset > buffer.byteLength || directoryByteLength > buffer.byteLength - directoryOffset) {
     error("directory-out-of-range", "Package section directory is out of range");
     return parsedResult(issues, null, []);
   }
@@ -404,7 +368,7 @@ async function parseAndValidate(
       error(
         "section-order-noncanonical",
         "Section directory must be sorted by ascending type",
-        descriptor.type
+        descriptor.type,
       );
     }
     previousType = descriptor.type;
@@ -412,7 +376,11 @@ async function parseAndValidate(
       error("unsupported-section-flags", "Section contains unsupported flags", descriptor.type);
     }
     if (descriptor.compression !== RUNTIME_ASSET_COMPRESSION_NONE) {
-      error("unsupported-compression", "Section compression is unsupported in the current Runtime Asset envelope", descriptor.type);
+      error(
+        "unsupported-compression",
+        "Section compression is unsupported in the current Runtime Asset envelope",
+        descriptor.type,
+      );
     }
     if (!isValidAlignment(descriptor.alignment)) {
       error("invalid-section-alignment", "Section alignment is invalid", descriptor.type);
@@ -425,7 +393,7 @@ async function parseAndValidate(
       error(
         "section-element-range-mismatch",
         "Section byte length does not equal stride × count",
-        descriptor.type
+        descriptor.type,
       );
     }
     const paddingBegin = canonicalCursor;
@@ -434,14 +402,14 @@ async function parseAndValidate(
       error(
         "section-range-overflow",
         "Section offset or length cannot be represented safely by the runtime",
-        descriptor.type
+        descriptor.type,
       );
     }
     if (descriptor.byteOffset !== canonicalCursor) {
       error(
         "section-offset-noncanonical",
         `Section ${descriptor.type} offset ${descriptor.byteOffset} must be ${canonicalCursor}`,
-        descriptor.type
+        descriptor.type,
       );
     }
     if (descriptor.byteOffset % Math.max(4, descriptor.alignment) !== 0) {
@@ -459,32 +427,30 @@ async function parseAndValidate(
       if (!paddingIsZero(bytes, paddingBegin, canonicalCursor)) {
         error("nonzero-section-padding", "Section alignment padding must be zero", descriptor.type);
       }
-      const sectionBytes = new Uint8Array(
-        buffer,
-        descriptor.byteOffset,
-        descriptor.byteLength
-      );
+      const sectionBytes = new Uint8Array(buffer, descriptor.byteOffset, descriptor.byteLength);
       const digest = await sha256(sectionBytes);
       digests.push(digest);
       if (digestU32(digest) !== descriptor.checksum) {
         error(
           "section-checksum-mismatch",
           `Section ${descriptor.type} checksum does not match payload`,
-          descriptor.type
+          descriptor.type,
         );
       }
-      sectionViews.push(Object.freeze({
-        type: descriptor.type,
-        required: (descriptor.flags & RUNTIME_ASSET_SECTION_REQUIRED) !== 0,
-        byteOffset: descriptor.byteOffset,
-        byteLength: descriptor.byteLength,
-        elementStride: descriptor.elementStride,
-        elementCount: descriptor.elementCount,
-        alignment: descriptor.alignment,
-        compression: descriptor.compression,
-        checksum: descriptor.checksum,
-        bytes: sectionBytes
-      }));
+      sectionViews.push(
+        Object.freeze({
+          type: descriptor.type,
+          required: (descriptor.flags & RUNTIME_ASSET_SECTION_REQUIRED) !== 0,
+          byteOffset: descriptor.byteOffset,
+          byteLength: descriptor.byteLength,
+          elementStride: descriptor.elementStride,
+          elementCount: descriptor.elementCount,
+          alignment: descriptor.alignment,
+          compression: descriptor.compression,
+          checksum: descriptor.checksum,
+          bytes: sectionBytes,
+        }),
+      );
     }
     const nextCanonicalCursor = checkedSafeAdd(canonicalCursor, descriptor.byteLength);
     if (nextCanonicalCursor === null) {
@@ -500,13 +466,13 @@ async function parseAndValidate(
         error(
           "unknown-required-section",
           `Required section type ${descriptor.type} is not supported`,
-          descriptor.type
+          descriptor.type,
         );
       } else {
         warning(
           "unknown-optional-section",
           `Optional section type ${descriptor.type} is not supported and will be ignored by consumers`,
-          descriptor.type
+          descriptor.type,
         );
       }
     }
@@ -514,7 +480,7 @@ async function parseAndValidate(
   if (canonicalCursor !== buffer.byteLength) {
     error(
       "trailing-or-missing-bytes",
-      `Canonical section layout ends at ${canonicalCursor}, package ends at ${buffer.byteLength}`
+      `Canonical section layout ends at ${canonicalCursor}, package ends at ${buffer.byteLength}`,
     );
   }
 
@@ -524,7 +490,7 @@ async function parseAndValidate(
       schemaHash,
       flags,
       descriptors,
-      digests
+      digests,
     );
     if (!bytesEqual(storedContentHash, calculatedContentHash)) {
       error("content-hash-mismatch", "Package content hash does not match sections");
@@ -537,7 +503,7 @@ async function parseAndValidate(
     flags,
     sectionCount,
     totalByteLength: totalByteLength ?? buffer.byteLength,
-    contentHash: toHex(storedContentHash)
+    contentHash: toHex(storedContentHash),
   };
   return parsedResult(issues, manifest, sectionViews);
 }
@@ -545,24 +511,20 @@ async function parseAndValidate(
 function parsedResult(
   issues: RuntimeAssetValidationIssue[],
   manifest: RuntimeAssetManifest | null,
-  sections: RuntimeAssetSectionView[]
+  sections: RuntimeAssetSectionView[],
 ): ParsedPackage {
   const frozenIssues = Object.freeze(issues.map((issue) => Object.freeze(issue)));
   return {
     report: Object.freeze({
       valid: !issues.some((issue) => issue.severity === "error"),
-      issues: frozenIssues
+      issues: frozenIssues,
     }),
     manifest,
-    sections
+    sections,
   };
 }
 
-function writeDirectoryEntry(
-  view: DataView,
-  offset: number,
-  section: SectionDescriptor
-): void {
+function writeDirectoryEntry(view: DataView, offset: number, section: SectionDescriptor): void {
   view.setUint32(offset, section.type, true);
   view.setUint32(offset + 4, section.flags, true);
   view.setBigUint64(offset + 8, BigInt(section.byteOffset), true);
@@ -588,7 +550,7 @@ function readDirectoryEntry(view: DataView, offset: number): SectionDescriptor {
     alignment: view.getUint32(offset + 32, true),
     compression: view.getUint32(offset + 36, true),
     checksum: view.getUint32(offset + 40, true),
-    rangeRepresentable: byteOffset !== null && byteLength !== null
+    rangeRepresentable: byteOffset !== null && byteLength !== null,
   };
 }
 
@@ -597,7 +559,7 @@ async function calculateContentHash(
   schemaHash: number,
   flags: number,
   sections: readonly SectionDescriptor[],
-  digests: readonly Uint8Array[]
+  digests: readonly Uint8Array[],
 ): Promise<Uint8Array> {
   const bytes = new Uint8Array(16 + 72 * sections.length);
   const view = new DataView(bytes.buffer);
@@ -670,10 +632,7 @@ function assertAlignment(value: number, name: string): void {
 }
 
 function isValidAlignment(value: number): boolean {
-  return Number.isInteger(value) &&
-    value >= 4 &&
-    value <= MAX_ALIGNMENT &&
-    (value & (value - 1)) === 0;
+  return Number.isInteger(value) && value >= 4 && value <= MAX_ALIGNMENT && (value & (value - 1)) === 0;
 }
 
 function assertU32(value: number, name: string): void {

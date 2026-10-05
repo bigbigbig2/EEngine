@@ -93,98 +93,155 @@ export class SurfacePresentPass {
   private readonly bindings = new GpuBindGroupResourceCache();
   private readonly debugBindings = new GpuBindGroupResourceCache();
 
-  constructor(private readonly device: GPUDevice, format: GPUTextureFormat,
-    profile: "sdr" | "hdr" = "sdr") {
+  constructor(
+    private readonly device: GPUDevice,
+    format: GPUTextureFormat,
+    profile: "sdr" | "hdr" = "sdr",
+  ) {
     this.profile = profile;
-    this.size = device.createBuffer({ label: "Surface/present size", size: 16,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.size = device.createBuffer({
+      label: "Surface/present size",
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
     const lutSize = 32;
-    this.lutTexture = device.createTexture({ label: `Presentation/${profile} static display LUT`,
-      size: [lutSize, lutSize, lutSize], dimension: "3d",
+    this.lutTexture = device.createTexture({
+      label: `Presentation/${profile} static display LUT`,
+      size: [lutSize, lutSize, lutSize],
+      dimension: "3d",
       format: profile === "hdr" ? "rgba16float" : "rgba8unorm",
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    });
     const lut = profile === "hdr" ? buildHdrDisplayLut(lutSize) : buildSdrDisplayLut(lutSize);
-    device.queue.writeTexture({ texture: this.lutTexture }, lut,
+    device.queue.writeTexture(
+      { texture: this.lutTexture },
+      lut,
       { bytesPerRow: lutSize * (profile === "hdr" ? 8 : 4), rowsPerImage: lutSize },
-      { width: lutSize, height: lutSize, depthOrArrayLayers: lutSize });
+      { width: lutSize, height: lutSize, depthOrArrayLayers: lutSize },
+    );
     this.lutView = this.lutTexture.createView({ dimension: "3d" });
-    this.lutSampler = device.createSampler({ label: "Presentation/SDR LUT linear",
-      minFilter: "linear", magFilter: "linear", addressModeU: "clamp-to-edge",
-      addressModeV: "clamp-to-edge", addressModeW: "clamp-to-edge" });
-    this.layout = device.createBindGroupLayout({ entries: [
-      { binding: 0, visibility: GPUShaderStage.FRAGMENT,
-        texture: { sampleType: "unfilterable-float" } },
-      { binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
-      { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
-      { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "3d" } },
-      { binding: 4, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
-      { binding: 5, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } }
-    ] });
+    this.lutSampler = device.createSampler({
+      label: "Presentation/SDR LUT linear",
+      minFilter: "linear",
+      magFilter: "linear",
+      addressModeU: "clamp-to-edge",
+      addressModeV: "clamp-to-edge",
+      addressModeW: "clamp-to-edge",
+    });
+    this.layout = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float" } },
+        { binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
+        { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
+        {
+          binding: 3,
+          visibility: GPUShaderStage.FRAGMENT,
+          texture: { sampleType: "float", viewDimension: "3d" },
+        },
+        { binding: 4, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+        { binding: 5, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
+      ],
+    });
     const module = device.createShaderModule({
-      code: profile === "hdr" ? SURFACE_PRESENT_HDR_WGSL : SURFACE_PRESENT_WGSL });
+      code: profile === "hdr" ? SURFACE_PRESENT_HDR_WGSL : SURFACE_PRESENT_WGSL,
+    });
     this.pipeline = device.createRenderPipeline({
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }),
       vertex: { module, entryPoint: "vs" },
-      fragment: { module, entryPoint: profile === "hdr" ? "fs_hdr" : "fs",
-        targets: [{ format }] },
-      primitive: { topology: "triangle-list" }
+      fragment: { module, entryPoint: profile === "hdr" ? "fs_hdr" : "fs", targets: [{ format }] },
+      primitive: { topology: "triangle-list" },
     });
-    this.debugLayout = device.createBindGroupLayout({ entries: [
-      { binding: 0, visibility: GPUShaderStage.FRAGMENT,
-        texture: { sampleType: "unfilterable-float" } },
-      { binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } }
-    ] });
+    this.debugLayout = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float" } },
+        { binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
+      ],
+    });
     const debugModule = device.createShaderModule({ code: SURFACE_PRESENT_DEBUG_WGSL });
     this.debugPipeline = device.createRenderPipeline({
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.debugLayout] }),
       vertex: { module: debugModule, entryPoint: "vs" },
       fragment: { module: debugModule, entryPoint: "fs", targets: [{ format }] },
-      primitive: { topology: "triangle-list" }
+      primitive: { topology: "triangle-list" },
     });
   }
 
   /** Rebuild only when static color-grade parameters change. */
   setGrade(options: SdrGradeOptions): void {
     const size = 32;
-    this.device.queue.writeTexture({ texture: this.lutTexture },
+    this.device.queue.writeTexture(
+      { texture: this.lutTexture },
       this.profile === "hdr" ? buildHdrDisplayLut(size, options) : buildSdrDisplayLut(size, options),
       { bytesPerRow: size * (this.profile === "hdr" ? 8 : 4), rowsPerImage: size },
-      { width: size, height: size, depthOrArrayLayers: size });
+      { width: size, height: size, depthOrArrayLayers: size },
+    );
   }
 
-  addToGraph(graph: FrameGraph, input: ResourceId, swapchain: ResourceId,
-    exposure: ResourceId, preExposure: ResourceId, width: number, height: number,
-    debug = false): ResourceId {
-    const present = graph.add(debug ? "Surface/present debug color" : "Surface/present radiance", {}, (_data, resources, context) => {
-      const command = context.encoder as ShadeGPUCommandContext;
-      const size = this.size;
-      command.writeBuffer(size, 0, new Uint32Array([width, height, 0, 0]).buffer, 0, 16);
-      const entries: GPUBindGroupEntry[] = debug
-        ? [
-          { binding: 0, resource: resolveTextureView(resources.get(input)) },
-          { binding: 1, resource: { buffer: size } }
-        ]
-        : [
-          { binding: 0, resource: resolveTextureView(resources.get(input)) },
-          { binding: 1, resource: { buffer: size } },
-          { binding: 2, resource: { buffer: resources.get(exposure) as GPUBuffer } },
-          { binding: 3, resource: this.lutView },
-          { binding: 4, resource: this.lutSampler },
-          { binding: 5, resource: { buffer: resources.get(preExposure) as GPUBuffer } }
-        ];
-      const layout = debug ? this.debugLayout : this.layout;
-      const bind = (debug ? this.debugBindings : this.bindings).obtain(entries.map(entry => entry.resource),
-        () => this.device.createBindGroup({ layout, entries }));
-      const pass = command.beginRenderPass({ label: debug ? "Surface/present debug color" : "Surface/present radiance",
-        colorAttachments: [{ view: resolveTextureView(resources.get(swapchain)),
-          loadOp: "clear", storeOp: "store", clearValue: { r: 0, g: 0, b: 0, a: 1 } }] });
-      pass.setPipeline(debug ? this.debugPipeline : this.pipeline); pass.setBindGroup(0, bind); pass.draw(3); pass.end();
-    });
+  addToGraph(
+    graph: FrameGraph,
+    input: ResourceId,
+    swapchain: ResourceId,
+    exposure: ResourceId,
+    preExposure: ResourceId,
+    width: number,
+    height: number,
+    debug = false,
+  ): ResourceId {
+    const present = graph.add(
+      debug ? "Surface/present debug color" : "Surface/present radiance",
+      {},
+      (_data, resources, context) => {
+        const command = context.encoder as ShadeGPUCommandContext;
+        const size = this.size;
+        command.writeBuffer(size, 0, new Uint32Array([width, height, 0, 0]).buffer, 0, 16);
+        const entries: GPUBindGroupEntry[] = debug
+          ? [
+              { binding: 0, resource: resolveTextureView(resources.get(input)) },
+              { binding: 1, resource: { buffer: size } },
+            ]
+          : [
+              { binding: 0, resource: resolveTextureView(resources.get(input)) },
+              { binding: 1, resource: { buffer: size } },
+              { binding: 2, resource: { buffer: resources.get(exposure) as GPUBuffer } },
+              { binding: 3, resource: this.lutView },
+              { binding: 4, resource: this.lutSampler },
+              { binding: 5, resource: { buffer: resources.get(preExposure) as GPUBuffer } },
+            ];
+        const layout = debug ? this.debugLayout : this.layout;
+        const bind = (debug ? this.debugBindings : this.bindings).obtain(
+          entries.map((entry) => entry.resource),
+          () => this.device.createBindGroup({ layout, entries }),
+        );
+        const pass = command.beginRenderPass({
+          label: debug ? "Surface/present debug color" : "Surface/present radiance",
+          colorAttachments: [
+            {
+              view: resolveTextureView(resources.get(swapchain)),
+              loadOp: "clear",
+              storeOp: "store",
+              clearValue: { r: 0, g: 0, b: 0, a: 1 },
+            },
+          ],
+        });
+        pass.setPipeline(debug ? this.debugPipeline : this.pipeline);
+        pass.setBindGroup(0, bind);
+        pass.draw(3);
+        pass.end();
+      },
+    );
     present.read(input);
-    if (!debug) { present.read(exposure); present.read(preExposure); }
+    if (!debug) {
+      present.read(exposure);
+      present.read(preExposure);
+    }
     present.write(swapchain);
     return swapchain;
   }
 
-  destroy(): void { this.lutTexture.destroy(); this.size.destroy(); this.bindings.clear(); this.debugBindings.clear(); }
+  destroy(): void {
+    this.lutTexture.destroy();
+    this.size.destroy();
+    this.bindings.clear();
+    this.debugBindings.clear();
+  }
 }

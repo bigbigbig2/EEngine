@@ -10,11 +10,7 @@ import { TextureFilterType } from "../texture/TextureFilterType.js";
 
 export const HILBERT_NOISE_SIZE = 64;
 
-export function hilbertIndex(
-  xValue: number,
-  yValue: number,
-  size: number
-): number {
+export function hilbertIndex(xValue: number, yValue: number, size: number): number {
   let index = 0;
   let x = xValue;
   let y = yValue;
@@ -39,17 +35,11 @@ function createHilbertNoiseTexture(): ShadeTexture {
   const data = new Uint16Array(HILBERT_NOISE_SIZE * HILBERT_NOISE_SIZE);
   for (let y = 0; y < HILBERT_NOISE_SIZE; y++) {
     for (let x = 0; x < HILBERT_NOISE_SIZE; x++) {
-      data[y * HILBERT_NOISE_SIZE + x] = hilbertIndex(
-        x,
-        y,
-        HILBERT_NOISE_SIZE
-      );
+      data[y * HILBERT_NOISE_SIZE + x] = hilbertIndex(x, y, HILBERT_NOISE_SIZE);
     }
   }
 
-  const image = ShadeImage.fromSampler2D(
-    new Sampler2D(data, 1, HILBERT_NOISE_SIZE, HILBERT_NOISE_SIZE)
-  );
+  const image = ShadeImage.fromSampler2D(new Sampler2D(data, 1, HILBERT_NOISE_SIZE, HILBERT_NOISE_SIZE));
   image.color_space = 0;
   image.normalized = false;
 

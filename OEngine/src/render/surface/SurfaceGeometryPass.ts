@@ -3,23 +3,37 @@ import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import { surfaceCellWorkspaceWgsl } from "../../gpu/GpuSurfaceCellPlanAbi.js";
 import { surfaceDemandArenaWgsl } from "../../gpu/GpuSurfaceDemandAbi.js";
-import { SURFACE_GEOMETRY_RECORD_BYTES, SURFACE_GEOMETRY_RECORD_WGSL } from "../../gpu/GpuSurfaceGeometryRecordAbi.js";
+import {
+  SURFACE_GEOMETRY_RECORD_BYTES,
+  SURFACE_GEOMETRY_RECORD_WGSL,
+} from "../../gpu/GpuSurfaceGeometryRecordAbi.js";
 import { PACKED_CAMERA_TYPE } from "../../shaders/packed_camera.js";
 import { WINNER_INTERPOLATION_WGSL } from "../../shaders/winner_interpolation.js";
-import { SURFACE_CELL_GEOMETRY_WGSL, surfaceCellGeometryArenaWgsl } from "../../gpu/GpuSurfaceCellGeometryAbi.js";
+import {
+  SURFACE_CELL_GEOMETRY_WGSL,
+  surfaceCellGeometryArenaWgsl,
+} from "../../gpu/GpuSurfaceCellGeometryAbi.js";
 import { SurfaceFrameResources, type SurfaceResourceBinding } from "./SurfaceFrameResources.js";
-import { SurfaceCellGeometrySetup, type SurfaceCellGeometrySetupInput, type SurfaceCellGeometrySetupProducts } from "./SurfaceCellGeometrySetup.js";
+import {
+  SurfaceCellGeometrySetup,
+  type SurfaceCellGeometrySetupInput,
+  type SurfaceCellGeometrySetupProducts,
+} from "./SurfaceCellGeometrySetup.js";
 import type { SurfaceDemandProducts } from "./SurfaceDemandPass.js";
 import { SURFACE_CELL_ADDRESS_WORDS } from "../../gpu/GpuSurfaceReferenceAbi.js";
-export function surfaceGeometryRecordWgsl(targets: number, programs: number, referenceCapacity = targets): string {
-    return /* wgsl */ `
+export function surfaceGeometryRecordWgsl(
+  targets: number,
+  programs: number,
+  referenceCapacity = targets,
+): string {
+  return /* wgsl */ `
 ${surfaceCellWorkspaceWgsl(targets / 64)}
 ${surfaceDemandArenaWgsl(targets, programs)}
 ${SURFACE_GEOMETRY_RECORD_WGSL}
 ${PACKED_CAMERA_TYPE.wgsl_declaration}
 ${WINNER_INTERPOLATION_WGSL}
 ${SURFACE_CELL_GEOMETRY_WGSL}
-${surfaceCellGeometryArenaWgsl(referenceCapacity,false)}
+${surfaceCellGeometryArenaWgsl(referenceCapacity, false)}
 @group(0) @binding(0) var<storage, read_write> workspace: SurfaceCellWorkspace;
 @group(0) @binding(1) var<storage, read_write> demand: SurfaceDemandArena;
 @group(0) @binding(2) var<uniform> camera: CommandEncoder;
@@ -53,7 +67,7 @@ fn produce_geometry(@builtin(global_invocation_id) id: vec3u) {
     if (mask&(1u<<kind))!=0u { physical_mask|=1u<<SURFACE_GEOMETRY_PHYSICAL[kind-1u]; }
   }
   let cold_words=countOneBits(physical_mask)*12u;
-  let cold=${targets*32}u+atomicAdd(&demand.control[46u],cold_words);
+  let cold=${targets * 32}u+atomicAdd(&demand.control[46u],cold_words);
   record.cold=vec4u(cold,physical_mask,mask,0u);
   let geometric = geometry_normal(setup.world_plane.xyz, vec3f(0.0,0.0,1.0));
   record.geometric = vec4f(geometric, 1.0);
@@ -126,63 +140,96 @@ fn produce_geometry(@builtin(global_invocation_id) id: vec3u) {
 }
 /** Geometry owns both address setup and the sole miss value producer. */
 export class SurfaceGeometryPass {
-    private readonly setup: SurfaceCellGeometrySetup;
-    private readonly pipelines = new Map<string, GPUComputePipeline>();
-    constructor(private readonly device: GPUDevice, private readonly scratch: SurfaceFrameResources) {
-        this.setup = new SurfaceCellGeometrySetup(device, scratch);
+  private readonly setup: SurfaceCellGeometrySetup;
+  private readonly pipelines = new Map<string, GPUComputePipeline>();
+  constructor(
+    private readonly device: GPUDevice,
+    private readonly scratch: SurfaceFrameResources,
+  ) {
+    this.setup = new SurfaceCellGeometrySetup(device, scratch);
+  }
+  addCellSetupsToGraph(
+    graph: FrameGraph,
+    input: SurfaceCellGeometrySetupInput,
+  ): SurfaceCellGeometrySetupProducts {
+    return this.setup.addToGraph(graph, input);
+  }
+  addToGraph(
+    graph: FrameGraph,
+    input: {
+      demand: SurfaceDemandProducts;
+      camera: ResourceId;
+      bind: SurfaceResourceBinding;
+      setup: SurfaceCellGeometrySetupProducts;
+      width: number;
+      height: number;
+    },
+  ): {
+    records: ResourceId;
+  } {
+    const { targets, programs } = input.demand.layout;
+    const key = `${targets}:${programs}:${input.setup.referenceCapacity}`;
+    let pipeline = this.pipelines.get(key);
+    if (pipeline === undefined) {
+      pipeline = this.device.createComputePipeline({
+        label: "Surface/unique GeometryRecord",
+        layout: "auto",
+        compute: {
+          module: this.device.createShaderModule({
+            code: surfaceGeometryRecordWgsl(targets, programs, input.setup.referenceCapacity),
+          }),
+          entryPoint: "produce_geometry",
+        },
+      });
+      this.pipelines.set(key, pipeline);
     }
-    addCellSetupsToGraph(graph: FrameGraph, input: SurfaceCellGeometrySetupInput): SurfaceCellGeometrySetupProducts {
-        return this.setup.addToGraph(graph, input);
-    }
-    addToGraph(graph: FrameGraph, input: {
-        demand: SurfaceDemandProducts;
-        camera: ResourceId;
-        bind: SurfaceResourceBinding;
-        setup: SurfaceCellGeometrySetupProducts;
-        width: number;
-        height: number;
-    }): {
-        records: ResourceId;
-    } {
-        const { targets, programs } = input.demand.layout;
-        const key = `${targets}:${programs}:${input.setup.referenceCapacity}`;
-        let pipeline = this.pipelines.get(key);
-        if (pipeline === undefined) {
-            pipeline = this.device.createComputePipeline({
-                label: "Surface/unique GeometryRecord", layout: "auto",
-                compute: { module: this.device.createShaderModule({ code: surfaceGeometryRecordWgsl(targets, programs,input.setup.referenceCapacity) }), entryPoint: "produce_geometry" }
-            });
-            this.pipelines.set(key, pipeline);
-        }
-        let records = this.scratch.importBuffer(graph, input.bind, "Surface/unique GeometryRecord", targets * SURFACE_GEOMETRY_RECORD_BYTES, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
-        const viewportId = this.scratch.importBuffer(graph, input.bind, "Surface/Geometry viewport", 16,
-            GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
-        const node = graph.add("Surface/unique GeometryRecord", { records, demand: input.demand }, (data, resources, context) => {
-            const command = context.encoder as ShadeGPUCommandContext;
-            const viewport=resources.get(viewportId) as GPUBuffer;
-            command.writeBuffer(viewport,0,new Uint32Array([input.width,input.height,0,0]).buffer,0,16);
-            const group = this.scratch.obtainBindGroup(pipeline!, 0, [
-                    { binding: 0, resource: { buffer: resources.get(data.demand.workspace) as GPUBuffer } },
-                    { binding: 1, resource: { buffer: resources.get(data.demand.arena) as GPUBuffer } },
-                    { binding: 2, resource: { buffer: resources.get(input.camera) as GPUBuffer } },
-                    { binding: 3, resource: { buffer: resources.get(data.records) as GPUBuffer } },
-                    { binding: 4, resource: { buffer: resources.get(input.setup.arena) as GPUBuffer } },
-                    { binding: 5, resource: { buffer: viewport } }
-                ]);
-            const pass = command.beginComputePass({ label: "Surface/unique GeometryRecord" });
-            pass.setPipeline(pipeline!);
-            pass.setBindGroup(0, group);
-            pass.dispatchWorkgroupsIndirect(resources.get(data.demand.indirect) as GPUBuffer, 32);
-            pass.end();
-        });
-        node.read(input.demand.workspace);
-        node.read(input.demand.arena);
-        node.read(input.demand.indirect);
-        node.read(input.camera);
-        node.read(input.setup.arena);
-        node.write(viewportId);
-        records = node.write(records);
-        return { records };
-    }
-    destroy(): void { this.setup.destroy(); this.pipelines.clear(); }
+    let records = this.scratch.importBuffer(
+      graph,
+      input.bind,
+      "Surface/unique GeometryRecord",
+      targets * SURFACE_GEOMETRY_RECORD_BYTES,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    );
+    const viewportId = this.scratch.importBuffer(
+      graph,
+      input.bind,
+      "Surface/Geometry viewport",
+      16,
+      GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    );
+    const node = graph.add(
+      "Surface/unique GeometryRecord",
+      { records, demand: input.demand },
+      (data, resources, context) => {
+        const command = context.encoder as ShadeGPUCommandContext;
+        const viewport = resources.get(viewportId) as GPUBuffer;
+        command.writeBuffer(viewport, 0, new Uint32Array([input.width, input.height, 0, 0]).buffer, 0, 16);
+        const group = this.scratch.obtainBindGroup(pipeline!, 0, [
+          { binding: 0, resource: { buffer: resources.get(data.demand.workspace) as GPUBuffer } },
+          { binding: 1, resource: { buffer: resources.get(data.demand.arena) as GPUBuffer } },
+          { binding: 2, resource: { buffer: resources.get(input.camera) as GPUBuffer } },
+          { binding: 3, resource: { buffer: resources.get(data.records) as GPUBuffer } },
+          { binding: 4, resource: { buffer: resources.get(input.setup.arena) as GPUBuffer } },
+          { binding: 5, resource: { buffer: viewport } },
+        ]);
+        const pass = command.beginComputePass({ label: "Surface/unique GeometryRecord" });
+        pass.setPipeline(pipeline!);
+        pass.setBindGroup(0, group);
+        pass.dispatchWorkgroupsIndirect(resources.get(data.demand.indirect) as GPUBuffer, 32);
+        pass.end();
+      },
+    );
+    node.read(input.demand.workspace);
+    node.read(input.demand.arena);
+    node.read(input.demand.indirect);
+    node.read(input.camera);
+    node.read(input.setup.arena);
+    node.write(viewportId);
+    records = node.write(records);
+    return { records };
+  }
+  destroy(): void {
+    this.setup.destroy();
+    this.pipelines.clear();
+  }
 }

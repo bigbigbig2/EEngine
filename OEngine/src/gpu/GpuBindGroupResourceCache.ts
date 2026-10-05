@@ -24,10 +24,7 @@ export class GpuBindGroupResourceCache {
   private lastResources: readonly GPUBindingResource[] = [];
   private lastValue: GPUBindGroup | undefined;
 
-  obtain(
-    resources: readonly GPUBindingResource[],
-    create: () => GPUBindGroup
-  ): GPUBindGroup {
+  obtain(resources: readonly GPUBindingResource[], create: () => GPUBindGroup): GPUBindGroup {
     if (resources.length === 0) {
       throw new RangeError("Bind-group resource cache requires at least one resource");
     }
@@ -53,8 +50,11 @@ export class GpuBindGroupResourceCache {
       node.value = value;
       this.creationCount++;
     }
-    this.lastResources = resources.map(resource => isGpuBufferBinding(resource)
-      ? { buffer: resource.buffer, offset: resource.offset ?? 0, size: resource.size } : resource);
+    this.lastResources = resources.map((resource) =>
+      isGpuBufferBinding(resource)
+        ? { buffer: resource.buffer, offset: resource.offset ?? 0, size: resource.size }
+        : resource,
+    );
     this.lastValue = value;
     return value;
   }
@@ -62,7 +62,7 @@ export class GpuBindGroupResourceCache {
   evidence(): Readonly<GpuBindGroupResourceCacheEvidence> {
     return Object.freeze({
       requestCount: this.requestCount,
-      creationCount: this.creationCount
+      creationCount: this.creationCount,
     });
   }
 
@@ -73,13 +73,25 @@ export class GpuBindGroupResourceCache {
   }
 }
 
-function equalResourceTuples(first: readonly GPUBindingResource[], second: readonly GPUBindingResource[]): boolean {
-  if (first.length !== second.length) { return false; }
+function equalResourceTuples(
+  first: readonly GPUBindingResource[],
+  second: readonly GPUBindingResource[],
+): boolean {
+  if (first.length !== second.length) {
+    return false;
+  }
   for (let index = 0; index < first.length; index++) {
-    const a = first[index]!, b = second[index]!;
+    const a = first[index]!,
+      b = second[index]!;
     if (isGpuBufferBinding(a)) {
-      if (!isGpuBufferBinding(b) || a.buffer !== b.buffer || (a.offset ?? 0) !== (b.offset ?? 0) ||
-          (a.size ?? -1) !== (b.size ?? -1)) { return false; }
+      if (
+        !isGpuBufferBinding(b) ||
+        a.buffer !== b.buffer ||
+        (a.offset ?? 0) !== (b.offset ?? 0) ||
+        (a.size ?? -1) !== (b.size ?? -1)
+      ) {
+        return false;
+      }
     } else if (a !== b) {
       return false;
     }
@@ -88,13 +100,18 @@ function equalResourceTuples(first: readonly GPUBindingResource[], second: reado
 }
 
 function isGpuBufferBinding(resource: GPUBindingResource): resource is GPUBufferBinding {
-  return typeof resource === "object" && resource !== null &&
-    "buffer" in resource && typeof resource.buffer === "object" && resource.buffer !== null;
+  return (
+    typeof resource === "object" &&
+    resource !== null &&
+    "buffer" in resource &&
+    typeof resource.buffer === "object" &&
+    resource.buffer !== null
+  );
 }
 
 function childNode<TValue extends object>(
   node: TupleNode<TValue>,
-  key: object | PrimitiveKey
+  key: object | PrimitiveKey,
 ): TupleNode<TValue> {
   if (typeof key === "object" && key !== null) {
     let child = node.objects.get(key);
@@ -116,6 +133,6 @@ function createNode<TValue extends object>(): TupleNode<TValue> {
   return {
     objects: new WeakMap<object, TupleNode<TValue>>(),
     primitives: new Map<PrimitiveKey, TupleNode<TValue>>(),
-    value: undefined
+    value: undefined,
   };
 }

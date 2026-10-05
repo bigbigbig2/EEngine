@@ -4,10 +4,7 @@
 
 import { ChangeSignal } from "./Signal.js";
 import { HashMap } from "./HashMap.js";
-import {
-  equalsViaMethod,
-  hashViaMethod
-} from "./memoryUtils.js";
+import { equalsViaMethod, hashViaMethod } from "./memoryUtils.js";
 import type { KeyEqualityFunction, KeyHashFunction } from "./HashMap.js";
 
 export function weightOne(_e?: unknown): number {
@@ -66,7 +63,7 @@ export class WeightedCache<K = unknown, V = unknown> {
     valueWeigher: n = weightOne as (value: V) => number,
     keyHashFunction: r = hashViaMethod as KeyHashFunction<K>,
     keyEqualityFunction: s = equalsViaMethod as KeyEqualityFunction<K>,
-    capacity: a
+    capacity: a,
   }: WeightedCacheOptions<K, V> = {}) {
     this.#maxWeight = e;
     this.keyWeigher = t;
@@ -74,7 +71,7 @@ export class WeightedCache<K = unknown, V = unknown> {
     this.data = new HashMap<K, CacheElement<K, V>>({
       keyHashFunction: r,
       keyEqualityFunction: s,
-      capacity: a
+      capacity: a,
     });
   }
 
@@ -257,10 +254,7 @@ export class WeightedCache<K = unknown, V = unknown> {
     this.#totalWeight = 0;
   }
 
-  validate(
-    e: (msg: string, key: K | null, value: V | null) => void,
-    t?: unknown
-  ): boolean {
+  validate(e: (msg: string, key: K | null, value: V | null) => void, t?: unknown): boolean {
     return this.data.verifyHashes((n, r, s) => {
       e.call(t, n, r, (s as CacheElement<K, V>).value);
     });

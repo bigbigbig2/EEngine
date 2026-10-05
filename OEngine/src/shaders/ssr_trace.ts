@@ -3,15 +3,8 @@
  * OEngine's reverse-Z hierarchical HZB trace and packed evidence ABI.
  */
 
-import {
-  SSR_CAMERA_WGSL,
-  SSR_FULLSCREEN_VERTEX_WGSL,
-  SSR_MATH_WGSL
-} from "./ssr_common.js";
-import {
-  SSR_STOCHASTIC_SAMPLE_WGSL,
-  SSR_TRACE_SETTINGS_WGSL
-} from "./ssr_stochastic_sample.js";
+import { SSR_CAMERA_WGSL, SSR_FULLSCREEN_VERTEX_WGSL, SSR_MATH_WGSL } from "./ssr_common.js";
+import { SSR_STOCHASTIC_SAMPLE_WGSL, SSR_TRACE_SETTINGS_WGSL } from "./ssr_stochastic_sample.js";
 
 export const SSR_TRACE_FORMAT = "rg32uint" as const;
 

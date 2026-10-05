@@ -6,11 +6,7 @@ import type { ShadeTexture } from "../texture/ShadeTexture.js";
 import { ShadeTextureFlags } from "../texture/ShadeTextureFlags.js";
 import { GPUTextureContext } from "./GPUTextureContext.js";
 import { id, nativeTextureDescriptor } from "./GPUTextureDescriptors.js";
-import {
-  requireShadeImage,
-  shadeTextureDescriptor,
-  uploadShadeImage
-} from "./GPUTextureUpload.js";
+import { requireShadeImage, shadeTextureDescriptor, uploadShadeImage } from "./GPUTextureUpload.js";
 import { MipmapGenerator } from "./MipmapGenerator.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
@@ -46,11 +42,7 @@ export class GPUTextureManager {
     const context = this.contextFromDescriptor(descriptor);
     uploadShadeImage(image, context.gpu_texture, this.device.queue);
     if ((texture.flags & ShadeTextureFlags.GenerateMipMaps) !== 0) {
-      this.mipmaps.schedule(
-        context.gpu_texture,
-        descriptor,
-        texture.mipmapGenerationFilter
-      );
+      this.mipmaps.schedule(context.gpu_texture, descriptor, texture.mipmapGenerationFilter);
     }
     this.shared.set(key, context);
     return context;
@@ -77,10 +69,7 @@ export class GPUTextureManager {
   }
 }
 
-function sharedTextureKey(
-  sourceId: number,
-  descriptor: GPUTextureDescriptor
-): string {
+function sharedTextureKey(sourceId: number, descriptor: GPUTextureDescriptor): string {
   const size = Array.from(descriptor.size as Iterable<number>);
   return JSON.stringify({
     sourceId,
@@ -91,6 +80,6 @@ function sharedTextureKey(
     mipLevelCount: descriptor.mipLevelCount ?? 1,
     sampleCount: descriptor.sampleCount ?? 1,
     dimension: descriptor.dimension ?? "2d",
-    viewFormats: descriptor.viewFormats ?? []
+    viewFormats: descriptor.viewFormats ?? [],
   });
 }

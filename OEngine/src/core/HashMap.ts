@@ -9,7 +9,7 @@ import {
   equalsViaMethod,
   hashMapSlot,
   hashViaMethod,
-  nextPowerOfTwo
+  nextPowerOfTwo,
 } from "./memoryUtils.js";
 
 const HASH_TOMBSTONE = 4294967295;
@@ -63,7 +63,7 @@ export class HashMap<K = unknown, V = unknown> {
     keyHashFunction = hashViaMethod as KeyHashFunction<K>,
     keyEqualityFunction = equalsViaMethod as KeyEqualityFunction<K>,
     capacity: n = 16,
-    loadFactor: r = 0.75
+    loadFactor: r = 0.75,
   }: HashMapOptions<K> = {}) {
     this.keyHashFunction = keyHashFunction;
     this.keyEqualityFunction = keyEqualityFunction;
@@ -82,7 +82,7 @@ export class HashMap<K = unknown, V = unknown> {
   #resizeEntries(e: number): void {
     if (e < this.__size) {
       throw new Error(
-        `count must be at least equal to must of records in the map (=${this.__size}), instead was ${e}`
+        `count must be at least equal to must of records in the map (=${this.__size}), instead was ${e}`,
       );
     }
     this.__entries_count_power_of_two = countTrailingZeros32(e);
@@ -93,9 +93,7 @@ export class HashMap<K = unknown, V = unknown> {
     this.__entries_allocated_count = 2 ** this.__entries_count_power_of_two;
     const Ctor = pickBinArrayCtor(this.__entries_allocated_count + 2);
     this.__bins = new Ctor(this.__bin_count);
-    const r = new Array<HashMapEntry<K, V> | undefined>(
-      this.__entries_allocated_count
-    );
+    const r = new Array<HashMapEntry<K, V> | undefined>(this.__entries_allocated_count);
     const s = this.__entries;
     this.__entries = r;
     copyArrayRange(
@@ -103,7 +101,7 @@ export class HashMap<K = unknown, V = unknown> {
       0,
       r as unknown as { [i: number]: number },
       0,
-      fmin(t, this.__entries_allocated_count)
+      fmin(t, this.__entries_allocated_count),
     );
     if (this.__size > 0) this.rebuild();
   }
@@ -118,10 +116,7 @@ export class HashMap<K = unknown, V = unknown> {
   }
 
   #entryMatches(e: HashMapEntry<K, V>, t: number, n: K): boolean {
-    return (
-      e.hash === t &&
-      (e.key === n || this.keyEqualityFunction(e.key as K, n))
-    );
+    return e.hash === t && (e.key === n || this.keyEqualityFunction(e.key as K, n));
   }
 
   #allocEntry(e: K, t: V, n: number): number {
@@ -237,10 +232,7 @@ export class HashMap<K = unknown, V = unknown> {
     }
   }
 
-  verifyHashes(
-    e: (msg: string, key: K | null, value: V | null) => void,
-    t?: unknown
-  ): boolean {
+  verifyHashes(e: (msg: string, key: K | null, value: V | null) => void, t?: unknown): boolean {
     let n = true;
     const r = this.__bin_count;
     for (let s = 0; s < r; s++) {
@@ -253,7 +245,7 @@ export class HashMap<K = unknown, V = unknown> {
           t,
           `Hash stored on the entry(=${a.hash}) is different from the computed key hash(=${i}).`,
           a.key,
-          a.value
+          a.value,
         );
         n = false;
       }
@@ -295,10 +287,7 @@ export class HashMap<K = unknown, V = unknown> {
     this.__version++;
   }
 
-  forEach(
-    e: (value: V, key: K, map: HashMap<K, V>) => void,
-    t?: unknown
-  ): void {
+  forEach(e: (value: V, key: K, map: HashMap<K, V>) => void, t?: unknown): void {
     const n = this.__bin_count;
     const r = this.__entries;
     const s = this.__bins;
@@ -355,7 +344,7 @@ export class HashMap<K = unknown, V = unknown> {
 }
 
 function pickBinArrayCtor(
-  e: number
+  e: number,
 ): Uint8ArrayConstructor | Uint16ArrayConstructor | Uint32ArrayConstructor {
   if (e <= 256) return Uint8Array;
   if (e <= 65536) return Uint16Array;

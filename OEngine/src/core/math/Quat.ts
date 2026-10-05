@@ -55,10 +55,7 @@ export class Quat extends Float64VectorBase {
     if (old === value) return;
     this[0] = value;
     if (this.onChanged.hasHandlers()) {
-      this.onChanged.send8(
-        value, this[1]!, this[2]!, this[3]!,
-        old, this[1]!, this[2]!, this[3]!
-      );
+      this.onChanged.send8(value, this[1]!, this[2]!, this[3]!, old, this[1]!, this[2]!, this[3]!);
     }
   }
 
@@ -71,10 +68,7 @@ export class Quat extends Float64VectorBase {
     if (old === value) return;
     this[1] = value;
     if (this.onChanged.hasHandlers()) {
-      this.onChanged.send8(
-        this[0]!, value, this[2]!, this[3]!,
-        this[0]!, old, this[2]!, this[3]!
-      );
+      this.onChanged.send8(this[0]!, value, this[2]!, this[3]!, this[0]!, old, this[2]!, this[3]!);
     }
   }
 
@@ -87,10 +81,7 @@ export class Quat extends Float64VectorBase {
     if (old === value) return;
     this[2] = value;
     if (this.onChanged.hasHandlers()) {
-      this.onChanged.send8(
-        this[0]!, this[1]!, value, this[3]!,
-        this[0]!, this[1]!, old, this[3]!
-      );
+      this.onChanged.send8(this[0]!, this[1]!, value, this[3]!, this[0]!, this[1]!, old, this[3]!);
     }
   }
 
@@ -103,10 +94,7 @@ export class Quat extends Float64VectorBase {
     if (old === value) return;
     this[3] = value;
     if (this.onChanged.hasHandlers()) {
-      this.onChanged.send8(
-        this[0]!, this[1]!, this[2]!, value,
-        this[0]!, this[1]!, this[2]!, old
-      );
+      this.onChanged.send8(this[0]!, this[1]!, this[2]!, value, this[0]!, this[1]!, this[2]!, old);
     }
   }
 
@@ -142,12 +130,7 @@ export class Quat extends Float64VectorBase {
   }
 
   equals(other: { x: number; y: number; z: number; w: number }): boolean {
-    return (
-      this.x === other.x &&
-      this.y === other.y &&
-      this.z === other.z &&
-      this.w === other.w
-    );
+    return this.x === other.x && this.y === other.y && this.z === other.z && this.w === other.w;
   }
 
   identity(): this {
@@ -192,11 +175,7 @@ export class Quat extends Float64VectorBase {
   }
 
   angleTo(e: { x: number; y: number; z: number; w: number }): number {
-    const t = clamp(
-      this.x * e.x + this.y * e.y + this.z * e.z + this.w * e.w,
-      -1,
-      1
-    );
+    const t = clamp(this.x * e.x + this.y * e.y + this.z * e.z + this.w * e.w, -1, 1);
     return 2 * Math.acos(Math.abs(t));
   }
 
@@ -221,11 +200,7 @@ export class Quat extends Float64VectorBase {
     return n;
   }
 
-  computeSwingAndTwist(
-    e: { x: number; y: number; z: number },
-    t: Quat,
-    n: Quat
-  ): void {
+  computeSwingAndTwist(e: { x: number; y: number; z: number }, t: Quat, n: Quat): void {
     const r = this.x;
     const s = this.y;
     const a = this.z;
@@ -257,10 +232,7 @@ export class Quat extends Float64VectorBase {
     return t;
   }
 
-  rotateTowards(
-    e: { x: number; y: number; z: number; w: number },
-    t: number
-  ): this {
+  rotateTowards(e: { x: number; y: number; z: number; w: number }, t: number): this {
     Quat.rotateTowards(this, this, e, t);
     return this;
   }
@@ -269,7 +241,7 @@ export class Quat extends Float64VectorBase {
     e: Quat,
     t: { x: number; y: number; z: number; w: number },
     n: { x: number; y: number; z: number; w: number },
-    r: number
+    r: number,
   ): void {
     const s = new Quat(t.x, t.y, t.z, t.w).angleTo(n);
     if (s === 0) e.copy(n);
@@ -279,10 +251,7 @@ export class Quat extends Float64VectorBase {
     }
   }
 
-  process(
-    e: (x: number, y: number, z: number, w: number) => void,
-    t?: unknown
-  ): this {
+  process(e: (x: number, y: number, z: number, w: number) => void, t?: unknown): this {
     e.call(t, this.x, this.y, this.z, this.w);
     this.onChanged.add(e as (...args: unknown[]) => void, t);
     return this;
@@ -319,7 +288,7 @@ export class Quat extends Float64VectorBase {
 
   multiplyQuaternions(
     e: { x: number; y: number; z: number; w: number },
-    t: { x: number; y: number; z: number; w: number }
+    t: { x: number; y: number; z: number; w: number },
   ): this {
     return this._multiplyQuaternions(e.x, e.y, e.z, e.w, t.x, t.y, t.z, t.w);
   }
@@ -332,13 +301,13 @@ export class Quat extends Float64VectorBase {
     s: number,
     a: number,
     i: number,
-    o: number
+    o: number,
   ): this {
     return this.set(
       e * o + r * s + t * i - n * a,
       t * o + r * a + n * s - e * i,
       n * o + r * i + e * a - t * s,
-      r * o - e * s - t * a - n * i
+      r * o - e * s - t * a - n * i,
     );
   }
 
@@ -350,9 +319,7 @@ export class Quat extends Float64VectorBase {
     else if (r === "YZX") this.fromEulerAnglesYZX(e, t, n);
     else {
       if (r !== "XZY") {
-        throw new Error(
-          `Invalid order '${r}', bust be 3 capital letters consisting of X,Y and Z`
-        );
+        throw new Error(`Invalid order '${r}', bust be 3 capital letters consisting of X,Y and Z`);
       }
       this.fromEulerAnglesXZY(e, t, n);
     }
@@ -424,7 +391,7 @@ export class Quat extends Float64VectorBase {
       i * d * u + c * o * _,
       c * o * u - i * d * _,
       c * d * _ + i * o * u,
-      c * d * u - i * o * _
+      c * d * u - i * o * _,
     );
   }
 
@@ -442,7 +409,7 @@ export class Quat extends Float64VectorBase {
       i * d * u + c * o * _,
       c * o * u - i * d * _,
       c * d * _ - i * o * u,
-      c * d * u + i * o * _
+      c * d * u + i * o * _,
     );
   }
 
@@ -460,7 +427,7 @@ export class Quat extends Float64VectorBase {
       i * d * u - c * o * _,
       c * o * u + i * d * _,
       c * d * _ + i * o * u,
-      c * d * u - i * o * _
+      c * d * u - i * o * _,
     );
   }
 
@@ -478,7 +445,7 @@ export class Quat extends Float64VectorBase {
       i * d * u - c * o * _,
       c * o * u + i * d * _,
       c * d * _ - i * o * u,
-      c * d * u + i * o * _
+      c * d * u + i * o * _,
     );
   }
 
@@ -496,7 +463,7 @@ export class Quat extends Float64VectorBase {
       i * d * u + c * o * _,
       c * o * u + i * d * _,
       c * d * _ - i * o * u,
-      c * d * u - i * o * _
+      c * d * u - i * o * _,
     );
   }
 
@@ -514,7 +481,7 @@ export class Quat extends Float64VectorBase {
       i * d * u - c * o * _,
       c * o * u - i * d * _,
       c * d * _ + i * o * u,
-      c * d * u + i * o * _
+      c * d * u + i * o * _,
     );
   }
 
@@ -535,21 +502,14 @@ export class Quat extends Float64VectorBase {
   lookAt(
     e: { x: number; y: number; z: number },
     t: { x: number; y: number; z: number },
-    n: { x: number; y: number; z: number } = Vec3.up
+    n: { x: number; y: number; z: number } = Vec3.up,
   ): this {
     _T.subVectors(t, e);
     _T.normalize();
     return this.lookRotation(_T, n);
   }
 
-  _lookRotation(
-    e: number,
-    t: number,
-    n: number,
-    r: number,
-    s: number,
-    a: number
-  ): this {
+  _lookRotation(e: number, t: number, n: number, r: number, s: number, a: number): this {
     _T.set(e, t, n);
     _T.normalize();
     _U.set(s * _T.z - a * _T.y, a * _T.x - r * _T.z, r * _T.y - s * _T.x);
@@ -561,30 +521,17 @@ export class Quat extends Float64VectorBase {
     }
     _U.normalize();
     _L.crossVectors(_T, _U);
-    return this.__setFromRotationMatrix(
-      _U.x,
-      _L.x,
-      _T.x,
-      _U.y,
-      _L.y,
-      _T.y,
-      _U.z,
-      _L.z,
-      _T.z
-    );
+    return this.__setFromRotationMatrix(_U.x, _L.x, _T.x, _U.y, _L.y, _T.y, _U.z, _L.z, _T.z);
   }
 
   lookRotation(
     forward: { x: number; y: number; z: number },
-    up: { x: number; y: number; z: number } = Vec3.up
+    up: { x: number; y: number; z: number } = Vec3.up,
   ): this {
     return this._lookRotation(forward.x, forward.y, forward.z, up.x, up.y, up.z);
   }
 
-  fromUnitVectors(
-    e: { x: number; y: number; z: number },
-    t: { x: number; y: number; z: number }
-  ): this {
+  fromUnitVectors(e: { x: number; y: number; z: number }, t: { x: number; y: number; z: number }): this {
     const n = e.x;
     const r = e.y;
     const s = e.z;
@@ -600,26 +547,11 @@ export class Quat extends Float64VectorBase {
     }
     const c = Math.sqrt(2 + 2 * _);
     const d = 1 / c;
-    return this.set(
-      d * (r * o - s * i),
-      d * (s * a - n * o),
-      d * (n * i - r * a),
-      0.5 * c
-    );
+    return this.set(d * (r * o - s * i), d * (s * a - n * o), d * (n * i - r * a), 0.5 * c);
   }
 
   setFromRotationMatrix(e: ArrayLike<number>): this {
-    return this.__setFromRotationMatrix(
-      e[0]!,
-      e[4]!,
-      e[8]!,
-      e[1]!,
-      e[5]!,
-      e[9]!,
-      e[2]!,
-      e[6]!,
-      e[10]!
-    );
+    return this.__setFromRotationMatrix(e[0]!, e[4]!, e[8]!, e[1]!, e[5]!, e[9]!, e[2]!, e[6]!, e[10]!);
   }
 
   __setFromRotationMatrix(
@@ -631,7 +563,7 @@ export class Quat extends Float64VectorBase {
     a: number,
     i: number,
     o: number,
-    _: number
+    _: number,
   ): this {
     const c = e + s + _;
     let d: number;
@@ -678,14 +610,9 @@ export class Quat extends Float64VectorBase {
   lerpQuaternions(
     e: { x: number; y: number; z: number; w: number },
     t: { x: number; y: number; z: number; w: number },
-    n: number
+    n: number,
   ): this {
-    return this.set(
-      lerpNum(e.x, t.x, n),
-      lerpNum(e.y, t.y, n),
-      lerpNum(e.z, t.z, n),
-      lerpNum(e.w, t.w, n)
-    );
+    return this.set(lerpNum(e.x, t.x, n), lerpNum(e.y, t.y, n), lerpNum(e.z, t.z, n), lerpNum(e.w, t.w, n));
   }
 
   slerp(e: { x: number; y: number; z: number; w: number }, t: number): this {
@@ -695,7 +622,7 @@ export class Quat extends Float64VectorBase {
   slerpQuaternions(
     e: { x: number; y: number; z: number; w: number },
     t: { x: number; y: number; z: number; w: number },
-    n: number
+    n: number,
   ): this {
     const r = e.x;
     const s = e.y;
@@ -727,10 +654,7 @@ export class Quat extends Float64VectorBase {
     return this.set(o * r + _ * c, o * s + _ * d, o * a + _ * u, o * i + _ * l);
   }
 
-  roughlyEquals(
-    other: { x: number; y: number; z: number; w: number },
-    eps = 1e-7
-  ): boolean {
+  roughlyEquals(other: { x: number; y: number; z: number; w: number }, eps = 1e-7): boolean {
     return (
       roughlyEq(this.x, other.x, eps) &&
       roughlyEq(this.y, other.y, eps) &&
@@ -745,11 +669,8 @@ export class Quat extends Float64VectorBase {
 
   hash(): number {
     return (
-      hashFloat(this.x) ^
-      (hashFloat(this.y) >> 2) ^
-      (hashFloat(this.z) >> 1) ^
-      (hashFloat(this.w) << 2)
-    ) | 0;
+      (hashFloat(this.x) ^ (hashFloat(this.y) >> 2) ^ (hashFloat(this.z) >> 1) ^ (hashFloat(this.w) << 2)) | 0
+    );
   }
 
   toJSON(): { x: number; y: number; z: number; w: number } {
@@ -761,12 +682,7 @@ export class Quat extends Float64VectorBase {
   }
 
   fromArray(e: ArrayLike<number>, t = 0): this {
-    return this.set(
-      e[t] as number,
-      e[t + 1] as number,
-      e[t + 2] as number,
-      e[t + 3] as number
-    );
+    return this.set(e[t] as number, e[t + 1] as number, e[t + 2] as number, e[t + 3] as number);
   }
 
   toArray(e: number[] = [], t = 0): number[] {
@@ -797,12 +713,7 @@ export class Quat extends Float64VectorBase {
   }
 
   fromBinaryBuffer(e: BinaryReader): this {
-    return this.set(
-      e.readFloat64(),
-      e.readFloat64(),
-      e.readFloat64(),
-      e.readFloat64()
-    );
+    return this.set(e.readFloat64(), e.readFloat64(), e.readFloat64(), e.readFloat64());
   }
 
   toBinaryBufferFloat32(e: BinaryReader): void {
@@ -813,12 +724,7 @@ export class Quat extends Float64VectorBase {
   }
 
   fromBinaryBufferFloat32(e: BinaryReader): this {
-    return this.set(
-      e.readFloat32(),
-      e.readFloat32(),
-      e.readFloat32(),
-      e.readFloat32()
-    );
+    return this.set(e.readFloat32(), e.readFloat32(), e.readFloat32(), e.readFloat32());
   }
 
   static readonly identity = new Quat(0, 0, 0, 1);

@@ -6,47 +6,68 @@ import { SURFACE_GEOMETRY_RECORD_WGSL, surfaceGeometryReadWgsl } from "../gpu/Gp
 /** Compiler integration: one invocation per actual geometry/material group.
  * Evaluate the union of its missing output closures once. Values retain f32
  * precision and each field writes its nominated producer's independent slot. */
-export function appearanceSurfaceDemandIntegration(program: CompiledAppearanceGraph, lowered: AppearanceResidentKernel["lowered"]): AppearanceKernelIntegration {
-    const layout = appearanceInputLayout(program);
-    const outputBits = Object.fromEntries(APPEARANCE_FIELD_NAMES.map((name, index) => [name, 1 << index]));
-    const inputMasks=new Map<string,number>();
-    for(const [name,roots] of Object.entries(program.outputs)) {
-      const bit=outputBits[name]??0;
-      const pending=[...roots],visited=new Set<number>();
-      while(pending.length!==0) {
-        const ref=pending.pop()!;
-        if(visited.has(ref)) {continue;}
-        visited.add(ref);
-        const node=program.instructions[ref]!;
-        if(node.kind==="input") {inputMasks.set(node.input!,(inputMasks.get(node.input!)??0)|bit);}
-        pending.push(...node.args);
-        if(node.sample!==undefined) {pending.push(...program.samples[node.sample]!.uv);}
-        if(node.product!==undefined) {pending.push(...(program.productReads?.[node.product]?.uv??[]));}
+export function appearanceSurfaceDemandIntegration(
+  program: CompiledAppearanceGraph,
+  lowered: AppearanceResidentKernel["lowered"],
+): AppearanceKernelIntegration {
+  const layout = appearanceInputLayout(program);
+  const outputBits = Object.fromEntries(APPEARANCE_FIELD_NAMES.map((name, index) => [name, 1 << index]));
+  const inputMasks = new Map<string, number>();
+  for (const [name, roots] of Object.entries(program.outputs)) {
+    const bit = outputBits[name] ?? 0;
+    const pending = [...roots],
+      visited = new Set<number>();
+    while (pending.length !== 0) {
+      const ref = pending.pop()!;
+      if (visited.has(ref)) {
+        continue;
+      }
+      visited.add(ref);
+      const node = program.instructions[ref]!;
+      if (node.kind === "input") {
+        inputMasks.set(node.input!, (inputMasks.get(node.input!) ?? 0) | bit);
+      }
+      pending.push(...node.args);
+      if (node.sample !== undefined) {
+        pending.push(...program.samples[node.sample]!.uv);
+      }
+      if (node.product !== undefined) {
+        pending.push(...(program.productReads?.[node.product]?.uv ?? []));
       }
     }
-    const inputs = program.inputs.map((input, index) => {
-        const kind = appearanceGeometryInputKind(input, program);
-        const expression = kind === 0 ? `surface_runtime_input(directory[7u]+${index}u)` : `geometry_product_input(leaf,${kind}u,0u)`;
-        const x = kind === 0 ? expression : `geometry_product_input(leaf,${kind}u,1u)`;
-        const y = kind === 0 ? expression : `geometry_product_input(leaf,${kind}u,2u)`;
-        return `if (appearance_missing & ${inputMasks.get(input.name)??0}u)!=0u {
+  }
+  const inputs = program.inputs
+    .map((input, index) => {
+      const kind = appearanceGeometryInputKind(input, program);
+      const expression =
+        kind === 0
+          ? `surface_runtime_input(directory[7u]+${index}u)`
+          : `geometry_product_input(leaf,${kind}u,0u)`;
+      const x = kind === 0 ? expression : `geometry_product_input(leaf,${kind}u,1u)`;
+      const y = kind === 0 ? expression : `geometry_product_input(leaf,${kind}u,2u)`;
+      return `if (appearance_missing & ${inputMasks.get(input.name) ?? 0}u)!=0u {
   appearance_inputs[${index}u]=${expression};
   appearance_inputs[${layout.neighborBase + index * 2}u]=${x};
   appearance_inputs[${layout.neighborBase + index * 2 + 1}u]=${y};
   }`;
-    }).join("\n  ");
-    const writes = APPEARANCE_FIELD_NAMES.map((name, field) => {
-        const slots = lowered.outputSlots[name];
-        if (slots === undefined) {
-            return "";
-        }
-        const expression = Array.from({ length: 4 }, (_, channel) => channel < APPEARANCE_FIELD_WIDTHS[field]! && slots[channel] !== undefined ? `value[${slots[channel]}u]` : "0.0").join(", ");
-        return `if (appearance_missing & ${1 << field}u)!=0u {
+    })
+    .join("\n  ");
+  const writes = APPEARANCE_FIELD_NAMES.map((name, field) => {
+    const slots = lowered.outputSlots[name];
+    if (slots === undefined) {
+      return "";
+    }
+    const expression = Array.from({ length: 4 }, (_, channel) =>
+      channel < APPEARANCE_FIELD_WIDTHS[field]! && slots[channel] !== undefined
+        ? `value[${slots[channel]}u]`
+        : "0.0",
+    ).join(", ");
+    return `if (appearance_missing & ${1 << field}u)!=0u {
     let destination = leaf * 15u + ${field}u;
     surface_values[destination]=vec4f(${expression});
   }`;
-    }).join("\n  ");
-    const declarations = /* wgsl */ `
+  }).join("\n  ");
+  const declarations = /* wgsl */ `
 ${SURFACE_GEOMETRY_RECORD_WGSL}
 struct AppearanceRoute { identity:vec4u, uv:vec4f, rotation:vec4f, fallback:vec4f }
 struct SurfaceAppearanceSettings {
@@ -71,7 +92,7 @@ fn surface_runtime_input(index:u32)->vec4f {
   return bitcast<vec4f>(vec4u(surface_metadata[at],surface_metadata[at+1u],surface_metadata[at+2u],surface_metadata[at+3u]));
 }
 `;
-    const entrySource = /* wgsl */ `
+  const entrySource = /* wgsl */ `
 @compute @workgroup_size(64)
 fn surface_fields(@builtin(global_invocation_id) id:vec3u) {
   let program=surface_settings.programs+surface_settings.program*8u;
@@ -91,10 +112,25 @@ fn surface_fields(@builtin(global_invocation_id) id:vec3u) {
   ${writes}
 }
 `;
-    const entries: GPUBindGroupLayoutEntry[] = [];
-    for (let binding = 0; binding < 6; binding++) {
-        entries.push({ binding, visibility: GPUShaderStage.COMPUTE, buffer: { type: binding === 5 ? "storage" : "read-only-storage" } });
-    }
-    entries.push({ binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 32 } });
-    return { entryPoint: "surface_fields", groups: [entries], declarations, entrySource, outputBits, coordinateEntry: false };
+  const entries: GPUBindGroupLayoutEntry[] = [];
+  for (let binding = 0; binding < 6; binding++) {
+    entries.push({
+      binding,
+      visibility: GPUShaderStage.COMPUTE,
+      buffer: { type: binding === 5 ? "storage" : "read-only-storage" },
+    });
+  }
+  entries.push({
+    binding: 6,
+    visibility: GPUShaderStage.COMPUTE,
+    buffer: { type: "uniform", minBindingSize: 32 },
+  });
+  return {
+    entryPoint: "surface_fields",
+    groups: [entries],
+    declarations,
+    entrySource,
+    outputBits,
+    coordinateEntry: false,
+  };
 }

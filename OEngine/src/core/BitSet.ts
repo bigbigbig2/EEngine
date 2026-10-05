@@ -26,9 +26,7 @@ export class BitSet {
 
   setCapacity(e: number): void {
     if (this.__length > e) {
-      throw new Error(
-        `Current length(=${this.__length}) is greater than requested size(=${e})`
-      );
+      throw new Error(`Current length(=${this.__length}) is greater than requested size(=${e})`);
     }
     this.__resize(e);
   }
@@ -160,10 +158,7 @@ export class BitSet {
   }
 
   get(e: number): boolean {
-    return !(
-      e >= this.__length ||
-      !(this.__data_uint32[e >> 5]! & (1 << (31 & e)))
-    );
+    return !(e >= this.__length || !(this.__data_uint32[e >> 5]! & (1 << (31 & e))));
   }
 
   getAndSet(e: number): boolean {

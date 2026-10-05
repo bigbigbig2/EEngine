@@ -22,11 +22,11 @@ const DISABLED: ResolvedRendererDebugConfig = Object.freeze({
   controls: false,
   info: false,
   expanded: false,
-  infoRefreshRate: 4
+  infoRefreshRate: 4,
 });
 
 export function resolveRendererDebugConfig(
-  value: boolean | RendererDebugConfig | undefined
+  value: boolean | RendererDebugConfig | undefined,
 ): ResolvedRendererDebugConfig {
   if (value === undefined || value === false) return DISABLED;
   const input = value === true ? {} : value;
@@ -40,7 +40,6 @@ export function resolveRendererDebugConfig(
     controls: enabled && (input.controls ?? true),
     info: enabled && (input.info ?? true),
     expanded: input.expanded ?? false,
-    infoRefreshRate
+    infoRefreshRate,
   });
 }
-

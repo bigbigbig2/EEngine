@@ -9,48 +9,72 @@ import { PACKED_CAMERA_TYPE } from "../../shaders/packed_camera.js";
 import { ATMOSPHERE_RUNTIME_WGSL } from "../../shaders/atmosphere/runtime.js";
 import { surfaceCellWorkspaceWgsl } from "../../gpu/GpuSurfaceCellPlanAbi.js";
 import { surfaceDemandArenaWgsl } from "../../gpu/GpuSurfaceDemandAbi.js";
-import { SURFACE_GEOMETRY_RECORD_WGSL, surfaceGeometryReadWgsl } from "../../gpu/GpuSurfaceGeometryRecordAbi.js";
+import {
+  SURFACE_GEOMETRY_RECORD_WGSL,
+  surfaceGeometryReadWgsl,
+} from "../../gpu/GpuSurfaceGeometryRecordAbi.js";
 import { SURFACE_FIELD_REFERENCE_VALUES_WGSL } from "../../shaders/surface_reference_values.js";
 import { SURFACE_PACKET_CONTRACT_WGSL } from "../../gpu/GpuSurfaceSignalPacketAbi.js";
 import type { SurfaceDemandProducts } from "./SurfaceDemandPass.js";
 import { SURFACE_CELL_ADDRESS_WORDS } from "../../gpu/GpuSurfaceReferenceAbi.js";
 
 export interface SurfaceLightingInput {
-  readonly resourceBinding:SurfaceResourceBinding;
-  readonly demand:SurfaceDemandProducts;
-  readonly geometry:ResourceId;
-  readonly fields:ResourceId;
-  readonly appearanceMetadata:ResourceId;
-  readonly constantFieldsOffset:number;
-  readonly width:number;
-  readonly height:number;
-  readonly frame:number;
-  readonly camera:ResourceId;
-  readonly physicalSun:{readonly parameters:ResourceId;readonly transmittance:ResourceId}|null;
-  readonly lightRecords:ResourceId;
-  readonly clusters:{readonly parameters:ResourceId;readonly lookup:ResourceId;readonly data:ResourceId;readonly activeLightList:ResourceId};
-  readonly shadow:{readonly virtualPageTable:ResourceId;readonly physicalAtlasDepth:ResourceId;readonly lightProjection:ResourceId;readonly contentVersion:ResourceId}|null;
-  readonly scalarAo:ResourceId|null;
-  readonly environment:{readonly diffuse:ResourceId;readonly specular:ResourceId;readonly dfg:ResourceId};
-  readonly diagnosticsEnabled:boolean;
+  readonly resourceBinding: SurfaceResourceBinding;
+  readonly demand: SurfaceDemandProducts;
+  readonly geometry: ResourceId;
+  readonly fields: ResourceId;
+  readonly appearanceMetadata: ResourceId;
+  readonly constantFieldsOffset: number;
+  readonly width: number;
+  readonly height: number;
+  readonly frame: number;
+  readonly camera: ResourceId;
+  readonly physicalSun: { readonly parameters: ResourceId; readonly transmittance: ResourceId } | null;
+  readonly lightRecords: ResourceId;
+  readonly clusters: {
+    readonly parameters: ResourceId;
+    readonly lookup: ResourceId;
+    readonly data: ResourceId;
+    readonly activeLightList: ResourceId;
+  };
+  readonly shadow: {
+    readonly virtualPageTable: ResourceId;
+    readonly physicalAtlasDepth: ResourceId;
+    readonly lightProjection: ResourceId;
+    readonly contentVersion: ResourceId;
+  } | null;
+  readonly scalarAo: ResourceId | null;
+  readonly environment: {
+    readonly diffuse: ResourceId;
+    readonly specular: ResourceId;
+    readonly dfg: ResourceId;
+  };
+  readonly diagnosticsEnabled: boolean;
 }
 
 // Keep the complete production BRDF. Only split its already computed coat
 // contribution into a separate physical signal; attenuation remains exactly
 // inside the original per-light formula, applied once.
-const DIRECT_MATH=createProductionSparseDirectLightingWgsl(true,"vsm")
-  .replace(/\bview\.frame_index\b/g,"shading_view.frame_index")
-  .replace(/\bview\.width\b/g,"shading_view.width")
-  .replace(/\bview\.height\b/g,"shading_view.height")
-  .replace("struct ReflectedLight {\n  diffuse: vec3f,\n  specular: vec3f,\n}","struct ReflectedLight {\n  diffuse: vec3f,\n  specular: vec3f,\n  coat: vec3f,\n  transport: vec3f,\n}")
-  .replace("(*reflected).specular += radiance * specular * base_attenuation + coat_radiance;",
-    "(*reflected).specular += radiance * specular * base_attenuation;\n  (*reflected).coat += coat_radiance;")
-  .replace("(*reflected).diffuse += radiance * diffuse * RECIPROCAL_PI * base_attenuation;",
+const DIRECT_MATH = createProductionSparseDirectLightingWgsl(true, "vsm")
+  .replace(/\bview\.frame_index\b/g, "shading_view.frame_index")
+  .replace(/\bview\.width\b/g, "shading_view.width")
+  .replace(/\bview\.height\b/g, "shading_view.height")
+  .replace(
+    "struct ReflectedLight {\n  diffuse: vec3f,\n  specular: vec3f,\n}",
+    "struct ReflectedLight {\n  diffuse: vec3f,\n  specular: vec3f,\n  coat: vec3f,\n  transport: vec3f,\n}",
+  )
+  .replace(
+    "(*reflected).specular += radiance * specular * base_attenuation + coat_radiance;",
+    "(*reflected).specular += radiance * specular * base_attenuation;\n  (*reflected).coat += coat_radiance;",
+  )
+  .replace(
+    "(*reflected).diffuse += radiance * diffuse * RECIPROCAL_PI * base_attenuation;",
     "(*reflected).diffuse += radiance * diffuse * RECIPROCAL_PI * base_attenuation;\n" +
-    "  if direct_transport { (*reflected).transport += radiance * RECIPROCAL_PI * base_attenuation; }");
+      "  if direct_transport { (*reflected).transport += radiance * RECIPROCAL_PI * base_attenuation; }",
+  );
 
-export function surfaceLightingWgsl(targets:number,programs:number):string {
- return /* wgsl */ `
+export function surfaceLightingWgsl(targets: number, programs: number): string {
+  return /* wgsl */ `
 ${DIRECT_MATH}
 ${OCTAHEDRAL_SAMPLE_WGSL}
 ${PACKED_CAMERA_TYPE.wgsl_declaration}
@@ -58,8 +82,8 @@ ${ATMOSPHERE_RUNTIME_WGSL}
 ${SURFACE_PACKET_CONTRACT_WGSL}
 ${SURFACE_GEOMETRY_RECORD_WGSL}
 ${surfaceGeometryReadWgsl("geometry")}
-${surfaceCellWorkspaceWgsl(targets/64)}
-${surfaceDemandArenaWgsl(targets,programs)}
+${surfaceCellWorkspaceWgsl(targets / 64)}
+${surfaceDemandArenaWgsl(targets, programs)}
 struct SurfaceView {width:u32,height:u32,frame_index:u32,pad:u32}
 struct SurfaceSettings {
  width:u32,height:u32,constant_fields_offset:u32,shadow_enabled:u32,

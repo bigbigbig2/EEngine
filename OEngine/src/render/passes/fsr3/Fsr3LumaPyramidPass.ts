@@ -91,7 +91,10 @@ fn main() {
 }
 `;
 
-interface PipelinePair { readonly layout: GPUBindGroupLayout; readonly pipeline: GPUComputePipeline }
+interface PipelinePair {
+  readonly layout: GPUBindGroupLayout;
+  readonly pipeline: GPUComputePipeline;
+}
 
 export interface Fsr3LumaPyramidOutput {
   readonly farthestDepthMip1: ResourceId;
@@ -106,54 +109,97 @@ export class Fsr3LumaPyramidPass {
 
   constructor(private readonly device: GPUDevice) {
     const texture = (binding: number): GPUBindGroupLayoutEntry => ({
-      binding, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "unfilterable-float" }
+      binding,
+      visibility: GPUShaderStage.COMPUTE,
+      texture: { sampleType: "unfilterable-float" },
     });
     const uniform = (binding: number): GPUBindGroupLayoutEntry => ({
-      binding, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" }
+      binding,
+      visibility: GPUShaderStage.COMPUTE,
+      buffer: { type: "uniform" },
     });
     const storage = (binding: number, format: GPUTextureFormat): GPUBindGroupLayoutEntry => ({
-      binding, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format }
+      binding,
+      visibility: GPUShaderStage.COMPUTE,
+      storageTexture: { access: "write-only", format },
     });
     const make = (label: string, code: string, entries: GPUBindGroupLayoutEntry[]): PipelinePair => {
       const layout = device.createBindGroupLayout({ label, entries });
       const module = device.createShaderModule({ label, code });
-      return { layout, pipeline: device.createComputePipeline({
-        label, layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
-        compute: { module, entryPoint: "main" }
-      }) };
+      return {
+        layout,
+        pipeline: device.createComputePipeline({
+          label,
+          layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
+          compute: { module, entryPoint: "main" },
+        }),
+      };
     };
-    this.source = make("FSR3 Luma SPD source", SOURCE_WGSL,
-      [texture(0), texture(1), uniform(2), storage(3, "rgba32float"), storage(4, "r16float")]);
-    this.reduceF32 = make("FSR3 Luma SPD f32 reduce", REDUCE_F32_WGSL,
-      [texture(0), storage(1, "rgba32float")]);
-    this.quantize = make("FSR3 Luma SPD mip5 quantize", QUANTIZE_MIP5_WGSL,
-      [texture(0), storage(1, "rg16float")]);
-    this.frameInfo = make("FSR3 Luma SPD frame info", FRAME_INFO_WGSL,
-      [texture(0), texture(1), uniform(2), storage(3, "rgba32float")]);
+    this.source = make("FSR3 Luma SPD source", SOURCE_WGSL, [
+      texture(0),
+      texture(1),
+      uniform(2),
+      storage(3, "rgba32float"),
+      storage(4, "r16float"),
+    ]);
+    this.reduceF32 = make("FSR3 Luma SPD f32 reduce", REDUCE_F32_WGSL, [
+      texture(0),
+      storage(1, "rgba32float"),
+    ]);
+    this.quantize = make("FSR3 Luma SPD mip5 quantize", QUANTIZE_MIP5_WGSL, [
+      texture(0),
+      storage(1, "rg16float"),
+    ]);
+    this.frameInfo = make("FSR3 Luma SPD frame info", FRAME_INFO_WGSL, [
+      texture(0),
+      texture(1),
+      uniform(2),
+      storage(3, "rgba32float"),
+    ]);
   }
 
-  addToGraph(graph: FrameGraph, input: {
-    currentLuma: ResourceId; farthestDepth: ResourceId; constants: ResourceId;
-    previousFrameInfo: ResourceId; currentFrameInfo: ResourceId;
-    width: number; height: number;
-  }): Fsr3LumaPyramidOutput {
-    if (input.width < 2 || input.height < 2) throw new RangeError("FSR3 SPD requires at least 2x2 render size");
+  addToGraph(
+    graph: FrameGraph,
+    input: {
+      currentLuma: ResourceId;
+      farthestDepth: ResourceId;
+      constants: ResourceId;
+      previousFrameInfo: ResourceId;
+      currentFrameInfo: ResourceId;
+      width: number;
+      height: number;
+    },
+  ): Fsr3LumaPyramidOutput {
+    if (input.width < 2 || input.height < 2)
+      throw new RangeError("FSR3 SPD requires at least 2x2 render size");
     const mipCount = Math.min(12, Math.ceil(Math.log2(Math.max(input.width, input.height))));
     let width = Math.ceil(input.width / 2);
     let height = Math.ceil(input.height / 2);
     const sourceWidth = width;
     const sourceHeight = height;
     const source = graph.add("FSR3/Luma SPD source", input, (data, resources, context) => {
-      this.dispatch(this.source, context.encoder as ShadeGPUCommandContext, [
-        resolveTextureView(resources.get(data.currentLuma)),
-        resolveTextureView(resources.get(data.farthestDepth)),
-        { buffer: resources.get(data.constants) as GPUBuffer },
-        resolveTextureView(resources.get(firstMip)),
-        resolveTextureView(resources.get(farthestDepthMip1))
-      ], sourceWidth, sourceHeight);
+      this.dispatch(
+        this.source,
+        context.encoder as ShadeGPUCommandContext,
+        [
+          resolveTextureView(resources.get(data.currentLuma)),
+          resolveTextureView(resources.get(data.farthestDepth)),
+          { buffer: resources.get(data.constants) as GPUBuffer },
+          resolveTextureView(resources.get(firstMip)),
+          resolveTextureView(resources.get(farthestDepthMip1)),
+        ],
+        sourceWidth,
+        sourceHeight,
+      );
     });
     const firstMip = this.createTexture(source, "FSR3/luma SPD mip0", width, height, "rgba32float");
-    const farthestDepthMip1 = this.createTexture(source, "FSR3/farthest depth mip1", width, height, "r16float");
+    const farthestDepthMip1 = this.createTexture(
+      source,
+      "FSR3/farthest depth mip1",
+      width,
+      height,
+      "r16float",
+    );
     source.read(input.currentLuma);
     source.read(input.farthestDepth);
     source.read(input.constants);
@@ -165,34 +211,56 @@ export class Fsr3LumaPyramidPass {
       const targetHeight = height;
       const from = previous;
       const builder = graph.add(`FSR3/Luma SPD mip${mip}`, { from }, (data, resources, context) => {
-        this.dispatch(this.reduceF32, context.encoder as ShadeGPUCommandContext,
+        this.dispatch(
+          this.reduceF32,
+          context.encoder as ShadeGPUCommandContext,
           [resolveTextureView(resources.get(data.from)), resolveTextureView(resources.get(target))],
-          targetWidth, targetHeight);
+          targetWidth,
+          targetHeight,
+        );
       });
       const target = this.createTexture(builder, `FSR3/luma SPD mip${mip}`, width, height, "rgba32float");
       builder.read(from);
       previous = target;
       if (mip === 5 && mip !== mipCount - 1) {
         const quantizeSource = previous;
-        const quantize = graph.add("FSR3/Luma SPD mip5 fp16", { from: quantizeSource }, (data, resources, context) => {
-          this.dispatch(this.quantize, context.encoder as ShadeGPUCommandContext,
-            [resolveTextureView(resources.get(data.from)), resolveTextureView(resources.get(halfMip))],
-            targetWidth, targetHeight);
-        });
+        const quantize = graph.add(
+          "FSR3/Luma SPD mip5 fp16",
+          { from: quantizeSource },
+          (data, resources, context) => {
+            this.dispatch(
+              this.quantize,
+              context.encoder as ShadeGPUCommandContext,
+              [resolveTextureView(resources.get(data.from)), resolveTextureView(resources.get(halfMip))],
+              targetWidth,
+              targetHeight,
+            );
+          },
+        );
         const halfMip = this.createTexture(quantize, "FSR3/luma SPD mip5 fp16", width, height, "rg16float");
         quantize.read(quantizeSource);
         previous = halfMip;
       }
     }
     const finalMip = previous;
-    const finish = graph.add("FSR3/Luma SPD frame info", { finalMip, ...input }, (data, resources, context) => {
-      this.dispatch(this.frameInfo, context.encoder as ShadeGPUCommandContext, [
-        resolveTextureView(resources.get(data.finalMip)),
-        resolveTextureView(resources.get(data.previousFrameInfo)),
-        { buffer: resources.get(data.constants) as GPUBuffer },
-        resolveTextureView(resources.get(data.currentFrameInfo))
-      ], 1, 1);
-    });
+    const finish = graph.add(
+      "FSR3/Luma SPD frame info",
+      { finalMip, ...input },
+      (data, resources, context) => {
+        this.dispatch(
+          this.frameInfo,
+          context.encoder as ShadeGPUCommandContext,
+          [
+            resolveTextureView(resources.get(data.finalMip)),
+            resolveTextureView(resources.get(data.previousFrameInfo)),
+            { buffer: resources.get(data.constants) as GPUBuffer },
+            resolveTextureView(resources.get(data.currentFrameInfo)),
+          ],
+          1,
+          1,
+        );
+      },
+    );
     finish.read(finalMip);
     finish.read(input.previousFrameInfo);
     finish.read(input.constants);
@@ -200,16 +268,33 @@ export class Fsr3LumaPyramidPass {
     return { farthestDepthMip1, frameInfo };
   }
 
-  private createTexture(builder: ReturnType<FrameGraph["add"]>, label: string,
-    width: number, height: number, format: GPUTextureFormat): ResourceId {
-    return builder.create(label, { kind: "transient_texture", width, height, format,
-      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING });
+  private createTexture(
+    builder: ReturnType<FrameGraph["add"]>,
+    label: string,
+    width: number,
+    height: number,
+    format: GPUTextureFormat,
+  ): ResourceId {
+    return builder.create(label, {
+      kind: "transient_texture",
+      width,
+      height,
+      format,
+      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
+    });
   }
 
-  private dispatch(pair: PipelinePair, command: ShadeGPUCommandContext,
-    resources: GPUBindingResource[], width: number, height: number): void {
-    const bind = this.device.createBindGroup({ layout: pair.layout,
-      entries: resources.map((resource, binding) => ({ binding, resource })) });
+  private dispatch(
+    pair: PipelinePair,
+    command: ShadeGPUCommandContext,
+    resources: GPUBindingResource[],
+    width: number,
+    height: number,
+  ): void {
+    const bind = this.device.createBindGroup({
+      layout: pair.layout,
+      entries: resources.map((resource, binding) => ({ binding, resource })),
+    });
     const pass = command.beginComputePass({ label: "FSR3 Luma SPD" });
     pass.setPipeline(pair.pipeline);
     pass.setBindGroup(0, bind);

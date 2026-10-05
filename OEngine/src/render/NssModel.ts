@@ -40,9 +40,7 @@ export class NssModel {
   }
 
   packBiases(): Float32Array {
-    return concatFloat32(
-      this.layers.flatMap((layer) => layer.bias === null ? [] : [layer.bias])
-    );
+    return concatFloat32(this.layers.flatMap((layer) => (layer.bias === null ? [] : [layer.bias])));
   }
 
   packRescales(): Float32Array {
@@ -50,9 +48,7 @@ export class NssModel {
   }
 
   packLuts(): Uint8Array {
-    return concatUint8(
-      this.layers.flatMap((layer) => layer.lut === null ? [] : [layer.lut])
-    );
+    return concatUint8(this.layers.flatMap((layer) => (layer.lut === null ? [] : [layer.lut])));
   }
 
   getLayout(): NssLayerLayout[] {
@@ -73,7 +69,7 @@ export class NssModel {
         activation: layer.activation,
         hasBias: layer.bias !== null,
         hasLut: layer.lut !== null,
-        outputZeroPoint: layer.outputZeroPoint
+        outputZeroPoint: layer.outputZeroPoint,
       });
       weightsOffset += layer.weights.length;
       if (layer.bias !== null) biasOffset += layer.bias.length;
@@ -120,11 +116,7 @@ function parseNssModel(bytes: Uint8Array): NssModel {
     hasBias: boolean;
     hasLut: boolean;
   }> = [];
-  const activations: readonly NssActivation[] = [
-    "identity",
-    "relu",
-    "leaky_relu"
-  ];
+  const activations: readonly NssActivation[] = ["identity", "relu", "leaky_relu"];
   for (let index = 0; index < layerCount; index++) {
     const inChannels = readUint32();
     const outChannels = readUint32();
@@ -144,7 +136,7 @@ function parseNssModel(bytes: Uint8Array): NssModel {
       outputZeroPoint,
       activation,
       hasBias,
-      hasLut
+      hasLut,
     });
   }
 
@@ -162,21 +154,12 @@ function parseNssModel(bytes: Uint8Array): NssModel {
   let rescaleOffset = 0;
   let lutOffset = 0;
   for (const item of metadata) {
-    const layerWeightLength =
-      item.outChannels * item.kernelSize * item.kernelSize * item.inChannels;
-    const weights = packedWeights.slice(
-      weightsOffset,
-      weightsOffset + layerWeightLength
-    );
+    const layerWeightLength = item.outChannels * item.kernelSize * item.kernelSize * item.inChannels;
+    const weights = packedWeights.slice(weightsOffset, weightsOffset + layerWeightLength);
     weightsOffset += layerWeightLength;
-    const bias = item.hasBias
-      ? packedBiases.slice(biasOffset, biasOffset + item.outChannels)
-      : null;
+    const bias = item.hasBias ? packedBiases.slice(biasOffset, biasOffset + item.outChannels) : null;
     if (bias !== null) biasOffset += item.outChannels;
-    const rescales = packedRescales.slice(
-      rescaleOffset,
-      rescaleOffset + item.outChannels
-    );
+    const rescales = packedRescales.slice(rescaleOffset, rescaleOffset + item.outChannels);
     rescaleOffset += item.outChannels;
     const lut = item.hasLut ? packedLuts.slice(lutOffset, lutOffset + 256) : null;
     if (lut !== null) lutOffset += 256;
@@ -185,7 +168,7 @@ function parseNssModel(bytes: Uint8Array): NssModel {
       weights,
       bias,
       rescales,
-      lut
+      lut,
     });
   }
   return new NssModel(layers);

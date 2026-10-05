@@ -2,11 +2,24 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { TemporalFabric } from "../../.test-dist/render/TemporalFabric.js";
 
-const frame = (index, overrides = {}) => ({ frameIndex: index, output: [1920, 1080], internal: [1280, 720],
-  cameraRevision: 1, sceneRevision: 1, representationRevision: 1, lightRevision: "sun:1", view: "main",
-  renderScale: 0.666, featureRevision: 1, formatRevision: 1, deviceRevision: 1,
+const frame = (index, overrides = {}) => ({
+  frameIndex: index,
+  output: [1920, 1080],
+  internal: [1280, 720],
+  cameraRevision: 1,
+  sceneRevision: 1,
+  representationRevision: 1,
+  lightRevision: "sun:1",
+  view: "main",
+  renderScale: 0.666,
+  featureRevision: 1,
+  formatRevision: 1,
+  deviceRevision: 1,
   preExposure: { generation: 1, multiplier: 1, colorSpace: "working-linear" },
-  temporalEnabled: true, nssEnabled: false, ...overrides });
+  temporalEnabled: true,
+  nssEnabled: false,
+  ...overrides,
+});
 
 test("TemporalFabric owns one begin/commit transaction for all shared histories", () => {
   const fabric = new TemporalFabric();
@@ -23,7 +36,9 @@ test("TemporalFabric owns one begin/commit transaction for all shared histories"
 test("camera and resolution changes invalidate histories at the shared boundary", () => {
   const fabric = new TemporalFabric();
   fabric.begin(frame(0));
-  fabric.markProduced("identity"); fabric.markProduced("color"); fabric.commit(0);
+  fabric.markProduced("identity");
+  fabric.markProduced("color");
+  fabric.commit(0);
   fabric.begin(frame(1, { cameraRevision: 2, internal: [960, 540] }));
   const state = fabric.histories.state("color");
   assert.equal(state.readValid, false);
@@ -34,7 +49,9 @@ test("camera and resolution changes invalidate histories at the shared boundary"
 test("internal resize retains output color but invalidates internal identity", () => {
   const fabric = new TemporalFabric();
   fabric.begin(frame(0));
-  fabric.markProduced("identity"); fabric.markProduced("color"); fabric.commit(0);
+  fabric.markProduced("identity");
+  fabric.markProduced("color");
+  fabric.commit(0);
   fabric.begin(frame(1, { internal: [960, 540], renderScale: 0.5 }));
   assert.equal(fabric.histories.state("color").readValid, true);
   assert.equal(fabric.histories.state("identity").readValid, false);

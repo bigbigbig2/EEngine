@@ -7,7 +7,8 @@ import type { GeometryProductResidencyProfilePlanV1 } from "./GeometryProductRes
 // fixed. Metadata is tracked separately as bounded overhead.
 export const GEOMETRY_PRODUCT_SHARED_BANK_BYTES = 128 * 1024 * 1024;
 export const GEOMETRY_PRODUCT_SHARED_BANK_COUNT = 4;
-export const GEOMETRY_PRODUCT_SHARED_SLOTS_PER_BANK = GEOMETRY_PRODUCT_SHARED_BANK_BYTES / OEGPACK_V3_PAGE_BYTES;
+export const GEOMETRY_PRODUCT_SHARED_SLOTS_PER_BANK =
+  GEOMETRY_PRODUCT_SHARED_BANK_BYTES / OEGPACK_V3_PAGE_BYTES;
 
 const pools = new WeakMap<GPUDevice, GeometryProductSlotPool>();
 
@@ -31,9 +32,12 @@ export class GeometryProductSlotPool {
     this.slotsPerBank = profile.slotsPerBank;
     this.slotCapacity = profile.slotCapacity;
     this.#occupied = new Uint8Array(this.slotCapacity);
-    if (!profile.enabled || profile.bankCount !== GEOMETRY_PRODUCT_SHARED_BANK_COUNT ||
-        device.limits.maxBufferSize < profile.bankBytes ||
-        device.limits.maxStorageBufferBindingSize < profile.bankBytes) {
+    if (
+      !profile.enabled ||
+      profile.bankCount !== GEOMETRY_PRODUCT_SHARED_BANK_COUNT ||
+      device.limits.maxBufferSize < profile.bankBytes ||
+      device.limits.maxStorageBufferBindingSize < profile.bankBytes
+    ) {
       throw new RangeError("Geometry Product residency profile is unavailable on the negotiated device");
     }
     const buffers: GPUBuffer[] = [];
@@ -44,11 +48,14 @@ export class GeometryProductSlotPool {
           const bank = device.createBuffer({
             label: `OEngine Geometry Product ${profile.profile} bank ${index}`,
             size: profile.bankBytes,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
           });
           buffers.push(bank);
           this.#releaseReservations.push(release);
-        } catch (error) { release(); throw error; }
+        } catch (error) {
+          release();
+          throw error;
+        }
       }
     } catch (error) {
       for (const buffer of buffers) buffer.destroy();
@@ -64,21 +71,29 @@ export class GeometryProductSlotPool {
 
   static retainWithProfile(
     device: GPUDevice,
-    profile: GeometryProductResidencyProfilePlanV1
+    profile: GeometryProductResidencyProfilePlanV1,
   ): GeometryProductSlotPool {
     let pool = pools.get(device);
     if (!pool) {
       pool = new GeometryProductSlotPool(device, profile);
       pools.set(device, pool);
-    } else if (pool.profile.profile !== profile.profile || pool.bankBytes !== profile.bankBytes || pool.slotCapacity !== profile.slotCapacity) {
+    } else if (
+      pool.profile.profile !== profile.profile ||
+      pool.bankBytes !== profile.bankBytes ||
+      pool.slotCapacity !== profile.slotCapacity
+    ) {
       throw new Error("Geometry Product residency profile cannot change while the shared GPU heap is alive");
     }
     pool.#owners++;
     return pool;
   }
 
-  get usedSlots(): number { return this.#used; }
-  get availableSlots(): number { return this.slotCapacity - this.#used; }
+  get usedSlots(): number {
+    return this.#used;
+  }
+  get availableSlots(): number {
+    return this.slotCapacity - this.#used;
+  }
 
   allocate(): { bankIndex: number; slotIndex: number } | undefined {
     if (this.#used === this.slotCapacity) return undefined;
@@ -94,8 +109,14 @@ export class GeometryProductSlotPool {
   }
 
   release(bankIndex: number, slotIndex: number): void {
-    if (!Number.isInteger(bankIndex) || bankIndex < 0 || bankIndex >= GEOMETRY_PRODUCT_SHARED_BANK_COUNT ||
-        !Number.isInteger(slotIndex) || slotIndex < 0 || slotIndex >= this.slotsPerBank) {
+    if (
+      !Number.isInteger(bankIndex) ||
+      bankIndex < 0 ||
+      bankIndex >= GEOMETRY_PRODUCT_SHARED_BANK_COUNT ||
+      !Number.isInteger(slotIndex) ||
+      slotIndex < 0 ||
+      slotIndex >= this.slotsPerBank
+    ) {
       throw new RangeError("Geometry Product shared slot is out of range");
     }
     const flat = bankIndex * this.slotsPerBank + slotIndex;
@@ -131,8 +152,8 @@ function defaultPortableProfile(device: GPUDevice): GeometryProductResidencyProf
     negotiatedLimits: Object.freeze({
       maxBufferSize: Number(device.limits.maxBufferSize),
       maxStorageBufferBindingSize: Number(device.limits.maxStorageBufferBindingSize),
-      maxStorageBuffersPerShaderStage: Number(device.limits.maxStorageBuffersPerShaderStage ?? 16)
+      maxStorageBuffersPerShaderStage: Number(device.limits.maxStorageBuffersPerShaderStage ?? 16),
     }),
-    runtimeEvidence: Object.freeze({})
+    runtimeEvidence: Object.freeze({}),
   });
 }

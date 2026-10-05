@@ -12,7 +12,12 @@ claims:
       diagnosticCases: []
       checkOnly: false
     allowedDeclarations: [ImplementationComplete, RuntimeValidated, PipelineFeatureComplete]
-    watch: [OEngine/src/gpu/GraphicsContext.ts, OEngine/src/gpu/GpuSparseShadingCapability.ts, validation/cases/webgpu-component/**]
+    watch:
+      [
+        OEngine/src/gpu/GraphicsContext.ts,
+        OEngine/src/gpu/GpuSparseShadingCapability.ts,
+        validation/cases/webgpu-component/**,
+      ]
   - id: platform.evidence
     domain: platform
     owner: platform

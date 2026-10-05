@@ -3,7 +3,7 @@
 import {
   validateBrick4LightMapPackageV1,
   type Brick4LightMapPackageV1,
-  type Brick4LightMapPackageValidation
+  type Brick4LightMapPackageValidation,
 } from "../assets/Brick4LightMapPackage.js";
 
 /**
@@ -40,15 +40,28 @@ export class Brick4LightMap {
     this.bufferValue = this.createBuffer(BRICK4_LIGHT_MAP_MIN_BINDING_BYTES, false);
   }
 
-  get buffer(): GPUBuffer { return this.bufferValue; }
-  get generation(): number { return this.generationValue; }
-  get expected_generation(): number { return this.expectedGenerationValue; }
-  get registered(): boolean { return this.registeredValue; }
-  get available(): boolean {
-    return this.registeredValue && this.residentByteLengthValue > 0 &&
-      this.generationValue === this.expectedGenerationValue;
+  get buffer(): GPUBuffer {
+    return this.bufferValue;
   }
-  get resident_byte_length(): number { return this.residentByteLengthValue; }
+  get generation(): number {
+    return this.generationValue;
+  }
+  get expected_generation(): number {
+    return this.expectedGenerationValue;
+  }
+  get registered(): boolean {
+    return this.registeredValue;
+  }
+  get available(): boolean {
+    return (
+      this.registeredValue &&
+      this.residentByteLengthValue > 0 &&
+      this.generationValue === this.expectedGenerationValue
+    );
+  }
+  get resident_byte_length(): number {
+    return this.residentByteLengthValue;
+  }
 
   get gpu_memory_usage(): number {
     let bytes = this.bufferValue.size;
@@ -66,7 +79,7 @@ export class Brick4LightMap {
     const validation = validateBrick4LightMapPackageV1(source);
     if (this.registeredValue && source.generation < this.expectedGenerationValue) {
       throw new RangeError(
-        `Brick4 generation ${source.generation} is older than expected ${this.expectedGenerationValue}`
+        `Brick4 generation ${source.generation} is older than expected ${this.expectedGenerationValue}`,
       );
     }
     if (this.available && source.generation === this.generationValue) {
@@ -75,8 +88,7 @@ export class Brick4LightMap {
 
     const alignedSize = alignTo(source.storage.byteLength, 4);
     const next = this.createBuffer(alignedSize, true);
-    new Uint8Array(next.getMappedRange(), 0, source.storage.byteLength)
-      .set(source.storage);
+    new Uint8Array(next.getMappedRange(), 0, source.storage.byteLength).set(source.storage);
     next.unmap();
 
     const previous = this.bufferValue;
@@ -98,8 +110,11 @@ export class Brick4LightMap {
    */
   invalidate(nextGeneration = this.generationValue + 1): void {
     this.assertAlive();
-    if (!Number.isSafeInteger(nextGeneration) || nextGeneration <= this.generationValue ||
-        nextGeneration > 0xffffffff) {
+    if (
+      !Number.isSafeInteger(nextGeneration) ||
+      nextGeneration <= this.generationValue ||
+      nextGeneration > 0xffffffff
+    ) {
       throw new RangeError("Brick4 invalidation generation must advance as uint32");
     }
     this.registeredValue = true;
@@ -119,7 +134,7 @@ export class Brick4LightMap {
       sourceUri: this.sourceUriValue,
       branchNodeCount: this.validationValue?.branchNodeCount ?? 0,
       leafNodeCount: this.validationValue?.leafNodeCount ?? 0,
-      referencedProbeCount: this.validationValue?.referencedProbeCount ?? 0
+      referencedProbeCount: this.validationValue?.referencedProbeCount ?? 0,
     });
   }
 
@@ -135,7 +150,7 @@ export class Brick4LightMap {
     this.retiredBuffers.add(buffer);
     void this.device.queue.onSubmittedWorkDone().then(
       () => this.destroyRetired(buffer),
-      () => this.destroyRetired(buffer)
+      () => this.destroyRetired(buffer),
     );
   }
 
@@ -149,7 +164,7 @@ export class Brick4LightMap {
       label: "Brick4 immutable light-map generation",
       size,
       usage: GPUBufferUsage.STORAGE,
-      mappedAtCreation
+      mappedAtCreation,
     });
   }
 

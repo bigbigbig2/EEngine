@@ -16,7 +16,7 @@ const STATE_CODES: Readonly<Record<FrameBarState, number>> = Object.freeze({
   pending: 3,
   unsupported: 4,
   invalid: 5,
-  dropped: 6
+  dropped: 6,
 });
 
 const STATE_COLORS: Readonly<Record<FrameBarState, string>> = Object.freeze({
@@ -26,7 +26,7 @@ const STATE_COLORS: Readonly<Record<FrameBarState, string>> = Object.freeze({
   pending: "#facc15",
   unsupported: "#94a3b8",
   invalid: "#ef4444",
-  dropped: "#dc2626"
+  dropped: "#dc2626",
 });
 
 export function frameStatusColor(state: FrameBarState): string {
@@ -87,9 +87,8 @@ export class FrameChartModel {
       const frame = frames[first + index]!;
       const sample = frame.samples["cpu.frameMs"];
       this.frameIndices[index] = frame.frameIndex;
-      this.values[index] = sample?.availability === "available" && sample.value !== null
-        ? sample.value
-        : Number.NaN;
+      this.values[index] =
+        sample?.availability === "available" && sample.value !== null ? sample.value : Number.NaN;
       this.statuses[index] = STATE_CODES[classifyFrame(frame, budgetMs)];
     }
     this.countValue = count;

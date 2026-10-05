@@ -12,12 +12,7 @@ function length3(x: number, y: number, z: number): number {
   return Math.sqrt(x * x + y * y + z * z);
 }
 
-export function octahedralDecode(
-  out: Float32Array,
-  t: number,
-  n: number,
-  r: number
-): number {
+export function octahedralDecode(out: Float32Array, t: number, n: number, r: number): number {
   let s = n;
   let a = r;
   const i = Math.abs(s);
@@ -51,10 +46,7 @@ export function vanDerCorput(base: number, index: number): number {
   return n;
 }
 
-export function reprojectEquirectToOctahedral(
-  e: Sampler2D,
-  t: number
-): Sampler2D {
+export function reprojectEquirectToOctahedral(e: Sampler2D, t: number): Sampler2D {
   const n = Sampler2D.float32(4, t, t);
   n.data.fill(1);
 
@@ -67,8 +59,7 @@ export function reprojectEquirectToOctahedral(
   const weights = new Float32Array(16);
   let weightSum = 0;
   for (let i = 0; i < 16; i++) {
-    const w =
-      gaussian1d(2.7, s[2 * i]!) * gaussian1d(2.7, s[2 * i + 1]!);
+    const w = gaussian1d(2.7, s[2 * i]!) * gaussian1d(2.7, s[2 * i + 1]!);
     weights[i] = w;
     weightSum += w;
   }
@@ -84,7 +75,7 @@ export function reprojectEquirectToOctahedral(
           r,
           0,
           -(((_ + s[nTap << 1]! + 0.5) / t) * 2 - 1),
-          ((o + s[1 + (nTap << 1)]! + 0.5) / t) * 2 - 1
+          ((o + s[1 + (nTap << 1)]! + 0.5) / t) * 2 - 1,
         );
         const d = Math.atan2(r[0]!, r[1]!);
         const u = Math.acos(r[2]!);

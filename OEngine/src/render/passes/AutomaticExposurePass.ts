@@ -11,7 +11,7 @@ import {
   EXPOSURE_HISTOGRAM_BUFFER_SIZE,
   EXPOSURE_HISTOGRAM_WGSL,
   EXPOSURE_REDUCE_WGSL,
-  EXPOSURE_VALUE_BUFFER_SIZE
+  EXPOSURE_VALUE_BUFFER_SIZE,
 } from "../../shaders/automatic_exposure.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
 import type { FinalColorPyramidFrame } from "../pipeline/FrameProducts.js";
@@ -34,22 +34,19 @@ export class AutomaticExposurePass {
     this.histogramPipeline = createComputePipelineDescriptor(
       "Renderer/Automatic exposure histogram eC",
       EXPOSURE_HISTOGRAM_WGSL,
-      createHistogramGroupLayout()
+      createHistogramGroupLayout(),
     );
     this.reducePipeline = createComputePipelineDescriptor(
       "Renderer/Automatic exposure percentile _C",
       EXPOSURE_REDUCE_WGSL,
-      createReduceGroupLayout()
+      createReduceGroupLayout(),
     );
     this.adaptPipeline = createComputePipelineDescriptor(
       "Renderer/Automatic exposure adaptation ZE",
       EXPOSURE_ADAPT_WGSL,
-      createAdaptGroupLayout()
+      createAdaptGroupLayout(),
     );
-    this.adaptedBuffers = [
-      createInitialExposureBuffer(device),
-      createInitialExposureBuffer(device)
-    ];
+    this.adaptedBuffers = [createInitialExposureBuffer(device), createInitialExposureBuffer(device)];
   }
 
   update(
@@ -62,38 +59,42 @@ export class AutomaticExposurePass {
         readonly timeDeltaSeconds: number;
         readonly historyValid: boolean;
       };
-    }
+    },
   ): ResourceId {
     const meteringMipLevel = Math.max(0, input.mipLevelCount - 1);
     const meteringWidth = Math.max(1, input.domain.width >> meteringMipLevel);
     const meteringHeight = Math.max(1, input.domain.height >> meteringMipLevel);
 
     let histogram = -1;
-    const histogramBuilder = graph.add("Automatic exposure histogram eC", {
-      meteringMipLevel,
-      meteringWidth,
-      meteringHeight
-    }, (data, resources, context) => {
-      const command = requireShadeCommandContext(context.encoder);
-      this.dispatchHistogram(
-        command,
-        resolveTextureView(resources.get(input.texture), {
-          baseMipLevel: data.meteringMipLevel,
-          mipLevelCount: 1
-        }),
-        resolveBuffer(resources.get(histogram), "histogram"),
-        data.meteringWidth,
-        data.meteringHeight
-      );
-      this.lastHistogramPasses = 1;
-      this.lastMeteringMipLevel = data.meteringMipLevel;
-      this.lastMeteringPixels = data.meteringWidth * data.meteringHeight;
-    });
+    const histogramBuilder = graph.add(
+      "Automatic exposure histogram eC",
+      {
+        meteringMipLevel,
+        meteringWidth,
+        meteringHeight,
+      },
+      (data, resources, context) => {
+        const command = requireShadeCommandContext(context.encoder);
+        this.dispatchHistogram(
+          command,
+          resolveTextureView(resources.get(input.texture), {
+            baseMipLevel: data.meteringMipLevel,
+            mipLevelCount: 1,
+          }),
+          resolveBuffer(resources.get(histogram), "histogram"),
+          data.meteringWidth,
+          data.meteringHeight,
+        );
+        this.lastHistogramPasses = 1;
+        this.lastMeteringMipLevel = data.meteringMipLevel;
+        this.lastMeteringPixels = data.meteringWidth * data.meteringHeight;
+      },
+    );
     histogram = histogramBuilder.create("Automatic exposure histogram", {
       kind: "transient_buffer",
       size: EXPOSURE_HISTOGRAM_BUFFER_SIZE,
       usage: GPUBufferUsage.STORAGE,
-      ensure_cleared: [0, EXPOSURE_HISTOGRAM_BUFFER_SIZE]
+      ensure_cleared: [0, EXPOSURE_HISTOGRAM_BUFFER_SIZE],
     });
     histogramBuilder.read(input.texture);
 
@@ -103,13 +104,13 @@ export class AutomaticExposurePass {
       this.dispatchReduce(
         command,
         resolveBuffer(resources.get(histogram), "histogram"),
-        resolveBuffer(resources.get(goal), "target luminance")
+        resolveBuffer(resources.get(goal), "target luminance"),
       );
     });
     goal = reduceBuilder.create("Automatic exposure target luminance", {
       kind: "transient_buffer",
       size: EXPOSURE_VALUE_BUFFER_SIZE,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.UNIFORM
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.UNIFORM,
     });
     reduceBuilder.read(histogram);
 
@@ -130,9 +131,9 @@ export class AutomaticExposurePass {
           resolveBuffer(resources.get(goal), "goal"),
           resolveBuffer(resources.get(previous), "previous"),
           resolveBuffer(resources.get(adapted), "adapted"),
-          resolveBuffer(resources.get(multiplier), "multiplier")
+          resolveBuffer(resources.get(multiplier), "multiplier"),
         );
-      }
+      },
     );
     adaptBuilder.read(goal);
     adaptBuilder.read(previous);
@@ -140,7 +141,7 @@ export class AutomaticExposurePass {
     multiplier = adaptBuilder.create("Automatic exposure multiplier", {
       kind: "transient_buffer",
       size: EXPOSURE_VALUE_BUFFER_SIZE,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.UNIFORM
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.UNIFORM,
     });
     return multiplier;
   }
@@ -172,14 +173,14 @@ export class AutomaticExposurePass {
           0,
           value.buffer,
           value.byteOffset,
-          value.byteLength
+          value.byteLength,
         );
-      }
+      },
     );
     output = builder.create("Automatic exposure unadapted multiplier", {
       kind: "transient_buffer",
       size: EXPOSURE_VALUE_BUFFER_SIZE,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     return output;
   }
@@ -189,12 +190,12 @@ export class AutomaticExposurePass {
     input: GPUTextureView,
     histogram: GPUBuffer,
     width: number,
-    height: number
+    height: number,
   ): void {
     const pass = command.constructComputePass({
       label: "Automatic exposure histogram eC",
       pipeline: this.histogramPipeline,
-      bindings: [[input, { buffer: histogram }]]
+      bindings: [[input, { buffer: histogram }]],
     });
     pass.dispatchWorkgroups(Math.ceil(width / 16), Math.ceil(height / 16), 1);
     pass.end();
@@ -204,7 +205,7 @@ export class AutomaticExposurePass {
     const pass = command.constructComputePass({
       label: "Automatic exposure percentile _C",
       pipeline: this.reducePipeline,
-      bindings: [[{ buffer: histogram }, { buffer: output }]]
+      bindings: [[{ buffer: histogram }, { buffer: output }]],
     });
     pass.dispatchWorkgroups(1, 1, 1);
     pass.end();
@@ -217,7 +218,7 @@ export class AutomaticExposurePass {
     goal: GPUBuffer,
     previous: GPUBuffer,
     adapted: GPUBuffer,
-    multiplier: GPUBuffer
+    multiplier: GPUBuffer,
   ): void {
     const settingsBuffer = command.allocateTransientBufferAndLoad(
       new Float32Array([
@@ -228,20 +229,22 @@ export class AutomaticExposurePass {
         this.exposure_compensation,
         historyValid ? 1 : 0,
         0,
-        0
+        0,
       ]).buffer,
-      GPUBufferUsage.UNIFORM
+      GPUBufferUsage.UNIFORM,
     );
     const pass = command.constructComputePass({
       label: "Automatic exposure adaptation ZE",
       pipeline: this.adaptPipeline,
-      bindings: [[
-        { buffer: goal },
-        { buffer: previous },
-        { buffer: settingsBuffer },
-        { buffer: adapted },
-        { buffer: multiplier }
-      ]]
+      bindings: [
+        [
+          { buffer: goal },
+          { buffer: previous },
+          { buffer: settingsBuffer },
+          { buffer: adapted },
+          { buffer: multiplier },
+        ],
+      ],
     });
     pass.dispatchWorkgroups(1, 1, 1);
     pass.end();
@@ -256,18 +259,18 @@ export class AutomaticExposurePass {
 function createComputePipelineDescriptor(
   label: string,
   code: string,
-  group0: GPUBindGroupLayoutDescriptor
+  group0: GPUBindGroupLayoutDescriptor,
 ): CachedComputePipelineDescriptor {
   return {
     label,
     layout: {
       label: `${label} layout`,
-      bindGroupLayouts: [group0]
+      bindGroupLayouts: [group0],
     },
     compute: {
       module: { label, code },
-      entryPoint: "main"
-    }
+      entryPoint: "main",
+    },
   };
 }
 
@@ -278,14 +281,14 @@ function createHistogramGroupLayout(): GPUBindGroupLayoutDescriptor {
       {
         binding: 0,
         visibility: GPUShaderStage.COMPUTE,
-        texture: { sampleType: "unfilterable-float", viewDimension: "2d" }
+        texture: { sampleType: "unfilterable-float", viewDimension: "2d" },
       },
       {
         binding: 1,
         visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: "storage" }
-      }
-    ]
+        buffer: { type: "storage" },
+      },
+    ],
   };
 }
 
@@ -296,14 +299,14 @@ function createReduceGroupLayout(): GPUBindGroupLayoutDescriptor {
       {
         binding: 0,
         visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: "read-only-storage" }
+        buffer: { type: "read-only-storage" },
       },
       {
         binding: 1,
         visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: "storage" }
-      }
-    ]
+        buffer: { type: "storage" },
+      },
+    ],
   };
 }
 
@@ -314,14 +317,14 @@ function createAdaptGroupLayout(): GPUBindGroupLayoutDescriptor {
       ...[0, 1, 2].map((binding) => ({
         binding,
         visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: "uniform" as const }
+        buffer: { type: "uniform" as const },
       })),
       ...[3, 4].map((binding) => ({
         binding,
         visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: "storage" as const }
-      }))
-    ]
+        buffer: { type: "storage" as const },
+      })),
+    ],
   };
 }
 
@@ -330,7 +333,7 @@ function createInitialExposureBuffer(device: GPUDevice): GPUBuffer {
     label: "",
     size: EXPOSURE_VALUE_BUFFER_SIZE,
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.UNIFORM,
-    mappedAtCreation: true
+    mappedAtCreation: true,
   });
   new Float32Array(buffer.getMappedRange()).set([1]);
   buffer.unmap();
@@ -358,7 +361,5 @@ function requireShadeCommandContext(value: unknown): ShadeGPUCommandContext {
   ) {
     return value as ShadeGPUCommandContext;
   }
-  throw new Error(
-    "AutomaticExposurePass: cached eC/_C/ZE require ShadeGPUCommandContext"
-  );
+  throw new Error("AutomaticExposurePass: cached eC/_C/ZE require ShadeGPUCommandContext");
 }

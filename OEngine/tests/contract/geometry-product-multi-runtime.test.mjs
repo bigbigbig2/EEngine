@@ -5,14 +5,20 @@ import test from "node:test";
 globalThis.GPUBufferUsage ??= Object.freeze({ COPY_DST: 8, STORAGE: 128 });
 
 const { GeometryProductMultiRuntimeV1 } = await import("../../.test-dist/gpu/GeometryProductMultiRuntime.js");
-const { unpackGeometryProductTableRecordV1 } = await import("../../.test-dist/gpu/GeometryProductGpuAbiV1.js");
-const { HIERARCHICAL_VIRTUAL_WORK_GENERATION_WGSL } = await import("../../.test-dist/shaders/hierarchical_work_generation.js");
-const { VIRTUAL_GEOMETRY_MESHLET_WORK_WGSL } = await import("../../.test-dist/shaders/virtual_geometry_work.js");
+const { unpackGeometryProductTableRecordV1 } = await import(
+  "../../.test-dist/gpu/GeometryProductGpuAbiV1.js"
+);
+const { HIERARCHICAL_VIRTUAL_WORK_GENERATION_WGSL } = await import(
+  "../../.test-dist/shaders/hierarchical_work_generation.js"
+);
+const { VIRTUAL_GEOMETRY_MESHLET_WORK_WGSL } = await import(
+  "../../.test-dist/shaders/virtual_geometry_work.js"
+);
 const {
   GPU_INSTANCE_RECORD_OFFSETS,
   GPU_INSTANCE_RECORD_STRIDE,
   GPU_INSTANCE_RECORD_WGSL,
-  packGpuInstanceRecord
+  packGpuInstanceRecord,
 } = await import("../../.test-dist/gpu/GpuInstanceAbi.js");
 
 function fakeDevice() {
@@ -21,29 +27,32 @@ function fakeDevice() {
     writes,
     limits: {
       maxBufferSize: 256 * 1024 * 1024,
-      maxStorageBufferBindingSize: 128 * 1024 * 1024
+      maxStorageBufferBindingSize: 128 * 1024 * 1024,
     },
     createBuffer(descriptor) {
       return {
         ...descriptor,
         size: descriptor.size,
-        destroy() { this.destroyed = true; }
+        destroy() {
+          this.destroyed = true;
+        },
       };
     },
     queue: {
       writeBuffer(buffer, offset, data) {
-        const bytes = new Uint8Array(data.buffer ?? data, data.byteOffset ?? 0, data.byteLength ?? data.byteLength).slice();
+        const bytes = new Uint8Array(
+          data.buffer ?? data,
+          data.byteOffset ?? 0,
+          data.byteLength ?? data.byteLength,
+        ).slice();
         writes.push({ buffer, offset, bytes });
-      }
-    }
+      },
+    },
   };
 }
 
 function makeFixture(revision = 0) {
-  const payloads = [
-    new Uint8Array(262144),
-    new Uint8Array(262144).fill((revision + 1) & 0xff)
-  ];
+  const payloads = [new Uint8Array(262144), new Uint8Array(262144).fill((revision + 1) & 0xff)];
   const pageRecords = new Uint8Array(64);
   const pageView = new DataView(pageRecords.buffer);
   for (let pageId = 0; pageId < payloads.length; pageId++) {
@@ -55,8 +64,28 @@ function makeFixture(revision = 0) {
   const assetRecords = new Uint8Array(128);
   const assetView = new DataView(assetRecords.buffer);
   assetRecords.fill(1, 0, 32);
-  for (const [at, value] of [[72, 0], [76, 1], [80, 0], [84, 1], [88, 0], [92, 1], [96, 0], [100, 1], [104, 1], [108, 1], [112, 1], [116, 0]]) assetView.setUint32(at, value, true);
-  for (const [at, value] of [[32, 0], [36, 0], [37, 0], [38, 1]]) assetView.setFloat32(at, value, true);
+  for (const [at, value] of [
+    [72, 0],
+    [76, 1],
+    [80, 0],
+    [84, 1],
+    [88, 0],
+    [92, 1],
+    [96, 0],
+    [100, 1],
+    [104, 1],
+    [108, 1],
+    [112, 1],
+    [116, 0],
+  ])
+    assetView.setUint32(at, value, true);
+  for (const [at, value] of [
+    [32, 0],
+    [36, 0],
+    [37, 0],
+    [38, 1],
+  ])
+    assetView.setFloat32(at, value, true);
   const hierarchyNodes = new Uint8Array(48);
   const hierarchyView = new DataView(hierarchyNodes.buffer);
   hierarchyView.setFloat32(12, 1, true);
@@ -69,7 +98,8 @@ function makeFixture(revision = 0) {
   const formatView = new DataView(vertexFormats.buffer);
   formatView.setUint16(0, 16, true);
   formatView.setUint16(2, 3, true);
-  formatView.setUint8(5, 12); formatView.setUint8(10, 1);
+  formatView.setUint8(5, 12);
+  formatView.setUint8(10, 1);
   const descriptor = {
     schemaVersion: 1,
     productId: new Uint8Array(32).fill((2 + revision) & 0xff),
@@ -89,7 +119,7 @@ function makeFixture(revision = 0) {
     pageRecords,
     bootstrapPageIds: new Uint32Array([0]),
     vertexFormats,
-    activationPageIds: new Uint32Array([0])
+    activationPageIds: new Uint32Array([0]),
   };
   const source = {
     descriptor,
@@ -104,11 +134,13 @@ function makeFixture(revision = 0) {
         pageId,
         decodedHash128: descriptor.pageRecords.slice(pageId * 32, pageId * 32 + 16),
         decodedPageHash128: hash.subarray(0, 16),
-        bytes: bytes.slice().buffer
+        bytes: bytes.slice().buffer,
       };
     },
     released: 0,
-    release() { this.released++; }
+    release() {
+      this.released++;
+    },
   };
   return { descriptor, source, payloads };
 }
@@ -136,9 +168,16 @@ test("Phase E multi-Product runtime keeps 64 independent shards and rejects stal
   assert.equal(new Set(handles.map((handle) => handle.productGeneration)).size, 64);
 
   const first = handles[0];
-  const firstPage = { productTableSlot: first.productTableSlot, productGeneration: first.productGeneration, pageId: 1 };
+  const firstPage = {
+    productTableSlot: first.productTableSlot,
+    productGeneration: first.productGeneration,
+    pageId: 1,
+  };
   assert.equal(runtime.acceptDemand(firstPage), true);
-  assert.equal(runtime.acceptDemand({ ...firstPage, productGeneration: first.productGeneration + 100000 }), false);
+  assert.equal(
+    runtime.acceptDemand({ ...firstPage, productGeneration: first.productGeneration + 100000 }),
+    false,
+  );
   assert.equal(runtime.acceptDemand({ ...firstPage, pageId: 99 }), false);
   assert.equal(runtime.completePage(firstPage, await fixtures[0].source.readPage(1)), "uploaded");
   const corruptPage = await fixtures[0].source.readPage(1);
@@ -163,16 +202,26 @@ test("Phase E multi-Product runtime keeps 64 independent shards and rejects stal
   assert.deepEqual(runtime.instanceIdentity(replacement.productTableSlot, replacement.productGeneration, 0), {
     productTableSlot: replacement.productTableSlot,
     productGeneration: replacement.productGeneration,
-    assetRecordIndex: 0
+    assetRecordIndex: 0,
   });
-  assert.equal(runtime.instanceIdentity(replacement.productTableSlot, replacement.productGeneration, 99), undefined);
+  assert.equal(
+    runtime.instanceIdentity(replacement.productTableSlot, replacement.productGeneration, 99),
+    undefined,
+  );
 
   const released = handles[1];
   assert.equal(await runtime.release(released.productTableSlot, released.productGeneration), true);
   const reusedFixture = makeFixture(2000);
   const reused = await runtime.load(reusedFixture.source, { productTableSlot: released.productTableSlot });
   assert.notEqual(reused.productGeneration, released.productGeneration);
-  assert.equal(runtime.acceptDemand({ productTableSlot: released.productTableSlot, productGeneration: released.productGeneration, pageId: 0 }), false);
+  assert.equal(
+    runtime.acceptDemand({
+      productTableSlot: released.productTableSlot,
+      productGeneration: released.productGeneration,
+      pageId: 0,
+    }),
+    false,
+  );
 
   const recordBytes = tableWrite(device, runtime.table, replacement.productTableSlot * 64);
   assert.ok(recordBytes);
@@ -208,7 +257,7 @@ test("ProductTableSlot is an explicit instance ABI lane without changing record 
     boundsMin: [-1, -1, -1],
     boundsMax: [1, 1, 1],
     currentObjectToWorld: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
-    previousObjectToWorld: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
+    previousObjectToWorld: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
   });
   const view = new DataView(bytes.buffer);
   assert.equal(bytes.byteLength, GPU_INSTANCE_RECORD_STRIDE);
@@ -228,26 +277,40 @@ test("scene metadata relocates every second-Product range into one authoritative
   assert.deepEqual(runtime.tableRecord(first.productTableSlot), {
     productGeneration: first.productGeneration,
     flags: 1,
-    assetBegin: 0, assetCount: 1,
-    rootBegin: 0, rootCount: 1,
-    hierarchyBegin: 0, hierarchyCount: 1,
-    groupBegin: 0, groupCount: 1,
-    pageBegin: 0, pageCount: 2,
-    vertexFormatBegin: 0, vertexFormatCount: 1
+    assetBegin: 0,
+    assetCount: 1,
+    rootBegin: 0,
+    rootCount: 1,
+    hierarchyBegin: 0,
+    hierarchyCount: 1,
+    groupBegin: 0,
+    groupCount: 1,
+    pageBegin: 0,
+    pageCount: 2,
+    vertexFormatBegin: 0,
+    vertexFormatCount: 1,
   });
   assert.deepEqual(runtime.tableRecord(second.productTableSlot), {
     productGeneration: second.productGeneration,
     flags: 1,
-    assetBegin: 1, assetCount: 1,
-    rootBegin: 1, rootCount: 1,
-    hierarchyBegin: 1, hierarchyCount: 1,
-    groupBegin: 1, groupCount: 1,
-    pageBegin: 2, pageCount: 2,
-    vertexFormatBegin: 1, vertexFormatCount: 1
+    assetBegin: 1,
+    assetCount: 1,
+    rootBegin: 1,
+    rootCount: 1,
+    hierarchyBegin: 1,
+    hierarchyCount: 1,
+    groupBegin: 1,
+    groupCount: 1,
+    pageBegin: 2,
+    pageCount: 2,
+    vertexFormatBegin: 1,
+    vertexFormatCount: 1,
   });
   assert.equal(second.assetReferenceBegin, 1);
   const metadata = runtime.bindings().metadata;
-  const header = device.writes.find((write) => write.buffer === metadata && write.offset === 0 && write.bytes.byteLength === 64);
+  const header = device.writes.find(
+    (write) => write.buffer === metadata && write.offset === 0 && write.bytes.byteLength === 64,
+  );
   assert.ok(header);
   const headerWords = new Uint32Array(header.bytes.buffer, header.bytes.byteOffset, 16);
   const assetRecordsOffset = headerWords[6] * 4;
@@ -261,21 +324,25 @@ test("scene metadata relocates every second-Product range into one authoritative
   assert.equal(assetView.getUint32(80, true), 1);
   assert.equal(assetView.getUint32(88, true), 1);
   assert.equal(new DataView(tableWrite(device, metadata, rootsOffset + 4).buffer).getUint32(0, true), 1);
-  assert.equal(new DataView(tableWrite(device, metadata, hierarchyOffset + 48).buffer).getUint32(44, true), 3);
+  assert.equal(
+    new DataView(tableWrite(device, metadata, hierarchyOffset + 48).buffer).getUint32(44, true),
+    3,
+  );
   assert.ok(tableWrite(device, metadata, pageLocationsOffset + 2 * 16));
   assert.ok(tableWrite(device, metadata, pageLocationsOffset + 3 * 16));
   runtime.destroy();
 });
 
 test("multi-Product GPU work uses global demand-mask pages and per-instance generation", () => {
-  assert.match(HIERARCHICAL_VIRTUAL_WORK_GENERATION_WGSL,
-    /mask,\s*asset\.page_begin \+ page_id,\s*mask_word_count/u);
-  assert.match(VIRTUAL_GEOMETRY_MESHLET_WORK_WGSL,
-    /product_instances\[visible\.instance_record_index\]/u);
-  assert.match(VIRTUAL_GEOMETRY_MESHLET_WORK_WGSL,
-    /product_instances: array<OEngineInstanceRecord>/u);
-  assert.doesNotMatch(VIRTUAL_GEOMETRY_MESHLET_WORK_WGSL,
-    /OEngineGpuInstanceRecord/u);
-  assert.match(VIRTUAL_GEOMETRY_MESHLET_WORK_WGSL,
-    /visible\.geometry_record_index,\s*oengine_instance_geometry_generation\(instance\)/u);
+  assert.match(
+    HIERARCHICAL_VIRTUAL_WORK_GENERATION_WGSL,
+    /mask,\s*asset\.page_begin \+ page_id,\s*mask_word_count/u,
+  );
+  assert.match(VIRTUAL_GEOMETRY_MESHLET_WORK_WGSL, /product_instances\[visible\.instance_record_index\]/u);
+  assert.match(VIRTUAL_GEOMETRY_MESHLET_WORK_WGSL, /product_instances: array<OEngineInstanceRecord>/u);
+  assert.doesNotMatch(VIRTUAL_GEOMETRY_MESHLET_WORK_WGSL, /OEngineGpuInstanceRecord/u);
+  assert.match(
+    VIRTUAL_GEOMETRY_MESHLET_WORK_WGSL,
+    /visible\.geometry_record_index,\s*oengine_instance_geometry_generation\(instance\)/u,
+  );
 });

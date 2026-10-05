@@ -7,10 +7,7 @@
 
 import { createNativeTextureView } from "../gpu/GPUTextureDescriptors.js";
 
-export function resolveTextureView(
-  resource: unknown,
-  descriptor?: GPUTextureViewDescriptor
-): GPUTextureView {
+export function resolveTextureView(resource: unknown, descriptor?: GPUTextureViewDescriptor): GPUTextureView {
   if (!resource || typeof resource !== "object") {
     throw new Error("RenderTargetViews: missing texture resource");
   }
@@ -29,7 +26,7 @@ const DEPTH_ATTACHMENT_VIEW_DESCRIPTOR: GPUTextureViewDescriptor = {
   baseMipLevel: 0,
   mipLevelCount: 1,
   baseArrayLayer: 0,
-  arrayLayerCount: 1
+  arrayLayerCount: 1,
 };
 
 export function resolveDepthAttachmentView(resource: unknown): GPUTextureView {

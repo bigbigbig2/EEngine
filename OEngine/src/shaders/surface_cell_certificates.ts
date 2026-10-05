@@ -1,8 +1,16 @@
 import { surfaceProofAdmissionWgsl } from "../gpu/GpuSurfaceProofAbi.js";
-import { SURFACE_FIELD_IDENTITY_WORDS, SURFACE_FIELD_EXECUTION_PROFILE_WORD } from "../gpu/GpuSurfaceFieldIdentityAbi.js";
+import {
+  SURFACE_FIELD_IDENTITY_WORDS,
+  SURFACE_FIELD_EXECUTION_PROFILE_WORD,
+} from "../gpu/GpuSurfaceFieldIdentityAbi.js";
 import { APPEARANCE_FIELD_WIDTHS } from "../gpu/GpuAppearanceFieldAbi.js";
-import { SURFACE_CELL_FIELD_CERTIFICATE_OFFSETS, SURFACE_CELL_FIELD_CERTIFICATE_WORDS,
-  SURFACE_CELL_GEOMETRY_CERTIFICATE_WORDS, SURFACE_CELL_PROOF_RESULT_WORDS, SURFACE_CELL_TILE_PLAN_BYTES } from "../gpu/GpuSurfaceCellPlanAbi.js";
+import {
+  SURFACE_CELL_FIELD_CERTIFICATE_OFFSETS,
+  SURFACE_CELL_FIELD_CERTIFICATE_WORDS,
+  SURFACE_CELL_GEOMETRY_CERTIFICATE_WORDS,
+  SURFACE_CELL_PROOF_RESULT_WORDS,
+  SURFACE_CELL_TILE_PLAN_BYTES,
+} from "../gpu/GpuSurfaceCellPlanAbi.js";
 import { SURFACE_CELL_ADDRESS_WORDS } from "../gpu/GpuSurfaceReferenceAbi.js";
 
 /** Reuse is proved at the admitted certificate boundary, from the complete
@@ -42,8 +50,8 @@ const CELL_CERTIFICATE_QUEUE:u32=0u;
 const CELL_CERTIFICATE_GEOMETRY_WORDS:u32=${SURFACE_CELL_GEOMETRY_CERTIFICATE_WORDS}u;
 const CELL_CERTIFICATE_FIELD_WORDS:u32=${SURFACE_CELL_FIELD_CERTIFICATE_WORDS}u;
 const CELL_CERTIFICATE_RESULT_WORDS:u32=${SURFACE_CELL_PROOF_RESULT_WORDS}u;
-const CELL_CERTIFICATE_FIELD_OFFSET:array<u32,15>=array<u32,15>(${SURFACE_CELL_FIELD_CERTIFICATE_OFFSETS.map(n=>`${n}u`).join(",")});
-const CELL_CERTIFICATE_FIELD_WIDTH:array<u32,15>=array<u32,15>(${APPEARANCE_FIELD_WIDTHS.map(n=>`${n}u`).join(",")});
+const CELL_CERTIFICATE_FIELD_OFFSET:array<u32,15>=array<u32,15>(${SURFACE_CELL_FIELD_CERTIFICATE_OFFSETS.map((n) => `${n}u`).join(",")});
+const CELL_CERTIFICATE_FIELD_WIDTH:array<u32,15>=array<u32,15>(${APPEARANCE_FIELD_WIDTHS.map((n) => `${n}u`).join(",")});
 var<workgroup> cell_proof_tile_flags:array<atomic<u32>,7>;
 @compute @workgroup_size(64)
 fn prepare_cell_proof_tiles(@builtin(workgroup_id) group:vec3u,@builtin(local_invocation_index) lane:u32) {
@@ -263,7 +271,7 @@ fn cell_finish_certificate_diagnostics(lane:u32,geometry_count:u32,field_count:u
 fn publish_cell_geometry_certificates(@builtin(workgroup_id) group:vec3u,@builtin(local_invocation_index) lane:u32) {
   // Indirect arguments contain exactly this queue's published group count.
   let tile=cell_workspace.proof_tiles[CELL_CERTIFICATE_QUEUE*(cell_settings.batch_target_capacity/64u)+group.x];cell_local_tile=tile;
-  let absolute=cell_workspace.plans[tile*${SURFACE_CELL_TILE_PLAN_BYTES/4}u+4u];
+  let absolute=cell_workspace.plans[tile*${SURFACE_CELL_TILE_PLAN_BYTES / 4}u+4u];
   let origin=vec2u((absolute%cell_settings.tiles_x)*8u,(absolute/cell_settings.tiles_x)*8u);
   let pixel=origin+vec2u(lane%8u,lane/8u);
   let published=cell_workspace.facts[tile*64u+lane];
@@ -311,7 +319,7 @@ fn publish_cell_geometry_certificates(@builtin(workgroup_id) group:vec3u,@builti
 @compute @workgroup_size(64)
 fn publish_cell_parameter_certificates(@builtin(workgroup_id) group:vec3u,@builtin(local_invocation_index) lane:u32) {
   let tile=cell_workspace.proof_tiles[CELL_CERTIFICATE_QUEUE*(cell_settings.batch_target_capacity/64u)+group.x];cell_local_tile=tile;
-  let absolute=cell_workspace.plans[tile*${SURFACE_CELL_TILE_PLAN_BYTES/4}u+4u];
+  let absolute=cell_workspace.plans[tile*${SURFACE_CELL_TILE_PLAN_BYTES / 4}u+4u];
   let origin=vec2u((absolute%cell_settings.tiles_x)*8u,(absolute/cell_settings.tiles_x)*8u);
   let pixel=origin+vec2u(lane%8u,lane/8u);
   let published=cell_workspace.facts[tile*64u+lane];
@@ -378,7 +386,7 @@ ${SURFACE_CELL_CANONICAL_SUPPORT_WGSL}
 fn publish_cell_field_certificates(@builtin(workgroup_id) group:vec3u,@builtin(local_invocation_index) lane:u32) {
   let tile=cell_workspace.proof_tiles[CELL_CERTIFICATE_QUEUE*(cell_settings.batch_target_capacity/64u)+group.x];cell_local_tile=tile;
   let leaf=tile*64u+lane;
-  let absolute=cell_workspace.plans[tile*${SURFACE_CELL_TILE_PLAN_BYTES/4}u+4u];
+  let absolute=cell_workspace.plans[tile*${SURFACE_CELL_TILE_PLAN_BYTES / 4}u+4u];
   let origin=vec2u((absolute%cell_settings.tiles_x)*8u,(absolute/cell_settings.tiles_x)*8u);
   let published=cell_workspace.facts[leaf];
   var count=0u;
@@ -435,7 +443,11 @@ fn publish_cell_field_certificates(@builtin(workgroup_id) group:vec3u,@builtin(l
 /** Independent numerical fixtures exercise the exact production reader and
  * parent merge without constructing a second geometry/material producer. */
 export const SURFACE_CELL_CERTIFICATE_READ_WGSL =
-  SURFACE_CELL_CERTIFICATE_WGSL.slice(SURFACE_CELL_CERTIFICATE_WGSL.indexOf("const CELL_CERTIFICATE_ACTIVE_FIELDS"),
-    SURFACE_CELL_CERTIFICATE_WGSL.indexOf("var<workgroup> cell_proof_tile_flags")) +
-  SURFACE_CELL_CERTIFICATE_WGSL.slice(SURFACE_CELL_CERTIFICATE_WGSL.indexOf("fn cell_leaf_certificate"),
-    SURFACE_CELL_CERTIFICATE_WGSL.indexOf("fn cell_write_certificate_box"));
+  SURFACE_CELL_CERTIFICATE_WGSL.slice(
+    SURFACE_CELL_CERTIFICATE_WGSL.indexOf("const CELL_CERTIFICATE_ACTIVE_FIELDS"),
+    SURFACE_CELL_CERTIFICATE_WGSL.indexOf("var<workgroup> cell_proof_tile_flags"),
+  ) +
+  SURFACE_CELL_CERTIFICATE_WGSL.slice(
+    SURFACE_CELL_CERTIFICATE_WGSL.indexOf("fn cell_leaf_certificate"),
+    SURFACE_CELL_CERTIFICATE_WGSL.indexOf("fn cell_write_certificate_box"),
+  );

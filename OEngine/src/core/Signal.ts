@@ -38,7 +38,7 @@ class ChangeSignalHandlerNode {
 
   constructor(
     readonly handle: ChangeSignalHandler,
-    readonly context: unknown
+    readonly context: unknown,
   ) {}
 
   get isSignalHandler(): boolean {
@@ -63,20 +63,8 @@ class ChangeSignalHandlerNode {
   }
 }
 
-export class ChangeSignal<
-  A = any,
-  B = any,
-  C = any,
-  D = any,
-  E = any,
-  F = any,
-  G = any,
-  H = any
-> {
-  readonly handlers = new Map<
-    ChangeSignalHandler,
-    ChangeSignalHandlerNode
-  >();
+export class ChangeSignal<A = any, B = any, C = any, D = any, E = any, F = any, G = any, H = any> {
+  readonly handlers = new Map<ChangeSignalHandler, ChangeSignalHandlerNode>();
   flags = 0;
   generation = 0;
 
@@ -227,36 +215,12 @@ export class ChangeSignal<
     dispatchSignal(this, (node) => node.handle.call(node.context, e, t, n, r, s));
   }
 
-  send6(
-    a: A,
-    b: B,
-    c: C,
-    d: D,
-    e: E,
-    f: F
-  ): void {
-    dispatchSignal(
-      this,
-      (node) => node.handle.call(node.context, a, b, c, d, e, f),
-      f
-    );
+  send6(a: A, b: B, c: C, d: D, e: E, f: F): void {
+    dispatchSignal(this, (node) => node.handle.call(node.context, a, b, c, d, e, f), f);
   }
 
-  send8(
-    a: A,
-    b: B,
-    c: C,
-    d: D,
-    e: E,
-    f: F,
-    g: G,
-    h: H
-  ): void {
-    dispatchSignal(
-      this,
-      (node) => node.handle.call(node.context, a, b, c, d, e, f, g, h),
-      f
-    );
+  send8(a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H): void {
+    dispatchSignal(this, (node) => node.handle.call(node.context, a, b, c, d, e, f, g, h), f);
   }
 
   merge(other: ChangeSignal<A, B, C, D, E, F, G, H>): ChangeSignal<A, B, C, D, E, F, G, H> {
@@ -268,7 +232,6 @@ export class ChangeSignal<
     other.add(forward);
     return merged;
   }
-
 }
 
 function addSignalNode(signal: ChangeSignal, node: ChangeSignalHandlerNode): void {
@@ -278,10 +241,7 @@ function addSignalNode(signal: ChangeSignal, node: ChangeSignalHandlerNode): voi
   signal.handlers.set(node.handle, node);
 }
 
-function removeSignalNode(
-  signal: ChangeSignal,
-  target: ChangeSignalHandlerNode
-): boolean {
+function removeSignalNode(signal: ChangeSignal, target: ChangeSignalHandlerNode): boolean {
   const head = signal.handlers.get(target.handle);
   if (head === undefined) return false;
   if (head === target) {
@@ -306,7 +266,7 @@ function removeSignalNode(
 function dispatchSignal(
   signal: ChangeSignal,
   invoke: (node: ChangeSignalHandlerNode) => unknown,
-  originalErrorHandle?: unknown
+  originalErrorHandle?: unknown,
 ): void {
   if ((signal.flags & SIGNAL_SILENT) !== 0) return;
   signal.generation++;
@@ -319,11 +279,7 @@ function dispatchSignal(
         try {
           invoke(node);
         } catch (error) {
-          console.error(
-            "Failed to dispatch handler",
-            originalErrorHandle ?? node.handle,
-            error
-          );
+          console.error("Failed to dispatch handler", originalErrorHandle ?? node.handle, error);
         }
       }
       node = next;

@@ -100,7 +100,9 @@ export interface MeshletHeaderV3 {
 function f32(view: DataView, byteOffset: number, count: 3): readonly [number, number, number];
 function f32(view: DataView, byteOffset: number, count: 4): readonly [number, number, number, number];
 function f32(view: DataView, byteOffset: number, count: 3 | 4): readonly number[] {
-  return Object.freeze(Array.from({ length: count }, (_, index) => view.getFloat32(byteOffset + index * 4, true)));
+  return Object.freeze(
+    Array.from({ length: count }, (_, index) => view.getFloat32(byteOffset + index * 4, true)),
+  );
 }
 
 export function decodeHierarchyNodeV3(view: DataView, byteOffset = 0): GeometryHierarchyNodeV3 {
@@ -109,7 +111,7 @@ export function decodeHierarchyNodeV3(view: DataView, byteOffset = 0): GeometryH
     bboxMin: f32(view, byteOffset + 16, 3),
     bboxMax: f32(view, byteOffset + 28, 3),
     maxParentError: view.getFloat32(byteOffset + 40, true),
-    packedNodeData: view.getUint32(byteOffset + 44, true)
+    packedNodeData: view.getUint32(byteOffset + 44, true),
   });
 }
 
@@ -125,7 +127,7 @@ export function decodeGroupHeaderV3(view: DataView, byteOffset = 0): GroupHeader
     meshletHeaderOffset: view.getUint32(byteOffset + 48, true),
     triangleDataOffset: view.getUint32(byteOffset + 52, true),
     vertexDataOffset: view.getUint32(byteOffset + 56, true),
-    payloadBytes: view.getUint32(byteOffset + 60, true)
+    payloadBytes: view.getUint32(byteOffset + 60, true),
   });
 }
 
@@ -139,7 +141,7 @@ export function decodeMeshletHeaderV3(view: DataView, byteOffset = 0): MeshletHe
     materialId: view.getUint32(byteOffset + 16, true),
     flags: view.getUint32(byteOffset + 20, true),
     bboxMin: f32(view, byteOffset + 24, 3),
-    bboxMax: f32(view, byteOffset + 36, 3)
+    bboxMax: f32(view, byteOffset + 36, 3),
   });
 }
 

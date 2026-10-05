@@ -8,7 +8,7 @@ import type { TextureSurfacePublication } from "./TextureVariation.js";
 import type { ShadeTexture } from "../texture/ShadeTexture.js";
 import {
   GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE,
-  materialVisibilitySource
+  materialVisibilitySource,
 } from "./GpuMaterialVisibilityAbi.js";
 import {
   GPU_SHADING_MATERIAL_ABI_VERSION,
@@ -17,7 +17,7 @@ import {
   GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL,
   GPU_SHADING_TEXTURE_ROUTE_STRIDE,
   packGpuShadingMaterialRecord,
-  packGpuShadingTextureRoute
+  packGpuShadingTextureRoute,
 } from "./GpuShadingMaterialAbi.js";
 import { GPU_SHADING_PROGRAM } from "./GpuShadingProgramAbi.js";
 import { packGpuClosureMaterial } from "./GpuClosureMaterialAbi.js";
@@ -57,7 +57,10 @@ export interface GpuMaterialStage {
   readonly associationSlots: readonly number[];
   /** Immutable publication products, aligned with slots; new Surface lowering consumes these. */
   readonly appearancePrograms: readonly CompiledAppearanceGraph[];
-  readonly appearanceFieldVersions: readonly ReadonlyMap<string, { readonly key: string; readonly version: number; readonly changed: boolean }>[];
+  readonly appearanceFieldVersions: readonly ReadonlyMap<
+    string,
+    { readonly key: string; readonly version: number; readonly changed: boolean }
+  >[];
   readonly materialGeneration: number;
   readonly textureGeneration: number;
   readonly publicationRevision: number;
@@ -85,10 +88,13 @@ interface ResidentPublication {
   state: "pending" | "resident" | "pending-release" | "retiring" | "aborted" | "released";
 }
 
-const STAGE_RUNTIME = new WeakMap<object, {
-  readonly store: GpuMaterialStore;
-  readonly publication: ResidentPublication;
-}>();
+const STAGE_RUNTIME = new WeakMap<
+  object,
+  {
+    readonly store: GpuMaterialStore;
+    readonly publication: ResidentPublication;
+  }
+>();
 
 /**
  * Unique owner for the production shading-material table and texture-routing
@@ -97,7 +103,10 @@ const STAGE_RUNTIME = new WeakMap<object, {
  * so material-only deduplication is not a valid GPU identity.
  */
 export class GpuMaterialStore {
-  private readonly appearanceVersions = new WeakMap<StandardShadeMaterial, ReadonlyMap<string, { readonly key: string; readonly version: number }>>();
+  private readonly appearanceVersions = new WeakMap<
+    StandardShadeMaterial,
+    ReadonlyMap<string, { readonly key: string; readonly version: number }>
+  >();
   private readonly materialRecords: GPUBuffer;
   private readonly textureRouteRecords: GPUBuffer;
   private readonly freeSlots: number[] = [];
@@ -110,16 +119,16 @@ export class GpuMaterialStore {
 
   constructor(private readonly device: GPUDevice) {
     const materialBytes = GPU_MATERIAL_CAPACITY * GPU_SHADING_MATERIAL_RECORD_STRIDE;
-    const routeBytes = GPU_MATERIAL_CAPACITY * GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL *
-      GPU_SHADING_TEXTURE_ROUTE_STRIDE;
+    const routeBytes =
+      GPU_MATERIAL_CAPACITY * GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL * GPU_SHADING_TEXTURE_ROUTE_STRIDE;
     const storageLimit = Math.min(
       Number(device.limits.maxBufferSize),
-      Number(device.limits.maxStorageBufferBindingSize)
+      Number(device.limits.maxStorageBufferBindingSize),
     );
     if (materialBytes > storageLimit || routeBytes > storageLimit) {
       throw new RangeError(
         `GpuMaterialStore requires ${materialBytes} material bytes and ${routeBytes} route bytes ` +
-        `but the storage-buffer limit is ${storageLimit}`
+          `but the storage-buffer limit is ${storageLimit}`,
       );
     }
     this.materialRecords = createZeroBuffer(device, "GpuMaterialStore/shading-records", materialBytes);
@@ -132,14 +141,20 @@ export class GpuMaterialStore {
     textureRefsByMaterial: ReadonlyMap<StandardShadeMaterial, ReadonlyMap<ShadeTexture, number>>,
     command: ShadeGPUCommandContext,
     textureMipRanges?: ReadonlyMap<ShadeTexture, readonly [number, number]>,
-    surfacePublications?: ReadonlyMap<ShadeTexture, TextureSurfacePublication>
+    surfacePublications?: ReadonlyMap<ShadeTexture, TextureSurfacePublication>,
   ): GpuMaterialStage {
     this.assertStageCommand(command);
     const canonicalMaterials = this.preflight(associations, textureRefsByMaterial);
     const versions = new Map<StandardShadeMaterial, ReturnType<typeof updateAppearanceFieldVersions>>();
     associations.forEach((association, index) => {
-      if (!versions.has(association.material)) versions.set(association.material,
-        updateAppearanceFieldVersions(canonicalMaterials[index]!.appearance, this.appearanceVersions.get(association.material)));
+      if (!versions.has(association.material))
+        versions.set(
+          association.material,
+          updateAppearanceFieldVersions(
+            canonicalMaterials[index]!.appearance,
+            this.appearanceVersions.get(association.material),
+          ),
+        );
     });
     const generation = nextGeneration(this.committedGeneration);
     const slots = Object.freeze(associations.map(() => this.freeSlots.pop()!));
@@ -148,7 +163,7 @@ export class GpuMaterialStore {
       handle,
       slots,
       generation,
-      state: "pending"
+      state: "pending",
     };
     this.pendingPublication = publication;
     this.publications.add(publication);
@@ -179,37 +194,49 @@ export class GpuMaterialStore {
         const textureRef = (texture: ShadeTexture | undefined): number =>
           texture === undefined
             ? GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE
-            : textureRefs.get(texture) ?? GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE;
-        const source = materialVisibilitySource(association.material, {
-          baseColor: textureRef(association.material.texture_albedo),
-          normal: textureRef(association.material.texture_normal),
-          orm: textureRef(association.material.texture_orm),
-          emissive: textureRef(association.material.texture_emissive),
-          occlusion: textureRef(association.material.texture_occlusion)
-        }, slot, association.textureBindingSetId, textureMipRanges);
+            : (textureRefs.get(texture) ?? GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE);
+        const source = materialVisibilitySource(
+          association.material,
+          {
+            baseColor: textureRef(association.material.texture_albedo),
+            normal: textureRef(association.material.texture_normal),
+            orm: textureRef(association.material.texture_orm),
+            emissive: textureRef(association.material.texture_emissive),
+            occlusion: textureRef(association.material.texture_occlusion),
+          },
+          slot,
+          association.textureBindingSetId,
+          textureMipRanges,
+        );
         const baseImage = association.material.texture_albedo?.image;
-        const uniformBaseTexture = association.programId === GPU_SHADING_PROGRAM.UnlitTexture &&
-          baseImage?.width === 1 && baseImage.height === 1 && baseImage.depth === 1 &&
-          !source.textureFallback && !source.samplerFallback &&
+        const uniformBaseTexture =
+          association.programId === GPU_SHADING_PROGRAM.UnlitTexture &&
+          baseImage?.width === 1 &&
+          baseImage.height === 1 &&
+          baseImage.depth === 1 &&
+          !source.textureFallback &&
+          !source.samplerFallback &&
           source.packed.textureRef !== GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE;
-        const packed = packGpuShadingMaterialRecord({
-          programId: association.programId,
-          textureBindingSetId: association.textureBindingSetId,
-          materialGeneration: generation,
-          textureGeneration: generation,
-          publicationRevision: generation,
-          flags: uniformBaseTexture ? GPU_SHADING_MATERIAL_FLAGS.UniformBaseTexture : 0,
-          family: canonical.family,
-          featureMask: canonical.featureMask
-        }, source.packed, packGpuClosureMaterial(
-          association.material, canonical, textureRefs, textureMipRanges
-        ));
+        const packed = packGpuShadingMaterialRecord(
+          {
+            programId: association.programId,
+            textureBindingSetId: association.textureBindingSetId,
+            materialGeneration: generation,
+            textureGeneration: generation,
+            publicationRevision: generation,
+            flags: uniformBaseTexture ? GPU_SHADING_MATERIAL_FLAGS.UniformBaseTexture : 0,
+            family: canonical.family,
+            featureMask: canonical.featureMask,
+          },
+          source.packed,
+          packGpuClosureMaterial(association.material, canonical, textureRefs, textureMipRanges),
+        );
         command.writeBuffer(
           this.materialRecords,
           slot * GPU_SHADING_MATERIAL_RECORD_STRIDE,
           packed.buffer,
           packed.byteOffset,
-          packed.byteLength
+          packed.byteLength,
         );
         const routeRefs = [
           source.packed.textureRef,
@@ -219,15 +246,28 @@ export class GpuMaterialStore {
           source.packed.occlusionTextureRef,
           textureRef(association.material.texture_specular),
           textureRef(association.material.texture_specular_color),
-          canonical.coatFactor > 0 ? textureRef(association.material.texture_clearcoat) : GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE,
-          canonical.coatFactor > 0 ? textureRef(association.material.texture_clearcoat_roughness) : GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE,
-          canonical.coatFactor > 0 ? textureRef(association.material.texture_clearcoat_normal) : GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE
+          canonical.coatFactor > 0
+            ? textureRef(association.material.texture_clearcoat)
+            : GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE,
+          canonical.coatFactor > 0
+            ? textureRef(association.material.texture_clearcoat_roughness)
+            : GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE,
+          canonical.coatFactor > 0
+            ? textureRef(association.material.texture_clearcoat_normal)
+            : GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE,
         ];
-        const routeTextures = [association.material.texture_albedo, association.material.texture_normal,
-          association.material.texture_orm, association.material.texture_emissive, association.material.texture_occlusion,
-          association.material.texture_specular, association.material.texture_specular_color,
-          association.material.texture_clearcoat, association.material.texture_clearcoat_roughness,
-          association.material.texture_clearcoat_normal];
+        const routeTextures = [
+          association.material.texture_albedo,
+          association.material.texture_normal,
+          association.material.texture_orm,
+          association.material.texture_emissive,
+          association.material.texture_occlusion,
+          association.material.texture_specular,
+          association.material.texture_specular_color,
+          association.material.texture_clearcoat,
+          association.material.texture_clearcoat_roughness,
+          association.material.texture_clearcoat_normal,
+        ];
         for (let routeIndex = 0; routeIndex < routeRefs.length; routeIndex++) {
           const texture = routeTextures[routeIndex];
           const publication = texture === undefined ? undefined : surfacePublications?.get(texture);
@@ -245,7 +285,7 @@ export class GpuMaterialStore {
             variationKnown: publication?.variation.known ?? false,
             samplingSignature: routeSignature,
             variationLow: publication?.variation.low,
-            variationHigh: publication?.variation.high
+            variationHigh: publication?.variation.high,
           });
           const routeSlot = slot * GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL + routeIndex;
           command.writeBuffer(
@@ -253,7 +293,7 @@ export class GpuMaterialStore {
             routeSlot * GPU_SHADING_TEXTURE_ROUTE_STRIDE,
             route.buffer,
             route.byteOffset,
-            route.byteLength
+            route.byteLength,
           );
         }
         writeSet(this.textureFallbackSlots, slot, source.textureFallback);
@@ -270,11 +310,13 @@ export class GpuMaterialStore {
         handle,
         bindings: this.bindings(),
         associationSlots: slots,
-        appearancePrograms: Object.freeze(canonicalMaterials.map(material => material.appearance)),
-        appearanceFieldVersions: Object.freeze(associations.map(association => versions.get(association.material)!)),
+        appearancePrograms: Object.freeze(canonicalMaterials.map((material) => material.appearance)),
+        appearanceFieldVersions: Object.freeze(
+          associations.map((association) => versions.get(association.material)!),
+        ),
         materialGeneration: generation,
         textureGeneration: generation,
-        publicationRevision: generation
+        publicationRevision: generation,
       });
     } catch (error) {
       rollback();
@@ -288,8 +330,7 @@ export class GpuMaterialStore {
       throw new Error("GpuMaterialStore release command belongs to another GPUDevice");
     }
     const runtime = STAGE_RUNTIME.get(handle as object);
-    if (runtime === undefined || runtime.store !== this ||
-        runtime.publication.state !== "resident") {
+    if (runtime === undefined || runtime.store !== this || runtime.publication.state !== "resident") {
       throw new Error("GpuMaterialStageHandle is stale or not resident");
     }
     const publication = runtime.publication;
@@ -311,7 +352,7 @@ export class GpuMaterialStore {
       abiVersion: GPU_SHADING_MATERIAL_ABI_VERSION,
       materialCapacity: GPU_MATERIAL_CAPACITY,
       materialRecords: this.materialRecords,
-      textureRouteRecords: this.textureRouteRecords
+      textureRouteRecords: this.textureRouteRecords,
     });
   }
 
@@ -342,9 +383,8 @@ export class GpuMaterialStore {
       samplerFallbackCount: this.samplerFallbackSlots.size,
       allocatedBytes:
         GPU_MATERIAL_CAPACITY * GPU_SHADING_MATERIAL_RECORD_STRIDE +
-        GPU_MATERIAL_CAPACITY * GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL *
-          GPU_SHADING_TEXTURE_ROUTE_STRIDE,
-      privateSubmitCount: 0
+        GPU_MATERIAL_CAPACITY * GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL * GPU_SHADING_TEXTURE_ROUTE_STRIDE,
+      privateSubmitCount: 0,
     });
   }
 
@@ -366,7 +406,7 @@ export class GpuMaterialStore {
 
   private preflight(
     associations: readonly GpuMaterialAssociationSource[],
-    textureRefsByMaterial: ReadonlyMap<StandardShadeMaterial, ReadonlyMap<ShadeTexture, number>>
+    textureRefsByMaterial: ReadonlyMap<StandardShadeMaterial, ReadonlyMap<ShadeTexture, number>>,
   ): readonly CanonicalMaterial[] {
     if (associations.length === 0) {
       throw new RangeError("GpuMaterialStore requires at least one shading association");
@@ -374,7 +414,7 @@ export class GpuMaterialStore {
     if (associations.length > this.freeSlots.length) {
       throw new RangeError(
         `GpuMaterialStore requires ${associations.length} association slots but only ` +
-        `${this.freeSlots.length} of ${GPU_MATERIAL_CAPACITY} are free`
+          `${this.freeSlots.length} of ${GPU_MATERIAL_CAPACITY} are free`,
       );
     }
     const compiled = new Map<StandardShadeMaterial, CanonicalMaterial>();
@@ -382,14 +422,14 @@ export class GpuMaterialStore {
     for (const association of associations) {
       if (!textureRefsByMaterial.has(association.material)) {
         throw new Error(
-          `GpuMaterialStore is missing TextureBindingSet routing for '${association.material.name}'`
+          `GpuMaterialStore is missing TextureBindingSet routing for '${association.material.name}'`,
         );
       }
       const source = materialVisibilitySource(
         association.material,
         GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE,
         0,
-        association.textureBindingSetId
+        association.textureBindingSetId,
       );
       let canonical = compiled.get(association.material);
       if (canonical === undefined) {
@@ -398,16 +438,19 @@ export class GpuMaterialStore {
       }
       result.push(canonical);
       // Header validation is deliberately part of preflight, before slots are reserved.
-      packGpuShadingMaterialRecord({
-        programId: association.programId,
-        textureBindingSetId: association.textureBindingSetId,
-        materialGeneration: 1,
-        textureGeneration: 1,
-        publicationRevision: 1,
-        flags: 0,
-        family: canonical.family,
-        featureMask: canonical.featureMask
-      }, source.packed);
+      packGpuShadingMaterialRecord(
+        {
+          programId: association.programId,
+          textureBindingSetId: association.textureBindingSetId,
+          materialGeneration: 1,
+          textureGeneration: 1,
+          publicationRevision: 1,
+          flags: 0,
+          family: canonical.family,
+          featureMask: canonical.featureMask,
+        },
+        source.packed,
+      );
     }
     return Object.freeze(result);
   }
@@ -444,7 +487,7 @@ function createZeroBuffer(device: GPUDevice, label: string, size: number): GPUBu
     label,
     size,
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    mappedAtCreation: true
+    mappedAtCreation: true,
   });
   new Uint8Array(buffer.getMappedRange()).fill(0);
   buffer.unmap();

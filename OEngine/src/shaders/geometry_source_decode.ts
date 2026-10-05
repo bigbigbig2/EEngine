@@ -1,4 +1,10 @@
-import { GPU_GEOMETRY_RECORD_WGSL, GPU_MESHLET_RECORD_WGSL, GPU_GEOMETRY_VERTEX_DECODE_WGSL, GPU_UV_FORMAT, GPU_NORMAL_FORMAT } from "../gpu/GpuGeometryAbi.js";
+import {
+  GPU_GEOMETRY_RECORD_WGSL,
+  GPU_MESHLET_RECORD_WGSL,
+  GPU_GEOMETRY_VERTEX_DECODE_WGSL,
+  GPU_UV_FORMAT,
+  GPU_NORMAL_FORMAT,
+} from "../gpu/GpuGeometryAbi.js";
 import { VIRTUAL_GEOMETRY_PRODUCT_WGSL } from "./virtual_geometry_product.js";
 import { GEOMETRY_VERTEX_DATA_TYPE_CODE as T } from "../assets/GeometryAssetPackage.js";
 import { GPU_FRAME_ATTRIBUTE_VECTORS } from "../gpu/GpuFrameGeometryAttributesAbi.js";
@@ -7,7 +13,8 @@ import { GPU_FRAME_ATTRIBUTE_VECTORS } from "../gpu/GpuFrameGeometryAttributesAb
  * published Geometry ABI; Product attributes are decoded once at residency
  * fulfillment and read here through the same bounded four-bank page owner. */
 export function frameGeometrySourceWgsl(product: boolean, perInvocation = false): string {
-  const sources = product ? /* wgsl */ `
+  const sources = product
+    ? /* wgsl */ `
 ${VIRTUAL_GEOMETRY_PRODUCT_WGSL}
 @group(0) @binding(8) var<storage, read> product_heap: array<u32>;
 ${Array.from({ length: 4 }, (_, i) => `@group(0) @binding(${i + 9}) var<storage, read> product_bank_${i}: array<u32>;`).join("\n")}
@@ -68,7 +75,8 @@ fn frame_vertex_color(vertex: u32) -> vec4f {
 fn frame_triangle_corner(triangle: u32, corner: u32) -> u32 {
   let byte = source_triangle_byte + triangle * 3u + corner;
   return (frame_vertex_word(source_bank, byte >> 2u) >> ((byte & 3u) * 8u)) & 255u;
-}` : /* wgsl */ `
+}`
+    : /* wgsl */ `
 ${GPU_GEOMETRY_RECORD_WGSL}
 ${GPU_MESHLET_RECORD_WGSL}
 ${GPU_GEOMETRY_VERTEX_DECODE_WGSL}
@@ -153,4 +161,3 @@ fn frame_oct_decode(packed: u32) -> vec3f {
   return normalize(n);
 }
 `;
-

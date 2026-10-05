@@ -3,7 +3,7 @@ import type { ProfileFrame } from "../../debug/profiling/ProfileFrame.js";
 import {
   LiveProfilerStore,
   type LiveProfilerMode,
-  type LiveProfilerStoreState
+  type LiveProfilerStoreState,
 } from "./LiveProfilerStore.js";
 
 export type InspectorMode = LiveProfilerMode;
@@ -36,29 +36,64 @@ export class InspectorViewModel {
     this.unsubscribeStore = this.store.subscribe(() => this.notify());
   }
 
-  get mode(): InspectorMode { return this.store.state.mode; }
-  get recording(): boolean { return this.store.state.recording; }
-  get paused(): boolean { return this.store.state.paused; }
-  get followLatest(): boolean { return this.store.state.followLatest; }
-  get selectedFrame(): ProfileFrame | undefined { return this.store.selectedFrame; }
-  get latestFrame(): ProfileFrame | undefined { return this.store.latestFrame; }
-  get frames(): readonly ProfileFrame[] { return this.store.frames; }
-  get timelineFrames(): readonly ProfileFrame[] { return this.store.timelineFrames; }
+  get mode(): InspectorMode {
+    return this.store.state.mode;
+  }
+  get recording(): boolean {
+    return this.store.state.recording;
+  }
+  get paused(): boolean {
+    return this.store.state.paused;
+  }
+  get followLatest(): boolean {
+    return this.store.state.followLatest;
+  }
+  get selectedFrame(): ProfileFrame | undefined {
+    return this.store.selectedFrame;
+  }
+  get latestFrame(): ProfileFrame | undefined {
+    return this.store.latestFrame;
+  }
+  get frames(): readonly ProfileFrame[] {
+    return this.store.frames;
+  }
+  get timelineFrames(): readonly ProfileFrame[] {
+    return this.store.timelineFrames;
+  }
 
-  setMode(mode: InspectorMode): void { this.store.setMode(mode); }
-  pause(): void { this.store.pause(); }
-  resume(): void { this.store.resume(); }
-  setFollowLatest(follow: boolean): void { this.store.setFollowLatest(follow); }
-  selectFrame(frameIndex: number): void { this.store.selectFrame(frameIndex); }
+  setMode(mode: InspectorMode): void {
+    this.store.setMode(mode);
+  }
+  pause(): void {
+    this.store.pause();
+  }
+  resume(): void {
+    this.store.resume();
+  }
+  setFollowLatest(follow: boolean): void {
+    this.store.setFollowLatest(follow);
+  }
+  selectFrame(frameIndex: number): void {
+    this.store.selectFrame(frameIndex);
+  }
   selectRange(startFrameIndex: number, endFrameIndex: number): readonly ProfileFrame[] {
     return this.store.selectRange(startFrameIndex, endFrameIndex);
   }
-  clearSelection(): void { this.store.clearSelection(); }
-  clear(): void { this.store.clear(); }
+  clearSelection(): void {
+    this.store.clearSelection();
+  }
+  clear(): void {
+    this.store.clear();
+  }
 
   snapshot(): InspectorViewState {
     const state = this.store.state;
-    return Object.freeze({ ...state, source: "live" as const, latest: this.latestFrame, selected: this.selectedFrame });
+    return Object.freeze({
+      ...state,
+      source: "live" as const,
+      latest: this.latestFrame,
+      selected: this.selectedFrame,
+    });
   }
 
   subscribe(listener: InspectorViewModelListener): () => void {

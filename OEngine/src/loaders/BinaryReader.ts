@@ -6,11 +6,10 @@ import { floatToHalf, halfToFloat } from "./float16.js";
 
 export const BinaryEndianness = {
   BigEndian: false,
-  LittleEndian: true
+  LittleEndian: true,
 } as const;
 
-export type BinaryEndiannessValue =
-  (typeof BinaryEndianness)[keyof typeof BinaryEndianness];
+export type BinaryEndiannessValue = (typeof BinaryEndianness)[keyof typeof BinaryEndianness];
 
 export const or = BinaryEndianness;
 
@@ -34,9 +33,7 @@ export class BinaryReader {
 
   setCapacity(capacity: number): void {
     if (capacity < this.position) {
-      throw new Error(
-        `Attempting to set capacity(=${capacity}) below current position(=${this.position})`
-      );
+      throw new Error(`Attempting to set capacity(=${capacity}) below current position(=${this.position})`);
     }
     if (this.capacity === capacity) return;
     const t = this._u8;
@@ -104,7 +101,6 @@ export class BinaryReader {
     this.position += byte_count;
   }
 
-
   readASCIICharacters(length: number, null_terminated = false): string {
     let n = "";
     for (let r = 0; r < length; r++) {
@@ -128,10 +124,7 @@ export class BinaryReader {
   }
 
   readUint16LE(): number {
-    const v = this.dataView.getUint16(
-      this.position,
-      BinaryEndianness.LittleEndian
-    );
+    const v = this.dataView.getUint16(this.position, BinaryEndianness.LittleEndian);
     this.position += 2;
     return v;
   }
@@ -143,9 +136,7 @@ export class BinaryReader {
   }
 
   readUint24(): number {
-    return this.endianness === BinaryEndianness.BigEndian
-      ? this.readUint24BE()
-      : this.readUint24LE();
+    return this.endianness === BinaryEndianness.BigEndian ? this.readUint24BE() : this.readUint24LE();
   }
 
   readUint24LE(): number {
@@ -171,10 +162,7 @@ export class BinaryReader {
   }
 
   readUint32LE(): number {
-    const v = this.dataView.getUint32(
-      this.position,
-      BinaryEndianness.LittleEndian
-    );
+    const v = this.dataView.getUint32(this.position, BinaryEndianness.LittleEndian);
     this.position += 4;
     return v;
   }
@@ -234,18 +222,14 @@ export class BinaryReader {
   readFloat32Array(
     destination: Float32Array | number[],
     destination_offset = 0,
-    length = destination.length
+    length = destination.length,
   ): void {
     for (let i = 0; i < length; i++) {
       destination[destination_offset + i] = this.readFloat32();
     }
   }
 
-  readFloat64Array(
-    destination: Float64Array,
-    destination_offset = 0,
-    length = destination.length
-  ): void {
+  readFloat64Array(destination: Float64Array, destination_offset = 0, length = destination.length): void {
     for (let i = 0; i < length; i++) {
       destination[destination_offset + i] = this.readFloat64();
     }
@@ -254,7 +238,7 @@ export class BinaryReader {
   readUint32Array(
     destination: Uint32Array | number[] | ArrayLike<number>,
     destination_offset = 0,
-    length = destination.length
+    length = destination.length,
   ): void {
     const output = destination as { [index: number]: number };
     for (let i = 0; i < length; i++) {
@@ -262,51 +246,31 @@ export class BinaryReader {
     }
   }
 
-  readUint16Array(
-    destination: Uint16Array,
-    destination_offset = 0,
-    length = destination.length
-  ): void {
+  readUint16Array(destination: Uint16Array, destination_offset = 0, length = destination.length): void {
     for (let i = 0; i < length; i++) {
       destination[destination_offset + i] = this.readUint16();
     }
   }
 
-  readUint8Array(
-    destination: Uint8Array,
-    destination_offset = 0,
-    length = destination.length
-  ): void {
+  readUint8Array(destination: Uint8Array, destination_offset = 0, length = destination.length): void {
     for (let i = 0; i < length; i++) {
       destination[destination_offset + i] = this.readUint8();
     }
   }
 
-  readInt8Array(
-    destination: Int8Array,
-    destination_offset = 0,
-    length = destination.length
-  ): void {
+  readInt8Array(destination: Int8Array, destination_offset = 0, length = destination.length): void {
     for (let i = 0; i < length; i++) {
       destination[destination_offset + i] = this.readInt8();
     }
   }
 
-  readInt16Array(
-    destination: Int16Array,
-    destination_offset = 0,
-    length = destination.length
-  ): void {
+  readInt16Array(destination: Int16Array, destination_offset = 0, length = destination.length): void {
     for (let i = 0; i < length; i++) {
       destination[destination_offset + i] = this.readInt16();
     }
   }
 
-  readInt32Array(
-    destination: Int32Array,
-    destination_offset = 0,
-    length = destination.length
-  ): void {
+  readInt32Array(destination: Int32Array, destination_offset = 0, length = destination.length): void {
     for (let i = 0; i < length; i++) {
       destination[destination_offset + i] = this.readInt32();
     }
@@ -315,7 +279,7 @@ export class BinaryReader {
   readFloat16Array(
     destination: Float32Array | number[],
     destination_offset = 0,
-    length = destination.length
+    length = destination.length,
   ): void {
     for (let i = 0; i < length; i++) {
       destination[destination_offset + i] = this.readFloat16();
@@ -338,16 +302,9 @@ export class BinaryReader {
         if (192 === (224 & b0)) {
           a = ((31 & b0) << 6) | (63 & t[r++]!);
         } else if (224 === (240 & b0)) {
-          a =
-            ((31 & b0) << 12) |
-            ((63 & t[r++]!) << 6) |
-            (63 & t[r++]!);
+          a = ((31 & b0) << 12) | ((63 & t[r++]!) << 6) | (63 & t[r++]!);
         } else if (240 === (248 & b0)) {
-          a =
-            ((7 & b0) << 18) |
-            ((63 & t[r++]!) << 12) |
-            ((63 & t[r++]!) << 6) |
-            (63 & t[r++]!);
+          a = ((7 & b0) << 18) | ((63 & t[r++]!) << 12) | ((63 & t[r++]!) << 6) | (63 & t[r++]!);
           if (a > 65535) {
             a -= 65536;
             n += String.fromCharCode(((a >>> 10) & 1023) | 55296);
@@ -368,12 +325,9 @@ export class BinaryReader {
   readBytes(
     destination: Uint8Array,
     destination_offset = 0,
-    length = destination.length - destination_offset
+    length = destination.length - destination_offset,
   ): void {
-    destination.set(
-      this._u8.subarray(this.position, this.position + length),
-      destination_offset
-    );
+    destination.set(this._u8.subarray(this.position, this.position + length), destination_offset);
     this.position += length;
   }
 
@@ -390,7 +344,6 @@ export class BinaryReader {
     return t;
   }
 
-
   writeUint8(value: number): void {
     const t = this.position + 1;
     this.ensureCapacity(t);
@@ -401,7 +354,7 @@ export class BinaryReader {
   writeUint8Array(
     source: ArrayLike<number>,
     source_offset = 0,
-    length = source.length - source_offset
+    length = source.length - source_offset,
   ): void {
     for (let r = 0; r < length; r++) {
       this.writeUint8(source[source_offset + r]!);
@@ -432,7 +385,7 @@ export class BinaryReader {
   writeUint16Array(
     source: ArrayLike<number>,
     source_offset = 0,
-    length = source.length - source_offset
+    length = source.length - source_offset,
   ): void {
     for (let r = 0; r < length; r++) {
       this.writeUint16(source[source_offset + r]!);
@@ -463,7 +416,7 @@ export class BinaryReader {
   writeUint32Array(
     source: ArrayLike<number>,
     source_offset = 0,
-    length = source.length - source_offset
+    length = source.length - source_offset,
   ): void {
     this.ensureCapacity(this.position + 4 * length);
     for (let r = 0; r < length; r++) {
@@ -506,11 +459,7 @@ export class BinaryReader {
     this.position = t;
   }
 
-  writeInt8Array(
-    source: ArrayLike<number>,
-    source_offset = 0,
-    length = source.length - source_offset
-  ): void {
+  writeInt8Array(source: ArrayLike<number>, source_offset = 0, length = source.length - source_offset): void {
     this.ensureCapacity(this.position + length);
     for (let r = 0; r < length; r++) {
       this.writeInt8(source[source_offset + r]!);
@@ -520,7 +469,7 @@ export class BinaryReader {
   writeInt16Array(
     source: ArrayLike<number>,
     source_offset = 0,
-    length = source.length - source_offset
+    length = source.length - source_offset,
   ): void {
     this.ensureCapacity(this.position + 2 * length);
     for (let r = 0; r < length; r++) {
@@ -531,7 +480,7 @@ export class BinaryReader {
   writeInt32Array(
     source: ArrayLike<number>,
     source_offset = 0,
-    length = source.length - source_offset
+    length = source.length - source_offset,
   ): void {
     this.ensureCapacity(this.position + 4 * length);
     for (let r = 0; r < length; r++) {
@@ -560,7 +509,7 @@ export class BinaryReader {
   writeFloat32Array(
     source: ArrayLike<number>,
     source_offset = 0,
-    length = source.length - source_offset
+    length = source.length - source_offset,
   ): void {
     for (let r = 0; r < length; r++) {
       this.writeFloat32(source[source_offset + r]!);
@@ -570,7 +519,7 @@ export class BinaryReader {
   writeFloat16Array(
     source: ArrayLike<number>,
     source_offset = 0,
-    length = source.length - source_offset
+    length = source.length - source_offset,
   ): void {
     for (let r = 0; r < length; r++) {
       this.writeFloat16(source[source_offset + r]!);
@@ -580,7 +529,7 @@ export class BinaryReader {
   writeBytes(
     array: ArrayLike<number> | Uint8Array,
     source_offset = 0,
-    length = (array as Uint8Array).length - source_offset
+    length = (array as Uint8Array).length - source_offset,
   ): void {
     const r = source_offset + length;
     const s = this.position;
@@ -663,20 +612,14 @@ export class BinaryReader {
     for (let i = 0; i < t; i++) {
       const c = string.charCodeAt(i);
       if (c > 128) {
-        throw new Error(
-          `Character ${String.fromCharCode(c)} can't be represented by a US-ASCII byte.`
-        );
+        throw new Error(`Character ${String.fromCharCode(c)} can't be represented by a US-ASCII byte.`);
       }
       this._u8[n + i] = c;
     }
     this.position = r;
   }
 
-
-  static copyUTF8String(
-    source: BinaryReader,
-    target: BinaryReader
-  ): string | null | undefined {
+  static copyUTF8String(source: BinaryReader, target: BinaryReader): string | null | undefined {
     const n = source.readUTF8String();
     target.writeUTF8String(n);
     return n;
@@ -718,11 +661,7 @@ export class BinaryReader {
     return n;
   }
 
-  static copyBytes(
-    source: BinaryReader,
-    target: BinaryReader,
-    length: number
-  ): Uint8Array {
+  static copyBytes(source: BinaryReader, target: BinaryReader, length: number): Uint8Array {
     const r = new Uint8Array(length);
     source.readBytes(r, 0, length);
     target.writeBytes(r, 0, length);

@@ -87,8 +87,10 @@ fn reduce_main(@builtin(local_invocation_index) li:u32) {
 `;
 
 type Pair = readonly [GPUBuffer, GPUBuffer];
-type RadiometryResourceBinder =
-  (name: string, resolve: (runtime: GpuRadiometryPass) => GPUBuffer) => ResourceId;
+type RadiometryResourceBinder = (
+  name: string,
+  resolve: (runtime: GpuRadiometryPass) => GPUBuffer,
+) => ResourceId;
 
 export class GpuRadiometryPass {
   private readonly layout0: GPUBindGroupLayout;
@@ -103,74 +105,102 @@ export class GpuRadiometryPass {
   private deltaTime = 1 / 60;
   private lastGpuDone: Promise<void> | null = null;
 
-  constructor(private readonly device: GPUDevice, private readonly autoExposure = true,
-    private readonly fixedExposure = 1) {
+  constructor(
+    private readonly device: GPUDevice,
+    private readonly autoExposure = true,
+    private readonly fixedExposure = 1,
+  ) {
     if (!Number.isFinite(fixedExposure) || fixedExposure <= 0) {
       throw new RangeError("GPU radiometry fixed exposure must be positive");
     }
     if (device.limits.maxStorageBuffersPerShaderStage < 3) {
       throw new RangeError("GPU radiometry requires three storage buffers");
     }
-    this.layout0 = device.createBindGroupLayout({ entries: [
-      { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
-      { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-      { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-      { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } }
-    ] });
-    this.layout1 = device.createBindGroupLayout({ entries: [
-      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-      { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-      { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-      { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } }
-    ] });
+    this.layout0 = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+        { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+        { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+      ],
+    });
+    this.layout1 = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+        { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+      ],
+    });
     const module = device.createShaderModule({ label: "Radiometry GPU P/E", code: WGSL });
     this.histogramPipeline = device.createComputePipeline({
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout0] }),
-      compute: { module, entryPoint: "histogram_main" }
+      compute: { module, entryPoint: "histogram_main" },
     });
     this.reducePipeline = device.createComputePipeline({
-      layout: device.createPipelineLayout({ bindGroupLayouts: [device.createBindGroupLayout({ entries: [] }), this.layout1] }),
-      compute: { module, entryPoint: "reduce_main" }
+      layout: device.createPipelineLayout({
+        bindGroupLayouts: [device.createBindGroupLayout({ entries: [] }), this.layout1],
+      }),
+      compute: { module, entryPoint: "reduce_main" },
     });
-    this.buffers = [0, 1].map(index => {
+    this.buffers = [0, 1].map((index) => {
       // Both exposure and adapted scene luminance survive in the device epoch.
-      const buffer = device.createBuffer({ label: `Radiometry/P-E/${index}`, size: 32,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.UNIFORM |
-          GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
-        mappedAtCreation: true });
+      const buffer = device.createBuffer({
+        label: `Radiometry/P-E/${index}`,
+        size: 32,
+        usage:
+          GPUBufferUsage.STORAGE | GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+        mappedAtCreation: true,
+      });
       new Float32Array(buffer.getMappedRange()).set([this.fixedExposure, 0.18 / this.fixedExposure]);
-      buffer.unmap(); return buffer;
+      buffer.unmap();
+      return buffer;
     }) as unknown as Pair;
   }
 
-  prepareFrame(readIndex: 0 | 1, writeIndex: 0 | 1, historyValid: boolean,
-    deltaTime = 1 / 60): void {
+  prepareFrame(readIndex: 0 | 1, writeIndex: 0 | 1, historyValid: boolean, deltaTime = 1 / 60): void {
     if (this.prepared) throw new Error("GPU radiometry frame already prepared");
     if (readIndex === writeIndex) throw new Error("GPU radiometry read/write slots alias");
-    this.readIndex = readIndex; this.writeIndex = writeIndex;
-    this.historyValid = historyValid; this.prepared = true;
+    this.readIndex = readIndex;
+    this.writeIndex = writeIndex;
+    this.historyValid = historyValid;
+    this.prepared = true;
     this.deltaTime = Number.isFinite(deltaTime) ? Math.max(0, Math.min(1, deltaTime)) : 1 / 60;
     if (!historyValid) {
       // Reset P_0 on the device queue; the subsequent frame encoder consumes it.
-      this.device.queue.writeBuffer(this.readBuffer(), 0,
-        new Float32Array([this.fixedExposure, 0.18 / this.fixedExposure]));
+      this.device.queue.writeBuffer(
+        this.readBuffer(),
+        0,
+        new Float32Array([this.fixedExposure, 0.18 / this.fixedExposure]),
+      );
     }
   }
-  readBuffer(): GPUBuffer { return this.buffers[this.readIndex]; }
-  writeBuffer(): GPUBuffer { return this.buffers[this.writeIndex]; }
-  importPreviousExposure(graph: FrameGraph,
-    bind: RadiometryResourceBinder): ResourceId {
-    void graph;
-    return bind("previous-exposure", runtime => runtime.readBuffer());
+  readBuffer(): GPUBuffer {
+    return this.buffers[this.readIndex];
   }
-  importPriorExposure(graph: FrameGraph,
-    bind: RadiometryResourceBinder): ResourceId {
+  writeBuffer(): GPUBuffer {
+    return this.buffers[this.writeIndex];
+  }
+  importPreviousExposure(graph: FrameGraph, bind: RadiometryResourceBinder): ResourceId {
     void graph;
-    return bind("prior-exposure", runtime => runtime.writeBuffer());
+    return bind("previous-exposure", (runtime) => runtime.readBuffer());
+  }
+  importPriorExposure(graph: FrameGraph, bind: RadiometryResourceBinder): ResourceId {
+    void graph;
+    return bind("prior-exposure", (runtime) => runtime.writeBuffer());
   }
 
-  addToGraph(graph: FrameGraph, input: { scene: ResourceId; width: number; height: number; previousExposure?: ResourceId; priorExposure?: ResourceId },
-    bind: RadiometryResourceBinder): RadiometryProducts {
+  addToGraph(
+    graph: FrameGraph,
+    input: {
+      scene: ResourceId;
+      width: number;
+      height: number;
+      previousExposure?: ResourceId;
+      priorExposure?: ResourceId;
+    },
+    bind: RadiometryResourceBinder,
+  ): RadiometryProducts {
     if (!this.prepared) throw new Error("GPU radiometry must be prepared before graph build");
     const previousExposure = input.previousExposure ?? this.importPreviousExposure(graph, bind);
     // Both history slots start at 1x and remain constant without an adaptation writer.
@@ -186,39 +216,64 @@ export class GpuRadiometryPass {
     const meter = graph.add("Radiometry/Wicked histogram", input, (data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
       const constants = command.allocateTransientBufferAndLoad(makeSettings(), GPUBufferUsage.UNIFORM);
-      const group = this.device.createBindGroup({ layout: this.layout0, entries: [
-        { binding: 0, resource: resolveTextureView(resources.get(data.scene)) },
-        { binding: 1, resource: { buffer: resources.get(histogram) as GPUBuffer } },
-        { binding: 2, resource: { buffer: constants } },
-        { binding: 3, resource: { buffer: resources.get(previousExposure) as GPUBuffer } }
-      ] });
+      const group = this.device.createBindGroup({
+        layout: this.layout0,
+        entries: [
+          { binding: 0, resource: resolveTextureView(resources.get(data.scene)) },
+          { binding: 1, resource: { buffer: resources.get(histogram) as GPUBuffer } },
+          { binding: 2, resource: { buffer: constants } },
+          { binding: 3, resource: { buffer: resources.get(previousExposure) as GPUBuffer } },
+        ],
+      });
       const pass = command.beginComputePass({ label: "Radiometry/Wicked histogram" });
-      pass.setPipeline(this.histogramPipeline); pass.setBindGroup(0, group);
-      pass.dispatchWorkgroups(Math.ceil(data.width / 32), Math.ceil(data.height / 32)); pass.end();
+      pass.setPipeline(this.histogramPipeline);
+      pass.setBindGroup(0, group);
+      pass.dispatchWorkgroups(Math.ceil(data.width / 32), Math.ceil(data.height / 32));
+      pass.end();
     });
-    histogram = meter.create("Radiometry/histogram", { kind: "transient_buffer", size: HISTOGRAM_BYTES,
-      usage: GPUBufferUsage.STORAGE, ensure_cleared: [0, HISTOGRAM_BYTES] });
-    meter.read(input.scene); meter.read(previousExposure);
+    histogram = meter.create("Radiometry/histogram", {
+      kind: "transient_buffer",
+      size: HISTOGRAM_BYTES,
+      usage: GPUBufferUsage.STORAGE,
+      ensure_cleared: [0, HISTOGRAM_BYTES],
+    });
+    meter.read(input.scene);
+    meter.read(previousExposure);
     const reduce = graph.add("Radiometry/adapt exposure", {}, (_data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
       const constants = command.allocateTransientBufferAndLoad(makeSettings(), GPUBufferUsage.UNIFORM);
-      const group = this.device.createBindGroup({ layout: this.layout1, entries: [
-        { binding: 0, resource: { buffer: resources.get(histogram) as GPUBuffer } },
-        { binding: 1, resource: { buffer: resources.get(previousExposure) as GPUBuffer } },
-        { binding: 2, resource: { buffer: resources.get(priorExposure) as GPUBuffer } },
-        { binding: 3, resource: { buffer: constants } }
-      ] });
+      const group = this.device.createBindGroup({
+        layout: this.layout1,
+        entries: [
+          { binding: 0, resource: { buffer: resources.get(histogram) as GPUBuffer } },
+          { binding: 1, resource: { buffer: resources.get(previousExposure) as GPUBuffer } },
+          { binding: 2, resource: { buffer: resources.get(priorExposure) as GPUBuffer } },
+          { binding: 3, resource: { buffer: constants } },
+        ],
+      });
       const pass = command.beginComputePass({ label: "Radiometry/adapt exposure" });
-      pass.setPipeline(this.reducePipeline); pass.setBindGroup(1, group); pass.dispatchWorkgroups(1); pass.end();
+      pass.setPipeline(this.reducePipeline);
+      pass.setBindGroup(1, group);
+      pass.dispatchWorkgroups(1);
+      pass.end();
     });
-    reduce.read(histogram); reduce.read(previousExposure);
+    reduce.read(histogram);
+    reduce.read(previousExposure);
     const adaptedExposure = reduce.write(priorExposure);
     return { previousExposure, adaptedExposure };
   }
 
-  commit(gpuDone: Promise<void>): void { if (!this.prepared) throw new Error("GPU radiometry commit without prepare"); this.prepared = false; this.lastGpuDone = gpuDone; }
-  abort(): void { this.prepared = false; }
-  destroy(): void { for (const buffer of this.buffers) buffer.destroy(); }
+  commit(gpuDone: Promise<void>): void {
+    if (!this.prepared) throw new Error("GPU radiometry commit without prepare");
+    this.prepared = false;
+    this.lastGpuDone = gpuDone;
+  }
+  abort(): void {
+    this.prepared = false;
+  }
+  destroy(): void {
+    for (const buffer of this.buffers) buffer.destroy();
+  }
 }
 
 export const GPU_RADIOMETRY_WGSL = WGSL;

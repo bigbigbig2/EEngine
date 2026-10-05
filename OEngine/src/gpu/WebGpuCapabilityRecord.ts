@@ -1,11 +1,5 @@
-import {
-  textureBindingSetPolicy,
-  type TextureBindingSetPolicyRecord
-} from "./TextureBindingSetPolicy.js";
-import {
-  gpuShadingBindingBudget,
-  type GpuShadingBindingBudgetRecord
-} from "./GpuShadingBindingBudget.js";
+import { textureBindingSetPolicy, type TextureBindingSetPolicyRecord } from "./TextureBindingSetPolicy.js";
+import { gpuShadingBindingBudget, type GpuShadingBindingBudgetRecord } from "./GpuShadingBindingBudget.js";
 
 export interface WebGpuApiProbes {
   readonly immediateData: boolean;
@@ -38,7 +32,7 @@ export interface WebGpuCapabilityRecord {
 export function captureWebGpuCapabilityRecord(
   gpu: GPU,
   device: GPUDevice,
-  adapter?: GPUAdapter
+  adapter?: GPUAdapter,
 ): WebGpuCapabilityRecord {
   const adapterFeatures = Object.freeze([...(adapter?.features ?? device.features)].map(String).sort());
   const deviceFeatures = Object.freeze([...device.features].map(String).sort());
@@ -56,7 +50,7 @@ export function captureWebGpuCapabilityRecord(
     maxTextureArrayLayers: Number(device.limits.maxTextureArrayLayers),
     maxTextureDimension2D: Number(device.limits.maxTextureDimension2D),
     maxColorAttachmentBytesPerSample: Number(device.limits.maxColorAttachmentBytesPerSample),
-    maxImmediateSize: Number(device.limits.maxImmediateSize ?? 0)
+    maxImmediateSize: Number(device.limits.maxImmediateSize ?? 0),
   });
   const apiProbes = Object.freeze({
     immediateData:
@@ -64,24 +58,25 @@ export function captureWebGpuCapabilityRecord(
       wgslLanguageFeatures.includes("immediate_address_space") &&
       typeof GPURenderPassEncoder !== "undefined" &&
       "setImmediates" in GPURenderPassEncoder.prototype,
-    transientAttachments:
-      typeof GPUTextureUsage !== "undefined" &&
-      "TRANSIENT_ATTACHMENT" in GPUTextureUsage
+    transientAttachments: typeof GPUTextureUsage !== "undefined" && "TRANSIENT_ATTACHMENT" in GPUTextureUsage,
   });
   const textureBindingPolicy = textureBindingSetPolicy(device.limits);
   const shadingBindingBudget = gpuShadingBindingBudget(device.limits);
   const has = (feature: string): boolean => deviceFeatures.includes(feature);
-  const textureCompression = has("texture-compression-bc") ? "bc"
-    : has("texture-compression-astc") ? "astc"
-    : has("texture-compression-etc2") ? "etc2"
-    : "rgba8";
+  const textureCompression = has("texture-compression-bc")
+    ? "bc"
+    : has("texture-compression-astc")
+      ? "astc"
+      : has("texture-compression-etc2")
+        ? "etc2"
+        : "rgba8";
   const specialization = Object.freeze({
     textureCompression,
     subgroups: has("subgroups"),
     primitiveIndex: has("primitive-index"),
     shaderF16: has("shader-f16"),
     immediateData: apiProbes.immediateData,
-    transientAttachments: apiProbes.transientAttachments
+    transientAttachments: apiProbes.transientAttachments,
   });
   const fingerprint = JSON.stringify({
     featureLevel: "core",
@@ -91,7 +86,7 @@ export function captureWebGpuCapabilityRecord(
     apiProbes,
     textureBindingPolicy,
     shadingBindingBudget,
-    specialization
+    specialization,
   });
   return Object.freeze({
     schemaVersion: 2,
@@ -104,6 +99,6 @@ export function captureWebGpuCapabilityRecord(
     textureBindingPolicy,
     shadingBindingBudget,
     specialization,
-    fingerprint
+    fingerprint,
   });
 }

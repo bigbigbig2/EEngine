@@ -3,12 +3,7 @@ import type { FrameProfiler } from "../debug/FrameProfiler.js";
 const profilerByDevice = new WeakMap<GPUDevice, FrameProfiler>();
 const profilerByQueue = new WeakMap<GPUQueue, FrameProfiler>();
 
-export type GpuSubmitOwnerKind =
-  | "render-frame"
-  | "one-shot"
-  | "tool"
-  | "debug-readback"
-  | "recovery";
+export type GpuSubmitOwnerKind = "render-frame" | "one-shot" | "tool" | "debug-readback" | "recovery";
 
 const GPU_SUBMIT_OWNER_BY_LABEL = new Map<string, GpuSubmitOwnerKind>([
   ["Renderer/visibility-frame", "render-frame"],
@@ -27,27 +22,19 @@ const GPU_SUBMIT_OWNER_BY_LABEL = new Map<string, GpuSubmitOwnerKind>([
   ["Renderer/GpuRenderWorld/residency-transaction", "tool"],
   ["Renderer/GpuRenderWorld/multi-product-append", "tool"],
   ["Renderer/GpuRenderWorld/release-transaction", "tool"],
-  ["Renderer/View/release", "tool"]
+  ["Renderer/View/release", "tool"],
 ]);
 
-export function classifyGpuSubmitLabel(
-  label: string
-): GpuSubmitOwnerKind | undefined {
+export function classifyGpuSubmitLabel(label: string): GpuSubmitOwnerKind | undefined {
   return GPU_SUBMIT_OWNER_BY_LABEL.get(label);
 }
 
-export function registerGpuQueueProfiler(
-  device: GPUDevice,
-  profiler: FrameProfiler
-): void {
+export function registerGpuQueueProfiler(device: GPUDevice, profiler: FrameProfiler): void {
   profilerByDevice.set(device, profiler);
   profilerByQueue.set(device.queue, profiler);
 }
 
-export function unregisterGpuQueueProfiler(
-  device: GPUDevice,
-  profiler: FrameProfiler
-): void {
+export function unregisterGpuQueueProfiler(device: GPUDevice, profiler: FrameProfiler): void {
   if (profilerByDevice.get(device) === profiler) profilerByDevice.delete(device);
   if (profilerByQueue.get(device.queue) === profiler) {
     profilerByQueue.delete(device.queue);
@@ -58,7 +45,7 @@ export function unregisterGpuQueueProfiler(
 export function submitGpuCommands(
   device: GPUDevice,
   label: string,
-  commandBuffers: readonly GPUCommandBuffer[]
+  commandBuffers: readonly GPUCommandBuffer[],
 ): void {
   const ownerKind = classifyGpuSubmitLabel(label);
   if (ownerKind === undefined) {
@@ -73,19 +60,11 @@ export function submitGpuCommands(
   profiler.measure("queue-submit", () => device.queue.submit(commandBuffers));
 }
 
-export function recordGpuReadback(
-  device: GPUDevice,
-  label: string,
-  bytes: number
-): void {
+export function recordGpuReadback(device: GPUDevice, label: string, bytes: number): void {
   profilerByDevice.get(device)?.recordReadback(label, bytes);
 }
 
-export function recordGpuQueueUpload(
-  queue: GPUQueue,
-  label: string,
-  bytes: number
-): void {
+export function recordGpuQueueUpload(queue: GPUQueue, label: string, bytes: number): void {
   profilerByQueue.get(queue)?.recordUpload(label, bytes);
 }
 
@@ -108,10 +87,6 @@ export function writeGpuTexture(
 ): void {
   const source = args[1];
   const layout = args[2];
-  recordGpuQueueUpload(
-    queue,
-    label,
-    Math.max(0, source.byteLength - Number(layout.offset ?? 0))
-  );
+  recordGpuQueueUpload(queue, label, Math.max(0, source.byteLength - Number(layout.offset ?? 0)));
   queue.writeTexture(...args);
 }

@@ -1,7 +1,7 @@
 import type { ProfileFrame } from "../../../debug/profiling/ProfileFrame.js";
 import {
   summarizeProfileSeries,
-  type ProfileSeriesSummary
+  type ProfileSeriesSummary,
 } from "../../../debug/profiling/ProfileStatistics.js";
 import { FrameChart } from "../charts/FrameChart.js";
 import { SeriesChart } from "../charts/SeriesChart.js";
@@ -24,11 +24,12 @@ function valuesFor(frames: readonly ProfileFrame[], metricId: string): number[] 
 
 export function buildOverviewStats(
   frames: readonly ProfileFrame[],
-  range: readonly [number, number] | null = null
+  range: readonly [number, number] | null = null,
 ): OverviewStats {
-  const selected = range === null
-    ? frames
-    : frames.filter((frame) => frame.frameIndex >= range[0] && frame.frameIndex <= range[1]);
+  const selected =
+    range === null
+      ? frames
+      : frames.filter((frame) => frame.frameIndex >= range[0] && frame.frameIndex <= range[1]);
   const raf = summarizeProfileSeries(valuesFor(selected, "frame.rafIntervalMs"));
   const cpu = summarizeProfileSeries(valuesFor(selected, "cpu.frameMs"));
   const gpu = summarizeProfileSeries(valuesFor(selected, "gpu.passSumMs"));
@@ -46,7 +47,7 @@ export function buildOverviewStats(
     cpu,
     gpu,
     raf,
-    highestCostPhase
+    highestCostPhase,
   };
 }
 
@@ -82,7 +83,12 @@ export class OverviewPanel {
     const kpiGrid = document.createElement("div");
     kpiGrid.className = "overview-kpis";
     const kpis = new Map<string, { value: HTMLElement; meta: HTMLElement }>();
-    for (const [id, label] of [["fps", "RAF FPS"], ["frame", "RAF interval"], ["cpu", "CPU frame wall"], ["gpu", "GPU pass sum"]] as const) {
+    for (const [id, label] of [
+      ["fps", "RAF FPS"],
+      ["frame", "RAF interval"],
+      ["cpu", "CPU frame wall"],
+      ["gpu", "GPU pass sum"],
+    ] as const) {
       const card = document.createElement("div");
       card.className = "kpi-card";
       const cardLabel = document.createElement("span");
@@ -107,7 +113,15 @@ export class OverviewPanel {
     this.frameChart = new FrameChart(this.frameCanvas);
     this.cpuChart = new SeriesChart(this.cpuCanvas);
     this.gpuChart = new SeriesChart(this.gpuCanvas);
-    this.element.append(heading, subtitle, kpiGrid, this.stats, this.frameCanvas, this.cpuCanvas, this.gpuCanvas);
+    this.element.append(
+      heading,
+      subtitle,
+      kpiGrid,
+      this.stats,
+      this.frameCanvas,
+      this.cpuCanvas,
+      this.gpuCanvas,
+    );
   }
 
   update(frames: readonly ProfileFrame[], range: readonly [number, number] | null): void {
@@ -120,7 +134,7 @@ export class OverviewPanel {
     this.stats.textContent = [
       `${stats.frameCount} frames · ${range === null ? "live window" : `range ${range[0]}–${range[1]}`}`,
       `CPU ${formatSummary(stats.cpu)} · GPU ${formatSummary(stats.gpu)}`,
-      `Highest phase ${stats.highestCostPhase ?? "none"}`
+      `Highest phase ${stats.highestCostPhase ?? "none"}`,
     ].join("\n");
     this.frameChart.setFrames(frames, this.budgetMs);
     this.frameChart.render();

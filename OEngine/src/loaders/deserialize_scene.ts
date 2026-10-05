@@ -17,7 +17,7 @@ import {
   readLengthPrefixedBuffer,
   readShadeImageMeta,
   readShadeTextureParams,
-  SHADE_INVALID_INDEX
+  SHADE_INVALID_INDEX,
 } from "./shadeFormat.js";
 
 export interface ShadeMeshInstanceRecord {
@@ -27,10 +27,7 @@ export interface ShadeMeshInstanceRecord {
   transform: Float32Array;
 }
 
-export async function deserialize_scene(
-  buffer: BinaryReader,
-  scene: Scene
-): Promise<Scene> {
+export async function deserialize_scene(buffer: BinaryReader, scene: Scene): Promise<Scene> {
   const e = buffer;
   const r = e.readASCIICharacters(5);
   if (r !== "SHADE") {
@@ -78,8 +75,7 @@ export async function deserialize_scene(
   }
 
   const f = e.readUint32();
-  const h: { image: ReturnType<typeof readShadeImageMeta>["image"]; source_index: number }[] =
-    [];
+  const h: { image: ReturnType<typeof readShadeImageMeta>["image"]; source_index: number }[] = [];
   for (let t = 0; t < f; t++) {
     h.push(readShadeImageMeta(e));
   }

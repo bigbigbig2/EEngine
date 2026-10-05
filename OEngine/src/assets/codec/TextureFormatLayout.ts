@@ -22,7 +22,7 @@ const LAYOUTS = new Map<GPUTextureFormat, TextureFormatBlockLayout>([
   ["eac-r11unorm", { blockWidth: 4, blockHeight: 4, bytesPerBlock: 8 }],
   ["eac-rg11unorm", { blockWidth: 4, blockHeight: 4, bytesPerBlock: 16 }],
   ["astc-4x4-unorm", { blockWidth: 4, blockHeight: 4, bytesPerBlock: 16 }],
-  ["astc-4x4-unorm-srgb", { blockWidth: 4, blockHeight: 4, bytesPerBlock: 16 }]
+  ["astc-4x4-unorm-srgb", { blockWidth: 4, blockHeight: 4, bytesPerBlock: 16 }],
 ]);
 
 export function textureFormatBlockLayout(format: GPUTextureFormat): TextureFormatBlockLayout {
@@ -34,22 +34,25 @@ export function textureFormatBlockLayout(format: GPUTextureFormat): TextureForma
 export function encodedTextureMipByteLength(
   format: GPUTextureFormat,
   logicalWidth: number,
-  logicalHeight: number
+  logicalHeight: number,
 ): number {
   const layout = textureFormatBlockLayout(format);
-  return Math.ceil(logicalWidth / layout.blockWidth) *
-    Math.ceil(logicalHeight / layout.blockHeight) * layout.bytesPerBlock;
+  return (
+    Math.ceil(logicalWidth / layout.blockWidth) *
+    Math.ceil(logicalHeight / layout.blockHeight) *
+    layout.bytesPerBlock
+  );
 }
 
 export function physicalTextureExtent(
   format: GPUTextureFormat,
   logicalWidth: number,
-  logicalHeight: number
+  logicalHeight: number,
 ): readonly [number, number] {
   const layout = textureFormatBlockLayout(format);
   return Object.freeze([
     alignUp(logicalWidth, layout.blockWidth),
-    alignUp(logicalHeight, layout.blockHeight)
+    alignUp(logicalHeight, layout.blockHeight),
   ] as const);
 }
 

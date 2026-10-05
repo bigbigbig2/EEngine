@@ -1,8 +1,4 @@
-import type {
-  BenchmarkResult,
-  BenchmarkSummary,
-  SeriesSummary
-} from "./BenchmarkHarness.js";
+import type { BenchmarkResult, BenchmarkSummary, SeriesSummary } from "./BenchmarkHarness.js";
 
 export type BenchmarkDeltaStatus =
   | "available"
@@ -42,7 +38,7 @@ const SUMMARY_GROUPS = [
   "gpuPhaseMs",
   "surfacePhaseMs",
   "counters",
-  "gpuCounters"
+  "gpuCounters",
 ] as const satisfies readonly (keyof BenchmarkSummary)[];
 
 /**
@@ -53,7 +49,7 @@ const SUMMARY_GROUPS = [
 export function compareBenchmarkResults(
   baseline: BenchmarkResult,
   variants: readonly BenchmarkResult[],
-  minimumCoverage = 0.8
+  minimumCoverage = 0.8,
 ): BenchmarkComparison {
   if (!Number.isFinite(minimumCoverage) || minimumCoverage <= 0 || minimumCoverage > 1) {
     throw new RangeError("minimumCoverage must be in (0, 1]");
@@ -61,17 +57,21 @@ export function compareBenchmarkResults(
   const baselineCaseId = baseline.case.id;
   return Object.freeze({
     baselineCaseId,
-    variants: Object.freeze(variants.map((variant) => Object.freeze({
-      caseId: variant.case.id,
-      deltas: Object.freeze(comparePair(baseline, variant, minimumCoverage))
-    })))
+    variants: Object.freeze(
+      variants.map((variant) =>
+        Object.freeze({
+          caseId: variant.case.id,
+          deltas: Object.freeze(comparePair(baseline, variant, minimumCoverage)),
+        }),
+      ),
+    ),
   });
 }
 
 function comparePair(
   baseline: BenchmarkResult,
   variant: BenchmarkResult,
-  minimumCoverage: number
+  minimumCoverage: number,
 ): BenchmarkMetricDelta[] {
   const metrics = new Set<string>();
   for (const group of SUMMARY_GROUPS) {
@@ -81,29 +81,37 @@ function comparePair(
   metrics.add("submits");
   metrics.add("readbacks");
   metrics.add("uploadBytes");
-  return [...metrics].sort((a, b) => a.localeCompare(b)).map((metric) => {
-    const baselineSeries = readSeries(baseline.summary, metric);
-    const variantSeries = readSeries(variant.summary, metric);
-    const baselineCoverage = coverage(baselineSeries, baseline);
-    const variantCoverage = coverage(variantSeries, variant);
-    const status = resolveStatus(baselineSeries, variantSeries, baselineCoverage, variantCoverage, minimumCoverage);
-    return Object.freeze({
-      metric,
-      baselineCaseId: baseline.case.id,
-      variantCaseId: variant.case.id,
-      baseline: baselineSeries,
-      variant: variantSeries,
-      baselineCoverage,
-      variantCoverage,
-      p50Absolute: status === "available" ? variantSeries!.p50 - baselineSeries!.p50 : null,
-      p95Absolute: status === "available" ? variantSeries!.p95 - baselineSeries!.p95 : null,
-      p99Absolute: status === "available" ? variantSeries!.p99 - baselineSeries!.p99 : null,
-      p50Percent: status === "available" ? percentDelta(variantSeries!.p50, baselineSeries!.p50) : null,
-      p95Percent: status === "available" ? percentDelta(variantSeries!.p95, baselineSeries!.p95) : null,
-      p99Percent: status === "available" ? percentDelta(variantSeries!.p99, baselineSeries!.p99) : null,
-      status
+  return [...metrics]
+    .sort((a, b) => a.localeCompare(b))
+    .map((metric) => {
+      const baselineSeries = readSeries(baseline.summary, metric);
+      const variantSeries = readSeries(variant.summary, metric);
+      const baselineCoverage = coverage(baselineSeries, baseline);
+      const variantCoverage = coverage(variantSeries, variant);
+      const status = resolveStatus(
+        baselineSeries,
+        variantSeries,
+        baselineCoverage,
+        variantCoverage,
+        minimumCoverage,
+      );
+      return Object.freeze({
+        metric,
+        baselineCaseId: baseline.case.id,
+        variantCaseId: variant.case.id,
+        baseline: baselineSeries,
+        variant: variantSeries,
+        baselineCoverage,
+        variantCoverage,
+        p50Absolute: status === "available" ? variantSeries!.p50 - baselineSeries!.p50 : null,
+        p95Absolute: status === "available" ? variantSeries!.p95 - baselineSeries!.p95 : null,
+        p99Absolute: status === "available" ? variantSeries!.p99 - baselineSeries!.p99 : null,
+        p50Percent: status === "available" ? percentDelta(variantSeries!.p50, baselineSeries!.p50) : null,
+        p95Percent: status === "available" ? percentDelta(variantSeries!.p95, baselineSeries!.p95) : null,
+        p99Percent: status === "available" ? percentDelta(variantSeries!.p99, baselineSeries!.p99) : null,
+        status,
+      });
     });
-  });
 }
 
 function readSeries(summary: BenchmarkSummary, metric: string): SeriesSummary | null {
@@ -128,7 +136,7 @@ function resolveStatus(
   variant: SeriesSummary | null,
   baselineCoverage: number,
   variantCoverage: number,
-  minimumCoverage: number
+  minimumCoverage: number,
 ): BenchmarkDeltaStatus {
   if (baseline === null) return "baseline-missing";
   if (variant === null) return "variant-missing";
@@ -138,5 +146,5 @@ function resolveStatus(
 }
 
 function percentDelta(value: number, baseline: number): number | null {
-  return baseline === 0 ? null : (value - baseline) / baseline * 100;
+  return baseline === 0 ? null : ((value - baseline) / baseline) * 100;
 }

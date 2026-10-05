@@ -4,11 +4,9 @@ export const GPU_SPARSE_SHADING_CAPABILITY_SCHEMA_VERSION = 1;
 export const GPU_SPARSE_SHADING_REQUIRED_FEATURES = Object.freeze([
   "core-features-and-limits",
   "subgroups",
-  "texture-formats-tier1"
+  "texture-formats-tier1",
 ] as const satisfies readonly GPUFeatureName[]);
-export const GPU_SPARSE_SHADING_FORBIDDEN_FEATURES = Object.freeze([
-  "subgroup-size-control"
-] as const);
+export const GPU_SPARSE_SHADING_FORBIDDEN_FEATURES = Object.freeze(["subgroup-size-control"] as const);
 export const GPU_SPARSE_SHADING_CLASSIFIER_WORKGROUP_STORAGE_BYTES = 768;
 export const GPU_SURFACE_PROBE_WORKGROUP_STORAGE_BYTES = 144 * 64;
 
@@ -21,11 +19,10 @@ export const GPU_SPARSE_SHADING_REQUIRED_LIMITS = Object.freeze({
   maxStorageTexturesPerShaderStage: 5,
   maxSampledTexturesPerShaderStage: 16,
   maxSamplersPerShaderStage: 8,
-  maxBindGroups: 4
+  maxBindGroups: 4,
 } as const);
 
-export type GpuSparseShadingRequiredLimitName =
-  keyof typeof GPU_SPARSE_SHADING_REQUIRED_LIMITS;
+export type GpuSparseShadingRequiredLimitName = keyof typeof GPU_SPARSE_SHADING_REQUIRED_LIMITS;
 
 export interface GpuSparseShadingAdapterSnapshot {
   readonly features: Iterable<string>;
@@ -84,7 +81,7 @@ export class UnsupportedGpuPerformanceBaselineError extends Error {
   }) {
     super(
       `Unsupported OEngine GPU Performance Baseline: ${input.capability} ` +
-      `requires ${input.required}, actual ${input.actual}`
+        `requires ${input.required}, actual ${input.actual}`,
     );
     this.name = "UnsupportedGpuPerformanceBaselineError";
     this.failureKind = input.failureKind;
@@ -97,7 +94,7 @@ export class UnsupportedGpuPerformanceBaselineError extends Error {
 /** Pure adapter preflight. It does not request a device or create any GPU owner. */
 export function createGpuSparseShadingCapabilityPlan(
   adapter: GpuSparseShadingAdapterSnapshot,
-  dependencies: GpuSparseShadingCapabilityDependencies = {}
+  dependencies: GpuSparseShadingCapabilityDependencies = {},
 ): Readonly<GpuSparseShadingCapabilityPlan> {
   const adapterFeatures = new Set([...adapter.features].map(String));
   const requestedFeatures = new Set<string>(GPU_SPARSE_SHADING_REQUIRED_FEATURES);
@@ -107,7 +104,7 @@ export function createGpuSparseShadingCapabilityPlan(
         failureKind: "feature",
         capability: feature,
         required: "not requested by ADR-0013",
-        actual: "requested by dependency closure"
+        actual: "requested by dependency closure",
       });
     }
     requestedFeatures.add(feature);
@@ -119,13 +116,13 @@ export function createGpuSparseShadingCapabilityPlan(
         failureKind: "feature",
         capability: feature,
         required: "supported",
-        actual: "missing"
+        actual: "missing",
       });
     }
   }
 
   const requiredLimits: Record<string, number> = {
-    ...GPU_SPARSE_SHADING_REQUIRED_LIMITS
+    ...GPU_SPARSE_SHADING_REQUIRED_LIMITS,
   };
   for (const [name, required] of Object.entries(dependencies.requiredLimits ?? {})) {
     assertPositiveSafeInteger(required, `Required limit ${name}`);
@@ -138,7 +135,7 @@ export function createGpuSparseShadingCapabilityPlan(
         failureKind: "limit",
         capability: name,
         required,
-        actual
+        actual,
       });
     }
   }
@@ -150,14 +147,14 @@ export function createGpuSparseShadingCapabilityPlan(
     requiredFeatures: Object.freeze(requiredFeatures as GPUFeatureName[]),
     requiredLimits: Object.freeze(sortNumberRecord(requiredLimits)),
     subgroupMinSize,
-    subgroupMaxSize
+    subgroupMaxSize,
   });
 }
 
 /** Freezes the actual post-device record used by pipeline keys and evidence. */
 export function captureGpuSparseShadingCapabilityRecord(
   plan: GpuSparseShadingCapabilityPlan,
-  device: GpuSparseShadingDeviceSnapshot
+  device: GpuSparseShadingDeviceSnapshot,
 ): Readonly<GpuSparseShadingCapabilityRecord> {
   const deviceFeatures = Object.freeze([...device.features].map(String).sort());
   const featureSet = new Set(deviceFeatures);
@@ -167,7 +164,7 @@ export function captureGpuSparseShadingCapabilityRecord(
         failureKind: "feature",
         capability: feature,
         required: "enabled on device",
-        actual: "missing"
+        actual: "missing",
       });
     }
   }
@@ -179,7 +176,7 @@ export function captureGpuSparseShadingCapabilityRecord(
         failureKind: "limit",
         capability: name,
         required,
-        actual
+        actual,
       });
     }
     actualLimits[name] = actual;
@@ -189,9 +186,7 @@ export function captureGpuSparseShadingCapabilityRecord(
   if (device.formatProfile.length === 0) {
     throw new RangeError("Sparse shading format profile must not be empty");
   }
-  const textureFormatFeatures = Object.freeze(
-    [...new Set(device.textureFormatFeatures.map(String))].sort()
-  );
+  const textureFormatFeatures = Object.freeze([...new Set(device.textureFormatFeatures.map(String))].sort());
   const canonical = {
     schemaVersion: GPU_SPARSE_SHADING_CAPABILITY_SCHEMA_VERSION as 1,
     requiredFeatures: [...plan.requiredFeatures],
@@ -201,21 +196,26 @@ export function captureGpuSparseShadingCapabilityRecord(
     subgroupMinSize,
     subgroupMaxSize,
     textureFormatFeatures,
-    formatProfile: device.formatProfile
+    formatProfile: device.formatProfile,
   };
   return Object.freeze({
     ...canonical,
     requiredFeatures: Object.freeze(canonical.requiredFeatures),
     requiredLimits: Object.freeze(canonical.requiredLimits),
     actualLimits: Object.freeze(canonical.actualLimits),
-    fingerprint: JSON.stringify(canonical)
+    fingerprint: JSON.stringify(canonical),
   });
 }
 
 function validateSubgroupRange(minimum: number, maximum: number): void {
-  const valid = Number.isSafeInteger(minimum) && Number.isSafeInteger(maximum) &&
-    minimum >= 4 && maximum <= 128 && minimum <= maximum &&
-    isPowerOfTwo(minimum) && isPowerOfTwo(maximum) &&
+  const valid =
+    Number.isSafeInteger(minimum) &&
+    Number.isSafeInteger(maximum) &&
+    minimum >= 4 &&
+    maximum <= 128 &&
+    minimum <= maximum &&
+    isPowerOfTwo(minimum) &&
+    isPowerOfTwo(maximum) &&
     GPU_SHADING_BIN_CLASSIFIER_INVOCATIONS % minimum === 0 &&
     GPU_SHADING_BIN_CLASSIFIER_INVOCATIONS % maximum === 0;
   if (!valid) {
@@ -223,7 +223,7 @@ function validateSubgroupRange(minimum: number, maximum: number): void {
       failureKind: "subgroup-range",
       capability: "subgroupMinSize..subgroupMaxSize",
       required: "power-of-two range 4..128 dividing 256",
-      actual: `${minimum}..${maximum}`
+      actual: `${minimum}..${maximum}`,
     });
   }
 }
@@ -238,10 +238,8 @@ function assertPositiveSafeInteger(value: number, label: string): void {
   }
 }
 
-function sortNumberRecord(
-  values: Readonly<Record<string, number>>
-): Record<string, number> {
+function sortNumberRecord(values: Readonly<Record<string, number>>): Record<string, number> {
   return Object.fromEntries(
-    Object.entries(values).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+    Object.entries(values).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0)),
   );
 }

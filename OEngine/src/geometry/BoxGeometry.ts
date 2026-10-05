@@ -2,11 +2,7 @@
  * BoxGeometry：负责几何数据、Meshlet 或空间结构处理。
  */
 
-import {
-  arrayBufferEquals,
-  hashArrayBuffer,
-  hashMix
-} from "../core/hashMix.js";
+import { arrayBufferEquals, hashArrayBuffer, hashMix } from "../core/hashMix.js";
 import { Attribute } from "./Attribute.js";
 import { Geometry } from "./Geometry.js";
 import type { SourceGeometry } from "../assets/SourceGeometry.js";
@@ -20,7 +16,7 @@ import {
   niFromGeometry,
   readMeshletCore,
   readMeshletHeader,
-  type MeshletHeader
+  type MeshletHeader,
 } from "./niMeshlets.js";
 
 export class MeshletsStub {
@@ -129,14 +125,7 @@ export class MeshletGeometryBase {
 
 (MeshletGeometryBase.prototype as { isMeshletGeometry?: boolean }).isMeshletGeometry = true;
 
-export function buildBoxMesh(
-  width = 1,
-  height = 1,
-  depth = 1,
-  segW = 1,
-  segH = 1,
-  segD = 1
-): Geometry {
+export function buildBoxMesh(width = 1, height = 1, depth = 1, segW = 1, segH = 1, segD = 1): Geometry {
   const i = new Geometry();
   i.name = "Box";
   const r = Math.floor(segW);
@@ -158,7 +147,7 @@ export function buildBoxMesh(
     iDim: number,
     lThick: number,
     f: number,
-    h: number
+    h: number,
   ): void {
     const m = aDim / f;
     const g = iDim / h;
@@ -205,15 +194,9 @@ export function buildBoxMesh(
   l(0, 1, 2, -1, -1, width, height, -depth, r, s);
 
   i.index = Attribute.from(new Uint32Array(o), 1, "index");
-  i.addAttribute(
-    Attribute.from(new Float32Array(_), 3, MeshletAttrName.Position)
-  );
-  i.addAttribute(
-    Attribute.from(new Float32Array(c), 3, MeshletAttrName.Normal)
-  );
-  i.addAttribute(
-    Attribute.from(new Float32Array(d), 2, MeshletAttrName.Uv0)
-  );
+  i.addAttribute(Attribute.from(new Float32Array(_), 3, MeshletAttrName.Position));
+  i.addAttribute(Attribute.from(new Float32Array(c), 3, MeshletAttrName.Normal));
+  i.addAttribute(Attribute.from(new Float32Array(d), 2, MeshletAttrName.Uv0));
   return i;
 }
 
@@ -223,14 +206,13 @@ export function buildBoxSourceGeometry(
   depth = 1,
   segW = 1,
   segH = 1,
-  segD = 1
+  segD = 1,
 ): SourceGeometry {
   const geometry = buildBoxMesh(width, height, depth, segW, segH, segD);
   geometry.computeTangents();
-  return geometryToSourceGeometry(
-    geometry,
-    { sourceId: `box:${width}:${height}:${depth}:${segW}:${segH}:${segD}` }
-  );
+  return geometryToSourceGeometry(geometry, {
+    sourceId: `box:${width}:${height}:${depth}:${segW}:${segH}:${segD}`,
+  });
 }
 
 export class BoxGeometry extends MeshletGeometryBase {

@@ -8,13 +8,7 @@ function sign1(e: number): number {
   return e >= 0 ? 1 : -1;
 }
 
-export function octahedralEncode2(
-  out: Float32Array,
-  offset: number,
-  n: number,
-  r: number,
-  s: number
-): void {
+export function octahedralEncode2(out: Float32Array, offset: number, n: number, r: number, s: number): void {
   const a = 1 / (Math.abs(n) + Math.abs(r) + Math.abs(s) || 1e-20);
   let i = n * a;
   let o = s * a;
@@ -31,7 +25,7 @@ export function packVertexNormals(
   out: Uint32Array,
   outOffset: number,
   count: number,
-  normals: ArrayLike<number>
+  normals: ArrayLike<number>,
 ): void {
   const s = new Float32Array(2);
   for (let a = 0; a < count; a++) {
@@ -48,7 +42,7 @@ export function packVertexTangents(
   out: Uint32Array,
   outOffset: number,
   count: number,
-  tangents: ArrayLike<number>
+  tangents: ArrayLike<number>,
 ): void {
   const s = new Float32Array(2);
   for (let a = 0; a < count; a++) {
@@ -58,15 +52,11 @@ export function packVertexTangents(
     const o = 0.5 * s[1]! + 0.5;
     const _ = Math.floor(32767 * (0.5 * s[0]! + 0.5));
     const c = Math.floor(o * U16_MAX);
-    out[outOffset + a] =
-      (((32767 & _) << 1) | ((65535 & c) << 16) | (hand >= 0 ? 1 : 0)) >>> 0;
+    out[outOffset + a] = (((32767 & _) << 1) | ((65535 & c) << 16) | (hand >= 0 ? 1 : 0)) >>> 0;
   }
 }
 
-export function uvOctahedralUnitDecode(
-  u: number,
-  v: number
-): [number, number, number] {
+export function uvOctahedralUnitDecode(u: number, v: number): [number, number, number] {
   let sx = u * 2 - 1;
   let sy = v * 2 - 1;
   let z = 1 - Math.abs(sx) - Math.abs(sy);
@@ -87,9 +77,7 @@ export function decodeVertexNormal(packed: number): [number, number, number] {
   return uvOctahedralUnitDecode(lo / 65535, hi / 65535);
 }
 
-export function decodeVertexTangent(
-  packed: number
-): [number, number, number, number] {
+export function decodeVertexTangent(packed: number): [number, number, number, number] {
   const hand = ((packed & 1) as number) * 2 - 1;
   const ox = (packed >>> 1) & 0x7fff;
   const oy = (packed >>> 16) & 0xffff;
@@ -105,7 +93,7 @@ export function packVertexColors(
   out: Uint32Array,
   outOffset: number,
   count: number,
-  colors: ArrayLike<number>
+  colors: ArrayLike<number>,
 ): void {
   for (let a = 0; a < count; a++) {
     const n = 3 * a;
@@ -127,7 +115,7 @@ export function packVertexUv1(
   out: Uint32Array,
   outOffset: number,
   count: number,
-  uvs: ArrayLike<number>
+  uvs: ArrayLike<number>,
 ): void {
   for (let a = 0; a < count; a++) {
     const n = 2 * a;
@@ -145,7 +133,7 @@ export function packVertexJoints(
   out: Uint32Array,
   outOffset: number,
   count: number,
-  joints: ArrayLike<number>
+  joints: ArrayLike<number>,
 ): void {
   for (let a = 0; a < count; a++) {
     const t = 4 * a;
@@ -159,10 +147,7 @@ export function packVertexJoints(
   }
 }
 
-export function decodeVertexJoints(
-  lo: number,
-  hi: number
-): [number, number, number, number] {
+export function decodeVertexJoints(lo: number, hi: number): [number, number, number, number] {
   return [lo & 0xffff, (lo >>> 16) & 0xffff, hi & 0xffff, (hi >>> 16) & 0xffff];
 }
 
@@ -170,7 +155,7 @@ export function packVertexWeights(
   out: Uint32Array,
   outOffset: number,
   count: number,
-  weights: ArrayLike<number>
+  weights: ArrayLike<number>,
 ): void {
   for (let a = 0; a < count; a++) {
     const t = 4 * a;
@@ -200,20 +185,16 @@ export function packVertexWeights(
       else if (e === 2) i = n;
       else o = n;
     }
-    out[outOffset + a] =
-      ((255 & s) | ((255 & g) << 8) | ((255 & i) << 16) | ((255 & o) << 24)) >>>
-      0;
+    out[outOffset + a] = ((255 & s) | ((255 & g) << 8) | ((255 & i) << 16) | ((255 & o) << 24)) >>> 0;
   }
 }
 
-export function decodeVertexWeights(
-  packed: number
-): [number, number, number, number] {
+export function decodeVertexWeights(packed: number): [number, number, number, number] {
   return [
     (packed & 0xff) / 255,
     ((packed >>> 8) & 0xff) / 255,
     ((packed >>> 16) & 0xff) / 255,
-    ((packed >>> 24) & 0xff) / 255
+    ((packed >>> 24) & 0xff) / 255,
   ];
 }
 
@@ -225,11 +206,10 @@ export const MeshletAttrName = {
   Uv1: "uv1",
   Color: "color",
   Joints: "joints",
-  Weights: "weights"
+  Weights: "weights",
 } as const;
 
-export type MeshletAttrNameValue =
-  (typeof MeshletAttrName)[keyof typeof MeshletAttrName];
+export type MeshletAttrNameValue = (typeof MeshletAttrName)[keyof typeof MeshletAttrName];
 
 export const MESHLET_ATTR_ORDER = Object.freeze([
   MeshletAttrName.Position,
@@ -239,7 +219,7 @@ export const MESHLET_ATTR_ORDER = Object.freeze([
   MeshletAttrName.Uv0,
   MeshletAttrName.Uv1,
   MeshletAttrName.Joints,
-  MeshletAttrName.Weights
+  MeshletAttrName.Weights,
 ] as const);
 
 export const MESHLET_ATTR_WORDS: Record<MeshletAttrNameValue, number> = {
@@ -250,7 +230,7 @@ export const MESHLET_ATTR_WORDS: Record<MeshletAttrNameValue, number> = {
   [MeshletAttrName.Uv0]: 2,
   [MeshletAttrName.Uv1]: 1,
   [MeshletAttrName.Joints]: 2,
-  [MeshletAttrName.Weights]: 1
+  [MeshletAttrName.Weights]: 1,
 };
 
 export const MeshletAttrFlag = {
@@ -260,27 +240,22 @@ export const MeshletAttrFlag = {
   Uv0: 8,
   Uv1: 16,
   Joints: 32,
-  Weights: 64
+  Weights: 64,
 } as const;
 
-export const MESHLET_ATTR_FLAG_BIT: Partial<
-  Record<MeshletAttrNameValue, number>
-> = {
+export const MESHLET_ATTR_FLAG_BIT: Partial<Record<MeshletAttrNameValue, number>> = {
   [MeshletAttrName.Normal]: MeshletAttrFlag.Normal,
   [MeshletAttrName.Tangent]: MeshletAttrFlag.Tangent,
   [MeshletAttrName.Color]: MeshletAttrFlag.Color,
   [MeshletAttrName.Uv0]: MeshletAttrFlag.Uv0,
   [MeshletAttrName.Uv1]: MeshletAttrFlag.Uv1,
   [MeshletAttrName.Joints]: MeshletAttrFlag.Joints,
-  [MeshletAttrName.Weights]: MeshletAttrFlag.Weights
+  [MeshletAttrName.Weights]: MeshletAttrFlag.Weights,
 };
 
-export const MESHLET_ATTR_ORDER_INDEX: Record<MeshletAttrNameValue, number> =
-  Object.freeze(
-    Object.fromEntries(
-      MESHLET_ATTR_ORDER.map((e, t) => [e, t])
-    ) as Record<MeshletAttrNameValue, number>
-  );
+export const MESHLET_ATTR_ORDER_INDEX: Record<MeshletAttrNameValue, number> = Object.freeze(
+  Object.fromEntries(MESHLET_ATTR_ORDER.map((e, t) => [e, t])) as Record<MeshletAttrNameValue, number>,
+);
 
 function computeDefaultNormalPacked(): number {
   const e = new Uint32Array(1);
@@ -293,34 +268,23 @@ function computeDefaultTangentPacked(): number {
   return e[0]!;
 }
 
-export const MESHLET_ATTR_DEFAULTS: Partial<
-  Record<MeshletAttrNameValue, number | number[]>
-> = {
+export const MESHLET_ATTR_DEFAULTS: Partial<Record<MeshletAttrNameValue, number | number[]>> = {
   [MeshletAttrName.Normal]: computeDefaultNormalPacked(),
   [MeshletAttrName.Tangent]: computeDefaultTangentPacked(),
   [MeshletAttrName.Color]: 0xffffffff,
   [MeshletAttrName.Uv0]: [0, 0],
   [MeshletAttrName.Uv1]: 0,
   [MeshletAttrName.Joints]: [0, 0],
-  [MeshletAttrName.Weights]: 0
+  [MeshletAttrName.Weights]: 0,
 };
 
-export function meshletAttrLi(
-  attr: MeshletAttrNameValue,
-  flags: number,
-  vertexCount: number
-): number {
+export function meshletAttrLi(attr: MeshletAttrNameValue, flags: number, vertexCount: number): number {
   const r = MESHLET_ATTR_FLAG_BIT[attr];
-  const n =
-    r !== undefined && (flags & r) !== 0 ? 1 : vertexCount;
+  const n = r !== undefined && (flags & r) !== 0 ? 1 : vertexCount;
   return n * MESHLET_ATTR_WORDS[attr];
 }
 
-export function meshletAttrWordCount(
-  attr: MeshletAttrNameValue,
-  flags: number,
-  vertexCount: number
-): number {
+export function meshletAttrWordCount(attr: MeshletAttrNameValue, flags: number, vertexCount: number): number {
   if (attr === MeshletAttrName.Position) {
     return vertexCount * MESHLET_ATTR_WORDS.position;
   }
@@ -330,7 +294,7 @@ export function meshletAttrWordCount(
 export function meshletAttrSectionOffset(
   attr: MeshletAttrNameValue,
   flags: number,
-  vertexCount: number
+  vertexCount: number,
 ): number {
   const r = MESHLET_ATTR_ORDER_INDEX[attr];
   if (typeof r !== "number") {
@@ -347,10 +311,7 @@ export function packedIndexWordCount(primitiveCount: number): number {
   return (3 * primitiveCount + 3) >>> 2;
 }
 
-export function meshletAttributeSectionOffset(
-  address: number,
-  primitiveCount: number
-): number {
+export function meshletAttributeSectionOffset(address: number, primitiveCount: number): number {
   return address + packedIndexWordCount(primitiveCount);
 }
 
@@ -358,7 +319,7 @@ export function meshletAttrAllEqualWords(
   data: ArrayBuffer,
   wordOffset: number,
   vertexCount: number,
-  wordsPerVert: number
+  wordsPerVert: number,
 ): boolean {
   if (vertexCount <= 1) return true;
   const total = vertexCount * wordsPerVert;
@@ -377,7 +338,7 @@ export function remeshMeshletVertices(
   vertices: Uint32Array | number[],
   triangles: Uint8Array | Uint32Array | number[],
   primCount: number,
-  maxVerts: number
+  maxVerts: number,
 ): void {
   const s = triangles;
   const a = vertices;
@@ -450,7 +411,7 @@ export const MESHLET_HEADER_LAYOUT = Object.freeze({
   addressWord: 6,
   primitiveCountWord: 7,
   vertexCountWord: 8,
-  flagsWord: 9
+  flagsWord: 9,
 } as const);
 
 export function writeMeshletHeaderWords(
@@ -463,22 +424,20 @@ export function writeMeshletHeaderWords(
     primitive_count: number;
     vertex_count: number;
     flags: number;
-  }
+  },
 ): void {
   const ho = index * MESHLET_HEADER_LAYOUT.words;
   const b = header.bounds_box;
   for (let i = 0; i < 6; i++) metaF[ho + i] = b[i] ?? 0;
   metaU[ho + MESHLET_HEADER_LAYOUT.flagsWord] = header.flags >>> 0;
-  metaU[ho + MESHLET_HEADER_LAYOUT.vertexCountWord] =
-    header.vertex_count >>> 0;
-  metaU[ho + MESHLET_HEADER_LAYOUT.primitiveCountWord] =
-    header.primitive_count >>> 0;
+  metaU[ho + MESHLET_HEADER_LAYOUT.vertexCountWord] = header.vertex_count >>> 0;
+  metaU[ho + MESHLET_HEADER_LAYOUT.primitiveCountWord] = header.primitive_count >>> 0;
   metaU[ho + MESHLET_HEADER_LAYOUT.addressWord] = header.address >>> 0;
 }
 
 export function readMeshletHeaderWords(
   metadata: ArrayBuffer,
-  index: number
+  index: number,
 ): {
   bounds_box: Float32Array;
   address: number;
@@ -492,10 +451,9 @@ export function readMeshletHeaderWords(
   return {
     bounds_box: new Float32Array(f32),
     address: u32[MESHLET_HEADER_LAYOUT.addressWord]! >>> 0,
-    primitive_count:
-      u32[MESHLET_HEADER_LAYOUT.primitiveCountWord]! >>> 0,
+    primitive_count: u32[MESHLET_HEADER_LAYOUT.primitiveCountWord]! >>> 0,
     vertex_count: u32[MESHLET_HEADER_LAYOUT.vertexCountWord]! >>> 0,
-    flags: u32[MESHLET_HEADER_LAYOUT.flagsWord]! >>> 0
+    flags: u32[MESHLET_HEADER_LAYOUT.flagsWord]! >>> 0,
   };
 }
 
@@ -515,7 +473,7 @@ export function writeMeshletAttributePacked(
     writeFloat32Array(e: ArrayLike<number>, t?: number, n?: number): void;
   },
   attrName: MeshletAttrNameValue,
-  vertexCount: number
+  vertexCount: number,
 ): void {
   const a = attr.data;
   const s = vertexCount;
@@ -570,10 +528,8 @@ export function writeMeshletAttributePacked(
       gatherAttrLocal(r, indexReader, attr, s);
       for (let e = 0; e < s; e++) {
         const t = 4 * e;
-        const lo =
-          (65535 & r[t + 0]!) | ((65535 & r[t + 1]!) << 16);
-        const hi =
-          (65535 & r[t + 2]!) | ((65535 & r[t + 3]!) << 16);
+        const lo = (65535 & r[t + 0]!) | ((65535 & r[t + 1]!) << 16);
+        const hi = (65535 & r[t + 2]!) | ((65535 & r[t + 3]!) << 16);
         out.writeUint32(lo >>> 0);
         out.writeUint32(hi >>> 0);
       }
@@ -596,7 +552,7 @@ function gatherAttrLocal(
   e: { [i: number]: number },
   t: { readUint32(): number },
   n: { data: ArrayLike<number>; spec: { itemSize: number } },
-  r: number
+  r: number,
 ): void {
   const s = n.data;
   const a = n.spec.itemSize;

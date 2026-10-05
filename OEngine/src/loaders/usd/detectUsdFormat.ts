@@ -17,10 +17,7 @@ function startsWith(bytes: Uint8Array, magic: Uint8Array): boolean {
   return true;
 }
 
-export function detectUsdFormat(
-  buffer: ArrayBuffer,
-  fileName?: string
-): UsdFormat | null {
+export function detectUsdFormat(buffer: ArrayBuffer, fileName?: string): UsdFormat | null {
   const n = new Uint8Array(buffer, 0, Math.min(buffer.byteLength, 16));
   if (startsWith(n, ZIP_LOCAL_MAGIC)) return "usdz";
   if (startsWith(n, USDC_MAGIC)) return "usdc";

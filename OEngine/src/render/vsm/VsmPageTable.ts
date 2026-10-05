@@ -1,5 +1,10 @@
 import type { VsmCapabilities } from "./VsmCapabilities.js";
-import { VSM_PAGE_ENTRY_WORDS, VSM_META_ENTRY_WORDS, vsmPageTableEntryByteOffset, vsmMetaEntryByteOffset } from "./VsmPageState.js";
+import {
+  VSM_PAGE_ENTRY_WORDS,
+  VSM_META_ENTRY_WORDS,
+  vsmPageTableEntryByteOffset,
+  vsmMetaEntryByteOffset,
+} from "./VsmPageState.js";
 import type { VsmResources } from "./VsmResources.js";
 
 /** Read-only page-table ABI owner. It never performs CPU residency decisions. */
@@ -7,12 +12,17 @@ export class VsmPageTable {
   readonly virtualEntryCount: number;
   readonly slotCount: number;
 
-  constructor(readonly resources: VsmResources, readonly capabilities: VsmCapabilities = resources.capabilities) {
+  constructor(
+    readonly resources: VsmResources,
+    readonly capabilities: VsmCapabilities = resources.capabilities,
+  ) {
     if (resources.profile === "shadow-disabled") throw new Error("Disabled VSM has no page table");
     this.virtualEntryCount = capabilities.virtualEntryCount;
     this.slotCount = capabilities.residentSlots;
-    if (capabilities.pageTableBytes < this.virtualEntryCount * VSM_PAGE_ENTRY_WORDS * 4 ||
-        capabilities.metaTableBytes < this.slotCount * VSM_META_ENTRY_WORDS * 4) {
+    if (
+      capabilities.pageTableBytes < this.virtualEntryCount * VSM_PAGE_ENTRY_WORDS * 4 ||
+      capabilities.metaTableBytes < this.slotCount * VSM_META_ENTRY_WORDS * 4
+    ) {
       throw new Error("VSM persistent buffers do not satisfy the page-table ABI");
     }
   }
@@ -42,9 +52,16 @@ export class VsmPageTable {
   clearForDeviceEpoch(encoder: GPUCommandEncoder): void {
     encoder.clearBuffer(this.pageTableBuffer);
     encoder.clearBuffer(this.metaTableBuffer);
-    for (const buffer of [this.resources.dirtyMask, this.resources.generation,
-      this.resources.overflowCounters, this.resources.allocation, this.resources.casterRecords,
-      this.resources.rasterIndirect, this.resources.pageLocks, this.resources.slotLocks]) {
+    for (const buffer of [
+      this.resources.dirtyMask,
+      this.resources.generation,
+      this.resources.overflowCounters,
+      this.resources.allocation,
+      this.resources.casterRecords,
+      this.resources.rasterIndirect,
+      this.resources.pageLocks,
+      this.resources.slotLocks,
+    ]) {
       if (buffer) encoder.clearBuffer(buffer);
     }
     if (this.resources.demand) encoder.clearBuffer(this.resources.demand, 0, 16);
@@ -52,8 +69,11 @@ export class VsmPageTable {
 
   /** Invalidates generation-visible state while retaining physical storage capacity. */
   invalidateGeneration(encoder: GPUCommandEncoder): void {
-    for (const buffer of [this.resources.dirtyMask, this.resources.generation,
-      this.resources.overflowCounters]) {
+    for (const buffer of [
+      this.resources.dirtyMask,
+      this.resources.generation,
+      this.resources.overflowCounters,
+    ]) {
       if (buffer) encoder.clearBuffer(buffer);
     }
   }

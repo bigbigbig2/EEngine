@@ -6,14 +6,11 @@ import { ChangeSignal } from "../core/Signal.js";
 import type { MeshletsStub } from "../geometry/BoxGeometry.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
-import {
-  submitGpuCommands,
-  writeGpuBuffer
-} from "./GpuQueueEvidence.js";
+import { submitGpuCommands, writeGpuBuffer } from "./GpuQueueEvidence.js";
 import {
   INVALID_MESHLET_ALLOCATION,
   MeshletRangeAllocator,
-  type MeshletRangeAllocation
+  type MeshletRangeAllocation,
 } from "./MeshletRangeAllocator.js";
 
 const MESHLET_METADATA_WORDS = 10;
@@ -99,34 +96,24 @@ export class MeshletGpuPool {
     options: {
       initial_data_capacity?: number;
       initial_metadata_capacity?: number;
-    } = {}
+    } = {},
   ) {
     const device = graphics.device;
     this.device = device;
-    const initialDataCapacity =
-      options.initial_data_capacity ?? 33_554_432;
-    const initialMetadataCapacity =
-      options.initial_metadata_capacity ?? 131_072;
+    const initialDataCapacity = options.initial_data_capacity ?? 33_554_432;
+    const initialMetadataCapacity = options.initial_metadata_capacity ?? 131_072;
     const dataWords = Math.ceil(initialDataCapacity / 4);
     this.dataAllocator = new MeshletRangeAllocator(dataWords);
-    this.metadataAllocator = new MeshletRangeAllocator(
-      initialMetadataCapacity
-    );
+    this.metadataAllocator = new MeshletRangeAllocator(initialMetadataCapacity);
     this._bufferData = device.createBuffer({
       label: "MeshletGpuPool/data",
       size: 4 * dataWords,
-      usage:
-        GPUBufferUsage.STORAGE |
-        GPUBufferUsage.COPY_DST |
-        GPUBufferUsage.COPY_SRC
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
     this._bufferMetadata = device.createBuffer({
       label: "MeshletGpuPool/metadata",
       size: initialMetadataCapacity * MESHLET_METADATA_BYTES,
-      usage:
-        GPUBufferUsage.STORAGE |
-        GPUBufferUsage.COPY_DST |
-        GPUBufferUsage.COPY_SRC
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
   }
 
@@ -162,7 +149,7 @@ export class MeshletGpuPool {
         "MeshletGpuPool/data",
         this._bufferData,
         allocation.data.offset << 2,
-        batch.data_buffer
+        batch.data_buffer,
       );
     }
     this.writeRebasedMetadata(
@@ -170,18 +157,13 @@ export class MeshletGpuPool {
       allocation.meshlet_count,
       allocation.data.offset,
       allocation.metadata.offset,
-      this._bufferMetadata
+      this._bufferMetadata,
     );
     return allocation;
   }
 
-  clone_batch_allocation(
-    source: MeshletBatchAllocation
-  ): MeshletBatchAllocation {
-    const { data, metadata } = this.allocatePair(
-      source.data_size,
-      source.meshlet_count
-    );
+  clone_batch_allocation(source: MeshletBatchAllocation): MeshletBatchAllocation {
+    const { data, metadata } = this.allocatePair(source.data_size, source.meshlet_count);
     this.pendingClones.push({
       source_data_offset: source.data.offset,
       source_metadata_offset: source.metadata.offset,
@@ -189,7 +171,7 @@ export class MeshletGpuPool {
       new_metadata_offset: metadata.offset,
       data_size: source.data_size,
       meshlet_count: source.meshlet_count,
-      address_delta: (data.offset - source.data.offset) >>> 0
+      address_delta: (data.offset - source.data.offset) >>> 0,
     });
     const clone = new MeshletBatchAllocation();
     clone.data = data;
@@ -204,8 +186,7 @@ export class MeshletGpuPool {
   update(command: ShadeGPUCommandContext): void {
     const clones = this.pendingClones;
     if (clones.length === 0) return;
-    const copyPipeline =
-      this.copyPipeline ??= this.createPipeline("copy", COPY_WORDS_WGSL);
+    const copyPipeline = (this.copyPipeline ??= this.createPipeline("copy", COPY_WORDS_WGSL));
 
     const dataCopyArgs = new Uint32Array(clones.length * 3);
     const metadataCopyArgs = new Uint32Array(clones.length * 3);
@@ -217,12 +198,9 @@ export class MeshletGpuPool {
       dataCopyArgs[base] = clone.source_data_offset;
       dataCopyArgs[base + 1] = clone.new_data_offset;
       dataCopyArgs[base + 2] = clone.data_size;
-      metadataCopyArgs[base] =
-        clone.source_metadata_offset * metadataStrideWords;
-      metadataCopyArgs[base + 1] =
-        clone.new_metadata_offset * metadataStrideWords;
-      metadataCopyArgs[base + 2] =
-        clone.meshlet_count * metadataStrideWords;
+      metadataCopyArgs[base] = clone.source_metadata_offset * metadataStrideWords;
+      metadataCopyArgs[base + 1] = clone.new_metadata_offset * metadataStrideWords;
+      metadataCopyArgs[base + 2] = clone.meshlet_count * metadataStrideWords;
       patchCount += clone.meshlet_count;
     }
 
@@ -230,22 +208,15 @@ export class MeshletGpuPool {
       command,
       "data-copy-args",
       dataCopyArgs,
-      GPUBufferUsage.STORAGE
+      GPUBufferUsage.STORAGE,
     );
-    this.dispatchCopy(
-      command,
-      "clone-data",
-      this._bufferData,
-      dataArgsBuffer,
-      clones.length,
-      copyPipeline
-    );
+    this.dispatchCopy(command, "clone-data", this._bufferData, dataArgsBuffer, clones.length, copyPipeline);
 
     const metadataArgsBuffer = this.createTransientBuffer(
       command,
       "metadata-copy-args",
       metadataCopyArgs,
-      GPUBufferUsage.STORAGE
+      GPUBufferUsage.STORAGE,
     );
     this.dispatchCopy(
       command,
@@ -253,16 +224,15 @@ export class MeshletGpuPool {
       this._bufferMetadata,
       metadataArgsBuffer,
       clones.length,
-      copyPipeline
+      copyPipeline,
     );
 
     if (patchCount > 0) {
-      const patchPipeline =
-        this.patchPipeline ??= this.createPipeline(
-          "patch-addresses",
-          PATCH_ADDRESSES_WGSL,
-          PATCH_ADDRESSES_GROUP
-        );
+      const patchPipeline = (this.patchPipeline ??= this.createPipeline(
+        "patch-addresses",
+        PATCH_ADDRESSES_WGSL,
+        PATCH_ADDRESSES_GROUP,
+      ));
       const patches = new Uint32Array(patchCount * 2);
       let cursor = 0;
       for (const clone of clones) {
@@ -275,24 +245,20 @@ export class MeshletGpuPool {
         command,
         "address-patches",
         patches,
-        GPUBufferUsage.STORAGE
+        GPUBufferUsage.STORAGE,
       );
       const countBuffer = this.createTransientBuffer(
         command,
         "patch-count",
         new Uint32Array([patchCount, 0, 0, 0]),
-        GPUBufferUsage.UNIFORM
+        GPUBufferUsage.UNIFORM,
       );
       const bindGroup = this.graphics.bind_groups.obtain({
         layout: PATCH_ADDRESSES_GROUP,
-        entries: [
-          { buffer: this._bufferMetadata },
-          { buffer: patchBuffer },
-          { buffer: countBuffer }
-        ]
+        entries: [{ buffer: this._bufferMetadata }, { buffer: patchBuffer }, { buffer: countBuffer }],
       });
       const pass = command.beginComputePass({
-        label: "MeshletGpuPool/patch-addresses"
+        label: "MeshletGpuPool/patch-addresses",
       });
       pass.setPipeline(patchPipeline);
       pass.setBindGroup(0, bindGroup);
@@ -304,25 +270,20 @@ export class MeshletGpuPool {
   }
 
   compact(): void {
-    this.rebuild(
-      this._bufferData.size >>> 2,
-      Math.ceil(this._bufferMetadata.size / MESHLET_METADATA_BYTES)
-    );
+    this.rebuild(this._bufferData.size >>> 2, Math.ceil(this._bufferMetadata.size / MESHLET_METADATA_BYTES));
   }
 
   grow(dataWords: number, metadataRecords: number): void {
     if (dataWords === 0 && metadataRecords === 0) return;
     const currentDataWords = this._bufferData.size >>> 2;
-    const currentMetadataRecords = Math.ceil(
-      this._bufferMetadata.size / MESHLET_METADATA_BYTES
-    );
+    const currentMetadataRecords = Math.ceil(this._bufferMetadata.size / MESHLET_METADATA_BYTES);
     const nextDataWords =
       dataWords === 0
         ? currentDataWords
         : Math.max(
             currentDataWords + dataWords,
             currentDataWords + 16_384,
-            Math.ceil(1.25 * currentDataWords)
+            Math.ceil(1.25 * currentDataWords),
           );
     const nextMetadataRecords =
       metadataRecords === 0
@@ -330,7 +291,7 @@ export class MeshletGpuPool {
         : Math.max(
             currentMetadataRecords + metadataRecords,
             currentMetadataRecords + 256,
-            Math.ceil(1.25 * currentMetadataRecords)
+            Math.ceil(1.25 * currentMetadataRecords),
           );
     this.rebuild(nextDataWords, nextMetadataRecords);
   }
@@ -352,9 +313,7 @@ export class MeshletGpuPool {
     this._bufferMetadata.destroy();
   }
 
-  private createBatchAllocation(
-    batch: MeshletsStub
-  ): MeshletBatchAllocation {
+  private createBatchAllocation(batch: MeshletsStub): MeshletBatchAllocation {
     const dataSize = Math.ceil(batch.data_buffer.byteLength / 4);
     const meshletCount = batch.count;
     const { data, metadata } = this.allocatePair(dataSize, meshletCount);
@@ -370,7 +329,7 @@ export class MeshletGpuPool {
 
   private allocatePair(
     dataSize: number,
-    meshletCount: number
+    meshletCount: number,
   ): { data: MeshletRangeAllocation; metadata: MeshletRangeAllocation } {
     let data = this.invalidAllocation();
     let metadata = this.invalidAllocation();
@@ -394,10 +353,7 @@ export class MeshletGpuPool {
         this.grow(hasData ? 0 : dataSize, hasMetadata ? 0 : meshletCount);
       }
     }
-    if (
-      data.offset === INVALID_MESHLET_ALLOCATION ||
-      metadata.offset === INVALID_MESHLET_ALLOCATION
-    ) {
+    if (data.offset === INVALID_MESHLET_ALLOCATION || metadata.offset === INVALID_MESHLET_ALLOCATION) {
       throw new Error("Failed to allocate GPU memory for meshlet batch");
     }
     return { data, metadata };
@@ -405,42 +361,34 @@ export class MeshletGpuPool {
 
   private rebuild(dataWords: number, metadataRecords: number): void {
     const count = this.allocations.length;
-    const nextDataAllocator = new MeshletRangeAllocator(
-      dataWords,
-      Math.max(2 * count, 131_072)
-    );
+    const nextDataAllocator = new MeshletRangeAllocator(dataWords, Math.max(2 * count, 131_072));
     const oldData = this._bufferData;
     const nextData = this.device.createBuffer({
       label: oldData.label,
       usage: oldData.usage,
-      size: 4 * dataWords
+      size: 4 * dataWords,
     });
-    const nextMetadataAllocator = new MeshletRangeAllocator(
-      metadataRecords,
-      Math.max(2 * count, 131_072)
-    );
+    const nextMetadataAllocator = new MeshletRangeAllocator(metadataRecords, Math.max(2 * count, 131_072));
     const oldMetadata = this._bufferMetadata;
     const nextMetadata = this.device.createBuffer({
       label: oldMetadata.label,
       usage: oldMetadata.usage,
-      size: metadataRecords * MESHLET_METADATA_BYTES
+      size: metadataRecords * MESHLET_METADATA_BYTES,
     });
     const encoder = this.device.createCommandEncoder({
-      label: "MeshletGpuPool/rebuild"
+      label: "MeshletGpuPool/rebuild",
     });
     const changed: MeshletBatchAllocation[] = [];
 
     for (const allocation of this.allocations) {
       const data = nextDataAllocator.allocate(allocation.data_size);
-      const metadata = nextMetadataAllocator.allocate(
-        allocation.meshlet_count
-      );
+      const metadata = nextMetadataAllocator.allocate(allocation.meshlet_count);
       encoder.copyBufferToBuffer(
         oldData,
         4 * allocation.data.offset,
         nextData,
         4 * data.offset,
-        4 * allocation.data_size
+        4 * allocation.data_size,
       );
       const dataAddressChanged = allocation.data.offset !== data.offset;
       this.writeRebasedMetadata(
@@ -448,7 +396,7 @@ export class MeshletGpuPool {
         allocation.meshlet_count,
         data.offset,
         metadata.offset,
-        nextMetadata
+        nextMetadata,
       );
       allocation.data = data;
       allocation.metadata = metadata;
@@ -471,15 +419,11 @@ export class MeshletGpuPool {
     meshletCount: number,
     dataOffset: number,
     metadataOffset: number,
-    destination: GPUBuffer
+    destination: GPUBuffer,
   ): void {
     if (meshletCount === 0) return;
     const words = new Uint32Array(meshletCount * MESHLET_METADATA_WORDS);
-    const sourceWords = new Uint32Array(
-      source,
-      0,
-      meshletCount * MESHLET_METADATA_WORDS
-    );
+    const sourceWords = new Uint32Array(source, 0, meshletCount * MESHLET_METADATA_WORDS);
     words.set(sourceWords);
     for (let i = 0; i < meshletCount; i++) {
       const addressIndex = i * MESHLET_METADATA_WORDS + MESHLET_ADDRESS_WORD;
@@ -490,7 +434,7 @@ export class MeshletGpuPool {
       "MeshletGpuPool/metadata",
       destination,
       metadataOffset * MESHLET_METADATA_BYTES,
-      words
+      words,
     );
   }
 
@@ -500,11 +444,11 @@ export class MeshletGpuPool {
     target: GPUBuffer,
     args: GPUBuffer,
     workgroups: number,
-    pipeline: GPUComputePipeline
+    pipeline: GPUComputePipeline,
   ): void {
     const bindGroup = this.graphics.bind_groups.obtain({
       layout: COPY_WORDS_GROUP,
-      entries: [{ buffer: target }, { buffer: args }]
+      entries: [{ buffer: target }, { buffer: args }],
     });
     const pass = command.beginComputePass({ label: `MeshletGpuPool/${label}` });
     pass.setPipeline(pipeline);
@@ -517,19 +461,17 @@ export class MeshletGpuPool {
     command: ShadeGPUCommandContext,
     label: string,
     data: ArrayBufferView,
-    usage: GPUBufferUsageFlags
+    usage: GPUBufferUsageFlags,
   ): GPUBuffer {
     const byteLength = Math.max(4, Math.ceil(data.byteLength / 4) * 4);
     const buffer = this.device.createBuffer({
       label: `MeshletGpuPool/${label}`,
       size: byteLength,
       usage,
-      mappedAtCreation: true
+      mappedAtCreation: true,
     });
     const mapped = new Uint8Array(buffer.getMappedRange());
-    mapped.set(
-      new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
-    );
+    mapped.set(new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
     buffer.unmap();
     command.onFinished.addOne(() => buffer.destroy());
     return buffer;
@@ -538,25 +480,25 @@ export class MeshletGpuPool {
   private createPipeline(
     label: string,
     code: string,
-    layout: GPUBindGroupLayoutDescriptor = COPY_WORDS_GROUP
+    layout: GPUBindGroupLayoutDescriptor = COPY_WORDS_GROUP,
   ): GPUComputePipeline {
     return this.graphics.compute_pipelines.obtain({
       label: `MeshletGpuPool/${label}`,
       layout: {
         label: `MeshletGpuPool/${label}-layout`,
-        bindGroupLayouts: [layout]
+        bindGroupLayouts: [layout],
       },
       compute: {
         module: { label: `MeshletGpuPool/${label}-module`, code },
-        entryPoint: "main"
-      }
+        entryPoint: "main",
+      },
     });
   }
 
   private invalidAllocation(): MeshletRangeAllocation {
     return {
       offset: INVALID_MESHLET_ALLOCATION,
-      metadata: INVALID_MESHLET_ALLOCATION
+      metadata: INVALID_MESHLET_ALLOCATION,
     };
   }
 }
@@ -565,8 +507,8 @@ const COPY_WORDS_GROUP: GPUBindGroupLayoutDescriptor = {
   label: "MeshletGpuPool/copy-group0",
   entries: [
     { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-    { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } }
-  ]
+    { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+  ],
 };
 
 const PATCH_ADDRESSES_GROUP: GPUBindGroupLayoutDescriptor = {
@@ -574,6 +516,6 @@ const PATCH_ADDRESSES_GROUP: GPUBindGroupLayoutDescriptor = {
   entries: [
     { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
     { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-    { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } }
-  ]
+    { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+  ],
 };

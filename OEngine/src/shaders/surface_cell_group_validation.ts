@@ -1,29 +1,37 @@
 export const SURFACE_CELL_CLASSIFY_STAGES = Object.freeze([
   { first: 0, count: 15 },
-  { first: 15, count: 6 }
+  { first: 15, count: 6 },
 ] as const);
 
 export const SURFACE_CELL_CERTIFICATE_FAMILIES = Object.freeze([
   Object.freeze([0, 1, 5]),
   Object.freeze([2, 3, 4, 7, 8, 9]),
-  Object.freeze([6, 10, 11, 12, 13, 14])
+  Object.freeze([6, 10, 11, 12, 13, 14]),
 ]);
 
 /** Bounds stay in the current plane's 21-node tree. Each level merges exactly
  * four children; the original interval arithmetic supplies outward rounding.
  * Provider risk is cached by node + exact coverage across direct lobes. */
-export function surfaceCellGroupValidationWgsl(planeStart: number, planeCount: number, admitProvider = true): string {
+export function surfaceCellGroupValidationWgsl(
+  planeStart: number,
+  planeCount: number,
+  admitProvider = true,
+): string {
   const signals = planeStart + planeCount > 15;
   return /* wgsl */ `
 struct CellTreeGeometry {
   world_low: vec3f, flags: u32,
   world_high: vec3f, scale: f32,
-  ${signals ? `normal_low: vec3f, reserved0: u32,
+  ${
+    signals
+      ? `normal_low: vec3f, reserved0: u32,
   normal_high: vec3f, reserved1: u32,
   tangent_low: vec3f, reserved2: u32,
   tangent_high: vec3f, reserved3: u32,
   view_low: vec3f, reserved4: u32,
-  view_high: vec3f, reserved5: u32,` : ""}
+  view_high: vec3f, reserved5: u32,`
+      : ""
+  }
   residual: vec2f,
   reserved6: vec2u,
 }
@@ -43,12 +51,16 @@ fn cell_tree_prepare_geometry(node: u32) {
   result.scale = 3.402823466e38;
   result.residual = vec2f(3.402823466e38, -3.402823466e38);
   result.flags = 31u;
-  ${signals ? `result.normal_low = result.world_low;
+  ${
+    signals
+      ? `result.normal_low = result.world_low;
   result.normal_high = result.world_high;
   result.tangent_low = result.world_low;
   result.tangent_high = result.world_high;
   result.view_low = result.world_low;
-  result.view_high = result.world_high;` : ""}
+  result.view_high = result.world_high;`
+      : ""
+  }
   if metadata.source == 0xffffffffu {
     result.flags = 0u;
     cell_tree_geometry[node] = result;
@@ -65,9 +77,13 @@ fn cell_tree_prepare_geometry(node: u32) {
     var scale: f32;
     var child_plane: vec4f;
     var flags: u32;
-    ${signals ? `var normal: AppearanceBound4;
+    ${
+      signals
+        ? `var normal: AppearanceBound4;
     var tangent: AppearanceBound4;
-    var view: AppearanceBound4;` : ""}
+    var view: AppearanceBound4;`
+        : ""
+    }
     if node < 16u {
       let certificate = cell_leaf_certificate(cell_local_tile, child);
       let world = cell_certificate_box(cell_local_tile, certificate, 0u);
@@ -82,9 +98,13 @@ fn cell_tree_prepare_geometry(node: u32) {
         child_plane = bitcast<vec4f>(vec4u(cell_workspace.proof_results[at + 26u], cell_workspace.proof_results[at + 27u],
           cell_workspace.proof_results[at + 28u], cell_workspace.proof_results[at + 29u]));
       }
-      ${signals ? `normal = cell_certificate_box(cell_local_tile, certificate, 1u);
+      ${
+        signals
+          ? `normal = cell_certificate_box(cell_local_tile, certificate, 1u);
       tangent = cell_certificate_box(cell_local_tile, certificate, 2u);
-      view = cell_certificate_box(cell_local_tile, certificate, 3u);` : ""}
+      view = cell_certificate_box(cell_local_tile, certificate, 3u);`
+          : ""
+      }
     } else {
       let geometry = cell_tree_geometry[child];
       low = geometry.world_low;
@@ -93,9 +113,13 @@ fn cell_tree_prepare_geometry(node: u32) {
       residual = geometry.residual;
       scale = geometry.scale;
       child_plane = cell_lane_geometry[cell_tree[child].source].plane;
-      ${signals ? `normal = AppearanceBound4(vec4f(geometry.normal_low, 0.0), vec4f(geometry.normal_high, 0.0), vec4u(select(0u, 1u, (flags & 2u) != 0u)));
+      ${
+        signals
+          ? `normal = AppearanceBound4(vec4f(geometry.normal_low, 0.0), vec4f(geometry.normal_high, 0.0), vec4u(select(0u, 1u, (flags & 2u) != 0u)));
       tangent = AppearanceBound4(vec4f(geometry.tangent_low, 0.0), vec4f(geometry.tangent_high, 0.0), vec4u(select(0u, 1u, (flags & 4u) != 0u)));
-      view = AppearanceBound4(vec4f(geometry.view_low, 0.0), vec4f(geometry.view_high, 0.0), vec4u(select(0u, 1u, (flags & 8u) != 0u)));` : ""}
+      view = AppearanceBound4(vec4f(geometry.view_low, 0.0), vec4f(geometry.view_high, 0.0), vec4u(select(0u, 1u, (flags & 8u) != 0u)));`
+          : ""
+      }
     }
     result.flags &= flags;
     result.world_low = min(result.world_low, low);
@@ -112,12 +136,16 @@ fn cell_tree_prepare_geometry(node: u32) {
     if !ab_valid(distance) || !(scale > 0.0) { result.flags &= ~16u; }
     result.residual.x = min(result.residual.x, distance.low);
     result.residual.y = max(result.residual.y, distance.high);
-    ${signals ? `result.normal_low = min(result.normal_low, normal.low.xyz);
+    ${
+      signals
+        ? `result.normal_low = min(result.normal_low, normal.low.xyz);
     result.normal_high = max(result.normal_high, normal.high.xyz);
     result.tangent_low = min(result.tangent_low, tangent.low.xyz);
     result.tangent_high = max(result.tangent_high, tangent.high.xyz);
     result.view_low = min(result.view_low, view.low.xyz);
-    result.view_high = max(result.view_high, view.high.xyz);` : ""}
+    result.view_high = max(result.view_high, view.high.xyz);`
+        : ""
+    }
   }
   cell_tree_geometry[node] = result;
 }
@@ -139,7 +167,9 @@ fn cell_tree_apply_field(node: u32, plane: u32, field: u32) {
   if (cell_tree[node].dependencies & (1u << field)) == 0u { return; }
   let value = cell_tree_fields[node];
   var valid = cell_field_budget(field, value);
-  ${signals ? `
+  ${
+    signals
+      ? `
   if plane >= 15u {
     let geometry = cell_tree_geometry[node];
     let mapped_field = select(6u, 12u, plane >= 19u);
@@ -164,7 +194,9 @@ fn cell_tree_apply_field(node: u32, plane: u32, field: u32) {
     // requires its own roughness guard as in the complete original predicate.
     if plane == 17u && field == 10u { cell_tree[node].reserved = select(0u, 1u, value.high.x > 0.0); }
     if plane == 17u && field == 11u && cell_tree[node].reserved != 0u && value.low.x < 0.35 { valid = false; }
-  }` : ""}
+  }`
+      : ""
+  }
   if !valid { cell_tree[node].accepted = 0u; }
 }
 
@@ -176,24 +208,34 @@ fn cell_tree_validate_plane(plane: u32, lane: u32) {
     var dependencies = 0u;
     if metadata.source != 0xffffffffu {
       dependencies = 1u << plane;
-      ${signals ? `if plane >= 15u {
+      ${
+        signals
+          ? `if plane >= 15u {
         let entry = cell_material_entry(cell_lane_geometry[metadata.source].source.y);
         dependencies = cell_material_signal_dependencies(plane, entry, cell_local_tile * 64u + metadata.source);
-      }` : ""}
+      }`
+          : ""
+      }
     }
     cell_tree[lane].dependencies = dependencies;
     let geometry = cell_tree_geometry[lane];
     var valid = (geometry.flags & 17u) == 17u && max(abs(geometry.residual.x), abs(geometry.residual.y)) <= geometry.scale * 0.5;
-    ${signals ? `if plane >= 15u {
+    ${
+      signals
+        ? `if plane >= 15u {
       valid = valid && (geometry.flags & 2u) != 0u;
       if plane >= 17u {
         valid = valid && (geometry.flags & 8u) != 0u && cell_normal_box_cone(geometry.view_low, geometry.view_high).w >= 0.9986295348;
       }
-    }` : ""}
+    }`
+        : ""
+    }
     if !valid { cell_tree[lane].accepted = 0u; }
   }
   workgroupBarrier();
-  ${signals ? `
+  ${
+    signals
+      ? `
   if plane >= 15u && (plane & 1u) != 0u {
   // Prioritize root, parents, then quads by covered work. Prefix scratch is
   // reused later for representatives, never across live consumers.
@@ -228,8 +270,12 @@ fn cell_tree_validate_plane(plane: u32, lane: u32) {
     if rank < reservation.y {
       let geometry = cell_tree_geometry[lane];
       let cluster = cell_workspace.facts[cell_local_tile * 64u + metadata.source].w;
-      ${admitProvider ? `let proof = reservation.x + rank;
-      cell_workspace.proof_requests[proof] = array<u32,8>(cell_local_tile * 64u + metadata.source, 4u, plane - 15u, cluster, 5u, 0u, 0u, 0u);` : ""}
+      ${
+        admitProvider
+          ? `let proof = reservation.x + rank;
+      cell_workspace.proof_requests[proof] = array<u32,8>(cell_local_tile * 64u + metadata.source, 4u, plane - 15u, cluster, 5u, 0u, 0u, 0u);`
+          : ""
+      }
       safe = (geometry.flags & 8u) != 0u && cell_direct_node_safe(cluster, geometry.world_low,
         geometry.world_high, geometry.view_low, geometry.view_high);
       ${admitProvider ? "cell_workspace.proof_requests[proof][4u] = select(0u, 4u, safe);" : ""}
@@ -241,7 +287,9 @@ fn cell_tree_validate_plane(plane: u32, lane: u32) {
     cell_tree[lane].accepted = 0u;
   }
   workgroupBarrier();
-  }` : ""}
+  }`
+      : ""
+  }
   if lane < 21u && cell_tree[lane].accepted != 0u {
     atomicOr(&cell_plane_bits[2u], cell_tree[lane].dependencies << 1u);
   }

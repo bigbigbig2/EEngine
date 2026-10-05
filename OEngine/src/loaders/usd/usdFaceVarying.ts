@@ -5,7 +5,7 @@
 export function expandFaceVaryingAttr(
   faceVertexCounts: ArrayLike<number>,
   attr: Float32Array,
-  itemSize: number
+  itemSize: number,
 ): Float32Array {
   const r = faceVertexCounts.length;
   let triCount = 0;
@@ -35,7 +35,7 @@ export function expandFaceVaryingAttr(
 export function gatherIndexedAttr(
   indices: ArrayLike<number>,
   attr: Float32Array,
-  itemSize: number
+  itemSize: number,
 ): Float32Array {
   const r = new Float32Array(indices.length * itemSize);
   for (let s = 0; s < indices.length; s++) {
@@ -45,10 +45,7 @@ export function gatherIndexedAttr(
   return r;
 }
 
-export function gatherPrimvarIndices(
-  st: Float32Array,
-  indices: ArrayLike<number>
-): Float32Array {
+export function gatherPrimvarIndices(st: Float32Array, indices: ArrayLike<number>): Float32Array {
   const n = new Float32Array(2 * indices.length);
   for (let r = 0; r < indices.length; r++) {
     const s = 2 * indices[r]!;

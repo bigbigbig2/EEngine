@@ -1,7 +1,10 @@
 import { SURFACE_CELL_TILE_PLAN_BYTES } from "../gpu/GpuSurfaceCellPlanAbi.js";
 import { SURFACE_CELL_ADDRESS_WORDS } from "../gpu/GpuSurfaceReferenceAbi.js";
 import { SURFACE_EXECUTION_WORDS } from "../gpu/GpuSurfaceExecutionProfileAbi.js";
-import { SURFACE_FIELD_IDENTITY_WORDS, SURFACE_FIELD_EXECUTION_PROFILE_WORD } from "../gpu/GpuSurfaceFieldIdentityAbi.js";
+import {
+  SURFACE_FIELD_IDENTITY_WORDS,
+  SURFACE_FIELD_EXECUTION_PROFILE_WORD,
+} from "../gpu/GpuSurfaceFieldIdentityAbi.js";
 
 /** Geometry owner address stage. It uses the admitted primitive setup and the
  * same winner interpolation as the sole GeometryRecord producer. Only the
@@ -27,7 +30,7 @@ fn publish_cell_addresses(@builtin(workgroup_id) group:vec3u,@builtin(local_invo
   if published.x==0xffffffffu || published.z>=settings.appearance1.z { return; }
   if published.y>=settings.geometry.y { return; }
   let setup:CellGeometrySetup=geometry_arena.setups[published.y];
-  let absolute=cell_workspace.plans[tile*${SURFACE_CELL_TILE_PLAN_BYTES/4}u+4u];
+  let absolute=cell_workspace.plans[tile*${SURFACE_CELL_TILE_PLAN_BYTES / 4}u+4u];
   let origin=vec2u((absolute%cell_settings.tiles_x)*8u,(absolute/cell_settings.tiles_x)*8u);
   let pixel=origin+vec2u(lane%8u,lane/8u);
   let interpolation=winner_interpolate(setup.coefficients,vec2f(pixel)+vec2f(0.5),vec2f(f32(cell_settings.width),f32(cell_settings.height)));

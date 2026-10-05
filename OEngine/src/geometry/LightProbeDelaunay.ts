@@ -3,18 +3,23 @@
  */
 
 import { BitSet } from "../core/BitSet.js";
-import {
-  TetrahedralMesh,
-  TETRAHEDRAL_MESH_INVALID_NEIGHBOUR
-} from "./TetrahedralMesh.js";
+import { TetrahedralMesh, TETRAHEDRAL_MESH_INVALID_NEIGHBOUR } from "./TetrahedralMesh.js";
 import { orient3d } from "./orient3d.js";
 import { insphere } from "./insphere.js";
 
 const SUPER_DIRECTIONS = new Float32Array([
-  Math.sqrt(8 / 9), 0, -1 / 3,
-  -Math.sqrt(2 / 9), Math.sqrt(2 / 3), -1 / 3,
-  -Math.sqrt(2 / 9), -Math.sqrt(2 / 3), -1 / 3,
-  0, 0, 1
+  Math.sqrt(8 / 9),
+  0,
+  -1 / 3,
+  -Math.sqrt(2 / 9),
+  Math.sqrt(2 / 3),
+  -1 / 3,
+  -Math.sqrt(2 / 9),
+  -Math.sqrt(2 / 3),
+  -1 / 3,
+  0,
+  0,
+  1,
 ]);
 
 class Workspace {
@@ -45,7 +50,7 @@ class Workspace {
 export function buildLightProbeTetrahedralMesh(
   mesh: TetrahedralMesh,
   sourcePositions: Float32Array,
-  pointCount = sourcePositions.length / 3
+  pointCount = sourcePositions.length / 3,
 ): boolean {
   if (pointCount < 4) return false;
   mesh.ensureCapacity(pointCount + 1);
@@ -75,7 +80,7 @@ function buildSuperTetra(
   output: Float32Array,
   outputOffset: number,
   points: Float32Array,
-  count: number
+  count: number,
 ): void {
   if (count <= 0) return;
   let x = points[0]!;
@@ -117,7 +122,7 @@ function walkToContainingTetra(
   mesh: TetrahedralMesh,
   positions: Float32Array,
   start: number,
-  point: number
+  point: number,
 ): number {
   let previousFace = 4;
   let tetra = start;
@@ -134,7 +139,7 @@ function walkToContainingTetra(
           mesh.getVertexIndex(tetra, corner1),
           mesh.getVertexIndex(tetra, corner2),
           mesh.getVertexIndex(tetra, corner3),
-          point
+          point,
         ) < 0
       ) {
         const neighbour = mesh.getNeighbour(tetra, face);
@@ -153,7 +158,7 @@ function markCavity(
   marked: BitSet,
   workspace: Workspace,
   start: number,
-  point: number
+  point: number,
 ): void {
   workspace.pushDeleted(start);
   marked.set(start, true);
@@ -170,7 +175,7 @@ function markCavity(
           mesh.getVertexIndex(tetra, corner1),
           mesh.getVertexIndex(tetra, corner2),
           mesh.getVertexIndex(tetra, corner3),
-          neighbour
+          neighbour,
         );
         continue;
       }
@@ -183,7 +188,7 @@ function markCavity(
           mesh.getVertexIndex(adjacent, 1),
           mesh.getVertexIndex(adjacent, 2),
           mesh.getVertexIndex(adjacent, 3),
-          point
+          point,
         ) < 0
       ) {
         workspace.pushBoundary(
@@ -191,7 +196,7 @@ function markCavity(
           mesh.getVertexIndex(tetra, corner1),
           mesh.getVertexIndex(tetra, corner2),
           mesh.getVertexIndex(tetra, corner3),
-          neighbour
+          neighbour,
         );
       } else {
         workspace.pushDeleted(adjacent);
@@ -201,11 +206,7 @@ function markCavity(
   }
 }
 
-function rebuildCavity(
-  mesh: TetrahedralMesh,
-  marked: BitSet,
-  workspace: Workspace
-): number {
+function rebuildCavity(mesh: TetrahedralMesh, marked: BitSet, workspace: Workspace): number {
   let deletedCount = workspace.deletedSize;
   const boundaryCount = workspace.boundarySize;
   const deleted = workspace.deleted;
@@ -239,10 +240,8 @@ function rebuildCavity(
       const tetraFace = face + 1;
       const packedFace = (tetra << 2) | (tetraFace & 3);
       let match = 0;
-      while (
-        match < openFaces &&
-        (boundary[3 * match] !== vertex1 || boundary[3 * match + 1] !== vertex2)
-      ) match++;
+      while (match < openFaces && (boundary[3 * match] !== vertex1 || boundary[3 * match + 1] !== vertex2))
+        match++;
       if (match === openFaces) {
         const offset = 3 * openFaces++;
         boundary[offset] = vertex2;
@@ -269,22 +268,24 @@ function rebuildCavity(
   return next;
 }
 
-function orientByIndex(
-  positions: Float32Array,
-  a: number,
-  b: number,
-  c: number,
-  d: number
-): number {
+function orientByIndex(positions: Float32Array, a: number, b: number, c: number, d: number): number {
   const ia = 3 * a;
   const ib = 3 * b;
   const ic = 3 * c;
   const id = 3 * d;
   return orient3d(
-    positions[ia]!, positions[ia + 1]!, positions[ia + 2]!,
-    positions[ib]!, positions[ib + 1]!, positions[ib + 2]!,
-    positions[ic]!, positions[ic + 1]!, positions[ic + 2]!,
-    positions[id]!, positions[id + 1]!, positions[id + 2]!
+    positions[ia]!,
+    positions[ia + 1]!,
+    positions[ia + 2]!,
+    positions[ib]!,
+    positions[ib + 1]!,
+    positions[ib + 2]!,
+    positions[ic]!,
+    positions[ic + 1]!,
+    positions[ic + 2]!,
+    positions[id]!,
+    positions[id + 1]!,
+    positions[id + 2]!,
   );
 }
 
@@ -294,7 +295,7 @@ function inSphereByIndex(
   b: number,
   c: number,
   d: number,
-  point: number
+  point: number,
 ): number {
   const ia = 3 * a;
   const ib = 3 * b;
@@ -302,11 +303,21 @@ function inSphereByIndex(
   const id = 3 * d;
   const ip = 3 * point;
   return -insphere(
-    positions[ia]!, positions[ia + 1]!, positions[ia + 2]!,
-    positions[ib]!, positions[ib + 1]!, positions[ib + 2]!,
-    positions[ic]!, positions[ic + 1]!, positions[ic + 2]!,
-    positions[id]!, positions[id + 1]!, positions[id + 2]!,
-    positions[ip]!, positions[ip + 1]!, positions[ip + 2]!
+    positions[ia]!,
+    positions[ia + 1]!,
+    positions[ia + 2]!,
+    positions[ib]!,
+    positions[ib + 1]!,
+    positions[ib + 2]!,
+    positions[ic]!,
+    positions[ic + 1]!,
+    positions[ic + 2]!,
+    positions[id]!,
+    positions[id + 1]!,
+    positions[id + 2]!,
+    positions[ip]!,
+    positions[ip + 1]!,
+    positions[ip + 2]!,
   );
 }
 
@@ -318,7 +329,7 @@ function solvePlanes(
   bi: number,
   bd: number,
   ci: number,
-  cd: number
+  cd: number,
 ): boolean {
   const a0 = SUPER_DIRECTIONS[ai]!;
   const a1 = SUPER_DIRECTIONS[ai + 1]!;
@@ -349,7 +360,7 @@ function solvePlanes(
 }
 
 function dotDirection(x: number, y: number, z: number, offset: number): number {
-  return x * SUPER_DIRECTIONS[offset]! +
-    y * SUPER_DIRECTIONS[offset + 1]! +
-    z * SUPER_DIRECTIONS[offset + 2]!;
+  return (
+    x * SUPER_DIRECTIONS[offset]! + y * SUPER_DIRECTIONS[offset + 1]! + z * SUPER_DIRECTIONS[offset + 2]!
+  );
 }

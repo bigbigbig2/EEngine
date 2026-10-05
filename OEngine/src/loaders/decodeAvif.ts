@@ -17,7 +17,7 @@ interface AvifDecoderModule {
     bitDepth: number,
     outputFloat16: boolean,
     outputColorSpace: number,
-    chromaUpsampling: number
+    chromaUpsampling: number,
   ): AvifDecodedImage | null;
 }
 
@@ -26,7 +26,7 @@ let decoderModule: Promise<AvifDecoderModule> | undefined;
 function obtainDecoderModule(): Promise<AvifDecoderModule> {
   if (decoderModule === undefined) {
     decoderModule = createAvifDecoderModule({
-      noInitialRun: true
+      noInitialRun: true,
     }) as Promise<AvifDecoderModule>;
   }
   return decoderModule;

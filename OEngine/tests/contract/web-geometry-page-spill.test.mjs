@@ -2,26 +2,45 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 
-const {
-  MemoryWebGeometryPageSpillStoreV1,
-  OpfsWebGeometryPageSpillStoreV1,
-  pageSpillKeyV1
-} = await import("../../.test-dist/assets/geometry-product/WebGeometryPageSpillStoreV1.js");
-const { encodeWebCanonicalGeometryV1, encodeWebGeometryCookRecipeV1, planWebGeometryWasmV1 } = await import("../../.test-dist/assets/web-cook/wasm/WebGeometryCookerAbi.js");
-const { planWasmGeometryProductRevisionV1 } = await import("../../.test-dist/assets/geometry-product/WasmGeometryProductV1.js");
-const Module = (await import("../../src/assets/web-cook/wasm/vendor/oengine-web-geometry-cooker.mjs")).default;
+const { MemoryWebGeometryPageSpillStoreV1, OpfsWebGeometryPageSpillStoreV1, pageSpillKeyV1 } = await import(
+  "../../.test-dist/assets/geometry-product/WebGeometryPageSpillStoreV1.js"
+);
+const { encodeWebCanonicalGeometryV1, encodeWebGeometryCookRecipeV1, planWebGeometryWasmV1 } = await import(
+  "../../.test-dist/assets/web-cook/wasm/WebGeometryCookerAbi.js"
+);
+const { planWasmGeometryProductRevisionV1 } = await import(
+  "../../.test-dist/assets/geometry-product/WasmGeometryProductV1.js"
+);
+const Module = (await import("../../src/assets/web-cook/wasm/vendor/oengine-web-geometry-cooker.mjs"))
+  .default;
 import { readFile } from "node:fs/promises";
 
 async function loadArtifact() {
-  const wasm = await readFile(new URL("../../src/assets/web-cook/wasm/vendor/oengine-web-geometry-cooker.wasm", import.meta.url));
-  return Module({ instantiateWasm(info, receive) { WebAssembly.instantiate(wasm, info).then(result => receive(result.instance)); return {}; } });
+  const wasm = await readFile(
+    new URL("../../src/assets/web-cook/wasm/vendor/oengine-web-geometry-cooker.wasm", import.meta.url),
+  );
+  return Module({
+    instantiateWasm(info, receive) {
+      WebAssembly.instantiate(wasm, info).then((result) => receive(result.instance));
+      return {};
+    },
+  });
 }
 
 function triangleCanonical() {
   const vertices = new Float32Array(54);
   vertices[18] = 1;
   vertices[36 + 1] = 1;
-  return encodeWebCanonicalGeometryV1([{ materialId: 0, meshletFlags: 1, attributeMask: 1, generateNormals: true, vertices, indices: Uint32Array.from([0, 1, 2]) }]);
+  return encodeWebCanonicalGeometryV1([
+    {
+      materialId: 0,
+      meshletFlags: 1,
+      attributeMask: 1,
+      generateNormals: true,
+      vertices,
+      indices: Uint32Array.from([0, 1, 2]),
+    },
+  ]);
 }
 
 function page(fill) {
@@ -43,9 +62,25 @@ test("memory page spill is checksum-verified, bounded, and generation-scoped", a
   structuredClone(reread.bytes, { transfer: [reread.bytes] });
   const afterTransfer = await store.read(key());
   assert.equal(afterTransfer.bytes.byteLength, 262144);
-  assert.deepEqual([...afterTransfer.payloadChecksum], [...new Uint8Array(createHash("sha256").update(new Uint8Array(page(0x2a))).digest())]);
-  await assert.rejects(() => store.put({ ...key(), decodedHash128: new Uint8Array(16).fill(3), bytes: page(0x2b) }), /collides|different payload/i);
-  assert.equal((await store.read({ ...key(), sessionGeneration: 5 })), null, "old generation must not hit a new generation");
+  assert.deepEqual(
+    [...afterTransfer.payloadChecksum],
+    [
+      ...new Uint8Array(
+        createHash("sha256")
+          .update(new Uint8Array(page(0x2a)))
+          .digest(),
+      ),
+    ],
+  );
+  await assert.rejects(
+    () => store.put({ ...key(), decodedHash128: new Uint8Array(16).fill(3), bytes: page(0x2b) }),
+    /collides|different payload/i,
+  );
+  assert.equal(
+    await store.read({ ...key(), sessionGeneration: 5 }),
+    null,
+    "old generation must not hit a new generation",
+  );
   const evidence = store.evidence();
   assert.equal(evidence.ownerCount, 1);
   assert.equal(evidence.currentBytes, 262144 + 144);
@@ -57,34 +92,84 @@ test("memory page spill is checksum-verified, bounded, and generation-scoped", a
 
 test("memory page spill rejects a partial budget before publication", async () => {
   const store = new MemoryWebGeometryPageSpillStoreV1({ maxBytes: 262144 + 143 });
-  await assert.rejects(() => store.put({ ...key(), decodedHash128: new Uint8Array(16), bytes: page(1) }), /maxBytes/i);
+  await assert.rejects(
+    () => store.put({ ...key(), decodedHash128: new Uint8Array(16), bytes: page(1) }),
+    /maxBytes/i,
+  );
   assert.equal(store.evidence().ownerCount, 0);
   assert.equal(store.evidence().currentBytes, 0);
 });
 
 class FakeFile {
-  constructor(bytes) { this.bytes = bytes; }
-  async arrayBuffer() { return this.bytes.slice(0); }
+  constructor(bytes) {
+    this.bytes = bytes;
+  }
+  async arrayBuffer() {
+    return this.bytes.slice(0);
+  }
 }
 class FakeWritable {
-  constructor(handle) { this.handle = handle; this.bytes = null; }
-  async write(bytes) { this.bytes = bytes instanceof ArrayBuffer ? bytes.slice(0) : bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength); }
-  async close() { this.handle.bytes = this.bytes; }
-  async abort() { this.bytes = null; }
+  constructor(handle) {
+    this.handle = handle;
+    this.bytes = null;
+  }
+  async write(bytes) {
+    this.bytes =
+      bytes instanceof ArrayBuffer
+        ? bytes.slice(0)
+        : bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  }
+  async close() {
+    this.handle.bytes = this.bytes;
+  }
+  async abort() {
+    this.bytes = null;
+  }
 }
 class FakeFileHandle {
-  constructor(directory, name) { this.directory = directory; this.name = name; this.bytes = directory.files.get(name) ?? null; }
-  async createWritable() { return new FakeWritable(this); }
-  async getFile() { if (this.bytes === null) throw new DOMException("missing", "NotFoundError"); return new FakeFile(this.bytes); }
+  constructor(directory, name) {
+    this.directory = directory;
+    this.name = name;
+    this.bytes = directory.files.get(name) ?? null;
+  }
+  async createWritable() {
+    return new FakeWritable(this);
+  }
+  async getFile() {
+    if (this.bytes === null) throw new DOMException("missing", "NotFoundError");
+    return new FakeFile(this.bytes);
+  }
 }
 class FakeDirectory {
-  constructor() { this.files = new Map(); }
-  async getFileHandle(name, options = {}) { if (!this.files.has(name) && options.create !== true) throw new DOMException("missing", "NotFoundError"); const handle = new FakeFileHandle(this, name); const directory = this; Object.defineProperty(handle, "bytes", { get() { return directory.files.get(name) ?? null; }, set(value) { if (value === null) directory.files.delete(name); else directory.files.set(name, value); }, configurable: true }); return handle; }
-  async removeEntry(name) { if (!this.files.delete(name)) throw new DOMException("missing", "NotFoundError"); }
+  constructor() {
+    this.files = new Map();
+  }
+  async getFileHandle(name, options = {}) {
+    if (!this.files.has(name) && options.create !== true) throw new DOMException("missing", "NotFoundError");
+    const handle = new FakeFileHandle(this, name);
+    const directory = this;
+    Object.defineProperty(handle, "bytes", {
+      get() {
+        return directory.files.get(name) ?? null;
+      },
+      set(value) {
+        if (value === null) directory.files.delete(name);
+        else directory.files.set(name, value);
+      },
+      configurable: true,
+    });
+    return handle;
+  }
+  async removeEntry(name) {
+    if (!this.files.delete(name)) throw new DOMException("missing", "NotFoundError");
+  }
 }
 
 test("OPFS concurrent release and disposal debit ownership exactly once", async () => {
-  const store = new OpfsWebGeometryPageSpillStoreV1({ directory: new FakeDirectory(), maxBytes: 262144 + 144 });
+  const store = new OpfsWebGeometryPageSpillStoreV1({
+    directory: new FakeDirectory(),
+    maxBytes: 262144 + 144,
+  });
   await store.put({ ...key(), decodedHash128: new Uint8Array(16), bytes: page(3) });
   await Promise.all([store.release(key()), store.dispose()]);
   assert.equal(store.evidence().currentBytes, 0);
@@ -95,18 +180,41 @@ test("OPFS concurrent release and disposal debit ownership exactly once", async 
 test("identical canonical content in different planner partitions has distinct stable identity", async () => {
   const module = await loadArtifact();
   const recipe = encodeWebGeometryCookRecipeV1();
-  const options = { producerId: "partition-test", producerVersion: "2", sourceIdentityKind: "session", sourceIdentityHash: new Uint8Array(32).fill(4), revision: 0, maxDecodedProductBytes: 262144, sceneAssetIndices: [0] };
-  const a = await planWasmGeometryProductRevisionV1(module, triangleCanonical(), recipe, { ...options, partitionIdentity: "morton:shard-a" });
-  const b = await planWasmGeometryProductRevisionV1(module, triangleCanonical(), recipe, { ...options, partitionIdentity: "morton:shard-b" });
-  const repeated = await planWasmGeometryProductRevisionV1(module, triangleCanonical(), recipe, { ...options, partitionIdentity: "morton:shard-a" });
+  const options = {
+    producerId: "partition-test",
+    producerVersion: "2",
+    sourceIdentityKind: "session",
+    sourceIdentityHash: new Uint8Array(32).fill(4),
+    revision: 0,
+    maxDecodedProductBytes: 262144,
+    sceneAssetIndices: [0],
+  };
+  const a = await planWasmGeometryProductRevisionV1(module, triangleCanonical(), recipe, {
+    ...options,
+    partitionIdentity: "morton:shard-a",
+  });
+  const b = await planWasmGeometryProductRevisionV1(module, triangleCanonical(), recipe, {
+    ...options,
+    partitionIdentity: "morton:shard-b",
+  });
+  const repeated = await planWasmGeometryProductRevisionV1(module, triangleCanonical(), recipe, {
+    ...options,
+    partitionIdentity: "morton:shard-a",
+  });
   assert.notDeepEqual(a.productId, b.productId);
   assert.deepEqual(a.productId, repeated.productId);
-  a.release(); b.release(); repeated.release();
+  a.release();
+  b.release();
+  repeated.release();
 });
 
 test("OPFS envelope re-reads exact bytes and rejects corruption", async () => {
   const directory = new FakeDirectory();
-  const store = new OpfsWebGeometryPageSpillStoreV1({ directory, maxBytes: 2 * (262144 + 144), namespace: "test-pages" });
+  const store = new OpfsWebGeometryPageSpillStoreV1({
+    directory,
+    maxBytes: 2 * (262144 + 144),
+    namespace: "test-pages",
+  });
   const artifact = await store.put({ ...key(), decodedHash128: new Uint8Array(16).fill(8), bytes: page(5) });
   const filename = [...directory.files.keys()][0];
   assert.match(filename, /^test-pages-/u);
@@ -127,23 +235,36 @@ test("page spill keys are stable and include the runtime generation", () => {
 
 test("plan-backed Product reads through spill and returns a stable copy after transfer", async () => {
   const module = await loadArtifact();
-  assert.equal(typeof module._oengine_web_geometry_cook_release_page, "function", "checked-in WASM artifact must carry the Phase D release hook");
+  assert.equal(
+    typeof module._oengine_web_geometry_cook_release_page,
+    "function",
+    "checked-in WASM artifact must carry the Phase D release hook",
+  );
   const store = new MemoryWebGeometryPageSpillStoreV1({ maxBytes: 2 * (262144 + 144) });
-  const revision = await planWasmGeometryProductRevisionV1(module, triangleCanonical(), encodeWebGeometryCookRecipeV1(), {
-    producerId: "oengine-spill-test",
-    producerVersion: "cook-and-spill-v1",
-    sourceIdentityKind: "session",
-    sourceIdentityHash: new Uint8Array(32).fill(6),
-    revision: 1,
-    sessionGeneration: 17,
-    spillStore: store,
-    maxDecodedProductBytes: 2 * 262144
-  });
+  const revision = await planWasmGeometryProductRevisionV1(
+    module,
+    triangleCanonical(),
+    encodeWebGeometryCookRecipeV1(),
+    {
+      producerId: "oengine-spill-test",
+      producerVersion: "cook-and-spill-v1",
+      sourceIdentityKind: "session",
+      sourceIdentityHash: new Uint8Array(32).fill(6),
+      revision: 1,
+      sessionGeneration: 17,
+      spillStore: store,
+      maxDecodedProductBytes: 2 * 262144,
+    },
+  );
   try {
     const [first, concurrent] = await Promise.all([revision.readPage(0), revision.readPage(0)]);
     const firstBytes = new Uint8Array(first.bytes.slice(0));
     assert.equal(store.evidence().writes, 1);
-    assert.deepEqual(new Uint8Array(concurrent.bytes), firstBytes, "same-page concurrent demand must share one cook");
+    assert.deepEqual(
+      new Uint8Array(concurrent.bytes),
+      firstBytes,
+      "same-page concurrent demand must share one cook",
+    );
     structuredClone(first.bytes, { transfer: [first.bytes] });
     const second = await revision.readPage(0);
     assert.deepEqual(new Uint8Array(second.bytes), firstBytes);

@@ -24,27 +24,59 @@ export function buildDiagnostics(input: DiagnosticsInput): readonly DiagnosticRo
   const rows: DiagnosticRow[] = [
     { label: "Mode", value: input.mode, severity: "info" },
     { label: "Diagnostics scope", value: "session cumulative", severity: "info" },
-    { label: "GPU timestamps", value: input.gpuTimestampAvailable ? "available" : "unsupported", severity: input.gpuTimestampAvailable ? "info" : "warning" },
+    {
+      label: "GPU timestamps",
+      value: input.gpuTimestampAvailable ? "available" : "unsupported",
+      severity: input.gpuTimestampAvailable ? "info" : "warning",
+    },
     { label: "Timestamp cadence", value: `${input.gpuSampleInterval} frame(s)`, severity: "info" },
-    { label: "Counter cadence", value: `${input.gpuCounterSampleInterval} frame(s)`, severity: "info" }
+    { label: "Counter cadence", value: `${input.gpuCounterSampleInterval} frame(s)`, severity: "info" },
   ];
   const diagnostics = input.diagnostics;
   if (diagnostics !== null) {
     rows.push(
-      { label: "Validation errors", value: String(diagnostics.validationErrorCount), severity: diagnostics.validationErrorCount > 0 ? "error" : "info" },
-      { label: "Uncaptured errors", value: String(diagnostics.uncapturedErrorCount), severity: diagnostics.uncapturedErrorCount > 0 ? "error" : "info" },
-      { label: "Device lost", value: String(diagnostics.deviceLostCount), severity: diagnostics.deviceLostCount > 0 ? "error" : "info" },
-      { label: "GPU timestamp failures", value: String(diagnostics.failedGpuTimestampBatches), severity: diagnostics.failedGpuTimestampBatches > 0 ? "warning" : "info" },
-      { label: "Dropped counters", value: String(diagnostics.droppedGpuCounterSamples), severity: diagnostics.droppedGpuCounterSamples > 0 ? "warning" : "info" },
-      { label: "Failed counters", value: String(diagnostics.failedGpuCounterSamples), severity: diagnostics.failedGpuCounterSamples > 0 ? "warning" : "info" }
+      {
+        label: "Validation errors",
+        value: String(diagnostics.validationErrorCount),
+        severity: diagnostics.validationErrorCount > 0 ? "error" : "info",
+      },
+      {
+        label: "Uncaptured errors",
+        value: String(diagnostics.uncapturedErrorCount),
+        severity: diagnostics.uncapturedErrorCount > 0 ? "error" : "info",
+      },
+      {
+        label: "Device lost",
+        value: String(diagnostics.deviceLostCount),
+        severity: diagnostics.deviceLostCount > 0 ? "error" : "info",
+      },
+      {
+        label: "GPU timestamp failures",
+        value: String(diagnostics.failedGpuTimestampBatches),
+        severity: diagnostics.failedGpuTimestampBatches > 0 ? "warning" : "info",
+      },
+      {
+        label: "Dropped counters",
+        value: String(diagnostics.droppedGpuCounterSamples),
+        severity: diagnostics.droppedGpuCounterSamples > 0 ? "warning" : "info",
+      },
+      {
+        label: "Failed counters",
+        value: String(diagnostics.failedGpuCounterSamples),
+        severity: diagnostics.failedGpuCounterSamples > 0 ? "warning" : "info",
+      },
     );
   }
-  const unavailable = input.frame === undefined
-    ? []
-    : input.metricCatalog.filter((descriptor) => {
-      const sample = input.frame!.samples[descriptor.id];
-      return sample === undefined || ["not-sampled", "not-applicable", "unsupported"].includes(sample.availability);
-    });
+  const unavailable =
+    input.frame === undefined
+      ? []
+      : input.metricCatalog.filter((descriptor) => {
+          const sample = input.frame!.samples[descriptor.id];
+          return (
+            sample === undefined ||
+            ["not-sampled", "not-applicable", "unsupported"].includes(sample.availability)
+          );
+        });
   if (unavailable.length > 0) {
     const counts = new Map<string, number>();
     for (const metric of unavailable) {
@@ -54,12 +86,13 @@ export function buildDiagnostics(input: DiagnosticsInput): readonly DiagnosticRo
     rows.push({
       label: "Metric coverage",
       value: [...counts.entries()].map(([availability, count]) => `${availability}: ${count}`).join(" · "),
-      severity: "info"
+      severity: "info",
     });
   }
-  const pending = input.frame === undefined
-    ? []
-    : Object.values(input.frame.samples).filter((sample) => sample.availability === "pending");
+  const pending =
+    input.frame === undefined
+      ? []
+      : Object.values(input.frame.samples).filter((sample) => sample.availability === "pending");
   if (pending.length > 0) {
     const latestFrameIndex = input.latestFrameIndex ?? input.frame!.frameIndex;
     const age = Math.max(...pending.map((sample) => Math.max(0, latestFrameIndex - sample.sourceFrameIndex)));
@@ -68,7 +101,7 @@ export function buildDiagnostics(input: DiagnosticsInput): readonly DiagnosticRo
   rows.push({
     label: "Inspector overhead",
     value: input.inspectorOverheadMs === null ? "not-sampled" : `${input.inspectorOverheadMs.toFixed(3)} ms`,
-    severity: "info"
+    severity: "info",
   });
   return Object.freeze(rows.map((row) => Object.freeze(row)));
 }

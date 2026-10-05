@@ -43,12 +43,7 @@ export class LinearModifier {
   }
 
   hash(): number {
-    return (
-      hashFloat(this.a) ^
-      hashFloat(this.b) ^
-      this.source ^
-      (this.transient ? 0 : 1)
-    );
+    return hashFloat(this.a) ^ hashFloat(this.b) ^ this.source ^ (this.transient ? 0 : 1);
   }
 
   toString(): string {
@@ -60,7 +55,7 @@ export class LinearModifier {
       a: this.a,
       b: this.b,
       source: this.source,
-      transient: this.transient
+      transient: this.transient,
     };
   }
 
@@ -68,7 +63,7 @@ export class LinearModifier {
     a = 1,
     b = 0,
     source = 0,
-    transient = false
+    transient = false,
   }: {
     a?: number;
     b?: number;

@@ -3,7 +3,7 @@ import {
   validateAssetCodecWorkerResult,
   type AssetCodecTaskResult,
   type AssetCodecWorkerMessage,
-  type Ktx2TranscodeTask
+  type Ktx2TranscodeTask,
 } from "./AssetCodecTypes.js";
 import { AssetWorkerPool } from "./AssetWorkerPool.js";
 
@@ -67,8 +67,8 @@ export class AssetCodecService {
   private destroyed = false;
 
   constructor(options: AssetCodecServiceOptions) {
-    const hardwareConcurrency = options.hardwareConcurrency ??
-      (typeof navigator === "undefined" ? 2 : navigator.hardwareConcurrency);
+    const hardwareConcurrency =
+      options.hardwareConcurrency ?? (typeof navigator === "undefined" ? 2 : navigator.hardwareConcurrency);
     this.maxWorkers = options.maxWorkers ?? defaultAssetCodecWorkerCount(hardwareConcurrency);
     this.now = options.now ?? (() => performance.now());
     this.pool = new AssetWorkerPool({
@@ -76,7 +76,7 @@ export class AssetCodecService {
       maxInFlightEstimatedBytes: options.maxInFlightEstimatedBytes ?? 256 * 1024 * 1024,
       maxQueuedTasks: options.maxQueuedTasks,
       maxConsecutiveWorkerFailures: options.maxConsecutiveWorkerFailures,
-      createWorker: options.createWorker
+      createWorker: options.createWorker,
     });
   }
 
@@ -96,13 +96,14 @@ export class AssetCodecService {
         transfer: [task.input],
         estimatedPeakBytes: task.estimatedPeakBytes,
         priority: task.priority,
-        signal
+        signal,
       });
       if (message.type !== "result") {
         throw new Error(`Asset codec Worker returned unexpected '${message.type}' message`);
       }
       validateAssetCodecWorkerResult(message.result);
-      if (message.result.taskId !== task.taskId) throw new Error("Asset codec Worker returned the wrong task id");
+      if (message.result.taskId !== task.taskId)
+        throw new Error("Asset codec Worker returned the wrong task id");
       if (!message.result.ok) {
         throw new AssetCodecTaskError(message.result.code, message.result.message);
       }
@@ -110,8 +111,10 @@ export class AssetCodecService {
       if (result.sourceEncoding !== task.sourceEncoding || result.targetFormat !== task.targetFormat) {
         throw new Error("Asset codec Worker returned result metadata for a different task");
       }
-      if (result.evidence.inputBytes !== inputByteLength ||
-          result.evidence.estimatedPeakBytes !== task.estimatedPeakBytes) {
+      if (
+        result.evidence.inputBytes !== inputByteLength ||
+        result.evidence.estimatedPeakBytes !== task.estimatedPeakBytes
+      ) {
         throw new Error("Asset codec Worker returned inconsistent input or memory evidence");
       }
       const elapsedMs = Math.max(result.evidence.wallMs, this.now() - submittedAt, 0);
@@ -121,8 +124,8 @@ export class AssetCodecService {
         evidence: Object.freeze({
           ...result.evidence,
           queueWaitMs,
-          wallMs: elapsedMs
-        })
+          wallMs: elapsedMs,
+        }),
       });
       this.tasksCompleted++;
       this.workerPathCount++;
@@ -133,15 +136,18 @@ export class AssetCodecService {
       const identityKey = [
         measuredResult.evidence.codecId,
         measuredResult.evidence.codecRevision,
-        measuredResult.evidence.codecBinaryHash.toLowerCase()
+        measuredResult.evidence.codecBinaryHash.toLowerCase(),
       ].join(":");
       const identity = this.codecIdentities.get(identityKey);
-      this.codecIdentities.set(identityKey, Object.freeze({
-        codecId: measuredResult.evidence.codecId,
-        codecRevision: measuredResult.evidence.codecRevision,
-        codecBinaryHash: measuredResult.evidence.codecBinaryHash.toLowerCase(),
-        completedTaskCount: (identity?.completedTaskCount ?? 0) + 1
-      }));
+      this.codecIdentities.set(
+        identityKey,
+        Object.freeze({
+          codecId: measuredResult.evidence.codecId,
+          codecRevision: measuredResult.evidence.codecRevision,
+          codecBinaryHash: measuredResult.evidence.codecBinaryHash.toLowerCase(),
+          completedTaskCount: (identity?.completedTaskCount ?? 0) + 1,
+        }),
+      );
       return measuredResult;
     } catch (error) {
       if (isAbortError(error)) this.tasksCancelled++;
@@ -175,12 +181,13 @@ export class AssetCodecService {
       workerPathCount: this.workerPathCount,
       uncompressedPathCount: 0,
       codecIdentities: Object.freeze(
-        [...this.codecIdentities.values()].sort((left, right) =>
-          left.codecId.localeCompare(right.codecId) ||
-          left.codecRevision.localeCompare(right.codecRevision) ||
-          left.codecBinaryHash.localeCompare(right.codecBinaryHash)
-        )
-      )
+        [...this.codecIdentities.values()].sort(
+          (left, right) =>
+            left.codecId.localeCompare(right.codecId) ||
+            left.codecRevision.localeCompare(right.codecRevision) ||
+            left.codecBinaryHash.localeCompare(right.codecBinaryHash),
+        ),
+      ),
     });
   }
 
@@ -192,7 +199,10 @@ export class AssetCodecService {
 }
 
 export class AssetCodecTaskError extends Error {
-  constructor(readonly code: string, message: string) {
+  constructor(
+    readonly code: string,
+    message: string,
+  ) {
     super(message);
     this.name = "AssetCodecTaskError";
   }

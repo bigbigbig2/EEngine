@@ -3,7 +3,7 @@
 import {
   HZB_FROM_DEPTH_COMPUTE_WGSL,
   HZB_REDUCE_COMPUTE_WGSL,
-  HZB_WORKGROUP_SIZE
+  HZB_WORKGROUP_SIZE,
 } from "../shaders/hzb_reduce.js";
 import type { GraphicsContext } from "../gpu/GraphicsContext.js";
 import type { CachedComputePipelineDescriptor } from "../gpu/GPUDescriptorCaches.js";
@@ -27,14 +27,14 @@ const FROM_DEPTH_GROUP: GPUBindGroupLayoutDescriptor = {
     {
       binding: 1,
       visibility: GPUShaderStage.COMPUTE,
-      storageTexture: { access: "write-only", format: HZB_FORMAT, viewDimension: "2d" }
+      storageTexture: { access: "write-only", format: HZB_FORMAT, viewDimension: "2d" },
     },
     {
       binding: 2,
       visibility: GPUShaderStage.COMPUTE,
-      buffer: { type: "uniform", minBindingSize: SOURCE_REGION_BYTES }
-    }
-  ]
+      buffer: { type: "uniform", minBindingSize: SOURCE_REGION_BYTES },
+    },
+  ],
 };
 
 const REDUCE_GROUP: GPUBindGroupLayoutDescriptor = {
@@ -43,14 +43,14 @@ const REDUCE_GROUP: GPUBindGroupLayoutDescriptor = {
     {
       binding: 0,
       visibility: GPUShaderStage.COMPUTE,
-      texture: { sampleType: "unfilterable-float", viewDimension: "2d" }
+      texture: { sampleType: "unfilterable-float", viewDimension: "2d" },
     },
     {
       binding: 1,
       visibility: GPUShaderStage.COMPUTE,
-      storageTexture: { access: "write-only", format: HZB_FORMAT, viewDimension: "2d" }
-    }
-  ]
+      storageTexture: { access: "write-only", format: HZB_FORMAT, viewDimension: "2d" },
+    },
+  ],
 };
 
 const FROM_DEPTH_PIPELINE: CachedComputePipelineDescriptor = {
@@ -58,8 +58,8 @@ const FROM_DEPTH_PIPELINE: CachedComputePipelineDescriptor = {
   layout: { label: "HZB/from-depth-layout", bindGroupLayouts: [FROM_DEPTH_GROUP] },
   compute: {
     module: { label: "HZB/from-depth-module", code: HZB_FROM_DEPTH_COMPUTE_WGSL },
-    entryPoint: "main"
-  }
+    entryPoint: "main",
+  },
 };
 
 const REDUCE_PIPELINE: CachedComputePipelineDescriptor = {
@@ -67,8 +67,8 @@ const REDUCE_PIPELINE: CachedComputePipelineDescriptor = {
   layout: { label: "HZB/reduce-layout", bindGroupLayouts: [REDUCE_GROUP] },
   compute: {
     module: { label: "HZB/reduce-module", code: HZB_REDUCE_COMPUTE_WGSL },
-    entryPoint: "main"
-  }
+    entryPoint: "main",
+  },
 };
 
 export type HzbFrameRevision = Partial<
@@ -105,26 +105,38 @@ export class HierarchicalZBuffer {
     this.graphics = graphics;
     this.device = device;
     const makeTexture = (index: number): GPUTextureContext =>
-      graphics.textures.contextFromDescriptor(id.from({
-        label: `HZB/history-${index}`,
-        format: HZB_FORMAT,
-        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING,
-        mipLevelCount: 1,
-        size: [1, 1, 1]
-      }));
+      graphics.textures.contextFromDescriptor(
+        id.from({
+          label: `HZB/history-${index}`,
+          format: HZB_FORMAT,
+          usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING,
+          mipLevelCount: 1,
+          size: [1, 1, 1],
+        }),
+      );
     this.textures = [makeTexture(0), makeTexture(1)];
     this.sourceRegionBuffer = device.createBuffer({
       label: "HZB/source-region",
       size: SOURCE_REGION_BYTES,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
   }
 
-  get width(): number { return this.hzbW; }
-  get height(): number { return this.hzbH; }
-  get mipLevelCount(): number { return this.mipCount; }
-  get historyValid(): boolean { return this.history.valid; }
-  get historyInvalidationCount(): number { return this.history.invalidationCount; }
+  get width(): number {
+    return this.hzbW;
+  }
+  get height(): number {
+    return this.hzbH;
+  }
+  get mipLevelCount(): number {
+    return this.mipCount;
+  }
+  get historyValid(): boolean {
+    return this.history.valid;
+  }
+  get historyInvalidationCount(): number {
+    return this.history.invalidationCount;
+  }
 
   getCurrentTexture(): GPUTextureContext {
     return this.textures[this.history.writeTextureIndex];
@@ -147,7 +159,7 @@ export class HierarchicalZBuffer {
       camera: revision.camera ?? 0,
       renderScale: revision.renderScale ?? 0,
       feature: revision.feature ?? 0,
-      format: revision.format ?? HZB_FORMAT_REVISION
+      format: revision.format ?? HZB_FORMAT_REVISION,
     });
   }
 
@@ -171,7 +183,7 @@ export class HierarchicalZBuffer {
   build(
     encoder: GPUCommandEncoder,
     sourceDepth: GPUTextureContext,
-    viewport?: readonly [number, number, number, number]
+    viewport?: readonly [number, number, number, number],
   ): void {
     if (this.mipCount < 1) this.setViewportSize(sourceDepth.width, sourceDepth.height);
     if (this.mipCount < 1) return;
@@ -188,41 +200,53 @@ export class HierarchicalZBuffer {
         "HierarchicalZBuffer/source-region",
         this.sourceRegionBuffer,
         0,
-        this.sourceRegionData
+        this.sourceRegionData,
       );
       for (let index = 0; index < 4; index++) {
         this.uploadedSourceRegion[index] = this.sourceRegionData[index]!;
       }
     }
 
-    const sourceView = sourceDepth.obtainView(gd.from({
-      dimension: "2d",
-      baseMipLevel: 0,
-      mipLevelCount: 1,
-      baseArrayLayer: 0,
-      arrayLayerCount: 1
-    }));
+    const sourceView = sourceDepth.obtainView(
+      gd.from({
+        dimension: "2d",
+        baseMipLevel: 0,
+        mipLevelCount: 1,
+        baseArrayLayer: 0,
+        arrayLayerCount: 1,
+      }),
+    );
     const writeIndex = this.history.writeTextureIndex;
     const pass = encoder.beginComputePass({ label: "HZB/compute-pyramid" });
     pass.setPipeline(this.pipelineFromDepth);
-    pass.setBindGroup(0, this.graphics.bind_groups.obtain({
-      layout: FROM_DEPTH_GROUP,
-      entries: [sourceView, this.obtainMipView(writeIndex, 0), {
-        buffer: this.sourceRegionBuffer,
-        offset: 0,
-        size: SOURCE_REGION_BYTES
-      }]
-    }));
+    pass.setBindGroup(
+      0,
+      this.graphics.bind_groups.obtain({
+        layout: FROM_DEPTH_GROUP,
+        entries: [
+          sourceView,
+          this.obtainMipView(writeIndex, 0),
+          {
+            buffer: this.sourceRegionBuffer,
+            offset: 0,
+            size: SOURCE_REGION_BYTES,
+          },
+        ],
+      }),
+    );
     this.dispatchMip(pass, this.hzbW, this.hzbH);
 
     pass.setPipeline(this.pipelineReduce);
     let width = this.hzbW;
     let height = this.hzbH;
     for (let mip = 1; mip < this.mipCount; mip++) {
-      pass.setBindGroup(0, this.graphics.bind_groups.obtain({
-        layout: REDUCE_GROUP,
-        entries: [this.obtainMipView(writeIndex, mip - 1), this.obtainMipView(writeIndex, mip)]
-      }));
+      pass.setBindGroup(
+        0,
+        this.graphics.bind_groups.obtain({
+          layout: REDUCE_GROUP,
+          entries: [this.obtainMipView(writeIndex, mip - 1), this.obtainMipView(writeIndex, mip)],
+        }),
+      );
       width = Math.max(1, width >> 1);
       height = Math.max(1, height >> 1);
       this.dispatchMip(pass, width, height);
@@ -269,34 +293,34 @@ export class HierarchicalZBuffer {
   }
 
   private dispatchMip(pass: GPUComputePassEncoder, width: number, height: number): void {
-    pass.dispatchWorkgroups(
-      Math.ceil(width / HZB_WORKGROUP_SIZE),
-      Math.ceil(height / HZB_WORKGROUP_SIZE),
-      1
-    );
+    pass.dispatchWorkgroups(Math.ceil(width / HZB_WORKGROUP_SIZE), Math.ceil(height / HZB_WORKGROUP_SIZE), 1);
     this.lastOutputPixels += width * height;
   }
 
   private obtainFullView(textureIndex: 0 | 1): GPUTextureView {
-    return this.textures[textureIndex].obtainView(gd.from({
-      dimension: "2d",
-      baseMipLevel: 0,
-      mipLevelCount: this.mipCount,
-      baseArrayLayer: 0,
-      arrayLayerCount: 1
-    }));
+    return this.textures[textureIndex].obtainView(
+      gd.from({
+        dimension: "2d",
+        baseMipLevel: 0,
+        mipLevelCount: this.mipCount,
+        baseArrayLayer: 0,
+        arrayLayerCount: 1,
+      }),
+    );
   }
 
   private obtainMipView(textureIndex: 0 | 1, mip: number): GPUTextureView {
     let view = this.mipViews[textureIndex][mip];
     if (view === undefined) {
-      view = this.textures[textureIndex].obtainView(gd.from({
-        baseMipLevel: mip,
-        mipLevelCount: 1,
-        dimension: "2d",
-        baseArrayLayer: 0,
-        arrayLayerCount: 1
-      }));
+      view = this.textures[textureIndex].obtainView(
+        gd.from({
+          baseMipLevel: mip,
+          mipLevelCount: 1,
+          dimension: "2d",
+          baseArrayLayer: 0,
+          arrayLayerCount: 1,
+        }),
+      );
       this.mipViews[textureIndex][mip] = view;
     }
     return view;

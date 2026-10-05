@@ -17,20 +17,20 @@ export interface TextureBindingSetPolicyRecord {
 }
 
 export function textureBindingSetPolicy(
-  limits: Pick<GPUSupportedLimits, "maxSampledTexturesPerShaderStage" | "maxSamplersPerShaderStage">
+  limits: Pick<GPUSupportedLimits, "maxSampledTexturesPerShaderStage" | "maxSamplersPerShaderStage">,
 ): TextureBindingSetPolicyRecord {
-  const requiredTextures = TEXTURE_BINDING_SET_SLOT_COUNT +
-    TEXTURE_BINDING_SET_RESERVED_SAMPLED_TEXTURE_BINDINGS;
+  const requiredTextures =
+    TEXTURE_BINDING_SET_SLOT_COUNT + TEXTURE_BINDING_SET_RESERVED_SAMPLED_TEXTURE_BINDINGS;
   const sampledTextureLimit = Number(limits.maxSampledTexturesPerShaderStage);
   const samplerLimit = Number(limits.maxSamplersPerShaderStage);
   if (!Number.isFinite(sampledTextureLimit) || sampledTextureLimit < requiredTextures) {
     throw new RangeError(
-      `TextureBindingSet requires ${requiredTextures} sampled textures per shader stage, device permits ${sampledTextureLimit}`
+      `TextureBindingSet requires ${requiredTextures} sampled textures per shader stage, device permits ${sampledTextureLimit}`,
     );
   }
   if (!Number.isFinite(samplerLimit) || samplerLimit < TEXTURE_BINDING_SET_SAMPLER_CLASS_COUNT) {
     throw new RangeError(
-      `TextureBindingSet requires ${TEXTURE_BINDING_SET_SAMPLER_CLASS_COUNT} samplers per shader stage, device permits ${samplerLimit}`
+      `TextureBindingSet requires ${TEXTURE_BINDING_SET_SAMPLER_CLASS_COUNT} samplers per shader stage, device permits ${samplerLimit}`,
     );
   }
   return Object.freeze({
@@ -38,6 +38,6 @@ export function textureBindingSetPolicy(
     samplerClassCount: TEXTURE_BINDING_SET_SAMPLER_CLASS_COUNT,
     maxResidentBindingSets: TEXTURE_BINDING_SET_MAX_RESIDENT_SETS,
     reservedSampledTextureBindings: TEXTURE_BINDING_SET_RESERVED_SAMPLED_TEXTURE_BINDINGS,
-    maxShadingDispatchClasses: GPU_SHADING_PROGRAM_COUNT * TEXTURE_BINDING_SET_MAX_RESIDENT_SETS
+    maxShadingDispatchClasses: GPU_SHADING_PROGRAM_COUNT * TEXTURE_BINDING_SET_MAX_RESIDENT_SETS,
   });
 }

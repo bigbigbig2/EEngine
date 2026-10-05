@@ -1,4 +1,11 @@
-import { FRAME_GEOMETRY_WGSL, WINNER_DICTIONARY_WGSL, WINNER_HASH_WGSL, WINNER_COEFFICIENT_STRIDE, WINNER_DICTIONARY_STRIDE, FRAME_GEOMETRY_MESHLET_STRIDE } from "../gpu/GpuWinnerInterpolationAbi.js";
+import {
+  FRAME_GEOMETRY_WGSL,
+  WINNER_DICTIONARY_WGSL,
+  WINNER_HASH_WGSL,
+  WINNER_COEFFICIENT_STRIDE,
+  WINNER_DICTIONARY_STRIDE,
+  FRAME_GEOMETRY_MESHLET_STRIDE,
+} from "../gpu/GpuWinnerInterpolationAbi.js";
 import { FRAME_GEOMETRY_ARENA_HEADER_WORDS as ARENA } from "../gpu/GpuFrameGeometryArenaAbi.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
 import { WINNER_INTERPOLATION_WGSL } from "./winner_interpolation.js";
@@ -134,7 +141,8 @@ fn winner_build(@builtin(workgroup_id) group: vec3u, @builtin(local_invocation_i
  * a capacity/probe miss recomputes only compact coefficients from the same shared
  * geometry. This is the new-chain overflow behavior, not an old Setup bridge. */
 export function winnerPrimitiveConsumerWgsl(group = 0): string {
-  if (!Number.isSafeInteger(group) || group < 0) throw new RangeError("Winner consumer group must be nonnegative");
+  if (!Number.isSafeInteger(group) || group < 0)
+    throw new RangeError("Winner consumer group must be nonnegative");
   return /* wgsl */ `
 ${GPU_VISIBILITY_KEY_WGSL}
 ${FRAME_GEOMETRY_WGSL}
@@ -180,7 +188,8 @@ fn winner_interpolate_key(key: u32, pixel: vec2f) -> WinnerInterpolation {
  * disjoint ranges; this whole-arena read is exclusively a later usage scope.
  * Header/directory offsets are supplied by the frame product, never identities. */
 export function winnerPrimitiveArenaConsumerWgsl(heap = "asset_metadata_heap", includeKeyAbi = true): string {
-  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(heap)) throw new RangeError("Invalid frame arena WGSL heap identifier");
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(heap))
+    throw new RangeError("Invalid frame arena WGSL heap identifier");
   return /* wgsl */ `
 ${includeKeyAbi ? GPU_VISIBILITY_KEY_WGSL : ""}
 ${WINNER_INTERPOLATION_WGSL}

@@ -18,7 +18,7 @@ export interface PowerMoments4 {
 }
 
 export function accumulatePowerMoments4(
-  fragments: readonly Readonly<{ depth: number; opacity: number }>[]
+  fragments: readonly Readonly<{ depth: number; opacity: number }>[],
 ): PowerMoments4 {
   let b0 = 0;
   let m0 = 0;
@@ -38,7 +38,7 @@ export function accumulatePowerMoments4(
   }
   return Object.freeze({
     b0,
-    moments: Object.freeze([m0, m1, m2, m3]) as readonly [number, number, number, number]
+    moments: Object.freeze([m0, m1, m2, m3]) as readonly [number, number, number, number],
   });
 }
 
@@ -51,21 +51,16 @@ export function resolvePowerMoments4(
   depth: number,
   accumulation: PowerMoments4,
   bias = MBOIT_SINGLE_PRECISION_BIAS,
-  overEstimation = MBOIT_OVER_ESTIMATION
+  overEstimation = MBOIT_OVER_ESTIMATION,
 ): number {
   const b0 = finiteOr(accumulation.b0, 0);
   if (b0 <= 1e-8) return 1;
   const fallback = totalMomentTransmittance(b0);
   const raw = accumulation.moments;
-  const normalized = [
-    raw[0] / b0,
-    raw[1] / b0,
-    raw[2] / b0,
-    raw[3] / b0
-  ];
-  const moments = normalized.map((value, index) =>
-    finiteOr(value, MBOIT_BIAS_VECTOR[index]!) * (1 - bias) +
-    MBOIT_BIAS_VECTOR[index]! * bias
+  const normalized = [raw[0] / b0, raw[1] / b0, raw[2] / b0, raw[3] / b0];
+  const moments = normalized.map(
+    (value, index) =>
+      finiteOr(value, MBOIT_BIAS_VECTOR[index]!) * (1 - bias) + MBOIT_BIAS_VECTOR[index]! * bias,
   );
   const d = clamp01(finiteOr(depth, 0));
   const l21D11 = moments[1]! - moments[0]! * moments[0]!;
@@ -113,7 +108,7 @@ export function sortedAlphaComposite(
     depth: number;
     opacity: number;
     color: readonly [number, number, number];
-  }>[]
+  }>[],
 ): readonly [number, number, number, number] {
   const sorted = [...fragments].sort((left, right) => right.depth - left.depth);
   let color: [number, number, number] = [0, 0, 0];
@@ -124,7 +119,7 @@ export function sortedAlphaComposite(
     color = [
       finiteOr(fragment.color[0], 0) * opacity + color[0] * oneMinus,
       finiteOr(fragment.color[1], 0) * opacity + color[1] * oneMinus,
-      finiteOr(fragment.color[2], 0) * opacity + color[2] * oneMinus
+      finiteOr(fragment.color[2], 0) * opacity + color[2] * oneMinus,
     ];
     alpha = opacity + alpha * oneMinus;
   }

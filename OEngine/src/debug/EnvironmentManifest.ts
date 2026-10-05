@@ -133,13 +133,11 @@ const WEBGPU_LIMIT_NAMES = [
   "maxComputeWorkgroupSizeY",
   "maxComputeWorkgroupSizeZ",
   "maxComputeWorkgroupsPerDimension",
-  "maxImmediateSize"
-] as const satisfies readonly (Exclude<keyof GPUSupportedLimits, "__brand">)[];
+  "maxImmediateSize",
+] as const satisfies readonly Exclude<keyof GPUSupportedLimits, "__brand">[];
 
 /** GPUSupportedLimits commonly exposes prototype getters, so enumerate the spec fields. */
-export function captureWebGpuLimits(
-  limits: GPUSupportedLimits
-): Record<string, number> {
+export function captureWebGpuLimits(limits: GPUSupportedLimits): Record<string, number> {
   const captured: Record<string, number> = {};
   for (const name of WEBGPU_LIMIT_NAMES) {
     const value = limits[name];
@@ -148,15 +146,13 @@ export function captureWebGpuLimits(
   return canonicalLimits(captured);
 }
 
-export function captureGpuAdapterIdentity(
-  info: GPUAdapterInfo
-): BenchmarkAdapterIdentity {
+export function captureGpuAdapterIdentity(info: GPUAdapterInfo): BenchmarkAdapterIdentity {
   return {
     vendor: info.vendor,
     architecture: info.architecture,
     device: info.device,
     description: info.description,
-    driver: null
+    driver: null,
   };
 }
 
@@ -164,11 +160,9 @@ export function captureGpuAdapterIdentity(
  * Produces deterministic benchmark metadata. Callers supply commit/browser data
  * because browsers do not expose a trustworthy repository or driver identity.
  */
-export function createEnvironmentManifest(
-  input: BenchmarkEnvironmentInput
-): BenchmarkEnvironmentManifest {
+export function createEnvironmentManifest(input: BenchmarkEnvironmentInput): BenchmarkEnvironmentManifest {
   assertNonEmpty(input.engine.commit, "engine.commit");
-  if (input.engine.dirty !== (input.engine.dirtyReasons.length > 0)) {
+  if (input.engine.dirty !== input.engine.dirtyReasons.length > 0) {
     throw new RangeError("engine.dirty must match engine.dirtyReasons");
   }
   assertNonEmpty(input.platform.os, "platform.os");
@@ -185,10 +179,7 @@ export function createEnvironmentManifest(
   assertNonNegativeInteger(input.run.warmupFrames, "run.warmupFrames");
   assertPositiveInteger(input.run.sampleFrames, "run.sampleFrames");
   assertPositiveInteger(input.run.gpuSampleInterval, "run.gpuSampleInterval");
-  assertPositiveInteger(
-    input.run.gpuCounterSampleInterval,
-    "run.gpuCounterSampleInterval"
-  );
+  assertPositiveInteger(input.run.gpuCounterSampleInterval, "run.gpuCounterSampleInterval");
   assertPositiveInteger(input.run.readbackRingSlots, "run.readbackRingSlots");
   if (input.run.readbackRingSlots < 3) {
     throw new RangeError("run.readbackRingSlots must be at least 3");
@@ -210,17 +201,15 @@ export function createEnvironmentManifest(
       commit: input.engine.commit,
       dirty: input.engine.dirty,
       dirtyReasons: canonicalStrings(input.engine.dirtyReasons),
-      contentHash: input.engine.contentHash
+      contentHash: input.engine.contentHash,
     },
     platform: { ...input.platform },
-    adapter: input.adapter === null
-      ? null
-      : { ...input.adapter, driver: input.adapter.driver ?? null },
+    adapter: input.adapter === null ? null : { ...input.adapter, driver: input.adapter.driver ?? null },
     webgpu: {
       features,
       limits,
       powerPreference: input.webgpu.powerPreference,
-      timestampQueryAvailable: features.includes("timestamp-query")
+      timestampQueryAvailable: features.includes("timestamp-query"),
     },
     frame: { ...input.frame },
     run: {
@@ -234,8 +223,8 @@ export function createEnvironmentManifest(
       sampleFrames: input.run.sampleFrames,
       gpuSampleInterval: input.run.gpuSampleInterval,
       gpuCounterSampleInterval: input.run.gpuCounterSampleInterval,
-      readbackRingSlots: input.run.readbackRingSlots
-    }
+      readbackRingSlots: input.run.readbackRingSlots,
+    },
   };
 }
 
@@ -243,9 +232,7 @@ function canonicalStrings(values: Iterable<string>): string[] {
   return [...new Set(values)].sort((a, b) => a.localeCompare(b));
 }
 
-function canonicalLimits(
-  limits: Readonly<Record<string, number>>
-): Record<string, number> {
+function canonicalLimits(limits: Readonly<Record<string, number>>): Record<string, number> {
   const result: Record<string, number> = {};
   for (const key of Object.keys(limits).sort((a, b) => a.localeCompare(b))) {
     const value = limits[key];
@@ -284,7 +271,7 @@ function assertBaselineRole(value: BenchmarkBaselineRole): void {
     "frame-smoke",
     "minimum-a",
     "minimum-b",
-    "engine-generality-c"
+    "engine-generality-c",
   ];
   if (!roles.includes(value)) {
     throw new RangeError(`run.baselineRole '${value}' is not supported`);

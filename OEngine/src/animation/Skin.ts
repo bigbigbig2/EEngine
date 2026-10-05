@@ -17,7 +17,7 @@ export class Skin {
     name = "",
     joints,
     inverse_bind_matrices,
-    meshes = []
+    meshes = [],
   }: {
     name?: string;
     joints: Node3D[];

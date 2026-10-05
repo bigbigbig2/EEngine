@@ -9,7 +9,7 @@ export const XE_GTAO_DEFAULT_FALLOFF_RANGE = 0.615;
 export const XE_GTAO_DEFAULT_SAMPLE_DISTRIBUTION_POWER = 2;
 export const XE_GTAO_DEFAULT_THIN_OCCLUDER_COMPENSATION = 0;
 export const XE_GTAO_DEFAULT_FINAL_VALUE_POWER = 2.2;
-export const XE_GTAO_DEFAULT_DEPTH_MIP_SAMPLING_OFFSET = 3.30;
+export const XE_GTAO_DEFAULT_DEPTH_MIP_SAMPLING_OFFSET = 3.3;
 export const XE_GTAO_OCCLUSION_TERM_SCALE = 1.5;
 
 export interface XeGtaoTuning {
@@ -65,9 +65,16 @@ export interface XeGtaoPreparationValues {
 /** Matches XeGTAO.h::GTAOUpdateConstants, adjusted for EEngine reverse-Z. */
 export function packXeGtaoPreparation(input: XeGtaoPreparationValues): ArrayBuffer {
   const { width, height, projection } = input;
-  if (!Number.isSafeInteger(width) || width < 1 || !Number.isSafeInteger(height) || height < 1 ||
-      !Number.isFinite(input.radiusMeters) || input.radiusMeters <= 0 ||
-      !Number.isFinite(input.metersPerWorldUnit) || input.metersPerWorldUnit <= 0) {
+  if (
+    !Number.isSafeInteger(width) ||
+    width < 1 ||
+    !Number.isSafeInteger(height) ||
+    height < 1 ||
+    !Number.isFinite(input.radiusMeters) ||
+    input.radiusMeters <= 0 ||
+    !Number.isFinite(input.metersPerWorldUnit) ||
+    input.metersPerWorldUnit <= 0
+  ) {
     throw new RangeError("XeGTAO viewport, radius and world scale must be positive");
   }
   const p00 = projection[0]!;
@@ -76,8 +83,7 @@ export function packXeGtaoPreparation(input: XeGtaoPreparationValues): ArrayBuff
   const p09 = projection[9]!;
   const p22 = projection[10]!;
   const p32 = projection[14]!;
-  if (![p00, p11, p08, p09, p22, p32].every(Number.isFinite) ||
-      p00 === 0 || p11 === 0 || p32 <= 0) {
+  if (![p00, p11, p08, p09, p22, p32].every(Number.isFinite) || p00 === 0 || p11 === 0 || p32 <= 0) {
     throw new RangeError("XeGTAO requires the current perspective reverse-Z projection");
   }
   const radius = input.radiusMeters / input.metersPerWorldUnit;
@@ -89,14 +95,30 @@ export function packXeGtaoPreparation(input: XeGtaoPreparationValues): ArrayBuff
   const finalPower = tuning?.finalValuePower ?? XE_GTAO_DEFAULT_FINAL_VALUE_POWER;
   const mipOffset = tuning?.depthMipSamplingOffset ?? XE_GTAO_DEFAULT_DEPTH_MIP_SAMPLING_OFFSET;
   const noiseIndex = input.noiseIndex ?? 0;
-  if (!Number.isFinite(radius) ||
-      !Number.isFinite(radiusMultiplier) || radiusMultiplier < 0.3 || radiusMultiplier > 3 ||
-      !Number.isFinite(falloffRange) || falloffRange <= 0 || falloffRange > 1 ||
-      !Number.isFinite(distribution) || distribution < 1 || distribution > 3 ||
-      !Number.isFinite(thinCompensation) || thinCompensation < 0 || thinCompensation > 0.7 ||
-      !Number.isFinite(finalPower) || finalPower < 0.5 || finalPower > 5 ||
-      !Number.isFinite(mipOffset) || mipOffset < 2 || mipOffset > 6 ||
-      !Number.isInteger(noiseIndex) || noiseIndex < 0 || noiseIndex >= 64) {
+  if (
+    !Number.isFinite(radius) ||
+    !Number.isFinite(radiusMultiplier) ||
+    radiusMultiplier < 0.3 ||
+    radiusMultiplier > 3 ||
+    !Number.isFinite(falloffRange) ||
+    falloffRange <= 0 ||
+    falloffRange > 1 ||
+    !Number.isFinite(distribution) ||
+    distribution < 1 ||
+    distribution > 3 ||
+    !Number.isFinite(thinCompensation) ||
+    thinCompensation < 0 ||
+    thinCompensation > 0.7 ||
+    !Number.isFinite(finalPower) ||
+    finalPower < 0.5 ||
+    finalPower > 5 ||
+    !Number.isFinite(mipOffset) ||
+    mipOffset < 2 ||
+    mipOffset > 6 ||
+    !Number.isInteger(noiseIndex) ||
+    noiseIndex < 0 ||
+    noiseIndex >= 64
+  ) {
     throw new RangeError("XeGTAO tuning or noise index is outside the source profile");
   }
   const packed = new Float32Array(XE_GTAO_PREP_BYTES / 4);
@@ -109,15 +131,17 @@ export function packXeGtaoPreparation(input: XeGtaoPreparationValues): ArrayBuff
 }
 
 /** Source XeGTAO_DepthMIPFilter in f64 for focused CPU comparison. */
-export function xeGtaoWeightedDepth4(depths: readonly [number, number, number, number],
-  radiusWorldUnits: number): number {
+export function xeGtaoWeightedDepth4(
+  depths: readonly [number, number, number, number],
+  radiusWorldUnits: number,
+): number {
   const maxDepth = Math.max(...depths);
   const radius = 0.75 * radiusWorldUnits * XE_GTAO_DEFAULT_RADIUS_MULTIPLIER;
   const range = Math.max(XE_GTAO_DEFAULT_FALLOFF_RANGE * radius, 1e-10);
   const from = radius * (1 - XE_GTAO_DEFAULT_FALLOFF_RANGE);
-  const weights = depths.map(depth => Math.min(1, Math.max(0,
-    (maxDepth - depth) * (-1 / range) + from / range + 1)));
+  const weights = depths.map((depth) =>
+    Math.min(1, Math.max(0, (maxDepth - depth) * (-1 / range) + from / range + 1)),
+  );
   const sum = weights.reduce((value, weight) => value + weight, 0);
-  return depths.reduce((value, depth, index) => value + depth * weights[index]!, 0) /
-    Math.max(sum, 1e-10);
+  return depths.reduce((value, depth, index) => value + depth * weights[index]!, 0) / Math.max(sum, 1e-10);
 }

@@ -19,7 +19,7 @@ export class CompiledFrameGraphCache {
   getOrCreate(
     key: string,
     build: () => CompiledFrameGraph,
-    observer: CompiledFrameGraphCacheObserver
+    observer: CompiledFrameGraphCacheObserver,
   ): CompiledFrameGraph {
     const cached = this.entries.get(key);
     if (cached !== undefined) {

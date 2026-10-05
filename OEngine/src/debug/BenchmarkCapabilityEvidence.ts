@@ -1,7 +1,4 @@
-import {
-  GPU_COUNTER_FIELDS,
-  type GpuCounterFieldName
-} from "./GpuFrameCounters.js";
+import { GPU_COUNTER_FIELDS, type GpuCounterFieldName } from "./GpuFrameCounters.js";
 
 export const BENCHMARK_CAPABILITY_EVIDENCE_SCHEMA_VERSION = 3;
 
@@ -20,9 +17,7 @@ export interface UnsupportedCounterEvidence {
   reason: string;
 }
 
-export type CounterEvidenceDeclaration =
-  | SupportedCounterEvidence
-  | UnsupportedCounterEvidence;
+export type CounterEvidenceDeclaration = SupportedCounterEvidence | UnsupportedCounterEvidence;
 
 export interface SupportedFeatureSetEvidence {
   status: "supported";
@@ -36,9 +31,7 @@ export interface UnsupportedFeatureSetEvidence {
   reason: string;
 }
 
-export type FeatureSetEvidenceDeclaration =
-  | SupportedFeatureSetEvidence
-  | UnsupportedFeatureSetEvidence;
+export type FeatureSetEvidenceDeclaration = SupportedFeatureSetEvidence | UnsupportedFeatureSetEvidence;
 
 export interface BenchmarkCapabilityEvidence {
   schemaVersion: number;
@@ -59,7 +52,7 @@ export interface BenchmarkCapabilityEvidence {
 export const BENCHMARK_FEATURE_SET_EVIDENCE = {
   "graphics-update-observability-smoke": {
     status: "supported",
-    requiredGpuCounters: []
+    requiredGpuCounters: [],
   },
   "hardware-visibility": {
     status: "supported",
@@ -75,16 +68,16 @@ export const BENCHMARK_FEATURE_SET_EVIDENCE = {
       "shadedPixels",
       "emptyVisibilityPixels",
       "invalidVisibilityKeys",
-      "queueOverflowMask"
-    ]
+      "queueOverflowMask",
+    ],
   },
   "hzb-culling": {
     status: "supported",
-    requiredGpuCounters: ["rejectedHzb"]
+    requiredGpuCounters: ["rejectedHzb"],
   },
   "cone-culling": {
     status: "supported",
-    requiredGpuCounters: ["rejectedCone"]
+    requiredGpuCounters: ["rejectedCone"],
   },
   "single-material-resolve": {
     status: "supported",
@@ -97,25 +90,34 @@ export const BENCHMARK_FEATURE_SET_EVIDENCE = {
       "ormTexturePixels",
       "emissiveTexturePixels",
       "unlitSurfacePixels",
-      "queueOverflowMask"
-    ]
+      "queueOverflowMask",
+    ],
   },
   "triangle-setup-candidate-cache": {
     status: "unsupported",
     requiredGpuCounters: [],
     blockerTaskId: "SURFACE-REBUILD-03",
-    reason: "旧 triangle setup cache producer 已从唯一 Surface 生产路径移除；新的 Appearance/geometry 主链尚未提供等价证据 producer"
+    reason:
+      "旧 triangle setup cache producer 已从唯一 Surface 生产路径移除；新的 Appearance/geometry 主链尚未提供等价证据 producer",
   },
   "clustered-lighting": {
     status: "supported",
-    requiredGpuCounters: ["activeLights", "queueOverflowMask"]
+    requiredGpuCounters: ["activeLights", "queueOverflowMask"],
   },
   ibl: {
     status: "supported",
     requiredGpuCounters: [
-      "iblSampledPixels", "iblMip0", "iblMip1", "iblMip2", "iblMip3",
-      "iblMip4", "iblMip5", "iblMip6", "iblMip7", "iblMip8"
-    ]
+      "iblSampledPixels",
+      "iblMip0",
+      "iblMip1",
+      "iblMip2",
+      "iblMip3",
+      "iblMip4",
+      "iblMip5",
+      "iblMip6",
+      "iblMip7",
+      "iblMip8",
+    ],
   },
   "packed-csm-shadow": {
     status: "supported",
@@ -125,8 +127,8 @@ export const BENCHMARK_FEATURE_SET_EVIDENCE = {
       "shadowCascade2RasterWork",
       "shadowAtlasPixelsUpdated",
       "shadowAlphaRasterWork",
-      "shadowQueueOverflowMask"
-    ]
+      "shadowQueueOverflowMask",
+    ],
   },
   "packed-mboit-transparency": {
     status: "supported",
@@ -135,49 +137,44 @@ export const BENCHMARK_FEATURE_SET_EVIDENCE = {
       "transparentTriangles",
       "transparentReactivePixels",
       "transparentMomentFiniteFailures",
-      "transparentQueueOverflowMask"
-    ]
+      "transparentQueueOverflowMask",
+    ],
   },
   temporal: {
     status: "supported",
     requiredGpuCounters: [
       "temporalReactivePixels",
       "temporalDisoccludedPixels",
-      "temporalHistoryRejectedPixels"
-    ]
+      "temporalHistoryRejectedPixels",
+    ],
   },
   gtao: {
     status: "supported",
-    requiredGpuCounters: ["aoEvaluatedPixels", "aoHistoryAcceptedPixels", "aoHistoryRejectedPixels"]
+    requiredGpuCounters: ["aoEvaluatedPixels", "aoHistoryAcceptedPixels", "aoHistoryRejectedPixels"],
   },
   ssr: {
     status: "supported",
-    requiredGpuCounters: ["ssrTracePixels", "ssrHitPixels", "ssrTraceSteps", "ssrMaxTraceSteps"]
+    requiredGpuCounters: ["ssrTracePixels", "ssrHitPixels", "ssrTraceSteps", "ssrMaxTraceSteps"],
   },
   bloom: {
     status: "supported",
-    requiredGpuCounters: []
+    requiredGpuCounters: [],
   },
   "automatic-exposure": {
     status: "supported",
-    requiredGpuCounters: []
+    requiredGpuCounters: [],
   },
   "motion-blur": {
     status: "supported",
-    requiredGpuCounters: []
+    requiredGpuCounters: [],
   },
   sharpening: {
     status: "supported",
-    requiredGpuCounters: []
+    requiredGpuCounters: [],
   },
   "packed-instances": {
     status: "supported",
-    requiredGpuCounters: [
-      "candidateInstances",
-      "visibleInstances",
-      "rejectedFrustum",
-      "queueOverflowMask"
-    ]
+    requiredGpuCounters: ["candidateInstances", "visibleInstances", "rejectedFrustum", "queueOverflowMask"],
   },
   "hierarchy-sse-lod": {
     status: "supported",
@@ -193,20 +190,15 @@ export const BENCHMARK_FEATURE_SET_EVIDENCE = {
       "traversalQueueReservations",
       "workGenerationDispatchUpdates",
       "workGenerationCasRetries",
-      "queueOverflowMask"
-    ]
+      "queueOverflowMask",
+    ],
   },
   "software-visibility": {
     status: "unsupported",
-    requiredGpuCounters: [
-      "swClusters",
-      "swTriangles",
-      "shadedPixels",
-      "emptyVisibilityPixels"
-    ],
+    requiredGpuCounters: ["swClusters", "swTriangles", "shadedPixels", "emptyVisibilityPixels"],
     blockerTaskId: "VIS-05",
-    reason: "Compute software raster 尚未接入 GPU work queue 和统一 Visibility 主链"
-  }
+    reason: "Compute software raster 尚未接入 GPU work queue 和统一 Visibility 主链",
+  },
 } as const satisfies Record<string, FeatureSetEvidenceDeclaration>;
 
 export type BenchmarkFeatureSetName = keyof typeof BENCHMARK_FEATURE_SET_EVIDENCE;
@@ -256,74 +248,34 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
   surfaceResidencyRejected: supported("Surface/probe/residency"),
   surfaceVariationRejected: supported("Surface/probe/variation"),
   surfaceUvRejected: supported("Surface/probe/uv"),
-  candidateInstances: supported(
-    "VisibilityPass or HierarchicalWorkGenerator/instance reducer"
-  ),
-  visibleInstances: supported(
-    "VisibilityPass or HierarchicalWorkGenerator/root reducer"
-  ),
-  visitedBvhNodes: supported(
-    "HierarchicalWorkGenerator/consumed traversal queue reducer"
-  ),
-  candidateClusters: supported(
-    "HierarchicalWorkGenerator/consumed traversal queue reducer"
-  ),
-  selectedClusters: supported(
-    "HierarchicalWorkGenerator/VisibleCluster reducer"
-  ),
-  rejectedFrustum: supported(
-    "HierarchicalWorkGenerator/instance frustum reducer"
-  ),
+  candidateInstances: supported("VisibilityPass or HierarchicalWorkGenerator/instance reducer"),
+  visibleInstances: supported("VisibilityPass or HierarchicalWorkGenerator/root reducer"),
+  visitedBvhNodes: supported("HierarchicalWorkGenerator/consumed traversal queue reducer"),
+  candidateClusters: supported("HierarchicalWorkGenerator/consumed traversal queue reducer"),
+  selectedClusters: supported("HierarchicalWorkGenerator/VisibleCluster reducer"),
+  rejectedFrustum: supported("HierarchicalWorkGenerator/instance frustum reducer"),
   rejectedCone: supported("HierarchicalWorkGenerator/Cluster cone reject branch"),
-  rejectedHzb: supported(
-    "HierarchicalWorkGenerator/previous-HZB reject branch"
-  ),
-  swClusters: unsupported(
-    "VIS-05",
-    "主链没有 Compute software raster cluster queue producer"
-  ),
-  swTriangles: unsupported(
-    "VIS-05",
-    "主链没有 Compute software raster triangle producer"
-  ),
+  rejectedHzb: supported("HierarchicalWorkGenerator/previous-HZB reject branch"),
+  swClusters: unsupported("VIS-05", "主链没有 Compute software raster cluster queue producer"),
+  swTriangles: unsupported("VIS-05", "主链没有 Compute software raster triangle producer"),
   shadedPixels: supported("VisibilityCounterPass/final-visibility reducer"),
   emptyVisibilityPixels: supported("VisibilityCounterPass/final-visibility reducer"),
-  invalidVisibilityKeys: supported(
-    "VisibilityCounterPass/direct VisibilityKey reserved-key reducer"
-  ),
+  invalidVisibilityKeys: supported("VisibilityCounterPass/direct VisibilityKey reserved-key reducer"),
   activeMaterials: supported("Material Resolve/active MaterialRecord counter"),
   activeLights: supported("Renderer/active-light-list reducer"),
   queueOverflowMask: supported("Renderer/registered-GPU-list overflow reducers"),
-  rootStageQueueReservations: supported(
-    "HierarchicalWorkGenerator/fused-root workgroup reservation reducer"
-  ),
-  traversalQueueReservations: supported(
-    "HierarchicalWorkGenerator/post-root workgroup reservation reducer"
-  ),
+  rootStageQueueReservations: supported("HierarchicalWorkGenerator/fused-root workgroup reservation reducer"),
+  traversalQueueReservations: supported("HierarchicalWorkGenerator/post-root workgroup reservation reducer"),
   workGenerationDispatchUpdates: supported(
-    "HierarchicalWorkGenerator/workgroup dispatch publication reducer"
+    "HierarchicalWorkGenerator/workgroup dispatch publication reducer",
   ),
-  workGenerationCasRetries: supported(
-    "HierarchicalWorkGenerator/bounded reservation CAS retry reducer"
-  ),
-  gradientFallbackPixels: supported(
-    "PackedSurfaceCounterPass/Surface flags reducer"
-  ),
-  reactiveSurfacePixels: supported(
-    "PackedSurfaceCounterPass/Surface flags reducer"
-  ),
-  normalTexturePixels: supported(
-    "PackedSurfaceCounterPass/Surface material-feature reducer"
-  ),
-  ormTexturePixels: supported(
-    "PackedSurfaceCounterPass/Surface material-feature reducer"
-  ),
-  emissiveTexturePixels: supported(
-    "PackedSurfaceCounterPass/Surface material-feature reducer"
-  ),
-  unlitSurfacePixels: supported(
-    "PackedSurfaceCounterPass/Surface material-feature reducer"
-  ),
+  workGenerationCasRetries: supported("HierarchicalWorkGenerator/bounded reservation CAS retry reducer"),
+  gradientFallbackPixels: supported("PackedSurfaceCounterPass/Surface flags reducer"),
+  reactiveSurfacePixels: supported("PackedSurfaceCounterPass/Surface flags reducer"),
+  normalTexturePixels: supported("PackedSurfaceCounterPass/Surface material-feature reducer"),
+  ormTexturePixels: supported("PackedSurfaceCounterPass/Surface material-feature reducer"),
+  emissiveTexturePixels: supported("PackedSurfaceCounterPass/Surface material-feature reducer"),
+  unlitSurfacePixels: supported("PackedSurfaceCounterPass/Surface material-feature reducer"),
   candidateLightsAttempted: supported("LightClusterPass/FX-02 bounded-list reducer"),
   candidateLightsWritten: supported("LightClusterPass/FX-02 bounded-list reducer"),
   activeLightsAttempted: supported("LightClusterPass/FX-02 bounded-list reducer"),
@@ -374,11 +326,19 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
   ssrHitPixels: supported("Three-derived ScreenSpaceReflectionsPass/HZB trace evidence reducer"),
   ssrTraceSteps: supported("Three-derived ScreenSpaceReflectionsPass/HZB trace evidence reducer"),
   ssrMaxTraceSteps: supported("Three-derived ScreenSpaceReflectionsPass/HZB trace evidence reducer"),
-  ssrRoughnessRejectedPixels: supported("Three-derived ScreenSpaceReflectionsPass/HZB trace evidence reducer"),
+  ssrRoughnessRejectedPixels: supported(
+    "Three-derived ScreenSpaceReflectionsPass/HZB trace evidence reducer",
+  ),
   ssrDistanceRejectedPixels: supported("Three-derived ScreenSpaceReflectionsPass/HZB trace evidence reducer"),
-  ssrHighRoughnessTracePixels: supported("Three-derived ScreenSpaceReflectionsPass/HZB trace evidence reducer"),
-  ssrDistanceLimitExceededPixels: supported("Three-derived ScreenSpaceReflectionsPass/HZB trace evidence reducer"),
-  ssrValidationRejectedPixels: supported("Three-derived ScreenSpaceReflectionsPass/HZB trace evidence reducer"),
+  ssrHighRoughnessTracePixels: supported(
+    "Three-derived ScreenSpaceReflectionsPass/HZB trace evidence reducer",
+  ),
+  ssrDistanceLimitExceededPixels: supported(
+    "Three-derived ScreenSpaceReflectionsPass/HZB trace evidence reducer",
+  ),
+  ssrValidationRejectedPixels: supported(
+    "Three-derived ScreenSpaceReflectionsPass/HZB trace evidence reducer",
+  ),
   ssgiEvaluatedPixels: supported("Three-derived SsgiPass/trace evidence reducer"),
   ssgiTraceSamples: supported("Three-derived SsgiPass/trace evidence reducer"),
   ssgiHistoryAcceptedPixels: supported("Three-derived SsgiPass/temporal evidence reducer"),
@@ -413,46 +373,64 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
   longRangeNonresidentFallbacks: supported("LongRangeDiffuseProviderPass/residency-fallback reducer"),
   longRangeProviderUnassigned: supported("LongRangeDiffuseProviderPass/provider-identity validator"),
   longRangeProviderDuplicates: supported("LongRangeDiffuseProviderPass/provider-identity validator"),
-  shadingBinFrameFlags: unsupported("rebuild-surface-material", "Old sparse counter producer retired; new Surface diagnostics are not this counter ABI"),
-  shadingBinErrors: unsupported("rebuild-surface-material", "Old sparse counter producer retired; new Surface diagnostics are not this counter ABI"),
-  shadingBinAttempted: unsupported("rebuild-surface-material", "Old sparse counter producer retired; new Surface diagnostics are not this counter ABI"),
-  shadingBinWritten: unsupported("rebuild-surface-material", "Old sparse counter producer retired; new Surface diagnostics are not this counter ABI"),
-  shadingBinOverflow: unsupported("rebuild-surface-material", "Old sparse counter producer retired; new Surface diagnostics are not this counter ABI"),
-  shadingBinIndirectWorkgroups: unsupported("rebuild-surface-material", "Old sparse counter producer retired; new Surface diagnostics are not this counter ABI"),
-  shadingBinGeneratedMaskLo: unsupported("rebuild-surface-material", "Old sparse counter producer retired; new Surface diagnostics are not this counter ABI"),
-  shadingBinGeneratedMaskHi: unsupported("rebuild-surface-material", "Old sparse counter producer retired; new Surface diagnostics are not this counter ABI"),
-  shadingBinIndirectNonzeroWords: unsupported("rebuild-surface-material", "Old sparse counter producer retired; new Surface diagnostics are not this counter ABI")
+  shadingBinFrameFlags: unsupported(
+    "rebuild-surface-material",
+    "Old sparse counter producer retired; new Surface diagnostics are not this counter ABI",
+  ),
+  shadingBinErrors: unsupported(
+    "rebuild-surface-material",
+    "Old sparse counter producer retired; new Surface diagnostics are not this counter ABI",
+  ),
+  shadingBinAttempted: unsupported(
+    "rebuild-surface-material",
+    "Old sparse counter producer retired; new Surface diagnostics are not this counter ABI",
+  ),
+  shadingBinWritten: unsupported(
+    "rebuild-surface-material",
+    "Old sparse counter producer retired; new Surface diagnostics are not this counter ABI",
+  ),
+  shadingBinOverflow: unsupported(
+    "rebuild-surface-material",
+    "Old sparse counter producer retired; new Surface diagnostics are not this counter ABI",
+  ),
+  shadingBinIndirectWorkgroups: unsupported(
+    "rebuild-surface-material",
+    "Old sparse counter producer retired; new Surface diagnostics are not this counter ABI",
+  ),
+  shadingBinGeneratedMaskLo: unsupported(
+    "rebuild-surface-material",
+    "Old sparse counter producer retired; new Surface diagnostics are not this counter ABI",
+  ),
+  shadingBinGeneratedMaskHi: unsupported(
+    "rebuild-surface-material",
+    "Old sparse counter producer retired; new Surface diagnostics are not this counter ABI",
+  ),
+  shadingBinIndirectNonzeroWords: unsupported(
+    "rebuild-surface-material",
+    "Old sparse counter producer retired; new Surface diagnostics are not this counter ABI",
+  ),
 } as const satisfies Record<GpuCounterFieldName, CounterEvidenceDeclaration>;
 
-export function createBenchmarkCapabilityEvidence(
-  featureSet: Iterable<string>
-): BenchmarkCapabilityEvidence {
+export function createBenchmarkCapabilityEvidence(featureSet: Iterable<string>): BenchmarkCapabilityEvidence {
   const featureSets: Record<string, FeatureSetEvidenceDeclaration> = {};
   for (const name of [...new Set(featureSet)].sort((a, b) => a.localeCompare(b))) {
-    const declaration = BENCHMARK_FEATURE_SET_EVIDENCE[
-      name as BenchmarkFeatureSetName
-    ];
+    const declaration = BENCHMARK_FEATURE_SET_EVIDENCE[name as BenchmarkFeatureSetName];
     if (declaration === undefined) {
       throw new RangeError(
-        `Unknown benchmark feature set '${name}'; register its evidence contract before sampling`
+        `Unknown benchmark feature set '${name}'; register its evidence contract before sampling`,
       );
     }
     featureSets[name] = cloneDeclaration(declaration);
   }
 
-  const gpuCounters = {} as Record<
-    GpuCounterFieldName,
-    CounterEvidenceDeclaration
-  >;
+  const gpuCounters = {} as Record<GpuCounterFieldName, CounterEvidenceDeclaration>;
   for (const field of GPU_COUNTER_FIELDS) {
-    gpuCounters[field.name] = cloneDeclaration(
-      BENCHMARK_GPU_COUNTER_EVIDENCE[field.name]
-    );
+    gpuCounters[field.name] = cloneDeclaration(BENCHMARK_GPU_COUNTER_EVIDENCE[field.name]);
   }
   return {
     schemaVersion: BENCHMARK_CAPABILITY_EVIDENCE_SCHEMA_VERSION,
     featureSets,
-    gpuCounters
+    gpuCounters,
   };
 }
 
@@ -460,10 +438,7 @@ function supported(producer: string): SupportedCounterEvidence {
   return { status: "supported", producer, requiredInSampledFrames: true };
 }
 
-function unsupported(
-  blockerTaskId: string,
-  reason: string
-): UnsupportedCounterEvidence {
+function unsupported(blockerTaskId: string, reason: string): UnsupportedCounterEvidence {
   return { status: "unsupported", blockerTaskId, reason };
 }
 

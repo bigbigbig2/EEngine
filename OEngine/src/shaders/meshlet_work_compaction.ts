@@ -4,7 +4,7 @@ import {
   GPU_GEOMETRY_RECORD_WGSL,
   GPU_GEOMETRY_VERTEX_DECODE_WGSL,
   GPU_MESHLET_RECORD_WGSL,
-  GPU_POSITION_FORMAT
+  GPU_POSITION_FORMAT,
 } from "../gpu/GpuGeometryAbi.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import {
@@ -14,12 +14,9 @@ import {
   GPU_MESHLET_RASTER_FLAGS,
   GPU_MESHLET_RISK_BUCKET_OFFSET,
   GPU_MESHLET_RASTER_WORK_RECORD_STRIDE,
-  GPU_MESHLET_RASTER_WORK_WGSL
+  GPU_MESHLET_RASTER_WORK_WGSL,
 } from "../gpu/GpuMeshletRasterWorkAbi.js";
-import {
-  GPU_VISIBLE_CLUSTER_RECORD_SCHEMA,
-  GPU_WORK_GENERATION_WGSL
-} from "../gpu/GpuWorkGenerationAbi.js";
+import { GPU_VISIBLE_CLUSTER_RECORD_SCHEMA, GPU_WORK_GENERATION_WGSL } from "../gpu/GpuWorkGenerationAbi.js";
 import { PACKED_CAMERA_TYPE } from "./packed_camera.js";
 
 export const MESHLET_WORK_COMPACTION_WORKGROUP_SIZE = 64;
@@ -563,5 +560,4 @@ export function meshletWorkCompactionWgsl(path: MeshletWorkCompactionPath): stri
 
 export const MESHLET_WORK_COMPACTION_PORTABLE_WGSL = meshletWorkCompactionWgsl("portable");
 export const MESHLET_WORK_COMPACTION_SUBGROUP_WGSL = meshletWorkCompactionWgsl("subgroup");
-export const MESHLET_WORK_COMPACTION_VISIBLE_RECORD_STRIDE =
-  GPU_VISIBLE_CLUSTER_RECORD_SCHEMA.stride;
+export const MESHLET_WORK_COMPACTION_VISIBLE_RECORD_STRIDE = GPU_VISIBLE_CLUSTER_RECORD_SCHEMA.stride;

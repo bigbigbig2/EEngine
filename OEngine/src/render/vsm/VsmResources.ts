@@ -38,7 +38,7 @@ export class VsmResources {
 
   private constructor(
     private readonly device: GPUDevice,
-    readonly capabilities: VsmCapabilities
+    readonly capabilities: VsmCapabilities,
   ) {
     this.profile = capabilities.profile;
     if (capabilities.profile === "shadow-disabled") {
@@ -46,50 +46,119 @@ export class VsmResources {
       this.atlasDepthView = null;
       return;
     }
-    if (nextContentNamespace >= 0xfffffffe) { throw new RangeError("VSM content namespace exhausted"); }
-    const contentNamespace=nextContentNamespace++;
+    if (nextContentNamespace >= 0xfffffffe) {
+      throw new RangeError("VSM content namespace exhausted");
+    }
+    const contentNamespace = nextContentNamespace++;
     this.atlasDepth = device.createTexture({
       label: `VSM/${capabilities.profile}/depth-atlas`,
-      size: { width: capabilities.atlasDimension, height: capabilities.atlasDimension, depthOrArrayLayers: 1 },
+      size: {
+        width: capabilities.atlasDimension,
+        height: capabilities.atlasDimension,
+        depthOrArrayLayers: 1,
+      },
       dimension: "2d",
       format: "depth32float",
-      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
     });
     this.atlasDepthView = this.atlasDepth.createView({ dimension: "2d", aspect: "all" });
-    this.createBuffer("pageTable", capabilities.pageTableBytes, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
-    this.createBuffer("metaTable", capabilities.metaTableBytes, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
+    this.createBuffer(
+      "pageTable",
+      capabilities.pageTableBytes,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    );
+    this.createBuffer(
+      "metaTable",
+      capabilities.metaTableBytes,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    );
     this.createBuffer("demand", capabilities.demandBytes, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
-    this.createBuffer("allocation", capabilities.allocationBytes, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
-    this.createBuffer("casterRecords", capabilities.casterRecordBytes, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
+    this.createBuffer(
+      "allocation",
+      capabilities.allocationBytes,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    );
+    this.createBuffer(
+      "casterRecords",
+      capabilities.casterRecordBytes,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    );
     const dirtyWords = Math.ceil(capabilities.virtualEntryCount / 32);
-    this.createBuffer("dirtyMask", Math.max(256, dirtyWords * 4), GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
+    this.createBuffer(
+      "dirtyMask",
+      Math.max(256, dirtyWords * 4),
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    );
     this.createBuffer("generation", 256, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
     this.createBuffer("overflowCounters", 256, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
-    this.createBuffer("rasterIndirect", 5 * 4 * 64, GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST);
+    this.createBuffer(
+      "rasterIndirect",
+      5 * 4 * 64,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST,
+    );
     this.createBuffer("pageConstants", 256, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
-    this.createBuffer("pageLocks", Math.max(256, capabilities.virtualEntryCount * 4), GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
-    this.createBuffer("slotLocks", Math.max(256, capabilities.residentSlots * 4), GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
-    this.createBuffer("contentVersion", 16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, [0,0,0,contentNamespace]);
+    this.createBuffer(
+      "pageLocks",
+      Math.max(256, capabilities.virtualEntryCount * 4),
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    );
+    this.createBuffer(
+      "slotLocks",
+      Math.max(256, capabilities.residentSlots * 4),
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    );
+    this.createBuffer("contentVersion", 16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, [
+      0,
+      0,
+      0,
+      contentNamespace,
+    ]);
   }
 
   static create(device: GPUDevice, capabilities: VsmCapabilities): VsmResources {
     return new VsmResources(device, capabilities);
   }
 
-  get pageTable(): GPUBuffer | null { return this.getBuffer("pageTable"); }
-  get metaTable(): GPUBuffer | null { return this.getBuffer("metaTable"); }
-  get demand(): GPUBuffer | null { return this.getBuffer("demand"); }
-  get allocation(): GPUBuffer | null { return this.getBuffer("allocation"); }
-  get casterRecords(): GPUBuffer | null { return this.getBuffer("casterRecords"); }
-  get dirtyMask(): GPUBuffer | null { return this.getBuffer("dirtyMask"); }
-  get generation(): GPUBuffer | null { return this.getBuffer("generation"); }
-  get overflowCounters(): GPUBuffer | null { return this.getBuffer("overflowCounters"); }
-  get rasterIndirect(): GPUBuffer | null { return this.getBuffer("rasterIndirect"); }
-  get pageConstants(): GPUBuffer | null { return this.getBuffer("pageConstants"); }
-  get pageLocks(): GPUBuffer | null { return this.getBuffer("pageLocks"); }
-  get slotLocks(): GPUBuffer | null { return this.getBuffer("slotLocks"); }
+  get pageTable(): GPUBuffer | null {
+    return this.getBuffer("pageTable");
+  }
+  get metaTable(): GPUBuffer | null {
+    return this.getBuffer("metaTable");
+  }
+  get demand(): GPUBuffer | null {
+    return this.getBuffer("demand");
+  }
+  get allocation(): GPUBuffer | null {
+    return this.getBuffer("allocation");
+  }
+  get casterRecords(): GPUBuffer | null {
+    return this.getBuffer("casterRecords");
+  }
+  get dirtyMask(): GPUBuffer | null {
+    return this.getBuffer("dirtyMask");
+  }
+  get generation(): GPUBuffer | null {
+    return this.getBuffer("generation");
+  }
+  get overflowCounters(): GPUBuffer | null {
+    return this.getBuffer("overflowCounters");
+  }
+  get rasterIndirect(): GPUBuffer | null {
+    return this.getBuffer("rasterIndirect");
+  }
+  get pageConstants(): GPUBuffer | null {
+    return this.getBuffer("pageConstants");
+  }
+  get pageLocks(): GPUBuffer | null {
+    return this.getBuffer("pageLocks");
+  }
+  get slotLocks(): GPUBuffer | null {
+    return this.getBuffer("slotLocks");
+  }
   /** version, frame dirty marker, last generation, immutable owner namespace. */
-  get contentVersion(): GPUBuffer | null { return this.getBuffer("contentVersion"); }
+  get contentVersion(): GPUBuffer | null {
+    return this.getBuffer("contentVersion");
+  }
 
   diagnostics(): VsmDiagnostics | null {
     if (this.profile === "shadow-disabled") return null;
@@ -100,8 +169,17 @@ export class VsmResources {
     const casterRecords = this.casterRecords;
     const samplingFallback = this.overflowCounters;
     const overflowMask = this.overflowCounters;
-    if (!generation || !pageDemand || !allocationFailure || !dirtyPages || !casterRecords ||
-        !this.atlasDepth || !samplingFallback || !overflowMask) return null;
+    if (
+      !generation ||
+      !pageDemand ||
+      !allocationFailure ||
+      !dirtyPages ||
+      !casterRecords ||
+      !this.atlasDepth ||
+      !samplingFallback ||
+      !overflowMask
+    )
+      return null;
     return Object.freeze({
       generation,
       pageDemand: Object.freeze({ buffer: pageDemand, byteOffset: 0 }),
@@ -113,7 +191,7 @@ export class VsmResources {
       casterRecords: Object.freeze({ buffer: casterRecords, byteOffset: 0 }),
       atlasPixels: this.atlasDepth.width * this.atlasDepth.height,
       samplingFallback: Object.freeze({ buffer: samplingFallback, byteOffset: 24 }),
-      overflowMask: Object.freeze({ buffer: overflowMask, byteOffset: 28 })
+      overflowMask: Object.freeze({ buffer: overflowMask, byteOffset: 28 }),
     });
   }
 
@@ -121,21 +199,34 @@ export class VsmResources {
     return this.buffers.get(key) ?? null;
   }
 
-  private createBuffer(key: VsmBufferKey, requestedSize: number, usage: GPUBufferUsageFlags, initial?:readonly number[]): void {
+  private createBuffer(
+    key: VsmBufferKey,
+    requestedSize: number,
+    usage: GPUBufferUsageFlags,
+    initial?: readonly number[],
+  ): void {
     const size = Math.max(4, Math.ceil(requestedSize / 4) * 4);
-    if (!Number.isSafeInteger(size) || size > this.capabilities.limits.maxStorageBufferBindingSize ||
-        size > this.capabilities.limits.maxBufferSize) {
+    if (
+      !Number.isSafeInteger(size) ||
+      size > this.capabilities.limits.maxStorageBufferBindingSize ||
+      size > this.capabilities.limits.maxBufferSize
+    ) {
       throw new Error(`VSM ${key} buffer exceeds negotiated device limits`);
     }
-    this.buffers.set(key, this.device.createBuffer({
-      label: `VSM/${this.capabilities.profile}/${key}`,
-      size,
-      usage,
-      mappedAtCreation: true
-    }));
+    this.buffers.set(
+      key,
+      this.device.createBuffer({
+        label: `VSM/${this.capabilities.profile}/${key}`,
+        size,
+        usage,
+        mappedAtCreation: true,
+      }),
+    );
     const buffer = this.buffers.get(key)!;
     new Uint8Array(buffer.getMappedRange()).fill(0);
-    if(initial!==undefined) { new Uint32Array(buffer.getMappedRange()).set(initial); }
+    if (initial !== undefined) {
+      new Uint32Array(buffer.getMappedRange()).set(initial);
+    }
     buffer.unmap();
   }
 

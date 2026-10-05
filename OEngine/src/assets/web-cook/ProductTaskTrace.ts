@@ -1,7 +1,13 @@
 import type { ProductWorkBudgetV1 } from "./CanonicalWindowPlanner.js";
 
 export type WebCookProductTaskPhase = "canonicalize" | "wasm-plan" | "spill" | "publish";
-export type WebCookProductTaskEventKind = "task-started" | "phase-started" | "phase-completed" | "completed" | "failed" | "cancelled";
+export type WebCookProductTaskEventKind =
+  | "task-started"
+  | "phase-started"
+  | "phase-completed"
+  | "completed"
+  | "failed"
+  | "cancelled";
 
 export interface WebCookProductTaskIdentityV1 {
   readonly taskId: string;

@@ -6,8 +6,7 @@
  * License: Apache-2.0. See docs/porting/shading.md for the adoption ledger.
  */
 
-export const FILAMENT_SPECULAR_AO_REVISION =
-  "d45158c6f175726a33b1236858fa3948c5d8dbb5" as const;
+export const FILAMENT_SPECULAR_AO_REVISION = "d45158c6f175726a33b1236858fa3948c5d8dbb5" as const;
 
 export const SPECULAR_AMBIENT_OCCLUSION_WGSL = /* wgsl */ `
 fn oengine_spherical_caps_intersection(

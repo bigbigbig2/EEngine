@@ -14,7 +14,7 @@ import {
   type PackedVisibilityOutputs,
   type PackedVisibilityPreparationEvidence,
   type PackedVisibilityPrepareJob,
-  type PreparedPackedVisibility
+  type PreparedPackedVisibility,
 } from "../passes/PackedVisibilityPass.js";
 
 /**
@@ -28,13 +28,21 @@ export class VisibilityFeature {
     this.implementation = new PackedVisibilityPass(graphics);
   }
 
-  get lastDrawIndirect(): boolean { return this.implementation.lastDrawIndirect; }
-  get lastMeshletWorkCapacity(): number { return this.implementation.lastMeshletWorkCapacity; }
-  get lastVerticesPerTriangle(): number { return this.implementation.lastVerticesPerTriangle; }
+  get lastDrawIndirect(): boolean {
+    return this.implementation.lastDrawIndirect;
+  }
+  get lastMeshletWorkCapacity(): number {
+    return this.implementation.lastMeshletWorkCapacity;
+  }
+  get lastVerticesPerTriangle(): number {
+    return this.implementation.lastVerticesPerTriangle;
+  }
   get lastVisibilityKeyAttachmentBytes(): number {
     return this.implementation.lastVisibilityKeyAttachmentBytes;
   }
-  get lastImplementation(): "hierarchy" { return this.implementation.lastImplementation; }
+  get lastImplementation(): "hierarchy" {
+    return this.implementation.lastImplementation;
+  }
   get lastPreparation(): Readonly<PackedVisibilityPreparationEvidence> | null {
     return this.implementation.lastPreparation;
   }
@@ -42,7 +50,7 @@ export class VisibilityFeature {
   addToGraph(
     graph: FrameGraph,
     job: PackedVisibilityJob,
-    inputs: PackedVisibilityInputs
+    inputs: PackedVisibilityInputs,
   ): PackedVisibilityOutputs {
     return this.implementation.addToGraph(graph, job, inputs);
   }
@@ -50,7 +58,7 @@ export class VisibilityFeature {
   addCurrentHzbLateRecheckToGraph(
     graph: FrameGraph,
     job: PackedVisibilityJob,
-    inputs: PackedVisibilityLateRecheckInputs
+    inputs: PackedVisibilityLateRecheckInputs,
   ): PackedVisibilityOutputs {
     return this.implementation.addCurrentHzbLateRecheckToGraph(graph, job, inputs);
   }
@@ -59,7 +67,7 @@ export class VisibilityFeature {
     job: PackedVisibilityPrepareJob,
     counters: GPUBuffer,
     camera: GPUBuffer,
-    command: ShadeGPUCommandContext
+    command: ShadeGPUCommandContext,
   ): PreparedPackedVisibility {
     return this.implementation.prepareHierarchy(job, counters, camera, command);
   }
@@ -84,5 +92,5 @@ export type {
   GeometryHierarchyView,
   GpuAssetBindings,
   GpuSceneBindings,
-  GpuRenderWorldRuntime
+  GpuRenderWorldRuntime,
 };

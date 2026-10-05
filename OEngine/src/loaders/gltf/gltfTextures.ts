@@ -20,13 +20,13 @@ const FILTER_MAP: Record<number, number> = {
   [GL_NEAREST_MIPMAP_NEAREST]: TextureFilterType.Nearest,
   [GL_LINEAR_MIPMAP_NEAREST]: TextureFilterType.Nearest,
   [GL_NEAREST_MIPMAP_LINEAR]: TextureFilterType.Linear,
-  [GL_LINEAR_MIPMAP_LINEAR]: TextureFilterType.Linear
+  [GL_LINEAR_MIPMAP_LINEAR]: TextureFilterType.Linear,
 };
 
 const WRAP_MAP: Record<number, number> = {
   33071: 0,
   33648: 2,
-  10497: 1
+  10497: 1,
 };
 
 const DEFAULT_SAMPLER: GltfSamplerDef = {};
@@ -64,7 +64,7 @@ export function imageFromBitmap(bitmap: ImageBitmap): ShadeImage {
 export function textureFromGltf(
   texDef: GltfTextureDef,
   images: (ShadeImage | undefined)[],
-  samplers: GltfSamplerDef[] | undefined
+  samplers: GltfSamplerDef[] | undefined,
 ): ShadeTexture {
   let sourceIndex: number | undefined;
   const s = texDef.extensions;
@@ -72,8 +72,7 @@ export function textureFromGltf(
   if (sourceIndex === undefined) sourceIndex = texDef.source;
   const img = images[sourceIndex!]!;
 
-  const a: GltfSamplerDef =
-    texDef.sampler === undefined ? DEFAULT_SAMPLER : samplers![texDef.sampler]!;
+  const a: GltfSamplerDef = texDef.sampler === undefined ? DEFAULT_SAMPLER : samplers![texDef.sampler]!;
 
   const i = ShadeTexture.from(img);
   i.magFilter = FILTER_MAP[a.magFilter ?? -1] ?? TextureFilterType.Linear;

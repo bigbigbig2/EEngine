@@ -13,7 +13,7 @@ export type UsdExtension = {
       specs_by_path: UsdSpecsByPath;
       materials: Map<string, unknown>;
       options: LoadUsdOptionsInternal;
-    }
+    },
   ) => Node3D | null;
   postProcess?: (specsByPath: UsdSpecsByPath) => void;
 };

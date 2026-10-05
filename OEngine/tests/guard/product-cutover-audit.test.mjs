@@ -7,7 +7,13 @@ import test from "node:test";
 // The public entry imports GPU ABI modules, so provide the constants needed by
 // Node for this source/compiled topology audit.
 globalThis.GPUBufferUsage ??= Object.freeze({ COPY_DST: 8, COPY_SRC: 4, STORAGE: 128, UNIFORM: 64 });
-globalThis.GPUTextureUsage ??= Object.freeze({ COPY_SRC: 1, COPY_DST: 2, TEXTURE_BINDING: 4, STORAGE_BINDING: 8, RENDER_ATTACHMENT: 16 });
+globalThis.GPUTextureUsage ??= Object.freeze({
+  COPY_SRC: 1,
+  COPY_DST: 2,
+  TEXTURE_BINDING: 4,
+  STORAGE_BINDING: 8,
+  RENDER_ATTACHMENT: 16,
+});
 globalThis.GPUShaderStage ??= Object.freeze({ VERTEX: 1, FRAGMENT: 2, COMPUTE: 4 });
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
@@ -22,11 +28,16 @@ test("public entry is Product-first and has no V2 production symbols", async () 
     "createInstanceSourceFromScene",
     "AssetHandle",
     "PackedSceneSource",
-    "SceneGeometryAssetBinding"
+    "SceneGeometryAssetBinding",
   ]) {
     assert.equal(symbol in entry, false, `${symbol} must not be a public production export`);
   }
-  for (const symbol of ["load_gltf", "load_gltf_web_product", "cookSceneGeometryProductV1", "createDefaultWebGeometryCookerModule"]) {
+  for (const symbol of [
+    "load_gltf",
+    "load_gltf_web_product",
+    "cookSceneGeometryProductV1",
+    "createDefaultWebGeometryCookerModule",
+  ]) {
     assert.equal(symbol in entry, true, `${symbol} must remain a Product entry`);
   }
 });
@@ -39,7 +50,7 @@ test("source and compiled consumer topology has no legacy V2 call sites", async 
     resolve(root, "../validation/cases"),
     resolve(root, "../validation/labs"),
     resolve(root, "../validation/harness"),
-    resolve(root, "../validation/src")
+    resolve(root, "../validation/src"),
   ];
   const files = [];
   async function visit(directory) {
@@ -51,7 +62,13 @@ test("source and compiled consumer topology has no legacy V2 call sites", async 
   }
   for (const directory of roots) await visit(directory);
   const source = (await Promise.all(files.map((path) => readFile(path, "utf8")))).join("\n");
-  for (const pattern of [/uploadScene\s*\(/u, /uploadPackedScene\s*\(/u, /cookGeometryAssetPackage/u, /load_gltf_packed/u, /GeometryPackagePipeline/u]) {
+  for (const pattern of [
+    /uploadScene\s*\(/u,
+    /uploadPackedScene\s*\(/u,
+    /cookGeometryAssetPackage/u,
+    /load_gltf_packed/u,
+    /GeometryPackagePipeline/u,
+  ]) {
     assert.equal(pattern.test(source), false, `legacy consumer pattern remains: ${pattern}`);
   }
 });

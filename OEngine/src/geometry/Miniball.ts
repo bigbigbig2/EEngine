@@ -21,7 +21,7 @@ export function dotRange(
   t: number,
   n: ArrayLike<number> | { [i: number]: number },
   r: number,
-  s: number
+  s: number,
 ): number {
   let a = 0;
   for (let i = 0; i < s; i++) a += (e as ArrayLike<number>)[t + i]! * (n as ArrayLike<number>)[r + i]!;
@@ -34,7 +34,7 @@ export function axpyRange(
   n: number,
   r: ArrayLike<number> | { [i: number]: number },
   s: number,
-  a: number
+  a: number,
 ): void {
   for (let i = 0; i < a; ++i) {
     e[t + i] = (e[t + i] ?? 0) + n * (r as ArrayLike<number>)[s + i]!;
@@ -64,7 +64,7 @@ export function applyGivensRows(
   n: number,
   r: number,
   s: number,
-  a: number
+  a: number,
 ): void {
   for (let i = 0; i < a; ++i) {
     const a0 = e[t + i]!;
@@ -77,12 +77,17 @@ export function applyGivensRows(
 export class SquareMatrix {
   size: number;
   type: string;
-  data: Float64Array | Float32Array | Int32Array | Uint32Array | ArrayLike<number> & {
-    [i: number]: number;
-    length: number;
-    set(src: ArrayLike<number>): void;
-    fill(v: number): void;
-  };
+  data:
+    | Float64Array
+    | Float32Array
+    | Int32Array
+    | Uint32Array
+    | (ArrayLike<number> & {
+        [i: number]: number;
+        length: number;
+        set(src: ArrayLike<number>): void;
+        fill(v: number): void;
+      });
 
   constructor(e: number, t: string) {
     const n = ctorFromDataType(t);
@@ -490,10 +495,7 @@ export class Miniball {
   }
 
   computeDistToAff(): void {
-    this.distToAffSquare = this.__support.shortestVectorToSpan(
-      this.__center,
-      this.centerToAff
-    );
+    this.distToAffSquare = this.__support.shortestVectorToSpan(this.__center, this.centerToAff);
     this.distToAff = Math.sqrt(this.distToAffSquare);
   }
 
@@ -515,11 +517,7 @@ export class Miniball {
     const n = this.dim;
     const r = this.centerToAff;
     for (this.iteration = 0; this.iteration < 1e4; this.iteration++) {
-      for (
-        this.computeDistToAff();
-        this.distToAff <= 1e-14 * this.__radius || t.size() === n + 1;
-
-      ) {
+      for (this.computeDistToAff(); this.distToAff <= 1e-14 * this.__radius || t.size() === n + 1; ) {
         if (!this.successfulDrop()) return;
         this.computeDistToAff();
       }

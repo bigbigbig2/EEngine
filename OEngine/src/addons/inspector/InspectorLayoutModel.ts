@@ -29,7 +29,7 @@ function normalize(value: Partial<InspectorLayout>, fallback = DEFAULT_LAYOUT): 
     left: Math.max(0, finite(value.left, fallback.left)),
     top: Math.max(0, finite(value.top, fallback.top)),
     width: Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, finite(value.width, fallback.width))),
-    height: Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, finite(value.height, fallback.height)))
+    height: Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, finite(value.height, fallback.height))),
   });
 }
 

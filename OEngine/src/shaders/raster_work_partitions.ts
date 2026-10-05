@@ -8,11 +8,16 @@ export const RASTER_PARTITION_SETTINGS_STRIDE = 256;
 export const RASTER_PARTITION_STATE_STRIDE = 16;
 export const RASTER_PARTITION_INDIRECT_STRIDE = 16;
 export const RASTER_PARTITION_WORKGROUP_SIZE = 64;
-export function rasterPartitionWgsl(caster: boolean): string { return /* wgsl */ `
-${caster ? `struct CasterHeader { attempted:u32,written_count:u32,overflow:u32,generation:u32 }
+export function rasterPartitionWgsl(caster: boolean): string {
+  return /* wgsl */ `
+${
+  caster
+    ? `struct CasterHeader { attempted:u32,written_count:u32,overflow:u32,generation:u32 }
 struct CasterRecord { instance_slot:u32,geometry_slot:u32,meshlet_slot:u32,material_slot_or_range:u32,
   page_slot:u32,virtual_page:u32,packed_raster_flags:u32,packed_profile_lod:u32 }
-struct OEngineMeshletWorkQueueRead { header:CasterHeader,elements:array<CasterRecord> }` : GPU_MESHLET_RASTER_WORK_WGSL}
+struct OEngineMeshletWorkQueueRead { header:CasterHeader,elements:array<CasterRecord> }`
+    : GPU_MESHLET_RASTER_WORK_WGSL
+}
 ${GPU_SHADING_MATERIAL_WGSL}
 ${GPU_MESHLET_RECORD_WGSL}
 @group(0) @binding(0) var<storage,read> work: OEngineMeshletWorkQueueRead;

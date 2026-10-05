@@ -1,5 +1,9 @@
 import { surfaceCellWorkspaceWgsl } from "../gpu/GpuSurfaceCellPlanAbi.js";
-import { surfaceDemandArenaWgsl, surfaceDemandLayout, SURFACE_DEMAND_PROBE_LIMIT } from "../gpu/GpuSurfaceDemandAbi.js";
+import {
+  surfaceDemandArenaWgsl,
+  surfaceDemandLayout,
+  SURFACE_DEMAND_PROBE_LIMIT,
+} from "../gpu/GpuSurfaceDemandAbi.js";
 import { SURFACE_FIELD_REQUEST_WGSL } from "./surface_field_request.js";
 import { SURFACE_SIGNAL_REQUEST_WGSL } from "./surface_signal_request.js";
 import { SURFACE_GEOMETRY_HOT_DEMAND_BIT } from "../gpu/GpuSurfaceGeometryRecordAbi.js";

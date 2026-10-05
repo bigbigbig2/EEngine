@@ -67,9 +67,7 @@ export class HzbHistoryState {
 
   commit(frameIndex: number): boolean {
     if (frameIndex !== this.activeFrame) {
-      throw new Error(
-        `HZB commit frame ${frameIndex} does not match active frame ${this.activeFrame}`
-      );
+      throw new Error(`HZB commit frame ${frameIndex} does not match active frame ${this.activeFrame}`);
     }
     if (!this.builtThisFrame) {
       this.activeFrame = -1;

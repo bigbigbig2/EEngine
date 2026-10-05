@@ -4,55 +4,108 @@ import test from "node:test";
 const { openGlbRangeSource } = await import("../../.test-dist/loaders/gltf/streaming/GlbRangeSource.js");
 
 function makeGlb() {
-  const json = new TextEncoder().encode(JSON.stringify({ asset: { version: "2.0" }, buffers: [{ byteLength: 4 }] }).padEnd(80, " "));
+  const json = new TextEncoder().encode(
+    JSON.stringify({ asset: { version: "2.0" }, buffers: [{ byteLength: 4 }] }).padEnd(80, " "),
+  );
   const bin = new Uint8Array([1, 2, 3, 4]);
   const bytes = new Uint8Array(12 + 8 + json.byteLength + 8 + bin.byteLength);
-  const view = new DataView(bytes.buffer); view.setUint32(0, 0x46546c67, true); view.setUint32(4, 2, true); view.setUint32(8, bytes.byteLength, true);
-  view.setUint32(12, json.byteLength, true); view.setUint32(16, 0x4e4f534a, true); bytes.set(json, 20);
-  const binHeader = 20 + json.byteLength; view.setUint32(binHeader, bin.byteLength, true); view.setUint32(binHeader + 4, 0x004e4942, true); bytes.set(bin, binHeader + 8);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(0, 0x46546c67, true);
+  view.setUint32(4, 2, true);
+  view.setUint32(8, bytes.byteLength, true);
+  view.setUint32(12, json.byteLength, true);
+  view.setUint32(16, 0x4e4f534a, true);
+  bytes.set(json, 20);
+  const binHeader = 20 + json.byteLength;
+  view.setUint32(binHeader, bin.byteLength, true);
+  view.setUint32(binHeader + 4, 0x004e4942, true);
+  bytes.set(bin, binHeader + 8);
   return bytes;
 }
 
 test("GLB Range source validates exact 206 ranges and exposes JSON/BIN ranges", async () => {
   const bytes = makeGlb();
-  const source = await openGlbRangeSource("https://example.test/scene.glb", { fetch: async (_url, init) => {
-    const match = String(init.headers.Range).match(/bytes=(\d+)-(\d+)/); const start = Number(match[1]); const end = Number(match[2]);
-    return new Response(bytes.slice(start, end + 1), { status: 206, headers: { "Content-Range": `bytes ${start}-${end}/${bytes.byteLength}`, "Content-Encoding": "identity", ETag: '"scene-1"' } });
-  } });
-  assert.equal(source.byteLength, bytes.byteLength); assert.equal(source.json.asset.version, "2.0"); assert.equal(source.binByteLength, 4); assert.equal(source.sourceIdentity.kind, "strong-http-validator");
-  assert.deepEqual([...new Uint8Array(await source.readRange(source.binByteOffset, 4))], [1, 2, 3, 4]); source.release();
+  const source = await openGlbRangeSource("https://example.test/scene.glb", {
+    fetch: async (_url, init) => {
+      const match = String(init.headers.Range).match(/bytes=(\d+)-(\d+)/);
+      const start = Number(match[1]);
+      const end = Number(match[2]);
+      return new Response(bytes.slice(start, end + 1), {
+        status: 206,
+        headers: {
+          "Content-Range": `bytes ${start}-${end}/${bytes.byteLength}`,
+          "Content-Encoding": "identity",
+          ETag: '"scene-1"',
+        },
+      });
+    },
+  });
+  assert.equal(source.byteLength, bytes.byteLength);
+  assert.equal(source.json.asset.version, "2.0");
+  assert.equal(source.binByteLength, 4);
+  assert.equal(source.sourceIdentity.kind, "strong-http-validator");
+  assert.deepEqual([...new Uint8Array(await source.readRange(source.binByteOffset, 4))], [1, 2, 3, 4]);
+  source.release();
 });
 
 test("GLB Range source accepts bounded 200 fallback and rejects over-budget fallback", async () => {
   const bytes = makeGlb();
-  const source = await openGlbRangeSource("https://example.test/fallback.glb", { wholeSourceFallbackBytes: bytes.byteLength, fetch: async () => new Response(bytes, { status: 200, headers: { ETag: '"scene-2"' } }) });
-  assert.equal(source.sourceIdentity.kind, "strong-http-validator"); assert.equal(source.transferMode, "whole-source-fallback"); source.release();
-  await assert.rejects(openGlbRangeSource("https://example.test/too-large.glb", { wholeSourceFallbackBytes: bytes.byteLength - 1, fetch: async () => new Response(bytes, { status: 200 }) }), /wholeSourceFallbackBytes/i);
+  const source = await openGlbRangeSource("https://example.test/fallback.glb", {
+    wholeSourceFallbackBytes: bytes.byteLength,
+    fetch: async () => new Response(bytes, { status: 200, headers: { ETag: '"scene-2"' } }),
+  });
+  assert.equal(source.sourceIdentity.kind, "strong-http-validator");
+  assert.equal(source.transferMode, "whole-source-fallback");
+  source.release();
+  await assert.rejects(
+    openGlbRangeSource("https://example.test/too-large.glb", {
+      wholeSourceFallbackBytes: bytes.byteLength - 1,
+      fetch: async () => new Response(bytes, { status: 200 }),
+    }),
+    /wholeSourceFallbackBytes/i,
+  );
 });
 
 test("JSON glTF source resolves data URI and external buffer ranges", async () => {
   const dataBytes = new Uint8Array([9, 8, 7, 6]);
   const externalBytes = new Uint8Array([1, 3, 5, 7, 9, 11]);
-  const json = JSON.stringify({ asset: { version: "2.0" }, buffers: [
-    { byteLength: dataBytes.byteLength, uri: `data:application/octet-stream;base64,${Buffer.from(dataBytes).toString("base64")}` },
-    { byteLength: externalBytes.byteLength, uri: "mesh.bin" }
-  ] });
+  const json = JSON.stringify({
+    asset: { version: "2.0" },
+    buffers: [
+      {
+        byteLength: dataBytes.byteLength,
+        uri: `data:application/octet-stream;base64,${Buffer.from(dataBytes).toString("base64")}`,
+      },
+      { byteLength: externalBytes.byteLength, uri: "mesh.bin" },
+    ],
+  });
   const calls = [];
   const source = await openGlbRangeSource("https://example.test/scene.gltf", {
     wholeSourceFallbackBytes: 4096,
     fetch: async (url, init) => {
       calls.push([String(url), init.headers?.Range]);
       if (String(url).endsWith("mesh.bin")) {
-        const match = String(init.headers.Range).match(/bytes=(\d+)-(\d+)/); const start = Number(match[1]); const end = Number(match[2]);
-        return new Response(externalBytes.slice(start, end + 1), { status: 206, headers: { "Content-Range": `bytes ${start}-${end}/${externalBytes.byteLength}`, "Content-Encoding": "identity" } });
+        const match = String(init.headers.Range).match(/bytes=(\d+)-(\d+)/);
+        const start = Number(match[1]);
+        const end = Number(match[2]);
+        return new Response(externalBytes.slice(start, end + 1), {
+          status: 206,
+          headers: {
+            "Content-Range": `bytes ${start}-${end}/${externalBytes.byteLength}`,
+            "Content-Encoding": "identity",
+          },
+        });
       }
       return new Response(new TextEncoder().encode(json), { status: 200, headers: { ETag: '"gltf-1"' } });
-    }
+    },
   });
   assert.equal(source.json.buffers.length, 2);
   assert.deepEqual([...new Uint8Array(await source.readBufferRange(0, 1, 2))], [8, 7]);
   assert.deepEqual([...new Uint8Array(await source.readBufferRange(1, 2, 3))], [5, 7, 9]);
-  assert.equal(calls.some(([url]) => url.endsWith("mesh.bin")), true);
+  assert.equal(
+    calls.some(([url]) => url.endsWith("mesh.bin")),
+    true,
+  );
   source.release();
 });
 
@@ -63,12 +116,28 @@ test("JSON glTF source accounts EXT_meshopt virtual decode buffers without treat
     extensionsUsed: ["EXT_meshopt_compression"],
     extensionsRequired: ["EXT_meshopt_compression"],
     buffers: [{ byteLength: compressedBytes.byteLength, uri: "scene.bin" }, { byteLength: 24 }],
-    bufferViews: [{ buffer: 1, byteOffset: 0, byteLength: 24, extensions: { EXT_meshopt_compression: { buffer: 0, byteOffset: 0, byteLength: 8, byteStride: 12, count: 2, mode: "ATTRIBUTES" } } }]
+    bufferViews: [
+      {
+        buffer: 1,
+        byteOffset: 0,
+        byteLength: 24,
+        extensions: {
+          EXT_meshopt_compression: {
+            buffer: 0,
+            byteOffset: 0,
+            byteLength: 8,
+            byteStride: 12,
+            count: 2,
+            mode: "ATTRIBUTES",
+          },
+        },
+      },
+    ],
   });
   const descriptorBytes = new TextEncoder().encode(json);
   const source = await openGlbRangeSource("https://example.test/meshopt.gltf", {
     wholeSourceFallbackBytes: 4096,
-    fetch: async () => new Response(descriptorBytes, { status: 200 })
+    fetch: async () => new Response(descriptorBytes, { status: 200 }),
   });
   assert.equal(source.byteLength, descriptorBytes.byteLength + compressedBytes.byteLength);
   assert.equal(source.buffers[0].virtual, false);

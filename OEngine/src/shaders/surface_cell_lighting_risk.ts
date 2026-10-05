@@ -1,5 +1,10 @@
-import { LIGHT_DATABASE_READ_WGSL, POINT_LIGHT_DESCRIPTOR, SPOT_LIGHT_DESCRIPTOR,
-  DIRECTIONAL_LIGHT_DESCRIPTOR, LIGHT_FLAG_CASTS_SHADOW } from "../gpu/LightDatabase.js";
+import {
+  LIGHT_DATABASE_READ_WGSL,
+  POINT_LIGHT_DESCRIPTOR,
+  SPOT_LIGHT_DESCRIPTOR,
+  DIRECTIONAL_LIGHT_DESCRIPTOR,
+  LIGHT_FLAG_CASTS_SHADOW,
+} from "../gpu/LightDatabase.js";
 import { CLUSTER_METADATA_FLAG_FALLBACK } from "../render/ClusteredLightingReference.js";
 import { SURFACE_CELL_TILE_PLAN_BYTES } from "../gpu/GpuSurfaceCellPlanAbi.js";
 
@@ -120,7 +125,7 @@ fn cell_publish_lane_fact(pixel:vec2u)->vec4u {
 fn publish_cell_facts(@builtin(workgroup_id) group:vec3u,@builtin(local_invocation_index) lane:u32) {
  if group.x>=cell_settings.tile_count { return; }
  cell_local_tile=group.x;
- let tile=cell_workspace.plans[group.x*${SURFACE_CELL_TILE_PLAN_BYTES/4}u+4u];
+ let tile=cell_workspace.plans[group.x*${SURFACE_CELL_TILE_PLAN_BYTES / 4}u+4u];
  let pixel=vec2u((tile%cell_settings.tiles_x)*8u+lane%8u,(tile/cell_settings.tiles_x)*8u+lane/8u);
  let fact=cell_publish_lane_fact(pixel);
  cell_workspace.facts[group.x*64u+lane]=fact;
@@ -132,5 +137,7 @@ fn publish_cell_facts(@builtin(workgroup_id) group:vec3u,@builtin(local_invocati
 
 /** Same complete predicate, isolated from the geometry fact producer for
  * independent numeric/provider fixtures. No alternative runtime algorithm. */
-export const SURFACE_CELL_LIGHTING_RISK_PREDICATE_WGSL = SURFACE_CELL_LIGHTING_RISK_WGSL.slice(0,
-  SURFACE_CELL_LIGHTING_RISK_WGSL.indexOf("fn cell_publish_lane_fact"));
+export const SURFACE_CELL_LIGHTING_RISK_PREDICATE_WGSL = SURFACE_CELL_LIGHTING_RISK_WGSL.slice(
+  0,
+  SURFACE_CELL_LIGHTING_RISK_WGSL.indexOf("fn cell_publish_lane_fact"),
+);

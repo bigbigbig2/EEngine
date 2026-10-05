@@ -6,8 +6,14 @@ const abi = await import("../../.test-dist/assets/web-cook/wasm/WebGeometryCooke
 
 function cubeDomain() {
   const positions = [
-    [-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1],
-    [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]
+    [-1, -1, -1],
+    [1, -1, -1],
+    [1, 1, -1],
+    [-1, 1, -1],
+    [-1, -1, 1],
+    [1, -1, 1],
+    [1, 1, 1],
+    [-1, 1, 1],
   ];
   const vertices = new Float32Array(positions.length * abi.WEB_GEOMETRY_CANONICAL_VERTEX_FLOATS);
   positions.forEach((position, index) => {
@@ -24,15 +30,16 @@ function cubeDomain() {
     generateNormals: true,
     vertices,
     indices: new Uint32Array([
-      0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4,
-      1, 2, 6, 1, 6, 5, 2, 3, 7, 2, 7, 6, 3, 0, 4, 3, 4, 7
-    ])
+      0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4, 1, 2, 6, 1, 6, 5, 2, 3, 7, 2, 7, 6, 3, 0, 4, 3, 4,
+      7,
+    ]),
   };
 }
 
 test("Web geometry canonical and recipe ABIs are deterministic and canonical", () => {
   const canonical = abi.encodeWebCanonicalGeometryV1([cubeDomain()]);
-  const view = new DataView(canonical), bytes = new Uint8Array(canonical);
+  const view = new DataView(canonical),
+    bytes = new Uint8Array(canonical);
   assert.equal(new TextDecoder().decode(bytes.subarray(0, 7)), "OEWGCAN");
   assert.equal(abi.WEB_GEOMETRY_COOKER_ABI_VERSION, 3);
   assert.equal(view.getUint32(8, true), 3);
@@ -50,9 +57,13 @@ test("Web geometry canonical and recipe ABIs are deterministic and canonical", (
   // Golden freeze of the fixture encoding itself: pins the exact byte layout
   // (including the ABI version word) so an accidental fixture edit cannot mask
   // a real cooker regression.
-  assert.equal(createHash("sha256").update(bytes).digest("hex"), "c9aea8577e63d53aa1e22f2af3c68d621e443b597b1350aadb2f36ccc22b5576");
+  assert.equal(
+    createHash("sha256").update(bytes).digest("hex"),
+    "c9aea8577e63d53aa1e22f2af3c68d621e443b597b1350aadb2f36ccc22b5576",
+  );
 
-  const recipe = abi.encodeWebGeometryCookRecipeV1(), recipeView = new DataView(recipe);
+  const recipe = abi.encodeWebGeometryCookRecipeV1(),
+    recipeView = new DataView(recipe);
   assert.equal(new TextDecoder().decode(new Uint8Array(recipe, 0, 7)), "OEWGRCP");
   assert.equal(recipeView.getUint32(8, true), 3);
   assert.equal(recipeView.getUint32(12, true), 96);
@@ -60,7 +71,10 @@ test("Web geometry canonical and recipe ABIs are deterministic and canonical", (
   assert.equal(recipeView.getUint32(52, true), 3);
   assert.equal(recipeView.getUint32(68, true), 8);
   assert.equal(recipeView.getUint32(72, true), 18);
-  assert.equal(createHash("sha256").update(new Uint8Array(recipe)).digest("hex"), "5bd5edd24e5a5d1f6db3bdc44a1ec2690f087020416760a293443e8256b43cc7");
+  assert.equal(
+    createHash("sha256").update(new Uint8Array(recipe)).digest("hex"),
+    "5bd5edd24e5a5d1f6db3bdc44a1ec2690f087020416760a293443e8256b43cc7",
+  );
 });
 
 test("Two-phase ABI exposes the descriptor stage before any payload exists", () => {
@@ -79,7 +93,11 @@ test("Two-phase ABI exposes the descriptor stage before any payload exists", () 
 test("Web geometry canonical ABI rejects alias-prone and invalid input", () => {
   const valid = cubeDomain();
   assert.throws(() => abi.encodeWebCanonicalGeometryV1([{ ...valid, generateNormals: false }]), /normal/);
-  assert.throws(() => abi.encodeWebCanonicalGeometryV1([{ ...valid, indices: new Uint32Array([0, 1, 99]) }]), /index/);
-  const nonFinite = valid.vertices.slice(); nonFinite[0] = Number.NaN;
+  assert.throws(
+    () => abi.encodeWebCanonicalGeometryV1([{ ...valid, indices: new Uint32Array([0, 1, 99]) }]),
+    /index/,
+  );
+  const nonFinite = valid.vertices.slice();
+  nonFinite[0] = Number.NaN;
   assert.throws(() => abi.encodeWebCanonicalGeometryV1([{ ...valid, vertices: nonFinite }]), /finite/);
 });

@@ -1,7 +1,7 @@
 import {
   geometryVisibilityPathFromFlags,
   type GeometryAssetPackage,
-  type GeometryClusterRecord
+  type GeometryClusterRecord,
 } from "../assets/GeometryAssetPackage.js";
 import { vec3 } from "gl-matrix";
 
@@ -12,8 +12,7 @@ export interface GeometryHierarchyProjection {
   readonly maxAxisScale: number;
 }
 
-export interface GeometryHierarchySelectionOptions
-  extends GeometryHierarchyProjection {
+export interface GeometryHierarchySelectionOptions extends GeometryHierarchyProjection {
   readonly sseThreshold: number;
   readonly maxVisitedClusters?: number;
 }
@@ -33,7 +32,7 @@ export interface GeometryHierarchySelection {
  */
 export function selectGeometryHierarchy(
   asset: GeometryAssetPackage,
-  options: GeometryHierarchySelectionOptions
+  options: GeometryHierarchySelectionOptions,
 ): GeometryHierarchySelection {
   validateProjection(options);
   if (!Number.isFinite(options.sseThreshold) || options.sseThreshold < 0) {
@@ -46,13 +45,11 @@ export function selectGeometryHierarchy(
   if (asset.clusters.length === 0) {
     return Object.freeze({
       selectedClusterIndices: Object.freeze([]),
-      selectedMeshletIndices: Object.freeze(
-        asset.meshlets.map((_, index) => index)
-      ),
+      selectedMeshletIndices: Object.freeze(asset.meshlets.map((_, index) => index)),
       visitedClusters: 0,
       refinedClusters: 0,
       capacityFallbacks: 0,
-      maxDepthReached: 0
+      maxDepthReached: 0,
     });
   }
 
@@ -78,8 +75,7 @@ export function selectGeometryHierarchy(
     visitedClusters++;
     maxDepthReached = Math.max(maxDepthReached, cluster.depth);
     const shouldRefine =
-      cluster.childCount > 0 &&
-      projectedGeometryErrorPixels(cluster, options) > options.sseThreshold;
+      cluster.childCount > 0 && projectedGeometryErrorPixels(cluster, options) > options.sseThreshold;
     if (!shouldRefine) {
       select(index);
       return;
@@ -103,13 +99,13 @@ export function selectGeometryHierarchy(
     visitedClusters,
     refinedClusters,
     capacityFallbacks,
-    maxDepthReached
+    maxDepthReached,
   });
 }
 
 export function projectedGeometryErrorPixels(
   cluster: GeometryClusterRecord,
-  projection: GeometryHierarchyProjection
+  projection: GeometryHierarchyProjection,
 ): number {
   validateProjection(projection);
   const dx = cluster.bounds.centerX - projection.cameraPosition[0];
@@ -117,19 +113,14 @@ export function projectedGeometryErrorPixels(
   const dz = cluster.bounds.centerZ - projection.cameraPosition[2];
   const nearestDistance = Math.max(
     Math.hypot(dx, dy, dz) - cluster.bounds.radius * projection.maxAxisScale,
-    1e-6
+    1e-6,
   );
-  const focalLengthPixels = projection.viewportHeight /
-    (2 * Math.tan(projection.verticalFovRadians * 0.5));
-  return cluster.geometricError * projection.maxAxisScale *
-    focalLengthPixels / nearestDistance;
+  const focalLengthPixels = projection.viewportHeight / (2 * Math.tan(projection.verticalFovRadians * 0.5));
+  return (cluster.geometricError * projection.maxAxisScale * focalLengthPixels) / nearestDistance;
 }
 
 function validateProjection(projection: GeometryHierarchyProjection): void {
-  if (
-    projection.cameraPosition.length !== 3 ||
-    !projection.cameraPosition.every(Number.isFinite)
-  ) {
+  if (projection.cameraPosition.length !== 3 || !projection.cameraPosition.every(Number.isFinite)) {
     throw new RangeError("cameraPosition must contain three finite values");
   }
   if (
@@ -147,12 +138,7 @@ function validateProjection(projection: GeometryHierarchyProjection): void {
   }
 }
 
-export type GeometryHierarchyFrustumPlane = readonly [
-  number,
-  number,
-  number,
-  number
-];
+export type GeometryHierarchyFrustumPlane = readonly [number, number, number, number];
 
 interface GeometryHierarchyViewBase {
   readonly cameraPosition: readonly [number, number, number];
@@ -160,22 +146,18 @@ interface GeometryHierarchyViewBase {
   readonly frustumPlanes: readonly GeometryHierarchyFrustumPlane[];
 }
 
-export interface GeometryHierarchyPerspectiveView
-  extends GeometryHierarchyViewBase {
+export interface GeometryHierarchyPerspectiveView extends GeometryHierarchyViewBase {
   readonly kind: "perspective";
   readonly verticalFovRadians: number;
   readonly nearPlane: number;
 }
 
-export interface GeometryHierarchyOrthographicView
-  extends GeometryHierarchyViewBase {
+export interface GeometryHierarchyOrthographicView extends GeometryHierarchyViewBase {
   readonly kind: "orthographic";
   readonly verticalWorldSize: number;
 }
 
-export type GeometryHierarchyView =
-  | GeometryHierarchyPerspectiveView
-  | GeometryHierarchyOrthographicView;
+export type GeometryHierarchyView = GeometryHierarchyPerspectiveView | GeometryHierarchyOrthographicView;
 
 export interface GeometryHierarchyInstanceReference {
   readonly asset: GeometryAssetPackage;
@@ -269,7 +251,7 @@ interface PreparedHierarchyInstance {
  */
 export function selectGeometryHierarchyInstances(
   instances: readonly GeometryHierarchyInstanceReference[],
-  options: GeometryHierarchyInstanceSelectionOptions
+  options: GeometryHierarchyInstanceSelectionOptions,
 ): GeometryHierarchyInstanceSelection {
   validateHierarchyView(options.view);
   if (!Number.isFinite(options.sseThreshold) || options.sseThreshold < 0) {
@@ -288,10 +270,7 @@ export function selectGeometryHierarchyInstances(
     const asset = source.asset;
     const virtualLeaf = asset.clusters.length === 0;
     const root = virtualLeaf ? 0 : asset.directory.clusterRoot;
-    if (
-      !virtualLeaf &&
-      (!Number.isInteger(root) || root < 0 || root >= asset.clusters.length)
-    ) {
+    if (!virtualLeaf && (!Number.isInteger(root) || root < 0 || root >= asset.clusters.length)) {
       throw new RangeError(`Geometry Cluster root ${root} is out of bounds`);
     }
     const bounds = asset.directory.boundsSphere;
@@ -303,7 +282,7 @@ export function selectGeometryHierarchyInstances(
       Number(bounds[1]),
       Number(bounds[2]),
       Number(bounds[3]),
-      instance
+      instance,
     );
     if (!sphereIntersectsFrustum(sphere, options.view.frustumPlanes)) {
       rejectedInstancesFrustum++;
@@ -314,7 +293,7 @@ export function selectGeometryHierarchyInstances(
 
   if (roots.length > rootQueueCapacity) {
     throw new RangeError(
-      `RootTraversal capacity ${rootQueueCapacity} cannot contain ${roots.length} visible roots`
+      `RootTraversal capacity ${rootQueueCapacity} cannot contain ${roots.length} visible roots`,
     );
   }
 
@@ -331,57 +310,51 @@ export function selectGeometryHierarchyInstances(
 
   const select = (work: PendingHierarchyWork): void => {
     const source = work.instance.source;
-    const cluster = work.virtualLeaf
-      ? undefined
-      : source.asset.clusters[work.localClusterIndex]!;
+    const cluster = work.virtualLeaf ? undefined : source.asset.clusters[work.localClusterIndex]!;
     const visibleClusterSlot = selectedClusters.length;
-    selectedClusters.push(Object.freeze({
-      visibleClusterSlot,
-      instanceRecordIndex: source.instanceRecordIndex,
-      geometryRecordIndex: source.geometryRecordIndex,
-      clusterRecordIndex: addU32(
-        source.clusterRecordBegin,
-        work.localClusterIndex,
-        "Selected Cluster record index"
-      ),
-      localClusterIndex: work.localClusterIndex,
-      materialHandle: source.materialHandle
-    }));
+    selectedClusters.push(
+      Object.freeze({
+        visibleClusterSlot,
+        instanceRecordIndex: source.instanceRecordIndex,
+        geometryRecordIndex: source.geometryRecordIndex,
+        clusterRecordIndex: addU32(
+          source.clusterRecordBegin,
+          work.localClusterIndex,
+          "Selected Cluster record index",
+        ),
+        localClusterIndex: work.localClusterIndex,
+        materialHandle: source.materialHandle,
+      }),
+    );
     const meshletBegin = cluster?.meshletBegin ?? 0;
     const meshletCount = cluster?.meshletCount ?? source.asset.meshlets.length;
     const meshletEnd = meshletBegin + meshletCount;
-    if (
-      !Number.isSafeInteger(meshletEnd) ||
-      meshletBegin < 0 ||
-      meshletEnd > source.asset.meshlets.length
-    ) {
+    if (!Number.isSafeInteger(meshletEnd) || meshletBegin < 0 || meshletEnd > source.asset.meshlets.length) {
       throw new RangeError(`Cluster ${work.localClusterIndex} Meshlet range is invalid`);
     }
     for (let localMeshletIndex = meshletBegin; localMeshletIndex < meshletEnd; localMeshletIndex++) {
       const meshletRecordIndex = addU32(
-          source.meshletRecordBegin,
-          localMeshletIndex,
-          "Selected Meshlet record index"
-        );
+        source.meshletRecordBegin,
+        localMeshletIndex,
+        "Selected Meshlet record index",
+      );
       const meshlet = source.asset.meshlets[localMeshletIndex]!;
-      for (let localTriangleIndex = 0;
-        localTriangleIndex < meshlet.triangleCount;
-        localTriangleIndex++) {
-        rasterWork.push(Object.freeze({
-          instanceRecordIndex: source.instanceRecordIndex,
-          geometryRecordIndex: source.geometryRecordIndex,
-          meshletRecordIndex,
-          localTriangleIndex,
-          materialHandle: source.materialHandle
-        }));
+      for (let localTriangleIndex = 0; localTriangleIndex < meshlet.triangleCount; localTriangleIndex++) {
+        rasterWork.push(
+          Object.freeze({
+            instanceRecordIndex: source.instanceRecordIndex,
+            geometryRecordIndex: source.geometryRecordIndex,
+            meshletRecordIndex,
+            localTriangleIndex,
+            materialHandle: source.materialHandle,
+          }),
+        );
       }
     }
   };
 
-  const maximumPossibleRounds = instances.reduce(
-    (sum, instance) => sum + Math.max(1, instance.asset.clusters.length),
-    0
-  ) + 1;
+  const maximumPossibleRounds =
+    instances.reduce((sum, instance) => sum + Math.max(1, instance.asset.clusters.length), 0) + 1;
   while (current.length > 0) {
     if (roundIndex >= maximumPossibleRounds) {
       throw new Error("Hierarchy traversal exceeded the validated Cluster count");
@@ -409,7 +382,7 @@ export function selectGeometryHierarchyInstances(
         cluster.bounds.centerY,
         cluster.bounds.centerZ,
         cluster.bounds.radius,
-        work.instance
+        work.instance,
       );
       if (!sphereIntersectsFrustum(sphere, options.view.frustumPlanes)) {
         rejectedClustersFrustum++;
@@ -419,7 +392,7 @@ export function selectGeometryHierarchyInstances(
         cluster.geometricError,
         sphere,
         work.instance.conservativeScale,
-        options.view
+        options.view,
       );
       if (cluster.childCount === 0 || projectedError <= options.sseThreshold) {
         select(work);
@@ -439,21 +412,23 @@ export function selectGeometryHierarchyInstances(
         next.push({
           instance: work.instance,
           localClusterIndex: source.asset.clusterChildren[cluster.childBegin + child]!,
-          virtualLeaf: false
+          virtualLeaf: false,
         });
       }
       refinedClusters++;
       peak = Math.max(peak, next.length);
     }
-    traversalRounds.push(Object.freeze({
-      roundIndex,
-      input: current.length,
-      written: next.length,
-      attempted,
-      peak,
-      overflow,
-      fallback
-    }));
+    traversalRounds.push(
+      Object.freeze({
+        roundIndex,
+        input: current.length,
+        written: next.length,
+        attempted,
+        peak,
+        overflow,
+        fallback,
+      }),
+    );
     current = next;
     roundIndex++;
   }
@@ -467,7 +442,7 @@ export function selectGeometryHierarchyInstances(
       attempted: roots.length,
       peak: roots.length,
       overflow: 0,
-      fallback: 0
+      fallback: 0,
     }),
     traversalRounds: Object.freeze(traversalRounds),
     candidateInstances: instances.length,
@@ -477,14 +452,12 @@ export function selectGeometryHierarchyInstances(
     rejectedClustersFrustum,
     refinedClusters,
     capacityFallbacks,
-    maxDepthReached
+    maxDepthReached,
   });
 }
 
 /** Maximum exact triangle count of any legal parent/children-exclusive cut. */
-export function computeGeometryMaxCutTriangles(
-  asset: GeometryAssetPackage
-): number {
+export function computeGeometryMaxCutTriangles(asset: GeometryAssetPackage): number {
   if (asset.clusters.length === 0) {
     return sumMeshletTriangles(asset, 0, asset.meshlets.length, "Geometry triangle count");
   }
@@ -492,15 +465,11 @@ export function computeGeometryMaxCutTriangles(
 }
 
 export function computePackedMaxCutTriangles(
-  instances: readonly Pick<GeometryHierarchyInstanceReference, "asset">[]
+  instances: readonly Pick<GeometryHierarchyInstanceReference, "asset">[],
 ): number {
   let total = 0;
   for (const instance of instances) {
-    total = addU32(
-      total,
-      computeGeometryMaxCutTriangles(instance.asset),
-      "Packed max-cut triangle count"
-    );
+    total = addU32(total, computeGeometryMaxCutTriangles(instance.asset), "Packed max-cut triangle count");
   }
   return total;
 }
@@ -522,7 +491,7 @@ export interface GeometryHierarchyWorkCapacity {
  * exclusive cuts. This is preparation/tool work and is never run per frame.
  */
 export function computePackedHierarchyWorkCapacity(
-  instances: readonly Pick<GeometryHierarchyInstanceReference, "asset">[]
+  instances: readonly Pick<GeometryHierarchyInstanceReference, "asset">[],
 ): GeometryHierarchyWorkCapacity {
   assertU32(instances.length, "Hierarchy instance count");
   const cached = new Map<GeometryAssetPackage, GeometryHierarchyAnalysis>();
@@ -539,32 +508,25 @@ export function computePackedHierarchyWorkCapacity(
     visibleClusterCapacity = addU32(
       visibleClusterCapacity,
       analysis.maxCutClusters,
-      "Packed VisibleCluster capacity"
+      "Packed VisibleCluster capacity",
     );
-    rasterWorkCapacity = addU32(
-      rasterWorkCapacity,
-      analysis.maxCutTriangles,
-      "Packed RasterWork capacity"
-    );
+    rasterWorkCapacity = addU32(rasterWorkCapacity, analysis.maxCutTriangles, "Packed RasterWork capacity");
     maxHierarchyDepth = Math.max(maxHierarchyDepth, analysis.maxDepth);
     for (let depth = 0; depth < analysis.depthWidths.length; depth++) {
       combinedDepthWidths[depth] = addU32(
         combinedDepthWidths[depth] ?? 0,
         analysis.depthWidths[depth]!,
-        `Packed traversal depth ${depth} capacity`
+        `Packed traversal depth ${depth} capacity`,
       );
     }
   }
-  const traversalWorkCapacity = combinedDepthWidths.reduce(
-    (maximum, width) => Math.max(maximum, width),
-    0
-  );
+  const traversalWorkCapacity = combinedDepthWidths.reduce((maximum, width) => Math.max(maximum, width), 0);
   return Object.freeze({
     rootTraversalCapacity: instances.length,
     traversalWorkCapacity,
     visibleClusterCapacity,
     rasterWorkCapacity,
-    maxHierarchyDepth
+    maxHierarchyDepth,
   });
 }
 
@@ -576,7 +538,7 @@ export function computePackedHierarchyWorkCapacity(
  */
 export function computeIndexedPackedHierarchyWorkCapacity(
   geometries: readonly GeometryAssetPackage[],
-  geometryIndices: Uint32Array
+  geometryIndices: Uint32Array,
 ): GeometryHierarchyWorkCapacity {
   if (geometries.length === 0) {
     throw new RangeError("Packed hierarchy requires at least one Geometry");
@@ -589,9 +551,7 @@ export function computeIndexedPackedHierarchyWorkCapacity(
   for (let index = 0; index < geometryIndices.length; index++) {
     const geometryIndex = geometryIndices[index]!;
     if (geometryIndex >= geometries.length) {
-      throw new RangeError(
-        `geometryIndices[${index}] ${geometryIndex} is outside the Geometry dictionary`
-      );
+      throw new RangeError(`geometryIndices[${index}] ${geometryIndex} is outside the Geometry dictionary`);
     }
     const next = instanceCounts[geometryIndex]! + 1;
     assertU32(next, `Geometry ${geometryIndex} Instance count`);
@@ -611,18 +571,14 @@ export function computeIndexedPackedHierarchyWorkCapacity(
       multiplyU32(
         analysis.maxCutClusters,
         instanceCount,
-        `Geometry ${geometryIndex} VisibleCluster capacity`
+        `Geometry ${geometryIndex} VisibleCluster capacity`,
       ),
-      "Packed VisibleCluster capacity"
+      "Packed VisibleCluster capacity",
     );
     rasterWorkCapacity = addU32(
       rasterWorkCapacity,
-      multiplyU32(
-        analysis.maxCutTriangles,
-        instanceCount,
-        `Geometry ${geometryIndex} RasterWork capacity`
-      ),
-      "Packed RasterWork capacity"
+      multiplyU32(analysis.maxCutTriangles, instanceCount, `Geometry ${geometryIndex} RasterWork capacity`),
+      "Packed RasterWork capacity",
     );
     maxHierarchyDepth = Math.max(maxHierarchyDepth, analysis.maxDepth);
     for (let depth = 0; depth < analysis.depthWidths.length; depth++) {
@@ -631,21 +587,18 @@ export function computeIndexedPackedHierarchyWorkCapacity(
         multiplyU32(
           analysis.depthWidths[depth]!,
           instanceCount,
-          `Geometry ${geometryIndex} traversal depth ${depth} capacity`
+          `Geometry ${geometryIndex} traversal depth ${depth} capacity`,
         ),
-        `Packed traversal depth ${depth} capacity`
+        `Packed traversal depth ${depth} capacity`,
       );
     }
   }
   return Object.freeze({
     rootTraversalCapacity: geometryIndices.length,
-    traversalWorkCapacity: combinedDepthWidths.reduce(
-      (maximum, width) => Math.max(maximum, width),
-      0
-    ),
+    traversalWorkCapacity: combinedDepthWidths.reduce((maximum, width) => Math.max(maximum, width), 0),
     visibleClusterCapacity,
     rasterWorkCapacity,
-    maxHierarchyDepth
+    maxHierarchyDepth,
   });
 }
 
@@ -656,20 +609,13 @@ interface GeometryHierarchyAnalysis {
   readonly depthWidths: readonly number[];
 }
 
-function analyzeGeometryHierarchy(
-  asset: GeometryAssetPackage
-): GeometryHierarchyAnalysis {
+function analyzeGeometryHierarchy(asset: GeometryAssetPackage): GeometryHierarchyAnalysis {
   if (asset.clusters.length === 0) {
     return Object.freeze({
       maxCutClusters: 1,
-      maxCutTriangles: sumMeshletTriangles(
-        asset,
-        0,
-        asset.meshlets.length,
-        "Geometry triangle count"
-      ),
+      maxCutTriangles: sumMeshletTriangles(asset, 0, asset.meshlets.length, "Geometry triangle count"),
       maxDepth: 0,
-      depthWidths: Object.freeze([1])
+      depthWidths: Object.freeze([1]),
     });
   }
   const root = asset.directory.clusterRoot;
@@ -681,7 +627,7 @@ function analyzeGeometryHierarchy(
   let maxDepth = 0;
   const visit = (
     clusterIndex: number,
-    expectedDepth: number
+    expectedDepth: number,
   ): Readonly<{ clusters: number; triangles: number }> => {
     if (state[clusterIndex] === 1) {
       throw new Error(`Geometry hierarchy contains a cycle at Cluster ${clusterIndex}`);
@@ -694,15 +640,13 @@ function analyzeGeometryHierarchy(
       throw new RangeError(`Cluster ${clusterIndex} is out of bounds`);
     }
     if (cluster.depth !== expectedDepth) {
-      throw new Error(
-        `Cluster ${clusterIndex} depth ${cluster.depth} does not match ${expectedDepth}`
-      );
+      throw new Error(`Cluster ${clusterIndex} depth ${cluster.depth} does not match ${expectedDepth}`);
     }
     state[clusterIndex] = 1;
     depthWidths[expectedDepth] = addU32(
       depthWidths[expectedDepth] ?? 0,
       1,
-      `Geometry traversal depth ${expectedDepth} width`
+      `Geometry traversal depth ${expectedDepth} width`,
     );
     maxDepth = Math.max(maxDepth, expectedDepth);
     assertU32(cluster.meshletCount, `Cluster ${clusterIndex} Meshlet count`);
@@ -710,7 +654,7 @@ function analyzeGeometryHierarchy(
       asset,
       cluster.meshletBegin,
       cluster.meshletCount,
-      `Cluster ${clusterIndex} triangle count`
+      `Cluster ${clusterIndex} triangle count`,
     );
     validateChildren(asset, clusterIndex, cluster);
     let childCutClusters = 0;
@@ -721,36 +665,34 @@ function analyzeGeometryHierarchy(
       childCutClusters = addU32(
         childCutClusters,
         childCut.clusters,
-        `Cluster ${clusterIndex} child cut Cluster count`
+        `Cluster ${clusterIndex} child cut Cluster count`,
       );
       childCutTriangles = addU32(
         childCutTriangles,
         childCut.triangles,
-        `Cluster ${clusterIndex} child cut triangle count`
+        `Cluster ${clusterIndex} child cut triangle count`,
       );
     }
     state[clusterIndex] = 2;
     return {
       clusters: Math.max(1, childCutClusters),
-      triangles: Math.max(ownTriangles, childCutTriangles)
+      triangles: Math.max(ownTriangles, childCutTriangles),
     };
   };
   const cut = visit(root, 0);
   if (state.some((value) => value === 0)) {
     throw new Error("Geometry hierarchy contains an unreachable Cluster");
   }
-  const visibilityPath = geometryVisibilityPathFromFlags(asset.directory.flags) ??
+  const visibilityPath =
+    geometryVisibilityPathFromFlags(asset.directory.flags) ??
     (maxDepth <= 2 || asset.meshlets.length <= 64 ? "shallow" : "full");
-  const effectiveMaxDepth = visibilityPath === "flat"
-    ? 0
-    : visibilityPath === "shallow"
-      ? Math.min(maxDepth, 2)
-      : maxDepth;
+  const effectiveMaxDepth =
+    visibilityPath === "flat" ? 0 : visibilityPath === "shallow" ? Math.min(maxDepth, 2) : maxDepth;
   return Object.freeze({
     maxCutClusters: cut.clusters,
     maxCutTriangles: cut.triangles,
     maxDepth: effectiveMaxDepth,
-    depthWidths: Object.freeze(depthWidths.slice(0, effectiveMaxDepth + 1))
+    depthWidths: Object.freeze(depthWidths.slice(0, effectiveMaxDepth + 1)),
   });
 }
 
@@ -758,7 +700,7 @@ function sumMeshletTriangles(
   asset: GeometryAssetPackage,
   meshletBegin: number,
   meshletCount: number,
-  label: string
+  label: string,
 ): number {
   assertU32(meshletBegin, `${label} Meshlet begin`);
   assertU32(meshletCount, `${label} Meshlet count`);
@@ -768,11 +710,7 @@ function sumMeshletTriangles(
   }
   let total = 0;
   for (let index = meshletBegin; index < end; index++) {
-    total = addU32(
-      total,
-      asset.meshlets[index]!.triangleCount,
-      label
-    );
+    total = addU32(total, asset.meshlets[index]!.triangleCount, label);
   }
   return total;
 }
@@ -790,9 +728,7 @@ interface WorldSphere {
   readonly radius: number;
 }
 
-function prepareHierarchyInstance(
-  source: GeometryHierarchyInstanceReference
-): PreparedHierarchyInstance {
+function prepareHierarchyInstance(source: GeometryHierarchyInstanceReference): PreparedHierarchyInstance {
   assertU32(source.instanceRecordIndex, "Instance record index");
   assertU32(source.geometryRecordIndex, "Geometry record index");
   assertU32(source.clusterRecordBegin, "Cluster record begin");
@@ -834,13 +770,20 @@ function prepareHierarchyInstance(
   const xy = normalizedAxisDot(matrix, 0, 4, xLength, yLength);
   const xz = normalizedAxisDot(matrix, 0, 8, xLength, zLength);
   const yz = normalizedAxisDot(matrix, 4, 8, yLength, zLength);
-  const conservativeScale = Math.max(Math.abs(xy), Math.abs(xz), Math.abs(yz)) <= 1e-5
-    ? Math.max(xLength, yLength, zLength)
-    : Math.hypot(
-      matrix[0]!, matrix[1]!, matrix[2]!,
-      matrix[4]!, matrix[5]!, matrix[6]!,
-      matrix[8]!, matrix[9]!, matrix[10]!
-    );
+  const conservativeScale =
+    Math.max(Math.abs(xy), Math.abs(xz), Math.abs(yz)) <= 1e-5
+      ? Math.max(xLength, yLength, zLength)
+      : Math.hypot(
+          matrix[0]!,
+          matrix[1]!,
+          matrix[2]!,
+          matrix[4]!,
+          matrix[5]!,
+          matrix[6]!,
+          matrix[8]!,
+          matrix[9]!,
+          matrix[10]!,
+        );
   return { source, matrix, conservativeScale };
 }
 
@@ -849,13 +792,14 @@ function normalizedAxisDot(
   left: number,
   right: number,
   leftLength: number,
-  rightLength: number
+  rightLength: number,
 ): number {
   return (
-    matrix[left]! * matrix[right]! +
-    matrix[left + 1]! * matrix[right + 1]! +
-    matrix[left + 2]! * matrix[right + 2]!
-  ) / (leftLength * rightLength);
+    (matrix[left]! * matrix[right]! +
+      matrix[left + 1]! * matrix[right + 1]! +
+      matrix[left + 2]! * matrix[right + 2]!) /
+    (leftLength * rightLength)
+  );
 }
 
 function transformSphere(
@@ -863,7 +807,7 @@ function transformSphere(
   centerY: number,
   centerZ: number,
   radius: number,
-  instance: PreparedHierarchyInstance
+  instance: PreparedHierarchyInstance,
 ): WorldSphere {
   if (![centerX, centerY, centerZ, radius].every(Number.isFinite) || radius < 0) {
     throw new RangeError("Hierarchy bounds sphere must be finite with a non-negative radius");
@@ -873,13 +817,13 @@ function transformSphere(
   vec3.transformMat4(worldCenter, localCenter, instance.matrix);
   return {
     center: worldCenter,
-    radius: radius * instance.conservativeScale
+    radius: radius * instance.conservativeScale,
   };
 }
 
 function sphereIntersectsFrustum(
   sphere: WorldSphere,
-  planes: readonly GeometryHierarchyFrustumPlane[]
+  planes: readonly GeometryHierarchyFrustumPlane[],
 ): boolean {
   // Algorithm provenance: Niagara eefec2794681a1f8416e1fcc2771c1cdc11a86cb,
   // src/shaders/drawcull.comp.glsl:73-82. OEngine accepts non-normalized
@@ -887,10 +831,7 @@ function sphereIntersectsFrustum(
   for (const plane of planes) {
     const normalLength = Math.hypot(plane[0], plane[1], plane[2]);
     const distance =
-      plane[0] * sphere.center[0]! +
-      plane[1] * sphere.center[1]! +
-      plane[2] * sphere.center[2]! +
-      plane[3];
+      plane[0] * sphere.center[0]! + plane[1] * sphere.center[1]! + plane[2] * sphere.center[2]! + plane[3];
     if (distance < -sphere.radius * normalLength) return false;
   }
   return true;
@@ -900,7 +841,7 @@ function projectedWorldGeometryErrorPixels(
   objectError: number,
   sphere: WorldSphere,
   conservativeScale: number,
-  view: GeometryHierarchyView
+  view: GeometryHierarchyView,
 ): number {
   // Algorithm provenance: docs/porting/geometry.md
   // Bevy meshlet_cull_shared.wgsl:14-36 supplies the scale/nearest-distance and
@@ -911,24 +852,18 @@ function projectedWorldGeometryErrorPixels(
   }
   const worldError = objectError * conservativeScale;
   if (view.kind === "orthographic") {
-    return worldError / view.verticalWorldSize * view.viewportHeight;
+    return (worldError / view.verticalWorldSize) * view.viewportHeight;
   }
   const dx = sphere.center[0]! - view.cameraPosition[0];
   const dy = sphere.center[1]! - view.cameraPosition[1];
   const dz = sphere.center[2]! - view.cameraPosition[2];
-  const nearestDistance = Math.max(
-    Math.hypot(dx, dy, dz) - sphere.radius,
-    view.nearPlane
-  );
+  const nearestDistance = Math.max(Math.hypot(dx, dy, dz) - sphere.radius, view.nearPlane);
   const projectionScaleY = 1 / Math.tan(view.verticalFovRadians * 0.5);
-  return worldError / nearestDistance * projectionScaleY * 0.5 * view.viewportHeight;
+  return (worldError / nearestDistance) * projectionScaleY * 0.5 * view.viewportHeight;
 }
 
 function validateHierarchyView(view: GeometryHierarchyView): void {
-  if (
-    view.cameraPosition.length !== 3 ||
-    !view.cameraPosition.every(Number.isFinite)
-  ) {
+  if (view.cameraPosition.length !== 3 || !view.cameraPosition.every(Number.isFinite)) {
     throw new RangeError("cameraPosition must contain three finite values");
   }
   if (!Number.isFinite(view.viewportHeight) || view.viewportHeight <= 0) {
@@ -942,13 +877,8 @@ function validateHierarchyView(view: GeometryHierarchyView): void {
     if (plane.length !== 4 || !plane.every(Number.isFinite)) {
       throw new RangeError(`frustumPlanes[${index}] must contain four finite values`);
     }
-    if (
-      Math.hypot(plane[0], plane[1], plane[2]) === 0 &&
-      plane[3] < 0
-    ) {
-      throw new RangeError(
-        `frustumPlanes[${index}] disabled plane must have non-negative W`
-      );
+    if (Math.hypot(plane[0], plane[1], plane[2]) === 0 && plane[3] < 0) {
+      throw new RangeError(`frustumPlanes[${index}] disabled plane must have non-negative W`);
     }
   }
   if (view.kind === "perspective") {
@@ -970,7 +900,7 @@ function validateHierarchyView(view: GeometryHierarchyView): void {
 function validateChildren(
   asset: GeometryAssetPackage,
   clusterIndex: number,
-  cluster: GeometryClusterRecord
+  cluster: GeometryClusterRecord,
 ): void {
   assertU32(cluster.childBegin, `Cluster ${clusterIndex} childBegin`);
   assertU32(cluster.childCount, `Cluster ${clusterIndex} childCount`);

@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { AppearanceGraphBuilder, snapshotAppearanceTexture } from "../../.test-dist/material/AppearanceGraph.js";
+import {
+  AppearanceGraphBuilder,
+  snapshotAppearanceTexture,
+} from "../../.test-dist/material/AppearanceGraph.js";
 import { compileAppearanceGraph } from "../../.test-dist/material/AppearanceGraphCompiler.js";
 import { lowerAppearanceWgsl } from "../../.test-dist/shaders/appearance_program.js";
 import { ShadeTexture } from "../../.test-dist/texture/ShadeTexture.js";
@@ -32,20 +35,28 @@ test("the same optimized profile reuses shader topology across instance factor/t
   const q = program(0.7, snapshotAppearanceTexture(new ShadeTexture(), "linear-rgb", [0.2, 0.3]));
   assert.equal(p.templateKey, q.templateKey);
   assert.notDeepEqual(p.constants, q.constants);
-  assert.notEqual(p.templateKey, program(0.4, snapshotAppearanceTexture(new ShadeTexture(), "srgb-rgb")).templateKey);
+  assert.notEqual(
+    p.templateKey,
+    program(0.4, snapshotAppearanceTexture(new ShadeTexture(), "srgb-rgb")).templateKey,
+  );
 });
 
 test("zero demanded outputs produce a legal non-dispatched WGSL shape", () => {
-  const g = new AppearanceGraphBuilder(); g.output("value", g.constant(1));
+  const g = new AppearanceGraphBuilder();
+  g.output("value", g.constant(1));
   const p = lowerAppearanceWgsl(compileAppearanceGraph(g.build(), {}));
-  assert.equal(p.outputCount, 0); assert.deepEqual(p.outputSlots, {});
+  assert.equal(p.outputCount, 0);
+  assert.deepEqual(p.outputSlots, {});
   assert.ok(p.source.includes("array<f32, 1>(0.0)"));
 });
 
 test("material data provenance prevents numeric coincidences from creating per-instance shader shapes", () => {
-  const a = new StandardShadeMaterial(), b = new StandardShadeMaterial();
-  a.diffuse_color.set(0.5, 0.5, 0.5, 0.5); a.specular_color_factor.set(0.5, 0.5, 0.5);
-  b.diffuse_color.set(0.2, 0.3, 0.4, 0.8); b.specular_color_factor.set(0.6, 0.7, 0.9);
+  const a = new StandardShadeMaterial(),
+    b = new StandardShadeMaterial();
+  a.diffuse_color.set(0.5, 0.5, 0.5, 0.5);
+  a.specular_color_factor.set(0.5, 0.5, 0.5);
+  b.diffuse_color.set(0.2, 0.3, 0.4, 0.8);
+  b.specular_color_factor.set(0.6, 0.7, 0.9);
   const p = lowerAppearanceWgsl(compileCanonicalMaterial(a).appearance);
   const q = lowerAppearanceWgsl(compileCanonicalMaterial(b).appearance);
   assert.equal(p.templateKey, q.templateKey);

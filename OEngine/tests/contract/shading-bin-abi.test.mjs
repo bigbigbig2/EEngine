@@ -19,7 +19,7 @@ import {
   GPU_SHADING_PROGRAM_NAMES,
   GPU_SHADING_PROGRAM_WGSL,
   shadingProgramIdForDependencyMask,
-  ShadingIdentityPublicationError
+  ShadingIdentityPublicationError,
 } from "../../.test-dist/gpu/GpuShadingProgramAbi.js";
 import {
   createGpuShadingBinLayouts,
@@ -73,14 +73,14 @@ import {
   unpackGpuShadingBinCounter,
   unpackGpuShadingBinIndirectArgs,
   unpackGpuShadingBinLayout,
-  unpackGpuShadingBinSettings
+  unpackGpuShadingBinSettings,
 } from "../../.test-dist/gpu/GpuShadingBinAbi.js";
 
 const generousLimits = Object.freeze({
   maxTextureDimension2D: 32768,
   maxBufferSize: 8 * 1024 * 1024 * 1024,
   maxStorageBufferBindingSize: 8 * 1024 * 1024 * 1024,
-  maxComputeWorkgroupsPerDimension: 65535
+  maxComputeWorkgroupsPerDimension: 65535,
 });
 
 const fullGeometry = Object.freeze({
@@ -89,7 +89,7 @@ const fullGeometry = Object.freeze({
   hasUv1: false,
   hasUv2: false,
   hasNormal: true,
-  hasTangent: true
+  hasTangent: true,
 });
 
 function material(shadingModel, textureBits, textureBindingSetId = 3) {
@@ -101,7 +101,7 @@ function material(shadingModel, textureBits, textureBindingSetId = 3) {
     hasEmissiveTexture: (textureBits & 8) !== 0,
     hasOcclusionTexture: false,
     requiredUvSetsMask: textureBits === 0 ? 0 : 1,
-    textureBindingSetId
+    textureBindingSetId,
   };
 }
 
@@ -110,7 +110,10 @@ test("ADR-0013 freezes all sixteen program ids and a shared versioned LUT", () =
   assert.equal(GPU_SHADING_DEPENDENCY_LUT_VERSION, 2);
   assert.equal(GPU_SHADING_PROGRAM_COUNT, 16);
   assert.equal(GPU_SHADING_PROGRAM_NAMES.length, 16);
-  assert.deepEqual(Object.values(GPU_SHADING_PROGRAM), Array.from({ length: 16 }, (_, i) => i));
+  assert.deepEqual(
+    Object.values(GPU_SHADING_PROGRAM),
+    Array.from({ length: 16 }, (_, i) => i),
+  );
   assert.equal(GPU_SHADING_PROGRAM_LUT.length, 64);
   assert.match(GPU_SHADING_PROGRAM_WGSL, /array<u32, 64>/u);
   assert.equal(GPU_SHADING_BIN_PROGRAM_MASK, 0xf);
@@ -140,16 +143,23 @@ test("all sixteen programs and four texture sets round-trip through the six-bit 
 });
 
 test("unlit identity canonicalizes textureless sets and preserves color and texture dependencies", () => {
-  const noAttributes = { hasAuthoredVertexColor: false, hasUv0: false, hasUv1: false, hasUv2: false, hasNormal: false, hasTangent: false };
+  const noAttributes = {
+    hasAuthoredVertexColor: false,
+    hasUv0: false,
+    hasUv1: false,
+    hasUv2: false,
+    hasNormal: false,
+    hasTangent: false,
+  };
   assert.deepEqual(deriveGpuShadingIdentity(material("unlit", 0, 3), noAttributes), {
     dependencyMask: 0,
     programId: GPU_SHADING_PROGRAM.UnlitFactor,
     textureBindingSetId: 0,
-    binId: 0
+    binId: 0,
   });
   const color = deriveGpuShadingIdentity(material("unlit", 0, 2), {
     ...noAttributes,
-    hasAuthoredVertexColor: true
+    hasAuthoredVertexColor: true,
   });
   assert.equal(color.programId, GPU_SHADING_PROGRAM.UnlitFactorColor);
   assert.equal(color.textureBindingSetId, 0);
@@ -157,14 +167,14 @@ test("unlit identity canonicalizes textureless sets and preserves color and text
 
   const texture = deriveGpuShadingIdentity(material("unlit", 1, 2), {
     ...noAttributes,
-    hasUv0: true
+    hasUv0: true,
   });
   assert.equal(texture.programId, GPU_SHADING_PROGRAM.UnlitTexture);
   assert.equal(texture.binId, 34);
   const textureColor = deriveGpuShadingIdentity(material("unlit", 1, 1), {
     ...noAttributes,
     hasUv0: true,
-    hasAuthoredVertexColor: true
+    hasAuthoredVertexColor: true,
   });
   assert.equal(textureColor.programId, GPU_SHADING_PROGRAM.UnlitTextureColor);
 });
@@ -178,7 +188,7 @@ test("every legal Standard PBR texture combination selects exactly one fixed or 
     assert.equal(shadingProgramIdForDependencyMask(identity.dependencyMask), expected[textureBits]);
     const withColor = deriveGpuShadingIdentity(material("standard-pbr", textureBits), {
       ...fullGeometry,
-      hasAuthoredVertexColor: true
+      hasAuthoredVertexColor: true,
     });
     assert.equal(withColor.programId, expected[textureBits]);
   }
@@ -193,57 +203,52 @@ test("independent AO selects generic PBR and validates its authored UV set", () 
     hasEmissiveTexture: false,
     hasOcclusionTexture: true,
     requiredUvSetsMask: 2,
-    textureBindingSetId: 1
+    textureBindingSetId: 1,
   };
   const identity = deriveGpuShadingIdentity(aoMaterial, {
     ...fullGeometry,
     hasUv0: false,
-    hasUv1: true
+    hasUv1: true,
   });
   assert.equal(identity.programId, GPU_SHADING_PROGRAM.PbrGeneric);
   assert.ok((identity.dependencyMask & GPU_SHADING_DEPENDENCY.OcclusionTexture) !== 0);
   assert.throws(
     () => deriveGpuShadingIdentity(aoMaterial, { ...fullGeometry, hasUv1: false }),
-    (error) => error instanceof ShadingIdentityPublicationError && error.code === "MISSING_UV1"
+    (error) => error instanceof ShadingIdentityPublicationError && error.code === "MISSING_UV1",
   );
 });
 
 test("publication rejects unsupported models and missing geometry dependencies structurally", () => {
-  const expectCode = (callback, code) => assert.throws(callback, (error) => {
-    assert.ok(error instanceof ShadingIdentityPublicationError);
-    assert.equal(error.code, code);
-    return true;
-  });
+  const expectCode = (callback, code) =>
+    assert.throws(callback, (error) => {
+      assert.ok(error instanceof ShadingIdentityPublicationError);
+      assert.equal(error.code, code);
+      return true;
+    });
   expectCode(
     () => deriveGpuShadingIdentity(material("clear-coat", 0), fullGeometry),
-    "UNSUPPORTED_SHADING_MODEL"
+    "UNSUPPORTED_SHADING_MODEL",
   );
   expectCode(
     () => deriveGpuShadingIdentity(material("standard-pbr", 1), { ...fullGeometry, hasUv0: false }),
-    "MISSING_UV0"
+    "MISSING_UV0",
   );
   expectCode(
     () => deriveGpuShadingIdentity(material("standard-pbr", 0), { ...fullGeometry, hasNormal: false }),
-    "MISSING_NORMAL"
+    "MISSING_NORMAL",
   );
-  const derivedTangent = deriveGpuShadingIdentity(
-    material("standard-pbr", 4),
-    { ...fullGeometry, hasTangent: false }
-  );
+  const derivedTangent = deriveGpuShadingIdentity(material("standard-pbr", 4), {
+    ...fullGeometry,
+    hasTangent: false,
+  });
   assert.equal(derivedTangent.programId, GPU_SHADING_PROGRAM.PbrNormal);
   assert.equal(derivedTangent.dependencyMask & GPU_SHADING_DEPENDENCY.Tangent, 0);
-  expectCode(
-    () => deriveGpuShadingIdentity(material("unlit", 2), fullGeometry),
-    "UNSUPPORTED_SHADING_MODEL"
-  );
+  expectCode(() => deriveGpuShadingIdentity(material("unlit", 2), fullGeometry), "UNSUPPORTED_SHADING_MODEL");
   expectCode(
     () => shadingProgramIdForDependencyMask(GPU_SHADING_DEPENDENCY.BaseTexture),
-    "INVALID_DEPENDENCY_MASK"
+    "INVALID_DEPENDENCY_MASK",
   );
-  expectCode(
-    () => shadingProgramIdForDependencyMask(1 << 9),
-    "INVALID_DEPENDENCY_MASK"
-  );
+  expectCode(() => shadingProgramIdForDependencyMask(1 << 9), "INVALID_DEPENDENCY_MASK");
 });
 
 test("Shading Bin constants, offsets, usages and WGSL structs match ADR-0013", () => {
@@ -282,8 +287,9 @@ test("Shading Bin constants, offsets, usages and WGSL structs match ADR-0013", (
     "OEngineShadingBinControl",
     "OEngineShadingBinCounter",
     "OEngineShadingBinLayout",
-    "OEngineShadingBinIndirectArgs"
-  ]) assert.match(GPU_SHADING_BIN_WGSL, new RegExp(`struct ${declaration}\\b`, "u"));
+    "OEngineShadingBinIndirectArgs",
+  ])
+    assert.match(GPU_SHADING_BIN_WGSL, new RegExp(`struct ${declaration}\\b`, "u"));
   assert.match(GPU_SHADING_BIN_WGSL, /struct OEngineShadingBinHeap/u);
   assert.match(GPU_SHADING_BIN_WGSL, /records_alignment_padding: array<u32, 56>/u);
   assert.doesNotMatch(GPU_SHADING_BIN_WGSL, /consumed_count/u);
@@ -298,7 +304,7 @@ test("all fixed-size CPU records round-trip at their exact byte offsets", () => 
     allowedMaskLo: 0x80000001,
     allowedMaskHi: 0x80000001,
     maxDispatchDimension: 65535,
-    layoutRevision: 9
+    layoutRevision: 9,
   };
   assert.deepEqual(unpackGpuShadingBinSettings(packGpuShadingBinSettings(settings)), settings);
   const control = {
@@ -307,14 +313,19 @@ test("all fixed-size CPU records round-trip at their exact byte offsets", () => 
     generatedMaskLo: 1,
     generatedMaskHi: 0x80000000,
     finalizedGeneration: 7,
-    layoutRevision: 9
+    layoutRevision: 9,
   };
   assert.deepEqual(unpackGpuShadingBinControl(packGpuShadingBinControl(control)), control);
-  assert.deepEqual(unpackGpuShadingBinControl(packGpuShadingBinControl({
-    ...control,
-    finalizedGeneration: 0,
-    layoutRevision: 0
-  })), { ...control, finalizedGeneration: 0, layoutRevision: 0 });
+  assert.deepEqual(
+    unpackGpuShadingBinControl(
+      packGpuShadingBinControl({
+        ...control,
+        finalizedGeneration: 0,
+        layoutRevision: 0,
+      }),
+    ),
+    { ...control, finalizedGeneration: 0, layoutRevision: 0 },
+  );
   const counter = { attemptedCount: 11, writtenCount: 7, overflowCount: 4, flags: 8 };
   assert.deepEqual(unpackGpuShadingBinCounter(packGpuShadingBinCounter(counter)), counter);
   const layout = { recordBase: 123, capacity: 456, revision: 9, flags: GPU_SHADING_BIN_LAYOUT_FLAG.Active };
@@ -323,7 +334,7 @@ test("all fixed-size CPU records round-trip at their exact byte offsets", () => 
   assert.deepEqual(unpackGpuShadingBinIndirectArgs(packGpuShadingBinIndirectArgs(args)), args);
   assert.throws(
     () => packGpuShadingBinCounter({ ...counter, overflowCount: 3 }),
-    /attempted = written \+ overflow/u
+    /attempted = written \+ overflow/u,
   );
 });
 
@@ -331,8 +342,16 @@ test("zero, edge, 1080p and 4K extents compute exact microtile and heap sizing",
   assert.deepEqual(shadingBinMicrotileGrid(0, 0), { microtilesX: 0, microtilesY: 0, microtileCount: 0 });
   assert.deepEqual(shadingBinMicrotileGrid(1, 1), { microtilesX: 1, microtilesY: 1, microtileCount: 1 });
   assert.deepEqual(shadingBinMicrotileGrid(9, 65), { microtilesX: 2, microtilesY: 9, microtileCount: 18 });
-  assert.deepEqual(shadingBinMicrotileGrid(1920, 1080), { microtilesX: 240, microtilesY: 135, microtileCount: 32400 });
-  assert.deepEqual(shadingBinMicrotileGrid(3840, 2160), { microtilesX: 480, microtilesY: 270, microtileCount: 129600 });
+  assert.deepEqual(shadingBinMicrotileGrid(1920, 1080), {
+    microtilesX: 240,
+    microtilesY: 135,
+    microtileCount: 32400,
+  });
+  assert.deepEqual(shadingBinMicrotileGrid(3840, 2160), {
+    microtilesX: 480,
+    microtilesY: 270,
+    microtileCount: 129600,
+  });
   assert.equal(shadingBinHeapByteLength(0, 32400), 2304);
   assert.equal(shadingBinHeapByteLength(1, 32400), 131904);
   assert.equal(shadingBinHeapByteLength(64, 32400), 8296704);
@@ -361,46 +380,66 @@ test("preflight rejects extent, element-address, binding and dispatch limit fail
   assert.deepEqual(shadingBinActiveMask([0, 31, 32, 63]), { lo: 0x80000001, hi: 0x80000001 });
   assert.throws(
     () => preflightGpuShadingBinSizing(32769, 1, [0], 1, generousLimits),
-    /maxTextureDimension2D/u
+    /maxTextureDimension2D/u,
   );
   assert.throws(
     () => preflightGpuShadingBinSizing(1920, 1080, [0], 1, { ...generousLimits, maxBufferSize: 1000 }),
-    /maxBufferSize/u
+    /maxBufferSize/u,
   );
   assert.throws(
-    () => preflightGpuShadingBinSizing(1920, 1080, [0], 1, { ...generousLimits, maxStorageBufferBindingSize: 1000 }),
-    /maxStorageBufferBindingSize/u
+    () =>
+      preflightGpuShadingBinSizing(1920, 1080, [0], 1, {
+        ...generousLimits,
+        maxStorageBufferBindingSize: 1000,
+      }),
+    /maxStorageBufferBindingSize/u,
   );
   assert.throws(
-    () => preflightGpuShadingBinSizing(65535, 65535, Array.from({ length: 64 }, (_, i) => i), 1, {
-      ...generousLimits,
-      maxTextureDimension2D: 65535,
-      maxBufferSize: Number.MAX_SAFE_INTEGER,
-      maxStorageBufferBindingSize: Number.MAX_SAFE_INTEGER
-    }),
-    /record elements/u
+    () =>
+      preflightGpuShadingBinSizing(
+        65535,
+        65535,
+        Array.from({ length: 64 }, (_, i) => i),
+        1,
+        {
+          ...generousLimits,
+          maxTextureDimension2D: 65535,
+          maxBufferSize: Number.MAX_SAFE_INTEGER,
+          maxStorageBufferBindingSize: Number.MAX_SAFE_INTEGER,
+        },
+      ),
+    /record elements/u,
   );
   assert.throws(
-    () => preflightGpuShadingBinSizing(4096, 4096, [0], 1, {
-      ...generousLimits,
-      maxComputeWorkgroupsPerDimension: 2
-    }),
-    /squared workgroups/u
+    () =>
+      preflightGpuShadingBinSizing(4096, 4096, [0], 1, {
+        ...generousLimits,
+        maxComputeWorkgroupsPerDimension: 2,
+      }),
+    /squared workgroups/u,
   );
 });
 
 test("indirect dimensions overwrite complete zero, one, boundary and 2D-tail records", () => {
   assert.deepEqual(shadingBinDispatchDimensions(0, 65535), {
-    workgroupCountX: 0, workgroupCountY: 1, workgroupCountZ: 1
+    workgroupCountX: 0,
+    workgroupCountY: 1,
+    workgroupCountZ: 1,
   });
   assert.deepEqual(shadingBinDispatchDimensions(1, 65535), {
-    workgroupCountX: 1, workgroupCountY: 1, workgroupCountZ: 1
+    workgroupCountX: 1,
+    workgroupCountY: 1,
+    workgroupCountZ: 1,
   });
   assert.deepEqual(shadingBinDispatchDimensions(65535, 65535), {
-    workgroupCountX: 65535, workgroupCountY: 1, workgroupCountZ: 1
+    workgroupCountX: 65535,
+    workgroupCountY: 1,
+    workgroupCountZ: 1,
   });
   assert.deepEqual(shadingBinDispatchDimensions(65536, 65535), {
-    workgroupCountX: 65535, workgroupCountY: 2, workgroupCountZ: 1
+    workgroupCountX: 65535,
+    workgroupCountY: 2,
+    workgroupCountZ: 1,
   });
   assert.throws(() => shadingBinDispatchDimensions(5, 2), /squared workgroups/u);
 });

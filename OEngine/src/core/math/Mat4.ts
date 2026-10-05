@@ -44,8 +44,7 @@ export function mat4Invert(out: Float32Array, a: Float32Array): boolean {
   const b10 = a21 * a33 - a23 * a31;
   const b11 = a22 * a33 - a23 * a32;
 
-  let det =
-    b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
+  let det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
   if (Math.abs(det) < 1e-12) return false;
   det = 1 / det;
 
@@ -69,30 +68,54 @@ export function mat4Invert(out: Float32Array, a: Float32Array): boolean {
 }
 
 export function mat4Multiply(out: Float32Array, a: Float32Array, b: Float32Array): Float32Array {
-  const a00 = a[0]!, a01 = a[1]!, a02 = a[2]!, a03 = a[3]!;
-  const a10 = a[4]!, a11 = a[5]!, a12 = a[6]!, a13 = a[7]!;
-  const a20 = a[8]!, a21 = a[9]!, a22 = a[10]!, a23 = a[11]!;
-  const a30 = a[12]!, a31 = a[13]!, a32 = a[14]!, a33 = a[15]!;
+  const a00 = a[0]!,
+    a01 = a[1]!,
+    a02 = a[2]!,
+    a03 = a[3]!;
+  const a10 = a[4]!,
+    a11 = a[5]!,
+    a12 = a[6]!,
+    a13 = a[7]!;
+  const a20 = a[8]!,
+    a21 = a[9]!,
+    a22 = a[10]!,
+    a23 = a[11]!;
+  const a30 = a[12]!,
+    a31 = a[13]!,
+    a32 = a[14]!,
+    a33 = a[15]!;
 
-  let b0 = b[0]!, b1 = b[1]!, b2 = b[2]!, b3 = b[3]!;
+  let b0 = b[0]!,
+    b1 = b[1]!,
+    b2 = b[2]!,
+    b3 = b[3]!;
   out[0] = b0 * a00 + b1 * a10 + b2 * a20 + b3 * a30;
   out[1] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
   out[2] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
   out[3] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
 
-  b0 = b[4]!; b1 = b[5]!; b2 = b[6]!; b3 = b[7]!;
+  b0 = b[4]!;
+  b1 = b[5]!;
+  b2 = b[6]!;
+  b3 = b[7]!;
   out[4] = b0 * a00 + b1 * a10 + b2 * a20 + b3 * a30;
   out[5] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
   out[6] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
   out[7] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
 
-  b0 = b[8]!; b1 = b[9]!; b2 = b[10]!; b3 = b[11]!;
+  b0 = b[8]!;
+  b1 = b[9]!;
+  b2 = b[10]!;
+  b3 = b[11]!;
   out[8] = b0 * a00 + b1 * a10 + b2 * a20 + b3 * a30;
   out[9] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
   out[10] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
   out[11] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
 
-  b0 = b[12]!; b1 = b[13]!; b2 = b[14]!; b3 = b[15]!;
+  b0 = b[12]!;
+  b1 = b[13]!;
+  b2 = b[14]!;
+  b3 = b[15]!;
   out[12] = b0 * a00 + b1 * a10 + b2 * a20 + b3 * a30;
   out[13] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
   out[14] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
@@ -105,7 +128,7 @@ export function mat4Perspective(
   fovy: number,
   aspect: number,
   near: number,
-  far: number
+  far: number,
 ): Float32Array {
   const f = 1 / Math.tan(fovy / 2);
   out.fill(0);
@@ -121,7 +144,7 @@ export function mat4PerspectiveInfiniteReverseZ(
   out: Float32Array,
   fovy: number,
   aspect: number,
-  near: number
+  near: number,
 ): Float32Array {
   const s = 1 / Math.tan(0.5 * fovy);
   out.fill(0);
@@ -132,10 +155,7 @@ export function mat4PerspectiveInfiniteReverseZ(
   return out;
 }
 
-export function mat4ViewFromWorldTransform(
-  out: Float32Array,
-  world: Float32Array
-): Float32Array {
+export function mat4ViewFromWorldTransform(out: Float32Array, world: Float32Array): Float32Array {
   const n = world[12]!;
   const r = world[13]!;
   const s = world[14]!;
@@ -169,10 +189,7 @@ export function mat4ViewFromWorldTransform(
   return out;
 }
 
-export function mat4ExtractFrustumPlanes(
-  out: Float32Array,
-  vp: Float32Array
-): void {
+export function mat4ExtractFrustumPlanes(out: Float32Array, vp: Float32Array): void {
   const writePlane = (offset: number, x: number, y: number, z: number, w: number) => {
     const inverseLength = 1 / Math.hypot(x, y, z);
     out[offset] = x * inverseLength;
@@ -193,27 +210,40 @@ export function mat4LookAt(
   out: Float32Array,
   eye: { x: number; y: number; z: number },
   center: { x: number; y: number; z: number },
-  up: { x: number; y: number; z: number } = { x: 0, y: 1, z: 0 }
+  up: { x: number; y: number; z: number } = { x: 0, y: 1, z: 0 },
 ): Float32Array {
   let zx = eye.x - center.x;
   let zy = eye.y - center.y;
   let zz = eye.z - center.z;
   let len = Math.hypot(zx, zy, zz) || 1;
-  zx /= len; zy /= len; zz /= len;
+  zx /= len;
+  zy /= len;
+  zz /= len;
 
   let xx = up.y * zz - up.z * zy;
   let xy = up.z * zx - up.x * zz;
   let xz = up.x * zy - up.y * zx;
   len = Math.hypot(xx, xy, xz) || 1;
-  xx /= len; xy /= len; xz /= len;
+  xx /= len;
+  xy /= len;
+  xz /= len;
 
   const yx = zy * xz - zz * xy;
   const yy = zz * xx - zx * xz;
   const yz = zx * xy - zy * xx;
 
-  out[0] = xx; out[1] = yx; out[2] = zx; out[3] = 0;
-  out[4] = xy; out[5] = yy; out[6] = zy; out[7] = 0;
-  out[8] = xz; out[9] = yz; out[10] = zz; out[11] = 0;
+  out[0] = xx;
+  out[1] = yx;
+  out[2] = zx;
+  out[3] = 0;
+  out[4] = xy;
+  out[5] = yy;
+  out[6] = zy;
+  out[7] = 0;
+  out[8] = xz;
+  out[9] = yz;
+  out[10] = zz;
+  out[11] = 0;
   out[12] = -(xx * eye.x + xy * eye.y + xz * eye.z);
   out[13] = -(yx * eye.x + yy * eye.y + yz * eye.z);
   out[14] = -(zx * eye.x + zy * eye.y + zz * eye.z);
@@ -224,7 +254,7 @@ export function mat4LookAt(
 export function mat4FromTranslationScale(
   out: Float32Array,
   t: { x: number; y: number; z: number },
-  s: { x: number; y: number; z: number }
+  s: { x: number; y: number; z: number },
 ): Float32Array {
   out.fill(0);
   out[0] = s.x;
@@ -241,7 +271,7 @@ export function mat4FromTRS(
   out: Float32Array,
   t: { x: number; y: number; z: number },
   q: { x: number; y: number; z: number; w: number },
-  s: { x: number; y: number; z: number }
+  s: { x: number; y: number; z: number },
 ): Float32Array {
   const sx = q.x;
   const sy = q.y;
@@ -284,7 +314,7 @@ export function mat4FromTRS(
 export function mat4ApplyDirection(
   out: { x: number; y: number; z: number },
   m: Float32Array,
-  v: { x: number; y: number; z: number }
+  v: { x: number; y: number; z: number },
 ): { x: number; y: number; z: number } {
   const t = v.x;
   const n = v.y;
@@ -302,7 +332,7 @@ export function mat4ApplyDirection(
 export function mat4TransformAABB(
   out: Float32Array | { [i: number]: number },
   local: ArrayLike<number>,
-  m: Float32Array
+  m: Float32Array,
 ): void {
   out[0] = out[3] = m[12]!;
   out[1] = out[4] = m[13]!;
@@ -326,7 +356,7 @@ export function mat4TransformAABB(
 export function mat4TransformPoint(
   out: { x: number; y: number; z: number },
   m: Float32Array,
-  p: { x: number; y: number; z: number }
+  p: { x: number; y: number; z: number },
 ): void {
   const a = p.x;
   const i = p.y;
@@ -388,7 +418,7 @@ export function mat4Transpose(out: Float32Array, a: Float32Array): Float32Array 
 export function mat4Scale(
   out: Float32Array,
   a: Float32Array,
-  v: { x: number; y: number; z: number } | ArrayLike<number>
+  v: { x: number; y: number; z: number } | ArrayLike<number>,
 ): Float32Array {
   let r: number;
   let s: number;
@@ -526,7 +556,7 @@ export function mat4Ortho(
   bottom: number,
   top: number,
   near: number,
-  far: number
+  far: number,
 ): Float32Array {
   const o = 1 / (left - right);
   const _ = 1 / (bottom - top);
@@ -579,34 +609,21 @@ export function vec3Copy(out: Float32Array, a: ArrayLike<number>): Float32Array 
   return out;
 }
 
-export function vec3Set(
-  out: Float32Array,
-  x: number,
-  y: number,
-  z: number
-): Float32Array {
+export function vec3Set(out: Float32Array, x: number, y: number, z: number): Float32Array {
   out[0] = x;
   out[1] = y;
   out[2] = z;
   return out;
 }
 
-export function vec3Min(
-  out: Float32Array,
-  a: ArrayLike<number>,
-  b: ArrayLike<number>
-): Float32Array {
+export function vec3Min(out: Float32Array, a: ArrayLike<number>, b: ArrayLike<number>): Float32Array {
   out[0] = Math.min(a[0]!, b[0]!);
   out[1] = Math.min(a[1]!, b[1]!);
   out[2] = Math.min(a[2]!, b[2]!);
   return out;
 }
 
-export function vec3Max(
-  out: Float32Array,
-  a: ArrayLike<number>,
-  b: ArrayLike<number>
-): Float32Array {
+export function vec3Max(out: Float32Array, a: ArrayLike<number>, b: ArrayLike<number>): Float32Array {
   out[0] = Math.max(a[0]!, b[0]!);
   out[1] = Math.max(a[1]!, b[1]!);
   out[2] = Math.max(a[2]!, b[2]!);
@@ -616,7 +633,7 @@ export function vec3Max(
 export function vec3TransformMat4(
   out: Float32Array,
   a: ArrayLike<number>,
-  m: ArrayLike<number>
+  m: ArrayLike<number>,
 ): Float32Array {
   const r = a[0]!;
   const s = a[1]!;
@@ -638,7 +655,7 @@ export function quatCreate(): Float32Array {
 export function mat4Translate(
   out: Float32Array,
   a: Float32Array,
-  v: { x: number; y: number; z: number } | ArrayLike<number>
+  v: { x: number; y: number; z: number } | ArrayLike<number>,
 ): Float32Array {
   let m: number;
   let g: number;
@@ -693,7 +710,7 @@ export function aabbExtentLength(
   z0: number,
   x1: number,
   y1: number,
-  z1: number
+  z1: number,
 ): number {
   const dx = x1 - x0;
   const dy = y1 - y0;
@@ -708,7 +725,7 @@ export function aabbToBoundingSphere(
   z0: number,
   x1: number,
   y1: number,
-  z1: number
+  z1: number,
 ): Float32Array {
   out[0] = 0.5 * (x0 + x1);
   out[1] = 0.5 * (y0 + y1);

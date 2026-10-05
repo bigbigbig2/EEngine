@@ -118,7 +118,7 @@ export class ShadeImage {
     dataType: string,
     width = 1,
     height = 1,
-    depth = 1
+    depth = 1,
   ): ShadeImage {
     const i = new ShadeImage();
     i.#source = e;
@@ -137,7 +137,7 @@ Object.defineProperty(ShadeImage.prototype, "isShadeImage", {
     return true;
   },
   enumerable: false,
-  configurable: true
+  configurable: true,
 });
 
 export { ShadeImage as ShadeImageStub };

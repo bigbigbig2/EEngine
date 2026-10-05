@@ -1,20 +1,11 @@
-import {
-  BENCHMARK_RESULT_SCHEMA_VERSION,
-  type BenchmarkEnvironmentManifest
-} from "./EnvironmentManifest.js";
-import type {
-  FrameProfileSnapshot,
-  FrameProfilerDiagnostics
-} from "./FrameProfiler.js";
+import { BENCHMARK_RESULT_SCHEMA_VERSION, type BenchmarkEnvironmentManifest } from "./EnvironmentManifest.js";
+import type { FrameProfileSnapshot, FrameProfilerDiagnostics } from "./FrameProfiler.js";
 import { classifyGpuFramePhase } from "./GpuFramePhase.js";
 import {
   createBenchmarkCapabilityEvidence,
-  type BenchmarkCapabilityEvidence
+  type BenchmarkCapabilityEvidence,
 } from "./BenchmarkCapabilityEvidence.js";
-import {
-  surfaceTimingTotalsForFrame,
-  type SurfaceTimingPhase
-} from "./SurfacePhaseTiming.js";
+import { surfaceTimingTotalsForFrame, type SurfaceTimingPhase } from "./SurfacePhaseTiming.js";
 
 export interface BenchmarkCaseManifest {
   id: string;
@@ -68,12 +59,10 @@ export class BenchmarkHarness {
 
   constructor(
     private readonly environment: BenchmarkEnvironmentManifest,
-    private readonly caseManifest: BenchmarkCaseManifest
+    private readonly caseManifest: BenchmarkCaseManifest,
   ) {
     if (environment.schemaVersion !== BENCHMARK_RESULT_SCHEMA_VERSION) {
-      throw new Error(
-        `Unsupported environment schema ${environment.schemaVersion}`
-      );
+      throw new Error(`Unsupported environment schema ${environment.schemaVersion}`);
     }
   }
 
@@ -87,9 +76,8 @@ export class BenchmarkHarness {
 
   get pendingGpuFrameCount(): number {
     return this.measuredFrames.reduce(
-      (count, frame) => count +
-        (frame.gpu.pending || frame.gpuCounters.pending ? 1 : 0),
-      0
+      (count, frame) => count + (frame.gpu.pending || frame.gpuCounters.pending ? 1 : 0),
+      0,
     );
   }
 
@@ -111,12 +99,10 @@ export class BenchmarkHarness {
     this.measuredFrames.push(cloneFrame(frame));
   }
 
-  complete(
-    diagnostics: FrameProfilerDiagnostics = emptyDiagnostics()
-  ): BenchmarkResult {
+  complete(diagnostics: FrameProfilerDiagnostics = emptyDiagnostics()): BenchmarkResult {
     if (this.measuredFrames.length !== this.environment.run.sampleFrames) {
       throw new Error(
-        `Benchmark incomplete: expected ${this.environment.run.sampleFrames} measured frames, got ${this.measuredFrames.length}`
+        `Benchmark incomplete: expected ${this.environment.run.sampleFrames} measured frames, got ${this.measuredFrames.length}`,
       );
     }
     const frames = this.measuredFrames.map(cloneFrame);
@@ -124,12 +110,10 @@ export class BenchmarkHarness {
       schemaVersion: BENCHMARK_RESULT_SCHEMA_VERSION,
       environment: cloneJson(this.environment),
       case: cloneJson(this.caseManifest),
-      capabilityEvidence: createBenchmarkCapabilityEvidence(
-        this.environment.run.featureSet
-      ),
+      capabilityEvidence: createBenchmarkCapabilityEvidence(this.environment.run.featureSet),
       frames,
       summary: summarizeFrames(frames),
-      diagnostics: cloneJson(diagnostics)
+      diagnostics: cloneJson(diagnostics),
     };
   }
 }
@@ -151,7 +135,7 @@ export function summarizeSeries(values: readonly number[]): SeriesSummary {
     max: sorted[sorted.length - 1]!,
     p50: percentile(sorted, 0.5),
     p95: percentile(sorted, 0.95),
-    p99: percentile(sorted, 0.99)
+    p99: percentile(sorted, 0.99),
   };
 }
 
@@ -173,10 +157,7 @@ function summarizeFrames(frames: readonly FrameProfileSnapshot[]): BenchmarkSumm
       for (const segment of frame.gpu.segments) {
         append(gpuValues, segment.label, segment.durationMs);
         const phase = segment.phase ?? classifyGpuFramePhase(segment.label);
-        framePhaseTotals.set(
-          phase,
-          (framePhaseTotals.get(phase) ?? 0) + segment.durationMs
-        );
+        framePhaseTotals.set(phase, (framePhaseTotals.get(phase) ?? 0) + segment.durationMs);
       }
       for (const [phase, durationMs] of framePhaseTotals) {
         append(gpuPhaseValues, phase, durationMs);
@@ -203,7 +184,7 @@ function summarizeFrames(frames: readonly FrameProfileSnapshot[]): BenchmarkSumm
     gpuCounters: summarizeMap(gpuCounterValues),
     submits: summarizeSeries(frames.map((frame) => frame.submits.count)),
     readbacks: summarizeSeries(frames.map((frame) => frame.readbacks.count)),
-    uploadBytes: summarizeSeries(frames.map((frame) => frame.uploads.bytes))
+    uploadBytes: summarizeSeries(frames.map((frame) => frame.uploads.bytes)),
   };
 }
 
@@ -216,7 +197,7 @@ function emptyDiagnostics(): FrameProfilerDiagnostics {
     deviceLostReasons: [],
     failedGpuTimestampBatches: 0,
     droppedGpuCounterSamples: 0,
-    failedGpuCounterSamples: 0
+    failedGpuCounterSamples: 0,
   };
 }
 

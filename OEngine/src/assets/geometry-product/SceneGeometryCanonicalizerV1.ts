@@ -21,12 +21,15 @@ import {
   encodeWebCanonicalGeometryV1,
   encodeWebGeometryCookRecipeV1,
   type EmscriptenWebGeometryCookerModuleV1,
-  type WebCanonicalGeometryDomainV1
+  type WebCanonicalGeometryDomainV1,
 } from "../web-cook/wasm/WebGeometryCookerAbi.js";
 import { createGeometryCookRecipeV3, type GeometryCookRecipeV3 } from "../GeometryCookRecipe.js";
 import type { GeometryProductRevisionSourceV1 } from "./GeometryProductV1.js";
 import { decodeGeometryProductDescriptorBinaryV1 } from "./GeometryProductBinaryV1.js";
-import { cookWasmGeometryProductRevisionV1, type WasmGeometryProductRevisionV1 } from "./WasmGeometryProductV1.js";
+import {
+  cookWasmGeometryProductRevisionV1,
+  type WasmGeometryProductRevisionV1,
+} from "./WasmGeometryProductV1.js";
 import type { VirtualGeometrySceneInstanceV1 } from "./VirtualGeometrySceneSourceV1.js";
 
 /**
@@ -68,7 +71,9 @@ export interface CookedSceneGeometryProductV1 {
   readonly revision: WasmGeometryProductRevisionV1;
   readonly canonicalization: SceneGeometryCanonicalizationV1;
   /** Single-revision provider for `Renderer.uploadProductScene`. */
-  readonly provider: GeometryProductRevisionSourceV1 & { revisions(signal?: AbortSignal): AsyncIterable<GeometryProductRevisionSourceV1> };
+  readonly provider: GeometryProductRevisionSourceV1 & {
+    revisions(signal?: AbortSignal): AsyncIterable<GeometryProductRevisionSourceV1>;
+  };
 }
 
 import { geometryAppearanceProfile } from "../GeometryAppearanceProfile.js";
@@ -105,7 +110,8 @@ export function canonicalizeSceneGeometryV1(scene: Scene): SceneGeometryCanonica
     const geometry = mesh.geometry as MeshletGeometryBase;
     const material = mesh.material as StandardShadeMaterial | undefined;
     if (!material || typeof material !== "object") throw new Error(`Scene mesh ${mesh.id} has no material`);
-    if (typeof geometry?.getVertexCount !== "function") throw new Error(`Scene mesh ${mesh.id} is not backed by meshlet-packed geometry`);
+    if (typeof geometry?.getVertexCount !== "function")
+      throw new Error(`Scene mesh ${mesh.id} is not backed by meshlet-packed geometry`);
     let materialIndex = materialIndexByMaterial.get(material);
     if (materialIndex === undefined) {
       materialIndex = materials.length;
@@ -126,7 +132,7 @@ export function canonicalizeSceneGeometryV1(scene: Scene): SceneGeometryCanonica
       assetIndex: domainIndex,
       materialIndex,
       transform: Float32Array.from(mesh.transform_global.matrix),
-      flags: 0
+      flags: 0,
     });
   }
 
@@ -137,30 +143,41 @@ export function canonicalizeSceneGeometryV1(scene: Scene): SceneGeometryCanonica
     materials: Object.freeze(materials),
     instances: Object.freeze(instances),
     geometries: Object.freeze(geometries),
-    canonicalInput
+    canonicalInput,
   });
 }
 
 /** Cooks one ordinary Scene into a Product revision ready for admission. */
-export async function cookSceneGeometryProductV1(scene: Scene, options: SceneGeometryProductOptions): Promise<CookedSceneGeometryProductV1> {
+export async function cookSceneGeometryProductV1(
+  scene: Scene,
+  options: SceneGeometryProductOptions,
+): Promise<CookedSceneGeometryProductV1> {
   if (!options?.module) throw new RangeError("Runtime Geometry Product requires a WASM cooker module");
-  if (options.replaces !== undefined && (options.revision ?? 0) <= options.replaces.revision) throw new RangeError("a replacement revision must be newer than the revision it replaces");
+  if (options.replaces !== undefined && (options.revision ?? 0) <= options.replaces.revision)
+    throw new RangeError("a replacement revision must be newer than the revision it replaces");
   const canonicalization = canonicalizeSceneGeometryV1(scene);
-  const sourceIdentityHash = new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", canonicalization.canonicalInput));
+  const sourceIdentityHash = new Uint8Array(
+    await globalThis.crypto.subtle.digest("SHA-256", canonicalization.canonicalInput),
+  );
   const recipeInput = encodeWebGeometryCookRecipeV1(createGeometryCookRecipeV3(options.recipe));
-  const revision = await cookWasmGeometryProductRevisionV1(options.module, canonicalization.canonicalInput, recipeInput, {
-    producerId: options.producerId,
-    producerVersion: options.producerVersion,
-    sourceIdentityKind: "content-sha256",
-    sourceIdentityHash,
-    revision: options.revision ?? 0,
-    ...(options.replaces === undefined ? {} : { replaces: options.replaces }),
-    maxDecodedProductBytes: options.maxDecodedProductBytes
-  });
+  const revision = await cookWasmGeometryProductRevisionV1(
+    options.module,
+    canonicalization.canonicalInput,
+    recipeInput,
+    {
+      producerId: options.producerId,
+      producerVersion: options.producerVersion,
+      sourceIdentityKind: "content-sha256",
+      sourceIdentityHash,
+      revision: options.revision ?? 0,
+      ...(options.replaces === undefined ? {} : { replaces: options.replaces }),
+      maxDecodedProductBytes: options.maxDecodedProductBytes,
+    },
+  );
   return Object.freeze({
     revision,
     canonicalization,
-    provider: singleRevisionProvider(revision)
+    provider: singleRevisionProvider(revision),
   });
 }
 
@@ -169,21 +186,24 @@ export async function cookSceneGeometryProductV1(scene: Scene, options: SceneGeo
  * `revisions()` once; the revision stays re-readable because the WASM result
  * keeps its pages until `release()`.
  */
-function singleRevisionProvider(revision: WasmGeometryProductRevisionV1): CookedSceneGeometryProductV1["provider"] {
+function singleRevisionProvider(
+  revision: WasmGeometryProductRevisionV1,
+): CookedSceneGeometryProductV1["provider"] {
   let consumed = false;
   const source: GeometryProductRevisionSourceV1 = Object.freeze({
     descriptor: decodeDescriptor(revision.descriptor),
-    readPage: (pageId: number, signal?: AbortSignal) => signal?.aborted
-      ? Promise.reject(signal.reason ?? new DOMException("The operation was aborted", "AbortError"))
-      : revision.readPage(pageId),
-    release: () => revision.release()
+    readPage: (pageId: number, signal?: AbortSignal) =>
+      signal?.aborted
+        ? Promise.reject(signal.reason ?? new DOMException("The operation was aborted", "AbortError"))
+        : revision.readPage(pageId),
+    release: () => revision.release(),
   });
   const provider = {
     async *revisions(): AsyncIterable<GeometryProductRevisionSourceV1> {
       if (consumed) return;
       consumed = true;
       yield source;
-    }
+    },
   };
   return provider as unknown as CookedSceneGeometryProductV1["provider"];
 }
@@ -193,13 +213,22 @@ interface CanonicalMeshletGeometry {
   readonly profile: VirtualGeometryGeometryProfile;
 }
 
-function canonicalizeMeshletGeometry(geometry: MeshletGeometryBase, material: StandardShadeMaterial, materialId: number): CanonicalMeshletGeometry {
+function canonicalizeMeshletGeometry(
+  geometry: MeshletGeometryBase,
+  material: StandardShadeMaterial,
+  materialId: number,
+): CanonicalMeshletGeometry {
   const vertexCount = geometry.getVertexCount();
-  if (!Number.isInteger(vertexCount) || vertexCount < 3) throw new Error(`Scene geometry ${geometry.name || "<unnamed>"} has fewer than three vertices`);
-  if (geometry.vertexData.length !== vertexCount * VERTEX_FLOATS) throw new Error(`Scene geometry ${geometry.name || "<unnamed>"} vertex data is not position+normal packed`);
+  if (!Number.isInteger(vertexCount) || vertexCount < 3)
+    throw new Error(`Scene geometry ${geometry.name || "<unnamed>"} has fewer than three vertices`);
+  if (geometry.vertexData.length !== vertexCount * VERTEX_FLOATS)
+    throw new Error(
+      `Scene geometry ${geometry.name || "<unnamed>"} vertex data is not position+normal packed`,
+    );
   const vertices = new Float32Array(vertexCount * WEB_GEOMETRY_CANONICAL_VERTEX_FLOATS);
   for (let vertex = 0; vertex < vertexCount; vertex++) {
-    const source = vertex * VERTEX_FLOATS, target = vertex * WEB_GEOMETRY_CANONICAL_VERTEX_FLOATS;
+    const source = vertex * VERTEX_FLOATS,
+      target = vertex * WEB_GEOMETRY_CANONICAL_VERTEX_FLOATS;
     vertices[target] = geometry.vertexData[source]!;
     vertices[target + 1] = geometry.vertexData[source + 1]!;
     vertices[target + 2] = geometry.vertexData[source + 2]!;
@@ -231,21 +260,32 @@ function canonicalizeMeshletGeometry(geometry: MeshletGeometryBase, material: St
   if (geometry.colorData) attributeMask |= WEB_GEOMETRY_ATTRIBUTE_COLOR;
 
   const indexCount = geometry.getIndexCount();
-  if (indexCount < 3 || indexCount % 3 !== 0) throw new Error(`Scene geometry ${geometry.name || "<unnamed>"} is not a non-empty triangle list`);
-  if (geometry.indexData.length !== indexCount) throw new Error(`Scene geometry ${geometry.name || "<unnamed>"} index data length disagrees with its primitive count`);
+  if (indexCount < 3 || indexCount % 3 !== 0)
+    throw new Error(`Scene geometry ${geometry.name || "<unnamed>"} is not a non-empty triangle list`);
+  if (geometry.indexData.length !== indexCount)
+    throw new Error(
+      `Scene geometry ${geometry.name || "<unnamed>"} index data length disagrees with its primitive count`,
+    );
   const indices = new Uint32Array(indexCount);
   for (let index = 0; index < indexCount; index++) {
     const value = geometry.indexData[index]!;
-    if (value >= vertexCount) throw new Error(`Scene geometry ${geometry.name || "<unnamed>"} index ${value} exceeds its vertex count`);
+    if (value >= vertexCount)
+      throw new Error(
+        `Scene geometry ${geometry.name || "<unnamed>"} index ${value} exceeds its vertex count`,
+      );
     indices[index] = value;
   }
 
-  const alpha = material.transparency_mode === ShadeTransparencyMode.Transparent
-    ? WEB_GEOMETRY_MESHLET_BLEND
-    : material.transparency_mode === ShadeTransparencyMode.AlphaTested
-      ? WEB_GEOMETRY_MESHLET_MASK
-      : WEB_GEOMETRY_MESHLET_OPAQUE;
-  const meshletFlags = alpha | WEB_GEOMETRY_MESHLET_CASTS_SHADOW | (material.draw_side === ShadeDrawSide.Double ? WEB_GEOMETRY_MESHLET_TWO_SIDED : 0);
+  const alpha =
+    material.transparency_mode === ShadeTransparencyMode.Transparent
+      ? WEB_GEOMETRY_MESHLET_BLEND
+      : material.transparency_mode === ShadeTransparencyMode.AlphaTested
+        ? WEB_GEOMETRY_MESHLET_MASK
+        : WEB_GEOMETRY_MESHLET_OPAQUE;
+  const meshletFlags =
+    alpha |
+    WEB_GEOMETRY_MESHLET_CASTS_SHADOW |
+    (material.draw_side === ShadeDrawSide.Double ? WEB_GEOMETRY_MESHLET_TWO_SIDED : 0);
   const slots = [
     [material.texture_albedo, material.base_color_uv_set, material.base_color_uv_scale],
     [material.texture_normal, material.normal_uv_set, material.normal_uv_scale],
@@ -255,32 +295,57 @@ function canonicalizeMeshletGeometry(geometry: MeshletGeometryBase, material: St
     [material.texture_specular, material.specular_uv_set, material.specular_uv_scale],
     [material.texture_specular_color, material.specular_color_uv_set, material.specular_color_uv_scale],
     [material.texture_clearcoat, material.clearcoat_uv_set, material.clearcoat_uv_scale],
-    [material.texture_clearcoat_roughness, material.clearcoat_roughness_uv_set, material.clearcoat_roughness_uv_scale],
-    [material.texture_clearcoat_normal, material.clearcoat_normal_uv_set, material.clearcoat_normal_uv_scale]
+    [
+      material.texture_clearcoat_roughness,
+      material.clearcoat_roughness_uv_set,
+      material.clearcoat_roughness_uv_scale,
+    ],
+    [material.texture_clearcoat_normal, material.clearcoat_normal_uv_set, material.clearcoat_normal_uv_scale],
   ] as const;
-  const textureSlots = slots.map(([texture, texCoord, scale]) => texture ? { texCoord, scale } : undefined);
+  const textureSlots = slots.map(([texture, texCoord, scale]) => (texture ? { texCoord, scale } : undefined));
   const appearance = geometryAppearanceProfile(textureSlots, textureSlots[1]);
   return Object.freeze({
-    domain: Object.freeze({ materialId, meshletFlags, attributeMask, generateNormals: false, appearance, vertices, indices }),
+    domain: Object.freeze({
+      materialId,
+      meshletFlags,
+      attributeMask,
+      generateNormals: false,
+      appearance,
+      vertices,
+      indices,
+    }),
     profile: Object.freeze({
       hasAuthoredVertexColor: geometry.colorData !== null,
       hasUv0: geometry.uv0Data !== null,
       hasUv1: geometry.uv1Data !== null,
       hasUv2: false,
       hasNormal: true,
-      hasTangent: geometry.tangentData !== null
-    })
+      hasTangent: geometry.tangentData !== null,
+    }),
   });
 }
 
-function copyStream(stream: Float32Array | null, itemSize: number, vertices: Float32Array, offset: number, vertexCount: number, name: string, geometry: MeshletGeometryBase): void {
+function copyStream(
+  stream: Float32Array | null,
+  itemSize: number,
+  vertices: Float32Array,
+  offset: number,
+  vertexCount: number,
+  name: string,
+  geometry: MeshletGeometryBase,
+): void {
   if (stream === null) return;
-  if (stream.length !== vertexCount * itemSize) throw new Error(`Scene geometry ${geometry.name || "<unnamed>"} ${name} data does not match the vertex count`);
+  if (stream.length !== vertexCount * itemSize)
+    throw new Error(
+      `Scene geometry ${geometry.name || "<unnamed>"} ${name} data does not match the vertex count`,
+    );
   for (let vertex = 0; vertex < vertexCount; vertex++) {
-    const source = vertex * itemSize, target = vertex * WEB_GEOMETRY_CANONICAL_VERTEX_FLOATS + offset;
+    const source = vertex * itemSize,
+      target = vertex * WEB_GEOMETRY_CANONICAL_VERTEX_FLOATS + offset;
     for (let component = 0; component < itemSize; component++) {
       const value = stream[source + component]!;
-      if (!Number.isFinite(value)) throw new Error(`Scene geometry ${geometry.name || "<unnamed>"} ${name} contains non-finite data`);
+      if (!Number.isFinite(value))
+        throw new Error(`Scene geometry ${geometry.name || "<unnamed>"} ${name} contains non-finite data`);
       vertices[target + component] = value;
     }
   }

@@ -5,21 +5,18 @@ import {
   BENCHMARK_GPU_COUNTER_EVIDENCE,
   type BenchmarkFeatureSetName,
   type CounterEvidenceDeclaration,
-  type FeatureSetEvidenceDeclaration
+  type FeatureSetEvidenceDeclaration,
 } from "./BenchmarkCapabilityEvidence.js";
 import {
   GPU_COUNTER_FIELDS,
   GPU_COUNTER_SCHEMA_VERSION,
-  type GpuCounterFieldName
+  type GpuCounterFieldName,
 } from "./GpuFrameCounters.js";
-import {
-  GPU_FRAME_PHASES,
-  type GpuFramePhase
-} from "./GpuFramePhase.js";
+import { GPU_FRAME_PHASES, type GpuFramePhase } from "./GpuFramePhase.js";
 import {
   surfaceTimingTotalsForFrame,
   type SurfaceTimingPhase,
-  type SurfaceTimingSegment
+  type SurfaceTimingSegment,
 } from "./SurfacePhaseTiming.js";
 
 export type BenchmarkEvidenceSeverity = "error" | "warning";
@@ -64,21 +61,13 @@ export type IndependentBenchmarkRunGroupReport = {
   errors: BenchmarkEvidenceIssue[];
 };
 
-const GATE_BASELINE_ROLES = new Set([
-  "minimum-a",
-  "minimum-b",
-  "engine-generality-c"
-]);
+const GATE_BASELINE_ROLES = new Set(["minimum-a", "minimum-b", "engine-generality-c"]);
 const FORMAL_WARMUP_FRAMES = 120;
 const FORMAL_SAMPLE_FRAMES = 480;
 const GPU_FRAME_PHASE_SET = new Set<string>(GPU_FRAME_PHASES);
-const GPU_COUNTER_FIELD_SET = new Set<string>(
-  GPU_COUNTER_FIELDS.map((field) => field.name)
-);
-const GPU_COUNTER_EVIDENCE: Record<
-  GpuCounterFieldName,
-  CounterEvidenceDeclaration
-> = BENCHMARK_GPU_COUNTER_EVIDENCE;
+const GPU_COUNTER_FIELD_SET = new Set<string>(GPU_COUNTER_FIELDS.map((field) => field.name));
+const GPU_COUNTER_EVIDENCE: Record<GpuCounterFieldName, CounterEvidenceDeclaration> =
+  BENCHMARK_GPU_COUNTER_EVIDENCE;
 
 type FrameEvidenceStats = {
   timestampSamples: number;
@@ -113,22 +102,18 @@ export function validateBenchmarkEvidence(value: unknown): BenchmarkEvidenceRepo
     root.schemaVersion,
     BENCHMARK_RESULT_SCHEMA_VERSION,
     "schema-version",
-    "$.schemaVersion"
+    "$.schemaVersion",
   );
   const environment = requiredRecord(issues, root.environment, "$.environment");
-  const run = environment === null
-    ? null
-    : requiredRecord(issues, environment.run, "$.environment.run");
-  const role = run === null || typeof run.baselineRole !== "string"
-    ? null
-    : run.baselineRole;
+  const run = environment === null ? null : requiredRecord(issues, environment.run, "$.environment.run");
+  const role = run === null || typeof run.baselineRole !== "string" ? null : run.baselineRole;
   if (role === null || !GATE_BASELINE_ROLES.has(role)) {
     add(
       issues,
       "non-gate-baseline-role",
       "error",
       "$.environment.run.baselineRole",
-      `baselineRole 必须是 minimum-a、minimum-b 或 engine-generality-c，实际为 ${String(role)}`
+      `baselineRole 必须是 minimum-a、minimum-b 或 engine-generality-c，实际为 ${String(role)}`,
     );
   }
 
@@ -138,20 +123,11 @@ export function validateBenchmarkEvidence(value: unknown): BenchmarkEvidenceRepo
       environment.schemaVersion,
       BENCHMARK_RESULT_SCHEMA_VERSION,
       "environment-schema-version",
-      "$.environment.schemaVersion"
+      "$.environment.schemaVersion",
     );
     validateEngine(issues, environment.engine);
-    if (
-      typeof environment.capturedAt !== "string" ||
-      !Number.isFinite(Date.parse(environment.capturedAt))
-    ) {
-      add(
-        issues,
-        "captured-at-invalid",
-        "error",
-        "$.environment.capturedAt",
-        "capturedAt 必须是有效时间"
-      );
+    if (typeof environment.capturedAt !== "string" || !Number.isFinite(Date.parse(environment.capturedAt))) {
+      add(issues, "captured-at-invalid", "error", "$.environment.capturedAt", "capturedAt 必须是有效时间");
     }
     validatePlatform(issues, environment.platform);
     validateFrameEnvironment(issues, environment.frame);
@@ -163,18 +139,19 @@ export function validateBenchmarkEvidence(value: unknown): BenchmarkEvidenceRepo
         "adapter-identity-missing",
         "error",
         "$.environment.adapter",
-        "性能 gate 需要可追溯 GPU adapter identity；driver 仍允许为 null"
+        "性能 gate 需要可追溯 GPU adapter identity；driver 仍允许为 null",
       );
     } else if (
-      ![adapter.vendor, adapter.architecture, adapter.device, adapter.description]
-        .some((item) => typeof item === "string" && item.length > 0)
+      ![adapter.vendor, adapter.architecture, adapter.device, adapter.description].some(
+        (item) => typeof item === "string" && item.length > 0,
+      )
     ) {
       add(
         issues,
         "adapter-identity-empty",
         "error",
         "$.environment.adapter",
-        "adapter identity 至少需要一个非空硬件标识"
+        "adapter identity 至少需要一个非空硬件标识",
       );
     }
   }
@@ -183,16 +160,10 @@ export function validateBenchmarkEvidence(value: unknown): BenchmarkEvidenceRepo
     for (const [field, code] of [
       ["runId", "run-id-missing"],
       ["runGroupId", "run-group-id-missing"],
-      ["sessionId", "run-session-id-missing"]
+      ["sessionId", "run-session-id-missing"],
     ] as const) {
       if (typeof run[field] !== "string" || run[field].trim().length === 0) {
-        add(
-          issues,
-          code,
-          "error",
-          `$.environment.run.${field}`,
-          `${field} 必须是非空字符串`
-        );
+        add(issues, code, "error", `$.environment.run.${field}`, `${field} 必须是非空字符串`);
       }
     }
     if (!Number.isInteger(run.runOrdinal) || (run.runOrdinal as number) < 0) {
@@ -201,7 +172,7 @@ export function validateBenchmarkEvidence(value: unknown): BenchmarkEvidenceRepo
         "run-ordinal-invalid",
         "error",
         "$.environment.run.runOrdinal",
-        "runOrdinal 必须是非负整数"
+        "runOrdinal 必须是非负整数",
       );
     }
     positiveInteger(issues, run.warmupFrames, "$.environment.run.warmupFrames", true);
@@ -217,7 +188,7 @@ export function validateBenchmarkEvidence(value: unknown): BenchmarkEvidenceRepo
         "formal-warmup-frames-insufficient",
         "error",
         "$.environment.run.warmupFrames",
-        `正式 gate 至少需要 ${FORMAL_WARMUP_FRAMES} 个 warm-up frames`
+        `正式 gate 至少需要 ${FORMAL_WARMUP_FRAMES} 个 warm-up frames`,
       );
     }
     if (
@@ -231,15 +202,11 @@ export function validateBenchmarkEvidence(value: unknown): BenchmarkEvidenceRepo
         "formal-sample-frames-insufficient",
         "error",
         "$.environment.run.sampleFrames",
-        `正式 gate 至少需要 ${FORMAL_SAMPLE_FRAMES} 个 measured frames`
+        `正式 gate 至少需要 ${FORMAL_SAMPLE_FRAMES} 个 measured frames`,
       );
     }
     positiveInteger(issues, run.gpuSampleInterval, "$.environment.run.gpuSampleInterval");
-    positiveInteger(
-      issues,
-      run.gpuCounterSampleInterval,
-      "$.environment.run.gpuCounterSampleInterval"
-    );
+    positiveInteger(issues, run.gpuCounterSampleInterval, "$.environment.run.gpuCounterSampleInterval");
     positiveInteger(issues, run.readbackRingSlots, "$.environment.run.readbackRingSlots");
     if (typeof run.readbackRingSlots === "number" && run.readbackRingSlots < 3) {
       add(
@@ -247,7 +214,7 @@ export function validateBenchmarkEvidence(value: unknown): BenchmarkEvidenceRepo
         "readback-ring-too-small",
         "error",
         "$.environment.run.readbackRingSlots",
-        "GPU readback ring 至少需要 3 个槽"
+        "GPU readback ring 至少需要 3 个槽",
       );
     }
     const features = Array.isArray(run.featureSet) ? run.featureSet : [];
@@ -260,25 +227,15 @@ export function validateBenchmarkEvidence(value: unknown): BenchmarkEvidenceRepo
         "feature-set-empty",
         "error",
         "$.environment.run.featureSet",
-        "gate 结果必须声明真实 feature set"
+        "gate 结果必须声明真实 feature set",
       );
     }
   }
 
   validateCase(issues, root.case);
   validateDiagnostics(issues, root.diagnostics);
-  const capability = validateCapabilityEvidence(
-    issues,
-    root.capabilityEvidence,
-    run
-  );
-  const frameStats = validateFrames(
-    issues,
-    root.frames,
-    environment,
-    run,
-    capability
-  );
+  const capability = validateCapabilityEvidence(issues, root.capabilityEvidence, run);
+  const frameStats = validateFrames(issues, root.frames, environment, run, capability);
   validateSummary(issues, root.summary, frameStats);
   return finish(issues, role, capability.blockers);
 }
@@ -286,7 +243,7 @@ export function validateBenchmarkEvidence(value: unknown): BenchmarkEvidenceRepo
 /** Validate that a formal comparison came from separate browser sessions. */
 export function validateIndependentBenchmarkRunGroup(
   runs: readonly BenchmarkRunIdentityEvidence[],
-  requiredRunCount = 3
+  requiredRunCount = 3,
 ): IndependentBenchmarkRunGroupReport {
   if (!Number.isInteger(requiredRunCount) || requiredRunCount <= 0) {
     throw new RangeError("requiredRunCount must be a positive integer");
@@ -303,7 +260,7 @@ export function validateIndependentBenchmarkRunGroup(
       "independent-run-count",
       "error",
       "$",
-      `至少需要 ${requiredRunCount} 个独立 run，实际为 ${runs.length}`
+      `至少需要 ${requiredRunCount} 个独立 run，实际为 ${runs.length}`,
     );
   }
   runs.forEach((run, index) => {
@@ -311,20 +268,14 @@ export function validateIndependentBenchmarkRunGroup(
     for (const [value, code, field] of [
       [run.runId, "run-id-missing", "runId"],
       [run.runGroupId, "run-group-id-missing", "runGroupId"],
-      [run.sessionId, "run-session-id-missing", "sessionId"]
+      [run.sessionId, "run-session-id-missing", "sessionId"],
     ] as const) {
       if (typeof value !== "string" || value.trim().length === 0) {
         add(issues, code, "error", `${path}.${field}`, `${field} 必须是非空字符串`);
       }
     }
     if (firstGroup !== null && run.runGroupId !== firstGroup) {
-      add(
-        issues,
-        "run-group-mismatch",
-        "error",
-        `${path}.runGroupId`,
-        "所有 run 必须属于同一个 runGroupId"
-      );
+      add(issues, "run-group-mismatch", "error", `${path}.runGroupId`, "所有 run 必须属于同一个 runGroupId");
     }
     if (runIds.has(run.runId)) {
       add(issues, "run-id-duplicate", "error", `${path}.runId`, "runId 必须唯一");
@@ -335,7 +286,7 @@ export function validateIndependentBenchmarkRunGroup(
         "run-session-duplicate",
         "error",
         `${path}.sessionId`,
-        "正式 run 必须来自不同浏览器 session"
+        "正式 run 必须来自不同浏览器 session",
       );
     }
     if (!Number.isInteger(run.runOrdinal) || run.runOrdinal < 0) {
@@ -353,19 +304,19 @@ export function validateIndependentBenchmarkRunGroup(
     runGroupId: firstGroup,
     requiredRunCount,
     observedRunCount: runs.length,
-    errors: issues
+    errors: issues,
   };
 }
 
 function validateCapabilityEvidence(
   issues: BenchmarkEvidenceIssue[],
   value: unknown,
-  run: Record<string, unknown> | null
+  run: Record<string, unknown> | null,
 ): CapabilityValidation {
   const result: CapabilityValidation = {
     requiredSupportedCounters: new Set(),
     unsupportedCounters: new Set(),
-    blockers: []
+    blockers: [],
   };
   for (const field of GPU_COUNTER_FIELDS) {
     if (GPU_COUNTER_EVIDENCE[field.name].status === "unsupported") {
@@ -380,27 +331,24 @@ function validateCapabilityEvidence(
     evidence.schemaVersion,
     BENCHMARK_CAPABILITY_EVIDENCE_SCHEMA_VERSION,
     "capability-schema-version",
-    "$.capabilityEvidence.schemaVersion"
+    "$.capabilityEvidence.schemaVersion",
   );
 
   const declaredFeatureSets = requiredRecord(
     issues,
     evidence.featureSets,
-    "$.capabilityEvidence.featureSets"
+    "$.capabilityEvidence.featureSets",
   );
-  const runFeatureNames = run !== null && Array.isArray(run.featureSet)
-    ? run.featureSet.filter((name): name is string => typeof name === "string")
-    : [];
-  const expectedFeatureNames = [...new Set(runFeatureNames)].sort((a, b) =>
-    a.localeCompare(b)
-  );
+  const runFeatureNames =
+    run !== null && Array.isArray(run.featureSet)
+      ? run.featureSet.filter((name): name is string => typeof name === "string")
+      : [];
+  const expectedFeatureNames = [...new Set(runFeatureNames)].sort((a, b) => a.localeCompare(b));
   if (declaredFeatureSets !== null) {
     const undeclared = new Set(Object.keys(declaredFeatureSets));
     for (const name of expectedFeatureNames) {
       undeclared.delete(name);
-      const expected = BENCHMARK_FEATURE_SET_EVIDENCE[
-        name as BenchmarkFeatureSetName
-      ];
+      const expected = BENCHMARK_FEATURE_SET_EVIDENCE[name as BenchmarkFeatureSetName];
       const path = `$.capabilityEvidence.featureSets.${name}`;
       if (expected === undefined) {
         add(
@@ -408,7 +356,7 @@ function validateCapabilityEvidence(
           "capability-feature-set-unknown",
           "error",
           path,
-          `feature set '${name}' 没有冻结的证据契约`
+          `feature set '${name}' 没有冻结的证据契约`,
         );
         continue;
       }
@@ -419,7 +367,7 @@ function validateCapabilityEvidence(
           "capability-feature-set-declaration-missing",
           "error",
           path,
-          `缺少 feature set '${name}' 的证据声明`
+          `缺少 feature set '${name}' 的证据声明`,
         );
       } else {
         validateDeclarationShape(issues, actual, path);
@@ -429,7 +377,7 @@ function validateCapabilityEvidence(
             "capability-feature-set-declaration-mismatch",
             "error",
             path,
-            `feature set '${name}' 的声明与冻结矩阵不一致`
+            `feature set '${name}' 的声明与冻结矩阵不一致`,
           );
         }
       }
@@ -439,7 +387,7 @@ function validateCapabilityEvidence(
           kind: "feature-set",
           id: name,
           blockerTaskId: expected.blockerTaskId,
-          reason: expected.reason
+          reason: expected.reason,
         });
         continue;
       }
@@ -452,7 +400,7 @@ function validateCapabilityEvidence(
             kind: "gpu-counter",
             id: field,
             blockerTaskId: counter.blockerTaskId,
-            reason: counter.reason
+            reason: counter.reason,
           });
         }
       }
@@ -463,16 +411,12 @@ function validateCapabilityEvidence(
         "capability-feature-set-declaration-extra",
         "error",
         `$.capabilityEvidence.featureSets.${name}`,
-        `声明了 run.featureSet 中不存在的 feature set '${name}'`
+        `声明了 run.featureSet 中不存在的 feature set '${name}'`,
       );
     }
   }
 
-  const declaredCounters = requiredRecord(
-    issues,
-    evidence.gpuCounters,
-    "$.capabilityEvidence.gpuCounters"
-  );
+  const declaredCounters = requiredRecord(issues, evidence.gpuCounters, "$.capabilityEvidence.gpuCounters");
   if (declaredCounters !== null) {
     const unknown = new Set(Object.keys(declaredCounters));
     for (const field of GPU_COUNTER_FIELDS) {
@@ -486,7 +430,7 @@ function validateCapabilityEvidence(
           "capability-counter-declaration-missing",
           "error",
           path,
-          `缺少 GPU counter '${name}' 的 supported/unsupported 声明`
+          `缺少 GPU counter '${name}' 的 supported/unsupported 声明`,
         );
         continue;
       }
@@ -497,7 +441,7 @@ function validateCapabilityEvidence(
           "capability-counter-declaration-mismatch",
           "error",
           path,
-          `GPU counter '${name}' 的声明与冻结 producer 事实不一致`
+          `GPU counter '${name}' 的声明与冻结 producer 事实不一致`,
         );
       }
     }
@@ -507,7 +451,7 @@ function validateCapabilityEvidence(
         "capability-counter-declaration-unknown",
         "error",
         `$.capabilityEvidence.gpuCounters.${name}`,
-        `GPU counter ABI 不包含声明 '${name}'`
+        `GPU counter ABI 不包含声明 '${name}'`,
       );
     }
   }
@@ -517,20 +461,29 @@ function validateCapabilityEvidence(
 function validateDeclarationShape(
   issues: BenchmarkEvidenceIssue[],
   declaration: Record<string, unknown>,
-  path: string
+  path: string,
 ): void {
   if (declaration.status === "supported") {
     if (
       "producer" in declaration &&
       (typeof declaration.producer !== "string" || declaration.producer.trim().length === 0)
     ) {
-      add(issues, "capability-producer-invalid", "error", `${path}.producer`, "supported counter 必须记录非空真实 producer");
+      add(
+        issues,
+        "capability-producer-invalid",
+        "error",
+        `${path}.producer`,
+        "supported counter 必须记录非空真实 producer",
+      );
     }
-    if (
-      "requiredInSampledFrames" in declaration &&
-      declaration.requiredInSampledFrames !== true
-    ) {
-      add(issues, "capability-sampled-requirement-invalid", "error", `${path}.requiredInSampledFrames`, "supported counter 的 sampled-frame 要求必须为 true");
+    if ("requiredInSampledFrames" in declaration && declaration.requiredInSampledFrames !== true) {
+      add(
+        issues,
+        "capability-sampled-requirement-invalid",
+        "error",
+        `${path}.requiredInSampledFrames`,
+        "supported counter 的 sampled-frame 要求必须为 true",
+      );
     }
     return;
   }
@@ -539,19 +492,37 @@ function validateDeclarationShape(
       typeof declaration.blockerTaskId !== "string" ||
       !/^[A-Z]+-[0-9]+(?:-[A-Z0-9]+)*$/.test(declaration.blockerTaskId)
     ) {
-      add(issues, "capability-blocker-task-invalid", "error", `${path}.blockerTaskId`, "unsupported 声明必须使用稳定任务 ID，例如 WORLD-07");
+      add(
+        issues,
+        "capability-blocker-task-invalid",
+        "error",
+        `${path}.blockerTaskId`,
+        "unsupported 声明必须使用稳定任务 ID，例如 WORLD-07",
+      );
     }
     if (typeof declaration.reason !== "string" || declaration.reason.trim().length === 0) {
-      add(issues, "capability-blocker-reason-missing", "error", `${path}.reason`, "unsupported 声明必须记录非空原因");
+      add(
+        issues,
+        "capability-blocker-reason-missing",
+        "error",
+        `${path}.reason`,
+        "unsupported 声明必须记录非空原因",
+      );
     }
     return;
   }
-  add(issues, "capability-status-invalid", "error", `${path}.status`, "status 必须是 supported 或 unsupported");
+  add(
+    issues,
+    "capability-status-invalid",
+    "error",
+    `${path}.status`,
+    "status 必须是 supported 或 unsupported",
+  );
 }
 
 function declarationEquals(
   actual: Record<string, unknown>,
-  expected: CounterEvidenceDeclaration | FeatureSetEvidenceDeclaration
+  expected: CounterEvidenceDeclaration | FeatureSetEvidenceDeclaration,
 ): boolean {
   return stableStringify(actual) === stableStringify(expected);
 }
@@ -567,23 +538,16 @@ function sortObjectKeys(value: unknown): unknown {
   return Object.fromEntries(
     Object.keys(record)
       .sort((left, right) => left.localeCompare(right))
-      .map((key) => [key, sortObjectKeys(record[key])])
+      .map((key) => [key, sortObjectKeys(record[key])]),
   );
 }
 
-function addBlocker(
-  blockers: BenchmarkCapabilityBlocker[],
-  blocker: BenchmarkCapabilityBlocker
-): void {
-  if (!blockers.some((candidate) =>
-    candidate.kind === blocker.kind && candidate.id === blocker.id
-  )) blockers.push(blocker);
+function addBlocker(blockers: BenchmarkCapabilityBlocker[], blocker: BenchmarkCapabilityBlocker): void {
+  if (!blockers.some((candidate) => candidate.kind === blocker.kind && candidate.id === blocker.id))
+    blockers.push(blocker);
 }
 
-function validatePlatform(
-  issues: BenchmarkEvidenceIssue[],
-  value: unknown
-): void {
+function validatePlatform(issues: BenchmarkEvidenceIssue[], value: unknown): void {
   const platform = requiredRecord(issues, value, "$.environment.platform");
   if (platform === null) return;
   for (const field of ["os", "browser", "userAgent"]) {
@@ -593,7 +557,7 @@ function validatePlatform(
         "platform-identity-missing",
         "error",
         `$.environment.platform.${field}`,
-        `缺少 platform ${field}`
+        `缺少 platform ${field}`,
       );
     }
   }
@@ -602,26 +566,11 @@ function validatePlatform(
 function validateEngine(issues: BenchmarkEvidenceIssue[], value: unknown): void {
   const engine = requiredRecord(issues, value, "$.environment.engine");
   if (engine === null) return;
-  if (
-    typeof engine.commit !== "string" ||
-    !/^[0-9a-f]{7,64}$/i.test(engine.commit)
-  ) {
-    add(
-      issues,
-      "engine-commit-missing",
-      "error",
-      "$.environment.engine.commit",
-      "必须记录可追溯 commit"
-    );
+  if (typeof engine.commit !== "string" || !/^[0-9a-f]{7,64}$/i.test(engine.commit)) {
+    add(issues, "engine-commit-missing", "error", "$.environment.engine.commit", "必须记录可追溯 commit");
   }
   if (engine.dirty !== false) {
-    add(
-      issues,
-      "engine-dirty",
-      "error",
-      "$.environment.engine.dirty",
-      "dirty 工作区结果只能作为探索数据"
-    );
+    add(issues, "engine-dirty", "error", "$.environment.engine.dirty", "dirty 工作区结果只能作为探索数据");
   }
   if (!Array.isArray(engine.dirtyReasons)) {
     add(
@@ -629,7 +578,7 @@ function validateEngine(issues: BenchmarkEvidenceIssue[], value: unknown): void 
       "dirty-reasons-missing",
       "error",
       "$.environment.engine.dirtyReasons",
-      "Schema v3 必须保存 dirtyReasons 数组"
+      "Schema v3 必须保存 dirtyReasons 数组",
     );
   } else if (engine.dirtyReasons.length > 0) {
     add(
@@ -637,15 +586,12 @@ function validateEngine(issues: BenchmarkEvidenceIssue[], value: unknown): void 
       "dirty-reasons-present",
       "error",
       "$.environment.engine.dirtyReasons",
-      "gate 结果不能包含未提交改动"
+      "gate 结果不能包含未提交改动",
     );
   }
 }
 
-function validateFrameEnvironment(
-  issues: BenchmarkEvidenceIssue[],
-  value: unknown
-): void {
+function validateFrameEnvironment(issues: BenchmarkEvidenceIssue[], value: unknown): void {
   const frame = requiredRecord(issues, value, "$.environment.frame");
   if (frame === null) return;
   for (const field of ["canvasWidth", "canvasHeight", "internalWidth", "internalHeight"]) {
@@ -654,10 +600,7 @@ function validateFrameEnvironment(
   positiveFinite(issues, frame.dpr, "$.environment.frame.dpr");
 }
 
-function validateWebGpuEnvironment(
-  issues: BenchmarkEvidenceIssue[],
-  value: unknown
-): void {
+function validateWebGpuEnvironment(issues: BenchmarkEvidenceIssue[], value: unknown): void {
   const webgpu = requiredRecord(issues, value, "$.environment.webgpu");
   if (webgpu === null) return;
   const features = Array.isArray(webgpu.features) ? webgpu.features : null;
@@ -674,30 +617,24 @@ function validateWebGpuEnvironment(
       "timestamp-capability-missing",
       "error",
       "$.environment.webgpu.timestampQueryAvailable",
-      "必须明确 timestamp-query 是否可用"
+      "必须明确 timestamp-query 是否可用",
     );
-  } else if (
-    features !== null &&
-    webgpu.timestampQueryAvailable !== features.includes("timestamp-query")
-  ) {
+  } else if (features !== null && webgpu.timestampQueryAvailable !== features.includes("timestamp-query")) {
     add(
       issues,
       "timestamp-capability-inconsistent",
       "error",
       "$.environment.webgpu.timestampQueryAvailable",
-      "timestampQueryAvailable 必须与 features 中的 timestamp-query 一致"
+      "timestampQueryAvailable 必须与 features 中的 timestamp-query 一致",
     );
   }
-  if (
-    webgpu.powerPreference !== "low-power" &&
-    webgpu.powerPreference !== "high-performance"
-  ) {
+  if (webgpu.powerPreference !== "low-power" && webgpu.powerPreference !== "high-performance") {
     add(
       issues,
       "power-preference-missing",
       "error",
       "$.environment.webgpu.powerPreference",
-      "性能 gate 必须固定 low-power 或 high-performance"
+      "性能 gate 必须固定 low-power 或 high-performance",
     );
   }
 }
@@ -714,39 +651,28 @@ function validateCase(issues: BenchmarkEvidenceIssue[], value: unknown): void {
   if (!Number.isInteger(manifest.seed)) {
     add(issues, "case-seed-invalid", "error", "$.case.seed", "benchmark seed 必须是整数");
   }
-  const hashes = Array.isArray(manifest.sceneAssetHashes)
-    ? manifest.sceneAssetHashes
-    : [];
-  if (
-    hashes.length === 0 ||
-    hashes.some((hash) => typeof hash !== "string" || !isTraceableSha256(hash))
-  ) {
+  const hashes = Array.isArray(manifest.sceneAssetHashes) ? manifest.sceneAssetHashes : [];
+  if (hashes.length === 0 || hashes.some((hash) => typeof hash !== "string" || !isTraceableSha256(hash))) {
     add(
       issues,
       "asset-hash-placeholder",
       "error",
       "$.case.sceneAssetHashes",
-      "gate case 必须保存真实资产 hash，不能使用 none/procedural 占位"
+      "gate case 必须保存真实资产 hash，不能使用 none/procedural 占位",
     );
   }
-  if (
-    typeof manifest.cameraPathHash !== "string" ||
-    !isTraceableSha256(manifest.cameraPathHash)
-  ) {
+  if (typeof manifest.cameraPathHash !== "string" || !isTraceableSha256(manifest.cameraPathHash)) {
     add(
       issues,
       "camera-hash-placeholder",
       "error",
       "$.case.cameraPathHash",
-      "gate case 必须保存固定相机轨迹 hash"
+      "gate case 必须保存固定相机轨迹 hash",
     );
   }
 }
 
-function validateDiagnostics(
-  issues: BenchmarkEvidenceIssue[],
-  value: unknown
-): void {
+function validateDiagnostics(issues: BenchmarkEvidenceIssue[], value: unknown): void {
   const diagnostics = requiredRecord(issues, value, "$.diagnostics");
   if (diagnostics === null) return;
   const countFields = [
@@ -755,7 +681,7 @@ function validateDiagnostics(
     "deviceLostCount",
     "failedGpuTimestampBatches",
     "droppedGpuCounterSamples",
-    "failedGpuCounterSamples"
+    "failedGpuCounterSamples",
   ] as const;
   for (const field of countFields) {
     const count = diagnostics[field];
@@ -765,32 +691,20 @@ function validateDiagnostics(
         `diagnostics-${field}-invalid`,
         "error",
         `$.diagnostics.${field}`,
-        `${field} 必须是非负整数`
+        `${field} 必须是非负整数`,
       );
     } else if (count !== 0) {
-      add(
-        issues,
-        `diagnostics-${field}`,
-        "error",
-        `$.diagnostics.${field}`,
-        `${field} 必须为 0`
-      );
+      add(issues, `diagnostics-${field}`, "error", `$.diagnostics.${field}`, `${field} 必须为 0`);
     }
   }
   const arrays = [
     ["uncapturedErrors", "uncapturedErrorCount"],
-    ["deviceLostReasons", "deviceLostCount"]
+    ["deviceLostReasons", "deviceLostCount"],
   ] as const;
   for (const [field, countField] of arrays) {
     const entries = diagnostics[field];
     if (!Array.isArray(entries)) {
-      add(
-        issues,
-        `diagnostics-${field}`,
-        "error",
-        `$.diagnostics.${field}`,
-        `${field} 必须是数组`
-      );
+      add(issues, `diagnostics-${field}`, "error", `$.diagnostics.${field}`, `${field} 必须是数组`);
       continue;
     }
     if (entries.length > 0) {
@@ -802,7 +716,7 @@ function validateDiagnostics(
         `diagnostics-${field}-count-mismatch`,
         "error",
         `$.diagnostics.${field}`,
-        `${field}.length 必须等于 ${countField}`
+        `${field}.length 必须等于 ${countField}`,
       );
     }
   }
@@ -813,14 +727,14 @@ function validateFrames(
   value: unknown,
   environment: Record<string, unknown> | null,
   run: Record<string, unknown> | null,
-  capability: CapabilityValidation
+  capability: CapabilityValidation,
 ): FrameEvidenceStats {
   const stats: FrameEvidenceStats = {
     timestampSamples: 0,
     gpuValues: new Map(),
     gpuPhaseValues: new Map(),
     surfacePhaseValues: new Map(),
-    gpuCounterValues: new Map()
+    gpuCounterValues: new Map(),
   };
   if (!Array.isArray(value)) {
     add(issues, "frames-missing", "error", "$.frames", "缺少 measured frames");
@@ -832,7 +746,7 @@ function validateFrames(
       "sample-frame-count-mismatch",
       "error",
       "$.frames",
-      `frames=${value.length}，manifest sampleFrames=${String(run.sampleFrames)}`
+      `frames=${value.length}，manifest sampleFrames=${String(run.sampleFrames)}`,
     );
   }
   let counterSamples = 0;
@@ -844,28 +758,38 @@ function validateFrames(
     // Counter-instrumented frames are intentionally excluded from the normal
     // timestamp baseline, matching BenchmarkHarness.summarizeFrames().
     const counterSampled = asRecord(frame.gpuCounters)?.sampled === true;
-    if (
-      typeof frame.frameIndex !== "number" ||
-      !Number.isInteger(frame.frameIndex) ||
-      frame.frameIndex < 0
-    ) {
-      add(issues, "frame-index-invalid", "error", `$.frames[${index}].frameIndex`, "frameIndex 必须是非负整数");
+    if (typeof frame.frameIndex !== "number" || !Number.isInteger(frame.frameIndex) || frame.frameIndex < 0) {
+      add(
+        issues,
+        "frame-index-invalid",
+        "error",
+        `$.frames[${index}].frameIndex`,
+        "frameIndex 必须是非负整数",
+      );
     } else if (frameIndices.has(frame.frameIndex)) {
-      add(issues, "frame-index-duplicate", "error", `$.frames[${index}].frameIndex`, "measured frameIndex 不能重复");
+      add(
+        issues,
+        "frame-index-duplicate",
+        "error",
+        `$.frames[${index}].frameIndex`,
+        "measured frameIndex 不能重复",
+      );
     } else {
       frameIndices.add(frame.frameIndex);
     }
     const gpu = asRecord(frame.gpu);
     if (gpu !== null) {
       if (gpu.pending === true) {
-        add(issues, "gpu-timestamp-pending", "error", `$.frames[${index}].gpu.pending`, "timestamp readback 尚未完成");
+        add(
+          issues,
+          "gpu-timestamp-pending",
+          "error",
+          `$.frames[${index}].gpu.pending`,
+          "timestamp readback 尚未完成",
+        );
       }
       const segments = Array.isArray(gpu.segments) ? gpu.segments : [];
-      if (
-        gpu.sampled === true &&
-        gpu.pending !== true &&
-        segments.length > 0
-      ) {
+      if (gpu.sampled === true && gpu.pending !== true && segments.length > 0) {
         stats.timestampSamples++;
       }
       const framePhaseTotals = new Map<GpuFramePhase, number>();
@@ -882,14 +806,26 @@ function validateFrames(
           add(issues, "gpu-label-invalid", "error", `${segmentPath}.label`, "timestamp label 不能为空");
         }
         if (segment.type !== "compute" && segment.type !== "render") {
-          add(issues, "gpu-pass-type-invalid", "error", `${segmentPath}.type`, "timestamp type 必须是 compute 或 render");
+          add(
+            issues,
+            "gpu-pass-type-invalid",
+            "error",
+            `${segmentPath}.type`,
+            "timestamp type 必须是 compute 或 render",
+          );
         }
         const durationValid =
           typeof segment.durationMs === "number" &&
           Number.isFinite(segment.durationMs) &&
           segment.durationMs >= 0;
         if (!durationValid) {
-          add(issues, "gpu-duration-invalid", "error", `${segmentPath}.durationMs`, "timestamp durationMs 必须是有限非负数");
+          add(
+            issues,
+            "gpu-duration-invalid",
+            "error",
+            `${segmentPath}.durationMs`,
+            "timestamp durationMs 必须是有限非负数",
+          );
         }
         const phasePath = `${segmentPath}.phase`;
         if (typeof segment.phase !== "string") {
@@ -904,22 +840,13 @@ function validateFrames(
         if (phase === "unclassified") {
           unclassifiedSegments++;
         }
-        if (
-          gpu.sampled === true &&
-          gpu.pending !== true &&
-          !counterSampled &&
-          labelValid &&
-          durationValid
-        ) {
+        if (gpu.sampled === true && gpu.pending !== true && !counterSampled && labelValid && durationValid) {
           append(stats.gpuValues, segment.label as string, segment.durationMs as number);
-          framePhaseTotals.set(
-            phase,
-            (framePhaseTotals.get(phase) ?? 0) + (segment.durationMs as number)
-          );
+          framePhaseTotals.set(phase, (framePhaseTotals.get(phase) ?? 0) + (segment.durationMs as number));
           surfaceSegments.push({
             label: segment.label as string,
             durationMs: segment.durationMs as number,
-            phase
+            phase,
           });
         }
       }
@@ -938,27 +865,51 @@ function validateFrames(
           "gpu-counter-schema-version",
           "error",
           `$.frames[${index}].gpuCounters.schemaVersion`,
-          `GPU counter schema 需要 ${GPU_COUNTER_SCHEMA_VERSION}，实际为 ${String(counters.schemaVersion)}`
+          `GPU counter schema 需要 ${GPU_COUNTER_SCHEMA_VERSION}，实际为 ${String(counters.schemaVersion)}`,
         );
       }
       if (counters.pending === true) {
-        add(issues, "gpu-counter-pending", "error", `$.frames[${index}].gpuCounters.pending`, "counter readback 尚未完成");
+        add(
+          issues,
+          "gpu-counter-pending",
+          "error",
+          `$.frames[${index}].gpuCounters.pending`,
+          "counter readback 尚未完成",
+        );
       }
       if (counters.dropped === true) {
-        add(issues, "gpu-counter-dropped", "error", `$.frames[${index}].gpuCounters.dropped`, "counter sample 被丢弃");
+        add(
+          issues,
+          "gpu-counter-dropped",
+          "error",
+          `$.frames[${index}].gpuCounters.dropped`,
+          "counter sample 被丢弃",
+        );
       }
       const counterValues = asRecord(counters.values);
       if (counterValues !== null) {
         for (const [field, rawCounter] of Object.entries(counterValues)) {
           if (!GPU_COUNTER_FIELD_SET.has(field)) {
-            add(issues, "gpu-counter-field-unknown", "error", `$.frames[${index}].gpuCounters.values.${field}`, `GPU counter ABI 不包含 ${field}`);
+            add(
+              issues,
+              "gpu-counter-field-unknown",
+              "error",
+              `$.frames[${index}].gpuCounters.values.${field}`,
+              `GPU counter ABI 不包含 ${field}`,
+            );
           }
           if (
             !Number.isInteger(rawCounter) ||
             (rawCounter as number) < 0 ||
             (rawCounter as number) > 0xffff_ffff
           ) {
-            add(issues, "gpu-counter-value-invalid", "error", `$.frames[${index}].gpuCounters.values.${field}`, "GPU counter 值必须是 u32");
+            add(
+              issues,
+              "gpu-counter-value-invalid",
+              "error",
+              `$.frames[${index}].gpuCounters.values.${field}`,
+              "GPU counter 值必须是 u32",
+            );
           }
           if (capability.unsupportedCounters.has(field as GpuCounterFieldName)) {
             add(
@@ -966,7 +917,7 @@ function validateFrames(
               "gpu-counter-unsupported-field-present",
               "error",
               `$.frames[${index}].gpuCounters.values.${field}`,
-              `unsupported counter '${field}' 不得出现在 values 中；即使值为 0 也不能冒充 producer`
+              `unsupported counter '${field}' 不得出现在 values 中；即使值为 0 也不能冒充 producer`,
             );
           }
         }
@@ -985,7 +936,7 @@ function validateFrames(
               "gpu-counter-required-field-missing",
               "error",
               `$.frames[${index}].gpuCounters.values.${field}`,
-              `启用的 feature set 要求真实采样 counter '${field}'；字段缺失不是 0`
+              `启用的 feature set 要求真实采样 counter '${field}'；字段缺失不是 0`,
             );
           }
         }
@@ -997,11 +948,7 @@ function validateFrames(
             (rawCounter as number) >= 0 &&
             (rawCounter as number) <= 0xffff_ffff
           ) {
-            append(
-              stats.gpuCounterValues,
-              field as GpuCounterFieldName,
-              rawCounter as number
-            );
+            append(stats.gpuCounterValues, field as GpuCounterFieldName, rawCounter as number);
           }
         }
       }
@@ -1009,7 +956,13 @@ function validateFrames(
   }
   const webgpu = environment === null ? null : asRecord(environment.webgpu);
   if (webgpu?.timestampQueryAvailable === true && stats.timestampSamples === 0) {
-    add(issues, "gpu-timestamp-samples-missing", "error", "$.frames", "设备支持 timestamp-query，但结果没有 GPU timestamp 样本");
+    add(
+      issues,
+      "gpu-timestamp-samples-missing",
+      "error",
+      "$.frames",
+      "设备支持 timestamp-query，但结果没有 GPU timestamp 样本",
+    );
   }
   if (counterSamples === 0) {
     add(issues, "gpu-counter-samples-missing", "error", "$.frames", "结果没有已完成的 GPU counter 样本");
@@ -1020,46 +973,36 @@ function validateFrames(
       "gpu-phase-unclassified",
       "error",
       "$.frames[*].gpu.segments[*].phase",
-      `${unclassifiedSegments} 个 timestamp segment 尚未归类，不能形成完整瓶颈证据`
+      `${unclassifiedSegments} 个 timestamp segment 尚未归类，不能形成完整瓶颈证据`,
     );
   }
   return stats;
 }
 
-function validateSummary(
-  issues: BenchmarkEvidenceIssue[],
-  value: unknown,
-  stats: FrameEvidenceStats
-): void {
+function validateSummary(issues: BenchmarkEvidenceIssue[], value: unknown, stats: FrameEvidenceStats): void {
   const summary = requiredRecord(issues, value, "$.summary");
   if (summary === null) return;
-  validateGpuSummaryMap(
-    issues,
-    summary.gpuMs,
-    stats.gpuValues,
-    "$.summary.gpuMs",
-    "gpu-summary"
-  );
+  validateGpuSummaryMap(issues, summary.gpuMs, stats.gpuValues, "$.summary.gpuMs", "gpu-summary");
   validateGpuSummaryMap(
     issues,
     summary.gpuPhaseMs,
     stats.gpuPhaseValues,
     "$.summary.gpuPhaseMs",
-    "gpu-phase-summary"
+    "gpu-phase-summary",
   );
   validateGpuSummaryMap(
     issues,
     summary.surfacePhaseMs,
     stats.surfacePhaseValues,
     "$.summary.surfacePhaseMs",
-    "surface-phase-summary"
+    "surface-phase-summary",
   );
   validateGpuSummaryMap(
     issues,
     summary.gpuCounters,
     stats.gpuCounterValues,
     "$.summary.gpuCounters",
-    "gpu-counter-summary"
+    "gpu-counter-summary",
   );
 }
 
@@ -1068,7 +1011,7 @@ function validateGpuSummaryMap<K extends string>(
   value: unknown,
   expected: ReadonlyMap<K, number[]>,
   path: string,
-  codePrefix: string
+  codePrefix: string,
 ): void {
   const summary = asRecord(value);
   if (summary === null) {
@@ -1086,19 +1029,29 @@ function validateGpuSummaryMap<K extends string>(
     const expectedSeries = summarize(values);
     for (const field of ["count", "mean", "min", "max", "p50", "p95", "p99"] as const) {
       const actual = actualSeries[field];
-      if (typeof actual !== "number" || !Number.isFinite(actual) || !nearlyEqual(actual, expectedSeries[field])) {
+      if (
+        typeof actual !== "number" ||
+        !Number.isFinite(actual) ||
+        !nearlyEqual(actual, expectedSeries[field])
+      ) {
         add(
           issues,
           `${codePrefix}-value-mismatch`,
           "error",
           `${path}.${label}.${field}`,
-          `${label}.${field} 应为 ${expectedSeries[field]}，实际为 ${String(actual)}`
+          `${label}.${field} 应为 ${expectedSeries[field]}，实际为 ${String(actual)}`,
         );
       }
     }
   }
   for (const label of actualLabels) {
-    add(issues, `${codePrefix}-unexpected-label`, "error", `${path}.${label}`, `${label} 没有对应的已完成帧样本`);
+    add(
+      issues,
+      `${codePrefix}-unexpected-label`,
+      "error",
+      `${path}.${label}`,
+      `${label} 没有对应的已完成帧样本`,
+    );
   }
 }
 
@@ -1108,7 +1061,9 @@ function append<K extends string>(map: Map<K, number[]>, label: K, value: number
   else values.push(value);
 }
 
-function summarize(values: readonly number[]): Record<"count" | "mean" | "min" | "max" | "p50" | "p95" | "p99", number> {
+function summarize(
+  values: readonly number[],
+): Record<"count" | "mean" | "min" | "max" | "p50" | "p95" | "p99", number> {
   const sorted = [...values].sort((a, b) => a - b);
   const sum = sorted.reduce((total, value) => total + value, 0);
   return {
@@ -1118,7 +1073,7 @@ function summarize(values: readonly number[]): Record<"count" | "mean" | "min" |
     max: sorted[sorted.length - 1]!,
     p50: percentile(sorted, 0.5),
     p95: percentile(sorted, 0.95),
-    p99: percentile(sorted, 0.99)
+    p99: percentile(sorted, 0.99),
   };
 }
 
@@ -1142,7 +1097,7 @@ function nearlyEqual(left: number, right: number): boolean {
 function requiredRecord(
   issues: BenchmarkEvidenceIssue[],
   value: unknown,
-  path: string
+  path: string,
 ): Record<string, unknown> | null {
   const record = asRecord(value);
   if (record === null) add(issues, "required-object-missing", "error", path, `${path} 必须是对象`);
@@ -1153,18 +1108,14 @@ function positiveInteger(
   issues: BenchmarkEvidenceIssue[],
   value: unknown,
   path: string,
-  allowZero = false
+  allowZero = false,
 ): void {
   if (!Number.isInteger(value) || (value as number) < (allowZero ? 0 : 1)) {
     add(issues, "positive-integer-required", "error", path, `${path} 必须是${allowZero ? "非负" : "正"}整数`);
   }
 }
 
-function positiveFinite(
-  issues: BenchmarkEvidenceIssue[],
-  value: unknown,
-  path: string
-): void {
+function positiveFinite(issues: BenchmarkEvidenceIssue[], value: unknown, path: string): void {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
     add(issues, "positive-number-required", "error", path, `${path} 必须是有限正数`);
   }
@@ -1175,9 +1126,10 @@ function numberEquals(
   value: unknown,
   expected: number,
   code: string,
-  path: string
+  path: string,
 ): void {
-  if (value !== expected) add(issues, code, "error", path, `需要 schema ${expected}，实际为 ${String(value)}`);
+  if (value !== expected)
+    add(issues, code, "error", path, `需要 schema ${expected}，实际为 ${String(value)}`);
 }
 
 function isTraceableSha256(value: string): boolean {
@@ -1186,7 +1138,7 @@ function isTraceableSha256(value: string): boolean {
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : null;
 }
 
@@ -1195,7 +1147,7 @@ function add(
   code: string,
   severity: BenchmarkEvidenceSeverity,
   path: string,
-  message: string
+  message: string,
 ): void {
   issues.push({ code, severity, path, message });
 }
@@ -1203,7 +1155,7 @@ function add(
 function finish(
   issues: BenchmarkEvidenceIssue[],
   baselineRole: string | null,
-  blockedCapabilities: BenchmarkCapabilityBlocker[]
+  blockedCapabilities: BenchmarkCapabilityBlocker[],
 ): BenchmarkEvidenceReport {
   const errors = issues.filter((issue) => issue.severity === "error");
   const warnings = issues.filter((issue) => issue.severity === "warning");
@@ -1213,6 +1165,6 @@ function finish(
     blockedCapabilities,
     baselineRole,
     errors,
-    warnings
+    warnings,
   };
 }

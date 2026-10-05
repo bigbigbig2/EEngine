@@ -60,12 +60,7 @@ export class PerspectiveCamera extends Camera {
   }
 
   override update_projection(): void {
-    mat4PerspectiveInfiniteReverseZ(
-      this.projection_matrix,
-      this._fov,
-      this.aspect,
-      this.near
-    );
+    mat4PerspectiveInfiniteReverseZ(this.projection_matrix, this._fov, this.aspect, this.near);
   }
 }
 

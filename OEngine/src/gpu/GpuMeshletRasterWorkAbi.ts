@@ -17,8 +17,7 @@ export const GPU_MESHLET_BUCKET_COUNT =
   GPU_MESHLET_BUCKET_COVERAGE_COUNT;
 export const GPU_MESHLET_RASTER_ROUTE_COUNT = 2;
 export const GPU_MESHLET_RISK_BUCKET_OFFSET = GPU_MESHLET_BUCKET_COUNT;
-export const GPU_MESHLET_DRAW_COUNT =
-  GPU_MESHLET_BUCKET_COUNT * GPU_MESHLET_RASTER_ROUTE_COUNT;
+export const GPU_MESHLET_DRAW_COUNT = GPU_MESHLET_BUCKET_COUNT * GPU_MESHLET_RASTER_ROUTE_COUNT;
 export const GPU_MESHLET_BUCKET_STATE_STRIDE = 16;
 export const GPU_MESHLET_DRAW_INDIRECT_STRIDE = 16;
 
@@ -29,7 +28,7 @@ export const GPU_MESHLET_RASTER_FLAGS = Object.freeze({
   /** Set by the GPU projection-risk classifier; never authored by callers. */
   SelectiveExact: 1 << 30,
   /** Authored/debug request that forces the classifier onto the exact route. */
-  ForceExact: 1 << 31
+  ForceExact: 1 << 31,
 } as const);
 
 export const GPU_MESHLET_DECODE_PROFILE = Object.freeze({
@@ -37,23 +36,43 @@ export const GPU_MESHLET_DECODE_PROFILE = Object.freeze({
   StaticPbrCompactV2: 1,
   ExplicitFloat32FallbackV2: 2,
   /** meshlet_slot encodes Product-local GroupID + local MeshletID. */
-  VirtualGeometryProductV1: 3
+  VirtualGeometryProductV1: 3,
 } as const);
 export const GPU_VIRTUAL_MESHLET_LOCAL_BITS = 7;
 export const GPU_VIRTUAL_MESHLET_LOCAL_MASK = (1 << GPU_VIRTUAL_MESHLET_LOCAL_BITS) - 1;
 export const GPU_VIRTUAL_MESHLET_MAX_GROUP_ID = 0x00ffffff;
 
-export function encodeVirtualGeometryMeshletSlot(groupId: number, localMeshlet: number): number { if (!Number.isInteger(groupId) || groupId < 0 || groupId > GPU_VIRTUAL_MESHLET_MAX_GROUP_ID || !Number.isInteger(localMeshlet) || localMeshlet < 0 || localMeshlet > GPU_VIRTUAL_MESHLET_LOCAL_MASK) throw new RangeError("virtual geometry Group/Meshlet identity is invalid"); return ((groupId << GPU_VIRTUAL_MESHLET_LOCAL_BITS) | localMeshlet) >>> 0; }
-export function decodeVirtualGeometryMeshletSlot(value: number): Readonly<{ groupId: number; localMeshlet: number }> { if (!Number.isInteger(value) || value < 0 || value > 0xffffffff || (value >>> 31) !== 0) throw new RangeError("virtual geometry meshlet slot is invalid"); return Object.freeze({ groupId: value >>> GPU_VIRTUAL_MESHLET_LOCAL_BITS, localMeshlet: value & GPU_VIRTUAL_MESHLET_LOCAL_MASK }); }
+export function encodeVirtualGeometryMeshletSlot(groupId: number, localMeshlet: number): number {
+  if (
+    !Number.isInteger(groupId) ||
+    groupId < 0 ||
+    groupId > GPU_VIRTUAL_MESHLET_MAX_GROUP_ID ||
+    !Number.isInteger(localMeshlet) ||
+    localMeshlet < 0 ||
+    localMeshlet > GPU_VIRTUAL_MESHLET_LOCAL_MASK
+  )
+    throw new RangeError("virtual geometry Group/Meshlet identity is invalid");
+  return ((groupId << GPU_VIRTUAL_MESHLET_LOCAL_BITS) | localMeshlet) >>> 0;
+}
+export function decodeVirtualGeometryMeshletSlot(
+  value: number,
+): Readonly<{ groupId: number; localMeshlet: number }> {
+  if (!Number.isInteger(value) || value < 0 || value > 0xffffffff || value >>> 31 !== 0)
+    throw new RangeError("virtual geometry meshlet slot is invalid");
+  return Object.freeze({
+    groupId: value >>> GPU_VIRTUAL_MESHLET_LOCAL_BITS,
+    localMeshlet: value & GPU_VIRTUAL_MESHLET_LOCAL_MASK,
+  });
+}
 
 export const GPU_MESHLET_RASTER_PIPELINE_CLASS = Object.freeze({
   BackFaceCull: 0,
-  DoubleSided: 1
+  DoubleSided: 1,
 } as const);
 
 export const GPU_MESHLET_COVERAGE_CLASS = Object.freeze({
   Opaque: 0,
-  Mask: 1
+  Mask: 1,
 } as const);
 
 export const GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS = Object.freeze({
@@ -64,7 +83,7 @@ export const GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS = Object.freeze({
   overflowCount: 16,
   generation: 20,
   invalidCount: 24,
-  reserved: 28
+  reserved: 28,
 } as const);
 
 export const GPU_MESHLET_RASTER_WORK_OFFSETS = Object.freeze({
@@ -73,7 +92,7 @@ export const GPU_MESHLET_RASTER_WORK_OFFSETS = Object.freeze({
   meshletSlot: 8,
   materialSlotOrRange: 12,
   packedRasterFlags: 16,
-  packedProfileLod: 20
+  packedProfileLod: 20,
 } as const);
 
 export const GPU_MESHLET_RASTER_WORK_WGSL = /* wgsl */ `
@@ -143,16 +162,14 @@ export interface GpuMeshletWorkReservation {
   readonly offset: number | null;
 }
 
-export function packGpuMeshletRasterWork(
-  work: GpuMeshletRasterWorkCpu
-): Uint8Array<ArrayBuffer> {
+export function packGpuMeshletRasterWork(work: GpuMeshletRasterWorkCpu): Uint8Array<ArrayBuffer> {
   const values = [
     work.instanceSlot,
     work.geometrySlot,
     work.meshletSlot,
     work.materialSlotOrRange,
     work.packedRasterFlags,
-    work.packedProfileLod
+    work.packedProfileLod,
   ];
   values.forEach((value, index) => assertU32(value, `MeshletRasterWork field ${index}`));
   return new Uint8Array(new Uint32Array(values).buffer);
@@ -160,13 +177,13 @@ export function packGpuMeshletRasterWork(
 
 export function unpackGpuMeshletRasterWork(
   bytes: Uint8Array,
-  byteOffset = 0
+  byteOffset = 0,
 ): Readonly<GpuMeshletRasterWorkCpu> {
   assertByteRange(bytes, byteOffset, GPU_MESHLET_RASTER_WORK_RECORD_STRIDE, "MeshletRasterWork");
   const view = new DataView(
     bytes.buffer,
     bytes.byteOffset + byteOffset,
-    GPU_MESHLET_RASTER_WORK_RECORD_STRIDE
+    GPU_MESHLET_RASTER_WORK_RECORD_STRIDE,
   );
   return Object.freeze({
     instanceSlot: view.getUint32(0, true),
@@ -174,35 +191,35 @@ export function unpackGpuMeshletRasterWork(
     meshletSlot: view.getUint32(8, true),
     materialSlotOrRange: view.getUint32(12, true),
     packedRasterFlags: view.getUint32(16, true),
-    packedProfileLod: view.getUint32(20, true)
+    packedProfileLod: view.getUint32(20, true),
   });
 }
 
-export function packGpuMeshletWorkQueueHeader(
-  header: GpuMeshletWorkQueueHeaderCpu
-): Uint8Array<ArrayBuffer> {
+export function packGpuMeshletWorkQueueHeader(header: GpuMeshletWorkQueueHeaderCpu): Uint8Array<ArrayBuffer> {
   validateGpuMeshletWorkQueueHeader(header);
-  return new Uint8Array(new Uint32Array([
-    header.attemptedCount,
-    header.writtenCount,
-    header.consumedCount,
-    header.capacity,
-    header.overflowCount,
-    header.generation,
-    header.invalidCount,
-    0
-  ]).buffer);
+  return new Uint8Array(
+    new Uint32Array([
+      header.attemptedCount,
+      header.writtenCount,
+      header.consumedCount,
+      header.capacity,
+      header.overflowCount,
+      header.generation,
+      header.invalidCount,
+      0,
+    ]).buffer,
+  );
 }
 
 export function unpackGpuMeshletWorkQueueHeader(
   bytes: Uint8Array,
-  byteOffset = 0
+  byteOffset = 0,
 ): Readonly<GpuMeshletWorkQueueHeaderCpu> {
   assertByteRange(bytes, byteOffset, GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE, "MeshletWork queue header");
   const view = new DataView(
     bytes.buffer,
     bytes.byteOffset + byteOffset,
-    GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE
+    GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE,
   );
   const header = {
     attemptedCount: view.getUint32(0, true),
@@ -211,7 +228,7 @@ export function unpackGpuMeshletWorkQueueHeader(
     capacity: view.getUint32(12, true),
     overflowCount: view.getUint32(16, true),
     generation: view.getUint32(20, true),
-    invalidCount: view.getUint32(24, true)
+    invalidCount: view.getUint32(24, true),
   };
   validateGpuMeshletWorkQueueHeader(header);
   return Object.freeze(header);
@@ -219,8 +236,7 @@ export function unpackGpuMeshletWorkQueueHeader(
 
 export function gpuMeshletWorkQueueByteLength(capacity: number): number {
   assertPositiveU32(capacity, "MeshletWork queue capacity");
-  const bytes = GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE +
-    capacity * GPU_MESHLET_RASTER_WORK_RECORD_STRIDE;
+  const bytes = GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE + capacity * GPU_MESHLET_RASTER_WORK_RECORD_STRIDE;
   if (!Number.isSafeInteger(bytes)) {
     throw new RangeError("MeshletWork queue byte length is invalid");
   }
@@ -230,7 +246,7 @@ export function gpuMeshletWorkQueueByteLength(capacity: number): number {
 /** CPU oracle for the GPU queue's all-or-nothing reservation contract. */
 export function reserveGpuMeshletWork(
   current: GpuMeshletWorkQueueHeaderCpu,
-  count: number
+  count: number,
 ): Readonly<GpuMeshletWorkReservation> {
   validateGpuMeshletWorkQueueHeader(current);
   assertU32(count, "MeshletWork reservation count");
@@ -241,7 +257,7 @@ export function reserveGpuMeshletWork(
     ...current,
     attemptedCount,
     writtenCount,
-    overflowCount: attemptedCount - writtenCount
+    overflowCount: attemptedCount - writtenCount,
   });
   validateGpuMeshletWorkQueueHeader(next);
   return Object.freeze({ header: next, offset: fits ? current.writtenCount : null });
@@ -255,7 +271,7 @@ export function packGpuMeshletProfileLodBucket(
   decodeProfile: number,
   lod: number,
   bucketKey: number,
-  partition: number
+  partition: number,
 ): number {
   assertBits(decodeProfile, 8, "Meshlet decode profile");
   assertBits(lod, 8, "Meshlet LOD");
@@ -275,7 +291,7 @@ export function unpackGpuMeshletProfileLod(value: number): Readonly<{
     decodeProfile: value & 0xff,
     lod: (value >>> 8) & 0xff,
     bucketKey: (value >>> 16) & 0xff,
-    partition: value >>> 24
+    partition: value >>> 24,
   });
 }
 
@@ -291,35 +307,36 @@ export interface GpuMeshletBucketClassification {
 export function classifyGpuMeshletBucket(
   triangleCount: number,
   decodeProfile: number,
-  rasterFlags: number
+  rasterFlags: number,
 ): Readonly<GpuMeshletBucketClassification> {
   assertPositiveU32(triangleCount, "Meshlet triangle count");
-  if (triangleCount > 128) throw new RangeError("Meshlet triangle count exceeds the 128-triangle ABI ceiling");
+  if (triangleCount > 128)
+    throw new RangeError("Meshlet triangle count exceeds the 128-triangle ABI ceiling");
   const capacityIndex = GPU_MESHLET_BUCKET_TRIANGLE_CAPACITIES.findIndex(
-    (capacity) => triangleCount <= capacity
+    (capacity) => triangleCount <= capacity,
   );
-  const profileIndex = decodeProfile === GPU_MESHLET_DECODE_PROFILE.StaticPbrCompactV2
-    ? 0
-    : decodeProfile === GPU_MESHLET_DECODE_PROFILE.ExplicitFloat32FallbackV2
-      ? 1
-      : -1;
+  const profileIndex =
+    decodeProfile === GPU_MESHLET_DECODE_PROFILE.StaticPbrCompactV2
+      ? 0
+      : decodeProfile === GPU_MESHLET_DECODE_PROFILE.ExplicitFloat32FallbackV2
+        ? 1
+        : -1;
   if (profileIndex < 0) throw new RangeError("Meshlet decode profile has no raster bucket");
-  const rasterPipelineClass = (rasterFlags & GPU_MESHLET_RASTER_FLAGS.DoubleSided) !== 0
-    ? GPU_MESHLET_RASTER_PIPELINE_CLASS.DoubleSided
-    : GPU_MESHLET_RASTER_PIPELINE_CLASS.BackFaceCull;
-  const coverageClass = (rasterFlags & GPU_MESHLET_RASTER_FLAGS.AlphaTested) !== 0
-    ? GPU_MESHLET_COVERAGE_CLASS.Mask
-    : GPU_MESHLET_COVERAGE_CLASS.Opaque;
-  const key = capacityIndex |
-    (profileIndex << 2) |
-    (rasterPipelineClass << 3) |
-    (coverageClass << 4);
+  const rasterPipelineClass =
+    (rasterFlags & GPU_MESHLET_RASTER_FLAGS.DoubleSided) !== 0
+      ? GPU_MESHLET_RASTER_PIPELINE_CLASS.DoubleSided
+      : GPU_MESHLET_RASTER_PIPELINE_CLASS.BackFaceCull;
+  const coverageClass =
+    (rasterFlags & GPU_MESHLET_RASTER_FLAGS.AlphaTested) !== 0
+      ? GPU_MESHLET_COVERAGE_CLASS.Mask
+      : GPU_MESHLET_COVERAGE_CLASS.Opaque;
+  const key = capacityIndex | (profileIndex << 2) | (rasterPipelineClass << 3) | (coverageClass << 4);
   return Object.freeze({
     key,
     triangleCapacity: GPU_MESHLET_BUCKET_TRIANGLE_CAPACITIES[capacityIndex]!,
     decodeProfile,
     rasterPipelineClass,
-    coverageClass
+    coverageClass,
   });
 }
 
@@ -363,14 +380,8 @@ function assertU32(value: number, label: string): void {
   }
 }
 
-function assertByteRange(
-  bytes: Uint8Array,
-  byteOffset: number,
-  byteLength: number,
-  label: string
-): void {
-  if (!Number.isSafeInteger(byteOffset) || byteOffset < 0 ||
-    byteOffset + byteLength > bytes.byteLength) {
+function assertByteRange(bytes: Uint8Array, byteOffset: number, byteLength: number, label: string): void {
+  if (!Number.isSafeInteger(byteOffset) || byteOffset < 0 || byteOffset + byteLength > bytes.byteLength) {
     throw new RangeError(`${label} byte range is invalid`);
   }
 }

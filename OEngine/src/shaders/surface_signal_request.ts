@@ -1,8 +1,14 @@
-import { SURFACE_FIELD_IDENTITY_WORDS, SURFACE_FIELD_EXECUTION_PROFILE_WORD } from "../gpu/GpuSurfaceFieldIdentityAbi.js";
+import {
+  SURFACE_FIELD_IDENTITY_WORDS,
+  SURFACE_FIELD_EXECUTION_PROFILE_WORD,
+} from "../gpu/GpuSurfaceFieldIdentityAbi.js";
 import { SURFACE_CELL_ADDRESS_WORDS, SURFACE_REFERENCE_WGSL } from "../gpu/GpuSurfaceReferenceAbi.js";
 import { surfaceCellSelectionWgsl } from "../gpu/GpuSurfaceCellPlanAbi.js";
 import { SURFACE_SIGNAL_STORE_KEY_WORDS } from "../gpu/GpuSurfaceSignalStoreAbi.js";
-import { SURFACE_FIELD_EXECUTION_WORDS, SURFACE_SIGNAL_EXECUTION_WORDS } from "../gpu/GpuSurfaceExecutionProfileAbi.js";
+import {
+  SURFACE_FIELD_EXECUTION_WORDS,
+  SURFACE_SIGNAL_EXECUTION_WORDS,
+} from "../gpu/GpuSurfaceExecutionProfileAbi.js";
 import { SURFACE_DIRECT_RESIDUAL_FIELDS } from "../material/AppearanceExecutionProfile.js";
 
 /** Exact selected-source witness. Each field contributes its immutable producer

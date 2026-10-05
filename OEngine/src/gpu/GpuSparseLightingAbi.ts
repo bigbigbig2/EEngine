@@ -38,10 +38,13 @@ export const SPARSE_LIGHTING_COUNTER = Object.freeze({
   coatDisabled: 16,
   iblDisabled: 17,
   shadowEvaluations: 18,
-  directDiffuseWrites: 20, environmentDiffuseWrites: 21,
-  directSpecularWrites: 22, environmentSpecularWrites: 23,
-  directCoatWrites: 24, environmentCoatWrites: 25,
-  environmentDisabled: 19
+  directDiffuseWrites: 20,
+  environmentDiffuseWrites: 21,
+  directSpecularWrites: 22,
+  environmentSpecularWrites: 23,
+  directCoatWrites: 24,
+  environmentCoatWrites: 25,
+  environmentDisabled: 19,
 } as const);
 export const SPARSE_LIGHTING_COUNTER_WORDS = 26;
 export const SPARSE_LIGHTING_COUNTER_BYTES = SPARSE_LIGHTING_COUNTER_WORDS * 4;
@@ -50,10 +53,13 @@ export const SPARSE_LIGHTING_COUNTER_BYTES = SPARSE_LIGHTING_COUNTER_WORDS * 4;
  * determines its production quality budget. These are decision tolerances,
  * not a claimed radiance/AAA error bound. */
 export const SPARSE_LIGHTING_POLICY = Object.freeze({
-  spatialNormalCosine: 0.99996, spatialRelativePosition: 0.001, // local-plane residual / view depth
-  temporalNormalCosine: 0.99999, temporalRelativePosition: 0.0005,
-  specularMinimumRoughness: 0.25, specularViewCosine: 0.999995,
-  maxAge: [8, 4, 2] as const
+  spatialNormalCosine: 0.99996,
+  spatialRelativePosition: 0.001, // local-plane residual / view depth
+  temporalNormalCosine: 0.99999,
+  temporalRelativePosition: 0.0005,
+  specularMinimumRoughness: 0.25,
+  specularViewCosine: 0.999995,
+  maxAge: [8, 4, 2] as const,
 });
 
 export interface SparseLightingProfile {

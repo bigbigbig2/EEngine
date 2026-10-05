@@ -2,7 +2,7 @@ import {
   GPU_GEOMETRY_RECORD_WGSL,
   GPU_GEOMETRY_VERTEX_DECODE_WGSL,
   GPU_MESHLET_RECORD_WGSL,
-  GPU_UV_FORMAT
+  GPU_UV_FORMAT,
 } from "../gpu/GpuGeometryAbi.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { GPU_FRAME_INSTANCE_WGSL } from "../gpu/GpuFrameInstanceAbi.js";
@@ -10,7 +10,12 @@ import { GPU_SHADING_MATERIAL_WGSL } from "../gpu/GpuShadingMaterialAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import type { AppearancePublishedCoverage } from "../gpu/GpuAppearancePublication.js";
 import { RASTER_PARTITION_CONSUMER_WGSL } from "./raster_work_partitions.js";
-import { COVERAGE_VERTEX_VARYINGS, coverageVertexAttributesWgsl, coverageVertexAssignment, rasterCoverageFragmentWgsl } from "./raster_coverage_fragment.js";
+import {
+  COVERAGE_VERTEX_VARYINGS,
+  coverageVertexAttributesWgsl,
+  coverageVertexAssignment,
+  rasterCoverageFragmentWgsl,
+} from "./raster_coverage_fragment.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
 import { VIRTUAL_GEOMETRY_PRODUCT_WGSL } from "./virtual_geometry_product.js";
 import { GPU_FRAME_ATTRIBUTE_VECTORS } from "../gpu/GpuFrameGeometryAttributesAbi.js";
@@ -22,12 +27,10 @@ export const MESHLET_BUCKET_SETTINGS_SIZE = 16;
 export function meshletBucketVisibilityWgsl(
   primitiveIndex: boolean,
   includeShadingBinId = true,
-  coverage?: AppearancePublishedCoverage
+  coverage?: AppearancePublishedCoverage,
 ): string {
   const primitiveIndexEnable = primitiveIndex ? "enable primitive_index;" : "";
-  const triangleVarying = primitiveIndex
-    ? ""
-    : "  @location(2) @interpolate(flat) triangle: u32,";
+  const triangleVarying = primitiveIndex ? "" : "  @location(2) @interpolate(flat) triangle: u32,";
   const triangleAssignment = primitiveIndex ? "" : "  output.triangle = triangle;";
   const shadingBinVarying = includeShadingBinId
     ? "  @location(9) @interpolate(flat) shading_bin_id: u32,"
@@ -183,19 +186,19 @@ ${rasterCoverageFragmentWgsl(false, primitiveIndex, includeShadingBinId, coverag
 export const MESHLET_BUCKET_VISIBILITY_WGSL = meshletBucketVisibilityWgsl(false);
 
 /** Production WebGPU 2026 specialization using the primitive-index builtin. */
-export const MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_WGSL =
-  meshletBucketVisibilityWgsl(true);
+export const MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_WGSL = meshletBucketVisibilityWgsl(true);
 
 /** Production portable VisibilityKey single-MRT shader. */
-export const MESHLET_BUCKET_VISIBILITY_SINGLE_WGSL =
-  meshletBucketVisibilityWgsl(false, false);
+export const MESHLET_BUCKET_VISIBILITY_SINGLE_WGSL = meshletBucketVisibilityWgsl(false, false);
 
 /** Production primitive-index VisibilityKey single-MRT shader. */
-export const MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_SINGLE_WGSL =
-  meshletBucketVisibilityWgsl(true, false);
+export const MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_SINGLE_WGSL = meshletBucketVisibilityWgsl(true, false);
 
 /** Product uses the same partition/source-slot and compiled coverage protocol. */
-export function productMeshletVisibilityWgsl(coverage?: AppearancePublishedCoverage, includeShadingBinId = false): string {
+export function productMeshletVisibilityWgsl(
+  coverage?: AppearancePublishedCoverage,
+  includeShadingBinId = false,
+): string {
   return /* wgsl */ `
 ${PACKED_CAMERA_TYPE.wgsl_declaration}
 ${GPU_INSTANCE_RECORD_WGSL}
@@ -347,4 +350,7 @@ ${rasterCoverageFragmentWgsl(true, false, includeShadingBinId, coverage)}
 }
 
 export const VIRTUAL_GEOMETRY_BUCKET_VISIBILITY_WGSL = productMeshletVisibilityWgsl();
-export const VIRTUAL_GEOMETRY_BUCKET_VISIBILITY_SHADING_BIN_WGSL = productMeshletVisibilityWgsl(undefined, true);
+export const VIRTUAL_GEOMETRY_BUCKET_VISIBILITY_SHADING_BIN_WGSL = productMeshletVisibilityWgsl(
+  undefined,
+  true,
+);

@@ -164,7 +164,6 @@ export class Vec2 extends Float64VectorBase {
     return `Vector2{ x:${this.x}, y:${this.y} }`;
   }
 
-
   _sub(x: number, y: number): this {
     return this.set(this.x - x, this.y - y);
   }
@@ -173,10 +172,7 @@ export class Vec2 extends Float64VectorBase {
     return this._sub(other.x, other.y);
   }
 
-  subVectors(
-    a: { x: number; y: number },
-    b: { x: number; y: number }
-  ): this {
+  subVectors(a: { x: number; y: number }, b: { x: number; y: number }): this {
     return this.set(a.x - b.x, a.y - b.y);
   }
 
@@ -297,11 +293,7 @@ export class Vec2 extends Float64VectorBase {
     return e === 0 ? this : this.multiplyScalar(1 / e);
   }
 
-  lerpVectors(
-    a: { x: number; y: number },
-    b: { x: number; y: number },
-    fraction: number
-  ): this {
+  lerpVectors(a: { x: number; y: number }, b: { x: number; y: number }, fraction: number): this {
     return this.set(lerpNum(a.x, b.x, fraction), lerpNum(a.y, b.y, fraction));
   }
 

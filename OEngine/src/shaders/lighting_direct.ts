@@ -10,7 +10,7 @@ import {
   SHADOW_DIRECTIONAL_DESCRIPTOR,
   SHADOW_POINT_DESCRIPTOR,
   SHADOW_SPOT_DESCRIPTOR,
-  SPOT_LIGHT_DESCRIPTOR
+  SPOT_LIGHT_DESCRIPTOR,
 } from "../gpu/LightDatabase.js";
 import { GPU_SHADING_SURFACE_LITE_WGSL } from "../gpu/GpuComputeMaterialAbi.js";
 import { GPU_COMPUTE_MATERIAL_ABI_WGSL } from "../gpu/GpuComputeMaterialAbi.js";
@@ -27,7 +27,7 @@ export const DIRECT_LIGHT_DATABASE_WGSL = CodeChunk.from("", [
   LIGHT_DATABASE_READ_CHUNK,
   SHADOW_POINT_DESCRIPTOR.chunk_read,
   SHADOW_SPOT_DESCRIPTOR.chunk_read,
-  SHADOW_DIRECTIONAL_DESCRIPTOR.chunk_read
+  SHADOW_DIRECTIONAL_DESCRIPTOR.chunk_read,
 ]).compile().text;
 
 export const LIGHTING_DIRECT_CORE_WGSL = /* wgsl */ `
@@ -715,7 +715,7 @@ const SPARSE_DIRECT_OMITTED_FUNCTIONS = Object.freeze([
   "project_position_from_depth",
   "get_view_space_depth",
   "mat4_extract_position",
-  "read_gBuffer_material"
+  "read_gBuffer_material",
 ] as const);
 
 const SPARSE_DIRECT_SHADOW_FUNCTIONS = Object.freeze([
@@ -733,7 +733,7 @@ const SPARSE_DIRECT_SHADOW_FUNCTIONS = Object.freeze([
   "shadowmap_sample_spot",
   "shadowmap_get_point_light_visibility",
   "shadowmap_get_spot_light_visibility",
-  "shadowmap_get_directional_light_visibility"
+  "shadowmap_get_directional_light_visibility",
 ] as const);
 
 /**
@@ -743,7 +743,7 @@ const SPARSE_DIRECT_SHADOW_FUNCTIONS = Object.freeze([
  */
 export function createProductionSparseDirectLightingWgsl(
   shadowSamplingEnabled: boolean,
-  directionalShadowMode: "legacy" | "vsm" = "legacy"
+  directionalShadowMode: "legacy" | "vsm" = "legacy",
 ): string {
   const typeStart = requireWgslMarker(LIGHTING_DIRECT_CORE_WGSL, "const PI: f32");
   const typeEnd = requireWgslMarker(LIGHTING_DIRECT_CORE_WGSL, "@group(0) @binding(0)");
@@ -786,16 +786,21 @@ fn shadowmap_get_directional_light_visibility(
   _view_direction_ws: vec3f,
   normal_ws: vec3f
 ) -> f32 {
-  ${useVsm ? `
+  ${
+    useVsm
+      ? `
   let source = ${DIRECTIONAL_LIGHT_DESCRIPTOR.marshalling_method_read}(database, index);
   if ((source.flags & 1u) == 0u) { return 1.0; }
   let incident = get_directional_light_info(source);
   if (dot(incident.direction, normal_ws) < 0.0) { return 0.0; }
-  return vsm_sample_directional(position_ws, normal_ws, incident);` : "return 1.0;"}
+  return vsm_sample_directional(position_ws, normal_ws, incident);`
+      : "return 1.0;"
+  }
 }
 `;
   }
-  const octahedralEncode = shadowSamplingEnabled ? /* wgsl */ `
+  const octahedralEncode = shadowSamplingEnabled
+    ? /* wgsl */ `
 fn sparse_octahedral_unit_encode(value: vec3f) -> vec2f {
   let denominator = abs(value.x) + abs(value.y) + abs(value.z);
   var encoded = value.xy / denominator;
@@ -805,7 +810,8 @@ fn sparse_octahedral_unit_encode(value: vec3f) -> vec2f {
   }
   return vec2f(0.5) + 0.5 * encoded;
 }
-` : "";
+`
+    : "";
   return `${DIRECT_LIGHT_DATABASE_WGSL}\n${LIGHTING_DIRECT_CORE_WGSL.slice(typeStart, typeEnd)}\n${octahedralEncode}\n${body}`;
 }
 
@@ -845,8 +851,10 @@ function omitWgslFunction(source: string, name: string): string {
 /** Mathematical library for the final signal packet consumer. No legacy
  * GBuffer, fullscreen entry point or legacy pass is part of this product. */
 export function productionSurfaceLightMathWgsl(vsm: boolean): string {
-  return omitWgslFunction(createProductionSparseDirectLightingWgsl(vsm, "vsm"),
-    "shade_standard_material_direct");
+  return omitWgslFunction(
+    createProductionSparseDirectLightingWgsl(vsm, "vsm"),
+    "shade_standard_material_direct",
+  );
 }
 
 export const LIGHTING_DIRECT_WGSL = /* wgsl */ `

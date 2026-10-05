@@ -8,25 +8,21 @@ export {
   PassBuilder,
   PassResources,
   FrameGraphResourceManager,
-  resolveGpuEncoder
+  resolveGpuEncoder,
 } from "./FrameGraph.js";
 export type {
   FrameGraphExecuteContext,
   FrameGraphCommandEncoder,
   FrameGraphGraphicsResources,
-  PassExecuteFn
+  PassExecuteFn,
 } from "./FrameGraph.js";
 export { ShadeGPUCommandContext } from "./ShadeGPUCommandContext.js";
 export { GPUTimer } from "./GPUTimer.js";
-export type {
-  GPUTimerPassType,
-  GPUTimerResult,
-  GPUTimerTimestampWrites
-} from "./GPUTimer.js";
+export type { GPUTimerPassType, GPUTimerResult, GPUTimerTimestampWrites } from "./GPUTimer.js";
 export {
   ReusableResourceManager,
   ReusableResourceContext,
-  stableResourceDescriptorKey
+  stableResourceDescriptorKey,
 } from "./ReusableResourceManager.js";
 export type { ReusableResourceOwner } from "./ReusableResourceManager.js";
 export type { ResourceId, ResourceDescriptor, ResourceEntry, ResourceNode } from "./ResourceHandle.js";

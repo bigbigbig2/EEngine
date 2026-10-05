@@ -5,10 +5,7 @@
 import { BinaryReader } from "../loaders/BinaryReader.js";
 import { ShadeImage } from "./ShadeImage.js";
 
-export function deserialize_shade_image(
-  buffer: ArrayBuffer,
-  out: ShadeImage = new ShadeImage()
-): ShadeImage {
+export function deserialize_shade_image(buffer: ArrayBuffer, out: ShadeImage = new ShadeImage()): ShadeImage {
   const e = BinaryReader.fromArrayBuffer(buffer);
   const n = e.readUint16();
   const r = e.readUint16();

@@ -2,27 +2,11 @@
  * glTF 解析器：协调缓冲区、节点、几何、材质、纹理、灯光和动画的装载过程。
  */
 
-import {
-  baseUrlOf,
-  pathBasename,
-  pathExtension,
-  resolveRelativeUri
-} from "../pathUtils.js";
-import {
-  collectLoadImageSources,
-  shouldLoadImageSource
-} from "./gltfImageSlots.js";
+import { baseUrlOf, pathBasename, pathExtension, resolveRelativeUri } from "../pathUtils.js";
+import { collectLoadImageSources, shouldLoadImageSource } from "./gltfImageSlots.js";
 import { preprocessGltfWorldMatrices } from "./gltfNodeWorld.js";
 
-export {
-  baseUrlOf,
-  pathBasename,
-  pathExtension,
-  resolveRelativeUri,
-  h_,
-  m_,
-  y_
-} from "../pathUtils.js";
+export { baseUrlOf, pathBasename, pathExtension, resolveRelativeUri, h_, m_, y_ } from "../pathUtils.js";
 
 export const GLB_MAGIC = 0x46546c67;
 export const GLB_CHUNK_JSON = 0x4e4f534a;
@@ -258,9 +242,7 @@ export class GltfLoader {
 
   async loadFromBinary(e: ArrayBuffer, baseUrl: string): Promise<GltfDocument> {
     if (e.byteLength < 12) {
-      throw new Error(
-        `Binary too small, expected at least 12 bytes, instead was ${e.byteLength}`
-      );
+      throw new Error(`Binary too small, expected at least 12 bytes, instead was ${e.byteLength}`);
     }
     const n = new DataView(e, 0, 12);
     const r = n.getUint32(0, true);
@@ -268,18 +250,14 @@ export class GltfLoader {
     const a = n.getUint32(8, true);
     if (r !== GLB_MAGIC) {
       throw new Error(
-        `Invalid magic string in binary header, expected ${GLB_MAGIC.toString(16)}, instead got ${r.toString(16)}.`
+        `Invalid magic string in binary header, expected ${GLB_MAGIC.toString(16)}, instead got ${r.toString(16)}.`,
       );
     }
     if (s !== 2) {
-      throw new Error(
-        `Unsupported glTF version ${s} in binary header. Only glTF 2.0 is supported.`
-      );
+      throw new Error(`Unsupported glTF version ${s} in binary header. Only glTF 2.0 is supported.`);
     }
     if (a !== e.byteLength) {
-      throw new Error(
-        `Invalid GLB length ${a}; received ${e.byteLength} bytes.`
-      );
+      throw new Error(`Invalid GLB length ${a}; received ${e.byteLength} bytes.`);
     }
     const chunks: Record<number, ArrayBuffer> = {};
     let o = 12;
@@ -296,17 +274,13 @@ export class GltfLoader {
       throw new Error("File contained no json chunk.");
     }
     const jsonText = new TextDecoder("utf-8").decode(chunks[GLB_CHUNK_JSON]);
-    return this.loadFromJson(
-      JSON.parse(jsonText) as GltfDocument,
-      baseUrl,
-      chunks[GLB_CHUNK_BIN] ?? null
-    );
+    return this.loadFromJson(JSON.parse(jsonText) as GltfDocument, baseUrl, chunks[GLB_CHUNK_BIN] ?? null);
   }
 
   async loadFromJson(
     e: GltfDocument,
     baseUrl: string,
-    binChunk: ArrayBuffer | null = null
+    binChunk: ArrayBuffer | null = null,
   ): Promise<GltfDocument> {
     if (!baseUrl) throw new Error("baseUrl must be specified.");
     const r = e.asset;
@@ -361,19 +335,14 @@ export class GltfLoader {
         if (this.fileMap && l.uri) {
           const h = findFileMapEntry(this.fileMap, l.uri);
           if (h !== undefined) {
-            s[bufferIndex] =
-              h instanceof ArrayBuffer
-                ? Promise.resolve(h)
-                : (h as Blob).arrayBuffer();
+            s[bufferIndex] = h instanceof ArrayBuffer ? Promise.resolve(h) : (h as Blob).arrayBuffer();
             continue;
           }
         }
         const f = resolveUri(l.uri!, baseUrl);
         s[bufferIndex] = fetch(f).then((resp) => {
           if (!resp.ok) {
-            throw new Error(
-              `Failed to fetch glTF buffer '${l.uri}': HTTP ${resp.status} ${resp.statusText}`
-            );
+            throw new Error(`Failed to fetch glTF buffer '${l.uri}': HTTP ${resp.status} ${resp.statusText}`);
           }
           return resp.arrayBuffer();
         });
@@ -381,11 +350,7 @@ export class GltfLoader {
     }
 
     const imageDefs = (e.images ?? []) as GltfImageDef[];
-    const allowedSources = collectLoadImageSources(
-      e.materials,
-      e.textures,
-      this.loadImageSlots
-    );
+    const allowedSources = collectLoadImageSources(e.materials, e.textures, this.loadImageSlots);
     const i: Promise<ImageBitmap | undefined>[] = [];
     const toBitmap = (blob: Blob): Promise<ImageBitmap> =>
       createImageBitmap(blob, { premultiplyAlpha: "none" });
@@ -407,7 +372,7 @@ export class GltfLoader {
           .then((resp) => {
             if (!resp.ok) {
               throw new Error(
-                `Failed to fetch glTF image '${A.uri}': HTTP ${resp.status} ${resp.statusText}`
+                `Failed to fetch glTF image '${A.uri}': HTTP ${resp.status} ${resp.statusText}`,
               );
             }
             return resp.blob();
@@ -416,12 +381,7 @@ export class GltfLoader {
       } else {
         const B = e.bufferViews![A.bufferView!]!;
         i[v] = s[B.buffer]!.then((buf) =>
-          toBitmap(
-            new Blob(
-              [new Uint8Array(buf, B.byteOffset!, B.byteLength)],
-              { type: A.mimeType }
-            )
-          )
+          toBitmap(new Blob([new Uint8Array(buf, B.byteOffset!, B.byteLength)], { type: A.mimeType })),
         );
       }
     }
@@ -442,13 +402,11 @@ const SUPPORTED_REQUIRED_EXTENSIONS = new Set([
   "KHR_materials_ior",
   "KHR_materials_clearcoat",
   "KHR_materials_specular",
-  "KHR_texture_transform"
+  "KHR_texture_transform",
 ]);
 
 function validateRequiredExtensions(extensions: readonly string[]): void {
-  const unsupported = extensions.filter(
-    (extension) => !SUPPORTED_REQUIRED_EXTENSIONS.has(extension)
-  );
+  const unsupported = extensions.filter((extension) => !SUPPORTED_REQUIRED_EXTENSIONS.has(extension));
   if (unsupported.length === 0) return;
   const details = unsupported.map((extension) => {
     switch (extension) {
@@ -464,21 +422,17 @@ function validateRequiredExtensions(extensions: readonly string[]): void {
   });
   throw new Error(
     `Unsupported required glTF extension(s): ${details.join(", ")}. ` +
-      "Export an uncompressed GLB with PNG/JPEG/WebP textures or add the matching decoder."
+      "Export an uncompressed GLB with PNG/JPEG/WebP textures or add the matching decoder.",
   );
 }
 
-function findFileMapEntry(
-  fileMap: GltfFileMap,
-  uri: string
-): File | Blob | ArrayBuffer | undefined {
+function findFileMapEntry(fileMap: GltfFileMap, uri: string): File | Blob | ArrayBuffer | undefined {
   const candidates = new Set([uri, pathBasename(uri)]);
   try {
     const decoded = decodeURIComponent(uri);
     candidates.add(decoded);
     candidates.add(pathBasename(decoded));
-  } catch {
-  }
+  } catch {}
   for (const candidate of candidates) {
     const value = fileMap.get(candidate);
     if (value !== undefined) return value;

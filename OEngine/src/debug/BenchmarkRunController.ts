@@ -1,20 +1,8 @@
-import {
-  BenchmarkHarness,
-  type BenchmarkCaseManifest,
-  type BenchmarkResult
-} from "./BenchmarkHarness.js";
+import { BenchmarkHarness, type BenchmarkCaseManifest, type BenchmarkResult } from "./BenchmarkHarness.js";
 import type { BenchmarkEnvironmentManifest } from "./EnvironmentManifest.js";
-import type {
-  FrameProfileSnapshot,
-  FrameProfiler
-} from "./FrameProfiler.js";
+import type { FrameProfileSnapshot, FrameProfiler } from "./FrameProfiler.js";
 
-export type BenchmarkRunState =
-  | "idle"
-  | "running"
-  | "settling"
-  | "completed"
-  | "failed";
+export type BenchmarkRunState = "idle" | "running" | "settling" | "completed" | "failed";
 
 export interface BenchmarkRunProgress {
   scheduledFrames: number;
@@ -44,7 +32,7 @@ export class BenchmarkRunController {
   constructor(
     private readonly profiler: FrameProfiler,
     private readonly environment: BenchmarkEnvironmentManifest,
-    caseManifest: BenchmarkCaseManifest
+    caseManifest: BenchmarkCaseManifest,
   ) {
     this.harness = new BenchmarkHarness(environment, caseManifest);
   }
@@ -58,7 +46,7 @@ export class BenchmarkRunController {
       scheduledFrames: this.scheduledFramesValue,
       totalFrames: this.totalFrames,
       measuredFrames: this.harness.completeFrameCount,
-      pendingGpuFrames: this.harness.pendingGpuFrameCount
+      pendingGpuFrames: this.harness.pendingGpuFrameCount,
     };
   }
 
@@ -66,10 +54,7 @@ export class BenchmarkRunController {
     if (this.stateValue !== "idle") {
       throw new Error(`BenchmarkRunController cannot run from '${this.stateValue}'`);
     }
-    const gpuWaitTimeoutMs = positiveFinite(
-      options.gpuWaitTimeoutMs ?? 5000,
-      "gpuWaitTimeoutMs"
-    );
+    const gpuWaitTimeoutMs = positiveFinite(options.gpuWaitTimeoutMs ?? 5000, "gpuWaitTimeoutMs");
     let finishPendingWait: (() => void) | null = null;
     const emitProgress = (): void => options.onProgress?.(this.progress);
     const onSnapshot = (snapshot: FrameProfileSnapshot): void => {
@@ -96,7 +81,7 @@ export class BenchmarkRunController {
       }
       if (!this.harness.isComplete) {
         throw new Error(
-          `Benchmark frame callback produced ${this.harness.completeFrameCount} measured frames; expected ${this.environment.run.sampleFrames}`
+          `Benchmark frame callback produced ${this.harness.completeFrameCount} measured frames; expected ${this.environment.run.sampleFrames}`,
         );
       }
 
@@ -108,8 +93,8 @@ export class BenchmarkRunController {
             finishPendingWait = null;
             reject(
               new Error(
-                `Timed out waiting for ${this.harness.pendingGpuFrameCount} delayed GPU evidence frame(s)`
-              )
+                `Timed out waiting for ${this.harness.pendingGpuFrameCount} delayed GPU evidence frame(s)`,
+              ),
             );
           }, gpuWaitTimeoutMs);
           finishPendingWait = () => {
@@ -133,10 +118,7 @@ export class BenchmarkRunController {
   }
 
   private get totalFrames(): number {
-    return (
-      this.environment.run.warmupFrames +
-      this.environment.run.sampleFrames
-    );
+    return this.environment.run.warmupFrames + this.environment.run.sampleFrames;
   }
 }
 

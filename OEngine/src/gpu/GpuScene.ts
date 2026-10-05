@@ -13,12 +13,12 @@ import {
   GPU_INSTANCE_VISIBILITY_FLAGS_MASK,
   GPU_INSTANCE_RECORD_OFFSETS,
   GPU_INSTANCE_RECORD_STRIDE,
-  GPU_INSTANCE_STATIC_RECORD_STRIDE
+  GPU_INSTANCE_STATIC_RECORD_STRIDE,
 } from "./GpuInstanceAbi.js";
 import { recordGpuQueueUpload } from "./GpuQueueEvidence.js";
 import type {
   ResourceAccounting,
-  ResourceHandle as AccountingResourceHandle
+  ResourceHandle as AccountingResourceHandle,
 } from "../debug/profiling/ResourceAccounting.js";
 
 declare const INSTANCE_SET_HANDLE_BRAND: unique symbol;
@@ -113,14 +113,14 @@ export interface GpuSceneCommand {
     sourceOffset: number,
     destination: GPUBuffer,
     destinationOffset: number,
-    size?: number
+    size?: number,
   ): void;
   writeBuffer(
     buffer: GPUBuffer,
     bufferOffset: number,
     data: ArrayBuffer,
     dataOffset: number,
-    size: number
+    size: number,
   ): void;
 }
 
@@ -238,8 +238,7 @@ interface MutationUpload {
 }
 
 const HANDLE_STATE = new WeakMap<object, HandleRuntimeState>();
-const STORAGE_USAGE =
-  GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC;
+const STORAGE_USAGE = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC;
 const U32_MAX = 0xffffffff;
 const NEVER_PATCHED_FRAME = U32_MAX;
 
@@ -304,23 +303,18 @@ export class GpuScene {
   constructor(
     private readonly device: GPUDevice,
     private readonly assets: GpuAssetStore,
-    private readonly resourceAccounting?: ResourceAccounting
+    private readonly resourceAccounting?: ResourceAccounting,
   ) {
-    this.buffer = this.createZeroBuffer(
-      "GpuScene/instances/fallback",
-      GPU_INSTANCE_RECORD_STRIDE
-    );
+    this.buffer = this.createZeroBuffer("GpuScene/instances/fallback", GPU_INSTANCE_RECORD_STRIDE);
     this.peakAllocatedBytes = this.buffer.size;
   }
 
-  instantiate(
-    source: InstanceSource,
-    command: ShadeGPUCommandContext | GpuSceneCommand
-  ): InstanceSetHandle {
+  instantiate(source: InstanceSource, command: ShadeGPUCommandContext | GpuSceneCommand): InstanceSetHandle {
     this.assertMutation(command, "instantiate");
-    const replacingRelease = this.pendingMutation === "replace" && this.pendingMutationCommand === command
-      ? this.pendingReleaseEntry
-      : null;
+    const replacingRelease =
+      this.pendingMutation === "replace" && this.pendingMutationCommand === command
+        ? this.pendingReleaseEntry
+        : null;
     const cursorBefore = this.cursorCount;
     let replacement: BufferReplacement | null = null;
     let entry: InstanceSetEntry | undefined;
@@ -330,9 +324,8 @@ export class GpuScene {
     let slot = -1;
     try {
       validateInstanceSource(source);
-      releaseEntryForReuse = replacingRelease !== null && source.count <= replacingRelease.count
-        ? replacingRelease
-        : null;
+      releaseEntryForReuse =
+        replacingRelease !== null && source.count <= replacingRelease.count ? replacingRelease : null;
       reuseReleasedRange = releaseEntryForReuse !== null;
       const requiredCount = reuseReleasedRange
         ? cursorBefore
@@ -346,8 +339,8 @@ export class GpuScene {
       slot = reuseReleasedRange
         ? releaseEntryForReuse!.slot
         : this.freeSlots.length > 0
-        ? this.freeSlots[this.freeSlots.length - 1]!
-        : this.slots.length;
+          ? this.freeSlots[this.freeSlots.length - 1]!
+          : this.slots.length;
       reusedSlot = reuseReleasedRange || slot < this.slots.length;
       const generation = reusedSlot ? nextGeneration(this.slots[slot]!.generation) : 1;
       stampInstanceSetGeneration(records, generation);
@@ -366,18 +359,19 @@ export class GpuScene {
         count: source.count,
         bytes: records,
         lastTransformFrame: new Uint32Array(source.count).fill(NEVER_PATCHED_FRAME),
-        state: "pending"
+        state: "pending",
       };
       this.slots[slot]!.entry = entry;
       HANDLE_STATE.set(handle as object, { scene: this, slot, generation });
       this.cursorCount = requiredCount;
-      const byteOffset = (reuseReleasedRange ? releaseEntryForReuse!.start : cursorBefore) * GPU_INSTANCE_RECORD_STRIDE;
+      const byteOffset =
+        (reuseReleasedRange ? releaseEntryForReuse!.start : cursorBefore) * GPU_INSTANCE_RECORD_STRIDE;
       command.writeBuffer(
         replacement?.next ?? this.buffer,
         byteOffset,
         records.buffer,
         records.byteOffset,
-        records.byteLength
+        records.byteLength,
       );
       recordGpuQueueUpload(this.device.queue, "GpuScene/bulk-instances", records.byteLength);
       const upload = { calls: 1, sourceBytes: records.byteLength, uploadedBytes: records.byteLength };
@@ -409,7 +403,8 @@ export class GpuScene {
         if (committed.state !== "pending") return;
         committed.state = "aborted";
         this.cursorCount = cursorBefore;
-        if (this.slots[committed.slot]!.entry === committed) this.slots[committed.slot]!.entry = releaseEntryForReuse ?? undefined;
+        if (this.slots[committed.slot]!.entry === committed)
+          this.slots[committed.slot]!.entry = releaseEntryForReuse ?? undefined;
         if (reusedSlot) {
           if (!reuseReleasedRange) this.freeSlots.push(committed.slot);
         } else if (committed.slot === this.slots.length - 1) {
@@ -426,7 +421,8 @@ export class GpuScene {
       this.cursorCount = cursorBefore;
       if (slot >= 1) {
         if (!reusedSlot && slot === this.slots.length - 1) this.slots.pop();
-        else if (reusedSlot && !reuseReleasedRange && !this.freeSlots.includes(slot)) this.freeSlots.push(slot);
+        else if (reusedSlot && !reuseReleasedRange && !this.freeSlots.includes(slot))
+          this.freeSlots.push(slot);
       }
       if (replacement !== null) this.rollbackReplacement(replacement);
       this.pendingMutation = null;
@@ -440,7 +436,7 @@ export class GpuScene {
     handle: InstanceSetHandle,
     source: InstanceSource,
     previousMaterialHandles: Uint32Array,
-    command: ShadeGPUCommandContext | GpuSceneCommand
+    command: ShadeGPUCommandContext | GpuSceneCommand,
   ): void {
     this.assertMutation(command, "append");
     let replacement: BufferReplacement | null = null;
@@ -470,13 +466,23 @@ export class GpuScene {
         const next = previousMaterialHandles[index]!;
         if (view.getUint32(offset, true) === next) continue;
         view.setUint32(offset, next, true);
-        command.writeBuffer(target, (entry.start + index) * GPU_INSTANCE_RECORD_STRIDE +
-          GPU_INSTANCE_RECORD_OFFSETS.material_handle, bytes.buffer, offset, 4);
+        command.writeBuffer(
+          target,
+          (entry.start + index) * GPU_INSTANCE_RECORD_STRIDE + GPU_INSTANCE_RECORD_OFFSETS.material_handle,
+          bytes.buffer,
+          offset,
+          4,
+        );
         recordGpuQueueUpload(this.device.queue, "GpuScene/append-material-remap", 4);
         remapCount++;
       }
-      command.writeBuffer(target, cursorBefore * GPU_INSTANCE_RECORD_STRIDE,
-        appended.buffer, appended.byteOffset, appended.byteLength);
+      command.writeBuffer(
+        target,
+        cursorBefore * GPU_INSTANCE_RECORD_STRIDE,
+        appended.buffer,
+        appended.byteOffset,
+        appended.byteLength,
+      );
       recordGpuQueueUpload(this.device.queue, "GpuScene/append-instances", appended.byteLength);
       const lastTransformFrame = new Uint32Array(entry.count + source.count);
       lastTransformFrame.set(entry.lastTransformFrame);
@@ -486,7 +492,7 @@ export class GpuScene {
         count: entry.count + source.count,
         bytes,
         lastTransformFrame,
-        state: "resident"
+        state: "resident",
       };
       const previous = entry;
       const growth = replacement;
@@ -499,8 +505,11 @@ export class GpuScene {
         this.activeInstanceCount += source.count;
         this.logicalBytes += appended.byteLength;
         this.cpuShadowBytes += appended.byteLength + source.count * Uint32Array.BYTES_PER_ELEMENT;
-        this.commitUpload({ calls: remapCount + 1, sourceBytes: remapCount * 4 + appended.byteLength,
-          uploadedBytes: remapCount * 4 + appended.byteLength });
+        this.commitUpload({
+          calls: remapCount + 1,
+          sourceBytes: remapCount * 4 + appended.byteLength,
+          uploadedBytes: remapCount * 4 + appended.byteLength,
+        });
         if (growth !== null) {
           this.commitReplacement(growth);
           this.resourceEpoch++;
@@ -529,7 +538,7 @@ export class GpuScene {
   patch(
     handle: InstanceSetHandle,
     batch: InstancePatchBatch,
-    command: ShadeGPUCommandContext | GpuSceneCommand
+    command: ShadeGPUCommandContext | GpuSceneCommand,
   ): InstancePatchResult {
     this.assertAlive();
     const entry = this.requireEntry(handle, "resident");
@@ -540,24 +549,26 @@ export class GpuScene {
       batch.transforms?.transforms,
       16,
       entry.count,
-      "transform"
+      "transform",
     );
     const materialOrders = normalizePatch(
       batch.materials?.indices,
       batch.materials?.materialHandles,
       1,
       entry.count,
-      "material"
+      "material",
     );
     const visibilityOrders = normalizePatch(
       batch.visibility?.indices,
       batch.visibility?.flags,
       1,
       entry.count,
-      "visibility"
+      "visibility",
     );
-    if (batch.materials?.flags !== undefined &&
-      batch.materials.flags.length !== batch.materials.materialHandles.length) {
+    if (
+      batch.materials?.flags !== undefined &&
+      batch.materials.flags.length !== batch.materials.materialHandles.length
+    ) {
       throw new RangeError("material patch flags and materialHandles must match");
     }
     if (batch.transforms !== undefined) {
@@ -570,8 +581,12 @@ export class GpuScene {
     for (const order of visibilityOrders) {
       assertU32(batch.visibility!.flags[order]!, `visibility flags[${order}]`);
     }
-    if (staticOrders.length === 0 && transformOrders.length === 0 &&
-        materialOrders.length === 0 && visibilityOrders.length === 0) {
+    if (
+      staticOrders.length === 0 &&
+      transformOrders.length === 0 &&
+      materialOrders.length === 0 &&
+      visibilityOrders.length === 0
+    ) {
       this.stableNoopCount++;
       return Object.freeze({
         staticCount: 0,
@@ -582,7 +597,7 @@ export class GpuScene {
         dirtySpanCount: 0,
         sourceBytes: 0,
         uploadedBytes: 0,
-        density: 0
+        density: 0,
       });
     }
     this.assertMutation(command, "patch");
@@ -603,27 +618,41 @@ export class GpuScene {
     const materialFlags = batch.materials?.flags;
     const staticPatch = batch.staticInstances;
     const visibilityPatch = batch.visibility;
-    const recordView = new DataView(
-      entry.bytes.buffer,
-      entry.bytes.byteOffset,
-      entry.bytes.byteLength
-    );
+    const recordView = new DataView(entry.bytes.buffer, entry.bytes.byteOffset, entry.bytes.byteLength);
 
     try {
       for (const order of staticOrders) {
         const localIndex = staticPatch!.indices[order]!;
         const recordOffset = localIndex * GPU_INSTANCE_RECORD_STRIDE;
         if (staticPatch!.boundsSpheres !== undefined) {
-          copyFiniteF32(recordView, recordOffset + GPU_INSTANCE_RECORD_OFFSETS.bounds_sphere,
-            staticPatch!.boundsSpheres, order * 4, 4, "static boundsSpheres");
+          copyFiniteF32(
+            recordView,
+            recordOffset + GPU_INSTANCE_RECORD_OFFSETS.bounds_sphere,
+            staticPatch!.boundsSpheres,
+            order * 4,
+            4,
+            "static boundsSpheres",
+          );
         }
         if (staticPatch!.boundsMin !== undefined) {
-          copyFiniteF32(recordView, recordOffset + GPU_INSTANCE_RECORD_OFFSETS.bounds_min,
-            staticPatch!.boundsMin, order * 3, 3, "static boundsMin");
+          copyFiniteF32(
+            recordView,
+            recordOffset + GPU_INSTANCE_RECORD_OFFSETS.bounds_min,
+            staticPatch!.boundsMin,
+            order * 3,
+            3,
+            "static boundsMin",
+          );
         }
         if (staticPatch!.boundsMax !== undefined) {
-          copyFiniteF32(recordView, recordOffset + GPU_INSTANCE_RECORD_OFFSETS.bounds_max,
-            staticPatch!.boundsMax, order * 3, 3, "static boundsMax");
+          copyFiniteF32(
+            recordView,
+            recordOffset + GPU_INSTANCE_RECORD_OFFSETS.bounds_max,
+            staticPatch!.boundsMax,
+            order * 3,
+            3,
+            "static boundsMax",
+          );
         }
         if (staticPatch!.debugIds !== undefined) {
           const debugId = staticPatch!.debugIds[order]!;
@@ -648,18 +677,18 @@ export class GpuScene {
           readGpuInstanceAffineMatrix(
             this.motionScratch.inverseCurrent,
             entry.bytes,
-            recordOffset + GPU_INSTANCE_RECORD_OFFSETS.current_affine
+            recordOffset + GPU_INSTANCE_RECORD_OFFSETS.current_affine,
           );
           if (sameFrame) {
             readGpuInstanceAffineMatrix(
               this.motionScratch.previous,
               entry.bytes,
-              recordOffset + GPU_INSTANCE_RECORD_OFFSETS.previous_from_current_affine
+              recordOffset + GPU_INSTANCE_RECORD_OFFSETS.previous_from_current_affine,
             );
             mat4.multiply(
               this.motionScratch.inverseCurrent,
               this.motionScratch.previous,
-              this.motionScratch.inverseCurrent
+              this.motionScratch.inverseCurrent,
             );
           }
           motionValid = computePreviousFromCurrent(
@@ -668,7 +697,7 @@ export class GpuScene {
             this.motionScratch.inverseCurrent,
             order * 16,
             0,
-            this.motionScratch
+            this.motionScratch,
           );
         }
         writeGpuInstanceAffineMatrix(
@@ -676,26 +705,26 @@ export class GpuScene {
           recordOffset + GPU_INSTANCE_RECORD_OFFSETS.current_affine,
           transformValues!,
           order * 16,
-          `transforms[${order}]`
+          `transforms[${order}]`,
         );
         writeGpuInstanceAffineMatrix(
           entry.bytes,
           recordOffset + GPU_INSTANCE_RECORD_OFFSETS.previous_from_current_affine,
           this.motionScratch.previousFromCurrent,
           0,
-          `previousFromCurrent[${order}]`
+          `previousFromCurrent[${order}]`,
         );
         recordView.setUint32(
           flagsOffset,
           (motionValid
             ? previousFlags & ~GPU_INSTANCE_FLAGS.MotionInvalid
             : previousFlags | GPU_INSTANCE_FLAGS.MotionInvalid) >>> 0,
-          true
+          true,
         );
         recordView.setUint32(
           recordOffset + GPU_INSTANCE_RECORD_OFFSETS.dynamic_revision,
           batch.frameId,
-          true
+          true,
         );
         entry.lastTransformFrame[localIndex] = batch.frameId;
       }
@@ -707,21 +736,14 @@ export class GpuScene {
         recordView.setUint32(
           localIndex * GPU_INSTANCE_RECORD_STRIDE + GPU_INSTANCE_RECORD_OFFSETS.material_handle,
           material,
-          true
+          true,
         );
         if (materialFlags !== undefined) {
-          const flagsOffset = localIndex * GPU_INSTANCE_RECORD_STRIDE +
-            GPU_INSTANCE_RECORD_OFFSETS.flags;
+          const flagsOffset = localIndex * GPU_INSTANCE_RECORD_STRIDE + GPU_INSTANCE_RECORD_OFFSETS.flags;
           const previousFlags = recordView.getUint32(flagsOffset, true);
-          const persistentFlags = previousFlags &
-            ~GPU_INSTANCE_MATERIAL_CLASSIFICATION_MASK;
-          const classificationFlags = materialFlags[order]! &
-            GPU_INSTANCE_MATERIAL_CLASSIFICATION_MASK;
-          recordView.setUint32(
-            flagsOffset,
-            (persistentFlags | classificationFlags) >>> 0,
-            true
-          );
+          const persistentFlags = previousFlags & ~GPU_INSTANCE_MATERIAL_CLASSIFICATION_MASK;
+          const classificationFlags = materialFlags[order]! & GPU_INSTANCE_MATERIAL_CLASSIFICATION_MASK;
+          recordView.setUint32(flagsOffset, (persistentFlags | classificationFlags) >>> 0, true);
         }
       }
       for (const order of visibilityOrders) {
@@ -729,8 +751,11 @@ export class GpuScene {
         const flagsOffset = localIndex * GPU_INSTANCE_RECORD_STRIDE + GPU_INSTANCE_RECORD_OFFSETS.flags;
         const previousFlags = recordView.getUint32(flagsOffset, true);
         const flags = visibilityPatch!.flags[order]! & GPU_INSTANCE_VISIBILITY_FLAGS_MASK;
-        recordView.setUint32(flagsOffset,
-          ((previousFlags & ~GPU_INSTANCE_VISIBILITY_FLAGS_MASK) | flags) >>> 0, true);
+        recordView.setUint32(
+          flagsOffset,
+          ((previousFlags & ~GPU_INSTANCE_VISIBILITY_FLAGS_MASK) | flags) >>> 0,
+          true,
+        );
       }
 
       const density = dirtyIndices.length / entry.count;
@@ -743,7 +768,7 @@ export class GpuScene {
           [GPU_INSTANCE_RECORD_OFFSETS.bounds_sphere, 16, staticPatch!.boundsSpheres !== undefined],
           [GPU_INSTANCE_RECORD_OFFSETS.bounds_min, 12, staticPatch!.boundsMin !== undefined],
           [GPU_INSTANCE_RECORD_OFFSETS.bounds_max, 12, staticPatch!.boundsMax !== undefined],
-          [GPU_INSTANCE_RECORD_OFFSETS.debug_id, 4, staticPatch!.debugIds !== undefined]
+          [GPU_INSTANCE_RECORD_OFFSETS.debug_id, 4, staticPatch!.debugIds !== undefined],
         ];
         for (const [fieldOffset, byteLength, enabled] of writes) {
           if (!enabled) continue;
@@ -753,7 +778,7 @@ export class GpuScene {
             (entry.start + localIndex) * GPU_INSTANCE_RECORD_STRIDE + fieldOffset,
             entry.bytes.buffer,
             entry.bytes.byteOffset + localByteOffset,
-            byteLength
+            byteLength,
           );
           recordGpuQueueUpload(this.device.queue, "GpuScene/patch-static", byteLength);
           uploadedBytes += byteLength;
@@ -763,32 +788,36 @@ export class GpuScene {
       }
       for (const order of transformOrders) {
         const localIndex = transformIndices![order]!;
-        const localByteOffset = localIndex * GPU_INSTANCE_RECORD_STRIDE +
-          GPU_INSTANCE_RECORD_OFFSETS.current_affine;
+        const localByteOffset =
+          localIndex * GPU_INSTANCE_RECORD_STRIDE + GPU_INSTANCE_RECORD_OFFSETS.current_affine;
         command.writeBuffer(
           this.buffer,
           (entry.start + localIndex) * GPU_INSTANCE_RECORD_STRIDE +
             GPU_INSTANCE_RECORD_OFFSETS.current_affine,
           entry.bytes.buffer,
           entry.bytes.byteOffset + localByteOffset,
-          GPU_INSTANCE_DYNAMIC_RECORD_STRIDE
+          GPU_INSTANCE_DYNAMIC_RECORD_STRIDE,
         );
-        recordGpuQueueUpload(this.device.queue, "GpuScene/patch-transform", GPU_INSTANCE_DYNAMIC_RECORD_STRIDE);
+        recordGpuQueueUpload(
+          this.device.queue,
+          "GpuScene/patch-transform",
+          GPU_INSTANCE_DYNAMIC_RECORD_STRIDE,
+        );
         uploadedBytes += GPU_INSTANCE_DYNAMIC_RECORD_STRIDE;
         uploadCalls++;
       }
       for (const order of materialOrders) {
         const localIndex = materialIndices![order]!;
         const byteLength = materialFlags === undefined ? 4 : 8;
-        const localByteOffset = localIndex * GPU_INSTANCE_RECORD_STRIDE +
-          GPU_INSTANCE_RECORD_OFFSETS.material_handle;
+        const localByteOffset =
+          localIndex * GPU_INSTANCE_RECORD_STRIDE + GPU_INSTANCE_RECORD_OFFSETS.material_handle;
         command.writeBuffer(
           this.buffer,
           (entry.start + localIndex) * GPU_INSTANCE_RECORD_STRIDE +
             GPU_INSTANCE_RECORD_OFFSETS.material_handle,
           entry.bytes.buffer,
           entry.bytes.byteOffset + localByteOffset,
-          byteLength
+          byteLength,
         );
         recordGpuQueueUpload(this.device.queue, "GpuScene/patch-material", byteLength);
         uploadedBytes += byteLength;
@@ -796,21 +825,21 @@ export class GpuScene {
       }
       for (const order of visibilityOrders) {
         const localIndex = visibilityPatch!.indices[order]!;
-        const localByteOffset = localIndex * GPU_INSTANCE_RECORD_STRIDE +
-          GPU_INSTANCE_RECORD_OFFSETS.flags;
+        const localByteOffset = localIndex * GPU_INSTANCE_RECORD_STRIDE + GPU_INSTANCE_RECORD_OFFSETS.flags;
         command.writeBuffer(
           this.buffer,
-          (entry.start + localIndex) * GPU_INSTANCE_RECORD_STRIDE +
-            GPU_INSTANCE_RECORD_OFFSETS.flags,
+          (entry.start + localIndex) * GPU_INSTANCE_RECORD_STRIDE + GPU_INSTANCE_RECORD_OFFSETS.flags,
           entry.bytes.buffer,
           entry.bytes.byteOffset + localByteOffset,
-          4
+          4,
         );
         recordGpuQueueUpload(this.device.queue, "GpuScene/patch-visibility", 4);
         uploadedBytes += 4;
         uploadCalls++;
       }
-      const sourceBytes = staticUploadedBytes + transformOrders.length * 16 * 4 +
+      const sourceBytes =
+        staticUploadedBytes +
+        transformOrders.length * 16 * 4 +
         materialOrders.length * (materialFlags === undefined ? 4 : 8) +
         visibilityOrders.length * 4;
       const result = Object.freeze({
@@ -822,7 +851,7 @@ export class GpuScene {
         dirtySpanCount: uploadCalls,
         sourceBytes,
         uploadedBytes,
-        density
+        density,
       });
       const upload = { calls: uploadCalls, sourceBytes, uploadedBytes };
       command.onFinished.addOne(() => {
@@ -867,10 +896,7 @@ export class GpuScene {
     }
   }
 
-  release(
-    handle: InstanceSetHandle,
-    command: ShadeGPUCommandContext | GpuSceneCommand
-  ): void {
+  release(handle: InstanceSetHandle, command: ShadeGPUCommandContext | GpuSceneCommand): void {
     this.assertMutation(command, "release");
     try {
       const entry = this.requireEntry(handle, "resident");
@@ -882,7 +908,7 @@ export class GpuScene {
         entry.start * GPU_INSTANCE_RECORD_STRIDE,
         zero.buffer,
         0,
-        zero.byteLength
+        zero.byteLength,
       );
       recordGpuQueueUpload(this.device.queue, "GpuScene/release-instances", zero.byteLength);
       command.onFinished.addOne(() => {
@@ -902,7 +928,7 @@ export class GpuScene {
         this.commitUpload({
           calls: 1,
           sourceBytes: zero.byteLength,
-          uploadedBytes: zero.byteLength
+          uploadedBytes: zero.byteLength,
         });
         this.contentRevision++;
         this.pendingMutation = null;
@@ -931,7 +957,7 @@ export class GpuScene {
       instances: this.buffer,
       recordStride: GPU_INSTANCE_RECORD_STRIDE,
       highWaterCount: this.publishedCursorCount,
-      activeCount: this.activeInstanceCount
+      activeCount: this.activeInstanceCount,
     });
   }
 
@@ -942,8 +968,12 @@ export class GpuScene {
   }
 
   /** Cold device-recovery checkpoint from CPU truth, never GPU readback. */
-  recoveryInstances(handle: InstanceSetHandle): Pick<InstanceSource,
-    "currentTransforms" | "boundsSpheres" | "boundsMin" | "boundsMax" | "flags" | "debugIds"> {
+  recoveryInstances(
+    handle: InstanceSetHandle,
+  ): Pick<
+    InstanceSource,
+    "currentTransforms" | "boundsSpheres" | "boundsMin" | "boundsMax" | "flags" | "debugIds"
+  > {
     const entry = this.requireEntry(handle, "resident");
     const currentTransforms = new Float32Array(entry.count * 16);
     const boundsSpheres = new Float32Array(entry.count * 4);
@@ -954,16 +984,30 @@ export class GpuScene {
     const bytes = new DataView(entry.bytes.buffer, entry.bytes.byteOffset, entry.bytes.byteLength);
     for (let index = 0; index < entry.count; index++) {
       const offset = index * GPU_INSTANCE_RECORD_STRIDE;
-      readGpuInstanceAffineMatrix(currentTransforms.subarray(index * 16, index * 16 + 16),
-        entry.bytes, offset + GPU_INSTANCE_RECORD_OFFSETS.current_affine);
+      readGpuInstanceAffineMatrix(
+        currentTransforms.subarray(index * 16, index * 16 + 16),
+        entry.bytes,
+        offset + GPU_INSTANCE_RECORD_OFFSETS.current_affine,
+      );
       for (let lane = 0; lane < 4; lane++) {
-        boundsSpheres[index * 4 + lane] = bytes.getFloat32(offset + GPU_INSTANCE_RECORD_OFFSETS.bounds_sphere + lane * 4, true);
+        boundsSpheres[index * 4 + lane] = bytes.getFloat32(
+          offset + GPU_INSTANCE_RECORD_OFFSETS.bounds_sphere + lane * 4,
+          true,
+        );
       }
       for (let lane = 0; lane < 3; lane++) {
-        boundsMin[index * 3 + lane] = bytes.getFloat32(offset + GPU_INSTANCE_RECORD_OFFSETS.bounds_min + lane * 4, true);
-        boundsMax[index * 3 + lane] = bytes.getFloat32(offset + GPU_INSTANCE_RECORD_OFFSETS.bounds_max + lane * 4, true);
+        boundsMin[index * 3 + lane] = bytes.getFloat32(
+          offset + GPU_INSTANCE_RECORD_OFFSETS.bounds_min + lane * 4,
+          true,
+        );
+        boundsMax[index * 3 + lane] = bytes.getFloat32(
+          offset + GPU_INSTANCE_RECORD_OFFSETS.bounds_max + lane * 4,
+          true,
+        );
       }
-      flags[index] = bytes.getUint32(offset + GPU_INSTANCE_RECORD_OFFSETS.flags, true) & GPU_INSTANCE_VISIBILITY_FLAGS_MASK;
+      flags[index] =
+        bytes.getUint32(offset + GPU_INSTANCE_RECORD_OFFSETS.flags, true) &
+        GPU_INSTANCE_VISIBILITY_FLAGS_MASK;
       debugIds[index] = bytes.getUint32(offset + GPU_INSTANCE_RECORD_OFFSETS.debug_id, true);
     }
     return { currentTransforms, boundsSpheres, boundsMin, boundsMax, flags, debugIds };
@@ -987,7 +1031,8 @@ export class GpuScene {
       reclaimableBytes: this.reclaimableBytes,
       cpuShadowBytes: this.cpuShadowBytes,
       cpuStaticShadowBytes: this.activeInstanceCount * GPU_INSTANCE_STATIC_RECORD_STRIDE,
-      cpuDynamicShadowBytes: this.activeInstanceCount * GPU_INSTANCE_DYNAMIC_RECORD_STRIDE +
+      cpuDynamicShadowBytes:
+        this.activeInstanceCount * GPU_INSTANCE_DYNAMIC_RECORD_STRIDE +
         this.activeInstanceCount * Uint32Array.BYTES_PER_ELEMENT,
       bulkInstantiateCount: this.bulkInstantiateCount,
       bulkInstanceCount: this.bulkInstanceCount,
@@ -1015,7 +1060,7 @@ export class GpuScene {
       releaseCount: this.releaseCount,
       privateSubmitCount: 0,
       pendingMutation: this.pendingMutation,
-      lastPatch: this.lastPatch
+      lastPatch: this.lastPatch,
     });
   }
 
@@ -1030,7 +1075,7 @@ export class GpuScene {
       staticPatchBytes: this.staticPatchBytes - this.profiledStaticPatchBytes,
       transformPatchBytes: this.transformPatchBytes - this.profiledTransformPatchBytes,
       materialPatchBytes: this.materialPatchBytes - this.profiledMaterialPatchBytes,
-      visibilityPatchBytes: this.visibilityPatchBytes - this.profiledVisibilityPatchBytes
+      visibilityPatchBytes: this.visibilityPatchBytes - this.profiledVisibilityPatchBytes,
     });
     this.profiledStaticPatchBytes = this.staticPatchBytes;
     this.profiledTransformPatchBytes = this.transformPatchBytes;
@@ -1057,65 +1102,81 @@ export class GpuScene {
     const bytes = new Uint8Array(source.count * GPU_INSTANCE_RECORD_STRIDE);
     const view = new DataView(bytes.buffer);
     const geometryIdentities = source.geometryHandles.map((handle) =>
-      this.assets.publicationIdentity(handle)
+      this.assets.publicationIdentity(handle),
     );
     for (let index = 0; index < source.count; index++) {
       const base = index * GPU_INSTANCE_RECORD_STRIDE;
       const geometryLocal = source.geometryIndices[index]!;
-      const geometryIdentity = source.virtualGeometry === undefined
-        ? geometryIdentities[geometryLocal]
-        : undefined;
+      const geometryIdentity =
+        source.virtualGeometry === undefined ? geometryIdentities[geometryLocal] : undefined;
       if (source.virtualGeometry === undefined && geometryIdentity === undefined) {
         throw new RangeError(`geometryIndices[${index}] is outside geometryHandles`);
       }
       view.setUint32(
         base + GPU_INSTANCE_RECORD_OFFSETS.geometry_record_index,
         source.virtualGeometry === undefined ? geometryIdentity!.slot : geometryLocal,
-        true
+        true,
       );
       view.setUint32(
         base + GPU_INSTANCE_RECORD_OFFSETS.geometry_generation,
         source.virtualGeometry === undefined
           ? geometryIdentity!.generation
-          : source.virtualGeometry.productGenerations?.[index] ?? source.virtualGeometry.productGeneration,
-        true
+          : (source.virtualGeometry.productGenerations?.[index] ?? source.virtualGeometry.productGeneration),
+        true,
       );
       view.setUint32(
         base + GPU_INSTANCE_RECORD_OFFSETS.product_table_slot,
         source.virtualGeometry === undefined
           ? 0
-          : source.virtualGeometry.productTableSlots?.[index] ?? source.virtualGeometry.productTableSlot,
-        true
+          : (source.virtualGeometry.productTableSlots?.[index] ?? source.virtualGeometry.productTableSlot),
+        true,
       );
       view.setUint32(
         base + GPU_INSTANCE_RECORD_OFFSETS.material_handle,
         source.materialHandles[index]!,
-        true
+        true,
       );
       let flags = (source.flags?.[index] ?? 0) | GPU_INSTANCE_FLAGS.Active;
       if (source.virtualGeometry !== undefined) flags |= GPU_INSTANCE_FLAGS.VirtualGeometry;
-      view.setUint32(
-        base + GPU_INSTANCE_RECORD_OFFSETS.debug_id,
-        source.debugIds?.[index] ?? index,
-        true
+      view.setUint32(base + GPU_INSTANCE_RECORD_OFFSETS.debug_id, source.debugIds?.[index] ?? index, true);
+      copyFiniteF32(
+        view,
+        base + GPU_INSTANCE_RECORD_OFFSETS.bounds_sphere,
+        source.boundsSpheres,
+        index * 4,
+        4,
+        "boundsSpheres",
       );
-      copyFiniteF32(view, base + GPU_INSTANCE_RECORD_OFFSETS.bounds_sphere, source.boundsSpheres, index * 4, 4, "boundsSpheres");
       if (source.boundsMin === undefined) {
         writeDefaultBounds(view, base + GPU_INSTANCE_RECORD_OFFSETS.bounds_min, -1);
       } else {
-        copyFiniteF32(view, base + GPU_INSTANCE_RECORD_OFFSETS.bounds_min, source.boundsMin, index * 3, 3, "boundsMin");
+        copyFiniteF32(
+          view,
+          base + GPU_INSTANCE_RECORD_OFFSETS.bounds_min,
+          source.boundsMin,
+          index * 3,
+          3,
+          "boundsMin",
+        );
       }
       if (source.boundsMax === undefined) {
         writeDefaultBounds(view, base + GPU_INSTANCE_RECORD_OFFSETS.bounds_max, 1);
       } else {
-        copyFiniteF32(view, base + GPU_INSTANCE_RECORD_OFFSETS.bounds_max, source.boundsMax, index * 3, 3, "boundsMax");
+        copyFiniteF32(
+          view,
+          base + GPU_INSTANCE_RECORD_OFFSETS.bounds_max,
+          source.boundsMax,
+          index * 3,
+          3,
+          "boundsMax",
+        );
       }
       writeGpuInstanceAffineMatrix(
         bytes,
         base + GPU_INSTANCE_RECORD_OFFSETS.current_affine,
         source.currentTransforms,
         index * 16,
-        "currentTransforms"
+        "currentTransforms",
       );
       const motionValid = computePreviousFromCurrent(
         this.motionScratch.previousFromCurrent,
@@ -1123,7 +1184,7 @@ export class GpuScene {
         source.previousTransforms ?? source.currentTransforms,
         index * 16,
         index * 16,
-        this.motionScratch
+        this.motionScratch,
       );
       flags &= ~GPU_INSTANCE_FLAGS.MotionInvalid;
       view.setUint32(base + GPU_INSTANCE_RECORD_OFFSETS.flags, flags >>> 0, true);
@@ -1132,44 +1193,41 @@ export class GpuScene {
         base + GPU_INSTANCE_RECORD_OFFSETS.previous_from_current_affine,
         this.motionScratch.previousFromCurrent,
         0,
-        "previousFromCurrent"
+        "previousFromCurrent",
       );
-      view.setUint32(base + GPU_INSTANCE_RECORD_OFFSETS.dynamic_revision,
-        source.deformationRevisions?.[index] ?? 0, true);
-      const deformationMotionValid = source.deformationMotionValid === undefined ||
-        source.deformationMotionValid[index] !== 0;
+      view.setUint32(
+        base + GPU_INSTANCE_RECORD_OFFSETS.dynamic_revision,
+        source.deformationRevisions?.[index] ?? 0,
+        true,
+      );
+      const deformationMotionValid =
+        source.deformationMotionValid === undefined || source.deformationMotionValid[index] !== 0;
       view.setUint32(
         base + GPU_INSTANCE_RECORD_OFFSETS.motion_flags,
         motionValid && deformationMotionValid ? 0 : GPU_INSTANCE_FLAGS.MotionInvalid,
-        true
+        true,
       );
     }
     return bytes;
   }
 
-  private grow(
-    requiredCount: number,
-    command: ShadeGPUCommandContext | GpuSceneCommand
-  ): BufferReplacement {
+  private grow(requiredCount: number, command: ShadeGPUCommandContext | GpuSceneCommand): BufferReplacement {
     const previous = this.buffer;
     const requiredBytes = requiredCount * GPU_INSTANCE_RECORD_STRIDE;
     const limit = this.storageLimit();
-    let nextSize = Math.max(
-      requiredBytes,
-      previous.size + Math.max(previous.size >>> 1, 4096)
-    );
+    let nextSize = Math.max(requiredBytes, previous.size + Math.max(previous.size >>> 1, 4096));
     nextSize = align4(Math.min(nextSize, limit));
     if (nextSize < requiredBytes) nextSize = requiredBytes;
     const next = this.createBuffer({
       label: `GpuScene/instances/grow-${nextSize}`,
       size: nextSize,
-      usage: STORAGE_USAGE
+      usage: STORAGE_USAGE,
     });
     command.copyBufferToBuffer(previous, 0, next, 0, previous.size);
     this.attemptedGrowCount++;
     this.peakAllocatedBytes = Math.max(
       this.peakAllocatedBytes,
-      previous.size + next.size + this.retiringBytes
+      previous.size + next.size + this.retiringBytes,
     );
     return { previous, next };
   }
@@ -1198,20 +1256,13 @@ export class GpuScene {
     this.uploadedBytes += upload.uploadedBytes;
   }
 
-  private requireEntry(
-    handle: InstanceSetHandle,
-    ...states: EntryState[]
-  ): InstanceSetEntry {
+  private requireEntry(handle: InstanceSetHandle, ...states: EntryState[]): InstanceSetEntry {
     const runtime = HANDLE_STATE.get(handle as object);
     if (runtime === undefined || runtime.scene !== this) {
       throw new Error("InstanceSetHandle belongs to another GpuScene or is invalid");
     }
     const entry = this.slots[runtime.slot]?.entry;
-    if (
-      entry === undefined ||
-      entry.generation !== runtime.generation ||
-      !states.includes(entry.state)
-    ) {
+    if (entry === undefined || entry.generation !== runtime.generation || !states.includes(entry.state)) {
       throw new Error("InstanceSetHandle is stale or not resident");
     }
     return entry;
@@ -1219,14 +1270,18 @@ export class GpuScene {
 
   private assertMutation(
     command: ShadeGPUCommandContext | GpuSceneCommand,
-    kind: NonNullable<GpuSceneEvidence["pendingMutation"]>
+    kind: NonNullable<GpuSceneEvidence["pendingMutation"]>,
   ): void {
     this.assertAlive();
     if (command.device !== this.device) {
       throw new Error("GpuScene command belongs to another GPUDevice");
     }
     if (command.closed === true) throw new Error("GpuScene command is already closed");
-    if (this.pendingMutation === "release" && kind === "instantiate" && this.pendingMutationCommand === command) {
+    if (
+      this.pendingMutation === "release" &&
+      kind === "instantiate" &&
+      this.pendingMutationCommand === command
+    ) {
       this.pendingMutation = "replace";
       return;
     }
@@ -1243,7 +1298,7 @@ export class GpuScene {
     const requiredBytes = requiredCount * GPU_INSTANCE_RECORD_STRIDE;
     if (!Number.isSafeInteger(requiredBytes) || requiredBytes > this.storageLimit()) {
       throw new RangeError(
-        `Instance table requires ${requiredBytes} bytes, adapter storage limit is ${this.storageLimit()}`
+        `Instance table requires ${requiredBytes} bytes, adapter storage limit is ${this.storageLimit()}`,
       );
     }
   }
@@ -1251,7 +1306,7 @@ export class GpuScene {
   private storageLimit(): number {
     return Math.min(
       Number(this.device.limits.maxBufferSize ?? Number.MAX_SAFE_INTEGER),
-      Number(this.device.limits.maxStorageBufferBindingSize ?? Number.MAX_SAFE_INTEGER)
+      Number(this.device.limits.maxStorageBufferBindingSize ?? Number.MAX_SAFE_INTEGER),
     );
   }
 
@@ -1261,7 +1316,7 @@ export class GpuScene {
       label,
       size,
       usage: STORAGE_USAGE,
-      mappedAtCreation: true
+      mappedAtCreation: true,
     });
     new Uint8Array(buffer.getMappedRange()).fill(0);
     buffer.unmap();
@@ -1271,13 +1326,16 @@ export class GpuScene {
   private createBuffer(descriptor: GPUBufferDescriptor): GPUBuffer {
     const buffer = this.device.createBuffer(descriptor);
     if (this.resourceAccounting !== undefined) {
-      this.accountedBuffers.set(buffer, this.resourceAccounting.created({
-        kind: "buffer",
-        category: "resident",
-        owner: "GpuScene",
-        bytes: descriptor.size,
-        label: descriptor.label
-      }));
+      this.accountedBuffers.set(
+        buffer,
+        this.resourceAccounting.created({
+          kind: "buffer",
+          category: "resident",
+          owner: "GpuScene",
+          bytes: descriptor.size,
+          label: descriptor.label,
+        }),
+      );
     }
     return buffer;
   }
@@ -1307,9 +1365,16 @@ function validateInstanceSource(source: InstanceSource): void {
   }
   if (source.virtualGeometry !== undefined) {
     const product = source.virtualGeometry;
-    if (!Number.isSafeInteger(product.productTableSlot) || product.productTableSlot < 0 || product.productTableSlot >= 0xffffffff ||
-        !Number.isSafeInteger(product.productGeneration) || product.productGeneration <= 0 || product.productGeneration >= 0xffffffff ||
-        !Number.isSafeInteger(product.assetCount) || product.assetCount <= 0) {
+    if (
+      !Number.isSafeInteger(product.productTableSlot) ||
+      product.productTableSlot < 0 ||
+      product.productTableSlot >= 0xffffffff ||
+      !Number.isSafeInteger(product.productGeneration) ||
+      product.productGeneration <= 0 ||
+      product.productGeneration >= 0xffffffff ||
+      !Number.isSafeInteger(product.assetCount) ||
+      product.assetCount <= 0
+    ) {
       throw new RangeError("Instance Product identity is invalid");
     }
     if ((product.productTableSlots === undefined) !== (product.productGenerations === undefined)) {
@@ -1333,8 +1398,10 @@ function validateInstanceSource(source: InstanceSource): void {
   if (source.previousTransforms !== undefined) {
     assertLength(source.previousTransforms, source.count * 16, "previousTransforms");
   }
-  if (source.deformationRevisions !== undefined) assertLength(source.deformationRevisions, source.count, "deformationRevisions");
-  if (source.deformationMotionValid !== undefined) assertLength(source.deformationMotionValid, source.count, "deformationMotionValid");
+  if (source.deformationRevisions !== undefined)
+    assertLength(source.deformationRevisions, source.count, "deformationRevisions");
+  if (source.deformationMotionValid !== undefined)
+    assertLength(source.deformationMotionValid, source.count, "deformationMotionValid");
   assertLength(source.boundsSpheres, source.count * 4, "boundsSpheres");
   if (source.boundsMin !== undefined) assertLength(source.boundsMin, source.count * 3, "boundsMin");
   if (source.boundsMax !== undefined) assertLength(source.boundsMax, source.count * 3, "boundsMax");
@@ -1353,7 +1420,7 @@ function normalizePatch(
   values: ArrayLike<unknown> | undefined,
   valueStride: number,
   instanceCount: number,
-  label: string
+  label: string,
 ): Uint32Array {
   if (indices === undefined && values === undefined) return new Uint32Array(0);
   if (indices === undefined || values === undefined) {
@@ -1375,7 +1442,7 @@ function normalizePatch(
     return delta === 0 ? left - right : delta;
   });
   let write = 0;
-  for (let read = 0; read < orders.length;) {
+  for (let read = 0; read < orders.length; ) {
     const index = indices[orders[read]!]!;
     let lastOrder = orders[read]!;
     read++;
@@ -1388,13 +1455,13 @@ function normalizePatch(
   return orders.slice(0, write);
 }
 
-function normalizeStaticPatch(
-  patch: InstanceStaticPatch | undefined,
-  instanceCount: number
-): Uint32Array {
+function normalizeStaticPatch(patch: InstanceStaticPatch | undefined, instanceCount: number): Uint32Array {
   if (patch === undefined) return new Uint32Array(0);
-  const hasField = patch.boundsSpheres !== undefined || patch.boundsMin !== undefined ||
-    patch.boundsMax !== undefined || patch.debugIds !== undefined;
+  const hasField =
+    patch.boundsSpheres !== undefined ||
+    patch.boundsMin !== undefined ||
+    patch.boundsMax !== undefined ||
+    patch.debugIds !== undefined;
   if (!hasField) throw new RangeError("static-instance patch requires at least one field");
   const orders = normalizePatch(patch.indices, patch.indices, 1, instanceCount, "static-instance");
   if (patch.boundsSpheres !== undefined) {
@@ -1416,7 +1483,7 @@ function normalizeStaticPatch(
 function markPatchIndices(
   dirtyMask: Uint8Array,
   indices: Uint32Array | undefined,
-  orders: Uint32Array
+  orders: Uint32Array,
 ): void {
   if (indices === undefined) return;
   for (const order of orders) dirtyMask[indices[order]!] = 1;
@@ -1437,31 +1504,30 @@ function copyRecords(source: Uint8Array, indices: Uint32Array): Uint8Array<Array
   const result = new Uint8Array(indices.length * GPU_INSTANCE_RECORD_STRIDE);
   for (let cursor = 0; cursor < indices.length; cursor++) {
     const begin = indices[cursor]! * GPU_INSTANCE_RECORD_STRIDE;
-    result.set(source.subarray(begin, begin + GPU_INSTANCE_RECORD_STRIDE), cursor * GPU_INSTANCE_RECORD_STRIDE);
+    result.set(
+      source.subarray(begin, begin + GPU_INSTANCE_RECORD_STRIDE),
+      cursor * GPU_INSTANCE_RECORD_STRIDE,
+    );
   }
   return result;
 }
 
 function stampInstanceSetGeneration(records: Uint8Array, generation: number): void {
   const view = new DataView(records.buffer, records.byteOffset, records.byteLength);
-  for (let offset = GPU_INSTANCE_RECORD_OFFSETS.instance_set_generation;
-      offset < records.byteLength; offset += GPU_INSTANCE_RECORD_STRIDE) {
+  for (
+    let offset = GPU_INSTANCE_RECORD_OFFSETS.instance_set_generation;
+    offset < records.byteLength;
+    offset += GPU_INSTANCE_RECORD_STRIDE
+  ) {
     view.setUint32(offset, generation, true);
   }
 }
 
-function restoreRecords(
-  destination: Uint8Array,
-  indices: Uint32Array,
-  records: Uint8Array
-): void {
+function restoreRecords(destination: Uint8Array, indices: Uint32Array, records: Uint8Array): void {
   for (let cursor = 0; cursor < indices.length; cursor++) {
     destination.set(
-      records.subarray(
-        cursor * GPU_INSTANCE_RECORD_STRIDE,
-        (cursor + 1) * GPU_INSTANCE_RECORD_STRIDE
-      ),
-      indices[cursor]! * GPU_INSTANCE_RECORD_STRIDE
+      records.subarray(cursor * GPU_INSTANCE_RECORD_STRIDE, (cursor + 1) * GPU_INSTANCE_RECORD_STRIDE),
+      indices[cursor]! * GPU_INSTANCE_RECORD_STRIDE,
     );
   }
 }
@@ -1472,7 +1538,7 @@ function copyFiniteF32(
   source: Float32Array,
   sourceOffset: number,
   count: number,
-  label: string
+  label: string,
 ): void {
   for (let index = 0; index < count; index++) {
     const value = source[sourceOffset + index]!;

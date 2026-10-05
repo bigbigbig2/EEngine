@@ -1,4 +1,3 @@
-
 /** Immutable Renderer capability and execution configuration. */
 export interface RendererConfig {
   /** Opt in to extended Display-P3 when canvas and display report support. */
@@ -32,24 +31,31 @@ export const DEFAULT_RENDERER_CONFIG: RendererConfig = Object.freeze({ renderSca
 export function mergeRendererConfig(base: RendererConfig, override?: RendererConfig): RendererConfig {
   if (!override) return base;
   return Object.freeze({
-    ...base, ...override,
+    ...base,
+    ...override,
     requiredFeatures: Object.freeze([...(base.requiredFeatures ?? []), ...(override.requiredFeatures ?? [])]),
     requiredLimits: Object.freeze({ ...base.requiredLimits, ...override.requiredLimits }),
-    geometryResidency: Object.freeze({ ...base.geometryResidency, ...override.geometryResidency })
+    geometryResidency: Object.freeze({ ...base.geometryResidency, ...override.geometryResidency }),
   });
 }
 
 export function validateRendererConfig(config: RendererConfig): void {
-  if (config.renderScale !== undefined &&
-      (!Number.isFinite(config.renderScale) || config.renderScale <= 0 || config.renderScale > 1)) {
+  if (
+    config.renderScale !== undefined &&
+    (!Number.isFinite(config.renderScale) || config.renderScale <= 0 || config.renderScale > 1)
+  ) {
     throw new RangeError("Renderer renderScale must be in (0, 1]");
   }
-  if (config.textureMaxResolution !== undefined &&
-      ![256, 512, 1024, 2048, 4096].includes(config.textureMaxResolution)) {
+  if (
+    config.textureMaxResolution !== undefined &&
+    ![256, 512, 1024, 2048, 4096].includes(config.textureMaxResolution)
+  ) {
     throw new RangeError("textureMaxResolution must be a supported texture bank size");
   }
-  if (config.fixedExposure !== undefined &&
-      (!Number.isFinite(config.fixedExposure) || config.fixedExposure <= 0 || config.fixedExposure > 64)) {
+  if (
+    config.fixedExposure !== undefined &&
+    (!Number.isFinite(config.fixedExposure) || config.fixedExposure <= 0 || config.fixedExposure > 64)
+  ) {
     throw new RangeError("fixedExposure must be finite and in (0, 64]");
   }
   for (const [index, capacity] of (config.textureBankMaxCapacities ?? []).entries()) {
@@ -66,6 +72,7 @@ export function validateRendererConfig(config: RendererConfig): void {
     if (!feature) throw new Error("Required WebGPU feature must not be empty");
   }
   for (const [name, limit] of Object.entries(config.requiredLimits ?? {})) {
-    if (!Number.isFinite(limit) || limit <= 0) throw new RangeError(`requiredLimits.${name} must be positive`);
+    if (!Number.isFinite(limit) || limit <= 0)
+      throw new RangeError(`requiredLimits.${name} must be positive`);
   }
 }

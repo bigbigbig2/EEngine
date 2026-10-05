@@ -27,10 +27,7 @@ export interface ClusterDepthParameters {
   readonly z: number;
 }
 
-export function assertLightListCapacity(
-  required: number,
-  capacity: number
-): void {
+export function assertLightListCapacity(required: number, capacity: number): void {
   if (!Number.isInteger(required) || required < 0) {
     throw new RangeError("LightList required count must be a non-negative integer");
   }
@@ -38,16 +35,14 @@ export function assertLightListCapacity(
     throw new RangeError("LightList capacity must be a non-negative integer");
   }
   if (required > capacity) {
-    throw new RangeError(
-      `Local light count ${required} exceeds the explicit LightList capacity ${capacity}`
-    );
+    throw new RangeError(`Local light count ${required} exceeds the explicit LightList capacity ${capacity}`);
   }
 }
 
 export function lightSphereDistanceAttenuation(
   distanceToCenter: number,
   radius: number,
-  cutoffDistance: number
+  cutoffDistance: number,
 ): number {
   const radiusEffective = Math.max(radius, 1e-2);
   const distanceEffective = Math.max(distanceToCenter, radiusEffective);
@@ -61,11 +56,7 @@ export function lightSphereDistanceAttenuation(
   return attenuation;
 }
 
-export function spotLightAttenuation(
-  coneCos: number,
-  penumbraCos: number,
-  angleCos: number
-): number {
+export function spotLightAttenuation(coneCos: number, penumbraCos: number, angleCos: number): number {
   if (coneCos === penumbraCos) return angleCos >= penumbraCos ? 1 : 0;
   const t = clamp01((angleCos - coneCos) / (penumbraCos - coneCos));
   return t * t * (3 - 2 * t);
@@ -74,43 +65,32 @@ export function spotLightAttenuation(
 export function clusterDepthToSlice(
   depth: number,
   parameters: ClusterDepthParameters,
-  limit: number
+  limit: number,
 ): number {
   const logarithmInput = depth * parameters.x + parameters.y;
   if (!(logarithmInput > 0) || !(parameters.z > 0)) return 0;
-  return Math.min(
-    Math.max(0, Math.log2(logarithmInput) * parameters.z),
-    limit
-  );
+  return Math.min(Math.max(0, Math.log2(logarithmInput) * parameters.z), limit);
 }
 
 export function clusterGridIndex(
   position: readonly [number, number, number],
-  dimensions: readonly [number, number]
+  dimensions: readonly [number, number],
 ): number {
-  return position[0] +
-    (position[1] + position[2] * dimensions[1]) * dimensions[0];
+  return position[0] + (position[1] + position[2] * dimensions[1]) * dimensions[0];
 }
 
 export function sphereIntersectsFrustum(
   sphere: readonly [number, number, number, number],
-  frustum: readonly (readonly [number, number, number, number])[]
+  frustum: readonly (readonly [number, number, number, number])[],
 ): boolean {
   for (const plane of frustum) {
-    const distance =
-      plane[0] * sphere[0] +
-      plane[1] * sphere[1] +
-      plane[2] * sphere[2] +
-      plane[3];
+    const distance = plane[0] * sphere[0] + plane[1] * sphere[1] + plane[2] * sphere[2] + plane[3];
     if (distance < -sphere[3]) return false;
   }
   return true;
 }
 
-export function appendBoundedLightList(
-  values: readonly number[],
-  capacity: number
-): BoundedLightList {
+export function appendBoundedLightList(values: readonly number[], capacity: number): BoundedLightList {
   if (!Number.isInteger(capacity) || capacity < 0) {
     throw new RangeError("LightList capacity must be a non-negative integer");
   }
@@ -120,14 +100,14 @@ export function appendBoundedLightList(
     written,
     capacity,
     overflow: values.length > capacity ? 1 : 0,
-    data: Object.freeze(values.slice(0, written))
+    data: Object.freeze(values.slice(0, written)),
   });
 }
 
 export function resolveClusterLightIndices(
   metadata: ClusterMetadataReference,
   clusterData: readonly number[],
-  activeLightList: BoundedLightList
+  activeLightList: BoundedLightList,
 ): readonly number[] {
   if ((metadata.flags & CLUSTER_METADATA_FLAG_FALLBACK) !== 0) {
     return activeLightList.data.slice(0, activeLightList.written);

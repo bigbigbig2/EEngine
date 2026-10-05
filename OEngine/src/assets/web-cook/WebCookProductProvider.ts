@@ -1,5 +1,10 @@
 import { decodeGeometryProductDescriptorBinaryV1 } from "../geometry-product/GeometryProductBinaryV1.js";
-import { decodeGeometryProductPageRecordV1, type GeometryPageProductV1, type GeometryProductProviderV1, type GeometryProductRevisionSourceV1 } from "../geometry-product/GeometryProductV1.js";
+import {
+  decodeGeometryProductPageRecordV1,
+  type GeometryPageProductV1,
+  type GeometryProductProviderV1,
+  type GeometryProductRevisionSourceV1,
+} from "../geometry-product/GeometryProductV1.js";
 import type { WebCookEvent } from "./protocol/CookSessionProtocol.js";
 import { OEGPACK_V3_ASSET_STRIDE } from "../GeometryAbiV3.js";
 import type { WebCookProductTaskTraceEventV1 } from "./ProductTaskTrace.js";
@@ -9,9 +14,18 @@ export interface WebCookProductProviderOptions {
   readonly maxBufferedBytes: number;
   readonly returnOutputCredits: (blockCount: number, bytes: number) => void;
   readonly onSceneCatalogReady?: (catalog: Readonly<Record<string, unknown>>) => void;
-  readonly onProgress?: (progress: { readonly stage: string; readonly units: number; readonly bytes: number; readonly timings: Readonly<Record<string, number>> }) => void;
+  readonly onProgress?: (progress: {
+    readonly stage: string;
+    readonly units: number;
+    readonly bytes: number;
+    readonly timings: Readonly<Record<string, number>>;
+  }) => void;
   readonly onProductTaskTrace?: (trace: WebCookProductTaskTraceEventV1) => void;
-  readonly onRecoverableFailure?: (failure: { readonly scope: string; readonly code: string; readonly retryAfterMs?: number }) => void;
+  readonly onRecoverableFailure?: (failure: {
+    readonly scope: string;
+    readonly code: string;
+    readonly retryAfterMs?: number;
+  }) => void;
   /** Reports a terminal stream/transport failure to the owning client. */
   readonly onFatal?: (error: unknown) => void;
   /** Requests a page again after a previous transfer was consumed. */
@@ -45,7 +59,13 @@ export class WebCookProductProvider implements GeometryProductProviderV1 {
   #failures = 0;
 
   constructor(events: AsyncIterable<WebCookEvent>, options: WebCookProductProviderOptions) {
-    if (!Number.isInteger(options.maxBufferedPages) || options.maxBufferedPages <= 0 || !Number.isInteger(options.maxBufferedBytes) || options.maxBufferedBytes <= 0) throw new RangeError("Web Product provider buffers must be bounded");
+    if (
+      !Number.isInteger(options.maxBufferedPages) ||
+      options.maxBufferedPages <= 0 ||
+      !Number.isInteger(options.maxBufferedBytes) ||
+      options.maxBufferedBytes <= 0
+    )
+      throw new RangeError("Web Product provider buffers must be bounded");
     this.#events = events;
     this.#options = options;
   }
@@ -66,7 +86,17 @@ export class WebCookProductProvider implements GeometryProductProviderV1 {
     this.#revisions.fail(error);
   }
 
-  evidence(): WebCookProductProviderEvidence { return Object.freeze({ offeredRevisions: this.#offeredRevisions, bufferedPages: this.#bufferedPages, bufferedBytes: this.#bufferedBytes, deliveredPages: this.#deliveredPages, discardedPages: this.#discardedPages, staleEvents: this.#staleEvents, failures: this.#failures }); }
+  evidence(): WebCookProductProviderEvidence {
+    return Object.freeze({
+      offeredRevisions: this.#offeredRevisions,
+      bufferedPages: this.#bufferedPages,
+      bufferedBytes: this.#bufferedBytes,
+      deliveredPages: this.#deliveredPages,
+      discardedPages: this.#discardedPages,
+      staleEvents: this.#staleEvents,
+      failures: this.#failures,
+    });
+  }
 
   async #pump(signal?: AbortSignal): Promise<void> {
     try {
@@ -91,15 +121,17 @@ export class WebCookProductProvider implements GeometryProductProviderV1 {
       const key = productKey(descriptor.productId, descriptor.revision);
       if (this.#sources.has(key)) throw new Error("Web Cook offered a duplicate Product revision");
       const assetCount = descriptor.assetRecords.byteLength / OEGPACK_V3_ASSET_STRIDE;
-      if (event.sceneAssetIndices !== undefined &&
-          (event.sceneAssetIndices.length !== assetCount ||
-           event.sceneAssetIndices.some(value => !Number.isInteger(value) || value < 0))) {
+      if (
+        event.sceneAssetIndices !== undefined &&
+        (event.sceneAssetIndices.length !== assetCount ||
+          event.sceneAssetIndices.some((value) => !Number.isInteger(value) || value < 0))
+      ) {
         throw new Error("Web Cook revision sceneAssetIndices do not match its Product asset table");
       }
       const source = new LiveWebCookRevisionSource(
         descriptor,
         this,
-        event.sceneAssetIndices === undefined ? undefined : Object.freeze([...event.sceneAssetIndices])
+        event.sceneAssetIndices === undefined ? undefined : Object.freeze([...event.sceneAssetIndices]),
       );
       this.#sources.set(key, source);
       this.#offeredRevisions++;
@@ -111,7 +143,14 @@ export class WebCookProductProvider implements GeometryProductProviderV1 {
       return;
     }
     if (event.type === "Progress") {
-      this.#options.onProgress?.(Object.freeze({ stage: event.stage, units: event.units, bytes: event.bytes, timings: Object.freeze({ ...event.timings }) }));
+      this.#options.onProgress?.(
+        Object.freeze({
+          stage: event.stage,
+          units: event.units,
+          bytes: event.bytes,
+          timings: Object.freeze({ ...event.timings }),
+        }),
+      );
       // End descriptor enumeration while retaining the event pump for page
       // rereads, streaming and device recovery after producer settlement.
       if (event.stage === "cook-complete") this.#revisions.finish();
@@ -122,30 +161,71 @@ export class WebCookProductProvider implements GeometryProductProviderV1 {
       return;
     }
     if (event.type === "RecoverableFailure") {
-      this.#options.onRecoverableFailure?.(Object.freeze({ scope: event.scope, code: event.code, ...(event.retryAfterMs === undefined ? {} : { retryAfterMs: event.retryAfterMs }) }));
+      this.#options.onRecoverableFailure?.(
+        Object.freeze({
+          scope: event.scope,
+          code: event.code,
+          ...(event.retryAfterMs === undefined ? {} : { retryAfterMs: event.retryAfterMs }),
+        }),
+      );
       return;
     }
     if (event.type === "PageReady") {
       const source = this.#sources.get(productKey(event.productId, event.revision));
-      if (!source) { this.#staleEvents++; this._discardPage(event.bytes.byteLength); return; }
-      try { source.acceptPage(event); } catch (error) { this._discardPage(event.bytes.byteLength); throw error; }
+      if (!source) {
+        this.#staleEvents++;
+        this._discardPage(event.bytes.byteLength);
+        return;
+      }
+      try {
+        source.acceptPage(event);
+      } catch (error) {
+        this._discardPage(event.bytes.byteLength);
+        throw error;
+      }
       return;
     }
     if (event.type === "FatalSessionFailure") throw new Error(`Web Cook failed: ${event.code}`);
   }
 
   _reservePage(bytes: number): void {
-    if (this.#bufferedPages + 1 > this.#options.maxBufferedPages || this.#bufferedBytes + bytes > this.#options.maxBufferedBytes) throw new Error("Web Product provider output buffer budget exhausted");
+    if (
+      this.#bufferedPages + 1 > this.#options.maxBufferedPages ||
+      this.#bufferedBytes + bytes > this.#options.maxBufferedBytes
+    )
+      throw new Error("Web Product provider output buffer budget exhausted");
     this.#bufferedPages++;
     this.#bufferedBytes += bytes;
   }
-  _deliverBufferedPage(bytes: number): void { this.#bufferedPages--; this.#bufferedBytes -= bytes; this.#deliveredPages++; this.#options.returnOutputCredits(1, bytes); }
-  _deliverIncomingPage(bytes: number): void { this.#deliveredPages++; this.#options.returnOutputCredits(1, bytes); }
-  _discardPage(bytes: number): void { this.#discardedPages++; this.#options.returnOutputCredits(1, bytes); }
-  _discardBufferedPage(bytes: number): void { this.#bufferedPages--; this.#bufferedBytes -= bytes; this.#discardedPages++; this.#options.returnOutputCredits(1, bytes); }
-  _releaseSource(source: LiveWebCookRevisionSource): void { this.#sources.delete(productKey(source.descriptor.productId, source.descriptor.revision)); }
-  _hasPageRequester(): boolean { return this.#options.requestPage !== undefined; }
-  _requestPage(productId: Uint8Array, revision: number, pageId: number): void { this.#options.requestPage?.(productId.slice(), revision, pageId); }
+  _deliverBufferedPage(bytes: number): void {
+    this.#bufferedPages--;
+    this.#bufferedBytes -= bytes;
+    this.#deliveredPages++;
+    this.#options.returnOutputCredits(1, bytes);
+  }
+  _deliverIncomingPage(bytes: number): void {
+    this.#deliveredPages++;
+    this.#options.returnOutputCredits(1, bytes);
+  }
+  _discardPage(bytes: number): void {
+    this.#discardedPages++;
+    this.#options.returnOutputCredits(1, bytes);
+  }
+  _discardBufferedPage(bytes: number): void {
+    this.#bufferedPages--;
+    this.#bufferedBytes -= bytes;
+    this.#discardedPages++;
+    this.#options.returnOutputCredits(1, bytes);
+  }
+  _releaseSource(source: LiveWebCookRevisionSource): void {
+    this.#sources.delete(productKey(source.descriptor.productId, source.descriptor.revision));
+  }
+  _hasPageRequester(): boolean {
+    return this.#options.requestPage !== undefined;
+  }
+  _requestPage(productId: Uint8Array, revision: number, pageId: number): void {
+    this.#options.requestPage?.(productId.slice(), revision, pageId);
+  }
 }
 
 class LiveWebCookRevisionSource implements GeometryProductRevisionSourceV1 {
@@ -159,7 +239,7 @@ class LiveWebCookRevisionSource implements GeometryProductRevisionSourceV1 {
   constructor(
     readonly descriptor: ReturnType<typeof decodeGeometryProductDescriptorBinaryV1>,
     readonly owner: WebCookProductProvider,
-    readonly sceneAssetIndices?: readonly number[]
+    readonly sceneAssetIndices?: readonly number[],
   ) {}
 
   async readPage(pageId: number, signal?: AbortSignal): Promise<GeometryPageProductV1> {
@@ -167,54 +247,179 @@ class LiveWebCookRevisionSource implements GeometryProductRevisionSourceV1 {
     if (this.#released) throw new Error("Web Product revision has been released");
     if (this.#failure) throw this.#failure;
     const ready = this.#pages.get(pageId);
-    if (ready) { this.#pages.delete(pageId); this.#delivered.add(pageId); this.owner._deliverBufferedPage(ready.bytes.byteLength); return ready; }
-    if (this.#finished && !this.owner._hasPageRequester()) throw new Error(`Web Product stream ended before page ${pageId} arrived`);
+    if (ready) {
+      this.#pages.delete(pageId);
+      this.#delivered.add(pageId);
+      this.owner._deliverBufferedPage(ready.bytes.byteLength);
+      return ready;
+    }
+    if (this.#finished && !this.owner._hasPageRequester())
+      throw new Error(`Web Product stream ended before page ${pageId} arrived`);
     if (this.#waiters.has(pageId)) throw new Error(`Web Product page ${pageId} already has a pending reader`);
     const deferred = new Deferred<GeometryPageProductV1>();
     this.#waiters.set(pageId, deferred);
-    try { this.owner._requestPage(this.descriptor.productId, this.descriptor.revision, pageId); } catch (error) { this.#waiters.delete(pageId); deferred.reject(error); }
-    const abort = (): void => { if (this.#waiters.delete(pageId)) deferred.reject(signal ? abortReason(signal) : new Error("Web Product page read aborted")); };
+    try {
+      this.owner._requestPage(this.descriptor.productId, this.descriptor.revision, pageId);
+    } catch (error) {
+      this.#waiters.delete(pageId);
+      deferred.reject(error);
+    }
+    const abort = (): void => {
+      if (this.#waiters.delete(pageId))
+        deferred.reject(signal ? abortReason(signal) : new Error("Web Product page read aborted"));
+    };
     signal?.addEventListener("abort", abort, { once: true });
-    try { return await deferred.promise; } finally { signal?.removeEventListener("abort", abort); }
+    try {
+      return await deferred.promise;
+    } finally {
+      signal?.removeEventListener("abort", abort);
+    }
   }
 
   acceptPage(event: Extract<WebCookEvent, { type: "PageReady" }>): void {
-    if (this.#released) { this.owner._discardPage(event.bytes.byteLength); return; }
+    if (this.#released) {
+      this.owner._discardPage(event.bytes.byteLength);
+      return;
+    }
     const expected = decodeGeometryProductPageRecordV1(this.descriptor, event.pageId);
-    if (!sameBytes(event.productId, this.descriptor.productId) || event.revision !== this.descriptor.revision || event.decodedHash128.byteLength !== 16 || !sameBytes(event.decodedHash128, expected.decodedHash128) || event.decodedPageHash128.byteLength !== 16 || event.bytes.byteLength !== this.descriptor.decodedPageBytes) throw new Error("Web Cook page does not match its immutable Product descriptor");
+    if (
+      !sameBytes(event.productId, this.descriptor.productId) ||
+      event.revision !== this.descriptor.revision ||
+      event.decodedHash128.byteLength !== 16 ||
+      !sameBytes(event.decodedHash128, expected.decodedHash128) ||
+      event.decodedPageHash128.byteLength !== 16 ||
+      event.bytes.byteLength !== this.descriptor.decodedPageBytes
+    )
+      throw new Error("Web Cook page does not match its immutable Product descriptor");
     if (this.#pages.has(event.pageId)) throw new Error(`Web Cook emitted duplicate page ${event.pageId}`);
-    const page = Object.freeze({ productId: event.productId.slice(), revision: event.revision, pageId: event.pageId, decodedHash128: event.decodedHash128.slice(), decodedPageHash128: event.decodedPageHash128.slice(), bytes: event.bytes });
+    const page = Object.freeze({
+      productId: event.productId.slice(),
+      revision: event.revision,
+      pageId: event.pageId,
+      decodedHash128: event.decodedHash128.slice(),
+      decodedPageHash128: event.decodedPageHash128.slice(),
+      bytes: event.bytes,
+    });
     const waiter = this.#waiters.get(event.pageId);
-    if (waiter) { this.#waiters.delete(event.pageId); this.#delivered.add(event.pageId); this.owner._deliverIncomingPage(event.bytes.byteLength); waiter.resolve(page); return; }
+    if (waiter) {
+      this.#waiters.delete(event.pageId);
+      this.#delivered.add(event.pageId);
+      this.owner._deliverIncomingPage(event.bytes.byteLength);
+      waiter.resolve(page);
+      return;
+    }
     if (this.#pages.has(event.pageId)) throw new Error(`Web Cook emitted duplicate page ${event.pageId}`);
     // The consumer already received and consumed this page and nobody is waiting
     // for a copy, so this is a re-read emission racing the in-flight original.
     // Page content is immutable and hash-validated, so buffering the copy would
     // only hold output credit that a later demand or recovery read needs.
-    if (this.#delivered.has(event.pageId)) { this.owner._discardPage(event.bytes.byteLength); return; }
+    if (this.#delivered.has(event.pageId)) {
+      this.owner._discardPage(event.bytes.byteLength);
+      return;
+    }
     this.owner._reservePage(event.bytes.byteLength);
     this.#pages.set(event.pageId, page);
   }
 
-  finish(): void { this.#finished = true; for (const [pageId, waiter] of this.#waiters) waiter.reject(new Error(`Web Product stream ended before page ${pageId} arrived`)); this.#waiters.clear(); }
-  fail(error: unknown): void { this.#failure = error; for (const waiter of this.#waiters.values()) waiter.reject(error); this.#waiters.clear(); this.release(); }
-  release(): void { if (this.#released) return; this.#released = true; this.#delivered.clear(); for (const page of this.#pages.values()) this.owner._discardBufferedPage(page.bytes.byteLength); this.#pages.clear(); for (const waiter of this.#waiters.values()) waiter.reject(new Error("Web Product revision released")); this.#waiters.clear(); this.owner._releaseSource(this); }
+  finish(): void {
+    this.#finished = true;
+    for (const [pageId, waiter] of this.#waiters)
+      waiter.reject(new Error(`Web Product stream ended before page ${pageId} arrived`));
+    this.#waiters.clear();
+  }
+  fail(error: unknown): void {
+    this.#failure = error;
+    for (const waiter of this.#waiters.values()) waiter.reject(error);
+    this.#waiters.clear();
+    this.release();
+  }
+  release(): void {
+    if (this.#released) return;
+    this.#released = true;
+    this.#delivered.clear();
+    for (const page of this.#pages.values()) this.owner._discardBufferedPage(page.bytes.byteLength);
+    this.#pages.clear();
+    for (const waiter of this.#waiters.values()) waiter.reject(new Error("Web Product revision released"));
+    this.#waiters.clear();
+    this.owner._releaseSource(this);
+  }
 }
 
-class Deferred<T> { readonly promise: Promise<T>; resolve!: (value: T) => void; reject!: (reason: unknown) => void; constructor() { this.promise = new Promise<T>((resolve, reject) => { this.resolve = resolve; this.reject = reject; }); } }
+class Deferred<T> {
+  readonly promise: Promise<T>;
+  resolve!: (value: T) => void;
+  reject!: (reason: unknown) => void;
+  constructor() {
+    this.promise = new Promise<T>((resolve, reject) => {
+      this.resolve = resolve;
+      this.reject = reject;
+    });
+  }
+}
 
 class AsyncValueQueue<T> {
   readonly #values: T[] = [];
   readonly #waiters: Deferred<IteratorResult<T>>[] = [];
   #finished = false;
   #failure: unknown;
-  push(value: T): void { if (this.#finished || this.#failure) throw new Error("async queue is closed"); const waiter = this.#waiters.shift(); if (waiter) waiter.resolve({ done: false, value }); else this.#values.push(value); }
-  finish(): void { if (this.#finished || this.#failure) return; this.#finished = true; for (const waiter of this.#waiters.splice(0)) waiter.resolve({ done: true, value: undefined }); }
-  fail(error: unknown): void { if (this.#finished || this.#failure) return; this.#failure = error; for (const waiter of this.#waiters.splice(0)) waiter.reject(error); }
-  iterable(signal?: AbortSignal): AsyncIterable<T> { const queue = this; return { [Symbol.asyncIterator](): AsyncIterator<T> { return { async next(): Promise<IteratorResult<T>> { if (signal?.aborted) throw abortReason(signal); const value = queue.#values.shift(); if (value !== undefined) return { done: false, value }; if (queue.#failure) throw queue.#failure; if (queue.#finished) return { done: true, value: undefined }; const waiter = new Deferred<IteratorResult<T>>(); queue.#waiters.push(waiter); const abort = (): void => { const index = queue.#waiters.indexOf(waiter); if (index >= 0) queue.#waiters.splice(index, 1); waiter.reject(signal ? abortReason(signal) : new Error("async iteration aborted")); }; signal?.addEventListener("abort", abort, { once: true }); try { return await waiter.promise; } finally { signal?.removeEventListener("abort", abort); } } }; } }; }
+  push(value: T): void {
+    if (this.#finished || this.#failure) throw new Error("async queue is closed");
+    const waiter = this.#waiters.shift();
+    if (waiter) waiter.resolve({ done: false, value });
+    else this.#values.push(value);
+  }
+  finish(): void {
+    if (this.#finished || this.#failure) return;
+    this.#finished = true;
+    for (const waiter of this.#waiters.splice(0)) waiter.resolve({ done: true, value: undefined });
+  }
+  fail(error: unknown): void {
+    if (this.#finished || this.#failure) return;
+    this.#failure = error;
+    for (const waiter of this.#waiters.splice(0)) waiter.reject(error);
+  }
+  iterable(signal?: AbortSignal): AsyncIterable<T> {
+    const queue = this;
+    return {
+      [Symbol.asyncIterator](): AsyncIterator<T> {
+        return {
+          async next(): Promise<IteratorResult<T>> {
+            if (signal?.aborted) throw abortReason(signal);
+            const value = queue.#values.shift();
+            if (value !== undefined) return { done: false, value };
+            if (queue.#failure) throw queue.#failure;
+            if (queue.#finished) return { done: true, value: undefined };
+            const waiter = new Deferred<IteratorResult<T>>();
+            queue.#waiters.push(waiter);
+            const abort = (): void => {
+              const index = queue.#waiters.indexOf(waiter);
+              if (index >= 0) queue.#waiters.splice(index, 1);
+              waiter.reject(signal ? abortReason(signal) : new Error("async iteration aborted"));
+            };
+            signal?.addEventListener("abort", abort, { once: true });
+            try {
+              return await waiter.promise;
+            } finally {
+              signal?.removeEventListener("abort", abort);
+            }
+          },
+        };
+      },
+    };
+  }
 }
 
-function productKey(productId: Uint8Array, revision: number): string { return `${hex(productId)}:${revision}`; }
-function hex(bytes: Uint8Array): string { return Array.from(bytes, value => value.toString(16).padStart(2, "0")).join(""); }
-function sameBytes(left: Uint8Array, right: Uint8Array): boolean { if (left.byteLength !== right.byteLength) return false; for (let index = 0; index < left.byteLength; index++) if (left[index] !== right[index]) return false; return true; }
-function abortReason(signal: AbortSignal): unknown { return signal.reason ?? new DOMException("The operation was aborted", "AbortError"); }
+function productKey(productId: Uint8Array, revision: number): string {
+  return `${hex(productId)}:${revision}`;
+}
+function hex(bytes: Uint8Array): string {
+  return Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+}
+function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.byteLength !== right.byteLength) return false;
+  for (let index = 0; index < left.byteLength; index++) if (left[index] !== right[index]) return false;
+  return true;
+}
+function abortReason(signal: AbortSignal): unknown {
+  return signal.reason ?? new DOMException("The operation was aborted", "AbortError");
+}

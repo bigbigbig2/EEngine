@@ -18,9 +18,7 @@ export function rewriteTransparencyMode(e: StandardShadeMaterial): boolean {
   const albedoHasAlpha = (() => {
     const tex = e.texture_albedo;
     if (tex == null) return false;
-    const src = (
-      tex.image as { source?: { isSampler2D?: boolean; itemSize?: number } } | undefined
-    )?.source;
+    const src = (tex.image as { source?: { isSampler2D?: boolean; itemSize?: number } } | undefined)?.source;
     return src !== undefined && !(src.isSampler2D && src.itemSize! <= 3);
   })();
 
@@ -44,15 +42,19 @@ export function rewriteTransparencyMode(e: StandardShadeMaterial): boolean {
   return true;
 }
 
-export function parseGltfMaterial(
-  e: GltfMaterial,
-  textures: ShadeTexture[]
-): StandardShadeMaterial {
+export function parseGltfMaterial(e: GltfMaterial, textures: ShadeTexture[]): StandardShadeMaterial {
   for (const extension of Object.keys(e.extensions ?? {})) {
-    if (extension.startsWith("KHR_materials_") && ![
-      "KHR_materials_unlit", "KHR_materials_emissive_strength", "KHR_materials_ior",
-      "KHR_materials_specular", "KHR_materials_clearcoat", "KHR_materials_transmission"
-    ].includes(extension)) {
+    if (
+      extension.startsWith("KHR_materials_") &&
+      ![
+        "KHR_materials_unlit",
+        "KHR_materials_emissive_strength",
+        "KHR_materials_ior",
+        "KHR_materials_specular",
+        "KHR_materials_clearcoat",
+        "KHR_materials_transmission",
+      ].includes(extension)
+    ) {
       throw new Error(`glTF material '${e.name ?? "<unnamed>"}' uses unsupported ${extension}`);
     }
   }
@@ -62,24 +64,14 @@ export function parseGltfMaterial(
 
   const pbr = e.pbrMetallicRoughness;
   const unlit = e.extensions?.KHR_materials_unlit !== undefined;
-  assignUvMapping(n, "base_color", normalizeUvMapping(
-    pbr?.baseColorTexture, e.name, "baseColorTexture"
-  ));
+  assignUvMapping(n, "base_color", normalizeUvMapping(pbr?.baseColorTexture, e.name, "baseColorTexture"));
   if (!unlit) {
-    assignUvMapping(n, "normal", normalizeUvMapping(
-      e.normalTexture, e.name, "normalTexture"
-    ));
-    const ormUv = normalizeUvMapping(
-      pbr?.metallicRoughnessTexture, e.name, "metallicRoughnessTexture"
-    );
-    const occlusionUv = normalizeUvMapping(
-      e.occlusionTexture, e.name, "occlusionTexture"
-    );
+    assignUvMapping(n, "normal", normalizeUvMapping(e.normalTexture, e.name, "normalTexture"));
+    const ormUv = normalizeUvMapping(pbr?.metallicRoughnessTexture, e.name, "metallicRoughnessTexture");
+    const occlusionUv = normalizeUvMapping(e.occlusionTexture, e.name, "occlusionTexture");
     assignUvMapping(n, "orm", ormUv);
     assignUvMapping(n, "occlusion", occlusionUv);
-    assignUvMapping(n, "emissive", normalizeUvMapping(
-      e.emissiveTexture, e.name, "emissiveTexture"
-    ));
+    assignUvMapping(n, "emissive", normalizeUvMapping(e.emissiveTexture, e.name, "emissiveTexture"));
   }
 
   n.is_unlit = unlit;
@@ -100,18 +92,11 @@ export function parseGltfMaterial(
   }
 
   if (e.emissiveFactor !== undefined) {
-    n.emissive_factor.setRGB(
-      e.emissiveFactor[0] ?? 0,
-      e.emissiveFactor[1] ?? 0,
-      e.emissiveFactor[2] ?? 0
-    );
+    n.emissive_factor.setRGB(e.emissiveFactor[0] ?? 0, e.emissiveFactor[1] ?? 0, e.emissiveFactor[2] ?? 0);
   } else {
     n.emissive_factor.setRGB(0, 0, 0);
   }
-  const strength = Math.max(
-    0,
-    e.extensions?.KHR_materials_emissive_strength?.emissiveStrength ?? 1
-  );
+  const strength = Math.max(0, e.extensions?.KHR_materials_emissive_strength?.emissiveStrength ?? 1);
   n.emissive_factor.multiplyScalar(strength);
 
   const i = pbr;
@@ -150,11 +135,12 @@ export function parseGltfMaterial(
   const occ = unlit ? undefined : e.occlusionTexture;
   if (occ !== undefined) {
     const orm = pbr?.metallicRoughnessTexture;
-    const sharesOrmSample = orm !== undefined &&
+    const sharesOrmSample =
+      orm !== undefined &&
       orm.index === occ.index &&
       sameUvMapping(
         normalizeUvMapping(orm, e.name, "metallicRoughnessTexture"),
-        normalizeUvMapping(occ, e.name, "occlusionTexture")
+        normalizeUvMapping(occ, e.name, "occlusionTexture"),
       );
     if (!sharesOrmSample) n.texture_occlusion = textures[occ.index]!;
     n.ambient_factors.a = saturate(occ.strength ?? 1);
@@ -183,12 +169,10 @@ export function parseGltfMaterial(
     if (spec !== undefined) {
       n.specular_factor = saturate(spec.specularFactor ?? 1);
       const rgb = spec.specularColorFactor ?? [1, 1, 1];
-      n.specular_color_factor.setRGB(
-        saturate(rgb[0] ?? 1), saturate(rgb[1] ?? 1), saturate(rgb[2] ?? 1)
-      );
+      n.specular_color_factor.setRGB(saturate(rgb[0] ?? 1), saturate(rgb[1] ?? 1), saturate(rgb[2] ?? 1));
       for (const [role, info] of [
         ["specular", spec.specularTexture],
-        ["specular_color", spec.specularColorTexture]
+        ["specular_color", spec.specularColorTexture],
       ] as const) {
         assignUvMapping(n, role, normalizeUvMapping(info, e.name, role));
         if (info !== undefined) {
@@ -208,11 +192,12 @@ export function parseGltfMaterial(
       n.clearcoat_factor = saturate(coat.clearcoatFactor ?? 0);
       n.clearcoat_roughness_factor = saturate(coat.clearcoatRoughnessFactor ?? 0);
       n.clearcoat_normal_scale = Number.isFinite(coat.clearcoatNormalTexture?.scale)
-        ? coat.clearcoatNormalTexture!.scale! : 1;
+        ? coat.clearcoatNormalTexture!.scale!
+        : 1;
       for (const [role, info] of [
         ["clearcoat", coat.clearcoatTexture],
         ["clearcoat_roughness", coat.clearcoatRoughnessTexture],
-        ["clearcoat_normal", coat.clearcoatNormalTexture]
+        ["clearcoat_normal", coat.clearcoatNormalTexture],
       ] as const) {
         assignUvMapping(n, role, normalizeUvMapping(info, e.name, role));
         if (info !== undefined) {
@@ -241,7 +226,7 @@ interface UvMapping {
 function normalizeUvMapping(
   info: GltfTextureInfo | undefined,
   materialName: string | undefined,
-  role: string
+  role: string,
 ): UvMapping {
   if (info === undefined) {
     return { texCoord: 0, offset: [0, 0], scale: [1, 1], rotation: 0 };
@@ -251,35 +236,46 @@ function normalizeUvMapping(
   if (!Number.isInteger(texCoord) || texCoord < 0 || texCoord > 2) {
     throw new RangeError(
       `glTF material '${materialName ?? "<unnamed>"}' ${role} requests TEXCOORD_${texCoord}; ` +
-      "OEngine MaterialRecord v3 supports TEXCOORD_0, TEXCOORD_1 and TEXCOORD_2"
+        "OEngine MaterialRecord v3 supports TEXCOORD_0, TEXCOORD_1 and TEXCOORD_2",
     );
   }
   const rotation = transform?.rotation ?? 0;
   if (!Number.isFinite(rotation)) {
-    throw new RangeError(
-      `glTF material '${materialName ?? "<unnamed>"}' ${role} UV rotation must be finite`
-    );
+    throw new RangeError(`glTF material '${materialName ?? "<unnamed>"}' ${role} UV rotation must be finite`);
   }
   return {
     texCoord,
     offset: finiteVec2(transform?.offset, [0, 0]),
     scale: finiteVec2(transform?.scale, [1, 1]),
-    rotation
+    rotation,
   };
 }
 
 function sameUvMapping(a: UvMapping, b: UvMapping): boolean {
-  return a.texCoord === b.texCoord &&
-    a.offset[0] === b.offset[0] && a.offset[1] === b.offset[1] &&
-    a.scale[0] === b.scale[0] && a.scale[1] === b.scale[1] &&
-    a.rotation === b.rotation;
+  return (
+    a.texCoord === b.texCoord &&
+    a.offset[0] === b.offset[0] &&
+    a.offset[1] === b.offset[1] &&
+    a.scale[0] === b.scale[0] &&
+    a.scale[1] === b.scale[1] &&
+    a.rotation === b.rotation
+  );
 }
 
 function assignUvMapping(
   material: StandardShadeMaterial,
-  role: "base_color" | "normal" | "orm" | "occlusion" | "emissive" |
-    "specular" | "specular_color" | "clearcoat" | "clearcoat_roughness" | "clearcoat_normal",
-  mapping: UvMapping
+  role:
+    | "base_color"
+    | "normal"
+    | "orm"
+    | "occlusion"
+    | "emissive"
+    | "specular"
+    | "specular_color"
+    | "clearcoat"
+    | "clearcoat_roughness"
+    | "clearcoat_normal",
+  mapping: UvMapping,
 ): void {
   material[`${role}_uv_set`] = mapping.texCoord;
   material[`${role}_uv_offset`] = mapping.offset;
@@ -287,14 +283,8 @@ function assignUvMapping(
   material[`${role}_uv_rotation`] = mapping.rotation;
 }
 
-function finiteVec2(
-  value: number[] | undefined,
-  fallback: [number, number]
-): [number, number] {
+function finiteVec2(value: number[] | undefined, fallback: [number, number]): [number, number] {
   const x = value?.[0];
   const y = value?.[1];
-  return [
-    Number.isFinite(x) ? x! : fallback[0],
-    Number.isFinite(y) ? y! : fallback[1]
-  ];
+  return [Number.isFinite(x) ? x! : fallback[0], Number.isFinite(y) ? y! : fallback[1]];
 }

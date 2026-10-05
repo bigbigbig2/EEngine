@@ -36,16 +36,27 @@ const ASSURANCE = new Set(["L0", "L1", "L2", "L3", "L4"]);
 const KINDS = new Set(["unit", "contract", "oracle", "guard", "gpu", "perf"]);
 const HARNESSES = new Set(["protocol", "gpu", "production", "observer"]);
 const CASE_KINDS = new Set(["orchestration", "component", "internal-candidate", "production"]);
-const DECLARATIONS = new Set(["ImplementationComplete", "RuntimeValidated", "PerformanceEvaluated", "PerformanceImproved", "PipelineFeatureComplete", "ADRComplete"]);
+const DECLARATIONS = new Set([
+  "ImplementationComplete",
+  "RuntimeValidated",
+  "PerformanceEvaluated",
+  "PerformanceImproved",
+  "PipelineFeatureComplete",
+  "ADRComplete",
+]);
 
 export async function readYaml(path) {
   const source = await readFile(path, "utf8");
   const document = parseDocument(source, { prettyErrors: true, uniqueKeys: true });
   if (document.errors.length > 0) {
-    throw new Error(`${relative(REPO_ROOT, path)}: ${document.errors.map((error) => error.message).join("; ")}`);
+    throw new Error(
+      `${relative(REPO_ROOT, path)}: ${document.errors.map((error) => error.message).join("; ")}`,
+    );
   }
   if (document.warnings.length > 0) {
-    throw new Error(`${relative(REPO_ROOT, path)}: ${document.warnings.map((warning) => warning.message).join("; ")}`);
+    throw new Error(
+      `${relative(REPO_ROOT, path)}: ${document.warnings.map((warning) => warning.message).join("; ")}`,
+    );
   }
   const value = document.toJS({ mapAsMap: false });
   if (value === null || typeof value !== "object") {
@@ -60,14 +71,16 @@ export async function readYamlFiles(directory) {
   const files = [];
   for (const entry of entries) {
     const path = resolve(directory, entry.name);
-    if (entry.isDirectory()) files.push(...await readYamlFiles(path));
+    if (entry.isDirectory()) files.push(...(await readYamlFiles(path)));
     else if (entry.isFile() && /\.ya?ml$/u.test(entry.name)) files.push(path);
   }
   files.sort((left, right) => String(left.path ?? left).localeCompare(String(right.path ?? right)));
-  return Promise.all(files.map(async (entry) => {
-    if (typeof entry === "string") return { path: entry, value: await readYaml(entry) };
-    return entry;
-  }));
+  return Promise.all(
+    files.map(async (entry) => {
+      if (typeof entry === "string") return { path: entry, value: await readYaml(entry) };
+      return entry;
+    }),
+  );
 }
 
 export async function readFrontmatterFiles(directory) {
@@ -100,7 +113,19 @@ export async function readFrontmatterFiles(directory) {
 }
 
 export async function loadModel() {
-  const [domainFiles, claimFiles, checkFiles, sourceFiles, workstreamFiles, caseFiles, labFiles, profileFiles, workloadFiles, domainDocs, contractDocs] = await Promise.all([
+  const [
+    domainFiles,
+    claimFiles,
+    checkFiles,
+    sourceFiles,
+    workstreamFiles,
+    caseFiles,
+    labFiles,
+    profileFiles,
+    workloadFiles,
+    domainDocs,
+    contractDocs,
+  ] = await Promise.all([
     readYamlFiles(DOMAIN_DIR),
     readYamlFiles(CLAIM_DIR),
     readYamlFiles(CHECK_DIR),
@@ -111,7 +136,7 @@ export async function loadModel() {
     readYamlFiles(PROFILE_DIR),
     readYamlFiles(WORKLOAD_DIR),
     readFrontmatterFiles(DOMAIN_DOC_DIR),
-    readFrontmatterFiles(CONTRACT_DOC_DIR)
+    readFrontmatterFiles(CONTRACT_DOC_DIR),
   ]);
 
   const domains = domainFiles.map(({ path, value }) => ({ ...value, _file: relative(REPO_ROOT, path) }));
@@ -124,15 +149,36 @@ export async function loadModel() {
     return items.map((check) => ({ ...check, _file: relative(REPO_ROOT, path) }));
   });
   const sourceIndex = sourceFiles.find(({ path }) => basename(path) === "index.yaml")?.value ?? null;
-  const sources = sourceFiles.filter(({ path }) => basename(path) !== "index.yaml").map(({ path, value }) => ({ ...value, _file: relative(REPO_ROOT, path) }));
-  const workstreams = workstreamFiles.map(({ path, value }) => ({ ...value, _file: relative(REPO_ROOT, path) }));
+  const sources = sourceFiles
+    .filter(({ path }) => basename(path) !== "index.yaml")
+    .map(({ path, value }) => ({ ...value, _file: relative(REPO_ROOT, path) }));
+  const workstreams = workstreamFiles.map(({ path, value }) => ({
+    ...value,
+    _file: relative(REPO_ROOT, path),
+  }));
   const cases = [...caseFiles, ...labFiles]
     .filter(({ path }) => basename(path) === "case.yaml")
-    .map(({ path, value }) => ({ ...value, _file: relative(REPO_ROOT, path), _lab: path.startsWith(`${LAB_DIR}${sep}`) }));
+    .map(({ path, value }) => ({
+      ...value,
+      _file: relative(REPO_ROOT, path),
+      _lab: path.startsWith(`${LAB_DIR}${sep}`),
+    }));
   const profiles = profileFiles.map(({ path, value }) => ({ ...value, _file: relative(REPO_ROOT, path) }));
   const workloads = workloadFiles.map(({ path, value }) => ({ ...value, _file: relative(REPO_ROOT, path) }));
 
-  return { domains, claims, checks, sources, sourceIndex, workstreams, cases, profiles, workloads, domainDocs, contractDocs };
+  return {
+    domains,
+    claims,
+    checks,
+    sources,
+    sourceIndex,
+    workstreams,
+    cases,
+    profiles,
+    workloads,
+    domainDocs,
+    contractDocs,
+  };
 }
 
 export function validateModel(model, legacyRegistry) {
@@ -146,13 +192,19 @@ export function validateModel(model, legacyRegistry) {
     if (!ID_PATTERN.test(domain.id ?? "")) errors.push(`${domain._file}: invalid domain id`);
     if (domains.has(domain.id)) errors.push(`${domain._file}: duplicate domain ${domain.id}`);
     domains.set(domain.id, domain);
-    if (typeof domain.title !== "string" || domain.title.length < 3) errors.push(`${domain._file}: title is required`);
+    if (typeof domain.title !== "string" || domain.title.length < 3)
+      errors.push(`${domain._file}: title is required`);
     if (domain.primaryOwner !== domain.id) errors.push(`${domain._file}: primaryOwner must equal domain id`);
-    if (!Array.isArray(domain.paths) || domain.paths.length === 0) errors.push(`${domain._file}: paths must be non-empty`);
-    if (!Array.isArray(domain.currentDocs) || domain.currentDocs.length === 0) errors.push(`${domain._file}: currentDocs must be non-empty`);
-    for (const doc of domain.currentDocs ?? []) if (typeof doc !== "string" || !existsSync(resolve(REPO_ROOT, doc))) errors.push(`${domain._file}: missing declared document ${doc}`);
+    if (!Array.isArray(domain.paths) || domain.paths.length === 0)
+      errors.push(`${domain._file}: paths must be non-empty`);
+    if (!Array.isArray(domain.currentDocs) || domain.currentDocs.length === 0)
+      errors.push(`${domain._file}: currentDocs must be non-empty`);
+    for (const doc of domain.currentDocs ?? [])
+      if (typeof doc !== "string" || !existsSync(resolve(REPO_ROOT, doc)))
+        errors.push(`${domain._file}: missing declared document ${doc}`);
     for (const field of ["contracts", "decisions", "sources", "claims", "checks", "watch"]) {
-      if (!Array.isArray(domain[field]) || domain[field].length === 0) errors.push(`${domain._file}: ${field} must be non-empty`);
+      if (!Array.isArray(domain[field]) || domain[field].length === 0)
+        errors.push(`${domain._file}: ${field} must be non-empty`);
     }
   }
   const sourceIds = new Set();
@@ -160,37 +212,57 @@ export function validateModel(model, legacyRegistry) {
     if (!ID_PATTERN.test(source.id ?? "")) errors.push(`${source._file}: invalid source id`);
     if (sourceIds.has(source.id)) errors.push(`${source._file}: duplicate source ${source.id}`);
     sourceIds.add(source.id);
-    if (!source.kind || !source.upstream || typeof source.upstream.name !== "string") errors.push(`${source._file}: source upstream metadata is required`);
-    if (typeof source.license !== "string" || source.license.length < 8) errors.push(`${source._file}: source license is required`);
-    if (!Array.isArray(source.retainedInvariants) || source.retainedInvariants.length === 0) errors.push(`${source._file}: retainedInvariants must be non-empty`);
-    if (!Array.isArray(source.validation) || source.validation.length === 0) errors.push(`${source._file}: source validation must be non-empty`);
-    if (source.sourceMap && !existsSync(resolve(REPO_ROOT, source.sourceMap))) errors.push(`${source._file}: missing sourceMap ${source.sourceMap}`);
+    if (!source.kind || !source.upstream || typeof source.upstream.name !== "string")
+      errors.push(`${source._file}: source upstream metadata is required`);
+    if (typeof source.license !== "string" || source.license.length < 8)
+      errors.push(`${source._file}: source license is required`);
+    if (!Array.isArray(source.retainedInvariants) || source.retainedInvariants.length === 0)
+      errors.push(`${source._file}: retainedInvariants must be non-empty`);
+    if (!Array.isArray(source.validation) || source.validation.length === 0)
+      errors.push(`${source._file}: source validation must be non-empty`);
+    if (source.sourceMap && !existsSync(resolve(REPO_ROOT, source.sourceMap)))
+      errors.push(`${source._file}: missing sourceMap ${source.sourceMap}`);
   }
-  if (!model.sourceIndex || !Array.isArray(model.sourceIndex.sources)) errors.push("docs/sources/index.yaml: sources index is required");
+  if (!model.sourceIndex || !Array.isArray(model.sourceIndex.sources))
+    errors.push("docs/sources/index.yaml: sources index is required");
   const indexedSourceIds = new Set();
   for (const entry of model.sourceIndex?.sources ?? []) {
     if (!sourceIds.has(entry.id)) errors.push(`docs/sources/index.yaml: unknown source ${entry.id}`);
     if (indexedSourceIds.has(entry.id)) errors.push(`docs/sources/index.yaml: duplicate source ${entry.id}`);
     indexedSourceIds.add(entry.id);
-    if (typeof entry.path !== "string" || !existsSync(resolve(REPO_ROOT, entry.path))) errors.push(`docs/sources/index.yaml: missing source path ${entry.path}`);
+    if (typeof entry.path !== "string" || !existsSync(resolve(REPO_ROOT, entry.path)))
+      errors.push(`docs/sources/index.yaml: missing source path ${entry.path}`);
   }
   validateFrontmatterDocs(model, errors);
   for (const claim of model.claims) {
-    if (!CLAIM_ID_PATTERN.test(claim.id ?? "")) errors.push(`${claim._file}: invalid claim id ${claim.id ?? "<missing>"}`);
+    if (!CLAIM_ID_PATTERN.test(claim.id ?? ""))
+      errors.push(`${claim._file}: invalid claim id ${claim.id ?? "<missing>"}`);
     if (claims.has(claim.id)) errors.push(`${claim._file}: duplicate claim ${claim.id}`);
     claims.set(claim.id, claim);
-    if (!domains.has(claim.domain)) errors.push(`${claim._file}: ${claim.id} references unknown domain ${claim.domain}`);
-    if (typeof claim.statement !== "string" || claim.statement.length < 12) errors.push(`${claim._file}: ${claim.id} needs a statement`);
+    if (!domains.has(claim.domain))
+      errors.push(`${claim._file}: ${claim.id} references unknown domain ${claim.domain}`);
+    if (typeof claim.statement !== "string" || claim.statement.length < 12)
+      errors.push(`${claim._file}: ${claim.id} needs a statement`);
     if (claim.owner !== claim.domain) errors.push(`${claim._file}: ${claim.id} owner must equal domain`);
-    if (claim.lifecycle !== undefined && !["active", "retired"].includes(claim.lifecycle)) errors.push(`${claim._file}: ${claim.id} has invalid lifecycle`);
+    if (claim.lifecycle !== undefined && !["active", "retired"].includes(claim.lifecycle))
+      errors.push(`${claim._file}: ${claim.id} has invalid lifecycle`);
     if (!ASSURANCE.has(claim.level)) errors.push(`${claim._file}: ${claim.id} has invalid level`);
-    if (!Array.isArray(claim.requiredChecks) || claim.requiredChecks.length === 0 || claim.requiredChecks.some((id) => !ID_PATTERN.test(id))) {
+    if (
+      !Array.isArray(claim.requiredChecks) ||
+      claim.requiredChecks.length === 0 ||
+      claim.requiredChecks.some((id) => !ID_PATTERN.test(id))
+    ) {
       errors.push(`${claim._file}: ${claim.id} has invalid requiredChecks`);
     }
-    if (!Array.isArray(claim.allowedDeclarations) || claim.allowedDeclarations.length === 0 || claim.allowedDeclarations.some((declaration) => !DECLARATIONS.has(declaration))) {
+    if (
+      !Array.isArray(claim.allowedDeclarations) ||
+      claim.allowedDeclarations.length === 0 ||
+      claim.allowedDeclarations.some((declaration) => !DECLARATIONS.has(declaration))
+    ) {
       errors.push(`${claim._file}: ${claim.id} has invalid allowedDeclarations`);
     }
-    if (!Array.isArray(claim.watch) || claim.watch.length === 0) errors.push(`${claim._file}: ${claim.id} needs watch paths`);
+    if (!Array.isArray(claim.watch) || claim.watch.length === 0)
+      errors.push(`${claim._file}: ${claim.id} needs watch paths`);
     const policy = claim.evidencePolicy;
     if (!policy || typeof policy !== "object" || Array.isArray(policy)) {
       errors.push(`${claim._file}: ${claim.id} needs evidencePolicy`);
@@ -200,19 +272,24 @@ export function validateModel(model, legacyRegistry) {
           errors.push(`${claim._file}: ${claim.id} evidencePolicy.${field} must be a case id array`);
         }
       }
-      if (typeof policy.checkOnly !== "boolean") errors.push(`${claim._file}: ${claim.id} evidencePolicy.checkOnly must be boolean`);
+      if (typeof policy.checkOnly !== "boolean")
+        errors.push(`${claim._file}: ${claim.id} evidencePolicy.checkOnly must be boolean`);
       const promotionCases = [...(policy.allOf ?? []), ...(policy.anyOf ?? [])];
-      if (!policy.checkOnly && promotionCases.length === 0) errors.push(`${claim._file}: ${claim.id} evidencePolicy needs a promotion case`);
+      if (!policy.checkOnly && promotionCases.length === 0)
+        errors.push(`${claim._file}: ${claim.id} evidencePolicy needs a promotion case`);
       const allCases = [...promotionCases, ...(policy.diagnosticCases ?? [])];
-      if (new Set(allCases).size !== allCases.length) errors.push(`${claim._file}: ${claim.id} evidencePolicy contains duplicate case ids`);
+      if (new Set(allCases).size !== allCases.length)
+        errors.push(`${claim._file}: ${claim.id} evidencePolicy contains duplicate case ids`);
     }
   }
   const checkIds = new Set();
   for (const check of model.checks) {
-    if (!ID_PATTERN.test(check.id ?? "")) errors.push(`${check._file}: invalid check id ${check.id ?? "<missing>"}`);
+    if (!ID_PATTERN.test(check.id ?? ""))
+      errors.push(`${check._file}: invalid check id ${check.id ?? "<missing>"}`);
     if (checkIds.has(check.id)) errors.push(`${check._file}: duplicate check ${check.id}`);
     checkIds.add(check.id);
-    if (typeof check.description !== "string" || check.description.length < 8) errors.push(`${check._file}: ${check.id} needs a description`);
+    if (typeof check.description !== "string" || check.description.length < 8)
+      errors.push(`${check._file}: ${check.id} needs a description`);
     if (!KINDS.has(check.kind)) errors.push(`${check._file}: ${check.id} has invalid kind`);
     if (!ASSURANCE.has(check.level)) errors.push(`${check._file}: ${check.id} has invalid level`);
     // A check must bind to a registered runner; an unbound check would silently
@@ -220,8 +297,12 @@ export function validateModel(model, legacyRegistry) {
     if (typeof check.runner !== "string" || !CHECK_RUNNER_IDS.includes(check.runner)) {
       errors.push(`${check._file}: ${check.id} has unregistered runner '${check.runner ?? "<missing>"}'`);
     }
-    for (const domainId of check.domains ?? []) if (!domains.has(domainId)) errors.push(`${check._file}: ${check.id} references unknown domain ${domainId}`);
-    for (const claimId of check.claims ?? []) if (!claims.has(claimId)) errors.push(`${check._file}: ${check.id} references unknown claim ${claimId}`);
+    for (const domainId of check.domains ?? [])
+      if (!domains.has(domainId))
+        errors.push(`${check._file}: ${check.id} references unknown domain ${domainId}`);
+    for (const claimId of check.claims ?? [])
+      if (!claims.has(claimId))
+        errors.push(`${check._file}: ${check.id} references unknown claim ${claimId}`);
   }
   const contractIds = new Set();
   for (const entry of model.contractDocs ?? []) {
@@ -232,42 +313,71 @@ export function validateModel(model, legacyRegistry) {
   }
   for (const domain of model.domains) {
     for (const contractId of domain.contracts ?? []) {
-      const contractExists = contractIds.has(contractId) || existsSync(resolve(REPO_ROOT, `docs/specs/${contractId}.md`));
-      if (!contractExists) errors.push(`${domain._file}: ${domain.id} references unknown contract ${contractId}`);
+      const contractExists =
+        contractIds.has(contractId) || existsSync(resolve(REPO_ROOT, `docs/specs/${contractId}.md`));
+      if (!contractExists)
+        errors.push(`${domain._file}: ${domain.id} references unknown contract ${contractId}`);
     }
-    for (const decision of domain.decisions ?? []) if (!hasDecisionFile(decision)) errors.push(`${domain._file}: ${domain.id} references unknown decision ${decision}`);
-    for (const sourceId of domain.sources ?? []) if (!sourceIds.has(sourceId)) errors.push(`${domain._file}: ${domain.id} references unknown source ${sourceId}`);
-    for (const checkId of domain.checks ?? []) if (!checkIds.has(checkId)) errors.push(`${domain._file}: ${domain.id} references unknown check ${checkId}`);
+    for (const decision of domain.decisions ?? [])
+      if (!hasDecisionFile(decision))
+        errors.push(`${domain._file}: ${domain.id} references unknown decision ${decision}`);
+    for (const sourceId of domain.sources ?? [])
+      if (!sourceIds.has(sourceId))
+        errors.push(`${domain._file}: ${domain.id} references unknown source ${sourceId}`);
+    for (const checkId of domain.checks ?? [])
+      if (!checkIds.has(checkId))
+        errors.push(`${domain._file}: ${domain.id} references unknown check ${checkId}`);
   }
   for (const item of model.cases) {
-    if (!ID_PATTERN.test(item.id ?? "")) errors.push(`${item._file}: invalid case id ${item.id ?? "<missing>"}`);
+    if (!ID_PATTERN.test(item.id ?? ""))
+      errors.push(`${item._file}: invalid case id ${item.id ?? "<missing>"}`);
     if (cases.has(item.id)) errors.push(`${item._file}: duplicate case ${item.id}`);
     cases.set(item.id, item);
-    if (!domains.has(item.domain)) errors.push(`${item._file}: ${item.id} references unknown domain ${item.domain}`);
+    if (!domains.has(item.domain))
+      errors.push(`${item._file}: ${item.id} references unknown domain ${item.domain}`);
     if (!CASE_KINDS.has(item.caseKind)) errors.push(`${item._file}: ${item.id} has invalid caseKind`);
-    if (item.sourceCase !== undefined && (!ID_PATTERN.test(item.sourceCase) || item.sourceCase === item.id)) errors.push(`${item._file}: ${item.id} has invalid sourceCase`);
-    if (!new Set(["promotion", "diagnostic"]).has(item.evidenceRole)) errors.push(`${item._file}: ${item.id} has invalid evidenceRole`);
-    if (!Array.isArray(item.covers) || item.covers.some((id) => !claims.has(id))) errors.push(`${item._file}: ${item.id} has unknown covers claim`);
-    if (item.evidenceRole === "promotion" && item.covers?.length === 0) errors.push(`${item._file}: ${item.id} promotion case must cover a claim`);
-    if (!/^ADR-\d{4}$/u.test(item.decision ?? "")) errors.push(`${item._file}: ${item.id} has invalid decision`);
-    if (!Array.isArray(item.changedPaths) || item.changedPaths.length === 0) errors.push(`${item._file}: ${item.id} needs changedPaths`);
-    if (typeof item.route !== "string" || !item.route.startsWith("/")) errors.push(`${item._file}: ${item.id} has invalid route`);
+    if (item.sourceCase !== undefined && (!ID_PATTERN.test(item.sourceCase) || item.sourceCase === item.id))
+      errors.push(`${item._file}: ${item.id} has invalid sourceCase`);
+    if (!new Set(["promotion", "diagnostic"]).has(item.evidenceRole))
+      errors.push(`${item._file}: ${item.id} has invalid evidenceRole`);
+    if (!Array.isArray(item.covers) || item.covers.some((id) => !claims.has(id)))
+      errors.push(`${item._file}: ${item.id} has unknown covers claim`);
+    if (item.evidenceRole === "promotion" && item.covers?.length === 0)
+      errors.push(`${item._file}: ${item.id} promotion case must cover a claim`);
+    if (!/^ADR-\d{4}$/u.test(item.decision ?? ""))
+      errors.push(`${item._file}: ${item.id} has invalid decision`);
+    if (!Array.isArray(item.changedPaths) || item.changedPaths.length === 0)
+      errors.push(`${item._file}: ${item.id} needs changedPaths`);
+    if (typeof item.route !== "string" || !item.route.startsWith("/"))
+      errors.push(`${item._file}: ${item.id} has invalid route`);
     const routePath = item.route.split("?", 1)[0].replace(/^\/+/u, "");
-    if (routePath && !existsSync(resolve(VALIDATION_DIR, routePath))) errors.push(`${item._file}: ${item.id} route does not resolve to a validation page`);
-    if (!Number.isInteger(item.timeoutMs) || item.timeoutMs < 1000) errors.push(`${item._file}: ${item.id} has invalid timeoutMs`);
-    if (!Array.isArray(item.artifacts) || !item.artifacts.includes("result")) errors.push(`${item._file}: ${item.id} must publish result artifact`);
+    if (routePath && !existsSync(resolve(VALIDATION_DIR, routePath)))
+      errors.push(`${item._file}: ${item.id} route does not resolve to a validation page`);
+    if (!Number.isInteger(item.timeoutMs) || item.timeoutMs < 1000)
+      errors.push(`${item._file}: ${item.id} has invalid timeoutMs`);
+    if (!Array.isArray(item.artifacts) || !item.artifacts.includes("result"))
+      errors.push(`${item._file}: ${item.id} must publish result artifact`);
     if (!KINDS.has(item.kind)) errors.push(`${item._file}: ${item.id} has invalid kind`);
     if (!ASSURANCE.has(item.level)) errors.push(`${item._file}: ${item.id} has invalid level`);
     if (!HARNESSES.has(item.harness)) errors.push(`${item._file}: ${item.id} has invalid harness`);
-    if (item.lab !== undefined && typeof item.lab !== "boolean") errors.push(`${item._file}: ${item.id} lab must be boolean`);
-    if (item.automatic !== undefined && typeof item.automatic !== "boolean") errors.push(`${item._file}: ${item.id} automatic must be boolean`);
-    if (item.lab === true && item.automatic === true) errors.push(`${item._file}: ${item.id} lab cases cannot be automatic`);
-    if (item.lab === true && item.evidenceRole !== "diagnostic") errors.push(`${item._file}: ${item.id} lab cases must be diagnostic`);
+    if (item.lab !== undefined && typeof item.lab !== "boolean")
+      errors.push(`${item._file}: ${item.id} lab must be boolean`);
+    if (item.automatic !== undefined && typeof item.automatic !== "boolean")
+      errors.push(`${item._file}: ${item.id} automatic must be boolean`);
+    if (item.lab === true && item.automatic === true)
+      errors.push(`${item._file}: ${item.id} lab cases cannot be automatic`);
+    if (item.lab === true && item.evidenceRole !== "diagnostic")
+      errors.push(`${item._file}: ${item.id} lab cases must be diagnostic`);
     if (item._lab && item.lab !== true) errors.push(`${item._file}: lab manifests must set lab: true`);
-    if (!item._lab && item.lab === true) errors.push(`${item._file}: automatic cases cannot be marked as labs`);
-    for (const rule of item.errorAllowlist ?? []) if (!item.covers?.includes(rule.ownerClaim)) errors.push(`${item._file}: ${item.id} error allowlist ownerClaim must be covered`);
+    if (!item._lab && item.lab === true)
+      errors.push(`${item._file}: automatic cases cannot be marked as labs`);
+    for (const rule of item.errorAllowlist ?? [])
+      if (!item.covers?.includes(rule.ownerClaim))
+        errors.push(`${item._file}: ${item.id} error allowlist ownerClaim must be covered`);
   }
-  for (const item of model.cases) if (item.sourceCase !== undefined && !cases.has(item.sourceCase)) errors.push(`${item._file}: ${item.id} references unknown sourceCase ${item.sourceCase}`);
+  for (const item of model.cases)
+    if (item.sourceCase !== undefined && !cases.has(item.sourceCase))
+      errors.push(`${item._file}: ${item.id} references unknown sourceCase ${item.sourceCase}`);
   for (const claim of model.claims) {
     const policy = claim.evidencePolicy ?? {};
     const promotionCases = [...(policy.allOf ?? []), ...(policy.anyOf ?? [])];
@@ -278,60 +388,85 @@ export function validateModel(model, legacyRegistry) {
         errors.push(`${claim._file}: ${claim.id} evidencePolicy references unknown case ${caseId}`);
         continue;
       }
-      if (!item.covers?.includes(claim.id)) errors.push(`${claim._file}: ${claim.id} policy case ${caseId} does not cover the claim`);
+      if (!item.covers?.includes(claim.id))
+        errors.push(`${claim._file}: ${claim.id} policy case ${caseId} does not cover the claim`);
     }
     for (const item of model.cases.filter((candidate) => candidate.covers?.includes(claim.id))) {
-      if (!declaredCases.has(item.id)) errors.push(`${item._file}: ${item.id} covers ${claim.id} but is absent from its evidencePolicy`);
+      if (!declaredCases.has(item.id))
+        errors.push(`${item._file}: ${item.id} covers ${claim.id} but is absent from its evidencePolicy`);
     }
     for (const caseId of promotionCases) {
       const item = cases.get(caseId);
       if (!item) continue;
-      if (item.evidenceRole !== "promotion") errors.push(`${claim._file}: ${claim.id} promotion case ${caseId} must have evidenceRole promotion`);
-      if (item.lab === true || item.automatic === false) errors.push(`${claim._file}: ${claim.id} promotion case ${caseId} cannot be a lab or manual case`);
-      if (levelRank(item.level) < levelRank(claim.level)) errors.push(`${claim._file}: ${claim.id} requires ${claim.level} but ${caseId} is ${item.level}`);
+      if (item.evidenceRole !== "promotion")
+        errors.push(`${claim._file}: ${claim.id} promotion case ${caseId} must have evidenceRole promotion`);
+      if (item.lab === true || item.automatic === false)
+        errors.push(`${claim._file}: ${claim.id} promotion case ${caseId} cannot be a lab or manual case`);
+      if (levelRank(item.level) < levelRank(claim.level))
+        errors.push(`${claim._file}: ${claim.id} requires ${claim.level} but ${caseId} is ${item.level}`);
       if (claim.level === "L4" && (item.kind !== "perf" || item.profile !== "formal-1080p")) {
-        errors.push(`${claim._file}: ${claim.id} L4 promotion case ${caseId} must be kind perf with formal-1080p profile`);
+        errors.push(
+          `${claim._file}: ${claim.id} L4 promotion case ${caseId} must be kind perf with formal-1080p profile`,
+        );
       }
     }
   }
-  const promotionCaseIds = new Set(model.claims.flatMap((claim) => [
-    ...(claim.evidencePolicy?.allOf ?? []),
-    ...(claim.evidencePolicy?.anyOf ?? [])
-  ]));
+  const promotionCaseIds = new Set(
+    model.claims.flatMap((claim) => [
+      ...(claim.evidencePolicy?.allOf ?? []),
+      ...(claim.evidencePolicy?.anyOf ?? []),
+    ]),
+  );
   for (const item of model.cases) {
-    if (item.evidenceRole === "diagnostic" && promotionCaseIds.has(item.id)) errors.push(`${item._file}: diagnostic case ${item.id} cannot participate in promotion`);
-    if (item.evidenceRole === "promotion" && !promotionCaseIds.has(item.id)) errors.push(`${item._file}: promotion case ${item.id} must participate in a claim promotion policy`);
+    if (item.evidenceRole === "diagnostic" && promotionCaseIds.has(item.id))
+      errors.push(`${item._file}: diagnostic case ${item.id} cannot participate in promotion`);
+    if (item.evidenceRole === "promotion" && !promotionCaseIds.has(item.id))
+      errors.push(`${item._file}: promotion case ${item.id} must participate in a claim promotion policy`);
   }
   for (const profile of model.profiles) {
     if (!ID_PATTERN.test(profile.id ?? "")) errors.push(`${profile._file}: invalid profile id`);
     if (profiles.has(profile.id)) errors.push(`${profile._file}: duplicate profile ${profile.id}`);
-    if (!Array.isArray(profile.viewport) || profile.viewport.length !== 2) errors.push(`${profile._file}: invalid viewport`);
+    if (!Array.isArray(profile.viewport) || profile.viewport.length !== 2)
+      errors.push(`${profile._file}: invalid viewport`);
     profiles.set(profile.id, profile);
   }
   for (const workload of model.workloads) {
-    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*-v\d+$/u.test(workload.id ?? "")) errors.push(`${workload._file}: invalid workload id`);
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*-v\d+$/u.test(workload.id ?? ""))
+      errors.push(`${workload._file}: invalid workload id`);
     if (workloads.has(workload.id)) errors.push(`${workload._file}: duplicate workload ${workload.id}`);
     workloads.set(workload.id, workload);
   }
   for (const domain of model.domains) {
-    for (const claimId of domain.claims ?? []) if (!claims.has(claimId)) errors.push(`${domain._file}: ${domain.id} references unknown claim ${claimId}`);
-    for (const checkId of domain.checks ?? []) if (!model.checks.some((check) => check.id === checkId)) errors.push(`${domain._file}: ${domain.id} references unknown check ${checkId}`);
+    for (const claimId of domain.claims ?? [])
+      if (!claims.has(claimId))
+        errors.push(`${domain._file}: ${domain.id} references unknown claim ${claimId}`);
+    for (const checkId of domain.checks ?? [])
+      if (!model.checks.some((check) => check.id === checkId))
+        errors.push(`${domain._file}: ${domain.id} references unknown check ${checkId}`);
   }
   for (const claim of model.claims) {
-    for (const checkId of claim.requiredChecks ?? []) if (!model.checks.some((check) => check.id === checkId)) errors.push(`${claim._file}: ${claim.id} references unknown check ${checkId}`);
+    for (const checkId of claim.requiredChecks ?? [])
+      if (!model.checks.some((check) => check.id === checkId))
+        errors.push(`${claim._file}: ${claim.id} references unknown check ${checkId}`);
   }
   for (const item of model.cases) {
-    if (!profiles.has(item.profile) && !legacyRegistry?.profiles?.[item.profile]) errors.push(`${item._file}: ${item.id} references unknown profile ${item.profile}`);
-    if (!workloads.has(item.workloadId) && !legacyRegistry?.workloads?.[item.workloadId]) errors.push(`${item._file}: ${item.id} references unknown workload ${item.workloadId}`);
+    if (!profiles.has(item.profile) && !legacyRegistry?.profiles?.[item.profile])
+      errors.push(`${item._file}: ${item.id} references unknown profile ${item.profile}`);
+    if (!workloads.has(item.workloadId) && !legacyRegistry?.workloads?.[item.workloadId])
+      errors.push(`${item._file}: ${item.id} references unknown workload ${item.workloadId}`);
   }
   const workstreamIds = new Set();
   for (const workstream of model.workstreams) {
     if (!ID_PATTERN.test(workstream.id ?? "")) errors.push(`${workstream._file}: invalid workstream id`);
-    if (workstreamIds.has(workstream.id)) errors.push(`${workstream._file}: duplicate workstream ${workstream.id}`);
+    if (workstreamIds.has(workstream.id))
+      errors.push(`${workstream._file}: duplicate workstream ${workstream.id}`);
     workstreamIds.add(workstream.id);
-    if (!domains.has(workstream.domain)) errors.push(`${workstream._file}: unknown workstream domain ${workstream.domain}`);
-    if (!/^(?:active|paused|done)$/u.test(workstream.state ?? "")) errors.push(`${workstream._file}: invalid workstream state`);
-    if (!/^ADR-\d{4}$/u.test(workstream.decision ?? "")) errors.push(`${workstream._file}: invalid workstream decision`);
+    if (!domains.has(workstream.domain))
+      errors.push(`${workstream._file}: unknown workstream domain ${workstream.domain}`);
+    if (!/^(?:active|paused|done)$/u.test(workstream.state ?? ""))
+      errors.push(`${workstream._file}: invalid workstream state`);
+    if (!/^ADR-\d{4}$/u.test(workstream.decision ?? ""))
+      errors.push(`${workstream._file}: invalid workstream decision`);
     // Workstreams are navigation during the destructive rebuild. Claims,
     // evidence and exit checks are optional deferred acceptance metadata.
     for (const field of ["contracts", "claims", "tasks", "exitChecks", "requiredEvidence"]) {
@@ -339,10 +474,15 @@ export function validateModel(model, legacyRegistry) {
         errors.push(`${workstream._file}: ${field} must be an array when present`);
       }
     }
-    for (const claimId of workstream.claims ?? []) if (!claims.has(claimId)) errors.push(`${workstream._file}: unknown workstream claim ${claimId}`);
-    for (const checkId of workstream.exitChecks ?? []) if (!checkIds.has(checkId)) errors.push(`${workstream._file}: unknown workstream check ${checkId}`);
-    for (const task of workstream.tasks ?? []) if (!ID_PATTERN.test(task.id ?? "") || !/^(?:todo|active|done|blocked)$/u.test(task.state ?? "")) errors.push(`${workstream._file}: invalid workstream task`);
-    if (workstream.state === "done" && (workstream.tasks ?? []).some((task) => task.state !== "done")) errors.push(`${workstream._file}: done workstream has unfinished tasks`);
+    for (const claimId of workstream.claims ?? [])
+      if (!claims.has(claimId)) errors.push(`${workstream._file}: unknown workstream claim ${claimId}`);
+    for (const checkId of workstream.exitChecks ?? [])
+      if (!checkIds.has(checkId)) errors.push(`${workstream._file}: unknown workstream check ${checkId}`);
+    for (const task of workstream.tasks ?? [])
+      if (!ID_PATTERN.test(task.id ?? "") || !/^(?:todo|active|done|blocked)$/u.test(task.state ?? ""))
+        errors.push(`${workstream._file}: invalid workstream task`);
+    if (workstream.state === "done" && (workstream.tasks ?? []).some((task) => task.state !== "done"))
+      errors.push(`${workstream._file}: done workstream has unfinished tasks`);
   }
   return errors;
 }
@@ -356,8 +496,12 @@ function validateFrontmatterDocs(model, errors) {
       continue;
     }
     const value = entry.value;
-    if (!domainIds.has(value.id) || value.kind !== "domain" || typeof value.owner !== "string") errors.push(`${relative(REPO_ROOT, entry.path)}: invalid domain frontmatter identity`);
-    if ("contracts" in value || "claims" in value) errors.push(`${relative(REPO_ROOT, entry.path)}: domain relationships belong in project/domains, not Markdown frontmatter`);
+    if (!domainIds.has(value.id) || value.kind !== "domain" || typeof value.owner !== "string")
+      errors.push(`${relative(REPO_ROOT, entry.path)}: invalid domain frontmatter identity`);
+    if ("contracts" in value || "claims" in value)
+      errors.push(
+        `${relative(REPO_ROOT, entry.path)}: domain relationships belong in project/domains, not Markdown frontmatter`,
+      );
   }
   for (const entry of model.contractDocs ?? []) {
     validateMarkdownLinks(entry, errors);
@@ -366,8 +510,16 @@ function validateFrontmatterDocs(model, errors) {
       continue;
     }
     const value = entry.value;
-    if (!ID_PATTERN.test(value.id ?? "") || value.kind !== "contract" || typeof value.status !== "string" || !["string", "number"].includes(typeof value.version)) errors.push(`${relative(REPO_ROOT, entry.path)}: invalid contract frontmatter identity`);
-    for (const field of ["owners", "consumers", "invariants", "validation"]) if (!Array.isArray(value[field]) || value[field].length === 0) errors.push(`${relative(REPO_ROOT, entry.path)}: contract frontmatter ${field} must be non-empty`);
+    if (
+      !ID_PATTERN.test(value.id ?? "") ||
+      value.kind !== "contract" ||
+      typeof value.status !== "string" ||
+      !["string", "number"].includes(typeof value.version)
+    )
+      errors.push(`${relative(REPO_ROOT, entry.path)}: invalid contract frontmatter identity`);
+    for (const field of ["owners", "consumers", "invariants", "validation"])
+      if (!Array.isArray(value[field]) || value[field].length === 0)
+        errors.push(`${relative(REPO_ROOT, entry.path)}: contract frontmatter ${field} must be non-empty`);
   }
 }
 
@@ -375,14 +527,17 @@ function validateMarkdownLinks(entry, errors) {
   for (const match of entry.source?.matchAll(/\[[^\]]*\]\(([^)]+)\)/gu) ?? []) {
     const target = match[1].replace(/^<|>$/gu, "").split("#", 1)[0];
     if (!target || /^(?:https?:|mailto:|data:)/iu.test(target)) continue;
-    if (!existsSync(resolve(dirname(entry.path), target))) errors.push(`${relative(REPO_ROOT, entry.path)}: broken link ${target}`);
+    if (!existsSync(resolve(dirname(entry.path), target)))
+      errors.push(`${relative(REPO_ROOT, entry.path)}: broken link ${target}`);
   }
 }
 
 function hasDecisionFile(id) {
   if (!/^ADR-\d{4}$/u.test(id ?? "")) return false;
   const prefix = id.slice(4).toLowerCase();
-  return readdirSync(resolve(REPO_ROOT, "docs/adr"), { withFileTypes: true }).some((entry) => entry.isFile() && entry.name.toLowerCase().startsWith(prefix) && entry.name.endsWith(".md"));
+  return readdirSync(resolve(REPO_ROOT, "docs/adr"), { withFileTypes: true }).some(
+    (entry) => entry.isFile() && entry.name.toLowerCase().startsWith(prefix) && entry.name.endsWith(".md"),
+  );
 }
 
 function normalizeCaseEntry(item) {
@@ -399,34 +554,44 @@ function normalizeCaseEntry(item) {
  * 签名哈希的是规范化后的条目，所以 generator 改变归一化语义也会被感知。
  */
 export function caseSignatures(model) {
-  const profiles = Object.fromEntries(model.profiles.map(({ _file, schemaVersion, ...profile }) => [profile.id, profile]));
-  const workloads = Object.fromEntries(model.workloads.map(({ _file, schemaVersion, ...workload }) => [workload.id, workload]));
+  const profiles = Object.fromEntries(
+    model.profiles.map(({ _file, schemaVersion, ...profile }) => [profile.id, profile]),
+  );
+  const workloads = Object.fromEntries(
+    model.workloads.map(({ _file, schemaVersion, ...workload }) => [workload.id, workload]),
+  );
   const signatures = {};
   for (const item of model.cases) {
     const entry = normalizeCaseEntry(item);
-    signatures[entry.id] = sha256(canonicalJson({
-      case: entry,
-      workload: workloads[entry.workloadId] ?? null,
-      profile: profiles[entry.profile] ?? null
-    }));
+    signatures[entry.id] = sha256(
+      canonicalJson({
+        case: entry,
+        workload: workloads[entry.workloadId] ?? null,
+        profile: profiles[entry.profile] ?? null,
+      }),
+    );
   }
   return signatures;
 }
 
 export function buildRegistry(model, legacyRegistry) {
-  const profiles = Object.fromEntries(model.profiles.map(({ _file, schemaVersion, ...profile }) => [profile.id, profile]));
-  const workloads = Object.fromEntries(model.workloads.map(({ _file, schemaVersion, ...workload }) => [workload.id, workload]));
+  const profiles = Object.fromEntries(
+    model.profiles.map(({ _file, schemaVersion, ...profile }) => [profile.id, profile]),
+  );
+  const workloads = Object.fromEntries(
+    model.workloads.map(({ _file, schemaVersion, ...workload }) => [workload.id, workload]),
+  );
   const cases = model.cases.map(normalizeCaseEntry);
   return {
     schemaVersion: legacyRegistry?.schemaVersion ?? 1,
     hostProtocolVersion: legacyRegistry?.hostProtocolVersion ?? 1,
-    profiles: Object.keys(profiles).length > 0 ? profiles : legacyRegistry?.profiles ?? {},
-    workloads: Object.keys(workloads).length > 0 ? workloads : legacyRegistry?.workloads ?? {},
+    profiles: Object.keys(profiles).length > 0 ? profiles : (legacyRegistry?.profiles ?? {}),
+    workloads: Object.keys(workloads).length > 0 ? workloads : (legacyRegistry?.workloads ?? {}),
     cases,
     generatedFrom: {
       source: "project + validation/cases/*/case.yaml + validation/labs/*/case.yaml",
-      generatorVersion: 1
-    }
+      generatorVersion: 1,
+    },
   };
 }
 
@@ -454,13 +619,17 @@ export function pathMatches(path, pattern) {
 }
 
 export function matchingDomains(model, paths) {
-  return model.domains.filter((domain) => paths.some((path) => domain.paths.some((pattern) => pathMatches(path, pattern))));
+  return model.domains.filter((domain) =>
+    paths.some((path) => domain.paths.some((pattern) => pathMatches(path, pattern))),
+  );
 }
 
 export function routeDomains(model, paths) {
   const matches = model.domains
     .map((domain) => {
-      const matchingPatterns = domain.paths.filter((pattern) => paths.some((path) => pathMatches(path, pattern)));
+      const matchingPatterns = domain.paths.filter((pattern) =>
+        paths.some((path) => pathMatches(path, pattern)),
+      );
       if (matchingPatterns.length === 0) return null;
       const score = Math.max(...matchingPatterns.map((pattern) => literalPatternScore(pattern)));
       return { domain, score, patterns: matchingPatterns };
@@ -471,7 +640,7 @@ export function routeDomains(model, paths) {
   return {
     primary: primary ? { id: primary.domain.id, score: primary.score, patterns: primary.patterns } : null,
     related: related.map((entry) => ({ id: entry.domain.id, score: entry.score, patterns: entry.patterns })),
-    ambiguous: Boolean(primary && related.some((entry) => entry.score === primary.score))
+    ambiguous: Boolean(primary && related.some((entry) => entry.score === primary.score)),
   };
 }
 
@@ -480,15 +649,22 @@ function literalPatternScore(pattern) {
 }
 
 export function matchingClaims(model, paths) {
-  return model.claims.filter((claim) => paths.some((path) => claim.watch.some((pattern) => pathMatches(path, pattern))));
+  return model.claims.filter((claim) =>
+    paths.some((path) => claim.watch.some((pattern) => pathMatches(path, pattern))),
+  );
 }
 
 export function matchingCases(model, paths) {
-  return model.cases.filter((item) => paths.some((path) => item.changedPaths.some((pattern) => pathMatches(path, pattern))));
+  return model.cases.filter((item) =>
+    paths.some((path) => item.changedPaths.some((pattern) => pathMatches(path, pattern))),
+  );
 }
 
 export function getChangedPaths(baseRevision) {
-  const output = execFileSync("git", ["status", "--short", "--untracked-files=all", "-z"], { cwd: REPO_ROOT, encoding: "utf8" });
+  const output = execFileSync("git", ["status", "--short", "--untracked-files=all", "-z"], {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+  });
   const paths = new Set();
   const records = output.split("\0");
   for (let index = 0; index < records.length; index += 1) {
@@ -504,9 +680,12 @@ export function getChangedPaths(baseRevision) {
     if (raw) paths.add(normalizePath(raw));
   }
   if (baseRevision) {
-    const diff = execFileSync("git", ["diff", "--name-status", "-z", "--find-renames", baseRevision, "--"], { cwd: REPO_ROOT, encoding: "utf8" });
+    const diff = execFileSync("git", ["diff", "--name-status", "-z", "--find-renames", baseRevision, "--"], {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+    });
     const entries = diff.split("\0");
-    for (let index = 0; index < entries.length;) {
+    for (let index = 0; index < entries.length; ) {
       const status = entries[index++];
       if (!status) continue;
       const first = entries[index++];
@@ -527,21 +706,24 @@ export function getChangedPaths(baseRevision) {
  * own version, so the two could disagree about what counts as an unowned path.
  */
 export function isIgnoredPath(path) {
-  return path === ""
-    || path === "package-lock.json"
-    || path === "validation/registry.generated.json"
-    || path === "validation/evidence/index.json"
-    || path === "validation/evidence/verification.json"
-    || path === "docs/status.generated.md"
-    || path.startsWith(".local/validation/")
-    || path.startsWith("node_modules/")
-    || path.startsWith("validation/node_modules/");
+  return (
+    path === "" ||
+    path === "package-lock.json" ||
+    path === "validation/registry.generated.json" ||
+    path === "validation/evidence/index.json" ||
+    path === "validation/evidence/verification.json" ||
+    path === "docs/status.generated.md" ||
+    path.startsWith(".local/validation/") ||
+    path.startsWith("node_modules/") ||
+    path.startsWith("validation/node_modules/")
+  );
 }
 
 export async function loadEvidenceIndex() {
   if (!existsSync(EVIDENCE_INDEX)) return { schemaVersion: 1, evidence: [] };
   const value = JSON.parse(await readFile(EVIDENCE_INDEX, "utf8"));
-  if (!Array.isArray(value.evidence)) throw new Error(`${relative(REPO_ROOT, EVIDENCE_INDEX)}: evidence must be an array`);
+  if (!Array.isArray(value.evidence))
+    throw new Error(`${relative(REPO_ROOT, EVIDENCE_INDEX)}: evidence must be an array`);
   return value;
 }
 
@@ -559,13 +741,21 @@ export async function buildEvidenceIndex(model, head, registrySha256) {
   if (existsSync(VERIFICATION_REPORT)) {
     try {
       const verification = JSON.parse(await readFile(VERIFICATION_REPORT, "utf8"));
-      if (verification.revision === head && Array.isArray(verification.checkReceipts)) checkReceipts = verification.checkReceipts;
-      else warnings.push(`${relative(REPO_ROOT, VERIFICATION_REPORT)}: verification receipts do not match current revision`);
+      if (verification.revision === head && Array.isArray(verification.checkReceipts))
+        checkReceipts = verification.checkReceipts;
+      else
+        warnings.push(
+          `${relative(REPO_ROOT, VERIFICATION_REPORT)}: verification receipts do not match current revision`,
+        );
     } catch (error) {
-      warnings.push(`${relative(REPO_ROOT, VERIFICATION_REPORT)}: ${error instanceof Error ? error.message : String(error)}`);
+      warnings.push(
+        `${relative(REPO_ROOT, VERIFICATION_REPORT)}: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
-  for (const path of files.filter((candidate) => candidate.endsWith("/result.json") || candidate.endsWith("\\result.json"))) {
+  for (const path of files.filter(
+    (candidate) => candidate.endsWith("/result.json") || candidate.endsWith("\\result.json"),
+  )) {
     try {
       const result = JSON.parse(await readFile(path, "utf8"));
       const caseManifest = caseMap.get(result.caseId);
@@ -575,15 +765,23 @@ export async function buildEvidenceIndex(model, head, registrySha256) {
       }
       const artifactErrors = validateArtifact(result, caseManifest);
       if (artifactErrors.length > 0) {
-        errors.push(`${relative(REPO_ROOT, path)}: invalid validation artifact: ${artifactErrors.join("; ")}`);
+        errors.push(
+          `${relative(REPO_ROOT, path)}: invalid validation artifact: ${artifactErrors.join("; ")}`,
+        );
         continue;
       }
       const workload = workloadMap.get(result.workloadId);
       const domain = domainMap.get(caseManifest.domain);
       const contractHashes = await resolveContractHashes(domain?.contracts ?? [], contractHashCache);
       const checkReceipts = Array.isArray(result.checkReceipts) ? result.checkReceipts : [];
-      const checkIds = [...new Set(checkReceipts.filter((receipt) => receipt.status === "passed").map((receipt) => receipt.id))].sort();
-      const artifactHashes = Object.fromEntries((result.artifactManifest ?? []).map((artifact) => [artifact.kind, artifact.sha256]));
+      const checkIds = [
+        ...new Set(
+          checkReceipts.filter((receipt) => receipt.status === "passed").map((receipt) => receipt.id),
+        ),
+      ].sort();
+      const artifactHashes = Object.fromEntries(
+        (result.artifactManifest ?? []).map((artifact) => [artifact.kind, artifact.sha256]),
+      );
       const pageEvidence = result.page?.evidence ?? {};
       const revisionMatches = result.provenance?.commit === head;
       const registryMatches = result.registrySha256 === registrySha256;
@@ -608,11 +806,17 @@ export async function buildEvidenceIndex(model, head, registrySha256) {
           executable: result.provenance?.browserExecutable,
           executableSha256: result.provenance?.browserExecutableSha256,
           version: result.provenance?.browserVersion,
-          userAgent: result.provenance?.userAgent
+          userAgent: result.provenance?.userAgent,
         },
         adapter: pageEvidence.adapter ?? null,
         capability: pageEvidence.capability ?? pageEvidence.adapter ?? null,
-        resolution: workload ? { resolution: workload.resolution, deviceScaleFactor: workload.deviceScaleFactor, renderScale: workload.renderScale } : null,
+        resolution: workload
+          ? {
+              resolution: workload.resolution,
+              deviceScaleFactor: workload.deviceScaleFactor,
+              renderScale: workload.renderScale,
+            }
+          : null,
         artifactHashes,
         freshness: {
           gates: result.gate ?? {},
@@ -622,21 +826,32 @@ export async function buildEvidenceIndex(model, head, registrySha256) {
           // Artifact-level standing only. Manifest dependence is checked against
           // the current case signature in isFreshEvidence, so an unrelated case
           // edit no longer invalidates this record.
-          accepted: revisionMatches && result.provenance?.dirty === false && result.evidenceStatus === "accepted"
+          accepted:
+            revisionMatches && result.provenance?.dirty === false && result.evidenceStatus === "accepted",
         },
         completedAt: result.provenance?.completedAt,
         artifactPath: relative(REPO_ROOT, path).replaceAll("\\", "/"),
-        gate: result.gate
+        gate: result.gate,
       });
     } catch (error) {
       errors.push(`${relative(REPO_ROOT, path)}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
-  evidence.sort((left, right) => `${right.completedAt ?? ""}\u0000${right.runId ?? ""}`.localeCompare(`${left.completedAt ?? ""}\u0000${left.runId ?? ""}`));
-  const history = Object.fromEntries([...evidence.reduce((counts, item) => {
-    counts.set(item.caseId, (counts.get(item.caseId) ?? 0) + 1);
-    return counts;
-  }, new Map()).entries()].sort(([left], [right]) => left.localeCompare(right)));
+  evidence.sort((left, right) =>
+    `${right.completedAt ?? ""}\u0000${right.runId ?? ""}`.localeCompare(
+      `${left.completedAt ?? ""}\u0000${left.runId ?? ""}`,
+    ),
+  );
+  const history = Object.fromEntries(
+    [
+      ...evidence
+        .reduce((counts, item) => {
+          counts.set(item.caseId, (counts.get(item.caseId) ?? 0) + 1);
+          return counts;
+        }, new Map())
+        .entries(),
+    ].sort(([left], [right]) => left.localeCompare(right)),
+  );
   const latestByCase = new Map();
   for (const item of evidence) if (!latestByCase.has(item.caseId)) latestByCase.set(item.caseId, item);
   return {
@@ -648,7 +863,7 @@ export async function buildEvidenceIndex(model, head, registrySha256) {
     evidence: [...latestByCase.values()].sort((left, right) => left.caseId.localeCompare(right.caseId)),
     history,
     errors,
-    warnings
+    warnings,
   };
 }
 
@@ -656,7 +871,10 @@ async function resolveContractHashes(ids, cache) {
   const hashes = {};
   for (const id of ids) {
     if (!cache.has(id)) {
-      const candidates = [resolve(REPO_ROOT, `docs/contracts/${id}.md`), resolve(REPO_ROOT, `docs/specs/${id}.md`)];
+      const candidates = [
+        resolve(REPO_ROOT, `docs/contracts/${id}.md`),
+        resolve(REPO_ROOT, `docs/specs/${id}.md`),
+      ];
       const path = candidates.find((candidate) => existsSync(candidate));
       cache.set(id, path ? sha256(await readFile(path)) : null);
     }
@@ -681,12 +899,18 @@ export async function writeEvidenceIndex(index) {
 export function claimStatus(claim, evidenceIndex, head, caseSignaturesByCase = {}) {
   if (claim.lifecycle === "retired") return "retired";
   const policy = claim.evidencePolicy ?? { allOf: [], anyOf: [], diagnosticCases: [], checkOnly: false };
-  if (policy.checkOnly) return checkReceiptsCover(evidenceIndex.checkReceipts, claim, head) ? "accepted" : "unproven";
+  if (policy.checkOnly)
+    return checkReceiptsCover(evidenceIndex.checkReceipts, claim, head) ? "accepted" : "unproven";
   const records = (evidenceIndex.evidence ?? []).filter((item) => item.claimIds?.includes(claim.id));
   const latestByCase = new Map();
   for (const record of records) {
     const previous = latestByCase.get(record.caseId);
-    if (!previous || `${record.completedAt ?? ""}\u0000${record.runId ?? ""}` > `${previous.completedAt ?? ""}\u0000${previous.runId ?? ""}`) latestByCase.set(record.caseId, record);
+    if (
+      !previous ||
+      `${record.completedAt ?? ""}\u0000${record.runId ?? ""}` >
+        `${previous.completedAt ?? ""}\u0000${previous.runId ?? ""}`
+    )
+      latestByCase.set(record.caseId, record);
   }
   const state = (caseId) => evidenceState(latestByCase.get(caseId), claim, head, caseSignaturesByCase);
   const allStates = (policy.allOf ?? []).map(state);
@@ -708,15 +932,28 @@ function evidenceState(item, claim, head, caseSignaturesByCase) {
   if (!item) return "unproven";
   if (item.status === "failed" || item.evidenceStatus === "blocked") return "blocked";
   if (!isFreshEvidence(item, claim, head, caseSignaturesByCase)) return "stale";
-  if (item.evidenceStatus === "diagnostic-only" || item.status === "diagnostic" || item.status === "unsupported") return "diagnostic";
+  if (
+    item.evidenceStatus === "diagnostic-only" ||
+    item.status === "diagnostic" ||
+    item.status === "unsupported"
+  )
+    return "diagnostic";
   return item.evidenceStatus === "accepted" && item.status === "passed" ? "accepted" : "diagnostic";
 }
 
 function checkReceiptsCover(receipts, claim, head) {
   if (!Array.isArray(receipts)) return false;
-  const passed = new Set(receipts
-    .filter((receipt) => receipt.status === "passed" && receipt.revision === head && receipt.dirty === false && receipt.scope === "full")
-    .map((receipt) => receipt.id));
+  const passed = new Set(
+    receipts
+      .filter(
+        (receipt) =>
+          receipt.status === "passed" &&
+          receipt.revision === head &&
+          receipt.dirty === false &&
+          receipt.scope === "full",
+      )
+      .map((receipt) => receipt.id),
+  );
   return (claim.requiredChecks ?? []).every((checkId) => passed.has(checkId));
 }
 
@@ -733,8 +970,17 @@ export function validateWorkstreamCompletion(model, evidenceIndex, head, caseSig
       }
       const claimRecords = records.filter((record) => record.claimIds?.includes(claimId));
       for (const checkId of workstream.exitChecks ?? []) {
-        const covered = claimRecords.some((record) => record.checkIds?.includes(checkId) && record.status === "passed" && record.evidenceStatus === "accepted" && isFreshEvidence(record, claim, head, caseSignaturesByCase));
-        if (!covered) errors.push(`${workstream._file}: done workstream exit check lacks fresh accepted evidence: ${checkId} (${claimId})`);
+        const covered = claimRecords.some(
+          (record) =>
+            record.checkIds?.includes(checkId) &&
+            record.status === "passed" &&
+            record.evidenceStatus === "accepted" &&
+            isFreshEvidence(record, claim, head, caseSignaturesByCase),
+        );
+        if (!covered)
+          errors.push(
+            `${workstream._file}: done workstream exit check lacks fresh accepted evidence: ${checkId} (${claimId})`,
+          );
       }
     }
   }
@@ -746,7 +992,8 @@ function isFreshEvidence(item, claim, head, caseSignaturesByCase) {
   // Freshness is anchored to this case's own manifest/workload/profile signature
   // instead of the whole generated registry, so an unrelated case edit cannot
   // invalidate evidence that is still valid.
-  if (!item.caseSignatureSha256 || item.caseSignatureSha256 !== caseSignaturesByCase?.[item.caseId]) return false;
+  if (!item.caseSignatureSha256 || item.caseSignatureSha256 !== caseSignaturesByCase?.[item.caseId])
+    return false;
   if (item.dirty !== false || item.freshness?.clean !== true) return false;
   if (item.freshness?.revisionMatches !== true || item.freshness?.accepted !== true) return false;
   return requiredChecksCovered(item, claim);
@@ -754,9 +1001,19 @@ function isFreshEvidence(item, claim, head, caseSignaturesByCase) {
 
 function requiredChecksCovered(item, claim) {
   const receipts = Array.isArray(item.checkReceipts) ? item.checkReceipts : [];
-  const checks = new Set(receipts
-    .filter((receipt) => receipt.status === "passed" && receipt.revision === item.commit && receipt.tree === item.tree && receipt.dirty === item.dirty && receipt.scope === "full" && receipt.registrySha256 === item.registrySha256)
-    .map((receipt) => receipt.id));
+  const checks = new Set(
+    receipts
+      .filter(
+        (receipt) =>
+          receipt.status === "passed" &&
+          receipt.revision === item.commit &&
+          receipt.tree === item.tree &&
+          receipt.dirty === item.dirty &&
+          receipt.scope === "full" &&
+          receipt.registrySha256 === item.registrySha256,
+      )
+      .map((receipt) => receipt.id),
+  );
   return (claim.requiredChecks ?? []).every((checkId) => checks.has(checkId));
 }
 
@@ -779,7 +1036,9 @@ export function evidenceReplacementError(nextIndex, existingIndex, options = {})
     return "Refusing to replace a non-empty evidence index from an empty .local/validation input; restore raw artifacts or pass --force-empty.";
   }
   const nextCases = new Set(next.map((item) => item.caseId));
-  const missingCases = [...new Set(existing.map((item) => item.caseId).filter((caseId) => !nextCases.has(caseId)))].sort();
+  const missingCases = [
+    ...new Set(existing.map((item) => item.caseId).filter((caseId) => !nextCases.has(caseId))),
+  ].sort();
   if (!options.forcePrune && next.length > 0 && missingCases.length > 0) {
     return `Refusing to prune ${missingCases.length} case(s) from the evidence index (${missingCases.join(", ")}); restore raw artifacts or pass --force-prune.`;
   }
@@ -826,7 +1085,7 @@ async function listFiles(directory) {
   const files = [];
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const path = resolve(directory, entry.name);
-    if (entry.isDirectory()) files.push(...await listFiles(path));
+    if (entry.isDirectory()) files.push(...(await listFiles(path)));
     else if (entry.isFile()) files.push(path);
   }
   return files.sort();

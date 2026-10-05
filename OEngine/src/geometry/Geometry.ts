@@ -10,30 +10,21 @@ import {
   dot3,
   hashArrayItems,
   length3,
-  lengthSquared3
+  lengthSquared3,
 } from "../core/math/mathUtils.js";
-import {
-  aabbFromPositions,
-  copyArrayRange,
-  hashString
-} from "../core/memoryUtils.js";
+import { aabbFromPositions, copyArrayRange, hashString } from "../core/memoryUtils.js";
 import { Attribute } from "./Attribute.js";
 import { MeshletAttrName } from "./meshletPackedAttrs.js";
 import { Miniball, PointCloud } from "./Miniball.js";
 
 export const GeometryFlag = {
-  BoundsDirty: 1
+  BoundsDirty: 1,
 } as const;
 
 const faceNrmScratch = new Float64Array(3);
 const faceNrmScratchNonIdx = new Float64Array(3);
 
-export function addVec3At(
-  e: { [i: number]: number },
-  t: number,
-  n: ArrayLike<number>,
-  r: number
-): void {
+export function addVec3At(e: { [i: number]: number }, t: number, n: ArrayLike<number>, r: number): void {
   const s = n[r + 1]!;
   const a = n[r + 2]!;
   e[t] = (e[t] ?? 0) + n[r]!;
@@ -47,7 +38,7 @@ export function faceNormalFromTri(
   n: number,
   r: number,
   s: number,
-  a: ArrayLike<number>
+  a: ArrayLike<number>,
 ): void {
   const i = 3 * n;
   const o = 3 * r;
@@ -87,7 +78,7 @@ export function normalizeVec3At(
   e: { [i: number]: number },
   t: number,
   n: ArrayLike<number>,
-  r: number
+  r: number,
 ): void {
   const s = n[r]!;
   const a = n[r + 1]!;
@@ -108,11 +99,9 @@ export function tangentHandedness(
   a: number,
   i: number,
   o: number,
-  _: number
+  _: number,
 ): number {
-  return (t * a - n * s) * i + (n * r - e * a) * o + (e * s - t * r) * _ < 0
-    ? -1
-    : 1;
+  return (t * a - n * s) * i + (n * r - e * a) * o + (e * s - t * r) * _ < 0 ? -1 : 1;
 }
 
 export function fallbackTangentFromNormal(
@@ -120,7 +109,7 @@ export function fallbackTangentFromNormal(
   t: number,
   n: number,
   r: number,
-  s: { [i: number]: number }
+  s: { [i: number]: number },
 ): void {
   let a: number;
   let i: number;
@@ -155,13 +144,7 @@ export function fallbackTangentFromNormal(
   s[l + 3] = u;
 }
 
-export function addScalar3At(
-  e: { [i: number]: number },
-  t: number,
-  n: number,
-  r: number,
-  s: number
-): void {
+export function addScalar3At(e: { [i: number]: number }, t: number, n: number, r: number, s: number): void {
   e[t] = (e[t] ?? 0) + n;
   e[t + 1] = (e[t + 1] ?? 0) + r;
   e[t + 2] = (e[t + 2] ?? 0) + s;
@@ -205,7 +188,7 @@ export class Geometry {
     return hashMix(
       hashString(this.name),
       hashOptional(this.index),
-      hashArrayItems(this.attributes, (a) => a.hash())
+      hashArrayItems(this.attributes, (a) => a.hash()),
     );
   }
 
@@ -323,11 +306,7 @@ export class Geometry {
       this.clearFlag(GeometryFlag.BoundsDirty);
       return;
     }
-    aabbFromPositions(
-      this.bounding_box,
-      e.data,
-      e.count * e.spec.itemSize
-    );
+    aabbFromPositions(this.bounding_box, e.data, e.count * e.spec.itemSize);
     this.clearFlag(GeometryFlag.BoundsDirty);
   }
 
@@ -390,9 +369,7 @@ export class Geometry {
   private ensureTangentAttribute(): Attribute {
     if (!this.hasAttribute(MeshletAttrName.Tangent)) {
       const e = this.getVertexCount();
-      this.addAttribute(
-        Attribute.from(new Float32Array(4 * e), 4, MeshletAttrName.Tangent)
-      );
+      this.addAttribute(Attribute.from(new Float32Array(4 * e), 4, MeshletAttrName.Tangent));
     }
     return this.getAttribute(MeshletAttrName.Tangent)!;
   }
@@ -404,7 +381,7 @@ export class Geometry {
     const r = this.getAttribute(MeshletAttrName.Uv0);
     if (e === null || t === undefined || n === undefined || r === undefined) {
       throw new Error(
-        " .computeTangents() failed. Missing required attributes (index, position, normal or uv)"
+        " .computeTangents() failed. Missing required attributes (index, position, normal or uv)",
       );
     }
     const s = t.data;
@@ -501,13 +478,7 @@ export class Geometry {
     const r = this.getVertexCount();
     for (let vi = 0; vi < r; vi++) {
       const off = 3 * vi;
-      fallbackTangentFromNormal(
-        n[off]! as number,
-        n[off + 1]! as number,
-        n[off + 2]! as number,
-        vi,
-        t
-      );
+      fallbackTangentFromNormal(n[off]! as number, n[off + 1]! as number, n[off + 2]! as number, vi, t);
     }
     this.getAttribute(MeshletAttrName.Tangent)!.needsUpdate = true;
   }

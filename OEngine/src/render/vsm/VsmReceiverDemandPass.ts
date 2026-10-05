@@ -33,8 +33,7 @@ export interface VsmDemandFrame {
 const CONSTANT_BYTES = 256;
 
 export function vsmReceiverDispatch(width: number, height: number): readonly [number, number] {
-  if (!Number.isSafeInteger(width) || width < 1 ||
-      !Number.isSafeInteger(height) || height < 1) {
+  if (!Number.isSafeInteger(width) || width < 1 || !Number.isSafeInteger(height) || height < 1) {
     throw new RangeError("VSM receiver demand extent is invalid");
   }
   return [Math.ceil(width / 8), Math.ceil(height / 8)];
@@ -52,29 +51,44 @@ export function buildVsmDirectionalFrameConstants(
   cameraPosition: readonly [number, number, number],
   cameraFar: number,
   resources: VsmResources,
-  generation: number
+  generation: number,
 ): VsmDirectionalFrameConstants {
   const profile = resources.capabilities;
-  if (resources.profile === "shadow-disabled") throw new Error("Cannot build VSM constants for disabled profile");
+  if (resources.profile === "shadow-disabled")
+    throw new Error("Cannot build VSM constants for disabled profile");
   const travel = normalize3(-sunDirectionWorld[0], -sunDirectionWorld[1], -sunDirectionWorld[2]);
   const upReference: [number, number, number] = Math.abs(travel[1]) > 0.92 ? [1, 0, 0] : [0, 1, 0];
   const right = normalize3(
     upReference[1] * travel[2] - upReference[2] * travel[1],
     upReference[2] * travel[0] - upReference[0] * travel[2],
-    upReference[0] * travel[1] - upReference[1] * travel[0]
+    upReference[0] * travel[1] - upReference[1] * travel[0],
   );
   const up: [number, number, number] = [
     travel[1] * right[2] - travel[2] * right[1],
     travel[2] * right[0] - travel[0] * right[2],
-    travel[0] * right[1] - travel[1] * right[0]
+    travel[0] * right[1] - travel[1] * right[0],
   ];
   const center = [cameraPosition[0], cameraPosition[1], cameraPosition[2]] as const;
   const tx = -(right[0] * center[0] + right[1] * center[1] + right[2] * center[2]);
   const ty = -(up[0] * center[0] + up[1] * center[1] + up[2] * center[2]);
   const tz = -(travel[0] * center[0] + travel[1] * center[1] + travel[2] * center[2]);
   const lightView = Object.freeze([
-    right[0], up[0], travel[0], 0, right[1], up[1], travel[1], 0,
-    right[2], up[2], travel[2], 0, tx, ty, tz, 1
+    right[0],
+    up[0],
+    travel[0],
+    0,
+    right[1],
+    up[1],
+    travel[1],
+    0,
+    right[2],
+    up[2],
+    travel[2],
+    0,
+    tx,
+    ty,
+    tz,
+    1,
   ]);
   const baseExtent = Math.max(32, Math.min(Math.max(32, cameraFar), 2048) * 0.125);
   const levels = Array.from({ length: profile.clipLevels }, (_, level) => {
@@ -102,10 +116,14 @@ function packConstants(input: VsmReceiverDemandInputs, resources: VsmResources):
     const value = input.clipOriginExtent[level] ?? [0, 0, 1, 1];
     floats.set(value, 16 + level * 4);
   }
-  uints.set([input.width, input.height, resources.capabilities.pageSize,
-    resources.capabilities.virtualPagesPerAxis], 40);
-  uints.set([resources.capabilities.clipLevels, input.generation >>> 0,
-    resources.capabilities.demandCapacity, 0], 44);
+  uints.set(
+    [input.width, input.height, resources.capabilities.pageSize, resources.capabilities.virtualPagesPerAxis],
+    40,
+  );
+  uints.set(
+    [resources.capabilities.clipLevels, input.generation >>> 0, resources.capabilities.demandCapacity, 0],
+    44,
+  );
   floats.set([1 / input.width, 1 / input.height, 1, 0], 48);
   return data;
 }
@@ -117,52 +135,79 @@ export class VsmReceiverDemandPass {
   private readonly pipeline: GPUComputePipeline;
 
   constructor(private readonly device: GPUDevice) {
-    this.constants = device.createBuffer({ label: "VSM/receiver demand constants",
-      size: CONSTANT_BYTES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-    this.layout = device.createBindGroupLayout({ entries: [
-      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-      { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "depth" } },
-      { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } },
-      { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-      { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }
-    ] });
-    this.pipeline = device.createComputePipeline({ label: "VSM/receiver demand",
+    this.constants = device.createBuffer({
+      label: "VSM/receiver demand constants",
+      size: CONSTANT_BYTES,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    this.layout = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "depth" } },
+        { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } },
+        { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+        { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      ],
+    });
+    this.pipeline = device.createComputePipeline({
+      label: "VSM/receiver demand",
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }),
-      compute: { module: device.createShaderModule({ code: VSM_RECEIVER_DEMAND_WGSL }), entryPoint: "main" } });
+      compute: { module: device.createShaderModule({ code: VSM_RECEIVER_DEMAND_WGSL }), entryPoint: "main" },
+    });
   }
 
   addToGraph(graph: FrameGraph, input: VsmReceiverDemandInputs): VsmDemandFrame {
     const profile = input.resources.capabilities;
-    if (input.resources.profile === "shadow-disabled") throw new Error("VSM receiver demand requires an enabled profile");
-    if (!Number.isInteger(input.width) || input.width < 1 || !Number.isInteger(input.height) || input.height < 1 ||
-        input.width > Number(this.device.limits.maxTextureDimension2D) ||
-        input.height > Number(this.device.limits.maxTextureDimension2D)) {
+    if (input.resources.profile === "shadow-disabled")
+      throw new Error("VSM receiver demand requires an enabled profile");
+    if (
+      !Number.isInteger(input.width) ||
+      input.width < 1 ||
+      !Number.isInteger(input.height) ||
+      input.height < 1 ||
+      input.width > Number(this.device.limits.maxTextureDimension2D) ||
+      input.height > Number(this.device.limits.maxTextureDimension2D)
+    ) {
       throw new RangeError("VSM receiver demand extent exceeds device limits");
     }
-    if (!Number.isSafeInteger(input.generation) || input.generation < 0) throw new RangeError("VSM generation is invalid");
+    if (!Number.isSafeInteger(input.generation) || input.generation < 0)
+      throw new RangeError("VSM generation is invalid");
     const demandBuffer = input.resources.demand;
     if (!demandBuffer) throw new Error("VSM demand buffer is unavailable");
-    const constants = graph.import_resource("VSM/receiver demand constants",
-      { kind: "imported", label: "VSM receiver demand constants" }, this.constants);
-    const demand = graph.import_resource("VSM/demand", { kind: "imported", label: "VSM demand buffer" },
-      demandBuffer);
-    const update = graph.add("VSM/update receiver demand constants", input,
-      (data, _resources, context) => {
-        (context.encoder as ShadeGPUCommandContext).writeBuffer(this.constants, 0,
-          packConstants(data, input.resources), 0, CONSTANT_BYTES);
-      });
+    const constants = graph.import_resource(
+      "VSM/receiver demand constants",
+      { kind: "imported", label: "VSM receiver demand constants" },
+      this.constants,
+    );
+    const demand = graph.import_resource(
+      "VSM/demand",
+      { kind: "imported", label: "VSM demand buffer" },
+      demandBuffer,
+    );
+    const update = graph.add("VSM/update receiver demand constants", input, (data, _resources, context) => {
+      (context.encoder as ShadeGPUCommandContext).writeBuffer(
+        this.constants,
+        0,
+        packConstants(data, input.resources),
+        0,
+        CONSTANT_BYTES,
+      );
+    });
     const currentConstants = update.write(constants);
     const produce = graph.add("VSM/receiver demand", {}, (_data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
       const demandBuffer = resources.get(demand) as GPUBuffer;
       command.clearBuffer(demandBuffer, 0, 16);
-      const group = this.device.createBindGroup({ layout: this.layout, entries: [
-        { binding: 0, resource: { buffer: resources.get(input.camera) as GPUBuffer } },
-        { binding: 1, resource: resolveTextureView(resources.get(input.depth)) },
-        { binding: 2, resource: resolveTextureView(resources.get(input.visibilityKey)) },
-        { binding: 3, resource: { buffer: resources.get(currentConstants) as GPUBuffer } },
-        { binding: 4, resource: { buffer: demandBuffer } }
-      ] });
+      const group = this.device.createBindGroup({
+        layout: this.layout,
+        entries: [
+          { binding: 0, resource: { buffer: resources.get(input.camera) as GPUBuffer } },
+          { binding: 1, resource: resolveTextureView(resources.get(input.depth)) },
+          { binding: 2, resource: resolveTextureView(resources.get(input.visibilityKey)) },
+          { binding: 3, resource: { buffer: resources.get(currentConstants) as GPUBuffer } },
+          { binding: 4, resource: { buffer: demandBuffer } },
+        ],
+      });
       const pass = command.beginComputePass({ label: "VSM/receiver demand" });
       pass.setPipeline(this.pipeline);
       pass.setBindGroup(0, group);
@@ -178,5 +223,7 @@ export class VsmReceiverDemandPass {
     return { demand, generation: input.generation, capacity: profile.demandCapacity };
   }
 
-  destroy(): void { this.constants.destroy(); }
+  destroy(): void {
+    this.constants.destroy();
+  }
 }

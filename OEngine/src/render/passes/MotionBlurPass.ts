@@ -12,7 +12,7 @@ import {
   MOTION_BLUR_NEIGHBOR_MAX_WGSL,
   MOTION_BLUR_RESOLVE_WGSL,
   MOTION_BLUR_TILE_FORMAT,
-  MOTION_BLUR_TILE_MAX_WGSL
+  MOTION_BLUR_TILE_MAX_WGSL,
 } from "../../shaders/motion_blur.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
 
@@ -46,19 +46,19 @@ export class MotionBlurPass {
       "Renderer/Motion blur tile Mk",
       MOTION_BLUR_TILE_MAX_WGSL,
       MOTION_BLUR_TILE_FORMAT,
-      singleTextureGroup
+      singleTextureGroup,
     );
     this.neighborPipeline = createPipelineDescriptor(
       "Renderer/Motion blur neighbor Ek",
       MOTION_BLUR_NEIGHBOR_MAX_WGSL,
       MOTION_BLUR_TILE_FORMAT,
-      singleTextureGroup
+      singleTextureGroup,
     );
     this.resolvePipeline = createPipelineDescriptor(
       "Renderer/Motion blur resolve kk",
       MOTION_BLUR_RESOLVE_WGSL,
       MOTION_BLUR_FORMAT,
-      createResolveGroupLayout()
+      createResolveGroupLayout(),
     );
   }
 
@@ -71,22 +71,34 @@ export class MotionBlurPass {
     let tileMax = -1;
     const tileBuilder = graph.add("Motion blur tile max Mk", {}, (_data, resources, context) => {
       const command = requireShadeCommandContext(context.encoder);
-      this.drawSingle(command, this.tilePipeline, "Motion blur tile max Mk", resolveTextureView(resources.get(tileMax)), resolveTextureView(resources.get(inputs.velocity)));
+      this.drawSingle(
+        command,
+        this.tilePipeline,
+        "Motion blur tile max Mk",
+        resolveTextureView(resources.get(tileMax)),
+        resolveTextureView(resources.get(inputs.velocity)),
+      );
     });
     tileMax = tileBuilder.create(
       "Motion blur tile max",
-      descriptor(tileWidth, tileHeight, MOTION_BLUR_TILE_FORMAT, "tile")
+      descriptor(tileWidth, tileHeight, MOTION_BLUR_TILE_FORMAT, "tile"),
     );
     tileBuilder.read(inputs.velocity);
 
     let neighborMax = -1;
     const neighborBuilder = graph.add("Motion blur neighbor max Ek", {}, (_data, resources, context) => {
       const command = requireShadeCommandContext(context.encoder);
-      this.drawSingle(command, this.neighborPipeline, "Motion blur neighbor max Ek", resolveTextureView(resources.get(neighborMax)), resolveTextureView(resources.get(tileMax)));
+      this.drawSingle(
+        command,
+        this.neighborPipeline,
+        "Motion blur neighbor max Ek",
+        resolveTextureView(resources.get(neighborMax)),
+        resolveTextureView(resources.get(tileMax)),
+      );
     });
     neighborMax = neighborBuilder.create(
       "Motion blur neighbor max",
-      descriptor(tileWidth, tileHeight, MOTION_BLUR_TILE_FORMAT, "tile")
+      descriptor(tileWidth, tileHeight, MOTION_BLUR_TILE_FORMAT, "tile"),
     );
     neighborBuilder.read(tileMax);
 
@@ -98,12 +110,12 @@ export class MotionBlurPass {
         color: resolveTextureView(resources.get(inputs.color)),
         velocity: resolveTextureView(resources.get(inputs.velocity)),
         neighborMax: resolveTextureView(resources.get(neighborMax)),
-        depth: resolveTextureView(resources.get(inputs.depth))
+        depth: resolveTextureView(resources.get(inputs.depth)),
       });
     });
     output = resolveBuilder.create(
       "Motion blur color",
-      descriptor(job.outputWidth, job.outputHeight, MOTION_BLUR_FORMAT, "output-full")
+      descriptor(job.outputWidth, job.outputHeight, MOTION_BLUR_FORMAT, "output-full"),
     );
     resolveBuilder.read(inputs.color);
     resolveBuilder.read(inputs.velocity);
@@ -112,57 +124,72 @@ export class MotionBlurPass {
     return output;
   }
 
-  private drawSingle(command: ShadeGPUCommandContext, pipeline: CachedRenderPipelineDescriptor, label: string, output: GPUTextureView, input: GPUTextureView): void {
+  private drawSingle(
+    command: ShadeGPUCommandContext,
+    pipeline: CachedRenderPipelineDescriptor,
+    label: string,
+    output: GPUTextureView,
+    input: GPUTextureView,
+  ): void {
     draw(command, pipeline, [[input]], output, label);
   }
 
-  private executeResolve(command: ShadeGPUCommandContext, strength: number, resources: { output: GPUTextureView; color: GPUTextureView; velocity: GPUTextureView; neighborMax: GPUTextureView; depth: GPUTextureView }): void {
+  private executeResolve(
+    command: ShadeGPUCommandContext,
+    strength: number,
+    resources: {
+      output: GPUTextureView;
+      color: GPUTextureView;
+      velocity: GPUTextureView;
+      neighborMax: GPUTextureView;
+      depth: GPUTextureView;
+    },
+  ): void {
     const strengthBuffer = command.allocateTransientBufferAndLoad(
       new Float32Array([strength]).buffer,
-      GPUBufferUsage.UNIFORM
+      GPUBufferUsage.UNIFORM,
     );
     draw(
       command,
       this.resolvePipeline,
-      [[
-        resources.color,
-        resources.velocity,
-        resources.neighborMax,
-        resources.depth,
-        { buffer: strengthBuffer }
-      ]],
+      [
+        [
+          resources.color,
+          resources.velocity,
+          resources.neighborMax,
+          resources.depth,
+          { buffer: strengthBuffer },
+        ],
+      ],
       resources.output,
-      "Motion blur resolve kk"
+      "Motion blur resolve kk",
     );
   }
 
   destroy(): void {}
 }
 
-function descriptor(
-  width: number,
-  height: number,
-  format: GPUTextureFormat,
-  domain: "tile" | "output-full"
-) {
+function descriptor(width: number, height: number, format: GPUTextureFormat, domain: "tile" | "output-full") {
   return {
     kind: "transient_texture" as const,
     width,
     height,
     format,
     usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT,
-    domain
+    domain,
   };
 }
 
 function createSingleTextureGroupLayout(): GPUBindGroupLayoutDescriptor {
   return {
     label: "Renderer/Motion blur single texture group0",
-    entries: [{
-      binding: 0,
-      visibility: GPUShaderStage.FRAGMENT,
-      texture: { sampleType: "unfilterable-float", viewDimension: "2d" }
-    }]
+    entries: [
+      {
+        binding: 0,
+        visibility: GPUShaderStage.FRAGMENT,
+        texture: { sampleType: "unfilterable-float", viewDimension: "2d" },
+      },
+    ],
   };
 }
 
@@ -170,12 +197,28 @@ function createResolveGroupLayout(): GPUBindGroupLayoutDescriptor {
   return {
     label: "Renderer/Motion blur resolve group0",
     entries: [
-      { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "2d" } },
-      { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "2d" } },
-      { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "2d" } },
-      { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "depth", viewDimension: "2d" } },
-      { binding: 4, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } }
-    ]
+      {
+        binding: 0,
+        visibility: GPUShaderStage.FRAGMENT,
+        texture: { sampleType: "float", viewDimension: "2d" },
+      },
+      {
+        binding: 1,
+        visibility: GPUShaderStage.FRAGMENT,
+        texture: { sampleType: "float", viewDimension: "2d" },
+      },
+      {
+        binding: 2,
+        visibility: GPUShaderStage.FRAGMENT,
+        texture: { sampleType: "float", viewDimension: "2d" },
+      },
+      {
+        binding: 3,
+        visibility: GPUShaderStage.FRAGMENT,
+        texture: { sampleType: "depth", viewDimension: "2d" },
+      },
+      { binding: 4, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
+    ],
   };
 }
 
@@ -183,18 +226,18 @@ function createPipelineDescriptor(
   label: string,
   code: string,
   format: GPUTextureFormat,
-  group0: GPUBindGroupLayoutDescriptor
+  group0: GPUBindGroupLayoutDescriptor,
 ): CachedRenderPipelineDescriptor {
   const module = { label, code };
   return {
     label,
     layout: {
       label: `${label} layout`,
-      bindGroupLayouts: [group0]
+      bindGroupLayouts: [group0],
     },
     vertex: { module, entryPoint: "vs_main" },
     fragment: { module, entryPoint: "fs_main", targets: [{ format }] },
-    primitive: { topology: "triangle-list", cullMode: "none" }
+    primitive: { topology: "triangle-list", cullMode: "none" },
   };
 }
 
@@ -203,13 +246,15 @@ function draw(
   pipeline: CachedRenderPipelineDescriptor,
   bindings: GPUBindingResource[][],
   output: GPUTextureView,
-  label: string
+  label: string,
 ): void {
   const pass = command.constructRenderPass({
     label,
     pipeline,
     bindings,
-    colorAttachments: [{ view: output, clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: "clear", storeOp: "store" }]
+    colorAttachments: [
+      { view: output, clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: "clear", storeOp: "store" },
+    ],
   });
   pass.draw(3, 1, 0, 0);
   pass.end();

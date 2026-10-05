@@ -2,7 +2,7 @@ import { PACKED_CAMERA_TYPE } from "./packed_camera.js";
 import {
   GPU_COMPUTE_MATERIAL_ABI_WGSL,
   GPU_SHADING_SURFACE_LITE_WGSL,
-  GPU_SHADING_SURFACE_NORMAL_WGSL
+  GPU_SHADING_SURFACE_NORMAL_WGSL,
 } from "../gpu/GpuComputeMaterialAbi.js";
 import { GPU_HDR_FORMAT } from "../gpu/GpuHdrAbi.js";
 import { SPECULAR_AMBIENT_OCCLUSION_WGSL } from "./specular_ambient_occlusion.js";

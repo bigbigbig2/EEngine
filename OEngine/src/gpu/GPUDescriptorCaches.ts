@@ -44,10 +44,7 @@ export type CachedRenderPipelineDescriptor = Omit<
   fragment?: CachedFragmentState;
 };
 
-export type CachedComputePipelineDescriptor = Omit<
-  GPUComputePipelineDescriptor,
-  "layout" | "compute"
-> & {
+export type CachedComputePipelineDescriptor = Omit<GPUComputePipelineDescriptor, "layout" | "compute"> & {
   layout: CachedPipelineLayoutDescriptor;
   compute: CachedComputeState;
 };
@@ -146,12 +143,13 @@ class bu implements GPUColorTargetState {
   constructor(descriptor: GPUColorTargetState & { label?: string }) {
     this.label = descriptor.label ?? "";
     this.format = descriptor.format;
-    this.blend = descriptor.blend === undefined
-      ? undefined
-      : {
-          color: { ...descriptor.blend.color },
-          alpha: { ...descriptor.blend.alpha }
-        };
+    this.blend =
+      descriptor.blend === undefined
+        ? undefined
+        : {
+            color: { ...descriptor.blend.color },
+            alpha: { ...descriptor.blend.alpha },
+          };
     this.writeMask = descriptor.writeMask ?? GPUColorWrite.ALL;
   }
 
@@ -160,14 +158,12 @@ class bu implements GPUColorTargetState {
   }
 }
 
-function nativeStencilFace(
-  descriptor: GPUStencilFaceState | undefined
-): GPUStencilFaceState {
+function nativeStencilFace(descriptor: GPUStencilFaceState | undefined): GPUStencilFaceState {
   return {
     compare: descriptor?.compare ?? "always",
     failOp: descriptor?.failOp ?? "keep",
     depthFailOp: descriptor?.depthFailOp ?? "keep",
-    passOp: descriptor?.passOp ?? "keep"
+    passOp: descriptor?.passOp ?? "keep",
   };
 }
 
@@ -234,18 +230,12 @@ class DescriptorKey<T> {
   }
 
   equals(other: unknown): boolean {
-    return (
-      other instanceof DescriptorKey &&
-      this.stable_key === other.stable_key
-    );
+    return other instanceof DescriptorKey && this.stable_key === other.stable_key;
   }
 }
 
 export class ShaderModuleCache {
-  private readonly cache = new HashMap<
-    DescriptorKey<CachedShaderModuleDescriptor>,
-    GPUShaderModule
-  >();
+  private readonly cache = new HashMap<DescriptorKey<CachedShaderModuleDescriptor>, GPUShaderModule>();
   private readonly compilationDiagnostics: ShaderCompilationDiagnostic[] = [];
 
   constructor(private readonly device: GPUDevice) {}
@@ -267,51 +257,65 @@ export class ShaderModuleCache {
   private create(descriptor: CachedShaderModuleDescriptor): GPUShaderModule {
     this.device.pushErrorScope("validation");
     const module = this.device.createShaderModule(descriptor);
-    void module.getCompilationInfo().then((info) => {
-      const label = descriptor.label ?? "";
-      for (const message of info.messages) {
-        this.compilationDiagnostics.push({
-          label,
-          type: message.type,
-          message: message.message,
-          lineNum: message.lineNum,
-          linePos: message.linePos,
-          offset: message.offset,
-          length: message.length
-        });
-      }
-      for (const message of info.messages) {
-        const level = message.type === "error" ? "error" : "warn";
-        console[level](
-          "[ShaderModule " + (label || "unnamed") + "] " + message.type +
-          " at " + message.lineNum + ":" + message.linePos + ": " + message.message
+    void module
+      .getCompilationInfo()
+      .then((info) => {
+        const label = descriptor.label ?? "";
+        for (const message of info.messages) {
+          this.compilationDiagnostics.push({
+            label,
+            type: message.type,
+            message: message.message,
+            lineNum: message.lineNum,
+            linePos: message.linePos,
+            offset: message.offset,
+            length: message.length,
+          });
+        }
+        for (const message of info.messages) {
+          const level = message.type === "error" ? "error" : "warn";
+          console[level](
+            "[ShaderModule " +
+              (label || "unnamed") +
+              "] " +
+              message.type +
+              " at " +
+              message.lineNum +
+              ":" +
+              message.linePos +
+              ": " +
+              message.message,
+          );
+        }
+      })
+      .catch((error: unknown) => {
+        console.error(`Shader compilation diagnostics failed [${descriptor.label ?? "unnamed"}]`, error);
+      });
+    void this.device
+      .popErrorScope()
+      .then((error) => {
+        if (error === null) return;
+        const label = descriptor.label ?? "";
+        const source = String(descriptor.code);
+        const lines = source
+          .split(/\r?\n/)
+          .map((line, index) => `${index + 1}: ${line}`)
+          .join("\n");
+        console.warn(
+          [
+            "Error during device.createShaderModule:",
+            error.message,
+            label === "" ? "" : `Descriptor Label: ${label}`,
+            "Shader source:",
+            lines,
+          ]
+            .filter((line) => line !== "")
+            .join("\n"),
         );
-      }
-    }).catch((error: unknown) => {
-      console.error(`Shader compilation diagnostics failed [${descriptor.label ?? "unnamed"}]`, error);
-    });
-    void this.device.popErrorScope().then((error) => {
-      if (error === null) return;
-      const label = descriptor.label ?? "";
-      const source = String(descriptor.code);
-      const lines = source
-        .split(/\r?\n/)
-        .map((line, index) => `${index + 1}: ${line}`)
-        .join("\n");
-      console.warn(
-        [
-          "Error during device.createShaderModule:",
-          error.message,
-          label === "" ? "" : `Descriptor Label: ${label}`,
-          "Shader source:",
-          lines
-        ]
-          .filter((line) => line !== "")
-          .join("\n")
-      );
-    }).catch((error: unknown) => {
-      console.error(`Shader validation scope failed [${descriptor.label ?? "unnamed"}]`, error);
-    });
+      })
+      .catch((error: unknown) => {
+        console.error(`Shader validation scope failed [${descriptor.label ?? "unnamed"}]`, error);
+      });
     return module;
   }
 }
@@ -325,22 +329,15 @@ export class PipelineLayoutCache {
     DescriptorKey<CachedPipelineLayoutDescriptor>,
     GPUPipelineLayout
   >();
-  private readonly originatingDescriptors = new WeakMap<
-    GPUBindGroupLayout,
-    GPUBindGroupLayoutDescriptor
-  >();
+  private readonly originatingDescriptors = new WeakMap<GPUBindGroupLayout, GPUBindGroupLayoutDescriptor>();
 
   constructor(private readonly device: GPUDevice) {}
 
-  debugGetOriginatingDescriptor(
-    layout: GPUBindGroupLayout
-  ): GPUBindGroupLayoutDescriptor | undefined {
+  debugGetOriginatingDescriptor(layout: GPUBindGroupLayout): GPUBindGroupLayoutDescriptor | undefined {
     return this.originatingDescriptors.get(layout);
   }
 
-  obtainBindGroupLayout(
-    descriptor: GPUBindGroupLayoutDescriptor
-  ): GPUBindGroupLayout {
+  obtainBindGroupLayout(descriptor: GPUBindGroupLayoutDescriptor): GPUBindGroupLayout {
     const normalized = normalizeBindGroupLayoutDescriptor(descriptor);
     const key = new DescriptorKey(normalized);
     return this.bindGroupLayouts.getOrCompute(key, () => {
@@ -351,18 +348,16 @@ export class PipelineLayoutCache {
     });
   }
 
-  obtainPipelineLayout(
-    descriptor: CachedPipelineLayoutDescriptor
-  ): GPUPipelineLayout {
+  obtainPipelineLayout(descriptor: CachedPipelineLayoutDescriptor): GPUPipelineLayout {
     const normalized = normalizePipelineLayoutDescriptor(descriptor);
     const key = new DescriptorKey(normalized);
     return this.pipelineLayouts.getOrCompute(key, () => {
       const bindGroupLayouts = normalized.bindGroupLayouts.map((layout) =>
-        this.obtainBindGroupLayout(layout)
+        this.obtainBindGroupLayout(layout),
       );
       return this.device.createPipelineLayout({
         label: normalized.label,
-        bindGroupLayouts
+        bindGroupLayouts,
       });
     });
   }
@@ -374,14 +369,10 @@ export class PipelineLayoutCache {
 }
 
 export class BindGroupCache {
-  private readonly reverse = new WeakMap<
-    GPUBindGroup,
-    CachedBindGroupDescriptor
-  >();
-  private readonly frequent = new WeightedCache<
-    DescriptorKey<CachedBindGroupDescriptor>,
-    GPUBindGroup
-  >({ maxWeight: 4096 });
+  private readonly reverse = new WeakMap<GPUBindGroup, CachedBindGroupDescriptor>();
+  private readonly frequent = new WeightedCache<DescriptorKey<CachedBindGroupDescriptor>, GPUBindGroup>({
+    maxWeight: 4096,
+  });
   private readonly probation = new WeightedCache<
     DescriptorKey<CachedBindGroupDescriptor>,
     { group: GPUBindGroup; access_count: number }
@@ -391,16 +382,14 @@ export class BindGroupCache {
 
   constructor(
     private readonly device: GPUDevice,
-    private readonly layouts: PipelineLayoutCache
+    private readonly layouts: PipelineLayoutCache,
   ) {}
 
   get current_cycle_creation_count(): number {
     return this.creationCount;
   }
 
-  reverse_lookup(
-    group: GPUBindGroup
-  ): CachedBindGroupDescriptor | undefined {
+  reverse_lookup(group: GPUBindGroup): CachedBindGroupDescriptor | undefined {
     return this.reverse.get(group);
   }
 
@@ -408,7 +397,7 @@ export class BindGroupCache {
     this.requestCount++;
     const normalized: CachedBindGroupDescriptor = {
       layout: normalizeBindGroupLayoutDescriptor(descriptor.layout),
-      entries: descriptor.entries
+      entries: descriptor.entries,
     };
     const key = new DescriptorKey(normalized);
     let group = this.frequent.get(key);
@@ -435,18 +424,18 @@ export class BindGroupCache {
     if (layoutEntries.length !== descriptor.entries.length) {
       throw new Error(
         `BindGroupCache resource count ${descriptor.entries.length} does not match ` +
-        `layout entry count ${layoutEntries.length}`
+          `layout entry count ${layoutEntries.length}`,
       );
     }
     const entries = descriptor.entries.map((resource, index) => ({
       binding: layoutEntries[index]!.binding,
-      resource
+      resource,
     }));
     this.creationCount++;
     const group = this.device.createBindGroup({
       label: descriptor.layout.label,
       layout: this.layouts.obtainBindGroupLayout(descriptor.layout),
-      entries
+      entries,
     });
     this.reverse.set(group, descriptor);
     return group;
@@ -454,10 +443,7 @@ export class BindGroupCache {
 
   update(): void {
     const current = this.probation.maxWeight;
-    const target = Math.max(
-      this.requestCount,
-      Math.ceil(4 * this.creationCount)
-    );
+    const target = Math.max(this.requestCount, Math.ceil(4 * this.creationCount));
     if (current < target) {
       this.probation.maxWeight = target;
     } else if (current > 32 && 0.5 * current > target) {
@@ -476,11 +462,11 @@ export class BindGroupCache {
 }
 
 export class RenderPipelineCache {
-  private readonly cache = new HashMap<
+  private readonly cache = new HashMap<DescriptorKey<CachedRenderPipelineDescriptor>, GPURenderPipeline>();
+  private readonly preparing = new HashMap<
     DescriptorKey<CachedRenderPipelineDescriptor>,
-    GPURenderPipeline
+    Promise<GPURenderPipeline>
   >();
-  private readonly preparing = new HashMap<DescriptorKey<CachedRenderPipelineDescriptor>, Promise<GPURenderPipeline>>();
   private preparationEpoch = 0;
   private firstUsed = new WeakSet<GPURenderPipeline>();
 
@@ -488,16 +474,11 @@ export class RenderPipelineCache {
     private readonly device: GPUDevice,
     readonly layouts: PipelineLayoutCache,
     private readonly shaders: ShaderModuleCache,
-    private readonly observer?: PipelineCacheObserver
+    private readonly observer?: PipelineCacheObserver,
   ) {}
 
-  obtain(
-    descriptor: CachedRenderPipelineDescriptor,
-    primitive?: GPUPrimitiveState
-  ): GPURenderPipeline {
-    const resolved = normalizeRenderPipelineDescriptor(primitive
-      ? { ...descriptor, primitive }
-      : descriptor);
+  obtain(descriptor: CachedRenderPipelineDescriptor, primitive?: GPUPrimitiveState): GPURenderPipeline {
+    const resolved = normalizeRenderPipelineDescriptor(primitive ? { ...descriptor, primitive } : descriptor);
     const key = new DescriptorKey(resolved);
     const cached = this.cache.get(key);
     if (cached !== undefined) {
@@ -510,7 +491,7 @@ export class RenderPipelineCache {
     const pipeline = this.create(resolved);
     this.observer?.onPipelineCreated?.(
       "render",
-      Math.max(0, (typeof performance === "undefined" ? 0 : performance.now()) - started)
+      Math.max(0, (typeof performance === "undefined" ? 0 : performance.now()) - started),
     );
     this.cache.set(key, pipeline);
     this.observeFirstUse(pipeline);
@@ -520,64 +501,74 @@ export class RenderPipelineCache {
   /** Scene publication warms the exact production descriptors asynchronously;
    * concurrent equal descriptors share one compiler job. Clear revokes jobs. */
   prepare(descriptor: CachedRenderPipelineDescriptor): Promise<GPURenderPipeline> {
-    const resolved = normalizeRenderPipelineDescriptor(descriptor), key = new DescriptorKey(resolved);
-    const cached = this.cache.get(key); if (cached) return Promise.resolve(cached);
-    const preparing = this.preparing.get(key); if (preparing) return preparing;
-    const epoch = this.preparationEpoch, started = typeof performance === "undefined" ? 0 : performance.now();
+    const resolved = normalizeRenderPipelineDescriptor(descriptor),
+      key = new DescriptorKey(resolved);
+    const cached = this.cache.get(key);
+    if (cached) return Promise.resolve(cached);
+    const preparing = this.preparing.get(key);
+    if (preparing) return preparing;
+    const epoch = this.preparationEpoch,
+      started = typeof performance === "undefined" ? 0 : performance.now();
     this.observer?.onPipelineCacheMiss?.("render");
-    const promise = this.device.createRenderPipelineAsync(this.nativeDescriptor(resolved)).then(pipeline => {
-      if (this.preparationEpoch !== epoch) throw new Error("Render pipeline preparation was revoked");
-      this.cache.set(key, pipeline);
-      this.observer?.onPipelineCreated?.("render", Math.max(0, (typeof performance === "undefined" ? 0 : performance.now()) - started));
-      return pipeline;
-    }).finally(() => { if (this.preparing.get(key) === promise) this.preparing.delete(key); });
-    this.preparing.set(key, promise); return promise;
+    const promise = this.device
+      .createRenderPipelineAsync(this.nativeDescriptor(resolved))
+      .then((pipeline) => {
+        if (this.preparationEpoch !== epoch) throw new Error("Render pipeline preparation was revoked");
+        this.cache.set(key, pipeline);
+        this.observer?.onPipelineCreated?.(
+          "render",
+          Math.max(0, (typeof performance === "undefined" ? 0 : performance.now()) - started),
+        );
+        return pipeline;
+      })
+      .finally(() => {
+        if (this.preparing.get(key) === promise) this.preparing.delete(key);
+      });
+    this.preparing.set(key, promise);
+    return promise;
   }
 
   requirePrepared(descriptor: CachedRenderPipelineDescriptor): GPURenderPipeline {
     const pipeline = this.cache.get(new DescriptorKey(normalizeRenderPipelineDescriptor(descriptor)));
-    if (!pipeline) throw new Error(`Render pipeline requires completed scene preparation: ${descriptor.label ?? ""}`);
-    this.observer?.onPipelineCacheHit?.("render"); this.observeFirstUse(pipeline); return pipeline;
+    if (!pipeline)
+      throw new Error(`Render pipeline requires completed scene preparation: ${descriptor.label ?? ""}`);
+    this.observer?.onPipelineCacheHit?.("render");
+    this.observeFirstUse(pipeline);
+    return pipeline;
   }
 
   clear(): void {
-    this.preparationEpoch++; this.preparing.clear();
+    this.preparationEpoch++;
+    this.preparing.clear();
     this.cache.clear();
     this.firstUsed = new WeakSet();
   }
 
   private observeFirstUse(pipeline: GPURenderPipeline): void {
     if (this.firstUsed.has(pipeline)) return;
-    this.firstUsed.add(pipeline); this.observer?.onPipelineFirstUse?.("render");
+    this.firstUsed.add(pipeline);
+    this.observer?.onPipelineFirstUse?.("render");
   }
 
-  private nativeDescriptor(
-    descriptor: CachedRenderPipelineDescriptor
-  ): GPURenderPipelineDescriptor {
+  private nativeDescriptor(descriptor: CachedRenderPipelineDescriptor): GPURenderPipelineDescriptor {
     const native: GPURenderPipelineDescriptor = {
       label: descriptor.label,
       layout: this.layouts.obtainPipelineLayout(descriptor.layout),
-      primitive: descriptor.primitive === undefined
-        ? undefined
-        : new zu(descriptor.primitive),
-      depthStencil: descriptor.depthStencil === undefined
-        ? undefined
-        : new hu(descriptor.depthStencil),
+      primitive: descriptor.primitive === undefined ? undefined : new zu(descriptor.primitive),
+      depthStencil: descriptor.depthStencil === undefined ? undefined : new hu(descriptor.depthStencil),
       vertex: {
         ...descriptor.vertex,
-        module: this.shaders.obtain(descriptor.vertex.module)
+        module: this.shaders.obtain(descriptor.vertex.module),
       },
-      multisample: descriptor.multisample === undefined
-        ? undefined
-        : new xu(descriptor.multisample)
+      multisample: descriptor.multisample === undefined ? undefined : new xu(descriptor.multisample),
     };
     if (descriptor.fragment !== undefined) {
       native.fragment = {
         ...descriptor.fragment,
         module: this.shaders.obtain(descriptor.fragment.module),
         targets: Array.from(descriptor.fragment.targets, (target) =>
-          target == null ? target : new bu(target)
-        )
+          target == null ? target : new bu(target),
+        ),
       };
     }
     return native;
@@ -590,11 +581,7 @@ export class RenderPipelineCache {
     const pipeline = this.device.createRenderPipeline(native);
     const report = (error: GPUError | null): void => {
       if (error !== null) {
-        console.error(
-          `Failed to create "${descriptor.label ?? ""}" pipeline: `,
-          error.message,
-          native
-        );
+        console.error(`Failed to create "${descriptor.label ?? ""}" pipeline: `, error.message, native);
       }
     };
     void this.device.popErrorScope().then(report);
@@ -604,16 +591,13 @@ export class RenderPipelineCache {
 }
 
 export class ComputePipelineCache {
-  private readonly cache = new HashMap<
-    DescriptorKey<CachedComputePipelineDescriptor>,
-    GPUComputePipeline
-  >();
+  private readonly cache = new HashMap<DescriptorKey<CachedComputePipelineDescriptor>, GPUComputePipeline>();
 
   constructor(
     private readonly device: GPUDevice,
     readonly layouts: PipelineLayoutCache,
     private readonly shaders: ShaderModuleCache,
-    private readonly observer?: PipelineCacheObserver
+    private readonly observer?: PipelineCacheObserver,
   ) {}
 
   obtain(descriptor: CachedComputePipelineDescriptor): GPUComputePipeline {
@@ -627,16 +611,16 @@ export class ComputePipelineCache {
     this.observer?.onPipelineCacheMiss?.("compute");
     const started = typeof performance === "undefined" ? 0 : performance.now();
     const pipeline = this.device.createComputePipeline({
-        label: normalized.label,
-        layout: this.layouts.obtainPipelineLayout(normalized.layout),
-        compute: {
-          ...normalized.compute,
-          module: this.shaders.obtain(normalized.compute.module)
-        }
-      });
+      label: normalized.label,
+      layout: this.layouts.obtainPipelineLayout(normalized.layout),
+      compute: {
+        ...normalized.compute,
+        module: this.shaders.obtain(normalized.compute.module),
+      },
+    });
     this.observer?.onPipelineCreated?.(
       "compute",
-      Math.max(0, (typeof performance === "undefined" ? 0 : performance.now()) - started)
+      Math.max(0, (typeof performance === "undefined" ? 0 : performance.now()) - started),
     );
     this.cache.set(key, pipeline);
     this.observer?.onPipelineFirstUse?.("compute");
@@ -656,58 +640,54 @@ export function gpuDescriptorKey(value: unknown): string {
 }
 
 function normalizeBindGroupLayoutDescriptor(
-  descriptor: GPUBindGroupLayoutDescriptor
+  descriptor: GPUBindGroupLayoutDescriptor,
 ): GPUBindGroupLayoutDescriptor {
   return {
     label: descriptor.label,
-    entries: Array.from(descriptor.entries).sort(
-      (left, right) => left.binding - right.binding
-    )
+    entries: Array.from(descriptor.entries).sort((left, right) => left.binding - right.binding),
   };
 }
 
 function normalizePipelineLayoutDescriptor(
-  descriptor: CachedPipelineLayoutDescriptor
+  descriptor: CachedPipelineLayoutDescriptor,
 ): CachedPipelineLayoutDescriptor {
   return {
     label: descriptor.label,
-    bindGroupLayouts: descriptor.bindGroupLayouts.map(
-      normalizeBindGroupLayoutDescriptor
-    )
+    bindGroupLayouts: descriptor.bindGroupLayouts.map(normalizeBindGroupLayoutDescriptor),
   };
 }
 
 function normalizeRenderPipelineDescriptor(
-  descriptor: CachedRenderPipelineDescriptor
+  descriptor: CachedRenderPipelineDescriptor,
 ): CachedRenderPipelineDescriptor {
   return {
     ...descriptor,
     layout: normalizePipelineLayoutDescriptor(descriptor.layout),
     vertex: {
       ...descriptor.vertex,
-      constants: descriptor.vertex.constants ?? {}
+      constants: descriptor.vertex.constants ?? {},
     },
     ...(descriptor.fragment === undefined
       ? {}
       : {
           fragment: {
             ...descriptor.fragment,
-            constants: descriptor.fragment.constants ?? {}
-          }
-        })
+            constants: descriptor.fragment.constants ?? {},
+          },
+        }),
   };
 }
 
 function normalizeComputePipelineDescriptor(
-  descriptor: CachedComputePipelineDescriptor
+  descriptor: CachedComputePipelineDescriptor,
 ): CachedComputePipelineDescriptor {
   return {
     ...descriptor,
     layout: normalizePipelineLayoutDescriptor(descriptor.layout),
     compute: {
       ...descriptor.compute,
-      constants: descriptor.compute.constants ?? {}
-    }
+      constants: descriptor.compute.constants ?? {},
+    },
   };
 }
 
@@ -744,7 +724,5 @@ function encodeDescriptorValue(value: unknown): string {
   }
 
   const keys = Object.keys(object).sort();
-  return `{${keys
-    .map((key) => `${key}=${encodeDescriptorValue(object[key])}`)
-    .join(",")}}`;
+  return `{${keys.map((key) => `${key}=${encodeDescriptorValue(object[key])}`).join(",")}}`;
 }

@@ -20,13 +20,10 @@ function growBuffer(
   device: GPUDevice,
   current: GPUBuffer,
   requiredBytes: number,
-  command: ShadeGPUCommandContext
+  command: ShadeGPUCommandContext,
 ): GPUBuffer {
   if (current.size >= requiredBytes) return current;
-  const size = alignUp(
-    Math.max(requiredBytes, current.size + 1024, current.size * 1.2),
-    1024,
-  );
+  const size = alignUp(Math.max(requiredBytes, current.size + 1024, current.size * 1.2), 1024);
   const next = device.createBuffer({
     label: current.label,
     usage: current.usage,
@@ -50,10 +47,7 @@ export class TopLevelAccelerationStructure {
   constructor(private readonly device: GPUDevice) {
     this.gpuBuffer = device.createBuffer({
       size: 1024,
-      usage:
-        GPUBufferUsage.STORAGE |
-        GPUBufferUsage.COPY_DST |
-        GPUBufferUsage.COPY_SRC,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
   }
 
@@ -88,26 +82,16 @@ export class TopLevelAccelerationStructure {
     if (leaf === undefined) {
       throw new RangeError(`TLAS has no instance ${instanceIndex}`);
     }
-    this.cpuBvh.node_move_aabb(
-      leaf,
-      mesh.bounding_box,
-      (node) => this.dirtyNodes.add(node)
-    );
+    this.cpuBvh.node_move_aabb(leaf, mesh.bounding_box, (node) => this.dirtyNodes.add(node));
     this.version++;
   }
 
   push_to_gpu(command: ShadeGPUCommandContext): void {
     optimizeDynamicBvh(this.cpuBvh);
-    const requiredBytes =
-      this.cpuBvh.node_capacity * DYNAMIC_BVH_GPU_NODE_BYTES + 4;
+    const requiredBytes = this.cpuBvh.node_capacity * DYNAMIC_BVH_GPU_NODE_BYTES + 4;
     const previousBuffer = this.gpuBuffer;
     const previousUploadedVersion = this.uploadedVersion;
-    const nextBuffer = growBuffer(
-      this.device,
-      previousBuffer,
-      requiredBytes,
-      command
-    );
+    const nextBuffer = growBuffer(this.device, previousBuffer, requiredBytes, command);
     this.gpuBuffer = nextBuffer;
     if (nextBuffer !== previousBuffer) {
       command.onAborted.addOne(() => {
@@ -118,10 +102,7 @@ export class TopLevelAccelerationStructure {
 
     const exportedNodes = exportDynamicBvhNodes(this.cpuBvh);
     const stagingSize =
-      Math.max(
-        DYNAMIC_BVH_GPU_NODE_BYTES,
-        this.cpuBvh.node_capacity * DYNAMIC_BVH_GPU_NODE_BYTES,
-      ) + 4;
+      Math.max(DYNAMIC_BVH_GPU_NODE_BYTES, this.cpuBvh.node_capacity * DYNAMIC_BVH_GPU_NODE_BYTES) + 4;
     const staging = this.device.createBuffer({
       label: "",
       size: stagingSize,
@@ -130,9 +111,7 @@ export class TopLevelAccelerationStructure {
     });
     const mapped = staging.getMappedRange();
     new Uint32Array(mapped, 0, 1)[0] = this.cpuBvh.root;
-    new Uint8Array(mapped, 4, exportedNodes.byteLength).set(
-      new Uint8Array(exportedNodes),
-    );
+    new Uint8Array(mapped, 4, exportedNodes.byteLength).set(new Uint8Array(exportedNodes));
     staging.unmap();
     command.copyBufferToBuffer(staging, 0, this.gpuBuffer, 0, staging.size);
     command.onFinished.addOne(() => staging.destroy());
@@ -153,24 +132,17 @@ export class TopLevelAccelerationStructure {
     while (rangeStart < nodes.length) {
       const firstNode = nodes[rangeStart]!;
       let rangeEnd = rangeStart + 1;
-      while (
-        rangeEnd < nodes.length &&
-        nodes[rangeEnd] === nodes[rangeEnd - 1]! + 1
-      ) {
+      while (rangeEnd < nodes.length && nodes[rangeEnd] === nodes[rangeEnd - 1]! + 1) {
         rangeEnd++;
       }
       const nodeCount = rangeEnd - rangeStart;
-      const data = exportDynamicBvhNodeRange(
-        this.cpuBvh,
-        firstNode,
-        nodeCount
-      );
+      const data = exportDynamicBvhNodeRange(this.cpuBvh, firstNode, nodeCount);
       command.writeBuffer(
         this.gpuBuffer,
         4 + firstNode * DYNAMIC_BVH_GPU_NODE_BYTES,
         data,
         0,
-        data.byteLength
+        data.byteLength,
       );
       rangeStart = rangeEnd;
     }

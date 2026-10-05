@@ -34,11 +34,15 @@ let closed = false;
 
 const port: WebCookWorkerHostPort = {
   postMessage: (message, transfer) => scope.postMessage(message, transfer),
-  addEventListener: (_type, listener) => { downstream = listener; },
-  removeEventListener: (_type, listener) => { if (downstream === listener) downstream = undefined; }
+  addEventListener: (_type, listener) => {
+    downstream = listener;
+  },
+  removeEventListener: (_type, listener) => {
+    if (downstream === listener) downstream = undefined;
+  },
 };
 
-scope.addEventListener("message", event => {
+scope.addEventListener("message", (event) => {
   if (closed) return;
   if (!initialized) {
     if (isBootstrapMessage(event.data)) {
@@ -64,11 +68,17 @@ scope.addEventListener("message", event => {
 async function initialize(message: BootstrapMessage): Promise<void> {
   try {
     const moduleUrl = new URL(message.wasmModuleUrl, globalThis.location?.href).href;
-    const imported = await import(/* @vite-ignore */ moduleUrl) as unknown as Record<string, unknown>;
+    const imported = (await import(/* @vite-ignore */ moduleUrl)) as unknown as Record<string, unknown>;
     const factory = imported.default;
-    if (typeof factory !== "function") throw new Error("Emscripten Web geometry module has no default factory export");
-    const module = await (factory as (options?: Readonly<Record<string, unknown>>) => EmscriptenWebGeometryCookerModuleV1)({
-      locateFile: (file: string) => message.wasmBinaryUrl && file.endsWith(".wasm") ? message.wasmBinaryUrl : new URL(file, moduleUrl).href
+    if (typeof factory !== "function")
+      throw new Error("Emscripten Web geometry module has no default factory export");
+    const module = await (
+      factory as (options?: Readonly<Record<string, unknown>>) => EmscriptenWebGeometryCookerModuleV1
+    )({
+      locateFile: (file: string) =>
+        message.wasmBinaryUrl && file.endsWith(".wasm")
+          ? message.wasmBinaryUrl
+          : new URL(file, moduleUrl).href,
     });
     await installWebCookWorkerEntry({
       port,
@@ -76,11 +86,21 @@ async function initialize(message: BootstrapMessage): Promise<void> {
       maxCanonicalInputBytes: message.maxCanonicalInputBytes,
       maxSourceWindowBytes: message.maxSourceWindowBytes,
       maxDecodedProductBytes: message.maxDecodedProductBytes,
-      ...(message.maxSessionSpillBytes === undefined ? {} : { maxSessionSpillBytes: message.maxSessionSpillBytes }),
-      ...(message.maxTrianglesPerProduct === undefined ? {} : { maxTrianglesPerProduct: message.maxTrianglesPerProduct }),
-      ...(message.maxVerticesPerProduct === undefined ? {} : { maxVerticesPerProduct: message.maxVerticesPerProduct }),
-      ...(message.maxDomainsPerProduct === undefined ? {} : { maxDomainsPerProduct: message.maxDomainsPerProduct }),
-      ...(message.catalogPriorityWindowMs === undefined ? {} : { catalogPriorityWindowMs: message.catalogPriorityWindowMs })
+      ...(message.maxSessionSpillBytes === undefined
+        ? {}
+        : { maxSessionSpillBytes: message.maxSessionSpillBytes }),
+      ...(message.maxTrianglesPerProduct === undefined
+        ? {}
+        : { maxTrianglesPerProduct: message.maxTrianglesPerProduct }),
+      ...(message.maxVerticesPerProduct === undefined
+        ? {}
+        : { maxVerticesPerProduct: message.maxVerticesPerProduct }),
+      ...(message.maxDomainsPerProduct === undefined
+        ? {}
+        : { maxDomainsPerProduct: message.maxDomainsPerProduct }),
+      ...(message.catalogPriorityWindowMs === undefined
+        ? {}
+        : { catalogPriorityWindowMs: message.catalogPriorityWindowMs }),
     });
     initialized = true;
     for (const value of pending.splice(0)) downstream?.({ data: value } as MessageEvent<unknown>);
@@ -97,21 +117,42 @@ function isBootstrapMessage(value: unknown): value is BootstrapMessage {
   const maxCanonicalInputBytes = message.maxCanonicalInputBytes;
   const maxSourceWindowBytes = message.maxSourceWindowBytes;
   const maxDecodedProductBytes = message.maxDecodedProductBytes;
-  return message.type === BOOTSTRAP_TYPE && typeof message.wasmModuleUrl === "string" &&
-    typeof maxCanonicalInputBytes === "number" && Number.isSafeInteger(maxCanonicalInputBytes) && maxCanonicalInputBytes > 0 &&
-    typeof maxSourceWindowBytes === "number" && Number.isSafeInteger(maxSourceWindowBytes) && maxSourceWindowBytes > 0 &&
-    typeof maxDecodedProductBytes === "number" && Number.isSafeInteger(maxDecodedProductBytes) && maxDecodedProductBytes > 0 &&
-    optionalPositiveSafeInteger(message.maxSessionSpillBytes) && optionalPositiveSafeInteger(message.maxTrianglesPerProduct) &&
-    optionalPositiveSafeInteger(message.maxVerticesPerProduct) && optionalPositiveSafeInteger(message.maxDomainsPerProduct) &&
-    optionalPositiveSafeInteger(message.catalogPriorityWindowMs);
+  return (
+    message.type === BOOTSTRAP_TYPE &&
+    typeof message.wasmModuleUrl === "string" &&
+    typeof maxCanonicalInputBytes === "number" &&
+    Number.isSafeInteger(maxCanonicalInputBytes) &&
+    maxCanonicalInputBytes > 0 &&
+    typeof maxSourceWindowBytes === "number" &&
+    Number.isSafeInteger(maxSourceWindowBytes) &&
+    maxSourceWindowBytes > 0 &&
+    typeof maxDecodedProductBytes === "number" &&
+    Number.isSafeInteger(maxDecodedProductBytes) &&
+    maxDecodedProductBytes > 0 &&
+    optionalPositiveSafeInteger(message.maxSessionSpillBytes) &&
+    optionalPositiveSafeInteger(message.maxTrianglesPerProduct) &&
+    optionalPositiveSafeInteger(message.maxVerticesPerProduct) &&
+    optionalPositiveSafeInteger(message.maxDomainsPerProduct) &&
+    optionalPositiveSafeInteger(message.catalogPriorityWindowMs)
+  );
 }
 
-function optionalPositiveSafeInteger(value: unknown): boolean { return value === undefined || typeof value === "number" && Number.isSafeInteger(value) && value > 0; }
+function optionalPositiveSafeInteger(value: unknown): boolean {
+  return value === undefined || (typeof value === "number" && Number.isSafeInteger(value) && value > 0);
+}
 
-function isProtocolHeader(value: unknown): value is { readonly protocolVersion: number; readonly sessionId: string; readonly sessionGeneration: number } {
+function isProtocolHeader(value: unknown): value is {
+  readonly protocolVersion: number;
+  readonly sessionId: string;
+  readonly sessionGeneration: number;
+} {
   if (!value || typeof value !== "object") return false;
   const header = value as Partial<{ protocolVersion: number; sessionId: string; sessionGeneration: number }>;
-  return header.protocolVersion === 1 && typeof header.sessionId === "string" && Number.isInteger(header.sessionGeneration);
+  return (
+    header.protocolVersion === 1 &&
+    typeof header.sessionId === "string" &&
+    Number.isInteger(header.sessionGeneration)
+  );
 }
 
 function postBootstrapFailure(value: unknown, code: string): void {

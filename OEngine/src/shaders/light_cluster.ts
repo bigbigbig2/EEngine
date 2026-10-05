@@ -5,14 +5,14 @@
 import {
   LIGHT_DATABASE_READ_WGSL,
   POINT_LIGHT_DESCRIPTOR,
-  SPOT_LIGHT_DESCRIPTOR
+  SPOT_LIGHT_DESCRIPTOR,
 } from "../gpu/LightDatabase.js";
 import {
   CLUSTER_METADATA_FLAG_DATA_OVERFLOW,
   CLUSTER_METADATA_FLAG_FALLBACK,
   CLUSTER_METADATA_FLAG_POINT_OVERFLOW,
   CLUSTER_METADATA_FLAG_SPOT_OVERFLOW,
-  LIGHT_LIST_HEADER_BYTES
+  LIGHT_LIST_HEADER_BYTES,
 } from "../render/ClusteredLightingReference.js";
 import { PACKED_CAMERA_TYPE } from "./packed_camera.js";
 
@@ -20,8 +20,7 @@ export const LIGHT_CLUSTER_TILE_SIZE = 32;
 export const LIGHT_CLUSTER_DEPTH_SLICES = 24;
 export const LIGHT_CLUSTER_ASSIGN_WORKGROUP = 4;
 export const LIGHT_CLUSTER_LIST_BYTES = 16_384 * 4;
-export const LIGHT_CLUSTER_LIST_CAPACITY =
-  (LIGHT_CLUSTER_LIST_BYTES - LIGHT_LIST_HEADER_BYTES) / 4;
+export const LIGHT_CLUSTER_LIST_CAPACITY = (LIGHT_CLUSTER_LIST_BYTES - LIGHT_LIST_HEADER_BYTES) / 4;
 export const LIGHT_CLUSTER_SETTINGS_BYTES = 128;
 export const LIGHT_CLUSTER_METADATA_BYTES = 16;
 export const LIGHT_CLUSTER_DATA_ABI_VERSION = 2;
@@ -161,9 +160,7 @@ fn spot_light_intersects_frustum(
 function createPagedLightListShader(kind: "point" | "spot"): string {
   const upper = kind === "point" ? "POINT_LIGHTS" : "SPOT_LIGHTS";
   const lower = kind === "point" ? "point_lights" : "spot_lights";
-  const intersects = kind === "point"
-    ? "point_light_intersects_frustum"
-    : "spot_light_intersects_frustum";
+  const intersects = kind === "point" ? "point_light_intersects_frustum" : "spot_light_intersects_frustum";
   const type = kind === "point" ? 0 : 1;
   return /* wgsl */ `
 ${CLUSTER_COMMON_WGSL}

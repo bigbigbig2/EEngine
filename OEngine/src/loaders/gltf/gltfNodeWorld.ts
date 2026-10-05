@@ -8,27 +8,13 @@ import {
   mat4Identity,
   mat4Invert,
   mat4Multiply,
-  mat4Transpose
+  mat4Transpose,
 } from "../../core/math/Mat4.js";
-import type {
-  GltfAccessor,
-  GltfDocument,
-  GltfMesh,
-  GltfNode,
-  GltfScene
-} from "./GltfLoader.js";
+import type { GltfAccessor, GltfDocument, GltfMesh, GltfNode, GltfScene } from "./GltfLoader.js";
 
 export class GltfAabb3 {
-  min = new Float32Array([
-    Number.MAX_VALUE,
-    Number.MAX_VALUE,
-    Number.MAX_VALUE
-  ]);
-  max = new Float32Array([
-    Number.MIN_VALUE,
-    Number.MIN_VALUE,
-    Number.MIN_VALUE
-  ]);
+  min = new Float32Array([Number.MAX_VALUE, Number.MAX_VALUE, Number.MAX_VALUE]);
+  max = new Float32Array([Number.MIN_VALUE, Number.MIN_VALUE, Number.MIN_VALUE]);
 
   constructor(e?: GltfAabb3 | null) {
     if (e) {
@@ -59,7 +45,7 @@ export class GltfAabb3 {
       [this.max[0]!, this.min[1]!, this.min[2]!],
       [this.max[0]!, this.min[1]!, this.max[2]!],
       [this.max[0]!, this.max[1]!, this.min[2]!],
-      [this.max[0]!, this.max[1]!, this.max[2]!]
+      [this.max[0]!, this.max[1]!, this.max[2]!],
     ];
     this.min[0] = Number.MAX_VALUE;
     this.min[1] = Number.MAX_VALUE;
@@ -106,23 +92,14 @@ function asQuat(a: ArrayLike<number>): { x: number; y: number; z: number; w: num
   return { x: a[0]!, y: a[1]!, z: a[2]!, w: a[3]! };
 }
 
-export function computeGltfNodeWorld(
-  doc: GltfDocument,
-  node: GltfNode,
-  parentWorld: Float32Array
-): void {
+export function computeGltfNodeWorld(doc: GltfDocument, node: GltfNode, parentWorld: Float32Array): void {
   if (node.worldMatrix) return;
 
   if (node.matrix) {
     node.worldMatrix = mat4Clone(node.matrix);
   } else {
     const local = mat4Identity();
-    mat4FromTRS(
-      local,
-      asVec3(node.translation!),
-      asQuat(node.rotation!),
-      asVec3(node.scale!)
-    );
+    mat4FromTRS(local, asVec3(node.translation!), asQuat(node.rotation!), asVec3(node.scale!));
     node.worldMatrix = local;
   }
   mat4Multiply(node.worldMatrix, parentWorld, node.worldMatrix);
@@ -131,10 +108,7 @@ export function computeGltfNodeWorld(
   nm[12] = 0;
   nm[13] = 0;
   nm[14] = 0;
-  mat4Transpose(
-    nm,
-    mat4Invert(nm, nm) ? nm : (null as unknown as Float32Array)
-  );
+  mat4Transpose(nm, mat4Invert(nm, nm) ? nm : (null as unknown as Float32Array));
   node.normalMatrix = nm;
 
   if ("mesh" in node) {
@@ -146,7 +120,7 @@ export function computeGltfNodeWorld(
           doc.accessors![prim.attributes.POSITION!]! as GltfAccessor & {
             min: number[];
             max: number[];
-          }
+          },
         );
       }
     }

@@ -8,13 +8,10 @@ import type {
   ResourceDescriptor,
   ResourceEntry,
   ResourceId,
-  ResourceNode
+  ResourceNode,
 } from "./ResourceHandle.js";
 import { isTransientEntry } from "./ResourceHandle.js";
-import type {
-  GPUBufferAllocator,
-  GPUBufferClearEncoder
-} from "../gpu/GPUBufferAllocator.js";
+import type { GPUBufferAllocator, GPUBufferClearEncoder } from "../gpu/GPUBufferAllocator.js";
 import type { GPUTextureAllocator } from "../gpu/GPUTextureAllocator.js";
 import type { GPUTextureContext } from "../gpu/GPUTextureContext.js";
 import { createNativeTexture } from "../gpu/GPUTextureDescriptors.js";
@@ -35,10 +32,7 @@ export type FrameGraphGraphicsResources = {
 };
 
 /** Optional deep-capture hook for attributing CPU command-encoding cost per pass. */
-export type FrameGraphPassCpuProfiler = (
-  label: string,
-  callback: () => void
-) => void;
+export type FrameGraphPassCpuProfiler = (label: string, callback: () => void) => void;
 
 /** 帧图执行期间共享的设备、命令编码器和资源管理上下文。 */
 export class FrameGraphContext {
@@ -48,18 +42,19 @@ export class FrameGraphContext {
   resource_manager: FrameGraphResourceManager;
   readonly pass_cpu_profiler?: FrameGraphPassCpuProfiler;
 
-  constructor(opts: {
-    encoder?: FrameGraphCommandEncoder | GPUCommandEncoder | null;
-    device?: GPUDevice;
-    graphics?: unknown;
-    resource_manager?: FrameGraphResourceManager;
-    passCpuProfiler?: FrameGraphPassCpuProfiler;
-  } = {}) {
+  constructor(
+    opts: {
+      encoder?: FrameGraphCommandEncoder | GPUCommandEncoder | null;
+      device?: GPUDevice;
+      graphics?: unknown;
+      resource_manager?: FrameGraphResourceManager;
+      passCpuProfiler?: FrameGraphPassCpuProfiler;
+    } = {},
+  ) {
     this.encoder = opts.encoder ?? null;
     this.device = opts.device;
     this.graphics = opts.graphics;
-    this.resource_manager =
-      opts.resource_manager ?? new FrameGraphResourceManager(opts.device ?? null);
+    this.resource_manager = opts.resource_manager ?? new FrameGraphResourceManager(opts.device ?? null);
     this.pass_cpu_profiler = opts.passCpuProfiler;
     if (isFrameGraphGraphicsResources(opts.graphics)) {
       this.resource_manager.attachGraphics(opts.graphics, this.encoder);
@@ -108,7 +103,7 @@ export function resolveGpuEncoder(ctx: FrameGraphContext): GPUCommandEncoder | u
 export type PassExecuteFn<TData = unknown> = (
   data: TData,
   resources: PassResources,
-  ctx: FrameGraphContext
+  ctx: FrameGraphContext,
 ) => void;
 
 type BindingResolver = (bindings: unknown) => unknown;
@@ -131,7 +126,7 @@ export class FrameGraphBindingLayout<TBindings> {
   slot<TValue extends object>(
     name: string,
     initialBindings: TBindings,
-    resolve: (bindings: TBindings) => TValue
+    resolve: (bindings: TBindings) => TValue,
   ): TValue {
     if (this.names.has(name)) {
       throw new Error(`FrameGraph binding slot '${name}' is duplicated`);
@@ -152,7 +147,7 @@ export class FrameGraphBindingLayout<TBindings> {
       // A Pass often wraps a bound job inside another data object. Releasing the
       // complete layout here also clears those nested proxies when any imported
       // resource or directly-bound Pass registers this layout with the graph.
-      releaseInitial: () => this.releaseInitialBindings()
+      releaseInitial: () => this.releaseInitialBindings(),
     };
     const resolveCurrent = (): object => {
       const currentBindings =
@@ -160,9 +155,7 @@ export class FrameGraphBindingLayout<TBindings> {
           ? buildBindings
           : ACTIVE_FRAME_GRAPH_BINDINGS;
       if (currentBindings === NO_ACTIVE_FRAME_GRAPH_BINDINGS) {
-        throw new Error(
-          `FrameGraph binding slot '${name}' is only available while building or executing`
-        );
+        throw new Error(`FrameGraph binding slot '${name}' is only available while building or executing`);
       }
       return binding.resolve(currentBindings) as object;
     };
@@ -186,7 +179,7 @@ export class FrameGraphBindingLayout<TBindings> {
       },
       set(): boolean {
         throw new Error(`FrameGraph binding slot '${name}' is read-only`);
-      }
+      },
     });
     FRAME_GRAPH_BINDING_SLOTS.set(proxy, binding);
     return proxy;
@@ -262,11 +255,7 @@ export class PassBuilder {
     return this.pass.read(id);
   }
 
-  readDomain(
-    id: ResourceId,
-    expected: FrameGraphResourceDomain,
-    conversionOwner?: string
-  ): ResourceId {
+  readDomain(id: ResourceId, expected: FrameGraphResourceDomain, conversionOwner?: string): ResourceId {
     this.graph.assertBuilding();
     this.pass.readDomain(id, expected, conversionOwner);
     return this.pass.read(id);
@@ -278,7 +267,7 @@ export class PassBuilder {
       renderPasses: nonNegativeInteger(work.renderPasses ?? 0, "renderPasses"),
       computePasses: nonNegativeInteger(work.computePasses ?? 0, "computePasses"),
       dispatches: nonNegativeInteger(work.dispatches ?? 0, "dispatches"),
-      draws: nonNegativeInteger(work.draws ?? 0, "draws")
+      draws: nonNegativeInteger(work.draws ?? 0, "draws"),
     });
   }
 
@@ -349,10 +338,13 @@ class PassNode {
   resource_creates: ResourceId[] = [];
   resource_reads: ResourceId[] = [];
   resource_writes: ResourceId[] = [];
-  readonly domain_reads = new Map<ResourceId, {
-    readonly expected: FrameGraphResourceDomain;
-    readonly conversionOwner?: string;
-  }>();
+  readonly domain_reads = new Map<
+    ResourceId,
+    {
+      readonly expected: FrameGraphResourceDomain;
+      readonly conversionOwner?: string;
+    }
+  >();
   readonly dependencies = new Set<number>();
   readonly explicit_dependencies = new Set<number>();
   encoder_work: FrameGraphEncoderWork | null = null;
@@ -374,14 +366,10 @@ class PassNode {
     if (!this.reads(id)) this.resource_reads.push(id);
     return id;
   }
-  readDomain(
-    id: ResourceId,
-    expected: FrameGraphResourceDomain,
-    conversionOwner?: string
-  ): void {
+  readDomain(id: ResourceId, expected: FrameGraphResourceDomain, conversionOwner?: string): void {
     this.domain_reads.set(id, {
       expected,
-      ...(conversionOwner === undefined ? {} : { conversionOwner })
+      ...(conversionOwner === undefined ? {} : { conversionOwner }),
     });
   }
   can_execute(): boolean {
@@ -402,7 +390,7 @@ export class FrameGraphResourceManager {
 
   constructor(
     device?: GPUDevice | null,
-    private readonly reuseAfter?: Promise<void>
+    private readonly reuseAfter?: Promise<void>,
   ) {
     this.device = device ?? null;
   }
@@ -413,14 +401,12 @@ export class FrameGraphResourceManager {
 
   attachGraphics(
     graphics: FrameGraphGraphicsResources,
-    encoder: FrameGraphCommandEncoder | GPUCommandEncoder | null
+    encoder: FrameGraphCommandEncoder | GPUCommandEncoder | null,
   ): void {
     this.graphics = graphics;
     this.device = graphics.device;
     this.encoder =
-      encoder && typeof encoder.clearBuffer === "function"
-        ? (encoder as GPUBufferClearEncoder)
-        : null;
+      encoder && typeof encoder.clearBuffer === "function" ? (encoder as GPUBufferClearEncoder) : null;
   }
 
   get deviceOrNull(): GPUDevice | null {
@@ -439,28 +425,24 @@ export class FrameGraphResourceManager {
       const size = Math.max(4, descriptor.size | 0);
       let usage =
         descriptor.usage ??
-        (GPUBufferUsage.STORAGE |
-          GPUBufferUsage.COPY_DST |
-          GPUBufferUsage.COPY_SRC |
-          GPUBufferUsage.UNIFORM);
+        GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC | GPUBufferUsage.UNIFORM;
       if ((descriptor.ensure_cleared?.[1] ?? 0) > 0) {
         usage |= GPUBufferUsage.COPY_DST;
       }
       let buf: GPUBuffer;
       if (this.graphics) {
-        const localIndex = this.availableBuffers.findIndex((candidate) =>
-          candidate.size >= size &&
-          (candidate.usage & usage) === usage &&
-          !(candidate.size > 2 * size && candidate.size - size > 1024)
+        const localIndex = this.availableBuffers.findIndex(
+          (candidate) =>
+            candidate.size >= size &&
+            (candidate.usage & usage) === usage &&
+            !(candidate.size > 2 * size && candidate.size - size > 1024),
         );
         if (localIndex >= 0) {
           buf = this.availableBuffers.splice(localIndex, 1)[0]!;
           const clear = descriptor.ensure_cleared;
           if (clear !== undefined && clear[1] > 0) {
             if (this.encoder === null) {
-              throw new Error(
-                "FrameGraph transient ensure_cleared requires an encoder"
-              );
+              throw new Error("FrameGraph transient ensure_cleared requires an encoder");
             }
             this.encoder.clearBuffer(buf, clear[0], clear[1]);
           }
@@ -469,17 +451,17 @@ export class FrameGraphResourceManager {
             {
               size,
               usage,
-              ensure_cleared: descriptor.ensure_cleared
+              ensure_cleared: descriptor.ensure_cleared,
             },
-            this.encoder ?? undefined
+            this.encoder ?? undefined,
           );
         }
       } else {
         buf = this.device.createBuffer({
-            label: descriptor.label ?? "FrameGraph/transient_buffer",
-            size,
-            usage
-          });
+          label: descriptor.label ?? "FrameGraph/transient_buffer",
+          size,
+          usage,
+        });
       }
       if (this.graphics) this.pooledBuffers.add(buf);
       else this.fallbackOwned.add(buf);
@@ -493,10 +475,10 @@ export class FrameGraphResourceManager {
       const format = (descriptor.format || "rgba8unorm") as GPUTextureFormat;
       const usage =
         descriptor.usage ??
-        (GPUTextureUsage.RENDER_ATTACHMENT |
+        GPUTextureUsage.RENDER_ATTACHMENT |
           GPUTextureUsage.TEXTURE_BINDING |
           GPUTextureUsage.COPY_SRC |
-          GPUTextureUsage.COPY_DST);
+          GPUTextureUsage.COPY_DST;
       if (this.graphics) {
         const textureDescriptor = {
           width: w,
@@ -505,20 +487,22 @@ export class FrameGraphResourceManager {
           dimension: descriptor.dimension ?? "2d",
           format,
           usage,
-          mipLevelCount: Math.max(1, descriptor.mipLevelCount ?? 1)
+          mipLevelCount: Math.max(1, descriptor.mipLevelCount ?? 1),
         };
-        const localIndex = this.availableTextures.findIndex((candidate) =>
-          candidate.width === textureDescriptor.width &&
-          candidate.height === textureDescriptor.height &&
-          candidate.depthOrArrayLayers === textureDescriptor.depthOrArrayLayers &&
-          candidate.dimension === textureDescriptor.dimension &&
-          candidate.format === textureDescriptor.format &&
-          candidate.usage === textureDescriptor.usage &&
-          candidate.mipLevelCount === textureDescriptor.mipLevelCount
+        const localIndex = this.availableTextures.findIndex(
+          (candidate) =>
+            candidate.width === textureDescriptor.width &&
+            candidate.height === textureDescriptor.height &&
+            candidate.depthOrArrayLayers === textureDescriptor.depthOrArrayLayers &&
+            candidate.dimension === textureDescriptor.dimension &&
+            candidate.format === textureDescriptor.format &&
+            candidate.usage === textureDescriptor.usage &&
+            candidate.mipLevelCount === textureDescriptor.mipLevelCount,
         );
-        const context = localIndex >= 0
-          ? this.availableTextures.splice(localIndex, 1)[0]!
-          : this.graphics.allocator_textures.get(textureDescriptor);
+        const context =
+          localIndex >= 0
+            ? this.availableTextures.splice(localIndex, 1)[0]!
+            : this.graphics.allocator_textures.get(textureDescriptor);
         this.pooledTextures.add(context);
         return context;
       }
@@ -528,7 +512,7 @@ export class FrameGraphResourceManager {
         dimension: descriptor.dimension ?? "2d",
         format,
         usage,
-        mipLevelCount: Math.max(1, descriptor.mipLevelCount ?? 1)
+        mipLevelCount: Math.max(1, descriptor.mipLevelCount ?? 1),
       });
       this.fallbackOwned.add(tex);
       return tex;
@@ -544,10 +528,7 @@ export class FrameGraphResourceManager {
       this.availableBuffers.push(resource as GPUBuffer);
       return;
     }
-    if (
-      this.graphics &&
-      this.pooledTextures.has(resource as GPUTextureContext)
-    ) {
+    if (this.graphics && this.pooledTextures.has(resource as GPUTextureContext)) {
       this.pooledTextures.delete(resource as GPUTextureContext);
       this.availableTextures.push(resource as GPUTextureContext);
       return;
@@ -586,9 +567,7 @@ export class FrameGraphResourceManager {
   }
 }
 
-function isFrameGraphGraphicsResources(
-  value: unknown
-): value is FrameGraphGraphicsResources {
+function isFrameGraphGraphicsResources(value: unknown): value is FrameGraphGraphicsResources {
   return (
     typeof value === "object" &&
     value !== null &&
@@ -631,7 +610,7 @@ export class FrameGraph {
     const executable = this.__execution_order.length;
     const transientResources = this.__resource_registry.reduce(
       (count, entry) => count + (isTransientEntry(entry) ? 1 : 0),
-      0
+      0,
     );
     return Object.freeze({
       builds: this.__build_count,
@@ -641,7 +620,7 @@ export class FrameGraph {
       culledPasses: Math.max(0, this.__pass_nodes.length - executable),
       resources: this.__resource_registry.length,
       transientResources,
-      transientResourcePeak: this.transientResourcePeak()
+      transientResourcePeak: this.transientResourcePeak(),
     });
   }
 
@@ -690,7 +669,7 @@ export class FrameGraph {
       version: entry.resource_version,
       ref_count: 0,
       producer: null,
-      isResourceNode: true
+      isResourceNode: true,
     };
     this.__resource_nodes.push(n);
     return n.id;
@@ -702,11 +681,7 @@ export class FrameGraph {
     return node.version === entry.resource_version;
   }
 
-  add<TData>(
-    name: string,
-    data: TData,
-    execute: PassExecuteFn<TData>
-  ): PassBuilder {
+  add<TData>(name: string, data: TData, execute: PassExecuteFn<TData>): PassBuilder {
     this.assertBuilding();
     const pass = new PassNode();
     pass.id = this.__pass_nodes.length;
@@ -737,7 +712,7 @@ export class FrameGraph {
       const entry = this.__resource_registry[node.resource_id]!;
       if (node.version < 0 || node.version > entry.resource_version) {
         throw new Error(
-          `FrameGraph '${this.name}' resource '${node.name}' has invalid version ${node.version}`
+          `FrameGraph '${this.name}' resource '${node.name}' has invalid version ${node.version}`,
         );
       }
     }
@@ -761,7 +736,7 @@ export class FrameGraph {
         const node = resources[w];
         if (node !== undefined && node.producer !== null && node.producer !== p) {
           throw new Error(
-            `FrameGraph '${this.name}' resource '${node.name}' v${node.version} has multiple producers`
+            `FrameGraph '${this.name}' resource '${node.name}' v${node.version} has multiple producers`,
           );
         }
         if (node) node.producer = p;
@@ -797,7 +772,7 @@ export class FrameGraph {
         if (actual !== requirement.expected && !requirement.conversionOwner) {
           throw new Error(
             `FrameGraph '${this.name}' pass '${p.name}' reads ${actual ?? "untyped"} ` +
-            `resource '${resources[id]!.name}' as ${requirement.expected} without a conversion owner`
+              `resource '${resources[id]!.name}' as ${requirement.expected} without a conversion owner`,
           );
         }
       }
@@ -808,7 +783,7 @@ export class FrameGraph {
         if (!entry.imported && producer === null) {
           throw new Error(
             `FrameGraph '${this.name}' pass '${p.name}' reads transient resource ` +
-            `'${node.name}' v${node.version} before it is written`
+              `'${node.name}' v${node.version} before it is written`,
           );
         }
         if (producer !== null && producer !== p && producer.can_execute()) {
@@ -865,12 +840,12 @@ export class FrameGraph {
   private assertPassResources(
     pass: PassNode,
     usage: "create" | "read" | "write",
-    resourceIds: readonly ResourceId[]
+    resourceIds: readonly ResourceId[],
   ): void {
     for (const id of resourceIds) {
       if (!Number.isInteger(id) || this.__resource_nodes[id] === undefined) {
         throw new Error(
-          `FrameGraph '${this.name}' pass '${pass.name}' declares invalid ${usage} resource ${String(id)}`
+          `FrameGraph '${this.name}' pass '${pass.name}' declares invalid ${usage} resource ${String(id)}`,
         );
       }
     }
@@ -906,17 +881,11 @@ export class FrameGraph {
         const resources = new PassResources(this, pass);
         const executePass = (): void => {
           try {
-            const data = pass.data_binding === null
-              ? pass.data
-              : pass.data_binding.resolve(bindings);
+            const data = pass.data_binding === null ? pass.data : pass.data_binding.resolve(bindings);
             pass.execute(data, resources, ctx);
           } catch (cause) {
-            const detail = cause instanceof Error
-              ? `${cause.name}: ${cause.message}`
-              : String(cause);
-            const err = new Error(
-              `RenderPass '${pass.name}' failed to execute: ${detail}`
-            );
+            const detail = cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause);
+            const err = new Error(`RenderPass '${pass.name}' failed to execute: ${detail}`);
             (err as Error & { cause?: unknown }).cause = cause;
             throw err;
           }
@@ -962,7 +931,7 @@ export class FrameGraph {
     return this.__pass_nodes.map((p) => ({
       id: p.id,
       name: p.name,
-      culled: !p.can_execute()
+      culled: !p.can_execute(),
     }));
   }
 
@@ -986,10 +955,8 @@ export class FrameGraph {
     this.__resource_registry.forEach((entry, id) => {
       const resource = {
         id,
-        name: this.__resource_nodes.find((node) =>
-          node.resource_id === id
-        )?.name ?? `resource-${id}`,
-        transient: isTransientEntry(entry)
+        name: this.__resource_nodes.find((node) => node.resource_id === id)?.name ?? `resource-${id}`,
+        transient: isTransientEntry(entry),
       } as {
         id: number;
         name: string;
@@ -1008,9 +975,9 @@ export class FrameGraph {
         name: p.name,
         culled: !p.can_execute(),
         reads: [...p.resource_reads],
-        writes: [...p.resource_writes]
+        writes: [...p.resource_writes],
       })),
-      resources
+      resources,
     };
   }
 
@@ -1025,7 +992,7 @@ export class FrameGraph {
 
     for (const pass of this.__pass_nodes) {
       output.add(
-        `P${pass.id} [label=<{ {<B>${pass.name}</B>} | {${pass.has_side_effects ? "&#x2605; " : ""} Refs: ${pass.ref_count}<BR/> Index: ${pass.id}} }> style="rounded,filled", fillcolor=${pass.ref_count > 0 || pass.has_side_effects ? "orange" : "lightgray"}]`
+        `P${pass.id} [label=<{ {<B>${pass.name}</B>} | {${pass.has_side_effects ? "&#x2605; " : ""} Refs: ${pass.ref_count}<BR/> Index: ${pass.id}} }> style="rounded,filled", fillcolor=${pass.ref_count > 0 || pass.has_side_effects ? "orange" : "lightgray"}]`,
       );
     }
 
@@ -1037,7 +1004,7 @@ export class FrameGraph {
       const name = `${entry.imported ? "↪" : ""}${node.name}`;
       const tooltip = escapeDotRecord(resourceDescriptorToString(entry.resource_descriptor));
       output.add(
-        `R${entry.resource_id}_${node.version} [label=<{ {<B>${name}</B>${node.version > 0 ? ` <FONT>v${node.version + 1}</FONT>` : ""}<BR/>${descriptorType}} | {Index: ${entry.resource_id}<BR/> Refs : ${node.ref_count} } }> style=filled, fillcolor="${frameGraphResourceColor(entry)}" tooltip="${tooltip}"]`
+        `R${entry.resource_id}_${node.version} [label=<{ {<B>${name}</B>${node.version > 0 ? ` <FONT>v${node.version + 1}</FONT>` : ""}<BR/>${descriptorType}} | {Index: ${entry.resource_id}<BR/> Refs : ${node.ref_count} } }> style=filled, fillcolor="${frameGraphResourceColor(entry)}" tooltip="${tooltip}"]`,
       );
     }
 
@@ -1081,7 +1048,7 @@ export class FrameGraph {
       resource: null,
       imported: false,
       producer: null,
-      last: null
+      last: null,
     };
     this.__resource_registry.push(entry);
     return entry;
@@ -1095,7 +1062,7 @@ export class FrameGraph {
       version: 0,
       ref_count: 0,
       producer: null,
-      isResourceNode: true
+      isResourceNode: true,
     };
     this.__resource_nodes.push(node);
     return node;
@@ -1106,48 +1073,53 @@ export class FrameGraph {
     const executablePassOrder = this.__execution_order.map((pass) => pass.id);
     const scheduleIndex = new Map(executablePassOrder.map((id, index) => [id, index]));
     const resources = this.__resource_registry.map((entry, logicalSlot) => {
-      const uses = this.__execution_order.filter((pass) =>
-        (
+      const uses = this.__execution_order.filter(
+        (pass) =>
           pass.resource_creates.some((id) => this.getResourceNode(id).resource_id === logicalSlot) ||
           pass.resource_reads.some((id) => this.getResourceNode(id).resource_id === logicalSlot) ||
-          pass.resource_writes.some((id) => this.getResourceNode(id).resource_id === logicalSlot)
-        )
+          pass.resource_writes.some((id) => this.getResourceNode(id).resource_id === logicalSlot),
       );
       const binding = this.__imported_bindings.get(logicalSlot);
       const description = resourceDescriptorToString(entry.resource_descriptor);
       const dump: CompiledFrameGraphResourceDump = {
         logicalSlot,
-        name: this.__resource_nodes.find((node) =>
-          node.resource_id === logicalSlot
-        )?.name ?? `resource-${logicalSlot}`,
+        name:
+          this.__resource_nodes.find((node) => node.resource_id === logicalSlot)?.name ??
+          `resource-${logicalSlot}`,
         imported: entry.imported,
         transient: isTransientEntry(entry),
         ...(binding === undefined ? {} : { binding: binding.name }),
-        ...(uses.length === 0 ? {} : {
-          firstUsePass: uses[0]!.id,
-          lastUsePass: uses[uses.length - 1]!.id
-        }),
+        ...(uses.length === 0
+          ? {}
+          : {
+              firstUsePass: uses[0]!.id,
+              lastUsePass: uses[uses.length - 1]!.id,
+            }),
         ...(description ? { description } : {}),
         ...(entry.resource_descriptor?.domain === undefined
           ? {}
-          : { domain: entry.resource_descriptor.domain })
+          : { domain: entry.resource_descriptor.domain }),
       };
       return Object.freeze(dump);
     });
     return Object.freeze({
       name: this.name,
       executablePassOrder: Object.freeze(executablePassOrder),
-      passes: Object.freeze(this.__pass_nodes.map((pass) => Object.freeze({
-        id: pass.id,
-        name: pass.name,
-        culled: !pass.can_execute(),
-        reads: Object.freeze([...pass.resource_reads]),
-        writes: Object.freeze([...pass.resource_writes]),
-        dependencies: Object.freeze([...pass.dependencies].sort((a, b) => a - b)),
-        ...(scheduleIndex.has(pass.id) ? { scheduleIndex: scheduleIndex.get(pass.id) } : {}),
-        ...(pass.encoder_work === null ? {} : { encoderWork: pass.encoder_work })
-      }))),
-      resources: Object.freeze(resources)
+      passes: Object.freeze(
+        this.__pass_nodes.map((pass) =>
+          Object.freeze({
+            id: pass.id,
+            name: pass.name,
+            culled: !pass.can_execute(),
+            reads: Object.freeze([...pass.resource_reads]),
+            writes: Object.freeze([...pass.resource_writes]),
+            dependencies: Object.freeze([...pass.dependencies].sort((a, b) => a - b)),
+            ...(scheduleIndex.has(pass.id) ? { scheduleIndex: scheduleIndex.get(pass.id) } : {}),
+            ...(pass.encoder_work === null ? {} : { encoderWork: pass.encoder_work }),
+          }),
+        ),
+      ),
+      resources: Object.freeze(resources),
     });
   }
 
@@ -1197,9 +1169,7 @@ function stableTopologicalOrder(name: string, passes: readonly PassNode[]): Pass
       consumers.set(dependency, list);
     }
   }
-  const ready = passes
-    .filter((pass) => indegree.get(pass.id) === 0)
-    .sort((a, b) => a.id - b.id);
+  const ready = passes.filter((pass) => indegree.get(pass.id) === 0).sort((a, b) => a.id - b.id);
   const result: PassNode[] = [];
   while (ready.length > 0) {
     const pass = ready.shift()!;
@@ -1214,21 +1184,15 @@ function stableTopologicalOrder(name: string, passes: readonly PassNode[]): Pass
     }
   }
   if (result.length !== passes.length) {
-    const cyclic = passes
-      .filter((pass) => !result.includes(pass))
-      .map((pass) => pass.name);
-    throw new Error(
-      `FrameGraph '${name}' contains a resource dependency cycle: ${cyclic.join(", ")}`
-    );
+    const cyclic = passes.filter((pass) => !result.includes(pass)).map((pass) => pass.name);
+    throw new Error(`FrameGraph '${name}' contains a resource dependency cycle: ${cyclic.join(", ")}`);
   }
   return result;
 }
 
 function nonNegativeInteger(value: number, label: string): number {
   if (!Number.isInteger(value) || value < 0) {
-    throw new RangeError(
-      `FrameGraph encoder work '${label}' must be a non-negative integer`
-    );
+    throw new RangeError(`FrameGraph encoder work '${label}' must be a non-negative integer`);
   }
   return value;
 }
@@ -1352,21 +1316,13 @@ function computeMaxSaturation(a: number, b: number): number {
   const lRoot = 1 + saturation * kl;
   const mRoot = 1 + saturation * km;
   const sRoot = 1 + saturation * ks;
-  const value =
-    wl * lRoot * lRoot * lRoot +
-    wm * mRoot * mRoot * mRoot +
-    ws * sRoot * sRoot * sRoot;
+  const value = wl * lRoot * lRoot * lRoot + wm * mRoot * mRoot * mRoot + ws * sRoot * sRoot * sRoot;
   const firstDerivative =
-    wl * (3 * kl * lRoot * lRoot) +
-    wm * (3 * km * mRoot * mRoot) +
-    ws * (3 * ks * sRoot * sRoot);
+    wl * (3 * kl * lRoot * lRoot) + wm * (3 * km * mRoot * mRoot) + ws * (3 * ks * sRoot * sRoot);
   const secondDerivative =
-    wl * (6 * kl * kl * lRoot) +
-    wm * (6 * km * km * mRoot) +
-    ws * (6 * ks * ks * sRoot);
+    wl * (6 * kl * kl * lRoot) + wm * (6 * km * km * mRoot) + ws * (6 * ks * ks * sRoot);
   saturation -=
-    (value * firstDerivative) /
-    (firstDerivative * firstDerivative - 0.5 * value * secondDerivative);
+    (value * firstDerivative) / (firstDerivative * firstDerivative - 0.5 * value * secondDerivative);
   return saturation;
 }
 
@@ -1378,7 +1334,7 @@ function frameGraphOklchToRgb(out: number[], hue: number, chroma: number): void 
   const maxChannel = Math.max(
     FRAME_GRAPH_OKLAB_RGB[0]!,
     FRAME_GRAPH_OKLAB_RGB[1]!,
-    FRAME_GRAPH_OKLAB_RGB[2]!
+    FRAME_GRAPH_OKLAB_RGB[2]!,
   );
   const lightnessAtCusp = Math.cbrt(1 / maxChannel);
   FRAME_GRAPH_CUSP[0] = lightnessAtCusp;
@@ -1388,27 +1344,19 @@ function frameGraphOklchToRgb(out: number[], hue: number, chroma: number): void 
   const midpoint = 0.5;
   const intercept = 1 - midpoint / (FRAME_GRAPH_CUSP[1]! / FRAME_GRAPH_CUSP[0]!);
   const lightness = 1 - (chroma * midpoint) / (midpoint + slope - slope * intercept * chroma);
-  const mappedChroma =
-    (chroma * slope * midpoint) / (midpoint + slope - slope * intercept * chroma);
+  const mappedChroma = (chroma * slope * midpoint) / (midpoint + slope - slope * intercept * chroma);
 
   let mappedLightness = lightness;
   let mappedSaturation = mappedChroma;
   const toeLightness = frameGraphToe(lightness);
   const toeChroma = (mappedChroma * toeLightness) / lightness;
   const remappedLightness = frameGraphToe(mappedLightness);
-  mappedSaturation =
-    mappedLightness !== 0 ? (mappedSaturation * remappedLightness) / mappedLightness : 0;
+  mappedSaturation = mappedLightness !== 0 ? (mappedSaturation * remappedLightness) / mappedLightness : 0;
   mappedLightness = remappedLightness;
 
   oklabToLinearSrgb(FRAME_GRAPH_GAMUT_RGB, toeLightness, a * toeChroma, b * toeChroma);
   const gamutScale = Math.cbrt(
-    1 /
-      Math.max(
-        FRAME_GRAPH_GAMUT_RGB[0]!,
-        FRAME_GRAPH_GAMUT_RGB[1]!,
-        FRAME_GRAPH_GAMUT_RGB[2]!,
-        0
-      )
+    1 / Math.max(FRAME_GRAPH_GAMUT_RGB[0]!, FRAME_GRAPH_GAMUT_RGB[1]!, FRAME_GRAPH_GAMUT_RGB[2]!, 0),
   );
   mappedLightness *= gamutScale;
   mappedSaturation *= gamutScale;

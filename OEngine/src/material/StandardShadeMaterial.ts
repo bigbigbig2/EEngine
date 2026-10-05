@@ -93,7 +93,6 @@ export class StandardShadeMaterial extends ShadeMaterial {
   emissive_factor = new Color(0, 0, 0);
   ambient_factors = new LinearModifier(1, 1);
 
-
   override get textures(): ShadeTexture[] {
     const textures = this.is_unlit
       ? [this.texture_albedo]
@@ -107,10 +106,16 @@ export class StandardShadeMaterial extends ShadeMaterial {
           this.texture_specular_color,
           this.texture_clearcoat,
           this.texture_clearcoat_roughness,
-          this.texture_clearcoat_normal
+          this.texture_clearcoat_normal,
         ];
-    return [...new Set([...textures.filter((e): e is ShadeTexture => e !== undefined),
-      ...(this.appearance_definition?.graph?.nodes.flatMap(node => node.kind === "texture" ? [node.binding.texture] : []) ?? [])])];
+    return [
+      ...new Set([
+        ...textures.filter((e): e is ShadeTexture => e !== undefined),
+        ...(this.appearance_definition?.graph?.nodes.flatMap((node) =>
+          node.kind === "texture" ? [node.binding.texture] : [],
+        ) ?? []),
+      ]),
+    ];
   }
 
   override hash(): number {
@@ -161,17 +166,25 @@ export class StandardShadeMaterial extends ShadeMaterial {
       hashFloat(this.emissive_uv_scale[0]),
       hashFloat(this.emissive_uv_scale[1]),
       hashFloat(this.emissive_uv_rotation),
-      hashFloat(this.ior_factor), hashFloat(this.specular_factor),
-      this.specular_color_factor.hash(), hashOptional(this.texture_specular),
-      hashOptional(this.texture_specular_color), hashFloat(this.clearcoat_factor),
-      hashFloat(this.clearcoat_roughness_factor), hashFloat(this.clearcoat_normal_scale),
-      hashOptional(this.texture_clearcoat), hashOptional(this.texture_clearcoat_roughness),
+      hashFloat(this.ior_factor),
+      hashFloat(this.specular_factor),
+      this.specular_color_factor.hash(),
+      hashOptional(this.texture_specular),
+      hashOptional(this.texture_specular_color),
+      hashFloat(this.clearcoat_factor),
+      hashFloat(this.clearcoat_roughness_factor),
+      hashFloat(this.clearcoat_normal_scale),
+      hashOptional(this.texture_clearcoat),
+      hashOptional(this.texture_clearcoat_roughness),
       hashOptional(this.texture_clearcoat_normal),
       ...EXTRA_UV_ROLES.flatMap((role) => [
-        this[`${role}_uv_set`], hashFloat(this[`${role}_uv_offset`][0]),
-        hashFloat(this[`${role}_uv_offset`][1]), hashFloat(this[`${role}_uv_scale`][0]),
-        hashFloat(this[`${role}_uv_scale`][1]), hashFloat(this[`${role}_uv_rotation`])
-      ])
+        this[`${role}_uv_set`],
+        hashFloat(this[`${role}_uv_offset`][0]),
+        hashFloat(this[`${role}_uv_offset`][1]),
+        hashFloat(this[`${role}_uv_scale`][0]),
+        hashFloat(this[`${role}_uv_scale`][1]),
+        hashFloat(this[`${role}_uv_rotation`]),
+      ]),
     );
   }
 
@@ -222,20 +235,26 @@ export class StandardShadeMaterial extends ShadeMaterial {
 }
 
 const EXTRA_UV_ROLES = [
-  "specular", "specular_color", "clearcoat", "clearcoat_roughness", "clearcoat_normal"
+  "specular",
+  "specular_color",
+  "clearcoat",
+  "clearcoat_roughness",
+  "clearcoat_normal",
 ] as const;
 
 function uvMappingEquals(
   left: StandardShadeMaterial,
   right: StandardShadeMaterial,
-  role: "normal" | "orm" | "occlusion" | "emissive" | typeof EXTRA_UV_ROLES[number]
+  role: "normal" | "orm" | "occlusion" | "emissive" | (typeof EXTRA_UV_ROLES)[number],
 ): boolean {
-  return left[`${role}_uv_set`] === right[`${role}_uv_set`] &&
+  return (
+    left[`${role}_uv_set`] === right[`${role}_uv_set`] &&
     left[`${role}_uv_offset`][0] === right[`${role}_uv_offset`][0] &&
     left[`${role}_uv_offset`][1] === right[`${role}_uv_offset`][1] &&
     left[`${role}_uv_scale`][0] === right[`${role}_uv_scale`][0] &&
     left[`${role}_uv_scale`][1] === right[`${role}_uv_scale`][1] &&
-    left[`${role}_uv_rotation`] === right[`${role}_uv_rotation`];
+    left[`${role}_uv_rotation`] === right[`${role}_uv_rotation`]
+  );
 }
 
 Object.assign(StandardShadeMaterial.prototype, { isStandardShadeMaterial: true });

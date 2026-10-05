@@ -1,7 +1,7 @@
 import type {
   AccountedResourceCategory,
   ResourceAccounting,
-  ResourceHandle as AccountingResourceHandle
+  ResourceHandle as AccountingResourceHandle,
 } from "./profiling/ResourceAccounting.js";
 
 export interface GpuReadbackRingOptions {
@@ -93,21 +93,21 @@ export class GpuReadbackRing {
       const buffer = device.createBuffer({
         label: `${label}/slot-${index}`,
         size: this.byteLength,
-        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
       });
       const accountingHandle = options.resourceAccounting?.created({
         kind: "buffer",
         category: options.resourceCategory ?? "readback",
         owner: options.resourceOwner ?? label,
         bytes: this.byteLength,
-        label: `${label}/slot-${index}`
+        label: `${label}/slot-${index}`,
       });
       return {
         buffer,
         ...(accountingHandle === undefined ? {} : { accountingHandle }),
         state: "idle" as const,
         generation: 0,
-        frameIndex: -1
+        frameIndex: -1,
       };
     });
   }
@@ -115,13 +115,10 @@ export class GpuReadbackRing {
   get stats(): GpuReadbackRingStats {
     return {
       slotCount: this.slotCount,
-      pending: this.slots.reduce(
-        (count, slot) => count + (slot.state === "idle" ? 0 : 1),
-        0
-      ),
+      pending: this.slots.reduce((count, slot) => count + (slot.state === "idle" ? 0 : 1), 0),
       completed: this.completedCount,
       dropped: this.droppedCount,
-      failed: this.failedCount
+      failed: this.failedCount,
     };
   }
 
@@ -130,7 +127,7 @@ export class GpuReadbackRing {
     source: GPUBuffer,
     sourceOffset: number,
     frameIndex: number,
-    identity: GpuReadbackIdentity = {}
+    identity: GpuReadbackIdentity = {},
   ): GpuReadbackTicket | null {
     this.assertAlive();
     assertNonNegativeInteger(frameIndex, "frameIndex");
@@ -149,20 +146,14 @@ export class GpuReadbackRing {
     slot.runId = identity.runId;
     slot.deviceEpoch = identity.deviceEpoch;
     slot.generation++;
-    encoder.copyBufferToBuffer(
-      source,
-      sourceOffset,
-      slot.buffer,
-      0,
-      this.byteLength
-    );
+    encoder.copyBufferToBuffer(source, sourceOffset, slot.buffer, 0, this.byteLength);
     this.cursor = (slotIndex + 1) % this.slotCount;
     return {
       slotIndex,
       generation: slot.generation,
       frameIndex,
       runId: identity.runId,
-      deviceEpoch: identity.deviceEpoch
+      deviceEpoch: identity.deviceEpoch,
     };
   }
 
@@ -194,7 +185,12 @@ export class GpuReadbackRing {
     }
     slot.state = "idle";
     this.failedCount++;
-    this.onError({ frameIndex: ticket.frameIndex, error, runId: ticket.runId, deviceEpoch: ticket.deviceEpoch });
+    this.onError({
+      frameIndex: ticket.frameIndex,
+      error,
+      runId: ticket.runId,
+      deviceEpoch: ticket.deviceEpoch,
+    });
   }
 
   destroy(): void {
@@ -210,10 +206,7 @@ export class GpuReadbackRing {
     }
   }
 
-  private async mapSlot(
-    slot: GpuReadbackSlot,
-    ticket: GpuReadbackTicket
-  ): Promise<void> {
+  private async mapSlot(slot: GpuReadbackSlot, ticket: GpuReadbackTicket): Promise<void> {
     try {
       await slot.buffer.mapAsync(GPUMapMode.READ, 0, this.byteLength);
       if (this.destroyed || !this.ticketMatches(slot, ticket)) {
@@ -225,25 +218,34 @@ export class GpuReadbackRing {
       slot.buffer.unmap();
       slot.state = "idle";
       this.completedCount++;
-      this.onResult({ frameIndex: ticket.frameIndex, data, runId: ticket.runId, deviceEpoch: ticket.deviceEpoch });
+      this.onResult({
+        frameIndex: ticket.frameIndex,
+        data,
+        runId: ticket.runId,
+        deviceEpoch: ticket.deviceEpoch,
+      });
     } catch (error) {
       if (slot.buffer.mapState === "mapped") slot.buffer.unmap();
       if (!this.ticketMatches(slot, ticket)) return;
       slot.state = "idle";
       if (this.destroyed) return;
       this.failedCount++;
-      this.onError({ frameIndex: ticket.frameIndex, error, runId: ticket.runId, deviceEpoch: ticket.deviceEpoch });
+      this.onError({
+        frameIndex: ticket.frameIndex,
+        error,
+        runId: ticket.runId,
+        deviceEpoch: ticket.deviceEpoch,
+      });
     }
   }
 
-  private ticketMatches(
-    slot: GpuReadbackSlot,
-    ticket: GpuReadbackTicket
-  ): boolean {
-    return slot.generation === ticket.generation &&
+  private ticketMatches(slot: GpuReadbackSlot, ticket: GpuReadbackTicket): boolean {
+    return (
+      slot.generation === ticket.generation &&
       slot.frameIndex === ticket.frameIndex &&
       slot.runId === ticket.runId &&
-      slot.deviceEpoch === ticket.deviceEpoch;
+      slot.deviceEpoch === ticket.deviceEpoch
+    );
   }
 
   private findIdleSlot(): number {

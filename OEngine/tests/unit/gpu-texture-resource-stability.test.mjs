@@ -5,15 +5,9 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import "../webgpu-test-globals.mjs";
-import {
-  GPUTextureAllocator
-} from "../../.test-dist/gpu/GPUTextureAllocator.js";
-import {
-  GPUTextureContext
-} from "../../.test-dist/gpu/GPUTextureContext.js";
-import {
-  resolveTextureView
-} from "../../.test-dist/render/RenderTargetViews.js";
+import { GPUTextureAllocator } from "../../.test-dist/gpu/GPUTextureAllocator.js";
+import { GPUTextureContext } from "../../.test-dist/gpu/GPUTextureContext.js";
+import { resolveTextureView } from "../../.test-dist/render/RenderTargetViews.js";
 
 const oengineRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -30,7 +24,7 @@ function textureFromDescriptor(descriptor, createView) {
     format: descriptor.format,
     usage: descriptor.usage,
     createView,
-    destroy() {}
+    destroy() {},
   };
 }
 
@@ -41,14 +35,14 @@ test("texture allocation isolates retained pool descriptors from API instrumenta
       creationCount++;
       descriptor.usage |= GPUTextureUsage.COPY_SRC;
       return textureFromDescriptor(descriptor, () => ({}));
-    }
+    },
   };
   const allocator = new GPUTextureAllocator(device);
   const request = {
     width: 1920,
     height: 945,
     format: "r8uint",
-    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
   };
 
   const first = allocator.get(request);
@@ -72,13 +66,13 @@ test("persistent texture owners reuse their default view", () => {
         viewCreationCount++;
         return stableView;
       });
-    }
+    },
   };
   const texture = new GPUTextureContext(device, {
     label: "environment",
     size: [1, 1, 1],
     format: "rgba16float",
-    usage: GPUTextureUsage.TEXTURE_BINDING
+    usage: GPUTextureUsage.TEXTURE_BINDING,
   });
 
   assert.equal(resolveTextureView(texture), stableView);

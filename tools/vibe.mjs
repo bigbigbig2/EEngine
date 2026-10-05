@@ -11,12 +11,14 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const [command = "context", ...args] = process.argv.slice(2);
 
 try {
-  if (command === "context" && !args.some(arg => ["--claims", "--cases", "--all"].includes(arg))) {
-    await context(args.find(arg => !arg.startsWith("--")) ?? ".");
+  if (command === "context" && !args.some((arg) => ["--claims", "--cases", "--all"].includes(arg))) {
+    await context(args.find((arg) => !arg.startsWith("--")) ?? ".");
   } else if (command === "verify" && args.includes("--module") && !args.includes("--full")) {
     await moduleCheck(args);
   } else if (command === "verify" && !args.includes("--full")) {
-    throw new Error("Choose `verify --module` at a large module close or `verify --full` for final acceptance. Changed-path verification was retired.");
+    throw new Error(
+      "Choose `verify --module` at a large module close or `verify --full` for final acceptance. Changed-path verification was retired.",
+    );
   } else if (command === "verify" && args.includes("--module")) {
     throw new Error("Choose either --module or --full, not both.");
   } else if (command === "help" || command === "--help" || command === "-h") {
@@ -37,14 +39,23 @@ vibe context <path> --claims|--cases|--all, registry, evidence, case, status, do
 
 async function readYamlDirectory(directory) {
   const entries = await readdir(resolve(root, directory), { withFileTypes: true });
-  return Promise.all(entries.filter(entry => entry.isFile() && /\.ya?ml$/u.test(entry.name)).map(async entry => {
-    const path = resolve(root, directory, entry.name);
-    const document = parseDocument(await readFile(path, "utf8"), { uniqueKeys: true, prettyErrors: true });
-    if (document.errors.length || document.warnings.length) {
-      throw new Error(`${relative(root, path)}: ${[...document.errors, ...document.warnings].map(item => item.message).join("; ")}`);
-    }
-    return document.toJS({ mapAsMap: false });
-  }));
+  return Promise.all(
+    entries
+      .filter((entry) => entry.isFile() && /\.ya?ml$/u.test(entry.name))
+      .map(async (entry) => {
+        const path = resolve(root, directory, entry.name);
+        const document = parseDocument(await readFile(path, "utf8"), {
+          uniqueKeys: true,
+          prettyErrors: true,
+        });
+        if (document.errors.length || document.warnings.length) {
+          throw new Error(
+            `${relative(root, path)}: ${[...document.errors, ...document.warnings].map((item) => item.message).join("; ")}`,
+          );
+        }
+        return document.toJS({ mapAsMap: false });
+      }),
+  );
 }
 
 function matches(path, pattern) {
@@ -53,8 +64,10 @@ function matches(path, pattern) {
   let source = "";
   for (let index = 0; index < base.length; index++) {
     const ch = base[index];
-    if (ch === "*" && base[index + 1] === "*") { source += ".*"; index++; }
-    else if (ch === "*") source += "[^/]*";
+    if (ch === "*" && base[index + 1] === "*") {
+      source += ".*";
+      index++;
+    } else if (ch === "*") source += "[^/]*";
     else source += ch.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
   }
   return new RegExp(`^${source}(?:/.*)?$`, "u").test(normalized);
@@ -63,35 +76,50 @@ function matches(path, pattern) {
 async function context(input) {
   const [domains, workstreams] = await Promise.all([
     readYamlDirectory("project/domains"),
-    readYamlDirectory("project/workstreams/active")
+    readYamlDirectory("project/workstreams/active"),
   ]);
-  const candidates = domains.flatMap(domain => {
-    const patterns = (domain.paths ?? []).filter(pattern => input === "." || matches(input, pattern));
-    return patterns.length ? [{ domain, score: Math.max(...patterns.map(pattern => pattern.replaceAll("*", "").length)) }] : [];
-  }).sort((a, b) => b.score - a.score || a.domain.id.localeCompare(b.domain.id));
+  const candidates = domains
+    .flatMap((domain) => {
+      const patterns = (domain.paths ?? []).filter((pattern) => input === "." || matches(input, pattern));
+      return patterns.length
+        ? [{ domain, score: Math.max(...patterns.map((pattern) => pattern.replaceAll("*", "").length)) }]
+        : [];
+    })
+    .sort((a, b) => b.score - a.score || a.domain.id.localeCompare(b.domain.id));
   const primary = candidates[0]?.domain ?? null;
-  const selected = input === "." ? workstreams : workstreams.filter(stream =>
-    stream.id === "eengine-next-clean-rebuild" ||
-    stream.domain === primary?.id || (primary?.decisions ?? []).includes(stream.decision));
+  const selected =
+    input === "."
+      ? workstreams
+      : workstreams.filter(
+          (stream) =>
+            stream.id === "eengine-next-clean-rebuild" ||
+            stream.domain === primary?.id ||
+            (primary?.decisions ?? []).includes(stream.decision),
+        );
   const result = {
     input,
     owner: {
-      primary: input === "." ? domains.map(domain => domain.id) : primary?.id ?? null,
-      related: input === "." ? [] : candidates.slice(1).map(item => item.domain.id),
-      ambiguous: Boolean(candidates[1] && candidates[1].score === candidates[0].score)
+      primary: input === "." ? domains.map((domain) => domain.id) : (primary?.id ?? null),
+      related: input === "." ? [] : candidates.slice(1).map((item) => item.domain.id),
+      ambiguous: Boolean(candidates[1] && candidates[1].score === candidates[0].score),
     },
-    documents: input === "." ? [...new Set(domains.flatMap(domain => domain.currentDocs ?? []))] : primary?.currentDocs ?? [],
-    ...(selected.some(stream => stream.id === "eengine-next-clean-rebuild") ? {
-      nextArchitecture: {
-        design: "docs/next-design/eengine-next-overall-architecture-final-2026.md",
-        execution: "docs/next-execution/eengine-next-architecture-layer-plan-2026.md"
-      }
-    } : {}),
-    currentModules: selected.map(stream => ({
+    documents:
+      input === "."
+        ? [...new Set(domains.flatMap((domain) => domain.currentDocs ?? []))]
+        : (primary?.currentDocs ?? []),
+    ...(selected.some((stream) => stream.id === "eengine-next-clean-rebuild")
+      ? {
+          nextArchitecture: {
+            design: "docs/next-design/eengine-next-overall-architecture-final-2026.md",
+            execution: "docs/next-execution/eengine-next-architecture-layer-plan-2026.md",
+          },
+        }
+      : {}),
+    currentModules: selected.map((stream) => ({
       workstream: stream.id,
       currentSlice: stream.currentSlice ?? null,
-      nextModules: (stream.nextModules ?? []).map(module => module.id)
-    }))
+      nextModules: (stream.nextModules ?? []).map((module) => module.id),
+    })),
   };
   console.log(JSON.stringify(result, null, 2));
 }
@@ -100,7 +128,13 @@ function npmRun(script, cwd) {
   const windows = process.platform === "win32";
   const executable = windows ? (process.env.ComSpec ?? "cmd.exe") : "npm";
   const args = windows ? ["/d", "/s", "/c", `npm run ${script}`] : ["run", script];
-  return spawnSync(executable, args, { cwd, encoding: "utf8", windowsHide: true, timeout: 900_000, maxBuffer: 16 * 1024 * 1024 });
+  return spawnSync(executable, args, {
+    cwd,
+    encoding: "utf8",
+    windowsHide: true,
+    timeout: 900_000,
+    maxBuffer: 16 * 1024 * 1024,
+  });
 }
 
 async function moduleCheck(args) {
@@ -117,11 +151,18 @@ async function moduleCheck(args) {
     testPaths.push(relative(resolve(root, "OEngine"), path));
   }
   const known = new Set(["--module", "--plan", "--json", "--test"]);
-  if (args.some(arg => arg.startsWith("--") && !known.has(arg))) {
+  if (args.some((arg) => arg.startsWith("--") && !known.has(arg))) {
     throw new Error("Module check accepts --module, --plan, --json and repeated --test <path>");
   }
-  const plan = ["npm run typecheck", "npm run build", ...(testPaths.length ? ["npm run build:test", ...testPaths.map(path => `node --test ${path}`)] : [])];
-  if (args.includes("--plan")) { console.log(JSON.stringify({ mode: "module", commands: plan }, null, 2)); return; }
+  const plan = [
+    "npm run typecheck",
+    "npm run build",
+    ...(testPaths.length ? ["npm run build:test", ...testPaths.map((path) => `node --test ${path}`)] : []),
+  ];
+  if (args.includes("--plan")) {
+    console.log(JSON.stringify({ mode: "module", commands: plan }, null, 2));
+    return;
+  }
   const cwd = resolve(root, "OEngine");
   const checks = [];
   for (const script of ["typecheck", "build", ...(testPaths.length ? ["build:test"] : [])]) {
@@ -130,17 +171,41 @@ async function moduleCheck(args) {
     if (result.stdout) process.stdout.write(result.stdout);
     if (result.stderr) process.stderr.write(result.stderr);
     if (result.status !== 0) {
-      console.error(JSON.stringify({ mode: "module", ok: false, checks, error: result.error?.message ?? null }));
+      console.error(
+        JSON.stringify({ mode: "module", ok: false, checks, error: result.error?.message ?? null }),
+      );
       process.exitCode = 1;
       return;
     }
   }
   for (const path of testPaths) {
-    const result = spawnSync(process.execPath, ["--test", path], { cwd, encoding: "utf8", windowsHide: true, timeout: 900_000, maxBuffer: 16 * 1024 * 1024 });
+    const result = spawnSync(process.execPath, ["--test", path], {
+      cwd,
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: 900_000,
+      maxBuffer: 16 * 1024 * 1024,
+    });
     checks.push({ command: `node --test ${path}`, passed: result.status === 0 });
     if (result.stdout) process.stdout.write(result.stdout);
     if (result.stderr) process.stderr.write(result.stderr);
-    if (result.status !== 0) { process.exitCode = 1; break; }
+    if (result.status !== 0) {
+      process.exitCode = 1;
+      break;
+    }
   }
-  console.log(JSON.stringify({ mode: "module", ok: process.exitCode !== 1, checks, browser: "not run", evidence: "not generated", claims: "not evaluated" }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        mode: "module",
+        ok: process.exitCode !== 1,
+        checks,
+        browser: "not run",
+        evidence: "not generated",
+        claims: "not evaluated",
+      },
+      null,
+      2,
+    ),
+  );
 }

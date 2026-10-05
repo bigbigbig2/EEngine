@@ -34,10 +34,14 @@ export interface InspectorDomainState {
 
 type InspectorPanel = "overview" | "timeline" | "gpu-driven" | "framegraph" | "resources" | "diagnostics";
 
-const ICON_DOCK = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="15" y1="3" x2="15" y2="21"></line></svg>';
-const ICON_MAXIMIZE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>';
-const ICON_RESTORE = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>';
-const ICON_INSPECTOR = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11.5 20h-6.5a2 2 0 0 1-2-2v-12a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5.5"></path><path d="M9 17h2"></path><circle cx="18" cy="18" r="3"></circle><path d="m20.2 20.2 1.8 1.8"></path></svg>';
+const ICON_DOCK =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="15" y1="3" x2="15" y2="21"></line></svg>';
+const ICON_MAXIMIZE =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>';
+const ICON_RESTORE =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>';
+const ICON_INSPECTOR =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11.5 20h-6.5a2 2 0 0 1-2-2v-12a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5.5"></path><path d="M9 17h2"></path><circle cx="18" cy="18" r="3"></circle><path d="m20.2 20.2 1.8 1.8"></path></svg>';
 
 const INLINE_CSS = `
 :host{all:initial;contain:content;color:var(--inspector-text-primary);font:12px/1.4 system-ui,sans-serif;--inspector-bg:#111923f2;--inspector-panel:#172333;--inspector-border:#3a4b63;--inspector-border-soft:#2b3b50;--inspector-text-primary:#e7edf6;--inspector-text-secondary:#9aabc1;--inspector-accent:#36a3ff;--inspector-warning:#facc15;--inspector-error:#fb7185}
@@ -91,7 +95,8 @@ export class InspectorShell {
   private activePanel: InspectorPanel = "overview";
   private dockMode: "bottom" | "right" = "bottom";
   private maximized = false;
-  private resizeState: { pointerId: number; width: number; height: number; x: number; y: number } | null = null;
+  private resizeState: { pointerId: number; width: number; height: number; x: number; y: number } | null =
+    null;
   private disposed = false;
 
   constructor(private readonly options: InspectorShellOptions) {
@@ -142,7 +147,11 @@ export class InspectorShell {
 
     const tabs = document.createElement("div");
     tabs.className = "tabs";
-    for (const [mode, label] of [["monitor", "Monitor"], ["record", "Record"], ["high-detail", "High detail"]] as const) {
+    for (const [mode, label] of [
+      ["monitor", "Monitor"],
+      ["record", "Record"],
+      ["high-detail", "High detail"],
+    ] as const) {
       const button = this.button(label, () => options.onMode(mode));
       button.dataset.inspectorMode = mode;
       this.modeButtons.set(mode, button);
@@ -163,13 +172,20 @@ export class InspectorShell {
     actions.append(
       this.button("Start", options.onStartRecording),
       this.button("Stop", options.onStopRecording),
-      this.button("Clear", options.onClear)
+      this.button("Clear", options.onClear),
     );
 
     const panelTabs = document.createElement("div");
     panelTabs.className = "tabs panel-tabs";
     panelTabs.setAttribute("role", "tablist");
-    for (const [panel, label] of [["overview", "Performance"], ["timeline", "Timeline"], ["gpu-driven", "Work"], ["framegraph", "Graph"], ["resources", "Memory"], ["diagnostics", "Diagnostics"]] as const) {
+    for (const [panel, label] of [
+      ["overview", "Performance"],
+      ["timeline", "Timeline"],
+      ["gpu-driven", "Work"],
+      ["framegraph", "Graph"],
+      ["resources", "Memory"],
+      ["diagnostics", "Diagnostics"],
+    ] as const) {
       const button = this.button(label, () => this.showPanel(panel));
       button.dataset.inspectorTab = panel;
       button.setAttribute("role", "tab");
@@ -199,7 +215,12 @@ export class InspectorShell {
     this.resizeHandle.setAttribute("aria-label", "Resize Inspector");
     this.resizeHandle.addEventListener("pointerdown", (event) => this.beginResize(event));
     this.panel.append(this.overview.element, this.timeline.element);
-    this.panel.append(this.gpuDriven.element, this.frameGraph.element, this.resources.element, this.diagnostics.element);
+    this.panel.append(
+      this.gpuDriven.element,
+      this.frameGraph.element,
+      this.resources.element,
+      this.diagnostics.element,
+    );
     this.timeline.element.hidden = true;
     this.gpuDriven.element.hidden = true;
     this.frameGraph.element.hidden = true;
@@ -220,7 +241,8 @@ export class InspectorShell {
 
   update(state: InspectorViewState): void {
     if (this.disposed) return;
-    const modeLabel = state.mode === "high-detail" ? "High detail" : state.mode === "record" ? "Recording" : "Monitor";
+    const modeLabel =
+      state.mode === "high-detail" ? "High detail" : state.mode === "record" ? "Recording" : "Monitor";
     const statusSource = state.recording ? "timeline" : "live data";
     const statusCount = state.recording ? state.timelineFrames.length : state.frames.length;
     this.status.textContent = `${modeLabel}${state.paused ? " · view paused" : ""} · ${statusSource} · ${statusCount} frames`;
@@ -228,16 +250,17 @@ export class InspectorShell {
     this.toggleLabel.textContent = fps === null ? "Inspector" : `${Math.round(fps)} FPS`;
     this.drawToggleGraph(state);
     this.status.dataset.mode = state.mode;
-    this.modeButtons.forEach((button, mode) => button.setAttribute("aria-pressed", String(mode === state.mode)));
+    this.modeButtons.forEach((button, mode) =>
+      button.setAttribute("aria-pressed", String(mode === state.mode)),
+    );
     this.followLatestButton.setAttribute("aria-pressed", String(state.followLatest));
     this.panelButtons.forEach((button, panel) => {
       const selected = panel === this.activePanel;
       button.setAttribute("aria-pressed", String(selected));
       button.setAttribute("aria-selected", String(selected));
     });
-    this.selected.textContent = state.selectedFrameIndex === null
-      ? "select a frame for details"
-      : `frame ${state.selectedFrameIndex}`;
+    this.selected.textContent =
+      state.selectedFrameIndex === null ? "select a frame for details" : `frame ${state.selectedFrameIndex}`;
     this.overview.update(state.frames, state.range);
     this.timeline.update(state.timelineFrames, state.selectedFrameIndex, state.range);
     const domains = this.options.onDomainState();
@@ -360,10 +383,11 @@ export class InspectorShell {
     frames.forEach((frame, index) => {
       const sample = frame.samples["frame.rafIntervalMs"];
       const value = sample?.availability === "available" && sample.value !== null ? sample.value : 16.67;
-      const x = index / (frames.length - 1) * width;
+      const x = (index / (frames.length - 1)) * width;
       const clampedInterval = Math.min(50, Math.max(0, value));
-      const y = 2 + clampedInterval / 50 * (height - 4);
-      if (index === 0) context.moveTo(x, y); else context.lineTo(x, y);
+      const y = 2 + (clampedInterval / 50) * (height - 4);
+      if (index === 0) context.moveTo(x, y);
+      else context.lineTo(x, y);
     });
     context.stroke();
   }
@@ -372,19 +396,38 @@ export class InspectorShell {
     if (event.button !== 0) return;
     const target = event.currentTarget as HTMLElement;
     const layout = this.layoutModel.layout;
-    this.resizeState = { pointerId: event.pointerId, width: layout.width, height: layout.height, x: event.clientX, y: event.clientY };
+    this.resizeState = {
+      pointerId: event.pointerId,
+      width: layout.width,
+      height: layout.height,
+      x: event.clientX,
+      y: event.clientY,
+    };
     target.setPointerCapture(event.pointerId);
     const move = (moveEvent: PointerEvent): void => {
       if (this.resizeState === null || moveEvent.pointerId !== this.resizeState.pointerId) return;
       if (this.dockMode === "right") {
-        this.layoutModel.setLayout({ width: this.resizeState.width - (moveEvent.clientX - this.resizeState.x), height: this.resizeState.height }, false);
+        this.layoutModel.setLayout(
+          {
+            width: this.resizeState.width - (moveEvent.clientX - this.resizeState.x),
+            height: this.resizeState.height,
+          },
+          false,
+        );
       } else {
-        this.layoutModel.setLayout({ width: this.resizeState.width, height: this.resizeState.height - (moveEvent.clientY - this.resizeState.y) }, false);
+        this.layoutModel.setLayout(
+          {
+            width: this.resizeState.width,
+            height: this.resizeState.height - (moveEvent.clientY - this.resizeState.y),
+          },
+          false,
+        );
       }
     };
     const end = (): void => {
       if (this.resizeState === null) return;
-      if (target.hasPointerCapture(this.resizeState.pointerId)) target.releasePointerCapture(this.resizeState.pointerId);
+      if (target.hasPointerCapture(this.resizeState.pointerId))
+        target.releasePointerCapture(this.resizeState.pointerId);
       this.layoutModel.setLayout(this.layoutModel.layout, true);
       this.resizeState = null;
       target.removeEventListener("pointermove", move);
@@ -402,9 +445,15 @@ function presentedFps(frames: readonly InspectorViewState["frames"][number][]): 
   let count = 0;
   for (let index = frames.length - 1; index >= 0 && elapsed < 1000; index--) {
     const sample = frames[index]?.samples["frame.rafIntervalMs"];
-    if (sample?.availability !== "available" || sample.value === null || sample.value <= 0 || sample.value > 1000) continue;
+    if (
+      sample?.availability !== "available" ||
+      sample.value === null ||
+      sample.value <= 0 ||
+      sample.value > 1000
+    )
+      continue;
     elapsed += sample.value;
     count++;
   }
-  return count >= 2 && elapsed > 0 ? count * 1000 / elapsed : null;
+  return count >= 2 && elapsed > 0 ? (count * 1000) / elapsed : null;
 }

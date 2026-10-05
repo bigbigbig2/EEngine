@@ -47,7 +47,7 @@ fn main(@builtin(position) position: vec4f) -> @location(0) vec2f {
 export function temporalEvidenceWgsl(
   reactiveIndex: number,
   disoccludedIndex: number,
-  rejectedIndex: number
+  rejectedIndex: number,
 ): string {
   return /* wgsl */ `
 struct EvidenceSettings {

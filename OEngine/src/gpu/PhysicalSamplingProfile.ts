@@ -1,5 +1,7 @@
-import { TEXTURE_BINDING_SET_MAX_RESIDENT_SETS,
-  TEXTURE_BINDING_SET_SLOT_COUNT, TEXTURE_BINDING_SET_SAMPLER_CLASS_COUNT
+import {
+  TEXTURE_BINDING_SET_MAX_RESIDENT_SETS,
+  TEXTURE_BINDING_SET_SLOT_COUNT,
+  TEXTURE_BINDING_SET_SAMPLER_CLASS_COUNT,
 } from "./TextureBindingSetPolicy.js";
 
 /** Physical resource shape only; closure family and authored material stay independent. */
@@ -13,23 +15,33 @@ export interface PhysicalSamplingSelection {
 }
 
 export function residentSamplingProfile(bindingSetId: number): PhysicalSamplingSelection {
-  if (!Number.isInteger(bindingSetId) || bindingSetId < 0 ||
-      bindingSetId >= TEXTURE_BINDING_SET_MAX_RESIDENT_SETS) {
+  if (
+    !Number.isInteger(bindingSetId) ||
+    bindingSetId < 0 ||
+    bindingSetId >= TEXTURE_BINDING_SET_MAX_RESIDENT_SETS
+  ) {
     throw new RangeError(`Resident physical sampling set ${bindingSetId} is invalid`);
   }
   return Object.freeze({
     profile: bindingSetId === 0 ? "ResidentHot" : "ResidentOther",
     bindingSetId,
     textureBankSlots: TEXTURE_BINDING_SET_SLOT_COUNT,
-    samplerClasses: TEXTURE_BINDING_SET_SAMPLER_CLASS_COUNT
+    samplerClasses: TEXTURE_BINDING_SET_SAMPLER_CLASS_COUNT,
   });
 }
 
 /** Startup preflight for the full resident Surface layout, before resource creation. */
-export function preflightResidentSurfaceLimits(limits: Pick<GPUSupportedLimits,
-  "maxSampledTexturesPerShaderStage" | "maxSamplersPerShaderStage" |
-  "maxStorageBuffersPerShaderStage" | "maxStorageTexturesPerShaderStage" |
-  "maxBindGroups" | "maxTextureDimension3D">): void {
+export function preflightResidentSurfaceLimits(
+  limits: Pick<
+    GPUSupportedLimits,
+    | "maxSampledTexturesPerShaderStage"
+    | "maxSamplersPerShaderStage"
+    | "maxStorageBuffersPerShaderStage"
+    | "maxStorageTexturesPerShaderStage"
+    | "maxBindGroups"
+    | "maxTextureDimension3D"
+  >,
+): void {
   // Nine bank views, visibility/depth, four environment inputs and the
   // r32uint frequency plan. Actual kernels may bind fewer banks.
   const required = [
@@ -38,7 +50,7 @@ export function preflightResidentSurfaceLimits(limits: Pick<GPUSupportedLimits,
     ["storage buffers", Number(limits.maxStorageBuffersPerShaderStage), 16],
     ["storage textures", Number(limits.maxStorageTexturesPerShaderStage), 2],
     ["bind groups", Number(limits.maxBindGroups), 4],
-    ["3D sky LUT dimension", Number(limits.maxTextureDimension3D), 256]
+    ["3D sky LUT dimension", Number(limits.maxTextureDimension3D), 256],
   ] as const;
   for (const [name, available, needed] of required) {
     if (!Number.isFinite(available) || available < needed) {

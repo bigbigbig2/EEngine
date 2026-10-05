@@ -1,14 +1,10 @@
-import {
-  decodeGpuShadingBinId,
-  GPU_SHADING_PROGRAM_COUNT
-} from "./GpuShadingProgramAbi.js";
+import { decodeGpuShadingBinId, GPU_SHADING_PROGRAM_COUNT } from "./GpuShadingProgramAbi.js";
 import { TEXTURE_BINDING_SET_MAX_RESIDENT_SETS } from "./TextureBindingSetPolicy.js";
 import { planBoundedGpuWorkStream } from "./BoundedGpuWorkProtocol.js";
 
 /** ADR-0013 sparse shading work ABI. This module owns every CPU/WGSL byte contract. */
 export const GPU_SHADING_BIN_ABI_VERSION = 1;
-export const GPU_SHADING_BIN_COUNT =
-  GPU_SHADING_PROGRAM_COUNT * TEXTURE_BINDING_SET_MAX_RESIDENT_SETS;
+export const GPU_SHADING_BIN_COUNT = GPU_SHADING_PROGRAM_COUNT * TEXTURE_BINDING_SET_MAX_RESIDENT_SETS;
 export const GPU_SHADING_BIN_INVALID_ID = 0xff;
 export const GPU_SHADING_BIN_INVALID_GENERATION = 0;
 export const GPU_SHADING_BIN_MACRO_WIDTH = 64;
@@ -27,8 +23,7 @@ export const GPU_SHADING_BIN_COUNTER_STRIDE = 16;
 export const GPU_SHADING_BIN_LAYOUT_STRIDE = 16;
 export const GPU_SHADING_BIN_RECORD_STRIDE = 4;
 export const GPU_SHADING_BIN_INDIRECT_STRIDE = 12;
-export const GPU_SHADING_BIN_INDIRECT_BYTES =
-  GPU_SHADING_BIN_COUNT * GPU_SHADING_BIN_INDIRECT_STRIDE;
+export const GPU_SHADING_BIN_INDIRECT_BYTES = GPU_SHADING_BIN_COUNT * GPU_SHADING_BIN_INDIRECT_STRIDE;
 export const GPU_SHADING_BIN_CONTROL_OFFSET = 0;
 export const GPU_SHADING_BIN_COUNTERS_OFFSET = GPU_SHADING_BIN_CONTROL_STRIDE;
 export const GPU_SHADING_BIN_MUTABLE_BYTES =
@@ -37,15 +32,11 @@ export const GPU_SHADING_BIN_LAYOUTS_OFFSET =
   GPU_SHADING_BIN_COUNTERS_OFFSET + GPU_SHADING_BIN_COUNT * GPU_SHADING_BIN_COUNTER_STRIDE;
 export const GPU_SHADING_BIN_RECORDS_OFFSET = alignUp(
   GPU_SHADING_BIN_LAYOUTS_OFFSET + GPU_SHADING_BIN_COUNT * GPU_SHADING_BIN_LAYOUT_STRIDE,
-  256
+  256,
 );
 export const GPU_SHADING_BIN_QUEUE_CLASS = "CorrectnessCritical" as const;
 export const GPU_SHADING_BIN_HEAP_USAGE = Object.freeze(["storage", "copy-dst"] as const);
-export const GPU_SHADING_BIN_INDIRECT_USAGE = Object.freeze([
-  "storage",
-  "indirect",
-  "copy-dst"
-] as const);
+export const GPU_SHADING_BIN_INDIRECT_USAGE = Object.freeze(["storage", "indirect", "copy-dst"] as const);
 
 export const GPU_SHADING_BIN_FRAME_FLAG = Object.freeze({
   InvalidBin: 1 << 0,
@@ -53,11 +44,11 @@ export const GPU_SHADING_BIN_FRAME_FLAG = Object.freeze({
   LayoutRevisionMismatch: 1 << 2,
   ReservationOverflow: 1 << 3,
   CounterInvariantFailure: 1 << 4,
-  IdentityMismatch: 1 << 5
+  IdentityMismatch: 1 << 5,
 } as const);
 
 export const GPU_SHADING_BIN_LAYOUT_FLAG = Object.freeze({
-  Active: 1 << 0
+  Active: 1 << 0,
 } as const);
 
 export const GPU_SHADING_BIN_SETTINGS_OFFSETS = Object.freeze({
@@ -68,7 +59,7 @@ export const GPU_SHADING_BIN_SETTINGS_OFFSETS = Object.freeze({
   allowedMaskLo: 16,
   allowedMaskHi: 20,
   maxDispatchDimension: 24,
-  layoutRevision: 28
+  layoutRevision: 28,
 } as const);
 
 export const GPU_SHADING_BIN_CONTROL_OFFSETS = Object.freeze({
@@ -79,27 +70,27 @@ export const GPU_SHADING_BIN_CONTROL_OFFSETS = Object.freeze({
   finalizedGeneration: 16,
   layoutRevision: 20,
   reserved0: 24,
-  reserved1: 28
+  reserved1: 28,
 } as const);
 
 export const GPU_SHADING_BIN_COUNTER_OFFSETS = Object.freeze({
   attemptedCount: 0,
   writtenCount: 4,
   overflowCount: 8,
-  flags: 12
+  flags: 12,
 } as const);
 
 export const GPU_SHADING_BIN_LAYOUT_OFFSETS = Object.freeze({
   recordBase: 0,
   capacity: 4,
   revision: 8,
-  flags: 12
+  flags: 12,
 } as const);
 
 export const GPU_SHADING_BIN_INDIRECT_OFFSETS = Object.freeze({
   workgroupCountX: 0,
   workgroupCountY: 4,
-  workgroupCountZ: 8
+  workgroupCountZ: 8,
 } as const);
 
 export interface GpuShadingBinSettingsCpu {
@@ -187,7 +178,10 @@ export interface GpuShadingBinReferenceResult {
   readonly indirectArgs: readonly Readonly<GpuShadingBinIndirectArgsCpu>[];
 }
 
-export function shadingBinMicrotileGrid(width: number, height: number): Readonly<{
+export function shadingBinMicrotileGrid(
+  width: number,
+  height: number,
+): Readonly<{
   microtilesX: number;
   microtilesY: number;
   microtileCount: number;
@@ -196,12 +190,7 @@ export function shadingBinMicrotileGrid(width: number, height: number): Readonly
   assertU32(height, "Shading bin height");
   const microtilesX = ceilDivide(width, GPU_SHADING_BIN_MICROTILE_WIDTH);
   const microtilesY = ceilDivide(height, GPU_SHADING_BIN_MICROTILE_HEIGHT);
-  const microtileCount = checkedMultiply(
-    microtilesX,
-    microtilesY,
-    0xffffffff,
-    "Shading bin microtile count"
-  );
+  const microtileCount = checkedMultiply(microtilesX, microtilesY, 0xffffffff, "Shading bin microtile count");
   return Object.freeze({ microtilesX, microtilesY, microtileCount });
 }
 
@@ -225,7 +214,7 @@ export function createGpuShadingBinLayouts(
   activeBinIds: readonly number[],
   revision: number,
   capacityOverrides?: Readonly<Record<number, number>>,
-  revisionOverrides?: Readonly<Record<number, number>>
+  revisionOverrides?: Readonly<Record<number, number>>,
 ): readonly Readonly<GpuShadingBinLayoutCpu>[] {
   assertNonZeroU32(revision, "Shading bin layout revision");
   const { microtileCount } = shadingBinMicrotileGrid(width, height);
@@ -242,12 +231,14 @@ export function createGpuShadingBinLayouts(
     const layoutRevision = revisionOverrides?.[binId] ?? revision;
     assertNonZeroU32(layoutRevision, `Shading bin ${binId} layout revision`);
     assertU32(recordBase, `Shading bin ${binId} record base`);
-    layouts.push(Object.freeze({
-      recordBase,
-      capacity,
-      revision: layoutRevision,
-      flags: GPU_SHADING_BIN_LAYOUT_FLAG.Active
-    }));
+    layouts.push(
+      Object.freeze({
+        recordBase,
+        capacity,
+        revision: layoutRevision,
+        flags: GPU_SHADING_BIN_LAYOUT_FLAG.Active,
+      }),
+    );
     recordBase = checkedAdd(recordBase, capacity, 0xffffffff, "Shading bin record elements");
   }
   return Object.freeze(layouts);
@@ -258,7 +249,7 @@ export function preflightGpuShadingBinSizing(
   height: number,
   activeBinIds: readonly number[],
   revision: number,
-  limits: GpuShadingBinSizingLimits
+  limits: GpuShadingBinSizingLimits,
 ): Readonly<GpuShadingBinSizing> {
   assertLimit(limits.maxTextureDimension2D, "maxTextureDimension2D");
   assertLimit(limits.maxBufferSize, "maxBufferSize");
@@ -274,7 +265,7 @@ export function preflightGpuShadingBinSizing(
     normalized.length,
     grid.microtileCount,
     0xffffffff,
-    "Shading bin heap record elements"
+    "Shading bin heap record elements",
   );
   const work = planBoundedGpuWorkStream({
     name: "ShadingBin heap",
@@ -288,13 +279,10 @@ export function preflightGpuShadingBinSizing(
     overflow: "suppress-indirect-output",
     execution: "dispatch-indirect",
     maxBufferBytes: limits.maxBufferSize,
-    maxStorageBindingBytes: limits.maxStorageBufferBindingSize
+    maxStorageBindingBytes: limits.maxStorageBufferBindingSize,
   });
   const maximumRecordsPerBin = grid.microtileCount;
-  shadingBinDispatchDimensions(
-    maximumRecordsPerBin,
-    limits.maxComputeWorkgroupsPerDimension
-  );
+  shadingBinDispatchDimensions(maximumRecordsPerBin, limits.maxComputeWorkgroupsPerDimension);
   const mask = shadingBinActiveMask(normalized);
   return Object.freeze({
     width,
@@ -307,30 +295,30 @@ export function preflightGpuShadingBinSizing(
     allowedMaskHi: mask.hi,
     layouts,
     heapBytes: work.bufferBytes,
-    indirectBytes: GPU_SHADING_BIN_INDIRECT_BYTES
+    indirectBytes: GPU_SHADING_BIN_INDIRECT_BYTES,
   });
 }
 
 export function shadingBinHeapByteLength(activeBinCount: number, microtileCount: number): number {
   assertRangeInclusive(activeBinCount, 0, GPU_SHADING_BIN_COUNT, "Active shading bin count");
   assertU32(microtileCount, "Shading bin microtile count");
-  const records = checkedMultiply(
-    activeBinCount,
-    microtileCount,
-    0xffffffff,
-    "Shading bin record elements"
-  );
+  const records = checkedMultiply(activeBinCount, microtileCount, 0xffffffff, "Shading bin record elements");
   return checkedAdd(
     GPU_SHADING_BIN_RECORDS_OFFSET,
-    checkedMultiply(records, GPU_SHADING_BIN_RECORD_STRIDE, Number.MAX_SAFE_INTEGER, "Shading bin record bytes"),
+    checkedMultiply(
+      records,
+      GPU_SHADING_BIN_RECORD_STRIDE,
+      Number.MAX_SAFE_INTEGER,
+      "Shading bin record bytes",
+    ),
     Number.MAX_SAFE_INTEGER,
-    "Shading bin heap bytes"
+    "Shading bin heap bytes",
   );
 }
 
 export function shadingBinDispatchDimensions(
   writtenCount: number,
-  maxDispatchDimension: number
+  maxDispatchDimension: number,
 ): Readonly<GpuShadingBinIndirectArgsCpu> {
   assertU32(writtenCount, "Shading bin written count");
   assertNonZeroU32(maxDispatchDimension, "Shading bin max dispatch dimension");
@@ -342,14 +330,14 @@ export function shadingBinDispatchDimensions(
   if (workgroupCountY > maxDispatchDimension) {
     throw new RangeError(
       `Shading bin dispatch ${writtenCount} exceeds maxComputeWorkgroupsPerDimension ` +
-      `${maxDispatchDimension} squared workgroups`
+        `${maxDispatchDimension} squared workgroups`,
     );
   }
   return Object.freeze({ workgroupCountX, workgroupCountY, workgroupCountZ: 1 });
 }
 
 export function classifyGpuShadingBinsReference(
-  input: GpuShadingBinReferenceInput
+  input: GpuShadingBinReferenceInput,
 ): Readonly<GpuShadingBinReferenceResult> {
   assertNonZeroU32(input.generation, "Shading bin generation");
   assertNonZeroU32(input.layoutRevision, "Shading bin layout revision");
@@ -358,7 +346,7 @@ export function classifyGpuShadingBinsReference(
     input.width,
     input.height,
     Number.MAX_SAFE_INTEGER,
-    "Shading bin source pixel count"
+    "Shading bin source pixel count",
   );
   if (input.binIds.length !== pixelCount) {
     throw new RangeError(`Shading bin source length ${input.binIds.length} does not match ${pixelCount}`);
@@ -373,18 +361,15 @@ export function classifyGpuShadingBinsReference(
     activeBinIds,
     input.layoutRevision,
     input.capacityOverrides,
-    input.layoutRevisionOverrides
+    input.layoutRevisionOverrides,
   );
   const mutableCounters = Array.from({ length: GPU_SHADING_BIN_COUNT }, () => ({
     attemptedCount: 0,
     writtenCount: 0,
     overflowCount: 0,
-    flags: 0
+    flags: 0,
   }));
-  const mutableRecords = Array.from(
-    { length: GPU_SHADING_BIN_COUNT },
-    () => [] as number[]
-  );
+  const mutableRecords = Array.from({ length: GPU_SHADING_BIN_COUNT }, () => [] as number[]);
   let frameFlags = 0;
   let errorCount = 0;
   const macroCountX = ceilDivide(input.width, GPU_SHADING_BIN_MACRO_WIDTH);
@@ -394,7 +379,7 @@ export function classifyGpuShadingBinsReference(
     for (let macroX = 0; macroX < macroCountX; macroX++) {
       const macroRecords = Array.from(
         { length: GPU_SHADING_BIN_COUNT },
-        () => undefined as Set<number> | undefined
+        () => undefined as Set<number> | undefined,
       );
       const pixelBeginX = macroX * GPU_SHADING_BIN_MACRO_WIDTH;
       const pixelBeginY = macroY * GPU_SHADING_BIN_MACRO_HEIGHT;
@@ -405,7 +390,12 @@ export function classifyGpuShadingBinsReference(
           const sourceIndex = y * input.width + x;
           const binId = input.binIds[sourceIndex];
           if (binId === GPU_SHADING_BIN_INVALID_ID) continue;
-          if (!Number.isInteger(binId) || binId === undefined || binId < 0 || binId >= GPU_SHADING_BIN_COUNT) {
+          if (
+            !Number.isInteger(binId) ||
+            binId === undefined ||
+            binId < 0 ||
+            binId >= GPU_SHADING_BIN_COUNT
+          ) {
             frameFlags |= GPU_SHADING_BIN_FRAME_FLAG.InvalidBin;
             errorCount = checkedIncrement(errorCount, "Shading bin error count");
             continue;
@@ -440,7 +430,7 @@ export function classifyGpuShadingBinsReference(
           counter.attemptedCount,
           records.length,
           0xffffffff,
-          `Shading bin ${binId} attempted count`
+          `Shading bin ${binId} attempted count`,
         );
         if (records.length <= layout.capacity - counter.writtenCount) {
           mutableRecords[binId]!.push(...records);
@@ -450,7 +440,7 @@ export function classifyGpuShadingBinsReference(
             counter.overflowCount,
             records.length,
             0xffffffff,
-            `Shading bin ${binId} overflow count`
+            `Shading bin ${binId} overflow count`,
           );
           counter.flags |= GPU_SHADING_BIN_FRAME_FLAG.ReservationOverflow;
           frameFlags |= GPU_SHADING_BIN_FRAME_FLAG.ReservationOverflow;
@@ -471,16 +461,16 @@ export function classifyGpuShadingBinsReference(
       allowedMaskLo: mask.lo,
       allowedMaskHi: mask.hi,
       maxDispatchDimension: input.maxDispatchDimension,
-      layoutRevision: input.layoutRevision
+      layoutRevision: input.layoutRevision,
     }),
     layouts,
     counters,
     frameFlags,
-    errorCount
+    errorCount,
   });
   const recordElementCount = layouts.reduce(
     (maximum, layout) => Math.max(maximum, layout.recordBase + layout.capacity),
-    0
+    0,
   );
   const records = new Uint32Array(recordElementCount);
   for (let binId = 0; binId < GPU_SHADING_BIN_COUNT; binId++) {
@@ -493,7 +483,7 @@ export function classifyGpuShadingBinsReference(
     counters: finalized.counters,
     recordsByBin,
     records,
-    indirectArgs: finalized.indirectArgs
+    indirectArgs: finalized.indirectArgs,
   });
 }
 
@@ -510,8 +500,7 @@ export function finalizeGpuShadingBinsReference(input: {
   indirectArgs: readonly Readonly<GpuShadingBinIndirectArgsCpu>[];
 }> {
   validateGpuShadingBinSettings(input.settings);
-  if (input.layouts.length !== GPU_SHADING_BIN_COUNT ||
-      input.counters.length !== GPU_SHADING_BIN_COUNT) {
+  if (input.layouts.length !== GPU_SHADING_BIN_COUNT || input.counters.length !== GPU_SHADING_BIN_COUNT) {
     throw new RangeError("Shading bin finalizer requires exactly 64 layouts and counters");
   }
   let frameFlags = input.frameFlags ?? 0;
@@ -531,8 +520,10 @@ export function finalizeGpuShadingBinsReference(input: {
       frameFlags |= GPU_SHADING_BIN_FRAME_FLAG.LayoutRevisionMismatch;
       errorCount = checkedIncrement(errorCount, "Shading bin error count");
     }
-    if (counter.attemptedCount !== counter.writtenCount + counter.overflowCount ||
-        counter.writtenCount > layout.capacity) {
+    if (
+      counter.attemptedCount !== counter.writtenCount + counter.overflowCount ||
+      counter.writtenCount > layout.capacity
+    ) {
       frameFlags |= GPU_SHADING_BIN_FRAME_FLAG.CounterInvariantFailure;
       errorCount = checkedIncrement(errorCount, "Shading bin error count");
     }
@@ -545,10 +536,9 @@ export function finalizeGpuShadingBinsReference(input: {
       else generatedMaskHi = (generatedMaskHi | (1 << (binId - 32))) >>> 0;
     }
     try {
-      indirectArgs.push(shadingBinDispatchDimensions(
-        counter.writtenCount,
-        input.settings.maxDispatchDimension
-      ));
+      indirectArgs.push(
+        shadingBinDispatchDimensions(counter.writtenCount, input.settings.maxDispatchDimension),
+      );
     } catch (error) {
       if (!(error instanceof RangeError)) throw error;
       frameFlags |= GPU_SHADING_BIN_FRAME_FLAG.CounterInvariantFailure;
@@ -564,13 +554,14 @@ export function finalizeGpuShadingBinsReference(input: {
     frameFlags |= GPU_SHADING_BIN_FRAME_FLAG.InactiveBin;
     errorCount = checkedIncrement(errorCount, "Shading bin error count");
   }
-  const finalArgs = frameFlags === 0
-    ? indirectArgs
-    : Array.from({ length: GPU_SHADING_BIN_COUNT }, () => ({
-        workgroupCountX: 0,
-        workgroupCountY: 1,
-        workgroupCountZ: 1
-      }));
+  const finalArgs =
+    frameFlags === 0
+      ? indirectArgs
+      : Array.from({ length: GPU_SHADING_BIN_COUNT }, () => ({
+          workgroupCountX: 0,
+          workgroupCountY: 1,
+          workgroupCountZ: 1,
+        }));
   return Object.freeze({
     settings: input.settings,
     control: Object.freeze({
@@ -579,16 +570,14 @@ export function finalizeGpuShadingBinsReference(input: {
       generatedMaskLo,
       generatedMaskHi,
       finalizedGeneration: input.settings.generation,
-      layoutRevision: input.settings.layoutRevision
+      layoutRevision: input.settings.layoutRevision,
     }),
     counters: input.counters,
-    indirectArgs: Object.freeze(finalArgs.map((args) => Object.freeze(args)))
+    indirectArgs: Object.freeze(finalArgs.map((args) => Object.freeze(args))),
   });
 }
 
-export function packGpuShadingBinSettings(
-  settings: GpuShadingBinSettingsCpu
-): Uint8Array<ArrayBuffer> {
+export function packGpuShadingBinSettings(settings: GpuShadingBinSettingsCpu): Uint8Array<ArrayBuffer> {
   validateGpuShadingBinSettings(settings);
   return packU32([
     settings.width,
@@ -598,78 +587,88 @@ export function packGpuShadingBinSettings(
     settings.allowedMaskLo,
     settings.allowedMaskHi,
     settings.maxDispatchDimension,
-    settings.layoutRevision
+    settings.layoutRevision,
   ]);
 }
 
 export function unpackGpuShadingBinSettings(
   bytes: Uint8Array,
-  byteOffset = 0
+  byteOffset = 0,
 ): Readonly<GpuShadingBinSettingsCpu> {
   const values = unpackU32(bytes, byteOffset, GPU_SHADING_BIN_SETTINGS_STRIDE, 8, "ShadingBinSettings");
   const settings = {
-    width: values[0]!, height: values[1]!, microtilesX: values[2]!, generation: values[3]!,
-    allowedMaskLo: values[4]!, allowedMaskHi: values[5]!, maxDispatchDimension: values[6]!,
-    layoutRevision: values[7]!
+    width: values[0]!,
+    height: values[1]!,
+    microtilesX: values[2]!,
+    generation: values[3]!,
+    allowedMaskLo: values[4]!,
+    allowedMaskHi: values[5]!,
+    maxDispatchDimension: values[6]!,
+    layoutRevision: values[7]!,
   };
   validateGpuShadingBinSettings(settings);
   return Object.freeze(settings);
 }
 
-export function packGpuShadingBinControl(
-  control: GpuShadingBinControlCpu
-): Uint8Array<ArrayBuffer> {
+export function packGpuShadingBinControl(control: GpuShadingBinControlCpu): Uint8Array<ArrayBuffer> {
   validateGpuShadingBinControl(control);
   return packU32([
-    control.frameFlags, control.errorCount, control.generatedMaskLo,
-    control.generatedMaskHi, control.finalizedGeneration, control.layoutRevision, 0, 0
+    control.frameFlags,
+    control.errorCount,
+    control.generatedMaskLo,
+    control.generatedMaskHi,
+    control.finalizedGeneration,
+    control.layoutRevision,
+    0,
+    0,
   ]);
 }
 
 export function unpackGpuShadingBinControl(
   bytes: Uint8Array,
-  byteOffset = 0
+  byteOffset = 0,
 ): Readonly<GpuShadingBinControlCpu> {
   const values = unpackU32(bytes, byteOffset, GPU_SHADING_BIN_CONTROL_STRIDE, 8, "ShadingBinControl");
   const control = {
-    frameFlags: values[0]!, errorCount: values[1]!, generatedMaskLo: values[2]!,
-    generatedMaskHi: values[3]!, finalizedGeneration: values[4]!, layoutRevision: values[5]!
+    frameFlags: values[0]!,
+    errorCount: values[1]!,
+    generatedMaskLo: values[2]!,
+    generatedMaskHi: values[3]!,
+    finalizedGeneration: values[4]!,
+    layoutRevision: values[5]!,
   };
   validateGpuShadingBinControl(control);
   return Object.freeze(control);
 }
 
-export function packGpuShadingBinCounter(
-  counter: GpuShadingBinCounterCpu
-): Uint8Array<ArrayBuffer> {
+export function packGpuShadingBinCounter(counter: GpuShadingBinCounterCpu): Uint8Array<ArrayBuffer> {
   validateGpuShadingBinCounter(counter, true);
-  return packU32([
-    counter.attemptedCount, counter.writtenCount, counter.overflowCount, counter.flags
-  ]);
+  return packU32([counter.attemptedCount, counter.writtenCount, counter.overflowCount, counter.flags]);
 }
 
 export function unpackGpuShadingBinCounter(
   bytes: Uint8Array,
-  byteOffset = 0
+  byteOffset = 0,
 ): Readonly<GpuShadingBinCounterCpu> {
   const values = unpackU32(bytes, byteOffset, GPU_SHADING_BIN_COUNTER_STRIDE, 4, "ShadingBinCounter");
   const counter = {
-    attemptedCount: values[0]!, writtenCount: values[1]!, overflowCount: values[2]!, flags: values[3]!
+    attemptedCount: values[0]!,
+    writtenCount: values[1]!,
+    overflowCount: values[2]!,
+    flags: values[3]!,
   };
   validateGpuShadingBinCounter(counter, true);
   return Object.freeze(counter);
 }
 
-export function packGpuShadingBinLayout(
-  layout: GpuShadingBinLayoutCpu
-): Uint8Array<ArrayBuffer> {
+export function packGpuShadingBinLayout(layout: GpuShadingBinLayoutCpu): Uint8Array<ArrayBuffer> {
   validateGpuShadingBinLayout(layout);
   return packU32([layout.recordBase, layout.capacity, layout.revision, layout.flags]);
 }
 
 export function unpackGpuShadingBinLayout(
   bytes: Uint8Array,
-  byteOffset = 0
+  byteOffset = 0,
 ): Readonly<GpuShadingBinLayoutCpu> {
   const values = unpackU32(bytes, byteOffset, GPU_SHADING_BIN_LAYOUT_STRIDE, 4, "ShadingBinLayout");
   const layout = { recordBase: values[0]!, capacity: values[1]!, revision: values[2]!, flags: values[3]! };
@@ -677,16 +676,14 @@ export function unpackGpuShadingBinLayout(
   return Object.freeze(layout);
 }
 
-export function packGpuShadingBinIndirectArgs(
-  args: GpuShadingBinIndirectArgsCpu
-): Uint8Array<ArrayBuffer> {
+export function packGpuShadingBinIndirectArgs(args: GpuShadingBinIndirectArgsCpu): Uint8Array<ArrayBuffer> {
   validateGpuShadingBinIndirectArgs(args);
   return packU32([args.workgroupCountX, args.workgroupCountY, args.workgroupCountZ]);
 }
 
 export function unpackGpuShadingBinIndirectArgs(
   bytes: Uint8Array,
-  byteOffset = 0
+  byteOffset = 0,
 ): Readonly<GpuShadingBinIndirectArgsCpu> {
   const values = unpackU32(bytes, byteOffset, GPU_SHADING_BIN_INDIRECT_STRIDE, 3, "ShadingBinIndirectArgs");
   const args = { workgroupCountX: values[0]!, workgroupCountY: values[1]!, workgroupCountZ: values[2]! };
@@ -713,9 +710,11 @@ export function shadingBinRecordByteOffset(layout: GpuShadingBinLayoutCpu, index
   validateGpuShadingBinLayout(layout);
   assertU32(index, "Shading bin record index");
   if (index >= layout.capacity) throw new RangeError("Shading bin record index exceeds capacity");
-  return GPU_SHADING_BIN_RECORDS_OFFSET +
+  return (
+    GPU_SHADING_BIN_RECORDS_OFFSET +
     checkedAdd(layout.recordBase, index, 0xffffffff, "Shading bin record element") *
-      GPU_SHADING_BIN_RECORD_STRIDE;
+      GPU_SHADING_BIN_RECORD_STRIDE
+  );
 }
 
 export const GPU_SHADING_BIN_WGSL = /* wgsl */ `
@@ -780,8 +779,11 @@ struct OEngineShadingBinHeap {
   control: OEngineShadingBinControl,
   counters: array<OEngineShadingBinCounter, ${GPU_SHADING_BIN_COUNT}>,
   layouts: array<OEngineShadingBinLayout, ${GPU_SHADING_BIN_COUNT}>,
-  records_alignment_padding: array<u32, ${(GPU_SHADING_BIN_RECORDS_OFFSET -
-    (GPU_SHADING_BIN_LAYOUTS_OFFSET + GPU_SHADING_BIN_COUNT * GPU_SHADING_BIN_LAYOUT_STRIDE)) / 4}>,
+  records_alignment_padding: array<u32, ${
+    (GPU_SHADING_BIN_RECORDS_OFFSET -
+      (GPU_SHADING_BIN_LAYOUTS_OFFSET + GPU_SHADING_BIN_COUNT * GPU_SHADING_BIN_LAYOUT_STRIDE)) /
+    4
+  }>,
   records: array<u32>,
 };
 `;
@@ -810,10 +812,7 @@ function validateGpuShadingBinControl(control: GpuShadingBinControlCpu): void {
   assertU32(control.layoutRevision, "Shading bin control layout revision");
 }
 
-function validateGpuShadingBinCounter(
-  counter: GpuShadingBinCounterCpu,
-  requireClosure: boolean
-): void {
+function validateGpuShadingBinCounter(counter: GpuShadingBinCounterCpu, requireClosure: boolean): void {
   assertU32(counter.attemptedCount, "Shading bin attempted count");
   assertU32(counter.writtenCount, "Shading bin written count");
   assertU32(counter.overflowCount, "Shading bin overflow count");
@@ -867,7 +866,7 @@ function unpackU32(
   byteOffset: number,
   byteLength: number,
   fieldCount: number,
-  label: string
+  label: string,
 ): number[] {
   assertByteRange(bytes, byteOffset, byteLength, label);
   const view = new DataView(bytes.buffer, bytes.byteOffset + byteOffset, byteLength);
@@ -875,8 +874,7 @@ function unpackU32(
 }
 
 function assertByteRange(bytes: Uint8Array, byteOffset: number, byteLength: number, label: string): void {
-  if (!Number.isSafeInteger(byteOffset) || byteOffset < 0 ||
-      byteOffset + byteLength > bytes.byteLength) {
+  if (!Number.isSafeInteger(byteOffset) || byteOffset < 0 || byteOffset + byteLength > bytes.byteLength) {
     throw new RangeError(`${label} byte range is invalid`);
   }
 }

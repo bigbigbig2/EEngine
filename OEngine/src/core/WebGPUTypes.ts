@@ -97,10 +97,7 @@ export class PrimitiveType extends WebGPUType {
   override equals(e: unknown): boolean {
     return (
       this === e ||
-      (e instanceof PrimitiveType &&
-        this.tag === e.tag &&
-        this.#W === e.size &&
-        this.#Z === e.align)
+      (e instanceof PrimitiveType && this.tag === e.tag && this.#W === e.size && this.#Z === e.align)
     );
   }
 }
@@ -221,7 +218,7 @@ export const PRIMITIVE_BY_TAG: Record<string, PrimitiveType> = {
   mat4x3h: WGSL_mat4x3h,
   mat2x4h: WGSL_mat2x4h,
   mat3x4h: WGSL_mat3x4h,
-  mat4x4h: WGSL_mat4x4h
+  mat4x4h: WGSL_mat4x4h,
 };
 
 export class CodeChunk {
@@ -383,12 +380,7 @@ export class ArrayType extends WebGPUType {
   }
 
   override equals(e: unknown): boolean {
-    return (
-      this === e ||
-      (e instanceof ArrayType &&
-        this.type!.equals(e.type) &&
-        this.count === e.count)
-    );
+    return this === e || (e instanceof ArrayType && this.type!.equals(e.type) && this.count === e.count);
   }
 
   override hash(): number {
@@ -412,35 +404,25 @@ export class ArrayType extends WebGPUType {
 
   override get declaration_chunk(): CodeChunk {
     if (this.#ae === undefined) {
-      this.#ae = this.type!.requires_declaration
-        ? this.type!.declaration_chunk
-        : CodeChunk.empty;
+      this.#ae = this.type!.requires_declaration ? this.type!.declaration_chunk : CodeChunk.empty;
     }
     return this.#ae;
   }
 
   override get wgsl_ref(): string {
     const e = this.type!;
-    return this.runtime_sized
-      ? `array< ${e.wgsl_ref} >`
-      : `array< ${e.wgsl_ref}, ${this.count} >`;
+    return this.runtime_sized ? `array< ${e.wgsl_ref} >` : `array< ${e.wgsl_ref}, ${this.count} >`;
   }
 
   override get wgsl_declaration(): string {
     const e = this.type!.wgsl_ref;
-    return this.runtime_sized
-      ? `array< ${e} >`
-      : `array< ${e}, ${this.count} >`;
+    return this.runtime_sized ? `array< ${e} >` : `array< ${e}, ${this.count} >`;
   }
 
   static f32: ArrayType = Object.freeze(ArrayType.from(WGSL_f32)) as ArrayType;
   static u32: ArrayType = Object.freeze(ArrayType.from(WGSL_u32)) as ArrayType;
-  static vec4u: ArrayType = Object.freeze(
-    ArrayType.from(WGSL_vec4u)
-  ) as ArrayType;
-  static vec4f: ArrayType = Object.freeze(
-    ArrayType.from(WGSL_vec4f)
-  ) as ArrayType;
+  static vec4u: ArrayType = Object.freeze(ArrayType.from(WGSL_vec4u)) as ArrayType;
+  static vec4f: ArrayType = Object.freeze(ArrayType.from(WGSL_vec4f)) as ArrayType;
 }
 
 (ArrayType.prototype as { isArray?: boolean }).isArray = true;

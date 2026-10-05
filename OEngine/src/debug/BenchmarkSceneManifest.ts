@@ -26,10 +26,7 @@ export interface BenchmarkSceneManifest {
   schemaVersion: number;
   id: "A" | "B" | "C";
   name: string;
-  baselineRole: Extract<
-    BenchmarkBaselineRole,
-    "minimum-a" | "minimum-b" | "engine-generality-c"
-  >;
+  baselineRole: Extract<BenchmarkBaselineRole, "minimum-a" | "minimum-b" | "engine-generality-c">;
   rendererPath: "oengine-unified";
   reference: {
     implementation: string;
@@ -67,17 +64,13 @@ export interface BenchmarkSceneManifest {
 }
 
 /** Validates the frozen, repository-owned A/B/C input contract. */
-export function validateBenchmarkSceneManifest(
-  input: unknown
-): BenchmarkSceneManifest {
+export function validateBenchmarkSceneManifest(input: unknown): BenchmarkSceneManifest {
   if (input === null || typeof input !== "object" || Array.isArray(input)) {
     throw new TypeError("benchmark scene manifest must be an object");
   }
   const value = input as Partial<BenchmarkSceneManifest>;
   if (value.schemaVersion !== BENCHMARK_SCENE_MANIFEST_SCHEMA_VERSION) {
-    throw new RangeError(
-      `unsupported benchmark scene manifest schema ${String(value.schemaVersion)}`
-    );
+    throw new RangeError(`unsupported benchmark scene manifest schema ${String(value.schemaVersion)}`);
   }
   if (value.id !== "A" && value.id !== "B" && value.id !== "C") {
     throw new RangeError("benchmark scene manifest id must be A, B or C");
@@ -86,12 +79,10 @@ export function validateBenchmarkSceneManifest(
   const expectedRole = {
     A: "minimum-a",
     B: "minimum-b",
-    C: "engine-generality-c"
+    C: "engine-generality-c",
   } as const;
   if (value.baselineRole !== expectedRole[value.id]) {
-    throw new RangeError(
-      `baselineRole for ${value.id} must be ${expectedRole[value.id]}`
-    );
+    throw new RangeError(`baselineRole for ${value.id} must be ${expectedRole[value.id]}`);
   }
   if (value.rendererPath !== "oengine-unified") {
     throw new RangeError("rendererPath must be oengine-unified");
@@ -110,10 +101,7 @@ export function validateBenchmarkSceneManifest(
   assertNonNegativeInteger(value.run.warmupFrames, "run.warmupFrames");
   assertPositiveInteger(value.run.sampleFrames, "run.sampleFrames");
   assertPositiveInteger(value.run.gpuSampleInterval, "run.gpuSampleInterval");
-  assertPositiveInteger(
-    value.run.gpuCounterSampleInterval,
-    "run.gpuCounterSampleInterval"
-  );
+  assertPositiveInteger(value.run.gpuCounterSampleInterval, "run.gpuCounterSampleInterval");
   assertPositiveInteger(value.run.readbackRingSlots, "run.readbackRingSlots");
   if (value.run.readbackRingSlots < 3) {
     throw new RangeError("run.readbackRingSlots must be at least 3");
@@ -173,16 +161,14 @@ export function validateBenchmarkSceneManifest(
 }
 
 /** Maps a frozen scene manifest into Result Schema v3's case identity. */
-export function createBenchmarkCaseManifest(
-  manifest: BenchmarkSceneManifest
-): BenchmarkCaseManifest {
+export function createBenchmarkCaseManifest(manifest: BenchmarkSceneManifest): BenchmarkCaseManifest {
   validateBenchmarkSceneManifest(manifest);
   return {
     id: manifest.id,
     name: manifest.name,
     sceneAssetHashes: manifest.assets.map((asset) => `sha256:${asset.sha256}`),
     seed: manifest.seed,
-    cameraPathHash: `sha256:${manifest.camera.sha256}`
+    cameraPathHash: `sha256:${manifest.camera.sha256}`,
   };
 }
 

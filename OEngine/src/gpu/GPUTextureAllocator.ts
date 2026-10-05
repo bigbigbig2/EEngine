@@ -33,7 +33,7 @@ export class GPUTextureAllocator {
 
   constructor(
     private readonly device: GPUDevice,
-    private readonly resourceAccounting?: ResourceAccounting
+    private readonly resourceAccounting?: ResourceAccounting,
   ) {}
 
   get(descriptor: GPUTexturePoolDescriptor): GPUTextureContext {
@@ -51,21 +51,21 @@ export class GPUTextureAllocator {
       }
     }
     if (!context) {
-      context = new GPUTextureContext(this.device, {
-        size: [
-          normalized.width,
-          normalized.height,
-          normalized.depthOrArrayLayers
-        ],
-        dimension: normalized.dimension,
-        format: normalized.format,
-        usage: normalized.usage,
-        mipLevelCount: normalized.mipLevelCount
-      }, {
-        accounting: this.resourceAccounting,
-        category: "transient",
-        owner: "GPUTextureAllocator"
-      });
+      context = new GPUTextureContext(
+        this.device,
+        {
+          size: [normalized.width, normalized.height, normalized.depthOrArrayLayers],
+          dimension: normalized.dimension,
+          format: normalized.format,
+          usage: normalized.usage,
+          mipLevelCount: normalized.mipLevelCount,
+        },
+        {
+          accounting: this.resourceAccounting,
+          category: "transient",
+          owner: "GPUTextureAllocator",
+        },
+      );
     }
     this.lastUse.set(context, now());
     return context;
@@ -80,7 +80,7 @@ export class GPUTextureAllocator {
       this.pending.add(context);
       void reuseAfter.then(
         () => this.finishPendingRelease(context),
-        () => this.finishPendingRelease(context)
+        () => this.finishPendingRelease(context),
       );
       return;
     }
@@ -116,10 +116,7 @@ export class GPUTextureAllocator {
   }
 
   evidence(): GPUTextureAllocatorEvidence {
-    const cachedBytes = this.texture_cache.reduce(
-      (sum, texture) => sum + texture.gpu_memory_usage,
-      0
-    );
+    const cachedBytes = this.texture_cache.reduce((sum, texture) => sum + texture.gpu_memory_usage, 0);
     let pendingBytes = 0;
     for (const texture of this.pending) {
       pendingBytes += texture.gpu_memory_usage;
@@ -129,7 +126,7 @@ export class GPUTextureAllocator {
       pendingBytes,
       cachedBytes,
       pendingCount: this.pending.size,
-      cachedCount: this.texture_cache.length
+      cachedCount: this.texture_cache.length,
     });
   }
 
@@ -169,8 +166,7 @@ export class GPUTextureAllocator {
     const indices = Array.from({ length: count }, (_, index) => index);
     indices.sort(
       (a, b) =>
-        (this.lastUse.get(this.texture_cache[a]!) ?? 0) -
-        (this.lastUse.get(this.texture_cache[b]!) ?? 0)
+        (this.lastUse.get(this.texture_cache[a]!) ?? 0) - (this.lastUse.get(this.texture_cache[b]!) ?? 0),
     );
     const remove = indices.slice(0, count - 512).sort((a, b) => b - a);
     for (const index of remove) this.destroyAt(index);
@@ -198,9 +194,7 @@ export class GPUTextureAllocator {
   }
 }
 
-function normalizeDescriptor(
-  descriptor: GPUTexturePoolDescriptor
-): Required<GPUTexturePoolDescriptor> {
+function normalizeDescriptor(descriptor: GPUTexturePoolDescriptor): Required<GPUTexturePoolDescriptor> {
   return {
     width: Math.max(1, descriptor.width | 0),
     height: Math.max(1, descriptor.height | 0),
@@ -208,13 +202,11 @@ function normalizeDescriptor(
     dimension: descriptor.dimension ?? "2d",
     format: descriptor.format,
     usage: descriptor.usage,
-    mipLevelCount: Math.max(1, descriptor.mipLevelCount ?? 1)
+    mipLevelCount: Math.max(1, descriptor.mipLevelCount ?? 1),
   };
 }
 
-function descriptorFromContext(
-  context: GPUTextureContext
-): Required<GPUTexturePoolDescriptor> {
+function descriptorFromContext(context: GPUTextureContext): Required<GPUTexturePoolDescriptor> {
   const [width, height, depthOrArrayLayers] = context.size;
   return {
     width,
@@ -223,20 +215,17 @@ function descriptorFromContext(
     dimension: context.descriptor.dimension ?? "2d",
     format: context.descriptor.format,
     usage: context.descriptor.usage,
-    mipLevelCount: context.descriptor.mipLevelCount ?? 1
+    mipLevelCount: context.descriptor.mipLevelCount ?? 1,
   };
 }
 
-function compareTexture(
-  request: GPUTexturePoolDescriptor,
-  context: GPUTextureContext
-): number {
+function compareTexture(request: GPUTexturePoolDescriptor, context: GPUTextureContext): number {
   return compareDescriptors(normalizeDescriptor(request), descriptorFromContext(context));
 }
 
 function compareDescriptors(
   a: Required<GPUTexturePoolDescriptor>,
-  b: Required<GPUTexturePoolDescriptor>
+  b: Required<GPUTexturePoolDescriptor>,
 ): number {
   let result = a.dimension.localeCompare(b.dimension);
   if (result !== 0) return result;

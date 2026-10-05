@@ -3,11 +3,12 @@
  * position/normal/tangent aliases share payload, while their semantic bits stay
  * independent in the header. Only the Geometry owner writes either segment. */
 export const SURFACE_GEOMETRY_INPUT_COUNT = 14;
-export const SURFACE_GEOMETRY_PHYSICAL_INPUTS = Object.freeze([0,1,2,3,4,5,6,7,8,6,4,5,9,10]);
+export const SURFACE_GEOMETRY_PHYSICAL_INPUTS = Object.freeze([0, 1, 2, 3, 4, 5, 6, 7, 8, 6, 4, 5, 9, 10]);
 export const SURFACE_GEOMETRY_RECORD_VECTORS = 8;
 export const SURFACE_GEOMETRY_RECORD_HOT_BYTES = 128;
 export const SURFACE_GEOMETRY_RECORD_COLD_MAX_BYTES = 11 * 3 * 16;
-export const SURFACE_GEOMETRY_RECORD_BYTES = SURFACE_GEOMETRY_RECORD_HOT_BYTES + SURFACE_GEOMETRY_RECORD_COLD_MAX_BYTES;
+export const SURFACE_GEOMETRY_RECORD_BYTES =
+  SURFACE_GEOMETRY_RECORD_HOT_BYTES + SURFACE_GEOMETRY_RECORD_COLD_MAX_BYTES;
 /** Lighting consumes only the hot record. Cold bits 1..14 are exclusively the
  * actual missing Appearance closures, with no duplicated neighbor payload. */
 export const SURFACE_GEOMETRY_HOT_DEMAND_BIT = 1 << 15;
@@ -22,7 +23,7 @@ struct SurfaceGeometryRecord {
   metrics: vec4f,
   cold: vec4u,
 }
-const SURFACE_GEOMETRY_PHYSICAL: array<u32,14> = array<u32,14>(${SURFACE_GEOMETRY_PHYSICAL_INPUTS.map(value=>`${value}u`).join(",")});
+const SURFACE_GEOMETRY_PHYSICAL: array<u32,14> = array<u32,14>(${SURFACE_GEOMETRY_PHYSICAL_INPUTS.map((value) => `${value}u`).join(",")});
 `;
 
 export function surfaceGeometryReadWgsl(buffer: string): string {

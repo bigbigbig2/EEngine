@@ -2,9 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { PhysicalEnvironmentState } from "../../.test-dist/render/environment/PhysicalEnvironmentState.js";
 
-const snapshot = Object.freeze({ worldToUnit: 0.001, lutGeneration: 4,
-  sunDirectionWorld: [0, 1, 0], sunIrradiance: [1.474, 1.8504, 1.91198],
-  skyLuminanceScale: 1, shadowLength: [0, 0] });
+const snapshot = Object.freeze({
+  worldToUnit: 0.001,
+  lutGeneration: 4,
+  sunDirectionWorld: [0, 1, 0],
+  sunIrradiance: [1.474, 1.8504, 1.91198],
+  skyLuminanceScale: 1,
+  shadowLength: [0, 0],
+});
 
 test("environment publication is atomic across Sun, Sky and aerial consumers", () => {
   const state = new PhysicalEnvironmentState();

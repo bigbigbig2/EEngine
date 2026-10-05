@@ -143,27 +143,49 @@ export interface AppearanceFieldBoundProgram {
 /** Generated function signature: ab_field_N(field:u32,context:vec4u)->AppearanceBound4.
  * context belongs to the Geometry/Appearance integration (setup + rectangle),
  * never a CPU-selected per-frame task. Integration callbacks are mandatory. */
-export function lowerAppearanceFieldBounds(program: CompiledAppearanceGraph, lowered: AppearanceWgslProgram,
-  functionName = "ab_field"): AppearanceFieldBoundProgram {
+export function lowerAppearanceFieldBounds(
+  program: CompiledAppearanceGraph,
+  lowered: AppearanceWgslProgram,
+  functionName = "ab_field",
+): AppearanceFieldBoundProgram {
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(functionName)) throw new RangeError("Invalid bound function name");
   const inputs = new Map(program.inputs.map((input, index) => [input.name, index]));
-  const coordinateAncestors = new Set<number>(), coordinatePending = [
-    ...program.samples.flatMap(sample => sample.uv),
-    ...(program.productReads ?? []).flatMap(read => read.uv ?? [])
-  ];
-  while (coordinatePending.length) { const ref=coordinatePending.pop()!;if(coordinateAncestors.has(ref))continue;
-    coordinateAncestors.add(ref);coordinatePending.push(...program.instructions[ref]!.args); }
-  const kinds: Record<string, readonly string[]> = Object.create(null), supported: Record<string, boolean> = Object.create(null);
+  const coordinateAncestors = new Set<number>(),
+    coordinatePending = [
+      ...program.samples.flatMap((sample) => sample.uv),
+      ...(program.productReads ?? []).flatMap((read) => read.uv ?? []),
+    ];
+  while (coordinatePending.length) {
+    const ref = coordinatePending.pop()!;
+    if (coordinateAncestors.has(ref)) continue;
+    coordinateAncestors.add(ref);
+    coordinatePending.push(...program.instructions[ref]!.args);
+  }
+  const kinds: Record<string, readonly string[]> = Object.create(null),
+    supported: Record<string, boolean> = Object.create(null);
   const dependencyProfiles: Record<string, AppearanceFieldDependencyProfile> = Object.create(null);
   const blocks: string[] = [];
   for (const [field, roots] of Object.entries(program.outputs)) {
-    const live = new Set<number>(), pending = [...roots];
-    while (pending.length) { const id = pending.pop()!; if (live.has(id)) continue; live.add(id); pending.push(...program.instructions[id]!.args); }
-    kinds[field] = Object.freeze([...new Set([...live].flatMap(id => {
-      const instruction = program.instructions[id]!; return instruction.kind === "input" ? [instruction.input!] : [];
-    }))]);
+    const live = new Set<number>(),
+      pending = [...roots];
+    while (pending.length) {
+      const id = pending.pop()!;
+      if (live.has(id)) continue;
+      live.add(id);
+      pending.push(...program.instructions[id]!.args);
+    }
+    kinds[field] = Object.freeze([
+      ...new Set(
+        [...live].flatMap((id) => {
+          const instruction = program.instructions[id]!;
+          return instruction.kind === "input" ? [instruction.input!] : [];
+        }),
+      ),
+    ]);
     supported[field] = true;
-    const declarations: string[] = [], textures = new Set<number>(), products = new Set<number>();
+    const declarations: string[] = [],
+      textures = new Set<number>(),
+      products = new Set<number>();
     for (let id = 0; id < program.instructions.length; id++) {
       if (!live.has(id)) continue;
       const instruction = program.instructions[id]!;
@@ -177,46 +199,74 @@ export function lowerAppearanceFieldBounds(program: CompiledAppearanceGraph, low
         const input = program.inputs[inputs.get(instruction.input!)!]!;
         // Nonlocal/dynamic inputs do not have a spatial envelope. Their output
         // alone is unknown; an unrelated stable field still gets a coarse plan.
-        if (input.domain === "dynamic" || input.domain === "nonlocal") { value = "ab_unknown()"; supported[field] = false; }
-        else value = `ab_input(context,${inputs.get(instruction.input!)}u,${instruction.channel}u)`;
+        if (input.domain === "dynamic" || input.domain === "nonlocal") {
+          value = "ab_unknown()";
+          supported[field] = false;
+        } else value = `ab_input(context,${inputs.get(instruction.input!)}u,${instruction.channel}u)`;
       } else if (instruction.kind === "texture") {
-        const sample = instruction.sample!, uv = program.samples[sample]!.uv;
-        if (!textures.has(sample)) { declarations.push(`let t${sample}=ab_texture(context,${sample}u,${expr(uv[0])},${expr(uv[1])},d${uv[0]}x,d${uv[0]}y,d${uv[1]}x,d${uv[1]}y);`); textures.add(sample); }
+        const sample = instruction.sample!,
+          uv = program.samples[sample]!.uv;
+        if (!textures.has(sample)) {
+          declarations.push(
+            `let t${sample}=ab_texture(context,${sample}u,${expr(uv[0])},${expr(uv[1])},d${uv[0]}x,d${uv[0]}y,d${uv[1]}x,d${uv[1]}y);`,
+          );
+          textures.add(sample);
+        }
         value = `ab_channel(t${sample},${instruction.channel}u)`;
       } else if (instruction.kind === "product" || instruction.kind === "normal-product") {
-        const product = instruction.product!, read = program.productReads![product]!;
+        const product = instruction.product!,
+          read = program.productReads![product]!;
         if (!products.has(product)) {
           if (read.field.constant !== undefined) {
             const slots = lowered.productConstantSlots[product];
             if (!slots) throw new Error("Appearance product bound/evaluation constant layout mismatch");
-            const values = Array.from({ length: 4 }, (_, c) => c < slots.length ? `ab_constant(context,${slots[c]}u)` : "0.0").join(",");
-            declarations.push(`let p${product}=AppearanceBound4(vec4f(${values}),vec4f(${values}),vec4u(1u));`);
-          } else declarations.push(`let p${product}=ab_product(context,${product}u,${expr(read.uv![0])},${expr(read.uv![1])},d${read.uv![0]}x,d${read.uv![0]}y,d${read.uv![1]}x,d${read.uv![1]}y);`);
+            const values = Array.from({ length: 4 }, (_, c) =>
+              c < slots.length ? `ab_constant(context,${slots[c]}u)` : "0.0",
+            ).join(",");
+            declarations.push(
+              `let p${product}=AppearanceBound4(vec4f(${values}),vec4f(${values}),vec4u(1u));`,
+            );
+          } else
+            declarations.push(
+              `let p${product}=ab_product(context,${product}u,${expr(read.uv![0])},${expr(read.uv![1])},d${read.uv![0]}x,d${read.uv![0]}y,d${read.uv![1]}x,d${read.uv![1]}y);`,
+            );
           products.add(product);
         }
-        value = instruction.kind === "normal-product" ? `ab_normal_product(p${product},${instruction.channel}u)` : `ab_channel(p${product},${instruction.channel}u)`;
+        value =
+          instruction.kind === "normal-product"
+            ? `ab_normal_product(p${product},${instruction.channel}u)`
+            : `ab_channel(p${product},${instruction.channel}u)`;
       } else value = `ab_${instruction.op}(${instruction.args.map(expr).join(",")})`;
       declarations.push(`let b${id}=${value};`);
-      if (coordinateAncestors.has(id)) for (const axis of ["x","y"] as const) {
-        let derivative="ab_unknown()";
-        if (instruction.kind === "constant" || instruction.kind === "parameter") derivative="ab_exact(0.0)";
-        else if(instruction.kind === "input") {
-          const domain=program.inputs[inputs.get(instruction.input!)!]!.domain;
-          if(domain!=="dynamic"&&domain!=="nonlocal")derivative=`ab_input_gradient(context,${inputs.get(instruction.input!)}u,${instruction.channel}u,${axis==="x"?0:1}u)`;
-        } else if(instruction.kind === "operation") {
-          const [a,b]=instruction.args;
-          if(instruction.op==="add"||instruction.op==="subtract")derivative=`ab_${instruction.op}(d${a}${axis},d${b}${axis})`;
-          else if(instruction.op==="multiply"||instruction.op==="divide")derivative=`ab_gradient_${instruction.op}(b${a},d${a}${axis},b${b},d${b}${axis})`;
+      if (coordinateAncestors.has(id))
+        for (const axis of ["x", "y"] as const) {
+          let derivative = "ab_unknown()";
+          if (instruction.kind === "constant" || instruction.kind === "parameter")
+            derivative = "ab_exact(0.0)";
+          else if (instruction.kind === "input") {
+            const domain = program.inputs[inputs.get(instruction.input!)!]!.domain;
+            if (domain !== "dynamic" && domain !== "nonlocal")
+              derivative = `ab_input_gradient(context,${inputs.get(instruction.input!)}u,${instruction.channel}u,${axis === "x" ? 0 : 1}u)`;
+          } else if (instruction.kind === "operation") {
+            const [a, b] = instruction.args;
+            if (instruction.op === "add" || instruction.op === "subtract")
+              derivative = `ab_${instruction.op}(d${a}${axis},d${b}${axis})`;
+            else if (instruction.op === "multiply" || instruction.op === "divide")
+              derivative = `ab_gradient_${instruction.op}(b${a},d${a}${axis},b${b},d${b}${axis})`;
+          }
+          // Texture-driven/discrete nonlinear coordinates have no certified
+          // derivative in this profile; only their dependent sampled output fails.
+          declarations.push(`let d${id}${axis}=${derivative};`);
         }
-        // Texture-driven/discrete nonlinear coordinates have no certified
-        // derivative in this profile; only their dependent sampled output fails.
-        declarations.push(`let d${id}${axis}=${derivative};`);
-      }
     }
-    const channels = Array.from({ length: 4 }, (_, c) => roots[c] === undefined ? "ab_exact(0.0)" : `b${roots[c]}`);
-    const inputComponents = [...live].flatMap(id => {
+    const channels = Array.from({ length: 4 }, (_, c) =>
+      roots[c] === undefined ? "ab_exact(0.0)" : `b${roots[c]}`,
+    );
+    const inputComponents = [...live].flatMap((id) => {
       const instruction = program.instructions[id]!;
-      if (instruction.kind !== "input") { return []; }
+      if (instruction.kind !== "input") {
+        return [];
+      }
       const index = inputs.get(instruction.input!)!;
       return [Object.freeze({ index, channel: instruction.channel!, domain: program.inputs[index]!.domain })];
     });
@@ -225,12 +275,19 @@ export function lowerAppearanceFieldBounds(program: CompiledAppearanceGraph, low
       samples: Object.freeze([...textures]),
       products: Object.freeze([...products]),
       dependencyMask: roots.reduce((mask, root) => mask | program.instructions[root]!.dependency, 0),
-      supported: supported[field]!
+      supported: supported[field]!,
     });
-    blocks.push(`case ${blocks.length}u:{\n${declarations.join("\n")}\nreturn AppearanceBound4(vec4f(${channels.map(c=>`${c}.low`).join(",")}),vec4f(${channels.map(c=>`${c}.high`).join(",")}),vec4u(${channels.map(c=>`${c}.known`).join(",")}));}`);
+    blocks.push(
+      `case ${blocks.length}u:{\n${declarations.join("\n")}\nreturn AppearanceBound4(vec4f(${channels.map((c) => `${c}.low`).join(",")}),vec4f(${channels.map((c) => `${c}.high`).join(",")}),vec4u(${channels.map((c) => `${c}.known`).join(",")}));}`,
+    );
   }
   const source = `fn ${functionName}(field:u32,context:vec4u)->AppearanceBound4 {switch field {\n${blocks.join("\n")}\ndefault:{return AppearanceBound4(vec4f(0.0),vec4f(0.0),vec4u(0u));}\n}}`;
-  return Object.freeze({ source, materialSource: lowerAppearanceMaterialConstants(program,lowered,`${functionName}_material`),
-    fields: Object.freeze(Object.keys(program.outputs)), inputKinds: Object.freeze(kinds), supported: Object.freeze(supported),
-    dependencyProfiles: Object.freeze(dependencyProfiles) });
+  return Object.freeze({
+    source,
+    materialSource: lowerAppearanceMaterialConstants(program, lowered, `${functionName}_material`),
+    fields: Object.freeze(Object.keys(program.outputs)),
+    inputKinds: Object.freeze(kinds),
+    supported: Object.freeze(supported),
+    dependencyProfiles: Object.freeze(dependencyProfiles),
+  });
 }

@@ -1,6 +1,10 @@
-import { SURFACE_FIELD_IDENTITY_WORDS, SURFACE_FIELD_DEPENDENCY_HEADER_WORDS,
-  SURFACE_FIELD_DEPENDENCY_ENTRY_WORDS, SURFACE_FIELD_DEPENDENCY_WAYS,
-  SURFACE_FIELD_MAX_TEXTURE_DEPENDENCIES } from "../gpu/GpuSurfaceFieldIdentityAbi.js";
+import {
+  SURFACE_FIELD_IDENTITY_WORDS,
+  SURFACE_FIELD_DEPENDENCY_HEADER_WORDS,
+  SURFACE_FIELD_DEPENDENCY_ENTRY_WORDS,
+  SURFACE_FIELD_DEPENDENCY_WAYS,
+  SURFACE_FIELD_MAX_TEXTURE_DEPENDENCIES,
+} from "../gpu/GpuSurfaceFieldIdentityAbi.js";
 
 /** Exact per-field publication proof. Hash chooses a four-way set only. Snapshot
  * writers publish in a subsequent dispatch; output is an immutable version ID,

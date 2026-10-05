@@ -29,11 +29,7 @@ function growGpuBuffer(
 ): GPUBuffer {
   if (current.size >= requiredBytes) return current;
   const nextSize = alignUp(
-    Math.max(
-      requiredBytes,
-      current.size + minimumGrowth,
-      current.size * factor,
-    ),
+    Math.max(requiredBytes, current.size + minimumGrowth, current.size * factor),
     alignment,
   );
   const next = device.createBuffer({
@@ -59,18 +55,12 @@ export class GeometryBlasPool {
     this._bufferMetadata = device.createBuffer({
       label: "",
       size: 16 * GEOMETRY_BLAS_METADATA_STRIDE_BYTES,
-      usage:
-        GPUBufferUsage.COPY_DST |
-        GPUBufferUsage.COPY_SRC |
-        GPUBufferUsage.STORAGE,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC | GPUBufferUsage.STORAGE,
     });
     this._bufferData = device.createBuffer({
       label: "",
       size: 1024,
-      usage:
-        GPUBufferUsage.COPY_DST |
-        GPUBufferUsage.COPY_SRC |
-        GPUBufferUsage.STORAGE,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC | GPUBufferUsage.STORAGE,
     });
   }
 
@@ -99,10 +89,7 @@ export class GeometryBlasPool {
     return record;
   }
 
-  mapGeometryIndex(
-    geometryIndex: number,
-    geometry: MeshletGeometryBase
-  ): GeometryBlasRecord {
+  mapGeometryIndex(geometryIndex: number, geometry: MeshletGeometryBase): GeometryBlasRecord {
     const record = this.obtain(geometry);
     this.geometryIndexRecords.set(geometryIndex >>> 0, record);
     return record;
@@ -165,24 +152,17 @@ export class GeometryBlasPool {
     }
 
     console.warn(`BLAS size: ${this.usedDataBytes} bytes`);
-    const metadataRecords = [...this.geometryIndexRecords.entries()].sort(
-      (a, b) => a[0] - b[0]
-    );
+    const metadataRecords = [...this.geometryIndexRecords.entries()].sort((a, b) => a[0] - b[0]);
     const metadataStaging = this.device.createBuffer({
       label: "",
       usage: GPUBufferUsage.COPY_SRC,
-      size: Math.max(1, metadataRecords.length)
-        * GEOMETRY_BLAS_METADATA_STRIDE_BYTES,
+      size: Math.max(1, metadataRecords.length) * GEOMETRY_BLAS_METADATA_STRIDE_BYTES,
       mappedAtCreation: true,
     });
     const metadata = new DataView(metadataStaging.getMappedRange());
     for (let i = 0; i < metadataRecords.length; i++) {
       const record = metadataRecords[i]![1];
-      metadata.setUint32(
-        i * GEOMETRY_BLAS_METADATA_STRIDE_BYTES,
-        record.address,
-        true,
-      );
+      metadata.setUint32(i * GEOMETRY_BLAS_METADATA_STRIDE_BYTES, record.address, true);
     }
     metadataStaging.unmap();
     for (let i = 0; i < metadataRecords.length; i++) {
@@ -216,10 +196,7 @@ export class GeometryBlasPool {
     this._bufferData.destroy();
   }
 
-  private ensureDataCapacity(
-    requiredNodes: number,
-    command: ShadeGPUCommandContext
-  ): void {
+  private ensureDataCapacity(requiredNodes: number, command: ShadeGPUCommandContext): void {
     if (this.logicalNodeCapacity >= requiredNodes) return;
     this.logicalNodeCapacity = requiredNodes;
     const previous = this._bufferData;
@@ -242,10 +219,7 @@ export class GeometryBlasPool {
     }
   }
 
-  private ensureMetadataCapacity(
-    recordCount: number,
-    command: ShadeGPUCommandContext
-  ): void {
+  private ensureMetadataCapacity(recordCount: number, command: ShadeGPUCommandContext): void {
     const previous = this._bufferMetadata;
     const next = growGpuBuffer(
       this.device,

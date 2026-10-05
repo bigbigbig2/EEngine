@@ -23,29 +23,59 @@ function clamp(value: number, min: number, max: number): number {
 /** three.js OrbitControls 的距离区间兼容对象。 */
 export class NumericInterval {
   readonly onChanged = new ChangeSignal();
-  constructor(public min = 0.1, public max = 1000) {}
+  constructor(
+    public min = 0.1,
+    public max = 1000,
+  ) {}
 
-  get isNumericInterval(): boolean { return true; }
+  get isNumericInterval(): boolean {
+    return true;
+  }
   set(min: number, max: number): this {
-    const oldMin = this.min; const oldMax = this.max;
-    this.min = min; this.max = max;
-    if ((oldMin !== min || oldMax !== max) && this.onChanged.hasHandlers()) this.onChanged.send4(min, max, oldMin, oldMax);
+    const oldMin = this.min;
+    const oldMax = this.max;
+    this.min = min;
+    this.max = max;
+    if ((oldMin !== min || oldMax !== max) && this.onChanged.hasHandlers())
+      this.onChanged.send4(min, max, oldMin, oldMax);
     return this;
   }
   multiplyScalar(value: number): this {
-    const min = this.min * value; const max = this.max * value;
+    const min = this.min * value;
+    const max = this.max * value;
     return min <= max ? this.set(min, max) : this.set(max, min);
   }
-  normalizeValue(value: number): number { const span = this.max - this.min; return span === 0 ? 0 : (value - this.min) / span; }
-  isZero(): boolean { return this.min === 0 && this.max === 0; }
-  isExact(): boolean { return this.min === this.max; }
-  fromJSON(value: { min: number; max: number }): void { this.set(value.min, value.max); }
-  toJSON(): { min: number; max: number } { return { min: this.min, max: this.max }; }
-  equals(other: { min: number; max: number }): boolean { return this.min === other.min && this.max === other.max; }
-  hash(): number { return (hashFloat(this.min) * 31 + hashFloat(this.max)) | 0; }
-  get span(): number { return this.max - this.min; }
-  get middle(): number { return (this.min + this.max) * 0.5; }
-  computeAverage(): number { return this.middle; }
+  normalizeValue(value: number): number {
+    const span = this.max - this.min;
+    return span === 0 ? 0 : (value - this.min) / span;
+  }
+  isZero(): boolean {
+    return this.min === 0 && this.max === 0;
+  }
+  isExact(): boolean {
+    return this.min === this.max;
+  }
+  fromJSON(value: { min: number; max: number }): void {
+    this.set(value.min, value.max);
+  }
+  toJSON(): { min: number; max: number } {
+    return { min: this.min, max: this.max };
+  }
+  equals(other: { min: number; max: number }): boolean {
+    return this.min === other.min && this.max === other.max;
+  }
+  hash(): number {
+    return (hashFloat(this.min) * 31 + hashFloat(this.max)) | 0;
+  }
+  get span(): number {
+    return this.max - this.min;
+  }
+  get middle(): number {
+    return (this.min + this.max) * 0.5;
+  }
+  computeAverage(): number {
+    return this.middle;
+  }
   static readonly zero_zero = Object.freeze(new NumericInterval(0, 0));
   static readonly zero_one = Object.freeze(new NumericInterval(0, 1));
   static readonly one_one = Object.freeze(new NumericInterval(1, 1));
@@ -96,11 +126,11 @@ export class OrbitControls {
   /** 旧控制器清理入口；stop() 只停止对应输入源。 */
   readonly pointer = {
     start: (): void => this.connectPointer(),
-    stop: (): void => this.disconnectPointer()
+    stop: (): void => this.disconnectPointer(),
   };
   readonly keyboard = {
     start: (): void => this.connectKeyboard(),
-    stop: (): void => this.disconnectKeyboard()
+    stop: (): void => this.disconnectKeyboard(),
   };
 
   private readonly spherical = { theta: 0, phi: Math.PI / 2, radius: 1 };
@@ -128,22 +158,41 @@ export class OrbitControls {
     this.connectKeyboard();
   }
 
-  get minDistance(): number { return this.distanceLimits.min; }
-  set minDistance(value: number) { this.distanceLimits.min = Math.max(0, value); }
-  get maxDistance(): number { return this.distanceLimits.max; }
-  set maxDistance(value: number) { this.distanceLimits.max = Math.max(this.minDistance, value); }
+  get minDistance(): number {
+    return this.distanceLimits.min;
+  }
+  set minDistance(value: number) {
+    this.distanceLimits.min = Math.max(0, value);
+  }
+  get maxDistance(): number {
+    return this.distanceLimits.max;
+  }
+  set maxDistance(value: number) {
+    this.distanceLimits.max = Math.max(this.minDistance, value);
+  }
 
   /** 旧 API：相机移动速度与 three.js keyPanSpeed 对应。 */
-  get movement_speed_scale(): number { return this.keyPanSpeed / 7; }
-  set movement_speed_scale(value: number) { this.keyPanSpeed = Math.max(0, value * 7); }
+  get movement_speed_scale(): number {
+    return this.keyPanSpeed / 7;
+  }
+  set movement_speed_scale(value: number) {
+    this.keyPanSpeed = Math.max(0, value * 7);
+  }
 
   /** 旧 API：当前球坐标半径。 */
-  get distance(): number { return this.spherical.radius; }
-  set distance(value: number) { this.spherical.radius = clamp(value, this.minDistance, this.maxDistance); }
+  get distance(): number {
+    return this.spherical.radius;
+  }
+  set distance(value: number) {
+    this.spherical.radius = clamp(value, this.minDistance, this.maxDistance);
+  }
 
   addEventListener(type: OrbitControlsEvent["type"], listener: OrbitControlsListener): void {
     let set = this.listeners.get(type);
-    if (set === undefined) { set = new Set(); this.listeners.set(type, set); }
+    if (set === undefined) {
+      set = new Set();
+      this.listeners.set(type, set);
+    }
     set.add(listener);
   }
 
@@ -193,17 +242,22 @@ export class OrbitControls {
     const height = Math.max(1, this.domElement.clientHeight);
     if (event.pointerType === "touch") {
       if (this.pointers.size === 1 && this.state === "rotate" && this.enableRotate) {
-        this.rotate((current.x - previous.x) * TWO_PI / height, (current.y - previous.y) * TWO_PI / height);
+        this.rotate(
+          ((current.x - previous.x) * TWO_PI) / height,
+          ((current.y - previous.y) * TWO_PI) / height,
+        );
       } else if (this.pointers.size >= 2) {
         const before = this.touchMidpoint;
         const beforeDistance = this.touchDistance;
         this.updateTouchReference();
         if (this.enablePan) this.pan(this.touchMidpoint.x - before.x, this.touchMidpoint.y - before.y);
-        if (this.enableZoom && beforeDistance > EPS && this.touchDistance > EPS) this.dollyOut(this.touchDistance / beforeDistance);
+        if (this.enableZoom && beforeDistance > EPS && this.touchDistance > EPS)
+          this.dollyOut(this.touchDistance / beforeDistance);
       }
     } else if (this.state === "rotate" && this.enableRotate) {
-      this.rotate((current.x - previous.x) * TWO_PI / height, (current.y - previous.y) * TWO_PI / height);
-    } else if (this.state === "pan" && this.enablePan) this.pan(current.x - previous.x, current.y - previous.y);
+      this.rotate(((current.x - previous.x) * TWO_PI) / height, ((current.y - previous.y) * TWO_PI) / height);
+    } else if (this.state === "pan" && this.enablePan)
+      this.pan(current.x - previous.x, current.y - previous.y);
     else if (this.state === "dolly" && this.enableZoom) {
       const deltaY = current.y - previous.y;
       const factor = Math.pow(0.95, this.zoomSpeed * Math.abs(deltaY * 0.01));
@@ -255,8 +309,12 @@ export class OrbitControls {
 
   private updateTouchReference(): void {
     const values = [...this.pointers.values()];
-    if (values.length < 2) { this.touchDistance = 0; return; }
-    const a = values[0]!; const b = values[1]!;
+    if (values.length < 2) {
+      this.touchDistance = 0;
+      return;
+    }
+    const a = values[0]!;
+    const b = values[1]!;
     this.touchMidpoint = { x: (a.x + b.x) * 0.5, y: (a.y + b.y) * 0.5 };
     this.touchDistance = Math.hypot(a.x - b.x, a.y - b.y);
   }
@@ -281,7 +339,8 @@ export class OrbitControls {
     this.domElement.removeEventListener("pointercancel", this.onPointerUp);
     this.domElement.removeEventListener("wheel", this.onWheel);
     this.domElement.removeEventListener("contextmenu", this.onContextMenu);
-    this.pointers.clear(); this.state = "none";
+    this.pointers.clear();
+    this.state = "none";
   }
 
   private connectKeyboard(): void {
@@ -301,12 +360,16 @@ export class OrbitControls {
     this.sphericalDelta.phi -= phi * this.rotateSpeed;
   }
 
-  rotateLeft(angle: number): void { this.sphericalDelta.theta -= angle * this.rotateSpeed; }
-  rotateUp(angle: number): void { this.sphericalDelta.phi -= angle * this.rotateSpeed; }
+  rotateLeft(angle: number): void {
+    this.sphericalDelta.theta -= angle * this.rotateSpeed;
+  }
+  rotateUp(angle: number): void {
+    this.sphericalDelta.phi -= angle * this.rotateSpeed;
+  }
 
   pan(deltaX: number, deltaY: number): void {
     const height = Math.max(1, this.domElement.clientHeight);
-    const distance = this.spherical.radius * Math.tan(this.camera.fov * 0.5) / height * 2 * this.panSpeed;
+    const distance = ((this.spherical.radius * Math.tan(this.camera.fov * 0.5)) / height) * 2 * this.panSpeed;
     const matrix = this.camera.transform.matrix;
     // three.js cameras look down local -Z, while OEngine cameras look down local +Z.
     // Flip both screen axes so drag-panning follows the pointer in screen space.
@@ -322,11 +385,19 @@ export class OrbitControls {
     }
   }
 
-  dollyIn(scale = 0.95): void { this.scale *= Math.max(scale, EPS); }
-  dollyOut(scale = 0.95): void { this.scale /= Math.max(scale, EPS); }
+  dollyIn(scale = 0.95): void {
+    this.scale *= Math.max(scale, EPS);
+  }
+  dollyOut(scale = 0.95): void {
+    this.scale /= Math.max(scale, EPS);
+  }
 
-  getPolarAngle(): number { return this.spherical.phi; }
-  getAzimuthalAngle(): number { return this.spherical.theta; }
+  getPolarAngle(): number {
+    return this.spherical.phi;
+  }
+  getAzimuthalAngle(): number {
+    return this.spherical.theta;
+  }
 
   /** 将外部设置的相机姿态同步回轨道状态。 */
   private syncFromCamera(): void {
@@ -356,8 +427,10 @@ export class OrbitControls {
   }
 
   reset(): void {
-    this.sphericalDelta.theta = 0; this.sphericalDelta.phi = 0;
-    this.panOffset.set(0, 0, 0); this.scale = 1;
+    this.sphericalDelta.theta = 0;
+    this.sphericalDelta.phi = 0;
+    this.panOffset.set(0, 0, 0);
+    this.scale = 1;
     this.syncFromCamera();
     this.update(0);
   }
@@ -368,28 +441,49 @@ export class OrbitControls {
    */
   update(deltaTime = 1 / 60): boolean {
     if (!this.enabled) return false;
-    const externalChange = !this.lastPosition.equals(this.camera.transform.position) ||
+    const externalChange =
+      !this.lastPosition.equals(this.camera.transform.position) ||
       this.lastRotation.x !== this.camera.transform.rotation.x ||
       this.lastRotation.y !== this.camera.transform.rotation.y ||
       this.lastRotation.z !== this.camera.transform.rotation.z ||
       this.lastRotation.w !== this.camera.transform.rotation.w;
-    if (externalChange && this.sphericalDelta.theta === 0 && this.sphericalDelta.phi === 0 && this.scale === 1 && this.panOffset.isZero()) {
+    if (
+      externalChange &&
+      this.sphericalDelta.theta === 0 &&
+      this.sphericalDelta.phi === 0 &&
+      this.scale === 1 &&
+      this.panOffset.isZero()
+    ) {
       this.syncFromCamera();
     }
-    if (this.autoRotate) this.sphericalDelta.theta -= (TWO_PI / 60 / 60) * this.autoRotateSpeed * (deltaTime * 60);
+    if (this.autoRotate)
+      this.sphericalDelta.theta -= (TWO_PI / 60 / 60) * this.autoRotateSpeed * (deltaTime * 60);
     const damping = this.enableDamping ? clamp(this.dampingFactor, 0, 1) : 1;
     const oldPosition = this.lastPosition.clone();
     this.spherical.theta += this.sphericalDelta.theta * damping;
     this.spherical.phi += this.sphericalDelta.phi * damping;
     this.spherical.theta = clamp(this.spherical.theta, this.minAzimuthAngle, this.maxAzimuthAngle);
-    this.spherical.phi = clamp(this.spherical.phi, Math.max(EPS, this.minPolarAngle), Math.min(Math.PI - EPS, this.maxPolarAngle));
-    this.spherical.radius = clamp(this.spherical.radius * (1 + (this.scale - 1) * damping), this.minDistance, this.maxDistance);
+    this.spherical.phi = clamp(
+      this.spherical.phi,
+      Math.max(EPS, this.minPolarAngle),
+      Math.min(Math.PI - EPS, this.maxPolarAngle),
+    );
+    this.spherical.radius = clamp(
+      this.spherical.radius * (1 + (this.scale - 1) * damping),
+      this.minDistance,
+      this.maxDistance,
+    );
     this.target.addScaled(this.panOffset, damping);
     const targetOffset = new Vec3().subVectors(this.target, Vec3.zero);
     const targetLength = targetOffset.length();
     if (targetLength > this.maxTargetRadius) this.target.multiplyScalar(this.maxTargetRadius / targetLength);
-    if (targetLength < this.minTargetRadius && targetLength > EPS) this.target.multiplyScalar(this.minTargetRadius / targetLength);
-    const offset = new Vec3().setFromSphericalCoords(this.spherical.radius, this.spherical.phi, this.spherical.theta);
+    if (targetLength < this.minTargetRadius && targetLength > EPS)
+      this.target.multiplyScalar(this.minTargetRadius / targetLength);
+    const offset = new Vec3().setFromSphericalCoords(
+      this.spherical.radius,
+      this.spherical.phi,
+      this.spherical.theta,
+    );
     this.scratchTransform.copy(this.camera.transform);
     this.scratchTransform.position.copy(this.target).add(offset);
     this.scratchTransform.lookAt(this.target);
@@ -413,6 +507,8 @@ export class OrbitControls {
     this.disconnectPointer();
     this.disconnectKeyboard();
     this.listeners.clear();
-    this.onChange.removeAll(); this.onStart.removeAll(); this.onEnd.removeAll();
+    this.onChange.removeAll();
+    this.onStart.removeAll();
+    this.onEnd.removeAll();
   }
 }

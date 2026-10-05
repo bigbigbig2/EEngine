@@ -8,7 +8,7 @@ import {
   mat4ExtractFrustumPlanes,
   mat4Identity,
   mat4Multiply,
-  mat4ViewFromWorldTransform
+  mat4ViewFromWorldTransform,
 } from "../core/math/Mat4.js";
 
 let nextCameraId = 0;
@@ -77,11 +77,7 @@ export class Camera {
   }
 
   hash(): number {
-    return hashMix(
-      hashFloat(this._near),
-      hashFloat(this._far),
-      hashFloat(this._aspect)
-    );
+    return hashMix(hashFloat(this._near), hashFloat(this._far), hashFloat(this._aspect));
   }
 
   equals(other: Camera): boolean {

@@ -3,7 +3,7 @@ import type { GraphicsContext } from "./GraphicsContext.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import {
   GPUSceneEnvironmentContext,
-  type GPUSceneEnvironmentEvidence
+  type GPUSceneEnvironmentEvidence,
 } from "./GPUSceneEnvironmentContext.js";
 
 export interface GPUSceneEnvironmentManagerEvidence {
@@ -39,7 +39,7 @@ export class GPUSceneEnvironmentManager {
       this.contexts.delete(scene);
       void command.gpuDone.then(
         () => context.destroy(),
-        () => context.destroy()
+        () => context.destroy(),
       );
     });
     return true;

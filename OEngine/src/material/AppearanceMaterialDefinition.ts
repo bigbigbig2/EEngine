@@ -15,11 +15,16 @@ let nextDefinition = 0;
 export class AppearanceMaterialDefinition {
   private readonly id = nextDefinition++;
   readonly products: readonly AppearanceAssetPackage[];
-  constructor(readonly graph: AppearanceGraph | null = null, products: readonly AppearanceAssetPackage[] = []) {
+  constructor(
+    readonly graph: AppearanceGraph | null = null,
+    products: readonly AppearanceAssetPackage[] = [],
+  ) {
     this.products = Object.freeze([...products]);
     Object.freeze(this);
   }
-  hash(): number { return this.id; }
+  hash(): number {
+    return this.id;
+  }
 }
 
 export interface AppearanceProductResolution {
@@ -29,36 +34,55 @@ export interface AppearanceProductResolution {
 }
 
 /** Exact CPU publication matching, including internal roots and independent lobe invalidation. */
-export function resolveAppearanceMaterialProducts(source: CompiledAppearanceGraph,
-  products: readonly AppearanceAssetPackage[]): AppearanceProductResolution {
-  const bindings: AppearanceProductBinding[] = [], reused: string[] = [], stale: string[] = [];
+export function resolveAppearanceMaterialProducts(
+  source: CompiledAppearanceGraph,
+  products: readonly AppearanceAssetPackage[],
+): AppearanceProductResolution {
+  const bindings: AppearanceProductBinding[] = [],
+    reused: string[] = [],
+    stale: string[] = [];
   const selectors = new Map<string, number>();
-  if (products.some(product => product.kind === "reevaluated-mip-fields")) {
-    source.instructions.forEach((_instruction, ref) => selectors.set(appearanceFieldIdentity(source, [ref]).key, ref));
+  if (products.some((product) => product.kind === "reevaluated-mip-fields")) {
+    source.instructions.forEach((_instruction, ref) =>
+      selectors.set(appearanceFieldIdentity(source, [ref]).key, ref),
+    );
   }
   for (const asset of products) {
     const label = (name: string) => `${asset.runtime.manifest.assetId}/${name}`;
     if (asset.kind === "coupled-vmf-moments") {
       const normalPairs: string[] = [];
       for (const pair of asset.normalFilters) {
-        const normal = source.outputs[pair.normalOutput], roughness = source.outputs[pair.roughnessOutput];
-        const field = asset.fields.find(field => field.name === pair.momentField)!;
-        if (normal?.length === 3 && roughness?.length === 1 &&
-            appearanceFieldIdentity(source, [...normal, ...roughness]).key === field.sourceIdentity.key) {
-          normalPairs.push(pair.momentField); reused.push(label(pair.momentField));
+        const normal = source.outputs[pair.normalOutput],
+          roughness = source.outputs[pair.roughnessOutput];
+        const field = asset.fields.find((field) => field.name === pair.momentField)!;
+        if (
+          normal?.length === 3 &&
+          roughness?.length === 1 &&
+          appearanceFieldIdentity(source, [...normal, ...roughness]).key === field.sourceIdentity.key
+        ) {
+          normalPairs.push(pair.momentField);
+          reused.push(label(pair.momentField));
         } else stale.push(label(pair.momentField));
       }
       if (normalPairs.length > 0) bindings.push({ source, asset, normalPairs });
     } else {
       const roots: Record<string, readonly number[]> = Object.create(null);
       for (const field of asset.fields) {
-        const refs = field.sourceIdentity.components.map(key => selectors.get(key));
-        if (refs.every((ref): ref is number => ref !== undefined) && appearanceFieldIdentity(source, refs).key === field.sourceIdentity.key) {
-          roots[field.name] = refs; reused.push(label(field.name));
+        const refs = field.sourceIdentity.components.map((key) => selectors.get(key));
+        if (
+          refs.every((ref): ref is number => ref !== undefined) &&
+          appearanceFieldIdentity(source, refs).key === field.sourceIdentity.key
+        ) {
+          roots[field.name] = refs;
+          reused.push(label(field.name));
         } else stale.push(label(field.name));
       }
       if (Object.keys(roots).length > 0) bindings.push({ source, asset, roots });
     }
   }
-  return Object.freeze({ program: bindAppearanceProducts(source, bindings), reused: Object.freeze(reused), stale: Object.freeze(stale) });
+  return Object.freeze({
+    program: bindAppearanceProducts(source, bindings),
+    reused: Object.freeze(reused),
+    stale: Object.freeze(stale),
+  });
 }

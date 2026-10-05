@@ -10,18 +10,34 @@ test("one frame crosses query pages without losing intervals or overflowing a qu
   const device = {
     createQuerySet(descriptor) {
       assert.ok(descriptor.count <= 4096);
-      const resource = { ...descriptor, destroyed: false, destroy() { this.destroyed = true; } };
+      const resource = {
+        ...descriptor,
+        destroyed: false,
+        destroy() {
+          this.destroyed = true;
+        },
+      };
       resources.push(resource);
       return resource;
     },
     createBuffer(descriptor) {
       const bytes = new ArrayBuffer(descriptor.size);
-      const resource = { ...descriptor, bytes, destroyed: false,
-        async mapAsync() {}, getMappedRange(_offset, size) { return bytes.slice(0, size); },
-        unmap() {}, destroy() { this.destroyed = true; } };
+      const resource = {
+        ...descriptor,
+        bytes,
+        destroyed: false,
+        async mapAsync() {},
+        getMappedRange(_offset, size) {
+          return bytes.slice(0, size);
+        },
+        unmap() {},
+        destroy() {
+          this.destroyed = true;
+        },
+      };
       resources.push(resource);
       return resource;
-    }
+    },
   };
   const timer = new GPUTimer(device);
   const first = timer.getComputeWrites("0");
@@ -40,7 +56,7 @@ test("one frame crosses query pages without losing intervals or overflowing a qu
     },
     copyBufferToBuffer(source, _sourceOffset, destination, _destinationOffset, size) {
       new Uint8Array(destination.bytes).set(new Uint8Array(source.bytes, 0, size));
-    }
+    },
   });
   await timer.download_results();
   const results = timer.results_to_console_table();
@@ -52,6 +68,6 @@ test("one frame crosses query pages without losing intervals or overflowing a qu
   assert.equal(results[2049].start, base + 2n);
   assert.equal(results[2049].duration_ms, 0.000001);
   timer.destroy();
-  assert.ok(resources.every(resource => resource.destroyed));
+  assert.ok(resources.every((resource) => resource.destroyed));
   assert.throws(() => new GPUTimer(device, 2049), /1..2048/);
 });

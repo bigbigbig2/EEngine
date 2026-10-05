@@ -5,21 +5,20 @@
 export const ShadeDrawMode = {
   Points: 0,
   Lines: 1,
-  Triangles: 2
+  Triangles: 2,
 } as const;
 export type ShadeDrawMode = (typeof ShadeDrawMode)[keyof typeof ShadeDrawMode];
 
 export const ShadeDrawSide = {
   Front: 0,
   Double: 1,
-  Back: 2
+  Back: 2,
 } as const;
 export type ShadeDrawSide = (typeof ShadeDrawSide)[keyof typeof ShadeDrawSide];
 
 export const ShadeTransparencyMode = {
   Opaque: 0,
   AlphaTested: 1,
-  Transparent: 2
+  Transparent: 2,
 } as const;
-export type ShadeTransparencyMode =
-  (typeof ShadeTransparencyMode)[keyof typeof ShadeTransparencyMode];
+export type ShadeTransparencyMode = (typeof ShadeTransparencyMode)[keyof typeof ShadeTransparencyMode];

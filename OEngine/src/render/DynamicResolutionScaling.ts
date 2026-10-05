@@ -1,7 +1,5 @@
 /** Stateful delayed-GPU-timing controller owned by TemporalFeature. */
-export const DYNAMIC_RESOLUTION_SCALE_BUCKETS = Object.freeze([
-  0.67, 0.75, 0.8, 0.9, 1
-] as const);
+export const DYNAMIC_RESOLUTION_SCALE_BUCKETS = Object.freeze([0.67, 0.75, 0.8, 0.9, 1] as const);
 
 export type DynamicResolutionMode = "fixed" | "adaptive";
 
@@ -87,7 +85,7 @@ export class DynamicResolutionScaling {
     const buckets = normalizeBuckets(
       configuration.scaleBuckets ?? DYNAMIC_RESOLUTION_SCALE_BUCKETS,
       configuration.minimumScale,
-      configuration.maximumScale
+      configuration.maximumScale,
     );
     const policyChanged =
       this.targetFrameTimeSeconds !== 1 / configuration.targetFrameRate ||
@@ -110,8 +108,12 @@ export class DynamicResolutionScaling {
     }
   }
 
-  get mode(): DynamicResolutionMode { return this.modeValue; }
-  get adaptive(): boolean { return this.modeValue === "adaptive"; }
+  get mode(): DynamicResolutionMode {
+    return this.modeValue;
+  }
+  get adaptive(): boolean {
+    return this.modeValue === "adaptive";
+  }
 
   reset(): void {
     this.resetControlWindow();
@@ -123,9 +125,7 @@ export class DynamicResolutionScaling {
   }
 
   evidence(): DynamicResolutionScalingEvidence {
-    const currentScale = typeof this.get_scale === "function"
-      ? this.get_scale()
-      : this.maximumScaleValue;
+    const currentScale = typeof this.get_scale === "function" ? this.get_scale() : this.maximumScaleValue;
     return Object.freeze({
       mode: this.modeValue,
       targetFrameRate: 1 / this.targetFrameTimeSeconds,
@@ -140,7 +140,7 @@ export class DynamicResolutionScaling {
       scaleChanges: this.#scaleChanges,
       lastDecision: this.#lastDecision,
       lastGpuFrameTimeMs: this.#lastGpuFrameTimeMs,
-      lastFeedbackLatencyFrames: this.#lastFeedbackLatencyFrames
+      lastFeedbackLatencyFrames: this.#lastFeedbackLatencyFrames,
     });
   }
 
@@ -150,10 +150,15 @@ export class DynamicResolutionScaling {
     readonly gpuFrameTimeMs: number;
   }): boolean {
     if (!this.adaptive) return false;
-    if (!Number.isInteger(sample.sampleFrameIndex) || sample.sampleFrameIndex < 0 ||
-        !Number.isInteger(sample.currentFrameIndex) ||
-        sample.sampleFrameIndex <= this.#lastGpuSampleFrame ||
-        !Number.isFinite(sample.gpuFrameTimeMs) || sample.gpuFrameTimeMs <= 0) return false;
+    if (
+      !Number.isInteger(sample.sampleFrameIndex) ||
+      sample.sampleFrameIndex < 0 ||
+      !Number.isInteger(sample.currentFrameIndex) ||
+      sample.sampleFrameIndex <= this.#lastGpuSampleFrame ||
+      !Number.isFinite(sample.gpuFrameTimeMs) ||
+      sample.gpuFrameTimeMs <= 0
+    )
+      return false;
     if (sample.currentFrameIndex <= sample.sampleFrameIndex) {
       if (sample.sampleFrameIndex >= this.#pendingGpuSampleFrame) {
         this.#pendingGpuSampleFrame = sample.sampleFrameIndex;
@@ -165,14 +170,18 @@ export class DynamicResolutionScaling {
       this.#pendingGpuSampleFrame = -1;
       this.#pendingGpuFrameTimeMs = 0;
     }
-    return this.#consumeGpuTiming(
-      sample.sampleFrameIndex, sample.currentFrameIndex, sample.gpuFrameTimeMs
-    );
+    return this.#consumeGpuTiming(sample.sampleFrameIndex, sample.currentFrameIndex, sample.gpuFrameTimeMs);
   }
 
   consume_delayed_gpu_timing(currentFrameIndex: number): boolean {
-    if (!this.adaptive || !Number.isInteger(currentFrameIndex) || currentFrameIndex < 0 ||
-        this.#pendingGpuSampleFrame < 0 || currentFrameIndex <= this.#pendingGpuSampleFrame) return false;
+    if (
+      !this.adaptive ||
+      !Number.isInteger(currentFrameIndex) ||
+      currentFrameIndex < 0 ||
+      this.#pendingGpuSampleFrame < 0 ||
+      currentFrameIndex <= this.#pendingGpuSampleFrame
+    )
+      return false;
     const sampleFrameIndex = this.#pendingGpuSampleFrame;
     const gpuFrameTimeMs = this.#pendingGpuFrameTimeMs;
     this.#pendingGpuSampleFrame = -1;
@@ -200,13 +209,20 @@ export class DynamicResolutionScaling {
     this.#slowMean += this.#alphaSlow * ((anomaly ? clampTime : frameTimeSeconds) - this.#slowMean);
     if (anomaly) return;
     this.#fastMean += this.#alphaFast * (frameTimeSeconds - this.#fastMean);
-    if (this.#lockout > 0) { this.#lockout--; return; }
+    if (this.#lockout > 0) {
+      this.#lockout--;
+      return;
+    }
     this.#settleCount++;
     if (this.#settleCount >= this.settleFramesValue) this.#decide();
   }
 
-  get #alphaFast(): number { return 1 - Math.pow(0.5, 1 / this.fastHalfLifeFrames); }
-  get #alphaSlow(): number { return 1 - Math.pow(0.5, 1 / this.slowHalfLifeFrames); }
+  get #alphaFast(): number {
+    return 1 - Math.pow(0.5, 1 / this.fastHalfLifeFrames);
+  }
+  get #alphaSlow(): number {
+    return 1 - Math.pow(0.5, 1 / this.slowHalfLifeFrames);
+  }
 
   #decide(): void {
     const fast = this.#fastMean;
@@ -264,7 +280,7 @@ export class DynamicResolutionScaling {
   #clamp(value: number): number {
     const clamped = Math.max(this.minimumScaleValue, Math.min(this.maximumScaleValue, value));
     return this.scaleBucketsValue.reduce((closest, bucket) =>
-      Math.abs(bucket - clamped) < Math.abs(closest - clamped) ? bucket : closest
+      Math.abs(bucket - clamped) < Math.abs(closest - clamped) ? bucket : closest,
     );
   }
 
@@ -305,13 +321,20 @@ function validateConfiguration(configuration: DynamicResolutionScalingConfigurat
   if (!Number.isFinite(configuration.targetFrameRate) || configuration.targetFrameRate <= 0) {
     throw new RangeError("dynamic resolution targetFrameRate must be finite and positive");
   }
-  if (!Number.isFinite(configuration.minimumScale) || !Number.isFinite(configuration.maximumScale) ||
-      configuration.minimumScale <= 0 || configuration.maximumScale > 1 ||
-      configuration.minimumScale > configuration.maximumScale) {
+  if (
+    !Number.isFinite(configuration.minimumScale) ||
+    !Number.isFinite(configuration.maximumScale) ||
+    configuration.minimumScale <= 0 ||
+    configuration.maximumScale > 1 ||
+    configuration.minimumScale > configuration.maximumScale
+  ) {
     throw new RangeError("dynamic resolution scale range must satisfy 0 < minimum <= maximum <= 1");
   }
-  if (!Number.isFinite(configuration.tolerance) || configuration.tolerance < 0 ||
-      configuration.tolerance > 0.5) {
+  if (
+    !Number.isFinite(configuration.tolerance) ||
+    configuration.tolerance < 0 ||
+    configuration.tolerance > 0.5
+  ) {
     throw new RangeError("dynamic resolution tolerance must be in [0, 0.5]");
   }
   if (!Number.isSafeInteger(configuration.settleFrames) || configuration.settleFrames < 1) {
@@ -319,7 +342,11 @@ function validateConfiguration(configuration: DynamicResolutionScalingConfigurat
   }
 }
 
-function normalizeBuckets(input: readonly number[], minimumScale: number, maximumScale: number): readonly number[] {
+function normalizeBuckets(
+  input: readonly number[],
+  minimumScale: number,
+  maximumScale: number,
+): readonly number[] {
   const buckets = [...new Set(input)]
     .filter((value) => Number.isFinite(value) && value >= minimumScale && value <= maximumScale)
     .sort((a, b) => a - b);

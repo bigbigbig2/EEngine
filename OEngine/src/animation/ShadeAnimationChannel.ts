@@ -15,7 +15,7 @@ export type ChannelCurves = {
 export const AnimationChannelProperty = {
   Position: 0,
   Rotation: 1,
-  Scale: 2
+  Scale: 2,
 } as const;
 
 export type AnimationChannelProperty =
@@ -31,7 +31,7 @@ export class ShadeAnimationChannel {
   static from({
     target,
     property,
-    curves
+    curves,
   }: {
     target: Node3D;
     property: number;
@@ -44,7 +44,7 @@ export class ShadeAnimationChannel {
       x: curves.x,
       y: curves.y,
       z: curves.z,
-      w: curves.w
+      w: curves.w,
     };
     return r;
   }
@@ -57,7 +57,7 @@ export class ShadeAnimationChannel {
       x: other.curves.x,
       y: other.curves.y,
       z: other.curves.z,
-      w: other.curves.w
+      w: other.curves.w,
     };
   }
 

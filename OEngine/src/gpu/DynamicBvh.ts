@@ -15,7 +15,7 @@ function surfaceArea(
   minZ: number,
   maxX: number,
   maxY: number,
-  maxZ: number
+  maxZ: number,
 ): number {
   const x = maxX - minX;
   const z = maxZ - minZ;
@@ -40,9 +40,7 @@ export class DynamicBvh {
     this.dataBufferValue = value;
     this.dataFloat32Value = new Float32Array(value);
     this.dataUint32Value = new Uint32Array(value);
-    this.node_capacity = Math.floor(
-      value.byteLength / DYNAMIC_BVH_INTERNAL_NODE_BYTES
-    );
+    this.node_capacity = Math.floor(value.byteLength / DYNAMIC_BVH_INTERNAL_NODE_BYTES);
   }
 
   get data_float32(): Float32Array {
@@ -71,9 +69,7 @@ export class DynamicBvh {
 
   set node_capacity(value: number) {
     if (this.sizeValue > value) {
-      throw new Error(
-        `Can't shrink capacity to ${value}, because it's below occupancy(${this.sizeValue}).`
-      );
+      throw new Error(`Can't shrink capacity to ${value}, because it's below occupancy(${this.sizeValue}).`);
     }
     this.setCapacity(value);
   }
@@ -175,11 +171,7 @@ export class DynamicBvh {
     }
   }
 
-  node_move_aabb(
-    node: number,
-    box: ArrayLike<number>,
-    onNodeChanged?: (node: number) => void
-  ): void {
+  node_move_aabb(node: number, box: ArrayLike<number>, onNodeChanged?: (node: number) => void): void {
     this.node_set_aabb(node, box);
     onNodeChanged?.(node);
     const parent = this.dataUint32Value[NODE_WORDS * node + 6]! >>> 0;
@@ -197,7 +189,7 @@ export class DynamicBvh {
       f32[base + 2]!,
       f32[base + 3]!,
       f32[base + 4]!,
-      f32[base + 5]!
+      f32[base + 5]!,
     );
   }
 
@@ -211,15 +203,11 @@ export class DynamicBvh {
       Math.min(f32[aa + 2]!, f32[bb + 2]!),
       Math.max(f32[aa + 3]!, f32[bb + 3]!),
       Math.max(f32[aa + 4]!, f32[bb + 4]!),
-      Math.max(f32[aa + 5]!, f32[bb + 5]!)
+      Math.max(f32[aa + 5]!, f32[bb + 5]!),
     );
   }
 
-  node_set_combined_aabb(
-    destination: number,
-    a: number,
-    b: number
-  ): void {
+  node_set_combined_aabb(destination: number, a: number, b: number): void {
     const dst = NODE_WORDS * destination;
     const aa = NODE_WORDS * a;
     const bb = NODE_WORDS * b;
@@ -268,10 +256,9 @@ export class DynamicBvh {
     u32 = this.dataUint32Value;
     u32[newParent * NODE_WORDS + 6] = oldParent;
     this.node_set_combined_aabb(newParent, leaf, sibling);
-    u32[newParent * NODE_WORDS + 9] =
-      (u32[sibling * NODE_WORDS + 9]! >>> 0) + 1;
+    u32[newParent * NODE_WORDS + 9] = (u32[sibling * NODE_WORDS + 9]! >>> 0) + 1;
     if (oldParent !== BVH_NULL_NODE) {
-      if ((u32[oldParent * NODE_WORDS + 7]! >>> 0) === sibling) {
+      if (u32[oldParent * NODE_WORDS + 7]! >>> 0 === sibling) {
         u32[oldParent * NODE_WORDS + 7] = newParent;
       } else {
         u32[oldParent * NODE_WORDS + 8] = newParent;
@@ -286,19 +273,12 @@ export class DynamicBvh {
     this.bubble_up_update(newParent);
   }
 
-  bubble_up_refit(
-    node: number,
-    onNodeChanged?: (node: number) => void
-  ): void {
+  bubble_up_refit(node: number, onNodeChanged?: (node: number) => void): void {
     let current = node;
     const u32 = this.dataUint32Value;
     do {
       const base = current * NODE_WORDS;
-      this.node_set_combined_aabb(
-        current,
-        u32[base + 7]! >>> 0,
-        u32[base + 8]! >>> 0
-      );
+      this.node_set_combined_aabb(current, u32[base + 7]! >>> 0, u32[base + 8]! >>> 0);
       onNodeChanged?.(current);
       current = u32[base + 6]! >>> 0;
     } while (current !== BVH_NULL_NODE);
@@ -312,12 +292,7 @@ export class DynamicBvh {
       const base = current * NODE_WORDS;
       const child1 = u32[base + 7]! >>> 0;
       const child2 = u32[base + 8]! >>> 0;
-      u32[base + 9] =
-        1 +
-        Math.max(
-          u32[child1 * NODE_WORDS + 9]! >>> 0,
-          u32[child2 * NODE_WORDS + 9]! >>> 0
-        );
+      u32[base + 9] = 1 + Math.max(u32[child1 * NODE_WORDS + 9]! >>> 0, u32[child2 * NODE_WORDS + 9]! >>> 0);
       this.node_set_combined_aabb(current, child1, child2);
       current = u32[base + 6]! >>> 0;
     }
@@ -325,17 +300,12 @@ export class DynamicBvh {
 
   balance(node: number): number {
     const u32 = this.dataUint32Value;
-    if (
-      this.node_is_leaf(node) ||
-      (u32[node * NODE_WORDS + 9]! >>> 0) < 2
-    ) {
+    if (this.node_is_leaf(node) || u32[node * NODE_WORDS + 9]! >>> 0 < 2) {
       return node;
     }
     const child1 = u32[node * NODE_WORDS + 7]! >>> 0;
     const child2 = u32[node * NODE_WORDS + 8]! >>> 0;
-    const delta =
-      (u32[child2 * NODE_WORDS + 9]! >>> 0) -
-      (u32[child1 * NODE_WORDS + 9]! >>> 0);
+    const delta = (u32[child2 * NODE_WORDS + 9]! >>> 0) - (u32[child1 * NODE_WORDS + 9]! >>> 0);
 
     if (delta > 1) {
       const grand1 = u32[child2 * NODE_WORDS + 7]! >>> 0;
@@ -345,7 +315,7 @@ export class DynamicBvh {
       u32[child2 * NODE_WORDS + 6] = parent;
       u32[node * NODE_WORDS + 6] = child2;
       if (parent !== BVH_NULL_NODE) {
-        if ((u32[parent * NODE_WORDS + 7]! >>> 0) === node) {
+        if (u32[parent * NODE_WORDS + 7]! >>> 0 === node) {
           u32[parent * NODE_WORDS + 7] = child2;
         } else {
           u32[parent * NODE_WORDS + 8] = child2;
@@ -353,27 +323,16 @@ export class DynamicBvh {
       } else {
         this.rootValue = child2;
       }
-      if (
-        (u32[grand1 * NODE_WORDS + 9]! >>> 0) >
-        (u32[grand2 * NODE_WORDS + 9]! >>> 0)
-      ) {
+      if (u32[grand1 * NODE_WORDS + 9]! >>> 0 > u32[grand2 * NODE_WORDS + 9]! >>> 0) {
         u32[child2 * NODE_WORDS + 8] = grand1;
         u32[node * NODE_WORDS + 8] = grand2;
         u32[grand2 * NODE_WORDS + 6] = node;
         this.node_set_combined_aabb(node, child1, grand2);
         this.node_set_combined_aabb(child2, node, grand1);
         u32[node * NODE_WORDS + 9] =
-          1 +
-          Math.max(
-            u32[child1 * NODE_WORDS + 9]! >>> 0,
-            u32[grand2 * NODE_WORDS + 9]! >>> 0
-          );
+          1 + Math.max(u32[child1 * NODE_WORDS + 9]! >>> 0, u32[grand2 * NODE_WORDS + 9]! >>> 0);
         u32[child2 * NODE_WORDS + 9] =
-          1 +
-          Math.max(
-            u32[node * NODE_WORDS + 9]! >>> 0,
-            u32[grand1 * NODE_WORDS + 9]! >>> 0
-          );
+          1 + Math.max(u32[node * NODE_WORDS + 9]! >>> 0, u32[grand1 * NODE_WORDS + 9]! >>> 0);
       } else {
         u32[child2 * NODE_WORDS + 8] = grand2;
         u32[node * NODE_WORDS + 8] = grand1;
@@ -381,17 +340,9 @@ export class DynamicBvh {
         this.node_set_combined_aabb(node, child1, grand1);
         this.node_set_combined_aabb(child2, node, grand2);
         u32[node * NODE_WORDS + 9] =
-          1 +
-          Math.max(
-            u32[child1 * NODE_WORDS + 9]! >>> 0,
-            u32[grand1 * NODE_WORDS + 9]! >>> 0
-          );
+          1 + Math.max(u32[child1 * NODE_WORDS + 9]! >>> 0, u32[grand1 * NODE_WORDS + 9]! >>> 0);
         u32[child2 * NODE_WORDS + 9] =
-          1 +
-          Math.max(
-            u32[node * NODE_WORDS + 9]! >>> 0,
-            u32[grand2 * NODE_WORDS + 9]! >>> 0
-          );
+          1 + Math.max(u32[node * NODE_WORDS + 9]! >>> 0, u32[grand2 * NODE_WORDS + 9]! >>> 0);
       }
       return child2;
     }
@@ -404,7 +355,7 @@ export class DynamicBvh {
       u32[child1 * NODE_WORDS + 6] = parent;
       u32[node * NODE_WORDS + 6] = child1;
       if (parent !== BVH_NULL_NODE) {
-        if ((u32[parent * NODE_WORDS + 7]! >>> 0) === node) {
+        if (u32[parent * NODE_WORDS + 7]! >>> 0 === node) {
           u32[parent * NODE_WORDS + 7] = child1;
         } else {
           u32[parent * NODE_WORDS + 8] = child1;
@@ -412,27 +363,16 @@ export class DynamicBvh {
       } else {
         this.rootValue = child1;
       }
-      if (
-        (u32[grand1 * NODE_WORDS + 9]! >>> 0) >
-        (u32[grand2 * NODE_WORDS + 9]! >>> 0)
-      ) {
+      if (u32[grand1 * NODE_WORDS + 9]! >>> 0 > u32[grand2 * NODE_WORDS + 9]! >>> 0) {
         u32[child1 * NODE_WORDS + 8] = grand1;
         u32[node * NODE_WORDS + 7] = grand2;
         u32[grand2 * NODE_WORDS + 6] = node;
         this.node_set_combined_aabb(node, child2, grand2);
         this.node_set_combined_aabb(child1, node, grand1);
         u32[node * NODE_WORDS + 9] =
-          1 +
-          Math.max(
-            u32[child2 * NODE_WORDS + 9]! >>> 0,
-            u32[grand2 * NODE_WORDS + 9]! >>> 0
-          );
+          1 + Math.max(u32[child2 * NODE_WORDS + 9]! >>> 0, u32[grand2 * NODE_WORDS + 9]! >>> 0);
         u32[child1 * NODE_WORDS + 9] =
-          1 +
-          Math.max(
-            u32[node * NODE_WORDS + 9]! >>> 0,
-            u32[grand1 * NODE_WORDS + 9]! >>> 0
-          );
+          1 + Math.max(u32[node * NODE_WORDS + 9]! >>> 0, u32[grand1 * NODE_WORDS + 9]! >>> 0);
       } else {
         u32[child1 * NODE_WORDS + 8] = grand2;
         u32[node * NODE_WORDS + 7] = grand1;
@@ -440,17 +380,9 @@ export class DynamicBvh {
         this.node_set_combined_aabb(node, child2, grand1);
         this.node_set_combined_aabb(child1, node, grand2);
         u32[node * NODE_WORDS + 9] =
-          1 +
-          Math.max(
-            u32[child2 * NODE_WORDS + 9]! >>> 0,
-            u32[grand1 * NODE_WORDS + 9]! >>> 0
-          );
+          1 + Math.max(u32[child2 * NODE_WORDS + 9]! >>> 0, u32[grand1 * NODE_WORDS + 9]! >>> 0);
         u32[child1 * NODE_WORDS + 9] =
-          1 +
-          Math.max(
-            u32[node * NODE_WORDS + 9]! >>> 0,
-            u32[grand2 * NODE_WORDS + 9]! >>> 0
-          );
+          1 + Math.max(u32[node * NODE_WORDS + 9]! >>> 0, u32[grand2 * NODE_WORDS + 9]! >>> 0);
       }
       return child1;
     }
@@ -462,19 +394,12 @@ export class DynamicBvh {
     this.node_assign_children_only(parent, child1, child2);
   }
 
-  node_assign_children_only(
-    parent: number,
-    child1: number,
-    child2: number
-  ): void {
+  node_assign_children_only(parent: number, child1: number, child2: number): void {
     this.node_set_parent(child1, parent);
     this.node_set_parent(child2, parent);
     this.node_set_child1(parent, child1);
     this.node_set_child2(parent, child2);
-    this.node_set_height(
-      parent,
-      1 + Math.max(this.node_get_height(child1), this.node_get_height(child2))
-    );
+    this.node_set_height(parent, 1 + Math.max(this.node_get_height(child1), this.node_get_height(child2)));
   }
 
   release_all(): void {
@@ -485,9 +410,7 @@ export class DynamicBvh {
 
   private growCapacity(): void {
     if (this.capacity >= MAX_CAPACITY) {
-      throw new Error(
-        "Can not grow capacity, already at maximum platform limit"
-      );
+      throw new Error("Can not grow capacity, already at maximum platform limit");
     }
     let next = Math.ceil(Math.max(1.2 * this.capacity, this.capacity + 64));
     if (next > MAX_CAPACITY) next = MAX_CAPACITY;
@@ -502,11 +425,8 @@ export class DynamicBvh {
         new Uint8Array(
           this.dataBufferValue,
           0,
-          Math.min(
-            DYNAMIC_BVH_INTERNAL_NODE_BYTES * this.sizeValue,
-            next.byteLength
-          )
-        )
+          Math.min(DYNAMIC_BVH_INTERNAL_NODE_BYTES * this.sizeValue, next.byteLength),
+        ),
       );
     }
     this.dataBufferValue = next;
@@ -524,12 +444,12 @@ const subsetPartition = new Uint32Array(optimizerScratch, 8192, 256);
 const optimizerNodes = new Uint32Array(optimizerScratch, 9216, 16);
 
 const deBruijnTable = new Uint8Array([
-  0, 1, 28, 2, 29, 14, 24, 3, 30, 22, 20, 15, 25, 17, 4, 8,
-  31, 27, 13, 23, 21, 19, 16, 7, 26, 12, 18, 6, 11, 5, 10, 9
+  0, 1, 28, 2, 29, 14, 24, 3, 30, 22, 20, 15, 25, 17, 4, 8, 31, 27, 13, 23, 21, 19, 16, 7, 26, 12, 18, 6, 11,
+  5, 10, 9,
 ]);
 
 function firstBitIndex(value: number): number {
-  return deBruijnTable[(Math.imul(125_613_361, value & -value) >>> 27)]!;
+  return deBruijnTable[Math.imul(125_613_361, value & -value) >>> 27]!;
 }
 
 function bitCount(value: number): number {
@@ -540,11 +460,7 @@ function bitCount(value: number): number {
   return Math.imul(v, 0x0101_0101) >>> 24;
 }
 
-function buildOptimalSubtree(
-  bvh: DynamicBvh,
-  nodes: Uint32Array,
-  mask: number
-): number {
+function buildOptimalSubtree(bvh: DynamicBvh, nodes: Uint32Array, mask: number): number {
   if (bitCount(mask) === 1) return nodes[firstBitIndex(mask)]!;
   const split = subsetPartition[mask]!;
   const other = mask & ~split;
@@ -555,11 +471,7 @@ function buildOptimalSubtree(
   return parent;
 }
 
-function optimizeSubtree(
-  bvh: DynamicBvh,
-  root: number,
-  maxChildren: number
-): void {
+function optimizeSubtree(bvh: DynamicBvh, root: number, maxChildren: number): void {
   if (root === BVH_NULL_NODE || bvh.node_is_leaf(root)) return;
   let count = 0;
   const child1 = bvh.node_get_child1(root);
@@ -634,7 +546,7 @@ function optimizeSubtree(
       let bestCost = Number.POSITIVE_INFINITY;
       let bestSplit = 0;
       const base = (mask - 1) & mask;
-      let split = (-base) & mask;
+      let split = -base & mask;
       do {
         const cost = subsetCost[split]! + subsetCost[mask ^ split]!;
         if (cost < bestCost) {
@@ -652,15 +564,11 @@ function optimizeSubtree(
   bvh.node_assign_children(
     root,
     buildOptimalSubtree(bvh, optimizerNodes, split),
-    buildOptimalSubtree(bvh, optimizerNodes, fullMask & ~split)
+    buildOptimalSubtree(bvh, optimizerNodes, fullMask & ~split),
   );
 }
 
-export function optimizeDynamicBvh(
-  bvh: DynamicBvh,
-  root = bvh.root,
-  maxChildren = 7
-): void {
+export function optimizeDynamicBvh(bvh: DynamicBvh, root = bvh.root, maxChildren = 7): void {
   if (root === BVH_NULL_NODE || bvh.node_is_leaf(root)) return;
   let previous = root;
   let state = 0;
@@ -731,13 +639,9 @@ export function exportDynamicBvhNodes(bvh: DynamicBvh): ArrayBuffer {
 export function exportDynamicBvhNodeRange(
   bvh: DynamicBvh,
   firstNode: number,
-  nodeCount: number
+  nodeCount: number,
 ): ArrayBuffer {
-  if (
-    firstNode < 0 ||
-    nodeCount < 0 ||
-    firstNode + nodeCount > bvh.node_capacity
-  ) {
+  if (firstNode < 0 || nodeCount < 0 || firstNode + nodeCount > bvh.node_capacity) {
     throw new RangeError("Dynamic BVH export range is out of bounds");
   }
   const output = new ArrayBuffer(nodeCount * DYNAMIC_BVH_GPU_NODE_BYTES);

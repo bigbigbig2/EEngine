@@ -1,7 +1,4 @@
-import {
-  GPU_SHADING_BIN_COUNT,
-  GPU_SHADING_BIN_INVALID_ID
-} from "./GpuShadingBinAbi.js";
+import { GPU_SHADING_BIN_COUNT, GPU_SHADING_BIN_INVALID_ID } from "./GpuShadingBinAbi.js";
 import { GPU_VISIBILITY_KEY_EMPTY } from "./GpuVisibilityKeyAbi.js";
 
 export const GPU_SHADING_BIN_VISIBILITY_FORMAT = "r8uint" as const;
@@ -9,11 +6,11 @@ export const GPU_SHADING_BIN_VISIBILITY_SAMPLE_COUNT = 1 as const;
 export const GPU_SHADING_BIN_VISIBILITY_CLEAR = GPU_SHADING_BIN_INVALID_ID;
 export const GPU_SHADING_BIN_VISIBILITY_USAGE = Object.freeze([
   "render-attachment",
-  "texture-binding"
+  "texture-binding",
 ] as const);
 export const GPU_SHADING_BIN_VISIBILITY_TARGETS = Object.freeze([
   Object.freeze({ location: 0, semantic: "visibility-key", format: "r32uint" as const }),
-  Object.freeze({ location: 1, semantic: "shading-bin-id", format: "r8uint" as const })
+  Object.freeze({ location: 1, semantic: "shading-bin-id", format: "r8uint" as const }),
 ]);
 
 export interface GpuShadingBinVisibilityAttachmentContract {
@@ -45,7 +42,7 @@ export interface GpuShadingBinRasterOwnershipResult {
 
 export function gpuShadingBinVisibilityAttachmentContract(
   width: number,
-  height: number
+  height: number,
 ): Readonly<GpuShadingBinVisibilityAttachmentContract> {
   assertExtent(width, "width");
   assertExtent(height, "height");
@@ -56,13 +53,13 @@ export function gpuShadingBinVisibilityAttachmentContract(
     format: GPU_SHADING_BIN_VISIBILITY_FORMAT,
     sampleCount: GPU_SHADING_BIN_VISIBILITY_SAMPLE_COUNT,
     usage: GPU_SHADING_BIN_VISIBILITY_USAGE,
-    clearValue: Object.freeze({ r: GPU_SHADING_BIN_VISIBILITY_CLEAR, g: 0, b: 0, a: 0 })
+    clearValue: Object.freeze({ r: GPU_SHADING_BIN_VISIBILITY_CLEAR, g: 0, b: 0, a: 0 }),
   });
 }
 
 export function gpuShadingBinVisibilityNativeDescriptor(
   contract: GpuShadingBinVisibilityAttachmentContract,
-  usage: Readonly<{ RENDER_ATTACHMENT: number; TEXTURE_BINDING: number }>
+  usage: Readonly<{ RENDER_ATTACHMENT: number; TEXTURE_BINDING: number }>,
 ): GPUTextureDescriptor {
   return {
     label: contract.label,
@@ -71,13 +68,13 @@ export function gpuShadingBinVisibilityNativeDescriptor(
     sampleCount: contract.sampleCount,
     mipLevelCount: 1,
     dimension: "2d",
-    usage: usage.RENDER_ATTACHMENT | usage.TEXTURE_BINDING
+    usage: usage.RENDER_ATTACHMENT | usage.TEXTURE_BINDING,
   };
 }
 
 export function gpuShadingBinVisibilityRenderPassAttachments(
   visibilityKey: GPUTextureView,
-  shadingBinId: GPUTextureView
+  shadingBinId: GPUTextureView,
 ): readonly GPURenderPassColorAttachment[] {
   return Object.freeze([
     ...gpuVisibilityKeyRenderPassAttachments(visibilityKey),
@@ -85,21 +82,23 @@ export function gpuShadingBinVisibilityRenderPassAttachments(
       view: shadingBinId,
       clearValue: { r: GPU_SHADING_BIN_INVALID_ID, g: 0, b: 0, a: 0 },
       loadOp: "clear",
-      storeOp: "store"
-    }
+      storeOp: "store",
+    },
   ]);
 }
 
 /** Single-MRT VisibilityKey path used when no per-pixel bin identity is consumed. */
 export function gpuVisibilityKeyRenderPassAttachments(
-  visibilityKey: GPUTextureView
+  visibilityKey: GPUTextureView,
 ): readonly GPURenderPassColorAttachment[] {
-  return Object.freeze([{
-    view: visibilityKey,
-    clearValue: { r: GPU_VISIBILITY_KEY_EMPTY, g: 0, b: 0, a: 0 },
-    loadOp: "clear",
-    storeOp: "store"
-  }]);
+  return Object.freeze([
+    {
+      view: visibilityKey,
+      clearValue: { r: GPU_VISIBILITY_KEY_EMPTY, g: 0, b: 0, a: 0 },
+      loadOp: "clear",
+      storeOp: "store",
+    },
+  ]);
 }
 
 /**
@@ -109,7 +108,7 @@ export function gpuVisibilityKeyRenderPassAttachments(
 export function resolveGpuShadingBinRasterOwnership(
   width: number,
   height: number,
-  fragments: readonly GpuShadingBinRasterFragment[]
+  fragments: readonly GpuShadingBinRasterFragment[],
 ): Readonly<GpuShadingBinRasterOwnershipResult> {
   assertExtent(width, "width");
   assertExtent(height, "height");
@@ -123,13 +122,15 @@ export function resolveGpuShadingBinRasterOwnership(
   for (const fragment of fragments) {
     assertCoordinate(fragment.x, width, "x");
     assertCoordinate(fragment.y, height, "y");
-    if (!Number.isFinite(fragment.reverseDepth) ||
-        fragment.reverseDepth < 0 || fragment.reverseDepth > 1) {
+    if (!Number.isFinite(fragment.reverseDepth) || fragment.reverseDepth < 0 || fragment.reverseDepth > 1) {
       throw new RangeError("Visibility fragment reverse depth must be finite and in [0, 1]");
     }
     assertU32(fragment.visibilityKey, "Visibility fragment key");
-    if (!Number.isInteger(fragment.shadingBinId) || fragment.shadingBinId < 0 ||
-        fragment.shadingBinId >= GPU_SHADING_BIN_COUNT) {
+    if (
+      !Number.isInteger(fragment.shadingBinId) ||
+      fragment.shadingBinId < 0 ||
+      fragment.shadingBinId >= GPU_SHADING_BIN_COUNT
+    ) {
       throw new RangeError("Visibility fragment shading bin must be in [0, 63]");
     }
     if (typeof fragment.discarded !== "boolean") {

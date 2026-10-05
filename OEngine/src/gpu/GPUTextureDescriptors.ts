@@ -2,8 +2,7 @@
  * GPUTextureDescriptors：负责 GPU 资源、数据上传或 GPU 驱动渲染基础设施。
  */
 
-export type NativeTextureExtent = readonly [number, number, number] &
-  Readonly<GPUExtent3DDict>;
+export type NativeTextureExtent = readonly [number, number, number] & Readonly<GPUExtent3DDict>;
 
 class sd {
   #label = "";
@@ -143,23 +142,16 @@ const defaultTextureViewDescriptor = gd.from({ label: "" });
 Object.freeze(defaultTextureViewDescriptor);
 export const DEFAULT_TEXTURE_VIEW_DESCRIPTOR: gd = defaultTextureViewDescriptor;
 
-export function nativeTextureDescriptor(
-  descriptor: GPUTextureDescriptor | id
-): id {
+export function nativeTextureDescriptor(descriptor: GPUTextureDescriptor | id): id {
   return descriptor instanceof id ? descriptor : id.from(descriptor);
 }
 
-export function nativeTextureViewDescriptor(
-  descriptor?: GPUTextureViewDescriptor | gd
-): gd {
+export function nativeTextureViewDescriptor(descriptor?: GPUTextureViewDescriptor | gd): gd {
   if (descriptor === undefined) return DEFAULT_TEXTURE_VIEW_DESCRIPTOR;
   return descriptor instanceof gd ? descriptor : gd.from(descriptor);
 }
 
-export function createNativeTexture(
-  device: GPUDevice,
-  descriptor: GPUTextureDescriptor | id
-): GPUTexture {
+export function createNativeTexture(device: GPUDevice, descriptor: GPUTextureDescriptor | id): GPUTexture {
   const native = nativeTextureDescriptor(descriptor);
   return device.createTexture({
     label: native.label,
@@ -169,13 +161,13 @@ export function createNativeTexture(
     dimension: native.dimension,
     format: native.format,
     usage: native.usage,
-    viewFormats: native.viewFormats.slice()
+    viewFormats: native.viewFormats.slice(),
   });
 }
 
 export function createNativeTextureView(
   texture: GPUTexture,
-  descriptor?: GPUTextureViewDescriptor | gd
+  descriptor?: GPUTextureViewDescriptor | gd,
 ): GPUTextureView {
   return texture.createView(nativeTextureViewDescriptor(descriptor));
 }
@@ -195,8 +187,7 @@ function nativeTextureExtent(extent: GPUExtent3D): NativeTextureExtent {
     height = dictionary.height ?? 1;
     depthOrArrayLayers = dictionary.depthOrArrayLayers ?? 1;
   }
-  const result = [width, height, depthOrArrayLayers] as number[] &
-    GPUExtent3DDict;
+  const result = [width, height, depthOrArrayLayers] as number[] & GPUExtent3DDict;
   result.width = width;
   result.height = height;
   result.depthOrArrayLayers = depthOrArrayLayers;

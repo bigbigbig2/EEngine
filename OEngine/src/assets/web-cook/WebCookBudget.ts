@@ -74,22 +74,34 @@ export class WebCookBudgetLedger {
 
   constructor(limits: WebCookGlobalBudgetLimits) {
     for (const [name, value] of Object.entries(limits)) {
-      if (!Number.isSafeInteger(value) || value <= 0) throw new RangeError(`Web Cook global budget ${name} must be a positive safe integer`);
+      if (!Number.isSafeInteger(value) || value <= 0)
+        throw new RangeError(`Web Cook global budget ${name} must be a positive safe integer`);
     }
     this.#limits = Object.freeze({ ...limits });
   }
 
-  get limits(): WebCookGlobalBudgetLimits { return this.#limits; }
+  get limits(): WebCookGlobalBudgetLimits {
+    return this.#limits;
+  }
 
   /** Admits a session immediately or waits for a bounded, aged slot. */
   acquireSession(sessionId: string, priority = 0, signal?: AbortSignal): Promise<WebCookBudgetLease> {
-    if (typeof sessionId !== "string" || sessionId.length === 0) throw new TypeError("Web Cook session id must be a non-empty string");
+    if (typeof sessionId !== "string" || sessionId.length === 0)
+      throw new TypeError("Web Cook session id must be a non-empty string");
     if (!Number.isFinite(priority)) throw new RangeError("Web Cook session priority must be finite");
-    if (signal?.aborted) return Promise.reject(signal.reason ?? new Error("Web Cook budget acquisition was aborted"));
+    if (signal?.aborted)
+      return Promise.reject(signal.reason ?? new Error("Web Cook budget acquisition was aborted"));
     if (this.#active.size < this.#limits.maxActiveSessions) return Promise.resolve(this.#grant(sessionId));
     this.#backpressureEvents++;
     return new Promise<WebCookBudgetLease>((resolve, reject) => {
-      const waiter: Waiter = { sessionId, priority, sequence: this.#sequence++, resolve, reject, ...(signal === undefined ? {} : { signal }) };
+      const waiter: Waiter = {
+        sessionId,
+        priority,
+        sequence: this.#sequence++,
+        resolve,
+        reject,
+        ...(signal === undefined ? {} : { signal }),
+      };
       if (signal !== undefined) {
         const onAbort = (): void => {
           const index = this.#waiters.indexOf(waiter);
@@ -109,7 +121,8 @@ export class WebCookBudgetLedger {
   reserve(lease: WebCookBudgetLease, kind: WebCookBudgetKind, bytes: number): boolean {
     const record = this.#requireLease(lease);
     assertKind(kind);
-    if (!Number.isSafeInteger(bytes) || bytes < 0) throw new RangeError("Web Cook reservation bytes must be a non-negative safe integer");
+    if (!Number.isSafeInteger(bytes) || bytes < 0)
+      throw new RangeError("Web Cook reservation bytes must be a non-negative safe integer");
     if (this.#bytes[kind] + bytes > this.#limits[limitFor(kind)]) {
       this.#rejectedReservations++;
       return false;
@@ -124,7 +137,8 @@ export class WebCookBudgetLedger {
   release(lease: WebCookBudgetLease, kind: WebCookBudgetKind, bytes: number): void {
     const record = this.#requireLease(lease);
     assertKind(kind);
-    if (!Number.isSafeInteger(bytes) || bytes < 0) throw new RangeError("Web Cook release bytes must be a non-negative safe integer");
+    if (!Number.isSafeInteger(bytes) || bytes < 0)
+      throw new RangeError("Web Cook release bytes must be a non-negative safe integer");
     const applied = Math.min(bytes, record.bytes[kind]);
     record.bytes[kind] -= applied;
     this.#bytes[kind] -= applied;
@@ -143,7 +157,7 @@ export class WebCookBudgetLedger {
       admissions: this.#admissions,
       backpressureEvents: this.#backpressureEvents,
       rejectedReservations: this.#rejectedReservations,
-      cancelledWaiters: this.#cancelledWaiters
+      cancelledWaiters: this.#cancelledWaiters,
     });
   }
 
@@ -160,7 +174,7 @@ export class WebCookBudgetLedger {
         if (released) return;
         released = true;
         this.#releaseRecord(record);
-      }
+      },
     });
   }
 
@@ -179,16 +193,22 @@ export class WebCookBudgetLedger {
       const candidate = this.#waiters[index]!;
       const current = this.#waiters[best]!;
       // Higher priority first, then older arrival; stable for equal keys.
-      if (candidate.priority > current.priority || (candidate.priority === current.priority && candidate.sequence < current.sequence)) best = index;
+      if (
+        candidate.priority > current.priority ||
+        (candidate.priority === current.priority && candidate.sequence < current.sequence)
+      )
+        best = index;
     }
     const [waiter] = this.#waiters.splice(best, 1);
-    if (waiter?.signal !== undefined && waiter.onAbort !== undefined) waiter.signal.removeEventListener("abort", waiter.onAbort);
+    if (waiter?.signal !== undefined && waiter.onAbort !== undefined)
+      waiter.signal.removeEventListener("abort", waiter.onAbort);
     return waiter;
   }
 
   #requireLease(lease: WebCookBudgetLease): LeaseRecord {
     const record = this.#active.get(lease.id);
-    if (record === undefined || record.sessionId !== lease.sessionId) throw new Error("Web Cook budget lease is not active");
+    if (record === undefined || record.sessionId !== lease.sessionId)
+      throw new Error("Web Cook budget lease is not active");
     return record;
   }
 }
@@ -198,5 +218,6 @@ function limitFor(kind: WebCookBudgetKind): keyof WebCookGlobalBudgetLimits {
 }
 
 function assertKind(kind: WebCookBudgetKind): void {
-  if (kind !== "output" && kind !== "source" && kind !== "wasm") throw new RangeError(`unknown Web Cook budget kind '${String(kind)}'`);
+  if (kind !== "output" && kind !== "source" && kind !== "wasm")
+    throw new RangeError(`unknown Web Cook budget kind '${String(kind)}'`);
 }

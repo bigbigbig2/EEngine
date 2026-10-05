@@ -6,27 +6,30 @@ import "../webgpu-test-globals.mjs";
 import { parseGltfMaterial } from "../../.test-dist/loaders/gltf/gltfMaterials.js";
 import {
   GPU_MATERIAL_VISIBILITY_FLAGS,
-  materialVisibilitySource
+  materialVisibilitySource,
 } from "../../.test-dist/gpu/GpuMaterialVisibilityAbi.js";
 import { PACKED_TRANSPARENT_FORWARD_WGSL } from "../../.test-dist/shaders/packed_transparent_oit.js";
 
 const textures = Object.freeze([
   { image: { width: 4, height: 4, depth: 1 }, wrapS: 1, wrapT: 1, magFilter: 1, minFilter: 1 },
-  { image: { width: 4, height: 4, depth: 1 }, wrapS: 1, wrapT: 1, magFilter: 1, minFilter: 1 }
+  { image: { width: 4, height: 4, depth: 1 }, wrapS: 1, wrapT: 1, magFilter: 1, minFilter: 1 },
 ]);
 
 test("glTF AO-only material retains its independent texture, UV set, transform and strength", () => {
-  const material = parseGltfMaterial({
-    name: "ao-only",
-    occlusionTexture: {
-      index: 1,
-      texCoord: 1,
-      strength: 0.35,
-      extensions: {
-        KHR_texture_transform: { offset: [0.25, 0.5], scale: [2, 3], rotation: 0.4 }
-      }
-    }
-  }, textures);
+  const material = parseGltfMaterial(
+    {
+      name: "ao-only",
+      occlusionTexture: {
+        index: 1,
+        texCoord: 1,
+        strength: 0.35,
+        extensions: {
+          KHR_texture_transform: { offset: [0.25, 0.5], scale: [2, 3], rotation: 0.4 },
+        },
+      },
+    },
+    textures,
+  );
 
   assert.equal(material.texture_orm, undefined);
   assert.equal(material.texture_occlusion, textures[1]);
@@ -43,11 +46,14 @@ test("glTF AO-only material retains its independent texture, UV set, transform a
 });
 
 test("glTF separate MR and AO textures preserve independent textureInfo contracts", () => {
-  const material = parseGltfMaterial({
-    name: "separate-mr-ao",
-    pbrMetallicRoughness: { metallicRoughnessTexture: { index: 0, texCoord: 0 } },
-    occlusionTexture: { index: 1, texCoord: 1 }
-  }, textures);
+  const material = parseGltfMaterial(
+    {
+      name: "separate-mr-ao",
+      pbrMetallicRoughness: { metallicRoughnessTexture: { index: 0, texCoord: 0 } },
+      occlusionTexture: { index: 1, texCoord: 1 },
+    },
+    textures,
+  );
 
   assert.equal(material.texture_orm, textures[0]);
   assert.equal(material.orm_uv_set, 0);
@@ -56,19 +62,25 @@ test("glTF separate MR and AO textures preserve independent textureInfo contract
 });
 
 test("glTF shared ORM sample stays on the compact path only when texture and UV mapping match", () => {
-  const shared = parseGltfMaterial({
-    name: "shared-orm",
-    pbrMetallicRoughness: { metallicRoughnessTexture: { index: 0, texCoord: 1 } },
-    occlusionTexture: { index: 0, texCoord: 1 }
-  }, textures);
+  const shared = parseGltfMaterial(
+    {
+      name: "shared-orm",
+      pbrMetallicRoughness: { metallicRoughnessTexture: { index: 0, texCoord: 1 } },
+      occlusionTexture: { index: 0, texCoord: 1 },
+    },
+    textures,
+  );
   assert.equal(shared.texture_orm, textures[0]);
   assert.equal(shared.texture_occlusion, undefined);
 
-  const differentUv = parseGltfMaterial({
-    name: "shared-image-different-uv",
-    pbrMetallicRoughness: { metallicRoughnessTexture: { index: 0, texCoord: 0 } },
-    occlusionTexture: { index: 0, texCoord: 1 }
-  }, textures);
+  const differentUv = parseGltfMaterial(
+    {
+      name: "shared-image-different-uv",
+      pbrMetallicRoughness: { metallicRoughnessTexture: { index: 0, texCoord: 0 } },
+      occlusionTexture: { index: 0, texCoord: 1 },
+    },
+    textures,
+  );
   assert.equal(differentUv.texture_orm, textures[0]);
   assert.equal(differentUv.texture_occlusion, textures[0]);
   assert.equal(differentUv.orm_uv_set, 0);
@@ -82,6 +94,6 @@ test("packed transparency consumes independent AO UV and applies AO only to indi
   assert.match(PACKED_TRANSPARENT_FORWARD_WGSL, /irradiance[\s\S]*\* material_ao/u);
   assert.doesNotMatch(
     PACKED_TRANSPARENT_FORWARD_WGSL,
-    /shade_standard_material_direct\([\s\S]{0,160}material_ao/u
+    /shade_standard_material_direct\([\s\S]{0,160}material_ao/u,
   );
 });

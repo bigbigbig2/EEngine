@@ -58,72 +58,52 @@ export interface TemporalUpscaleSample {
 }
 
 /** Surface ABI velocity is current-minus-previous in internal-pixel units. */
-export function reprojectTemporalSample(
-  input: TemporalReprojectionInput
-): TemporalReprojectionResult {
+export function reprojectTemporalSample(input: TemporalReprojectionInput): TemporalReprojectionResult {
   const width = positiveFinite(input.internalResolution[0], "internal width");
   const height = positiveFinite(input.internalResolution[1], "internal height");
   const currentX = finite(input.currentInternalPixel[0], "current pixel x");
   const currentY = finite(input.currentInternalPixel[1], "current pixel y");
   const velocityX = finite(input.velocityInternalPixels[0], "velocity x");
   const velocityY = finite(input.velocityInternalPixels[1], "velocity y");
-  const previous: readonly [number, number] = [
-    currentX - velocityX,
-    currentY - velocityY
-  ];
+  const previous: readonly [number, number] = [currentX - velocityX, currentY - velocityY];
   const uv: readonly [number, number] = [previous[0] / width, previous[1] / height];
   return Object.freeze({
     previousInternalPixel: previous,
     historyUv: uv,
-    inside: uv[0] >= 0 && uv[1] >= 0 && uv[0] < 1 && uv[1] < 1
+    inside: uv[0] >= 0 && uv[1] >= 0 && uv[0] < 1 && uv[1] < 1,
   });
 }
 
 /** CPU reference for the independently-authored WGSL history acceptance policy. */
 export function classifyTemporalHistory(
-  input: TemporalHistoryClassificationInput
+  input: TemporalHistoryClassificationInput,
 ): TemporalHistoryClassification {
   if (!input.historyValid) return rejected("history-invalid");
   if (!input.motionValid) return rejected("motion-invalid");
   if (clamp01(input.reactive) >= TEMPORAL_REACTIVE_REJECT_THRESHOLD) {
     return rejected("reactive");
   }
-  if (
-    clamp01(input.disocclusionConfidence) <
-    TEMPORAL_DISOCCLUSION_REJECT_THRESHOLD
-  ) return rejected("disoccluded");
+  if (clamp01(input.disocclusionConfidence) < TEMPORAL_DISOCCLUSION_REJECT_THRESHOLD)
+    return rejected("disoccluded");
   if (!input.reprojectedInside) return rejected("outside");
 
-  const motion = Math.max(0, finite(
-    input.velocityMagnitudePixels,
-    "velocity magnitude"
-  ));
-  const currentLuminance = Math.max(0, finite(
-    input.currentLuminance,
-    "current luminance"
-  ));
-  const historyLuminance = Math.max(0, finite(
-    input.historyLuminance,
-    "history luminance"
-  ));
+  const motion = Math.max(0, finite(input.velocityMagnitudePixels, "velocity magnitude"));
+  const currentLuminance = Math.max(0, finite(input.currentLuminance, "current luminance"));
+  const historyLuminance = Math.max(0, finite(input.historyLuminance, "history luminance"));
   const motionConfidence = clamp01(1 - motion / TEMPORAL_MOTION_FADE_PIXELS);
-  const relativeLuminanceDelta = Math.abs(currentLuminance - historyLuminance) /
-    Math.max(currentLuminance, historyLuminance, 0.1);
+  const relativeLuminanceDelta =
+    Math.abs(currentLuminance - historyLuminance) / Math.max(currentLuminance, historyLuminance, 0.1);
   const luminanceConfidence = 1 / (1 + 4 * relativeLuminanceDelta);
-  const reactiveConfidence = 1 - smoothstep(
-    0,
-    TEMPORAL_REACTIVE_REJECT_THRESHOLD,
-    clamp01(input.reactive)
-  );
+  const reactiveConfidence = 1 - smoothstep(0, TEMPORAL_REACTIVE_REJECT_THRESHOLD, clamp01(input.reactive));
   const nextHistoryLock = clamp01(
-    clamp01(input.historyLock ?? 0) + TEMPORAL_HISTORY_LOCK_STEP *
-      clamp01(input.disocclusionConfidence) * reactiveConfidence
+    clamp01(input.historyLock ?? 0) +
+      TEMPORAL_HISTORY_LOCK_STEP * clamp01(input.disocclusionConfidence) * reactiveConfidence,
   );
   const lockedWeightLimit =
     TEMPORAL_MIN_LOCKED_HISTORY_WEIGHT +
-    (TEMPORAL_MAX_HISTORY_WEIGHT - TEMPORAL_MIN_LOCKED_HISTORY_WEIGHT) *
-      nextHistoryLock;
-  const weight = lockedWeightLimit *
+    (TEMPORAL_MAX_HISTORY_WEIGHT - TEMPORAL_MIN_LOCKED_HISTORY_WEIGHT) * nextHistoryLock;
+  const weight =
+    lockedWeightLimit *
     motionConfidence *
     luminanceConfidence *
     reactiveConfidence *
@@ -132,14 +112,12 @@ export function classifyTemporalHistory(
     historyWeight: clamp01(weight),
     nextHistoryLock,
     rejected: false,
-    rejectionReason: "none" as const
+    rejectionReason: "none" as const,
   });
 }
 
 /** Maps an output pixel center to the current internal-resolution footprint. */
-export function resolveTemporalUpscaleSample(
-  input: TemporalUpscaleSampleInput
-): TemporalUpscaleSample {
+export function resolveTemporalUpscaleSample(input: TemporalUpscaleSampleInput): TemporalUpscaleSample {
   const internalWidth = positiveFinite(input.internalResolution[0], "internal width");
   const internalHeight = positiveFinite(input.internalResolution[1], "internal height");
   const outputWidth = positiveFinite(input.outputResolution[0], "output width");
@@ -149,17 +127,14 @@ export function resolveTemporalUpscaleSample(
   if (outputX < 0 || outputY < 0 || outputX >= outputWidth || outputY >= outputHeight) {
     throw new RangeError("output pixel must be inside output resolution");
   }
-  const outputUv: readonly [number, number] = [
-    (outputX + 0.5) / outputWidth,
-    (outputY + 0.5) / outputHeight
-  ];
+  const outputUv: readonly [number, number] = [(outputX + 0.5) / outputWidth, (outputY + 0.5) / outputHeight];
   return Object.freeze({
     outputUv,
-    internalPixel: Object.freeze([
-      outputUv[0] * internalWidth,
-      outputUv[1] * internalHeight
-    ]) as readonly [number, number],
-    upscaling: internalWidth < outputWidth || internalHeight < outputHeight
+    internalPixel: Object.freeze([outputUv[0] * internalWidth, outputUv[1] * internalHeight]) as readonly [
+      number,
+      number,
+    ],
+    upscaling: internalWidth < outputWidth || internalHeight < outputHeight,
   });
 }
 
@@ -167,7 +142,7 @@ export function resolveTemporalUpscaleSample(
 export function clipTemporalHistoryYCoCg(
   historyRgb: readonly [number, number, number],
   currentNeighborhood: readonly (readonly [number, number, number])[],
-  varianceGamma = TEMPORAL_VARIANCE_GAMMA
+  varianceGamma = TEMPORAL_VARIANCE_GAMMA,
 ): readonly [number, number, number] {
   if (currentNeighborhood.length === 0) {
     throw new RangeError("current neighborhood must not be empty");
@@ -190,55 +165,36 @@ export function clipTemporalHistoryYCoCg(
   const clipped: [number, number, number] = [0, 0, 0];
   for (let channel = 0; channel < 3; channel++) {
     const mean = sum[channel]! / currentNeighborhood.length;
-    const variance = Math.max(
-      0,
-      squared[channel]! / currentNeighborhood.length - mean * mean
-    );
+    const variance = Math.max(0, squared[channel]! / currentNeighborhood.length - mean * mean);
     const deviation = Math.sqrt(variance);
     const lower = Math.max(minimum[channel]!, mean - gamma * deviation);
     const upper = Math.min(maximum[channel]!, mean + gamma * deviation);
     clipped[channel] = Math.max(lower, Math.min(upper, history[channel]!));
   }
   const rgb = yCoCgToRgb(clipped);
-  return Object.freeze([
-    Math.max(0, rgb[0]),
-    Math.max(0, rgb[1]),
-    Math.max(0, rgb[2])
-  ]);
+  return Object.freeze([Math.max(0, rgb[0]), Math.max(0, rgb[1]), Math.max(0, rgb[2])]);
 }
 
 function rejected(
-  rejectionReason: Exclude<TemporalHistoryRejectionReason, "none">
+  rejectionReason: Exclude<TemporalHistoryRejectionReason, "none">,
 ): TemporalHistoryClassification {
   return Object.freeze({
     historyWeight: 0,
     nextHistoryLock: 0,
     rejected: true,
-    rejectionReason
+    rejectionReason,
   });
 }
 
-function rgbToYCoCg(
-  rgb: readonly [number, number, number]
-): readonly [number, number, number] {
+function rgbToYCoCg(rgb: readonly [number, number, number]): readonly [number, number, number] {
   const r = Math.max(0, finite(rgb[0], "red"));
   const g = Math.max(0, finite(rgb[1], "green"));
   const b = Math.max(0, finite(rgb[2], "blue"));
-  return [
-    r * 0.25 + g * 0.5 + b * 0.25,
-    r * 0.5 - b * 0.5,
-    -r * 0.25 + g * 0.5 - b * 0.25
-  ];
+  return [r * 0.25 + g * 0.5 + b * 0.25, r * 0.5 - b * 0.5, -r * 0.25 + g * 0.5 - b * 0.25];
 }
 
-function yCoCgToRgb(
-  value: readonly [number, number, number]
-): readonly [number, number, number] {
-  return [
-    value[0] + value[1] - value[2],
-    value[0] + value[2],
-    value[0] - value[1] - value[2]
-  ];
+function yCoCgToRgb(value: readonly [number, number, number]): readonly [number, number, number] {
+  return [value[0] + value[1] - value[2], value[0] + value[2], value[0] - value[1] - value[2]];
 }
 
 function clamp01(value: number): number {

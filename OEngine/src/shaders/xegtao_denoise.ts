@@ -5,7 +5,9 @@
  * four cardinal and four diagonal samples and edge weights. 8x8 compute,
  * sampled r8 inputs and write-only r8 output, no atomics or workgroup state.
  */
-import { XE_GTAO_OCCLUSION_TERM_SCALE, XE_GTAO_PREP_UNIFORM_WGSL
+import {
+  XE_GTAO_OCCLUSION_TERM_SCALE,
+  XE_GTAO_PREP_UNIFORM_WGSL,
 } from "../render/ao/XeGtaoPreparationAbi.js";
 
 export function xeGtaoDenoiseWgsl(finalApply: boolean, beta: number): string {

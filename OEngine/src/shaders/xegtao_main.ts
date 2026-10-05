@@ -4,7 +4,9 @@
  * Source: XeGTAO.hlsli::XeGTAO_MainPass and vaGTAO.hlsl::SpatioTemporalNoise.
  * 8x8 compute, five point-loaded FP32 depth levels, no atomics or barriers.
  */
-import { XE_GTAO_OCCLUSION_TERM_SCALE, XE_GTAO_PREP_UNIFORM_WGSL
+import {
+  XE_GTAO_OCCLUSION_TERM_SCALE,
+  XE_GTAO_PREP_UNIFORM_WGSL,
 } from "../render/ao/XeGtaoPreparationAbi.js";
 import { XE_GTAO_EDGES_WGSL } from "./xegtao_preparation.js";
 

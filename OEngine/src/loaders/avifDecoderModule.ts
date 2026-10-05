@@ -44,13 +44,9 @@ var Uo,
       (a || i) &&
         (i
           ? (f = self.location.href)
-          : "undefined" != typeof document &&
-            document.currentScript &&
-            (f = document.currentScript.src),
+          : "undefined" != typeof document && document.currentScript && (f = document.currentScript.src),
         Uo && (f = Uo),
-        (f = f.startsWith("blob:")
-          ? ""
-          : f.substr(0, f.replace(/[?#].*/, "").lastIndexOf("/") + 1)),
+        (f = f.startsWith("blob:") ? "" : f.substr(0, f.replace(/[?#].*/, "").lastIndexOf("/") + 1)),
         i &&
           (d = (e) => {
             var t = new XMLHttpRequest();
@@ -123,11 +119,11 @@ var Uo,
         O,
         S,
         R = (e) => {
-          for (; e.length > 0;) e.shift()(r);
+          for (; e.length > 0; ) e.shift()(r);
         },
         q = r.noExitRuntime || !0,
         N = (e) => {
-          for (var t = "", n = e; A[n];) t += H[A[n++]];
+          for (var t = "", n = e; A[n]; ) t += H[A[n++]];
           return t;
         },
         Y = {},
@@ -142,9 +138,7 @@ var Uo,
       function $(e, t, n = {}) {
         return ((e, t, n = {}) => {
           var r = t.name;
-          if (
-            (e || K(`type "${r}" must have a positive integer typeid pointer`), X.hasOwnProperty(e))
-          ) {
+          if ((e || K(`type "${r}" must have a positive integer typeid pointer`), X.hasOwnProperty(e))) {
             if (n.ignoreDuplicateRegistrations) return;
             K(`Cannot register type '${r}' twice`);
           }
@@ -192,7 +186,7 @@ var Uo,
           toWireType: (e, t) => ne(t),
           argPackAdvance: 8,
           readValueFromPointer: re,
-          destructorFunction: null
+          destructorFunction: null,
         },
         ce = (e, t) => {
           switch (t) {
@@ -210,7 +204,7 @@ var Uo,
         },
         de = (e, t) => Object.defineProperty(t, "name", { value: e }),
         ue = (e) => {
-          for (; e.length;) {
+          for (; e.length; ) {
             var t = e.pop();
             e.pop()(t);
           }
@@ -222,7 +216,7 @@ var Uo,
               return (
                 e[t].overloadTable.hasOwnProperty(r.length) ||
                   K(
-                    `Function '${n}' called with an invalid number of arguments (${r.length}) - expects one of (${e[t].overloadTable})!`
+                    `Function '${n}' called with an invalid number of arguments (${r.length}) - expects one of (${e[t].overloadTable})!`,
                   ),
                 e[t].overloadTable[r.length].apply(this, r)
               );
@@ -254,7 +248,7 @@ var Uo,
           }
         },
         pe = (e, t = 0, n = NaN) => {
-          for (var r = t + n, s = ""; !(t >= r);) {
+          for (var r = t + n, s = ""; !(t >= r); ) {
             var a = e[t++];
             if (!a) return s;
             if (128 & a) {
@@ -296,7 +290,7 @@ var Uo,
         },
         we = (e) => 2 * e.length,
         xe = (e, t) => {
-          for (var n = 0, r = ""; !(n >= t / 4);) {
+          for (var n = 0, r = ""; !(n >= t / 4); ) {
             var s = x[(e + 4 * n) >> 2];
             if (0 == s) break;
             if ((++n, s >= 65536)) {
@@ -311,9 +305,7 @@ var Uo,
           for (var r = t, s = r + n - 4, a = 0; a < e.length; ++a) {
             var i = e.charCodeAt(a);
             if (
-              (i >= 55296 &&
-                i <= 57343 &&
-                (i = (65536 + ((1023 & i) << 10)) | (1023 & e.charCodeAt(++a))),
+              (i >= 55296 && i <= 57343 && (i = (65536 + ((1023 & i) << 10)) | (1023 & e.charCodeAt(++a))),
               (x[t >> 2] = i),
               (t += 4) + 4 > s)
             )
@@ -406,8 +398,7 @@ var Uo,
           (oe = de("UnboundTypeError", function (e) {
             ((this.name = "UnboundTypeError"), (this.message = e));
             var t = new Error(e).stack;
-            void 0 !== t &&
-              (this.stack = this.toString() + "\n" + t.replace(/^Error(:[^\n]*)?\n/, ""));
+            void 0 !== t && (this.stack = this.toString() + "\n" + t.replace(/^Error(:[^\n]*)?\n/, ""));
           })),
           (oe.prototype = Object.create(ie.prototype)),
           (oe.prototype.constructor = oe),
@@ -428,7 +419,7 @@ var Uo,
               readValueFromPointer(e) {
                 return this.fromWireType(A[e]);
               },
-              destructorFunction: null
+              destructorFunction: null,
             });
           },
           p: (e) => $(e, _e),
@@ -439,7 +430,7 @@ var Uo,
               toWireType: (e, t) => t,
               argPackAdvance: 8,
               readValueFromPointer: ce(t, n),
-              destructorFunction: null
+              destructorFunction: null,
             });
           },
           m(e, t, n, s, a, i, o, _) {
@@ -460,26 +451,23 @@ var Uo,
                       (...e) =>
                         ((e, t, n = []) =>
                           e.includes("j")
-                            ? ((e, t, n) => (
-                                (e = e.replace(/p/g, "i")),
-                                (0, r["dynCall_" + e])(t, ...n)
-                              ))(e, t, n)
+                            ? ((e, t, n) => ((e = e.replace(/p/g, "i")), (0, r["dynCall_" + e])(t, ...n)))(
+                                e,
+                                t,
+                                n,
+                              )
                             : he(t)(...n))(n, s, e))
                     : he(t);
-                return (
-                  "function" != typeof a && K(`unknown function pointer with signature ${e}: ${t}`),
-                  a
-                );
+                return ("function" != typeof a && K(`unknown function pointer with signature ${e}: ${t}`), a);
               })(s, a)),
               ((e, t, n) => {
                 r.hasOwnProperty(e)
-                  ? ((void 0 === n ||
-                      (void 0 !== r[e].overloadTable && void 0 !== r[e].overloadTable[n])) &&
+                  ? ((void 0 === n || (void 0 !== r[e].overloadTable && void 0 !== r[e].overloadTable[n])) &&
                       K(`Cannot register public name '${e}' twice`),
                     le(r, e, e),
                     r[e].overloadTable.hasOwnProperty(n) &&
                       K(
-                        `Cannot register multiple overloads of a function with the same number of arguments (${n})!`
+                        `Cannot register multiple overloads of a function with the same number of arguments (${n})!`,
                       ),
                     (r[e].overloadTable[n] = t))
                   : ((r[e] = t), (r[e].argCount = n));
@@ -497,7 +485,7 @@ var Uo,
                     );
                   })(`Cannot call ${e} due to unbound types`, c);
                 },
-                t - 1
+                t - 1,
               ),
               ((n, s) => {
                 function o(s) {
@@ -515,7 +503,7 @@ var Uo,
                           var a = t.length;
                           a < 2 &&
                             K(
-                              "argTypes array size mismatch! Must at least get return value and 'this' types!"
+                              "argTypes array size mismatch! Must at least get return value and 'this' types!",
                             );
                           var i = ((e) => {
                               for (var t = 1; t < e.length; ++t)
@@ -529,8 +517,7 @@ var Uo,
                             u = [];
                           return de(e, (...e) => {
                             ((u.length = 0), (d.length = 1), (d[0] = s));
-                            for (var n = 0; n < _; ++n)
-                              ((c[n] = t[n + 2].toWireType(u, e[n])), d.push(c[n]));
+                            for (var n = 0; n < _; ++n) ((c[n] = t[n + 2].toWireType(u, e[n])), d.push(c[n]));
                             return ((e) => {
                               if (i) ue(u);
                               else
@@ -541,7 +528,7 @@ var Uo,
                             })(r(...d));
                           });
                         })(e, s, 0, a, i),
-                        t - 1
+                        t - 1,
                       ),
                       []
                     );
@@ -579,7 +566,7 @@ var Uo,
               toWireType: o ? (e, t) => t >>> 0 : (e, t) => t,
               argPackAdvance: 8,
               readValueFromPointer: ge(t, n, 0 !== r),
-              destructorFunction: null
+              destructorFunction: null,
             });
           },
           b(e, t, n) {
@@ -591,7 +578,7 @@ var Uo,
               Int32Array,
               Uint32Array,
               Float32Array,
-              Float64Array
+              Float64Array,
             ][t];
             function s(e) {
               return new r(v.buffer, y[(e + 4) >> 2], y[e >> 2]);
@@ -599,7 +586,7 @@ var Uo,
             $(
               e,
               { name: (n = N(n)), fromWireType: s, argPackAdvance: 8, readValueFromPointer: s },
-              { ignoreDuplicateRegistrations: !0 }
+              { ignoreDuplicateRegistrations: !0 },
             );
           },
           q(e, t) {
@@ -610,8 +597,7 @@ var Uo,
                   var i = r + a;
                   if (a == n || 0 == A[i]) {
                     var o = ve(s, i - s);
-                    (void 0 === t ? (t = o) : ((t += String.fromCharCode(0)), (t += o)),
-                      (s = i + 1));
+                    (void 0 === t ? (t = o) : ((t += String.fromCharCode(0)), (t += o)), (s = i + 1));
                   }
                 }
                 return (Ye(e), t);
@@ -676,8 +662,7 @@ var Uo,
                 else if (r)
                   for (var i = 0; i < n; ++i) {
                     var o = t.charCodeAt(i);
-                    (o > 255 &&
-                      (Ye(a), K("String has UTF-16 code units that do not fit in 8 bits")),
+                    (o > 255 && (Ye(a), K("String has UTF-16 code units that do not fit in 8 bits")),
                       (A[a + i] = o));
                   }
                 else for (i = 0; i < n; ++i) A[a + i] = t[i];
@@ -687,7 +672,7 @@ var Uo,
               readValueFromPointer: re,
               destructorFunction(e) {
                 Ye(e);
-              }
+              },
             });
           },
           l(e, t, n) {
@@ -703,8 +688,7 @@ var Uo,
                     var _ = e + 4 + o * t;
                     if (o == s || 0 == a(_)) {
                       var c = r(i, _ - i);
-                      (void 0 === n ? (n = c) : ((n += String.fromCharCode(0)), (n += c)),
-                        (i = _ + t));
+                      (void 0 === n ? (n = c) : ((n += String.fromCharCode(0)), (n += c)), (i = _ + t));
                     }
                   }
                   return (Ye(e), n);
@@ -719,7 +703,7 @@ var Uo,
                 readValueFromPointer: re,
                 destructorFunction(e) {
                   Ye(e);
-                }
+                },
               }));
           },
           s(e, t) {
@@ -728,7 +712,7 @@ var Uo,
               name: (t = N(t)),
               argPackAdvance: 0,
               fromWireType() {},
-              toWireType(e, t) {}
+              toWireType(e, t) {},
             });
           },
           B: (e, t, n) => A.copyWithin(e, t, t + n),
@@ -828,7 +812,7 @@ var Uo,
             }
             return ((y[r >> 2] = s), 0);
           },
-          v: Te
+          v: Te,
         };
       (async () => {
         function e(e, t) {
@@ -873,8 +857,7 @@ var Uo,
                 var r = fetch(t, { credentials: "same-origin" });
                 return await WebAssembly.instantiateStreaming(r, n);
               } catch (e) {
-                (m(`wasm streaming compile failed: ${e}`),
-                  m("falling back to ArrayBuffer instantiation"));
+                (m(`wasm streaming compile failed: ${e}`), m("falling back to ArrayBuffer instantiation"));
               }
             return (async (e, t) => {
               try {
@@ -922,10 +905,7 @@ var Uo,
               r.onRuntimeInitialized?.(),
               (() => {
                 if (r.postRun)
-                  for (
-                    "function" == typeof r.postRun && (r.postRun = [r.postRun]);
-                    r.postRun.length;
-                  )
+                  for ("function" == typeof r.postRun && (r.postRun = [r.postRun]); r.postRun.length; )
                     F(r.postRun.shift());
                 R(k);
               })()));
@@ -933,7 +913,7 @@ var Uo,
         M > 0 ||
           ((() => {
             if (r.preRun)
-              for ("function" == typeof r.preRun && (r.preRun = [r.preRun]); r.preRun.length;)
+              for ("function" == typeof r.preRun && (r.preRun = [r.preRun]); r.preRun.length; )
                 I(r.preRun.shift());
             R(D);
           })(),
@@ -946,15 +926,14 @@ var Uo,
               : e()));
       }
       if (
-        ((r.dynCall_iiijii = (e, t, n, s, a, i, o) =>
-          (r.dynCall_iiijii = Oe.M)(e, t, n, s, a, i, o)),
+        ((r.dynCall_iiijii = (e, t, n, s, a, i, o) => (r.dynCall_iiijii = Oe.M)(e, t, n, s, a, i, o)),
         (r.dynCall_jiji = (e, t, n, s, a) => (r.dynCall_jiji = Oe.N)(e, t, n, s, a)),
         (j = function e() {
           (Re || Je(), Re || (j = e));
         }),
         r.preInit)
       )
-        for ("function" == typeof r.preInit && (r.preInit = [r.preInit]); r.preInit.length > 0;)
+        for ("function" == typeof r.preInit && (r.preInit = [r.preInit]); r.preInit.length > 0; )
           r.preInit.pop()();
       return (Je(), s);
     });

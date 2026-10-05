@@ -9,14 +9,8 @@ import type { InstanceSource } from "./GpuScene.js";
 import type { PackedSceneSource } from "./GpuRenderWorld.js";
 
 export interface SceneInstanceAdapterOptions {
-  readonly geometryHandle: (
-    geometry: MeshletGeometryBase,
-    mesh: Mesh
-  ) => AssetHandle;
-  readonly materialHandle?: (
-    material: ShadeMaterial,
-    mesh: Mesh
-  ) => number;
+  readonly geometryHandle: (geometry: MeshletGeometryBase, mesh: Mesh) => AssetHandle;
+  readonly materialHandle?: (material: ShadeMaterial, mesh: Mesh) => number;
 }
 
 /** Explicit CPU geometry-to-package binding used by the ordinary Scene adapter. */
@@ -39,7 +33,7 @@ export interface AdaptedSceneSource {
  */
 export function createPackedSceneSourceFromScene(
   scene: Scene,
-  geometryAssets: readonly SceneGeometryAssetBinding[]
+  geometryAssets: readonly SceneGeometryAssetBinding[],
 ): AdaptedSceneSource {
   scene.updateMatrices();
   const meshes = scene.instances.instances.slice();
@@ -72,14 +66,12 @@ export function createPackedSceneSourceFromScene(
     const mesh = meshes[index]!;
     if ((mesh as Mesh & { readonly isSkinnedMesh?: boolean }).isSkinnedMesh === true) {
       throw new Error(
-        "Ordinary Scene SkinnedMesh is unsupported by the current GPU Render World product scope"
+        "Ordinary Scene SkinnedMesh is unsupported by the current GPU Render World product scope",
       );
     }
     const asset = packageByGeometry.get(mesh.geometry);
     if (asset === undefined) {
-      throw new Error(
-        `Ordinary Scene mesh ${mesh.id} has no cooked GeometryAssetPackage binding`
-      );
+      throw new Error(`Ordinary Scene mesh ${mesh.id} has no cooked GeometryAssetPackage binding`);
     }
     let geometryIndex = geometryIndexByGeometry.get(mesh.geometry);
     if (geometryIndex === undefined) {
@@ -119,8 +111,8 @@ export function createPackedSceneSourceFromScene(
       boundsMin,
       boundsMax,
       flags: new Uint32Array(meshes.length),
-      debugIds
-    })
+      debugIds,
+    }),
   });
 }
 
@@ -131,7 +123,7 @@ export function createPackedSceneSourceFromScene(
  */
 export function createInstanceSourceFromScene(
   scene: Scene,
-  options: SceneInstanceAdapterOptions
+  options: SceneInstanceAdapterOptions,
 ): InstanceSource {
   scene.updateMatrices();
   const meshes = scene.instances.instances;
@@ -158,9 +150,7 @@ export function createInstanceSourceFromScene(
       geometryIndexByHandle.set(handle, geometryIndex);
     }
     geometryIndices[index] = geometryIndex;
-    materialHandles[index] = (
-      options.materialHandle?.(mesh.material, mesh) ?? mesh.material.id
-    ) >>> 0;
+    materialHandles[index] = (options.materialHandle?.(mesh.material, mesh) ?? mesh.material.id) >>> 0;
     currentTransforms.set(mesh.transform_global.matrix, index * 16);
     boundsSpheres.set(mesh.geometry.bounding_sphere, index * 4);
     boundsMin.set(mesh.geometry.bounding_box.subarray(0, 3), index * 3);
@@ -177,18 +167,13 @@ export function createInstanceSourceFromScene(
     boundsSpheres,
     boundsMin,
     boundsMax,
-    debugIds
+    debugIds,
   });
 }
 
-function requireStandardMaterial(
-  material: ShadeMaterial,
-  mesh: Mesh
-): StandardShadeMaterial {
+function requireStandardMaterial(material: ShadeMaterial, mesh: Mesh): StandardShadeMaterial {
   if ((material as StandardShadeMaterial).isStandardShadeMaterial !== true) {
-    throw new Error(
-      `Ordinary Scene mesh ${mesh.id} uses an unsupported non-standard material`
-    );
+    throw new Error(`Ordinary Scene mesh ${mesh.id} uses an unsupported non-standard material`);
   }
   return material as StandardShadeMaterial;
 }

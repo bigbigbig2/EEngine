@@ -4,7 +4,7 @@ import {
   createSourceGeometry,
   type SourceGeometry,
   type SourceMaterialRange,
-  type SourceNumericArray
+  type SourceNumericArray,
 } from "../assets/SourceGeometry.js";
 import { Attribute } from "./Attribute.js";
 import { Geometry, GeometryFlag } from "./Geometry.js";
@@ -16,7 +16,7 @@ export interface GeometryToSourceOptions {
 
 export function geometryToSourceGeometry(
   geometry: Geometry,
-  options: GeometryToSourceOptions
+  options: GeometryToSourceOptions,
 ): SourceGeometry {
   const vertexCount = geometry.getVertexCount();
   const indices = geometry.index?.data ?? sequentialIndices(vertexCount);
@@ -27,9 +27,9 @@ export function geometryToSourceGeometry(
       semantic: attribute.spec.name,
       componentCount: attribute.spec.itemSize,
       normalized: attribute.spec.normalized,
-      data: attribute.data as SourceNumericArray
+      data: attribute.data as SourceNumericArray,
     })),
-    materialRanges: options.materialRanges
+    materialRanges: options.materialRanges,
   });
 }
 
@@ -38,11 +38,7 @@ export function sourceGeometryToGeometry(source: SourceGeometry): Geometry {
   geometry.name = source.sourceId;
   geometry.index = Attribute.from(new Uint32Array(source.indices), 1, "index");
   for (const stream of source.attributes.values()) {
-    const attribute = Attribute.from(
-      cloneNumericArray(stream.data),
-      stream.componentCount,
-      stream.semantic
-    );
+    const attribute = Attribute.from(cloneNumericArray(stream.data), stream.componentCount, stream.semantic);
     attribute.spec.normalized = stream.normalized;
     geometry.addAttribute(attribute);
   }

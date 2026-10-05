@@ -32,11 +32,10 @@ export const RenderDebugView = {
   Reactive: "reactive",
   IndirectDiffuse: "indirect-diffuse",
   IndirectSpecular: "indirect-specular",
-  LinearHdr: "linear-hdr"
+  LinearHdr: "linear-hdr",
 } as const;
 
-export type RenderDebugView =
-  (typeof RenderDebugView)[keyof typeof RenderDebugView];
+export type RenderDebugView = (typeof RenderDebugView)[keyof typeof RenderDebugView];
 
 export type RenderDebugViewStatus = {
   view: RenderDebugView;
@@ -51,56 +50,51 @@ export const RENDER_DEBUG_VIEW_OPTIONS: readonly RenderDebugViewStatus[] = [
     RenderDebugView.VisibilityKey,
     "Visibility Key",
     "supported",
-    "回查 RasterWork/Cluster/Meshlet/Instance/Material 的统一 VisibilityKey"
+    "回查 RasterWork/Cluster/Meshlet/Instance/Material 的统一 VisibilityKey",
   ),
   descriptor(RenderDebugView.MeshletId, "Meshlet ID", "supported", "按当前可见 Meshlet 的几何与局部 ID 分色"),
   descriptor(
     RenderDebugView.Depth,
     "反向 Z Depth",
     "supported",
-    "显示 depth32float mip 0；近处为亮色，背景为黑色"
+    "显示 depth32float mip 0；近处为亮色，背景为黑色",
   ),
-  descriptor(
-    RenderDebugView.HzbMip,
-    "HZB mip",
-    "unsupported",
-    "HZB 尚未提供稳定的 mip 选择与显示输入契约"
-  ),
+  descriptor(RenderDebugView.HzbMip, "HZB mip", "unsupported", "HZB 尚未提供稳定的 mip 选择与显示输入契约"),
   descriptor(
     RenderDebugView.RejectedFrustum,
     "Frustum reject",
     "unsupported",
-    "当前只统计拒绝数量，没有逐实例或逐 Cluster 原因缓冲"
+    "当前只统计拒绝数量，没有逐实例或逐 Cluster 原因缓冲",
   ),
   descriptor(
     RenderDebugView.RejectedCone,
     "Cone reject",
     "unsupported",
-    "当前没有可靠且互斥的 cone reject producer"
+    "当前没有可靠且互斥的 cone reject producer",
   ),
   descriptor(
     RenderDebugView.RejectedHzb,
     "HZB reject",
     "unsupported",
-    "当前没有逐实例或逐 Cluster 的 HZB reject 原因缓冲"
+    "当前没有逐实例或逐 Cluster 的 HZB reject 原因缓冲",
   ),
   descriptor(
     RenderDebugView.LodClusterLevel,
     "LOD / Cluster level",
     "unsupported",
-    "当前主链没有层次 LOD level 输出"
+    "当前主链没有层次 LOD level 输出",
   ),
   descriptor(
     RenderDebugView.RasterClassification,
     "SW / HW classification",
     "unsupported",
-    "当前只有硬件光栅，尚无统一分类输出"
+    "当前只有硬件光栅，尚无统一分类输出",
   ),
   descriptor(
     RenderDebugView.MaterialId,
     "Material ID",
     "supported",
-    "显示 Surface ABI v1 metadata 低 16 位 resident MaterialRecord slot"
+    "显示 Surface ABI v1 metadata 低 16 位 resident MaterialRecord slot",
   ),
   descriptor(RenderDebugView.BaseColor, "Base color", "supported", "显示线性 base color Surface 通道"),
   descriptor(RenderDebugView.ShadingNormal, "Shading normal", "supported", "显示解码后的切线空间法线结果"),
@@ -108,35 +102,61 @@ export const RENDER_DEBUG_VIEW_OPTIONS: readonly RenderDebugViewStatus[] = [
   descriptor(RenderDebugView.Metallic, "Metallic", "supported", "显示 metallic"),
   descriptor(RenderDebugView.Occlusion, "Occlusion", "supported", "显示材质 AO"),
   descriptor(RenderDebugView.Emissive, "Emissive", "supported", "显示解码后的 emissive"),
-  descriptor(RenderDebugView.ScreenSpaceReflectionHitMiss, "SSR hit / miss", "supported", "FX-08 SSR trace hit confidence"),
-  descriptor(RenderDebugView.ScreenSpaceReflectionResolve, "SSR resolve", "supported", "FX-08 SSR spatial resolve before temporal accumulation"),
-  descriptor(RenderDebugView.ScreenSpaceReflectionTemporal, "SSR temporal", "supported", "FX-08 SSR temporal accumulation before final spatial filters"),
-  descriptor(RenderDebugView.ScreenSpaceReflectionHistoryConfidence, "SSR history confidence", "supported", "FX-08 temporal history confidence"),
   descriptor(
-    RenderDebugView.Velocity,
-    "Velocity",
+    RenderDebugView.ScreenSpaceReflectionHitMiss,
+    "SSR hit / miss",
     "supported",
-    "方向映射为色相，屏幕空间速度映射为亮度"
+    "FX-08 SSR trace hit confidence",
   ),
+  descriptor(
+    RenderDebugView.ScreenSpaceReflectionResolve,
+    "SSR resolve",
+    "supported",
+    "FX-08 SSR spatial resolve before temporal accumulation",
+  ),
+  descriptor(
+    RenderDebugView.ScreenSpaceReflectionTemporal,
+    "SSR temporal",
+    "supported",
+    "FX-08 SSR temporal accumulation before final spatial filters",
+  ),
+  descriptor(
+    RenderDebugView.ScreenSpaceReflectionHistoryConfidence,
+    "SSR history confidence",
+    "supported",
+    "FX-08 temporal history confidence",
+  ),
+  descriptor(RenderDebugView.Velocity, "Velocity", "supported", "方向映射为色相，屏幕空间速度映射为亮度"),
   descriptor(
     RenderDebugView.HistoryValidity,
     "History validity",
     "supported",
-    "显示 Surface ABI v1 motion-valid 与 reactive 状态"
+    "显示 Surface ABI v1 motion-valid 与 reactive 状态",
   ),
   descriptor(RenderDebugView.Reactive, "Reactive", "supported", "显示必须拒绝时域历史的像素"),
-  descriptor(RenderDebugView.IndirectDiffuse, "Diffuse IBL", "supported", "显示 FX-03 cosine-convolved diffuse irradiance 输出"),
-  descriptor(RenderDebugView.IndirectSpecular, "Specular IBL", "supported", "显示 FX-03 GGX prefiltered specular radiance 输出"),
-  descriptor(RenderDebugView.LinearHdr, "Linear HDR", "supported", "显示 tonemap/exposure 前 working-linear scene color")
+  descriptor(
+    RenderDebugView.IndirectDiffuse,
+    "Diffuse IBL",
+    "supported",
+    "显示 FX-03 cosine-convolved diffuse irradiance 输出",
+  ),
+  descriptor(
+    RenderDebugView.IndirectSpecular,
+    "Specular IBL",
+    "supported",
+    "显示 FX-03 GGX prefiltered specular radiance 输出",
+  ),
+  descriptor(
+    RenderDebugView.LinearHdr,
+    "Linear HDR",
+    "supported",
+    "显示 tonemap/exposure 前 working-linear scene color",
+  ),
 ] as const;
 
-const STATUS_BY_VIEW = new Map(
-  RENDER_DEBUG_VIEW_OPTIONS.map((entry) => [entry.view, entry])
-);
+const STATUS_BY_VIEW = new Map(RENDER_DEBUG_VIEW_OPTIONS.map((entry) => [entry.view, entry]));
 
-export function getRenderDebugViewStatus(
-  view: RenderDebugView
-): RenderDebugViewStatus {
+export function getRenderDebugViewStatus(view: RenderDebugView): RenderDebugViewStatus {
   const status = STATUS_BY_VIEW.get(view);
   if (status === undefined) {
     throw new Error(`Unknown render debug view '${String(view)}'`);
@@ -152,7 +172,7 @@ function descriptor(
   view: RenderDebugView,
   label: string,
   status: RenderDebugViewStatus["status"],
-  reason: string
+  reason: string,
 ): RenderDebugViewStatus {
   return { view, label, status, reason };
 }

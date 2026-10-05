@@ -1,8 +1,20 @@
 import { SURFACE_FIELD_EXECUTION_PROFILE_WORD } from "../gpu/GpuSurfaceFieldIdentityAbi.js";
-import { SURFACE_FIELD_STORE_ENTRY_WORDS, SURFACE_FIELD_STORE_KEY_WORDS, SURFACE_FIELD_STORE_VALUE_WORD,
-  SURFACE_FIELD_STORE_FLAGS_WORD, SURFACE_FIELD_STORE_GENERATION_WORD, SURFACE_FIELD_STORE_STATE_WORD, SURFACE_FIELD_STORE_TOUCHED_WORD,
-  SURFACE_FIELD_STORE_BOUNDS_WORD, SURFACE_FIELD_STORE_DOMAIN_WORD, SURFACE_FIELD_STORE_GRADIENT_WORD } from "../gpu/GpuSurfaceFieldStoreAbi.js";
-import { surfaceCellWorkspaceWgsl, SURFACE_CELL_FIELD_CERTIFICATE_OFFSETS } from "../gpu/GpuSurfaceCellPlanAbi.js";
+import {
+  SURFACE_FIELD_STORE_ENTRY_WORDS,
+  SURFACE_FIELD_STORE_KEY_WORDS,
+  SURFACE_FIELD_STORE_VALUE_WORD,
+  SURFACE_FIELD_STORE_FLAGS_WORD,
+  SURFACE_FIELD_STORE_GENERATION_WORD,
+  SURFACE_FIELD_STORE_STATE_WORD,
+  SURFACE_FIELD_STORE_TOUCHED_WORD,
+  SURFACE_FIELD_STORE_BOUNDS_WORD,
+  SURFACE_FIELD_STORE_DOMAIN_WORD,
+  SURFACE_FIELD_STORE_GRADIENT_WORD,
+} from "../gpu/GpuSurfaceFieldStoreAbi.js";
+import {
+  surfaceCellWorkspaceWgsl,
+  SURFACE_CELL_FIELD_CERTIFICATE_OFFSETS,
+} from "../gpu/GpuSurfaceCellPlanAbi.js";
 import { surfaceDemandArenaWgsl } from "../gpu/GpuSurfaceDemandAbi.js";
 import { SURFACE_REFERENCE_WGSL } from "../gpu/GpuSurfaceReferenceAbi.js";
 import { SURFACE_FIELD_REQUEST_WGSL } from "./surface_field_request.js";
@@ -12,20 +24,33 @@ import { APPEARANCE_FIELD_WIDTHS } from "../gpu/GpuAppearanceFieldAbi.js";
  * folds another producer into a live slot. RESERVED writers and epoch-pinned
  * hits cannot be evicted. Commit and ref consumption are separate dispatches. */
 export function surfaceStorePublishWgsl(targets: number, programs: number, signal: boolean): string {
-    const prefix = signal ? "signal" : "field";
-    const getter = (signal ? SURFACE_SIGNAL_REQUEST_WGSL : SURFACE_REFERENCE_WGSL + SURFACE_FIELD_REQUEST_WGSL)
-        .replaceAll(`${prefix}_request_settings`, "publish_settings")
-        .replaceAll(`${prefix}_request_workspace`, "publish_workspace")
-        .replaceAll(`${prefix}_request_metadata`, "publish_metadata")
-        .replaceAll(`${prefix}_request_versions`, "publish_versions")
-        .replaceAll("signal_request_sun", "publish_sun")
-        .replaceAll("signal_request_shadow", "publish_shadow");
-    const stride = signal ? 88 : SURFACE_FIELD_STORE_ENTRY_WORDS, key = signal ? 72 : SURFACE_FIELD_STORE_KEY_WORDS, value = signal ? 72 : SURFACE_FIELD_STORE_VALUE_WORD, flags = signal ? 76 : SURFACE_FIELD_STORE_FLAGS_WORD, generation = signal ? 77 : SURFACE_FIELD_STORE_GENERATION_WORD, state = signal ? 80 : SURFACE_FIELD_STORE_STATE_WORD, touched = signal ? 79 : SURFACE_FIELD_STORE_TOUCHED_WORD;
-    const count = signal ? 4 : 3, requestCount = signal ? 2 : 1;
-    const word = signal ? "signal_request_word(item.x,item.y,word,fields)" : "field_request_word(item.x,item.y,word)";
-    const hash = signal ? "signal_request_hash(item.x,item.y,fields)" : "field_request_hash(item.x,item.y)";
-    const cacheable = signal ? "signal_request_cacheable(item.x,fields,item.y)" : "field_request_cacheable(item.x,item.y)";
-    const certificates = signal ? "atomicStore(&publish_store[base+78u],1u);" : /* wgsl */ `
+  const prefix = signal ? "signal" : "field";
+  const getter = (signal ? SURFACE_SIGNAL_REQUEST_WGSL : SURFACE_REFERENCE_WGSL + SURFACE_FIELD_REQUEST_WGSL)
+    .replaceAll(`${prefix}_request_settings`, "publish_settings")
+    .replaceAll(`${prefix}_request_workspace`, "publish_workspace")
+    .replaceAll(`${prefix}_request_metadata`, "publish_metadata")
+    .replaceAll(`${prefix}_request_versions`, "publish_versions")
+    .replaceAll("signal_request_sun", "publish_sun")
+    .replaceAll("signal_request_shadow", "publish_shadow");
+  const stride = signal ? 88 : SURFACE_FIELD_STORE_ENTRY_WORDS,
+    key = signal ? 72 : SURFACE_FIELD_STORE_KEY_WORDS,
+    value = signal ? 72 : SURFACE_FIELD_STORE_VALUE_WORD,
+    flags = signal ? 76 : SURFACE_FIELD_STORE_FLAGS_WORD,
+    generation = signal ? 77 : SURFACE_FIELD_STORE_GENERATION_WORD,
+    state = signal ? 80 : SURFACE_FIELD_STORE_STATE_WORD,
+    touched = signal ? 79 : SURFACE_FIELD_STORE_TOUCHED_WORD;
+  const count = signal ? 4 : 3,
+    requestCount = signal ? 2 : 1;
+  const word = signal
+    ? "signal_request_word(item.x,item.y,word,fields)"
+    : "field_request_word(item.x,item.y,word)";
+  const hash = signal ? "signal_request_hash(item.x,item.y,fields)" : "field_request_hash(item.x,item.y)";
+  const cacheable = signal
+    ? "signal_request_cacheable(item.x,fields,item.y)"
+    : "field_request_cacheable(item.x,item.y)";
+  const certificates = signal
+    ? "atomicStore(&publish_store[base+78u],1u);"
+    : /* wgsl */ `
   let primitive=publish_workspace.primitives[item.x];
   let lane=item.x%64u;
   let origin=item.x-lane;
@@ -67,7 +92,7 @@ export function surfaceStorePublishWgsl(targets: number, programs: number, signa
       if channel<3u { low_vector[channel]=minimum;high_vector[channel]=maximum; }
     }
     atomicStore(&publish_store[base+${SURFACE_FIELD_STORE_BOUNDS_WORD}u+channel],low);
-    atomicStore(&publish_store[base+${SURFACE_FIELD_STORE_BOUNDS_WORD+4}u+channel],high);
+    atomicStore(&publish_store[base+${SURFACE_FIELD_STORE_BOUNDS_WORD + 4}u+channel],high);
   }
   for(var axis=0u;axis<4u;axis++) { atomicStore(&publish_store[base+${SURFACE_FIELD_STORE_DOMAIN_WORD}u+axis],field_request_canonical_domain(item.x,item.y,axis)); }
   for(var axis=0u;axis<8u;axis++) { atomicStore(&publish_store[base+${SURFACE_FIELD_STORE_GRADIENT_WORD}u+axis],field_request_canonical_gradient(item.x,item.y,axis)); }
@@ -85,7 +110,7 @@ export function surfaceStorePublishWgsl(targets: number, programs: number, signa
     else if bounded { published_flags|=16u; }
   }
 `;
-    return /* wgsl */ `
+  return /* wgsl */ `
 ${surfaceCellWorkspaceWgsl(targets / 64)}
 ${surfaceDemandArenaWgsl(targets, programs)}
 struct PublishSettings {
@@ -104,8 +129,8 @@ struct PublishSettings {
 @group(0) @binding(7) var<uniform> publish_sun:array<vec4u,3>;
 @group(0) @binding(8) var<storage,read> publish_shadow:array<u32>;
 ${getter}
-const PUBLISH_CERTIFICATE_OFFSETS:array<u32,15>=array<u32,15>(${SURFACE_CELL_FIELD_CERTIFICATE_OFFSETS.map(n => `${n}u`).join(",")});
-const PUBLISH_FIELD_WIDTHS:array<u32,15>=array<u32,15>(${APPEARANCE_FIELD_WIDTHS.map(n => `${n}u`).join(",")});
+const PUBLISH_CERTIFICATE_OFFSETS:array<u32,15>=array<u32,15>(${SURFACE_CELL_FIELD_CERTIFICATE_OFFSETS.map((n) => `${n}u`).join(",")});
+const PUBLISH_FIELD_WIDTHS:array<u32,15>=array<u32,15>(${APPEARANCE_FIELD_WIDTHS.map((n) => `${n}u`).join(",")});
 @compute @workgroup_size(64)
 fn admit_surface_values(@builtin(global_invocation_id) id:vec3u) {
   if id.x>=atomicLoad(&publish_arena.control[${count}u]) { return; }

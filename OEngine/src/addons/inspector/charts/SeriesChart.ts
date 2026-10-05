@@ -3,7 +3,7 @@ import {
   summarizeMetricCoverage,
   summarizeProfileSeries,
   type ProfileCoverageSummary,
-  type ProfileSeriesSummary
+  type ProfileSeriesSummary,
 } from "../../../debug/profiling/ProfileStatistics.js";
 import type { MetricSampleAvailability } from "../../../debug/profiling/Metric.js";
 
@@ -14,7 +14,7 @@ const STATUS_CODES: Readonly<Record<MetricSampleAvailability, number>> = Object.
   invalid: 3,
   dropped: 4,
   "not-sampled": 5,
-  "not-applicable": 6
+  "not-applicable": 6,
 });
 
 export function metricStatusCode(status: MetricSampleAvailability): number {
@@ -39,21 +39,30 @@ export class SeriesChartModel {
     this.availability = new Uint8Array(maxPoints);
   }
 
-  get count(): number { return this.countValue; }
-  get summary(): ProfileSeriesSummary | null { return this.summaryValue; }
-  get coverage(): ProfileCoverageSummary { return this.coverageValue; }
+  get count(): number {
+    return this.countValue;
+  }
+  get summary(): ProfileSeriesSummary | null {
+    return this.summaryValue;
+  }
+  get coverage(): ProfileCoverageSummary {
+    return this.coverageValue;
+  }
 
   setFrames(frames: readonly ProfileFrame[], metricId: string): void {
     const first = Math.max(0, frames.length - this.maxPoints);
     const selected = frames.slice(first);
-    const samples = selected.map((frame) => frame.samples[metricId] ?? {
-      metricId,
-      value: null,
-      availability: "unsupported" as const,
-      sourceFrameIndex: frame.frameIndex,
-      resolvedAtFrameIndex: null,
-      instrumented: false
-    });
+    const samples = selected.map(
+      (frame) =>
+        frame.samples[metricId] ?? {
+          metricId,
+          value: null,
+          availability: "unsupported" as const,
+          sourceFrameIndex: frame.frameIndex,
+          resolvedAtFrameIndex: null,
+          instrumented: false,
+        },
+    );
     const numeric: number[] = [];
     for (let index = 0; index < samples.length; index++) {
       const sample = samples[index]!;

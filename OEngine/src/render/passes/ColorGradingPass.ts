@@ -11,10 +11,7 @@ import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
-import {
-  COLOR_GRADING_FORMAT,
-  COLOR_GRADING_WGSL
-} from "../../shaders/color_grading.js";
+import { COLOR_GRADING_FORMAT, COLOR_GRADING_WGSL } from "../../shaders/color_grading.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
 
 export type ColorGradingJob = {
@@ -43,29 +40,29 @@ export class ColorGradingPass {
         {
           binding: 0,
           visibility: GPUShaderStage.FRAGMENT,
-          texture: { sampleType: "unfilterable-float", viewDimension: "2d" }
+          texture: { sampleType: "unfilterable-float", viewDimension: "2d" },
         },
         {
           binding: 1,
           visibility: GPUShaderStage.FRAGMENT,
-          buffer: { type: "uniform" }
-        }
-      ]
+          buffer: { type: "uniform" },
+        },
+      ],
     };
     const module = { label: "Color Grading", code: COLOR_GRADING_WGSL };
     this.pipelineDescriptor = {
       label: "Renderer/Color Grading",
       layout: {
         label: "Renderer/Color Grading layout",
-        bindGroupLayouts: [group0]
+        bindGroupLayouts: [group0],
       },
       vertex: { module, entryPoint: "vs_main" },
       fragment: {
         module,
         entryPoint: "fs_main",
-        targets: [{ format: COLOR_GRADING_FORMAT }]
+        targets: [{ format: COLOR_GRADING_FORMAT }],
       },
-      primitive: { topology: "triangle-list", cullMode: "none" }
+      primitive: { topology: "triangle-list", cullMode: "none" },
     };
   }
 
@@ -74,7 +71,7 @@ export class ColorGradingPass {
     input: ResourceId,
     width: number,
     height: number,
-    job: ColorGradingJob
+    job: ColorGradingJob,
   ): ResourceId {
     let output = -1;
     const builder = graph.add("Color Grading", job, (data, resources, context) => {
@@ -86,7 +83,7 @@ export class ColorGradingPass {
         command,
         data,
         resolveTextureView(resources.get(input)),
-        resolveTextureView(resources.get(output))
+        resolveTextureView(resources.get(output)),
       );
     });
     output = builder.create("Color graded color", {
@@ -94,10 +91,7 @@ export class ColorGradingPass {
       width,
       height,
       format: COLOR_GRADING_FORMAT,
-      usage:
-        GPUTextureUsage.TEXTURE_BINDING |
-        GPUTextureUsage.RENDER_ATTACHMENT |
-        GPUTextureUsage.COPY_SRC
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
     });
     builder.read(input);
     return output;
@@ -107,7 +101,7 @@ export class ColorGradingPass {
     command: ShadeGPUCommandContext,
     job: ColorGradingJob,
     input: GPUTextureView,
-    output: GPUTextureView
+    output: GPUTextureView,
   ): void {
     const uniform = new Float32Array(16);
     // WGSL uniform layout：lift=0/1/2(3 pad)，gamma=4/5/6(7 pad)，
@@ -119,19 +113,18 @@ export class ColorGradingPass {
     uniform[8] = uniform[9] = uniform[10] = job.gain;
     uniform[11] = job.saturation;
     uniform[12] = job.contrast;
-    const settings = command.allocateTransientBufferAndLoad(
-      uniform.buffer,
-      GPUBufferUsage.UNIFORM
-    );
+    const settings = command.allocateTransientBufferAndLoad(uniform.buffer, GPUBufferUsage.UNIFORM);
     const pass = command.constructRenderPass({
       pipeline: this.pipelineDescriptor,
       bindings: [[input, { buffer: settings }]],
-      colorAttachments: [{
-        view: output,
-        clearValue: { r: 0, g: 0, b: 0, a: 0 },
-        loadOp: "clear",
-        storeOp: "store"
-      }]
+      colorAttachments: [
+        {
+          view: output,
+          clearValue: { r: 0, g: 0, b: 0, a: 0 },
+          loadOp: "clear",
+          storeOp: "store",
+        },
+      ],
     });
     pass.draw(3, 1, 0, 0);
     pass.end();
@@ -140,14 +133,12 @@ export class ColorGradingPass {
   destroy(): void {}
 }
 
-function isShadeCommandContext(
-  value: unknown
-): value is ShadeGPUCommandContext {
+function isShadeCommandContext(value: unknown): value is ShadeGPUCommandContext {
   return Boolean(
     value &&
-    typeof value === "object" &&
-    "isGPUCommandContext" in value &&
-    (value as { isGPUCommandContext?: unknown }).isGPUCommandContext === true &&
-    "constructRenderPass" in value
+      typeof value === "object" &&
+      "isGPUCommandContext" in value &&
+      (value as { isGPUCommandContext?: unknown }).isGPUCommandContext === true &&
+      "constructRenderPass" in value,
   );
 }

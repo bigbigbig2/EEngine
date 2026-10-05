@@ -11,17 +11,11 @@ export function prepareVelocityMatrices(
   currentCamera: VelocityCameraMatrices,
   previousCamera: VelocityCameraMatrices,
   width: number,
-  height: number
+  height: number,
 ): void {
-  const currentViewProjection = multiplyMat4d(
-    currentCamera.projection_matrix,
-    currentCamera.view_matrix
-  );
+  const currentViewProjection = multiplyMat4d(currentCamera.projection_matrix, currentCamera.view_matrix);
   inverseCurrentViewProjectionOut.set(invertMat4d(currentViewProjection));
-  previousViewProjectionOut.set(multiplyMat4d(
-    previousCamera.projection_matrix,
-    previousCamera.view_matrix
-  ));
+  previousViewProjectionOut.set(multiplyMat4d(previousCamera.projection_matrix, previousCamera.view_matrix));
 
   const currentRotationView = Float64Array.from(currentCamera.view_matrix);
   currentRotationView[12] = 0;
@@ -33,25 +27,30 @@ export function prepareVelocityMatrices(
   previousRotationView[14] = 0;
   const ndcReprojection = multiplyMat4d(
     multiplyMat4d(previousCamera.projection_matrix, previousRotationView),
-    invertMat4d(multiplyMat4d(currentCamera.projection_matrix, currentRotationView))
+    invertMat4d(multiplyMat4d(currentCamera.projection_matrix, currentRotationView)),
   );
   const halfWidth = width / 2;
   const halfHeight = height / 2;
   const pixelFromNdc = new Float64Array([
-    halfWidth, 0, 0, 0,
-    0, -halfHeight, 0, 0,
-    0, 0, 1, 0,
-    halfWidth, halfHeight, 0, 1
+    halfWidth,
+    0,
+    0,
+    0,
+    0,
+    -halfHeight,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    halfWidth,
+    halfHeight,
+    0,
+    1,
   ]);
-  const ndcFromPixel = new Float64Array([
-    2 / width, 0, 0, 0,
-    0, -2 / height, 0, 0,
-    0, 0, 1, 0,
-    -1, 1, 0, 1
-  ]);
-  reprojectionRotationOut.set(
-    multiplyMat4d(multiplyMat4d(pixelFromNdc, ndcReprojection), ndcFromPixel)
-  );
+  const ndcFromPixel = new Float64Array([2 / width, 0, 0, 0, 0, -2 / height, 0, 0, 0, 0, 1, 0, -1, 1, 0, 1]);
+  reprojectionRotationOut.set(multiplyMat4d(multiplyMat4d(pixelFromNdc, ndcReprojection), ndcFromPixel));
 }
 
 function multiplyMat4d(a: ArrayLike<number>, b: ArrayLike<number>): Float64Array {
@@ -71,10 +70,22 @@ function multiplyMat4d(a: ArrayLike<number>, b: ArrayLike<number>): Float64Array
 }
 
 function invertMat4d(a: ArrayLike<number>): Float64Array {
-  const a00 = a[0] ?? 0, a01 = a[1] ?? 0, a02 = a[2] ?? 0, a03 = a[3] ?? 0;
-  const a10 = a[4] ?? 0, a11 = a[5] ?? 0, a12 = a[6] ?? 0, a13 = a[7] ?? 0;
-  const a20 = a[8] ?? 0, a21 = a[9] ?? 0, a22 = a[10] ?? 0, a23 = a[11] ?? 0;
-  const a30 = a[12] ?? 0, a31 = a[13] ?? 0, a32 = a[14] ?? 0, a33 = a[15] ?? 0;
+  const a00 = a[0] ?? 0,
+    a01 = a[1] ?? 0,
+    a02 = a[2] ?? 0,
+    a03 = a[3] ?? 0;
+  const a10 = a[4] ?? 0,
+    a11 = a[5] ?? 0,
+    a12 = a[6] ?? 0,
+    a13 = a[7] ?? 0;
+  const a20 = a[8] ?? 0,
+    a21 = a[9] ?? 0,
+    a22 = a[10] ?? 0,
+    a23 = a[11] ?? 0;
+  const a30 = a[12] ?? 0,
+    a31 = a[13] ?? 0,
+    a32 = a[14] ?? 0,
+    a33 = a[15] ?? 0;
   const b00 = a00 * a11 - a01 * a10;
   const b01 = a00 * a12 - a02 * a10;
   const b02 = a00 * a13 - a03 * a10;
@@ -87,8 +98,7 @@ function invertMat4d(a: ArrayLike<number>): Float64Array {
   const b09 = a21 * a32 - a22 * a31;
   const b10 = a21 * a33 - a23 * a31;
   const b11 = a22 * a33 - a23 * a32;
-  let determinant = b00 * b11 - b01 * b10 + b02 * b09 +
-    b03 * b08 - b04 * b07 + b05 * b06;
+  let determinant = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
   if (Math.abs(determinant) < 1e-15) {
     throw new Error("Velocity matrices: camera matrix is singular");
   }
@@ -109,6 +119,6 @@ function invertMat4d(a: ArrayLike<number>): Float64Array {
     (a11 * b07 - a10 * b09 - a12 * b06) * determinant,
     (a00 * b09 - a01 * b07 + a02 * b06) * determinant,
     (a31 * b01 - a30 * b03 - a32 * b00) * determinant,
-    (a20 * b03 - a21 * b01 + a22 * b00) * determinant
+    (a20 * b03 - a21 * b01 + a22 * b00) * determinant,
   ]);
 }

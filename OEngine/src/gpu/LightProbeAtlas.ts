@@ -2,13 +2,10 @@
 import {
   estimateTextureBytes,
   type ResourceAccounting,
-  type ResourceHandle
+  type ResourceHandle,
 } from "../debug/profiling/ResourceAccounting.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
-import {
-  createNativeTexture,
-  createNativeTextureView
-} from "./GPUTextureDescriptors.js";
+import { createNativeTexture, createNativeTextureView } from "./GPUTextureDescriptors.js";
 
 export const LIGHT_PROBE_ATLAS_PROBE_RESOLUTION = 64;
 export const LIGHT_PROBE_ATLAS_PADDED_RESOLUTION = 66;
@@ -30,11 +27,15 @@ export class LightProbeAtlasTexture {
       readonly accounting?: ResourceAccounting;
       readonly category: "atlas";
       readonly owner: string;
-    }
+    },
   ) {}
 
-  get width(): number { return this.widthValue; }
-  get height(): number { return this.heightValue; }
+  get width(): number {
+    return this.widthValue;
+  }
+  get height(): number {
+    return this.heightValue;
+  }
 
   get texture(): GPUTexture {
     this.textureValue ??= this.allocate();
@@ -59,11 +60,13 @@ export class LightProbeAtlasTexture {
     return estimateTextureBytes({
       format: this.format,
       width: this.widthValue,
-      height: this.heightValue
+      height: this.heightValue,
     });
   }
 
-  destroy(): void { this.releaseTexture(); }
+  destroy(): void {
+    this.releaseTexture();
+  }
 
   private allocate(): GPUTexture {
     const texture = createNativeTexture(this.device, {
@@ -73,15 +76,16 @@ export class LightProbeAtlasTexture {
       format: this.format,
       mipLevelCount: 1,
       sampleCount: 1,
-      usage: this.usage
+      usage: this.usage,
     });
-    this.resourceHandle = this.accounting?.accounting?.created({
-      kind: "texture",
-      category: this.accounting.category,
-      owner: this.accounting.owner,
-      bytes: this.gpu_memory_usage,
-      label: this.label
-    }) ?? null;
+    this.resourceHandle =
+      this.accounting?.accounting?.created({
+        kind: "texture",
+        category: this.accounting.category,
+        owner: this.accounting.owner,
+        bytes: this.gpu_memory_usage,
+        label: this.label,
+      }) ?? null;
     return texture;
   }
 
@@ -112,18 +116,16 @@ export class LightProbeAtlas {
     const accounting = {
       accounting: graphics.resource_accounting,
       category: "atlas" as const,
-      owner: "LightProbeAtlas"
+      owner: "LightProbeAtlas",
     };
     this.texture_radiance = new LightProbeAtlasTexture(
       device,
       "Light Probe Atlas / radiance",
       LIGHT_PROBE_ATLAS_RADIANCE_FORMAT,
-      GPUTextureUsage.TEXTURE_BINDING |
-        GPUTextureUsage.RENDER_ATTACHMENT |
-        GPUTextureUsage.STORAGE_BINDING,
+      GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.STORAGE_BINDING,
       this.maximumDimension,
       initialHeight,
-      accounting
+      accounting,
     );
     this.texture_depth = new LightProbeAtlasTexture(
       device,
@@ -132,17 +134,19 @@ export class LightProbeAtlas {
       GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING,
       this.maximumDimension,
       initialHeight,
-      accounting
+      accounting,
     );
   }
 
-  get padded_probe_resolution(): number { return LIGHT_PROBE_ATLAS_PADDED_RESOLUTION; }
+  get padded_probe_resolution(): number {
+    return LIGHT_PROBE_ATLAS_PADDED_RESOLUTION;
+  }
 
   get resolution(): readonly [number, number] {
     const padded = this.padded_probe_resolution;
     return [
       Math.floor(this.texture_radiance.width / padded),
-      Math.floor(this.texture_radiance.height / padded)
+      Math.floor(this.texture_radiance.height / padded),
     ];
   }
 
@@ -150,13 +154,9 @@ export class LightProbeAtlas {
     const width = this.texture_radiance.width;
     const padded = this.padded_probe_resolution;
     const probesPerRow = Math.floor(width / padded);
-    const currentCapacity = probesPerRow *
-      Math.floor(this.texture_radiance.height / padded);
+    const currentCapacity = probesPerRow * Math.floor(this.texture_radiance.height / padded);
     if (currentCapacity >= probeCount) return;
-    const height = Math.min(
-      Math.ceil(probeCount / probesPerRow) * padded,
-      this.maximumDimension
-    );
+    const height = Math.min(Math.ceil(probeCount / probesPerRow) * padded, this.maximumDimension);
     this.texture_radiance.resize(width, height);
     this.texture_depth.resize(width, height);
   }

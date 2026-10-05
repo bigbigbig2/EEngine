@@ -4,11 +4,7 @@
 
 import { base64Decode, base64Encode } from "../core/base64Codec.js";
 import { hashArrayBuffer, hashFloat } from "../core/hashMix.js";
-import {
-  ctorFromDataType,
-  inferDataTypeFromArray,
-  ShadeDataType
-} from "./ShadeDataType.js";
+import { ctorFromDataType, inferDataTypeFromArray, ShadeDataType } from "./ShadeDataType.js";
 
 function clamp(e: number, t: number, n: number): number {
   return e < t ? t : e > n ? n : e;
@@ -26,19 +22,8 @@ function fmax(e: number, t: number): number {
   return e < t ? t : e;
 }
 
-function cubicInterpolate(
-  e: number,
-  t: number,
-  n: number,
-  r: number,
-  s: number
-): number {
-  return (
-    0.5 *
-      (r - t + (2 * t - 5 * n + 4 * r - s + (3 * (n - r) + s - t) * e) * e) *
-      e +
-    n
-  );
+function cubicInterpolate(e: number, t: number, n: number, r: number, s: number): number {
+  return 0.5 * (r - t + (2 * t - 5 * n + 4 * r - s + (3 * (n - r) + s - t) * e) * e) * e + n;
 }
 
 export type SamplerData =
@@ -73,7 +58,7 @@ export class Sampler2D {
     if (e === undefined) throw new Error("data was undefined");
     if (e.length < n * r * t) {
       throw new Error(
-        `Buffer underflow, data.length(=${e.length}) is too small. Expected at least ${n * r * t}`
+        `Buffer underflow, data.length(=${e.length}) is too small. Expected at least ${n * r * t}`,
       );
     }
     this.width = n;
@@ -115,7 +100,7 @@ export class Sampler2D {
     e: number,
     t: number,
     n: number,
-    r: (x: number, y: number, sampler: Sampler2D) => void
+    r: (x: number, y: number, sampler: Sampler2D) => void,
   ): void {
     const centerX = e | 0;
     const centerY = t | 0;
@@ -137,11 +122,7 @@ export class Sampler2D {
   }
 
   sampleChannelCatmullRomUV(e: number, t: number, n: number): number {
-    return this.sampleChannelCatmullRom(
-      e * this.width - 0.5,
-      t * this.height - 0.5,
-      n
-    );
+    return this.sampleChannelCatmullRom(e * this.width - 0.5, t * this.height - 0.5, n);
   }
 
   sampleChannelCatmullRom(e: number, t: number, n: number): number {
@@ -181,22 +162,13 @@ export class Sampler2D {
     for (let s = 0; s < r; s++) n[s] = this.sampleChannelBicubicUV(e, t, s);
   }
 
-  sampleBicubic(
-    e: number,
-    t: number,
-    n: number[] | Float32Array,
-    r = 0
-  ): void {
+  sampleBicubic(e: number, t: number, n: number[] | Float32Array, r = 0): void {
     const s = this.itemSize;
     for (let a = 0; a < s; a++) n[a + r] = this.sampleChannelBicubic(e, t, a);
   }
 
   sampleChannelBicubicUV(e: number, t: number, n: number): number {
-    return this.sampleChannelBicubic(
-      e * this.width - 0.5,
-      t * this.height - 0.5,
-      n
-    );
+    return this.sampleChannelBicubic(e * this.width - 0.5, t * this.height - 0.5, n);
   }
 
   sampleChannelBicubic(e: number, t: number, n: number): number {
@@ -353,15 +325,7 @@ export class Sampler2D {
     this.version++;
   }
 
-  copy(
-    e: Sampler2D,
-    t: number,
-    n: number,
-    r: number,
-    s: number,
-    a: number,
-    i: number
-  ): void {
+  copy(e: Sampler2D, t: number, n: number, r: number, s: number, a: number, i: number): void {
     const o = Math.min(a, e.width - t, this.width - r);
     const _ = Math.min(i, e.height - n, this.height - s);
     const c = this.itemSize;
@@ -426,11 +390,7 @@ export class Sampler2D {
   equals(e: Sampler2D | null | undefined): boolean {
     if (e == null) return false;
     if (this === e) return true;
-    if (
-      this.width !== e.width ||
-      this.height !== e.height ||
-      this.itemSize !== e.itemSize
-    ) {
+    if (this.width !== e.width || this.height !== e.height || this.itemSize !== e.itemSize) {
       return false;
     }
     return typedArrayEquals(this.data, e.data);
@@ -470,24 +430,20 @@ export class Sampler2D {
       data = base64Encode(f64.buffer);
     } else {
       const view = this.data as ArrayBufferView;
-      data = base64Encode(
-        new Uint8Array(view.buffer, view.byteOffset, view.byteLength)
-      );
+      data = base64Encode(new Uint8Array(view.buffer, view.byteOffset, view.byteLength));
     }
     return {
       height: this.height,
       width: this.width,
       itemSize: this.itemSize,
       type,
-      data
+      data,
     };
   }
 
   fromJSON(json: Sampler2DJson): this {
     const { height: e, width: t, itemSize: n, type: r, data: s } = json;
-    const a = ctorFromDataType(r) as new (
-      buf: ArrayBuffer | ArrayLike<number>
-    ) => SamplerData;
+    const a = ctorFromDataType(r) as new (buf: ArrayBuffer | ArrayLike<number>) => SamplerData;
     if (typeof s === "string") {
       this.data = new a(base64Decode(s)) as SamplerData;
     } else {
@@ -499,7 +455,6 @@ export class Sampler2D {
     this.itemSize = n;
     return this;
   }
-
 
   static uint8clamped(e: number, t: number, n: number): Sampler2D {
     return new Sampler2D(new Uint8ClampedArray(t * n * e), e, t, n);
@@ -523,8 +478,7 @@ export class Sampler2D {
     return new Sampler2D(new Int32Array(t * n * e), e, t, n);
   }
   static float16(e: number, t: number, n: number): Sampler2D {
-    const F16 = (globalThis as { Float16Array?: new (n: number) => SamplerData })
-      .Float16Array;
+    const F16 = (globalThis as { Float16Array?: new (n: number) => SamplerData }).Float16Array;
     if (typeof F16 !== "function") {
       throw new Error("Float16Array is not available in this environment");
     }

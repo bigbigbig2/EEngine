@@ -9,10 +9,13 @@ const sourceRoot = path.join(root, "src");
 const read = (...parts) => readFileSync(path.join(sourceRoot, ...parts), "utf8");
 
 function typescriptFiles(directory) {
-  return readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const absolute = path.join(directory, entry.name);
-    return entry.isDirectory() ? typescriptFiles(absolute)
-      : entry.isFile() && entry.name.endsWith(".ts") ? [absolute] : [];
+    return entry.isDirectory()
+      ? typescriptFiles(absolute)
+      : entry.isFile() && entry.name.endsWith(".ts")
+        ? [absolute]
+        : [];
   });
 }
 
@@ -21,7 +24,7 @@ test("GPU data ownership does not depend on render passes or camera state", () =
     assert.doesNotMatch(
       readFileSync(absolute, "utf8"),
       /(?:\.\.\/render\/(?:passes\/|ViewContext|GPUCameraState))/u,
-      path.relative(root, absolute)
+      path.relative(root, absolute),
     );
   }
 });
@@ -45,7 +48,7 @@ test("one production Renderer delegates topology to Frame Program and owns submi
     ["render", "pipeline", "FramePlan.ts"],
     ["render", "pipeline", "OptionalFrameFeatures.ts"],
     ["render", "features", "GIService.ts"],
-    ["render", "features", "ShadowFeatureManager.ts"]
+    ["render", "features", "ShadowFeatureManager.ts"],
   ]) {
     assert.equal(existsSync(path.join(sourceRoot, ...relative)), false, relative.join("/"));
   }

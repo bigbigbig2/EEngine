@@ -4,7 +4,7 @@
 
 export const ProjectionMappingType: { Equirectangular: number; Octahedral: number } = {
   Equirectangular: 0,
-  Octahedral: 1
+  Octahedral: 1,
 };
 
 export type ProjectionMappingType = number;

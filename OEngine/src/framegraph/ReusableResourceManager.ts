@@ -22,7 +22,7 @@ export class ReusableResourceManager<Descriptor, Resource extends object> {
   constructor(
     private readonly keyOf: (descriptor: Descriptor) => string,
     readonly capacity = 100,
-    readonly perKeyCapacity = 10
+    readonly perKeyCapacity = 10,
   ) {}
 
   attach(owner: ReusableResourceOwner<Descriptor, Resource>): void {
@@ -95,10 +95,9 @@ export class ReusableResourceManager<Descriptor, Resource extends object> {
   }
 }
 
-export abstract class ReusableResourceContext<
-  Descriptor,
-  Resource extends object
-> implements ReusableResourceOwner<Descriptor, Resource> {
+export abstract class ReusableResourceContext<Descriptor, Resource extends object>
+  implements ReusableResourceOwner<Descriptor, Resource>
+{
   readonly resource_manager: ReusableResourceManager<Descriptor, Resource>;
 
   protected constructor(keyOf: (descriptor: Descriptor) => string) {

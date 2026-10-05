@@ -4,10 +4,7 @@
 
 import { Node3D, type NodeReparentEvent } from "./Node3D.js";
 import { hashFloat } from "../core/hashMix.js";
-import {
-  arrayRemoveFirst,
-  arrayShallowEquals
-} from "../core/arrayUtils.js";
+import { arrayRemoveFirst, arrayShallowEquals } from "../core/arrayUtils.js";
 import { fmax, fmin } from "../core/math/mathUtils.js";
 import { Vec3 } from "../core/math/Vec3.js";
 import type { Mesh } from "./Mesh.js";
@@ -16,10 +13,7 @@ import type { ShadeMaterial } from "../material/ShadeMaterial.js";
 import type { ShadeTexture } from "../texture/ShadeTexture.js";
 import { TetrahedralMesh } from "../geometry/TetrahedralMesh.js";
 import { buildLightProbeTetrahedralMesh } from "../geometry/LightProbeDelaunay.js";
-import {
-  SceneChangeSet,
-  type SceneChangeSnapshot
-} from "./SceneChangeSet.js";
+import { SceneChangeSet, type SceneChangeSnapshot } from "./SceneChangeSet.js";
 import { PhysicalEnvironmentInput } from "../render/environment/PhysicalEnvironmentState.js";
 
 function max2(e: number, t: number): number {
@@ -30,7 +24,7 @@ export function aabbSetFromTransformedPositions(
   out: SceneAABB,
   positions: ArrayLike<number>,
   floatCount: number,
-  matrix: ArrayLike<number>
+  matrix: ArrayLike<number>,
 ): void {
   let s = Number.POSITIVE_INFINITY;
   let a = Number.POSITIVE_INFINITY;
@@ -67,14 +61,9 @@ function distanceAbovePlane(
   i: number,
   o: number,
   _: number,
-  c: number
+  c: number,
 ): number {
-  return (
-    r +
-    e * (e > 0 ? o : s) +
-    t * (t > 0 ? _ : a) +
-    n * (n > 0 ? c : i)
-  );
+  return r + e * (e > 0 ? o : s) + t * (t > 0 ? _ : a) + n * (n > 0 ? c : i);
 }
 
 function planeSide(
@@ -87,7 +76,7 @@ function planeSide(
   i: number,
   o: number,
   _: number,
-  c: number
+  c: number,
 ): number {
   let d: number;
   let u: number;
@@ -124,11 +113,7 @@ function planeSide(
   return 0;
 }
 
-function transformAabbByMatrix4(
-  out: number[],
-  src: ArrayLike<number>,
-  m: ArrayLike<number>
-): void {
+function transformAabbByMatrix4(out: number[], src: ArrayLike<number>, m: ArrayLike<number>): void {
   out[0] = out[3] = m[12]!;
   out[1] = out[4] = m[13]!;
   out[2] = out[5] = m[14]!;
@@ -217,14 +202,7 @@ export class SceneAABB {
     this.z1 = a;
   }
 
-  setBoundsUnordered(
-    e: number,
-    t: number,
-    n: number,
-    r: number,
-    s: number,
-    a: number
-  ): void {
+  setBoundsUnordered(e: number, t: number, n: number, r: number, s: number, a: number): void {
     let i: number;
     let o: number;
     let _: number;
@@ -262,7 +240,7 @@ export class SceneAABB {
       Number.POSITIVE_INFINITY,
       Number.NEGATIVE_INFINITY,
       Number.NEGATIVE_INFINITY,
-      Number.NEGATIVE_INFINITY
+      Number.NEGATIVE_INFINITY,
     );
   }
 
@@ -273,18 +251,11 @@ export class SceneAABB {
       Number.NEGATIVE_INFINITY,
       Number.POSITIVE_INFINITY,
       Number.POSITIVE_INFINITY,
-      Number.POSITIVE_INFINITY
+      Number.POSITIVE_INFINITY,
     );
   }
 
-  copy(e: {
-    x0: number;
-    y0: number;
-    z0: number;
-    x1: number;
-    y1: number;
-    z1: number;
-  }): void {
+  copy(e: { x0: number; y0: number; z0: number; x1: number; y1: number; z1: number }): void {
     this.setBounds(e.x0, e.y0, e.z0, e.x1, e.y1, e.z1);
   }
 
@@ -294,51 +265,23 @@ export class SceneAABB {
     return e;
   }
 
-  equals(e: {
-    x0: number;
-    y0: number;
-    z0: number;
-    x1: number;
-    y1: number;
-    z1: number;
-  }): boolean {
+  equals(e: { x0: number; y0: number; z0: number; x1: number; y1: number; z1: number }): boolean {
     return this._equals(e.x0, e.y0, e.z0, e.x1, e.y1, e.z1);
   }
 
   _equals(e: number, t: number, n: number, r: number, s: number, a: number): boolean {
-    return (
-      this.x0 === e &&
-      this.y0 === t &&
-      this.z0 === n &&
-      this.x1 === r &&
-      this.y1 === s &&
-      this.z1 === a
-    );
+    return this.x0 === e && this.y0 === t && this.z0 === n && this.x1 === r && this.y1 === s && this.z1 === a;
   }
 
   expandToFit(other: SceneAABB): boolean {
     return this._expandToFit(other.x0, other.y0, other.z0, other.x1, other.y1, other.z1);
   }
 
-  union(e: {
-    x0: number;
-    y0: number;
-    z0: number;
-    x1: number;
-    y1: number;
-    z1: number;
-  }): void {
+  union(e: { x0: number; y0: number; z0: number; x1: number; y1: number; z1: number }): void {
     this._expandToFit(e.x0, e.y0, e.z0, e.x1, e.y1, e.z1);
   }
 
-  _expandToFit(
-    e: number,
-    t: number,
-    n: number,
-    r: number,
-    s: number,
-    a: number
-  ): boolean {
+  _expandToFit(e: number, t: number, n: number, r: number, s: number, a: number): boolean {
     let i = false;
     if (e < this.x0) {
       this.x0 = e;
@@ -396,33 +339,12 @@ export class SceneAABB {
     return r;
   }
 
-  containsBox(e: {
-    x0: number;
-    y0: number;
-    z0: number;
-    x1: number;
-    y1: number;
-    z1: number;
-  }): boolean {
+  containsBox(e: { x0: number; y0: number; z0: number; x1: number; y1: number; z1: number }): boolean {
     return this._containsBox(e.x0, e.y0, e.z0, e.x1, e.y1, e.z1);
   }
 
-  _containsBox(
-    e: number,
-    t: number,
-    n: number,
-    r: number,
-    s: number,
-    a: number
-  ): boolean {
-    return (
-      e >= this.x0 &&
-      t >= this.y0 &&
-      n >= this.z0 &&
-      r <= this.x1 &&
-      s <= this.y1 &&
-      a <= this.z1
-    );
+  _containsBox(e: number, t: number, n: number, r: number, s: number, a: number): boolean {
+    return e >= this.x0 && t >= this.y0 && n >= this.z0 && r <= this.x1 && s <= this.y1 && a <= this.z1;
   }
 
   containsPointWithTolerance(e: number, t: number, n: number, r: number): boolean {
@@ -510,14 +432,7 @@ export class SceneAABB {
   }
 
   _translate(e: number, t: number, n: number): void {
-    this.setBounds(
-      this.x0 + e,
-      this.y0 + t,
-      this.z0 + n,
-      this.x1 + e,
-      this.y1 + t,
-      this.z1 + n
-    );
+    this.setBounds(this.x0 + e, this.y0 + t, this.z0 + n, this.x1 + e, this.y1 + t, this.z1 + n);
   }
 
   grow(e: number): void {
@@ -576,10 +491,7 @@ export class SceneAABB {
     e[23] = o;
   }
 
-  traverseCorners(
-    e: (x: number, y: number, z: number) => void,
-    t?: unknown
-  ): void {
+  traverseCorners(e: (x: number, y: number, z: number) => void, t?: unknown): void {
     const n = this.x0;
     const r = this.y0;
     const s = this.z0;
@@ -596,14 +508,7 @@ export class SceneAABB {
     e.call(t, a, i, o);
   }
 
-  fromJSON(e: {
-    x0: number;
-    y0: number;
-    z0: number;
-    x1: number;
-    y1: number;
-    z1: number;
-  }): void {
+  fromJSON(e: { x0: number; y0: number; z0: number; x1: number; y1: number; z1: number }): void {
     this.setBounds(e.x0, e.y0, e.z0, e.x1, e.y1, e.z1);
   }
 
@@ -647,25 +552,11 @@ export class SceneAABB {
     return -g * g;
   }
 
-  distanceToBox(e: {
-    x0: number;
-    y0: number;
-    z0: number;
-    x1: number;
-    y1: number;
-    z1: number;
-  }): number {
+  distanceToBox(e: { x0: number; y0: number; z0: number; x1: number; y1: number; z1: number }): number {
     return this._distanceToBox(e.x0, e.y0, e.z0, e.x1, e.y1, e.z1);
   }
 
-  _distanceToBox(
-    e: number,
-    t: number,
-    n: number,
-    r: number,
-    s: number,
-    a: number
-  ): number {
+  _distanceToBox(e: number, t: number, n: number, r: number, s: number, a: number): number {
     const l = t - this.y1;
     const f = this.y0 - s;
     const h = n - this.z1;
@@ -677,25 +568,11 @@ export class SceneAABB {
     return g < 0 && p < 0 && v < 0 ? -A : A;
   }
 
-  costForInclusion(e: {
-    x0: number;
-    y0: number;
-    z0: number;
-    x1: number;
-    y1: number;
-    z1: number;
-  }): number {
+  costForInclusion(e: { x0: number; y0: number; z0: number; x1: number; y1: number; z1: number }): number {
     return this._costForInclusion(e.x0, e.y0, e.z0, e.x1, e.y1, e.z1);
   }
 
-  _costForInclusion(
-    e: number,
-    t: number,
-    n: number,
-    r: number,
-    s: number,
-    a: number
-  ): number {
+  _costForInclusion(e: number, t: number, n: number, r: number, s: number, a: number): number {
     let i = 0;
     let o = 0;
     let _ = 0;
@@ -717,60 +594,25 @@ export class SceneAABB {
     return i * (g + p) + o * (m + p) + _ * (m + g);
   }
 
-  computeDistanceAbovePlane(
-    e: number,
-    t: number,
-    n: number,
-    r: number
-  ): number {
-    return distanceAbovePlane(
-      e,
-      t,
-      n,
-      r,
-      this.x0,
-      this.y0,
-      this.z0,
-      this.x1,
-      this.y1,
-      this.z1
-    );
+  computeDistanceAbovePlane(e: number, t: number, n: number, r: number): number {
+    return distanceAbovePlane(e, t, n, r, this.x0, this.y0, this.z0, this.x1, this.y1, this.z1);
   }
 
   _isBelowPlane(e: number, t: number, n: number, r: number): boolean {
     return this.computeDistanceAbovePlane(e, t, n, r) < 0;
   }
 
-  isBelowPlane(e: {
-    normal: { x: number; y: number; z: number };
-    constant: number;
-  }): boolean {
+  isBelowPlane(e: { normal: { x: number; y: number; z: number }; constant: number }): boolean {
     const t = e.normal;
     return this._isBelowPlane(t.x, t.y, t.z, e.constant);
   }
 
-  computePlaneSide(e: {
-    normal: { x: number; y: number; z: number };
-    constant: number;
-  }): number {
+  computePlaneSide(e: { normal: { x: number; y: number; z: number }; constant: number }): number {
     const t = e.normal;
-    return planeSide(
-      t.x,
-      t.y,
-      t.z,
-      e.constant,
-      this.x0,
-      this.y0,
-      this.z0,
-      this.x1,
-      this.y1,
-      this.z1
-    );
+    return planeSide(t.x, t.y, t.z, e.constant, this.x0, this.y0, this.z0, this.x1, this.y1, this.z1);
   }
 
-  intersectSpace(
-    e: ArrayLike<{ normal: { x: number; y: number; z: number }; constant: number }>
-  ): boolean {
+  intersectSpace(e: ArrayLike<{ normal: { x: number; y: number; z: number }; constant: number }>): boolean {
     const n = e.length;
     for (let t = 0; t < n; t++) {
       if (this.isBelowPlane(e[t]!)) return false;
@@ -820,7 +662,7 @@ export class SceneAABB {
           this.z0,
           this.x1,
           this.y1,
-          this.z1
+          this.z1,
         ) < 0
       ) {
         return false;
@@ -842,7 +684,7 @@ export class SceneAABB {
         this.z0,
         this.x1,
         this.y1,
-        this.z1
+        this.z1,
       );
       if (c < 0) return 0;
       if (c === 0) o = 1;
@@ -868,14 +710,7 @@ export class SceneAABB {
     return n;
   }
 
-  intersectRay(
-    e: number,
-    t: number,
-    n: number,
-    r: number,
-    s: number,
-    a: number
-  ): boolean {
+  intersectRay(e: number, t: number, n: number, r: number, s: number, a: number): boolean {
     const ox = e;
     const oy = t;
     const oz = n;
@@ -904,14 +739,7 @@ export class SceneAABB {
     return Math.abs(dx * m - dy * f) <= l * v + h * b;
   }
 
-  intersectSegment(
-    e: number,
-    t: number,
-    n: number,
-    r: number,
-    s: number,
-    a: number
-  ): boolean {
+  intersectSegment(e: number, t: number, n: number, r: number, s: number, a: number): boolean {
     const i = e;
     const o = t;
     const _ = n;
@@ -1114,7 +942,6 @@ export class SceneLights {
   markChanged(light: Light): void {
     if (this._elementSet.has(light)) this._version++;
   }
-
 }
 
 export class LightProbeVolume {
@@ -1193,10 +1020,7 @@ export class LightProbeVolume {
     this.#version++;
   }
 
-  build_grid(
-    bounds: SceneAABB,
-    dimensions: { x: number; y: number; z: number }
-  ): void {
+  build_grid(bounds: SceneAABB, dimensions: { x: number; y: number; z: number }): void {
     const sizeX = dimensions.x === undefined ? 2 : dimensions.x;
     const sizeY = dimensions.y === undefined ? 2 : dimensions.y;
     const sizeZ = dimensions.z === undefined ? 2 : dimensions.z;
@@ -1213,14 +1037,9 @@ export class LightProbeVolume {
     const extentX = bounds.getExtentsX();
     const extentY = bounds.getExtentsY();
     const extentZ = bounds.getExtentsZ();
-    const vertexIndex = (x: number, y: number, z: number): number =>
-      z * sizeY * sizeX + y * sizeX + x;
-    const tetraIndex = (
-      x: number,
-      y: number,
-      z: number,
-      localTetra: number
-    ): number => 6 * (z * cellsY * cellsX + y * cellsX + x) + localTetra;
+    const vertexIndex = (x: number, y: number, z: number): number => z * sizeY * sizeX + y * sizeX + x;
+    const tetraIndex = (x: number, y: number, z: number, localTetra: number): number =>
+      6 * (z * cellsY * cellsX + y * cellsX + x) + localTetra;
 
     for (let z = 0; z < sizeZ; z++) {
       for (let y = 0; y < sizeY; y++) {
@@ -1449,8 +1268,7 @@ export class Scene extends Node3D {
         const light = node as Light;
         if (this.lights.remove(light)) this.changeSet.recordLight(light);
       } else {
-        instanceStructureChanged =
-          this.instances.remove(node) || instanceStructureChanged;
+        instanceStructureChanged = this.instances.remove(node) || instanceStructureChanged;
       }
     });
     if (instanceStructureChanged) {
@@ -1480,11 +1298,7 @@ export class Scene extends Node3D {
           this.changeSet.recordLight(light);
         }
       } else if (this.instances.has(node)) {
-        this.changeSet.recordTransform(
-          node,
-          change.matrix,
-          (node as Mesh).isMesh === true
-        );
+        this.changeSet.recordTransform(node, change.matrix, (node as Mesh).isMesh === true);
       }
     }
   }
@@ -1499,14 +1313,14 @@ export class Scene extends Node3D {
       if (candidate === this || this.instances.has(candidate)) {
         changedNodes.push({
           node: candidate,
-          previousGlobal: Float32Array.from(candidate.transform_global.matrix)
+          previousGlobal: Float32Array.from(candidate.transform_global.matrix),
         });
       } else if ((candidate as Light).isLight === true) {
         const light = candidate as Light;
         if (this.lights.has(light)) {
           changedNodes.push({
             node: light,
-            previousGlobal: Float32Array.from(light.transform_global.matrix)
+            previousGlobal: Float32Array.from(light.transform_global.matrix),
           });
         }
       }
@@ -1522,7 +1336,7 @@ export class Scene extends Node3D {
         this.changeSet.recordTransform(
           change.node,
           change.previousGlobal,
-          (change.node as Mesh).isMesh === true
+          (change.node as Mesh).isMesh === true,
         );
       }
     }

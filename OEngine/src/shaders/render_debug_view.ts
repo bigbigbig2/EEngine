@@ -12,7 +12,7 @@ import { GPU_HDR_FORMAT } from "../gpu/GpuHdrAbi.js";
 import { GPU_COMPUTE_MATERIAL_ABI_WGSL } from "../gpu/GpuComputeMaterialAbi.js";
 import {
   GPU_VISIBILITY_DEBUG_COLORS,
-  GPU_VISIBILITY_DEBUG_STATUS_WGSL
+  GPU_VISIBILITY_DEBUG_STATUS_WGSL,
 } from "../gpu/GpuVisibilityDebugResolve.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
 import { VIS_MESH_CLEAR_SENTINEL } from "../render/VisibilityBufferContract.js";

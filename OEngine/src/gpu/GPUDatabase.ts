@@ -3,10 +3,7 @@
  */
 
 import { BitSet } from "../core/BitSet.js";
-import {
-  recordGpuReadback,
-  submitGpuCommands
-} from "./GpuQueueEvidence.js";
+import { recordGpuReadback, submitGpuCommands } from "./GpuQueueEvidence.js";
 import { LineBuilder } from "../core/LineBuilder.js";
 import { alignCeil, detectNativeEndianness } from "../core/memoryUtils.js";
 import {
@@ -22,7 +19,7 @@ import {
   WGSL_vec3f,
   WGSL_vec3u,
   WGSL_vec4f,
-  WGSL_vec4u
+  WGSL_vec4u,
 } from "../core/WebGPUTypes.js";
 import { StructType } from "../core/WgslStruct.js";
 import { readWgslValue, writeWgslValue } from "../core/WgslBufferIO.js";
@@ -45,7 +42,7 @@ function appendReadSequence(
   wordOffset: number,
   database: string,
   type: WebGPUType,
-  count: number
+  count: number,
 ): void {
   const strideWords = type.size / GPU_DATABASE_WORD_BYTES;
   for (let i = 0; i < count; i++) {
@@ -55,24 +52,14 @@ function appendReadSequence(
   }
 }
 
-function appendReadValue(
-  out: LineBuilder,
-  wordOffset: number,
-  database: string,
-  type: WebGPUType
-): void {
+function appendReadValue(out: LineBuilder, wordOffset: number, database: string, type: WebGPUType): void {
   if (type instanceof StructType) {
     out.extend(`${type.wgsl_ref}(`);
     out.indent();
     for (let i = 0; i < type.fields.length; i++) {
       const field = type.fields[i]!;
       out.add("");
-      appendReadValue(
-        out,
-        wordOffset + field.offset / GPU_DATABASE_WORD_BYTES,
-        database,
-        field.type
-      );
+      appendReadValue(out, wordOffset + field.offset / GPU_DATABASE_WORD_BYTES, database, field.type);
       if (i < type.fields.length - 1) out.extend(",");
     }
     out.dedent();
@@ -165,7 +152,7 @@ function appendPrimitiveWrite(
   wordOffset: number,
   database: string,
   type: WebGPUType,
-  value: string
+  value: string,
 ): void {
   switch (type) {
     case WGSL_u32:
@@ -196,13 +183,7 @@ function appendPrimitiveWrite(
       return;
     case WGSL_mat4x4f:
       for (let i = 0; i < 4; i++) {
-        appendPrimitiveWrite(
-          out,
-          wordOffset + i * 4,
-          database,
-          WGSL_vec4f,
-          `${value}[${i}]`
-        );
+        appendPrimitiveWrite(out, wordOffset + i * 4, database, WGSL_vec4f, `${value}[${i}]`);
       }
       return;
     default:
@@ -215,7 +196,7 @@ function appendWriteValue(
   wordOffset: number,
   database: string,
   type: WebGPUType,
-  value = "value"
+  value = "value",
 ): void {
   if (type instanceof StructType) {
     for (const field of type.fields) {
@@ -224,7 +205,7 @@ function appendWriteValue(
         wordOffset + field.offset / GPU_DATABASE_WORD_BYTES,
         database,
         field.type,
-        `${value}.${field.name}`
+        `${value}.${field.name}`,
       );
     }
     return;
@@ -234,13 +215,7 @@ function appendWriteValue(
     const elementType = type.type!;
     const strideWords = elementType.aligned_size / GPU_DATABASE_WORD_BYTES;
     for (let i = 0; i < type.count; i++) {
-      appendWriteValue(
-        out,
-        wordOffset + i * strideWords,
-        database,
-        elementType,
-        `${value}[${i}]`
-      );
+      appendWriteValue(out, wordOffset + i * strideWords, database, elementType, `${value}[${i}]`);
     }
     return;
   }
@@ -267,21 +242,14 @@ export class GPUTypedTableDescriptor {
   #writeChunk?: CodeChunk;
   readonly #iteratorChunks = new Map<string, CodeChunk>();
 
-  constructor(
-    type: WebGPUType,
-    pageSizeBytes = 1024,
-    pageLimit = GPU_DATABASE_DEFAULT_PAGE_LIMIT
-  ) {
+  constructor(type: WebGPUType, pageSizeBytes = 1024, pageLimit = GPU_DATABASE_DEFAULT_PAGE_LIMIT) {
     const recordBytes = type.size;
     const rawSlots = Math.floor(pageSizeBytes / recordBytes);
-    const headerBytes =
-      (1 + Math.ceil(rawSlots / 32)) * GPU_DATABASE_WORD_BYTES;
-    const elementsPerPage = Math.floor(
-      (pageSizeBytes - headerBytes) / recordBytes
-    );
+    const headerBytes = (1 + Math.ceil(rawSlots / 32)) * GPU_DATABASE_WORD_BYTES;
+    const elementsPerPage = Math.floor((pageSizeBytes - headerBytes) / recordBytes);
     if (elementsPerPage < 1) {
       throw new Error(
-        `Type '${type.tag}' (${recordBytes} bytes) is too large for page size ${pageSizeBytes} (header: ${headerBytes} bytes)`
+        `Type '${type.tag}' (${recordBytes} bytes) is too large for page size ${pageSizeBytes} (header: ${headerBytes} bytes)`,
       );
     }
     this.type = type;
@@ -357,11 +325,9 @@ export class GPUTypedTableDescriptor {
   wgsl_gen_read_code(readWrite = false): CodeChunk {
     const out = new LineBuilder();
     const type = this.type;
-    const method = readWrite
-      ? this.marshalling_method_read_rw
-      : this.marshalling_method_read;
+    const method = readWrite ? this.marshalling_method_read_rw : this.marshalling_method_read;
     out.add(
-      `fn ${method}(database: ptr<storage, array<u32>${readWrite ? ", read_write" : ""}>, index: u32) -> ${type.wgsl_ref} {`
+      `fn ${method}(database: ptr<storage, array<u32>${readWrite ? ", read_write" : ""}>, index: u32) -> ${type.wgsl_ref} {`,
     );
     out.indent();
     this.appendBaseOffset(out);
@@ -370,27 +336,21 @@ export class GPUTypedTableDescriptor {
     out.extend(";");
     out.dedent();
     out.add("}");
-    return CodeChunk.from(
-      out.build(),
-      type.requires_declaration ? [type.declaration_chunk] : []
-    );
+    return CodeChunk.from(out.build(), type.requires_declaration ? [type.declaration_chunk] : []);
   }
 
   wgsl_gen_write_code(): CodeChunk {
     const out = new LineBuilder();
     const type = this.type;
     out.add(
-      `fn ${this.marshalling_method_write}(database: ptr<storage, array<u32>, read_write>, index: u32, value: ${type.wgsl_ref}) {`
+      `fn ${this.marshalling_method_write}(database: ptr<storage, array<u32>, read_write>, index: u32, value: ${type.wgsl_ref}) {`,
     );
     out.indent();
     this.appendBaseOffset(out);
     appendWriteValue(out, 0, "(*database)", type);
     out.dedent();
     out.add("}");
-    return CodeChunk.from(
-      out.build(),
-      type.requires_declaration ? [type.declaration_chunk] : []
-    );
+    return CodeChunk.from(out.build(), type.requires_declaration ? [type.declaration_chunk] : []);
   }
 
   wgsl_gen_write_field_code(fieldName: string): CodeChunk {
@@ -402,22 +362,14 @@ export class GPUTypedTableDescriptor {
     const out = new LineBuilder();
     const method = this.marshalling_method_write_field(fieldName);
     out.add(
-      `fn ${method}(database: ptr<storage, array<u32>, read_write>, index: u32, value: ${fieldType.wgsl_ref}) {`
+      `fn ${method}(database: ptr<storage, array<u32>, read_write>, index: u32, value: ${fieldType.wgsl_ref}) {`,
     );
     out.indent();
     this.appendBaseOffset(out);
-    appendWriteValue(
-      out,
-      field.offset / GPU_DATABASE_WORD_BYTES,
-      "(*database)",
-      fieldType
-    );
+    appendWriteValue(out, field.offset / GPU_DATABASE_WORD_BYTES, "(*database)", fieldType);
     out.dedent();
     out.add("}");
-    return CodeChunk.from(
-      out.build(),
-      fieldType.requires_declaration ? [fieldType.declaration_chunk] : []
-    );
+    return CodeChunk.from(out.build(), fieldType.requires_declaration ? [fieldType.declaration_chunk] : []);
   }
 
   wgsl_gen_iterate_code(groupSize: number, readWrite = false): CodeChunk {
@@ -426,8 +378,7 @@ export class GPUTypedTableDescriptor {
     const bitmapWords = this.occupancy_bitmap_words;
     const groupsPerPage = Math.ceil(elementsPerPage / groupSize);
     const bitmapWordsPerGroup = groupSize / 32;
-    const recordWords =
-      this.packed_element_size_bytes / GPU_DATABASE_WORD_BYTES;
+    const recordWords = this.packed_element_size_bytes / GPU_DATABASE_WORD_BYTES;
     const access = readWrite ? "read_write" : "read";
     const type = this.type;
 
@@ -506,7 +457,7 @@ fn ${prefix}_setup(
     local_id: u32,
 ) -> bool {${setupBody}}
 `,
-      [declarations]
+      [declarations],
     );
     const slotInPage = CodeChunk.from(
       `
@@ -514,7 +465,7 @@ fn ${prefix}_slot_in_page(local_id: u32) -> u32 {
     return ${prefix}_wg_page_group * ${groupSize}u + local_id;
 }
 `,
-      [declarations]
+      [declarations],
     );
     const isOccupied = CodeChunk.from(
       `
@@ -525,7 +476,7 @@ fn ${prefix}_is_occupied(slot_in_page: u32) -> bool {
     return (${prefix}_wg_occupancy_bitmap[bitmap_word] & (1u << bitmap_bit)) != 0u;
 }
 `,
-      [declarations]
+      [declarations],
     );
     const slotToIndex = CodeChunk.from(
       `
@@ -533,7 +484,7 @@ fn ${prefix}_slot_to_index(slot_in_page: u32) -> u32 {
     return ${prefix}_wg_page_index * ${elementsPerPage}u + slot_in_page;
 }
 `,
-      [declarations]
+      [declarations],
     );
 
     const readExpr = new LineBuilder();
@@ -549,19 +500,10 @@ fn ${prefix}_read(
     return ${readExpr.build()};
 }
 `,
-      type.requires_declaration
-        ? [declarations, type.declaration_chunk]
-        : [declarations]
+      type.requires_declaration ? [declarations, type.declaration_chunk] : [declarations],
     );
 
-    return CodeChunk.from("", [
-      declarations,
-      setup,
-      slotInPage,
-      isOccupied,
-      slotToIndex,
-      read
-    ]);
+    return CodeChunk.from("", [declarations, setup, slotInPage, isOccupied, slotToIndex, read]);
   }
 
   equals(other: GPUTypedTableDescriptor): boolean {
@@ -590,33 +532,24 @@ fn ${prefix}_read(
   private appendBaseOffset(out: LineBuilder): void {
     this.appendAddressLookup(out);
     out.add(
-      `let base_offset = page_address + ${this.page_header_words}u + page_offset * ${this.packed_element_size_bytes / GPU_DATABASE_WORD_BYTES}u;`
+      `let base_offset = page_address + ${this.page_header_words}u + page_offset * ${this.packed_element_size_bytes / GPU_DATABASE_WORD_BYTES}u;`,
     );
   }
 }
 
-(GPUTypedTableDescriptor.prototype as { isGPUTypedTableDescriptor?: boolean })
-  .isGPUTypedTableDescriptor = true;
+(GPUTypedTableDescriptor.prototype as { isGPUTypedTableDescriptor?: boolean }).isGPUTypedTableDescriptor =
+  true;
 
 export class GPUDatabaseDefinition {
   readonly descriptors: readonly GPUTypedTableDescriptor[];
   readonly page_size_bytes: number;
-  private readonly descriptorByName = new Map<
-    string,
-    GPUTypedTableDescriptor
-  >();
+  private readonly descriptorByName = new Map<string, GPUTypedTableDescriptor>();
 
-  constructor(
-    schema: Record<string, WebGPUType>,
-    pageSizeBytes = GPU_DATABASE_DEFAULT_PAGE_BYTES
-  ) {
+  constructor(schema: Record<string, WebGPUType>, pageSizeBytes = GPU_DATABASE_DEFAULT_PAGE_BYTES) {
     this.page_size_bytes = pageSizeBytes;
     const descriptors: GPUTypedTableDescriptor[] = [];
     for (const name of Object.keys(schema)) {
-      const descriptor = new GPUTypedTableDescriptor(
-        schema[name]!,
-        pageSizeBytes
-      );
+      const descriptor = new GPUTypedTableDescriptor(schema[name]!, pageSizeBytes);
       descriptor.name = name;
       descriptor.index = descriptors.length;
       let lookupAddress = 0;
@@ -630,10 +563,7 @@ export class GPUDatabaseDefinition {
     Object.freeze(this);
   }
 
-  static from(
-    schema: Record<string, WebGPUType>,
-    pageSizeBytes?: number
-  ): GPUDatabaseDefinition {
+  static from(schema: Record<string, WebGPUType>, pageSizeBytes?: number): GPUDatabaseDefinition {
     return new GPUDatabaseDefinition(schema, pageSizeBytes);
   }
 
@@ -650,8 +580,7 @@ export class GPUDatabaseDefinition {
   }
 }
 
-(GPUDatabaseDefinition.prototype as { isGPUDatabaseDefinition?: boolean })
-  .isGPUDatabaseDefinition = true;
+(GPUDatabaseDefinition.prototype as { isGPUDatabaseDefinition?: boolean }).isGPUDatabaseDefinition = true;
 
 export class GPUDatabasePage {
   index = 0;
@@ -712,9 +641,7 @@ export class FixedSlotAllocator {
   }
 
   allocate(): number {
-    return this.freeSlots.length === 0
-      ? -1
-      : this.freeSlots.pop()! * this.slotSizeWords;
+    return this.freeSlots.length === 0 ? -1 : this.freeSlots.pop()! * this.slotSizeWords;
   }
 
   free(slotOffsetWords: number): void {
@@ -736,17 +663,13 @@ export class FixedSlotAllocator {
 
 const tableScratchReader = new BinaryReader();
 tableScratchReader.endianness = detectNativeEndianness();
-const pendingReadScratch = BinaryReader.fromEndianness(
-  detectNativeEndianness()
-);
+const pendingReadScratch = BinaryReader.fromEndianness(detectNativeEndianness());
 
 export class GPUTypedTable<T = unknown> {
   index = 0;
   readonly descriptor: GPUTypedTableDescriptor;
   readonly pages = new Map<number, GPUDatabasePage>();
-  readonly element_upload_buffer = BinaryReader.fromEndianness(
-    detectNativeEndianness()
-  );
+  readonly element_upload_buffer = BinaryReader.fromEndianness(detectNativeEndianness());
   readonly cpu_dirty_pages = new BitSet();
   readonly occupancy = new BitSet();
   readonly header_dirty_pages = new BitSet();
@@ -765,9 +688,7 @@ export class GPUTypedTable<T = unknown> {
   remove(index: number): void {
     if (!this.occupancy.get(index)) return;
     this.occupancy.set(index, false);
-    const pageIndex = Math.floor(
-      index / this.descriptor.elements_per_page
-    );
+    const pageIndex = Math.floor(index / this.descriptor.elements_per_page);
     const page = this.pages.get(pageIndex);
     if (page === undefined) return;
 
@@ -777,9 +698,8 @@ export class GPUTypedTable<T = unknown> {
       const recordBytes = this.descriptor.packed_element_size_bytes;
       new Uint8Array(
         page.cpu_data_buffer,
-        page.cpu_data_address +
-          (index % this.descriptor.elements_per_page) * recordBytes,
-        recordBytes
+        page.cpu_data_address + (index % this.descriptor.elements_per_page) * recordBytes,
+        recordBytes,
       ).fill(0);
       page.cpu_version++;
     }
@@ -798,36 +718,26 @@ export class GPUTypedTable<T = unknown> {
   }
 
   get(index: number): T | undefined {
-    const pageIndex = Math.floor(
-      index / this.descriptor.elements_per_page
-    );
+    const pageIndex = Math.floor(index / this.descriptor.elements_per_page);
     const page = this.pages.get(pageIndex);
     if (page === undefined) return undefined;
     if (page.cpu_data_buffer === undefined) {
       const pending = this.readPendingUpload(index);
       if (pending === undefined) {
-        throw new Error(
-          `Requested element ${index} is in a not CPU-resident page(${pageIndex}).`
-        );
+        throw new Error(`Requested element ${index} is in a not CPU-resident page(${pageIndex}).`);
       }
       return pending;
     }
     tableScratchReader.fromArrayBuffer(page.cpu_data_buffer);
     tableScratchReader.position =
       page.cpu_data_address +
-      (index % this.descriptor.elements_per_page) *
-        this.descriptor.packed_element_size_bytes;
-    return readWgslValue(
-      tableScratchReader,
-      this.descriptor.type
-    ) as T;
+      (index % this.descriptor.elements_per_page) * this.descriptor.packed_element_size_bytes;
+    return readWgslValue(tableScratchReader, this.descriptor.type) as T;
   }
 
   set(index: number, value: T): void {
     const type = this.descriptor.type;
-    const pageIndex = Math.floor(
-      index / this.descriptor.elements_per_page
-    );
+    const pageIndex = Math.floor(index / this.descriptor.elements_per_page);
     let page = this.pages.get(pageIndex);
     if (page === undefined) page = this.allocateCpuPage(pageIndex);
 
@@ -843,8 +753,7 @@ export class GPUTypedTable<T = unknown> {
     const cpuData = page.cpu_data_buffer;
     tableScratchReader.fromArrayBuffer(cpuData);
     tableScratchReader.position =
-      page.cpu_data_address +
-      (index % this.descriptor.elements_per_page) * recordBytes;
+      page.cpu_data_address + (index % this.descriptor.elements_per_page) * recordBytes;
     writeWgslValue(value, tableScratchReader, type);
     page.cpu_version++;
 
@@ -856,10 +765,7 @@ export class GPUTypedTable<T = unknown> {
     const upload = this.element_upload_buffer;
     const uploadRecordBytes = GPU_DATABASE_WORD_BYTES + recordBytes;
     const end = upload.position;
-    const searchCount = Math.min(
-      256,
-      Math.floor(end / uploadRecordBytes)
-    );
+    const searchCount = Math.min(256, Math.floor(end / uploadRecordBytes));
     let existingOffset = -1;
     for (let distance = 1; distance <= searchCount; distance++) {
       const offset = end - distance * uploadRecordBytes;
@@ -884,10 +790,7 @@ export class GPUTypedTable<T = unknown> {
 
   unmap(): void {
     for (const page of this.pages.values()) {
-      if (
-        page.cpu_data_buffer === undefined ||
-        page.cpu_version > page.gpu_version
-      ) {
+      if (page.cpu_data_buffer === undefined || page.cpu_version > page.gpu_version) {
         continue;
       }
       page.cpu_data_buffer = undefined;
@@ -897,9 +800,7 @@ export class GPUTypedTable<T = unknown> {
 
   trim_upload_buffer(): void {
     if (this.element_upload_buffer.capacity > GPU_DATABASE_UPLOAD_BUFFER_LIMIT) {
-      this.element_upload_buffer.setCapacity(
-        GPU_DATABASE_UPLOAD_BUFFER_LIMIT
-      );
+      this.element_upload_buffer.setCapacity(GPU_DATABASE_UPLOAD_BUFFER_LIMIT);
     }
   }
 
@@ -916,9 +817,7 @@ export class GPUTypedTable<T = unknown> {
   }
 
   dispatch_group_count(groupSize: number): number {
-    const groupsPerPage = Math.ceil(
-      this.descriptor.elements_per_page / groupSize
-    );
+    const groupsPerPage = Math.ceil(this.descriptor.elements_per_page / groupSize);
     return this.dispatch_page_count * groupsPerPage;
   }
 
@@ -927,9 +826,7 @@ export class GPUTypedTable<T = unknown> {
   }
 
   private appendZeroUpload(index: number): void {
-    const words =
-      this.descriptor.packed_element_size_bytes /
-      GPU_DATABASE_WORD_BYTES;
+    const words = this.descriptor.packed_element_size_bytes / GPU_DATABASE_WORD_BYTES;
     this.element_upload_buffer.writeUint32(index);
     for (let i = 0; i < words; i++) {
       this.element_upload_buffer.writeUint32(0);
@@ -949,11 +846,7 @@ export class GPUTypedTable<T = unknown> {
       if (upload.readUint32() !== index) continue;
       pendingReadScratch.ensureCapacity(recordBytes);
       const dst = new Uint8Array(pendingReadScratch.data, 0, recordBytes);
-      const src = new Uint8Array(
-        upload.data,
-        offset + GPU_DATABASE_WORD_BYTES,
-        recordBytes
-      );
+      const src = new Uint8Array(upload.data, offset + GPU_DATABASE_WORD_BYTES, recordBytes);
       dst.set(src);
       pendingReadScratch.position = 0;
       result = readWgslValue(pendingReadScratch, type) as T;
@@ -984,10 +877,11 @@ const GPU_DATABASE_UPLOAD_SETTINGS_TYPE = StructType.from({
   elements_per_page: WGSL_u32,
   page_lookup_address: WGSL_u32,
   page_header_words: WGSL_u32,
-  page_limit: WGSL_u32
+  page_limit: WGSL_u32,
 }).pack();
 
-const GPU_DATABASE_UPLOAD_WGSL = `struct Struct_66{
+const GPU_DATABASE_UPLOAD_WGSL =
+  `struct Struct_66{
     count : u32,
     record_size : u32,
     elements_per_page : u32,
@@ -1048,19 +942,19 @@ const GPU_DATABASE_UPLOAD_GROUP: GPUBindGroupLayoutDescriptor = {
     {
       binding: 0,
       visibility: GPUShaderStage.COMPUTE,
-      buffer: { type: "read-only-storage" }
+      buffer: { type: "read-only-storage" },
     },
     {
       binding: 1,
       visibility: GPUShaderStage.COMPUTE,
-      buffer: { type: "storage" }
+      buffer: { type: "storage" },
     },
     {
       binding: 2,
       visibility: GPUShaderStage.COMPUTE,
-      buffer: { type: "uniform" }
-    }
-  ]
+      buffer: { type: "uniform" },
+    },
+  ],
 };
 
 const GPU_DATABASE_UPLOAD_PIPELINE: CachedComputePipelineDescriptor = {
@@ -1068,8 +962,8 @@ const GPU_DATABASE_UPLOAD_PIPELINE: CachedComputePipelineDescriptor = {
   layout: { label: "", bindGroupLayouts: [GPU_DATABASE_UPLOAD_GROUP] },
   compute: {
     module: { label: "", code: GPU_DATABASE_UPLOAD_WGSL },
-    entryPoint: "main"
-  }
+    entryPoint: "main",
+  },
 };
 
 export class GPUDatabase {
@@ -1082,8 +976,11 @@ export class GPUDatabase {
   private pageLookup: Uint32Array;
   private dirtyLookupStart = Number.POSITIVE_INFINITY;
   private dirtyLookupEnd = -1;
-  private readonly retiringBuffers=new Set<GPUBuffer>();
-  private readonly uploadTransactions=new WeakMap<ShadeGPUCommandContext,Map<GPUTypedTable,Uint8Array[]>>();
+  private readonly retiringBuffers = new Set<GPUBuffer>();
+  private readonly uploadTransactions = new WeakMap<
+    ShadeGPUCommandContext,
+    Map<GPUTypedTable, Uint8Array[]>
+  >();
   private dataStartOffsetWords: number;
   private slotAllocator: FixedSlotAllocator;
   private readonly growthTransactions = new WeakMap<
@@ -1100,13 +997,11 @@ export class GPUDatabase {
   constructor({
     definition,
     device,
-    initial_data_size_bytes = GPU_DATABASE_DEFAULT_INITIAL_BYTES
+    initial_data_size_bytes = GPU_DATABASE_DEFAULT_INITIAL_BYTES,
   }: GPUDatabaseOptions) {
     this.definition = definition;
     this.device = device;
-    this.pageBufferPool = new FixedPageBufferPool(
-      definition.page_size_bytes
-    );
+    this.pageBufferPool = new FixedPageBufferPool(definition.page_size_bytes);
     this.tables = new Array(definition.descriptors.length);
     for (let i = 0; i < definition.descriptors.length; i++) {
       const table = new GPUTypedTable(definition.descriptors[i]!);
@@ -1125,38 +1020,21 @@ export class GPUDatabase {
     this.dirtyLookupEnd = this.pageLookup.length - 1;
 
     const lookupBytes = this.pageLookup.byteLength;
-    const dataStartBytes = alignCeil(
-      lookupBytes,
-      GPU_DATABASE_WORD_BYTES
-    );
-    this.dataStartOffsetWords =
-      dataStartBytes / GPU_DATABASE_WORD_BYTES;
-    const bufferBytes = Math.max(
-      initial_data_size_bytes,
-      lookupBytes
-    );
-    const dataCapacityWords = Math.floor(
-      (bufferBytes - dataStartBytes) / GPU_DATABASE_WORD_BYTES
-    );
-    this.slotAllocator = new FixedSlotAllocator(
-      dataCapacityWords,
-      this.pageSlotWords
-    );
+    const dataStartBytes = alignCeil(lookupBytes, GPU_DATABASE_WORD_BYTES);
+    this.dataStartOffsetWords = dataStartBytes / GPU_DATABASE_WORD_BYTES;
+    const bufferBytes = Math.max(initial_data_size_bytes, lookupBytes);
+    const dataCapacityWords = Math.floor((bufferBytes - dataStartBytes) / GPU_DATABASE_WORD_BYTES);
+    this.slotAllocator = new FixedSlotAllocator(dataCapacityWords, this.pageSlotWords);
     this.buffer = device.createBuffer({
       size: bufferBytes,
-      usage:
-        GPUBufferUsage.STORAGE |
-        GPUBufferUsage.COPY_SRC |
-        GPUBufferUsage.COPY_DST,
-      mappedAtCreation: false
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+      mappedAtCreation: false,
     });
   }
 
   get(name: string): GPUTypedTable | undefined {
     const descriptor = this.definition.get(name);
-    return descriptor === undefined
-      ? undefined
-      : this.tables[descriptor.index];
+    return descriptor === undefined ? undefined : this.tables[descriptor.index];
   }
 
   get data_start_offset(): number {
@@ -1168,48 +1046,59 @@ export class GPUDatabase {
   }
 
   get gpu_memory_usage(): number {
-    let bytes=this.buffer.size;
-    for(const buffer of this.retiringBuffers) bytes+=buffer.size;
+    let bytes = this.buffer.size;
+    for (const buffer of this.retiringBuffers) bytes += buffer.size;
     return bytes;
   }
 
   update(command: ShadeGPUCommandContext): void {
     // CPU tables remain authoritative on abort. Retain encoded row bytes until
     // submission and republish their lookup/header state when encoding fails.
-    const pending=this.tables.map(table=>({ table,
-      rows:new Uint8Array(table.element_upload_buffer.data,0,table.element_upload_buffer.position).slice(),
-      versions:[...table.pages.values()].map(page=>[page,page.cpu_version] as const) }));
-    let transaction=this.uploadTransactions.get(command);
-    if(!transaction) {
-      transaction=new Map(); this.uploadTransactions.set(command,transaction);
-      const staged=transaction;
-      command.onAborted.addOne(()=>{
-      this.dirtyLookupStart=0; this.dirtyLookupEnd=this.pageLookup.length-1;
-      for(const [table,chunks] of staged) {
-        const upload=table.element_upload_buffer;
-        const newer=new Uint8Array(upload.data,0,upload.position).slice();
-        const encodedBytes=chunks.reduce((sum,rows)=>sum+rows.byteLength,0);
-        upload.ensureCapacity(encodedBytes+newer.byteLength);
-        const restored=new Uint8Array(upload.data);
-        let offset=0;
-        for(const rows of chunks) { restored.set(rows,offset); offset+=rows.byteLength; }
-        restored.set(newer,offset); upload.position=offset+newer.byteLength;
-        for(const page of table.pages.values()) {
-          table.cpu_dirty_pages.set(page.index,true);
-          table.header_dirty_pages.set(page.index,true);
+    const pending = this.tables.map((table) => ({
+      table,
+      rows: new Uint8Array(table.element_upload_buffer.data, 0, table.element_upload_buffer.position).slice(),
+      versions: [...table.pages.values()].map((page) => [page, page.cpu_version] as const),
+    }));
+    let transaction = this.uploadTransactions.get(command);
+    if (!transaction) {
+      transaction = new Map();
+      this.uploadTransactions.set(command, transaction);
+      const staged = transaction;
+      command.onAborted.addOne(() => {
+        this.dirtyLookupStart = 0;
+        this.dirtyLookupEnd = this.pageLookup.length - 1;
+        for (const [table, chunks] of staged) {
+          const upload = table.element_upload_buffer;
+          const newer = new Uint8Array(upload.data, 0, upload.position).slice();
+          const encodedBytes = chunks.reduce((sum, rows) => sum + rows.byteLength, 0);
+          upload.ensureCapacity(encodedBytes + newer.byteLength);
+          const restored = new Uint8Array(upload.data);
+          let offset = 0;
+          for (const rows of chunks) {
+            restored.set(rows, offset);
+            offset += rows.byteLength;
+          }
+          restored.set(newer, offset);
+          upload.position = offset + newer.byteLength;
+          for (const page of table.pages.values()) {
+            table.cpu_dirty_pages.set(page.index, true);
+            table.header_dirty_pages.set(page.index, true);
+          }
         }
-      }
-      this.uploadTransactions.delete(command);
+        this.uploadTransactions.delete(command);
       });
-      command.onFinished.addOne(()=>this.uploadTransactions.delete(command));
+      command.onFinished.addOne(() => this.uploadTransactions.delete(command));
     }
-    for(const {table,rows} of pending) {
-      let chunks=transaction.get(table);
-      if(!chunks) { chunks=[]; transaction.set(table,chunks); }
-      if(rows.byteLength) chunks.push(rows);
+    for (const { table, rows } of pending) {
+      let chunks = transaction.get(table);
+      if (!chunks) {
+        chunks = [];
+        transaction.set(table, chunks);
+      }
+      if (rows.byteLength) chunks.push(rows);
     }
-    command.onFinished.addOne(()=>{
-      for(const {versions} of pending) for(const [page,version] of versions) page.gpu_version=version;
+    command.onFinished.addOne(() => {
+      for (const { versions } of pending) for (const [page, version] of versions) page.gpu_version = version;
     });
     for (const table of this.tables) {
       const dirtyPages = table.cpu_dirty_pages;
@@ -1255,44 +1144,28 @@ export class GPUDatabase {
     const result: T[] = [];
 
     for (let pageIndex = 0; pageIndex < descriptor.page_limit; pageIndex++) {
-      const pageAddress =
-        words[descriptor.page_lookup_address + pageIndex]!;
+      const pageAddress = words[descriptor.page_lookup_address + pageIndex]!;
       if (pageAddress === GPU_DATABASE_INVALID_PAGE) continue;
       if (words[pageAddress] === 0) continue;
       const elementStart = pageAddress + descriptor.page_header_words;
-      for (
-        let bitmapWord = 0;
-        bitmapWord < descriptor.occupancy_bitmap_words;
-        bitmapWord++
-      ) {
+      for (let bitmapWord = 0; bitmapWord < descriptor.occupancy_bitmap_words; bitmapWord++) {
         const occupancy = words[pageAddress + 1 + bitmapWord]!;
         if (occupancy === 0) continue;
         for (let bit = 0; bit < 32; bit++) {
           if ((occupancy & (1 << bit)) === 0) continue;
           const slot = (bitmapWord << 5) + bit;
-          const index =
-            pageIndex * descriptor.elements_per_page + slot;
-          const byteOffset =
-            (elementStart + slot * recordWords) *
-            GPU_DATABASE_WORD_BYTES;
-          elementBytes.set(
-            byteView.subarray(byteOffset, byteOffset + recordBytes)
-          );
+          const index = pageIndex * descriptor.elements_per_page + slot;
+          const byteOffset = (elementStart + slot * recordWords) * GPU_DATABASE_WORD_BYTES;
+          elementBytes.set(byteView.subarray(byteOffset, byteOffset + recordBytes));
           reader.position = 0;
-          result[index] = readWgslValue(
-            reader,
-            descriptor.type
-          ) as T;
+          result[index] = readWgslValue(reader, descriptor.type) as T;
         }
       }
     }
     return result;
   }
 
-  async debug_table_read_element<T = unknown>(
-    name: string,
-    index: number
-  ): Promise<T | undefined> {
+  async debug_table_read_element<T = unknown>(name: string, index: number): Promise<T | undefined> {
     const table = this.get(name) as GPUTypedTable<T> | undefined;
     if (table === undefined) {
       throw new Error(`Table '${name}' does not exist`);
@@ -1306,13 +1179,9 @@ export class GPUDatabase {
         this.dataStartOffsetWords +
         descriptor.page_header_words +
         (index % descriptor.elements_per_page) *
-          (descriptor.packed_element_size_bytes /
-            GPU_DATABASE_WORD_BYTES)) *
+          (descriptor.packed_element_size_bytes / GPU_DATABASE_WORD_BYTES)) *
       GPU_DATABASE_WORD_BYTES;
-    const bytes = await this.readBufferRange(
-      byteOffset,
-      descriptor.packed_element_size_bytes
-    );
+    const bytes = await this.readBufferRange(byteOffset, descriptor.packed_element_size_bytes);
     const reader = BinaryReader.fromArrayBuffer(bytes);
     reader.endianness = detectNativeEndianness();
     return readWgslValue(reader, descriptor.type) as T;
@@ -1320,25 +1189,17 @@ export class GPUDatabase {
 
   destroy(): void {
     this.buffer.destroy();
-    for(const buffer of this.retiringBuffers) buffer.destroy();
+    for (const buffer of this.retiringBuffers) buffer.destroy();
     this.retiringBuffers.clear();
     this.pageBufferPool.clear();
     this.device = null as unknown as GPUDevice;
   }
 
   private get pageSlotWords(): number {
-    return (
-      alignCeil(
-        this.definition.page_size_bytes,
-        GPU_DATABASE_WORD_BYTES
-      ) / GPU_DATABASE_WORD_BYTES
-    );
+    return alignCeil(this.definition.page_size_bytes, GPU_DATABASE_WORD_BYTES) / GPU_DATABASE_WORD_BYTES;
   }
 
-  private grow(
-    newByteSize: number,
-    command: ShadeGPUCommandContext
-  ): void {
+  private grow(newByteSize: number, command: ShadeGPUCommandContext): void {
     const device = this.device;
     let transaction = this.growthTransactions.get(command);
     if (transaction === undefined) {
@@ -1353,17 +1214,19 @@ export class GPUDatabase {
         originalAllocator: this.slotAllocator,
         originalPageSlots,
         createdBuffers: [],
-        retiredBuffers: []
+        retiredBuffers: [],
       };
       this.growthTransactions.set(command, transaction);
       const activeTransaction = transaction;
       command.onFinished.addOne(() => {
-        const buffers=[...new Set(activeTransaction.retiredBuffers)];
-        for(const buffer of buffers) this.retiringBuffers.add(buffer);
-        const release=()=>{ for(const buffer of buffers) {
-          if(this.retiringBuffers.delete(buffer)) buffer.destroy();
-        } };
-        void command.gpuDone.then(release,release);
+        const buffers = [...new Set(activeTransaction.retiredBuffers)];
+        for (const buffer of buffers) this.retiringBuffers.add(buffer);
+        const release = () => {
+          for (const buffer of buffers) {
+            if (this.retiringBuffers.delete(buffer)) buffer.destroy();
+          }
+        };
+        void command.gpuDone.then(release, release);
         this.growthTransactions.delete(command);
       });
       command.onAborted.addOne(() => {
@@ -1372,22 +1235,24 @@ export class GPUDatabase {
         // CPU edits after grow survive abort. Rebuild locations from the live
         // page objects rather than restoring references to removed pages or
         // leaving newly allocated pages pointing into the discarded buffer.
-        const livePages=new Set<GPUDatabasePage>();
+        const livePages = new Set<GPUDatabasePage>();
         this.pageLookup.fill(GPU_DATABASE_INVALID_PAGE);
-        for(const table of this.tables) for(const page of table.pages.values()) {
-          livePages.add(page);
-          page.slot_offset=activeTransaction.originalPageSlots.get(page) ?? -1;
-          if(page.slot_offset>=0) this.pageLookup[table.descriptor.page_lookup_address+page.index]=
-            page.slot_offset+this.dataStartOffsetWords;
-          else page.gpu_version=0;
-          table.cpu_dirty_pages.set(page.index,true);
-          table.header_dirty_pages.set(page.index,true);
+        for (const table of this.tables)
+          for (const page of table.pages.values()) {
+            livePages.add(page);
+            page.slot_offset = activeTransaction.originalPageSlots.get(page) ?? -1;
+            if (page.slot_offset >= 0)
+              this.pageLookup[table.descriptor.page_lookup_address + page.index] =
+                page.slot_offset + this.dataStartOffsetWords;
+            else page.gpu_version = 0;
+            table.cpu_dirty_pages.set(page.index, true);
+            table.header_dirty_pages.set(page.index, true);
+          }
+        for (const [page, slot] of activeTransaction.originalPageSlots) {
+          if (slot >= 0 && !livePages.has(page)) this.slotAllocator.free(slot);
         }
-        for(const [page,slot] of activeTransaction.originalPageSlots) {
-          if(slot>=0 && !livePages.has(page)) this.slotAllocator.free(slot);
-        }
-        this.dirtyLookupStart=0;
-        this.dirtyLookupEnd=this.pageLookup.length-1;
+        this.dirtyLookupStart = 0;
+        this.dirtyLookupEnd = this.pageLookup.length - 1;
         for (const buffer of activeTransaction.createdBuffers) {
           buffer.destroy();
         }
@@ -1396,28 +1261,23 @@ export class GPUDatabase {
     }
     if (newByteSize > device.limits.maxStorageBufferBindingSize) {
       throw new Error(
-        `Cannot grow database to ${newByteSize} bytes, max allowed is ${device.limits.maxStorageBufferBindingSize}`
+        `Cannot grow database to ${newByteSize} bytes, max allowed is ${device.limits.maxStorageBufferBindingSize}`,
       );
     }
 
     const lookupBytes = this.pageLookup.byteLength;
     const dataStartWords = this.dataStartOffsetWords;
     const dataCapacityWords = Math.floor(
-      (newByteSize -
-        dataStartWords * GPU_DATABASE_WORD_BYTES) /
-        GPU_DATABASE_WORD_BYTES
+      (newByteSize - dataStartWords * GPU_DATABASE_WORD_BYTES) / GPU_DATABASE_WORD_BYTES,
     );
     const pageWords = this.pageSlotWords;
     const pageBytes = pageWords * GPU_DATABASE_WORD_BYTES;
-    const nextAllocator = new FixedSlotAllocator(
-      dataCapacityWords,
-      pageWords
-    );
+    const nextAllocator = new FixedSlotAllocator(dataCapacityWords, pageWords);
     const previous = this.buffer;
     const next = device.createBuffer({
       size: newByteSize,
       usage: previous.usage,
-      mappedAtCreation: false
+      mappedAtCreation: false,
     });
     transaction.retiredBuffers.push(previous);
     transaction.createdBuffers.push(next);
@@ -1427,40 +1287,23 @@ export class GPUDatabase {
       const lookupBase = table.descriptor.page_lookup_address;
       for (const [pageIndex, page] of table.pages) {
         if (!page.is_gpu_resident) continue;
-        const sourceByteOffset =
-          (page.slot_offset + dataStartWords) *
-          GPU_DATABASE_WORD_BYTES;
+        const sourceByteOffset = (page.slot_offset + dataStartWords) * GPU_DATABASE_WORD_BYTES;
         const nextSlot = nextAllocator.allocate();
         if (nextSlot < 0) {
           throw new Error("Grown database cannot fit resident pages");
         }
-        const destinationByteOffset =
-          (nextSlot + dataStartWords) *
-          GPU_DATABASE_WORD_BYTES;
+        const destinationByteOffset = (nextSlot + dataStartWords) * GPU_DATABASE_WORD_BYTES;
         copies.push([sourceByteOffset, destinationByteOffset]);
         page.slot_offset = nextSlot;
         const lookupIndex = lookupBase + pageIndex;
-        this.pageLookup[lookupIndex] =
-          nextSlot + dataStartWords;
+        this.pageLookup[lookupIndex] = nextSlot + dataStartWords;
         this.markLookupDirty(lookupIndex);
       }
     }
 
-    command.copyBufferToBuffer(
-      previous,
-      0,
-      next,
-      0,
-      lookupBytes
-    );
+    command.copyBufferToBuffer(previous, 0, next, 0, lookupBytes);
     for (const [source, destination] of copies) {
-      command.copyBufferToBuffer(
-        previous,
-        source,
-        next,
-        destination,
-        pageBytes
-      );
+      command.copyBufferToBuffer(previous, source, next, destination, pageBytes);
     }
     this.buffer = next;
     this.slotAllocator = nextAllocator;
@@ -1470,27 +1313,20 @@ export class GPUDatabase {
     const current = this.buffer.size;
     const limit = this.device.limits.maxStorageBufferBindingSize;
     if (current === limit) {
-      throw new Error(
-        `Cannot grow database, already at max allowed capacity ${limit}`
-      );
+      throw new Error(`Cannot grow database, already at max allowed capacity ${limit}`);
     }
-    const next = Math.min(
-      alignCeil(1.2 * current, GPU_DATABASE_GROW_ALIGNMENT),
-      limit
-    );
+    const next = Math.min(alignCeil(1.2 * current, GPU_DATABASE_GROW_ALIGNMENT), limit);
     this.grow(next, command);
   }
 
   private allocateGpuPage(
     table: GPUTypedTable,
     pageIndex: number,
-    command: ShadeGPUCommandContext
+    command: ShadeGPUCommandContext,
   ): GPUDatabasePage {
     const descriptor = table.descriptor;
     if (pageIndex >= descriptor.page_limit) {
-      throw new Error(
-        `Page index ${pageIndex} is out of bounds (page_limit: ${descriptor.page_limit})`
-      );
+      throw new Error(`Page index ${pageIndex} is out of bounds (page_limit: ${descriptor.page_limit})`);
     }
     let slot = this.slotAllocator.allocate();
     while (slot === -1) {
@@ -1505,10 +1341,8 @@ export class GPUDatabase {
       table.pages.set(pageIndex, page);
     }
     page.slot_offset = slot;
-    const lookupIndex =
-      descriptor.page_lookup_address + pageIndex;
-    this.pageLookup[lookupIndex] =
-      slot + this.dataStartOffsetWords;
+    const lookupIndex = descriptor.page_lookup_address + pageIndex;
+    this.pageLookup[lookupIndex] = slot + this.dataStartOffsetWords;
     this.markLookupDirty(lookupIndex);
     return page;
   }
@@ -1518,14 +1352,11 @@ export class GPUDatabase {
       if (page.occupancy_count > 0 || !page.is_gpu_resident) continue;
       this.slotAllocator.free(page.slot_offset);
       page.slot_offset = -1;
-      const lookupIndex =
-        table.descriptor.page_lookup_address + pageIndex;
+      const lookupIndex = table.descriptor.page_lookup_address + pageIndex;
       this.pageLookup[lookupIndex] = GPU_DATABASE_INVALID_PAGE;
       this.markLookupDirty(lookupIndex);
       if (page.cpu_data_buffer !== undefined) {
-        this.pageBufferPool.release(
-          new Uint32Array(page.cpu_data_buffer)
-        );
+        this.pageBufferPool.release(new Uint32Array(page.cpu_data_buffer));
         page.cpu_data_buffer = undefined;
         page.cpu_data_address = 0;
       }
@@ -1534,108 +1365,76 @@ export class GPUDatabase {
   }
 
   private markLookupDirty(index: number): void {
-    this.dirtyLookupStart = Math.min(
-      this.dirtyLookupStart,
-      index
-    );
+    this.dirtyLookupStart = Math.min(this.dirtyLookupStart, index);
     this.dirtyLookupEnd = Math.max(this.dirtyLookupEnd, index);
   }
 
   private uploadDirtyLookup(command: ShadeGPUCommandContext): void {
     if (this.dirtyLookupStart > this.dirtyLookupEnd) return;
-    const startBytes =
-      this.dirtyLookupStart * Uint32Array.BYTES_PER_ELEMENT;
-    const endBytes =
-      (this.dirtyLookupEnd + 1) *
-      Uint32Array.BYTES_PER_ELEMENT;
+    const startBytes = this.dirtyLookupStart * Uint32Array.BYTES_PER_ELEMENT;
+    const endBytes = (this.dirtyLookupEnd + 1) * Uint32Array.BYTES_PER_ELEMENT;
     command.writeBuffer(
       this.buffer,
       startBytes,
       this.pageLookup.buffer as ArrayBuffer,
       startBytes,
-      endBytes - startBytes
+      endBytes - startBytes,
     );
     this.dirtyLookupStart = Number.POSITIVE_INFINITY;
     this.dirtyLookupEnd = -1;
   }
 
-  private encodeElementUploads(
-    command: ShadeGPUCommandContext,
-    table: GPUTypedTable
-  ): void {
+  private encodeElementUploads(command: ShadeGPUCommandContext, table: GPUTypedTable): void {
     const upload = table.element_upload_buffer;
     const uploadBytes = upload.position;
     if (uploadBytes === 0) return;
 
     const descriptor = table.descriptor;
-    const uploadRecordBytes =
-      descriptor.packed_element_size_bytes +
-      GPU_DATABASE_WORD_BYTES;
+    const uploadRecordBytes = descriptor.packed_element_size_bytes + GPU_DATABASE_WORD_BYTES;
     const queuedCount = uploadBytes / uploadRecordBytes;
-    const latest=new Map<number,number>();
-    for(let i=0;i<queuedCount;i++) {
-      upload.position=i*uploadRecordBytes;
-      latest.set(upload.readUint32(),i);
+    const latest = new Map<number, number>();
+    for (let i = 0; i < queuedCount; i++) {
+      upload.position = i * uploadRecordBytes;
+      latest.set(upload.readUint32(), i);
     }
-    upload.position=uploadBytes;
-    const recordCount=latest.size;
-    let uploadData=upload.data;
-    if(recordCount!==queuedCount) {
-      const compact=new Uint8Array(recordCount*uploadRecordBytes);
-      let target=0;
-      for(const row of latest.values()) {
-        compact.set(new Uint8Array(upload.data,row*uploadRecordBytes,uploadRecordBytes),target);
-        target+=uploadRecordBytes;
+    upload.position = uploadBytes;
+    const recordCount = latest.size;
+    let uploadData = upload.data;
+    if (recordCount !== queuedCount) {
+      const compact = new Uint8Array(recordCount * uploadRecordBytes);
+      let target = 0;
+      for (const row of latest.values()) {
+        compact.set(new Uint8Array(upload.data, row * uploadRecordBytes, uploadRecordBytes), target);
+        target += uploadRecordBytes;
       }
-      uploadData=compact.buffer;
+      uploadData = compact.buffer;
     }
-    const recordsPerBatch = Math.max(
-      1,
-      Math.floor(
-        GPU_DATABASE_UPLOAD_BATCH_BYTES / uploadRecordBytes
-      )
-    );
+    const recordsPerBatch = Math.max(1, Math.floor(GPU_DATABASE_UPLOAD_BATCH_BYTES / uploadRecordBytes));
     let recordOffset = 0;
     while (recordOffset < recordCount) {
-      const batchCount = Math.min(
-        recordsPerBatch,
-        recordCount - recordOffset
-      );
+      const batchCount = Math.min(recordsPerBatch, recordCount - recordOffset);
       const sourceByteOffset = recordOffset * uploadRecordBytes;
       const batchBytes = batchCount * uploadRecordBytes;
-      const settingsBuffer = command.allocateTransientValueBuffer(
-        GPU_DATABASE_UPLOAD_SETTINGS_TYPE,
-        {
-          count: batchCount,
-          record_size:
-            descriptor.packed_element_size_bytes /
-            GPU_DATABASE_WORD_BYTES,
-          elements_per_page: descriptor.elements_per_page,
-          page_lookup_address: descriptor.page_lookup_address,
-          page_header_words: descriptor.page_header_words,
-          page_limit: descriptor.page_limit
-        }
-      );
+      const settingsBuffer = command.allocateTransientValueBuffer(GPU_DATABASE_UPLOAD_SETTINGS_TYPE, {
+        count: batchCount,
+        record_size: descriptor.packed_element_size_bytes / GPU_DATABASE_WORD_BYTES,
+        elements_per_page: descriptor.elements_per_page,
+        page_lookup_address: descriptor.page_lookup_address,
+        page_header_words: descriptor.page_header_words,
+        page_limit: descriptor.page_limit,
+      });
       const uploadBuffer = command.allocateTransientBufferAndLoad(
         uploadData,
         GPUBufferUsage.STORAGE,
         sourceByteOffset,
-        batchBytes
+        batchBytes,
       );
 
       const pass = command.constructComputePass({
         pipeline: GPU_DATABASE_UPLOAD_PIPELINE,
-        bindings: [[
-          { buffer: uploadBuffer },
-          { buffer: this.buffer },
-          { buffer: settingsBuffer }
-        ]]
+        bindings: [[{ buffer: uploadBuffer }, { buffer: this.buffer }, { buffer: settingsBuffer }]],
       });
-      pass.dispatchWorkgroups(
-        Math.ceil(
-          batchCount / GPU_DATABASE_UPLOAD_WORKGROUP_SIZE
-        )
-      );
+      pass.dispatchWorkgroups(Math.ceil(batchCount / GPU_DATABASE_UPLOAD_WORKGROUP_SIZE));
       pass.end();
       recordOffset += batchCount;
     }
@@ -1644,10 +1443,7 @@ export class GPUDatabase {
     table.trim_upload_buffer();
   }
 
-  private uploadDirtyHeaders(
-    command: ShadeGPUCommandContext,
-    table: GPUTypedTable
-  ): void {
+  private uploadDirtyHeaders(command: ShadeGPUCommandContext, table: GPUTypedTable): void {
     const dirty = table.header_dirty_pages;
     if (dirty.size() === 0) return;
     const descriptor = table.descriptor;
@@ -1656,11 +1452,7 @@ export class GPUDatabase {
     const bitmapWords = headerWords - 1;
     const header = new Uint32Array(headerWords);
 
-    for (
-      let pageIndex = dirty.nextSetBit(0);
-      pageIndex !== -1;
-      pageIndex = dirty.nextSetBit(pageIndex + 1)
-    ) {
+    for (let pageIndex = dirty.nextSetBit(0); pageIndex !== -1; pageIndex = dirty.nextSetBit(pageIndex + 1)) {
       const page = table.pages.get(pageIndex);
       if (page === undefined || !page.is_gpu_resident) continue;
       header[0] = page.occupancy_count;
@@ -1677,42 +1469,27 @@ export class GPUDatabase {
       }
       command.writeBuffer(
         this.buffer,
-        (page.slot_offset + this.dataStartOffsetWords) *
-          GPU_DATABASE_WORD_BYTES,
+        (page.slot_offset + this.dataStartOffsetWords) * GPU_DATABASE_WORD_BYTES,
         header.buffer,
         0,
-        descriptor.page_header_size_bytes
+        descriptor.page_header_size_bytes,
       );
     }
     dirty.reset();
   }
 
-  private async readBufferRange(
-    byteOffset: number,
-    byteLength: number
-  ): Promise<ArrayBuffer> {
-    const size = alignCeil(
-      byteLength,
-      GPU_DATABASE_WORD_BYTES
-    );
+  private async readBufferRange(byteOffset: number, byteLength: number): Promise<ArrayBuffer> {
+    const size = alignCeil(byteLength, GPU_DATABASE_WORD_BYTES);
     const readback = this.device.createBuffer({
       size,
-      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
     });
     const encoder = this.device.createCommandEncoder({ label: "" });
-    encoder.copyBufferToBuffer(
-      this.buffer,
-      byteOffset,
-      readback,
-      0,
-      size
-    );
+    encoder.copyBufferToBuffer(this.buffer, byteOffset, readback, 0, size);
     recordGpuReadback(this.device, "GPUDatabase/read", size);
     submitGpuCommands(this.device, "GPUDatabase/read", [encoder.finish()]);
     await readback.mapAsync(GPUMapMode.READ);
-    const result = readback
-      .getMappedRange(0, byteLength)
-      .slice(0);
+    const result = readback.getMappedRange(0, byteLength).slice(0);
     readback.unmap();
     readback.destroy();
     return result;

@@ -19,7 +19,7 @@ export class RadiometryRuntime {
     return Object.freeze({
       multiplier: 1,
       generation: this.generationValue,
-      colorSpace: "working-linear" as const
+      colorSpace: "working-linear" as const,
     });
   }
 

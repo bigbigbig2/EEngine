@@ -30,14 +30,7 @@ export function sign(e: number): number {
   return e > 0 ? 1 : e < 0 ? -1 : 0;
 }
 
-export function distance3(
-  e: number,
-  t: number,
-  n: number,
-  r: number,
-  s: number,
-  a: number
-): number {
+export function distance3(e: number, t: number, n: number, r: number, s: number, a: number): number {
   const dx = r - e;
   const dy = s - t;
   const dz = a - n;
@@ -56,7 +49,7 @@ export function lerpVec3(
   s: number,
   a: number,
   i: number,
-  o: number
+  o: number,
 ): void {
   const _ = lerp(t, s, o);
   const c = lerp(n, a, o);
@@ -68,14 +61,7 @@ export function length3(e: number, t: number, n: number): number {
   return Math.sqrt(e * e + t * t + n * n);
 }
 
-export function dot3(
-  e: number,
-  t: number,
-  n: number,
-  r: number,
-  s: number,
-  a: number
-): number {
+export function dot3(e: number, t: number, n: number, r: number, s: number, a: number): number {
   return e * r + t * s + n * a;
 }
 
@@ -90,7 +76,7 @@ export function writeNormalizedPlane4(
   n: number,
   r: number,
   s: number,
-  a: number
+  a: number,
 ): void {
   const i = 1 / length3(n, r, s);
   e[t] = n * i;
@@ -99,11 +85,7 @@ export function writeNormalizedPlane4(
   e[t + 3] = a * i;
 }
 
-export function hashArrayItems<T>(
-  e: ArrayLike<T>,
-  t: (item: T) => number,
-  n?: unknown
-): number {
+export function hashArrayItems<T>(e: ArrayLike<T>, t: (item: T) => number, n?: unknown): number {
   const r = e.length;
   let s = r;
   for (let a = 0; a < r; a++) {
@@ -148,10 +130,7 @@ export function hypot2(e: number, t: number): number {
 }
 
 export function nowSeconds(): number {
-  const me =
-    typeof performance !== "undefined" && typeof performance.now === "function"
-      ? performance
-      : Date;
+  const me = typeof performance !== "undefined" && typeof performance.now === "function" ? performance : Date;
   return 0.001 * me.now();
 }
 

@@ -4,10 +4,7 @@
  * 该模块只负责拓扑选择，不实现具体渲染算法；算法仍由对应 Feature owner 持有。
  */
 
-export type RenderFeatureValue<TContext> =
-  | string
-  | undefined
-  | ((context: TContext) => string | undefined);
+export type RenderFeatureValue<TContext> = string | undefined | ((context: TContext) => string | undefined);
 
 export interface RenderFeatureDefinition<TContext> {
   readonly id: string;
@@ -46,13 +43,16 @@ export class RenderFeatureRegistry<TContext> {
       if (byId.has(definition.id)) {
         throw new Error(`Render Feature '${definition.id}' is duplicated`);
       }
-      byId.set(definition.id, Object.freeze({
-        ...definition,
-        inputs: freezeNames(definition.inputs, "input", definition.id),
-        outputs: freezeNames(definition.outputs, "output", definition.id),
-        debugViews: freezeNames(definition.debugViews, "debug view", definition.id),
-        dependencies: Object.freeze([...(definition.dependencies ?? [])])
-      }));
+      byId.set(
+        definition.id,
+        Object.freeze({
+          ...definition,
+          inputs: freezeNames(definition.inputs, "input", definition.id),
+          outputs: freezeNames(definition.outputs, "output", definition.id),
+          debugViews: freezeNames(definition.debugViews, "debug view", definition.id),
+          dependencies: Object.freeze([...(definition.dependencies ?? [])]),
+        }),
+      );
     }
     for (const definition of byId.values()) {
       for (const dependency of definition.dependencies ?? []) {
@@ -60,9 +60,7 @@ export class RenderFeatureRegistry<TContext> {
           throw new Error(`Render Feature '${definition.id}' depends on itself`);
         }
         if (!byId.has(dependency)) {
-          throw new Error(
-            `Render Feature '${definition.id}' has missing dependency '${dependency}'`
-          );
+          throw new Error(`Render Feature '${definition.id}' has missing dependency '${dependency}'`);
         }
       }
     }
@@ -85,7 +83,7 @@ export class RenderFeatureRegistry<TContext> {
       for (const dependency of definition.dependencies ?? []) {
         if (!enabled.has(dependency)) {
           throw new Error(
-            `Render Feature '${definition.id}' is enabled but dependency '${dependency}' is disabled`
+            `Render Feature '${definition.id}' is enabled but dependency '${dependency}' is disabled`,
           );
         }
       }
@@ -101,11 +99,13 @@ export class RenderFeatureRegistry<TContext> {
       if (history !== undefined) histories.push(history);
     }
     return Object.freeze({
-      enabled: Object.freeze(this.definitions
-        .filter((definition) => enabled.has(definition.id))
-        .map((definition) => definition.id)),
+      enabled: Object.freeze(
+        this.definitions
+          .filter((definition) => enabled.has(definition.id))
+          .map((definition) => definition.id),
+      ),
       persistentOwners: Object.freeze(uniqueStrings(persistentOwners)),
-      histories: Object.freeze(uniqueStrings(histories))
+      histories: Object.freeze(uniqueStrings(histories)),
     });
   }
 
@@ -120,7 +120,7 @@ export class RenderFeatureRegistry<TContext> {
 
 function resolveFeatureValue<TContext>(
   value: RenderFeatureValue<TContext> | undefined,
-  context: TContext
+  context: TContext,
 ): string | undefined {
   const resolved = typeof value === "function" ? value(context) : value;
   if (resolved === undefined) return undefined;
@@ -135,7 +135,7 @@ function uniqueStrings(values: readonly string[]): string[] {
 function freezeNames(
   names: readonly string[] | undefined,
   kind: string,
-  featureId: string
+  featureId: string,
 ): readonly string[] {
   if (names === undefined) return Object.freeze([]);
   const result = [...names];

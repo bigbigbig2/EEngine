@@ -124,75 +124,116 @@ export class Fsr3PrepareInputsPass {
   private readonly pipeline: GPUComputePipeline;
 
   constructor(private readonly device: GPUDevice) {
-    const module = device.createShaderModule({ label: "FSR3 Prepare Inputs", code: FSR3_PREPARE_INPUTS_WGSL });
-    this.layout = device.createBindGroupLayout({ entries: [
-      { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
-      { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "depth" } },
-      { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
-      { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-      { binding: 4, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rg16float" } },
-      { binding: 5, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "r32float" } },
-      { binding: 6, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "r16float" } },
-      { binding: 7, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "r16float" } },
-      { binding: 8, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-      { binding: 9, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } }
-    ] });
+    const module = device.createShaderModule({
+      label: "FSR3 Prepare Inputs",
+      code: FSR3_PREPARE_INPUTS_WGSL,
+    });
+    this.layout = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "depth" } },
+        { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
+        { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+        {
+          binding: 4,
+          visibility: GPUShaderStage.COMPUTE,
+          storageTexture: { access: "write-only", format: "rg16float" },
+        },
+        {
+          binding: 5,
+          visibility: GPUShaderStage.COMPUTE,
+          storageTexture: { access: "write-only", format: "r32float" },
+        },
+        {
+          binding: 6,
+          visibility: GPUShaderStage.COMPUTE,
+          storageTexture: { access: "write-only", format: "r16float" },
+        },
+        {
+          binding: 7,
+          visibility: GPUShaderStage.COMPUTE,
+          storageTexture: { access: "write-only", format: "r16float" },
+        },
+        { binding: 8, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+        { binding: 9, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
+      ],
+    });
     this.pipeline = device.createComputePipeline({
       label: "FSR3 Prepare Inputs",
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }),
-      compute: { module, entryPoint: "main" }
+      compute: { module, entryPoint: "main" },
     });
   }
 
-  addToGraph(graph: FrameGraph, input: {
-    color: ResourceId; depth: ResourceId; motion: ResourceId;
-    validityMask: ResourceId; constants: ResourceId;
-    currentLuma?: ResourceId;
-    width: number; height: number;
-  }): Fsr3PreparedInputs {
+  addToGraph(
+    graph: FrameGraph,
+    input: {
+      color: ResourceId;
+      depth: ResourceId;
+      motion: ResourceId;
+      validityMask: ResourceId;
+      constants: ResourceId;
+      currentLuma?: ResourceId;
+      width: number;
+      height: number;
+    },
+  ): Fsr3PreparedInputs {
     const depthBytes = input.width * input.height * Uint32Array.BYTES_PER_ELEMENT;
-    if (!Number.isSafeInteger(depthBytes) || depthBytes <= 0 ||
-        depthBytes > this.device.limits.maxStorageBufferBindingSize ||
-        depthBytes > this.device.limits.maxBufferSize) {
+    if (
+      !Number.isSafeInteger(depthBytes) ||
+      depthBytes <= 0 ||
+      depthBytes > this.device.limits.maxStorageBufferBindingSize ||
+      depthBytes > this.device.limits.maxBufferSize
+    ) {
       throw new RangeError("FSR3 reconstructed depth exceeds the negotiated WebGPU storage buffer limit");
     }
     const builder = graph.add("FSR3/Prepare Inputs", input, (data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
       const reconstructed = resources.get(output.reconstructedDepth) as GPUBuffer;
       command.gpu_encoder.clearBuffer(reconstructed);
-      const bind = this.device.createBindGroup({ layout: this.layout, entries: [
-        { binding: 0, resource: resolveTextureView(resources.get(data.color)) },
-        { binding: 1, resource: resolveTextureView(resources.get(data.depth)) },
-        { binding: 2, resource: resolveTextureView(resources.get(data.motion)) },
-        { binding: 3, resource: { buffer: resources.get(data.constants) as GPUBuffer } },
-        { binding: 4, resource: resolveTextureView(resources.get(output.dilatedMotion)) },
-        { binding: 5, resource: resolveTextureView(resources.get(output.dilatedDepth)) },
-        { binding: 6, resource: resolveTextureView(resources.get(output.farthestDepth)) },
-        { binding: 7, resource: resolveTextureView(resources.get(output.currentLuma)) },
-        { binding: 8, resource: { buffer: reconstructed } },
-        { binding: 9, resource: resolveTextureView(resources.get(data.validityMask)) }
-      ] });
+      const bind = this.device.createBindGroup({
+        layout: this.layout,
+        entries: [
+          { binding: 0, resource: resolveTextureView(resources.get(data.color)) },
+          { binding: 1, resource: resolveTextureView(resources.get(data.depth)) },
+          { binding: 2, resource: resolveTextureView(resources.get(data.motion)) },
+          { binding: 3, resource: { buffer: resources.get(data.constants) as GPUBuffer } },
+          { binding: 4, resource: resolveTextureView(resources.get(output.dilatedMotion)) },
+          { binding: 5, resource: resolveTextureView(resources.get(output.dilatedDepth)) },
+          { binding: 6, resource: resolveTextureView(resources.get(output.farthestDepth)) },
+          { binding: 7, resource: resolveTextureView(resources.get(output.currentLuma)) },
+          { binding: 8, resource: { buffer: reconstructed } },
+          { binding: 9, resource: resolveTextureView(resources.get(data.validityMask)) },
+        ],
+      });
       const pass = command.beginComputePass({ label: "FSR3 Prepare Inputs" });
       pass.setPipeline(this.pipeline);
       pass.setBindGroup(0, bind);
       pass.dispatchWorkgroups(Math.ceil(data.width / 8), Math.ceil(data.height / 8));
       pass.end();
     });
-    const texture = (label: string, format: GPUTextureFormat) => builder.create(label, {
-      kind: "transient_texture", width: input.width, height: input.height, format,
-      domain: "internal-full", usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
-    });
+    const texture = (label: string, format: GPUTextureFormat) =>
+      builder.create(label, {
+        kind: "transient_texture",
+        width: input.width,
+        height: input.height,
+        format,
+        domain: "internal-full",
+        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
+      });
     const output: Fsr3PreparedInputs = {
       dilatedMotion: texture("FSR3/dilated motion", "rg16float"),
       dilatedDepth: texture("FSR3/dilated depth", "r32float"),
       farthestDepth: texture("FSR3/farthest depth", "r16float"),
-      currentLuma: input.currentLuma === undefined
-        ? texture("FSR3/current luma", "r16float")
-        : builder.write(input.currentLuma),
+      currentLuma:
+        input.currentLuma === undefined
+          ? texture("FSR3/current luma", "r16float")
+          : builder.write(input.currentLuma),
       reconstructedDepth: builder.create("FSR3/reconstructed previous depth", {
-        kind: "transient_buffer", size: depthBytes,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-      })
+        kind: "transient_buffer",
+        size: depthBytes,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      }),
     };
     builder.read(input.color);
     builder.read(input.depth);
