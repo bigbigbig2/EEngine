@@ -195,7 +195,7 @@ B1已在master提交`c8c5d412`。其后B2新增的接线与集中检查如下。
 | B2-05；SD08/09/11 | S0 publication前移到TemporalFacts之前，其temporary仍由原Surface scratch owner保留；TemporalFacts新增独立readonly binding17（该pass共8 storage，Surface Product仍16），读取实际value version→原mask/identity→Reconstruct/FSR。真实GPU检查稳定帧正常接受，参数/资源/abort/extent变化正确拒绝，版本0不回绕 | 当前新链通过；mandatory退出仍受下述原始数值失败限制 |
 | B2-05/06；SD04/09/10 | TextureResidency暴露提交后的minimum mip；Appearance更新Surface/Coverage route的真实revision与mip clamp，abort保留route重传和alpha caster失效；只在dirty时上传，S0导入其全部有限published sets，不依赖当前active sample set。初始版本合同仍验证，旧无reader副本不恢复 | owner/路由与真实消费检查通过：当前TextureResidency上传/提交→Surface更新查询值，以及原Coverage alpha/discard→Visibility输出。不是下述数值失败的根因修复 |
 
-最新源码指纹`a6ac895112d698d41e57cd5e39ee429f64fd6ab6929b1065a290a065c4088086`的新鲜build:test、typecheck、build、107项CPU用例、Surface119组及Geometry66组、DAG64组通过。57组Surface用例包含真实TemporalFacts历史写入/读取，没有预填正确identity或mask；非恒定普通Product、base/coat moment与镜像nonuniform实例进入真实Surface消费者。参数abort/retry/stable组合对fixed/General/frame-query各交替6轮，放在纹理red变成常量之前，保持对旧值错误的数值敏感性。GPU作业串行；后续源码变动必须刷新相应验证，不拼接不同源码结果。
+B2接线检查快照指纹`a6ac895112d698d41e57cd5e39ee429f64fd6ab6929b1065a290a065c4088086`的新鲜build:test、typecheck、build、107项CPU用例、Surface119组及Geometry66组、DAG64组通过。57组Surface用例包含真实TemporalFacts历史写入/读取，没有预填正确identity或mask；非恒定普通Product、base/coat moment与镜像nonuniform实例进入真实Surface消费者。参数abort/retry/stable组合对fixed/General/frame-query各交替6轮，放在纹理red变成常量之前，保持对旧值错误的数值敏感性。GPU作业串行；后续源码变动必须刷新相应验证，不拼接不同源码结果。
 
 **必需未关闭项 B2-NUM-001：** `.local/r3/b2-chain-debug4.json`记录General参数更新/abort重试后的真实数值失败：roughness实际`0.2757329643`，独立预期`0.2333125621`。debug5在同production指纹`41affd5cfb18b0b61b0699c2f0a937435fe78b844514bdfb49d8d0c26ca167c8`上通过；当时只改了诊断与后续测试，没有定位生产根因。后续更敏感组合与最终源码通过，仍不能追认为该失败已修复。按§1.4/根AGENTS“无法定位则如实未通过”，此责任保持未关闭，B2不得因绿色复跑收口。原始失败保留；恢复修复时追踪完整参数上传→dirty→GPU更新值→General读取→提交/abort边界，先判定生产错误还是夹具/runner错误，不试微性能候选。当前暂缓决定见下文。
 
@@ -243,6 +243,21 @@ B1/B2已定义并接通分类、值读取、更新事务和真实需求。C按�
 精确cache完整比较closure/domain/实际坐标/footprint/资源/内容/动态版本；hash只定位。同domain或同material不代表值可共用。命中字段不重跑其heavy Geometry/Appearance，其他dirty consumer仍可请求唯一record。cold/冲突/容量满/弱CAS/invalid history走同一完整direct recipe。无关camera运动不失效静态值；view-dependent值按真实依赖失效。
 
 C集中检查真实普通hit/局部拒绝、碰撞/容量/abort/新显露/失效、唯一writer与无stale消费，按同输入OFF/ON记录lookup/admission/publish/维护与省掉的heavy。完整Surface架构通过后，再一次性定位主要成本并优化相应表示；不建立每轮基于微测的重设计循环。
+
+母稿对应范围为§6.9（已有WorkPlan）、§8（唯一Geometry/address需求）、§9（signal合法性）、§10（cache/history及具体切换边界），不是“母稿§8就是C”。以下是C内部同一切换单元的接线责任，不增加执行阶段：
+
+| 责任 | 一起接通的producer/产品/consumer | 单元出口必须证明 |
+|---|---|---|
+| 选定closure及完整identity | WorkPlan→候选与全相等描述→按真实依赖的key producer；uniform/Product/direct原入口保留 | 不把估计权重当admission收益；不同UV/footprint/参数/资源/normal/view输入可独立拒绝；无关camera不清静态值 |
+| resolve/nomination与实际miss | 唯一Geometry最小address→完整key lookup→pin hit refs或miss；已发布key→有界request-index nomination/actual args | lookup在material miss组织前；同key唯一writer，失败/容量0/tiny/满不漏任何原目的地；不跨组读取未发布payload |
+| 生产值与全部读者 | Geometry需求union→fixed/General实际miss/direct→结果发布→Lighting/Reconstruct/value accessor；同owner维护generation/retire | hit不重跑其heavy，其他dirty仍生成唯一Geometry；Product16 bindings、完整guard/六信号、abort与OFF全部正确 |
+| 独立signal history与成本 | 当前provider/Temporal版本→各signal history的实际reader/writer→Lighting/合成 | 真实合法history及局部拒绝；完整原RGB/radiometry；集中报告管理/省掉heavy/整链成本，不作最终性能承诺 |
+
+#### C当前启动记录（2026-10-07）
+
+前置快照`cfa7b3c4`已提交master，B2-NUM-001/002按§6.11用户决定暂缓。已核对现有WorkPlan、Geometry局部completion、publication metadata、六signal/provider版本与Temporal生命周期。当前生产尚无C的cache lookup、unique miss或signal history，不能把已有quad Lighting复用或GPU组件历史测试写成C完成。
+
+启动清理删除无production/export/test class消费者的`GpuSurfaceFieldStore.ts`、`GpuSurfaceSignalStore.ts`；原ABI身份/容量数学及其oracle保留，只供数值/协议追溯，不是新缓存owner或C消费证据。两旧class原已不在生产链，删除不声称节省当前帧GPU字节或时间。后续直接在现有Surface/publication/Geometry/Temporal边界实现母稿§10.4，不恢复旧dependency/proof/cell/witness协调器。此次清理的typecheck、build、新鲜build:test、保留身份/容量数学5项及文档校验通过；未重复GPU矩阵，因没有生产GPU消费者/数学改变。完整C GPU正确性/成本检查待上述生产链接通，不标C完成。
 
 ## 9. D — Geometry 完整工作域
 

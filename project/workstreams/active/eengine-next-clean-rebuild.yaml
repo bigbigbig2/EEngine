@@ -26,7 +26,7 @@ currentSlice:
     当前文档方向为SURFACE-2026-10-07-R3，实际源码与缺口统一见执行文档§6.11。
     用户2026-10-07明确允许暂缓B2-NUM-001/002、提交当前快照并进入C；
     两项仍未修复，B2正确性退出未通过，正式验收前必须关闭，不再开子agent。
-    当前任务入口为执行文档§8及母稿§8：核对实际昂贵可重复closure和固定来源，
+    当前任务入口为执行文档§8及母稿§6.9、§8–10：核对实际昂贵可重复closure和固定来源，
     在已有WorkPlan/值读取/更新事务/Geometry需求边界上接通有收益的cache与signal history。
     完整identity、lookup/miss、唯一writer、pin/generation/retire与direct fallback一起推进。
     在完整切换单元链连通后集中检查，再进入下一单元；不以逐patch微测改架构。

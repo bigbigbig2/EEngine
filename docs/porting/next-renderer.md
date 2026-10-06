@@ -1182,3 +1182,20 @@ R3完整新算法实施前仍须核具体固定源函数/关键分支/输入输�
 驻留更新的本地胶水同步Surface与Coverage的sampler minimum mip和route revision，保留编译时sampler/UV快照；abort保留上传与caster失效重试，submit后才承认owner变更。此处不增加过滤算法或LOD近似。非恒定普通Product与base/coat moment沿用SF07已规定产品语义并补真实Surface消费；不把alpha fragment仍保留原求值路径称为新的uniform-folding完成。阶段核对与原始未关闭失败见执行文档§6.11，本账本不提升adoption。
 
 本地验证映射：`surface-coverage-value-gpu.mjs`把实际TextureResidency stage/promote与GpuAppearancePublication syncRuntime/encodeWorkPublication接到既有resident查询和生产rasterCoverageFragmentWgsl；其平面顶点与独立 authored mip阶跃只是夹具。测试不替代完整meshlet/VSM owner验证，不新增或宣称上游算法采用。
+
+### C启动来源核对与本地精确缓存边界（2026-10-07）
+
+先检索完整GitHub实现，再核论文：继续检查SF06固定OSS `473a59bbcdd30e3366cc567d66a5a97353620d48`（根`License` Apache-2.0），完整`RenderTaskProcessing.compute`、`ShadelAllocator.cginc`、`VirtualRenderTexture.cginc`；核host的allocation/task/history绑定与逐instance编码，以及`VirtualRenderTexture.cs::SwapBuffers`。三份shader本地冻结文件与固定revision的raw原文规范化换行后相同。raw SHA256依次为`523ab05a538f6366d88e83e94fd022ea70c206751f2470a00a93549f54d6cdab`、`7e805dda6ae8eb3c053b7fa25394c26fe9717f3503d9922ac9ed04c2abb59b79`、`3e6ed3b9e4de27443d9cc206045b3f849f466423748b1d1f5da7baa219218829`。只核所列profile，未构建上游、未核全部GI/ReSTIR/Htex工程。
+
+| 完整源入口/阶段 | 本地C中的对应责任 | 保留语义及明确差异 |
+|---|---|---|
+| SF06 `RenderTaskPrepare/RenderTaskIndirectDispatch` | 当前request→actual miss/unique work→finite family args | 实际需求形成GPU工作；不采用源逐instance CPU dispatch，也不把task count冒充heavy执行次数 |
+| SF06 `ShadelAllocator::Allocate/ResolveAddress/IsOverflow` | optional容量、slot admission与complete direct恢复 | 零需求不分配、地址/容量明确；源后验overflow不是本地准入证明，不搬默认size classes作为key/value ABI |
+| SF06 `VRT_ReadRemapInfo/VRT_ReadTexture/VRT_SampleHtexture` | ValueRef/SampleMap与原结果reader | 未映射状态明确；源chart/Htex邻域过滤未选为精确point cache，不用缺页debug色代替原值，不宣称seamless OSS port |
+| SF06 host/history binding、`SwapBuffers` | 同帧producer→reader与submit/abort/retire | 只参考读写角色；本地必须提交才推进，不照搬Unity执行/销毁或GI状态 |
+
+进一步检索“Progressive Material Caching github implementation”、GPU material cache与SHARC公开工程；SHARC仓库/readme仅作radiance-cache候选识别，未选择其空间量化算法，未宣称核读/移植该完整库。本轮未找到同时满足完整AppearanceInstruction、原CXY、full equality、多word发布与WebGPU无损回退的完整donor。
+
+已读作者论文[Progressive Material Caching，arXiv 2305.07238v1](https://arxiv.org/html/2305.07238v1) §2–3及结果/限制，DOI `10.1145/3550340.3564223`，与GPUOpen公开稿对应。它提供高层昂贵子图、lookup命中跳过子图、miss原求值的决策参考；其UV虚拟texel量化、双hash作为相等、32-bit压缩值/64-bit CAS和OpenCL执行不适用本地精确合同。论文公开许可不等于可移植源码许可，未找到可核验的完整该论文GitHub实现，不宣称PMC port或其性能数字适用于EEngine。
+
+选定具名本地方案为母稿§10.4的 **Exact Closure Cache Publication**：完整immutable closure→真实输入key→已发布request-index nomination→唯一miss→值发布/pin/generation→原consumer；弱CAS/碰撞/满/abort进入完整direct。信号历史在Appearance值链之后接通，保持每signal独立语义。当前仅来源与设计边界核对，未实现新GPU缓存或提升adoption；旧ABI数学通过不替代新链证据。

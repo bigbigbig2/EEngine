@@ -530,6 +530,22 @@ content/sampler/material/geometry/LOD/instance/device各自有权威版本。共
 
 B2接齐当前signal消费合同，C扩展合法历史更新；history无效直接求值。cache/history关闭后仍完整生产同语义结果。未来reservoir/denoiser各自拥有算法状态，不强行映射到这套history。
 
+### 10.4 C的具体切换边界：选定closure、完整key与分阶段发布
+
+C先在现有WorkPlan中选择昂贵、输入完整且有重复消费的closure；边界可以是内部子图，不强制缓存整个材质或全部输出。publication constant、material/frame uniform继续使用既有更新值，cheap ALU/普通低成本查询继续direct，cooked Product继续原过滤。估计操作权重只产生候选，不自动证明净收益。开启的类别必须有普通合法hit及局部拒绝，不能以全miss或永久关闭完成C。
+
+首个生产切换覆盖精确Appearance值复用：完整closure描述由publication内全相等intern生成handle，带namespace/generation；动态key按该closure的真实参数、uniform边界、资源/content/residency、全部所用语义输入和原C/X/Y构成。UV0/1/2不能合成一个UV，footprint不能量化成gradient class，view/world/normal等依赖不能省掉。Winner只用于解析实际输入，SharingCertificate不充当CacheIdentity。静态值不包含无关camera epoch；view-dependent值仍包含真实view依赖。无法容纳完整key或不划算的类别进入完整direct，不能截key。
+
+数据顺序固定为：最小address输入→完整key/lookup→hit refs及真实miss→GPU nomination/actual args→唯一Geometry需求union→现有fixed/General的miss或direct执行→值发布→Lighting/Reconstruct消费。命中值不重跑其heavy子图；Lighting/normal guide仍有需求时由同一Geometry owner完成，不新建恢复三角形的consumer。SampleMap可以随实际覆盖增长，完整key/witness与贵值按选定请求及唯一work增长，禁止重建全屏逐field证明系统。
+
+同key唯一writer采用具名本地**Exact Closure Cache Publication**合同：完整request key先经dispatch发布为不可变产品；nomination只用32-bit原子登记request index，并通过已发布request比较全部key。不能在同一dispatch写多word候选payload再让别的workgroup读取；不能等待尚未完成的workgroup。weak CAS失败/冲突/容量不足完整direct补做，不能另占一个槽制造同key多writer。贵值与有效状态在后续生产/发布边界形成。frame hit refs在最后reader之前被pin，eviction仅选未pin槽；slot重用携带generation，提交才推进有效状态，abort不形成下帧hit，generation耗尽进入明确namespace重建。
+
+物理布局在实际接线时按key/value类别、active/retired和完整fallback核算，不沿用旧128 MiB FieldStore、64 MiB SignalStore或固定72-word默认记录。Product Surface的16 storage profile保持合法；不能临时增加第17个binding，也不能把同一whole buffer同时作冲突的read-only/storage alias。optional OFF或零容量省去lookup/nomination/publish及其按需分配，仍走同一数学和原目的地。不能只减少counter或把管理税藏进scratch。
+
+Appearance链完整接通后再连续接独立signal history：各signal明确provider/input、reprojection与完整版本，使用既有Temporal生命周期；AO仍属于原output-pixel合成。各signal无效/历史不足/abort都回到完整Lighting，六RGB/state与原radiometry不变。两部分都接通后集中核正确性、唯一写域、实际heavy减少、native命令与OFF/ON全成本，不按每个字段启动性能实验。
+
+来源核对见[迁移账本的C边界](../porting/next-renderer.md#c启动来源核对与本地精确缓存边界2026-10-07)。SF06只提供真实occupancy/task/过滤结构参考；Progressive Material Caching只提供昂贵子图选择与miss继续原求值的研究参考。其UV量化、双hash判等、压缩值和64-bit CAS不是本地精确合同，不宣称完整port。具体key、nomination、pin/generation与WebGPU发布是上述具名本地方案。
+
 ## 11. Compact工作、完整异常与发布边界
 
 ### 11.1 统一覆盖分区
