@@ -22,7 +22,7 @@ Wicked、Intel CPS、Forge、OSS的所列本地冻结源码与固定revision网�
 
 ### 固定revision、许可与入口
 
-早期 B1 复审记录见[执行文档 §6.4/§6.5](../next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md#64-实施与复审核对2026-10-06)，只供解释 R2 的返工理由；当前覆盖见该文 §6.11。`ExactAppearanceDag`/产品打包与手工采样属于本地实现；SF07 不提供该解释器或 sampler donor。旧 `GpuSurfaceDomainAbi` 的测试使用不登记为 production domain adoption；不因 reader 计数或 shader 编译通过提升 SF01/02/07 的采用状态。
+早期 B1 复审记录见[执行文档历史附录H.2](../next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md#64-实施与复审核对2026-10-06)，只供追溯返工理由；当前实现与缺口由该文§6.11维护。本账本登记来源/差异/采用，不复制阶段状态。`ExactAppearanceDag`/产品打包与手工采样属于本地实现；SF07 不提供该解释器或 sampler donor。旧 `GpuSurfaceDomainAbi` 的测试使用不登记为 production domain adoption；不因 reader 计数或 shader 编译通过提升 SF01/02/07 的采用状态。
 
 | ID | 固定revision / 许可依据 | 具体完整源入口 | 选定范围与未覆盖项 |
 |---|---|---|---|
@@ -1115,7 +1115,7 @@ Phase6的选择性reset、stable settings/BG/view、resource tuple fast path、l
 
 ## 2026-10-06：Surface R2来源核读与拟实施映射
 
-对应母稿`SURFACE-2026-10-06-R2`、SD01–SD10及执行任务R2-00–05/B2。**状态：指定源入口已核读，方案获认可，本条目仅记录拟实施映射；R2代码未实施，未运行donor工程或R2本地GPU验证，未提升来源采用。** 前面B1固定公式记录描述R2前工作树，不能替代本条目的完整typed/uniform/coherent/arena方案。
+本条目保存`SURFACE-2026-10-06-R2`的固定来源与原R2-00–05映射；旧任务现在只在执行文档附录H.5追溯，不能作为R3推进路线。**来源边界：指定源入口已核读，未运行完整donor工程；下列来源不提供本地完整CXY/频率/packet/arena/六RGB合同，不提升完整采用。** 实际源码与检查只看执行文档§6.11；移除此前互相矛盾的“R2代码未实施/已有实现”阶段副本。
 
 检索先覆盖完整可核验实现：Blender Cycles SVM编译/执行与GPU shader排序、Filament预构建材质实例、The Forge visibility shading、FidelityFX ParallelSort；再核作者论文与WGSL规则。Falcor的MaterialType/instance分离有参考价值，但DXR/SER/interface/descriptor arrays不提供可直接使用的WebGPU Appearance VM，未选为算法donor。没有找到同时覆盖本地完整scalar IR→CXY、内部uniform提取、有限PSO、无CPU控制packet、arena融合与六信号合同的单一实现。组合方案是本地设计，不冒称完整Cycles/Filament/Forge移植。
 
@@ -1155,4 +1155,16 @@ Phase6的选择性reset、stable settings/BG/view、resource tuple fast path、l
 
 [WGSL subgroup execution](https://www.w3.org/TR/WGSL/#subgroup-execution)为living spec参考（本轮核读2026-10-06），local invocation index与subgroup lane/划分不能机械等同；[WebGPU limits](https://www.w3.org/TR/webgpu/#limits)及whole-buffer usage约束由实际adapter/device协商决定。不能因为HLSL可WaveSum/Prefix就宣称WGSL portable版已完成；16 storage bindings是本地首要profile规划，需要真实设备与生产pipeline验证。
 
-来源采用必须依次补齐：固定源分支逐项核对 → 本地实际实现/差异 → 独立CPU/WGSL数学和完整合法General → 新主链真实GPU消费/失败/结构 → 同质量全成本。R2 已有本地实现和对应组件/主链检查，具体覆盖与未关闭项由执行文档§6.11维护；全成本可行性尚未关闭，不提升为完整上游 adoption。SF10 是 typed VM/liveness 参考，SF11 是程序一致工作参考，SF09 是 portable scan 参考；本地频率、packet、arena、六 RGB 协议仍分别承担独立正确性和成本责任，SF12 仍仅候选。旧 Phase/Store/Winner owner 的映射只用于追溯，不能转授当前生产链。不得从source table、文档校验或旧固定公式测试推导R2已通过。
+来源采用必须依次补齐：固定源分支逐项核对 → 本地实际实现/差异 → 独立CPU/WGSL数学和完整合法General → 新主链真实GPU消费/失败/结构 → 同质量全成本。本条目不提升完整上游 adoption；实际覆盖由执行文档维护。SF10是typed VM/liveness参考，SF11是程序一致工作参考，SF09是portable scan参考；本地频率、packet、arena、六RGB协议分别承担责任，SF12仍仅候选。旧Phase/Store/Winner owner映射只用于追溯，不能转授当前生产链。不得从source table、文档校验或旧固定公式测试推导阶段通过。
+
+## 2026-10-07：R3 Appearance 工作域的来源边界
+
+本次只重构母稿与执行计划，复用前文固定pin/许可/已登记函数，不新增来源核读、实现或adoption声明。具名本地方案为 **Resource-aware Appearance WorkPlan**：完整IR/坐标CXY/资源版本/consumer依赖输入→频率/计算域/值引用/实际miss-dirty工作输出；未知依赖完整direct，不把filter与nonlinear任意交换。
+
+| 已登记来源/阶段 | R3复用目标 | donor未覆盖的本地责任 |
+|---|---|---|
+| SF10 `ShaderGraph::clean/find_dependencies`、SVM compile/liveness | 现有IR依赖/typed执行基础，B1-01/02 | 资源查询uniform频率、GPU更新版本/dirty事务、原CXY与全部consumer；实施前核完整源/本地分支映射 |
+| SF03 `CalcFullBary/Interpolate2DWithDeriv`及既有本地扩展 | 唯一Geometry/mapping→Appearance输入，B1-03/04 | 零负W、实际address需求与miss/dirty union，不构造第二owner |
+| SF06域任务/virtual sample机制、SF11 count/prefix/scatter | 实际域值/独立需求及有限工作组织参考，B1/B2/C | 不提供通用材质DAG精确bake、完整cache identity/容量/唯一writer/失败恢复；不复制旧协调链 |
+
+R3完整新算法实施前仍须核具体固定源函数/关键分支/输入输出/失效与降级，缺完整donor时按根AGENTS补检索范围与本地决策。此条是来源覆盖边界与实施责任，不假称本轮又搜到了完整donor或已有GPU消费证据。

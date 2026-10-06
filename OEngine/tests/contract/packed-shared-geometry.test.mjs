@@ -25,11 +25,11 @@ async function fixture() {
       maxComputeWorkgroupsPerDimension: 65535,
       minStorageBufferOffsetAlignment: 256,
       maxBufferSize: 1 << 27,
-      maxStorageBufferBindingSize: 1 << 27,
+      maxStorageBufferBindingSize: 1 << 27
     },
     lost: new Promise(() => {}),
     queue: { writeBuffer() {} },
-    createShaderModule: (d) => d,
+    createShaderModule: (d) => ({ ...d, getCompilationInfo: async () => ({ messages: [] }) }),
     createBindGroupLayout: (d) => d,
     createPipelineLayout: (d) => d,
     createComputePipeline: (d) => d,
@@ -43,12 +43,12 @@ async function fixture() {
           unmap() {},
           destroy() {
             this.destroyed++;
-          },
+          }
         };
       buffers.push(b);
       return b;
     },
-    createBindGroup: (d) => d,
+    createBindGroup: (d) => d
   };
   const make = (size = 1024) =>
     device.createBuffer({ size, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
@@ -60,6 +60,7 @@ async function fixture() {
     frame_geometry_arena: new FrameGeometryArena(device, accounting),
     bind_groups: { obtain: (d) => d },
     render_pipelines: { requirePrepared: (d) => d },
+    raster_partitions: { release() {} }
   };
   await Promise.all([graphics.frame_instances.ready, graphics.frame_vertices.ready]);
   const hierarchy = {
@@ -74,7 +75,7 @@ async function fixture() {
     release() {
       events.push("hierarchy-release");
     },
-    destroy() {},
+    destroy() {}
   };
   const candidate = {
     prepare(input) {
@@ -84,7 +85,7 @@ async function fixture() {
         bucketStates: make(),
         bucketSettings: make(),
         bucketCount: 1,
-        capacity: input.capacity,
+        capacity: input.capacity
       };
     },
     rebind() {},
@@ -94,11 +95,19 @@ async function fixture() {
     release() {
       events.push("candidate-release");
     },
-    destroy() {},
+    destroy() {}
   };
   const pass = new PackedVisibilityPass(graphics, hierarchy, candidate),
     camera = make(),
     counters = make();
+  // This test owns publication/rollback/retirement order, not raster math.
+  // The real Surface GPU oracle owns the actual shader and result checks.
+  pass.meshletBucketRaster = {
+    prepare() {},
+    encodeRaster() {
+      events.push("raster");
+    }
+  };
   const job = {
     runtime: {
       hierarchyRasterWorkCapacity: 4,
@@ -110,8 +119,8 @@ async function fixture() {
       materialResources: {
         bindingSets: [{ id: 0, textureBanks: Array(9).fill({}) }],
         materialRecords: make(),
-        materialCapacity: 1,
-      },
+        materialCapacity: 1
+      }
     },
     assets: {
       epoch: 1,
@@ -121,7 +130,16 @@ async function fixture() {
       meshletTriangleIndices: make(),
       vertexStreamData: make(),
       highWaterCounts: { geometryRecords: 1, meshletRecords: 1 },
-      sparseShading: { assetMetadataHeap: make(), assetMetadataBytes: 256 },
+      sparseShading: {
+        assetMetadataHeap: make(),
+        assetMetadataBytes: 256,
+        vertexPayloadHeap: make(),
+        geometryWordBase: 0,
+        meshletWordBase: 0,
+        meshletVertexWordBase: 0,
+        meshletTriangleWordBase: 0,
+        vertexDataWordBase: 0
+      }
     },
     scene: { resourceEpoch: 1, instances: make(176), highWaterCount: 1 },
     width: 64,
@@ -135,11 +153,8 @@ async function fixture() {
     frameGeometryBudget: {
       vertexCapacity: 9,
       triangleCapacity: 3,
-      dictionaryCapacity: 16,
-      coefficientCapacity: 8,
-      probeLimit: 8,
-      maxBytes: 16384,
-    },
+      maxBytes: 16384
+    }
   };
   const encoder = {
     copyBufferToBuffer(...args) {
@@ -154,13 +169,13 @@ async function fixture() {
         setBindGroup() {},
         dispatchWorkgroups() {},
         dispatchWorkgroupsIndirect() {},
-        end() {},
+        end() {}
       };
     },
     beginRenderPass() {
       events.push("raster");
       return { setPipeline() {}, setBindGroup() {}, drawIndirect() {}, end() {} };
-    },
+    }
   };
   const command = {
     isGPUCommandContext: true,
@@ -168,11 +183,11 @@ async function fixture() {
     onFinished: {
       addOne(fn) {
         commits.push(fn);
-      },
+      }
     },
     destroyAfterGpuDone(r) {
       retirements.push(r);
-    },
+    }
   };
   const dispose = () => {
     pass.destroy();
@@ -193,7 +208,7 @@ async function fixture() {
     copies,
     retirements,
     accounting,
-    dispose,
+    dispose
   };
 }
 test("production Visibility publishes metadata only after submission and orders candidate, transforms, shared vertices, raster", async () => {
@@ -213,17 +228,18 @@ test("production Visibility publishes metadata only after submission and orders 
           create() {
             return 99;
           },
-          make_side_effect() {},
+          make_side_effect() {}
         };
-      },
+      }
     };
   const input = {
     camera: 1,
     counters: 2,
     frameInstances: 3,
     frameGeometry: 4,
+    frameAttributes: 4,
     meshletWorkRecords: 5,
-    depth: 6,
+    depth: 6
   };
   const output = f.pass.addToGraph(graph, { ...f.job, prepared }, input);
   assert.equal(output.frame.frameGeometry, 104);
@@ -232,7 +248,7 @@ test("production Visibility publishes metadata only after submission and orders 
     callback(
       { ...f.job, prepared },
       { get: (id) => (id === 1 ? f.camera : id === 2 ? f.counters : { isView: true }) },
-      { encoder: f.command },
+      { encoder: f.command }
     );
   run();
   assert.equal(f.copies.length, 1);
@@ -243,7 +259,7 @@ test("production Visibility publishes metadata only after submission and orders 
     "frame_vertices_begin",
     "frame_vertices_build",
     "frame_vertices_finalize",
-    "raster",
+    "raster"
   ];
   assert.ok(order.every((e, i) => i === 0 || f.events.indexOf(e) > f.events.indexOf(order[i - 1])));
   // An aborted command discards its commit callback; next frame republishes.
@@ -269,9 +285,9 @@ test("failed replacement preserves the live workset; successful replacement reti
         { ...f.job, frameGeometryBudget: { ...f.job.frameGeometryBudget, maxBytes: 16 } },
         f.counters,
         f.camera,
-        f.command,
+        f.command
       ),
-    RangeError,
+    RangeError
   );
   assert.equal(f.accounting.snapshot().totalBytes, bytes);
   assert.equal(f.pass.prepareHierarchy(f.job, f.counters, f.camera, f.command).workSet, old.workSet);
@@ -279,7 +295,7 @@ test("failed replacement preserves the live workset; successful replacement reti
     { ...f.job, assets: { ...f.job.assets, epoch: 2 } },
     f.counters,
     f.camera,
-    f.command,
+    f.command
   );
   assert.notEqual(next.workSet, old.workSet);
   assert.equal(old.workSet.frameGeometry.buffer.destroyed, 0);
@@ -303,4 +319,47 @@ test("retiring late-HZB work retains its device owner after the feature is destr
   f.retirements[0].destroy();
   assert.deepEqual(released, [retired]);
   f.dispose();
+});
+test("frame vertex binding failure rolls back a replacement across owners and keeps the live publication", async () => {
+  const f = await fixture();
+  const old = f.pass.prepareHierarchy(f.job, f.counters, f.camera, f.command);
+  const bytes = f.accounting.snapshot().totalBytes;
+  const createBindGroup = f.graphics.device.createBindGroup;
+  let failed = false;
+  f.graphics.device.createBindGroup = (descriptor) => {
+    if (descriptor.layout.label?.startsWith("Geometry frame vertices/")) {
+      failed = true;
+      throw new Error("controlled frame vertex binding failure");
+    }
+    return createBindGroup(descriptor);
+  };
+  assert.throws(
+    () =>
+      f.pass.prepareHierarchy(
+        { ...f.job, assets: { ...f.job.assets, epoch: 2 } },
+        f.counters,
+        f.camera,
+        f.command
+      ),
+    /controlled frame vertex binding failure/
+  );
+  assert.equal(failed, true, "failure reaches the intended current producer binding");
+  assert.equal(f.accounting.snapshot().totalBytes, bytes);
+  assert.equal(old.workSet.frameGeometry.buffer.destroyed, 0);
+  assert.equal(f.retirements.length, 0, "failed replacement cannot retire the live publication");
+  assert.equal(f.pass.prepareHierarchy(f.job, f.counters, f.camera, f.command).workSet, old.workSet);
+  f.graphics.device.createBindGroup = createBindGroup;
+  const next = f.pass.prepareHierarchy(
+    { ...f.job, assets: { ...f.job.assets, epoch: 2 } },
+    f.counters,
+    f.camera,
+    f.command
+  );
+  assert.notEqual(next.workSet, old.workSet);
+  assert.equal(old.workSet.frameGeometry.buffer.destroyed, 0);
+  f.retirements[0].destroy();
+  assert.equal(old.workSet.frameGeometry.buffer.destroyed, 1);
+  assert.equal(f.accounting.snapshot().totalBytes, bytes);
+  f.dispose();
+  assert.equal(f.accounting.snapshot().totalBytes, 0);
 });

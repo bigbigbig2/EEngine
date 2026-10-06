@@ -58,6 +58,7 @@ import {
   residentSamplerCostReference,
   fullChannelGatherCostReference
 } from "./appearance-cost-reference.mjs";
+import { checkSurfaceGeometryBoundaries } from "./surface-geometry-boundary-gpu.mjs";
 
 // Isolated cost reference: specialize this fixture's complete IR into named
 // values, keeping the same C/X/Y samples, constants and output slots. This is
@@ -863,7 +864,8 @@ export async function runSurfaceWorkGpuOracle(
         })
       }
     });
-    const reports = [];
+    const reports = [],
+      geometryBoundaries = [];
     async function runCase(
       width,
       height,
@@ -1968,6 +1970,22 @@ export async function runSurfaceWorkGpuOracle(
     );
     const completeArena = frameArena,
       completeVertices = preparedVertices;
+    const checkGeometryBoundaries = async () => {
+      geometryBoundaries.push(
+        ...(await checkSurfaceGeometryBoundaries(device, {
+          arena: frameArena,
+          vertexOwner: frameVertexOwner,
+          vertices: preparedVertices,
+          frameInstances,
+          instances,
+          work,
+          vertexPayload,
+          camera,
+          product: productGeometry
+        }))
+      );
+    };
+    await checkGeometryBoundaries();
     for (const preparedCapacity of [8, 0]) {
       const maxBytes = completeArena.layout.attributes.offset + Math.max(16, preparedCapacity * 144);
       frameArena = frameArenaOwner.prepare(sourceHeap, sourceHeap.size, { ...geometryBudget, maxBytes });
@@ -1982,6 +2000,7 @@ export async function runSurfaceWorkGpuOracle(
         standardExact.every((value, index) => value === preparedResult[index]),
         `prepared vertex capacity ${preparedCapacity} keeps exact resident Geometry→Appearance consumers`
       );
+      await checkGeometryBoundaries();
       frameVertexOwner.release(preparedVertices);
       frameArenaOwner.release(frameArena);
     }
@@ -2096,6 +2115,7 @@ export async function runSurfaceWorkGpuOracle(
         genericExact.every((word, index) => word === result[index]),
         `Product prepared=${attributeCapacity} and resident fallback retain the full independent Ordinary result`
       );
+      await checkGeometryBoundaries();
       frameVertexOwner.release(preparedVertices);
       frameArenaOwner.release(frameArena);
     }
@@ -2252,6 +2272,7 @@ export async function runSurfaceWorkGpuOracle(
       passed: true,
       scope: "current SurfaceWorkRuntime real Geometry Appearance Lighting Reconstruction chain",
       reports,
+      geometryBoundaries,
       timings,
       apiErrors
     };
