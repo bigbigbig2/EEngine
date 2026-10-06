@@ -3,7 +3,7 @@ import test from "node:test";
 import { GPUFrameTimingRing } from "../../.test-dist/framegraph/GPUFrameTiming.js";
 import {
   GPUPerformanceTimer,
-  GPUStatisticsHistory,
+  GPUStatisticsHistory
 } from "../../.test-dist/framegraph/GPUPerformanceTimer.js";
 import { summarizeGpuTimingCost } from "../../.test-dist/debug/GpuTimingCost.js";
 import { ResourceAccounting } from "../../.test-dist/debug/profiling/ResourceAccounting.js";
@@ -16,7 +16,7 @@ import {
   SURFACE_DIAGNOSTICS_COUNTERS as C,
   SURFACE_DIAGNOSTIC_DESCRIPTORS,
   decodeSurfaceDiagnostics,
-  writeSurfaceDiagnosticsHeader,
+  writeSurfaceDiagnosticsHeader
 } from "../../.test-dist/gpu/SurfaceDiagnosticsAbi.js";
 globalThis.GPUBufferUsage = { QUERY_RESOLVE: 1, COPY_SRC: 2, COPY_DST: 4, MAP_READ: 8 };
 globalThis.GPUMapMode = { READ: 1 };
@@ -40,9 +40,9 @@ function fixture() {
         getMappedRange(o, s) {
           return bytes.slice(o, o + s);
         },
-        unmap() {},
+        unmap() {}
       };
-    },
+    }
   };
   const encoder = {
     beginComputePass({ timestampWrites: w }) {
@@ -54,7 +54,7 @@ function fixture() {
     },
     copyBufferToBuffer(a, ao, b, bo, n) {
       new Uint8Array(b.bytes, bo, n).set(new Uint8Array(a.bytes, ao, n));
-    },
+    }
   };
   return {
     device,
@@ -62,7 +62,7 @@ function fixture() {
     pending,
     get creates() {
       return creates;
-    },
+    }
   };
 }
 test("pending mapping cannot reuse a ring slot; abort and out-of-order completion preserve labels", async () => {
@@ -128,7 +128,7 @@ test("same-frame costs separate scopes and independent management/evaluation ari
     { label: "Surface/emit_surface_requests", scope: "pass", durationMs: 3 },
     { label: "Surface/unique GeometryRecord", scope: "pass", durationMs: 5 },
     { label: "Surface/reconstruct", scope: "pass", durationMs: 2 },
-    { label: "unknown", scope: "pass", durationMs: 1 },
+    { label: "unknown", scope: "pass", durationMs: 1 }
   ]);
   assert.equal(result.passSumMs, 11);
   assert.equal(result.outsidePassMs, 9);
@@ -138,17 +138,17 @@ test("same-frame costs separate scopes and independent management/evaluation ari
   assert.equal(result.queueCompletionMs, null);
   assert.equal(
     summarizeGpuTimingCost([{ label: "frame-span", scope: "span", durationMs: 20 }]).passSumMs,
-    null,
+    null
   );
 });
-test("diagnostic unit is independently 64 bytes / 4; queue descriptions never prove completion", () => {
+test("diagnostic unit is independently 48 bytes / 4; queue descriptions never prove completion", () => {
   const id = { runId: "test", deviceEpoch: 1, frameId: 9 },
     words = new Uint32Array(SURFACE_DIAGNOSTICS_BYTE_SIZE / 4);
   writeSurfaceDiagnosticsHeader(words, id, "detailed");
   for (const [name, value] of [
     ["domainDescriptions", 7],
-    ["geometryRecordStrideWords", 16],
-    ["materialMissQueued", 7],
+    ["geometryRecordStrideWords", 12],
+    ["materialMissQueued", 7]
   ]) {
     const index = C[name];
     words[8 + (index >>> 5)] |= 1 << (index & 31);
@@ -156,16 +156,20 @@ test("diagnostic unit is independently 64 bytes / 4; queue descriptions never pr
   }
   const snapshot = decodeSurfaceDiagnostics(words.buffer, id, "detailed");
   assert.equal(snapshot.values.domainDescriptions, 7);
-  assert.equal(snapshot.values.geometryRecordStrideWords, 16);
+  assert.equal(snapshot.values.geometryRecordStrideWords, 12);
   assert.equal(snapshot.values.materialEvaluatorCompleted, undefined);
   assert.equal(snapshot.coverage.status, "unknown");
   assert.equal(SURFACE_DIAGNOSTIC_DESCRIPTORS.materialMissQueued.availability, "unavailable");
   assert.equal(
     decodeSurfaceDiagnostics(words.buffer, { ...id, frameId: 10 }, "detailed").availability,
-    "invalid",
+    "invalid"
   );
-  words[SURFACE_DIAGNOSTICS_HEADER_WORDS + C.geometryRecordStrideWords] = 8;
-  assert.equal(decodeSurfaceDiagnostics(words.buffer, id, "detailed").coverage.status, "fail");
+  for (const retiredStride of [8, 16, 32]) {
+    words[SURFACE_DIAGNOSTICS_HEADER_WORDS + C.geometryRecordStrideWords] = retiredStride;
+    const rejected = decodeSurfaceDiagnostics(words.buffer, id, "detailed");
+    assert.equal(rejected.coverage.status, "fail");
+    assert.ok(rejected.coverage.violations.includes("geometry record stride mismatch"));
+  }
 });
 test("physical ledger deduplicates imports and reports retired peaks independently", () => {
   const ledger = new ResourceAccounting(),
@@ -222,7 +226,7 @@ test("a failed query page waits for every other pending mapping before releasing
   s.resolve(f.encoder);
   const result = s.download().then(
     () => null,
-    (error) => error,
+    (error) => error
   );
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(ring.evidence().pending, 1);
@@ -236,9 +240,9 @@ test("partial query coverage never attributes missing evaluation to copy/clear o
   const cost = summarizeGpuTimingCost(
     [
       { label: "frame-span", scope: "span", durationMs: 7 },
-      { label: "Surface/emit_surface_requests", scope: "pass", durationMs: 2 },
+      { label: "Surface/emit_surface_requests", scope: "pass", durationMs: 2 }
     ],
-    false,
+    false
   );
   assert.equal(cost.passSumMs, 2, "partial subtotal is retained");
   assert.equal(cost.outsidePassMs, null);
@@ -253,13 +257,13 @@ test("same-frame contexts accumulate query tax and preserve incomplete timing co
     enabled: true,
     gpuSampleInterval: 1,
     gpuTimestampAvailable: true,
-    gpuTimingMode: "coarse",
+    gpuTimingMode: "coarse"
   });
   const graphics = {
     device: f.device,
     profiler,
     buffer_allocator_main: { release() {} },
-    buffer_allocator_staging: { release() {} },
+    buffer_allocator_staging: { release() {} }
   };
   profiler.beginFrame(1);
   for (let i = 0; i < 2; i++) {
@@ -283,13 +287,13 @@ test("cleared frame identity cannot be patched by a delayed old batch", async ()
     enabled: true,
     gpuSampleInterval: 1,
     gpuTimestampAvailable: true,
-    gpuTimingMode: "coarse",
+    gpuTimingMode: "coarse"
   });
   const graphics = {
     device: f.device,
     profiler,
     buffer_allocator_main: { release() {} },
-    buffer_allocator_staging: { release() {} },
+    buffer_allocator_staging: { release() {} }
   };
   profiler.beginFrame(1);
   ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame").finish();
@@ -313,7 +317,7 @@ test("full diagnostic timestamps expire after 120 sampled frames", () => {
     enabled: true,
     gpuSampleInterval: 1,
     gpuTimestampAvailable: true,
-    gpuTimingMode: "full",
+    gpuTimingMode: "full"
   });
   for (let frame = 0; frame < 120; frame++) {
     profiler.beginFrame(frame);
@@ -338,14 +342,14 @@ test("library benchmark retains truncated facts but cannot publish complete phas
         type: "compute",
         phase: "unclassified",
         scope: "pass",
-        durationMs: 2,
-      },
-    ],
+        durationMs: 2
+      }
+    ]
   };
   frame.counters["gpu.timing.truncated"] = 1;
   const harness = new BenchmarkHarness(
     { schemaVersion: 4, run: { warmupFrames: 0, sampleFrames: 1, featureSet: [] } },
-    {},
+    {}
   );
   harness.recordFrame(frame);
   const report = harness.complete();

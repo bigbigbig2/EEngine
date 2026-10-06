@@ -469,6 +469,34 @@ timing 的 GPU pass sum为46.072/47.055ms；它不同于 command span。逐帧�
 
 不变量A在已测模板/实例规模的 native命令范围有证据；B在该Showcase短采集中management低于evaluation，但廉价/General全范围还不能统一通过；C在Surface独立结果OFF/ON正确且同量级，净收益不等于正确性。**R2-05/B1未完成；B2接口已切换和部分验证，V08/V10/V11/V12剩余责任使B2也未完成。** 下一步先关闭列明的边界/生命周期用例，并对General与固定家族的实际query/内存/执行成本作有界表示决策；不继续无边界window/private-array调参，也不把问题推入C的cache来掩盖。
 
+### 6.12 B1 成本归因与表示定案（2026-10-06 后续授权）
+
+用户已授权按建议继续：先成本归因与直接求值表示，随后B2收口、C及D/E/F；当前主分支持续实施，不新增切换单元。已有§6.11的验证范围和缺口保留，不能用本节组件诊断外推全链通过。
+
+本轮两个假设：H1，Product buffer上的half解包/手工过滤可能是普通家族热点的重要成本；H2，fixed查询结果的storage scratch写回/读取可能有可避免开销。先按原始Product texels/mips/domain比较生产采样函数与独立硬件过滤，随后选择固定公式局部消费表示。General完整执行表示在普通路径归因后定案，不调整效果、精度、采样footprint或命令类别。
+
+H1诊断入口 `node tools/gpu-oracle.mjs appearance-product-sampling-cost --json`。使用当前生产sampler/packer，scalar、pair、RGB格式及跨bank；256×128、完整9 mips，1920×1080输出、每item四查询。2次warmup、6次配对计时并交替顺序，全部输出分量核对独立硬件结果；误差依据原texel梯度/硬件fraction精度界与四次加法，非生产预填。此是cache-friendly单Product的过滤/解码组件成本，包含结果写出，不能当场景带宽、GPU占用或整条Surface收益。硬件路径仅oracle参考，当前生产不建立双路径。
+
+时间戳/硬件过滤为本地确定性diagnostic集成，使用[WGSL textureSampleGrad](https://www.w3.org/TR/WGSL/#texturesamplegrad)与WebGPU compute-pass timestampWrites；不宣称新的第三方算法adoption。完整Product新表示实施前仍按根AGENTS固定donor/许可/阶段映射，保持原资产支持、lifecycle和全部consumer。本轮结果及候选决定在本节集中追加，不新增报告文档；每个表示最多两个具名候选，不扩大场景矩阵或窗口/Q调参循环。
+
+**分支归因修正**：现有Showcase allocation原文中，每次 `GpuAppearancePublication/exact-dag-products-0/1` 均为4B占位，无实际Appearance Product payload；Geometry Product驻留不能当作Appearance Product采样已执行的证据。H1组件昂贵的结果成立，但不能解释该Showcase fixed热区，本轮不因它先重建Product atlas。
+
+H1 `.local/r2/sampling-cost3.json` passed，三个格式各核对8,294,400输出分量。软件/硬件P50：RGB16.824/1.649ms、pair6.914/3.611ms、scalar8.312/1.609ms；P95及全部6次样本保留JSON。冷缓存/频率未控制，不把比例外推scene或全部格式。前两次失败分别是扩大fixture后旧probe预算、旧bank容量不足；修正声明容量后保留全部原数学/过滤断言，没有缩小fixture或放宽容差。
+
+H2候选为当前storage sample scratch与15个具名private sample（非动态private数组）。`surface-work-fixed-scratch-reference` 保留当前Geometry、9 banks/6 samplers、全部固定公式/normal decode和Lighting/Reconstruct；全1080p HDR逐word一致。`.local/r2/fixed-scratch1.json` passed：warm baseline Appearance8.212/8.128ms，standard26.701/24.419ms、whole Surface39.685/37.292ms。两次重复、非交替且没有clock控制，仅支持“该fixture有限下降”，不保证register驻留。本轮不采纳此候选进生产，也不继续private/window尺寸循环；当前生产仍用storage表示。
+
+H3另隔离**resident sampler路由**：保留全部9 banks、原UV变换/mip clamp，只在fixture完整不可变sampler均为linear/repeat时比较6 sampler分支与1个已证明sampler类别。入口 `surface-work-resident-sampler-reference`，baseline/standard/完整General，全HDR逐word核对、同native命令；参考只在oracle，不改变生产选择。若有净收益，发布边界可在有限sampler类别内确定完整/单类别程序，不按材质数生成PSO/dispatch；混合或不能证明时保留原完整6类别，不能拒合法sampler。
+
+提交前12项失败的根因已逐项缩小到fixture协议：Nyx mock仍宣告ABI2且domain stride仍按32B读；当前ABI3为48B并含UV weights。provider“有效页”原本全零，没有合法V3 group/meshlet；diagnostic仍填写16 words而当前hot12。迁移真实协议fixture并保留旧ABI拒绝、旧stride失败断言后，相关29项通过，日志 `.local/r2/legacy-fixture-green2.txt`；这些mock/lifecycle断言不证明真实WASM cooker或renderer算法完成，集中收口还会跑完整受影响targeted集合。
+
+H3 `.local/r2/resident-sampler1.json` passed，完整HDR一致；warm standard Appearance26.369/24.570ms、Surface38.951/37.502ms，但General79.182/87.125ms、Surface91.515/100.008ms。顺序/时钟未控，不能认定精确回退根因；此轮不能证明全范围净收益。本轮不采纳单sampler生产class，已撤回临时generator参数，只在oracle保留具名参考；PSO/dispatch/资产支持没有增加或裁剪。
+
+一个确定的accessor冗余已在生产移除：General channel instruction原先读4个scratch components再选1个；现在直接读取原channel地址。没有改变query、normal decode、CXY、数学或其他consumer。`.local/r2/channel-reference1.json` 用其余完全相同的旧四分量读取参考核对全1080p HDR，passed；warm Appearance77.948/80.337ms、Surface90.222/93.087ms（前者为当前生产）。仅两个重复、未控制时钟，结构上消除无用读取，不将这组小幅差额宣称正式性能收益或主要瓶颈已解决。
+
+**本轮定案与下一候选**：保留原storage/fixed和完整resident选择；Product硬件表示不先针对未执行的branch展开。源码 `surface_geometry_completion.ts` 在每个sample仍调用 `winner_build_coefficients` 并由三corner计算world plane，prepared frame当前只提供clips/indices/attributes，不提供这些数学结果。下一表示为母稿§8.4.1的Prepared Triangle Math，最多比较现有local build与同一Geometry owner的per-primitive产品；不恢复旧Winner owner，不先进入C/cache掩盖基线。该候选尚未实现或测得收益，不把“重复数学存在”直接写成全部热点根因。
+
+本轮集中结果读取 `.local/r2/cost-targeted-final.txt`、`cost-production-build.txt`、`cost-surface-final.json`、`cost-dag-final.json`、`cost-sampling-final.json`：typecheck、fresh build:test、production build及193项targeted CPU通过；真实Surface56 case、完整DAG64 case和原Product sampler三格式通过，GPU作业串行，source fingerprint `2b13817b1b8c127e2170beb208a39ec56857626fe6e346fd0d64959382513d7c`。这是该accessor/fixture/诊断模块检查，不宣布V08/V10/V11/V12、历史OOM或B1/B2完整通过。没有重跑不受影响的lifecycle/全browser矩阵、Showcase或正式claim；只有General accessor改变，不能将旧Showcase成本升级为当前源码性能已测。
+
 ## 7. B2 — 全部当前 Surface 替换与完整 exact work
 
 ### 7.1 任务

@@ -13,6 +13,28 @@ const { GeometryProductAdmissionController } = await import(
 
 function fixture() {
   const page = new Uint8Array(262144);
+  // A real decoded V3 group: 64-byte header, 48-byte meshlet header,
+  // three triangle indices, then three Float32x3 positions/packed normals.
+  const decoded = new DataView(page.buffer);
+  decoded.setUint16(44, 1, true);
+  decoded.setUint32(48, 64, true);
+  decoded.setUint32(52, 112, true);
+  decoded.setUint32(56, 128, true);
+  decoded.setUint32(60, 192, true);
+  decoded.setUint16(64, 3, true);
+  decoded.setUint16(66, 1, true);
+  decoded.setUint32(68, 128, true);
+  decoded.setUint32(72, 112, true);
+  page.set([0, 1, 2], 112);
+  for (const [vertex, position] of [
+    [0, [0, 0, 0]],
+    [1, [1, 0, 0]],
+    [2, [0, 1, 0]]
+  ]) {
+    for (let axis = 0; axis < 3; axis++) {
+      decoded.setFloat32(128 + vertex * 16 + axis * 4, position[axis], true);
+    }
+  }
   const hash = createHash("sha256").update(page).digest();
   const productId = new Uint8Array(32).fill(9);
   const asset = new Uint8Array(128);
@@ -30,7 +52,7 @@ function fixture() {
     [104, 1],
     [108, 1],
     [112, 1],
-    [116, 0],
+    [116, 0]
   ])
     av.setUint32(at, value, true);
   const hierarchy = new Uint8Array(48);
@@ -39,7 +61,7 @@ function fixture() {
   hv.setUint32(44, 1, true);
   const groups = new Uint8Array(16);
   const gv = new DataView(groups.buffer);
-  gv.setUint32(8, 64, true);
+  gv.setUint32(8, 192, true);
   gv.setUint32(12, 1, true);
   const pages = new Uint8Array(32);
   pages.set(hash.subarray(0, 16));
@@ -49,7 +71,7 @@ function fixture() {
   const fv = new DataView(formats.buffer);
   fv.setUint16(0, 16, true);
   fv.setUint16(2, 3, true);
-  fv.setUint8(5, 6);
+  fv.setUint8(5, 12);
   fv.setUint8(10, 1); // Current Product ABI: Float32x3 position encoding.
   const descriptor = {
     schemaVersion: 1,
@@ -70,7 +92,7 @@ function fixture() {
     pageRecords: pages,
     bootstrapPageIds: new Uint32Array([0]),
     vertexFormats: formats,
-    activationPageIds: new Uint32Array([0]),
+    activationPageIds: new Uint32Array([0])
   };
   return { page, hash, productId, descriptor };
 }
@@ -86,7 +108,7 @@ test("cook-complete ends revision enumeration but preserves page requests", asyn
     yield {
       ...header,
       type: "RevisionOffered",
-      descriptor: encodeGeometryProductDescriptorBinaryV1(value.descriptor),
+      descriptor: encodeGeometryProductDescriptorBinaryV1(value.descriptor)
     };
     yield { ...header, type: "Progress", stage: "cook-complete", units: 1, bytes: 0, timings: {} };
     await requested;
@@ -98,7 +120,7 @@ test("cook-complete ends revision enumeration but preserves page requests", asyn
       pageId: 0,
       decodedHash128: value.hash.subarray(0, 16),
       decodedPageHash128: value.hash.subarray(0, 16),
-      bytes: value.page.buffer,
+      bytes: value.page.buffer
     };
   }
   const provider = new WebCookProductProvider(events(), {
@@ -107,7 +129,7 @@ test("cook-complete ends revision enumeration but preserves page requests", asyn
     returnOutputCredits() {},
     requestPage() {
       request();
-    },
+    }
   });
   const iterator = provider.revisions()[Symbol.asyncIterator]();
   const first = await iterator.next();
@@ -127,13 +149,13 @@ test("Web Product provider preserves metadata events and page ownership", async 
     yield {
       ...header,
       type: "SceneCatalogReady",
-      catalog: { primitiveCount: 1, mutable: { rejected: true } },
+      catalog: { primitiveCount: 1, mutable: { rejected: true } }
     };
     yield { ...header, type: "Progress", stage: "bootstrap", units: 1, bytes: 12, timings: { cook: 1 } };
     yield {
       ...header,
       type: "RevisionOffered",
-      descriptor: encodeGeometryProductDescriptorBinaryV1(value.descriptor),
+      descriptor: encodeGeometryProductDescriptorBinaryV1(value.descriptor)
     };
     yield {
       ...header,
@@ -143,7 +165,7 @@ test("Web Product provider preserves metadata events and page ownership", async 
       pageId: 0,
       decodedHash128: value.hash.subarray(0, 16),
       decodedPageHash128: value.hash.subarray(0, 16),
-      bytes: value.page.buffer,
+      bytes: value.page.buffer
     };
   }
   const provider = new WebCookProductProvider(events(), {
@@ -151,7 +173,7 @@ test("Web Product provider preserves metadata events and page ownership", async 
     maxBufferedBytes: 262144,
     returnOutputCredits: (blocks, bytes) => credits.push([blocks, bytes]),
     onSceneCatalogReady: (catalog) => catalogs.push(catalog),
-    onProgress: (value) => progress.push(value),
+    onProgress: (value) => progress.push(value)
   });
   const iterator = provider.revisions()[Symbol.asyncIterator]();
   const offered = await iterator.next();
@@ -168,7 +190,7 @@ test("Web Product provider preserves metadata events and page ownership", async 
     deliveredPages: 1,
     discardedPages: 0,
     staleEvents: 0,
-    failures: 0,
+    failures: 0
   });
   offered.value.release();
   provider.release();
@@ -183,7 +205,7 @@ test("Web Product provider reaches the shared Geometry Product admission and res
     yield {
       ...header,
       type: "RevisionOffered",
-      descriptor: encodeGeometryProductDescriptorBinaryV1(value.descriptor),
+      descriptor: encodeGeometryProductDescriptorBinaryV1(value.descriptor)
     };
     yield {
       ...header,
@@ -193,13 +215,13 @@ test("Web Product provider reaches the shared Geometry Product admission and res
       pageId: 0,
       decodedHash128: value.hash.subarray(0, 16),
       decodedPageHash128: value.hash.subarray(0, 16),
-      bytes: value.page.buffer,
+      bytes: value.page.buffer
     };
   }
   const provider = new WebCookProductProvider(events(), {
     maxBufferedPages: 1,
     maxBufferedBytes: 262144,
-    returnOutputCredits: (blocks, bytes) => credits.push([blocks, bytes]),
+    returnOutputCredits: (blocks, bytes) => credits.push([blocks, bytes])
   });
   const device = {
     limits: { maxBufferSize: 256 * 1024 * 1024, maxStorageBufferBindingSize: 128 * 1024 * 1024 },
@@ -209,8 +231,8 @@ test("Web Product provider reaches the shared Geometry Product admission and res
     queue: {
       writeBuffer(buffer, offset, bytes) {
         writes.push({ buffer, offset, bytes: bytes.byteLength });
-      },
-    },
+      }
+    }
   };
   const controller = new GeometryProductAdmissionController(device);
   await controller.consume(provider);
@@ -235,7 +257,7 @@ test("Web Product provider asks the Worker for a page after a consumed transfer"
     yield {
       ...header,
       type: "RevisionOffered",
-      descriptor: encodeGeometryProductDescriptorBinaryV1(value.descriptor),
+      descriptor: encodeGeometryProductDescriptorBinaryV1(value.descriptor)
     };
     await pending;
     yield {
@@ -246,7 +268,7 @@ test("Web Product provider asks the Worker for a page after a consumed transfer"
       pageId: 0,
       decodedHash128: value.hash.subarray(0, 16),
       decodedPageHash128: value.hash.subarray(0, 16),
-      bytes: value.page.buffer,
+      bytes: value.page.buffer
     };
   }
   const provider = new WebCookProductProvider(events(), {
@@ -256,7 +278,7 @@ test("Web Product provider asks the Worker for a page after a consumed transfer"
     requestPage: (productId, revision, pageId) => {
       requests.push([productId, revision, pageId]);
       pushEvent();
-    },
+    }
   });
   const iterator = provider.revisions()[Symbol.asyncIterator]();
   const offered = await iterator.next();
@@ -264,7 +286,7 @@ test("Web Product provider asks the Worker for a page after a consumed transfer"
   assert.strictEqual(page.bytes, value.page.buffer);
   assert.deepEqual(
     requests.map((request) => [request[1], request[2]]),
-    [[2, 0]],
+    [[2, 0]]
   );
   assert.deepEqual(credits, [[1, 262144]]);
   offered.value.release();

@@ -17,12 +17,12 @@ goal: >-
 
 currentSlice:
   id: eengine-extreme-performance-rebuild-b1
-  title: Surface B1/B2：R2生产切换与集中核对，成本出口未关闭
+  title: Surface B1/B2：成本归因与Triangle Math表示定案，成本出口未关闭
   status: active
   goal: >-
     A0/A1既有核对见执行文档§5.1。B1未通过性能可行性门，B2未收口。
     用户已认可SURFACE-2026-10-06-R2并恢复实施；当前生产切换、检查及剩余缺口统一见执行文档§6.11。
-    后续实施入口为执行文档§6.8–6.11的R2-00–05与V01–V12，旧§6.6–6.7仅作历史诊断。
+    后续实施入口为执行文档§6.8–6.12的R2-00–05与V01–V12；成本归因、候选及定案统一见§6.12，旧§6.6–6.7仅作历史诊断。
     先完成模板/快照/导出、Typed Tape/内部uniform、程序一致work与arena-backed局部Geometry→Appearance，
     接齐直接consumer并通过正确性、结构容量、全成本三类出口，再完成B2全部域/率与六RGB信号。
     实际源码/诊断/失败及验收记录只在执行文档维护，本导航不复制计时或测试数量。

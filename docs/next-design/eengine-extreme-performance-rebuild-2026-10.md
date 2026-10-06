@@ -414,6 +414,16 @@ setup共享不是R2默认优化；首先复用已有共享顶点产品。uniform
 
 Q、f32 word地址、point domain与普通家族临时空间按§6.3协商，不能继续把`liveSlots`含糊当vec4数/float数。实际源Geometry输入先于需要它的tape节点生成，可在同一owner内部缓存已完成语义；不同通道读取同一semantic不能重复完整setup。完整Generic与相同输入、相同C/X/Y需求的隔离直接参考比较，参考不进入生产。
 
+#### 8.4.1 Primitive Triangle Math 的有界候选
+
+成本归因必须先证明相应branch实际有consumer：Geometry Product驻留不证明Appearance Product过滤执行，shader源里存在一个sampler也不证明它是场景热点。当前表示比较及原始结果只在执行计划§6.12维护，不从微测比例外推整帧收益。
+
+下一项具名候选为 **Prepared Triangle Math**：当前帧Geometry owner在已有frame vertex/triangle准备边界，对已完整受理的primitive生成homogeneous WinnerCoefficients三行与world plane；Surface通过同一arena目录直接读取，再执行原像素C/X/Y插值。对照为现有每sample局部构建数学；保留完整近裁剪/零负W/退化/facing/normal guard，不改透视系数或finite difference，不把PBR移到重构。
+
+候选不恢复Winner dictionary、跨grouphash/自旋、按像素proof或旧setup owner。它是Geometry产品，身份由当前source namespace、instance/representation与frame目录generation保证，不能用物理arena地址当Sharing/Cache identity。metadata先合法；triangle数学仅对完整prepared域发布，部分/零容量或未准备primitive仍在同一Geometry函数完整直接求值。无第二submit、CPU visible readback或独立geometry recovery owner。
+
+payload候选为48B coefficients＋16B world plane；indices、目录、有效状态、alignment和retirement另计，未定案前不写stable ABI。优先评估与已有frame producer融合；若需要额外dispatch，计入真实命令和总成本。评价包含准备工作、每sample读取、由空间占用引起的attribute容量下降及resident fallback、live/retired峰值；大三角、细几何/mixed、Ordinary/Product分别核。只在全链净收益与独立数学/全部consumer证据成立后采纳；未证明前仍为候选，不宣称实施完成。
+
 ### 8.5 融合前的 binding 与 arena 可行性（SD06/SD09）
 
 融合不能仅拼WGSL。当前Product源读取需要meshlet work、Geometry arena/source、resident vertex payload、instances、Product metadata及4个banks，共9个storage inputs；再加code、material metadata、Q temporary、closed heap、2个Appearance Product banks和control为7个，合计16。独立frame attributes会变17，不能靠更高limit或删Product reader通过首要device profile。

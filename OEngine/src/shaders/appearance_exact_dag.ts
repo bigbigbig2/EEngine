@@ -121,8 +121,7 @@ fn appearance_dag_evaluate(code: u32, count: u32, lane: u32, missing: u32, slot_
       case ${APPEARANCE_DAG_OPS.channel}u: {
         let points = select(1u, 3u, neighbors);
         for (var point = 0u; point < points; point++) {
-          let sample = appearance_dag_sample_value(lane, a + point * 4u, slot_stride);
-          value[point] = sample[channel];
+          value[point] = appearance_dag_component(lane, a + point * 4u, slot_stride, channel);
         }
       }
       default: {

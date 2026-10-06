@@ -53,6 +53,11 @@ import {
 import { lowerAppearanceWgsl } from "../../.test-dist/shaders/appearance_program.js";
 import { APPEARANCE_EXACT_DAG_WGSL } from "../../.test-dist/shaders/appearance_exact_dag.js";
 import { surfaceWorkAppearanceWgsl } from "../../.test-dist/shaders/surface_work.js";
+import {
+  fixedPrivateScratchReference,
+  residentSamplerCostReference,
+  fullChannelGatherCostReference
+} from "./appearance-cost-reference.mjs";
 
 // Isolated cost reference: specialize this fixture's complete IR into named
 // values, keeping the same C/X/Y samples, constants and output slots. This is
@@ -336,7 +341,25 @@ export async function runSurfaceWorkCostGpuOracle(device) {
 export async function runSurfaceWorkNativeReferenceGpuOracle(device) {
   return runSurfaceWorkGpuOracle(device, { cost: true, nativeReference: true });
 }
-export async function runSurfaceWorkGpuOracle(device, { cost = false, nativeReference = false } = {}) {
+export async function runSurfaceWorkFixedScratchReferenceGpuOracle(device) {
+  return runSurfaceWorkGpuOracle(device, { cost: true, fixedScratchReference: true });
+}
+export async function runSurfaceWorkResidentSamplerReferenceGpuOracle(device) {
+  return runSurfaceWorkGpuOracle(device, { cost: true, residentSamplerReference: true });
+}
+export async function runSurfaceWorkChannelReferenceGpuOracle(device) {
+  return runSurfaceWorkGpuOracle(device, { cost: true, channelReference: true });
+}
+export async function runSurfaceWorkGpuOracle(
+  device,
+  {
+    cost = false,
+    nativeReference = false,
+    fixedScratchReference = false,
+    residentSamplerReference = false,
+    channelReference = false
+  } = {}
+) {
   const retained = [],
     modules = [],
     apiErrors = [],
@@ -1495,8 +1518,15 @@ export async function runSurfaceWorkGpuOracle(device, { cost = false, nativeRefe
     }
     if (cost) {
       let genericPixels;
-      for (const fixture of nativeReference ? ["generic"] : ["baseline", "standard", "generic"]) {
-        for (const reuse of [false, true]) {
+      const fixedPixels = new Map();
+      const fixtures =
+        nativeReference || channelReference
+          ? ["generic"]
+          : fixedScratchReference
+            ? ["baseline", "standard"]
+            : ["baseline", "standard", "generic"];
+      for (const fixture of fixtures) {
+        for (const reuse of residentSamplerReference || channelReference ? [false] : [false, true]) {
           const exact = await runCase(1920, 1080, reuse, null, fixture);
           const repeated = await runCase(1920, 1080, reuse, null, fixture);
           check(
@@ -1504,6 +1534,127 @@ export async function runSurfaceWorkGpuOracle(device, { cost = false, nativeRefe
             "full-resolution output remains identical across repeat execution"
           );
           if (fixture === "generic" && !reuse) genericPixels = repeated;
+          if ((fixedScratchReference || residentSamplerReference || channelReference) && !reuse)
+            fixedPixels.set(fixture, repeated);
+        }
+      }
+      if (channelReference) {
+        const originalWorkPipeline = publication.workPipeline;
+        const original = publication.workPipeline(false, false);
+        const module = device.createShaderModule({
+          label: "Surface/isolated retired full channel gather",
+          code: fullChannelGatherCostReference(surfaceWorkAppearanceWgsl(false, false))
+        });
+        const info = await module.getCompilationInfo();
+        check(!info.messages.some((message) => message.type === "error"), JSON.stringify(info.messages));
+        const pipeline = await device.createComputePipelineAsync({
+          label: "Surface/isolated retired full channel gather",
+          layout: device.createPipelineLayout({
+            bindGroupLayouts: [0, 1, 2].map((index) => original.pipeline.getBindGroupLayout(index))
+          }),
+          compute: { module, entryPoint: "appearance" }
+        });
+        try {
+          publication.workPipeline = function (product, common) {
+            return !product && !common
+              ? { ...original, pipeline }
+              : originalWorkPipeline.call(this, product, common);
+          };
+          for (let repeat = 0; repeat < 2; repeat++) {
+            const result = await runCase(1920, 1080, false, null, "generic");
+            const mismatch = result.findIndex((value, index) => value !== fixedPixels.get("generic")[index]);
+            check(mismatch < 0, "scalar channel access preserves every full HDR word " + mismatch);
+            timings.at(-1).implementation = "isolated retired four-component channel gather, not production";
+          }
+        } finally {
+          publication.workPipeline = originalWorkPipeline;
+        }
+      }
+      if (residentSamplerReference) {
+        check(
+          publicationSources.every((source) =>
+            source.program.samples.every((sample) =>
+              sample.binding.sampler.every((value, index) => value === [1, 1, 1, 1, 1, 1, 1, 2, 1][index])
+            )
+          ),
+          "resident reference must prove all immutable sampler semantics are linear/repeat"
+        );
+        const originalWorkPipeline = publication.workPipeline;
+        const selected = new Map();
+        for (const common of [false, true]) {
+          const original = publication.workPipeline(false, common);
+          const module = device.createShaderModule({
+            label: "Surface/isolated single resident sampler " + common,
+            code: residentSamplerCostReference(surfaceWorkAppearanceWgsl(false, common), 2)
+          });
+          const info = await module.getCompilationInfo();
+          check(!info.messages.some((message) => message.type === "error"), JSON.stringify(info.messages));
+          const pipeline = await device.createComputePipelineAsync({
+            label: "Surface/isolated single resident sampler " + common,
+            layout: device.createPipelineLayout({
+              bindGroupLayouts: [0, 1, 2].map((index) => original.pipeline.getBindGroupLayout(index))
+            }),
+            compute: { module, entryPoint: "appearance" }
+          });
+          selected.set(common, { ...original, pipeline });
+        }
+        try {
+          publication.workPipeline = function (product, common) {
+            return !product ? selected.get(common) : originalWorkPipeline.call(this, product, common);
+          };
+          for (const fixture of fixtures) {
+            for (let repeat = 0; repeat < 2; repeat++) {
+              const result = await runCase(1920, 1080, false, null, fixture);
+              const mismatch = result.findIndex((value, index) => value !== fixedPixels.get(fixture)[index]);
+              check(
+                mismatch < 0,
+                "resident sampler specialization preserves every HDR word " +
+                  JSON.stringify({ fixture, mismatch })
+              );
+              timings.at(-1).implementation =
+                "isolated proven linear-repeat sampler reference, not production";
+            }
+          }
+        } finally {
+          publication.workPipeline = originalWorkPipeline;
+        }
+      }
+      if (fixedScratchReference) {
+        const originalWorkPipeline = publication.workPipeline;
+        const fixedPipeline = publication.workPipeline(false, true);
+        const module = device.createShaderModule({
+          label: "Surface/isolated fixed private sample reference",
+          code: fixedPrivateScratchReference(surfaceWorkAppearanceWgsl(false, true))
+        });
+        const info = await module.getCompilationInfo();
+        check(!info.messages.some((message) => message.type === "error"), JSON.stringify(info.messages));
+        const pipeline = await device.createComputePipelineAsync({
+          label: "Surface/isolated fixed private sample reference",
+          layout: device.createPipelineLayout({
+            bindGroupLayouts: [0, 1, 2].map((index) => fixedPipeline.pipeline.getBindGroupLayout(index))
+          }),
+          compute: { module, entryPoint: "appearance" }
+        });
+        try {
+          publication.workPipeline = function (product, common) {
+            return !product && common
+              ? { ...fixedPipeline, pipeline }
+              : originalWorkPipeline.call(this, product, common);
+          };
+          for (const fixture of fixtures) {
+            for (let repeat = 0; repeat < 2; repeat++) {
+              const result = await runCase(1920, 1080, false, null, fixture);
+              const mismatch = result.findIndex((value, index) => value !== fixedPixels.get(fixture)[index]);
+              check(
+                mismatch < 0,
+                "fixed scratch candidate preserves every complete HDR word " +
+                  JSON.stringify({ fixture, mismatch })
+              );
+              timings.at(-1).implementation = "isolated named-private sample reference, not production";
+            }
+          }
+        } finally {
+          publication.workPipeline = originalWorkPipeline;
         }
       }
       if (nativeReference) {

@@ -13,10 +13,223 @@ import { decodeFloat16 } from "../../.test-dist/core/Float16.js";
 const check = (condition, message) => {
   if (!condition) throw new Error(message);
 };
+
+/** Local diagnostic integration. Both kernels consume the original payload;
+ * all output pixels are compared, and warm-up is excluded from paired timings.
+ * This deliberately cache-friendly fixture isolates filtering/decoding overhead,
+ * not scene residency or the memory behavior of many independent products. */
+async function measureProductSampling(
+  device,
+  source,
+  data,
+  texture,
+  sampler,
+  productIndex,
+  bankWords,
+  gradients,
+  magnitudes,
+  retained
+) {
+  check(device.features.has("timestamp-query"), "sampler cost requires negotiated timestamps");
+  const width = 1920;
+  const height = 1080;
+  const count = width * height;
+  const outputBytes = count * 16;
+  const warmup = 2;
+  const samples = 6;
+  const pairs = warmup + samples;
+  const createBuffer = (label, size, usage) => {
+    const buffer = device.createBuffer({ label, size, usage });
+    retained.push(buffer);
+    return buffer;
+  };
+  const settings = createBuffer(
+    "Product cost settings",
+    16,
+    GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+  );
+  device.queue.writeBuffer(settings, 0, new Uint32Array([productIndex, count, bankWords, width]));
+  const outputs = ["software", "hardware"].map((name) =>
+    createBuffer("Product cost " + name, outputBytes, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC)
+  );
+  const readbacks = outputs.map((_output, index) =>
+    createBuffer(
+      "Product cost result " + index,
+      outputBytes,
+      GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+    )
+  );
+  const querySet = device.createQuerySet({
+    label: "Paired Product sampling timestamps",
+    type: "timestamp",
+    count: pairs * 4
+  });
+  retained.push(querySet);
+  const resolve = createBuffer(
+    "Product timestamp resolve",
+    pairs * 32,
+    GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC
+  );
+  const timestamps = createBuffer(
+    "Product timestamp readback",
+    pairs * 32,
+    GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+  );
+  const layout = device.createBindGroupLayout({
+    label: "Product sampling comparison layout",
+    entries: [
+      ...[0, 1, 2, 3].map((binding) => ({
+        binding,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: { type: "read-only-storage" }
+      })),
+      { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 5, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
+      { binding: 6, visibility: GPUShaderStage.COMPUTE, sampler: { type: "filtering" } },
+      { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } }
+    ]
+  });
+  const pipelineLayout = device.createPipelineLayout({
+    label: "Product sampling comparison pipeline layout",
+    bindGroupLayouts: [layout]
+  });
+  const declarations = source.slice(0, source.indexOf("@compute"));
+  const extent = [texture.width, texture.height];
+  const calls = [
+    "appearance_dag_product(settings.x, uv, dx, dy)",
+    "textureSampleGrad(reference_texture, reference_sampler, (uv - vec2f(-1.0, -2.0)) / vec2f(3.0, 6.0), dx / vec2f(3.0, 6.0), dy / vec2f(3.0, 6.0))"
+  ];
+  const pipelines = [];
+  for (let method = 0; method < 2; method++) {
+    const module = device.createShaderModule({
+      label: "Product cost " + (method === 0 ? "production sampler" : "hardware reference"),
+      code:
+        declarations +
+        /* wgsl */ `
+@compute @workgroup_size(64)
+fn measure(@builtin(global_invocation_id) id: vec3u) {
+  if id.x >= settings.y { return; }
+  dag_product_bank_words = settings.z;
+  let coordinate = vec2u(id.x % settings.w, id.x / settings.w);
+  let center = vec2f(-1.0, -2.0) + vec2f(coordinate) / vec2f(${width - 1}.0, ${height - 1}.0) * vec2f(3.0, 6.0);
+  var result = vec4f(0.0);
+  for (var query = 0u; query < 4u; query++) {
+    let footprint = 0.7 + f32(query) * 1.3;
+    let uv = center + vec2f(f32(query) * 0.0013, -f32(query) * 0.0007);
+    let dx = vec2f(3.0 * footprint / ${extent[0]}.0, 0.0);
+    let dy = vec2f(0.0, 6.0 * footprint / ${extent[1]}.0);
+    result += ${calls[method]};
+  }
+  values[id.x] = result;
+}
+`
+    });
+    const info = await module.getCompilationInfo();
+    check(!info.messages.some((message) => message.type === "error"), JSON.stringify(info.messages));
+    pipelines.push(
+      await device.createComputePipelineAsync({
+        label: "Product sampling cost " + method,
+        layout: pipelineLayout,
+        compute: { module, entryPoint: "measure" }
+      })
+    );
+  }
+  const groups = outputs.map((output, method) =>
+    device.createBindGroup({
+      label: "Product sampling cost inputs " + method,
+      layout,
+      entries: [...data, output]
+        .map((buffer, binding) => ({ binding, resource: { buffer } }))
+        .concat([
+          { binding: 5, resource: texture.createView() },
+          { binding: 6, resource: sampler },
+          { binding: 7, resource: { buffer: settings } }
+        ])
+    })
+  );
+  const encoder = device.createCommandEncoder({ label: "Paired Product sampler diagnostic" });
+  for (let pair = 0; pair < pairs; pair++) {
+    // Alternate order to avoid always charging the cold cache to one method.
+    for (const method of pair % 2 === 0 ? [0, 1] : [1, 0]) {
+      const query = pair * 4 + method * 2;
+      const pass = encoder.beginComputePass({
+        label: "Product sampler " + method + " pair " + pair,
+        timestampWrites: { querySet, beginningOfPassWriteIndex: query, endOfPassWriteIndex: query + 1 }
+      });
+      pass.setPipeline(pipelines[method]);
+      pass.setBindGroup(0, groups[method]);
+      pass.dispatchWorkgroups(Math.ceil(count / 64));
+      pass.end();
+    }
+  }
+  encoder.resolveQuerySet(querySet, 0, pairs * 4, resolve, 0);
+  encoder.copyBufferToBuffer(resolve, 0, timestamps, 0, pairs * 32);
+  for (let method = 0; method < 2; method++) {
+    encoder.copyBufferToBuffer(outputs[method], 0, readbacks[method], 0, outputBytes);
+  }
+  device.queue.submit([encoder.finish()]);
+  await Promise.all([timestamps, ...readbacks].map((buffer) => buffer.mapAsync(GPUMapMode.READ)));
+  const ticks = new BigUint64Array(timestamps.getMappedRange());
+  const values = readbacks.map((buffer) => new Float32Array(buffer.getMappedRange()));
+  const bounds = Array.from(
+    { length: 4 },
+    (_value, channel) => 4 * (gradients[channel] / 256 + Math.max(magnitudes[channel], 1) * 2 ** -22)
+  );
+  let worstAbsoluteError = 0;
+  for (let index = 0; index < count * 4; index++) {
+    const actual = values[0][index];
+    const expected = values[1][index];
+    const error = Math.abs(actual - expected);
+    check(
+      Number.isFinite(actual) && Number.isFinite(expected) && error <= bounds[index % 4],
+      JSON.stringify({ index, actual, expected, error, bound: bounds[index % 4] })
+    );
+    worstAbsoluteError = Math.max(worstAbsoluteError, error);
+  }
+  const times = [[], []];
+  for (let pair = warmup; pair < pairs; pair++) {
+    for (let method = 0; method < 2; method++) {
+      const at = pair * 4 + method * 2;
+      check(ticks[at + 1] > ticks[at], "timestamp interval must be available and positive");
+      times[method].push(Number(ticks[at + 1] - ticks[at]) / 1e6);
+    }
+  }
+  timestamps.unmap();
+  readbacks.forEach((buffer) => buffer.unmap());
+  const percentile = (values, fraction) => {
+    const sorted = [...values].sort((a, b) => a - b);
+    return sorted[Math.ceil(sorted.length * fraction) - 1];
+  };
+  return {
+    extent,
+    output: [width, height],
+    queriesPerItem: 4,
+    warmup,
+    samples,
+    outputBytesPerMethod: outputBytes,
+    comparedComponents: count * 4,
+    worstAbsoluteError,
+    softwareMs: times[0],
+    hardwareMs: times[1],
+    softwareP50Ms: percentile(times[0], 0.5),
+    softwareP95Ms: percentile(times[0], 0.95),
+    hardwareP50Ms: percentile(times[1], 0.5),
+    hardwareP95Ms: percentile(times[1], 0.95),
+    limitations:
+      "cache-friendly single Product, uncontrolled clocks; output stores included, no Geometry/VM/Surface attribution"
+  };
+}
 /** The actual immutable bank sampler/packing versus independent native
  * textureSampleGrad on the ORIGINAL half texels, all formats/mips/domain.
  * This fixture owns reference textures only; production has no second path. */
-export async function runAppearanceProductSamplingGpuOracle(device) {
+export async function runAppearanceProductSamplingCostGpuOracle(device) {
+  return runAppearanceProductSamplingGpuOracle(device, { cost: true });
+}
+
+export async function runAppearanceProductSamplingGpuOracle(device, { cost = false } = {}) {
+  const width = cost ? 256 : 8;
+  const height = cost ? 128 : 4;
+  const mipCount = cost ? 9 : 4;
   const graph = new AppearanceGraphBuilder();
   const uv = graph.input("uv0", 2, "surface", undefined, "uv0");
   const u = graph.swizzle(uv, [0]),
@@ -41,11 +254,11 @@ export async function runAppearanceProductSamplingGpuOracle(device) {
   );
   const original = compileAppearanceGraph(graph.build());
   const cooked = cookAppearanceMipProduct(original, original.outputs, {
-    width: 8,
-    height: 4,
-    mipCount: 4,
-    byteBudget: 65536,
-    validationProbeBudget: 65536,
+    width,
+    height,
+    mipCount,
+    byteBudget: cost ? 16 * 1024 * 1024 : 65536,
+    validationProbeBudget: cost ? 1024 * 1024 : 65536,
     domainMin: [-1, -2],
     domainMax: [2, 4],
     coordinateDomain: "uv0",
@@ -72,8 +285,8 @@ export async function runAppearanceProductSamplingGpuOracle(device) {
         textureBindingSetId: 0
       }
     ],
-    65536,
-    512
+    cost ? 16 * 1024 * 1024 : 65536,
+    cost ? 512 * 1024 : 512
   );
   check(packed.products[1].byteLength > 4, "fixture must read payload across both physical banks");
   const retained = [];
@@ -167,9 +380,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         }
       }
       const texture = device.createTexture({
-        size: [8, 4],
+        size: [width, height],
         format: field.format,
-        mipLevelCount: 4,
+        mipLevelCount: mipCount,
         usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
       });
       retained.push(texture);
@@ -231,16 +444,33 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
           );
         }
       readback.unmap();
+      const timing = cost
+        ? await measureProductSampling(
+            device,
+            code,
+            data,
+            texture,
+            sampler,
+            index,
+            packed.productBankWords,
+            gradients,
+            magnitudes,
+            retained
+          )
+        : undefined;
       rows.push({
         field: field.name,
         format: field.format,
         queries: queries.length / 4,
-        worstAbsoluteError: worst
+        worstAbsoluteError: worst,
+        ...(timing === undefined ? {} : { timing })
       });
     }
     return {
       passed: true,
-      scope: "production immutable bank sampler versus original hardware filtering",
+      scope: cost
+        ? "isolated production Product sampler cost versus hardware, identical texels; not full Surface performance"
+        : "production immutable bank sampler versus original hardware filtering",
       rows,
       physicalBanks: packed.products.map((item) => item.byteLength)
     };

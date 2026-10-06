@@ -34,7 +34,7 @@ function productSections() {
     [104, 1],
     [108, 1],
     [112, 1],
-    [116, 0],
+    [116, 0]
   ])
     assetView.setUint32(at, value, true);
   const hierarchy = new Uint8Array(48),
@@ -72,7 +72,7 @@ function productSections() {
     8: new Uint8Array(32).fill(4),
     10: new Uint8Array(32).fill(5),
     page,
-    pageHash,
+    pageHash
   };
 }
 
@@ -101,7 +101,7 @@ function fakeModule(sections) {
     /** PageIDs the descriptor declares. */
     declared: new Set([0]),
     /** Set to the PageIDs the caller wants reported as still PENDING. */
-    pending: new Set(),
+    pending: new Set()
   };
   const module = {
     HEAPU8: heap,
@@ -119,7 +119,7 @@ function fakeModule(sections) {
     },
     _free() {},
     _oengine_web_geometry_cook_abi_version() {
-      return 2;
+      return 3;
     },
     _oengine_web_geometry_cook(address, bytes) {
       canonicalInput = heap.slice(address, address + bytes);
@@ -143,7 +143,7 @@ function fakeModule(sections) {
       sections[10] = new Uint8Array(
         createHash("sha256")
           .update(Buffer.concat(canonicalWindows.map((bytes) => Buffer.from(bytes))))
-          .digest(),
+          .digest()
       );
       sections.produced = new Set();
       return 2;
@@ -188,7 +188,7 @@ function fakeModule(sections) {
     },
     _oengine_web_geometry_cook_copy_last_error() {
       return 0;
-    },
+    }
   };
   return module;
 }
@@ -199,9 +199,9 @@ function context() {
   [
     [0, 0, 0],
     [1, 0, 0],
-    [0, 1, 0],
+    [0, 1, 0]
   ].forEach((value, vertex) =>
-    value.forEach((component, axis) => view.setFloat32(vertex * 12 + axis * 4, component, true)),
+    value.forEach((component, axis) => view.setFloat32(vertex * 12 + axis * 4, component, true))
   );
   const position = {
     accessorIndex: 0,
@@ -212,7 +212,7 @@ function context() {
     componentType: 5126,
     componentCount: 3,
     count: 3,
-    normalized: false,
+    normalized: false
   };
   const unit = {
     nodeIndex: 0,
@@ -225,7 +225,7 @@ function context() {
     triangleCount: 1,
     attributes: { POSITION: position },
     material: { materialIndex: 0, alphaMode: "OPAQUE", doubleSided: false },
-    ranges: [position],
+    ranges: [position]
   };
   return {
     unit,
@@ -233,10 +233,22 @@ function context() {
       source: { sourceIdentity: { kind: "session", hash: new Uint8Array(32).fill(3) } },
       catalog: {},
       signal: new AbortController().signal,
-      readRange: async (range) => positionBytes.slice(range.byteOffset, range.byteOffset + range.byteLength),
-    },
+      readRange: async (range) => positionBytes.slice(range.byteOffset, range.byteOffset + range.byteLength)
+    }
   };
 }
+
+test("Nyx Web Runtime Cooker rejects the retired native ABI before planning", async () => {
+  const module = fakeModule(productSections());
+  module._oengine_web_geometry_cook_abi_version = () => 2;
+  const input = context();
+  const cooker = new NyxWebRuntimeCooker(module, {
+    maxSourceWindowBytes: 24,
+    maxCanonicalInputBytes: 8192,
+    maxDecodedProductBytes: 262144
+  });
+  await assert.rejects(cooker.cookBootstrap(input.unit, input.context), /ABI version mismatch/);
+});
 
 test("Nyx Web Runtime Cooker gives a spatially sharded primitive a stable Product identity", async () => {
   const a = productSections(),
@@ -248,12 +260,12 @@ test("Nyx Web Runtime Cooker gives a spatially sharded primitive a stable Produc
   const firstCooker = new NyxWebRuntimeCooker(firstModule, {
     maxSourceWindowBytes: 24,
     maxCanonicalInputBytes: 8192,
-    maxDecodedProductBytes: 262144,
+    maxDecodedProductBytes: 262144
   });
   const secondCooker = new NyxWebRuntimeCooker(secondModule, {
     maxSourceWindowBytes: 24,
     maxCanonicalInputBytes: 8192,
-    maxDecodedProductBytes: 262144,
+    maxDecodedProductBytes: 262144
   });
   const first = await firstCooker.cookBootstrap(firstContext.unit, firstContext.context);
   const second = await secondCooker.cookBootstrap(secondContext.unit, secondContext.context);
@@ -262,7 +274,7 @@ test("Nyx Web Runtime Cooker gives a spatially sharded primitive a stable Produc
   assert.equal(firstModule.canonicalWindows.length, 1);
   assert.deepEqual(
     { primitives: firstCooker.evidence().spatialPrimitives, shards: firstCooker.evidence().spatialShards },
-    { primitives: 1, shards: 1 },
+    { primitives: 1, shards: 1 }
   );
   assert.equal(firstCooker.evidence().spatialExternalScratchMaterializations, 0);
   assert.equal(firstCooker.evidence().spatialExternalScratchReleases, 0);
@@ -275,7 +287,7 @@ test("Nyx Web Runtime Cooker assembles an immutable revision and validates trans
     { unit, context: cookContext } = context();
   const cooker = new NyxWebRuntimeCooker(fakeModule(sections), {
     maxCanonicalInputBytes: 4096,
-    maxDecodedProductBytes: 262144,
+    maxDecodedProductBytes: 262144
   });
   const revision = await cooker.cookBootstrap(unit, cookContext);
   const descriptor = decodeGeometryProductDescriptorBinaryV1(revision.descriptor);
@@ -294,7 +306,7 @@ test("Nyx Web Runtime Cooker emits one asset per GLB domain in the catalog's sta
   const module = fakeModule(sections);
   const cooker = new NyxWebRuntimeCooker(module, {
     maxCanonicalInputBytes: 8192,
-    maxDecodedProductBytes: 262144,
+    maxDecodedProductBytes: 262144
   });
   const second = {
     ...unit,
@@ -302,7 +314,7 @@ test("Nyx Web Runtime Cooker emits one asset per GLB domain in the catalog's sta
     instanceNodeIndices: [1],
     meshIndex: 3,
     materialIndex: 2,
-    material: { ...unit.material, materialIndex: 2 },
+    material: { ...unit.material, materialIndex: 2 }
   };
   // Mixed material/mesh domains are admitted; they become independent Product assets.
   const revision = await cooker.cookBootstrapBatch([second, unit], cookContext);
@@ -312,7 +324,11 @@ test("Nyx Web Runtime Cooker emits one asset per GLB domain in the catalog's sta
   assert.equal(view.getUint32(20, true), 2, "canonical input carries one domain per unit");
   const domainTable = view.getUint32(32, true);
   assert.equal(view.getUint32(domainTable, true), 0, "node 0 domain sorts first regardless of input order");
-  assert.equal(view.getUint32(domainTable + 32, true), 2, "node 1 domain sorts second");
+  // ABI3 retains material/geometry words and appends four f32 UV weights.
+  assert.equal(view.getUint32(domainTable + 48, true), 2, "node 1 domain sorts second");
+  for (let axis = 0; axis < 4; axis++) {
+    assert.equal(view.getFloat32(domainTable + 32 + axis * 4, true), Math.fround(0.1));
+  }
   revision.release();
   await assert.rejects(() => cooker.cookBootstrapBatch([], cookContext), /at least one GLB primitive/i);
 });
@@ -327,7 +343,7 @@ test("Nyx Web Runtime Cooker publishes independent revision-zero Products per sp
     maxSourceWindowBytes: 24,
     maxCanonicalInputBytes: 8192,
     maxDecodedProductBytes: 262144,
-    spillStore: store,
+    spillStore: store
   });
   const revisions = [];
   let failure;
@@ -339,17 +355,17 @@ test("Nyx Web Runtime Cooker publishes independent revision-zero Products per sp
     },
     (error) => {
       failure = error;
-    },
+    }
   );
   assert.equal(failure, undefined);
   assert.equal(revisions.length, 2);
   assert.deepEqual(
     revisions.map((revision) => revision.revision),
-    [0, 0],
+    [0, 0]
   );
   assert.deepEqual(
     revisions.map((revision) => revision.sceneAssetIndices),
-    [[0], [1]],
+    [[0], [1]]
   );
   assert.notDeepEqual([...revisions[0].productId], [...revisions[1].productId]);
   for (const revision of revisions)
@@ -368,7 +384,7 @@ test("Nyx Web Runtime Cooker gives ordinary windows stable, non-colliding Produc
       maxCanonicalInputBytes: 8192,
       maxDecodedProductBytes: 262144,
       maxDomainsPerProduct: 1,
-      spillStore: spillStore(),
+      spillStore: spillStore()
     });
     const revisions = [];
     await cooker.cookProgressive([unit, second], cookContext, async (revision) => {
@@ -406,13 +422,13 @@ test("Nyx Web Runtime Cooker fails the session when a later required Product fai
       if (outputBytes !== 9) return 0;
       base.HEAPU8.set(new TextEncoder().encode("shard-err"), output);
       return 1;
-    },
+    }
   };
   const cooker = new NyxWebRuntimeCooker(failing, {
     maxSourceWindowBytes: 24,
     maxCanonicalInputBytes: 8192,
     maxDecodedProductBytes: 262144,
-    spillStore: spillStore(),
+    spillStore: spillStore()
   });
   const revisions = [];
   await assert.rejects(
@@ -420,7 +436,7 @@ test("Nyx Web Runtime Cooker fails the session when a later required Product fai
       cooker.cookProgressive([unit, second], cookContext, async (revision) => {
         revisions.push(revision);
       }),
-    /shard-err/,
+    /shard-err/
   );
   assert.equal(revisions.length, 1);
   assert.equal(revisions[0].revision, 0);
@@ -436,7 +452,7 @@ test("Nyx Web Runtime Cooker publishes before page production and spills before 
   const cooker = new NyxWebRuntimeCooker(module, {
     maxCanonicalInputBytes: 8192,
     maxDecodedProductBytes: 262144,
-    spillStore: store,
+    spillStore: store
   });
   const revisions = [];
   await cooker.cookProgressive(
@@ -447,7 +463,7 @@ test("Nyx Web Runtime Cooker publishes before page production and spills before 
       assert.equal(store.evidence().writes, 0);
       revisions.push(revision);
     },
-    () => {},
+    () => {}
   );
   assert.equal(revisions.length, 1);
   const [revision] = revisions;
@@ -466,7 +482,7 @@ test("Nyx Web Runtime Cooker fails when spill fails after publication", async ()
   const cooker = new NyxWebRuntimeCooker(fakeModule(productSections()), {
     maxCanonicalInputBytes: 8192,
     maxDecodedProductBytes: 262144,
-    spillStore: new MemoryWebGeometryPageSpillStoreV1({ maxBytes: 1 }),
+    spillStore: new MemoryWebGeometryPageSpillStoreV1({ maxBytes: 1 })
   });
   let published = false;
   const trace = [];
@@ -474,12 +490,12 @@ test("Nyx Web Runtime Cooker fails when spill fails after publication", async ()
   await assert.rejects(() =>
     cooker.cookProgressive([unit], cookContext, async () => {
       published = true;
-    }),
+    })
   );
   assert.equal(published, true);
   assert.equal(
     trace.some((event) => event.kind === "completed"),
-    false,
+    false
   );
   assert.equal(trace.at(-1).kind, "failed");
 });
@@ -491,7 +507,7 @@ test("Nyx Web Runtime Cooker emits attributable Product phase and terminal trace
   const cooker = new NyxWebRuntimeCooker(fakeModule(sections), {
     maxCanonicalInputBytes: 8192,
     maxDecodedProductBytes: 262144,
-    spillStore: spillStore(),
+    spillStore: spillStore()
   });
   const trace = [];
   cooker.setTaskTraceListener((event) => trace.push(event));
@@ -502,15 +518,15 @@ test("Nyx Web Runtime Cooker emits attributable Product phase and terminal trace
     async (revision) => {
       revisions.push(revision);
     },
-    () => {},
+    () => {}
   );
   assert.deepEqual(
     trace.filter((event) => event.kind === "phase-started").map((event) => event.phase),
-    ["canonicalize", "wasm-plan", "publish", "spill"],
+    ["canonicalize", "wasm-plan", "publish", "spill"]
   );
   assert.deepEqual(
     trace.filter((event) => event.kind === "phase-completed").map((event) => event.phase),
-    ["canonicalize", "wasm-plan", "publish", "spill"],
+    ["canonicalize", "wasm-plan", "publish", "spill"]
   );
   const terminal = trace.at(-1);
   assert.equal(terminal.kind, "completed");
@@ -529,7 +545,7 @@ test("Nyx Web Runtime Cooker re-reads a published page from spill without retain
   const cooker = new NyxWebRuntimeCooker(module, {
     maxCanonicalInputBytes: 8192,
     maxDecodedProductBytes: 262144,
-    spillStore: store,
+    spillStore: store
   });
   const revisions = [];
   await cooker.cookProgressive(
@@ -538,7 +554,7 @@ test("Nyx Web Runtime Cooker re-reads a published page from spill without retain
     async (revision) => {
       revisions.push(revision);
     },
-    () => {},
+    () => {}
   );
   const revision = revisions[0];
   const readsAfterPublication = store.evidence().reads;
@@ -556,10 +572,10 @@ test("Nyx Web Runtime Cooker requires a spill owner for progressive Product publ
     { unit, context: cookContext } = context();
   const cooker = new NyxWebRuntimeCooker(fakeModule(sections), {
     maxCanonicalInputBytes: 8192,
-    maxDecodedProductBytes: 262144,
+    maxDecodedProductBytes: 262144
   });
   await assert.rejects(
     () => cooker.cookProgressive([unit], cookContext, async () => {}),
-    /requires a spill store/i,
+    /requires a spill store/i
   );
 });
