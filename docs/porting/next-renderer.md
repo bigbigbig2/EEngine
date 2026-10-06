@@ -1174,3 +1174,11 @@ R3完整新算法实施前仍须核具体固定源函数/关键分支/输入输�
 实施前重新打开SF10固定`shader_graph.cpp`（完整`find_dependencies`的链接遍历/去重）与`svm.cpp`（dependency/stack生命周期入口），复核Apache-2.0头；沿用既有完整IR、GPU sampler/moment/CXY数学，不移植上游CPU folding或私有stack。Cycles没有本地GPU查询uniform发布/TextureResidency事务的完整donor，具名本地Resource-aware Appearance WorkPlan继续承担此职责，不声明完整上游采用。
 
 本地映射：完整ancestor/UV依赖→`compileAppearanceExecutionPlan`的frequency/workPlan与boundary refs；原resident/Product query→GPU更新producer同数学；matching-version uniform→fixed/General读取；constant mask→真正sample需求/Geometry闭包；`TextureSurfacePublication`实际每资源revision→仅相关更新域dirty；publication submit/abort及immutable源republish→版本发布/退休。保留未知/空间输入完整sample-dependent、normal/moment validity、原footprint/过滤、资源profile与16 Surface storage限制。编译预期与真实Surface更新值消费已在执行文档§6.11登记；支持过的Surface Product过滤仍按既有SF07合同，不能把测试人工构造的uniform查询外推为任意DAG精确bake。来源仍是本地集成与参考，不提升完整上游算法adoption或历史性能claim。
+
+### R3 B2 值版本与Temporal直接消费边界（2026-10-07）
+
+本地确定性集成 **AppearanceValueRevision**：完整numeric/资源dirty与GPU更新值变化→唯一publication边界的scene generation/value revision→TemporalFacts的既有变化检测及reactive→原FSR消费者。保留原hash作为变化检测而非cache equality proof；版本耗尽的0状态拒绝history，scene republish恢复。GPU值比较、提交/abort、FrameGraph读写顺序和binding容量随边界同迁；删除无reader的CPU fieldWords/directory，不把其副本当版本owner。没有新增Temporal重投影/降噪算法，沿用已登记的本地TemporalFacts与原FSR数学，不声明新增上游采用。
+
+驻留更新的本地胶水同步Surface与Coverage的sampler minimum mip和route revision，保留编译时sampler/UV快照；abort保留上传与caster失效重试，submit后才承认owner变更。此处不增加过滤算法或LOD近似。非恒定普通Product与base/coat moment沿用SF07已规定产品语义并补真实Surface消费；不把alpha fragment仍保留原求值路径称为新的uniform-folding完成。阶段核对与原始未关闭失败见执行文档§6.11，本账本不提升adoption。
+
+本地验证映射：`surface-coverage-value-gpu.mjs`把实际TextureResidency stage/promote与GpuAppearancePublication syncRuntime/encodeWorkPublication接到既有resident查询和生产rasterCoverageFragmentWgsl；其平面顶点与独立 authored mip阶跃只是夹具。测试不替代完整meshlet/VSM owner验证，不新增或宣称上游算法采用。

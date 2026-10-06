@@ -35,15 +35,8 @@ import { appearanceGeometryInputKind } from "../shaders/appearance_demand_inputs
 import { appearanceCoverageKernel, COVERAGE_DIRECTORY_STRIDE } from "../shaders/appearance_coverage.js";
 import { ShadeTransparencyMode } from "../material/enums.js";
 import { GpuBindGroupResourceCache } from "./GpuBindGroupResourceCache.js";
-import {
-  appearanceExecutionProfiles,
-  type AppearanceExecutionProfiles
-} from "../material/AppearanceExecutionProfile.js";
 
 import { lowerAppearanceWgsl, type AppearanceWgslProgram } from "../shaders/appearance_program.js";
-export const APPEARANCE_DIRECTORY_STRIDE = 32;
-/** u32 version, scalar output base, width, dependency mask. */
-export const APPEARANCE_FIELD_RECORD_STRIDE = 16;
 
 export interface AppearancePublicationSource {
   readonly material: StandardShadeMaterial;
@@ -66,7 +59,6 @@ export interface AppearancePublishedEntry {
   readonly resourceSetIndex: number;
   readonly lowered: AppearanceWgslProgram;
   readonly program: CompiledAppearanceGraph;
-  readonly fieldBase: number;
   readonly coverage: AppearancePublishedCoverage;
 }
 
@@ -108,12 +100,12 @@ export class GpuAppearancePublication {
     readonly constantFields: number;
     readonly radiometry: number;
     readonly exactFieldOffsets: number;
+    readonly valueVersions: number;
     readonly materialLookupCount: number;
   }>;
   readonly surfaceProgramCount: number;
   readonly surfaceTemplateCount: number;
   readonly surfaceCoherenceSetMask: number;
-  readonly surfaceExecutionProfiles: readonly AppearanceExecutionProfiles[];
   /** Material-slot indexed fragment constants/routes/input directory. */
   readonly coverageDirectory: GPUBuffer;
   readonly allocatedBytes: number;
@@ -142,8 +134,11 @@ export class GpuAppearancePublication {
   private readonly surfaceProductViews = new WeakMap<GPUTexture, GPUTextureView>();
   private constantValues!: Float32Array<ArrayBuffer>;
   private inputValues!: Float32Array<ArrayBuffer>;
-  private fieldWords!: Uint32Array<ArrayBuffer>;
-  private fieldDependencies: readonly (readonly number[])[] = [];
+  private routeValues!: Uint32Array<ArrayBuffer>;
+  private routeRevision = 0;
+  private committedRouteRevision = 0;
+  private coverageResourcesDirty = false;
+  private readonly encodedRouteRevision = new WeakMap<ShadeGPUCommandContext, number>();
   private readonly accountingHandles: ResourceHandle[] = [];
   private readonly cancelReadiness: (reason: Error) => void;
   private unwatchRegistry: (() => void) | null = null;
@@ -161,8 +156,17 @@ export class GpuAppearancePublication {
   get requiresUniformResources(): boolean {
     return this.uniformResourceSetMask !== 0;
   }
+  /** Publication updates may require a resident set with no current visible work. */
+  get publicationTextureSets(): readonly number[] {
+    return [0, 1, 2, 3].filter((set) => (this.publicationSetMask & (1 << set)) !== 0);
+  }
   private publicationSetMask = 0;
-  private uniformResources: { publication: TextureSurfacePublication; revision: number }[][] = [];
+  private resourceDependencies: {
+    publication: TextureSurfacePublication;
+    texture: ShadeTexture;
+    revision: number;
+    uniform: boolean;
+  }[][] = [];
   private committedUniformRevision = 0;
 
   constructor(
@@ -203,15 +207,10 @@ export class GpuAppearancePublication {
     const entries: AppearancePublishedEntry[] = [];
     const descriptors: AppearanceProgramDescriptor[] = [];
     const leaseIndices = new Map<string, number>();
-    const resourceSets = new Map<string, number>();
     const coveragePrograms = new Map<string, number>();
     const constants: number[] = [];
     const runtimeInputs: number[] = [];
-    const fieldDependencies: number[][] = [];
-    const fields: number[] = [];
     const routes: ArrayBuffer[] = [];
-    const directoryWords = APPEARANCE_DIRECTORY_STRIDE / 4;
-    const directory = new Uint32Array(sources.length * directoryWords);
     const assets = new Map<string, AppearanceAssetPackage>();
     const productTargets: { assetId: string; field: string; textures: GPUTexture[]; binding: number }[] = [];
     const productRouteTargets: { assetId: string; field: string; route: number }[] = [];
@@ -260,37 +259,10 @@ export class GpuAppearancePublication {
           }
           runtimeInputs.push(...Array.from({ length: 4 }, (_, channel) => value?.[channel] ?? 0));
         }
-        const fieldBase = fields.length / (APPEARANCE_FIELD_RECORD_STRIDE / 4);
-        for (const [name, outputs] of Object.entries(lowered.outputSlots)) {
+        for (const name of Object.keys(lowered.outputSlots)) {
           const version = source.fieldVersions === undefined ? 1 : source.fieldVersions.get(name)?.version;
           if (version === undefined || !Number.isInteger(version) || version < 1 || version > 0xffffffff)
             throw new RangeError("Appearance output field requires a nonzero u32 version");
-          const dependency = source.program.outputs[name]!.reduce(
-            (mask, ref) => mask | source.program.instructions[ref]!.dependency,
-            0
-          );
-          fields.push(version, outputs[0]!, outputs.length, dependency);
-          const live = new Set<number>(),
-            pending = [...source.program.outputs[name]!];
-          const numeric = new Set<number>();
-          while (pending.length) {
-            const ref = pending.pop()!;
-            if (live.has(ref)) continue;
-            live.add(ref);
-            const instruction = source.program.instructions[ref]!;
-            if (instruction.kind === "parameter") {
-              for (const slot of lowered.parameterSlots[instruction.parameter!] ?? [])
-                numeric.add(constantBase + slot.slot);
-            }
-            if (instruction.kind === "input") {
-              const index = source.program.inputs.findIndex((input) => input.name === instruction.input);
-              const input = source.program.inputs[index]!;
-              if (appearanceGeometryInputKind(input, source.program) === 0)
-                numeric.add(-1 - (inputBase + index) * 4 - instruction.channel!);
-            }
-            pending.push(...instruction.args);
-          }
-          fieldDependencies.push([...numeric]);
         }
         // Values must come from this instance even when its topology reuses a kernel.
         constants.push(...lowered.constants);
@@ -393,31 +365,14 @@ export class GpuAppearancePublication {
             resourceSetIndex,
             lowered,
             program: source.program,
-            fieldBase,
             coverage
           })
-        );
-        directory.set(
-          [
-            source.materialSlot,
-            programIndex,
-            constantBase,
-            routeBase,
-            resourceSetIndex,
-            fieldBase,
-            Object.keys(lowered.outputSlots).length,
-            inputBase
-          ],
-          index * directoryWords
         );
       }
       const constantData = new Float32Array(Math.max(constants.length, 1));
       constantData.set(constants);
       const routeData = new Uint8Array(Math.max(routes.length, 1) * APPEARANCE_ROUTE_STRIDE);
       routes.forEach((route, index) => routeData.set(new Uint8Array(route), index * APPEARANCE_ROUTE_STRIDE));
-      const directoryData = sources.length === 0 ? new Uint32Array(directoryWords) : directory;
-      const fieldData = new Uint32Array(Math.max(fields.length, APPEARANCE_FIELD_RECORD_STRIDE / 4));
-      fieldData.set(fields);
       const inputData = new Float32Array(Math.max(runtimeInputs.length, 4));
       inputData.set(runtimeInputs);
       const maxMaterialSlot = Math.max(0, ...sources.map((source) => source.materialSlot));
@@ -429,11 +384,6 @@ export class GpuAppearancePublication {
       sources.forEach((source, index) => {
         materialLookupData[source.materialSlot] = index;
       });
-      this.surfaceExecutionProfiles = Object.freeze(
-        sources.map((source) =>
-          appearanceExecutionProfiles(source.program, (witness) => registry.internFieldPublication(witness))
-        )
-      );
       const runtimeInputsOffset = materialLookupData.length;
       const constantsOffset = runtimeInputsOffset + inputData.length;
       const routesOffset = constantsOffset + constantData.length;
@@ -447,11 +397,18 @@ export class GpuAppearancePublication {
         constantFields: paletteOffset,
         radiometry: radiometryOffset,
         exactFieldOffsets: radiometryOffset + 5,
+        valueVersions: radiometryOffset + 5 + 16,
         materialLookupCount: materialLookupData.length
       } as const;
       // GPU publication substage fills one submitted-epoch constant palette per
       // material. The immutable descriptor/input ranges precede this write domain.
-      let surfaceMetadataData = new Uint32Array(radiometryOffset + 5 + 16);
+      let surfaceMetadataData = new Uint32Array(surfaceMetadataOffsets.valueVersions + entries.length * 2);
+      entries.forEach((_entry, index) =>
+        surfaceMetadataData.set(
+          [this.surfaceCacheGeneration, 1],
+          surfaceMetadataOffsets.valueVersions + index * 2
+        )
+      );
       surfaceMetadataData.set(materialLookupData, surfaceMetadataOffsets.materialLookup);
       surfaceMetadataData.set(
         new Uint32Array(inputData.buffer, inputData.byteOffset, inputData.length),
@@ -463,15 +420,7 @@ export class GpuAppearancePublication {
         Number(device.limits.maxBufferSize),
         Number(device.limits.maxStorageBufferBindingSize)
       );
-      for (const data of [
-        constantData,
-        routeData,
-        directoryData,
-        fieldData,
-        inputData,
-        materialLookupData,
-        surfaceMetadataData
-      ])
+      for (const data of [constantData, routeData, inputData, materialLookupData, surfaceMetadataData])
         if (data.byteLength > maximum) {
           throw new RangeError(
             `Appearance publication ${data.byteLength} bytes exceed negotiated storage limit ${maximum}`
@@ -479,14 +428,13 @@ export class GpuAppearancePublication {
         }
       // Publication byte admission precedes every shader/layout/pipeline/buffer creation.
       const exactData = packAppearanceDagPublication(
-        entries.map((entry, index) => ({
+        entries.map((entry) => ({
           program: entry.program,
           lowered: entry.lowered,
           constantBase: entry.constantBase,
           routeBase: entry.routeBase,
           inputBase: entry.inputBase,
-          textureBindingSetId: entry.textureBindingSetId,
-          domainHandle: this.surfaceExecutionProfiles[index]!.token
+          textureBindingSetId: entry.textureBindingSetId
         })),
         maximum,
         maximum,
@@ -498,14 +446,19 @@ export class GpuAppearancePublication {
       this.workPlans = exactData.workPlans;
       this.uniformResourceSetMask = exactData.uniformResourceSetMask;
       this.publicationSetMask = entries.reduce((mask, entry) => mask | (1 << entry.textureBindingSetId), 0);
-      this.uniformResources = exactData.workPlans.map((plan, index) =>
-        Array.from(plan.uniformTextureQueries).flatMap((query) => {
-          const publication = texturePublications.get(
-            entries[index]!.program.samples[query]!.binding.texture
-          );
+      this.resourceDependencies = exactData.workPlans.map((plan, index) =>
+        entries[index]!.program.samples.flatMap((sample, query) => {
+          const publication = texturePublications.get(sample.binding.texture);
           return publication === undefined
             ? []
-            : [{ publication, revision: publication.currentRevision ?? publication.revision }];
+            : [
+                {
+                  publication,
+                  texture: sample.binding.texture,
+                  revision: publication.currentRevision ?? publication.revision,
+                  uniform: plan.uniformTextureQueries.includes(query)
+                }
+              ];
         })
       );
       this.uniformQueryStatsBase = surfaceMetadataData.length + exactData.uniformWords;
@@ -639,8 +592,7 @@ export class GpuAppearancePublication {
       this.coverageDirectory = this.upload(device, command, "coverage-directory", coverageDirectoryData);
       this.constantValues = constantData;
       this.inputValues = inputData;
-      this.fieldWords = fieldData;
-      this.fieldDependencies = fieldDependencies;
+      this.routeValues = new Uint32Array(routeData.buffer);
       this.entries = Object.freeze(entries);
       this.surfaceProgramCount = 2;
       for (let family = 0; family < 1; family++) {
@@ -700,8 +652,8 @@ export class GpuAppearancePublication {
     }
   }
 
-  /** Encode edits into the main frame transaction. Only affected field versions
-   * advance; abort leaves CPU authority unchanged so the upload is retried. */
+  /** Encode edits into the main frame transaction. Only dependent uniform tapes
+   * are dirtied; abort leaves numeric mirrors unchanged so uploads are retried. */
   syncRuntime(command: ShadeGPUCommandContext): boolean {
     if (
       command.device !== this.device ||
@@ -709,6 +661,7 @@ export class GpuAppearancePublication {
       (this.state !== "ready" && this.state !== "resident")
     )
       throw new Error("Appearance edits require an open resident frame");
+    const coverageResourcesChanged = this.refreshResourceDependencies(command);
     const constants = this.constantValues.slice(),
       inputs = this.inputValues.slice();
     const parameters = new Map<StandardShadeMaterial, ReadonlyMap<string, number>>();
@@ -757,9 +710,28 @@ export class GpuAppearancePublication {
         if (changed.has(-1 - coverage.inputBase * 4 - slot)) return true;
       return false;
     });
-    if (changed.size === 0) return false;
+    if (changed.size === 0) return coverageResourcesChanged;
+    const rangeChanged = (base: number, length: number, input = false): boolean => {
+      for (let word = base; word < base + length; word++) {
+        if (changed.has(input ? -1 - word : word)) return true;
+      }
+      return false;
+    };
     let uniformsChanged = false;
     for (let entry = 0; entry < this.uniformDependencies.length; entry++) {
+      const source = this.entries[entry]!;
+      const numericChanged =
+        rangeChanged(source.constantBase, source.lowered.constants.length) ||
+        rangeChanged(
+          source.coverage.constantBase,
+          source.coverage.cutoffSlot - source.coverage.constantBase + 1
+        ) ||
+        rangeChanged(source.inputBase * 4, source.program.inputs.length * 4, true) ||
+        rangeChanged(source.coverage.inputBase * 4, source.coverage.program.inputs.length * 4, true);
+      if (numericChanged) {
+        this.uniformFlags[entry]! |= 4;
+        uniformsChanged = true;
+      }
       if (this.uniformDependencies[entry]!.some((ref) => changed.has(ref))) {
         this.uniformFlags[entry]! |= 2;
         uniformsChanged = true;
@@ -771,14 +743,6 @@ export class GpuAppearancePublication {
       }
       this.uniformRevision++;
     }
-    const fields = this.fieldWords.slice();
-    this.fieldDependencies.forEach((dependencies, field) => {
-      if (!dependencies.some((ref) => changed.has(ref))) return;
-      const word = field * 4;
-      if (fields[word] === 0xffffffff)
-        throw new RangeError("Appearance field version exhausted; republish the scene");
-      fields[word] = fields[word]! + 1;
-    });
     for (const [buffer, data] of [
       [this.constants, constants],
       [this.runtimeInputs, inputs]
@@ -802,9 +766,8 @@ export class GpuAppearancePublication {
     command.onFinished.addOne(() => {
       this.constantValues = constants;
       this.inputValues = inputs;
-      this.fieldWords = fields;
     });
-    return coverageChanged;
+    return coverageChanged || coverageResourcesChanged;
   }
 
   get viewDependentCoverage(): boolean {
@@ -840,7 +803,7 @@ export class GpuAppearancePublication {
     ) {
       throw new Error("Surface constant publication requires ready same-device programs");
     }
-    this.refreshUniformResources();
+    this.refreshResourceDependencies(command);
     if (!this.hasFrameUniform && this.committedUniformRevision === this.uniformRevision) {
       return;
     }
@@ -875,7 +838,7 @@ export class GpuAppearancePublication {
           offsets.routes,
           this.exactDagProductBankWords,
           set,
-          0
+          offsets.valueVersions
         ]).buffer,
         0,
         48
@@ -908,14 +871,34 @@ export class GpuAppearancePublication {
     });
   }
 
-  private refreshUniformResources(): void {
+  private refreshResourceDependencies(command: ShadeGPUCommandContext): boolean {
     let changed = false;
-    for (let entry = 0; entry < this.uniformResources.length; entry++) {
-      for (const resource of this.uniformResources[entry]!) {
+    for (let entry = 0; entry < this.resourceDependencies.length; entry++) {
+      for (const resource of this.resourceDependencies[entry]!) {
         const revision = resource.publication.currentRevision ?? resource.publication.revision;
         if (resource.revision !== revision) {
           resource.revision = revision;
-          this.uniformFlags[entry]! |= 2;
+          this.uniformFlags[entry]! |= 4 | (resource.uniform ? 2 : 0);
+          const source = this.entries[entry]!;
+          this.coverageResourcesDirty ||=
+            source.material.transparency_mode === ShadeTransparencyMode.AlphaTested &&
+            source.coverage.program.samples.some((sample) => sample.binding.texture === resource.texture);
+          for (const program of [source, source.coverage]) {
+            for (let query = 0; query < program.program.samples.length; query++) {
+              const sample = program.program.samples[query]!;
+              if (sample.binding.texture !== resource.texture) continue;
+              const at = (program.routeBase + query) * (APPEARANCE_ROUTE_STRIDE / 4);
+              if (resource.publication.currentMinimumMip !== undefined) {
+                const minimum = resource.publication.currentMinimumMip;
+                const code =
+                  minimum <= 0 || minimum > 6 ? GPU_MATERIAL_VISIBILITY_SAMPLER.FullMipCode : minimum;
+                const mipBits = GPU_MATERIAL_VISIBILITY_SAMPLER.MipMask;
+                this.routeValues[at + 1] =
+                  (this.routeValues[at + 1]! & ~mipBits) | (code << GPU_MATERIAL_VISIBILITY_SAMPLER.MipShift);
+              }
+              this.routeValues[at + 3] = revision;
+            }
+          }
           changed = true;
         }
       }
@@ -925,7 +908,28 @@ export class GpuAppearancePublication {
         throw new RangeError("Appearance uniform resource version exhausted; republish the scene");
       }
       this.uniformRevision++;
+      this.routeRevision++;
     }
+    if (
+      this.routeRevision !== this.committedRouteRevision &&
+      this.encodedRouteRevision.get(command) !== this.routeRevision
+    ) {
+      const revision = this.routeRevision;
+      command.writeBuffer(this.routes, 0, this.routeValues.buffer, 0, this.routeValues.byteLength);
+      command.writeBuffer(
+        this.surfaceMetadata,
+        this.surfaceMetadataOffsets.routes * 4,
+        this.routeValues.buffer,
+        0,
+        this.routeValues.byteLength
+      );
+      command.onFinished.addOne(() => {
+        this.committedRouteRevision = revision;
+        if (this.routeRevision === revision) this.coverageResourcesDirty = false;
+      });
+      this.encodedRouteRevision.set(command, revision);
+    }
+    return this.coverageResourcesDirty;
   }
 
   workTextureEntries(banks: readonly GPUTextureView[]): GPUBindGroupEntry[] {

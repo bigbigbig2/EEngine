@@ -18,14 +18,17 @@ goal: >-
   Keep one authority per product, one production FrameGraph and one frame submit.
 
 currentSlice:
-  id: eengine-extreme-performance-rebuild-b2
-  title: Surface B2：扩展R3全closure与consumer合同，单元集中检查
+  id: eengine-extreme-performance-rebuild-c
+  title: Surface C：在已有值边界上扩展有收益的复用
   status: active
   goal: >-
-    A0/A1既有核对入口为执行文档§5.1；B1最小更新工作域已集中核对，B2继续。
+    A0/A1既有核对入口为执行文档§5.1；B1/B2已有接线及检查见§6.11。
     当前文档方向为SURFACE-2026-10-07-R3，实际源码与缺口统一见执行文档§6.11。
-    当前任务入口为执行文档§7的B2，依母稿SD01–SD11扩展WorkPlan、
-    完整资源依赖频率、值引用、真实miss/dirty与Geometry需求union、全部直接consumer。
+    用户2026-10-07明确允许暂缓B2-NUM-001/002、提交当前快照并进入C；
+    两项仍未修复，B2正确性退出未通过，正式验收前必须关闭，不再开子agent。
+    当前任务入口为执行文档§8及母稿§8：核对实际昂贵可重复closure和固定来源，
+    在已有WorkPlan/值读取/更新事务/Geometry需求边界上接通有收益的cache与signal history。
+    完整identity、lookup/miss、唯一writer、pin/generation/retire与direct fallback一起推进。
     在完整切换单元链连通后集中检查，再进入下一单元；不以逐patch微测改架构。
     C扩展可选复用，核心计算域不能全部后移；R1/R2实验仅由执行文档历史附录追溯。
     文档修订不证明R3源码完成，本导航不复制计时或测试数量。
@@ -64,6 +67,15 @@ architectureRules:
   - Complete producer-to-consumer cutover units before concentrated checks; defer representation micro-tuning until the core architecture is connected.
 
 deferredValidation:
+  acceptedDeferrals:
+    - id: B2-NUM-001
+      authority: 用户2026-10-07明确指令
+      record: docs/next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md#611-当前源码与开放责任2026-10-07-b1集中核对
+      disposition: 暂缓修复，不阻塞C启动；未通过，不提升claim，正式验收前关闭
+    - id: B2-NUM-002
+      authority: 用户2026-10-07明确指令
+      record: docs/next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md#611-当前源码与开放责任2026-10-07-b1集中核对
+      disposition: 暂缓修复，不阻塞C启动；未通过，不提升claim，正式验收前关闭
   policy: >-
     Per-unit concentrated checks rather than per-patch gates. Each unit completes its own
     typecheck/build, targeted semantic tests and, where WGSL or GPU products are involved,

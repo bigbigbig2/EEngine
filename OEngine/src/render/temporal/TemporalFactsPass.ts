@@ -4,6 +4,7 @@ import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandCon
 import { resolveTextureView } from "../RenderTargetViews.js";
 import { TEMPORAL_FACTS_WGSL } from "../../shaders/temporal_facts.js";
 import type { GpuSparseShadingAssetHeapBindings } from "../../gpu/GpuAssetStore.js";
+import type { GpuAppearancePublication } from "../../gpu/GpuAppearancePublication.js";
 
 type IdentityPair = readonly [GPUTexture, GPUTexture];
 export type TemporalFactsGraphBinder = <T extends object>(
@@ -42,6 +43,9 @@ export class TemporalFactsPass {
     if (device.limits.maxStorageTexturesPerShaderStage < 3) {
       throw new RangeError("Temporal Facts requires three storage textures in its isolated pass");
     }
+    if (device.limits.maxStorageBuffersPerShaderStage < 8) {
+      throw new RangeError("Temporal Facts requires eight read-only storage buffers");
+    }
     this.constants = device.createBuffer({
       label: "Temporal Facts/frame constants",
       size: 32,
@@ -77,7 +81,7 @@ export class TemporalFactsPass {
           visibility: GPUShaderStage.COMPUTE,
           storageTexture: { access: "write-only", format: "rgba32uint" },
         },
-        ...[13, 14, 15, 16].map((binding) => ({
+        ...[13, 14, 15, 16, 17].map((binding) => ({
           binding,
           visibility: GPUShaderStage.COMPUTE,
           buffer: { type: "read-only-storage" as const },
@@ -165,6 +169,8 @@ export class TemporalFactsPass {
       materials: ResourceId;
       textureRoutes: ResourceId;
       textureResidencyVersions: ResourceId;
+      appearanceMetadata: ResourceId;
+      appearanceOffsets: GpuAppearancePublication["surfaceMetadataOffsets"];
       currentCamera: ResourceId;
       previousCamera: ResourceId;
       assetMetadata: ResourceId;
@@ -192,11 +198,11 @@ export class TemporalFactsPass {
           data.width,
           data.height,
           Number(this.readValid),
-          0,
+          data.appearanceOffsets.materialLookupCount,
           data.sourceBindings.meshletWordBase,
           data.sourceBindings.vertexDataWordBase,
-          0,
-          0,
+          data.appearanceOffsets.materialLookup,
+          data.appearanceOffsets.valueVersions,
         ]);
         command.writeBuffer(this.constants, 0, constants.buffer, 0, constants.byteLength);
         const ids = [
@@ -225,6 +231,7 @@ export class TemporalFactsPass {
         });
         entries.push({ binding: 15, resource: { buffer: resources.get(data.assetMetadata) as GPUBuffer } });
         entries.push({ binding: 16, resource: { buffer: resources.get(data.vertexPayload) as GPUBuffer } });
+        entries.push({ binding: 17, resource: { buffer: resources.get(data.appearanceMetadata) as GPUBuffer } });
         const group = this.device.createBindGroup({ layout: this.layout, entries });
         const pass = command.beginComputePass({ label: "Temporal Facts/resolve" });
         pass.setPipeline(this.pipeline);
@@ -241,6 +248,7 @@ export class TemporalFactsPass {
       input.materials,
       input.textureRoutes,
       input.textureResidencyVersions,
+      input.appearanceMetadata,
       input.currentCamera,
       input.previousCamera,
       input.assetMetadata,

@@ -195,7 +195,10 @@ function compileSceneGraph(
     { kind: "imported", label: "published instance records" },
     bind("scene-instances", (bindings) => bindings.job.scene.instances),
   );
-  const activeSets = plan.request.activeSets;
+  const activeSets = [...new Set([
+    ...plan.request.activeSets,
+    ...(appearancePublication.requiresUniformResources ? appearancePublication.publicationTextureSets : []),
+  ])];
   const needsDirectLight = plan.stages.includes("light-cluster");
   const geometryMetadata = graph.import_resource(
     "geometry-metadata",
@@ -449,6 +452,14 @@ function compileSceneGraph(
     { kind: "imported", label: "previous camera" },
     bind("previous-camera", (bindings) => bindings.view.gpu_previous_camera_state.buffer),
   );
+  const appearanceValues = owners.surfaceWork.addPublicationToGraph(graph, {
+    publication: appearancePublication,
+    metadata: surfaceMetadata,
+    camera: cameraBuffer,
+    textureBanks,
+    frame: bind("appearance-update-frame", (bindings) => ({ value: bindings.frameIndex })),
+    bind: (name, resolve) => bind(name, resolve)
+  });
   const facts = owners.temporalFacts.addToGraph(
     graph,
     {
@@ -461,6 +472,8 @@ function compileSceneGraph(
       materials: materialRecords,
       textureRoutes,
       textureResidencyVersions,
+      appearanceMetadata: appearanceValues.metadata,
+      appearanceOffsets: appearancePublication.surfaceMetadataOffsets,
       currentCamera: cameraBuffer,
       previousCamera,
       assetMetadata: geometryMetadata,
@@ -531,7 +544,8 @@ function compileSceneGraph(
     frameInstances: result.frame.frameInstances,
     frameAttributes: result.frame.frameAttributes,
     camera: cameraBuffer,
-    appearanceMetadata: surfaceMetadata,
+    appearanceMetadata: appearanceValues.metadata,
+    appearanceTemporary: appearanceValues.temporary,
     lightRecords: lightRecords ?? unlit!.lightRecords,
     clusters: clusters ?? unlit!.clusters,
     shadow:

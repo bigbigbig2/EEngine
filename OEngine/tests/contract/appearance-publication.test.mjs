@@ -1,10 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { AppearanceProgramRegistry } from "../../.test-dist/gpu/AppearanceProgramRegistry.js";
-import {
-  GpuAppearancePublication,
-  APPEARANCE_DIRECTORY_STRIDE
-} from "../../.test-dist/gpu/GpuAppearancePublication.js";
+import { GpuAppearancePublication } from "../../.test-dist/gpu/GpuAppearancePublication.js";
 import {
   AppearanceGraphBuilder,
   snapshotAppearanceTexture
@@ -19,6 +16,8 @@ import {
   openAppearanceAssetPackage
 } from "../../.test-dist/assets/AppearanceAssetPackage.js";
 import { bindAppearanceProducts } from "../../.test-dist/material/AppearanceProductBinding.js";
+import { ShadeTransparencyMode } from "../../.test-dist/material/enums.js";
+import { GPU_MATERIAL_VISIBILITY_SAMPLER as SAMPLER } from "../../.test-dist/gpu/GpuMaterialVisibilityAbi.js";
 
 globalThis.GPUShaderStage = { COMPUTE: 4 };
 globalThis.GPUBufferUsage = { STORAGE: 128, COPY_DST: 8, UNIFORM: 64, INDIRECT: 256 };
@@ -179,6 +178,68 @@ function encodeFields(publication, c) {
   publication.encodeWorkPublication(c, {}, 1, { size: 656 });
   return c.encoded;
 }
+
+test("committed mip changes migrate Surface and Coverage routes and abort retries the real version publication", async () => {
+  const f = fixture(true, 16),
+    texture = new ShadeTexture();
+  const graph = new AppearanceGraphBuilder();
+  const uv = graph.input("uv0", 2, "surface", undefined, "uv0");
+  const sample = graph.texture(snapshotAppearanceTexture(texture, "linear-rgb"), uv);
+  graph.output("alpha", graph.swizzle(sample, [3]));
+  graph.output("roughness", graph.swizzle(sample, [0]));
+  const material = new StandardShadeMaterial();
+  material.transparency_mode = ShadeTransparencyMode.AlphaTested;
+  const publication = {
+    slot: 1,
+    generation: 2,
+    revision: 3,
+    currentRevision: 3,
+    currentMinimumMip: 6,
+    localVariationSlot: 1,
+    variation: { known: false, low: [0, 0, 0, 0], high: [1, 1, 1, 1] }
+  };
+  const staging = command(f.device);
+  const p = new GpuAppearancePublication(
+    f.device,
+    f.registry,
+    [
+      {
+        material,
+        materialSlot: 0,
+        textureBindingSetId: 0,
+        program: compileAppearanceGraph(graph.build()),
+        textureRefs: new Map([[texture, encodeGpuTextureRef(0, 1)]])
+      }
+    ],
+    staging,
+    new Map(),
+    new Map([[texture, publication]])
+  );
+  await p.ready;
+  staging.finish();
+  publication.currentRevision = 4;
+  publication.currentMinimumMip = 0;
+  const aborted = command(f.device);
+  assert.equal(p.syncRuntime(aborted), true, "coverage resource invalidation is visible to the caster owner");
+  aborted.abort();
+  const retry = command(f.device);
+  assert.equal(p.syncRuntime(retry), true, "abort cannot acknowledge coverage invalidation");
+  for (const base of [p.entries[0].routeBase, p.entries[0].coverage.routeBase]) {
+    const route = new Uint32Array(p.routes.bytes.buffer);
+    assert.equal(route[base * 16 + 3], 4);
+    assert.equal((route[base * 16 + 1] & SAMPLER.MipMask) >>> SAMPLER.MipShift, SAMPLER.FullMipCode);
+    const metadata = new Uint32Array(p.surfaceMetadata.bytes.buffer);
+    assert.equal(metadata[p.surfaceMetadataOffsets.routes + base * 16 + 3], 4);
+  }
+  retry.finish();
+  assert.equal(
+    p.syncRuntime(command(f.device)),
+    false,
+    "committed stable resources have no repeated upload/update"
+  );
+  p.destroy();
+  f.registry.destroy();
+});
 
 test("registry shares async PSOs, bounds compilation and evicts only unreferenced ready families", async () => {
   const f = fixture();

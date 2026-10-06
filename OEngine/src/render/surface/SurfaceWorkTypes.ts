@@ -40,6 +40,7 @@ export type SurfaceWorkInput = {
   frameAttributes: ResourceId;
   camera: ResourceId;
   appearanceMetadata: ResourceId;
+  appearanceTemporary: ResourceId;
   textureBanks: readonly (readonly ResourceId[])[];
   publication: GpuAppearancePublication;
   product: Readonly<{

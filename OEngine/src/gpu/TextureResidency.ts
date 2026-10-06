@@ -605,6 +605,9 @@ export class TextureResidency {
                 get currentRevision() {
                   return entry.surfaceRevision;
                 },
+                get currentMinimumMip() {
+                  return entry.availableMip;
+                },
                 variation: entry.variation,
               }),
             ]),

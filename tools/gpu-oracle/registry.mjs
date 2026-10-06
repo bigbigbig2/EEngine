@@ -109,11 +109,22 @@ export const oracles = Object.freeze([
     note: "Compilation only, no correctness assertion."
   }),
   Object.freeze({
+    name: "surface-coverage-values",
+    file: "OEngine/tests/oracle/surface-coverage-value-gpu.mjs",
+    url: "/OEngine/tests/oracle/surface-coverage-value-gpu.mjs",
+    entry: "runSurfaceCoverageValueGpuOracle",
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    description: "Real cooked mip promotion and publication consumed by production alpha/discard fragment.",
+    timeoutMs: 60000,
+    note: "Independent coverage expectation; fixture plane excludes meshlet selection and VSM scheduling."
+  }),
+  Object.freeze({
     name: "surface-work",
     file: "OEngine/tests/oracle/surface-work-gpu.mjs",
     url: "/OEngine/tests/oracle/surface-work-gpu.mjs",
     entry: "runSurfaceWorkGpuOracle",
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    requiredFeatures: ["texture-formats-tier1"],
     description: "B1/B2 current SurfaceWorkRuntime real producer consumer and mandatory overflow coverage.",
     timeoutMs: 120000,
     note: "Actual production chain, independent coverage and reuse OFF exact result assertions."

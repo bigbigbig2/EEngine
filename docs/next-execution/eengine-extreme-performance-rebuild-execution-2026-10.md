@@ -20,6 +20,7 @@ verifies:
     - OEngine/tests/unit/gpu-frame-timing.test.mjs
     - OEngine/tests/contract/frame-program.test.mjs
     - OEngine/tests/oracle/surface-work-gpu.mjs
+    - OEngine/tests/oracle/surface-coverage-value-gpu.mjs
     - OEngine/package.json
 ---
 
@@ -182,6 +183,35 @@ unknown或不一致依赖进入同一完整直接worker；cold/newly-visible/res
 | 成本 | B1普通更新域真实减贵查询；当前Showcase主要空间查询仍逐pixel | B2先全面合同，C后整体定位；数值预算未定，B2未收口，不追最终FPS |
 
 阶段前快照已在master提交`be4d47c6`；B1源码另作连贯提交。主分支继续，不建工作分支。正式browser matrix、device replacement、长期画质与同条件历史比较留最终验收；B1不宣称这些已通过。此前source差异、原始失败与覆盖限制统一在附录H。
+
+#### B2 当前接线与收口限制（2026-10-07）
+
+B1已在master提交`c8c5d412`。其后B2新增的接线与集中检查如下。**B2的正确性退出仍未通过；2026-10-07用户明确要求记录缺陷、暂缓修复、提交当前代码并进入C。** 本次提交保留接线快照与未关闭缺陷，不是B2验收完成提交。当前推进单元改为C，具体例外范围见本节末的用户决策；不能把已通过用例或用户允许推进写成缺陷已修复。
+
+| 任务/SD | 当前真实producer→产品→consumer与检查 | 收口判断 |
+|---|---|---|
+| B2-01/02；SD01–06/11 | 全已声明Surface字段/共享祖先进入WorkPlan；query权重按共享查询去重、normal Product属于原Product域；uniform refs/palette在sample工作前分流，剩余字段direct indexed；其他Lighting/guide仍请求唯一Geometry。无消费者CPU proof/profile、directory、fieldWords版本副本已删除 | 分类/读取接线已核；Coverage保留母稿§6.6的完整原fragment evaluator，同步参数/路由，不要求新增alpha uniform folding。下述真实GPU消费已补，不再把“没有alpha折叠”作为架构缺口 |
+| B2-03/04；SD07–09 | existing metadata增加每entry两u32（scene generation/value revision）；GPU更新边界比较实际uniform值，numeric/resource dirty推进版本，耗尽到sticky 0拒绝history；没有新增binding17到Surface。normal/coat moment的实际Product过滤、局部TS→world guides、六RGB/state与原guard保留；optional OFF/0、完整目的地与原容量合同通过 | 当前范围通过；不能以版本hash作cache完整身份，也不声称C的cache/pin/generation已完成 |
+| B2-05；SD08/09/11 | S0 publication前移到TemporalFacts之前，其temporary仍由原Surface scratch owner保留；TemporalFacts新增独立readonly binding17（该pass共8 storage，Surface Product仍16），读取实际value version→原mask/identity→Reconstruct/FSR。真实GPU检查稳定帧正常接受，参数/资源/abort/extent变化正确拒绝，版本0不回绕 | 当前新链通过；mandatory退出仍受下述原始数值失败限制 |
+| B2-05/06；SD04/09/10 | TextureResidency暴露提交后的minimum mip；Appearance更新Surface/Coverage route的真实revision与mip clamp，abort保留route重传和alpha caster失效；只在dirty时上传，S0导入其全部有限published sets，不依赖当前active sample set。初始版本合同仍验证，旧无reader副本不恢复 | owner/路由与真实消费检查通过：当前TextureResidency上传/提交→Surface更新查询值，以及原Coverage alpha/discard→Visibility输出。不是下述数值失败的根因修复 |
+
+最新源码指纹`a6ac895112d698d41e57cd5e39ee429f64fd6ab6929b1065a290a065c4088086`的新鲜build:test、typecheck、build、107项CPU用例、Surface119组及Geometry66组、DAG64组通过。57组Surface用例包含真实TemporalFacts历史写入/读取，没有预填正确identity或mask；非恒定普通Product、base/coat moment与镜像nonuniform实例进入真实Surface消费者。参数abort/retry/stable组合对fixed/General/frame-query各交替6轮，放在纹理red变成常量之前，保持对旧值错误的数值敏感性。GPU作业串行；后续源码变动必须刷新相应验证，不拼接不同源码结果。
+
+**必需未关闭项 B2-NUM-001：** `.local/r3/b2-chain-debug4.json`记录General参数更新/abort重试后的真实数值失败：roughness实际`0.2757329643`，独立预期`0.2333125621`。debug5在同production指纹`41affd5cfb18b0b61b0699c2f0a937435fe78b844514bdfb49d8d0c26ca167c8`上通过；当时只改了诊断与后续测试，没有定位生产根因。后续更敏感组合与最终源码通过，仍不能追认为该失败已修复。按§1.4/根AGENTS“无法定位则如实未通过”，此责任保持未关闭，B2不得因绿色复跑收口。原始失败保留；恢复修复时追踪完整参数上传→dirty→GPU更新值→General读取→提交/abort边界，先判定生产错误还是夹具/runner错误，不试微性能候选。当前暂缓决定见下文。
+
+本次补齐驻留消费证据：`surface-coverage-value-gpu.mjs`使用实际资产包writer/open、TextureResidency、publication、Coverage资源绑定与生产`rasterCoverageFragmentWgsl`；夹具只提供平面顶点。256纹理的mip 6尾部alpha为160/255，promotion后原mip 0–5含255/64的两半；16×16平面原梯度选择mip 4，独立覆盖预期为0→128，参数减半变0，cutoff改为0.1变256。8组提交结果、promotion/route/参数中止重试、稳定帧caster dirty恢复均检查。另在同command执行真正Surface更新查询，值从160/255变1，证明mip route确实被采样而非只改CPU字段。没有预填Visibility、没有新alpha算法；这不是完整meshlet选择/VSM调度矩阵。原4行夹具的纵向梯度实际上选择mip 6，初始预期错误；改成16行使预期LOD成立，未修改过滤或容差。缺原shader组合所需材质ABI声明的夹具编译失败也已修正，原始结果保留。
+
+**必需未关闭项 B2-NUM-002：** `.local/r3/b2-coverage-debug2.json`在当前同production指纹上，固定资源更新路径的参数重试后稳定帧又出现Lighting/HDR错误，(0,0)通道0实际`0.99951171875`，独立预期`1.4979037235540191`；无GPU API错误。不能先假定它和旧General错误同根，也不能把两者直接归为driver问题。后续边界捕获运行通过仍不说明修复。当前oracle失败时记录实际GPU metadata的参数/dirty/uniform/palette、Geometry/字段/六signals/HDR样本及计数，利用已有readback，不增加生产GPU同步或诊断分支。最初诊断catch作用域错误已修正并保留原失败；禁止靠新诊断掩盖原数值错误。此项未关闭，推进例外见下文。
+
+本次已刷新build:test与84项受影响CPU用例；最终`b2-transaction-capture.json`的Surface179组、Geometry66组及驻留/双消费8组通过，无GPU API错误，整次runner约18.6秒。fixed/General/frame三类参数abort/retry/stable各交替16轮（此前6轮），117组包含真实Temporal历史；这是间歇数值问题的有界回归，不是反复跑绿的收口门槛。GPU串行。typecheck/build与DAG64组沿用上段同production指纹的结果，本轮未重复；全浏览器/正式性能与历史claims未运行。绿色结果和原始失败分别记录，不声称本单元全部退出条件通过。
+
+其他原始失败已分类：少申请`texture-formats-tier1`是oracle设备profile缺项（生产原已要求，输出格式未改）；Temporal零motion夹具的camera正/逆矩阵原不一致，已补完整互逆输入；FrameProgram用例新增S0执行顺序按真实图依赖更新。它们分别有独立依据，不与General旧值失败混为一次修复。用户已要求后续不开子agent，后续复审由同一执行者直接完成。
+
+#### 2026-10-07 用户批准的暂缓与C启动
+
+用户原指令：“那先标记吧记录着先，等后面我有空在修，提交代码，开始C吧按照文档”。据此仅将 **B2-NUM-001、B2-NUM-002** 标为`deferred-by-user / 未修复 / 根因未定位`，允许当前接线快照提交并推进C。用户决定覆盖本轮这两项必须先修再进入下一单元的顺序要求，不覆盖算法、质量、容量、完整fallback和唯一写域合同，也不把B2改成验收通过。
+
+两条原始失败和后续结果均保留，现有断言继续执行；不skip、放宽容差或通过cache遮蔽失败。C遇到新缺陷仍按正常失败规则处理；已有两项复现时单独报告，不因其暂缓恢复无限测试循环。正式整体验收及性能/画质claim之前必须关闭这两项。当前源码/build、oracle和host的本地回放快照保存在`.local/r3/b2-unclosed-source.zip`，源码差异在`b2-unclosed.patch`；这些只保留当前快照，不补称已找回最初General失败时的全部输入。
 
 ### 6.12 已有成本证据如何使用
 

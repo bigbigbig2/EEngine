@@ -15,13 +15,14 @@ ${PACKED_CAMERA_TYPE.wgsl_declaration}
 struct Settings {
   entries: u32, palette: u32, constants: u32, inputs: u32,
   lanes: u32, live_words: u32, frame: u32, reserved: u32,
-  routes: u32, product_words: u32, texture_set: u32, padding: u32,
+  routes: u32, product_words: u32, texture_set: u32, versions: u32,
 }
 @group(0) @binding(0) var<storage, read> dag_code: array<u32>;
 @group(0) @binding(1) var<storage, read_write> dag_metadata: array<u32>;
 @group(0) @binding(2) var<storage, read_write> dag_values: array<f32>;
 @group(0) @binding(3) var<uniform> settings: Settings;
 var<private> dag_entry: u32;
+var<private> uniform_changed: bool;
 ${
   resources
     ? `
@@ -67,11 +68,14 @@ fn appearance_dag_uniform(index: u32) -> f32 {
 }
 fn appearance_dag_publish_uniform(index: u32, value: f32) {
   let plan = dag_code[dag_entry + 2u];
-  dag_metadata[dag_code[plan + 4u] + index] = bitcast<u32>(value);
+  let at = dag_code[plan + 4u] + index;
+  let bits = bitcast<u32>(value);
+  uniform_changed = uniform_changed || dag_metadata[at] != bits;
+  dag_metadata[at] = bits;
 }
 ${APPEARANCE_EXACT_DAG_WGSL}
-// No sampling callback is reachable in the publication dependency mask. An
-// impossible spatial operation poisons the palette rather than inventing a value.
+// The resource-free variant rejects an impossible spatial query. The resource
+// variant executes only queries classified by complete uniform dependencies.
 ${
   resources
     ? ""
@@ -95,6 +99,7 @@ fn publish_constants(@builtin(global_invocation_id) id: vec3u) {
     let plan = dag_code[dag_entry + 2u];
     let frame_plan = dag_code[plan + 7u];
     let dirty = dag_metadata[dag_code[frame_plan + 2u]];
+    uniform_changed = false;
     if dirty == 0u && dag_code[frame_plan + 1u] == 0u {
       continue;
     }
@@ -139,6 +144,12 @@ fn publish_constants(@builtin(global_invocation_id) id: vec3u) {
       let at = dag_code[plan + 5u] + output * 4u;
       appearance_dag_output(dag_code[at], dag_code[at + 1u],
         appearance_dag_uniform(dag_code[at + 2u]));
+    }
+    if (dirty & 4u) != 0u || uniform_changed {
+      let at = settings.versions + entry * 2u + 1u;
+      let version = dag_metadata[at];
+      // Zero is a sticky invalid-history destination, never a wrapped identity.
+      dag_metadata[at] = select(0u, version + 1u, version != 0u && version < 0xffffffffu);
     }
   }
 }

@@ -254,6 +254,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
         input.depth,
         input.textureRoutes,
         input.textureResidencyVersions,
+        input.appearanceMetadata,
         input.meshletWork,
         input.instances,
         input.materials,
@@ -368,6 +369,14 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
     },
     visibilityCounters: { addToGraph() {} },
     surfaceWork: {
+      addPublicationToGraph(graph, input) {
+        const pass = graph.add("test/Appearance publication", {}, () => {});
+        pass.read(input.metadata);
+        pass.read(input.camera);
+        return { metadata: pass.write(input.metadata), temporary: pass.create("test/Appearance lanes", {
+          kind: "transient_buffer", size: 16, usage: 128
+        }) };
+      },
       importUnlitProviders(graph, bind) {
         const imported = (name) =>
           graph.import_resource(
@@ -534,6 +543,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
     dump.executablePassOrder.map((id) => dump.passes[id].name),
     [
       "test/Visibility",
+      "test/Appearance publication",
       "test/Temporal Facts",
       "test/Surface",
       "test/FSR3",
@@ -609,6 +619,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
     withEnvironment.executablePassOrder.map((id) => withEnvironment.passes[id].name),
     [
       "test/Visibility",
+      "test/Appearance publication",
       "test/Temporal Facts",
       "test/Surface",
       "test/Sky",

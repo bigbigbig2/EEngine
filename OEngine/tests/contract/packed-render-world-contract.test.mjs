@@ -811,6 +811,7 @@ test("TextureResidency publishes a cooked mip tail before generation-safe promot
   assert.ok(publication.slot > 0 && publication.revision > 0);
   assert.equal(publication.variation.known, false);
   assert.equal(publication.currentRevision, publication.revision);
+  assert.equal(publication.currentMinimumMip, 6);
   const versions = stage.bindings.surfaceResidencyVersions;
   assert.equal(new Uint32Array(versions.bytes.buffer)[publication.slot], publication.revision);
 
@@ -819,6 +820,7 @@ test("TextureResidency publishes a cooked mip tail before generation-safe promot
   abortedPromotion.abort();
   assert.equal(publication.currentRevision, publication.revision, "aborted upload cannot invalidate a committed uniform value");
   assert.deepEqual(residency.descriptor(ref)?.residentMipRange, [6, 8]);
+  assert.equal(publication.currentMinimumMip, 6, "abort preserves the query's actual minimum mip");
   assert.equal(new Uint32Array(versions.bytes.buffer)[publication.slot], publication.revision);
   assert.equal(fixture.writes.length, 9);
 
@@ -828,6 +830,7 @@ test("TextureResidency publishes a cooked mip tail before generation-safe promot
   promotion.finish();
   assert.ok(publication.currentRevision > publication.revision, "live owner revision changes only after promotion commit");
   assert.deepEqual(residency.descriptor(ref)?.residentMipRange, [0, 8]);
+  assert.equal(publication.currentMinimumMip, 0, "committed residency exposes the exact sampler clamp");
   assert.equal(fixture.writes.length, 15);
   const afterPromotion = new FakeCommand("after-promotion", fixture.graphics.device);
   const promoted = residency.stage([material], afterPromotion).surfacePublications.get(texture);

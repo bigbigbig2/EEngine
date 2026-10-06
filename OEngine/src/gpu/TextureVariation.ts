@@ -12,6 +12,7 @@ export interface TextureSurfacePublication {
   readonly revision: number;
   /** Live owner revision; revision above remains the publication snapshot. */
   readonly currentRevision?: number;
+  readonly currentMinimumMip?: number;
   /** Descriptor is validated on GPU; CPU residency does not decide shading work. */
   readonly localVariationSlot: number;
   readonly variation: TextureVariation;

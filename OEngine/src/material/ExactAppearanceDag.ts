@@ -177,13 +177,19 @@ export function compileAppearanceExecutionPlan(
       closure.add(ref);
       const node = program.instructions[ref]!;
       rate = Math.max(rate, frequency[ref]!);
+      const newQuery =
+        node.sample !== undefined
+          ? !textures.has(node.sample)
+          : node.product !== undefined
+            ? !products.has(node.product)
+            : false;
       if (node.sample !== undefined) textures.add(node.sample);
       if (node.product !== undefined) products.add(node.product);
       if (node.parameter !== undefined) parameters.add(node.parameter);
       if (node.input !== undefined) inputs.add(node.input);
       cost +=
         node.kind === "texture" || node.kind === "product" || node.kind === "normal-product"
-          ? 4
+          ? Number(newQuery) * (node.kind === "normal-product" ? 12 : 4)
           : node.kind !== "operation"
             ? 0
             : ["pow", "sin", "cos", "sqrt"].includes(node.op!)
@@ -191,7 +197,9 @@ export function compileAppearanceExecutionPlan(
               : 1;
       pending.push(...dependencies(ref));
     }
-    const productValue = roots.every((ref) => program.instructions[ref]!.kind === "product");
+    const productValue = roots.every((ref) =>
+      ["product", "normal-product"].includes(program.instructions[ref]!.kind)
+    );
     const invalidation: ("publication" | "material" | "frame" | "residency")[] = ["publication"];
     if ([...closure].some((ref) => frequency[ref] === 1)) invalidation.push("material");
     if ([...closure].some((ref) => frequency[ref] === 2)) invalidation.push("frame");

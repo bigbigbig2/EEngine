@@ -3,7 +3,7 @@ import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js"
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import {
   GPU_SHADING_MATERIAL_WGSL,
-  GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL,
+  GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL
 } from "../gpu/GpuShadingMaterialAbi.js";
 import { PACKED_CAMERA_TYPE } from "./packed_camera.js";
 import { GPU_MESHLET_RECORD_SCHEMA } from "../gpu/GpuGeometryAbi.js";
@@ -24,7 +24,7 @@ struct TemporalFactsConstants {
   width: u32,
   height: u32,
   previous_valid: u32,
-  _pad: u32,
+  material_lookup_count: u32,
   source: vec4u,
 };
 // Mask A bits: 0 instance-set, 1 geometry/LOD, 2 material/residency,
@@ -45,6 +45,7 @@ struct TemporalFactsConstants {
 @group(0) @binding(14) var<storage, read> texture_residency: array<u32>;
 @group(0) @binding(15) var<storage, read> asset_metadata: array<u32>;
 @group(0) @binding(16) var<storage, read> vertex_payload: array<u32>;
+@group(0) @binding(17) var<storage, read> appearance_metadata: array<u32>;
 
 // Stable instance slot is exact within one Scene allocation. The other lanes
 // are 32-bit local change detectors, not exact cross-frame object identifiers.
@@ -76,6 +77,12 @@ fn material_signature(instance: OEngineInstanceRecord,
   signature = hash_step(signature, material.texture_generation);
   signature = hash_step(signature, material.publication_revision);
   signature = hash_step(signature, material.temporal_signature);
+  let entry = appearance_metadata[facts.source.z + material_slot];
+  if entry != 0xffffffffu {
+    let at = facts.source.w + entry * 2u;
+    signature = hash_step(signature, appearance_metadata[at]);
+    signature = hash_step(signature, appearance_metadata[at + 1u]);
+  }
   for (var role = 0u; role < ${GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL}u; role++) {
     let index = material_slot * ${GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL}u + role;
     if index < arrayLength(&texture_routes) {
@@ -86,6 +93,16 @@ fn material_signature(instance: OEngineInstanceRecord,
     }
   }
   return signature;
+}
+
+// Publication owns all updates. Zero denotes an exhausted version and rejects
+// history rather than aliasing an earlier matching value after integer wrap.
+fn appearance_history_valid(material_slot: u32) -> bool {
+  if material_slot >= facts.material_lookup_count { return false; }
+  let entry = appearance_metadata[facts.source.z + material_slot];
+  if entry == 0xffffffffu { return false; }
+  let at = facts.source.w + entry * 2u;
+  return at + 1u < arrayLength(&appearance_metadata) && appearance_metadata[at + 1u] != 0u;
 }
 
 fn inside(uv: vec2f) -> bool {
@@ -145,7 +162,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       let work_slot = resolved_key.meshlet_work_slot;
       let work = meshlet_work.elements[work_slot];
       if (work.instance_slot < arrayLength(&instances) &&
-          work.material_slot_or_range < arrayLength(&materials)) {
+          work.material_slot_or_range < arrayLength(&materials) &&
+          work.material_slot_or_range < facts.material_lookup_count) {
         let instance = instances[work.instance_slot];
         let material = materials[work.material_slot_or_range];
         identity = vec4u(work.instance_slot + 1u,
@@ -154,7 +172,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         let previous_clip = previous_clip_for_surface(uv, depth, instance);
         let previous_uv = previous_clip.xy / previous_clip.w * vec2f(0.5, -0.5) + vec2f(0.5);
         motion = uv - previous_uv;
-        valid = oengine_instance_motion_valid(instance) && finite_motion(motion) &&
+        valid = appearance_history_valid(work.material_slot_or_range) &&
+          oengine_instance_motion_valid(instance) && finite_motion(motion) &&
           inside(uv - motion) && depth > 0.0001 &&
           previous_clip.w > 1e-6 && previous_clip.z >= 0.0 &&
           previous_clip.z <= previous_clip.w &&

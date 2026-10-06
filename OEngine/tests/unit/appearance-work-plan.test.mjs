@@ -42,6 +42,11 @@ test("uniform resource query and nonlinear ancestors move to material work, whil
   assert.equal(emissive.category, "update");
   assert.equal(emissive.value, "uniform");
   assert.deepEqual(Array.from(emissive.textureQueries), [0]);
+  assert.equal(
+    emissive.estimatedOperationCost,
+    4,
+    "one shared resource query is counted once across RGB channels"
+  );
   assert.ok(emissive.invalidation.includes("residency"));
   const roughness = plan.workPlan.fields.find((work) => work.field === 3);
   assert.equal(roughness.value, "sample-indexed");
@@ -56,4 +61,45 @@ test("spatial footprint keeps the full original query and nonlinear work in the 
   assert.equal(plan.workPlan.uniformTextureQueries.length, 0);
   assert.deepEqual(Array.from(plan.workPlan.sampleTextureQueries), [0]);
   assert.ok((plan.varying.neighborMask & (1 << 1)) !== 0, "original CXY footprint remains required");
+});
+
+test("declared external runtime inputs retain material dependency and shared nonlinear closure has one query producer", () => {
+  const graph = new AppearanceGraphBuilder();
+  const external = graph.input("externalCoordinate", 2, "dynamic");
+  const sampled = graph.texture(snapshotAppearanceTexture(new ShadeTexture(), "linear-rgb"), external);
+  const nonlinear = graph.operation(
+    "sin",
+    graph.operation("pow", graph.swizzle(sampled, [0]), graph.constant(2))
+  );
+  graph.output("roughness", nonlinear);
+  graph.output("metallic", nonlinear);
+  const program = compileAppearanceGraph(graph.build());
+  const plan = compileAppearanceExecutionPlan(program, lowerAppearanceWgsl(program));
+  assert.equal(records(plan.update).filter((record) => record[0] === OP.sample).length, 1);
+  for (const field of plan.workPlan.fields) {
+    assert.ok(field.inputs.includes("externalCoordinate"));
+    assert.equal(
+      field.value,
+      "uniform",
+      "external runtime input is shared material data, not an unpublished spatial dependency"
+    );
+    assert.equal(field.fallback, "complete-direct");
+    assert.ok(field.estimatedOperationCost >= 20);
+  }
+});
+
+test("view-dependent coordinates never become a resource-uniform query", () => {
+  const graph = new AppearanceGraphBuilder();
+  const view = graph.input("viewDirection", 3, "view");
+  const sample = graph.texture(
+    snapshotAppearanceTexture(new ShadeTexture(), "linear-rgb"),
+    graph.swizzle(view, [0, 1])
+  );
+  graph.output("roughness", graph.operation("sin", graph.swizzle(sample, [0])));
+  const program = compileAppearanceGraph(graph.build());
+  const plan = compileAppearanceExecutionPlan(program, lowerAppearanceWgsl(program));
+  assert.equal(plan.workPlan.uniformTextureQueries.length, 0);
+  assert.deepEqual(Array.from(plan.workPlan.sampleTextureQueries), [0]);
+  assert.ok(records(plan.varying).some((record) => record[0] === OP.sample));
+  assert.equal(plan.workPlan.fields[0].frequency, 3);
 });

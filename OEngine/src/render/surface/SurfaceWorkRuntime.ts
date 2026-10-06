@@ -258,6 +258,62 @@ export class SurfaceWorkRuntime {
     }
     command.writeBuffer(buffer, 0, values.buffer, 0, 128);
   }
+  /** S0 publishes values and their versions before every direct history reader.
+   * The returned temporary is also the sole Surface lane product at S5. */
+  addPublicationToGraph(
+    graph: FrameGraph,
+    input: {
+      publication: GpuAppearancePublication;
+      metadata: ResourceId;
+      camera: ResourceId;
+      textureBanks: readonly (readonly ResourceId[])[];
+      frame: Readonly<{ value: number }>;
+      bind: SurfaceResourceBinding;
+    }
+  ): { metadata: ResourceId; temporary: ResourceId } {
+    const code = graph.import_resource(
+      "Surface/Appearance instruction data",
+      { kind: "imported" },
+      input.bind("Surface/Appearance instruction data", () => input.publication.exactDagCode)
+    );
+    const products = input.publication.exactDagProducts.map((buffer, bank) =>
+      graph.import_resource(
+        "Surface/Appearance products " + bank,
+        { kind: "imported" },
+        input.bind("Surface/Appearance products " + bank, () => buffer)
+      )
+    );
+    const temporary = this.scratch.importBuffer(
+      graph,
+      input.bind,
+      "Surface/Appearance live lanes",
+      input.publication.exactDagScratchBytes,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
+    );
+    const node = graph.add("Surface/publication values and versions", {}, (_data, resources, context) =>
+      input.publication.encodeWorkPublication(
+        context.encoder as ShadeGPUCommandContext,
+        resources.get(temporary) as GPUBuffer,
+        input.frame.value,
+        resources.get(input.camera) as GPUBuffer,
+        input.publication.requiresUniformResources
+          ? input.textureBanks.map((banks) =>
+              banks.map((id) => this.scratch.resolveTextureView(resources.get(id) as object))
+            )
+          : undefined,
+        this.mode === "detailed"
+      )
+    );
+    for (const id of [
+      code,
+      input.metadata,
+      input.camera,
+      ...(input.publication.requiresUniformResources ? [...products, ...input.textureBanks.flat()] : [])
+    ])
+      node.read(id);
+    return { metadata: node.write(input.metadata), temporary: node.write(temporary) };
+  }
+
   addToGraph(graph: FrameGraph, input: SurfaceWorkInput): SurfaceWorkProducts {
     if (!this.prepared || this.capacity === null) {
       throw new Error("SurfaceWork requires prepared capacity");
@@ -291,7 +347,7 @@ export class SurfaceWorkRuntime {
         GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST | extra
       );
     let control = storage("Surface/domain work control", capacity.controlBytes);
-    let temporary = storage("Surface/Appearance live lanes", input.publication.exactDagScratchBytes);
+    let temporary = input.appearanceTemporary;
     let uniform = this.scratch.importBuffer(
       graph,
       bind,
@@ -408,32 +464,6 @@ export class SurfaceWorkRuntime {
           this.coherenceParameters.byteLength
         );
       }) as [ResourceId];
-    }
-    {
-      const previousTemporary = temporary;
-      [metadata, temporary] = add(
-        "Surface/publication constants",
-        [
-          code,
-          metadata,
-          input.camera,
-          ...(input.publication.requiresUniformResources ? [...products, ...input.textureBanks.flat()] : [])
-        ],
-        [metadata, temporary],
-        (resources, command) =>
-          input.publication.encodeWorkPublication(
-            command,
-            resources.get(previousTemporary) as GPUBuffer,
-            input.frame.generation,
-            resources.get(input.camera) as GPUBuffer,
-            input.publication.requiresUniformResources
-              ? input.textureBanks.map((banks) =>
-                  banks.map((id) => this.scratch.resolveTextureView(resources.get(id) as object))
-                )
-              : undefined,
-            this.mode === "detailed"
-          )
-      ) as [ResourceId, ResourceId];
     }
     if (input.publication.surfaceHasLit) {
       metadata = this.radiometry.addToGraph(graph, {

@@ -46,6 +46,7 @@ import { SURFACE_RADIOMETRY_WGSL } from "../../.test-dist/render/surface/Surface
 import { APPEARANCE_FIELD_NAMES } from "../../.test-dist/gpu/GpuAppearanceFieldAbi.js";
 import { evaluateCompiledAppearance } from "../../.test-dist/material/AppearanceGraphEvaluation.js";
 import { bindAppearanceProducts } from "../../.test-dist/material/AppearanceProductBinding.js";
+import { cookAppearanceNormalProduct } from "../../.test-dist/material/AppearanceNormalCooker.js";
 import {
   cookAppearanceMipProduct,
   sampleAppearanceCookedField
@@ -68,6 +69,8 @@ import {
   fullChannelGatherCostReference
 } from "./appearance-cost-reference.mjs";
 import { checkSurfaceGeometryBoundaries } from "./surface-geometry-boundary-gpu.mjs";
+import { SurfaceTemporalValueFixture } from "./surface-temporal-value-gpu.mjs";
+import { checkSurfaceCoverageValues } from "./surface-coverage-value-gpu.mjs";
 
 // Isolated cost reference: specialize this fixture's complete IR into named
 // values, keeping the same C/X/Y samples, constants and output slots. This is
@@ -420,7 +423,12 @@ export async function runSurfaceWorkGpuOracle(
     allocator_textures: new GPUTextureAllocator(device, ledger)
   };
   const registry = new AppearanceProgramRegistry(device);
-  let publication, runtime, frameArenaOwner, frameVertexOwner;
+  let publication,
+    runtime,
+    frameArenaOwner,
+    frameVertexOwner,
+    temporalFixture = null;
+  let failureSnapshot = null;
   const errorListener = (event) => apiErrors.push(event.error.message);
   device.addEventListener("uncapturederror", errorListener);
   try {
@@ -768,7 +776,11 @@ export async function runSurfaceWorkGpuOracle(
     const cameraValues = new Float32Array(164);
     for (let index = 0; index < 8; index++) cameraValues.set(identity, index * 16);
     cameraValues[14] = 100;
+    cameraValues[30] = -100;
     cameraValues[46] = -100;
+    cameraValues[62] = 100;
+    cameraValues[78] = 100;
+    cameraValues[94] = -100;
     const camera = buffer(cameraValues, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
     const lightWords = new Uint32Array(32768).fill(0xffffffff);
     const descriptor = DIRECTIONAL_LIGHT_DESCRIPTOR,
@@ -877,6 +889,7 @@ export async function runSurfaceWorkGpuOracle(
     let uniformReference = null;
     let productReference = null;
     let productReferenceData = null;
+    let guideSigns = [1, 1, 1];
     const reports = [],
       geometryBoundaries = [];
     async function runCase(
@@ -925,6 +938,37 @@ export async function runSurfaceWorkGpuOracle(
       if (useAo)
         for (let pixel = 0; pixel < width * height; pixel++) aoBytes[pixel] = pixel % 2 === 0 ? 64 : 255;
       const ao = useAo ? imported("Actual output-pixel AO", buffer(aoBytes)) : null;
+      const residentBanks = Array.from({ length: 4 }, (_, set) =>
+        Array.from({ length: 9 }, (_, bank) => imported("Texture " + set + "/" + bank, banks))
+      );
+      const cameraResource = imported("Camera", camera);
+      const appearanceValues = runtime.addPublicationToGraph(graph, {
+        publication,
+        metadata: meta,
+        camera: cameraResource,
+        textureBanks: residentBanks,
+        frame: { value: 11 },
+        bind: (_name, resolve) => resolve()
+      });
+      const factsResource =
+        temporalFixture === null
+          ? imported("Temporal facts", facts)
+          : temporalFixture.add(graph, {
+              width,
+              height,
+              publication,
+              metadata: appearanceValues.metadata,
+              camera: cameraResource,
+              visibility: imported("Real Temporal visibility", visibility),
+              work: imported("Real Temporal work", work),
+              instances: imported("Real Temporal instances", frameInstances),
+              source: imported("Real Temporal source", sourceHeap),
+              vertices: imported("Real Temporal vertices", vertexPayload),
+              sourceBindings: {
+                meshletWordBase: GPU_GEOMETRY_RECORD_SCHEMA.stride / 4,
+                vertexDataWordBase: 0
+              }
+            });
       const output = runtime.addToGraph(graph, {
         visibility: imported("Visibility", visibility),
         meshletWork: imported("Meshlet work", work),
@@ -932,8 +976,9 @@ export async function runSurfaceWorkGpuOracle(
         vertexPayload: imported("Resident vertices", vertexPayload),
         frameInstances: imported("Instances", frameInstances),
         frameAttributes: imported("Published frame attributes", frameArena.buffer),
-        camera: imported("Camera", camera),
-        appearanceMetadata: meta,
+        camera: cameraResource,
+        appearanceMetadata: appearanceValues.metadata,
+        appearanceTemporary: appearanceValues.temporary,
         publication,
         product:
           productGeometry === null
@@ -942,9 +987,7 @@ export async function runSurfaceWorkGpuOracle(
                 heap: imported("Product metadata", productGeometry.heap),
                 banks: productGeometry.banks.map((value, index) => imported("Product bank " + index, value))
               },
-        textureBanks: Array.from({ length: 4 }, (_, set) =>
-          Array.from({ length: 9 }, (_, bank) => imported("Texture " + set + "/" + bank, banks))
-        ),
+        textureBanks: residentBanks,
         lightRecords: imported("Nonzero lights", lights),
         clusters: {
           parameters: imported("Cluster parameters", clusterParameters),
@@ -963,7 +1006,7 @@ export async function runSurfaceWorkGpuOracle(
         shadow: null,
         scalarAo: ao,
         physicalSun: null,
-        factsMask: imported("Temporal facts", facts),
+        factsMask: factsResource,
         preExposure: dummy,
         width,
         height,
@@ -1035,10 +1078,11 @@ export async function runSurfaceWorkGpuOracle(
       const codeReadOffset = controlReadOffset + (cost ? 0 : capacity.controlBytes);
       const angularReadOffset = codeReadOffset + publication.exactDagCode.size;
       const angularReadBytes = angularBuffers.length * capacity.bankPixels * 6 * 4;
+      const temporalReadOffset = angularReadOffset + angularReadBytes;
       const readback = device.createBuffer({
         size: cost
           ? rowBytes * height + 2048 + publication.surfaceMetadata.size
-          : angularReadOffset + angularReadBytes,
+          : temporalReadOffset + (temporalFixture !== null ? rowBytes * height : 0),
         usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
       });
       retained.push(readback);
@@ -1073,6 +1117,14 @@ export async function runSurfaceWorkGpuOracle(
               capacity.heapBytes
             );
         if (!cost) {
+          if (temporalFixture !== null) {
+            const reactive = resources.get(output.reactiveMask);
+            context.encoder.gpu_encoder.copyTextureToBuffer(
+              { texture: reactive.isGPUTextureContext ? reactive.gpu_texture : reactive },
+              { buffer: readback, offset: temporalReadOffset, bytesPerRow: rowBytes },
+              { width, height }
+            );
+          }
           for (let bank = 0; bank < 4; bank++)
             context.encoder.gpu_encoder.copyBufferToBuffer(
               resources.get(output.signals[bank]),
@@ -1109,6 +1161,7 @@ export async function runSurfaceWorkGpuOracle(
       read.read(output.radiance);
       read.read(output.control);
       read.read(output.metadata);
+      if (temporalFixture !== null) read.read(output.reactiveMask);
       output.heaps.forEach((heap) => read.read(heap));
       read.make_side_effect();
       output.signals.forEach((signal) => read.read(signal));
@@ -1125,6 +1178,7 @@ export async function runSurfaceWorkGpuOracle(
       if (abortOnly) {
         command.abort(new Error("fixture-controlled unsubmitted frame abort"));
         runtime.abort();
+        temporalFixture?.abort();
         readback.destroy();
         visibility.destroy();
         facts.destroy();
@@ -1132,6 +1186,7 @@ export async function runSurfaceWorkGpuOracle(
       }
       command.finish();
       runtime.commit(command.gpuDone, 11);
+      temporalFixture?.commit(command.gpuDone);
       await command.gpuDone;
       const submitAndCompleteMs = performance.now() - started;
       const gpuPasses =
@@ -1162,6 +1217,111 @@ export async function runSurfaceWorkGpuOracle(
             rowBytes * height + 2048 + publication.surfaceMetadata.size,
             capacity.heapBytes
           );
+      if (!cost) {
+        failureSnapshot = () => {
+          const metadata = new Uint32Array(
+            copy,
+            rowBytes * height + 2048,
+            publication.surfaceMetadata.size / 4
+          );
+          const code = new Uint32Array(copy, codeReadOffset, publication.exactDagCode.size / 4);
+          const metadataFloat = new Float32Array(metadata.buffer, metadata.byteOffset, metadata.length);
+          return {
+            fixture,
+            width,
+            height,
+            reuse,
+            overlay,
+            coherenceCapacity,
+            commandCount,
+            inputs: { lookupUV: Array.from(extraMaterials[0].appearance_inputs.get("lookupUV") ?? []) },
+            counters,
+            entries: publication.entries.map((entry, index) => {
+              const plan = code[index * 16 + 2];
+              const base = code[plan + 4];
+              return {
+                index,
+                header: Array.from(code.slice(index * 16, index * 16 + 16)),
+                plan: Array.from(code.slice(plan, plan + 8)),
+                dirty: metadata[code[code[plan + 7] + 2]],
+                paletteHeader: Array.from(
+                  metadata.slice(
+                    publication.surfaceMetadataOffsets.constantFields + index * 64,
+                    publication.surfaceMetadataOffsets.constantFields + index * 64 + 4
+                  )
+                ),
+                uniformValues: Array.from(metadataFloat.slice(base, base + code[plan + 2])),
+                constants: Array.from(
+                  metadataFloat.slice(
+                    publication.surfaceMetadataOffsets.constants + entry.constantBase,
+                    publication.surfaceMetadataOffsets.constants +
+                      entry.constantBase +
+                      entry.lowered.constants.length
+                  )
+                ),
+                palette: Array.from(
+                  metadataFloat.slice(
+                    publication.surfaceMetadataOffsets.constantFields + index * 64 + 4,
+                    publication.surfaceMetadataOffsets.constantFields + index * 64 + 64
+                  )
+                )
+              };
+            }),
+            samples: [
+              [0, 0],
+              [Math.floor(width * 0.75), Math.floor(height / 2)]
+            ].map(([x, y]) => {
+              const bank = Math.floor(y / capacity.bankRows);
+              const pixel = (y % capacity.bankRows) * width + x;
+              const words = new Uint32Array(
+                copy,
+                rowBytes * height + 2048 + publication.surfaceMetadata.size + bank * capacity.heapBytes,
+                capacity.heapBytes / 4
+              );
+              const floats = new Float32Array(words.buffer, words.byteOffset, words.length);
+              const signalWords = new Uint32Array(
+                copy,
+                signalReadOffset + bank * capacity.signalBytes,
+                capacity.signalBytes / 4
+              );
+              const signalFloats = new Float32Array(
+                signalWords.buffer,
+                signalWords.byteOffset,
+                signalWords.length
+              );
+              return {
+                x,
+                y,
+                bank,
+                entry: words[pixel * capacity.hotWords + capacity.hotWords - 1],
+                geometry: Array.from(
+                  floats.slice(pixel * capacity.hotWords, (pixel + 1) * capacity.hotWords)
+                ),
+                fields: Array.from(
+                  { length: capacity.fieldChannels + capacity.guideChannels },
+                  (_, field) =>
+                    floats[capacity.bankPixels * capacity.hotWords + field * capacity.bankPixels + pixel]
+                ),
+                signals: Array.from(
+                  { length: 18 },
+                  (_, channel) => signalFloats[channel * capacity.bankPixels + pixel]
+                ),
+                signalState: signalWords[18 * capacity.bankPixels + pixel],
+                hdr: Array.from(
+                  pixels.slice((y * rowBytes) / 2 + x * 4, (y * rowBytes) / 2 + x * 4 + 4),
+                  decodeFloat16
+                )
+              };
+            }),
+            radiometry: Array.from(
+              metadataFloat.slice(
+                publication.surfaceMetadataOffsets.radiometry,
+                publication.surfaceMetadataOffsets.radiometry + 5
+              )
+            )
+          };
+        };
+      }
       if (!cost) {
         const actualControl = new Uint32Array(copy, controlReadOffset, capacity.controlBytes / 4);
         const actualCode = new Uint32Array(copy, codeReadOffset, publication.exactDagCode.size / 4);
@@ -1465,7 +1625,9 @@ export async function runSurfaceWorkGpuOracle(
                 // Production exports world-space guides rather than raw TS values.
                 // Complete raw outputs remain covered by the standalone tape oracle.
                 if (field === 6 || field === 12) {
-                  const normalized = wanted.map((value) => value / Math.hypot(...wanted));
+                  const normalized = wanted.map(
+                    (value, channel) => (guideSigns[channel] * value) / Math.hypot(...wanted)
+                  );
                   const at =
                     (bank * capacity.heapBytes) / 4 +
                     capacity.bankPixels * capacity.hotWords +
@@ -1515,7 +1677,44 @@ export async function runSurfaceWorkGpuOracle(
                 check(
                   Math.abs(actual - wanted[channel]) <= bound,
                   "independent complete Appearance field mismatch " +
-                    JSON.stringify({ fixture, x, y, field, channel, actual, expected: wanted[channel] })
+                    JSON.stringify({
+                      fixture,
+                      x,
+                      y,
+                      field,
+                      channel,
+                      actual,
+                      expected: wanted[channel],
+                      parameters: Object.fromEntries(
+                        Object.entries(publication.entries[entry].lowered.parameterSlots).map(
+                          ([name, slots]) => [
+                            name,
+                            slots.map(
+                              (slot) =>
+                                metadataFloats[
+                                  publication.surfaceMetadataOffsets.constants +
+                                    publication.entries[entry].constantBase +
+                                    slot.slot
+                                ]
+                            )
+                          ]
+                        )
+                      ),
+                      versions: Array.from(
+                        allMetadata.slice(
+                          publication.surfaceMetadataOffsets.valueVersions,
+                          publication.surfaceMetadataOffsets.valueVersions + publication.entries.length * 2
+                        )
+                      ),
+                      queries: publication.requiresUniformResources
+                        ? Array.from(
+                            allMetadata.slice(
+                              publication.uniformQueryStatsBase,
+                              publication.uniformQueryStatsBase + publication.entries.length * 2
+                            )
+                          )
+                        : []
+                    })
                 );
               }
             }
@@ -1534,6 +1733,23 @@ export async function runSurfaceWorkGpuOracle(
             );
         }
       reports.push({
+        temporalSample:
+          temporalFixture === null
+            ? null
+            : Array.from(
+                new Uint8Array(
+                  copy,
+                  temporalReadOffset + Math.floor(height / 2) * rowBytes + Math.floor(width * 0.75) * 4,
+                  4
+                )
+              ),
+        valueVersions: Array.from(
+          new Uint32Array(
+            copy,
+            rowBytes * height + 2048 + publication.surfaceMetadataOffsets.valueVersions * 4,
+            publication.entries.length * 2
+          )
+        ),
         uniformQueries: publication.requiresUniformResources
           ? Array.from(
               new Uint32Array(
@@ -2378,13 +2594,23 @@ export async function runSurfaceWorkGpuOracle(
         publication.surfaceWorkProfiles[general ? 3 : 2],
         "uniform value reaches the requested fixed/General consumer"
       );
+      temporalFixture = new SurfaceTemporalValueFixture(device);
       await runCase(17, 5, false, null, "resource-uniform");
+      check(
+        reports.at(-1).temporalSample[2] === 255,
+        "new history is produced by the real TemporalFacts chain"
+      );
+      const valueRevision = reports.at(-1).valueVersions[5];
       check(reports.at(-1).uniformQueries[4] === 1, "real GPU producer samples the uniform query once");
       check(
         reports.at(-1).counters.sampleTextureQueries === 0 && reports.at(-1).counters.uniformScalarReads > 0,
         "original sample consumer reads values without repeating the resolved heavy query"
       );
       await runCase(33, 17, false, null, "resource-uniform");
+      check(
+        reports.at(-1).valueVersions[5] === valueRevision,
+        "stable values retain their real published version across extent changes"
+      );
       check(
         reports.at(-1).uniformQueries[4] === (frameDependent ? 2 : 1),
         "more covered pixels do not repeat heavy uniform queries"
@@ -2393,14 +2619,47 @@ export async function runSurfaceWorkGpuOracle(
       await runCase(33, 17, false, null, "resource-uniform", undefined, true);
       await runCase(33, 17, false, null, "resource-uniform");
       check(
+        reports.at(-1).valueVersions[5] === valueRevision + 1,
+        "numeric edit and abort publish one changed value version on retry"
+      );
+      check(
+        reports.at(-1).temporalSample[2] === 255 && reports.at(-1).temporalSample[1] === 255,
+        "current custom Appearance edits invalidate previous identity while retaining valid zero motion " +
+          JSON.stringify(reports.at(-1).temporalSample)
+      );
+      check(
         reports.at(-1).uniformQueries[4] === (frameDependent ? 3 : 2),
         "aborted material update retries exactly once and reaches consumers"
       );
       await runCase(33, 17, false, null, "resource-uniform");
       check(
+        reports.at(-1).valueVersions[5] === valueRevision + 1,
+        "unchanged frame-query results do not invalidate value history"
+      );
+      check(
+        reports.at(-1).temporalSample[2] === 0 && reports.at(-1).temporalSample[0] === 0,
+        "stable current values reuse real identity history without perpetual reactive rejection"
+      );
+      check(
         reports.at(-1).uniformQueries[4] === (frameDependent ? 4 : 2),
         "committed material is stable; frame-dependent queries follow the frame domain"
       );
+      for (let edit = 0; edit < 16; edit++) {
+        extraMaterials[0].appearance_inputs.set("lookupUV", edit % 2 === 0 ? [0.375, 0.625] : [0.25, 0.5]);
+        await runCase(33, 17, false, null, "resource-uniform", undefined, true);
+        await runCase(33, 17, false, null, "resource-uniform");
+        check(
+          reports.at(-1).temporalSample[2] === 255,
+          "each changed abort/retry input reaches the authoritative temporal consumer"
+        );
+        await runCase(33, 17, false, null, "resource-uniform");
+        check(
+          reports.at(-1).temporalSample[2] === 0,
+          "each stable retry result has reusable current history"
+        );
+      }
+      const beforeResourceQueryCount = reports.at(-1).uniformQueries[4];
+      const beforeResourceValueRevision = reports.at(-1).valueVersions[5];
       if (frameDependent) {
         cameraValues[12] = 0.125;
         device.queue.writeBuffer(camera, 0, cameraValues);
@@ -2415,9 +2674,37 @@ export async function runSurfaceWorkGpuOracle(
       revision.currentRevision++;
       await runCase(33, 17, false, null, "resource-uniform");
       check(
-        reports.at(-1).uniformQueries[4] === (frameDependent ? 5 : 3),
+        reports.at(-1).valueVersions[5] === beforeResourceValueRevision + 1,
+        "actual resource edit publishes the changed value identity for history"
+      );
+      check(
+        reports.at(-1).temporalSample[2] === 255,
+        "per-resource invalidation reaches TemporalFacts and Reconstruction"
+      );
+      check(
+        reports.at(-1).uniformQueries[4] === beforeResourceQueryCount + 1,
         "actual per-resource revision invalidates the uniform query value"
       );
+      device.queue.writeBuffer(
+        publication.surfaceMetadata,
+        (publication.surfaceMetadataOffsets.valueVersions + 5) * 4,
+        new Uint32Array([0xffffffff])
+      );
+      extraMaterials[0].appearance_inputs.set("lookupUV", [0.5, 0.5]);
+      await runCase(33, 17, false, null, "resource-uniform");
+      check(
+        reports.at(-1).valueVersions[5] === 0 &&
+          reports.at(-1).temporalSample[0] === 255 &&
+          reports.at(-1).temporalSample[1] === 0,
+        "exhausted version has a complete invalid-history destination"
+      );
+      await runCase(33, 17, false, null, "resource-uniform");
+      check(
+        reports.at(-1).valueVersions[5] === 0 && reports.at(-1).temporalSample[0] === 255,
+        "version exhaustion never wraps back into valid stale history"
+      );
+      temporalFixture.destroy();
+      temporalFixture = null;
       publication.destroy();
       cameraValues[12] = 0;
       device.queue.writeBuffer(camera, 0, cameraValues);
@@ -2486,22 +2773,140 @@ export async function runSurfaceWorkGpuOracle(
     );
     await runCase(17, 17, false, null, "appearance-product");
     await runCase(33, 33, true, 0, "appearance-product", 0);
+    check(
+      reports.at(-1).counters.sampleProductQueries > 0,
+      "real nonconstant Product queries reach current consumers"
+    );
+    publication.destroy();
+    const momentBuilder = new AppearanceGraphBuilder();
+    const momentUv = momentBuilder.input("uv0", 2, "surface", undefined, "uv0");
+    const momentXY = momentBuilder.operation("multiply", momentUv, momentBuilder.constant(0.05));
+    momentBuilder.output("alpha", momentBuilder.constant(1));
+    momentBuilder.output("baseColor", momentBuilder.constant([0.2, 0.3, 0.4]));
+    momentBuilder.output("emissive", momentBuilder.constant([0.03, 0.02, 0.01]));
+    momentBuilder.output("normalTS", momentBuilder.combine(momentXY, momentBuilder.constant(1)));
+    momentBuilder.output("roughness", momentBuilder.constant(0.4));
+    momentBuilder.output(
+      "coatNormalTS",
+      momentBuilder.combine(momentBuilder.swizzle(momentXY, [0]), momentBuilder.constant([0, 1]))
+    );
+    momentBuilder.output("coatRoughness", momentBuilder.constant(0.2));
+    momentBuilder.output("coatWeight", momentBuilder.constant(0.5));
+    const momentSource = compileAppearanceGraph(momentBuilder.build());
+    productReferenceData = cookAppearanceNormalProduct(
+      momentSource,
+      [
+        ["baseMoment", "normalTS", "roughness"],
+        ["coatMoment", "coatNormalTS", "coatRoughness"]
+      ].map(([momentField, normalOutput, roughnessOutput]) => ({
+        momentField,
+        normalOutput,
+        roughnessOutput,
+        normal: momentSource.outputs[normalOutput],
+        roughness: momentSource.outputs[roughnessOutput],
+        maxAngleRadians: 0.01,
+        maxRoughnessError: 0.025
+      })),
+      {
+        width: 8,
+        height: 8,
+        mipCount: 4,
+        byteBudget: 65536,
+        validationProbeBudget: 65536,
+        domainMin: [0, 0],
+        domainMax: [1, 1],
+        coordinateDomain: "uv0",
+        error: { absolute: 0.01, relative: 0 },
+        storagePrecision: "float16",
+        sample: () => []
+      }
+    );
+    const momentAsset = await openAppearanceAssetPackage(
+      await writeAppearanceAssetPackage(productReferenceData, {
+        uri: "oracle/surface-work-moments",
+        contentHash: "d".repeat(64),
+        dependencies: []
+      })
+    );
+    productReference = bindAppearanceProducts(momentSource, [{ source: momentSource, asset: momentAsset }]);
+    const momentUpdate = ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame");
+    publication = new GpuAppearancePublication(
+      device,
+      registry,
+      publicationSources.map((source, index) =>
+        index === 2 ? { ...source, program: productReference } : source
+      ),
+      momentUpdate,
+      new Map(),
+      new Map()
+    );
+    await publication.ready;
+    momentUpdate.finish();
+    await momentUpdate.gpuDone;
+    await runCase(17, 17, false, null, "appearance-product");
+    await runCase(33, 33, true, 0, "appearance-product", 0);
+    const originalInstances = instances.slice();
+    const originalCamera = cameraValues.slice();
+    // Static reflected/nonuniform instance, with the inverse camera projection
+    // keeping the independently known clip plane and UV lattice unchanged.
+    new Float32Array(instances.buffer).set(
+      [-2, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0.5, 0],
+      GPU_INSTANCE_RECORD_OFFSETS.current_affine / 4
+    );
+    new Float32Array(instances.buffer).set(
+      [1.5, 0, 0, -3, 0, -1, 0, 0, 0, 0, -6, 0],
+      GPU_FRAME_INSTANCE_OFFSETS.normalX / 4
+    );
+    new DataView(instances.buffer).setUint32(GPU_FRAME_INSTANCE_OFFSETS.generation, 11, true);
+    cameraValues.set([-0.5, 0, 0, 0, 0, 1 / 3, 0, 0, 0, 0, 2, 0, 0, 0, 0, 1], 96);
+    cameraValues.set([-2, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0.5, 0, 0, 0, 0, 1], 112);
+    cameraValues[64] = -0.5;
+    cameraValues[69] = 1 / 3;
+    cameraValues[74] = 2;
+    cameraValues[78] = 200;
+    cameraValues[80] = -2;
+    cameraValues[85] = 3;
+    cameraValues[90] = 0.5;
+    cameraValues[94] = -100;
+    device.queue.writeBuffer(frameInstances, 0, instances);
+    device.queue.writeBuffer(camera, 0, cameraValues);
+    const reflectedPrepare = ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame");
+    frameVertexOwner.encode(reflectedPrepare.gpu_encoder, completeVertices);
+    reflectedPrepare.finish();
+    await reflectedPrepare.gpuDone;
+    guideSigns = [-1, 1, 1];
+    await runCase(33, 33, false, null, "appearance-product");
+    await runCase(33, 33, true, 0, "appearance-product", 0);
+    guideSigns = [1, 1, 1];
+    instances.set(originalInstances);
+    cameraValues.set(originalCamera);
+    device.queue.writeBuffer(frameInstances, 0, instances);
+    device.queue.writeBuffer(camera, 0, cameraValues);
+    const restoredPrepare = ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame");
+    frameVertexOwner.encode(restoredPrepare.gpu_encoder, completeVertices);
+    restoredPrepare.finish();
+    await restoredPrepare.gpuDone;
     publication.destroy();
     extraMaterials[0].appearance_inputs.set("lookupUV", [0.375, 0.625]);
     publication = originalPublication;
+    failureSnapshot = null;
+    const coverageValues = await checkSurfaceCoverageValues(device, graphics, registry);
     check(apiErrors.length === 0, JSON.stringify(apiErrors));
     return {
       passed: true,
       scope: "current SurfaceWorkRuntime real Geometry Appearance Lighting Reconstruction chain",
       reports,
       geometryBoundaries,
+      coverageValues,
       timings,
       apiErrors
     };
   } catch (error) {
+    console.error("SurfaceWork failure boundary snapshot: " + JSON.stringify(failureSnapshot?.()));
     console.error("SurfaceWork assertion failure: " + error.stack);
     throw error;
   } finally {
+    temporalFixture?.destroy();
     device.createShaderModule = originalModule;
     device.createComputePipeline = originalPipeline;
     device.removeEventListener("uncapturederror", errorListener);
