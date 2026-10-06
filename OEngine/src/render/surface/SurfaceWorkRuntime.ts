@@ -413,14 +413,25 @@ export class SurfaceWorkRuntime {
       const previousTemporary = temporary;
       [metadata, temporary] = add(
         "Surface/publication constants",
-        [code, metadata, input.camera],
+        [
+          code,
+          metadata,
+          input.camera,
+          ...(input.publication.requiresUniformResources ? [...products, ...input.textureBanks.flat()] : [])
+        ],
         [metadata, temporary],
         (resources, command) =>
           input.publication.encodeWorkPublication(
             command,
             resources.get(previousTemporary) as GPUBuffer,
             input.frame.generation,
-            resources.get(input.camera) as GPUBuffer
+            resources.get(input.camera) as GPUBuffer,
+            input.publication.requiresUniformResources
+              ? input.textureBanks.map((banks) =>
+                  banks.map((id) => this.scratch.resolveTextureView(resources.get(id) as object))
+                )
+              : undefined,
+            this.mode === "detailed"
           )
       ) as [ResourceId, ResourceId];
     }

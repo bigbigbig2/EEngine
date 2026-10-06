@@ -4,7 +4,7 @@ import {
   FIXED_SURFACE_SAMPLE_WORDS,
   FIXED_SURFACE_PLAN_WORDS,
   FIXED_SURFACE_FIELDS_BASE,
-  FIXED_SURFACE_FIELD_WORDS,
+  FIXED_SURFACE_FIELD_WORDS
 } from "../material/FixedSurfaceFormulas.js";
 import { APPEARANCE_NORMAL_FILTER_WGSL } from "./appearance_normal_filter.js";
 
@@ -13,7 +13,10 @@ import { APPEARANCE_NORMAL_FILTER_WGSL } from "./appearance_normal_filter.js";
  * Publication supplies leaf references, factors
  * and formula options; there is no instruction loop or dynamic temporary array. */
 export function surfaceFixedFormulasWgsl(): string {
-  const vectorFields = APPEARANCE_FIELD_WIDTHS.reduce((mask, width, field) => mask | (width === 3 ? 1 << field : 0), 0);
+  const vectorFields = APPEARANCE_FIELD_WIDTHS.reduce(
+    (mask, width, field) => mask | (width === 3 ? 1 << field : 0),
+    0
+  );
   return /* wgsl */ `
 ${APPEARANCE_NORMAL_FILTER_WGSL}
 var<private> fixed_lane: u32;
@@ -47,6 +50,7 @@ fn fixed_leaf(reference: u32) -> f32 {
       let at = ((value >> 3u) * 9u + 4u + channel) * settings.lanes + fixed_lane;
       return dag_values[at];
     }
+    case 5u: { return appearance_dag_uniform(value); }
     default: {
       return bitcast<f32>(dag_metadata[settings.inputs +
         (dag_code[dag_entry + 7u] + (value >> 8u)) * 4u + (value & 255u)]);

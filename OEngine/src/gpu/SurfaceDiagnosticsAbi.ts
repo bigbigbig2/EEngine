@@ -7,7 +7,7 @@
  */
 import { SURFACE_WORK_HOT_WORDS } from "./GpuSurfaceWorkAbi.js";
 
-export const SURFACE_DIAGNOSTICS_SCHEMA_VERSION = 8;
+export const SURFACE_DIAGNOSTICS_SCHEMA_VERSION = 9;
 export const SURFACE_DIAGNOSTICS_MAGIC = 0x53564433; // "SVD3"
 export const SURFACE_DIAGNOSTICS_HEADER_WORDS = 16;
 export const SURFACE_DIAGNOSTICS_COUNTER_WORDS = 128;
@@ -136,6 +136,9 @@ export const SURFACE_DIAGNOSTIC_COUNTERS = Object.freeze({
   promotedTiles: 114,
   fieldScalarWrites: 115,
   geometrySetupEvaluations: 116,
+  sampleTextureQueries: 117,
+  sampleProductQueries: 118,
+  uniformScalarReads: 119,
 } as const);
 
 export const SURFACE_DIAGNOSTICS_COUNTERS = SURFACE_DIAGNOSTIC_COUNTERS;
@@ -161,6 +164,9 @@ export const SURFACE_DIAGNOSTIC_PRODUCERS: Readonly<Partial<Record<SurfaceDiagno
     fieldValuesProduced: "work_control[241]/actual missing field roots written",
     fieldScalarWrites: "work_control[242]/actual scalar SoA writes",
     geometrySetupEvaluations: "work_control[244]/actual primitive setup calls",
+    sampleTextureQueries: "work_control[300]/actual sample-domain resident query calls",
+    sampleProductQueries: "work_control[301]/actual sample-domain Product query calls",
+    uniformScalarReads: "work_control[302]/actual update value scalar loads",
     lightingRecordsProcessed: "work_control[261]/closed lit sample",
     diffuseEvaluations: "work_control[256]/direct sample calls",
     specularEvaluations: "work_control[257]/direct sample calls",

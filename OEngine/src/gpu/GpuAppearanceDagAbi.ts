@@ -25,6 +25,8 @@ export interface AppearanceDagSource {
   readonly domainHandle?: number;
 }
 export interface AppearanceDagPublicationData {
+  readonly workPlans: readonly import("../material/ExactAppearanceDag.js").AppearanceWorkPlan[];
+  readonly uniformResourceSetMask: number;
   readonly code: Uint32Array;
   readonly products: readonly Uint32Array[];
   readonly productBankWords: number;
@@ -74,6 +76,8 @@ export function packAppearanceDagPublication(
   let hasFrameUniform = false;
   const frameRecords: number[] = [];
   const uniformDependencies: number[][] = [];
+  const workPlans: import("../material/ExactAppearanceDag.js").AppearanceWorkPlan[] = [];
+  let uniformResourceSetMask = 0;
   const generalTemplates = Array.from({ length: 4 }, () => new Set<number>());
   const domains: number[][] = [];
   const domainIds = new Map<string, number>();
@@ -92,9 +96,16 @@ export function packAppearanceDagPublication(
       outputs: Object.fromEntries(Object.entries(source.program.outputs).filter(([name]) => name !== "alpha"))
     };
     const execution = compileAppearanceExecutionPlan(surfaceProgram, source.lowered);
+    workPlans.push(execution.workPlan);
+    if (
+      execution.workPlan.uniformTextureQueries.length > 0 ||
+      execution.workPlan.uniformProductQueries.length > 0
+    ) {
+      uniformResourceSetMask |= 1 << source.textureBindingSetId;
+    }
     const dag = execution.varying;
     const constantMask = execution.constantFields;
-    const formulas = compileFixedSurfaceFormulas(surfaceProgram, source.lowered);
+    const formulas = compileFixedSurfaceFormulas(surfaceProgram, source.lowered, execution.uniformRefs);
     const templateKey = JSON.stringify([
       Array.from(dag.instructions),
       Array.from(execution.publication.instructions),
@@ -325,6 +336,8 @@ export function packAppearanceDagPublication(
     }
   }
   return Object.freeze({
+    workPlans: Object.freeze(workPlans),
+    uniformResourceSetMask,
     code: Uint32Array.from(words),
     products: Object.freeze(products),
     productBankWords: bankWords,

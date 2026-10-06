@@ -1168,3 +1168,9 @@ Phase6的选择性reset、stable settings/BG/view、resource tuple fast path、l
 | SF06域任务/virtual sample机制、SF11 count/prefix/scatter | 实际域值/独立需求及有限工作组织参考，B1/B2/C | 不提供通用材质DAG精确bake、完整cache identity/容量/唯一writer/失败恢复；不复制旧协调链 |
 
 R3完整新算法实施前仍须核具体固定源函数/关键分支/输入输出/失效与降级，缺完整donor时按根AGENTS补检索范围与本地决策。此条是来源覆盖边界与实施责任，不假称本轮又搜到了完整donor或已有GPU消费证据。
+
+### R3 B1 资源依赖频率实施边界（2026-10-07）
+
+实施前重新打开SF10固定`shader_graph.cpp`（完整`find_dependencies`的链接遍历/去重）与`svm.cpp`（dependency/stack生命周期入口），复核Apache-2.0头；沿用既有完整IR、GPU sampler/moment/CXY数学，不移植上游CPU folding或私有stack。Cycles没有本地GPU查询uniform发布/TextureResidency事务的完整donor，具名本地Resource-aware Appearance WorkPlan继续承担此职责，不声明完整上游采用。
+
+本地映射：完整ancestor/UV依赖→`compileAppearanceExecutionPlan`的frequency/workPlan与boundary refs；原resident/Product query→GPU更新producer同数学；matching-version uniform→fixed/General读取；constant mask→真正sample需求/Geometry闭包；`TextureSurfacePublication`实际每资源revision→仅相关更新域dirty；publication submit/abort及immutable源republish→版本发布/退休。保留未知/空间输入完整sample-dependent、normal/moment validity、原footprint/过滤、资源profile与16 Surface storage限制。编译预期与真实Surface更新值消费已在执行文档§6.11登记；支持过的Surface Product过滤仍按既有SF07合同，不能把测试人工构造的uniform查询外推为任意DAG精确bake。来源仍是本地集成与参考，不提升完整上游算法adoption或历史性能claim。

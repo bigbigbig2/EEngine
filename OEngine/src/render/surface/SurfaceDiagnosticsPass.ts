@@ -8,7 +8,7 @@ import {
   writeSurfaceDiagnosticsHeader,
   type SurfaceDiagnosticsIdentity
 } from "../../gpu/SurfaceDiagnosticsAbi.js";
-import type { SurfaceWorkCapacity } from "../../gpu/GpuSurfaceWorkAbi.js";
+import { SURFACE_WORK_QUERY_COUNTERS as Q, type SurfaceWorkCapacity } from "../../gpu/GpuSurfaceWorkAbi.js";
 import { SurfaceFrameResources, type SurfaceResourceBinding } from "./SurfaceFrameResources.js";
 export type SurfaceDiagnosticsSnapshotEncoder = (
   command: ShadeGPUCommandContext,
@@ -64,7 +64,10 @@ export class SurfaceDiagnosticsPass {
       domainDescriptions: "settings.domains",
       coverageReferences: "control[32u] + control[33u] + control[34u] + control[35u]",
       promotedTiles: counter(232),
-      geometrySetupEvaluations: counter(244)
+      geometrySetupEvaluations: counter(244),
+      sampleTextureQueries: counter(Q.texture),
+      sampleProductQueries: counter(Q.product),
+      uniformScalarReads: counter(Q.uniformRead)
     };
     const available = new Uint32Array(4);
     const lines: string[] = [];

@@ -18,13 +18,13 @@ goal: >-
   Keep one authority per product, one production FrameGraph and one frame submit.
 
 currentSlice:
-  id: eengine-extreme-performance-rebuild-b1
-  title: Surface B1/B2：按R3补齐Appearance工作域与真实需求，单元集中检查
+  id: eengine-extreme-performance-rebuild-b2
+  title: Surface B2：扩展R3全closure与consumer合同，单元集中检查
   status: active
   goal: >-
-    A0/A1既有核对入口为执行文档§5.1；B1/B2仍开放。
+    A0/A1既有核对入口为执行文档§5.1；B1最小更新工作域已集中核对，B2继续。
     当前文档方向为SURFACE-2026-10-07-R3，实际源码与缺口统一见执行文档§6.11。
-    当前任务入口为执行文档§6的B1与§7的B2，依母稿SD01–SD11完成WorkPlan、
+    当前任务入口为执行文档§7的B2，依母稿SD01–SD11扩展WorkPlan、
     完整资源依赖频率、值引用、真实miss/dirty与Geometry需求union、全部直接consumer。
     在完整切换单元链连通后集中检查，再进入下一单元；不以逐patch微测改架构。
     C扩展可选复用，核心计算域不能全部后移；R1/R2实验仅由执行文档历史附录追溯。

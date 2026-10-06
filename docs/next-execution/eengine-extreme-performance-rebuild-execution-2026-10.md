@@ -25,7 +25,7 @@ verifies:
 
 # EEngine 极致性能重建执行计划：架构切换与集中验证
 
-修订：**SURFACE-2026-10-07-R3**。依据：[设计母稿](../next-design/eengine-extreme-performance-rebuild-2026-10.md)、[固定来源与迁移账本](../porting/next-renderer.md)、[根 AGENTS](../../AGENTS.md)。本轮为文档重构，没有实施 R3 源码，也没有重跑引擎/GPU 测试。
+修订：**SURFACE-2026-10-07-R3**。依据：[设计母稿](../next-design/eengine-extreme-performance-rebuild-2026-10.md)、[固定来源与迁移账本](../porting/next-renderer.md)、[根 AGENTS](../../AGENTS.md)。当前实现、检查与开放责任只维护于§6.11，历史结果留在附录H。
 
 阅读顺序：§1开发节奏 → §2阶段关系 → §6/§7当前B1/B2交付 → §6.11当前源码与缺口。附录H保留A0/A1、R1/R2快照和原始实验/失败，均只供追溯，不能继续按其中旧任务执行。SD是设计责任，S是GPU语义数据流，B1-xx/B2-xx是单元内任务；执行阶段只有 **A0 → A1 → B1 → B2 → C → D → E → F**。
 
@@ -158,20 +158,30 @@ unknown或不一致依赖进入同一完整直接worker；cold/newly-visible/res
 
 出口证明：普通贵更新级work真实不再默认逐pixel；全部sample-dependent原语义有完整入口；命令有界、管理不支配本范围计算、optional OFF正常；峰值含metadata、settings、temporary、retained、active/retired。若贵值生产仍P次或consumer补算，架构未完成。General执行代价仍须说明并进入整体优化记录，不能承诺任意全屏复杂图达到未批准FPS。
 
-### 6.11 当前源码与开放责任（R3文档基点）
+### 6.11 当前源码与开放责任（2026-10-07 B1集中核对）
 
-当前生产源码事实以Git/source为准。R2已有有限fixed/完整typed General、publication/material/frame/sample分离、template一致work、arena v3、局部Geometry→Appearance、窄fields/六RGB与单submit；旧batch/tree/proof/Winner owner已从主链删除。现有domain是结构recipe，不等于唯一Appearance值；`surface_appearance_item`仍对sample-dependent字段逐可见目标执行，后置rate主要减少Lighting。当前没有R3 WorkPlan/value resolve生产链，不能把已通过旧测试当R3已实现。
+当前生产源码事实以Git/source为准。B1的最小工作域链已接通并集中核对：`ExactAppearanceDag`的完整资源坐标依赖→`GpuAppearancePublication`更新producer/匹配uniform refs→fixed/General→原Lighting/Reconstruct。WorkPlan声明每个Surface字段的完整祖先、频率、查询、输入、估计操作权重、值表示、失效和完整direct降级；估计权重不是GPU计时或cache admission。template、numeric/resource snapshot和domain recipe保持分离。alpha仍由原Coverage生产，Surface不调度其独占祖先。
+
+资源查询只有完整坐标与原CXY均uniform才进入GPU更新，原resident/Product过滤、normal/moment数学不变。每资源`currentRevision`来自TextureResidency的真实提交；immutable内容/route/asset变化沿用重新出版。参数/帧更新、abort重试、绑定、metadata/scratch容量和retire随producer同迁。更新输出直接进入palette/boundary，sample mask与Geometry闭包在work消费前排除已满足依赖，其他Lighting/guides需求仍由唯一Geometry owner生成。该切换没有新Store/coordinator、额外frame submit或质量近似。
+
+**B1核对结果与边界：** typecheck、build、新鲜build:test和90项CPU合同通过；同最终源码的Surface GPU有73组链用例及66组Geometry边界检查，无API错误。材质级查询覆盖17×5→33×17仍只有一次实际查询，sample查询为0、真实uniform读取随覆盖增长；参数变更/abort重试/稳定帧/实际资源revision变化对应1→2→2→3次。frame-dependent查询按帧重算；空间查询保留原CXY。真实非恒定cooked Product字段经General、Lighting与重建，在复用OFF及optional容量0下对独立CPU产品过滤结果通过。完整DAG算术/嵌套坐标仍由独立GPU组件核对，不能用它代替Surface覆盖。字段值、非零provider、HDR、AO/guard等原断言未放宽。
+
+本轮原始失败保留在`.local/r3/`：新增夹具曾错误使用不存在的`appearance_inputs.delete`、缺alpha与读错palette entry；旧packed-world夹具缺当前device/compute API且调用退休`program()`；Product线性fixture的粗mip真实超出其声明预算，改为合法较小幅度输入并收紧数值断言，没有改生产容差或质量预算。这些是夹具/接口问题，不能追认为生产性能修复。测试产物为本地诊断，不提升正式claims。
+
+**当前Showcase实际范围：** 同源码25个材质、300个已声明Surface字段，其中200个update、100个cheap-sample；每个材质一个空间纹理查询，uniform resource query为0。1080p本次固定视图可见681,012像素（32.84%），实际sample texture query为681,012次、uniform scalar read为4,767,084次，4个帧均覆盖通过；这说明共享查询没有按ORM字段重复，但主要纹理查询仍是pixel-rate。不能声称B1已降低该场景的主要纹理工作。publication GPU占40,476B，Appearance lane scratch占344,064B，Surface transient占362,391,280B；active/retired生命周期另由owner合同核对，不把字节减少当帧时收益。
+
+同一短采、相同视图/画质的timing模式4帧：Surface P50 13.83ms、GPU command span P50 24.71ms；paired管理2.62ms、Geometry/Appearance加Lighting计算8.65ms、重建等辅助2.23ms。没有温度/clock控制，覆盖与§6.12历史80.4%不同，禁止历史收益比较或最终验收外推。1080p独立链cost夹具保留cold/warm及reuse OFF/ON；warm管理不支配计算、OFF链正确且同量级，General仍明显昂贵。本轮记录成本而不设未授权FPS门槛。
 
 | 责任 | 已有依据 | R3继续交付 |
 |---|---|---|
-| 更新/依赖 | `ExactAppearanceDag`已提取部分uniform；texture节点仍直接定sample-dependent | 完整资源查询输入/footprint/版本频率，真实update→value→consumer |
-| 工作组织 | 有限profile/模板packet、indexed fallback、目录intern | 实际值与miss/dirty需求分流，不只重排原P份work |
-| Geometry/fields | 唯一局部completion、thin/guides/consumer导出、Product16 binding | resolved值不重跑heavy依赖，其他dirty union完整；近裁剪覆盖/镜像nonuniform全链组合仍需核 |
+| 更新/依赖 | B1更新域查询与fixed/General读者已接通；资源/参数/帧/abort见上述检查 | B2全面closure、直接读者与失效组合核对；C扩展其他确有收益的复用 |
+| 工作组织 | WorkPlan驱动uniform字段mask/refs；有限profile/模板packet、indexed fallback | B2全字段/共享子图及实际需求union，删除无reader的CPU遗留 |
+| Geometry/fields | 唯一局部completion、thin/guides、Product16 binding；uniform hit不重跑其heavy依赖 | B2全部guides/guard与镜像nonuniform真实Surface组合核对 |
 | signal/reconstruct | 六种独立RGB/state/recipe、AO/颜色/曝光原数学 | B2完整读取合同与各signal合法成功/局部拒绝，不能以Lighting coarse证明Appearance sparse |
-| 生命周期 | 既有abort/retire/容量与跨owner回滚检查 | 新value/update产品同合同；历史D3D12 OOM根因仍开放，绿色复跑不追认修复 |
-| 成本 | Showcase fixed融合pass与General均贵，管理不再是该短采首要热点 | 减工作与执行税分别核；当前数值预算未定，B1/B2仍未完整收口 |
+| 生命周期 | B1新value/update产品进入原abort/retire/容量事务 | B2组合边界；历史D3D12 OOM根因仍开放，绿色复跑不追认修复 |
+| 成本 | B1普通更新域真实减贵查询；当前Showcase主要空间查询仍逐pixel | B2先全面合同，C后整体定位；数值预算未定，B2未收口，不追最终FPS |
 
-上一轮未提交的Geometry边界oracle/Visibility生命周期fixture及文档记录保留，不作为本轮源码实施。主分支继续，不建工作分支。此前结果/source差异、原始失败与覆盖限制统一在附录H；本表只记录当前缺口，不复制每轮测试数量。
+阶段前快照已在master提交`be4d47c6`；B1源码另作连贯提交。主分支继续，不建工作分支。正式browser matrix、device replacement、长期画质与同条件历史比较留最终验收；B1不宣称这些已通过。此前source差异、原始失败与覆盖限制统一在附录H。
 
 ### 6.12 已有成本证据如何使用
 

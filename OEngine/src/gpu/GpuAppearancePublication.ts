@@ -25,7 +25,7 @@ import type { AppearanceAssetPackage } from "../assets/AppearanceAssetPackage.js
 import type { StandardShadeMaterial } from "../material/StandardShadeMaterial.js";
 import { standardAppearanceParameters } from "../material/AppearanceRuntimeInputs.js";
 import { packAppearanceDagPublication } from "./GpuAppearanceDagAbi.js";
-import { planExactAppearanceLanes } from "../material/ExactAppearanceDag.js";
+import { planExactAppearanceLanes, type AppearanceWorkPlan } from "../material/ExactAppearanceDag.js";
 import { SURFACE_WORK_RETAINED_FIELDS } from "./GpuSurfaceWorkAbi.js";
 import { appearancePublicationExactDescriptor } from "../shaders/appearance_publication_exact.js";
 import { surfaceWorkAppearanceWgsl } from "../shaders/surface_work.js";
@@ -155,6 +155,14 @@ export class GpuAppearancePublication {
   private uniformFlagBase = 0;
   private uniformDependencies: readonly (readonly number[])[] = [];
   private hasFrameUniform = false;
+  readonly workPlans!: readonly AppearanceWorkPlan[];
+  private uniformResourceSetMask = 0;
+  readonly uniformQueryStatsBase!: number;
+  get requiresUniformResources(): boolean {
+    return this.uniformResourceSetMask !== 0;
+  }
+  private publicationSetMask = 0;
+  private uniformResources: { publication: TextureSurfacePublication; revision: number }[][] = [];
   private committedUniformRevision = 0;
 
   constructor(
@@ -487,7 +495,23 @@ export class GpuAppearancePublication {
       this.uniformFlagBase = exactData.uniformFlagBase;
       this.uniformDependencies = exactData.uniformDependencies;
       this.hasFrameUniform = exactData.hasFrameUniform;
-      const uniformMetadata = new Uint32Array(surfaceMetadataData.length + exactData.uniformWords);
+      this.workPlans = exactData.workPlans;
+      this.uniformResourceSetMask = exactData.uniformResourceSetMask;
+      this.publicationSetMask = entries.reduce((mask, entry) => mask | (1 << entry.textureBindingSetId), 0);
+      this.uniformResources = exactData.workPlans.map((plan, index) =>
+        Array.from(plan.uniformTextureQueries).flatMap((query) => {
+          const publication = texturePublications.get(
+            entries[index]!.program.samples[query]!.binding.texture
+          );
+          return publication === undefined
+            ? []
+            : [{ publication, revision: publication.currentRevision ?? publication.revision }];
+        })
+      );
+      this.uniformQueryStatsBase = surfaceMetadataData.length + exactData.uniformWords;
+      const uniformMetadata = new Uint32Array(
+        this.uniformQueryStatsBase + (this.uniformResourceSetMask !== 0 ? entries.length * 2 : 0)
+      );
       uniformMetadata.set(surfaceMetadataData);
       surfaceMetadataData = uniformMetadata;
       if (surfaceMetadataData.byteLength > maximum) {
@@ -515,7 +539,7 @@ export class GpuAppearancePublication {
         }
       }
       const workDescriptors = [
-        appearancePublicationExactDescriptor(),
+        appearancePublicationExactDescriptor(this.uniformResourceSetMask !== 0),
         surfaceWorkDescriptor(false, true),
         surfaceWorkDescriptor(false, false),
         surfaceWorkDescriptor(true, true),
@@ -803,7 +827,9 @@ export class GpuAppearancePublication {
     command: ShadeGPUCommandContext,
     scratch: GPUBuffer,
     frame: number,
-    camera: GPUBuffer
+    camera: GPUBuffer,
+    textureBanks?: readonly (readonly GPUTextureView[])[],
+    diagnostics = false
   ): void {
     const ready = this.surfacePipelines?.[0];
     if (
@@ -814,10 +840,16 @@ export class GpuAppearancePublication {
     ) {
       throw new Error("Surface constant publication requires ready same-device programs");
     }
+    this.refreshUniformResources();
     if (!this.hasFrameUniform && this.committedUniformRevision === this.uniformRevision) {
       return;
     }
     const revision = this.uniformRevision;
+    const resources = this.uniformResourceSetMask !== 0;
+    const sets = resources ? [0, 1, 2, 3].filter((set) => (this.publicationSetMask & (1 << set)) !== 0) : [0];
+    if (resources && sets.some((set) => textureBanks?.[set]?.length !== 9)) {
+      throw new Error("Resource uniform update requires complete resident bank sets");
+    }
     command.writeBuffer(
       this.surfaceMetadata,
       this.uniformFlagBase * 4,
@@ -825,42 +857,75 @@ export class GpuAppearancePublication {
       0,
       this.uniformFlags.byteLength
     );
-    const settings = this.surfaceSettings[0]!;
-    const offsets = this.surfaceMetadataOffsets;
-    command.writeBuffer(
-      settings,
-      0,
-      new Uint32Array([
-        this.entries.length,
-        offsets.constantFields,
-        offsets.constants,
-        offsets.runtimeInputs,
-        this.exactDagLanes,
-        this.exactDagLiveWords,
-        frame,
-        0
-      ]).buffer,
-      0,
-      32
-    );
-    const group = this.obtainSurfaceBindGroup(ready.layouts[0]!, [
-      { binding: 0, resource: { buffer: this.exactDagCode } },
-      { binding: 1, resource: { buffer: this.surfaceMetadata } },
-      { binding: 2, resource: { buffer: scratch } },
-      { binding: 3, resource: { buffer: settings } },
-      { binding: 4, resource: { buffer: camera } }
-    ]);
-    const pass = command.beginComputePass({ label: "Surface/publication constants" });
-    pass.setPipeline(ready.pipeline);
-    pass.setBindGroup(0, group);
-    pass.dispatchWorkgroups(Math.ceil(Math.min(this.exactDagLanes, this.entries.length) / 64));
-    pass.end();
+    for (const set of sets) {
+      const settings = this.surfaceSettings[0]!;
+      const offsets = this.surfaceMetadataOffsets;
+      command.writeBuffer(
+        settings,
+        0,
+        new Uint32Array([
+          this.entries.length,
+          offsets.constantFields,
+          offsets.constants,
+          offsets.runtimeInputs,
+          this.exactDagLanes,
+          this.exactDagLiveWords,
+          frame,
+          diagnostics && resources ? this.uniformQueryStatsBase : 0,
+          offsets.routes,
+          this.exactDagProductBankWords,
+          set,
+          0
+        ]).buffer,
+        0,
+        48
+      );
+      const group = this.obtainSurfaceBindGroup(ready.layouts[0]!, [
+        { binding: 0, resource: { buffer: this.exactDagCode } },
+        { binding: 1, resource: { buffer: this.surfaceMetadata } },
+        { binding: 2, resource: { buffer: scratch } },
+        { binding: 3, resource: { buffer: settings } },
+        { binding: 4, resource: { buffer: camera } },
+        ...(resources
+          ? this.exactDagProducts.map((buffer, index) => ({ binding: index + 5, resource: { buffer } }))
+          : [])
+      ]);
+      const pass = command.beginComputePass({ label: "Surface/publication constants" });
+      pass.setPipeline(ready.pipeline);
+      pass.setBindGroup(0, group);
+      if (resources) {
+        const banks = textureBanks?.[set];
+        pass.setBindGroup(1, this.obtainSurfaceBindGroup(ready.layouts[1]!, this.workTextureEntries(banks!)));
+      }
+      pass.dispatchWorkgroups(Math.ceil(Math.min(this.exactDagLanes, this.entries.length) / 64));
+      pass.end();
+    }
     command.onFinished.addOne(() => {
       this.committedUniformRevision = revision;
       if (this.uniformRevision === revision) {
         this.uniformFlags.fill(0);
       }
     });
+  }
+
+  private refreshUniformResources(): void {
+    let changed = false;
+    for (let entry = 0; entry < this.uniformResources.length; entry++) {
+      for (const resource of this.uniformResources[entry]!) {
+        const revision = resource.publication.currentRevision ?? resource.publication.revision;
+        if (resource.revision !== revision) {
+          resource.revision = revision;
+          this.uniformFlags[entry]! |= 2;
+          changed = true;
+        }
+      }
+    }
+    if (changed) {
+      if (this.uniformRevision >= 0xffffffff) {
+        throw new RangeError("Appearance uniform resource version exhausted; republish the scene");
+      }
+      this.uniformRevision++;
+    }
   }
 
   workTextureEntries(banks: readonly GPUTextureView[]): GPUBindGroupEntry[] {

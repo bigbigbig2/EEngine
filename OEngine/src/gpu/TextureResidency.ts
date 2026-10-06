@@ -602,6 +602,9 @@ export class TextureResidency {
                 generation: entry.generation,
                 localVariationSlot: entry.slot,
                 revision: entry.surfaceRevision,
+                get currentRevision() {
+                  return entry.surfaceRevision;
+                },
                 variation: entry.variation,
               }),
             ]),

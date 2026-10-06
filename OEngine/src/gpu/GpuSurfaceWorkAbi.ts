@@ -16,6 +16,8 @@ export const SURFACE_WORK_INVALID = 0xffffffff;
 export const SURFACE_WORK_SIGNAL_OFFSET_WORD = 18;
 export const SURFACE_WORK_SIGNAL_WORDS = 19;
 export const SURFACE_WORK_COHERENCE_HEADER = 384;
+/** Detailed diagnostics only; reserved control words, not work allocation. */
+export const SURFACE_WORK_QUERY_COUNTERS = Object.freeze({ texture: 300, product: 301, uniformRead: 302 });
 export const SURFACE_WORK_COHERENCE_BINS = 16;
 export const SURFACE_WORK_COHERENCE_BUCKET_WORDS = 3;
 /** Alpha is consumed by Coverage. Raw TS normals/validity are consumed locally

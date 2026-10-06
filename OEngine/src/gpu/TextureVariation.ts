@@ -10,6 +10,8 @@ export interface TextureSurfacePublication {
   readonly slot: number;
   readonly generation: number;
   readonly revision: number;
+  /** Live owner revision; revision above remains the publication snapshot. */
+  readonly currentRevision?: number;
   /** Descriptor is validated on GPU; CPU residency does not decide shading work. */
   readonly localVariationSlot: number;
   readonly variation: TextureVariation;
@@ -17,14 +19,14 @@ export interface TextureSurfacePublication {
 const UNKNOWN: TextureVariation = Object.freeze({
   known: false,
   low: [0, 0, 0, 0] as const,
-  high: [1, 1, 1, 1] as const,
+  high: [1, 1, 1, 1] as const
 });
 const linear = (value: number): number =>
   value <= 0.04045 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
 
 export function decodedTextureVariation(
   texture: ShadeTexture,
-  selected?: SelectedTextureVariantV2,
+  selected?: SelectedTextureVariantV2
 ): TextureVariation {
   let payloads: readonly Uint8Array[];
   let srgb: boolean;

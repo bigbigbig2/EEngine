@@ -65,6 +65,8 @@ interface TapeStage {
 }
 
 export interface AppearanceExecutionPlan {
+  readonly workPlan: AppearanceWorkPlan;
+  readonly uniformRefs: ReadonlyMap<number, number>;
   readonly varying: ExactAppearanceDag;
   readonly publication: ExactAppearanceDag;
   readonly update: ExactAppearanceDag;
@@ -73,6 +75,35 @@ export interface AppearanceExecutionPlan {
   readonly constantFields: number;
   /** field/channel/uniform-word/mask: complete publication output mapping. */
   readonly constantOutputs: Uint32Array;
+}
+
+/** Complete query dependencies classify work; template bins do not identify values. */
+export interface AppearanceWorkPlan {
+  readonly fields: readonly AppearanceFieldWork[];
+  readonly nodeFrequencies: Uint8Array;
+  readonly uniformTextureQueries: Uint32Array;
+  readonly sampleTextureQueries: Uint32Array;
+  readonly uniformProductQueries: Uint32Array;
+  readonly sampleProductQueries: Uint32Array;
+}
+
+export interface AppearanceFieldWork {
+  readonly field: number;
+  readonly roots: readonly number[];
+  /** Complete topological closure, including resource coordinates. */
+  readonly dependencies: Uint32Array;
+  readonly frequency: number;
+  readonly textureQueries: Uint32Array;
+  readonly productQueries: Uint32Array;
+  readonly parameters: readonly string[];
+  readonly inputs: readonly string[];
+  /** Compiler operation weights, not measured GPU time or cache admission. */
+  readonly estimatedOperationCost: number;
+  readonly category: "update" | "cheap-sample" | "product-domain" | "expensive-sample";
+  readonly value: "uniform" | "product-indexed" | "sample-indexed";
+  /** Numeric/frame edits update the matching tape; immutable content/route edits republish. */
+  readonly invalidation: readonly ("publication" | "material" | "frame" | "residency")[];
+  readonly fallback: "complete-direct";
 }
 
 /** SF10 dependency/stack organization, extended locally with exact GPU uniform
@@ -112,7 +143,9 @@ export function compileAppearanceExecutionPlan(
       ((node.kind === "product" || node.kind === "normal-product") &&
         program.productReads![node.product!]!.field.constant === undefined)
     ) {
-      rate = 3;
+      // Contents/routes are update dependencies. Complete coordinate ancestors
+      // below promote spatial queries to sample-rate, including their CXY.
+      rate = 1;
     } else if (node.kind === "input") {
       const input = program.inputs.find((value) => value.name === node.input);
       if (input === undefined) {
@@ -125,6 +158,68 @@ export function compileAppearanceExecutionPlan(
       rate = Math.max(rate, frequency[arg]!);
     }
     frequency[ref] = rate;
+  }
+  const fields: AppearanceFieldWork[] = [];
+  for (let field = 0; field < APPEARANCE_FIELD_NAMES.length; field++) {
+    const roots = program.outputs[APPEARANCE_FIELD_NAMES[field]!];
+    if (roots === undefined) continue;
+    const closure = new Set<number>();
+    const pending = [...roots];
+    const textures = new Set<number>(),
+      products = new Set<number>();
+    const parameters = new Set<string>(),
+      inputs = new Set<string>();
+    let cost = 0,
+      rate = 0;
+    while (pending.length > 0) {
+      const ref = pending.pop()!;
+      if (closure.has(ref)) continue;
+      closure.add(ref);
+      const node = program.instructions[ref]!;
+      rate = Math.max(rate, frequency[ref]!);
+      if (node.sample !== undefined) textures.add(node.sample);
+      if (node.product !== undefined) products.add(node.product);
+      if (node.parameter !== undefined) parameters.add(node.parameter);
+      if (node.input !== undefined) inputs.add(node.input);
+      cost +=
+        node.kind === "texture" || node.kind === "product" || node.kind === "normal-product"
+          ? 4
+          : node.kind !== "operation"
+            ? 0
+            : ["pow", "sin", "cos", "sqrt"].includes(node.op!)
+              ? 8
+              : 1;
+      pending.push(...dependencies(ref));
+    }
+    const productValue = roots.every((ref) => program.instructions[ref]!.kind === "product");
+    const invalidation: ("publication" | "material" | "frame" | "residency")[] = ["publication"];
+    if ([...closure].some((ref) => frequency[ref] === 1)) invalidation.push("material");
+    if ([...closure].some((ref) => frequency[ref] === 2)) invalidation.push("frame");
+    if (textures.size > 0) invalidation.push("residency");
+    fields.push(
+      Object.freeze({
+        field,
+        roots,
+        dependencies: Uint32Array.from([...closure].sort((a, b) => a - b)),
+        frequency: rate,
+        textureQueries: Uint32Array.from(textures),
+        productQueries: Uint32Array.from(products),
+        parameters: Object.freeze([...parameters]),
+        inputs: Object.freeze([...inputs]),
+        estimatedOperationCost: cost,
+        category:
+          rate < 3
+            ? "update"
+            : productValue
+              ? "product-domain"
+              : cost <= 12
+                ? "cheap-sample"
+                : "expensive-sample",
+        value: rate < 3 ? "uniform" : productValue ? "product-indexed" : "sample-indexed",
+        invalidation: Object.freeze(invalidation),
+        fallback: "complete-direct"
+      })
+    );
   }
   const boundaries = new Map<number, number>();
   const keep = (ref: number): void => {
@@ -142,11 +237,14 @@ export function compileAppearanceExecutionPlan(
       }
     }
   }
-  let constantFields = 0;
+  // Unauthored fields retain the publication palette's semantic defaults.
+  let constantFields = APPEARANCE_FIELD_NAMES.reduce(
+    (mask, name, field) => (program.outputs[name] === undefined ? mask | (1 << field) : mask),
+    0
+  );
   const outputs: number[] = [];
-  for (let field = 0; field < APPEARANCE_FIELD_NAMES.length; field++) {
-    const roots = program.outputs[APPEARANCE_FIELD_NAMES[field]!] ?? [];
-    if (roots.every((ref) => frequency[ref]! < 3)) {
+  for (const { field, roots, value } of fields) {
+    if (value === "uniform") {
       constantFields |= 1 << field;
       for (let channel = 0; channel < roots.length; channel++) {
         const ref = roots[channel]!;
@@ -158,7 +256,32 @@ export function compileAppearanceExecutionPlan(
   const publication = new Map([...boundaries].filter(([ref]) => frequency[ref] === 0));
   const material = new Map([...boundaries].filter(([ref]) => frequency[ref] === 1));
   const frame = new Map([...boundaries].filter(([ref]) => frequency[ref] === 2));
+  const uniformTextures = new Set<number>();
+  const sampleTextures = new Set<number>();
+  const uniformProducts = new Set<number>();
+  const sampleProducts = new Set<number>();
+  for (let ref = 0; ref < program.instructions.length; ref++) {
+    if (required[ref] === 0) {
+      continue;
+    }
+    const node = program.instructions[ref]!;
+    if (node.sample !== undefined) {
+      (frequency[ref]! < 3 ? uniformTextures : sampleTextures).add(node.sample);
+    }
+    if (node.product !== undefined && program.productReads![node.product!]!.field.constant === undefined) {
+      (frequency[ref]! < 3 ? uniformProducts : sampleProducts).add(node.product);
+    }
+  }
   return Object.freeze({
+    workPlan: Object.freeze({
+      fields: Object.freeze(fields),
+      nodeFrequencies: frequency,
+      uniformTextureQueries: Uint32Array.from(uniformTextures),
+      sampleTextureQueries: Uint32Array.from(sampleTextures),
+      uniformProductQueries: Uint32Array.from(uniformProducts),
+      sampleProductQueries: Uint32Array.from(sampleProducts)
+    }),
+    uniformRefs: boundaries,
     varying: compileExactAppearanceDag(program, constants, { uniformRefs: boundaries, update: false }),
     publication: compileExactAppearanceDag(program, constants, { uniformRefs: publication, update: true }),
     update: compileExactAppearanceDag(program, constants, {

@@ -45,6 +45,15 @@ import { SURFACE_WORK_RECONSTRUCT_WGSL } from "../../.test-dist/shaders/surface_
 import { SURFACE_RADIOMETRY_WGSL } from "../../.test-dist/render/surface/SurfaceRadiometryPass.js";
 import { APPEARANCE_FIELD_NAMES } from "../../.test-dist/gpu/GpuAppearanceFieldAbi.js";
 import { evaluateCompiledAppearance } from "../../.test-dist/material/AppearanceGraphEvaluation.js";
+import { bindAppearanceProducts } from "../../.test-dist/material/AppearanceProductBinding.js";
+import {
+  cookAppearanceMipProduct,
+  sampleAppearanceCookedField
+} from "../../.test-dist/material/AppearanceMipCooker.js";
+import {
+  writeAppearanceAssetPackage,
+  openAppearanceAssetPackage
+} from "../../.test-dist/assets/AppearanceAssetPackage.js";
 import { ShadeTexture } from "../../.test-dist/texture/ShadeTexture.js";
 import {
   compileAppearanceExecutionPlan,
@@ -803,7 +812,8 @@ export async function runSurfaceWorkGpuOracle(
         const at = (64 + y * 8 + x) * 4;
         texels.set([Math.round(64 + x * 16), Math.round(48 + y * 16), 224, 255], at);
       }
-    const banks = texture(8, 8, "rgba8unorm", texels, 2).createView({ dimension: "2d-array" });
+    const residentTexture = texture(8, 8, "rgba8unorm", texels, 2);
+    const banks = residentTexture.createView({ dimension: "2d-array" });
     const sampleResident = (binding, coordinate) => {
       const x = coordinate[0] * 8 - 0.5,
         y = coordinate[1] * 8 - 0.5;
@@ -864,6 +874,9 @@ export async function runSurfaceWorkGpuOracle(
         })
       }
     });
+    let uniformReference = null;
+    let productReference = null;
+    let productReferenceData = null;
     const reports = [],
       geometryBoundaries = [];
     async function runCase(
@@ -893,7 +906,9 @@ export async function runSurfaceWorkGpuOracle(
                   ? 1
                   : x < width / 2
                     ? 0
-                    : fixture === "generic"
+                    : fixture === "generic" ||
+                        fixture === "resource-uniform" ||
+                        fixture === "appearance-product"
                       ? 2
                       : fixture === "high-frequency"
                         ? 3
@@ -1365,16 +1380,22 @@ export async function runSurfaceWorkGpuOracle(
             !cost &&
             x >= width / 2 &&
             x < width - 1 &&
-            ["generic", "high-frequency", "standard"].includes(fixture)
+            ["generic", "high-frequency", "standard", "resource-uniform", "appearance-product"].includes(
+              fixture
+            )
           ) {
             const bank = Math.floor(y / capacity.bankRows),
               local = (y % capacity.bankRows) * width + x;
             const program =
-              fixture === "generic"
-                ? genericReference
-                : fixture === "standard"
-                  ? fixedStandard
-                  : highFrequency;
+              fixture === "appearance-product"
+                ? productReference
+                : fixture === "resource-uniform"
+                  ? uniformReference
+                  : fixture === "generic"
+                    ? genericReference
+                    : fixture === "standard"
+                      ? fixedStandard
+                      : highFrequency;
             const inputs = {
               cameraPosition: Array.from(cameraValues.slice(12, 15)),
               vertexColor: [1, 1, 1],
@@ -1399,8 +1420,31 @@ export async function runSurfaceWorkGpuOracle(
                         node.parameter === "coat weight" ? { ...node, value: coated.clearcoat_factor } : node
                       )
                     }
-                  : program;
-            const expected = evaluateCompiledAppearance(currentProgram, { inputs, sample: sampleResident });
+                  : fixture === "resource-uniform"
+                    ? {
+                        ...program,
+                        instructions: program.instructions.map((node) =>
+                          node.parameter === "lookupUV"
+                            ? {
+                                ...node,
+                                value:
+                                  extraMaterials[0].appearance_inputs.get("lookupUV")?.[node.channel] ??
+                                  node.value
+                              }
+                            : node
+                        )
+                      }
+                    : program;
+            const expected = evaluateCompiledAppearance(currentProgram, {
+              inputs,
+              sample: sampleResident,
+              sampleProduct: (index, uv) =>
+                sampleAppearanceCookedField(
+                  productReferenceData.fields[currentProgram.productReads[index].field.name],
+                  ...uv,
+                  0
+                )
+            });
             const allMetadata = new Uint32Array(
                 copy,
                 rowBytes * height + 2048,
@@ -1448,7 +1492,11 @@ export async function runSurfaceWorkGpuOracle(
                 }
                 continue;
               }
-              const entry = fixture === "generic" ? 2 : fixture === "standard" ? 4 : 3,
+              const entry = ["generic", "resource-uniform", "appearance-product"].includes(fixture)
+                  ? 2
+                  : fixture === "standard"
+                    ? 4
+                    : 3,
                 paletteAt = publication.surfaceMetadataOffsets.constantFields + entry * 64;
               for (let channel = 0; channel < wanted.length; channel++) {
                 const address =
@@ -1462,7 +1510,8 @@ export async function runSurfaceWorkGpuOracle(
                   address === null
                     ? metadataFloats[paletteAt + 4 + field * 4 + channel]
                     : new Float32Array(heap.buffer, heap.byteOffset, heap.length)[address];
-                const bound = fixture === "high-frequency" ? 2e-5 : 0.003;
+                const bound =
+                  fixture === "appearance-product" ? 1e-4 : fixture === "high-frequency" ? 2e-5 : 0.003;
                 check(
                   Math.abs(actual - wanted[channel]) <= bound,
                   "independent complete Appearance field mismatch " +
@@ -1485,6 +1534,15 @@ export async function runSurfaceWorkGpuOracle(
             );
         }
       reports.push({
+        uniformQueries: publication.requiresUniformResources
+          ? Array.from(
+              new Uint32Array(
+                copy,
+                rowBytes * height + 2048 + publication.uniformQueryStatsBase * 4,
+                publication.entries.length * 2
+              )
+            )
+          : [],
         width,
         height,
         reuse,
@@ -1505,7 +1563,10 @@ export async function runSurfaceWorkGpuOracle(
           background: counters[234],
           envDiffuse: counters[259],
           directLightLoops: counters[264],
-          packetWrites: counters.slice(276, 282)
+          packetWrites: counters.slice(276, 282),
+          sampleTextureQueries: counters[300],
+          sampleProductQueries: counters[301],
+          uniformScalarReads: counters[302]
         },
         capacity
       });
@@ -2266,6 +2327,167 @@ export async function runSurfaceWorkGpuOracle(
     work = originalWork;
     frameArena = completeArena;
     preparedVertices = completeVertices;
+    publication = originalPublication;
+    const originalTexels = texels.slice();
+    for (const [general, frameDependent] of [
+      [false, false],
+      [true, false],
+      [true, true]
+    ]) {
+      const graph = new AppearanceGraphBuilder();
+      const uv = graph.input("uv0", 2, "surface", undefined, "uv0");
+      const lookup = graph.parameter("lookupUV", [0.375, 0.625]);
+      graph.output("alpha", graph.constant(1));
+      const coordinate = frameDependent
+        ? graph.operation("add", lookup, graph.swizzle(graph.input("cameraPosition", 3, "view"), [0, 1]))
+        : lookup;
+      const sampled = graph.texture(snapshotAppearanceTexture(resident, "linear-rgb"), coordinate);
+      const factor = graph.swizzle(sampled, [0]);
+      graph.output("emissive", graph.swizzle(sampled, [0, 1, 2]));
+      graph.output("metallic", graph.constant(0.3));
+      const varying = graph.swizzle(uv, [0]);
+      graph.output(
+        "roughness",
+        graph.operation("multiply", general ? graph.operation("sin", varying) : varying, factor)
+      );
+      uniformReference = compileAppearanceGraph(graph.build());
+      extraMaterials[0].appearance_inputs.set("lookupUV", [0.375, 0.625]);
+      const revision = {
+        slot: 0,
+        generation: 1,
+        revision: 1,
+        currentRevision: 1,
+        localVariationSlot: 0,
+        variation: { known: false, low: [0, 0, 0, 0], high: [1, 1, 1, 1] }
+      };
+      const update = ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame");
+      publication = new GpuAppearancePublication(
+        device,
+        registry,
+        publicationSources.map((source, index) =>
+          index === 2 ? { ...source, program: uniformReference } : source
+        ),
+        update,
+        new Map(),
+        new Map([[resident, revision]])
+      );
+      await publication.ready;
+      update.finish();
+      await update.gpuDone;
+      check(
+        publication.surfaceWorkProfiles[general ? 3 : 2],
+        "uniform value reaches the requested fixed/General consumer"
+      );
+      await runCase(17, 5, false, null, "resource-uniform");
+      check(reports.at(-1).uniformQueries[4] === 1, "real GPU producer samples the uniform query once");
+      check(
+        reports.at(-1).counters.sampleTextureQueries === 0 && reports.at(-1).counters.uniformScalarReads > 0,
+        "original sample consumer reads values without repeating the resolved heavy query"
+      );
+      await runCase(33, 17, false, null, "resource-uniform");
+      check(
+        reports.at(-1).uniformQueries[4] === (frameDependent ? 2 : 1),
+        "more covered pixels do not repeat heavy uniform queries"
+      );
+      extraMaterials[0].appearance_inputs.set("lookupUV", [0.25, 0.5]);
+      await runCase(33, 17, false, null, "resource-uniform", undefined, true);
+      await runCase(33, 17, false, null, "resource-uniform");
+      check(
+        reports.at(-1).uniformQueries[4] === (frameDependent ? 3 : 2),
+        "aborted material update retries exactly once and reaches consumers"
+      );
+      await runCase(33, 17, false, null, "resource-uniform");
+      check(
+        reports.at(-1).uniformQueries[4] === (frameDependent ? 4 : 2),
+        "committed material is stable; frame-dependent queries follow the frame domain"
+      );
+      if (frameDependent) {
+        cameraValues[12] = 0.125;
+        device.queue.writeBuffer(camera, 0, cameraValues);
+      }
+      for (let index = 64 * 4; index < texels.length; index += 4) texels[index] = 192;
+      device.queue.writeTexture(
+        { texture: residentTexture },
+        texels,
+        { bytesPerRow: 32, rowsPerImage: 8 },
+        { width: 8, height: 8, depthOrArrayLayers: 2 }
+      );
+      revision.currentRevision++;
+      await runCase(33, 17, false, null, "resource-uniform");
+      check(
+        reports.at(-1).uniformQueries[4] === (frameDependent ? 5 : 3),
+        "actual per-resource revision invalidates the uniform query value"
+      );
+      publication.destroy();
+      cameraValues[12] = 0;
+      device.queue.writeBuffer(camera, 0, cameraValues);
+      texels.set(originalTexels);
+      device.queue.writeTexture(
+        { texture: residentTexture },
+        texels,
+        { bytesPerRow: 32, rowsPerImage: 8 },
+        { width: 8, height: 8, depthOrArrayLayers: 2 }
+      );
+    }
+    const productBuilder = new AppearanceGraphBuilder();
+    const productUv = productBuilder.input("uv0", 2, "surface", undefined, "uv0");
+    const scaledUv = productBuilder.operation("multiply", productUv, productBuilder.constant(0.01));
+    productBuilder.output("alpha", productBuilder.constant(1));
+    productBuilder.output(
+      "roughness",
+      productBuilder.operation("add", productBuilder.swizzle(scaledUv, [0]), productBuilder.constant(0.3))
+    );
+    productBuilder.output("emissive", productBuilder.combine(scaledUv, productBuilder.constant(0.2)));
+    const productSource = compileAppearanceGraph(productBuilder.build());
+    const productRoots = {
+      roughness: productSource.outputs.roughness,
+      emissive: productSource.outputs.emissive
+    };
+    productReferenceData = cookAppearanceMipProduct(productSource, productRoots, {
+      width: 8,
+      height: 8,
+      mipCount: 4,
+      byteBudget: 65536,
+      validationProbeBudget: 65536,
+      domainMin: [0, 0],
+      domainMax: [1, 1],
+      coordinateDomain: "uv0",
+      error: { absolute: 0.01, relative: 0 },
+      storagePrecision: "float16",
+      sample: () => []
+    });
+    const productAsset = await openAppearanceAssetPackage(
+      await writeAppearanceAssetPackage(productReferenceData, {
+        uri: "oracle/surface-work-product",
+        contentHash: "c".repeat(64),
+        dependencies: []
+      })
+    );
+    productReference = bindAppearanceProducts(productSource, [
+      { source: productSource, asset: productAsset, roots: productRoots }
+    ]);
+    const productUpdate = ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame");
+    publication = new GpuAppearancePublication(
+      device,
+      registry,
+      publicationSources.map((source, index) =>
+        index === 2 ? { ...source, program: productReference } : source
+      ),
+      productUpdate,
+      new Map(),
+      new Map()
+    );
+    await publication.ready;
+    productUpdate.finish();
+    await productUpdate.gpuDone;
+    check(
+      publication.workPlans[2].fields.filter((field) => field.category === "product-domain").length === 2,
+      "legal cooked Product fields use the declared domain read contract"
+    );
+    await runCase(17, 17, false, null, "appearance-product");
+    await runCase(33, 33, true, 0, "appearance-product", 0);
+    publication.destroy();
+    extraMaterials[0].appearance_inputs.set("lookupUV", [0.375, 0.625]);
     publication = originalPublication;
     check(apiErrors.length === 0, JSON.stringify(apiErrors));
     return {

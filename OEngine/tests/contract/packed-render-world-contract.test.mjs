@@ -342,7 +342,7 @@ test("RenderWorld retains Appearance programs and awaits GPU publication readine
   assert.equal(pending.appearancePublication, null);
   await fixture.registry.prepareAppearance(handle, command);
   assert.equal(fixture.registry.runtime(fixture.scene), null);
-  assert.ok(pending.appearancePublication.program(0));
+  assert.ok(pending.appearancePublication.workPipeline(false, true).pipeline);
   command.finish();
   assert.equal(fixture.registry.runtime(fixture.scene).appearancePublication, pending.appearancePublication);
   assert.equal(
@@ -376,6 +376,7 @@ test("RenderWorld async Appearance pipeline failure aborts without publishing a 
 function installAppearanceDevice(graphics, failure) {
   graphics.frame_instances = { ready: failure ? Promise.reject(failure) : Promise.resolve() };
   graphics.frame_vertices = { ready: Promise.resolve() };
+  graphics.raster_partitions = { ready: Promise.resolve() };
   graphics.current_hzb_recheck = { ready: Promise.resolve() };
   graphics.render_pipelines ??= {};
   graphics.render_pipelines.prepare = async () => ({});
@@ -390,7 +391,7 @@ function installAppearanceDevice(graphics, failure) {
       maxBufferSize: 1e8,
       maxStorageBufferBindingSize: 1e8,
       maxUniformBufferBindingSize: 65536,
-      maxStorageBuffersPerShaderStage: 8,
+      maxStorageBuffersPerShaderStage: 16,
       maxUniformBuffersPerShaderStage: 12,
       maxSampledTexturesPerShaderStage: 16,
       maxSamplersPerShaderStage: 16,
@@ -400,6 +401,7 @@ function installAppearanceDevice(graphics, failure) {
     pushErrorScope() {},
     popErrorScope: async () => null,
     createShaderModule: () => ({ getCompilationInfo: async () => ({ messages: [] }) }),
+    createSampler: (descriptor) => descriptor,
     createBindGroupLayout: (descriptor) => descriptor,
     createPipelineLayout: (descriptor) => descriptor,
     createComputePipelineAsync: async (descriptor) => {
@@ -796,7 +798,7 @@ test("TextureResidency publishes a cooked mip tail before generation-safe promot
   const texture = ShadeTexture.fromAssetPackageV2(asset);
   const material = createTexturedMaterial(texture, "progressive-material");
 
-  const initial = new FakeCommand("progressive-tail");
+  const initial = new FakeCommand("progressive-tail", fixture.graphics.device);
   const stage = residency.stage([material], initial);
   const ref = stage.textureRefs.get(texture);
   assert.equal(residency.descriptor(ref), null);
@@ -808,23 +810,26 @@ test("TextureResidency publishes a cooked mip tail before generation-safe promot
   const publication = stage.surfacePublications.get(texture);
   assert.ok(publication.slot > 0 && publication.revision > 0);
   assert.equal(publication.variation.known, false);
+  assert.equal(publication.currentRevision, publication.revision);
   const versions = stage.bindings.surfaceResidencyVersions;
   assert.equal(new Uint32Array(versions.bytes.buffer)[publication.slot], publication.revision);
 
-  const abortedPromotion = new FakeCommand("progressive-promote-abort");
+  const abortedPromotion = new FakeCommand("progressive-promote-abort", fixture.graphics.device);
   residency.promote([texture], abortedPromotion, 0);
   abortedPromotion.abort();
+  assert.equal(publication.currentRevision, publication.revision, "aborted upload cannot invalidate a committed uniform value");
   assert.deepEqual(residency.descriptor(ref)?.residentMipRange, [6, 8]);
   assert.equal(new Uint32Array(versions.bytes.buffer)[publication.slot], publication.revision);
   assert.equal(fixture.writes.length, 9);
 
-  const promotion = new FakeCommand("progressive-promote");
+  const promotion = new FakeCommand("progressive-promote", fixture.graphics.device);
   residency.promote([texture], promotion, 0);
   assert.deepEqual(residency.descriptor(ref)?.residentMipRange, [6, 8]);
   promotion.finish();
+  assert.ok(publication.currentRevision > publication.revision, "live owner revision changes only after promotion commit");
   assert.deepEqual(residency.descriptor(ref)?.residentMipRange, [0, 8]);
   assert.equal(fixture.writes.length, 15);
-  const afterPromotion = new FakeCommand("after-promotion");
+  const afterPromotion = new FakeCommand("after-promotion", fixture.graphics.device);
   const promoted = residency.stage([material], afterPromotion).surfacePublications.get(texture);
   afterPromotion.finish();
   assert.ok(promoted.revision > publication.revision);
@@ -856,14 +861,14 @@ test("Texture residency rolls back failed commands and reuses a released base la
   const residency = new TextureResidency(fixture.graphics, 4096);
   const firstTexture = createTexture(128, "first");
   const firstMaterial = createTexturedMaterial(firstTexture, "first-material");
-  const aborted = new FakeCommand("texture-stage-abort");
+  const aborted = new FakeCommand("texture-stage-abort", fixture.graphics.device);
   residency.stage([firstMaterial], aborted);
   aborted.abort(new Error("injected texture failure"));
 
   assert.equal(residency.evidence().residentTextureCount, 0);
   assert.equal(residency.evidence().banks[0].freeLayerCount, 63);
 
-  const committed = new FakeCommand("texture-stage-commit");
+  const committed = new FakeCommand("texture-stage-commit", fixture.graphics.device);
   const firstStage = residency.stage([firstMaterial], committed);
   const firstRef = firstStage.textureRefs.get(firstTexture);
   assert.equal(residency.descriptor(firstRef), null);
@@ -871,7 +876,7 @@ test("Texture residency rolls back failed commands and reuses a released base la
   assert.notEqual(residency.descriptor(firstRef), null);
   assert.equal(residency.evidence().residentTextureCount, 1);
 
-  const release = new FakeCommand("texture-release");
+  const release = new FakeCommand("texture-release", fixture.graphics.device);
   residency.release([firstMaterial], release);
   release.finish();
   await settlePromises();
@@ -880,7 +885,7 @@ test("Texture residency rolls back failed commands and reuses a released base la
 
   const secondTexture = createTexture(128, "second");
   const secondMaterial = createTexturedMaterial(secondTexture, "second-material");
-  const reused = new FakeCommand("texture-stage-reuse");
+  const reused = new FakeCommand("texture-stage-reuse", fixture.graphics.device);
   const secondStage = residency.stage([secondMaterial], reused);
   reused.finish();
   const secondRef = secondStage.textureRefs.get(secondTexture);
@@ -899,7 +904,7 @@ test("Texture residency enforces its declared base capacity without partial muta
   const materials = Array.from({ length: 63 }, (_, index) =>
     createTexturedMaterial(createTexture(64, `base-${index}`), `base-material-${index}`),
   );
-  const full = new FakeCommand("texture-capacity-fill");
+  const full = new FakeCommand("texture-capacity-fill", fixture.graphics.device);
   residency.stage(materials, full);
   full.finish();
 
@@ -907,7 +912,7 @@ test("Texture residency enforces its declared base capacity without partial muta
   assert.equal(before.residentTextureCount, 63);
   assert.equal(before.banks[0].freeLayerCount, 0);
 
-  const overflow = new FakeCommand("texture-capacity-overflow");
+  const overflow = new FakeCommand("texture-capacity-overflow", fixture.graphics.device);
   assert.throws(
     () =>
       residency.stage([createTexturedMaterial(createTexture(64, "overflow"), "overflow-material")], overflow),
@@ -1031,7 +1036,7 @@ test("Texture residency publishes cooked BC packages as authoritative material r
   mask.name = "cooked-mask";
   mask.texture_albedo = textures[5];
 
-  const command = new FakeCommand("cooked-texture-production-stage");
+  const command = new FakeCommand("cooked-texture-production-stage", fixture.graphics.device);
   const staged = residency.stage([pbr, mask], command);
   assert.equal(staged.bindings.bindingSets.length, 1);
   assert.equal(staged.bindings.bindingSets[0].textureBanks.length, 9);
@@ -1097,7 +1102,7 @@ test("Texture residency reclaims an unused cooked segment after GPU retirement",
   );
   const texture = ShadeTexture.fromAssetPackageV2(asset);
   const material = createTexturedMaterial(texture, "cooked-segment-retirement");
-  const stage = new FakeCommand("cooked-segment-retirement-stage");
+  const stage = new FakeCommand("cooked-segment-retirement-stage", fixture.graphics.device);
   residency.stage([material], stage);
   stage.finish();
   const segmentTexture = fixture.textures.find(({ descriptor }) =>
@@ -1105,7 +1110,7 @@ test("Texture residency reclaims an unused cooked segment after GPU retirement",
   );
   assert.ok(segmentTexture);
 
-  const release = new FakeCommand("cooked-segment-retirement-release");
+  const release = new FakeCommand("cooked-segment-retirement-release", fixture.graphics.device);
   residency.release([material], release);
   release.finish();
   await settlePromises();
@@ -1137,7 +1142,7 @@ test("TextureBindingSet colocates materials across four bounded sets and rejects
     else material.texture_albedo = texture;
     materials.push(material);
   }
-  const stage = new FakeCommand("texture-binding-set-fill");
+  const stage = new FakeCommand("texture-binding-set-fill", fixture.graphics.device);
   const staged = residency.stage(materials, stage);
   assert.equal(staged.bindings.bindingSets.length, 4);
   assert.deepEqual(
@@ -1158,14 +1163,14 @@ test("TextureBindingSet colocates materials across four bounded sets and rejects
   conflict.texture_normal = textures[4];
   const before = residency.evidence();
   assert.throws(
-    () => residency.stage([conflict], new FakeCommand("cross-full-binding-set")),
+    () => residency.stage([conflict], new FakeCommand("cross-full-binding-set", fixture.graphics.device)),
     /cannot be colocated/,
   );
   const after = residency.evidence();
   assert.equal(after.residentTextureCount, before.residentTextureCount);
   assert.equal(after.bindingSetPreflightFailures, before.bindingSetPreflightFailures + 1);
 
-  const release = new FakeCommand("texture-binding-set-release");
+  const release = new FakeCommand("texture-binding-set-release", fixture.graphics.device);
   residency.release(materials, release);
   release.finish();
   await settlePromises();
@@ -1183,7 +1188,7 @@ test("Texture residency fills and rejects overflow in every bounded bank without
     const materials = Array.from({ length: usable }, (_, index) =>
       createTexturedMaterial(createTexture(size, `bank-${size}-${index}`), `bank-material-${size}-${index}`),
     );
-    const fill = new FakeCommand(`texture-${size}-fill`);
+    const fill = new FakeCommand(`texture-${size}-fill`, fixture.graphics.device);
     residency.stage(materials, fill);
     fill.finish();
     const before = residency.evidence();
@@ -1199,7 +1204,7 @@ test("Texture residency fills and rejects overflow in every bounded bank without
               `bank-material-${size}-overflow`,
             ),
           ],
-          new FakeCommand(`texture-${size}-overflow`),
+          new FakeCommand(`texture-${size}-overflow`, fixture.graphics.device),
         ),
       /requires .* layers but policy\/device permits/,
     );
@@ -1217,12 +1222,12 @@ test("Texture residency keeps bank choice legal for multiple small textures foll
   const small = Array.from({ length: 5 }, (_, index) =>
     createTexturedMaterial(createTexture(512, `small-${index}`), `small-material-${index}`),
   );
-  const first = new FakeCommand("texture-multiple-small");
+  const first = new FakeCommand("texture-multiple-small", fixture.graphics.device);
   residency.stage(small, first);
   first.finish();
   const largeTexture = createTexture(4096, "large-after-small");
   const largeMaterial = createTexturedMaterial(largeTexture, "large-material");
-  const large = new FakeCommand("texture-large-after-small");
+  const large = new FakeCommand("texture-large-after-small", fixture.graphics.device);
   const staged = residency.stage([largeMaterial], large);
   large.finish();
   assert.equal(
@@ -1244,7 +1249,7 @@ test("Texture residency preserves success while a 2048 bank grows one layer at a
       `incremental-material-${index}`,
     );
     materials.push(material);
-    const command = new FakeCommand(`texture-incremental-2048-${index}`);
+    const command = new FakeCommand(`texture-incremental-2048-${index}`, fixture.graphics.device);
     residency.stage([material], command);
     command.finish();
     await settlePromises();
@@ -1253,7 +1258,7 @@ test("Texture residency preserves success while a 2048 bank grows one layer at a
   assert.equal(evidence.banks[3].residentTextureCount, 31);
   assert.equal(evidence.banks[3].allocatedCapacity, 32);
   assert.ok(evidence.allocatedPeakBytes < 2 * 1024 * 1024 * 1024);
-  const release = new FakeCommand("texture-incremental-release");
+  const release = new FakeCommand("texture-incremental-release", fixture.graphics.device);
   residency.release(materials, release);
   release.finish();
   await settlePromises();
@@ -1271,7 +1276,7 @@ test("Texture residency accepts every permutation of the same legal texture set"
     const materials = textures.map((texture, index) =>
       createTexturedMaterial(texture, `permutation-material-${index}`),
     );
-    const command = new FakeCommand(`texture-permutation-${permutationIndex}`);
+    const command = new FakeCommand(`texture-permutation-${permutationIndex}`, fixture.graphics.device);
     const staged = residency.stage(materials, command);
     command.finish();
     assert.deepEqual(
@@ -1292,12 +1297,12 @@ test("Texture residency deduplicates shared textures and releases the final refe
   const residency = new TextureResidency(fixture.graphics, 4096);
   const shared = createTexture(1024, "shared");
   const materials = [createTexturedMaterial(shared, "shared-a"), createTexturedMaterial(shared, "shared-b")];
-  const stage = new FakeCommand("texture-shared-stage");
+  const stage = new FakeCommand("texture-shared-stage", fixture.graphics.device);
   const staged = residency.stage(materials, stage);
   stage.finish();
   assert.equal(staged.textureRefs.size, 1);
   assert.equal(residency.evidence().residentTextureCount, 1);
-  const release = new FakeCommand("texture-shared-release");
+  const release = new FakeCommand("texture-shared-release", fixture.graphics.device);
   residency.release(materials, release);
   release.finish();
   await settlePromises();
@@ -1309,7 +1314,7 @@ test("Texture residency deduplicates shared textures and releases the final refe
 test("Texture residency abort restores a grown bank and destroys its provisional allocation", () => {
   const fixture = createTextureResidencyFixture();
   const residency = new TextureResidency(fixture.graphics, 4096);
-  const command = new FakeCommand("texture-grow-abort");
+  const command = new FakeCommand("texture-grow-abort", fixture.graphics.device);
   residency.stage([createTexturedMaterial(createTexture(512, "abort-grow"), "abort-grow-material")], command);
   const provisional = fixture.textures.at(-1);
   command.abort(new Error("injected growth abort"));
@@ -1334,7 +1339,7 @@ test("Texture residency rolls back earlier bank growth when a later allocation f
           createTexturedMaterial(createTexture(512, "fault-512"), "fault-material-512"),
           createTexturedMaterial(createTexture(1024, "fault-1024"), "fault-material-1024"),
         ],
-        new FakeCommand("texture-growth-fault"),
+        new FakeCommand("texture-growth-fault", fixture.graphics.device),
       ),
     /injected texture allocation failure/,
   );
@@ -1359,7 +1364,7 @@ test("Texture residency quality and device resolution caps preserve logical text
   );
   const texture = createTexture(4096, "quality-capped-large");
   const material = createTexturedMaterial(texture, "quality-capped-material");
-  const command = new FakeCommand("texture-quality-cap");
+  const command = new FakeCommand("texture-quality-cap", fixture.graphics.device);
   const staged = residency.stage([material], command);
   command.finish();
   assert.equal(
@@ -1377,7 +1382,7 @@ test("Texture residency spills capped textures across physically compatible bank
   const materials = textures.map((texture, index) =>
     createTexturedMaterial(texture, `capped-4096-material-${index}`),
   );
-  const command = new FakeCommand("texture-compatible-bank-spill");
+  const command = new FakeCommand("texture-compatible-bank-spill", fixture.graphics.device);
   const staged = residency.stage(materials, command);
   command.finish();
 
@@ -1592,7 +1597,13 @@ function createTextureResidencyFixture(options = {}) {
         maxTextureDimension2D: options.maxTextureDimension2D ?? 8192,
         maxSampledTexturesPerShaderStage: 16,
         maxSamplersPerShaderStage: 16,
+        maxComputeWorkgroupsPerDimension: 65535,
       },
+      createBindGroupLayout: (descriptor) => descriptor,
+      createPipelineLayout: (descriptor) => descriptor,
+      createShaderModule: (descriptor) => descriptor,
+      createComputePipeline: (descriptor) => descriptor,
+      createBindGroup: (descriptor) => descriptor,
       createBuffer(descriptor) {
         return {
           descriptor,
@@ -1608,6 +1619,9 @@ function createTextureResidencyFixture(options = {}) {
         if (options.failTexture?.(descriptor)) throw new Error("injected texture allocation failure");
         const texture = {
           descriptor,
+          width: descriptor.size.width ?? descriptor.size[0],
+          height: descriptor.size.height ?? descriptor.size[1],
+          mipLevelCount: descriptor.mipLevelCount ?? 1,
           destroyed: false,
           createView(options = {}) {
             return { texture, options };
@@ -1650,17 +1664,17 @@ async function runReleasedHighTextureSequence([firstSize, secondSize]) {
   const residency = new TextureResidency(fixture.graphics, 4096);
   const firstTexture = createTexture(firstSize, `high-${firstSize}`);
   const firstMaterial = createTexturedMaterial(firstTexture, `material-${firstSize}`);
-  const first = new FakeCommand("high-first");
+  const first = new FakeCommand("high-first", fixture.graphics.device);
   residency.stage([firstMaterial], first);
   first.finish();
-  const release = new FakeCommand("high-release");
+  const release = new FakeCommand("high-release", fixture.graphics.device);
   residency.release([firstMaterial], release);
   release.finish();
   await settlePromises();
 
   const secondTexture = createTexture(secondSize, `high-${secondSize}`);
   const secondMaterial = createTexturedMaterial(secondTexture, `material-${secondSize}`);
-  const second = new FakeCommand("high-second");
+  const second = new FakeCommand("high-second", fixture.graphics.device);
   let secondAccepted = true;
   let secondRef;
   try {
@@ -1768,7 +1782,8 @@ class FakeCommand {
   closed = false;
   submitted = false;
 
-  constructor(label) {
+  constructor(label, device) {
+    this.device = device;
     this.label = label;
   }
 
@@ -1788,6 +1803,12 @@ class FakeCommand {
 
   allocateTransientBufferAndLoad() {
     return {};
+  }
+  allocateTransientBuffer(usage, size) {
+    return { usage, size, bytes: new Uint8Array(size) };
+  }
+  beginComputePass() {
+    return { setPipeline() {}, setBindGroup() {}, dispatchWorkgroups() {}, end() {} };
   }
 
   beginRenderPass() {

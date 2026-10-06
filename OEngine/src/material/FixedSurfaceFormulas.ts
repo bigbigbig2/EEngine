@@ -26,7 +26,8 @@ export const FIXED_SURFACE_FORMULA = Object.freeze({
 
 export function compileFixedSurfaceFormulas(
   program: CompiledAppearanceGraph,
-  lowered: AppearanceWgslProgram
+  lowered: AppearanceWgslProgram,
+  uniformRefs?: ReadonlyMap<number, number>
 ): Uint32Array | null {
   const words = new Uint32Array(FIXED_SURFACE_PLAN_WORDS);
   const samples = new Map<string, number>();
@@ -88,6 +89,10 @@ export function compileFixedSurfaceFormulas(
     return ((node.kind === "normal-product" ? 3 : 2) * 0x10000000 + slot * 8 + node.channel!) >>> 0;
   };
   const leaf = (ref: number, field: number): number | null => {
+    const uniform = uniformRefs?.get(ref);
+    if (uniform !== undefined) {
+      return uniform < 0x10000000 ? (5 * 0x10000000 + uniform) >>> 0 : null;
+    }
     const node = instruction(ref);
     if (node.kind === "constant" || node.kind === "parameter") {
       const address = lowered.instructionConstantSlots[ref]!;

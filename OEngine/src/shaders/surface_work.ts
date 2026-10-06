@@ -1,6 +1,10 @@
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
-import { surfaceWorkReadWgsl, SURFACE_WORK_COHERENCE_HEADER } from "../gpu/GpuSurfaceWorkAbi.js";
+import {
+  surfaceWorkReadWgsl,
+  SURFACE_WORK_COHERENCE_HEADER,
+  SURFACE_WORK_QUERY_COUNTERS as Q
+} from "../gpu/GpuSurfaceWorkAbi.js";
 import { surfaceWorkGeometryWgsl } from "./surface_work_geometry.js";
 import {
   appearanceDagResidentSamplingWgsl,
@@ -203,6 +207,7 @@ fn surface_producer_field(pixel: u32, field: u32) -> vec4f {
   }
 }
 fn appearance_dag_uniform(index: u32) -> f32 {
+  if settings.diagnostics != 0u { atomicAdd(&work_control[${Q.uniformRead}u], 1u); }
   let plan = dag_code[dag_entry + 2u];
   return bitcast<f32>(dag_metadata[dag_code[plan + 4u] + index]);
 }
@@ -220,8 +225,16 @@ fn appearance_dag_input(index: u32, semantic: u32, channel: u32, neighbors: bool
   if !neighbors { return vec3f(center); }
   return vec3f(center, geometry_input(semantic, 1u)[channel], geometry_input(semantic, 2u)[channel]);
 }
-${appearanceDagResidentSamplingWgsl(2)}
-${APPEARANCE_DAG_PRODUCT_SAMPLING_WGSL}
+${appearanceDagResidentSamplingWgsl(2).replace("fn appearance_dag_sample(", "fn surface_sample_value(")}
+${APPEARANCE_DAG_PRODUCT_SAMPLING_WGSL.replace("fn appearance_dag_product(", "fn surface_product_value(")}
+fn appearance_dag_sample(index: u32, uv: vec2f, dx: vec2f, dy: vec2f) -> vec4f {
+  if settings.diagnostics != 0u { atomicAdd(&work_control[${Q.texture}u], 1u); }
+  return surface_sample_value(index, uv, dx, dy);
+}
+fn appearance_dag_product(index: u32, uv: vec2f, dx: vec2f, dy: vec2f) -> vec4f {
+  if settings.diagnostics != 0u { atomicAdd(&work_control[${Q.product}u], 1u); }
+  return surface_product_value(index, uv, dx, dy);
+}
 ${common ? surfaceFixedFormulasWgsl() : APPEARANCE_EXACT_DAG_WGSL}
 fn geometry_publish_guides() {
   let basis = vec4f(geometry_center.normal.xyz, geometry_center.tangent.w);
