@@ -11,8 +11,6 @@ import { FrameProfiler } from "../../.test-dist/debug/FrameProfiler.js";
 import { ResourceAccounting } from "../../.test-dist/debug/profiling/ResourceAccounting.js";
 import { SurfaceFrameResources } from "../../.test-dist/render/surface/SurfaceFrameResources.js";
 import { SurfaceDiagnosticsPass } from "../../.test-dist/render/surface/SurfaceDiagnosticsPass.js";
-import { surfaceCellWorkspaceLayout } from "../../.test-dist/gpu/GpuSurfaceCellPlanAbi.js";
-import { surfaceDemandLayout } from "../../.test-dist/gpu/GpuSurfaceDemandAbi.js";
 import {
   decodeSurfaceDiagnostics,
   SURFACE_DIAGNOSTICS_BYTE_SIZE,
@@ -227,9 +225,7 @@ export async function runFrameGraphLifecycleGpuOracle(device) {
 }
 
 async function checkDiagnosticSnapshot(device) {
-  const workspaceLayout = surfaceCellWorkspaceLayout(1),
-    demandLayout = surfaceDemandLayout(64, 1),
-    buffers = [];
+  const buffers = [];
   const make = (bytes, data) => {
     const buffer = device.createBuffer({
       size: bytes,
@@ -239,20 +235,12 @@ async function checkDiagnosticSnapshot(device) {
     if (data) device.queue.writeBuffer(buffer, 0, data);
     return buffer;
   };
-  const workspaceWords = new Uint32Array(workspaceLayout.bytes / 4);
-  workspaceWords[125] = 1;
-  workspaceWords[127] = 1;
-  // One visible lane; all other facts are background, independently declared.
-  const facts = new Uint32Array(workspaceWords.buffer, workspaceLayout.facts, 64 * 4);
-  facts.fill(0xffffffff);
-  facts.set([1, 0, 2, 0], 0);
-  const demandWords = new Uint32Array(demandLayout.bytes / 4);
-  demandWords[0] = 7;
-  demandWords[5] = 3;
-  demandWords[6] = 2;
-  const workspace = make(workspaceLayout.bytes, workspaceWords),
-    demand = make(demandLayout.bytes, demandWords),
-    reconstruct = make(32, new Uint32Array([64, 0, 0, 0, 0, 0, 0, 1]));
+  const controlWords = new Uint32Array(512);
+  controlWords[224] = 1; controlWords[225] = 3; controlWords[226] = 1;
+  controlWords[239] = 7; controlWords[229] = 3;
+  controlWords[240] = 3; controlWords[230] = 1;
+  controlWords[233] = 1; controlWords[234] = 63;
+  const control = make(2048, controlWords);
   const output = device.createBuffer({
     size: SURFACE_DIAGNOSTICS_BYTE_SIZE,
     usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
@@ -275,19 +263,15 @@ async function checkDiagnosticSnapshot(device) {
   };
   const graph = new FrameGraph("production diagnostics"),
     imported = (b) => graph.import_resource("fixture", { kind: "imported" }, b);
-  const owner = new SurfaceDiagnosticsPass(device, (ctx, source) =>
+  const scratch = new SurfaceFrameResources(device);
+  scratch.prepare(8, 8);
+  const owner = new SurfaceDiagnosticsPass(device, scratch, (ctx, source) =>
     ctx.gpu_encoder.copyBufferToBuffer(source, 0, output, 0, SURFACE_DIAGNOSTICS_BYTE_SIZE),
   );
   owner.addToGraph(graph, {
-    demand: { workspace: imported(workspace), arena: imported(demand), layout: demandLayout },
-    reconstruct: imported(reconstruct),
-    after: imported(demand),
-    width: 8,
-    height: 8,
-    firstTile: 0,
-    tileCount: 1,
-    last: true,
-    frameId: { value: 17 },
+    control: imported(control), after: imported(control),
+    capacity: { bankTiles: 1, width: 8, height: 8, hotWords: 12 }, domains: 2,
+    frameId: { value: 17 }, identity: { runId: "oracle", deviceEpoch: 1 }, bind: (_name, resolve) => resolve(),
   });
   try {
     graph.compile().execute(
@@ -311,21 +295,22 @@ async function checkDiagnosticSnapshot(device) {
       "detailed",
     );
     check(
-      snapshot.values.totalTiles === 1 && snapshot.values.visiblePixels === 1,
+      snapshot.values.totalTiles === 4 && snapshot.values.visiblePixels === 1,
       "actual coverage scan counter mismatch",
     );
-    check(snapshot.values.geometryDescriptions === 7, "description count lost");
-    check(snapshot.values.geometryRecordStrideWords === 32, "byte/word stride unit mismatch");
+    check(snapshot.values.geometryRecordsRequested === 7 && snapshot.values.geometryMissCompleted === 3, "requested work must not masquerade as completed");
+    check(snapshot.values.geometryRecordStrideWords === 12, "byte/word stride unit mismatch");
     check(
-      snapshot.values.geometryMissCompleted === undefined &&
-        snapshot.values.materialEvaluatorCompleted === undefined,
+      snapshot.values.materialEvaluatorEntered === 3 &&
+        snapshot.values.materialEvaluatorCompleted === 1,
       "queued work falsely published as completed",
     );
-    check(snapshot.coverage.status === "unknown", "missing completion producers must not certify coverage");
+    check(snapshot.coverage.status === "fail", "incomplete producer must not certify coverage");
     return { values: snapshot.values, coverage: snapshot.coverage };
   } finally {
     complete();
     owner.destroy();
+    scratch.destroy();
     output.destroy();
     for (const b of [...buffers, ...uploads]) b.destroy();
   }

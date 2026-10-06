@@ -1,122 +1,40 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import "../webgpu-test-globals.mjs";
-import { FrameGraph, FrameGraphContext } from "../../.test-dist/framegraph/FrameGraph.js";
-import {
-  planSurfaceReconstructionBatches,
-  SurfaceReconstructionPass,
-} from "../../.test-dist/render/surface/SurfaceReconstructionPass.js";
-import { SurfaceFrameResources } from "../../.test-dist/render/surface/SurfaceFrameResources.js";
+import { SurfaceWorkRuntime } from "../../.test-dist/render/surface/SurfaceWorkRuntime.js";
+globalThis.GPUBufferUsage = { UNIFORM: 64, STORAGE: 128, INDIRECT: 256, COPY_SRC: 4, COPY_DST: 8 };
+globalThis.GPUTextureUsage = { TEXTURE_BINDING: 4, STORAGE_BINDING: 8, COPY_SRC: 1, COPY_DST: 2 };
 
-globalThis.GPUBufferUsage ??= { UNIFORM: 1, COPY_DST: 2, STORAGE: 4, COPY_SRC: 8 };
-
-test("Surface reconstruct plans bounded tile batches", () => {
-  assert.deepEqual(planSurfaceReconstructionBatches(17, 9, 2), {
-    tilesX: 3,
-    tilesY: 2,
-    tileCount: 6,
-    batchTiles: 2,
-    batchCount: 3,
-  });
-  assert.throws(() => planSurfaceReconstructionBatches(0, 9), /positive integers/);
-  assert.throws(() => planSurfaceReconstructionBatches(17, 9, 0), /batchTiles is invalid/);
-});
-
-test("Surface reconstruct consumes independent FieldRef/SignalRef and TemporalFacts resources", () => {
+// Batch planner/FieldRef/SignalRef owners are retired. Rendering and temporal
+// wiring assertions migrate to surface-work GPU V09/V12 and frame-program;
+// resource identity/fence assertions live in surface-frame-resources. This
+// CPU case preserves transaction assertions, not mocked rendering results.
+test("current Surface transaction rejects use after abort and commit without prepare", () => {
+  const buffers = [];
   const device = {
-    createBuffer: (descriptor) => ({ ...descriptor, destroy() {} }),
-    createBindGroupLayout: () => ({}),
-    createPipelineLayout: () => ({}),
-    createShaderModule: () => ({}),
-    createComputePipeline: () => ({}),
-    createBindGroup: (descriptor) => descriptor,
+    limits: { maxBufferSize: 2 ** 30, maxStorageBufferBindingSize: 128 * 1024 ** 2,
+      maxTextureDimension2D: 8192, maxComputeWorkgroupsPerDimension: 65535 },
+    createShaderModule: descriptor => descriptor,
+    createComputePipeline: descriptor => ({ ...descriptor, getBindGroupLayout: () => ({}) }),
+    createSampler: () => ({}),
+    createTexture: () => ({ createView: () => ({}), destroy() {} }),
+    createBuffer: descriptor => {
+      const buffer = { ...descriptor, destroyed: 0, destroy() { this.destroyed++; } };
+      buffers.push(buffer);
+      return buffer;
+    },
   };
-  const command = {
-    gpu_encoder: {},
-    device,
-    writeBuffer() {},
-    beginComputePass: () => ({
-      setPipeline() {},
-      setBindGroup() {},
-      dispatchWorkgroups() {},
-      dispatchWorkgroupsIndirect() {},
-      end() {},
-    }),
-  };
-  const owner = new SurfaceReconstructionPass(device, new SurfaceFrameResources(device));
+  const owner = new SurfaceWorkRuntime(device);
+  assert.throws(() => owner.commit(Promise.resolve()), /without prepare/);
   owner.prepareFrame(4, 2, 1);
-  const graph = new FrameGraph("Surface independent reconstruct");
-  const texture = { createView: () => ({}) };
-  const resource = graph.import_resource("fixture", { kind: "imported" }, texture);
-  const packets = graph.import_resource("signal values", { kind: "imported" }, {});
-  const fullPackets = graph.import_resource("SignalStore", { kind: "imported" }, {});
-  const packetFlags = graph.import_resource("FieldStore", { kind: "imported" }, {});
-  const preExposure = graph.import_resource("pre exposure", { kind: "imported" }, {});
-  const coverage = graph.import_resource("coverage", { kind: "imported" }, {});
-  const activeIndirect = graph.import_resource("active indirect", { kind: "imported" }, {});
-  const products = owner.addToGraph(graph, {
-    signalValues: packets,
-    signalStore: fullPackets,
-    fieldStore: packetFlags,
-    reactive: resource,
-    preExposure,
-    coverage,
-    activeIndirect,
-    cellWorkspace: packets,
-    cellBatchTiles: 1,
-    firstTile: 0,
-    fields: packets,
-    appearanceMetadata: packets,
-    constantFieldsOffset: 0,
-    scalarAo: null,
-    width: 4,
-    height: 2,
-    recordCount: 8,
-    diagnosticsEnabled: true,
-  });
-  assert.ok(products.radiance);
-  assert.ok(products.reactiveMask);
-  assert.ok(products.counters);
-  const consume = graph.add("consume reconstruct outputs", {}, () => {});
-  consume.read(products.radiance);
-  consume.read(products.reactiveMask);
-  consume.read(products.counters);
-  consume.make_side_effect();
-  const compiled = graph.compile();
-  const dump = compiled.dump();
-  assert.ok(
-    dump.executablePassOrder.some((id) => dump.passes[id].name === "Surface/cheap batched reconstruct"),
-  );
-  assert.ok(dump.resources.some((entry) => entry.name === "signal values"));
-  assert.ok(dump.resources.some((entry) => entry.name === "SignalStore"));
-  assert.ok(dump.resources.some((entry) => entry.name === "FieldStore"));
-  owner.commit();
-  assert.throws(() => owner.commit(), /without prepare/);
-  owner.prepareFrame(4, 2, 1);
+  assert.throws(() => owner.prepareFrame(4, 2, 1), /already prepared/);
   owner.abort();
-  assert.throws(
-    () =>
-      owner.addToGraph(new FrameGraph("aborted"), {
-        signalValues: packets,
-        signalStore: fullPackets,
-        fieldStore: packetFlags,
-        reactive: resource,
-        preExposure,
-        coverage,
-        activeIndirect,
-        cellWorkspace: packets,
-        cellBatchTiles: 1,
-        firstTile: 0,
-        fields: packets,
-        appearanceMetadata: packets,
-        constantFieldsOffset: 0,
-        scalarAo: null,
-        width: 4,
-        height: 2,
-        recordCount: 8,
-        diagnosticsEnabled: false,
-      }),
-    /not prepared/,
-  );
+  assert.throws(() => owner.addToGraph({}, {}), /prepared capacity/);
+  assert.throws(() => owner.commit(Promise.resolve()), /without prepare/);
+  owner.prepareFrame(4, 2, 1);
+  owner.commit(Promise.resolve());
+  assert.throws(() => owner.commit(Promise.resolve()), /without prepare/);
   owner.destroy();
+  assert.ok(buffers.every(buffer => buffer.destroyed === 1));
+  assert.throws(() => owner.prepareFrame(4, 2, 1), /destroyed/);
 });

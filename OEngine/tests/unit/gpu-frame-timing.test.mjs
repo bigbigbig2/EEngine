@@ -141,25 +141,25 @@ test("same-frame costs separate scopes and independent management/evaluation ari
     null,
   );
 });
-test("diagnostic unit is independently 128 bytes / 4; queue descriptions never prove completion", () => {
+test("diagnostic unit is independently 64 bytes / 4; queue descriptions never prove completion", () => {
   const id = { runId: "test", deviceEpoch: 1, frameId: 9 },
     words = new Uint32Array(SURFACE_DIAGNOSTICS_BYTE_SIZE / 4);
   writeSurfaceDiagnosticsHeader(words, id, "detailed");
   for (const [name, value] of [
-    ["geometryDescriptions", 7],
-    ["geometryRecordStrideWords", 32],
-    ["materialEvaluatorCompleted", 7],
+    ["domainDescriptions", 7],
+    ["geometryRecordStrideWords", 16],
+    ["materialMissQueued", 7],
   ]) {
     const index = C[name];
     words[8 + (index >>> 5)] |= 1 << (index & 31);
     words[SURFACE_DIAGNOSTICS_HEADER_WORDS + index] = value;
   }
   const snapshot = decodeSurfaceDiagnostics(words.buffer, id, "detailed");
-  assert.equal(snapshot.values.geometryDescriptions, 7);
-  assert.equal(snapshot.values.geometryRecordStrideWords, 32);
+  assert.equal(snapshot.values.domainDescriptions, 7);
+  assert.equal(snapshot.values.geometryRecordStrideWords, 16);
   assert.equal(snapshot.values.materialEvaluatorCompleted, undefined);
   assert.equal(snapshot.coverage.status, "unknown");
-  assert.equal(SURFACE_DIAGNOSTIC_DESCRIPTORS.materialEvaluatorCompleted.availability, "unavailable");
+  assert.equal(SURFACE_DIAGNOSTIC_DESCRIPTORS.materialMissQueued.availability, "unavailable");
   assert.equal(
     decodeSurfaceDiagnostics(words.buffer, { ...id, frameId: 10 }, "detailed").availability,
     "invalid",

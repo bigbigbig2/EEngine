@@ -3,11 +3,11 @@ import test from "node:test";
 import { AppearanceProgramRegistry } from "../../.test-dist/gpu/AppearanceProgramRegistry.js";
 import {
   GpuAppearancePublication,
-  APPEARANCE_DIRECTORY_STRIDE,
+  APPEARANCE_DIRECTORY_STRIDE
 } from "../../.test-dist/gpu/GpuAppearancePublication.js";
 import {
   AppearanceGraphBuilder,
-  snapshotAppearanceTexture,
+  snapshotAppearanceTexture
 } from "../../.test-dist/material/AppearanceGraph.js";
 import { compileAppearanceGraph } from "../../.test-dist/material/AppearanceGraphCompiler.js";
 import { ShadeTexture } from "../../.test-dist/texture/ShadeTexture.js";
@@ -16,10 +16,9 @@ import { encodeGpuTextureRef } from "../../.test-dist/gpu/GpuTextureRefAbi.js";
 import { cookAppearanceMipProduct } from "../../.test-dist/material/AppearanceMipCooker.js";
 import {
   writeAppearanceAssetPackage,
-  openAppearanceAssetPackage,
+  openAppearanceAssetPackage
 } from "../../.test-dist/assets/AppearanceAssetPackage.js";
 import { bindAppearanceProducts } from "../../.test-dist/material/AppearanceProductBinding.js";
-import { surfaceDemandLayout } from "../../.test-dist/gpu/GpuSurfaceDemandAbi.js";
 
 globalThis.GPUShaderStage = { COMPUTE: 4 };
 globalThis.GPUBufferUsage = { STORAGE: 128, COPY_DST: 8, UNIFORM: 64, INDIRECT: 256 };
@@ -45,7 +44,7 @@ const limits = {
   maxUniformBuffersPerShaderStage: 12,
   maxSampledTexturesPerShaderStage: 16,
   maxSamplersPerShaderStage: 16,
-  maxStorageTexturesPerShaderStage: 4,
+  maxStorageTexturesPerShaderStage: 4
 };
 function fixture(auto = false, maxPrograms = 2) {
   const loss = deferred(),
@@ -83,7 +82,7 @@ function fixture(auto = false, maxPrograms = 2) {
     queue: {
       writeBuffer(buffer, offset, data) {
         buffer.bytes.set(new Uint8Array(data.buffer, data.byteOffset, data.byteLength), offset);
-      },
+      }
     },
     createComputePipelineAsync(descriptor) {
       assert.equal(scopeDepth, 0, "no error scope may span async compilation");
@@ -99,22 +98,22 @@ function fixture(auto = false, maxPrograms = 2) {
         destroyed: 0,
         destroy() {
           this.destroyed++;
-        },
+        }
       };
       buffers.push(buffer);
       return buffer;
-    },
+    }
   };
   const registry = new AppearanceProgramRegistry(device, {
     maxPrograms,
     maxConcurrentCompiles: 1,
-    maxSourceBytes: 200000,
+    maxSourceBytes: 200000
   });
   const cache = {
     prepare() {
       return {};
     },
-    release() {},
+    release() {}
   };
   return { device, registry, loss, compiled, buffers, cache, creates: () => creates };
 }
@@ -122,7 +121,7 @@ const descriptor = (name = "a") => ({
   source: `@compute @workgroup_size(64) fn ${name}() {}`,
   entryPoint: name,
   workgroupSize: 64,
-  groups: [],
+  groups: []
 });
 function command(device) {
   const event = () => ({
@@ -132,7 +131,7 @@ function command(device) {
     },
     send() {
       for (const callback of this.callbacks.splice(0)) callback();
-    },
+    }
   });
   const done = deferred();
   const encoded = [];
@@ -161,7 +160,7 @@ function command(device) {
         dispatchWorkgroups() {},
         end() {
           encoded.push(this.pipeline);
-        },
+        }
       };
       return pass;
     },
@@ -173,20 +172,11 @@ function command(device) {
     abort() {
       this.closed = true;
       this.onAborted.send();
-    },
+    }
   };
 }
 function encodeFields(publication, c) {
-  const layout = surfaceDemandLayout(64, Math.max(1, publication.surfaceProgramCount));
-  publication.encodeSurfaceFields(c, {
-    geometry: {},
-    demand: {},
-    indirect: {},
-    values: {},
-    scratch: {},
-    layout,
-    textureBanks: [Array.from({ length: 9 }, () => ({}))],
-  });
+  publication.encodeWorkPublication(c, {}, 1, { size: 656 });
   return c.encoded;
 }
 
@@ -224,9 +214,9 @@ test("invalid resource profiles reject before any GPU object is created", () => 
     () =>
       f.registry.acquire({
         ...descriptor(),
-        groups: [[{ binding: 0, visibility: 4, buffer: { type: "storage", minBindingSize: 1e9 } }]],
+        groups: [[{ binding: 0, visibility: 4, buffer: { type: "storage", minBindingSize: 1e9 } }]]
       }),
-    /byte limit/,
+    /byte limit/
   );
   assert.throws(
     () =>
@@ -236,11 +226,11 @@ test("invalid resource profiles reject before any GPU object is created", () => 
           Array.from({ length: 17 }, (_, binding) => ({
             binding,
             visibility: 4,
-            buffer: { type: "storage" },
-          })),
-        ],
+            buffer: { type: "storage" }
+          }))
+        ]
       }),
-    /storage buffers/,
+    /storage buffers/
   );
   assert.equal(f.creates(), 0);
   f.registry.destroy();
@@ -294,7 +284,7 @@ function source(value, materialSlot, texture) {
     [2, 3],
     Math.PI / 2,
     undefined,
-    [0.5, 0.5, 1, 1],
+    [0.5, 0.5, 1, 1]
   );
   g.output("field", g.operation("multiply", p, g.swizzle(g.texture(binding, uv), [0])));
   g.output("alpha", g.constant(1));
@@ -303,7 +293,7 @@ function source(value, materialSlot, texture) {
     materialSlot,
     program: compileAppearanceGraph(g.build()),
     textureBindingSetId: 0,
-    textureRefs: new Map([[texture, encodeGpuTextureRef(0, 1)]]),
+    textureRefs: new Map([[texture, encodeGpuTextureRef(0, 1)]])
   };
 }
 
@@ -323,19 +313,19 @@ async function bakedSource(value, materialSlot) {
       domainMax: [1, 1],
       error: { absolute: 0.001, relative: 0 },
       storagePrecision: "float16",
-      sample: () => [0.5, 0.25, 0.75, 1],
-    },
+      sample: () => [0.5, 0.25, 0.75, 1]
+    }
   );
   const asset = await openAppearanceAssetPackage(
     await writeAppearanceAssetPackage(product, {
       uri: "test/publication-product",
       contentHash: "a".repeat(64),
-      dependencies: [],
-    }),
+      dependencies: []
+    })
   );
   return {
     ...original,
-    program: bindAppearanceProducts(p, [{ source: p, asset, roots: { baked: p.outputs.field } }]),
+    program: bindAppearanceProducts(p, [{ source: p, asset, roots: { baked: p.outputs.field } }])
   };
 }
 
@@ -351,15 +341,15 @@ test("shared PSO does not merge distinct physical product resource sets; capabil
         asset: asset.runtime.manifest.assetId,
         createView() {
           return { texture: this };
-        },
+        }
       };
       allocations.push(texture);
       return {
         destination: () => ({ texture, layer: 0 }),
         variation: () => null,
-        release: () => released.push(texture),
+        release: () => released.push(texture)
       };
-    },
+    }
   };
   const p = new GpuAppearancePublication(
     f.device,
@@ -369,19 +359,31 @@ test("shared PSO does not merge distinct physical product resource sets; capabil
     new Map(),
     new Map(),
     undefined,
-    owner,
-    f.cache,
+    owner
   );
   await p.ready;
-  assert.notEqual(p.entries[0].programIndex, p.entries[1].programIndex);
+  assert.notEqual(
+    p.entries[0].constantBase,
+    p.entries[1].constantBase,
+    "finite PSOs retain independent instance constants"
+  );
   const encoded = encodeFields(p, command(f.device));
   assert.equal(encoded.length, 1, "product identities remain data in one residency-family dispatch");
-  assert.notEqual(p.entries[0].resourceSetIndex, p.entries[1].resourceSetIndex);
-  assert.notEqual(p.entries[0].productTextures[0], p.entries[1].productTextures[0]);
-  assert.equal(allocations.length, 2);
+  assert.equal(
+    p.entries[0].resourceSetIndex,
+    p.entries[1].resourceSetIndex,
+    "product identities are now immutable bank addresses within one finite family"
+  );
+  const productCode = new Uint32Array(p.exactDagCode.bytes.buffer);
+  assert.notEqual(
+    productCode[9],
+    productCode[16 + 9],
+    "distinct product routes retain separate packed records"
+  );
+  assert.equal(allocations.length, 0, "opaque product fields have no duplicate hardware texture consumer");
   c.finish();
   p.destroy();
-  assert.equal(released.length, 2);
+  assert.equal(released.length, 0);
   f.registry.destroy();
   const capped = fixture(true);
   capped.device.limits.maxSampledTexturesPerShaderStage = 0;
@@ -400,10 +402,10 @@ test("shared PSO does not merge distinct physical product resource sets; capabil
           acquire() {
             attempts++;
             throw new Error("must not allocate");
-          },
-        },
+          }
+        }
       ),
-    /textures exceed/,
+    /textures exceed/
   );
   assert.equal(attempts, 0);
   assert.equal(capped.buffers.length, 0);
@@ -426,27 +428,40 @@ test("actual-sized GPU publication shares pipelines while retaining different in
     new Map(),
     new Map([[texture, { slot: 12, revision: 43 }]]),
     undefined,
-    undefined,
-    f.cache,
+    undefined
   );
-  assert.throws(() => encodeFields(p, command(f.device)), /open resident frame/);
+  assert.throws(() => encodeFields(p, command(f.device)), /ready same-device programs/);
   await p.ready;
   c.finish();
   assert.equal(
-    f.compiled.filter((item) => item.descriptor.compute.entryPoint === "surface_fields").length,
-    1,
-    "two material instances share one Surface program",
+    f.compiled.filter((item) => item.descriptor.compute.entryPoint === "appearance").length,
+    4,
+    "fixed and complete Generic each have two finite fused Geometry source profiles"
   );
-  const constants = new Float32Array(p.constants.bytes.buffer),
-    directory = new Uint32Array(p.directory.bytes.buffer);
+  assert.equal(
+    f.compiled.filter((item) => item.descriptor.compute.entryPoint === "geometry").length,
+    0,
+    "no standalone Geometry/UV staging pipeline remains"
+  );
+  const constants = new Float32Array(p.constants.bytes.buffer);
   assert.equal(constants[p.entries[0].constantBase], 0.25);
   assert.equal(constants[p.entries[1].constantBase], 0.5);
-  assert.equal(directory[0], 17);
-  assert.equal(directory[8], 18);
-  assert.equal(p.fields.bytes.byteLength, 4 * 4 * 4);
+  assert.deepEqual(
+    p.entries.map((entry) => entry.materialSlot),
+    [17, 18]
+  );
+  const metadata = new Uint32Array(p.surfaceMetadata.bytes.buffer);
+  assert.equal(metadata[p.surfaceMetadataOffsets.materialLookup + 17], 0);
+  assert.equal(metadata[p.surfaceMetadataOffsets.materialLookup + 18], 1);
+  for (const label of ["directory", "fields", "surface-material-lookup", "surface-publication-identity"]) {
+    assert.ok(
+      !f.buffers.some((buffer) => buffer.label === "Appearance/" + label),
+      "retired duplicate publication buffers have no allocation"
+    );
+  }
   assert.equal(
     p.allocatedBytes,
-    f.buffers.reduce((bytes, buffer) => bytes + buffer.size, 0),
+    f.buffers.reduce((bytes, buffer) => bytes + buffer.size, 0)
   );
   const route = new DataView(p.routes.bytes.buffer);
   assert.equal(route.getUint32(8, true), 12);
@@ -467,7 +482,7 @@ test("actual-sized GPU publication shares pipelines while retaining different in
   release.done.resolve();
   await tick();
   assert.ok(f.buffers.every((buffer) => buffer.destroyed === 1));
-  assert.throws(() => encodeFields(p, command(f.device)), /open resident frame/);
+  assert.throws(() => encodeFields(p, command(f.device)), /ready same-device programs/);
   f.registry.destroy();
 });
 
@@ -483,8 +498,7 @@ test("aborting a publication rejects its readiness even if a shared driver compi
     new Map(),
     new Map(),
     undefined,
-    undefined,
-    f.cache,
+    undefined
   );
   await tick();
   c.abort();
@@ -508,9 +522,9 @@ test("publication rejects before buffer allocation when negotiated storage capac
         [source(0.4, 1, new ShadeTexture())],
         c,
         new Map(),
-        new Map(),
+        new Map()
       ),
-    /negotiated storage limit/,
+    /negotiated storage limit/
   );
   assert.equal(f.buffers.length, 0);
   assert.equal(f.registry.evidence().referenced, 0);
@@ -528,8 +542,7 @@ test("device loss disposes a resident publication and revokes its pipeline acces
     new Map(),
     new Map(),
     undefined,
-    undefined,
-    f.cache,
+    undefined
   );
   await p.ready;
   c.finish();
@@ -537,5 +550,5 @@ test("device loss disposes a resident publication and revokes its pipeline acces
   f.loss.resolve({ reason: "unknown", message: "resident loss" });
   await tick();
   assert.ok(f.buffers.every((buffer) => buffer.destroyed === 1));
-  assert.throws(() => encodeFields(p, command(f.device)), /open resident frame/);
+  assert.throws(() => encodeFields(p, command(f.device)), /ready same-device programs/);
 });

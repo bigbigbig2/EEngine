@@ -5,18 +5,22 @@ owner: shading
 state: current
 verifies:
   - OEngine/src/render/surface/SurfaceWorkRuntime.ts
-  - OEngine/src/render/surface/SurfaceReconstructionPass.ts
+  - OEngine/src/shaders/surface_work_reconstruct.ts
   - OEngine/src/render/program/FrameProgramLowering.ts
 ---
 # Shading
 
 ## 当前源码接线
 
-核对日期：2026-10-05；源码基准 11a7af962dd4eae54e900e31d28dc856d540d443。本轮核对主链注册与直接资源 consumer，未重新运行 GPU 数值、画质或性能验收。阶段读取 workstream，不在本页复制。
+核对日期：2026-10-06；本轮工作树主链注册与直接资源 consumer。阶段和检查结果读取 workstream/执行计划，不在本页复制。
 
-[SurfaceWorkRuntime](../../OEngine/src/render/surface/SurfaceWorkRuntime.ts) 在同一 FrameGraph 注册 classifier→demand→geometry→Appearance→FieldStore publish→lighting→SignalStore publish→reconstruction。Appearance 通过 publication.encodeSurfaceFields 消费 geometry.records/demand；lighting 消费同一 records 与 fields，输出 signal values；reconstruction 消费 Field/Signal refs/values、覆盖与 Temporal facts，发布 radiance/reactiveMask。
+[SurfaceWorkRuntime](../../OEngine/src/render/surface/SurfaceWorkRuntime.ts) 在同一 FrameGraph 注册 coverage→有限家族工作/indirect→Geometry与Appearance→signal rate→Lighting→Reconstruct。publication 通过 encodeWorkPublication 发布常量；Geometry与Appearance消费者共用当前源与域目录；Lighting只读已完成Geometry/fields/guides；Reconstruct只消费必要fields、signal values、AO与Temporal facts，发布radiance/reactiveMask。
 
-Runtime 持有 scratch、FieldStore/SignalStore 引用与上述 pass owners；FrameProgramLowering 提供当前 visibility、几何源、材质/纹理 publication、lighting providers 和版本输入。资源接线存在不等于所有命中/拒绝、唯一 writer、容量与生命周期分支已正确。
+Runtime 持有分bank的frame scratch与有限work kernels；FrameProgramLowering提供当前visibility、几何源、材质/纹理publication、lighting providers和版本输入。旧Field/SignalStore不再接此主链；可选精确缓存仍需按C实现，接线存在不证明完整性能或全部生命周期分支正确。
+
+材质发布分离完整结构模板与实例快照；普通家族与完整 General 共用实际产品采样语义。General tape 按语义宽度、C/CXY 点域和最后读者安排 f32 words，publication/material/frame 子图按真实依赖更新并随帧事务提交。coherence 只组织多模板 General 工作，容量不足保留完整 indexed worker。
+
+唯一 FrameGeometryArena 提供 prepared attributes 与 resident fallback；Surface 局部完成 Geometry 后交给 Appearance，跨阶段只保留 closed fields、薄几何与必要 guides。六路 RGB 信号携带显式 state，各信号分别发布率；重构保持原加法分组、output-pixel AO 和颜色/preExposure 语义。普通几何已移除无读者 continuity 载荷，但保留 TemporalFacts 实际消费的 primitive identity 映射。
 
 ## 边界与已知问题
 

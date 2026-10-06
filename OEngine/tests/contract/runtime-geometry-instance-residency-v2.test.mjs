@@ -15,7 +15,7 @@ const [
     decodeGeometryTangent,
     decodeGeometryUv,
     GEOMETRY_VERTEX_PROFILE,
-    GEOMETRY_VERTEX_STREAM_FLAGS,
+    GEOMETRY_VERTEX_STREAM_FLAGS
   },
   { RuntimeAssetResidencyState },
   { GpuAssetStore },
@@ -28,8 +28,8 @@ const [
     GPU_INSTANCE_FLAGS,
     GPU_INSTANCE_RECORD_OFFSETS,
     GPU_INSTANCE_RECORD_STRIDE,
-    GPU_INSTANCE_STATIC_RECORD_STRIDE,
-  },
+    GPU_INSTANCE_STATIC_RECORD_STRIDE
+  }
 ] = await Promise.all([
   import("../../.test-dist/geometry/BoxGeometry.js"),
   import("../../.test-dist/assets/SourceGeometry.js"),
@@ -40,7 +40,7 @@ const [
   import("../../.test-dist/gpu/GpuAssetStore.js"),
   import("../../.test-dist/gpu/GpuScene.js"),
   import("../../.test-dist/gpu/GpuGeometryAbi.js"),
-  import("../../.test-dist/gpu/GpuInstanceAbi.js"),
+  import("../../.test-dist/gpu/GpuInstanceAbi.js")
 ]);
 
 test("Instance V2 CPU pack oracle preserves affine current/previous state and motion validity", () => {
@@ -56,7 +56,7 @@ test("Instance V2 CPU pack oracle preserves affine current/previous state and mo
     boundsMin: [-1, -1, -1],
     boundsMax: [1, 1, 1],
     currentObjectToWorld: current,
-    previousObjectToWorld: previous,
+    previousObjectToWorld: previous
   });
   const decodedCurrent = new Float32Array(16);
   const decodedMotion = new Float32Array(16);
@@ -82,9 +82,9 @@ test("Instance V2 CPU pack oracle preserves affine current/previous state and mo
         boundsMin: [-1, -1, -1],
         boundsMax: [1, 1, 1],
         currentObjectToWorld: current,
-        previousObjectToWorld: previous,
+        previousObjectToWorld: previous
       }),
-    /geometryGeneration.*non-zero/,
+    /geometryGeneration.*non-zero/
   );
 
   const singular = current.slice();
@@ -99,14 +99,14 @@ test("Instance V2 CPU pack oracle preserves affine current/previous state and mo
     boundsMin: [-1, -1, -1],
     boundsMax: [1, 1, 1],
     currentObjectToWorld: singular,
-    previousObjectToWorld: previous,
+    previousObjectToWorld: previous
   });
   assert.notEqual(
     new DataView(invalid.buffer, invalid.byteOffset, invalid.byteLength).getUint32(
       GPU_INSTANCE_RECORD_OFFSETS.motion_flags,
-      true,
+      true
     ) & GPU_INSTANCE_FLAGS.MotionInvalid,
-    0,
+    0
   );
 });
 
@@ -114,7 +114,7 @@ test("Canonical Geometry V2 is deterministic, compact, and numerically faithful"
   const source = staticPbrBox();
   const compactRecipe = createGeometryCookRecipe();
   const fallbackRecipe = createGeometryCookRecipe({
-    vertexProfile: "explicit-float32-fallback-v2",
+    vertexProfile: "explicit-float32-fallback-v2"
   });
   const compact = await cookGeometryAssetPackage(source, compactRecipe);
   const repeat = await cookGeometryAssetPackage(source, compactRecipe);
@@ -130,7 +130,7 @@ test("Canonical Geometry V2 is deterministic, compact, and numerically faithful"
   assert.ok(compact.evidence.packageBytes < fallback.evidence.packageBytes);
 
   const descriptors = Object.fromEntries(
-    compact.asset.vertexStreamDescriptors.map((stream) => [stream.semantic, stream]),
+    compact.asset.vertexStreamDescriptors.map((stream) => [stream.semantic, stream])
   );
   assert.equal(descriptors.position.flags, GEOMETRY_VERTEX_STREAM_FLAGS.PositionAabbUnorm16);
   assert.equal(descriptors.normal.flags, GEOMETRY_VERTEX_STREAM_FLAGS.NormalOctSnorm16);
@@ -145,14 +145,14 @@ test("Canonical Geometry V2 is deterministic, compact, and numerically faithful"
   const extent = [
     source.bounds.box[3] - source.bounds.box[0],
     source.bounds.box[4] - source.bounds.box[1],
-    source.bounds.box[5] - source.bounds.box[2],
+    source.bounds.box[5] - source.bounds.box[2]
   ];
   for (let vertex = 0; vertex < source.vertexCount; vertex++) {
     const position = decodeGeometryPosition(compact.asset, vertex);
     for (let component = 0; component < 3; component++) {
       assert.ok(
         Math.abs(position[component] - positions[vertex * 3 + component]) <=
-          extent[component] / 65535 / 2 + 1e-6,
+          extent[component] / 65535 / 2 + 1e-6
       );
     }
     const normal = decodeGeometryNormal(compact.asset, vertex);
@@ -178,13 +178,13 @@ test("Canonical Geometry V2 is deterministic, compact, and numerically faithful"
     compact.asset.materialRanges.map(({ firstTriangle, triangleCount, materialId }) => [
       firstTriangle,
       triangleCount,
-      materialId,
+      materialId
     ]),
     source.materialRanges.map(({ firstTriangle, triangleCount, materialId }) => [
       firstTriangle,
       triangleCount,
-      materialId,
-    ]),
+      materialId
+    ])
   );
 });
 
@@ -203,9 +203,9 @@ test("Compact Geometry V2 rounds quantized Meshlet bounds outward in float32", a
         data: new Float32Array([
           -2072.08154296875, -85761.5625, 1320.8377685546875, -2060, -85700, 1340, -2035.2003173828125,
           -85634.4765625, 1364.0418701171875, -4621.07666015625, -88498.46875, 758.76416015625,
-          3450.54541015625, 172199.515625, 1388.9639892578125, 0, 0, 1000,
-        ]),
-      },
+          3450.54541015625, 172199.515625, 1388.9639892578125, 0, 0, 1000
+        ])
+      }
     ],
     materialRanges: [
       {
@@ -213,16 +213,16 @@ test("Compact Geometry V2 rounds quantized Meshlet bounds outward in float32", a
         triangleCount: 1,
         materialId: 0,
         alphaMode: "opaque",
-        doubleSided: false,
+        doubleSided: false
       },
       {
         firstTriangle: 1,
         triangleCount: 1,
         materialId: 1,
         alphaMode: "opaque",
-        doubleSided: false,
-      },
-    ],
+        doubleSided: false
+      }
+    ]
   });
 
   const cooked = await cookGeometryAssetPackage(source, createGeometryCookRecipe());
@@ -244,25 +244,25 @@ test("Runtime residency has atomic budgets, explicit ranges, retirement, and dev
     },
     release(request) {
       releases.push(request);
-    },
+    }
   });
   const ids = variant.chunkIds;
   const uploadBytes = ids.reduce(
     (sum, id) => sum + manifest.chunks.find((chunk) => chunk.id === id).compressedBytes,
-    0,
+    0
   );
   const residentBytes = ids.reduce(
     (sum, id) => sum + manifest.chunks.find((chunk) => chunk.id === id).expectedResidentBytes,
-    0,
+    0
   );
 
   assert.throws(
     () =>
       state.request(ids, {
         maxUploadBytes: uploadBytes - 1,
-        maxResidentBytes: residentBytes,
+        maxResidentBytes: residentBytes
       }),
-    /budget/,
+    /budget/
   );
   assert.ok(state.snapshot().every(({ state: requestState }) => requestState === "unrequested"));
 
@@ -276,9 +276,9 @@ test("Runtime residency has atomic budgets, explicit ranges, retirement, and dev
       id,
       {
         byteOffset: index * 4096,
-        byteLength: manifest.chunks.find((chunk) => chunk.id === id).expectedResidentBytes,
-      },
-    ]),
+        byteLength: manifest.chunks.find((chunk) => chunk.id === id).expectedResidentBytes
+      }
+    ])
   );
   state.commit(committed, physical);
   assert.equal(state.evidence().residentChunkCount, ids.length);
@@ -301,57 +301,66 @@ test("GpuAssetStore publishes physical chunk ranges behind an unchanged opaque h
   const device = fakeDevice();
   const store = new GpuAssetStore(device);
   const command = new SceneCommand(device, []);
+  const initialVertexBytes = store.bindings().highWaterCounts.vertexStreamBytes;
   const handle = store.resident(cooked.asset, command);
   const stagedHeaps = store.bindings().sparseShading;
+  const residentAt = Math.ceil((initialVertexBytes + cooked.asset.vertexStreamData.byteLength) / 16) * 16;
+  const requiredEnd =
+    residentAt + cooked.asset.directory.vertexCount * 6 * 4 * 4 + cooked.asset.surfacePrimitiveIds.byteLength;
+  assert.equal(
+    store.bindings().highWaterCounts.vertexStreamBytes,
+    requiredEnd,
+    "current production stores decoded resident attributes and Temporal primitive ids, with no retired 64B continuity payload"
+  );
   assert.equal(stagedHeaps.schemaVersion, 1);
   assert.equal(stagedHeaps.epoch, 2);
   assert.equal(stagedHeaps.geometryWordBase, 0);
   assert.equal(
     stagedHeaps.meshletWordBase,
-    (store.bindings().highWaterCounts.geometryRecords * GPU_GEOMETRY_RECORD_STRIDE) / 4,
+    (store.bindings().highWaterCounts.geometryRecords * GPU_GEOMETRY_RECORD_STRIDE) / 4
   );
   assert.equal(
     stagedHeaps.geometryGenerationWordBase,
     stagedHeaps.meshletWordBase +
-      (store.bindings().highWaterCounts.meshletRecords * GPU_MESHLET_RECORD_STRIDE) / 4,
+      (store.bindings().highWaterCounts.meshletRecords * GPU_MESHLET_RECORD_STRIDE) / 4
   );
   assert.equal(stagedHeaps.meshletVertexWordBase, 0);
   assert.equal(stagedHeaps.meshletTriangleWordBase, store.bindings().highWaterCounts.meshletVertexIndices);
   assert.equal(
     stagedHeaps.vertexDataWordBase,
-    stagedHeaps.meshletTriangleWordBase + store.bindings().highWaterCounts.meshletTriangleBytes / 4,
+    stagedHeaps.meshletTriangleWordBase + store.bindings().highWaterCounts.meshletTriangleBytes / 4
   );
   assert.equal(stagedHeaps.geometryCount, store.bindings().highWaterCounts.geometryRecords);
   assert.equal(stagedHeaps.meshletCount, store.bindings().highWaterCounts.meshletRecords);
   assert.equal(
     command.copies.filter(({ destination }) => destination === stagedHeaps.assetMetadataHeap).length,
-    2,
+    2
   );
   assert.equal(
     command.copies.filter(({ destination }) => destination === stagedHeaps.vertexPayloadHeap).length,
-    3,
+    3
   );
   const generationWrite = command.writes.find(
     ({ buffer, bufferOffset }) =>
-      buffer === stagedHeaps.assetMetadataHeap && bufferOffset === stagedHeaps.geometryGenerationWordBase * 4,
+      buffer === stagedHeaps.assetMetadataHeap && bufferOffset === stagedHeaps.geometryGenerationWordBase * 4
   );
   assert.ok(generationWrite);
   assert.equal(
     new DataView(generationWrite.data, generationWrite.dataOffset, generationWrite.size).getUint32(4, true),
-    1,
+    1
   );
   assert.ok(
     store
       .residencyRanges(handle)
-      .every(({ state, residentResourceId }) => state === "requested" && residentResourceId === null),
+      .every(({ state, residentResourceId }) => state === "requested" && residentResourceId === null)
   );
   command.finish();
   const ranges = store.residencyRanges(handle);
   assert.ok(ranges.every(({ state }) => state === "resident"));
   assert.ok(
     ranges.every(
-      ({ residentResourceId }) => typeof residentResourceId === "string" && residentResourceId.length > 0,
-    ),
+      ({ residentResourceId }) => typeof residentResourceId === "string" && residentResourceId.length > 0
+    )
   );
   assert.equal(store.recordIndex(handle), 1);
   assert.deepEqual(store.publicationIdentity(handle), { slot: 1, generation: 1 });
@@ -361,7 +370,7 @@ test("GpuAssetStore publishes physical chunk ranges behind an unchanged opaque h
     assetMetadataBytes: stagedHeaps.assetMetadataBytes,
     vertexPayloadBytes: stagedHeaps.vertexPayloadBytes,
     geometryCount: stagedHeaps.geometryCount,
-    meshletCount: stagedHeaps.meshletCount,
+    meshletCount: stagedHeaps.meshletCount
   });
 
   const abortedRelease = new SceneCommand(device, []);
@@ -371,15 +380,15 @@ test("GpuAssetStore publishes physical chunk ranges behind an unchanged opaque h
   const abortedGenerationWrite = abortedRelease.writes.find(
     ({ buffer, bufferOffset }) =>
       buffer === abortedHeaps.assetMetadataHeap &&
-      bufferOffset === abortedHeaps.geometryGenerationWordBase * 4,
+      bufferOffset === abortedHeaps.geometryGenerationWordBase * 4
   );
   assert.equal(
     new DataView(
       abortedGenerationWrite.data,
       abortedGenerationWrite.dataOffset,
-      abortedGenerationWrite.size,
+      abortedGenerationWrite.size
     ).getUint32(4, true),
-    2,
+    2
   );
   abortedRelease.abort();
   assert.strictEqual(store.bindings().sparseShading, stagedHeaps);
@@ -399,15 +408,15 @@ test("GpuAssetStore publishes physical chunk ranges behind an unchanged opaque h
   const reusedHeaps = store.bindings().sparseShading;
   const reusedGenerationWrite = reuse.writes.find(
     ({ buffer, bufferOffset }) =>
-      buffer === reusedHeaps.assetMetadataHeap && bufferOffset === reusedHeaps.geometryGenerationWordBase * 4,
+      buffer === reusedHeaps.assetMetadataHeap && bufferOffset === reusedHeaps.geometryGenerationWordBase * 4
   );
   assert.equal(
     new DataView(
       reusedGenerationWrite.data,
       reusedGenerationWrite.dataOffset,
-      reusedGenerationWrite.size,
+      reusedGenerationWrite.size
     ).getUint32(4, true),
-    2,
+    2
   );
   reuse.finish();
   assert.deepEqual(store.publicationIdentity(reusedHandle), { slot: 1, generation: 2 });
@@ -418,7 +427,7 @@ test("Instance V2 narrows stable, small, large, static, material, and visibility
   const writes = [];
   const device = fakeDevice();
   const scene = new GpuScene(device, {
-    publicationIdentity: () => Object.freeze({ slot: 7, generation: 41 }),
+    publicationIdentity: () => Object.freeze({ slot: 7, generation: 41 })
   });
   const source = {
     count: 4,
@@ -426,7 +435,7 @@ test("Instance V2 narrows stable, small, large, static, material, and visibility
     geometryIndices: new Uint32Array(4),
     materialHandles: new Uint32Array([2, 2, 2, 2]),
     currentTransforms: identityMatrices(4),
-    boundsSpheres: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1]),
+    boundsSpheres: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1])
   };
   const create = new SceneCommand(device, writes);
   const handle = scene.instantiate(source, create);
@@ -451,9 +460,9 @@ test("Instance V2 narrows stable, small, large, static, material, and visibility
     handle,
     {
       frameId: 2,
-      transforms: { indices: new Uint32Array([1]), transforms: translatedMatrices([[2, 3, 4]]) },
+      transforms: { indices: new Uint32Array([1]), transforms: translatedMatrices([[2, 3, 4]]) }
     },
-    smallCommand,
+    smallCommand
   );
   assert.equal(small.uploadedBytes, GPU_INSTANCE_DYNAMIC_RECORD_STRIDE);
   smallCommand.finish();
@@ -469,11 +478,11 @@ test("Instance V2 narrows stable, small, large, static, material, and visibility
           [1, 0, 0],
           [2, 0, 0],
           [3, 0, 0],
-          [4, 0, 0],
-        ]),
-      },
+          [4, 0, 0]
+        ])
+      }
     },
-    largeCommand,
+    largeCommand
   );
   assert.equal(large.uploadedBytes, 4 * GPU_INSTANCE_DYNAMIC_RECORD_STRIDE);
   largeCommand.finish();
@@ -487,19 +496,19 @@ test("Instance V2 narrows stable, small, large, static, material, and visibility
       staticInstances: {
         indices: new Uint32Array([0]),
         boundsSpheres: new Float32Array([1, 2, 3, 4]),
-        debugIds: new Uint32Array([99]),
+        debugIds: new Uint32Array([99])
       },
       materials: {
         indices: new Uint32Array([0]),
         materialHandles: new Uint32Array([9]),
-        flags: new Uint32Array([classified]),
+        flags: new Uint32Array([classified])
       },
       visibility: {
         indices: new Uint32Array([0]),
-        flags: new Uint32Array([GPU_INSTANCE_FLAGS.Active | GPU_INSTANCE_FLAGS.CastsShadow]),
-      },
+        flags: new Uint32Array([GPU_INSTANCE_FLAGS.Active | GPU_INSTANCE_FLAGS.CastsShadow])
+      }
     },
-    fieldsCommand,
+    fieldsCommand
   );
   assert.equal(fields.staticCount, 1);
   assert.equal(fields.materialCount, 1);
@@ -513,13 +522,13 @@ test("Instance V2 narrows stable, small, large, static, material, and visibility
     staticPatchBytes: 20,
     transformPatchBytes: 5 * GPU_INSTANCE_DYNAMIC_RECORD_STRIDE,
     materialPatchBytes: 8,
-    visibilityPatchBytes: 4,
+    visibilityPatchBytes: 4
   });
   assert.deepEqual(scene.profilePatchByteDeltas(), {
     staticPatchBytes: 0,
     transformPatchBytes: 0,
     materialPatchBytes: 0,
-    visibilityPatchBytes: 0,
+    visibilityPatchBytes: 0
   });
 
   const abortedCommand = new SceneCommand(device, writes);
@@ -527,9 +536,9 @@ test("Instance V2 narrows stable, small, large, static, material, and visibility
     handle,
     {
       frameId: 5,
-      transforms: { indices: new Uint32Array([0]), transforms: translatedMatrices([[99, 0, 0]]) },
+      transforms: { indices: new Uint32Array([0]), transforms: translatedMatrices([[99, 0, 0]]) }
     },
-    abortedCommand,
+    abortedCommand
   );
   abortedCommand.abort();
   assert.equal(scene.evidence().abortedMutationCount, 1);
@@ -537,7 +546,7 @@ test("Instance V2 narrows stable, small, large, static, material, and visibility
   assert.deepEqual(
     [...recovery.currentTransforms.subarray(12, 15)],
     [1, 0, 0],
-    "aborted transform must not enter device recovery CPU truth",
+    "aborted transform must not enter device recovery CPU truth"
   );
   assert.deepEqual([...recovery.boundsSpheres.subarray(0, 4)], [1, 2, 3, 4]);
   assert.equal(recovery.debugIds[0], 99);
@@ -546,7 +555,7 @@ test("Instance V2 narrows stable, small, large, static, material, and visibility
   assert.equal(
     scene.recoveryInstances(handle).currentTransforms[12],
     1,
-    "checkpoint arrays must not alias authoritative Instance bytes",
+    "checkpoint arrays must not alias authoritative Instance bytes"
   );
 
   const release = new SceneCommand(device, writes);
@@ -562,7 +571,7 @@ test("multi-Product instances publish their own slot and generation lanes", () =
   const scene = new GpuScene(device, {
     publicationIdentity: () => {
       throw new Error("Product instances do not use package identity");
-    },
+    }
   });
   const source = {
     count: 2,
@@ -572,12 +581,12 @@ test("multi-Product instances publish their own slot and generation lanes", () =
       productGeneration: 11,
       assetCount: 2,
       productTableSlots: new Uint32Array([2, 7]),
-      productGenerations: new Uint32Array([11, 29]),
+      productGenerations: new Uint32Array([11, 29])
     },
     geometryIndices: new Uint32Array([0, 1]),
     materialHandles: new Uint32Array([0, 0]),
     currentTransforms: identityMatrices(2),
-    boundsSpheres: new Float32Array([0, 0, 0, 1, 1, 0, 0, 1]),
+    boundsSpheres: new Float32Array([0, 0, 0, 1, 1, 0, 0, 1])
   };
   const command = new SceneCommand(device, writes);
   scene.instantiate(source, command);
@@ -587,11 +596,11 @@ test("multi-Product instances publish their own slot and generation lanes", () =
   assert.equal(view.getUint32(GPU_INSTANCE_RECORD_OFFSETS.geometry_generation, true), 11);
   assert.equal(
     view.getUint32(GPU_INSTANCE_RECORD_STRIDE + GPU_INSTANCE_RECORD_OFFSETS.product_table_slot, true),
-    7,
+    7
   );
   assert.equal(
     view.getUint32(GPU_INSTANCE_RECORD_STRIDE + GPU_INSTANCE_RECORD_OFFSETS.geometry_generation, true),
-    29,
+    29
   );
   command.finish();
   scene.destroy();
@@ -603,7 +612,7 @@ test("GpuScene appends Product instances with a stable handle and rolls back an 
   const scene = new GpuScene(device, {
     publicationIdentity: () => {
       throw new Error("Product instances do not use package identity");
-    },
+    }
   });
   const source = (slot, material) => ({
     count: 1,
@@ -612,7 +621,7 @@ test("GpuScene appends Product instances with a stable handle and rolls back an 
     geometryIndices: new Uint32Array([0]),
     materialHandles: new Uint32Array([material]),
     currentTransforms: identityMatrices(1),
-    boundsSpheres: new Float32Array([0, 0, 0, 1]),
+    boundsSpheres: new Float32Array([0, 0, 0, 1])
   });
   const create = new SceneCommand(device, writes);
   const handle = scene.instantiate(source(2, 7), create);
@@ -632,7 +641,7 @@ test("GpuScene appends Product instances with a stable handle and rolls back an 
   const remap = writes.findLast((write) => write.size === 4);
   assert.equal(
     remap.bufferOffset,
-    begin * GPU_INSTANCE_RECORD_STRIDE + GPU_INSTANCE_RECORD_OFFSETS.material_handle,
+    begin * GPU_INSTANCE_RECORD_STRIDE + GPU_INSTANCE_RECORD_OFFSETS.material_handle
   );
   append.finish();
   assert.deepEqual(scene.range(handle), { start: begin, count: 2 });
@@ -652,7 +661,7 @@ test("GpuScene same-command replacement reuses the released range without duplic
   const writes = [];
   const device = fakeDevice();
   const scene = new GpuScene(device, {
-    publicationIdentity: () => Object.freeze({ slot: 3, generation: 9 }),
+    publicationIdentity: () => Object.freeze({ slot: 3, generation: 9 })
   });
   const source = (count) => ({
     count,
@@ -660,7 +669,7 @@ test("GpuScene same-command replacement reuses the released range without duplic
     geometryIndices: new Uint32Array(count),
     materialHandles: new Uint32Array(count),
     currentTransforms: identityMatrices(count),
-    boundsSpheres: new Float32Array(count * 4).fill(1),
+    boundsSpheres: new Float32Array(count * 4).fill(1)
   });
   const initialCommand = new SceneCommand(device, writes);
   const initial = scene.instantiate(source(4), initialCommand);
@@ -686,7 +695,7 @@ test("GpuScene same-command replacement reuses the released range without duplic
   assert.notEqual(
     scene.range(second).start,
     scene.range(first).start,
-    "a stale duplicate free slot must not overwrite a later live instance",
+    "a stale duplicate free slot must not overwrite a later live instance"
   );
   scene.destroy();
 });
@@ -697,7 +706,7 @@ function staticPbrBox() {
     semantic: stream.semantic,
     componentCount: stream.componentCount,
     normalized: stream.normalized,
-    data: stream.data,
+    data: stream.data
   }));
   const tangentStream = box.attributes.get("tangent");
   assert.ok(tangentStream, "box source geometry must provide generated tangents");
@@ -711,7 +720,7 @@ function staticPbrBox() {
     sourceId: "fixture://static-pbr-box-v2",
     indices: box.indices,
     attributes,
-    materialRanges: box.materialRanges,
+    materialRanges: box.materialRanges
   });
 }
 
@@ -783,9 +792,9 @@ function fakeDevice() {
         unmap() {},
         destroy() {
           this.destroyed = true;
-        },
+        }
       };
-    },
+    }
   };
 }
 

@@ -4,82 +4,22 @@ import {
   classifySurfaceTimingPhase,
   surfaceTimingTotalsForFrame,
 } from "../../.test-dist/debug/SurfacePhaseTiming.js";
-import { SurfaceFieldLookupPass } from "../../.test-dist/render/surface/SurfaceFieldLookupPass.js";
-import { SurfaceFrameResources } from "../../.test-dist/render/surface/SurfaceFrameResources.js";
 import "../webgpu-test-globals.mjs";
 
 globalThis.GPUBufferUsage ??= { UNIFORM: 64, STORAGE: 128, COPY_SRC: 4, COPY_DST: 8, INDIRECT: 256 };
 
-test("current Field lookup encoder labels all contribute to Surface timing", () => {
-  const callbacks = [],
-    labels = [],
-    entryPoints = [];
-  const device = {
-    createBuffer: (descriptor) => ({ ...descriptor, destroy() {} }),
-    createBindGroupLayout: (descriptor) => descriptor,
-    createPipelineLayout: (descriptor) => descriptor,
-    createShaderModule: (descriptor) => descriptor,
-    createComputePipeline: (descriptor) => ({
-      ...descriptor,
-      getBindGroupLayout: (index) => descriptor.layout.bindGroupLayouts[index],
-    }),
-    createBindGroup: (descriptor) => descriptor,
-  };
-  const graph = {
-    import_resource: () => ({}),
-    add(name, data, callback) {
-      callbacks.push(() => callback(data, { get: () => ({}) }, { encoder: command }));
-      return { read() {}, write: (id) => id, create: () => ({}) };
-    },
-  };
-  const command = {
-    writeBuffer() {},
-    gpu_encoder: { copyBufferToBuffer() {} },
-    beginComputePass({ label }) {
-      labels.push(label);
-      return {
-        setPipeline: (pipeline) => entryPoints.push(pipeline.compute.entryPoint),
-        setBindGroup() {},
-        dispatchWorkgroups() {},
-        dispatchWorkgroupsIndirect() {},
-        end() {},
-      };
-    },
-  };
-  const owner = new SurfaceFieldLookupPass(device, null, new SurfaceFrameResources(device));
-  owner.addToGraph(graph, {
-    batchTiles: 1,
-    tileCount: 1,
-    referenceCapacity: 64,
-    width: 8,
-    height: 8,
-    viewRevision: { value: 1 },
-    diagnostics: false,
-    publication: { surfaceMetadataOffsets: { fieldIdentities: 0, constantFields: 0 } },
-    bind: (_name, resolve) => resolve(),
-    workspace: {},
-    geometry: {},
-    metadata: {},
-    versions: {},
-    activeIndirect: {},
-  });
-  callbacks.forEach((callback) => callback());
-  assert.equal(labels.length, 4);
-  assert.deepEqual(
-    labels,
-    entryPoints.map((entryPoint) => `Surface/${entryPoint}`),
-  );
-  for (const label of labels) assert.equal(classifySurfaceTimingPhase({ label }), "materialLookup", label);
-  assert.equal(
-    surfaceTimingTotalsForFrame(labels.map((label) => ({ label, durationMs: 1 }))).get("materialLookup"),
-    4,
-  );
-  assert.equal(
-    classifySurfaceTimingPhase({ label: "Surface/Field support publish indirect" }),
-    null,
-    "Pass-external copy has no compute timestamp and is reported in the copy/span cost",
-  );
-  owner.destroy();
+test("current finite Surface family labels retain management and evaluation attribution", () => {
+  const labels = new Map([
+    ["Surface/coverage", "classify"], ["Surface/signal rates", "classify"],
+    ["Surface/work arguments", "workFinalize"], ["Surface/publication constants", "materialEvaluate"],
+    ["Surface/template packets", "workFinalize"], ["Surface/template indices", "workFinalize"],
+    ["Surface/Geometry Appearance common", "materialEvaluate"], ["Surface/Geometry Appearance generic", "materialEvaluate"],
+    ["Surface/fixed Geometry", "geometryResolve"], ["Surface/fixed Appearance", "materialEvaluate"],
+    ["Surface/closed lighting", "lighting"], ["Surface/closed reconstruct", "reconstruct"],
+  ]);
+  for (const [label, expected] of labels) assert.equal(classifySurfaceTimingPhase({ label }), expected, label);
+  assert.equal(classifySurfaceTimingPhase({ label: "Surface/diagnostic snapshot" }), null);
+  assert.equal(classifySurfaceTimingPhase({ label: "a new unknown kernel" }), null);
 });
 
 test("V3 totals include actual dispatch labels and every material program once", () => {

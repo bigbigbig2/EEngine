@@ -125,10 +125,10 @@ struct Settings { tiles: u32, records: u32, per_record: u32, mask_words: u32, }
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
   let lane = id.x;
+  // Counter reset is uploaded before dispatch. Lane 0 cannot reset a counter
+  // another workgroup may already have incremented; there is no global barrier.
   if lane == 0u {
     atomicStore(&counters[0], directory[0]);
-    atomicStore(&counters[1], 0u);
-    atomicStore(&counters[2], 0u);
     atomicStore(&counters[3], settings.tiles);
   }
   if lane >= settings.tiles { return; }

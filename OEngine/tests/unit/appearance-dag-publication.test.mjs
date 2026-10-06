@@ -111,10 +111,10 @@ test("complete field outputs retain all 25 channels and distinct constant/input 
   const lowered = lowerAppearanceWgsl(program);
   const source = { program, lowered, constantBase: 17, routeBase: 31, inputBase: 9, textureBindingSetId: 3 };
   const packed = packAppearanceDagPublication([source], 65536);
-  assert.equal(packed.code[3], 25);
+  assert.equal(packed.code[3], 24, "alpha is consumed by Coverage, not the Surface export plan");
   assert.equal(packed.code[5], 17);
   assert.equal(packed.code[6], 31);
   assert.equal(packed.code[7], 9);
   assert.equal(packed.code[8], 3);
-  assert.equal(packed.code[12], 32767);
+  assert.equal(packed.code[12], 32765);
 });

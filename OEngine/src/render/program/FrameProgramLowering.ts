@@ -436,22 +436,6 @@ function compileSceneGraph(
     );
   const gpuPreviousExposure = owners.radiometry.importPreviousExposure(graph, bindRadiometry);
   const gpuPriorExposure = owners.radiometry.importPriorExposure(graph, bindRadiometry);
-  const surfaceMaterialLookup = graph.import_resource(
-    "surface-material-lookup",
-    { kind: "imported", label: "Surface publication material lookup" },
-    bind("surface-material-lookup", (bindings) => {
-      if (!bindings.runtime.appearancePublication) throw new Error("Appearance publication is missing");
-      return bindings.runtime.appearancePublication.materialLookup;
-    }),
-  );
-  const surfaceIdentity = graph.import_resource(
-    "surface-publication-identity",
-    { kind: "imported", label: "Surface publication identity" },
-    bind("surface-publication-identity", (bindings) => {
-      if (!bindings.runtime.appearancePublication) throw new Error("Appearance publication is missing");
-      return bindings.runtime.appearancePublication.surfaceIdentity;
-    }),
-  );
   const surfaceMetadata = graph.import_resource(
     "surface-publication-metadata",
     { kind: "imported", label: "Surface publication metadata" },
@@ -541,14 +525,12 @@ function compileSceneGraph(
     : owners.surfaceWork.importUnlitProviders(graph, (name, resolve) => bind(name, resolve));
   const surfaceWork = owners.surfaceWork.addToGraph(graph, {
     visibility: result.frame.visibilityKey,
-    arena: result.frame.frameGeometry,
     meshletWork: result.frame.meshletWork.records,
-    sourceHeap: geometryMetadata,
+    sourceHeap: result.frame.frameGeometry,
     vertexPayload,
     frameInstances: result.frame.frameInstances,
     frameAttributes: result.frame.frameAttributes,
     camera: cameraBuffer,
-    textureVariation,
     appearanceMetadata: surfaceMetadata,
     lightRecords: lightRecords ?? unlit!.lightRecords,
     clusters: clusters ?? unlit!.clusters,
@@ -586,38 +568,22 @@ function compileSceneGraph(
     viewRevision: bind("surface-view-revision", (bindings) => ({ value: bindings.cameraRevision })),
     nonlocalRevision: bind("surface-nonlocal-revision", (bindings) => ({ value: bindings.sceneRevision })),
     diagnosticFrame: bind("surface-diagnostic-frame", (bindings) => ({ value: bindings.frameIndex })),
-    materialLookup: surfaceMaterialLookup,
-    surfaceIdentity,
-    materials: materialRecords,
     textureBanks,
     publication: appearancePublication,
     product:
       virtualMetadata === undefined || virtualBanks === undefined
         ? null
         : { heap: virtualMetadata, banks: virtualBanks },
-    residencyVersions: textureResidencyVersions,
-    fieldVersions: graph.import_resource(
-      "surface-field-versions",
-      { kind: "imported", label: "published surface field versions" },
-      bind("surface-field-versions", (bindings) => {
-        if (!bindings.runtime.appearancePublication) throw new Error("Appearance publication is missing");
-        return bindings.runtime.appearancePublication.fields;
-      }),
-    ),
     width: result.frame.domain.width,
     height: result.frame.domain.height,
     frame: bind("surface-work-frame", (bindings) => ({
       generation: bindings.frameIndex,
-      arenaHeaderOffset: bindings.job.prepared.workSet.frameGeometry.layout.header.offset,
-      directoryOffset:
-        bindings.job.prepared.currentHzbLateRecheck !== null
-          ? bindings.job.prepared.workSet.frameGeometry.layout.filteredDirectory.offset
-          : bindings.job.prepared.workSet.frameGeometry.layout.sourceDirectory.offset,
       sourceGeometry: bindings.job.assets.sparseShading.geometryWordBase,
       sourceMeshlet: bindings.job.assets.sparseShading.meshletWordBase,
       sourceMeshletVertices: bindings.job.assets.sparseShading.meshletVertexWordBase,
       sourceMeshletTriangles: bindings.job.assets.sparseShading.meshletTriangleWordBase,
       sourceVertexData: bindings.job.assets.sparseShading.vertexDataWordBase,
+      geometryArenaHeader: (bindings.job.prepared.workSet.frameGeometry.layout.header.offset / 4) | ("currentHzbLateRecheck" in plan.request && plan.request.currentHzbLateRecheck ? 0x80000000 : 0),
     })),
   });
   const skyRadiance = !plan.stages.includes("physical-sky")
@@ -811,11 +777,7 @@ function lowerVisibility(
     { kind: "imported", label: "GPU-selected shared frame geometry" },
     bind("frame-geometry", (bindings) => bindings.job.prepared.workSet.frameGeometry.buffer),
   );
-  const frameAttributes = graph.import_resource(
-    "frame-attributes",
-    { kind: "imported", label: "current shared frame attributes" },
-    bind("frame-attributes", (bindings) => bindings.job.prepared.workSet.frameVertices.attributes),
-  );
+  const frameAttributes = frameGeometry;
   let result = owners.visibility.addToGraph(
     graph,
     bind("visibility-job", (bindings) => bindings.job),

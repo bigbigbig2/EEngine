@@ -5,7 +5,7 @@ import {
   LIGHT_DATABASE_READ_WGSL,
   DIRECTIONAL_LIGHT_DESCRIPTOR,
   POINT_LIGHT_DESCRIPTOR,
-  SPOT_LIGHT_DESCRIPTOR,
+  SPOT_LIGHT_DESCRIPTOR
 } from "../../gpu/LightDatabase.js";
 import type { SurfaceFrameResources } from "./SurfaceFrameResources.js";
 
@@ -27,15 +27,18 @@ struct RadiometryClusters {
 @group(0) @binding(4) var solar_transmittance: texture_2d<f32>;
 @group(0) @binding(5) var<storage, read_write> metadata: array<u32>;
 var<workgroup> numeric_safe: array<u32, 64>;
+var<workgroup> directional_only: array<u32, 64>;
 fn radiometry_bounded(value: vec3f, bound: f32) -> bool {
   return all(value == value) && all(abs(value) <= vec3f(bound));
 }
 @compute @workgroup_size(64)
 fn prove_radiometry(@builtin(local_invocation_index) lane: u32) {
   var valid = true;
+  var invariant = settings.solar == 0u && clusters.active_written == 0u;
   let directional = directional_lights_iteration_mask(&lights);
   if lane < 32u && (directional & (1u << lane)) != 0u {
     let light = ${DIRECTIONAL_LIGHT_DESCRIPTOR.marshalling_method_read}(&lights, lane);
+    invariant = invariant && (light.flags & 1u) == 0u;
     valid = radiometry_bounded(light.color, 1e8) && radiometry_bounded(light.direction, 1e6);
   }
   valid = valid && clusters.active_written <= arrayLength(&clusters.data);
@@ -64,13 +67,18 @@ fn prove_radiometry(@builtin(local_invocation_index) lane: u32) {
     }
   }
   numeric_safe[lane] = u32(valid);
+  directional_only[lane] = u32(invariant);
   workgroupBarrier();
   for (var stride = 32u; stride != 0u; stride /= 2u) {
-    if lane < stride { numeric_safe[lane] &= numeric_safe[lane + stride]; }
+    if lane < stride {
+      numeric_safe[lane] &= numeric_safe[lane + stride];
+      directional_only[lane] &= directional_only[lane + stride];
+    }
     workgroupBarrier();
   }
   if lane == 0u {
     metadata[settings.output] = numeric_safe[0];
+    metadata[settings.output + 4u] = directional_only[0];
     for (var channel = 0u; channel < 3u; channel++) {
       metadata[settings.output + 1u + channel] = bitcast<u32>(solar[0][channel]);
     }
@@ -87,26 +95,26 @@ export class SurfaceRadiometryPass {
 
   constructor(
     private readonly device: GPUDevice,
-    private readonly scratch: SurfaceFrameResources,
+    private readonly scratch: SurfaceFrameResources
   ) {
     this.settings = device.createBuffer({
       label: "Surface/radiometry settings",
       size: 16,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
     this.pipeline = device.createComputePipeline({
       label: "Surface/current radiometry envelope",
       layout: "auto",
       compute: {
         module: device.createShaderModule({ code: SURFACE_RADIOMETRY_WGSL }),
-        entryPoint: "prove_radiometry",
-      },
+        entryPoint: "prove_radiometry"
+      }
     });
     this.disabledSun = device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM });
     this.disabledTransmittance = device.createTexture({
       size: [1, 1],
       format: "rgba8unorm",
-      usage: GPUTextureUsage.TEXTURE_BINDING,
+      usage: GPUTextureUsage.TEXTURE_BINDING
     });
     this.disabledTransmittanceView = this.disabledTransmittance.createView();
   }
@@ -120,7 +128,7 @@ export class SurfaceRadiometryPass {
       readonly clusters: ResourceId;
       readonly sun: ResourceId | null;
       readonly transmittance: ResourceId | null;
-    },
+    }
   ): ResourceId {
     if (input.sun !== null && input.transmittance === null) {
       throw new Error("Surface radiometry requires the actual solar transmittance publication");
@@ -133,7 +141,7 @@ export class SurfaceRadiometryPass {
       graph.import_resource(
         "Surface/radiometry disabled transmission",
         { kind: "imported" },
-        this.disabledTransmittanceView,
+        this.disabledTransmittanceView
       );
     const node = graph.add("Surface/current radiometry envelope", input, (_data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
@@ -143,7 +151,7 @@ export class SurfaceRadiometryPass {
         0,
         new Uint32Array([input.offset, input.sun === null ? 0 : 1, 0, 0]).buffer,
         0,
-        16,
+        16
       );
       const group = this.scratch.obtainBindGroup(this.pipeline, 0, [
         { binding: 0, resource: { buffer: settings } },
@@ -151,7 +159,7 @@ export class SurfaceRadiometryPass {
         { binding: 2, resource: { buffer: resources.get(input.clusters) as GPUBuffer } },
         { binding: 3, resource: { buffer: resources.get(sun) as GPUBuffer } },
         { binding: 4, resource: this.scratch.resolveTextureView(resources.get(transmittance)) },
-        { binding: 5, resource: { buffer: resources.get(input.metadata) as GPUBuffer } },
+        { binding: 5, resource: { buffer: resources.get(input.metadata) as GPUBuffer } }
       ]);
       const pass = command.beginComputePass({ label: "Surface/current radiometry envelope" });
       pass.setPipeline(this.pipeline);

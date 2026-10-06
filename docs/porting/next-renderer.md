@@ -22,6 +22,8 @@ Wicked、Intel CPS、Forge、OSS的所列本地冻结源码与固定revision网�
 
 ### 固定revision、许可与入口
 
+早期 B1 复审记录见[执行文档 §6.4/§6.5](../next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md#64-实施与复审核对2026-10-06)，只供解释 R2 的返工理由；当前覆盖见该文 §6.11。`ExactAppearanceDag`/产品打包与手工采样属于本地实现；SF07 不提供该解释器或 sampler donor。旧 `GpuSurfaceDomainAbi` 的测试使用不登记为 production domain adoption；不因 reader 计数或 shader 编译通过提升 SF01/02/07 的采用状态。
+
 | ID | 固定revision / 许可依据 | 具体完整源入口 | 选定范围与未覆盖项 |
 |---|---|---|---|
 | SF01 | Wicked df44c3db4c4927492bc9c791eac715d98d7ed091；[MIT](https://github.com/turanszkij/WickedEngine/blob/df44c3db4c4927492bc9c791eac715d98d7ed091/LICENSE.txt) | [analyze](https://github.com/turanszkij/WickedEngine/blob/df44c3db4c4927492bc9c791eac715d98d7ed091/WickedEngine/shaders/visibility_analyzeCS.hlsl)、[resolve](https://github.com/turanszkij/WickedEngine/blob/df44c3db4c4927492bc9c791eac715d98d7ed091/WickedEngine/shaders/visibility_resolveCS.hlsl)、[shade](https://github.com/turanszkij/WickedEngine/blob/df44c3db4c4927492bc9c791eac715d98d7ed091/WickedEngine/shaders/visibility_shadeCS.hlsl)、[surface helpers](https://github.com/turanszkij/WickedEngine/blob/df44c3db4c4927492bc9c791eac715d98d7ed091/WickedEngine/shaders/surfaceHF.hlsli)、[host](https://github.com/turanszkij/WickedEngine/blob/df44c3db4c4927492bc9c791eac715d98d7ed091/WickedEngine/wiRenderer.cpp) | non-MSAA tile分类/bin/indirect/masked消费的结构；不称完整Wicked材质/RT、跨primitive sparse donor |
@@ -1102,3 +1104,55 @@ WGSL workgroupUniformLoad 按 [WGSL规范](https://www.w3.org/TR/WGSL/#workgroup
 Phase5.5实施前再次核读上述固定Forge/CPS/OSS完整shader及Apache许可，复核DAIS triangle/reference与低频分离说明。阶段映射：Forge `CalcFullBary/Interpolate2DWithDeriv`→Geometry-owned必要point/CXY witness；OSS `AllocateTask/RenderTaskIndirectDispatch`→GPU实际受理typed slot及indirect count；CPS `RequiresPerPixelShading/DEFER_PER_PIXEL`→固定局部拒绝/完整fine覆盖；DAIS triangle buffer→共享setup与唯一record。donor不含本地typed interval pool/三合同/完整Store规则，本次physical lowering具名为本地Bounded Surface Frontend方案。typed请求kind/state+结果slot→Field support/tree/Store，以及lazy witness/formula refs/预算的直接consumer映射与验证状态见[Phase5.5记录](../archive/surface-work-v3-cost-bounded-final-refactor-phase55-implementation-2026-10.md)。该阶段已完成记录中的GPU/成本检查，不提升完整来源采用。
 
 Phase6的选择性reset、stable settings/BG/view、resource tuple fast path、label分类缓存、setup scratch owner及queue-fence resize admission均为本地确定性ABI/绑定/生命周期集成；没有另改interval、树、BRDF或donor算法。背景与Surface重建合并只合并compute pass，保持coverage反集/集合的互斥写域及独立dispatch，不依赖彼此payload；copy/clear/staging在pass外，Store Produced→Published→ref和其他真实发布依赖保留独立pass。真实8帧poison链、10项Renderer生命周期与CPU热点诊断见[Phase6记录](../archive/surface-work-v3-cost-bounded-final-refactor-phase6-implementation-2026-10.md)，正式质量/性能/adoption仍待Phase7，不以capacity/创建量下降冒充正式收益。
+
+## 2026-10-06：B1 固定公式重新设计与本地集成
+
+沿用SF07固定revision与Apache-2.0许可，完整UbershaderProvider/MaterialProvider先核读，随后复核SF03/The Forge插值、DAIS和NVIDIA shader profiler动态private-array资料。SF07的getMaterial/createMaterialInstance只作为预构建家族/参数实例参考；其中constrainMaterial、UV数量限制及default material替代不移植。
+
+具名本地Exact Fixed Surface Formulas：FixedSurfaceFormulas的完整root/coordinate结构匹配→GpuAppearanceDagAbi发布leaf/factor/sample descriptors→surface_fixed_formulas固定颜色/scale/clamp/occlusion/signed-normal公式→真实Surface fields/guides/Lighting/Reconstruct。共享采样按原compiled sample/product identity；Product raw/moment解码保持独立语义；未匹配完整graph进入ExactAppearanceDag而不截断。数值参数不改变家族，zero→nonzero保留动态依赖。source sampler/UV0-2/normal validity/IOR/coat与原接口一致。
+
+来源不含本地matcher/ABI/Generic/packed Product sampler，此组合是本地方案。实施与验证状态只见执行计划§6.6及后续核对；未提升完整donor adoption、正式质量或性能claims。
+
+## 2026-10-06：Surface R2来源核读与拟实施映射
+
+对应母稿`SURFACE-2026-10-06-R2`、SD01–SD10及执行任务R2-00–05/B2。**状态：指定源入口已核读，方案获认可，本条目仅记录拟实施映射；R2代码未实施，未运行donor工程或R2本地GPU验证，未提升来源采用。** 前面B1固定公式记录描述R2前工作树，不能替代本条目的完整typed/uniform/coherent/arena方案。
+
+检索先覆盖完整可核验实现：Blender Cycles SVM编译/执行与GPU shader排序、Filament预构建材质实例、The Forge visibility shading、FidelityFX ParallelSort；再核作者论文与WGSL规则。Falcor的MaterialType/instance分离有参考价值，但DXR/SER/interface/descriptor arrays不提供可直接使用的WebGPU Appearance VM，未选为算法donor。没有找到同时覆盖本地完整scalar IR→CXY、内部uniform提取、有限PSO、无CPU控制packet、arena融合与六信号合同的单一实现。组合方案是本地设计，不冒称完整Cycles/Filament/Forge移植。
+
+### 固定源、许可和明确选用边界
+
+| 来源 | 固定revision / 具体源入口 | 许可与选用范围 | 不采用的行为 |
+|---|---|---|---|
+| SF10 Cycles SVM | `67807e1800cc48cc7bff3c793525e1179a4d64ca`（v4.5.3）；[scene/svm.cpp](https://github.com/blender/blender/blob/67807e1800cc48cc7bff3c793525e1179a4d64ca/intern/cycles/scene/svm.cpp)、[kernel/svm/svm.h](https://github.com/blender/blender/blob/67807e1800cc48cc7bff3c793525e1179a4d64ca/intern/cycles/kernel/svm/svm.h)、[util.h](https://github.com/blender/blender/blob/67807e1800cc48cc7bff3c793525e1179a4d64ca/intern/cycles/kernel/svm/util.h)、[math.h](https://github.com/blender/blender/blob/67807e1800cc48cc7bff3c793525e1179a4d64ca/intern/cycles/kernel/svm/math.h)、[image.h](https://github.com/blender/blender/blob/67807e1800cc48cc7bff3c793525e1179a4d64ca/intern/cycles/kernel/svm/image.h)、[shader_graph.cpp](https://github.com/blender/blender/blob/67807e1800cc48cc7bff3c793525e1179a4d64ca/intern/cycles/scene/shader_graph.cpp)、[shader_nodes.cpp](https://github.com/blender/blender/blob/67807e1800cc48cc7bff3c793525e1179a4d64ca/intern/cycles/scene/shader_nodes.cpp) | 所列Cycles源文件头Apache-2.0；不将整个Blender仓库许可概括成Apache。选semantic nodes、连续float words、last-user生命周期、一次query多分量输出 | 私有`float[255]`驻留假设、无CXY的node ABI、compile overflow后清空shader、CPU超越函数fold与可能改变异常/舍入的化简 |
+| SF11 Cycles GPU shader work | `351e555acfd3be40d2702bf36cad50b02505d831`；[intersect_closest.h](https://github.com/blender/blender/blob/351e555acfd3be40d2702bf36cad50b02505d831/intern/cycles/kernel/integrator/intersect_closest.h)、[state_flow.h](https://github.com/blender/blender/blob/351e555acfd3be40d2702bf36cad50b02505d831/intern/cycles/kernel/integrator/state_flow.h)、[parallel_sorted_index.h](https://github.com/blender/blender/blob/351e555acfd3be40d2702bf36cad50b02505d831/intern/cycles/kernel/device/gpu/parallel_sorted_index.h)、[path_trace_work_gpu.cpp](https://github.com/blender/blender/blob/351e555acfd3be40d2702bf36cad50b02505d831/intern/cycles/integrator/path_trace_work_gpu.cpp) | 所列Cycles文件头Apache-2.0；选shaderKey/有限partition、count/prefix/scatter或local bucket、统一shade kernel | host回读queue counter、选择下一kernel/排空队列循环；上游全局排序不自动保证workgroup/run一致，不能漏本地packet阶段 |
+| SF12 FidelityFX ParallelSort | `0c539948c8d196ae338d91efbc8ca495f1ea0d1d`；[FFX_ParallelSort.h](https://github.com/GPUOpen-Effects/FidelityFX-ParallelSort/blob/0c539948c8d196ae338d91efbc8ca495f1ea0d1d/ffx-parallelsort/FFX_ParallelSort.h)、[VK/ParallelSort.cpp](https://github.com/GPUOpen-Effects/FidelityFX-ParallelSort/blob/0c539948c8d196ae338d91efbc8ca495f1ea0d1d/sample/src/VK/ParallelSort.cpp)、[LICENSE](https://github.com/GPUOpen-Effects/FidelityFX-ParallelSort/blob/0c539948c8d196ae338d91efbc8ca495f1ea0d1d/LICENSE) | MIT；完整radix阶段可复核。仅候选，未选为默认R2生产算法 | 默认4-bit radix的32-bit key需8轮×5dispatch，不能给常量/轻材质强加40dispatch；不搬Wave lane映射/zero setup除零，不将sort认为有完整业务overflow恢复 |
+| SF07 Filament有限材质 | 沿用`bb360e80259167c986e94db7b70153bcdb92c0e1`；[UbershaderProvider.cpp](https://github.com/google/filament/blob/bb360e80259167c986e94db7b70153bcdb92c0e1/libs/gltfio/src/UbershaderProvider.cpp) `getMaterial/createMaterialInstance` | Apache-2.0；有限预构建家族与实例参数分离的结构参考 | unsupported组合裁剪、UV数量限制与default材质替换，不当作完整General VM donor |
+| SF03 Forge局部Geometry→shade | 沿用`cd5046893faba2dc7869243873bf01f02a6f0df9`；前文固定VisibilityBuffer2 utilities与shade consumer | Apache-2.0；插值→局部纹理/材质读取组织与透视数学 | native bindless、完整Forge BRDF、不同facing/clip/guard不搬；本地完整CXY/Winner数学为权威 |
+
+引用或复制选定源码时保留相应license/notice与source function provenance；只有写入账本不证明已经复制或遵守完成实现的全部采用要求。SF10和SF11是不同pin，不能混成一个未核验的“最新版Cycles”。
+
+### 源函数/阶段 → 本地目标 → consumer与必要分支
+
+| 源函数 / 阶段 | 原始输入 → 输出 | 本地目标 / 任务 | consumer、保持分支与本地扩展 |
+|---|---|---|---|
+| SF07 `getMaterial/createMaterialInstance` | material功能结构→已构建程序与参数实例 | ProgramTemplate/MaterialSnapshot/ExportPlan，R2-01 | publication→完整fixed家族/General；数值和texture handle不制造新PSO，结构完整比较，非匹配不替换材质 |
+| SF10 `svm_eval_nodes`及vector/image node | node stream/float stack→完整shade数据 | Typed Appearance Tape interpreter，R2-02 | S5→ExportPlan sinks；保留operation全语义，本地增加类型/点域、完整u32引用、CXY/nested queries/raw/moment、f32 word SoA，不照抄private stack |
+| SF10 `stack_load_float3/stack_store_float3`、`svm_node_vector_math` | 连续3 float words→向量operation结果 | 真实宽度与可证明vector融合，R2-02 | 完整General所有field/guide；未匹配融合仍在同VM执行完整scalar，不用RGB/CXY混槽 |
+| SF10 `svm_node_tex_image` | 坐标/资源→color及alpha | 一query完整多输出语义，R2-02 | early RGB/late coord共享liveness；保留sRGB RGB/linear alpha、LOD/wrap/filter/normal validity；sampler/产品moment为本地完整集成 |
+| SF10 `stack_size/stack_find_offset/stack_clear_users/find_dependencies/generate_svm_nodes/compile_type` | 完整graph/消费者→连续栈槽与node顺序 | Typed word分配/last-use/sinks，R2-02 | 分配与内部最后读者＋tuple sink共同定义释放；上游first-fit不代表压力最优调度，超限必须完整执行策略，不清图当成功 |
+| SF10 `ShaderGraph::clean/constant_fold` | graph→裁剪/公共表达式/常量优化 | Uniform Publication独立本地算法，R2-02 | 内部uniform子图→GPU update→matching-version varying输入；依赖和事务全保留，不机械移植JS/CPU folding、`x*0`或非线性过滤交换 |
+| SF11 closest intersection及`integrator_path_next_sorted` | intersection shader ID/partition→sort key | dense template×有限resource partition，R2-03 | S4 count/prefix/scatter；template不同于material实例/缓存身份，不用dirty mask指数扩bucket |
+| SF11 parallel sorted index及`compute_sorted_queued_paths` | queued states/counters→同类有序indices→统一shade | Program-Coherent WorkRun/Packet/indirect，R2-03 | S5固定worker；本地增加同template packet、run tail/valid lane、原destination/mask、zero/tiny完整indexed和互斥写域；原队列未处理项不能丢 |
+| SF12 setup/count/reduce/scan/scanadd/scatter | 32-bit key/payload→radix sorted key/payload | 仅后续有净收益的R2-03物理候选 | count/bin基线不依赖radix；portable WGSL/subgroup按真实规则重写，N=0显式分支，业务overflow与capacity由本地owner保证 |
+| SF03 `CalcFullBary/Interpolate2DWithDeriv`→shade | visibility/triangle→插值及局部材质输入 | Local Surface Completion，R2-04 | 同owner arena frame/resident来源→Appearance；完整/partial/zero prepared，各reader同代；Product 16 bindings和live/retired/arena目录是本地接口设计 |
+| 当前生产Lighting/Reconstruct原数学 | material/Geometry/providers→六信号→HDR | Six RGB Signals，B2-02/04/05 | 原六路、加法分组/guard/AO scope/preExposure/color保留；格式/state/rate/version为本地合同，不提升Filament BRDF完整adoption |
+
+所列本地新增CXY/频率/sinks/packet/arena/RGB算法不能拆成小胶水来豁免完整分析。可复用现有数学与资源owner；无完整donor处有具名方案、输入输出和失败条件，验收责任见执行文档V01–V12。
+
+### 论文、WebGPU约束及采用退出条件
+
+[Laine/Karras/Aila，Megakernels Considered Harmful，HPG 2013](https://research.nvidia.com/publication/2013-07_megakernels-considered-harmful-wavefront-path-tracing-gpus)是第一方论文入口：wavefront一致工作可减divergence/private压力，同时存在queue/调度成本。它不提供EEngine性能保证，也不能泛化为禁止局部Geometry→Appearance融合。
+
+[WGSL subgroup execution](https://www.w3.org/TR/WGSL/#subgroup-execution)为living spec参考（本轮核读2026-10-06），local invocation index与subgroup lane/划分不能机械等同；[WebGPU limits](https://www.w3.org/TR/webgpu/#limits)及whole-buffer usage约束由实际adapter/device协商决定。不能因为HLSL可WaveSum/Prefix就宣称WGSL portable版已完成；16 storage bindings是本地首要profile规划，需要真实设备与生产pipeline验证。
+
+来源采用必须依次补齐：固定源分支逐项核对 → 本地实际实现/差异 → 独立CPU/WGSL数学和完整合法General → 新主链真实GPU消费/失败/结构 → 同质量全成本。R2 已有本地实现和对应组件/主链检查，具体覆盖与未关闭项由执行文档§6.11维护；全成本可行性尚未关闭，不提升为完整上游 adoption。SF10 是 typed VM/liveness 参考，SF11 是程序一致工作参考，SF09 是 portable scan 参考；本地频率、packet、arena、六 RGB 协议仍分别承担独立正确性和成本责任，SF12 仍仅候选。旧 Phase/Store/Winner owner 的映射只用于追溯，不能转授当前生产链。不得从source table、文档校验或旧固定公式测试推导R2已通过。

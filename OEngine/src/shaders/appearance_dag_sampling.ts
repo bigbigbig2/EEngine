@@ -74,7 +74,7 @@ fn appearance_dag_sample(index: u32, uv: vec2f, dx: vec2f, dy: vec2f) -> vec4f {
 }
 
 /** Exact cooked-format sampler: all original half texels/mips, bilinear clamp
- * and trilinear footprint LOD. No atlas resize, quantization, mip bias or
+ * and the asset's declared trilinear footprint LOD. No atlas resize, quantization, mip bias or
  * asset-specific bindings. Independent hardware textureSampleGrad comparison
  * is required before the owner adopts this local sampling implementation. */
 export const APPEARANCE_DAG_PRODUCT_SAMPLING_WGSL = /* wgsl */ `

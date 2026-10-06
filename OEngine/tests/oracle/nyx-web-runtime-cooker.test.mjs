@@ -54,6 +54,7 @@ function productSections() {
   formatView.setUint16(0, 16, true);
   formatView.setUint16(2, 3, true);
   formatView.setUint8(5, 6);
+  formatView.setUint8(10, 1); // Current Product ABI: Float32x3 position encoding.
   const u32 = (values) => {
     const bytes = new Uint8Array(values.length * 4),
       view = new DataView(bytes.buffer);

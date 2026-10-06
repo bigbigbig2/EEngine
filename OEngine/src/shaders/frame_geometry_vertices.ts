@@ -4,7 +4,7 @@ import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { GPU_FRAME_INSTANCE_WGSL } from "../gpu/GpuFrameInstanceAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import { FRAME_GEOMETRY_WGSL } from "../gpu/GpuWinnerInterpolationAbi.js";
-import { GPU_FRAME_ATTRIBUTE_VECTORS } from "../gpu/GpuFrameGeometryAttributesAbi.js";
+import { GPU_FRAME_VERTEX_ATTRIBUTE_VECTORS } from "../gpu/GpuFrameGeometryAttributesAbi.js";
 
 export const FRAME_VERTEX_SETTINGS_SIZE = 64;
 export const FRAME_VERTEX_CONTROL_SIZE = 32;
@@ -43,6 +43,9 @@ var<workgroup> vertex_base: u32;
 var<workgroup> triangle_base: u32;
 var<workgroup> source_counts: vec2u;
 var<workgroup> source_clip_matrix: mat4x4f;
+var<workgroup> source_world_matrix: mat4x4f;
+var<workgroup> source_normal_matrix: mat3x3f;
+var<workgroup> source_orientation: f32;
 
 fn frame_vertex_reserve(counter: ptr<storage, atomic<u32>, read_write>, count: u32, capacity: u32) -> u32 {
   // A reservation cannot fail because another workgroup won a CAS race.
@@ -73,6 +76,10 @@ fn frame_vertices_setup(slot: u32) {
     if work.instance_slot < arrayLength(&frame_instances) && frame_instances[work.instance_slot].generation == control.generation {
       source_counts = surface_source_load(work);
       source_clip_matrix = frame_instances[work.instance_slot].object_to_clip;
+      let instance = frame_instances[work.instance_slot];
+      source_world_matrix = oengine_instance_current_object_to_world(instance.source);
+      source_orientation = sign(instance.normal_x.w);
+      source_normal_matrix = mat3x3f(instance.normal_x.xyz, instance.normal_y, instance.normal_z.xyz) * source_orientation;
       if all(source_counts > vec2u(0u)) && all(source_counts <= vec2u(${FRAME_VERTEX_WORKGROUP_SIZE}u)) {
         vertex_base = frame_vertex_reserve(&control.vertices, source_counts.x, settings.vertex_capacity);
         if vertex_base != 0xffffffffu {
@@ -94,13 +101,18 @@ fn frame_vertices_build(@builtin(workgroup_id) group: vec3u, @builtin(local_invo
   if lane < source_counts.x {
     let at = vertex_base + lane;
     frame_clips[at] = source_clip_matrix * vec4f(surface_source_vertex_position(lane), 1.0);
-    let base = at * ${GPU_FRAME_ATTRIBUTE_VECTORS}u;
+    let base = at * ${GPU_FRAME_VERTEX_ATTRIBUTE_VECTORS}u;
     frame_attributes[base] = surface_source_vertex_normal(lane);
     frame_attributes[base + 1u] = surface_source_vertex_tangent(lane);
     frame_attributes[base + 2u] = vec4f(surface_source_vertex_uv(lane, 0u), surface_source_vertex_uv(lane, 1u));
     frame_attributes[base + 3u] = surface_source_vertex_color(lane);
     frame_attributes[base + 4u] = vec4f(surface_source_vertex_uv(lane, 2u), 0.0, 0.0);
     frame_attributes[base + 5u] = vec4f(surface_source_vertex_position(lane), 1.0);
+    let normal = frame_attributes[base];
+    let tangent = frame_attributes[base + 1u];
+    frame_attributes[base + 6u] = vec4f(source_normal_matrix * normal.xyz, normal.w);
+    frame_attributes[base + 7u] = vec4f((source_world_matrix * vec4f(tangent.xyz, 0.0)).xyz, tangent.w * source_orientation);
+    frame_attributes[base + 8u] = source_world_matrix * frame_attributes[base + 5u];
   }
   if lane < source_counts.y {
     frame_triangles[triangle_base + lane] = surface_source_triangle_corner(lane, 0u) |

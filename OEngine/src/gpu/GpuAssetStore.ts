@@ -11,17 +11,15 @@ import {
   geometryVisibilityPathFromFlags,
   recommendGeometryVisibilityPath,
   type GeometryAssetPackage,
-  type GeometryBvh8Node,
+  type GeometryBvh8Node
 } from "../assets/GeometryAssetPackage.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import { prepareGeometryResidentAttributes } from "./GeometryResidentAttributes.js";
-import { prepareGeometrySurfacePublication } from "./GeometrySurfacePublication.js";
-import { SURFACE_PRIMITIVE_BYTES, SURFACE_PRIMITIVE_VERSION } from "./SurfacePrimitiveAbi.js";
 import { GPU_FRAME_ATTRIBUTE_STRIDE } from "./GpuFrameGeometryAttributesAbi.js";
 import {
   RuntimeAssetResidencyState,
   type RuntimeAssetResidencyReservation,
-  type RuntimeAssetResidentRange,
+  type RuntimeAssetResidentRange
 } from "../assets/RuntimeAssetResidency.js";
 import {
   GPU_CLUSTER_RECORD_STRIDE,
@@ -36,12 +34,12 @@ import {
   packGpuGeometryRecord,
   packGpuMeshletRecords,
   type GpuClusterRecordCpu,
-  type GpuMeshletRecordCpu,
+  type GpuMeshletRecordCpu
 } from "./GpuGeometryAbi.js";
 import { recordGpuQueueUpload, writeGpuBuffer } from "./GpuQueueEvidence.js";
 import type {
   ResourceAccounting,
-  ResourceHandle as AccountingResourceHandle,
+  ResourceHandle as AccountingResourceHandle
 } from "../debug/profiling/ResourceAccounting.js";
 
 declare const ASSET_HANDLE_BRAND: unique symbol;
@@ -74,14 +72,14 @@ export interface GpuAssetCommand {
     sourceOffset: number,
     destination: GPUBuffer,
     destinationOffset: number,
-    size?: number,
+    size?: number
   ): void;
   writeBuffer(
     buffer: GPUBuffer,
     bufferOffset: number,
     data: ArrayBuffer,
     dataOffset: number,
-    size: number,
+    size: number
   ): void;
 }
 
@@ -316,15 +314,15 @@ export class GpuAssetStore {
   constructor(
     private readonly device: GPUDevice,
     private readonly resourceAccounting?: ResourceAccounting,
-    options: Readonly<GpuAssetStoreOptions> = {},
+    options: Readonly<GpuAssetStoreOptions> = {}
   ) {
     this.maxUploadBytes = validatedResidencyBudget(
       options.maxUploadBytes ?? ASSET_UPLOAD_TRANSACTION_BUDGET_BYTES,
-      "maxUploadBytes",
+      "maxUploadBytes"
     );
     this.maxResidentBytes = validatedResidencyBudget(
       options.maxResidentBytes ?? ASSET_RESIDENT_BUDGET_BYTES,
-      "maxResidentBytes",
+      "maxResidentBytes"
     );
     const definitions: readonly [BufferName, number][] = [
       ["geometryRecords", GPU_GEOMETRY_RECORD_STRIDE],
@@ -337,7 +335,7 @@ export class GpuAssetStore {
       ["indices", 4],
       ["meshletVertexIndices", 4],
       ["meshletTriangleIndices", 1],
-      ["clusterChildren", 4],
+      ["clusterChildren", 4]
     ];
     const created: GPUBuffer[] = [];
     const record = {} as Record<BufferName, ResidentBuffer>;
@@ -351,7 +349,7 @@ export class GpuAssetStore {
           label: `GpuAssetStore/${name}`,
           stride,
           buffer,
-          cursorBytes: fallbackBytes,
+          cursorBytes: fallbackBytes
         };
       }
     } catch (error) {
@@ -380,16 +378,16 @@ export class GpuAssetStore {
    */
   residentMany(
     assets: readonly GeometryAssetPackage[],
-    command: ShadeGPUCommandContext | GpuAssetCommand,
+    command: ShadeGPUCommandContext | GpuAssetCommand
   ): readonly AssetHandle[] {
     if (assets.length === 0) return Object.freeze([]);
     this.assertMutation(command, "resident");
     const cursorSnapshot = new Map(
-      this.orderedBuffers.map((buffer) => [buffer, buffer.cursorBytes] as const),
+      this.orderedBuffers.map((buffer) => [buffer, buffer.cursorBytes] as const)
     );
     const slotSnapshot = this.slots.map((slot) => ({
       generation: slot.generation,
-      entry: slot.entry,
+      entry: slot.entry
     }));
     const freeSlotSnapshot = [...this.freeSlots];
     const replacements: BufferReplacement[] = [];
@@ -424,7 +422,7 @@ export class GpuAssetStore {
           contentHash: asset.package.manifest.contentHash,
           residency: plan.residency,
           residencyChunkIds: plan.residencyReservation.chunkIds,
-          state: "pending",
+          state: "pending"
         };
         this.slots[slot]!.entry = entry;
         HANDLE_STATE.set(handle as object, { store: this, slot, generation });
@@ -433,7 +431,7 @@ export class GpuAssetStore {
       }
       const batchUploadBytes = plans.reduce(
         (sum, plan) => sum + plan.segments.reduce((bytes, segment) => bytes + segment.bytes.byteLength, 0),
-        0,
+        0
       );
       const batchResidentBytes = plans.reduce((sum, plan) => sum + plan.residentBytes, 0);
       const sparseShadingLayout = this.sparseShadingHeapLayout();
@@ -471,7 +469,7 @@ export class GpuAssetStore {
         this.largestTransactionPackageCount = Math.max(this.largestTransactionPackageCount, entries.length);
         this.largestTransactionSourceBytes = Math.max(
           this.largestTransactionSourceBytes,
-          entries.reduce((sum, entry) => sum + entry.sourcePackageBytes, 0),
+          entries.reduce((sum, entry) => sum + entry.sourcePackageBytes, 0)
         );
         this.committedGrowCount += replacements.length;
         this.commitReplacements(replacements);
@@ -489,7 +487,7 @@ export class GpuAssetStore {
           slotSnapshot,
           freeSlotSnapshot,
           replacements,
-          sparseShadingReplacement,
+          sparseShadingReplacement
         );
         this.abortedResidencyCount += entries.length;
         this.abortedResidencyTransactions++;
@@ -505,7 +503,7 @@ export class GpuAssetStore {
         slotSnapshot,
         freeSlotSnapshot,
         replacements,
-        sparseShadingReplacement,
+        sparseShadingReplacement
       );
       this.pendingMutation = null;
       throw error;
@@ -537,7 +535,7 @@ export class GpuAssetStore {
       }
       sparseShadingReplacement = this.replaceSparseShadingHeaps(
         command,
-        new Set(entries.map((entry) => entry.slot)),
+        new Set(entries.map((entry) => entry.slot))
       );
       this.recordProvisionalPeak([], sparseShadingReplacement);
 
@@ -612,8 +610,8 @@ export class GpuAssetStore {
         indices: countOf(b.indices),
         meshletVertexIndices: countOf(b.meshletVertexIndices),
         meshletTriangleBytes: b.meshletTriangleIndices.cursorBytes,
-        clusterChildren: countOf(b.clusterChildren),
-      }),
+        clusterChildren: countOf(b.clusterChildren)
+      })
     });
   }
 
@@ -644,7 +642,7 @@ export class GpuAssetStore {
         stride: buffer.stride,
         highWaterBytes: buffer.cursorBytes,
         highWaterCount: countOf(buffer),
-        capacityBytes: buffer.buffer.size,
+        capacityBytes: buffer.buffer.size
       });
     }
     return Object.freeze({
@@ -687,8 +685,8 @@ export class GpuAssetStore {
         assetMetadataBytes: this.sparseShadingHeaps.assetMetadataBytes,
         vertexPayloadBytes: this.sparseShadingHeaps.vertexPayloadBytes,
         geometryCount: this.sparseShadingHeaps.geometryCount,
-        meshletCount: this.sparseShadingHeaps.meshletCount,
-      }),
+        meshletCount: this.sparseShadingHeaps.meshletCount
+      })
     });
   }
 
@@ -736,7 +734,7 @@ export class GpuAssetStore {
         this.maxUploadBytes,
         this.maxResidentBytes,
         Number(this.device.limits.maxBufferSize),
-        Number(this.device.limits.maxStorageBufferBindingSize),
+        Number(this.device.limits.maxStorageBufferBindingSize)
       )
     ) {
       throw new RangeError("Geometry resident attributes exceed negotiated residency limits");
@@ -749,12 +747,6 @@ export class GpuAssetStore {
       return offset;
     });
     const surfaceMappingByteOffset = residentAttributeByteOffset + residentAttributes.byteLength;
-    const surfaceMetadata = prepareGeometrySurfacePublication(asset, residentAttributes);
-    const surfaceMetadataByteOffset = checkedAdd(
-      surfaceMappingByteOffset,
-      asset.surfacePrimitiveIds.byteLength,
-      "Surface continuity publication offset",
-    );
     const indexBegin = countOf(b.indices);
     const meshletVertexBegin = countOf(b.meshletVertexIndices);
     const meshletTriangleBegin = b.meshletTriangleIndices.cursorBytes;
@@ -779,7 +771,7 @@ export class GpuAssetStore {
     const tangentDescriptor = globalDescriptorIndex(
       asset.vertexStreamDescriptors,
       descriptorBegin,
-      "tangent",
+      "tangent"
     );
     const colorDescriptor = globalDescriptorIndex(asset.vertexStreamDescriptors, descriptorBegin, "color");
     const normal = asset.vertexStreamDescriptors.find((descriptor) => descriptor.semantic === "normal");
@@ -798,19 +790,16 @@ export class GpuAssetStore {
       materialId: meshlet.materialId,
       flags: meshlet.flags,
       surfacePrimitiveWordOffset: surfaceMappingByteOffset / 4 + surfaceMeshletOffsets[meshletIndex]!,
-      surfaceMetadataWordOffset:
-        surfaceMetadataByteOffset / 4 + surfaceMeshletOffsets[meshletIndex]! * (SURFACE_PRIMITIVE_BYTES / 4),
-      surfaceMetadataVersion: SURFACE_PRIMITIVE_VERSION,
       boundsMin: meshlet.boundsBox.subarray(0, 3),
       boundsMax: meshlet.boundsBox.subarray(3, 6),
       boundsSphere: [
         meshlet.bounds.centerX,
         meshlet.bounds.centerY,
         meshlet.bounds.centerZ,
-        meshlet.bounds.radius,
+        meshlet.bounds.radius
       ],
       coneApex: [meshlet.cone.apexX, meshlet.cone.apexY, meshlet.cone.apexZ, 0],
-      coneAxisCutoff: [meshlet.cone.axisX, meshlet.cone.axisY, meshlet.cone.axisZ, meshlet.cone.cutoff],
+      coneAxisCutoff: [meshlet.cone.axisX, meshlet.cone.axisY, meshlet.cone.axisZ, meshlet.cone.cutoff]
     }));
     const clusterRecords: GpuClusterRecordCpu[] = asset.clusters.map((cluster) => ({
       childBegin:
@@ -834,10 +823,10 @@ export class GpuAssetStore {
         cluster.bounds.centerX,
         cluster.bounds.centerY,
         cluster.bounds.centerZ,
-        cluster.bounds.radius,
+        cluster.bounds.radius
       ],
       coneApex: [cluster.cone.apexX, cluster.cone.apexY, cluster.cone.apexZ, 0],
-      coneAxisCutoff: [cluster.cone.axisX, cluster.cone.axisY, cluster.cone.axisZ, cluster.cone.cutoff],
+      coneAxisCutoff: [cluster.cone.axisX, cluster.cone.axisY, cluster.cone.axisZ, cluster.cone.cutoff]
     }));
     if (clusterRecords.length === 0) {
       clusterRecords.push({
@@ -857,10 +846,10 @@ export class GpuAssetStore {
           asset.directory.boundsSphere[0]!,
           asset.directory.boundsSphere[1]!,
           asset.directory.boundsSphere[2]!,
-          0,
+          0
         ],
         // A zero axis with cutoff 1 disables future cone rejection safely.
-        coneAxisCutoff: [0, 0, 0, 1],
+        coneAxisCutoff: [0, 0, 0, 1]
       });
     }
     const rebasedBvh = asset.bvh8Nodes.map((node) => rebaseBvhNode(node, bvhBegin, clusterBegin));
@@ -869,7 +858,7 @@ export class GpuAssetStore {
       clusterChildren[index] = checkedAdd(
         clusterBegin,
         asset.clusterChildren[index]!,
-        "Cluster child reference",
+        "Cluster child reference"
       );
     }
     const descriptors = this.rebaseVertexDescriptors(asset, vertexDataBegin);
@@ -931,7 +920,7 @@ export class GpuAssetStore {
       colorStride: color?.elementStride ?? 0,
       colorFormat: color === undefined ? 0 : encodeGeometryVertexDataType(color.dataType),
       colorNormalized: color?.normalized ? 1 : 0,
-      colorComponents: color?.componentCount ?? 0,
+      colorComponents: color?.componentCount ?? 0
     });
 
     const segments: UploadSegment[] = [];
@@ -939,7 +928,7 @@ export class GpuAssetStore {
       target: ResidentBuffer,
       bytes: Uint8Array,
       destinationByteOffset = starts.get(target)!,
-      sectionType: number | null = null,
+      sectionType: number | null = null
     ): void => {
       if (bytes.byteLength === 0) return;
       const padded = pad4(bytes);
@@ -948,7 +937,7 @@ export class GpuAssetStore {
         sectionType,
         destinationByteOffset,
         sourceByteLength: bytes.byteLength,
-        bytes: padded,
+        bytes: padded
       });
       next.set(target, Math.max(next.get(target)!, destinationByteOffset + padded.byteLength));
     };
@@ -957,19 +946,19 @@ export class GpuAssetStore {
       b.geometryRecords,
       geometryRecord,
       slot * GPU_GEOMETRY_RECORD_STRIDE,
-      GEOMETRY_SECTION_TYPES.GeometryDirectory,
+      GEOMETRY_SECTION_TYPES.GeometryDirectory
     );
     append(
       b.meshletRecords,
       packGpuMeshletRecords(meshletRecords),
       undefined,
-      GEOMETRY_SECTION_TYPES.MeshletRecords,
+      GEOMETRY_SECTION_TYPES.MeshletRecords
     );
     append(
       b.clusterRecords,
       packGpuClusterRecords(clusterRecords),
       undefined,
-      asset.clusters.length === 0 ? null : GEOMETRY_SECTION_TYPES.ClusterRecords,
+      asset.clusters.length === 0 ? null : GEOMETRY_SECTION_TYPES.ClusterRecords
     );
     append(b.bvh8Nodes, encodeGeometryBvh8Nodes(rebasedBvh), undefined, GEOMETRY_SECTION_TYPES.Bvh8Nodes);
     append(b.vertexStreamDescriptors, descriptors, undefined, GEOMETRY_SECTION_TYPES.VertexStreamDescriptors);
@@ -977,24 +966,23 @@ export class GpuAssetStore {
       b.materialRanges,
       asset.package.section(GEOMETRY_SECTION_TYPES.MaterialRanges)?.bytes ?? new Uint8Array(0),
       undefined,
-      GEOMETRY_SECTION_TYPES.MaterialRanges,
+      GEOMETRY_SECTION_TYPES.MaterialRanges
     );
     append(b.vertexStreamData, asset.vertexStreamData, undefined, GEOMETRY_SECTION_TYPES.VertexStreamData);
     append(b.vertexStreamData, residentAttributes, residentAttributeByteOffset, null);
     append(b.vertexStreamData, bytesOf(asset.surfacePrimitiveIds), surfaceMappingByteOffset, null);
-    append(b.vertexStreamData, surfaceMetadata, surfaceMetadataByteOffset, null);
     append(b.indices, bytesOf(asset.indices), undefined, GEOMETRY_SECTION_TYPES.IndexData);
     append(
       b.meshletVertexIndices,
       bytesOf(asset.meshletVertexIndices),
       undefined,
-      GEOMETRY_SECTION_TYPES.MeshletVertexIndices,
+      GEOMETRY_SECTION_TYPES.MeshletVertexIndices
     );
     append(
       b.meshletTriangleIndices,
       asset.meshletTriangleIndices,
       undefined,
-      GEOMETRY_SECTION_TYPES.MeshletTriangleIndices,
+      GEOMETRY_SECTION_TYPES.MeshletTriangleIndices
     );
     append(b.clusterChildren, bytesOf(clusterChildren), undefined, GEOMETRY_SECTION_TYPES.ClusterChildren);
 
@@ -1004,7 +992,7 @@ export class GpuAssetStore {
     const residency = new RuntimeAssetResidencyState(asset.runtime.manifest, variant);
     const residencyReservation = residency.request(variant.chunkIds, {
       maxUploadBytes: this.maxUploadBytes,
-      maxResidentBytes: Math.max(0, this.maxResidentBytes - this.activeResidentBytes),
+      maxResidentBytes: Math.max(0, this.maxResidentBytes - this.activeResidentBytes)
     });
     const residentRanges = Object.fromEntries(
       variant.chunkIds.map((chunkId) => {
@@ -1016,15 +1004,15 @@ export class GpuAssetStore {
             ? {
                 resourceId: "cpu-metadata",
                 byteOffset: chunk.byteOffset,
-                byteLength: chunk.expectedResidentBytes,
+                byteLength: chunk.expectedResidentBytes
               }
             : {
                 resourceId: `GpuAssetStore/${segment.target.name}`,
                 byteOffset: segment.destinationByteOffset,
-                byteLength: segment.bytes.byteLength,
-              },
+                byteLength: segment.bytes.byteLength
+              }
         ];
-      }),
+      })
     );
     return {
       geometryRecordIndex: slot,
@@ -1034,7 +1022,7 @@ export class GpuAssetStore {
       residentBytes,
       residency,
       residencyReservation,
-      residentRanges,
+      residentRanges
     };
   }
 
@@ -1048,7 +1036,7 @@ export class GpuAssetStore {
       view.setUint32(
         offset,
         checkedAdd(vertexDataBegin, view.getUint32(offset, true), "Vertex stream range"),
-        true,
+        true
       );
     }
     return bytes;
@@ -1059,7 +1047,7 @@ export class GpuAssetStore {
       assertU32(required, `${buffer.name} byte capacity`);
       const limit = Math.min(
         Number(this.device.limits.maxBufferSize ?? Number.MAX_SAFE_INTEGER),
-        Number(this.device.limits.maxStorageBufferBindingSize ?? Number.MAX_SAFE_INTEGER),
+        Number(this.device.limits.maxStorageBufferBindingSize ?? Number.MAX_SAFE_INTEGER)
       );
       if (required > limit) {
         throw new RangeError(`${buffer.name} requires ${required} bytes, adapter limit is ${limit}`);
@@ -1074,19 +1062,19 @@ export class GpuAssetStore {
     const layout = this.sparseShadingHeapLayout();
     const assetMetadataHeap = this.createZeroBuffer(
       "GpuAssetStore/sparse-shading/asset-metadata/fallback",
-      layout.assetMetadataBytes,
+      layout.assetMetadataBytes
     );
     try {
       const vertexPayloadHeap = this.createZeroBuffer(
         "GpuAssetStore/sparse-shading/vertex-payload/fallback",
-        layout.vertexPayloadBytes,
+        layout.vertexPayloadBytes
       );
       return Object.freeze({
         schemaVersion: GPU_SPARSE_SHADING_ASSET_HEAP_SCHEMA_VERSION as 1,
         epoch: 1,
         assetMetadataHeap,
         vertexPayloadHeap,
-        ...layout,
+        ...layout
       });
     } catch (error) {
       this.destroyBuffer(assetMetadataHeap);
@@ -1096,7 +1084,7 @@ export class GpuAssetStore {
 
   private replaceSparseShadingHeaps(
     command: ShadeGPUCommandContext | GpuAssetCommand,
-    releasingSlots: ReadonlySet<number> = new Set(),
+    releasingSlots: ReadonlySet<number> = new Set()
   ): SparseShadingHeapReplacement {
     const previous = this.sparseShadingHeaps;
     const layout = this.sparseShadingHeapLayout();
@@ -1108,12 +1096,12 @@ export class GpuAssetStore {
       assetMetadataHeap = this.createBuffer({
         label: `GpuAssetStore/sparse-shading/asset-metadata/epoch-${nextGeneration(previous.epoch)}`,
         size: layout.assetMetadataBytes,
-        usage: STORAGE_USAGE,
+        usage: STORAGE_USAGE
       });
       vertexPayloadHeap = this.createBuffer({
         label: `GpuAssetStore/sparse-shading/vertex-payload/epoch-${nextGeneration(previous.epoch)}`,
         size: layout.vertexPayloadBytes,
-        usage: STORAGE_USAGE,
+        usage: STORAGE_USAGE
       });
       const b = this.buffers;
       command.copyBufferToBuffer(
@@ -1121,35 +1109,35 @@ export class GpuAssetStore {
         0,
         assetMetadataHeap,
         layout.geometryWordBase * 4,
-        b.geometryRecords.cursorBytes,
+        b.geometryRecords.cursorBytes
       );
       command.copyBufferToBuffer(
         b.meshletRecords.buffer,
         0,
         assetMetadataHeap,
         layout.meshletWordBase * 4,
-        b.meshletRecords.cursorBytes,
+        b.meshletRecords.cursorBytes
       );
       command.copyBufferToBuffer(
         b.meshletVertexIndices.buffer,
         0,
         vertexPayloadHeap,
         layout.meshletVertexWordBase * 4,
-        b.meshletVertexIndices.cursorBytes,
+        b.meshletVertexIndices.cursorBytes
       );
       command.copyBufferToBuffer(
         b.meshletTriangleIndices.buffer,
         0,
         vertexPayloadHeap,
         layout.meshletTriangleWordBase * 4,
-        b.meshletTriangleIndices.cursorBytes,
+        b.meshletTriangleIndices.cursorBytes
       );
       command.copyBufferToBuffer(
         b.vertexStreamData.buffer,
         0,
         vertexPayloadHeap,
         layout.vertexDataWordBase * 4,
-        b.vertexStreamData.cursorBytes,
+        b.vertexStreamData.cursorBytes
       );
       const generations = new Uint32Array(layout.geometryCount);
       for (let slot = 1; slot < this.slots.length; slot++) {
@@ -1163,12 +1151,12 @@ export class GpuAssetStore {
         layout.geometryGenerationWordBase * 4,
         generations.buffer,
         generations.byteOffset,
-        generations.byteLength,
+        generations.byteLength
       );
       recordGpuQueueUpload(
         this.device.queue,
         "GpuAssetStore/sparse-shading/geometry-generations",
-        generations.byteLength,
+        generations.byteLength
       );
       this.recordUpload(generations.byteLength, generations.byteLength);
       const next = Object.freeze({
@@ -1176,7 +1164,7 @@ export class GpuAssetStore {
         epoch: nextGeneration(previous.epoch),
         assetMetadataHeap,
         vertexPayloadHeap,
-        ...layout,
+        ...layout
       });
       this.sparseShadingHeaps = next;
       this.epoch++;
@@ -1198,26 +1186,26 @@ export class GpuAssetStore {
     const geometryGenerationWordBase = checkedAdd(
       meshletWordBase,
       b.meshletRecords.cursorBytes / 4,
-      "Sparse shading metadata word count",
+      "Sparse shading metadata word count"
     );
     const geometryCount = countOf(b.geometryRecords);
     const meshletCount = countOf(b.meshletRecords);
     const assetMetadataBytes = checkedAdd(
       geometryGenerationWordBase * 4,
       geometryCount * 4,
-      "Sparse shading metadata bytes",
+      "Sparse shading metadata bytes"
     );
     const meshletVertexWordBase = 0;
     const meshletTriangleWordBase = b.meshletVertexIndices.cursorBytes / 4;
     const vertexDataWordBase = checkedAdd(
       meshletTriangleWordBase,
       b.meshletTriangleIndices.cursorBytes / 4,
-      "Sparse shading payload word count",
+      "Sparse shading payload word count"
     );
     const vertexPayloadBytes = checkedAdd(
       vertexDataWordBase * 4,
       b.vertexStreamData.cursorBytes,
-      "Sparse shading payload bytes",
+      "Sparse shading payload bytes"
     );
     return Object.freeze({
       geometryWordBase,
@@ -1229,14 +1217,14 @@ export class GpuAssetStore {
       geometryCount,
       meshletCount,
       assetMetadataBytes,
-      vertexPayloadBytes,
+      vertexPayloadBytes
     });
   }
 
   private validateSparseShadingHeapSize(size: number, label: string): void {
     const limit = Math.min(
       Number(this.device.limits.maxBufferSize ?? Number.MAX_SAFE_INTEGER),
-      Number(this.device.limits.maxStorageBufferBindingSize ?? Number.MAX_SAFE_INTEGER),
+      Number(this.device.limits.maxStorageBufferBindingSize ?? Number.MAX_SAFE_INTEGER)
     );
     if (size <= 0 || size > limit) {
       throw new RangeError(`Sparse shading ${label} heap requires ${size} bytes, adapter limit is ${limit}`);
@@ -1246,12 +1234,12 @@ export class GpuAssetStore {
   private growBuffer(
     owner: ResidentBuffer,
     required: number,
-    command: ShadeGPUCommandContext | GpuAssetCommand,
+    command: ShadeGPUCommandContext | GpuAssetCommand
   ): BufferReplacement {
     const previous = owner.buffer;
     const limit = Math.min(
       Number(this.device.limits.maxBufferSize ?? Number.MAX_SAFE_INTEGER),
-      Number(this.device.limits.maxStorageBufferBindingSize ?? Number.MAX_SAFE_INTEGER),
+      Number(this.device.limits.maxStorageBufferBindingSize ?? Number.MAX_SAFE_INTEGER)
     );
     let size = Math.max(required, previous.size + Math.max(previous.size >>> 1, 4096));
     size = align4(Math.min(size, limit));
@@ -1259,7 +1247,7 @@ export class GpuAssetStore {
     const next = this.createBuffer({
       label: `${owner.label}/grow-${size}`,
       size,
-      usage: STORAGE_USAGE,
+      usage: STORAGE_USAGE
     });
     command.copyBufferToBuffer(previous, 0, next, 0, previous.size);
     owner.buffer = next;
@@ -1271,7 +1259,7 @@ export class GpuAssetStore {
   private uploadSegment(
     segment: UploadSegment,
     command: ShadeGPUCommandContext | GpuAssetCommand,
-    transactional: boolean,
+    transactional: boolean
   ): void {
     const { target, destinationByteOffset, bytes } = segment;
     if (destinationByteOffset % 4 !== 0 || bytes.byteLength % 4 !== 0) {
@@ -1283,7 +1271,7 @@ export class GpuAssetStore {
         destinationByteOffset,
         bytes.buffer,
         bytes.byteOffset,
-        bytes.byteLength,
+        bytes.byteLength
       );
       recordGpuQueueUpload(this.device.queue, target.label, bytes.byteLength);
     } else {
@@ -1326,7 +1314,7 @@ export class GpuAssetStore {
     slots: readonly SlotState[],
     freeSlots: readonly number[],
     replacements: readonly BufferReplacement[],
-    sparseShadingReplacement: SparseShadingHeapReplacement | null,
+    sparseShadingReplacement: SparseShadingHeapReplacement | null
   ): void {
     if (sparseShadingReplacement !== null) {
       this.rollbackSparseShadingReplacement(sparseShadingReplacement);
@@ -1341,7 +1329,7 @@ export class GpuAssetStore {
     for (const slot of slots)
       this.slots.push({
         generation: slot.generation,
-        entry: slot.entry,
+        entry: slot.entry
       });
     this.freeSlots.length = 0;
     this.freeSlots.push(...freeSlots);
@@ -1360,7 +1348,7 @@ export class GpuAssetStore {
 
   private recordProvisionalPeak(
     replacements: readonly BufferReplacement[],
-    sparseShadingReplacement: SparseShadingHeapReplacement | null = null,
+    sparseShadingReplacement: SparseShadingHeapReplacement | null = null
   ): void {
     const overlap =
       replacements.reduce((sum, replacement) => sum + replacement.previous.size, 0) +
@@ -1370,7 +1358,7 @@ export class GpuAssetStore {
           sparseShadingReplacement.previous.vertexPayloadHeap.size);
     this.peakAllocatedBytes = Math.max(
       this.peakAllocatedBytes,
-      this.currentAllocatedBytes() + this.retiringBytes + overlap,
+      this.currentAllocatedBytes() + this.retiringBytes + overlap
     );
   }
 
@@ -1389,7 +1377,7 @@ export class GpuAssetStore {
 
   private assertMutation(
     command: ShadeGPUCommandContext | GpuAssetCommand,
-    kind: "resident" | "release",
+    kind: "resident" | "release"
   ): void {
     this.assertAlive();
     if (command.device !== this.device) {
@@ -1409,14 +1397,14 @@ export class GpuAssetStore {
   private createZeroBuffer(label: string, size: number): GPUBuffer {
     const limit = Math.min(
       Number(this.device.limits.maxBufferSize ?? Number.MAX_SAFE_INTEGER),
-      Number(this.device.limits.maxStorageBufferBindingSize ?? Number.MAX_SAFE_INTEGER),
+      Number(this.device.limits.maxStorageBufferBindingSize ?? Number.MAX_SAFE_INTEGER)
     );
     if (size > limit) throw new RangeError(`${label} exceeds adapter storage buffer limit`);
     const buffer = this.createBuffer({
       label,
       size,
       usage: STORAGE_USAGE,
-      mappedAtCreation: true,
+      mappedAtCreation: true
     });
     // Mapped-at-creation buffers are zero initialized by WebGPU. Touching the
     // range makes the initialization invariant explicit for test doubles too.
@@ -1435,8 +1423,8 @@ export class GpuAssetStore {
           category: "resident",
           owner: "GpuAssetStore",
           bytes: descriptor.size,
-          label: descriptor.label,
-        }),
+          label: descriptor.label
+        })
       );
     }
     return buffer;
@@ -1482,14 +1470,14 @@ function residentGeometryFlags(asset: GeometryAssetPackage): number {
   return (
     asset.directory.flags |
     geometryVisibilityPathFlag(
-      recommendGeometryVisibilityPath(asset.meshlets.length, hierarchyDepth, asset.clusters.length > 0),
+      recommendGeometryVisibilityPath(asset.meshlets.length, hierarchyDepth, asset.clusters.length > 0)
     )
   );
 }
 
 function uvByteOffset(
   descriptor: GeometryAssetPackage["vertexStreamDescriptors"][number] | undefined,
-  vertexDataBegin: number,
+  vertexDataBegin: number
 ): number {
   return directByteOffset(descriptor, vertexDataBegin, "UV stream offset");
 }
@@ -1497,7 +1485,7 @@ function uvByteOffset(
 function directByteOffset(
   descriptor: GeometryAssetPackage["vertexStreamDescriptors"][number] | undefined,
   vertexDataBegin: number,
-  label: string,
+  label: string
 ): number {
   return descriptor === undefined ? 0 : checkedAdd(vertexDataBegin, descriptor.dataByteOffset, label);
 }
@@ -1522,7 +1510,7 @@ function uvFormat(descriptor: GeometryAssetPackage["vertexStreamDescriptors"][nu
 function globalDescriptorIndex(
   descriptors: GeometryAssetPackage["vertexStreamDescriptors"],
   descriptorBegin: number,
-  semantic: string,
+  semantic: string
 ): number {
   const local = descriptors.findIndex((descriptor) => descriptor.semantic === semantic);
   return local < 0 ? 0xffffffff : checkedAdd(descriptorBegin, local, `${semantic} descriptor`);
@@ -1540,7 +1528,7 @@ function rebaseBvhNode(node: GeometryBvh8Node, bvhBegin: number, clusterBegin: n
     refs[slot] = checkedAdd(
       leaf ? clusterBegin : bvhBegin,
       node.childRefs[slot]!,
-      leaf ? "BVH leaf reference" : "BVH child reference",
+      leaf ? "BVH leaf reference" : "BVH child reference"
     );
   }
   return {
@@ -1555,7 +1543,7 @@ function rebaseBvhNode(node: GeometryBvh8Node, bvhBegin: number, clusterBegin: n
     flags: node.flags,
     childRefs: refs,
     childRangeCounts: node.childRangeCounts,
-    childBoundsBox: node.childBoundsBox,
+    childBoundsBox: node.childBoundsBox
   };
 }
 

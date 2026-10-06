@@ -14,8 +14,10 @@ function option(name, fallback) { const at = args.indexOf(`--${name}`); return a
 const frames = Number(option("frames", "120")), warmup = Number(option("warmup", "60"));
 const batches = Number(option("batches", "2")), width = Number(option("width", "1280")), height = Number(option("height", "720"));
 const modes = option("modes", "timing,detailed").split(",");
+const gpuTimingMode = option("gpu-timing", "full");
+if (!["coarse", "stage", "full"].includes(gpuTimingMode)) throw new Error("Invalid --gpu-timing");
 const asyncPrewarm = false;
-if (modes.some(mode => !["timing", "detailed"].includes(mode))) throw new Error("Unknown --modes; use timing,detailed");
+if (modes.some(mode => !["off", "timing", "detailed"].includes(mode))) throw new Error("Unknown --modes; use off,timing,detailed");
 const coverageGroups = option("coverage", "low,high").split(",");
 if (!coverageGroups.length || coverageGroups.some(group => !["low", "high"].includes(group)) || new Set(coverageGroups).size !== coverageGroups.length) throw new Error("Invalid --coverage; use low,high");
 for (const [name, value] of Object.entries({ frames, batches, width, height, warmup })) {
@@ -40,12 +42,12 @@ async function sampleSensor() {
   sensorBusy = true;
   const queryStartUnixMs = Date.now();
   try {
-    const { stdout } = await runFile("nvidia-smi", ["--query-gpu=index,uuid,name,temperature.gpu,utilization.gpu,clocks.current.graphics,clocks.current.memory,power.draw,pstate,clocks_event_reasons.sw_thermal_slowdown,clocks_event_reasons.hw_thermal_slowdown,clocks_event_reasons.hw_power_brake_slowdown,clocks_event_reasons.sw_power_cap", "--format=csv,noheader,nounits"], { windowsHide: true, timeout: 5000 });
+    const { stdout } = await runFile("nvidia-smi", ["--query-gpu=index,uuid,name,temperature.gpu,utilization.gpu,clocks.current.graphics,clocks.current.memory,power.draw,pstate,clocks_event_reasons.sw_thermal_slowdown,clocks_event_reasons.hw_thermal_slowdown,clocks_event_reasons.hw_power_brake_slowdown,clocks_event_reasons.sw_power_cap,memory.used,memory.total", "--format=csv,noheader,nounits"], { windowsHide: true, timeout: 5000 });
     for (const line of stdout.trim().split(/\r?\n/)) {
-      const [index, uuid, name, temperatureC, utilizationPercent, graphicsMHz, memoryMHz, powerW, pstate, swThermalSlowdown, hwThermalSlowdown, hwPowerBrakeSlowdown, swPowerCap] = line.split(",").map(value => value.trim());
+      const [index, uuid, name, temperatureC, utilizationPercent, graphicsMHz, memoryMHz, powerW, pstate, swThermalSlowdown, hwThermalSlowdown, hwPowerBrakeSlowdown, swPowerCap, memoryUsedMiB, memoryTotalMiB] = line.split(",").map(value => value.trim());
       const numeric = value => Number.isFinite(Number(value)) ? Number(value) : null;
       sensors.samples.push({ queryStartUnixMs, queryEndUnixMs: Date.now(), index: numeric(index), uuid, name,
-        temperatureC: numeric(temperatureC), utilizationPercent: numeric(utilizationPercent), graphicsMHz: numeric(graphicsMHz), memoryMHz: numeric(memoryMHz), powerW: numeric(powerW),
+        temperatureC: numeric(temperatureC), utilizationPercent: numeric(utilizationPercent), graphicsMHz: numeric(graphicsMHz), memoryMHz: numeric(memoryMHz), powerW: numeric(powerW), memoryUsedMiB: numeric(memoryUsedMiB), memoryTotalMiB: numeric(memoryTotalMiB),
         pstate, swThermalSlowdown, hwThermalSlowdown, hwPowerBrakeSlowdown, swPowerCap });
     }
     sensors.available = true;
@@ -73,7 +75,7 @@ const server = await createServer({ configFile: resolve(root, "examples/vite.con
 let browser;
 const report = { schema: "eengine-surface-performance-suite-v1", evidenceRole: "diagnostic", accepted: false,
   revision, dirtyPaths, fixtureSha256, startedAt: new Date().toISOString(), browser: null, errors: [], captures: [], sensors,
-  options: { frames, warmup, batches, width, height, modes, coverageGroups, view: option("view", "overview"),
+  options: { frames, warmup, batches, width, height, modes, gpuTimingMode, coverageGroups, view: option("view", "overview"),
     headless: args.includes("--headless"), asyncPrewarm, counters: !args.includes("--no-counters"),
     chrome: option("chrome", "C:/Program Files/Google/Chrome/Application/chrome.exe") },
   measurement: "completed fixed consecutive GPU frame ranges; Surface V3 stage interval sum/span; timing versus detailed overhead",
@@ -100,6 +102,32 @@ try {
       report.browser = browser.version();
       const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1 });
       const page = await context.newPage();
+      if (args.includes("--allocations")) {
+        await page.addInitScript(() => {
+          const events = [];
+          globalThis.__surfaceAllocationTrace = events;
+          const resourceIds = new WeakMap();
+          for (const name of ["createBuffer", "createTexture"]) {
+            const original = GPUDevice.prototype[name];
+            GPUDevice.prototype[name] = function (descriptor) {
+              const resource = original.call(this, descriptor);
+              const id = events.length;
+              resourceIds.set(resource, id);
+              events.push({ id, name, label: descriptor.label, size: structuredClone(descriptor.size), format: descriptor.format, dimension: descriptor.dimension,
+                mipLevelCount: descriptor.mipLevelCount, sampleCount: descriptor.sampleCount,
+                usage: descriptor.usage, at: performance.now() });
+              return resource;
+            };
+          }
+          for (const type of [GPUBuffer, GPUTexture]) {
+            const original = type.prototype.destroy;
+            type.prototype.destroy = function () {
+              events.push({ id: resourceIds.get(this), name: "destroy", at: performance.now() });
+              return original.call(this);
+            };
+          }
+        });
+      }
       await page.bringToFront();
       if (!args.includes("--headless")) {
         const session = await context.newCDPSession(page);
@@ -126,7 +154,7 @@ try {
         }
         const distanceScale = cameraDistances.get(coverage);
         const capture = await bounded(page.evaluate(request => globalThis.__eengineShowcase.capture(request), { width, height, frames, warmup,
-          coverage, surfaceMode: mode, ...(distanceScale === undefined ? {} : { distanceScale, lockCamera: true }),
+          coverage, surfaceMode: mode, gpuTimingMode, ...(distanceScale === undefined ? {} : { distanceScale, lockCamera: true }),
           counters: !args.includes("--no-counters"), view: option("view", "overview"), trajectory: option("trajectory", "static"), vsm: args.includes("--vsm"), profile: "full", retainView: true }), 600000, "Calibration/capture");
         if (capture.complete && distanceScale === undefined) cameraDistances.set(coverage, capture.cameraDistanceScale);
         capture.caseId = `surface-performance-${coverage}-${mode}-${batch}`; capture.mode = mode; capture.batch = batch; capture.coverageGroup = coverage;
@@ -145,11 +173,16 @@ try {
       } catch (error) {
         report.errors.push(`${batch}-${coverage}-${mode}: ${String(error)}; browser: ${JSON.stringify(errors)}`); console.error(String(error));
         const runtime = await bounded(page.evaluate(() => ({ runtime: globalThis.__eengineShowcase?.runtime,
+          allocations: globalThis.__surfaceAllocationTrace,
           sceneState: document.querySelector("#scene-state")?.textContent, captureState: document.querySelector("#benchmark-state")?.textContent })), 5000, "Failure diagnostics").catch(error => ({ error: String(error) }));
         await writeFile(resolve(out, `${batch}-${coverage}-${mode}-failure.json`), JSON.stringify({ error: String(error), errors, runtime }, null, 2));
         await page.screenshot({ path: resolve(out, `${batch}-${coverage}-${mode}-failure.png`), timeout: 5000 }).catch(() => {});
       }
       finally {
+        if (args.includes("--allocations")) {
+          const allocations = await page.evaluate(() => globalThis.__surfaceAllocationTrace).catch(() => null);
+          await writeFile(resolve(out, `${batch}-${coverage}-${mode}-allocations.json`), JSON.stringify(allocations, null, 2));
+        }
         try { await page.evaluate(() => globalThis.__eengineShowcase?.dispose()); } catch (error) { report.errors.push(`dispose ${coverage}/${mode}: ${String(error)}`); }
         await context.close(); await browser.close(); browser = undefined; await save();
       }

@@ -14,16 +14,16 @@ import type { GpuShadingExecutionMode } from "../../gpu/GpuShadingExecutionMode.
 import {
   DEFAULT_GEOMETRY_WORK_BUDGET,
   normalizeGeometryWorkBudget,
-  type GeometryWorkBudget,
+  type GeometryWorkBudget
 } from "../GeometryWorkBudget.js";
 import {
   GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_CAPACITY,
-  type GpuVisibilityBufferLimits,
+  type GpuVisibilityBufferLimits
 } from "../../gpu/GpuVisibilityKeyAbi.js";
 import {
   GPU_MESHLET_RASTER_WORK_RECORD_STRIDE,
   GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE,
-  gpuMeshletWorkQueueByteLength,
+  gpuMeshletWorkQueueByteLength
 } from "../../gpu/GpuMeshletRasterWorkAbi.js";
 import { HierarchicalWorkGenerator, type PreparedHierarchyWork } from "../HierarchicalWorkGenerator.js";
 import { VIS_MESH_CLEAR_SENTINEL } from "../VisibilityBufferContract.js";
@@ -32,13 +32,13 @@ import {
   meshletWorkFrame,
   textureDomain,
   visibilityFrame,
-  type VisibilityFrame,
+  type VisibilityFrame
 } from "../pipeline/FrameProducts.js";
 import { visibilityBindingSet, type VisibilityBindingSet } from "../VisibilityBindingSet.js";
 import {
   MeshletWorkCandidate,
   VirtualGeometryMeshletWorkCandidate,
-  type PreparedMeshletWorkCandidate,
+  type PreparedMeshletWorkCandidate
 } from "../MeshletWorkCandidate.js";
 import { MeshletBucketRaster } from "../MeshletBucketRaster.js";
 import type { FrameInstanceTransforms, PreparedFrameInstances } from "../FrameInstanceTransforms.js";
@@ -50,12 +50,12 @@ import {
   sameVisibilityWorkSetKey,
   visibilityWorkSet,
   visibilityWorkSetKey,
-  type VisibilityWorkSet,
+  type VisibilityWorkSet
 } from "../VisibilityWorkSet.js";
 import {
   CurrentHzbLateRecheckGpu,
   type CurrentHzbLateRecheckGpuPrepareInput,
-  type PreparedCurrentHzbLateRecheck,
+  type PreparedCurrentHzbLateRecheck
 } from "../CurrentHzbLateRecheck.js";
 
 export interface PackedVisibilityPrepareJob {
@@ -181,18 +181,18 @@ export const PACKED_VISIBILITY_FRAGMENT_EVIDENCE = Object.freeze({
   submittedFragments: Object.freeze({
     status: "unsupported" as const,
     blockerTaskId: "WEBGPU-01-PIPELINE-STATISTICS",
-    reason: "OEngine WebGPU baseline has no negotiated pipeline statistics producer",
+    reason: "OEngine WebGPU baseline has no negotiated pipeline statistics producer"
   }),
   usefulFragments: Object.freeze({
     status: "supported" as const,
     counter: "shadedPixels" as const,
-    producer: "VisibilityCounterPass/direct VisibilityKey final-pixel reducer",
+    producer: "VisibilityCounterPass/direct VisibilityKey final-pixel reducer"
   }),
   invalidKeys: Object.freeze({
     status: "supported" as const,
     counter: "invalidVisibilityKeys" as const,
-    producer: "VisibilityCounterPass/direct VisibilityKey invalid reducer",
-  }),
+    producer: "VisibilityCounterPass/direct VisibilityKey invalid reducer"
+  })
 });
 
 /** R3 hierarchy production path. The temporary R2 flat producer was deleted in R3-D. */
@@ -218,7 +218,7 @@ export class PackedVisibilityPass {
   constructor(
     private readonly graphics: GraphicsContext,
     hierarchyGenerator?: PackedVisibilityHierarchyGenerator,
-    meshletCandidate?: PackedVisibilityMeshletCandidate,
+    meshletCandidate?: PackedVisibilityMeshletCandidate
   ) {
     this.instanceTransforms = graphics.frame_instances;
     this.vertexTransforms = graphics.frame_vertices;
@@ -235,11 +235,11 @@ export class PackedVisibilityPass {
   addToGraph(
     graph: FrameGraph,
     job: PackedVisibilityJob,
-    inputs: PackedVisibilityInputs,
+    inputs: PackedVisibilityInputs
   ): PackedVisibilityOutputs {
     const output: { visibilityKey: ResourceId; shadingBinId: ResourceId | null } = {
       visibilityKey: -1,
-      shadingBinId: null,
+      shadingBinId: null
     };
     const includeShadingBinId = (job.executionMode ?? "sparse-microtile") === "sparse-microtile";
     const builder = graph.add(
@@ -257,9 +257,9 @@ export class PackedVisibilityPass {
           resolveTextureView(resources.get(output.visibilityKey)),
           output.shadingBinId === null ? null : resolveTextureView(resources.get(output.shadingBinId)),
           job.executionMode ?? "sparse-microtile",
-          resolveDepthAttachmentView(resources.get(inputs.depth)),
+          resolveDepthAttachmentView(resources.get(inputs.depth))
         );
-      },
+      }
     );
     builder.read(inputs.camera);
     builder.read(inputs.counters);
@@ -268,21 +268,22 @@ export class PackedVisibilityPass {
     const meshletWorkRecords = builder.write(inputs.meshletWorkRecords);
     const frameInstances = builder.write(inputs.frameInstances);
     const frameGeometry = builder.write(inputs.frameGeometry);
-    const frameAttributes = builder.write(inputs.frameAttributes);
+    const frameAttributes =
+      inputs.frameAttributes === inputs.frameGeometry ? frameGeometry : builder.write(inputs.frameAttributes);
     const counters = builder.write(inputs.counters);
     output.visibilityKey = builder.create(
       "Packed VisibilityKey",
-      packedVisibilityAttachmentDescriptor(job.width, job.height),
+      packedVisibilityAttachmentDescriptor(job.width, job.height)
     );
     if (includeShadingBinId) {
       output.shadingBinId = builder.create(
         "Packed ShadingBinId",
-        packedShadingBinAttachmentDescriptor(job.width, job.height),
+        packedShadingBinAttachmentDescriptor(job.width, job.height)
       );
     }
     builder.make_side_effect();
     const debugResolve = Object.freeze({
-      resolve: (): PackedVisibilityDebugBindings => this.requireDebugBindings(job.runtime),
+      resolve: (): PackedVisibilityDebugBindings => this.requireDebugBindings(job.runtime)
     });
     const frame = visibilityFrame({
       visibilityKey: output.visibilityKey,
@@ -295,9 +296,9 @@ export class PackedVisibilityPass {
         records: meshletWorkRecords,
         capacity: requireMeshletWork(job.prepared.workSet).capacity,
         partition: 0,
-        generation: "queue-header",
+        generation: "queue-header"
       }),
-      domain: textureDomain("internal-full", job.width, job.height, 1),
+      domain: textureDomain("internal-full", job.width, job.height, 1)
     });
     return Object.freeze({ counters, frame, debugResolve });
   }
@@ -306,7 +307,7 @@ export class PackedVisibilityPass {
   addCurrentHzbLateRecheckToGraph(
     graph: FrameGraph,
     job: PackedVisibilityJob,
-    inputs: PackedVisibilityLateRecheckInputs,
+    inputs: PackedVisibilityLateRecheckInputs
   ): PackedVisibilityOutputs {
     const prepared = job.prepared.currentHzbLateRecheck;
     if (prepared === null || !job.prepared.workSet.meshletWorkCandidate?.productMode) {
@@ -339,9 +340,9 @@ export class PackedVisibilityPass {
             shadingBinId:
               inputs.shadingBinId === null ? null : resolveTextureView(resources.get(inputs.shadingBinId)),
             depth: resolveDepthAttachmentView(resources.get(inputs.depth)),
-            virtualGeometry: data.virtualGeometry ?? null,
+            virtualGeometry: data.virtualGeometry ?? null
           },
-          data.prepared.currentHzbLateRecheck!.queue,
+          data.prepared.currentHzbLateRecheck!.queue
         );
         const debug = this.requireDebugBindings(data.runtime);
         this.debugBindings.set(
@@ -349,10 +350,10 @@ export class PackedVisibilityPass {
           Object.freeze({
             ...debug,
             meshletWork: data.prepared.currentHzbLateRecheck!.queue,
-            meshletWorkCapacity: data.prepared.currentHzbLateRecheck!.capacity,
-          }),
+            meshletWorkCapacity: data.prepared.currentHzbLateRecheck!.capacity
+          })
         );
-      },
+      }
     );
     builder.read(inputs.camera);
     builder.read(inputs.currentHzb);
@@ -377,17 +378,18 @@ export class PackedVisibilityPass {
         records: meshletWorkRecords,
         capacity: prepared.capacity,
         partition: 0,
-        generation: "queue-header",
+        generation: "queue-header"
       }),
       frameInstances: source.frameInstances,
       frameGeometry,
-      frameAttributes: source.frameAttributes,
-      domain: source.domain,
+      frameAttributes:
+        source.frameAttributes === source.frameGeometry ? frameGeometry : source.frameAttributes,
+      domain: source.domain
     });
     return Object.freeze({
       counters,
       frame,
-      debugResolve: Object.freeze({ resolve: () => this.requireDebugBindings(job.runtime) }),
+      debugResolve: Object.freeze({ resolve: () => this.requireDebugBindings(job.runtime) })
     });
   }
 
@@ -401,7 +403,7 @@ export class PackedVisibilityPass {
         destroy: () => {
           this.graphics.raster_partitions.release(late.queue);
           owner?.release(late);
-        },
+        }
       });
     }
     const workSet = this.hierarchyPrepared.get(runtime);
@@ -439,7 +441,7 @@ export class PackedVisibilityPass {
     visibilityKey: GPUTextureView,
     shadingBinId: GPUTextureView | null,
     executionMode: GpuShadingExecutionMode | "none",
-    depth: GPUTextureView,
+    depth: GPUTextureView
   ): void {
     const prepared = job.prepared;
     const workSet = prepared.workSet;
@@ -453,8 +455,8 @@ export class PackedVisibilityPass {
         // A changing refine cut cannot safely reject against the previous cut
         // without Nyx's disocclusion recovery pass. Current-HZB recheck stays live.
         previousHzb: job.virtualGeometry === undefined ? job.previousHzb : null,
-        demandFrameRevisionLow: job.demandFrameRevisionLow,
-      },
+        demandFrameRevisionLow: job.demandFrameRevisionLow
+      }
     );
     if (job.streamingRuntime !== undefined) {
       if (generated.pageDemand === null) {
@@ -475,7 +477,7 @@ export class PackedVisibilityPass {
     this.instanceTransforms.encode(command.gpu_encoder, workSet.frameInstances);
     if (!this.geometryArena.metadataPublished(workSet.frameGeometry)) {
       command.onFinished.addOne(
-        this.geometryArena.encodeMetadataPublication(command.gpu_encoder, workSet.frameGeometry),
+        this.geometryArena.encodeMetadataPublication(command.gpu_encoder, workSet.frameGeometry)
       );
     }
     this.vertexTransforms.encode(command.gpu_encoder, workSet.frameVertices);
@@ -492,10 +494,10 @@ export class PackedVisibilityPass {
         visibilityKey,
         shadingBinId,
         depth,
-        virtualGeometry: job.virtualGeometry ?? null,
+        virtualGeometry: job.virtualGeometry ?? null
       },
       job.executionMode ?? "sparse-microtile",
-      job.primitiveIndexPath ?? "auto",
+      job.primitiveIndexPath ?? "auto"
     );
     this.debugBindings.set(
       job.runtime,
@@ -508,8 +510,8 @@ export class PackedVisibilityPass {
         geometryRecordCount: job.assets.highWaterCounts.geometryRecords,
         meshletRecordCount: job.assets.highWaterCounts.meshletRecords,
         materialCapacity: job.runtime.materialResources.materialCapacity,
-        meshletWorkCapacity: meshletWork.capacity,
-      }),
+        meshletWorkCapacity: meshletWork.capacity
+      })
     );
     this.lastDrawIndirect = true;
     this.lastMeshletWorkCapacity = meshletWork.capacity;
@@ -521,29 +523,29 @@ export class PackedVisibilityPass {
     job: PackedVisibilityPrepareJob,
     counters: GPUBuffer,
     camera: GPUBuffer,
-    command: ShadeGPUCommandContext,
+    command: ShadeGPUCommandContext
   ): PreparedPackedVisibility {
     this.lastPreparation = validatePackedVisibilityPreparation(job.runtime.hierarchyRasterWorkCapacity, {
       maxBufferSize: Number(this.graphics.device.limits.maxBufferSize),
-      maxStorageBufferBindingSize: Number(this.graphics.device.limits.maxStorageBufferBindingSize),
+      maxStorageBufferBindingSize: Number(this.graphics.device.limits.maxStorageBufferBindingSize)
     });
     const geometryWorkBudget = normalizeGeometryWorkBudget(
-      job.geometryWorkBudget ?? DEFAULT_GEOMETRY_WORK_BUDGET,
+      job.geometryWorkBudget ?? DEFAULT_GEOMETRY_WORK_BUDGET
     );
     // Step 4 promotes MeshletWork + bucket raster to the normal producer.
     const meshletWorkCandidateCapacity = Math.min(
       normalizeMeshletCandidateCapacity(
         job.meshletWorkCandidateCapacity,
-        job.runtime.hierarchyRasterWorkCapacity,
+        job.runtime.hierarchyRasterWorkCapacity
       ),
-      geometryWorkBudget.maxMeshletWork,
+      geometryWorkBudget.maxMeshletWork
     );
     if (meshletWorkCandidateCapacity === 0) {
       throw new RangeError("GeometryWorkBudget leaves no MeshletWork capacity");
     }
     const traversalCapacity = Math.min(
       job.runtime.hierarchyTraversalCapacity,
-      geometryWorkBudget.maxTestedHierarchyNodes,
+      geometryWorkBudget.maxTestedHierarchyNodes
     );
     const key = visibilityWorkSetKey({
       runtime: job.runtime,
@@ -561,23 +563,21 @@ export class PackedVisibilityPass {
       frameGeometryBudget: Object.freeze({
         vertexCapacity: 1 << 20,
         triangleCapacity: 1 << 20,
-        dictionaryCapacity: 1 << 18,
-        coefficientCapacity: 1 << 17,
-        probeLimit: 16,
+
         maxBytes: 128 * 1024 * 1024,
         ...job.frameGeometryBudget,
         workCapacity: meshletWorkCandidateCapacity,
         filteredWorkCapacity:
           job.virtualGeometry !== undefined && job.currentHzbLateRecheck != null
             ? meshletWorkCandidateCapacity
-            : 0,
-      }),
+            : 0
+      })
     });
     const bindings = visibilityBindingSet({
       camera,
       counters,
       countersEnabled: job.countersEnabled,
-      sseThreshold: job.sseThreshold,
+      sseThreshold: job.sseThreshold
     });
     const existing = this.hierarchyPrepared.get(job.runtime);
     if (existing !== undefined && sameVisibilityWorkSetKey(existing.key, key)) {
@@ -585,26 +585,26 @@ export class PackedVisibilityPass {
       this.hierarchyGenerator.rebind(existing.hierarchy, {
         counterBuffer: bindings.counters,
         countersEnabled: bindings.countersEnabled,
-        sseThreshold: bindings.sseThreshold,
+        sseThreshold: bindings.sseThreshold
       });
       if (existing.meshletWorkCandidate !== null) {
         if (existing.meshletWorkCandidate.productMode) {
           this.virtualMeshletCandidate.rebind(existing.meshletWorkCandidate, {
             counterBuffer: bindings.counters,
-            countersEnabled: bindings.countersEnabled,
+            countersEnabled: bindings.countersEnabled
           });
         } else {
           this.meshletCandidate.rebind(existing.meshletWorkCandidate, {
             camera: bindings.camera,
             counterBuffer: bindings.counters,
-            countersEnabled: bindings.countersEnabled,
+            countersEnabled: bindings.countersEnabled
           });
         }
       }
       return Object.freeze({
         workSet: existing,
         bindings,
-        currentHzbLateRecheck: this.prepareCurrentHzbLateRecheck(job, existing, camera, counters, command),
+        currentHzbLateRecheck: this.prepareCurrentHzbLateRecheck(job, existing, camera, counters, command)
       });
     }
     const prepared = this.hierarchyGenerator.prepare(
@@ -618,7 +618,7 @@ export class PackedVisibilityPass {
         visibleClusterCapacity: job.runtime.hierarchyVisibleClusterCapacity,
         rasterWorkCapacity: job.runtime.hierarchyRasterWorkCapacity,
         counterBuffer: counters,
-        virtualGeometry: job.virtualGeometry,
+        virtualGeometry: job.virtualGeometry
       },
       {
         sseThreshold: job.sseThreshold,
@@ -628,8 +628,8 @@ export class PackedVisibilityPass {
         // from the disabled sink on subsequent unsampled frames.
         diagnosticsEnabled: false,
         rasterExpansionEnabled: false,
-        traversalWorkCapacity: key.traversalCapacity,
-      },
+        traversalWorkCapacity: key.traversalCapacity
+      }
     );
     let meshletWorkCandidate: PreparedMeshletWorkCandidate | null = null;
     let frameInstances: PreparedFrameInstances | null = null;
@@ -645,7 +645,7 @@ export class PackedVisibilityPass {
           capacity: key.meshletWorkCandidateCapacity,
           counterBuffer: counters,
           countersEnabled: job.countersEnabled,
-          scene: job.scene,
+          scene: job.scene
         });
       } else {
         meshletWorkCandidate = this.meshletCandidate.prepare({
@@ -657,7 +657,7 @@ export class PackedVisibilityPass {
           scene: job.scene,
           counterBuffer: counters,
           countersEnabled: job.countersEnabled,
-          compactionPath: key.meshletWorkCompactionPath,
+          compactionPath: key.meshletWorkCompactionPath
         });
       }
       frameInstances = this.instanceTransforms.prepare({
@@ -665,12 +665,12 @@ export class PackedVisibilityPass {
         source: job.scene.instances,
         work: meshletWorkCandidate.queue,
         workCapacity: meshletWorkCandidate.capacity,
-        instanceCapacity: Math.floor(job.scene.instances.size / GPU_INSTANCE_RECORD_STRIDE),
+        instanceCapacity: Math.floor(job.scene.instances.size / GPU_INSTANCE_RECORD_STRIDE)
       });
       frameGeometry = this.geometryArena.prepare(
         job.assets.sparseShading.assetMetadataHeap,
         job.assets.sparseShading.assetMetadataBytes,
-        key.frameGeometryBudget,
+        key.frameGeometryBudget
       );
       frameVertices = this.vertexTransforms.prepare({
         arena: frameGeometry,
@@ -678,7 +678,7 @@ export class PackedVisibilityPass {
         work: meshletWorkCandidate.queue,
         assets: job.assets,
         product: meshletWorkCandidate.productBindings,
-        productBanks: meshletWorkCandidate.productBanks,
+        productBanks: meshletWorkCandidate.productBanks
       });
       this.meshletBucketRaster.prepare(job.runtime, meshletWorkCandidate, job.assets);
     } catch (error) {
@@ -702,7 +702,7 @@ export class PackedVisibilityPass {
       frameInstances,
       frameGeometry,
       frameVertices,
-      meshletWorkCandidate,
+      meshletWorkCandidate
     });
     let currentHzbLateRecheck: PreparedCurrentHzbLateRecheck | null;
     try {
@@ -722,7 +722,7 @@ export class PackedVisibilityPass {
     return Object.freeze({
       workSet: next,
       bindings,
-      currentHzbLateRecheck,
+      currentHzbLateRecheck
     });
   }
 
@@ -731,7 +731,7 @@ export class PackedVisibilityPass {
     workSet: VisibilityWorkSet,
     camera: GPUBuffer,
     counters: GPUBuffer,
-    command: ShadeGPUCommandContext,
+    command: ShadeGPUCommandContext
   ): PreparedCurrentHzbLateRecheck | null {
     const config = job.currentHzbLateRecheck ?? null;
     const work = workSet.meshletWorkCandidate;
@@ -750,7 +750,7 @@ export class PackedVisibilityPass {
           destroy: () => {
             this.graphics.raster_partitions.release(previous.queue);
             owner?.release(previous);
-          },
+          }
         });
       }
       return null;
@@ -769,7 +769,7 @@ export class PackedVisibilityPass {
       countersEnabled: job.countersEnabled,
       width: config.width,
       height: config.height,
-      mipLevelCount: config.mipLevelCount,
+      mipLevelCount: config.mipLevelCount
     };
     const previous = this.currentHzbPrepared.get(job.runtime);
     if (previous !== undefined && this.currentHzbLateRecheck.matches(previous, input)) return previous;
@@ -787,7 +787,7 @@ export class PackedVisibilityPass {
         destroy: () => {
           this.graphics.raster_partitions.release(previous.queue);
           owner.release(previous);
-        },
+        }
       });
     }
     return prepared;
@@ -808,7 +808,7 @@ export class PackedVisibilityPass {
           }
         }
         this.hierarchyGenerator.release(workSet.hierarchy);
-      },
+      }
     });
   }
 
@@ -824,7 +824,7 @@ export class PackedVisibilityPass {
 /** Internal Packed Visibility prepare contract; intentionally not public. */
 export function validatePackedVisibilityPreparation(
   requiredCapacity: number,
-  limits: GpuVisibilityBufferLimits,
+  limits: GpuVisibilityBufferLimits
 ): Readonly<PackedVisibilityPreparationEvidence> {
   if (
     !Number.isSafeInteger(requiredCapacity) ||
@@ -838,12 +838,12 @@ export function validatePackedVisibilityPreparation(
     effectiveByteLimit < GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE
       ? 0
       : Math.floor(
-          (effectiveByteLimit - GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE) / GPU_MESHLET_RASTER_WORK_RECORD_STRIDE,
+          (effectiveByteLimit - GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE) / GPU_MESHLET_RASTER_WORK_RECORD_STRIDE
         );
   const effectiveCapacity = Math.min(GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_CAPACITY, adapterCapacity);
   if (requiredCapacity > effectiveCapacity) {
     throw new RangeError(
-      `Required MeshletWork capacity ${requiredCapacity} exceeds effective capacity ${effectiveCapacity}`,
+      `Required MeshletWork capacity ${requiredCapacity} exceeds effective capacity ${effectiveCapacity}`
     );
   }
   return Object.freeze({
@@ -852,7 +852,7 @@ export function validatePackedVisibilityPreparation(
     keyCapacity: GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_CAPACITY,
     adapterCapacity,
     effectiveCapacity,
-    effectiveByteLimit,
+    effectiveByteLimit
   });
 }
 
@@ -865,7 +865,7 @@ export function packedVisibilityAttachmentDescriptor(width: number, height: numb
     width,
     height,
     format: "r32uint" as const,
-    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
+    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC
   });
 }
 
@@ -877,7 +877,7 @@ export function packedShadingBinAttachmentDescriptor(width: number, height: numb
     width: contract.width,
     height: contract.height,
     format: contract.format,
-    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
   });
 }
 

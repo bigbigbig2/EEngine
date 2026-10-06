@@ -1,4 +1,4 @@
-import { SURFACE_OPTIMIZATION_SCRATCH_ENVELOPE_BYTES } from "../../gpu/SurfaceOptimizationCapacity.js";
+import { SURFACE_WORK_BUDGET_BYTES } from "../../gpu/GpuSurfaceWorkAbi.js";
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ResourceAccounting, ResourceHandle } from "../../debug/profiling/ResourceAccounting.js";
@@ -43,20 +43,20 @@ export class SurfaceFrameResources {
   constructor(
     private readonly device: GPUDevice,
     private readonly accounting?: ResourceAccounting,
-    private readonly budgetBytes = SURFACE_OPTIMIZATION_SCRATCH_ENVELOPE_BYTES,
+    private readonly budgetBytes = SURFACE_WORK_BUDGET_BYTES,
   ) {}
-  canPrepare(width: number, height: number, requiredBytes: number): boolean {
+  canPrepare(width: number, height: number, requiredBytes: number, recipe = ""): boolean {
     if (!Number.isSafeInteger(requiredBytes) || requiredBytes < 0 || requiredBytes > this.budgetBytes) {
       throw new RangeError("Surface replacement scratch cannot fit its complete profile");
     }
-    if (this.extent === `${width}x${height}`) {
+    if (this.extent === `${width}x${height}${recipe}`) {
       return true;
     }
     const pendingActiveBytes = this.doneSettled ? 0 : this.activeBytes;
     return pendingActiveBytes + this.retiredBytes + requiredBytes <= this.budgetBytes;
   }
-  prepare(width: number, height: number): void {
-    const extent = `${width}x${height}`;
+  prepare(width: number, height: number, recipe = ""): void {
+    const extent = `${width}x${height}${recipe}`;
     if (this.extent !== extent) {
       this.retire();
       this.extent = extent;

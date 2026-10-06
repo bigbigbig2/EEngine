@@ -4,228 +4,171 @@ import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandCon
 import {
   SURFACE_DIAGNOSTICS_BYTE_SIZE,
   SURFACE_DIAGNOSTICS_HEADER_WORDS,
-  SURFACE_DIAGNOSTICS_MAGIC,
-  SURFACE_DIAGNOSTICS_SCHEMA_VERSION,
-  SURFACE_DIAGNOSTICS_COUNTER_WORDS,
   SURFACE_DIAGNOSTICS_COUNTERS as C,
-  SURFACE_DIAGNOSTIC_PRODUCERS,
+  writeSurfaceDiagnosticsHeader,
+  type SurfaceDiagnosticsIdentity
 } from "../../gpu/SurfaceDiagnosticsAbi.js";
-import { surfaceCellWorkspaceWgsl } from "../../gpu/GpuSurfaceCellPlanAbi.js";
-import { surfaceDemandArenaWgsl } from "../../gpu/GpuSurfaceDemandAbi.js";
-import {
-  SURFACE_GEOMETRY_RECORD_HOT_BYTES,
-  SURFACE_GEOMETRY_RECORD_BYTES,
-} from "../../gpu/GpuSurfaceGeometryRecordAbi.js";
-import type { SurfaceDemandProducts } from "./SurfaceDemandPass.js";
+import type { SurfaceWorkCapacity } from "../../gpu/GpuSurfaceWorkAbi.js";
+import { SurfaceFrameResources, type SurfaceResourceBinding } from "./SurfaceFrameResources.js";
 export type SurfaceDiagnosticsSnapshotEncoder = (
   command: ShadeGPUCommandContext,
   source: GPUBuffer,
-  frameId: number,
+  frameId: number
 ) => void;
-/** Accumulate actual batch products; publish/read back exactly once after the
- * final consumer. Timing mode never constructs this graph or diagnostic atomics. */
+
+/** One immutable, sampled snapshot after all actual producers/consumers. No
+ * retired proof counters are exposed as measured zeroes. Timing/off modes do
+ * not construct this pass, payload scans, atomics or readback. */
 export class SurfaceDiagnosticsPass {
-  private readonly pipelines = new Map<string, GPUComputePipeline>();
+  private readonly pipeline: GPUComputePipeline;
+  private readonly header = new Uint32Array(SURFACE_DIAGNOSTICS_HEADER_WORDS);
   constructor(
     private readonly device: GPUDevice,
-    private readonly encodeSnapshot?: SurfaceDiagnosticsSnapshotEncoder,
-  ) {}
+    private readonly scratch: SurfaceFrameResources,
+    private readonly encodeSnapshot?: SurfaceDiagnosticsSnapshotEncoder
+  ) {
+    const counter = (index: number) => "control[" + index + "u]";
+    const packets = Array.from({ length: 6 }, (_, index) => counter(276 + index)).join(" + ");
+    const fields: Partial<Record<keyof typeof C, string>> = {
+      totalTiles: "settings.tiles",
+      emptyTiles: counter(225),
+      uniformTiles: counter(226),
+      mixedTiles: counter(227),
+      visiblePixels: counter(224),
+      geometryRecordsRequested: counter(239),
+      geometryMissCompleted: counter(229),
+      geometryRejected: counter(228),
+      geometryRecordStrideWords: "select(0u, settings.hot_words, settings.hot_words > 2u)",
+      geometryHotWriteBytes: counter(243) + " * settings.hot_words * 4u",
+      materialEvaluatorEntered: counter(240),
+      materialEvaluatorCompleted: counter(230),
+      fieldValuesProduced: counter(241),
+      fieldScalarWrites: counter(242),
+      lightingRecordsProcessed: counter(261),
+      diffuseEvaluations: counter(256),
+      specularEvaluations: counter(257),
+      coatEvaluations: counter(258),
+      iblEvaluations: counter(259) + " + " + counter(260) + " + " + counter(262),
+      lightLoopIterations: counter(264),
+      diffusePacketWrites: counter(276) + " + " + counter(277),
+      specularPacketWrites: counter(278) + " + " + counter(279),
+      coatPacketWrites: counter(280) + " + " + counter(281),
+      iblPacketWrites: counter(277) + " + " + counter(279) + " + " + counter(281),
+      packetWriteBytes: "(" + packets + ") * 12u + " + counter(261) + " * 4u",
+      signalValuesProduced: packets,
+      reconstructOutputPixels: counter(233),
+      reconstructUncoveredPixels: counter(234),
+      outputPixels: "settings.pixels",
+      transientBytes: "settings.bytes",
+      diagnosticsFlags: "select(0u, 16u, control[228u] != 0u)",
+      domainDescriptions: "settings.domains",
+      coverageReferences: "control[32u] + control[33u] + control[34u] + control[35u]",
+      promotedTiles: counter(232),
+      geometrySetupEvaluations: counter(244)
+    };
+    const available = new Uint32Array(4);
+    const lines: string[] = [];
+    for (const [name, expression] of Object.entries(fields)) {
+      const index = C[name as keyof typeof C];
+      available[index >>> 5] = (available[index >>> 5]! | (1 << (index & 31))) >>> 0;
+      lines.push("  snapshot[" + (SURFACE_DIAGNOSTICS_HEADER_WORDS + index) + "u] = " + expression + ";");
+    }
+    for (let word = 0; word < 4; word++) {
+      lines.push("  snapshot[" + (8 + word) + "u] = " + available[word] + "u;");
+    }
+    const code = /* wgsl */ `
+struct Settings { tiles: u32, pixels: u32, domains: u32, bytes: u32,
+  hot_words: u32, reserved0: u32, reserved1: u32, reserved2: u32, }
+@group(0) @binding(0) var<uniform> settings: Settings;
+@group(0) @binding(1) var<storage, read> control: array<u32>;
+@group(0) @binding(2) var<storage, read_write> snapshot: array<u32>;
+@compute @workgroup_size(1)
+fn publish_snapshot() {
+${lines.join("\n")}
+}
+`;
+    this.pipeline = device.createComputePipeline({
+      label: "Surface/diagnostic snapshot",
+      layout: "auto",
+      compute: { module: device.createShaderModule({ code }), entryPoint: "publish_snapshot" }
+    });
+  }
   addToGraph(
     graph: FrameGraph,
     input: {
-      demand: SurfaceDemandProducts;
-      reconstruct: ResourceId;
-      after: ResourceId;
-      width: number;
-      height: number;
-      firstTile: number;
-      tileCount: number;
-      last: boolean;
-      frameId: Readonly<{
-        value: number;
-      }>;
-      previous?: ResourceId;
-    },
-  ): {
-    snapshot: ResourceId;
-  } {
-    const { targets, programs } = input.demand.layout;
-    const key = `${targets}:${programs}`;
-    let pipeline = this.pipelines.get(key);
-    if (pipeline === undefined) {
-      const add = (counter: number, expression: string): string =>
-        `atomicAdd(&snapshot[${SURFACE_DIAGNOSTICS_HEADER_WORDS + counter}u],${expression});`;
-      const code = /* wgsl */ `
-${surfaceCellWorkspaceWgsl(targets / 64)}
-${surfaceDemandArenaWgsl(targets, programs)}
-struct Settings {width:u32,height:u32,frame:u32,tiles:u32,last:u32,pad:vec3u}
-@group(0) @binding(0) var<uniform> settings:Settings;
-@group(0) @binding(1) var<storage,read_write> workspace:SurfaceCellWorkspace;
-@group(0) @binding(2) var<storage,read_write> demand:SurfaceDemandArena;
-@group(0) @binding(3) var<storage,read> reconstruct:array<u32>;
-@group(0) @binding(4) var<storage,read_write> snapshot:array<atomic<u32>>;
-@compute @workgroup_size(1)
-fn publish_snapshot() {
- atomicStore(&snapshot[0u],${SURFACE_DIAGNOSTICS_MAGIC}u);
- atomicStore(&snapshot[1u],${SURFACE_DIAGNOSTICS_SCHEMA_VERSION}u);
- atomicStore(&snapshot[4u],settings.frame);
- atomicStore(&snapshot[6u],${SURFACE_DIAGNOSTICS_COUNTER_WORDS}u);
- var visible=0u;var empty=0u;var uniform=0u;var mixed=0u;
- for(var tile=0u;tile<atomicLoad(&workspace.counters[127u]);tile++) {
-  var count=0u;var material=0xffffffffu;var same=true;
-  for(var lane=0u;lane<64u;lane++) {
-   let fact=workspace.facts[tile*64u+lane];
-   if fact.x!=0xffffffffu && fact.z!=0xffffffffu { count++;if material==0xffffffffu {material=fact.z;}else {same=same&&material==fact.z;} }
-  }
-  visible+=count;
-  if count==0u {empty++;} else if same {uniform++;} else {mixed++;}
- }
- ${add(C.totalTiles, "atomicLoad(&workspace.counters[127u])")}
- ${add(C.emptyTiles, "empty")}${add(C.uniformTiles, "uniform")}${add(C.mixedTiles, "mixed")}${add(C.visiblePixels, "visible")}
- let fields=atomicLoad(&demand.control[49u]);
- let misses=atomicLoad(&workspace.counters[115u]);
- let geometry=atomicLoad(&demand.control[0u]);let materials=atomicLoad(&demand.control[5u]);let lighting=atomicLoad(&demand.control[6u]);
- ${add(C.geometryDescriptions, "geometry")}${add(C.materialDescriptions, "materials")}${add(C.lightingDescriptions, "lighting")}
- ${add(C.materialLookup, "misses+atomicLoad(&workspace.counters[113u])")}
- ${add(C.materialHit, "atomicLoad(&workspace.counters[113u])")}${add(C.materialMissRequested, "misses")}${add(C.materialMissQueued, "materials")}
- ${add(C.diffuseEvaluations, "atomicLoad(&demand.control[64u])")}${add(C.specularEvaluations, "atomicLoad(&demand.control[65u])")}${add(C.coatEvaluations, "atomicLoad(&demand.control[66u])")}
- ${add(C.iblEvaluations, "atomicLoad(&demand.control[67u])+atomicLoad(&demand.control[70u])+atomicLoad(&demand.control[68u])")}
- ${add(C.diffusePacketWrites, "atomicLoad(&demand.control[84u])+atomicLoad(&demand.control[85u])")}
- ${add(C.specularPacketWrites, "atomicLoad(&demand.control[86u])+atomicLoad(&demand.control[87u])")}
- ${add(C.coatPacketWrites, "atomicLoad(&demand.control[88u])+atomicLoad(&demand.control[89u])")}
- ${add(C.iblPacketWrites, "atomicLoad(&demand.control[85u])+atomicLoad(&demand.control[87u])+atomicLoad(&demand.control[89u])")}
- ${add(C.packetWriteBytes, "(atomicLoad(&demand.control[84u])+atomicLoad(&demand.control[85u])+atomicLoad(&demand.control[86u])+atomicLoad(&demand.control[87u])+atomicLoad(&demand.control[88u])+atomicLoad(&demand.control[89u]))*16u")}
- ${add(C.fieldCacheRequests, "atomicLoad(&demand.control[1u])")}
- ${add(C.fieldCacheProbes, "atomicLoad(&demand.control[53u])")}
- ${add(C.fieldCacheUnique, "atomicLoad(&demand.control[3u])")}
- ${add(C.fieldCacheAdmissions, "atomicLoad(&demand.control[51u])")}
- ${add(C.fieldCacheQueueRejected, "atomicLoad(&demand.control[47u])")}
- ${add(C.signalCacheRequests, "atomicLoad(&demand.control[2u])")}
- ${add(C.signalCacheProbes, "atomicLoad(&demand.control[54u])")}
- ${add(C.signalCacheUnique, "atomicLoad(&demand.control[4u])")}
- ${add(C.signalCacheAdmissions, "atomicLoad(&demand.control[52u])")}
- ${add(C.signalCacheQueueRejected, "atomicLoad(&demand.control[48u])")}
- ${add(C.fieldValuesProduced, "fields")}${add(C.signalValuesProduced, "atomicLoad(&demand.control[50u])")}
- ${add(C.candidateLeaves, "atomicLoad(&workspace.counters[84u])")}
- ${add(C.uvWitnessGroups, "atomicLoad(&workspace.counters[85u])")}
- ${add(C.uvWitnessWriteBytes, "atomicLoad(&workspace.counters[86u])")}
- ${add(C.signalWitnessLeaves, "atomicLoad(&workspace.counters[87u])")}
- ${add(C.signalWitnessWriteBytes, "atomicLoad(&workspace.counters[88u])")}
- ${add(C.proofResultWriteBytes, "atomicLoad(&workspace.counters[89u])")}
- ${add(C.proofAdmitted, "atomicLoad(&workspace.counters[120u])")}
- ${add(C.proofRejected, "atomicLoad(&workspace.counters[122u])")}
- ${add(C.explicitStoreRefWriteBytes, "atomicLoad(&workspace.counters[90u])")}
- ${add(C.fullDirectLightEvaluations, "atomicLoad(&demand.control[96u])")}
- ${add(C.sharedDirectTransportEvaluations, "atomicLoad(&demand.control[97u])")}
- ${add(C.transportOnlyLightEvaluations, "atomicLoad(&demand.control[98u])")}
- ${add(C.fieldLookupCandidates, "atomicLoad(&workspace.counters[91u])")}
- ${add(C.nonPublicationFields, "atomicLoad(&workspace.counters[92u])")}
- ${add(C.fieldLookupProbes, "atomicLoad(&workspace.counters[93u])")}
- ${add(C.transportEligibleLeaves, "atomicLoad(&workspace.counters[94u])")}
- ${add(C.residualLeaves, "atomicLoad(&workspace.counters[95u])")}
- if settings.last!=0u {
-  let all_tiles=((settings.width+7u)/8u)*((settings.height+7u)/8u);
-  let active_tiles=atomicLoad(&workspace.counters[125u]);
-  ${add(C.totalTiles, "all_tiles-active_tiles")}
-  ${add(C.emptyTiles, "all_tiles-active_tiles")}
-
-  atomicStore(&snapshot[${SURFACE_DIAGNOSTICS_HEADER_WORDS + C.reconstructOutputPixels}u],reconstruct[0u]);
-  atomicStore(&snapshot[${SURFACE_DIAGNOSTICS_HEADER_WORDS + C.reconstructUncoveredPixels}u],reconstruct[1u]);
-  atomicStore(&snapshot[${SURFACE_DIAGNOSTICS_HEADER_WORDS + C.reconstructMappedPixels}u],reconstruct[7u]);
-  atomicStore(&snapshot[${SURFACE_DIAGNOSTICS_HEADER_WORDS + C.outputPixels}u],settings.width*settings.height);
-  atomicStore(&snapshot[${SURFACE_DIAGNOSTICS_HEADER_WORDS + C.geometryRecordStrideWords}u],${SURFACE_GEOMETRY_RECORD_HOT_BYTES / 4}u);
-  ${[0, 1, 2, 3]
-    .map((word) => {
-      let mask = 0;
-      for (const name of Object.keys(SURFACE_DIAGNOSTIC_PRODUCERS) as Array<keyof typeof C>) {
-        const index = C[name];
-        if (index >>> 5 === word) {
-          mask |= 1 << (index & 31);
-        }
-      }
-      return `atomicStore(&snapshot[${8 + word}u],${mask >>> 0}u);`;
-    })
-    .join("\n")}
- }
-}
-`;
-      pipeline = this.device.createComputePipeline({
-        label: "Surface/actual batch diagnostic snapshot",
-        layout: "auto",
-        compute: { module: this.device.createShaderModule({ code }), entryPoint: "publish_snapshot" },
-      });
-      this.pipelines.set(key, pipeline);
+      readonly control: ResourceId;
+      readonly after: ResourceId;
+      readonly capacity: SurfaceWorkCapacity;
+      readonly domains: number;
+      readonly frameId: Readonly<{ value: number }>;
+      readonly identity: Omit<SurfaceDiagnosticsIdentity, "frameId">;
+      readonly bind: SurfaceResourceBinding;
     }
-    let snapshot!: ResourceId;
-    const node = graph.add(
-      "Surface/actual batch diagnostic snapshot",
-      { ...input },
-      (data, resources, context) => {
-        const command = context.encoder as ShadeGPUCommandContext;
-        const settings = command.allocateTransientBuffer(GPUBufferUsage.UNIFORM, 48);
-        command.writeBuffer(
-          settings,
-          0,
-          new Uint32Array([
-            data.width,
-            data.height,
-            data.frameId.value,
-            data.tileCount,
-            data.last ? 1 : 0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-          ]).buffer,
-          0,
-          48,
-        );
-        const buffer = resources.get(snapshot) as GPUBuffer;
-        if (data.previous === undefined) {
-          command.gpu_encoder.clearBuffer(buffer);
-        }
-        const group = this.device.createBindGroup({
-          layout: pipeline!.getBindGroupLayout(0),
-          entries: [
-            { binding: 0, resource: { buffer: settings } },
-            { binding: 1, resource: { buffer: resources.get(data.demand.workspace) as GPUBuffer } },
-            { binding: 2, resource: { buffer: resources.get(data.demand.arena) as GPUBuffer } },
-            { binding: 3, resource: { buffer: resources.get(data.reconstruct) as GPUBuffer } },
-            { binding: 4, resource: { buffer } },
-          ],
-        });
-        const pass = command.beginComputePass({ label: "Surface/actual batch diagnostic snapshot" });
-        pass.setPipeline(pipeline!);
-        pass.setBindGroup(0, group);
-        pass.dispatchWorkgroups(1);
-        pass.end();
-        if (data.last) {
-          this.encodeSnapshot?.(command, buffer, data.frameId.value);
-        }
-      },
+  ): { snapshot: ResourceId } {
+    let snapshot = this.scratch.importBuffer(
+      graph,
+      input.bind,
+      "Surface/diagnostic snapshot",
+      SURFACE_DIAGNOSTICS_BYTE_SIZE,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
     );
-    for (const resource of [input.demand.workspace, input.demand.arena, input.reconstruct, input.after]) {
-      node.read(resource);
-    }
-    if (input.previous !== undefined) {
-      node.read(input.previous);
-      snapshot = node.write(input.previous);
-    } else {
-      snapshot = node.create("Surface/diagnostic snapshot", {
-        kind: "transient_buffer",
-        size: SURFACE_DIAGNOSTICS_BYTE_SIZE,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
-        domain: "internal-full",
-      });
-      node.write(snapshot);
-    }
-    node.make_side_effect();
+    const settings = this.scratch.importBuffer(
+      graph,
+      input.bind,
+      "Surface/diagnostic settings",
+      32,
+      GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+    );
+    const previous = snapshot;
+    const node = graph.add("Surface/diagnostic snapshot", input, (data, resources, context) => {
+      const command = context.encoder as ShadeGPUCommandContext;
+      writeSurfaceDiagnosticsHeader(
+        this.header,
+        { ...data.identity, frameId: data.frameId.value },
+        "detailed"
+      );
+      command.writeBuffer(
+        resources.get(previous) as GPUBuffer,
+        0,
+        this.header.buffer,
+        0,
+        this.header.byteLength
+      );
+      command.writeBuffer(
+        resources.get(settings) as GPUBuffer,
+        0,
+        new Uint32Array([
+          data.capacity.bankTiles * 4,
+          data.capacity.width * data.capacity.height,
+          data.domains,
+          this.scratch.physicalBytes().active,
+          data.capacity.hotWords,
+          0,
+          0,
+          0
+        ]).buffer,
+        0,
+        32
+      );
+      const group = this.scratch.obtainBindGroup(this.pipeline, 0, [
+        { binding: 0, resource: { buffer: resources.get(settings) as GPUBuffer } },
+        { binding: 1, resource: { buffer: resources.get(data.control) as GPUBuffer } },
+        { binding: 2, resource: { buffer: resources.get(previous) as GPUBuffer } }
+      ]);
+      const pass = command.beginComputePass({ label: "Surface/diagnostic snapshot" });
+      pass.setPipeline(this.pipeline);
+      pass.setBindGroup(0, group);
+      pass.dispatchWorkgroups(1);
+      pass.end();
+      this.encodeSnapshot?.(command, resources.get(previous) as GPUBuffer, data.frameId.value);
+    });
+    node.read(input.control);
+    node.read(input.after);
+    node.write(settings);
+    snapshot = node.write(snapshot);
     return { snapshot };
   }
   destroy(): void {
-    this.pipelines.clear();
+    /* Pipeline lifetime belongs to the GPUDevice. */
   }
 }

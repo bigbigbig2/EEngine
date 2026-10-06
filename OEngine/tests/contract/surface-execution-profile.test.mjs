@@ -19,7 +19,7 @@ import {
 import { AppearanceProgramRegistry } from "../../.test-dist/gpu/AppearanceProgramRegistry.js";
 import { ShadeTexture } from "../../.test-dist/texture/ShadeTexture.js";
 import { APPEARANCE_FIELD_NAMES } from "../../.test-dist/gpu/GpuAppearanceFieldAbi.js";
-import { surfaceCoverageLayout } from "../../.test-dist/gpu/GpuSurfaceCoverageAbi.js";
+import { planSurfaceWorkCapacity } from "../../.test-dist/gpu/GpuSurfaceWorkAbi.js";
 import { updateAppearanceFieldVersions } from "../../.test-dist/material/AppearanceFieldIdentity.js";
 
 const registry = new AppearanceProgramRegistry({ lost: new Promise(() => {}) });
@@ -185,10 +185,11 @@ test("all 15 fields and 6 signals pack transport identity and a distinct excepti
   assert.deepEqual([...words.slice(0, SURFACE_EXECUTION_WORDS)], [...words.slice(SURFACE_EXECUTION_WORDS)]);
 });
 
-test("coverage reserves one fine descriptor and one mandatory active index for every padded tile", () => {
-  const layout = surfaceCoverageLayout(32400);
-  assert.equal(layout.activeOffset, 4 + 32400 * 8);
-  assert.equal(layout.bytes, 16 + 32400 * 36);
-  assert.ok(layout.bytes < 8 * 1024 ** 2);
-  assert.throws(() => surfaceCoverageLayout(0), RangeError);
+test("coverage capacity retains every padded tile and complete independent family queues", () => {
+  const limits = { maxBufferSize: 2**30, maxStorageBufferBindingSize: 2**27, maxTextureDimension2D: 8192 };
+  const layout = planSurfaceWorkCapacity(1920, 1080, limits, 0, 1024);
+  assert.equal(layout.bankTiles, 240 * 34);
+  assert.equal(layout.queueBase - layout.tileBase, 4 * layout.bankTiles * 8);
+  assert.equal(layout.recipeBase - layout.queueBase, 4 * layout.bankTiles * 9);
+  assert.throws(() => planSurfaceWorkCapacity(0, 1080, limits, 0, 1024), RangeError);
 });

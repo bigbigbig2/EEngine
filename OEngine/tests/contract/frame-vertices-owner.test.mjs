@@ -20,7 +20,7 @@ function fixture(filtered = true) {
     maxComputeWorkgroupsPerDimension: 2,
     minStorageBufferOffsetAlignment: 256,
     maxStorageBufferBindingSize: 1 << 24,
-    maxBufferSize: 1 << 24,
+    maxBufferSize: 1 << 24
   };
   const device = {
     limits,
@@ -42,11 +42,11 @@ function fixture(filtered = true) {
           unmap() {},
           destroy() {
             this.destroyed++;
-          },
+          }
         };
       buffers.push(b);
       return b;
-    },
+    }
   };
   const arenaOwner = new FrameGeometryArena(device, accounting),
     metadata = { size: 256, usage: GPUBufferUsage.COPY_SRC };
@@ -55,10 +55,8 @@ function fixture(filtered = true) {
     filteredWorkCapacity: filtered ? 4 : 0,
     vertexCapacity: 9,
     triangleCapacity: 3,
-    dictionaryCapacity: 16,
-    coefficientCapacity: 8,
-    probeLimit: 8,
-    maxBytes: 16384,
+
+    maxBytes: 16384
   };
   const arena = arenaOwner.prepare(metadata, 256, budget),
     source = { size: 1024, usage: GPUBufferUsage.STORAGE };
@@ -74,9 +72,9 @@ function fixture(filtered = true) {
         meshletWordBase: 0,
         meshletVertexWordBase: 0,
         meshletTriangleWordBase: 0,
-        vertexDataWordBase: 0,
-      },
-    },
+        vertexDataWordBase: 0
+      }
+    }
   };
   const encoder = {
     beginComputePass() {
@@ -93,9 +91,9 @@ function fixture(filtered = true) {
         dispatchWorkgroupsIndirect(...args) {
           commands.push(["indirect", ...args]);
         },
-        end() {},
+        end() {}
       };
-    },
+    }
   };
   const lateInput = {
     sourceGeometry: arena.sourceDirectory,
@@ -110,7 +108,7 @@ function fixture(filtered = true) {
     countersEnabled: false,
     width: 1,
     height: 1,
-    mipLevelCount: 1,
+    mipLevelCount: 1
   };
   return { device, accounting, buffers, commands, arenaOwner, input, encoder, lateInput, loss };
 }
@@ -122,8 +120,9 @@ test("selected vertices borrow the sole arena, await async preparation and reuse
   await owner.ready;
   const p = owner.prepare(f.input);
   // Settings 64B, control 32B, indirect 16B and two raster addresses 16B each.
-  assert.equal(p.byteLength, 144 + 9 * 96);
-  assert.equal(f.accounting.snapshot().totalBytes, arenaBytes + 144 + 9 * 96);
+  assert.equal(p.byteLength, 144);
+  assert.equal(f.accounting.snapshot().totalBytes, arenaBytes + 144);
+  assert.equal(p.arena.attributes.buffer, p.arena.buffer, "borrowed attributes share the sole arena owner");
   const count = f.buffers.length;
   for (let i = 0; i < 3; i++) owner.encode(f.encoder, p);
   assert.equal(f.buffers.length, count);
@@ -155,7 +154,7 @@ test("vertex byte/dispatch/capability failure and binding exceptions never leak 
   f.device.createBindGroup = make;
   const p = other.prepare(f.input);
   assert.equal(p.rasterSettings, p.filteredRasterSettings);
-  assert.equal(p.byteLength, 128 + 9 * 96);
+  assert.equal(p.byteLength, 128);
   f.loss({});
   await new Promise((resolve) => setImmediate(resolve));
   other.release(p);
@@ -190,7 +189,7 @@ test("HZB alias/capacity/binding failures are rejected or rolled back, including
   await owner.ready;
   assert.throws(
     () => owner.prepare({ ...f.lateInput, filteredGeometry: f.lateInput.sourceGeometry }),
-    /overlap/,
+    /overlap/
   );
   assert.throws(() => owner.prepare({ ...f.lateInput, capacity: 257 }), RangeError);
   f.device.createBindGroup = () => {

@@ -4,10 +4,14 @@ state: current
 verifies:
   files:
     - OEngine/src/render/surface/SurfaceWorkRuntime.ts
-    - OEngine/src/render/surface/SurfaceGeometryPass.ts
-    - OEngine/src/render/surface/SurfaceReconstructionPass.ts
+    - OEngine/src/shaders/surface_work_geometry.ts
+    - OEngine/src/shaders/surface_work_reconstruct.ts
     - OEngine/src/gpu/GpuAppearancePublication.ts
-    - OEngine/src/gpu/SurfaceOptimizationCapacity.ts
+    - OEngine/src/gpu/GpuSurfaceWorkAbi.ts
+    - OEngine/src/material/ExactAppearanceDag.ts
+    - OEngine/src/shaders/appearance_exact_dag.ts
+    - OEngine/src/render/FrameGeometryArena.ts
+    - OEngine/src/render/FrameGeometryVertices.ts
     - OEngine/src/framegraph/FrameGraph.ts
     - OEngine/src/framegraph/GPUFrameTiming.ts
     - OEngine/src/gpu/SurfaceDiagnosticsAbi.ts
@@ -15,7 +19,7 @@ verifies:
     - OEngine/tests/unit/framegraph-executor.test.mjs
     - OEngine/tests/unit/gpu-frame-timing.test.mjs
     - OEngine/tests/contract/frame-program.test.mjs
-    - OEngine/tests/contract/surface-demand-phase5.test.mjs
+    - OEngine/tests/oracle/surface-work-gpu.mjs
     - OEngine/package.json
 ---
 
@@ -23,7 +27,7 @@ verifies:
 
 日期：2026-10-05。设计依据：[重建设计母稿](../next-design/eengine-extreme-performance-rebuild-2026-10.md)；来源与采用记录：[next-renderer ledger](../porting/next-renderer.md)；开发节奏：[根 AGENTS.md](../../AGENTS.md)。本文替代此前的有界前端、优化 V1 与五步修复执行路线。
 
-**本文保留目标计划，并在 §5.1 集中记录 A0/A1 的实施与检查。** 后续新 Surface 域、队列、有限执行家族与缓存策略仍是实施要求。实际进行到哪个切换单元，以 [workstream 的 currentSlice](../../project/workstreams/active/eengine-next-clean-rebuild.yaml) 为准；入口文件不得复制阶段状态。
+**本文执行母稿修订 `SURFACE-2026-10-06-R2`。** 用户已认可重新设计并恢复B1/B2源码实施。A0/A1的实际检查在§5.1；旧B1实验/失败保留在§6.4–6.7；重新执行以§6.8–6.11为准，旧R1–R5路线不再是当前任务入口。实际切换单元以[workstream currentSlice](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)导航，入口文件不得复制状态。
 
 本次首要交付是 **B1 → B2 → C 的 Surface 生产链收口**。A0/A1 只建设对此必要的测量、执行生命周期和物理资源身份。D/E/F 中直接受 Surface 布局、需求和输出改变影响的接线随 producer 前移；完整 Geometry/Lighting/Temporal 后续工作仍有独立单元。SSR、SSGI、VT、ReSTIR、AI Upscaling 暂只约束输入输出和扩展边界，不提前建设通用 provider framework。
 
@@ -72,6 +76,14 @@ verifies:
 
 这是单元收口责任，不是每 patch 门禁。开发中按调试需要运行 typecheck/build/单测，大模块链路连通后集中检查。完整 browser matrix、连续画质、正式 P50/P95、evidence/claims 留到 §13。
 
+### 1.5 R2 执行合同与记录责任
+
+目标：用有限普通家族、实际类型/点域的完整Generic、依赖频率更新、程序一致work和局部Geometry→Appearance，替换待切换的scalar vec4/全屏UV/宽signal表示。Tech stack仍为现有TypeScript/WGSL/WebGPU/FrameGraph；不增加shader compiler依赖、原生后端、第二submit或provider framework。
+
+全局约束直接引用母稿§3及SD01–SD10；不在本计划另造质量阈值。目标type/function均是逻辑接口，实际实现可复用当前文件，但改名后必须同步任务接口与consumer表。用户后续指令已恢复实施。成本验收先报告同质量全链成本，再由用户决定数值预算；不自行设定FPS门槛。本计划保留根AGENTS的集中检查节奏，不设置逐patch全仓验证/逐task提交门禁。
+
+实际实施记录只维护一个R2收口表（§6.11），每行写设计ID、producer、GPU产品、全部consumer、正常/边界/失败、独立预期、实际结构/成本、build/source身份、未运行与原因。母稿、ledger和workstream只引用该记录，不重复测试通过数量。预算值/表示选择修改必须记录理由和影响，不能把结果绿了作为修改预期的理由。
+
 ## 2. 执行顺序与首要交付
 
 | 单元 | 本单元交付 | 后续关系 |
@@ -112,12 +124,12 @@ S 编号描述 semantic phases，不预定一个 phase 一个 pass。下表防�
 
 | 阶段 | 实施责任与完成时点 | 生产/消费顺序 |
 |---|---|---|
-| S0 publish/reset | A0/A1最小底座，B1/B2/C随新layout迁移 | 已提交publication/frame/history roles → 当前bindings和少量controls，未提交结果不成为下帧hit |
+| S0 publish/reset | A0/A1底座，R2-01/02迁update与snapshot，B2/C迁roles | Template/Snapshot/ExportPlan与dirty依赖 → matching-version uniform结果/bindings/少量controls；abort不发布 |
 | S1 coverage/work | B1最小域，B2完整work | Visibility/full-rate facts → active tiles/uniform-mixed引用；描述不等于采样 |
 | S2 address geometry | B1/B2实际地址输入，C精确lookup | 仅cache class实际要求的projection/UV mapping/handle/version；不能先decode所有position/normal/tangent/UV/color |
 | S3 field lookup | B1无cache直接，C可选贵closurecache | 完整地址/version → immutable hit refs/miss masks；在material miss compact之前 |
-| S4 demand/bin/args | B2完整队列、C hit/dirty并集 | Appearance misses ∪ dirtyLighting ∪ requiredGuides ∪ numericResidual → 唯一Geometry union/family work/args |
-| S5 Geometry→Appearance | B1原型，B2完整布局，C按真实miss减heavy | 唯一Geometry代码生成薄/局部C/X/Y，Appearance读其record；产field值/full-rate guide，实际后续consumer才保留cold |
+| S4 demand/bin/args | R2-03程序一致work，B2完整队列，C hit/dirty并集 | union → 有限resource partition/template buckets、packets/indexed模式、Geometry needs/args；无逐program dispatch |
+| S5 Geometry→Appearance | R2-04局部衔接，B2完整产品，C按miss减heavy | arena-backed共享帧输入→唯一Geometry局部completion→普通家族/Typed Tape→ExportPlan sinks；无默认全屏UV池 |
 | S6 rate/signal work | B2信号率，C各signal历史边界 | 已有真实guide/domain/provider facts → 每signal计划/exact recipes，必要新增需求由同Geometry owner补未发布字段 |
 | S7 Lighting | B2/C迁当前consumer，E完整极端路径 | 唯一GeometryRecord/fields/providers → immutable信号或正式full-rate radiance贡献；不补写record |
 | S8 optional publish | C缓存/当前signal历史 | eligible value/唯一writer → 经合法dispatch提交的下帧缓存/历史；atomic state不替代多word发布同步 |
@@ -189,11 +201,11 @@ timer 用持久 query/readback ring；GPU→CPU 仅异步诊断，不控制本�
 
 | ID | 任务 | 必须同切产品/consumer |
 |---|---|---|
-| B1-01 | 选一个常量或简单已有源纹理 closure，列输出/identity/rate/all consumers | `GpuAppearancePublication` 发布、Surface 字段生产、Lighting/reconstruct 的全部直接读者 |
-| B1-02 | 域身份、coverage tile refs、sample work 分开，最小域映射 | 唯一薄 Geometry/插值输入 → 域 refs → 实际 evaluator；该项不进旧 proof/lookup |
-| B1-03 | 迁需求、结果 handle/binding/reset/容量 | 同 closure 旧链不能重复请求/求值/写入；其余未迁项只在同 renderer 暂留当前路径 |
-| B1-04 | 原型验证有限 family 的完整 generic graph 路径及寄存器/布局 | 完整现有 instruction scalar DAG，包括 nonlinear coordinate、3 UV、normal/coat/product、不同graph/set；不能靠 per-program dispatch 兜底 |
-| B1-05 | 独立 exact oracle、uniform 身份与采样分开测试 | GPU producer → 真实 direct consumer → 独立数值预期；tiny capacity 仍完整输出 |
+| B1-01 | 指定常量/普通纹理closure，Template/Snapshot/ExportPlan与普通家族 | R2-01；完整输出/identity/rate/全部Lighting与Reconstruct读者 |
+| B1-02 | 域/coverage/sample与程序一致packet分开 | R2-03；GPU实际count/prefix/scatter/run/args→统一evaluator，identity不当sample数 |
+| B1-03 | 局部Geometry→Appearance及需求/binding/reset/capacity同切 | R2-04；arena frame属性与Coverage/Surface同迁，不恢复已删旧链 |
+| B1-04 | 完整Typed Tape、word liveness、uniform updates与有限命令可行性 | R2-02/03/04；所有合法旧scalar语义、nested CXY、3UV、normal/coat/product及多个graph/set |
+| B1-05 | 独立闭环与完整容量/成本出口 | R2-05；真实consumer、零/tiny optional、更新/失效/失败、actual命令/峰值 |
 
 常量直接发布/广播，不需像素 hash/cache。简单纹理仍保留正式 sampler/LOD/footprint 语义，不当常量。consumer 不止一个就全部迁，不能为缩小实验只接空 consumer。
 
@@ -201,15 +213,15 @@ timer 用持久 query/readback ring；GPU→CPU 仅异步诊断，不控制本�
 
 ### 6.2 有限命令数的硬门
 
-当前 `GpuAppearancePublication.ts` 的 `kernelKey` 包含生成 WGSL、texture set、product textures，`surfaceProgramCount` 不具有目标有限 family 保障，不能把旧 64 上限当作有效保证。
+历史逐program kernelKey/dispatch是被替换对象，不能把旧64上限或工作树的图节点计数当目标保证。R2区别程序模板数据与有限PSO family：template/instance增长只改变数据与GPU actual work，不为每张图编排pipeline/dispatch。
 
-目标候选是 Standard PBR/Unlit 等有限参数化 family，加一个覆盖**全部当前支持 AppearanceInstruction 标量 DAG** 的 exact generic family，乘既有受控 texture sets；static product texture 走受控 atlas/bank routes。这个组合是具名本地集成方案，不能截节点、裁材质、换 cheap material 或限制现有语义以声称命令数解耦。generic family 内的工作长度/计算成本可以随 graph 增长，graph 实例数量不能增加整套 dispatch。
+目标已选为Publication-only/Unlit/Standard PBR完整结构家族＋覆盖全部当前合法AppearanceInstruction语义的Typed Tape General VM，乘受控resource/source profiles；Product进入受控banks/routes。普通家族不执行任意DAG opcode loop。Generic完整操作/点域/输出与GPU程序一致packet一起验证，不截节点、裁材质或换默认材质。
 
 常用family与generic/独立CPU参考逐输出一致，保留原操作顺序、coordinate子图、嵌套采样、sRGB RGB/linear alpha、sampler/wrap/LOD、normal与coat validity/finite guard。产品atlas/bank路由改变也必须保持原过滤/footprint语义，不以atlas边界渗漏或隐式mip变化换绑定数量。
 
 B1 至少验证普通 material 和上述完整 generic graph 可执行性、正确坐标导数/LOD/三 UV/coat、binding/寄存器/liveness、tiny sparse capacity 的完整 dense destination。若只能 per-program 新 dispatch 才正确，或者 invocation-private Geometry C/X/Y register 代价不可接受，就不能过 finite-family/布局可行性门；返回修改母稿候选执行表示，不用测试特例或另一 renderer 接过缺口。
 
-按母稿 Exact Appearance DAG Execution 原型，generic temporary以并发lanes Q与完整DAG推导的live slots L计容量；每lane独占scratch，以固定数量workgroups对actual work做strided loop。资源紧张可减少Q但不截instruction/output、不丢work；private/register/storage/spill均计账，降低并发后的最坏帧也要可接受。循环只处理独立item，不等待其他workgroup。无法容纳完整既有资产时publication显式失败并保留上一合法事务，同时记录未解决回归，不能以拒绝资产判B2完成。
+按母稿§6.3以Q×完整live f32 words计General temporary，uniform/普通家族分别声明空间再按互斥寿命alias；不是继承16-byte slot或16-slot窗口。降低Q不丢work，不等待其他group；私有/共享/storage及实际最坏成本都计账。完整合法旧资产因新表示被拒保持未解决回归，不因此判B1/B2完成。
 
 ### 6.3 验证与出口
 
@@ -219,36 +231,269 @@ B1 至少验证普通 material 和上述完整 generic graph 可执行性、正�
 
 结构成本：该 closure 有限 scopes 不随像素/域/material 实例增加；descriptions/refs/samples 及 generic graph 实际算术分别计数。常量绝对管理预算与纹理/程序成本分别报告。出口：单 closure 完整切换，普通与完整 generic 家族原型通过，关闭可选复用 exact 输出成立；A/B/C 只覆盖本单元。整帧其他 closure 仍为明确遗留。
 
-### 6.4 实施记录（2026-10-05）
+### 6.4 实施与复审核对（2026-10-06）
 
-已实施并经真实 GPU 验证的部分，逐项对应 §6.1 任务：
+复审 revision 为 `3088bad6`。**B1 只有组件原型和部分执行器接线，未过出口；B2 六项全部未实施。** 此结论取代此前本节“B1 已实施两半”的覆盖表述，不修改母稿的任务、画质或范围。
 
-| 任务 | 状态 | 实际证据 |
+| 任务 | 实际状态 | 源码与证据边界 |
 |---|---|---|
-| B1-04 有限家族与完整 generic graph | 已实施 | `material/ExactAppearanceDag.ts` 完整标量 IR、liveness、slot 复用与 lane 规划；`gpu/GpuAppearanceDagAbi.ts` 打包；`shaders/appearance_exact_dag.ts` 为**唯一** kernel body，所有拓扑走同一份 WGSL。`GpuAppearancePublication` 的 `for (program…)` per-program dispatch 循环已删除，改为对协商 texture set 数的有限循环，`register`/`lease` 由每 program 一个降为每 publication 一个。 |
-| B1-04 oracle | 通过 | `appearance-exact-dag` 在真实 GPU（nvidia/turing）通过：42 个报告覆盖全部算术 opcode 与嵌套 C/X/Y 坐标；`lanes 1/7/64` 下 `work` 恒为 129，即命令数与 lane 数解耦。独立预期来自既有 CPU evaluator，不使用 production evaluator 当 oracle。 |
-| B1-02 域实体 | 已实施 | `gpu/GpuSurfaceDomainAbi.ts`：发布期 interning 目录，域身份按完整 key（closure/planeMask/tileEdges/sampleMask）判等；`sampleMask` 与 `planeMask` 分列，使"发布值"与"需真实求值"可区分。**不再预提交固定 descriptor ABI**：目录是长度前缀词数组，记录宽度由 plane 数推导。 |
-| B1-02/B1-05 oracle | 通过 | `surface-domain` 在真实 GPU 通过。三个 fixture 中 `constant-uniform` 与 `textured-uniform` 的**域数相同（1）、tile 引用数相同（32400）**，而每域样本为 `0` 与 `15`、全帧样本工作为 `0` 与 `486000`；`mixed-two-domains` 为 2 个域、全帧工作 `243000`，等于按每个 tile 实际引用求和。断言同时要求 GPU 观察值等于发布打包值，并逐记录走公开 reader 复核。 |
-| B1-05 三者分别断言 | 已实施 | 域数、引用数、样本工作三者在本 oracle 与 `tests/unit/surface-domain-abi.test.mjs` 中分别断言，且构造上使三者互不相等，避免巧合相等导致断言失效。 |
-| B1-01 closure 选择 | 部分 | 常量与简单源纹理 closure 已走 exact DAG，但未单独具名记录输出/identity/rate/all consumer 清单。 |
-| B1-03 需求/handle/binding/reset/容量同切 | **未完成** | exact DAG 在 `SurfaceWorkRuntime` 的 `consumeBatch` 闭包内执行，但 `SurfaceFieldLookupPass`、`SurfaceSignalLookupPass` 与 `SurfaceCellClassifierPass` 的 21-plane 批链**仍被 addToGraph**。"同 closure 旧链不能重复请求/求值/写入"因此未证成立，这是 B1 收口的主要缺口。 |
+| B1-01 指定廉价 closure 的原子切换 | 未完成 | 尚无具名 closure 的完整输出/identity/rate/all-consumer 清单与绕过旧 proof/lookup 的生产路径。常量 palette 沿用旧分类器发布，不能说常量已完成新域竖切。 |
+| B1-02 域实体与实际 coverage/sample work | 目录原型，未接生产 | `GpuSurfaceDomainAbi.ts` 仅被两个测试文件引用；`GpuAppearancePublication`/`SurfaceWorkRuntime` 不发布/读取它。GPU case 是测试构造目录与 tile references 的 reader，不是 Visibility→domain→evaluator→Lighting/reconstruct。 |
+| B1-03 需求/handle/binding/reset/容量同切 | 未完成 | 新 DAG 仍在 `consumeBatch` 内执行，依赖旧 `SurfaceCellClassifierPass`、Field/Signal lookup、wide Geometry 与 proof/witness。旧链存在说明目标 closure 尚未绕过它，不直接据此推断 exact value 被求值两遍。 |
+| B1-04 完整有限家族可行性 | 部分 | Appearance evaluator 的 per-program dispatch 已换为固定 residency-set 循环，DAG 有完整算术/坐标节点、union masks 与 lane scratch。旧 per-program bound/constant WGSL、program queues 与 CPU batching 仍保留；完整 Surface 命令拓扑尚未有限化。 |
+| B1-04 数值原型 | 组件通过 | 原 42 组为全部算术与三 UV 嵌套坐标，sampler 是解析回调；不证明真实 resident bank、sampler wrap/LOD、非恒定 product、coat、多 graph/set 与最终布局。复审新增常量 normal-product/无效 moment/大常量地址，合计 48 组；仍是组件范围。 |
+| B1-05 full producer→all consumers/容量与失效 | 未完成 | lane Q=1/7/64 能遍历 129 个 work，只证明局部 scratch 调度。没有 new-domain production 的 UV seam/primitive/partial tile/version、zero/tiny optional capacity、abort/resize 与 exclusive writers 全闭环。旧全链 fixture 超时仍是未通过，不能用其他组件通过补齐。 |
 
-本单元未声称 B1 已通过出口条件。B2 全部未开始，其删除对象已定位：`SurfaceCellClassifierPass.addToGraph` 内 `for (let batch = 0; batch < batchCount; batch++)` 每批 11 个 graph node，47 批对应审计中 2,689 节点；工作区按 `tiles × 64 × N × 4` 逐像素分配 proof/witness/reference 家族，是 Field Lookup 与 Proof 分项的主要来源。
+**需要返工的边界。** 保留 scalar IR、数学、完整 union/liveness 与有限 evaluator；重做域模型和真实接线。当前目录的 `closure` 由测试字符串 hash 提供，缺完整描述 interning/版本及 Winner/Sharing/Cache identity 的生产映射；`sampleMask` 同时进入身份，又以位数代表求值工作。测试把“15 个 field bits × tile references”叫 frame samples，不能证明高频 64 pixels/tile 的实际采样、坐标、信号率或写域。应让 published domain 身份、coverage refs、实际 sample recipe 三种产品独立，从真实生产入口生成并消费；无需保留当前原型 ABI 为目标合同。
+
+完整 family 的性能可行性也未证明：当前所有非 publication 工作默认走 storage-scratch interpreter，固定 Q workers 对每个 residency set 遍历整个 material queue；未形成实际 family bins/间接工作，也没有 cheap-vs-generic 同帧成本与 register/spill 测量。`GpuAppearanceDagAbi` 将 cooked payload 打包为两个 buffer，同时 `AppearanceStaticResidency` 仍分配相同产品的 textures；这些有旧消费者的资源不能直接删除，但必须纳入物理峰值并在迁移时收敛到长期 owner，而非把额外 payload 视为免费。产品手工 filtering 与原 `textureSampleGrad` 的独立 GPU 对照尚缺。
+
+B2 必需的薄 Geometry/必要 guides、25-channel 窄字段、独立 signal rate、有界 overlay＋完整 indexed exact recipe、全部 direct consumers/reset/capacity 和旧协调链删除都未发生。下一步先完成一个合法 closure 的 B1 真实竖切及上述可行性验证，再切 B2；不以 `surface-domain` reader 的计数通过进入 B2。
+
+### 6.5 本次验证耗时诊断与局部修复（2026-10-06）
+
+- **CPU 测试进程不退出的确定原因**：`web-cook-visible-first.test.mjs` 的旧 Product fixture 未置当前 Float32x3 标记（format byte 10）。测试数十毫秒内抛 `Product requires Float32x3 positions`，两个 heartbeat case 的 `setInterval` 未在失败时清理，导致整个 Node suite 等待。已迁移同类 fixture 的描述标记，并用 `t.after` 保障 coordinator/timer 失败清理；事件 draining 由唯一 collector 执行，避免丢 page credit。原文件首次修复 10/10，约 1.19 s；复审另发现“saturated queue”原 case 每 20 ms 排空全部事件，根本未达到饱和。已让唯一 consumer 暂停、阻塞 richer revision、真实积满 4 个 Progress slots 并跨过额外 heartbeat 后断言会话仍正确；补断言在旧 fixture 上先失败，再修正。最终该文件 10/10 约 2.21 s（含真实 1.5 s 饱和等待）；恢复旧错误输入的受控负例仍失败 2/2，但约 0.14 s 正常退出。没有 forceExit、skip 或删断言。
+- **GPU 编译等待的确定分项**：新增 `appearance-surface-compile` 测量实际生产 descriptor，而非 analytic sampler 内核；本机 NVIDIA/Turing、Chrome 154 中约 26 KB source，最终 module/info/pipeline 合计 0.75 s。`surface-proof-compile` 用当前 generator 隔离一个旧 field certificate（family 1、128 targets、一个普通 material），约 134 KB source，info 0.099 s、pipeline 31.108 s。完整旧 fixture 在约 0.72 s 内发起 50 次同步 pipeline 创建，随后等待 24 个 module info 超过 60 s；这是排队的 driver 编译阶段，不是本次已经测到的 GPU readback 卡死。不能从一个 profile 推导每个旧 shader 都耗时相同。
+- **runner 可观测性修正**：记录每个 pipeline/API 编码、module info、execute/submit/GPU completion-readback 的阶段与时间；host 使用绝对 deadline，progress/capability/source 读取不再让每轮等待无限延长。超时保存最后 snapshot、原始 logs 和分项，仍返回失败。旧 `publication-cutover-repro3` timeout 报告保存的是旧 stage，但 logs 后续出现了 `Executing production frame 0`，因此该历史报告不足以独断死锁位置。
+- **确定的 DAG ABI 错误**：constant-product 原先把 constant slot+1 与 neighbor flags 放进同一 16-bit channel/control word。大 slot 会截地址并误启邻点写，破坏 lane 隔离。已改为具名 constant-product opcode、完整 u32 auxiliary address、独立 width/neighbor bits，并按实际 width 读常量。回归先失败后修复，真实 GPU 使用 65536 起始地址、有效/无效 normal moment 和 Q=1/7/64 检查完整输出。
+- **domain reader 的测试竞态**：同一 dispatch 的 lane 0 reset 累加 counter 与其他 workgroup atomicAdd 没有全局同步。已把累加 counter reset 放在 dispatch 前上传；domain count/tile count 仍由 shader 读取实际目录/setting，不以预填正确计数替代检查。此修复不提升目录的生产采用状态。
+
+原始失败、编译分项及复跑保存在 `.local/b1-b2-review/`（本地诊断，不是正式 evidence）。最终 targeted 七文件 51/51（包括上述 Web Cook 文件）、generic GPU 48 组和 directory GPU 三个 reader case 通过；两个 compile oracle 只证明选定 shader 编译与耗时。关联 Web Cook 六文件 35 例中 24 通过、11 失败：10 例 Nyx fake WASM 仍返回 ABI 2（生产要求 3），1 例 provider 的旧 resident group payload 不合法；这些失败约 0.6 s 返回，已与进程挂住区分，尚未修复全部旧 payload/ABI。没有声称全仓 suite 或 B1/B2 通过。
+
+### 6.6 2026-10-06 性能失败后的重新执行边界
+
+**历史执行路线，已由R2取代。** 下列R1–R5只解释当时诊断次序；现在以§6.8–6.11重新组织，不继续逐项补丁式展开。
+
+本轮工作树已经接通新 coverage→域目录/有限bins→Geometry/Appearance→signal rate→Lighting→Reconstruct，并删除旧全批协调器；这不是阶段完成。1080p地牢、约80.4% coverage、6个完成GPU帧的短程诊断中，关详细计数的 timing 模式 Geometry＋Appearance common P50约83.30ms，Surface约96.47ms。报告位于 `.local/b1-b2-review/showcase-timing1/0-high-timing.json`，属于本机诊断，不是正式历史收益。已确定慢融合kernel；opcode/private indexing、Geometry setup和memory各自占比尚未拆分证明，不把 spill 写成已证根因。
+
+以下R1–R5引用当时母稿的固定公式/Geometry/consumer/性能章节，是历史路线，已由§6.8的R2任务替代；不能继续按现母稿同号章节执行旧步骤：
+
+| 顺序 | 任务 | 必须检查 |
+|---|---|---|
+| R1 | 完整结构匹配→固定 Surface 输出公式；未匹配保留 Exact Generic | 原操作顺序、共享sample、3UV、产品/moment、参数zero→nonzero；真实输出对独立reference，不按slot数分类 |
+| R2 | center/neighbor逐语义需求，局部Geometry私有存活期 | 同一Winner数学、源属性需求真实消失、Lighting/view fallback语义不丢；融合/分离的完整输入输出成本 |
+| R3 | 一般/复杂材质1080p真实生产链 | timing/detailed分别测；coarse/no-reuse完整；命令随实例数量不增长；Generic/Q最坏成本 |
+| R4 | B2窄字段、guides、signal写域和retirement收口 | consumer表、allocated/written/read/retired、tiny/zero overlay、partial extent、version/abort/resize |
+| R5 | 退休旧链测试与fixture，映射仍有效语义到新入口 | 不恢复旧owner、不删正确性断言；最终新鲜build:test、targeted GPU串行、docs verify、设计逐项核对 |
+
+R1–R3未通过不能进入新的B2实现扩张。现有B2接线保留在唯一工作树路径中作为待验证实现；不恢复旧链做A/B，不将剩余缺口后移为C优化。阶段仍是B1未过性能可行性门，B2未收口。
+
+### 6.7 本轮固定公式与 Geometry 表示诊断（2026-10-06，未收口）
+
+唯一路径已改为完整结构匹配的固定公式；不匹配的 graph 保留完整 Generic。固定 Geometry/Appearance 分离，逐语义保存必要 UV 的 C/X/Y 和 color；Geometry 使用已发布的帧顶点 world 产品，Coverage 的对象属性 consumer 同迁 stride。quad 内 setup 共享原型虽然减少实际 setup 次数，却使 Geometry 从约9ms增到约11.8ms，已撤掉该表示，没有留下运行选择桥梁。
+
+同一1080p地牢、原功能、约80.40% coverage的串行短诊断，timing/detailed各8帧完整完成，Surface pass sum P50/P95分别24.183/26.411ms、26.477/26.804ms，timing GPU frame span 35.59/40.44ms。此前83ms融合 worker 已被替换，但这些短样本不证明正常性能、正式历史收益或B1出口。buffer 创建/销毁轨迹的 requested 峰值约1276MiB；计入纹理逻辑 payload 后约2231MiB。后者不含driver allocation padding、swapchain及其他进程，不能当物理显存峰值。之前两个case在第二帧附近出现D3D12 OutOfMemory/device lost，随后同源码串行复跑成功；尚不能以复跑成功认定根因已修复，原始失败保留。
+
+新增1080p全域压力诊断分别执行常量/普通Standard/完整Generic、reuse OFF/ON，逐像素alpha覆盖、非零provider和重复输出均断言；字段数值closure仍由小GPU用例逐字段独立验证，成本case不冒充完整数值oracle。完整Generic包含12个保留到嵌套coordinate后续读取的sample，真实C/X/Y及live ranges未裁剪。原AoS lane临时值的Generic worker约372ms；改为slot×Q+lane后约69–71ms。48组算术/三UV/嵌套采样/moment/高常量地址GPU组件通过，CPU相关19例通过。该结果仍需完整直接成本参考与本次最终快照关联回归，不以相对加速关闭R3。固定引用28-bit payload的越界回归先失败，现改为整个graph进入完整Generic，未裁u32地址。
+
+隔离直线参考前两次在120秒超时，日志最终停在pipeline compilation；其完整bank/sampler switch在各直线sample callsite展开是编译规模问题的定位依据，不直接当GPU执行成本。第三次明确专门化fixture实际的单bank/linear-repeat资源profile后完成，与生产HDR逐位一致；见`surface-work-native3.json`。该短run中生产Generic约74ms，native参考末次约45.40ms，冷启动/时钟差异未控制，不能相减宣称29ms纯解释税。随后16-slot workgroup窗口的压力worker约66.90–67.14ms，64组组件（含Q=65跨group）通过；见`surface-work-cost-window1.json`/`generic-window-green.json`。当时完整场景和完整Surface数值链尚未对最终窗口快照复跑，OOM根因仍未确定；B1/B2没有完成或提交。
+
+这些结果属于R2前工作树诊断，不证明Typed Tape、完整uniform子图提取、程序一致packet、arena-backed融合或RGB信号已经实现。用户暂停了继续局部修补并认可R2设计；本次只更新文档，不沿用旧快照测试结果作为R2通过。
+
+本地原始诊断位于`.local/b1-b2-review/`，包括`showcase-frameinputs1`失败、`showcase-frameinputs-repeat1`资源轨迹和短计时、`surface-work-cost1.json`/`surface-work-cost-soa1.json`、`generic-soa-red.json`/`generic-soa-green.json`及`fixed-reference-red.txt`。这些文件是诊断，不是正式evidence。
+
+### 6.8 R2 六个实施任务：依赖、原子切换与出口
+
+顺序为 **R2-00 → R2-01 → R2-02 → R2-03 → R2-04 → R2-05**。R2-01/02的编译与发布在同一工作树逐步接线，允许单元内部短暂不编译；R2-04必须同时接齐Geometry/Appearance直接读者，不将绑定、reset或Lighting读取推迟到B2才补。六个任务合起来是B1切换单元，不要求每任务全测、提交或新增一份设计文档。下列入口是修改范围导航；实际接口稳定后再写ABI合同，不将目标接口名称冒充已有实现。
+
+#### R2-00：冻结语义、支持profile、来源及成本口径（SD09/SD10）
+
+1. 从当前生产入口列全合法operation、输入类型/点域、15个material field、guides和所有直接consumer；每个旧输出标记为跨阶段保留或producer-local，并注明局部最后读者。保留独立全输出oracle，不能因生产不导出而失去语义检查。
+2. 对照母稿§6、§8.5、§12.4–12.5，冻结普通/完整General、Ordinary/Product、原始纹理/moment产品、UV0–2、normal/coat/specular/IOR、背景与异常guard范围。已有合法graph不能被新增slot阈值或模板白名单拒绝。
+3. 核读来源账本R2条目的固定源码、许可及源阶段映射；全量算法没有donor的部分明确为本地Typed Appearance Tape、Uniform Publication、Program-Coherent Packets、Local Surface Completion。来源核读与本地采用验证分开。
+4. 记录支持profile的N/M/Q/Lwords、workgroup/dispatch/binding limits、所有mandatory与optional容量、active/retired峰值。逐binding核对Ordinary/Product输入表；Product目标16个storage bindings，不能先融合再发现第17个frame属性绑定。
+5. 在性能验收前写明固定场景/相机/材质/灯/分辨率/特性、warm-up/采样/时钟状态、Surface与frame span口径、绝对时间和峰值预算。预算由目标和实际平台共同确定；本文不批准一个未经确认的FPS，也不允许把失败样本换场景、关效果后称过门。预算未声明则性能门未通过。
+
+产物是现有文档中的接口/consumer表与实施记录，不新增空registry。出口：没有无主语义或无consumer必需产品，绑定与容量方案可创建，来源及预算待定项显式记录；此步骤本身不证明GPU可行。
+
+#### R2-01：ProgramTemplate / MaterialSnapshot / ExportPlan（SD01/SD02）
+
+入口：`material/AppearanceGraphCompiler.ts`、`material/ExactAppearanceDag.ts`、`material/FixedSurfaceFormulas.ts`、`gpu/GpuAppearanceDagAbi.ts`、`gpu/GpuAppearancePublication.ts`、`gpu/AppearanceProgramRegistry.ts`。
+
+1. 保留已验证scalar IR作为语义输入，拆出不可变完整结构template、material数值/资源/version snapshot，以及按实际consumer决定的execution/export plan。结构identity不含具体颜色/数值/texture handle；sampler操作语义、输入类型/拓扑等会改变程序行为的条件仍参加完整比较。
+2. 哈希只定位候选，完整相等才intern；Winner/Sharing/Cache三种identity保持独立。结构替换、参数修改、纹理/产品驻留变化各更新其准确依赖，不用全局generation代替。
+3. 从完整root/坐标/operation结构匹配Publication-only、Unlit、Standard PBR；全部specular/coat/IOR及旧guard语义保留。不能依赖材质名字、当前参数为零或查询次数少来证明家族。
+4. 未匹配合法图统一进入同一个完整General VM。PSO及FrameGraph拓扑按有限renderer/resource家族，template成为GPU数据；固定角色sampler循环可以存在，普通家族不能每sample解释完整operation tape，也不能按graph生成场景巨shader。
+5. publication prepare生成一致版本产品；commit才推进有效身份，abort保留前一合法snapshot；全部Coverage/Surface/Lighting需要的route读取与binding一起迁移。
+
+出口：不同参数实例共template；参数zero→nonzero、纹理替换、不同拓扑及hash碰撞都保留正确结果/身份；1/25/257个graph不增加逐graph生产dispatch或PSO家族。数字257是结构压力case，不是支持数量上限。
+
+#### R2-02：Typed Tape、word liveness、uniform内部子图与输出sink（SD03/SD04）
+
+入口：R2-01编译/ABI/发布文件及`shaders/appearance_exact_dag.ts`、`shaders/appearance_publication_exact.ts`、`shaders/surface_fixed_formulas.ts`。
+
+1. 从scalar IR降低为唯一GPU执行表示。节点声明operation、语义宽度、C或CXY点域、完整输入/输出、raw/moment query语义、sink与last-use。RGB分量不是三个采样位置；RGB C=3 words、UV CXY=6、RGBA CXY=12，不能每scalar仍分配三vec4。
+2. 向量运算/一次query多分量输出仅在完整结构与原舍入顺序可证明时融合；未匹配局部在同一个VM执行原scalar operation，不是第二执行器。保留nested coordinate、late query、所有UV和normal-product有效性。
+3. 对完整依赖做uniform/varying分类，提取**图内部**uniform子图，发布GPU update tape与matching-version结果；varying tape从这些结果读。sin/pow/sqrt等执行原GPU操作，不能CPU JS double预算后当等价。参数、资源/驻留、时间/view/实例输入按实际依赖分类；任何varying路径不能被误发布为uniform。
+4. 以f32 word连续分配、真实last-use释放，临时寻址为`wordOffset * Q + lane`。输出一旦内部最后读者结束且完整tuple sink写完即可释放；共享CXY、后置采样、normalTS/IOR guard仍需要的值不能提前复用。
+5. General/fixed采样/uniform临时分别计算真实宽度，证明生命周期互斥后通过同一临时binding alias。Q控制并发，不截图/指令/纹理查询；完整合法长图不能因为本地scratch策略被截断。
+6. oracle分为完整语义输出模式与真实ExportPlan模式，二者均使用生产生成器，独立期望不可来自同一执行器自比。生产不添加test-only fallback或故障开关。
+
+出口：完整操作、tuple sink、uniform更新及abort、liveness与Q=1/7/64尾部等用例数值通过；临时字节能从实际words/Q/align解释，旧scalar三vec4/全图末尾保活和实验16-slot workgroup window从默认执行表示退休。
+
+#### R2-03：GPU程序一致工作与有限调度（SD05/SD09）
+
+入口：`gpu/GpuSurfaceWorkAbi.ts`、`render/surface/SurfaceWorkRuntime.ts`、`SurfaceWorkTypes.ts`、`SurfaceFrameResources.ts`及`shaders/surface_work.ts`；prefix复用已核便携算法，不新增CPU work选择。
+
+1. producer输入为完整原work集合、dense template index、有限resource partition和每条需求mask；输出count→exclusive prefix→scatter→run→packet→indirect args。packet保持同template，lane可带不同snapshot/route/needs；所有payload保留原目的地址，不用重新编号丢失identity。
+2. 每个run按Q/workgroup打包并显式处理最后packet有效lane；shader不能让不同template lane在barrier路径上产生不一致控制流。程序一致不意味着同材质参数，也不改变各信号独立需求。
+3. bucket数为`M * finiteResourcePartitions`，不是`M * 2^15 dirtyMasks`。count/prefix层数按支持profile最大容量有界；native dispatch/clear/copy/indirect数实测与pixel/tile/instance/graph数量解耦，不能只数FrameGraph nodes。
+4. 单template/已经一致的输入直接packet化；普通常量或轻采样不先全屏radix sort。排序/count管理本身计时；SF12的40-dispatch radix链只作后续有净收益证据的候选，不是默认前置税。
+5. optional coherence空间不足时，由权威builder在写前选择原完整indexed recipe，同一worker执行；coherent与indexed写域互斥，不截原queue，不依赖每像素exception append。mandatory原work/目的地仍需预先合法。mixed indexed lanes执行不同template时不能进入共享operation窗口/barrier；基线word SoA按唯一global context slice独立执行，packet-only同步优化单独证明uniform控制流。
+6. 零work/count、scan padding、u32溢出、重复需求与capacity边界均有明确初始化/去重/发布条件；无全局自旋，无本帧GPU→CPU→GPU控制，无额外submit。
+
+出口：独立集合预期证明每条必需work恰好消费一次、地址和mask完整；single/mixed/long-tail、1/25/257 template与optional=0/tiny均通过。成本同时报告count/prefix/scatter/packets和实际evaluation，不能用解释器耗时下降掩盖更大的全链开销。
+
+#### R2-04：arena-backed共享属性、局部Geometry→Appearance和直接读者（SD06/SD07/SD09）
+
+入口：`render/FrameGeometryArena.ts`、`FrameGeometryVertices.ts`、`gpu/GpuFrameGeometryArenaAbi.ts`、`GpuFrameGeometryAttributesAbi.ts`、`shaders/frame_geometry_vertices.ts`、`raster_coverage_fragment.ts`、`surface_frame_geometry.ts`、`surface_work_geometry.ts`、`surface_geometry_completion.ts`、`surface_work.ts`及`render/program/FrameProgramLowering.ts`；Appearance/Lighting/Reconstruct/reset/binding读取一起迁移。
+
+1. 将prepared frame属性作为现有Geometry arena source读取接口中的region，由同一Geometry owner创建、计账、prepare/commit/retire。目录、stride、generation、capacity一起发布，不再给Product Surface单独新增frame属性storage binding。两owner不能重复销毁或各声称独立占用同buffer。
+2. 必需arena头/目录/control容量先满足；prepared vertex region按实际stride与剩余binding limit规划，不机械拼两个最大buffer。只发布完整受理meshlet；partial/zero prepared容量走同一Geometry数学的精确resident fallback。Coverage/raster、Surface与debug/FrameProgram读者都遵循同一个prepared状态，不能有一处仍读旧独立属性buffer。
+3. Product输入9 + 执行数据7 = 16，Ordinary输入4 + 执行数据7 = 11，按实际布局逐项复核；fixed采样复用现有临时binding。limits创建前协商；mandatory不足是显式prepare失败，不是optional fallback成功。
+4. 唯一Geometry completion在Surface evaluator局部生成private record，直接喂普通家族/General tape，保持全部透视/CXY/near clip/负W/退化/side/facing及原guard。共享frame输入继续复用；Lighting/Temporal所需Geometry字段仍经明确closed产品消费，不重建第二owner。
+5. 删除默认全屏UV/color/CXY staging及其`surface_geometry_inputs.ts`接线/资源；小Q scratch不能假装连接两个各自遍历全部work的kernel。不得以恢复UV池、global等待或第二submit兜底；融合不满足binding/register/成本门时返回设计定位。
+6. 按母稿§12.4导出真实跨阶段字段。normalTS/IOR等完整数值guard、世界basis及view fallback在producer-local保留至最后读者；normal/color/UV有consumer才持久化，不能只删alpha通道或validity来缩容量。导出布局、全部直接consumer/reset/background/version/late binding/abort/retire原子更新。
+
+出口：真实Geometry→Appearance→非零Lighting→Reconstruct生产闭环；Product完整/partial/zero prepared、Ordinary、强法线/coat/moment、背景/边界/异常guard及resize/abort正确；无默认全屏UV池、无额外binding、无重算几何读者。融合的private寄存器/spill、arena active/retired及fallback实际工作全部计入成本。
+
+#### R2-05：B1集中核对与可行性决策（SD10）
+
+在主链连通后按§12集中typecheck/build及必要targeted，最终源码变化后新鲜build:test、GPU串行。逐项核对§6.10，不用旧snapshot的通过结果拼出R2通过。
+
+独立报告三组结果：**语义/接线**、**结构/容量**、**同质量全链成本**。同时列snapshot/源fingerprint、profile/limits、未测/超时/timestamp不可用及原失败。成本包含uniform publication、工作管理、Geometry、Appearance、Lighting、Reconstruct、reset/copy、峰值资源及private/scratch，而不是只测一段VM。
+
+直接原生参考用于拆解真实query/解码成本，不是另一条production renderer；必须固定相同表达式、sampler/LOD/过滤/输出、warm-up与时钟。不能把不同时钟的74ms减45ms直接归因为29ms解释器税。完整合法graph本身代价过高要报告物理成本，不能以普通PBR表现承诺任意DAG性能。
+
+每个尚未定案物理表示最多两个事先写明假设的候选，每个一轮必要正确性及成本比较后决定；失败分类修复与受影响回归仍需完成。有未解释deviceLost/OOM、漏consumer、未声明预算或成本门失败，B1仍未完成，不转B2、不给“剩余可选优化”的别名。不继续无边界的window/private-array调参循环。
+
+### 6.9 R2目标产品接口与生命周期核对表
+
+下表是目标合同，不表示这些API已落地。任务改名/文件移动时同步此表和母稿SD映射；不用新增适配层维持旧接口。
+
+| 产品 / 权威owner | 输入 → 输出 / 消费者 | 发布、容量与失败边界 | 任务 |
+|---|---|---|---|
+| ProgramTemplate / Appearance compiler | 完整validated scalar IR → typed code、家族、依赖/type/point域；publication/worker | 完整比较intern；无参数值identity；合法未匹配进入General | R2-01/02 |
+| MaterialSnapshot / publication | params、textures/products/samplers、准确versions → matching-version GPU inputs | prepare/commit/abort事务；zero→nonzero不漏依赖；stale不参与有效发布 | R2-01/02 |
+| UniformUpdatePlan / publication | 内部uniform依赖与dirty/version → GPU求得的uniform words；varying tape读取 | 不改sin/pow/舍入；更新临时与varying互斥后alias；abort不推进身份 | R2-02 |
+| ExportPlan / consumer合同 | 全输出语义＋实际reader needs → complete sinks、local last-use、跨阶段字段 | 生产可窄导出，独立全输出oracle仍完整；guard不能提前释放 | R2-01/02/04 |
+| WorkRun/Packet / work builder | N条work、M个dense template、有限partition → runs、valid lanes、原地址/mask、indirect | checked计数；optional=0完整indexed；两mode写域互斥；无CPU控制 | R2-03 |
+| EvaluationTemporary / execution owner | 全dispatch并发context上界Q、Lwords、fixed/update liveness → aligned f32 word SoA | `4*Q*Lwords`加对齐/metadata；global context独占slice，多group不能复用地址；降低Q不截图 | R2-02/03 |
+| FrameGeometry arena / Geometry owner | resident输入、目录、meshlet准备 → arena frame region / exact fallback | 必需prefix先满足、可选整meshlet受理、partial/zero；全部source readers同迁 | R2-04 |
+| LocalGeometryCompletion / 唯一Geometry语义owner | Winner、frame/resident属性、真实union needs → private完成值＋必要closed fields | 原CXY/side/guard；直接Appearance读取；跨阶段Lighting不重做geometry | R2-04 |
+| Appearance fields / Surface producer | family/tape、snapshot、完整inputs → f32语义SoA/validity；Lighting/Reconstruct | 唯一写域、按需求保存；normalTS等局部guard保留，容量不漏合法字段 | R2-04、B2-04/05 |
+| Six RGB signals / Lighting owner | fields/Geometry/providers、各信号recipe → 六RGB f32＋显式state；Reconstruct/history | 保留六路和原加法/颜色语义；AO在output pixel；率/version独立 | B2-02/04/05 |
+
+### 6.10 必需case与独立预期：不能用测试数量替代
+
+这些是case责任编号，不是已经存在或已通过的selector。生产入口/生成WGSL迁移后复用有效旧case；新fixture只有在触发目标分支并能区分错误行为时才有验收意义。
+
+| Case | 正常 / 边界 / 失败输入 | 独立预期与结构/成本观察 | 任务 |
+|---|---|---|---|
+| V01 模板与snapshot | 同结构不同值/texture、不同拓扑、hash碰撞、zero→nonzero、abort | 完整结构比较reference；PSO/dispatch不随实例增加；版本只改实际依赖 | R2-01 |
+| V02 完整General | nested nonlinear坐标、UV0–2、12 query早RGB/晚coord、所有operations | 原数学/独立reference全输出；未匹配仍完整执行，证明非fixed分支确实运行 | R2-02 |
+| V03 类型/点域/sinks | scalar/RGB/UV/RGBA C/CXY、多个root共享值、late query | 独立逐点/逐分量预期；真实word/liveness表和临时bytes、sink后复用安全 | R2-02 |
+| V04 uniform内部子图 | varying图中的param-only sin/pow/sqrt、纹理/时间/view依赖、提交失败 | GPU f32数学reference；参数改动更新且未变分支不重算；无stale publication | R2-02 |
+| V05 queries/products | raw与moment、多个bank/sampler/wrap/mip、嵌套coords/normal validity | 独立过滤/解码reference；同语义query共享，非同语义不误合并 | R2-02/04 |
+| V06 packet完整集合 | single/mixed模板、长尾run、N=0/1/Q±1、1/25/257模板 | 独立work multiset/地址/mask精确一致；有效lane和真正native命令，不是FG node | R2-03 |
+| V07 coherence耗尽 | optional=0/tiny、bucket/packet上界、checked u32/padding | 完整indexed预期、分支实际执行、每目的地唯一writer；原queue不截断 | R2-03 |
+| V08 arena来源一致 | Ordinary/Product，frame region完整/partial/zero、近裁剪/负W/退化/facing | 原独立插值与resident预期；Coverage/Surface/debug同代目录；Product实绑定≤16 | R2-04 |
+| V09 producer→全部consumer | unlit、标准coat/spec/IOR、General、非零lights/IBL、背景与异常guard | 完整HDR与必要guides；原世界basis/view fallback与guard；无重构材质/几何 | R2-04 |
+| V10 生命周期/峰值 | prepare失败、abort、resize、版本变化、retire未完成、mandatory不足 | 当前有效snapshot/所有reader绑定正确；live/retired总账、显式unsupported失败 | R2-01/04 |
+| V11 同质量成本出口 | 便宜/普通/完整General、native参考、indexed/coherent、复用OFF | 同表达式/质量/条件P50/P95与全链管理占比；声明预算；physical query成本单列 | R2-05 |
+| V12 B2 rate/写域/信号 | 合法coarse、局部高频拒绝、各signal不同率、zero/tiny池、coat增删/AO | 独立coverage/误差/六路state及原加法次序；完整精确补做，无coarse/exact双writer | B2-01–06 |
+
+浮点比较依据原operation/filter合同和独立误差分析，不能为通过统一放宽容差；结构断言只证明结构，不代替数值结果。受控故障只在fixture/reference侧验证case敏感性。V01–V11必需项未测/失败则B1未完成；V12及B2相应consumer/成本项未完成则B2未完成。
+
+### 6.11 R2 实施与集中核对记录（2026-10-06）
+
+用户后续指令已恢复 B1/B2 实施。本节实施/测试快照基于 `3088bad6` 加继承及本轮改动；用户要求将当前阶段快照提交到 `master`，提交身份以 Git 记录为准。**生产切换与以下检查不等于 B1/B2 已完成：R2-05 成本出口未关闭，不能进入 C。** 用户选择“先报告同质量全链成本，再决定数值预算”；不自行补 FPS 门槛，也不将没有预算解释为自动通过。
+
+#### 实现、产品与直接 consumer
+
+| 设计/任务 | 当前 producer → 产品 → consumer | 本轮实现与核对范围 |
+|---|---|---|
+| SD01/02；R2-01 | `AppearanceGraphCompiler`/`FixedSurfaceFormulas`/`ExactAppearanceDag` → 结构模板、实例 snapshot、export → `GpuAppearancePublication`/Surface evaluator | 完整结构匹配有限 Unlit/PBR 家族；不匹配走完整 General。模板完整结构字符串比较，参数值/texture handles 单独发布；Coverage 保留 alpha 路径，Surface 只移除它没有读者的 alpha ancestors。 |
+| SD03/04；R2-02 | DAG → publication/material/frame/sample tapes → GPU update 与 General worker → closed fields/guides | 实际语义宽度、C/CXY、f32 word SoA、query 多输出、normal moment 单 decode、多 sink 最后读者。不可变 nonlinear 子图只 publication 执行；材质与 camera 更新分开，commit 清 dirty，abort 保留重试。10,000 节点闭包改为迭代遍历，释放事件避免二次方扫描。 |
+| SD05；R2-03 | Coverage 原 work → 有限 partition/dense template count → portable Blelloch prefix/scatter/padded runs → 同 worker | 单模板分区不排序；optional 0/tiny 完整 indexed fallback，保留原 destination/mask。真实 GPU 回读验证 multiset、histogram、prefix、tail 和无效 padding，不以 counter 少了代替完整 work。 |
+| SD06/07/09；R2-04 | `FrameGeometryArena` v3/`FrameGeometryVertices` → prepared/resident 统一源 → raster/Coverage/Surface → 局部 Geometry/Appearance → Lighting/Reconstruct | Ordinary/Product full/partial/zero prepared 已接齐；Product Surface source9+data7=16 storage bindings。没有全屏 UV/color staging；hot12 words、closed fields 与必要 guides 保留。旧 Winner dictionary/coefficient/work/control owner 删除，插值数学保留。 |
+| SD08；B2-01–05 | Coverage/Geometry facts → 六 kind 独立 recipe → Lighting 六 RGB f32+state → Reconstruct/HDR | 按信号独立精确相等 admission；direct 的位置相关 provider 必须拒绝不安全共享。保留原六路加法分组、output-pixel AO、Rec709→2020/preExposure 与非有限 guard。复用 OFF 不编码四个 rate bank dispatch。 |
+| SD09/10；B2-05/06 | frame/publication owners → 预协商资源与 active/retired 状态 → 单 FrameGraph/submit | 旧 batch/tree/proof/witness/UV 依赖从生产路径删除。无读者 publication fields/directory/lookup/identity GPU 副本删除，Coverage 所需 constants/routes/runtimeInputs 保留。普通几何 continuity 载荷删除，TemporalFacts 实际消费的 primitive mapping/offset 保留，meshlet stride 仍为128B。 |
+
+#### V01–V12 覆盖核对，未测不能算完成
+
+| 责任 | 新主链/独立组件证据 | 未关闭范围 |
+|---|---|---|
+| V01 | CPU 完整模板/snapshot 依赖测试；GPU 数值编辑、稳定帧省略、abort 重试；1/25/257模板 native 命令核对 | 不凭模板比较测试声明所有 publication 生命周期失败组合已覆盖。 |
+| V02 | 当前生成 General tape：算术 opcode GPU oracle；Surface nested nonlinear/UV0–2/12 query/晚共享读者真实输出 | 完整 General 的性能出口失败，功能证据不能代替它。 |
+| V03 | typed widths/CXY/query/sink CPU 独立预期与真实 GPU Q=1/7/64；10k 节点完整编译 | 大图编译成功不等于大图 GPU 帧时可行。 |
+| V04 | GPU material/frame update、zero→nonzero、abort 后重试、稳定帧不更新 | publication/material/frame 频率证据限当前输入语义，不声称未来 provider/time 接口已实现。 |
+| V05 | 当前 immutable bank sampler 对硬件过滤：RGB/pair/scalar各70查询；Surface raw/moment、normal/late query | 不提升为完整第三方 sampler adoption。 |
+| V06 | 1/25/257模板、空/unlit、N=1及Q边界；独立 multiset、原地址、padding 与 native 命令 | 更大最终场景矩阵留最终验收，不把这里的尾部结果外推全部规模。 |
+| V07 | optional=0/tiny 实际走 indexed，完整 HDR 和写域；mandatory checked capacity targeted tests | 没有把原工作截断来过容量检查。 |
+| V08 | Ordinary/Product prepared full/partial/zero、实际16绑定；projectively equivalent negative-W case | 近裁剪、退化、facing 的独立插值旧组件证据不能代替新 arena 主链；这些组合尚未集中补齐，V08不能记全通过。 |
+| V09 | 非零 light/IBL、coat/specular/IOR、unlit/背景/unsafe guard、AO scope；六路 GPU/独立 BRDF/HDR | 完整生产 provider/材质场景矩阵未跑，不冒充最终画质验收。 |
+| V10 | 当前资源/transaction targeted tests、GPU FrameGraph transient/resize lifetime；snapshot abort | 所有 Surface prepare/retire/mandatory不足失败交叉组合尚未覆盖；历史 D3D12 OOM 根因未关闭。 |
+| V11 | 同输出 General/native 诊断、1080p Showcase 全链/管理/分配记录，见下 | 尚无同条件完整统计成本对照；General 诊断已显示显著成本差距，不能通过可行性门。 |
+| V12 | 六路独立 state/率；合法共享与局部拒绝；OFF/ON 完整 HDR；coherence 0/tiny exact | 尚缺 B2 全场景成本及每个信号高频/边界失败组合的完整核对；不能用一个 coarse 成功代替六路全部责任。 |
+
+#### 新鲜构建、测试与失败记录
+
+最终源码快照 `buildIdentity.sourceSha256 = 131896e212291a4037ff9575c24ee231bc438bf322761e1ba43ba63b7b991533`：typecheck、`build:test`、production `build` 通过；集中 CPU targeted suite **134/134**。真实 GPU 串行：`surface-work` **56 case报告**、`appearance-exact-dag`、`appearance-product-sampling`、`framegraph-lifecycle` 全部 passed。后者有专门构造不完整 producer 的负用例，必须得到 coverage fail，不能将它误记为生产完整覆盖失败或拿它证明 Surface 正确。
+
+本地原始记录：`.local/r2/module-reviewed-final.txt`、`build-reviewed-final.txt`、`surface-reviewed-final.json`、`tape-reviewed-final.json`、`sampling-reviewed-final.json`、`lifecycle-reviewed-final.json`。这些是当前机器调试记录，未提交/未提升为正式 evidence；JSON passed 和 scope 已核对，不只看进程退出码。没有运行全量 `npm test`、完整 browser/device-loss/画质矩阵或正式 claims，遵循根 AGENTS 的阶段节奏。
+
+用户要求提交阶段快照后的补充检查：typecheck 通过；将此前工作区遗留的 Web Cook fixture/harness 改动和 `gpu-frame-timing` 纳入 CPU 检查，192 项中180通过、12失败，约3.8秒。失败为10项 Nyx Web Runtime Cooker、1项 Web Product provider admission、1项 diagnostic stride 用例；已观察到 cooker ABI version mismatch、resident group layout invalid，以及旧fixture填写16 words而当前hot为12 words导致coverage fail。除已明确的stride fixture差异，其余未逐项完成根因定位，不声称全部只是测试问题。原文保留 `.local/r2/precommit-tests.txt`；本次提交为带已知缺口的阶段快照，不是全测试通过或B1/B2完成提交，未改生产算法或放宽断言消除这些失败。
+
+旧 `surface-batch-consumption`、cell/tree/旧 geometry/phase6-reset/optimization-capacity/bound-specialization/demand/winner-owner 等机制断言随 owner 退休；覆盖/身份/容量/数值语义分别迁到当前 Surface GPU、arena/vertices/resources、appearance typed/field identity/transaction 检查。旧 lab 不作为新主链证据，不恢复旧 owner 让历史 import 变绿。C 的 Store key/pin/generation 数学测试仍保留，它们不证明当前生产 cache 已采用。
+
+失败原文保留 `.local/r2/`：scatter stride/tail 的生产错误与10k图递归溢出已定位并关联回归；angular WGSL关键字/usage和fixture alias是 harness 错误。尖锐 GGX 对 CPU double 角度差敏感，独立 oracle 改用 GPU builtin 提供六个角度量，再由 CPU 独立 BRDF 合成，未放宽原容差或使用生产 BRDF 预填结果。reuse OFF 真实省掉 rate dispatch 后，成本 topology 断言按模式精确差4修正。continuity 生产上传断言先红3808B/预期3040B，再删除无读者载荷转绿；没有删除仍被 TemporalFacts 读取的 primitive identity。
+
+#### 同质量成本及可行性结论
+
+成本记录在最后 continuity 清理之前的源码 `410c83656d2d71977e058c37cf1921a372a13a6b9806bb0a3b58f7efa6d6f745`，独立列出，不与最终源码测试拼成同快照性能通过。该清理移除无读者数据/函数，仍不能据此宣称最终性能已测。
+
+1080p 完整 General fixture（sampler/normal/CXY/coat，全输出相同 HDR）：`.local/r2/native-final2.json`。warm General 复用 OFF：Surface **90.052ms**，Geometry/Appearance **71.820ms**；复用 ON：Surface **94.060–95.757ms**。同表达式 isolated native reference：Surface **41.172ms**，Geometry/Appearance **19.054ms**。cold 单列200.350/177.387ms。此为少量重复、未控制频率的诊断，不是正式P50/P95，也不能把全部差额精确归因于“VM税”。native仅oracle参考，无第二生产路径。General 表示仍有严重成本问题，复用在这个 fixture 没有净收益。
+
+真实 Showcase：GTX1650Ti、1920×1080、high约80.40%coverage，每模式8warmup+8采样，Chrome154.0.8037.93；`.local/r2/showcase-final/suite.json`。三个模式均完成，单submit，无API/deviceLost报告。固定家族为主要 Appearance，不能用此结果替代完整General成本。
+
+| counters模式 | Surface P50/P95 ms | GPU command span P50/P95 ms |
+|---|---|---|
+| off | 33.620 / 34.210 | 47.383 / 48.103 |
+| timing | 33.227 / 33.686 | 46.793 / 47.710 |
+| detailed | 34.013 / 36.241 | 47.251 / 51.577 |
+
+timing 的 GPU pass sum为46.072/47.055ms；它不同于 command span。逐帧配对后 Surface management4.588/5.046ms、evaluation23.986/24.314ms、auxiliary4.522/4.915ms；不能把各自P50相加当总P50。主要 pass 中位：fixed Appearance19.857ms、Lighting4.063ms、Reconstruct4.260ms、rate2.949ms。off仅关闭Surface counters，GPU timestamps仍开启，不是完整profiling-OFF税测量；8帧属于短诊断，不是历史收益验收。
+
+按 create/destroy 事件计算，timing active buffer峰值1125.244MiB，buffer+未计驱动对齐的logical texture峰值2080.607MiB。采样窗口±1秒内 nvidia-smi 为87–88°C、graphics1350MHz、memory6000MHz、整机GPU显存3014–3089MiB/4096MiB；短窗口和温度未经控制，结论有限。arena删除无读者 region 释放的是该arena内空间，attributes可能复用容量，不宣称固定128MiB arena已缩小。新 capture 不OOM不能追认历史 `showcase-frameinputs1` 的 `CreateCommittedResource` OOM根因已定位；该原失败仍保留，需最小复现与 live/retired 分配归因。
+
+不变量A在已测模板/实例规模的 native命令范围有证据；B在该Showcase短采集中management低于evaluation，但廉价/General全范围还不能统一通过；C在Surface独立结果OFF/ON正确且同量级，净收益不等于正确性。**R2-05/B1未完成；B2接口已切换和部分验证，V08/V10/V11/V12剩余责任使B2也未完成。** 下一步先关闭列明的边界/生命周期用例，并对General与固定家族的实际query/内存/执行成本作有界表示决策；不继续无边界window/private-array调参，也不把问题推入C的cache来掩盖。
 
 ## 7. B2 — 全部当前 Surface 替换与完整 exact work
 
 ### 7.1 任务
 
+**进入条件是R2-05证明B1完整闭环与性能可行性，不是旧竖切能出图。** B2扩展全部当前closure、域/率和信号接口，不重新设计解释器或Geometry owner。R2-04必需的直接consumer/arena接线已前移；两者不能相互借“下一阶段接线”逃避出口。
+
 | ID | 任务 | producer → consumer/删除 |
 |---|---|---|
 | B2-01 | full-rate facts、唯一薄 Geometry 和必要 guides | Visibility/geometry publication → facts/thin → rate；coverage/depth/motion/Winner identity 不先做求值证明 |
-| B2-02 | 轻量 domains/coverage refs/每信号 sample recipe | 发布结构与当前 guides → domain/rate → Appearance/Lighting；删21-plane tree/proof/leaf witness，保留信号质量条件 |
+| B2-02 | 轻量domains/coverage refs/六路独立signal recipe | 发布结构与真实guides/provider → domain/rate → Lighting；Ddirect/Denv/Sdirect/Senv/CoatDirect/CoatEnv的rate/validity/transport/version独立，删21-plane tree/proof/leaf witness |
 | B2-03 | 有界 sparse queues + exact dense implicit work recipes | builder → compact/indirect evaluator；overflow 直接枚举完整受影响写域，不依赖每像素 exception append |
-| B2-04 | finite families、窄字段布局、Geometry completion | 所有 dirty consumers needs union → 唯一 Geometry completion → closed 产品；producer-private heavy record → 同 kernel Appearance |
-| B2-05 | 全直接 consumer/reconstruct/capacity/reset 同迁 | Lighting/Appearance/TemporalFacts/输出资源；新 layout 创建前 preflight，晚绑定/退休一起更新 |
+| B2-04 | R2家族/ExportPlan覆盖全部closure，窄字段/六RGB结果 | 全dirty consumer needs union → 唯一Geometry completion → 必要closed产品；完整Appearance→六RGB f32＋显式state，无无读者UV/color池 |
+| B2-05 | 全consumer/reconstruct/capacity/reset同迁 | Lighting/Appearance/TemporalFacts/history/输出资源；原六路加法顺序、AO/output pixel、preExposure/color一次；preflight、晚绑定/退休同迁 |
 | B2-06 | 删除旧全batch协同链和所有无consumer依赖 | `consumeBatch`、固定tree/certificates/group validation、proof/witness/reference家族、旧workspace reset/setup/capacity专用接线退役 |
 
 域解决身份/地址范围，不保证 lighting 平滑。rate owner执行母稿规定的信号质量条件和 guides；silhouette、纹理/法线高频、视向/shadow变化仍需合法判定。普通合法 coarse 成功与局部 exact 拒绝都要出现；复杂组合缺完整 donor 的部分按 ledger具名本地方案与独立推导实施，不称完整上游移植。
+
+每项具体交付：
+
+1. **B2-01**：逐producer列coverage/depth/motion/Winner、position/basis/validity及Temporal事实，按真实读者保留；Appearance/Lighting共享唯一Geometry。full-rate facts不借coarse证明省略，背景/invalid Winner与边界extent保留明确反集写域。
+2. **B2-02**：发布域身份、范围、coverage refs，按每个信号实际依赖决定sample recipe。IBL irradiance可在法线/environment完整相等时跨primitive共享；position-dependent GI/view/receiver shadow不能照搬。不得用同Material或同Winner证明全部信号可共享。每信号都有合法coarse成功和高频/边界局部拒绝，不永久fine。
+3. **B2-03**：每种optional pool单独测试0/tiny/满容量，builder在结果写入前完成promotion及互斥写域发布。indexed精确recipe与稀疏调用同worker/数学，不恢复树/证明批处理；mandatory目的地和原work空间先合法。
+4. **B2-04**：全现有closure走R2家族或完整VM，按ExportPlan保存跨阶段f32 fields，guard用值保留到最后读者。六信号RGB原始载荷为72B/sample，显式state/率/refs/history/对齐另计；96→72只说明原始通道宽度，不能宣称整帧固定节省比例。coat缺席profile须完整结构/依赖证明，zero→nonzero或结构编辑事务更新，不永久关闭coat。
+5. **B2-05**：逐一迁Lighting/Reconstruct/history/TemporalFacts读取与清理/poison/版本协议；RGB不能用alpha隐含validity。六路保持到原consumer，保留原加法分组，不先合并specular/coat改变舍入。AO仅按原合同调制output pixel环境diffuse，原colorSpace/preExposure一次；原非有限guard/fallback不移除。binding/reset/capacity/retire同切换。
+6. **B2-06**：按production imports删除旧batch、proof/witness/tree、旧UV池、旧宽signal payload和无consumer的buffer/encode/reset。迁移旧测试有效覆盖/身份/质量/容量语义，删除退休机制断言，不能删必需结果断言。核V12、全部consumer及三类证据后才记录B2完成。
 
 ### 7.2 exact recipe、容量与互斥写域
 
@@ -256,7 +501,7 @@ mandatory 完整覆盖不依赖 optional sparse 池。创建前计算 supported 
 
 当前 15 material fields 的实际宽度共 **25 f32 channels = 100 B/sample**，不能按15×vec4误算成240 B。目标窄SoA按语义省常量/未用字段，分段每binding≤limit；真实峰值还包含 guides/Geometry/histories/cache/retired等，100B不是整帧内存承诺。
 
-Geometry hot按活跃宽度与共享 primitive mapping组织；heavy C/X/Y completion候选由唯一Geometry producer的invocation-private record直接交给同kernel Appearance consumer，避免全屏保留528B cold。fused producer只有布局/private record/register/liveness与性能原型验证通过才选，不在reconstruct执行PBR，也不引入另一geometry/renderer路径。完整peak预算仍待原型；账算数字不证明1650Ti已适配。
+Geometry hot按活跃宽度与共享primitive mapping组织；R2选定heavy C/X/Y completion由唯一Geometry producer的invocation-private record直接交给同kernel Appearance，避免全屏保留528B cold。R2-04验证arena binding/private record/register/liveness与成本，失败返回设计，不能在B2恢复分离全屏UV池作为最终方案。reconstruct不执行PBR，不引入另一geometry/renderer路径；账算数字不证明1650Ti已适配。
 
 Sparse域/样本队列不足时，在**最终生产边界**把完整受影响tile/partition升级exact recipe。recipe枚举全部covered samples，由像素/固定范围推导地址，不需要先append完整exception list。promotion在相应结果写入前定稿，撤销该写域coarse工作；exclusive owner保证同一信号同一目的地无coarse/exact双writer。不同信号不同率合法。
 
@@ -365,7 +610,7 @@ node tools/gpu-oracle.mjs virtual-geometry-instance-culling
 node tools/docs-verify.mjs
 ```
 
-可显式用既有 `node tools/vibe.mjs verify --module --test <OEngine/tests/...test.mjs>`。`tools/gpu-oracle/registry.mjs`尚未注册新domain/cache/lighting case，实施时新增真实模块/registry或迁移生产宿主；本文拟新增文件/selector不可提前放进已通过清单。`validation/labs/surface-optimization-v1/`历史fixtures先核是否退休ABI，不能直接当新主链验收。
+可显式用既有 `node tools/vibe.mjs verify --module --test <OEngine/tests/...test.mjs>`。既有Appearance/Surface work/产品采样组件即使已有注册入口，也只覆盖其实际工作树分支。R2的V01–V12是case责任，不能提前当作已注册或已通过；实施时迁到当前生产生成器，记录具体命令与snapshot。命令块是已核导航示例，不要求每个任务执行整块或最终matrix。`validation/labs/surface-optimization-v1/`历史fixtures先核是否退休ABI，不能直接当新主链验收。
 
 ### 12.2 拟新增的必要验证责任
 
@@ -389,6 +634,7 @@ node tools/docs-verify.mjs
 | `surface-geometry-phase2.test.mjs`、`frame-vertices-owner.test.mjs`、`winner-interpolation-owner.test.mjs` | 迁新producer字段/调用 | 唯一geometry/插值owner、aliases共享但独立semantic需求、按需求值 |
 | `surface-field-publication.test.mjs`、`surface-field-dependency-profile.test.mjs`、`appearance-field-identity.test.mjs` | 保留身份数学，替换入口 | 参数/源/sampler/UV/动态依赖完整、无关编辑不失效、stale拒绝 |
 | `surface-history-binding.test.mjs`、`temporal-fabric.test.mjs`、`fsr3-frame-lifetime.test.mjs`、`view-frame-transaction.test.mjs` | 同步布局，不只补mock API | late binding、prepare/abort/commit、cut/resize/device、提交后退休 |
+| scalar vec4-slot/Q scratch、16-slot window、独立frame attributes/全屏UV staging、vec4信号形状测试 | R2-02/04与B2-04/05迁Typed words/arena/export/RGB state；删除旧物理形状断言 | 完整DAG/CXY/query、数值、prepared partial/zero、normal/IOR guard、六路validity/率/颜色语义 |
 
 区分退休机制断言与有效语义；不能因换架构删完整身份/质量/覆盖/失败预期，不能让旧fixture驱动恢复第二路径。失败和预期修改遵守§1.4。
 
@@ -397,7 +643,7 @@ node tools/docs-verify.mjs
 | 母稿风险 | 执行任务与集中出口 |
 |---|---|
 | R01 family/product增长 | B1-04、B2-04、C-01：完整generic/受控routes与material实例增长命令不增 |
-| R02 liveness/spill/低并发长尾 | B1-04：完整DAG live slots、Q、register/private/storage实际账和最坏work耗时 |
+| R02 liveness/spill/低并发长尾 | R2-02/04/05：完整DAG live f32 words、Q、register/private/storage实际账和最坏work耗时 |
 | R03 全率destinations峰值/limits | B1-05、B2-03/04/05：100B真实通道基线、窄SoA、thin/guides/temporary/retired完整preflight |
 | R04 hit前hidden decode | C-03/04：只实际地址输入，hit重几何/材质采样归零，独立dirty仍完成 |
 | R05 coarse漏高频/窄高光/shadow | B2-02、C-06：各signal独立质量与合法成功/局部拒绝，不能permanent fine |
@@ -406,6 +652,10 @@ node tools/docs-verify.mjs
 | R08 history事件漂移 | C-05/06、F-01/02/04：roles、cut/resize/abort/commit真实生产链 |
 | R09 reuse OFF仍有proof/Store | C-03/05：原生commands、allocation/reset/writes确实消失，exact输出完整 |
 | R10 VSM/多灯被普通场景掩盖 | E-01/02/03/04：非零provider、屏外caster、独立overflow/dirty恢复 |
+| R11 uniform误分类/CPU folding变义 | R2-01/02、V01/04：完整依赖、matching-version GPU结果、zero→nonzero/abort |
+| R12 coherence成本/packet长尾漏work | R2-03/05、V06/07/11：真实集合/命令、optional=0完整indexed、OFF/ON全链成本 |
+| R13 Product 17+绑定/arena容量 | R2-00/04、V08/10：9+7=16、同owner目录/stride、prepared partial/zero、mandatory失败 |
+| R14 sinks提前释放共享值 | R2-02/04、V02/03/05：内部last-use＋tuple sink、nested late query/CXY/guard回归 |
 
 各风险按本单元范围关闭；无法关闭如实未完成，不改名“后续优化”跳过。完整matrix/正式收益仍遵守§13时点。
 
@@ -427,4 +677,6 @@ Production无profiling/coarse frame/有限stage/full诊断分开；frame span/pa
 
 ### 13.3 本轮状态
 
-A0/A1 的本次实施与集中检查见 §5.1；B1/B2/C/D/E/F 仍是实施要求。历史测试/审计/来源 pin 与本次 component 只证明各自范围，**不证明整个重建已实现、全帧 A/B/C 已过、完整 donor 采用或性能目标达成**。当前模块只在 workstream 维护。
+A0/A1既有实施与检查见§5.1；R2实际状态统一见§6.11和workstream currentSlice。本轮已恢复源码实施和集中检查；阶段快照的提交身份以Git记录为准。历史测试/审计/来源pin与此前component只证明各自范围，不证明R2或整个重建已实现、全帧A/B/C已过、完整donor采用或性能目标达成。
+
+后续D/E/F仍补齐现有Geometry、Lighting/Shadow、Temporal/Post基础缺陷；未来VG/VT/VSM/ReSTIR/SSGI/Atmosphere/高级Temporal/AI的承载接口统一见母稿§21，不在本次为未出现的consumer新增全屏资源或完整效果实现。

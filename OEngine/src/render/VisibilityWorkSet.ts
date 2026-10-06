@@ -56,9 +56,6 @@ export function sameVisibilityWorkSetKey(left: VisibilityWorkSetKey, right: Visi
     left.frameGeometryBudget.filteredWorkCapacity === right.frameGeometryBudget.filteredWorkCapacity &&
     left.frameGeometryBudget.vertexCapacity === right.frameGeometryBudget.vertexCapacity &&
     left.frameGeometryBudget.triangleCapacity === right.frameGeometryBudget.triangleCapacity &&
-    left.frameGeometryBudget.dictionaryCapacity === right.frameGeometryBudget.dictionaryCapacity &&
-    left.frameGeometryBudget.coefficientCapacity === right.frameGeometryBudget.coefficientCapacity &&
-    left.frameGeometryBudget.probeLimit === right.frameGeometryBudget.probeLimit &&
     left.frameGeometryBudget.maxBytes === right.frameGeometryBudget.maxBytes
   );
 }

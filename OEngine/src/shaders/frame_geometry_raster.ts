@@ -2,7 +2,7 @@ import { FRAME_GEOMETRY_MESHLET_STRIDE } from "../gpu/GpuWinnerInterpolationAbi.
 
 export function frameGeometryRasterWgsl(heapBinding: number, settingsBinding: number): string {
   return /* wgsl */ `
-struct FrameRasterAddressing { directory: u32, clips: u32, triangles: u32, reserved: u32, }
+struct FrameRasterAddressing { directory: u32, clips: u32, triangles: u32, attributes: u32, }
 @group(0) @binding(${heapBinding}) var<storage, read> raster_frame_heap: array<u32>;
 @group(0) @binding(${settingsBinding}) var<uniform> raster_frame_address: FrameRasterAddressing;
 fn frame_raster_meshlet(slot: u32) -> vec4u {

@@ -72,7 +72,6 @@ function rasterGroup(product: boolean, coverage?: AppearancePublishedCoverage): 
         visibility: vertex,
         buffer: { type: "uniform", hasDynamicOffset: true, minBindingSize: 16 },
       },
-      ...(coverage ? [buffer(29)] : []),
     ],
   };
 }
@@ -309,7 +308,6 @@ export class MeshletBucketRaster {
           { buffer: partition.indices },
           { buffer: partition.states },
           { buffer: partition.settings, size: 16 },
-          ...(coverage ? [{ buffer: inputs.frameVertices.attributes }] : []),
         ],
       }),
     ];

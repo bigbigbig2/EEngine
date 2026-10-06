@@ -239,7 +239,10 @@ export function compileAppearanceGraph(
         channels[id] = Array.from({ length: node.width }, (_, channel) => {
           const args = node.args.map((ref) => channels[ref]![graph.nodes[ref]!.width === 1 ? 0 : channel]!);
           const operands = args.map((arg) => instructions[arg]!);
-          if (operands.every((arg) => arg.kind === "constant")) {
+          // Transcendentals and composite mix retain the GPU operation even for
+          // literal ancestors. JS-double folding is not a GPU math oracle.
+          if (!["sin", "cos", "pow", "sqrt", "mix"].includes(node.op) &&
+            operands.every((arg) => arg.kind === "constant")) {
             const value = evaluateAppearanceOperation(
               node.op,
               operands.map((arg) => arg.value!),

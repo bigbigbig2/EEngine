@@ -340,7 +340,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
             depth,
             frameInstances: producedFrameInstances,
             frameGeometry,
-            frameAttributes: pass.write(input.frameAttributes),
+            frameAttributes: input.frameAttributes === input.frameGeometry ? frameGeometry : pass.write(input.frameAttributes),
             meshletWork: { records: meshletWork },
             domain: { width: 640, height: 360 },
           },
@@ -393,13 +393,12 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
         for (const value of [
           input.frameInstances,
           input.frameAttributes,
-          input.arena,
+          input.sourceHeap,
+          input.vertexPayload,
           input.visibility,
           input.meshletWork,
           input.factsMask,
           input.appearanceMetadata,
-          input.materialLookup,
-          input.fieldVersions,
         ])
           pass.read(value);
         assert.equal(input.publication, runtime.appearancePublication);

@@ -17,25 +17,16 @@ goal: >-
 
 currentSlice:
   id: eengine-extreme-performance-rebuild-b1
-  title: Surface B1 进行中：域实体与执行族可行性，收口 B2 前置
+  title: Surface B1/B2：R2生产切换与集中核对，成本出口未关闭
   status: active
   goal: >-
-    A0/A1 的必要测量与 FrameGraph 生命周期已实施并集中检查，核对记录见执行文档 §5.1。
-    B1 已实施两半：
-    (1) 执行族——ExactAppearanceDag 完整标量 IR、liveness、lane scratch 规划与单一有限
-    family 命令，per-program dispatch 循环已删除，真实 GPU oracle 通过；
-    (2) 域实体——GpuSurfaceDomainAbi 的发布期 interning 目录，域身份/coverage 引用/
-    样本工作三者分列，真实 GPU oracle 分别断言三者在同一域数、同一引用数下仍可不同。
-    尚未收口：B1-03 要求同 closure 旧链不重复求值，而 SurfaceFieldLookupPass、
-    SurfaceSignalLookupPass 与 21-plane 批链仍在生产路径上；B2 全部未开始。
-    保持 A0 → A1 → B1 → B2 → C → D → E → F 的切换单元顺序。
-    A0/A1 只前移必要测量、lifetime events 和物理资源身份；B1/B2/C 是首要生产路径替换。
-    B2 切换需求、Record、全部直接 consumer、reset/capacity，C 落实有净收益的字段与信号复用。
-    命令有界、管理成本和复用可关闭逐单元核对，明确单元范围与尚未收口的整帧遗留，
-    不以局部通过宣称全架构已通过。必要 Geometry/Lighting/Temporal 接线随 producer 前移。
-    独立 GPU 审计基线 09449d6d 是历史定位；分项 P50 合计不是逐帧比例，
-    CPU graph 时间不能从 GPU Surface 时间相减。完整重建性能、质量及后续来源采用仍待实施验证。
-    未来 providers 只保留明确产品扩展合同，不先建设无消费者基础设施，不承诺固定 FPS。
+    A0/A1既有核对见执行文档§5.1。B1未通过性能可行性门，B2未收口。
+    用户已认可SURFACE-2026-10-06-R2并恢复实施；当前生产切换、检查及剩余缺口统一见执行文档§6.11。
+    后续实施入口为执行文档§6.8–6.11的R2-00–05与V01–V12，旧§6.6–6.7仅作历史诊断。
+    先完成模板/快照/导出、Typed Tape/内部uniform、程序一致work与arena-backed局部Geometry→Appearance，
+    接齐直接consumer并通过正确性、结构容量、全成本三类出口，再完成B2全部域/率与六RGB信号。
+    实际源码/诊断/失败及验收记录只在执行文档维护，本导航不复制计时或测试数量。
+    切换顺序仍为A0 → A1 → B1 → B2 → C → D → E → F；不恢复旧链，不为未来无消费者能力先建设施。
 
 nextModules:
   - id: sssr
@@ -59,6 +50,10 @@ architectureRules:
   - Required full-rate coverage, depth, motion and identity are independent of reuse admission. Bounds, background, invalid input and demanded field branches retain their correctness roles.
   - Unique GeometryRecord means one production semantics and one demand union, not every primary storing every field. Thin records plus on-demand completion are allowed; a fixed write domain per field is not.
   - Whole-algorithm sources: read pinned complete upstream implementations before complex work, and keep design, implementation and validated adoption as separate states.
+  - ProgramTemplate, MaterialSnapshot and ExportPlan are separate. Complete unmatched legal graphs use the same General VM; templates are data rather than per-graph GPU command topology.
+  - Typed appearance execution separates semantic width from C/X/Y point domains. Scratch is accounted in live f32 words and complete uniform dependency updates preserve GPU math and publication transactions.
+  - Geometry completion feeds Appearance locally through the unique Geometry owner. Arena-backed prepared attributes and exact resident fallback share one source protocol across Coverage and Surface readers.
+  - Signals retain six independent RGB f32 semantics with explicit validity, rate, transport and version state; consumers preserve original guards and radiometric composition.
   - Delete rather than adapt: retired owners, no-consumer dependencies and duplicate authority are removed, not bridged.
   - Real compile failures must be fixed. Weakened assertions, widened tolerances, disabled features and test-only production fallbacks are not ways to pass a unit.
   - Stage state is maintained only in this workstream's currentSlice and the execution plan. Entry documents must not copy it.

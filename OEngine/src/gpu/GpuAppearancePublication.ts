@@ -7,58 +7,40 @@ import type { ResourceAccounting, ResourceHandle } from "../debug/profiling/Reso
 import {
   AppearanceProgramRegistry,
   type AppearanceProgramLease,
-  type AppearanceProgramDescriptor,
+  type AppearanceProgramDescriptor
 } from "./AppearanceProgramRegistry.js";
 import {
-  appearanceResidentKernel,
   APPEARANCE_ROUTE_STRIDE,
   type AppearanceResidentKernel,
-  APPEARANCE_WORKGROUP_SIZE,
-  type AppearanceSampleResourceProfile,
-  type AppearanceKernelIntegration,
+  type AppearanceSampleResourceProfile
 } from "../shaders/appearance_resident_kernel.js";
 import { decodeGpuTextureRef, GPU_TEXTURE_REF_INVALID } from "./GpuTextureRefAbi.js";
 import { encodeSamplerClass, GPU_MATERIAL_VISIBILITY_SAMPLER } from "./GpuMaterialVisibilityAbi.js";
 import {
   AppearanceStaticResidency,
   appearanceStaticTextureKey,
-  type AppearanceStaticLease,
+  type AppearanceStaticLease
 } from "./AppearanceStaticResidency.js";
 import type { AppearanceAssetPackage } from "../assets/AppearanceAssetPackage.js";
 import type { StandardShadeMaterial } from "../material/StandardShadeMaterial.js";
 import { standardAppearanceParameters } from "../material/AppearanceRuntimeInputs.js";
-import { appearanceSurfaceDemandIntegration } from "../shaders/appearance_surface_demand.js";
-import type { SurfaceDemandLayout } from "./GpuSurfaceDemandAbi.js";
 import { packAppearanceDagPublication } from "./GpuAppearanceDagAbi.js";
 import { planExactAppearanceLanes } from "../material/ExactAppearanceDag.js";
-import { appearanceSurfaceExactDescriptor } from "../shaders/appearance_surface_exact.js";
+import { SURFACE_WORK_RETAINED_FIELDS } from "./GpuSurfaceWorkAbi.js";
+import { appearancePublicationExactDescriptor } from "../shaders/appearance_publication_exact.js";
+import { surfaceWorkAppearanceWgsl } from "../shaders/surface_work.js";
 import { TEXTURE_BINDING_SET_MAX_RESIDENT_SETS } from "./TextureBindingSetPolicy.js";
-import { APPEARANCE_FIELD_NAMES } from "./GpuAppearanceFieldAbi.js";
-import { appearanceInputLayout, appearanceGeometryInputKind } from "../shaders/appearance_demand_inputs.js";
+import { APPEARANCE_FIELD_NAMES, APPEARANCE_FIELD_WIDTHS } from "./GpuAppearanceFieldAbi.js";
+import { appearanceGeometryInputKind } from "../shaders/appearance_demand_inputs.js";
 import { appearanceCoverageKernel, COVERAGE_DIRECTORY_STRIDE } from "../shaders/appearance_coverage.js";
 import { ShadeTransparencyMode } from "../material/enums.js";
 import { GpuBindGroupResourceCache } from "./GpuBindGroupResourceCache.js";
 import {
-  lowerAppearanceFieldBounds,
-  type AppearanceFieldBoundProgram,
-} from "../shaders/appearance_field_bounds.js";
-import { packSurfaceAppearanceBounds } from "./GpuSurfaceAppearanceBoundsAbi.js";
-import {
-  publishSurfaceFieldIdentities,
-  SURFACE_FIELD_IDENTITY_WORDS,
-  SURFACE_FIELD_EXECUTION_PROFILE_WORD,
-} from "./GpuSurfaceFieldIdentityAbi.js";
-import {
   appearanceExecutionProfiles,
-  type AppearanceExecutionProfiles,
+  type AppearanceExecutionProfiles
 } from "../material/AppearanceExecutionProfile.js";
-import {
-  packSurfaceExecutionProfiles,
-  SURFACE_EXECUTION_WORDS,
-  SURFACE_EXECUTION_HEADER_WORDS,
-  SURFACE_FIELD_EXECUTION_WORDS,
-} from "./GpuSurfaceExecutionProfileAbi.js";
 
+import { lowerAppearanceWgsl, type AppearanceWgslProgram } from "../shaders/appearance_program.js";
 export const APPEARANCE_DIRECTORY_STRIDE = 32;
 /** u32 version, scalar output base, width, dependency mask. */
 export const APPEARANCE_FIELD_RECORD_STRIDE = 16;
@@ -82,9 +64,8 @@ export interface AppearancePublishedEntry {
   readonly programIndex: number;
   /** Tasks may share a dispatch only when both PSO and physical resource set agree. */
   readonly resourceSetIndex: number;
-  readonly kernel: AppearanceResidentKernel;
+  readonly lowered: AppearanceWgslProgram;
   readonly program: CompiledAppearanceGraph;
-  readonly productTextures: readonly GPUTexture[];
   readonly fieldBase: number;
   readonly coverage: AppearancePublishedCoverage;
 }
@@ -114,7 +95,6 @@ export class GpuAppearancePublication {
   readonly entries: readonly AppearancePublishedEntry[];
   readonly constants: GPUBuffer;
   readonly routes: GPUBuffer;
-  readonly fields: GPUBuffer;
   /** Numeric dynamic inputs, one vec4 per compiled named input. Geometry and
    * surface inputs are supplied by the shared geometry consumer, not this table. */
   readonly runtimeInputs: GPUBuffer;
@@ -122,30 +102,18 @@ export class GpuAppearancePublication {
   readonly surfaceMetadata: GPUBuffer;
   readonly surfaceMetadataOffsets: Readonly<{
     readonly materialLookup: number;
-    readonly identity: number;
-    readonly directory: number;
     readonly runtimeInputs: number;
-    readonly bounds: number;
     readonly constants: number;
     readonly routes: number;
     readonly constantFields: number;
-    readonly fieldIdentities: number;
-    readonly fieldTextureDependencies: number;
-    readonly executionProfiles: number;
     readonly radiometry: number;
+    readonly exactFieldOffsets: number;
     readonly materialLookupCount: number;
-    readonly directoryCount: number;
   }>;
-  /** Material-slot lookup and stable publication identity consumed by SurfaceWork. */
-  readonly materialLookup: GPUBuffer;
-  readonly surfaceIdentity: GPUBuffer;
   readonly surfaceProgramCount: number;
-  readonly surfaceBoundPrograms: readonly AppearanceFieldBoundProgram[];
+  readonly surfaceTemplateCount: number;
+  readonly surfaceCoherenceSetMask: number;
   readonly surfaceExecutionProfiles: readonly AppearanceExecutionProfiles[];
-  readonly surfaceMaxInputVectors: number;
-  readonly surfaceMaxOutputs: number;
-  /** Eight u32s: material, PSO, constants, routes, resources, field base, field count, reserved. */
-  readonly directory: GPUBuffer;
   /** Material-slot indexed fragment constants/routes/input directory. */
   readonly coverageDirectory: GPUBuffer;
   readonly allocatedBytes: number;
@@ -153,9 +121,15 @@ export class GpuAppearancePublication {
   readonly exactDagCode: GPUBuffer;
   readonly exactDagProducts: readonly GPUBuffer[];
   readonly exactDagProductBankWords: number;
-  readonly exactDagLiveSlots: number;
+  readonly exactDagLiveWords: number;
   readonly exactDagLanes: number;
   readonly exactDagScratchBytes: number;
+  readonly surfaceDomainCount: number;
+  readonly surfaceHasLit: boolean;
+  readonly surfaceWorkScratchWords: number;
+  readonly surfaceWorkProfiles: readonly boolean[];
+  readonly exactDagVaryingFields: number;
+  readonly exactDagFieldOffsetValues: readonly number[];
   private readonly staticLeases: AppearanceStaticLease[] = [];
   private readonly buffers: GPUBuffer[] = [];
   private readonly surfaceLeases: AppearanceProgramLease[] = [];
@@ -176,6 +150,12 @@ export class GpuAppearancePublication {
   private readonly destroyedListeners = new Set<() => void>();
   private releasing: ShadeGPUCommandContext | null = null;
   private state: "staging" | "ready" | "resident" | "retiring" | "destroyed" = "staging";
+  private uniformRevision = 1;
+  private readonly uniformFlags: Uint32Array<ArrayBuffer>;
+  private uniformFlagBase = 0;
+  private uniformDependencies: readonly (readonly number[])[] = [];
+  private hasFrameUniform = false;
+  private committedUniformRevision = 0;
 
   constructor(
     private readonly device: GPUDevice,
@@ -186,9 +166,14 @@ export class GpuAppearancePublication {
     texturePublications: ReadonlyMap<ShadeTexture, TextureSurfacePublication>,
     private readonly accounting?: ResourceAccounting,
     staticResidency?: AppearanceStaticResidency,
+    maximumConcurrentSamples = 4096
   ) {
+    if (!Number.isSafeInteger(maximumConcurrentSamples) || maximumConcurrentSamples < 1) {
+      throw new RangeError("Appearance concurrent sample capacity must be a positive integer");
+    }
     if (command.device !== device || command.closed)
       throw new Error("Appearance requires an open command on its GPUDevice");
+    this.uniformFlags = new Uint32Array(sources.length).fill(3);
     this.samplers = Object.freeze(
       Array.from({ length: 6 }, (_unused, index) =>
         device.createSampler({
@@ -196,22 +181,19 @@ export class GpuAppearancePublication {
           magFilter: index < 3 ? "linear" : "nearest",
           mipmapFilter: index < 3 ? "linear" : "nearest",
           addressModeU: (["clamp-to-edge", "mirror-repeat", "repeat"] as const)[index % 3]!,
-          addressModeV: (["clamp-to-edge", "mirror-repeat", "repeat"] as const)[index % 3]!,
-        }),
-      ),
+          addressModeV: (["clamp-to-edge", "mirror-repeat", "repeat"] as const)[index % 3]!
+        })
+      )
     );
     this.productSampler = device.createSampler({
       minFilter: "linear",
       magFilter: "linear",
+      mipmapFilter: "linear",
       addressModeU: "clamp-to-edge",
-      addressModeV: "clamp-to-edge",
+      addressModeV: "clamp-to-edge"
     });
     const entries: AppearancePublishedEntry[] = [];
     const descriptors: AppearanceProgramDescriptor[] = [];
-    const surfaceDescriptors: AppearanceProgramDescriptor[] = [];
-    const surfaceKernels: AppearanceResidentKernel[] = [];
-    const boundPrograms: AppearanceFieldBoundProgram[] = [];
-    const boundGraphs: CompiledAppearanceGraph[] = [];
     const leaseIndices = new Map<string, number>();
     const resourceSets = new Map<string, number>();
     const coveragePrograms = new Map<string, number>();
@@ -248,88 +230,18 @@ export class GpuAppearancePublication {
           const sampler = (samplerClass & GPU_MATERIAL_VISIBILITY_SAMPLER.LinearBit) !== 0 ? 0 : 3;
           resources.push({
             bank: decoded?.bankClass ?? 0,
-            sampler: sampler + (address === 0 ? 0 : address === 2 ? 1 : 2),
+            sampler: sampler + (address === 0 ? 0 : address === 2 ? 1 : 2)
           });
           routes.push(route);
         }
-        // A named parameter's numeric values never enter the compiled source.
-        const productBindings = new Map<string, number>(),
-          productTextures: GPUTexture[] = [];
-        const productResources = (source.program.productReads ?? []).map((read) => {
-          if (read.field.constant !== undefined) return null;
-          if (staticResidency === undefined)
-            throw new Error("Appearance products require the long-lived static residency owner");
-          const key = appearanceStaticTextureKey(read.asset, read.field)!;
-          let binding = productBindings.get(key);
-          if (binding === undefined) {
-            binding = productBindings.size;
-            productBindings.set(key, binding);
-            productTargets.push({
-              assetId: read.asset.runtime.manifest.assetId,
-              field: read.field.name,
-              textures: productTextures,
-              binding,
-            });
-          }
-          const layer = read.asset.fields
-            .filter((field) => appearanceStaticTextureKey(read.asset, field) === key)
-            .findIndex((field) => field.name === read.field.name);
-          productRouteTargets.push({
-            assetId: read.asset.runtime.manifest.assetId,
-            field: read.field.name,
-            route: routes.length,
-          });
-          routes.push(packProductRoute(read.asset, layer));
-          assets.set(read.asset.runtime.manifest.assetId, read.asset);
-          return binding;
-        });
-        const candidate = appearanceResidentKernel(source.program, resources, productResources);
-        const kernelKey =
-          candidate.descriptor.source +
-          ":resident-linear:" +
-          JSON.stringify([
-            resources,
-            productResources,
-            source.textureBindingSetId,
-            [...productBindings.keys()],
-            candidate.lowered.outputSlots,
-            source.program.inputs.map((input) => [input.name, input.domain]),
-            source.program.instructions
-              .filter((instruction) => instruction.kind === "input")
-              .map((instruction) => instruction.coordinateDomains),
-          ]);
-        // Metadata (output names and parameter provenance) belongs to each
-        // material program even when its WGSL topology shares the same PSO.
-        const kernel = candidate;
-        const resourceKey = JSON.stringify([source.textureBindingSetId, [...productBindings.keys()]]);
-        let resourceSetIndex = resourceSets.get(resourceKey);
-        if (resourceSetIndex === undefined) {
-          resourceSetIndex = resourceSets.size;
-          resourceSets.set(resourceKey, resourceSetIndex);
-        }
+        const lowered = lowerAppearanceWgsl(source.program);
+        const kernelKey = lowered.templateKey;
         let programIndex = leaseIndices.get(kernelKey);
         if (programIndex === undefined) {
-          programIndex = descriptors.length;
-          descriptors.push(kernel.descriptor);
-          const surfaceKernel = appearanceResidentKernel(
-            source.program,
-            resources,
-            productResources,
-            appearanceSurfaceDemandIntegration(source.program, kernel.lowered),
-          );
-          surfaceKernels.push(surfaceKernel);
-          boundPrograms.push(
-            Object.freeze({
-              ...lowerAppearanceFieldBounds(source.program, kernel.lowered, `ab_field_${programIndex}`),
-              inputSemantics: Object.freeze(
-                source.program.inputs.map((input) => appearanceGeometryInputKind(input, source.program)),
-              ),
-            }),
-          );
-          boundGraphs.push(source.program);
-          surfaceDescriptors.push(surfaceKernel.descriptor);
+          programIndex = leaseIndices.size;
           leaseIndices.set(kernelKey, programIndex);
         }
+        const resourceSetIndex = source.textureBindingSetId;
         const constantBase = constants.length;
         const inputBase = runtimeInputs.length / 4;
         for (const input of source.program.inputs) {
@@ -341,13 +253,13 @@ export class GpuAppearancePublication {
           runtimeInputs.push(...Array.from({ length: 4 }, (_, channel) => value?.[channel] ?? 0));
         }
         const fieldBase = fields.length / (APPEARANCE_FIELD_RECORD_STRIDE / 4);
-        for (const [name, outputs] of Object.entries(kernel.lowered.outputSlots)) {
+        for (const [name, outputs] of Object.entries(lowered.outputSlots)) {
           const version = source.fieldVersions === undefined ? 1 : source.fieldVersions.get(name)?.version;
           if (version === undefined || !Number.isInteger(version) || version < 1 || version > 0xffffffff)
             throw new RangeError("Appearance output field requires a nonzero u32 version");
           const dependency = source.program.outputs[name]!.reduce(
             (mask, ref) => mask | source.program.instructions[ref]!.dependency,
-            0,
+            0
           );
           fields.push(version, outputs[0]!, outputs.length, dependency);
           const live = new Set<number>(),
@@ -359,7 +271,7 @@ export class GpuAppearancePublication {
             live.add(ref);
             const instruction = source.program.instructions[ref]!;
             if (instruction.kind === "parameter") {
-              for (const slot of kernel.lowered.parameterSlots[instruction.parameter!] ?? [])
+              for (const slot of lowered.parameterSlots[instruction.parameter!] ?? [])
                 numeric.add(constantBase + slot.slot);
             }
             if (instruction.kind === "input") {
@@ -373,7 +285,7 @@ export class GpuAppearancePublication {
           fieldDependencies.push([...numeric]);
         }
         // Values must come from this instance even when its topology reuses a kernel.
-        constants.push(...candidate.lowered.constants);
+        constants.push(...lowered.constants);
         const alpha = source.program.outputs.alpha;
         if (alpha?.length !== 1) throw new Error("Published Appearance requires a scalar coverage root");
         const coverageProgram = selectAppearanceProductProgram(source.program, { alpha });
@@ -385,7 +297,7 @@ export class GpuAppearancePublication {
             sample.binding,
             ref,
             mipRanges.get(sample.binding.texture),
-            texturePublications.get(sample.binding.texture),
+            texturePublications.get(sample.binding.texture)
           );
           const samplerClass = new DataView(route).getUint32(4, true);
           const address = samplerClass & GPU_MATERIAL_VISIBILITY_SAMPLER.AddressMask;
@@ -393,7 +305,7 @@ export class GpuAppearancePublication {
             bank: decodeGpuTextureRef(ref)?.bankClass ?? 0,
             sampler:
               ((samplerClass & GPU_MATERIAL_VISIBILITY_SAMPLER.LinearBit) !== 0 ? 0 : 3) +
-              (address === 0 ? 0 : address === 2 ? 1 : 2),
+              (address === 0 ? 0 : address === 2 ? 1 : 2)
           });
           routes.push(route);
         }
@@ -411,7 +323,7 @@ export class GpuAppearancePublication {
               assetId: read.asset.runtime.manifest.assetId,
               field: read.field.name,
               textures: coverageProductTextures,
-              binding,
+              binding
             });
           }
           const layer = read.asset.fields
@@ -432,7 +344,7 @@ export class GpuAppearancePublication {
         for (const input of coverageProgram.inputs) {
           const inputIndex = source.program.inputs.findIndex((candidate) => candidate.name === input.name);
           runtimeInputs.push(
-            ...runtimeInputs.slice((inputBase + inputIndex) * 4, (inputBase + inputIndex + 1) * 4),
+            ...runtimeInputs.slice((inputBase + inputIndex) * 4, (inputBase + inputIndex + 1) * 4)
           );
         }
         const coverageKey =
@@ -458,8 +370,8 @@ export class GpuAppearancePublication {
           rasterProgram,
           cutoffSlot,
           viewDependent: coverageProgram.inputs.some((input) =>
-            [8, 9, 13, 14].includes(appearanceGeometryInputKind(input, coverageProgram)),
-          ),
+            [8, 9, 13, 14].includes(appearanceGeometryInputKind(input, coverageProgram))
+          )
         });
         entries.push(
           Object.freeze({
@@ -471,12 +383,11 @@ export class GpuAppearancePublication {
             routeBase,
             programIndex,
             resourceSetIndex,
-            kernel,
+            lowered,
             program: source.program,
-            productTextures,
             fieldBase,
-            coverage,
-          }),
+            coverage
+          })
         );
         directory.set(
           [
@@ -486,10 +397,10 @@ export class GpuAppearancePublication {
             routeBase,
             resourceSetIndex,
             fieldBase,
-            Object.keys(kernel.lowered.outputSlots).length,
-            inputBase,
+            Object.keys(lowered.outputSlots).length,
+            inputBase
           ],
-          index * directoryWords,
+          index * directoryWords
         );
       }
       const constantData = new Float32Array(Math.max(constants.length, 1));
@@ -504,162 +415,45 @@ export class GpuAppearancePublication {
       const maxMaterialSlot = Math.max(0, ...sources.map((source) => source.materialSlot));
       const materialLookupData = new Uint32Array(maxMaterialSlot + 1);
       materialLookupData.fill(0xffffffff);
-      const identityData = new Uint32Array(Math.max(20, sources.length * 20));
-      if (this.surfaceCacheGeneration >= 0xffffffff)
+      if (this.surfaceCacheGeneration >= 0xffffffff) {
         throw new RangeError("Surface publication identity exhausted; recreate device");
+      }
       sources.forEach((source, index) => {
         materialLookupData[source.materialSlot] = index;
-        const names = Object.keys(source.program.outputs),
-          at = index * 20;
-        identityData.set(
-          [
-            directoryData[index * directoryWords + 1]!,
-            directoryData[index * directoryWords + 5]!,
-            names.length,
-            this.surfaceCacheGeneration,
-          ],
-          at,
-        );
-        APPEARANCE_FIELD_NAMES.forEach((name, field) => {
-          const ordinal = names.indexOf(name);
-          identityData[at + 4 + field] = ordinal < 0 ? 0xffffffff : ordinal;
-        });
       });
-      const boundData = packSurfaceAppearanceBounds(boundGraphs);
-      const fieldIdentityData = new Uint32Array(
-        Math.max(1, sources.length) * 15 * SURFACE_FIELD_IDENTITY_WORDS,
-      );
-      const fieldTextureDependencies: number[] = [];
-      sources.forEach((source, index) => {
-        const entry = entries[index]!;
-        const publication = publishSurfaceFieldIdentities(
-          registry,
-          source.program,
-          entry.fieldBase,
-          (binding) => {
-            const texture = texturePublications.get(binding.texture);
-            const samplerSnapshot = {
-              wrapS: binding.sampler[4],
-              wrapT: binding.sampler[5],
-              minFilter: binding.sampler[1],
-              magFilter: binding.sampler[2],
-              runtime_asset_package_v2: binding.texture.runtime_asset_package_v2,
-            } as ShadeTexture;
-            return [
-              source.textureRefs.get(binding.texture) ?? GPU_TEXTURE_REF_INVALID,
-              texture?.slot ?? 0,
-              texture?.generation ?? 0,
-              encodeSamplerClass(samplerSnapshot, mipRanges.get(binding.texture)).value,
-            ];
-          },
-          (name) => source.material.appearance_inputs.get(name),
-        );
-        const identities = publication.identities;
-        for (let field = 0; field < 15; field++) {
-          identities[field * SURFACE_FIELD_IDENTITY_WORDS + 4]! += fieldTextureDependencies.length;
-        }
-        fieldIdentityData.set(identities, index * 15 * SURFACE_FIELD_IDENTITY_WORDS);
-        fieldTextureDependencies.push(...publication.textureSlots);
-      });
-      const fieldTextureData = Uint32Array.from(fieldTextureDependencies);
       this.surfaceExecutionProfiles = Object.freeze(
         sources.map((source) =>
-          appearanceExecutionProfiles(source.program, (witness) => registry.internFieldPublication(witness)),
-        ),
+          appearanceExecutionProfiles(source.program, (witness) => registry.internFieldPublication(witness))
+        )
       );
-      const executionData = packSurfaceExecutionProfiles(this.surfaceExecutionProfiles);
-      const executionOffset =
-        materialLookupData.length +
-        identityData.length +
-        directoryData.length +
-        inputData.length +
-        boundData.length +
-        constantData.length +
-        routeData.byteLength / 4 +
-        Math.max(1, sources.length) * 64 +
-        fieldIdentityData.length +
-        fieldTextureData.length;
-      for (let entry = 0; entry < sources.length; entry++) {
-        for (let field = 0; field < 15; field++) {
-          fieldIdentityData[
-            (entry * 15 + field) * SURFACE_FIELD_IDENTITY_WORDS + SURFACE_FIELD_EXECUTION_PROFILE_WORD
-          ] =
-            executionOffset +
-            entry * SURFACE_EXECUTION_WORDS +
-            SURFACE_EXECUTION_HEADER_WORDS +
-            field * SURFACE_FIELD_EXECUTION_WORDS;
-        }
-      }
+      const runtimeInputsOffset = materialLookupData.length;
+      const constantsOffset = runtimeInputsOffset + inputData.length;
+      const routesOffset = constantsOffset + constantData.length;
+      const paletteOffset = routesOffset + routeData.byteLength / 4;
+      const radiometryOffset = paletteOffset + Math.max(1, sources.length) * 64;
       const surfaceMetadataOffsets = {
         materialLookup: 0,
-        identity: materialLookupData.length,
-        directory: materialLookupData.length + identityData.length,
-        runtimeInputs: materialLookupData.length + identityData.length + directoryData.length,
-        bounds: materialLookupData.length + identityData.length + directoryData.length + inputData.length,
-        constants:
-          materialLookupData.length +
-          identityData.length +
-          directoryData.length +
-          inputData.length +
-          boundData.length,
-        routes:
-          materialLookupData.length +
-          identityData.length +
-          directoryData.length +
-          inputData.length +
-          boundData.length +
-          constantData.length,
-        constantFields:
-          materialLookupData.length +
-          identityData.length +
-          directoryData.length +
-          inputData.length +
-          boundData.length +
-          constantData.length +
-          routeData.byteLength / 4,
-        fieldIdentities:
-          materialLookupData.length +
-          identityData.length +
-          directoryData.length +
-          inputData.length +
-          boundData.length +
-          constantData.length +
-          routeData.byteLength / 4 +
-          Math.max(1, sources.length) * 64,
-        fieldTextureDependencies:
-          materialLookupData.length +
-          identityData.length +
-          directoryData.length +
-          inputData.length +
-          boundData.length +
-          constantData.length +
-          routeData.byteLength / 4 +
-          Math.max(1, sources.length) * 64 +
-          fieldIdentityData.length,
-        materialLookupCount: materialLookupData.length,
-        directoryCount: directoryData.length / directoryWords,
-        executionProfiles: executionOffset,
-        radiometry: executionOffset + executionData.length,
+        runtimeInputs: runtimeInputsOffset,
+        constants: constantsOffset,
+        routes: routesOffset,
+        constantFields: paletteOffset,
+        radiometry: radiometryOffset,
+        exactFieldOffsets: radiometryOffset + 5,
+        materialLookupCount: materialLookupData.length
       } as const;
       // GPU publication substage fills one submitted-epoch constant palette per
       // material. The immutable descriptor/input ranges precede this write domain.
-      const surfaceMetadataData = new Uint32Array(executionOffset + executionData.length + 4);
+      let surfaceMetadataData = new Uint32Array(radiometryOffset + 5 + 16);
       surfaceMetadataData.set(materialLookupData, surfaceMetadataOffsets.materialLookup);
-      surfaceMetadataData.set(identityData, surfaceMetadataOffsets.identity);
-      surfaceMetadataData.set(directoryData, surfaceMetadataOffsets.directory);
       surfaceMetadataData.set(
         new Uint32Array(inputData.buffer, inputData.byteOffset, inputData.length),
-        surfaceMetadataOffsets.runtimeInputs,
+        surfaceMetadataOffsets.runtimeInputs
       );
-      surfaceMetadataData.set(boundData, surfaceMetadataOffsets.bounds);
       surfaceMetadataData.set(new Uint32Array(constantData.buffer), surfaceMetadataOffsets.constants);
       surfaceMetadataData.set(new Uint32Array(routeData.buffer), surfaceMetadataOffsets.routes);
-      surfaceMetadataData.set(fieldIdentityData, surfaceMetadataOffsets.fieldIdentities);
-      surfaceMetadataData.set(fieldTextureData, surfaceMetadataOffsets.fieldTextureDependencies);
-      surfaceMetadataData.set(executionData, executionOffset);
       const maximum = Math.min(
         Number(device.limits.maxBufferSize),
-        Number(device.limits.maxStorageBufferBindingSize),
+        Number(device.limits.maxStorageBufferBindingSize)
       );
       for (const data of [
         constantData,
@@ -668,48 +462,109 @@ export class GpuAppearancePublication {
         fieldData,
         inputData,
         materialLookupData,
-        identityData,
-        surfaceMetadataData,
+        surfaceMetadataData
       ])
         if (data.byteLength > maximum) {
           throw new RangeError(
-            `Appearance publication ${data.byteLength} bytes exceed negotiated storage limit ${maximum}`,
+            `Appearance publication ${data.byteLength} bytes exceed negotiated storage limit ${maximum}`
           );
         }
       // Publication byte admission precedes every shader/layout/pipeline/buffer creation.
-      const exactDescriptor = appearanceSurfaceExactDescriptor();
       const exactData = packAppearanceDagPublication(
-        entries.map((entry) => ({
+        entries.map((entry, index) => ({
           program: entry.program,
-          lowered: entry.kernel.lowered,
+          lowered: entry.lowered,
           constantBase: entry.constantBase,
           routeBase: entry.routeBase,
           inputBase: entry.inputBase,
           textureBindingSetId: entry.textureBindingSetId,
+          domainHandle: this.surfaceExecutionProfiles[index]!.token
         })),
         maximum,
+        maximum,
+        surfaceMetadataData.length
       );
-      const exactPlan = planExactAppearanceLanes(exactData.liveSlots, Math.min(maximum, 16 * 1024 * 1024));
+      this.uniformFlagBase = exactData.uniformFlagBase;
+      this.uniformDependencies = exactData.uniformDependencies;
+      this.hasFrameUniform = exactData.hasFrameUniform;
+      const uniformMetadata = new Uint32Array(surfaceMetadataData.length + exactData.uniformWords);
+      uniformMetadata.set(surfaceMetadataData);
+      surfaceMetadataData = uniformMetadata;
+      if (surfaceMetadataData.byteLength > maximum) {
+        throw new RangeError("Complete Appearance uniform products exceed negotiated metadata binding");
+      }
+      let fixedWords = 0;
+      for (let entry = 0; entry < entries.length; entry++) {
+        if ((exactData.code[entry * 16 + 13]! & 0x80000000) !== 0) {
+          fixedWords = Math.max(fixedWords, exactData.code[exactData.code[entry * 16]! - 1]! * 9);
+        }
+      }
+      this.surfaceWorkScratchWords = Math.max(exactData.liveWords, fixedWords);
+      const exactPlan = planExactAppearanceLanes(
+        this.surfaceWorkScratchWords,
+        Math.min(maximum, 16 * 1024 * 1024),
+        maximumConcurrentSamples
+      );
       for (const entry of entries) {
         if (
+          !Number.isInteger(entry.textureBindingSetId) ||
           entry.textureBindingSetId < 0 ||
           entry.textureBindingSetId >= TEXTURE_BINDING_SET_MAX_RESIDENT_SETS
         ) {
           throw new RangeError("Appearance references an unnegotiated texture binding set");
         }
       }
-      registry.preflight(exactDescriptor);
-      this.surfaceLeases.push(registry.acquire(exactDescriptor));
+      const workDescriptors = [
+        appearancePublicationExactDescriptor(),
+        surfaceWorkDescriptor(false, true),
+        surfaceWorkDescriptor(false, false),
+        surfaceWorkDescriptor(true, true),
+        surfaceWorkDescriptor(true, false)
+      ];
+      for (const descriptor of workDescriptors) {
+        registry.preflight(descriptor);
+      }
       this.exactDagCode = this.upload(device, command, "exact-dag-code", exactData.code);
       this.exactDagProducts = Object.freeze(
         exactData.products.map((data, bank) =>
-          this.upload(device, command, `exact-dag-products-${bank}`, data),
-        ),
+          this.upload(device, command, "exact-dag-products-" + bank, data)
+        )
       );
       this.exactDagProductBankWords = exactData.productBankWords;
-      this.exactDagLiveSlots = exactData.liveSlots;
+      this.exactDagLiveWords = exactData.liveWords;
       this.exactDagLanes = exactPlan.lanes;
       this.exactDagScratchBytes = exactPlan.bytes;
+      this.surfaceDomainCount = exactData.domainCount;
+      this.surfaceTemplateCount = exactData.templateCount;
+      this.surfaceCoherenceSetMask = exactData.coherenceSetMask;
+      this.surfaceHasLit = entries.some((_entry, index) => exactData.code[index * 16 + 15] !== 0);
+      const workProfiles = Array<boolean>(8).fill(false);
+      for (let entry = 0; entry < entries.length; entry++) {
+        const profile =
+          exactData.code[entry * 16 + 8]! * 2 + Number((exactData.code[entry * 16 + 13]! & 0x80000000) === 0);
+        workProfiles[profile] = true;
+      }
+      this.surfaceWorkProfiles = Object.freeze(workProfiles);
+      let varying = 0;
+      for (let entry = 0; entry < entries.length; entry++) {
+        varying |= exactData.code[entry * 16 + 12]! & ~exactData.code[entry * 16 + 13]!;
+      }
+      varying &= SURFACE_WORK_RETAINED_FIELDS;
+      this.exactDagVaryingFields = varying;
+      let channels = 0;
+      const fieldOffsets = APPEARANCE_FIELD_WIDTHS.map((width, field) => {
+        if ((varying & (1 << field)) === 0) {
+          return 0xffffffff;
+        }
+        const offset = channels;
+        channels += width;
+        return offset;
+      });
+      this.exactDagFieldOffsetValues = Object.freeze(fieldOffsets);
+      surfaceMetadataData.set([...fieldOffsets, channels], surfaceMetadataOffsets.exactFieldOffsets);
+      for (const descriptor of workDescriptors) {
+        this.surfaceLeases.push(registry.acquire(descriptor));
+      }
       const assetLeases = new Map<string, AppearanceStaticLease>();
       for (const [id, asset] of assets) {
         const lease = staticResidency!.acquire(asset, command);
@@ -724,7 +579,7 @@ export class GpuAppearancePublication {
         const view = new DataView(
           routeData.buffer,
           target.route * APPEARANCE_ROUTE_STRIDE,
-          APPEARANCE_ROUTE_STRIDE,
+          APPEARANCE_ROUTE_STRIDE
         );
         view.setUint32(4, summary.slot, true);
         view.setUint32(8, summary.generation, true);
@@ -732,22 +587,17 @@ export class GpuAppearancePublication {
       }
       surfaceMetadataData.set(new Uint32Array(routeData.buffer), surfaceMetadataOffsets.routes);
       for (const entry of entries) {
-        Object.freeze(entry.productTextures);
         Object.freeze(entry.coverage.productTextures);
         (entry.coverage.productViews as GPUTextureView[]).push(
-          ...entry.coverage.productTextures.map((texture) => texture.createView({ dimension: "2d-array" })),
+          ...entry.coverage.productTextures.map((texture) => texture.createView({ dimension: "2d-array" }))
         );
         Object.freeze(entry.coverage.productViews);
       }
       this.constants = this.upload(device, command, "constants", constantData);
       this.routes = this.upload(device, command, "routes", routeData);
-      this.directory = this.upload(device, command, "directory", directoryData);
-      this.fields = this.upload(device, command, "fields", fieldData);
       this.runtimeInputs = this.upload(device, command, "runtime-inputs", inputData);
       this.surfaceMetadata = this.upload(device, command, "surface-metadata", surfaceMetadataData);
       this.surfaceMetadataOffsets = Object.freeze(surfaceMetadataOffsets);
-      this.materialLookup = this.upload(device, command, "surface-material-lookup", materialLookupData);
-      this.surfaceIdentity = this.upload(device, command, "surface-publication-identity", identityData);
       const coverageDirectoryData = new Uint32Array(((maxMaterialSlot + 1) * COVERAGE_DIRECTORY_STRIDE) / 4);
       if (coverageDirectoryData.byteLength > maximum)
         throw new RangeError("Coverage directory exceeds negotiated storage limit");
@@ -757,10 +607,10 @@ export class GpuAppearancePublication {
             entry.coverage.constantBase,
             entry.coverage.routeBase,
             entry.coverage.inputBase,
-            entry.coverage.rasterProgram,
+            entry.coverage.rasterProgram
           ],
-          entry.materialSlot * 4,
-        ),
+          entry.materialSlot * 4
+        )
       );
       this.coverageDirectory = this.upload(device, command, "coverage-directory", coverageDirectoryData);
       this.constantValues = constantData;
@@ -768,13 +618,13 @@ export class GpuAppearancePublication {
       this.fieldWords = fieldData;
       this.fieldDependencies = fieldDependencies;
       this.entries = Object.freeze(entries);
-      this.surfaceProgramCount = surfaceDescriptors.length;
-      for (let family = 0; family < TEXTURE_BINDING_SET_MAX_RESIDENT_SETS; family++) {
+      this.surfaceProgramCount = 2;
+      for (let family = 0; family < 1; family++) {
         const label = `GpuAppearancePublication/Surface texture-set settings ${family}`;
         const settings = device.createBuffer({
           label,
           size: 48,
-          usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+          usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
         });
         this.buffers.push(settings);
         this.surfaceSettings.push(settings);
@@ -785,14 +635,11 @@ export class GpuAppearancePublication {
               category: "resident",
               owner: "GpuAppearancePublication",
               label,
-              bytes: 48,
-            }),
+              bytes: 48
+            })
           );
         }
       }
-      this.surfaceBoundPrograms = Object.freeze(boundPrograms);
-      this.surfaceMaxInputVectors = Math.max(1, ...surfaceKernels.map((kernel) => kernel.inputVectorCount));
-      this.surfaceMaxOutputs = Math.max(1, ...surfaceKernels.map((kernel) => kernel.lowered.outputCount));
       this.allocatedBytes = this.buffers.reduce((bytes, buffer) => bytes + buffer.size, 0);
       let cancel!: (reason: Error) => void;
       const cancellation = new Promise<never>((_resolve, reject) => {
@@ -807,8 +654,8 @@ export class GpuAppearancePublication {
               throw new Error("Appearance publication cancelled before program readiness");
             this.surfacePipelines = Object.freeze(surfacePipelines);
             this.state = "ready";
-          },
-        ),
+          }
+        )
       ]);
       void this.ready.catch(() => undefined);
       command.onBeforeFinish.addOne(() => {
@@ -852,7 +699,9 @@ export class GpuAppearancePublication {
         values = standardAppearanceParameters(entry.material);
         parameters.set(entry.material, values);
       }
-      for (const [name, slots] of Object.entries(entry.kernel.lowered.parameterSlots)) {
+      for (const [name, slots] of Object.entries(
+        ("lowered" in entry ? entry.lowered : entry.kernel.lowered).parameterSlots
+      )) {
         const authored = entry.material.appearance_inputs.get(name);
         for (const slot of slots) {
           const value =
@@ -885,6 +734,19 @@ export class GpuAppearancePublication {
       return false;
     });
     if (changed.size === 0) return false;
+    let uniformsChanged = false;
+    for (let entry = 0; entry < this.uniformDependencies.length; entry++) {
+      if (this.uniformDependencies[entry]!.some((ref) => changed.has(ref))) {
+        this.uniformFlags[entry]! |= 2;
+        uniformsChanged = true;
+      }
+    }
+    if (uniformsChanged) {
+      if (this.uniformRevision >= 0xffffffff) {
+        throw new RangeError("Appearance uniform version exhausted; republish the scene");
+      }
+      this.uniformRevision++;
+    }
     const fields = this.fieldWords.slice();
     this.fieldDependencies.forEach((dependencies, field) => {
       if (!dependencies.some((ref) => changed.has(ref))) return;
@@ -895,8 +757,7 @@ export class GpuAppearancePublication {
     });
     for (const [buffer, data] of [
       [this.constants, constants],
-      [this.runtimeInputs, inputs],
-      [this.fields, fields],
+      [this.runtimeInputs, inputs]
     ] as const) {
       command.writeBuffer(buffer, 0, data.buffer, data.byteOffset, data.byteLength);
     }
@@ -905,14 +766,14 @@ export class GpuAppearancePublication {
       this.surfaceMetadataOffsets.runtimeInputs * 4,
       inputs.buffer,
       inputs.byteOffset,
-      inputs.byteLength,
+      inputs.byteLength
     );
     command.writeBuffer(
       this.surfaceMetadata,
       this.surfaceMetadataOffsets.constants * 4,
       constants.buffer,
       constants.byteOffset,
-      constants.byteLength,
+      constants.byteLength
     );
     command.onFinished.addOne(() => {
       this.constantValues = constants;
@@ -925,97 +786,100 @@ export class GpuAppearancePublication {
   get viewDependentCoverage(): boolean {
     return this.entries.some(
       (entry) =>
-        entry.coverage.viewDependent &&
-        entry.material.transparency_mode === ShadeTransparencyMode.AlphaTested,
+        entry.coverage.viewDependent && entry.material.transparency_mode === ShadeTransparencyMode.AlphaTested
     );
   }
 
   /** One exact generic execution scope per negotiated residency set. */
-  encodeSurfaceFields(
+  workPipeline(product: boolean, common = false): Awaited<AppearanceProgramLease["ready"]> {
+    const ready = this.surfacePipelines?.[1 + (product ? 2 : 0) + (common ? 0 : 1)];
+    if (ready === undefined || (this.state !== "ready" && this.state !== "resident")) {
+      throw new Error("Surface Geometry/Appearance family is not ready");
+    }
+    return ready;
+  }
+
+  encodeWorkPublication(
     command: ShadeGPUCommandContext,
-    input: {
-      readonly geometry: GPUBuffer;
-      readonly demand: GPUBuffer;
-      readonly indirect: GPUBuffer;
-      readonly values: GPUBuffer;
-      readonly scratch: GPUBuffer;
-      readonly layout: SurfaceDemandLayout;
-      readonly textureBanks: readonly (readonly GPUTextureView[])[];
-    },
+    scratch: GPUBuffer,
+    frame: number,
+    camera: GPUBuffer
   ): void {
+    const ready = this.surfacePipelines?.[0];
     if (
-      command.device !== this.device ||
+      ready === undefined ||
       command.closed ||
+      command.device !== this.device ||
       (this.state !== "ready" && this.state !== "resident")
     ) {
-      throw new Error("Surface Appearance requires an open resident frame");
+      throw new Error("Surface constant publication requires ready same-device programs");
     }
-    const ready = this.surfacePipelines?.[0];
-    if (ready === undefined) {
-      throw new Error("Exact Surface Appearance kernel is not ready");
+    if (!this.hasFrameUniform && this.committedUniformRevision === this.uniformRevision) {
+      return;
     }
-    const offsets = input.layout.offsets;
-    for (let family = 0; family < TEXTURE_BINDING_SET_MAX_RESIDENT_SETS; family++) {
-      const banks = input.textureBanks[family];
-      if (banks === undefined) {
-        continue;
+    const revision = this.uniformRevision;
+    command.writeBuffer(
+      this.surfaceMetadata,
+      this.uniformFlagBase * 4,
+      this.uniformFlags.buffer,
+      0,
+      this.uniformFlags.byteLength
+    );
+    const settings = this.surfaceSettings[0]!;
+    const offsets = this.surfaceMetadataOffsets;
+    command.writeBuffer(
+      settings,
+      0,
+      new Uint32Array([
+        this.entries.length,
+        offsets.constantFields,
+        offsets.constants,
+        offsets.runtimeInputs,
+        this.exactDagLanes,
+        this.exactDagLiveWords,
+        frame,
+        0
+      ]).buffer,
+      0,
+      32
+    );
+    const group = this.obtainSurfaceBindGroup(ready.layouts[0]!, [
+      { binding: 0, resource: { buffer: this.exactDagCode } },
+      { binding: 1, resource: { buffer: this.surfaceMetadata } },
+      { binding: 2, resource: { buffer: scratch } },
+      { binding: 3, resource: { buffer: settings } },
+      { binding: 4, resource: { buffer: camera } }
+    ]);
+    const pass = command.beginComputePass({ label: "Surface/publication constants" });
+    pass.setPipeline(ready.pipeline);
+    pass.setBindGroup(0, group);
+    pass.dispatchWorkgroups(Math.ceil(Math.min(this.exactDagLanes, this.entries.length) / 64));
+    pass.end();
+    command.onFinished.addOne(() => {
+      this.committedUniformRevision = revision;
+      if (this.uniformRevision === revision) {
+        this.uniformFlags.fill(0);
       }
-      const settings = this.surfaceSettings[family]!;
-      command.writeBuffer(
-        settings,
-        0,
-        new Uint32Array([
-          offsets.material_queue! / 4,
-          offsets.material_masks! / 4,
-          offsets.material_entries! / 4,
-          family,
-          this.surfaceMetadataOffsets.constants,
-          this.surfaceMetadataOffsets.routes,
-          this.surfaceMetadataOffsets.runtimeInputs,
-          this.exactDagProductBankWords,
-          this.exactDagLanes,
-          this.exactDagLiveSlots,
-          0,
-          0,
-        ]).buffer,
-        0,
-        48,
-      );
-      const group0 = this.obtainSurfaceBindGroup(ready.layouts[0]!, [
-        { binding: 0, resource: { buffer: this.exactDagCode } },
-        { binding: 1, resource: { buffer: this.surfaceMetadata } },
-        { binding: 2, resource: { buffer: input.scratch } },
-        { binding: 3, resource: { buffer: input.geometry } },
-        { binding: 4, resource: { buffer: input.demand } },
-        { binding: 5, resource: { buffer: input.values } },
-        { binding: 6, resource: { buffer: this.exactDagProducts[0]! } },
-        { binding: 7, resource: { buffer: this.exactDagProducts[1]! } },
-        { binding: 8, resource: { buffer: settings } },
-      ]);
-      const textures: GPUBindGroupEntry[] = [];
-      for (let bank = 0; bank < 9; bank++) {
-        const view = banks[bank];
-        if (view === undefined) {
-          throw new Error("Exact Appearance resident bank is missing");
-        }
-        textures.push({ binding: bank, resource: view });
+    });
+  }
+
+  workTextureEntries(banks: readonly GPUTextureView[]): GPUBindGroupEntry[] {
+    const entries: GPUBindGroupEntry[] = [];
+    for (let bank = 0; bank < 9; bank++) {
+      if (banks[bank] === undefined) {
+        throw new Error("Surface resident bank is missing");
       }
-      for (let sampler = 0; sampler < 6; sampler++) {
-        textures.push({ binding: 9 + sampler, resource: this.samplers[sampler]! });
-      }
-      const group1 = this.obtainSurfaceBindGroup(ready.layouts[1]!, textures);
-      const pass = command.beginComputePass({ label: "Surface/exact Appearance residency set " + family });
-      pass.setPipeline(ready.pipeline);
-      pass.setBindGroup(0, group0);
-      pass.setBindGroup(1, group1);
-      pass.dispatchWorkgroups(Math.ceil(this.exactDagLanes / 64));
-      pass.end();
+      entries.push({ binding: bank, resource: banks[bank]! });
     }
+    for (let sampler = 0; sampler < 6; sampler++) {
+      entries.push({ binding: sampler + 9, resource: this.samplers[sampler]! });
+    }
+    return entries;
   }
 
   private obtainSurfaceBindGroup(
     layout: GPUBindGroupLayout,
-    entries: readonly GPUBindGroupEntry[],
+    entries: readonly GPUBindGroupEntry[]
   ): GPUBindGroup {
     if (entries.length === 0) {
       let group = this.surfaceEmptyBindings.get(layout);
@@ -1032,7 +896,7 @@ export class GpuAppearancePublication {
     }
     return cache.obtain(
       entries.map((entry) => entry.resource),
-      () => this.device.createBindGroup({ layout, entries }),
+      () => this.device.createBindGroup({ layout, entries })
     );
   }
 
@@ -1047,7 +911,7 @@ export class GpuAppearancePublication {
       allocatedBytes: bytes,
       residentBytes: this.state === "resident" ? bytes : 0,
       retiringBytes: this.state === "retiring" ? bytes : 0,
-      stagingBytes: this.state === "staging" || this.state === "ready" ? bytes : 0,
+      stagingBytes: this.state === "staging" || this.state === "ready" ? bytes : 0
     });
   }
 
@@ -1074,7 +938,7 @@ export class GpuAppearancePublication {
       this.state = "retiring";
       void command.gpuDone.then(
         () => this.destroy(),
-        () => this.destroy(),
+        () => this.destroy()
       );
     });
   }
@@ -1100,7 +964,7 @@ export class GpuAppearancePublication {
     device: GPUDevice,
     command: ShadeGPUCommandContext,
     name: string,
-    data: Float32Array | Uint8Array | Uint32Array,
+    data: Float32Array | Uint8Array | Uint32Array
   ): GPUBuffer {
     const label = `GpuAppearancePublication/${name}`;
     const buffer = device.createBuffer({
@@ -1109,7 +973,7 @@ export class GpuAppearancePublication {
       usage:
         GPUBufferUsage.STORAGE |
         GPUBufferUsage.COPY_DST |
-        (name === "surface-metadata" ? GPUBufferUsage.COPY_SRC : 0),
+        (name === "surface-metadata" || name === "exact-dag-code" ? GPUBufferUsage.COPY_SRC : 0)
     });
     this.buffers.push(buffer);
     if (this.accounting !== undefined)
@@ -1119,8 +983,8 @@ export class GpuAppearancePublication {
           category: "resident",
           owner: "GpuAppearancePublication",
           label,
-          bytes: data.byteLength,
-        }),
+          bytes: data.byteLength
+        })
       );
     command.writeBuffer(buffer, 0, data.buffer as ArrayBuffer, data.byteOffset, data.byteLength);
     return buffer;
@@ -1133,7 +997,7 @@ function packProductRoute(asset: AppearanceAssetPackage, layer: number): ArrayBu
   view.setUint32(0, layer, true);
   const mapping = [
     ...asset.domainMin,
-    ...asset.domainMax.map((max, axis) => 1 / (max - asset.domainMin[axis]!)),
+    ...asset.domainMax.map((max, axis) => 1 / (max - asset.domainMin[axis]!))
   ];
   if (!mapping.every((value) => Number.isFinite(Math.fround(value))))
     throw new RangeError("Appearance product coordinate mapping exceeds f32 publication range");
@@ -1145,7 +1009,7 @@ function packRoute(
   binding: CompiledAppearanceGraph["samples"][number]["binding"],
   ref: number,
   mipRange: readonly [number, number] | undefined,
-  publication: TextureSurfacePublication | undefined,
+  publication: TextureSurfacePublication | undefined
 ): ArrayBuffer {
   // Sampling author state is the compilation snapshot, not a later mutable texture.
   const samplerSnapshot = {
@@ -1153,13 +1017,13 @@ function packRoute(
     wrapT: binding.sampler[5],
     minFilter: binding.sampler[1],
     magFilter: binding.sampler[2],
-    runtime_asset_package_v2: binding.texture.runtime_asset_package_v2,
+    runtime_asset_package_v2: binding.texture.runtime_asset_package_v2
   } as ShadeTexture;
   const sampler = encodeSamplerClass(samplerSnapshot, mipRange);
   const data = new ArrayBuffer(APPEARANCE_ROUTE_STRIDE);
   const view = new DataView(data);
   [ref, sampler.value, publication?.slot ?? 0, publication?.revision ?? 0].forEach((value, index) =>
-    view.setUint32(index * 4, value, true),
+    view.setUint32(index * 4, value, true)
   );
   const values = [
     ...binding.offset,
@@ -1168,7 +1032,7 @@ function packRoute(
     Math.sin(binding.rotation),
     0,
     0,
-    ...binding.fallback,
+    ...binding.fallback
   ];
   values.forEach((value, index) => view.setFloat32(16 + index * 4, value, true));
   // Rotation's unused lanes carry exact local-summary identity, not f32 values.
@@ -1179,8 +1043,48 @@ function packRoute(
   const normalized =
     asset === undefined ||
     asset.variants.every(
-      (variant) => variant.format.endsWith("unorm") || variant.format.endsWith("unorm-srgb"),
+      (variant) => variant.format.endsWith("unorm") || variant.format.endsWith("unorm-srgb")
     );
   view.setUint32(44, normalized ? 1 : 0, true);
   return data;
+}
+
+function surfaceWorkDescriptor(product: boolean, common: boolean): AppearanceProgramDescriptor {
+  const textureEntries: GPUBindGroupLayoutEntry[] = [];
+  for (let binding = 0; binding < 9; binding++) {
+    textureEntries.push({
+      binding,
+      visibility: GPUShaderStage.COMPUTE,
+      texture: { sampleType: "float", viewDimension: "2d-array" }
+    });
+  }
+  for (let sampler = 0; sampler < 6; sampler++) {
+    textureEntries.push({
+      binding: 9 + sampler,
+      visibility: GPUShaderStage.COMPUTE,
+      sampler: { type: "filtering" }
+    });
+  }
+  const sources: GPUBindGroupLayoutEntry[] = [];
+  for (let binding = 0; binding < (product ? 9 : 4); binding++) {
+    sources.push({ binding, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } });
+  }
+  sources.push(
+    { binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+    { binding: 10, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 128 } }
+  );
+  const data: GPUBindGroupLayoutEntry[] = [];
+  for (let binding = 0; binding < 7; binding++) {
+    data.push({
+      binding,
+      visibility: GPUShaderStage.COMPUTE,
+      buffer: { type: binding === 2 || binding === 3 || binding === 6 ? "storage" : "read-only-storage" }
+    });
+  }
+  return {
+    source: surfaceWorkAppearanceWgsl(product, common),
+    entryPoint: "appearance",
+    workgroupSize: 64,
+    groups: [sources, data, textureEntries]
+  };
 }

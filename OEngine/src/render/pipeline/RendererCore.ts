@@ -21,10 +21,7 @@ import { XeGtaoMainPass } from "../ao/XeGtaoMainPass.js";
 import { XeGtaoDenoisePass } from "../ao/XeGtaoDenoisePass.js";
 import { SurfacePresentPass } from "../surface/SurfacePresentPass.js";
 import { SurfaceWorkRuntime } from "../surface/SurfaceWorkRuntime.js";
-import {
-  planSurfaceOptimizationCapacity,
-  SURFACE_OPTIMIZATION_ENVELOPE_BYTES,
-} from "../../gpu/SurfaceOptimizationCapacity.js";
+import { planSurfaceWorkCapacity } from "../../gpu/GpuSurfaceWorkAbi.js";
 import { LightClusterPass } from "../passes/LightClusterPass.js";
 import { PhysicalSkyPass } from "../passes/PhysicalSkyPass.js";
 import { AerialPerspectivePass } from "../passes/AerialPerspectivePass.js";
@@ -1485,7 +1482,7 @@ export class Renderer {
     this._height = Math.max(1, canvas.clientHeight || canvas.height);
     // Reject an unsupported initial extent before VSM, Surface pipelines, or
     // extent-dependent stores are created. Resize repeats this preflight.
-    planSurfaceOptimizationCapacity(this._width, this._height, device.limits);
+    planSurfaceWorkCapacity(this._width, this._height, device.limits, 0, 16 * 1024 * 1024);
     // E2 freezes the device-epoch profile and owns persistent resources. E4/E5
     // publish demand and residency work through the same Frame Program submit.
     // The raster pass needs the initialized GraphicsContext; constructing it
@@ -1534,8 +1531,6 @@ export class Renderer {
     this._surfaceWork = new SurfaceWorkRuntime(
       device,
       this._graphics.resource_accounting,
-      this._graphics.surface_field_store,
-      this._graphics.surface_signal_store,
     );
     this._temporalFacts = new TemporalFactsPass(device);
     this._gpuRadiometry = new GpuRadiometryPass(device, config.autoExposure, config.fixedExposure);
@@ -1558,7 +1553,7 @@ export class Renderer {
     if (!force && width === this._width && height === this._height) return;
     const nextWidth = Math.max(1, Math.floor(width));
     const nextHeight = Math.max(1, Math.floor(height));
-    planSurfaceOptimizationCapacity(nextWidth, nextHeight, this.device.limits);
+    planSurfaceWorkCapacity(nextWidth, nextHeight, this.device.limits, 0, 16 * 1024 * 1024);
     const outputWidth = nextWidth;
     const outputHeight = nextHeight;
     this._width = nextWidth;
@@ -1615,12 +1610,12 @@ export class Renderer {
     // A healthy device may defer this tick. No graph/resources/history are
     // advanced until one of the two submitted frames has completed.
     if (!this._frameCoordinator.canBeginFrame) return true;
-    if (!this._surfaceWork.canPrepareFrame(this._render_resolution.x, this._render_resolution.y)) return true;
     const runtime = this._graphics.render_world_if_created?.runtime(scene);
     if (!runtime) {
       if (scene.instance_count !== 0) throw new Error("Scene has no GPU Render World publication");
       return this.renderEmptyScene();
     }
+    if (!this._surfaceWork.canPrepareFrame(this._render_resolution.x, this._render_resolution.y, runtime.appearancePublication ?? undefined)) return true;
     if (this._historyRuntime !== runtime) {
       this._historyRuntime = runtime;
       this._sceneHistoryEpoch++;
@@ -1832,7 +1827,7 @@ export class Renderer {
         identityHistory.writeIndex,
         identityHistory.readValid,
       );
-      this._surfaceWork.prepareFrame(width, height, runtime.shadingPublication.revision);
+      this._surfaceWork.prepareFrame(width, height, runtime.shadingPublication.revision, runtime.appearancePublication ?? undefined);
       this._fsr3.prepareFrame(command, {
         renderWidth: width,
         renderHeight: height,
@@ -1954,7 +1949,10 @@ export class Renderer {
         debugView: this._render_debug_view,
       });
       assertFrameProgramBindings(program, graphBindings);
-      const graphKey = `${program.key}|surface-diagnostics:${this._surfaceDiagnosticsMode}`;
+      // The compiled Surface recipe captures immutable code/layout ownership.
+      // Numeric edits remain late-bound; a replacement publication must never
+      // reuse the previous owner's code buffers or liveness capacity.
+      const graphKey = `${program.key}|appearance:${appearance.surfaceCacheGeneration}|surface-diagnostics:${this._surfaceDiagnosticsMode}`;
       const compiled = this._graphCache.getOrCreate(
         graphKey,
         () => lowerFrameProgram(program, graphBindings, this.frameProgramOwners()),

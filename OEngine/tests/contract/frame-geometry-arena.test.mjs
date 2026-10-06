@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   frameGeometryArenaLayout,
-  frameGeometryArenaHeader,
+  frameGeometryArenaHeader
 } from "../../.test-dist/gpu/GpuFrameGeometryArenaAbi.js";
 import { FrameGeometryArena } from "../../.test-dist/render/FrameGeometryArena.js";
 import { ResourceAccounting } from "../../.test-dist/debug/profiling/ResourceAccounting.js";
@@ -11,17 +11,15 @@ globalThis.GPUBufferUsage = { STORAGE: 128, COPY_SRC: 4, COPY_DST: 8 };
 const limits = {
   minStorageBufferOffsetAlignment: 256,
   maxBufferSize: 1 << 24,
-  maxStorageBufferBindingSize: 1 << 24,
+  maxStorageBufferBindingSize: 1 << 24
 };
 const budget = {
   workCapacity: 3,
   filteredWorkCapacity: 3,
   vertexCapacity: 9,
   triangleCapacity: 3,
-  dictionaryCapacity: 16,
-  coefficientCapacity: 8,
-  probeLimit: 8,
-  maxBytes: 16384,
+
+  maxBytes: 16384
 };
 function fixture(maxBytes) {
   let loss;
@@ -43,17 +41,17 @@ function fixture(maxBytes) {
           destroy() {
             this.destroyed++;
           },
-          data,
+          data
         };
       buffers.push(b);
       return b;
-    },
+    }
   };
   const metadata = { size: 236, usage: GPUBufferUsage.COPY_SRC };
   const encoder = {
     copyBufferToBuffer(...args) {
       copies.push(args);
-    },
+    }
   };
   return {
     owner: new FrameGeometryArena(device, accounting, maxBytes),
@@ -63,14 +61,14 @@ function fixture(maxBytes) {
     buffers,
     copies,
     accounting,
-    loss,
+    loss
   };
 }
 test("arena layout retains raw metadata offsets and budgets physical gaps and both directory namespaces", () => {
   for (const alignment of [16, 64, 256, 512]) {
     const layout = frameGeometryArenaLayout(236, budget, {
       ...limits,
-      minStorageBufferOffsetAlignment: alignment,
+      minStorageBufferOffsetAlignment: alignment
     });
     let end = 236;
     for (const [name, region] of Object.entries(layout))
@@ -82,14 +80,14 @@ test("arena layout retains raw metadata offsets and budgets physical gaps and bo
     assert.equal(layout.byteLength, end);
     assert.equal(layout.metadataBytes, 236);
     const header = frameGeometryArenaHeader(layout, budget);
-    assert.deepEqual(Array.from(header.slice(0, 4)), [1, 3, 9, 3]);
+    assert.deepEqual(Array.from(header.slice(0, 4)), [3, 3, 9, 3]);
     assert.equal(header[4] * 4, layout.sourceDirectory.offset);
     assert.equal(header[5] * 4, layout.filteredDirectory.offset);
-    assert.equal(header[8] * 4, layout.dictionary.offset);
-    assert.equal(header[9] * 4, layout.coefficients.offset);
-    assert.equal(header[10], 16);
-    assert.equal(header[11], 8);
-    assert.equal(header[12], 8);
+    assert.deepEqual(
+      Array.from(header.slice(8, 13)),
+      [0, 0, 0, 0, 0],
+      "retired dictionary/coefficient header words are unused"
+    );
   }
 });
 test("views without late HZB allocate no second directory; filtered queues have an explicit independent capacity", () => {
@@ -102,7 +100,7 @@ test("views without late HZB allocate no second directory; filtered queues have 
   assert.equal(partial.filteredDirectory.size, 32);
   assert.throws(
     () => frameGeometryArenaLayout(236, { ...budget, filteredWorkCapacity: 4 }, limits),
-    RangeError,
+    RangeError
   );
 });
 test("arena preflight rejects invalid bounds and whole-buffer limits before allocating", () => {
@@ -110,10 +108,7 @@ test("arena preflight rejects invalid bounds and whole-buffer limits before allo
   for (const invalid of [
     { ...budget, workCapacity: 0 },
     { ...budget, vertexCapacity: 0x100000000 },
-    { ...budget, dictionaryCapacity: 15 },
-    { ...budget, coefficientCapacity: 32 },
-    { ...budget, probeLimit: 17 },
-    { ...budget, maxBytes: 16 },
+    { ...budget, maxBytes: 16 }
   ]) {
     assert.throws(() => f.owner.prepare(f.metadata, 236, invalid), RangeError);
   }
@@ -123,6 +118,19 @@ test("arena preflight rejects invalid bounds and whole-buffer limits before allo
   assert.throws(() => f.owner.prepare(f.metadata, 236, budget), RangeError);
   assert.equal(f.buffers.length, 0);
   f.owner.destroy();
+});
+
+test("prepared attributes use remaining arena capacity without exceeding a whole binding", () => {
+  const full = frameGeometryArenaLayout(236, budget, limits);
+  assert.equal(full.attributeCapacity, 9);
+  assert.equal(full.attributes.size, 9 * 144);
+  const smallLimit = full.attributes.offset + 3 * 144;
+  const partial = frameGeometryArenaLayout(236, { ...budget, maxBytes: smallLimit }, limits);
+  assert.equal(partial.attributeCapacity, 3);
+  assert.equal(partial.byteLength, smallLimit);
+  const zero = frameGeometryArenaLayout(236, { ...budget, maxBytes: full.attributes.offset + 16 }, limits);
+  assert.equal(zero.attributeCapacity, 0);
+  assert.equal(zero.attributes.size, 16, "a legal empty typed binding is independent of prepared capacity");
 });
 test("aborted metadata publication retries; committed stable frames encode zero copies", () => {
   const f = fixture(),
@@ -141,7 +149,7 @@ test("aborted metadata publication retries; committed stable frames encode zero 
   assert.equal(f.accounting.snapshot().totalBytes, p.layout.byteLength);
   assert.deepEqual(
     Array.from(new Uint32Array(p.buffer.data, p.layout.header.offset, 16)),
-    Array.from(frameGeometryArenaHeader(p.layout, budget)),
+    Array.from(frameGeometryArenaHeader(p.layout, budget))
   );
   f.owner.release(p);
   assert.equal(f.accounting.snapshot().totalBytes, 0);

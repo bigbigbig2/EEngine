@@ -4,7 +4,7 @@ import {
   frameGeometryArenaLayout,
   type FrameGeometryArenaBudget,
   type FrameGeometryArenaLayout,
-  type FrameGeometryArenaRegion,
+  type FrameGeometryArenaRegion
 } from "../gpu/GpuFrameGeometryArenaAbi.js";
 import type { GpuStorageRange } from "../gpu/GpuStorageRange.js";
 
@@ -16,10 +16,7 @@ export interface PreparedFrameGeometryArena {
   readonly filteredDirectory: GpuStorageRange;
   readonly clips: GpuStorageRange;
   readonly triangles: GpuStorageRange;
-  readonly dictionary: GpuStorageRange;
-  readonly coefficients: GpuStorageRange;
-  readonly work: GpuStorageRange;
-  readonly control: GpuStorageRange;
+  readonly attributes: GpuStorageRange;
 }
 interface State {
   readonly metadata: GPUBuffer;
@@ -37,7 +34,7 @@ export class FrameGeometryArena {
   constructor(
     private readonly device: GPUDevice,
     private readonly accounting?: ResourceAccounting,
-    private readonly maxBytes = 256 * 1024 * 1024,
+    private readonly maxBytes = 256 * 1024 * 1024
   ) {
     if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0)
       throw new RangeError("Invalid frame geometry owner budget");
@@ -51,7 +48,7 @@ export class FrameGeometryArena {
   prepare(
     metadata: GPUBuffer,
     metadataBytes: number,
-    budget: FrameGeometryArenaBudget,
+    budget: FrameGeometryArenaBudget
   ): PreparedFrameGeometryArena {
     if (this.destroyed) throw new Error("Frame geometry arena owner is destroyed");
     const layout = frameGeometryArenaLayout(metadataBytes, budget, this.device.limits);
@@ -66,12 +63,12 @@ export class FrameGeometryArena {
       label: "Geometry shared frame arena",
       size: layout.byteLength,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
-      mappedAtCreation: true,
+      mappedAtCreation: true
     });
     let handle: ResourceHandle | undefined;
     try {
       new Uint32Array(buffer.getMappedRange(), layout.header.offset, 16).set(
-        frameGeometryArenaHeader(layout, budget),
+        frameGeometryArenaHeader(layout, budget)
       );
       buffer.unmap();
       handle = this.accounting?.created({
@@ -79,7 +76,7 @@ export class FrameGeometryArena {
         category: "work-cache",
         owner: "Geometry/FrameGeometryArena",
         bytes: layout.byteLength,
-        label: "Geometry shared frame arena",
+        label: "Geometry shared frame arena"
       });
       const range = (r: FrameGeometryArenaRegion): GpuStorageRange => Object.freeze({ buffer, ...r });
       const p = Object.freeze({
@@ -90,10 +87,7 @@ export class FrameGeometryArena {
         filteredDirectory: range(layout.filteredDirectory),
         clips: range(layout.clips),
         triangles: range(layout.triangles),
-        dictionary: range(layout.dictionary),
-        coefficients: range(layout.coefficients),
-        work: range(layout.work),
-        control: range(layout.control),
+        attributes: range(layout.attributes)
       });
       this.states.set(p, { metadata, handle, metadataPublished: false, released: new Set() });
       return p;

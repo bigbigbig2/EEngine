@@ -11,6 +11,11 @@ import { lowerAppearanceWgsl } from "../../.test-dist/shaders/appearance_program
 import { APPEARANCE_EXACT_DAG_WGSL } from "../../.test-dist/shaders/appearance_exact_dag.js";
 import { evaluateCompiledAppearance } from "../../.test-dist/material/AppearanceGraphEvaluation.js";
 import { ShadeTexture } from "../../.test-dist/texture/ShadeTexture.js";
+import { StandardShadeMaterial } from "../../.test-dist/material/StandardShadeMaterial.js";
+import { compileCanonicalMaterial } from "../../.test-dist/material/CanonicalMaterial.js";
+
+/** Measures the ACTUAL production resource/branch layout, unlike the analytic
+ * sampler component oracle below. Compilation alone proves no numeric result. */
 
 const check = (condition, message) => {
   if (!condition) throw new Error(message);
@@ -78,6 +83,29 @@ function programs() {
     inputs: { uv0: [0.2, 0.3], uv1: [0.1, 0.2], uv2: [0.15, 0.25] },
     sample: (_binding, uv) => [uv[0], uv[1], Math.fround(uv[0] + uv[1]), 1],
   });
+  for (const moment of [
+    [0.3, 0.4, 0.5],
+    [0, 0, 0],
+  ]) {
+    result.push({
+      label: `constant-normal-product-${moment[0]}`,
+      inputs: {},
+      sample: () => [],
+      constantPadding: 65536,
+      program: {
+        instructions: Array.from({ length: 5 }, (_, channel) => ({
+          kind: "normal-product",
+          args: [],
+          product: 0,
+          channel,
+        })),
+        inputs: [],
+        samples: [],
+        outputs: { normalTS: [0, 1, 2], roughness: [3], normalTSValidity: [4] },
+        productReads: [{ field: { width: 3, constant: moment }, uv: null }],
+      },
+    });
+  }
   return result;
 }
 
@@ -100,14 +128,26 @@ export async function runExactAppearanceDagGpuOracle(device) {
   const source = /* wgsl */ `
 struct Settings { count: u32, outputs: u32, lanes: u32, stride: u32, }
 @group(0) @binding(0) var<storage, read> dag_code: array<u32>;
-@group(0) @binding(1) var<storage, read_write> dag_values: array<vec4f>;
+@group(0) @binding(1) var<storage, read_write> dag_values: array<f32>;
 @group(0) @binding(2) var<storage, read> constants: array<f32>;
 @group(0) @binding(3) var<storage, read> inputs: array<vec4f>;
 @group(0) @binding(4) var<storage, read_write> result: array<f32>;
 @group(0) @binding(5) var<uniform> settings: Settings;
 @group(0) @binding(6) var<storage, read_write> footprints: array<vec4f>;
 var<private> item: u32;
+fn appearance_dag_output(field: u32, channel: u32, value: f32) {
+  for (var output = 0u; output < settings.outputs; output++) {
+    let at = settings.count * 8u + output * 4u;
+    if dag_code[at] == field && dag_code[at + 1u] == channel {
+      result[item * settings.outputs + output] = value;
+    }
+  }
+}
 fn appearance_dag_constant(index: u32) -> f32 { return constants[index]; }
+fn appearance_dag_uniform(index: u32) -> f32 { return bitcast<f32>(0x7fc00000u | (settings.lanes & 0u)); }
+fn appearance_dag_publish_uniform(index: u32, value: f32) {
+  result[item * settings.outputs] = bitcast<f32>(0x7fc00000u | (settings.lanes & 0u));
+}
 fn appearance_dag_input(index: u32, semantic: u32, channel: u32, neighbors: bool) -> vec3f {
   let value = inputs[index][channel];
   if semantic == 0u || !neighbors { return vec3f(value); }
@@ -126,12 +166,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   if id.x >= settings.lanes { return; }
   for (var work = id.x; work < 129u; work += settings.lanes) {
     item = work;
-    let lane = id.x * settings.stride;
-    appearance_dag_evaluate(0u, settings.count, lane, 32767u);
-    for (var output = 0u; output < settings.outputs; output++) {
-      let at = settings.count * 8u + output * 4u;
-      result[work * settings.outputs + output] = dag_values[lane + dag_code[at + 2u]].x;
-    }
+    let lane = id.x;
+    appearance_dag_evaluate(0u, settings.count, lane, 32767u, settings.lanes);
   }
 }
 `;
@@ -142,7 +178,22 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   const reports = [];
   try {
     for (const fixture of cases) {
-      const lowered = lowerAppearanceWgsl(fixture.program);
+      let lowered = lowerAppearanceWgsl(fixture.program);
+      if (fixture.constantPadding) {
+        const padding = fixture.constantPadding;
+        const constants = new Float32Array(padding + lowered.constants.length);
+        constants.set(lowered.constants, padding);
+        lowered = {
+          ...lowered,
+          constants,
+          productConstantSlots: Object.fromEntries(
+            Object.entries(lowered.productConstantSlots).map(([index, slots]) => [
+              index,
+              slots.map((slot) => slot + padding),
+            ]),
+          ),
+        };
+      }
       const dag = compileExactAppearanceDag(fixture.program, lowered);
       const code = new Uint32Array(dag.instructions.length + dag.outputs.length);
       code.set(dag.instructions);
@@ -174,9 +225,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         ];
         expected.push(expectedFields[names[dag.outputs[at]]][dag.outputs[at + 1]]);
       }
-      for (const requested of [1, 7, 64]) {
+      for (const requested of [1, 7, 64, 65]) {
         const plan = planExactAppearanceLanes(
-          dag.liveSlots,
+          dag.liveWords,
           device.limits.maxStorageBufferBindingSize,
           requested,
         );
@@ -185,12 +236,12 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         const log = buffer(new Float32Array(129 * 4));
         const resources = [
           buffer(code),
-          buffer(new Float32Array(plan.bytes / 4)),
+          buffer(new Float32Array(plan.bytes / 4).fill(523.25)),
           buffer(Float32Array.from(lowered.constants)),
           buffer(inputData),
           output,
           buffer(
-            new Uint32Array([dag.instructions.length / 8, outputCount, plan.lanes, dag.liveSlots]),
+            new Uint32Array([dag.instructions.length / 8, outputCount, plan.lanes, dag.liveWords]),
             GPUBufferUsage.UNIFORM,
           ),
           log,
@@ -200,7 +251,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
           entries: resources.map((resource, binding) => ({ binding, resource: { buffer: resource } })),
         });
         const readback = device.createBuffer({
-          size: output.size + log.size,
+          size: output.size + log.size + plan.bytes,
           usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
         });
         allocations.push(readback);
@@ -212,6 +263,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         pass.end();
         encoder.copyBufferToBuffer(output, 0, readback, 0, output.size);
         encoder.copyBufferToBuffer(log, 0, readback, output.size, log.size);
+        encoder.copyBufferToBuffer(resources[1], 0, readback, output.size + log.size, plan.bytes);
         device.queue.submit([encoder.finish()]);
         await readback.mapAsync(GPUMapMode.READ);
         const actual = new Float32Array(readback.getMappedRange());
@@ -240,11 +292,13 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
               `nested footprint axis ${axis}`,
             );
         }
+        const hotStorage = actual.subarray((output.size + log.size) / 4);
+        check(hotStorage.some(value => value !== 523.25), "typed word scratch is actually consumed by production tape");
         readback.unmap();
         reports.push({
           label: fixture.label,
           lanes: plan.lanes,
-          liveSlots: dag.liveSlots,
+          liveWords: dag.liveWords,
           instructions: dag.instructions.length / 8,
           outputs: outputCount,
           work: 129,

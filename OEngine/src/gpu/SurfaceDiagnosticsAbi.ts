@@ -5,12 +5,12 @@
  * counters are mutable indirect arguments, while these fields are immutable
  * evidence for one sampled frame.
  */
-import { SURFACE_GEOMETRY_RECORD_HOT_BYTES } from "./GpuSurfaceGeometryRecordAbi.js";
+import { SURFACE_WORK_HOT_WORDS } from "./GpuSurfaceWorkAbi.js";
 
-export const SURFACE_DIAGNOSTICS_SCHEMA_VERSION = 7;
+export const SURFACE_DIAGNOSTICS_SCHEMA_VERSION = 8;
 export const SURFACE_DIAGNOSTICS_MAGIC = 0x53564433; // "SVD3"
 export const SURFACE_DIAGNOSTICS_HEADER_WORDS = 16;
-export const SURFACE_DIAGNOSTICS_COUNTER_WORDS = 112;
+export const SURFACE_DIAGNOSTICS_COUNTER_WORDS = 128;
 export const SURFACE_DIAGNOSTICS_WORDS = SURFACE_DIAGNOSTICS_HEADER_WORDS + SURFACE_DIAGNOSTICS_COUNTER_WORDS;
 export const SURFACE_DIAGNOSTICS_BYTE_SIZE = SURFACE_DIAGNOSTICS_WORDS * 4;
 
@@ -131,6 +131,11 @@ export const SURFACE_DIAGNOSTIC_COUNTERS = Object.freeze({
   geometryDescriptions: 109,
   materialDescriptions: 110,
   lightingDescriptions: 111,
+  domainDescriptions: 112,
+  coverageReferences: 113,
+  promotedTiles: 114,
+  fieldScalarWrites: 115,
+  geometrySetupEvaluations: 116,
 } as const);
 
 export const SURFACE_DIAGNOSTICS_COUNTERS = SURFACE_DIAGNOSTIC_COUNTERS;
@@ -141,61 +146,41 @@ export type SurfaceDiagnosticCounter = keyof typeof SURFACE_DIAGNOSTIC_COUNTERS;
  * counters have no current producer and must not appear as measured zeroes. */
 export const SURFACE_DIAGNOSTIC_PRODUCERS: Readonly<Partial<Record<SurfaceDiagnosticCounter, string>>> =
   Object.freeze({
-    totalTiles: "workspace.control[127,125]/coverage tile scan",
-    emptyTiles: "coverage tile scan",
-    uniformTiles: "coverage material equality",
-    mixedTiles: "coverage material inequality",
-    visiblePixels: "coverage facts scan",
-    materialLookup: "workspace.counters[115]+[113]",
-    materialHit: "workspace.counters[113]",
-    materialMissRequested: "workspace.counters[115]",
-    materialMissQueued: "demand.control[5]",
-    geometryDescriptions: "demand.control[0]",
-    materialDescriptions: "demand.control[5]",
-    lightingDescriptions: "demand.control[6]",
-    diffuseEvaluations: "lighting diagnostic_add(0)",
-    specularEvaluations: "lighting diagnostic_add(1)",
-    coatEvaluations: "lighting diagnostic_add(2)",
-    iblEvaluations: "lighting diagnostic_add(3)+[6]+[4], diffuse/specular/coat environments",
-    diffusePacketWrites: "lighting diagnostic_add(20)+[21]",
-    specularPacketWrites: "lighting diagnostic_add(22)+[23]",
-    coatPacketWrites: "lighting diagnostic_add(24)+[25]",
-    iblPacketWrites: "lighting diagnostic_add(21)+[23]+[25]",
-    packetWriteBytes: "six actual packet-store counters * 16 bytes",
-    fieldCacheRequests: "demand.control[1]",
-    fieldCacheProbes: "demand.control[53]",
-    fieldCacheUnique: "demand.control[3]",
-    fieldCacheAdmissions: "demand.control[51]",
-    fieldCacheQueueRejected: "demand.control[47]",
-    signalCacheRequests: "demand.control[2]",
-    signalCacheProbes: "demand.control[54]",
-    signalCacheUnique: "demand.control[4]",
-    signalCacheAdmissions: "demand.control[52]",
-    signalCacheQueueRejected: "demand.control[48]",
-    fieldValuesProduced: "demand.control[49]/field publication",
-    signalValuesProduced: "demand.control[50]/signal publication",
-    candidateLeaves: "workspace.counters[84]",
-    uvWitnessGroups: "workspace.counters[85]",
-    uvWitnessWriteBytes: "workspace.counters[86]",
-    signalWitnessLeaves: "workspace.counters[87]",
-    signalWitnessWriteBytes: "workspace.counters[88]",
-    proofResultWriteBytes: "workspace.counters[89]",
-    proofAdmitted: "workspace.counters[120]",
-    proofRejected: "workspace.counters[122]",
-    explicitStoreRefWriteBytes: "workspace.counters[90]",
-    fullDirectLightEvaluations: "lighting diagnostic_add(32)",
-    sharedDirectTransportEvaluations: "lighting diagnostic_add(33)",
-    transportOnlyLightEvaluations: "lighting diagnostic_add(34)",
-    fieldLookupCandidates: "workspace.counters[91]",
-    nonPublicationFields: "workspace.counters[92]",
-    fieldLookupProbes: "workspace.counters[93]",
-    transportEligibleLeaves: "workspace.counters[94]",
-    residualLeaves: "workspace.counters[95]",
-    reconstructOutputPixels: "reconstruct[0]",
-    reconstructUncoveredPixels: "reconstruct[1]",
-    reconstructMappedPixels: "reconstruct[7]",
-    outputPixels: "extent width*height",
-    geometryRecordStrideWords: "GeometryRecord hot ABI bytes/4",
+    totalTiles: "capacity coverage tile extent",
+    emptyTiles: "work_control[225]/coverage reduction",
+    uniformTiles: "work_control[226]/coverage reduction",
+    mixedTiles: "work_control[227]/coverage reduction",
+    visiblePixels: "work_control[224]/coverage reduction",
+    geometryRecordsRequested: "work_control[239]/before Geometry producer",
+    geometryMissCompleted: "work_control[229]/Geometry producer completion",
+    geometryRejected: "work_control[228]/Geometry producer rejection",
+    geometryRecordStrideWords: "closed Geometry ABI, words",
+    geometryHotWriteBytes: "work_control[243]/actual closed hot writes * 64 bytes",
+    materialEvaluatorEntered: "work_control[240]/before missing closure evaluator",
+    materialEvaluatorCompleted: "work_control[230]/after closure writes",
+    fieldValuesProduced: "work_control[241]/actual missing field roots written",
+    fieldScalarWrites: "work_control[242]/actual scalar SoA writes",
+    geometrySetupEvaluations: "work_control[244]/actual primitive setup calls",
+    lightingRecordsProcessed: "work_control[261]/closed lit sample",
+    diffuseEvaluations: "work_control[256]/direct sample calls",
+    specularEvaluations: "work_control[257]/direct sample calls",
+    coatEvaluations: "work_control[258]/nonzero coat sample calls",
+    iblEvaluations: "work_control[259]+[260]+[262]/actual environment calls",
+    lightLoopIterations: "work_control[264]/actual provider BRDF calls",
+    diffusePacketWrites: "work_control[276]+[277]/packet stores",
+    specularPacketWrites: "work_control[278]+[279]/packet stores",
+    coatPacketWrites: "work_control[280]+[281]/packet stores",
+    iblPacketWrites: "work_control[277]+[279]+[281]/packet stores",
+    packetWriteBytes: "actual packet stores * 16 bytes",
+    signalValuesProduced: "six actual packet-store counts",
+    reconstructOutputPixels: "work_control[233]/valid output writes",
+    reconstructUncoveredPixels: "work_control[234]/background output writes",
+    outputPixels: "output extent",
+    transientBytes: "Surface scratch owner active bytes",
+    diagnosticsFlags: "actual Geometry producer error flag",
+    domainDescriptions: "publication interned directory count",
+    coverageReferences: "work_control[32..35]/active tile references",
+    promotedTiles: "work_control[232]/whole-tile optional rejection",
   });
 
 export const SURFACE_DIAGNOSTIC_DESCRIPTORS = Object.freeze(
@@ -211,7 +196,7 @@ export const SURFACE_DIAGNOSTIC_DESCRIPTORS = Object.freeze(
             : name.endsWith("Pixels")
               ? "pixels"
               : "count",
-        window: "one sampled frame, accumulated across active batches",
+        window: "one sampled frame, across disjoint physical banks",
         availability: SURFACE_DIAGNOSTIC_PRODUCERS[name] === undefined ? "unavailable" : "wired",
       }),
     ]),
@@ -335,62 +320,19 @@ export function decodeSurfaceDiagnostics(
 export function evaluateSurfaceCoverage(values: SurfaceDiagnosticsValues): SurfaceCoverageReport {
   const violations: string[] = [];
   const required: SurfaceDiagnosticCounter[] = [
-    "totalTiles",
-    "emptyTiles",
-    "uniformTiles",
-    "mixedTiles",
-    "sampleRequested",
-    "sampleAccepted",
-    "sampleOverflow",
-    "materialLookup",
-    "materialHit",
-    "materialMissRequested",
-    "materialRejected",
-    "geometryRecordsRequested",
-    "geometryCacheHit",
-    "geometryMissQueued",
-    "geometryRejected",
-    "geometryMissCompleted",
-    "materialEvaluatorCompleted",
-    "materialEvaluatorSkippedOrRejected",
-    "reconstructOutputPixels",
-    "reconstructUncoveredPixels",
-    "outputPixels",
+    "totalTiles", "emptyTiles", "uniformTiles", "mixedTiles", "visiblePixels",
+    "geometryRecordsRequested", "geometryMissCompleted", "geometryRejected",
+    "materialEvaluatorEntered", "materialEvaluatorCompleted",
+    "reconstructOutputPixels", "reconstructUncoveredPixels", "outputPixels",
   ];
-  const incomplete =
-    required.some((name) => values[name] === undefined) ||
-    ((values.diagnosticsFlags ?? 0) & SURFACE_DIAGNOSTIC_FLAGS.incompleteProducerCounters) !== 0;
+  const incomplete = required.some((name) => values[name] === undefined);
   if (!incomplete) {
     sumEquals(values, "totalTiles", ["emptyTiles", "uniformTiles", "mixedTiles"], violations);
-    sumEquals(values, "sampleRequested", ["sampleAccepted", "sampleOverflow"], violations);
-    sumEquals(
-      values,
-      "materialLookup",
-      ["materialHit", "materialMissRequested", "materialRejected"],
-      violations,
-    );
-    sumEquals(
-      values,
-      "geometryRecordsRequested",
-      ["geometryCacheHit", "geometryMissQueued", "geometryRejected"],
-      violations,
-    );
-    if (
-      counterValue(values, "materialMissQueued") <
-      counterValue(values, "materialEvaluatorCompleted") +
-        counterValue(values, "materialEvaluatorSkippedOrRejected")
-    ) {
-      violations.push("material queued less than completed plus skipped/rejected");
-    }
-    if (counterValue(values, "geometryMissCompleted") > counterValue(values, "geometryMissQueued")) {
-      violations.push("geometry miss completed exceeds queued");
-    }
-    if (
-      counterValue(values, "reconstructOutputPixels") + counterValue(values, "reconstructUncoveredPixels") !==
-      counterValue(values, "outputPixels")
-    ) {
-      violations.push("reconstruct output coverage mismatch");
-    }
+    sumEquals(values, "geometryRecordsRequested", ["geometryMissCompleted", "geometryRejected"], violations);
+    if (values.geometryRejected !== 0) { violations.push("visible Geometry producer rejected source"); }
+    if (values.materialEvaluatorEntered !== values.materialEvaluatorCompleted) { violations.push("Appearance evaluator completion mismatch"); }
+    if (values.visiblePixels !== values.reconstructOutputPixels) { violations.push("visible coverage lost before output"); }
+    if (values.reconstructOutputPixels! + values.reconstructUncoveredPixels! !== values.outputPixels) { violations.push("reconstruct output coverage mismatch"); }
   }
   if (
     values.geometryProducerBaseWords !== undefined &&
@@ -401,7 +343,7 @@ export function evaluateSurfaceCoverage(values: SurfaceDiagnosticsValues): Surfa
   }
   if (
     values.geometryRecordStrideWords !== undefined &&
-    values.geometryRecordStrideWords !== SURFACE_GEOMETRY_RECORD_HOT_BYTES / 4 &&
+    values.geometryRecordStrideWords !== SURFACE_WORK_HOT_WORDS &&
     values.geometryRecordStrideWords !== 0
   ) {
     violations.push("geometry record stride mismatch");

@@ -9,7 +9,6 @@ import {
   GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE,
   GPU_MESHLET_RASTER_WORK_RECORD_STRIDE,
 } from "../gpu/GpuMeshletRasterWorkAbi.js";
-import { GPU_FRAME_ATTRIBUTE_STRIDE } from "../gpu/GpuFrameGeometryAttributesAbi.js";
 import {
   frameGeometryVerticesWgsl,
   FRAME_VERTEX_SETTINGS_SIZE,
@@ -20,7 +19,6 @@ import {
 export interface PreparedFrameVertices {
   readonly control: GPUBuffer;
   readonly rasterSettings: GPUBuffer;
-  readonly attributes: GPUBuffer;
   readonly filteredRasterSettings: GPUBuffer;
   readonly byteLength: number;
   readonly arena: PreparedFrameGeometryArena;
@@ -146,22 +144,15 @@ export class FrameGeometryVertices {
     const { arena, instances, work, assets } = input,
       product = input.product !== undefined,
       l = this.device.limits;
-    const attributeBytes = arena.budget.vertexCapacity * GPU_FRAME_ATTRIBUTE_STRIDE;
+    const fixedBytes = FRAME_VERTEX_SETTINGS_SIZE + FRAME_VERTEX_CONTROL_SIZE + 32 + ((arena.budget.filteredWorkCapacity ?? 0) > 0 ? 16 : 0);
+    const attributeCapacity = arena.layout.attributeCapacity;
     if (
-      attributeBytes > l.maxBufferSize ||
-      attributeBytes > l.maxStorageBufferBindingSize ||
       arena.budget.workCapacity > l.maxComputeWorkgroupsPerDimension ** 2 ||
       work.size <
         GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE +
           arena.budget.workCapacity * GPU_MESHLET_RASTER_WORK_RECORD_STRIDE ||
       (product && input.productBanks?.length !== 4) ||
-      this.allocatedBytes +
-        FRAME_VERTEX_SETTINGS_SIZE +
-        FRAME_VERTEX_CONTROL_SIZE +
-        32 +
-        ((arena.budget.filteredWorkCapacity ?? 0) > 0 ? 16 : 0) +
-        attributeBytes >
-        this.maxBytes
+      this.allocatedBytes + fixedBytes > this.maxBytes
     ) {
       throw new RangeError("Frame vertices input capacity, Product banks or cumulative budget is invalid");
     }
@@ -179,7 +170,7 @@ export class FrameGeometryVertices {
     ] as [string, GPUBuffer][]) {
       gpuStorageRange(b, l, 4, `Frame vertex ${name}`);
     }
-    requireDisjointStorageRanges([], [arena.sourceDirectory, arena.clips, arena.triangles]);
+    requireDisjointStorageRanges([], [arena.sourceDirectory, arena.clips, arena.triangles, arena.attributes]);
     const buffers: GPUBuffer[] = [],
       handles: ResourceHandle[] = [];
     const make = (label: string, size: number, usage: GPUBufferUsageFlags) => {
@@ -211,7 +202,6 @@ export class FrameGeometryVertices {
         16,
         GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_SRC,
       );
-      const attributes = make("Geometry frame attributes", attributeBytes, GPUBufferUsage.STORAGE);
       const rasterSettings = make(
         "Geometry frame raster addressing",
         16,
@@ -226,7 +216,7 @@ export class FrameGeometryVertices {
             )
           : rasterSettings;
       const addressing = (directory: number) =>
-        new Uint32Array([directory / 4, arena.clips.offset / 4, arena.triangles.offset / 4, 0]);
+        new Uint32Array([directory / 4, arena.clips.offset / 4, arena.triangles.offset / 4, arena.attributes.offset / 4]);
       writeGpuBuffer(
         this.device.queue,
         "Geometry/frame-raster-addressing",
@@ -249,7 +239,7 @@ export class FrameGeometryVertices {
         0,
         new Uint32Array([
           arena.budget.workCapacity,
-          arena.budget.vertexCapacity,
+          attributeCapacity,
           arena.budget.triangleCapacity,
           l.maxComputeWorkgroupsPerDimension,
           0,
@@ -271,7 +261,7 @@ export class FrameGeometryVertices {
         { binding: 14, resource: arena.clips },
         { binding: 15, resource: arena.triangles },
         { binding: 16, resource: { buffer: control } },
-        { binding: 17, resource: { buffer: attributes } },
+        { binding: 17, resource: arena.attributes },
       ];
       const group = this.device.createBindGroup({
         layout: this.layouts[product ? 1 : 0]!,
@@ -306,7 +296,6 @@ export class FrameGeometryVertices {
       const prepared = Object.freeze({
         arena,
         control,
-        attributes,
         rasterSettings,
         filteredRasterSettings,
         byteLength: buffers.reduce((sum, b) => sum + b.size, 0),

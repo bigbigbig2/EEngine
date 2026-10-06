@@ -40,6 +40,11 @@ import {SURFACE_EXECUTION_WORDS,SURFACE_FIELD_EXECUTION_WORDS} from '../../../OE
 import {surfaceCoverageLayout} from '../../../OEngine/.test-dist/gpu/GpuSurfaceCoverageAbi.js';
 import {DIRECTIONAL_LIGHT_DESCRIPTOR,DIRECTIONAL_LIGHT_RECORD_TYPE} from '../../../OEngine/.test-dist/gpu/LightDatabase.js';
 export async function runPhaseOneOracle(gpu,assert,onStage=()=>{},options={}) {
+ const startedAt=performance.now();
+ const timings=[];
+ const stage=onStage;
+ onStage=message=>stage(`${message} [elapsed ${Math.round(performance.now()-startedAt)} ms]`);
+ globalThis.cellOracleProgress={timings,stage:'device negotiation'};
  const withOrm=true;
  const adapter=await gpu.requestAdapter({powerPreference:'high-performance'});assert.ok(adapter&&!adapter.info.isFallbackAdapter);
  const device=await adapter.requestDevice({requiredLimits:{maxStorageBuffersPerShaderStage:16}});
@@ -52,17 +57,20 @@ export async function runPhaseOneOracle(gpu,assert,onStage=()=>{},options={}) {
    return created;
  };
  const nativeModule=device.createShaderModule.bind(device);device.createShaderModule=descriptor=>{const module=nativeModule(descriptor);modules.push([descriptor.label,module]);return module;};
- if(options.phase5) {
+ {
    const nativePipeline=device.createComputePipeline.bind(device);
    device.createComputePipeline=descriptor=>{
      const label=descriptor.label??descriptor.compute.entryPoint;
      onStage(`Creating production pipeline: ${label}`);
+     const start=performance.now();
+     globalThis.cellOracleProgress.stage=`createComputePipeline/${label}`;
      const pipeline=nativePipeline(descriptor);
+     timings.push({kind:'createComputePipeline',label,ms:performance.now()-start});
      onStage(`Created production pipeline: ${label}`);
      return pipeline;
    };
  }
- const report={passed:false,evidenceRole:'diagnostic',apiErrors:errors};
+ const report={passed:false,evidenceRole:'diagnostic',apiErrors:errors,timings};
  let publication,registry,variation,allocator,context,compiled;
  try {
  device.pushErrorScope('validation');
@@ -268,9 +276,14 @@ export async function runPhaseOneOracle(gpu,assert,onStage=()=>{},options={}) {
  compiled=graph.compile();
  onStage(`Querying compilation info for ${modules.length} current production modules`);
  const pendingModules=new Set(modules.map(([label],index)=>`${index}: ${label}`));
+ globalThis.cellOracleProgress.stage='getCompilationInfo / queued pipeline compilation';
+ globalThis.cellOracleProgress.pendingModules=[...pendingModules];
  report.compilation=(await Promise.all(modules.map(async([label,module],index)=>{
+   const start=performance.now();
    const info=await module.getCompilationInfo();
+   timings.push({kind:'getCompilationInfo',label:label??`module ${index}`,ms:performance.now()-start});
    pendingModules.delete(`${index}: ${label}`);
+   globalThis.cellOracleProgress.pendingModules=[...pendingModules];
    onStage(`Compilation pending ${pendingModules.size}: ${[...pendingModules].join(', ')}`);
    return info.messages.filter(message=>message.type==='error').map(message=>({label,message:message.message,line:message.lineNum}));
  }))).flat();
@@ -298,9 +311,21 @@ export async function runPhaseOneOracle(gpu,assert,onStage=()=>{},options={}) {
      }
    }
    if(options.phase5)for(const values of fieldValueBuffers)device.queue.writeBuffer(values,0,new Float32Array(values.size/4).fill(NaN));
-   compiled.execute(context);if(frame===0)for(const callback of before)callback();command.closed=true;device.queue.submit([encoder.finish()]);if(frame===0)for(const callback of finished)callback();
+   globalThis.cellOracleProgress.stage=`frame ${frame}/FrameGraph.execute`;
+   let step=performance.now();
+   compiled.execute(context);
+   timings.push({kind:'execute',frame,ms:performance.now()-step});
+   onStage(`Encoded production frame ${frame}, submitting`);
+   if(frame===0)for(const callback of before)callback();command.closed=true;
+   step=performance.now();device.queue.submit([encoder.finish()]);
+   timings.push({kind:'submit',frame,ms:performance.now()-step});
+   if(frame===0)for(const callback of finished)callback();
    for(const callback of numericFinished)callback();
+   globalThis.cellOracleProgress.stage=`frame ${frame}/GPU completion and readback`;
+   onStage(`Awaiting production frame ${frame} GPU completion and readback`);
+   step=performance.now();
    await Promise.all([coverageReadback,hdrReadback,counterReadback,metadataReadback,...captures,...phase5Captures.map(item=>item.buffer)].map(buffer=>buffer.mapAsync(GPUMapMode.READ)));
+   timings.push({kind:'GPU/readback',frame,ms:performance.now()-step});
    complete();
    const coverage=new Uint32Array(coverageReadback.getMappedRange()).slice();coverageReadback.unmap();
    const hdr=new Uint16Array(hdrReadback.getMappedRange()).slice();hdrReadback.unmap();

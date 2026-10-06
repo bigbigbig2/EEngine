@@ -24,16 +24,22 @@ export const APPEARANCE_DAG_OPS = Object.freeze({
   sqrt: 16,
   mix: 17,
   clamp: 18,
+  constantProduct: 19,
+  fieldSink: 20,
+  uniformLoad: 21,
+  uniformSink: 22,
+  normalDecode: 23,
+  decodedChannel: 24
 });
 export const APPEARANCE_DAG_INSTRUCTION_WORDS = 8;
 export const APPEARANCE_DAG_OUTPUT_WORDS = 4;
-export const APPEARANCE_DAG_POINT_BYTES = 16;
+export const APPEARANCE_DAG_WORD_BYTES = 4;
 
 export interface ExactAppearanceDag {
   readonly instructions: Uint32Array;
-  /** field, channel, live slot, output mask; absent fields have no records. */
+  /** field, channel, producer word, output mask. Values are consumed by sinks. */
   readonly outputs: Uint32Array;
-  readonly liveSlots: number;
+  readonly liveWords: number;
   readonly geometryMask: number;
   readonly fieldMask: number;
   readonly neighborMask: number;
@@ -47,51 +53,190 @@ interface LoweredInstruction {
   mask: number;
   points: number;
   width: number;
+  semanticWidth?: number;
+  components?: number[];
+  broadcasts?: number;
 }
 
-/** Publication-time liveness over the COMPLETE graph. One lane owns its whole
- * live range. Center-only values occupy one vec4; sampled C/X/Y use three.
+interface TapeStage {
+  readonly uniformRefs: ReadonlyMap<number, number>;
+  readonly update: boolean;
+  readonly uniformLoads?: ReadonlyMap<number, number>;
+}
+
+export interface AppearanceExecutionPlan {
+  readonly varying: ExactAppearanceDag;
+  readonly publication: ExactAppearanceDag;
+  readonly update: ExactAppearanceDag;
+  readonly frameUpdate: ExactAppearanceDag;
+  readonly uniformWords: number;
+  readonly constantFields: number;
+  /** field/channel/uniform-word/mask: complete publication output mapping. */
+  readonly constantOutputs: Uint32Array;
+}
+
+/** SF10 dependency/stack organization, extended locally with exact GPU uniform
+ * boundaries. Only values crossing update→sample or update→output persist. */
+export function compileAppearanceExecutionPlan(
+  program: CompiledAppearanceGraph,
+  constants: AppearanceWgslProgram
+): AppearanceExecutionPlan {
+  // Frequencies are dependency unions: publication, material, frame, sample.
+  // Coordinate ancestors participate just like arithmetic operands.
+  const frequency = new Uint8Array(program.instructions.length);
+  const required = new Uint8Array(program.instructions.length);
+  const dependencies = (ref: number): readonly number[] => {
+    const node = program.instructions[ref]!;
+    const uv =
+      node.sample !== undefined
+        ? program.samples[node.sample]!.uv
+        : node.product !== undefined
+          ? program.productReads![node.product!]!.uv
+          : null;
+    return [...node.args, ...(uv ?? [])];
+  };
+  const pending = Object.values(program.outputs).flatMap((roots) => [...roots]);
+  while (pending.length > 0) {
+    const ref = pending.pop()!;
+    if (required[ref] !== 0) {
+      continue;
+    }
+    required[ref] = 1;
+    pending.push(...dependencies(ref));
+  }
+  for (let ref = 0; ref < program.instructions.length; ref++) {
+    const node = program.instructions[ref]!;
+    let rate = node.kind === "parameter" ? 1 : 0;
+    if (
+      node.kind === "texture" ||
+      ((node.kind === "product" || node.kind === "normal-product") &&
+        program.productReads![node.product!]!.field.constant === undefined)
+    ) {
+      rate = 3;
+    } else if (node.kind === "input") {
+      const input = program.inputs.find((value) => value.name === node.input);
+      if (input === undefined) {
+        throw new RangeError("Appearance uniform classification has an unpublished input");
+      }
+      const semantic = appearanceGeometryInputKind(input, program);
+      rate = semantic === 0 ? 1 : semantic === 9 ? 2 : 3;
+    }
+    for (const arg of dependencies(ref)) {
+      rate = Math.max(rate, frequency[arg]!);
+    }
+    frequency[ref] = rate;
+  }
+  const boundaries = new Map<number, number>();
+  const keep = (ref: number): void => {
+    if (!boundaries.has(ref)) {
+      boundaries.set(ref, boundaries.size);
+    }
+  };
+  for (let ref = 0; ref < program.instructions.length; ref++) {
+    if (required[ref] === 0 || frequency[ref]! < 1) {
+      continue;
+    }
+    for (const arg of dependencies(ref)) {
+      if (frequency[arg]! < frequency[ref]!) {
+        keep(arg);
+      }
+    }
+  }
+  let constantFields = 0;
+  const outputs: number[] = [];
+  for (let field = 0; field < APPEARANCE_FIELD_NAMES.length; field++) {
+    const roots = program.outputs[APPEARANCE_FIELD_NAMES[field]!] ?? [];
+    if (roots.every((ref) => frequency[ref]! < 3)) {
+      constantFields |= 1 << field;
+      for (let channel = 0; channel < roots.length; channel++) {
+        const ref = roots[channel]!;
+        keep(ref);
+        outputs.push(field, channel, boundaries.get(ref)!, 1 << field);
+      }
+    }
+  }
+  const publication = new Map([...boundaries].filter(([ref]) => frequency[ref] === 0));
+  const material = new Map([...boundaries].filter(([ref]) => frequency[ref] === 1));
+  const frame = new Map([...boundaries].filter(([ref]) => frequency[ref] === 2));
+  return Object.freeze({
+    varying: compileExactAppearanceDag(program, constants, { uniformRefs: boundaries, update: false }),
+    publication: compileExactAppearanceDag(program, constants, { uniformRefs: publication, update: true }),
+    update: compileExactAppearanceDag(program, constants, {
+      uniformRefs: material,
+      uniformLoads: publication,
+      update: true
+    }),
+    frameUpdate: compileExactAppearanceDag(program, constants, {
+      uniformRefs: frame,
+      uniformLoads: new Map([...publication, ...material]),
+      update: true
+    }),
+    uniformWords: boundaries.size,
+    constantFields,
+    constantOutputs: Uint32Array.from(outputs)
+  });
+}
+
+/** Publication-time liveness over the COMPLETE graph. One context owns its whole
+ * live range. Scalars occupy one/three f32 words; samples occupy four/twelve.
  * Union field masks include texture/product coordinates, including nested reads.
  * No node, input, output or coordinate count is truncated. */
 export function compileExactAppearanceDag(
   program: CompiledAppearanceGraph,
   constants: AppearanceWgslProgram,
+  stage?: TapeStage
 ): ExactAppearanceDag {
   const masks = new Uint32Array(program.instructions.length);
   const neighbors = new Uint8Array(program.instructions.length);
-  const mark = (ref: number, mask: number, neighbor: boolean): void => {
-    if (!Number.isInteger(ref) || ref < 0 || ref >= program.instructions.length) {
-      throw new RangeError("Exact Appearance DAG has an invalid instruction reference");
-    }
-    const previous = masks[ref]!;
-    const previousNeighbor = neighbors[ref]!;
-    masks[ref] = previous | mask;
-    neighbors[ref] = previousNeighbor | Number(neighbor);
-    if (previous === masks[ref] && previousNeighbor === neighbors[ref]) {
-      return;
-    }
-    const node = program.instructions[ref]!;
-    for (const arg of node.args) {
-      if (arg >= ref) {
-        throw new RangeError("Exact Appearance DAG must be topologically ordered");
+  const pendingRefs: number[] = [];
+  const pendingPoints: number[] = [];
+  const mark = (root: number, mask: number, neighbor: boolean): void => {
+    pendingRefs.push(root);
+    pendingPoints.push(Number(neighbor));
+    while (pendingRefs.length > 0) {
+      const ref = pendingRefs.pop()!;
+      const point = pendingPoints.pop()!;
+      if (!Number.isInteger(ref) || ref < 0 || ref >= program.instructions.length) {
+        throw new RangeError("Exact Appearance DAG has an invalid instruction reference");
       }
-      mark(arg, mask, neighbor);
-    }
-    const uv =
-      node.sample !== undefined
-        ? program.samples[node.sample]?.uv
-        : node.product !== undefined
-          ? program.productReads?.[node.product]?.uv
-          : null;
-    for (const arg of uv ?? []) {
-      if (arg >= ref) {
-        throw new RangeError("Exact Appearance coordinate DAG must be topologically ordered");
+      const previous = masks[ref]!;
+      const previousNeighbor = neighbors[ref]!;
+      masks[ref] = previous | mask;
+      neighbors[ref] = previousNeighbor | point;
+      if (previous === masks[ref] && previousNeighbor === neighbors[ref]) {
+        continue;
       }
-      mark(arg, mask, true);
+      if (
+        stage !== undefined &&
+        ((!stage.update && stage.uniformRefs.has(ref)) || stage.uniformLoads?.has(ref))
+      ) {
+        continue;
+      }
+      const node = program.instructions[ref]!;
+      for (const arg of node.args) {
+        if (arg >= ref) {
+          throw new RangeError("Exact Appearance DAG must be topologically ordered");
+        }
+        pendingRefs.push(arg);
+        pendingPoints.push(point);
+      }
+      const uv =
+        node.sample !== undefined
+          ? program.samples[node.sample]?.uv
+          : node.product !== undefined
+            ? program.productReads?.[node.product]?.uv
+            : null;
+      for (const arg of uv ?? []) {
+        if (arg >= ref) {
+          throw new RangeError("Exact Appearance coordinate DAG must be topologically ordered");
+        }
+        pendingRefs.push(arg);
+        pendingPoints.push(1);
+      }
     }
   };
   let fieldMask = 0;
-  for (let field = 0; field < APPEARANCE_FIELD_NAMES.length; field++) {
+  for (let field = 0; field < APPEARANCE_FIELD_NAMES.length && !stage?.update; field++) {
     const roots = program.outputs[APPEARANCE_FIELD_NAMES[field]!];
     if (roots === undefined) {
       continue;
@@ -105,9 +250,17 @@ export function compileExactAppearanceDag(
       mark(ref, bit, false);
     }
   }
+  if (stage?.update) {
+    for (const ref of stage.uniformRefs.keys()) {
+      mark(ref, 0x80000000, false);
+    }
+  }
+  const uniformLoads = stage?.update ? stage.uniformLoads : stage?.uniformRefs;
   const lowered: LoweredInstruction[] = [];
   const refs = new Int32Array(program.instructions.length).fill(-1);
+  const components = new Uint8Array(program.instructions.length);
   const samples = new Map<string, number>();
+  const decodedNormals = new Map<number, number>();
   let geometryMask = 0;
   let neighborMask = 0;
   const emit = (instruction: LoweredInstruction): number => {
@@ -120,6 +273,63 @@ export function compileExactAppearanceDag(
       continue;
     }
     const node = program.instructions[ref]!;
+    let semanticWidth = 1;
+    let broadcasts = 0;
+    const uniform = uniformLoads?.has(ref) === true;
+    for (let width = 2; width <= 4 && ref + width <= program.instructions.length; width++) {
+      const candidate = program.instructions[ref + width - 1]!;
+      if (masks[ref + width - 1] === 0 || neighbors[ref + width - 1] !== neighbors[ref]) {
+        break;
+      }
+      const candidateUniform = uniformLoads?.has(ref + width - 1) === true;
+      let compatible = false;
+      let broadcastMask = 0;
+      if (uniform && candidateUniform) {
+        compatible = uniformLoads!.get(ref + width - 1) === uniformLoads!.get(ref)! + width - 1;
+      } else if (!uniform && !candidateUniform && node.kind === "input" && candidate.kind === "input") {
+        compatible = node.input === candidate.input && candidate.channel === node.channel! + width - 1;
+      } else if (
+        !uniform &&
+        !candidateUniform &&
+        (node.kind === "constant" || node.kind === "parameter") &&
+        (candidate.kind === "constant" || candidate.kind === "parameter")
+      ) {
+        compatible =
+          constants.instructionConstantSlots[ref + width - 1] ===
+          constants.instructionConstantSlots[ref]! + width - 1;
+      } else if (
+        !uniform &&
+        !candidateUniform &&
+        node.kind === "operation" &&
+        candidate.kind === "operation" &&
+        candidate.op === node.op &&
+        candidate.args.length === node.args.length
+      ) {
+        compatible = true;
+        for (let arg = 0; arg < node.args.length; arg++) {
+          const first = node.args[arg]!;
+          const producer = refs[first]!;
+          let allSame = true;
+          let consecutive = true;
+          for (let channel = 1; channel < width; channel++) {
+            const operand = program.instructions[ref + channel]!.args[arg]!;
+            allSame &&= operand === first;
+            consecutive &&=
+              refs[operand] === producer && components[operand] === components[first]! + channel;
+          }
+          if (allSame) {
+            broadcastMask |= 1 << arg;
+          } else if (!consecutive) {
+            compatible = false;
+          }
+        }
+      }
+      if (!compatible) {
+        break;
+      }
+      semanticWidth = width;
+      broadcasts = broadcastMask;
+    }
     const instruction: LoweredInstruction = {
       op: 0,
       inputs: [],
@@ -128,8 +338,19 @@ export function compileExactAppearanceDag(
       mask: masks[ref]!,
       points: neighbors[ref]!,
       width: 1,
+      semanticWidth,
+      broadcasts
     };
-    if (node.kind === "constant" || node.kind === "parameter") {
+    for (let channel = 1; channel < semanticWidth; channel++) {
+      instruction.mask |= masks[ref + channel]!;
+    }
+    if (
+      stage !== undefined &&
+      ((!stage.update && stage.uniformRefs.has(ref)) || stage.uniformLoads?.has(ref))
+    ) {
+      instruction.op = APPEARANCE_DAG_OPS.uniformLoad;
+      instruction.auxiliary = uniformLoads!.get(ref)!;
+    } else if (node.kind === "constant" || node.kind === "parameter") {
       instruction.op = APPEARANCE_DAG_OPS.constant;
       instruction.auxiliary = constants.instructionConstantSlots[ref]!;
     } else if (node.kind === "input") {
@@ -160,11 +381,12 @@ export function compileExactAppearanceDag(
         const sampleInstruction: LoweredInstruction = {
           op: product ? APPEARANCE_DAG_OPS.product : APPEARANCE_DAG_OPS.sample,
           inputs: (uv ?? []).map((arg) => refs[arg]!),
+          components: (uv ?? []).map((arg) => components[arg]!),
           auxiliary: index,
           channel: 0,
           mask: 0,
           points: 0,
-          width: 3,
+          width: 3
         };
         for (let other = ref; other < program.instructions.length; other++) {
           const candidate = program.instructions[other]!;
@@ -175,24 +397,123 @@ export function compileExactAppearanceDag(
           }
         }
         if (constant !== undefined) {
+          sampleInstruction.op = APPEARANCE_DAG_OPS.constantProduct;
           sampleInstruction.inputs = [];
-          sampleInstruction.channel = constants.productConstantSlots[index]![0]! + 1;
+          sampleInstruction.auxiliary = constants.productConstantSlots[index]![0]!;
+          sampleInstruction.channel = program.productReads![index]!.field.width;
         }
         // Reserve only points actually read. Their coordinate ancestors still
         // retain C/X/Y so the original textureSampleGrad footprint is exact.
-        sampleInstruction.width = sampleInstruction.points !== 0 ? 3 : 1;
+        sampleInstruction.width = sampleInstruction.points !== 0 ? 12 : 4;
         sample = emit(sampleInstruction);
         samples.set(key, sample);
       }
-      instruction.op =
-        node.kind === "normal-product" ? APPEARANCE_DAG_OPS.normal : APPEARANCE_DAG_OPS.channel;
-      instruction.inputs = [sample];
+      if (node.kind === "normal-product") {
+        let decoded = decodedNormals.get(index);
+        if (decoded === undefined) {
+          let mask = 0;
+          let points = 0;
+          for (let other = ref; other < program.instructions.length; other++) {
+            const candidate = program.instructions[other]!;
+            if (candidate.kind === "normal-product" && candidate.product === index) {
+              mask |= masks[other]!;
+              points |= neighbors[other]!;
+            }
+          }
+          decoded = emit({
+            op: APPEARANCE_DAG_OPS.normalDecode,
+            inputs: [sample],
+            auxiliary: 0,
+            channel: 0,
+            mask,
+            points,
+            width: points !== 0 ? 15 : 5
+          });
+          decodedNormals.set(index, decoded);
+        }
+        instruction.op = APPEARANCE_DAG_OPS.decodedChannel;
+        instruction.inputs = [decoded];
+      } else {
+        instruction.op = APPEARANCE_DAG_OPS.channel;
+        instruction.inputs = [sample];
+      }
       instruction.channel = node.channel!;
     } else {
       instruction.op = APPEARANCE_DAG_OPS[node.op!];
       instruction.inputs = node.args.map((arg) => refs[arg]!);
+      instruction.components = node.args.map((arg) => components[arg]!);
     }
-    refs[ref] = emit(instruction);
+    instruction.width = semanticWidth * (instruction.points !== 0 ? 3 : 1);
+    const producer = emit(instruction);
+    for (let channel = 0; channel < semanticWidth; channel++) {
+      refs[ref + channel] = producer;
+      components[ref + channel] = channel;
+    }
+    ref += semanticWidth - 1;
+  }
+  // Complete field tuples are exported as soon as all components exist. Their
+  // internal users still participate in last-use; a sink does not kill a value.
+  const sinkGroups = new Map<number, LoweredInstruction[]>();
+  const outputRecords: number[][] = [];
+  for (let field = 0; field < APPEARANCE_FIELD_NAMES.length && !stage?.update; field++) {
+    const roots = program.outputs[APPEARANCE_FIELD_NAMES[field]!] ?? [];
+    if (roots.length === 0) {
+      continue;
+    }
+    const producers = roots.map((root) => refs[root]!);
+    const position = Math.max(...producers);
+    let group = sinkGroups.get(position);
+    if (group === undefined) {
+      group = [];
+      sinkGroups.set(position, group);
+    }
+    for (let channel = 0; channel < producers.length; channel++) {
+      group.push({
+        op: APPEARANCE_DAG_OPS.fieldSink,
+        inputs: [producers[channel]!],
+        components: [components[roots[channel]!]!],
+        auxiliary: field,
+        channel,
+        mask: 1 << field,
+        points: 0,
+        width: 0
+      });
+      outputRecords.push([field, channel, producers[channel]!, 1 << field, components[roots[channel]!]!]);
+    }
+  }
+  if (stage?.update) {
+    for (const [ref, address] of stage.uniformRefs) {
+      const position = refs[ref]!;
+      let group = sinkGroups.get(position);
+      if (group === undefined) {
+        group = [];
+        sinkGroups.set(position, group);
+      }
+      group.push({
+        op: APPEARANCE_DAG_OPS.uniformSink,
+        inputs: [position],
+        components: [components[ref]!],
+        auxiliary: address,
+        channel: 0,
+        mask: 0x80000000,
+        points: 0,
+        width: 0
+      });
+    }
+  }
+  const original = lowered.splice(0);
+  const relocated = new Uint32Array(original.length);
+  for (let ref = 0; ref < original.length; ref++) {
+    const node = original[ref]!;
+    if (node.op !== APPEARANCE_DAG_OPS.input) {
+      node.inputs = node.inputs.map((input) => relocated[input]!);
+    }
+    relocated[ref] = lowered.length;
+    lowered.push(node);
+    for (const sink of sinkGroups.get(ref) ?? []) {
+      sink.inputs = sink.inputs.map((input) => relocated[input]!);
+      lowered.push(sink);
+    }
   }
   const finalUse = new Int32Array(lowered.length).fill(-1);
   for (let ref = 0; ref < lowered.length; ref++) {
@@ -207,19 +528,28 @@ export function compileExactAppearanceDag(
       finalUse[arg] = ref;
     }
   }
-  const outputs: number[] = [];
-  for (let field = 0; field < APPEARANCE_FIELD_NAMES.length; field++) {
-    const roots = program.outputs[APPEARANCE_FIELD_NAMES[field]!] ?? [];
-    for (let channel = 0; channel < roots.length; channel++) {
-      const ref = refs[roots[channel]!]!;
-      finalUse[ref] = lowered.length;
-      outputs.push(field, channel, ref, 1 << field);
+  const outputs = outputRecords.flatMap(([field, channel, ref, mask]) => [
+    field!,
+    channel!,
+    relocated[ref!]!,
+    mask!
+  ]);
+  // Each producer expires once. Do not rescan every earlier instruction at
+  // every allocation: long legal graphs must not have quadratic release work.
+  const releaseHeads = new Int32Array(lowered.length).fill(-1);
+  const releaseNext = new Int32Array(lowered.length).fill(-1);
+  for (let producer = 0; producer < lowered.length; producer++) {
+    if (lowered[producer]!.width === 0) {
+      continue;
     }
+    const at = finalUse[producer] === -1 ? producer : finalUse[producer]!;
+    releaseNext[producer] = releaseHeads[at]!;
+    releaseHeads[at] = producer;
   }
   const slots = new Uint32Array(lowered.length);
   const occupied: boolean[] = [];
   const packed = new Uint32Array(lowered.length * APPEARANCE_DAG_INSTRUCTION_WORDS);
-  let liveSlots = 0;
+  let liveWords = 0;
   for (let ref = 0; ref < lowered.length; ref++) {
     const node = lowered[ref]!;
     let slot = 0;
@@ -237,8 +567,27 @@ export function compileExactAppearanceDag(
     for (let word = 0; word < node.width; word++) {
       occupied[slot + word] = true;
     }
-    liveSlots = Math.max(liveSlots, slot + node.width);
-    const inputs = node.op === APPEARANCE_DAG_OPS.input ? node.inputs : node.inputs.map((arg) => slots[arg]!);
+    liveWords = Math.max(liveWords, slot + node.width);
+    const inputs =
+      node.op === APPEARANCE_DAG_OPS.input
+        ? node.inputs
+        : node.inputs.map((arg, operand) => slots[arg]! + (node.components?.[operand] ?? 0));
+    let control =
+      node.channel | (node.points << 16) | ((node.semanticWidth ?? 1) << 28) | ((node.broadcasts ?? 0) << 8);
+    if (node.op !== APPEARANCE_DAG_OPS.input) {
+      for (let operand = 0; operand < node.inputs.length; operand++) {
+        const producer = lowered[node.inputs[operand]!]!;
+        const stride =
+          producer.op === APPEARANCE_DAG_OPS.sample ||
+          producer.op === APPEARANCE_DAG_OPS.product ||
+          producer.op === APPEARANCE_DAG_OPS.constantProduct
+            ? 4
+            : producer.op === APPEARANCE_DAG_OPS.normalDecode
+              ? 5
+              : (producer.semanticWidth ?? 1);
+        control |= (stride - 1) << (18 + operand * 3);
+      }
+    }
     packed.set(
       [
         node.op,
@@ -248,48 +597,46 @@ export function compileExactAppearanceDag(
         inputs[2] ?? 0,
         node.mask,
         node.auxiliary,
-        node.channel | (node.points << 16),
+        control >>> 0
       ],
-      ref * APPEARANCE_DAG_INSTRUCTION_WORDS,
+      ref * APPEARANCE_DAG_INSTRUCTION_WORDS
     );
     // Release AFTER this instruction's write: destination never aliases an
     // input while three sample points are still being consumed.
-    for (let previous = 0; previous <= ref; previous++) {
-      if (finalUse[previous] === ref || (previous === ref && finalUse[previous] === -1)) {
-        for (let word = 0; word < lowered[previous]!.width; word++) {
-          occupied[slots[previous]! + word] = false;
-        }
+    for (let previous = releaseHeads[ref]!; previous >= 0; previous = releaseNext[previous]!) {
+      for (let word = 0; word < lowered[previous]!.width; word++) {
+        occupied[slots[previous]! + word] = false;
       }
     }
   }
   for (let at = 2; at < outputs.length; at += APPEARANCE_DAG_OUTPUT_WORDS) {
-    outputs[at] = slots[outputs[at]!]!;
+    outputs[at] = slots[outputs[at]!]! + outputRecords[(at - 2) / APPEARANCE_DAG_OUTPUT_WORDS]![4]!;
   }
   return Object.freeze({
     instructions: packed,
     outputs: Uint32Array.from(outputs),
-    liveSlots: Math.max(1, liveSlots),
+    liveWords: Math.max(1, liveWords),
     geometryMask,
     fieldMask,
-    neighborMask,
+    neighborMask
   });
 }
 
 /** Bound concurrency by real live ranges; reducing lanes never reduces work. */
 export function planExactAppearanceLanes(
-  liveSlots: number,
+  liveWords: number,
   storageLimit: number,
-  requestedLanes = 4096,
+  requestedLanes = 4096
 ): Readonly<{ lanes: number; stride: number; bytes: number }> {
   if (
-    ![liveSlots, storageLimit, requestedLanes].every(Number.isSafeInteger) ||
-    liveSlots < 1 ||
+    ![liveWords, storageLimit, requestedLanes].every(Number.isSafeInteger) ||
+    liveWords < 1 ||
     storageLimit < 1 ||
     requestedLanes < 1
   ) {
     throw new RangeError("Invalid Exact Appearance scratch capacity");
   }
-  const stride = liveSlots * APPEARANCE_DAG_POINT_BYTES;
+  const stride = liveWords * APPEARANCE_DAG_WORD_BYTES;
   const lanes = Math.min(requestedLanes, Math.floor(storageLimit / stride));
   if (lanes < 1 || !Number.isSafeInteger(stride)) {
     throw new RangeError("Complete Appearance DAG cannot fit one lane in negotiated storage");

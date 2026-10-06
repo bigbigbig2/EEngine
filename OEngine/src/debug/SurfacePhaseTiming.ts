@@ -57,6 +57,30 @@ function classifyUncachedSurfaceTimingPhase(
   if (/surface\/.*diagnostic/.test(label)) {
     return null;
   }
+  if (/surface\/closed lighting/.test(label)) {
+    return "lighting";
+  }
+  if (/surface\/fixed geometry/.test(label)) {
+    return "geometryResolve";
+  }
+  if (/surface\/(?:geometry appearance|fixed appearance)/.test(label)) {
+    return "materialEvaluate";
+  }
+  if (/surface\/publication constants/.test(label)) {
+    return "materialEvaluate";
+  }
+  if (/surface\/(?:coverage|signal rates|rates bank)/.test(label)) {
+    return "classify";
+  }
+  if (/surface\/(?:reset work control|work arguments|finalize work arguments|publish work arguments)/.test(label)) {
+    return "workFinalize";
+  }
+  if (/surface\/(?:template packets|template indices|template count prefix packets|template scatter bank)/.test(label)) {
+    return "workFinalize";
+  }
+  if (/surface\/closed reconstruct/.test(label)) {
+    return "reconstruct";
+  }
   if (/surface\/canonical field addresses/.test(label)) {
     return "address";
   }

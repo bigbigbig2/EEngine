@@ -107,6 +107,7 @@ function productFixture() {
   fv.setUint16(0, 16, true);
   fv.setUint16(2, 3, true);
   fv.setUint8(5, 6);
+  fv.setUint8(10, 1); // Current Product ABI: Float32x3 position encoding.
   return {
     page,
     hash,
@@ -135,7 +136,7 @@ function productFixture() {
   };
 }
 
-test("Web Cook visible-first selects one prioritized primitive before reading the other", async () => {
+test("Web Cook visible-first selects one prioritized primitive before reading the other", async (t) => {
   const glb = makeTwoPrimitiveGlb(),
     product = productFixture(),
     fetched = [];
@@ -187,6 +188,7 @@ test("Web Cook visible-first selects one prioritized primitive before reading th
       },
     },
   });
+  t.after(() => coordinator.dispose());
   await coordinator.open("https://example.test/visible-first.glb");
   const catalogEvent = coordinator.drainEvents().find((event) => event.type === "SceneCatalogReady");
   const secondKey = catalogEvent.catalog.primitives[1].assetKey;
@@ -205,7 +207,7 @@ test("Web Cook visible-first selects one prioritized primitive before reading th
   coordinator.dispose();
 });
 
-test("Web Cook returns at TTFMF while richer refinement continues in the background", async () => {
+test("Web Cook returns at TTFMF while richer refinement continues in the background", async (t) => {
   const glb = makeTwoPrimitiveGlb(),
     product = productFixture();
   let releaseRefinement;
@@ -249,6 +251,7 @@ test("Web Cook returns at TTFMF while richer refinement continues in the backgro
       },
     },
   });
+  t.after(() => coordinator.dispose());
   await coordinator.open("https://example.test/ttfmf.glb");
   coordinator.grantOutputCredits(2, 2 * 262144);
   await coordinator.cookBootstrap();
@@ -263,7 +266,7 @@ test("Web Cook returns at TTFMF while richer refinement continues in the backgro
   coordinator.dispose();
 });
 
-test("Web Cook fails when a required later Product leaves catalog coverage incomplete", async () => {
+test("Web Cook fails when a required later Product leaves catalog coverage incomplete", async (t) => {
   const glb = makeTwoPrimitiveGlb(),
     product = productFixture();
   const coordinator = new WebCookCoordinator("ttfmf-recoverable", 1, {
@@ -297,6 +300,7 @@ test("Web Cook fails when a required later Product leaves catalog coverage incom
       },
     },
   });
+  t.after(() => coordinator.dispose());
   await coordinator.open("https://example.test/ttfmf-recoverable.glb");
   coordinator.grantOutputCredits(1, 262144);
   await coordinator.cookBootstrap();
@@ -317,7 +321,7 @@ test("Web Cook fails when a required later Product leaves catalog coverage incom
   coordinator.dispose();
 });
 
-test("Web Cook treats only post-coverage optional refinement failure as recoverable", async () => {
+test("Web Cook treats only post-coverage optional refinement failure as recoverable", async (t) => {
   const glb = makeTwoPrimitiveGlb(),
     product = productFixture();
   const secondProductId = new Uint8Array(32).fill(8);
@@ -372,6 +376,7 @@ test("Web Cook treats only post-coverage optional refinement failure as recovera
       },
     },
   });
+  t.after(() => coordinator.dispose());
   await coordinator.open("https://example.test/post-coverage-recoverable.glb");
   coordinator.grantOutputCredits(2, 2 * 262144);
   await coordinator.cookBootstrap();
@@ -383,7 +388,7 @@ test("Web Cook treats only post-coverage optional refinement failure as recovera
   coordinator.dispose();
 });
 
-test("Web Cook cancellation prevents a late richer revision publication", async () => {
+test("Web Cook cancellation prevents a late richer revision publication", async (t) => {
   const glb = makeTwoPrimitiveGlb(),
     product = productFixture();
   let releaseRefinement;
@@ -440,6 +445,7 @@ test("Web Cook cancellation prevents a late richer revision publication", async 
       },
     },
   });
+  t.after(() => coordinator.dispose());
   await coordinator.open("https://example.test/ttfmf-cancel.glb");
   coordinator.grantOutputCredits(1, 262144);
   await coordinator.cookBootstrap();
@@ -457,7 +463,7 @@ test("Web Cook cancellation prevents a late richer revision publication", async 
   coordinator.dispose();
 });
 
-test("Web Cook disposal keeps the terminal disposed state during a late producer callback", async () => {
+test("Web Cook disposal keeps the terminal disposed state during a late producer callback", async (t) => {
   const glb = makeTwoPrimitiveGlb(),
     product = productFixture();
   let releaseRefinement;
@@ -514,6 +520,7 @@ test("Web Cook disposal keeps the terminal disposed state during a late producer
       },
     },
   });
+  t.after(() => coordinator.dispose());
   await coordinator.open("https://example.test/ttfmf-dispose.glb");
   coordinator.grantOutputCredits(1, 262144);
   await coordinator.cookBootstrap();
@@ -529,7 +536,7 @@ test("Web Cook disposal keeps the terminal disposed state during a late producer
   );
 });
 
-test("Web Cook progress heartbeat never claims units the producer has not delivered", async () => {
+test("Web Cook progress heartbeat never claims units the producer has not delivered", async (t) => {
   // The refinement is one opaque cooker call, so between the bootstrap revision
   // and the richer revision the coordinator has no new milestone to report. The
   // heartbeat must keep `units` at the last delivered revision instead of
@@ -586,12 +593,13 @@ test("Web Cook progress heartbeat never claims units the producer has not delive
         await onRevision(revision(0));
         for (let tick = 0; tick < 8; tick++) {
           await new Promise((resolve) => setTimeout(resolve, 60));
-          coordinator.drainEvents();
+          // The client collector owns event draining and page-credit returns.
         }
         await onRevision(revision(1, { productId: product.productId, revision: 0 }));
       },
     },
   });
+  t.after(() => coordinator.dispose());
   await coordinator.open("https://example.test/progress.glb");
   const events = [];
   coordinator.grantOutputCredits(1, 262144);
@@ -603,6 +611,7 @@ test("Web Cook progress heartbeat never claims units the producer has not delive
     events.push(...drained);
     for (const event of drained) if (event.type === "PageReady") coordinator.returnOutputCredits(1, 262144);
   }, 20);
+  t.after(() => clearInterval(collector));
   await cooking;
   await coordinator.waitForCookCompletion();
   clearInterval(collector);
@@ -636,18 +645,23 @@ test("Web Cook progress heartbeat never claims units the producer has not delive
   coordinator.dispose();
 });
 
-test("Web Cook progress heartbeat gives up instead of failing a saturated queue", async () => {
+test("Web Cook progress heartbeat gives up instead of failing a saturated queue", async (t) => {
   // Heartbeats run on a timer, outside the cook's error path. A consumer that
   // stops draining must cost progress ticks, not the whole session.
   const glb = makeTwoPrimitiveGlb(),
     product = productFixture();
+  let resumeRefinement;
+  const refinement = new Promise((resolve) => {
+    resumeRefinement = resolve;
+  });
+  t.after(() => resumeRefinement());
   const coordinator = new WebCookCoordinator("progress-saturated", 1, {
     budgets: {
       maxConcurrentWorkers: 1,
       maxSourceBytes: glb.byteLength,
       maxWasmBytes: 4096,
       maxOutputBytes: 262144,
-      maxQueuedEvents: 8,
+      maxQueuedEvents: 4,
     },
     source: {
       fetch: async (_url, init) => {
@@ -686,22 +700,29 @@ test("Web Cook progress heartbeat gives up instead of failing a saturated queue"
           release() {},
         });
         await onRevision(revision(0));
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        await refinement;
         await onRevision(revision(1, { productId: product.productId, revision: 0 }));
       },
     },
   });
+  t.after(() => coordinator.dispose());
   await coordinator.open("https://example.test/saturated.glb");
   coordinator.grantOutputCredits(1, 262144);
-  const cooking = coordinator.cookBootstrap();
-  // Drain pages but never progress: the queue must absorb the heartbeats.
-  const collector = setInterval(() => {
-    for (const event of coordinator.drainEvents())
-      if (event.type === "PageReady") coordinator.returnOutputCredits(1, 262144);
-  }, 20);
-  await cooking;
+  await coordinator.cookBootstrap();
+  for (const event of coordinator.drainEvents()) {
+    if (event.type === "PageReady") {
+      coordinator.returnOutputCredits(1, 262144);
+    }
+  }
+  // Pause the only consumer while the real 250 ms heartbeat fills four slots.
+  // Two further ticks must be dropped without failing the cook/session.
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  const saturated = coordinator.drainEvents();
+  assert.equal(saturated.length, 4, "actual event queue reaches capacity");
+  assert.ok(saturated.every((event) => event.type === "Progress"));
+  assert.equal(coordinator.evidence().state, "cooking");
+  resumeRefinement();
   await coordinator.waitForCookCompletion();
-  clearInterval(collector);
   assert.equal(coordinator.evidence().state, "complete", "a saturated queue must not fail the cook");
   assert.equal(coordinator.evidence().completedUnits, 2);
   coordinator.dispose();
@@ -798,7 +819,7 @@ function makeRangeFetch(glb) {
   };
 }
 
-test("Web Cook automatic bootstrap ranks by caller priority before spatial coverage", async () => {
+test("Web Cook automatic bootstrap ranks by caller priority before spatial coverage", async (t) => {
   // `bootstrapUnitCount` is deliberately omitted. The automatic selection is the
   // path the examples actually take, and it used to rank purely by spatial
   // coverage, which made the caller's camera-aware priorities no more than a
@@ -840,6 +861,7 @@ test("Web Cook automatic bootstrap ranks by caller priority before spatial cover
         },
       },
     });
+    t.after(() => coordinator.dispose());
     await coordinator.open("https://example.test/priority-ranking.glb");
     if (promoteSmallest) {
       const catalog = coordinator.drainEvents().find((event) => event.type === "SceneCatalogReady").catalog;
@@ -870,7 +892,7 @@ test("Web Cook automatic bootstrap ranks by caller priority before spatial cover
   assert.equal(byPriority.lateSourcePriorities, 0, "a priority sent before cooking is not late");
 });
 
-test("Web Cook coordinator counts a priority that arrives after the first cut", async () => {
+test("Web Cook coordinator counts a priority that arrives after the first cut", async (t) => {
   // A priority that lands once the cut is already chosen cannot change the first
   // frame. It must be counted rather than looking like a successful ranking.
   const glb = makeTwoPrimitiveGlb(),
@@ -908,6 +930,7 @@ test("Web Cook coordinator counts a priority that arrives after the first cut", 
       },
     },
   });
+  t.after(() => coordinator.dispose());
   await coordinator.open("https://example.test/late-priority.glb");
   coordinator.grantOutputCredits(1, 262144);
   await coordinator.cookBootstrap();

@@ -1,5 +1,5 @@
 import type { AppearancePublishedCoverage } from "../gpu/GpuAppearancePublication.js";
-import { GPU_FRAME_ATTRIBUTE_VECTORS } from "../gpu/GpuFrameGeometryAttributesAbi.js";
+import { GPU_FRAME_ATTRIBUTE_VECTORS, GPU_FRAME_VERTEX_ATTRIBUTE_VECTORS } from "../gpu/GpuFrameGeometryAttributesAbi.js";
 
 export const COVERAGE_VERTEX_VARYINGS = /* wgsl */ `
   @location(10) local_normal: vec4f,
@@ -9,9 +9,9 @@ export const COVERAGE_VERTEX_VARYINGS = /* wgsl */ `
 
 export function coverageVertexAttributesWgsl(product: boolean): string {
   return /* wgsl */ `
-@group(0) @binding(29) var<storage,read> raster_frame_attributes: array<vec4f>;
 fn raster_shared_attribute(meshlet: vec4u, vertex: u32, field: u32) -> vec4f {
-  return raster_frame_attributes[(meshlet.x+vertex)*${GPU_FRAME_ATTRIBUTE_VECTORS}u+field];
+  let at = raster_frame_address.attributes + ((meshlet.x + vertex) * ${GPU_FRAME_VERTEX_ATTRIBUTE_VECTORS}u + field) * 4u;
+  return bitcast<vec4f>(vec4u(raster_frame_heap[at], raster_frame_heap[at + 1u], raster_frame_heap[at + 2u], raster_frame_heap[at + 3u]));
 }
 ${
   product

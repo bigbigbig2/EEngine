@@ -92,6 +92,7 @@ function productFixture(revision = 1, productIdFill = 7) {
   fv.setUint16(0, 16, true);
   fv.setUint16(2, 3, true);
   fv.setUint8(5, 6);
+  fv.setUint8(10, 1); // Current Product ABI: Float32x3 position encoding.
   const descriptor = {
     schemaVersion: 1,
     productId,

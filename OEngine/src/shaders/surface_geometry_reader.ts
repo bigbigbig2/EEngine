@@ -1,11 +1,10 @@
 import {
   GPU_GEOMETRY_RECORD_SCHEMA,
   GPU_MESHLET_RECORD_SCHEMA,
-  type GpuRecordSchema,
+  type GpuRecordSchema
 } from "../gpu/GpuGeometryAbi.js";
 import { frameGeometrySourceWgsl, FRAME_ATTRIBUTE_OCT_DECODE_WGSL } from "./geometry_source_decode.js";
 import { GPU_FRAME_ATTRIBUTE_VECTORS } from "../gpu/GpuFrameGeometryAttributesAbi.js";
-import { SURFACE_PRIMITIVE_BYTES, SURFACE_PRIMITIVE_VERSION } from "../gpu/SurfacePrimitiveAbi.js";
 
 /** Shared final direct source decoder. The normal path reads the frame arena;
  * only a capacity miss uses source data. No old worker or setup is retained.
@@ -17,12 +16,12 @@ export function surfaceGeometryDecodeWgsl(product: boolean, heap: string, perInv
     .replaceAll("vertex_payload[", "vertex_payload[settings.source_payload.x + ")
     .replaceAll(
       "meshlet_vertices[source_meshlet.vertex_offset + vertex]",
-      "vertex_payload[settings.source.z + source_meshlet.vertex_offset + vertex]",
+      "vertex_payload[settings.source.z + source_meshlet.vertex_offset + vertex]"
     )
     .replaceAll("meshlet_triangles[byte >> 2u]", "vertex_payload[settings.source.w + (byte >> 2u)]");
   ordinary = ordinary.replaceAll(
     "settings.source_payload.x + byte >> 2u",
-    "settings.source_payload.x + (byte >> 2u)",
+    "settings.source_payload.x + (byte >> 2u)"
   );
   ordinary = replaceFunction(
     ordinary,
@@ -33,7 +32,7 @@ fn frame_vertex_load_source(work: OEngineMeshletRasterWork) -> vec2u {
   source_meshlet = surface_read_meshlet(settings.source.y + work.meshlet_slot * ${GPU_MESHLET_RECORD_SCHEMA.stride / 4}u);
   source_geometry.position_byte_offset += settings.source_payload.x * 4u;
   return vec2u(source_meshlet.vertex_count, source_meshlet.triangle_count);
-}`,
+}`
   );
   // Ordinary attributes were decoded by their actual residency producer. Both
   // the frame producer and direct miss consumer read this one immutable result.
@@ -47,12 +46,12 @@ fn frame_resident_attribute(vertex:u32,field:u32)->vec4f {
     ["position", "vec3f", "frame_resident_attribute(vertex,5u).xyz"],
     ["normal", "vec4f", "frame_resident_attribute(vertex,0u)"],
     ["tangent", "vec4f", "frame_resident_attribute(vertex,1u)"],
-    ["color", "vec4f", "frame_resident_attribute(vertex,3u)"],
+    ["color", "vec4f", "frame_resident_attribute(vertex,3u)"]
   ])
     ordinary = replaceFunction(
       ordinary,
       `frame_vertex_${name}`,
-      `fn frame_vertex_${name}(vertex:u32)->${type} { return ${expression}; }`,
+      `fn frame_vertex_${name}(vertex:u32)->${type} { return ${expression}; }`
     );
   ordinary = replaceFunction(
     ordinary,
@@ -62,7 +61,7 @@ fn frame_vertex_uv(vertex:u32,uvSet:u32)->vec2f {
   if uvSet==2u { return frame_resident_attribute(vertex,4u).xy; }
   let uv=frame_resident_attribute(vertex,2u);
   return select(uv.xy,uv.zw,uvSet==1u);
-}`,
+}`
   );
   let productSource = product
     ? frameGeometrySourceWgsl(true, true)
@@ -108,26 +107,6 @@ fn surface_source_load(work: OEngineMeshletRasterWork) -> vec2u {
   surface_source_product=oengine_instance_virtual_geometry(frame_instances[work.instance_slot].source);
   ${product ? "if surface_source_product { return product_frame_vertex_load_source(work); }" : ""}
   return frame_vertex_load_source(work);
-}
-// Called after source_load by the same Geometry owner. Product metadata follows
-// that meshlet's aligned triangle bytes; ordinary metadata is a payload-relative
-// offset published by GpuAssetStore. It is not primitive winner identity data.
-fn surface_source_continuity(primitive:u32,triangle_count:u32)->array<vec4u,4> {
- var result:array<vec4u,4>;
- ${
-   product
-     ? `if surface_source_product {
-  let first=(product_source_triangle_byte+((triangle_count*3u+3u)&~3u))/4u+primitive*${SURFACE_PRIMITIVE_BYTES / 4}u;
-  for(var i=0u;i<4u;i++){let at=first+i*4u;result[i]=vec4u(product_frame_vertex_word(product_source_bank,at),
-   product_frame_vertex_word(product_source_bank,at+1u),product_frame_vertex_word(product_source_bank,at+2u),product_frame_vertex_word(product_source_bank,at+3u));}
-  return result;
- }`
-     : ""
- }
- if source_meshlet.surface_metadata_version!=${SURFACE_PRIMITIVE_VERSION}u{return result;}
- let first=settings.source_payload.x+source_meshlet.surface_metadata_word_offset+primitive*${SURFACE_PRIMITIVE_BYTES / 4}u;
- for(var i=0u;i<4u;i++){let at=first+i*4u;result[i]=vec4u(vertex_payload[at],vertex_payload[at+1u],vertex_payload[at+2u],vertex_payload[at+3u]);}
- return result;
 }
 `;
   return perInvocation ? source : source.replaceAll("var<private>", "var<workgroup>");
