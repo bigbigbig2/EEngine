@@ -402,6 +402,7 @@ export class Renderer {
   private _ownsDevice = false;
   private _recoveryPromise: Promise<Renderer> | null = null;
   private _recoveryAttempts = 0;
+  private _geometryStreamingError: string | null = null;
   private _recoveryCheckpoint: ReturnType<Renderer["checkpointRecovery"]> | null = null;
   private _streamingGpuFrameTimeMs = 0;
   private _vsm: VsmResources | null = null;
@@ -1372,6 +1373,9 @@ export class Renderer {
   gpuOwnerCreationEvidence(): GraphicsOwnerCreationEvidence {
     return this._graphics.ownerCreationEvidence();
   }
+  geometryStreamingError(): string | null {
+    return this._geometryStreamingError;
+  }
   memoryEvidence(): GraphicsMemoryEvidence {
     return this._graphics.memoryEvidence();
   }
@@ -2009,7 +2013,12 @@ export class Renderer {
         this._environmentRuntime?.luts.retireCompleted(command.gpuDone);
       }
       if (streaming) {
-        void streaming.consumeAfterCompletion(frameIndex, command.gpuDone, Date.now()).catch(() => undefined);
+        void streaming.consumeAfterCompletion(frameIndex, command.gpuDone, Date.now()).catch((error) => {
+          if (!this._deviceLost && !this._destroyed) {
+            this._geometryStreamingError = error instanceof Error ? error.message : String(error);
+            console.error("Geometry streaming failed", error);
+          }
+        });
       }
       this._frame_count++;
       this.onFrameFinished.send1(this._frame_count);
@@ -2106,6 +2115,9 @@ export class Renderer {
 
   destroy(): void {
     this._explicitlyDestroyed = true;
+    if (this._recoveryCheckpoint !== null && this._recoveryPromise === null) {
+      this.releaseRecoverySources(this._recoveryCheckpoint);
+    }
     this._recoveryCheckpoint = null;
     this.shutdown();
   }
@@ -2141,6 +2153,11 @@ export class Renderer {
     this._programCache.clear();
     this._renderTargets.destroy();
     this._graphics?.destroy();
+    for (const state of this._virtualProductScenes.values()) {
+      state.streamingRuntime?.destroy();
+      if (state.multiRuntime !== undefined) state.multiRuntime.destroy();
+      else state.residency.destroy();
+    }
     this._virtualProductScenes.clear();
     this._streamingCameraMatrices.clear();
     if (this._ownsDevice) this.device?.destroy();
@@ -2165,6 +2182,16 @@ export class Renderer {
     const replacement = new Renderer(checkpoint.config);
     replacement.deviceEpoch = this.deviceEpoch + 1;
     this._recoveryPromise = (async () => {
+      // Checkpoint owns sources until the entire replay commits. A failed GPU
+      // candidate releases only its allocations, so a retry can reread all sources.
+      let sourcesCommitted = false;
+      const replaySource = (source: GeometryProductRevisionSourceV1): GeometryProductRevisionSourceV1 => ({
+        descriptor: source.descriptor,
+        readPage: (pageId, signal) => source.readPage(pageId, signal),
+        release: () => {
+          if (sourcesCommitted) source.release();
+        }
+      });
       try {
         await replacement.initialize({ context: checkpoint.context, config: checkpoint.config });
         replacement.resize(checkpoint.width, checkpoint.height);
@@ -2184,28 +2211,59 @@ export class Renderer {
           }
         }
         for (const entry of checkpoint.products) {
-          const residency = await VirtualGeometryResidency.create(
-            replacement.device,
-            entry.source,
-            entry.generation,
-            entry.slot,
-            undefined,
-            entry.residency
-          );
+          let multiRuntime: GeometryProductMultiRuntimeV1 | undefined;
+          const shards: GeometryProductShardHandleV1[] = [];
+          if (entry.multi !== undefined) {
+            multiRuntime = new GeometryProductMultiRuntimeV1(replacement.device, entry.multi.options);
+            try {
+              for (const product of entry.multi.products) {
+                const shard = await multiRuntime.load(replaySource(product.source), product);
+                if (product.dormant) multiRuntime.setDormant(shard.productTableSlot, shard.productGeneration);
+                shards.push(shard);
+              }
+            } catch (error) {
+              multiRuntime.destroy();
+              throw error;
+            }
+          }
+          const residency =
+            shards[0]?.residency ??
+            (await VirtualGeometryResidency.create(
+              replacement.device,
+              replaySource(entry.source),
+              entry.generation,
+              entry.slot,
+              undefined,
+              entry.residency
+            ));
           residency.activatePublication();
           const streaming = entry.streamingEnabled
             ? new GeometryPageStreamingRuntimeV1(replacement.device, residency)
             : null;
           try {
+            if (multiRuntime !== undefined && streaming !== null) {
+              for (const shard of shards)
+                streaming.registerProduct(shard.residency.sourceForStreaming(), shard.residency);
+            }
             await replacement.uploadVirtualGeometryScene(
               entry.scene,
               entry.sceneSource,
               residency,
-              streaming
+              streaming,
+              undefined,
+              multiRuntime === undefined
+                ? undefined
+                : {
+                    bindings: multiRuntime.bindings(),
+                    assetCount: entry.sceneSource.assetCount,
+                    registerStreaming: false,
+                    multiRuntime
+                  }
             );
           } catch (error) {
             streaming?.destroy();
-            residency.destroy();
+            if (multiRuntime !== undefined) multiRuntime.destroy();
+            else residency.destroy();
             throw error;
           }
         }
@@ -2213,10 +2271,12 @@ export class Renderer {
           replacement.destroy();
           throw new Error("Renderer destroyed during recovery");
         }
+        sourcesCommitted = true;
         this._recoveryCheckpoint = null;
         return replacement;
       } catch (error) {
         replacement.destroy();
+        if (this._explicitlyDestroyed) this.releaseRecoverySources(checkpoint);
         this._recoveryPromise = null;
         throw error;
       }
@@ -2224,14 +2284,24 @@ export class Renderer {
     return this._recoveryPromise;
   }
 
+  private releaseRecoverySources(checkpoint: NonNullable<Renderer["_recoveryCheckpoint"]>): void {
+    for (const entry of checkpoint.products) {
+      if (entry.multi !== undefined) {
+        for (const product of entry.multi.products) product.source.release();
+      } else {
+        entry.source.release();
+      }
+    }
+  }
+
   private checkpointRecovery() {
     const products = [...this._virtualProductScenes.entries()].map(([scene, state]) => {
-      if (state.multiRuntime && state.multiRuntime.evidence().active > 1) {
-        throw new Error("Multi-shard Product recovery requires source replay by the application");
-      }
+      state.streamingRuntime?.destroy();
+      const multi = state.multiRuntime?.checkpointForDeviceLoss();
       const product = {
+        multi,
         scene,
-        source: state.source,
+        source: multi?.products[0]?.source ?? state.residency.checkpointForDeviceLoss(),
         generation: state.residency.productGeneration,
         slot: state.residency.productTableSlot,
         sceneSource: refreshProductSceneSourceForRecovery(scene, state.sceneSource),
@@ -2244,8 +2314,6 @@ export class Renderer {
           configuredCapacityBytes: state.residency.residencyProfile.capacityBytes
         } satisfies VirtualGeometryResidencyOptionsV1
       };
-      state.residency.abandonForDeviceLoss();
-      state.streamingRuntime?.destroy();
       return product;
     });
     return {

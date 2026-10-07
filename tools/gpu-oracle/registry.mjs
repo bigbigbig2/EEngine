@@ -11,6 +11,26 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "geometry-budgeted-residency",
+    file: "OEngine/tests/oracle/geometry-budgeted-residency-gpu.mjs",
+    url: "/OEngine/tests/oracle/geometry-budgeted-residency-gpu.mjs",
+    entry: "runGeometryBudgetedResidencyGpuOracle",
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16, maxStorageBufferBindingSize: 268435456 },
+    description: "Budget/profile boundary bank accesses, true pressure, pinned coarse coverage and fair delayed uploads.",
+    timeoutMs: 180_000,
+  }),
+  Object.freeze({
+    name: "native-surface-multi-product-production",
+    file: "OEngine/tests/oracle/native-surface-production-gpu.mjs",
+    url: "/OEngine/tests/oracle/native-surface-production-gpu.mjs",
+    entry: "runNativeSurfaceMultiProductProductionGpuOracle",
+    allowPrefixes: ["OEngine/src/render/assets/", "OEngine/src/assets/web-cook/wasm/vendor/"],
+    requiredFeatures: ["texture-formats-tier1"],
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    description: "Actual Renderer with two same-revision Products, abort/retry, alpha/Temporal and all-source device recovery.",
+    timeoutMs: 240_000,
+  }),
+  Object.freeze({
     name: "native-surface-acceptance",
     file: "OEngine/tests/oracle/native-surface-acceptance-gpu.mjs",
     url: "/OEngine/tests/oracle/native-surface-acceptance-gpu.mjs",

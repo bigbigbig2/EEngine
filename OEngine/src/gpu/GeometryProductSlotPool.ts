@@ -5,7 +5,7 @@ import type { GeometryProductResidencyProfilePlanV1 } from "./GeometryProductRes
 // Four bindings remain immutable for every Product generation. The profile
 // changes only physical bank capacity; page size and shader binding ABI stay
 // fixed. Metadata is tracked separately as bounded overhead.
-export const GEOMETRY_PRODUCT_SHARED_BANK_BYTES = 128 * 1024 * 1024;
+export const GEOMETRY_PRODUCT_SHARED_BANK_BYTES = 32 * 1024 * 1024;
 export const GEOMETRY_PRODUCT_SHARED_BANK_COUNT = 4;
 export const GEOMETRY_PRODUCT_SHARED_SLOTS_PER_BANK =
   GEOMETRY_PRODUCT_SHARED_BANK_BYTES / OEGPACK_V3_PAGE_BYTES;
@@ -48,7 +48,7 @@ export class GeometryProductSlotPool {
           const bank = device.createBuffer({
             label: `OEngine Geometry Product ${profile.profile} bank ${index}`,
             size: profile.bankBytes,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
           });
           buffers.push(bank);
           this.#releaseReservations.push(release);
@@ -71,7 +71,7 @@ export class GeometryProductSlotPool {
 
   static retainWithProfile(
     device: GPUDevice,
-    profile: GeometryProductResidencyProfilePlanV1,
+    profile: GeometryProductResidencyProfilePlanV1
   ): GeometryProductSlotPool {
     let pool = pools.get(device);
     if (!pool) {
@@ -152,8 +152,8 @@ function defaultPortableProfile(device: GPUDevice): GeometryProductResidencyProf
     negotiatedLimits: Object.freeze({
       maxBufferSize: Number(device.limits.maxBufferSize),
       maxStorageBufferBindingSize: Number(device.limits.maxStorageBufferBindingSize),
-      maxStorageBuffersPerShaderStage: Number(device.limits.maxStorageBuffersPerShaderStage ?? 16),
+      maxStorageBuffersPerShaderStage: Number(device.limits.maxStorageBuffersPerShaderStage ?? 16)
     }),
-    runtimeEvidence: Object.freeze({}),
+    runtimeEvidence: Object.freeze({})
   });
 }

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
+import { Signal } from "../../.test-dist/core/Signal.js";
 
 globalThis.GPUBufferUsage ??= Object.freeze({ MAP_READ: 1, COPY_DST: 2 });
 globalThis.GPUMapMode ??= Object.freeze({ READ: 1 });
@@ -42,7 +43,19 @@ function device() {
   return {
     createBuffer(descriptor) {
       return new FakeBuffer(descriptor);
+    }
+  };
+}
+
+function command() {
+  return {
+    gpu_encoder: encoder(),
+    onFinished: {
+      addOne(callback) {
+        callback();
+      }
     },
+    onAborted: { addOne() {} }
   };
 }
 
@@ -50,7 +63,7 @@ function encoder() {
   return {
     copyBufferToBuffer(source, sourceOffset, destination, destinationOffset, size) {
       destination.bytes.set(source.bytes.slice(sourceOffset, sourceOffset + size), destinationOffset);
-    },
+    }
   };
 }
 
@@ -58,11 +71,12 @@ test("GPU demand ring copies in-frame and maps only after a later completion", a
   const ring = new GpuGeometryDemandReadbackRingV1({
     device: device(),
     slotCount: 2,
-    bytesPerSlot: 64,
+    bytesPerSlot: 64
   });
   const source = new FakeBuffer({ size: 32, usage: 0 });
   source.bytes.set([1, 2, 3, 4]);
   assert.equal(ring.encode(encoder(), source, 4), 0);
+  ring.commit(0);
   assert.deepEqual(await ring.poll(4), []);
   const results = await ring.poll(5);
   assert.equal(results.length, 1);
@@ -88,26 +102,32 @@ test("streaming runtime consumes delayed demand and uploads through residency", 
         pageId,
         decodedHash128: hash.subarray(0, 16),
         decodedPageHash128: hash.subarray(0, 16),
-        bytes: page.slice().buffer,
+        bytes: page.slice().buffer
       };
     },
-    release() {},
+    release() {}
   };
   const uploaded = [];
   const residency = {
+    publicationActive: true,
+    publicationChanged: new Signal(),
     productGeneration: 9,
     productTableSlot: 3,
     descriptor,
-    uploadPage(value) {
+    uploadCost(value) {
+      return value.bytes.byteLength;
+    },
+    recordDemand() {},
+    tryUploadPage(value) {
       uploaded.push(value);
     },
     evidence() {
       return { productGeneration: 9, residentPages: uploaded.length };
-    },
+    }
   };
   const runtime = new GeometryPageStreamingRuntimeV1(device(), residency, {
     schedulerOptions: { maxConcurrentReads: 1, maxInFlightBytes: 262144 },
-    readback: { slotCount: 2, bytesPerSlot: 64 },
+    readback: { slotCount: 2, bytesPerSlot: 64 }
   });
   runtime.registerProduct(source);
   const demand = new Uint8Array(32);
@@ -120,13 +140,13 @@ test("streaming runtime consumes delayed demand and uploads through residency", 
       priority: 10,
       currentViewMissing: true,
       shadow: false,
-      predictive: false,
+      predictive: false
     }),
-    16,
+    16
   );
   const gpuDemand = new FakeBuffer({ size: 32, usage: 0 });
   gpuDemand.bytes.set(demand);
-  runtime.encodeDemandReadback(encoder(), gpuDemand, 10);
+  runtime.encodeDemandReadback(command(), gpuDemand, 10);
   const first = await runtime.consumeCompleted(10);
   assert.equal(first.mappedSlots, 0);
   const second = await runtime.consumeCompleted(11);
@@ -156,31 +176,37 @@ test("one streaming runtime routes Product-local pages to multiple shard residen
           pageId,
           decodedHash128: hash.subarray(0, 16),
           decodedPageHash128: hash.subarray(0, 16),
-          bytes: page.slice().buffer,
+          bytes: page.slice().buffer
         };
       },
-      release() {},
+      release() {}
     };
     const uploaded = [];
     const residency = {
+      publicationActive: true,
+      publicationChanged: new Signal(),
       productGeneration: generation,
       productTableSlot: slot,
       descriptor,
-      uploadPage(value) {
+      uploadCost(value) {
+        return value.bytes.byteLength;
+      },
+      recordDemand() {},
+      tryUploadPage(value) {
         uploaded.push(value);
       },
       recordDemand() {},
       evidence() {
         return { productGeneration: generation, residentPages: uploaded.length };
-      },
+      }
     };
     return { source, residency, uploaded };
   };
   const first = makeProduct(5, 3, 9);
-  const second = makeProduct(6, 4, 10);
+  const second = makeProduct(5, 4, 10); // same revision, separate slot/generation
   const runtime = new GeometryPageStreamingRuntimeV1(device(), first.residency, {
     schedulerOptions: { maxConcurrentReads: 2, maxInFlightBytes: 2 * 262144 },
-    readback: { slotCount: 2, bytesPerSlot: 64 },
+    readback: { slotCount: 2, bytesPerSlot: 64 }
   });
   runtime.registerProduct(first.source, first.residency);
   runtime.registerProduct(second.source, second.residency);
@@ -194,9 +220,9 @@ test("one streaming runtime routes Product-local pages to multiple shard residen
       priority: 10,
       currentViewMissing: true,
       shadow: false,
-      predictive: false,
+      predictive: false
     }),
-    16,
+    16
   );
   demand.set(
     packGeometryPageDemandV1({
@@ -206,13 +232,13 @@ test("one streaming runtime routes Product-local pages to multiple shard residen
       priority: 9,
       currentViewMissing: true,
       shadow: false,
-      predictive: false,
+      predictive: false
     }),
-    32,
+    32
   );
   const gpuDemand = new FakeBuffer({ size: 48, usage: 0 });
   gpuDemand.bytes.set(demand);
-  runtime.encodeDemandReadback(encoder(), gpuDemand, 20);
+  runtime.encodeDemandReadback(command(), gpuDemand, 20);
   await runtime.consumeCompleted(20);
   await runtime.consumeCompleted(21);
   await runtime.scheduler.drainReads();
@@ -228,7 +254,7 @@ test("streaming runtime revokes pages before the settled submission boundary", a
     pageRecords: new Uint8Array(160),
     decodedPageBytes: 262144,
     productId: new Uint8Array(32).fill(4),
-    revision: 0,
+    revision: 0
   };
   const page = {
     productId: descriptor.productId.slice(),
@@ -236,17 +262,19 @@ test("streaming runtime revokes pages before the settled submission boundary", a
     pageId: 4,
     decodedHash128: new Uint8Array(16),
     decodedPageHash128: new Uint8Array(16),
-    bytes: new ArrayBuffer(262144),
+    bytes: new ArrayBuffer(262144)
   };
   const source = {
     descriptor,
     async readPage() {
       return page;
     },
-    release() {},
+    release() {}
   };
   const events = [];
   const residency = {
+    publicationActive: true,
+    publicationChanged: new Signal(),
     productGeneration: 12,
     productTableSlot: 1,
     descriptor,
@@ -265,11 +293,11 @@ test("streaming runtime revokes pages before the settled submission boundary", a
     },
     evidence() {
       return { productGeneration: 12, residentPages: 0 };
-    },
+    }
   };
   const runtime = new GeometryPageStreamingRuntimeV1(device(), residency, {
     schedulerOptions: { maxConcurrentReads: 1, maxInFlightBytes: 262144 },
-    readback: { slotCount: 2, bytesPerSlot: 64 },
+    readback: { slotCount: 2, bytesPerSlot: 64 }
   });
   runtime.registerProduct(source);
   let settled = false;
@@ -277,7 +305,7 @@ test("streaming runtime revokes pages before the settled submission boundary", a
     setTimeout(() => {
       settled = true;
       resolve();
-    }, 0),
+    }, 0)
   );
   const retirement = runtime.retirePages([4], completion);
   assert.deepEqual(events, ["begin:4"]);
@@ -294,7 +322,7 @@ test("runtime destruction unregisters the Product and aborts pending page reads"
     pageRecords: new Uint8Array(32),
     decodedPageBytes: page.byteLength,
     productId: new Uint8Array(32).fill(8),
-    revision: 0,
+    revision: 0
   };
   descriptor.pageRecords.set(hash.subarray(0, 16));
   new DataView(descriptor.pageRecords.buffer).setUint32(20, 1, true);
@@ -309,7 +337,7 @@ test("runtime destruction unregisters the Product and aborts pending page reads"
           aborted = true;
           resolveRead?.();
         },
-        { once: true },
+        { once: true }
       );
       return new Promise((resolve) => {
         resolveRead = () =>
@@ -319,30 +347,32 @@ test("runtime destruction unregisters the Product and aborts pending page reads"
             pageId: 0,
             decodedHash128: hash.subarray(0, 16),
             decodedPageHash128: hash.subarray(0, 16),
-            bytes: page.slice().buffer,
+            bytes: page.slice().buffer
           });
       });
     },
-    release() {},
+    release() {}
   };
   const scheduler = new (
     await import("../../.test-dist/gpu/GeometryPageScheduler.js")
   ).GeometryPageSchedulerV1({
     maxConcurrentReads: 1,
-    maxInFlightBytes: page.byteLength,
+    maxInFlightBytes: page.byteLength
   });
   const residency = {
+    publicationActive: true,
+    publicationChanged: new Signal(),
     productGeneration: 21,
     productTableSlot: 5,
     descriptor,
     uploadPage() {},
     evidence() {
       return { productGeneration: 21, residentPages: 0 };
-    },
+    }
   };
   const runtime = new GeometryPageStreamingRuntimeV1(device(), residency, {
     scheduler,
-    readback: { slotCount: 2, bytesPerSlot: 64 },
+    readback: { slotCount: 2, bytesPerSlot: 64 }
   });
   runtime.registerProduct(source);
   scheduler.ingestDemands([
@@ -353,8 +383,8 @@ test("runtime destruction unregisters the Product and aborts pending page reads"
       priority: 10,
       currentViewMissing: true,
       shadow: false,
-      predictive: false,
-    },
+      predictive: false
+    }
   ]);
   assert.equal(scheduler.state(21, 0), "producing-or-reading");
   runtime.destroy();

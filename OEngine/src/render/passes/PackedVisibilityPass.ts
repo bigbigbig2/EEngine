@@ -441,7 +441,7 @@ export class PackedVisibilityPass {
       if (demandFrameIndex === undefined || !Number.isSafeInteger(demandFrameIndex) || demandFrameIndex < 0) {
         throw new RangeError("Geometry page streaming requires a non-negative demand frame index");
       }
-      job.streamingRuntime.encodeDemandReadback(command.gpu_encoder, generated.pageDemand, demandFrameIndex);
+      job.streamingRuntime.encodeDemandReadback(command, generated.pageDemand, demandFrameIndex);
     }
     const meshletWork = requireMeshletWork(workSet);
     if (meshletWork.productMode) {

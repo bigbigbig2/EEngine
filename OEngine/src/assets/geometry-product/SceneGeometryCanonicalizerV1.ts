@@ -24,7 +24,7 @@ import {
   type WebCanonicalGeometryDomainV1,
 } from "../web-cook/wasm/WebGeometryCookerAbi.js";
 import { createGeometryCookRecipeV3, type GeometryCookRecipeV3 } from "../GeometryCookRecipe.js";
-import type { GeometryProductRevisionSourceV1 } from "./GeometryProductV1.js";
+import type { GeometryProductRevisionSourceV1, GeometryProductProviderV1 } from "./GeometryProductV1.js";
 import { decodeGeometryProductDescriptorBinaryV1 } from "./GeometryProductBinaryV1.js";
 import {
   cookWasmGeometryProductRevisionV1,
@@ -71,9 +71,7 @@ export interface CookedSceneGeometryProductV1 {
   readonly revision: WasmGeometryProductRevisionV1;
   readonly canonicalization: SceneGeometryCanonicalizationV1;
   /** Single-revision provider for `Renderer.uploadProductScene`. */
-  readonly provider: GeometryProductRevisionSourceV1 & {
-    revisions(signal?: AbortSignal): AsyncIterable<GeometryProductRevisionSourceV1>;
-  };
+  readonly provider: GeometryProductProviderV1;
 }
 
 import { geometryAppearanceProfile } from "../GeometryAppearanceProfile.js";
@@ -205,7 +203,7 @@ function singleRevisionProvider(
       yield source;
     },
   };
-  return provider as unknown as CookedSceneGeometryProductV1["provider"];
+  return provider;
 }
 
 interface CanonicalMeshletGeometry {

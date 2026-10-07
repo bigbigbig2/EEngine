@@ -56,6 +56,12 @@ Local：`GeometryProductWorkload` 读取现有V3/冻结Product forest，mapper/R
 
 <a id="v4-planning-source-map"></a>
 
+## 2026-10-08：G2.1 budgeted residency / streaming 本地闭包
+
+Local：`GeometryProductResidencyProfile/SlotPool/GpuAbi/MultiRuntime`、`VirtualGeometryResidency`、scheduler/readback/streaming和Renderer恢复。Reference：沿用Nyx `bc7e5b1e51f6b3b8af4771db81ffaa714fcbe64b`、MiniEngine MIT，重新读取本地 `MiniEngine/Model/GeometryStreaming.cpp::Update/SyncMemoryAndAddressTable/ImmediateEvict`，文件SHA256=`acb3aa4786eb6367e92b99e9e295c83e0aade516d59578f23ff38496f838a072`；固定来源与许可沿用本页M2表及geometry ledger，不将本地快照hash冒称新upstream revision。Adopt：保root pin、payload先于location、撤销映射后安全退休的必要语义。Adapt：WebGPU四个boundedstoragebank、queue fence/device epoch、exactslot/generation/revision和单frame submit。Reject：上游D3D封装、独立submit与固定512-frame退休宽限。Original：128MiB auto预算、ABI3实际容量、单GPU目录的CPU free ranges、公平boundedverified与全source replay属于本地ownership修正，不新增完整Nyx移植声明。
+
+CPU边界/lateIO/100次metadata回收/1–66Product恢复、真实GPU bank边界及两Productpressure、真实Renderer双Productwinner/HDR/abort→retry/recovery结果见[执行§8.3.1](../next-execution/eengine-v4-native-shading-execution-2026-10.md#831-g21-实施结果与停止边界2026-10-08)。超预算fixture仍观测reload/thrash；未做large-scene磁盘/网络与GPU帧P50/P95，不以预留容量减少提升性能或来源adoption。
+
 ## 2026-10-07：V4 planning source map（未实施、未提升采用）
 
 本次复用两份 V4 提案和既有 SF 来源核读记录，核对本地 `b69a0a60b13930212fdc98f988443186fad024e4` 的实际 producer/consumer；不宣称本轮重新审计完整上游引擎，也没有运行上游或新的 GPU 验证。主/辅提案已为 history；唯一目标与详细单元分别见 V4 authority。复杂算法实施前仍须重新读取选定 revision 的完整相关阶段、license/关键分支，并补逐函数映射与缺口；本表是拟实施映射，不是 adopted。

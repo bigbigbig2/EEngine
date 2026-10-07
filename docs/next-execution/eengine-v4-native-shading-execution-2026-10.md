@@ -650,7 +650,7 @@ frequency extraction也要计update/persistent uniform/边界读取成本，不�
 
 ### 8.1 当前边界与单元顺序
 
-**M2 已进入实施，G2.0 关闭，G2.1=next。** 规划时 2026-10-08 fetch 后 HEAD/origin/master=`a66667e04222481ca130c4c6d878118bf649bb9f`，起始工作区干净；规划已提交为 `d44823e2c11415fe7c24364c4c41a661bb181a8e`，随后按用户授权实施 G2.0。M1结果、28个既有失败及未运行项不被追改。真实数据流、KEEP矩阵、Q1–Q7、成本卡、WebGPU limits与参考比较见[母稿 §11](../next-design/eengine-v4-native-shading-2026-10.md#11-m2--geometry--virtual-geometry-alignment--scale-optimization)；本节保存执行边界和实际状态，G2.0 结果见 §8.2.1。
+**M2 已进入实施，G2.0/G2.1 关闭，G2.2=next。** 规划时 2026-10-08 fetch 后 HEAD/origin/master=`a66667e04222481ca130c4c6d878118bf649bb9f`，起始工作区干净；规划已提交为 `d44823e2c11415fe7c24364c4c41a661bb181a8e`，随后按用户授权实施 G2.0/G2.1。M1结果、28个既有失败及未运行项不被追改。真实数据流、KEEP矩阵、Q1–Q7、成本卡、WebGPU limits与参考比较见[母稿 §11](../next-design/eengine-v4-native-shading-2026-10.md#11-m2--geometry--virtual-geometry-alignment--scale-optimization)；本节保存执行边界和实际状态，结果见 §8.2.1/§8.3.1。
 
 ```mermaid
 flowchart TD
@@ -665,8 +665,8 @@ flowchart TD
 | 单元 | 状态 | 目标与依赖 |
 |---|---|---|
 | G2.0 Product / Scene Scale Contract | **closed，结果与限制见 §8.2.1** | 合法 descriptor、实际 depth/capacity/overflow 与独立 fixtures 已闭合；不是大场景性能验收 |
-| G2.1 Budgeted Residency & Multi-Product Streaming Closure | **next，未开始** | 依 G2.0 上界，完整地址ABI、小预算共享banks、metadata/fence回收、压力与全部Product生命周期 |
-| G2.2 Lean Geometry Products & Native Consumers | pending | 依 G2.1 地址/lifecycle，减无reader payload和Arena重复字段，所有native消费者一次切换 |
+| G2.1 Budgeted Residency & Multi-Product Streaming Closure | **closed，结果与限制见 §8.3.1** | ABI3实际容量、唯一GPU目录/fence回收、bounded公平IO、压力pump与全部Product恢复闭合 |
+| G2.2 Lean Geometry Products & Native Consumers | **next，未开始** | 依 G2.1 地址/lifecycle，减无reader payload和Arena重复字段，所有native消费者一次切换 |
 | G2.3 View Work Closure & Scale Tuning | pending | 依合法容量/精简输入，完成actual-count work、shadow独立coverage与低管理税；不扩Lighting范围 |
 | G2.4 Geometry Scale Acceptance | pending | 前述全部闭合后的大场景、压力、质量/生命周期/真实成本集中验收；随后STOP |
 
@@ -748,6 +748,64 @@ KEEP page256KiB、四bank绑定、raw与resident地址区分、先写payload后�
 - GPUdemand mainring encode/commit/abort/retry/device loss闭合；delayedshadowring只在有真实Geometryshadowdemand后消费。错误可观察，不吞promise失败。CPUverified队列纳入总source/IO/upload预算；perProduct公平、年龄/hysteresis、pin保护和pressureeviction→uploadretry实际接入frame间pump。禁止current-framereadback和独立frame submit。
 
 **退出集中验证：** legalfixtures后Admission/Multi/Residency/Profile/stream/ring独立语义集中运行；boundaryslot511/512/767/1023与各实际profile最后槽；1/8/64/66Products、同revision分槽、lateIO、取消、abort→retry、replacement多次失败/成功、源与device恢复、consumerfence退休。真实GPU pressure输入超过有效slots，检查no missing accepted geometry、coarse root fallback、pin保留、boundedverifiedbytes、可进展且无starvation。至少重复load/replace/release直到超过旧append-only累计capacity，证明live/reserved/retiring有界；记录IOCPU/P50/P95、pending、uploads/evictions/refetch/thrash和peak。不能只拿uploadCost减少证明更快。
+
+#### 8.3.1 G2.1 实施结果与停止边界（2026-10-08）
+
+**closed / Budget→physical address→single scene directory→delayed multi-Product IO/upload→fenced retirement/recovery 闭合。G2.2=next，未开始。** 开始时重新 `git fetch origin`，工作区干净；HEAD=`4626f67de86928353bd2e314855e4da21d546aa7`，origin/master=`d44823e2c11415fe7c24364c4c41a661bb181a8e`。重新核读G2.0源码、容量/overflow与实施结果，没有重开其合同。最终 fresh build:test source SHA256=`f0a899ae4c7fa1e881deb02f6b83454d92bb5c041749ac60a2a2a4ba7269b720`，output SHA256=`94ff00e6762011ade43f5ce8d72de885c5578af4b9d4e640d96d1729189e75a2`；下列六个GPU报告消费同一build，不借旧capture。
+
+#### 实际 ownership / producer→product→consumer
+
+- **Profile/地址：** 保四个等大bank和256KiB物理页。profile改为ceiling，实际bank按budget/协商buffer limits下向页对齐；auto无显式预算默认4×32MiB=128MiB，显式Portable/Balanced/HighEnd无cap仍可达512/768/1024MiB。创建metadata/banks前检查feature、16storage bindings和最小四页容量，不能以低预算丢geometry。活pool不自动resize。GPU ABI数值3：header64B word12=实际slotsPerBank，page-location16B word1低16 raw slot/高16 resident地址；resident namespace1024与实际physical capacity分开，全部heap consumers先检raw/resident实际范围。删除旧512-slot解释，不改cook/Visibility r32/SSE/精度。
+- **唯一GPU目录：** MultiRuntime scene heap内含唯一Product Table与六个metadata sections；每Product Residency保CPU descriptor/source/page lifetime，不再创建local GPU metadata或第二Table。独立single-Product owner仍有自己唯一metadata。bounded CPU free ranges仅末读fence后归还，live ranges不搬；replacement candidate独立构建，失败保旧current。generation-aware location sink拒绝旧producer写新slot。release/retire/evict默认捕获真实queue completion，reject不释放物理/metadata；loading cancel和lateIO不能复活slot。
+- **Delayed streaming：** PackedVisibility的同一ShadeGPUCommandContext reserve→onFinished commit、onAborted cancel，discard→同frame retry与reset/map failures闭合。exact slot/generation/page/revision贯穿source、scheduler、sink、eviction与replacement，不按相同revision首匹配。in-flight reservations+verified raw bytes共预算，上传/取消释放；扩展attributes只在同步upload解码。read/upload按Product服务次数后priority/age，遵守expanded hard upload cap与当帧剩余credit。物理pressure真实接frame间pump：非pin age/hysteresis→revoke→捕获全部已提交consumers的queue fence→free→retry。没有GPU→CPU→GPU本帧control、额外submit或新Runtime。
+- **Lifecycle：** Renderer checkpoint/replay所有active/dormant owned sources、slot/gen/asset-reference range与streaming registrations；失效旧device/ring/IO，不要求应用只恢复第一个Product。失败whole replay保sources供retry，成功才转交source ownership，显式destroy释放未转交sources。streaming错误保runtime/Renderer诊断，不吞fence/map异常。当前canonical source seam实为Provider的`revisions()`，修正类型并删除旧`as unknown as RevisionSource`；不是兼容adapter。Surface、Lighting和Arena算法未改。
+
+#### Source Map / Cost Card
+
+末次dependency review另补Product publication→streaming注册的同步生命周期：inactive/dormant/retiring立即unregister、abort reads/drop verified，重新active恢复source注册，destroy/device loss解除订阅；旧generation不能等到整streaming runtime销毁才取消。真实MultiRuntime+Streaming独立合同验证verified丢弃、dormancy恢复、replacement后的lateIO和末读fence/source单次释放；最终build/GPU复验均包含此修复。
+
+Local：现有Residency/Profile/共享SlotPool、MultiRuntime、scheduler/ring、Renderer recovery与GPU oracle。Reference：Nyx `bc7e5b1e51f6b3b8af4771db81ffaa714fcbe64b`、MiniEngine MIT，重新读本地 `GeometryStreaming.cpp::Update/SyncMemoryAndAddressTable/ImmediateEvict`（SHA256=`acb3aa4786eb6367e92b99e9e295c83e0aade516d59578f23ff38496f838a072`）。Adopt：payload先于location、root pin、revoke/retire必要语义。Adapt：WebGPU四storage banks、单submit/异步fence、exactslot/generation/epoch。Reject：独立submit、固定512-frame native宽限、D3D封装。Original：预算ceiling、可回收CPU ranges、公平boundedverified与全部source replay是本地owner修正，不宣称新完整上游移植/adoption。来源映射见[账本](../porting/next-renderer.md)。
+
+| 成本项 | 本轮变化 / 口径 |
+|---|---|
+| persistent reserved GPU bytes | 默认banks512→128MiB，删384MiB **descriptor reservation**；scene heap默认64MiB仍保，删各Product GPU metadata及独立Table。shared bank bytes只算一次；candidate/retiring slots在同pool，metadata ranges在同heap |
+| GPU bytes/ALU | header仍64B/location16B，reserved word换actualcapacity；新增raw/resident physical bounds checks，namespace除模1024可编译位操作。无额外每pixel产品/texture samples/atomics/barriers/dispatch/pipeline；逻辑读写量基本不变，不称实测带宽改善 |
+| CPU管理/working set | 新free ranges、retiring identities与公平排序；in-flight+verified默认4MiB硬上界，pressurefixture设512KiB。source自己的长期CPU资产/cache、digest/owned clone瞬时重叠、同步expanded decode scratch另计，不冒称整个CPU资产只4MiB |
+| 理想/expected/worst | 小工作集减少reservation且无pressurefence；真实expected locality未知。零locality/工作集超budget会refetch/thrash，pins或candidate/retiring无法容纳则明确拒绝/配置更大budget，不裁合法几何 |
+| 0/50/100%收益与break-even | 预留节省不依赖命中率；streaming的0/50/100%复用只是减少重复IO比例，并非测量。pressure pump的零复用税是read/hash/decode/upload/fence；break-even依页packing/IO/consumer时序，**UNKNOWN**。该单元修capacity/lifecycle，不以省reservation宣称帧时间提速 |
+
+#### 实际 workload 与集中验证
+
+真实pressure oracle使用 production MultiRuntime、Hierarchy、MeshletWorkCandidate、Streaming；两个同revision Product各一个完整coarse pin和三个fine页，每页合法raw triangle/header/attributes/hash。四bank共2MiB/8physicalslots，coarse先占4slots，six fine pages另需12slots，强制超过预算。24帧连续合法GPUwork，含discard→sameframe retry；每instance始终至少一个可渲染triangle work，pin始终resident，后续能得到fine work。此coverage是MeshletWork完整cut，**不是该pressurefixture像素级大场景验收**；真实winner/HDR另由双ProductRenderer oracle验证。
+
+| pressure结果 | 实际测量 |
+|---|---|
+| GPU bank / metadata current reservation | 2,097,152 / 65,536B；Product local metadata=0 |
+| submitted demand / overflow / stale / failed / malformed | 24 /0/0/0/0 |
+| requested / fine上传次数 /实际上传bytes | 100 /12 /3,149,280B（raw+directory+expanded，累计） |
+| retained verified /in-flight峰值 | 各524,288B，联合buffered峰值524,288B；不是二者相加的测量峰值 |
+| 两Product各eviction /reload /短期rerequest /thrash | 各5 /3 /5 /786,432B；平均已退休page lifetime各4.4frames |
+| IO+hash+verify最近窗口P50/P95 | 1.60 /2.00ms，本地memory provider；不是磁盘/网络throughput |
+| 最后pending /verified /blocked | 4 /524,288B /2；超工作集pressure继续存在，不能声称全fine pages同时resident |
+
+同device先运行HighEnd边界allocation，因此累计ledger globalpeak1GiB来自该边界子实验；不能拿它当2MiBpressure工作集峰值。正常当前allocation与retiring资源分别报告。压力fixture没测GPUtimestamp/CPU scheduler单独时间，均UNKNOWN；IO窗口是observed latency，非GPU时间。
+
+| 验证 | 最终结果 / 范围 |
+|---|---|
+| typecheck /完整build /fresh build:test | 通过；无dependency变化 |
+| targeted Node | 76/76，无skip：Admission、GPU ABI、MultiRuntime、Profile、Residency、budgeted lifecycle、scheduler/adaptive、stream/ring、identity/demand、G2.0 workload/binary/cook mapper |
+| budgeted lifecycle独立合同 | 1/8/64/66-source replay与公平IO/upload、100次load/replace/retire/release超过旧累计metadata容量、真实pending/rejectedfence保护、lateactivation/失败replacement rollback、map sibling failure/reset、sameframeabort→retry |
+| `geometry-budgeted-residency` | 13项真实bank marker访问含actual最后槽127/511/767/1023与511→512，使用heap physicalcapacity decoder；24pressureframes，pins/完整coarse cut、两Product进展、有界verified和fenced复用 |
+| `native-surface-multi-product-production` | 两同revision Products真实Scene→WASM→唯一Renderer，4Programs/4bins/2BindingSets，initial9888winner、alpha8188、resize12843、motion12904、recovery13021；normal/ORM/coat/custom/Unlit、parameter/stable/abort→retry/Temporal/preExposure和two-source device recovery；HDR sampled maxerror .000333625，原容差不变；VSM7allocated/7valid、18casters、overflow0 |
+| G2.0 GPU regression | `geometry-product-scale`9/9；`virtual-geometry-handoff`50/50；`virtual-geometry-instance-culling`20/20frames；singleProduct真实Renderer/recovery通过，VSM7/7、18casters、overflow0 |
+
+GPU串行，同最终build，Chrome154 Windows/NVIDIA Turing；压力boundary oracle请求256MiB storage binding以覆盖HighEnd，production仍按实际协商limits。GPU/page/scoped错误为空；production仍见403静态console和既有VSM unreachable警告，不称全部console零诊断。原失败及最终 `.local/g2-1-*`报告保留为本地诊断，不升级正式evidence/claims。
+
+文档/导航收口：docs-verify 0 findings、66 historical warnings；documentation tests7/7、vibe doctor（registry一致）、MultiRuntime context和git diff --check通过。workstream仍指向同一Geometry大模块，不复制G2.1详细状态到入口。
+
+失败分类与根因：真实GPUSupportedLimits的字段是prototype properties，spread丢limits，改显式读取，低limit仍failclosed；新productionfixture静态allowlist缺资产路径为tooling，恢复既有ProductOracle允许范围而非绕验证；canonicalizer的Provider误类型为implementation，修真实seam而非cast；旧GPUcodec fixtures缺resident地址、profile期待512MiB、stream mocks无commandcommit均为已换ABI的表示测试，迁移真实字段/预算/事件，保语义断言。未改HDR容差、质量或SSE。M1/G2.0原失败记录不追改；当前定向已关闭GPUABI/streaming表示问题，未重跑全Node suite，不声称28个历史失败全部解决。
+
+**未运行/边界：** authored大场景/100M、100k实例GPU raster、large-scene磁盘/网络/公平与thrash矩阵、GPU时间/帧P50/P95/物理VRAM工具、跨浏览器/其他GPU、失败wholeRendererrecovery的完整browser矩阵未运行；全source replay/fence/lateIO有CPU独立合同，实际GPU恢复覆盖两Product。固定metadata sections尚可能fragment，不建compactingallocator；scene-scale策略/最优budget留G2.4。Arena/continuity/rawpacking留G2.2，shadow真实demand/view closure留G2.3；LightCluster≈30ms外部瓶颈不在本单元改。Visibility r32、SurfaceV4唯一production和one frame submit保持。**停止于G2.2边界。**
 
 ### 8.4 G2.2 — Lean Geometry Products & Native Consumers
 

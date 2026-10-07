@@ -2,7 +2,10 @@
 id: specs/oegpack-v3
 state: current
 verifies:
-  - OEngine/src
+  files:
+    - OEngine/src/assets/GeometryAbiV3.ts
+    - OEngine/src/assets/OegPackV3.ts
+    - OEngine/src/gpu/GeometryProductResidencyProfile.ts
 ---
 # OEGPACK V3.0
 
@@ -26,7 +29,7 @@ OEGPACK writer 的几何结果仍必须遵守 [Geometry Product V1](./geometry-p
 | --- | --- |
 | fixed header | 256 B |
 | decoded page | 256 KiB (`pageShift = 18`) |
-| geometry bank | 128 MiB，512 slots |
+| geometry bank | runtime residency profile 决定；不是 OEGPACK 固定格式，见 [profile](./web-geometry-residency-profile-v1.md) |
 | asset record | 128 B |
 | hierarchy node | 48 B |
 | group directory | 16 B |

@@ -40,6 +40,7 @@ function fakeDevice() {
       };
     },
     queue: {
+      onSubmittedWorkDone: async () => {},
       writeBuffer(buffer, offset, data) {
         const bytes = new Uint8Array(
           data.buffer ?? data,
@@ -225,7 +226,7 @@ test("Phase E multi-Product runtime keeps 64 independent shards and rejects stal
     false,
   );
 
-  const recordBytes = tableWrite(device, runtime.table, replacement.productTableSlot * 64);
+  const recordBytes = tableWrite(device, runtime.metadata, runtime.productTableByteOffset + replacement.productTableSlot * 64);
   assert.ok(recordBytes);
   const record = unpackGeometryProductTableRecordV1(recordBytes);
   assert.equal(record.productGeneration, replacement.productGeneration);

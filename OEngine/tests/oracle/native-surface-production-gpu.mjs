@@ -1,3 +1,6 @@
+import { GeometryProductMultiRuntimeV1 } from "../../.test-dist/gpu/GeometryProductMultiRuntime.js";
+import { GeometryPageStreamingRuntimeV1 } from "../../.test-dist/gpu/GeometryPageStreamingRuntime.js";
+import { buildVirtualGeometrySceneSourceV1, mergeVirtualGeometryProductSceneSourcesV1 } from "../../.test-dist/assets/geometry-product/VirtualGeometrySceneSourceV1.js";
 import { Renderer } from "../../.test-dist/render/pipeline/RendererCore.js";
 import { Scene } from "../../.test-dist/scene/Scene.js";
 import { Mesh } from "../../.test-dist/scene/Mesh.js";
@@ -350,7 +353,34 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
       for (const instance of product.canonicalization.instances) {
         instance.flags = GPU_INSTANCE_FLAGS.CastsShadow | GPU_INSTANCE_FLAGS.ReceivesShadow;
       }
-      await renderer.uploadCookedSceneProduct(scene, product);
+      if (productGeometry === "multi") {
+        const runtime = new GeometryProductMultiRuntimeV1(device);
+        const original = (await product.provider.revisions()[Symbol.asyncIterator]().next()).value;
+        let leases = 2;
+        const parts = [];
+        const shards = [];
+        for (let shardIndex = 0; shardIndex < 2; shardIndex++) {
+          // Two slot/generations of exactly the same revision are intentional.
+          const source = { descriptor: original.descriptor,
+            readPage: (pageId, signal) => original.readPage(pageId, signal),
+            release() { if (--leases === 0) original.release(); } };
+          const shard = await runtime.load(source);
+          shards.push(shard);
+          const instances = product.canonicalization.instances.filter((_instance, index) => index % 2 === shardIndex);
+          const mapped = buildVirtualGeometrySceneSourceV1(source.descriptor,
+            product.canonicalization.profiles, instances, product.canonicalization.materials);
+          parts.push({ source: { ...mapped.source, meshes: meshes.filter((_mesh, index) => index % 2 === shardIndex) },
+            productTableSlot: shard.productTableSlot, productGeneration: shard.productGeneration,
+            assetReferenceBegin: shard.assetReferenceBegin });
+        }
+        const combined = mergeVirtualGeometryProductSceneSourcesV1(parts);
+        const streaming = new GeometryPageStreamingRuntimeV1(device, shards[0].residency);
+        for (const shard of shards) streaming.registerProduct(shard.residency.sourceForStreaming(), shard.residency);
+        await renderer.uploadVirtualGeometryScene(scene, combined, shards[0].residency, streaming, undefined,
+          { bindings: runtime.bindings(), assetCount: combined.assetCount, registerStreaming: false, multiRuntime: runtime });
+      } else {
+        await renderer.uploadCookedSceneProduct(scene, product);
+      }
     } else {
       const adapted = createPackedSceneSourceFromScene(scene, [{ geometry, asset: cooked.asset }]);
       adapted.source.flags.fill(GPU_INSTANCE_FLAGS.CastsShadow | GPU_INSTANCE_FLAGS.ReceivesShadow);
@@ -429,6 +459,13 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
     instrument();
     await tick();
     const recovered = await inspect();
+    if (productGeometry === "multi") {
+      const streaming = renderer.geometryStreamingEvidence(scene);
+      check(streaming.products.length === 2, "Recovery dropped an active Product");
+      check(new Set(streaming.products.map((product) => product.productGeneration)).size === 2,
+        "Recovery aliased Product generations");
+    }
+    check(renderer.geometryStreamingError() === null, "Production streaming error is observable");
     check(renderer.deviceEpoch === 2, "Production recovery did not advance the device epoch");
     const ledger = renderer.graphics.resource_accounting;
     const nativeOwners = [
@@ -498,4 +535,8 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
 
 export async function runNativeSurfaceProductProductionGpuOracle(device) {
   return runNativeSurfaceProductionGpuOracle(device, true);
+}
+
+export async function runNativeSurfaceMultiProductProductionGpuOracle(device) {
+  return runNativeSurfaceProductionGpuOracle(device, "multi");
 }

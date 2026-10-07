@@ -142,3 +142,38 @@ export function deepProductFixture(depth) {
   new DataView(descriptor.pageRecords.buffer).setUint32(20, depth + 1, true);
   return { descriptor, page };
 }
+
+// Coarse -> fine refine chain. All spatial leaves remain independent BVH roots;
+// the payload refine IDs, not BVH parents, provide the replacement coverage.
+export async function streamingProductFixture(pageCount = 4, revision = 0) {
+  const { descriptor } = triangleProductFixture();
+  descriptor.revision = revision;
+  descriptor.pageRecords = new Uint8Array(pageCount * 32);
+  addTriangleProductPages(descriptor, pageCount);
+  const pages = [];
+  for (let pageId = 0; pageId < pageCount; pageId++) {
+    const page = writeTriangleProductPage(new Uint8Array(262144));
+    const view = new DataView(page.buffer);
+    view.setUint32(76, pageId + 1 < pageCount ? pageId + 1 : 0xffffffff, true);
+    const error = pageId === 0 ? 3.4028234663852886e38 : 1 / pageId;
+    view.setFloat32(40, error, true);
+    new DataView(descriptor.hierarchyNodes.buffer).setFloat32(pageId * 48 + 40, error, true);
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", page));
+    descriptor.pageRecords.set(digest.subarray(0, 16), pageId * 32);
+    pages.push({ page, hash: digest.subarray(0, 16) });
+  }
+  let releases = 0;
+  let reads = 0;
+  const source = {
+    descriptor,
+    async readPage(pageId, signal) {
+      if (signal?.aborted) throw signal.reason;
+      reads++;
+      const { page, hash } = pages[pageId];
+      return { productId: descriptor.productId.slice(), revision, pageId,
+        bytes: page.slice().buffer, decodedHash128: hash.slice(), decodedPageHash128: hash.slice() };
+    },
+    release() { releases++; },
+  };
+  return { descriptor, source, get releases() { return releases; }, get reads() { return reads; } };
+}

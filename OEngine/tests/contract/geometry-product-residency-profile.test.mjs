@@ -118,7 +118,7 @@ test("Phase H chooses the three physical profiles from negotiated limits", () =>
     requestedProfile: "auto",
   });
   assert.equal(portable.profile, "Portable");
-  assert.equal(portable.capacityBytes, 512 * 1024 * 1024);
+  assert.equal(portable.capacityBytes, 128 * 1024 * 1024);
 
   const balanced = selectGeometryProductResidencyProfileV1(limits(192 * 1024 * 1024), {
     requestedProfile: "Balanced",
@@ -143,6 +143,7 @@ test("Phase H falls back without recook and does not guess physical VRAM", () =>
   assert.equal(plan.reason, "selected");
   const pressured = selectGeometryProductResidencyProfileV1(limits(256 * 1024 * 1024), {
     requestedProfile: "auto",
+    configuredCapacityBytes: 1024 * 1024 * 1024,
     runtimeEvidence: { residentBytes: 600 * 1024 * 1024, retiringBytes: 64 * 1024 * 1024 },
   });
   assert.equal(pressured.profile, "HighEnd");
@@ -150,10 +151,10 @@ test("Phase H falls back without recook and does not guess physical VRAM", () =>
 
 test("Phase H feature-off and low-limit paths allocate no profile banks", async () => {
   const { source } = fixture();
-  const low = fakeDevice(64 * 1024 * 1024);
+  const low = fakeDevice(128 * 1024);
   await assert.rejects(
     VirtualGeometryResidency.create(low, source, 1, 0, undefined, { requestedProfile: "Portable" }),
-    /unsupported-limits|unavailable/,
+    /configured-budget|unavailable/,
   );
   assert.equal(low.creates, 0);
 

@@ -21,7 +21,7 @@ const ledgers = new WeakMap<GPUDevice, Ledger>();
 export function reserveGeometryProductGpuBytes(
   device: GPUDevice,
   bytes: number,
-  capacityLimitBytes = GEOMETRY_PRODUCT_GPU_CAPACITY_LIMIT,
+  capacityLimitBytes = GEOMETRY_PRODUCT_GPU_CAPACITY_LIMIT
 ): () => void {
   if (!Number.isSafeInteger(bytes) || bytes <= 0)
     throw new RangeError("Geometry Product GPU allocation size is invalid");
@@ -37,16 +37,16 @@ export function reserveGeometryProductGpuBytes(
       metadataPeakBytes: 0,
       allocations: 0,
       metadataAllocations: 0,
-      capacityLimitBytes: GEOMETRY_PRODUCT_GPU_CAPACITY_LIMIT,
+      capacityLimitBytes: GEOMETRY_PRODUCT_GPU_CAPACITY_LIMIT
     };
     ledgers.set(device, ledger);
   }
   if (ledger.allocatedBytes + bytes > capacityLimitBytes) {
     throw new RangeError(
-      `Geometry Product GPUBuffer capacity budget exceeded: ${ledger.allocatedBytes + bytes} > ${capacityLimitBytes}`,
+      `Geometry Product GPUBuffer capacity budget exceeded: ${ledger.allocatedBytes + bytes} > ${capacityLimitBytes}`
     );
   }
-  ledger.capacityLimitBytes = Math.max(ledger.capacityLimitBytes, capacityLimitBytes);
+  ledger.capacityLimitBytes = capacityLimitBytes;
   ledger.allocatedBytes += bytes;
   ledger.allocations++;
   ledger.peakBytes = Math.max(ledger.peakBytes, ledger.allocatedBytes);
@@ -72,7 +72,7 @@ export function reserveGeometryProductMetadataBytes(device: GPUDevice, bytes: nu
       metadataPeakBytes: 0,
       allocations: 0,
       metadataAllocations: 0,
-      capacityLimitBytes: GEOMETRY_PRODUCT_GPU_CAPACITY_LIMIT,
+      capacityLimitBytes: GEOMETRY_PRODUCT_GPU_CAPACITY_LIMIT
     };
     ledgers.set(device, ledger);
   }
@@ -111,6 +111,6 @@ export function geometryProductGpuBudgetEvidence(device: GPUDevice): Readonly<{
     allocations: ledger?.allocations ?? 0,
     metadataAllocations: ledger?.metadataAllocations ?? 0,
     limitBytes: ledger?.capacityLimitBytes ?? GEOMETRY_PRODUCT_GPU_CAPACITY_LIMIT,
-    metadataLimitBytes: GEOMETRY_PRODUCT_METADATA_OVERHEAD_LIMIT,
+    metadataLimitBytes: GEOMETRY_PRODUCT_METADATA_OVERHEAD_LIMIT
   });
 }

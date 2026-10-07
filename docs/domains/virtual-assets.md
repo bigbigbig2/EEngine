@@ -4,18 +4,22 @@ kind: domain
 owner: virtual-assets
 state: current
 verifies:
-  - OEngine/src/gpu/GeometryProductAdmission.ts
-  - OEngine/src/gpu/GeometryProductMultiRuntime.ts
-  - OEngine/src/gpu/GeometryProductGpuAbiV1.ts
-  - OEngine/src/render/program/FrameProgramLowering.ts
-  - OEngine/src/gpu/GeometryPageStreamingRuntime.ts
-  - OEngine/src/gpu/GeometryProductResidencyProfile.ts
-  - OEngine/src/gpu/GeometryProductSlotPool.ts
-  - OEngine/src/render/surface/SurfaceV4.ts
-  - OEngine/src/render/pipeline/RendererCore.ts
-  - OEngine/src/assets/geometry-product/GeometryProductWorkload.ts
-  - OEngine/src/assets/geometry-product/VirtualGeometrySceneSourceV1.ts
-  - OEngine/src/gpu/GeometryProductResidentAttributes.ts
+  files:
+    - OEngine/src/gpu/GeometryProductAdmission.ts
+    - OEngine/src/gpu/GeometryProductMultiRuntime.ts
+    - OEngine/src/gpu/GeometryProductGpuAbiV1.ts
+    - OEngine/src/render/program/FrameProgramLowering.ts
+    - OEngine/src/gpu/GeometryPageStreamingRuntime.ts
+    - OEngine/src/gpu/GeometryPageScheduler.ts
+    - OEngine/src/gpu/GeometryDemandReadbackRing.ts
+    - OEngine/src/gpu/GeometryProductResidencyProfile.ts
+    - OEngine/src/gpu/GeometryProductSlotPool.ts
+    - OEngine/src/gpu/VirtualGeometryResidency.ts
+    - OEngine/src/render/surface/SurfaceV4.ts
+    - OEngine/src/render/pipeline/RendererCore.ts
+    - OEngine/src/assets/geometry-product/GeometryProductWorkload.ts
+    - OEngine/src/assets/geometry-product/VirtualGeometrySceneSourceV1.ts
+    - OEngine/src/gpu/GeometryProductResidentAttributes.ts
 ---
 # Virtual Assets
 
@@ -25,11 +29,17 @@ verifies:
 
 Loader/Cooker 提供 Product descriptor/pages；admission 负责验证/激活，multi-runtime 管理 Product/shard slots 与 replacement/release，residency 发布当前页位置。FrameProgramLowering 将 virtual metadata/banks 与选中 frame geometry 传给唯一 SurfaceV4；GPU hierarchy/work/raster 消费当前产品，不由 Loader 长期持有 GPU owner。
 
-当前 GeometryProductGpuAbiV1 的 ABI version 常量为 2；page-location 编码分开 geometry/resident 地址及 generation。不能把 API 名称中的 V1 当作当前数值版本。部分测试 fixtures 尚未符合当前合法 page/地址接口，M1 保存的 Node suite 仍有既有 Geometry/cook 失败；测试存在不等于验证通过，分类和迁移责任见当前执行计划 M2。
+当前 GeometryProductGpuAbiV1 的数值 ABI version 为3；16B page-location 的 raw/resident 地址使用1024-slot namespace，64B heap header word12发布实际物理 slotsPerBank，GPU heap lookup 在 bank read 前校验实际范围。API 名称中的 V1 是 Product 合同名，不是当前 GPU 数值版本。M1 全 Node suite 的既有失败不追改；本轮 codec/profile/streaming fixtures 已迁移，实际结果与未运行范围见执行计划 G2.1。
 
 Web/Offline/procedural Scene mapper 读取完整 immutable descriptor，按真实 asset forest 与 instance multiplicity 发布 depth/队列上界，合并不再 clamp；RenderWorld 在创建 Scene 资源前检查协商 buffer/binding/dispatch 与 Visibility work namespace。Resident decoder 核实实际 group header 的 meshlet count 与 descriptor 一致，防止页内容突破已声明 work 上界。空 instance list 明确拒绝。合法 page fixtures 已覆盖当前 admission/residency/multi-runtime 的 targeted 合同；原失败记录和仍未关闭的缺口保留在执行计划，不能视为完整 streaming 规模验收。
 
-四 bank 按 GPUDevice 共享而非每 Product 独占；Portable 默认预留512MiB，scene metadata另预留64MiB，各 Product local metadata也仍存在。当前 profile 有512/768/1024 slots/bank，但 GPU地址codec硬编码512；scene metadata ranges append-only不随release回收。多个 Product 渲染已有slot/generation与重定位，Renderer却对多shard recovery要求应用source replay。Streaming已有延迟readback、scheduler与eviction API，本次搜索未见production pressure eviction或shadow demand readback调用；这些是实际缺口，不是M2已经完成的能力。
+四 bank 按 GPUDevice 共享；auto 无显式预算默认4×32MiB，profile512/768/1024MiB是 ceiling，实际容量按预算/limit/page协商。MultiRuntime scene metadata 默认64MiB，是唯一 GPU directory（Product Table嵌入其中）；各 Product只保CPU descriptor/source与页生命周期。六 section 的 bounded CPU free-range lists 在末读 fence 后回收，不移动live range；单 Product standalone 仍拥有自己唯一 metadata。共享banks/metadata的used、reserved、retiring与peak分别计账，不能将每 Product共享bank evidence相加。
+
+Streaming mainring 由命令提交 commit、abort cancel；延迟map/consume后 exact slot/generation 分发IO/upload，不按同revision首个Product路由。Scheduler的in-flight reservation与verified raw pages共预算，read/upload按Product服务次数与本地priority/age公平排序；physical pressure实际接入frame间revoke→真实queue fence→release→upload retry。错误留在runtime/Renderer diagnostics；无本帧readback控制或额外submit。超工作集仍会thrash，不保证任意小预算达到完整fine LOD。
+
+Renderer device loss checkpoint/replay全部active/dormant owned sources及slot/generation/asset ranges，重新注册各Product streaming；失败replay保持sources可retry。小GPU压力fixture验证coarse coverage、pin保护与两Product进展，真实双Product Renderer验证winner/native HDR/Temporal接口和恢复。固定section比例、全大场景公平/IO性能、shadow demand真实producer、Arena紧化和完整Geometry成本仍有对应M2后续责任；当前不存在可据此宣称的完整large-scene acceptance。
+
+Residency publication事件同步管理streaming source注册：dormant/retiring撤销注册并取消IO/verified队列，active恢复，destroy/device loss解除订阅；CPU取消不替代末读GPU fence。单Product退休不会继续向已释放source/owner上传迟到页。
 
 ## 边界与验证
 

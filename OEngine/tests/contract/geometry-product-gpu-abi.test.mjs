@@ -9,6 +9,8 @@ test("Geometry Product GPU location mirror encodes generation-tagged resident ad
   const bytes = encodeGeometryProductGpuLocationV1({
     bankIndex: 2,
     slotIndex: 7,
+    residentBankIndex: 3,
+    residentSlotIndex: 767,
     productGeneration: 11,
     flags: 3,
   });
@@ -41,6 +43,8 @@ test("Geometry Product GPU location mirror rejects reserved flags", () => {
   const bytes = encodeGeometryProductGpuLocationV1({
     bankIndex: 0,
     slotIndex: 0,
+    residentBankIndex: 0,
+    residentSlotIndex: 0,
     productGeneration: 1,
     flags: 1,
   });
@@ -52,12 +56,14 @@ test("Geometry Product GPU location mirror rejects reserved flags", () => {
   );
   assert.throws(
     () =>
-      encodeGeometryProductGpuLocationV1({ bankIndex: 0, slotIndex: 512, productGeneration: 1, flags: 1 }),
+      encodeGeometryProductGpuLocationV1({ bankIndex: 0, slotIndex: 1024, productGeneration: 1, flags: 1 }),
     /invalid/,
   );
   const outOfBank = encodeGeometryProductGpuLocationV1({
     bankIndex: 0,
     slotIndex: 0,
+    residentBankIndex: 0,
+    residentSlotIndex: 0,
     productGeneration: 1,
     flags: 1,
   });
@@ -67,6 +73,7 @@ test("Geometry Product GPU location mirror rejects reserved flags", () => {
 
 test("Geometry Product GPU metadata records freeze product ranges and asset references", () => {
   const heap = {
+    slotsPerBank: 1024,
     productCount: 1,
     productCapacity: 2,
     totalWords: 144,
@@ -118,6 +125,7 @@ test("Geometry Product GPU metadata records freeze product ranges and asset refe
 
 test("Geometry Product metadata heap CPU oracle fail-closes generation and resolves table word ranges", () => {
   const heap = {
+    slotsPerBank: 1024,
     productCount: 1,
     productCapacity: 1,
     totalWords: 128,

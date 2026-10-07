@@ -8,7 +8,7 @@
  */
 export const GEOMETRY_DEMAND_READBACK_MAX_BYTES_V1 = 256 * 1024;
 
-export type GeometryDemandReadbackSlotStateV1 = "free" | "submitted" | "mapping" | "ready";
+export type GeometryDemandReadbackSlotStateV1 = "free" | "encoded" | "submitted" | "mapping" | "ready";
 
 export interface GeometryDemandReadbackSlotV1 {
   readonly index: number;
@@ -35,6 +35,7 @@ export class GeometryDemandReadbackRingV1 {
   readonly #slots: GeometryDemandReadbackSlotV1[];
   readonly #mapCompletedSlot: GeometryDemandReadbackRingOptionsV1["mapCompletedSlot"];
   readonly #frames = new Set<number>();
+  #epoch = 0;
   #submitted = 0;
   #overflow = 0;
   #lastSubmittedFrame = -1;
@@ -58,13 +59,13 @@ export class GeometryDemandReadbackRingV1 {
       byteLength: bytesPerSlot,
       storage: new ArrayBuffer(bytesPerSlot),
       state: "free" as const,
-      submittedFrame: -1,
+      submittedFrame: -1
     }));
     this.#mapCompletedSlot = options.mapCompletedSlot;
   }
 
   /** Reserve and encode one queue copy. This method never maps or awaits. */
-  submit(frameIndex: number, encode: (slot: GeometryDemandReadbackSlotV1) => void): number | undefined {
+  reserve(frameIndex: number, encode: (slot: GeometryDemandReadbackSlotV1) => void): number | undefined {
     if (!Number.isSafeInteger(frameIndex) || frameIndex < 0)
       throw new RangeError("readback frame index must be a non-negative integer");
     if (frameIndex <= this.#lastSubmittedFrame || this.#frames.has(frameIndex)) {
@@ -78,11 +79,42 @@ export class GeometryDemandReadbackRingV1 {
     }
     encode(slot);
     slot.submittedFrame = frameIndex;
-    slot.state = "submitted";
+    slot.state = "encoded";
     this.#frames.add(frameIndex);
-    this.#lastSubmittedFrame = frameIndex;
-    this.#submitted++;
     return slot.index;
+  }
+
+  commit(slotIndex: number): void {
+    const slot = this.slot(slotIndex);
+    if (slot.state !== "encoded") throw new Error("Demand copy is not encoded");
+    slot.state = "submitted";
+    this.#lastSubmittedFrame = Math.max(this.#lastSubmittedFrame, slot.submittedFrame);
+    this.#submitted++;
+  }
+
+  cancel(slotIndex: number): void {
+    const slot = this.slot(slotIndex);
+    if (slot.state !== "encoded") throw new Error("Only an unsubmitted demand copy can abort");
+    this.#frames.delete(slot.submittedFrame);
+    slot.submittedFrame = -1;
+    slot.state = "free";
+  }
+
+  /** CPU contract harness for an already committed submission. */
+  submit(frameIndex: number, encode: (slot: GeometryDemandReadbackSlotV1) => void): number | undefined {
+    const index = this.reserve(frameIndex, encode);
+    if (index !== undefined) this.commit(index);
+    return index;
+  }
+
+  reset(): void {
+    this.#epoch++;
+    this.#frames.clear();
+    this.#lastSubmittedFrame = -1;
+    for (const slot of this.#slots) {
+      slot.state = "free";
+      slot.submittedFrame = -1;
+    }
   }
 
   /**
@@ -93,30 +125,42 @@ export class GeometryDemandReadbackRingV1 {
     if (!Number.isSafeInteger(completedFrame) || completedFrame < 0)
       throw new RangeError("completed frame index must be a non-negative integer");
     const pending = this.#slots.filter(
-      (slot) => slot.state === "submitted" && slot.submittedFrame < completedFrame,
+      (slot) => slot.state === "submitted" && slot.submittedFrame < completedFrame
     );
     const results: GeometryDemandReadbackResultV1[] = [];
-    await Promise.all(
+    const epoch = this.#epoch;
+    const mappings = await Promise.allSettled(
       pending.map(async (slot) => {
         slot.state = "mapping";
         try {
           const bytes = await this.#mapCompletedSlot(slot);
+          if (epoch !== this.#epoch) return;
           if (!(bytes instanceof ArrayBuffer) || bytes.byteLength > slot.byteLength)
             throw new RangeError("mapped readback exceeds slot capacity");
           const copy = bytes.slice(0);
           slot.state = "ready";
           results.push(
-            Object.freeze({ slotIndex: slot.index, frameIndex: slot.submittedFrame, bytes: copy }),
+            Object.freeze({ slotIndex: slot.index, frameIndex: slot.submittedFrame, bytes: copy })
           );
         } catch (error) {
+          if (epoch !== this.#epoch) return;
           const frame = slot.submittedFrame;
           slot.state = "free";
           slot.submittedFrame = -1;
           this.#frames.delete(frame);
           throw error;
         }
-      }),
+      })
     );
+    const failures = mappings.filter((result) => result.status === "rejected");
+    if (failures.length !== 0) {
+      // Do not strand successfully mapped siblings when one mapping fails.
+      for (const result of results) this.release(result.slotIndex);
+      throw new AggregateError(
+        failures.map((failure) => failure.reason),
+        "Geometry demand mapping failed"
+      );
+    }
     results.sort((a, b) => a.frameIndex - b.frameIndex || a.slotIndex - b.slotIndex);
     return Object.freeze(results);
   }
@@ -140,7 +184,7 @@ export class GeometryDemandReadbackRingV1 {
       submitted: this.#submitted,
       overflow: this.#overflow,
       inUse: this.#slots.filter((slot) => slot.state !== "free").length,
-      ready: this.#slots.filter((slot) => slot.state === "ready").length,
+      ready: this.#slots.filter((slot) => slot.state === "ready").length
     });
   }
 }
@@ -182,8 +226,8 @@ export class GpuGeometryDemandReadbackRingV1 {
       this.#device.createBuffer({
         label: `Geometry Page Demand readback ${index}`,
         size: this.#bytesPerSlot,
-        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
-      }),
+        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+      })
     );
     this.#ring = new GeometryDemandReadbackRingV1({
       slotCount,
@@ -196,7 +240,7 @@ export class GpuGeometryDemandReadbackRingV1 {
         } finally {
           buffer.unmap();
         }
-      },
+      }
     });
   }
 
@@ -210,9 +254,18 @@ export class GpuGeometryDemandReadbackRingV1 {
     if (!Number.isInteger(source.size) || source.size <= 0 || source.size > this.#bytesPerSlot) {
       throw new RangeError("GPU demand source exceeds the readback slot capacity");
     }
-    return this.#ring.submit(frameIndex, (slot) => {
+    return this.#ring.reserve(frameIndex, (slot) => {
       encoder.copyBufferToBuffer(source, 0, this.#buffers[slot.index]!, 0, source.size);
     });
+  }
+
+  commit(slotIndex: number): void {
+    this.assertAlive();
+    this.#ring.commit(slotIndex);
+  }
+
+  cancel(slotIndex: number): void {
+    if (!this.#destroyed) this.#ring.cancel(slotIndex);
   }
 
   async poll(completedFrame: number): Promise<readonly GeometryDemandReadbackResultV1[]> {
@@ -237,6 +290,7 @@ export class GpuGeometryDemandReadbackRingV1 {
   destroy(): void {
     if (this.#destroyed) return;
     this.#destroyed = true;
+    this.#ring.reset();
     for (const buffer of this.#buffers) buffer.destroy();
   }
 

@@ -30,6 +30,7 @@ export async function runVirtualGeometryInstanceCullingGpuOracle(device) {
   // One resident terminal Group, addressed through the real Product heap ABI.
   const heap = new Uint32Array(96),
     f = new Float32Array(heap.buffer);
+  heap[12] = 2; // Actual two-slot test bank; v3 physical-capacity contract.
   heap.set([GEOMETRY_PRODUCT_GPU_ABI_VERSION_V1, 1, 1, 96, 16, 32, 36, 68, 72, 84, 88, 92]);
   heap.set([1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1], 16);
   heap.set([0, 1, 0, 0], 32);

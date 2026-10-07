@@ -2,7 +2,12 @@
 id: specs/virtual-geometry-runtime-v1
 state: current
 verifies:
-  - OEngine/src
+  files:
+    - OEngine/src/gpu/GeometryProductGpuAbiV1.ts
+    - OEngine/src/gpu/VirtualGeometryResidency.ts
+    - OEngine/src/gpu/GeometryProductMultiRuntime.ts
+    - OEngine/src/gpu/GeometryPageStreamingRuntime.ts
+    - OEngine/src/render/pipeline/RendererCore.ts
 ---
 # Virtual Geometry Runtime V1
 
@@ -14,7 +19,7 @@ Owners: geometry admission/residency owner、`GpuAssetStore`、GPU hierarchy/wor
 
 本规范消费 [Geometry Product V1](./geometry-product-v1.md)，不直接依赖 GLB、WASM Worker、OEGPACK 文件或 cache。V1 只支持 `oengine-vg-v1-v3-decoded`，因此 decoded page 固定 256 KiB，并复用 OEGPACK V3-compatible hierarchy/Group/Meshlet consumer。
 
-本文件冻结状态机、queue 和 publication 语义。GPU-visible layout 中已明确的记录必须按下文实现，包括下述 Product table 与 asset reference；它们需要 TypeScript mirror、WGSL oracle 和 version gate。V1 不改变 VisibilityKey、material identity 或 Sparse Shading ABI。
+本文件定义状态机、queue 和 publication 语义。GPU-visible layout 使用数值 ABI version 3，包括 Product table、asset reference 和实际物理容量 header；需 TypeScript mirror、WGSL oracle 和 version gate。Cooked Product V1 不变，VisibilityKey 和 native material/HDR 合同不变。运行时目录重建即可更新此 GPU ABI，不要求资产 recook，不保留旧 GPU decoder。
 
 ## Nyx Runtime 移植边界
 
@@ -67,7 +72,7 @@ validated descriptor + complete resident activation cut + dependencies
 
 不得在一个冻结 `FrameContext` 内混用不同 product generation。新事务失败或取消时回滚其 reservation，旧 active revision 不变。
 
-`ready-to-activate` 只表示候选 descriptor、activation cut 和 Scene mapper 已准备，不能被 frame/admission consumer 当作 active。Renderer 必须将候选 metadata、Scene/instance、material/texture 与 sparse-shading closure 一起预检；只有对应命令提交成功后才 `commit()` Product active bit 和 generation。mapping、staging、submit 或取消失败必须释放候选 reservation，旧 Scene、旧 generation 和旧 sparse-shading closure 保持可消费；异步 replacement 错误不得吞掉。
+`ready-to-activate` 只表示候选 descriptor、activation cut 和 Scene mapper 已准备，不能被 frame/admission consumer 当作 active。Renderer 将候选 metadata、Scene/instance 与 native material/texture publication 一起预检，提交成功后才 `commit()` 对应 publication。mapping、staging、submit 或取消失败释放候选 reservation，保留旧 Scene/generation/native publication；异步 replacement 错误不得吞掉。MultiRuntime 独立构建候选完整 activation cut 后切换目录记录，失败保旧 current；Scene admission 仍负责其更外层原子提交。
 
 ### 逻辑 page 状态
 
@@ -84,18 +89,19 @@ absent -> queued -> producing-or-reading -> verified -> upload-queued
 
 ### Physical heap 与地址表
 
-为保持 WebGPU 2026 Desktop 的 `maxStorageBuffersPerShaderStage >= 10` 基线，所有只读 Product metadata 与可更新 Page location 共用一个 `GeometryProductMetadataHeapV1` storage buffer，而不是每张逻辑表占一个 binding。Heap 以 64-byte little-endian header 开始；所有 word offset 从 heap byte 0 计，且对应 section 起点按 16 byte 对齐：
+当前 Product consumers 创建前要求协商 `maxStorageBuffersPerShaderStage >= 16`。所有只读 Product metadata 与可更新 Page location 共用一个 `GeometryProductMetadataHeapV1` storage buffer；multi-Product production 不再分配每 Product GPU 镜像或第二份 GPU Table。Heap 以 64-byte little-endian header 开始；所有 word offset 从 heap byte 0 计，section 起点按 16 byte 对齐：
 
 | Byte | 类型 | 字段 |
 | ---: | --- | --- |
-| 0 | `u32` | ABI version = 1 |
+| 0 | `u32` | ABI version = 3 |
 | 4 | `u32` | product count |
 | 8 | `u32` | product capacity |
 | 12 | `u32` | total words |
 | 16..47 | `u32[8]` | product table、asset reference、asset record、root id、hierarchy、Group directory、Page location、VertexFormat 的 word offsets |
-| 48..63 | `u32[4]` | reserved = 0 |
+| 48 | `u32` | actual physical `slotsPerBank`，1..1024 |
+| 52..63 | `u32[3]` | reserved = 0 |
 
-Canonical 单 Product admission 也使用该 heap；后续全局 registry 只改变各逻辑表的 begin/count 和 heap capacity，不改变 shader ABI。动态 Page mapping 仅更新 Page location section 的 16-byte record；Product 激活仅更新对应 64-byte Product record 的 active bit。任何 offset、count 或 stride 组合越过 `totalWords` 均 fail closed。
+独立单 Product admission 也使用该 heap；multi-Product scene directory 统一发布各 range 和 physical capacity。小型 CPU free-range lists 在末读 fence 后回收 metadata，live ranges 不移动；动态 Page mapping 仅更新 Page location section 的 16-byte record。任何 offset、count 或 stride 组合越过 `totalWords` 均 fail closed。
 
 单 Product owner 如取得非零 `ProductTableSlot`，其表必须包含从 slot 0 到该 slot 的稀疏记录，`productCount = productCapacity = ProductTableSlot + 1`；未使用记录全零且 inactive。资产引用只能指向该 slot 的记录，不能以本地 slot 0 偷换。每个 section 的索引/数量必须落在本 section 的下一 offset 之前，不能仅以 heap 总长为界而别名后续 section。
 
@@ -124,8 +130,8 @@ GPU-visible `GeometryProductTableRecordV1` 是 64-byte little-endian record。�
 
 Shader 必须验证 Product table slot 范围、active bit、两处 generation 相等、AssetRecord index 小于 product asset count，再访问 descriptor table。失败必须 fail closed 并计入 invalid generation/location；不能退回同 slot 的 V2 `GpuGeometryRecord`。迁移期间 instance flag 显式区分两种 geometry owner，禁止依赖表内容猜测。
 
-- decoded slot 固定 256 KiB；默认 bank 为 128 MiB、512 slots。
-- V1 同一 GPUDevice 共享一个固定的 4 x 128 MiB bank/slot pool（总计 512 MiB）；每个 Product revision 复用这四个绑定，不得重复创建 bank 或追加未绑定 bank。slot 只有在 revoke 已提交且 queue completion 证明旧 work 不再引用后才归还。metadata heap 不进入 Page bank 预算，但必须由独立有界 overhead ledger 记账并报告。GPU 与 CPU mirror 均拒绝 `bankIndex >= 4` 或 `slotIndex >= 512`。
+- decoded slot 固定 256 KiB；默认 auto budget 为 128 MiB，即四个 32 MiB bank，各128 slots。
+- 同一 GPUDevice 共享四个等大、page-aligned bank；[residency profile](./web-geometry-residency-profile-v1.md) 定义 ceiling、预算与 limits 下向对齐。每个 Product revision 复用四绑定，不重复创建或追加未绑定 bank。slot 只有在 revoke 后真实 queue completion 证明所有旧 consumer 安全时归还；被拒绝的 fence 不授权复用。metadata 使用独立有界 overhead ledger。GPU heap lookup 与 CPU physical validation 均拒绝 `bankIndex >= 4` 或 raw/resident `slotIndex >= header.slotsPerBank`，不能仅检验地址 namespace1024。
 - bank 数与总 slot 数来自设备 limit、全局 resident budget 和显式配置，不得依赖未协商能力。
 - slot 在 `submitted`/`resident`/`retiring` 状态有唯一 owner；禁止同帧重分配。
 - activation pages 在 revision active 期间 pinned；pinned 总量服从 admission budget。
@@ -135,11 +141,11 @@ GPU-visible `GeometryPageLocationV1` 是 16-byte little-endian record：
 | Byte | 类型 | 字段 |
 | ---: | --- | --- |
 | 0 | `u32` | bank index；non-resident 为 `0xffffffff` |
-| 4 | `u32` | slot index；non-resident 为 `0xffffffff` |
+| 4 | `u32` | low16=raw slot；high16=`residentBank*1024+residentSlot+1`；non-resident 为 `0xffffffff` |
 | 8 | `u32` | product generation；non-resident 为 0 |
 | 12 | `u32` | flags |
 
-flags bit 0 为 resident，bit 1 为 pinned；bits 2..31 必须为 0。`byteOffset = slotIndex << 18`。Shader 必须先验证 resident bit 和预期 product generation，再读取 page；失败视为 non-resident。地址表容量至少等于 descriptor page count，越界 PageID fail closed 并计数。
+flags bit 0 为 resident，bit 1 为 pinned；bits 2..31 必须为 0。raw/resident 地址都需验证实际 physical capacity。高16为0则 resident directory 无效；减1后用1024除/模取bank/slot。`byteOffset = slotIndex << 18`。Shader 先验证 ABI/header、resident bit、预期 generation 和范围，再读取 raw page/expanded directory；失败视为 non-resident。地址表容量至少等于 descriptor page count，越界 PageID fail closed 并计数。
 
 映射撤销必须先将 record 写为 non-resident，并确保未来 frame 不再产生旧 work；slot 只有在引用旧 mapping 的所有提交完成后才能复用。不得在帧循环中 await `queue.onSubmittedWorkDone()`；retire owner 使用提交序号/fence 批次异步回收。
 
@@ -216,7 +222,7 @@ Demand overflow、upload budget exhaustion 或短暂 source failure只降低 ref
 
 ### Device loss、取消与 feature-off
 
-device loss 立即使全部 bank、location、product generation 的 GPU publication 和 pending upload 失效。恢复必须请求新 adapter/device、重建 heap/table/pipeline/bind group，从仍有效的 Product Provider 重新准入 activation cut；旧 device 的任何 GPU object 和 completion 不得进入新 generation。
+device loss 使旧 bank/location/publication、pending maps/uploads 失效。Renderer checkpoint 保留全部 active/dormant Product 的 owned source、slot/generation 与 asset-reference range，向新 adapter/device 重建 heap/table/pipeline/bind group 和 activation cut；成功整体 replay 后转交 source ownership，失败保 source 可重试。场景 generation 可在新 device epoch 下保留，但旧 device object/completion 不得作用于新 epoch。相关多 Product 合同见[MultiRuntime](./web-geometry-multi-product-runtime-v1.md)。
 
 scene/asset replace、AbortSignal、Provider release 和 feature toggle 都要取消 queued/producing operation并丢弃迟到结果。已经 submit 的资源进入 retire，不可立即复用。feature-off 时不得创建 heap、demand queue、readback ring、Worker session 或额外 submit。
 

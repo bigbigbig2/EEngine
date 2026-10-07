@@ -2,7 +2,7 @@ import {
   assertGeometryProductDescriptorV1,
   type GeometryPageProductV1,
   type GeometryProductDescriptorV1,
-  type GeometryProductRevisionSourceV1,
+  type GeometryProductRevisionSourceV1
 } from "../assets/geometry-product/GeometryProductV1.js";
 import {
   GEOMETRY_PAGE_LOCATION_STRIDE,
@@ -13,15 +13,20 @@ import {
   packGeometryProductAssetReferenceV1,
   packGeometryProductMetadataHeapHeaderV1,
   packGeometryProductTableRecordV1,
-  type GeometryProductTableRecordV1,
+  GEOMETRY_PRODUCT_GPU_SLOTS_PER_BANK_V1,
+  type GeometryProductTableRecordV1
 } from "./GeometryProductGpuAbiV1.js";
+import {
+  selectGeometryProductResidencyProfileV1,
+  type GeometryProductResidencyProfilePlanV1
+} from "./GeometryProductResidencyProfile.js";
 import { reserveGeometryProductMetadataBytes } from "./GeometryProductGpuBudget.js";
 import {
   VirtualGeometryResidency,
   type GeometryPageLocationV1,
   type GeometryProductGpuBindingsV1,
   type GeometryProductPageLocationSinkV1,
-  type VirtualGeometryResidencyOptionsV1,
+  type VirtualGeometryResidencyOptionsV1
 } from "./VirtualGeometryResidency.js";
 
 /** Phase E logical multi-Product table and lifecycle ABI version. */
@@ -78,6 +83,8 @@ export interface GeometryProductMultiRuntimeEvidenceV1 {
   readonly rejectedCompletions: number;
   readonly peakActive: number;
   readonly tableBytes: number;
+  readonly metadataBytes: number;
+  readonly lastError: string | null;
 }
 
 export type GeometryProductPageCompletionResultV1 = "uploaded" | "stale" | "rejected";
@@ -134,18 +141,19 @@ interface MultiMetadataLayout {
  * released without touching another shard.
  *
  * Product table records are the authoritative CPU/GPU lifecycle publication.
- * The scene metadata heap relocates immutable shard tables into append-only
+ * The scene metadata heap relocates immutable shard tables into fence-reclaimed
  * global ranges while each residency continues to own source and page life.
  */
 export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocationSinkV1 {
   readonly #device: GPUDevice;
   readonly #residencyOptions: VirtualGeometryResidencyOptionsV1;
+  readonly #profile: GeometryProductResidencyProfilePlanV1;
   readonly #slotCapacity: number;
-  readonly #table: GPUBuffer;
   readonly #metadata: GPUBuffer;
   readonly #metadataLayout: MultiMetadataLayout;
-  readonly #releaseTableReservation: () => void;
   readonly #releaseMetadataReservation: () => void;
+  readonly #candidates = new Map<number, ProductEntry>();
+  readonly #ranges: Record<string, MetadataRanges>;
   readonly #current = new Map<number, ProductEntry>();
   readonly #retiring = new Map<string, ProductEntry>();
   readonly #records: Array<GeometryProductTableRecordV1 | undefined>;
@@ -160,13 +168,9 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
   #acceptedCompletions = 0;
   #staleCompletions = 0;
   #rejectedCompletions = 0;
+  #lastError: string | null = null;
   #peakActive = 0;
-  #assetCursor = 0;
-  #rootCursor = 0;
-  #hierarchyCursor = 0;
-  #groupCursor = 0;
   #pageCursor = 0;
-  #vertexFormatCursor = 0;
 
   constructor(
     device: GPUDevice,
@@ -175,10 +179,21 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
       readonly residency?: VirtualGeometryResidencyOptionsV1;
       /** Fixed scene-level metadata heap; ranges never move after publication. */
       readonly metadataBytes?: number;
-    }> = {},
+    }> = {}
   ) {
     this.#device = device;
     this.#residencyOptions = options.residency ?? {};
+    this.#profile = selectGeometryProductResidencyProfileV1(
+      {
+        maxBufferSize: Number(device.limits.maxBufferSize),
+        maxStorageBufferBindingSize: Number(device.limits.maxStorageBufferBindingSize),
+        maxStorageBuffersPerShaderStage: device.limits.maxStorageBuffersPerShaderStage ?? 16
+      },
+      this.#residencyOptions
+    );
+    if (!this.#profile.enabled) {
+      throw new RangeError(`Geometry Product residency is unavailable: ${this.#profile.reason}`);
+    }
     const slotCapacity = options.slotCapacity ?? GEOMETRY_PRODUCT_MULTI_RUNTIME_MIN_CAPACITY_V1;
     if (
       !Number.isSafeInteger(slotCapacity) ||
@@ -186,7 +201,7 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
       slotCapacity >= 0xffffffff
     ) {
       throw new RangeError(
-        `Geometry Product multi-runtime slotCapacity must be an integer in [${GEOMETRY_PRODUCT_MULTI_RUNTIME_MIN_CAPACITY_V1}, 0xfffffffe]`,
+        `Geometry Product multi-runtime slotCapacity must be an integer in [${GEOMETRY_PRODUCT_MULTI_RUNTIME_MIN_CAPACITY_V1}, 0xfffffffe]`
       );
     }
     this.#slotCapacity = slotCapacity;
@@ -202,16 +217,16 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
       tableBytes > maxStorageBinding
     ) {
       throw new RangeError(
-        "Geometry Product multi-runtime Product Table exceeds negotiated storage-buffer limits",
+        "Geometry Product multi-runtime Product Table exceeds negotiated storage-buffer limits"
       );
     }
-    const releaseTableReservation = reserveGeometryProductMetadataBytes(device, tableBytes);
+
     const metadataBytes =
       options.metadataBytes ??
       Math.min(
         64 * 1024 * 1024,
         Number(device.limits.maxBufferSize),
-        Number(device.limits.maxStorageBufferBindingSize),
+        Number(device.limits.maxStorageBufferBindingSize)
       );
     if (
       !Number.isSafeInteger(metadataBytes) ||
@@ -219,35 +234,32 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
       metadataBytes > maxBufferSize ||
       metadataBytes > maxStorageBinding
     ) {
-      releaseTableReservation();
       throw new RangeError(
-        "Geometry Product multi-runtime metadata heap exceeds negotiated storage-buffer limits",
+        "Geometry Product multi-runtime metadata heap exceeds negotiated storage-buffer limits"
       );
     }
     this.#metadataLayout = createMultiMetadataLayout(metadataBytes, slotCapacity);
     const releaseMetadataReservation = reserveGeometryProductMetadataBytes(
       device,
-      this.#metadataLayout.byteLength,
+      this.#metadataLayout.byteLength
     );
-    let table: GPUBuffer | undefined;
+    this.#ranges = {};
+    for (const name of ["asset", "root", "hierarchy", "group", "page", "vertexFormat"] as const) {
+      this.#ranges[name] = new MetadataRanges(this.#metadataLayout[`${name}Capacity`]);
+    }
+    let metadata: GPUBuffer | undefined;
     try {
-      table = device.createBuffer({
-        label: "OEngine Geometry Product multi-runtime Product Table V1",
-        size: tableBytes,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-      });
-      this.#table = table;
-      this.#releaseTableReservation = releaseTableReservation;
-      this.#metadata = device.createBuffer({
+      this.#metadata = metadata = device.createBuffer({
         label: "OEngine Geometry Product multi-runtime metadata heap V1",
         size: this.#metadataLayout.byteLength,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
       });
       this.#releaseMetadataReservation = releaseMetadataReservation;
       device.queue.writeBuffer(
         this.#metadata,
         0,
         packGeometryProductMetadataHeapHeaderV1({
+          slotsPerBank: this.#profile.slotsPerBank,
           productCount: slotCapacity,
           productCapacity: slotCapacity,
           totalWords: this.#metadataLayout.byteLength / 4,
@@ -258,12 +270,11 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
           hierarchyWordOffset: this.#metadataLayout.hierarchyNodes / 4,
           groupDirectoryWordOffset: this.#metadataLayout.groupDirectory / 4,
           pageLocationWordOffset: this.#metadataLayout.pageLocations / 4,
-          vertexFormatWordOffset: this.#metadataLayout.vertexFormats / 4,
-        }),
+          vertexFormatWordOffset: this.#metadataLayout.vertexFormats / 4
+        })
       );
     } catch (error) {
-      table?.destroy();
-      releaseTableReservation();
+      metadata?.destroy();
       releaseMetadataReservation();
       throw error;
     }
@@ -272,8 +283,11 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
   get slotCapacity(): number {
     return this.#slotCapacity;
   }
-  get table(): GPUBuffer {
-    return this.#table;
+  get metadata(): GPUBuffer {
+    return this.#metadata;
+  }
+  get productTableByteOffset(): number {
+    return this.#metadataLayout.productTable;
   }
   get tableBytes(): number {
     return this.#slotCapacity * GEOMETRY_PRODUCT_TABLE_RECORD_STRIDE_V1;
@@ -283,10 +297,10 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
   bindings(): GeometryProductGpuBindingsV1 {
     this.assertAlive();
     const active = [...this.#current.values()].find(
-      (entry) => entry.state === "active" && entry.residency !== undefined,
+      (entry) => entry.state === "active" && entry.residency !== undefined
     );
     if (!active?.residency) throw new Error("Geometry Product multi-runtime has no active Product bindings");
-    const banks = active.residency.bindings().banks;
+    const banks = [0, 1, 2, 3].map((bank) => active.residency!.bank(bank));
     return Object.freeze({
       productTableSlot: active.slot,
       productGeneration: active.generation,
@@ -296,53 +310,66 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
       productTableByteOffset: this.#metadataLayout.productTable,
       pageLocationByteOffset: this.#metadataLayout.pageLocations,
       productTable: this.#metadata,
-      banks: Object.freeze([...banks]),
+      banks: Object.freeze([...banks])
     });
   }
 
   publishPageLocation(
     productTableSlot: number,
+    productGeneration: number,
     pageId: number,
-    location: GeometryPageLocationV1 | undefined,
+    location: GeometryPageLocationV1 | undefined
   ): void {
     this.assertAlive();
-    const entry = this.#current.get(productTableSlot);
+    const entry =
+      this.currentEntry(productTableSlot, productGeneration) ?? this.#candidates.get(productTableSlot);
+    if (entry?.generation !== productGeneration) {
+      return;
+    }
     const allocation = entry?.allocation;
     if (!entry || !allocation || pageId < 0 || pageId >= allocation.pageCount) return;
     this.#device.queue.writeBuffer(
       this.#metadata,
       this.#metadataLayout.pageLocations + (allocation.pageBegin + pageId) * GEOMETRY_PAGE_LOCATION_STRIDE,
-      encodeGeometryProductGpuLocationV1(location),
+      encodeGeometryProductGpuLocationV1(location)
     );
   }
 
   /** Loads one independent shard. A failed shard never changes another slot. */
   async load(
     source: GeometryProductRevisionSourceV1,
-    options: Readonly<{ readonly productTableSlot?: number }> = {},
+    options: Readonly<{
+      readonly productTableSlot?: number;
+      /** Recovery preserves published instance identity and asset-reference range. */
+      readonly productGeneration?: number;
+      readonly assetReferenceBegin?: number;
+    }> = {}
   ): Promise<GeometryProductShardHandleV1> {
     this.assertAlive();
     assertGeometryProductDescriptorV1(source.descriptor);
     const slot = options.productTableSlot ?? this.findFreeSlot();
     this.assertSlot(slot);
     if (this.slotOccupied(slot)) throw new Error(`Geometry Product table slot ${slot} is already occupied`);
-    const entry = this.createEntry(slot, source);
+    const entry = this.createEntry(slot, source, options.productGeneration, options.assetReferenceBegin);
     this.#current.set(slot, entry);
     this.#usedSlots[slot] = 1;
     try {
       const residency = await entry.ready;
-      if (this.#destroyed) {
+      if (this.#destroyed || entry.abort.signal.aborted || this.#current.get(slot) !== entry) {
         residency.destroy();
         throw new Error("Geometry Product multi-runtime is destroyed");
       }
       this.publishActive(entry, residency);
       return this.handle(entry);
     } catch (error) {
-      this.#current.delete(slot);
-      this.#usedSlots[slot] = 0;
+      if (this.#current.get(slot) === entry) {
+        this.#current.delete(slot);
+        if (!this.slotHasRetiring(slot)) this.#usedSlots[slot] = 0;
+      }
       entry.state = "failed";
       entry.residency?.destroy();
-      if (!this.#destroyed) this.clearRecord(slot);
+      if (!this.#retiring.has(entryKey(slot, entry.generation))) this.freeMetadata(entry);
+      if (!this.#destroyed && !this.#current.has(slot)) this.clearRecord(slot);
       throw error;
     }
   }
@@ -354,7 +381,7 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
    */
   async replace(
     productTableSlot: number,
-    source: GeometryProductRevisionSourceV1,
+    source: GeometryProductRevisionSourceV1
   ): Promise<GeometryProductShardHandleV1> {
     this.assertAlive();
     this.assertSlot(productTableSlot);
@@ -363,21 +390,43 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
       throw new Error(`Geometry Product table slot ${productTableSlot} has no replaceable active shard`);
     }
     assertGeometryProductDescriptorV1(source.descriptor);
+    if (this.#candidates.has(productTableSlot)) {
+      throw new Error("Geometry Product replacement already in progress");
+    }
     const replacement = this.createEntry(productTableSlot, source);
-    this.#current.set(productTableSlot, replacement);
+    this.#candidates.set(productTableSlot, replacement);
     try {
       const residency = await replacement.ready;
-      if (this.#destroyed) {
+      if (
+        this.#destroyed ||
+        replacement.abort.signal.aborted ||
+        this.#current.get(productTableSlot) !== previous
+      ) {
         residency.destroy();
         throw new Error("Geometry Product multi-runtime is destroyed");
       }
+      this.#current.set(productTableSlot, replacement);
       this.publishActive(replacement, residency);
+      this.#candidates.delete(productTableSlot);
+      previous.residency!.deactivatePublication();
       previous.state = "retiring";
       this.#retiring.set(entryKey(previous.slot, previous.generation), previous);
       this.#replacements++;
       return this.handle(replacement);
     } catch (error) {
-      this.#current.set(productTableSlot, previous);
+      this.#candidates.delete(productTableSlot);
+      if (!this.#destroyed && this.#current.get(productTableSlot) === replacement) {
+        this.#current.set(productTableSlot, previous);
+        if (previous.state === "active") {
+          this.writeRecord(
+            previous.slot,
+            productRecord(previous.descriptor, previous.generation, GEOMETRY_PRODUCT_TABLE_FLAG_ACTIVE_V1)
+          );
+        } else {
+          this.clearRecord(previous.slot);
+        }
+      }
+      this.freeMetadata(replacement);
       replacement.state = "failed";
       replacement.abort.abort(error);
       replacement.residency?.destroy();
@@ -405,7 +454,7 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
     entry.state = "active";
     this.writeRecord(
       entry.slot,
-      productRecord(entry.descriptor, entry.generation, GEOMETRY_PRODUCT_TABLE_FLAG_ACTIVE_V1),
+      productRecord(entry.descriptor, entry.generation, GEOMETRY_PRODUCT_TABLE_FLAG_ACTIVE_V1)
     );
   }
 
@@ -413,10 +462,7 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
    * Revokes and completes page eviction for one shard. The completion token is
    * supplied by the renderer; the runtime never waits for the GPU itself.
    */
-  async evictPage(
-    identity: GeometryProductPageIdentityV1,
-    completion: PromiseLike<void> = Promise.resolve(),
-  ): Promise<boolean> {
+  async evictPage(identity: GeometryProductPageIdentityV1, completion?: PromiseLike<void>): Promise<boolean> {
     this.assertAlive();
     const entry = this.currentEntry(identity.productTableSlot, identity.productGeneration);
     if (!entry || entry.state !== "active") {
@@ -427,10 +473,7 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
     if (!location || (location.flags & GEOMETRY_PAGE_LOCATION_PINNED) !== 0) return false;
     entry.residency!.beginRetirePage(identity.pageId);
     if (entry.residency!.pageLocation(identity.pageId) !== undefined) return false;
-    await Promise.resolve(completion).then(
-      () => undefined,
-      () => undefined,
-    );
+    await (completion ?? this.#device.queue.onSubmittedWorkDone());
     entry.residency!.completeRetirePage(identity.pageId);
     this.#evictions++;
     return true;
@@ -440,21 +483,27 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
   async release(
     productTableSlot: number,
     productGeneration: number,
-    completion: PromiseLike<void> = Promise.resolve(),
+    completion?: PromiseLike<void>
   ): Promise<boolean> {
     this.assertAlive();
     const entry = this.currentEntry(productTableSlot, productGeneration);
     if (!entry) return false;
     this.clearRecord(entry.slot);
     this.#current.delete(entry.slot);
+    entry.residency?.deactivatePublication();
     entry.state = "retiring";
-    await Promise.resolve(completion).then(
-      () => undefined,
-      () => undefined,
-    );
+    entry.abort.abort(new Error("Geometry Product released"));
+    this.#candidates.get(entry.slot)?.abort.abort(new Error("Product released during replacement"));
+    this.#retiring.set(entryKey(entry.slot, entry.generation), entry);
+    await (completion ?? this.#device.queue.onSubmittedWorkDone());
+    if (entry.residency === undefined) {
+      await entry.ready.catch(() => undefined); // create() owns failed admission/source cleanup.
+    }
     entry.residency?.destroy();
+    this.freeMetadata(entry);
     entry.state = "released";
-    if (!this.slotHasRetiring(entry.slot)) this.#usedSlots[entry.slot] = 0;
+    this.#retiring.delete(entryKey(entry.slot, entry.generation));
+    if (!this.#current.has(entry.slot) && !this.slotHasRetiring(entry.slot)) this.#usedSlots[entry.slot] = 0;
     this.#releases++;
     return true;
   }
@@ -463,17 +512,18 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
   async retire(
     productTableSlot: number,
     productGeneration: number,
-    completion: PromiseLike<void> = Promise.resolve(),
+    completion?: PromiseLike<void>
   ): Promise<boolean> {
     this.assertAlive();
     const key = entryKey(productTableSlot, productGeneration);
     const entry = this.#retiring.get(key);
     if (!entry) return false;
-    await Promise.resolve(completion).then(
-      () => undefined,
-      () => undefined,
-    );
+    await (completion ?? this.#device.queue.onSubmittedWorkDone());
+    if (entry.residency === undefined) {
+      await entry.ready.catch(() => undefined); // create() owns failed admission/source cleanup.
+    }
     entry.residency?.destroy();
+    this.freeMetadata(entry);
     entry.state = "released";
     this.#retiring.delete(key);
     if (!this.#current.has(entry.slot)) this.#usedSlots[entry.slot] = 0;
@@ -499,7 +549,7 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
    */
   completePage(
     identity: GeometryProductPageIdentityV1,
-    page: GeometryPageProductV1,
+    page: GeometryPageProductV1
   ): GeometryProductPageCompletionResultV1 {
     this.assertAlive();
     const entry = this.currentEntry(identity.productTableSlot, identity.productGeneration);
@@ -514,7 +564,8 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
     }
     try {
       entry.residency!.uploadPage(page);
-    } catch {
+    } catch (error) {
+      this.#lastError = String(error);
       this.#rejectedCompletions++;
       return "rejected";
     }
@@ -526,7 +577,7 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
   instanceIdentity(
     productTableSlot: number,
     productGeneration: number,
-    assetRecordIndex: number,
+    assetRecordIndex: number
   ): GeometryProductInstanceIdentityV1 | undefined {
     const entry = this.currentEntry(productTableSlot, productGeneration);
     if (!entry || entry.state !== "active" || !validAssetIndex(entry.descriptor, assetRecordIndex))
@@ -575,7 +626,38 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
       rejectedCompletions: this.#rejectedCompletions,
       peakActive: this.#peakActive,
       tableBytes: this.tableBytes,
+      metadataBytes: this.#metadataLayout.byteLength,
+      lastError: this.#lastError
     });
+  }
+
+  /** Transfers every active source after loss; no live-device retirement shortcut. */
+  checkpointForDeviceLoss() {
+    this.assertAlive();
+    const products = [...this.#current.values()]
+      .filter((entry) => entry.state === "active" || entry.state === "dormant")
+      .map((entry) => ({
+        source: entry.source,
+        productTableSlot: entry.slot,
+        productGeneration: entry.generation,
+        assetReferenceBegin: entry.allocation!.assetBegin,
+        dormant: entry.state === "dormant"
+      }));
+    for (const entry of this.#current.values()) {
+      if (entry.state === "active" || entry.state === "dormant") {
+        entry.residency!.abandonForDeviceLoss();
+      }
+    }
+    const checkpoint = {
+      products,
+      options: {
+        slotCapacity: this.#slotCapacity,
+        metadataBytes: this.#metadataLayout.byteLength,
+        residency: { ...this.#residencyOptions, configuredCapacityBytes: this.#profile.capacityBytes }
+      }
+    };
+    this.destroy();
+    return checkpoint;
   }
 
   /** Synchronous teardown used by Renderer destruction; no GPU await is needed. */
@@ -588,34 +670,50 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
       entry.residency?.destroy();
     }
     for (const entry of this.#retiring.values()) entry.residency?.destroy();
+    for (const entry of this.#candidates.values()) {
+      entry.abort.abort(new Error("Geometry Product runtime destroyed"));
+      entry.residency?.destroy();
+    }
+    this.#candidates.clear();
     this.#current.clear();
     this.#retiring.clear();
-    this.#table.destroy();
     this.#metadata.destroy();
-    this.#releaseTableReservation();
     this.#releaseMetadataReservation();
   }
 
-  private createEntry(slot: number, source: GeometryProductRevisionSourceV1): ProductEntry {
-    const generation = this.allocateGeneration();
+  private createEntry(
+    slot: number,
+    source: GeometryProductRevisionSourceV1,
+    preservedGeneration?: number,
+    assetReferenceBegin?: number
+  ): ProductEntry {
+    const generation = preservedGeneration ?? this.allocateGeneration();
+    if (
+      !Number.isSafeInteger(generation) ||
+      generation <= 0 ||
+      generation >= 0xffffffff ||
+      [...this.#current.values(), ...this.#retiring.values(), ...this.#candidates.values()].some(
+        (entry) => entry.generation === generation
+      )
+    ) {
+      throw new RangeError("Geometry Product generation is invalid or already owned");
+    }
+    this.#nextGeneration = generation >= 0xfffffffe ? 1 : Math.max(this.#nextGeneration, generation + 1);
     const abort = new AbortController();
     const entry: ProductEntry = {
       slot,
       generation,
       source,
+      allocation: this.allocateMetadata(source.descriptor, assetReferenceBegin),
       descriptor: source.descriptor,
       abort,
       state: "loading",
-      ready: Promise.resolve(undefined as never),
+      ready: Promise.resolve(undefined as never)
     };
-    entry.ready = VirtualGeometryResidency.create(
-      this.#device,
-      source,
-      generation,
-      slot,
-      abort.signal,
-      this.#residencyOptions,
-    ).then(
+    entry.ready = VirtualGeometryResidency.create(this.#device, source, generation, slot, abort.signal, {
+      ...this.#residencyOptions,
+      directory: this
+    }).then(
       (residency) => {
         entry.residency = residency;
         return residency;
@@ -623,7 +721,7 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
       (error) => {
         entry.state = "failed";
         throw error;
-      },
+      }
     );
     return entry;
   }
@@ -636,11 +734,11 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
     entry.state = "active";
     this.writeRecord(
       entry.slot,
-      productRecord(entry.descriptor, entry.generation, GEOMETRY_PRODUCT_TABLE_FLAG_ACTIVE_V1),
+      productRecord(entry.descriptor, entry.generation, GEOMETRY_PRODUCT_TABLE_FLAG_ACTIVE_V1)
     );
     this.#peakActive = Math.max(
       this.#peakActive,
-      [...this.#current.values()].filter((candidate) => candidate.state === "active").length,
+      [...this.#current.values()].filter((candidate) => candidate.state === "active").length
     );
   }
 
@@ -668,43 +766,54 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
       assetCount: entry.allocation.assetCount,
       get state() {
         return entry.state;
-      },
+      }
     });
   }
 
-  private allocateMetadata(descriptor: GeometryProductDescriptorV1): ProductMetadataAllocation {
+  private allocateMetadata(
+    descriptor: GeometryProductDescriptorV1,
+    assetReferenceBegin?: number
+  ): ProductMetadataAllocation {
     const counts = descriptorCounts(descriptor);
-    const allocation: ProductMetadataAllocation = Object.freeze({
-      assetBegin: this.#assetCursor,
-      assetCount: counts.assets,
-      rootBegin: this.#rootCursor,
-      rootCount: counts.roots,
-      hierarchyBegin: this.#hierarchyCursor,
-      hierarchyCount: counts.hierarchy,
-      groupBegin: this.#groupCursor,
-      groupCount: counts.groups,
-      pageBegin: this.#pageCursor,
-      pageCount: counts.pages,
-      vertexFormatBegin: this.#vertexFormatCursor,
-      vertexFormatCount: counts.formats,
-    });
-    if (
-      allocation.assetBegin + allocation.assetCount > this.#metadataLayout.assetCapacity ||
-      allocation.rootBegin + allocation.rootCount > this.#metadataLayout.rootCapacity ||
-      allocation.hierarchyBegin + allocation.hierarchyCount > this.#metadataLayout.hierarchyCapacity ||
-      allocation.groupBegin + allocation.groupCount > this.#metadataLayout.groupCapacity ||
-      allocation.pageBegin + allocation.pageCount > this.#metadataLayout.pageCapacity ||
-      allocation.vertexFormatBegin + allocation.vertexFormatCount > this.#metadataLayout.vertexFormatCapacity
-    ) {
-      throw new RangeError("Geometry Product multi-runtime metadata heap capacity is exhausted");
+    const names = ["asset", "root", "hierarchy", "group", "page", "vertexFormat"] as const;
+    const sizes = [
+      counts.assets,
+      counts.roots,
+      counts.hierarchy,
+      counts.groups,
+      counts.pages,
+      counts.formats
+    ];
+    const values: Record<string, number> = {};
+    let allocated = 0;
+    try {
+      for (let index = 0; index < names.length; index++) {
+        const name = names[index]!;
+        values[`${name}Begin`] =
+          name === "asset" && assetReferenceBegin !== undefined
+            ? this.#ranges[name]!.reserve(assetReferenceBegin, sizes[index]!)
+            : this.#ranges[name]!.allocate(sizes[index]!);
+        values[`${name}Count`] = sizes[index]!;
+        allocated++;
+      }
+    } catch (error) {
+      for (let index = 0; index < allocated; index++) {
+        const name = names[index]!;
+        this.#ranges[name]!.release(values[`${name}Begin`]!, sizes[index]!);
+      }
+      throw error;
     }
-    this.#assetCursor += allocation.assetCount;
-    this.#rootCursor += allocation.rootCount;
-    this.#hierarchyCursor += allocation.hierarchyCount;
-    this.#groupCursor += allocation.groupCount;
-    this.#pageCursor += allocation.pageCount;
-    this.#vertexFormatCursor += allocation.vertexFormatCount;
-    return allocation;
+    this.#pageCursor = Math.max(this.#pageCursor, values.pageBegin! + values.pageCount!);
+    return Object.freeze(values) as unknown as ProductMetadataAllocation;
+  }
+
+  private freeMetadata(entry: ProductEntry): void {
+    const allocation = entry.allocation;
+    if (allocation === undefined) return;
+    for (const name of ["asset", "root", "hierarchy", "group", "page", "vertexFormat"] as const) {
+      this.#ranges[name]!.release(allocation[`${name}Begin`], allocation[`${name}Count`]);
+    }
+    entry.allocation = undefined;
   }
 
   private publishStaticMetadata(entry: ProductEntry, allocation: ProductMetadataAllocation): void {
@@ -720,46 +829,46 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
           productTableSlot: entry.slot,
           productGeneration: entry.generation,
           assetRecordIndex: asset,
-          flags: 0,
+          flags: 0
         }),
-        asset * 16,
+        asset * 16
       );
     this.#device.queue.writeBuffer(
       this.#metadata,
       this.#metadataLayout.assetReferences + allocation.assetBegin * 16,
-      refs,
+      refs
     );
     this.#device.queue.writeBuffer(
       this.#metadata,
       this.#metadataLayout.assetRecords + allocation.assetBegin * 128,
-      assetRecords,
+      assetRecords
     );
     this.#device.queue.writeBuffer(
       this.#metadata,
       this.#metadataLayout.rootNodeIds + allocation.rootBegin * 4,
-      roots,
+      roots
     );
     this.#device.queue.writeBuffer(
       this.#metadata,
       this.#metadataLayout.hierarchyNodes + allocation.hierarchyBegin * 48,
-      hierarchy,
+      hierarchy
     );
     this.#device.queue.writeBuffer(
       this.#metadata,
       this.#metadataLayout.groupDirectory + allocation.groupBegin * 16,
-      groups,
+      groups
     );
     this.#device.queue.writeBuffer(
       this.#metadata,
       this.#metadataLayout.vertexFormats + allocation.vertexFormatBegin * 16,
-      copyBytes(descriptor.vertexFormats),
+      copyBytes(descriptor.vertexFormats)
     );
   }
 
   private findFreeSlot(): number {
     for (let slot = 0; slot < this.#slotCapacity; slot++) if (!this.slotOccupied(slot)) return slot;
     throw new RangeError(
-      `Geometry Product multi-runtime has no free ProductTableSlot (capacity ${this.#slotCapacity})`,
+      `Geometry Product multi-runtime has no free ProductTableSlot (capacity ${this.#slotCapacity})`
     );
   }
 
@@ -776,7 +885,7 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
   private allocateGeneration(): number {
     const live = new Set<number>([
       ...[...this.#current.values()].map((entry) => entry.generation),
-      ...[...this.#retiring.values()].map((entry) => entry.generation),
+      ...[...this.#retiring.values()].map((entry) => entry.generation)
     ]);
     for (let attempt = 0; attempt < 0xfffffffe; attempt++) {
       const generation = this.#nextGeneration;
@@ -798,26 +907,24 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
             hierarchyBegin: allocation.hierarchyBegin,
             groupBegin: allocation.groupBegin,
             pageBegin: allocation.pageBegin,
-            vertexFormatBegin: allocation.vertexFormatBegin,
+            vertexFormatBegin: allocation.vertexFormatBegin
           });
     this.#records[slot] = Object.freeze({ ...published });
     const bytes = packGeometryProductTableRecordV1(published);
-    this.#device.queue.writeBuffer(this.#table, slot * GEOMETRY_PRODUCT_TABLE_RECORD_STRIDE_V1, bytes);
     this.#device.queue.writeBuffer(
       this.#metadata,
       this.#metadataLayout.productTable + slot * GEOMETRY_PRODUCT_TABLE_RECORD_STRIDE_V1,
-      bytes,
+      bytes
     );
   }
 
   private clearRecord(slot: number): void {
     this.#records[slot] = undefined;
     const bytes = new Uint8Array(GEOMETRY_PRODUCT_TABLE_RECORD_STRIDE_V1);
-    this.#device.queue.writeBuffer(this.#table, slot * GEOMETRY_PRODUCT_TABLE_RECORD_STRIDE_V1, bytes);
     this.#device.queue.writeBuffer(
       this.#metadata,
       this.#metadataLayout.productTable + slot * GEOMETRY_PRODUCT_TABLE_RECORD_STRIDE_V1,
-      bytes,
+      bytes
     );
   }
 
@@ -841,7 +948,7 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
 function productRecord(
   descriptor: GeometryProductDescriptorV1,
   generation: number,
-  flags: number,
+  flags: number
 ): GeometryProductTableRecordV1 {
   return Object.freeze({
     productGeneration: generation,
@@ -857,7 +964,7 @@ function productRecord(
     pageBegin: 0,
     pageCount: descriptor.pageRecords.byteLength / 32,
     vertexFormatBegin: 0,
-    vertexFormatCount: descriptor.vertexFormats.byteLength / 16,
+    vertexFormatCount: descriptor.vertexFormats.byteLength / 16
   });
 }
 
@@ -891,13 +998,13 @@ function descriptorCounts(descriptor: GeometryProductDescriptorV1): Readonly<{
     hierarchy: descriptor.hierarchyNodes.byteLength / 48,
     groups: descriptor.groupDirectory.byteLength / 16,
     pages: descriptor.pageRecords.byteLength / 32,
-    formats: descriptor.vertexFormats.byteLength / 16,
+    formats: descriptor.vertexFormats.byteLength / 16
   });
 }
 
 /**
- * Builds a fixed scene heap. Ranges are append-only so publishing another
- * shard never invalidates an in-flight bind group or an existing instance.
+ * Builds a fixed scene heap. Ranges remain stable until their last consumer
+ * fence, then become reusable without moving live instances/bind groups.
  * The split favors hierarchy, group and page tables; callers may request a
  * larger heap when the formal workload needs a different absolute capacity.
  */
@@ -940,13 +1047,13 @@ function createMultiMetadataLayout(byteLength: number, slotCapacity: number): Mu
     hierarchyCapacity,
     groupCapacity,
     pageCapacity,
-    vertexFormatCapacity,
+    vertexFormatCapacity
   });
 }
 
 function relocateAssetRecords(
   source: Uint8Array,
-  allocation: ProductMetadataAllocation,
+  allocation: ProductMetadataAllocation
 ): Uint8Array<ArrayBuffer> {
   const bytes = copyBytes(source);
   const view = new DataView(bytes.buffer);
@@ -973,7 +1080,7 @@ function relocateRoots(source: Uint32Array, hierarchyBegin: number): Uint8Array<
 
 function relocateHierarchy(
   source: Uint8Array,
-  allocation: ProductMetadataAllocation,
+  allocation: ProductMetadataAllocation
 ): Uint8Array<ArrayBuffer> {
   const bytes = copyBytes(source);
   const view = new DataView(bytes.buffer);
@@ -1023,4 +1130,53 @@ function alignDown16(value: number): number {
   if (!Number.isSafeInteger(result) || result <= 0)
     throw new RangeError("Geometry Product metadata heap size is invalid");
   return result;
+}
+
+/** Small CPU free-range list. Published ranges never move; callers free after fences. */
+class MetadataRanges {
+  readonly #free: Array<{ begin: number; count: number }>;
+  constructor(capacity: number) {
+    this.#free = [{ begin: 0, count: capacity }];
+  }
+  allocate(count: number): number {
+    if (count === 0) return 0;
+    for (let index = 0; index < this.#free.length; index++) {
+      const range = this.#free[index]!;
+      if (range.count < count) continue;
+      const begin = range.begin;
+      range.begin += count;
+      range.count -= count;
+      if (range.count === 0) this.#free.splice(index, 1);
+      return begin;
+    }
+    throw new RangeError("Geometry Product metadata section capacity is exhausted");
+  }
+  reserve(begin: number, count: number): number {
+    for (let index = 0; index < this.#free.length; index++) {
+      const range = this.#free[index]!;
+      if (begin < range.begin || begin + count > range.begin + range.count) continue;
+      const suffix = range.begin + range.count - begin - count;
+      const prefix = begin - range.begin;
+      this.#free.splice(index, 1);
+      if (suffix > 0) this.#free.splice(index, 0, { begin: begin + count, count: suffix });
+      if (prefix > 0) this.#free.splice(index, 0, { begin: range.begin, count: prefix });
+      return begin;
+    }
+    throw new RangeError("Recovered Product asset-reference range is unavailable");
+  }
+  release(begin: number, count: number): void {
+    if (count === 0) return;
+    const index = this.#free.findIndex((range) => range.begin > begin);
+    this.#free.splice(index < 0 ? this.#free.length : index, 0, { begin, count });
+    for (let at = 1; at < this.#free.length; ) {
+      const previous = this.#free[at - 1]!;
+      const current = this.#free[at]!;
+      if (previous.begin + previous.count === current.begin) {
+        previous.count += current.count;
+        this.#free.splice(at, 1);
+      } else {
+        at++;
+      }
+    }
+  }
 }
