@@ -1,9 +1,12 @@
+import type { ResourceHandle } from "../../debug/profiling/ResourceAccounting.js";
 import type { GpuNativeMaterialPublication } from "../../gpu/GpuNativeMaterialPublication.js";
 import {
   GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE,
   GPU_MESHLET_RASTER_WORK_RECORD_STRIDE
 } from "../../gpu/GpuMeshletRasterWorkAbi.js";
 import { nativeRasterPartitionsWgsl } from "../../shaders/native_raster_partitions.js";
+import { GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS } from "../../gpu/GpuMeshletRasterWorkAbi.js";
+import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 
 export interface NativeRasterPartitionInput {
   readonly work: GPUBuffer;
@@ -13,6 +16,7 @@ export interface NativeRasterPartitionInput {
   readonly meshletWordBase: number;
   readonly generation: number;
   readonly caster?: boolean;
+  readonly graphics?: GraphicsContext;
 }
 
 /** S1 native raster scheduling over the existing foundation algorithm, not a
@@ -37,6 +41,7 @@ export class NativeRasterWorkPartitions {
   private readonly settings: GPUBuffer;
   private readonly dispatch: GPUBuffer;
   private readonly buffers: GPUBuffer[] = [];
+  private readonly accountingHandles: ResourceHandle[] = [];
   private readonly group: GPUBindGroup;
   private readonly dispatchGroup: GPUBindGroup;
   private pipelines: readonly GPUComputePipeline[] | null = null;
@@ -95,9 +100,16 @@ export class NativeRasterWorkPartitions {
     const make = (label: string, size: number, usage: GPUBufferUsageFlags): GPUBuffer => {
       const buffer = device.createBuffer({ label, size, usage });
       this.buffers.push(buffer);
+      const handle = input.graphics?.resource_accounting.created(
+        { kind: "buffer", category: "transient", owner: "NativeRasterWorkPartitions", bytes: size, label },
+        buffer
+      );
+      if (handle) {
+        this.accountingHandles.push(handle);
+      }
       return buffer;
     };
-    const layout = device.createBindGroupLayout({
+    const layoutDescriptor: GPUBindGroupLayoutDescriptor = {
       entries: [
         ...Array.from({ length: 6 }, (_, binding) => ({
           binding,
@@ -106,10 +118,12 @@ export class NativeRasterWorkPartitions {
         })),
         { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } }
       ]
-    });
-    const dispatchLayout = device.createBindGroupLayout({
+    };
+    const layout = device.createBindGroupLayout(layoutDescriptor);
+    const dispatchDescriptor: GPUBindGroupLayoutDescriptor = {
       entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }]
-    });
+    };
+    const dispatchLayout = device.createBindGroupLayout(dispatchDescriptor);
     try {
       this.indices = make("Native raster/indices", sizes[0]!, GPUBufferUsage.STORAGE);
       this.states = make(
@@ -167,31 +181,47 @@ export class NativeRasterWorkPartitions {
       const module = device.createShaderModule({ code: nativeRasterPartitionsWgsl(input.caster) });
       const mainLayout = device.createPipelineLayout({ bindGroupLayouts: [layout] });
       const beginLayout = device.createPipelineLayout({ bindGroupLayouts: [layout, dispatchLayout] });
-      this.ready = Promise.all(
-        ["begin", "count", "prefix", "scatter"].map((entryPoint, index) =>
-          device.createComputePipelineAsync({
-            layout: index === 0 ? beginLayout : mainLayout,
-            compute: { module, entryPoint }
+      if (input.graphics !== undefined) {
+        this.pipelines = ["begin", "count", "prefix", "scatter"].map((entryPoint, index) =>
+          input.graphics!.compute_pipelines.obtain({
+            layout: {
+              bindGroupLayouts: index === 0 ? [layoutDescriptor, dispatchDescriptor] : [layoutDescriptor]
+            },
+            compute: { module: { code: nativeRasterPartitionsWgsl(input.caster) }, entryPoint }
           })
+        );
+        this.ready = Promise.resolve();
+      } else {
+        this.ready = Promise.all(
+          ["begin", "count", "prefix", "scatter"].map((entryPoint, index) =>
+            device.createComputePipelineAsync({
+              layout: index === 0 ? beginLayout : mainLayout,
+              compute: { module, entryPoint }
+            })
+          )
         )
-      )
-        .then((pipelines) => {
-          if (this.destroyed) {
-            throw new Error("Native raster partitions stopped during readiness");
-          }
-          this.pipelines = pipelines;
-        })
-        .catch((error: unknown) => {
-          this.destroy();
-          throw error;
-        });
-      void this.ready.catch(() => undefined);
+          .then((pipelines) => {
+            if (this.destroyed) {
+              throw new Error("Native raster partitions stopped during readiness");
+            }
+            this.pipelines = pipelines;
+          })
+          .catch((error: unknown) => {
+            this.destroy();
+            throw error;
+          });
+        void this.ready.catch(() => undefined);
+      }
     } catch (error) {
       this.destroy();
       throw error;
     }
     this.allocatedBytes = sizes.reduce((total, size) => total + size, 0);
     void device.lost.then(() => this.destroy());
+  }
+
+  copyGeneration(encoder: GPUCommandEncoder, queue: GPUBuffer): void {
+    encoder.copyBufferToBuffer(queue, GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS.generation, this.settings, 12, 4);
   }
 
   updateGeneration(generation: number): void {
@@ -231,6 +261,9 @@ export class NativeRasterWorkPartitions {
 
   retire(completion: Promise<void>): Promise<void> {
     this.retiring = true;
+    this.accountingHandles.forEach((handle) =>
+      this.input.graphics?.resource_accounting.setRetired(handle, true)
+    );
     return completion.then(
       () => this.destroy(),
       () => this.destroy()
@@ -247,5 +280,7 @@ export class NativeRasterWorkPartitions {
     for (const buffer of this.buffers) {
       buffer.destroy();
     }
+    this.accountingHandles.forEach((handle) => this.input.graphics?.resource_accounting.destroyed(handle));
+    this.accountingHandles.length = 0;
   }
 }

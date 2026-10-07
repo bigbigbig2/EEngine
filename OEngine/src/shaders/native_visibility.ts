@@ -132,7 +132,14 @@ export function nativeVisibilityShader(
   const inputs: string[] = [];
   program.inputs.forEach((input, slot) => {
     const uniform = input.domain === "dynamic" || input.domain === "nonlocal";
-    const expression = uniform ? `native_frame_inputs[${slot}u]` : expressions[input.name];
+    const materialInput = program.instanceInputs
+      ? `vec4f(${Array.from(
+          { length: 4 },
+          (_, channel) =>
+            `native_material_constant(entry.constant_base, ${program.constants.length + 2 + slot * 4 + channel}u)`
+        ).join(", ")})`
+      : `native_frame_inputs[${slot}u]`;
+    const expression = uniform ? materialInput : expressions[input.name];
     if (expression === undefined) {
       throw new RangeError(`Native visibility input '${input.name}' requires a geometry semantic`);
     }

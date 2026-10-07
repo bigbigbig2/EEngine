@@ -106,7 +106,7 @@ test("Frame Program closes the current scene product demand with a structural ke
   ]);
   assert.ok(!first.products.includes("shading-work"));
   assert.deepEqual(first.facts.find((fact) => fact.product === "visibility").extent, [640, 360]);
-  assert.equal(first.facts.find((fact) => fact.product === "temporal-motion").format, "rg16float");
+  assert.equal(first.facts.find((fact) => fact.product === "temporal-motion").format, "rg32float");
 });
 
 test("lit scalar AO closes a same-frame producer while off and unlit omit it", () => {
@@ -159,12 +159,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
   const runtime = {
     virtualGeometry: null,
     activeShadingSummary: { binRefCounts: Array(64).fill(0) },
-    appearancePublication: {
-      materialLookup: resource,
-      surfaceIdentity: resource,
-      surfaceMetadata: resource,
-      fields: resource,
-    },
+    nativeMaterials: { publication: { versions: resource, materialSlotCount: 16 } },
     materialResources: {
       materialRecords: resource,
       textureRouteRecords: resource,
@@ -252,12 +247,10 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
       for (const value of [
         input.visibility,
         input.depth,
-        input.textureRoutes,
-        input.textureResidencyVersions,
-        input.appearanceMetadata,
+        input.opaqueReactive,
+        input.materialVersions,
         input.meshletWork,
         input.instances,
-        input.materials,
         input.currentCamera,
         input.previousCamera,
       ])
@@ -267,7 +260,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
           kind: "transient_texture",
           width: 640,
           height: 360,
-          format: "rg16float",
+          format: "rg32float",
           domain: "internal-full",
           usage: 7,
         }),
@@ -368,64 +361,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
       },
     },
     visibilityCounters: { addToGraph() {} },
-    surfaceWork: {
-      addPublicationToGraph(graph, input) {
-        const pass = graph.add("test/Appearance publication", {}, () => {});
-        pass.read(input.metadata);
-        pass.read(input.camera);
-        return { metadata: pass.write(input.metadata), temporary: pass.create("test/Appearance lanes", {
-          kind: "transient_buffer", size: 16, usage: 128
-        }) };
-      },
-      importUnlitProviders(graph, bind) {
-        const imported = (name) =>
-          graph.import_resource(
-            `test/unlit ${name}`,
-            { kind: "imported" },
-            bind(`test/unlit/${name}`, () => resource),
-          );
-        const empty = imported("unused environment");
-        return {
-          lightRecords: imported("light database"),
-          clusters: {
-            parameters: imported("parameters"),
-            lookup: imported("lookup"),
-            data: imported("data"),
-            activeLightList: imported("list"),
-          },
-          environment: { diffuse: empty, specular: empty, dfg: empty },
-        };
-      },
-      addToGraph(graph, input) {
-        surfaceInstances = input.frameInstances;
-        const pass = graph.add("test/Surface", {}, () => {});
-        for (const value of [
-          input.frameInstances,
-          input.frameAttributes,
-          input.sourceHeap,
-          input.vertexPayload,
-          input.visibility,
-          input.meshletWork,
-          input.factsMask,
-          input.appearanceMetadata,
-        ])
-          pass.read(value);
-        assert.equal(input.publication, runtime.appearancePublication);
-        const create = (name, format) =>
-          pass.create(name, {
-            kind: "transient_texture",
-            width: 640,
-            height: 360,
-            format,
-            domain: "internal-full",
-            usage: 7,
-          });
-        return {
-          radiance: create("test/radiance", "rgba16float"),
-          reactiveMask: create("test/reactive", "r8unorm"),
-        };
-      },
-    },
+    surface: { neutralLightingEntries: [], prepareFrameNow() {}, encode() {} },
     radiometry: {
       importPreviousExposure(_graph, bind) {
         return bind("previous-exposure", (runtime) => runtime.readBuffer());
@@ -536,16 +472,14 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
     /aliases current/,
   );
   const compiled = lowerFrameProgram(plan, bindings, owners);
-  assert.equal(surfaceInstances, producedFrameInstances);
-  assert.notEqual(surfaceInstances, temporalInstances);
   const dump = compiled.dump();
   assert.deepEqual(
     dump.executablePassOrder.map((id) => dump.passes[id].name),
     [
       "test/Visibility",
-      "test/Appearance publication",
+      "SurfaceV4/empty background",
+      "SurfaceV4/native opaque",
       "test/Temporal Facts",
-      "test/Surface",
       "test/FSR3",
       "test/Radiometry",
       "test/Bloom",
@@ -553,9 +487,11 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
     ],
   );
   const pass = (name) => dump.passes.find((entry) => entry.name === name);
+  assert.ok(pass("SurfaceV4/native opaque").reads.includes(producedFrameInstances));
+  assert.notEqual(producedFrameInstances, temporalInstances);
   for (const [producer, consumer] of [
-    ["test/Visibility", "test/Surface"],
-    ["test/Temporal Facts", "test/Surface"],
+    ["test/Visibility", "SurfaceV4/native opaque"],
+    ["SurfaceV4/native opaque", "test/Temporal Facts"],
     ["test/Temporal Facts", "test/FSR3"],
     ["test/FSR3", "test/Radiometry"],
     ["test/Bloom", "test/Present"],
@@ -619,9 +555,9 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
     withEnvironment.executablePassOrder.map((id) => withEnvironment.passes[id].name),
     [
       "test/Visibility",
-      "test/Appearance publication",
+      "SurfaceV4/empty background",
+      "SurfaceV4/native opaque",
       "test/Temporal Facts",
-      "test/Surface",
       "test/Sky",
       "test/Aerial",
       "test/FSR3",
@@ -645,10 +581,10 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
   const lateNames = lateDump.executablePassOrder.map((id) => lateDump.passes[id].name);
   assert.ok(lateNames.indexOf("Visibility/build HZB") > lateNames.indexOf("test/Visibility"));
   assert.ok(lateNames.indexOf("test/Late HZB recheck") > lateNames.indexOf("Visibility/build HZB"));
-  assert.ok(lateNames.indexOf("test/Surface") > lateNames.indexOf("test/Late HZB recheck"));
+  assert.ok(lateNames.indexOf("SurfaceV4/native opaque") > lateNames.indexOf("test/Late HZB recheck"));
   assert.ok(
     lateDump.passes
-      .find((entry) => entry.name === "test/Surface")
+      .find((entry) => entry.name === "SurfaceV4/native opaque")
       .dependencies.includes(lateDump.passes.find((entry) => entry.name === "test/Late HZB recheck").id),
   );
   const empty = lowerFrameProgram(

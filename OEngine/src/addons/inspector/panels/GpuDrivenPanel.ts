@@ -152,18 +152,8 @@ export class GpuDrivenPanel {
 }
 
 function shadingSummary(frame: ProfileFrame | undefined): string {
-  const mode = read(frame, "sparseShading.executionMode").value;
-  const modeLabel = mode === 1 ? "direct-single-bin" : mode === 2 ? "sparse-microtile" : "none";
-  const bins = read(frame, "sparseShading.publishedBins").value;
   const valid = read(frame, "gpu.counter.shadedPixels").value;
-  const internal = read(frame, "sparseShading.internalPixels").value;
-  const workgroups = read(frame, "gpu.counter.shadingBinIndirectWorkgroups").value;
-  const surfaceBytes = read(frame, "sparseShading.surfaceBytesPerPixel").value;
-  const heapBytes = read(frame, "sparseShading.heapBytes").value;
-  const demandMask = read(frame, "sparseShading.demandMask").value;
-  if (mode === null && valid === null && internal === null) return "Shading: unsupported";
-  const pixelText = valid === null || internal === null ? "P/N unsupported" : `P/N ${valid}/${internal}`;
-  return `Shading: ${modeLabel}, bins ${bins ?? "unsupported"}, demand ${demandMask ?? "unsupported"}, ${pixelText}, W ${workgroups ?? "unsupported"}, surface ${surfaceBytes ?? "unsupported"} B/px, heap ${heapBytes ?? "unsupported"} B`;
+  return `Native opaque winner pixels: ${valid ?? "unavailable"}`;
 }
 
 function geometryAmplificationSummary(frame: ProfileFrame | undefined): string {

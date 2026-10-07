@@ -1,10 +1,9 @@
-/** Optimization-v1 publication. Native Product migration is part of Phase 1;
- * no old-layout decoder is retained in the final chain. */
-export const SURFACE_PRIMITIVE_BYTES = 64;
-export const SURFACE_PRIMITIVE_VERSION = 2;
-export const SURFACE_METADATA_GROUP_FLAG = 1 << 6;
-export const SURFACE_CONTINUITY_V2_GROUP_FLAG = 1 << 7;
-export interface SurfacePrimitiveMetadata {
+/** Cooked Geometry Product continuity-v2 metadata. Independent of Surface execution. */
+export const GEOMETRY_CONTINUITY_BYTES = 64;
+export const GEOMETRY_CONTINUITY_VERSION = 2;
+export const GEOMETRY_METADATA_GROUP_FLAG = 1 << 6;
+export const GEOMETRY_CONTINUITY_V2_GROUP_FLAG = 1 << 7;
+export interface GeometryContinuityMetadata {
   readonly domain: number;
   readonly uv0Domain: number;
   readonly uv1Domain: number;
@@ -22,11 +21,11 @@ export interface SurfacePrimitiveMetadata {
   readonly positionError: number;
   readonly attributeError: number;
 }
-export function decodeSurfacePrimitive(bytes: Uint8Array, offset: number): SurfacePrimitiveMetadata {
-  if (!Number.isSafeInteger(offset) || offset < 0 || offset + SURFACE_PRIMITIVE_BYTES > bytes.byteLength) {
-    throw new RangeError("Surface primitive metadata range is invalid");
+export function decodeGeometryContinuity(bytes: Uint8Array, offset: number): GeometryContinuityMetadata {
+  if (!Number.isSafeInteger(offset) || offset < 0 || offset + GEOMETRY_CONTINUITY_BYTES > bytes.byteLength) {
+    throw new RangeError("Geometry continuity metadata range is invalid");
   }
-  const view = new DataView(bytes.buffer, bytes.byteOffset + offset, SURFACE_PRIMITIVE_BYTES);
+  const view = new DataView(bytes.buffer, bytes.byteOffset + offset, GEOMETRY_CONTINUITY_BYTES);
   return Object.freeze({
     domain: view.getUint32(0, true),
     uv0Domain: view.getUint32(4, true),
@@ -43,6 +42,6 @@ export function decodeSurfacePrimitive(bytes: Uint8Array, offset: number): Surfa
     uv0Span: [view.getFloat32(40, true), view.getFloat32(44, true)] as const,
     uv1Span: [view.getFloat32(48, true), view.getFloat32(52, true)] as const,
     positionError: view.getFloat32(56, true),
-    attributeError: view.getFloat32(60, true),
+    attributeError: view.getFloat32(60, true)
   });
 }

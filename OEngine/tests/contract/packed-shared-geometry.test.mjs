@@ -104,6 +104,8 @@ async function fixture() {
   // The real Surface GPU oracle owns the actual shader and result checks.
   pass.meshletBucketRaster = {
     prepare() {},
+    release() {},
+    destroy() {},
     encodeRaster() {
       events.push("raster");
     }

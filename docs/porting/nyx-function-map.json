@@ -89,7 +89,7 @@
       "source": "MiniEngine/Model/GeometryStreaming.cpp",
       "sourceSymbols": ["Initialize", "PinRootPages", "Update", "SyncMemoryAndAddressTable", "EnqueueAsyncLoad", "OnPageIOComplete", "ImmediateEvict"],
       "implementation": ["OEngine/src/gpu/VirtualGeometryResidency.ts", "OEngine/src/gpu/GeometryProductMultiRuntime.ts", "OEngine/src/gpu/GeometryPageStreamingRuntime.ts", "OEngine/src/gpu/GeometryPageScheduler.ts"],
-      "consumer": ["OEngine/src/render/HierarchicalWorkGenerator.ts", "OEngine/src/render/pipeline/RendererCore.ts", "OEngine/src/shaders/meshlet_bucket_visibility.ts"],
+      "consumer": ["OEngine/src/render/HierarchicalWorkGenerator.ts", "OEngine/src/render/pipeline/RendererCore.ts", "OEngine/src/shaders/native_visibility.ts"],
       "retainedInvariants": ["root pin/bootstrap activation", "delayed demand feedback", "generation-safe page publication", "revoke-before-reuse", "resident refine-DAG coarse-meshlet retention", "independent page validation"],
       "webgpuAdaptation": "MAP_READ copy rings and submission retirement replace DX12 readback/fence APIs; page bank slots remain bounded.",
       "fallback": "Missing pages emit bounded demand; actual coarse meshlets remain until their refineGroupId is resident and passes the complementary SSE gate. Spatial BVH parents are not replacements.",
@@ -149,37 +149,40 @@
       "id": "vbuffer-build-vertex",
       "source": "MiniEngine/Model/Shaders/VBufferMesh.slang",
       "sourceSymbols": ["BuildVertexOutput"],
-      "implementation": ["OEngine/src/shaders/meshlet_bucket_visibility.ts", "OEngine/src/shaders/virtual_geometry_product.ts"],
+      "implementation": ["OEngine/src/shaders/native_visibility.ts", "OEngine/src/shaders/virtual_geometry_product.ts"],
       "consumer": ["OEngine/src/render/MeshletBucketRaster.ts", "OEngine/src/render/passes/PackedVisibilityPass.ts"],
       "retainedInvariants": ["page-local vertex decode", "world/view projection", "meshlet-local primitive identity", "material routing"],
       "webgpuAdaptation": "Product bank word loads and standard vertex pulling replace native mesh shader payload/address loads.",
       "fallback": "Invalid product/page/vertex format emits no primitive and increments validation diagnostics.",
       "oracle": ["OEngine/tests/oracle/nyx-function-map.test.mjs"],
-      "status": "verified"
+      "status": "pending-native-adoption",
+      "requiredValidation": "S2 native hot path replaces the retired raster; source/token checks are not current upstream adoption evidence."
     },
     {
       "id": "vbuffer-mesh-main",
       "source": "MiniEngine/Model/Shaders/VBufferMesh.slang",
       "sourceSymbols": ["meshMain"],
-      "implementation": ["OEngine/src/shaders/meshlet_bucket_visibility.ts"],
+      "implementation": ["OEngine/src/shaders/native_visibility.ts"],
       "consumer": ["OEngine/src/render/MeshletBucketRaster.ts"],
       "retainedInvariants": ["bounded vertex/primitive emission", "front-face and two-sided behavior", "VisibilityKey identity"],
       "webgpuAdaptation": "Fixed drawIndirect buckets replace mesh shader output counts; padding vertices are explicitly counted.",
       "fallback": "Invalid or padding triangles are rejected while preserving the work item identity.",
       "oracle": ["OEngine/tests/contract/geometry-product-gpu-abi.test.mjs", "OEngine/tests/oracle/nyx-function-map.test.mjs"],
-      "status": "verified"
+      "status": "pending-native-adoption",
+      "requiredValidation": "S2 native hot path replaces the retired raster; source/token checks are not current upstream adoption evidence."
     },
     {
       "id": "vbuffer-pixel-main",
       "source": "MiniEngine/Model/Shaders/VBufferMesh.slang",
       "sourceSymbols": ["pixelMain"],
-      "implementation": ["OEngine/src/shaders/meshlet_bucket_visibility.ts", "OEngine/src/gpu/GpuVisibilityKeyAbi.ts"],
-      "consumer": ["OEngine/src/render/surface/SurfaceMaterialPass.ts", "OEngine/src/gpu/GpuVisibilityKeyAbi.ts"],
+      "implementation": ["OEngine/src/shaders/native_visibility.ts", "OEngine/src/gpu/GpuVisibilityKeyAbi.ts"],
+      "consumer": ["OEngine/src/render/surface/SurfaceV4.ts", "OEngine/src/gpu/GpuVisibilityKeyAbi.ts"],
       "retainedInvariants": ["alpha-test decision", "primitive identity and depth", "two-sided/material routing"],
       "webgpuAdaptation": "WGSL fragment outputs write VisibilityKey and depth; Phase 2 ShadingWork consumes GPU-authored identity while complete Surface reconstruction is rebuilt.",
       "fallback": "Unsupported material texture or invalid key fails closed and is counted; no silent opaque fallback.",
       "oracle": ["OEngine/tests/contract/packed-render-world-contract.test.mjs"],
-      "status": "verified"
+      "status": "pending-native-adoption",
+      "requiredValidation": "S2 native hot path replaces the retired raster; source/token checks are not current upstream adoption evidence."
     }
   ],
   "gpuEvidence": {

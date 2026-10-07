@@ -1,7 +1,7 @@
 import { GpuReadbackRing, type GpuReadbackRingStats, type GpuReadbackTicket } from "./GpuReadbackRing.js";
 import type {
   ResourceAccounting,
-  ResourceHandle as AccountingResourceHandle,
+  ResourceHandle as AccountingResourceHandle
 } from "./profiling/ResourceAccounting.js";
 
 export const GPU_COUNTER_SCHEMA_VERSION = 28;
@@ -9,7 +9,7 @@ export const GPU_COUNTER_BYTE_SIZE = 768;
 
 /** Stable schema holes; indices are never silently reused across ABI revisions. */
 export const GPU_COUNTER_RESERVED_INDICES = Object.freeze([
-  9, 10, 12, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 125, 126, 127, 128, 129, 130, 131,
+  9, 10, 12, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 125, 126, 127, 128, 129, 130, 131
 ] as const);
 
 /** Stable queueOverflowMask bits; material/light bits are reserved until wired. */
@@ -17,27 +17,26 @@ export const GPU_QUEUE_OVERFLOW_BITS = {
   sceneMeshList: 1 << 0,
   meshletList: 1 << 1,
   materialMeshletList: 1 << 2,
-  lightList: 1 << 3,
+  lightList: 1 << 3
 } as const;
 
 export const GPU_COUNTER_FIELDS = [
   {
     name: "candidateInstances",
     index: 0,
-    semantic: "scene GPU frustum-filter input rows across visibility jobs",
+    semantic: "scene GPU frustum-filter input rows across visibility jobs"
   },
   { name: "visibleInstances", index: 1, semantic: "scene GPU frustum-filter output rows" },
   { name: "visitedBvhNodes", index: 2, semantic: "hierarchy nodes visited" },
   {
     name: "candidateClusters",
     index: 3,
-    semantic: "flat candidate Meshlets or hierarchy nodes visited, selected by implementation evidence",
+    semantic: "flat candidate Meshlets or hierarchy nodes visited, selected by implementation evidence"
   },
   {
     name: "selectedClusters",
     index: 4,
-    semantic:
-      "flat RasterWork items or hierarchy VisibleCluster records, selected by implementation evidence",
+    semantic: "flat RasterWork items or hierarchy VisibleCluster records, selected by implementation evidence"
   },
   { name: "rejectedFrustum", index: 5, semantic: "scene GPU frustum-filter rejected rows" },
   { name: "rejectedCone", index: 6, semantic: "cone rejects" },
@@ -49,65 +48,65 @@ export const GPU_COUNTER_FIELDS = [
   {
     name: "activeMaterials",
     index: 15,
-    semantic: "active non-transparent MaterialRecords addressable by the bounded Material Resolve kernel set",
+    semantic: "active non-transparent MaterialRecords addressable by the bounded Material Resolve kernel set"
   },
   { name: "activeLights", index: 16, semantic: "active local lights" },
   { name: "queueOverflowMask", index: 17, semantic: "registered queue overflow bits" },
   {
     name: "rootStageQueueReservations",
     index: 18,
-    semantic: "sampled fused root/leaf global bounded queue reservation attempts",
+    semantic: "sampled fused root/leaf global bounded queue reservation attempts"
   },
   {
     name: "traversalQueueReservations",
     index: 19,
-    semantic: "sampled post-root hierarchy global bounded queue reservation attempts",
+    semantic: "sampled post-root hierarchy global bounded queue reservation attempts"
   },
   {
     name: "workGenerationDispatchUpdates",
     index: 20,
-    semantic: "sampled workgroups that publish a next-round indirect dispatch extent",
+    semantic: "sampled workgroups that publish a next-round indirect dispatch extent"
   },
   {
     name: "workGenerationCasRetries",
     index: 21,
-    semantic: "sampled failed bounded queue compare-exchange attempts",
+    semantic: "sampled failed bounded queue compare-exchange attempts"
   },
   {
     name: "invalidVisibilityKeys",
     index: 22,
-    semantic: "final VisibilityKey V2 pixels using reserved or invalid logical identity",
+    semantic: "final VisibilityKey V2 pixels using reserved or invalid logical identity"
   },
   {
     name: "gradientFallbackPixels",
     index: 23,
-    semantic: "Material Resolve pixels using the conservative analytic-gradient fallback",
+    semantic: "Material Resolve pixels using the conservative analytic-gradient fallback"
   },
   {
     name: "reactiveSurfacePixels",
     index: 24,
-    semantic: "Material Resolve pixels whose temporal history must be rejected",
+    semantic: "Material Resolve pixels whose temporal history must be rejected"
   },
   {
     name: "normalTexturePixels",
     index: 25,
-    semantic: "Material Resolve pixels using a normal texture feature bit",
+    semantic: "Material Resolve pixels using a normal texture feature bit"
   },
   {
     name: "ormTexturePixels",
     index: 26,
-    semantic: "Material Resolve pixels using an ORM texture feature bit",
+    semantic: "Material Resolve pixels using an ORM texture feature bit"
   },
   {
     name: "emissiveTexturePixels",
     index: 27,
-    semantic: "Material Resolve pixels using an emissive texture feature bit",
+    semantic: "Material Resolve pixels using an emissive texture feature bit"
   },
   { name: "unlitSurfacePixels", index: 28, semantic: "Material Resolve pixels using the unlit feature bit" },
   {
     name: "candidateLightsAttempted",
     index: 29,
-    semantic: "frustum-visible local light list append attempts",
+    semantic: "frustum-visible local light list append attempts"
   },
   { name: "candidateLightsWritten", index: 30, semantic: "bounded frustum-visible local light list writes" },
   { name: "activeLightsAttempted", index: 31, semantic: "HZB-filtered local light list append attempts" },
@@ -118,12 +117,12 @@ export const GPU_COUNTER_FIELDS = [
   {
     name: "clusterFallbackLights",
     index: 36,
-    semantic: "active-list light evaluations caused by conservative fallback",
+    semantic: "active-list light evaluations caused by conservative fallback"
   },
   {
     name: "clusterLightReferences",
     index: 37,
-    semantic: "lights evaluated by direct lighting across all clusters",
+    semantic: "lights evaluated by direct lighting across all clusters"
   },
   { name: "clusterMaxLights", index: 38, semantic: "maximum evaluated lights in one cluster" },
   { name: "clusterHistogram0", index: 39, semantic: "clusters evaluating zero local lights" },
@@ -134,27 +133,27 @@ export const GPU_COUNTER_FIELDS = [
   {
     name: "clusterHistogram32",
     index: 44,
-    semantic: "clusters evaluating seventeen to thirty-two local lights",
+    semantic: "clusters evaluating seventeen to thirty-two local lights"
   },
   {
     name: "clusterHistogram64",
     index: 45,
-    semantic: "clusters evaluating thirty-three to sixty-four local lights",
+    semantic: "clusters evaluating thirty-three to sixty-four local lights"
   },
   {
     name: "clusterHistogram128",
     index: 46,
-    semantic: "clusters evaluating sixty-five to one-hundred-twenty-eight local lights",
+    semantic: "clusters evaluating sixty-five to one-hundred-twenty-eight local lights"
   },
   {
     name: "clusterHistogram256",
     index: 47,
-    semantic: "clusters evaluating more than one-hundred-twenty-eight local lights",
+    semantic: "clusters evaluating more than one-hundred-twenty-eight local lights"
   },
   {
     name: "iblSampledPixels",
     index: 48,
-    semantic: "valid Surface pixels included in sampled IBL mip evidence",
+    semantic: "valid Surface pixels included in sampled IBL mip evidence"
   },
   { name: "iblMip0", index: 49, semantic: "IBL pixels whose nearest specular mip is 0" },
   { name: "iblMip1", index: 50, semantic: "IBL pixels whose nearest specular mip is 1" },
@@ -168,32 +167,32 @@ export const GPU_COUNTER_FIELDS = [
   {
     name: "shadowCascade0RasterWork",
     index: 58,
-    semantic: "sampled SecondaryRasterWork written for directional cascade 0",
+    semantic: "sampled SecondaryRasterWork written for directional cascade 0"
   },
   {
     name: "shadowCascade1RasterWork",
     index: 59,
-    semantic: "sampled SecondaryRasterWork written for directional cascade 1",
+    semantic: "sampled SecondaryRasterWork written for directional cascade 1"
   },
   {
     name: "shadowCascade2RasterWork",
     index: 60,
-    semantic: "sampled SecondaryRasterWork written for directional cascade 2",
+    semantic: "sampled SecondaryRasterWork written for directional cascade 2"
   },
   {
     name: "shadowAtlasPixelsUpdated",
     index: 61,
-    semantic: "sampled directional shadow atlas pixels updated",
+    semantic: "sampled directional shadow atlas pixels updated"
   },
   {
     name: "shadowAlphaRasterWork",
     index: 62,
-    semantic: "sampled alpha-tested directional SecondaryRasterWork",
+    semantic: "sampled alpha-tested directional SecondaryRasterWork"
   },
   {
     name: "shadowQueueOverflowMask",
     index: 63,
-    semantic: "sampled per-cascade SecondaryRasterWork overflow bits",
+    semantic: "sampled per-cascade SecondaryRasterWork overflow bits"
   },
   { name: "transparentRasterWork", index: 64, semantic: "sampled bounded TransparentRasterWork written" },
   { name: "transparentTriangles", index: 65, semantic: "sampled exact transparent meshlet triangles" },
@@ -201,495 +200,261 @@ export const GPU_COUNTER_FIELDS = [
   {
     name: "transparentMomentFiniteFailures",
     index: 67,
-    semantic: "sampled non-finite optical or power-moment pixels",
+    semantic: "sampled non-finite optical or power-moment pixels"
   },
   { name: "transparentQueueOverflowMask", index: 68, semantic: "sampled TransparentRasterWork overflow bit" },
   {
     name: "temporalReactivePixels",
     index: 69,
     semantic:
-      "sampled TAA output or NSS internal positions whose closest-surface/current reactive signal reaches the configured diagnostic threshold",
+      "sampled TAA output or NSS internal positions whose closest-surface/current reactive signal reaches the configured diagnostic threshold"
   },
   {
     name: "temporalDisoccludedPixels",
     index: 70,
     semantic:
-      "sampled TAA output or NSS internal positions whose closest-surface confidence is below the configured diagnostic threshold",
+      "sampled TAA output or NSS internal positions whose closest-surface confidence is below the configured diagnostic threshold"
   },
   {
     name: "temporalHistoryRejectedPixels",
     index: 71,
     semantic:
-      "sampled TAA output positions rejected by production hard gates or NSS internal positions whose packed history validity rounds to zero",
+      "sampled TAA output positions rejected by production hard gates or NSS internal positions whose packed history validity rounds to zero"
   },
   {
     name: "aoEvaluatedPixels",
     index: 72,
-    semantic: "sampled GTAO-resolution pixels evaluated by the temporal evidence reducer",
+    semantic: "sampled GTAO-resolution pixels evaluated by the temporal evidence reducer"
   },
   {
     name: "aoHistoryAcceptedPixels",
     index: 73,
-    semantic: "sampled GTAO pixels whose current temporal policy assigns non-zero history weight",
+    semantic: "sampled GTAO pixels whose current temporal policy assigns non-zero history weight"
   },
   {
     name: "aoHistoryRejectedPixels",
     index: 74,
-    semantic: "sampled GTAO pixels whose current temporal policy rejects history",
+    semantic: "sampled GTAO pixels whose current temporal policy rejects history"
   },
   {
     name: "ssrTracePixels",
     index: 75,
-    semantic: "sampled non-background pixels entering the current SSR hierarchical trace",
+    semantic: "sampled non-background pixels entering the current SSR hierarchical trace"
   },
   {
     name: "ssrHitPixels",
     index: 76,
-    semantic: "sampled SSR trace pixels producing non-zero validated hit confidence",
+    semantic: "sampled SSR trace pixels producing non-zero validated hit confidence"
   },
   { name: "ssrTraceSteps", index: 77, semantic: "sampled sum of hierarchical SSR trace iterations" },
   {
     name: "ssrMaxTraceSteps",
     index: 78,
-    semantic: "sampled maximum hierarchical SSR trace iterations for one pixel",
+    semantic: "sampled maximum hierarchical SSR trace iterations for one pixel"
   },
   {
     name: "ssrRoughnessRejectedPixels",
     index: 79,
     semantic:
-      "sampled pixels rejected before SSR trace by the active roughness policy; zero on the pre-Q04 implementation",
+      "sampled pixels rejected before SSR trace by the active roughness policy; zero on the pre-Q04 implementation"
   },
   {
     name: "ssrDistanceRejectedPixels",
     index: 80,
-    semantic: "sampled pixels rejected by max-distance termination; zero on the pre-Q04 implementation",
+    semantic: "sampled pixels rejected by max-distance termination; zero on the pre-Q04 implementation"
   },
   {
     name: "ssrHighRoughnessTracePixels",
     index: 81,
-    semantic: "sampled pixels rejected before SSR trace by the active roughness cutoff",
+    semantic: "sampled pixels rejected before SSR trace by the active roughness cutoff"
   },
   {
     name: "ssrDistanceLimitExceededPixels",
     index: 82,
-    semantic: "sampled rays rejected by max-distance termination",
+    semantic: "sampled rays rejected by max-distance termination"
   },
   {
     name: "ssrValidationRejectedPixels",
     index: 83,
-    semantic: "sampled hierarchical hits rejected by current depth, facing, edge or confidence validation",
+    semantic: "sampled hierarchical hits rejected by current depth, facing, edge or confidence validation"
   },
   {
     name: "ssgiEvaluatedPixels",
     index: 84,
-    semantic: "sampled SSGI-resolution pixels entering the Three-derived horizon-bitfield trace",
+    semantic: "sampled SSGI-resolution pixels entering the Three-derived horizon-bitfield trace"
   },
   {
     name: "ssgiTraceSamples",
     index: 85,
-    semantic: "sampled SSGI slice-side-step candidates requested by the configured trace budget",
+    semantic: "sampled SSGI slice-side-step candidates requested by the configured trace budget"
   },
   {
     name: "ssgiHistoryAcceptedPixels",
     index: 86,
-    semantic: "sampled SSGI pixels whose unified temporal policy assigns non-zero history weight",
+    semantic: "sampled SSGI pixels whose unified temporal policy assigns non-zero history weight"
   },
   {
     name: "ssgiHistoryRejectedPixels",
     index: 87,
-    semantic: "sampled SSGI pixels rejecting history for global validity, motion or disocclusion",
+    semantic: "sampled SSGI pixels rejecting history for global validity, motion or disocclusion"
   },
   {
     name: "geometryNodesTested",
     index: 103,
-    semantic: "ADR-0008 hierarchy nodes whose bounds/SSE were tested",
+    semantic: "ADR-0008 hierarchy nodes whose bounds/SSE were tested"
   },
   {
     name: "geometryClustersAccepted",
     index: 104,
-    semantic: "ADR-0008 clusters accepted as renderable leaves after hierarchy selection",
+    semantic: "ADR-0008 clusters accepted as renderable leaves after hierarchy selection"
   },
   {
     name: "geometryMeshletsSelected",
     index: 105,
-    semantic: "ADR-0008 meshlets contained by accepted clusters and admitted to raster work generation",
+    semantic: "ADR-0008 meshlets contained by accepted clusters and admitted to raster work generation"
   },
   {
     name: "geometryMeshletWorksProduced",
     index: 106,
     semantic:
-      "ADR-0008 bounded MeshletRasterWork records safely published; zero on the legacy triangle-work baseline",
+      "ADR-0008 bounded MeshletRasterWork records safely published; zero on the legacy triangle-work baseline"
   },
   {
     name: "geometryCandidateTriangles",
     index: 107,
-    semantic: "ADR-0008 triangle candidates presented to correctness classification",
+    semantic: "ADR-0008 triangle candidates presented to correctness classification"
   },
   {
     name: "geometryRiskyTriangles",
     index: 108,
-    semantic: "ADR-0008 triangles in meshlets exclusively routed through selective exact raster",
+    semantic: "ADR-0008 triangles in meshlets exclusively routed through selective exact raster"
   },
   {
     name: "geometryExactSurvivedTriangles",
     index: 109,
-    semantic: "ADR-0008 exact-path triangles surviving clipping and degeneracy rejection",
+    semantic: "ADR-0008 exact-path triangles surviving clipping and degeneracy rejection"
   },
   {
     name: "geometryRasterTriangles",
     index: 110,
-    semantic: "ADR-0008 non-padding triangles submitted to fixed-function raster consumers",
+    semantic: "ADR-0008 non-padding triangles submitted to fixed-function raster consumers"
   },
   {
     name: "geometryPaddedVertices",
     index: 111,
-    semantic: "ADR-0008 bucket padding vertex invocations outside actual meshlet triangle ranges",
+    semantic: "ADR-0008 bucket padding vertex invocations outside actual meshlet triangle ranges"
   },
   {
     name: "geometryVisiblePixels",
     index: 112,
-    semantic: "ADR-0008 valid VisibilityKey pixels observed by the sampled visibility reducer",
+    semantic: "ADR-0008 valid VisibilityKey pixels observed by the sampled visibility reducer"
   },
   {
     name: "geometryQueueBytes",
     index: 113,
     semantic:
-      "ADR-0008 payload bytes safely published to geometry traversal/selection/raster/exact queues; headers and indirect records excluded",
+      "ADR-0008 payload bytes safely published to geometry traversal/selection/raster/exact queues; headers and indirect records excluded"
   },
   {
     name: "meshletQueueAttempted",
     index: 114,
-    semantic: "GpuMeshletRasterWork records requested from the correctness-critical bounded queue",
+    semantic: "GpuMeshletRasterWork records requested from the correctness-critical bounded queue"
   },
   {
     name: "meshletQueueWritten",
     index: 115,
-    semantic: "GpuMeshletRasterWork records safely published within capacity",
+    semantic: "GpuMeshletRasterWork records safely published within capacity"
   },
   {
     name: "meshletQueueConsumed",
     index: 116,
-    semantic: "GpuMeshletRasterWork records read by the GPU validation or raster consumer",
+    semantic: "GpuMeshletRasterWork records read by the GPU validation or raster consumer"
   },
   {
     name: "meshletQueueOverflow",
     index: 117,
     semantic:
-      "GpuMeshletRasterWork records not published because an all-or-nothing reservation exceeded capacity",
+      "GpuMeshletRasterWork records not published because an all-or-nothing reservation exceeded capacity"
   },
   {
     name: "meshletQueueInvalid",
     index: 118,
-    semantic: "GpuMeshletRasterWork records rejected by the GPU identity/generation oracle",
+    semantic: "GpuMeshletRasterWork records rejected by the GPU identity/generation oracle"
   },
   {
     name: "meshletBucketNonEmpty",
     index: 119,
-    semantic: "non-empty bounded meshlet raster buckets after GPU histogram/prefix",
+    semantic: "non-empty bounded meshlet raster buckets after GPU histogram/prefix"
   },
   {
     name: "meshletBucketDraws",
     index: 120,
-    semantic: "fixed bounded standard drawIndirect records generated entirely on GPU",
+    semantic: "fixed bounded standard drawIndirect records generated entirely on GPU"
   },
   {
     name: "meshletSubgroupReservations",
     index: 121,
-    semantic: "workgroup tile reservations issued by the subgroup ballot/prefix compaction specialization",
+    semantic: "workgroup tile reservations issued by the subgroup ballot/prefix compaction specialization"
   },
   {
     name: "meshletPortableReservations",
     index: 122,
-    semantic: "workgroup tile reservations issued by the portable shared-memory prefix compaction fallback",
+    semantic: "workgroup tile reservations issued by the portable shared-memory prefix compaction fallback"
   },
   {
     name: "meshletIndirectInstances",
     index: 123,
-    semantic: "sum of GPU-generated bucket drawIndirect instanceCount fields",
+    semantic: "sum of GPU-generated bucket drawIndirect instanceCount fields"
   },
   {
     name: "meshletRasterTriangles",
     index: 124,
-    semantic: "non-padding triangles submitted through ADR-0008 meshlet bucket drawIndirect",
+    semantic: "non-padding triangles submitted through ADR-0008 meshlet bucket drawIndirect"
   },
   {
     name: "longRangeBrick4Receivers",
     index: 132,
-    semantic: "sampled receivers selecting valid Brick4 long-range diffuse",
+    semantic: "sampled receivers selecting valid Brick4 long-range diffuse"
   },
   {
     name: "longRangeProbeReceivers",
     index: 133,
-    semantic: "sampled receivers selecting valid Probe Volume long-range diffuse",
+    semantic: "sampled receivers selecting valid Probe Volume long-range diffuse"
   },
   {
     name: "longRangeIblReceivers",
     index: 134,
-    semantic: "sampled receivers falling back to IBL long-range diffuse",
+    semantic: "sampled receivers falling back to IBL long-range diffuse"
   },
   {
     name: "longRangeBlackReceivers",
     index: 135,
-    semantic: "sampled receivers falling back to black because no long-range provider is valid",
+    semantic: "sampled receivers falling back to black because no long-range provider is valid"
   },
   {
     name: "longRangeInvalidGeneration",
     index: 136,
     semantic:
-      "sampled receiver/provider candidates rejected because the authored and resident generations differ",
+      "sampled receiver/provider candidates rejected because the authored and resident generations differ"
   },
   {
     name: "longRangeNonresidentFallbacks",
     index: 137,
     semantic:
-      "sampled receiver/provider candidates falling through because required long-range data is not resident",
+      "sampled receiver/provider candidates falling through because required long-range data is not resident"
   },
   {
     name: "longRangeProviderUnassigned",
     index: 138,
     semantic:
-      "sampled valid receivers for which the authoritative long-range producer emitted no provider identity",
+      "sampled valid receivers for which the authoritative long-range producer emitted no provider identity"
   },
   {
     name: "longRangeProviderDuplicates",
     index: 139,
-    semantic:
-      "sampled valid receivers for which more than one authoritative long-range provider was selected",
-  },
-  {
-    name: "shadingBinFrameFlags",
-    index: 140,
-    semantic: "sampled production sparse queue frame-invalid flags",
-  },
-  { name: "shadingBinErrors", index: 141, semantic: "sampled production sparse queue safety errors" },
-  { name: "shadingBinAttempted", index: 142, semantic: "sum of attempted sparse microtile reservations" },
-  { name: "shadingBinWritten", index: 143, semantic: "sum of safely written sparse microtile records" },
-  { name: "shadingBinOverflow", index: 144, semantic: "sum of rejected sparse microtile records" },
-  {
-    name: "shadingBinIndirectWorkgroups",
-    index: 145,
-    semantic: "sum of generated sparse indirect X times Y times Z",
-  },
-  { name: "shadingBinGeneratedMaskLo", index: 146, semantic: "GPU-authored generated bin mask low word" },
-  { name: "shadingBinGeneratedMaskHi", index: 147, semantic: "GPU-authored generated bin mask high word" },
-  {
-    name: "shadingBinIndirectNonzeroWords",
-    index: 148,
-    semantic:
-      "number of sparse indirect tuples with executable work (nonzero X; (0,1,1) is the zero-work sentinel)",
-  },
-  {
-    name: "surfaceVisiblePixels",
-    index: 149,
-    semantic: "Surface/visible GPU producer count; sampled frames only",
-  },
-  {
-    name: "surfaceMaterialSamples",
-    index: 150,
-    semantic: "Surface/material GPU producer count; sampled frames only",
-  },
-  {
-    name: "surfaceLightingSamples",
-    index: 151,
-    semantic: "Surface/lighting GPU producer count; sampled frames only",
-  },
-  {
-    name: "surfaceFullSamples",
-    index: 152,
-    semantic: "Surface/full GPU producer count; sampled frames only",
-  },
-  {
-    name: "surfaceCoarseSamples",
-    index: 153,
-    semantic: "Surface/coarse GPU producer count; sampled frames only",
-  },
-  {
-    name: "surfaceFallbackTiles",
-    index: 154,
-    semantic: "Surface/fallback GPU producer count; sampled frames only",
-  },
-  {
-    name: "surfaceRecordOverflowTiles",
-    index: 155,
-    semantic: "Surface/recordOverflow GPU producer count; sampled frames only",
-  },
-  {
-    name: "surfaceResultOverflowTiles",
-    index: 156,
-    semantic: "Surface/resultOverflow GPU producer count; sampled frames only",
-  },
-  {
-    name: "surfaceImplicitTiles",
-    index: 157,
-    semantic: "Surface/implicit GPU producer count; sampled frames only",
-  },
-  {
-    name: "surfaceMixedTiles",
-    index: 158,
-    semantic: "Surface/mixed GPU producer count; sampled frames only",
-  },
-  {
-    name: "surfaceLightingRejectedCells",
-    index: 159,
-    semantic: "Surface/lightingRejected GPU producer count; sampled frames only",
-  },
-  {
-    name: "surfaceMaterialCoarseSamples",
-    index: 160,
-    semantic: "Surface/materialCoarse GPU producer count; sampled frames only",
-  },
-  {
-    name: "surfaceLightingCoarseSamples",
-    index: 161,
-    semantic: "Surface/lightingCoarse GPU producer count; sampled frames only",
-  },
-  {
-    name: "surfaceRecordsAttempted",
-    index: 162,
-    semantic: "Surface/records GPU producer count; sampled frames only",
-  },
-  {
-    name: "surfaceResultsAttempted",
-    index: 163,
-    semantic: "Surface/results GPU producer count; sampled frames only",
-  },
-  {
-    name: "surfaceSetupBuilds",
-    index: 164,
-    semantic: "Surface/setupBuilds GPU producer count; sampled frames only",
-  },
-  {
-    name: "surfaceSetupHits",
-    index: 165,
-    semantic: "Surface/setupHits GPU producer count; sampled frames only",
-  },
-  {
-    name: "surfaceSetupMisses",
-    index: 166,
-    semantic: "Surface/setupMisses GPU producer count; sampled frames only",
-  },
-  {
-    name: "surfaceSplitPixels",
-    index: 167,
-    semantic: "Surface/splitPixels GPU producer count; sampled frames only",
-  },
-  {
-    name: "surfaceReconstructionAccepted",
-    index: 168,
-    semantic: "Surface/reconstructionAccepted GPU producer count; sampled frames only",
-  },
-  {
-    name: "surfaceReconstructionRejected",
-    index: 169,
-    semantic: "Surface/reconstructionRejected GPU producer count; sampled frames only",
-  },
-  {
-    name: "surfacePbrPixels",
-    index: 170,
-    semantic: "Surface/pbrPixels GPU producer count; sampled frames only",
-  },
-  {
-    name: "surfaceProbeCells",
-    index: 171,
-    semantic: "Surface/cells GPU producer count; sampled frames only",
-  },
-  {
-    name: "surfaceRateFullCells",
-    index: 172,
-    semantic: "Surface/full GPU producer count; sampled frames only",
-  },
-  {
-    name: "surfaceRateHorizontalCells",
-    index: 173,
-    semantic: "Surface/horizontal GPU producer count; sampled frames only",
-  },
-  {
-    name: "surfaceRateVerticalCells",
-    index: 174,
-    semantic: "Surface/vertical GPU producer count; sampled frames only",
-  },
-  {
-    name: "surfaceRateQuadCells",
-    index: 175,
-    semantic: "Surface/quad GPU producer count; sampled frames only",
-  },
-  {
-    name: "surfaceSamePrimitivePairs",
-    index: 176,
-    semantic: "Surface/samePrimitive GPU producer count; sampled frames only",
-  },
-  {
-    name: "surfaceCrossPrimitivePairs",
-    index: 177,
-    semantic: "Surface/crossPrimitive GPU producer count; sampled frames only",
-  },
-  {
-    name: "surfaceInvalidRejected",
-    index: 178,
-    semantic: "Surface/invalid GPU producer count; sampled frames only",
-  },
-  {
-    name: "surfaceGeometryRejected",
-    index: 179,
-    semantic: "Surface/geometry GPU producer count; sampled frames only",
-  },
-  {
-    name: "surfaceContinuityRejected",
-    index: 180,
-    semantic: "Surface/continuity GPU producer count; sampled frames only",
-  },
-  {
-    name: "surfaceMaterialRejected",
-    index: 181,
-    semantic: "Surface/material GPU producer count; sampled frames only",
-  },
-  {
-    name: "surfaceResidencyRejected",
-    index: 182,
-    semantic: "Surface/residency GPU producer count; sampled frames only",
-  },
-  {
-    name: "surfaceVariationRejected",
-    index: 183,
-    semantic: "Surface/variation GPU producer count; sampled frames only",
-  },
-  { name: "surfaceUvRejected", index: 184, semantic: "Surface/uv GPU producer count; sampled frames only" },
-  {
-    name: "appearanceTasksAttempted",
-    index: 185,
-    semantic: "GPU Appearance demand reservation attempts; sampled frames only",
-  },
-  {
-    name: "appearanceTasksOverflow",
-    index: 186,
-    semantic: "GPU Appearance tasks rejected by frame capacity; sampled frames only",
-  },
-  {
-    name: "appearanceTasksWritten",
-    index: 187,
-    semantic: "GPU Appearance task records published within capacity; sampled frames only",
-  },
-  {
-    name: "lightingPrimaryPackets",
-    index: 188,
-    semantic:
-      "GPU compact primary lighting packets, with independent diffuse/specular/coat masks; sampled frames only",
-  },
-  {
-    name: "lightingDiffusePrimaries",
-    index: 189,
-    semantic: "current-frame diffuse incident-light primaries, excluding temporal references",
-  },
-  {
-    name: "lightingSpecularPrimaries",
-    index: 190,
-    semantic: "current-frame specular primaries, excluding temporal references",
-  },
-  {
-    name: "lightingCoatPrimaries",
-    index: 191,
-    semantic: "current-frame coat primaries, excluding temporal references",
-  },
+    semantic: "sampled valid receivers for which more than one authoritative long-range provider was selected"
+  }
+  // Slots 140..191 are retired Surface ABI holes; live counter indices stay unchanged.
 ] as const;
 
 export type GpuCounterFieldName = (typeof GPU_COUNTER_FIELDS)[number]["name"];
@@ -714,14 +479,14 @@ export class GpuFrameCounterBuffer {
     this.buffer = device.createBuffer({
       label: "FrameProfiler/GPU counters v1",
       size: GPU_COUNTER_BYTE_SIZE,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
     });
     this.accountingHandle = options.resourceAccounting?.created({
       kind: "buffer",
       category: "profiler",
       owner: "FrameProfiler/GPU counters",
       bytes: GPU_COUNTER_BYTE_SIZE,
-      label: "FrameProfiler/GPU counters v1",
+      label: "FrameProfiler/GPU counters v1"
     });
     this.ring = new GpuReadbackRing(device, {
       byteLength: GPU_COUNTER_BYTE_SIZE,
@@ -733,7 +498,7 @@ export class GpuFrameCounterBuffer {
       onResult: ({ frameIndex, data }) => {
         options.onResult(frameIndex, decodeGpuCounterValues(new Uint32Array(data)));
       },
-      onError: ({ frameIndex, error }) => options.onError?.(frameIndex, error),
+      onError: ({ frameIndex, error }) => options.onError?.(frameIndex, error)
     });
   }
 
@@ -749,20 +514,20 @@ export class GpuFrameCounterBuffer {
     encoder: Pick<GPUCommandEncoder, "copyBufferToBuffer">,
     field: GpuCounterFieldName,
     source: GPUBuffer,
-    sourceOffset = 0,
+    sourceOffset = 0
   ): void {
     encoder.copyBufferToBuffer(
       source,
       sourceOffset,
       this.buffer,
       counterByteOffset(field),
-      Uint32Array.BYTES_PER_ELEMENT,
+      Uint32Array.BYTES_PER_ELEMENT
     );
   }
 
   encodeReadback(
     encoder: Pick<GPUCommandEncoder, "copyBufferToBuffer">,
-    frameIndex: number,
+    frameIndex: number
   ): GpuReadbackTicket | null {
     return this.ring.encodeCopy(encoder, this.buffer, 0, frameIndex);
   }

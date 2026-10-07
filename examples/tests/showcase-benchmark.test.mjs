@@ -4,7 +4,7 @@ import { summarizeCapture, compareCaptures, validGpuFrame } from "../demos/14-in
 
 function frame(frameIndex, durations, extra = {}) {
   return { frameIndex, cpuMs: { frame: 2 }, counters: {}, submits: { count: 1 }, uploads: { bytes: 0 }, readbacks: { bytes: 0 },
-    gpu: { available: true, sampled: true, pending: false, segments: durations.map(durationMs => ({ label: "Renderer/Surface/worker", phase: "material", durationMs })) },
+    gpu: { available: true, sampled: true, pending: false, segments: durations.map(durationMs => ({ label: "SurfaceV4/native opaque", phase: "material", durationMs })) },
     gpuCounters: { sampled: false, pending: false, dropped: false, values: {} }, gpuValid: true, ...extra };
 }
 test("fixed capture aggregates repeated intervals per frame and retains long tails", () => {
@@ -23,12 +23,12 @@ test("late patches replace by frame id; missing timestamp results remain explici
   assert.equal(validGpuFrame(frame(3, [NaN])), false);
 });
 test("counters require completed readback; absent values never become zero", () => {
-  const complete = frame(1, [4]); complete.gpuCounters = { sampled: true, pending: false, dropped: false, values: { surfaceMaterialSamples: 100 } };
-  const pending = frame(2, [4]); pending.gpuCounters = { ...complete.gpuCounters, pending: true, values: { surfaceMaterialSamples: 0 } };
+  const complete = frame(1, [4]); complete.gpuCounters = { sampled: true, pending: false, dropped: false, values: { geometryVisiblePixels: 100 } };
+  const pending = frame(2, [4]); pending.gpuCounters = { ...complete.gpuCounters, pending: true, values: { geometryVisiblePixels: 0 } };
   const result = summarizeCapture([complete, pending]);
-  assert.equal(result.counters.surfaceMaterialSamples.count, 1);
-  assert.equal(result.counters.surfaceMaterialSamples.min, 100);
-  assert.equal(result.counters.surfaceLightingSamples, undefined);
+  assert.equal(result.counters.geometryVisiblePixels.count, 1);
+  assert.equal(result.counters.geometryVisiblePixels.min, 100);
+  assert.equal(result.counters.iblSampledPixels, undefined);
 });
 test("condition drift and incomplete GPU measurements forbid comparison", () => {
   const a = { conditions: { camera: [1, 2], extent: [1280, 720] }, frames: [frame(1, [10])] };
@@ -41,21 +41,21 @@ test("full-frame and Surface spans retain encoder gaps and subtract bigint clock
  const first=frame(1,[1,1]);
  const base=1000000000000000000n;
  first.gpu.segments=[
-  {label:"Surface/canonical field addresses",durationMs:1,startTick:String(base),endTick:String(base+1000000n)},
-  {label:"Surface/reconstruct batch 0",durationMs:1,startTick:String(base+11000000n),endTick:String(base+12000000n)},
+  {label:"SurfaceV4/bins classify",durationMs:1,startTick:String(base),endTick:String(base+1000000n)},
+  {label:"SurfaceV4/native opaque",durationMs:1,startTick:String(base+11000000n),endTick:String(base+12000000n)},
   {label:"Present",durationMs:1,startTick:String(base+13000000n),endTick:String(base+14000000n)}
  ];
  const summary=summarizeCapture([first]);
  assert.equal(summary.surfacePassSumMs.p50,2);
  assert.equal(summary.surfaceSpanMs.p50,12);
  assert.equal(summary.gpuFrameSpanMs.p50,14);
- assert.equal(summary.surfacePhases.lighting,undefined,'Missing phase has no measured duration');
+ assert.equal(summary.surfacePhases.nativeSun,undefined,'Missing phase has no measured duration');
 });
 
 test('span and semantic stage do not double-count pass sum; same-frame costs precede percentiles',()=>{
  const first=frame(1,[]);
  first.gpu.segments=[{label:'Renderer/frame-span',scope:'span',durationMs:20},{label:'Renderer/surface',scope:'stage',durationMs:17},
- {label:'Surface/emit_surface_requests',scope:'pass',durationMs:3},{label:'Surface/unique GeometryRecord',scope:'pass',durationMs:5},{label:'Surface/reconstruct',scope:'pass',durationMs:2}];
+ {label:'SurfaceV4/bins classify',scope:'pass',durationMs:3},{label:'SurfaceV4/native opaque',scope:'pass',durationMs:5},{label:'SurfaceV4/empty background',scope:'pass',durationMs:2}];
  const summary=summarizeCapture([first]);
  assert.equal(summary.gpuPassSumMs.p50,10);assert.equal(summary.gpuFrameSpanMs.p50,20);assert.equal(summary.surfaceSpanMs.p50,17);
  assert.equal(summary.pairedCosts.surfaceManagementMs.p50,3);assert.equal(summary.pairedCosts.surfaceEvaluationMs.p50,5);assert.equal(summary.pairedCosts.outsidePassMs.p50,10);

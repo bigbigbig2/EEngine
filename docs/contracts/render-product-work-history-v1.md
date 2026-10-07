@@ -8,7 +8,6 @@ owners:
   - shading
 version: 1
 consumers:
-  - OEngine/src/render/pipeline/MainRenderPipeline.ts
   - OEngine/src/render/pipeline/FrameProducts.ts
   - OEngine/src/render/TemporalHistoryRegistry.ts
 invariants:
@@ -17,9 +16,7 @@ invariants:
   - revision-local bindings cannot enter device-lifetime program caches
   - histories reject incompatible identity or representation before reuse
 validation:
-  - OEngine/tests/contract/opaque-shading-demand.test.mjs
   - OEngine/tests/contract/shading-program-specialization.test.mjs
-  - OEngine/tests/contract/advanced-frame-abi.test.mjs
   - OEngine/tests/contract/bounded-gpu-work-protocol.test.mjs
 state: history
 verifies:

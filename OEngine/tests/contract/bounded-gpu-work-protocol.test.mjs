@@ -5,17 +5,11 @@ import { planBoundedGpuWorkStream } from "../../.test-dist/gpu/BoundedGpuWorkPro
 import {
   GPU_MESHLET_RASTER_WORK_RECORD_STRIDE,
   GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE,
-  gpuMeshletWorkQueueByteLength,
+  gpuMeshletWorkQueueByteLength
 } from "../../.test-dist/gpu/GpuMeshletRasterWorkAbi.js";
-import {
-  GPU_SHADING_BIN_RECORDS_OFFSET,
-  GPU_SHADING_BIN_RECORD_STRIDE,
-  preflightGpuShadingBinSizing,
-} from "../../.test-dist/gpu/GpuShadingBinAbi.js";
-
 const limits = { maxBufferBytes: 1 << 20, maxStorageBindingBytes: 1 << 20 };
 
-test("MeshletWork and ShadingBin retain distinct ABIs under one bounded control protocol", () => {
+test("MeshletWork retains its bounded GPU control and exact capacity contract", () => {
   const meshlet = planBoundedGpuWorkStream({
     name: "MeshletWork",
     producer: "GPU generation",
@@ -27,23 +21,10 @@ test("MeshletWork and ShadingBin retain distinct ABIs under one bounded control 
     counters: ["attempted", "written", "overflow", "consumed", "invalid"],
     overflow: "suppress-indirect-output",
     execution: "draw-indirect",
-    ...limits,
+    ...limits
   });
   assert.equal(meshlet.bufferBytes, gpuMeshletWorkQueueByteLength(37));
   assert.equal(meshlet.execution, "draw-indirect");
-
-  const shading = preflightGpuShadingBinSizing(64, 64, [0, 1], 1, {
-    maxTextureDimension2D: 1024,
-    maxBufferSize: limits.maxBufferBytes,
-    maxStorageBufferBindingSize: limits.maxStorageBindingBytes,
-    maxComputeWorkgroupsPerDimension: 65535,
-  });
-  assert.equal(
-    shading.heapBytes,
-    GPU_SHADING_BIN_RECORDS_OFFSET + 2 * shading.microtileCount * GPU_SHADING_BIN_RECORD_STRIDE,
-  );
-  assert.notEqual(shading.layouts[0].capacity, meshlet.capacity);
-  assert.equal(shading.layouts[2].capacity, 0);
 });
 
 test("bounded stream rejects missing GPU closure and unsafe capacity", () => {
@@ -58,7 +39,7 @@ test("bounded stream rejects missing GPU closure and unsafe capacity", () => {
     counters: ["attempted", "written", "overflow"],
     overflow: "suppress-indirect-output",
     execution: "dispatch-indirect",
-    ...limits,
+    ...limits
   };
   assert.throws(() => planBoundedGpuWorkStream({ ...base, gpuConsumer: "" }), /gpuConsumer/);
   assert.throws(() => planBoundedGpuWorkStream({ ...base, counters: ["written", "overflow"] }), /attempted/);

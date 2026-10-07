@@ -32,7 +32,7 @@ test("actual WASM Product publishes continuity-v2 with independent UV domains an
   const { decodeGroupHeaderV3, decodeMeshletHeaderV3 } = await import(
     "../../.test-dist/assets/GeometryAbiV3.js"
   );
-  const { decodeSurfacePrimitive } = await import("../../.test-dist/gpu/SurfacePrimitiveAbi.js");
+  const { decodeGeometryContinuity } = await import("../../.test-dist/assets/GeometryContinuityAbi.js");
   const xy = [
       [0, 0],
       [1, 0],
@@ -75,7 +75,7 @@ test("actual WASM Product publishes continuity-v2 with independent UV domains an
         assert.ok(metadata + meshlet.triangleCount * 64 <= header.vertexDataOffset);
         for (let primitive = 0; primitive < meshlet.triangleCount; primitive++)
           records.push(
-            decodeSurfacePrimitive(new Uint8Array(page, offset, length), metadata + primitive * 64),
+            decodeGeometryContinuity(new Uint8Array(page, offset, length), metadata + primitive * 64),
           );
       }
     }

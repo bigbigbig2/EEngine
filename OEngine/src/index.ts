@@ -677,29 +677,6 @@ export {
   surfaceTimingTotalsForFrame,
 } from "./debug/SurfacePhaseTiming.js";
 export type { SurfaceTimingPhase, SurfaceTimingSegment } from "./debug/SurfacePhaseTiming.js";
-export { SurfaceDiagnosticsCapture } from "./debug/SurfaceDiagnosticsCapture.js";
-export type { SurfaceDiagnosticsCaptureOptions } from "./debug/SurfaceDiagnosticsCapture.js";
-export {
-  SURFACE_DIAGNOSTICS_BYTE_SIZE,
-  SURFACE_DIAGNOSTICS_COUNTERS,
-  SURFACE_DIAGNOSTICS_MAGIC,
-  SURFACE_DIAGNOSTICS_SCHEMA_VERSION,
-  decodeSurfaceDiagnostics,
-  evaluateSurfaceCoverage,
-  reconstructLogicalBytes,
-  surfaceDiagnosticsByteOffset,
-  writeSurfaceDiagnosticsHeader,
-} from "./gpu/SurfaceDiagnosticsAbi.js";
-export type {
-  SurfaceCoverageReport,
-  SurfaceCoverageStatus,
-  SurfaceDiagnosticCounter,
-  SurfaceDiagnosticsAvailability,
-  SurfaceDiagnosticsIdentity,
-  SurfaceDiagnosticsMode,
-  SurfaceDiagnosticsSnapshot,
-  SurfaceDiagnosticsValues,
-} from "./gpu/SurfaceDiagnosticsAbi.js";
 export { BenchmarkRunController } from "./debug/BenchmarkRunController.js";
 export type {
   BenchmarkRunOptions,

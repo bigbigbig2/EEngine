@@ -9,15 +9,12 @@ verifies:
     - OEngine/src/render/program/FrameProgramBindings.ts
     - OEngine/src/render/program/FrameProgramLowering.ts
     - OEngine/src/material/AppearanceGraphCompiler.ts
-    - OEngine/src/material/ExactAppearanceDag.ts
-    - OEngine/src/shaders/appearance_program.ts
-    - OEngine/src/shaders/appearance_exact_dag.ts
+    - OEngine/src/shaders/native_material.ts
     - OEngine/src/gpu/AppearanceProgramRegistry.ts
-    - OEngine/src/gpu/GpuAppearancePublication.ts
+    - OEngine/src/gpu/GpuNativeMaterialScene.ts
     - OEngine/src/gpu/GpuNativeMaterialPublication.ts
     - OEngine/src/gpu/NativeMaterialBindings.ts
     - OEngine/src/gpu/NativeMaterialProducts.ts
-    - OEngine/src/shaders/native_material.ts
     - OEngine/src/shaders/native_surface.ts
     - OEngine/src/render/surface/SurfaceV4.ts
     - OEngine/src/render/temporal/NativeTemporalFactsPass.ts
@@ -27,13 +24,10 @@ verifies:
     - OEngine/src/gpu/GpuVisibilityKeyAbi.ts
     - OEngine/src/render/passes/PackedVisibilityPass.ts
     - OEngine/src/render/FrameGeometryArena.ts
-    - OEngine/src/render/surface/SurfaceWorkRuntime.ts
-    - OEngine/src/render/surface/SurfaceFrameResources.ts
-    - OEngine/src/render/CoverageRasterBindings.ts
-    - OEngine/src/render/RasterWorkPartitions.ts
+    - OEngine/src/render/surface/NativeExecutionBins.ts
+    - OEngine/src/render/surface/NativeVisibilityPass.ts
+    - OEngine/src/render/surface/NativeRasterWorkPartitions.ts
     - OEngine/src/render/vsm/VsmAtlasRasterPass.ts
-    - OEngine/src/gpu/GpuSurfaceWorkAbi.ts
-    - OEngine/src/render/temporal/TemporalFactsPass.ts
     - OEngine/src/render/passes/fsr3/Fsr3UpscalerRuntime.ts
     - OEngine/src/framegraph/FrameGraph.ts
     - OEngine/src/framegraph/ShadeGPUCommandContext.ts

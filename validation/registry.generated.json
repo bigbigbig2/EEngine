@@ -329,7 +329,7 @@
       },
       "headed": true,
       "id": "surface-work-v3-phase0-baseline",
-      "purpose": "Freeze the comparison identity and capture conditions for SurfaceWork Runtime V3. This profile does not contain performance results or acceptance claims.",
+      "purpose": "Historical comparison identity and capture conditions for retired SurfaceWork Runtime V3. This profile is not an executable current plan and contains no measured results or acceptance claims.",
       "revisions": {
         "baseline-2026-09-25": {
           "commit": "89f0a9412a0740ae67b0062b4337b8785f85400c",
@@ -353,7 +353,7 @@
         "sha256": "cac0fc8c16d107e7ac4e69efde89c2cb6ef4bc66c34456a4dd0923218e5aafb1",
         "sourceRole": "complex authored scene; fixed for all four revisions"
       },
-      "status": "configured-not-sampled",
+      "status": "historical-not-sampled",
       "target": {
         "adapterIdentity": "record at runtime from Renderer adapter_info",
         "browser": "Chrome stable, headed",

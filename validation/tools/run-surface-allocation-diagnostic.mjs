@@ -30,7 +30,7 @@ try{
  page.on("console",m=>{if(m.type()==="error")report.errors.push(m.text());});
  await page.goto(`http://127.0.0.1:${port}/demos/14-integrated/next-renderer-showcase/`);
  await page.waitForFunction(()=>!!globalThis.__eengineShowcase);await page.evaluate(()=>globalThis.__eengineShowcase.start());
- await page.evaluate(()=>globalThis.__eengineShowcase.capture({width:1920,height:1080,frames:1,warmup:5,coverage:"preset",distanceScale:0.885,retainView:true,surfaceMode:"timing"}));
+ await page.evaluate(()=>globalThis.__eengineShowcase.capture({width:1920,height:1080,frames:1,warmup:5,coverage:"preset",distanceScale:0.885,retainView:true}));
  report.start=await page.evaluate(()=>({runtime:globalThis.__eengineShowcase.runtime,allocation:globalThis.__eengineShowcase.allocation,observation:globalThis.__allocationObservation}));
  const begin=report.start.runtime.frameCount;
  await page.waitForFunction(n=>globalThis.__eengineShowcase.runtime.frameCount>=n+40,begin,{timeout:120000});

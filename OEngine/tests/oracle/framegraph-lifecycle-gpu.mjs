@@ -9,12 +9,6 @@ import { GPUBufferAllocator } from "../../.test-dist/gpu/GPUBufferAllocator.js";
 import { GPUTextureAllocator } from "../../.test-dist/gpu/GPUTextureAllocator.js";
 import { FrameProfiler } from "../../.test-dist/debug/FrameProfiler.js";
 import { ResourceAccounting } from "../../.test-dist/debug/profiling/ResourceAccounting.js";
-import { SurfaceFrameResources } from "../../.test-dist/render/surface/SurfaceFrameResources.js";
-import { SurfaceDiagnosticsPass } from "../../.test-dist/render/surface/SurfaceDiagnosticsPass.js";
-import {
-  decodeSurfaceDiagnostics,
-  SURFACE_DIAGNOSTICS_BYTE_SIZE,
-} from "../../.test-dist/gpu/SurfaceDiagnosticsAbi.js";
 const check = (condition, message) => {
   if (!condition) throw new Error(message);
 };
@@ -45,7 +39,8 @@ export async function runFrameGraphLifecycleGpuOracle(device) {
       entryPoint: "main",
     },
   });
-  const scratch = new SurfaceFrameResources(device, ledger, 4096);
+  let scratchBuffer;
+  const scratchBuffers = [];
   const made = [];
   try {
     const graph = new FrameGraph("A1 real lifetimes");
@@ -128,19 +123,15 @@ export async function runFrameGraphLifecycleGpuOracle(device) {
       [3, 8],
       [4, 4],
     ]) {
-      scratch.prepare(width, 1);
+      scratchBuffer = device.createBuffer({ size: width, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+      scratchBuffers.push(scratchBuffer);
       const initial = {};
       let compiled = cache.get(width);
       if (!compiled) {
         const layout = new FrameGraphBindingLayout(),
           g = new FrameGraph("cached scratch " + width);
-        const buffer = scratch.importBuffer(
-          g,
-          (_name, resolve) => layout.slot("scratch", initial, resolve),
-          "extent",
-          width,
-          GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-        );
+        const buffer = g.import_resource("extent", { kind: "imported" },
+          layout.slot("scratch", initial, () => scratchBuffer));
         const p = g.add("scratch consume", {}, (_, r, c) => {
           const value = r.get(buffer);
           check(value.size === width, "stale resized resource bound");
@@ -155,13 +146,12 @@ export async function runFrameGraphLifecycleGpuOracle(device) {
       const ctx = ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame");
       ctx.encodeCompiledGraph(compiled, {});
       ctx.finish();
-      scratch.commit(ctx.gpuDone);
       profiler.endFrame();
       await ctx.gpuDone;
     }
     check(physical[0] !== physical[2], "returned recipe must not pin the retired first extent");
     for (const g of cache.values()) g.destroy();
-    scratch.destroy();
+    scratchBuffers.splice(0).forEach((buffer) => buffer.destroy());
     await Promise.resolve();
 
     // Native fallback must also retain resources until the explicit queue fence.
@@ -201,7 +191,6 @@ export async function runFrameGraphLifecycleGpuOracle(device) {
     output.unmap();
     complete();
     await Promise.resolve();
-    const diagnostic = await checkDiagnosticSnapshot(device);
     return {
       passed: true,
       values,
@@ -210,108 +199,15 @@ export async function runFrameGraphLifecycleGpuOracle(device) {
       cpuEncodeMs: frame.cpuMs["graph-execute"],
       timingCost: frame.gpu.cost,
       timingTax: frame.counters,
-      diagnostic,
       scope:
-        "real compiled executor/command owner/resource lifetime and diagnostic WGSL; not full Surface or historical performance acceptance",
+        "real compiled executor/command owner/resource lifetime; not full Surface or historical performance acceptance",
     };
   } finally {
     await device.queue.onSubmittedWorkDone();
-    scratch.destroy();
+    scratchBuffers.splice(0).forEach((buffer) => buffer.destroy());
     graphics.buffer_allocator_main.destroy();
     graphics.allocator_textures.destroy();
     profiler.destroy();
     output.destroy();
-  }
-}
-
-async function checkDiagnosticSnapshot(device) {
-  const buffers = [];
-  const make = (bytes, data) => {
-    const buffer = device.createBuffer({
-      size: bytes,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
-    buffers.push(buffer);
-    if (data) device.queue.writeBuffer(buffer, 0, data);
-    return buffer;
-  };
-  const controlWords = new Uint32Array(512);
-  controlWords[224] = 1; controlWords[225] = 3; controlWords[226] = 1;
-  controlWords[239] = 7; controlWords[229] = 3;
-  controlWords[240] = 3; controlWords[230] = 1;
-  controlWords[233] = 1; controlWords[234] = 63;
-  const control = make(2048, controlWords);
-  const output = device.createBuffer({
-    size: SURFACE_DIAGNOSTICS_BYTE_SIZE,
-    usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
-  });
-  let complete;
-  const fence = new Promise((resolve) => (complete = resolve)),
-    encoder = device.createCommandEncoder();
-  const uploads = [];
-  const command = {
-    gpu_encoder: encoder,
-    beginComputePass: (d) => encoder.beginComputePass(d),
-    allocateTransientBuffer(usage, size) {
-      const b = device.createBuffer({ size, usage: usage | GPUBufferUsage.COPY_DST });
-      uploads.push(b);
-      return b;
-    },
-    writeBuffer(buffer, offset, data, start, size) {
-      device.queue.writeBuffer(buffer, offset, data, start, size);
-    },
-  };
-  const graph = new FrameGraph("production diagnostics"),
-    imported = (b) => graph.import_resource("fixture", { kind: "imported" }, b);
-  const scratch = new SurfaceFrameResources(device);
-  scratch.prepare(8, 8);
-  const owner = new SurfaceDiagnosticsPass(device, scratch, (ctx, source) =>
-    ctx.gpu_encoder.copyBufferToBuffer(source, 0, output, 0, SURFACE_DIAGNOSTICS_BYTE_SIZE),
-  );
-  owner.addToGraph(graph, {
-    control: imported(control), after: imported(control),
-    capacity: { bankTiles: 1, width: 8, height: 8, hotWords: 12 }, domains: 2,
-    frameId: { value: 17 }, identity: { runId: "oracle", deviceEpoch: 1 }, bind: (_name, resolve) => resolve(),
-  });
-  try {
-    graph.compile().execute(
-      new FrameGraphContext({
-        device,
-        encoder: command,
-        resource_manager: new FrameGraphResourceManager(device, fence),
-      }),
-      undefined,
-    );
-    device.queue.submit([encoder.finish()]);
-    await device.queue.onSubmittedWorkDone();
-    await output.mapAsync(GPUMapMode.READ);
-    const data = output.getMappedRange().slice(0);
-    output.unmap();
-    complete();
-    await Promise.resolve();
-    const snapshot = decodeSurfaceDiagnostics(
-      data,
-      { runId: "oracle", deviceEpoch: 1, frameId: 17 },
-      "detailed",
-    );
-    check(
-      snapshot.values.totalTiles === 4 && snapshot.values.visiblePixels === 1,
-      "actual coverage scan counter mismatch",
-    );
-    check(snapshot.values.geometryRecordsRequested === 7 && snapshot.values.geometryMissCompleted === 3, "requested work must not masquerade as completed");
-    check(snapshot.values.geometryRecordStrideWords === 12, "byte/word stride unit mismatch");
-    check(
-      snapshot.values.materialEvaluatorEntered === 3 &&
-        snapshot.values.materialEvaluatorCompleted === 1,
-      "queued work falsely published as completed",
-    );
-    check(snapshot.coverage.status === "fail", "incomplete producer must not certify coverage");
-    return { values: snapshot.values, coverage: snapshot.coverage };
-  } finally {
-    complete();
-    owner.destroy();
-    scratch.destroy();
-    output.destroy();
-    for (const b of [...buffers, ...uploads]) b.destroy();
   }
 }

@@ -1,4 +1,6 @@
-# Appearance 编译数值诊断
+# Appearance 编译数值诊断（历史实验记录）
+
+2026-10-08：S2 已删除依赖旧 Tape / `GpuAppearancePublication` 的三个执行脚本；下文对应命令和数值保留为历史，不再是当前运行入口。存活的材质、采样、参数更新和 publication 语义由 `tools/gpu-oracle.mjs native-material` 与 native Surface production oracle 承担。独立资产上传及法线数学诊断仍保留，不依赖旧 Surface owner。本文件不定义 current 架构或验证状态。
 
 这是组件级 diagnostic，不生成 accepted evidence，也不替代本地 Chrome 整帧、画质或性能验收。使用实际 `AppearanceGraphCompiler` 与 `appearance_program`，在独立 D3D12 设备中编译、异步创建并执行 kernel，读取数值与 CPU 对照；每个源叶是真实 GPU 纹理，RGB/alpha 的 sRGB 行为分别验证。测试设备与测试 submit 仅属于宿主。
 

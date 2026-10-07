@@ -1,3 +1,6 @@
+import type { ResourceHandle } from "../../debug/profiling/ResourceAccounting.js";
+import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
+import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
 import type { NativeSurfaceGeometry, NativeSurfaceRoute } from "./SurfaceV4.js";
 import type { GpuNativeMaterialPublication } from "../../gpu/GpuNativeMaterialPublication.js";
 import {
@@ -6,13 +9,42 @@ import {
   type NativeVisibilityShader
 } from "../../shaders/native_visibility.js";
 import { NativeRasterWorkPartitions } from "./NativeRasterWorkPartitions.js";
+import { GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS } from "../../gpu/GpuMeshletRasterWorkAbi.js";
+
+export function nativeVisibilityPipelineDescriptor(
+  shader: NativeVisibilityShader,
+  shadow: boolean,
+  cullMode: GPUCullMode,
+  late = false
+): CachedRenderPipelineDescriptor {
+  const module = { code: shader.source };
+  return {
+    layout: { bindGroupLayouts: shader.groups.map((entries) => ({ entries })) },
+    vertex: { module, entryPoint: shader.vertexEntryPoint },
+    fragment: {
+      module,
+      entryPoint: shader.fragmentEntryPoint,
+      targets: shadow ? [] : [{ format: "r32uint" }]
+    },
+    primitive: { topology: "triangle-list", cullMode, frontFace: "ccw" },
+    depthStencil: {
+      format: "depth32float",
+      depthWriteEnabled: true,
+      depthCompare: late ? "greater-equal" : "greater"
+    }
+  };
+}
 
 export interface NativeVisibilityInput {
+  readonly graphics?: GraphicsContext;
+  readonly late?: boolean;
   readonly geometry: NativeSurfaceGeometry;
   readonly publication: GpuNativeMaterialPublication;
   readonly routes: readonly NativeSurfaceRoute[];
   readonly capacity: number;
   readonly generation: number;
+  readonly generationSource?: GPUBuffer;
+  readonly camera?: GPUBuffer;
   readonly view: Uint8Array<ArrayBuffer>;
   readonly shadow?: boolean;
   /** Actual VSM caster queue (16B header/32B records), atlas constants/page table. */
@@ -40,6 +72,7 @@ export class NativeVisibilityPass {
   readonly ready: Promise<void>;
   readonly partitions: NativeRasterWorkPartitions;
   private readonly buffers: GPUBuffer[] = [];
+  private readonly accountingHandles: ResourceHandle[] = [];
   private readonly view: GPUBuffer;
   private routes: readonly RouteState[] | null = null;
   private destroyed = false;
@@ -215,11 +248,15 @@ export class NativeVisibilityPass {
       capacity: input.capacity,
       meshletWordBase: input.geometry.source[1],
       generation: input.generation,
-      caster: input.vsmAtlas !== undefined
+      caster: input.vsmAtlas !== undefined,
+      graphics: input.graphics
     });
     try {
       this.view = this.buffer(NATIVE_VISIBILITY_VIEW_BYTES, input.view);
       const candidates = input.routes.map((route, bin) => this.createRoute(route, bin, shaders[bin]!));
+      if (input.graphics !== undefined) {
+        this.routes = candidates as RouteState[];
+      }
       this.ready = Promise.all([input.publication.ready, this.partitions.ready, Promise.all(candidates)])
         .then(([, , routes]) => {
           if (this.destroyed) {
@@ -245,6 +282,19 @@ export class NativeVisibilityPass {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
     this.buffers.push(buffer);
+    const handle = this.input.graphics?.resource_accounting.created(
+      {
+        kind: "buffer",
+        category: "transient",
+        owner: "NativeVisibilityPass",
+        bytes: size,
+        label: buffer.label
+      },
+      buffer
+    );
+    if (handle) {
+      this.accountingHandles.push(handle);
+    }
     if (values) {
       this.device.queue.writeBuffer(buffer, 0, values);
     }
@@ -265,17 +315,30 @@ export class NativeVisibilityPass {
     }
   }
 
-  private async createRoute(
+  private createRoute(
     route: NativeSurfaceRoute,
     bin: number,
     shader: NativeVisibilityShader
-  ): Promise<RouteState> {
+  ): RouteState | Promise<RouteState> {
     const { device, input } = this;
     const entry = input.publication.entries.find((entry) => entry.executionBin === bin)!;
     const layouts = shader.groups.map((entries) => device.createBindGroupLayout({ entries }));
     const layout = device.createPipelineLayout({ bindGroupLayouts: layouts });
     const module = device.createShaderModule({ code: shader.source });
-    const pipelines = (await Promise.all(
+    if (input.graphics !== undefined) {
+      const pipelines = (["back", "none"] as const).map((cullMode) =>
+        input.graphics!.render_pipelines.obtain(
+          nativeVisibilityPipelineDescriptor(
+            shader,
+            Boolean(input.shadow || input.vsmAtlas),
+            cullMode,
+            input.late
+          )
+        )
+      ) as [GPURenderPipeline, GPURenderPipeline];
+      return this.bindRoute(route, bin, layouts, pipelines);
+    }
+    return Promise.all(
       (["back", "none"] as const).map((cullMode) =>
         device.createRenderPipelineAsync({
           layout,
@@ -283,16 +346,32 @@ export class NativeVisibilityPass {
           fragment: {
             module,
             entryPoint: shader.fragmentEntryPoint,
-            targets: input.shadow || input.vsmAtlas !== undefined ? [] : [{ format: "r32uint" }]
+            targets: input.shadow || input.vsmAtlas ? [] : [{ format: "r32uint" }]
           },
           primitive: { topology: "triangle-list", cullMode, frontFace: "ccw" },
-          depthStencil: { format: "depth32float", depthWriteEnabled: true, depthCompare: "greater" }
+          depthStencil: {
+            format: "depth32float",
+            depthWriteEnabled: true,
+            depthCompare: input.late ? "greater-equal" : "greater"
+          }
         })
       )
-    )) as [GPURenderPipeline, GPURenderPipeline];
+    ).then((pipelines) =>
+      this.bindRoute(route, bin, layouts, pipelines as [GPURenderPipeline, GPURenderPipeline])
+    );
+  }
+
+  private bindRoute(
+    route: NativeSurfaceRoute,
+    bin: number,
+    layouts: readonly GPUBindGroupLayout[],
+    pipelines: readonly [GPURenderPipeline, GPURenderPipeline]
+  ): RouteState {
     if (this.destroyed) {
       throw new Error("Native visibility cancelled during readiness");
     }
+    const { device, input } = this;
+    const entry = input.publication.entries.find((entry) => entry.executionBin === bin)!;
     const routeBuffer = this.buffer(16, new Uint32Array([bin, 0, 0, 0]));
     const inputs = this.buffer(Math.max(16, entry.program.inputCount * 16), route.frameInputs);
     const geometryEntries: GPUBindGroupEntry[] = [
@@ -389,8 +468,40 @@ export class NativeVisibilityPass {
     if (this.destroyed || this.retiring || this.routes === null) {
       throw new Error("Native visibility is not ready");
     }
-    this.partitions.encode(encoder);
+    this.prepareEncoding(encoder);
     const pass = encoder.beginRenderPass(attachments);
+    this.draw(pass);
+    pass.end();
+  }
+
+  prepareEncoding(encoder: GPUCommandEncoder): void {
+    const camera = this.input.camera;
+    if (camera !== undefined) {
+      // PackedCamera: VP=6*64, view=2*64, world position=inverseView translation.
+      encoder.copyBufferToBuffer(camera, 384, this.view, 0, 64);
+      encoder.copyBufferToBuffer(camera, 128, this.view, 64, 64);
+      encoder.copyBufferToBuffer(camera, 240, this.view, 128, 12);
+    }
+    if (this.input.generationSource !== undefined) {
+      encoder.copyBufferToBuffer(
+        this.input.generationSource,
+        GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS.generation,
+        this.view,
+        152,
+        4
+      );
+      if (this.input.vsmAtlas === undefined) {
+        this.partitions.copyGeneration(encoder, this.input.generationSource);
+      }
+    }
+    this.partitions.encode(encoder);
+  }
+
+  /** VSM shares the same render pass with page clearing. Partitions encode before it begins. */
+  draw(pass: GPURenderPassEncoder): void {
+    if (this.routes === null || this.destroyed || this.retiring) {
+      throw new Error("Native visibility is not ready");
+    }
     for (const [bin, route] of this.routes.entries()) {
       for (let partition = 0; partition < 8; partition++) {
         pass.setPipeline(route.pipelines[partition & 1]!);
@@ -400,11 +511,20 @@ export class NativeVisibilityPass {
         pass.drawIndirect(this.partitions.draws, (bin * 8 + partition) * 16);
       }
     }
-    pass.end();
   }
 
   retire(completion: Promise<void>): Promise<void> {
+    if (this.destroyed || this.retiring) {
+      return completion.then(
+        () => undefined,
+        () => undefined
+      );
+    }
     this.retiring = true;
+    this.accountingHandles.forEach((handle) =>
+      this.input.graphics?.resource_accounting.setRetired(handle, true)
+    );
+    void this.partitions.retire(completion);
     return completion.then(
       () => this.destroy(),
       () => this.destroy()
@@ -421,5 +541,7 @@ export class NativeVisibilityPass {
     for (const buffer of this.buffers) {
       buffer.destroy();
     }
+    this.accountingHandles.forEach((handle) => this.input.graphics?.resource_accounting.destroyed(handle));
+    this.accountingHandles.length = 0;
   }
 }

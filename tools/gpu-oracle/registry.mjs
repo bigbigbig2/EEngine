@@ -11,6 +11,29 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "native-surface-product-production",
+    file: "OEngine/tests/oracle/native-surface-production-gpu.mjs",
+    url: "/OEngine/tests/oracle/native-surface-production-gpu.mjs",
+    entry: "runNativeSurfaceProductProductionGpuOracle",
+    allowPrefixes: ["OEngine/src/render/assets/", "OEngine/src/assets/web-cook/wasm/vendor/"],
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    requiredFeatures: ["texture-formats-tier1"],
+    description: "S2 actual ordinary Scene WASM Product admission, native Visibility/VSM/Surface/Temporal/recovery closure.",
+    timeoutMs: 180000
+  }),
+  Object.freeze({
+    name: "native-surface-production",
+    file: "OEngine/tests/oracle/native-surface-production-gpu.mjs",
+    url: "/OEngine/tests/oracle/native-surface-production-gpu.mjs",
+    entry: "runNativeSurfaceProductionGpuOracle",
+    allowPrefixes: ["OEngine/src/render/assets/"],
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    requiredFeatures: ["texture-formats-tier1"],
+    description: "S2 actual Renderer ownership, native instance publication, winner/HDR/Temporal/FSR, update/abort/retry/resize.",
+    note: "Renderer negotiates its own device; oracle captures errors on that real production device. This is a correctness closure, not S3 performance acceptance.",
+    timeoutMs: 180000
+  }),
+  Object.freeze({
     name: "native-surface-resource-profile",
     file: "OEngine/tests/oracle/native-surface-integration-gpu.mjs",
     url: "/OEngine/tests/oracle/native-surface-integration-gpu.mjs",
@@ -99,175 +122,6 @@ export const oracles = Object.freeze([
     description: "S0 isolated native Geometry/PBR/cluster/VSM/IBL costs and compact44 comparison.",
     timeoutMs: 180000,
     note: "Not production performance or an alternate renderer. Reports fixture simplifications; the execution authority decides viability from reviewed evidence, not the harness pass flag."
-  }),
-  Object.freeze({
-    name: "surface-closure-cache-cost",
-    file: "OEngine/tests/oracle/surface-work-gpu.mjs",
-    url: "/OEngine/tests/oracle/surface-work-gpu.mjs",
-    entry: "runSurfaceClosureCacheCostGpuOracle",
-    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
-    requiredFeatures: ["timestamp-query", "texture-formats-tier1"],
-    description: "Full 1080p removable expensive closure, real cache hits and direct HDR comparison.",
-    timeoutMs: 120000,
-    note: "All-cost diagnostic for the same exact production recipe; cold and warm reported separately."
-  }),
-  Object.freeze({
-    name: "surface-closure-cache",
-    file: "OEngine/tests/oracle/surface-work-gpu.mjs",
-    url: "/OEngine/tests/oracle/surface-work-gpu.mjs",
-    entry: "runSurfaceClosureCacheGpuOracle",
-    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
-    description: "Production exact closure keys, unique misses, persistent hits and original HDR consumer.",
-    timeoutMs: 120000,
-    note: "Real GPU scope covers lit cache values, multi-varying residual fields, local normal guides and bounded overflow through Lighting/Reconstruct; signal history validated separately."
-  }),
-  Object.freeze({
-    name: "appearance-closure-key",
-    file: "OEngine/tests/oracle/appearance-closure-key-gpu.mjs",
-    url: "/OEngine/tests/oracle/appearance-closure-key-gpu.mjs",
-    entry: "runAppearanceClosureKeyGpuOracle",
-    description: "Actual uniform publication and complete exact closure key reader.",
-    timeoutMs: 60000,
-    note: "Component only: Geometry values are fixture inputs; no cache or Surface consumption claim."
-  }),
-  Object.freeze({
-    name: "surface-work-channel-reference",
-    file: "OEngine/tests/oracle/surface-work-gpu.mjs",
-    url: "/OEngine/tests/oracle/surface-work-gpu.mjs",
-    entry: "runSurfaceWorkChannelReferenceGpuOracle",
-    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
-    requiredFeatures: ["timestamp-query", "texture-formats-tier1"],
-    description:
-      "Production scalar channel accessor versus the retired four-component gather, all other work identical.",
-    timeoutMs: 120000,
-    note: "Same banks/samplers/full Generic/consumers and every HDR word; retired accessor only in oracle."
-  }),
-  Object.freeze({
-    name: "surface-work-resident-sampler-reference",
-    file: "OEngine/tests/oracle/surface-work-gpu.mjs",
-    url: "/OEngine/tests/oracle/surface-work-gpu.mjs",
-    entry: "runSurfaceWorkResidentSamplerReferenceGpuOracle",
-    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
-    requiredFeatures: ["timestamp-query", "texture-formats-tier1"],
-    description: "All-bank sampler routing versus one proven immutable sampler class, same full Surface HDR.",
-    timeoutMs: 120000,
-    note: "All banks/mip clamps/transforms retained; no material-specific pipeline or production alternative."
-  }),
-  Object.freeze({
-    name: "surface-work-fixed-scratch-reference",
-    file: "OEngine/tests/oracle/surface-work-gpu.mjs",
-    url: "/OEngine/tests/oracle/surface-work-gpu.mjs",
-    entry: "runSurfaceWorkFixedScratchReferenceGpuOracle",
-    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
-    requiredFeatures: ["timestamp-query", "texture-formats-tier1"],
-    description:
-      "Same production fixed formulas and samplers, storage versus named private sample intermediates.",
-    timeoutMs: 120000,
-    note: "Full 1080p HDR comparison and all consumers; reference only, no assumed register residence or production alternative."
-  }),
-  Object.freeze({
-    name: "appearance-product-sampling-cost",
-    file: "OEngine/tests/oracle/appearance-product-sampling-gpu.mjs",
-    url: "/OEngine/tests/oracle/appearance-product-sampling-gpu.mjs",
-    entry: "runAppearanceProductSamplingCostGpuOracle",
-    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
-    requiredFeatures: ["timestamp-query"],
-    description: "Paired Product software/hardware sampler timing with full output comparison.",
-    timeoutMs: 60000,
-    note: "256x128 cache-friendly texels, four queries per 1080p item; component attribution only, no production alternative."
-  }),
-  Object.freeze({
-    name: "surface-work-native-reference",
-    file: "OEngine/tests/oracle/surface-work-gpu.mjs",
-    url: "/OEngine/tests/oracle/surface-work-gpu.mjs",
-    entry: "runSurfaceWorkNativeReferenceGpuOracle",
-    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
-    requiredFeatures: ["timestamp-query", "texture-formats-tier1"],
-    description: "Isolated complete Generic straight-line cost reference, absent from production.",
-    timeoutMs: 120000,
-    note: "Same full C/X/Y sample demand and HDR output; not a production per-graph alternative."
-  }),
-  Object.freeze({
-    name: "surface-work-cost",
-    file: "OEngine/tests/oracle/surface-work-gpu.mjs",
-    url: "/OEngine/tests/oracle/surface-work-gpu.mjs",
-    entry: "runSurfaceWorkCostGpuOracle",
-    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
-    requiredFeatures: ["timestamp-query", "texture-formats-tier1"],
-    description: "Full 1080p fixed and complete Generic Surface cost, real consumers and complete coverage.",
-    timeoutMs: 120000,
-    note: "Diagnostic timing only; numerical field closure belongs to surface-work, no historical performance claim."
-  }),
-  Object.freeze({
-    name: "appearance-product-sampling",
-    file: "OEngine/tests/oracle/appearance-product-sampling-gpu.mjs",
-    url: "/OEngine/tests/oracle/appearance-product-sampling-gpu.mjs",
-    entry: "runAppearanceProductSamplingGpuOracle",
-    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
-    description: "Original hardware textureSampleGrad versus production immutable half bank sampling.",
-    timeoutMs: 60000,
-    note: "Full original formats/mips/domain and cross-bank payload, component fidelity only."
-  }),
-  Object.freeze({
-    name: "surface-work-compile",
-    file: "OEngine/tests/oracle/surface-work-gpu.mjs",
-    url: "/OEngine/tests/oracle/surface-work-gpu.mjs",
-    entry: "runSurfaceWorkCompileGpuOracle",
-    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
-    description: "Isolated current work kernels compilation diagnosis.",
-    timeoutMs: 60000,
-    note: "Compilation only, no correctness assertion."
-  }),
-  Object.freeze({
-    name: "surface-work-lighting-compile",
-    file: "OEngine/tests/oracle/surface-work-gpu.mjs",
-    url: "/OEngine/tests/oracle/surface-work-gpu.mjs",
-    entry: "runSurfaceWorkLightingCompileGpuOracle",
-    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
-    description: "Isolated current closed lighting pipeline compilation diagnosis.",
-    timeoutMs: 60000,
-    note: "Compilation only, no correctness assertion."
-  }),
-  Object.freeze({
-    name: "surface-coverage-values",
-    file: "OEngine/tests/oracle/surface-coverage-value-gpu.mjs",
-    url: "/OEngine/tests/oracle/surface-coverage-value-gpu.mjs",
-    entry: "runSurfaceCoverageValueGpuOracle",
-    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
-    description: "Real cooked mip promotion and publication consumed by production alpha/discard fragment.",
-    timeoutMs: 60000,
-    note: "Independent coverage expectation; fixture plane excludes meshlet selection and VSM scheduling."
-  }),
-  Object.freeze({
-    name: "surface-work",
-    file: "OEngine/tests/oracle/surface-work-gpu.mjs",
-    url: "/OEngine/tests/oracle/surface-work-gpu.mjs",
-    entry: "runSurfaceWorkGpuOracle",
-    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
-    requiredFeatures: ["texture-formats-tier1"],
-    description: "B1/B2 current SurfaceWorkRuntime real producer consumer and mandatory overflow coverage.",
-    timeoutMs: 120000,
-    note: "Actual production chain, independent coverage and reuse OFF exact result assertions."
-  }),
-
-  Object.freeze({
-    name: "surface-domain",
-    file: "OEngine/tests/oracle/surface-domain-gpu.mjs",
-    url: "/OEngine/tests/oracle/surface-domain-gpu.mjs",
-    entry: "runSurfaceDomainGpuOracle",
-    description:
-      "B1 domain entity: interned domain identity, tile references and sample work counted separately.",
-    timeoutMs: 60000,
-    note: "Real GPU reads the publication-packed domain directory; separates domain/tile/sample counts (execution plan 6.1)."
-  }),
-  Object.freeze({
-    name: "appearance-exact-dag",
-    file: "OEngine/tests/oracle/appearance-exact-dag-gpu.mjs",
-    url: "/OEngine/tests/oracle/appearance-exact-dag-gpu.mjs",
-    entry: "runExactAppearanceDagGpuOracle",
-    description: "B1 complete arithmetic and nested C/X/Y generic-component feasibility.",
-    timeoutMs: 120000,
-    note: "New production WGSL component versus independent CPU evaluation; not full Surface cutover."
   }),
   Object.freeze({
     name: "framegraph-lifecycle",

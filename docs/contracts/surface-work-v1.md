@@ -9,7 +9,6 @@ owners:
 version: 1
 consumers:
   - OEngine/src/render/pipeline/RendererCore.ts
-  - OEngine/src/render/surface/AppearanceCachePass.ts
   - OEngine/src/render/surface/SurfacePresentPass.ts
 invariants:
   - current visibility work is produced and indirectly consumed on the GPU without a CPU count readback

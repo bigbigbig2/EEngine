@@ -218,9 +218,9 @@ export class VsmReceiverDemandPass {
     produce.read(input.camera);
     produce.read(input.depth);
     produce.read(input.visibilityKey);
-    produce.write(demand);
+    const producedDemand = produce.write(demand);
     produce.make_side_effect();
-    return { demand, generation: input.generation, capacity: profile.demandCapacity };
+    return { demand: producedDemand, generation: input.generation, capacity: profile.demandCapacity };
   }
 
   destroy(): void {

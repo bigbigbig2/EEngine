@@ -61,6 +61,9 @@ export const VENDOR_PREFIX = "/__gpu-oracle/vendor/";
  */
 export const VENDOR_MODULES = Object.freeze({
   "gl-matrix": { package: "gl-matrix", entry: "esm/index.js" },
+  "meshoptimizer": { package: "meshoptimizer", entry: "index.js" },
+  "meshoptimizer/clusterizer": { package: "meshoptimizer", entry: "meshopt_clusterizer.js" },
+  "meshoptimizer/simplifier": { package: "meshoptimizer", entry: "meshopt_simplifier.js" },
 });
 
 /** Rejects percent-encoded traversal and NUL bytes before any path arithmetic. */
@@ -106,7 +109,10 @@ export async function startStaticServer({ root, harnessRoot, allowPrefixes, vend
     // Vendored bare specifiers: served out of a node_modules tree that is passed
     // in explicitly, never by escaping the repository allowlist.
     if (pathname.startsWith(VENDOR_PREFIX)) {
-      const specifier = pathname.slice(VENDOR_PREFIX.length).split("/")[0];
+      const vendorPath = pathname.slice(VENDOR_PREFIX.length);
+      const specifier = Object.keys(VENDOR_MODULES)
+        .sort((left, right) => right.length - left.length)
+        .find((key) => vendorPath === key || vendorPath.startsWith(`${key}/`));
       const mapping = VENDOR_MODULES[specifier];
       if (!mapping) {
         send(404, "unknown vendored specifier");
@@ -160,6 +166,13 @@ export async function startStaticServer({ root, harnessRoot, allowPrefixes, vend
 
     // Two disjoint namespaces: the harness's own assets, and the allowlisted
     // repository prefixes the oracles import from.
+    // Production tsc URLs keep the asset location; source identity already
+    // hashes these binaries. The per-oracle allowlist still controls access.
+    const resourcePath = pathname.startsWith("/OEngine/.test-dist/render/assets/")
+      ? pathname.replace("/OEngine/.test-dist/render/assets/", "/OEngine/src/render/assets/")
+      : pathname.startsWith("/OEngine/.test-dist/assets/web-cook/wasm/vendor/")
+        ? pathname.replace("/OEngine/.test-dist/assets/web-cook/wasm/vendor/", "/OEngine/src/assets/web-cook/wasm/vendor/")
+        : pathname;
     const resolved = pathname.startsWith(PAGE_PREFIX)
       ? (() => {
           const absolute = resolve(harnessRoot, pathname.slice(PAGE_PREFIX.length));
@@ -168,7 +181,7 @@ export async function startStaticServer({ root, harnessRoot, allowPrefixes, vend
           return { absolute, allowed: inside };
         })()
       : (() => {
-          const absolute = resolve(root, `.${pathname}`);
+          const absolute = resolve(root, `.${resourcePath}`);
           const relativePath = relative(root, absolute);
           const portable = relativePath.split(sep).join("/");
           const insideRoot =

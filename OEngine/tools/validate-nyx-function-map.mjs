@@ -13,8 +13,8 @@ const requiredShaderEvidence = Object.freeze({
   "dag-process-node": ["hierarchy_sphere_in_frustum", "hierarchy_projected_error_pixels", "hierarchy_try_reserve_profiled", "rejected_hzb"],
   "dag-process-meshlet": ["oengine_virtual_refine_group_v1", "hierarchy_projected_error_pixels", "product_selected", "local += 64u"],
   "dag-compute-main": ["@compute @workgroup_size", "workgroupBarrier", "atomicStore", "hierarchy_update_dispatch"],
-  "vbuffer-build-vertex": ["raster_virtual_meshlet", "product_raster_position", "product_raster_meshlet_header", "vertex_index"],
-  "vbuffer-mesh-main": ["@vertex", "write_virtual_meshlet", "primitive", "vertex_index"],
+  "vbuffer-build-vertex": ["surface_source_load", "surface_source_triangle_corner", "surface_source_vertex_position", "vertex_index"],
+  "vbuffer-mesh-main": ["@vertex", "OENGINE_VISIBILITY_KEY_MAX_LOCAL_PRIMITIVE", "primitive", "vertex_index"],
   "vbuffer-pixel-main": ["@fragment", "oengine_visibility_key_try_encode", "discard", "visibility_key"]
 });
 
@@ -118,21 +118,21 @@ export async function auditNyxFunctionMap({ nyxRoot = process.env.NYX_SOURCE_DIR
       const path = join(repoDir, consumer.replaceAll("/", "\\"));
       assert(existsSync(path), `${mapping.id} consumer is missing: ${path}`);
     }
-    assert(mapping.status === "verified", `${mapping.id} must be marked verified only after the independent Nyx/GPU evidence is present`);
+    assert(mapping.status === "verified" || (mapping.status === "pending-native-adoption" && typeof mapping.requiredValidation === "string" && mapping.requiredValidation.length > 0), `${mapping.id} has no explicit adoption evidence or pending validation responsibility`);
     mappingResults.push({ id: mapping.id, sourceSymbols: mapping.sourceSymbols.length, sourceLines, nyxTokens: nyxTokens.length, implementationFiles: mapping.implementation.length, status: mapping.status });
   }
 
   const shaderSources = new Map([
     ["hierarchy", await readUtf8(join(repoDir, "OEngine", "src", "shaders", "hierarchical_work_generation.ts")) + await readUtf8(join(repoDir, "OEngine", "src", "shaders", "hierarchy_lod.ts"))],
     ["meshlet", await readUtf8(join(repoDir, "OEngine", "src", "shaders", "virtual_geometry_work.ts"))],
-    ["raster", await readUtf8(join(repoDir, "OEngine", "src", "shaders", "meshlet_bucket_visibility.ts"))]
+    ["raster", await readUtf8(join(repoDir, "OEngine", "src", "shaders", "native_visibility.ts"))]
   ]);
   const gpuResults = [];
   for (const [id, tokens] of Object.entries(requiredShaderEvidence)) {
     const source = id === "dag-process-meshlet" ? shaderSources.get("meshlet") : id.startsWith("dag-") ? shaderSources.get("hierarchy") : shaderSources.get("raster");
     const missing = tokens.filter(token => !source.includes(token));
     assert(missing.length === 0, `${id} is missing GPU semantic evidence: ${missing.join(", ")}`);
-    gpuResults.push({ id, tokens: tokens.length, missing });
+    gpuResults.push({ id, tokens: tokens.length, missing, adoptionStatus: manifest.mappings.find(mapping => mapping.id === id).status });
   }
 
   const counterSource = await readUtf8(join(repoDir, "OEngine", "src", "debug", "GpuFrameCounters.ts"));

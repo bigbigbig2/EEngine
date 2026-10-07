@@ -1,13 +1,13 @@
 schemaVersion: 1
 id: surface-work-v3-phase0-baseline
-status: configured-not-sampled
+status: historical-not-sampled
 viewport: [1920, 1080]
 headed: true
 deviceScaleFactor: 1
 browserChannel: chrome-stable
 purpose: >-
-  Freeze the comparison identity and capture conditions for SurfaceWork Runtime V3.
-  This profile does not contain performance results or acceptance claims.
+  Historical comparison identity and capture conditions for retired SurfaceWork Runtime V3.
+  This profile is not an executable current plan and contains no measured results or acceptance claims.
 target:
   gpu: NVIDIA GeForce GTX 1650 Ti
   outputResolution: [1920, 1080]

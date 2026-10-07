@@ -1,5 +1,5 @@
 import { mat4 } from "gl-matrix";
-import { GPU_SHADING_BIN_COUNT } from "./GpuShadingBinAbi.js";
+import { GPU_SHADING_BIN_COUNT } from "./GpuShadingProgramAbi.js";
 
 export const GPU_INSTANCE_ABI_VERSION = 9;
 export const GPU_INSTANCE_STATIC_RECORD_STRIDE = 64;
@@ -23,7 +23,7 @@ export const GPU_INSTANCE_FLAGS = Object.freeze({
   /** BLEND material routed to a bounded transparent SecondaryRasterWork queue. */
   Transparent: 1 << 6,
   /** geometry_record_index addresses GeometryProductAssetReferenceV1, not GpuGeometryRecord. */
-  VirtualGeometry: 1 << 7,
+  VirtualGeometry: 1 << 7
 } as const);
 
 /** Bits replaced by an InstanceMaterialPatch; every other instance bit persists. */
@@ -53,7 +53,7 @@ export const GPU_INSTANCE_RECORD_OFFSETS = Object.freeze({
   motion_flags: 164,
   /** Explicit ProductTableSlot for virtual-geometry instance identity. */
   product_table_slot: 168,
-  instance_set_generation: 172,
+  instance_set_generation: 172
 } as const);
 
 export const GPU_INSTANCE_RECORD_SCHEMA = Object.freeze({
@@ -61,7 +61,7 @@ export const GPU_INSTANCE_RECORD_SCHEMA = Object.freeze({
   stride: GPU_INSTANCE_RECORD_STRIDE,
   staticStride: GPU_INSTANCE_STATIC_RECORD_STRIDE,
   dynamicStride: GPU_INSTANCE_DYNAMIC_RECORD_STRIDE,
-  offsets: GPU_INSTANCE_RECORD_OFFSETS,
+  offsets: GPU_INSTANCE_RECORD_OFFSETS
 } as const);
 
 export interface GpuInstanceRecordCpu {
@@ -205,7 +205,7 @@ export function writeGpuInstanceRecord(
   destination: Uint8Array,
   byteOffset: number,
   record: GpuInstanceRecordCpu,
-  scratch = createGpuInstanceMotionScratch(),
+  scratch = createGpuInstanceMotionScratch()
 ): void {
   if (
     !Number.isSafeInteger(byteOffset) ||
@@ -217,31 +217,31 @@ export function writeGpuInstanceRecord(
   const view = new DataView(
     destination.buffer,
     destination.byteOffset + byteOffset,
-    GPU_INSTANCE_RECORD_STRIDE,
+    GPU_INSTANCE_RECORD_STRIDE
   );
   writeU32(
     view,
     GPU_INSTANCE_RECORD_OFFSETS.geometry_record_index,
     record.geometryRecordIndex,
-    "geometryRecordIndex",
+    "geometryRecordIndex"
   );
   writeU32(
     view,
     GPU_INSTANCE_RECORD_OFFSETS.geometry_generation,
     requireNonZeroU32(record.geometryGeneration, "geometryGeneration"),
-    "geometryGeneration",
+    "geometryGeneration"
   );
   writeU32(
     view,
     GPU_INSTANCE_RECORD_OFFSETS.product_table_slot,
     record.productTableSlot ?? 0,
-    "productTableSlot",
+    "productTableSlot"
   );
   writeU32(
     view,
     GPU_INSTANCE_RECORD_OFFSETS.instance_set_generation,
     record.instanceSetGeneration ?? 0,
-    "instanceSetGeneration",
+    "instanceSetGeneration"
   );
   writeU32(view, GPU_INSTANCE_RECORD_OFFSETS.material_handle, record.materialHandle, "materialHandle");
   const previousFromCurrent = scratch.previousFromCurrent;
@@ -251,13 +251,13 @@ export function writeGpuInstanceRecord(
     record.previousObjectToWorld,
     0,
     0,
-    scratch,
+    scratch
   );
   writeU32(
     view,
     GPU_INSTANCE_RECORD_OFFSETS.flags,
     record.flags & ~GPU_INSTANCE_FLAGS.MotionInvalid,
-    "flags",
+    "flags"
   );
   writeU32(view, GPU_INSTANCE_RECORD_OFFSETS.debug_id, record.debugId, "debugId");
   writeF32Array(view, GPU_INSTANCE_RECORD_OFFSETS.bounds_sphere, record.boundsSphere, 4, "boundsSphere");
@@ -268,26 +268,26 @@ export function writeGpuInstanceRecord(
     byteOffset + GPU_INSTANCE_RECORD_OFFSETS.current_affine,
     record.currentObjectToWorld,
     0,
-    "currentObjectToWorld",
+    "currentObjectToWorld"
   );
   writeGpuInstanceAffineMatrix(
     destination,
     byteOffset + GPU_INSTANCE_RECORD_OFFSETS.previous_from_current_affine,
     previousFromCurrent,
     0,
-    "previousFromCurrent",
+    "previousFromCurrent"
   );
   writeU32(
     view,
     GPU_INSTANCE_RECORD_OFFSETS.dynamic_revision,
     record.dynamicRevision ?? 0,
-    "dynamicRevision",
+    "dynamicRevision"
   );
   writeU32(
     view,
     GPU_INSTANCE_RECORD_OFFSETS.motion_flags,
     motionValid && (record.deformationMotionValid ?? true) ? 0 : GPU_INSTANCE_FLAGS.MotionInvalid,
-    "motionFlags",
+    "motionFlags"
   );
 }
 
@@ -296,7 +296,7 @@ export function createGpuInstanceMotionScratch(): GpuInstanceMotionScratch {
     current: new Float32Array(16),
     previous: new Float32Array(16),
     inverseCurrent: new Float32Array(16),
-    previousFromCurrent: new Float32Array(16),
+    previousFromCurrent: new Float32Array(16)
   };
 }
 
@@ -306,7 +306,7 @@ export function writeGpuInstanceAffineMatrix(
   byteOffset: number,
   source: ArrayLike<number>,
   sourceOffset = 0,
-  label = "affineMatrix",
+  label = "affineMatrix"
 ): void {
   if (byteOffset < 0 || byteOffset + 48 > destination.byteLength || source.length < sourceOffset + 16) {
     throw new RangeError(`${label} compact affine range is invalid`);
@@ -334,7 +334,7 @@ export function writeGpuInstanceAffineMatrix(
     values[8]!,
     values[9]!,
     values[10]!,
-    values[14]!,
+    values[14]!
   ];
   for (let index = 0; index < packed.length; index++) {
     view.setFloat32(byteOffset + index * 4, packed[index]!, true);
@@ -345,7 +345,7 @@ export function writeGpuInstanceAffineMatrix(
 export function readGpuInstanceAffineMatrix(
   destination: Float32Array,
   source: Uint8Array,
-  byteOffset: number,
+  byteOffset: number
 ): void {
   if (destination.length < 16 || byteOffset < 0 || byteOffset + 48 > source.byteLength) {
     throw new RangeError("Compact instance affine range is invalid");
@@ -372,7 +372,7 @@ export function computePreviousFromCurrent(
   previousObjectToWorld: ArrayLike<number>,
   currentOffset = 0,
   previousOffset = 0,
-  scratch = createGpuInstanceMotionScratch(),
+  scratch = createGpuInstanceMotionScratch()
 ): boolean {
   if (destination.length < 16) {
     throw new RangeError("previousFromCurrent destination must contain 16 values");
@@ -405,7 +405,7 @@ function copyFiniteMatrix(
   destination: Float32Array,
   source: ArrayLike<number>,
   sourceOffset: number,
-  label: string,
+  label: string
 ): void {
   if (source.length < sourceOffset + 16) {
     throw new RangeError(`${label} must contain 16 values from offset ${sourceOffset}`);
@@ -455,7 +455,7 @@ function writeF32Array(
   byteOffset: number,
   values: ArrayLike<number>,
   count: number,
-  label: string,
+  label: string
 ): void {
   if (values.length < count) {
     throw new RangeError(`${label} must contain at least ${count} values`);

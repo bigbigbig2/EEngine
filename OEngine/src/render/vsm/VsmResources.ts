@@ -65,7 +65,7 @@ export class VsmResources {
     this.createBuffer(
       "pageTable",
       capabilities.pageTableBytes,
-      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     );
     this.createBuffer(
       "metaTable",
@@ -81,7 +81,7 @@ export class VsmResources {
     this.createBuffer(
       "casterRecords",
       capabilities.casterRecordBytes,
-      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     );
     const dirtyWords = Math.ceil(capabilities.virtualEntryCount / 32);
     this.createBuffer(
@@ -223,9 +223,10 @@ export class VsmResources {
       }),
     );
     const buffer = this.buffers.get(key)!;
-    new Uint8Array(buffer.getMappedRange()).fill(0);
+    const mapped = buffer.getMappedRange();
+    new Uint8Array(mapped).fill(0);
     if (initial !== undefined) {
-      new Uint32Array(buffer.getMappedRange()).set(initial);
+      new Uint32Array(mapped).set(initial);
     }
     buffer.unmap();
   }

@@ -13,11 +13,10 @@ const args = process.argv.slice(2);
 function option(name, fallback) { const at = args.indexOf(`--${name}`); return at < 0 ? fallback : args[at + 1]; }
 const frames = Number(option("frames", "120")), warmup = Number(option("warmup", "60"));
 const batches = Number(option("batches", "2")), width = Number(option("width", "1280")), height = Number(option("height", "720"));
-const modes = option("modes", "timing,detailed").split(",");
+const modes = option("modes", "timing").split(",");
 const gpuTimingMode = option("gpu-timing", "full");
 if (!["coarse", "stage", "full"].includes(gpuTimingMode)) throw new Error("Invalid --gpu-timing");
-const asyncPrewarm = false;
-if (modes.some(mode => !["off", "timing", "detailed"].includes(mode))) throw new Error("Unknown --modes; use off,timing,detailed");
+if (modes.length !== 1 || modes[0] !== "timing") throw new Error("Retired Surface diagnostic modes; native capture uses timing only");
 const coverageGroups = option("coverage", "low,high").split(",");
 if (!coverageGroups.length || coverageGroups.some(group => !["low", "high"].includes(group)) || new Set(coverageGroups).size !== coverageGroups.length) throw new Error("Invalid --coverage; use low,high");
 for (const [name, value] of Object.entries({ frames, batches, width, height, warmup })) {
@@ -60,11 +59,11 @@ let mode = "timing";
 const normalize = path => path.replaceAll("\\", "/");
 const server = await createServer({ configFile: resolve(root, "examples/vite.config.ts"), clearScreen: false,
   server: { host: "127.0.0.1", port: Number(option("port", "4180")), strictPort: true, fs: { allow: [root] } },
-  plugins: [{ name: "surface-v3-diagnostic-host", configureServer(dev) {
+  plugins: [{ name: "native-surface-diagnostic-host", configureServer(dev) {
       dev.middlewares.use("/__surface-performance/", async (request, response) => {
         if (request.url?.split("?")[0] === "/config.json") {
           response.setHeader("Content-Type", "application/json"); response.setHeader("Cache-Control", "no-store");
-          response.end(JSON.stringify({ mode, asyncPrewarm, vsm: args.includes("--vsm"), evidenceRole: "diagnostic", accepted: false })); return;
+          response.end(JSON.stringify({ mode, vsm: args.includes("--vsm"), evidenceRole: "diagnostic", accepted: false })); return;
         }
         const html = await readFile(resolve(root, "validation/labs/surface-performance/index.html"), "utf8");
         response.setHeader("Content-Type", "text/html");
@@ -76,9 +75,9 @@ let browser;
 const report = { schema: "eengine-surface-performance-suite-v1", evidenceRole: "diagnostic", accepted: false,
   revision, dirtyPaths, fixtureSha256, startedAt: new Date().toISOString(), browser: null, errors: [], captures: [], sensors,
   options: { frames, warmup, batches, width, height, modes, gpuTimingMode, coverageGroups, view: option("view", "overview"),
-    headless: args.includes("--headless"), asyncPrewarm, counters: !args.includes("--no-counters"),
+    headless: args.includes("--headless"), counters: !args.includes("--no-counters"),
     chrome: option("chrome", "C:/Program Files/Google/Chrome/Application/chrome.exe") },
-  measurement: "completed fixed consecutive GPU frame ranges; Surface V3 stage interval sum/span; timing versus detailed overhead",
+  measurement: "completed fixed consecutive GPU frame ranges; Native Surface pass intervals/span; no detailed retired-ABI producer",
   sensorMapping: "sensor query UTC intervals overlap CPU encode→GPU result observation windows; not calibrated per-GPU-frame attribution" };
 const save = () => writeFile(resolve(out, "suite.json"), JSON.stringify(report, null, 2));
 async function bounded(operation, timeoutMs, label) {
@@ -146,7 +145,7 @@ try {
         console.log(`BATCH ${batch + 1}/${batches} ${coverage}/${mode}: load/compile/warmup`);
         await page.goto(`${base}__surface-performance/index.html?mode=${mode}`, { waitUntil: "domcontentloaded" });
         await page.waitForFunction(() => Boolean(globalThis.__eengineShowcase), undefined, { timeout: 30000 });
-        await bounded(page.evaluate(() => globalThis.__eengineShowcase.start()), asyncPrewarm ? 600000 : 180000, "Scene preparation");
+        await bounded(page.evaluate(() => globalThis.__eengineShowcase.start()), 180000, "Scene preparation");
         await page.waitForFunction(() => globalThis.__eengineShowcase.ready || globalThis.__eengineShowcase.failed,
           undefined, { timeout: 900000 });
         if (await page.evaluate(() => globalThis.__eengineShowcase.failed)) {
@@ -154,13 +153,12 @@ try {
         }
         const distanceScale = cameraDistances.get(coverage);
         const capture = await bounded(page.evaluate(request => globalThis.__eengineShowcase.capture(request), { width, height, frames, warmup,
-          coverage, surfaceMode: mode, gpuTimingMode, ...(distanceScale === undefined ? {} : { distanceScale, lockCamera: true }),
+          coverage, gpuTimingMode, ...(distanceScale === undefined ? {} : { distanceScale, lockCamera: true }),
           counters: !args.includes("--no-counters"), view: option("view", "overview"), trajectory: option("trajectory", "static"), vsm: args.includes("--vsm"), profile: "full", retainView: true }), 600000, "Calibration/capture");
         if (capture.complete && distanceScale === undefined) cameraDistances.set(coverage, capture.cameraDistanceScale);
         capture.caseId = `surface-performance-${coverage}-${mode}-${batch}`; capture.mode = mode; capture.batch = batch; capture.coverageGroup = coverage;
         capture.errors = errors;
-        capture.conditions.browser = { version: report.browser, headless: args.includes("--headless"), asyncPrewarm, processIsolation: "per-case" };
-        capture.surfaceMode = mode;
+        capture.conditions.browser = { version: report.browser, headless: args.includes("--headless"), processIsolation: "per-case" };
         if (errors.length) { capture.complete = false; capture.issues.push("Browser errors"); }
         report.captures.push(capture);
         await writeFile(resolve(out, `${batch}-${coverage}-${mode}.json`), JSON.stringify(capture, null, 2));

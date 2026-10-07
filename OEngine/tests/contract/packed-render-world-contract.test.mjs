@@ -27,7 +27,6 @@ const [
   },
   { decodeTextureHandle },
   { textureBindingSetPolicy },
-  { MESHLET_BUCKET_VISIBILITY_WGSL, MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_WGSL },
   { StandardShadeMaterial },
   { ShadeDrawSide, ShadeTransparencyMode },
   { GPU_INSTANCE_FLAGS, decodeInstanceShadingBinId },
@@ -51,7 +50,6 @@ const [
   import("../../.test-dist/gpu/GpuTextureRefAbi.js"),
   import("../../.test-dist/gpu/TextureHandleAbi.js"),
   import("../../.test-dist/gpu/TextureBindingSetPolicy.js"),
-  import("../../.test-dist/shaders/meshlet_bucket_visibility.js"),
   import("../../.test-dist/material/StandardShadeMaterial.js"),
   import("../../.test-dist/material/enums.js"),
   import("../../.test-dist/gpu/GpuInstanceAbi.js"),
@@ -339,15 +337,15 @@ test("RenderWorld retains Appearance programs and awaits GPU publication readine
   const handle = fixture.registry.stage(fixture.scene, fixture.manifest, fixture.assetHandles, command);
   const pending = fixture.registry.previewStagedRuntime(handle);
   assert.equal(pending.appearancePrograms.length, 1);
-  assert.equal(pending.appearancePublication, null);
-  await fixture.registry.prepareAppearance(handle, command);
+  assert.equal(pending.nativeMaterials, null);
+  await fixture.registry.prepareNativeMaterials(handle, command);
   assert.equal(fixture.registry.runtime(fixture.scene), null);
-  assert.ok(pending.appearancePublication.workPipeline(false, true).pipeline);
+  assert.ok(pending.nativeMaterials.publication.pipeline(0).pipeline);
   command.finish();
-  assert.equal(fixture.registry.runtime(fixture.scene).appearancePublication, pending.appearancePublication);
+  assert.equal(fixture.registry.runtime(fixture.scene).nativeMaterials, pending.nativeMaterials);
   assert.equal(
     fixture.registry.appearanceMemoryEvidence().residentBytes,
-    pending.appearancePublication.allocatedBytes,
+    pending.nativeMaterials.evidence().residentBytes,
   );
   const release = new FakeCommand("appearance-release");
   release.device = fixture.graphics.device;
@@ -365,7 +363,7 @@ test("RenderWorld async Appearance pipeline failure aborts without publishing a 
   const command = new FakeCommand("appearance-failure");
   command.device = fixture.graphics.device;
   const handle = fixture.registry.stage(fixture.scene, fixture.manifest, fixture.assetHandles, command);
-  await assert.rejects(fixture.registry.prepareAppearance(handle, command), /injected async PSO failure/);
+  await assert.rejects(fixture.registry.prepareNativeMaterials(handle, command), /injected async PSO failure/);
   command.abort(new Error("PSO failed"));
   assert.equal(fixture.registry.runtime(fixture.scene), null);
   assert.equal(fixture.registry.evidence().sceneCount, 0);
@@ -376,7 +374,6 @@ test("RenderWorld async Appearance pipeline failure aborts without publishing a 
 function installAppearanceDevice(graphics, failure) {
   graphics.frame_instances = { ready: failure ? Promise.reject(failure) : Promise.resolve() };
   graphics.frame_vertices = { ready: Promise.resolve() };
-  graphics.raster_partitions = { ready: Promise.resolve() };
   graphics.current_hzb_recheck = { ready: Promise.resolve() };
   graphics.render_pipelines ??= {};
   graphics.render_pipelines.prepare = async () => ({});
@@ -981,16 +978,6 @@ test("TextureBindingSet freezes the current slot, sampler, set, and dispatch lim
   );
 });
 
-test("Meshlet visibility primitive-index specialization removes the triangle varying", () => {
-  assert.match(MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_WGSL, /enable primitive_index;/);
-  assert.match(MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_WGSL, /@builtin\(primitive_index\) triangle: u32/);
-  assert.doesNotMatch(
-    MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_WGSL,
-    /@location\(2\) @interpolate\(flat\) triangle/,
-  );
-  assert.doesNotMatch(MESHLET_BUCKET_VISIBILITY_WGSL, /enable primitive_index;/);
-  assert.match(MESHLET_BUCKET_VISIBILITY_WGSL, /@location\(2\) @interpolate\(flat\) triangle: u32/);
-});
 
 test("Texture residency publishes cooked BC packages as authoritative material resources", async () => {
   const fixture = createTextureResidencyFixture({ features: ["texture-compression-bc"] });
@@ -1472,6 +1459,12 @@ function createPackedRegistryFixture() {
       createBuffer(descriptor) {
         const buffer = {
           descriptor,
+          size: descriptor.size,
+          usage: descriptor.usage,
+          label: descriptor.label,
+          bytes: new ArrayBuffer(descriptor.size),
+          getMappedRange() { return this.bytes; },
+          unmap() {},
           destroyed: false,
           destroy() {
             this.destroyed = true;

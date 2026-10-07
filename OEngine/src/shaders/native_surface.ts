@@ -172,7 +172,13 @@ export function nativeSurfaceWgsl(
   program.inputs.forEach((input, index) => {
     let expression: string;
     if (input.domain === "dynamic" || input.domain === "nonlocal") {
-      expression = `native_frame_inputs[${index}u]`;
+      expression = program.instanceInputs
+        ? `vec4f(${Array.from(
+            { length: 4 },
+            (_, channel) =>
+              `native_material_constant(entry.constant_base, ${program.constants.length + 2 + index * 4 + channel}u)`
+          ).join(", ")})`
+        : `native_frame_inputs[${index}u]`;
     } else {
       const kind = GEOMETRY_INPUTS[input.name];
       if (kind === undefined) {
@@ -243,7 +249,7 @@ fn native_environment(material: StandardMaterial, normal: vec3f, direction: vec3
   let dfg_pixel = vec2i(clamp(vec2f(saturate(dot(normal, direction)), material.roughness) * vec2f(size), vec2f(0.0), vec2f(size) - vec2f(1.0)));
   let dfg = textureLoad(environment_dfg, dfg_pixel, 0).xy;
   let coat_radiance = sample_prefiltered_environment(environment_specular, reflect(-direction, material.coatNormal), material.coatRoughness);
-  let ao = textureLoad(ambient_occlusion, vec2i(pixel), 0).r * material.occlusion;
+  let ao = textureLoad(ambient_occlusion, vec2i(min(pixel, textureDimensions(ambient_occlusion) - vec2u(1u))), 0).r * material.occlusion;
   return irradiance * material.diffuse * RECIPROCAL_PI * ao + radiance * (material.specularF0 * dfg.x + vec3f(dfg.y)) + coat_radiance * material.coatFactor * 0.04;
 }
 `;

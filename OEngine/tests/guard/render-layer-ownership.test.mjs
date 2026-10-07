@@ -24,7 +24,7 @@ test("GPU data ownership does not depend on render passes or camera state", () =
     assert.doesNotMatch(
       readFileSync(absolute, "utf8"),
       /(?:\.\.\/render\/(?:passes\/|ViewContext|GPUCameraState))/u,
-      path.relative(root, absolute),
+      path.relative(root, absolute)
     );
   }
 });
@@ -38,7 +38,8 @@ test("one production Renderer delegates topology to Frame Program and owns submi
   assert.match(core, /lowerFrameProgram\(program, graphBindings/u);
   assert.match(core, /encodeCompiledGraph\(/u);
   assert.match(core, /_frameCoordinator\.submitFrame\(/u);
-  assert.match(core, /executionMode: "none"/u);
+  assert.match(core, /new SurfaceV4\(/u);
+  assert.doesNotMatch(core, /SurfaceWorkRuntime|executionMode|useV4/u);
   assert.match(lowering, /addCurrentHzbLateRecheckToGraph/u);
   assert.match(lowering, /owners\.present\.addToGraph\(/u);
   assert.doesNotMatch(core, /compileVisibilityGraph|compileEmptyGraph|new FrameGraph\(/u);
@@ -48,7 +49,7 @@ test("one production Renderer delegates topology to Frame Program and owns submi
     ["render", "pipeline", "FramePlan.ts"],
     ["render", "pipeline", "OptionalFrameFeatures.ts"],
     ["render", "features", "GIService.ts"],
-    ["render", "features", "ShadowFeatureManager.ts"],
+    ["render", "features", "ShadowFeatureManager.ts"]
   ]) {
     assert.equal(existsSync(path.join(sourceRoot, ...relative)), false, relative.join("/"));
   }

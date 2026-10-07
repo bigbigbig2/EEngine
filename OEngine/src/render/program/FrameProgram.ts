@@ -2,7 +2,7 @@
 import type { RenderDebugView } from "../../debug/RenderDebugView.js";
 import {
   isRenderableRenderDebugView,
-  RenderDebugView as RenderDebugViewValue,
+  RenderDebugView as RenderDebugViewValue
 } from "../../debug/RenderDebugView.js";
 
 export type FrameProduct =
@@ -14,6 +14,7 @@ export type FrameProduct =
   | "aerial-radiance"
   | "sky-radiance"
   | "surface-radiance"
+  | "surface-reactive"
   | "debug-color"
   | "temporal-motion"
   | "temporal-mask"
@@ -132,7 +133,7 @@ const PRODUCT_SPEC: Readonly<
     value: "display color",
     coverage: "full output",
     invalid: "clear color",
-    version: "frame",
+    version: "frame"
   },
   "display-color": {
     producer: "present",
@@ -141,7 +142,7 @@ const PRODUCT_SPEC: Readonly<
     value: "tone-mapped display color",
     coverage: "full output",
     invalid: "clear color",
-    version: "frame",
+    version: "frame"
   },
   "adapted-exposure": {
     producer: "radiometry",
@@ -150,7 +151,7 @@ const PRODUCT_SPEC: Readonly<
     value: "GPU adapted exposure E_t",
     coverage: "one scalar",
     invalid: "bootstrap 1",
-    version: "history-role",
+    version: "history-role"
   },
   "bloom-hdr": {
     producer: "bloom",
@@ -159,7 +160,7 @@ const PRODUCT_SPEC: Readonly<
     value: "scene HDR plus Filament-profile bloom",
     coverage: "full output",
     invalid: "scene HDR",
-    version: "frame",
+    version: "frame"
   },
   "reconstructed-color": {
     producer: "fsr3",
@@ -168,7 +169,7 @@ const PRODUCT_SPEC: Readonly<
     value: "working-linear pre-exposed",
     coverage: "full output",
     invalid: "history reset",
-    version: "history-role",
+    version: "history-role"
   },
   "aerial-radiance": {
     producer: "aerial",
@@ -177,7 +178,7 @@ const PRODUCT_SPEC: Readonly<
     value: "working-linear pre-exposed",
     coverage: "full internal",
     invalid: "surface fallback",
-    version: "frame",
+    version: "frame"
   },
   "sky-radiance": {
     producer: "physical-sky",
@@ -186,7 +187,7 @@ const PRODUCT_SPEC: Readonly<
     value: "working-linear pre-exposed",
     coverage: "background plus surface",
     invalid: "surface fallback",
-    version: "frame",
+    version: "frame"
   },
   "surface-radiance": {
     producer: "surface",
@@ -195,7 +196,7 @@ const PRODUCT_SPEC: Readonly<
     value: "working-linear pre-exposed",
     coverage: "full internal",
     invalid: "clear color",
-    version: "frame",
+    version: "frame"
   },
   "debug-color": {
     producer: "debug-view",
@@ -204,16 +205,25 @@ const PRODUCT_SPEC: Readonly<
     value: "geometry diagnostic resolve",
     coverage: "full output",
     invalid: "black background",
-    version: "frame",
+    version: "frame"
+  },
+  "surface-reactive": {
+    producer: "surface",
+    domain: "internal-full",
+    format: "rgba8unorm",
+    value: "opaque reactive",
+    coverage: "full internal",
+    invalid: "zero background",
+    version: "frame"
   },
   "temporal-motion": {
     producer: "temporal-facts",
     domain: "internal-full",
-    format: "rg16float",
+    format: "rg32float",
     value: "valid current-minus-previous UV including sky rotation",
     coverage: "full internal",
     invalid: "zero with validity zero",
-    version: "frame",
+    version: "frame"
   },
   "temporal-mask": {
     producer: "temporal-facts",
@@ -222,7 +232,7 @@ const PRODUCT_SPEC: Readonly<
     value: "opaque reactive, motion validity, identity mismatch, local change bits",
     coverage: "full internal",
     invalid: "reactive one, validity zero",
-    version: "frame",
+    version: "frame"
   },
   "temporal-identity": {
     producer: "temporal-facts",
@@ -231,7 +241,7 @@ const PRODUCT_SPEC: Readonly<
     value: "instance slot, geometry/LOD, material, transform revision",
     coverage: "full internal",
     invalid: "zero identity",
-    version: "history-role",
+    version: "history-role"
   },
   "light-cluster": {
     producer: "light-cluster",
@@ -240,16 +250,16 @@ const PRODUCT_SPEC: Readonly<
     value: "clustered direct-light lookup",
     coverage: "lit surface",
     invalid: "zero lights",
-    version: "frame",
+    version: "frame"
   },
   "indirect-visibility": {
     producer: "xe-gtao",
     domain: "internal-full",
-    format: "structured-buffer",
+    format: "r8unorm",
     value: "unexposed indirect visibility [0,1]",
     coverage: "visible opaque surface",
     invalid: "visibility one",
-    version: "frame",
+    version: "frame"
   },
   "shadow-visibility": {
     producer: "vsm",
@@ -258,7 +268,7 @@ const PRODUCT_SPEC: Readonly<
     value: "directional VSM visibility with page fallback",
     coverage: "lit opaque surface",
     invalid: "neutral visibility one",
-    version: "frame",
+    version: "frame"
   },
   "shadow-demand": {
     producer: "vsm",
@@ -267,7 +277,7 @@ const PRODUCT_SPEC: Readonly<
     value: "bounded directional VSM receiver demand",
     coverage: "visible opaque receivers",
     invalid: "zero demand header",
-    version: "frame",
+    version: "frame"
   },
   "shadow-allocation": {
     producer: "vsm",
@@ -276,7 +286,7 @@ const PRODUCT_SPEC: Readonly<
     value: "bounded directional VSM page allocation and work records",
     coverage: "requested directional pages",
     invalid: "allocation overflow with coarse fallback",
-    version: "frame",
+    version: "frame"
   },
   visibility: {
     producer: "visibility",
@@ -285,7 +295,7 @@ const PRODUCT_SPEC: Readonly<
     value: "packed VisibilityKey",
     coverage: "visible geometry",
     invalid: "background sentinel",
-    version: "frame",
+    version: "frame"
   },
   depth: {
     producer: "visibility",
@@ -294,7 +304,7 @@ const PRODUCT_SPEC: Readonly<
     value: "reverse depth",
     coverage: "visible geometry",
     invalid: "depth clear",
-    version: "frame",
+    version: "frame"
   },
   "meshlet-work": {
     producer: "visibility",
@@ -303,7 +313,7 @@ const PRODUCT_SPEC: Readonly<
     value: "bounded GPU MeshletWork",
     coverage: "candidate geometry",
     invalid: "queue count zero",
-    version: "frame",
+    version: "frame"
   },
   hzb: {
     producer: "hzb",
@@ -312,8 +322,8 @@ const PRODUCT_SPEC: Readonly<
     value: "hierarchical depth range",
     coverage: "full internal pyramid",
     invalid: "history invalid",
-    version: "history-role",
-  },
+    version: "history-role"
+  }
 });
 
 /** Finite semantic input contracts. A new edge must name its domain and value
@@ -325,7 +335,7 @@ const INPUT_CONTRACTS: Readonly<
   >
 > = {
   swapchain: {
-    "display-color": { domain: "output-full", value: "tone-mapped display color" },
+    "display-color": { domain: "output-full", value: "tone-mapped display color" }
   },
   "reconstructed-color": {
     "aerial-radiance": { domain: "internal-full", value: "working-linear pre-exposed" },
@@ -333,54 +343,56 @@ const INPUT_CONTRACTS: Readonly<
     depth: { domain: "internal-full", value: "reverse depth" },
     "temporal-motion": {
       domain: "internal-full",
-      value: "valid current-minus-previous UV including sky rotation",
+      value: "valid current-minus-previous UV including sky rotation"
     },
     "temporal-mask": {
       domain: "internal-full",
-      value: "opaque reactive, motion validity, identity mismatch, local change bits",
-    },
+      value: "opaque reactive, motion validity, identity mismatch, local change bits"
+    }
   },
   "display-color": {
     "bloom-hdr": { domain: "output-full", value: "scene HDR plus Filament-profile bloom" },
     "debug-color": { domain: "output-full", value: "geometry diagnostic resolve" },
-    "adapted-exposure": { domain: "gpu-work", value: "GPU adapted exposure E_t" },
+    "adapted-exposure": { domain: "gpu-work", value: "GPU adapted exposure E_t" }
   },
   "debug-color": {
     visibility: { domain: "internal-full", value: "packed VisibilityKey" },
     depth: { domain: "internal-full", value: "reverse depth" },
-    "meshlet-work": { domain: "gpu-work", value: "bounded GPU MeshletWork" },
+    "meshlet-work": { domain: "gpu-work", value: "bounded GPU MeshletWork" }
   },
   "bloom-hdr": { "reconstructed-color": { domain: "output-full", value: "working-linear pre-exposed" } },
   "adapted-exposure": {
-    "reconstructed-color": { domain: "output-full", value: "working-linear pre-exposed" },
+    "reconstructed-color": { domain: "output-full", value: "working-linear pre-exposed" }
   },
+  "surface-reactive": { visibility: { domain: "internal-full", value: "packed VisibilityKey" } },
   "temporal-motion": {
+    "surface-reactive": { domain: "internal-full", value: "opaque reactive" },
     "meshlet-work": { domain: "gpu-work", value: "bounded GPU MeshletWork" },
     visibility: { domain: "internal-full", value: "packed VisibilityKey" },
-    depth: { domain: "internal-full", value: "reverse depth" },
+    depth: { domain: "internal-full", value: "reverse depth" }
   },
   "temporal-mask": {
     "temporal-motion": {
       domain: "internal-full",
-      value: "valid current-minus-previous UV including sky rotation",
+      value: "valid current-minus-previous UV including sky rotation"
     },
     "temporal-identity": {
       domain: "internal-full",
-      value: "instance slot, geometry/LOD, material, transform revision",
-    },
+      value: "instance slot, geometry/LOD, material, transform revision"
+    }
   },
   "temporal-identity": {
     visibility: { domain: "internal-full", value: "packed VisibilityKey" },
     "meshlet-work": { domain: "gpu-work", value: "bounded GPU MeshletWork" },
-    depth: { domain: "internal-full", value: "reverse depth" },
+    depth: { domain: "internal-full", value: "reverse depth" }
   },
   "aerial-radiance": {
     "sky-radiance": { domain: "internal-full", value: "working-linear pre-exposed" },
-    depth: { domain: "internal-full", value: "reverse depth" },
+    depth: { domain: "internal-full", value: "reverse depth" }
   },
   "sky-radiance": {
     "surface-radiance": { domain: "internal-full", value: "working-linear pre-exposed" },
-    depth: { domain: "internal-full", value: "reverse depth" },
+    depth: { domain: "internal-full", value: "reverse depth" }
   },
   "surface-radiance": {
     visibility: { domain: "internal-full", value: "packed VisibilityKey" },
@@ -388,28 +400,28 @@ const INPUT_CONTRACTS: Readonly<
     "light-cluster": { domain: "gpu-work", value: "clustered direct-light lookup" },
     "indirect-visibility": { domain: "internal-full", value: "unexposed indirect visibility [0,1]" },
     "shadow-visibility": { domain: "gpu-work", value: "directional VSM visibility with page fallback" },
-    depth: { domain: "internal-full", value: "reverse depth" },
+    depth: { domain: "internal-full", value: "reverse depth" }
   },
   "indirect-visibility": {
     visibility: { domain: "internal-full", value: "packed VisibilityKey" },
-    depth: { domain: "internal-full", value: "reverse depth" },
+    depth: { domain: "internal-full", value: "reverse depth" }
   },
   "shadow-visibility": {
     visibility: { domain: "internal-full", value: "packed VisibilityKey" },
-    depth: { domain: "internal-full", value: "reverse depth" },
+    depth: { domain: "internal-full", value: "reverse depth" }
   },
   "shadow-demand": {},
   "shadow-allocation": {
-    "shadow-demand": { domain: "gpu-work", value: "bounded directional VSM receiver demand" },
+    "shadow-demand": { domain: "gpu-work", value: "bounded directional VSM receiver demand" }
   },
   "light-cluster": { hzb: { domain: "internal-half", value: "hierarchical depth range" } },
   visibility: {
     "meshlet-work": { domain: "gpu-work", value: "bounded GPU MeshletWork" },
-    depth: { domain: "internal-full", value: "reverse depth" },
+    depth: { domain: "internal-full", value: "reverse depth" }
   },
   hzb: { depth: { domain: "internal-full", value: "reverse depth" } },
   depth: {},
-  "meshlet-work": {},
+  "meshlet-work": {}
 };
 
 function positiveInteger(value: number, name: string): void {
@@ -477,7 +489,7 @@ function normalizeRequest(request: FrameProgramRequest): FrameProgramRequest {
     shadowProfile,
     fsr3Enabled: request.fsr3Enabled !== false,
     bloomEnabled: request.bloomEnabled !== false,
-    debugView,
+    debugView
   });
 }
 
@@ -491,7 +503,7 @@ function structuralKey(request: FrameProgramRequest): string {
     request.outputWidth,
     request.outputHeight,
     request.outputFormat,
-    request.capabilityProfile,
+    request.capabilityProfile
   ];
   if (request.kind === "empty") return JSON.stringify(base);
   return JSON.stringify([
@@ -511,7 +523,7 @@ function structuralKey(request: FrameProgramRequest): string {
     request.authoredEnvironment === true,
     request.fsr3Enabled !== false,
     request.bloomEnabled !== false,
-    request.debugView ?? RenderDebugViewValue.None,
+    request.debugView ?? RenderDebugViewValue.None
   ]);
 }
 
@@ -535,10 +547,10 @@ function dependencies(product: FrameProduct, request: FrameProgramRequest): read
         request.physicalEnvironment ? "aerial-radiance" : "surface-radiance",
         "depth",
         "temporal-motion",
-        "temporal-mask",
+        "temporal-mask"
       ];
     case "temporal-motion":
-      return ["visibility", "meshlet-work", "depth"];
+      return ["visibility", "meshlet-work", "depth", "surface-reactive"];
     case "temporal-mask":
       return ["temporal-motion", "temporal-identity"];
     case "temporal-identity":
@@ -547,13 +559,15 @@ function dependencies(product: FrameProduct, request: FrameProgramRequest): read
       return ["sky-radiance", "depth"];
     case "sky-radiance":
       return ["surface-radiance", "depth"];
+    case "surface-reactive":
+      return ["visibility"];
     case "surface-radiance":
       return [
         "visibility",
         "meshlet-work",
         "depth",
         ...(request.hasLit ? ["light-cluster" as const] : []),
-        ...(request.aoProfile === "scalar-high" ? ["indirect-visibility" as const] : []),
+        ...(request.aoProfile === "scalar-high" ? ["indirect-visibility" as const] : [])
       ];
     case "indirect-visibility":
       return ["visibility", "depth"];
@@ -583,7 +597,7 @@ function createProgram(request: FrameProgramRequest, key: string): FrameProgram 
       producer: "clear-present",
       consumers: Object.freeze(["canvas"] as const),
       extent: Object.freeze([request.outputWidth, request.outputHeight] as const),
-      format: request.outputFormat,
+      format: request.outputFormat
     });
     return Object.freeze({
       request,
@@ -593,7 +607,7 @@ function createProgram(request: FrameProgramRequest, key: string): FrameProgram 
       stages: Object.freeze(["clear-present"] as FrameProgramStage[]),
       bindingRoles: Object.freeze(["swapchain"]),
       directLighting: false,
-      buildHzb: false,
+      buildHzb: false
     });
   }
   const directLighting = request.hasLit;
@@ -650,7 +664,7 @@ function createProgram(request: FrameProgramRequest, key: string): FrameProgram 
     ...(request.debugView !== undefined && request.debugView !== RenderDebugViewValue.None
       ? ["debug-view" as const]
       : []),
-    "present",
+    "present"
   ];
   const facts = ordered.map((product): FrameProductFact => {
     const spec = PRODUCT_SPEC[product];
@@ -676,7 +690,7 @@ function createProgram(request: FrameProgramRequest, key: string): FrameProgram 
       product,
       consumers: Object.freeze([...new Set(consumers)]),
       extent: extent === null ? null : Object.freeze(extent),
-      format: product === "swapchain" ? request.outputFormat : spec.format,
+      format: product === "swapchain" ? request.outputFormat : spec.format
     });
   });
   return Object.freeze({
@@ -700,10 +714,10 @@ function createProgram(request: FrameProgramRequest, key: string): FrameProgram 
       request.shadowProfile !== "shadow-disabled"
         ? ["vsm"]
         : []),
-      ...(request.physicalEnvironment || request.authoredEnvironment ? ["environment"] : []),
+      ...(request.physicalEnvironment || request.authoredEnvironment ? ["environment"] : [])
     ]),
     directLighting,
-    buildHzb,
+    buildHzb
   });
 }
 

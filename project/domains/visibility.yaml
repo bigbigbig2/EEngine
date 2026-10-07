@@ -2,7 +2,7 @@ id: visibility
 title: Hardware-first visibility
 primaryOwner: visibility
 owner: OEngine/src/render/passes, OEngine/src/render/pipeline, OEngine/src/shaders, OEngine/src/gpu
-intent: Close GPU work generation, visibility, shading-bin classification, and indirect consumers without CPU visible-list traversal.
+intent: Generate GPU geometry work and publish the opaque winner/depth contract without CPU visible-list traversal.
 paths:
   - OEngine/src/render/features/VisibilityFeature.ts
   - OEngine/src/render/HierarchyOcclusionReference.ts

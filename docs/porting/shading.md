@@ -1,10 +1,12 @@
 ---
 id: porting/shading
-state: current
+state: history
 verifies:
   - tools
 ---
 # Shading
+
+本页保留历史来源与旧 production adoption 记录；Surface V4 当前来源及本地映射见 [Next Renderer](next-renderer.md)，当前生产事实见 [Shading domain](../domains/shading.md)。旧路径退休不追认为新 native 路径已经完成相同来源验证。
 
 ## SHADE-SURFACE · Surface and material reconstruction
 

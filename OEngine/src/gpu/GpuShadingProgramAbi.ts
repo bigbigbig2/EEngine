@@ -9,6 +9,9 @@ export const GPU_SHADING_BIN_PROGRAM_MASK = 0x0f;
 export const GPU_SHADING_BIN_TEXTURE_SET_SHIFT = 4;
 export const GPU_SHADING_BIN_TEXTURE_SET_MASK = 0x30;
 export const GPU_SHADING_BIN_RESERVED_MASK = 0xc0;
+/** Scene/material association identity, distinct from native execution-bin indices.
+ * Derive from the local bit layout, avoiding TextureBindingSetPolicy's import cycle. */
+export const GPU_SHADING_BIN_COUNT = (GPU_SHADING_BIN_PROGRAM_MASK | GPU_SHADING_BIN_TEXTURE_SET_MASK) + 1;
 
 export const GPU_SHADING_PROGRAM = Object.freeze({
   UnlitFactor: 0,
@@ -26,7 +29,7 @@ export const GPU_SHADING_PROGRAM = Object.freeze({
   PbrBaseOrmNormalEmissive: 12,
   PbrBaseEmissive: 13,
   PbrOrmNormalEmissive: 14,
-  PbrGeneric: 15,
+  PbrGeneric: 15
 } as const);
 
 export const GPU_SHADING_DEPENDENCY = Object.freeze({
@@ -40,7 +43,7 @@ export const GPU_SHADING_DEPENDENCY = Object.freeze({
   EmissiveTexture: 1 << 7,
   Lit: 1 << 8,
   OcclusionTexture: 1 << 9,
-  ExtensionTexture: 1 << 10,
+  ExtensionTexture: 1 << 10
 } as const);
 
 export const GPU_SHADING_DEPENDENCY_COUNT = 11;
@@ -110,7 +113,7 @@ const LUT_ENTRY_COUNT = 1 << 6;
  * same frozen values are emitted into GPU_SHADING_PROGRAM_WGSL.
  */
 export const GPU_SHADING_PROGRAM_LUT = Object.freeze(
-  Array.from({ length: LUT_ENTRY_COUNT }, (_, index) => programForLutIndex(index)),
+  Array.from({ length: LUT_ENTRY_COUNT }, (_, index) => programForLutIndex(index))
 );
 
 export const GPU_SHADING_PROGRAM_NAMES = Object.freeze([
@@ -129,18 +132,18 @@ export const GPU_SHADING_PROGRAM_NAMES = Object.freeze([
   "PbrBaseOrmNormalEmissive",
   "PbrBaseEmissive",
   "PbrOrmNormalEmissive",
-  "PbrGeneric",
+  "PbrGeneric"
 ] as const);
 
 export function deriveGpuShadingIdentity(
   material: GpuShadingMaterialProfile,
-  geometry: GpuShadingGeometryProfile,
+  geometry: GpuShadingGeometryProfile
 ): Readonly<GpuShadingIdentity> {
   validateTextureBindingSetId(material.textureBindingSetId);
   if (material.shadingModel !== "unlit" && material.shadingModel !== "standard-pbr") {
     throw new ShadingIdentityPublicationError(
       "UNSUPPORTED_SHADING_MODEL",
-      `Unsupported shading model '${material.shadingModel}'`,
+      `Unsupported shading model '${material.shadingModel}'`
     );
   }
 
@@ -156,7 +159,7 @@ export function deriveGpuShadingIdentity(
   if (material.shadingModel === "standard-pbr" && !geometry.hasNormal) {
     throw new ShadingIdentityPublicationError(
       "MISSING_NORMAL",
-      "Standard PBR shading requires geometry normals",
+      "Standard PBR shading requires geometry normals"
     );
   }
   if (
@@ -168,7 +171,7 @@ export function deriveGpuShadingIdentity(
   ) {
     throw new ShadingIdentityPublicationError(
       "UNSUPPORTED_SHADING_MODEL",
-      "Unlit V1 supports only factor and base texture dependencies",
+      "Unlit V1 supports only factor and base texture dependencies"
     );
   }
 
@@ -193,7 +196,7 @@ export function deriveGpuShadingIdentity(
     dependencyMask,
     programId,
     textureBindingSetId,
-    binId: encodeGpuShadingBinId(programId, textureBindingSetId),
+    binId: encodeGpuShadingBinId(programId, textureBindingSetId)
   });
 }
 
@@ -210,7 +213,7 @@ export function shadingProgramIdForDependencyMask(dependencyMask: number): numbe
   if (programId === undefined || programId === GPU_SHADING_PROGRAM_INVALID) {
     throw new ShadingIdentityPublicationError(
       "INVALID_DEPENDENCY_MASK",
-      `Dependency mask 0x${dependencyMask.toString(16)} is not a legal V1 shading combination`,
+      `Dependency mask 0x${dependencyMask.toString(16)} is not a legal V1 shading combination`
     );
   }
   return programId;
@@ -265,7 +268,7 @@ const OENGINE_SHADING_DEPENDENCY_LIT: u32 = ${GPU_SHADING_DEPENDENCY.Lit}u;
 const OENGINE_SHADING_DEPENDENCY_OCCLUSION_TEXTURE: u32 = ${GPU_SHADING_DEPENDENCY.OcclusionTexture}u;
 const OENGINE_SHADING_DEPENDENCY_EXTENSION_TEXTURE: u32 = ${GPU_SHADING_DEPENDENCY.ExtensionTexture}u;
 ${GPU_SHADING_PROGRAM_NAMES.map(
-  (name, programId) => `const OENGINE_SHADING_PROGRAM_${toWgslConstant(name)}: u32 = ${programId}u;`,
+  (name, programId) => `const OENGINE_SHADING_PROGRAM_${toWgslConstant(name)}: u32 = ${programId}u;`
 ).join("\n")}
 const OENGINE_SHADING_PROGRAM_LUT: array<u32, ${LUT_ENTRY_COUNT}> = array<u32, ${LUT_ENTRY_COUNT}>(
   ${GPU_SHADING_PROGRAM_LUT.map((value) => `${value}u`).join(", ")}
@@ -360,7 +363,7 @@ function validateDependencyMask(dependencyMask: number): void {
   ) {
     throw new ShadingIdentityPublicationError(
       "INVALID_DEPENDENCY_MASK",
-      "Shading dependency mask contains invalid or reserved bits",
+      "Shading dependency mask contains invalid or reserved bits"
     );
   }
   const lit = (dependencyMask & GPU_SHADING_DEPENDENCY.Lit) !== 0;
@@ -386,7 +389,7 @@ function validateDependencyMask(dependencyMask: number): void {
   ) {
     throw new ShadingIdentityPublicationError(
       "INVALID_DEPENDENCY_MASK",
-      `Dependency mask 0x${dependencyMask.toString(16)} has inconsistent attributes`,
+      `Dependency mask 0x${dependencyMask.toString(16)} has inconsistent attributes`
     );
   }
 }
@@ -401,7 +404,7 @@ function validateRequiredUvSetsMask(mask: number, usesAnyTexture: boolean): numb
   ) {
     throw new ShadingIdentityPublicationError(
       "INVALID_DEPENDENCY_MASK",
-      "Material required UV-set mask must exactly describe active texture roles",
+      "Material required UV-set mask must exactly describe active texture roles"
     );
   }
   return mask;
@@ -435,7 +438,7 @@ function validateTextureBindingSetId(textureBindingSetId: number): void {
   ) {
     throw new ShadingIdentityPublicationError(
       "INVALID_TEXTURE_BINDING_SET",
-      `TextureBindingSetId must be in [0, ${TEXTURE_BINDING_SET_MAX_RESIDENT_SETS - 1}]`,
+      `TextureBindingSetId must be in [0, ${TEXTURE_BINDING_SET_MAX_RESIDENT_SETS - 1}]`
     );
   }
 }

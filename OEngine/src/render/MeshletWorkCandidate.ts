@@ -6,7 +6,7 @@ import type {
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import type { GpuAssetBindings } from "../gpu/GpuAssetStore.js";
 import { planBoundedGpuWorkStream } from "../gpu/BoundedGpuWorkProtocol.js";
-import { MESHLET_BUCKET_SETTINGS_STRIDE } from "../shaders/meshlet_bucket_visibility.js";
+import { MESHLET_BUCKET_SETTINGS_STRIDE } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import {
   GPU_MESHLET_BUCKET_COUNT,
   GPU_MESHLET_DRAW_COUNT,
@@ -281,7 +281,7 @@ export class MeshletWorkCandidate {
         {
           label: "ADR-0008 correctness-critical bucketed MeshletWork queue",
           size: queueBytes,
-          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
         },
         buffers,
         accounting,
@@ -804,7 +804,7 @@ export class VirtualGeometryMeshletWorkCandidate {
     const queue = this.device.createBuffer({
       label: "S1 Product MeshletWork queue",
       size: queueBytes,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
     const drawIndirect = this.device.createBuffer({
       label: "S1 Product MeshletWork drawIndirect",

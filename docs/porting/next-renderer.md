@@ -4,7 +4,7 @@ state: current
 verifies:
   files:
     - tools
-    - OEngine/src/gpu/GpuAppearancePublication.ts
+    - OEngine/src/gpu/GpuNativeMaterialScene.ts
     - OEngine/src/render/surface
     - OEngine/src/framegraph/FrameGraph.ts
     - OEngine/src/shaders/surface_geometry_completion.ts
@@ -20,6 +20,7 @@ verifies:
     - OEngine/src/shaders/native_surface.ts
     - OEngine/tests/oracle/native-material-gpu.mjs
     - OEngine/tests/oracle/native-surface-integration-gpu.mjs
+    - OEngine/tests/oracle/native-surface-production-gpu.mjs
 ---
 # EEngine Next：开源迁移来源与采用边界
 
@@ -82,6 +83,14 @@ verifies:
 | Original | 具名本地`NativeMaterialStraightLineCxy`、CompactPixelBins、finite raster count/prefix/scatter及immutable native publication；cooked half exact packed物理表示/显式原field采样；binding-limit所需的有限sun continuation（重算native inputs+HDR版本）；effect-owned Aux/Temporal生命周期与独立GPU/CPU oracles。没有合适的完整portable donor覆盖这些组合合同，因此本地适配设计，未伪称MaterialX/Wicked/Forge整套移植 |
 
 早期条目的Product/资源接线/真实device测试缺口是当时快照，不改写为首轮已通过。最终独立GPU authored graph与CPU cooked-field/HDR测试覆盖见execution；CPU ideal SampleGrad偏差、真实VG streaming/driver-fault恢复和production性能限制继续保留。开源参考不证明本地更快，native bins与资源限制拆分的全成本仍由本项目测量。
+
+### 2026-10-08：S2原子生产切换与来源证据边界
+
+本轮是已构建 native subsystem 与真实 renderer foundation 的 ownership/生命周期接线和旧协议删除，没有新增外部 GPU 算法移植。Local 沿用 S1 的 compiler/Geometry/TextureResidency/BRDF/providers/FrameGraph/Registry；Reference 的 revision/license/具体入口仍是上表，不声称重新核读完整 donor。Adopt/Adapt 是这些既有数学和 owner 接入真实 Scene/material publication、主/VSM alpha、唯一 HDR 与 Temporal/FSR；Original 是 `GpuNativeMaterialScene` 的 immutable candidate/成功提交切换、完整物理 BindingSet、原子 cutover 的资源账/失败退休及实际 Renderer 双输入 oracle。
+
+`native-surface-production` 和 `native-surface-product-production` 分别通过 cooked resident 与普通 Scene→真实 WASM cook→Geometry Product→实际 Renderer 的唯一 production 链；两者包含更新、abort/retry、alpha、resize/motion、受控 device loss 后实际 Renderer recovery 和资源账。完整 source/build 身份、独立数值范围、28个S1已存在测试失败和未运行的S3成本/画质项只见[执行计划§3.3.1](../next-execution/eengine-v4-native-shading-execution-2026-10.md#v4-s2-cutover-record)。这是新 production 接线证据，不是整套来源采用或性能证明。
+
+`nyx-function-map.json` 中三个 VisibilityBuffer/raster/material 映射保留固定来源 hash/token 核对，但改为 **pending-native-adoption** 并列出新 native 独立逐函数验证责任；旧 Tape/raster consumer 已删除，不能沿用历史 consumer 名称自动宣称 adopted。下文 R3 原采用/实验结果及数值失败不重写。
 
 ## 2026-10-05：Surface 集中重建的固定来源与阶段映射
 

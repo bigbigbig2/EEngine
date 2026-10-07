@@ -4,34 +4,32 @@ kind: domain
 owner: shading
 state: current
 verifies:
-  - OEngine/src/render/surface/SurfaceWorkRuntime.ts
-  - OEngine/src/shaders/surface_work_reconstruct.ts
+  - OEngine/src/render/surface/SurfaceV4.ts
+  - OEngine/src/gpu/GpuNativeMaterialScene.ts
+  - OEngine/src/shaders/native_material.ts
+  - OEngine/src/shaders/native_surface.ts
   - OEngine/src/render/program/FrameProgramLowering.ts
 ---
 # Shading
 
 ## 当前源码接线
 
-核对日期：2026-10-06；本轮工作树主链注册与直接资源 consumer。阶段和检查结果读取 workstream/执行计划，不在本页复制。
+核对日期：2026-10-08，S2 工作树。生产入口已经切到 native；阶段验证与关闭状态只读[执行计划](../next-execution/eengine-v4-native-shading-execution-2026-10.md)，不据此声明 S3 验收或性能改善。
 
-[SurfaceWorkRuntime](../../OEngine/src/render/surface/SurfaceWorkRuntime.ts) 在同一 FrameGraph 注册 coverage→有限家族工作/indirect→Geometry与Appearance→signal rate→Lighting→Reconstruct。publication 通过 encodeWorkPublication 发布常量；Geometry与Appearance消费者共用当前源与域目录；Lighting只读已完成Geometry/fields/guides；Reconstruct只消费必要fields、signal values、AO与Temporal facts，发布radiance/reactiveMask。
+[GpuNativeMaterialScene](../../OEngine/src/gpu/GpuNativeMaterialScene.ts) 从 scene material slots、GraphCompiler、TextureResidency 和 cooked Products 建立 immutable native publication。参数及 dynamic inputs 是实例数据；完整物理资源集合决定 BindingSet，Program 由 shader/layout 结构决定。async PSO 未就绪时延迟整 tick；成功提交才切 active，abort 保留 candidate 供 retry，旧 publication 按实际 fence 退休。
 
-Runtime 持有分bank的frame scratch与有限work kernels；FrameProgramLowering提供当前visibility、几何源、材质/纹理publication、lighting providers和版本输入。旧Field/SignalStore不再接此主链；可选精确缓存仍需按C实现，接线存在不证明完整性能或全部生命周期分支正确。
+[SurfaceV4](../../OEngine/src/render/surface/SurfaceV4.ts) 消费 r32 Visibility、MeshletWork、FrameGeometryArena/vertex sources、frame instances、native publication 与真实 clustered/VSM/IBL/AO/environment providers。Dense one-route 无 pixel queue；multi-route 在 GPU 构造 compact pixel bins 并 indirect native dispatch。winner geometry、C/X/Y、material、BRDF、lighting 默认在同一 shader 内求值，直接写 pre-exposed working-color HDR 和 demanded reactive。
 
-材质发布分离完整结构模板与实例快照；普通家族与完整 General 共用实际产品采样语义。General tape 按语义宽度、C/CXY 点域和最后读者安排 f32 words，publication/material/frame 子图按真实依赖更新并随帧事务提交。coherence 只组织多模板 General 工作，容量不足保留完整 indexed worker。
+全 sampled-resource profile 超过协商 limit 时使用有限 native sun continuation，读独立 HDR texture、写新 HDR 版本；不使用 read-write rgba16float storage 或 six-signal store。FrameGraph 管宏依赖及借给 Surface 的最终 HDR；Surface 只拥有执行 scratch 和必要 continuation intermediate，不 submit。
 
-唯一 FrameGeometryArena 提供 prepared attributes 与 resident fallback；Surface 局部完成 Geometry 后交给 Appearance，跨阶段只保留 closed fields、薄几何与必要 guides。六路 RGB 信号携带显式 state，各信号分别发布率；重构保持原加法分组、output-pixel AO 和颜色/preExposure 语义。普通几何已移除无读者 continuity 载荷，但保留 TemporalFacts 实际消费的 primitive identity 映射。
+## 直接消费者与边界
 
-## 边界与已知问题
+NativeVisibilityPass 和 VSM native alpha caster 消费同一 native material publication。NativeTemporalFactsPass 从 winner、authoritative scene instances 与 native material versions 生成 motion、identity/reactive；motion 为 rg32float，身份历史保留完整 pair。FSR 消费 Temporal 的真实产品。background、Sky/Aerial、Radiometry/Post/Present 保持各自 owner。
 
-本页不再把旧 material/geometry cache bypass、dirty Phase5 或旧 batch 数字描述为当前状态。重复且失效的说明已收回，历史内容由 Git 追溯，不新增一份文档快照。
+旧 SurfaceWorkRuntime、GPU Tape/ExactDag interpreter、Closure Cache、coherence、field/signal heap、global Signal History 和 generic opaque Reconstruct 已从本工作树删除；不保留 adapter 或第二条生产路径。资产 cook、Graph 数学/CPU oracle、Geometry、providers、FrameGraph 与 Registry 生命周期继续由真实 owner 持有。历史 B2 数值失败没有被追认为修复；存活语义由 native update/publication/abort-retry/HDR 测试承担。
 
-独立审计已指出前端管理、物理表示、命令规模和计时范围问题。布局、容量和成本直接查当前 producer/ABI 与[审计](../reviews/eengine-independent-source-gpu-performance-audit-2026-10-05.md)，不在本页再复制一套易漂移数字。测试全绿、短 smoke、预算未超均不能证明完整性能或质量。
+## 仍需验证
 
-## 目标与归纳原则
+跨浏览器、完整画质、streamed VG、大场景长序列 P50/P95、VRAM 峰值与正式 evidence/claims 仍需对应阶段验证；小场景生产闭包、组件 fixture 或预算有界不能证明这些结果。集中验证范围及已复现的非 Surface 基线失败仅记录在执行计划。
 
-目标见[极致性能设计](../next-design/eengine-v4-native-shading-2026-10.md)，切换见[执行计划](../next-execution/eengine-v4-native-shading-execution-2026-10.md)。V4 目标是 native material、默认 fused opaque、简单 execution bins 和 demanded Aux；本页上述实现仍是退休中的旧 Surface，只有真实 producer/consumer 切换后才更新事实。
-
-Shading 拥有 Surface 字段/信号工作与重建；geometry/visibility 提供选中源，material/texture 提供 publication/版本，frame-runtime 负责图与提交。来源与阶段映射集中在[porting ledger](../porting/next-renderer.md)，组件旧结果不自动转授新主链 adoption。
-
-后续每个切换单元完成后，把已核实的算法理由、不变量与失败行为归纳到本页；稳定 ABI 留独立 specs，不把全部实施日志搬回来。
+未来接口见[V4 母稿](../next-design/eengine-v4-native-shading-2026-10.md)，来源与 adoption 边界见[porting ledger](../porting/next-renderer.md)。算法 history/cache 属于算法 owner，Surface 不恢复通用记录或 reuse 操作系统。

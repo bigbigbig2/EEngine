@@ -3,24 +3,14 @@ id: archive/eengine-extreme-performance-rebuild-r3-execution-2026-10-07
 state: history
 verifies:
   files:
-    - OEngine/src/render/surface/SurfaceWorkRuntime.ts
-    - OEngine/src/shaders/surface_work_geometry.ts
-    - OEngine/src/shaders/surface_work_reconstruct.ts
-    - OEngine/src/gpu/GpuAppearancePublication.ts
-    - OEngine/src/gpu/GpuSurfaceWorkAbi.ts
-    - OEngine/src/material/ExactAppearanceDag.ts
-    - OEngine/src/shaders/appearance_exact_dag.ts
     - OEngine/src/render/FrameGeometryArena.ts
     - OEngine/src/render/FrameGeometryVertices.ts
     - OEngine/src/framegraph/FrameGraph.ts
     - OEngine/src/framegraph/GPUFrameTiming.ts
-    - OEngine/src/gpu/SurfaceDiagnosticsAbi.ts
     - OEngine/src/debug/GpuTimingCost.ts
     - OEngine/tests/unit/framegraph-executor.test.mjs
     - OEngine/tests/unit/gpu-frame-timing.test.mjs
     - OEngine/tests/contract/frame-program.test.mjs
-    - OEngine/tests/oracle/surface-work-gpu.mjs
-    - OEngine/tests/oracle/surface-coverage-value-gpu.mjs
     - OEngine/package.json
 supersededBy: ../next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md
 sourceRevision: d16cc1d6

@@ -1,3 +1,4 @@
+import type { ResourceAccounting, ResourceHandle } from "../debug/profiling/ResourceAccounting.js";
 import type { AppearanceAssetField } from "../assets/AppearanceAssetPackage.js";
 import type { CompiledAppearanceGraph } from "../material/AppearanceGraphCompiler.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
@@ -26,6 +27,7 @@ export class NativeMaterialProducts {
   readonly view: GPUTextureView;
   readonly payloadBytes: number;
   readonly physicalBytes: number;
+  private accountingHandle: ResourceHandle | undefined;
   private readonly fields = new Map<string, NativePackedProductField>();
   private state: "staging" | "resident" | "retiring" | "destroyed" = "staging";
 
@@ -34,7 +36,8 @@ export class NativeMaterialProducts {
     graphs: readonly CompiledAppearanceGraph[],
     command: ShadeGPUCommandContext,
     maximumPayloadBytes = 256 * 1024 * 1024,
-    maximumUploadBytes = 258 * 1024 * 1024
+    maximumUploadBytes = 258 * 1024 * 1024,
+    private readonly accounting?: ResourceAccounting
   ) {
     if (command.device !== device || command.closed) {
       throw new Error("Native Products require an open same-device upload transaction");
@@ -109,6 +112,16 @@ export class NativeMaterialProducts {
     });
     try {
       this.view = this.texture.createView({ dimension: "2d-array" });
+      this.accountingHandle = accounting?.created(
+        {
+          kind: "texture",
+          category: "resident",
+          owner: "NativeMaterialProducts",
+          bytes: this.physicalBytes,
+          label: this.texture.label
+        },
+        this.texture
+      );
     } catch (error) {
       this.texture.destroy();
       throw error;
@@ -169,6 +182,9 @@ export class NativeMaterialProducts {
       return;
     }
     this.state = "retiring";
+    if (this.accountingHandle) {
+      this.accounting?.setRetired(this.accountingHandle, true);
+    }
     try {
       await completion;
     } finally {
@@ -182,5 +198,9 @@ export class NativeMaterialProducts {
     }
     this.state = "destroyed";
     this.texture.destroy();
+    if (this.accountingHandle) {
+      this.accounting?.destroyed(this.accountingHandle);
+      this.accountingHandle = undefined;
+    }
   }
 }

@@ -100,6 +100,7 @@ function fixture({ reactive = false, compact = false } = {}) {
       return texture;
     },
     queue: {
+      writeTexture() {},
       writeBuffer(buffer, offset, value) {
         const bytes =
           value instanceof ArrayBuffer
@@ -247,13 +248,16 @@ test("SurfaceV4 resize abort keeps committed extent and resize commit retires on
 });
 
 test("SurfaceV4 rejects concurrent prepare, profile mismatch and invalid inputs without extent allocation", async () => {
-  const f = fixture(),
-    surface = new SurfaceV4(f.device);
+  const f = fixture();
   await f.publication.ready;
   f.publication.commit();
+  const gate = deferred();
+  f.device.createComputePipelineAsync = (descriptor) => gate.promise.then(() => descriptor);
+  const surface = new SurfaceV4(f.device);
   const preparing = surface.prepareFrame(f.frame);
   await assert.rejects(surface.prepareFrame(f.frame), /already prepared/);
   surface.abort();
+  gate.resolve();
   await assert.rejects(preparing, /superseded|stopped during prepare/);
   assert.equal(surface.allocatedBytes, 0);
   await assert.rejects(

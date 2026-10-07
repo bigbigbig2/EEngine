@@ -1,3 +1,5 @@
+import type { ResourceAccounting, ResourceHandle } from "../../debug/profiling/ResourceAccounting.js";
+import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import {
   NATIVE_EXECUTION_BIN_STRIDE,
   NATIVE_EXECUTION_BIN_WORDS,
@@ -15,6 +17,7 @@ export interface NativeExecutionBin {
 }
 
 export interface NativeExecutionBinsOptions {
+  readonly graphics?: GraphicsContext;
   readonly width: number;
   readonly height: number;
   /** Complete immutable publication directory of unique (program, BindingSet) pairs. */
@@ -201,6 +204,8 @@ export class NativeExecutionBins {
   private readonly baseAllocatedBytes: number;
   readonly ready: Promise<void>;
   private readonly resources: GPUBuffer[] = [];
+  private readonly accountingHandles = new Map<GPUBuffer, ResourceHandle>();
+  private readonly accounting?: ResourceAccounting;
   private readonly bindings = new Set<NativeExecutionBinsBindings>();
   private classifyLayout: GPUBindGroupLayout | null = null;
   private countPipeline: GPUComputePipeline | null = null;
@@ -221,6 +226,7 @@ export class NativeExecutionBins {
     options: NativeExecutionBinsOptions
   ) {
     this.plan = planNativeExecutionBins(device.limits, options);
+    this.accounting = options.graphics?.resource_accounting;
     this.width = options.width;
     this.height = options.height;
     this.bins = Object.freeze(options.bins.map((bin) => Object.freeze({ ...bin })));
@@ -238,7 +244,7 @@ export class NativeExecutionBins {
       const known = new Uint32Array(this.bins.length * 2);
       this.bins.forEach((bin, index) => known.set([bin.programIndex, bin.bindingSet], index * 2));
       this.knownBins = this.buffer("known bins", known.byteLength, GPUBufferUsage.STORAGE, known);
-      this.classifyLayout = device.createBindGroupLayout({
+      const classifyDescriptor: GPUBindGroupLayoutDescriptor = {
         label: "SurfaceV4/bins classify layout",
         entries: [
           { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
@@ -254,21 +260,24 @@ export class NativeExecutionBins {
             buffer: { type: "storage" as const }
           }))
         ]
-      });
-      const scanLayout = device.createBindGroupLayout({
+      };
+      this.classifyLayout = device.createBindGroupLayout(classifyDescriptor);
+      const scanDescriptor: GPUBindGroupLayoutDescriptor = {
         entries: [
           { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
           { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }
         ]
-      });
-      const finalizeLayout = device.createBindGroupLayout({
+      };
+      const scanLayout = device.createBindGroupLayout(scanDescriptor);
+      const finalizeDescriptor: GPUBindGroupLayoutDescriptor = {
         entries: [
           { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
           { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
           { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
           { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }
         ]
-      });
+      };
+      const finalizeLayout = device.createBindGroupLayout(finalizeDescriptor);
       for (const [index, level] of this.plan.scanLevels.entries()) {
         const parent = this.plan.scanLevels[index + 1]?.output ?? 0;
         const settings = this.buffer(
@@ -331,44 +340,63 @@ export class NativeExecutionBins {
       const classifyPipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [this.classifyLayout] });
       const scanPipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [scanLayout] });
       const finalizePipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [finalizeLayout] });
-      this.ready = Promise.all([
-        device.createComputePipelineAsync({
-          layout: classifyPipelineLayout,
-          compute: { module: classify, entryPoint: "count" }
-        }),
-        device.createComputePipelineAsync({
-          layout: classifyPipelineLayout,
-          compute: { module: classify, entryPoint: "scatter" }
-        }),
-        device.createComputePipelineAsync({
-          layout: scanPipelineLayout,
-          compute: { module: prefix, entryPoint: "scan" }
-        }),
-        device.createComputePipelineAsync({
-          layout: scanPipelineLayout,
-          compute: { module: prefix, entryPoint: "add" }
-        }),
-        device.createComputePipelineAsync({
-          layout: finalizePipelineLayout,
-          compute: { module: finalize, entryPoint: "finalize" }
-        })
-      ])
-        .then(([count, scatter, scan, add, finalize]) => {
-          if (this.state !== "preparing") {
-            throw new Error("Native execution bins were cancelled before readiness");
-          }
-          this.countPipeline = count;
-          this.scatterPipeline = scatter;
-          this.scanPipeline = scan;
-          this.addPipeline = add;
-          this.finalizePipeline = finalize;
-          this.state = "ready";
-        })
-        .catch((error: unknown) => {
-          this.destroy();
-          throw error;
-        });
-      void this.ready.catch(() => undefined);
+      if (options.graphics !== undefined) {
+        const pipeline = (
+          code: string,
+          entryPoint: string,
+          layout: GPUBindGroupLayoutDescriptor
+        ): GPUComputePipeline =>
+          options.graphics!.compute_pipelines.obtain({
+            layout: { bindGroupLayouts: [layout] },
+            compute: { module: { code }, entryPoint }
+          });
+        this.countPipeline = pipeline(NATIVE_EXECUTION_CLASSIFY_WGSL, "count", classifyDescriptor);
+        this.scatterPipeline = pipeline(NATIVE_EXECUTION_CLASSIFY_WGSL, "scatter", classifyDescriptor);
+        this.scanPipeline = pipeline(NATIVE_EXECUTION_PREFIX_WGSL, "scan", scanDescriptor);
+        this.addPipeline = pipeline(NATIVE_EXECUTION_PREFIX_WGSL, "add", scanDescriptor);
+        this.finalizePipeline = pipeline(NATIVE_EXECUTION_FINALIZE_WGSL, "finalize", finalizeDescriptor);
+        this.state = "ready";
+        this.ready = Promise.resolve();
+      } else {
+        this.ready = Promise.all([
+          device.createComputePipelineAsync({
+            layout: classifyPipelineLayout,
+            compute: { module: classify, entryPoint: "count" }
+          }),
+          device.createComputePipelineAsync({
+            layout: classifyPipelineLayout,
+            compute: { module: classify, entryPoint: "scatter" }
+          }),
+          device.createComputePipelineAsync({
+            layout: scanPipelineLayout,
+            compute: { module: prefix, entryPoint: "scan" }
+          }),
+          device.createComputePipelineAsync({
+            layout: scanPipelineLayout,
+            compute: { module: prefix, entryPoint: "add" }
+          }),
+          device.createComputePipelineAsync({
+            layout: finalizePipelineLayout,
+            compute: { module: finalize, entryPoint: "finalize" }
+          })
+        ])
+          .then(([count, scatter, scan, add, finalize]) => {
+            if (this.state !== "preparing") {
+              throw new Error("Native execution bins were cancelled before readiness");
+            }
+            this.countPipeline = count;
+            this.scatterPipeline = scatter;
+            this.scanPipeline = scan;
+            this.addPipeline = add;
+            this.finalizePipeline = finalize;
+            this.state = "ready";
+          })
+          .catch((error: unknown) => {
+            this.destroy();
+            throw error;
+          });
+        void this.ready.catch(() => undefined);
+      }
       this.baseAllocatedBytes = this.resources.reduce((bytes, buffer) => bytes + buffer.size, 0);
     } catch (error) {
       this.destroy();
@@ -384,11 +412,37 @@ export class NativeExecutionBins {
       mappedAtCreation: data !== undefined
     });
     this.resources.push(buffer);
+    this.track(buffer);
     if (data !== undefined) {
       new Uint32Array(buffer.getMappedRange()).set(data);
       buffer.unmap();
     }
     return buffer;
+  }
+
+  private track(buffer: GPUBuffer): void {
+    const handle = this.accounting?.created(
+      {
+        kind: "buffer",
+        category: "transient",
+        owner: "NativeExecutionBins",
+        bytes: buffer.size,
+        label: buffer.label
+      },
+      buffer
+    );
+    if (handle) {
+      this.accountingHandles.set(buffer, handle);
+    }
+  }
+
+  private releaseBuffer(buffer: GPUBuffer): void {
+    buffer.destroy();
+    const handle = this.accountingHandles.get(buffer);
+    if (handle) {
+      this.accounting?.destroyed(handle);
+      this.accountingHandles.delete(buffer);
+    }
   }
 
   get allocatedBytes(): number {
@@ -418,6 +472,7 @@ export class NativeExecutionBins {
       0
     ]);
     settings.unmap();
+    this.track(settings);
     try {
       const group = this.device.createBindGroup({
         layout: this.classifyLayout!,
@@ -436,7 +491,7 @@ export class NativeExecutionBins {
       this.bindings.add(bindings);
       return bindings;
     } catch (error) {
-      settings.destroy();
+      this.releaseBuffer(settings);
       throw error;
     }
   }
@@ -464,7 +519,7 @@ export class NativeExecutionBins {
   /** Caller must ensure the last encoding that used this snapshot has retired. */
   releaseBindings(bindings: NativeExecutionBinsBindings): void {
     if (this.bindings.delete(bindings)) {
-      bindings.settings.destroy();
+      this.releaseBuffer(bindings.settings);
     }
   }
 
@@ -534,6 +589,7 @@ export class NativeExecutionBins {
   /** No implicit fence or submit. Owner must await its actual last-use fence. */
   async retire(fence: Promise<unknown>): Promise<void> {
     this.state = "retiring";
+    this.accountingHandles.forEach((handle) => this.accounting?.setRetired(handle, true));
     try {
       await fence;
     } finally {
@@ -547,11 +603,11 @@ export class NativeExecutionBins {
     }
     this.state = "destroyed";
     for (const bindings of this.bindings) {
-      bindings.settings.destroy();
+      this.releaseBuffer(bindings.settings);
     }
     this.bindings.clear();
     for (const buffer of this.resources) {
-      buffer.destroy();
+      this.releaseBuffer(buffer);
     }
   }
 }

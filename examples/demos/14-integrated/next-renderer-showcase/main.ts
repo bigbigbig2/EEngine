@@ -135,7 +135,7 @@ const capture = new BenchmarkCapture({
       instanceCount: scene.instance_count, counters: request.counters,
       trajectory:request.trajectory, trajectoryRadians:0.05, trajectoryStages:"equal thirds: static, sin(pi*t) orbit returning to base, settled",
       frameDeltaSeconds: 1 / 60, hudIntervalMs: 250, scheduling: "timer-driven; Renderer two-frame completion backpressure",
-      pipelineInitialization: diagnostic.__surfaceDiagnostic?.pipelineInitialization ?? "production-sync" };
+      pipelineInitialization: diagnostic.__surfaceDiagnostic?.pipelineInitialization ?? "native-production" };
     return captureConditions;
   },
   conditions: () => ({ ...captureConditions, camera: { transform: Array.from(camera!.transform.matrix), viewProjection: Array.from(camera!.view_projection_matrix),
@@ -565,12 +565,9 @@ function updateHud(): void {
   const gpu = gpuFrame?.gpu.segments.reduce((sum, segment) => sum + segment.durationMs, 0);
   cpuReadout.textContent = Number.isFinite(frame.cpuMs.frame) ? `${frame.cpuMs.frame.toFixed(2)} ms` : "--";
   gpuReadout.textContent = gpu === undefined ? "等待" : `${gpu.toFixed(2)} ms`;
-  const counters = completedProfiles.find(snapshot => snapshot.gpuCounters.values.surfaceMaterialSamples !== undefined)?.gpuCounters.values;
+  const counters = completedProfiles.find(snapshot => snapshot.gpuCounters.values.geometryVisiblePixels !== undefined)?.gpuCounters.values;
   if (counters) {
-    element<HTMLElement>("surface-visible-readout").textContent = `${counters.surfacePbrPixels} / ${counters.surfaceVisiblePixels}`;
-    element<HTMLElement>("surface-samples-readout").textContent = `${counters.surfaceMaterialSamples} / ${counters.surfaceLightingSamples}`;
-    element<HTMLElement>("surface-rate-readout").textContent = `${counters.surfaceCoarseSamples} / ${counters.surfaceFullSamples}`;
-    element<HTMLElement>("surface-overflow-readout").textContent = `${counters.surfaceFallbackTiles} / ${(counters.surfaceRecordOverflowTiles ?? 0) + (counters.surfaceResultOverflowTiles ?? 0)}`;
+    element<HTMLElement>("surface-visible-readout").textContent = `${counters.geometryVisiblePixels}`;
   }
   resolutionReadout.textContent = `${renderer.internal_resolution_scale.toFixed(2)}×`;
 }
@@ -586,7 +583,7 @@ function exportDiagnostics(): void {
     completedGpuProfile: renderer?.profiler.history.reverse().find(snapshot => snapshot.gpu.sampled &&
       !snapshot.gpu.pending && snapshot.gpu.segments.length > 0) ?? null,
     graph: renderer?.mainFrameGraphEvidence() ?? null,
-    surfaceProfile: renderer?.profiler.history.reverse().find(snapshot => snapshot.gpuCounters.values.surfaceMaterialSamples !== undefined) ?? null
+    surfaceProfile: renderer?.profiler.history.reverse().find(snapshot => snapshot.gpu.segments.some(segment => segment.label.includes("SurfaceV4/"))) ?? null
   };
   downloadJson(data, "eengine-next-showcase");
 }

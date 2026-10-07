@@ -4,13 +4,7 @@ state: history
 verifies:
   files:
     - OEngine/src/render/surface
-    - OEngine/src/gpu/GpuAppearancePublication.ts
-    - OEngine/src/gpu/GpuSurfaceWorkAbi.ts
     - OEngine/src/material/AppearanceGraphCompiler.ts
-    - OEngine/src/material/ExactAppearanceDag.ts
-    - OEngine/src/gpu/GpuAppearanceDagAbi.ts
-    - OEngine/src/shaders/surface_work.ts
-    - OEngine/src/shaders/appearance_exact_dag.ts
     - OEngine/src/render/FrameGeometryVertices.ts
     - OEngine/src/gpu/GpuFrameGeometryAttributesAbi.ts
     - OEngine/src/framegraph/FrameGraph.ts

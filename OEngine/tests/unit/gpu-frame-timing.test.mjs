@@ -10,14 +10,6 @@ import { ResourceAccounting } from "../../.test-dist/debug/profiling/ResourceAcc
 import { FrameProfiler } from "../../.test-dist/debug/FrameProfiler.js";
 import { ShadeGPUCommandContext } from "../../.test-dist/framegraph/ShadeGPUCommandContext.js";
 import { BenchmarkHarness } from "../../.test-dist/debug/BenchmarkHarness.js";
-import {
-  SURFACE_DIAGNOSTICS_BYTE_SIZE,
-  SURFACE_DIAGNOSTICS_HEADER_WORDS,
-  SURFACE_DIAGNOSTICS_COUNTERS as C,
-  SURFACE_DIAGNOSTIC_DESCRIPTORS,
-  decodeSurfaceDiagnostics,
-  writeSurfaceDiagnosticsHeader
-} from "../../.test-dist/gpu/SurfaceDiagnosticsAbi.js";
 globalThis.GPUBufferUsage = { QUERY_RESOLVE: 1, COPY_SRC: 2, COPY_DST: 4, MAP_READ: 8 };
 globalThis.GPUMapMode = { READ: 1 };
 function fixture() {
@@ -125,9 +117,9 @@ test("same-frame costs separate scopes and independent management/evaluation ari
   const result = summarizeGpuTimingCost([
     { label: "frame-span", scope: "span", durationMs: 20 },
     { label: "surface", scope: "stage", durationMs: 17 },
-    { label: "Surface/emit_surface_requests", scope: "pass", durationMs: 3 },
-    { label: "Surface/unique GeometryRecord", scope: "pass", durationMs: 5 },
-    { label: "Surface/reconstruct", scope: "pass", durationMs: 2 },
+    { label: "SurfaceV4/bins count", scope: "pass", durationMs: 3 },
+    { label: "SurfaceV4/native opaque", scope: "pass", durationMs: 5 },
+    { label: "SurfaceV4/empty background", scope: "pass", durationMs: 2 },
     { label: "unknown", scope: "pass", durationMs: 1 }
   ]);
   assert.equal(result.passSumMs, 11);
@@ -141,36 +133,7 @@ test("same-frame costs separate scopes and independent management/evaluation ari
     null
   );
 });
-test("diagnostic unit is independently 48 bytes / 4; queue descriptions never prove completion", () => {
-  const id = { runId: "test", deviceEpoch: 1, frameId: 9 },
-    words = new Uint32Array(SURFACE_DIAGNOSTICS_BYTE_SIZE / 4);
-  writeSurfaceDiagnosticsHeader(words, id, "detailed");
-  for (const [name, value] of [
-    ["domainDescriptions", 7],
-    ["geometryRecordStrideWords", 12],
-    ["materialMissQueued", 7]
-  ]) {
-    const index = C[name];
-    words[8 + (index >>> 5)] |= 1 << (index & 31);
-    words[SURFACE_DIAGNOSTICS_HEADER_WORDS + index] = value;
-  }
-  const snapshot = decodeSurfaceDiagnostics(words.buffer, id, "detailed");
-  assert.equal(snapshot.values.domainDescriptions, 7);
-  assert.equal(snapshot.values.geometryRecordStrideWords, 12);
-  assert.equal(snapshot.values.materialEvaluatorCompleted, undefined);
-  assert.equal(snapshot.coverage.status, "unknown");
-  assert.equal(SURFACE_DIAGNOSTIC_DESCRIPTORS.materialMissQueued.availability, "unavailable");
-  assert.equal(
-    decodeSurfaceDiagnostics(words.buffer, { ...id, frameId: 10 }, "detailed").availability,
-    "invalid"
-  );
-  for (const retiredStride of [8, 16, 32]) {
-    words[SURFACE_DIAGNOSTICS_HEADER_WORDS + C.geometryRecordStrideWords] = retiredStride;
-    const rejected = decodeSurfaceDiagnostics(words.buffer, id, "detailed");
-    assert.equal(rejected.coverage.status, "fail");
-    assert.ok(rejected.coverage.violations.includes("geometry record stride mismatch"));
-  }
-});
+
 test("physical ledger deduplicates imports and reports retired peaks independently", () => {
   const ledger = new ResourceAccounting(),
     physical = {},
@@ -240,7 +203,7 @@ test("partial query coverage never attributes missing evaluation to copy/clear o
   const cost = summarizeGpuTimingCost(
     [
       { label: "frame-span", scope: "span", durationMs: 7 },
-      { label: "Surface/emit_surface_requests", scope: "pass", durationMs: 2 }
+      { label: "SurfaceV4/bins count", scope: "pass", durationMs: 2 }
     ],
     false
   );
@@ -338,7 +301,7 @@ test("library benchmark retains truncated facts but cannot publish complete phas
     pending: false,
     segments: [
       {
-        label: "Surface/emit_surface_requests",
+        label: "SurfaceV4/bins count",
         type: "compute",
         phase: "unclassified",
         scope: "pass",

@@ -7,14 +7,14 @@ import { ShadeDrawSide, ShadeTransparencyMode } from "../material/enums.js";
 import {
   GPU_INSTANCE_FLAGS,
   GPU_INSTANCE_MATERIAL_CLASSIFICATION_MASK,
-  encodeInstanceShadingBinId,
+  encodeInstanceShadingBinId
 } from "./GpuInstanceAbi.js";
 import type {
   ActiveShadingSummary,
   GpuShadingBulkPublication,
   GpuShadingGeometryPublication,
   GpuShadingInstancePublication,
-  GpuShadingMaterialPublication,
+  GpuShadingMaterialPublication
 } from "./GpuShadingPublication.js";
 import {
   deriveGpuShadingIdentity,
@@ -22,17 +22,15 @@ import {
   GPU_SHADING_DEPENDENCY_COUNT,
   ShadingIdentityPublicationError,
   type GpuShadingGeometryProfile,
-  type GpuShadingMaterialProfile,
+  type GpuShadingMaterialProfile
 } from "./GpuShadingProgramAbi.js";
 import type { Scene } from "../scene/Scene.js";
 import type { Mesh } from "../scene/Mesh.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
-import { prepareMeshletRasterPipelines } from "../render/MeshletBucketRaster.js";
-import { prepareVsmAtlasRasterPipelines } from "../render/vsm/VsmAtlasRasterPass.js";
 import type { SceneResidencyManifest } from "./GpuSceneResidencyManifest.js";
 import {
   composeGpuPackedMaterialBindings,
-  type GpuPackedMaterialBindings,
+  type GpuPackedMaterialBindings
 } from "./GpuPackedMaterialBindings.js";
 import type { AssetHandle, GpuAssetBindings } from "./GpuAssetStore.js";
 import type { GpuMaterialAssociationSource, GpuMaterialStageHandle } from "./GpuMaterialStore.js";
@@ -44,12 +42,12 @@ import type {
   InstanceSource,
   InstanceStaticPatch,
   InstanceVisibilityPatch,
-  InstanceTransformPatch,
+  InstanceTransformPatch
 } from "./GpuScene.js";
 import type { ResourceHandle as AccountingResourceHandle } from "../debug/profiling/ResourceAccounting.js";
 import type { GeometryProductGpuBindingsV1 } from "./VirtualGeometryResidency.js";
 import { residentSamplingProfile } from "./PhysicalSamplingProfile.js";
-import { GpuAppearancePublication, type AppearancePublicationSource } from "./GpuAppearancePublication.js";
+import { GpuNativeMaterialScene, type NativeSceneMaterialSource } from "./GpuNativeMaterialScene.js";
 import type { CompiledAppearanceGraph } from "../material/AppearanceGraphCompiler.js";
 import type { TextureSurfacePublication } from "./TextureVariation.js";
 import type { ShadeTexture } from "../texture/ShadeTexture.js";
@@ -184,7 +182,7 @@ export interface GpuRenderWorldRuntime {
   readonly materialResources: GpuPackedMaterialBindings;
   readonly appearancePrograms: readonly CompiledAppearanceGraph[];
   /** Prepared before production Renderer upload submits; new Surface consumes at cutover. */
-  readonly appearancePublication: GpuAppearancePublication | null;
+  readonly nativeMaterials: GpuNativeMaterialScene | null;
   readonly instanceBegin: number;
   readonly instanceCount: number;
   /** Number of resident instances whose current material class is BLEND. */
@@ -265,15 +263,16 @@ export class GpuRenderWorld {
   private readonly recoveryGeometry = new Map<Scene, readonly GeometryAssetPackage[]>();
   private readonly releasingCommands = new Map<Scene, ShadeGPUCommandContext>();
   private readonly stagedRuntimes = new WeakMap<GpuRenderWorldHandle, GpuRenderWorldRuntime>();
-  private readonly appearancePublications = new Set<GpuAppearancePublication>();
-  private readonly appearancePreparation = new Map<
+  private readonly nativeMaterialss = new Set<GpuNativeMaterialScene>();
+  private readonly nativePreparation = new Map<
     GpuRenderWorldHandle,
     {
       command: ShadeGPUCommandContext;
-      sources: readonly AppearancePublicationSource[];
+      sources: readonly NativeSceneMaterialSource[];
+      bindingSets: () => readonly import("./TextureResidency.js").TextureBindingSet[];
       mipRanges: ReadonlyMap<ShadeTexture, readonly [number, number]>;
       texturePublications: ReadonlyMap<ShadeTexture, TextureSurfacePublication>;
-      publication: GpuAppearancePublication | null;
+      publication: GpuNativeMaterialScene | null;
       ready: Promise<void> | null;
     }
   >();
@@ -288,7 +287,7 @@ export class GpuRenderWorld {
     manifest: SceneResidencyManifest,
     assetHandles: readonly AssetHandle[],
     command: ShadeGPUCommandContext,
-    ordinaryMeshes?: readonly Mesh[],
+    ordinaryMeshes?: readonly Mesh[]
   ): GpuRenderWorldHandle {
     if (
       manifest.packages.length !== manifest.source.geometries.length ||
@@ -314,7 +313,7 @@ export class GpuRenderWorld {
       readonly hierarchyVisibleClusterCapacity: number;
       readonly hierarchyRasterWorkCapacity: number;
     }>,
-    appendFrom?: Readonly<{ runtime: GpuRenderWorldRuntime; previousCount: number }>,
+    appendFrom?: Readonly<{ runtime: GpuRenderWorldRuntime; previousCount: number }>
   ): GpuRenderWorldHandle {
     if (
       this.byScene.has(scene) &&
@@ -340,25 +339,25 @@ export class GpuRenderWorld {
             maxHierarchyDepth: virtualProduct.hierarchyMaxDepth,
             traversalWorkCapacity: virtualProduct.hierarchyTraversalCapacity,
             visibleClusterCapacity: virtualProduct.hierarchyVisibleClusterCapacity,
-            rasterWorkCapacity: virtualProduct.hierarchyRasterWorkCapacity,
+            rasterWorkCapacity: virtualProduct.hierarchyRasterWorkCapacity
           };
     const textureStage = this.graphics.texture_residency.stage(source.materials, command);
     const classification = createPackedSceneClassificationState(
       source,
       source.materials.map((material) => textureStage.materialBindingSetIds.get(material)!),
-      virtualProduct?.geometryProfiles,
+      virtualProduct?.geometryProfiles
     );
     const associationPlan = createPackedSceneMaterialAssociationPlan(
       source.materials,
       classification.geometryProfiles,
-      classification.materialBindingSetIds,
+      classification.materialBindingSetIds
     );
     const materialStage = this.graphics.material_store.stage(
       associationPlan.sources,
       textureStage.materialTextureRoutingRefs,
       command,
       textureStage.textureMipRanges,
-      textureStage.surfacePublications,
+      textureStage.surfacePublications
     );
     initializeRenderWorldShadingPublication(
       classification,
@@ -367,11 +366,11 @@ export class GpuRenderWorld {
         ? assetHandles.map((handle) => this.graphics.assets.publicationIdentity(handle))
         : Array.from({ length: virtualProduct.assetCount }, (_, index) => ({
             slot: index,
-            generation: virtualProduct.bindings.productGeneration,
+            generation: virtualProduct.bindings.productGeneration
           })),
       materialStage.materialGeneration,
       materialStage.textureGeneration,
-      materialStage.publicationRevision,
+      materialStage.publicationRevision
     );
     const materialBinSlots = mapMaterialAssociationSlots(associationPlan, materialStage.associationSlots);
     const geometryHandles = Object.freeze([...assetHandles]);
@@ -381,7 +380,7 @@ export class GpuRenderWorld {
         materialBinSlots,
         source.materials.length,
         source.materialIndices[index]!,
-        classification.binIds[index]!,
+        classification.binIds[index]!
       );
     }
     const normalizedFlags = new Uint32Array(source.count);
@@ -390,7 +389,7 @@ export class GpuRenderWorld {
       normalizedFlags[index] = materialClassificationFlags(
         material,
         classification.binIds[index]!,
-        source.flags?.[index] ?? 0,
+        source.flags?.[index] ?? 0
       );
     }
     const instanceSource: InstanceSource = {
@@ -404,8 +403,8 @@ export class GpuRenderWorld {
               productGeneration: virtualProduct.bindings.productGeneration,
               assetCount: virtualProduct.assetCount,
               productTableSlots: source.productTableSlots,
-              productGenerations: source.productGenerations,
-            },
+              productGenerations: source.productGenerations
+            }
           }),
       geometryIndices: source.geometryIndices,
       materialHandles,
@@ -417,7 +416,7 @@ export class GpuRenderWorld {
       boundsMin: source.boundsMin,
       boundsMax: source.boundsMax,
       flags: normalizedFlags,
-      debugIds: source.debugIds,
+      debugIds: source.debugIds
     };
     let instanceHandle: InstanceSetHandle;
     let instanceBegin: number;
@@ -428,7 +427,7 @@ export class GpuRenderWorld {
       counterSink = this.createCounterSink({
         label: "GpuRenderWorld/disabled-counter-sink",
         size: GPU_COUNTER_BYTE_SIZE,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
       });
     } else {
       const begin = appendFrom.previousCount;
@@ -449,8 +448,8 @@ export class GpuRenderWorld {
         virtualGeometry: {
           ...instanceSource.virtualGeometry!,
           productTableSlots: source.productTableSlots?.subarray(begin),
-          productGenerations: source.productGenerations?.subarray(begin),
-        },
+          productGenerations: source.productGenerations?.subarray(begin)
+        }
       };
       instanceHandle = appendFrom.runtime.instanceHandle;
       instanceBegin = appendFrom.runtime.instanceBegin;
@@ -458,10 +457,13 @@ export class GpuRenderWorld {
       this.graphics.gpu_scene.append(instanceHandle, delta, materialHandles.subarray(0, begin), command);
       this.graphics.material_store.release(appendFrom.runtime.materialPublication, command);
       this.graphics.texture_residency.release(appendFrom.runtime.materials, command);
-      appendFrom.runtime.appearancePublication?.release(command);
+      appendFrom.runtime.nativeMaterials?.release(command);
     }
     const handle = Object.freeze({}) as GpuRenderWorldHandle;
+    let uploaded = false;
     const appearance = {
+      bindingSets: () =>
+        uploaded ? this.graphics.texture_residency.bindings().bindingSets : textureStage.bindings.bindingSets,
       command,
       sources: Object.freeze(
         associationPlan.sources.map((association, index) =>
@@ -469,18 +471,17 @@ export class GpuRenderWorld {
             materialSlot: materialStage.associationSlots[index]!,
             material: association.material,
             textureBindingSetId: association.textureBindingSetId,
-            program: materialStage.appearancePrograms[index]!,
-            fieldVersions: materialStage.appearanceFieldVersions[index]!,
-            textureRefs: textureStage.materialTextureRoutingRefs.get(association.material)!,
-          }),
-        ),
+            graph: materialStage.appearancePrograms[index]!,
+            textureRefs: textureStage.materialTextureRoutingRefs.get(association.material)!
+          })
+        )
       ),
       mipRanges: textureStage.textureMipRanges,
       texturePublications: textureStage.surfacePublications,
-      publication: null as GpuAppearancePublication | null,
-      ready: null as Promise<void> | null,
+      publication: null as GpuNativeMaterialScene | null,
+      ready: null as Promise<void> | null
     };
-    this.appearancePreparation.set(handle, appearance);
+    this.nativePreparation.set(handle, appearance);
     const runtime: GpuRenderWorldRuntime = Object.freeze({
       handle,
       scene,
@@ -494,7 +495,7 @@ export class GpuRenderWorld {
       instanceHandle,
       materials: Object.freeze([...source.materials]),
       opaqueMaterialCount: associationPlan.sources.filter(
-        (association) => association.material.transparency_mode !== ShadeTransparencyMode.Transparent,
+        (association) => association.material.transparency_mode !== ShadeTransparencyMode.Transparent
       ).length,
       materialPublication: materialStage.handle,
       materialBinSlots,
@@ -503,7 +504,7 @@ export class GpuRenderWorld {
       textureGeneration: materialStage.textureGeneration,
       materialPublicationRevision: materialStage.publicationRevision,
       appearancePrograms: materialStage.appearancePrograms,
-      get appearancePublication() {
+      get nativeMaterials() {
         return appearance.publication;
       },
       materialResources: composeGpuPackedMaterialBindings(materialStage.bindings, textureStage.bindings),
@@ -523,13 +524,14 @@ export class GpuRenderWorld {
       hierarchyRasterWorkCapacity: hierarchyCapacity.rasterWorkCapacity,
       hierarchyMaxDepth: hierarchyCapacity.maxHierarchyDepth,
       counterSink,
-      virtualGeometry: virtualProduct?.bindings ?? null,
+      virtualGeometry: virtualProduct?.bindings ?? null
     });
     this.stagedRuntimes.set(handle, runtime);
     command.onFinished.addOne(() => {
       this.stagedRuntimes.delete(handle);
-      this.appearancePreparation.delete(handle);
+      this.nativePreparation.delete(handle);
       if (appendFrom !== undefined) HANDLE_RUNTIME.delete(appendFrom.runtime.handle as object);
+      uploaded = true;
       this.byScene.set(scene, runtime);
       this.classificationByScene.set(scene, classification);
       this.recoveryGeometry.set(scene, Object.freeze([...source.geometries]));
@@ -537,13 +539,13 @@ export class GpuRenderWorld {
       if (ordinaryMeshes !== undefined) {
         this.ordinaryAdapters.set(
           scene,
-          createOrdinarySceneAdapterState(ordinaryMeshes, source.materials, scene.change_revision),
+          createOrdinarySceneAdapterState(ordinaryMeshes, source.materials, scene.change_revision)
         );
       }
     });
     command.onAborted.addOne(() => {
       this.stagedRuntimes.delete(handle);
-      this.appearancePreparation.delete(handle);
+      this.nativePreparation.delete(handle);
       if (appendFrom === undefined) this.destroyCounterSink(counterSink);
     });
     return handle;
@@ -555,7 +557,7 @@ export class GpuRenderWorld {
     source: VirtualGeometrySceneSource,
     bindings: GeometryProductGpuBindingsV1,
     command: ShadeGPUCommandContext,
-    replacing = false,
+    replacing = false
   ): GpuRenderWorldHandle {
     if (this.byScene.has(scene) && (!replacing || this.releasingCommands.get(scene) !== command)) {
       throw new Error("Scene already has a GPU Render World registration");
@@ -581,7 +583,7 @@ export class GpuRenderWorld {
         boundsMin: source.boundsMin,
         boundsMax: source.boundsMax,
         flags: source.flags,
-        debugIds: source.debugIds,
+        debugIds: source.debugIds
       },
       [],
       command,
@@ -593,8 +595,8 @@ export class GpuRenderWorld {
         hierarchyMaxDepth: source.hierarchyMaxDepth,
         hierarchyTraversalCapacity: source.hierarchyTraversalCapacity,
         hierarchyVisibleClusterCapacity: source.hierarchyVisibleClusterCapacity,
-        hierarchyRasterWorkCapacity: source.hierarchyRasterWorkCapacity,
-      },
+        hierarchyRasterWorkCapacity: source.hierarchyRasterWorkCapacity
+      }
     );
   }
 
@@ -602,7 +604,7 @@ export class GpuRenderWorld {
     scene: Scene,
     source: VirtualGeometrySceneSource,
     bindings: GeometryProductGpuBindingsV1,
-    command: ShadeGPUCommandContext,
+    command: ShadeGPUCommandContext
   ): GpuRenderWorldHandle {
     const previous = this.byScene.get(scene);
     if (previous?.sourceKind !== "virtual-product") {
@@ -629,7 +631,7 @@ export class GpuRenderWorld {
         boundsMin: source.boundsMin,
         boundsMax: source.boundsMax,
         flags: source.flags,
-        debugIds: source.debugIds,
+        debugIds: source.debugIds
       },
       [],
       command,
@@ -641,9 +643,9 @@ export class GpuRenderWorld {
         hierarchyMaxDepth: source.hierarchyMaxDepth,
         hierarchyTraversalCapacity: source.hierarchyTraversalCapacity,
         hierarchyVisibleClusterCapacity: source.hierarchyVisibleClusterCapacity,
-        hierarchyRasterWorkCapacity: source.hierarchyRasterWorkCapacity,
+        hierarchyRasterWorkCapacity: source.hierarchyRasterWorkCapacity
       },
-      { runtime: previous, previousCount: previous.instanceCount },
+      { runtime: previous, previousCount: previous.instanceCount }
     );
   }
 
@@ -655,25 +657,29 @@ export class GpuRenderWorld {
   }
 
   /** All production upload/append/swap paths await this before command.finish(). */
-  async prepareAppearance(handle: GpuRenderWorldHandle, command: ShadeGPUCommandContext): Promise<void> {
-    const preparation = this.appearancePreparation.get(handle);
+  async prepareNativeMaterials(
+    handle: GpuRenderWorldHandle,
+    command: ShadeGPUCommandContext,
+    physicalSun: boolean
+  ): Promise<void> {
+    const preparation = this.nativePreparation.get(handle);
     if (preparation === undefined || preparation.command !== command || command.closed) {
       throw new Error("Appearance preparation requires its staged Scene transaction");
     }
     if (preparation.ready === null) {
-      preparation.publication = new GpuAppearancePublication(
-        this.graphics.device,
-        this.graphics.appearance_programs,
+      preparation.publication = new GpuNativeMaterialScene(
+        this.graphics,
         preparation.sources,
-        command,
+        preparation.bindingSets,
         preparation.mipRanges,
         preparation.texturePublications,
-        this.graphics.resource_accounting,
-        this.graphics.appearance_static,
+        command,
+        this.stagedRuntimes.get(handle)!.virtualGeometry !== null,
+        physicalSun
       );
       const publication = preparation.publication;
-      this.appearancePublications.add(publication);
-      publication.onDestroyed(() => this.appearancePublications.delete(publication));
+      this.nativeMaterialss.add(publication);
+      publication.onDestroyed(() => this.nativeMaterialss.delete(publication));
       preparation.ready = preparation.publication.ready;
     }
     const runtime = this.stagedRuntimes.get(handle);
@@ -682,10 +688,7 @@ export class GpuRenderWorld {
       preparation.ready,
       this.graphics.frame_instances.ready,
       this.graphics.frame_vertices.ready,
-      this.graphics.raster_partitions.ready,
-      ...(runtime.virtualGeometry ? [this.graphics.current_hzb_recheck.ready] : []),
-      prepareMeshletRasterPipelines(this.graphics, runtime),
-      prepareVsmAtlasRasterPipelines(this.graphics, runtime),
+      ...(runtime.virtualGeometry ? [this.graphics.current_hzb_recheck.ready] : [])
     ]);
   }
 
@@ -695,7 +698,7 @@ export class GpuRenderWorld {
     manifest: SceneResidencyManifest,
     assetHandles: readonly AssetHandle[],
     meshes: readonly Mesh[],
-    command: ShadeGPUCommandContext,
+    command: ShadeGPUCommandContext
   ): GpuRenderWorldHandle {
     if (meshes.length !== manifest.source.count) {
       throw new RangeError("Ordinary Scene adapter mesh count does not match its source");
@@ -725,7 +728,7 @@ export class GpuRenderWorld {
       const snapshot = scene.changesSince(adapter.lastRevision);
       if (snapshot.fullResyncRequired || snapshot.instanceStructureChanged) {
         throw new Error(
-          `Ordinary Scene ${scene.id} requires explicit resyncScene() after a structural change`,
+          `Ordinary Scene ${scene.id} requires explicit resyncScene() after a structural change`
         );
       }
       const materialIndices: number[] = [];
@@ -746,8 +749,8 @@ export class GpuRenderWorld {
           frameId: snapshot.revision,
           materials: {
             indices: Uint32Array.from(materialIndices),
-            materialIndices: Uint32Array.from(materialDictionaryIndices),
-          },
+            materialIndices: Uint32Array.from(materialDictionaryIndices)
+          }
         };
       }
     }
@@ -783,7 +786,7 @@ export class GpuRenderWorld {
       this.graphics.material_store.release(runtime.materialPublication, command);
       this.graphics.texture_residency.release(runtime.materials, command);
       this.graphics.gpu_scene.release(runtime.instanceHandle, command);
-      runtime.appearancePublication?.release(command);
+      runtime.nativeMaterials?.release(command);
     } catch (error) {
       this.releasingScenes.delete(scene);
       this.releasingCommands.delete(scene);
@@ -834,10 +837,10 @@ export class GpuRenderWorld {
           count: runtime.instanceCount,
           geometryIndices: classification.geometryIndices.slice(),
           materialIndices: classification.materialIndices.slice(),
-          ...this.graphics.gpu_scene.recoveryInstances(runtime.instanceHandle),
+          ...this.graphics.gpu_scene.recoveryInstances(runtime.instanceHandle)
         } satisfies PackedSceneSource,
         ordinaryMeshes: adapter?.meshes,
-        queuedPatch: this.pendingPatches.get(runtime.scene)?.batch,
+        queuedPatch: this.pendingPatches.get(runtime.scene)?.batch
       };
     });
   }
@@ -853,13 +856,13 @@ export class GpuRenderWorld {
       runtime.materialBinSlots,
       runtime.materialDictionaryCount,
       runtime.materials,
-      this.classificationByScene.get(scene)!,
+      this.classificationByScene.get(scene)!
     );
     const result = this.graphics.gpu_scene.patch(runtime.instanceHandle, batch, command);
     const rollbackClassification = applyClassificationPatch(
       pending.batch,
       this.classificationByScene.get(scene)!,
-      runtime.materials,
+      runtime.materials
     );
     this.pendingPatches.delete(scene);
     command.onAborted.addOne(() => {
@@ -871,7 +874,7 @@ export class GpuRenderWorld {
 
   private encodeOrdinarySceneChanges(
     scene: Scene,
-    command: ShadeGPUCommandContext,
+    command: ShadeGPUCommandContext
   ): InstancePatchResult | null {
     const adapter = this.ordinaryAdapters.get(scene);
     if (adapter === undefined) return null;
@@ -920,15 +923,15 @@ export class GpuRenderWorld {
           ? undefined
           : {
               indices: Uint32Array.from(transformIndices),
-              transforms: Float32Array.from(transformValues),
+              transforms: Float32Array.from(transformValues)
             },
       materials:
         materialIndices.length === 0
           ? undefined
           : {
               indices: Uint32Array.from(materialIndices),
-              materialIndices: Uint32Array.from(materialDictionaryIndices),
-            },
+              materialIndices: Uint32Array.from(materialDictionaryIndices)
+            }
     };
     const result = this.graphics.gpu_scene.patch(
       runtime.instanceHandle,
@@ -937,14 +940,14 @@ export class GpuRenderWorld {
         runtime.materialBinSlots,
         runtime.materialDictionaryCount,
         runtime.materials,
-        this.classificationByScene.get(scene)!,
+        this.classificationByScene.get(scene)!
       ),
-      command,
+      command
     );
     const rollbackClassification = applyClassificationPatch(
       batch,
       this.classificationByScene.get(scene)!,
-      runtime.materials,
+      runtime.materials
     );
     command.onFinished.addOne(() => {
       adapter.lastRevision = snapshot.revision;
@@ -957,7 +960,7 @@ export class GpuRenderWorld {
   bindings(): { assets: GpuAssetBindings; scene: GpuSceneBindings } {
     return {
       assets: this.graphics.assets.bindings(),
-      scene: this.graphics.gpu_scene.bindings(),
+      scene: this.graphics.gpu_scene.bindings()
     };
   }
 
@@ -987,17 +990,17 @@ export class GpuRenderWorld {
       hierarchyVisibleClusterCapacity,
       hierarchyRasterWorkCapacity,
       flatWorkBytes: 0,
-      privateSubmitCount: 0,
+      privateSubmitCount: 0
     });
   }
 
   destroy(): void {
-    for (const publication of this.appearancePublications) publication.destroy();
-    this.appearancePublications.clear();
-    for (const preparation of this.appearancePreparation.values()) preparation.publication?.destroy();
-    this.appearancePreparation.clear();
+    for (const publication of this.nativeMaterialss) publication.destroy();
+    this.nativeMaterialss.clear();
+    for (const preparation of this.nativePreparation.values()) preparation.publication?.destroy();
+    this.nativePreparation.clear();
     for (const runtime of this.byScene.values()) {
-      runtime.appearancePublication?.destroy();
+      runtime.nativeMaterials?.destroy();
       this.destroyCounterSink(runtime.counterSink);
     }
     this.byScene.clear();
@@ -1016,7 +1019,7 @@ export class GpuRenderWorld {
     stagingBytes: number;
   }> {
     const total = { allocatedBytes: 0, residentBytes: 0, retiringBytes: 0, stagingBytes: 0 };
-    for (const publication of this.appearancePublications) {
+    for (const publication of this.nativeMaterialss) {
       const entry = publication.evidence();
       total.allocatedBytes += entry.allocatedBytes;
       total.residentBytes += entry.residentBytes;
@@ -1037,8 +1040,8 @@ export class GpuRenderWorld {
           category: "resident",
           owner: "GpuRenderWorld",
           bytes: descriptor.size,
-          label: descriptor.label,
-        }),
+          label: descriptor.label
+        })
       );
     }
     return buffer;
@@ -1057,7 +1060,7 @@ export class GpuRenderWorld {
 function createOrdinarySceneAdapterState(
   meshes: readonly Mesh[],
   materials: readonly StandardShadeMaterial[],
-  lastRevision: number,
+  lastRevision: number
 ): OrdinarySceneAdapterState {
   const instanceIndexByMesh = new Map<Mesh, number>();
   for (let index = 0; index < meshes.length; index++) {
@@ -1075,14 +1078,14 @@ function createOrdinarySceneAdapterState(
     meshes: Object.freeze([...meshes]),
     instanceIndexByMesh,
     materialIndexByMaterial,
-    lastRevision,
+    lastRevision
   };
 }
 
 function createPackedSceneClassificationState(
   source: PackedSceneSource,
   materialBindingSetIds: readonly number[],
-  geometryProfiles?: readonly Readonly<GpuShadingGeometryProfile>[],
+  geometryProfiles?: readonly Readonly<GpuShadingGeometryProfile>[]
 ): PackedSceneClassificationState {
   const state: PackedSceneClassificationState = {
     materialIndices: source.materialIndices.slice(),
@@ -1097,7 +1100,7 @@ function createPackedSceneClassificationState(
     dependencyRefCounts: new Uint32Array(GPU_SHADING_DEPENDENCY_COUNT),
     materialBindingSetIds: Object.freeze([...materialBindingSetIds]),
     geometryProfiles: Object.freeze(
-      geometryProfiles === undefined ? source.geometries.map(shadingGeometryProfile) : [...geometryProfiles],
+      geometryProfiles === undefined ? source.geometries.map(shadingGeometryProfile) : [...geometryProfiles]
     ),
     geometryPublicationIds: Object.freeze([]),
     transparentInstanceCount: 0,
@@ -1109,7 +1112,7 @@ function createPackedSceneClassificationState(
     materialPublications: Object.freeze([]),
     geometryPublications: Object.freeze([]),
     instancePublications: Object.freeze([]),
-    publication: null,
+    publication: null
   };
   for (let instanceIndex = 0; instanceIndex < source.count; instanceIndex++) {
     resolveInstanceShadingIdentity(state, instanceIndex, source.materials);
@@ -1120,7 +1123,7 @@ function createPackedSceneClassificationState(
 }
 
 function clonePackedSceneClassificationState(
-  source: PackedSceneClassificationState,
+  source: PackedSceneClassificationState
 ): PackedSceneClassificationState {
   return {
     materialIndices: source.materialIndices.slice(),
@@ -1145,7 +1148,7 @@ function clonePackedSceneClassificationState(
     materialPublications: source.materialPublications,
     geometryPublications: source.geometryPublications,
     instancePublications: source.instancePublications,
-    publication: source.publication,
+    publication: source.publication
   };
 }
 
@@ -1155,7 +1158,7 @@ function initializeRenderWorldShadingPublication(
   geometryIdentities: readonly Readonly<{ readonly slot: number; readonly generation: number }>[],
   materialGeneration: number,
   textureGeneration: number,
-  materialPublicationRevision: number,
+  materialPublicationRevision: number
 ): void {
   if (state.publication !== null) {
     throw new Error("GPU Render World shading publication is already initialized");
@@ -1170,29 +1173,29 @@ function initializeRenderWorldShadingPublication(
         id,
         profile: Object.freeze(shadingMaterialProfile(material, state.materialBindingSetIds[id]!)),
         generation: materialGeneration,
-        textureGeneration,
-      }),
-    ),
+        textureGeneration
+      })
+    )
   );
   state.geometryPublications = Object.freeze(
     state.geometryProfiles.map((profile, index) =>
       Object.freeze({
         id: geometryIdentities[index]!.slot,
         profile,
-        generation: geometryIdentities[index]!.generation,
-      }),
-    ),
+        generation: geometryIdentities[index]!.generation
+      })
+    )
   );
   state.instancePublications = Object.freeze(
     Array.from({ length: state.materialIndices.length }, (_, instanceIndex) =>
-      freezeRenderWorldInstancePublication(state, source.materials, instanceIndex, state.revision),
-    ),
+      freezeRenderWorldInstancePublication(state, source.materials, instanceIndex, state.revision)
+    )
   );
   state.publication = freezeRenderWorldShadingPublication(
     state,
     materialGeneration,
     textureGeneration,
-    materialPublicationRevision,
+    materialPublicationRevision
   );
 }
 
@@ -1200,7 +1203,7 @@ function freezeRenderWorldInstancePublication(
   state: PackedSceneClassificationState,
   materials: readonly StandardShadeMaterial[],
   instanceIndex: number,
-  generation: number,
+  generation: number
 ): Readonly<GpuShadingInstancePublication> {
   return Object.freeze({
     id: instanceIndex,
@@ -1208,7 +1211,7 @@ function freezeRenderWorldInstancePublication(
     geometryId: state.geometryPublicationIds[state.geometryIndices[instanceIndex]!]!,
     active: state.active[instanceIndex] !== 0,
     transparent: isTransparentMaterial(materials[state.materialIndices[instanceIndex]!]!),
-    generation,
+    generation
   });
 }
 
@@ -1216,7 +1219,7 @@ function freezeRenderWorldShadingPublication(
   state: PackedSceneClassificationState,
   materialGeneration: number,
   textureGeneration: number,
-  materialPublicationRevision: number,
+  materialPublicationRevision: number
 ): Readonly<GpuRenderWorldShadingPublication> {
   if (state.summary.revision !== state.revision) {
     throw new Error("GPU Render World shading summary revision is not atomic");
@@ -1231,13 +1234,13 @@ function freezeRenderWorldShadingPublication(
     source: Object.freeze({
       materials: state.materialPublications,
       geometries: state.geometryPublications,
-      instances: state.instancePublications,
-    }),
+      instances: state.instancePublications
+    })
   });
 }
 
 function requireShadingPublication(
-  state: PackedSceneClassificationState,
+  state: PackedSceneClassificationState
 ): Readonly<GpuRenderWorldShadingPublication> {
   if (state.publication === null) {
     throw new Error("GPU Render World shading publication is not initialized");
@@ -1255,7 +1258,7 @@ function requireShadingPublication(
 function createPackedSceneMaterialAssociationPlan(
   materials: readonly StandardShadeMaterial[],
   geometryProfiles: readonly Readonly<GpuShadingGeometryProfile>[],
-  materialBindingSetIds: readonly number[],
+  materialBindingSetIds: readonly number[]
 ): PackedSceneMaterialAssociationPlan {
   const sourceIndexByMaterialBin = new Uint32Array(materials.length * 64);
   sourceIndexByMaterialBin.fill(INVALID_MATERIAL_ASSOCIATION);
@@ -1271,7 +1274,7 @@ function createPackedSceneMaterialAssociationPlan(
       try {
         identity = deriveGpuShadingIdentity(
           shadingMaterialProfile(material, materialBindingSetIds[materialIndex]!),
-          geometryProfile,
+          geometryProfile
         );
       } catch (error) {
         if (
@@ -1294,21 +1297,21 @@ function createPackedSceneMaterialAssociationPlan(
           Object.freeze({
             material,
             programId: identity.programId,
-            textureBindingSetId: identity.textureBindingSetId,
-          }),
+            textureBindingSetId: identity.textureBindingSetId
+          })
         );
       }
     }
   }
   return Object.freeze({
     sources: Object.freeze(sources),
-    sourceIndexByMaterialBin,
+    sourceIndexByMaterialBin
   });
 }
 
 function mapMaterialAssociationSlots(
   plan: PackedSceneMaterialAssociationPlan,
-  gpuSlots: readonly number[],
+  gpuSlots: readonly number[]
 ): Uint32Array {
   if (gpuSlots.length !== plan.sources.length) {
     throw new Error("GpuMaterialStore association slots do not match the publication plan");
@@ -1326,7 +1329,7 @@ function materialAssociationSlot(
   slots: Readonly<Uint32Array>,
   materialCount: number,
   materialIndex: number,
-  binId: number,
+  binId: number
 ): number {
   if (materialIndex >= materialCount || slots.length !== materialCount * 64) {
     throw new RangeError("Material association table shape is invalid");
@@ -1335,7 +1338,7 @@ function materialAssociationSlot(
   if (slot === undefined || slot === INVALID_MATERIAL_ASSOCIATION) {
     throw new ShadingIdentityPublicationError(
       "INVALID_DEPENDENCY_MASK",
-      `Material ${materialIndex} has no published association for ShadingBinId ${binId}`,
+      `Material ${materialIndex} has no published association for ShadingBinId ${binId}`
     );
   }
   return slot;
@@ -1376,7 +1379,7 @@ interface ClassificationPatchEntry {
 function applyClassificationPatch(
   batch: PackedScenePatchBatch,
   state: PackedSceneClassificationState,
-  materials: readonly StandardShadeMaterial[],
+  materials: readonly StandardShadeMaterial[]
 ): () => void {
   if (batch.materials === undefined && batch.visibility === undefined) return () => {};
   const previousEntries = new Map<number, ClassificationPatchEntry>();
@@ -1398,7 +1401,7 @@ function applyClassificationPatch(
       assertInstanceIndex(instanceIndex, state, `visibility patch indices[${patchIndex}]`);
       nextActive.set(
         instanceIndex,
-        (batch.visibility.flags[patchIndex]! & GPU_INSTANCE_FLAGS.Active) === 0 ? 0 : 1,
+        (batch.visibility.flags[patchIndex]! & GPU_INSTANCE_FLAGS.Active) === 0 ? 0 : 1
       );
     }
   }
@@ -1409,7 +1412,7 @@ function applyClassificationPatch(
       active: state.active[instanceIndex]!,
       binId: state.binIds[instanceIndex]!,
       coated: state.coated[instanceIndex]!,
-      dependencyMask: state.dependencyMasks[instanceIndex]!,
+      dependencyMask: state.dependencyMasks[instanceIndex]!
     });
   }
   const previousSummary = state.summary;
@@ -1431,7 +1434,7 @@ function applyClassificationPatch(
     const active = nextActive.get(instanceIndex) ?? state.active[instanceIndex]!;
     const identity = deriveGpuShadingIdentity(
       shadingMaterialProfile(materials[materialIndex]!, state.materialBindingSetIds[materialIndex]!),
-      shadingGeometryProfileFromState(state, instanceIndex),
+      shadingGeometryProfileFromState(state, instanceIndex)
     );
     const coated = materials[materialIndex]!.clearcoat_factor > 0 ? 1 : 0;
     if (
@@ -1462,7 +1465,7 @@ function applyClassificationPatch(
         state,
         materials,
         instanceIndex,
-        state.revision,
+        state.revision
       );
     }
     state.instancePublications = Object.freeze(publications);
@@ -1471,7 +1474,7 @@ function applyClassificationPatch(
       state,
       current.materialGeneration,
       current.textureGeneration,
-      current.materialPublicationRevision,
+      current.materialPublicationRevision
     );
   }
   return () => {
@@ -1500,12 +1503,12 @@ function applyClassificationPatch(
 function resolveInstanceShadingIdentity(
   state: PackedSceneClassificationState,
   instanceIndex: number,
-  materials: readonly StandardShadeMaterial[],
+  materials: readonly StandardShadeMaterial[]
 ): void {
   const materialIndex = state.materialIndices[instanceIndex]!;
   const identity = deriveGpuShadingIdentity(
     shadingMaterialProfile(materials[materialIndex]!, state.materialBindingSetIds[materialIndex]!),
-    shadingGeometryProfileFromState(state, instanceIndex),
+    shadingGeometryProfileFromState(state, instanceIndex)
   );
   state.binIds[instanceIndex] = identity.binId;
   state.coated[instanceIndex] = materials[materialIndex]!.clearcoat_factor > 0 ? 1 : 0;
@@ -1514,7 +1517,7 @@ function resolveInstanceShadingIdentity(
 
 function shadingMaterialProfile(
   material: StandardShadeMaterial,
-  textureBindingSetId: number,
+  textureBindingSetId: number
 ): GpuShadingMaterialProfile {
   // The physical set is a binding choice, never a closure/program identity.
   residentSamplingProfile(textureBindingSetId);
@@ -1530,12 +1533,12 @@ function shadingMaterialProfile(
         [material.clearcoat_factor > 0 ? material.texture_clearcoat : undefined, material.clearcoat_uv_set],
         [
           material.clearcoat_factor > 0 ? material.texture_clearcoat_roughness : undefined,
-          material.clearcoat_roughness_uv_set,
+          material.clearcoat_roughness_uv_set
         ],
         [
           material.clearcoat_factor > 0 ? material.texture_clearcoat_normal : undefined,
-          material.clearcoat_normal_uv_set,
-        ],
+          material.clearcoat_normal_uv_set
+        ]
       ] as const)
     : [];
   let requiredUvSetsMask = 0;
@@ -1556,7 +1559,7 @@ function shadingMaterialProfile(
     hasOcclusionTexture,
     hasExtensionTexture: extensionTextures.some(([texture]) => texture !== undefined),
     requiredUvSetsMask,
-    textureBindingSetId,
+    textureBindingSetId
   };
 }
 
@@ -1569,7 +1572,7 @@ function uvSetMask(uvSet: number, materialName: string): number {
 
 function shadingGeometryProfile(geometry: GeometryAssetPackage): Readonly<GpuShadingGeometryProfile> {
   const semantics = new Set(
-    geometry.vertexStreamDescriptors.map((descriptor) => descriptor.semantic.toLowerCase()),
+    geometry.vertexStreamDescriptors.map((descriptor) => descriptor.semantic.toLowerCase())
   );
   return Object.freeze({
     hasAuthoredVertexColor: semantics.has("color"),
@@ -1577,13 +1580,13 @@ function shadingGeometryProfile(geometry: GeometryAssetPackage): Readonly<GpuSha
     hasUv1: semantics.has("uv1"),
     hasUv2: semantics.has("uv2"),
     hasNormal: semantics.has("normal"),
-    hasTangent: semantics.has("tangent"),
+    hasTangent: semantics.has("tangent")
   });
 }
 
 function shadingGeometryProfileFromState(
   state: PackedSceneClassificationState,
-  instanceIndex: number,
+  instanceIndex: number
 ): Readonly<GpuShadingGeometryProfile> {
   return state.geometryProfiles[state.geometryIndices[instanceIndex]!]!;
 }
@@ -1591,14 +1594,14 @@ function shadingGeometryProfileFromState(
 function addClassificationContribution(
   state: PackedSceneClassificationState,
   instanceIndex: number,
-  materials: readonly StandardShadeMaterial[],
+  materials: readonly StandardShadeMaterial[]
 ): void {
   const material = materials[state.materialIndices[instanceIndex]!]!;
   const transparent = isTransparentMaterial(material);
   if (transparent)
     state.transparentInstanceCount = incrementU32(
       state.transparentInstanceCount,
-      "Transparent instance count",
+      "Transparent instance count"
     );
   if (state.active[instanceIndex] === 0) return;
   const dependencyMask = state.dependencyMasks[instanceIndex]!;
@@ -1608,7 +1611,7 @@ function addClassificationContribution(
     if (lit)
       state.transparentLitReceiverCount = incrementU32(
         state.transparentLitReceiverCount,
-        "Transparent lit receiver count",
+        "Transparent lit receiver count"
       );
     return;
   }
@@ -1623,7 +1626,7 @@ function addClassificationContribution(
   } else {
     state.opaqueUnlitReceiverCount = incrementU32(
       state.opaqueUnlitReceiverCount,
-      "Opaque unlit receiver count",
+      "Opaque unlit receiver count"
     );
   }
 }
@@ -1631,14 +1634,14 @@ function addClassificationContribution(
 function removeClassificationContribution(
   state: PackedSceneClassificationState,
   instanceIndex: number,
-  materials: readonly StandardShadeMaterial[],
+  materials: readonly StandardShadeMaterial[]
 ): void {
   const material = materials[state.materialIndices[instanceIndex]!]!;
   const transparent = isTransparentMaterial(material);
   if (transparent)
     state.transparentInstanceCount = decrementU32(
       state.transparentInstanceCount,
-      "Transparent instance count",
+      "Transparent instance count"
     );
   if (state.active[instanceIndex] === 0) return;
   const dependencyMask = state.dependencyMasks[instanceIndex]!;
@@ -1648,7 +1651,7 @@ function removeClassificationContribution(
     if (lit)
       state.transparentLitReceiverCount = decrementU32(
         state.transparentLitReceiverCount,
-        "Transparent lit receiver count",
+        "Transparent lit receiver count"
       );
     return;
   }
@@ -1663,7 +1666,7 @@ function removeClassificationContribution(
   } else {
     state.opaqueUnlitReceiverCount = decrementU32(
       state.opaqueUnlitReceiverCount,
-      "Opaque unlit receiver count",
+      "Opaque unlit receiver count"
     );
   }
 }
@@ -1700,7 +1703,7 @@ function freezeActiveShadingSummary(state: PackedSceneClassificationState): Read
     opaqueUnlitReceiverCount: state.opaqueUnlitReceiverCount,
     transparentLitReceiverCount: state.transparentLitReceiverCount,
     dependencyMask,
-    revision: state.revision,
+    revision: state.revision
   });
 }
 
@@ -1714,7 +1717,7 @@ const EMPTY_ACTIVE_SHADING_SUMMARY: Readonly<ActiveShadingSummary> = Object.free
   opaqueUnlitReceiverCount: 0,
   transparentLitReceiverCount: 0,
   dependencyMask: 0,
-  revision: 0,
+  revision: 0
 });
 
 function incrementU32(value: number, label: string): number {
@@ -1734,7 +1737,7 @@ function nextRevision(value: number): number {
 function assertInstanceIndex(
   instanceIndex: number,
   state: PackedSceneClassificationState,
-  label: string,
+  label: string
 ): void {
   if (instanceIndex >= state.materialIndices.length) {
     throw new RangeError(`Packed Scene ${label} is outside the instance set`);
@@ -1750,7 +1753,7 @@ function toInstancePatchBatch(
   materialBinSlots: Readonly<Uint32Array>,
   materialDictionaryCount: number,
   materialsDictionary: readonly StandardShadeMaterial[],
-  state: PackedSceneClassificationState,
+  state: PackedSceneClassificationState
 ): InstancePatchBatch {
   const materials = batch.materials;
   if (materials === undefined) {
@@ -1758,7 +1761,7 @@ function toInstancePatchBatch(
       frameId: batch.frameId,
       staticInstances: batch.staticInstances,
       transforms: batch.transforms,
-      visibility: batch.visibility,
+      visibility: batch.visibility
     };
   }
   if (materials.indices.length !== materials.materialIndices.length) {
@@ -1776,15 +1779,15 @@ function toInstancePatchBatch(
     const identity = deriveGpuShadingIdentity(
       shadingMaterialProfile(
         materialsDictionary[dictionaryIndex]!,
-        state.materialBindingSetIds[dictionaryIndex]!,
+        state.materialBindingSetIds[dictionaryIndex]!
       ),
-      shadingGeometryProfileFromState(state, instanceIndex),
+      shadingGeometryProfileFromState(state, instanceIndex)
     );
     materialHandles[index] = materialAssociationSlot(
       materialBinSlots,
       materialDictionaryCount,
       dictionaryIndex,
-      identity.binId,
+      identity.binId
     );
     flags[index] = materialClassificationFlags(materialsDictionary[dictionaryIndex]!, identity.binId, 0);
   }
@@ -1793,14 +1796,14 @@ function toInstancePatchBatch(
     staticInstances: batch.staticInstances,
     transforms: batch.transforms,
     materials: { indices: materials.indices, materialHandles, flags },
-    visibility: batch.visibility,
+    visibility: batch.visibility
   };
 }
 
 function materialClassificationFlags(
   material: StandardShadeMaterial,
   shadingBinId: number,
-  sourceFlags: number,
+  sourceFlags: number
 ): number {
   let flags = (sourceFlags & ~GPU_INSTANCE_MATERIAL_CLASSIFICATION_MASK) >>> 0;
   if (material.transparency_mode === ShadeTransparencyMode.AlphaTested) {
@@ -1855,7 +1858,7 @@ function validateVirtualSource(
     readonly hierarchyTraversalCapacity: number;
     readonly hierarchyVisibleClusterCapacity: number;
     readonly hierarchyRasterWorkCapacity: number;
-  }>,
+  }>
 ): void {
   if (assetHandles.length !== 0 || source.geometries.length !== 0) {
     throw new RangeError("Virtual Product scenes cannot include package geometry residency");
@@ -1874,7 +1877,7 @@ function validateVirtualSource(
     ["hierarchyMaxDepth", product.hierarchyMaxDepth],
     ["hierarchyTraversalCapacity", product.hierarchyTraversalCapacity],
     ["hierarchyVisibleClusterCapacity", product.hierarchyVisibleClusterCapacity],
-    ["hierarchyRasterWorkCapacity", product.hierarchyRasterWorkCapacity],
+    ["hierarchyRasterWorkCapacity", product.hierarchyRasterWorkCapacity]
   ] as const) {
     if (!Number.isSafeInteger(value) || value <= 0)
       throw new RangeError(`Virtual Product ${name} must be positive`);

@@ -350,3 +350,8 @@ function assertIntegerInRange(value: number, minimum: number, maximum: number, l
     throw new RangeError(`${label} must be an integer in [${minimum}, ${maximum}]`);
   }
 }
+
+/** The opaque winner and depth share the same raster sample domain. */
+export function gpuVisibilityKeyRenderPassAttachments(visibilityKey: GPUTextureView): readonly GPURenderPassColorAttachment[] {
+  return [{ view: visibilityKey, clearValue: { r: GPU_VISIBILITY_KEY_EMPTY, g: 0, b: 0, a: 0 }, loadOp: "clear", storeOp: "store" }];
+}

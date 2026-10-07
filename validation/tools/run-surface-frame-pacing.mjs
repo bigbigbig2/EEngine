@@ -30,7 +30,7 @@ try {
   await page.waitForFunction(() => !!globalThis.__eengineShowcase);
   await page.evaluate(() => globalThis.__eengineShowcase.start());
   await page.evaluate(() => globalThis.__eengineShowcase.capture({ width: 1920, height: 1080, frames: 1,
-    warmup: 5, coverage: "preset", distanceScale: 0.885, retainView: true, surfaceMode: "timing" }));
+    warmup: 5, coverage: "preset", distanceScale: 0.885, retainView: true }));
   if (process.argv.includes("--rotate")) {
     await page.locator("#panel-toggle").click();
     await page.getByText("自动旋转", { exact: true }).click();

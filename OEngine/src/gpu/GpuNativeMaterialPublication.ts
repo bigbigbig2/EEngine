@@ -1,3 +1,4 @@
+import type { ResourceAccounting, ResourceHandle } from "../debug/profiling/ResourceAccounting.js";
 import type { NativeMaterialProgram } from "../shaders/native_material.js";
 import { nativeMaterialParameters } from "../shaders/native_material.js";
 import { AppearanceProgramRegistry } from "./AppearanceProgramRegistry.js";
@@ -15,6 +16,7 @@ export interface NativeMaterialPublicationSource {
   /** Complete resource-limited native continuation; both pipelines publish atomically. */
   readonly continuation?: AppearanceProgramDescriptor;
   readonly parameters?: Readonly<Record<string, readonly number[]>>;
+  readonly inputs?: Float32Array<ArrayBuffer>;
   /** Scene-owned monotonic nonzero value revision, when available. */
   readonly valueRevision?: number;
   /** Additional real resource-owner revision; combined with the binding helper's revision. */
@@ -72,6 +74,7 @@ export class GpuNativeMaterialPublication {
   readonly materialSlotCount: number;
   readonly ready: Promise<void>;
   private readonly physicalBytes: number;
+  private readonly accountingHandles: ResourceHandle[] = [];
   private pipelines: readonly Awaited<AppearanceProgramLease["ready"]>[] | null = null;
   private state: "preparing" | "ready" | "committed" | "retiring" | "destroyed" = "preparing";
   private readonly leases: AppearanceProgramLease[] = [];
@@ -85,7 +88,8 @@ export class GpuNativeMaterialPublication {
   constructor(
     device: GPUDevice,
     registry: AppearanceProgramRegistry,
-    sources: readonly NativeMaterialPublicationSource[]
+    sources: readonly NativeMaterialPublicationSource[],
+    private readonly accounting?: ResourceAccounting
   ) {
     const values: number[] = [];
     const entries: NativeMaterialPublishedEntry[] = [];
@@ -135,11 +139,25 @@ export class GpuNativeMaterialPublication {
       ) {
         throw new RangeError("Native material raster requires a finite cutoff and boolean flags");
       }
-      const data = new Float32Array(parameters.length + NATIVE_MATERIAL_RASTER_CONSTANT_WORDS);
+      const instanceInputs = source.program.instanceInputs ? source.inputs : undefined;
+      if (
+        source.program.instanceInputs &&
+        (instanceInputs === undefined ||
+          instanceInputs.length !== Math.max(1, source.program.inputCount) * 4 ||
+          !instanceInputs.every(Number.isFinite))
+      ) {
+        throw new RangeError("Native instance input publication requires every compiled input slot");
+      }
+      const data = new Float32Array(
+        parameters.length + NATIVE_MATERIAL_RASTER_CONSTANT_WORDS + (instanceInputs?.length ?? 0)
+      );
       data.set(parameters);
       data[parameters.length] = Math.max(0, Math.min(1, alphaCutoff));
       data[parameters.length + 1] =
         Number(source.raster?.alphaMask ?? false) | (Number(source.raster?.hasEmissiveTexture ?? false) << 1);
+      if (instanceInputs !== undefined) {
+        data.set(instanceInputs, parameters.length + NATIVE_MATERIAL_RASTER_CONSTANT_WORDS);
+      }
       const bits = new Uint32Array(data.buffer, data.byteOffset, data.length);
       // These hashes only reject temporal reuse after changes. They are not exact identity,
       // cache keys, or substitutes for a scene owner's monotonic value revision.
@@ -283,6 +301,21 @@ export class GpuNativeMaterialPublication {
         versions.set([entry.signature, entry.valueRevision], entry.materialSlot * 2);
       }
       this.versions.unmap();
+      for (const buffer of buffers) {
+        const handle = accounting?.created(
+          {
+            kind: "buffer",
+            category: "resident",
+            owner: "GpuNativeMaterialPublication",
+            bytes: buffer.size,
+            label: buffer.label
+          },
+          buffer
+        );
+        if (handle !== undefined) {
+          this.accountingHandles.push(handle);
+        }
+      }
     } catch (error) {
       buffers.forEach((buffer) => buffer.destroy());
       this.leases.forEach((lease) => lease.release());
@@ -357,10 +390,12 @@ export class GpuNativeMaterialPublication {
       throw new Error("Only a committed native publication can retire");
     }
     this.state = "retiring";
+    this.accountingHandles.forEach((handle) => this.accounting?.setRetired(handle, true));
     return completion.finally(() => this.destroy());
   }
 
-  private destroy(): void {
+  /** Device/owner teardown. Ordinary committed replacement uses retire(fence). */
+  destroy(): void {
     if (this.state === "destroyed") {
       return;
     }
@@ -370,6 +405,8 @@ export class GpuNativeMaterialPublication {
     this.constants.destroy();
     this.directory.destroy();
     this.versions.destroy();
+    this.accountingHandles.forEach((handle) => this.accounting?.destroyed(handle));
+    this.accountingHandles.length = 0;
     this.leases.forEach((lease) => lease.release());
     this.pipelines = null;
     this.continuationPipelines = [];

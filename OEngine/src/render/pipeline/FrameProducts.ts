@@ -22,7 +22,6 @@ export interface MeshletWorkFrame {
 export interface VisibilityFrame {
   readonly visibilityKey: ResourceId;
   /** Same depth winner as VisibilityKey; background is the 0xff sentinel. */
-  readonly shadingBinId: ResourceId | null;
   readonly depth: ResourceId;
   readonly meshletWork: MeshletWorkFrame;
   /** GPU-selected current clip/normal transforms; Scene remains authoritative. */
@@ -256,7 +255,6 @@ function requireResourceId(value: ResourceId | null, name: string): void {
 
 export function visibilityFrame(input: VisibilityFrame): VisibilityFrame {
   requireResourceId(input.visibilityKey, "VisibilityFrame.visibilityKey");
-  requireResourceId(input.shadingBinId, "VisibilityFrame.shadingBinId");
   requireResourceId(input.depth, "VisibilityFrame.depth");
   requireResourceId(input.frameInstances, "VisibilityFrame.frameInstances");
   requireResourceId(input.frameGeometry, "VisibilityFrame.frameGeometry");

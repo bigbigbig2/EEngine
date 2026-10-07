@@ -15,7 +15,7 @@ import { StandardShadeMaterial } from "../../.test-dist/material/StandardShadeMa
 import { ShadeTexture } from "../../.test-dist/texture/ShadeTexture.js";
 import { ShadeImage } from "../../.test-dist/texture/ShadeImage.js";
 import { Sampler2D } from "../../.test-dist/texture/Sampler2D.js";
-import { lowerAppearanceWgsl } from "../../.test-dist/shaders/appearance_program.js";
+import { lowerNativeMaterial as lowerAppearanceWgsl } from "../../.test-dist/shaders/native_material.js";
 
 const texture = () =>
   ShadeTexture.from(ShadeImage.fromSampler2D(new Sampler2D(new Uint8Array([128, 64, 220, 170]), 4, 1, 1)));

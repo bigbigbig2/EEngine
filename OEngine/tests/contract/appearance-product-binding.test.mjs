@@ -19,7 +19,7 @@ import {
   writeAppearanceAssetPackage,
   openAppearanceAssetPackage,
 } from "../../.test-dist/assets/AppearanceAssetPackage.js";
-import { lowerAppearanceWgsl } from "../../.test-dist/shaders/appearance_program.js";
+import { lowerNativeMaterial } from "../../.test-dist/shaders/native_material.js";
 import { ShadeTexture } from "../../.test-dist/texture/ShadeTexture.js";
 
 const options = (extra = {}) => ({
@@ -78,10 +78,10 @@ test("binding an internal baked root removes its source sampling/parameters/math
   });
   assert.deepEqual(actual, { staticRoot: [1], animated: [3] });
   assert.equal(reads, 1);
-  const lowered = lowerAppearanceWgsl(bound);
-  assert.ok(!lowered.source.includes("appearance_sample_"));
+  const lowered = lowerNativeMaterial(bound);
+  assert.ok(!lowered.source.includes("native_material_sample_"));
   assert.ok(!lowered.source.includes("pow("));
-  assert.equal(lowered.source.match(/appearance_product_sample_0\(/g).length, 1);
+  assert.equal(lowered.source.match(/native_material_product_0\(/g).length, 1);
 });
 
 test("coordinate anchors survive when the baked expression is itself a coordinate component", async () => {
@@ -123,8 +123,8 @@ test("exact f32 constant products need no product texture, coordinate inputs, or
   });
   assert.deepEqual(values.value, [16, 0.25]);
   assert.deepEqual(bound.inputs, []);
-  assert.ok(!lowerAppearanceWgsl(bound).source.includes("appearance_product_sample_"));
-  assert.deepEqual(lowerAppearanceWgsl(bound).constants, [16, 0.25]);
+  assert.ok(!lowerNativeMaterial(bound).source.includes("native_material_product_"));
+  assert.deepEqual(lowerNativeMaterial(bound).constants, [16, 0.25]);
 });
 
 test("independent normal/coat products break source roughness CSE at lobe outputs and preserve validity", async () => {
@@ -172,7 +172,7 @@ test("independent normal/coat products break source roughness CSE at lobe output
   const selected = selectAppearanceProductProgram(bound, { coat: bound.outputs.coatRoughness });
   assert.equal(selected.productReads.length, 1);
   assert.equal(selected.productReads[0].field.name, "coatMoment");
-  assert.ok(lowerAppearanceWgsl(bound).source.includes("appearance_decode_normal_moment"));
+  assert.ok(lowerNativeMaterial(bound).source.includes("appearance_decode_normal_moment"));
 });
 
 test("source snapshots, output widths, roots, and dependency domains are validated once before GPU publication", async () => {

@@ -4,23 +4,26 @@ kind: domain
 owner: visibility
 state: current
 verifies:
+  - OEngine/src/gpu/GpuVisibilityKeyAbi.ts
+  - OEngine/src/render/passes/PackedVisibilityPass.ts
+  - OEngine/src/render/MeshletBucketRaster.ts
+  - OEngine/src/render/surface/NativeVisibilityPass.ts
   - OEngine/src/render/program/FrameProgramLowering.ts
-  - OEngine/src/render/surface/SurfaceWorkRuntime.ts
 ---
 # Visibility
 
 ## 当前源码边界
 
-核对日期：2026-10-05；本轮核对 FrameProgramLowering→SurfaceWork 的直接输入关系，不重新认证全部 traversal/raster 算法。
+核对日期：2026-10-08，S2 工作树。PackedVisibility 保留 GPU hierarchy/work generation、instance/vertex preparation、FrameGeometryArena 与 HZB 产品；MeshletBucketRaster 使用 NativeVisibilityPass 消费完整 native material publication，执行真实 alpha 并写唯一 winner。
 
-[FrameProgramLowering](../../OEngine/src/render/program/FrameProgramLowering.ts) 向 SurfaceWorkRuntime 提供当前 visibility/depth、选中 work/frame geometry、几何 source heaps、可选 virtual product、纹理/材质 publication 与版本。SurfaceWork 再注册 demand、唯一 geometry records 和 Appearance/lighting consumers。
+VisibilityKey 仍为 r32uint：低 24 位 meshletWorkSlot，高 8 位 localPrimitive；generation/partition 属于外部 queue 生命周期 context。没有为 V4 扩宽或截断 identity，也不再分配旧 ShadingBinId MRT。CPU 不读取 visible/work 以控制本帧 GPU。
 
-本页删除了“当前按 hit mask 持久化 geometry cache bypass”描述：它来自旧文档，不能据此恢复旧 owner。当前具体身份、缓存及 geometry 生产行为以 SurfaceWorkRuntime、SurfaceGeometryPass 和其生产 ABI 为准。
+FrameProgramLowering 将写入后的 winner/depth/work/frame products 交给 SurfaceV4；Surface 依据实际 winner 恢复 Geometry 并 native shading。Temporal 仍使用 authoritative scene instance identity/motion。VSM 的 native caster alpha 共享 material 语义，但 page table、atlas、invalidation/history 属于 VSM owner。
 
-Visibility owner 的 traversal、work generation、hardware raster、HZB 与 frame geometry 为 Surface 提供选中源；winner 身份不能直接充当跨帧 sharing/cache 身份。完整 source/seam/LOD、skin/morph/previous mapping、溢出与生命周期仍需逐项生产检查，不从旧 raster fixture 推导完成。
+准备域未完成或 attributes 不足时按真实 resident/Product source 解码恢复，不以旧 Surface heap/cache 为 fallback。current-HZB late recheck 保留 filtered work namespace 和 attachment load/depth 合同；streamed Product 的全域验收仍不由资源绑定测试代替。
 
-## 目标与验证
+## 验证与目标
 
-目标见[极致性能设计](../next-design/eengine-v4-native-shading-2026-10.md)；执行和退出条件见[当前计划](../next-execution/eengine-v4-native-shading-execution-2026-10.md)。未来 Virtual Geometry 完整工作域属于该计划，不因已有 virtual 输入绑定就判定完成。
+具体阶段状态、测试范围和未运行项只读[执行计划](../next-execution/eengine-v4-native-shading-execution-2026-10.md)。本次 ownership 切换不自动证明 traversal/raster 的全部 corner cases、VG streaming、完整画质或性能。
 
-历史组件检查与来源集中在[porting ledger](../porting/next-renderer.md)。旧 cache/阶段说明由 Git 追溯，不能用作当前实现或完整性能/画质证明。
+目标见[V4 母稿](../next-design/eengine-v4-native-shading-2026-10.md)；历史 cache/proof 身份不约束 winner contract。来源记录见[porting ledger](../porting/next-renderer.md)，旧结果通过历史与 Git 追溯。

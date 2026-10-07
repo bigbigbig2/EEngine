@@ -385,3 +385,6 @@ function assertByteRange(bytes: Uint8Array, byteOffset: number, byteLength: numb
     throw new RangeError(`${label} byte range is invalid`);
   }
 }
+
+/** Existing Geometry work producer uniform alignment, independent from Surface. */
+export const MESHLET_BUCKET_SETTINGS_STRIDE = 256;

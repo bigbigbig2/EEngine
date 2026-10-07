@@ -5,7 +5,7 @@ import type { HierarchicalZBuffer } from "../HierarchicalZBuffer.js";
 import type { GPUViewContext } from "../ViewContext.js";
 import type { PackedVisibilityJob } from "../features/VisibilityFeature.js";
 import type { Fsr3UpscalerRuntime } from "../passes/fsr3/Fsr3UpscalerRuntime.js";
-import type { TemporalFactsPass } from "../temporal/TemporalFactsPass.js";
+import type { NativeTemporalFactsPass } from "../temporal/NativeTemporalFactsPass.js";
 import type { GpuRadiometryPass } from "../temporal/GpuRadiometryPass.js";
 import type { PhysicalEnvironmentRuntime } from "../environment/PhysicalEnvironmentRuntime.js";
 import type { PreExposureContract } from "../RadiometryContract.js";
@@ -30,7 +30,7 @@ export type SceneFrameBindings = Readonly<{
   runtime: GpuRenderWorldRuntime;
   preExposure: PreExposureContract;
   fsr3: Fsr3UpscalerRuntime;
-  temporalFacts: TemporalFactsPass;
+  temporalFacts: NativeTemporalFactsPass;
   radiometry: GpuRadiometryPass;
   lightingEnvironmentRevision: number;
   /** GPU light collection publication revision; independent from sky/IBL revision. */
@@ -144,7 +144,7 @@ export function assertFrameProgramBindings(plan: FrameProgram, bindings: FramePr
   }
   const counts = bindings.runtime.activeShadingSummary.binRefCounts;
   const activeSets = Array.from({ length: 4 }, (_, setId) => setId).filter((setId) =>
-    counts.slice(setId * 16, setId * 16 + 16).some((count) => count > 0),
+    counts.slice(setId * 16, setId * 16 + 16).some((count) => count > 0)
   );
   const hasLit = counts.some((count, classId) => count > 0 && (classId & 15) >= 4);
   if (
@@ -205,7 +205,7 @@ export function assertFrameProgramBindings(plan: FrameProgram, bindings: FramePr
     request.internalWidth,
     request.internalHeight,
     request.outputWidth,
-    request.outputHeight,
+    request.outputHeight
   );
   bindings.temporalFacts.assertPreparedFrame(request.internalWidth, request.internalHeight);
 }

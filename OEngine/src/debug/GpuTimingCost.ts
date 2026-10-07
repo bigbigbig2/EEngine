@@ -1,7 +1,7 @@
 import {
   classifySurfaceTimingPhase,
   surfaceTimingTotalsForFrame,
-  type SurfaceTimingSegment,
+  type SurfaceTimingSegment
 } from "./SurfacePhaseTiming.js";
 
 export interface GpuTimingCost {
@@ -21,7 +21,7 @@ export interface GpuTimingCost {
 }
 export function summarizeGpuTimingCost(
   segments: readonly SurfaceTimingSegment[],
-  complete = true,
+  complete = true
 ): GpuTimingCost {
   const spans = segments.filter((segment) => segment.scope === "span");
   const passes = segments.filter((segment) => segment.scope === undefined || segment.scope === "pass");
@@ -43,10 +43,10 @@ export function summarizeGpuTimingCost(
     evaluationMeasured = false,
     auxiliaryMeasured = false;
   for (const [phase, value] of totals) {
-    if (phase === "geometryResolve" || phase === "materialEvaluate" || phase === "lighting") {
+    if (phase === "nativeShading" || phase === "nativeSun") {
       evaluation += value;
       evaluationMeasured = true;
-    } else if (phase === "reconstruct") {
+    } else if (phase === "background") {
       auxiliary += value;
       auxiliaryMeasured = true;
     } else {
@@ -71,10 +71,10 @@ export function summarizeGpuTimingCost(
           passes.filter(
             (segment) =>
               classifySurfaceTimingPhase(segment) === null &&
-              (segment.phase === "unclassified" || segment.phase === undefined),
-          ),
+              (segment.phase === "unclassified" || segment.phase === undefined)
+          )
         )
       : null,
-    queueCompletionMs: null,
+    queueCompletionMs: null
   };
 }

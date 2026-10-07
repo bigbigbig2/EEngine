@@ -174,7 +174,7 @@ export class VsmCasterRecordPass {
     produce.read(pageTable);
     produce.read(work);
     produce.read(instances);
-    produce.write(caster);
+    const producedCaster = produce.write(caster);
     produce.write(telemetry);
     produce.make_side_effect();
     const finalize = graph.add("VSM/finalize raster indirect", {}, (_data, resolved, context) => {
@@ -197,12 +197,12 @@ export class VsmCasterRecordPass {
     });
     finalize.read(currentConstants);
     finalize.read(allocation);
-    finalize.read(caster);
-    finalize.write(indirect);
+    finalize.read(producedCaster);
+    const producedIndirect = finalize.write(indirect);
     finalize.make_side_effect();
     return {
-      casterRecords: caster,
-      rasterIndirect: indirect,
+      casterRecords: producedCaster,
+      rasterIndirect: producedIndirect,
       generation: input.generation,
       capacity: input.resources.capabilities.casterRecordCapacity,
     };

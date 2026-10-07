@@ -28,9 +28,16 @@ export interface NativeMaterialProgram {
   readonly frequencies: readonly NativeMaterialFrequency[];
   /** Binding helper's finite resource change detector; never used as exact identity. */
   readonly resourceRevision?: number;
+  /** Nongeometry inputs are immutable material-instance data in the publication,
+   * not a single value shared by every instance of an execution bin. */
+  readonly instanceInputs?: boolean;
 }
 
 export type NativeMaterialFrequency = "constant" | "material" | "dynamic" | "resource" | "sample";
+
+// Compiled graphs are immutable CPU artifacts. Stable publication checks must
+// not regenerate the evaluator source on every frame. No GPU values are cached.
+const compiledPrograms = new WeakMap<CompiledAppearanceGraph, NativeMaterialProgram>();
 
 function nativeFrequency(dependency: number): NativeMaterialFrequency {
   if (
@@ -61,6 +68,10 @@ function nativeFrequency(dependency: number): NativeMaterialFrequency {
  * Inputs are already recovered by the Geometry/view owner. No implicit dpdx.
  */
 export function lowerNativeMaterial(program: CompiledAppearanceGraph): NativeMaterialProgram {
+  const existing = compiledPrograms.get(program);
+  if (existing !== undefined) {
+    return existing;
+  }
   const count = program.instructions.length;
   const neighbors = new Uint8Array(count);
   const pending: number[] = [];
@@ -271,7 +282,7 @@ ${lines.join("\n")}
     program.productReads?.map((read) => [read.field.width, read.field.format, read.uv === null]) ?? [],
     outputs
   ]);
-  return Object.freeze({
+  const lowered: NativeMaterialProgram = Object.freeze({
     source,
     key,
     constants: Object.freeze(constants),
@@ -293,6 +304,10 @@ ${lines.join("\n")}
     dependencies: Object.freeze(program.instructions.map((node) => node.dependency)),
     frequencies: Object.freeze(program.instructions.map((node) => nativeFrequency(node.dependency)))
   });
+  if (Object.isFrozen(program)) {
+    compiledPrograms.set(program, lowered);
+  }
+  return lowered;
 }
 
 /** Dynamic values use the compiled input slots. Geometry/view CXY remains the shader consumer's responsibility.
@@ -303,12 +318,16 @@ export function nativeMaterialDynamicInputs(
 ): Float32Array<ArrayBuffer> {
   const result = new Float32Array(Math.max(program.inputCount, 1) * 4);
   for (const name of Object.keys(inputs)) {
-    if (!program.inputs.some((input) => input.name === name && input.domain === "dynamic")) {
+    if (
+      !program.inputs.some(
+        (input) => input.name === name && (input.domain === "dynamic" || input.domain === "nonlocal")
+      )
+    ) {
       throw new RangeError(`Unknown native material dynamic input '${name}'`);
     }
   }
   program.inputs.forEach((input, slot) => {
-    if (input.domain !== "dynamic") {
+    if (input.domain !== "dynamic" && input.domain !== "nonlocal") {
       return;
     }
     const value = inputs[input.name];
