@@ -11,6 +11,7 @@ function harness() {
   const writes = [];
   const textures = [];
   const device = {
+    lost: new Promise(() => {}),
     limits: { maxTextureDimension2D: 8192, maxStorageBufferBindingSize: 1 << 27, maxBufferSize: 1 << 28 },
     queue: { writeBuffer() {}, writeTexture() {} },
     createShaderModule: () => ({}),
@@ -28,16 +29,16 @@ function harness() {
         destroyed: false,
         destroy() {
           this.destroyed = true;
-        },
+        }
       };
       textures.push(texture);
       return texture;
-    },
+    }
   };
   const command = {
     writeBuffer(_buffer, _offset, data) {
       writes.push(new DataView(data));
-    },
+    }
   };
   return { device, command, writes, textures };
 }
@@ -53,7 +54,7 @@ const frame = {
   cameraFovY: Math.PI / 3,
   cameraInfiniteFar: true,
   frameTimeMs: 16.67,
-  reset: true,
+  reset: true
 };
 
 test("FSR3 frame constants follow camera jitter and retain history across ordinary frames", () => {
@@ -116,12 +117,12 @@ test("FSR3 graph roles follow the prepared frame and retired histories wait for 
       width: 640,
       height: 360,
       outputWidth: 1280,
-      outputHeight: 720,
+      outputHeight: 720
     },
     (name, resolve) => {
       resolvers.set(name, resolve);
       return resolve(fsr3);
-    },
+    }
   );
   const present = graph.add("test/consume reconstructed color", {}, () => {});
   present.read(output);
@@ -138,7 +139,7 @@ test("FSR3 graph roles follow the prepared frame and retired histories wait for 
     "FSR3/Luma Instability",
     "FSR3/Accumulate",
     "FSR3/RCAS",
-    "test/consume reconstructed color",
+    "test/consume reconstructed color"
   ]) {
     assert.ok(executable.includes(stage), stage);
   }
@@ -167,8 +168,68 @@ test("FSR3 graph roles follow the prepared frame and retired histories wait for 
   finishGpu();
   await gpuDone;
   await Promise.resolve();
+  // Preparing a reset is a candidate, not permission to retire committed history.
+  assert.equal(firstRead.destroyed, false);
+  assert.equal(firstWrite.destroyed, false);
+  fsr3.commit(Promise.resolve());
+  await Promise.resolve();
   assert.equal(firstRead.destroyed, true);
   assert.equal(firstWrite.destroyed, true);
   fsr3.invalidate();
   fsr3.destroy();
+});
+
+test("FSR3 ordinary and resize abort restore committed history roles and jitter for retry", () => {
+  const h = harness();
+  const fsr3 = new Fsr3UpscalerRuntime(h.device);
+  fsr3.prepareFrame(h.command, frame);
+  fsr3.commit(Promise.resolve());
+  const committed = h.textures.filter((texture) => texture.label?.startsWith("FSR3/color/"));
+  const role = fsr3.readIndex;
+  fsr3.prepareFrame(h.command, { ...frame, renderWidth: 800, outputWidth: 1600, reset: false });
+  assert.equal(fsr3.generation, 2);
+  const candidates = h.textures.filter(
+    (texture) => texture.label?.startsWith("FSR3/color/") && !committed.includes(texture)
+  );
+  fsr3.abort();
+  assert.equal(fsr3.generation, 1);
+  assert.equal(fsr3.readIndex, role);
+  assert.ok(committed.every((texture) => !texture.destroyed));
+  assert.ok(candidates.every((texture) => texture.destroyed));
+  assert.equal(fsr3.canRetainHistory(640, 360, 1280, 720), true);
+  fsr3.prepareFrame(h.command, { ...frame, reset: false });
+  fsr3.abort();
+  assert.equal(fsr3.readIndex, role);
+  fsr3.prepareFrame(h.command, { ...frame, reset: false });
+  assert.equal(h.writes.at(-1).getFloat32(124, true), 1);
+  assert.equal(h.writes.at(-1).getFloat32(72, true), -0.25);
+  fsr3.commit(Promise.resolve());
+  fsr3.destroy();
+});
+
+test("FSR3 physical accounting includes candidates and fence-retired histories", async () => {
+  const h = harness();
+  const fsr3 = new Fsr3UpscalerRuntime(h.device);
+  const bytes = (f) => 16 * f.outputWidth * f.outputHeight + 22 * f.renderWidth * f.renderHeight + 32;
+  const permanent = 177;
+  assert.equal(fsr3.allocatedBytes, permanent);
+  let finish;
+  const fence = new Promise((resolve) => { finish = resolve; });
+  fsr3.prepareFrame(h.command, frame);
+  fsr3.commit(fence);
+  assert.equal(fsr3.allocatedBytes, permanent + bytes(frame));
+  const resized = { ...frame, renderWidth: 800, outputWidth: 1600, reset: false };
+  fsr3.prepareFrame(h.command, resized);
+  assert.equal(fsr3.allocatedBytes, permanent + bytes(frame) + bytes(resized));
+  fsr3.abort();
+  assert.equal(fsr3.allocatedBytes, permanent + bytes(frame));
+  fsr3.prepareFrame(h.command, resized);
+  fsr3.commit(fence);
+  assert.equal(fsr3.allocatedBytes, permanent + bytes(frame) + bytes(resized));
+  fsr3.destroy();
+  assert.equal(fsr3.allocatedBytes, permanent + bytes(frame) + bytes(resized));
+  finish();
+  await fence;
+  await Promise.resolve();
+  assert.equal(fsr3.allocatedBytes, 0);
 });

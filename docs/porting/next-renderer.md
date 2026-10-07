@@ -10,6 +10,16 @@ verifies:
     - OEngine/src/shaders/surface_geometry_completion.ts
     - OEngine/tests/oracle/native-surface-shader.mjs
     - OEngine/tests/oracle/native-surface-gpu.mjs
+    - OEngine/src/shaders/native_material.ts
+    - OEngine/src/gpu/GpuNativeMaterialPublication.ts
+    - OEngine/src/gpu/NativeMaterialBindings.ts
+    - OEngine/src/gpu/NativeMaterialProducts.ts
+    - OEngine/src/render/temporal/NativeTemporalFactsPass.ts
+    - OEngine/src/shaders/native_execution_bins.ts
+    - OEngine/src/shaders/native_material_products.ts
+    - OEngine/src/shaders/native_surface.ts
+    - OEngine/tests/oracle/native-material-gpu.mjs
+    - OEngine/tests/oracle/native-surface-integration-gpu.mjs
 ---
 # EEngine Next：开源迁移来源与采用边界
 
@@ -45,6 +55,33 @@ verifies:
 | FrameGeometryArena/FrameGeometryVertices 与 GPU timing/oracle infrastructure | actual ABI producer→prepared arena / resident fallback→isolated native shader；timestamps/readback→Cost Card | Scene、TextureResidency/routes、cluster/VSM producer 为简化 fixture，未切 production ownership；完整限制和结果只在 execution §3.1 |
 
 来源 review、隔离 GPU 数值与物理成本本轮已记录，但 **新 production 消费证据不存在**；不提升来源 adoption、性能 claim 或 domains 的 Surface 生产状态。S1 完整 native compiler/publication 与 S2 唯一原子切换仍未实施。
+
+### 2026-10-07：S1 native compiler/publication 首批本地构建（未闭合、未生产采用）
+
+重新读取 MaterialX 固定 `2d516f56752abbb8bc5d6d438bfb7970d1b6f8f7` 的完整 `WgslShaderGenerator.cpp` 与 `VkShaderGenerator.cpp`（Apache-2.0）：分离 graph code emission、资源 binding context 与 host pipeline；Wgsl generator 仍调用 Vk/Glsl emitter，不作为可直接编译的本地 WGSL donor。既有 SF07 图分析来源不换 revision；本地复用当前 AppearanceGraphCompiler 的合法 scalar IR/CSE/DCE/dependencies，未重新实现 MaterialX graph authoring。
+
+| 来源 / 本地性质 | 本地实际入口 / 输入→输出 | 条件与缺口 |
+|---|---|---|
+| MaterialX emission/backend 分界；具名本地 `NativeMaterialStraightLineCxy` | `lowerNativeMaterial`：validated scalar IR→native named values/CXY/显式 query callbacks→WGSL | 无 node interpreter、field masks 或 cache；只有坐标祖先三点，nested texture 真实三次 query。既有 sampling finite-difference 语义保留，非 MaterialX 全节点移植；Product 分支已编码但 GPU 验证未闭合 |
+| [W3C WGSL SampleGrad](https://www.w3.org/TR/2026/CRD-WGSL-20260921/#texturesamplegrad)，规范依据而非算法 donor | 显式 UV/dx/dy→compute native texture sampling | 不依赖 fragment derivatives/subgroups/bindless；纹理 transform 在实例数据中，完整 TextureResidency bank/sampler/min-mip 接线仍待构建 |
+| 本地 WebGPU publication/lifecycle 集成，沿用既有 Registry | `GpuNativeMaterialPublication`：native source/layout +实例参数→immutable buffers/async leases→isolated native oracle | preflight、commit/abort/retry/fence、mock loss/compile rejection 有组件验证；不调用旧 Tape/cache/field publication，不提交 GPU frame，不声称 scene/production 或真实 recovery 闭合 |
+| 本地独立 reference / test integration | `native-material-gpu.mjs` 原始 authored VECTOR graph→独立 reference WGSL，与 native output 比较 | 5类 graph×32 invocations，实际两个 texture binding sets、参数更新/abort/stable/retry；缺 gradient 负向控制能失败。CPU ideal filtering偏差仍诊断未完全解释，非真实 winner、非完整 S1/生产性能结果 |
+
+源码与测试状态只见 execution §3.2；本轮没有新 production consumer 证据，**不提升 adoption**。
+
+### 2026-10-08：S1完整非生产构建的Source Map（不提升production采用）
+
+沿用上面S1 compiler核读和既有固定来源；本条记录最终本地实现映射，不声称收尾时又审计了完整上游仓库。详细实现、七项真实GPU结果、Cost Card及原失败见[执行计划§3.2.1](../next-execution/eengine-v4-native-shading-execution-2026-10.md#v4-s1-construction-record)。生产仍旧Surface，新production消费证据不存在，**不提升完整donor adoption或性能claim**。
+
+| Source Map | 具体来源 / 本地映射 / 差异 |
+|---|---|
+| Local | AppearanceGraphCompiler scalar IR/CSE/DCE/dependency、现有winner interpolation/source decode、TextureResidency及cooked fields、Registry异步lease/preflight、FrameGraph/CommandContext、VSM/BRDF/IBL/AO/FSR原数学和owner |
+| Reference | MaterialX `2d516f56752abbb8bc5d6d438bfb7970d1b6f8f7` Apache-2.0：`WgslShaderGenerator.cpp/VkShaderGenerator.cpp` emission/resource分界；Wicked `df44c3db4c4927492bc9c791eac715d98d7ed091` MIT：`visibility_resolveCS.hlsl::main`、`Visibility_Shade`分类/native间接消费；Forge `cd5046893faba2dc7869243873bf01f02a6f0df9` Apache-2.0：`CalcFullBary/Interpolate2DWithDeriv`。FidelityFX ParallelSort `0c539948c8d196ae338d91efbc8ca495f1ea0d1d` MIT：`FFX_ParallelSort.h` count/reduce/scan/scatter，链接/许可沿用SF12，不采用radix sort |
+| Adopt | 复用本地已存在的数学/基础设施，native代码调用纯Geometry/VSM/BRDF/IBL helpers；physical sun沿用Takram `b012ad06d858fc035d88aacfd73f092f93c994e4` 的已有 `atmosphere_sun_irradiance`（MIT/Bruneton BSD及既有notices），保世界尺度、高度、LUT、有限太阳盘/地平线与photometry。这里只表示实际复用机制，不是整引擎/算法来源adopted状态 |
+| Adapt | 原graph→straight-line scalar/CXY native emission及TextureResidency bank/sampler/minMip；portable小表prefix/32shards/tile-local aggregation，不搬Wicked bindless/wave或ParallelSort wave lane假设；regular/VSM实际GPU queue/atlas/page ABI与native alpha连接。Temporal scene stride、motion精度与FSR事务/fence按本地合同接线，不移植C++框架或私有submit |
+| Original | 具名本地`NativeMaterialStraightLineCxy`、CompactPixelBins、finite raster count/prefix/scatter及immutable native publication；cooked half exact packed物理表示/显式原field采样；binding-limit所需的有限sun continuation（重算native inputs+HDR版本）；effect-owned Aux/Temporal生命周期与独立GPU/CPU oracles。没有合适的完整portable donor覆盖这些组合合同，因此本地适配设计，未伪称MaterialX/Wicked/Forge整套移植 |
+
+早期条目的Product/资源接线/真实device测试缺口是当时快照，不改写为首轮已通过。最终独立GPU authored graph与CPU cooked-field/HDR测试覆盖见execution；CPU ideal SampleGrad偏差、真实VG streaming/driver-fault恢复和production性能限制继续保留。开源参考不证明本地更快，native bins与资源限制拆分的全成本仍由本项目测量。
 
 ## 2026-10-05：Surface 集中重建的固定来源与阶段映射
 

@@ -55,7 +55,7 @@ export interface Fsr3FrameInput {
 /** Resolve physical resources from the active frame, never from graph creation. */
 export type Fsr3GraphResourceBinder = <T extends object>(
   name: string,
-  resolve: (runtime: Fsr3UpscalerRuntime) => T,
+  resolve: (runtime: Fsr3UpscalerRuntime) => T
 ) => T;
 
 /** One FSR3 Upscaler owner and one graph chain inside the Renderer frame submit. */
@@ -75,6 +75,9 @@ export class Fsr3UpscalerRuntime {
   private readonly defaultMask: GPUTexture;
   private histories: Fsr3HistoryTextures | null = null;
   private lastSubmittedGpuDone: Promise<void> | null = null;
+  private destroyed = false;
+  private retiredBytes = 0;
+  private permanentBuffersLive = true;
   private size: readonly [number, number, number, number] = [0, 0, 0, 0];
   /** Physical internal history extent; active render extent may shrink inside it. */
   private internalCapacity: readonly [number, number] = [0, 0];
@@ -83,6 +86,16 @@ export class Fsr3UpscalerRuntime {
   private frameIndex = -1;
   private previousJitter: readonly [number, number] = [0, 0];
   private pending: { jitter: readonly [number, number]; frameIndex: number } | null = null;
+
+  private checkpoint: {
+    histories: Fsr3HistoryTextures | null;
+    size: readonly [number, number, number, number];
+    capacity: readonly [number, number];
+    index: 0 | 1;
+    generation: number;
+    frameIndex: number;
+    jitter: readonly [number, number];
+  } | null = null;
 
   constructor(private readonly device: GPUDevice) {
     this.prepareInputs = new Fsr3PrepareInputsPass(device);
@@ -96,40 +109,61 @@ export class Fsr3UpscalerRuntime {
     this.constants = device.createBuffer({
       label: "FSR3 Upscaler constants",
       size: FSR3_UPSCALER_CONSTANTS_BYTES,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     });
     this.ratioLayout = device.createBindGroupLayout({
       entries: [
         { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
         { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
         { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-        { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-      ],
+        { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } }
+      ]
     });
     this.ratioPipeline = device.createComputePipeline({
       label: "FSR3/GPU pre-exposure ratio",
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.ratioLayout] }),
       compute: {
         module: device.createShaderModule({ code: FSR3_PRE_EXPOSURE_RATIO_WGSL }),
-        entryPoint: "main",
-      },
+        entryPoint: "main"
+      }
     });
     this.rcasConstants = device.createBuffer({
       label: "FSR3 RCAS constants",
       size: 16,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
     this.defaultMask = device.createTexture({
       label: "FSR3 default zero mask",
       size: [1, 1],
       format: "r8unorm",
-      usage: GPUTextureUsage.TEXTURE_BINDING,
+      usage: GPUTextureUsage.TEXTURE_BINDING
     });
     device.queue.writeBuffer(this.rcasConstants, 0, packFsr3RcasConstants(0.2));
+    void device.lost.then(() => this.destroy());
   }
 
   get generation(): number {
     return this.generationValue;
+  }
+  /** Physical history ownership, including unsubmitted resize candidates and
+   * fence-retired sets. FrameGraph transients belong to its texture allocator. */
+  get allocatedBytes(): number {
+    let bytes = this.retiredBytes + (this.permanentBuffersLive ? FSR3_UPSCALER_CONSTANTS_BYTES + 17 : 0);
+    bytes += this.historyBytes(this.histories);
+    if (this.checkpoint && this.checkpoint.histories !== this.histories) {
+      bytes += this.historyBytes(this.checkpoint.histories);
+    }
+    return bytes;
+  }
+
+  private historyBytes(histories: Fsr3HistoryTextures | null): number {
+    if (!histories) return 0;
+    let bytes = 0;
+    for (const [name, textures] of Object.entries(histories)) {
+      const stride = name === "frameInfo" ? 16 : name === "luma" ? 2 : name === "accumulation" ? 1 : 8;
+      for (const texture of textures) bytes += texture.width * texture.height * stride;
+    }
+    return bytes;
   }
   get readIndex(): 0 | 1 {
     return this.index;
@@ -142,7 +176,7 @@ export class Fsr3UpscalerRuntime {
     renderWidth: number,
     renderHeight: number,
     outputWidth: number,
-    outputHeight: number,
+    outputHeight: number
   ): boolean {
     return (
       this.histories !== null &&
@@ -158,7 +192,7 @@ export class Fsr3UpscalerRuntime {
     renderWidth: number,
     renderHeight: number,
     outputWidth: number,
-    outputHeight: number,
+    outputHeight: number
   ): void {
     if (
       !this.pending ||
@@ -172,7 +206,7 @@ export class Fsr3UpscalerRuntime {
     }
     for (const [name, pair] of Object.entries(this.histories) as [
       keyof Fsr3HistoryTextures,
-      [GPUTexture, GPUTexture],
+      [GPUTexture, GPUTexture]
     ][]) {
       if (pair[0] === pair[1]) throw new Error(`FSR3 ${name} read/write history aliases`);
       const width = name === "color" ? outputWidth : name === "frameInfo" ? 1 : this.internalCapacity[0];
@@ -187,7 +221,7 @@ export class Fsr3UpscalerRuntime {
               : "rgba32float";
       if (
         pair.some(
-          (texture) => texture.width !== width || texture.height !== height || texture.format !== format,
+          (texture) => texture.width !== width || texture.height !== height || texture.format !== format
         )
       ) {
         throw new Error(`FSR3 ${name} history descriptor changed`);
@@ -196,7 +230,49 @@ export class Fsr3UpscalerRuntime {
   }
 
   prepareFrame(command: ShadeGPUCommandContext, frame: Fsr3FrameInput): void {
-    if (this.pending) throw new Error("FSR3 frame already prepared");
+    if (this.destroyed) throw new Error("FSR3 is destroyed");
+    if (this.pending || this.checkpoint) throw new Error("FSR3 frame already prepared");
+    this.checkpoint = {
+      histories: this.histories,
+      size: this.size,
+      capacity: this.internalCapacity,
+      index: this.index,
+      generation: this.generationValue,
+      frameIndex: this.frameIndex,
+      jitter: this.previousJitter
+    };
+    try {
+      this.prepareFrameCandidate(command, frame);
+    } catch (error) {
+      this.abort();
+      throw error;
+    }
+  }
+
+  private prepareFrameCandidate(command: ShadeGPUCommandContext, frame: Fsr3FrameInput): void {
+    for (const dimension of [frame.renderWidth, frame.renderHeight, frame.outputWidth, frame.outputHeight]) {
+      if (
+        !Number.isSafeInteger(dimension) ||
+        dimension < 8 ||
+        dimension > this.device.limits.maxTextureDimension2D
+      ) {
+        throw new RangeError("FSR3 render or output dimensions exceed the negotiated WebGPU limits");
+      }
+    }
+    if (
+      !Number.isFinite(frame.cameraNear) ||
+      frame.cameraNear <= 0 ||
+      !Number.isFinite(frame.cameraFar) ||
+      frame.cameraFar <= frame.cameraNear ||
+      !Number.isFinite(frame.cameraFovY) ||
+      frame.cameraFovY <= 0 ||
+      frame.cameraFovY >= Math.PI ||
+      !frame.jitter.every(Number.isFinite) ||
+      !Number.isFinite(frame.frameTimeMs) ||
+      (frame.historyReadIndex !== undefined && frame.historyReadIndex !== 0 && frame.historyReadIndex !== 1)
+    ) {
+      throw new RangeError("FSR3 requires finite perspective camera and frame context");
+    }
     const size = [frame.renderWidth, frame.renderHeight, frame.outputWidth, frame.outputHeight] as const;
     const previousSize = this.size;
     const capacityExceeded =
@@ -237,7 +313,7 @@ export class Fsr3UpscalerRuntime {
           -1.1920928955078125e-7,
           near,
           (Math.tan(frame.cameraFovY / 2) * width) / height,
-          Math.tan(frame.cameraFovY / 2),
+          Math.tan(frame.cameraFovY / 2)
         ]
       : [-q, q * far, (Math.tan(frame.cameraFovY / 2) * width) / height, Math.tan(frame.cameraFovY / 2)];
     const phaseCount = Math.max(1, Math.trunc(8 * (outputWidth / width) ** 2));
@@ -259,7 +335,7 @@ export class Fsr3UpscalerRuntime {
       downscaleFactor: [width / outputWidth, height / outputHeight],
       motionVectorJitterCancellation: [
         (previousJitter[0] - jitter[0]) / width,
-        (previousJitter[1] - jitter[1]) / height,
+        (previousJitter[1] - jitter[1]) / height
       ],
       tanHalfFOV: (Math.tan(frame.cameraFovY / 2) * width) / height,
       jitterPhaseCount: phaseCount,
@@ -272,7 +348,7 @@ export class Fsr3UpscalerRuntime {
       reactivenessScale: 1,
       shadingChangeScale: 1,
       accumulationAddedPerFrame: 1 / 3,
-      minDisocclusionAccumulation: -1 / 3,
+      minDisocclusionAccumulation: -1 / 3
     });
     command.writeBuffer(this.constants, 0, constants, 0, constants.byteLength);
     this.pending = { jitter, frameIndex: nextFrameIndex };
@@ -295,7 +371,7 @@ export class Fsr3UpscalerRuntime {
       /** Diagnostic profile used by the validation Perf Host only. */
       enabled?: boolean;
     },
-    bind: Fsr3GraphResourceBinder,
+    bind: Fsr3GraphResourceBinder
   ): ResourceId {
     if (!this.histories || !this.pending) throw new Error("FSR3 frame must be prepared before graph build");
     if (input.enabled === false) {
@@ -307,23 +383,23 @@ export class Fsr3UpscalerRuntime {
     const imported = (
       name: string,
       resolve: (runtime: Fsr3UpscalerRuntime) => GPUTexture,
-      domain?: "internal-full" | "output-full",
+      domain?: "internal-full" | "output-full"
     ) =>
       graph.import_resource(
         name,
         { kind: "imported", label: name, ...(domain ? { domain } : {}) },
-        bind(name, resolve),
+        bind(name, resolve)
       );
     const importedConstants = graph.import_resource(
       "FSR3/constants",
       { kind: "imported", label: "FSR3 constants" },
-      bind("constants", (runtime) => runtime.constants),
+      bind("constants", (runtime) => runtime.constants)
     );
     const ratio = graph.add("FSR3/GPU pre-exposure ratio", {}, (_data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
       const valid = command.allocateTransientBufferAndLoad(
         new Uint32Array([this.frameIndex >= 0 ? 1 : 0]).buffer,
-        GPUBufferUsage.UNIFORM,
+        GPUBufferUsage.UNIFORM
       );
       const group = this.device.createBindGroup({
         layout: this.ratioLayout,
@@ -331,8 +407,8 @@ export class Fsr3UpscalerRuntime {
           { binding: 0, resource: { buffer: resources.get(input.preExposure) as GPUBuffer } },
           { binding: 1, resource: { buffer: resources.get(input.priorExposure) as GPUBuffer } },
           { binding: 2, resource: { buffer: resources.get(importedConstants) as GPUBuffer } },
-          { binding: 3, resource: { buffer: valid } },
-        ],
+          { binding: 3, resource: { buffer: valid } }
+        ]
       });
       const pass = command.beginComputePass({ label: "FSR3/GPU pre-exposure ratio" });
       pass.setPipeline(this.ratioPipeline);
@@ -346,54 +422,54 @@ export class Fsr3UpscalerRuntime {
     const rcasConstants = graph.import_resource(
       "FSR3/RCAS constants",
       { kind: "imported", label: "FSR3 RCAS constants" },
-      bind("rcas-constants", (runtime) => runtime.rcasConstants),
+      bind("rcas-constants", (runtime) => runtime.rcasConstants)
     );
     const defaultMask = imported("FSR3/default mask", (runtime) => runtime.defaultMask);
     const previousColor = imported(
       "FSR3/previous color",
       (runtime) => runtime.graphHistory("color", "read"),
-      "output-full",
+      "output-full"
     );
     const currentColor = imported(
       "FSR3/current color",
       (runtime) => runtime.graphHistory("color", "write"),
-      "output-full",
+      "output-full"
     );
     const previousLuma = imported(
       "FSR3/previous luma",
       (runtime) => runtime.graphHistory("luma", "read"),
-      "internal-full",
+      "internal-full"
     );
     const currentLuma = imported(
       "FSR3/current luma",
       (runtime) => runtime.graphHistory("luma", "write"),
-      "internal-full",
+      "internal-full"
     );
     const previousLumaHistory = imported(
       "FSR3/previous luma history",
       (runtime) => runtime.graphHistory("lumaHistory", "read"),
-      "internal-full",
+      "internal-full"
     );
     const currentLumaHistory = imported(
       "FSR3/current luma history",
       (runtime) => runtime.graphHistory("lumaHistory", "write"),
-      "internal-full",
+      "internal-full"
     );
     const previousAccumulation = imported(
       "FSR3/previous accumulation",
       (runtime) => runtime.graphHistory("accumulation", "read"),
-      "internal-full",
+      "internal-full"
     );
     const currentAccumulation = imported(
       "FSR3/current accumulation",
       (runtime) => runtime.graphHistory("accumulation", "write"),
-      "internal-full",
+      "internal-full"
     );
     const previousFrameInfo = imported("FSR3/previous frame info", (runtime) =>
-      runtime.graphHistory("frameInfo", "read"),
+      runtime.graphHistory("frameInfo", "read")
     );
     const currentFrameInfo = imported("FSR3/current frame info", (runtime) =>
-      runtime.graphHistory("frameInfo", "write"),
+      runtime.graphHistory("frameInfo", "write")
     );
     const prepared = this.prepareInputs.addToGraph(graph, {
       color: input.color,
@@ -403,7 +479,7 @@ export class Fsr3UpscalerRuntime {
       constants,
       currentLuma,
       width: input.width,
-      height: input.height,
+      height: input.height
     });
     const luma = this.lumaPyramid.addToGraph(graph, {
       currentLuma: prepared.currentLuma,
@@ -412,7 +488,7 @@ export class Fsr3UpscalerRuntime {
       previousFrameInfo,
       currentFrameInfo,
       width: input.width,
-      height: input.height,
+      height: input.height
     });
     const spdMips = this.shadingPyramid.addToGraph(graph, {
       dilatedMotion: prepared.dilatedMotion,
@@ -421,13 +497,13 @@ export class Fsr3UpscalerRuntime {
       exposure: luma.frameInfo,
       constants,
       width: input.width,
-      height: input.height,
+      height: input.height
     });
     const shadingChange = this.shadingChange.addToGraph(graph, {
       spdMips,
       constants,
       width: input.width,
-      height: input.height,
+      height: input.height
     });
     const reactivity = this.prepareReactivity.addToGraph(graph, {
       reconstructedDepth: prepared.reconstructedDepth,
@@ -444,7 +520,7 @@ export class Fsr3UpscalerRuntime {
       width: input.width,
       height: input.height,
       outputWidth: input.outputWidth,
-      outputHeight: input.outputHeight,
+      outputHeight: input.outputHeight
     });
     const instability = this.lumaInstability.addToGraph(graph, {
       dilatedMotion: prepared.dilatedMotion,
@@ -456,7 +532,7 @@ export class Fsr3UpscalerRuntime {
       exposure: luma.frameInfo,
       constants,
       width: input.width,
-      height: input.height,
+      height: input.height
     });
     const accumulated = this.accumulate.addToGraph(graph, {
       color: input.color,
@@ -470,19 +546,23 @@ export class Fsr3UpscalerRuntime {
       exposure: luma.frameInfo,
       constants,
       width: input.outputWidth,
-      height: input.outputHeight,
+      height: input.outputHeight
     });
     return this.rcas.addToGraph(graph, {
       color: accumulated.color,
       exposure: luma.frameInfo,
       constants: rcasConstants,
       width: input.outputWidth,
-      height: input.outputHeight,
+      height: input.outputHeight
     });
   }
 
   commit(gpuDone: Promise<void>): void {
     if (!this.pending) throw new Error("FSR3 frame was not prepared");
+    if (this.checkpoint && this.checkpoint.histories !== this.histories) {
+      this.retireHistories(this.checkpoint.histories, this.lastSubmittedGpuDone);
+    }
+    this.checkpoint = null;
     this.index = this.writeIndex;
     this.previousJitter = this.pending.jitter;
     this.frameIndex = this.pending.frameIndex;
@@ -490,7 +570,27 @@ export class Fsr3UpscalerRuntime {
     this.lastSubmittedGpuDone = gpuDone;
   }
 
+  /** The caller must discard the unsubmitted encoder; committed histories remain live. */
+  abort(): void {
+    const previous = this.checkpoint;
+    if (previous !== null) {
+      if (this.histories !== previous.histories) {
+        this.retireHistories(this.histories, null);
+      }
+      this.histories = previous.histories;
+      this.size = previous.size;
+      this.internalCapacity = previous.capacity;
+      this.index = previous.index;
+      this.generationValue = previous.generation;
+      this.frameIndex = previous.frameIndex;
+      this.previousJitter = previous.jitter;
+    }
+    this.pending = null;
+    this.checkpoint = null;
+  }
+
   invalidate(): void {
+    this.abort();
     this.frameIndex = -1;
     this.pending = null;
   }
@@ -502,14 +602,21 @@ export class Fsr3UpscalerRuntime {
   }
 
   destroy(): void {
+    if (this.destroyed) return;
+    this.destroyed = true;
+    this.abort();
     this.destroyHistories();
-    this.constants.destroy();
-    this.rcasConstants.destroy();
-    this.defaultMask.destroy();
+    const release = () => {
+      this.constants.destroy();
+      this.rcasConstants.destroy();
+      this.defaultMask.destroy();
+      this.permanentBuffersLive = false;
+    };
+    if (this.lastSubmittedGpuDone) void this.lastSubmittedGpuDone.then(release, release);
+    else release();
   }
 
   private allocate(size: readonly [number, number, number, number]): void {
-    this.destroyHistories();
     const [width, height, outputWidth, outputHeight] = size;
     if (
       width < 8 ||
@@ -521,49 +628,64 @@ export class Fsr3UpscalerRuntime {
     ) {
       throw new RangeError("FSR3 render or output dimensions exceed the negotiated WebGPU limits");
     }
+    const candidates: GPUTexture[] = [];
     const pair = (label: string, format: GPUTextureFormat, w: number, h: number): [GPUTexture, GPUTexture] =>
-      [0, 1].map((index) =>
-        this.device.createTexture({
+      [0, 1].map((index) => {
+        const texture = this.device.createTexture({
           label: `FSR3/${label}/${index}`,
           size: [w, h],
           format,
           usage:
             GPUTextureUsage.TEXTURE_BINDING |
             GPUTextureUsage.STORAGE_BINDING |
-            (label === "frame info" ? GPUTextureUsage.COPY_DST : 0),
-        }),
-      ) as [GPUTexture, GPUTexture];
-    this.histories = {
-      color: pair("color", "rgba16float", outputWidth, outputHeight),
-      luma: pair("luma", "r16float", width, height),
-      lumaHistory: pair("luma history", "rgba16float", width, height),
-      accumulation: pair("accumulation", "r8unorm", width, height),
-      frameInfo: pair("frame info", "rgba32float", 1, 1),
-    };
-    for (const texture of this.histories.frameInfo) {
-      this.device.queue.writeTexture(
-        { texture },
-        new Float32Array([-1, 1, 0, 0]),
-        { bytesPerRow: 16 },
-        [1, 1],
-      );
+            (label === "frame info" ? GPUTextureUsage.COPY_DST : 0)
+        });
+        candidates.push(texture);
+        return texture;
+      }) as [GPUTexture, GPUTexture];
+    try {
+      this.histories = {
+        color: pair("color", "rgba16float", outputWidth, outputHeight),
+        luma: pair("luma", "r16float", width, height),
+        lumaHistory: pair("luma history", "rgba16float", width, height),
+        accumulation: pair("accumulation", "r8unorm", width, height),
+        frameInfo: pair("frame info", "rgba32float", 1, 1)
+      };
+      for (const texture of this.histories.frameInfo) {
+        this.device.queue.writeTexture(
+          { texture },
+          new Float32Array([-1, 1, 0, 0]),
+          { bytesPerRow: 16 },
+          [1, 1]
+        );
+      }
+      this.size = size;
+      this.internalCapacity = [width, height];
+      this.index = 0;
+      this.frameIndex = -1;
+      this.previousJitter = [0, 0];
+      this.generationValue++;
+    } catch (error) {
+      for (const texture of candidates) texture.destroy();
+      throw error;
     }
-    this.size = size;
-    this.internalCapacity = [width, height];
-    this.index = 0;
-    this.frameIndex = -1;
-    this.previousJitter = [0, 0];
-    this.generationValue++;
   }
 
   private destroyHistories(): void {
     if (!this.histories) return;
     const histories = this.histories;
     this.histories = null;
+    this.retireHistories(histories, this.lastSubmittedGpuDone);
+  }
+
+  private retireHistories(histories: Fsr3HistoryTextures | null, gpuDone: Promise<void> | null): void {
+    if (histories === null) return;
+    const bytes = this.historyBytes(histories);
+    if (gpuDone) this.retiredBytes += bytes;
     const destroy = (): void => {
       for (const pair of Object.values(histories)) for (const texture of pair) texture.destroy();
+      if (gpuDone) this.retiredBytes -= bytes;
     };
-    const gpuDone = this.lastSubmittedGpuDone;
     if (gpuDone) void gpuDone.then(destroy, destroy);
     else destroy();
   }

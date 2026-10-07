@@ -13,6 +13,9 @@ export interface XeGtaoDenoiseInputs {
 
 export interface XeGtaoScalarVisibility {
   readonly packed: ResourceId;
+  /** Existing final r8unorm visibility, before lossless byte packing. Native
+   * consumers may read it directly; an unconsumed pack pass is graph-culled. */
+  readonly scalarTexture: ResourceId;
   readonly width: number;
   readonly height: number;
   /** Four row-major pixels per u32, little-endian byte lanes. */
@@ -29,7 +32,7 @@ export class XeGtaoDenoisePass {
 
   constructor(
     private readonly device: GPUDevice,
-    readonly denoisePasses = 1,
+    readonly denoisePasses = 1
   ) {
     if (!Number.isInteger(denoisePasses) || denoisePasses < 0 || denoisePasses > 3) {
       throw new RangeError("XeGTAO DenoisePasses must be 0..3");
@@ -43,7 +46,7 @@ export class XeGtaoDenoisePass {
       Number(device.limits.maxStorageBuffersPerShaderStage) < 1
     ) {
       throw new RangeError(
-        "XeGTAO denoise requires two sampled textures, one storage texture and one storage buffer",
+        "XeGTAO denoise requires two sampled textures, one storage texture and one storage buffer"
       );
     }
     this.denoiseLayout = device.createBindGroupLayout({
@@ -54,9 +57,9 @@ export class XeGtaoDenoisePass {
         {
           binding: 3,
           visibility: GPUShaderStage.COMPUTE,
-          storageTexture: { access: "write-only", format: "r8unorm" },
-        },
-      ],
+          storageTexture: { access: "write-only", format: "r8unorm" }
+        }
+      ]
     });
     const denoiseLayout = device.createPipelineLayout({ bindGroupLayouts: [this.denoiseLayout] });
     const pipeline = (finalApply: boolean): GPUComputePipeline =>
@@ -65,10 +68,10 @@ export class XeGtaoDenoisePass {
         layout: denoiseLayout,
         compute: {
           module: device.createShaderModule({
-            code: xeGtaoDenoiseWgsl(finalApply, denoisePasses === 0 ? 1e4 : 1.2),
+            code: xeGtaoDenoiseWgsl(finalApply, denoisePasses === 0 ? 1e4 : 1.2)
           }),
-          entryPoint: "denoise",
-        },
+          entryPoint: "denoise"
+        }
       });
     this.intermediatePipeline = denoisePasses > 1 ? pipeline(false) : null;
     this.finalPipeline = pipeline(true);
@@ -76,13 +79,13 @@ export class XeGtaoDenoisePass {
       entries: [
         { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
         { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
-        { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-      ],
+        { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }
+      ]
     });
     this.packPipeline = device.createComputePipeline({
       label: "XeGTAO/pack scalar visibility",
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.packLayout] }),
-      compute: { module: device.createShaderModule({ code: XE_GTAO_PACK_WGSL }), entryPoint: "pack" },
+      compute: { module: device.createShaderModule({ code: XE_GTAO_PACK_WGSL }), entryPoint: "pack" }
     });
   }
 
@@ -123,17 +126,17 @@ export class XeGtaoDenoisePass {
               { binding: 0, resource: { buffer: resources.get(constants) as GPUBuffer } },
               { binding: 1, resource: resolveTextureView(resources.get(sourceId)) },
               { binding: 2, resource: resolveTextureView(resources.get(input.main.edges)) },
-              { binding: 3, resource: resolveTextureView(resources.get(output)) },
-            ],
+              { binding: 3, resource: resolveTextureView(resources.get(output)) }
+            ]
           });
           const pass = (context.encoder as ShadeGPUCommandContext).beginComputePass({
-            label: `XeGTAO/denoise ${index + 1}`,
+            label: `XeGTAO/denoise ${index + 1}`
           });
           pass.setPipeline(pipeline);
           pass.setBindGroup(0, group);
           pass.dispatchWorkgroups(Math.ceil(width / 8), Math.ceil(height / 8));
           pass.end();
-        },
+        }
       );
       denoise.read(constants);
       denoise.read(sourceId);
@@ -144,7 +147,7 @@ export class XeGtaoDenoisePass {
         height,
         format: "r8unorm",
         domain: "internal-full",
-        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
+        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
       });
       source = output;
     }
@@ -155,11 +158,11 @@ export class XeGtaoDenoisePass {
         entries: [
           { binding: 0, resource: { buffer: resources.get(constants) as GPUBuffer } },
           { binding: 1, resource: resolveTextureView(resources.get(finalAo)) },
-          { binding: 2, resource: { buffer: resources.get(packed) as GPUBuffer } },
-        ],
+          { binding: 2, resource: { buffer: resources.get(packed) as GPUBuffer } }
+        ]
       });
       const pass = (context.encoder as ShadeGPUCommandContext).beginComputePass({
-        label: "XeGTAO/pack indirect visibility",
+        label: "XeGTAO/pack indirect visibility"
       });
       pass.setPipeline(this.packPipeline);
       pass.setBindGroup(0, group);
@@ -172,8 +175,8 @@ export class XeGtaoDenoisePass {
       kind: "transient_buffer",
       size: bytes,
       usage: GPUBufferUsage.STORAGE,
-      domain: "internal-full",
+      domain: "internal-full"
     });
-    return { packed, width, height, words };
+    return { packed, scalarTexture: finalAo, width, height, words };
   }
 }

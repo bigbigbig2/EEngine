@@ -50,7 +50,7 @@ const corners = array<vec2f, 6>(
 const VSM_PAGE_ALLOCATED = 1,
   VSM_PAGE_DIRTY = 2,
   VSM_PAGE_GENERATION_VALID = 8;
-const ATLAS_PAGE_MATH = /* wgsl */ `
+export const VSM_ATLAS_PAGE_MATH = /* wgsl */ `
 fn atlas_position(light: vec3f, entry: VsmPageEntry, virtual_page: u32) -> vec4f {
   let pages = constants.dimensions.x;
   let coordinates = vsm_page_entry_coordinates(virtual_page, pages);
@@ -125,7 +125,7 @@ ${
 @group(0) @binding(31) var<uniform> camera:CommandEncoder;`
     : ""
 }
-${ATLAS_PAGE_MATH}
+${VSM_ATLAS_PAGE_MATH}
 ${
   product
     ? PRODUCT_READERS +

@@ -14,6 +14,13 @@ verifies:
     - OEngine/src/shaders/appearance_exact_dag.ts
     - OEngine/src/gpu/AppearanceProgramRegistry.ts
     - OEngine/src/gpu/GpuAppearancePublication.ts
+    - OEngine/src/gpu/GpuNativeMaterialPublication.ts
+    - OEngine/src/gpu/NativeMaterialBindings.ts
+    - OEngine/src/gpu/NativeMaterialProducts.ts
+    - OEngine/src/shaders/native_material.ts
+    - OEngine/src/shaders/native_surface.ts
+    - OEngine/src/render/surface/SurfaceV4.ts
+    - OEngine/src/render/temporal/NativeTemporalFactsPass.ts
     - OEngine/src/gpu/GpuRenderWorld.ts
     - OEngine/src/gpu/GraphicsContext.ts
     - OEngine/src/gpu/TextureResidency.ts
@@ -34,7 +41,7 @@ verifies:
 
 # EEngine V4：Native Shading 架构母稿
 
-本文件是唯一 **current renderer architecture authority**；[执行计划](../next-execution/eengine-v4-native-shading-execution-2026-10.md)是唯一 renderer execution authority。[workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)只维护当前模块导航，不另列完整任务。源码定义当前实现事实，`docs/domains/`在真实代码切换后更新。本文采纳 V4 目标，不声称 V4 已实现、校准、通过 GPU 验证或提升来源 adoption。
+本文件是唯一 **current renderer architecture authority**；[执行计划](../next-execution/eengine-v4-native-shading-execution-2026-10.md)是唯一 renderer execution authority。[workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)只维护当前模块导航，不另列完整任务。源码定义当前实现事实，`docs/domains/`在真实代码切换后更新。本文采纳 V4 目标，不以文档采纳声称生产切换、GPU 验证或来源 adoption；隔离阶段的实际交付、测量及限制只见执行计划，生产 Surface 尚未切换。
 
 2026-10-07 执行 `git fetch origin` 后，HEAD、master、origin/master 均为 `b69a0a60b13930212fdc98f988443186fad024e4`；开始时仅两份 V4 提案未跟踪。下文源码定位以该快照为审查起点，实施必须重新检查 HEAD/工作区与直接消费者。
 
@@ -133,7 +140,7 @@ Material Instance → parameter/resource publication → Program reference
 
 Standard PBR、Unlit、Clearcoat 与合法 custom graph 都生成 native GPU code；custom 不回退 General VM。保留已有 graph 节点、normal filtering、texture decode/transform/sampler/minimum resident mip、cooked Product 和原 C/X/Y 语义。compute 不用隐式 fragment derivatives；winner triangle 连续扩展得到 C/X/Y，坐标祖先必须完整传播，包括非线性/嵌套 texture；采样用正确 `textureSampleGrad` 或等价显式 LOD，不能对 compact list 邻 lane 求屏幕导数。
 
-Material/Frame/View/Dynamic frequency extraction 是编译期真实依赖分析。便宜值可 CPU/inline；需要保留 GPU 数学或资源查询的 uniform 子图生成 native update kernels，用同一 encoder 发布后消费。只物化实际跨频率边界，变化才更新，stable frame 不无条件重算；不是通用动态 proof 或 memo store。CSE 是共享 source query，不是按输出数重复计收益。
+Material/Frame/View/Dynamic frequency extraction 是编译期真实依赖分析。便宜值可 CPU/inline；昂贵 uniform 子图只有真实跨频率 consumer 与 Cost Card 证明更新/存储/读取比 native inline 更划算时，才生成 native update kernels，用同一 encoder 发布后消费。没有这类物化也可形成完整 native 正确路径；不能把保留依赖分析称为已实现执行频率优化。实际物化时变化才更新，stable frame 不无条件重算；不是通用动态 proof 或 memo store。CSE 是共享 source query，不是按输出数重复计收益。
 
 Instance count、unique Program、Pipeline、ExecutionBin 分开计：`ExecutionBin = Pipeline + compatible physical BindingSet/profile`。参数值/texture layer/实例数量不制造 ProgramKey；拓扑、采样语义、resource layout、output/profile/真实 specialization 可进入 key。10000 instances/几十 programs 合法；几十 native dispatch 合法。registry 的现有128 admission不是永久性能常量；发布期协商 capacity/compilation，未 ready 的新 publication不进入当前帧，保持已提交资产或显式失败/等待，不用 fallback VM 或默认材质遮错。
 
@@ -152,7 +159,7 @@ SortedTileRoutes、额外PixelCompaction层、ProgramPage、NativeSwitch、Softw
 | Profile | 可能需要的跨 pass产品 | 逻辑 budget / consumer |
 |---|---|---|
 | Base | HDR `rgba16float`；既有Depth `depth32float`、当前Visibility `r32uint`+外置context | 8+4+4=16B/pixel，1080p约31.64MiB；不是每个pass全读写 |
-| Temporal | motion `rg16float` 4B；reactive/validity/change mask按实际consumer布局，当前mask合并候选 `rgba8unorm` 4B | 新增≤8B/pixel起点约15.82MiB；FSR/debug需求；identity history归Temporal，单独计账 |
+| Temporal | motion 精度由Temporal owner与consumer合同决定：`rg16float` 4B是预算候选，必要时`rg32float` 8B；reactive/validity/change mask按实际consumer布局，mask候选 `rgba8unorm` 4B | motion+mask为8–12B/pixel候选约15.82–23.73MiB；Surface reactive若为独立产品再计4B/P，不能重复漏账；FSR/debug需求，identity history归Temporal |
 | Reflection/GI（有真实consumer才启用） | world normal+perceptual roughness、albedo/metallic或有限response/flags | 8–16B/pixel候选；SSR/GI完整profile可能要求coat/response额外字段，须cost card，不能预分配 |
 
 当前 Temporal identity 双 `rgba32uint` 是32B/pixel持久数据、1080p约63.28MiB，与winner16/32/64-bit选择无关。S1 从真实 Temporal/FSR consumer 倒推 change/reprojection 契约，决定重算、有限签名/存储或删去无 consumer 字段，并在隔离闭包验证；S2 同步切换全部读写者，不能先迁生产再补语义，也不以预算强迫压缩。若新winner contract确实需要2×u32，使用8B并记多出7.91MiB；不能截断身份以达4B。现有32-bit winner+完整外部context是可用起点，不预先改宽。
@@ -189,6 +196,10 @@ CPU仍需选择pipeline/bind groups再编码各indirect command；GPU不能仅�
 
 fused shader 的bindings必须包括winner、geometry sources、instances/publication、material banks/samplers、cluster、VSM、IBL、exposure、AO/atmosphere和实际outputs的完整资源清单；逐stage/storage/sampled texture/sampler/workgroup limits在资源创建前preflight。当前九banks＋provider slots正好接近已有profile预算，不能只用现有policy的“reserved7”常量证明完整fused legal。不同stage可用不同资源布局；必要pass边界由limits/实际成本决定，不许以重建通用record逃避审查。
 
+资源兼容身份须包含完整物理材质输入（含 cooked Product），不能直接把某个owner的局部set ID当全局BindingSet。cooked half字段可用保持原payload/尺寸/mips/domain的有限packed物理表示，避免每字段独立texture binding随资产数量增长；显式采样/索引/上传成本另计，不能把重新烘焙、降精度或sampler解释器伪装成布局调整。
+
+完整profile确实超过negotiated sampled/storage limits时，允许具名有限provider边界：例如native core先写HDR，后续重新计算所需Geometry/Material，只追加physical sun到新的HDR version。重算与HDR读写/copy/额外PSO必须有Cost Card，全部PSO ready才原子发布，保持背景及未受影响routes完整写域、Aux唯一writer和一个submit；不要求通用MaterialRecord或缓存。此能力profile不是可选性能优化，普通输入仍fused。不能假定`rgba16float`支持read-write storage，实际格式/feature不支持时用独立读取/写入资源。已构建的具体范围和验证只见执行计划，本文不提升production实现状态。
+
 ## 9. AAA连接合同（只到接口）
 
 | 系统 owner | 连接核心的输入/输出 | composition/history约束 |
@@ -203,9 +214,17 @@ fused shader 的bindings必须包括winner、geometry sources、instances/public
 | Temporal / FSR / future AI | HDR/depth/motion/reactive/validity/exposure→reconstructed output | history属于具体重建owner；AI按实际SDK契约设计，不预建统一history |
 | Transparency / Media | 独立ordered/integration work→HDR和实际reactivity/motion需求 | 不冒充opaque winner；blend/order/energy由该模块设计 |
 
-跨pass理由真实存在时，可引入finite compact deferred profile或effect-owned response产品；recipe从consumer反推，不把Surface变成“Universal SurfaceRecord”。详细算法、格式、阶段、质量条件和完整donor在该模块成为currentSlice时再设计。
+跨pass理由真实存在时，可引入finite compact deferred profile或effect-owned response产品；recipe从consumer反推，不把Surface变成“Universal SurfaceRecord”。详细算法、格式、阶段、质量条件及适用的开源参考在该模块成为currentSlice时再研究和设计。
 
 ## 10. 来源、风险与未来修订
+
+**复杂模块优先参考成熟开源实现。** 开源实现是优先参考项，不是强制依赖，也不是所有代码都必须移植。简单、局部、低风险的 glue code、数据结构转换、明确的小型 helper、简单资源绑定、已有 EEngine 基础上的直接扩展，以及没有复杂 GPU 算法风险的普通工程代码，可以直接按当前架构实现，不为“有参考”额外寻找 donor。
+
+复杂、高风险、性能敏感、容易踩硬件执行坑的模块，开工前优先搜索并研究成熟开源实现。重点包括 Material Graph→Native Shader、Visibility Buffer/Shading、Material/Program Binning、GPU-Driven Work Generation、Virtual Geometry/Texture/Shadow Map、VRS、复杂 Lighting、SSR/SSGI/GI、ReSTIR、Temporal Reconstruction/Upscaling、Atmosphere/Volumetric 及复杂 GPU Streaming/Residency。先判断是否有合适参考；有则阅读真实源码 hot path，理解数据流、GPU work、资源布局和平台假设，对照 EEngine/WebGPU 后决定移植、改写或放弃。没有合适参考，或平台差异要求时，再自主设计并简述依据；不把缺 donor 当作实施阻塞，也不通过拆小任务回避复杂算法的整体研究。
+
+重点吸收算法核心、物理执行方式、工作组织、数据布局、性能边界与失败经验；不机械复制 C++ 框架结构、D3D12/Vulkan 专用封装或不适合 WebGPU 的 bindless/ExecuteIndirect/wave 假设。复杂模块可在既有实施记录或来源账本留下很短的 Local / Reference / Adopt / Adapt / Original Source Map，格式见[执行计划 §1.5](../next-execution/eengine-v4-native-shading-execution-2026-10.md#source-reference-policy)；不新增 authority、状态文档或重型文档流程。实际引用或移植的来源才记录固定 revision、license、具体文件/函数与本地映射。
+
+开源参考不自动证明在 EEngine/WebGPU 上性能更好，也不证明本地 adoption 完成；最终 hot path 仍须本项目自己的 Cost Card 和真实 GPU 验证。简单问题直接解决，复杂问题优先借鉴成熟实现，确无合适参考或平台差异要求时自主设计。
 
 固定来源、license、具体函数及拟本地阶段见[来源账本 V4条目](../porting/next-renderer.md#v4-planning-source-map)。Wicked的analyze/resolve/shade/host支持分类与native消费的物理参考；Forge支持bary/derivative/SampleGrad数学；现有Filament/MaterialX/scan来源支持owner/编译/扫描边界。不把其bindless/wave/nativeAPI照搬为WebGPU，也不把几个参考文件叫完整算法采用。
 

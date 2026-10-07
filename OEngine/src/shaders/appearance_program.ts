@@ -1,5 +1,6 @@
 import type { CompiledAppearanceGraph } from "../material/AppearanceGraphCompiler.js";
-import type { AppearanceOp } from "../material/AppearanceGraph.js";
+import { operationWgsl } from "./appearance_operations.js";
+export { operationWgsl } from "./appearance_operations.js";
 import { APPEARANCE_NORMAL_FILTER_WGSL } from "./appearance_normal_filter.js";
 
 export interface AppearanceWgslProgram {
@@ -25,7 +26,7 @@ export interface AppearanceWgslProgram {
  */
 export function lowerAppearanceWgsl(
   program: CompiledAppearanceGraph,
-  outputBits?: Readonly<Record<string, number>>,
+  outputBits?: Readonly<Record<string, number>>
 ): AppearanceWgslProgram {
   // Field masks are lowered into straight-line guards, never interpreted nodes.
   // One live source sample serves all missing roots that depend on it.
@@ -70,7 +71,7 @@ export function lowerAppearanceWgsl(
       if (instruction.parameter !== undefined) {
         (parameterSlots[instruction.parameter] ??= []).push({
           slot: constants.length,
-          channel: instruction.channel!,
+          channel: instruction.channel!
         });
       }
       expressions.push(`appearance_constant(${constants.length}u)`);
@@ -100,7 +101,7 @@ export function lowerAppearanceWgsl(
           lines.push(
             outputBits
               ? `  var product_${index} = vec4f(0.0);\n  if (appearance_missing & ${productMasks.get(index)}u) != 0u { product_${index} = ${call}; }`
-              : `  let product_${index} = ${call};`,
+              : `  let product_${index} = ${call};`
           );
         }
         productSamples.add(index);
@@ -108,7 +109,7 @@ export function lowerAppearanceWgsl(
       if (instruction.kind === "normal-product") {
         if (!normalProducts.has(index)) {
           lines.push(
-            `  let normal_product_${index} = appearance_decode_normal_moment(product_${index}.xyz);`,
+            `  let normal_product_${index} = appearance_decode_normal_moment(product_${index}.xyz);`
           );
           normalProducts.add(index);
         }
@@ -127,7 +128,7 @@ export function lowerAppearanceWgsl(
         lines.push(
           outputBits
             ? `  var texture_${sample} = vec4f(0.0);\n  if (appearance_missing & ${sampleMasks.get(sample)}u) != 0u { texture_${sample} = ${call}; }`
-            : `  let texture_${sample} = ${call};`,
+            : `  let texture_${sample} = ${call};`
         );
         sampled.add(sample);
       }
@@ -140,7 +141,7 @@ export function lowerAppearanceWgsl(
     lines.push(
       outputBits
         ? `  var ${name}: f32 = 0.0;\n  if (appearance_missing & ${masks[id]}u) != 0u { ${name} = ${value}; }`
-        : `  let ${name}: f32 = ${value};`,
+        : `  let ${name}: f32 = ${value};`
     );
   }
   const outputSlots: Record<string, readonly number[]> = Object.create(null);
@@ -151,7 +152,7 @@ export function lowerAppearanceWgsl(
         const slot = results.length;
         results.push(expression(ref));
         return slot;
-      }),
+      })
     );
   }
   const outputCount = results.length;
@@ -165,7 +166,7 @@ export function lowerAppearanceWgsl(
     source,
     program.inputs.map((input) => [input.width, input.domain]),
     program.samples.map((sample) => [sample.binding.decode, sample.readMask]),
-    program.productReads?.map((read) => [read.field.width, read.field.format, read.uv === null]) ?? [],
+    program.productReads?.map((read) => [read.field.width, read.field.format, read.uv === null]) ?? []
   ]);
   return Object.freeze({
     source,
@@ -179,37 +180,9 @@ export function lowerAppearanceWgsl(
       Object.fromEntries(
         Object.entries(parameterSlots).map(([name, slots]) => [
           name,
-          Object.freeze(slots.map((slot) => Object.freeze(slot))),
-        ]),
-      ),
-    ),
+          Object.freeze(slots.map((slot) => Object.freeze(slot)))
+        ])
+      )
+    )
   });
-}
-
-export function operationWgsl(op: AppearanceOp, args: readonly string[]): string {
-  const [a, b, c] = args;
-  switch (op) {
-    case "add":
-      return `(${a} + ${b})`;
-    case "subtract":
-      return `(${a} - ${b})`;
-    case "multiply":
-      return `(${a} * ${b})`;
-    case "divide":
-      return `(${a} / ${b})`;
-    case "min":
-    case "max":
-    case "pow":
-      return `${op}(${a}, ${b})`;
-    case "sin":
-    case "cos":
-    case "abs":
-    case "sqrt":
-      return `${op}(${a})`;
-    case "clamp":
-      return `clamp(${a}, ${b}, ${c})`;
-    // Keep the explicitly rounded scalar IR sequence; do not silently change to a fused lerp.
-    case "mix":
-      return `((${a} * (1.0 - ${c})) + (${b} * ${c}))`;
-  }
 }

@@ -16,6 +16,18 @@ verifies:
     - OEngine/src/material/AppearanceGraphCompiler.ts
     - OEngine/src/material/ExactAppearanceDag.ts
     - OEngine/src/shaders/appearance_program.ts
+    - OEngine/src/shaders/native_material.ts
+    - OEngine/src/gpu/GpuNativeMaterialPublication.ts
+    - OEngine/src/gpu/NativeMaterialBindings.ts
+    - OEngine/src/gpu/NativeMaterialProducts.ts
+    - OEngine/src/render/surface/SurfaceV4.ts
+    - OEngine/src/render/surface/NativeExecutionBins.ts
+    - OEngine/src/render/surface/NativeRasterWorkPartitions.ts
+    - OEngine/src/render/surface/NativeVisibilityPass.ts
+    - OEngine/src/render/surface/NativeSurfaceAux.ts
+    - OEngine/src/render/temporal/NativeTemporalFactsPass.ts
+    - OEngine/src/shaders/native_surface.ts
+    - OEngine/src/shaders/native_material_products.ts
     - OEngine/src/render/CoverageRasterBindings.ts
     - OEngine/src/render/MeshletBucketRaster.ts
     - OEngine/src/render/RasterWorkPartitions.ts
@@ -49,7 +61,7 @@ verifies:
 
 1. 读 workstream authority/currentSlice 与本文阶段表，找到第一个未完成阶段。其他资产专项 workstream 不构成第二套 renderer authority；不新增 status/progress/roadmap。
 2. 重新 fetch、确认 HEAD/origin/master/工作区，用 `node tools/vibe.mjs context <path>` 导航；读本阶段 producer、产品、全部直接 consumers 及近目录约束。context 不是许可或验证门禁。
-3. 固定存活语义、真实合法场景、source map、容量/失败行为和 Cost Card。完整算法开工前重新核读固定 donor 的完整相关阶段、license、关键分支并补本地映射；计划存在不代表移植完成。
+3. 固定存活语义、真实合法场景、容量/失败行为和 Cost Card。按 §1.5 判断复杂度：简单工程代码直接实现，复杂模块优先研究成熟开源 hot path，再决定本地方案；实际引用或移植时核读相关完整阶段、license、关键分支并记录本地映射。计划或参考存在不代表移植完成。
 4. 连续完成本阶段责任，再 architecture review、集中验证、分类定位失败、根因修复及受影响回归。缺少必需项就保持未完成，不能由测试颜色决定架构。
 5. 在本阶段实施记录写 source/build 身份、实际交付、验证结果/限制、未运行项和开放问题。关闭后停在下一阶段边界；仅大模块/入口变化同步 currentSlice。
 6. **M1 完成即 STOP。** 根据此时真实代码重新设计 M2 Geometry/VG alignment，经用户选择才启动；不得自动跨到 VT、GI 或 ReSTIR。
@@ -86,6 +98,28 @@ S0/S1 调用实际新生成 WGSL 和隔离链，S2/S3 调用唯一 production �
 
 也禁止以保持 production 随时可运行为理由拆分 ownership 迁移、混合新旧 ABI，或留下“以后删旧 Surface”。Git history 保存旧实现，不保留 runtime selector、OldSurfaceAdapter、LegacySurfaceBridge、CompatSurface、SurfaceV4ToSignals、SignalsToSurfaceV4、FallbackVM、OldReconstructAdapter、LegacyPublicationWrapper。
 
+<a id="source-reference-policy"></a>
+
+### 1.5 复杂模块的开源参考与轻量 Source Map
+
+**开源实现是优先参考项，不是强制依赖，也不要求所有代码移植。** 简单、局部、低风险的 glue code、数据转换、小 helper、简单资源绑定、已有 EEngine 的直接扩展及没有复杂 GPU 算法风险的普通工程代码直接实现，不额外寻找 donor。
+
+复杂、高风险、性能敏感或易踩硬件执行坑的模块，先检查本地可复用基础，优先搜索成熟开源实现，再决定方案。适用范围包括 native material compiler、Visibility Shading、Program/Material Binning、GPU work generation、VG/VT/VSM/VRS、复杂 Lighting、SSR/SSGI/GI/ReSTIR、Temporal/Upscaling、Atmosphere/Volumetric 和复杂 streaming/residency；不能通过拆小任务回避整体研究。
+
+有合适参考时，阅读真实源码 hot path 和相关完整阶段，核对数据流、GPU work、资源布局、关键分支、不变量、平台假设、性能边界与失败经验，再对照 EEngine/WebGPU 决定移植、改写或放弃。不照搬 C++ 框架、D3D12/Vulkan 封装或不适用的 bindless/ExecuteIndirect/wave 假设；平台适配不能无依据省略算法必要步骤。没有合适参考，或平台差异要求自主设计时，简述检索范围、缺口或平台理由及本地方案即可，不因缺 donor 阻塞开发。
+
+复杂模块开工前可在**既有阶段实施记录或来源账本**留以下短记录，不建新文件、workstream、审批或重型文档流程；实际引用或移植的 Reference 才记录固定 revision、license、具体文件/函数及本地映射。
+
+```text
+Local:     EEngine 已有可复用基础
+Reference: 实际研究的开源实现；无合适参考时简述原因
+Adopt:     可吸收的算法核心、物理执行、工作组织或布局
+Adapt:     针对 WebGPU/EEngine 的必要修改与平台边界
+Original:  确需自主设计的部分及依据
+```
+
+开源只是设计参考，不自动证明本地性能、正确性或 adoption。最终 hot path 仍须本项目 Cost Card 和真实 GPU 验证；来源采用声明仍须来源核对、独立 oracle 与真实新 production 消费证据。简单问题直接解决，复杂问题优先借鉴成熟实现，确无合适参考或平台差异要求时自主设计。
+
 ## 2. 粗粒度后续模块（不是自动执行路线）
 
 | 模块 | 目标 / 依赖 | producer→产品→consumer 与排序理由 |
@@ -105,8 +139,8 @@ S0/S1 调用实际新生成 WGSL 和隔离链，S2/S3 调用唯一 production �
 | 阶段 | 责任 | 状态 / 实施记录 |
 |---|---|---|
 | V4-S0 | Native Viability Gate | **closed / VIABLE（隔离物理模型）**；结果与限制见 §3.1 |
-| V4-S1 | Complete SurfaceV4 Construction（non-production） | **next / 未开始**；以 S0 支持的 fused baseline 开始完整非生产构建 |
-| V4-S2 | Atomic Production Cutover + Immediate Destructive Purge | 未开始；等待 S1 完整功能闭包 |
+| V4-S1 | Complete SurfaceV4 Construction（non-production） | **closed / 非生产功能闭包已验证**；实际范围、成本及限制见 §3.2.1 |
+| V4-S2 | Atomic Production Cutover + Immediate Destructive Purge | **next / 未开始**；按 §3.3 重新核对真实 production owners 后原子切换及删除 |
 | V4-S3 | SurfaceV4 Acceptance | 未开始；等待 S2 切换、删除及集中正确性验证 |
 
 ```text
@@ -245,7 +279,104 @@ one-route 只验证新 subsystem 内部第一个 vertical slice，**不接管生
 
 **退出条件：** 全部 packages 的实际 producer/product/consumer、资源和失败语义闭合，进行一次集中 typecheck/build、native 数值/采样、隔离 GPU integration/lifecycle 与结构/Cost Card 核对。S0 关键结论不能在集成中被未解释成本推翻；这不是每 helper benchmark，也不是完整 production 性能验收。列出 S2 完整 ownership/deletion 清单后才能关闭；只写完 compiler 或一个 PBR shader 不算完成。
 
-**实施记录：** 未开始；没有新增 native subsystem 或 production 接线。
+<a id="v4-s1-construction-record"></a>
+
+### 3.2.1 S1 实施记录（2026-10-07～08，非生产闭包关闭）
+
+**S1 closed；S2 next，未实施。** Graph→native publication→GPU raster winner/bins→Geometry/Material/Lighting→HDR/Aux→native Temporal→真实 FSR 已在隔离集成中闭合。RendererCore、FrameProgram、GpuRenderWorld 没有接入新 Surface owners，生产仍完整使用旧 Surface；没有 adapter、双生产路径或 fallback VM。下列结果不是 S3 acceptance，也不是来源 production adoption。
+
+起点及当前 HEAD 为 `355349c09219fd388c09aaafdc311d90ab6d102b`；重新 fetch 后 origin/master 为 `0386bea5fc59a98cefd3f54d2be589ab9b2ed0eb`。结果对应这一起点上的未提交源码。最终 fresh build:test 身份：source SHA256=`e51ed74dc68998fed8cd78b259ef15cf333fdc8af18baf89672a813d7e0b8ea9`，output SHA256=`6afd0b240634b93ee503adaa6de38f26a76a2eed94e9e52980bb6688773229a8`；七项最终 GPU 报告均使用同一身份。适配器报告 NVIDIA Turing、Chrome 154，没有确切 device 型号，不能认定已确认 GTX 1650 Ti。
+
+#### 实际 producer / product / direct consumer
+
+| Package | 实际交付（路径相对 OEngine/src） | 产品与直接消费 / 边界 |
+|---|---|---|
+| Compiler / Publication | `shaders/native_material.ts`、`appearance_operations.ts`；`gpu/GpuNativeMaterialPublication.ts`、`NativeMaterialBindings.ts`、`NativeMaterialProducts.ts` | 现有 scalar IR/CSE/DCE/dependency/frequency→straight-line WGSL、完整坐标祖先 C/X/Y、native samplers→Registry leases；immutable constants +16B/slot directory +8B/slot versions→shade/alpha/Temporal。Standard、coat、Unlit、非线性及 texture-driven UV custom；没有 GPU opcode 解释。ready/commit/abort/retry、全部 PSO 原子发布与 fence/device epoch 闭合 |
+| Native Surface Core | `render/surface/SurfaceV4.ts`；`shaders/native_surface.ts`、`native_surface_lighting.ts` | 原 r32 winner/context、MeshletWork、真实 FrameGeometryArena/vertex source→局部 reconstruction/CXY/material/cluster/VSM/IBL/AO/physical sun→pre-exposed working-color HDR；background 完整写域。normal/ORM、base/coat validity、非均匀与负 determinant、prepared/resident fallback；中间值默认 private/register |
+| Execution Bins / winner | `NativeExecutionBins.ts`、`NativeRasterWorkPartitions.ts`、`NativeVisibilityPass.ts` 及对应 shaders | dense 0/1 route 无管理资源/dispatch；multi-route count→sharded histogram→hierarchical small prefix→scatter→native indirect shade。regular/VSM 实际 queue ABI→GPU count/prefix/scatter→bucket drawIndirect→native alpha/winner；无本帧 work readback 调度 |
+| Aux / Temporal | `NativeSurfaceAux.ts`、`render/temporal/NativeTemporalFactsPass.ts`、`shaders/native_surface_aux.ts` | Base 无 Aux；Temporal 仅 demanded reactive `rgba8unorm` 4B/P。native versions + authoritative sceneInstances/winner→motion `rg32float` 8B/P、mask `rgba8unorm` 4B/P、双 `rgba32uint` identity 32B/P→真实 FSR；identity/history 属于 Temporal，Reflection/GI 没有 consumer 时拒绝启用 |
+| Lifecycle / Integration | 新 owners 的 prepare/ready/commit/abort/invalidate/retire/device-loss；`native-surface-integration-gpu.mjs` 等隔离 harness | async CPU 描述符快照、buffer identity 含 offset/size；encoded abort→retry、resize candidate 不覆盖 committed 状态、失败 fence 清理、device epochs/资源计账。共享 FSR owner 补 resize/abort checkpoint 和 fence 退休，motion binding 用 unfilterable-float；XeGTAO 暴露既有 scalar AO。GPU exposure 每帧 copy 4B 到设置，不用 CPU 曝光代替 |
+
+`bindingSet` 表示完整物理材质资源兼容身份（包含 Product），不是 TextureResidency 的 owner-local set ID。S2 必须在实际 scene publication 中接入此合同。当前保留编译期频率信息，便宜值仍 native inline；**未实现 GPU uniform store/update-frequency 物化优化**，不能声称已得到其收益。参数更新建立新的 immutable candidate，stable frame 复用 committed publication；实例/纹理层不制造结构 ProgramKey。
+
+#### 资源能力边界与有限执行调整
+
+实际九个材质 texture banks，加上 Visibility/VSM/IBL/AO/physical sun 与 cooked Product，完整 fused profile 可达到17 sampled textures，超过 default16。没有删除合法材质或 provider 来通过编译：
+
+- `NativeMaterialProducts` 将 cooked half 原 payload 四个 half/rgba16 texel 原样打包为一个 texture array，保留每字段原尺寸、全部 mips/domain/footprint LOD；软件 clamp/bilinear/trilinear，非重新烘焙、重采样或 opcode interpreter。256MiB raw /258MiB physical-upload 预算在分配前检查，mip 起点8B对齐；使用现有 CommandContext 上传/提交/中止/退休，没有 private submit。普通 profile 可继续使用原硬件 Product 采样。
+- 完整 footprint 仍超 sampled limit 且含 physical sun 时，publication 包含两个必须一起 ready 的有限 PSO：primary 计算 Geometry/Material + cluster/VSM/IBL/AO→initialHDR/Aux；continuation 重算本 bin 的 Geometry/Material，仅加 shadowed physical sun，读 initialHDR、写 finalHDR。primary 后 copy initialHDR→finalHDR 保证背景/其他 routes 完整写域；continuation 不重写 Aux。同一 encoder/submit，没有通用 MaterialRecord/deferred selector。
+- 首个 `rgba16float` read-write storage 尝试被真实 GPU 拒绝，原失败保留；最终是独立 sampled HDR 读 + write-only HDR 写，不假定 tier1 支持该格式 read-write。
+
+这是资源 limit 所需的正确性方案，不是性能优化 claim。默认仍 fused；没有复活 signal store、cache/history 或 Universal SurfaceRecord。
+
+#### Cost Card（逻辑账，不是 DRAM/register counters）
+
+| 机制 | bytes / 工作 / 管理 | 理想、expected、worst / break-even |
+|---|---|---|
+| Native graph | Standard/coat 两 queries，Unlit 一，texture-driven custom 四（上游三点+下游一点）；逐 query transform 常量24B/实例，directory16B/slot、versions8B/slot、实例 constants 实际大小。组件两实例 publication：328/336/144/224B，算术88B；native evaluate 无全屏 scratch、atomic/barrier/内部 dispatch | 0/50/100% reuse 都执行同一 useful work，没有 reuse 机制。CXY 上游追加 queries 是数学语义所需；无旧生产内存删除量或 uniform extraction 收益 claim |
+| CompactPixelBins | queue `4P+32B`，32 sharded histogram≈`128B` bytes及 prefix scratch；这里 B 是 bin 数。两次 winner/mapping gather、index 一写一读；tile-local aggregation，每 tile/distinct-bin 两次 global reservations。count 两个/scatter 三个 workgroup barriers，prefix 每 block17 barriers；B≤256 四管理 dispatch，hierarchical513-bin fixture六次 | dense 路径管理为0。uniform tile一次预留64 pixels；最坏64 distinct bins/tile 时最多64 comparisons/lane及逐 pixel reservation。不是 cache hit率；break-even 是被避免的重复扫描/divergence收益是否超过组织/locality税，尚未宣称相对等价 native 分派提速 |
+| 1080p八 bins 下限 | queue=8,294,656B，scratch=1,076B（其他 bindings/settings另计）。只计两遍 winner 8P + index write/read 8V=32.348MB/frame，未计 mapping/atomics/scan；按 S0 RW169.49GB/s 约0.191ms floor | 实测 bins 四阶段 median 和约0.580ms；差额含 mapping、reservation/barriers、scan/dispatch和访问方式，具体 transaction counter unavailable。logical read不等于 uncached DRAM |
+| Packed cooked Product | 原 half payload +每 mip<8B对齐+尾 page padding；默认 physical/upload 不超过258MiB。每 channel 至多8个显式 trilinear corner loads，多个通道可重复取同 packed texel；额外索引/插值 ALU，不增加全屏产品 | 绑定数由字段数降为1；20 fields 实测 payload2800B/physical4096B。不是更快保证；0/50/100%复用均不减 per-pixel 工作，binding-limit correctness 用途，不适用 hit break-even |
+| Sun continuation | 只在该能力 profile 额外8P HDR；copy额外16P traffic；affected fraction f 再增16fV HDR read/write、f×Geometry/Material重算及太阳工作，追加每相关 bin native dispatch；无 MaterialRecord scratch、atomics/barriers | f=0/.5/1 时额外流量为16P/16P+8V/16P+16V；1080p95%约33.18/48.94/64.70MB，按规划90GB/s约0.37/0.54/0.72ms floor，另计重算/dispatch。profile存在但无affected pixels仍付copy税；未实测其1080p净成本，不当 speed optimization。112B fp32 record 会增约232MB全屏 scratch、约464MB往返及 storage bindings，因此选择有限重算/HDR版本 |
+| HDR / demanded Aux / Temporal | 默认完整HDR写8P，reactive写4P；motion8P+mask4P为真实 FSR产品，Temporal双identity持久32P。默认无Material/six-signal scratch或Surface shading history | 不把所有产品都当每pass全读写。history明确在Temporal/FSR计账；motion f32保留0.1 render-pixel目标，不为4B预算强行降精度。Reflections/GI无consumer→0资源 |
+
+S0 mixed BRDF profile floor≈1.65ms、普通 necessary-work分解 expected6–7ms仅是参考；S1多 Program/资源路由、custom/coat/Unlit混合的 native median7.29ms处于同量级，不能从这个总时间反推 Geometry/Material/Lighting各自精确增量，也不能把S0的2,220 FLOP全部像素套作S1新指令计数。register/spill/DRAM counters 未提供，fused压力只可作 **INFERENCE**；没有新增 cache/proof 来解释未知。
+
+#### 集中正确性、生命周期与真实 GPU 验证
+
+通过：`npm run typecheck --prefix OEngine`、fresh `npm run build:test --prefix OEngine`、最终完整 `npm run build --prefix OEngine`；native contracts +FSR lifetime +既有 graph/normal-filter oracles +XeGTAO scalar contract **76/76**（无 skip）。结构搜索确认新 owners 不 import 旧 Surface runtime/heap/GPU Tape/cache，RendererCore/FrameProgram/GpuRenderWorld 没有新 Surface wiring；共享 Geometry/BRDF/VSM helpers 只复用源解码/数学。
+
+收尾文档验证：`node tools/docs-verify.mjs` 0 findings（62 historical warnings保留）；`node --test tools/tests/document-system.test.mjs` 7/7；`node tools/vibe.mjs doctor`、SurfaceV4 context/router与`git diff --check`通过。workstream继续只导航Surface V4，未复制阶段状态；未修改domains为V4已生产。
+
+七项最终真实 GPU 报告均 passed、无 scoped/uncaptured GPU errors：
+
+| 入口（`node tools/gpu-oracle.mjs <name> --json`，新鲜 build:test 后串行运行） | 实际结果与限制 |
+|---|---|
+| `native-material` | 五类 graph×32 invocations、两实例/两 texture sets；独立 authored VECTOR WGSL reference 不经过 scalar compiler/CSE/emitter。Standard/coat/Unlit/算术 max0，custom max1.78814e-7，预算1e-4+abs(ref)×1e-4未变；算术独立CPU max≈2.98e-7。缺 gradient 的 oracle-only 负控制被检测。真实 TextureResidency minMip tail6→promotion0、abort保tail；普通/static Product GPU采样max1.19209e-7；20不同尺寸packed fields独立CPU max4.65661e-10 |
+| `native-execution-bins` | tails、空bins、513-bin hierarchical prefix、forced2D dispatch、malformed/stale winners、回放/容量/完整 membership/唯一 writer；dense bypass无管理资源/dispatch。不是完整程序规模性能矩阵 |
+| `native-surface-integration` | 真正 native GPU coverage winner、8instances/4Programs/8bins/2BindingSets→cluster8 point+directional/VSM/IBL/normal-ORM/coat/custom/Unlit→HDR/native Temporal→真实 FSR；11frames含stable/reset、resident fallback、encoded abort→retry、参数gain .7→.4、负/非均匀scale、GPU exposure1.25→2.5、resize abort/commit。每帧独立PBR样本36–48，maxHDRerror0.000489198；原max(.001,abs(ref)×.002)预算未变 |
+| `native-surface-perspective` | 非零透视winner/CXY、physical sun、GPU exposure/update，独立PBR样本18–72/frame，maxHDRerror0.000843182；motion真实变换检查；非所有近裁剪/极值场景验收 |
+| `native-surface-resource-profile` | 实际绑定全部九个Residency bank views +packed cooked roughness被shade/HDR读取 +完整 Product Geometry resource layout +两个sun continuation routes；每帧独立PBR样本36–48，max0.000489198。实际材质queries取一个bank，不称九bank混合采样吞吐；winner仍resident，不称真实streamed VG decode acceptance |
+| `native-surface-device-epoch` | 两个独立 GPU devices，受控device.destroy后全部新owner/FSR-owned bytes 1,648,189→0、旧epoch PSO拒绝、显式重建；不是自动driver-fault恢复验收 |
+| `native-surface-cost` | 下面1080p成本实验；不是 production/S3 benchmark |
+
+默认及resource-profile还使用真实 VSM caster/page/atlas ABI：独立alpha/depth16,384 comparisons、positive covered14,336、depth误差0；stale queue/page、overflow及replay negative diagnostics通过。fixture motion最大投影误差0，非零transform motion已检查；不能外推所有运动场景。Unlit原0.0004预算在1.25 exposure归一域保持，2.5 exposure时绝对HDR half误差随曝光加倍，不声称原绝对误差不变。全域finite、writer/背景/Unlit/FSR输出检查未缩减。
+
+**保留的失败与根因分类：** WGSL reserved `diagnostic`（改名）；Temporal误把frame-instance stride当scene stride（分离authoritative sceneInstances）；background half rounding fixture预期错误；透视/PBR reference选到texture/VSM边界（按真实UV/page interior选择CPU样本）；后者的初版条件曾让小分辨率PBR样本为0（已修正并硬断言每帧`pbrSamples>0`，包含参数update）；normal Product validity误读名称（按compiler的`normalTSValidity/coatNormalTSValidity`并加contract）；不合法rgba16float read-write storage（上文物理方案调整）；stale build被harness拒绝（fresh build后重跑）。原报告保留在`.local/v4-s1/`，不追认为首轮通过。
+
+**未完全解释的诊断：** CPU ideal filtering与hardware SampleGrad最大差0.1336045265仍保留，不改为passed；独立per-mip marker诊断的gradient LOD最大偏差0.08009、SampleLevel有效LOD最大偏差0.001866。GPU authored graph reference验证同硬件采样下的compiler/CXY等价，独立CPU HDR oracle选择真实UV内部恒定区，二者不能冒称所有texture/LOD边界CPU精确等价。S2/S3须继续保留独立reference及失败控制，不能删诊断以提高状态。
+
+#### 1080p隔离成本及资源账
+
+P=2,073,600，V=**1,969,920（95%）**，32,400 tiles；8instances、4Programs、8bins、2BindingSets，8 point+1 directional、非零VSM、IBL、normal/ORM、coat/custom/Unlit及完整Temporal/FSR。Geometry是tessellated quad，cluster lists、VSM residency与environment内容为明确provider fixtures，不包含scene生产/streaming成本。共12frames，discard前3，保留9计时样本；前2帧全域数值检查，随后只移除inspection/readback/CPU pixel scan，全部GPU实际渲染工作相同。
+
+| GPU timestamp scope | P50 ms | P95 ms |
+|---|---:|---:|
+| raster begin / count / prefix / scatter（分别） | .00614 / .03891 / .02458 / .05485 | .01830 / .20285 / .04461 / .23168 |
+| native indirect winner raster | 1.33661 | 4.35853 |
+| bins count / scan / finalize / scatter（分别） | .25267 / .01024 / .01024 / .30691 | 1.47878 / .03075 / .02912 / 1.04419 |
+| native opaque + background | **7.29283** | **31.12435** |
+| native Temporal resolve | .63354 | 6.13171 |
+| FSR exposure ratio / PrepareInputs | .00464 / .46694 | .01152 / 3.98794 |
+| FSR LumaSPD / ShadingSPD / ShadingChange | .11158 / .29274 / .03510 | 1.42230 / 2.01082 / .23962 |
+| FSR Reactivity / Instability / Accumulate / RCAS | .66864 / .26720 / 1.39616 / .17046 | 2.47120 / 1.65398 / 4.58371 / 1.06669 |
+| command frame span | **13.75027** | **62.95754** |
+
+bins四阶段median之和0.58006ms，加native约7.87ms只是**不同scope的median之和，不是联合Surface P50**；CPU encodeP50≈1.1ms、prepare≈.4ms。报告里的unclassified/temporal/post聚合scope与内部passes重叠，不能重复相加。九个frame-span原样为62.958/57.296/57.646/53.760/13.644/13.416/13.668/13.679/13.750ms，前四个样本多个stage同时慢很多；尾部原因**未知**，没有clock/register/spill counters，不靠继续选最优样本关闭性能问题。早期native约8.9ms/bins约.76ms/span约16.96ms记录也保留；本次可关闭非生产功能构建，不宣称稳定production P95/60Hz或性能改善。
+
+| 实际physical资源类别 | bytes | 口径 |
+|---|---:|---|
+| SurfaceV4 owned | 24,885,172 | 默认单HDR、bins与设置；本1080p profile没有sun continuation第二HDR |
+| demanded Aux | 8,294,400 | reactive |
+| Temporal persistent | 66,355,232 | 双identity与小设置；motion/mask在FrameGraph pool |
+| raster partitions | 148,096 | 独立GPU draw work组织 |
+| FSR persistent | 78,797,009 | 自有history/常量，未加在Surface中 |
+| FrameGraph texture / buffer pool | 104,504,472 / 8,294,404 | 时点allocated/cached物理池；不是只按active相加 |
+| experiment readback | 265,420,800 | **实验单列，非生产budget** |
+
+以上未包含全部scene/geometry/material-texture/provider/driver资源，不把合计说成renderer总VRAM；S3必须做全机物理去重、峰值/retired/resize账。S1已计各owner live/retiring资源，销毁后归零；没有generic Surface shading history。
+
+**未运行/下一责任：** Renderer production cutover/旧链purge、真实scene streamed Product/VG、driver-fault自动恢复、跨browser/全Renderer画质与同条件长序列P50/P95/VRAM峰值、正式evidence/claims均未运行，分别属S2/S3及最终集成。B2-NUM-001/002仍unfixed/unresolved；native update/atomic publication/abort-retry/HDR语义已迁入上述隔离测试，但旧producer未删除。S2切换前重新核查下表所有production direct consumers；不因S1关闭而跳过真实Scene/Coverage/VSM/Temporal/FSR接线验证。
 
 ### 3.3 V4-S2 — Atomic Production Cutover + Destructive Purge
 
@@ -259,6 +390,15 @@ one-route 只验证新 subsystem 内部第一个 vertical slice，**不接管生
 | `render/CoverageRasterBindings.ts/MeshletBucketRaster.ts/RasterWorkPartitions.ts`；`render/vsm/VsmAtlasRasterPass.ts` | compiled alpha programs、constants/routes/runtimeInputs/coverageDirectory、texture/Product views、finite raster partitions 及主 Visibility/VSM alpha 直接消费；材质更新与阴影 coverage 一致 |
 | `render/temporal/TemporalFactsPass.ts`、`shaders/temporal_facts.ts`；FSR/Debug consumers | 替换 surfaceMetadataOffsets/materialLookup/valueVersions 读取；保 motion/change/identity/validity/曝光；FSR color/depth/motion/reactive/validity/current/prior exposure 实际接齐 |
 | native lighting consumer 与现有 providers | 保 cluster/overflow、VSM table/atlas/constants/content version、IBL/AO/颜色域；只替换旧 packets/history 中间读取，不在本单元重写 provider 算法 |
+
+S1现已构建的目标 owners 为 `GpuNativeMaterialPublication/NativeMaterialBindings/NativeMaterialProducts`、`SurfaceV4/NativeExecutionBins`、`NativeRasterWorkPartitions/NativeVisibilityPass`、`NativeSurfaceAux/NativeTemporalFactsPass`。S2用它们替换上表真实职责，不创建包裹旧publication/Surface的wrapper。重点补齐：
+
+- RenderWorld的实际Scene stage/update/release与全局material slot→native directory/versions、完整物理BindingSet（含Product）原子发布；TextureResidency minMip/revision与主/VSM alpha一致推进；packed Product与所有PSO/pending/retired资源进入同一物理账及fence。
+- Renderer/FrameProgram的真实Geometry queues、prepared/resident/Product source views、cluster/VSM/IBL/AO/physical environment/preExposure绑定及最低Aux需求；单一Surface拥有HDR，provider continuation只在能力profile内形成明确HDR版本，不恢复six signals。
+- regular及VSM draw partitions、caster/page generation/容量/invalid diagnostics换成native alpha直接消费者；旧CoverageRasterBindings的Tape依赖不能留作兼容输入。
+- Temporal读取权威sceneInstances与native material versions；motion `rg32float`通过既有FSR unfilterable binding、reactive/mask/曝光连接全部FSR/debug consumers；history/reset/abort/resize/fence归具体owner。S1受控设备销毁不替代这里实际Renderer recovery接线。
+
+上述为待实施ownership映射，不代表已接生产；新owner的隔离构造和oracle不是生产fallback。
 
 切换后**在同一 S2 内立即 dependency review → destructive purge → compile → 集中验证**，不允许 TODO later removal。
 

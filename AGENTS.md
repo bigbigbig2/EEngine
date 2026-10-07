@@ -26,8 +26,9 @@
 
 - 不恢复 retired renderer/effect owner；不引入本帧 GPU→CPU→GPU visible/work control，不为功能增加独立 frame submit。
 - 能力/limit 在创建资源前协商；GPU producer、consumer、容量、溢出与完整写域清楚，不能截断身份或漏像素换预算。Loader 不拥有长期 GPU 资源；Renderer 只作 composition root；FrameGraph 管宏依赖、资源寿命与编码，不管 shader 内部微调度。
-- 完整算法/效果实施前先查 GitHub 可核验完整开源实现，再查论文和足以复现决策、阶段、数据流的技术文章；固定 revision、license、具体文件/函数，记录在 `docs/porting/next-renderer.md`，映射输入/输出、关键分支、不变量和降级条件。WebGPU 绑定/调度适配不等于可删完整算法步骤。缺 donor 记录检索范围/缺口及具名本地方案，不宣称移植完成；复杂算法不得拆小豁免。简单确定性工具/ABI/绑定寿命胶水可标本地集成。
-- 来源核对、WGSL/CPU oracle、真实新 production GPU 消费证据齐备后才提升 adoption。数字目标不是测试阈值；不能以测试通过或预算有界宣称性能改善。
+- **复杂模块优先参考成熟开源实现。** 开源是优先参考项，不是强制依赖，也不要求所有代码移植。简单、局部、低风险的 glue、数据转换、小 helper、资源绑定、既有 EEngine 的直接扩展及无复杂 GPU 算法风险的普通工程代码直接实现，不为凑参考寻找 donor。复杂、高风险、性能敏感或易踩硬件执行坑的模块，先搜索并研究成熟实现，再决定移植、改写、放弃参考或自主设计；不通过拆小任务回避复杂算法整体研究。
+- 研究真实源码 hot path、数据流、GPU work、布局、平台假设、性能边界和失败经验；吸收算法与物理执行方式，不照搬 C++ 框架、D3D12/Vulkan 封装或不适合 WebGPU 的 bindless/ExecuteIndirect/wave 假设。无合适参考或平台差异要求时自主设计，简述依据即可；可在既有实施记录或 `docs/porting/next-renderer.md` 留很短的 Local / Reference / Adopt / Adapt / Original Source Map，不新建重型流程。实际引用或移植的来源记录 revision、license、具体文件/函数及本地映射；平台适配不能无依据删掉算法必要步骤。
+- 开源参考不自动证明在 EEngine/WebGPU 上更快；最终 hot path 仍需本项目 Cost Card 与真实 GPU 验证。涉及来源 adoption 的声明，须在来源核对、WGSL/CPU oracle、真实新 production GPU 消费证据齐备后才提升；自主实现不伪称移植。数字目标不是测试阈值；不能以测试通过或预算有界宣称性能改善。
 
 ## 文档、目录与提交
 

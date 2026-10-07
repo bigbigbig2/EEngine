@@ -11,6 +11,75 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "native-surface-resource-profile",
+    file: "OEngine/tests/oracle/native-surface-integration-gpu.mjs",
+    url: "/OEngine/tests/oracle/native-surface-integration-gpu.mjs",
+    entry: "runNativeSurfaceResourceProfileGpuOracle",
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    requiredFeatures: ["texture-formats-tier1"],
+    description:
+      "S1 complete Product-geometry resource profile, native sunlight and resident winner input; not VG scene acceptance.",
+    timeoutMs: 120000
+  }),
+  Object.freeze({
+    name: "native-surface-device-epoch",
+    file: "OEngine/tests/oracle/native-surface-integration-gpu.mjs",
+    url: "/OEngine/tests/oracle/native-surface-integration-gpu.mjs",
+    entry: "runNativeSurfaceDeviceEpochGpuOracle",
+    description:
+      "S1 controlled device destruction and native subsystem reconstruction on two independent device epochs.",
+    timeoutMs: 120000
+  }),
+  Object.freeze({
+    name: "native-surface-cost",
+    file: "OEngine/tests/oracle/native-surface-integration-gpu.mjs",
+    url: "/OEngine/tests/oracle/native-surface-integration-gpu.mjs",
+    entry: "runNativeSurfaceCostGpuOracle",
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    requiredFeatures: ["texture-formats-tier1", "timestamp-query"],
+    description: "S1 isolated 1080p native multi-route/Temporal/FSR cost; not production acceptance.",
+    timeoutMs: 180000
+  }),
+  Object.freeze({
+    name: "native-surface-perspective",
+    file: "OEngine/tests/oracle/native-surface-integration-gpu.mjs",
+    url: "/OEngine/tests/oracle/native-surface-integration-gpu.mjs",
+    entry: "runNativeSurfacePerspectiveGpuOracle",
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    requiredFeatures: ["texture-formats-tier1"],
+    description: "S1 perspective reconstruction, physical sun math and real GPU exposure update.",
+    timeoutMs: 120000
+  }),
+  Object.freeze({
+    name: "native-execution-bins",
+    file: "OEngine/tests/oracle/native-execution-bins-gpu.mjs",
+    url: "/OEngine/tests/oracle/native-execution-bins-gpu.mjs",
+    entry: "runNativeExecutionBinsGpuOracle",
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    description: "S1 native pixel execution bins, complete tails, capacity and unique-writer coverage.",
+    timeoutMs: 60000
+  }),
+  Object.freeze({
+    name: "native-surface-integration",
+    file: "OEngine/tests/oracle/native-surface-integration-gpu.mjs",
+    url: "/OEngine/tests/oracle/native-surface-integration-gpu.mjs",
+    entry: "runNativeSurfaceIntegrationGpuOracle",
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    requiredFeatures: ["texture-formats-tier1"],
+    description: "S1 isolated native winner/material/HDR/Temporal/FSR chain; no production cutover.",
+    timeoutMs: 120000
+  }),
+  Object.freeze({
+    name: "native-material",
+    file: "OEngine/tests/oracle/native-material-gpu.mjs",
+    url: "/OEngine/tests/oracle/native-material-gpu.mjs",
+    entry: "runNativeMaterialGpuOracle",
+    description:
+      "S1 native Standard/Coat/Unlit/custom graph, explicit gradients and immutable publication transactions.",
+    timeoutMs: 60000,
+    note: "Component only: fixture geometry inputs and linear textures; no production cutover or S1 closure claim."
+  }),
+  Object.freeze({
     name: "native-surface-numeric",
     file: "OEngine/tests/oracle/native-surface-gpu.mjs",
     url: "/OEngine/tests/oracle/native-surface-gpu.mjs",
@@ -18,7 +87,7 @@ export const oracles = Object.freeze([
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     requiredFeatures: ["timestamp-query"],
     description: "S0 targeted numeric validation without the timing/calibration matrix.",
-    timeoutMs: 60000,
+    timeoutMs: 60000
   }),
   Object.freeze({
     name: "native-surface-viability",

@@ -1,0 +1,425 @@
+import type { NativeSurfaceGeometry, NativeSurfaceRoute } from "./SurfaceV4.js";
+import type { GpuNativeMaterialPublication } from "../../gpu/GpuNativeMaterialPublication.js";
+import {
+  nativeVisibilityShader,
+  NATIVE_VISIBILITY_VIEW_BYTES,
+  type NativeVisibilityShader
+} from "../../shaders/native_visibility.js";
+import { NativeRasterWorkPartitions } from "./NativeRasterWorkPartitions.js";
+
+export interface NativeVisibilityInput {
+  readonly geometry: NativeSurfaceGeometry;
+  readonly publication: GpuNativeMaterialPublication;
+  readonly routes: readonly NativeSurfaceRoute[];
+  readonly capacity: number;
+  readonly generation: number;
+  readonly view: Uint8Array<ArrayBuffer>;
+  readonly shadow?: boolean;
+  /** Actual VSM caster queue (16B header/32B records), atlas constants/page table. */
+  readonly vsmAtlas?: Readonly<{ constants: GPUBuffer; pageTable: GPUBuffer }>;
+}
+
+interface RouteState {
+  readonly pipelines: readonly [GPURenderPipeline, GPURenderPipeline];
+  readonly groups: readonly GPUBindGroup[];
+  readonly partitionGroups: readonly GPUBindGroup[];
+  readonly inputs: GPUBuffer;
+}
+
+/** Native raster subsystem, not connected to production until S2. GPU partitions
+ * preserve original work slots; indirect commands scale with unique execution
+ * bins, triangle buckets and side, never material instances. Capacity misses
+ * use the same exact resident/Product source decoder as native shading.
+ * Await this.ready and publication.ready before atomic scene activation.
+ * No submit, CPU-visible work control, old publication/runtime or history.
+ * NativeRasterWorkPartitions owns the scheduling Cost Card. This owner adds
+ * 192B view + 16B/bin route + input uniforms and two render PSOs/bin; zero new
+ * full-frame intermediates. Main/shadow share native CXY alpha and raster data.
+ */
+export class NativeVisibilityPass {
+  readonly ready: Promise<void>;
+  readonly partitions: NativeRasterWorkPartitions;
+  private readonly buffers: GPUBuffer[] = [];
+  private readonly view: GPUBuffer;
+  private routes: readonly RouteState[] | null = null;
+  private destroyed = false;
+  private retiring = false;
+  readonly input: NativeVisibilityInput;
+
+  constructor(
+    private readonly device: GPUDevice,
+    input: NativeVisibilityInput
+  ) {
+    // Snapshot CPU descriptors before asynchronous PSO creation. Borrowed GPU
+    // resources remain owned by their publication through the last frame fence.
+    input = Object.freeze({
+      ...input,
+      view: input.view.slice(),
+      geometry: Object.freeze({
+        ...input.geometry,
+        source: Object.freeze([...input.geometry.source]) as NativeSurfaceGeometry["source"],
+        sourcePayload: Object.freeze([
+          ...input.geometry.sourcePayload
+        ]) as NativeSurfaceGeometry["sourcePayload"],
+        ...(input.geometry.productBanks
+          ? {
+              productBanks: Object.freeze([
+                ...input.geometry.productBanks
+              ]) as NativeSurfaceGeometry["productBanks"]
+            }
+          : {})
+      }),
+      routes: Object.freeze(
+        input.routes.map((route) =>
+          Object.freeze({
+            ...route,
+            frameInputs: route.frameInputs.slice(),
+            materialEntries: Object.freeze(
+              route.materialEntries.map((entry) => {
+                const resource = entry.resource as GPUBufferBinding;
+                return Object.freeze({
+                  ...entry,
+                  resource: resource.buffer === undefined ? entry.resource : Object.freeze({ ...resource })
+                });
+              })
+            )
+          })
+        )
+      ),
+      ...(input.vsmAtlas ? { vsmAtlas: Object.freeze({ ...input.vsmAtlas }) } : {})
+    });
+    this.input = input;
+    if (
+      input.view.byteLength !== NATIVE_VISIBILITY_VIEW_BYTES ||
+      input.routes.length !== input.publication.bins.length
+    ) {
+      throw new RangeError("Native visibility requires the complete view and execution routes");
+    }
+    this.validateView(input.view, input.generation);
+    const limits = device.limits;
+    if (
+      limits.maxBindGroups < 4 ||
+      limits.maxUniformBufferBindingSize < NATIVE_VISIBILITY_VIEW_BYTES ||
+      (input.geometry.productHeap === undefined) !== (input.geometry.productBanks === undefined) ||
+      (input.geometry.productBanks && input.geometry.productBanks.length !== 4)
+    ) {
+      throw new RangeError("Native visibility requires its complete negotiated resource profile");
+    }
+    for (const source of [input.geometry.source, input.geometry.sourcePayload]) {
+      if (
+        source.length !== 4 ||
+        !source.every((value) => Number.isInteger(value) && value >= 0 && value <= 0xffffffff)
+      ) {
+        throw new RangeError("Native visibility source offsets must be complete u32 values");
+      }
+    }
+    for (const buffer of [
+      input.geometry.meshletWork,
+      input.geometry.arena,
+      input.geometry.instances,
+      input.geometry.vertexPayload,
+      input.publication.constants,
+      input.publication.directory,
+      ...(input.geometry.productHeap ? [input.geometry.productHeap, ...input.geometry.productBanks!] : []),
+      ...(input.vsmAtlas ? [input.vsmAtlas.pageTable] : [])
+    ]) {
+      if (
+        buffer.size < 4 ||
+        buffer.size > limits.maxStorageBufferBindingSize ||
+        (buffer.usage & GPUBufferUsage.STORAGE) === 0
+      ) {
+        throw new RangeError("Native visibility borrowed storage violates negotiated capacity/usage");
+      }
+    }
+    if (
+      input.vsmAtlas &&
+      (input.vsmAtlas.constants.size < 192 ||
+        input.vsmAtlas.constants.size > limits.maxUniformBufferBindingSize ||
+        (input.vsmAtlas.constants.usage & GPUBufferUsage.UNIFORM) === 0)
+    ) {
+      throw new RangeError("Native VSM requires its complete atlas constants");
+    }
+    const shaders: NativeVisibilityShader[] = [];
+    for (const [index, route] of input.routes.entries()) {
+      const bin = input.publication.bins[index]!;
+      const entry = input.publication.entries.find((entry) => entry.executionBin === index)!;
+      if (
+        route.programIndex !== bin.programIndex ||
+        route.bindingSet !== bin.bindingSet ||
+        route.frameInputs.byteLength !== Math.max(16, entry.program.inputCount * 16) ||
+        route.frameInputs.byteLength > limits.maxUniformBufferBindingSize ||
+        !route.frameInputs.every(Number.isFinite)
+      ) {
+        throw new RangeError("Native visibility routes do not match their immutable publication");
+      }
+      const shader = nativeVisibilityShader(
+        entry.program,
+        input.publication.descriptor(route.programIndex).groups[3]!,
+        {
+          partitioned: true,
+          productGeometry: input.geometry.productHeap !== undefined,
+          shadow: input.shadow || input.vsmAtlas !== undefined,
+          vsmAtlas: input.vsmAtlas !== undefined
+        }
+      );
+      for (const stage of [GPUShaderStage.VERTEX, GPUShaderStage.FRAGMENT]) {
+        let storage = 0,
+          sampled = 0,
+          uniforms = 0,
+          samplers = 0;
+        for (const group of shader.groups) {
+          if (group.length > limits.maxBindingsPerBindGroup) {
+            throw new RangeError("Native visibility group exceeds negotiated bindings");
+          }
+          for (const binding of group) {
+            if ((binding.visibility & stage) === 0) {
+              continue;
+            }
+            if (binding.buffer) {
+              if (binding.buffer.type === "uniform") {
+                uniforms++;
+              } else {
+                storage++;
+              }
+            }
+            if (binding.texture) {
+              sampled++;
+            }
+            if (binding.sampler) {
+              samplers++;
+            }
+          }
+        }
+        if (
+          storage > limits.maxStorageBuffersPerShaderStage ||
+          sampled > limits.maxSampledTexturesPerShaderStage ||
+          uniforms > limits.maxUniformBuffersPerShaderStage ||
+          samplers > limits.maxSamplersPerShaderStage
+        ) {
+          throw new RangeError("Native visibility shader exceeds negotiated stage resources");
+        }
+      }
+      const layout = shader.groups[3]!;
+      if (
+        route.materialEntries.length !== layout.length ||
+        layout.some((binding) => !route.materialEntries.some((entry) => entry.binding === binding.binding))
+      ) {
+        throw new RangeError("Native visibility material binding profile is incomplete");
+      }
+      shaders.push(shader);
+    }
+    this.partitions = new NativeRasterWorkPartitions(device, {
+      work: input.geometry.meshletWork,
+      metadata: input.geometry.arena,
+      publication: input.publication,
+      capacity: input.capacity,
+      meshletWordBase: input.geometry.source[1],
+      generation: input.generation,
+      caster: input.vsmAtlas !== undefined
+    });
+    try {
+      this.view = this.buffer(NATIVE_VISIBILITY_VIEW_BYTES, input.view);
+      const candidates = input.routes.map((route, bin) => this.createRoute(route, bin, shaders[bin]!));
+      this.ready = Promise.all([input.publication.ready, this.partitions.ready, Promise.all(candidates)])
+        .then(([, , routes]) => {
+          if (this.destroyed) {
+            throw new Error("Native visibility stopped during readiness");
+          }
+          this.routes = routes;
+        })
+        .catch((error: unknown) => {
+          this.destroy();
+          throw error;
+        });
+      void this.ready.catch(() => undefined);
+    } catch (error) {
+      this.destroy();
+      throw error;
+    }
+    void device.lost.then(() => this.destroy());
+  }
+
+  private buffer(size: number, values?: ArrayBufferView<ArrayBuffer>): GPUBuffer {
+    const buffer = this.device.createBuffer({
+      size,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+    });
+    this.buffers.push(buffer);
+    if (values) {
+      this.device.queue.writeBuffer(buffer, 0, values);
+    }
+    return buffer;
+  }
+
+  private validateView(view: Uint8Array<ArrayBuffer>, generation: number): void {
+    const floats = new Float32Array(view.buffer, view.byteOffset, 36);
+    const words = new Uint32Array(view.buffer, view.byteOffset, NATIVE_VISIBILITY_VIEW_BYTES / 4);
+    if (
+      !floats.every(Number.isFinite) ||
+      words[38] !== generation ||
+      (this.input.vsmAtlas && words[39] !== generation)
+    ) {
+      throw new RangeError(
+        "Native visibility view must contain finite camera values and matching generations"
+      );
+    }
+  }
+
+  private async createRoute(
+    route: NativeSurfaceRoute,
+    bin: number,
+    shader: NativeVisibilityShader
+  ): Promise<RouteState> {
+    const { device, input } = this;
+    const entry = input.publication.entries.find((entry) => entry.executionBin === bin)!;
+    const layouts = shader.groups.map((entries) => device.createBindGroupLayout({ entries }));
+    const layout = device.createPipelineLayout({ bindGroupLayouts: layouts });
+    const module = device.createShaderModule({ code: shader.source });
+    const pipelines = (await Promise.all(
+      (["back", "none"] as const).map((cullMode) =>
+        device.createRenderPipelineAsync({
+          layout,
+          vertex: { module, entryPoint: shader.vertexEntryPoint },
+          fragment: {
+            module,
+            entryPoint: shader.fragmentEntryPoint,
+            targets: input.shadow || input.vsmAtlas !== undefined ? [] : [{ format: "r32uint" }]
+          },
+          primitive: { topology: "triangle-list", cullMode, frontFace: "ccw" },
+          depthStencil: { format: "depth32float", depthWriteEnabled: true, depthCompare: "greater" }
+        })
+      )
+    )) as [GPURenderPipeline, GPURenderPipeline];
+    if (this.destroyed) {
+      throw new Error("Native visibility cancelled during readiness");
+    }
+    const routeBuffer = this.buffer(16, new Uint32Array([bin, 0, 0, 0]));
+    const inputs = this.buffer(Math.max(16, entry.program.inputCount * 16), route.frameInputs);
+    const geometryEntries: GPUBindGroupEntry[] = [
+      { binding: 0, resource: { buffer: input.geometry.meshletWork } },
+      { binding: 1, resource: { buffer: input.geometry.arena } },
+      { binding: 2, resource: { buffer: input.geometry.instances } },
+      { binding: 3, resource: { buffer: this.view } },
+      { binding: 4, resource: { buffer: input.geometry.vertexPayload } },
+      { binding: 5, resource: { buffer: this.partitions.indices } },
+      { binding: 6, resource: { buffer: this.partitions.states } }
+    ];
+    if (input.geometry.productHeap) {
+      if (!input.geometry.productBanks) {
+        throw new Error("Native visibility Product geometry requires four source banks");
+      }
+      geometryEntries.push({ binding: 8, resource: { buffer: input.geometry.productHeap } });
+      input.geometry.productBanks.forEach((bank, index) =>
+        geometryEntries.push({ binding: 9 + index, resource: { buffer: bank } })
+      );
+    }
+    if (input.vsmAtlas) {
+      geometryEntries.push(
+        { binding: 13, resource: { buffer: input.vsmAtlas.constants } },
+        { binding: 14, resource: { buffer: input.vsmAtlas.pageTable } }
+      );
+    }
+    const partitionGroups = Array.from({ length: 8 }, (_, partition) =>
+      device.createBindGroup({
+        layout: layouts[0]!,
+        entries: [
+          ...geometryEntries,
+          {
+            binding: 7,
+            resource: {
+              buffer: this.partitions.partitionSettings,
+              offset: (bin * 8 + partition) * this.partitions.partitionStride,
+              size: 16
+            }
+          }
+        ]
+      })
+    );
+    const groups = [
+      partitionGroups[0]!,
+      device.createBindGroup({ layout: layouts[1]!, entries: [] }),
+      device.createBindGroup({
+        layout: layouts[2]!,
+        entries: [
+          { binding: 0, resource: { buffer: input.publication.constants } },
+          { binding: 1, resource: { buffer: input.publication.directory } },
+          { binding: 3, resource: { buffer: routeBuffer } },
+          { binding: 4, resource: { buffer: inputs } }
+        ]
+      }),
+      device.createBindGroup({ layout: layouts[3]!, entries: route.materialEntries })
+    ];
+    return { pipelines, groups, partitionGroups, inputs };
+  }
+
+  get allocatedBytes(): number {
+    return this.destroyed
+      ? 0
+      : this.partitions.allocatedBytes + this.buffers.reduce((total, buffer) => total + buffer.size, 0);
+  }
+
+  update(
+    view: Uint8Array<ArrayBuffer>,
+    frameInputs: readonly Float32Array<ArrayBuffer>[],
+    generation: number
+  ): void {
+    if (
+      this.destroyed ||
+      this.retiring ||
+      this.routes === null ||
+      view.byteLength !== NATIVE_VISIBILITY_VIEW_BYTES ||
+      frameInputs.length !== this.routes.length
+    ) {
+      throw new Error("Native visibility update requires a ready complete route profile");
+    }
+    this.validateView(view, generation);
+    for (const [index, values] of frameInputs.entries()) {
+      if (values.byteLength !== this.routes[index]!.inputs.size || !values.every(Number.isFinite)) {
+        throw new RangeError("Native visibility dynamic inputs exceed their profile");
+      }
+    }
+    this.partitions.updateGeneration(generation);
+    this.device.queue.writeBuffer(this.view, 0, view);
+    this.routes.forEach((route, index) =>
+      this.device.queue.writeBuffer(route.inputs, 0, frameInputs[index]!)
+    );
+  }
+
+  encode(encoder: GPUCommandEncoder, attachments: GPURenderPassDescriptor): void {
+    if (this.destroyed || this.retiring || this.routes === null) {
+      throw new Error("Native visibility is not ready");
+    }
+    this.partitions.encode(encoder);
+    const pass = encoder.beginRenderPass(attachments);
+    for (const [bin, route] of this.routes.entries()) {
+      for (let partition = 0; partition < 8; partition++) {
+        pass.setPipeline(route.pipelines[partition & 1]!);
+        route.groups.forEach((group, index) =>
+          pass.setBindGroup(index, index === 0 ? route.partitionGroups[partition]! : group)
+        );
+        pass.drawIndirect(this.partitions.draws, (bin * 8 + partition) * 16);
+      }
+    }
+    pass.end();
+  }
+
+  retire(completion: Promise<void>): Promise<void> {
+    this.retiring = true;
+    return completion.then(
+      () => this.destroy(),
+      () => this.destroy()
+    );
+  }
+
+  destroy(): void {
+    if (this.destroyed) {
+      return;
+    }
+    this.destroyed = true;
+    this.routes = null;
+    this.partitions.destroy();
+    for (const buffer of this.buffers) {
+      buffer.destroy();
+    }
+  }
+}
