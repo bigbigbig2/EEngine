@@ -10,6 +10,8 @@ verifies:
 ---
 # EEngine Next：开源迁移来源与采用边界
 
+> 2026-10-07 R4 文档导航：下文来源条目的阶段/§编号属于记录当时的设计快照，旧全文见[设计归档](../archive/eengine-extreme-performance-rebuild-r3-design-2026-10-07.md)与[执行归档](../archive/eengine-extreme-performance-rebuild-r3-execution-2026-10-07.md)，只供追溯。当前合同看[设计母稿](../next-design/eengine-extreme-performance-rebuild-2026-10.md)，当前事实看[执行计划§2](../next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md#2-当前事实与开放责任)，当前C任务看[§3](../next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md#3-当前c先补设计输入再完整切换)。本账本不复制实施进度，文档重排不改变来源采用状态。
+
 ## 2026-10-05：Surface 集中重建的固定来源与阶段映射
 
 ### 状态与检索边界

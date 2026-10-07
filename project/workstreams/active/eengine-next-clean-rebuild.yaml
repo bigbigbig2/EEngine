@@ -22,21 +22,16 @@ currentSlice:
   title: Surface C：在已有值边界上扩展有收益的复用
   status: active
   goal: >-
-    A0/A1既有核对入口为执行文档§5.1；B1/B2已有接线及检查见§6.11。
-    当前文档方向为SURFACE-2026-10-07-R3，实际源码与缺口统一见执行文档§6.11。
+    当前设计修订为SURFACE-2026-10-07-R4；实际源码、证据与开放责任见执行文档§2。
     用户2026-10-07明确允许暂缓B2-NUM-001/002、提交当前快照并进入C；
     两项仍未修复，B2正确性退出未通过，正式验收前必须关闭，不再开子agent。
-    当前任务入口为执行文档§8及母稿§6.9、§8–10：核对实际昂贵可重复closure和固定来源，
-    在已有WorkPlan/值读取/更新事务/Geometry需求边界上接通有收益的cache与signal history。
-    完整identity、lookup/miss、唯一writer、pin/generation/retire与direct fallback一起推进。
-    在完整切换单元链连通后集中检查，再进入下一单元；不以逐patch微测改架构。
-    用户再次停止微调后，当前先完成母稿§10.5与执行文档§8.1–8.3的全成本模型、
-    实际closure/重复窗口清单和完整切换方案；生产实现保持冻结。
-    候选权重、完整相等与生产成本准入分开；先固定实际候选/域/成本假设，再完整实现并集中建立实测准入。
-    后续按固定单元完成全部producer/consumer后集中检查，不继续identity/stride/容量/局部计算试改循环。
-    C扩展可选复用，核心计算域不能全部后移；R1/R2实验仅由执行文档历史附录追溯。
-    文档修订不证明R3源码完成，本导航不复制计时或测试数量。
-    切换顺序仍为A0 → A1 → B1 → B2 → C → D → E → F；不恢复旧链，不为未来无消费者能力先建设施。
+    当前C任务为执行文档§3；成本口径缺口见§2.4，设计合同见母稿§4–7。
+    先补齐测量与实际closure/consumer/重复窗口，明确候选、完整相等、成本假设和准入；
+    未决工作域与请求组织不伪称定案。随后接通完整producer/consumer、身份/唯一writer、
+    pin/generation/abort/retire与direct恢复，再集中验证，不继续identity/stride/容量/局部计算微调循环。
+    当前实现冻结供审查，已定位测量接线和必要正确性调试不受禁止；文档修订不证明代码完成。
+    顺序仍为A0 → A1 → B1 → B2 → C → D → E → F；D/E/F仅修具名缺陷并核集成，保留已有系统。
+    历史实验只从执行文档§8追溯，不作为当前任务；不恢复旧链或建设无消费者设施。
 
 nextModules:
   - id: sssr
@@ -74,11 +69,11 @@ deferredValidation:
   acceptedDeferrals:
     - id: B2-NUM-001
       authority: 用户2026-10-07明确指令
-      record: docs/next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md#611-当前源码与开放责任2026-10-07-b1集中核对
+      record: docs/next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md#22-未关闭正确性问题与用户例外
       disposition: 暂缓修复，不阻塞C启动；未通过，不提升claim，正式验收前关闭
     - id: B2-NUM-002
       authority: 用户2026-10-07明确指令
-      record: docs/next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md#611-当前源码与开放责任2026-10-07-b1集中核对
+      record: docs/next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md#22-未关闭正确性问题与用户例外
       disposition: 暂缓修复，不阻塞C启动；未通过，不提升claim，正式验收前关闭
   policy: >-
     Per-unit concentrated checks rather than per-patch gates. Each unit completes its own
