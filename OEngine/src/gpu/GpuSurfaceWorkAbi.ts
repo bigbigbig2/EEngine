@@ -1,4 +1,8 @@
 import { APPEARANCE_FIELD_WIDTHS } from "./GpuAppearanceFieldAbi.js";
+import {
+  planAppearanceClosureCache,
+  type AppearanceClosureCacheCapacity,
+} from "./GpuAppearanceClosureCacheAbi.js";
 
 export const SURFACE_WORK_BANKS = 4;
 export const SURFACE_WORK_SETS = 4;
@@ -15,9 +19,17 @@ export const SURFACE_WORK_BUDGET_BYTES = 768 * 1024 * 1024;
 export const SURFACE_WORK_INVALID = 0xffffffff;
 export const SURFACE_WORK_SIGNAL_OFFSET_WORD = 18;
 export const SURFACE_WORK_SIGNAL_WORDS = 19;
+/** History retains the original signal planes and their small owner recipes.
+ * Lighting writes the next slot directly; no screen-wide publication copy. */
+export const SURFACE_SIGNAL_HISTORY_RECIPE_WORDS = 4;
 export const SURFACE_WORK_COHERENCE_HEADER = 384;
 /** Detailed diagnostics only; reserved control words, not work allocation. */
 export const SURFACE_WORK_QUERY_COUNTERS = Object.freeze({ texture: 300, product: 301, uniformRead: 302 });
+/** Signal-history diagnostics follow the closure-cache header/counters and
+ * must remain outside cache control and coherence metadata. The old fixed
+ * family argument block at 320..383 is retired; runtime indirect consumers
+ * use only words 64..207 and 192..195. */
+export const SURFACE_WORK_SIGNAL_HISTORY_COUNTER_BASE = 320;
 export const SURFACE_WORK_COHERENCE_BINS = 16;
 export const SURFACE_WORK_COHERENCE_BUCKET_WORDS = 3;
 /** Alpha is consumed by Coverage. Raw TS normals/validity are consumed locally
@@ -39,6 +51,9 @@ export interface SurfaceWorkCapacity {
   readonly heapBytes: number;
   readonly signalBytes: number;
   readonly scratchBytes: number;
+  readonly signalHistoryBytes: number;
+  readonly signalHistoryRecipeBytes: number;
+  readonly physicalBytes: number;
   readonly fieldOffsets: readonly number[];
   readonly fieldChannels: number;
   readonly workStrideBytes: number;
@@ -49,6 +64,7 @@ export interface SurfaceWorkCapacity {
   readonly histogramWords: number;
   readonly coherenceIndexBase: number;
   readonly coherenceCapacity: number;
+  readonly closureCache: AppearanceClosureCacheCapacity;
 }
 
 /** Mandatory exact destinations exist independently of sparse admission. Four
@@ -68,7 +84,11 @@ export function planSurfaceWorkCapacity(
   temporaryBytes: number,
   lit = true,
   templateCount = 1,
-  requestedCoherenceCapacity?: number
+  requestedCoherenceCapacity?: number,
+  closureCacheEnabled = false,
+  requestedCachePerBin?: number,
+  signalHistoryEnabled = false,
+  cacheKeyWords = 96,
 ): SurfaceWorkCapacity {
   const checked = (value: number, label: string): number => {
     if (!Number.isSafeInteger(value) || value < 0 || value > 0xffffffff) {
@@ -159,9 +179,38 @@ export function planSurfaceWorkCapacity(
   ) {
     throw new RangeError("Complete Surface tile dispatch exceeds negotiated workgroup limits");
   }
-  const scratchBytes = checked(controlBytes + mandatoryBytes, "physical scratch bytes");
+  const closureCache = planAppearanceClosureCache(
+    controlBytes / 4,
+    SURFACE_WORK_BANKS * bankPixels,
+    Math.max(0, Math.min(maximum, SURFACE_WORK_BUDGET_BYTES - mandatoryBytes - 512)),
+    closureCacheEnabled,
+    // Reserve one screen row per finite bank/family instead of a fixed 128
+    // samples at every resolution. This is capacity, never key quantization;
+    // excess work still follows the complete direct recipe.
+    requestedCachePerBin ?? Math.max(128, width),
+    cacheKeyWords,
+    requestedCachePerBin === undefined,
+  );
+  controlBytes = closureCache.end * 4;
+  let scratchBytes = checked(
+    controlBytes + mandatoryBytes + (closureCache.perBin > 0 ? 512 : 0),
+    "physical scratch bytes",
+  );
   if (scratchBytes > SURFACE_WORK_BUDGET_BYTES) {
     throw new RangeError("Complete Surface mandatory profile exceeds physical scratch budget");
+  }
+  const signalHistoryRecipeBytes = checked(SURFACE_WORK_BANKS * bankTiles * SURFACE_SIGNAL_HISTORY_RECIPE_WORDS * 4, "history recipe bytes");
+  const requestedHistoryBytes = signalHistoryEnabled && lit
+    ? checked(2 * (SURFACE_WORK_BANKS * signalBytes + signalHistoryRecipeBytes), "signal history bytes")
+    : 0;
+  // The next history slot IS the current signal product. Only one extra signal
+  // set plus two small recipes is additional to the direct profile.
+  const historyScratchBytes = scratchBytes - SURFACE_WORK_BANKS * signalBytes;
+  const signalHistoryBytes = requestedHistoryBytes > 0 &&
+    historyScratchBytes + requestedHistoryBytes <= SURFACE_WORK_BUDGET_BYTES
+    ? requestedHistoryBytes : 0;
+  if (signalHistoryBytes > 0) {
+    scratchBytes = historyScratchBytes;
   }
   return Object.freeze({
     width,
@@ -177,6 +226,9 @@ export function planSurfaceWorkCapacity(
     heapBytes,
     signalBytes,
     scratchBytes,
+    signalHistoryBytes,
+    signalHistoryRecipeBytes,
+    physicalBytes: scratchBytes + signalHistoryBytes,
     fieldOffsets: Object.freeze(offsets),
     fieldChannels,
     workStrideBytes,
@@ -186,7 +238,8 @@ export function planSurfaceWorkCapacity(
     histogramBase,
     histogramWords,
     coherenceIndexBase,
-    coherenceCapacity
+    coherenceCapacity,
+    closureCache,
   });
 }
 

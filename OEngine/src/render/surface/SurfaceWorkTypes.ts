@@ -53,6 +53,8 @@ export type SurfaceWorkInput = {
   scalarAo: ResourceId | null;
   environment: SurfaceLightingFrame["environment"];
   physicalSun: SurfaceLightingFrame["physicalSun"];
+  /** Temporal Facts motion used by the independent signal-history reprojection. */
+  factsMotion: ResourceId;
   factsMask: ResourceId;
   preExposure: ResourceId;
   width: number;

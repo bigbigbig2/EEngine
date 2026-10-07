@@ -11,12 +11,42 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "surface-closure-cache-cost",
+    file: "OEngine/tests/oracle/surface-work-gpu.mjs",
+    url: "/OEngine/tests/oracle/surface-work-gpu.mjs",
+    entry: "runSurfaceClosureCacheCostGpuOracle",
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    requiredFeatures: ["timestamp-query", "texture-formats-tier1"],
+    description: "Full 1080p removable expensive closure, real cache hits and direct HDR comparison.",
+    timeoutMs: 120000,
+    note: "All-cost diagnostic for the same exact production recipe; cold and warm reported separately."
+  }),
+  Object.freeze({
+    name: "surface-closure-cache",
+    file: "OEngine/tests/oracle/surface-work-gpu.mjs",
+    url: "/OEngine/tests/oracle/surface-work-gpu.mjs",
+    entry: "runSurfaceClosureCacheGpuOracle",
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    description: "Production exact closure keys, unique misses, persistent hits and original HDR consumer.",
+    timeoutMs: 120000,
+    note: "Real GPU scope covers lit cache values, multi-varying residual fields, local normal guides and bounded overflow through Lighting/Reconstruct; signal history validated separately."
+  }),
+  Object.freeze({
+    name: "appearance-closure-key",
+    file: "OEngine/tests/oracle/appearance-closure-key-gpu.mjs",
+    url: "/OEngine/tests/oracle/appearance-closure-key-gpu.mjs",
+    entry: "runAppearanceClosureKeyGpuOracle",
+    description: "Actual uniform publication and complete exact closure key reader.",
+    timeoutMs: 60000,
+    note: "Component only: Geometry values are fixture inputs; no cache or Surface consumption claim."
+  }),
+  Object.freeze({
     name: "surface-work-channel-reference",
     file: "OEngine/tests/oracle/surface-work-gpu.mjs",
     url: "/OEngine/tests/oracle/surface-work-gpu.mjs",
     entry: "runSurfaceWorkChannelReferenceGpuOracle",
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
-    requiredFeatures: ["timestamp-query"],
+    requiredFeatures: ["timestamp-query", "texture-formats-tier1"],
     description:
       "Production scalar channel accessor versus the retired four-component gather, all other work identical.",
     timeoutMs: 120000,
@@ -28,7 +58,7 @@ export const oracles = Object.freeze([
     url: "/OEngine/tests/oracle/surface-work-gpu.mjs",
     entry: "runSurfaceWorkResidentSamplerReferenceGpuOracle",
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
-    requiredFeatures: ["timestamp-query"],
+    requiredFeatures: ["timestamp-query", "texture-formats-tier1"],
     description: "All-bank sampler routing versus one proven immutable sampler class, same full Surface HDR.",
     timeoutMs: 120000,
     note: "All banks/mip clamps/transforms retained; no material-specific pipeline or production alternative."
@@ -39,7 +69,7 @@ export const oracles = Object.freeze([
     url: "/OEngine/tests/oracle/surface-work-gpu.mjs",
     entry: "runSurfaceWorkFixedScratchReferenceGpuOracle",
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
-    requiredFeatures: ["timestamp-query"],
+    requiredFeatures: ["timestamp-query", "texture-formats-tier1"],
     description:
       "Same production fixed formulas and samplers, storage versus named private sample intermediates.",
     timeoutMs: 120000,
@@ -62,7 +92,7 @@ export const oracles = Object.freeze([
     url: "/OEngine/tests/oracle/surface-work-gpu.mjs",
     entry: "runSurfaceWorkNativeReferenceGpuOracle",
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
-    requiredFeatures: ["timestamp-query"],
+    requiredFeatures: ["timestamp-query", "texture-formats-tier1"],
     description: "Isolated complete Generic straight-line cost reference, absent from production.",
     timeoutMs: 120000,
     note: "Same full C/X/Y sample demand and HDR output; not a production per-graph alternative."
@@ -73,7 +103,7 @@ export const oracles = Object.freeze([
     url: "/OEngine/tests/oracle/surface-work-gpu.mjs",
     entry: "runSurfaceWorkCostGpuOracle",
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
-    requiredFeatures: ["timestamp-query"],
+    requiredFeatures: ["timestamp-query", "texture-formats-tier1"],
     description: "Full 1080p fixed and complete Generic Surface cost, real consumers and complete coverage.",
     timeoutMs: 120000,
     note: "Diagnostic timing only; numerical field closure belongs to surface-work, no historical performance claim."

@@ -8,7 +8,11 @@ import {
   writeSurfaceDiagnosticsHeader,
   type SurfaceDiagnosticsIdentity
 } from "../../gpu/SurfaceDiagnosticsAbi.js";
-import { SURFACE_WORK_QUERY_COUNTERS as Q, type SurfaceWorkCapacity } from "../../gpu/GpuSurfaceWorkAbi.js";
+import {
+  SURFACE_WORK_QUERY_COUNTERS as Q,
+  SURFACE_WORK_SIGNAL_HISTORY_COUNTER_BASE,
+  type SurfaceWorkCapacity
+} from "../../gpu/GpuSurfaceWorkAbi.js";
 import { SurfaceFrameResources, type SurfaceResourceBinding } from "./SurfaceFrameResources.js";
 export type SurfaceDiagnosticsSnapshotEncoder = (
   command: ShadeGPUCommandContext,
@@ -45,6 +49,9 @@ export class SurfaceDiagnosticsPass {
       fieldValuesProduced: counter(241),
       fieldScalarWrites: counter(242),
       lightingRecordsProcessed: counter(261),
+      historyReusePixels: counter(293),
+      historyRejectPixels: counter(294),
+      identityRejectPixels: counter(295),
       diffuseEvaluations: counter(256),
       specularEvaluations: counter(257),
       coatEvaluations: counter(258),
@@ -67,7 +74,13 @@ export class SurfaceDiagnosticsPass {
       geometrySetupEvaluations: counter(244),
       sampleTextureQueries: counter(Q.texture),
       sampleProductQueries: counter(Q.product),
-      uniformScalarReads: counter(Q.uniformRead)
+      uniformScalarReads: counter(Q.uniformRead),
+      historyReuseDiffuse: counter(SURFACE_WORK_SIGNAL_HISTORY_COUNTER_BASE),
+      historyReuseIrradiance: counter(SURFACE_WORK_SIGNAL_HISTORY_COUNTER_BASE + 1),
+      historyReuseSpecular: counter(SURFACE_WORK_SIGNAL_HISTORY_COUNTER_BASE + 2),
+      historyReuseEnvironmentSpecular: counter(SURFACE_WORK_SIGNAL_HISTORY_COUNTER_BASE + 3),
+      historyReuseCoat: counter(SURFACE_WORK_SIGNAL_HISTORY_COUNTER_BASE + 4),
+      historyReuseEnvironmentCoat: counter(SURFACE_WORK_SIGNAL_HISTORY_COUNTER_BASE + 5)
     };
     const available = new Uint32Array(4);
     const lines: string[] = [];

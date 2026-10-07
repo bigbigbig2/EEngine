@@ -544,7 +544,103 @@ C先在现有WorkPlan中选择昂贵、输入完整且有重复消费的closure�
 
 Appearance链完整接通后再连续接独立signal history：各signal明确provider/input、reprojection与完整版本，使用既有Temporal生命周期；AO仍属于原output-pixel合成。各signal无效/历史不足/abort都回到完整Lighting，六RGB/state与原radiometry不变。两部分都接通后集中核正确性、唯一写域、实际heavy减少、native命令与OFF/ON全成本，不按每个字段启动性能实验。
 
+缓存候选必须按命中后实际消失的工作分类：扣除其他字段仍需的全部共享祖先及查询，再用既有昂贵工作边界筛选；在完整key/value容量内优先选择可删除工作与key成本比例较高的closure。此编译权重只决定候选顺序，净收益由真实生产消费及全成本证明，不把第一个能装下的字段自动视为有收益。没有可删除昂贵工作的字段保持完整direct。
+
+持久hit在request阶段复制到正式字段后，其slot引用结束；nomination可以有界地登记这些旧slot的新writer，旧payload保持不变直至全部resolve结束后的publish。每slot原子登记一个不可变request index，同key其他request只消费该writer；弱CAS失败仍局部direct。generation不回绕，未提交帧不形成缓存值。此阶段边界承担pin职责，不要求热consumer重复检查。
+
+signal history选定为原六RGB f32＋显式state信号平面的双角色buffer，Lighting直接写下一提交槽，当前重建读取同一产品。上一帧的六signal quad owner recipe随角色保存，历史reader按重投影像素和各signal原owner读取，避免全屏展开或另做全屏history复制；仅复制小型tile recipe。无效状态或transport/residual语义不匹配走原Lighting。容量同时核当前槽、上一提交槽、recipe与pending retirement；关闭history不分配完整槽，也不运行recipe发布。空间复用、Appearance cache和history可分别配置，始终共用唯一production数学与完整fallback。
+
+局部signal rate admission与Lighting共用一个tile workgroup；各lane在任何边界/背景早退之前参加完整admission，其唯一tile recipe writer经workgroup内storage/control barrier发布后，Lighting才读取owner并写信号。跨workgroup不互读未发布payload，Reconstruct及history recipe发布保留后续dispatch边界。所有请求信号的历史有效时，只读各原owner值并发布当前信号，不重新读取完整材质或准备BRDF；部分失效仍执行原完整分支。
+
 来源核对见[迁移账本的C边界](../porting/next-renderer.md#c启动来源核对与本地精确缓存边界2026-10-07)。SF06只提供真实occupancy/task/过滤结构参考；Progressive Material Caching只提供昂贵子图选择与miss继续原求值的研究参考。其UV量化、双hash判等、压缩值和64-bit CAS不是本地精确合同，不宣称完整port。具体key、nomination、pin/generation与WebGPU发布是上述具名本地方案。
+
+### 10.5 C的全成本模型与切换决策（2026-10-07）
+
+本节细化§10.4的准入和执行合同，优先于其中“按可删除工作/key权重比例选择”的候选排序描述。目标数学、完整C/X/Y、原过滤、质量、支持范围与三条不变量不变。具体源码差距与实施状态只在执行文档§8维护；本节不证明实现或净收益。
+
+#### 10.5.1 核算对象和量纲
+
+核算单位是 **closure × 实际执行域 × 更新/重复消费窗口 × 执行profile**。同材质、同template、同domain handle和昂贵指令权重都不足以证明输入相等或收益。缓存身份证明“能否共用”，成本profile决定“值得不值得进入复用协议”；二者不能互代。
+
+令`N`为目标消费数，`H`为持久命中消费数，`R`为发布的miss请求数，`U`为唯一miss求值数，`X`为局部拒绝/未准入的完整direct求值数，`S`为持久槽数，`K/V`为完整key/value的u32 words。计数仅说明实际工作量，时间必须由完整生产链测量。不能把一个`sin`权重、一次纹理查询和一次原子操作视为相同GPU周期，也不能用`H/N`替代收益。
+
+```text
+T_off = T_required_geometry + T_complete_appearance + T_lighting + T_reconstruct
+
+T_on  = T_required_geometry_on + T_remaining_appearance
+      + T_address_key_lookup + T_request_nomination_arguments
+      + T_miss_direct + T_value_read_scatter + T_publish_reset_retire
+      + T_split_duplicate + T_lighting_on + T_reconstruct_on
+
+net_gain = T_off - T_on
+         = removed_work - all_added_work
+```
+
+`removed_work`只包含该策略使之真实消失的工作：shared ancestors、仍被其他字段/guide/Lighting请求的Geometry和查询不计收益。`T_split_duplicate`包含分阶段后重跑的共享祖先、geometry accessor、VM读写和跨dispatch continuation，不假定它为零。miss/key scope可能含overflow direct求值，不能将整个scope称为管理税。
+
+正确性要求完整输出，不要求`H+U+X=N`：同key多consumer、residual输出与不同执行频率使这几个量不能直接相加。独立核对的是每个原目标的唯一最终写域、实际heavy/query执行及唯一Store writer。
+
+必须分别报告：必需计算、附加管理、整体Surface成本和完整frame成本。配对`Surface pass sum`不能代替frame span；无timestamp的copy/clear/间隙记为unknown并计入包围它们的span。不得把缺测项设为0，也不得将分项P50相加。
+
+#### 10.5.2 发布时的准入合同
+
+选定既有精确lookup→不可变request→nomination→唯一miss→resolve→最后reader后publish架构，修正其执行域，不再次选择hash、身份编码、物理stride或容量数字作为主路线。每个候选需有以下可审查记录：
+
+| 决策输入 | 必须具备的依据 | 不满足时 |
+|---|---|---|
+| closure边界 | 完整依赖；共享节点的实际consumer；命中后消失的Geometry/Appearance工作；residual执行合同 | 原完整direct；不能凭单个昂贵输出自动选择 |
+| 相等条件 | 完整真实输入、C/X/Y、footprint、resource/content/residency和更新依赖 | 原完整direct；不截key，不量化，不用hash判等 |
+| 重复消费窗口 | 来自实际合法资产/工作域的静态或动态重用分布，含失效/新显露；精确输入真的重复 | 仅作候选；不把同material或静止场景等同exact hit |
+| 成本profile | 同profile下全部管理、miss/direct、读取、维护、冷启动和峰值的配对证据 | 仅作候选；编译权重不能开启生产准入 |
+| 容量和生命周期 | 可容纳完整产品的owner预算，包含当前、上一提交、pending和retired；完整局部fallback | 拒绝可选域；不影响原目的地和必需工作 |
+
+实施前固定候选的实际closure、域、消费窗口和可证伪收益假设；新切换方案的实测准入在完整实现后的集中检查建立，**不要求不存在的新实现先拿到GPU通过结果才允许编码**。缺少时间系数时标unknown、列出会使假设失败的条件，不用操作权重伪造周期。已有反例不再沿用同一自动准入；新的候选通过同一生产入口验证，不添加测试专用算法。
+
+| 方案 | 成本/正确性判断 | 决策 |
+|---|---|---|
+| 每个昂贵field逐目标lookup，miss后争quota | 管理随全部候选目标增长，overflow已支付key成本；高权重也可能负收益 | 不继续作为默认准入方式 |
+| 在相等/过滤/精度上降低成本，或只换stride/槽数 | 前者改变本次合同，后者不建立重复消费与净收益条件 | 本轮不选择 |
+| 完整direct基础＋经固定profile选择的有界精确复用域 | 未准入工作在key前direct，已准入域完整产品/请求/生命周期；收益假设可由完整链证伪 | 选定；具体类别须集中检查后才确认为生产准入 |
+
+publication只使用事先核定的有限类别与静态结构条件选择策略；本帧不读回GPU计数/时间再决定GPU work，不增加per-tile动态成本预测器。未覆盖profile保持同数学direct，是未准入，不是声称该类别的cache已完成。改变策略需显式重新发布；GPU数据变化仍走原依赖失效。
+
+便宜/constant/uniform/Product类别不负担cache lookup。未知复杂合法图仍完整General求值；不能把“未准入复用”误写为“不支持图”。零可准入类别时不编码cache命令、不分配其Store/请求/nomination，而非进入shader后早退。
+
+cold成本可以高于direct，但不能隐去：对声明的重复消费窗口`W`核`sum(T_on[1..W]) < sum(T_off[1..W])`，并报告额外cold税和盈亏平衡帧/消费数。短生命周期、频繁失效和全miss类别若无法偿还，保持direct。不能用无限预热或改大资产工作量制造“迟早有收益”。保留正常合法成功与局部拒绝是C退出责任；没有收益证据时不能把所有类别永久direct后宣布完成。
+
+#### 10.5.3 同时替换的执行边界
+
+1. `WorkPlan/publication`发布候选、实际address needs、remaining needs、准入profile及原direct recipe，保留一个权威Geometry owner和完整field依赖。
+2. 在已有GPU工作描述上决定进入可选缓存的有界域。复用域和完整输出写域分别发布；未准入域在计算key前走direct。对需发布request的域预留完整最坏请求空间，预留失败整个对应域direct；不让每个像素先付完key/probe再竞争已耗尽的quota。域大小沿用真实工作分区，不额外发明一种共享合法性。
+3. 已准入域lookup前只形成完整key确实需要的地址输入。lookup后同一Geometry局部record按`producedMask/requiredMask`完成remaining/guide/dirty Lighting需求；不可先完成全部domain Geometry再声称命中省掉它。若完整key本身就需要重工作，计入管理并允许拒绝该类别，不能省依赖。
+4. hit读取值，其他字段继续原residual数学。miss请求先完成不可变key/continuation发布，nomination不读取未发布payload；后续唯一miss与局部拒绝求值只消费该closure的真实输入。避免跨dispatch把field key当全部residual输入或再decode源Geometry。
+5. 最后value reader之后才能覆盖旧slot；generation、namespace、submit/abort和fence retirement沿用同一owner。部分field hit不取消其他consumer需求，不改变Lighting/Reconstruct的正式产品和数学。
+
+第2步只对进入可选协议的域作容量控制，不能截断必需radiance工作。只有该域具备完整容量与成本证据才准入；未准入域不应重走key、lookup或resolve。缓存增长按已准入需求和声明的重复窗口核算，不能把screen-sized Store当收益证明。完整key/value的具体stride和槽数在本合同下落地，本轮不以更换数字作为方案。
+
+#### 10.5.4 信号历史独立核算
+
+history的正确性身份、provider输入、normal/depth/重投影拒绝和radiometry沿用既有六signal合同，不能把material cache的hit当history有效。空间复用也单列。
+
+```text
+history_net_gain = removed_lighting_work
+                 - reprojection_and_validity
+                 - previous_owner_value_reads
+                 - role_recipe_publication_and_retirement
+                 - changed_current_writes_and_consumer_cost
+```
+
+history保持§10.4双角色原signal buffers：Lighting直接写当前产品，Reconstruct消费同一产品，提交后下一帧读取；只发布必要owner recipe，不另做全屏信号复制/展开。OFF移除完整history分配和维护。完整预算避免把“当前signal scratch”与同一个history写槽算两次，但两个不同物理槽、recipe及待退休资源必须都算。
+
+history全部合法时不得重做被省掉的材质读取/BRDF准备/rate admission；部分合法按每signal真实需要完成原分支。cold、新显露、provider变动、coarse/full owner切换、camera cut、abort、resize与retired overlap进入同一集中矩阵。history改善不能抵消一个未通过准入的Appearance缓存类别来宣布二者都有收益。
+
+#### 10.5.5 方案停止条件
+
+实现前固定closure清单、执行域、producer/consumer、来源边界和验证窗口。链未完成时只修编译/正确性接线；不跑每patch性能比较。完整集中检查后，数值错误按最小复现处理；成本失败先判断重复条件不成立、key/请求管理过重、分阶段重复、必要计算或执行税。
+
+同一类别已被全成本结果否定时，退回准入/执行域审查，不能继续改stride、容量、identity、private数组或局部ALU再跑相同benchmark。若普通合法有收益类别仍未建立，C保持未完成并明确缺少的证据，不提高预算/放宽精度/加深测试图/永久关复用过关。
+
+来源范围沿用§10.4和[迁移账本](../porting/next-renderer.md#c成本方案来源复核2026-10-07)：SF06提供实际occupancy/task与历史角色参考，PMC提供昂贵子图与miss继续原求值参考。本节的成本准入、完整请求预留与Geometry需求拆分是具名本地集成方案，不宣称完整donor port。
 
 ## 11. Compact工作、完整异常与发布边界
 

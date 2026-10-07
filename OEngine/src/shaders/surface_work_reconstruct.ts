@@ -46,7 +46,7 @@ fn reconstruct(@builtin(global_invocation_id) id: vec3u) {
       let irradiance = surface_signal_rgb(surface_signal_owner(pixel, 1u), 1u);
       let occlusion = clamp(surface_field(pixel, 4u).x, 0.0, 1.0);
       var ao = 1.0;
-      if settings.reserved != 0u {
+      if (settings.reserved & 1u) != 0u {
         let index = coordinate.y * settings.width + coordinate.x;
         ao = f32((scalar_ao[index / 4u] >> ((index & 3u) * 8u)) & 255u) * (1.0 / 255.0);
       }

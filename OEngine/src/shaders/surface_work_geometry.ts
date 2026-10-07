@@ -90,6 +90,10 @@ var<private> geometry_weights: vec3f;
 var<private> geometry_weights_x: vec3f;
 var<private> geometry_weights_y: vec3f;
 var<private> geometry_center: GeometryPoint;
+var<private> geometry_uv_ready: u32;
+var<private> geometry_uv_center: vec4f;
+var<private> geometry_uv_x: vec4f;
+var<private> geometry_uv_y: vec4f;
 ${fixedInputs}
 fn geometry_attribute(corners: GeometryCorners, weights: vec3f) -> vec4f {
   return corners.p0 * weights.x + corners.p1 * weights.y + corners.p2 * weights.z;
@@ -143,7 +147,17 @@ fn geometry_input(kind: u32, point: u32) -> vec4f {
   if point == 2u { weights = geometry_weights_y; }
   switch kind {
     case 1u, 2u: {
-      let value = geometry_attribute(geometry_completion.uv, weights);
+      let bit = 1u << point;
+      if (geometry_uv_ready & bit) == 0u {
+        let produced = geometry_attribute(geometry_completion.uv, weights);
+        if point == 0u { geometry_uv_center = produced; }
+        if point == 1u { geometry_uv_x = produced; }
+        if point == 2u { geometry_uv_y = produced; }
+        geometry_uv_ready |= bit;
+      }
+      var value = geometry_uv_center;
+      if point == 1u { value = geometry_uv_x; }
+      if point == 2u { value = geometry_uv_y; }
       return vec4f(select(value.xy, value.zw, kind == 2u), 0.0, 0.0);
     }
     case 3u: { return geometry_attribute(geometry_completion.uv2, weights); }
@@ -173,6 +187,9 @@ fn geometry_prepare_needs(needs: u32, lit: bool) {
   }
 }
 fn geometry_complete(pixel: vec2u, neighbor_needs: u32, needs: u32, lit: bool) -> bool {
+  // Each new point record owns this local product. Hashing, equality, miss
+  // payloads and Appearance may read it repeatedly without re-interpolation.
+  geometry_uv_ready = 0u;
   let center_needs = needs | select(0u, (1u << 5u) | (1u << 6u) | (1u << 7u), lit);
   let interpolation = winner_interpolate(geometry_completion.coefficients,
     vec2f(pixel) + vec2f(0.5), vec2f(f32(settings.width), f32(settings.height)));

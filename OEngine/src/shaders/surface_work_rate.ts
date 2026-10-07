@@ -2,20 +2,9 @@ import { SURFACE_WORK_SETTINGS_WGSL } from "./surface_work.js";
 import { surfaceWorkReadWgsl } from "../gpu/GpuSurfaceWorkAbi.js";
 import { PACKED_CAMERA_TYPE } from "./packed_camera.js";
 
-/** Local Signal Footprint Admission: sufficient, exact dependency equality.
- * Every kind has its own recipe. Directional direct sharing additionally needs
- * the current provider publication to exclude position/cluster/shadow queries.
- * Unproved dependencies take the same complete indexed worker, without error. */
-export const SURFACE_WORK_RATE_WGSL = /* wgsl */ `
-${SURFACE_WORK_SETTINGS_WGSL}
-${PACKED_CAMERA_TYPE.wgsl_declaration}
-@group(0) @binding(0) var<uniform> settings: SurfaceWorkSettings;
-@group(0) @binding(1) var<storage, read> work_heap: array<u32>;
-@group(0) @binding(2) var<storage, read> dag_metadata: array<u32>;
-@group(0) @binding(3) var<storage, read_write> work_control: array<atomic<u32>>;
-@group(0) @binding(4) var visibility: texture_2d<u32>;
-@group(0) @binding(5) var<uniform> camera: CommandEncoder;
-${surfaceWorkReadWgsl(false)}
+/** One tile owns all six rate recipes; intra-workgroup publication precedes
+ * Lighting readers. The same complete admission is used by the standalone oracle. */
+export const SURFACE_SIGNAL_RATE_ADMISSION_WGSL = /* wgsl */ `
 var<workgroup> pixels: array<u32, 64>;
 var<workgroup> keys: array<u32, 64>;
 var<workgroup> normals: array<vec3u, 64>;
@@ -27,9 +16,7 @@ fn equal_field(a: u32, b: u32, field: u32) -> bool {
   let second = surface_field(b, field);
   return all(first == second) && all(abs(first) <= vec4f(3.402823e38));
 }
-@compute @workgroup_size(64)
-fn rate(@builtin(workgroup_id) group: vec3u, @builtin(local_invocation_index) lane: u32) {
-  let tile = atomicLoad(&work_control[settings.queue_base + (32u + settings.bank) * settings.bank_tiles + group.x]);
+fn surface_prepare_rates(tile: u32, lane: u32) {
   let coordinate = vec2u((tile % settings.tiles_x) * 8u + lane % 8u,
     settings.bank * settings.bank_rows + (tile / settings.tiles_x) * 8u + lane / 8u);
   var key = 0xffffffffu;
@@ -136,19 +123,46 @@ fn rate(@builtin(workgroup_id) group: vec3u, @builtin(local_invocation_index) la
       atomicAdd(&work_control[232u], u32(promoted));
     }
   }
+  storageBarrier();
+  workgroupBarrier();
+}
+`;
+
+/** Local Signal Footprint Admission: sufficient, exact dependency equality.
+ * Every kind has its own recipe. Directional direct sharing additionally needs
+ * the current provider publication to exclude position/cluster/shadow queries.
+ * Unproved dependencies take the same complete indexed worker, without error. */
+export const SURFACE_WORK_RATE_WGSL = /* wgsl */ `
+${SURFACE_WORK_SETTINGS_WGSL}
+${PACKED_CAMERA_TYPE.wgsl_declaration}
+@group(0) @binding(0) var<uniform> settings: SurfaceWorkSettings;
+@group(0) @binding(1) var<storage, read> work_heap: array<u32>;
+@group(0) @binding(2) var<storage, read> dag_metadata: array<u32>;
+@group(0) @binding(3) var<storage, read_write> work_control: array<atomic<u32>>;
+@group(0) @binding(4) var visibility: texture_2d<u32>;
+@group(0) @binding(5) var<uniform> camera: CommandEncoder;
+${surfaceWorkReadWgsl(false)}
+${SURFACE_SIGNAL_RATE_ADMISSION_WGSL}
+@compute @workgroup_size(64)
+fn rate(@builtin(workgroup_id) group: vec3u, @builtin(local_invocation_index) lane: u32) {
+  let tile = atomicLoad(&work_control[settings.queue_base + (32u + settings.bank) * settings.bank_tiles + group.x]);
+  surface_prepare_rates(tile, lane);
 }
 `;
 
 export const SURFACE_WORK_SIGNAL_RECIPE_WGSL = /* wgsl */ `
-fn surface_signal_owner(pixel: u32, kind: u32) -> u32 {
+fn surface_signal_owner_in_bank(pixel: u32, kind: u32, bank: u32) -> u32 {
   let coordinate = vec2u(pixel % settings.width, pixel / settings.width);
   let tile = (coordinate.y / 8u) * settings.tiles_x + coordinate.x / 8u;
   let quad = ((coordinate.y % 8u) / 2u) * 4u + (coordinate.x % 8u) / 2u;
-  let at = settings.recipe_base + (settings.bank * settings.bank_tiles + tile) * 4u;
+  let at = settings.recipe_base + (bank * settings.bank_tiles + tile) * 4u;
   let mask = atomicLoad(&work_control[at + kind / 2u]);
   if (mask & (1u << (quad + (kind & 1u) * 16u))) == 0u {
     return pixel;
   }
   return (coordinate.y & ~1u) * settings.width + (coordinate.x & ~1u);
+}
+fn surface_signal_owner(pixel: u32, kind: u32) -> u32 {
+  return surface_signal_owner_in_bank(pixel, kind, settings.bank);
 }
 `;

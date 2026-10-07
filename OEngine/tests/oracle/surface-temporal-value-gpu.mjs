@@ -90,7 +90,7 @@ export class SurfaceTemporalValueFixture {
         sourceBindings: input.sourceBindings
       },
       (_name, resolve) => resolve(this.owner)
-    ).mask;
+    );
   }
   commit(done) {
     this.owner.commit(done);

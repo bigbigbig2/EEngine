@@ -22,6 +22,8 @@ export class SurfaceFrameResources {
   private extent = "";
   private activeBytes = 0;
   private retiredBytes = 0;
+  private externalActiveBytes = 0;
+  private externalRetiredBytes = 0;
   private livePeakBytes = 0;
   private retiredPeakBytes = 0;
   private physicalPeakBytes = 0;
@@ -45,15 +47,27 @@ export class SurfaceFrameResources {
     private readonly accounting?: ResourceAccounting,
     private readonly budgetBytes = SURFACE_WORK_BUDGET_BYTES,
   ) {}
-  canPrepare(width: number, height: number, requiredBytes: number, recipe = ""): boolean {
+  canPrepare(width: number, height: number, requiredBytes: number, recipe = "", externalBytes = 0): boolean {
     if (!Number.isSafeInteger(requiredBytes) || requiredBytes < 0 || requiredBytes > this.budgetBytes) {
       throw new RangeError("Surface replacement scratch cannot fit its complete profile");
     }
     if (this.extent === `${width}x${height}${recipe}`) {
-      return true;
+      return Math.max(this.activeBytes, requiredBytes) + this.retiredBytes + externalBytes <= this.budgetBytes;
     }
     const pendingActiveBytes = this.doneSettled ? 0 : this.activeBytes;
-    return pendingActiveBytes + this.retiredBytes + requiredBytes <= this.budgetBytes;
+    return pendingActiveBytes + this.retiredBytes + requiredBytes + externalBytes <= this.budgetBytes;
+  }
+  /** The Surface history owner supplies actual active/retired bytes. This quota
+   * shares the existing scratch admission; it does not own a second allocator. */
+  setExternalMemory(active: number, retired: number): void {
+    if (![active, retired].every((bytes) => Number.isSafeInteger(bytes) && bytes >= 0)) {
+      throw new RangeError("Invalid Surface history memory quota");
+    }
+    this.externalActiveBytes = active;
+    this.externalRetiredBytes = retired;
+    this.livePeakBytes = Math.max(this.livePeakBytes, this.activeBytes + active);
+    this.retiredPeakBytes = Math.max(this.retiredPeakBytes, this.retiredBytes + retired);
+    this.physicalPeakBytes = Math.max(this.physicalPeakBytes, this.activeBytes + active + this.retiredBytes + retired);
   }
   prepare(width: number, height: number, recipe = ""): void {
     const extent = `${width}x${height}${recipe}`;
@@ -86,7 +100,7 @@ export class SurfaceFrameResources {
           throw new Error(`Surface scratch shape changed without prepare: ${name}`);
         }
         if (!entry) {
-          if (this.activeBytes + this.retiredBytes + size > this.budgetBytes) {
+          if (this.activeBytes + this.retiredBytes + this.externalActiveBytes + this.externalRetiredBytes + size > this.budgetBytes) {
             throw new RangeError(
               `Surface scratch including in-flight retirement exceeds ${this.budgetBytes} bytes`,
             );
@@ -105,8 +119,7 @@ export class SurfaceFrameResources {
           entry = { buffer, size, usage, ...(handle === undefined ? {} : { handle }) };
           this.buffers.set(name, entry);
           this.activeBytes += size;
-          this.livePeakBytes = Math.max(this.livePeakBytes, this.activeBytes);
-          this.physicalPeakBytes = Math.max(this.physicalPeakBytes, this.activeBytes + this.retiredBytes);
+          this.setExternalMemory(this.externalActiveBytes, this.externalRetiredBytes);
         }
         return entry.buffer;
       }),
@@ -171,8 +184,8 @@ export class SurfaceFrameResources {
     physicalPeak: number;
   }> {
     return {
-      active: this.activeBytes,
-      retired: this.retiredBytes,
+      active: this.activeBytes + this.externalActiveBytes,
+      retired: this.retiredBytes + this.externalRetiredBytes,
       budget: this.budgetBytes,
       livePeak: this.livePeakBytes,
       retiredPeak: this.retiredPeakBytes,
@@ -196,13 +209,13 @@ export class SurfaceFrameResources {
     this.buffers.clear();
     const bytes = this.activeBytes;
     this.retiredBytes += bytes;
-    this.retiredPeakBytes = Math.max(this.retiredPeakBytes, this.retiredBytes);
+    this.activeBytes = 0;
+    this.setExternalMemory(this.externalActiveBytes, this.externalRetiredBytes);
     for (const entry of retired) {
       if (entry.handle) {
         this.accounting!.setRetired(entry.handle, true);
       }
     }
-    this.activeBytes = 0;
     const destroy = () => {
       this.retiredBytes -= bytes;
       for (const entry of retired) {

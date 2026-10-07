@@ -9,7 +9,7 @@ globalThis.GPUTextureUsage = { TEXTURE_BINDING: 4, STORAGE_BINDING: 8, COPY_SRC:
 // wiring assertions migrate to surface-work GPU V09/V12 and frame-program;
 // resource identity/fence assertions live in surface-frame-resources. This
 // CPU case preserves transaction assertions, not mocked rendering results.
-test("current Surface transaction rejects use after abort and commit without prepare", () => {
+test("current Surface transaction rejects use after abort and commit without prepare", async () => {
   const buffers = [];
   const device = {
     limits: { maxBufferSize: 2 ** 30, maxStorageBufferBindingSize: 128 * 1024 ** 2,
@@ -35,6 +35,8 @@ test("current Surface transaction rejects use after abort and commit without pre
   owner.commit(Promise.resolve());
   assert.throws(() => owner.commit(Promise.resolve()), /without prepare/);
   owner.destroy();
+  assert.ok(buffers.filter(buffer => buffer.label?.startsWith("Surface/signal history/")).every(buffer => buffer.destroyed === 0));
+  await Promise.resolve();
   assert.ok(buffers.every(buffer => buffer.destroyed === 1));
   assert.throws(() => owner.prepareFrame(4, 2, 1), /destroyed/);
 });

@@ -4,6 +4,13 @@ import type { AppearanceWgslProgram } from "../shaders/appearance_program.js";
 import { compileAppearanceExecutionPlan, APPEARANCE_DAG_OPS } from "../material/ExactAppearanceDag.js";
 import { appearanceGeometryInputKind } from "../shaders/appearance_demand_inputs.js";
 import { APPEARANCE_FIELD_NAMES } from "./GpuAppearanceFieldAbi.js";
+import { APPEARANCE_CACHE_KEY_WORDS } from "./GpuAppearanceClosureCacheAbi.js";
+import {
+  AppearanceClosureInterner,
+  APPEARANCE_CLOSURE_READ_WORDS,
+  compileAppearanceClosurePlans,
+  type AppearanceClosurePlan
+} from "../material/AppearanceClosurePlan.js";
 import {
   compileFixedSurfaceFormulas,
   FIXED_SURFACE_FLAG,
@@ -14,6 +21,12 @@ export const APPEARANCE_DAG_ENTRY_WORDS = 16;
 export const APPEARANCE_DAG_PRODUCT_WORDS = 12;
 export const APPEARANCE_DAG_MIP_WORDS = 4;
 export const APPEARANCE_DAG_PRODUCT_BANKS = 2;
+/** Existing update/export plan words 0..7 retain their readers. Words 8..9
+ * locate the optional exact closure directory in this same immutable buffer. */
+export const APPEARANCE_DAG_CLOSURES_OFFSET = 8;
+export const APPEARANCE_DAG_CLOSURES_COUNT = 9;
+export const APPEARANCE_DAG_CACHE_CLOSURE = 10;
+export const APPEARANCE_CLOSURE_PLAN_WORDS = 9;
 
 export interface AppearanceDagSource {
   readonly program: CompiledAppearanceGraph;
@@ -23,9 +36,13 @@ export interface AppearanceDagSource {
   readonly inputBase: number;
   readonly textureBindingSetId: number;
   readonly domainHandle?: number;
+  readonly routeIdentityBase?: number;
 }
 export interface AppearanceDagPublicationData {
   readonly workPlans: readonly import("../material/ExactAppearanceDag.js").AppearanceWorkPlan[];
+  readonly closurePlans: readonly (readonly AppearanceClosurePlan[])[];
+  readonly closureCount: number;
+  readonly cacheCandidateCount: number;
   readonly uniformResourceSetMask: number;
   readonly code: Uint32Array;
   readonly products: readonly Uint32Array[];
@@ -77,6 +94,9 @@ export function packAppearanceDagPublication(
   const frameRecords: number[] = [];
   const uniformDependencies: number[][] = [];
   const workPlans: import("../material/ExactAppearanceDag.js").AppearanceWorkPlan[] = [];
+  const closurePlans: (readonly AppearanceClosurePlan[])[] = [];
+  const closureInterner = new AppearanceClosureInterner();
+  let cacheCandidateCount = 0;
   let uniformResourceSetMask = 0;
   const generalTemplates = Array.from({ length: 4 }, () => new Set<number>());
   const domains: number[][] = [];
@@ -97,6 +117,14 @@ export function packAppearanceDagPublication(
     };
     const execution = compileAppearanceExecutionPlan(surfaceProgram, source.lowered);
     workPlans.push(execution.workPlan);
+    const closures = compileAppearanceClosurePlans(
+      surfaceProgram,
+      source.lowered,
+      execution,
+      closureInterner,
+      source.routeIdentityBase
+    );
+    closurePlans.push(closures);
     if (
       execution.workPlan.uniformTextureQueries.length > 0 ||
       execution.workPlan.uniformProductQueries.length > 0
@@ -150,6 +178,9 @@ export function packAppearanceDagPublication(
       uniformBase + uniformWords,
       0,
       execution.constantOutputs.length / 4,
+      0,
+      0,
+      closures.length,
       0
     );
     words[outputs + 5] = words.length;
@@ -183,6 +214,41 @@ export function packAppearanceDagPublication(
     uniformWords += execution.uniformWords;
     for (const word of dag.outputs) {
       words.push(word);
+    }
+    words[outputs + APPEARANCE_DAG_CLOSURES_OFFSET] = words.length;
+    const closureDirectory = words.length;
+    for (let word = 0; word < closures.length * APPEARANCE_CLOSURE_PLAN_WORDS; word++) {
+      words.push(0);
+    }
+    for (let index = 0; index < closures.length; index++) {
+      const closure = closures[index]!;
+      const descriptor = [
+        closure.handle,
+        1 << closure.field,
+        closure.keyWords,
+        closure.valueWords,
+        closure.geometryMask,
+        closure.neighborMask,
+        words.length,
+        closure.reads.length / APPEARANCE_CLOSURE_READ_WORDS,
+        0
+      ];
+      for (let word = 0; word < APPEARANCE_CLOSURE_PLAN_WORDS; word++) {
+        words[closureDirectory + index * APPEARANCE_CLOSURE_PLAN_WORDS + word] = descriptor[word]!;
+      }
+      words.push(...closure.reads);
+      // O(1) reads of Geometry-owned exact key inputs in the existing worker.
+      // Index zero means an unused component, never a truncated dependency.
+      const geometryReads = new Uint32Array(15 * 12);
+      for (let read = 0; read < closure.reads.length; read += APPEARANCE_CLOSURE_READ_WORDS) {
+        const semantic = closure.reads[read + 2]!;
+        if (closure.reads[read] === 2 && semantic !== 0) {
+          geometryReads[semantic * 12 + closure.reads[read + 3]! * 3 + closure.reads[read + 4]!] =
+            2 + read / APPEARANCE_CLOSURE_READ_WORDS;
+        }
+      }
+      words[closureDirectory + index * APPEARANCE_CLOSURE_PLAN_WORDS + 8] = words.length;
+      words.push(...geometryReads);
     }
     const reads = source.program.productReads ?? [];
     const activeProducts = new Set<number>();
@@ -252,6 +318,37 @@ export function packAppearanceDagPublication(
       }
     }
     const lit = Number((dag.fieldMask & ((1 << 2) | (1 << 3) | (1 << 6) | (1 << 7))) !== 0);
+    // Admit one exact closure even when sibling fields remain varying. The
+    // cache record has one value payload; residual fields stay on the same
+    // direct recipe and are evaluated while request Geometry is live. This
+    // keeps one writer/value authority while extending admission beyond the
+    // single-missing-field fixture.
+    const missingFields = dag.fieldMask & ~constantMask;
+    let candidate = -1;
+    let bestSavings = 0;
+    for (let index = 0; index < closures.length; index++) {
+      const closure = closures[index]!;
+      // Five read-record loads, the value read, xor and multiply per key word.
+      // These compiler weights include payload but do not prove GPU net gain.
+      const keyReadCost = closure.keyWords * 8 + closure.valueWords;
+      // Apply the existing expensive-work boundary to work that actually
+      // disappears. Shared texture/ALU ancestors remain on the direct recipe.
+      if ((missingFields & (1 << closure.field)) === 0 || closure.valueWords > 4 ||
+          closure.keyWords > APPEARANCE_CACHE_KEY_WORDS ||
+          closure.exclusiveOperationCost <= Math.max(12, keyReadCost)) {
+        continue;
+      }
+      const savings = closure.exclusiveOperationCost / closure.keyWords;
+      if (savings > bestSavings) {
+        candidate = index;
+        bestSavings = savings;
+      }
+    }
+    if (candidate !== -1) {
+      words[outputs + APPEARANCE_DAG_CACHE_CLOSURE] =
+        closureDirectory + candidate * APPEARANCE_CLOSURE_PLAN_WORDS;
+      cacheCandidateCount++;
+    }
     // A published execution domain is an equality-backed structural recipe,
     // not a value/cache identity. Each entry retains its own numeric input and
     // resource addresses. Many coverage refs/samples may consume one recipe.
@@ -337,6 +434,9 @@ export function packAppearanceDagPublication(
   }
   return Object.freeze({
     workPlans: Object.freeze(workPlans),
+    closurePlans: Object.freeze(closurePlans),
+    closureCount: closureInterner.size,
+    cacheCandidateCount,
     uniformResourceSetMask,
     code: Uint32Array.from(words),
     products: Object.freeze(products),

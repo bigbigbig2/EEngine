@@ -1,7 +1,7 @@
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
-import type { ResourceAccounting } from "../../debug/profiling/ResourceAccounting.js";
+import type { ResourceAccounting, ResourceHandle } from "../../debug/profiling/ResourceAccounting.js";
 import type { SurfaceDiagnosticsCapture } from "../../debug/SurfaceDiagnosticsCapture.js";
 import type { GpuAppearancePublication } from "../../gpu/GpuAppearancePublication.js";
 import type { SurfaceDiagnosticsMode, SurfaceDiagnosticsIdentity } from "../../gpu/SurfaceDiagnosticsAbi.js";
@@ -17,7 +17,8 @@ import { SurfaceRadiometryPass } from "./SurfaceRadiometryPass.js";
 import type { SurfaceWorkInput } from "./SurfaceWorkTypes.js";
 import { SURFACE_WORK_COVERAGE_WGSL } from "../../shaders/surface_work.js";
 import { SURFACE_WORK_COHERENCE_WGSL } from "../../shaders/surface_work_coherence.js";
-import { SURFACE_WORK_RATE_WGSL } from "../../shaders/surface_work_rate.js";
+import { APPEARANCE_CLOSURE_CACHE_WGSL } from "../../shaders/appearance_closure_cache.js";
+import { APPEARANCE_CACHE_HEADER } from "../../gpu/GpuAppearanceClosureCacheAbi.js";
 import { SURFACE_WORK_LIGHTING_WGSL } from "../../shaders/surface_work_lighting.js";
 import { SURFACE_WORK_RECONSTRUCT_WGSL } from "../../shaders/surface_work_reconstruct.js";
 import { SurfaceDiagnosticsPass } from "./SurfaceDiagnosticsPass.js";
@@ -33,6 +34,17 @@ export interface SurfaceWorkProducts {
   readonly diagnostics?: ResourceId;
 }
 
+type SignalHistoryRevision = Readonly<{
+  environment: number;
+  light: number;
+  shadow: number;
+  sun: number;
+  ao: number;
+  view: number;
+  scene: number;
+  publication: number;
+}>;
+
 /** A finite resource profile, independent of scene/material counts. Geometry
  * completion is private to Appearance; every exact destination is indexed.
  * Rate admission is optional and cannot remove mandatory coverage. */
@@ -44,7 +56,9 @@ export class SurfaceWorkRuntime {
   private readonly finalize: GPUComputePipeline;
   private readonly coherencePrefix: GPUComputePipeline;
   private readonly coherenceScatter: GPUComputePipeline;
-  private readonly rate: GPUComputePipeline;
+  private readonly closureNominate: GPUComputePipeline;
+  private readonly closureArguments: GPUComputePipeline;
+  private readonly closurePublish: GPUComputePipeline;
   private readonly lighting: GPUComputePipeline;
   private readonly reconstruct: GPUComputePipeline;
   private readonly diagnostics: SurfaceDiagnosticsPass;
@@ -53,10 +67,13 @@ export class SurfaceWorkRuntime {
   private readonly fallbackAo: GPUBuffer;
   private readonly fallbackDepth: GPUTexture;
   private readonly fallbackTransmission: GPUTexture;
+  private readonly fallbackHistory: GPUBuffer;
   private readonly sampler: GPUSampler;
   private readonly parameters = new Uint32Array(32);
   private readonly viewParameters = new Uint32Array(4);
   private readonly coherenceParameters = new Uint32Array(128);
+  private readonly closureParameters = new Uint32Array(12);
+  private readonly closureLayoutParameters = new Uint32Array(3);
   private prepared = false;
   private destroyed = false;
   private capacity: SurfaceWorkCapacity | null = null;
@@ -64,11 +81,30 @@ export class SurfaceWorkRuntime {
   private capture: SurfaceDiagnosticsCapture | null = null;
   private identity: Omit<SurfaceDiagnosticsIdentity, "frameId"> = { runId: "default", deviceEpoch: 0 };
   private reuse = true;
+  private appearanceCacheReuse = true;
+  private signalHistoryReuse = true;
+  private spatialReuse = true;
   private overlayCapacity: number | null = null;
   private coherenceCapacity: number | undefined;
+  private cachePerBin: number | undefined;
+  private cacheSubmittedFrames = 0;
+  private cacheNamespace = 0;
+  private signalHistories: readonly [readonly GPUBuffer[], readonly GPUBuffer[]] | null = null;
+  private signalHistorySize: readonly [number, number] = [0, 0];
+  private signalHistoryReadIndex: 0 | 1 = 0;
+  private signalHistoryWriteIndex: 0 | 1 = 1;
+  private signalHistoryValid = false;
+  private signalHistoryRevision: SignalHistoryRevision | null = null;
+  private pendingSignalHistoryRevision: SignalHistoryRevision | null = null;
+  private signalHistoryProduced = false;
+  private signalHistoryGpuDone: Promise<void> | null = null;
+  private signalHistoryDoneSettled = true;
+  private signalHistoryActiveBytes = 0;
+  private signalHistoryRetiredBytes = 0;
+  private signalHistoryHandles: readonly ResourceHandle[] = [];
   constructor(
     private readonly device: GPUDevice,
-    accounting?: ResourceAccounting
+    private readonly accounting?: ResourceAccounting
   ) {
     this.scratch = new SurfaceFrameResources(device, accounting, SURFACE_WORK_BUDGET_BYTES);
     this.providers = new SurfaceLightingBindings(device, this.scratch, accounting);
@@ -83,7 +119,21 @@ export class SurfaceWorkRuntime {
     this.finalize = pipeline("Surface/work arguments", SURFACE_WORK_COVERAGE_WGSL, "finalize");
     this.coherencePrefix = pipeline("Surface/template packets", SURFACE_WORK_COHERENCE_WGSL, "prefix");
     this.coherenceScatter = pipeline("Surface/template indices", SURFACE_WORK_COHERENCE_WGSL, "scatter");
-    this.rate = pipeline("Surface/signal rates", SURFACE_WORK_RATE_WGSL, "rate");
+    this.closureNominate = pipeline(
+      "Surface/exact closure nomination",
+      APPEARANCE_CLOSURE_CACHE_WGSL,
+      "nominate"
+    );
+    this.closureArguments = pipeline(
+      "Surface/exact closure arguments",
+      APPEARANCE_CLOSURE_CACHE_WGSL,
+      "arguments"
+    );
+    this.closurePublish = pipeline(
+      "Surface/exact closure publication",
+      APPEARANCE_CLOSURE_CACHE_WGSL,
+      "publish"
+    );
     this.lighting = pipeline("Surface/closed lighting", SURFACE_WORK_LIGHTING_WGSL, "lighting");
     this.reconstruct = pipeline("Surface/closed reconstruct", SURFACE_WORK_RECONSTRUCT_WGSL, "reconstruct");
     this.fallbackUniform = device.createBuffer({
@@ -113,6 +163,11 @@ export class SurfaceWorkRuntime {
       format: "rgba16float",
       usage: GPUTextureUsage.TEXTURE_BINDING
     });
+    this.fallbackHistory = device.createBuffer({
+      label: "Surface/disabled signal history",
+      size: 4,
+      usage: GPUBufferUsage.STORAGE
+    });
     this.sampler = device.createSampler({ minFilter: "linear", magFilter: "linear" });
     this.diagnostics = new SurfaceDiagnosticsPass(device, this.scratch, (command, source, frameId) => {
       if (this.capture === null || this.mode !== "detailed") {
@@ -138,25 +193,150 @@ export class SurfaceWorkRuntime {
       publication?.exactDagScratchBytes ?? 16 * 1024 * 1024,
       publication?.surfaceHasLit ?? true,
       publication?.surfaceTemplateCount ?? 1,
-      publication !== undefined && publication.surfaceCoherenceSetMask === 0 ? 0 : this.coherenceCapacity
+      publication !== undefined && publication.surfaceCoherenceSetMask === 0 ? 0 : this.coherenceCapacity,
+      this.reuse && this.appearanceCacheReuse && (publication?.surfaceCacheCandidateCount ?? 0) > 0,
+      this.cachePerBin,
+      this.reuse && this.signalHistoryReuse && (publication?.surfaceHasLit ?? true),
+      publication?.surfaceCacheKeyWords ?? 96
     );
   }
   private recipe(capacity: SurfaceWorkCapacity): string {
-    return "/" + capacity.workStrideBytes + "/" + capacity.scratchBytes;
+    const namespace = this.cacheNamespace + Number(this.cacheSubmittedFrames >= 0xfffffffe);
+    return `/${capacity.workStrideBytes}/${capacity.scratchBytes}/${capacity.closureCache.perBin}/${capacity.closureCache.keyWords}/${capacity.closureCache.slots}/${capacity.signalHistoryBytes}/${namespace}`;
   }
   canPrepareFrame(width: number, height: number, publication?: GpuAppearancePublication): boolean {
     const capacity = this.plan(width, height, publication);
-    return this.scratch.canPrepare(width, height, capacity.scratchBytes, this.recipe(capacity));
+    return this.scratch.canPrepare(width, height, capacity.scratchBytes, this.recipe(capacity),
+      this.signalHistoryOverlap(width, height, capacity.signalHistoryBytes));
+  }
+  private signalHistoryOverlap(width: number, height: number, requiredBytes: number): number {
+    const same = this.signalHistories !== null && requiredBytes > 0 &&
+      this.signalHistorySize[0] === width && this.signalHistorySize[1] === height;
+    return this.signalHistoryRetiredBytes + (same ? this.signalHistoryActiveBytes :
+      requiredBytes + (this.signalHistoryDoneSettled ? 0 : this.signalHistoryActiveBytes));
+  }
+  private retireSignalHistories(): void {
+    const old = this.signalHistories;
+    this.signalHistories = null;
+    this.signalHistoryValid = false;
+    this.signalHistoryRevision = null;
+    if (old === null) {
+      return;
+    }
+    const bytes = this.signalHistoryActiveBytes;
+    const handles = this.signalHistoryHandles;
+    this.signalHistoryHandles = [];
+    this.signalHistoryActiveBytes = 0;
+    this.signalHistoryRetiredBytes += bytes;
+    handles.forEach((handle) => this.accounting!.setRetired(handle, true));
+    this.scratch.setExternalMemory(0, this.signalHistoryRetiredBytes);
+    const destroy = (): void => {
+      old.forEach((slot) => slot.forEach((buffer) => buffer.destroy()));
+      handles.forEach((handle) => this.accounting!.destroyed(handle));
+      this.signalHistoryRetiredBytes -= bytes;
+      this.scratch.setExternalMemory(this.signalHistoryActiveBytes, this.signalHistoryRetiredBytes);
+    };
+    if (this.signalHistoryDoneSettled) {
+      destroy();
+    } else {
+      void this.signalHistoryGpuDone!.then(destroy, destroy);
+    }
+  }
+  private prepareSignalHistories(width: number, height: number, capacity: SurfaceWorkCapacity): void {
+    const bytes = capacity.signalHistoryBytes;
+    if (bytes === 0) {
+      this.retireSignalHistories();
+      return;
+    }
+    if (
+      this.signalHistories !== null &&
+      this.signalHistorySize[0] === width &&
+      this.signalHistorySize[1] === height
+    ) {
+      return;
+    }
+    this.retireSignalHistories();
+    this.signalHistoryActiveBytes = bytes;
+    this.scratch.setExternalMemory(bytes, this.signalHistoryRetiredBytes);
+    this.signalHistories = [0, 1].map((slot) =>
+      Array.from({ length: 5 }, (_, bank) => this.device.createBuffer({
+        label: `Surface/signal history/${slot}/${bank}`,
+        size: bank < 4 ? capacity.signalBytes : capacity.signalHistoryRecipeBytes,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
+      }))
+    ) as unknown as readonly [readonly GPUBuffer[], readonly GPUBuffer[]];
+    this.signalHistoryHandles = this.accounting === undefined ? [] : this.signalHistories.flatMap((slot, index) =>
+      slot.map((buffer, bank) => this.accounting!.created({ kind: "buffer", category: "history",
+        owner: "Surface/signal history", bytes: buffer.size, label: `Surface/signal history/${index}/${bank}` }, buffer)));
+    this.signalHistorySize = [width, height];
+    this.signalHistoryReadIndex = 0;
+    this.signalHistoryWriteIndex = 1;
+    this.signalHistoryValid = false;
+  }
+  private historyRevision(input: SurfaceWorkInput): SignalHistoryRevision {
+    return Object.freeze({
+      environment: input.revisions.environment,
+      light: input.revisions.light,
+      shadow: input.revisions.shadow,
+      sun: input.revisions.sun,
+      ao: input.revisions.ao ?? 0,
+      view: input.viewRevision.value,
+      scene: input.nonlocalRevision.value,
+      publication: input.publication.surfaceCacheGeneration
+    });
+  }
+  /**
+   * Provider revisions invalidate only the signal layers that consume them.
+   * Temporal Facts still performs the per-pixel identity/motion rejection;
+   * this mask only describes frame-wide provider validity.
+   */
+  private signalHistoryMask(input: SurfaceWorkInput): number {
+    const committed = this.signalHistoryRevision;
+    if (!this.signalHistoryValid || committed === null || this.signalHistories === null) {
+      return 0;
+    }
+    const current = this.historyRevision(input);
+    if (current.scene !== committed.scene || current.publication !== committed.publication) return 0;
+    let mask = 0;
+    // Direct diffuse/specular/coat share the provider set and conservative
+    // view dependency of the direct BRDF path.
+    if (
+      current.light === committed.light &&
+      current.shadow === committed.shadow &&
+      current.sun === committed.sun &&
+      current.view === committed.view
+    ) {
+      mask |= (1 << 0) | (1 << 2) | (1 << 4);
+    }
+    // Irradiance is view independent; environment specular and coat retain the
+    // camera dependency used by their reflection/DFG lookups.
+    if (current.environment === committed.environment) mask |= 1 << 1;
+    if (current.environment === committed.environment && current.view === committed.view) {
+      mask |= (1 << 3) | (1 << 5);
+    }
+    return mask;
   }
   prepareFrame(width: number, height: number, _generation = 0, publication?: GpuAppearancePublication): void {
     if (this.destroyed || this.prepared) {
       throw new Error("SurfaceWork frame is already prepared or destroyed");
     }
     const capacity = this.plan(width, height, publication);
-    if (!this.scratch.canPrepare(width, height, capacity.scratchBytes, this.recipe(capacity))) {
+    if (!this.scratch.canPrepare(width, height, capacity.scratchBytes, this.recipe(capacity),
+      this.signalHistoryOverlap(width, height, capacity.signalHistoryBytes))) {
       throw new Error("Surface resize must wait for submitted scratch retirement");
     }
-    this.scratch.prepare(width, height, this.recipe(capacity));
+    const recipe = this.recipe(capacity);
+    if (this.cacheSubmittedFrames >= 0xfffffffe) {
+      // A cell has at most one writer per submitted frame. Recreate the complete
+      // resource namespace before any cell generation could wrap, with the same
+      // fence/quota protocol as resize. No GPU readback controls current work.
+      this.cacheNamespace++;
+      this.cacheSubmittedFrames = 0;
+    }
+    this.scratch.prepare(width, height, recipe);
+    this.prepareSignalHistories(width, height, capacity);
+    this.signalHistoryProduced = false;
+    this.pendingSignalHistoryRevision = null;
     this.capacity = capacity;
     this.prepared = true;
   }
@@ -174,6 +354,24 @@ export class SurfaceWorkRuntime {
       throw new Error("Cannot change Surface rates during a frame");
     }
     this.reuse = enabled;
+    if (!enabled) {
+      this.signalHistoryValid = false;
+      this.signalHistoryRevision = null;
+    }
+  }
+  /** Independent optional strategies share the same producer and fallback.
+   * This also permits all-cost attribution without changing material math. */
+  setReuseStrategies(options: Readonly<{ appearanceCache: boolean; signalHistory: boolean; spatial: boolean }>): void {
+    if (this.prepared) {
+      throw new Error("Cannot change Surface reuse strategies during a frame");
+    }
+    this.appearanceCacheReuse = options.appearanceCache;
+    this.signalHistoryReuse = options.signalHistory;
+    this.spatialReuse = options.spatial;
+    if (!options.signalHistory) {
+      this.signalHistoryValid = false;
+      this.signalHistoryRevision = null;
+    }
   }
   setOverlayCapacity(tiles: number | null): void {
     if (
@@ -196,6 +394,15 @@ export class SurfaceWorkRuntime {
     }
     this.coherenceCapacity = capacity;
   }
+  setClosureCacheCapacity(perBin: number | undefined): void {
+    if (
+      this.prepared ||
+      (perBin !== undefined && (!Number.isSafeInteger(perBin) || perBin < 0 || perBin > 65536))
+    ) {
+      throw new RangeError("Invalid or in-frame Appearance cache capacity change");
+    }
+    this.cachePerBin = perBin;
+  }
   setDiagnosticsCapture(
     capture: SurfaceDiagnosticsCapture | null,
     identity: Omit<SurfaceDiagnosticsIdentity, "frameId"> = { runId: "default", deviceEpoch: 0 }
@@ -214,7 +421,8 @@ export class SurfaceWorkRuntime {
     bank: number,
     set = 0,
     coverage = false,
-    reserved = 0
+    reserved = 0,
+    appearancePhase = 0
   ): void {
     const offsets = input.publication.surfaceMetadataOffsets;
     const values = this.parameters;
@@ -248,7 +456,7 @@ export class SurfaceWorkRuntime {
       0,
       input.frame.geometryArenaHeader,
       Math.min(this.overlayCapacity ?? capacity.bankTiles, capacity.bankTiles),
-      this.reuse ? 1 : 0,
+      (this.reuse && this.spatialReuse ? 1 : 0) | (appearancePhase << 30),
       offsets.radiometry,
       reserved
     ]);
@@ -319,6 +527,7 @@ export class SurfaceWorkRuntime {
       throw new Error("SurfaceWork requires prepared capacity");
     }
     const capacity = this.capacity;
+    const factsMotion = input.factsMotion;
     const actual = this.plan(input.width, input.height, input.publication);
     if (this.recipe(actual) !== this.recipe(capacity)) {
       throw new Error("Surface publication changed after capacity preparation");
@@ -359,7 +568,7 @@ export class SurfaceWorkRuntime {
       graph,
       bind,
       "Surface/work indirect",
-      1536,
+      capacity.closureCache.perBin > 0 ? 2048 : 1536,
       GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST
     );
     let view = this.scratch.importBuffer(
@@ -372,9 +581,16 @@ export class SurfaceWorkRuntime {
     const heaps = Array.from({ length: 4 }, (_, bank) =>
       storage("Surface/closed heap " + bank, capacity.heapBytes)
     );
-    const signals = Array.from({ length: 4 }, (_, bank) =>
-      storage("Surface/closed signals " + bank, capacity.signalBytes)
-    );
+    const historyBuffer = (name: string, read: boolean, bank: number): ResourceId => graph.import_resource(
+      name, { kind: "imported" }, bind(name, () => this.signalHistories === null ? this.fallbackHistory :
+        this.signalHistories[read ? this.signalHistoryReadIndex : this.signalHistoryWriteIndex][bank]!));
+    const signals = Array.from({ length: 4 }, (_, bank) => this.signalHistories === null
+      ? storage("Surface/closed signals " + bank, capacity.signalBytes)
+      : historyBuffer("Surface/closed signals " + bank, false, bank));
+    const historyRead = Array.from({ length: 5 }, (_, bank) =>
+      historyBuffer("Surface/signal history read " + bank, true, bank));
+    let historyWrite = this.signalHistories === null ? null :
+      historyBuffer("Surface/signal history owner recipes", false, 4);
     const code = imported("Surface/Appearance instruction data", input.publication.exactDagCode);
     const products = input.publication.exactDagProducts.map((buffer, bank) =>
       imported("Surface/Appearance products " + bank, buffer)
@@ -463,6 +679,37 @@ export class SurfaceWorkRuntime {
           0,
           this.coherenceParameters.byteLength
         );
+        const cache = capacity.closureCache;
+        if (cache.perBin > 0) {
+          // Request payload/map writes are demand-owned. Only table indices and
+          // counters need reset; persistent store cells are never frame-cleared.
+          command.gpu_encoder!.clearBuffer(buffer, cache.nominationBase * 4, cache.slots * 4);
+          command.gpu_encoder!.clearBuffer(buffer, cache.binBase * 4, 32 * 2 * 4);
+          this.closureParameters.set([
+            cache.perBin,
+            cache.slots,
+            cache.mapBase,
+            cache.requestBase,
+            cache.nominationBase,
+            cache.storeBase,
+            cache.binBase,
+            cache.queueBase,
+            cache.argsBase,
+            input.publication.surfaceCacheGeneration,
+            input.publication.exactDagLanes,
+            this.mode === "detailed" ? 1 : 0
+          ]);
+          this.closureLayoutParameters.set([cache.keyWords, cache.requestWords, cache.cellWords]);
+          command.writeBuffer(buffer, (APPEARANCE_CACHE_HEADER + 24) * 4,
+            this.closureLayoutParameters.buffer, 0, this.closureLayoutParameters.byteLength);
+          command.writeBuffer(
+            buffer,
+            APPEARANCE_CACHE_HEADER * 4,
+            this.closureParameters.buffer,
+            0,
+            this.closureParameters.byteLength
+          );
+        }
       }) as [ResourceId];
     }
     if (input.publication.surfaceHasLit) {
@@ -550,32 +797,93 @@ export class SurfaceWorkRuntime {
       ) as [ResourceId];
     }
 
-    for (let bank = 0; bank < 4; bank++) {
-      for (let set = 0; set < 8; set++) {
-        if (!input.publication.surfaceWorkProfiles[set]) {
-          continue;
-        }
-        const sourceIds = [
-          input.frameAttributes,
-          input.meshletWork,
-          input.sourceHeap,
-          input.vertexPayload,
-          input.frameInstances,
-          input.camera,
-          ...(input.product === null ? [] : [input.product.heap, ...input.product.banks])
-        ];
-        const heap = heaps[bank]!;
-        if (
-          capacity.coherenceCapacity > 0 &&
-          (set & 1) !== 0 &&
-          (input.publication.surfaceCoherenceSetMask & (1 << (set >> 1))) !== 0
-        ) {
+    const appearancePhase = (phase: number): void => {
+      for (let bank = 0; bank < 4; bank++) {
+        for (let set = 0; set < 8; set++) {
+          if (
+            !(phase === 0 ? input.publication.surfaceWorkProfiles : input.publication.surfaceCacheProfiles)[
+              set
+            ]
+          ) {
+            continue;
+          }
+          const sourceIds = [
+            input.frameAttributes,
+            input.meshletWork,
+            input.sourceHeap,
+            input.vertexPayload,
+            input.frameInstances,
+            input.camera,
+            ...(input.product === null ? [] : [input.product.heap, ...input.product.banks])
+          ];
+          const heap = heaps[bank]!;
+          if (
+            (phase === 1 || (phase === 0 &&
+              (capacity.closureCache.perBin === 0 || !input.publication.surfaceCacheProfiles[set]))) &&
+            capacity.coherenceCapacity > 0 &&
+            (set & 1) !== 0 &&
+            (input.publication.surfaceCoherenceSetMask & (1 << (set >> 1))) !== 0
+          ) {
+            const currentControl = control;
+            const currentUniform = uniform;
+            [control, uniform] = add(
+              "Surface/template scatter bank " + bank + " set " + set,
+              [heap, control, code, indirect],
+              [control, uniform],
+              (resources, command) => {
+                this.writeSettings(
+                  command,
+                  resources.get(currentUniform) as GPUBuffer,
+                  input,
+                  capacity,
+                  bank,
+                  set
+                );
+                run(
+                  command,
+                  this.coherenceScatter,
+                  [
+                    [
+                      bufferEntry(resources, 0, currentUniform),
+                      bufferEntry(resources, 4, code),
+                      bufferEntry(resources, 5, heap),
+                      bufferEntry(resources, 6, currentControl)
+                    ]
+                  ],
+                  (pass) =>
+                    pass.dispatchWorkgroupsIndirect(
+                      resources.get(indirect) as GPUBuffer,
+                      (64 + (bank * 8 + set) * 4) * 4
+                    )
+                );
+              }
+            ) as [ResourceId, ResourceId];
+          }
           const currentControl = control;
+          const currentTemporary = temporary;
           const currentUniform = uniform;
-          [control, uniform] = add(
-            "Surface/template scatter bank " + bank + " set " + set,
-            [heap, control, code, indirect],
-            [control, uniform],
+          const currentIndirect = indirect;
+          const textureBanks = input.textureBanks[Math.floor(set / 2)]!;
+          const pipeline = input.publication.workPipeline(input.product !== null, (set & 1) === 0).pipeline;
+          const results = add(
+            "Surface/" +
+              ["Geometry Appearance", "closure keys", "closure misses"][phase] +
+              " bank " +
+              bank +
+              " set " +
+              set,
+            [
+              heap,
+              control,
+              currentTemporary,
+              code,
+              metadata,
+              currentIndirect,
+              ...products,
+              ...sourceIds,
+              ...textureBanks
+            ],
+            [heap, control, temporary, uniform],
             (resources, command) => {
               this.writeSettings(
                 command,
@@ -583,132 +891,119 @@ export class SurfaceWorkRuntime {
                 input,
                 capacity,
                 bank,
-                set
+                set,
+                false,
+                input.publication.exactDagProductBankWords,
+                phase
+              );
+              const source = [
+                bufferEntry(resources, 0, input.meshletWork),
+                bufferEntry(resources, 1, input.sourceHeap),
+                bufferEntry(resources, 2, input.vertexPayload),
+                bufferEntry(resources, 3, input.frameInstances)
+              ];
+              if (input.product !== null) {
+                source.push(bufferEntry(resources, 4, input.product.heap));
+                input.product.banks.forEach((id, index) =>
+                  source.push(bufferEntry(resources, 5 + index, id))
+                );
+              }
+              source.push(
+                bufferEntry(resources, 9, input.camera),
+                bufferEntry(resources, 10, currentUniform)
+              );
+              const data = [
+                bufferEntry(resources, 0, code),
+                bufferEntry(resources, 1, metadata),
+                bufferEntry(resources, 2, currentTemporary),
+                bufferEntry(resources, 3, heap),
+                bufferEntry(resources, 4, products[0]!),
+                bufferEntry(resources, 5, products[1]!),
+                bufferEntry(resources, 6, currentControl)
+              ];
+              const textures = input.publication.workTextureEntries(
+                textureBanks.map((id) => this.scratch.resolveTextureView(resources.get(id) as object))
               );
               run(
                 command,
-                this.coherenceScatter,
-                [
-                  [
-                    bufferEntry(resources, 0, currentUniform),
-                    bufferEntry(resources, 4, code),
-                    bufferEntry(resources, 5, heap),
-                    bufferEntry(resources, 6, currentControl)
-                  ]
-                ],
+                pipeline,
+                [source, data, textures],
                 (pass) =>
                   pass.dispatchWorkgroupsIndirect(
-                    resources.get(indirect) as GPUBuffer,
-                    (64 + (bank * 8 + set) * 4) * 4
-                  )
+                    resources.get(currentIndirect) as GPUBuffer,
+                    phase === 2 ? 1536 + (bank * 8 + set) * 16 : (64 + (bank * 8 + set) * 4) * 4
+                  ),
+                phase === 1
+                  ? "Surface/closure key inputs"
+                  : phase === 2
+                    ? "Surface/unique closure evaluations"
+                    : (set & 1) === 0
+                      ? "Surface/fixed Appearance"
+                      : "Surface/Geometry Appearance generic"
               );
             }
-          ) as [ResourceId, ResourceId];
+          );
+          heaps[bank] = results[0]!;
+          control = results[1]!;
+          temporary = results[2]!;
+          uniform = results[results.length - 1]!;
         }
-        const currentControl = control;
-        const currentTemporary = temporary;
-        const currentUniform = uniform;
-        const textureBanks = input.textureBanks[Math.floor(set / 2)]!;
-        const pipeline = input.publication.workPipeline(input.product !== null, (set & 1) === 0).pipeline;
-        const results = add(
-          "Surface/Geometry Appearance bank " + bank + " set " + set,
-          [
-            heap,
-            control,
-            currentTemporary,
-            code,
-            metadata,
-            indirect,
-            ...products,
-            ...sourceIds,
-            ...textureBanks
-          ],
-          [heap, control, temporary, uniform],
-          (resources, command) => {
-            this.writeSettings(
-              command,
-              resources.get(currentUniform) as GPUBuffer,
-              input,
-              capacity,
-              bank,
-              set,
-              false,
-              input.publication.exactDagProductBankWords
-            );
-            const source = [
-              bufferEntry(resources, 0, input.meshletWork),
-              bufferEntry(resources, 1, input.sourceHeap),
-              bufferEntry(resources, 2, input.vertexPayload),
-              bufferEntry(resources, 3, input.frameInstances)
-            ];
-            if (input.product !== null) {
-              source.push(bufferEntry(resources, 4, input.product.heap));
-              input.product.banks.forEach((id, index) => source.push(bufferEntry(resources, 5 + index, id)));
-            }
-            source.push(bufferEntry(resources, 9, input.camera), bufferEntry(resources, 10, currentUniform));
-            const data = [
-              bufferEntry(resources, 0, code),
-              bufferEntry(resources, 1, metadata),
-              bufferEntry(resources, 2, currentTemporary),
-              bufferEntry(resources, 3, heap),
-              bufferEntry(resources, 4, products[0]!),
-              bufferEntry(resources, 5, products[1]!),
-              bufferEntry(resources, 6, currentControl)
-            ];
-            const textures = input.publication.workTextureEntries(
-              textureBanks.map((id) => this.scratch.resolveTextureView(resources.get(id) as object))
-            );
-            run(
-              command,
-              pipeline,
-              [source, data, textures],
-              (pass) =>
-                pass.dispatchWorkgroupsIndirect(
-                  resources.get(indirect) as GPUBuffer,
-                  (64 + (bank * 8 + set) * 4) * 4
-                ),
-              (set & 1) === 0 ? "Surface/fixed Appearance" : "Surface/Geometry Appearance generic"
-            );
-          }
-        );
-        heaps[bank] = results[0]!;
-        control = results[1]!;
-        temporary = results[2]!;
-        uniform = results[results.length - 1]!;
       }
+    };
+    if (capacity.closureCache.perBin > 0) {
+      appearancePhase(1);
+      const requests = control;
+      [control] = add(
+        "Surface/nominate exact closure requests",
+        [control],
+        [control],
+        (resources, command) => {
+          run(command, this.closureNominate, [[bufferEntry(resources, 0, requests)]], (pass) =>
+            pass.dispatchWorkgroups(32)
+          );
+        }
+      ) as [ResourceId];
+      const nominated = control;
+      [control] = add("Surface/unique closure arguments", [control], [control], (resources, command) => {
+        run(command, this.closureArguments, [[bufferEntry(resources, 0, nominated)]], (pass) =>
+          pass.dispatchWorkgroups(1)
+        );
+      }) as [ResourceId];
+      const args = control;
+      const previousIndirect = indirect;
+      [indirect] = add(
+        "Surface/publish unique closure arguments",
+        [control],
+        [indirect],
+        (resources, command) => {
+          command.gpu_encoder!.copyBufferToBuffer(
+            resources.get(args) as GPUBuffer,
+            capacity.closureCache.argsBase * 4,
+            resources.get(previousIndirect) as GPUBuffer,
+            1536,
+            512
+          );
+        }
+      ) as [ResourceId];
+      appearancePhase(2);
+    }
+    appearancePhase(0);
+    if (capacity.closureCache.perBin > 0) {
+      const consumed = control;
+      // All slot refs have now been consumed into the existing field products.
+      // Publication can evict here; Lighting/Reconstruct read those products.
+      [control] = add(
+        "Surface/commit exact closure values",
+        [control, ...heaps],
+        [control],
+        (resources, command) => {
+          run(command, this.closurePublish, [[bufferEntry(resources, 0, consumed)]], (pass) =>
+            pass.dispatchWorkgroups(32)
+          );
+        }
+      ) as [ResourceId];
     }
     if (input.publication.surfaceHasLit) {
-      if (this.reuse) {
-        for (let bank = 0; bank < 4; bank++) {
-          const currentControl = control;
-          const currentUniform = uniform;
-          const heap = heaps[bank]!;
-          [control, uniform] = add(
-            "Surface/rates bank " + bank,
-            [heap, metadata, input.visibility, input.camera, indirect, control],
-            [control, uniform],
-            (resources, command) => {
-              this.writeSettings(command, resources.get(currentUniform) as GPUBuffer, input, capacity, bank);
-              run(
-                command,
-                this.rate,
-                [
-                  [
-                    bufferEntry(resources, 0, currentUniform),
-                    bufferEntry(resources, 1, heap),
-                    bufferEntry(resources, 2, metadata),
-                    bufferEntry(resources, 3, currentControl),
-                    textureEntry(resources, 4, input.visibility),
-                    bufferEntry(resources, 5, input.camera)
-                  ]
-                ],
-                (pass) =>
-                  pass.dispatchWorkgroupsIndirect(resources.get(indirect) as GPUBuffer, (192 + bank * 4) * 4)
-              );
-            }
-          ) as [ResourceId, ResourceId];
-        }
-      }
       const sun = input.physicalSun?.parameters ?? fallbackUniform;
       const solarTransmission = input.physicalSun?.transmittance ?? transmission;
       const shadowUniform = input.shadow?.lightProjection ?? fallbackUniform;
@@ -734,13 +1029,22 @@ export class SurfaceWorkRuntime {
           solarTransmission,
           shadowUniform,
           shadowPages,
-          shadowDepth
+          shadowDepth,
+          input.factsMask,
+          input.visibility,
+          factsMotion,
+          ...historyRead
         ];
         [signals[bank], control, uniform, view] = add(
           "Surface/lighting bank " + bank,
           [heap, metadata, control, indirect, ...providerIds],
           [signal, control, uniform, view],
           (resources, command) => {
+            const signalHistoryMask = this.reuse && this.signalHistoryReuse ? this.signalHistoryMask(input) : 0;
+            if (this.signalHistories !== null) {
+              this.pendingSignalHistoryRevision = this.historyRevision(input);
+              this.signalHistoryProduced = true;
+            }
             this.writeSettings(
               command,
               resources.get(currentUniform) as GPUBuffer,
@@ -749,7 +1053,9 @@ export class SurfaceWorkRuntime {
               bank,
               0,
               false,
-              (input.shadow === null ? 0 : 1) | (input.physicalSun === null ? 0 : 2)
+              (input.shadow === null ? 0 : 1) |
+                (input.physicalSun === null ? 0 : 2) |
+                signalHistoryMask << 2
             );
             this.viewParameters.set([input.width, input.height, input.frame.generation, 0]);
             command.writeBuffer(
@@ -769,6 +1075,14 @@ export class SurfaceWorkRuntime {
                   bufferEntry(resources, 2, metadata),
                   bufferEntry(resources, 3, currentControl),
                   bufferEntry(resources, 4, signal),
+                  bufferEntry(resources, 5, historyRead[0]!),
+                  bufferEntry(resources, 8, historyRead[1]!),
+                  bufferEntry(resources, 9, historyRead[2]!),
+                  bufferEntry(resources, 10, historyRead[3]!),
+                  bufferEntry(resources, 11, historyRead[4]!),
+                  textureEntry(resources, 6, input.factsMask),
+                  textureEntry(resources, 7, factsMotion),
+                  textureEntry(resources, 12, input.visibility),
                   textureEntry(resources, 13, input.environment.diffuse),
                   textureEntry(resources, 14, input.environment.specular),
                   textureEntry(resources, 15, input.environment.dfg),
@@ -795,6 +1109,15 @@ export class SurfaceWorkRuntime {
           }
         ) as [ResourceId, ResourceId, ResourceId, ResourceId];
       }
+    }
+    if (input.publication.surfaceHasLit && historyWrite !== null) {
+      this.signalHistoryProduced = true;
+      const currentControl = control;
+      const destination = historyWrite;
+      historyWrite = add("Surface/publish signal owner recipes", [control, ...signals], [historyWrite],
+        (resources, command) => command.gpu_encoder!.copyBufferToBuffer(
+          resources.get(currentControl) as GPUBuffer, capacity.recipeBase * 4,
+          resources.get(destination) as GPUBuffer, 0, capacity.signalHistoryRecipeBytes))[0]!;
     }
     let radiance!: ResourceId;
     let reactiveMask!: ResourceId;
@@ -897,13 +1220,38 @@ export class SurfaceWorkRuntime {
       throw new Error("SurfaceWork commit without prepare");
     }
     this.scratch.commit(gpuDone);
+    this.signalHistoryGpuDone = gpuDone;
+    this.signalHistoryDoneSettled = false;
+    const settled = (): void => {
+      if (this.signalHistoryGpuDone === gpuDone) {
+        this.signalHistoryDoneSettled = true;
+      }
+    };
+    void gpuDone.then(settled, settled);
+    if (this.signalHistoryProduced && this.pendingSignalHistoryRevision !== null) {
+      this.signalHistoryReadIndex = this.signalHistoryWriteIndex;
+      this.signalHistoryWriteIndex = this.signalHistoryReadIndex === 0 ? 1 : 0;
+      this.signalHistoryRevision = this.pendingSignalHistoryRevision;
+      this.signalHistoryValid = true;
+    }
+    this.pendingSignalHistoryRevision = null;
+    this.signalHistoryProduced = false;
+    if (this.capacity!.closureCache.perBin > 0) {
+      this.cacheSubmittedFrames++;
+    }
     this.prepared = false;
   }
   abort(): void {
     this.prepared = false;
+    this.pendingSignalHistoryRevision = null;
+    this.signalHistoryProduced = false;
   }
   invalidate(): void {
-    /* No persistent reuse product exists before unit C. */
+    // Exact Appearance cells include their complete actual inputs and resource
+    // routes. Unrelated temporal/camera invalidation must not flush these values;
+    // resize, publication replacement and device teardown retain their owners.
+    this.signalHistoryValid = false;
+    this.signalHistoryRevision = null;
   }
   destroy(): void {
     if (this.destroyed) {
@@ -911,6 +1259,7 @@ export class SurfaceWorkRuntime {
     }
     this.destroyed = true;
     this.scratch.destroy();
+    this.retireSignalHistories();
     this.providers.destroy();
     this.radiometry.destroy();
     this.fallbackUniform.destroy();
@@ -918,5 +1267,6 @@ export class SurfaceWorkRuntime {
     this.fallbackAo.destroy();
     this.fallbackDepth.destroy();
     this.fallbackTransmission.destroy();
+    this.fallbackHistory.destroy();
   }
 }

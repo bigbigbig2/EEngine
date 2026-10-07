@@ -1198,4 +1198,33 @@ R3完整新算法实施前仍须核具体固定源函数/关键分支/输入输�
 
 已读作者论文[Progressive Material Caching，arXiv 2305.07238v1](https://arxiv.org/html/2305.07238v1) §2–3及结果/限制，DOI `10.1145/3550340.3564223`，与GPUOpen公开稿对应。它提供高层昂贵子图、lookup命中跳过子图、miss原求值的决策参考；其UV虚拟texel量化、双hash作为相等、32-bit压缩值/64-bit CAS和OpenCL执行不适用本地精确合同。论文公开许可不等于可移植源码许可，未找到可核验的完整该论文GitHub实现，不宣称PMC port或其性能数字适用于EEngine。
 
-选定具名本地方案为母稿§10.4的 **Exact Closure Cache Publication**：完整immutable closure→真实输入key→已发布request-index nomination→唯一miss→值发布/pin/generation→原consumer；弱CAS/碰撞/满/abort进入完整direct。信号历史在Appearance值链之后接通，保持每signal独立语义。当前仅来源与设计边界核对，未实现新GPU缓存或提升adoption；旧ABI数学通过不替代新链证据。
+选定具名本地方案为母稿§10.4的 **Exact Closure Cache Publication**：完整immutable closure→真实输入key→已发布request-index nomination→唯一miss→值发布/pin/generation→原consumer；弱CAS/碰撞/满/abort进入完整direct。首个生产准入已接通 `GpuAppearanceDagAbi`、`SurfaceWorkRuntime` 与现有 Geometry→Appearance→Lighting/Reconstruct 链，范围限定为一个实际 lit surface 的 exact closure；一个 cache record 只发布一个昂贵 varying closure，同像素其他 varying 字段保留 residual direct mask，不共享第二 owner。请求表、完整 key、nomination、value store 和 optional OFF 都位于既有 Surface control allocation，未增加 Product 第17个 storage binding。真实 GPU 用例覆盖普通冷 miss、持久 hit、局部容量拒绝、uniform/route revision、abort、resize、cached FrameGraph 重放与 namespace generation 边界；CPU 合同另核多 varying candidate 与 residual 结构。
+
+2026-10-07跨dispatch修复属于同一具名本地方案的ABI/生命周期集成，不新增算法来源：request在唯一Geometry局部值存活时完成residual；hit/overflow直接完成guide，bounded miss请求保留12-word tangent/TS/validity供最终guide消费。resolve只计算被拒绝的cached field或读取唯一writer值，不从局部field key重建其他字段输入。扩展GPU回归覆盖Generic多varying、local normal缓存与tiny overflow，不改变原数学/支持范围。当前history物理预算、OFF工作与净收益缺口见执行文档§8，仍不提升完整采用或阶段状态。
+
+Appearance 切片之后已接通独立六路 signal history：`SurfaceWorkRuntime` 维护两份六层 `rgba32float` 屏幕历史，Lighting 读取上一提交槽并按 Temporal Facts motion/identity 做重投影与逐像素拒绝，所有失效、首帧和版本变化回到原 Lighting；单一全屏 history writer 在 Lighting 后写下一槽，commit 才交换读写索引，abort/resize 按 GPU fence 退休。历史复用同时携带 environment/light/shadow/sun/AO、view/scene 与 publication revision，未引入通用72-word SignalStore或第二 owner。现有 `surface-work` GPU oracle 已把真实 Temporal Facts motion 产品接入同一 production graph，并覆盖首帧/稳定帧/值变更/abort 的 identity 结果；它仍不是独立六路 signal history 数值或成本矩阵，B2-NUM-001/002 也未关闭，不能提升 C 阶段或性能 claim。
+
+2026-10-07 C修复切换替换了上一段的全屏历史纹理及writer，不再把该段的布局当当前源码。实施前重新核读固定SF06 `RenderTaskProcessing.compute`全部task prepare/args阶段及`VirtualRenderTexture.cs`资源创建、`SwapBuffers`、释放；再核PMC §2–3的昂贵子图选择/miss原求值/性能限制。revision、许可证和入口沿用本节上表，不新增或宣称PMC完整移植。本地source映射如下，检查与成本结果只维护于执行文档§8：
+
+| 来源阶段 / 本地集成决策 | 本地producer→产品→reader | 保留边界与差异 |
+|---|---|---|
+| SF06 `SwapBuffers`：交换实际存储与remap，而非复制全部值 | Lighting→六RGB f32/state原signal buffer→当前Reconstruct与下一提交帧Lighting；小型quad owner recipe随角色保留 | commit才交换，abort不推进；保留原过滤/精度，删除全屏history writer/texture副本，不采用上游half/Unity生命周期 |
+| SF06 task prepare/actual args；PMC昂贵子图/miss边界 | WorkPlan扣除其他字段祖先→候选→完整key lookup→唯一miss/direct | 编译权重不是GPU收益；共享query仍有consumer时不能计作被缓存删除；完整key不截断，source数学不变 |
+| 本地Exact Closure Cache Publication的pin/generation延续 | request消费全部旧hit→不可变request-index nomination→miss/resolve→最后reader之后publish替换旧slot | 有界四probe替换，不等待跨workgroup；旧payload到publish才覆盖，同key唯一writer，generation不回绕；不称移植了上游eviction算法 |
+| 本地容量与ABI接线 | Surface完整容量计划→现有control/request/slot与双角色signal owner→有限GPU命令 | 默认每有限bank/family预留一屏幕行request，仍受原binding/物理预算；不是输入重复或性能证明，overflow完整direct；所有active/retired计入原768MiB合同 |
+
+### C成本方案来源复核（2026-10-07）
+
+本轮为停止微调后的设计审查，只更新母稿§10.5与执行文档§8，不实施算法、不运行上游或本地GPU、不提升adoption。先复读SF06固定revision的完整`RenderTaskProcessing.compute`、`ShadelAllocator.cginc`、`VirtualRenderTexture.cginc`及host `VirtualRenderTexture.cs`的创建/role swap/释放；在线再次核对同pin的task源，再查完整GitHub PMC实现与作者论文。检索词为`"Progressive Material Caching" github implementation`、`"2305.07238" material caching`，作者[项目页](https://shinfj.github.io/publication/progressive-material-caching/)与[arXiv v1](https://arxiv.org/html/2305.07238v1)可定位论文；本次检索未得到满足本地精确多word合同的完整PMC donor，不声称“证明不存在”。许可证与SF06 pin沿用前节Apache-2.0；论文不是可移植源码许可。
+
+| 核读入口/阶段 | 对母稿§10.5的约束 | 不可从来源推出的结论 |
+|---|---|---|
+| SF06 `RenderTaskPrepare/RenderTaskIndirectDispatch` | 实际occupancy形成任务、count/offset和indirect工作；本地仍按有限family，不按instance复制host命令 | 上游task组织不证明本地raw CXY exact keys重复，也不提供本地请求在dedup前配额的收益证明 |
+| SF06 `Allocate/ResolveAddress/IsOverflow` | 容量、实际地址与历史地址需有明确owner；本地选择域进入可选协议前完整预留，失败完整direct | 上游后验overflow不是本地发布前完整容量保证；不照搬size classes或以槽数当收益 |
+| SF06 `VRT_ReadRemapInfo/VRT_ReadTexture/VRT_SampleHtexture` | remap/数据reader及真实过滤分开；本地完整原值reader依赖实际producer | 上游离散chart/mip/Htex地址不能替代本地f32 C/X/Y相等，不擅自量化或采用缺页debug值 |
+| SF06 host `SwapBuffers` | 同一数据产品的读写角色与remap共同推进；本地只在提交成功后推进，fence退休 | role交换不自动证明六signal失效/quality或物理预算正确 |
+| PMC §2–3与§4–5 | 缓存可选昂贵子图；miss继续原计算；需结合真实材质与reuse窗口评估 | 论文的UV虚拟texel、双hash判等、32-bit压缩值/64-bit CAS与路径追踪收益不能移作WebGPU精确缓存保证 |
+
+全成本准入、沿用已有工作域的完整请求预留、address/remaining Geometry需求拆分及跨dispatch发布为本地 **Exact Closure Cache Publication** 的设计细化，不新增同名近似效果或第二算法owner。本轮没有固定新的identity编码/record stride/槽数，不把旧实验的表示变化当完整算法移植。
+
+来源只支撑上述责任和差异，不提供本地准入类别的实测收益。首个普通合法有收益类别、真实closure清单与集中生产证据未成立前，不提升采用状态；源码事实和当前缺口统一在执行文档§8。

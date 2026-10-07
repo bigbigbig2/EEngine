@@ -24,7 +24,7 @@ import {
 import type { AppearanceAssetPackage } from "../assets/AppearanceAssetPackage.js";
 import type { StandardShadeMaterial } from "../material/StandardShadeMaterial.js";
 import { standardAppearanceParameters } from "../material/AppearanceRuntimeInputs.js";
-import { packAppearanceDagPublication } from "./GpuAppearanceDagAbi.js";
+import { packAppearanceDagPublication, APPEARANCE_DAG_CACHE_CLOSURE } from "./GpuAppearanceDagAbi.js";
 import { planExactAppearanceLanes, type AppearanceWorkPlan } from "../material/ExactAppearanceDag.js";
 import { SURFACE_WORK_RETAINED_FIELDS } from "./GpuSurfaceWorkAbi.js";
 import { appearancePublicationExactDescriptor } from "../shaders/appearance_publication_exact.js";
@@ -106,6 +106,7 @@ export class GpuAppearancePublication {
   readonly surfaceProgramCount: number;
   readonly surfaceTemplateCount: number;
   readonly surfaceCoherenceSetMask: number;
+  readonly surfaceCacheCandidateCount: number;
   /** Material-slot indexed fragment constants/routes/input directory. */
   readonly coverageDirectory: GPUBuffer;
   readonly allocatedBytes: number;
@@ -120,6 +121,8 @@ export class GpuAppearancePublication {
   readonly surfaceHasLit: boolean;
   readonly surfaceWorkScratchWords: number;
   readonly surfaceWorkProfiles: readonly boolean[];
+  readonly surfaceCacheProfiles: readonly boolean[];
+  readonly surfaceCacheKeyWords: number;
   readonly exactDagVaryingFields: number;
   readonly exactDagFieldOffsetValues: readonly number[];
   private readonly staticLeases: AppearanceStaticLease[] = [];
@@ -135,6 +138,10 @@ export class GpuAppearancePublication {
   private constantValues!: Float32Array<ArrayBuffer>;
   private inputValues!: Float32Array<ArrayBuffer>;
   private routeValues!: Uint32Array<ArrayBuffer>;
+  private routeIdentities!: Uint32Array<ArrayBuffer>;
+  private routeIdentityBase = 0;
+  private routeIdentityNext = 0;
+  private routeIdentitySnapshots = new Map<string, number>();
   private routeRevision = 0;
   private committedRouteRevision = 0;
   private coverageResourcesDirty = false;
@@ -387,7 +394,12 @@ export class GpuAppearancePublication {
       const runtimeInputsOffset = materialLookupData.length;
       const constantsOffset = runtimeInputsOffset + inputData.length;
       const routesOffset = constantsOffset + constantData.length;
-      const paletteOffset = routesOffset + routeData.byteLength / 4;
+      const routeIdentityBase = routesOffset + routeData.byteLength / 4;
+      const paletteOffset = routeIdentityBase + routes.length;
+      this.routeIdentityBase = routeIdentityBase;
+      this.routeValues = new Uint32Array(routeData.buffer);
+      this.routeIdentities = new Uint32Array(routes.length);
+      this.refreshRouteIdentities();
       const radiometryOffset = paletteOffset + Math.max(1, sources.length) * 64;
       const surfaceMetadataOffsets = {
         materialLookup: 0,
@@ -416,6 +428,7 @@ export class GpuAppearancePublication {
       );
       surfaceMetadataData.set(new Uint32Array(constantData.buffer), surfaceMetadataOffsets.constants);
       surfaceMetadataData.set(new Uint32Array(routeData.buffer), surfaceMetadataOffsets.routes);
+      surfaceMetadataData.set(this.routeIdentities, routeIdentityBase);
       const maximum = Math.min(
         Number(device.limits.maxBufferSize),
         Number(device.limits.maxStorageBufferBindingSize)
@@ -434,7 +447,8 @@ export class GpuAppearancePublication {
           constantBase: entry.constantBase,
           routeBase: entry.routeBase,
           inputBase: entry.inputBase,
-          textureBindingSetId: entry.textureBindingSetId
+          textureBindingSetId: entry.textureBindingSetId,
+          routeIdentityBase: routeIdentityBase + entry.routeBase
         })),
         maximum,
         maximum,
@@ -514,14 +528,24 @@ export class GpuAppearancePublication {
       this.surfaceDomainCount = exactData.domainCount;
       this.surfaceTemplateCount = exactData.templateCount;
       this.surfaceCoherenceSetMask = exactData.coherenceSetMask;
+      this.surfaceCacheCandidateCount = exactData.cacheCandidateCount;
       this.surfaceHasLit = entries.some((_entry, index) => exactData.code[index * 16 + 15] !== 0);
       const workProfiles = Array<boolean>(8).fill(false);
+      const cacheProfiles = Array<boolean>(8).fill(false);
+      let cacheKeyWords = 1;
       for (let entry = 0; entry < entries.length; entry++) {
         const profile =
           exactData.code[entry * 16 + 8]! * 2 + Number((exactData.code[entry * 16 + 13]! & 0x80000000) === 0);
         workProfiles[profile] = true;
+        if (exactData.code[exactData.code[entry * 16 + 2]! + APPEARANCE_DAG_CACHE_CLOSURE] !== 0) {
+          const closure = exactData.code[exactData.code[entry * 16 + 2]! + APPEARANCE_DAG_CACHE_CLOSURE]!;
+          cacheKeyWords = Math.max(cacheKeyWords, exactData.code[closure + 2]!);
+          cacheProfiles[profile] = true;
+        }
       }
       this.surfaceWorkProfiles = Object.freeze(workProfiles);
+      this.surfaceCacheProfiles = Object.freeze(cacheProfiles);
+      this.surfaceCacheKeyWords = cacheKeyWords;
       let varying = 0;
       for (let entry = 0; entry < entries.length; entry++) {
         varying |= exactData.code[entry * 16 + 12]! & ~exactData.code[entry * 16 + 13]!;
@@ -773,7 +797,8 @@ export class GpuAppearancePublication {
   get viewDependentCoverage(): boolean {
     return this.entries.some(
       (entry) =>
-        entry.coverage.viewDependent && entry.material.transparency_mode === ShadeTransparencyMode.AlphaTested
+        entry.coverage.viewDependent &&
+        entry.material.transparency_mode === ShadeTransparencyMode.AlphaTested,
     );
   }
 
@@ -871,6 +896,25 @@ export class GpuAppearancePublication {
     });
   }
 
+  /** Canonicalize the full authoritative route at publication/update frequency.
+   * Keep only current descriptors; retired IDs are never recycled or aliased. */
+  private refreshRouteIdentities(): void {
+    const current = new Map<string, number>();
+    for (let route = 0; route < this.routeIdentities.length; route++) {
+      const start = route * (APPEARANCE_ROUTE_STRIDE / 4);
+      const key = this.routeValues.subarray(start, start + APPEARANCE_ROUTE_STRIDE / 4).join(",");
+      let identity = current.get(key) ?? this.routeIdentitySnapshots.get(key);
+      if (identity === undefined) {
+        if (this.routeIdentityNext >= 0xfffffffe) {
+          throw new RangeError("Appearance route identity exhausted; republish the scene");
+        }
+        identity = ++this.routeIdentityNext;
+      }
+      current.set(key, identity);
+      this.routeIdentities[route] = identity;
+    }
+    this.routeIdentitySnapshots = current;
+  }
   private refreshResourceDependencies(command: ShadeGPUCommandContext): boolean {
     let changed = false;
     for (let entry = 0; entry < this.resourceDependencies.length; entry++) {
@@ -904,6 +948,7 @@ export class GpuAppearancePublication {
       }
     }
     if (changed) {
+      this.refreshRouteIdentities();
       if (this.uniformRevision >= 0xffffffff) {
         throw new RangeError("Appearance uniform resource version exhausted; republish the scene");
       }
@@ -916,6 +961,8 @@ export class GpuAppearancePublication {
     ) {
       const revision = this.routeRevision;
       command.writeBuffer(this.routes, 0, this.routeValues.buffer, 0, this.routeValues.byteLength);
+      command.writeBuffer(this.surfaceMetadata, this.routeIdentityBase * 4,
+        this.routeIdentities.buffer, 0, this.routeIdentities.byteLength);
       command.writeBuffer(
         this.surfaceMetadata,
         this.surfaceMetadataOffsets.routes * 4,

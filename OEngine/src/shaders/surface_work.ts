@@ -12,6 +12,16 @@ import {
 } from "./appearance_dag_sampling.js";
 import { surfaceFixedFormulasWgsl } from "./surface_fixed_formulas.js";
 import { APPEARANCE_EXACT_DAG_WGSL } from "./appearance_exact_dag.js";
+import { APPEARANCE_CLOSURE_KEY_WGSL } from "./appearance_closure_key.js";
+import { APPEARANCE_CLOSURE_CACHE_ACCESS_WGSL } from "./appearance_closure_cache.js";
+import { APPEARANCE_DAG_CACHE_CLOSURE } from "../gpu/GpuAppearanceDagAbi.js";
+import {
+  APPEARANCE_CACHE_HEADER as CACHE,
+  APPEARANCE_CACHE_CONTINUATION_OFFSET as CONTINUATION,
+  APPEARANCE_CACHE_KEY_WORDS as KEY_WORDS,
+  APPEARANCE_CACHE_PROBES as CACHE_PROBES,
+  APPEARANCE_CACHE_STORED_REF as STORED_REF
+} from "../gpu/GpuAppearanceClosureCacheAbi.js";
 
 export const SURFACE_WORK_SETTINGS_WGSL = /* wgsl */ `
 struct SurfaceWorkSettings {
@@ -75,6 +85,10 @@ fn coverage(@builtin(workgroup_id) group: vec3u, @builtin(local_invocation_index
     let index = (pixel.y - settings.bank * settings.bank_rows) * settings.width + pixel.x;
     work_heap[index * settings.source_payload.y] = key;
     work_heap[index * settings.source_payload.y + settings.source_payload.y - 1u] = entry;
+    if atomicLoad(&work_control[${CACHE}u]) != 0u {
+      let map = atomicLoad(&work_control[${CACHE + 2}u]);
+      atomicStore(&work_control[map + settings.bank * settings.pixels + index], 0u);
+    }
   }
   entries[lane] = entry;
   families[lane] = family;
@@ -146,12 +160,6 @@ fn finalize(@builtin(global_invocation_id) id: vec3u) {
   atomicStore(&work_control[at], groups);
   atomicStore(&work_control[at + 1u], 1u);
   atomicStore(&work_control[at + 2u], 1u);
-  if id.x < 32u && (id.x & 1u) == 0u {
-    let fixed_at = 320u + (id.x / 2u) * 4u;
-    atomicStore(&work_control[fixed_at], (min(settings.lanes, count * 64u) + 63u) / 64u);
-    atomicStore(&work_control[fixed_at + 1u], 1u);
-    atomicStore(&work_control[fixed_at + 2u], 1u);
-  }
 }
 `;
 
@@ -174,8 +182,27 @@ var<private> surface_normal_ts: vec4f;
 var<private> surface_coat_ts: vec4f;
 var<private> surface_normal_validity: f32;
 var<private> surface_coat_validity: f32;
+var<private> closure_read_at: u32;
+var<private> closure_output_at: u32;
+var<private> closure_plan: u32;
 ${surfaceWorkReadWgsl(true)}
-${surfaceWorkGeometryWgsl(product, common)}
+${surfaceWorkGeometryWgsl(product, common).replaceAll("fn geometry_input(", "fn geometry_produced_input(")}
+${APPEARANCE_CLOSURE_CACHE_ACCESS_WGSL}
+fn geometry_input(kind: u32, point: u32) -> vec4f {
+  if closure_read_at == 0u {
+    return geometry_produced_input(kind, point);
+  }
+  let reads = dag_code[closure_plan + 8u] + kind * 12u + point;
+  var value = vec4u(0u);
+  for (var channel = 0u; channel < 4u; channel++) {
+    let word = dag_code[reads + channel * 3u];
+    if word != 0u {
+      value[channel] = atomicLoad(&work_control[closure_read_at + 8u + word]);
+    }
+  }
+  return bitcast<vec4f>(value);
+}
+${APPEARANCE_CLOSURE_KEY_WGSL}
 fn dag_metadata_vec4(at: u32) -> vec4f {
   return bitcast<vec4f>(vec4u(dag_metadata[at], dag_metadata[at + 1u], dag_metadata[at + 2u], dag_metadata[at + 3u]));
 }
@@ -183,6 +210,10 @@ fn appearance_dag_constant(index: u32) -> f32 {
   return bitcast<f32>(dag_metadata[settings.constants + dag_code[dag_entry + 5u] + index]);
 }
 fn appearance_dag_output(field: u32, channel: u32, value: f32) {
+  if closure_output_at != 0u {
+    atomicStore(&work_control[closure_output_at + (8u + closure_cache_config(24u)) + channel], bitcast<u32>(value));
+    return;
+  }
   switch field {
     case 1u: {}
     case 6u: { surface_normal_ts[channel] = value; }
@@ -236,6 +267,207 @@ fn appearance_dag_product(index: u32, uv: vec2f, dx: vec2f, dy: vec2f) -> vec4f 
   return surface_product_value(index, uv, dx, dy);
 }
 ${common ? surfaceFixedFormulasWgsl() : APPEARANCE_EXACT_DAG_WGSL}
+fn surface_evaluate_fields(lane: u32, missing: u32) {
+  ${common ? "fixed_surface_evaluate(lane, missing);" : "appearance_dag_evaluate(dag_code[dag_entry], dag_code[dag_entry + 1u], lane, missing, settings.lanes);"}
+  if settings.diagnostics != 0u {
+    atomicAdd(&work_control[240u], 1u);
+    atomicAdd(&work_control[230u], 1u);
+    atomicAdd(&work_control[241u], countOneBits(missing));
+  }
+}
+fn surface_initialize_local_fields() {
+  let palette = settings.palette + (dag_entry / 16u) * 64u;
+  surface_normal_ts = dag_metadata_vec4(palette + 4u + 6u * 4u);
+  surface_coat_ts = dag_metadata_vec4(palette + 4u + 12u * 4u);
+  surface_normal_validity = bitcast<f32>(dag_metadata[palette + 4u + 13u * 4u]);
+  surface_coat_validity = bitcast<f32>(dag_metadata[palette + 4u + 14u * 4u]);
+}
+fn closure_save_guides(at: u32) {
+  let normal = vec4f(surface_normal_ts.xyz, surface_normal_validity);
+  let coat = vec4f(surface_coat_ts.xyz, surface_coat_validity);
+  for (var channel = 0u; channel < 4u; channel++) {
+    atomicStore(&work_control[at + (12u + closure_cache_config(24u)) + channel], bitcast<u32>(geometry_center.tangent[channel]));
+    atomicStore(&work_control[at + (16u + closure_cache_config(24u)) + channel], bitcast<u32>(normal[channel]));
+    atomicStore(&work_control[at + (20u + closure_cache_config(24u)) + channel], bitcast<u32>(coat[channel]));
+  }
+}
+fn closure_restore_guides(at: u32) {
+  geometry_center.normal = surface_work_vec4(dag_leaf, 4u);
+  for (var channel = 0u; channel < 4u; channel++) {
+    geometry_center.tangent[channel] = bitcast<f32>(atomicLoad(&work_control[at + (12u + closure_cache_config(24u)) + channel]));
+    surface_normal_ts[channel] = bitcast<f32>(atomicLoad(&work_control[at + (16u + closure_cache_config(24u)) + channel]));
+    surface_coat_ts[channel] = bitcast<f32>(atomicLoad(&work_control[at + (20u + closure_cache_config(24u)) + channel]));
+  }
+  surface_normal_validity = surface_normal_ts.w;
+  surface_coat_validity = surface_coat_ts.w;
+  surface_normal_ts.w = 0.0;
+  surface_coat_ts.w = 0.0;
+}
+fn surface_closure_request(pixel: vec2u, lane: u32) {
+  if pixel.x >= settings.width || pixel.y >= settings.height {
+    return;
+  }
+  dag_leaf = (pixel.y - settings.bank * settings.bank_rows) * settings.width + pixel.x;
+  let entry = surface_work_entry(dag_leaf);
+  if entry == 0xffffffffu {
+    return;
+  }
+  dag_entry = entry * 16u;
+  let family = dag_code[dag_entry + 8u] * 2u + select(1u, 0u, (dag_code[dag_entry + 13u] & 0x80000000u) != 0u);
+  if family != settings.texture_set {
+    return;
+  }
+  let closure = dag_code[dag_code[dag_entry + 2u] + ${APPEARANCE_DAG_CACHE_CLOSURE}u];
+  if closure == 0u {
+    return;
+  }
+  surface_initialize_local_fields();
+  let domain = surface_closure_domain();
+  if dag_code[domain + 3u] != 0u || dag_code[domain + 5u] != 0u {
+    if !geometry_produce(work_heap[dag_leaf * settings.source_payload.y], pixel,
+      dag_code[domain + 4u], dag_code[domain + 3u], dag_code[domain + 5u] != 0u) {
+      work_heap[dag_leaf * settings.source_payload.y + settings.source_payload.y - 1u] = 0xffffffffu;
+      atomicAdd(&work_control[228u], 1u);
+      return;
+    }
+    if settings.diagnostics != 0u {
+      atomicAdd(&work_control[239u], 1u);
+      atomicAdd(&work_control[229u], 1u);
+    }
+  }
+  let map = closure_cache_config(2u) + settings.bank * settings.pixels + dag_leaf;
+  let words = dag_code[closure + 2u];
+  let namespace_id = closure_cache_config(9u);
+  var hash = 2166136261u;
+  for (var word = 0u; word < words; word++) {
+    hash = (hash ^ appearance_closure_key_word(namespace_id, closure, word)) * 16777619u;
+  }
+  // Immutable cells remain pinned through the last value reader. Lookup has no
+  // request allocation or key write on a hit; only true misses publish payloads.
+  for (var probe = 0u; probe < ${CACHE_PROBES}u; probe++) {
+    let slot = (hash + probe) & (closure_cache_config(1u) - 1u);
+    let cell = closure_cell_address(slot);
+    if atomicLoad(&work_control[cell]) == 0u || atomicLoad(&work_control[cell + 1u]) != words {
+      continue;
+    }
+    var equal = true;
+    for (var word = 0u; word < words; word++) {
+      if atomicLoad(&work_control[cell + 4u + word]) != appearance_closure_key_word(namespace_id, closure, word) {
+        equal = false;
+        break;
+      }
+    }
+    if equal {
+      for (var channel = 0u; channel < dag_code[closure + 3u]; channel++) {
+        appearance_dag_output(firstTrailingBit(dag_code[closure + 1u]), channel,
+          bitcast<f32>(atomicLoad(&work_control[cell + (4u + closure_cache_config(24u)) + channel])));
+      }
+      let residual = surface_closure_missing_mask() & ~dag_code[closure + 1u];
+      if residual != 0u { surface_evaluate_fields(lane, residual); }
+      if dag_code[domain + 5u] != 0u { geometry_publish_guides(); }
+      atomicStore(&work_control[map], 0xffffffffu);
+      if settings.diagnostics != 0u {
+        atomicAdd(&work_control[${CACHE + 12}u], 1u);
+      }
+      return;
+    }
+  }
+  let bin = settings.bank * 8u + settings.texture_set;
+  let index = atomicAdd(&work_control[closure_cache_config(6u) + bin * 2u], 1u);
+  if index >= closure_cache_config(0u) {
+    // Complete the direct recipe and its local guide sinks while Geometry is
+    // live. The later resolve dispatch must not rebuild this product.
+    surface_evaluate_fields(lane, surface_closure_missing_mask());
+    if dag_code[domain + 5u] != 0u { geometry_publish_guides(); }
+    atomicStore(&work_control[map], 0xffffffffu);
+    if settings.diagnostics != 0u {
+      atomicAdd(&work_control[${CACHE + 14}u], 1u);
+    }
+    return;
+  }
+  let request = bin * closure_cache_config(0u) + index;
+  let at = closure_request_address(request);
+  atomicStore(&work_control[at], entry);
+  atomicStore(&work_control[at + 1u], closure);
+  atomicStore(&work_control[at + 2u], dag_code[closure + 2u]);
+  atomicStore(&work_control[at + 3u], 0u);
+  for (var word = 0u; word < dag_code[closure + 2u]; word++) {
+    atomicStore(&work_control[at + 8u + word], appearance_closure_key_word(closure_cache_config(9u), closure, word));
+  }
+  for (var channel = 0u; channel < 4u; channel++) {
+    atomicStore(&work_control[at + (8u + closure_cache_config(24u)) + channel], 0u);
+  }
+  let residual = surface_closure_missing_mask() & ~dag_code[closure + 1u];
+  if residual != 0u { surface_evaluate_fields(lane, residual); }
+  if dag_code[domain + 5u] != 0u { closure_save_guides(at); }
+  atomicStore(&work_control[map], request + 1u);
+  if settings.diagnostics != 0u {
+    atomicAdd(&work_control[${CACHE + 15}u], 1u);
+  }
+}
+fn surface_closure_domain() -> u32 {
+  let tile = ((dag_leaf / settings.width) / 8u) * settings.tiles_x + (dag_leaf % settings.width) / 8u;
+  let tile_at = settings.tile_base + (settings.bank * settings.bank_tiles + tile) * 8u;
+  var domain = atomicLoad(&work_control[tile_at + 4u]);
+  if domain == 0xffffffffu { domain = dag_code[dag_entry + 14u]; }
+  return domain;
+}
+fn surface_closure_missing_mask() -> u32 {
+  let domain = surface_closure_domain();
+  return dag_code[domain + 1u] & ~dag_code[domain + 2u];
+}
+fn surface_closure_misses(lane: u32) {
+  let bin = settings.bank * 8u + settings.texture_set;
+  let count = atomicLoad(&work_control[closure_cache_config(6u) + bin * 2u + 1u]);
+  let queue = closure_cache_config(7u) + bin * closure_cache_config(0u);
+  for (var index = lane; index < count; index += settings.lanes) {
+    let request = atomicLoad(&work_control[queue + index]);
+    closure_read_at = closure_request_address(request);
+    closure_output_at = closure_read_at;
+    dag_entry = atomicLoad(&work_control[closure_read_at]) * 16u;
+    closure_plan = atomicLoad(&work_control[closure_read_at + 1u]);
+    surface_evaluate_fields(lane, dag_code[closure_plan + 1u]);
+  }
+}
+fn surface_closure_resolve(lane: u32) -> bool {
+  if closure_cache_config(0u) == 0u {
+    return false;
+  }
+  let request = atomicLoad(&work_control[closure_cache_config(2u) + settings.bank * settings.pixels + dag_leaf]);
+  if request == 0u {
+    return false;
+  }
+  if request == 0xffffffffu {
+    return true;
+  }
+  closure_plan = dag_code[dag_code[dag_entry + 2u] + ${APPEARANCE_DAG_CACHE_CLOSURE}u];
+  // Request/miss work owns Geometry completion. Resolve only consumes that
+  // published record; rebuilding it here duplicated setup on every hit and
+  // could overwrite the authoritative completion before Lighting/Reconstruct.
+  let fields = dag_code[closure_plan + 1u];
+  let at = closure_request_address(request - 1u);
+  let lit = dag_code[surface_closure_domain() + 5u] != 0u;
+  if lit { closure_restore_guides(at); }
+  let reference = atomicLoad(&work_control[at + 3u]);
+  if reference == 0u {
+    // Residual fields already consumed the complete Geometry inputs. Only the
+    // rejected cached field reads its exact key; sibling inputs are not in it.
+    closure_read_at = at;
+    surface_evaluate_fields(lane, fields);
+  } else {
+    var values: u32;
+    if (reference & ${STORED_REF}u) != 0u {
+      values = closure_cell_address(reference & 0x7fffffffu) + (4u + closure_cache_config(24u));
+    } else {
+      values = closure_request_address(reference - 1u) + (8u + closure_cache_config(24u));
+    }
+    for (var channel = 0u; channel < dag_code[closure_plan + 3u]; channel++) {
+      appearance_dag_output(firstTrailingBit(fields), channel, bitcast<f32>(atomicLoad(&work_control[values + channel])));
+    }
+  }
+  if lit { geometry_publish_guides(); }
+  return true;
+}
 fn geometry_publish_guides() {
   let basis = vec4f(geometry_center.normal.xyz, geometry_center.tangent.w);
   let tangent = geometry_center.tangent.xyz;
@@ -307,18 +539,23 @@ fn geometry_publish_guides() {
   work_heap[dag_leaf * settings.source_payload.y + 7u] = u32(safe);
 }
 fn surface_appearance_item(pixel: vec2u, lane: u32) {
+  closure_read_at = 0u;
+  closure_output_at = 0u;
+  if (settings.reuse >> 30u) == 1u {
+    surface_closure_request(pixel, lane);
+    return;
+  }
   let tile = ((pixel.y - settings.bank * settings.bank_rows) / 8u) * settings.tiles_x + pixel.x / 8u;
     if pixel.x >= settings.width || pixel.y >= settings.height { return; }
     dag_leaf = (pixel.y - settings.bank * settings.bank_rows) * settings.width + pixel.x;
     let entry = surface_work_entry(dag_leaf);
     if entry == 0xffffffffu { return; }
     dag_entry = entry * 16u;
-    let palette = settings.palette + entry * 64u;
-    surface_normal_ts = dag_metadata_vec4(palette + 4u + 6u * 4u);
-    surface_coat_ts = dag_metadata_vec4(palette + 4u + 12u * 4u);
-    surface_normal_validity = bitcast<f32>(dag_metadata[palette + 4u + 13u * 4u]);
-    surface_coat_validity = bitcast<f32>(dag_metadata[palette + 4u + 14u * 4u]);
+    surface_initialize_local_fields();
     if dag_code[dag_entry + 8u] * 2u + select(1u, 0u, (dag_code[dag_entry + 13u] & 0x80000000u) != 0u) != settings.texture_set { return; }
+    if surface_closure_resolve(lane) {
+      return;
+    }
     let tile_at = settings.tile_base + (settings.bank * settings.bank_tiles + tile) * 8u;
     var domain = atomicLoad(&work_control[tile_at + 4u]);
     if domain == 0xffffffffu { domain = dag_code[dag_entry + 14u]; }
@@ -335,18 +572,7 @@ fn surface_appearance_item(pixel: vec2u, lane: u32) {
       if settings.diagnostics != 0u { atomicAdd(&work_control[229u], 1u); }
     }
     if missing != 0u {
-      if settings.diagnostics != 0u { atomicAdd(&work_control[240u], 1u); }
-      ${
-        common
-          ? "fixed_surface_evaluate(lane, missing);"
-          : /* wgsl */ `
-      appearance_dag_evaluate(dag_code[dag_entry], dag_code[dag_entry + 1u], lane, missing, settings.lanes);
-      `
-      }
-      if settings.diagnostics != 0u {
-        atomicAdd(&work_control[230u], 1u);
-        atomicAdd(&work_control[241u], countOneBits(missing));
-      }
+      surface_evaluate_fields(lane, missing);
     }
     if dag_code[domain + 5u] != 0u { geometry_publish_guides(); }
 }
@@ -358,9 +584,13 @@ fn appearance(@builtin(global_invocation_id) id: vec3u,
   }
   dag_routes_base = settings.routes;
   dag_product_bank_words = settings.reserved;
+  if (settings.reuse >> 30u) == 2u {
+    surface_closure_misses(id.x);
+    return;
+  }
   let bin = settings.bank * 8u + settings.texture_set;
   let config = ${SURFACE_WORK_COHERENCE_HEADER}u + (settings.bank * 4u + settings.texture_set / 2u) * 8u;
-  if (settings.texture_set & 1u) != 0u && atomicLoad(&work_control[config + 5u]) == 2u {
+  if (settings.reuse >> 30u) != 2u && (settings.texture_set & 1u) != 0u && atomicLoad(&work_control[config + 5u]) == 2u {
     let index_base = atomicLoad(&work_control[config + 1u]);
     let packets = atomicLoad(&work_control[config + 4u]) / 64u;
     let context_groups = (settings.lanes + 63u) / 64u;

@@ -569,6 +569,7 @@ function compileSceneGraph(
             parameters: physicalEnvironmentSun,
             transmittance: atmosphereEnvironment,
           },
+    factsMotion: facts.motion,
     factsMask: facts.mask,
     historyBinding: (name, resolve) => bind(name, resolve),
     preExposure: gpuPreviousExposure,

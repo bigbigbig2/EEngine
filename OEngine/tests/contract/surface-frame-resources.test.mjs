@@ -163,3 +163,25 @@ test("Surface views use actual native texture identity and preserve wrapper gene
   owner.prepare(2, 2);
   assert.notEqual(owner.resolveTextureView(texture), first);
 });
+
+test("history active and retired bytes participate in admission without double-counting retired scratch", async () => {
+  const device = { limits: { maxBufferSize: 4096, maxStorageBufferBindingSize: 4096 },
+    createBuffer: descriptor => ({ ...descriptor, destroy() {} }) };
+  const owner = new SurfaceFrameResources(device, undefined, 192);
+  const graph = { import_resource: (_name, _descriptor, binding) => binding };
+  owner.prepare(4, 4);
+  owner.importBuffer(graph, (_name, resolve) => resolve(), "payload", 128, GPUBufferUsage.STORAGE);
+  owner.setExternalMemory(64, 0);
+  assert.equal(owner.physicalBytes().active, 192);
+  assert.equal(owner.canPrepare(4, 4, 128, "", 64), true);
+  assert.equal(owner.canPrepare(4, 4, 128, "", 68), false);
+  let complete;
+  owner.commit(new Promise(resolve => { complete = resolve; }));
+  owner.prepare(8, 8);
+  assert.equal(owner.physicalBytes().active, 64);
+  assert.equal(owner.physicalBytes().retired, 128);
+  assert.equal(owner.physicalBytes().physicalPeak, 192);
+  complete();
+  await Promise.resolve();
+  owner.destroy();
+});

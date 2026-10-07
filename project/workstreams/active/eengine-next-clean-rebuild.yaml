@@ -30,6 +30,10 @@ currentSlice:
     在已有WorkPlan/值读取/更新事务/Geometry需求边界上接通有收益的cache与signal history。
     完整identity、lookup/miss、唯一writer、pin/generation/retire与direct fallback一起推进。
     在完整切换单元链连通后集中检查，再进入下一单元；不以逐patch微测改架构。
+    用户再次停止微调后，当前先完成母稿§10.5与执行文档§8.1–8.3的全成本模型、
+    实际closure/重复窗口清单和完整切换方案；生产实现保持冻结。
+    候选权重、完整相等与生产成本准入分开；先固定实际候选/域/成本假设，再完整实现并集中建立实测准入。
+    后续按固定单元完成全部producer/consumer后集中检查，不继续identity/stride/容量/局部计算试改循环。
     C扩展可选复用，核心计算域不能全部后移；R1/R2实验仅由执行文档历史附录追溯。
     文档修订不证明R3源码完成，本导航不复制计时或测试数量。
     切换顺序仍为A0 → A1 → B1 → B2 → C → D → E → F；不恢复旧链，不为未来无消费者能力先建设施。
