@@ -11,6 +11,17 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "native-surface-acceptance",
+    file: "OEngine/tests/oracle/native-surface-acceptance-gpu.mjs",
+    url: "/OEngine/tests/oracle/native-surface-acceptance-gpu.mjs",
+    entry: "runNativeSurfaceAcceptanceGpuOracle",
+    allowPrefixes: ["OEngine/src/render/assets/"],
+    requiredFeatures: ["timestamp-query"],
+    description: "S3 actual Renderer 1080p high coverage Standard/coat/custom/Unlit, 4/8/32 lights and 1/8/32 native programs, HDR oracle and timings.",
+    note: "Generated scene complements authored Showcase image acceptance; renderer negotiates its own complete device profile.",
+    timeoutMs: 600000
+  }),
+  Object.freeze({
     name: "native-surface-product-production",
     file: "OEngine/tests/oracle/native-surface-production-gpu.mjs",
     url: "/OEngine/tests/oracle/native-surface-production-gpu.mjs",

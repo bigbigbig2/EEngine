@@ -11,6 +11,20 @@ import { ResourceAccounting } from "../../.test-dist/debug/profiling/ResourceAcc
 import "../webgpu-test-globals.mjs";
 globalThis.GPUBufferUsage = { STORAGE: 128, COPY_SRC: 4, COPY_DST: 8, UNIFORM: 64 };
 
+test("native Surface stage does not include the downstream radiance presentation", () => {
+  const graph = new FrameGraph("native timing ownership");
+  for (const label of ["SurfaceV4/native opaque", "Surface/present radiance"]) {
+    graph.add(label, {}, () => {}).make_side_effect();
+  }
+  const stages = [];
+  graph.compile().execute(
+    new FrameGraphContext({ encoder: { enterTimingStage: (label) => stages.push(label) } }),
+    undefined,
+  );
+  assert.equal(stages[0], "native-surface");
+  assert.notEqual(stages[1], "native-surface");
+});
+
 test("execute touches only compiled references/events when cold resources or commands scale", () => {
   for (const [commands, cold] of [
     [8, 0],

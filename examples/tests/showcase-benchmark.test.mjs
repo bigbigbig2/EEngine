@@ -54,7 +54,7 @@ test("full-frame and Surface spans retain encoder gaps and subtract bigint clock
 
 test('span and semantic stage do not double-count pass sum; same-frame costs precede percentiles',()=>{
  const first=frame(1,[]);
- first.gpu.segments=[{label:'Renderer/frame-span',scope:'span',durationMs:20},{label:'Renderer/surface',scope:'stage',durationMs:17},
+ first.gpu.segments=[{label:'Renderer/frame-span',scope:'span',durationMs:20},{label:'Renderer/native-surface',scope:'stage',durationMs:17},
  {label:'SurfaceV4/bins classify',scope:'pass',durationMs:3},{label:'SurfaceV4/native opaque',scope:'pass',durationMs:5},{label:'SurfaceV4/empty background',scope:'pass',durationMs:2}];
  const summary=summarizeCapture([first]);
  assert.equal(summary.gpuPassSumMs.p50,10);assert.equal(summary.gpuFrameSpanMs.p50,20);assert.equal(summary.surfaceSpanMs.p50,17);
@@ -62,4 +62,16 @@ test('span and semantic stage do not double-count pass sum; same-frame costs pre
  const coarse=frame(2,[]);coarse.gpu.segments=[{label:'Renderer/frame-span',scope:'span',durationMs:20}];
  assert.equal(summarizeCapture([coarse]).surfacePassSumMs,null);assert.equal(summarizeCapture([coarse]).gpuPassSumMs,null);
  first.counters['gpu.timing.truncated']=1;assert.equal(validGpuFrame(first),false);
+});
+
+test('Present surface stage cannot replace the native Surface span',()=>{
+ const first=frame(1,[]);const base=1000000000000000000n;
+ first.gpu.segments=[
+  {label:'Renderer/surface',scope:'stage',durationMs:0.2},
+  {label:'SurfaceV4/bins count',scope:'pass',durationMs:1,startTick:String(base),endTick:String(base+1000000n)},
+  {label:'SurfaceV4/native opaque',scope:'pass',durationMs:4,startTick:String(base+1100000n),endTick:String(base+5100000n)}
+ ];
+ assert.equal(summarizeCapture([first]).surfaceSpanMs.p50,5.1);
+ first.gpu.segments=first.gpu.segments.slice(0,1);
+ assert.equal(summarizeCapture([first]).surfaceSpanMs,null);
 });

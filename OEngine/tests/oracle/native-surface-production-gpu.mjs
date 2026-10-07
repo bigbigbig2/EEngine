@@ -33,9 +33,9 @@ const convert = ([r, g, b]) => [
   0.0163916 * r + 0.0880132 * g + 0.895595 * b
 ];
 
-async function authoredTexture(semantic, texel) {
-  const mips = Array.from({ length: 5 }, (_, level) => {
-    const size = 16 >> level;
+export async function authoredTexture(semantic, texel, extent = 16) {
+  const mips = Array.from({ length: Math.log2(extent) + 1 }, (_, level) => {
+    const size = extent >> level;
     const payload = new Uint8Array(size * size * 4);
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
@@ -54,8 +54,8 @@ async function authoredTexture(semantic, texel) {
   const asset = await openTextureAssetPackageV2(
     await writeEncodedTextureAssetPackageV2(
       {
-        width: 16,
-        height: 16,
+        width: extent,
+        height: extent,
         rgba8: mips[0].payload,
         semantic,
         sourceUri: `fixture://s2-${semantic}`
@@ -403,6 +403,13 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
     camera.transform.lookAt({ x: 0, y: 0.5, z: 0 });
     await tick();
     const moved = await inspect();
+    renderer.invalidateTemporalHistory();
+    check(!renderer._temporal.histories.state("identity").readValid, "Explicit camera cut kept identity history valid");
+    await tick();
+    check(!renderer._temporalFacts.readValid, "Camera-cut frame consumed stale native identity");
+    const cameraCut = await inspect();
+    await tick();
+    check(renderer._temporalFacts.readValid, "Settled retry did not restore native Temporal identity");
     const dump = renderer.mainFrameGraphEvidence();
     check(
       JSON.stringify(dump).includes("SurfaceV4/native opaque"),
@@ -466,6 +473,7 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
       alphaRestored,
       resized,
       moved,
+      cameraCut,
       recovered,
       vsm,
       scratchBytes,

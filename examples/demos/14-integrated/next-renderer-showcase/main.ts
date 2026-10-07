@@ -100,6 +100,23 @@ const diagnosticHost = (globalThis as typeof globalThis & {
 const diagnosticVsm = diagnosticHost?.vsm ?? false;
 let capturePath: { begin:number; frames:number; position:readonly number[]; target:readonly number[] } | null = null;
 
+function publishedSceneFacts() {
+  const graphics = renderer?.graphics;
+  const runtime = graphics?.render_world.runtime(scene);
+  if (!runtime) {
+    return null;
+  }
+  const publication = runtime.nativeMaterials?.publication;
+  return {
+    sourceKind: runtime.sourceKind,
+    instances: runtime.instanceCount,
+    materialInstances: runtime.materialDictionaryCount,
+    programs: publication ? new Set(publication.entries.map((entry) => entry.programIndex)).size : 0,
+    executionBins: publication?.bins.length ?? 0,
+    bindingSets: publication ? new Set(publication.bins.map((bin) => bin.bindingSet)).size : 0
+  };
+}
+
 const capture = new BenchmarkCapture({
   beginMeasurement: (begin, request) => {
     if (request.trajectory !== "orbit-return") return;
@@ -132,7 +149,8 @@ const capture = new BenchmarkCapture({
       features: { gtao: renderer!.xe_gtao_enabled, fsr3: renderer!.fsr3_enabled, bloom: renderer!.bloom_enabled,
         vsm: diagnosticVsm && renderer!.shadowVisibilityEnabled, jitter: false, hzb: true, cone: true, currentHzbLateRecheck: false, sse: 4 },
       sun: scene.physical_environment.snapshot(), exposure: settings.fixedExposure, textureMaxResolution: 1024,
-      instanceCount: scene.instance_count, counters: request.counters,
+      instanceCount: publishedSceneFacts()?.instances ?? scene.instance_count,
+      nativeScene: publishedSceneFacts(), counters: request.counters,
       trajectory:request.trajectory, trajectoryRadians:0.05, trajectoryStages:"equal thirds: static, sin(pi*t) orbit returning to base, settled",
       frameDeltaSeconds: 1 / 60, hudIntervalMs: 250, scheduling: "timer-driven; Renderer two-frame completion backpressure",
       pipelineInitialization: diagnostic.__surfaceDiagnostic?.pipelineInitialization ?? "native-production" };
@@ -236,7 +254,8 @@ export const showcaseDiagnostics = {
   get profiles() { return renderer?.profiler.history ?? []; },
   get adapter() { return renderer?.adapter_info; },
   get runtime() { return { frameCount: renderer?.frame_count, diagnostics: renderer?.profiler.diagnostics,
-    preparation: capture.preparation, visibility: document.visibilityState, streaming: renderer?.geometryStreamingEvidence(scene) }; },
+    preparation: capture.preparation, visibility: document.visibilityState, streaming: renderer?.geometryStreamingEvidence(scene),
+    nativeScene: publishedSceneFacts(), memory: renderer?.graphics ? renderer.memoryEvidence() : undefined }; },
   capture: async (request: CaptureRequest = {}) => { await showcaseDiagnostics.start(); return capture.run(request); },
   dispose: release
 };

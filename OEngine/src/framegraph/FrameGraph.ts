@@ -1587,8 +1587,8 @@ function stableTopologicalOrder(name: string, passes: readonly PassNode[]): Pass
 }
 
 function frameGraphTimingStage(label: string): string {
-  if (/^Surface(?:\/|Geometry\/|Work\/)/.test(label)) {
-    return "surface";
+  if (label.startsWith("SurfaceV4/")) {
+    return "native-surface";
   }
   return classifyGpuFramePhase(label);
 }

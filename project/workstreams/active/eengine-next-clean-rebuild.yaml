@@ -18,15 +18,12 @@ goal: >-
 currentSlice:
   id: surface-v4
   title: Surface V4 — Native Opaque Shading Cutover
-  status: active
+  status: complete
   goal: >-
-    Follow the V4 native shading design and the current unit in the execution plan.
-    Build SurfaceV4 completely outside the production Surface path, then perform
-    one atomic ownership cutover followed immediately by destructive retirement.
-    Do not incrementally migrate production consumers or introduce adapters or dual paths.
-    Do not repair retiring R3 mechanisms unless their correctness semantics survive.
-    Close one unit with concentrated validation, then stop at the next unit boundary.
-    Pause after Surface V4; do not automatically start another large module.
+    Surface V4 has reached its S3 acceptance boundary; results and limitations
+    live only in the execution authority. Stop at the completed M1 boundary.
+    Design M2 from the actual Geometry and Virtual Geometry code before activating it.
+    Do not automatically start another large module or restore retired Surface paths.
 
 nextModules:
   - id: geometry-v4

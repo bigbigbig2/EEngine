@@ -15,8 +15,8 @@ export const workingColor = (c) => [
 // Independent double-precision BRDF algebra matching the existing Lambert /
 // Smith-GGX / Schlick / clearcoat profile. The old DirectLightingReference has
 // a different diffuse-energy convention and is deliberately not our oracle.
-function directReference(surface, position, direction, radiance) {
-  const view = normalize(position.map((v, i) => [0, 0, 3][i] - v));
+export function directReference(surface, position, direction, radiance, cameraPosition = [0, 0, 3]) {
+  const view = normalize(position.map((v, i) => cameraPosition[i] - v));
   const half = normalize(view.map((v, i) => v + direction[i]));
   const noL = clamp(dot(surface.normal, direction));
   const noV = clamp(dot(surface.normal, view));

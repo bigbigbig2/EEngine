@@ -79,7 +79,7 @@ export function summarizeCapture(frames: readonly TimedFrame[]) {
           : []
       );
     const stageSpans = frame.gpu.segments.filter(
-      (segment) => segment.scope === "stage" && segment.label.endsWith("/surface")
+      (segment) => segment.scope === "stage" && segment.label.endsWith("/native-surface")
     );
     const elapsed = stageSpans.length
       ? stageSpans.reduce((sum, segment) => sum + segment.durationMs, 0)

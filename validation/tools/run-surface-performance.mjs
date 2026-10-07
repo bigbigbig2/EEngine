@@ -158,6 +158,7 @@ try {
         if (capture.complete && distanceScale === undefined) cameraDistances.set(coverage, capture.cameraDistanceScale);
         capture.caseId = `surface-performance-${coverage}-${mode}-${batch}`; capture.mode = mode; capture.batch = batch; capture.coverageGroup = coverage;
         capture.errors = errors;
+        capture.runtime = await page.evaluate(() => globalThis.__eengineShowcase.runtime);
         capture.conditions.browser = { version: report.browser, headless: args.includes("--headless"), processIsolation: "per-case" };
         if (errors.length) { capture.complete = false; capture.issues.push("Browser errors"); }
         report.captures.push(capture);

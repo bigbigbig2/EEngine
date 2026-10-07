@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 
 // Explicit diagnostic against the production showcase, using an isolated browser.
 const root = process.cwd();
-const out = resolve(root, process.argv[2] ?? ".local/validation/surface-v3-visual-fix");
+const out = resolve(root, process.argv[2] ?? ".local/validation/native-surface-visual");
 await mkdir(out, { recursive: true });
 const server = await createServer({ configFile: resolve(root, "examples/vite.config.ts"),
   clearScreen: false, server: { host: "127.0.0.1", port: 4182, strictPort: true,
@@ -21,6 +21,11 @@ try {
   report.browser = browser.version();
   const context = await browser.newContext({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1 });
   const page = await context.newPage();
+  if (process.argv.includes("--vsm")) {
+    await page.addInitScript(() => {
+      globalThis.__surfaceDiagnostic = { vsm: true, mode: "timing", pipelineInitialization: "native-production" };
+    });
+  }
   page.on("pageerror", error => report.errors.push(String(error)));
   page.on("console", message => { if (message.type() === "error") report.errors.push(message.text()); });
   await page.goto("http://127.0.0.1:4182/demos/14-integrated/next-renderer-showcase/");
