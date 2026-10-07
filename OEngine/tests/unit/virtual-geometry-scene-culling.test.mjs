@@ -1,3 +1,4 @@
+import { triangleProductFixture } from "../helpers/geometry-product-fixture.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { buildVirtualGeometrySceneSourceV1 } from "../../.test-dist/assets/geometry-product/VirtualGeometrySceneSourceV1.js";
@@ -5,7 +6,8 @@ import { PerspectiveCamera } from "../../.test-dist/camera/PerspectiveCamera.js"
 import { mat4Identity, mat4TransformPoint } from "../../.test-dist/core/math/Mat4.js";
 
 function sceneSource() {
-  const records = new Uint8Array(128);
+  const { descriptor } = triangleProductFixture();
+  const records = descriptor.assetRecords;
   const view = new DataView(records.buffer);
   view.setFloat32(44, 1, true);
   for (let axis = 0; axis < 3; axis++) {
@@ -16,7 +18,7 @@ function sceneSource() {
   transform[12] = 100;
   transform[14] = -20;
   return buildVirtualGeometrySceneSourceV1(
-    records,
+    descriptor,
     [{}],
     [{ assetIndex: 0, materialIndex: 0, transform }],
     [{}],

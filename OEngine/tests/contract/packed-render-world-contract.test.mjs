@@ -1456,6 +1456,11 @@ function createPackedRegistryFixture() {
   const instanceHandle = {};
   const graphics = {
     device: {
+      limits: {
+        maxBufferSize: 256 * 1024 * 1024,
+        maxStorageBufferBindingSize: 128 * 1024 * 1024,
+        maxComputeWorkgroupsPerDimension: 65535,
+      },
       createBuffer(descriptor) {
         const buffer = {
           descriptor,

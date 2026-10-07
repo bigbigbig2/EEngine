@@ -505,6 +505,8 @@ ${
           // Root seeding has no renderable parent. Overflow is therefore
           // evidence/failure, never a fabricated Group 0 fallback.
           expand_fallback_selectable = false;
+        } else {
+          atomicOr(&hierarchy_selected.header.overflow, 2u);
         }
       } else {
 `
@@ -576,6 +578,9 @@ ${virtualGeometryEnabled ? "      }" : ""}
   if expand {
     if hierarchy_wg_child_base == OENGINE_WORK_QUEUE_INVALID_OFFSET {
       selected = expand_fallback_selectable;
+${virtualGeometryEnabled ? `      if !expand_fallback_selectable {
+        atomicOr(&hierarchy_selected.header.overflow, 1u);
+      }` : ""}
     } else {
       for (var child = 0u; child < child_count; child++) {
 ${
@@ -815,6 +820,8 @@ ${
                 // Resident coarse meshlets provide refine-DAG coverage.
                 // Spatial BVH ancestors are never LOD replacement geometry.
               }
+            } else {
+              atomicOr(&traversal_selected.header.overflow, 2u);
             }
           } else {
             let hierarchy_begin = traversal_product_heap[
@@ -830,9 +837,13 @@ ${
               child_begin = begin;
               child_count = count;
               expand_fallback_selectable = false;
+            } else {
+              atomicOr(&traversal_selected.header.overflow, 2u);
             }
           }
         }
+      } else {
+        atomicOr(&traversal_selected.header.overflow, 2u);
       }
     } else {
 `
@@ -902,6 +913,9 @@ ${virtualGeometryEnabled ? "    }" : ""}
   if expand {
     if hierarchy_wg_child_base == OENGINE_WORK_QUEUE_INVALID_OFFSET {
       selected = expand_fallback_selectable;
+${virtualGeometryEnabled ? `      if !expand_fallback_selectable {
+        atomicOr(&traversal_selected.header.overflow, 1u);
+      }` : ""}
     } else {
       for (var child = 0u; child < child_count; child++) {
 ${

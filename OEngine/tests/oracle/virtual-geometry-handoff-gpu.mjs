@@ -135,6 +135,7 @@ export async function runVirtualGeometryHandoffGpuOracle(device) {
         "overflow",
         "invalid",
         "old-abi",
+        "hierarchy-overflow",
       ]) {
         heap[0] =
           mode === "old-abi" ? GEOMETRY_PRODUCT_GPU_ABI_VERSION_V1 - 1 : GEOMETRY_PRODUCT_GPU_ABI_VERSION_V1;
@@ -151,6 +152,8 @@ export async function runVirtualGeometryHandoffGpuOracle(device) {
         viewBytes[32] = 100;
         viewBytes[33] = mode === "equal" ? 1 : 0;
         device.queue.writeBuffer(metadata, 0, heap);
+        visible[3] = mode === "hierarchy-overflow" ? 1 : 0;
+        device.queue.writeBuffer(visibleClusters, 0, visible);
         device.queue.writeBuffer(bank, 0, bankBytes);
         device.queue.writeBuffer(viewUniform, 0, viewBytes);
         // Overflow must retain enough survivors to exercise bounded reservation.
@@ -183,14 +186,15 @@ export async function runVirtualGeometryHandoffGpuOracle(device) {
         drawRead.unmap();
         const overflow = mode === "overflow" && count > capacity;
         const expected =
-          mode === "near" || mode === "invalid" || mode === "old-abi" || overflow
+          mode === "near" || mode === "invalid" || mode === "old-abi" || mode === "hierarchy-overflow" || overflow
             ? 0
             : mode === "mixed"
               ? Math.ceil(count / 2)
               : count;
         assert.equal(draw[1], expected, `${count}/${mode}: draw count`);
         assert.equal(queue[4], overflow ? count : 0, `${count}/${mode}: overflow`);
-        assert.equal(queue[6], mode === "invalid" || mode === "old-abi" ? 1 : 0, `${count}/${mode}: invalid`);
+        assert.equal(queue[6], mode === "invalid" || mode === "old-abi" || mode === "hierarchy-overflow" ? 1 : 0, `${count}/${mode}: invalid`);
+        assert.equal(queue[1], expected, `${count}/${mode}: all consumers see the same complete count`);
         if (expected) {
           const ids = Array.from({ length: expected }, (_, i) => queue[8 + i * 6 + 2] & 127);
           assert.deepEqual(

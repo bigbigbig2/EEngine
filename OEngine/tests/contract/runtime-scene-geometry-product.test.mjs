@@ -136,7 +136,7 @@ test("an ordinary Scene cooks into a valid, re-readable Geometry Product", async
   assert.equal(again.bytes.byteLength, 262144);
 
   const mapped = buildVirtualGeometrySceneSourceV1(
-    descriptor.assetRecords,
+    descriptor,
     cooked.canonicalization.profiles,
     cooked.canonicalization.instances,
     cooked.canonicalization.materials,

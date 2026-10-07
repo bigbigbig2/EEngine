@@ -108,6 +108,13 @@ fn prepare_virtual_geometry_work() {
   atomicStore(&product_work.header.consumed_count, 0u);
   atomicStore(&product_work.header.overflow_count, 0u);
   atomicStore(&product_work.header.invalid_count, 0u);
+  // A failed hierarchy is not a successful partial refinement cut. Sticky
+  // failure reaches every consumer through the final MeshletWork header.
+  if (product_visible.header.overflow != 0u ||
+      product_visible.header.written > product_visible.header.capacity ||
+      product_visible.header.capacity > product_settings.visible_capacity) {
+    atomicStore(&product_work.header.invalid_count, 1u);
+  }
   let generation = atomicLoad(&product_work.header.generation) + 1u;
   atomicStore(&product_work.header.generation, select(generation, 1u, generation == 0u));
   atomicStore(&product_draw.instance_count, 0u);
@@ -229,8 +236,12 @@ fn finalize_virtual_geometry_work() {
   let invalid = atomicLoad(&product_work.header.invalid_count);
   let overflow = atomicLoad(&product_work.header.overflow_count);
   let written = min(atomicLoad(&product_work.header.written_count), product_work.header.capacity);
-  if (invalid != 0u || overflow != 0u) { atomicStore(&product_draw.instance_count, 0u); }
-  else { atomicStore(&product_draw.instance_count, written); }
+  if (invalid != 0u || overflow != 0u) {
+    atomicStore(&product_work.header.written_count, 0u);
+    atomicStore(&product_draw.instance_count, 0u);
+  } else {
+    atomicStore(&product_draw.instance_count, written);
+  }
   if (product_settings.counters_enabled != 0u) {
     atomicAdd(&product_counters[${COUNTER_MESHLET_WORKS}u], written);
     atomicAdd(&product_counters[${COUNTER_QUEUE_BYTES}u], written * 24u);

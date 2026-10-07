@@ -1,3 +1,4 @@
+import { writeTriangleProductPage, TRIANGLE_PRODUCT_PAYLOAD_BYTES } from "../helpers/geometry-product-fixture.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
@@ -14,7 +15,7 @@ function limits(maxBufferSize, maxStorageBufferBindingSize = maxBufferSize) {
 }
 
 function fixture() {
-  const page = new Uint8Array(262144);
+  const page = writeTriangleProductPage(new Uint8Array(262144));
   const hash = createHash("sha256").update(page).digest();
   const assetRecords = new Uint8Array(128);
   const assetView = new DataView(assetRecords.buffer);
@@ -46,7 +47,7 @@ function fixture() {
   const groupDirectory = new Uint8Array(16);
   const groupView = new DataView(groupDirectory.buffer);
   groupView.setUint32(0, 0, true);
-  groupView.setUint32(8, 64, true);
+  groupView.setUint32(8, TRIANGLE_PRODUCT_PAYLOAD_BYTES, true);
   groupView.setUint32(12, 1, true);
   const pageRecords = new Uint8Array(32);
   pageRecords.set(hash.subarray(0, 16));

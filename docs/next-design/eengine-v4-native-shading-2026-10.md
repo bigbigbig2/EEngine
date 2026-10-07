@@ -243,7 +243,7 @@ fused shader 的bindings必须包括winner、geometry sources、instances/public
 
 2026-10-08 重新 fetch 后，HEAD 与 origin/master 均为 `a66667e04222481ca130c4c6d878118bf649bb9f`，审查开始时工作区干净。M1 已到执行计划的 S3 关闭边界；`RendererCore._surface` 与 `FrameProgramOwners.surface` 只接 SurfaceV4，旧 SurfaceWorkRuntime/Tape/cache/six-signal 不再是生产输入。M2 不重做 Surface，不从零重写 VG，也不把历史 Nyx/Phase H 工作当作未实现。
 
-本节是该 SHA 的源码审查与目标选择，尚无 M2 实现或新 GPU 测量。引用 M1 原始记录时保留工作负载、范围及限制。M2 优先解决容量正确性、4GB 下的固定预留和多 Product 生命周期，再优化已证明有重复的产品及每帧工作；LightCluster 在部分 M1 probe 的 30ms+ 是外部瓶颈，不纳入 Geometry 优化。
+本节保留该 SHA 的规划时源码审查与目标选择，不作为后续实施快照；实际实现及验证只读[执行计划 §8](../next-execution/eengine-v4-native-shading-execution-2026-10.md#m2-execution)。引用 M1 原始记录时保留工作负载、范围及限制。M2 优先解决容量正确性、4GB 下的固定预留和多 Product 生命周期，再优化已证明有重复的产品及每帧工作；LightCluster 在部分 M1 probe 的 30ms+ 是外部瓶颈，不纳入 Geometry 优化。
 
 范围包括 asset→Product→Scene→Residency→Hierarchy→MeshletWork→Visibility→native winner 的全部接线，以及 Geometry 向 VSM、Temporal、HZB 和延迟 streaming 的真实接口。VSM 分页/PCF、Lighting、VT、GI/ReSTIR、压缩体系重建及全 renderer 性能 claim 不在本模块。
 
@@ -313,7 +313,7 @@ flowchart TD
 
 ### 11.4 规模与生命周期的真实缺口
 
-**容量先于调速。** `VirtualGeometrySceneSourceV1` 单 Product 将 traversal/visible/raster capacity 设为 `min(65535,max(256,assetCount×16))`，depth 固定64；合并主要相加这些估计。它未按 instance multiplicity、实际最大 hierarchy depth 和合法 refinement cut 上界证明容量。`MeshletWorkCandidate` 的 Product expansion 按 capacity 直接 dispatch 一维 grid，超协商 `maxComputeWorkgroupsPerDimension` 拒绝。M2 将静态合法上界与动态 GPU actual count 分开：admission 算容量、GPU indirect/合法二维 flatten 编码 work，不读回本帧 count。空间 BVH parent 非 renderable LOD，overflow 不能假装输出这个 parent；不能以 suppressed indirect/部分 cut 接受成功帧。超预算必须明确 admission/prepare 失败，或有已证明完整的 renderable coarse cut。
+**容量先于调速。** 审查基线中的 `VirtualGeometrySceneSourceV1` 单 Product 将 traversal/visible/raster capacity 设为 `min(65535,max(256,assetCount×16))`，depth 固定64；合并主要相加这些估计。它未按 instance multiplicity、实际最大 hierarchy depth 和合法 refinement cut 上界证明容量。`MeshletWorkCandidate` 的 Product expansion 按 capacity 直接 dispatch 一维 grid，超协商 `maxComputeWorkgroupsPerDimension` 拒绝。M2 将静态合法上界与动态 GPU actual count 分开：admission 算容量、GPU indirect/合法二维 flatten 编码 work，不读回本帧 count。空间 BVH parent 非 renderable LOD，overflow 不能假装输出这个 parent；不能以 suppressed indirect/部分 cut 接受成功帧。超预算必须明确 admission/prepare 失败，或有已证明完整的 renderable coarse cut。
 
 **Residency 地址存在源码冲突。** Portable/Balanced/HighEnd 四 bank 分别128/192/256MiB，即512/768/1024个256KiB slots/bank；`GeometryProductGpuAbiV1` CPU codec/validator/WGSL 固定512。后两 profile 的物理 slot≥512 可被 allocator 分配却无法合法编码。新的容量合同覆盖 raw bank/slot、resident directory address、generation、全部 CPU/WGSL readers，创建前检查 binding/buffer limits；profile 测试必须到达边界槽，不只上传第一个 page。
 

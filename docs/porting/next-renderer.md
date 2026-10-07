@@ -25,6 +25,8 @@ verifies:
     - OEngine/src/gpu/GeometryProductMultiRuntime.ts
     - OEngine/src/render/HierarchicalWorkGenerator.ts
     - OEngine/src/render/FrameGeometryArena.ts
+    - OEngine/src/assets/geometry-product/GeometryProductWorkload.ts
+    - OEngine/tests/oracle/geometry-product-scale-gpu.mjs
     - OEngine/tools/oengine-asset-core/src/geometry/GeometryCooker.cpp
     - OEngine/tools/oengine-asset-core/vendor/meshoptimizer/source.json
     - docs/porting/nyx-function-map.json
@@ -47,6 +49,10 @@ Local：审查 `a66667e04222481ca130c4c6d878118bf649bb9f` 的 Product cook/admis
 本次从本地 `D:/Nyx-main` 核读所列函数/相关分支与许可，`validate-nyx-function-map` 核对固定map的7个文件hash；vendored meshoptimizer `source.json` 的22个文件SHA256全部匹配。核对范围不是完整Nyx engine audit，未读函数不列为新来源采用。既有来源账本/NOTICE不变；G2.2 Nyx differential的3/6 groups失败尚未判定，必须以完整coverage/error/attribute语义说明偏差，不能因“参考成熟”跳过。
 
 Original：较小但固定四bank、authoritative multi metadata可回收ranges、exactslot/gen streaming、同精度96B frameattributes、合法actual-depth/count组织、Geometry-owned shadowcoverage都是拟本地适配设计；对应 [M2母稿 §11](../next-design/eengine-v4-native-shading-2026-10.md#11-m2--geometry--virtual-geometry-alignment--scale-optimization) 与 [执行 §8](../next-execution/eengine-v4-native-shading-execution-2026-10.md#m2-execution)。不存在合适portable donor完整替代这些WebGPU ownership约束，故保原基础并局部设计，不模仿nativeAPI框架。实施时重新核对真正修改的完整上游阶段及许可，补实际映射与独立oracle/production GPU证据；本轮不提升adoption或性能claim。
+
+## 2026-10-08：G2.0 本地规模合同实现（不新增来源采用）
+
+Local：`GeometryProductWorkload` 读取现有V3/冻结Product forest，mapper/RenderWorld发布实际depth与instance-aware上界；resident页校验计数，现有wavefront/Work header传播故障。Reference：上节已核读Nyx `DAGCull.slang` 的spatial traversal与refine父子互补，只作为既有语义参考；本轮没有搬入新上游函数。Adopt：保spatial parent不能冒作renderable coarse和完整cut条件。Adapt：WebGPU有限队列/多dispatch、协商binding/grid、r32 work namespace、submit/discard→retry。Reject：overflow clamp/partial成功与persistentpoll。Original：静态forest最大层宽/全leaf计数、按实例保守求和及已用header的fail-closed，属于本地合同扩展，不伪称Nyx移植。CPU完整集合/边界与真实Product→hierarchy→Work、native winner生产验证及限制见[执行§8.2.1](../next-execution/eengine-v4-native-shading-execution-2026-10.md#821-g20-实施结果与停止边界)；没有性能或来源adoption升级。
 
 <a id="v4-planning-source-map"></a>
 

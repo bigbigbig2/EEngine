@@ -10,6 +10,7 @@ import {
 } from "../assets/geometry-product/GeometryProductV1.js";
 import { decodeFloat16 } from "../core/Float16.js";
 import { GPU_FRAME_ATTRIBUTE_STRIDE } from "./GpuFrameGeometryAttributesAbi.js";
+import { geometryProductWorkload } from "../assets/geometry-product/GeometryProductWorkload.js";
 
 export interface ProductResidentMeshlet {
   readonly groupOffset: number;
@@ -54,6 +55,7 @@ export function prepareProductResidentAttributes(
   let mapWords = 0,
     descriptorWords = 0;
   const pageRecord = decodeGeometryProductPageRecordV1(descriptor, pageId);
+  const workload = geometryProductWorkload(descriptor);
   for (let group = pageRecord.firstGroup; group < pageRecord.firstGroup + pageRecord.groupCount; group++) {
     const offset = directory.getUint32(group * 16 + 4, true);
     const payload = directory.getUint32(group * 16 + 8, true);
@@ -70,6 +72,9 @@ export function prepareProductResidentAttributes(
       header.vertexFormatId * 16 + 16 > formats.byteLength
     ) {
       throw new RangeError("Product resident group layout is invalid");
+    }
+    if (header.meshletCount !== workload.groupMeshletCounts[group]) {
+      throw new RangeError("Product page meshlet count disagrees with its hierarchy work bound");
     }
     const format = header.vertexFormatId * 16;
     const stride = formats.getUint16(format, true),

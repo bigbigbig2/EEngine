@@ -75,7 +75,7 @@ export function createOegPackSceneSource(
   // then every instance uses the single default material.
   const materials = [new StandardShadeMaterial()];
   return buildVirtualGeometrySceneSourceV1(
-    asset.descriptor.assetRecords,
+    asset.descriptor,
     profiles,
     instances,
     materials,

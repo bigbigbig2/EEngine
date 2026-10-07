@@ -61,7 +61,7 @@ export type WebCookImageReader = (
  */
 export function createWebCookSceneSource(
   catalog: WebCookSceneCatalogSnapshot,
-  descriptor: Readonly<Pick<GeometryProductDescriptorV1, "assetRecords">>,
+  descriptor: GeometryProductDescriptorV1,
   options: WebCookSceneSourceOptions = {},
 ): WebCookSceneSourceResult {
   const assetCount = descriptor.assetRecords.byteLength / OEGPACK_V3_ASSET_STRIDE;
@@ -127,7 +127,7 @@ export function createWebCookSceneSource(
   }
   for (let index = 0; index < materials.length; index++)
     if (!materials[index]) materials[index] = new StandardShadeMaterial();
-  return buildVirtualGeometrySceneSourceV1(descriptor.assetRecords, profiles, instances, materials, options);
+  return buildVirtualGeometrySceneSourceV1(descriptor, profiles, instances, materials, options);
 }
 
 /**
@@ -137,7 +137,7 @@ export function createWebCookSceneSource(
  */
 export async function createWebCookSceneSourceAsync(
   catalog: WebCookSceneCatalogSnapshot,
-  descriptor: Readonly<Pick<GeometryProductDescriptorV1, "assetRecords">>,
+  descriptor: GeometryProductDescriptorV1,
   readImage: WebCookImageReader,
   signal?: AbortSignal,
   options: WebCookSceneSourceOptions = {},
@@ -156,7 +156,7 @@ export async function createWebCookSceneSourceAsync(
       catalogIndices.map(() => 0),
     );
     const result = buildVirtualGeometrySceneSourceV1(
-      descriptor.assetRecords,
+      descriptor,
       profiles,
       instances,
       [material],
@@ -285,7 +285,7 @@ export async function createWebCookSceneSourceAsync(
     if (!materials[index]) materials[index] = new StandardShadeMaterial();
   const { profiles, instances } = buildProfilesAndInstances(catalog, catalogIndices, materialIndices);
   const result = buildVirtualGeometrySceneSourceV1(
-    descriptor.assetRecords,
+    descriptor,
     profiles,
     instances,
     materials,

@@ -1,4 +1,5 @@
 import type { GeometryAssetPackage } from "../assets/GeometryAssetPackage.js";
+import { validateGeometryProductSceneWorkLimits } from "../assets/geometry-product/GeometryProductWorkload.js";
 import { GPU_COUNTER_BYTE_SIZE } from "../debug/GpuFrameCounters.js";
 import { computeIndexedPackedHierarchyWorkCapacity } from "../geometry/GeometryHierarchy.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
@@ -331,7 +332,10 @@ export class GpuRenderWorld {
       throw new Error("Virtual Product append requires a larger source and the active runtime");
     }
     if (virtualProduct === undefined) validateSource(source, assetHandles);
-    else validateVirtualSource(source, assetHandles, virtualProduct);
+    else {
+      validateVirtualSource(source, assetHandles, virtualProduct);
+      validateGeometryProductSceneWorkLimits(virtualProduct, source.count, this.graphics.device.limits);
+    }
     const hierarchyCapacity =
       virtualProduct === undefined
         ? computeIndexedPackedHierarchyWorkCapacity(source.geometries, source.geometryIndices)
@@ -1879,8 +1883,12 @@ function validateVirtualSource(
     ["hierarchyVisibleClusterCapacity", product.hierarchyVisibleClusterCapacity],
     ["hierarchyRasterWorkCapacity", product.hierarchyRasterWorkCapacity]
   ] as const) {
-    if (!Number.isSafeInteger(value) || value <= 0)
-      throw new RangeError(`Virtual Product ${name} must be positive`);
+    if (
+      !Number.isSafeInteger(value) || value > 0xffffffff ||
+      (name === "hierarchyMaxDepth" ? value < 0 : value <= 0)
+    ) {
+      throw new RangeError(`Virtual Product ${name} must be a ${name === "hierarchyMaxDepth" ? "non-negative" : "positive"} u32`);
+    }
   }
   if (
     product.bindings.productGeneration === 0 ||

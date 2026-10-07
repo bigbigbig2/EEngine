@@ -17,7 +17,11 @@ import {
 } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import type { GpuSceneBindings } from "../gpu/GpuScene.js";
 import type { GeometryProductGpuBindingsV1 } from "../gpu/VirtualGeometryResidency.js";
-import { GPU_DISPATCH_INDIRECT_ARGS_SIZE } from "../gpu/GpuWorkGenerationAbi.js";
+import {
+  GPU_DISPATCH_INDIRECT_ARGS_SIZE,
+  GPU_WORK_QUEUE_HEADER_SCHEMA,
+  GPU_VISIBLE_CLUSTER_RECORD_SCHEMA,
+} from "../gpu/GpuWorkGenerationAbi.js";
 import { GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_CAPACITY } from "../gpu/GpuVisibilityKeyAbi.js";
 import {
   MESHLET_WORK_BUCKET_INDIRECT_SIZE,
@@ -723,7 +727,10 @@ export class VirtualGeometryMeshletWorkCandidate {
         {
           binding: 0,
           visibility: GPUShaderStage.COMPUTE,
-          buffer: { type: "read-only-storage", minBindingSize: 56 },
+          buffer: {
+            type: "read-only-storage",
+            minBindingSize: GPU_WORK_QUEUE_HEADER_SCHEMA.stride + GPU_VISIBLE_CLUSTER_RECORD_SCHEMA.stride,
+          },
         },
         {
           binding: 1,

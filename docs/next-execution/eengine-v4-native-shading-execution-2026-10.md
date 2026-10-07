@@ -38,6 +38,10 @@ verifies:
     - OEngine/src/gpu/GeometryPageStreamingRuntime.ts
     - OEngine/src/gpu/GeometryDemandReadbackRing.ts
     - OEngine/src/assets/geometry-product/VirtualGeometrySceneSourceV1.ts
+    - OEngine/src/assets/geometry-product/GeometryProductWorkload.ts
+    - OEngine/src/gpu/GeometryProductResidentAttributes.ts
+    - OEngine/src/shaders/hierarchical_work_generation.ts
+    - OEngine/src/shaders/virtual_geometry_work.ts
     - OEngine/tools/oengine-asset-core/src/geometry/GeometryCooker.cpp
     - OEngine/src/render/passes/LightClusterPass.ts
     - OEngine/src/render/vsm/VsmAtlasRasterPass.ts
@@ -134,7 +138,7 @@ Original:  确需自主设计的部分及依据
 | M6 Temporal / Upscaling / Presentation | 依真实 radiometry/motion/reactive/effect history | HDR/facts/exposure→Temporal/FSR/DRS/未来 AI→Post/Present；M1 已保证当前消费者 |
 | M7 Transparency / Media / final integration | 依 opaque、lighting、Temporal | transparent/media→HDR/reactive/motion→presentation；完整交互后全 renderer 验收 |
 
-保留 M1 的实施和结果，本轮只展开 M2 设计；M3–M7 依届时源码再设计，排序可调整。不宣称现有 VG、VSM 或 FSR 尚未实现；M2 不顺手重写 Lighting/VT 或后续 effects。
+保留 M1 的实施和结果，M2 详细单元与实际交付见 §8；M3–M7 依届时源码再设计，排序可调整。不宣称现有 VG、VSM 或 FSR 尚未实现；M2 不顺手重写 Lighting/VT 或后续 effects。
 
 ## 3. M1 Surface V4 实施与关闭记录
 
@@ -646,7 +650,7 @@ frequency extraction也要计update/persistent uniform/边界读取成本，不�
 
 ### 8.1 当前边界与单元顺序
 
-**设计已形成；M2 implementation 尚未开始。** 2026-10-08 fetch 后 HEAD/origin/master=`a66667e04222481ca130c4c6d878118bf649bb9f`，起始工作区干净。M1结果、28个既有失败及未运行项不被本次设计重写。真实数据流、KEEP矩阵、Q1–Q7、成本卡、WebGPU limits与参考比较见[母稿 §11](../next-design/eengine-v4-native-shading-2026-10.md#11-m2--geometry--virtual-geometry-alignment--scale-optimization)；本节只保存执行边界和状态。本次用户授权仅为规划；**G2.0=next，不能据此开始 production code。**
+**M2 已进入实施，G2.0 关闭，G2.1=next。** 规划时 2026-10-08 fetch 后 HEAD/origin/master=`a66667e04222481ca130c4c6d878118bf649bb9f`，起始工作区干净；规划已提交为 `d44823e2c11415fe7c24364c4c41a661bb181a8e`，随后按用户授权实施 G2.0。M1结果、28个既有失败及未运行项不被追改。真实数据流、KEEP矩阵、Q1–Q7、成本卡、WebGPU limits与参考比较见[母稿 §11](../next-design/eengine-v4-native-shading-2026-10.md#11-m2--geometry--virtual-geometry-alignment--scale-optimization)；本节保存执行边界和实际状态，G2.0 结果见 §8.2.1。
 
 ```mermaid
 flowchart TD
@@ -660,8 +664,8 @@ flowchart TD
 
 | 单元 | 状态 | 目标与依赖 |
 |---|---|---|
-| G2.0 Product / Scene Scale Contract | **next，未实施** | 合法 descriptor、实际 depth/capacity/overflow 与可用独立 fixtures；先消除 scale行为不清楚的输入合同 |
-| G2.1 Budgeted Residency & Multi-Product Streaming Closure | pending | 依 G2.0 上界，完整地址ABI、小预算共享banks、metadata/fence回收、压力与全部Product生命周期 |
+| G2.0 Product / Scene Scale Contract | **closed，结果与限制见 §8.2.1** | 合法 descriptor、实际 depth/capacity/overflow 与独立 fixtures 已闭合；不是大场景性能验收 |
+| G2.1 Budgeted Residency & Multi-Product Streaming Closure | **next，未开始** | 依 G2.0 上界，完整地址ABI、小预算共享banks、metadata/fence回收、压力与全部Product生命周期 |
 | G2.2 Lean Geometry Products & Native Consumers | pending | 依 G2.1 地址/lifecycle，减无reader payload和Arena重复字段，所有native消费者一次切换 |
 | G2.3 View Work Closure & Scale Tuning | pending | 依合法容量/精简输入，完成actual-count work、shadow独立coverage与低管理税；不扩Lighting范围 |
 | G2.4 Geometry Scale Acceptance | pending | 前述全部闭合后的大场景、压力、质量/生命周期/真实成本集中验收；随后STOP |
@@ -677,6 +681,58 @@ KEEP Product、SSE/锁/误差/空间层次与refinement区别、r32 winner；ALI
 先让合法page fixtures满足真实raw headers/triangle/attributes编码，不跳strictdecode；新oracle独立检查roots/refine互补、coverage、bounds/error、generation、overflow和2D work合法上限。CPU资产包可用于独立reference，不由新production依赖普通V2GPU heaps。
 
 **退出集中验证：** targeted typecheck/build；Product contract/ABI与CPU traversal oracle；必要GPU hierarchy→work→winner handoff（空scene、单asset多instance、多个Product、非均匀scale/negative determinant、深层refinement、容量边界、故意overflow）；确认没有被接受的partial工作和winner身份截断。读取既有timing/descriptor账作为baseline，必要同条件Geometry短capture，不建通用benchmark平台。记录真实depth、H/E/C/M/Nv/Nt/dispatch与每个capacity；未触到边界的fixture不证明大场景可用。
+
+#### 8.2.1 G2.0 实施结果与停止边界
+
+**closed / Product→Scene→hierarchy→MeshletWork→winner/native consumers 的规模合同已闭合。G2.1=next，未开始。** 开始时重新 `git fetch origin`，HEAD/origin/master 均为 `a66667e04222481ca130c4c6d878118bf649bb9f`；工作区仅有已完成 M2 规划，先提交为 `d44823e2c11415fe7c24364c4c41a661bb181a8e`，再实施本单元。下列验证对应该 source baseline 加本轮代码。fresh build:test source SHA256=`069c8e6666fe8a417d2c7ed966a9cd2f5988aedc5b16754b5bc5185b1e81ef59`，output SHA256=`9bdef0788f7f7bd4b1dd8da050fec2438b20374ea75abf45eef65bea96315dc9`；GPU oracle 记录各自 source hash，不用旧 capture 冒充本轮结果。
+
+#### 实际 producer / product / direct consumers
+
+- 新增内部 `GeometryProductWorkload`，在 strict descriptor 验证后迭代分析每 asset forest，memoize immutable descriptor。最大实际 depth、最大层宽、全部唯一 leaf group 数与 packed meshlet 总数分别决定 rounds、ping/pong、VisibleCluster、MeshletWork 保守容量。按实例 multiplicity 求和；未实例化 asset 不增加 frame work。多 Product 合并使用 checked u32 sum，删除固定 depth64、最小256、assetCount×16 和65535静默 clamp。空间 BVH ancestors 仍不假作可渲染粗级。
+- `VirtualGeometrySceneSourceV1` 的公开 mapper 输入改为完整 descriptor；WebCook、OEGPACK、procedural Renderer caller 与测试同时切换，不保旧 AssetRecord-only adapter。空 instance list 在访问首实例前明确拒绝；RenderWorld stage/append 在 Scene 资源创建前检查 buffer/binding/dispatch 与 winner namespace。已有提交/中止/追加/release 路径保持。
+- `GeometryProductResidentAttributes` 核对真实页 group header 的 meshlet count 与已声明 hierarchy count，页内容不得突破容量证明；strict triangle/attribute/layout 检查保留。Product root pass 只 seed：root+depth+1 traversal 共 depth+2 dispatch；普通 Geometry root 自身测试的 depth+1 逻辑不变。真实 depth0 测试发现此前缺少终端 traversal，已补齐。
+- 无 renderable parent 的 root/internal queue overflow 以及非法 Product引用 sticky 到 selected header；Product work prepare 检查该状态，finalize 失败时同时清空 MeshletWork written 与 drawIndirect count。FrameInstances/FrameGeometry/Visibility/native Surface 不消费成功前缀；attempted/overflow/invalid诊断仍保留。不是只禁 draw 而让其他 reader 使用 partial queue。
+- capacity1 的真实 GPU 测试发现 VisibleCluster BGL 硬编码 minBindingSize56，而 ABI 单记录实际为32+20=52B；改用已有 ABI schema。没有新增 buffer、管理 pass、cache 或 CPU readback 控制。Surface、Lighting、VSM/Temporal ownership、VisibilityKey r32、Residency budgets/addresscodec 均保持。
+
+容量证明针对当前合法 spatial forest / SSE cut：每层实际任务是该层完整节点集合的子集；selected 可跨层积累，因此取全部唯一 leaf groups 而非最大层宽；meshlet capacity 是全部 leaf packed counts 的总和，实际页解码再验证计数一致。跨 asset 层宽峰值错开时逐 asset maxima 求和仍安全，可能保守；不改变 SSE、normal/UV/精度或裁掉实例。当前128MiB binding 的 MeshletWork 上限为 `floor((134217728−32)/24)=5,592,404` records，先于 r32 的16,777,216 work-slot容量。Product一维 expansion仍要求 VisibleCluster capacity≤协商维度（目标device65535）；65536明确拒绝。Hierarchy/root保已有合法2D grid；actual-count Product expansion/2D扩展属于 G2.3，不在这里实现。
+
+#### 实际 workload / 成本
+
+新 GPU scale oracle 使用真实 MultiRuntime publication、HierarchicalWorkGenerator、Product MeshletWorkCandidate。三个合法 raw triangle Products 的 spatial comb depths为0/7/40；每 depth D 有2D+1节点、D+1终端groups，每group一个3-vertex/1-triangle meshlet。CPU预期来自独立fixture公式，不从被测容量推导 expected coverage；GPU比较完整(instance,asset,globalgroup/meshlet)集合与唯一性。frustum设为全接收、SSE使全部group参与、cone/HZB关闭，仅用于穷尽容量；它不是完整场景性能或Nyx cook质量证明。
+
+| 正常 GPU scale场景 | depth / 实例 | traversal / VisibleCluster / MeshletWork 容量 | actual work | hierarchy dispatch / Product dispatch | hierarchy scratch / MeshletWork bytes |
+|---|---|---|---:|---|---|
+| terminal | 0 /1 | 1 /1 /1 | 1 | 2 /3 | 592 /56 |
+| deep comb | 40 /65（含非均匀scale/negative determinant） | 130 /2665 /2665 | 2665 | 42 /3 | 99,840 /63,992 |
+| multi Product | 0/7/40，各3/2/1实例 | 9 /60 /60 | 60 | 42 /3 | 4,124 /1,472 |
+| discarded encoder→retry | 7 /3 | 6 /24 /24 | 24 | 9 /3 | 1,724 /608 |
+
+scratch为该oracle开启diagnostics后的owner descriptor bytes，不是整个renderer VRAM；test-only draw snapshot多一个dispatch，不计入production组织数。root/internal/selected/work overflow和stale generation五个negative controls全部输出written=0、draw=0，且invalid/overflow非零。CPU覆盖depth0/1/7/40、单asset10,000实例、多Product求和、u32越界、65535/65536 grid、binding最后合法record/下一record与页计数/cycle拒绝；10k不是10k GPU image验收。
+
+Cost Card（**ESTIMATE：源码逻辑访问，不是硬件counter**）：正常有效分支新增GPU bytes/record、texture samples、barriers、管理dispatch为0；沿用已有header，在故障分支增加sticky atomicOr，prepare增加一次header检查，finalize失败增加written reset。相对原固定rounds，编码数量随真实depth改变；depth0新增此前遗漏的必要工作，不能算性能退步或通过漏工作取得收益。CPU首次descriptor分析O(nodes+groups)、publication容量合成O(instances)，持久新增2B/group counts及少量asset摘要；不是逐frame遍历。
+
+全接收comb的H/E逻辑访问数分别为terminal1、deep5265、multi114；C/M分别1、2665、60，Nv/Nt分别3/1、7995/2665、180/60（均**ESTIMATE**，未单独读GPU vertex counters）。node约48H、task往返约16E、VisibleCluster往返约40C、MeshletWork写24M，再加真实instance/asset/page lookup；不当成DRAM transactions。0/50/100%潜在空round收益只改变省掉的dispatch，新增正常管理资源为0；此单元首先保证合法容量和无partial，不引入可选收益层，不设ms门槛。**本轮GPU时间、带宽floor和register/spill为UNKNOWN，未作提速声明。** M1 Dungeon的65 hierarchy passes、旧scope medians之和2.556/3.604ms仅是规划基线，不与此小fixture比较。四banks512MiB、metadata64MiB和Arena128MiB预留未优化；budget/retiring峰值仍属G2.1/G2.2。
+
+#### 集中验证、原失败与限制
+
+| 验证 | 本轮结果 / 范围 |
+|---|---|
+| typecheck / build / fresh build:test | 通过；完整引擎构建、测试编译，无dependency变化 |
+| targeted Node | 84/84，无skip：workload、Product binary、runtime cook/mapper、Admission、MultiRuntime、Residency/Profile、Packed RenderWorld publication/abort/release、culling与work shader source。不是全Node suite通过 |
+| `geometry-product-scale` | 9/9，depth0/40、实例multiplicity、多Product、五种故障与discard→retry |
+| `virtual-geometry-instance-culling` | 20/20 camera frames，消费实际depth0 scene；不重复声称旧bounds问题是本轮新修复 |
+| `virtual-geometry-handoff` | 50/50，1/63/64/65/128，leaf/refine near/far/equal/mixed、missing、overflow、invalid/stale ABI、hierarchy-overflow；完整cut与失败written/draw闭合 |
+| `native-surface-product-production` | 真实Scene→WASM Product→唯一Renderer：4Programs/4bins/2BindingSets、初帧9888winner pixels、normal/ORM/coat/custom/Unlit/alpha、参数publication/abort→retry/stable、resize/camera motion/cut、受控device recovery与fencedteardown通过。HDR sampled最大误差≤.000334；VSM7 allocated/7 valid pages、18casters、overflow0。小场景正确性，不冒称streamedVG验收 |
+
+GPU串行，Chrome154.0.8037.98/Windows/NVIDIA Turing hardware adapter，128MiB storage binding、16storage buffers/stage；各报告gpuErrors/scopedErrors/pageErrors为空。生产Renderer error收集为空；browser仍有403静态资源console诊断和既有VSM shader warning，不能称所有console无诊断。build/oracle hashes、原失败与最终报告存本地忽略的 `.local/g2-0-*.json/txt`；它们是诊断，不新建authority或提升正式evidence/claims。
+
+文档/导航收口：docs-verify 0 findings、66 historical warnings；documentation tests7/7、vibe doctor、registry --check、workload/hierarchy两条context和git diff --check通过。新增workload源文件的局部formatter/style检查通过，不重排其他旧源码。
+
+失败先分类并保留：非法全零raw页/无group的extra pages属于fixture，替换为真实header/triangle/attribute编码；multi-Product重定位期待随合法两个group/root ranges更新，保完整地址断言。eviction测试budget从256KiB改为512KiB是**raw+decoded两个physicalslots**的口径修正，没有改变age/hysteresis；thrashBytes仍为262144，因为它计source refetch bytes。缺device limits的RenderWorld mock补真实协商字段；生产不加绕过。GPU暴露52B/56B BGL bug属implementation，按ABI修复；oracle试图copy无COPY_SRC的production indirect buffer属测试API bug，用test-only storage snapshot读取，不修改production usage。初始WebCook descriptor类型未接齐的编译错误也已修复，没有adapter或放宽decoder。
+
+原28失败中的Admission11、Multi2、Profile1、Residency5已在本轮合法fixture targeted覆盖通过，不追改M1当时的结果。GPU ABI2、streaming mocks2、OEGPACK2、Nyx differential1及unrelated Material/Texture2仍未在本轮关闭；未重跑全suite，不宣称当前恰有9个剩余失败。Profile首槽通过不证明≥512slot地址合同；该已知correctness风险继续留G2.1。
+
+**未运行/保留责任：** authored large/100M、100k实例GPU全覆盖、65535-group完整GPU raster矩阵、pressure streaming/fairness、multiProduct recovery/source replay、bank≥512地址、metadata回收、off-camera shadowcasters、Arena紧化、跨浏览器/其他GPU、同条件P50/P95/VRAM峰值和正式claims。未建立benchmark平台；本轮无性能优化结论，规模/成本集中验收仍在G2.4。参考仅为既有Nyx forest/refine语义与本地ABI，不新增上游移植或采用状态。稳定边界仍唯一Product合同、唯一SurfaceV4，**在G2.1边界停止**。
 
 ### 8.3 G2.1 — Budgeted Residency & Multi-Product Streaming Closure
 
@@ -756,6 +812,6 @@ ProductpreviousHZB仍关闭；要开启需完整disocclusion/refinecut恢复和C
 
 后续Agent读取currentSlice与本节第一个未关闭unit→核最新SHA与owner/consumer源码→更新该unitCost Card→连续实现→集中验证→在本文该unit新增实施记录（source/build、actualwork、numeric/lifecycle、GPUtime/bytes/peak、source映射、限制/未运行）→关闭unit→停在下一边界。依赖改动若影响已关闭合同，先重开对应责任，不自动跳过。只在模块变化更新YAML，不复制状态到README或新建Geometry-status文档。
 
-**本次规划记录：** 只改设计/执行/导航/来源与真实domain事实，无productionTS/WGSL、probe、benchmark或构建。读取既有GPUcapture进行分阶段统计，不是新测量；本地Nyx函数map7个hash与vendoredmeshoptimizer22个hash核对，source引用不提升adoption。M2尚未实现，G2.0仍next。
+**规划时记录（`d44823e`）：** 只改设计/执行/导航/来源与真实domain事实，无productionTS/WGSL、probe、benchmark或构建。读取既有GPUcapture进行分阶段统计，不是新测量；本地Nyx函数map7个hash与vendoredmeshoptimizer22个hash核对，source引用不提升adoption。当时 M2 尚未实现、G2.0=next；后续实施见 §8.2.1。
 
 轻量验证：`docs-verify` 0 findings、66 historical warnings；documentation tests7/7；`vibe doctor`、`registry --check`、Residency/Arena/Hierarchy/FrameProgram四条context解析和`git diff --check`通过。初次doctor/registry拒绝旧Nyx task使用不支持的paused状态；保workstream暂停，task改schema合法todo后重跑通过。context仅一个current renderer authority与geometry-v4 planned导航，旧Nyx/Web100M入口暂停并指回本计划。未运行engine typecheck/build/build:test、fullNode、browser或GPUbenchmark；它们不属于本次纯设计验证，原28失败没有被追认为修复。

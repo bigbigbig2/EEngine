@@ -18,9 +18,9 @@ goal: >-
 currentSlice:
   id: geometry-v4
   title: Geometry / Virtual Geometry Alignment & Scale Optimization
-  status: planned
+  status: active
   goal: >-
-    Follow the M2 design and execution authority; planning does not start implementation.
+    Follow the M2 design and execution authority; close the current architectural unit.
     Preserve correct Geometry foundations and close one complete owner/consumer unit
     at a time. Build local owner replacements completely before atomic cutover and
     immediate retirement. Stop after M2 and review the next module from actual code.

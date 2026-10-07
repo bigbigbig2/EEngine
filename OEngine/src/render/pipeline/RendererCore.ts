@@ -613,7 +613,7 @@ export class Renderer {
       if (options.signal?.aborted)
         throw options.signal.reason ?? new DOMException("The operation was aborted", "AbortError");
       const mapped = buildVirtualGeometrySceneSourceV1(
-        descriptor.assetRecords,
+        descriptor,
         cooked.canonicalization.profiles,
         cooked.canonicalization.instances,
         cooked.canonicalization.materials,

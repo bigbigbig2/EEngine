@@ -188,6 +188,16 @@ export const oracles = Object.freeze([
     note: "Drives the production owner VirtualGeometryMeshletWorkCandidate from OEngine/.test-dist."
   }),
   Object.freeze({
+    name: "geometry-product-scale",
+    file: "OEngine/tests/oracle/geometry-product-scale-gpu.mjs",
+    url: "/OEngine/tests/oracle/geometry-product-scale-gpu.mjs",
+    entry: "runGeometryProductScaleGpuOracle",
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    description: "Product publication, depth-0/deep forests, instance multiplicity, multi-Product and fail-closed work/abort controls.",
+    timeoutMs: 180_000,
+    note: "Uses production MultiRuntime, HierarchicalWorkGenerator and MeshletWorkCandidate; no alternative renderer."
+  }),
+  Object.freeze({
     name: "virtual-geometry-instance-culling",
     file: "OEngine/tests/oracle/virtual-geometry-instance-culling-gpu.mjs",
     url: "/OEngine/tests/oracle/virtual-geometry-instance-culling-gpu.mjs",

@@ -64,6 +64,14 @@ OegPackProductProvider ─┘
 
 Provider 可以推迟 `readPage()` 的完成，或在其内部通过 I/O、decode、cache 或 live cook 产生 page；它不得分配 GPU object、发布 physical address 或决定 renderer frame revision。Admission/Residency 不得读取 provider 私有对象、文件 offset 或 WASM heap view。
 
+### Scene work 容量与失败
+
+Scene mapper 接收完整冻结 descriptor，不只接收 AssetRecord。每 asset 的 spatial forest 最大深度决定 traversal rounds；最大层宽给出 ping/pong task 容量，全部唯一 leaf groups 及其 packed meshlet counts 给出可积累的 VisibleCluster/MeshletWork 保守上界。各项按实际实例 multiplicity 求和，不按 asset 数猜测，不 clamp 合并结果。合法 SSE/residency cut 是这些 groups 的子集；spatial parent 不充当 renderable coarse fallback。Resident 页解码必须核对 header meshlet count 与该 descriptor 一致。
+
+Scene publication 在分配资源前检查 u32、r32 winner 24-bit work-slot namespace、协商 buffer/storage binding 和实际 dispatch grid。超上限明确拒绝，空实例 source 明确拒绝；当前 Product expansion 为每 VisibleCluster 一个 workgroup的一维 grid，尚不接受超过协商维度的容量。这个执行限制不是 Product binary ABI，不截断合法 identity。
+
+无完整 renderable parent 的 hierarchy queue overflow 或非法引用必须保持可观察，并使 MeshletWork finalize 同时清空 written count 与 indirect count，避免 Geometry preparation/Visibility 消费 partial cut。page demand 的有界反馈、缺页合法 coarse coverage 和 effect 生命周期仍遵循各自 owner 合同，不将这些失败伪装成成功的部分工作。
+
 ### 标量、ID 与作用域
 
 - 所有 count、local id、revision 和 generation 是非负 u32；`0xffffffff` 是 invalid local id，不得作为合法索引。

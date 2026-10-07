@@ -1,5 +1,7 @@
 import type { VirtualGeometryGeometryProfile, VirtualGeometrySceneSource } from "../../gpu/GpuRenderWorld.js";
 import { StandardShadeMaterial } from "../../material/StandardShadeMaterial.js";
+import type { GeometryProductDescriptorV1 } from "./GeometryProductV1.js";
+import { checkedGeometryWorkCount, geometryProductSceneWorkload } from "./GeometryProductWorkload.js";
 
 /**
  * Producer-neutral Scene mapper shared by the Web Runtime Cooker route and the
@@ -55,12 +57,13 @@ const ASSET_RECORD_STRIDE = 128;
  * resources or provider state.
  */
 export function buildVirtualGeometrySceneSourceV1(
-  assetRecords: Uint8Array,
+  descriptor: GeometryProductDescriptorV1,
   profiles: readonly VirtualGeometryGeometryProfile[],
   instances: readonly VirtualGeometrySceneInstanceV1[],
   materials: readonly StandardShadeMaterial[],
   options: VirtualGeometrySceneSourceOptionsV1 = {},
 ): VirtualGeometrySceneSourceResultV1 {
+  const assetRecords = descriptor.assetRecords;
   if (
     !(assetRecords instanceof Uint8Array) ||
     assetRecords.byteLength === 0 ||
@@ -110,6 +113,9 @@ export function buildVirtualGeometrySceneSourceV1(
     )
       throw new RangeError("Virtual Geometry scene instance flags must be a u32");
   }
+  if (instances.length === 0) {
+    throw new RangeError("Virtual Geometry scene source requires at least one instance");
+  }
   const declaredFlags = instances[0]!.flags !== undefined;
   if (declaredFlags && instances.some((instance) => instance.flags === undefined))
     throw new RangeError("Virtual Geometry scene instances must declare flags together");
@@ -153,8 +159,6 @@ export function buildVirtualGeometrySceneSourceV1(
       rawMax[2] = Math.max(rawMax[2]!, wz);
     }
   }
-  if (instances.length === 0)
-    throw new RangeError("Virtual Geometry scene source requires at least one instance");
   const rawCenter: readonly [number, number, number] = [
     (rawMin[0]! + rawMax[0]!) * 0.5,
     (rawMin[1]! + rawMax[1]!) * 0.5,
@@ -217,17 +221,14 @@ export function buildVirtualGeometrySceneSourceV1(
     boundsMax.push(...max);
     if (declaredFlags) flags.push(instance.flags!);
   }
-  const capacity = Math.min(65535, Math.max(256, assetCount * 16));
+  const workload = geometryProductSceneWorkload(descriptor, instances);
   return Object.freeze({
     materials: Object.freeze([...materials]),
     source: Object.freeze({
       materials,
       geometryProfiles: Object.freeze([...profiles]),
       assetCount,
-      hierarchyMaxDepth: 64,
-      hierarchyTraversalCapacity: capacity,
-      hierarchyVisibleClusterCapacity: capacity,
-      hierarchyRasterWorkCapacity: capacity,
+      ...workload,
       count: geometryIndices.length,
       geometryIndices: Uint32Array.from(geometryIndices),
       materialIndices: Uint32Array.from(materialIndices),
@@ -249,7 +250,6 @@ export function mergeVirtualGeometryProductSceneSourcesV1(
   parts: readonly VirtualGeometryProductScenePartV1[],
 ): VirtualGeometrySceneSource {
   if (parts.length === 0) throw new RangeError("Multi-Product scene requires at least one admitted shard");
-  const first = parts[0]!.source;
   const materialCount = Math.max(...parts.map((part) => part.source.materials.length));
   const mutableMaterials: StandardShadeMaterial[] = new Array(materialCount);
   for (const part of parts) {
@@ -307,9 +307,9 @@ export function mergeVirtualGeometryProductSceneSourcesV1(
     }
     expectedAssetBegin += source.assetCount;
   }
-  const capacity = Math.min(
-    0xffffffff,
+  const capacity = checkedGeometryWorkCount(
     parts.reduce((sum, part) => sum + part.source.hierarchyTraversalCapacity, 0),
+    "Multi-Product traversal capacity",
   );
   return Object.freeze({
     ...(meshes.length === 0 ? {} : { meshes: Object.freeze(meshes) }),
@@ -318,13 +318,13 @@ export function mergeVirtualGeometryProductSceneSourcesV1(
     assetCount: geometryProfiles.length,
     hierarchyMaxDepth: Math.max(...parts.map((part) => part.source.hierarchyMaxDepth)),
     hierarchyTraversalCapacity: capacity,
-    hierarchyVisibleClusterCapacity: Math.min(
-      0xffffffff,
+    hierarchyVisibleClusterCapacity: checkedGeometryWorkCount(
       parts.reduce((sum, part) => sum + part.source.hierarchyVisibleClusterCapacity, 0),
+      "Multi-Product visible capacity",
     ),
-    hierarchyRasterWorkCapacity: Math.min(
-      0xffffffff,
+    hierarchyRasterWorkCapacity: checkedGeometryWorkCount(
       parts.reduce((sum, part) => sum + part.source.hierarchyRasterWorkCapacity, 0),
+      "Multi-Product MeshletWork capacity",
     ),
     count: geometryIndices.length,
     geometryIndices: Uint32Array.from(geometryIndices),

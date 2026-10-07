@@ -1,3 +1,4 @@
+import { writeTriangleProductPage, addTriangleProductPages, TRIANGLE_PRODUCT_PAYLOAD_BYTES } from "../helpers/geometry-product-fixture.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
@@ -13,7 +14,7 @@ const { GEOMETRY_PRODUCT_SHARED_SLOTS_PER_BANK } = await import(
 );
 
 function fixture() {
-  const page = new Uint8Array(262144);
+  const page = writeTriangleProductPage(new Uint8Array(262144));
   const hash = createHash("sha256").update(page).digest();
   const asset = new Uint8Array(128);
   const av = new DataView(asset.buffer);
@@ -52,7 +53,7 @@ function fixture() {
   const gv = new DataView(groups.buffer);
   gv.setUint32(0, 0, true);
   gv.setUint32(4, 0, true);
-  gv.setUint32(8, 64, true);
+  gv.setUint32(8, TRIANGLE_PRODUCT_PAYLOAD_BYTES, true);
   gv.setUint32(12, 1, true);
   const pages = new Uint8Array(32);
   pages.set(hash.subarray(0, 16));
@@ -150,7 +151,7 @@ test("Product-aware residency uploads activation pages with generation-tagged lo
   const residency = await VirtualGeometryResidency.create(device, source, 7);
   assert.equal(writes.filter((write) => write.bytes === 262144).length, 1);
   assert.equal(writes.find((write) => write.bytes === 262144).offset, 0);
-  assert.deepEqual(residency.pageLocation(0), { bankIndex: 0, slotIndex: 0, productGeneration: 7, flags: 3 });
+  assert.deepEqual(residency.pageLocation(0), { bankIndex: 0, slotIndex: 0, residentBankIndex: 0, residentSlotIndex: 1, productGeneration: 7, flags: 3 });
   assert.equal(residency.groupAddress(0).byteOffset, 0);
   assert.equal(new DataView(residency.writePageLocation(residency.pageLocation(0))).getUint32(8, true), 7);
   assert.equal(residency.evidence().residentPages, 1);
@@ -170,7 +171,7 @@ test("Product-aware residency delays reuse of a retiring slot", async () => {
   const pv = new DataView(pageRecords.buffer);
   pv.setUint32(52, 0, true);
   pv.setUint32(56, 0, true);
-  const product = { ...descriptor, pageRecords };
+  const product = addTriangleProductPages({ ...descriptor, assetRecords: descriptor.assetRecords.slice(), pageRecords }, 2);
   const device = {
     limits: { maxBufferSize: 256 * 1024 * 1024, maxStorageBufferBindingSize: 128 * 1024 * 1024 },
     createBuffer(d) {
@@ -230,7 +231,7 @@ test("Product-aware residency selects only aged, non-pinned pages for eviction",
   const pv = new DataView(pageRecords.buffer);
   pv.setUint32(52, 0, true);
   pv.setUint32(56, 0, true);
-  const product = { ...descriptor, pageRecords };
+  const product = addTriangleProductPages({ ...descriptor, assetRecords: descriptor.assetRecords.slice(), pageRecords }, 2);
   const device = {
     limits: { maxBufferSize: 256 * 1024 * 1024, maxStorageBufferBindingSize: 128 * 1024 * 1024 },
     createBuffer(d) {
@@ -264,10 +265,10 @@ test("Product-aware residency selects only aged, non-pinned pages for eviction",
     bytes: page.slice().buffer,
   };
   residency.uploadPage(demanded);
-  assert.deepEqual(residency.selectEvictionCandidates(1, 262144, 2), []);
+  assert.deepEqual(residency.selectEvictionCandidates(1, 524288, 2), []);
   residency.touchPage(1, 1);
-  assert.deepEqual(residency.selectEvictionCandidates(2, 262144, 2), []);
-  assert.deepEqual(residency.selectEvictionCandidates(3, 262144, 2), [1]);
+  assert.deepEqual(residency.selectEvictionCandidates(2, 524288, 2), []);
+  assert.deepEqual(residency.selectEvictionCandidates(3, 524288, 2), [1]);
   residency.touchPage(0, 3);
   assert.deepEqual(residency.selectEvictionCandidates(10, 524288, 0), [1]);
   residency.destroy();
@@ -324,7 +325,7 @@ test("eviction weighs GPU request/visibility, prediction and refetch cost; recor
     recordView.setUint32(at + 16, 0, true);
     recordView.setUint32(at + 20, 0, true);
   }
-  const product = { ...descriptor, pageRecords: records };
+  const product = addTriangleProductPages({ ...descriptor, assetRecords: descriptor.assetRecords.slice(), pageRecords: records }, 3);
   const device = {
     limits: { maxBufferSize: 256 * 1024 * 1024, maxStorageBufferBindingSize: 128 * 1024 * 1024 },
     createBuffer(d) {
@@ -359,10 +360,10 @@ test("eviction weighs GPU request/visibility, prediction and refetch cost; recor
   upload(1);
   upload(2);
   residency.recordDemand(2, 10, true, false, 4);
-  assert.deepEqual(residency.selectEvictionCandidates(12, 262144, 2), [1]);
+  assert.deepEqual(residency.selectEvictionCandidates(12, 524288, 2), [1]);
   residency.recordDemand(1, 13, false, true, 1);
-  assert.deepEqual(residency.selectEvictionCandidates(15, 262144, 0), [2]);
-  assert.deepEqual(residency.selectEvictionCandidates(22, 262144, 0), [1]);
+  assert.deepEqual(residency.selectEvictionCandidates(15, 524288, 0), [2]);
+  assert.deepEqual(residency.selectEvictionCandidates(22, 524288, 0), [1]);
   residency.beginRetirePage(1);
   residency.completeRetirePage(1);
   residency.recordDemand(1, 23, true, false, 1);
@@ -370,8 +371,10 @@ test("eviction weighs GPU request/visibility, prediction and refetch cost; recor
   const evidence = residency.evidence();
   assert.equal(evidence.shortTermRerequests, 1);
   assert.equal(evidence.reloads, 1);
+  // Thrash counts re-fetched source bytes; eviction budgets count both
+  // physical raw and decoded-attribute slots.
   assert.equal(evidence.thrashBytes, 262144);
   assert.equal(evidence.averagePageLifetimeFrames, 22);
-  assert.deepEqual(residency.selectEvictionCandidates(23, 262144, 0), [2]);
+  assert.deepEqual(residency.selectEvictionCandidates(23, 524288, 0), [2]);
   residency.destroy();
 });

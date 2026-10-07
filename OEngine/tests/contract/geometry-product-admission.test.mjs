@@ -1,3 +1,4 @@
+import { writeTriangleProductPage, TRIANGLE_PRODUCT_PAYLOAD_BYTES } from "../helpers/geometry-product-fixture.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
@@ -15,7 +16,7 @@ const { resolveGeometryProductAssetFromHeapV1, unpackGeometryProductMetadataHeap
 );
 
 function makeFixture() {
-  const page = new Uint8Array(262144);
+  const page = writeTriangleProductPage(new Uint8Array(262144));
   const hash = createHash("sha256").update(page).digest();
   const asset = new Uint8Array(128);
   const av = new DataView(asset.buffer);
@@ -48,7 +49,7 @@ function makeFixture() {
   hv.setUint32(44, 1, true);
   const groups = new Uint8Array(16);
   const gv = new DataView(groups.buffer);
-  gv.setUint32(8, 64, true);
+  gv.setUint32(8, TRIANGLE_PRODUCT_PAYLOAD_BYTES, true);
   gv.setUint32(12, 1, true);
   const pages = new Uint8Array(32);
   pages.set(hash.subarray(0, 16));

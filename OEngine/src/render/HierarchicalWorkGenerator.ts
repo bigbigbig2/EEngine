@@ -570,9 +570,16 @@ export class HierarchicalWorkGenerator {
     if (traversalCapacity > scene.traversalWorkCapacity) {
       throw new RangeError("R3-B traversal capacity override exceeds the proven scene capacity");
     }
-    const roundCount = checkedAddU32(scene.maxHierarchyDepth, 1, "R3-B hierarchy round count");
     const rasterExpansionEnabled = config.rasterExpansionEnabled ?? true;
     const virtualGeometryEnabled = scene.virtualGeometry !== undefined;
+    // Product root dispatch only seeds nodes. Even a depth-0 forest needs
+    // one traversal dispatch to consume its leaf; ordinary roots are tested
+    // in the root shader itself.
+    const roundCount = checkedAddU32(
+      scene.maxHierarchyDepth,
+      virtualGeometryEnabled ? 2 : 1,
+      "Geometry hierarchy round count",
+    );
     const pageDemandCapacity =
       config.pageDemandCapacity ??
       Math.min(Math.max(1, scene.visibleClusterCapacity), GEOMETRY_PAGE_DEMAND_MAX_RECORD_CAPACITY_V1);

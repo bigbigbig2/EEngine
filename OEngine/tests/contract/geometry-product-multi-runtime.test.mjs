@@ -1,3 +1,4 @@
+import { writeTriangleProductPage, addTriangleProductPages, TRIANGLE_PRODUCT_PAYLOAD_BYTES } from "../helpers/geometry-product-fixture.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
@@ -52,7 +53,7 @@ function fakeDevice() {
 }
 
 function makeFixture(revision = 0) {
-  const payloads = [new Uint8Array(262144), new Uint8Array(262144).fill((revision + 1) & 0xff)];
+  const payloads = [writeTriangleProductPage(new Uint8Array(262144)), writeTriangleProductPage(new Uint8Array(262144).fill((revision + 1) & 0xff))];
   const pageRecords = new Uint8Array(64);
   const pageView = new DataView(pageRecords.buffer);
   for (let pageId = 0; pageId < payloads.length; pageId++) {
@@ -92,7 +93,7 @@ function makeFixture(revision = 0) {
   hierarchyView.setUint32(44, 1, true);
   const groupDirectory = new Uint8Array(16);
   const groupView = new DataView(groupDirectory.buffer);
-  groupView.setUint32(8, 64, true);
+  groupView.setUint32(8, TRIANGLE_PRODUCT_PAYLOAD_BYTES, true);
   groupView.setUint32(12, 1, true);
   const vertexFormats = new Uint8Array(16);
   const formatView = new DataView(vertexFormats.buffer);
@@ -121,6 +122,7 @@ function makeFixture(revision = 0) {
     vertexFormats,
     activationPageIds: new Uint32Array([0]),
   };
+  addTriangleProductPages(descriptor, 2);
   const source = {
     descriptor,
     async readPage(pageId, signal) {
@@ -280,11 +282,11 @@ test("scene metadata relocates every second-Product range into one authoritative
     assetBegin: 0,
     assetCount: 1,
     rootBegin: 0,
-    rootCount: 1,
+    rootCount: 2,
     hierarchyBegin: 0,
-    hierarchyCount: 1,
+    hierarchyCount: 2,
     groupBegin: 0,
-    groupCount: 1,
+    groupCount: 2,
     pageBegin: 0,
     pageCount: 2,
     vertexFormatBegin: 0,
@@ -295,12 +297,12 @@ test("scene metadata relocates every second-Product range into one authoritative
     flags: 1,
     assetBegin: 1,
     assetCount: 1,
-    rootBegin: 1,
-    rootCount: 1,
-    hierarchyBegin: 1,
-    hierarchyCount: 1,
-    groupBegin: 1,
-    groupCount: 1,
+    rootBegin: 2,
+    rootCount: 2,
+    hierarchyBegin: 2,
+    hierarchyCount: 2,
+    groupBegin: 2,
+    groupCount: 2,
     pageBegin: 2,
     pageCount: 2,
     vertexFormatBegin: 1,
@@ -320,13 +322,13 @@ test("scene metadata relocates every second-Product range into one authoritative
   const secondAsset = tableWrite(device, metadata, assetRecordsOffset + 128);
   assert.ok(secondAsset);
   const assetView = new DataView(secondAsset.buffer, secondAsset.byteOffset, secondAsset.byteLength);
-  assert.equal(assetView.getUint32(72, true), 1);
-  assert.equal(assetView.getUint32(80, true), 1);
-  assert.equal(assetView.getUint32(88, true), 1);
-  assert.equal(new DataView(tableWrite(device, metadata, rootsOffset + 4).buffer).getUint32(0, true), 1);
+  assert.equal(assetView.getUint32(72, true), 2);
+  assert.equal(assetView.getUint32(80, true), 2);
+  assert.equal(assetView.getUint32(88, true), 2);
+  assert.equal(new DataView(tableWrite(device, metadata, rootsOffset + 8).buffer).getUint32(0, true), 2);
   assert.equal(
-    new DataView(tableWrite(device, metadata, hierarchyOffset + 48).buffer).getUint32(44, true),
-    3,
+    new DataView(tableWrite(device, metadata, hierarchyOffset + 96).buffer).getUint32(44, true),
+    5,
   );
   assert.ok(tableWrite(device, metadata, pageLocationsOffset + 2 * 16));
   assert.ok(tableWrite(device, metadata, pageLocationsOffset + 3 * 16));

@@ -1,3 +1,4 @@
+import { triangleProductFixture } from "../helpers/geometry-product-fixture.mjs";
 import assert from "node:assert/strict";
 import { buildVirtualGeometrySceneSourceV1 } from "../../.test-dist/assets/geometry-product/VirtualGeometrySceneSourceV1.js";
 import { PerspectiveCamera } from "../../.test-dist/camera/PerspectiveCamera.js";
@@ -55,7 +56,7 @@ export async function runVirtualGeometryInstanceCullingGpuOracle(device) {
   heap.set([16 | (3 << 16), 12 << 8, 1 << 16, 0], 92);
   const matrix = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 100, 0, -20, 1]);
   const source = buildVirtualGeometrySceneSourceV1(
-    new Uint8Array(heap.buffer, 36 * 4, 128),
+    triangleProductFixture().descriptor,
     [{}],
     [{ assetIndex: 0, materialIndex: 0, transform: matrix }],
     [{}],
@@ -91,7 +92,7 @@ export async function runVirtualGeometryInstanceCullingGpuOracle(device) {
       scene: { abiVersion: GPU_INSTANCE_ABI_VERSION, instances, highWaterCount: 1 },
       instanceBegin: 0,
       instanceCount: 1,
-      maxHierarchyDepth: 1,
+      maxHierarchyDepth: source.hierarchyMaxDepth,
       traversalWorkCapacity: 1,
       visibleClusterCapacity: 1,
       rasterWorkCapacity: 1,
