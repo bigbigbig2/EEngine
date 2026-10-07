@@ -17,6 +17,6 @@ verifies:
 
 ## 目标与验证范围
 
-AAA 材质完整语义、有限 family 和缓存失效遵循[当前设计](../next-design/eengine-extreme-performance-rebuild-2026-10.md)，逐单元接线遵循[执行计划](../next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md)。当前 TextureResidency 不等于未来完整 Virtual Texture 已实现。
+未来 native 材质目标和 publication 边界遵循[当前设计](../next-design/eengine-v4-native-shading-2026-10.md)，逐单元接线遵循[执行计划](../next-execution/eengine-v4-native-shading-execution-2026-10.md)。当前 TextureResidency 不等于未来完整 Virtual Texture 已实现。
 
 owner 导航用 `vibe context OEngine/src/gpu/TextureResidency.ts`；检查范围见[VALIDATION](../VALIDATION.md)。已退休的 claims 与旧材质协调器不进入当前入口。

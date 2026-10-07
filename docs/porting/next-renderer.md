@@ -10,7 +10,26 @@ verifies:
 ---
 # EEngine Next：开源迁移来源与采用边界
 
-> 2026-10-07 R4 文档导航：下文来源条目的阶段/§编号属于记录当时的设计快照，旧全文见[设计归档](../archive/eengine-extreme-performance-rebuild-r3-design-2026-10-07.md)与[执行归档](../archive/eengine-extreme-performance-rebuild-r3-execution-2026-10-07.md)，只供追溯。当前合同看[设计母稿](../next-design/eengine-extreme-performance-rebuild-2026-10.md)，当前事实看[执行计划§2](../next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md#2-当前事实与开放责任)，当前C任务看[§3](../next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md#3-当前c先补设计输入再完整切换)。本账本不复制实施进度，文档重排不改变来源采用状态。
+> V4 当前导航：唯一架构见 [V4 母稿](../next-design/eengine-v4-native-shading-2026-10.md)，实施见 [V4 执行计划](../next-execution/eengine-v4-native-shading-execution-2026-10.md)，生产事实查源码和 domains。下文日期化来源条目的阶段、当前、§编号与旧设计链接都属于记录当时的快照，仅供追溯；不改变 adoption，也不定义第二套 current 架构。
+
+<a id="v4-planning-source-map"></a>
+
+## 2026-10-07：V4 planning source map（未实施、未提升采用）
+
+本次复用两份 V4 提案和既有 SF 来源核读记录，核对本地 `b69a0a60b13930212fdc98f988443186fad024e4` 的实际 producer/consumer；不宣称本轮重新审计完整上游引擎，也没有运行上游或新的 GPU 验证。主/辅提案已为 history；唯一目标与详细单元分别见 V4 authority。复杂算法实施前仍须重新读取选定 revision 的完整相关阶段、license/关键分支，并补逐函数映射与缺口；本表是拟实施映射，不是 adopted。
+
+| 固定来源 / license / 入口 | 拟本地单元与输入→产品→consumer | 必保条件 / 本地适配 / 未覆盖 |
+|---|---|---|
+| SF01 Wicked `df44c3db4c4927492bc9c791eac715d98d7ed091`，MIT；`visibility_analyzeCS.hlsl::main`、`visibility_resolveCS.hlsl::main`、`visibility_shadeCS.hlsl::main`、`wiRenderer.cpp::Visibility_Shade` | S4.0/2 native shade 参考，S4.3 Visibility/material route→counts/compact indices/indirect→native pipeline/HDR | 保 winner/背景、uniform/divergent 分类、完整 work 与 host dispatch 物理边界；Wicked tile masks不能冒称本地 CompactPixelBins 原样移植。sharded histogram/two-pass scatter 为具名本地方案；不照搬 bindless、Wave/push constants或硬件 pipeline 切换 |
+| SF03 Forge `cd5046893faba2dc7869243873bf01f02a6f0df9`，Apache-2.0；`VisibilityBufferShadingUtilities.h.fsl::CalcFullBary/Interpolate2DWithDeriv`、`VisibilityBufferShade.frag.fsl::PS_MAIN` | S4.0/2 winner+corners→bary/derivatives/material→HDR；S4.1 graph coordinate/Grad 数学核对 | 近裁剪/退化/透视/导数/normal/filter条件保留；其 consumer是fragment、使用nonuniform资源索引，不是portable compute bin donor |
+| SF04 Filament `bb360e80259167c986e94db7b70153bcdb92c0e1`，Apache-2.0；`filament/src/fg/FrameGraph.cpp::compile/execute`及资源节点；同revision `libs/gltfio/src/UbershaderProvider.cpp` | S4.1 Program/Instance与publication lifecycle；S4.2/4/5现有 FrameGraph product→consumer/lifetime | 已有本地 FrameGraph KEEP；WebGPU queue fence/abort/late binding是本地集成，不移植nativeallocator；不据rasterprovider认定compute成本 |
+| MaterialX `2d516f56752abbb8bc5d6d438bfb7970d1b6f8f7`，Apache-2.0；`source/MaterialXGenGlsl/WgslShaderGenerator.cpp`；既有SF07图分析另有固定revision，不能混用 | S4.1 graph→validated typed IR/CSE/DCE/frequency/CXY→native source→registry | 只参考compiler/resourcebackend边界；该文件继承Vk generator，不能当完整可运行EEngineWGSLdonor。EEngine native lowering为本地实现，保现有合法graph/采样语义，不宣称MaterialX全节点支持 |
+| GPUPrefixSums `98d93a4e9ed2f3c8353119515bf9be90a2e137ad`，MIT；`GPUPrefixSumsWebGPUapis/SharedShaders/rts.wgsl`（继承下文SF账本范围） | S4.3 counts→small prefix/offsets→scatter/indirect | 源版本有subgroups，portable共享内存scan不能只删subgroup调用；首版小表可用具名本地scan，多层/进度/overflow输入边界独立验证，不建大型scan框架 |
+| 已有 R05 XeGTAO、VSM/IBL/BRDF、R12/R24/R25 FSR/Temporal/曝光固定来源，revision/license见对应日期条目 | S4.0/2 native Lighting/AO/VSM query→HDR；S4.4 HDR/motion/reactive/exposure→实际 FSR stages→输出 | 保既有完整算法条件/颜色域/资源缺页/overflow/reset；本次只规划 consumer接线，不更新这些算法adoption。ReSTIR/GI/SSR完整donor留对应模块设计 |
+
+固定链接与许可依据沿用 SF01/SF03/SF04 的下表；新增 compiler 参考：[MaterialX source](https://github.com/AcademySoftwareFoundation/MaterialX/blob/2d516f56752abbb8bc5d6d438bfb7970d1b6f8f7/source/MaterialXGenGlsl/WgslShaderGenerator.cpp)、[Apache-2.0 license](https://github.com/AcademySoftwareFoundation/MaterialX/blob/2d516f56752abbb8bc5d6d438bfb7970d1b6f8f7/LICENSE)。scan参考：[WGSL source](https://github.com/b0nes164/GPUPrefixSums/blob/98d93a4e9ed2f3c8353119515bf9be90a2e137ad/GPUPrefixSumsWebGPUapis/SharedShaders/rts.wgsl)、[MIT license](https://github.com/b0nes164/GPUPrefixSums/blob/98d93a4e9ed2f3c8353119515bf9be90a2e137ad/LICENSE)。作者论文/资料边界见主提案固定来源章节；DOOM coarse/VRS不列为M1必需移植，ReSTIR论文不替代完整开源实现。
+
+测试映射见 [V4 execution §5](../next-execution/eengine-v4-native-shading-execution-2026-10.md#5-source-mapping与测试迁移)。阶段内来源/本地差异按实际实现补齐；只有source核对、独立WGSL/CPU oracle、真实新production consumer证据齐全才调整采用状态。后面的R3/R4历史记录与失败结果不重写。
 
 ## 2026-10-05：Surface 集中重建的固定来源与阶段映射
 
@@ -865,7 +884,7 @@ The local page-table ABI now allocates 32 bytes per entry across disjoint mip pl
 
 本轮沿用已核读固定来源：Intel CPS `63ad5c1adafbfcc2869a200f50a5ea11f28b4887`，Apache-2.0，`ComputeShaderTile.hlsl::ComputeSurfaceDataFromGBufferAllSamplesCPS/RequiresPerPixelShading/ComputeShaderTileCS`；DOOM VRCS 原始技术演讲的 primary/duplicate、tile remap、compact lists 和 cluster locality 阶段；Filament `41f996de8fcc2d6b60b73159aa1bc44a05a40700`，Apache-2.0 的已有 BRDF、DFG 和环境卷积映射。VRCS 演讲是研究资料，不作为可复制源码许可。本地解码复用 Nyx `bc7e5b1e51f6b3b8af4771db81ffaa714fcbe64b` / MIT 的现有 Product 数学，以及本地 Geometry ABI 和 HomogeneousWinnerInterpolation。
 
-下表中的 `surface_sparse_lighting.ts`、`prepare_surface`、`evaluate_packets` 等名称属于来源核读和历史实现阶段，不是当前 TypeScript 生产入口。当前唯一生产接线位于 `SurfaceWorkRuntime.ts`、`SurfaceLightingWorkPass.ts`、`SurfaceReconstructionPass.ts`；本地接线状态以 [Shading domain](../domains/shading.md) 和 [SurfaceWork V3 计划](../next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md) 为准。
+下表中的 `surface_sparse_lighting.ts`、`prepare_surface`、`evaluate_packets` 等名称属于来源核读和历史实现阶段，不是当前 TypeScript 生产入口。所列本地入口也属于当时快照；当前生产事实读 [Shading domain](../domains/shading.md) 与源码，未来接线服从 V4 authority。
 
 | 完整来源阶段 / 本地决定 | 本地真实入口与分支 | 差异与当前状态 |
 | --- | --- | --- |

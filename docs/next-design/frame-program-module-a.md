@@ -6,7 +6,9 @@ verifies:
 ---
 # Module A 设计：Frame Program 与语义事实层
 
-> 状态：模块 A 已接入当前生产链（2026-09-27）；后续 SurfaceWork V3 以用户指定的[第三版最终设计](./eengine-extreme-performance-rebuild-2026-10.md)为唯一目标。对应迁移记录见[模块 A 执行文档](../next-execution/frame-program-module-a.md)。第 2 节的“当前事实”表保留实施前的问题定位，实施后的事实以[Frame Runtime](../domains/frame-runtime.md)及源码为准；本状态不代表浏览器或性能验收。
+> 范围说明：本模块的来源、数学与既有 owner 合同继续供核对；涉及旧 Surface 执行/产品的段落是迁移背景，不定义 V4 核心或独立实施顺序。未来接线服从 [V4 母稿](./eengine-v4-native-shading-2026-10.md) 与活跃 workstream；生产事实查源码/domain。
+
+> 状态：模块 A 已接入当前生产链（2026-09-27）；后续 Surface 执行以[V4 母稿](./eengine-v4-native-shading-2026-10.md)为唯一目标。对应迁移记录见[模块 A 执行文档](../next-execution/frame-program-module-a.md)。第 2 节的“当前事实”表保留实施前的问题定位，实施后的事实以[Frame Runtime](../domains/frame-runtime.md)及源码为准；本状态不代表浏览器或性能验收。
 
 ## 1. 要解决的实际问题
 
@@ -157,7 +159,7 @@ Granite 的 `RenderGraph::bake/build_aliases` 与 Filament 的 `FrameGraph::comp
 
 ## 9. A0 生产资源边清单（2026-09-27 源码核对）
 
-下表的 `ResourceId` 是 lowering 中的逻辑句柄或 Graph 导入名；数值 ID 随编译图分配，不能作为跨帧身份。尺寸均为当前内部分辨率 `I` 或输出分辨率 `O`。结构 key 记录形状和启用的 owner；右列所列当前对象均从本帧 binding 解析。当前 Surface 目标以 [SurfaceWork V3](./eengine-extreme-performance-rebuild-2026-10.md) 为准；当前源码事实见 `FrameProgramLowering`、`PackedVisibilityPass`、`SurfaceWorkRuntime`、`TemporalFactsPass`、`Fsr3UpscalerRuntime` 和 `AtmosphereLutResources`。`AppearanceCachePass` 与 `SparseLightingPass` 只在历史基线中保留。
+下表的 `ResourceId` 是 lowering 中的逻辑句柄或 Graph 导入名；数值 ID 随编译图分配，不能作为跨帧身份。尺寸均为当前内部分辨率 `I` 或输出分辨率 `O`。结构 key 记录形状和启用的 owner；右列所列当前对象均从本帧 binding 解析。当前 Surface 目标以 [V4 Native Shading](./eengine-v4-native-shading-2026-10.md) 为准；当前源码事实见 `FrameProgramLowering`、`PackedVisibilityPass`、`SurfaceWorkRuntime`、`TemporalFactsPass`、`Fsr3UpscalerRuntime` 和 `AtmosphereLutResources`。`AppearanceCachePass` 与 `SparseLightingPass` 只在历史基线中保留。
 
 | 产品/逻辑 ResourceId | 生产者 → 消费者 | 物理 owner；尺寸/格式 | key、绑定与失效/退役 |
 | --- | --- | --- | --- |

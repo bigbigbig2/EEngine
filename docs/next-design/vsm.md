@@ -6,8 +6,10 @@ verifies:
 ---
 # Module E：Virtual Shadow Maps 与 Shadow Visibility
 
+> 范围说明：本模块的来源、数学与既有 owner 合同继续供核对；涉及旧 Surface 执行/产品的段落是迁移背景，不定义 V4 核心或独立实施顺序。未来接线服从 [V4 母稿](./eengine-v4-native-shading-2026-10.md) 与活跃 workstream；生产事实查源码/domain。
+
 > 状态：E0-E7 已接入候选生产主链；E8 生命周期与 E9 模块收口仍待完成。来源 adoption 仍保持 `not adopted`，因为正式 oracle/GPU evidence 后置。
-> 执行顺序见 [vsm execution](../next-execution/vsm.md)。整体边界见 [Next overall architecture](./eengine-extreme-performance-rebuild-2026-10.md) §3、§7。
+> 执行顺序见 [vsm execution](../next-execution/vsm.md)。整体边界见 [Next overall architecture](./eengine-v4-native-shading-2026-10.md) §9。
 
 ## 来源速览
 

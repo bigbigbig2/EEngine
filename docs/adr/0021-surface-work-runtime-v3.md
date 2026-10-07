@@ -1,9 +1,10 @@
 ---
 id: adr/0021-surface-work-runtime-v3
-state: current
-verifies:
-  - project/workstreams/active
+state: history
+supersededBy: ../next-design/eengine-v4-native-shading-2026-10.md
 ---
+
+> 2026-10-07 V4 authority 切换：本文保留当时的提案、决定或实施记录，仅供历史追溯。正文的“current / 当前 / 必须 / 已完成”均属原快照，不再定义未来生产架构；其中性能结果、失败和未验证声明不改写。唯一当前依据见 [V4 authority](../next-design/eengine-v4-native-shading-2026-10.md)，文档切换不表示代码已切换。
 # ADR-0021：以用户指定第三版设计统一 SurfaceWork Runtime 方向
 
 Status: accepted

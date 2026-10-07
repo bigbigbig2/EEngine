@@ -1,107 +1,72 @@
 schemaVersion: 2
 id: eengine-next-clean-rebuild
-title: EEngine Next single-path clean-cut renderer rebuild
+title: EEngine V4 Native Shading single-path cutover
 domain: frame-runtime
 state: active
 owner: frame-runtime
-decision: ADR-0021
+# Foundational single-path ownership decision only; renderer direction is authority below.
+decision: ADR-0020
 authority:
-  design: docs/next-design/eengine-extreme-performance-rebuild-2026-10.md
-  execution: docs/next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md
+  design: docs/next-design/eengine-v4-native-shading-2026-10.md
+  execution: docs/next-execution/eengine-v4-native-shading-execution-2026-10.md
 goal: >-
-  Rebuild Surface V3 first for GTX 1650 Ti at 1080p: few bounded execution scopes,
-  explicit publication domains, complete direct evaluation, cost-classified reuse,
-  thin Geometry products, finite material families and Appearance work domains.
-  Expensive evaluation follows update domains and actual independent miss/dirty work,
-  not an unconditional visible-pixel execution rule. Command topology is independent
-  of pixel, tile and material-instance counts; actual GPU work follows complete demand.
-  Keep one authority per product, one production FrameGraph and one frame submit.
+  Build an extreme-performance GPU-driven WebGPU-native AAA renderer for
+  GTX 1650 Ti 4GB at 1080p and scalable newer GPUs. Follow the V4 authority
+  through complete producer/product/direct-consumer cutovers, starting with
+  native opaque Surface. Design later modules from their actual implementation inputs.
 
 currentSlice:
-  id: eengine-extreme-performance-rebuild-c
-  title: Surface C：在已有值边界上扩展有收益的复用
+  id: surface-v4
+  title: Surface V4 — Native Opaque Shading Cutover
   status: active
   goal: >-
-    当前设计修订为SURFACE-2026-10-07-R4；实际源码、证据与开放责任见执行文档§2。
-    用户2026-10-07明确允许暂缓B2-NUM-001/002、提交当前快照并进入C；
-    两项仍未修复，B2正确性退出未通过，正式验收前必须关闭，不再开子agent。
-    当前C任务为执行文档§3；成本口径缺口见§2.4，设计合同见母稿§4–7。
-    先补齐测量与实际closure/consumer/重复窗口，明确候选、完整相等、成本假设和准入；
-    未决工作域与请求组织不伪称定案。随后接通完整producer/consumer、身份/唯一writer、
-    pin/generation/abort/retire与direct恢复，再集中验证，不继续identity/stride/容量/局部计算微调循环。
-    当前实现冻结供审查，已定位测量接线和必要正确性调试不受禁止；文档修订不证明代码完成。
-    顺序仍为A0 → A1 → B1 → B2 → C → D → E → F；D/E/F仅修具名缺陷并核集成，保留已有系统。
-    历史实验只从执行文档§8追溯，不作为当前任务；不恢复旧链或建设无消费者设施。
+    Follow the V4 native shading design and the current unit in the execution plan.
+    Replace the old Surface runtime through complete producer-to-consumer cutovers.
+    Do not repair retiring R3 mechanisms unless their correctness semantics survive.
+    Close one unit with concentrated validation, then stop at the next unit boundary.
+    Pause after Surface V4; do not automatically start another large module.
 
 nextModules:
-  - id: sssr
-    title: FidelityFX SSSR production provider
-  - id: hybrid-gi
-    title: Screen, world-space and sky GI production providers
-  - id: virtual-resource
-    title: Virtual resource control-plane convergence and VT
-  - id: transparency-media
-    title: Transparency, local media and presentation integration
+  - id: geometry-v4
+    title: Geometry and Virtual Geometry alignment
+  - id: virtual-resources-v4
+    title: Virtual resources and Virtual Texture
+  - id: lighting-v4
+    title: Lighting and Virtual Shadow Maps
+  - id: indirect-v4
+    title: GI, reflection and ReSTIR
+  - id: temporal-v4
+    title: Temporal, upscaling and presentation
+  - id: transparency-media-v4
+    title: Transparency, media and final integration
 
 architectureRules:
-  - Command topology is bounded by execution and resource families, not pixels, tiles, authored graph count or material instances. Actual evaluation cost may grow with complete demand.
-  - Management cost must not exceed the cost of the computation it manages. This is invariant B and it is checked, not asserted.
-  - The whole reuse layer must be switchable off with the frame still correct and still in the same order of magnitude. This is invariant C.
-  - A publication domain is a shared identity and address entity; it may contain many samples and tile references. Common identity proof is published once; signal-specific quality and validity remain explicit.
-  - Recommended reuse strategy is decided at publication time, never by a per-tile dynamic cost predictor.
-  - Not every product must be sparse. High-frequency regions legitimately keep geometry near full rate; forcing sparsity everywhere is an incorrect target.
-  - One authority per data product. Consumers get an explicit read interface; no second geometry recovery owner, no consumer-side writes into a shared record.
-  - Replacing a producer and all of its direct consumers is one atomic switch. No adapters, no placeholder effects, no empty consumers, no second production path.
-  - Required full-rate coverage, depth, motion and identity are independent of reuse admission. Bounds, background, invalid input and demanded field branches retain their correctness roles.
-  - Unique GeometryRecord means one production semantics and one demand union, not every primary storing every field. Thin records plus on-demand completion are allowed; a fixed write domain per field is not.
-  - Whole-algorithm sources: read pinned complete upstream implementations before complex work, and keep design, implementation and validated adoption as separate states.
-  - ProgramTemplate, MaterialSnapshot and ExportPlan are separate. Complete unmatched legal graphs use the same General VM; templates are data rather than per-graph GPU command topology.
-  - Typed appearance execution separates semantic width from C/X/Y point domains. Scratch is accounted in live f32 words and complete uniform dependency updates preserve GPU math and publication transactions.
-  - Geometry completion feeds Appearance locally through the unique Geometry owner. Arena-backed prepared attributes and exact resident fallback share one source protocol across Coverage and Surface readers.
-  - Signals retain six independent RGB f32 semantics with explicit validity, rate, transport and version state; consumers preserve original guards and radiometric composition.
-  - Delete rather than adapt: retired owners, no-consumer dependencies and duplicate authority are removed, not bridged.
-  - Real compile failures must be fixed. Weakened assertions, widened tolerances, disabled features and test-only production fallbacks are not ways to pass a unit.
-  - Stage state is maintained only in this workstream's currentSlice and the execution plan. Entry documents must not copy it.
-  - Appearance work domains, actual heavy evaluations and value reads are distinct from coverage, template bins and Lighting rates.
-  - Complete producer-to-consumer cutover units before concentrated checks; defer representation micro-tuning until the core architecture is connected.
+  - One production renderer, one authority per product, one frame submit; no current-frame GPU-to-CPU-to-GPU work control.
+  - Visibility is the opaque winner contract, including alpha-tested coverage and complete lifetime context.
+  - Material graphs compile to native GPU code; no material interpreter in the normal production hot path.
+  - Full-rate native shading is the correctness baseline; command count may follow unique execution bins, never material-instance count proportionally.
+  - No global Surface proof/cache/history operating system and no mandatory six-signal intermediate representation.
+  - Cross-pass products exist only for actual consumers; effect-specific history and cache belong to that effect.
+  - Management must be clearly cheaper than the useful work it enables; optional optimization requires analytical and measured break-even.
+  - Producer, products and all direct consumers switch as one closure, including bindings, abort/retry and retirement.
+  - Delete retired production owners rather than bridge them; do not restore old contracts to pass tests.
+  - Complete one architectural unit before concentrated validation; preserve valid numeric and lifecycle semantics when retiring representation tests.
+  - Capability, capacity and overflow are explicit before allocation; do not truncate identities or lose work for a budget target.
+  - Source facts, target design and validated adoption remain separate; unit state lives in the execution plan and module navigation in currentSlice.
 
 deferredValidation:
-  acceptedDeferrals:
+  legacyRetiringPathDefects:
     - id: B2-NUM-001
-      authority: 用户2026-10-07明确指令
+      status: legacy-retiring-path-known-defect
       record: docs/next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md#22-未关闭正确性问题与用户例外
-      disposition: 暂缓修复，不阻塞C启动；未通过，不提升claim，正式验收前关闭
+      disposition: Unfixed and unresolved; not a V4 legacy-repair blocker. Retire only when the offending old producers are removed; migrate update, abort/retry and numeric semantics to V4 owners.
     - id: B2-NUM-002
-      authority: 用户2026-10-07明确指令
+      status: legacy-retiring-path-known-defect
       record: docs/next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md#22-未关闭正确性问题与用户例外
-      disposition: 暂缓修复，不阻塞C启动；未通过，不提升claim，正式验收前关闭
+      disposition: Unfixed and unresolved; not a V4 legacy-repair blocker. Retire only when the offending old producers are removed; migrate publication atomicity and stable HDR semantics to V4 owners.
   policy: >-
-    Per-unit concentrated checks rather than per-patch gates. Each unit completes its own
-    typecheck/build, targeted semantic tests and, where WGSL or GPU products are involved,
-    real GPU component and wiring checks, then passes the three architecture invariants
-    over its declared production scope before the next unit starts, while reporting
-    unresolved whole-frame scope explicitly. Fix failures inside the unit and pull required consumers
-    forward; never use a retired path, adapter or placeholder to pass. Structural evidence
-    is preferred over counter deltas: assertable structure (for example "one published
-    domain has shared tile references, and declared full-rate samples remain complete") cannot be
-    shrunk the way a counter can. Correctness and cost are reported separately. Formal
-    browser matrix, continuous quality, lifecycle and same-condition historical comparison
-    belong to final acceptance.
-  finalAcceptance:
-    - typecheck and build after the complete target and production wiring
-    - shader compilation, CPU/WGSL numerical oracles, complete coverage and write ownership
-    - browser and resize, camera cut, abort, device recovery and resource retirement
-    - far/near, static/moving, high-frequency normal/ORM, multi-material and strong IBL quality
-    - direct plus VSM, AO on/off, Product LOD/page miss, empty and single Product cases
-    - same-condition independent-checkout comparison against pre-rebuild 09449d6d and the pinned final revision
-    - GTX 1650 Ti 1080p complex scenes with fixed camera, features, browser, warm-up and thermal state
-    - all-cost Surface and GPU frame P50/P95 with hit/miss, geometry, signal, exception, IBL, overflow and memory counters
-    - real command counts, clear/copy ranges, hot/cold writes and live/retired memory with an explainable ledger
-    - the three architecture invariants demonstrated on the final wiring, not inferred from tuning
-    - formal evidence and claim promotion only for actually validated scope, without altering measurement definitions
-
-links:
-  design: docs/next-design/eengine-extreme-performance-rebuild-2026-10.md
-  execution: docs/next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md
-  currentDesign: docs/next-design/eengine-extreme-performance-rebuild-2026-10.md
-  currentExecution: docs/next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md
+    Development uses light targeted checks. Closed units receive concentrated
+    correctness, wiring, lifecycle and cost validation as defined by the execution plan.
+    M1 receives Surface integration acceptance; formal whole-renderer browser,
+    quality, performance evidence and claims wait for final integration.
+    Missing required results keep the corresponding unit incomplete.

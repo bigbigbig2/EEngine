@@ -6,9 +6,11 @@ verifies:
 ---
 # Module C 设计：按需 Surface Fields 与 XeGTAO
 
-> 2026-10-02 方向说明：Surface 内部执行服从[第三版 SurfaceWork 设计](./eengine-extreme-performance-rebuild-2026-10.md)。本文保留 XeGTAO 的语义、来源和 AO 合成边界；其中旧 SurfaceMaterialPass、Dense/Binned 和旧绑定描述是历史基线，实施接线改由 [SurfaceWork V3 执行计划](../next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md) 的 GeometryRecord、signal packet 与真实 consumer 决定。
+> 范围说明：本模块的来源、数学与既有 owner 合同继续供核对；涉及旧 Surface 执行/产品的段落是迁移背景，不定义 V4 核心或独立实施顺序。未来接线服从 [V4 母稿](./eengine-v4-native-shading-2026-10.md) 与活跃 workstream；生产事实查源码/domain。
 
-> 状态：2026-09-27 设计完成，C0–C6 已编码；High scalar AO 已连接生产 Graph 与 Surface 间接消费，真实 GPU 数值、画质与性能尚未核对，C7–C8 待实施。对应[执行文档](../next-execution/surface-fields-xegtao.md)、[整体架构](./eengine-extreme-performance-rebuild-2026-10.md) §3、[架构层计划](../next-execution/eengine-next-architecture-layer-plan-2026.md) §5 和[来源账本 R05](../porting/next-renderer.md)。以下“当前事实”表记录 C0 前的源码基线；目标和成本假设不是已实现、已测量或已通过画质验收的事实。
+> V4 导航：Surface 内部执行服从[V4 Native Shading 母稿](./eengine-v4-native-shading-2026-10.md)。本文保留 XeGTAO 的语义、来源和 AO 合成边界；其中旧 SurfaceMaterialPass、Dense/Binned 和旧绑定描述是历史基线，实施接线改由 [V4 执行计划](../next-execution/eengine-v4-native-shading-execution-2026-10.md) 的 native HDR/Aux 与真实 consumer 决定。
+
+> 状态：2026-09-27 设计完成，C0–C6 已编码；High scalar AO 已连接生产 Graph 与 Surface 间接消费，真实 GPU 数值、画质与性能尚未核对，C7–C8 待实施。对应[执行文档](../next-execution/surface-fields-xegtao.md)、[整体架构](./eengine-v4-native-shading-2026-10.md) §9、[架构层计划](../next-execution/eengine-next-architecture-layer-plan-2026.md) §5 和[来源账本 R05](../porting/next-renderer.md)。以下“当前事实”表记录 C0 前的源码基线；目标和成本假设不是已实现、已测量或已通过画质验收的事实。
 
 ## 1. 要解决的问题
 
@@ -22,7 +24,7 @@ Module B 已将 Standard/Coated 材质、Dense/有界异常工作和直接/环�
 
 ## 2. 历史源码基线与耦合
 
-本节保留 Module C 编写时的历史 SurfaceMaterialPass 事实；当前生产 SurfaceWork V3 的事实以 [Shading domain](../domains/shading.md) 和 [SurfaceWork V3 执行计划](../next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md) 为准。
+本节保留 Module C 编写时的历史 SurfaceMaterialPass 事实；当前生产接线事实查 [Shading domain](../domains/shading.md) 和源码；目标切换见 [V4 执行计划](../next-execution/eengine-v4-native-shading-execution-2026-10.md)。
 
 | 已核对事实（2026-09-27） | Module C 的含义 |
 | --- | --- |

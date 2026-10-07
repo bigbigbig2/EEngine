@@ -30,7 +30,7 @@ Runtime 持有分bank的frame scratch与有限work kernels；FrameProgramLowerin
 
 ## 目标与归纳原则
 
-目标见[极致性能设计](../next-design/eengine-extreme-performance-rebuild-2026-10.md)，切换见[执行计划](../next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md)。薄 GeometryRecord、有限材质 family、需求/率与字段/信号复用属于目标要求；逐项以生产实现和真实 consumer 判定落实程度。
+目标见[极致性能设计](../next-design/eengine-v4-native-shading-2026-10.md)，切换见[执行计划](../next-execution/eengine-v4-native-shading-execution-2026-10.md)。V4 目标是 native material、默认 fused opaque、简单 execution bins 和 demanded Aux；本页上述实现仍是退休中的旧 Surface，只有真实 producer/consumer 切换后才更新事实。
 
 Shading 拥有 Surface 字段/信号工作与重建；geometry/visibility 提供选中源，material/texture 提供 publication/版本，frame-runtime 负责图与提交。来源与阶段映射集中在[porting ledger](../porting/next-renderer.md)，组件旧结果不自动转授新主链 adoption。
 

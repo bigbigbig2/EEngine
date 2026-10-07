@@ -20,4 +20,4 @@ Contracts describe interfaces shared by real producers and consumers. Rationale 
 - [Render Product / GPU Work / History V1](./render-product-work-history-v1.md)：旧合同，供追溯。
 - [Render Product / GPU Work / History V2](./render-product-work-history-v2.md)：旧候选目标，已由当前设计母稿替代。
 
-Surface 的目标与退出要求以[极致性能设计](../next-design/eengine-extreme-performance-rebuild-2026-10.md)和[执行计划](../next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md)为准。最终 ABI 随生产 producer/consumer 稳定后收口。
+Surface 的目标与退出要求以[V4 Native Shading 架构](../next-design/eengine-v4-native-shading-2026-10.md)和[执行计划](../next-execution/eengine-v4-native-shading-execution-2026-10.md)为准。最终 ABI 随生产 producer/consumer 稳定后收口。

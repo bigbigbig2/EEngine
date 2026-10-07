@@ -1,26 +1,10 @@
 ---
 id: eengine-extreme-performance-rebuild-2026-10
-state: current
-verifies:
-  files:
-    - OEngine/src/material/ExactAppearanceDag.ts
-    - OEngine/src/material/AppearanceClosurePlan.ts
-    - OEngine/src/gpu/GpuAppearanceDagAbi.ts
-    - OEngine/src/gpu/GpuAppearancePublication.ts
-    - OEngine/src/gpu/GpuSurfaceWorkAbi.ts
-    - OEngine/src/render/surface
-    - OEngine/src/render/FrameGeometryArena.ts
-    - OEngine/src/render/FrameGeometryVertices.ts
-    - OEngine/src/render/program/FrameProgramLowering.ts
-    - OEngine/src/framegraph/FrameGraph.ts
-    - OEngine/src/debug/SurfacePhaseTiming.ts
-    - OEngine/src/shaders/surface_work.ts
-    - OEngine/src/shaders/surface_work_geometry.ts
-    - OEngine/src/shaders/surface_work_lighting.ts
-    - OEngine/src/shaders/surface_work_reconstruct.ts
-    - OEngine/src/shaders/light_cluster.ts
-    - OEngine/src/render/pipeline/RendererCore.ts
+state: history
+supersededBy: ./eengine-v4-native-shading-2026-10.md
 ---
+
+> 2026-10-07 V4 authority 切换：本文保留当时的提案、决定或实施记录，仅供历史追溯。正文的“current / 当前 / 必须 / 已完成”均属原快照，不再定义未来生产架构；其中性能结果、失败和未验证声明不改写。唯一当前依据见 [V4 authority](./eengine-v4-native-shading-2026-10.md)，文档切换不表示代码已切换。
 
 # EEngine 现有渲染器性能重构设计
 

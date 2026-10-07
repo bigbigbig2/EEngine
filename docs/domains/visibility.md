@@ -21,6 +21,6 @@ Visibility owner 的 traversal、work generation、hardware raster、HZB 与 fra
 
 ## 目标与验证
 
-目标见[极致性能设计](../next-design/eengine-extreme-performance-rebuild-2026-10.md)；执行和退出条件见[当前计划](../next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md)。未来 Virtual Geometry 完整工作域属于该计划，不因已有 virtual 输入绑定就判定完成。
+目标见[极致性能设计](../next-design/eengine-v4-native-shading-2026-10.md)；执行和退出条件见[当前计划](../next-execution/eengine-v4-native-shading-execution-2026-10.md)。未来 Virtual Geometry 完整工作域属于该计划，不因已有 virtual 输入绑定就判定完成。
 
 历史组件检查与来源集中在[porting ledger](../porting/next-renderer.md)。旧 cache/阶段说明由 Git 追溯，不能用作当前实现或完整性能/画质证明。

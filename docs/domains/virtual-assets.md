@@ -25,4 +25,4 @@ Loader/Cooker 提供 Product descriptor/pages；admission 负责验证/激活，
 
 真实 GPU handoff/culling 的检查覆盖所选 producer/consumer 与输入；cook、替换、取消、device recovery、全几何容量和大型场景需要各自生产验证。已存在 virtual 输入绑定不等于未来完整 Virtual Geometry 工作域或完整 VT/Virtual Shadow。
 
-目标和退出要求见[当前设计](../next-design/eengine-extreme-performance-rebuild-2026-10.md)及[执行计划](../next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md)。paused 工作保留其历史/待做范围，不成为活跃 currentSlice 或源码完成证明。
+目标和退出要求见[当前设计](../next-design/eengine-v4-native-shading-2026-10.md)及[执行计划](../next-execution/eengine-v4-native-shading-execution-2026-10.md)。paused 工作保留其历史/待做范围，不成为活跃 currentSlice 或源码完成证明。

@@ -7,7 +7,7 @@ verifies:
 ---
 # 检查、测试与结论范围
 
-开发节奏以根 AGENTS.md 为准，切换单元与测试可信度见[当前执行计划 §1.4](./next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md#14-测试可信度失败修复与阶段完成规则2026-10-05-补齐)。本页说明工具当前能做什么，不复制当前阶段或建立逐 patch 门禁。
+开发节奏以根 AGENTS.md 为准，切换单元与测试可信度见[V4 执行计划：测试可信度](./next-execution/eengine-v4-native-shading-execution-2026-10.md#validation-failure-contract)。本页说明工具当前能做什么，不复制当前阶段或建立逐 patch 门禁。
 
 ## 什么时候检查
 

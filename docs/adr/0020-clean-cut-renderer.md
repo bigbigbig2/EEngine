@@ -6,6 +6,8 @@ verifies:
 ---
 # ADR-0020: EEngine 单路径重建渲染架构
 
+> V4 范围限定：本 ADR 仅继续提供单生产路径、破坏式切换、GPU-first、owner 与唯一提交原则。下文旧 Surface 频率/复用、统一 Work/资源/Temporal 协议、算法选择与阶段顺序保留为原决策背景，不构成 V4 authority 或当前实施任务。唯一未来架构与执行分别见 [V4 母稿](../next-design/eengine-v4-native-shading-2026-10.md) 和 [V4 执行计划](../next-execution/eengine-v4-native-shading-execution-2026-10.md)。
+
 Status: accepted
 
 ## Context
