@@ -6,8 +6,13 @@ import { WINNER_INTERPOLATION_WGSL } from "./winner_interpolation.js";
 import { SURFACE_FRAME_GEOMETRY_WGSL } from "./surface_frame_geometry.js";
 import { surfaceGeometryDecodeWgsl } from "./surface_geometry_reader.js";
 /** Named corners avoid dynamically indexed invocation-private arrays. Only
- * requested attributes are loaded; setup and input math stay Geometry-owned. */
-export function surfaceGeometryCompletionWgsl(product: boolean, frameAttributes = false): string {
+ * requested attributes are loaded; setup and input math stay Geometry-owned.
+ * Isolated math probes may omit diagnostics; production defaults are unchanged. */
+export function surfaceGeometryCompletionWgsl(
+  product: boolean,
+  frameAttributes = false,
+  diagnostics = true,
+): string {
   return /* wgsl */ `
 ${GPU_INSTANCE_RECORD_WGSL}
 ${GPU_FRAME_INSTANCE_WGSL}
@@ -33,7 +38,7 @@ struct GeometryCompletion {
   world_plane: vec4f,
 }
 fn geometry_build_completion(key: u32) -> GeometryCompletion {
-  if settings.diagnostics != 0u { atomicAdd(&work_control[244u], 1u); }
+  ${diagnostics ? "if settings.diagnostics != 0u { atomicAdd(&work_control[244u], 1u); }" : ""}
   var result: GeometryCompletion;
   let decoded = oengine_visibility_key_resolve(key, meshlet_work.header.generation, meshlet_work.header.written_count);
   if decoded.valid == 0u { return result; }

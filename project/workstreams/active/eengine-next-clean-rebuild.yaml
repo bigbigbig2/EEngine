@@ -21,7 +21,9 @@ currentSlice:
   status: active
   goal: >-
     Follow the V4 native shading design and the current unit in the execution plan.
-    Replace the old Surface runtime through complete producer-to-consumer cutovers.
+    Build SurfaceV4 completely outside the production Surface path, then perform
+    one atomic ownership cutover followed immediately by destructive retirement.
+    Do not incrementally migrate production consumers or introduce adapters or dual paths.
     Do not repair retiring R3 mechanisms unless their correctness semantics survive.
     Close one unit with concentrated validation, then stop at the next unit boundary.
     Pause after Surface V4; do not automatically start another large module.
@@ -48,8 +50,8 @@ architectureRules:
   - No global Surface proof/cache/history operating system and no mandatory six-signal intermediate representation.
   - Cross-pass products exist only for actual consumers; effect-specific history and cache belong to that effect.
   - Management must be clearly cheaper than the useful work it enables; optional optimization requires analytical and measured break-even.
-  - Producer, products and all direct consumers switch as one closure, including bindings, abort/retry and retirement.
-  - Delete retired production owners rather than bridge them; do not restore old contracts to pass tests.
+  - Complete SurfaceV4 outside production before switching all owners and direct consumers atomically, including bindings and abort/retry.
+  - Cutover and destructive retirement are one unit; no old/new Surface intermediate dependencies, bridges or restored old contracts to pass tests.
   - Complete one architectural unit before concentrated validation; preserve valid numeric and lifecycle semantics when retiring representation tests.
   - Capability, capacity and overflow are explicit before allocation; do not truncate identities or lose work for a budget target.
   - Source facts, target design and validated adoption remain separate; unit state lives in the execution plan and module navigation in currentSlice.

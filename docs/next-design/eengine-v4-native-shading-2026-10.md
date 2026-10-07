@@ -6,6 +6,7 @@ verifies:
     - project/workstreams/active/eengine-next-clean-rebuild.yaml
     - OEngine/src/render/pipeline/RendererCore.ts
     - OEngine/src/render/program/FrameProgram.ts
+    - OEngine/src/render/program/FrameProgramBindings.ts
     - OEngine/src/render/program/FrameProgramLowering.ts
     - OEngine/src/material/AppearanceGraphCompiler.ts
     - OEngine/src/material/ExactAppearanceDag.ts
@@ -13,11 +14,17 @@ verifies:
     - OEngine/src/shaders/appearance_exact_dag.ts
     - OEngine/src/gpu/AppearanceProgramRegistry.ts
     - OEngine/src/gpu/GpuAppearancePublication.ts
+    - OEngine/src/gpu/GpuRenderWorld.ts
+    - OEngine/src/gpu/GraphicsContext.ts
     - OEngine/src/gpu/TextureResidency.ts
     - OEngine/src/gpu/GpuVisibilityKeyAbi.ts
     - OEngine/src/render/passes/PackedVisibilityPass.ts
     - OEngine/src/render/FrameGeometryArena.ts
     - OEngine/src/render/surface/SurfaceWorkRuntime.ts
+    - OEngine/src/render/surface/SurfaceFrameResources.ts
+    - OEngine/src/render/CoverageRasterBindings.ts
+    - OEngine/src/render/RasterWorkPartitions.ts
+    - OEngine/src/render/vsm/VsmAtlasRasterPass.ts
     - OEngine/src/gpu/GpuSurfaceWorkAbi.ts
     - OEngine/src/render/temporal/TemporalFactsPass.ts
     - OEngine/src/render/passes/fsr3/Fsr3UpscalerRuntime.ts
@@ -43,9 +50,11 @@ verifies:
 
 下表是审查快照的接线事实，不是 V4 实现声明；路径均相对于 `OEngine/src/`。实际调用和依赖须用符号检索，历史行号不能替代源码。
 
+2026-10-07 再次 `git fetch origin` 后，HEAD 与 origin/master 均为 `0386bea5fc59a98cefd3f54d2be589ab9b2ed0eb`，工作区干净。本次按实际调用重新核查实施边界，只调整文档执行模型，没有 native probe 或生产代码改动。此前 `b69a0a60` 是首次 authority 切换的审查快照，不作为永久最新源码。
+
 | 当前 producer / 入口 | 产品与真实 direct consumers | V4 处理 |
 |---|---|---|
-| `render/pipeline/RendererCore.ts`；`render/program/FrameProgramLowering.ts` | prepare/sync publication、TemporalFacts、SurfaceWork、FSR；commit/abort；Sky/Aerial→FSR→Radiometry/Bloom→Present | KEEP composition、唯一提交；REWRITE owner 接线和需求/key |
+| `render/pipeline/RendererCore.ts`；`render/program/FrameProgram.ts/FrameProgramBindings.ts/FrameProgramLowering.ts` | Renderer 构建 `_surfaceWork`，调用 canPrepareFrame/prepareFrame、invalidate、commit/abort、diagnostics/destroy；Lowering 的 `FrameProgramOwners.surfaceWork` 调用 addPublicationToGraph/addToGraph；radiance→Sky/Aerial→FSR，reactive→FSR | KEEP composition、唯一提交；S2 原子 REWRITE owner/lifecycle、需求/key 与全部 direct consumers，不只替换一个 pass |
 | `render/surface/SurfaceWorkRuntime.ts::addPublicationToGraph/addToGraph` | Tape 更新→coverage/work/coherence/cache→Geometry+Appearance→Lighting 六 signals→Reconstruct→radiance/reactive | DELETE 中央 runtime；换 native opaque 及简单 execution bins |
 | `SurfaceFrameResources.ts`；`gpu/GpuSurfaceWorkAbi.ts` | 四 bank closed heap、field/guides、六 RGB+state、cache 控制/请求与 history；供旧 Surface shaders | DELETE 旧产品/预算协议；REUSE limits、物理计账、fence 退休和 bind caching 方法 |
 | `material/AppearanceGraphCompiler.ts::compileAppearanceGraph` | scalar typed IR、CSE/DCE、依赖、共享 sample、过滤语义；publication/compiler consumers | KEEP 图语义/分析；去除 runtime cache policy 推导 |
@@ -63,6 +72,10 @@ verifies:
 
 当前 `GpuAppearancePublication` 同时耦合 coverage、材质数值更新、旧 field/cache identity 和 Tape；不能整类当 KEEP。Geometry 的复用对象是源产品和正确数学，不能继续要求所有 Appearance/Lighting 读取一个跨 pass GeometryRecord。V4 fused 内部可以直接把重建值留寄存器。
 
+当前 `GpuVisibilityKeyAbi` 为 `r32uint`：24-bit meshletWorkSlot + 8-bit localPrimitive，generation/partition 为外部生命周期 context。本模块 KEEP，不主动扩为 64-bit；只有真实能力需求证明不足时才重新评估。
+
+`GpuRenderWorld::prepareAppearance` 等待 publication、主 meshlet 与 VSM alpha pipelines，`GraphicsContext` 持有 registry/static residency 和物理资源账；它们也是发布切换边界。`RasterWorkPartitions` 直接读取 coverageDirectory，TemporalFacts 直接读取 surfaceMetadataOffsets/materialLookup/valueVersions。当前 FrameProgramBindings 检查多个 activeSets/BindingSets，不能把 one-route-only 当作完整合法生产域。Registry 与 publication 必须按职责拆分，静态资产 residency 不因名称带 Appearance 就删除。
+
 ## 3. 历史教训与候选裁决
 
 V1 的 O(P) 不是算法错误，昂贵 Geometry/Material 无条件 pixel-rate 才限制上限；V2 只 sparsify Lighting，前段与中间带宽仍在。旧 V3 把 proof/tree/cache 的管理当便宜，失败同时属于成本模型、抽象和 GPU 映射。R3/R4 的编译期分析、局部 Geometry 与事务发布有价值；General interpreter 的执行表示税、global closure cache 的精确 key/随机访问/atomic/publish 税和六 signal/history 产品不能因已写完就保留。
@@ -75,7 +88,7 @@ V1 的 O(P) 不是算法错误，昂贵 Geometry/Material 无条件 pixel-rate �
 | B Visibility + compact material resolve + deferred light | 若 closure 24B，一写一读增加48B/visible pixel；缩短 live range，真实跨 pass consumer 可获益 | GI/ReSTIR 等可有实际阶段需求；必须说明 energy/composition、产品 owner，不能恢复通用六 signals | 有数据/consumer 时允许有限 profile |
 | C Forward+/GPU-driven raster specialization | 插值/derivatives 硬件便宜，opaque overdraw 执行材质/灯；WebGPU CPU 仍编码已发布 pipeline/binding scopes，不能 GPU 自动切 pipeline | 对部分透明/低 overdraw 适合；VG/winner 与复杂 alpha/pass duplication成本需核 | 不作为 M1 的第二 opaque production；透明模块将来独立论证 |
 
-同主提案普通95% coverage模型：A optimistic/expected/pessimistic 约4.1/6.9/13.0ms；B 加48B roundtrip、提高有效 ALU 的假设下约5.0/7.9/14.5ms。均是未校准预测。C 的额外材质/灯执行以有效 overdraw d 乘对应 pixel 工作项；例如 d=1.5、原 useful pixel shading 6ms 时先增加约3ms，再扣去 A reconstruction/bin 税，不宣称跨路线实测优劣。A/B 的真实分界由 S4.0/S4.2 数据决定。
+同主提案普通95% coverage模型：A optimistic/expected/pessimistic 约4.1/6.9/13.0ms；B 加48B roundtrip、提高有效 ALU 的假设下约5.0/7.9/14.5ms。均是未校准预测。C 的额外材质/灯执行以有效 overdraw d 乘对应 pixel 工作项；例如 d=1.5、原 useful pixel shading 6ms 时先增加约3ms，再扣去 A reconstruction/bin 税，不宣称跨路线实测优劣。A/B 的物理分界先由 V4-S0 隔离数据判断，再于 V4-S3 完整 production 验收核对。
 
 ## 4. 目标帧流与 ownership
 
@@ -97,6 +110,18 @@ Material compiler owns typed IR、依赖/频率、CSE/DCE、导数及 native sou
 
 Lighting providers 保留 cluster/overflow、VSM query、BRDF、IBL/DFG、sun/atmosphere 和 AO 语义；模块化 WGSL helpers 由生成器组合进 native kernel，模块解耦不要求写显存。Renderer 只 composition；Frame Program 只有限需求/图结构与绑定角色；FrameGraph 只宏 dependency、lifetime、兼容资源 alias 和 execute，最终 submit 仍由现有帧 owner 完成。
 
+### 4.1 完整构建与唯一原子切换
+
+SurfaceV4 采用 **complete construction → atomic cutover + immediate destructive purge → acceptance**，分阶段开发，不分阶段迁移 production。V4-S0 是小型 native viability 实验；V4-S1 在非生产环境完成全部 subsystem、multi-route、publication、Aux 和生命周期闭包；V4-S2 一次切换全部 production ownership 并在同一单元立即删除旧 Surface；V4-S3 在纯 V4 生产链上验收。详细阶段与状态只见执行计划。
+
+- 新 subsystem 可与旧 renderer 在源码共存，但不得作为第二条 production renderer；S1 中 RendererCore/FrameProgram 生产仍完整走旧 Surface。
+- 新 V4 中间产品不得供给旧 Surface 中间 owner；V4 hot path 不得依赖旧 heap/Tape/cache/coherence/signals/history/Reconstruct/work packet。
+- 允许共享 GPU Scene、Geometry/Visibility、纹理与 lighting providers、编译分析、FrameGraph、计账/提交等基础设施；复用旧 shader 数学时先拆掉 runtime 协议。
+- 只有 production-equivalent 功能闭包完整、包含当前合法多 program/多 BindingSet/alpha/Temporal 场景后，才切换生产 owner；one-route 是 S1 内部 vertical slice。
+- cutover 与 retirement 属于一个架构单元；不留死 owner、旧 allocations/config/tests/contracts 或“稍后删除”，不增加兼容桥、fallback VM 或新旧 runtime flag。
+
+阶段内部允许暂时不编译、断图或仅隔离 harness；稳定边界只有 100% 旧生产或 100% SurfaceV4 生产，不为始终出图保留临时 ABI。Git history 是旧实现的保留方式。Surface 验收完成后停止，根据实际代码重新设计下一大模块。
+
 ## 5. Material execution 与工作组织
 
 ```text
@@ -112,7 +137,7 @@ Material/Frame/View/Dynamic frequency extraction 是编译期真实依赖分析�
 
 Instance count、unique Program、Pipeline、ExecutionBin 分开计：`ExecutionBin = Pipeline + compatible physical BindingSet/profile`。参数值/texture layer/实例数量不制造 ProgramKey；拓扑、采样语义、resource layout、output/profile/真实 specialization 可进入 key。10000 instances/几十 programs 合法；几十 native dispatch 合法。registry 的现有128 admission不是永久性能常量；发布期协商 capacity/compilation，未 ready 的新 publication不进入当前帧，保持已提交资产或显式失败/等待，不用 fallback VM 或默认材质遮错。
 
-最初只两种组织：单 execution route 直接 dense；多 route 用 CompactPixelBins。8×8 tile 做局部计数/聚合→按屏幕 shard 的 histogram→small prefix→重访 Visibility、局部 rank/预留、compact pixel indices→每个已发布 bin 的 native indirect dispatch。pipeline/bind group 由 CPU 已知 publication 编码；count 由 GPU 决定，空 bin 的 indirect work 为零。无本帧 readback，CPU命令可随 unique execution bins 增长，不随实例数同比增长；不要求所有场景固定几个 dispatch。
+最初只两种组织，均须在 S1 非生产构建完成后才能切换：单 execution route 直接 dense；多 route 用 CompactPixelBins。8×8 tile 做局部计数/聚合→按屏幕 shard 的 histogram→small prefix→重访 Visibility、局部 rank/预留、compact pixel indices→每个已发布 bin 的 native indirect dispatch。pipeline/bind group 由 CPU 已知 publication 编码；count 由 GPU 决定，空 bin 的 indirect work 为零。无本帧 readback，CPU命令可随 unique execution bins 增长，不随实例数同比增长；不要求所有场景固定几个 dispatch。
 
 给出首版计量参数而非冻结 ABI：B execution bins、S shards、P screen pixels、V valid winners、T tiles、U mean unique bins/tile。queue最多V个u32 index，约4V；按P保守容量4P；histogram约4BS，offset/cursor/args另计。tile dense counters需4B shared bytes，B增长会增加初始化/scan成本；portable实现不能依赖固定wave宽度。容量/2D dispatch/整数范围在发布与extent边界协商，越界不得丢像素。超 profile 显式拒绝发布/降低有依据的资源预算，或实现经过验证的新本地布局；不偷切旧 renderer。
 
@@ -130,7 +155,7 @@ SortedTileRoutes、额外PixelCompaction层、ProgramPage、NativeSwitch、Softw
 | Temporal | motion `rg16float` 4B；reactive/validity/change mask按实际consumer布局，当前mask合并候选 `rgba8unorm` 4B | 新增≤8B/pixel起点约15.82MiB；FSR/debug需求；identity history归Temporal，单独计账 |
 | Reflection/GI（有真实consumer才启用） | world normal+perceptual roughness、albedo/metallic或有限response/flags | 8–16B/pixel候选；SSR/GI完整profile可能要求coat/response额外字段，须cost card，不能预分配 |
 
-当前 Temporal identity 双 `rgba32uint` 是32B/pixel持久数据、1080p约63.28MiB，与winner16/32/64-bit选择无关。S4.2先保正确change/reprojection语义，S4.4再决定重算、有限签名/存储或删去无 consumer字段；不是硬性预算要求一定压缩。若新winner contract确实需要2×u32，使用8B并记多出7.91MiB；不能截断身份以达4B。现有32-bit winner+完整外部context是可用起点，不预先改宽。
+当前 Temporal identity 双 `rgba32uint` 是32B/pixel持久数据、1080p约63.28MiB，与winner16/32/64-bit选择无关。S1 从真实 Temporal/FSR consumer 倒推 change/reprojection 契约，决定重算、有限签名/存储或删去无 consumer 字段，并在隔离闭包验证；S2 同步切换全部读写者，不能先迁生产再补语义，也不以预算强迫压缩。若新winner contract确实需要2×u32，使用8B并记多出7.91MiB；不能截断身份以达4B。现有32-bit winner+完整外部context是可用起点，不预先改宽。
 
 内部 f32 数学默认保留；fp16或packed storage必须说明坐标系、值域、invalid编码、误差预算及图像验证。建议待验证预算：motion投影误差≤0.1 render pixel（越界/溢出显式invalid），普通normal方向≤0.5°、低roughness高光单独更严格评估，roughness quantization≤1/255、response线性域≤1/255；这些不是放宽旧测试的授权。若候选格式无法满足，保留更高精度。HDR保留已有pre-exposure与fp16范围契约，高亮/暗部/coat不只用均值误差。CPU reference不把JS transcendental结果视为GPU逐bit oracle。
 
@@ -138,11 +163,11 @@ SortedTileRoutes、额外PixelCompaction层、ProgramPage、NativeSwitch、Softw
 
 沿主提案统一规划模型，不拼两份提案的不同假设：1080p P=2,073,600，8×8 T=32,400；95% V=1,969,920。普通PBR平均8相交lights、9个抽象texture queries（material/IBL/VSM合计，PCF tap另明细）、约1200 scalar FLOP-equivalent与6个sqrt/pow等special ops/visible pixel。FMA按2 FLOPs计；索引、整数、branch指令不硬换成FLOPs，其成本纳入实测有效吞吐与residual；special ops逐类校准，不假定pow与sqrt同吞吐。外存等效208B read+16B write=224B，其中64B random storage是总量子集。texture query不是单texel，filter taps/压缩/cache必须在校准模型单列；不得把峰值硬件带宽当预测。
 
-沿主提案 expected 假设：有效 mixed memory 90GB/s、ALU 0.85TFLOP/s、texture 8G queries/s、random storage 35GB/s、special-op 等效 15Gop/s；全部是未测参数，需按具体 access pattern/操作类别校准。约441.26MB/frame外存、2.78ms compute floor、4.90ms bandwidth floor、2.22ms texture floor、3.60ms random floor、0.79ms special-op floor。主提案近似式是 `M + max(f) + α × (sum(f) − max(f))`，其中 `f=[max(tBW,tRandom),tALU,tTexture,tSpecial]`，expected `M=0.8ms, α=0.2`；重叠修正不是物理定律，须与真实混合 kernel核对。Texture/random均已包含bytes，不能在bandwidth再重复加一份流量。224B模型含 compact-list读取及管理假设；S4.0/2 one-route没有该queue，必须单独减掉对应读写/管理，不能把6.9ms直接当其测量预期。
+沿主提案 expected 假设：有效 mixed memory 90GB/s、ALU 0.85TFLOP/s、texture 8G queries/s、random storage 35GB/s、special-op 等效 15Gop/s；全部是未测参数，需按具体 access pattern/操作类别校准。约441.26MB/frame外存、2.78ms compute floor、4.90ms bandwidth floor、2.22ms texture floor、3.60ms random floor、0.79ms special-op floor。主提案近似式是 `M + max(f) + α × (sum(f) − max(f))`，其中 `f=[max(tBW,tRandom),tALU,tTexture,tSpecial]`，expected `M=0.8ms, α=0.2`；重叠修正不是物理定律，须与真实混合 kernel核对。Texture/random均已包含bytes，不能在bandwidth再重复加一份流量。224B模型含 compact-list读取及管理假设；S0 one-route probe 没有该 queue，必须单独减掉对应读写/管理，不能把6.9ms直接当其测量预期。
 
 | 工作负载 | 主提案预测 optimistic / expected / pessimistic ms | 规划解释 |
 |---|---:|---|
-| 高coverage普通PBR | 4.1 / 6.9 / 13.0 | 6–9ms量级目标，需S4.0/2校准 |
+| 高coverage普通PBR | 4.1 / 6.9 / 13.0 | 6–9ms量级目标，需 S0 校准、S3 production 核对 |
 | 复杂PBR | 6.7 / 11.4 / 23.4 | 9–15ms量级目标，sample/ALU/spill敏感 |
 | 高多灯 | 7.2 / 13.1 / 28.1 | 11–18ms量级目标，light/VSM预算单列 |
 
@@ -154,7 +179,7 @@ SortedTileRoutes、额外PixelCompaction层、ProgramPage、NativeSwitch、Softw
 
 4GB按物理对象去重记resident/transient/history/upload/retired及resize峰值。当前TextureResidency最高2GiB、Arena256MiB、旧Surface768MiB不能独立取满后称满足4GB。V4规划示例：texture pools1024MiB、geometry/scene640MiB、VSM256MiB、Temporal/Post192MiB、HDR/depth/visibility/Aux/bins128MiB、environment128MiB、inflight/upload/retired384MiB，合计2752MiB；剩余1344MiB是浏览器/driver/未核产品与安全余量，绝不是可用VRAM实测。M1必须按真实live/peak重新账算，streaming/质量/在途容量不能各自吞同一余量。native1080p/60的全开VSM+GI+SSR+Atmosphere+Temporal在1650Ti不作为现实保证；quality tiers、render scale/DRS/Upscaling由后续owner预算协同，不能隐藏减少材质语义/漏工作。
 
-小型 calibration值得作为开发方法：顺序读/写/read-write、随机gather、unique/sharded/contended atomicAdd/CAS、texture sampling（过滤/LOD/locality）、ALU/transcendental、shared/barrier、dispatch/pass overhead，optional subgroup。固定输入/结果sink防DCE，GPU作业串行，timestamp可用才报GPU时间；不可用标明缺口，不将CPU wall冒充GPU ms。记录effective吞吐范围而非单峰值；微基准模型不代替混合PBR kernel/真实production。不扩成一个大型runtime校准/自动调度系统。
+小型 calibration 值得作为开发方法，但按实际问题取最小范围：S0 只需顺序读/写、随机 geometry gather、texture locality、ALU 和 dispatch/pass 固定成本，以及 fused/compact split。atomic/CAS、shared/barrier、subgroup 只在后续 work organization 真正需要且 Cost Card 无法解释时补针对性实验，不预建矩阵。固定输入/结果 sink 防 DCE，GPU 作业串行，timestamp 可用才报 GPU 时间；不可用如实标明，不将 CPU wall 冒充 GPU ms。记录 effective 吞吐范围，微基准不代替混合 PBR/production，也不扩成 runtime 校准或自动调度系统。
 
 ## 8. WebGPU物理约束
 
@@ -184,6 +209,6 @@ fused shader 的bindings必须包括winner、geometry sources、instances/public
 
 固定来源、license、具体函数及拟本地阶段见[来源账本 V4条目](../porting/next-renderer.md#v4-planning-source-map)。Wicked的analyze/resolve/shade/host支持分类与native消费的物理参考；Forge支持bary/derivative/SampleGrad数学；现有Filament/MaterialX/scan来源支持owner/编译/扫描边界。不把其bindless/wave/nativeAPI照搬为WebGPU，也不把几个参考文件叫完整算法采用。
 
-最容易再次失败：native program×BindingSet膨胀、编译/发布卡顿、fused live ranges导致spill、compact indices破坏texture/cluster locality、高coverage随机Geometry访问、误改C/X/Y/LOD/normal、bindings超limits、Aux膨胀、history中央化、计时scope漏算和微基准过拟合。分别在 S4.0–5用native数据、程序/route矩阵、独立oracle、真实consumer、完整物理账和failure分类核对。
+最容易再次失败：native program×BindingSet膨胀、编译/发布卡顿、fused live ranges导致spill、compact indices破坏texture/cluster locality、高coverage随机Geometry访问、误改C/X/Y/LOD/normal、bindings超limits、Aux膨胀、history中央化、计时scope漏算和微基准过拟合。分别在 S0–S3 用native数据、程序/route矩阵、独立oracle、真实consumer、完整物理账和failure分类核对。
 
 母稿不保存阶段状态。改变选择必须写明被证伪假设、真实work/quality/limits与Cost Card；不能为了pass少、dispatch固定、cache hit高或旧测试形状恢复R3。当前实施单元及边界只读[执行计划](../next-execution/eengine-v4-native-shading-execution-2026-10.md)和workstream。

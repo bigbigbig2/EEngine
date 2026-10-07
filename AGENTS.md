@@ -7,7 +7,7 @@
 ## 开发节奏
 
 1. 用 `node tools/vibe.mjs context <path>` 查询 owner/文档入口，阅读当前源码、直接消费者和近目录约束。导航不是许可或验证门禁。
-2. 按当前 architecture unit 连续完成 producer→产品→全部直接 consumer、绑定/reset/capacity、提交/中止/重试与退休。仅一条 production renderer；切换后删除旧生产依赖，Git 用于追溯，不建 A/B bridge、adapter 或 fallback VM。
+2. 按当前 architecture unit 连续完成 producer→产品→全部直接 consumer、绑定/reset/capacity、提交/中止/重试与退休。Surface V4 先在非生产环境完整构建并验证内部闭包，再于一个原子单元切换全部 production ownership 并立即删除旧依赖；不逐步迁移 production consumers。阶段内允许暂时不可运行，稳定边界仅一套 Surface 架构；Git 用于追溯，不建 A/B bridge、adapter 或 fallback VM。
 3. 开发中按需要 typecheck、shader compile、build 或极小 targeted/oracle；不每 patch 跑全套、browser、benchmark、evidence、claims、clean revision 或文档门禁。阶段内可临时断链，单元结束修复真实编译失败并闭合实际产品。
 4. 单元闭合后 architecture review，再集中 typecheck/build、新鲜 build:test、必要独立语义/生命周期与真实 GPU 接线/成本检查，GPU 作业串行。保存原失败、分类定位根因、局部修复并重跑受影响验证；未运行/缺项/必需失败如实未完成。
 5. 单元关闭后停在下一单元边界。大模块完成后暂停，依据实际代码重新设计下一模块；不能自动跨多个大模块。正式全 Renderer browser/画质/同条件 P50/P95、evidence/claims 留最终集成；当前单元必需正确性与成本不因此后移。

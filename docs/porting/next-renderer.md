@@ -7,6 +7,9 @@ verifies:
     - OEngine/src/gpu/GpuAppearancePublication.ts
     - OEngine/src/render/surface
     - OEngine/src/framegraph/FrameGraph.ts
+    - OEngine/src/shaders/surface_geometry_completion.ts
+    - OEngine/tests/oracle/native-surface-shader.mjs
+    - OEngine/tests/oracle/native-surface-gpu.mjs
 ---
 # EEngine Next：开源迁移来源与采用边界
 
@@ -20,16 +23,28 @@ verifies:
 
 | 固定来源 / license / 入口 | 拟本地单元与输入→产品→consumer | 必保条件 / 本地适配 / 未覆盖 |
 |---|---|---|
-| SF01 Wicked `df44c3db4c4927492bc9c791eac715d98d7ed091`，MIT；`visibility_analyzeCS.hlsl::main`、`visibility_resolveCS.hlsl::main`、`visibility_shadeCS.hlsl::main`、`wiRenderer.cpp::Visibility_Shade` | S4.0/2 native shade 参考，S4.3 Visibility/material route→counts/compact indices/indirect→native pipeline/HDR | 保 winner/背景、uniform/divergent 分类、完整 work 与 host dispatch 物理边界；Wicked tile masks不能冒称本地 CompactPixelBins 原样移植。sharded histogram/two-pass scatter 为具名本地方案；不照搬 bindless、Wave/push constants或硬件 pipeline 切换 |
-| SF03 Forge `cd5046893faba2dc7869243873bf01f02a6f0df9`，Apache-2.0；`VisibilityBufferShadingUtilities.h.fsl::CalcFullBary/Interpolate2DWithDeriv`、`VisibilityBufferShade.frag.fsl::PS_MAIN` | S4.0/2 winner+corners→bary/derivatives/material→HDR；S4.1 graph coordinate/Grad 数学核对 | 近裁剪/退化/透视/导数/normal/filter条件保留；其 consumer是fragment、使用nonuniform资源索引，不是portable compute bin donor |
-| SF04 Filament `bb360e80259167c986e94db7b70153bcdb92c0e1`，Apache-2.0；`filament/src/fg/FrameGraph.cpp::compile/execute`及资源节点；同revision `libs/gltfio/src/UbershaderProvider.cpp` | S4.1 Program/Instance与publication lifecycle；S4.2/4/5现有 FrameGraph product→consumer/lifetime | 已有本地 FrameGraph KEEP；WebGPU queue fence/abort/late binding是本地集成，不移植nativeallocator；不据rasterprovider认定compute成本 |
-| MaterialX `2d516f56752abbb8bc5d6d438bfb7970d1b6f8f7`，Apache-2.0；`source/MaterialXGenGlsl/WgslShaderGenerator.cpp`；既有SF07图分析另有固定revision，不能混用 | S4.1 graph→validated typed IR/CSE/DCE/frequency/CXY→native source→registry | 只参考compiler/resourcebackend边界；该文件继承Vk generator，不能当完整可运行EEngineWGSLdonor。EEngine native lowering为本地实现，保现有合法graph/采样语义，不宣称MaterialX全节点支持 |
-| GPUPrefixSums `98d93a4e9ed2f3c8353119515bf9be90a2e137ad`，MIT；`GPUPrefixSumsWebGPUapis/SharedShaders/rts.wgsl`（继承下文SF账本范围） | S4.3 counts→small prefix/offsets→scatter/indirect | 源版本有subgroups，portable共享内存scan不能只删subgroup调用；首版小表可用具名本地scan，多层/进度/overflow输入边界独立验证，不建大型scan框架 |
-| 已有 R05 XeGTAO、VSM/IBL/BRDF、R12/R24/R25 FSR/Temporal/曝光固定来源，revision/license见对应日期条目 | S4.0/2 native Lighting/AO/VSM query→HDR；S4.4 HDR/motion/reactive/exposure→实际 FSR stages→输出 | 保既有完整算法条件/颜色域/资源缺页/overflow/reset；本次只规划 consumer接线，不更新这些算法adoption。ReSTIR/GI/SSR完整donor留对应模块设计 |
+| SF01 Wicked `df44c3db4c4927492bc9c791eac715d98d7ed091`，MIT；`visibility_analyzeCS.hlsl::main`、`visibility_resolveCS.hlsl::main`、`visibility_shadeCS.hlsl::main`、`wiRenderer.cpp::Visibility_Shade` | S0 native shade 参考，S1 非生产构建 Visibility/material route→counts/compact indices/indirect→native pipeline/HDR | 保 winner/背景、uniform/divergent 分类、完整 work 与 host dispatch 物理边界；Wicked tile masks不能冒称本地 CompactPixelBins 原样移植。sharded histogram/two-pass scatter 为具名本地方案；不照搬 bindless、Wave/push constants或硬件 pipeline 切换 |
+| SF03 Forge `cd5046893faba2dc7869243873bf01f02a6f0df9`，Apache-2.0；`VisibilityBufferShadingUtilities.h.fsl::CalcFullBary/Interpolate2DWithDeriv`、`VisibilityBufferShade.frag.fsl::PS_MAIN` | S0/S1 winner+corners→bary/derivatives/material→HDR；S1 graph coordinate/Grad 数学核对 | 近裁剪/退化/透视/导数/normal/filter条件保留；其 consumer是fragment、使用nonuniform资源索引，不是portable compute bin donor |
+| SF04 Filament `bb360e80259167c986e94db7b70153bcdb92c0e1`，Apache-2.0；`filament/src/fg/FrameGraph.cpp::compile/execute`及资源节点；同revision `libs/gltfio/src/UbershaderProvider.cpp` | S1 Program/Instance 与 publication lifecycle；S2 原子切换现有 FrameGraph product→consumer/lifetime 并立即退休，S3 验收 | 已有本地 FrameGraph KEEP；WebGPU queue fence/abort/late binding是本地集成，不移植nativeallocator；不据rasterprovider认定compute成本 |
+| MaterialX `2d516f56752abbb8bc5d6d438bfb7970d1b6f8f7`，Apache-2.0；`source/MaterialXGenGlsl/WgslShaderGenerator.cpp`；既有SF07图分析另有固定revision，不能混用 | S1 graph→validated typed IR/CSE/DCE/frequency/CXY→native source→registry | 只参考compiler/resourcebackend边界；该文件继承Vk generator，不能当完整可运行EEngineWGSLdonor。EEngine native lowering为本地实现，保现有合法graph/采样语义，不宣称MaterialX全节点支持 |
+| GPUPrefixSums `98d93a4e9ed2f3c8353119515bf9be90a2e137ad`，MIT；`GPUPrefixSumsWebGPUapis/SharedShaders/rts.wgsl`（继承下文SF账本范围） | S1 非生产 bins counts→small prefix/offsets→scatter/indirect | 源版本有subgroups，portable共享内存scan不能只删subgroup调用；首版小表可用具名本地scan，多层/进度/overflow输入边界独立验证，不建大型scan框架 |
+| 已有 R05 XeGTAO、VSM/IBL/BRDF、R12/R24/R25 FSR/Temporal/曝光固定来源，revision/license见对应日期条目 | S0/S1 native Lighting/AO/VSM query→HDR；S1 HDR/motion/reactive/exposure→实际 FSR stages→输出，S2 一次切换所有生产读者 | 保既有完整算法条件/颜色域/资源缺页/overflow/reset；本次只规划 consumer接线，不更新这些算法adoption。ReSTIR/GI/SSR完整donor留对应模块设计 |
 
 固定链接与许可依据沿用 SF01/SF03/SF04 的下表；新增 compiler 参考：[MaterialX source](https://github.com/AcademySoftwareFoundation/MaterialX/blob/2d516f56752abbb8bc5d6d438bfb7970d1b6f8f7/source/MaterialXGenGlsl/WgslShaderGenerator.cpp)、[Apache-2.0 license](https://github.com/AcademySoftwareFoundation/MaterialX/blob/2d516f56752abbb8bc5d6d438bfb7970d1b6f8f7/LICENSE)。scan参考：[WGSL source](https://github.com/b0nes164/GPUPrefixSums/blob/98d93a4e9ed2f3c8353119515bf9be90a2e137ad/GPUPrefixSumsWebGPUapis/SharedShaders/rts.wgsl)、[MIT license](https://github.com/b0nes164/GPUPrefixSums/blob/98d93a4e9ed2f3c8353119515bf9be90a2e137ad/LICENSE)。作者论文/资料边界见主提案固定来源章节；DOOM coarse/VRS不列为M1必需移植，ReSTIR论文不替代完整开源实现。
 
 测试映射见 [V4 execution §5](../next-execution/eengine-v4-native-shading-execution-2026-10.md#5-source-mapping与测试迁移)。阶段内来源/本地差异按实际实现补齐；只有source核对、独立WGSL/CPU oracle、真实新production consumer证据齐全才调整采用状态。后面的R3/R4历史记录与失败结果不重写。
+
+### 2026-10-07：S0 本地 native useful-work 实验（非生产采用）
+
+沿用 SF03 固定 revision/Apache-2.0，重新核读 `VisibilityBufferShadingUtilities.h.fsl` 的完整 `CalcFullBary`、插值/derivative 与动态数组索引注释；本轮复用已有本地齐次 winner 扩展与生产数学，不复制 Forge 的 fragment/bindless renderer。没有移植新的完整效果或程序分类算法；S0 runner、fixture 与 calibration 是具名本地集成，不是外部算法采用。
+
+| 核读/复用入口 | 本轮实际输入→产品→consumer | 差异 / 未覆盖 |
+|---|---|---|
+| SF03 `CalcFullBary/Interpolate2DWithDeriv`，已有 `winner_interpolation` / `surface_geometry_completion` | 真正 raster winner、arena/source corners→齐次 barycentric/CXY→native textureSampleGrad/HDR | 本地 W=0/负 W 数学保持；本轮实际 fixture 是 orthographic identity，透视/负 determinant 的新生产 oracle 尚未交付 |
+| 现有 StandardAppearanceGraph 与 production `lighting_direct` / `environment_ibl` | 原 native Standard 数学、LightDatabase/cluster、resident VSM/非零 IBL→HDR | CPU oracle 独立 double algebra；旧 DirectLightingReference 的 diffuse-energy convention 不同，不冒充同语义 oracle；不提升 Filament/IBL/VSM 完整 adoption |
+| FrameGeometryArena/FrameGeometryVertices 与 GPU timing/oracle infrastructure | actual ABI producer→prepared arena / resident fallback→isolated native shader；timestamps/readback→Cost Card | Scene、TextureResidency/routes、cluster/VSM producer 为简化 fixture，未切 production ownership；完整限制和结果只在 execution §3.1 |
+
+来源 review、隔离 GPU 数值与物理成本本轮已记录，但 **新 production 消费证据不存在**；不提升来源 adoption、性能 claim 或 domains 的 Surface 生产状态。S1 完整 native compiler/publication 与 S2 唯一原子切换仍未实施。
 
 ## 2026-10-05：Surface 集中重建的固定来源与阶段映射
 

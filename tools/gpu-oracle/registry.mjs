@@ -11,6 +11,27 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "native-surface-numeric",
+    file: "OEngine/tests/oracle/native-surface-gpu.mjs",
+    url: "/OEngine/tests/oracle/native-surface-gpu.mjs",
+    entry: "runNativeSurfaceGpuNumericProbe",
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    requiredFeatures: ["timestamp-query"],
+    description: "S0 targeted numeric validation without the timing/calibration matrix.",
+    timeoutMs: 60000,
+  }),
+  Object.freeze({
+    name: "native-surface-viability",
+    file: "OEngine/tests/oracle/native-surface-gpu.mjs",
+    url: "/OEngine/tests/oracle/native-surface-gpu.mjs",
+    entry: "runNativeSurfaceGpuProbe",
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    requiredFeatures: ["timestamp-query"],
+    description: "S0 isolated native Geometry/PBR/cluster/VSM/IBL costs and compact44 comparison.",
+    timeoutMs: 180000,
+    note: "Not production performance or an alternate renderer. Reports fixture simplifications; the execution authority decides viability from reviewed evidence, not the harness pass flag."
+  }),
+  Object.freeze({
     name: "surface-closure-cache-cost",
     file: "OEngine/tests/oracle/surface-work-gpu.mjs",
     url: "/OEngine/tests/oracle/surface-work-gpu.mjs",
