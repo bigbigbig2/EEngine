@@ -21,7 +21,7 @@ namespace {
 
 using namespace oengine::asset;
 
-constexpr std::uint32_t kAbiVersion = 3u;
+constexpr std::uint32_t kAbiVersion = 4u;
 /** Upper bound on per-cook worker threads; the pthread pool is sized the same. */
 [[maybe_unused]] constexpr std::uint32_t kMaxCookThreads = 8u;
 constexpr std::uint32_t kCanonicalHeaderBytes = 128u;

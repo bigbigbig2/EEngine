@@ -650,7 +650,7 @@ frequency extraction也要计update/persistent uniform/边界读取成本，不�
 
 ### 8.1 当前边界与单元顺序
 
-**M2 已进入实施，G2.0/G2.1 关闭，G2.2=next。** 规划时 2026-10-08 fetch 后 HEAD/origin/master=`a66667e04222481ca130c4c6d878118bf649bb9f`，起始工作区干净；规划已提交为 `d44823e2c11415fe7c24364c4c41a661bb181a8e`，随后按用户授权实施 G2.0/G2.1。M1结果、28个既有失败及未运行项不被追改。真实数据流、KEEP矩阵、Q1–Q7、成本卡、WebGPU limits与参考比较见[母稿 §11](../next-design/eengine-v4-native-shading-2026-10.md#11-m2--geometry--virtual-geometry-alignment--scale-optimization)；本节保存执行边界和实际状态，结果见 §8.2.1/§8.3.1。
+**M2 已进入实施，G2.0/G2.1/G2.2 关闭，G2.3=next。** 规划时 2026-10-08 fetch 后 HEAD/origin/master=`a66667e04222481ca130c4c6d878118bf649bb9f`，起始工作区干净；规划已提交为 `d44823e2c11415fe7c24364c4c41a661bb181a8e`，随后按用户授权实施前三个单元。M1结果、28个既有失败及未运行项不被追改。真实数据流、KEEP矩阵、Q1–Q7、成本卡、WebGPU limits与参考比较见[母稿 §11](../next-design/eengine-v4-native-shading-2026-10.md#11-m2--geometry--virtual-geometry-alignment--scale-optimization)；本节保存执行边界和实际状态，结果见 §8.2.1/§8.3.1/§8.4.1。
 
 ```mermaid
 flowchart TD
@@ -666,8 +666,8 @@ flowchart TD
 |---|---|---|
 | G2.0 Product / Scene Scale Contract | **closed，结果与限制见 §8.2.1** | 合法 descriptor、实际 depth/capacity/overflow 与独立 fixtures 已闭合；不是大场景性能验收 |
 | G2.1 Budgeted Residency & Multi-Product Streaming Closure | **closed，结果与限制见 §8.3.1** | ABI3实际容量、唯一GPU目录/fence回收、bounded公平IO、压力pump与全部Product恢复闭合 |
-| G2.2 Lean Geometry Products & Native Consumers | **next，未开始** | 依 G2.1 地址/lifecycle，减无reader payload和Arena重复字段，所有native消费者一次切换 |
-| G2.3 View Work Closure & Scale Tuning | pending | 依合法容量/精简输入，完成actual-count work、shadow独立coverage与低管理税；不扩Lighting范围 |
+| G2.2 Lean Geometry Products & Native Consumers | **closed** | lean v7 cook/recook、96B frame attributes、需求预留与全部native readers闭合，见 §8.4.1 |
+| G2.3 View Work Closure & Scale Tuning | **next，未开始** | 依合法容量/精简输入，完成actual-count work、shadow独立coverage与低管理税；不扩Lighting范围 |
 | G2.4 Geometry Scale Acceptance | pending | 前述全部闭合后的大场景、压力、质量/生命周期/真实成本集中验收；随后STOP |
 
 这是五个architecture units，不是几十个patch或五套authority。G2.0先定义容量所需语义和基本合法producer；G2.3消费该合同实现实际work编码/优化，不能将G2.0必要正确性拖到后面。局部owner重写按“完整construction→全部direct consumers原子切换→立即purge→集中验证”；稳定边界仍一个Geometry产品合同，无A/B adapter、legacy decoder或运行时兼容owner。原本正确的cook、Scene、FrameGraph、Surface与算法基础保持，不重建整模块。
@@ -809,7 +809,7 @@ GPU串行，同最终build，Chrome154 Windows/NVIDIA Turing；压力boundary or
 
 ### 8.4 G2.2 — Lean Geometry Products & Native Consumers
 
-**责任闭包：** native/WASM cook + OEGPACK/provider→lean versioned Product/raw pages/resident attributes；GPU frameprepare→lean Arena→NativeVisibility/nativeWinnerGeometry/nativeSurface/HZB/debug/VSM/Temporal全部实际readers。读取native `GeometryCooker.cpp`、`GeometryCookRecipe`、`GeometryContinuityAbi`、`GeometryProductBinaryV1`、`WasmGeometryProductV1`、`GeometryResidentAttributes`、`GeometryProductResidentAttributes`、`GpuFrameGeometryArenaAbi`、`GpuFrameGeometryAttributesAbi`、`FrameGeometryVertices`、`frame_geometry_vertices`、`surface_geometry_completion`、`MeshletBucketRaster` 和全部caller。
+**责任闭包：** native/WASM cook + OEGPACK/provider→lean versioned Product/raw pages/resident attributes；GPU frameprepare→lean Arena→NativeVisibility/nativeWinnerGeometry/nativeSurface/HZB/debug/VSM/Temporal全部实际readers。读取native `GeometryCooker.cpp`、`GeometryCookRecipe`、当时的 `GeometryContinuityAbi`（本单元已删除无reader实体）、`GeometryProductBinaryV1`、`WasmGeometryProductV1`、`GeometryResidentAttributes`、`GeometryProductResidentAttributes`、`GpuFrameGeometryArenaAbi`、`GpuFrameGeometryAttributesAbi`、`FrameGeometryVertices`、`frame_geometry_vertices`、`surface_geometry_completion`、`MeshletBucketRaster` 和全部caller。
 
 KEEP cook seam/lineage/errors/bounds/parentpins、float32position、normal/tangent/UV/color质量、winner/CXY/SampleGrad、TextureResidency与Temporal自有identity。独立完整构建新的serializer/layout后原子改producer/readers与ABI验证；DELETE无runtimeconsumer的64B/triangle continuitypayload，更新recipe/version/sourcehash/native+WASMartifact/OEGPACK验证与recook策略，旧artifact明确拒绝/要求recook，不留compatdecode。cook中用于welding/误差/质量的continuity数学不按名称删除；payload acceptance必须按新真实bytes重算。
 
@@ -818,6 +818,58 @@ Arena先144→96B同精度frameattributes，保持clip16B、triangle/index、sou
 V2普通GPUupload与sparse-copy只在生产依赖已迁移且独立oracle保住后删除；保CPU SourceGeometry/GeometryAssetPackage/cooker数学与有用tool入口。unused helper删除必须查imports/exports/generatorstrings/tests/tools，不能删除live `surfaceGeometryDecodeWgsl`。更紧resident属性/raw directdecode不是本单元强制工作，只在Cost Card证明全consumer收益后选择；不造几套自动layout。
 
 **退出集中验证：** native/WASM one/four-threaddeterminism、Product/OEGPACK格式拒绝/recook、独立cookcoverage/SSE/normal/UV/mirroredseams、diffcorpus的Nyx偏差解释；Shadercompile/CPU和GPUgeometryoracle（prepared命中/故意miss、normalmap、coat/customUV、非均匀scale/双面/nearclip/CXY/LOD）；Visibility/Surface/VSM/Temporal/Motion/HDR输出同语义。固定scene对比raw/expandeduploaded、physicalslots、Arenaused/reserved/live/retiring、GPUprepare与winnergather。禁止只证明删了64Tc估算bytes，必须报告pagepacking/LOD质量实际改变与完整bank释放。
+
+### 8.4.1 G2.2 实施结果与停止边界（2026-10-08）
+
+**closed / lean cook→Product/admission/residency→frame preparation→native直接消费闭合。G2.3=next，未开始。** 开始时重新fetch，HEAD=`954a6cd448b7de901cc538fef46f7e57a9141f25`，origin/master=`d44823e2c11415fe7c24364c4c41a661bb181a8e`，工作区干净。复核G2.1源码/提交/实施记录，没有发现需重开的地址、预算或生命周期合同；未重复其完整GPU矩阵，受影响admission/arena/lifecycle合同纳入本单元回归。下列六项最终GPU报告消费同一fresh build:test：source SHA256=`d64adadd810920e469bbda79f19e9653225bfa4ece7b97e4bd3b556323e43b71`，output SHA256=`5913b056a4a5f48d37b91cb42c6f5518cffdfca83b4c4f02b6ec4cff3017360c`。Chrome `154.0.8037.98`、headless、Windows、NVIDIA Turing非fallback；adapter未暴露型号/VRAM，不将本轮报告冒称GTX1650Ti特定性能测量。
+
+#### 实际producer / product / consumer与删除边界
+
+| Owner / 决策 | 实际变更与保留 |
+|---|---|
+| native `GeometryCooker.cpp` / ALIGN | GroupMeshlets、SimplifyGroup acceptance和SerializeGroup统一按实际lean bytes；删除无生产reader的64B/triangle serialized continuity尾部及flags bits6/7。内部seam/domain/lineage、full-record weld、attribute/error locks与normal/tangent/UV数学保留；未降precision或改SSE |
+| recipe / native+WASM artifact / Product+OEGPACK / 原子版本退休 | cook profile改为 `static-pbr-page-local-f32-lean-v7`，profile进入recipe/content identity；WASM输入ABI3→4，single/pthread artifacts真实重建。recipe version3、容器/Product schema保留。TS/native validation拒绝旧profile或retired bits6/7，明确recook，不提供兼容decoder |
+| `GpuFrameGeometryAttributesAbi` / writer / 两个cached reader | prepared frame vertex144→96B，同float32六vec4：world normal/tangent/position、UV01/color/UV2；immutable resident对象属性仍96B。`frame_geometry_vertices`唯一writer、`native_visibility`和`surface_geometry_completion`同步字段偏移，`surface_frame_geometry`使用同一stride。Arena数值ABI3→4，clip16B、packed triangle4B、source/filtered目录保留；Surface/VSM/Temporal继续消费真实winner/来源，不新增中间产品 |
+| `PackedVisibilityPass`→`FrameGeometryArena` / OPTIMIZE | 默认CPU合法work admission上界×128、25% bounded headroom、128粒度，vertex/triangle capacities封顶1M；不读当帧GPU反馈。单arena128MiB上限、owner含retiring累计256MiB与实际queue fence退休保留；准备容量miss仍用同精度resident恢复，不省winner |
+| DELETE / KEEP | 删除无imports/exports/reader的 `GeometryContinuityAbi.ts`、旧固定bank常量与C++retired flags。普通V2/sparse GPU buffers仍有Native ordinary decode、公共uploadPackedScene、工具/oracle真实consumer，**KEEP**，没有为删文件强迁所有资产入口；更紧resident/raw directdecode未实现，也未增加自动layout selector |
+
+#### Cost Card与同输入packing
+
+`Tc`为本次实际cook全LOD triangles，`Np`为实际prepared vertices，`p`为prepared命中比例。计数是逻辑bytes，非硬件DRAM transactions。
+
+| 机制 | 新增 / 删除成本，ideal / expected / worst与break-even |
+|---|---|
+| 去serialized continuity | 删除理论64Tc raw payload，新增ALU/samples/random storage/atomics/barriers/dispatch=0；但acceptance及packing改变LOD cut，必须用下表实际page/slot差异，不能直接把64Tc当最终显存节省。CPU内部continuity数学不减、不新增常规runtime税 |
+| lean frame attributes | 每prepared vertex少48B sequential写与48B可预留属性容量；必需world transforms/ALU、texture samples、clip/triangle写和3个vertex dispatch不变。readers原本已只读取所需world/UV/color，**不声称winner读也自动少48B**；random访问次数不变，无新barrier/atomic/queue。0/50/100%命中对应写节省0/24Nv/48Nv，理想48Np；零命中保正确resident work且无新增管理层，逻辑bytes在Np>0即盈利，GPU时间收益仍待同条件规模测量 |
+| demand reservation | CPU仅prepare时O(1)合法整数计算；新增persistent/scratch产品为0，不新增GPU work。小场景按上界+headroom预留，大场景封顶并正确miss；最坏prepared覆盖减少会增加resident gather，必须用G2.4规模数据判断，不能从reserved下降宣称GPU提速。headroom是政策上界，不是25%物理VRAM保证（还含目录、alignment与其他区域） |
+
+固定输入为4个material domains、97×97grid、完整float32/normal/tangent/UV/color、**73,728 source triangles**。隔离git HEAD的旧WASM只作历史CPU实验；没有让v6通过新production validator。raw/LOD是实际artifact计数，upload/slots由物理packing计算；v7再通过实际 `cookWasmGeometryProductRevisionV1→prepareProductResidentAttributes` 验证 **120 slots、22,875,072B total uploads**。未将全部页实际提交到GPU或用这些数据冒称driver VRAM。
+
+| 同输入指标 | v6历史artifact | v7 lean |
+|---|---:|---:|
+| groups / meshlets / 全LOD triangles | 80 / 1,536 / 138,668 | 72 / 1,632 / 147,300 |
+| finest triangles（完整source数量） | 73,728 | 73,728 |
+| raw payload bytes / 256KiB pages | 12,788,288 / 76 | 4,180,864 / 48 |
+| raw uploaded bytes | 19,922,944 | 12,582,912 |
+| expanded attributes+directory upload bytes（不含raw） | 9,133,152 | 10,292,160 |
+| physical slots / slot bytes | 152 / 39,845,888 | 120 / 31,457,280 |
+| 当前bank reserved budget | 134,217,728 | 134,217,728 |
+
+slot占用少8MiB，**完整bank释放为0**；expanded增长、全LOD triangles增加，不能称Geometry work减少。raw payload移除还改变group/cut，normal/UV/seam/errors/refine正确性另由下面独立检查承担；计数相同本身不证明完整画质。bandwidth floor、独立winner gather、register/spill与硬件DRAM计数为 **UNKNOWN**，未获得backend counter，不凭fused Surface总时间推导。
+
+#### 集中验证 / 原失败分类
+
+- engine typecheck、build、fresh build:test通过；native cooker、C++ WASM ABI oracle与native 1/4线程OEGPACK一致通过。checked-in portable-single、pthread concurrency1、pthread concurrency4在真实Chrome Dedicated Workers中对完整sections与48pages逐SHA相等；可重跑 `node OEngine/tools/test-web-cooker-threads.mjs`，不是新benchmark平台。
+- 16个受影响Node文件 **99/99 passed，0 skipped**：Arena/layout/lifecycle、Product binary/admission/ABI/multi-runtime/residency/streaming、OEGPACK、WASM ABI/artifact、Nyx native/Web与独立donor corpus。覆盖corruption/旧profile或flags拒绝、完整packed corners、bootstrap/refine/error/bounds、mirroredUV/属性域与faceted/Dungeon coarse normal；另加强Native/WASM和seam输入的finest source oriented triangle multiset（不是只比数量），定向6/6复跑通过。未放宽数值容差。
+- Nyx groups3 vs6是切换前既有failure，实际核读Nyx MeshletBuilder与本地完整simplify/serialize及meshoptimizer版本。donor 0.25、packed属性/Sloppy与本地1.3、float32/attribute-update、seam及acceptance不同；grid33 donor为6groups/13hierarchy/46meshlets/4,030triangles，本地Native/WASM均3/7/40/3,584，finest2,048、refine edges17。物理数量equal断言迁为source finest三角形完整且绕序不变的multiset、bounds/error/refinement/bootstrap语义及Native/WASM同recipe一致；独立donor自身数学/determinism/failure分支继续运行，不恢复旧精度/layout或称字节等价移植。
+- OEGPACK golden原已有identity drift；先核新recipe、native/WASM与独立质量再更新v7golden；A8原漏expanded upload按实际bank writes总和修正。ABI golden先用ABI3复算吻合旧值，再按ABI4重算。近裁面新fixture刻意裁掉front-only材质，错误的“所有5材质仍有winner”要求仅在nearclip两帧改为真实暴露side/two-sided/mirrored实例；全部普通帧仍强制5材质，nearclip coverage与HDR原容差保留。readback一次mapping/header地址错误属于新增oracle fixture，修正后重跑三production入口；没有更改production来配合测试。
+- 串行GPU **6/6 passed**：`native-material`、`native-surface-integration`、`native-surface-perspective`、`native-surface-production`、`native-surface-product-production`、`native-surface-multi-product-production`；后3项实际Renderer唯一production，包括normal/ORM、coat/custom/Unlit/alpha、4Programs/4bins/2BindingSets、8lights+sun、VSM/Temporal/FSR、update/stable/abort→retry/resize/motion/camera-cut/受控device recovery。mirrored非均匀/sheared transform、双面、prepared→故意miss→恢复及nearclip同raster jitter对比成立；其余Temporal帧恢复normal jitter。各报告GPU/scoped errors、pageErrors和failedRequests=0，console仍有既有403与VSM unreachable warning，不称console无诊断。
+
+实际小场景512×256：Product/多Product Arena reserved **104,960B**，ordinary入口 **1,115,648B**（其work上界不同），均prepared120vertices/60triangles；强制miss分别1,632B/2,656B，replacement含retiring owner峰值 **106,592B / 1,118,304B**。Product固定视角9,549visible pixels，nearclip2,529，三production入口的hit/miss与nearclip HDR最大差均 **0**，独立Unlit最大误差 `0.00033362477511755806`（原.002预算不变）；有效VSM6pages/15casters、overflow0。不是1080p high coverage数据。
+
+16帧完整single-submit timestamp诊断：Product `frame_vertices_begin/build/finalize` medians为 **0.011840 / 0.079744 / 0.006368ms**，fused native opaque+background **0.606176ms**（含winner gather/material/lighting，不能拆成独立gather）。ordinary / multi-product同样留完整诊断，跨运行抖动不作提速对比，不以这些ms作门槛；LightCluster≈30ms历史大场景外部瓶颈未修改，也未证明消失。
+
+原失败、packing实验、artifact构建、99项Node与六GPU报告保存在忽略目录 `.local/g2-2-*`；是本机诊断，不新增evidence/claims/authority。相关docs verify、documentation tests、doctor/context和diff检查通过，当前domains/specs只同步已切换事实，来源映射见[porting G2.2](../porting/next-renderer.md#g22-lean-geometry-source-map)。**未运行：** 全Node矩阵（不称535项全绿）、authored large/100M、large-scene IO/thrash、不同GPU/浏览器、app完整pthread初始化、driver-fault自动恢复、GPU backend counters及M2同条件P50/P95/完整画质acceptance。普通V2 live入口保留、shadow独立coverage属G2.3、完整规模验收属G2.4；B2旧缺陷不追认修复，Material/Texture unrelated失败未修。**STOP于G2.3边界，不启动该单元，不关闭M2。**
 
 ### 8.5 G2.3 — View Work Closure & Scale Tuning
 

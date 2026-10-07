@@ -9,8 +9,6 @@ export const OEGPACK_V3_VERTEX_FORMAT_STRIDE = 16;
 export const OEGPACK_V3_GROUP_HEADER_BYTES = 64;
 export const OEGPACK_V3_MESHLET_HEADER_BYTES = 48;
 export const OEGPACK_V3_INVALID_ID = 0xffffffff;
-export const OEGPACK_V3_GEOMETRY_BANK_BYTES = 128 * 1024 * 1024;
-export const OEGPACK_V3_SLOTS_PER_BANK = 512;
 
 export interface GeometryHierarchyNodeV3 {
   readonly boundsSphere: readonly [number, number, number, number];

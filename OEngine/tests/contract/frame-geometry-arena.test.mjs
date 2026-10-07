@@ -2,12 +2,31 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   frameGeometryArenaLayout,
-  frameGeometryArenaHeader
+  frameGeometryArenaHeader,
+  frameGeometryArenaBudgetForWork
 } from "../../.test-dist/gpu/GpuFrameGeometryArenaAbi.js";
 import { FrameGeometryArena } from "../../.test-dist/render/FrameGeometryArena.js";
 import { ResourceAccounting } from "../../.test-dist/debug/profiling/ResourceAccounting.js";
 
 globalThis.GPUBufferUsage = { STORAGE: 128, COPY_SRC: 4, COPY_DST: 8 };
+test("arena reserves admitted work with bounded headroom, rather than filling the ceiling", () => {
+  const limits = { minStorageBufferOffsetAlignment: 256, maxBufferSize: 1 << 28, maxStorageBufferBindingSize: 1 << 27 };
+  const tiny = frameGeometryArenaBudgetForWork(2, 0);
+  assert.equal(tiny.vertexCapacity, 384);
+  assert.equal(tiny.triangleCapacity, 384);
+  const layout = frameGeometryArenaLayout(236, tiny, limits);
+  assert.ok(layout.byteLength < 64 * 1024);
+  assert.equal(layout.attributeCapacity, tiny.vertexCapacity);
+  assert.equal(layout.attributes.size, tiny.vertexCapacity * 96);
+  assert.equal(layout.filteredDirectory, layout.sourceDirectory);
+  const large = frameGeometryArenaBudgetForWork(1 << 20, 1 << 20);
+  assert.equal(large.vertexCapacity, 1 << 20);
+  const capped = frameGeometryArenaLayout(236, large, limits);
+  assert.ok(capped.attributeCapacity < large.vertexCapacity);
+  assert.ok(capped.byteLength <= 128 * 1024 * 1024);
+  assert.throws(() => frameGeometryArenaBudgetForWork(0, 0), /admitted/);
+  assert.throws(() => frameGeometryArenaBudgetForWork(1, 2), /admitted/);
+});
 const limits = {
   minStorageBufferOffsetAlignment: 256,
   maxBufferSize: 1 << 24,
@@ -80,7 +99,7 @@ test("arena layout retains raw metadata offsets and budgets physical gaps and bo
     assert.equal(layout.byteLength, end);
     assert.equal(layout.metadataBytes, 236);
     const header = frameGeometryArenaHeader(layout, budget);
-    assert.deepEqual(Array.from(header.slice(0, 4)), [3, 3, 9, 3]);
+    assert.deepEqual(Array.from(header.slice(0, 4)), [4, 3, 9, 3]);
     assert.equal(header[4] * 4, layout.sourceDirectory.offset);
     assert.equal(header[5] * 4, layout.filteredDirectory.offset);
     assert.deepEqual(
@@ -123,8 +142,8 @@ test("arena preflight rejects invalid bounds and whole-buffer limits before allo
 test("prepared attributes use remaining arena capacity without exceeding a whole binding", () => {
   const full = frameGeometryArenaLayout(236, budget, limits);
   assert.equal(full.attributeCapacity, 9);
-  assert.equal(full.attributes.size, 9 * 144);
-  const smallLimit = full.attributes.offset + 3 * 144;
+  assert.equal(full.attributes.size, 9 * 96);
+  const smallLimit = full.attributes.offset + 3 * 96;
   const partial = frameGeometryArenaLayout(236, { ...budget, maxBytes: smallLimit }, limits);
   assert.equal(partial.attributeCapacity, 3);
   assert.equal(partial.byteLength, smallLimit);

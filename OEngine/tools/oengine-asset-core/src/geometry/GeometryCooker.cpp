@@ -168,8 +168,7 @@ std::vector<std::uint32_t> GroupMeshlets(
         std::uint32_t triangleBytes = 0u, vertexBytes = 0u;
         for (const auto id : partition.meshletIds) {
             const auto& meshlet = meshlets[id];
-            const auto triangles = AlignUp(std::uint32_t(meshlet.triangles.size()), 4u) +
-                std::uint32_t(meshlet.triangles.size() / 3u) * kSurfacePrimitiveBytes;
+            const auto triangles = AlignUp(std::uint32_t(meshlet.triangles.size()), 4u);
             const auto vertices = AlignUp(std::uint32_t(meshlet.vertices.size()) * stride, 4u);
             auto payload = [&](std::uint32_t count, std::uint32_t triangleTotal, std::uint32_t vertexTotal) {
                 return AlignUp(AlignUp(AlignUp(64u + count * 48u, 16u) + triangleTotal, 16u) + vertexTotal, 16u);
@@ -290,9 +289,7 @@ bool SimplifyGroup(
         childTriangles+=AlignUp(std::uint32_t(m.triangles.size()),4u);
         childVertices+=AlignUp(std::uint32_t(m.vertices.size())*stride,4u);
     }
-    std::uint32_t originalSurfaceBytes=0;
-    for(auto id:group.meshletIds)originalSurfaceBytes+=std::uint32_t(meshlets[id].surface.size())*kSurfacePrimitiveBytes;
-    originalBytes = AlignUp(AlignUp(std::uint32_t(originalBytes)+childTriangles+originalSurfaceBytes,16u)+childVertices,16u);
+    originalBytes = AlignUp(AlignUp(std::uint32_t(originalBytes)+childTriangles,16u)+childVertices,16u);
     // Full-record weld, with flags ORed across identical records.
     std::vector<unsigned> remap(original.size());
     auto unique=meshopt_generateVertexRemap(remap.data(),indices.data(),indices.size(),original.data(),original.size(),sizeof(CanonicalVertex));
@@ -426,9 +423,7 @@ bool SimplifyGroup(
         }
         auto built=BuildMeshlets(temp,recipe,compactIndices,continuity.triangles);
         auto bytes=MeshletPayloadCost(built,stride);
-        std::uint64_t surfaceBytes = bytes;
-        for (const auto& meshlet : built) surfaceBytes += (meshlet.triangles.size() / 3u) * kSurfacePrimitiveBytes;
-        if(built.empty()||built.size()>=group.meshletIds.size()||surfaceBytes>originalBytes||surfaceBytes>kGeometryPageBytesV3)return false;
+        if(built.empty()||built.size()>=group.meshletIds.size()||bytes>originalBytes||bytes>kGeometryPageBytesV3)return false;
         if(!best.meshlets.empty() && (built.size()>best.meshlets.size() || (built.size()==best.meshlets.size() && bytes>MeshletPayloadCost(best.meshlets,stride)) || (built.size()==best.meshlets.size() && bytes==MeshletPayloadCost(best.meshlets,stride) && !updated)))return false;
         best.vertices=std::move(temp.vertices);best.meshlets=std::move(built);best.error=error;best.indices=reduced.size();best.updated=updated;
         return true;
@@ -669,7 +664,7 @@ SerializedGroupV3 SerializeGroup(
     const std::uint32_t headersEnd = 64u + meshletCount * 48u;
     const std::uint32_t triangleStart = AlignUp(headersEnd, 16u);
     std::uint32_t triangleCursor = triangleStart;
-    for (std::uint32_t id : group.meshletIds) triangleCursor += AlignUp(std::uint32_t(meshlets[id].triangles.size()), 4u) + std::uint32_t(meshlets[id].triangles.size() / 3u) * kSurfacePrimitiveBytes;
+    for (std::uint32_t id : group.meshletIds) triangleCursor += AlignUp(std::uint32_t(meshlets[id].triangles.size()), 4u);
     const std::uint32_t vertexStart = AlignUp(triangleCursor, 16u);
     std::uint32_t vertexCursor = vertexStart;
     for (std::uint32_t id : group.meshletIds) vertexCursor += AlignUp(std::uint32_t(meshlets[id].vertices.size()) * format.strideBytes, 4u);
@@ -678,7 +673,7 @@ SerializedGroupV3 SerializeGroup(
     SerializedGroupV3 output;
     output.bytes.resize(payloadBytes, 0u);
     output.lodLevel = group.lodLevel;
-    output.flags = kGroupSurfaceMetadata | kGroupSurfaceContinuityV2;
+    output.flags = 0u;
     if (group.simplificationFallback) output.flags |= kGroupSimplificationFallback;
     if (source.meshletFlags & kMeshletOpaque) output.flags |= kGroupOpaque;
     if (source.meshletFlags & kMeshletMask) output.flags |= kGroupMask;
@@ -710,10 +705,6 @@ SerializedGroupV3 SerializeGroup(
         triangleCursor += AlignUp(std::uint32_t(meshlet.triangles.size()), 4u);
         if (meshlet.surface.size() != meshletHeader.triangleCount)
             throw std::runtime_error("Serialized meshlet lacks complete Surface metadata");
-        for (const auto& metadata : meshlet.surface) {
-            std::memcpy(output.bytes.data() + triangleCursor, &metadata, kSurfacePrimitiveBytes);
-            triangleCursor += kSurfacePrimitiveBytes;
-        }
         for (std::uint32_t vertex : meshlet.vertices) {
             PackVertex(output.bytes, vertexCursor, source.vertices[vertex], format);
             vertexCursor += format.strideBytes;

@@ -94,6 +94,14 @@ test("Geometry Product descriptor binary V1 has canonical deterministic bytes an
   );
 });
 
+test("retired continuity payloads require recooking instead of compatibility decoding", () => {
+  for (const retired of [0x40, 0x80, 0xc0]) {
+    const descriptor = fixture();
+    new DataView(descriptor.groupDirectory.buffer).setUint32(12, 1 | retired, true);
+    assert.throws(() => binary.encodeGeometryProductDescriptorBinaryV1(descriptor), /recook.*lean v7/);
+  }
+});
+
 test("Geometry Product descriptor binary V1 rejects reserved, alias, padding and trailing corruption", () => {
   const encoded = binary.encodeGeometryProductDescriptorBinaryV1(fixture());
   const corrupt = (mutate) => {

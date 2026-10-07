@@ -226,6 +226,59 @@ async function cookWithNativeOffline(glb) {
   return { descriptor, pages };
 }
 
+// Independent source multiset: counts alone could hide a duplicated triangle
+// replacing a missing one. Cyclic corner rotation preserves oriented winding.
+function assertFinestGridCoverage(sections, pages, size) {
+  const triangleKey = (corners) => {
+    const names = corners.map((corner) => corner.join(","));
+    return names.map((_, start) =>
+      [names[start], names[(start + 1) % 3], names[(start + 2) % 3]].join("|")
+    ).sort()[0];
+  };
+  const position = (x, y) => [x * 0.125, y * 0.125, (x % 5) * 0.0625 + (y % 7) * 0.03125];
+  const expected = new Map();
+  for (let y = 0; y < size - 1; y++) {
+    for (let x = 0; x < size - 1; x++) {
+      const a = position(x, y), b = position(x + 1, y),
+        c = position(x, y + 1), d = position(x + 1, y + 1);
+      for (const corners of [[a, b, d], [a, d, c]]) {
+        const key = triangleKey(corners);
+        expected.set(key, (expected.get(key) ?? 0) + 1);
+      }
+    }
+  }
+  const groups = new DataView(sections.groupDirectory.buffer,
+    sections.groupDirectory.byteOffset, sections.groupDirectory.byteLength);
+  const formats = new DataView(sections.vertexFormats.buffer,
+    sections.vertexFormats.byteOffset, sections.vertexFormats.byteLength);
+  for (let group = 0; group < groups.byteLength / 16; group++) {
+    const page = pages[groups.getUint32(group * 16, true)];
+    const view = new DataView(page.buffer, page.byteOffset + groups.getUint32(group * 16 + 4, true),
+      groups.getUint32(group * 16 + 8, true));
+    const header = decodeGroupHeaderV3(view);
+    if (header.lodLevel !== 0) continue;
+    const format = header.vertexFormatId * 16;
+    const stride = formats.getUint16(format, true), positionOffset = formats.getUint8(format + 4);
+    for (let m = 0; m < header.meshletCount; m++) {
+      const meshlet = decodeMeshletHeaderV3(view, header.meshletHeaderOffset + m * 48);
+      for (let triangle = 0; triangle < meshlet.triangleCount; triangle++) {
+        const corners = [];
+        for (let corner = 0; corner < 3; corner++) {
+          const local = view.getUint8(meshlet.triangleByteOffset + triangle * 3 + corner);
+          assert.ok(local < meshlet.vertexCount, "finest source corner must be in range");
+          const at = meshlet.vertexByteOffset + local * stride + positionOffset;
+          corners.push([0, 4, 8].map((offset) => view.getFloat32(at + offset, true)));
+        }
+        const key = triangleKey(corners), remaining = expected.get(key) ?? 0;
+        assert.ok(remaining > 0, "finest cut duplicated, changed or reversed a source triangle");
+        if (remaining === 1) expected.delete(key);
+        else expected.set(key, remaining - 1);
+      }
+    }
+  }
+  assert.equal(expected.size, 0, "finest cut omitted source triangles");
+}
+
 function summarize(sections, pages) {
   const assetView = new DataView(
     sections.assetRecords.buffer,
@@ -239,7 +292,8 @@ function summarize(sections, pages) {
     maxMeshletVertices = 0,
     maxMeshletTriangles = 0,
     meshlets = 0,
-    triangles = 0;
+    triangles = 0,
+    fineTriangles = 0;
   for (let asset = 0; asset < assets; asset++) {
     for (let axis = 0; axis < 3; axis++) {
       boundsMin[axis] = Math.min(boundsMin[axis], assetView.getFloat32(asset * 128 + 48 + axis * 4, true));
@@ -278,6 +332,7 @@ function summarize(sections, pages) {
       maxMeshletTriangles = Math.max(maxMeshletTriangles, item.triangleCount);
       meshlets++;
       triangles += item.triangleCount;
+      if (header.lodLevel === 0) fineTriangles += item.triangleCount;
       items.push(item);
     }
     decodedGroups.push({ header, items });
@@ -316,6 +371,7 @@ function summarize(sections, pages) {
     maxMeshletTriangles,
     meshlets,
     triangles,
+    fineTriangles,
     refineEdges,
   };
 }
@@ -579,46 +635,21 @@ test(
       webSummary.groups > 0 && webSummary.hierarchy > 0,
       "Web producer must preserve Nyx product structure",
     );
-    assert.equal(
-      webSummary.groups,
-      reference.groups,
-      "Web group count must match the independent Nyx MeshletBuilder oracle",
-    );
-    assert.equal(
-      webSummary.hierarchy,
-      reference.hierarchy,
-      "Web hierarchy count must match the independent Nyx MeshletBuilder oracle",
-    );
-    assert.equal(
-      webSummary.meshlets,
-      reference.meshlets,
-      "Web meshlet count must match the independent Nyx MeshletBuilder oracle",
-    );
-    assert.equal(
-      webSummary.triangles,
-      reference.triangles,
-      "Web serialized triangle count must match the independent Nyx MeshletBuilder oracle",
-    );
-    assert.equal(
-      nativeSummary.groups,
-      reference.groups,
-      "Native group count must match the independent Nyx MeshletBuilder oracle",
-    );
-    assert.equal(
-      nativeSummary.hierarchy,
-      reference.hierarchy,
-      "Native hierarchy count must match the independent Nyx MeshletBuilder oracle",
-    );
-    assert.equal(
-      nativeSummary.meshlets,
-      reference.meshlets,
-      "Native meshlet count must match the independent Nyx MeshletBuilder oracle",
-    );
-    assert.equal(
-      nativeSummary.triangles,
-      reference.triangles,
-      "Native serialized triangle count must match the independent Nyx MeshletBuilder oracle",
-    );
+    // Donor counts freeze meshoptimizer 0.25 + packed attributes and Sloppy.
+    // EEngine's 1.3 attribute-update/float32 recipe has a different cut. Preserve
+    // source coverage, errors/bounds/refinement instead of restoring old layout.
+    for (const summary of [webSummary, nativeSummary]) {
+      assertNyxInvariants(summary);
+      assert.equal(summary.fineTriangles, web.triangleCount, "finest cut must cover every source triangle");
+    }
+    assertHierarchyAndBootstrap(web.sections);
+    assertHierarchyAndBootstrap(native.descriptor);
+    assertFinestGridCoverage(web.sections, web.pages, 33);
+    assertFinestGridCoverage(native.descriptor, native.pages, 33);
+    for (const field of ["groups", "hierarchy", "meshlets", "triangles", "fineTriangles", "refineEdges"]) {
+      assert.equal(webSummary[field], nativeSummary[field], `Native/WASM ${field} must agree for the same v7 recipe`);
+    }
+    console.log(JSON.stringify({ donorRevision: "bc7e5b1e51f6b3b8af4771db81ffaa714fcbe64b", donor: reference, leanWeb: webSummary, leanNative: nativeSummary }));
     assert.ok(
       webSummary.refineEdges > 0 && nativeSummary.refineEdges > 0,
       "the three-leg corpus must exercise refinement links",
@@ -639,16 +670,11 @@ test(
     // checks valid structure and unchanged explicit no-fallback behavior.
     assert.ok(webFallback.groups > 0 && webFallback.meshlets > 0);
     assert.ok(Number.isFinite(webFallback.maxError));
-    assert.equal(
-      webNoFallback.groups,
-      reference.seamNoFallbackGroups,
-      "Web no-fallback group count must match original Nyx seam corpus",
-    );
-    assert.equal(
-      webNoFallback.meshlets,
-      reference.seamNoFallbackMeshlets,
-      "Web no-fallback meshlet count must match original Nyx seam corpus",
-    );
+    assertNyxInvariants(webNoFallback);
+    assert.equal(webNoFallback.fineTriangles, webNoFallbackProduct.triangleCount);
+    assertHierarchyAndBootstrap(webNoFallbackProduct.sections);
+    assertFinestGridCoverage(webFallbackProduct.sections, webFallbackProduct.pages, 33);
+    assertFinestGridCoverage(webNoFallbackProduct.sections, webNoFallbackProduct.pages, 33);
     assert.ok(
       webSummary.maxMeshletVertices <= 128 && webSummary.maxMeshletTriangles <= 128,
       "Web producer must preserve Nyx meshlet limits",

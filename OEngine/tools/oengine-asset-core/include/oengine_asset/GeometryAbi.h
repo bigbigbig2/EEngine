@@ -29,8 +29,6 @@ enum GeometryGroupFlagsV3 : std::uint32_t {
     kGroupBlend = 1u << 3u,
     kGroupTwoSided = 1u << 4u,
     kGroupSimplificationFallback = 1u << 5u,
-    kGroupSurfaceMetadata = 1u << 6u,
-    kGroupSurfaceContinuityV2 = 1u << 7u,
 };
 
 enum GeometryMeshletFlagsV3 : std::uint32_t {

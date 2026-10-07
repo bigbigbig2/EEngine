@@ -465,10 +465,8 @@ function validateMetadata(
     )
       throw new OegPackV3Error("group is not wholly contained and 16-byte aligned in its page");
     if ((group.flags & ~0xff) !== 0) throw new OegPackV3Error("group flags contain unknown V3 bits");
-    if ((group.flags & 0x40) !== 0 && (group.flags & 0x80) === 0)
-      throw new OegPackV3Error("Surface metadata v1 requires recook for continuity-v2");
-    if ((group.flags & 0x80) !== 0 && (group.flags & 0x40) === 0)
-      throw new OegPackV3Error("Surface continuity-v2 requires metadata payload");
+    if ((group.flags & 0xc0) !== 0)
+      throw new OegPackV3Error("Retired continuity payload requires recook with lean v7");
     pageCounts[group.pageId] = pageCounts[group.pageId]! + 1;
     const groupId = groups.indexOf(group);
     pageMinimumGroups[group.pageId] = Math.min(pageMinimumGroups[group.pageId]!, groupId);

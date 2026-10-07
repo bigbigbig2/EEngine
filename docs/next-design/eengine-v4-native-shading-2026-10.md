@@ -241,6 +241,8 @@ fused shader 的bindings必须包括winner、geometry sources、instances/public
 
 ### 11.1 审查基线、问题与范围
 
+本节源码数字/KEEP矩阵是下述规划revision的审查快照，不覆盖随后实施事实；各单元结果只读执行计划§8，当前产品/layout只读domain和spec。尤其规划时144B frame attributes、64B/triangle continuity与固定128MiB Arena数字不应被后续Agent当成必须保留的ABI。
+
 2026-10-08 重新 fetch 后，HEAD 与 origin/master 均为 `a66667e04222481ca130c4c6d878118bf649bb9f`，审查开始时工作区干净。M1 已到执行计划的 S3 关闭边界；`RendererCore._surface` 与 `FrameProgramOwners.surface` 只接 SurfaceV4，旧 SurfaceWorkRuntime/Tape/cache/six-signal 不再是生产输入。M2 不重做 Surface，不从零重写 VG，也不把历史 Nyx/Phase H 工作当作未实现。
 
 本节保留该 SHA 的规划时源码审查与目标选择，不作为后续实施快照；实际实现及验证只读[执行计划 §8](../next-execution/eengine-v4-native-shading-execution-2026-10.md#m2-execution)。引用 M1 原始记录时保留工作负载、范围及限制。M2 优先解决容量正确性、4GB 下的固定预留和多 Product 生命周期，再优化已证明有重复的产品及每帧工作；LightCluster 在部分 M1 probe 的 30ms+ 是外部瓶颈，不纳入 Geometry 优化。

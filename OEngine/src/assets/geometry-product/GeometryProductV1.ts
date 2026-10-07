@@ -224,10 +224,8 @@ export function validateGeometryProductDescriptorV1(
       );
     if ((flags & ~0xff) !== 0)
       issue("flags", `group ${group} contains unknown flags`, "groupDirectory", group);
-    if ((flags & 0x40) !== 0 && (flags & 0x80) === 0)
-      issue("surface-version", `group ${group} metadata v1 requires recook`, "groupDirectory", group);
-    if ((flags & 0x80) !== 0 && (flags & 0x40) === 0)
-      issue("surface-version", `group ${group} continuity-v2 lacks metadata`, "groupDirectory", group);
+    if ((flags & 0xc0) !== 0)
+      issue("surface-version", `group ${group} contains retired continuity payload; recook lean v7`, "groupDirectory", group);
     const list = pageGroups.get(page) ?? [];
     list.push(group);
     pageGroups.set(page, list);

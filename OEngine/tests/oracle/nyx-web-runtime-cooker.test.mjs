@@ -119,7 +119,7 @@ function fakeModule(sections) {
     },
     _free() {},
     _oengine_web_geometry_cook_abi_version() {
-      return 3;
+      return 4;
     },
     _oengine_web_geometry_cook(address, bytes) {
       canonicalInput = heap.slice(address, address + bytes);
@@ -240,7 +240,7 @@ function context() {
 
 test("Nyx Web Runtime Cooker rejects the retired native ABI before planning", async () => {
   const module = fakeModule(productSections());
-  module._oengine_web_geometry_cook_abi_version = () => 2;
+  module._oengine_web_geometry_cook_abi_version = () => 3;
   const input = context();
   const cooker = new NyxWebRuntimeCooker(module, {
     maxSourceWindowBytes: 24,

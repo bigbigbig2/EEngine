@@ -133,6 +133,14 @@ test("S1 OEGPACK adapter emits a producer-neutral Product V1 descriptor and excl
   const cooked = runCook("product-adapter", 2);
   const { bytes } = await packBytes(cooked.output);
   const opened = await openOegPackV3(new MemoryRangeReadablePackV3(bytes));
+  for (const retired of [0x40, 0x80, 0xc0]) {
+    const obsolete = bytes.slice();
+    const view = new DataView(obsolete.buffer);
+    const groupOffset = Number(view.getBigUint64(96, true));
+    view.setUint32(groupOffset + 12, view.getUint32(groupOffset + 12, true) | retired, true);
+    await rewriteMetadataHash(obsolete);
+    await assert.rejects(openOegPackV3(new MemoryRangeReadablePackV3(obsolete)), /recook.*lean v7/);
+  }
   const descriptor = descriptorFromOegPack(opened);
   const report = validateGeometryProductDescriptorV1(descriptor);
   assert.equal(report.valid, true, report.issues.map((issue) => issue.message).join("; "));
@@ -325,7 +333,10 @@ test("A8 bootstrap owner uploads fixed slots, resolves groups, and destroys ever
     const expected = new Set(opened.bootstrapPageIds).has(opened.groups[groupId].pageId);
     assert.equal(residency.groupAddress(groupId) !== undefined, expected);
   }
-  assert.equal(residency.evidence().uploadedBytes, pageWrites.length * 262144);
+  const banks = residency.bindings().banks;
+  const physicalUploads = writes.filter((write) => banks.includes(write.buffer));
+  assert.equal(residency.evidence().uploadedBytes, physicalUploads.reduce((sum, write) => sum + write.bytes, 0));
+  assert.ok(residency.evidence().uploadedBytes > pageWrites.length * 262144, "expanded attributes are real uploads");
   residency.destroy();
   assert.ok(buffers.every((buffer) => buffer.destroyed));
 });
@@ -633,4 +644,4 @@ function buildFixtureGlb({ distinctMaterialIds = false } = {}) {
 // 2026-09-19: page identity is now rolled up from Group payloads (ADR-0017 step 1) instead of
 // being the SHA-256 of the whole decoded page, so every pack byte stream changes.
 // v3.2 recipe identity invalidates packs cooked with the unsafe seam fallback.
-const GOLDEN_PACK_SHA256 = "aa6d499e1625960aef73c0450fbe061f57aab9ebb526ed4046490b0bc22b22db";
+const GOLDEN_PACK_SHA256 = "e20076118338b5c4e26fee523a7d0df2cb21bf2f6f1ee5e0512626a6ba0a05e0";

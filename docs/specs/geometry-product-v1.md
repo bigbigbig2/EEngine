@@ -16,6 +16,8 @@ Owners: Web Runtime Cooker、Offline/OEGPACK adapter、geometry admission owner
 
 V1 profile 复用 [OEGPACK V3](./oegpack-v3.md) 的 decoded Group/Meshlet payload、AssetRecord、HierarchyNode、GroupDirectory 和 VertexFormat 布局，但不包含 OEGPACK header、compressed offset、codec、CRC 或文件 hash。OEGPACK 只是该 profile 的一个 source adapter。
 
+当前cook profile为 `static-pbr-page-local-f32-lean-v7`，WASM输入ABI4；recipe参与内容identity。Group flags只接受bits0–5，旧serialized continuity bits6/7必须拒绝并要求recook，不保兼容decoder。删除的是无runtime reader的64B/triangle尾部，cook内部seam/lineage/error/attribute质量数学仍保留；runtime Product schema/version不因去掉该可选尾部自动升版。实际原子producer/consumer切换与验证见[V4执行§8.4.1](../next-execution/eengine-v4-native-shading-execution-2026-10.md#841-g22-实施结果与停止边界2026-10-08)。
+
 本 spec 冻结字段、作用域、状态和校验语义。跨 Worker 的二进制 descriptor transport 使用下述 `GeometryProductDescriptorBinaryV1`；任何 producer 必须生成 canonical offsets，Runtime 必须拒绝 alias、越界、非零 reserved 和 trailing bytes。WASM mirror 与 golden oracle 仍是 candidate gate。
 
 V1 同时冻结 page identity 的推导语义与两阶段 cook 的对外可分离推进语义，使 descriptor 可以先于 page payload 冻结。Producer 可以选择只实现单体式 cook 并通过 `replaces` 发布完整 revision，但一旦声明支持同 revision 内按 demand 补页，就必须满足本 spec 的两阶段 ABI、identity 确定性与 provisional ProductID 作用域要求。

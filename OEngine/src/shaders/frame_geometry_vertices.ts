@@ -4,7 +4,10 @@ import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { GPU_FRAME_INSTANCE_WGSL } from "../gpu/GpuFrameInstanceAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import { FRAME_GEOMETRY_WGSL } from "../gpu/GpuWinnerInterpolationAbi.js";
-import { GPU_FRAME_VERTEX_ATTRIBUTE_VECTORS } from "../gpu/GpuFrameGeometryAttributesAbi.js";
+import {
+  GPU_FRAME_VERTEX_ATTRIBUTE_VECTORS,
+  GPU_FRAME_VERTEX_WORLD_FIELDS as W
+} from "../gpu/GpuFrameGeometryAttributesAbi.js";
 
 export const FRAME_VERTEX_SETTINGS_SIZE = 64;
 export const FRAME_VERTEX_CONTROL_SIZE = 32;
@@ -102,17 +105,18 @@ fn frame_vertices_build(@builtin(workgroup_id) group: vec3u, @builtin(local_invo
     let at = vertex_base + lane;
     frame_clips[at] = source_clip_matrix * vec4f(surface_source_vertex_position(lane), 1.0);
     let base = at * ${GPU_FRAME_VERTEX_ATTRIBUTE_VECTORS}u;
-    frame_attributes[base] = surface_source_vertex_normal(lane);
-    frame_attributes[base + 1u] = surface_source_vertex_tangent(lane);
+    let normal = surface_source_vertex_normal(lane);
+    let tangent = surface_source_vertex_tangent(lane);
+    let position = surface_source_vertex_position(lane);
+    frame_attributes[base + ${W.normal}u] = vec4f(source_normal_matrix * normal.xyz, normal.w);
+    frame_attributes[base + ${W.tangent}u] = vec4f(
+      (source_world_matrix * vec4f(tangent.xyz, 0.0)).xyz,
+      tangent.w * source_orientation
+    );
     frame_attributes[base + 2u] = vec4f(surface_source_vertex_uv(lane, 0u), surface_source_vertex_uv(lane, 1u));
     frame_attributes[base + 3u] = surface_source_vertex_color(lane);
     frame_attributes[base + 4u] = vec4f(surface_source_vertex_uv(lane, 2u), 0.0, 0.0);
-    frame_attributes[base + 5u] = vec4f(surface_source_vertex_position(lane), 1.0);
-    let normal = frame_attributes[base];
-    let tangent = frame_attributes[base + 1u];
-    frame_attributes[base + 6u] = vec4f(source_normal_matrix * normal.xyz, normal.w);
-    frame_attributes[base + 7u] = vec4f((source_world_matrix * vec4f(tangent.xyz, 0.0)).xyz, tangent.w * source_orientation);
-    frame_attributes[base + 8u] = source_world_matrix * frame_attributes[base + 5u];
+    frame_attributes[base + ${W.position}u] = source_world_matrix * vec4f(position, 1.0);
   }
   if lane < source_counts.y {
     frame_triangles[triangle_base + lane] = surface_source_triangle_corner(lane, 0u) |

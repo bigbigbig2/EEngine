@@ -28,11 +28,10 @@ async function loadArtifact() {
   });
 }
 
-test("actual WASM Product publishes continuity-v2 with independent UV domains and valid two-sided geometry", async () => {
+test("actual WASM lean Product keeps UV seams and two-sided geometry without continuity payload", async () => {
   const { decodeGroupHeaderV3, decodeMeshletHeaderV3 } = await import(
     "../../.test-dist/assets/GeometryAbiV3.js"
   );
-  const { decodeGeometryContinuity } = await import("../../.test-dist/assets/GeometryContinuityAbi.js");
   const xy = [
       [0, 0],
       [1, 0],
@@ -63,7 +62,7 @@ test("actual WASM Product publishes continuity-v2 with independent UV domains an
       view = new DataView(section.buffer, section.byteOffset, section.byteLength),
       records = [];
     for (let g = 0; g < section.byteLength / 16; g++) {
-      assert.equal(view.getUint32(g * 16 + 12, true) & 0xc0, 0xc0);
+      assert.equal(view.getUint32(g * 16 + 12, true) & 0xc0, 0);
       const page = result.copyPage(view.getUint32(g * 16, true)),
         offset = view.getUint32(g * 16 + 4, true),
         length = view.getUint32(g * 16 + 8, true);
@@ -71,19 +70,34 @@ test("actual WASM Product publishes continuity-v2 with independent UV domains an
         header = decodeGroupHeaderV3(group);
       for (let m = 0; m < header.meshletCount; m++) {
         const meshlet = decodeMeshletHeaderV3(group, header.meshletHeaderOffset + m * 48);
-        const metadata = Math.ceil((meshlet.triangleByteOffset + meshlet.triangleCount * 3) / 4) * 4;
-        assert.ok(metadata + meshlet.triangleCount * 64 <= header.vertexDataOffset);
-        for (let primitive = 0; primitive < meshlet.triangleCount; primitive++)
-          records.push(
-            decodeGeometryContinuity(new Uint8Array(page, offset, length), metadata + primitive * 64),
-          );
+        const end = Math.ceil((meshlet.triangleByteOffset + meshlet.triangleCount * 3) / 4) * 4;
+        if (m + 1 < header.meshletCount) {
+          const next = decodeMeshletHeaderV3(group, header.meshletHeaderOffset + (m + 1) * 48);
+          assert.equal(next.triangleByteOffset, end);
+        } else {
+          assert.equal(header.vertexDataOffset, Math.ceil(end / 16) * 16);
+        }
+        const formats = result.descriptorSections().vertexFormats;
+        const format = new DataView(formats.buffer, formats.byteOffset, formats.byteLength);
+        const stride = format.getUint16(header.vertexFormatId * 16, true);
+        const uv = format.getUint8(header.vertexFormatId * 16 + 7);
+        const { decodeFloat16 } = await import("../../.test-dist/core/Float16.js");
+        // Compare packed source wedges directly: UV0 charts differ by exactly 2,
+        // while source positions and UV1 match along the shared edge.
+        for (let primitive = 0; primitive < meshlet.triangleCount; primitive++) {
+          const corners = [];
+          for (let c = 0; c < 3; c++) {
+            const local = group.getUint8(meshlet.triangleByteOffset + primitive * 3 + c);
+            const at = meshlet.vertexByteOffset + local * stride;
+            corners.push({ x: group.getFloat32(at, true), u: decodeFloat16(group.getUint16(at + uv, true)) });
+          }
+          records.push(corners);
+        }
       }
     }
     assert.equal(records.length, 2);
-    assert.equal(new Set(records.map((r) => r.domain)).size, 1);
-    assert.equal(new Set(records.map((r) => r.uv0Domain)).size, 2);
-    assert.equal(new Set(records.map((r) => r.uv1Domain)).size, 1);
-    assert.ok(records.every((r) => r.domain !== 0 && r.risk === 0));
+    assert.ok(records.some((corners) => corners.every((v) => v.u === v.x)));
+    assert.ok(records.some((corners) => corners.every((v) => v.u === v.x + 2)));
   } finally {
     result.release();
   }
@@ -348,7 +362,7 @@ test("checked-in Web geometry artifact consumes independent canonical windows", 
 test("checked-in Web geometry artifact executes the Product ABI", async () => {
   const module = await loadArtifact();
   assert.equal(module._oengine_web_geometry_cook_abi_version(), WEB_GEOMETRY_COOKER_ABI_VERSION);
-  assert.equal(WEB_GEOMETRY_COOKER_ABI_VERSION, 3);
+  assert.equal(WEB_GEOMETRY_COOKER_ABI_VERSION, 4);
   const result = cookWebGeometryWasmV1(
     module,
     triangleCanonical(),

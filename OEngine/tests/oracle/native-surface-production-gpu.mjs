@@ -12,7 +12,7 @@ import { AppearanceGraphBuilder } from "../../.test-dist/material/AppearanceGrap
 import { PointLight } from "../../.test-dist/light/PointLight.js";
 import { DirectionalLight } from "../../.test-dist/light/DirectionalLight.js";
 import { ShadeTexture } from "../../.test-dist/texture/ShadeTexture.js";
-import { ShadeTransparencyMode } from "../../.test-dist/material/enums.js";
+import { ShadeTransparencyMode, ShadeDrawSide } from "../../.test-dist/material/enums.js";
 import {
   writeEncodedTextureAssetPackageV2,
   openTextureAssetPackageV2
@@ -138,10 +138,19 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
     255
   ]);
   materials[4].metallic_factor = 0.6;
+  materials[3].draw_side = ShadeDrawSide.Double;
   const meshes = materials.map((material, index) => {
     const matrix = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
     matrix[12] = index < 4 ? -2.4 + index * 1.6 : 0;
     matrix[13] = index < 4 ? 0 : 1.6;
+    if (index === 4) {
+      // Prepared world attributes must match source reconstruction under a
+      // mirrored nonuniform/sheared transform, including normal-map tangents.
+      matrix[0] = -0.8;
+      matrix[4] = 0.1;
+      matrix[5] = 1.1;
+      matrix[10] = 0.9;
+    }
     return Mesh.from(geometry, material, matrix);
   });
   scene.add(meshes);
@@ -166,7 +175,27 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
   let capture = null;
   let fail = false;
   let actualFrame = null;
+  let forcePreparationMiss = false;
+  let hdrSnapshot = null;
+  let arenaOwnerPeakBytes = 0;
   const instrument = () => {
+    const arenaOwner = renderer.graphics.frame_geometry_arena;
+    const prepareArena = arenaOwner.prepare.bind(arenaOwner);
+    arenaOwner.prepare = (...args) => {
+      const prepared = prepareArena(...args);
+      arenaOwnerPeakBytes = Math.max(arenaOwnerPeakBytes, arenaOwner.allocatedBytes);
+      check(arenaOwner.allocatedBytes <= 256 * 1024 * 1024, "Arena replacement exceeded cumulative owner budget");
+      return prepared;
+    };
+    const visibility = renderer._visibilityFeature;
+    const prepareVisibility = visibility.prepare.bind(visibility);
+    visibility.prepare = (job, ...rest) => prepareVisibility(
+      forcePreparationMiss ? {
+        ...job,
+        frameGeometryBudget: { vertexCapacity: 1, triangleCapacity: 1, maxBytes: 16 * 1024 * 1024 }
+      } : job,
+      ...rest
+    );
     const surface = renderer._surface;
     const prepare = surface.prepareFrameNow.bind(surface);
     surface.prepareFrameNow = (frame, ...rest) => {
@@ -275,7 +304,7 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
       overflow: count[2]
     };
   };
-  const inspect = async (alphaVisible = true) => {
+  const inspect = async (alphaVisible = true, requiredMaterials = [0, 1, 2, 3, 4]) => {
     check(errors.length === 0, `Production WebGPU errors: ${errors.join(" | ")}`);
     const current = capture;
     await Promise.all(
@@ -286,6 +315,7 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
     const hdr = new Uint16Array(current.hdr.getMappedRange());
     const winner = new Uint32Array(current.winner.getMappedRange());
     const work = new Uint32Array(current.work.getMappedRange());
+    const arenaWords = new Uint32Array(current.arena.getMappedRange());
     const runtime = renderer.graphics.render_world.runtime(scene);
     const sourceBySlot = new Map(
       runtime.nativeMaterials.materialSources.map((source) => [source.materialSlot, source.material])
@@ -326,17 +356,33 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
       }
     }
     check(
-      materials.every((material, index) =>
-        index === 1 && !alphaVisible ? (counts.get(material) ?? 0) === 0 : (counts.get(material) ?? 0) > 20
+      requiredMaterials.every((index) =>
+        index === 1 && !alphaVisible ? (counts.get(materials[index]) ?? 0) === 0 : (counts.get(materials[index]) ?? 0) > 20
       ),
-      `Every native program/material must have actual winners: ${materials.map((material) => counts.get(material) ?? 0)}; queue=${work.slice(0, 38)}; instance=${new Uint32Array(current.instances.getMappedRange()).slice(0, 80)}; arena=${new Uint32Array(current.arena.getMappedRange()).slice(actualFrame.geometry.sourcePayload[3], actualFrame.geometry.sourcePayload[3] + 32)}`
+      `Every native program/material must have actual winners: ${materials.map((material) => counts.get(material) ?? 0)}; queue=${work.slice(0, 38)}; instance=${new Uint32Array(current.instances.getMappedRange()).slice(0, 80)}; arena=${arenaWords.slice(actualFrame.geometry.sourcePayload[3], actualFrame.geometry.sourcePayload[3] + 32)}`
     );
+    hdrSnapshot = hdr.slice();
+    const header = actualFrame.geometry.sourcePayload[3] & 0x7fffffff;
+    check(arenaWords[header] === 4, "Production consumed an obsolete frame geometry layout");
+    const directory = arenaWords[header + ((actualFrame.geometry.sourcePayload[3] >>> 31) ? 5 : 4)];
+    let cachedMeshlets = 0;
+    for (let slot = 0; slot < arenaWords[directory]; slot++) {
+      if (arenaWords[directory + 4 + slot * 4 + 2] !== 0) cachedMeshlets++;
+    }
+    const arenaBytes = current.arena.size;
+    const preparedVertices = arenaWords[directory + 2];
+    const preparedTriangles = arenaWords[directory + 3];
     [current.hdr, current.winner, current.work, current.instances, current.arena].forEach((buffer) =>
       buffer.unmap()
     );
     return {
       visiblePixels: [...counts.values()].reduce((a, b) => a + b, 0),
       maximumError,
+      cachedMeshlets,
+      arenaBytes,
+      preparedVertices,
+      preparedTriangles,
+      arenaOwnerBytes: renderer.graphics.frame_geometry_arena.allocatedBytes,
       programs: new Set(runtime.nativeMaterials.publication.entries.map((entry) => entry.programIndex)).size,
       bins: runtime.nativeMaterials.publication.bins.length,
       bindingSets: new Set(runtime.nativeMaterials.publication.bins.map((bin) => bin.bindingSet)).size
@@ -418,6 +464,55 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
     const retry = await inspect();
     await tick();
     const stable = await inspect();
+    check(stable.cachedMeshlets > 0, "Lean prepared geometry must be consumed");
+    // Compare the same raster sample positions. Other lifecycle/Temporal cases
+    // retain normal production jitter; changing jitter cannot test hit/miss math.
+    renderer.temporal_jitter_enabled = false;
+    await tick();
+    const preparedFixed = await inspect();
+    const preparedHdr = hdrSnapshot;
+    forcePreparationMiss = true;
+    await tick();
+    const residentMiss = await inspect();
+    check(residentMiss.cachedMeshlets === 0, "Capacity miss failed to exercise resident reconstruction");
+    check(residentMiss.visiblePixels === preparedFixed.visiblePixels,
+      `Prepared miss changed winner coverage: ${preparedFixed.visiblePixels} -> ${residentMiss.visiblePixels}`);
+    let preparedMissMaximumError = 0;
+    for (let i = 0; i < preparedHdr.length; i++) {
+      const delta = Math.abs(decodeFloat16(preparedHdr[i]) - decodeFloat16(hdrSnapshot[i]));
+      preparedMissMaximumError = Math.max(preparedMissMaximumError, delta);
+    }
+    check(preparedMissMaximumError <= 0.002, `Prepared/resident HDR diverged: ${preparedMissMaximumError}`);
+    forcePreparationMiss = false;
+    await tick();
+    const preparedRestored = await inspect();
+    check(preparedRestored.cachedMeshlets > 0, "Restored preparation remained stale");
+    const originalNear = camera.near;
+    camera.near = 6.4;
+    camera.update();
+    await tick();
+    // Front-only faces can be wholly clipped in this camera. Require exposed
+    // side faces, the two-sided instance and the mirrored PBR/normal-map instance;
+    // every ordinary lifecycle frame above/below still requires all programs.
+    const nearClipPrepared = await inspect(true, [0, 3, 4]);
+    const nearClipHdr = hdrSnapshot;
+    check(nearClipPrepared.visiblePixels > 100 && nearClipPrepared.visiblePixels < preparedFixed.visiblePixels,
+      "Near-plane fixture did not clip real source triangles");
+    forcePreparationMiss = true;
+    await tick();
+    const nearClipResident = await inspect(true, [0, 3, 4]);
+    check(nearClipResident.cachedMeshlets === 0 && nearClipResident.visiblePixels === nearClipPrepared.visiblePixels,
+      "Near-plane prepared/resident coverage diverged");
+    let nearClipMaximumError = 0;
+    for (let i = 0; i < nearClipHdr.length; i++) {
+      nearClipMaximumError = Math.max(nearClipMaximumError,
+        Math.abs(decodeFloat16(nearClipHdr[i]) - decodeFloat16(hdrSnapshot[i])));
+    }
+    check(nearClipMaximumError <= 0.002, `Near-plane HDR/LOD diverged: ${nearClipMaximumError}`);
+    forcePreparationMiss = false;
+    camera.near = originalNear;
+    camera.update();
+    renderer.temporal_jitter_enabled = true;
     check(first.bindingSets > 1, "Production must exercise multiple complete physical BindingSets");
     materials[1].alpha_cutoff = 0.5;
     await tick();
@@ -440,6 +535,28 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
     const cameraCut = await inspect();
     await tick();
     check(renderer._temporalFacts.readValid, "Settled retry did not restore native Temporal identity");
+    // Small diagnostic cost sample, not the large-scene acceptance matrix.
+    renderer.profiler.setMode("record");
+    renderer.profiler.configure({ enabled: true, gpuSampleInterval: 1, gpuTimingMode: "full", historyCapacity: 128 });
+    const timingBegin = renderer.frame_count;
+    for (let i = 0; i < 16; i++) await tick();
+    for (let wait = 0; wait < 100; wait++) {
+      const ready = renderer.profiler.history.filter((p) => p.frameIndex >= timingBegin &&
+        p.frameIndex < timingBegin + 16 && p.gpu.sampled && !p.gpu.pending);
+      if (ready.length === 16) break;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    const timingProfiles = renderer.profiler.history.filter((p) => p.frameIndex >= timingBegin &&
+      p.frameIndex < timingBegin + 16 && p.gpu.sampled && !p.gpu.pending);
+    check(timingProfiles.length === 16 && timingProfiles.every((p) =>
+      !p.counters["gpu.timing.truncated"] && p.submits.count === 1), "Missing complete single-submit diagnostic timestamps");
+    const passLabels = [...new Set(timingProfiles.flatMap((p) => p.gpu.segments
+      .filter((s) => s.scope === "pass").map((s) => s.label)))];
+    const diagnosticPassMs = Object.fromEntries(passLabels.map((label) => {
+      const values = timingProfiles.map((p) => p.gpu.segments.filter((s) => s.scope === "pass" &&
+        s.label === label).reduce((sum, s) => sum + s.durationMs, 0)).sort((a,b) => a-b);
+      return [label, { samples: values.length, median: values[8], minimum: values[0], maximum: values[15] }];
+    }));
     const dump = renderer.mainFrameGraphEvidence();
     check(
       JSON.stringify(dump).includes("SurfaceV4/native opaque"),
@@ -506,6 +623,15 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
       first,
       retry,
       stable,
+      preparedFixed,
+      residentMiss,
+      preparedRestored,
+      nearClipPrepared,
+      nearClipResident,
+      nearClipMaximumError,
+      preparedMissMaximumError,
+      arenaOwnerPeakBytes,
+      diagnosticPassMs,
       alphaRejected,
       alphaRestored,
       resized,

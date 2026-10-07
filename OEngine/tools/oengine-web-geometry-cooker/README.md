@@ -1,16 +1,18 @@
 # OEngine Web Geometry Cooker
 
-Current artifacts (2026-10-03): both specializations rebuilt for Surface V3
-optimization Phase 1. Canonical/recipe input ABI remains version 3; recipe profile
-is static-pbr-page-local-f32-continuity-v6. Groups carry bits 6 and 7 and 64-byte
-primitive metadata: geometry/UV0/UV1/normal/tangent/color domains, independent
-identity/field risks, variation and LOD error bounds. LOD lineage is transferred
-through weld/split/update/remap rather than exact source-corner byte lookup.
-Unknown correspondence becomes local to the affected field; two-sided does not
-clear geometry domains. Full 256 KiB payload capacity still includes metadata.
-Old metadata-v1 products require recooking. This is publication completion, not
-Surface classifier/quality/performance acceptance; pthread browser initialization
-remains a separate unvalidated experimental capability.
+Current artifacts (2026-10-08 / G2.2): native, portable-single and pthread
+producers use input ABI 4 and `static-pbr-page-local-f32-lean-v7`. Runtime
+Groups contain page-local local indices and authored vertices, without the
+retired 64-byte/triangle continuity payload (bits 6/7). Obsolete artifacts and
+Products require recooking; no compatibility decoder is provided. Cook-only
+seam/domain/lineage/error mathematics remains, as do float32 positions and
+normal/tangent/UV/color precision. Payload acceptance uses actual lean bytes.
+
+`node tools/test-web-cooker-threads.mjs` (after fresh build:test) compares real
+Chrome Worker portable-single and pthread 1/4-concurrency output, section/page
+by section/page. The G2.2 four-domain 73,728-source-triangle fixture passed.
+This does not establish the application Dedicated Worker startup/profile or
+large-scene performance acceptance. Git preserves the old artifact records.
 
 The pinned meshoptimizer revision remains unchanged. The 22 hash entries in
 source.json and verify.cmake were corrected after byte-for-byte comparison
@@ -40,11 +42,11 @@ built with Emscripten SDK 6.0.9 (release `f04ea239d533260dd1db760dd2d668d5f9a88d
 using the command above and the pinned Nyx hashes enforced by CMake. The current
 artifact carries the ADR-0017 two-phase ABI, the ADR-0018 Phase B incremental
 canonical-window builder, and the Phase D optional spill-release hook
-(`abi_version == 3`):
+(`abi_version == 4`):
 
 ```text
 oengine-web-geometry-cooker.mjs   SHA-256 cb18635b24d4c4dba7793844150be21b661b6091a2564bfe1e4ac4d4fe536ae8
-oengine-web-geometry-cooker.wasm  SHA-256 66bb946b4a65fca56c678069d254a1b2c2085bbefdaeea50f9e3f19b34bd90ac
+oengine-web-geometry-cooker.wasm  SHA-256 0a6d933e4b0b49d9a6de4dc12f99c45cc046cb7d3ac6b7db93906a6b98eeadc6
 ```
 
 The cooker emits one Product asset per canonical material domain, so a
@@ -54,8 +56,9 @@ and refresh both hashes whenever the C++ sources change.
 The Phase D source and checked-in browser pair expose the optional
 `oengine_web_geometry_cook_release_page` spill hook. It releases a successfully
 spilled page's decoded buffer and serialized Groups while preserving descriptor
-identity. ABI-v3 artifacts without the optional symbol retain plan memory through the
-TypeScript fallback. ABI-v2 artifacts are not the current canonical producer.
+identity. An ABI-4 artifact without the optional symbol retains plan memory until
+handle release; this optional lifetime hook is not an old-ABI compatibility
+decoder. Earlier input ABI versions are rejected and require recooking.
 
 ### `isolated-pthreads` specialization (experimental)
 
@@ -70,17 +73,17 @@ cmake --build tools/oengine-web-geometry-cooker/build-wasm-threads
 
 The per-domain cook loop is parallelized with the same bounded batching as the
 native writer. The runtime profile is opt-in (`?profile=isolated-pthreads`) and
-still requires browser validation: the Emscripten pthread module does not
-yet finish pool initialization inside the app's Dedicated Worker.
+has G2.2 isolated browser artifact determinism evidence; application
+Dedicated Worker initialization remains a separate acceptance responsibility.
 
 This specialization ships its own pair of artifacts and must be rebuilt
 whenever the C++ sources change, exactly like the single-threaded pair above.
 The current artifact carries the same ADR-0017/ADR-0018 Phase B ABI
-(`abi_version == 3`):
+(`abi_version == 4`):
 
 ```text
-threads/oengine-web-geometry-cooker.mjs   SHA-256 39089cb83a1ffd89db8f0f6748465566b5f0a78700b4bc296d28ddfd73771514
-threads/oengine-web-geometry-cooker.wasm  SHA-256 198faaa1f426909524c019015418a292977bd32bb2fd415d0429fbaafbf043bd
+threads/oengine-web-geometry-cooker.mjs   SHA-256 e1ee2fcef774aa72ee1bc257a6e69521021d504b920a6735963896227d0c3a90
+threads/oengine-web-geometry-cooker.wasm  SHA-256 9146e575183cdd93477c028eea9b8d7f0abcb7f8054ee6914b3d46b7969aa61f
 ```
 
 2026-09-29: both artifacts rebuilt for nyx-hierarchy-v3.1 and

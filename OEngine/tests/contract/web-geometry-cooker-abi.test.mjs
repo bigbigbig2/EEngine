@@ -41,8 +41,8 @@ test("Web geometry canonical and recipe ABIs are deterministic and canonical", (
   const view = new DataView(canonical),
     bytes = new Uint8Array(canonical);
   assert.equal(new TextDecoder().decode(bytes.subarray(0, 7)), "OEWGCAN");
-  assert.equal(abi.WEB_GEOMETRY_COOKER_ABI_VERSION, 3);
-  assert.equal(view.getUint32(8, true), 3);
+  assert.equal(abi.WEB_GEOMETRY_COOKER_ABI_VERSION, 4);
+  assert.equal(view.getUint32(8, true), 4);
   assert.equal(view.getUint32(12, true), 128);
   assert.equal(view.getUint32(16, true), canonical.byteLength);
   assert.equal(view.getUint32(20, true), 1);
@@ -59,13 +59,13 @@ test("Web geometry canonical and recipe ABIs are deterministic and canonical", (
   // a real cooker regression.
   assert.equal(
     createHash("sha256").update(bytes).digest("hex"),
-    "c9aea8577e63d53aa1e22f2af3c68d621e443b597b1350aadb2f36ccc22b5576",
+    "42ffddba014ade5290d35792dcac6076a9982962478adc2ef5c8e324395f9267",
   );
 
   const recipe = abi.encodeWebGeometryCookRecipeV1(),
     recipeView = new DataView(recipe);
   assert.equal(new TextDecoder().decode(new Uint8Array(recipe, 0, 7)), "OEWGRCP");
-  assert.equal(recipeView.getUint32(8, true), 3);
+  assert.equal(recipeView.getUint32(8, true), 4);
   assert.equal(recipeView.getUint32(12, true), 96);
   assert.equal(recipeView.getUint32(16, true), 64);
   assert.equal(recipeView.getUint32(52, true), 3);
@@ -73,7 +73,7 @@ test("Web geometry canonical and recipe ABIs are deterministic and canonical", (
   assert.equal(recipeView.getUint32(72, true), 18);
   assert.equal(
     createHash("sha256").update(new Uint8Array(recipe)).digest("hex"),
-    "5bd5edd24e5a5d1f6db3bdc44a1ec2690f087020416760a293443e8256b43cc7",
+    "61f1571d3522c03be8950124a6c68b6c72d9ed5a39e6ba9dae695d293d042bc4",
   );
 });
 

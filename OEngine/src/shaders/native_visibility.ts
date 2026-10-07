@@ -13,7 +13,10 @@ import {
   FRAME_GEOMETRY_ARENA_HEADER_WORDS as H,
   FRAME_GEOMETRY_ARENA_VERSION
 } from "../gpu/GpuFrameGeometryArenaAbi.js";
-import { GPU_FRAME_VERTEX_ATTRIBUTE_VECTORS } from "../gpu/GpuFrameGeometryAttributesAbi.js";
+import {
+  GPU_FRAME_VERTEX_ATTRIBUTE_VECTORS,
+  GPU_FRAME_VERTEX_WORLD_FIELDS as W
+} from "../gpu/GpuFrameGeometryAttributesAbi.js";
 
 export const NATIVE_VISIBILITY_VIEW_BYTES = 192;
 
@@ -312,13 +315,13 @@ fn native_visibility_vertex(@builtin(vertex_index) vertex: u32, @builtin(instanc
   }
   let absolute_vertex = vertex_base + local_vertex;
   let attributes = arena[header + ${H.attributes}u];
-  output.world_position = native_visibility_attribute(attributes, absolute_vertex, 8u);
+  output.world_position = native_visibility_attribute(attributes, absolute_vertex, ${W.position}u);
   output.position = ${shadow ? "view.clip_from_world * output.world_position" : "native_visibility_vec4(arena[header + " + H.clips + "u] + absolute_vertex * 4u)"};
   output.uv01 = native_visibility_attribute(attributes, absolute_vertex, 2u);
   output.uv2 = native_visibility_attribute(attributes, absolute_vertex, 4u);
   output.color = native_visibility_attribute(attributes, absolute_vertex, 3u);
-  output.normal = native_visibility_attribute(attributes, absolute_vertex, 6u);
-  output.tangent = native_visibility_attribute(attributes, absolute_vertex, 7u);
+  output.normal = native_visibility_attribute(attributes, absolute_vertex, ${W.normal}u);
+  output.tangent = native_visibility_attribute(attributes, absolute_vertex, ${W.tangent}u);
   }
   ${
     vsmAtlas

@@ -17,6 +17,8 @@ Owners: `OEngine/tools/oengine-asset-core`、`OEngine/src/assets/GeometryAbiV3.t
 
 Magic 为 `OEGPACK\0`，major/minor 为 `3/0`，所有整数与 float 使用 little-endian。V3 reader 必须拒绝其他 major/minor、非零 reserved 字段和未知已占用 bit；扩展只能通过新版本或本规范明确保留的字段。
 
+当前 geometry recipe 使用 `static-pbr-page-local-f32-lean-v7`；recipeHash/content identity改变，必须recook旧文件。Group flags仅bits0..5有效，已退休的continuity bits6/7一律拒绝；triangle region只包含各meshlet的3-byte local indices及4-byte alignment，无64B/triangle附加payload。容器major/minor和Group/Meshlet header大小不变，不存在旧continuity兼容decoder。cook语义与顶点精度保持，由新真实payload bytes决定分组/acceptance。
+
 本 ABI 已由 native writer 与 TypeScript reader 共同实现，但在第一个真实生产 Visibility consumer 通过前保持 `candidate`。OEGPACK 是 Native Offline Cooker 的文件容器，不是 Web Runtime Cooker 的中间格式；Runtime 通过 `OegPackProductSource` 将其映射到 [Geometry Product V1](./geometry-product-v1.md)。
 
 OEGPACK writer 的几何结果仍必须遵守 [Geometry Product V1](./geometry-product-v1.md) 的 Nyx provenance 和逐项移植合同。V3 文件布局可以适配 OEngine little-endian ABI，但不能因为已有 writer/parser 就跳过 Nyx 的 MeshletBuilder、hierarchy、streaming 和 consumer 算法来源。

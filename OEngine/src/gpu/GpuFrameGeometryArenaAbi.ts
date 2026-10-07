@@ -1,10 +1,11 @@
 import { FRAME_GEOMETRY_MESHLET_STRIDE } from "./GpuWinnerInterpolationAbi.js";
 import { GPU_FRAME_VERTEX_ATTRIBUTE_STRIDE } from "./GpuFrameGeometryAttributesAbi.js";
+import { GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_CAPACITY } from "./GpuVisibilityKeyAbi.js";
 
 /** Single raw-word Surface binding; producers bind disjoint typed subranges.
  * Directories retain final MeshletWork namespaces separately. No work-slot or
  * physical arena offset is a persistent Appearance identity. */
-export const FRAME_GEOMETRY_ARENA_VERSION = 3;
+export const FRAME_GEOMETRY_ARENA_VERSION = 4;
 export const FRAME_GEOMETRY_ARENA_HEADER_SIZE = 64;
 export const FRAME_GEOMETRY_ARENA_HEADER_WORDS = Object.freeze({
   version: 0,
@@ -26,6 +27,35 @@ export interface FrameGeometryArenaBudget {
   readonly vertexCapacity: number;
   readonly triangleCapacity: number;
   readonly maxBytes: number;
+}
+
+/** CPU admission bound, never current-frame GPU feedback. A small scene does
+ * not reserve a million vertices. Large scenes cap this optional preparation
+ * product; misses reconstruct from resident geometry at identical precision. */
+export function frameGeometryArenaBudgetForWork(
+  workCapacity: number,
+  filteredWorkCapacity: number
+): FrameGeometryArenaBudget {
+  if (
+    !Number.isSafeInteger(workCapacity) ||
+    workCapacity < 1 ||
+    workCapacity > GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_CAPACITY ||
+    !Number.isSafeInteger(filteredWorkCapacity) ||
+    filteredWorkCapacity < 0 ||
+    filteredWorkCapacity > workCapacity
+  ) {
+    throw new RangeError("Invalid admitted frame geometry work");
+  }
+  // Every legal meshlet contributes at most 128 vertices and triangles.
+  // 25% bounded headroom, quantized to a workgroup, avoids tiny resize churn.
+  const capacity = Math.min(1 << 20, Math.ceil((workCapacity * 128 * 1.25) / 128) * 128);
+  return Object.freeze({
+    workCapacity,
+    filteredWorkCapacity,
+    vertexCapacity: capacity,
+    triangleCapacity: capacity,
+    maxBytes: 128 * 1024 * 1024
+  });
 }
 export interface FrameGeometryArenaRegion {
   readonly offset: number;

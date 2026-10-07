@@ -62,6 +62,14 @@ Local：`GeometryProductResidencyProfile/SlotPool/GpuAbi/MultiRuntime`、`Virtua
 
 CPU边界/lateIO/100次metadata回收/1–66Product恢复、真实GPU bank边界及两Productpressure、真实Renderer双Productwinner/HDR/abort→retry/recovery结果见[执行§8.3.1](../next-execution/eengine-v4-native-shading-execution-2026-10.md#831-g21-实施结果与停止边界2026-10-08)。超预算fixture仍观测reload/thrash；未做large-scene磁盘/网络与GPU帧P50/P95，不以预留容量减少提升性能或来源adoption。
 
+<a id="g22-lean-geometry-source-map"></a>
+
+## 2026-10-08：G2.2 lean Geometry / native consumers 本地闭包
+
+Local：`GeometryCooker.cpp` 的 GroupMeshlets/SimplifyGroup/SerializeGroup、recipe/Product/OEGPACK校验与WASM ABI、FrameGeometryArena及frame writer/native raster/winner readers。Reference：重新核读本地Nyx `MiniEngine/Model/MeshletBuilder.cpp::BuildVertexLocksByGroups/SimplifyGroup/SerializeGroup`，声明revision `bc7e5b1e51f6b3b8af4771db81ffaa714fcbe64b`、MiniEngine MIT，快照文件SHA256=`b749346382b0f9a1574f0c0566a2860bff2acfbc6521df6f153a42653c81e84a`；沿用上表本地snapshot与revision核验边界。vendored meshoptimizer `9e1f07b159d3cb777f1c67ed31fc11fd117986f4`、MIT、1.3，实际核读partition与simplifyWithUpdate/属性锁；donor内0.25与本地不同，不冒称输出一致。
+
+Adopt：保已有seam/domain/lineage/attribute locks、bounds/error/refine/bootstrap数学与完整source finest cut；本轮不移植新的复杂算法。Adapt：payload acceptance按真实lean bytes、WebGPU同精度六vec4 prepared产品、CPU admission需求预留和fenced retirement。Reject：Sloppy/packed精度缩减、D3D meshshader/wave/框架假设及为donor数量恢复旧layout。Original：删除无reader序列化payload、v7/ABI4 recook边界、reader偏移裁剪与有界Arena容量为本地责任。独立donor corpus自身语义保留；数量equal测试迁移依据、Native/WASM质量与实际production GPU/hit-miss/近裁面结果及限制见[执行§8.4.1](../next-execution/eengine-v4-native-shading-execution-2026-10.md#841-g22-实施结果与停止边界2026-10-08)。没有新增来源adoption等级、compression算法或性能改善声明。
+
 ## 2026-10-07：V4 planning source map（未实施、未提升采用）
 
 本次复用两份 V4 提案和既有 SF 来源核读记录，核对本地 `b69a0a60b13930212fdc98f988443186fad024e4` 的实际 producer/consumer；不宣称本轮重新审计完整上游引擎，也没有运行上游或新的 GPU 验证。主/辅提案已为 history；唯一目标与详细单元分别见 V4 authority。复杂算法实施前仍须重新读取选定 revision 的完整相关阶段、license/关键分支，并补逐函数映射与缺口；本表是拟实施映射，不是 adopted。

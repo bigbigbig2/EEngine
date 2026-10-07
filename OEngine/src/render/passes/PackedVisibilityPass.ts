@@ -43,7 +43,10 @@ import type { FrameInstanceTransforms, PreparedFrameInstances } from "../FrameIn
 import { GPU_INSTANCE_RECORD_STRIDE } from "../../gpu/GpuInstanceAbi.js";
 import type { FrameGeometryVertices, PreparedFrameVertices } from "../FrameGeometryVertices.js";
 import type { FrameGeometryArena, PreparedFrameGeometryArena } from "../FrameGeometryArena.js";
-import type { FrameGeometryArenaBudget } from "../../gpu/GpuFrameGeometryArenaAbi.js";
+import {
+  frameGeometryArenaBudgetForWork,
+  type FrameGeometryArenaBudget
+} from "../../gpu/GpuFrameGeometryArenaAbi.js";
 import {
   sameVisibilityWorkSetKey,
   visibilityWorkSet,
@@ -67,7 +70,7 @@ export interface PackedVisibilityPrepareJob {
   readonly virtualGeometry?: GeometryProductGpuBindingsV1;
   readonly sseThreshold: number;
   readonly geometryWorkBudget?: GeometryWorkBudget;
-  /** Independent frame geometry capacities, never workCapacity times 128. */
+  /** Optional preparation overrides; the default is bounded by admitted work. */
   readonly frameGeometryBudget?: Omit<FrameGeometryArenaBudget, "workCapacity" | "filteredWorkCapacity">;
   readonly coneEnabled: boolean;
   /** Positive test pressure override; omitted uses the proven triangle capacity upper bound. */
@@ -456,21 +459,18 @@ export class PackedVisibilityPass {
       );
     }
     this.vertexTransforms.encode(command.gpu_encoder, workSet.frameVertices);
-    this.meshletBucketRaster.encodeRaster(
-      command.gpu_encoder,
-      {
-        prepared: meshletWork,
-        camera,
-        assets: job.assets,
-        scene: job.scene,
-        frameInstances: workSet.frameInstances.records,
-        frameVertices: workSet.frameVertices,
-        runtime: job.runtime,
-        visibilityKey,
-          depth,
-        virtualGeometry: job.virtualGeometry ?? null
-      }
-    );
+    this.meshletBucketRaster.encodeRaster(command.gpu_encoder, {
+      prepared: meshletWork,
+      camera,
+      assets: job.assets,
+      scene: job.scene,
+      frameInstances: workSet.frameInstances.records,
+      frameVertices: workSet.frameVertices,
+      runtime: job.runtime,
+      visibilityKey,
+      depth,
+      virtualGeometry: job.virtualGeometry ?? null
+    });
     this.debugBindings.set(
       job.runtime,
       Object.freeze({
@@ -533,10 +533,12 @@ export class PackedVisibilityPass {
       meshletWorkCandidateCapacity,
       meshletWorkCompactionPath: job.meshletWorkCompactionPath ?? "auto",
       frameGeometryBudget: Object.freeze({
-        vertexCapacity: 1 << 20,
-        triangleCapacity: 1 << 20,
-
-        maxBytes: 128 * 1024 * 1024,
+        ...frameGeometryArenaBudgetForWork(
+          meshletWorkCandidateCapacity,
+          job.virtualGeometry !== undefined && job.currentHzbLateRecheck != null
+            ? meshletWorkCandidateCapacity
+            : 0
+        ),
         ...job.frameGeometryBudget,
         workCapacity: meshletWorkCandidateCapacity,
         filteredWorkCapacity:

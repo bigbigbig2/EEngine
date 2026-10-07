@@ -53,7 +53,7 @@ std::vector<std::uint8_t> Recipe() {
     std::vector<std::uint8_t> bytes(96u, 0u);
     const std::uint8_t magic[8] = {'O','E','W','G','R','C','P',0};
     std::copy(magic, magic + 8u, bytes.begin());
-    U32(bytes, 8u, 3u); U32(bytes, 12u, 96u);
+    U32(bytes, 8u, 4u); U32(bytes, 12u, 96u);
     U32(bytes, 16u, 64u); U32(bytes, 20u, 32u); U32(bytes, 24u, 128u);
     U32(bytes, 28u, 32u); F32(bytes, 32u, 0.0f); F32(bytes, 36u, 2.0f);
     F32(bytes, 40u, 0.5f); F32(bytes, 44u, 0.51f); F32(bytes, 48u, 0.85f);
@@ -82,7 +82,7 @@ std::vector<std::uint8_t> CanonicalCube() {
     std::vector<std::uint8_t> bytes(totalBytes, 0u);
     const std::uint8_t magic[8] = {'O','E','W','G','C','A','N',0};
     std::copy(magic, magic + 8u, bytes.begin());
-    U32(bytes, 8u, 3u); U32(bytes, 12u, 128u); U32(bytes, 16u, totalBytes);
+    U32(bytes, 8u, 4u); U32(bytes, 12u, 128u); U32(bytes, 16u, totalBytes);
     U32(bytes, 20u, 1u); U32(bytes, 24u, positions.size()); U32(bytes, 28u, indices.size());
     U32(bytes, 32u, domainOffset); U32(bytes, 36u, vertexOffset); U32(bytes, 40u, indexOffset);
     U32(bytes, 44u, 72u); U32(bytes, 48u, 48u);
@@ -126,7 +126,7 @@ std::vector<std::uint8_t> CanonicalDomains(std::size_t domainCount, std::size_t 
     std::vector<std::uint8_t> bytes(totalBytes, 0u);
     const std::uint8_t magic[8] = {'O','E','W','G','C','A','N',0};
     std::copy(magic, magic + 8u, bytes.begin());
-    U32(bytes, 8u, 3u); U32(bytes, 12u, 128u); U32(bytes, 16u, totalBytes);
+    U32(bytes, 8u, 4u); U32(bytes, 12u, 128u); U32(bytes, 16u, totalBytes);
     U32(bytes, 20u, std::uint32_t(domainCount)); U32(bytes, 24u, std::uint32_t(vertexCount)); U32(bytes, 28u, std::uint32_t(indexCount));
     U32(bytes, 32u, domainOffset); U32(bytes, 36u, vertexOffset); U32(bytes, 40u, indexOffset);
     U32(bytes, 44u, 72u); U32(bytes, 48u, 48u);
@@ -457,26 +457,27 @@ void AssertSurfaceMetadataAndPageCapacity() {
     CookEvidenceV3 evidence;
     const auto cooked = CookGeometryAssetV3(source, recipe, evidence);
     assert(cooked.groups.size() >= 3u);
-    std::uint32_t sharingDomain = 0u, primitiveCount = 0u;
+    std::uint32_t primitiveCount = 0u;
     for (const auto& group : cooked.groups) {
         assert(group.bytes.size() <= kGeometryPageBytesV3);
-        assert((group.flags & kGroupSurfaceMetadata) != 0u);
-        assert((group.flags & kGroupSurfaceContinuityV2) != 0u);
+        assert((group.flags & 0xc0u) == 0u);
         GroupHeaderV3 header{}; DecodeRecordV3(group.bytes.data(), &header);
         assert(header.meshletCount <= 128u);
         for (std::uint32_t meshletIndex = 0; meshletIndex < header.meshletCount; ++meshletIndex) {
             MeshletHeaderV3 meshlet{};
             DecodeRecordV3(group.bytes.data() + header.meshletHeaderOffset + meshletIndex * 48u, &meshlet);
-            const auto metadata = AlignUp(meshlet.triangleByteOffset + meshlet.triangleCount * 3u, 4u);
-            assert(metadata + meshlet.triangleCount * 64u <= header.vertexDataOffset);
-            for (std::uint32_t primitive = 0u; primitive < meshlet.triangleCount; ++primitive) {
-                const auto at = metadata + primitive * 64u;
-                const auto currentDomain = U32(group.bytes, at);
-                assert(currentDomain != 0u && U32(group.bytes, at + 24u) == 0u);
-                for (std::uint32_t field = 1u; field < 6u; ++field) assert(U32(group.bytes, at + field * 4u) != 0u);
-                if (sharingDomain != 0u) assert(currentDomain == sharingDomain);
-                sharingDomain = currentDomain; ++primitiveCount;
+            assert(meshlet.triangleByteOffset + meshlet.triangleCount * 3u <= header.vertexDataOffset);
+            const auto end = AlignUp(meshlet.triangleByteOffset + meshlet.triangleCount * 3u, 4u);
+            if (meshletIndex + 1u < header.meshletCount) {
+                MeshletHeaderV3 next{};
+                DecodeRecordV3(group.bytes.data() + header.meshletHeaderOffset + (meshletIndex + 1u) * 48u, &next);
+                assert(next.triangleByteOffset == end);
+            } else {
+                assert(header.vertexDataOffset == AlignUp(end, 16u));
             }
+            for (std::uint32_t corner = 0; corner < meshlet.triangleCount * 3u; ++corner)
+                assert(group.bytes[meshlet.triangleByteOffset + corner] < meshlet.vertexCount);
+            primitiveCount += meshlet.triangleCount;
         }
     }
     assert(primitiveCount == domain.indices.size() / 3u);
@@ -491,15 +492,10 @@ void AssertSurfaceMetadataAndPageCapacity() {
     CookEvidenceV3 duplicateEvidence;
     const auto separate = CookGeometryAssetV3(duplicated, recipe, duplicateEvidence);
     assert(separate.groups.size() == 2u);
-    std::uint32_t identities[2]{};
-    for (std::uint32_t groupIndex = 0; groupIndex < 2u; ++groupIndex) {
-        GroupHeaderV3 header{}; DecodeRecordV3(separate.groups[groupIndex].bytes.data(), &header);
-        MeshletHeaderV3 meshlet{};
-        DecodeRecordV3(separate.groups[groupIndex].bytes.data() + header.meshletHeaderOffset, &meshlet);
-        identities[groupIndex] = U32(separate.groups[groupIndex].bytes,
-            AlignUp(meshlet.triangleByteOffset + meshlet.triangleCount * 3u, 4u));
-    }
-    assert(identities[0] > 0u && identities[1] > 0u && identities[0] != identities[1]);
+    // Domains remain cooker semantics, not an unused runtime triangle payload.
+    const auto first = BuildSourceSurfaceDomains(duplicated.domains[0], 1u);
+    const auto second = BuildSourceSurfaceDomains(duplicated.domains[1], 2u);
+    assert(first.triangles[0].domains[0] != second.triangles[0].domains[0]);
 }
 
 void AssertIndependentSurfaceContinuity() {
@@ -539,15 +535,15 @@ int main() {
     AssertSurfaceMetadataAndPageCapacity();
     AssertMeshletSeamsAndTerminalLod();
     AssertPageIdentityRollup();
-    assert(oengine_web_geometry_cook_abi_version() == 3u);
+    assert(oengine_web_geometry_cook_abi_version() == 4u);
     const std::vector<std::uint8_t> canonical = CanonicalCube();
     const std::vector<std::uint8_t> recipe = Recipe();
     // Golden freeze of the fixture encoding itself: these digests pin the exact
     // recipe/canonical byte layout (including the ABI version word) so that any
     // accidental edit to the fixture is caught before it can mask a real
     // regression in the cooker.
-    assert(Hex(Sha256(canonical)) == "c9aea8577e63d53aa1e22f2af3c68d621e443b597b1350aadb2f36ccc22b5576");
-    assert(Hex(Sha256(recipe)) == "5bd5edd24e5a5d1f6db3bdc44a1ec2690f087020416760a293443e8256b43cc7");
+    assert(Hex(Sha256(canonical)) == "42ffddba014ade5290d35792dcac6076a9982962478adc2ef5c8e324395f9267");
+    assert(Hex(Sha256(recipe)) == "61f1571d3522c03be8950124a6c68b6c72d9ed5a39e6ba9dae695d293d042bc4");
     AssertTwoPhaseParity(canonical, recipe);
     AssertWindowedBuilderParity(recipe);
     const std::uintptr_t first = oengine_web_geometry_cook(

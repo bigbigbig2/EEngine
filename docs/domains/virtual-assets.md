@@ -43,6 +43,8 @@ Residency publication事件同步管理streaming source注册：dormant/retiring
 
 ## 边界与验证
 
+当前 cook profile 为 `static-pbr-page-local-f32-lean-v7`，WASM input ABI4。raw Product/OEGPACK 不再携带无 runtime reader 的64B/triangle continuity；旧flag bits6/7明确要求recook，旧ABI3 WASM在规划前拒绝。cook内部 seam/domain/lineage/误差数学保留，float32 position及normal/tangent/UV/color编码不变。新真实payload bytes参与分组与LOD acceptance，可能改变cut和page packing；不能据删除字段直接推断质量或整bank VRAM收益。实际验证和限制只读执行计划G2.2。
+
 来源及阶段映射集中在[geometry ledger](../porting/geometry.md)，既有 ABI/容器细节保留在对应 specs。本页不复制旧 Phase 标签、固定 asset 字节数、预算或 claim accepted 状态。
 
 真实 GPU handoff/culling 的检查覆盖所选 producer/consumer 与输入；cook、替换、取消、device recovery、全几何容量和大型场景需要各自生产验证。已存在 virtual 输入绑定不等于未来完整 Virtual Geometry 工作域或完整 VT/Virtual Shadow。
