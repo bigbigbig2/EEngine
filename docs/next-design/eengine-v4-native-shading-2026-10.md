@@ -31,11 +31,22 @@ verifies:
     - OEngine/src/render/passes/fsr3/Fsr3UpscalerRuntime.ts
     - OEngine/src/framegraph/FrameGraph.ts
     - OEngine/src/framegraph/ShadeGPUCommandContext.ts
+    - OEngine/src/gpu/GeometryProductMultiRuntime.ts
+    - OEngine/src/gpu/VirtualGeometryResidency.ts
+    - OEngine/src/gpu/GeometryProductResidencyProfile.ts
+    - OEngine/src/gpu/GeometryProductGpuAbiV1.ts
+    - OEngine/src/gpu/GeometryPageStreamingRuntime.ts
+    - OEngine/src/assets/geometry-product/VirtualGeometrySceneSourceV1.ts
+    - OEngine/src/render/HierarchicalWorkGenerator.ts
+    - OEngine/src/render/MeshletWorkCandidate.ts
+    - OEngine/src/shaders/frame_geometry_vertices.ts
+    - OEngine/src/shaders/surface_geometry_completion.ts
+    - OEngine/tools/oengine-asset-core/src/geometry/GeometryCooker.cpp
 ---
 
 # EEngine V4：Native Shading 架构母稿
 
-本文件是唯一 **current renderer architecture authority**；[执行计划](../next-execution/eengine-v4-native-shading-execution-2026-10.md)是唯一 renderer execution authority。[workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)只维护当前模块导航，不另列完整任务。源码定义当前实现事实，`docs/domains/`在真实代码切换后更新。本文采纳 V4 目标，不以文档采纳声称生产切换、GPU 验证或来源 adoption；隔离阶段的实际交付、测量及限制只见执行计划，生产 Surface 尚未切换。
+本文件是唯一 **current renderer architecture authority**；[执行计划](../next-execution/eengine-v4-native-shading-execution-2026-10.md)是唯一 renderer execution authority。[workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)只维护当前模块导航，不另列完整任务。源码定义当前实现事实，`docs/domains/`在真实代码切换后更新。M1 的实际切换与验收范围见执行计划 §3；本文 §2 保留切换前审查，§11 根据切换后的源码设计 M2。文档采纳不证明 M2 实现、GPU 验证或来源 adoption。
 
 2026-10-07 执行 `git fetch origin` 后，HEAD、master、origin/master 均为 `b69a0a60b13930212fdc98f988443186fad024e4`；开始时仅两份 V4 提案未跟踪。下文源码定位以该快照为审查起点，实施必须重新检查 HEAD/工作区与直接消费者。
 
@@ -45,11 +56,11 @@ verifies:
 
 [R3/R4 设计](./eengine-extreme-performance-rebuild-2026-10.md)、[R3/R4 执行记录](../next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md)及 ADR-0021 退出 current；旧实验、C cache 负收益、B1/B2 数值问题原文保留。历史文本中的“必须修旧 cache”“General VM”“六 signal”“A0→F”不再约束 V4。发生冲突时，以本母稿、最新源码事实、协商到的 WebGPU 能力和可检验成本模型共同裁决；实现事实不因目标改变而重写。
 
-长期目标仍是 Extreme Performance、GPU Driven、WebGPU Native、AAA 画质、复杂场景 streaming 和可持续扩展；GTX 1650 Ti 4GB/1080p 是首要约束之一。VG、VT、VSM、clustered lighting、ReSTIR、GI/SSGI、SSR/SSSR、Atmosphere、Temporal、Dynamic Resolution、FSR/未来 AI Upscaling、Transparency/Media 保留为能力方向。本轮只展开 Surface V4；其他模块仅定义连接边界。
+长期目标仍是 Extreme Performance、GPU Driven、WebGPU Native、AAA 画质、复杂场景 streaming 和可持续扩展；GTX 1650 Ti 4GB/1080p 是首要约束之一。VG、VT、VSM、clustered lighting、ReSTIR、GI/SSGI、SSR/SSSR、Atmosphere、Temporal、Dynamic Resolution、FSR/未来 AI Upscaling、Transparency/Media 保留为能力方向。保留 M1 设计，本轮只增加 Geometry/VG 的 M2 设计与执行边界；M3 以后仍只定义连接合同。
 
-## 2. 当前源码与真正的切断边界
+## 2. M1 切换前源码审查与切断边界（历史快照）
 
-下表是审查快照的接线事实，不是 V4 实现声明；路径均相对于 `OEngine/src/`。实际调用和依赖须用符号检索，历史行号不能替代源码。
+下表只描述 M1 切换前接线，表中“当前”指该审查时点；已退休路径不再是现行生产 owner。路径均相对于 `OEngine/src/`。实际调用和依赖须用符号检索，历史行号不能替代源码；切换后事实见执行计划 §3.3.1/§3.4.1 与本文 §11。
 
 2026-10-07 再次 `git fetch origin` 后，HEAD 与 origin/master 均为 `0386bea5fc59a98cefd3f54d2be589ab9b2ed0eb`，工作区干净。本次按实际调用重新核查实施边界，只调整文档执行模型，没有 native probe 或生产代码改动。此前 `b69a0a60` 是首次 authority 切换的审查快照，不作为永久最新源码。
 
@@ -225,3 +236,170 @@ fused shader 的bindings必须包括winner、geometry sources、instances/public
 最容易再次失败：native program×BindingSet膨胀、编译/发布卡顿、fused live ranges导致spill、compact indices破坏texture/cluster locality、高coverage随机Geometry访问、误改C/X/Y/LOD/normal、bindings超limits、Aux膨胀、history中央化、计时scope漏算和微基准过拟合。分别在 S0–S3 用native数据、程序/route矩阵、独立oracle、真实consumer、完整物理账和failure分类核对。
 
 母稿不保存阶段状态。改变选择必须写明被证伪假设、真实work/quality/limits与Cost Card；不能为了pass少、dispatch固定、cache hit高或旧测试形状恢复R3。当前实施单元及边界只读[执行计划](../next-execution/eengine-v4-native-shading-execution-2026-10.md)和workstream。
+
+## 11. M2 — Geometry / Virtual Geometry Alignment & Scale Optimization
+
+### 11.1 审查基线、问题与范围
+
+2026-10-08 重新 fetch 后，HEAD 与 origin/master 均为 `a66667e04222481ca130c4c6d878118bf649bb9f`，审查开始时工作区干净。M1 已到执行计划的 S3 关闭边界；`RendererCore._surface` 与 `FrameProgramOwners.surface` 只接 SurfaceV4，旧 SurfaceWorkRuntime/Tape/cache/six-signal 不再是生产输入。M2 不重做 Surface，不从零重写 VG，也不把历史 Nyx/Phase H 工作当作未实现。
+
+本节是该 SHA 的源码审查与目标选择，尚无 M2 实现或新 GPU 测量。引用 M1 原始记录时保留工作负载、范围及限制。M2 优先解决容量正确性、4GB 下的固定预留和多 Product 生命周期，再优化已证明有重复的产品及每帧工作；LightCluster 在部分 M1 probe 的 30ms+ 是外部瓶颈，不纳入 Geometry 优化。
+
+范围包括 asset→Product→Scene→Residency→Hierarchy→MeshletWork→Visibility→native winner 的全部接线，以及 Geometry 向 VSM、Temporal、HZB 和延迟 streaming 的真实接口。VSM 分页/PCF、Lighting、VT、GI/ReSTIR、压缩体系重建及全 renderer 性能 claim 不在本模块。
+
+### 11.2 真实生产数据流与 ownership
+
+```mermaid
+flowchart TD
+    A[CPU Source Geometry / canonical windows] --> B[Web WASM / Offline cook / procedural cook]
+    B --> C[CPU Geometry Product descriptor + page provider / OEGPACK]
+    C --> D[Admission + MultiRuntime: slot / generation / scene tables]
+    D --> E[Persistent GPU: Product metadata + shared residency banks]
+    D --> F[GPU Scene: instance / material publication]
+    E --> G[Per-frame Hierarchy: roots + wavefront / SSE / culling]
+    F --> G
+    G --> H[VisibleCluster → MeshletWork + indirect]
+    H --> I[Frame instance selection + geometry arena preparation]
+    I --> J[Native Visibility: winner r32uint + Depth]
+    E --> J
+    J --> K[SurfaceV4: winner reconstruction in private values → HDR / demanded Aux]
+    I --> K
+    E --> K
+    J --> L[NativeTemporalFacts: scene transform / material versions / winner]
+    J --> Z[HZB / debug]
+    Z -. optional current-HZB recheck .-> H
+    H --> V[VSM caster records: currently main-view work → light raster]
+    E --> V
+    G --> Q[GPU page demand]
+    Q --> R[Delayed readback ring → CPU scheduler / IO / upload]
+    R --> E
+    C --> R
+```
+
+虚线 recheck 不是当前 capture 默认开启的路径。Product 的 previous-HZB early cull 当前关闭；普通 Geometry 的 previous-HZB 分支仍存在。VSM 目前从主视图 MeshletWork 取得 caster，不能把图中这一箭头解释为完整 light-view coverage。shadow demand readback API 存在，但本次符号搜索未找到生产调用。
+
+路径以下相对 `OEngine/src/`；同名或版本后缀不决定职责。
+
+| 层 / owner 与源码入口 | 实际产品、writer、reader 与寿命 |
+|---|---|
+| CPU asset：`assets/geometry-product/GeometryProductV1.ts`、`VirtualGeometrySceneSourceV1.ts`；`assets/web-cook/`、OEGPACK providers；native `tools/oengine-asset-core/src/geometry/GeometryCooker.cpp` | descriptor、256KiB pages、roots/refinement、格式与 source/revision。bounded canonical windows、shards、spill、activation-first 已有；Loader 提供 CPU source，不拥有长期 GPU residency |
+| Persistent Scene：`gpu/GpuScene.ts`、`GpuRenderWorld.ts`、`GpuAssetStore.ts` | instance/material/native publication；Product slot/generation 随实例进入 GPU。普通 asset store 另有 decoded/sparse copies，主要服务 legacy/tool/oracle 路径，仍有实际 reader，不能按名称整类删除 |
+| Persistent Product：`GeometryProductAdmission.ts`、`GeometryProductMultiRuntime.ts`、`VirtualGeometryResidency.ts`、`GeometryProductSlotPool.ts` | Admission 原子激活；Residency 写 raw pages、resident attributes、page locations；MultiRuntime 重定位 scene metadata。四物理 bank 按 GPUDevice 共享，并非每 Product 各四份；各 Product local metadata 与 scene heap 仍重复 |
+| Streaming：`GeometryPageDemandAbiV1.ts`、`GeometryDemandReadbackRing.ts`、`GeometryPageScheduler.ts`、`GeometryPageStreamingRuntime.ts` | GPU 请求→已提交帧 fence 后延迟 readback→CPU pending/IO/verified upload→Residency；不得成为本帧 work 控制。Page eviction 策略/API 已有，生产 pressure→evict→retry 上传的闭包尚未接齐 |
+| Per-frame work：`geometry/GeometryHierarchy.ts`、`render/HierarchicalWorkGenerator.ts`、`shaders/hierarchical_work_generation.ts`、`render/MeshletWorkCandidate.ts` | spatial hierarchy 与 meshlet refinement DAG 不是同一棵树；frustum/cone/SSE→8B traversal tasks→20B VisibleCluster→24B MeshletWork/indirect；生产 Product 使用 wavefront，再独立 expand |
+| Prepared acceleration：`render/FrameGeometryArena.ts`、`FrameGeometryVertices.ts`、`gpu/GpuFrameGeometryArenaAbi.ts`、`GpuFrameGeometryAttributesAbi.ts`、`shaders/frame_geometry_vertices.ts` | Arena owns buffer/retirement；metadata prefix 在 workset publication 时复制；source/filtered directory、clips、triangles、attributes 由 prepare/recheck GPU 写，Visibility 与 native winner 读。不是逐 pixel 完整 GeometryRecord |
+| Winner/direct consumers：`render/passes/PackedVisibilityPass.ts`、`surface/NativeVisibilityPass.ts`、`render/MeshletBucketRaster.ts::nativeWinnerGeometry`、`shaders/native_surface.ts`、`surface_geometry_completion.ts` | winner slot→MeshletWork→instance/triangle/corners→bary/CXY、UV/normal/tangent→native Material。Arena miss 使用真实 resident source decode；这是 Geometry 正确恢复路径，不是旧 Surface compatibility bridge |
+| Effect-specific：`FrameProgramLowering.ts`、`render/vsm/VsmCasterRecordPass.ts`、`VsmAtlasRasterPass.ts`；`render/temporal/NativeTemporalFactsPass.ts` | VSM 读 work/instance/source Product，使用 light transform 而非主 view clip；Temporal 读 winner、scene transforms/material versions，不读 Arena 的 144B attribute record；history/identity 留 Temporal，不向 Geometry 请求未来万能记录 |
+
+### 11.3 KEEP / ALIGN / REWRITE / DELETE 裁决
+
+| 子系统 | 裁决 | 证据与边界 |
+|---|---|---|
+| Product descriptor、Web/Offline/procedural 同合同 | KEEP + ALIGN | 未来唯一长期 production asset/runtime 合同；原生/WASM 共用 cooker。V2 CPU asset/oracle 可保留，生产可达的第二种上传/恢复依赖须收口，不把 tool 路径伪称第二 renderer |
+| meshoptimizer cook / seams / hierarchy / SSE / refinement | KEEP + OPTIMIZE | 已有边界锁、属性误差、非有限/退化拒绝、parent bounds/error 与 failed-branch root pins；保持 float32 position、normal/UV/tangent 质量。只减无 reader 的序列化负担，不删 cook 质量数学 |
+| Frustum / cone / wavefront / VisibleCluster / indirect | KEEP + ALIGN | 当前真实生产可用；修真实 depth/capacity、overflow 和 Product expansion dispatch，不因 pass 多造 persistent polling megakernel |
+| fused-leaf 与 HZB | KEEP，扩用由数据决定 | fused crossover 144 属既有条件结果；当前 PackedVisibility `rasterExpansionEnabled:false`，普通生产也走 wavefront，不能直接宣称已选 fused。Product previous-HZB 因 cut/disocclusion recovery 缺失保持关闭；当前 HZB directory remap 保留 |
+| r32 VisibilityKey / MeshletWork winner contract | KEEP | 24bit work slot + 8bit primitive，generation/context 外置；当前 Surface 与 Temporal 已消费。先解决 work/binding 容量，不扩 64bit 换预算或掩盖 consumer bug |
+| shared residency pool / bank ABI / budget profile | LOCAL REWRITE + KEEP 安全语义 | 保四 bank portable binding 和 page publication/fence；将 fixed ≥512MiB 改为预算驱动容量，统一所有地址 reader。当前 Balanced/HighEnd slot 容量与硬编码 512 不一致，属 correctness，不能仅调预算回避 |
+| MultiRuntime metadata、replacement、recovery | LOCAL REWRITE | scene 固定64MiB、按区域比例切分且 append-only；release 不回收 ranges。各 local metadata + scene copy 可收口为一个 production authoritative directory；重写以完整 slot/gen/fence 闭包为边界，不做 GPU allocator OS |
+| demand/ring/scheduler/async upload | KEEP + ALIGN / OPTIMIZE | 延迟反馈、优先级、预测、年龄/回取/thrash 策略已存在；补 abort ring、generation routing、verified queue budget、fairness、pressure eviction、shadow demand 生产调用 |
+| resident decoded 96B/vertex | KEEP，优化待 Cost Card | 它换掉每 pixel raw unpack，多 consumer 有用；raw+expanded 重复不自动意味着应删除。更紧格式或直接 raw decode 必须算全 consumer/frame 的重算和 gather 成本 |
+| FrameGeometryArena | KEEP owner + REWRITE LOCAL LAYOUT / capacity | mixed acceleration 与重复字段。先同精度紧化已证明不读的 object-space vectors，按需求容量预留；不能直接删掉 cache 迫使每 pixel 重建 |
+| serialized continuity 64B/triangle | DELETE runtime payload，ALIGN cook | `GeometryContinuityAbi.decode` 仅见 WASM cook oracle，M1 新 readers 不读取此 payload；仍影响当前 recipe/hash/payload acceptance。更新版本、recook、迁移独立 oracle；cook seam/lineage/error 必须保留 |
+| ordinary GpuAssetStore 的重复 GPU representation / unused reader | DELETE 仅限证实无 consumer 的部分 | V2 upload 有明确 tool/oracle、recovery caller；先迁移生产依赖和正确性 oracle，再删除重复 GPU upload。`surfaceGeometrySourceReaderWgsl` 无外部引用候选；`surfaceGeometryDecodeWgsl` 有真实读者，必须保留 |
+| Geometry→VSM caster 输入 | ALIGN / LOCAL owner closure | 当前主 camera work 不能证明 off-camera caster 完整。Geometry 提供 conservative shadow work/transform/demand；VSM page selection、filter/cache 留 VSM owner |
+
+本模块不使用人为 KEEP 百分比；小范围 owner 改写不等于整模块重建。每次共享 ABI 或核心 owner 改写均先独立构建完整 producer→全部 readers→lifecycle，再一次切换并立即删除旧职责。其他正确 owner 按上述 local alignment 保留，无第二 production 路径。
+
+### 11.4 规模与生命周期的真实缺口
+
+**容量先于调速。** `VirtualGeometrySceneSourceV1` 单 Product 将 traversal/visible/raster capacity 设为 `min(65535,max(256,assetCount×16))`，depth 固定64；合并主要相加这些估计。它未按 instance multiplicity、实际最大 hierarchy depth 和合法 refinement cut 上界证明容量。`MeshletWorkCandidate` 的 Product expansion 按 capacity 直接 dispatch 一维 grid，超协商 `maxComputeWorkgroupsPerDimension` 拒绝。M2 将静态合法上界与动态 GPU actual count 分开：admission 算容量、GPU indirect/合法二维 flatten 编码 work，不读回本帧 count。空间 BVH parent 非 renderable LOD，overflow 不能假装输出这个 parent；不能以 suppressed indirect/部分 cut 接受成功帧。超预算必须明确 admission/prepare 失败，或有已证明完整的 renderable coarse cut。
+
+**Residency 地址存在源码冲突。** Portable/Balanced/HighEnd 四 bank 分别128/192/256MiB，即512/768/1024个256KiB slots/bank；`GeometryProductGpuAbiV1` CPU codec/validator/WGSL 固定512。后两 profile 的物理 slot≥512 可被 allocator 分配却无法合法编码。新的容量合同覆盖 raw bank/slot、resident directory address、generation、全部 CPU/WGSL readers，创建前检查 binding/buffer limits；profile 测试必须到达边界槽，不只上传第一个 page。
+
+**四 bank 已共享；问题在容量和峰值。** Portable 共512MiB，无更小可用 profile；请求小于 portable 的预算当前会 disable，而非创建小 bank。每逻辑 page raw 占一槽，decoded attributes directory 至少另一槽，更多96B vertex data再占槽；最少512KiB/逻辑页，2048物理槽最多容纳1024页，更高展开成本时更少。physical `residentBytes`、有效 uploaded bytes、descriptor reservation 是不同量。先选四个较小 bank 的预算 profile，保持现有 binding 数；不立即建 bank-count selector、迁移式虚拟 allocator 或每 Product 独立池。
+
+**多 Product 是已实现基础，尚未完整规模闭包。** `bindings()` 找 first active 只是取共享 banks，实例的 slot/gen 和重定位 tables 支持多个 Product，不是只渲染第一个 Product。但 scene metadata cursors 不回收；`publishPageLocation(slot,pageId,location)` 缺 expected generation；stream completion 主要依 ProductID/revision，须覆盖同 revision 并存与 slot 重用。Renderer recovery 对 active>1 明确抛出需 application replay；Streaming eviction/evidence 仍借最初 Residency，且未找到生产 pressure eviction 调用。上述 generation/ring 风险是 SOURCE RISK，尚无本轮 GPU 复现；不得据此宣称已修复或所有多 Product 都坏。
+
+Scheduler 已有 adaptive budgets、missing/shadow/predictive priority 和 age，不重建。需补 bounded verified-upload CPU queue、每 Product starvation/fairness、pin/resident/retiring 峰值、主动回收后 retry；不能把 IO cap 当已包含所有 upload-queued bytes。Readback encode 时占 ring slot、abort 后的 rollback/重新提交、fence 后 consume 与错误可观察性也要闭合；延迟 shadow反馈可接，但不得本帧 GPU→CPU→GPU。
+
+### 11.5 Arena 与 Geometry→Surface 的最小产品
+
+Arena 不是旧 Surface continuity store。当前布局：header64B、immutable metadata prefix、source directory `16+16M`；有 current-HZB recheck 时另有 filtered directory，否则 alias；clips `16Nv`、triangle corners `4Nt`、attributes `144Nv`（九 vec4）。FrameGeometryVertices 按选中 work 写 source directory/clip/triangles/attributes；recheck 只重映射16B entries，不复制全部 attributes。FrameGeometryArena owns allocation、metadata commit/abort、borrower fence retirement；FrameInstances 另从 scene176B实例形成288B prepared record，保留其选中 transform acceleration。
+
+当前144B包括 object normal/tangent/position 的48B和 world normal/tangent/position 的48B，加 UV/color 等48B。Native Visibility/Surface 的 cached reader 读取后六 vec4（UV/color/world fields），不读取 object-space 三项；VSM native raster cached=false，使用源和 light transform；NativeTemporalFacts 不读取这144B record。**优先候选为同精度96B frame attributes +16B clip**，同一 unit 改 producer/layout/bounds检查/Visibility/Surface/HZB/debug/oracle。prepared miss 保留完全正确 resident reconstruction；normal 非均匀缩放、negative determinant、two-sided、C/X/Y、SampleGrad 与 UV/color 语义不变。不为 Product UV2 当前为零就删除 custom/ordinary graph UV2 contract。
+
+当前 layout 通常填到约128MiB，即使实际使用少；owner 累计上限256MiB含旧/新未退休 allocation，不是每个 buffer可绑定256MiB。需要按照可证明 work/vertex/triangle demand与有界 headroom创建，增长允许 fence 重叠但必须先计算 peak。紧字段与改 reservation 分开计效益；128MiB reserved 不等于每帧读写128MiB。
+
+替代方案比较：
+
+| 方案 | 有价值处 | 裁决 / 证伪条件 |
+|---|---|---|
+| 保 prepared arena、减字段/合理预留 | 多 pixel 复用 transform，修改范围小、不改精度 | 首选；若新布局使更频繁 miss/重建，则重算总成本，不只报告 allocated bytes下降 |
+| 全部直接 resident/raw decode | 减 per-frame writes/VRAM | 不默认选；pixel overdraw/coverage 与重复 unpack/transform 可能放大 gather/ALU。只在 measured break-even 成立的合法工作负载使用，不建自动 selector |
+| 更多完整 GeometryRecord / persistent work cache | 可减少部分重算 | 无真实 consumer 不创建；management/identity/fence/memory 税需先证明，不能重建 Surface OS |
+| 删除连续性 runtime payload | 减 asset/IO/raw resident bytes，native reader 不依赖 | 首选；保 cook 质量误差/锁与独立验证，版本切换不留 runtime legacy decoder |
+| Product runtime GPU压缩 / 紧化 resident payload | 减 banks/gather | 待数据决定；不把 meshoptimizer CPU/SIMD codec 直接翻成昂贵 per-pixel WGSL，也不靠降精度获胜 |
+
+### 11.6 Cost Map 与已有测量
+
+令 H 为 visited hierarchy nodes、E 为 queued tasks、C 为 visible groups、M 为 MeshletWork、Nv/Nt 为本帧 prepared vertices/triangles、V 为 winner pixels、I 为 prepared instances、Tc 为所有序列化 LOD triangles、U 为上传页。下表是 **ESTIMATE：逻辑访问量**，不是 cache miss/DRAM counter；不重复把同一共享 buffer reservation计入每 Product。
+
+| 成本 | 一致估算口径 / 已知产品 |
+|---|---|
+| Hierarchy / queue | node约48H；task write/read约16E；VisibleCluster write/read约40C，加 instance/asset/page-location lookup；root与实际 depth rounds分开计 |
+| Work expansion | queue write/read约48M、32B header；meshlet headers另约48M。当前 Product capacity-sized dispatch的空 work与lane-local prefix另计 |
+| Arena prepare | resident decoded source最多96Nv；写160Nv+4Nt+16M；filtered remap另16Mf。metadata prefix只在实际 publication时计copy，不记为稳定每帧完整copy |
+| Winner reconstruction | normal-mapped cached PBR 示例：3 corners×(clip/worldpos/worldnormal/worldtangent/UV各16B)+4B triangle+24B work+16B directory≈284B/V，另 instance/meta。compiler live fields/cache reuse/重复reader使实际量变化；VSM raw light-space路径另算 |
+| Temporal / VSM / HZB | Temporal读scene176B相关fields/winner/depth，history自管；VSM caster work+resident/light transform按真实 shadow工作算；HZB构建/latefilter不并入Surface useful work |
+| Demand / readback / CPU | header16B+record16B，最多16383records/256KiB；dedup mask≤1MiB，main ring3×256KiB，shadow ring按需要。CPU filtering/sorting、pending source/verified bytes、upload U、readback delay分别记录 |
+| Persistent / peak | 四 raw banks + 各 localmetadata + scene64MiB + duplicated ProductTable + expanded slots；arena/work/instances/IO staging/retiring另列。metadata逻辑表约144A+4roots+48hierarchy+16groups+16pages+16formats+64products，不等于按比例预留heap |
+
+既有 S3 `showcase-static-final/0-high-timing.json`（本地保存，SHA256 `30f0f848db8c50009041747d76819671ee207f14202293507ae7ab83956cc6c4`）中，GTX1650Ti/Chrome154、1080p Dungeon、798instances、25materials、2Program/bin/BindingSet、V=1,667,147（80.40%）；120个完整帧，current-HZB recheck关闭，Product previous-HZB关闭。本次仅重读原始记录，**未新跑 GPU**：
+
+| 现有 capture stage | GPU P50 / P95 ms |
+|---|---|
+| 每帧 Hierarchy 65个 pass 的时间总和 | 2.555904 / 3.604480 |
+| Frame vertices build | 0.393216 / 0.458752 |
+| Product MeshletWork | 0.131072 / 0.131072 |
+| Native Visibility winner | 0.393216 / 0.720896 |
+
+Hierarchy 是逐帧相加再取分位，不是各 pass P95 的和；量化步长0.065536ms，零值不意味着免费。上述 pass sum 不是 frame critical span，也不是任意大场景的预测；多 Product/pressure/retirement峰值和真实Geometry DRAM有效带宽仍 UNKNOWN。实际 descriptor reservation：banks512MiB+scene metadata64MiB≈576MiB，Arena约128MiB，合计约704MiB，尚未包括各 local metadata。M1 API trace live约1.740GiB、observed peak约1.822GiB；partial owner ledger约0.94GiB漏VG/VSM/FSR等，不可作为总VRAM。destroy后的driver/fence内存仍 UNKNOWN。
+
+S0 sequential169.49GB/s、random28.36GB/s只是 micro-calibration。Floor=`logical bytes/effective BW`、compute floor=`ALU/measured throughput`均需标 ESTIMATE；Geometry真实cache/locality/occupancy不是该微基准。Nv=100k时减48Nv=4.8MB，理想169.49GB/s floor约0.028ms；不能据此承诺毫秒级改善。当前最有证据的 scale瓶颈是固定reserved capacity、instance无关的work上界、多Product回收/压力闭包；该capture内Geometry GPU主要成本是traversal（INFERENCE），Streaming/CPU在超resident大场景是否占首位还未知。
+
+### 11.7 优先机制 Cost Cards 与 break-even
+
+基础 full-rate Geometry/native正确路径不依赖新 cache/proof。下列是待实测的设计卡，Implementation前补 workload数量、实际 timer/working set、ideal/expected/worst；没有数据不填伪精确 ALU。
+
+| 机制 | 新增 / 删除成本（bytes、ALU、samples、access、同步/命令） | 0 / 50 / 100% 收益、worst、break-even |
+|---|---|---|
+| 预算化四bank + metadata回收 | 小bank候选4×32/64MiB=128/256MiB，较512省384/256MiB reservation；增加 bounded CPU free-ranges、retiring记录及可能更多IO/upload，GPU page lookups/samples/ALU基本不变；page revoke/publication顺序不删，新增GPUatomics/barriers/dispatch目标0 | 100% resident/pins可容纳时省reservation；50% misses时按expanded physicalslot计算IO/P95；0% locality时可能thrash，不能接受pin/candidate/retiring峰值不容纳。下限是pin+最坏candidate+in-flight retirement+有界working set；最终bank尺寸由此和P95选择，不以更小总是更快 |
+| Arena 144→96B attributes / demand reservation | 删除48Nv sequential写/存储，cached实际reader字段不增；保clip16Nv、triangle、directories；新增ALU/texture/randomreads/atomics/barriers目标0，dispatch/pipeline count不增但layouts/pipelines重建；Nv=2^20时省48MiB attribute区 | 命中保持时100%省48Nv写与capacity，50%覆盖按实际prepared Nv算，0 prepared vertices时仅layout/CPU成本；若更小capacity产生额外miss，新gather/transform成本必须小于减少write+reservation收益，不能把省容量算作已省GPU时间 |
+| 移除64B/Tc continuity runtime payload | 删除64Tc asset/raw upload bytes（100万Tc约61MiB，1亿Tc约5.96GiB，含全部LODs）；texture/consumerALU/atomics/barriers/dispatch不增，runtime readers原本为0；新增一次recook与version/hash管理，cooklineage保留 | 0/50/100% residency时减0/32/64Tc resident相关有效payload（physicalslots以重新pagepack后的实值计，不能线性承诺）；asset始终减64Tc。若新pagepacking使更多pins/parenterror退化则失败；quality相同且recook成本可接受才切换 |
+| actual-depth / GPU count work组织 | 删除空rounds和capacity-sized expansion空work；新增若干indirect args（12B/grid）/GPU准备小pass，必要queue write/read不删，SSE/cone/texture samples不变，atomics保boundedexistingprefix；二维flatten增加少量indexALU | 100%空工作可省时仍需覆盖新增preparepass；50%按observedactive counts算；0%（全满/最深）税不得明显大于合法baseline。break-even：节省空dispatch/lanes时间 > args准备+新增reads，禁止本帧CPU回读或跨WG全局spin |
+| shadow Geometry coverage闭包 | 新增 conservative work/instance transforms/page demand +必要view遍历；复用immutableProduct/scene/residency，不能复用主camera cull结果冒充所有caster；新增queue/dispatch和CPUdelayedpressure明确记账 | 这是correctness不是“省重复遍历”优化。比较broadcasterwork vs dirtyregion/clipview遍历；无dirty区域应几乎无税，100% dirty最坏完整caster域仍有界。共享只有比独立work+必要reconstruction更便宜才选；不建persistentwork cache，不移除off-camera caster换数字 |
+
+保四bank、同精度Arena紧化、删无runtime reader payload是首选；一次性扩bank到1GiB、完全禁用prepared、统一main/shadow visibility、为大场景建立GPUallocator/cache OS均未获成本证明，拒绝作为默认。压缩、fused-leaf扩用、previous-HZB two-pass恢复等可选项只在当前unit确有必要且有理想收益/break-even/真实证据时纳入，否则延期。
+
+### 11.8 七个问题、身份上限与数据决策
+
+| 问题 | 当前结论 / 剩余责任 |
+|---|---|
+| Q1 Product是否唯一长期合同？ | 是目标且已是Web/Offline/procedural生产路径；V2 tool/oracle/recovery真实可达，M2迁移生产依赖后清理重复GPU表示，不删除有价值CPU资产/独立数学oracle |
+| Q2 Arena必要还是遗留？ | 混合：prepared acceleration必要，有未读48B和过大reservation；先locallayout/capacity收口，再以真实gather成本决定更深重建 |
+| Q3 wavefront/fused适合WebGPU？ | 保wavefront和已有fused基础；actualdepth/indirect合法性优先。旧crossover不是Product结论，不为dispatch数制造VM/globalspin |
+| Q4 四bank浪费？ | 共享bank设计合理，512MiB最小预留对4GB过重；较小预算bank优先，尺寸/metadataheadroom待pins/pressure/peak数据决定 |
+| Q5 多Product完整？ | slot/gen/rendering已实现；metadata回收、asyncexactgeneration、pressurefairness、全部Productrecovery未闭合，必须补齐 |
+| Q6 main/VSM/streaming重复？ | 并未发现生产shadow独立traversal造成重复；相反main-selectedcaster有coverage风险。streaming消费同一demand；复用immutable数据，work仅在view语义一致且成本有利时共享 |
+| Q7 最大scale瓶颈？ | 先处理容量/lifecycle，再看traversal/gather/CPU/IO。一个Dungeoncapture不能决定超resident场景瓶颈；Lighting慢单独记，M2不能改善Geometry后声称frame全面变快 |
+
+VisibilityKey 24bit最多16,777,216 work slots，24B队列在这个上限约384MiB；128MiB storage binding扣32Bheader只能容纳5,592,404个records，更早触及协商buffer/dispatch/arena/work限制。Product group24bit与meshlet local7bit/primitive最多128等源格式约束也要独立检验重定位与generation。**KEEP4B winner**；只有实际合法场景穿过其他limits仍无法表达身份才重设，不以未来想象扩成8B。
+
+真正数据决策只包括bank/metadata/arena headroom、resident96B vs更紧布局的全consumer成本、actual-depth和work expansion的合法分批/二维规模、shadow broadwork vs有界clipview、streaming公平/pressure策略及可选fused/HZB的break-even。不预设万能GeometryRecord、压缩decoder、hierarchy新算法或动态selector。
+
+### 11.9 成熟参考与实施边界
+
+本次选择与当前问题最贴近、已可核对真实源码的 Nyx 与已vendored meshoptimizer；不是机械阅读所有引擎名单。Nyx固定`bc7e5b1e51f6b3b8af4771db81ffaa714fcbe64b`的DAG cull/refine、root pins、stream反馈与地址发布；meshoptimizer固定`9e1f07b159d3cb777f1c67ed31fc11fd117986f4`的clusterize/partition/simplify/codec。具体文件/函数、许可、hash核对、Adopt/Adapt/Reject/Original见[本轮轻量Source Map](../porting/next-renderer.md#m2-geometry-source-map)。它们是参考与已存在基础，不提升新adoption。
+
+M2仅细分五个完整单元，详细producer/product/consumer、测试迁移与退出在[执行计划 §8](../next-execution/eengine-v4-native-shading-execution-2026-10.md#m2-execution)。正确模块局部对齐；确需重写的pool/metadata/共享layout先完整construction再原子切换全部direct consumers并立即删旧职责，不强迫整Geometry采用M1式全重写。一个单元集中验收后停在下一个边界；M2完成STOP，按真实Lighting/VT等缺口重新评审下一模块。

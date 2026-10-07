@@ -2,20 +2,20 @@
 id: nyx-convergence
 title: Web and Offline Product convergence
 domain: virtual-assets
-state: active
+state: paused
 owner: virtual-assets
 decision: ADR-0016
 goal: Preserve Nyx geometry stages and invariants across Web cooker, Offline cooker, and the shared GPU traversal and raster consumer.
+authority:
+  design: docs/next-design/eengine-v4-native-shading-2026-10.md
+  execution: docs/next-execution/eengine-v4-native-shading-execution-2026-10.md
 
 currentSlice:
   id: browser-consumer-evidence
   title: Prove producer-neutral Product admission reaches the production GPU consumer
-  status: active
+  status: paused
 nextTasks:
-  - Capture clean browser consumer evidence on a fixed large-scene workload.
-  - Complete source, compiled artifact, and browser audits for remaining legacy owners.
-  - Close cross-session memory accounting and failure-atomic replacement.
-  - Keep Product admission and GPU consumer evidence at the retained Scene/Visibility seam; re-prove it after the ADR-0020 cut without strengthening legacy Renderer or Sparse Shading ownership.
+  - Historical evidence gaps are carried by V4 execution M2; this paused stream is not a second Geometry implementation plan.
 
 contracts:
   - geometry-product-v1
@@ -30,7 +30,7 @@ completedMilestones:
 
 tasks:
   - id: browser-consumer-evidence
-    state: active
+    state: todo
     title: Capture clean producer-neutral admission and downstream GPU consumer evidence
     dependsOn: []
     exitCriteria:
@@ -44,7 +44,7 @@ requiredEvidence:
   - Clean browser evidence for producer-neutral admission and downstream GPU consumption.
   - Source, WASM, output, resident, and transient budgets under a fixed workload.
 openGates:
-  - Evidence gathered through the old Renderer consumer does not transfer to the new Scene/Visibility seam after the clean cut.
+  - Old consumer evidence does not transfer to SurfaceV4; new producer-neutral and scale evidence is planned in V4 M2, not accepted by this navigation change.
   - Large-scene visible-first cook and first meaningful frame evidence are incomplete.
   - Cross-session source, canonical, and WASM peak accounting is incomplete.
   - Failure-atomic replacement and bounded global residency need accepted evidence.

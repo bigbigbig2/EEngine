@@ -110,8 +110,8 @@ requiredEvidence:
   - Authored runtime evidence for activation-first publication, incremental Scene publication, automatic capacity, and source/decode/upload telemetry.
   - Formal authored-large performance evidence on the current clean revision.
 openGates:
-  - K4 targets the legacy Sparse Shading owner that ADR-0020 Phase 2 will delete; do not optimize or refactor that owner during the clean rebuild.
-  - Resume only after the new Phase 2 Surface/Shading Runtime is in production; rebaseline large.glb publication and pipeline preparation against the retained b35aad2 K0-K3 evidence, then choose new work.
+  - K4 is a historical target of the retired Sparse Shading owner; do not resume that task or repair its deleted publication path.
+  - SurfaceV4 is now the production consumer. Rebaseline the complete large.glb catalog, publication, residency and scale in V4 execution M2; this paused stream retains b35aad2 K0-K3 history and is not a second current implementation plan.
 
 links:
   decision: docs/adr/0018-web-100m-virtual-geometry.md

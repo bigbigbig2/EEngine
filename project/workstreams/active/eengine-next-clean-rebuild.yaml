@@ -1,6 +1,6 @@
 schemaVersion: 2
 id: eengine-next-clean-rebuild
-title: EEngine V4 Native Shading single-path cutover
+title: EEngine V4 Native Shading and scale alignment
 domain: frame-runtime
 state: active
 owner: frame-runtime
@@ -16,18 +16,16 @@ goal: >-
   native opaque Surface. Design later modules from their actual implementation inputs.
 
 currentSlice:
-  id: surface-v4
-  title: Surface V4 — Native Opaque Shading Cutover
-  status: complete
+  id: geometry-v4
+  title: Geometry / Virtual Geometry Alignment & Scale Optimization
+  status: planned
   goal: >-
-    Surface V4 has reached its S3 acceptance boundary; results and limitations
-    live only in the execution authority. Stop at the completed M1 boundary.
-    Design M2 from the actual Geometry and Virtual Geometry code before activating it.
-    Do not automatically start another large module or restore retired Surface paths.
+    Follow the M2 design and execution authority; planning does not start implementation.
+    Preserve correct Geometry foundations and close one complete owner/consumer unit
+    at a time. Build local owner replacements completely before atomic cutover and
+    immediate retirement. Stop after M2 and review the next module from actual code.
 
 nextModules:
-  - id: geometry-v4
-    title: Geometry and Virtual Geometry alignment
   - id: virtual-resources-v4
     title: Virtual resources and Virtual Texture
   - id: lighting-v4
@@ -47,7 +45,7 @@ architectureRules:
   - No global Surface proof/cache/history operating system and no mandatory six-signal intermediate representation.
   - Cross-pass products exist only for actual consumers; effect-specific history and cache belong to that effect.
   - Management must be clearly cheaper than the useful work it enables; optional optimization requires analytical and measured break-even.
-  - Complete SurfaceV4 outside production before switching all owners and direct consumers atomically, including bindings and abort/retry.
+  - Preserve correct foundations; construct replacement owners completely before switching every direct consumer atomically, including bindings and abort/retry.
   - Cutover and destructive retirement are one unit; no old/new Surface intermediate dependencies, bridges or restored old contracts to pass tests.
   - Complete one architectural unit before concentrated validation; preserve valid numeric and lifecycle semantics when retiring representation tests.
   - Capability, capacity and overflow are explicit before allocation; do not truncate identities or lose work for a budget target.
@@ -66,6 +64,6 @@ deferredValidation:
   policy: >-
     Development uses light targeted checks. Closed units receive concentrated
     correctness, wiring, lifecycle and cost validation as defined by the execution plan.
-    M1 receives Surface integration acceptance; formal whole-renderer browser,
+    Each module receives its own required acceptance; formal whole-renderer browser,
     quality, performance evidence and claims wait for final integration.
     Missing required results keep the corresponding unit incomplete.

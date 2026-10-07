@@ -8,6 +8,11 @@ verifies:
   - OEngine/src/gpu/GeometryProductMultiRuntime.ts
   - OEngine/src/gpu/GeometryProductGpuAbiV1.ts
   - OEngine/src/render/program/FrameProgramLowering.ts
+  - OEngine/src/gpu/GeometryPageStreamingRuntime.ts
+  - OEngine/src/gpu/GeometryProductResidencyProfile.ts
+  - OEngine/src/gpu/GeometryProductSlotPool.ts
+  - OEngine/src/render/surface/SurfaceV4.ts
+  - OEngine/src/render/pipeline/RendererCore.ts
 ---
 # Virtual Assets
 
@@ -15,9 +20,11 @@ verifies:
 
 已核对入口为 [GeometryProductAdmission](../../OEngine/src/gpu/GeometryProductAdmission.ts)、[GeometryProductMultiRuntime](../../OEngine/src/gpu/GeometryProductMultiRuntime.ts)、VirtualGeometrySceneSourceV1、FrameProgramLowering 和当前 Product GPU ABI。
 
-Loader/Cooker 提供 Product descriptor/pages；admission 负责验证/激活，multi-runtime 管理 Product/shard slots 与 replacement/release，residency 发布当前页位置。FrameProgramLowering 将 virtual metadata/banks 与选中 frame geometry 传给唯一 SurfaceWork；GPU hierarchy/work/raster 消费当前产品，不由 Loader 长期持有 GPU owner。
+Loader/Cooker 提供 Product descriptor/pages；admission 负责验证/激活，multi-runtime 管理 Product/shard slots 与 replacement/release，residency 发布当前页位置。FrameProgramLowering 将 virtual metadata/banks 与选中 frame geometry 传给唯一 SurfaceV4；GPU hierarchy/work/raster 消费当前产品，不由 Loader 长期持有 GPU owner。
 
-当前 GeometryProductGpuAbiV1 的 ABI version 常量为 2；page-location 编码分开 geometry/resident 地址及 generation。测试 fixture 调用当前 codec 构造合法输入，独立检查 draw counts、overflow、invalid 与 compacted IDs；旧 ABI 有真实拒绝用例。不能把 API 名称中的 V1 当作当前数值版本。
+当前 GeometryProductGpuAbiV1 的 ABI version 常量为 2；page-location 编码分开 geometry/resident 地址及 generation。不能把 API 名称中的 V1 当作当前数值版本。部分测试 fixtures 尚未符合当前合法 page/地址接口，M1 保存的 Node suite 仍有既有 Geometry/cook 失败；测试存在不等于验证通过，分类和迁移责任见当前执行计划 M2。
+
+四 bank 按 GPUDevice 共享而非每 Product 独占；Portable 默认预留512MiB，scene metadata另预留64MiB，各 Product local metadata也仍存在。当前 profile 有512/768/1024 slots/bank，但 GPU地址codec硬编码512；scene metadata ranges append-only不随release回收。多个 Product 渲染已有slot/generation与重定位，Renderer却对多shard recovery要求应用source replay。Streaming已有延迟readback、scheduler与eviction API，本次搜索未见production pressure eviction或shadow demand readback调用；这些是实际缺口，不是M2已经完成的能力。
 
 ## 边界与验证
 

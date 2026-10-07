@@ -21,10 +21,32 @@ verifies:
     - OEngine/tests/oracle/native-material-gpu.mjs
     - OEngine/tests/oracle/native-surface-integration-gpu.mjs
     - OEngine/tests/oracle/native-surface-production-gpu.mjs
+    - OEngine/src/gpu/VirtualGeometryResidency.ts
+    - OEngine/src/gpu/GeometryProductMultiRuntime.ts
+    - OEngine/src/render/HierarchicalWorkGenerator.ts
+    - OEngine/src/render/FrameGeometryArena.ts
+    - OEngine/tools/oengine-asset-core/src/geometry/GeometryCooker.cpp
+    - OEngine/tools/oengine-asset-core/vendor/meshoptimizer/source.json
+    - docs/porting/nyx-function-map.json
 ---
 # EEngine Next：开源迁移来源与采用边界
 
 > V4 当前导航：唯一架构见 [V4 母稿](../next-design/eengine-v4-native-shading-2026-10.md)，实施见 [V4 执行计划](../next-execution/eengine-v4-native-shading-execution-2026-10.md)，生产事实查源码和 domains。下文日期化来源条目的阶段、当前、§编号与旧设计链接都属于记录当时的快照，仅供追溯；不改变 adoption，也不定义第二套 current 架构。
+
+<a id="m2-geometry-source-map"></a>
+
+## 2026-10-08：M2 Geometry 参考核读（仅设计，不提升采用）
+
+Local：审查 `a66667e04222481ca130c4c6d878118bf649bb9f` 的 Product cook/admission、shared four-bank residency、multi metadata、wavefront/refine、Arena/native winner、延迟 streaming 及 VSM/Temporal direct consumers。现有 meshoptimizer/Nyx 基础可保留，本次未实现新算法、未运行上游或新GPU验证。
+
+| Reference（固定 revision / 许可 / 本次实际源码入口） | Adopt / Adapt / Reject / Original 与本地单元 |
+|---|---|
+| [Nyx](https://github.com/moonlovelj/Nyx/tree/bc7e5b1e51f6b3b8af4771db81ffaa714fcbe64b)；`bc7e5b1e51f6b3b8af4771db81ffaa714fcbe64b`；[MiniEngine MIT许可](https://github.com/moonlovelj/Nyx/blob/bc7e5b1e51f6b3b8af4771db81ffaa714fcbe64b/MiniEngine/License.txt)。`MiniEngine/Model/Shaders/DAGCull.slang::ProcessNodeBatch/ProcessMeshletBatch/computeMain`；`GeometryStreaming.cpp::Update/SyncMemoryAndAddressTable/ImmediateEvict` 与 root pins；`MeshletBuilder.cpp::BuildVertexLocksByGroups/SimplifyGroup` | **Adopt（设计参考）** refine父子互补、missing-page完整coarse cut、所有DAGrootpins、page/group连续范围和反馈后地址发布。**Adapt** G2.0/1/3使用WebGPU多dispatch、exactProduct slot/gen、frame fence与delayed ring；G2.2保cook边界锁/误差。**Reject** wave/persistent全局poll、meshshader/bindless、独立streamsubmit、固定512帧grace、单Model全局状态、clamp输出掩盖overflow。Nyx two-pass HZB恢复是完整算法条件，不移植earlycull后省掉recovery |
+| [meshoptimizer](https://github.com/zeux/meshoptimizer/tree/9e1f07b159d3cb777f1c67ed31fc11fd117986f4)；`9e1f07b159d3cb777f1c67ed31fc11fd117986f4`；[MIT](https://github.com/zeux/meshoptimizer/blob/9e1f07b159d3cb777f1c67ed31fc11fd117986f4/LICENSE.md)，Arseny Kapoulkine。`src/clusterizer.cpp::meshopt_buildMeshletsFlex`；`partition.cpp::meshopt_partitionClusters`；`simplifier.cpp` 的 edge-collapse/error/attribute-lock 与 `meshopt_simplifyWithUpdate`/Sloppy区别；`meshletcodec.cpp::meshopt_encodeMeshlet/meshopt_decodeMeshlet` | **Adopt（已有本地基础）** CPU/WASM cluster locality、shared-vertex partition、边界/属性锁与误差尺度，G2.2保vendoredkernels，不重新实现。**Adapt** EEngine有界canonicalwindows、refineDAG/float32pages/recipe与payload acceptance。**Reject** 把CPU SIMD codec无成本翻成per-pixelWGSL、用Sloppy/precision缩减替代质量证明。**Original** GPU resident/Arena布局及bank预算由EEngine consumers/cost决定；codec仅候选，不宣称新增compressionport |
+
+本次从本地 `D:/Nyx-main` 核读所列函数/相关分支与许可，`validate-nyx-function-map` 核对固定map的7个文件hash；vendored meshoptimizer `source.json` 的22个文件SHA256全部匹配。核对范围不是完整Nyx engine audit，未读函数不列为新来源采用。既有来源账本/NOTICE不变；G2.2 Nyx differential的3/6 groups失败尚未判定，必须以完整coverage/error/attribute语义说明偏差，不能因“参考成熟”跳过。
+
+Original：较小但固定四bank、authoritative multi metadata可回收ranges、exactslot/gen streaming、同精度96B frameattributes、合法actual-depth/count组织、Geometry-owned shadowcoverage都是拟本地适配设计；对应 [M2母稿 §11](../next-design/eengine-v4-native-shading-2026-10.md#11-m2--geometry--virtual-geometry-alignment--scale-optimization) 与 [执行 §8](../next-execution/eengine-v4-native-shading-execution-2026-10.md#m2-execution)。不存在合适portable donor完整替代这些WebGPU ownership约束，故保原基础并局部设计，不模仿nativeAPI框架。实施时重新核对真正修改的完整上游阶段及许可，补实际映射与独立oracle/production GPU证据；本轮不提升adoption或性能claim。
 
 <a id="v4-planning-source-map"></a>
 
