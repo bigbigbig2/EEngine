@@ -11,6 +11,37 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "lighting-product-inspection",
+    file: "OEngine/tests/oracle/lighting-product-inspection-gpu.mjs",
+    url: "/OEngine/tests/oracle/lighting-product-inspection-gpu.mjs",
+    entry: "runLightingProductInspectionGpuOracle",
+    allowPrefixes: ["OEngine/src/render/assets/"],
+    requiredFeatures: ["timestamp-query"],
+    description: "Untimed real GPU occupancy, compact ranges and list-length accounting for L3.3.",
+    timeoutMs: 180000
+  }),
+  Object.freeze({
+    name: "lighting-dynamics",
+    file: "OEngine/tests/oracle/native-surface-acceptance-gpu.mjs",
+    url: "/OEngine/tests/oracle/native-surface-acceptance-gpu.mjs",
+    entry: "runLightingDynamicsGpuOracle",
+    allowPrefixes: ["OEngine/src/render/assets/"],
+    requiredFeatures: ["timestamp-query"],
+    description: "Targeted retained light parameter updates, add/remove/reorder and independent colored HDR.",
+    timeoutMs: 180000
+  }),
+  Object.freeze({
+    name: "lighting-acceptance",
+    file: "OEngine/tests/oracle/native-surface-acceptance-gpu.mjs",
+    url: "/OEngine/tests/oracle/native-surface-acceptance-gpu.mjs",
+    entry: "runLightingAcceptanceGpuOracle",
+    allowPrefixes: ["OEngine/src/render/assets/"],
+    requiredFeatures: ["timestamp-query"],
+    description:
+      "L3.3 same-workload production local light matrix, low coverage, dynamic publication and independent HDR.",
+    timeoutMs: 1800000
+  }),
+  Object.freeze({
     name: "local-light-integration",
     file: "OEngine/tests/oracle/native-surface-integration-gpu.mjs",
     url: "/OEngine/tests/oracle/native-surface-integration-gpu.mjs",

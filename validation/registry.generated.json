@@ -39,6 +39,40 @@
       "artifacts": [
         "result",
         "events",
+        "screenshot"
+      ],
+      "automatic": true,
+      "buildTarget": "production",
+      "caseKind": "production",
+      "changedPaths": [
+        "validation/cases/lighting-acceptance",
+        "validation/cases/geometry-scale-acceptance",
+        "validation/workloads/lighting-acceptance-v1.yaml",
+        "OEngine/src/render/lighting"
+      ],
+      "decision": "ADR-0020",
+      "domain": "shading",
+      "errorAllowlist": [
+        {
+          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
+          "reason": "Chrome platform warning; adapter identity is captured before and after recovery.",
+          "source": "console:warning"
+        }
+      ],
+      "harness": "production",
+      "id": "lighting-acceptance",
+      "kind": "perf",
+      "lab": false,
+      "level": "L4",
+      "profile": "geometry-scale",
+      "route": "/cases/lighting-acceptance/index.html",
+      "timeoutMs": 1800000,
+      "workloadId": "lighting-acceptance-v1"
+    },
+    {
+      "artifacts": [
+        "result",
+        "events",
         "readback"
       ],
       "automatic": true,
@@ -628,6 +662,78 @@
       "seed": 1602,
       "timestampRequired": false,
       "warmupFrames": 1
+    },
+    "lighting-acceptance-v1": {
+      "acceptance": {
+        "requiresDisposed": true,
+        "requiresEveryPlannedShard": true,
+        "requiresExactSourceTriangleCoverage": true,
+        "requiresFullCatalogCoverage": true,
+        "requiresSettled": true
+      },
+      "cameraPath": "geometry-scale-near-far-motion-cut-v1",
+      "deviceScaleFactor": 1,
+      "features": [
+        "web-cook",
+        "multi-product-runtime",
+        "visibility",
+        "native-surface",
+        "vsm",
+        "temporal",
+        "local-light-work"
+      ],
+      "geometry": {
+        "activationPages": 655,
+        "activationPhysicalBytes": 349175808,
+        "activationSlots": 1332,
+        "activationUploadBytes": 194076588,
+        "catalogCoverage": "all-primitives",
+        "configuredCapacityBytes": 402653184,
+        "metadataBytes": 67108864,
+        "primitives": 1920,
+        "productCount": "record-only",
+        "refinementHeadroomBytes": 53477376,
+        "source": "authored-local-large-glb",
+        "sourceBytes": 477591060,
+        "sourceSha256": "54b608872aec11ce07b26fad6c0ad14a662314e6480bf8d833e5088b59c9851f",
+        "sourceTriangles": 4871612
+      },
+      "id": "lighting-acceptance-v1",
+      "independentRuns": 1,
+      "lighting": {
+        "count": 32,
+        "distance": 4,
+        "distribution": "grid-8x4-local-finite",
+        "intensity": 2,
+        "point": 16,
+        "radius": 0.1,
+        "spot": 16,
+        "spotAngle": 1.0471975511965976,
+        "spotPenumbra": 0.25
+      },
+      "quality": "complete-authored-textures-512-native-v4",
+      "renderScale": 1,
+      "resolution": [
+        1920,
+        1080
+      ],
+      "sampleCadence": 1,
+      "sampleFrames": 120,
+      "seed": 3303,
+      "texture": {
+        "bankMaxCapacities": [
+          64,
+          130,
+          130,
+          130,
+          130
+        ],
+        "catalogRoutes": 518,
+        "maximumResolution": 512,
+        "maximumRgbaBankBytes": 749381536
+      },
+      "timestampRequired": true,
+      "warmupFrames": 30
     },
     "oegpack-v3-decode-v1": {
       "cameraPath": "none",

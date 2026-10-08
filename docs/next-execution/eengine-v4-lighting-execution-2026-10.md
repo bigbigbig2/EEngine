@@ -25,11 +25,14 @@ verifies:
     - OEngine/tests/oracle/native-surface-acceptance-gpu.mjs
     - OEngine/tests/oracle/lighting-boundaries-gpu.mjs
     - OEngine/tests/oracle/lighting-inspection-gpu.mjs
+    - OEngine/tests/oracle/lighting-product-inspection-gpu.mjs
     - OEngine/tests/contract/lighting-boundaries.test.mjs
     - OEngine/tests/oracle/native-surface-production-gpu.mjs
     - OEngine/tests/oracle/geometry-shadow-view-gpu.mjs
     - validation/cases/geometry-scale-acceptance
     - validation/cases/renderer-cpu-host
+    - validation/cases/lighting-acceptance
+    - validation/workloads/lighting-acceptance-v1.yaml
     - tools/gpu-oracle/registry.mjs
     - tools/gpu-oracle/page/json-safe.mjs
     - tools/tests/gpu-oracle-json-safe.test.mjs
@@ -49,9 +52,9 @@ M3 的唯一设计依据是 [Lighting Design](../next-design/eengine-v4-lighting
 | L3.0 Baseline & Lighting Contract | **closed** | 30 cases/3,600帧baseline、必要数值修复与8个GPU入口通过；见§8 |
 | L3.1 Complete Local Light Work Construction | **closed** | 非生产generator/product/native consumer、材质/provider/lifecycle与同数学成本闭包完成；production仍旧Lighting，见§9 |
 | L3.2 Atomic Lighting Cutover & Purge | **closed** | 全部生产consumer原子切换、旧owner/ABI立即删除、CPU与8个GPU入口通过；见§10 |
-| L3.3 Production Lighting Acceptance | **next / not-started** | 同条件完整正确性/生命周期/成本；关闭M3后STOP |
+| L3.3 Production Lighting Acceptance | **closed** | 完整 authored runner、30配置矩阵、动态/容量/HDR回归及成本对照通过；M3 closed，见§11 |
 
-原设计轮没有 production implementation 或 GPU 性能声明；日期化 §8/§9 为各自结束时的快照，最新出口以本节与 §10 为准。
+原设计轮没有 production implementation 或 GPU 性能声明；日期化 §8–§10 为各自结束时的快照，最新出口以本节与 §11 为准。
 
 ## 2. 实施纪律
 
@@ -417,3 +420,126 @@ Git起点加本轮工作区修改；最终engine source SHA256=`ee84ed30f0a750d2
 没有运行L3.3完整同条件Lighting成本矩阵、400MB authored场景、跨GPU/browser或硬件DRAM/register/spill counters。本轮GPU帧用于切换正确性与资源闭包，不据此宣称生产净提速；§9记录的DIRECT/SPARSE成本限制继续有效。Point/Spot shadow能力没有扩展，不重开M1/M2、不修改画质或降低最终acceptance workload。
 
 **L3.2 = closed；L3.3 = next / not-started；M3仍active。STOP。** 下一单元按§6完成生产Lighting验收与成本判断，本轮不自动开始。
+
+## 11. L3.3 Production Lighting Acceptance（2026-10-09）
+
+**L3.3 = closed；M3 Lighting V4 = closed。STOP。** 本节是§10之后的验收结果，既往阶段的停止点保留为日期化快照。开工已fetch并核对HEAD/origin；L3.2先提交为 `f36b2feca13409179a957c2c82b3c9cb912bd1d8`，随后在该生产源码上验收。本单元仅增加可复用validation接线、动态独立reference与非计时产品观察，没有修改production TS/WGSL、阈值、功能、画质或GPU算法。
+
+### 11.1 实际覆盖、失败分类与生命周期
+
+真实Renderer运行同L3.0的24个high-coverage配置和6个low-coverage配置，共**30×120=3,600个有效full timestamp提交帧**，每配置30预热。0/1/4/8/16/32/64/128/256/1024 Point/Spot/mixed、sparse/overlap、coat/custom均保完整材质、纹理、Sun/VSM/IBL/AO、Temporal/FSR、1080p scale1。逐项比对旧baseline的camera/light配置、64 instances/materials、Programs/BindingSets与feature/limit，**30项没有配置差异**；新增白色color字段不改变原灯输入。每帧raw ticks、一个submit与stable graph cache hit完整，没有depth-limit或timestamp截断。
+
+另6个动态正确性记录使用保留的灯对象，序列4→4→8→4→1→0，修改position/color/intensity/radius/distance/Spot angle/penumbra，remove/readd反序；同时实际发布2个authored Directional和Physical Sun，零local仍保global providers。独立HDR reference依据incident/BRDF及DB既有颜色亮度归一化数学，未读取compact lists作真值。全矩阵最大绝对delta error=**0.0043748807**（1024灯较大reference），所有点仍满足既定 `.002+abs(reference)*.003`；动态最大0.0002371378。coat/custom没有独立简化PBR数值reference，不把其coverage/finite检查冒称独立HDR数学证明；normal/ORM/coat/custom/alpha的integration证据继续见§10。
+
+本轮串行重新运行 `local-light-work` 与 `local-light-native`：多层scan/2D、跨DB pages、支持域、empty/zero、两类forced overflow、count/scatter mismatch、stale context、staged abort→retry及18个native HDR记录通过；故意污染frame/extent均被原HDR门槛拒绝，teardown=0。资源profile、多Programs/BindingSets、preExposure、VSM内容/alpha/运动和Scene swap/encoded abort→retry复用§10相同engine source/build的8份最终GPU证据，未伪称本轮重跑全部8入口。只在现行唯一production链上注入新mode，不保旧owner或第二Renderer。
+
+原始失败保留于 `.local/l3-3-matrix-original.json`：新增彩色灯reference遗漏DB颜色luminance归一化，归类**oracle bug**；修独立数学后定点dynamic通过，再完整重跑上述30配置+dynamic矩阵，没有改shader或容差。`.local/l3-3-product-inspection-original.json`遗漏共享harness必需的prepare hook，归类**oracle glue bug**；补空hook后重跑同4个非计时快照。原件不追认为通过。
+
+完整authored runner使用本地 **477,591,060B / 66 Products / 1,920 primitives / 4,871,612 source triangles / 1,944 merged instances**；518 texture routes、512px既定质量、所有planned shards/catalog、384MiB Geometry banks、64MiB metadata及真实main+shadow+VSM+HDR+Temporal/FSR均保持。Lighting显式加seed3303的8×4网格32灯（16Point/16Spot，finite distance4/radius.1/intensity2）；完整输入见 `lighting-acceptance-v1.yaml`，不是小fixture或100k Unlit stress替代。
+
+source/catalog/shards/精确triangle coverage与66Product断言通过，完整cook/publication settlement **316,987.04ms**。near/far分别30+120 normal与30+120 full帧，motion20帧、camera cut、1280×720→1920×1080 resize、controlled device destruction/replay、Scene unload与重复release均通过。旧epoch Product、replayed Scene Product、最终banks/metadata/allocation计账均0，真实GPU fence后Lighting owner buffer bytes=0，producer dispose完成；controlled loss不冒称driver fault。
+
+browser runner完整退出0；`result/events/screenshot`齐全，freshness/identity/browserErrors/pageOutcome/disposed/artifacts六门禁均true。`requiresDisposed/requiresEveryPlannedShard/requiresExactSourceTriangleCoverage/requiresFullCatalogCoverage=true`，没有unexpected browser/page/GPU error、failed request或timeout。events保留2条明确allowlist的Windows powerPreference warning；截图是实际完整场景完成状态，不据此宣称AAA画质验收。没有只用页面passed替代runner结果。
+
+### 11.2 同工作负载旧→新成本
+
+以下为 **MEASURED ms，P50/P95**，均120样本；Local为producer全部pass之和，Total为每帧Local+SurfaceV4（包含bins、background及fused material/direct/global/IBL）相加后取分位数；Frame为command span，不含harness fence等待。完整30行、Surface/per-pass/max/count/CPU/raw在artifact，表列代表case及负收益边界，不相加各自分位数。
+
+| 原配置 / N | 旧 Local | 新 Local | 旧 Total → 新 Total | 旧 Frame → 新 Frame |
+| --- | --- | --- | --- | --- |
+| point-overlap-low-a / 0 | 0/0 | 0/0 | 10.398/65.063 → 5.751/6.769 | 30.783/162.369 → 18.000/20.784 |
+| point-overlap-low-a / 1 | 47.036/60.175 | .694/.774 | 55.522/69.617 → 7.234/8.357 | 72.638/98.446 → 19.748/22.892 |
+| point-overlap-low-a / 4 | 46.049/71.112 | 2.097/2.433 | 56.498/139.590 → 9.677/11.112 | 74.265/242.549 → 22.520/25.545 |
+| point-overlap-low-b / 8 | 46.054/72.541 | 3.080/3.353 | 58.498/163.135 → 12.764/13.474 | 78.852/255.979 → 26.349/27.838 |
+| mixed-sparse-high-a / 64 | 11.358/13.128 | .685/.909 | 44.613/47.238 → 10.158/11.014 | 74.195/77.118 → 23.828/25.461 |
+| mixed-sparse-high-a / 128 | 10.031/11.956 | 1.030/1.216 | 62.379/65.421 → 13.401/14.464 | 94.870/98.144 → 27.650/29.592 |
+| mixed-sparse-high-b / 256 | 9.838/36.149 | 1.794/2.259 | 93.612/262.807 → 19.386/19.969 | 138.488/321.446 → 34.434/35.195 |
+| mixed-sparse-high-b / 1024 | 22.568/25.014 | 6.332/6.691 | 478.761/484.720 → 41.182/41.763 | 507.325/513.747 → 55.387/56.224 |
+| point-overlap-high / 128 | 42.847/159.527 | **54.708/55.389** | 106.781/437.407 → 92.389/93.562 | 144.157/504.151 → 107.009/108.234 |
+| spot-overlap-high / 128 | 39.858/99.551 | **54.618/56.078** | 142.726/225.592 → 100.069/103.555 | 176.951/312.556 → 114.520/118.787 |
+| point-overlap-high / 1024 | 9.319/12.108 | .360/.481 | 763.079/1059.974 → 292.430/332.775 | 799.112/1086.310 → 308.435/349.552 |
+| spot-overlap-high / 1024 | 34.080/45.517 | .376/.472 | 905.936/1079.309 → 373.713/412.520 | 938.190/1117.919 → 390.195/430.000 |
+| point-low-coverage / 1 | 41.663/144.945 | .715/.756 | 43.724/150.324 → 2.820/3.095 | 54.446/218.577 → 12.977/13.316 |
+| point-low-coverage / 32 | 43.776/141.127 | 11.321/11.631 | 48.655/151.017 → 15.896/16.300 | 59.624/176.849 → 26.058/26.629 |
+
+正常稀疏/低灯管理税与combined work均下降，核心方案有收益；**不宣称所有分布更快或任意灯数60fps**。overlap128 producer P50发生负收益，双遍任务税边界仍OPEN；Point/Spot overlap256/1024的Q分别8,880,128/35,520,512超过8,388,608预算，flags1、实际DIRECT、完整all-admitted shading，属于显式极端降级而非无诊断漏灯。矩阵其余26个计时配置flags0，正常sparse1024仍SPARSE；4个压力配置的120帧均有可见region overflow，不把降级隐藏为SPARSE收益。
+
+设备均GTX1650Ti/Turing/4GB、driver581.42、Chrome154.0.8037.98。**历史与本轮热状态没有严格受控**：旧记录约90°C/450MHz等，本轮采样91°C/1065MHz、authored较低温/较高clock；这些只是离散观察，不是全窗口clock轨迹。旧→新绝对倍数不能独立归因给算法，不能声称同热状态统计显著或硬件spill/CAS根因已证。§11.3同轮交替DIRECT/SPARSE另提供内部净收益依据，结合实际工作量与低灯固定税验证架构出口；跨设备和受控热性能claim仍未晋升。
+
+### 11.3 DIRECT/SPARSE 决策与真实产品
+
+同一production owner逐帧交替两mode，13组各60预热+240有效帧，每mode30+120，共3,120帧。**Total=每帧generator+native Surface**，不含独立bins管理，非纯local BRDF；没有再编码旧Lighting。下表MEASURED P50/P95 ms，max/count/raw在artifact。
+
+| distribution / N | DIRECT Total | SPARSE Total |
+| --- | --- | --- |
+| sparse / 0（实际NONE） | 6.783/7.213 | 6.810/7.257 |
+| sparse / 1 | 6.988/7.442 | 7.313/7.692 |
+| sparse / 4 | 7.830/8.282 | 7.454/7.903 |
+| sparse / 8 | 9.100/9.528 | 7.654/8.207 |
+| sparse / 32 | 15.195/15.551 | 8.956/9.319 |
+| sparse / 64 | 21.197/26.362 | 11.377/14.520 |
+| overlap / 1 | 7.184/10.187 | 8.214/12.743 |
+| overlap / 4 | 8.817/16.349 | 11.248/17.701 |
+| overlap / 8 | 10.604/18.889 | 13.997/22.358 |
+| overlap / 32 | 19.092/24.322 | 31.145/38.315 |
+| low coverage / 1 | 2.052/2.097 | 2.344/2.634 |
+| low coverage / 4 | 2.266/2.570 | 2.383/2.734 |
+| low coverage / 8 | 2.576/2.846 | 2.442/2.714 |
+
+sparse32/64净赢，overlap负收益和coverage依赖依然存在；本轮未完成Point-only/Spot-only/unbounded全输入的稳健crossover校准。**自动非零DIRECT threshold仍0/禁用**，不机械设置4/8/16、不加在线学习/cache/history。NONE零灯producer为0；显式DIRECT用于oracle或完整overflow，不冒称已启用低灯优化。cost后半段存在长尾，具体硬件原因UNKNOWN，未据此进一步改算法。
+
+非计时read-only GPU产品检查直接读finalized scratch occupancy/settings/ranges/header，未变更producer或用readback控制当前帧。1080p C=48,960、真实Ca=6,120：mixed sparse1/64/128的Na=1/64/128，Q=256/46,144/92,032，E=160/31,160/62,476，nonempty-light clusters=160/2,976/4,080，max list=1/20/22；overlap128 Q=4,440,064、E=783,360，6,120个nonempty列表均128灯。Ca不是nonempty-light cluster或visible pixel替代量，未把这些fixture快照外推到authored场景。所有ranges之和=header E，长度≤Na，非空列表只落在occupied Surface clusters。独立snapshot不冒称额外120帧性能统计。
+
+SPARSE常见12个producer compute dispatch（bounds、task scan、schedule、occupancy、count、cluster多层scan/add、allocate、scatter schedule/scatter、finalize）；pipeline数量是有限kernel集合，不随material instance增长。每pass分布和实际dispatch counters在raw；未把dispatch总数当纯Lighting count。硬件DRAM/register/spill和真实ALU测试计数UNKNOWN，Q为padded region任务量而非BRDF evaluations。
+
+### 11.4 authored 大场景性能与资源
+
+每行120有效帧，MEASURED **P50/P95/max ms**。normal关闭full timing/counters，full保现行instrumentation；同Scene/camera/quality顺序窗口，非严格交替或热状态控制。同步render截止返回，GPU fence、inspection、cook/evidence/JSON在计时外；没有用await completion充CPU render成本。
+
+| owner | near | far |
+| --- | --- | --- |
+| Normal CPU render | 16.890/23.735/34.150 | 16.125/18.760/21.575 |
+| Full CPU render | 17.895/21.990/32.065 | 17.910/23.365/29.825 |
+| GPU Frame span | 18.661/19.487/20.331 | 17.518/18.239/19.059 |
+| LocalLightWork | 1.680/2.100/2.339 | .324/.330/.569 |
+| Native Surface（含bins） | 4.469/4.990/5.239 | 4.694/5.296/5.526 |
+| Geometry orchestration GPU passes | 2.260/2.514/2.850 | 2.251/2.447/2.785 |
+| Visibility raster | 1.165/1.468/1.705 | 1.144/1.457/2.611 |
+| VSM effect passes | .543/.572/.795 | .536/.569/1.138 |
+| XeGTAO | .911/.975/1.314 | .938/1.234/1.345 |
+| Environment Sky/Aerial | .521/.526/.963 | .518/.524/.851 |
+| Native Temporal Facts | .631/.649/1.034 | .631/.637/.885 |
+| FSR3 全部passes | 4.673/5.140/5.904 | 4.720/5.028/5.360 |
+
+Geometry分组包含main+shadow hierarchy/meshlet/FrameGeometry/native raster-work prepare，按真实pass labels/phase归属；VSM列只含`/VSM/` effect passes，不重复算其Geometry准备，Visibility只含hardware raster。FSR3同时匹配斜线和空格命名的全部pass，不能只数preExposure ratio。IBL及global/local BRDF fused在Surface中，无独立timestamp，**UNKNOWN/不可拆出**；这些分位数不能相加成Frame。
+
+32灯全部full帧实际admitted32/flags0/modeSPARSE；首个计时near/far header分别Q=143,616/4,096、E=2,609/261、globalCount0。列表长度/Ca的authored独立统计未采，保UNKNOWN；V随Temporal jitter变动，计时counter与untimed inspection非同帧，不能互换。near Local passes P50/P95：bounds .012/.013，occupancy .081/.082，count .708/.725，scatter .707/.968，finalize .083/.096；far count .031/.032、scatter .029/.031。task-scan与cluster-scan同label，三次scan按帧合计near .023/.025、far .023/.025；raw保顺序，未冒称分开的独立counter。LightDatabase CPU update P50=0/P95=.005（timer量化），prepare近/远.080/.120与.075/.105，encode .070/.135与.070/.100；独立64实例matrix同步CPU P50范围2.7–3.5ms。authored CPU仍OPEN，不能借Lighting验收宣称先前host瓶颈解决。
+
+完整renderer已计账allocated **1,671,026,776B（约1.556GiB）**，不是driver VRAM。Geometry banks384MiB+metadata64MiB，FrameGeometry126,110,464B；material/textures793,030,832B（含518 routes）、shared transient textures365,305,584B；LocalLightWork live/reserved pool9,978,544B，单frame4,989,272B，在6MiB/frame及18MiB owner峰值合同内。正常matrix64灯池9,981,944B；交替mode测得owner峰9,981,940B，NONE328B。logical list bytes可由E×4/ranges/header求，不能把reserved当实读写带宽；Lighting DB page/global provider独立所有权不并入generator bytes，full账本在artifact。
+
+本轮authored最终Product/GPU bank/metadata及Lighting owner=0，resize/device replacement旧allocations在真实fence后退休；16380 admission和3份最大descriptor的算术/owner边界仍沿§9/§10合同，**未测极端16380灯真实性能峰值**。driver隐藏VRAM、独立DB retiring peak与所有global provider的极值峰值UNKNOWN，没有从shared pool强行分摊。
+
+### 11.5 冻结身份、artifact、验证与开放项
+
+production engine source SHA256=`ee84ed30f0a750d2d4c73a530b66b31a0571d08ae63099d34c62958578b8d981`，fresh build:test output SHA256=`e4907d2665874212c693a0e7c7c5994bc2ace739e8c5be51e205ae46b04104ca`。本轮重新production build/test build通过，所有最终GPU入口共用上述identity；engine算法未变。matrix entry SHA256=`2ecc0c361d22c9ed48a545660dba9ac4819bcc09c00254de688e7166344b1900`，matrix/cost host identity=`8839279777e6`；后续新inspection登记使host identity变化，各artifact保自身入口/host身份，不假称全部host hash相同。
+
+authored workload SHA256=`1e806834c189df03355ea9801fea7d2411b6bcf3d7178835a3557e0cbc085a11`，source SHA256=`54b608872aec11ce07b26fad6c0ad14a662314e6480bf8d833e5088b59c9851f`；runner hostBuildId=`1a55a25b74acc5375d2317431e8221363eda3ebd08f703d1080e8f740304b4c9`，registry SHA256=`ef2e45032192850e31ec5caa6c35b8a27a85f41e0e1c19f448e51d9432b0346b`。运行UTC2026-10-08T16:02:26.761→16:10:28.917（本地10月9日）；Chrome executable SHA256=`6849d2982038de9f9489a7b3858f3b785b7fec06a842c93c517281d21995c8ca`。artifact记录Git commit f36b2fec + dirty validation工作树，不能把Git起点当最终validation源码hash。
+
+authored原件目录：`.local/validation/2026-10-08T16-02-26-761Z-lighting-acceptance-e2d764bb-a318-4fac-a296-51e7d7d12ce6/`。`.local/`仍为ignored本机证据，没有formal evidence/claim/source adoption晋升。
+
+| 最终 artifact | SHA256 |
+| --- | --- |
+| 上述目录 `result.json` | `2a69746d6a50b8891ce1b1af7180bc91178ce7585e867bb3044d4f67d6164cdf` |
+| 上述目录 `events.json` | `416bb0a2fdf4afc905d43b95a07aef07e9ef1f9085c6ae09d0dff65d9277db08` |
+| 上述目录 `screenshot.png` | `a19daa76f5858bf2ab780baa075fd48f40604093b00b0fdf581c6ebefce1f976` |
+| `.local/l3-3-matrix-final.json` | `32db4dbc275459d06b4b1315867cfb04f93043e90f46c98f3df258adcab1c0e1` |
+| `.local/l3-3-cost-final.json` | `98df3fc6f07ae1c3b04776283024e6e11ca90f25638994441c1d12d53f60eed0` |
+| `.local/l3-3-product-inspection-final.json` | `764f63679976c2bcc626d384edd72358bb17c572cdcefdf76c5fd88580dd2948` |
+| `.local/l3-3-work-final.json` | `ceef62c8944a065a76a1b6ec7b5518e6dee4d60fea24928f78bffa48053a4e9a` |
+| `.local/l3-3-native-final.json` | `45a01391ef588222097d00d4defe43a9ce94469390cff66e7f37c71c6f774f9b` |
+
+targeted CPU26/26、documentation/registry/JSON projection/artifact tests20/20、validation TypeScript检查通过。收口docs-verify **0 findings/66既有historical warnings**，doctor、registry check、LocalLightWork context到唯一M3 authority/module complete的路由、代码/fixture格式与diff check通过。runner之后仅HTML排版及新增oracle登记/文档变化，不改变该authored run的生产源码、GPU工作或验收语义；artifact保留各自冻结host身份，不冒称同一最终Git tree。未运行full Node suite、全Renderer browser/AAA画质matrix或硬件counter，原因是本轮只验证M3现行单元，不能把它们写为通过。
+
+OPEN：高overlap双遍producer税、极端DIRECT尾部与16380容量实际GPU性能、稳健非零mode阈值、CPU host剩余瓶颈、受控thermal/跨GPU/browser、hardware DRAM/register/spill、local/multi-directional shadows、formal画质/evidence/claims；actual100M source未运行，本轮使用已授权完整477MB source，不以不存在源无限阻塞。VT/GI/ReSTIR/Temporal后续方案未开始。
+
+出口依据是完整现行正确性/production生命周期、无unexpected错误、完整authored runner、正常workload核心净收益及明确worst-case合同。**M3 closed不等于所有Lighting性能问题已解决。关闭后STOP，不自动进入任何下一模块。**

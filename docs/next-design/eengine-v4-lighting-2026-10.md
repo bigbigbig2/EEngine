@@ -37,6 +37,8 @@ verifies:
 
 本文是 M3 的设计 authority；阶段、状态与实施结果只在 [M3 执行计划](../next-execution/eengine-v4-lighting-execution-2026-10.md)。[全局 V4 母稿](./eengine-v4-native-shading-2026-10.md)继续约束单一 Renderer、native Material、产品责任、成本与原子切换。下文源码审查是设计起点快照；L3.2 已将 LocalLightWork 接入唯一生产链并删除旧 cluster owner，当前接线见 [Shading](../domains/shading.md)，验证范围与未运行项以执行计划为准。
 
+现行生产验收与NONE/DIRECT/SPARSE成本限制见[最终验收记录](../next-execution/eengine-v4-lighting-execution-2026-10.md#11-l33-production-lighting-acceptance2026-10-09)；下文目标/起点分析不代替实测，不把自动非零DIRECT阈值或未实现shadow能力写成已启用。
+
 2026-10-08 重新 `git fetch origin`，审查起点 HEAD/origin/master 均为 `ae140163886b71bf9a153033ba2e1460dc612ab9`，工作区干净。源码及符号引用是事实依据；M1/M2 关闭范围和 CPU OPEN 不因本文改变。本轮只设计，未修改生产 TS/WGSL、未运行新 GPU benchmark。
 
 ## 1. 当前实现事实

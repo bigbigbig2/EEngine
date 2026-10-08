@@ -1,0 +1,24 @@
+schemaVersion: 1
+id: lighting-acceptance
+route: /cases/lighting-acceptance/index.html
+buildTarget: production
+workloadId: lighting-acceptance-v1
+profile: geometry-scale
+timeoutMs: 1800000
+artifacts: [result, events, screenshot]
+changedPaths:
+  - validation/cases/lighting-acceptance
+  - validation/cases/geometry-scale-acceptance
+  - validation/workloads/lighting-acceptance-v1.yaml
+  - OEngine/src/render/lighting
+errorAllowlist:
+  - source: console:warning
+    exact: The powerPreference option is currently ignored when calling
+      requestAdapter() on Windows. See https://crbug.com/369219127
+    reason: Chrome platform warning; adapter identity is captured before and after recovery.
+harness: production
+domain: shading
+caseKind: production
+kind: perf
+level: L4
+decision: ADR-0020

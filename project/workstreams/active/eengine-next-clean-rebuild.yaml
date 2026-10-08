@@ -18,13 +18,11 @@ goal: >-
 currentSlice:
   id: lighting-v4
   title: Lighting V4 / Local Light Work Generation
-  status: active
+  status: complete
   goal: >-
-    Follow the independent M3 Lighting design and execution authority. Preserve
-    LightDatabase, global Sun, BRDF, VSM, IBL and AO foundations; construct complete
-    Local Light Work outside production, then atomically switch every direct consumer
-    and purge the old owner. Implementation follows the execution unit boundary;
-    keep M1/M2 closed and CPU open questions recorded.
+    Preserve the sole production Local Light Work path and completed M1/M2 foundations.
+    Acceptance results and remaining performance limits live in the M3 execution authority.
+    Stop at this module boundary; select later work only from actual evidence and user authorization.
 
 nextModules:
   - id: virtual-resources-v4

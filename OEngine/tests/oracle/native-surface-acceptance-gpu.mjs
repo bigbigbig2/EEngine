@@ -15,6 +15,7 @@ import {
 } from "../../.test-dist/material/AppearanceGraph.js";
 import { PointLight } from "../../.test-dist/light/PointLight.js";
 import { SpotLight } from "../../.test-dist/light/SpotLight.js";
+import { DirectionalLight } from "../../.test-dist/light/DirectionalLight.js";
 import { PerspectiveCamera } from "../../.test-dist/camera/PerspectiveCamera.js";
 import { decodeFloat16 } from "../../.test-dist/core/Float16.js";
 import { createPackedSceneSourceFromScene } from "../../.test-dist/gpu/GpuSceneAdapter.js";
@@ -213,11 +214,21 @@ export async function runCase({
     return Mesh.from(geometry, material, matrix);
   });
   scene.add(meshes);
+  for (let index = 0; index < (lighting?.directionals ?? 0); index++) {
+    const directional = new DirectionalLight();
+    directional.intensity = 0.1;
+    directional.forward = [index ? 0.2 : -0.2, -0.3, -1];
+    scene.add(directional);
+  }
   const lights = [];
   const addLights = (count) => {
     if (lighting) {
-      for (const light of lights) scene.remove(light);
-      lights.length = 0;
+      if (lighting.retainLights) {
+        while (lights.length > count) scene.remove(lights.pop());
+      } else {
+        for (const light of lights) scene.remove(light);
+        lights.length = 0;
+      }
     }
     for (let i = lights.length; i < count; i++) {
       const spot = lighting?.type === "spot" || (lighting?.type === "mixed" && i % 2 === 1);
@@ -573,6 +584,7 @@ fn inspect(@builtin(local_invocation_index) index: u32) {
     const records = [];
     for (const count of lighting?.counts ?? (unlit ? [0] : complex ? [8, 32] : [4, 8, 32])) {
       addLights(count);
+      lighting?.update?.(lights, count, scene);
       for (let i = 0; i < (lighting?.warmupFrames ?? 30); i++) await tick();
       renderer.profiler.setMode("record");
       renderer.profiler.configure({
@@ -628,6 +640,12 @@ fn inspect(@builtin(local_invocation_index) index: u32) {
       const collection = renderer._environments.get(scene).lights;
       const actualLights = collection.pointLights.count + collection.spotLights.count;
       check(actualLights === count, `Actual published local lights ${actualLights}, expected ${count}`);
+      if (lighting?.directionals) {
+        check(
+          collection.directionalLights.count === lighting.directionals,
+          "Authored global Directional publication incomplete"
+        );
+      }
       let maxDirectDeltaError = 0;
       if (!complex && !unlit) {
         check(outputs.visible === baseline.visible, "Point lights changed geometry coverage");
@@ -650,6 +668,7 @@ fn inspect(@builtin(local_invocation_index) index: u32) {
           };
           let expected = [0, 0, 0];
           for (const light of lights) {
+            const luminance = 0.2126 * light.color.r + 0.7152 * light.color.g + 0.0722 * light.color.b;
             const delta = [light.position.x, light.position.y, light.position.z].map(
               (v, i) => v - position[i]
             );
@@ -680,7 +699,9 @@ fn inspect(@builtin(local_invocation_index) index: u32) {
               surface,
               position,
               normalize(delta),
-              [attenuation * light.intensity, attenuation * light.intensity, attenuation * light.intensity],
+              [light.color.r, light.color.g, light.color.b].map((channel) =>
+                luminance < 1e-6 ? 0 : (attenuation * light.intensity * channel) / luminance
+              ),
               [0, 0, cameraZ]
             );
             expected = expected.map((v, k) => v + contribution[k]);
@@ -751,6 +772,7 @@ fn inspect(@builtin(local_invocation_index) index: u32) {
         constructedLocalLighting: await construction?.record(profiles),
         dispatches: distribution(profiles.map((p) => p.counters["gpu.commands.dispatch"] ?? 0)),
         actualLights,
+        actualDirectionals: collection.directionalLights.count,
         lightConfiguration: lighting
           ? {
               type: lighting.type,
@@ -763,6 +785,7 @@ fn inspect(@builtin(local_invocation_index) index: u32) {
                 radius: light.radius,
                 distance: light.distance,
                 intensity: light.intensity,
+                color: [light.color.r, light.color.g, light.color.b],
                 angle: light.angle,
                 penumbra: light.penumbra
               })),
@@ -942,6 +965,54 @@ export function lightingSupportSpecifications() {
       }
     }
   ];
+}
+
+export async function runLightingAcceptanceGpuOracle() {
+  const matrix = await runLightingBaselineGpuOracle();
+  const lowCoverage = await runLightingLowCoverageGpuOracle();
+  const dynamics = await runLightingDynamicsGpuOracle();
+  return {
+    ...matrix,
+    scope: "L3.3 sole production Lighting matrix, independent HDR, dynamic publication and low coverage",
+    cases: [...matrix.cases, ...lowCoverage.cases, dynamics],
+    limitations: [
+      "Not the authored large scene; separate browser runner required",
+      "No hardware DRAM/register/spill counters",
+      "Serialized GPU waits excluded from renderer.render CPU",
+      "Internal mode crossover recorded separately"
+    ]
+  };
+}
+
+export async function runLightingDynamicsGpuOracle() {
+  return runCase({
+    name: "dynamic-local-publication",
+    lighting: {
+      type: "mixed",
+      distribution: "sparse",
+      counts: [4, 4, 8, 4, 1, 0],
+      retainLights: true,
+      directionals: 2,
+      correctnessOnly: true,
+      update(lights, count, scene) {
+        for (const [index, light] of lights.entries()) {
+          light.intensity = 0.5 + index * 0.1;
+          light.color.r = 0.8;
+          light.color.g = 0.6;
+          light.color.b = 0.4;
+          light.radius = 0.15;
+          light.distance = 2.5;
+          light.position.x += 0.25;
+          if (light.isSpotLight) {
+            light.angle = 0.7;
+            light.penumbra = 0;
+          }
+        }
+        for (const light of lights) scene.remove(light);
+        for (const light of [...lights].reverse()) scene.add(light);
+      }
+    }
+  });
 }
 
 export async function runLightingSupportGpuOracle() {

@@ -14,7 +14,7 @@ verifies:
 
 ## 当前源码接线
 
-核对日期：2026-10-08，M3 L3.2 工作树。Surface 和 LocalLightWork 已接唯一生产入口；最新 Lighting 阶段与验证范围只读 [M3 执行计划](../next-execution/eengine-v4-lighting-execution-2026-10.md)，不据此声明 M3 acceptance 或性能改善。
+核对日期：2026-10-09，production source `f36b2fec`。Surface 和 LocalLightWork 使用唯一生产入口；最新 Lighting 阶段、验收结果与性能限制只读 [M3 执行计划](../next-execution/eengine-v4-lighting-execution-2026-10.md)。
 
 [GpuNativeMaterialScene](../../OEngine/src/gpu/GpuNativeMaterialScene.ts) 从 scene material slots、GraphCompiler、TextureResidency 和 cooked Products 建立 immutable native publication。参数及 dynamic inputs 是实例数据；完整物理资源集合决定 BindingSet，Program 由 shader/layout 结构决定。async PSO 未就绪时延迟整 tick；成功提交才切 active，abort 保留 candidate 供 retry，旧 publication 按实际 fence 退休。
 
@@ -36,6 +36,6 @@ NativeVisibilityPass 和 VSM native alpha caster 消费同一 native material pu
 
 ## 仍需验证
 
-跨浏览器、完整画质、streamed VG、大场景长序列 P50/P95、VRAM 峰值与正式 evidence/claims 仍需对应阶段验证；小场景生产闭包、组件 fixture 或预算有界不能证明这些结果。集中验证范围及已复现的非 Surface 基线失败仅记录在执行计划。
+当前单机完整authored场景、streamed多Product、Lighting矩阵和受控恢复/释放的实际覆盖读执行记录；跨浏览器/GPU、完整AAA画质、超出本轮窗口的长序列/极值峰值与正式evidence/claims仍未完成。小场景闭包或预算有界不能证明这些结果，非Surface基线失败继续留在对应执行计划。
 
 未来接口见[V4 母稿](../next-design/eengine-v4-native-shading-2026-10.md)，来源与 adoption 边界见[porting ledger](../porting/next-renderer.md)。算法 history/cache 属于算法 owner，Surface 不恢复通用记录或 reuse 操作系统。

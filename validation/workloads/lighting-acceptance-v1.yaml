@@ -1,0 +1,50 @@
+schemaVersion: 1
+id: lighting-acceptance-v1
+resolution: [1920, 1080]
+deviceScaleFactor: 1
+renderScale: 1
+quality: complete-authored-textures-512-native-v4
+texture:
+  maximumResolution: 512
+  bankMaxCapacities: [64, 130, 130, 130, 130]
+  catalogRoutes: 518
+  maximumRgbaBankBytes: 749381536
+features: [web-cook, multi-product-runtime, visibility, native-surface, vsm, temporal, local-light-work]
+seed: 3303
+cameraPath: geometry-scale-near-far-motion-cut-v1
+warmupFrames: 30
+sampleFrames: 120
+sampleCadence: 1
+timestampRequired: true
+independentRuns: 1
+lighting:
+  count: 32
+  point: 16
+  spot: 16
+  distribution: grid-8x4-local-finite
+  distance: 4
+  radius: 0.1
+  intensity: 2
+  spotAngle: 1.0471975511965976
+  spotPenumbra: 0.25
+geometry:
+  source: authored-local-large-glb
+  sourceSha256: 54b608872aec11ce07b26fad6c0ad14a662314e6480bf8d833e5088b59c9851f
+  sourceBytes: 477591060
+  sourceTriangles: 4871612
+  primitives: 1920
+  configuredCapacityBytes: 402653184
+  activationPages: 655
+  activationSlots: 1332
+  activationPhysicalBytes: 349175808
+  activationUploadBytes: 194076588
+  refinementHeadroomBytes: 53477376
+  metadataBytes: 67108864
+  catalogCoverage: all-primitives
+  productCount: record-only
+acceptance:
+  requiresSettled: true
+  requiresDisposed: true
+  requiresFullCatalogCoverage: true
+  requiresExactSourceTriangleCoverage: true
+  requiresEveryPlannedShard: true
