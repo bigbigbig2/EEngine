@@ -96,6 +96,41 @@
       "artifacts": [
         "result",
         "events",
+        "screenshot"
+      ],
+      "automatic": true,
+      "buildTarget": "production",
+      "caseKind": "production",
+      "changedPaths": [
+        "validation/cases/renderer-cpu-host",
+        "validation/workloads/renderer-cpu-host-v1.yaml",
+        "OEngine/src/render",
+        "OEngine/src/gpu",
+        "OEngine/src/assets"
+      ],
+      "decision": "ADR-0020",
+      "domain": "visibility",
+      "errorAllowlist": [
+        {
+          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
+          "reason": "Chrome platform warning; adapter identity is captured in the capability record.",
+          "source": "console:warning"
+        }
+      ],
+      "harness": "production",
+      "id": "renderer-cpu-host",
+      "kind": "perf",
+      "lab": false,
+      "level": "L4",
+      "profile": "geometry-scale",
+      "route": "/cases/renderer-cpu-host/index.html",
+      "timeoutMs": 1800000,
+      "workloadId": "renderer-cpu-host-v1"
+    },
+    {
+      "artifacts": [
+        "result",
+        "events",
         "screenshot",
         "readback"
       ],
@@ -632,6 +667,76 @@
       "seed": 0,
       "timestampRequired": false,
       "warmupFrames": 1
+    },
+    "renderer-cpu-host-v1": {
+      "acceptance": {
+        "requiresDisposed": true,
+        "requiresEveryPlannedShard": true,
+        "requiresExactSourceTriangleCoverage": true,
+        "requiresFullCatalogCoverage": true,
+        "requiresSettled": true
+      },
+      "cameraPath": "renderer-cpu-host-stable-near-far-v1",
+      "cpuHost": {
+        "cadence": "requestAnimationFrame",
+        "gpuWait": "outside-render-only",
+        "modes": [
+          "normal-production",
+          "full-validation"
+        ],
+        "stableFramesPerSegment": 48,
+        "timingControl": "disabled-wrapper-and-attributed"
+      },
+      "deviceScaleFactor": 1,
+      "features": [
+        "web-cook",
+        "multi-product-runtime",
+        "visibility",
+        "native-surface",
+        "vsm",
+        "temporal"
+      ],
+      "geometry": {
+        "activationPages": 655,
+        "activationPhysicalBytes": 349175808,
+        "activationSlots": 1332,
+        "activationUploadBytes": 194076588,
+        "catalogCoverage": "all-primitives",
+        "configuredCapacityBytes": 402653184,
+        "metadataBytes": 67108864,
+        "primitives": 1920,
+        "productCount": 66,
+        "refinementHeadroomBytes": 53477376,
+        "source": "authored-local-large-glb",
+        "sourceBytes": 477591060,
+        "sourceSha256": "54b608872aec11ce07b26fad6c0ad14a662314e6480bf8d833e5088b59c9851f",
+        "sourceTriangles": 4871612
+      },
+      "id": "renderer-cpu-host-v1",
+      "independentRuns": 1,
+      "quality": "complete-authored-textures-512-native-v4",
+      "renderScale": 1,
+      "resolution": [
+        1920,
+        1080
+      ],
+      "sampleCadence": 1,
+      "sampleFrames": 48,
+      "seed": 2401,
+      "texture": {
+        "bankMaxCapacities": [
+          64,
+          130,
+          130,
+          130,
+          130
+        ],
+        "catalogRoutes": 518,
+        "maximumResolution": 512,
+        "maximumRgbaBankBytes": 749381536
+      },
+      "timestampRequired": true,
+      "warmupFrames": 30
     },
     "shading-resolve-component-v1": {
       "cameraPath": "none",

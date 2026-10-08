@@ -1,0 +1,47 @@
+schemaVersion: 1
+id: renderer-cpu-host-v1
+resolution: [1920, 1080]
+deviceScaleFactor: 1
+renderScale: 1
+quality: complete-authored-textures-512-native-v4
+texture:
+  maximumResolution: 512
+  bankMaxCapacities: [64, 130, 130, 130, 130]
+  catalogRoutes: 518
+  maximumRgbaBankBytes: 749381536
+features: [web-cook, multi-product-runtime, visibility, native-surface, vsm, temporal]
+seed: 2401
+cameraPath: renderer-cpu-host-stable-near-far-v1
+warmupFrames: 30
+sampleFrames: 48
+sampleCadence: 1
+timestampRequired: true
+independentRuns: 1
+geometry:
+  source: authored-local-large-glb
+  sourceSha256: 54b608872aec11ce07b26fad6c0ad14a662314e6480bf8d833e5088b59c9851f
+  sourceBytes: 477591060
+  sourceTriangles: 4871612
+  primitives: 1920
+  configuredCapacityBytes: 402653184
+  activationPages: 655
+  activationSlots: 1332
+  activationPhysicalBytes: 349175808
+  activationUploadBytes: 194076588
+  refinementHeadroomBytes: 53477376
+  metadataBytes: 67108864
+  catalogCoverage: all-primitives
+  productCount: 66
+acceptance:
+  requiresSettled: true
+  requiresDisposed: true
+  requiresFullCatalogCoverage: true
+  requiresExactSourceTriangleCoverage: true
+  requiresEveryPlannedShard: true
+
+cpuHost:
+  modes: [normal-production, full-validation]
+  stableFramesPerSegment: 48
+  timingControl: disabled-wrapper-and-attributed
+  cadence: requestAnimationFrame
+  gpuWait: outside-render-only

@@ -38,9 +38,14 @@ interface Snapshot {
   readonly sources: readonly NativeMaterialPublicationSource[];
   readonly bindings: readonly NativeMaterialBindings[];
   readonly values: readonly Float32Array<ArrayBuffer>[];
-  readonly identity: readonly unknown[];
+  readonly unlit: readonly boolean[];
   readonly routes: readonly NativeSurfaceRoute[];
   ready: boolean;
+}
+
+interface MaterialBindingSnapshot {
+  readonly identity: readonly unknown[];
+  readonly bindings: NativeMaterialBindings;
 }
 
 /** Scene publication of native programs, instance data and exact resource sets.
@@ -61,6 +66,9 @@ export class GpuNativeMaterialScene {
   private lastCompletion: Promise<void> = Promise.resolve();
   private readonly retiring = new Set<Snapshot>();
   private readonly listeners = new Set<() => void>();
+  // One immutable code/resource binding per authored material source. Numeric
+  // frame inputs remain live and are checked separately by snapshot().
+  private readonly materialBindings: (MaterialBindingSnapshot | undefined)[] = [];
   private nextRevision = 1;
 
   constructor(
@@ -223,30 +231,18 @@ export class GpuNativeMaterialScene {
 
   private snapshot(previous?: Snapshot): Snapshot {
     const bindings: NativeMaterialBindings[] = [];
-    const identities: unknown[] = [];
-    const sources: NativeMaterialPublicationSource[] = [];
+    const unlit: boolean[] = [];
+    const sources: Omit<NativeMaterialPublicationSource, "bindingSet" | "descriptor">[] = [];
     const values: Float32Array<ArrayBuffer>[] = [];
-    const physicalSets: GPUBindGroupEntry[][] = [];
-    for (const source of this.materialSources) {
-      const set = this.bindingSets().find((set) => set.id === source.textureBindingSetId);
+    const bindingSets = this.bindingSets();
+    for (let sourceIndex = 0; sourceIndex < this.materialSources.length; sourceIndex++) {
+      const source = this.materialSources[sourceIndex]!;
+      const set = bindingSets.find((set) => set.id === source.textureBindingSetId);
       if (set === undefined) {
         throw new Error("Native material texture set is not resident");
       }
-      const bound = createNativeMaterialBindings({
-        graph: source.graph,
-        program: lowerNativeMaterial(source.graph),
-        bindingSet: set,
-        textureRoutingRefs: source.textureRefs,
-        textureMipRanges: this.mipRanges,
-        texturePublications: this.texturePublications,
-        ...(this.products ? { packedProducts: this.products } : {}),
-        obtainSampler: (descriptor) => this.graphics.samplers.obtain(descriptor)
-      });
-      const program = Object.freeze({
-        ...bound.program,
-        instanceInputs: true,
-        key: `${bound.program.key}/instance-inputs`
-      });
+      const bound = this.obtainMaterialBindings(sourceIndex, source, set);
+      const program = bound.program;
       const parameters: Record<string, readonly number[]> = {};
       const standard = standardAppearanceParameters(source.material);
       for (const name of Object.keys(program.parameterSlots)) {
@@ -281,28 +277,12 @@ export class GpuNativeMaterialScene {
         throw new RangeError("Native instance publication requires finite material data");
       }
       values.push(data);
-      bindings.push({ ...bound, program });
-      // Resource equality is exact object/offset/size equality, never a hash.
-      let bindingSet = physicalSets.findIndex(
-        (entries) =>
-          entries.length === bound.entries.length &&
-          entries.every(
-            (entry, index) =>
-              entry.binding === bound.entries[index]!.binding &&
-              entry.resource === bound.entries[index]!.resource
-          )
-      );
-      if (bindingSet < 0) {
-        bindingSet = physicalSets.length;
-        physicalSets.push([...bound.entries]);
-      }
-      identities.push(
-        program.key,
-        source.material.is_unlit,
-        ...bound.entries.flatMap((entry) => [entry.binding, entry.resource])
-      );
+      bindings.push(bound);
+      unlit.push(source.material.is_unlit);
       const oldIndex =
-        previous?.sources.findIndex((entry) => entry.materialSlot === source.materialSlot) ?? -1;
+        previous?.sources[sourceIndex]?.materialSlot === source.materialSlot
+          ? sourceIndex
+          : (previous?.sources.findIndex((entry) => entry.materialSlot === source.materialSlot) ?? -1);
       const old = oldIndex < 0 ? undefined : previous!.sources[oldIndex];
       const unchanged =
         old !== undefined &&
@@ -314,7 +294,6 @@ export class GpuNativeMaterialScene {
       }
       sources.push({
         materialSlot: source.materialSlot,
-        bindingSet,
         program,
         parameters,
         inputs,
@@ -323,15 +302,17 @@ export class GpuNativeMaterialScene {
           alphaCutoff: data[constants.length]!,
           alphaMask: source.material.transparency_mode === ShadeTransparencyMode.AlphaTested,
           hasEmissiveTexture: source.material.texture_emissive !== undefined
-        },
-        // Multi-bin shape is filled below, after exact complete sets are known.
-        descriptor: undefined as never
+        }
       });
     }
     if (
       previous !== undefined &&
-      previous.identity.length === identities.length &&
-      previous.identity.every((value, index) => value === identities[index]) &&
+      previous.bindings.length === bindings.length &&
+      // obtainMaterialBindings preserves identity only after exact resource and
+      // route checks. Stable frames need neither physical-set deduplication nor
+      // native code/key reconstruction; every numeric input was validated above.
+      bindings.every((bound, index) => bound === previous.bindings[index]) &&
+      unlit.every((value, index) => value === previous.unlit[index]) &&
       values.every(
         (data, index) =>
           previous.values[index]!.length === data.length &&
@@ -340,13 +321,32 @@ export class GpuNativeMaterialScene {
     ) {
       return previous;
     }
+    const physicalSets: (readonly GPUBindGroupEntry[])[] = [];
+    const routedSources = sources.map((source, index) => {
+      const bound = bindings[index]!;
+      // Resource equality is exact object/offset/size equality, never a hash.
+      let bindingSet = physicalSets.findIndex(
+        (entries) =>
+          entries.length === bound.entries.length &&
+          entries.every(
+            (entry, word) =>
+              entry.binding === bound.entries[word]!.binding &&
+              entry.resource === bound.entries[word]!.resource
+          )
+      );
+      if (bindingSet < 0) {
+        bindingSet = physicalSets.length;
+        physicalSets.push(bound.entries);
+      }
+      return { ...source, bindingSet };
+    });
     const binKeys = new Set(
-      sources.map(
-        (source) =>
-          `${source.program.key}/${source.bindingSet}/${this.materialSources[sources.indexOf(source)]!.material.is_unlit}`
+      routedSources.map(
+        (source, index) =>
+          `${source.program.key}/${source.bindingSet}/${this.materialSources[index]!.material.is_unlit}`
       )
     );
-    const complete = sources.map((source, index) => ({
+    const complete = routedSources.map((source, index) => ({
       ...source,
       ...nativeSurfacePublicationDescriptors(
         source.program,
@@ -382,10 +382,66 @@ export class GpuNativeMaterialScene {
       sources: complete,
       bindings,
       values,
-      identity: identities,
+      unlit,
       routes,
       ready: false
     };
+  }
+
+  private obtainMaterialBindings(
+    index: number,
+    source: NativeSceneMaterialSource,
+    set: TextureBindingSet
+  ): NativeMaterialBindings {
+    // Compiled graph/Product contents are immutable until Scene resync. The
+    // mutable residency inputs below are compared by exact values and physical
+    // object identity, never a hash or a frame number. No GPU resource is owned
+    // by this CPU memo; replacement/loss still belongs to the existing owners.
+    const identity: unknown[] = [source.graph, set.id, set.generation, this.products, ...set.textureBanks];
+    for (const sample of source.graph.samples) {
+      const texture = sample.binding.texture;
+      const mipRange = this.mipRanges.get(texture);
+      const publication = this.texturePublications.get(texture);
+      identity.push(
+        source.textureRefs.get(texture),
+        mipRange?.[0],
+        mipRange?.[1],
+        publication?.slot,
+        publication?.generation,
+        publication?.currentRevision ?? publication?.revision,
+        publication?.currentMinimumMip,
+        texture.runtime_asset_package_v2?.width,
+        texture.runtime_asset_package_v2?.height
+      );
+    }
+    const previous = this.materialBindings[index];
+    if (
+      previous !== undefined &&
+      previous.identity.length === identity.length &&
+      previous.identity.every((value, word) => Object.is(value, identity[word]))
+    ) {
+      return previous.bindings;
+    }
+    const bound = createNativeMaterialBindings({
+      graph: source.graph,
+      program: lowerNativeMaterial(source.graph),
+      bindingSet: set,
+      textureRoutingRefs: source.textureRefs,
+      textureMipRanges: this.mipRanges,
+      texturePublications: this.texturePublications,
+      ...(this.products ? { packedProducts: this.products } : {}),
+      obtainSampler: (descriptor) => this.graphics.samplers.obtain(descriptor)
+    });
+    const bindings = Object.freeze({
+      ...bound,
+      program: Object.freeze({
+        ...bound.program,
+        instanceInputs: true,
+        key: `${bound.program.key}/instance-inputs`
+      })
+    });
+    this.materialBindings[index] = { identity, bindings };
+    return bindings;
   }
 
   private async prepareRasterPrograms(snapshot: Snapshot): Promise<void> {
@@ -463,6 +519,7 @@ export class GpuNativeMaterialScene {
     this.candidate = null;
     this.prepared = null;
     this.retiring.clear();
+    this.materialBindings.length = 0;
     this.listeners.forEach((callback) => callback());
     this.listeners.clear();
   }

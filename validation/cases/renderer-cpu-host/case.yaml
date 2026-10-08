@@ -1,0 +1,25 @@
+schemaVersion: 1
+id: renderer-cpu-host
+route: /cases/renderer-cpu-host/index.html
+buildTarget: production
+workloadId: renderer-cpu-host-v1
+profile: geometry-scale
+timeoutMs: 1800000
+artifacts: [result, events, screenshot]
+changedPaths:
+  - validation/cases/renderer-cpu-host
+  - validation/workloads/renderer-cpu-host-v1.yaml
+  - OEngine/src/render
+  - OEngine/src/gpu
+  - OEngine/src/assets
+errorAllowlist:
+  - source: console:warning
+    exact: The powerPreference option is currently ignored when calling
+      requestAdapter() on Windows. See https://crbug.com/369219127
+    reason: Chrome platform warning; adapter identity is captured in the capability record.
+harness: production
+domain: visibility
+caseKind: production
+kind: perf
+level: L4
+decision: ADR-0020

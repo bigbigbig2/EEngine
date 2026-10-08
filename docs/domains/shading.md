@@ -18,6 +18,8 @@ verifies:
 
 [GpuNativeMaterialScene](../../OEngine/src/gpu/GpuNativeMaterialScene.ts) 从 scene material slots、GraphCompiler、TextureResidency 和 cooked Products 建立 immutable native publication。参数及 dynamic inputs 是实例数据；完整物理资源集合决定 BindingSet，Program 由 shader/layout 结构决定。async PSO 未就绪时延迟整 tick；成功提交才切 active，abort 保留 candidate 供 retry，旧 publication 按实际 fence 退休。
 
+每个 authored material source 只保留一份当前 CPU code/binding snapshot。复用依据是 immutable compiled graph/Product、物理 bank view、set generation、texture route、mip 与 live publication 的精确身份和值；资源改变重新建立绑定，Scene resync/device loss 仍由原 owner 处理。每帧继续读取并验证 Standard 参数与 dynamic inputs，保留直接字段修改和 candidate/active/abort/retry 语义；稳定帧先比较绑定、Unlit 与数值，变化时才重建完整物理资源分组。该 CPU snapshot 不拥有 GPU 资源或 shading result。
+
 [SurfaceV4](../../OEngine/src/render/surface/SurfaceV4.ts) 消费 r32 Visibility、MeshletWork、FrameGeometryArena/vertex sources、frame instances、native publication 与真实 clustered/VSM/IBL/AO/environment providers。Dense one-route 无 pixel queue；multi-route 在 GPU 构造 compact pixel bins 并 indirect native dispatch。winner geometry、C/X/Y、material、BRDF、lighting 默认在同一 shader 内求值，直接写 pre-exposed working-color HDR 和 demanded reactive。
 
 全 sampled-resource profile 超过协商 limit 时使用有限 native sun continuation，读独立 HDR texture、写新 HDR 版本；不使用 read-write rgba16float storage 或 six-signal store。FrameGraph 管宏依赖及借给 Surface 的最终 HDR；Surface 只拥有执行 scratch 和必要 continuation intermediate，不 submit。

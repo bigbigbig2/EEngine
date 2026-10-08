@@ -49,6 +49,8 @@ verifies:
     - OEngine/src/framegraph/FrameGraph.ts
     - OEngine/src/framegraph/ShadeGPUCommandContext.ts
     - OEngine/tests
+    - validation/cases/renderer-cpu-host
+    - validation/workloads/renderer-cpu-host-v1.yaml
     - tools/docs-verify.mjs
     - tools/project-navigation.mjs
 ---
@@ -1105,3 +1107,103 @@ actual100M/Zorah=`not-run`：本轮实际发现本地Zorah glTF及两份合计�
 **规划时记录（`d44823e`）：** 只改设计/执行/导航/来源与真实domain事实，无productionTS/WGSL、probe、benchmark或构建。读取既有GPUcapture进行分阶段统计，不是新测量；本地Nyx函数map7个hash与vendoredmeshoptimizer22个hash核对，source引用不提升adoption。当时 M2 尚未实现、G2.0=next；后续实施见 §8.2.1。
 
 轻量验证：`docs-verify` 0 findings、66 historical warnings；documentation tests7/7；`vibe doctor`、`registry --check`、Residency/Arena/Hierarchy/FrameProgram四条context解析和`git diff --check`通过。初次doctor/registry拒绝旧Nyx task使用不支持的paused状态；保workstream暂停，task改schema合法todo后重跑通过。context仅一个current renderer authority与geometry-v4 planned导航，旧Nyx/Web100M入口暂停并指回本计划。未运行engine typecheck/build/build:test、fullNode、browser或GPUbenchmark；它们不属于本次纯设计验证，原28失败没有被追认为修复。
+
+## 9. Renderer CPU Host 专项归因与有限优化（2026-10-08）
+
+**归因完成；Branch B；CPU Host: STILL BOTTLENECK。** 本轮只修改 native material publication 的 CPU 稳定帧重复工作，没有改变 Geometry/Surface/Lighting shader、画质、GPU work、生产 ownership 或 submit 数。M1/M2 保持关闭，不启动下一模块；不把本轮有限收益写成 CPU runtime 已解决。
+
+### 9.1 源码、工作负载与计量边界
+
+开始重新 fetch，HEAD/origin/master 均为 `bc04d21769df58ebbe6607473ff7235eeb860f65`，工作区干净。直接核查 RendererCore、FrameProgram/Lowering、CompiledFrameGraphCache、FrameGraph/CommandContext、native material Scene/Surface、streaming/multi Product、VSM/Temporal/FSR、profiler/accounting 与 authored acceptance 接线。原 engine source hash=`ec9b88acf1e7521b3b41d2706ad1b2b6782a9757eb2d1f0606a305da57c11e5b`；最终为未提交工作树，engine source=`f26c05a08a7a2d71fdc30081d51b34ea9a705f018644553547a821767e1f2806`，fresh build:test output=`59a074a08b01cef8ba8a9cfcec5fa33e88891296780300253b736b3f66190b31`，完成于 UTC08:15:18.474。最终 browser host identity=`a3f4178b05a7c278ab6e7af4a22c62942428f8cf5e9a77c0fae1ae25b350b906`；不以 Git HEAD 代替 dirty source/build identity。
+
+增加一个 case-local `renderer-cpu-host`，复用现有完整 authored cook、production Renderer、validation controller/runner 与 error/dispose gates，没有另建 benchmark framework 或 production timing owner。工作负载 `renderer-cpu-host-v1` hash=`9bcb08718fe3913501ddde3676bdf8837fbe17aca66424380e9e870762cda77c`；registry=`e716f7c54abce938195416a8cf6d72149ff7fc0f1f706e08ee1afd4854e301cc`。保持本地 large.glb **477591060B、4871612 source triangles、1920 primitives、66 Products、1944 merged instances、518 texture routes**，source hash=`54b608872aec11ce07b26fad6c0ad14a662314e6480bf8d833e5088b59c9851f`。全部 planned shards/catalog/triangle union 被断言；1920×1080、renderScale=1、既定512 texture quality、完整材质/纹理、streaming、VSM、native Surface、Temporal/FSR、AO/environment/post 链保持。Geometry budget 为既有 complete-scene 384MiB banks +64MiB metadata，未缩场景换数字。
+
+near/far 为 `(0,5,10)` / `(0,5,35)`，看向 `(0,5,0)`、60° FOV。每段30 warmup +48真实提交帧；RAF 驱动，2 in-flight backpressure 的 deferred ticks 单列并排除，不用空 tick 拉低 CPU。Normal 关闭 profiler/counters/额外 evidence，保实际 renderer 功能；Full 开完整 GPU timing/counters/CPU pass timing，并在 render 之外每帧采 memory/ledger/multi/streaming evidence 与 JSON。这里的 production case 是现有 Vite validation host 上的实际 production 路径；不宣称 release bundle、跨浏览器或长时交互性能。
+
+计时只包同步 `renderer.render()`；GPU drain、RAF 等待、readback/map、输出检查和 artifact 写盘在外。先48帧无 wrapper Normal near control，再做 disabled-wrapper 与 attributed 两组；far 反转 Normal/Full 顺序。轻量 fixed typed arrays、嵌套 exclusive 计时，无每 call 大对象、无新增 GPU work；最终100k次校准 raw=.720ms、timed=64.900ms，额外约642ns/call。该值是校准而非真实帧精确扣除项；保留未计时 control，不将 timer 自身收益当优化。
+
+### 9.2 原始结果、复测与分叉
+
+四次完整 runner artifact 均保留于 `.local/validation/`：
+
+| run | 原始目录 / 用途 |
+|---|---|
+| R0 | `2026-10-08T07-27-44-016Z-renderer-cpu-host-3cda1e75-b613-4175-a0d5-d9343958f868`；初始 hooks 尚漏 canPrepareFrame/snapshot，仍有38–40ms UNKNOWN，不能作为完整归因 |
+| R1 | `2026-10-08T07-38-33-289Z-renderer-cpu-host-19ab6d32-f92e-4691-961f-6c325a3a5942`；补全 owner hooks，**优化前**完整归因 |
+| R2 | `2026-10-08T07-57-36-713Z-renderer-cpu-host-ae1a94a7-adae-4c8c-aa80-a9bee2b0f6ba`；绑定复用后，engine source=`d83d488a188a1a3778c70fb275c2b7b3f703afda21ca824801f402b9de843819` |
+| R3 | `2026-10-08T08-37-32-775Z-renderer-cpu-host-eabbc79a-2f97-4727-9da1-b8807f545a63`；最终 source/build 冻结完整 rerun，UTC08:46:08.102完成 |
+
+下表单位ms，每项48 samples。disabled-wrapper 只转发、不开 owner timer；无 wrapper near control 另列。各 run 非同时采样，有 streaming/host 状态漂移，不能将负 Full-minus-Normal 当 profiling 加速或把最小值替换最终结果。
+
+| camera / mode | R1 P50 / P95 / max | R2 P50 / P95 / max | **R3 P50 / P95 / max** |
+|---|---:|---:|---:|
+| near Normal，无 wrapper | 53.315 / 84.180 / 103.285 | 19.175 / 26.300 / 32.920 | **24.505 / 33.685 / 36.820** |
+| near Normal，disabled wrapper | 59.410 / 90.755 / 274.215 | 18.850 / 28.475 / 36.145 | **28.315 / 45.660 / 50.760** |
+| far Normal，disabled wrapper | 60.080 / 73.525 / 99.080 | 18.915 / 22.585 / 23.400 | **19.925 / 25.270 / 27.695** |
+| near Full，disabled wrapper | 56.340 / 72.910 / 215.585 | 19.705 / 22.655 / 27.000 | **24.075 / 29.645 / 32.325** |
+| far Full，disabled wrapper | 53.005 / 68.385 / 79.465 | 21.775 / 34.175 / 38.795 | **20.935 / 28.250 / 30.140** |
+
+R3 相同 disabled-wrapper 的 Full-minus-Normal P50/P95：near=-4.240/-16.015ms，far=+1.010/+2.980ms。这组差分不稳定，不支持“profiling解释40–50ms”的假设。**Normal 原来同样50–60ms，Branch B 在修改前已成立。** R3 Full 的额外 render 外 observations near P50/P95/max=9.025/13.140/26.435ms，far=7.725/10.360/11.045ms；JSON near=.190/.345/.590ms，far=.170/.255/.300ms。逐帧先相加 render+observation+JSON 后取分位数，完整同步 validation CPU near=34.300/42.285/50.780ms、far=28.930/36.255/40.720ms；不把这个总量标成 renderer.render。
+
+R1→R2 的收益与直接 owner 计时一致；R2→R3 提前稳定检查**没有可靠额外收益**，不能宣称进一步变快。R3 无 wrapper near 比 R1 P50降低28.810ms、约54%；保留R3较慢的最终样本和全部 tails，不挑R2数字称收尾。
+
+### 9.3 CPU Cost Breakdown 与重复工作
+
+R1 直接证明 `RendererCore.render → nativeMaterials.canPrepareFrame → snapshot` 在 `_profiler.beginFrame` **之前**发生，每帧1次；snapshot near/far Normal P50=42.035/49.680ms，解释原40–50ms缺口。旧 snapshot 对630材质重复构建绑定 WGSL、大型结构 key/资源 entries；numeric/identity 比较完成之后才返回 old publication。不是 Geometry GPU、GPU wait、FrameGraph compile 或 heavy evidence 的40ms开销。
+
+R3 attributed Normal total near/far P50/P95/max=22.045/31.385/34.650 与20.010/24.745/27.840ms；Full 为24.400/37.040/57.055 与23.725/31.045/34.875ms。下面**每帧先汇总同组 exclusive 再取分位数**，API labels 单列，避免把 Surface 父计时、子 helper 和 GPU API 相加。各行P50/P95本身不可相加成 total；Full/Normal 的 render 外 observation 不在此表。
+
+| exclusive CPU group | Normal near P50/P95 | Normal far | Full near | Full far |
+|---|---:|---:|---:|---:|
+| Scene/view/environment/scene patch | .070/.115 | .055/.065 | .065/.110 | .055/.100 |
+| **Material publication** | **10.145/16.660** | **9.255/13.230** | **11.055/15.955** | **9.975/14.215** |
+| FrameProgram key/cache | .020/.035 | .015/.025 | .020/.035 | .020/.030 |
+| graph cache/compile/late bindings | .050/.085 | .045/.070 | .055/.085 | .055/.090 |
+| Geometry orchestration | .565/1.045 | .545/.840 | .900/1.770 | .860/1.450 |
+| Streaming pressure/pump synchronous | .020/.040 | .015/.045 | .015/.025 | .015/.050 |
+| Evidence/profiler synchronous | .260/.410 | .255/.365 | .425/.685 | .435/.680 |
+| Surface/bins，扣除单列 shared API | 5.010/7.725 | 4.570/7.280 | 5.100/10.655 | 4.935/8.310 |
+| Temporal/FSR prepare/commit | .045/.070 | .040/.065 | .045/.070 | .045/.065 |
+| VSM generation/radiometry prepare | .015/.025 | .015/.025 | .015/.030 | .015/.040 |
+| GPU object allocation API | 2.445/4.325 | 2.005/3.315 | 2.250/4.305 | 2.215/3.735 |
+| graph callbacks/command encode/update | 2.550/3.535 | 2.235/3.335 | 3.290/5.295 | 3.225/4.765 |
+| Submit/finish/fence bookkeeping | .110/.180 | .085/.115 | .145/.240 | .140/.215 |
+| **UNKNOWN** | **.335/.525** | **.310/.450** | **.385/.550** | **.360/.570** |
+
+UNKNOWN 逐帧占比P50分别1.54/1.57/1.58/1.55%，P95均≤2.07%；范围是未hook的 RendererCore 内联 bookkeeping 与 timer 边界。没有把异步 IO 等待计入这个 UNKNOWN。
+
+便于理解的 inclusive owner 数字不能再加到上表：Normal near/far snapshot=10.145/9.245ms；Surface prepare=7.085/6.245ms，其中 validateProfiles=2.290/2.130ms、createState=4.435/3.810ms；graph execute=10.605/9.315ms，**包含 Surface**，exclusive余量=1.590/1.285ms。当前最大三类直接 CPU 工作是 material publication、Surface prepare 和其余 graph/command encoding，不是 LightCluster。
+
+Full 内部 CPU pass labels 可补充上述 callback 归属：near/far VSM encode P50/P95=1.045/1.915与1.035/1.805ms，LightCluster=.040/.075与.035/.075ms，FSR callbacks=.440/.725与.415/.960ms，PhysicalSky/Aerial=.100/.170与.095/.170ms，Bloom/Present=.490/.810与.485/.875ms；这些是CPU callback/encode，并非shader时间，已包含在graph/API组，**不重复加总**。Scene.prepare=.070/.105与.065/.150，view.prepare=.380/.560与.340/.585ms。稳定 Scene matrix/update 和 camera/update 不在 render 中独立反复运行；camera仅段切换更新，Scene/GPU publication是显式上传/patch。没有为凑阶段制造额外工作。
+
+稳定帧 FrameProgram 与 CompiledFrameGraph **48/48 hit**（每帧1次），new identity/miss=0，FrameGraph compile=0；相应 build/lower仅cache miss时运行，未发现稳定帧重复。compute/render pipeline（同步/异步）creation=0；没有每帧重新canonicalize或完整重发Scene。GPU API依然每帧280 bind groups、124 buffers、34 views、0 textures，主要候选为 Surface createState；没有为了本轮收益改它。精确分配字节与GC/driver长尾原因=UNKNOWN，不能由对象个数推定全部frame时间。
+
+streaming.evidence 每帧1次，内部67 residency observations；inclusive Normal near/far P50/P95=.255/.405与.250/.365ms，Full=.265/.455与.265/.435ms。完整扫描存在，但不是40ms根因。Normal memory/ledger/multi evidence snapshot=0次/render，Full资源快照也在render之外；Full profiler.endFrame约.10ms。参数/数组/Map临时分配仍存在，未将 `Array.from/map` 单独当成硬件或GC根因。
+
+### 9.4 唯一生产修复、身份与 Cost Card
+
+`GpuNativeMaterialScene` 每个 authored source 只保留一个当前 binding/code snapshot，精确比较 immutable Graph/Product、set id/generation、全部bank view、sample route、mip range、publication slot/generation/live revision/minimum mip、runtime asset dimensions；变化重新建立绑定，不用hash或frame号接受cache。bindingSets每snapshot取一次，old value优先按固定source index匹配；去掉重复binding包装。稳定帧保留所有 Standard/dynamic 数值读取、finite/range、alpha/Unlit/emissive检查，然后比较bindings、Unlit、values；变化才构造资源分组与publication。numeric edit、texture资源更新、candidate替换、active pointer、abort→retry、fence retirement和device loss继续属于原owner；destroy清空CPU引用，不新增GPU资源owner。
+
+Local/Original：既有 native binding glue 的局部 immutable CPU复用；Reference/Adopt/Adapt：无外部移植，这不是复杂GPU算法，无需寻找donor。没有改native lowering数学、shader、texture采样或增加第二runtime。
+
+Cost Card：GPU bytes/ALU/samples/atomics/barriers/dispatch/pipeline/submit增量均0；CPU新增每source一条精确identity，reference载荷粗估 `8*N*(4+B+9*S)` bytes +JS对象headers（ESTIMATE，N=materials、B=bank views、S=sample count，非实测heap bytes），旧code/binding本来已被publication持有。稳定验证仍O(N+samples+numeric words)，630次binding helper实测合计约1.1–1.3ms；避免重复WGSL/key/entries和旧线性source lookup。binding改变时回原cold builder，不省更新工作；cache容量固定为source数，不建立page/cache/history OS。0%稳定命中=没有避免cold work且增加identity税；50%命中收益只可按 `hitRate*(avoided cold CPU)-identity tax` ESTIMATE，不能直接将本次稳定帧数字外推；100%稳定场景snapshot从42–50ms降至9–11ms有直接测量，保守break-even约identity税/可避免cold成本。资源分组提前返回只有避免工作理由，R3未证明独立额外收益。
+
+### 9.5 render 之外的 Streaming 与开放边界
+
+Normal R3 near/far采样窗口内背景method exclusive累计除以48提交帧：scheduler pump=.834/.889ms、ingestDemands=.621/.497、recordResidencyFeedback=.273/.205、uploadCost=.686/.685、tryUploadPage=15.722/14.929、GPU writeBuffer=1.942/1.807ms。这是**窗口摊销CPU量，不是P50/P95，不是renderer.render同步成本**；异步方法只计await前同步prefix，未hook continuation glue和IO wait仍UNKNOWN，不能声称整app CPU已完全解释。预算有限的residentpool持续refetch/eviction；未关闭streaming制造静态好数字。
+
+render里queue.submit约.025ms，onSubmittedWorkDone注册约.015ms；completion Promise、页IO、GPU等待与RAF延迟发生在render外。正常render没有同步GPU wait；浏览器API内部driver阻塞若有，计入相应API elapsed，但无counter不能推断具体机制。FrameCoordinator观察完成实现backpressure，不做current-frame GPU→CPU→GPU控制。
+
+**OPEN：** normal同步render仍约20–28ms，材质snapshot的数值检查/临时对象约9–11ms、Surface prepare约6–7ms及per-frame GPU对象创建；background page materialization/upload明显占host，完整continuation/IO/GC因果尚未分解；sampling状态漂移、长尾/跨CPU/browser、release bundle和长时交互未独立测。CPU仍可成为production瓶颈，不能以GPU同样较慢来称CPU acceptable。现在已有明确owner，后续若继续CPU只能对这些实测范围做有限验证；本轮不启动新Renderer架构或Lighting/VT/Geometry模块。
+
+### 9.6 最终验证与停止
+
+engine typecheck/full build、fresh build:test、validation typecheck通过；native material Scene/binding/publication/Surface targeted **19/19**，包括直接numeric edit、active/candidate atomicity、abort/retry/fence、Unlit与resource generation、route/bank/mip/live publication失效、finite rejection与cleanup。原targeted fixture失败留 `.local/cpu-host-targeted-initial-failure.txt`：GPU globals前static import与重复binding wrapper，修正后重跑，不删断言/放宽容差。case-local timer nesting/exclusive/disabled/restore/sync-prefix检查通过，不新增production profiler系统。
+
+最终真实 GPU `native-surface-production`通过，artifact `.local/cpu-host-native-production-gpu-v2.json`，与R3同engine/build:test source/output；覆盖native numeric/HDR、normal/ORM/alpha、abort/retry、resize/motion、controlled recovery。GPU/scoped/page/request errors为空，但oracle console有一条未归因403资源响应，**不称console完全干净**；它未被推广成GPU error。该oracle的Product Geometry/large recovery不是本轮覆盖，不能冒称；完整 authored CPU runner单独严格browserErrors gate通过。
+
+R3 `result.json`（32048007B）、`events.json`（1531B）、`screenshot.png`（310139B）齐全，freshness/identity/browserErrors/pageOutcome/disposed/artifacts **全部true**，无 unexpected browser/GPU/page/request error。释放后Product allocated/metadata/total bytes及allocations/metadata allocations均0，producer active/wait/source/WASM/output/buffered pages均0，transport关闭、stale/failure0；这是owner accounting归零，不当成driver physical VRAM释放counter。
+
+未跑全Node suite、Geometry/GPU完整矩阵、100M/cross-GPU/browser或新Lighting压力；已知unrelated Material zero-coat/Texture decoded-peak不在本轮修。有限CPU修改已集中做所需生产验证，未追认历史失败修复。收尾docs-verify **0 findings / 66 historical warnings**，documentation/validation tests **18/18**，vibe doctor、registry --check、native material Scene context routing、static prototype hook核对、git diff --check通过；不将未运行当通过。
+
+**STOP：** 归因目标完成、40–50ms UNKNOWN已找到，Branch B做了一个owner的有限优化；最终保留 **STILL BOTTLENECK** 和上述OPEN。没有继续大改Surface/Geometry/Renderer或自动进入下一模块。
