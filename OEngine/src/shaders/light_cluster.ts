@@ -63,13 +63,24 @@ fn sphere_intersects_frustum(
   return intersects;
 }
 
+fn finite_light_support_radius(cutoff: f32, radius: f32) -> f32 {
+  const MAX_FINITE = 3.402823466e38;
+  // Saturate before addition, then round outward by one representable f32.
+  let support = min(cutoff, MAX_FINITE - radius) + radius;
+  return bitcast<f32>(min(bitcast<u32>(support) + 1u, 0x7f7fffffu));
+}
+
 fn point_light_intersects_frustum(
   database: ptr<storage, array<u32>>,
   index: u32,
   frustum: array<vec4f, 6>,
 ) -> bool {
   let light = ${POINT_LIGHT_DESCRIPTOR.marshalling_method_read}(database, index);
-  return sphere_intersects_frustum(vec4f(light.position, light.distance), frustum);
+  if (light.distance <= 0.0) {
+    return true;
+  }
+  let support = finite_light_support_radius(light.distance, light.radius);
+  return sphere_intersects_frustum(vec4f(light.position, support), frustum);
 }
 
 fn intersect_three_planes(a: vec4f, b: vec4f, c: vec4f) -> vec3f {
@@ -117,7 +128,7 @@ fn cone_frustum_plane_test(
   let center_distance_squared = dot(to_center, to_center);
   let axial_distance = dot(to_center, direction);
   let separating = angle_cos * sqrt(
-    center_distance_squared - axial_distance * axial_distance
+    max(0.0, center_distance_squared - axial_distance * axial_distance)
   ) - axial_distance * sin_angle;
   let outside_side = separating > sphere.w;
   let beyond_end = axial_distance > sphere.w + height;
@@ -147,10 +158,15 @@ fn spot_light_intersects_frustum(
   frustum: array<vec4f, 6>,
 ) -> bool {
   let light = ${SPOT_LIGHT_DESCRIPTOR.marshalling_method_read}(database, index);
+  // Above this extent squared/cone/projection intermediates are not reliable.
+  // Preserve contribution conservatively; this is not a different light mode.
+  if (light.distance <= 0.0 || light.distance > 1.0e18) {
+    return true;
+  }
   return cone_intersects_frustum(
     light.position,
     light.direction,
-    light.distance,
+    finite_light_support_radius(light.distance, light.radius),
     light.coneCos,
     frustum,
   );
@@ -287,12 +303,18 @@ fn cone_to_bounding_box(apex: vec3f, direction: vec3f, height: f32, angle_cos: f
 
 fn point_light_to_aabb3(database: ptr<storage, array<u32>>, index: u32) -> Aabb3 {
   let light = ${POINT_LIGHT_DESCRIPTOR.marshalling_method_read}(database, index);
-  return Aabb3(light.position - light.distance, light.position + light.distance);
+  let support = finite_light_support_radius(light.distance, light.radius);
+  return Aabb3(light.position - support, light.position + support);
 }
 
 fn spot_light_to_aabb3(database: ptr<storage, array<u32>>, index: u32) -> Aabb3 {
   let light = ${SPOT_LIGHT_DESCRIPTOR.marshalling_method_read}(database, index);
-  return cone_to_bounding_box(light.position, light.direction, light.distance, light.coneCos);
+  return cone_to_bounding_box(
+    light.position,
+    light.direction,
+    finite_light_support_radius(light.distance, light.radius),
+    light.coneCos,
+  );
 }
 
 fn aabb3_project_perspective(output: ptr<function, Aabb3>, bounds: Aabb3, matrix: mat4x4f) -> bool {
@@ -305,7 +327,9 @@ fn aabb3_project_perspective(output: ptr<function, Aabb3>, bounds: Aabb3, matrix
       select(bounds.min.z, bounds.max.z, (i & 4u) != 0u),
     );
     let clip = matrix * vec4f(point, 1.0);
-    if (clip.w < 0.0) { return false; }
+    if (clip.w <= 1.0e-6) {
+      return false;
+    }
     let projected = clip.xyz / clip.w;
     if (i == 0u) {
       minimum = projected;
@@ -364,8 +388,18 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
   let light_type = cluster_light_tuple_type(tuple);
   var bounds: Aabb3;
   if (light_type == CLUSTER_LIGHT_TYPE_POINT) {
+    let light = ${POINT_LIGHT_DESCRIPTOR.marshalling_method_read}(&node, light_index);
+    if (light.distance <= 0.0 || light.distance > 1.0e18) {
+      append_output(tuple);
+      return;
+    }
     bounds = point_light_to_aabb3(&node, light_index);
   } else if (light_type == CLUSTER_LIGHT_TYPE_SPOT) {
+    let light = ${SPOT_LIGHT_DESCRIPTOR.marshalling_method_read}(&node, light_index);
+    if (light.distance <= 0.0 || light.distance > 1.0e18) {
+      append_output(tuple);
+      return;
+    }
     bounds = spot_light_to_aabb3(&node, light_index);
   } else { return; }
   var projected: Aabb3;

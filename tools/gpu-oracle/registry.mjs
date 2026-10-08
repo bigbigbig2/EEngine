@@ -11,6 +11,44 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "lighting-support",
+    file: "OEngine/tests/oracle/native-surface-acceptance-gpu.mjs",
+    url: "/OEngine/tests/oracle/native-surface-acceptance-gpu.mjs",
+    entry: "runLightingSupportGpuOracle",
+    allowPrefixes: ["OEngine/src/render/assets/"],
+    requiredFeatures: ["timestamp-query"],
+    description: "L3.0 actual production HDR support at finite-radius, offscreen, unbounded, huge Spot and near crossings.",
+    timeoutMs: 180000
+  }),
+  Object.freeze({
+    name: "lighting-low-coverage",
+    file: "OEngine/tests/oracle/native-surface-acceptance-gpu.mjs",
+    url: "/OEngine/tests/oracle/native-surface-acceptance-gpu.mjs",
+    entry: "runLightingLowCoverageGpuOracle",
+    allowPrefixes: ["OEngine/src/render/assets/"],
+    requiredFeatures: ["timestamp-query"],
+    description: "L3.0 same 1080p production scene/material/quality at far camera, 0/1/4/8/16/32 raw 120-frame baseline.",
+    timeoutMs: 240000
+  }),
+  Object.freeze({
+    name: "lighting-baseline",
+    file: "OEngine/tests/oracle/native-surface-acceptance-gpu.mjs",
+    url: "/OEngine/tests/oracle/native-surface-acceptance-gpu.mjs",
+    entry: "runLightingBaselineGpuOracle",
+    allowPrefixes: ["OEngine/src/render/assets/"],
+    requiredFeatures: ["timestamp-query"],
+    description: "L3.0 unchanged production Lighting, 1080p, 0..1024 Point/Spot/mixed sparse/overlap, independent HDR and raw timestamps.",
+    timeoutMs: 900000
+  }),
+  Object.freeze({
+    name: "lighting-boundaries",
+    file: "OEngine/tests/oracle/lighting-boundaries-gpu.mjs",
+    url: "/OEngine/tests/oracle/lighting-boundaries-gpu.mjs",
+    entry: "runLightingBoundariesGpuOracle",
+    description: "L3.0 independent boundary expectations evaluated by actual LightDatabase WGSL helpers.",
+    timeoutMs: 120000
+  }),
+  Object.freeze({
     name: "geometry-shadow-view",
     file: "OEngine/tests/oracle/geometry-shadow-view-gpu.mjs",
     url: "/OEngine/tests/oracle/geometry-shadow-view-gpu.mjs",

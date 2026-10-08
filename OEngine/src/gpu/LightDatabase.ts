@@ -200,6 +200,9 @@ fn light_sphere_distance_attenuation(
 }
 
 fn light_get_spot_attenuation(cone_cos: f32, penumbra_cos: f32, angle_cos: f32) -> f32 {
+    if (cone_cos == penumbra_cos) {
+        return select(0.0, 1.0, angle_cos >= cone_cos);
+    }
     return smoothstep(cone_cos, penumbra_cos, angle_cos);
 }
 
@@ -218,11 +221,12 @@ fn get_point_light_info(
 ) -> ${LIGHT_INCIDENT_TYPE.wgsl_ref} {
     let to_light = light.position - position_ws;
     var incident: ${LIGHT_INCIDENT_TYPE.wgsl_ref};
-    incident.direction = normalize(to_light);
     let center_distance = length(to_light);
+    // At the emitter center there is no incident direction; keep the BRDF finite.
+    incident.direction = to_light / max(center_distance, 1.0e-7);
     let attenuation = light_sphere_distance_attenuation(center_distance, light.radius, light.distance);
     incident.color = light.color * attenuation;
-    incident.radius = light.radius / center_distance;
+    incident.radius = light.radius / max(center_distance, max(light.radius, 1.0e-2));
     incident.distance = max(0.0, center_distance - light.radius);
     return incident;
 }
@@ -233,10 +237,10 @@ fn get_spot_light_info(
 ) -> ${LIGHT_INCIDENT_TYPE.wgsl_ref} {
     var incident: ${LIGHT_INCIDENT_TYPE.wgsl_ref};
     let to_light = light.position - position_ws;
-    incident.direction = normalize(to_light);
     let center_distance = length(to_light);
+    incident.direction = to_light / max(center_distance, 1.0e-7);
     incident.distance = center_distance;
-    incident.radius = light.radius / center_distance;
+    incident.radius = light.radius / max(center_distance, max(light.radius, 1.0e-2));
     let angle_cos = dot(incident.direction, -light.direction);
     let spot_attenuation = light_get_spot_attenuation(light.coneCos, light.penumbraCos, angle_cos);
     if (spot_attenuation > 0.0) {
@@ -691,6 +695,15 @@ export class GPULightCollection {
   }
 
   build(command: ShadeGPUCommandContext): void {
+    // The current production shadow provider owns only the Physical Sun, not
+    // any authored LightDatabase shadow ID. Reject before publication mutation.
+    for (const light of this.source.elements) {
+      if (hasShadow(light)) {
+        throw new Error(
+          `Unsupported authored shadow reference for ${light.type}: ${light._gpu_shadowmap_id}`,
+        );
+      }
+    }
     const previousRevision = this.lightingRevision;
     const previousSourceVersion = this.lastSourceVersion;
     const previousCounts = [

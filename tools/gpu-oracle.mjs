@@ -122,6 +122,7 @@ async function computeHostBuildId() {
     "gpu-oracle/server.mjs",
     "gpu-oracle/page/host.html",
     "gpu-oracle/page/host.mjs",
+    "gpu-oracle/page/json-safe.mjs",
     "gpu-oracle/page/assert-strict.mjs",
   ]) {
     hash.update(await readFile(join(harnessRoot, file)));

@@ -127,6 +127,8 @@ tile=32、Nz=24；1080p 为 T=60×34=2040，C=T×24=**48,960**。assign 4×4×4�
 3. HZB 的投影、reverse depth、边界 taps 和 jitter 必须保守证明；“光源中心被遮挡”不是“灯不能影响可见 Surface”。
 4. authored directional shadow flag 与 Sun atlas 的来源关联不完整；必须显式 capability 约束，不能把不相关 atlas 当有效阴影。
 
+以上是设计起点的审查记录。L3.0 在 `811e7f1e` 后独立 GPU oracle 证实并修复了 finite support/radius、非正 cutoff 的 unbounded cull、硬 cone 等边缘和 emitter-center 非有限值；旧 cluster 的 owner、private256、CAS、产品与生产 graph 均保留。真实生产 publication 在修改 revision/table 前拒绝有效但没有 provider 的 authored shadow ID，Physical Sun VSM 不受影响。灯心约定 direction=0、angular radius≤1，避免未定义 normalize/divide；不是增加亮度 clamp 或放宽 HDR 容差。数值、原始失败、计时与未运行项只在 [L3.0 实施记录](../next-execution/eengine-v4-lighting-execution-2026-10.md#8-l30-baseline-实施记录)维护。
+
 ## 2. 范围与 KEEP / ALIGN / REWRITE / DELETE
 
 M3 解决几十/几百及更多 Point/Spot 的 **GPU Local Light Work Generation**：仅对可能影响实际 opaque winner 的灯光与区域付费。不是重新实现灯类、Lighting VM、GI 或新的 Renderer。

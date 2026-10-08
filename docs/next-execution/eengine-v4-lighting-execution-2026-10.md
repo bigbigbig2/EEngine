@@ -17,11 +17,16 @@ verifies:
     - OEngine/src/render/vsm
     - OEngine/src/debug/GpuFrameCounters.ts
     - OEngine/tests/oracle/native-surface-acceptance-gpu.mjs
+    - OEngine/tests/oracle/lighting-boundaries-gpu.mjs
+    - OEngine/tests/oracle/lighting-inspection-gpu.mjs
+    - OEngine/tests/contract/lighting-boundaries.test.mjs
     - OEngine/tests/oracle/native-surface-production-gpu.mjs
     - OEngine/tests/oracle/geometry-shadow-view-gpu.mjs
     - validation/cases/geometry-scale-acceptance
     - validation/cases/renderer-cpu-host
     - tools/gpu-oracle/registry.mjs
+    - tools/gpu-oracle/page/json-safe.mjs
+    - tools/tests/gpu-oracle-json-safe.test.mjs
     - tools/docs-verify.mjs
 ---
 
@@ -35,12 +40,12 @@ M3 的唯一设计依据是 [Lighting Design](../next-design/eengine-v4-lighting
 
 | 阶段 | 状态 | 单元与退出结果 |
 | --- | --- | --- |
-| L3.0 Baseline & Lighting Contract | **next** | 当前生产GPU成本、独立数值/支持域、profile和DIRECT crossover输入 |
-| L3.1 Complete Local Light Work Construction | not-started | 非生产完整generator/product/consumer闭包；不是逐步production迁移 |
+| L3.0 Baseline & Lighting Contract | **closed** | 30 cases/3,600帧baseline、必要数值修复与8个GPU入口通过；见§8 |
+| L3.1 Complete Local Light Work Construction | **next / not-started** | 非生产完整generator/product/consumer闭包；不是逐步production迁移 |
 | L3.2 Atomic Lighting Cutover & Purge | not-started | 同单元切所有production consumers并立即删除旧管理链 |
 | L3.3 Production Lighting Acceptance | not-started | 同条件完整正确性/生命周期/成本；关闭M3后STOP |
 
-本轮到 **L3.0 next** 即停。没有新runtime/shader/probe/benchmark，也没有新的GPU性能或adoption声明。
+设计提交 `811e7f1e` 后用户授权开始 L3.0；本轮在该单元闭合后 STOP，不开始 L3.1。原设计轮没有 production implementation 或 GPU 性能声明。
 
 ## 2. 实施纪律
 
@@ -156,3 +161,122 @@ browser case必须有result/events/screenshot、source/build/workload identity�
 本轮轻量验证：`node tools/docs-verify.mjs` **0 findings / 66 既有 historical warnings**；documentation/validation tests **18/18通过**；`node tools/vibe.mjs doctor`、`registry --check`、LightCluster/SurfaceV4/VsmResources context到唯一M3 design/execution的路由、`git diff --check`通过。registry字节未变，没有为设计创建新case或改production路径。
 
 engine build、fresh build:test、Node engine全套、GPU oracle、browser/performance **本轮未运行**，原因是只修改设计/执行/导航，新的baseline是L3.0责任。不存在本轮GPU通过或M3 implementation完成声明。
+
+## 8. L3.0 Baseline 实施记录
+
+开工重新 fetch 后 HEAD/origin/master=`811e7f1ef33d4bad270561cf53f7b03dbfc87bd9`，工作区干净。L3.0 用户授权后的代码尚未切换生产 Lighting：Renderer/FrameProgram 继续唯一旧 LightCluster，未创建 LocalLightWorkGenerator 或新的 production mode。
+
+### 8.1 原始失败与最小修复
+
+- `.local/l3-0-boundaries-original.json`、`l3-0-boundaries-original-cull.json` 保留原 source/build identity、实际 GPU 值与独立预期：硬 cone 等边缘返回0而预期1；Point/Spot 灯心 direction/radius 非有限；Point/Spot radius 外壳与 non-positive cutoff 的真实 cull helper 返回不相交，却有非零支持域。归类为 **production numeric/support-domain bug**，不是新 architecture benchmark。
+- LightDatabase incident 保明确有限灯心极限，等 cone edges 用显式 step。旧 cull 使用 outward f32 `distance+radius`，unbounded 保守通过；巨大合法 Spot cutoff 不进入不可靠的平方/cone/HZB 投影，near-plane 非有限投影保守通过。没有减少灯数/材质/纹理、没有改 shade quality/BRDF/容差，旧工作组织不变。
+- LightDatabase publication 对已指定有效 shadow ID 的 authored Point/Spot/Directional，在 revision/table mutation 前明确报 unsupported；默认 casts_shadow=true/ID=-1 仍为合法 unshadowed 光源。当前 source 全库没有其他给 authored ID 赋有效值的 producer，Physical Sun 的真实 VSM 保留。
+- 初次基线跨帧 subtract-zero 在零灯时差0.00305（原件 `l3-0-baseline-original.json`）；属于 **oracle 的帧间 provider/jitter counterfactual 不成立**。改成只在 untimed inspection 中运行实际 native Surface shader 的同帧 zero-local counterfactual：同一 winner、camera、material、Sun/VSM/IBL/AO，仅 local 列表为空。CPU incident/BRDF reference 仍独立，预算仍为 `.002+abs(reference)*.003`，不把旧 cluster 列表当真值。reference 不接管 Renderer/FrameProgram、不进入稳定窗口，不是第二 production Renderer。
+- 另外保存 `original-paired` / `original-valid-harness` 的 reactive/cache 接线错误与 `baseline-old` 的 Node3D API 错误，均为 **新增 oracle glue bug**。最终通过结果不能把这些原失败删除或追认通过。
+- 报告器原8层上限把 `cases/records/raw/segments` 的逐帧对象截成 `[depth-limit]`：`baseline-original-ready` / `baseline-final` 虽status=passed，**不满足原始计时完整性出口**。最小 runner 修复为独立可测的16层有界projection，保cycle/array/typed-array保护并纳入host identity；最终完整matrix必须重跑，不能用旧摘要追认raw。`low-coverage-final` 的跨灯精确coverage比较落在不同jitter相位，归类oracle问题；只在计时窗口之外按真实Temporal owner的period对齐检查帧，保120帧正常jitter与原精确断言，最终记录phase。
+
+### 8.2 计量合同与冻结边界
+
+入口复用既有 GPU-oracle CLI、M1 native acceptance fixture、真实 Renderer/Profiler：`lighting-baseline`、`lighting-low-coverage`、`lighting-support`、`lighting-boundaries`。不是新 benchmark framework。每个 performance case 30 warmup+120有效 timestamp提交帧，原始 segments（含 ticks）、CPU/counters/graph、完整灯参数、provider evidence、memory、source/build/Chrome/adapter identity 保存；CPU render 截止同步调用返回，GPU fence/inspection/JSON在计时外。low/high组交替，但不宣称固定温度/clock。
+
+主 matrix 沿用64实例/64材质、M1 authored256px normal/ORM完整mips、1080p/scale1、Sun/VSM/IBL/XeGTAO high/Temporal/FSR的既有 production 场景；Point 0/1/4/8/16/32，Point/Spot overlap64/128/256/1024，Spot1/8/32，mixed sparse64/128/256/1024、overlap4/16，以及mixed coat/custom8。不是400MB large authored asset；后者完整 Lighting acceptance 仍在 L3.3。low coverage 只把同一Scene的camera z6改为12，保全部64实例/材质/纹理/分辨率/quality，不作为降低主 matrix 的替代。
+
+真实旧 cluster header/metadata通过 **untimed read-only compute** 观察，取 active、written/attempted indices、capacity、global overflow、fallback/nonempty clusters。现 FrameProgram **没有把 counters 传给 LightClusterPass**，FX-02未接入；`gpuCounters` 中的零 cluster字段不是事实。Na（HZB前 candidates）、Ca（实际occupied depth froxels）、Q、真实 fallback 被省略的 E 标 **UNKNOWN/ESTIMATE**；`nonemptyLightClusters` 不冒称 occupied Surface Ca。
+
+profile冻结：Surface全shader storage≤16、sampled≤16，保finite Sun continuation，不增加 texture binding；new ABI沿Design §5，128B header/typed low24 slot+high8 type/8B ranges，Point+Spot admission16380、Directional32。I=1048576、6MiB/frame、最多2 in-flight+1 replacement=18MiB预算；GPU task预算≤8I，region/index overflow完整DIRECT，invalid/mismatch必须验收失败，不静默丢灯、不同帧readback控制。非零 DIRECT threshold **0/禁用**；L3.1新DIRECT/SPARSE同数学总成本测定后才开启。
+
+旧 descriptor reserved=13,611,792B（12.98MiB），不是全写bytes；主 matrix `memoryEvidence` 包含 diagnostic reference 的tracked scratch，原件同时记 `diagnosticReferenceBytes`，不能把它算新 production allocation。logical written由实际header得出，pool live/cached/pending/retiring按原件分列；LightDatabase page/全renderer/providers另账。driver-hidden footprint及旧Lighting独立in-flight/resize peak **UNKNOWN**，不以 pooled总数强行分摊。
+
+### 8.3 最终验证与结果
+
+**L3.0 = closed；L3.1 = next，未开始。** 新LocalLightWork尚未实现，生产仍唯一旧LightCluster owner；本轮只修复独立oracle证明的数值/支持域与unsupported shadow publication问题。
+
+身份：Git起点 `811e7f1ef33d4bad270561cf53f7b03dbfc87bd9` + 本轮源码修改，engine source content SHA256=`926da308f6ffe9422a8dd00f957fe4f0be75ac213b9f6e8eeda26af1c6c216c8`，fresh build:test output SHA256=`b0fdec05eac215a484a0dcdd94eda6a6c97e306aa039cec42c4f800382f500af`。baseline/low/support共用oracle SHA256=`2b4daa2b58ce35bcd7d28524eb28ad9d5c5f3cf1d695c5410d39b26042dca34d`，host identity=`c1a9af5e5c5e`。artifact各自也保存入口hash、manifest、加载路径及browser信息，不能把起点Git SHA当作修复后content identity。
+
+实际硬件NVIDIA GTX1650Ti/Turing/4GB，driver581.42，Chrome154.0.8037.98，1080p/renderScale1/full timing。运行中采样约90–91°C，graphics clock观察到300/450/1350MHz，memory6000MHz；`.local/l3-0-thermal-complete-running.csv`保原件。**热状态没有受控，不能用原始→修复后数字宣称提速**；P95长尾的具体硬件原因UNKNOWN，spill/CAS contention仅INFERENCE。
+
+以下均为 **MEASURED ms**，每行30 warmup+120有效提交/timestamp样本；主matrix24行=2,880帧，低coverage6行=720帧，共3,600帧。Local为实际LightCluster pass时长逐帧之和；Surface是实际native opaque+background pass，包含fused material/direct/global/IBL，不能当独立local BRDF计时。Local+Surface先逐帧相加再取分位数，Frame为command span、不含harness的外部GPU fence等待；所有分量的max/count、每pass、raw ticks、CPU owners在原件，不相加P50/P95。
+
+高coverage，camera z6，V=1,957,668（94.4091%）：
+
+| Case / N | Local P50/P95/max | Surface P50/P95 | Local+Surface P50/P95 | Frame P50/P95 | CPU P50/P95 |
+| --- | --- | --- | --- | --- | --- |
+| point-overlap-low-a/0 | 0.000/0.000/0.000 | 10.398/65.063 | 10.398/65.063 | 30.783/162.369 | 3.30/5.00 |
+| point-overlap-low-a/1 | 47.036/60.175/174.585 | 8.305/11.155 | 55.522/69.617 | 72.638/98.446 | 3.90/7.00 |
+| point-overlap-low-a/4 | 46.049/71.112/176.981 | 9.633/81.322 | 56.498/139.590 | 74.265/242.549 | 3.20/4.60 |
+| mixed-sparse-high-a/64 | 11.358/13.128/14.114 | 33.184/35.767 | 44.613/47.238 | 74.195/77.118 | 3.20/4.10 |
+| mixed-sparse-high-a/128 | 10.031/11.956/13.051 | 52.050/55.902 | 62.379/65.421 | 94.870/98.144 | 3.80/6.30 |
+| point-overlap-low-b/8 | 46.054/72.541/180.632 | 12.291/44.763 | 58.498/163.135 | 78.852/255.979 | 2.90/4.20 |
+| point-overlap-low-b/16 | 44.300/166.184/178.937 | 14.454/121.528 | 60.110/240.629 | 77.801/315.290 | 3.10/4.40 |
+| point-overlap-low-b/32 | 47.225/56.241/185.900 | 22.634/26.411 | 69.933/78.151 | 94.973/104.330 | 3.30/5.00 |
+| mixed-sparse-high-b/256 | 9.838/36.149/48.025 | 83.774/216.867 | 93.612/262.807 | 138.488/321.446 | 3.20/4.60 |
+| mixed-sparse-high-b/1024 | 22.568/25.014/26.700 | 456.189/462.047 | 478.761/484.720 | 507.325/513.747 | 3.20/4.50 |
+| spot-overlap-low/1 | 53.338/61.886/146.774 | 9.882/12.063 | 63.408/71.672 | 84.081/95.631 | 3.60/5.60 |
+| spot-overlap-low/8 | 53.670/61.223/64.688 | 14.110/16.424 | 68.183/74.947 | 90.497/96.607 | 3.10/4.90 |
+| spot-overlap-low/32 | 47.995/56.188/59.959 | 31.200/34.060 | 79.575/84.934 | 110.424/117.150 | 3.10/5.10 |
+| point-overlap-high/64 | 47.349/117.068/167.323 | 38.074/123.525 | 86.926/192.367 | 122.331/248.451 | 3.10/4.20 |
+| point-overlap-high/128 | 42.847/159.527/172.025 | 65.084/278.614 | 106.781/437.407 | 144.157/504.151 | 3.20/5.10 |
+| point-overlap-high/256 | 2.706/4.788/13.793 | 186.398/298.864 | 189.180/300.746 | 224.918/368.491 | 3.10/4.00 |
+| point-overlap-high/1024 | 9.319/12.108/44.634 | 752.745/1047.590 | 763.079/1059.974 | 799.112/1086.310 | 3.20/5.00 |
+| mixed-overlap-low/4 | 53.425/64.946/184.378 | 10.877/13.988 | 64.135/77.273 | 84.625/106.518 | 3.30/5.50 |
+| mixed-overlap-low/16 | 49.967/59.629/177.974 | 18.713/21.195 | 69.199/77.261 | 91.983/100.688 | 3.00/4.40 |
+| spot-overlap-high/64 | 44.734/151.644/162.823 | 54.137/215.900 | 99.135/375.136 | 133.470/448.588 | 3.20/4.40 |
+| spot-overlap-high/128 | 39.858/99.551/157.435 | 102.972/185.756 | 142.726/225.592 | 176.951/312.556 | 3.10/4.10 |
+| spot-overlap-high/256 | 10.128/45.545/49.029 | 241.973/478.807 | 254.083/511.349 | 293.651/573.227 | 3.20/4.40 |
+| spot-overlap-high/1024 | 34.080/45.517/170.847 | 873.980/1045.299 | 905.936/1079.309 | 938.190/1117.919 | 3.30/4.90 |
+| coat-custom/8 | 15.427/16.988/18.377 | 15.534/18.321 | 30.449/33.647 | 57.644/61.149 | 2.80/3.80 |
+
+低coverage，同一Scene/camera z12，V=485,040（23.3912%）：
+
+| Case / N | Local P50/P95/max | Surface P50/P95 | Local+Surface P50/P95 | Frame P50/P95 | CPU P50/P95 |
+| --- | --- | --- | --- | --- | --- |
+| point-low-coverage/0 | 0.000/0.000/0.000 | 2.623/16.377 | 2.623/16.377 | 15.524/93.002 | 3.80/5.80 |
+| point-low-coverage/1 | 41.663/144.945/178.116 | 2.106/12.637 | 43.724/150.324 | 54.446/218.577 | 2.90/4.10 |
+| point-low-coverage/4 | 45.092/55.456/134.638 | 2.636/4.148 | 47.734/58.502 | 58.818/71.660 | 2.90/3.70 |
+| point-low-coverage/8 | 46.311/52.780/55.734 | 3.097/4.814 | 49.412/55.841 | 60.653/66.925 | 2.70/3.50 |
+| point-low-coverage/16 | 43.986/50.034/57.647 | 3.785/5.233 | 48.137/53.714 | 59.038/64.829 | 2.90/3.90 |
+| point-low-coverage/32 | 43.776/141.127/177.068 | 4.698/12.612 | 48.655/151.017 | 59.624/176.849 | 2.90/4.30 |
+
+结论与观察：
+
+- Point4的list P50/P95=.0172/.0522ms、HZB filter=.0159/.0505ms、assign=**46.0226/71.0082ms**；Local total=46.049/71.112ms。少灯GPU成本仍集中于全域assign，CPU render=3.2/4.6ms。低coverage的Point4 Local仍45.092/55.456ms，不随V同比下降；不是关闭材质/纹理/providers的结果。
+- 旧lookup仍C=48,960。Point4：active=4，E_written=65,280，nonempty light clusters=16,320，fallback=0；Point128 E_written=2,088,960。Point256/1024全部16,320个nonempty light clusters进入per-type overflow fallback，written=0却没有丢灯；Spot256/1024为18,360个fallback。mixed sparse1024有5,088/5,160 nonempty clusters fallback、written=5,236、evaluated references=5,215,348。**assign变小不是总成本优化**：Point1024 Surface752.745/1047.590ms，Spot1024为873.980/1045.299ms。
+- Na/HZB前候选、occupied froxel Ca、Q及fallback本可写入的真实E无独立生产counter，保UNKNOWN；写出的E和fallback由实际header/lookup观察，不用profiler零字段代替。单plane在2040个tile内的Ca≈2040只能ESTIMATE；`nonemptyLightClusters`不是Ca。旧intersection loop工作上界C*Na，提前per-type overflow会停止测试，因此不把上界冒称实际测试次数。
+- 全HDR域finite、64实例与材质保留；每个ordinary case64个独立HDR delta样本，最大绝对delta error约.004375发生在1024灯，仍通过原 `.002+abs(reference)*.003` 相对/绝对合同。复杂coat/custom有finite域、完整coverage、参数edit和实际providers验证，不伪称该组有独立BRDF标量reference。6个生产support case与20项真实WGSL边界全部通过，32px/depth两端/硬软cone/灯心/finite radius/unbounded/near/offscreen有独立预期。background/alpha/normal/ORM/coat/Unlit/custom与Sun continuation由既有production/profile oracle补足。
+- 全2,880主matrix计时帧graph builds=0、compiles=0、cacheMisses=0、cacheHits=2,880，每帧一个production submit；没有新runtime selector。CPU render各组P50=2.8–3.9ms/P95=3.8–7.0ms。Point4内部scene-prepare=.1/.1、view-prepare=.2/.4、graph-execute=1.7/2.8、submit=.1/.2、profiler frame=2.2/3.5ms；这些owner分位数不相加。LightCluster独立CPU callback及dirty DB publication delta未单独计时，记UNKNOWN（分别包含于graph/scene范围），稳定帧source version不变时DB build跳过；memory/cluster evidence和JSON在计时外。这不是authored large CPU瓶颈的解决声明。
+- 当前旧Lighting descriptor reserved=13,611,792B；Point4仅lookup+data已发布payload约1,044,528B（16C+32+4N+4E），不是DRAM bytes。fixture whole-renderer tracked allocated=474,438,740–474,538,836B，Point4 transient buffer pool27,223,928B cached/active0/pending0、texture pool365,305,584B cached/active0/pending0，retiring0；共享pool不能全归Lighting。字段`diagnosticReferenceBytes`只含reference Surface tracked scratch（208B），额外raw-device reference HDR/reactive/lookup/data descriptor共25,732,112B未归入Renderer accounting，untimed readback另有短暂峰值；不能把它们归作生产分配。driver hidden、旧Lighting独立in-flight/resize peak仍UNKNOWN，新6/18MiB仍预算、未实测。
+
+完整最终artifact（本地`.local/`，ignored实验输出，不用于claim晋升）：
+
+| 文件 | SHA256 |
+| --- | --- |
+| l3-0-baseline-complete.json | `97718ef7bbe14e6cf7a9608f3aa0e037e4accbb212862acf567f63968b175cc5` |
+| l3-0-low-coverage-final-complete.json | `1f66a9a3b4028fbf405d6575174d2d38216a32a93b0de35bd7b667f64b574465` |
+| l3-0-support-complete.json | `8ffde711a77496b3344bb9543b6821da37ba40fa90dcc9d1fb83b990a0932532` |
+| l3-0-boundaries-complete.json | `869c9e9362a4002fa57dd9c31f71a45f041c4da2f558a054040de16baacdcd8a` |
+| l3-0-native-production.json | `b19f1e48255ed19dcd6d6be779a6fc1e8713bd225609368a0dcba29875114c7b` |
+| l3-0-shadow-view.json | `d6ed81696db7e600a1b246b86f383b52dac8830e5a6697bd8fba5a49ba8d6c1c` |
+| l3-0-surface-profile.json | `62edf1caedb9fa5ab5b8bc569137b490ba1ef97eb84cebea37132a778192ccb6` |
+| l3-0-product-lifecycle.json | `e538edf519a7709285095b44078ccb5a6cde2443bca94affc35bb3f6f5d77d64` |
+
+8个入口全部passed，freshness identity匹配，GPU/scoped/page errors与failed requests为空，没有timeout；baseline约139MB，逐帧segments对象/startTick/endTick与完整灯positions已检查，不再截断。low检查帧均真实period16/phase0。普通packed production oracle仅证明其既有范围，`recoveredSceneRelease=false`表示未覆盖；另跑Product production oracle，`controlledDeviceRecovery=true/recoveredSceneRelease=true`，确认恢复后releaseScene、重复release及fenced teardown，不能凭普通oracle扩大声明。VSM真实off-camera caster/alpha/abort-retry、Surface negotiated Product资源profile/normal-ORM/coat/custom/FSR均通过。favicon403是既有host基础设施console项，非GPU/page/request failure，保原console，不过滤伪装。
+
+集中验证：engine `npm run build`、fresh `npm run build:test`通过；lighting/native-Surface/doc/JSON投影targeted Node tests **17/17通过**。收尾docs-verify **0 findings/66既有historical warnings**；doctor、registry check/context routing、diff check均通过。8份最终artifact另检查同source identity、无depth-limit、完整ticks及错误gate。没有运行全Node套、完整authored large browser matrix、跨GPU/browser或硬件counter；它们不是L3.0替代声明，authored large Lighting acceptance属于L3.3。新DIRECT/SPARSE成本与非零threshold未测，read/write有效吞吐校准未做，保UNKNOWN并由L3.1同数学probe实测；不制造理论带宽硬件证据。
+
+出口判断：必要数值/支持域与生命周期缺陷已闭合，baseline身份/raw完整，ABI/capacity/overflow/resource profile冻结；Cost Card的理想稀疏case具备少于旧测试量的依据，但实际净收益仍可由L3.1否证。**M3仍active，只关闭L3.0。STOP于L3.1开工边界。**
+
+### 8.4 L3.1 开工 Cost Card 与否证合同
+
+以下均为 **ESTIMATE/设计预算**，不是新 generator 实测。1080p 的 P=2,073,600、T=2,040、C=48,960；新 footprint 上界 `16C+48N+4I+4T+4KiB+256B`，N=16,380/I=1,048,576 时约5.51MiB，6MiB ceiling留对齐/scan层/indirect余量。相比旧12.98MiB descriptor reservation，预算缩小不自动等于 GPU 提速；LightDatabase、Sun/VSM/IBL/AO另账。最大2 in-flight+1 replacement仍18MiB，实际fence/resize峰值须L3.1测。
+
+| 收益条件 | 被省成本与新增税 | 决定 |
+| --- | --- | --- |
+| 0%：全域 high overlap，f=1 | count/scatter约2CN tests，反而是旧CN上界的2倍；再付occupancy、scan、distributed atomics | 不能当正常优化收益；task/index overflow进入完整DIRECT，记录其Surface最坏成本，不藏fallback |
+| 50%：f=.25 | 双遍约.5CN，节省.5CN tests，仍需扣固定管理税与list流量 | 只有节省超过固定税才成立，不由测试通过证明 |
+| 接近100%：finite bounds为空/非常稀疏 | 近乎省旧CN，bounds/task初始化仍有成本；证明空域后NONE跳过occupancy及后续indirect | 非空SPARSE仍有至少约8P=16.59MB winner/depth读取与scan成本，不把空场景当普遍净收益 |
+
+主要新增流量：occupancy约8P，counts/cursors clear约8C，最终ranges约8C，scan若三轮读写约24(C+N)，admitted IDs约4N写，scatter约4E写，consumer每次list约4B读；源灯records/Geometry/BRDF/texture/VSM useful work保持。原子约2E分布在cluster，occupancy/workgroup scan有局部barriers；常见约11个compute dispatch，portable分层scan在大extent增加level，不假设跨WG同dispatch同步。顺序/随机访问、bounds/log/exp、task binary search、register/private spill的硬件实际开销仍UNKNOWN。
+
+理想净赢的必要条件为 `2f<1`，充分条件还要扣occupancy/scan/atomics/list/dispatch。DIRECT比较 `V*N*incident_test + accepted*BRDF` 与SPARSE的同数学总成本，阈值必须使用low/high coverage、finite/unbounded、Point/Spot/mixed全覆盖校准。**当前threshold=0/禁用**；L3.0旧cluster的4灯成本只能证明旧管理昂贵，不能证明新DIRECT16灯一定更快。没有DRAM/ALU/spill硬件counter，不用估计流量除理论带宽冒称真实性能。
+
+L3.1集中隔离验证时首先用同一冻结fixture测新两mode的producer+Surface逐帧总量，保相同材质/曝光/全局provider；最佳稀疏case都不赢就否证并局部修订推荐方案，不加cache/history/proof救成本。profile预算、finite支持域、overflow完整输出与shader resource limits不可因成本失败缩小正确性范围。sources仍仅reference，没有本轮来源adoption或新Lighting性能改善声明。
