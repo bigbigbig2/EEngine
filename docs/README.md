@@ -11,8 +11,8 @@ EEngine 的目标是极致性能、现代 GPU-Driven、WebGPU Native、AAA Rende
 
 ## 从这里开始
 
-1. [V4 Native Shading 架构母稿](./next-design/eengine-v4-native-shading-2026-10.md)：当前架构目标。
-2. [V4 执行计划](./next-execution/eengine-v4-native-shading-execution-2026-10.md)：切换顺序与退出要求。
+1. [V4 Native Shading 架构母稿](./next-design/eengine-v4-native-shading-2026-10.md)：全局架构不变量和 M1/M2 设计。
+2. 当前模块的设计/执行读 workstream.authority；M3 使用 [Lighting Design](./next-design/eengine-v4-lighting-2026-10.md) / [Lighting Execution](./next-execution/eengine-v4-lighting-execution-2026-10.md)。[原执行记录](./next-execution/eengine-v4-native-shading-execution-2026-10.md)保留 M1/M2/CPU 结果和通用验证纪律。
 3. [workstream 的 currentSlice](../project/workstreams/active/eengine-next-clean-rebuild.yaml)：当前切片，本页不复制阶段。
 4. [源码与 owner 总结](./domains/README.md)：当前实现边界；目标采纳不表示源码完成。
 5. [检查与测试说明](./VALIDATION.md)：真实命令、范围和未运行项。

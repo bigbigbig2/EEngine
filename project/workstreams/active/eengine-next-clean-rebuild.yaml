@@ -1,35 +1,34 @@
 schemaVersion: 2
 id: eengine-next-clean-rebuild
-title: EEngine V4 Native Shading and scale alignment
+title: EEngine V4 renderer modules
 domain: frame-runtime
 state: active
 owner: frame-runtime
 # Foundational single-path ownership decision only; renderer direction is authority below.
 decision: ADR-0020
 authority:
-  design: docs/next-design/eengine-v4-native-shading-2026-10.md
-  execution: docs/next-execution/eengine-v4-native-shading-execution-2026-10.md
+  design: docs/next-design/eengine-v4-lighting-2026-10.md
+  execution: docs/next-execution/eengine-v4-lighting-execution-2026-10.md
 goal: >-
   Build an extreme-performance GPU-driven WebGPU-native AAA renderer for
-  GTX 1650 Ti 4GB at 1080p and scalable newer GPUs. Follow the V4 authority
-  through complete producer/product/direct-consumer cutovers, starting with
-  native opaque Surface. Design later modules from their actual implementation inputs.
+  GTX 1650 Ti 4GB at 1080p and scalable newer GPUs. Follow global V4 invariants
+  and the current module authority through complete producer/product/direct-consumer
+  cutovers. Preserve completed foundations and design later modules from actual inputs.
 
 currentSlice:
-  id: geometry-v4
-  title: Geometry / Virtual Geometry Alignment & Scale Optimization
-  status: complete
+  id: lighting-v4
+  title: Lighting V4 / Local Light Work Generation
+  status: planned
   goal: >-
-    M2 acceptance is closed in the execution authority. Stop at this module boundary;
-    retain the recorded open performance and portability questions for later manual
-    validation. Review the next module from actual code and measurements before
-    further implementation; do not automatically activate another module.
+    Follow the independent M3 Lighting design and execution authority. Preserve
+    LightDatabase, global Sun, BRDF, VSM, IBL and AO foundations; construct complete
+    Local Light Work outside production, then atomically switch every direct consumer
+    and purge the old owner. This handoff is design-only; implementation starts only
+    on a subsequent user request. Keep M1/M2 closed and CPU open questions recorded.
 
 nextModules:
   - id: virtual-resources-v4
     title: Virtual resources and Virtual Texture
-  - id: lighting-v4
-    title: Lighting and Virtual Shadow Maps
   - id: indirect-v4
     title: GI, reflection and ReSTIR
   - id: temporal-v4

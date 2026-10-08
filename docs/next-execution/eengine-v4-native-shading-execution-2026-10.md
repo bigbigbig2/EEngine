@@ -57,7 +57,7 @@ verifies:
 
 # EEngine V4 执行计划：完整责任闭包与规模优化
 
-唯一架构依据为 [V4 母稿](../next-design/eengine-v4-native-shading-2026-10.md)，本文是唯一 **current renderer execution authority**。[workstream.currentSlice](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)只导航当前大模块，详细阶段状态只在本文。旧 R3/R4 执行记录为 history，不继续 Surface C，也不把旧阶段映射成 V4 已完成。
+全局架构不变量依据 [V4 母稿](../next-design/eengine-v4-native-shading-2026-10.md)，本文保留 **M1/M2/CPU 实施记录和通用验证纪律**。M3 的唯一模块执行 authority 已转入 [Lighting Execution](./eengine-v4-lighting-execution-2026-10.md)，设计见 [Lighting Design](../next-design/eengine-v4-lighting-2026-10.md)；[workstream.authority/currentSlice](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)导航当前模块，详细阶段状态只在对应执行计划。旧 R3/R4 为 history，不继续 Surface C，也不把旧阶段映射成 V4 已完成。
 
 2026-10-07 文档切换时重新 `git fetch origin`，HEAD 与 origin/master 均为 `0386bea5fc59a98cefd3f54d2be589ab9b2ed0eb`，审查开始时工作区干净。当时仅重构执行模型，没有新实现或 GPU 结果；这是切换时点快照。S0/S1 的非生产交付见 §3.1/§3.2，S2 实际生产切换见 §3.3.1。实施前须再次核对源码身份和工作区。
 
@@ -134,13 +134,13 @@ Original:  确需自主设计的部分及依据
 |---|---|---|
 | M1 Surface V4 | 完整 native subsystem→原子切换并删除→验收 | Visibility/publication/providers→HDR/Aux→既有 Temporal/effects；先消除核心执行税 |
 | M2 Geometry / VG Alignment & Scale Optimization | 依已切换的 M1 winner/requirements；详细设计见 §8 | Scene/Product→budgeted residency、合法 view work、lean prepared geometry→Visibility/Surface/VSM/Temporal；保留正确 VG，先容量/生命周期，再优化冗余与规模成本 |
-| M3 Virtual Resources / VT | 依 native sample 接口与真实 streaming | 资源 owner→page table/atlas/feedback→native sampler；不在 M1 假定 bindless/完整 VT |
-| M4 Lighting / VSM | 依 native consumer、caster/geometry/资源边界 | cluster/VSM/IBL→providers→HDR；先保已有消费，再设计极端规模与质量 |
+| M3 Lighting V4 | 依 native consumer、caster/geometry/资源边界 | 详细设计/执行已转入独立 [Lighting authority](./eengine-v4-lighting-execution-2026-10.md)，不在本文复制 |
+| M4 Virtual Resources / VT（暂定后续） | 依 native sample 接口与真实 streaming | 资源 owner→page table/atlas/feedback→native sampler；待 M3 后按真实瓶颈另行评审 |
 | M5 GI / Reflection / ReSTIR | 依 geometry、lighting、真实 demanded Aux | effect owner→indirect/reflection/reservoir/composition→HDR；输入/能量边界清楚后选择算法 |
 | M6 Temporal / Upscaling / Presentation | 依真实 radiometry/motion/reactive/effect history | HDR/facts/exposure→Temporal/FSR/DRS/未来 AI→Post/Present；M1 已保证当前消费者 |
 | M7 Transparency / Media / final integration | 依 opaque、lighting、Temporal | transparent/media→HDR/reactive/motion→presentation；完整交互后全 renderer 验收 |
 
-保留 M1 的实施和结果，M2 详细单元与实际交付见 §8；M3–M7 依届时源码再设计，排序可调整。不宣称现有 VG、VSM 或 FSR 尚未实现；M2 不顺手重写 Lighting/VT 或后续 effects。
+保留 M1 的实施和结果，M2 详细单元与实际交付见 §8；M3 Lighting 已独立设计，M4–M7 依届时源码再设计，排序可调整。不宣称现有 VG、VSM 或 FSR 尚未实现；M2 不顺手重写 Lighting/VT 或后续 effects。
 
 ## 3. M1 Surface V4 实施与关闭记录
 

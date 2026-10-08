@@ -34,7 +34,26 @@ verifies:
 ---
 # EEngine Next：开源迁移来源与采用边界
 
-> V4 当前导航：唯一架构见 [V4 母稿](../next-design/eengine-v4-native-shading-2026-10.md)，实施见 [V4 执行计划](../next-execution/eengine-v4-native-shading-execution-2026-10.md)，生产事实查源码和 domains。下文日期化来源条目的阶段、当前、§编号与旧设计链接都属于记录当时的快照，仅供追溯；不改变 adoption，也不定义第二套 current 架构。
+> V4 全局不变量见 [V4 母稿](../next-design/eengine-v4-native-shading-2026-10.md)，当前模块设计/执行读取 [workstream.authority](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)，生产事实查源码和 domains。下文日期化来源条目的阶段、当前、§编号与旧设计链接都属于记录当时的快照，仅供追溯；不改变 adoption，也不定义第二套 current 架构。
+
+<a id="m3-lighting-source-map"></a>
+
+## M3 Lighting Source Map（2026-10-08，reference-only）
+
+Local：`ae140163` 的 LightDatabase publication、LightClusterPass/light_cluster、lighting_direct/native_surface、Sun/VSM/IBL/AO；[M3 Design](../next-design/eengine-v4-lighting-2026-10.md)记录真实生产调用/成本和KEEP边界。本轮只读源码，没有production移植或GPU adoption证据。
+
+| Reference | 已读真实入口 / 本地设计映射 |
+| --- | --- |
+| [Bevy](https://github.com/bevyengine/bevy/tree/fd98063564218bd210308675602a3e9643014c31/crates/bevy_pbr/src)，`fd98063564218bd210308675602a3e9643014c31`，MIT OR Apache-2.0（根LICENSE-MIT/ LICENSE-APACHE） | `cluster/gpu.rs` prepare/metadata/五pass；`cluster_z_slice.wesl:z_slice_main/try_write_z_slice`→bounded影响区域；`cluster_raster.wesl:vertex_main/fragment_main/compute_aabb_for_cluster/cull_spot_light/allocate_list_entry`→同predicate count/scatter；`cluster_allocate.wesl:allocate_local_main/allocate_global_main`→range prefix；`render/clustered_forward.wesl:unpack_clusterable_object_index_ranges/get_clusterable_object_id`→Surface compact reader |
+| [Wicked Engine](https://github.com/turanszkij/WickedEngine/tree/7f776d02094571dd2c8166c7e5879d5e93d2b642/WickedEngine/shaders)，`7f776d02094571dd2c8166c7e5879d5e93d2b642`，MIT（根LICENSE.txt） | `lightCullingCS.hlsl:main`→tile depth occupancy/协作cull；`ShaderInterop_Renderer.h`256 entity/8bucket布局与`shadingHF.hlsli`Point/Spot bitset consumer→比较tile候选/深度精细化和读取税，不采用通用entity product |
+
+Adopt（设计选择，未实施）：light-centric bounded区域、compact range/ID consumer、count与scatter同predicate、Surface depth occupancy避免空域精细tests。
+
+Adapt：EEngine reverse-Z/jitter/log24 slices、Point cutoff `distance+radius`、Point/Spot packed DB slots、portable WGSL workgroup scan/reduction、compute64-region tasks+2D indirect代替z-quad raster、Surface已有storage/sampled limits、one frame submit和fenced lifetime。
+
+Reject：Bevy `try_write_z_slice`容量不足跳项+delayed resize（gpu.rs承认可能几帧lighting corrupted），其串行跨block global scan；Wicked bindless/wave scalarization/universal256实体上限。不能为WebGPU模拟兼容层或静默漏灯。
+
+Original：128B LocalLightWork header、完整admitted IDs支持GPU DIRECT fallback、frame/epoch/publication合同、task前缀binarysearch工作组织、有界6MiBprofile、DIRECT/SPARSE校准和原子ownership切换。未来若复制具体源码，保相应license/notice并补CPU/GPU/真实production证据后才升级adoption；开源reference不证明EEngine更快。
 
 <a id="m2-geometry-source-map"></a>
 

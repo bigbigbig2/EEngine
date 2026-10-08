@@ -46,7 +46,7 @@ verifies:
 
 # EEngine V4：Native Shading 架构母稿
 
-本文件是唯一 **current renderer architecture authority**；[执行计划](../next-execution/eengine-v4-native-shading-execution-2026-10.md)是唯一 renderer execution authority。[workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)只维护当前模块导航，不另列完整任务。源码定义当前实现事实，`docs/domains/`在真实代码切换后更新。M1 的实际切换与验收范围见执行计划 §3；本文 §2 保留切换前审查，§11 根据切换后的源码设计 M2。文档采纳不证明 M2 实现、GPU 验证或来源 adoption。
+本文件是 **V4 全局架构不变量 authority**，保留 M1/M2 设计；[原执行计划](../next-execution/eengine-v4-native-shading-execution-2026-10.md)保留其实施结果与通用验证纪律。M3 已转入独立 [Lighting Design](./eengine-v4-lighting-2026-10.md) / [Lighting Execution](../next-execution/eengine-v4-lighting-execution-2026-10.md)，当前模块唯一 authority 由 [workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)导航，不复制完整任务。源码定义当前实现事实，`docs/domains/`在真实代码切换后更新。本文 §2 是 M1 切换前快照，§11 是 M2 设计；文档采纳不证明实现、GPU 验证或来源 adoption。
 
 2026-10-07 执行 `git fetch origin` 后，HEAD、master、origin/master 均为 `b69a0a60b13930212fdc98f988443186fad024e4`；开始时仅两份 V4 提案未跟踪。下文源码定位以该快照为审查起点，实施必须重新检查 HEAD/工作区与直接消费者。
 
@@ -56,7 +56,7 @@ verifies:
 
 [R3/R4 设计](./eengine-extreme-performance-rebuild-2026-10.md)、[R3/R4 执行记录](../next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md)及 ADR-0021 退出 current；旧实验、C cache 负收益、B1/B2 数值问题原文保留。历史文本中的“必须修旧 cache”“General VM”“六 signal”“A0→F”不再约束 V4。发生冲突时，以本母稿、最新源码事实、协商到的 WebGPU 能力和可检验成本模型共同裁决；实现事实不因目标改变而重写。
 
-长期目标仍是 Extreme Performance、GPU Driven、WebGPU Native、AAA 画质、复杂场景 streaming 和可持续扩展；GTX 1650 Ti 4GB/1080p 是首要约束之一。VG、VT、VSM、clustered lighting、ReSTIR、GI/SSGI、SSR/SSSR、Atmosphere、Temporal、Dynamic Resolution、FSR/未来 AI Upscaling、Transparency/Media 保留为能力方向。保留 M1 设计，本轮只增加 Geometry/VG 的 M2 设计与执行边界；M3 以后仍只定义连接合同。
+长期目标仍是 Extreme Performance、GPU Driven、WebGPU Native、AAA 画质、复杂场景 streaming 和可持续扩展；GTX 1650 Ti 4GB/1080p 是首要约束之一。VG、VT、VSM、clustered lighting、ReSTIR、GI/SSGI、SSR/SSSR、Atmosphere、Temporal、Dynamic Resolution、FSR/未来 AI Upscaling、Transparency/Media 保留为能力方向。M3 Lighting 的完整模块设计已独立成文，不继续向本文追加；更后续模块仍只定义连接合同，须根据真实源码另行设计。
 
 ## 2. M1 切换前源码审查与切断边界（历史快照）
 
