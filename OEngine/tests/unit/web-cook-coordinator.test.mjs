@@ -291,6 +291,78 @@ test("activation page already delivered can be reread before the cut completion 
   coordinator.dispose();
 });
 
+test("a current Product reread bypasses blocked future activation within two credits", async () => {
+  const glb = makeGlb();
+  const products = Array.from({ length: 3 }, (_, index) => {
+    const product = productFixture();
+    product.productId.fill(index + 11);
+    return product;
+  });
+  const events = [];
+  let secondBuffered = false;
+  const coordinator = new WebCookCoordinator("bounded-reread-progress", 1, {
+    budgets: { maxConcurrentWorkers: 1, maxSourceBytes: glb.byteLength,
+      maxWasmBytes: 4096, maxOutputBytes: 2 * 262144, maxQueuedEvents: 32 },
+    source: {
+      fetch: async (_url, init) => {
+        const range = String(init.headers.Range).match(/bytes=(\d+)-(\d+)/);
+        const start = Number(range[1]), end = Number(range[2]);
+        return new Response(glb.slice(start, end + 1), { status: 206, headers: {
+          "Content-Range": `bytes ${start}-${end}/${glb.byteLength}`, "Content-Encoding": "identity" } });
+      }
+    },
+    onEvent() {
+      const pending = coordinator.drainEvents();
+      events.push(...pending);
+      for (const event of pending.filter(event => event.type === "PageReady")) {
+        if (event.productId[0] === products[0].productId[0]) {
+          // The current reader consumes both its first transfer and reread.
+          coordinator.returnOutputCredits(1, 262144);
+        } else if (event.productId[0] === products[1].productId[0]) {
+          secondBuffered = true;
+        }
+      }
+    },
+    cooker: {
+      async cookProgressive(_units, _context, publish) {
+        for (const product of products) await publish({
+          descriptor: encodeGeometryProductDescriptorBinaryV1(product.descriptor),
+          productId: product.productId, revision: 1, pageCount: 1, sceneAssetIndices: [0],
+          async readPage(pageId) { return { pageId, decodedHash128: product.hash.subarray(0, 16),
+            decodedPageHash128: product.hash.subarray(0, 16), bytes: product.page.buffer.slice(0) }; },
+          release() {}
+        });
+      }
+    }
+  });
+  let timeout;
+  const deadline = new Promise((_, reject) => {
+    timeout = setTimeout(() => reject(new Error("current reread deadlocked behind future activation")), 1500);
+  });
+  try {
+    await coordinator.open("https://example.test/bounded.glb");
+    coordinator.grantOutputCredits(2, 2 * 262144);
+    await coordinator.cookBootstrap();
+    while (events.filter(event => event.type === "RevisionOffered").length !== 3) {
+      await Promise.race([new Promise(resolve => setImmediate(resolve)), deadline]);
+    }
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(secondBuffered, true);
+    const reread = coordinator.requestPages(products[0].productId, 1, new Uint32Array([0]), 0);
+    await Promise.race([reread, deadline]);
+    assert.equal(events.filter(event => event.type === "PageReady" &&
+      event.productId[0] === products[0].productId[0]).length, 2, "current page really retransferred");
+    // Only now advance the buffered second Product; the third cut may prefetch.
+    coordinator.returnOutputCredits(1, 262144);
+    await Promise.race([coordinator.waitForCookCompletion(), deadline]);
+    assert.equal(events.filter(event => event.type === "PageReady").length, 4);
+    assert.equal(coordinator.evidence().state, "complete");
+  } finally {
+    clearTimeout(timeout);
+    coordinator.dispose();
+  }
+});
+
 test("Web Cook coordinator bounds source work and emits credited Product events", async () => {
   const glb = makeGlb(),
     product = productFixture(),
@@ -646,13 +718,16 @@ test("Web Cook coordinator streams a plan-backed revision without materialising 
     },
   });
   await coordinator.open("https://example.test/plan.glb");
-  // Two activation cuts stream here, and a bare coordinator never returns a
-  // credit: only WebCookProductProvider does that, and only while a consumer
-  // drains `revisions()`. Budget one page per offered revision.
+  // Drain the first cut as a real provider does. Later prefetch leaves one
+  // transfer credit available to explicit readers, not another allocation.
   coordinator.grantOutputCredits(2, 2 * 262144);
   await coordinator.cookBootstrap();
+  const firstEvents = coordinator.drainEvents();
+  const consumed = firstEvents.filter(event => event.type === "PageReady").length;
+  assert.equal(consumed, 1);
+  coordinator.returnOutputCredits(consumed, consumed * 262144);
   await coordinator.waitForCookCompletion();
-  const events = coordinator.drainEvents();
+  const events = [...firstEvents, ...coordinator.drainEvents()];
   const offered = events.filter((event) => event.type === "RevisionOffered");
   // Both descriptors are published, richer included, even though its payloads
   // were never produced during the cook.

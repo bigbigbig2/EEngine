@@ -79,6 +79,10 @@ export class GeometryPageStreamingRuntimeV1 {
       device,
       ...(options.readback ?? {})
     });
+    // Cancel IO and mapping ownership at loss, not later during replay. Source
+    // ownership remains with Product residency/checkpoint for recovery retries.
+    const runtime = new WeakRef(this);
+    void device.lost.then(() => runtime.deref()?.destroy());
   }
 
   get scheduler(): GeometryPageSchedulerV1 {
@@ -166,6 +170,9 @@ export class GeometryPageStreamingRuntimeV1 {
       this.#scheduler.markRetiring(residency.productGeneration, pageId);
     }
     await completion;
+    if (this.#destroyed) {
+      return;
+    }
     for (const pageId of unique) {
       residency.completeRetirePage(pageId);
       this.#scheduler.markRetired(residency.productGeneration, pageId);
@@ -217,8 +224,14 @@ export class GeometryPageStreamingRuntimeV1 {
     // retries even when the GPU produced no new demand this frame.
     this.#scheduler.tick(nowMs);
     const results = await this.#readback.poll(completedFrame);
+    if (this.#destroyed) {
+      return this.cancelledPoll(completedFrame);
+    }
     const shadowResults =
       this.#shadowReadback === null ? [] : await this.#shadowReadback.poll(completedFrame);
+    if (this.#destroyed) {
+      return this.cancelledPoll(completedFrame);
+    }
     let consumedReadbacks = 0;
     let malformedReadbacks = 0;
     for (const result of results) {
@@ -293,17 +306,9 @@ export class GeometryPageStreamingRuntimeV1 {
           return { residency, pages };
         });
         await this.#device.queue.onSubmittedWorkDone();
-        if (this.#destroyed)
-          return (
-            this.#lastPoll ??
-            Object.freeze({
-              completedFrame,
-              mappedSlots: results.length,
-              consumedReadbacks,
-              malformedReadbacks,
-              uploadedBytes
-            })
-          );
+        if (this.#destroyed) {
+          return this.cancelledPoll(completedFrame);
+        }
         for (const { residency, pages } of retired) {
           if (this.#residencies.get(residency.productGeneration) !== residency) {
             continue; // Whole-Product destruction already reclaimed these pages.
@@ -360,24 +365,38 @@ export class GeometryPageStreamingRuntimeV1 {
     if (!Number.isSafeInteger(frameIndex) || frameIndex < 0) {
       throw new RangeError("Geometry page streaming frame index must be non-negative");
     }
-    await completion;
-    const cancelled = (): GeometryPageStreamingPollEvidenceV1 =>
-      Object.freeze({
-        completedFrame: frameIndex + 1,
-        cancelled: true,
-        mappedSlots: 0,
-        consumedReadbacks: 0,
-        malformedReadbacks: 0,
-        uploadedBytes: 0
-      });
-    if (this.#destroyed) return cancelled();
+    try {
+      await completion;
+    } catch (error) {
+      if (this.#destroyed) {
+        return this.cancelledPoll(frameIndex + 1);
+      }
+      throw error;
+    }
+    if (this.#destroyed) return this.cancelledPoll(frameIndex + 1);
     const poll = this.#pollTail.then(() =>
-      this.#destroyed ? cancelled() : this.consumeCompleted(frameIndex + 1, nowMs)
-    );
+      this.#destroyed ? this.cancelledPoll(frameIndex + 1) : this.consumeCompleted(frameIndex + 1, nowMs)
+    ).catch((error) => {
+      if (this.#destroyed) {
+        return this.cancelledPoll(frameIndex + 1);
+      }
+      throw error;
+    });
     this.#pollTail = poll.catch((error) => {
       this.#lastError = error instanceof Error ? error.message : String(error);
     });
     return poll;
+  }
+
+  private cancelledPoll(completedFrame: number): GeometryPageStreamingPollEvidenceV1 {
+    return Object.freeze({
+      completedFrame,
+      cancelled: true,
+      mappedSlots: 0,
+      consumedReadbacks: 0,
+      malformedReadbacks: 0,
+      uploadedBytes: 0
+    });
   }
 
   evidence(): GeometryPageStreamingRuntimeEvidenceV1 {

@@ -1,0 +1,6 @@
+schemaVersion: 1
+id: geometry-scale
+headed: false
+viewport: [1920, 1080]
+deviceScaleFactor: 1
+browserChannel: chrome-stable

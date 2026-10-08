@@ -644,4 +644,7 @@ function buildFixtureGlb({ distinctMaterialIds = false } = {}) {
 // 2026-09-19: page identity is now rolled up from Group payloads (ADR-0017 step 1) instead of
 // being the SHA-256 of the whole decoded page, so every pack byte stream changes.
 // v3.2 recipe identity invalidates packs cooked with the unsafe seam fallback.
-const GOLDEN_PACK_SHA256 = "e20076118338b5c4e26fee523a7d0df2cb21bf2f6f1ee5e0512626a6ba0a05e0";
+// v4.1 makes sphere merging conservative about the stored f32 center. The
+// independent translated-hierarchy oracle and native/Web parity validate the
+// numerical change before this content/recipe golden is advanced.
+const GOLDEN_PACK_SHA256 = "9b37730ed34b34f6b61b16ad66e5a0dd6789fd9f07a5e3ea150a90450b263dce";

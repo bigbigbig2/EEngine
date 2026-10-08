@@ -13,7 +13,12 @@ import {
   vsmPageTableEntryIndex,
 } from "../../.test-dist/render/vsm/VsmPageState.js";
 import { VsmResources } from "../../.test-dist/render/vsm/VsmResources.js";
-import { vsmReceiverDispatch } from "../../.test-dist/render/vsm/VsmReceiverDemandPass.js";
+import {
+  vsmReceiverDispatch,
+  buildVsmDirectionalFrameConstants,
+  packVsmSamplingConstants
+} from "../../.test-dist/render/vsm/VsmReceiverDemandPass.js";
+import { vsmCasterDispatch } from "../../.test-dist/render/vsm/VsmCasterRecordPass.js";
 import { VSM_ALLOCATE_PAGES_WGSL } from "../../.test-dist/shaders/vsm_allocate_pages.js";
 import { VSM_ATLAS_PAGE_CLEAR_WGSL } from "../../.test-dist/shaders/vsm_atlas_raster.js";
 import { VSM_CASTER_RECORDS_WGSL } from "../../.test-dist/shaders/vsm_caster_records.js";
@@ -23,6 +28,8 @@ import { VSM_SAMPLING_WGSL } from "../../.test-dist/shaders/vsm_sampling.js";
 
 globalThis.GPUBufferUsage = { STORAGE: 1, COPY_DST: 2, INDIRECT: 4, UNIFORM: 8 };
 globalThis.GPUTextureUsage = { RENDER_ATTACHMENT: 1, TEXTURE_BINDING: 2 };
+globalThis.GPUShaderStage = { COMPUTE: 4, VERTEX: 1, FRAGMENT: 2 };
+const { shadowGeometryView } = await import("../../.test-dist/render/ShadowGeometryWork.js");
 
 function device(overrides = {}) {
   const allocations = [];
@@ -183,6 +190,63 @@ test("receiver dispatch covers odd extents and sampling fails open for invalid p
   assert.match(VSM_SAMPLING_WGSL, /if \(current && \(entry\.flags & 2u\) == 0u\)/u);
   assert.match(VSM_SAMPLING_WGSL, /return 1\.0;/u);
   assert.match(VSM_PAGE_TABLE_WGSL, /vsm_page_entry_coordinates/u);
+});
+
+test("directional clipmap, shadow view and sampling share camera-relative light coordinates", () => {
+  const gpu = device(),
+    resources = VsmResources.create(gpu, negotiateVsmCapabilities(gpu));
+  try {
+    for (const center of [
+      [0, 0, 8],
+      [1234.25, -567.5, 810.75]
+    ]) {
+      const frame = buildVsmDirectionalFrameConstants([0, 2, 3], center, 2048, resources, 71);
+      const matrix = frame.lightView;
+      const lightCenter = [0, 1, 2].map(
+        (axis) =>
+          matrix[axis] * center[0] +
+          matrix[4 + axis] * center[1] +
+          matrix[8 + axis] * center[2] +
+          matrix[12 + axis]
+      );
+      assert.ok(lightCenter.every((value) => Math.abs(value) < 1e-9));
+      for (const [x, y, extent] of frame.clipOriginExtent) {
+        const pageWorld = extent / resources.capabilities.virtualPagesPerAxis;
+        assert.ok(x <= -extent / 2 && x > -extent / 2 - pageWorld - 1e-9);
+        assert.ok(y <= -extent / 2 && y > -extent / 2 - pageWorld - 1e-9);
+      }
+      const view = shadowGeometryView(frame);
+      // Camera center must lie inside every light prism plane even far from origin.
+      assert.ok(
+        view.frustumPlanes.every(([x, y, z, w]) => x * center[0] + y * center[1] + z * center[2] + w >= 0)
+      );
+      const packed = packVsmSamplingConstants({ resources, width: 1920, height: 1080, ...frame });
+      const uints = new Uint32Array(packed),
+        floats = new Float32Array(packed);
+      assert.equal(uints[45], 71, "sampling uses the current publication generation");
+      const depthPerTexel =
+        1 / (resources.capabilities.virtualPagesPerAxis * resources.capabilities.pageSize * 8);
+      assert.deepEqual(
+        [...floats.slice(48, 51)],
+        [0.5, 2, 1.5].map((value) => Math.fround(value * depthPerTexel))
+      );
+    }
+    assert.throws(() => shadowGeometryView({ lightView: [NaN], clipOriginExtent: [[0, 0, 1, 1]] }), /finite/);
+    assert.throws(
+      () => shadowGeometryView({ lightView: Array(16).fill(0), clipOriginExtent: [[0, 0, 0, 1]] }),
+      /invalid/
+    );
+  } finally {
+    resources.destroy();
+  }
+});
+
+test("caster capacity dispatch covers the second row without dropping work", () => {
+  assert.deepEqual(vsmCasterDispatch(64 * 65535, 65535), [65535, 1]);
+  assert.deepEqual(vsmCasterDispatch(64 * 65535 + 1, 65535), [65535, 2]);
+  assert.deepEqual(vsmCasterDispatch(129, 2), [2, 2]);
+  assert.throws(() => vsmCasterDispatch(257, 2), /dispatch/);
+  assert.throws(() => vsmCasterDispatch(0, 65535), /dispatch/);
 });
 
 test("allocation and raster keep overflow dirty and clear only newly written slots", () => {

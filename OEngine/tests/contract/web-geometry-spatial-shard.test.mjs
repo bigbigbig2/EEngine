@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { productDescriptorForAssetRecords } from "../helpers/geometry-product-fixture.mjs";
 
 const { createWebCookSceneSource } = await import("../../.test-dist/assets/web-cook/WebCookSceneSource.js");
 
@@ -38,7 +39,7 @@ test("multiple Product assets may map to one triangle-owned catalog primitive", 
     textures: [],
     images: [],
   };
-  const result = createWebCookSceneSource(catalog, { assetRecords }, { sceneAssetIndices: [0, 0] });
+  const result = createWebCookSceneSource(catalog, productDescriptorForAssetRecords(assetRecords), { sceneAssetIndices: [0, 0] });
   assert.equal(result.source.count, 2);
   assert.deepEqual([...result.source.geometryIndices], [0, 1]);
 });

@@ -57,14 +57,26 @@ std::uint32_t AlignUp(std::uint32_t value, std::uint32_t alignment) {
 }
 
 void MergeSphere(const float a[4], const float b[4], float out[4]) {
-    const float dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2];
-    const float distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+    const double dx = double(b[0]) - a[0], dy = double(b[1]) - a[1], dz = double(b[2]) - a[2];
+    const double distance = std::sqrt(dx * dx + dy * dy + dz * dz);
     if (a[3] >= distance + b[3]) { std::copy(a, a + 4, out); return; }
     if (b[3] >= distance + a[3]) { std::copy(b, b + 4, out); return; }
-    const float radius = 0.5f * (a[3] + b[3] + distance);
-    const float scale = distance > 1e-6f ? (radius - a[3]) / distance : 0.0f;
-    out[0] = a[0] + dx * scale; out[1] = a[1] + dy * scale;
-    out[2] = a[2] + dz * scale; out[3] = radius;
+    const double radius = 0.5 * (double(a[3]) + b[3] + distance);
+    const double scale = distance > 0.0 ? (radius - a[3]) / distance : 0.0;
+    const float center[3] = {float(a[0] + dx * scale), float(a[1] + dy * scale), float(a[2] + dz * scale)};
+    // The stored f32 center may move by several millimeters at authored object
+    // coordinates. Recompute the required radius about that *stored* center,
+    // then round outward. Copy last because out can alias either input.
+    const auto requiredRadius = [&](const float sphere[4]) {
+        const double x = double(sphere[0]) - center[0];
+        const double y = double(sphere[1]) - center[1];
+        const double z = double(sphere[2]) - center[2];
+        return std::sqrt(x * x + y * y + z * z) + sphere[3];
+    };
+    const double required = std::max(requiredRadius(a), requiredRadius(b));
+    const float storedRadius = std::nextafter(float(required), kInfinity);
+    std::copy(center, center + 3, out);
+    out[3] = storedRadius;
 }
 
 void MergeAabb(const float amin[3], const float amax[3], const float bmin[3], const float bmax[3], float outMin[3], float outMax[3]) {
@@ -457,7 +469,13 @@ void ValidateLodBuild(const std::vector<Group>& groups, const std::vector<Meshle
             const Group& fine = groups[meshlet.refineGroupId];
             if (coarse.lodLevel <= fine.lodLevel) throw std::runtime_error("refinement LOD is not strictly finer");
             if (!std::isfinite(fine.parentError) || coarse.parentError + kValidationEpsilon < fine.parentError) throw std::runtime_error("LOD parent error is not monotonic");
-            if (!SphereContains(meshlet.sphere, fine.sphere)) throw std::runtime_error("coarse meshlet bound does not contain refine group");
+            if (!SphereContains(meshlet.sphere, fine.sphere)) {
+                throw std::runtime_error("coarse meshlet bound does not contain refine group: coarse=(" +
+                    std::to_string(meshlet.sphere[0]) + "," + std::to_string(meshlet.sphere[1]) + "," +
+                    std::to_string(meshlet.sphere[2]) + "," + std::to_string(meshlet.sphere[3]) +
+                    ") fine=(" + std::to_string(fine.sphere[0]) + "," + std::to_string(fine.sphere[1]) + "," +
+                    std::to_string(fine.sphere[2]) + "," + std::to_string(fine.sphere[3]) + ")");
+            }
         }
         if (meshlet.vertices.empty() || meshlet.vertices.size() > 128u || meshlet.triangles.empty() || meshlet.triangles.size() / 3u > 128u) throw std::runtime_error("meshlet exceeds V3 limits");
         for (std::uint8_t local : meshlet.triangles) if (local >= meshlet.vertices.size()) throw std::runtime_error("meshlet local triangle index exceeds vertexCount");

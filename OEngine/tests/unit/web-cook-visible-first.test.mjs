@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import test from "node:test";
 
 const { WebCookCoordinator } = await import("../../.test-dist/assets/web-cook/WebCookCoordinator.js");
-const { encodeGeometryProductDescriptorBinaryV1 } = await import(
+const { encodeGeometryProductDescriptorBinaryV1, decodeGeometryProductDescriptorBinaryV1 } = await import(
   "../../.test-dist/assets/geometry-product/GeometryProductBinaryV1.js"
 );
 
@@ -259,6 +259,7 @@ test("Web Cook returns at TTFMF while richer refinement continues in the backgro
   assert.equal(coordinator.evidence().totalCookMs, undefined);
   assert.equal(typeof coordinator.evidence().firstMeaningfulFrameMs, "number");
   assert.equal(coordinator.drainEvents().filter((event) => event.type === "PageReady").length, 1);
+  coordinator.returnOutputCredits(1, 262144);
   releaseRefinement();
   await coordinator.waitForCookCompletion();
   assert.equal(coordinator.evidence().state, "complete");
@@ -380,6 +381,9 @@ test("Web Cook treats only post-coverage optional refinement failure as recovera
   await coordinator.open("https://example.test/post-coverage-recoverable.glb");
   coordinator.grantOutputCredits(2, 2 * 262144);
   await coordinator.cookBootstrap();
+  for (const event of coordinator.drainEvents()) {
+    if (event.type === "PageReady") coordinator.returnOutputCredits(1, 262144);
+  }
   await coordinator.waitForCookCompletion();
   const evidence = coordinator.evidence();
   assert.equal(evidence.state, "complete");
@@ -606,14 +610,22 @@ test("Web Cook progress heartbeat never claims units the producer has not delive
   const cooking = coordinator.cookBootstrap();
   // Consume and return page credit the way the real client does, so the second
   // revision is not left waiting for a page lease.
+  const reads = [];
   const collector = setInterval(() => {
     const drained = coordinator.drainEvents();
     events.push(...drained);
     for (const event of drained) if (event.type === "PageReady") coordinator.returnOutputCredits(1, 262144);
+    for (const event of drained.filter(event => event.type === "RevisionOffered")) {
+      const descriptor = decodeGeometryProductDescriptorBinaryV1(event.descriptor);
+      const pending = descriptor.activationPageIds.filter(pageId => !drained.some(candidate =>
+        candidate.type === "PageReady" && candidate.revision === descriptor.revision && candidate.pageId === pageId));
+      if (pending.length) reads.push(coordinator.requestPages(descriptor.productId, descriptor.revision, pending, 0));
+    }
   }, 20);
   t.after(() => clearInterval(collector));
   await cooking;
   await coordinator.waitForCookCompletion();
+  await Promise.all(reads);
   clearInterval(collector);
   const tail = coordinator.drainEvents();
   events.push(...tail);
@@ -722,6 +734,8 @@ test("Web Cook progress heartbeat gives up instead of failing a saturated queue"
   assert.ok(saturated.every((event) => event.type === "Progress"));
   assert.equal(coordinator.evidence().state, "cooking");
   resumeRefinement();
+  await new Promise(resolve => setImmediate(resolve));
+  await coordinator.requestPages(product.productId, 1, new Uint32Array([0]), 0);
   await coordinator.waitForCookCompletion();
   assert.equal(coordinator.evidence().state, "complete", "a saturated queue must not fail the cook");
   assert.equal(coordinator.evidence().completedUnits, 2);

@@ -8,6 +8,8 @@ verifies:
     - OEngine/src/gpu/GeometryProductMultiRuntime.ts
     - OEngine/src/gpu/GeometryPageStreamingRuntime.ts
     - OEngine/src/render/pipeline/RendererCore.ts
+    - OEngine/src/render/ShadowGeometryWork.ts
+    - OEngine/src/render/MeshletWorkCandidate.ts
 ---
 # Virtual Geometry Runtime V1
 
@@ -40,6 +42,8 @@ WebGPU 适配只允许改变 DX12/Slang 的资源绑定、mesh shader/DispatchMe
 | `GpuAssetStore`/`GpuRenderWorld` | asset/instance/material 与 active product generation 的原子引用 | Loader/Worker 临时 buffer |
 
 ### Product admission 状态
+
+Scene publication不自动转移caller admission ownership。`uploadVirtualGeometryScene`默认由caller负责Product释放；Renderer创建的Web multi-runtime与device recovery replay明确随Scene释放。`releaseScene`先撤publication并取消owned streaming/IO/readback，再等待真实末读queue fence，成功后destroy owned Product/source并移除登记。失败fence不允许slot复用，登记保留用于重试或teardown；重复释放安全，不提交空命令；旧epoch handles不得访问replacement Renderer。Device loss撤销main/shadow readback epoch与scheduler注册，不释放checkpoint保留的source；live-device mapping失败仍可观测。
 
 revision 的 CPU 状态机固定为：
 
@@ -178,6 +182,8 @@ GPU hierarchy traversal 是 producer，CPU residency scheduler 是延迟 consume
 readback 使用至少双缓冲的延迟 ring，不在生成该 feedback 的帧等待 `mapAsync()`。每帧 readback 总量默认不超过 [VALIDATION](../VALIDATION.md) 的 256 KiB；overflow 触发统计、保守 fallback 和下一轮优先级/容量调整，不触发 CPU 可见列表重建。
 
 ### Scheduler 与联合背压
+
+Directional shadow Geometry 由独立 light-view traversal 产生，与 main view 共享 Product目录/resident banks，不共享 main-selected work。当前保守 clipmap volume、SSE=0 finest resident cut、无 main cone/HZB；missing refinement保合法 coarse并发布 `MAX_PRIORITY | SHADOW` demand。已有独立 shadow readback ring 只在旧提交完成后提供反馈，abort不发布、同帧不消费；CPU仍按完整 Product slot/generation/PageID 路由、公平调度与有界上传。Product previous-HZB继续关闭；这不是新 Streaming Runtime 或跨 view persistent cache。
 
 调度优先级至少按以下顺序组合，而不是只看 FIFO：
 

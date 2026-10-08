@@ -74,10 +74,14 @@ test("each Product keeps its own depth and merged capacities never clamp overflo
 test("negotiated binding and dispatch limits reject unsupported scenes without truncation", () => {
   const base = geometryProductSceneWorkload(triangleProductFixture().descriptor, [{ assetIndex: 0 }]);
   validateGeometryProductSceneWorkLimits({ ...base, hierarchyVisibleClusterCapacity: 65535 }, 1, limits);
+  validateGeometryProductSceneWorkLimits({ ...base, hierarchyVisibleClusterCapacity: 65536 }, 1, limits);
   assert.throws(
     () =>
-      validateGeometryProductSceneWorkLimits({ ...base, hierarchyVisibleClusterCapacity: 65536 }, 1, limits),
-    /dispatch grid/,
+      validateGeometryProductSceneWorkLimits({ ...base, hierarchyVisibleClusterCapacity: 5 }, 1, {
+        ...limits,
+        maxComputeWorkgroupsPerDimension: 2
+      }),
+    /dispatch grid/
   );
   const max = Math.floor((limits.maxStorageBufferBindingSize - 32) / 24);
   validateGeometryProductSceneWorkLimits({ ...base, hierarchyRasterWorkCapacity: max }, 1, limits);

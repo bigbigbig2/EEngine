@@ -82,6 +82,42 @@ export function triangleProductFixture() {
   return { descriptor, page };
 }
 
+// Scene-mapping tests still need a complete legal forest. Keep their authored
+// bounds/material metadata, but give each asset its own triangle/root/page.
+export function productDescriptorForAssetRecords(assetRecords) {
+  const { descriptor } = triangleProductFixture();
+  const count = assetRecords.byteLength / 128;
+  if (!Number.isInteger(count) || count < 1) {
+    throw new RangeError("Fixture requires complete asset records");
+  }
+  const originalNode = descriptor.hierarchyNodes;
+  const originalGroup = descriptor.groupDirectory;
+  const originalPage = descriptor.pageRecords;
+  descriptor.assetRecords = assetRecords;
+  descriptor.rootNodeIds = Uint32Array.from({ length: count }, (_, index) => index);
+  descriptor.hierarchyNodes = new Uint8Array(count * 48);
+  descriptor.groupDirectory = new Uint8Array(count * 16);
+  descriptor.pageRecords = new Uint8Array(count * 32);
+  descriptor.bootstrapPageIds = descriptor.rootNodeIds.slice();
+  descriptor.activationPageIds = descriptor.rootNodeIds.slice();
+  const records = new DataView(assetRecords.buffer, assetRecords.byteOffset, assetRecords.byteLength);
+  for (let index = 0; index < count; index++) {
+    descriptor.hierarchyNodes.set(originalNode, index * 48);
+    descriptor.groupDirectory.set(originalGroup, index * 16);
+    descriptor.pageRecords.set(originalPage, index * 32);
+    new DataView(descriptor.hierarchyNodes.buffer).setUint32(index * 48 + 44, 1 | (index << 1), true);
+    new DataView(descriptor.groupDirectory.buffer).setUint32(index * 16, index, true);
+    new DataView(descriptor.pageRecords.buffer).setUint32(index * 32 + 16, index, true);
+    for (const [offset, value] of [
+      [72, index], [76, 1], [80, index], [84, 1], [88, index], [92, 1],
+      [96, index], [100, 1], [104, 1], [108, 1], [112, 1], [116, 0]
+    ]) {
+      records.setUint32(index * 128 + offset, value, true);
+    }
+  }
+  return descriptor;
+}
+
 // Each extra streamed page really owns a group and a terminal hierarchy node.
 // Keep only page 0 pinned so eviction fixtures still exercise non-pinned pages.
 export function addTriangleProductPages(descriptor, pageCount) {

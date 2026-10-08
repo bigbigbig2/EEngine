@@ -1,7 +1,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
 import { createReadStream, existsSync } from "node:fs";
-import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
@@ -99,6 +99,7 @@ server.on("exit", (code, signal) => record("vite:exit", { code, signal }));
 
 let browser;
 let context;
+let browserProfile;
 let page;
 let pageSnapshot = null;
 let userAgent = "unavailable";
@@ -111,23 +112,27 @@ const producedArtifacts = [];
 try {
   const baseUrl = "http://127.0.0.1:4178";
   await waitForServer(`${baseUrl}${selectedCase.route}`, 15000);
-  browser = await chromium.launch({
+  // Incognito OPFS uses a memory-backed quota that can be smaller than the
+  // reported storage estimate. Exercise real disk-backed spill in a fresh
+  // throwaway profile, never the user's profile or a previous run's cache.
+  browserProfile = await mkdtemp(resolve(artifactsRoot, "browser-profile-"));
+  context = await chromium.launchPersistentContext(browserProfile, {
     executablePath: chromeExecutable,
     headless: !profile.headed,
-    args: ["--enable-features=Vulkan,UseSkiaRenderer", "--enable-unsafe-webgpu"]
-  });
-  browserVersion = browser.version();
-  record("browser:launch", {
-    version: browserVersion,
-    headed: profile.headed,
-    channel: profile.browserChannel
-  });
-  browser.on("disconnected", () => record("browser:disconnected", {}));
-  context = await browser.newContext({
+    args: ["--enable-features=Vulkan,UseSkiaRenderer", "--enable-unsafe-webgpu"],
     viewport: { width: profile.viewport[0], height: profile.viewport[1] },
     deviceScaleFactor: profile.deviceScaleFactor,
     serviceWorkers: "block"
   });
+  browser = context.browser();
+  browserVersion = browser.version();
+  record("browser:launch", {
+    version: browserVersion,
+    headed: profile.headed,
+    channel: profile.browserChannel,
+    storage: "fresh-disk-profile"
+  });
+  browser.on("disconnected", () => record("browser:disconnected", {}));
   page = await context.newPage();
   page.on("console", (message) => record(`console:${message.type()}`, message.text()));
   page.on("pageerror", (error) => record("page:error", error.message));
@@ -207,6 +212,15 @@ try {
   await page?.close().catch((error) => record("cleanup:page", String(error)));
   await context?.close().catch((error) => record("cleanup:context", String(error)));
   await browser?.close().catch((error) => record("cleanup:browser", String(error)));
+  if (browserProfile) {
+    try {
+      await rm(browserProfile, { recursive: true, force: true });
+      record("cleanup:browser-profile", { removed: true });
+    } catch (error) {
+      runnerError ??= new Error(`Isolated browser profile cleanup failed: ${String(error)}`);
+      record("cleanup:browser-profile", String(error));
+    }
+  }
   if (!server.killed) server.kill();
   await Promise.race([
     new Promise((resolvePromise) => server.once("exit", resolvePromise)),
@@ -295,6 +309,7 @@ const result = {
     browserExecutable: chromeExecutable,
     browserExecutableSha256,
     browserVersion,
+    browserStorage: "fresh-disk-profile",
     userAgent,
     startedAt: runnerStartedAt,
     completedAt: new Date().toISOString()

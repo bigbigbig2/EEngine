@@ -11,6 +11,18 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "geometry-shadow-view",
+    file: "OEngine/tests/oracle/geometry-shadow-view-gpu.mjs",
+    url: "/OEngine/tests/oracle/geometry-shadow-view-gpu.mjs",
+    entry: "runGeometryShadowViewGpuOracle",
+    requiredFeatures: ["timestamp-query"],
+    allowPrefixes: ["OEngine/src/render/assets/"],
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    description:
+      "Actual Renderer off-camera caster, native alpha, visible receiver HDR and shadow abort/retry.",
+    timeoutMs: 180_000
+  }),
+  Object.freeze({
     name: "geometry-budgeted-residency",
     file: "OEngine/tests/oracle/geometry-budgeted-residency-gpu.mjs",
     url: "/OEngine/tests/oracle/geometry-budgeted-residency-gpu.mjs",
@@ -212,10 +224,23 @@ export const oracles = Object.freeze([
     file: "OEngine/tests/oracle/geometry-product-scale-gpu.mjs",
     url: "/OEngine/tests/oracle/geometry-product-scale-gpu.mjs",
     entry: "runGeometryProductScaleGpuOracle",
+    requiredFeatures: ["timestamp-query"],
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     description: "Product publication, depth-0/deep forests, instance multiplicity, multi-Product and fail-closed work/abort controls.",
     timeoutMs: 180_000,
     note: "Uses production MultiRuntime, HierarchicalWorkGenerator and MeshletWorkCandidate; no alternative renderer."
+  }),
+  Object.freeze({
+    name: "geometry-scale-production",
+    file: "OEngine/tests/oracle/geometry-scale-production-gpu.mjs",
+    url: "/OEngine/tests/oracle/geometry-scale-production-gpu.mjs",
+    entry: "runGeometryScaleProductionGpuOracle",
+    allowPrefixes: ["OEngine/src/render/assets/"],
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    requiredFeatures: ["texture-formats-tier1", "timestamp-query"],
+    timeoutMs: 300000,
+    description: "Actual Renderer 1080p exhaustive raster/winner coverage for 10k/100k procedural instances and 8/66 Products.",
+    note: "Resident position-only Unlit scale fixture, not authored material/streaming quality or historical speedup."
   }),
   Object.freeze({
     name: "virtual-geometry-instance-culling",

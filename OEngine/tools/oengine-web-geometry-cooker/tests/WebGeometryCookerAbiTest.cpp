@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <iostream>
@@ -530,7 +531,51 @@ void AssertIndependentSurfaceContinuity() {
     assert((metadata.fieldRisk>>16)==2&&metadata.identityRisk==kSurfaceLodLocal);
 }
 
+void AssertConservativeTranslatedHierarchy() {
+    // Object-space coordinates can be much larger than a local meshlet. Check
+    // the serialized spheres in double precision, independently of the cooker's
+    // validation epsilon and without comparing to a generated golden hash.
+    for (const float origin : {0.0f, -87651.0f, 1048576.0f}) {
+        CanonicalGeometryAsset source;
+        source.sourceName = "translated-hierarchy-bounds";
+        MaterialDomain domain;
+        domain.attributeMask = kAttributePosition | kAttributeNormal;
+        constexpr std::uint32_t side = 49u;
+        for (std::uint32_t y = 0; y < side; ++y) for (std::uint32_t x = 0; x < side; ++x) {
+            CanonicalVertex vertex;
+            vertex.position[0] = origin + float(x) * 0.137f;
+            vertex.position[1] = origin + float(y) * 0.193f;
+            vertex.position[2] = float((x * y) % 11u) * 0.017f;
+            domain.vertices.push_back(vertex);
+        }
+        for (std::uint32_t y = 0; y + 1 < side; ++y) for (std::uint32_t x = 0; x + 1 < side; ++x) {
+            const auto first = y * side + x;
+            domain.indices.insert(domain.indices.end(), {first, first + 1u, first + side,
+                first + 1u, first + side + 1u, first + side});
+        }
+        source.domains.push_back(domain);
+        GeometryCookRecipeV3 recipe;
+        recipe.groupTargetMeshlets = 4u;
+        CookEvidenceV3 evidence;
+        const auto cooked = CookGeometryAssetV3(source, recipe, evidence);
+        assert(cooked.hierarchy.size() > 1u);
+        for (const auto& node : cooked.hierarchy) {
+            if (IsGroupLeafV3(node.packedNodeData)) continue;
+            const auto first = (node.packedNodeData >> 1u) & 0x07ffffffu;
+            const auto count = (node.packedNodeData >> 28u) & 0x0fu;
+            for (std::uint32_t i = 0; i < count; ++i) {
+                const auto& child = cooked.hierarchy.at(first + i);
+                const double dx = double(child.boundsSphere[0]) - node.boundsSphere[0];
+                const double dy = double(child.boundsSphere[1]) - node.boundsSphere[1];
+                const double dz = double(child.boundsSphere[2]) - node.boundsSphere[2];
+                assert(std::sqrt(dx * dx + dy * dy + dz * dz) + child.boundsSphere[3] <= node.boundsSphere[3]);
+            }
+        }
+    }
+}
+
 int main() {
+    AssertConservativeTranslatedHierarchy();
     AssertIndependentSurfaceContinuity();
     AssertSurfaceMetadataAndPageCapacity();
     AssertMeshletSeamsAndTerminalLod();

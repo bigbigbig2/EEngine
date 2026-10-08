@@ -2,6 +2,7 @@ import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { GPU_GEOMETRY_RECORD_WGSL, GPU_MESHLET_RECORD_WGSL } from "../gpu/GpuGeometryAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import { VSM_PAGE_TABLE_WGSL } from "./vsm_page_table.js";
+import { HIERARCHY_LOD_WGSL } from "./hierarchy_lod.js";
 
 const GPU_INSTANCE_RASTER_CASTS_SHADOW = 1 << 1;
 const GPU_INSTANCE_RASTER_TRANSPARENT = 1 << 6;
@@ -16,6 +17,7 @@ ${GPU_INSTANCE_RECORD_WGSL}
 ${GPU_GEOMETRY_RECORD_WGSL}
 ${GPU_MESHLET_RECORD_WGSL}
 ${GPU_MESHLET_RASTER_WORK_WGSL}
+${HIERARCHY_LOD_WGSL}
 
 struct Constants {
   light_view: mat4x4f,
@@ -100,11 +102,23 @@ fn page_overlaps_sphere(center: vec3f, radius: f32, work: VsmPageWork,
 }
 
 @compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) id: vec3u) {
-  if (id.x == 0u) { atomicStore(&caster.generation, constants.control.x); }
-  let work_count = min(meshlet_work.header.written_count, constants.control.y);
-  if (id.x >= work_count || id.x >= arrayLength(&meshlet_work.elements)) { return; }
-  let work = meshlet_work.elements[id.x];
+fn main(@builtin(global_invocation_id) id: vec3u, @builtin(num_workgroups) grid: vec3u) {
+  let index = id.x + id.y * grid.x * 64u;
+  let capacity = min(constants.control.y,
+    min(meshlet_work.header.capacity, arrayLength(&meshlet_work.elements)));
+  let failure = meshlet_work.header.invalid_count | meshlet_work.header.overflow_count |
+    select(0u, 1u, meshlet_work.header.written_count > capacity);
+  if (index == 0u) {
+    atomicStore(&caster.generation, constants.control.x);
+    if (failure != 0u) {
+      atomicStore(&caster.overflow, 1u);
+      atomicAdd(&telemetry.caster_overflow, 1u);
+    }
+  }
+  if (failure != 0u) { return; }
+  let work_count = meshlet_work.header.written_count;
+  if (index >= work_count || index >= arrayLength(&meshlet_work.elements)) { return; }
+  let work = meshlet_work.elements[index];
   if (work.instance_slot >= arrayLength(&instances)) { return; }
   let instance = instances[work.instance_slot];
   if (!oengine_instance_active(instance) ||
@@ -113,8 +127,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let object_to_world = oengine_instance_current_object_to_world(instance);
   let local_center = instance.bounds_sphere.xyz;
   let center = (constants.light_view * object_to_world * vec4f(local_center, 1.0)).xyz;
-  let radius = max(0.001, instance.bounds_sphere.w *
-    max(length(object_to_world[0].xyz), max(length(object_to_world[1].xyz), length(object_to_world[2].xyz))));
+  let radius = max(0.001, instance.bounds_sphere.w * hierarchy_conservative_scale(object_to_world));
   let page_count = min(atomicLoad(&allocation.written), constants.control.w);
   for (var page_index = 0u; page_index < page_count; page_index++) {
     let page = allocation.records[page_index];
@@ -140,7 +153,7 @@ struct OEngineDrawIndirectArgs { vertex_count: u32, instance_count: u32, first_v
 
 @compute @workgroup_size(1)
 fn finalize_indirect() {
-  let count = min(atomicLoad(&caster.written), constants.control.z);
+  let count = select(0u, min(atomicLoad(&caster.written), constants.control.z), atomicLoad(&caster.overflow) == 0u);
   raster_indirect[0] = OEngineDrawIndirectArgs(384u, count, 0u, 0u);
   raster_indirect[1] = OEngineDrawIndirectArgs(384u, count, 0u, 0u);
   raster_indirect[2] = OEngineDrawIndirectArgs(6u,

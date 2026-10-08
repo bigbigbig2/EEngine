@@ -41,6 +41,7 @@ class FakeBuffer {
 
 function device() {
   return {
+    lost: new Promise(() => {}),
     createBuffer(descriptor) {
       return new FakeBuffer(descriptor);
     }
@@ -83,6 +84,82 @@ test("GPU demand ring copies in-frame and maps only after a later completion", a
   assert.deepEqual([...new Uint8Array(results[0].bytes).slice(0, 4)], [1, 2, 3, 4]);
   ring.release(results[0].slotIndex);
   ring.destroy();
+});
+
+function deferred() {
+  let resolve, reject;
+  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+
+for (const shadow of [false, true]) {
+  test(`loss cancels pending ${shadow ? "shadow" : "main"} mapping and queued pumps`, async () => {
+    const lost = deferred();
+    const started = deferred();
+    const mapping = deferred();
+    const buffers = [];
+    const gpu = {
+      lost: lost.promise,
+      createBuffer(descriptor) {
+        const buffer = new FakeBuffer(descriptor);
+        buffer.mapAsync = () => { started.resolve(); return mapping.promise; };
+        buffers.push(buffer);
+        return buffer;
+      }
+    };
+    const residency = { evidence: () => ({}) };
+    const runtime = new GeometryPageStreamingRuntimeV1(gpu, residency, {
+      readback: { slotCount: 2, bytesPerSlot: 64 }
+    });
+    const source = new FakeBuffer({ size: 32, usage: 0 });
+    if (shadow) runtime.encodeShadowDemandReadback(command(), source, 1);
+    else runtime.encodeDemandReadback(command(), source, 1);
+    const active = runtime.consumeAfterCompletion(1, Promise.resolve());
+    await started.promise;
+    const queued = runtime.consumeAfterCompletion(2, Promise.resolve());
+    lost.resolve({ reason: "destroyed" });
+    await Promise.resolve();
+    mapping.reject(new Error("map canceled by device loss"));
+    for (const result of await Promise.all([active, queued])) {
+      assert.equal(result.cancelled, true);
+      assert.equal(result.uploadedBytes, 0);
+    }
+    assert.equal(runtime.evidence().lastError, null);
+    assert.equal(runtime.evidence().readback.inUse, 0);
+    if (shadow) assert.equal(runtime.evidence().shadowReadback.inUse, 0);
+    assert.ok(buffers.every((buffer) => buffer.destroyed));
+    runtime.destroy();
+  });
+}
+
+test("live-device mapping failures remain observable", async () => {
+  const gpu = device();
+  gpu.createBuffer = (descriptor) => {
+    const buffer = new FakeBuffer(descriptor);
+    buffer.mapAsync = async () => { throw new Error("real live mapping failure"); };
+    return buffer;
+  };
+  const runtime = new GeometryPageStreamingRuntimeV1(gpu, { evidence: () => ({}) }, {
+    readback: { slotCount: 2, bytesPerSlot: 64 }
+  });
+  runtime.encodeDemandReadback(command(), new FakeBuffer({ size: 32, usage: 0 }), 1);
+  await assert.rejects(runtime.consumeAfterCompletion(1, Promise.resolve()), (error) => {
+    assert.match(error.message, /Geometry demand mapping failed/);
+    assert.match(error.errors[0].message, /real live mapping failure/);
+    return true;
+  });
+  assert.match(runtime.evidence().lastError, /mapping failed/);
+  runtime.destroy();
+});
+
+test("destroyed runtime cancels rejected completion; live rejection remains an error", async () => {
+  const runtime = new GeometryPageStreamingRuntimeV1(device(), { evidence: () => ({}) });
+  await assert.rejects(runtime.consumeAfterCompletion(1, Promise.reject(new Error("live fence"))), /live fence/);
+  const completion = deferred();
+  const pump = runtime.consumeAfterCompletion(2, completion.promise);
+  runtime.destroy();
+  completion.reject(new Error("lost fence"));
+  assert.equal((await pump).cancelled, true);
 });
 
 test("streaming runtime consumes delayed demand and uploads through residency", async () => {

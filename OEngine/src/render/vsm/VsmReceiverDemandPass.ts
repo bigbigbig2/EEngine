@@ -4,6 +4,11 @@ import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandCon
 import { resolveTextureView } from "../RenderTargetViews.js";
 import { VsmResources } from "./VsmResources.js";
 import { VSM_RECEIVER_DEMAND_WGSL } from "../../shaders/vsm_receiver_demand.js";
+import {
+  SHADOW_NORMAL_OFFSET_SCALE,
+  SHADOW_DEPTH_BIAS,
+  SHADOW_DEPTH_SLOPE_SCALE
+} from "../../gpu/ShadowContract.js";
 
 export interface VsmReceiverDemandInputs {
   readonly width: number;
@@ -26,6 +31,7 @@ export interface VsmDirectionalFrameConstants {
 
 export interface VsmDemandFrame {
   readonly demand: ResourceId;
+  readonly samplingConstants: ResourceId;
   readonly generation: number;
   readonly capacity: number;
 }
@@ -97,8 +103,10 @@ export function buildVsmDirectionalFrameConstants(
     const pageWorld = texelWorld * profile.pageSize;
     const lightX = right[0] * center[0] + right[1] * center[1] + right[2] * center[2];
     const lightY = up[0] * center[0] + up[1] * center[1] + up[2] * center[2];
-    const originX = Math.floor(lightX / pageWorld) * pageWorld - extent * 0.5;
-    const originY = Math.floor(lightY / pageWorld) * pageWorld - extent * 0.5;
+    // lightView already subtracts the camera center. Keep world-quantized
+    // clipmap origins in that same relative coordinate system.
+    const originX = Math.floor(lightX / pageWorld) * pageWorld - lightX - extent * 0.5;
+    const originY = Math.floor(lightY / pageWorld) * pageWorld - lightY - extent * 0.5;
     return Object.freeze([originX, originY, extent, texelWorld] as const);
   });
   return Object.freeze({ generation, lightView, clipOriginExtent: Object.freeze(levels) });
@@ -125,6 +133,29 @@ function packConstants(input: VsmReceiverDemandInputs, resources: VsmResources):
     44,
   );
   floats.set([1 / input.width, 1 / input.height, 1, 0], 48);
+  return data;
+}
+
+/** Same light projection/page ABI as raster. Biases are shadow texels;
+ * depth = .5 - lightZ/(extent*8), texelWorld = extent/(pages*pageSize).
+ * Thus one finest-level shadow texel is 1/(pages*pageSize*8) depth units. */
+export function packVsmSamplingConstants(input: VsmReceiverDemandInputs): ArrayBuffer {
+  const data = packConstants(input, input.resources);
+  const floats = new Float32Array(data),
+    uints = new Uint32Array(data);
+  const profile = input.resources.capabilities;
+  uints.set([profile.virtualPagesPerAxis, profile.pageSize, profile.border, profile.atlasPagesPerAxis], 40);
+  uints.set([profile.clipLevels, input.generation, profile.pcfTapCount, profile.atlasDimension], 44);
+  const depthPerTexel = 1 / (profile.virtualPagesPerAxis * profile.pageSize * 8);
+  floats.set(
+    [
+      SHADOW_NORMAL_OFFSET_SCALE * depthPerTexel,
+      SHADOW_DEPTH_BIAS * depthPerTexel,
+      SHADOW_DEPTH_SLOPE_SCALE * depthPerTexel,
+      0
+    ],
+    48
+  );
   return data;
 }
 
@@ -182,7 +213,13 @@ export class VsmReceiverDemandPass {
     const demand = graph.import_resource(
       "VSM/demand",
       { kind: "imported", label: "VSM demand buffer" },
-      demandBuffer,
+      demandBuffer
+    );
+    if (!input.resources.pageConstants) throw new Error("VSM sampling constants are unavailable");
+    const sampling = graph.import_resource(
+      "VSM/sampling constants",
+      { kind: "imported" },
+      input.resources.pageConstants
     );
     const update = graph.add("VSM/update receiver demand constants", input, (data, _resources, context) => {
       (context.encoder as ShadeGPUCommandContext).writeBuffer(
@@ -190,10 +227,18 @@ export class VsmReceiverDemandPass {
         0,
         packConstants(data, input.resources),
         0,
-        CONSTANT_BYTES,
+        CONSTANT_BYTES
+      );
+      (context.encoder as ShadeGPUCommandContext).writeBuffer(
+        data.resources.pageConstants!,
+        0,
+        packVsmSamplingConstants(data),
+        0,
+        CONSTANT_BYTES
       );
     });
     const currentConstants = update.write(constants);
+    const samplingConstants = update.write(sampling);
     const produce = graph.add("VSM/receiver demand", {}, (_data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
       const demandBuffer = resources.get(demand) as GPUBuffer;
@@ -220,7 +265,12 @@ export class VsmReceiverDemandPass {
     produce.read(input.visibilityKey);
     const producedDemand = produce.write(demand);
     produce.make_side_effect();
-    return { demand: producedDemand, generation: input.generation, capacity: profile.demandCapacity };
+    return {
+      demand: producedDemand,
+      samplingConstants,
+      generation: input.generation,
+      capacity: profile.demandCapacity
+    };
   }
 
   destroy(): void {

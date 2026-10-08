@@ -1,7 +1,12 @@
 # OEngine Web Geometry Cooker
 
-Current artifacts (2026-10-08 / G2.2): native, portable-single and pthread
-producers use input ABI 4 and `static-pbr-page-local-f32-lean-v7`. Runtime
+Current artifacts (2026-10-08 / G2.4): native, portable-single and pthread
+producers use input ABI 4, `static-pbr-page-local-f32-lean-v7` and hierarchy
+recipe `nyx-hierarchy-v4.1-conservative-spheres`. Sphere merge recomputes the
+required radius about the stored f32 center and rounds outward; the independent
+translated-hierarchy oracle tests strict double containment. This changes
+content/recipe identity, not page layout. Existing Products need recooking.
+Runtime
 Groups contain page-local local indices and authored vertices, without the
 retired 64-byte/triangle continuity payload (bits 6/7). Obsolete artifacts and
 Products require recooking; no compatibility decoder is provided. Cook-only
@@ -45,8 +50,8 @@ canonical-window builder, and the Phase D optional spill-release hook
 (`abi_version == 4`):
 
 ```text
-oengine-web-geometry-cooker.mjs   SHA-256 cb18635b24d4c4dba7793844150be21b661b6091a2564bfe1e4ac4d4fe536ae8
-oengine-web-geometry-cooker.wasm  SHA-256 0a6d933e4b0b49d9a6de4dc12f99c45cc046cb7d3ac6b7db93906a6b98eeadc6
+oengine-web-geometry-cooker.mjs   SHA-256 de6778326d6ce9cba027cb8b479cfbd8d518ce691779813bbb2fea71568f8c5f
+oengine-web-geometry-cooker.wasm  SHA-256 fb1dc19ac74db8d52e7a32101af1c81c8689e79d0908f9d2ab66bf318aebd442
 ```
 
 The cooker emits one Product asset per canonical material domain, so a
@@ -82,8 +87,8 @@ The current artifact carries the same ADR-0017/ADR-0018 Phase B ABI
 (`abi_version == 4`):
 
 ```text
-threads/oengine-web-geometry-cooker.mjs   SHA-256 e1ee2fcef774aa72ee1bc257a6e69521021d504b920a6735963896227d0c3a90
-threads/oengine-web-geometry-cooker.wasm  SHA-256 9146e575183cdd93477c028eea9b8d7f0abcb7f8054ee6914b3d46b7969aa61f
+threads/oengine-web-geometry-cooker.mjs   SHA-256 088665a4c8ca9f5f7b3da8b4eac1f8f708da5d89291c6527b2b39f6027cf0396
+threads/oengine-web-geometry-cooker.wasm  SHA-256 bcc9a007efb70241a2012cb03655b1bca365ccb2e97a199b5d920ca0c86a6d5b
 ```
 
 2026-09-29: both artifacts rebuilt for nyx-hierarchy-v3.1 and

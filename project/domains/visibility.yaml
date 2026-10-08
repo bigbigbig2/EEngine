@@ -14,6 +14,7 @@ paths:
   - OEngine/src/render/passes/**
   - OEngine/src/render/visibility/**
   - OEngine/src/render/HierarchicalWorkGenerator.ts
+  - OEngine/src/render/ShadowGeometryWork.ts
   - OEngine/src/render/HierarchicalZBuffer.ts
   - OEngine/src/render/CurrentHzbLateRecheck.ts
   - OEngine/src/render/MeshletWorkCandidate.ts
@@ -37,6 +38,7 @@ checks:
   - model
   - registry
 watch:
+  - OEngine/src/render/ShadowGeometryWork.ts
   - OEngine/src/render/passes/**
   - OEngine/src/render/visibility/**
   - OEngine/src/render/HierarchicalWorkGenerator.ts

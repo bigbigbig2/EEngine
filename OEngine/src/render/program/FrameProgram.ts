@@ -22,6 +22,7 @@ export type FrameProduct =
   | "visibility"
   | "depth"
   | "meshlet-work"
+  | "shadow-geometry-work"
   | "hzb"
   | "light-cluster"
   | "indirect-visibility"
@@ -270,6 +271,15 @@ const PRODUCT_SPEC: Readonly<
     invalid: "neutral visibility one",
     version: "frame"
   },
+  "shadow-geometry-work": {
+    producer: "visibility",
+    domain: "gpu-work",
+    format: "structured-buffer",
+    value: "independent light-view MeshletWork and instance transforms",
+    coverage: "conservative directional clipmap caster volume",
+    invalid: "observable overflow; never complete partial caster coverage",
+    version: "frame"
+  },
   "shadow-demand": {
     producer: "vsm",
     domain: "gpu-work",
@@ -407,6 +417,10 @@ const INPUT_CONTRACTS: Readonly<
     depth: { domain: "internal-full", value: "reverse depth" }
   },
   "shadow-visibility": {
+    "shadow-geometry-work": {
+      domain: "gpu-work",
+      value: "independent light-view MeshletWork and instance transforms"
+    },
     visibility: { domain: "internal-full", value: "packed VisibilityKey" },
     depth: { domain: "internal-full", value: "reverse depth" }
   },
@@ -421,7 +435,8 @@ const INPUT_CONTRACTS: Readonly<
   },
   hzb: { depth: { domain: "internal-full", value: "reverse depth" } },
   depth: {},
-  "meshlet-work": {}
+  "meshlet-work": {},
+  "shadow-geometry-work": {}
 };
 
 function positiveInteger(value: number, name: string): void {
@@ -567,6 +582,10 @@ function dependencies(product: FrameProduct, request: FrameProgramRequest): read
         "meshlet-work",
         "depth",
         ...(request.hasLit ? ["light-cluster" as const] : []),
+        ...(request.shadowProfile === "vsm-directional-high" ||
+        request.shadowProfile === "vsm-directional-bounded"
+          ? ["shadow-visibility" as const]
+          : []),
         ...(request.aoProfile === "scalar-high" ? ["indirect-visibility" as const] : [])
       ];
     case "indirect-visibility":
@@ -576,7 +595,7 @@ function dependencies(product: FrameProduct, request: FrameProgramRequest): read
     case "shadow-allocation":
       return ["shadow-demand"];
     case "shadow-visibility":
-      return ["visibility", "depth"];
+      return ["visibility", "depth", "shadow-geometry-work"];
     case "light-cluster":
       return ["hzb"];
     case "visibility":
@@ -585,6 +604,7 @@ function dependencies(product: FrameProduct, request: FrameProgramRequest): read
       return ["depth"];
     case "depth":
     case "meshlet-work":
+    case "shadow-geometry-work":
       return [];
   }
 }

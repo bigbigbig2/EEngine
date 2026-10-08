@@ -44,7 +44,7 @@ struct OEngineVirtualCandidateSettings {
   counters_enabled: u32,
   product_generation: u32,
   visible_capacity: u32,
-  reserved: u32,
+  max_dimension: u32,
 };
 struct OEngineDrawIndirectArgs {
   vertex_count: u32,
@@ -65,6 +65,8 @@ struct OEngineDrawIndirectArgs {
 @group(0) @binding(9) var<storage, read> product_bank_3: array<u32>;
 @group(0) @binding(10) var<storage, read> product_instances: array<OEngineInstanceRecord>;
 @group(0) @binding(11) var<uniform> product_view: OEngineHierarchyView;
+// Only the prepare entry uses this group; expansion never binds writable args.
+@group(1) @binding(0) var<storage, read_write> product_dispatch: array<u32>;
 
 var<workgroup> product_selected: array<u32, 128>;
 var<workgroup> product_offsets: array<u32, 128>;
@@ -86,19 +88,17 @@ fn product_bank_word(bank: u32, word: u32) -> u32 {
 }
 
 fn product_reserve(count: u32) -> u32 {
-  atomicAdd(&product_work.header.attempted_count, count);
-  var observed = atomicLoad(&product_work.header.written_count);
-  loop {
-    if count == 0u || count > product_work.header.capacity -
-      min(observed, product_work.header.capacity) {
-      atomicAdd(&product_work.header.overflow_count, count);
-      return 0xffffffffu;
-    }
-    let result = atomicCompareExchangeWeak(&product_work.header.written_count,
-      observed, observed + count);
-    if result.exchanged { return observed; }
-    observed = result.old_value;
+  // Admission bounds the complete meshlet cut; a bad/overflowed cut is rejected
+  // by finalize before any consumer. Use the diagnostic attempted counter as
+  // a unique range ticket instead of contending in a global CAS retry loop.
+  let base = atomicAdd(&product_work.header.attempted_count, count);
+  if (count == 0u || base > product_work.header.capacity ||
+      count > product_work.header.capacity - min(base, product_work.header.capacity)) {
+    atomicAdd(&product_work.header.overflow_count, count);
+    return 0xffffffffu;
   }
+  atomicAdd(&product_work.header.written_count, count);
+  return base;
 }
 
 @compute @workgroup_size(1)
@@ -112,7 +112,8 @@ fn prepare_virtual_geometry_work() {
   // failure reaches every consumer through the final MeshletWork header.
   if (product_visible.header.overflow != 0u ||
       product_visible.header.written > product_visible.header.capacity ||
-      product_visible.header.capacity > product_settings.visible_capacity) {
+      product_visible.header.capacity > product_settings.visible_capacity ||
+      product_visible.header.capacity > arrayLength(&product_visible.elements)) {
     atomicStore(&product_work.header.invalid_count, 1u);
   }
   let generation = atomicLoad(&product_work.header.generation) + 1u;
@@ -121,6 +122,12 @@ fn prepare_virtual_geometry_work() {
   product_draw.vertex_count = 384u;
   product_draw.first_vertex = 0u;
   product_draw.first_instance = 0u;
+  let valid = atomicLoad(&product_work.header.invalid_count) == 0u;
+  let count = select(0u, product_visible.header.written, valid);
+  let dimension = product_settings.max_dimension;
+  product_dispatch[0] = min(count, dimension);
+  product_dispatch[1] = max(1u, count / dimension + select(0u, 1u, count % dimension != 0u));
+  product_dispatch[2] = 1u;
 }
 
 @compute @workgroup_size(64)
@@ -128,10 +135,11 @@ fn generate_virtual_geometry_work(@builtin(workgroup_id) group: vec3u,
   @builtin(local_invocation_index) lane: u32) {
   if (lane == 0u) { product_visible_count = min(product_visible.header.written, product_visible.header.capacity); }
   let visible_count = workgroupUniformLoad(&product_visible_count);
-  if (group.x >= visible_count || group.x >= product_settings.visible_capacity) { return; }
+  let visible_index = group.x + group.y * product_settings.max_dimension;
+  if (visible_index >= visible_count || visible_index >= product_settings.visible_capacity) { return; }
   if (lane == 0u) {
     product_group_valid = 0u;
-    let visible = product_visible.elements[group.x];
+    let visible = product_visible.elements[visible_index];
     let instance = product_instances[visible.instance_record_index];
     let asset = oengine_geometry_product_resolve_asset_v1(
       &product_heap, visible.geometry_record_index, oengine_instance_geometry_generation(instance));
@@ -161,7 +169,7 @@ fn generate_virtual_geometry_work(@builtin(workgroup_id) group: vec3u,
   }
   let group_valid = workgroupUniformLoad(&product_group_valid);
   if (group_valid == 0u) { return; }
-  let visible = product_visible.elements[group.x];
+  let visible = product_visible.elements[visible_index];
   let instance = product_instances[visible.instance_record_index];
   let asset = oengine_geometry_product_resolve_asset_v1(
     &product_heap, visible.geometry_record_index, oengine_instance_geometry_generation(instance));

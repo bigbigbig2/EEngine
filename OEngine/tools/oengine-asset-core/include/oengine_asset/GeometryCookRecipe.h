@@ -7,7 +7,7 @@ namespace oengine::asset {
 
 struct GeometryCookRecipeV3 {
     std::string meshoptimizerRevision = "meshoptimizer-1.3-9e1f07b159d3";
-    std::string hierarchyAlgorithmVersion = "nyx-hierarchy-v4.0-attribute-update";
+    std::string hierarchyAlgorithmVersion = "nyx-hierarchy-v4.1-conservative-spheres";
     std::uint32_t meshletMaxVertices = 64u;
     std::uint32_t meshletMinTriangles = 32u;
     std::uint32_t meshletMaxTriangles = 128u;

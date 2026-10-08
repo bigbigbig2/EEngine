@@ -84,7 +84,6 @@ fn append_work(record: VsmPageWork) -> bool {
     }
     observed = result.old_value;
   }
-  return false;
 }
 
 fn release_page_lock(index: u32) {

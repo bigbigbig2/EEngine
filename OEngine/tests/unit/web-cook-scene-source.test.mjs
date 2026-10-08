@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { productDescriptorForAssetRecords } from "../helpers/geometry-product-fixture.mjs";
 
 const { createWebCookSceneSource, createWebCookSceneSourceAsync, decodeWebCookImageBitmap } = await import(
   "../../.test-dist/assets/web-cook/WebCookSceneSource.js"
@@ -65,7 +66,7 @@ test("separate Web Cook Products use one catalog fit without moving earlier inst
   for (let index = 0; index < 2; index++) {
     const mapped = await createWebCookSceneSourceAsync(
       catalog,
-      { assetRecords },
+      productDescriptorForAssetRecords(assetRecords),
       async () => {
         throw new Error("no image expected");
       },
@@ -78,7 +79,7 @@ test("separate Web Cook Products use one catalog fit without moving earlier inst
     );
     assert.equal(mapped.materials[0].metallic_factor, 1, "missing glTF metallicFactor defaults to one");
     assert.equal(
-      createWebCookSceneSource(catalog, { assetRecords }, { sceneAssetIndices: [index] }).materials[0]
+      createWebCookSceneSource(catalog, productDescriptorForAssetRecords(assetRecords), { sceneAssetIndices: [index] }).materials[0]
         .metallic_factor,
       1,
     );
@@ -131,7 +132,7 @@ test("geometry-only mapping preserves selected primitives and skips authored ima
   let timing;
   const mapped = await createWebCookSceneSourceAsync(
     catalog,
-    { assetRecords },
+    productDescriptorForAssetRecords(assetRecords),
     async () => {
       reads++;
       throw new Error("image read");
@@ -300,7 +301,7 @@ test("Web Cook async mapper materializes authored texture slots before scene sou
         uri: `https://example.test/${imageIndex}.png`,
       })),
     };
-    const result = await createWebCookSceneSourceAsync(catalog, { assetRecords }, async () => ({
+    const result = await createWebCookSceneSourceAsync(catalog, productDescriptorForAssetRecords(assetRecords), async () => ({
       bytes: new Uint8Array([1, 2, 3]).buffer,
       mimeType: "image/png",
     }));
@@ -378,10 +379,10 @@ test("Web Cook async mapper shares matching image usage but separates normal mip
     // revision is still resident. Sharing the cache keeps one resident texture
     // per image instead of one per revision.
     const cache = new Map();
-    const first = await createWebCookSceneSourceAsync(catalog, { assetRecords }, readImage, undefined, {
+    const first = await createWebCookSceneSourceAsync(catalog, productDescriptorForAssetRecords(assetRecords), readImage, undefined, {
       textureCache: cache,
     });
-    const second = await createWebCookSceneSourceAsync(catalog, { assetRecords }, readImage, undefined, {
+    const second = await createWebCookSceneSourceAsync(catalog, productDescriptorForAssetRecords(assetRecords), readImage, undefined, {
       textureCache: cache,
     });
     assert.equal(decodes, 2, "sRGB and normal usage each decode once");
@@ -395,7 +396,7 @@ test("Web Cook async mapper shares matching image usage but separates normal mip
     assert.notEqual(first.materials[0].texture_albedo, first.materials[0].texture_normal);
     // Without a cache each revision owns its own texture, which is what doubles
     // the layers a size-class bank must hold during a replacement.
-    const isolated = await createWebCookSceneSourceAsync(catalog, { assetRecords }, readImage);
+    const isolated = await createWebCookSceneSourceAsync(catalog, productDescriptorForAssetRecords(assetRecords), readImage);
     assert.equal(decodes, 4);
     assert.notEqual(first.materials[0].texture_albedo, isolated.materials[0].texture_albedo);
   } finally {

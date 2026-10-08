@@ -6,6 +6,7 @@ import type { GpuAssetBindings } from "../../gpu/GpuAssetStore.js";
 import type { GpuSceneBindings } from "../../gpu/GpuScene.js";
 import type { GpuRenderWorldRuntime } from "../../gpu/GpuRenderWorld.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
+import { ShadowGeometryWork } from "../ShadowGeometryWork.js";
 import {
   PackedVisibilityPass,
   type PackedVisibilityInputs,
@@ -23,9 +24,11 @@ import {
  */
 export class VisibilityFeature {
   private readonly implementation: PackedVisibilityPass;
+  private readonly shadow: ShadowGeometryWork;
 
   constructor(graphics: GraphicsContext) {
     this.implementation = new PackedVisibilityPass(graphics);
+    this.shadow = new ShadowGeometryWork(graphics);
   }
 
   get lastDrawIndirect(): boolean {
@@ -69,14 +72,57 @@ export class VisibilityFeature {
     camera: GPUBuffer,
     command: ShadeGPUCommandContext,
   ): PreparedPackedVisibility {
-    return this.implementation.prepareHierarchy(job, counters, camera, command);
+    const prepared = this.implementation.prepareHierarchy(job, counters, camera, command);
+    return Object.freeze({
+      ...prepared,
+      shadowGeometry: this.shadow.prepare(job, prepared.workSet, camera, command)
+    });
+  }
+
+  addShadowToGraph(
+    graph: FrameGraph,
+    job: PackedVisibilityJob,
+    inputs: {
+      camera: ResourceId;
+      instances: ResourceId;
+      meshletWork: ResourceId;
+      frameInstances: ResourceId;
+      productHeap?: ResourceId;
+      productBanks?: readonly ResourceId[];
+      geometrySources: readonly ResourceId[];
+    }
+  ): { meshletWork: ResourceId; frameInstances: ResourceId } {
+    const prepared = job.prepared.shadowGeometry;
+    if (!prepared) {
+      throw new Error("VSM requires independently prepared Shadow Geometry");
+    }
+    const pass = graph.add("Geometry/shadow view work", job, (data, _resources, context) => {
+      if (!data.prepared.shadowGeometry) {
+        throw new Error("Shadow Geometry publication is missing");
+      }
+      this.shadow.encode(data, data.prepared.shadowGeometry, context.encoder as ShadeGPUCommandContext);
+    });
+    pass.read(inputs.camera);
+    pass.read(inputs.instances);
+    for (const source of inputs.geometrySources) {
+      pass.read(source);
+    }
+    if (inputs.productHeap !== undefined) {
+      pass.read(inputs.productHeap);
+    }
+    for (const bank of inputs.productBanks ?? []) {
+      pass.read(bank);
+    }
+    return { meshletWork: pass.write(inputs.meshletWork), frameInstances: pass.write(inputs.frameInstances) };
   }
 
   release(runtime: GpuRenderWorldRuntime, command: ShadeGPUCommandContext): void {
+    this.shadow.release(runtime, command);
     this.implementation.release(runtime, command);
   }
 
   destroy(): void {
+    this.shadow.destroy();
     this.implementation.destroy();
   }
 }

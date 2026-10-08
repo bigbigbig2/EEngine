@@ -2,6 +2,8 @@ import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import type { GeometryHierarchyView } from "../../geometry/GeometryHierarchy.js";
+import type { VsmDirectionalFrameConstants } from "../vsm/VsmReceiverDemandPass.js";
+import type { PreparedShadowGeometry } from "../ShadowGeometryWork.js";
 import type { GpuAssetBindings } from "../../gpu/GpuAssetStore.js";
 import type { GpuSceneBindings } from "../../gpu/GpuScene.js";
 import { GPU_INSTANCE_FLAGS } from "../../gpu/GpuInstanceAbi.js";
@@ -60,6 +62,7 @@ import {
 } from "../CurrentHzbLateRecheck.js";
 
 export interface PackedVisibilityPrepareJob {
+  readonly shadowFrame?: VsmDirectionalFrameConstants | null;
   readonly runtime: GpuRenderWorldRuntime;
   readonly assets: GpuAssetBindings;
   readonly scene: GpuSceneBindings;
@@ -168,6 +171,7 @@ type PackedVisibilityMeshletCandidate = Pick<
 >;
 
 export interface PreparedPackedVisibility {
+  readonly shadowGeometry?: PreparedShadowGeometry | null;
   readonly workSet: VisibilityWorkSet;
   readonly bindings: VisibilityBindingSet;
   readonly currentHzbLateRecheck: PreparedCurrentHzbLateRecheck | null;
@@ -224,7 +228,10 @@ export class PackedVisibilityPass {
       new HierarchicalWorkGenerator(graphics.device, graphics.resource_accounting, "VisibilityWorkSet");
     this.meshletCandidate =
       meshletCandidate ?? new MeshletWorkCandidate(graphics.device, graphics.resource_accounting);
-    this.virtualMeshletCandidate = new VirtualGeometryMeshletWorkCandidate(graphics.device);
+    this.virtualMeshletCandidate = new VirtualGeometryMeshletWorkCandidate(
+      graphics.device,
+      graphics.resource_accounting
+    );
     this.meshletBucketRaster = new MeshletBucketRaster(graphics);
   }
 

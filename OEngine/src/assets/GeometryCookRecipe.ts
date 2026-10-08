@@ -17,7 +17,7 @@ export type GeometryVertexProfile = "static-pbr-compact-v2" | "explicit-float32-
 export interface GeometryCookRecipeV3 {
   readonly recipeVersion: 3;
   readonly meshoptimizerRevision: string;
-  readonly hierarchyAlgorithmVersion: "nyx-hierarchy-v4.0-attribute-update";
+  readonly hierarchyAlgorithmVersion: "nyx-hierarchy-v4.1-conservative-spheres";
   readonly meshletMaxVertices: number;
   readonly meshletMinTriangles: number;
   readonly meshletMaxTriangles: number;
@@ -49,7 +49,7 @@ export function createGeometryCookRecipeV3(input: Partial<GeometryCookRecipeV3> 
   const recipe: GeometryCookRecipeV3 = {
     recipeVersion: 3,
     meshoptimizerRevision: "meshoptimizer-1.3-9e1f07b159d3",
-    hierarchyAlgorithmVersion: "nyx-hierarchy-v4.0-attribute-update",
+    hierarchyAlgorithmVersion: "nyx-hierarchy-v4.1-conservative-spheres",
     meshletMaxVertices: 64,
     meshletMinTriangles: 32,
     meshletMaxTriangles: 128,
@@ -80,7 +80,7 @@ export function createGeometryCookRecipeV3(input: Partial<GeometryCookRecipeV3> 
   if (
     recipe.recipeVersion !== 3 ||
     recipe.vertexProfileVersion !== "static-pbr-page-local-f32-lean-v7" ||
-    recipe.hierarchyAlgorithmVersion !== "nyx-hierarchy-v4.0-attribute-update"
+    recipe.hierarchyAlgorithmVersion !== "nyx-hierarchy-v4.1-conservative-spheres"
   )
     throw new RangeError("invalid GeometryCookRecipeV3 identity");
   assertIntegerInRange(recipe.meshletMaxVertices, 3, 128, "meshletMaxVertices");

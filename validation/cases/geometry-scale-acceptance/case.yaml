@@ -1,0 +1,25 @@
+schemaVersion: 1
+id: geometry-scale-acceptance
+route: /cases/geometry-scale-acceptance/index.html
+buildTarget: production
+workloadId: geometry-scale-acceptance-v1
+profile: geometry-scale
+timeoutMs: 1800000
+artifacts: [result, events, screenshot]
+changedPaths:
+  - validation/cases/geometry-scale-acceptance
+  - validation/workloads/geometry-scale-acceptance-v1.yaml
+  - OEngine/src/render
+  - OEngine/src/gpu
+  - OEngine/src/assets
+errorAllowlist:
+  - source: console:warning
+    exact: The powerPreference option is currently ignored when calling
+      requestAdapter() on Windows. See https://crbug.com/369219127
+    reason: Chrome platform warning; adapter identity is captured before and after recovery.
+harness: production
+domain: visibility
+caseKind: production
+kind: perf
+level: L4
+decision: ADR-0020

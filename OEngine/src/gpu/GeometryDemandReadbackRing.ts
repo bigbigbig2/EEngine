@@ -152,6 +152,11 @@ export class GeometryDemandReadbackRingV1 {
         }
       })
     );
+    // reset() may revoke the epoch after a mapping settles but before this
+    // continuation runs. Never release slots belonging to the replacement epoch.
+    if (epoch !== this.#epoch) {
+      return Object.freeze([]);
+    }
     const failures = mappings.filter((result) => result.status === "rejected");
     if (failures.length !== 0) {
       // Do not strand successfully mapped siblings when one mapping fails.

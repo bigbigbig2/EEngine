@@ -199,7 +199,7 @@ export function validateGeometryProductSceneWorkLimits(
   }
   const dimension = limits.maxComputeWorkgroupsPerDimension;
   if (
-    work.hierarchyVisibleClusterCapacity > dimension ||
+    work.hierarchyVisibleClusterCapacity > dimension * dimension ||
     Math.ceil(Math.max(instanceCount, work.hierarchyTraversalCapacity) / 64) > dimension * dimension
   ) {
     throw new RangeError("Product geometry work exceeds the current negotiated dispatch grid");

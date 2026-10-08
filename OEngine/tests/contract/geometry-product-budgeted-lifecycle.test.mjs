@@ -18,6 +18,7 @@ function device() {
   const buffers = [];
   let fences = 0;
   return {
+    lost: new Promise(() => {}),
     buffers,
     get fences() {
       return fences;
@@ -186,6 +187,31 @@ test("demand encode abort/retry, mapping failure siblings and device-loss reset"
   const results = await ring.poll(2);
   assert.equal(results.length, 1);
   ring.release(results[0].slotIndex);
+});
+
+test("reset after mapping settlement cannot release or report the replacement epoch", async () => {
+  let fail = true;
+  const ring = new GeometryDemandReadbackRingV1({
+    bytesPerSlot: 16,
+    slotCount: 2,
+    async mapCompletedSlot(slot) {
+      if (fail && slot.index === 1) throw new Error("revoked mapping");
+      return slot.storage;
+    }
+  });
+  ring.submit(1, () => {});
+  ring.submit(2, () => {});
+  const old = ring.poll(3);
+  queueMicrotask(() => {
+    ring.reset();
+    fail = false;
+    ring.submit(1, () => {});
+  });
+  assert.deepEqual(await old, []);
+  assert.equal(ring.evidence().inUse, 1);
+  const next = await ring.poll(2);
+  assert.equal(next.length, 1);
+  ring.release(next[0].slotIndex);
 });
 
 test("verified bytes remain bounded and both IO/upload service make progress across 66 Products", async () => {

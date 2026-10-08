@@ -379,6 +379,8 @@ export class Renderer {
       readonly sceneSource: VirtualGeometrySceneSource;
       readonly streamingEnabled: boolean;
       readonly multiRuntime?: GeometryProductMultiRuntimeV1;
+      /** Scene unload releases Renderer-created/replayed Product owners. */
+      readonly releaseWithScene: boolean;
     }
   >();
   private readonly _streamingCameraMatrices = new Map<Scene, Float32Array>();
@@ -648,6 +650,8 @@ export class Renderer {
       readonly assetCount: number;
       readonly registerStreaming?: boolean;
       readonly multiRuntime?: GeometryProductMultiRuntimeV1;
+      /** Transfers Scene-unload responsibility; low-level admission stays caller-owned by default. */
+      readonly releaseWithScene?: boolean;
     }> = { bindings: residency.bindings(), assetCount: residency.descriptor.assetRecords.byteLength / 128 }
   ): Promise<GpuRenderWorldHandle> {
     const storageBufferLimit = Number(this.device.limits.maxStorageBuffersPerShaderStage);
@@ -697,6 +701,7 @@ export class Renderer {
           source: residency.sourceForStreaming(),
           sceneSource: source,
           streamingEnabled: streamingRuntime !== null,
+          releaseWithScene: publication.releaseWithScene === true,
           ...(publication.multiRuntime === undefined ? {} : { multiRuntime: publication.multiRuntime })
         })
       );
@@ -707,10 +712,9 @@ export class Renderer {
     }
   }
 
-  /** Removes the Scene publication while leaving Product admission ownership to the caller. */
+  /** Withdraws publication; caller-admitted Products stay caller-owned, replayed Products release with Scene. */
   async releaseVirtualGeometryScene(scene: Scene): Promise<void> {
     await this.releasePackedScene(scene);
-    this._virtualProductScenes.delete(scene);
   }
 
   /**
@@ -1018,7 +1022,8 @@ export class Renderer {
               bindings: runtime.bindings(),
               assetCount: combined.assetCount,
               registerStreaming: false,
-              multiRuntime: runtime
+              multiRuntime: runtime,
+              releaseWithScene: true
             });
             state = Object.freeze({
               source: combined,
@@ -1052,6 +1057,7 @@ export class Renderer {
                 source: shardHandles[0]!.residency.sourceForStreaming(),
                 sceneSource: combined,
                 streamingEnabled: streaming !== null,
+                releaseWithScene: true,
                 multiRuntime: runtime
               })
             );
@@ -1094,11 +1100,14 @@ export class Renderer {
       },
       release: async () => {
         if (released) return;
-        released = true;
-        if (this._graphics.render_world.runtime(scene) !== null)
+        // Old handles cannot touch a replacement Renderer or recreate a shut-down
+        // GraphicsContext owner. Recovery transfers sources to the checkpoint.
+        if (!this._destroyed) {
           await this.releaseVirtualGeometryScene(scene);
+        }
         streaming?.destroy();
         runtime?.destroy();
+        released = true;
       }
     });
   }
@@ -1230,7 +1239,8 @@ export class Renderer {
           streamingRuntime: nextStreaming,
           source: nextResidency.sourceForStreaming(),
           sceneSource: mapped.source,
-          streamingEnabled: nextStreaming !== null
+          streamingEnabled: nextStreaming !== null,
+          releaseWithScene: false
         })
       );
       state.residency = nextResidency;
@@ -1325,31 +1335,63 @@ export class Renderer {
 
   /** Releases one Packed Scene and all Geometry residency owned by its upload. */
   async releasePackedScene(scene: Scene): Promise<void> {
+    if (this._destroyed) {
+      return;
+    }
+    const product = this._virtualProductScenes.get(scene);
+    const runtime = this._graphics.render_world.runtime(scene);
+    if (runtime === null) {
+      if (product === undefined) {
+        return;
+      }
+      // A prior submitted withdrawal may have a rejected fence. Retain owner
+      // registration until a retry proves completion; do not submit empty work.
+      await this.device.queue.onSubmittedWorkDone();
+      this.completeSceneProductRelease(scene, product);
+      return;
+    }
     const command = ShadeGPUCommandContext.create(
       this._graphics,
       "Renderer/GpuRenderWorld/release-transaction"
     );
     let handles: readonly AssetHandle[];
     try {
-      const runtime = this._graphics.render_world.runtime(scene);
-      if (runtime !== null) {
-        this._visibilityFeature.release(runtime, command);
-      }
+      this._visibilityFeature.release(runtime, command);
       handles = this._graphics.render_world.release(scene, command);
       this._graphics.assets.releaseMany(handles, command);
       this._views.releaseScene(scene, command);
       this._environments.release(scene, command);
       command.finish();
+      // Publication is now withdrawn. Revoke readback/IO before source release;
+      // retain Product ownership until the real GPU completion boundary succeeds.
+      if (product?.releaseWithScene) {
+        product.streamingRuntime?.destroy();
+      }
       // The release promise is the lifecycle boundary at which retired GPU
       // residency may be reused by a replacement scene. Waiting for queue
       // completion prevents immutable texture segments from becoming stranded
       // or being reused while an earlier frame still references them.
       await command.gpuDone;
-      this._virtualProductScenes.delete(scene);
-      this._streamingCameraMatrices.delete(scene);
+      this.completeSceneProductRelease(scene, product);
     } catch (error) {
       command.abort(error);
       throw error;
+    }
+  }
+
+  /** Called only after all submitted Scene consumers are fenced. */
+  private completeSceneProductRelease(
+    scene: Scene,
+    product: ReturnType<Renderer["_virtualProductScenes"]["get"]>
+  ): void {
+    if (product?.releaseWithScene) {
+      product.streamingRuntime?.destroy();
+      if (product.multiRuntime !== undefined) product.multiRuntime.destroy();
+      else product.residency.destroy();
+    }
+    if (this._virtualProductScenes.get(scene) === product) {
+      this._virtualProductScenes.delete(scene);
+      this._streamingCameraMatrices.delete(scene);
     }
   }
 
@@ -1472,6 +1514,9 @@ export class Renderer {
     device.lost.then((info) => {
       if (!this._destroyed) {
         this._deviceLost = true;
+        for (const state of this._virtualProductScenes.values()) {
+          state.streamingRuntime?.destroy();
+        }
         if (info.reason !== "destroyed") console.error("GPUDevice lost", info);
       }
     });
@@ -1852,6 +1897,7 @@ export class Renderer {
       });
       const bindings = this._graphics.render_world.bindings();
       const prepareJob = {
+        shadowFrame: vsmPreview,
         runtime,
         assets: bindings.assets,
         scene: bindings.scene,
@@ -2252,12 +2298,17 @@ export class Renderer {
               streaming,
               undefined,
               multiRuntime === undefined
-                ? undefined
+                ? {
+                    bindings: residency.bindings(),
+                    assetCount: entry.sceneSource.assetCount,
+                    releaseWithScene: true
+                  }
                 : {
                     bindings: multiRuntime.bindings(),
                     assetCount: entry.sceneSource.assetCount,
                     registerStreaming: false,
-                    multiRuntime
+                    multiRuntime,
+                    releaseWithScene: true
                   }
             );
           } catch (error) {

@@ -59,6 +59,8 @@ export interface PreparedMeshletWorkCandidate {
   readonly productMode?: boolean;
   readonly productBindings?: GeometryProductGpuBindingsV1;
   readonly productBanks?: readonly GPUBuffer[];
+  /** Product expansion dispatch: actual VisibleCluster count, 2D flattened. */
+  readonly expansionDispatch?: GPUBuffer;
 }
 
 interface CandidatePipelines {
@@ -715,12 +717,19 @@ export class MeshletWorkCandidate {
 
 /** S1 Product consumer: one bounded, fixed-width indirect route for decoded Groups. */
 export class VirtualGeometryMeshletWorkCandidate {
+  private readonly accountingHandles = new Map<GPUBuffer, AccountingResourceHandle>();
   private readonly layout: GPUBindGroupLayout;
+  private readonly dispatchLayout: GPUBindGroupLayout;
+  private readonly preparePipeline: GPUComputePipeline;
+  private readonly finalizePipeline: GPUComputePipeline;
   private readonly pipeline: GPUComputePipeline;
   private readonly prepared = new Set<PreparedMeshletWorkCandidate>();
   private destroyed = false;
 
-  constructor(private readonly device: GPUDevice) {
+  constructor(
+    private readonly device: GPUDevice,
+    private readonly accounting?: ResourceAccounting
+  ) {
     this.layout = device.createBindGroupLayout({
       label: "S1 Product MeshletWork layout",
       entries: [
@@ -767,7 +776,17 @@ export class VirtualGeometryMeshletWorkCandidate {
     });
     const module = device.createShaderModule({
       label: "S1 Product MeshletWork shader",
-      code: VIRTUAL_GEOMETRY_MESHLET_WORK_WGSL,
+      code: VIRTUAL_GEOMETRY_MESHLET_WORK_WGSL
+    });
+    this.dispatchLayout = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: 12 } }
+      ]
+    });
+    this.preparePipeline = device.createComputePipeline({
+      label: "Geometry/Product prepare actual dispatch",
+      layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout, this.dispatchLayout] }),
+      compute: { module, entryPoint: "prepare_virtual_geometry_work" }
     });
     const pipelineLayout = device.createPipelineLayout({
       label: "S1 Product MeshletWork pipeline layout",
@@ -776,7 +795,12 @@ export class VirtualGeometryMeshletWorkCandidate {
     this.pipeline = device.createComputePipeline({
       label: "S1 Product MeshletWork pipeline",
       layout: pipelineLayout,
-      compute: { module, entryPoint: "generate_virtual_geometry_work" },
+      compute: { module, entryPoint: "generate_virtual_geometry_work" }
+    });
+    this.finalizePipeline = device.createComputePipeline({
+      label: "Geometry/Product finalize work",
+      layout: pipelineLayout,
+      compute: { module, entryPoint: "finalize_virtual_geometry_work" }
     });
   }
 
@@ -804,102 +828,133 @@ export class VirtualGeometryMeshletWorkCandidate {
     ) {
       throw new RangeError("S1 Product MeshletWork capacity is invalid");
     }
-    if (input.visibleClusterCapacity > Number(this.device.limits.maxComputeWorkgroupsPerDimension)) {
-      throw new RangeError("S1 Product visible cluster capacity exceeds dispatch dimension");
+    if (input.visibleClusterCapacity > Number(this.device.limits.maxComputeWorkgroupsPerDimension) ** 2) {
+      throw new RangeError("Product visible cluster capacity exceeds the 2D dispatch grid");
     }
     const queueBytes = planMeshletWorkBuffer(input.capacity, this.device.limits, "Product MeshletWork");
-    const queue = this.device.createBuffer({
-      label: "S1 Product MeshletWork queue",
-      size: queueBytes,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
-    });
-    const drawIndirect = this.device.createBuffer({
-      label: "S1 Product MeshletWork drawIndirect",
-      size: 16,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST,
-    });
-    const settings = this.device.createBuffer({
-      label: "S1 Product MeshletWork settings",
-      size: 16,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-    const banks: GPUBuffer[] = [...input.virtualGeometry.banks];
-    while (banks.length < 4) {
-      banks.push(
-        this.device.createBuffer({
-          label: "S1 Product MeshletWork empty bank",
-          size: 4,
-          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-        }),
-      );
-    }
-    this.device.queue.writeBuffer(
-      queue,
-      0,
-      packGpuMeshletWorkQueueHeader({
-        attemptedCount: 0,
-        writtenCount: 0,
-        consumedCount: 0,
-        capacity: input.capacity,
-        overflowCount: 0,
-        generation: 0,
-        invalidCount: 0,
-      }),
-    );
-    this.device.queue.writeBuffer(
-      settings,
-      0,
-      new Uint32Array([
-        input.countersEnabled ? 1 : 0,
-        input.virtualGeometry.productGeneration,
-        input.visibleClusterCapacity,
+    const buffers: GPUBuffer[] = [];
+    const make = (descriptor: GPUBufferDescriptor): GPUBuffer => {
+      const buffer = this.device.createBuffer(descriptor);
+      buffers.push(buffer);
+      const handle = this.accounting?.created({
+        kind: "buffer",
+        category: "work-cache",
+        owner: "Geometry/ProductMeshletWork",
+        bytes: descriptor.size,
+        label: descriptor.label
+      });
+      if (handle) this.accountingHandles.set(buffer, handle);
+      return buffer;
+    };
+    try {
+      const queue = make({
+        label: "S1 Product MeshletWork queue",
+        size: queueBytes,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
+      });
+      const drawIndirect = make({
+        label: "S1 Product MeshletWork drawIndirect",
+        size: 16,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST
+      });
+      const settings = make({
+        label: "S1 Product MeshletWork settings",
+        size: 16,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+      });
+      const dispatch = make({
+        label: "Geometry/Product actual expansion dispatch",
+        size: 16,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_SRC
+      });
+      const dispatchGroup = this.device.createBindGroup({
+        layout: this.dispatchLayout,
+        entries: [{ binding: 0, resource: { buffer: dispatch } }]
+      });
+      const banks: GPUBuffer[] = [...input.virtualGeometry.banks];
+      while (banks.length < 4) {
+        banks.push(
+          make({
+            label: "S1 Product MeshletWork empty bank",
+            size: 4,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+          })
+        );
+      }
+      this.device.queue.writeBuffer(
+        queue,
         0,
-      ]),
-    );
-    const entries: GPUBindGroupEntry[] = [
-      { binding: 0, resource: { buffer: input.visibleClusters } },
-      { binding: 1, resource: { buffer: queue } },
-      { binding: 2, resource: { buffer: settings } },
-      { binding: 3, resource: { buffer: input.counterBuffer } },
-      { binding: 4, resource: { buffer: drawIndirect } },
-      { binding: 5, resource: { buffer: input.virtualGeometry.metadata } },
-      ...banks.map((buffer, index) => ({ binding: index + 6, resource: { buffer } })),
-      { binding: 10, resource: { buffer: input.scene.instances } },
-      { binding: 11, resource: { buffer: input.viewUniform } },
-    ];
-    const bindGroup = this.device.createBindGroup({
-      label: "S1 Product MeshletWork bindings",
-      layout: this.layout,
-      entries,
-    });
-    const prepared = Object.freeze({
-      [PREPARED_MESHLET_WORK_CANDIDATE]: true as const,
-      queue,
-      bucketStates: null,
-      drawIndirect,
-      bucketSettings: null,
-      bucketCount: 0,
-      compactionPath: "portable" as const,
-      capacity: input.capacity,
-      productMode: true as const,
-      productBindings: input.virtualGeometry,
-      productBanks: Object.freeze(banks),
-    });
-    PRODUCT_CANDIDATE_STATE.set(prepared, {
-      queue,
-      drawIndirect,
-      settings,
-      bindGroup,
-      entries,
-      counterBuffer: input.counterBuffer,
-      countersEnabled: input.countersEnabled,
-      ownedBankBegin: input.virtualGeometry.banks.length,
-      banks: Object.freeze(banks),
-      visibleClusterCapacity: input.visibleClusterCapacity,
-      destroyed: false,
-    });
-    this.prepared.add(prepared);
-    return prepared;
+        packGpuMeshletWorkQueueHeader({
+          attemptedCount: 0,
+          writtenCount: 0,
+          consumedCount: 0,
+          capacity: input.capacity,
+          overflowCount: 0,
+          generation: 0,
+          invalidCount: 0
+        })
+      );
+      this.device.queue.writeBuffer(
+        settings,
+        0,
+        new Uint32Array([
+          input.countersEnabled ? 1 : 0,
+          input.virtualGeometry.productGeneration,
+          input.visibleClusterCapacity,
+          Number(this.device.limits.maxComputeWorkgroupsPerDimension)
+        ])
+      );
+      const entries: GPUBindGroupEntry[] = [
+        { binding: 0, resource: { buffer: input.visibleClusters } },
+        { binding: 1, resource: { buffer: queue } },
+        { binding: 2, resource: { buffer: settings } },
+        { binding: 3, resource: { buffer: input.counterBuffer } },
+        { binding: 4, resource: { buffer: drawIndirect } },
+        { binding: 5, resource: { buffer: input.virtualGeometry.metadata } },
+        ...banks.map((buffer, index) => ({ binding: index + 6, resource: { buffer } })),
+        { binding: 10, resource: { buffer: input.scene.instances } },
+        { binding: 11, resource: { buffer: input.viewUniform } }
+      ];
+      const bindGroup = this.device.createBindGroup({
+        label: "S1 Product MeshletWork bindings",
+        layout: this.layout,
+        entries
+      });
+      const prepared = Object.freeze({
+        [PREPARED_MESHLET_WORK_CANDIDATE]: true as const,
+        queue,
+        bucketStates: null,
+        drawIndirect,
+        bucketSettings: null,
+        bucketCount: 0,
+        compactionPath: "portable" as const,
+        capacity: input.capacity,
+        productMode: true as const,
+        productBindings: input.virtualGeometry,
+        productBanks: Object.freeze(banks),
+        expansionDispatch: dispatch
+      });
+      PRODUCT_CANDIDATE_STATE.set(prepared, {
+        queue,
+        drawIndirect,
+        settings,
+        dispatch,
+        dispatchGroup,
+        bindGroup,
+        entries,
+        counterBuffer: input.counterBuffer,
+        countersEnabled: input.countersEnabled,
+        ownedBankBegin: input.virtualGeometry.banks.length,
+        banks: Object.freeze(banks),
+        visibleClusterCapacity: input.visibleClusterCapacity,
+        destroyed: false
+      });
+      this.prepared.add(prepared);
+      return prepared;
+    } catch (error) {
+      for (const buffer of buffers) this.destroyBuffer(buffer);
+      throw error;
+    }
   }
 
   rebind(
@@ -928,12 +983,13 @@ export class VirtualGeometryMeshletWorkCandidate {
   encode(command: ShadeGPUCommandContext, prepared: PreparedMeshletWorkCandidate): void {
     const state = this.requireState(prepared);
     const pass = command.gpu_encoder.beginComputePass({ label: "S1 Product MeshletWork" });
-    pass.setPipeline(this.pipelineFor("prepare_virtual_geometry_work"));
+    pass.setPipeline(this.preparePipeline);
     pass.setBindGroup(0, state.bindGroup);
+    pass.setBindGroup(1, state.dispatchGroup);
     pass.dispatchWorkgroups(1, 1, 1);
     pass.setPipeline(this.pipeline);
-    pass.dispatchWorkgroups(state.visibleClusterCapacity, 1, 1);
-    pass.setPipeline(this.pipelineFor("finalize_virtual_geometry_work"));
+    pass.dispatchWorkgroupsIndirect(state.dispatch, 0);
+    pass.setPipeline(this.finalizePipeline);
     pass.dispatchWorkgroups(1, 1, 1);
     pass.end();
   }
@@ -942,10 +998,11 @@ export class VirtualGeometryMeshletWorkCandidate {
     const state = PRODUCT_CANDIDATE_STATE.get(prepared);
     if (state === undefined || state.destroyed) return;
     state.destroyed = true;
-    state.queue.destroy();
-    state.drawIndirect.destroy();
-    state.settings.destroy();
-    for (const bank of state.banks.slice(state.ownedBankBegin)) bank.destroy();
+    this.destroyBuffer(state.queue);
+    this.destroyBuffer(state.drawIndirect);
+    this.destroyBuffer(state.settings);
+    this.destroyBuffer(state.dispatch);
+    for (const bank of state.banks.slice(state.ownedBankBegin)) this.destroyBuffer(bank);
     PRODUCT_CANDIDATE_STATE.delete(prepared);
     this.prepared.delete(prepared);
   }
@@ -956,37 +1013,19 @@ export class VirtualGeometryMeshletWorkCandidate {
     this.destroyed = true;
   }
 
-  private pipelineFor(entryPoint: string): GPUComputePipeline {
-    const key = `${entryPoint}`;
-    const cache = PRODUCT_CANDIDATE_PIPELINES.get(this);
-    if (cache?.has(key)) return cache.get(key)!;
-    const module =
-      PRODUCT_CANDIDATE_MODULES.get(this) ??
-      this.device.createShaderModule({
-        label: "S1 Product MeshletWork shader",
-        code: VIRTUAL_GEOMETRY_MESHLET_WORK_WGSL,
-      });
-    PRODUCT_CANDIDATE_MODULES.set(this, module);
-    const layout = this.device.createPipelineLayout({
-      label: `S1 Product MeshletWork ${entryPoint} layout`,
-      bindGroupLayouts: [this.layout],
-    });
-    const pipeline = this.device.createComputePipeline({
-      label: `S1 Product MeshletWork ${entryPoint}`,
-      layout,
-      compute: { module, entryPoint },
-    });
-    if (cache === undefined) PRODUCT_CANDIDATE_PIPELINES.set(this, new Map([[key, pipeline]]));
-    else cache.set(key, pipeline);
-    return pipeline;
-  }
-
   private requireState(prepared: PreparedMeshletWorkCandidate): ProductCandidateState {
     const state = PRODUCT_CANDIDATE_STATE.get(prepared);
     if (state === undefined || state.destroyed || !prepared.productMode) {
       throw new Error("S1 Product MeshletWork is stale or invalid");
     }
     return state;
+  }
+
+  private destroyBuffer(buffer: GPUBuffer): void {
+    buffer.destroy();
+    const handle = this.accountingHandles.get(buffer);
+    if (handle) this.accounting?.destroyed(handle);
+    this.accountingHandles.delete(buffer);
   }
 
   private assertAlive(): void {
@@ -998,6 +1037,8 @@ interface ProductCandidateState {
   readonly queue: GPUBuffer;
   readonly drawIndirect: GPUBuffer;
   readonly settings: GPUBuffer;
+  readonly dispatch: GPUBuffer;
+  readonly dispatchGroup: GPUBindGroup;
   bindGroup: GPUBindGroup;
   readonly entries: GPUBindGroupEntry[];
   counterBuffer: GPUBuffer;
@@ -1009,11 +1050,6 @@ interface ProductCandidateState {
 }
 
 const PRODUCT_CANDIDATE_STATE = new WeakMap<object, ProductCandidateState>();
-const PRODUCT_CANDIDATE_MODULES = new WeakMap<VirtualGeometryMeshletWorkCandidate, GPUShaderModule>();
-const PRODUCT_CANDIDATE_PIPELINES = new WeakMap<
-  VirtualGeometryMeshletWorkCandidate,
-  Map<string, GPUComputePipeline>
->();
 
 function planMeshletWorkBuffer(capacity: number, limits: GPUSupportedLimits, name: string): number {
   const plan = planBoundedGpuWorkStream({

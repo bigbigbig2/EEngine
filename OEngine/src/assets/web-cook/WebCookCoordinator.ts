@@ -193,7 +193,6 @@ export class WebCookCoordinator {
   readonly #liveRevisions: WebCookProductRevision[] = [];
   readonly #releasedRevisions = new WeakSet<WebCookProductRevision>();
   /** Revisions whose activation cut finished streaming; those pages re-emit. */
-  readonly #activationStreamed = new Map<string, boolean>();
   readonly #deliveredPageKeys = new Set<string>();
   readonly #completedSceneAssets = new Set<number>();
   #productTaskEvents = 0;
@@ -499,8 +498,10 @@ export class WebCookCoordinator {
               : { sceneAssetIndices: Uint32Array.from(revision.sceneAssetIndices) }),
           }),
         );
-        for (const pageId of descriptor.activationPageIds) await this.emitPage(revision, pageId);
-        this.markActivationStreamed(revision);
+        const singlePageBootstrap = this.#liveRevisions.length === 1 && descriptor.activationPageIds.length === 1;
+        for (const pageId of descriptor.activationPageIds) {
+          await this.emitPage(revision, pageId, false, singlePageBootstrap);
+        }
         this.#firstMeaningfulFrameAt = Date.now() - this.#cookStartedAt;
         this.publish(
           this.header({
@@ -565,8 +566,10 @@ export class WebCookCoordinator {
                 : { sceneAssetIndices: Uint32Array.from(revision.sceneAssetIndices) }),
             }),
           );
-          for (const pageId of descriptor.activationPageIds) await this.emitPage(revision, pageId);
-          this.markActivationStreamed(revision);
+          const singlePageBootstrap = this.#liveRevisions.length === 1 && descriptor.activationPageIds.length === 1;
+          for (const pageId of descriptor.activationPageIds) {
+            await this.emitPage(revision, pageId, false, singlePageBootstrap);
+          }
           if (this.#firstMeaningfulFrameAt === undefined)
             this.#firstMeaningfulFrameAt = Date.now() - this.#cookStartedAt;
           this.#completedUnits++;
@@ -596,8 +599,8 @@ export class WebCookCoordinator {
    * The descriptor is published first, because the activation cut and every
    * later GPU demand address pages through it. Only then are the cut's payloads
    * produced: a plan-backed revision has not materialised them yet, so this loop
-   * is what actually advances the payload stage for the cut. `markActivationStreamed`
-   * runs after the loop, which is what lets `requestPages` take over re-reads.
+   * is what actually advances the payload stage for the cut. Explicit page
+   * readers can advance pending activation pages and rereads throughout it.
    */
   #acceptRevisionRevisions(
     revision: WebCookProductRevision,
@@ -636,8 +639,10 @@ export class WebCookCoordinator {
     }
     return (async () => {
       try {
-        for (const pageId of descriptor.activationPageIds) await this.emitPage(revision, pageId);
-        this.markActivationStreamed(revision);
+        const singlePageBootstrap = this.#liveRevisions.length === 1 && descriptor.activationPageIds.length === 1;
+        for (const pageId of descriptor.activationPageIds) {
+          await this.emitPage(revision, pageId, false, singlePageBootstrap);
+        }
         // A descriptor offer is not a completed unit milestone: keep progress
         // at the last fully streamed activation cut while a richer cut waits
         // for credit or page reads.
@@ -737,21 +742,6 @@ export class WebCookCoordinator {
   }
 
   /**
-   * Produces and emits requested Product pages without mutating the immutable
-   * revision.
-   *
-   * This is the demand side of the two-phase ABI. A plan-backed revision has
-   * only produced its activation cut, so a request for a non-activation page is
-   * the first thing that advances that page's payload stage; a later request for
-   * the same PageID is served from the revision's own produced-page cache
-   * instead of re-cooking it.
-   *
-   * A page the activation loop has not streamed yet stays with that loop, so it
-   * is never emitted twice. Once the cut has finished streaming, a request for
-   * an activation page means the consumer lost its copy - for example after
-   * `abandonForDeviceLoss` released the GPU banks - and it must be re-served.
-   */
-  /**
    * The per-phase durations this session has measured so far, in milliseconds.
    *
    * Filled into `Progress.timings` so the load is not a black box: the caller
@@ -772,6 +762,12 @@ export class WebCookCoordinator {
     });
   }
 
+  /**
+   * Produces pending pages or rereads immutable produced pages. An explicit
+   * reader can advance a not-yet-prefetched activation page with the reserved
+   * demand credit. Its first emission suppresses later speculative emission;
+   * consumed pages remain rereadable during cook and device recovery.
+   */
   async requestPages(
     productId: Uint8Array,
     revision: number,
@@ -787,20 +783,13 @@ export class WebCookCoordinator {
     );
     if (!source) throw new Error("Web Cook page request targets an unknown Product revision");
     const unique = [...new Set(pageIds)].sort((left, right) => left - right);
-    const activation = new Set<number>(
-      decodeGeometryProductDescriptorBinaryV1(source.descriptor).activationPageIds,
-    );
-    const activationStreamed = this.#activationStreamed.get(revisionKey(source.productId, revision)) === true;
     for (const pageId of unique) {
       if (!Number.isInteger(pageId) || pageId < 0 || pageId === 0xffffffff || pageId >= source.pageCount)
         throw new RangeError("Web Cook page request targets an invalid page");
-      if (
-        activation.has(pageId) &&
-        !activationStreamed &&
-        !this.#deliveredPageKeys.has(`${revisionKey(source.productId, revision)}:${pageId}`)
-      )
-        continue;
-      await this.emitPage(source, pageId);
+      // An explicit reader must be able to consume the reserved demand credit,
+      // including a not-yet-prefetched activation page. The activation loop
+      // skips that page after its first emission; rereads remain legal.
+      await this.emitPage(source, pageId, true);
     }
   }
 
@@ -1054,17 +1043,46 @@ export class WebCookCoordinator {
     selected.sort(comparePrimitiveOrder);
     return Object.freeze(selected);
   }
-  private emitPage(revision: WebCookProductRevision, pageId: number): Promise<void> {
-    // Activation streaming and RequestPages can both emit; serialize so credit
-    // accounting and PageReady publication stay atomic.
-    const run = this.#emitTail.then(() => this.emitPageNow(revision, pageId));
-    this.#emitTail = run.catch(() => undefined);
-    return run;
+  private async emitPage(
+    revision: WebCookProductRevision,
+    pageId: number,
+    requested = false,
+    singlePageBootstrap = false,
+  ): Promise<void> {
+    const key = `${revisionKey(revision.productId, revision.revision)}:${pageId}`;
+    // Future Product prefetch must leave one existing transfer credit for the
+    // consumer's current Product. Otherwise a full future activation buffer can
+    // deadlock a current-page reread. No extra budget or page storage is added.
+    // A sole bootstrap page cannot hide another unread activation page. It
+    // remains eagerly publishable even in a one-credit session.
+    const creditBytes = WEB_COOK_PAGE_BYTES * (!requested && !singlePageBootstrap ? 2 : 1);
+    for (;;) {
+      if (!requested && this.#deliveredPageKeys.has(key)) {
+        return;
+      }
+      // Never occupy the serial emission tail while waiting for credit: a
+      // requested page must bypass a blocked speculative activation emission.
+      await this.waitForOutputCredit(creditBytes, requested ? undefined : key);
+      let emitted = false;
+      const run = this.#emitTail.then(async () => {
+        if (!requested && this.#deliveredPageKeys.has(key)) {
+          emitted = true;
+          return;
+        }
+        if (!this.#session.canEmitPage(creditBytes)) {
+          return;
+        }
+        await this.emitPageNow(revision, pageId);
+        emitted = true;
+      });
+      this.#emitTail = run.catch(() => undefined);
+      await run;
+      if (emitted) {
+        return;
+      }
+    }
   }
   private async emitPageNow(revision: WebCookProductRevision, pageId: number): Promise<void> {
-    const creditWaitStartedAt = Date.now();
-    await this.waitForOutputCredit(WEB_COOK_PAGE_BYTES);
-    this.#activationCreditWaitMs += Date.now() - creditWaitStartedAt;
     if (this.#abort.signal.aborted) throw this.#abort.signal.reason ?? new Error("Web Cook was cancelled");
     const readStartedAt = Date.now();
     const page = await revision.readPage(pageId);
@@ -1089,17 +1107,18 @@ export class WebCookCoordinator {
     )
       throw new Error("Web Cook output credit changed before PageReady emission");
     this.#emittedPages++;
+    for (const wake of this.#creditWaiters) wake();
+    this.#creditWaiters.clear();
   }
-  /** Marks the activation cut of one revision fully streamed and re-readable. */
-  private markActivationStreamed(revision: WebCookProductRevision): void {
-    this.#activationStreamed.set(revisionKey(revision.productId, revision.revision), true);
-  }
-  private async waitForOutputCredit(bytes: number): Promise<void> {
-    while (!this.#session.canEmitPage(bytes)) {
+  private async waitForOutputCredit(bytes: number, prefetchedKey?: string): Promise<void> {
+    const startedAt = Date.now();
+    while (!this.#session.canEmitPage(bytes) &&
+      (prefetchedKey === undefined || !this.#deliveredPageKeys.has(prefetchedKey))) {
       if (this.#abort.signal.aborted || this.#state === "disposed" || this.#state === "failed")
         throw this.#abort.signal.reason ?? new Error("Web Cook stopped while awaiting output credit");
       await new Promise<void>((resolve) => this.#creditWaiters.add(resolve));
     }
+    this.#activationCreditWaitMs += Date.now() - startedAt;
   }
   private requireState(state: WebCookCoordinatorEvidence["state"]): void {
     if (this.#state !== state)

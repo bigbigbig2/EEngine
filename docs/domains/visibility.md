@@ -12,6 +12,10 @@ verifies:
   - OEngine/src/assets/geometry-product/GeometryProductWorkload.ts
   - OEngine/src/render/HierarchicalWorkGenerator.ts
   - OEngine/src/render/MeshletWorkCandidate.ts
+  - OEngine/src/render/ShadowGeometryWork.ts
+  - OEngine/src/render/features/VisibilityFeature.ts
+  - OEngine/src/render/vsm/VsmCasterRecordPass.ts
+  - OEngine/src/render/vsm/VsmReceiverDemandPass.ts
   - OEngine/src/shaders/virtual_geometry_work.ts
   - OEngine/src/gpu/GpuFrameGeometryArenaAbi.ts
   - OEngine/src/gpu/GpuFrameGeometryAttributesAbi.ts
@@ -23,7 +27,7 @@ verifies:
 
 ## 当前源码边界
 
-核对日期：2026-10-08，S2 工作树。PackedVisibility 保留 GPU hierarchy/work generation、instance/vertex preparation、FrameGeometryArena 与 HZB 产品；MeshletBucketRaster 使用 NativeVisibilityPass 消费完整 native material publication，执行真实 alpha 并写唯一 winner。
+核对日期：2026-10-08，G2.3 工作树。PackedVisibility 保留 GPU hierarchy/work generation、instance/vertex preparation、FrameGeometryArena 与 HZB 产品；MeshletBucketRaster 使用 NativeVisibilityPass 消费完整 native material publication，执行真实 alpha 并写唯一 winner。
 
 VisibilityKey 仍为 r32uint：低 24 位 meshletWorkSlot，高 8 位 localPrimitive；generation/partition 属于外部 queue 生命周期 context。没有为 V4 扩宽或截断 identity，也不再分配旧 ShadingBinId MRT。CPU 不读取 visible/work 以控制本帧 GPU。
 
@@ -33,7 +37,11 @@ FrameProgramLowering 将写入后的 winner/depth/work/frame products 交给 Sur
 
 FrameGeometryArena 数值 ABI4 的 frame attributes 为 96B/vertex：world normal/tangent/position、UV0/1/2 和 color；不再复制无 reader 的 object normal/tangent/position。resident object attributes 仍为96B，clip仍16B、packed triangle仍4B；UV2 contract保留。默认准备容量来自CPU合法work上界、25%有界headroom和1M顶限，不读取当帧GPU反馈；128MiB是单arena ceiling，256MiB owner计入未过末读fence的replacement。partial/zero preparation正确恢复resident数据，旧ABI不保兼容reader。
 
-Product scene 容量由 descriptor 实际 forest depth、每 asset 最大层宽、全部 group/meshlet 上界按实例数求和；Product root dispatch 仅 seed，随后执行 depth+1 次 traversal，depth 0 也消费终端 root。绑定/dispatch 上限在 Scene 资源分配前检查，当前 Product expansion 仍为一维 capacity dispatch。Hierarchy 无完整 coarse parent 的 overflow/非法引用传播到 MeshletWork invalid；finalize 同时清空 written count 与 indirect draw count，不把部分 cut 交给 Geometry preparation/Visibility。r32 winner 合同不变。
+Product scene 容量由 descriptor 实际 forest depth、每 asset 最大层宽、全部 group/meshlet 上界按实例数求和；Product root dispatch 仅 seed，随后执行 depth+1 次 traversal，depth 0 也消费终端 root。绑定/dispatch 上限在 Scene 资源分配前检查；Product expansion 复用 prepare 写实际 VisibleCluster count 的 indirect args，每 cluster 一个 workgroup，以二维 grid 展平，空队列零组；不增加 dispatch。Hierarchy 无完整 coarse parent 的 overflow/非法引用传播到 MeshletWork invalid；finalize 同时清空 written count 与 indirect draw count，不把部分 cut 交给 Geometry preparation/Visibility。r32 winner 合同不变。
+
+`VisibilityFeature` 拥有独立 `ShadowGeometryWork`：共享 Scene、ordinary geometry sources 和 VG metadata/banks，以 directional clipmaps XY union 沿 light Z 挤出的保守视图生成 caster work 与独立 frame-instance transforms。当前 SSE=0 选择 finest resident cut，缺页保合法 coarse；只选 CastsShadow、排除 Transparent，不使用主相机 cone/HZB、selected queue 或 prepared clips。FrameGraph 声明 foundation readers 与 shadow products writer，再交 VSM caster/atlas；atlas仅借 Arena header/source metadata，光空间恢复直接读 resident source。未启用阴影时不分配该 per-scene work。
+
+阴影 missing-page demand 带 SHADOW 标记，经已有独立延迟 ring 进入多 Product scheduler；没有本帧反馈控制或 persistent work cache。VSM receiver update 同时发布当前 light/clip/generation 的 sampling constants，Surface 读取其写后版本；复用图通过每帧 binding 更新参数。caster header 的 invalid/overflow/超界使 caster overflow 可观察且 indirect draw count为零，不把 partial caster coverage 当完整成功。Shadow 的 Page allocator、atlas、PCF 和 history 仍属 VSM。
 
 ## 验证与目标
 

@@ -9,7 +9,7 @@
 namespace oengine::asset {
 
 void ValidateRecipe(const GeometryCookRecipeV3& r) {
-    if (r.hierarchyAlgorithmVersion != "nyx-hierarchy-v4.0-attribute-update") throw std::runtime_error("unsupported hierarchy algorithm version");
+    if (r.hierarchyAlgorithmVersion != "nyx-hierarchy-v4.1-conservative-spheres") throw std::runtime_error("unsupported hierarchy algorithm version");
     if (r.vertexProfileVersion != "static-pbr-page-local-f32-lean-v7") throw std::runtime_error("Lean geometry requires the v7 vertex/publication profile");
     if (r.meshletMaxVertices < 3u || r.meshletMaxVertices > 128u) throw std::runtime_error("meshletMaxVertices must be in [3,128]");
     if (r.meshletMinTriangles == 0u || r.meshletMinTriangles > r.meshletMaxTriangles) throw std::runtime_error("meshletMinTriangles must be in [1,max]");

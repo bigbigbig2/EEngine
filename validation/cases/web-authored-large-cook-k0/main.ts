@@ -1,6 +1,7 @@
 import { createDefaultWebCookWorker, load_gltf, type WebCookRuntimeAsset } from "../../../OEngine/src/index.ts";
 import { assertGeometryProductDescriptorV1, GEOMETRY_PRODUCT_PAGE_RECORD_STRIDE } from "../../../OEngine/src/assets/geometry-product/GeometryProductV1.ts";
 import { createValidationController } from "../../harness/browser.ts";
+import { prepareProductResidentAttributes } from "../../../OEngine/src/gpu/GeometryProductResidentAttributes.ts";
 
 const MiB = 1024 * 1024;
 const source = { url: "/assets/web-authored-large/large.glb", bytes: 477_591_060, triangles: 4_871_612, primitives: 1_920,
@@ -48,7 +49,8 @@ async function run(): Promise<void> {
       }
     });
     timer = setInterval(() => { if (performance.now() - lastActivity > 120_000) asset?.cancel("K0 producer/page watchdog exceeded 120 seconds"); }, 5000);
-    const products: Array<{ id: string; mapping: readonly number[]; pages: number }> = [];
+    const products: Array<{ id: string; mapping: readonly number[]; pages: number;
+      activationPages: number; activationSlots: number; activationUploadBytes: number }> = [];
     const identities = new Set<string>();
     let readPages = 0;
     for await (const revision of asset.revisions()) {
@@ -61,9 +63,19 @@ async function run(): Promise<void> {
       const mapping = revision.sceneAssetIndices;
       if (!mapping?.length) throw new Error("Product lacks catalog mapping");
       const activation = new Set(descriptor.activationPageIds);
+      const activationIds = new Set(activation);
+      let activationSlots = 0;
+      let activationUploadBytes = 0;
       const order = [...activation, ...Array.from({ length: pages }, (_, i) => i).filter(i => !activation.has(i))];
       for (const pageId of order) {
         const first = await revision.readPage(pageId);
+        if (activationIds.has(pageId)) {
+          // Packing-only CPU cost accounting; no GPU upload or attribute oracle
+          // shortcut. All pages still undergo both complete checksum reads.
+          const resident = prepareProductResidentAttributes(descriptor, pageId, first.bytes, false);
+          activationSlots += resident.slotCount;
+          activationUploadBytes += resident.uploadBytes;
+        }
         const firstDigest = hex(new Uint8Array(await crypto.subtle.digest("SHA-256", first.bytes)));
         if (firstDigest.slice(0, 32) !== hex(first.decodedPageHash128)) throw new Error(`Page checksum mismatch ${id}/${pageId}`);
         const repeated = await revision.readPage(pageId);
@@ -74,7 +86,8 @@ async function run(): Promise<void> {
         if (firstActivationMs === undefined && activation.size === 0) firstActivationMs = performance.now() - started;
         lastActivity = performance.now();
       }
-      products.push({ id, mapping, pages });
+      products.push({ id, mapping, pages, activationPages: activationIds.size,
+        activationSlots, activationUploadBytes });
       revision.release();
       status.textContent = `${products.length} Products, ${readPages} pages verified twice`;
     }
@@ -123,6 +136,13 @@ async function run(): Promise<void> {
     controller.addEvidence("k0", { settled, products, taskTrace: events, coveredPrimitives: triangles.size, triangles: source.triangles,
       verifiedPages: readPages, rereadPages: readPages, firstActivationMs, totalElapsedMs: performance.now() - started, ownerMetrics: terminalMetrics,
       slowestProductMs: Math.max(...completed.map(e => e.elapsedMs ?? 0)), slowestWasmPlanMs: Math.max(...completed.map(e => e.metrics.wasmPlanMs)) });
+    controller.addEvidence("activationFootprint", {
+      pages: products.reduce((sum, p) => sum + p.activationPages, 0),
+      slots: products.reduce((sum, p) => sum + p.activationSlots, 0),
+      physicalBytes: products.reduce((sum, p) => sum + p.activationSlots, 0) * 262144,
+      uploadBytes: products.reduce((sum, p) => sum + p.activationUploadBytes, 0),
+      source: "Current resident packing, raw + decoded directory/attributes; not driver VRAM"
+    });
     cleanup = await asset.disposeAsync();
     if (cleanup.spillCurrentBytes !== 0 || cleanup.spillOwnerCount !== 0 || asset.evidence().provider.bufferedBytes !== 0) throw new Error("Producer disposal retained ownership");
     controller.addEvidence("cleanup", cleanup);

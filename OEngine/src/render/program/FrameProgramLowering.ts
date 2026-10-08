@@ -164,27 +164,34 @@ function compileSceneGraph(
       resources: vsmOwner,
       state: bind("vsm-generation-state", (bindings) => bindings.vsmGeneration)
     });
-    const demand = owners.vsmReceiverDemand.addToGraph(graph, {
-      width: result.frame.domain.width,
-      height: result.frame.domain.height,
-      camera: cameraBuffer,
-      depth: result.frame.depth,
-      visibilityKey: result.frame.visibilityKey,
-      resources: vsmOwner,
-      generation: vsmFrame.generation,
-      lightView: vsmFrame.lightView,
-      clipOriginExtent: vsmFrame.clipOriginExtent
-    });
+    const demand = owners.vsmReceiverDemand.addToGraph(
+      graph,
+      bind("vsm-receiver-job", (bindings) => ({
+        width: result.frame.domain.width,
+        height: result.frame.domain.height,
+        camera: cameraBuffer,
+        depth: result.frame.depth,
+        visibilityKey: result.frame.visibilityKey,
+        resources: vsmOwner,
+        generation: bindings.vsmFrame!.generation,
+        lightView: bindings.vsmFrame!.lightView,
+        clipOriginExtent: bindings.vsmFrame!.clipOriginExtent
+      }))
+    );
+    vsmSamplingConstants = demand.samplingConstants;
     if (plan.products.includes("shadow-allocation")) {
       if (contentVersion === null) {
         throw new Error("Enabled VSM requires its content publication");
       }
-      vsmAllocation = owners.vsmAllocatePages.addToGraph(graph, {
-        demand: demand.demand,
-        resources: vsmOwner,
-        generation: demand.generation,
-        contentVersion
-      });
+      vsmAllocation = owners.vsmAllocatePages.addToGraph(
+        graph,
+        bind("vsm-allocation-job", (bindings) => ({
+          demand: demand.demand,
+          resources: vsmOwner,
+          generation: bindings.vsmFrame!.generation,
+          contentVersion
+        }))
+      );
     }
   }
   const materialRecords = graph.import_resource(
@@ -257,53 +264,103 @@ function compileSceneGraph(
       { kind: "imported", label: "VSM vertex stream data" },
       bind("vsm-vertex-stream-data", (bindings) => bindings.job.assets.vertexStreamData)
     );
-    const caster = owners.vsmCasterRecords.addToGraph(graph, {
-      allocation: vsmAllocation,
-      meshletWork: result.frame.meshletWork.records,
-      instances,
-      resources: vsmOwnerBinding,
-      frame: vsmFrameBinding,
-      generation: vsmFrameBinding.generation,
-      workCapacity: result.frame.meshletWork.capacity
-    });
-    const atlas = owners.vsmAtlasRaster.addToGraph(graph, {
-      caster,
-      publication: bind("vsm-raster-publication", (bindings) => ({
-        runtime: bindings.runtime,
-        assets: bindings.job.assets,
-        vertices: bindings.job.prepared.workSet.frameVertices,
-        meshletWork: bindings.job.prepared.workSet.meshletWorkCandidate!.queue
-      })),
-      camera: cameraBuffer,
-      frameInstances: result.frame.frameInstances,
-      resources: vsmOwnerBinding,
-      frame: vsmFrameBinding,
-      generation: vsmFrameBinding.generation,
-      pageTable: vsmAllocation.pageTable,
-      allocation: vsmAllocation.allocation,
-      metaTable: vsmAllocation.metaTable,
-      pageLocks: vsmAllocation.pageLocks,
-      contentVersion: vsmAllocation.contentVersion,
-      instances,
-      meshlets: meshletRecords,
-      meshletVertices: meshletVertexIndices,
-      meshletTriangles: meshletTriangleIndices,
-      vertexData: vertexStreamData,
-      geometries: geometryRecords,
-      materials: materialRecords,
-      productHeap: virtualMetadata,
-      productBanks: virtualBanks
-    });
+    const shadowWork = graph.import_resource(
+      "shadow-meshlet-work",
+      { kind: "imported" },
+      bind("shadow-meshlet-work", (bindings) => {
+        const shadow = bindings.job.prepared.shadowGeometry;
+        if (!shadow) throw new Error("VSM requires Shadow Geometry work publication");
+        return shadow.work.queue;
+      })
+    );
+    const shadowInstances = graph.import_resource(
+      "shadow-frame-instances",
+      { kind: "imported" },
+      bind("shadow-frame-instances", (bindings) => {
+        const shadow = bindings.job.prepared.shadowGeometry;
+        if (!shadow) throw new Error("VSM requires Shadow Geometry instance publication");
+        return shadow.instances.records;
+      })
+    );
+    const shadow = owners.visibility.addShadowToGraph(
+      graph,
+      bind("shadow-geometry-job", (bindings) => bindings.job),
+      {
+        camera: cameraBuffer,
+        instances,
+        meshletWork: shadowWork,
+        frameInstances: shadowInstances,
+        productHeap: virtualMetadata,
+        productBanks: virtualBanks,
+        geometrySources: [
+          geometryRecords,
+          meshletRecords,
+          meshletVertexIndices,
+          meshletTriangleIndices,
+          vertexStreamData,
+          graph.import_resource(
+            "shadow-cluster-records",
+            { kind: "imported" },
+            bind("shadow-cluster-records", (bindings) => bindings.job.assets.clusterRecords)
+          ),
+          graph.import_resource(
+            "shadow-cluster-children",
+            { kind: "imported" },
+            bind("shadow-cluster-children", (bindings) => bindings.job.assets.clusterChildren)
+          )
+        ]
+      }
+    );
+    const caster = owners.vsmCasterRecords.addToGraph(
+      graph,
+      bind("vsm-caster-job", (bindings) => ({
+        allocation: vsmAllocation!,
+        meshletWork: shadow.meshletWork,
+        instances,
+        resources: bindings.vsm!,
+        frame: bindings.vsmFrame!,
+        generation: bindings.vsmFrame!.generation,
+        workCapacity: bindings.job.prepared.shadowGeometry!.work.capacity
+      }))
+    );
+    const atlas = owners.vsmAtlasRaster.addToGraph(
+      graph,
+      bind("vsm-atlas-job", (bindings) => ({
+        caster,
+        publication: {
+          runtime: bindings.runtime,
+          assets: bindings.job.assets,
+          vertices: bindings.job.prepared.workSet.frameVertices,
+          meshletWork: bindings.job.prepared.shadowGeometry!.work.queue
+        },
+        camera: cameraBuffer,
+        frameInstances: shadow.frameInstances,
+        frameGeometry: result.frame.frameGeometry,
+        resources: bindings.vsm!,
+        frame: bindings.vsmFrame!,
+        generation: bindings.vsmFrame!.generation,
+        pageTable: vsmAllocation!.pageTable,
+        allocation: vsmAllocation!.allocation,
+        metaTable: vsmAllocation!.metaTable,
+        pageLocks: vsmAllocation!.pageLocks,
+        contentVersion: vsmAllocation!.contentVersion,
+        instances,
+        meshlets: meshletRecords,
+        meshletVertices: meshletVertexIndices,
+        meshletTriangles: meshletTriangleIndices,
+        vertexData: vertexStreamData,
+        geometries: geometryRecords,
+        materials: materialRecords,
+        productHeap: virtualMetadata,
+        productBanks: virtualBanks
+      }))
+    );
     vsmAtlasDepth = atlas.atlasDepth;
     vsmContentVersion = atlas.contentVersion;
     if (vsmOwnerBinding.pageConstants === null) {
       throw new Error("Frame Program VSM sampling constants are unavailable");
     }
-    vsmSamplingConstants = graph.import_resource(
-      "VSM/sampling constants",
-      { kind: "imported", label: "VSM sampling constants" },
-      vsmOwnerBinding.pageConstants
-    );
+    if (vsmSamplingConstants === null) throw new Error("VSM sampling constants have no producer");
     shadowContract = shadowVisibilityFrame({
       profile: vsmOwnerBinding.profile,
       virtualPageTable: atlas.pageTable,

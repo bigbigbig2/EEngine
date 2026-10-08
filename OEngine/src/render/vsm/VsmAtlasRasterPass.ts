@@ -77,6 +77,8 @@ export interface VsmAtlasRasterInputs {
   }>;
   readonly camera: ResourceId;
   readonly frameInstances: ResourceId;
+  /** Foundation metadata/header only; VSM never consumes main prepared clips. */
+  readonly frameGeometry?: ResourceId;
   readonly pageTable: ResourceId;
   readonly allocation: ResourceId;
   readonly metaTable: ResourceId;
@@ -295,6 +297,7 @@ export class VsmAtlasRasterPass {
       input.geometries,
       input.materials,
       input.frameInstances,
+      ...(input.frameGeometry === undefined ? [] : [input.frameGeometry]),
       input.camera,
       ...(input.productHeap === undefined ? [] : [input.productHeap]),
       ...(input.productBanks ?? [])

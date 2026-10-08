@@ -1,5 +1,6 @@
 import { GeometryProductMultiRuntimeV1 } from "../../.test-dist/gpu/GeometryProductMultiRuntime.js";
 import { GeometryPageStreamingRuntimeV1 } from "../../.test-dist/gpu/GeometryPageStreamingRuntime.js";
+import { geometryProductGpuBudgetEvidence } from "../../.test-dist/gpu/GeometryProductGpuBudget.js";
 import { buildVirtualGeometrySceneSourceV1, mergeVirtualGeometryProductSceneSourcesV1 } from "../../.test-dist/assets/geometry-product/VirtualGeometrySceneSourceV1.js";
 import { Renderer } from "../../.test-dist/render/pipeline/RendererCore.js";
 import { Scene } from "../../.test-dist/scene/Scene.js";
@@ -609,6 +610,15 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
       memory.owners.nativeSurfaceScratch.allocatedBytes === scratchBytes,
       "Memory evidence omitted or double-counted native scratch"
     );
+    if (productGeometry) {
+      check(geometryProductGpuBudgetEvidence(device).totalBytes > 0,
+        "Recovered Product allocations were not accounted");
+      await renderer.releaseScene(scene);
+      const released = geometryProductGpuBudgetEvidence(device);
+      check(released.totalBytes === 0 && released.allocations === 0 && released.metadataAllocations === 0,
+        "Recovered Scene unload retained Product ownership before Renderer destruction");
+      await renderer.releaseScene(scene);
+    }
     renderer.destroy();
     await device.queue.onSubmittedWorkDone();
     await Promise.resolve();
@@ -643,6 +653,7 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
       normalOrm: true,
       alpha: true,
       controlledDeviceRecovery: true,
+      recoveredSceneRelease: Boolean(productGeometry),
       abortRetry: true,
       actualRenderer: true,
       productGeometry,

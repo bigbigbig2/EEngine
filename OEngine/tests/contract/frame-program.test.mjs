@@ -127,6 +127,31 @@ test("lit scalar AO closes a same-frame producer while off and unlit omit it", (
   assert.ok(!unlit.stages.includes("xe-gtao"));
 });
 
+test("directional shadows demand independent Geometry only for an enabled lit consumer", () => {
+  for (const shadowProfile of ["vsm-directional-high", "vsm-directional-bounded"]) {
+    const plan = buildFrameProgram({ ...scene, shadowProfile });
+    assert.ok(plan.stages.includes("vsm"));
+    assert.deepEqual(
+      plan.facts.find((fact) => fact.product === "shadow-geometry-work").consumers,
+      ["vsm"],
+    );
+    assert.ok(plan.products.includes("shadow-allocation"));
+  }
+  for (const shadowProfile of ["off", "shadow-disabled"]) {
+    const plan = buildFrameProgram({ ...scene, shadowProfile });
+    assert.ok(!plan.stages.includes("vsm"));
+    for (const product of ["shadow-geometry-work", "shadow-visibility", "shadow-demand", "shadow-allocation"]) {
+      assert.ok(!plan.products.includes(product), product);
+    }
+  }
+  assert.throws(
+    () => buildFrameProgram({ ...scene, hasLit: false, shadowProfile: "vsm-directional-high" }),
+    /lit Surface consumer/,
+  );
+  const unlit = buildFrameProgram({ ...scene, hasLit: false, shadowProfile: "off" });
+  assert.ok(!unlit.products.includes("shadow-geometry-work"));
+});
+
 test("Program cache reuses the finite set shape and evicts by LRU", () => {
   const cache = new FrameProgramCache(2);
   const first = cache.getOrCreate(scene);

@@ -4,6 +4,41 @@
       "artifacts": [
         "result",
         "events",
+        "screenshot"
+      ],
+      "automatic": true,
+      "buildTarget": "production",
+      "caseKind": "production",
+      "changedPaths": [
+        "validation/cases/geometry-scale-acceptance",
+        "validation/workloads/geometry-scale-acceptance-v1.yaml",
+        "OEngine/src/render",
+        "OEngine/src/gpu",
+        "OEngine/src/assets"
+      ],
+      "decision": "ADR-0020",
+      "domain": "visibility",
+      "errorAllowlist": [
+        {
+          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
+          "reason": "Chrome platform warning; adapter identity is captured before and after recovery.",
+          "source": "console:warning"
+        }
+      ],
+      "harness": "production",
+      "id": "geometry-scale-acceptance",
+      "kind": "perf",
+      "lab": false,
+      "level": "L4",
+      "profile": "geometry-scale",
+      "route": "/cases/geometry-scale-acceptance/index.html",
+      "timeoutMs": 1800000,
+      "workloadId": "geometry-scale-acceptance-v1"
+    },
+    {
+      "artifacts": [
+        "result",
+        "events",
         "readback"
       ],
       "automatic": true,
@@ -246,6 +281,16 @@
         1080
       ]
     },
+    "geometry-scale": {
+      "browserChannel": "chrome-stable",
+      "deviceScaleFactor": 1,
+      "headed": false,
+      "id": "geometry-scale",
+      "viewport": [
+        1920,
+        1080
+      ]
+    },
     "smoke": {
       "browserChannel": "chrome-stable",
       "deviceScaleFactor": 1,
@@ -377,6 +422,66 @@
   },
   "schemaVersion": 1,
   "workloads": {
+    "geometry-scale-acceptance-v1": {
+      "acceptance": {
+        "requiresDisposed": true,
+        "requiresEveryPlannedShard": true,
+        "requiresExactSourceTriangleCoverage": true,
+        "requiresFullCatalogCoverage": true,
+        "requiresSettled": true
+      },
+      "cameraPath": "geometry-scale-near-far-motion-cut-v1",
+      "deviceScaleFactor": 1,
+      "features": [
+        "web-cook",
+        "multi-product-runtime",
+        "visibility",
+        "native-surface",
+        "vsm",
+        "temporal"
+      ],
+      "geometry": {
+        "activationPages": 655,
+        "activationPhysicalBytes": 349175808,
+        "activationSlots": 1332,
+        "activationUploadBytes": 194076588,
+        "catalogCoverage": "all-primitives",
+        "configuredCapacityBytes": 402653184,
+        "metadataBytes": 67108864,
+        "primitives": 1920,
+        "productCount": "record-only",
+        "refinementHeadroomBytes": 53477376,
+        "source": "authored-local-large-glb",
+        "sourceBytes": 477591060,
+        "sourceSha256": "54b608872aec11ce07b26fad6c0ad14a662314e6480bf8d833e5088b59c9851f",
+        "sourceTriangles": 4871612
+      },
+      "id": "geometry-scale-acceptance-v1",
+      "independentRuns": 1,
+      "quality": "complete-authored-textures-512-native-v4",
+      "renderScale": 1,
+      "resolution": [
+        1920,
+        1080
+      ],
+      "sampleCadence": 1,
+      "sampleFrames": 48,
+      "seed": 2401,
+      "texture": {
+        "bankMaxCapacities": [
+          64,
+          130,
+          130,
+          130,
+          130
+        ],
+        "catalogRoutes": 518,
+        "maximumResolution": 512,
+        "maximumRgbaBankBytes": 749381536
+      },
+      "timestampRequired": true,
+      "warmupFrames": 30
+    },
     "glb-bootstrap-priority-v1": {
       "cameraPath": "web-glb-catalog-bounds-fixed",
       "deviceScaleFactor": 1,

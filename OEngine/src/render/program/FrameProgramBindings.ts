@@ -187,6 +187,12 @@ export function assertFrameProgramBindings(plan: FrameProgram, bindings: FramePr
     throw new Error("Frame Program VSM profile requires directional clipmap constants");
   }
   if (
+    plan.products.includes("shadow-geometry-work") &&
+    (!bindings.job.shadowFrame || !bindings.job.prepared.shadowGeometry)
+  ) {
+    throw new Error("Frame Program requires independent light-view Geometry publication");
+  }
+  if (
     bindings.vsmGeneration.deviceEpoch !== bindings.deviceEpoch ||
     (bindings.vsmFrame !== null && bindings.vsmFrame.generation !== bindings.vsmGeneration.generation)
   ) {

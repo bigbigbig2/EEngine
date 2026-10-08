@@ -41,6 +41,8 @@ Renderer device loss checkpoint/replay全部active/dormant owned sources及slot/
 
 Residency publication事件同步管理streaming source注册：dormant/retiring撤销注册并取消IO/verified队列，active恢复，destroy/device loss解除订阅；CPU取消不替代末读GPU fence。单Product退休不会继续向已释放source/owner上传迟到页。
 
+Scene卸载区分caller admission与Renderer创建/recovery replay的Product责任：后者由`releaseScene`撤publication、取消streaming，末读GPU fence成功后释放Product/source并移除登记；前者默认保留caller释放责任。失败fence保登记可重试，重复卸载不提交空命令，迟到卸载不删新Product登记。Device loss即取消main/shadow mapping与IO，source仍由checkpoint保留供replay/retry；存活device的真实mapping失败不被归为取消。实际验证与大型Runner未完成范围见执行计划G2.4。
+
 ## 边界与验证
 
 当前 cook profile 为 `static-pbr-page-local-f32-lean-v7`，WASM input ABI4。raw Product/OEGPACK 不再携带无 runtime reader 的64B/triangle continuity；旧flag bits6/7明确要求recook，旧ABI3 WASM在规划前拒绝。cook内部 seam/domain/lineage/误差数学保留，float32 position及normal/tangent/UV/color编码不变。新真实payload bytes参与分组与LOD acceptance，可能改变cut和page packing；不能据删除字段直接推断质量或整bank VRAM收益。实际验证和限制只读执行计划G2.2。

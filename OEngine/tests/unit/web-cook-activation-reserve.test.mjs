@@ -206,13 +206,29 @@ function eventStream(header) {
   };
 }
 
+async function consumeActivationCut(coordinator, product) {
+  const cooking = coordinator.cookBootstrap();
+  const events = [];
+  while (!events.some(event => event.type === "RevisionOffered")) {
+    await new Promise(resolve => setImmediate(resolve));
+    events.push(...coordinator.drainEvents());
+  }
+  const emitted = new Set(pageEvents(events));
+  const pending = product.descriptor.activationPageIds.filter(pageId => !emitted.has(pageId));
+  if (pending.length > 0) {
+    await coordinator.requestPages(product.productId, product.revision, pending, 0);
+  }
+  await cooking;
+  events.push(...coordinator.drainEvents());
+  assert.deepEqual(pageEvents(events), [0, 1], "each activation page transfers exactly once");
+}
+
 test("Web Cook coordinator re-serves an activation page re-read after the cut streamed", async () => {
   const product = productFixture();
   const coordinator = makeCoordinator(product);
   await coordinator.open("https://example.test/activation.glb");
   coordinator.grantOutputCredits(2, PAGE_BYTES * 2);
-  await coordinator.cookBootstrap();
-  coordinator.drainEvents();
+  await consumeActivationCut(coordinator, product);
   // The consumer consumed the cut, so its output credit is back with the session.
   coordinator.returnOutputCredits(2, PAGE_BYTES * 2);
 
@@ -232,8 +248,7 @@ test("Web Cook coordinator conserves output credit across an activation re-read"
   const coordinator = makeCoordinator(product);
   await coordinator.open("https://example.test/credit.glb");
   coordinator.grantOutputCredits(3, PAGE_BYTES * 3);
-  await coordinator.cookBootstrap();
-  coordinator.drainEvents();
+  await consumeActivationCut(coordinator, product);
   coordinator.returnOutputCredits(2, PAGE_BYTES * 2);
   await coordinator.requestPages(product.productId, product.revision, new Uint32Array([0, 1]), 0);
   const events = coordinator.drainEvents();
@@ -251,8 +266,7 @@ test("Web Cook coordinator does not re-emit a page the consumer already holds", 
   const coordinator = makeCoordinator(product);
   await coordinator.open("https://example.test/precision.glb");
   coordinator.grantOutputCredits(2, PAGE_BYTES * 2);
-  await coordinator.cookBootstrap();
-  coordinator.drainEvents();
+  await consumeActivationCut(coordinator, product);
   coordinator.returnOutputCredits(2, PAGE_BYTES * 2);
   await coordinator.requestPages(product.productId, product.revision, new Uint32Array([1]), 0);
   assert.deepEqual(pageEvents(coordinator.drainEvents()), [1], "only the requested page is emitted");

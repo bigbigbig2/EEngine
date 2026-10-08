@@ -24,6 +24,7 @@ verifies:
     - OEngine/src/gpu/VirtualGeometryResidency.ts
     - OEngine/src/gpu/GeometryProductMultiRuntime.ts
     - OEngine/src/render/HierarchicalWorkGenerator.ts
+    - OEngine/src/render/ShadowGeometryWork.ts
     - OEngine/src/render/FrameGeometryArena.ts
     - OEngine/src/assets/geometry-product/GeometryProductWorkload.ts
     - OEngine/tests/oracle/geometry-product-scale-gpu.mjs
@@ -69,6 +70,22 @@ CPU边界/lateIO/100次metadata回收/1–66Product恢复、真实GPU bank边界
 Local：`GeometryCooker.cpp` 的 GroupMeshlets/SimplifyGroup/SerializeGroup、recipe/Product/OEGPACK校验与WASM ABI、FrameGeometryArena及frame writer/native raster/winner readers。Reference：重新核读本地Nyx `MiniEngine/Model/MeshletBuilder.cpp::BuildVertexLocksByGroups/SimplifyGroup/SerializeGroup`，声明revision `bc7e5b1e51f6b3b8af4771db81ffaa714fcbe64b`、MiniEngine MIT，快照文件SHA256=`b749346382b0f9a1574f0c0566a2860bff2acfbc6521df6f153a42653c81e84a`；沿用上表本地snapshot与revision核验边界。vendored meshoptimizer `9e1f07b159d3cb777f1c67ed31fc11fd117986f4`、MIT、1.3，实际核读partition与simplifyWithUpdate/属性锁；donor内0.25与本地不同，不冒称输出一致。
 
 Adopt：保已有seam/domain/lineage/attribute locks、bounds/error/refine/bootstrap数学与完整source finest cut；本轮不移植新的复杂算法。Adapt：payload acceptance按真实lean bytes、WebGPU同精度六vec4 prepared产品、CPU admission需求预留和fenced retirement。Reject：Sloppy/packed精度缩减、D3D meshshader/wave/框架假设及为donor数量恢复旧layout。Original：删除无reader序列化payload、v7/ABI4 recook边界、reader偏移裁剪与有界Arena容量为本地责任。独立donor corpus自身语义保留；数量equal测试迁移依据、Native/WASM质量与实际production GPU/hit-miss/近裁面结果及限制见[执行§8.4.1](../next-execution/eengine-v4-native-shading-execution-2026-10.md#841-g22-实施结果与停止边界2026-10-08)。没有新增来源adoption等级、compression算法或性能改善声明。
+
+<a id="g23-view-work-source-map"></a>
+
+## 2026-10-08：G2.3 view work / shadow Geometry 本地闭包
+
+Local：现有 hierarchy wavefront/fused leaf、Product/ordinary MeshletWork、FrameInstanceTransforms、FrameGraph与delayed shadow-demand ring。Reference：重新读取本地 Nyx `MiniEngine/Model/Shaders/DAGCull.slang::ProcessNodeBatch/ProcessMeshletBatch` 的 parent/refine互补、resident地址与缺页 coarse 分支，声明 revision `bc7e5b1e51f6b3b8af4771db81ffaa714fcbe64b`、MiniEngine MIT，文件SHA256=`6534dd8794248d693acd07488653a625df3b4fac11117f96537a43857dcfee7e`。本地无Git身份，hash核对不等于已核实upstream commit。
+
+Adopt：保已有 resident refine cut、missing coarse与GPU完整work语义，不新增上游算法移植。Adapt：WebGPU prepare写actual-count二维indirect、独立shadow work/instance与同帧宏依赖、Product slot/generation和延迟反馈/fence。Reject：wave/persistent polling/mesh shader假设、未完整实现的two-pass HZB和为了共享work建立persistent cache。Original：directional clipmaps XY prism、Geometry owner/lifetime、每帧VSM参数binding与sampling constants真实writer均为本地接线/数学修正；不提升完整Nyx、VSM或性能adoption。真实生产off-camera/occluded/alpha/HDR、八类header、二维完整集合、pressure/abort/recovery及成本限制见[执行§8.5.1](../next-execution/eengine-v4-native-shading-execution-2026-10.md#851-g23-实施记录2026-10-08)。
+
+## 2026-10-08：G2.4 conservative sphere 修正（本地数值责任）
+
+Local：`GeometryCooker.cpp::MergeSphere`/refine与hierarchy验证、Native/Web共同recipe、`WebGeometryCookerAbiTest.cpp::AssertConservativeTranslatedHierarchy`。Reference：重新核读上述固定Nyx快照 `MeshletBuilder.cpp::MergeSphere`、simplification parent bounds与`Validate`（revision声明、MIT、文件hash沿用G2.2），以及vendored meshoptimizer固定`9e1f07b159d3cb777f1c67ed31fc11fd117986f4`、MIT的`meshletutils.cpp::computeBoundingSphere`完整center/radius更新分支（hash见source.json）。没有新增upstream算法采用。
+
+Adopt：保两球包含判断/最小合并中心及refine descendant conservative bounds。Adapt/Original：对象坐标约87651时float32 center舍入可欠包围约毫米，不能沿用源float算出的未修正radius；本地用double选择center，按实际存储float32 center重算两球所需radius再向外舍入，支持out与任一输入alias。Reject：扩大验证epsilon、复制源group sphere覆盖WithUpdate移动后顶点、降低坐标/顶点精度。新hierarchy recipe `nyx-hierarchy-v4.1-conservative-spheres`参与identity，vertex/page ABI不变；Native与两种WASM producer同切，旧内容需按新recipe重cook，Git保留历史golden。
+
+原独立translated hierarchy oracle严格double containment失败，修后通过；Native/Web/Nyx corpus语义、thread determinism另核。此修正只增加cook的double distance/rounding，不增加GPU产品/记录/dispatch/每帧ALU，不声称GPU性能提升或完整大场景acceptance。实施结果与开放项只在V4执行§8.6.1维护。
 
 ## 2026-10-07：V4 planning source map（未实施、未提升采用）
 

@@ -10,6 +10,10 @@ import {
 } from "../../.test-dist/gpu/GeometryProductGpuAbiV1.js";
 import { HierarchicalWorkGenerator } from "../../.test-dist/render/HierarchicalWorkGenerator.js";
 import { VirtualGeometryMeshletWorkCandidate } from "../../.test-dist/render/MeshletWorkCandidate.js";
+import { ShadowGeometryWork } from "../../.test-dist/render/ShadowGeometryWork.js";
+import { FrameInstanceTransforms } from "../../.test-dist/render/FrameInstanceTransforms.js";
+import { PACKED_CAMERA_TYPE } from "../../.test-dist/shaders/packed_camera.js";
+import { unpackGeometryPageDemandV1 } from "../../.test-dist/gpu/GeometryPageDemandAbiV1.js";
 import {
   GPU_INSTANCE_ABI_VERSION,
   GPU_INSTANCE_FLAGS,
@@ -117,6 +121,9 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
   });
   const hierarchy = new HierarchicalWorkGenerator(device);
   const candidate = new VirtualGeometryMeshletWorkCandidate(device);
+  const frameInstances = new FrameInstanceTransforms(device);
+  await frameInstances.ready;
+  const shadowOwner = new ShadowGeometryWork({ device, frame_instances: frameInstances });
   const buffers = [];
   const buffer = (
     size,
@@ -147,7 +154,8 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
         geometryRecordIndex: handle.assetReferenceBegin,
         geometryGeneration: handle.productGeneration,
         materialHandle: 0,
-        flags: GPU_INSTANCE_FLAGS.Active | GPU_INSTANCE_FLAGS.VirtualGeometry,
+        flags:
+          GPU_INSTANCE_FLAGS.Active | GPU_INSTANCE_FLAGS.VirtualGeometry | GPU_INSTANCE_FLAGS.CastsShadow,
         debugId: index,
         boundsSphere: [0, 0, 0, 1],
         boundsMin: [-1, -1, -1],
@@ -200,6 +208,49 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
       nearPlane: 0.1,
       frustumPlanes: Array.from({ length: 6 }, () => [0, 0, 0, 1])
     };
+    const camera = buffer(PACKED_CAMERA_TYPE.size, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
+    const shadowJob = {
+      assets: {
+        abiVersion: GPU_GEOMETRY_ABI_VERSION,
+        geometryRecords: placeholder,
+        clusterRecords: placeholder,
+        clusterChildren: placeholder
+      },
+      scene,
+      runtime: {
+        instanceBegin: 0,
+        instanceCount: 2,
+        hierarchyMaxDepth: 0,
+        hierarchyTraversalCapacity: 8,
+        hierarchyVisibleClusterCapacity: 8,
+        hierarchyRasterWorkCapacity: 8,
+        counterSink: counters
+      },
+      virtualGeometry: runtime.bindings(),
+      streamingRuntime: streaming,
+      shadowFrame: { generation: 1, lightView: identity, clipOriginExtent: [[-2, -2, 4, 1]] }
+    };
+    const shadowPrepared = shadowOwner.prepare(
+      shadowJob,
+      {
+        key: { traversalCapacity: 8, meshletWorkCandidateCapacity: 8 }
+      },
+      camera,
+      {
+        destroyAfterGpuDone() {
+          throw new Error("No prior shadow allocation may retire");
+        }
+      }
+    );
+    const shadowRead = buffer(
+      shadowPrepared.work.queue.size,
+      GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+    );
+    const demandRead = buffer(
+      shadowPrepared.hierarchy.generated.pageDemand.size,
+      GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+    );
+    let shadowDemandRecords = 0;
     let aborted = false;
     try {
       for (let frame = 0; frame < 24; frame++) {
@@ -222,11 +273,29 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
         hierarchy.encode(encoder, h, view, { coneEnabled: false, demandFrameRevisionLow: frame });
         candidate.encode(command, work);
         streaming.encodeDemandReadback(command, h.generated.pageDemand, frame);
+        shadowOwner.encode(
+          { ...shadowJob, demandFrameIndex: frame, demandFrameRevisionLow: frame },
+          shadowPrepared,
+          command
+        );
         encoder.copyBufferToBuffer(work.queue, 0, read, 0, work.queue.size);
+        encoder.copyBufferToBuffer(shadowPrepared.work.queue, 0, shadowRead, 0, shadowRead.size);
+        encoder.copyBufferToBuffer(
+          shadowPrepared.hierarchy.generated.pageDemand,
+          0,
+          demandRead,
+          0,
+          demandRead.size
+        );
         if (frame === 0 && !aborted) {
           encoder.finish();
           aborts.forEach((callback) => callback());
           assert.equal(streaming.evidence().readback.inUse, 0);
+          assert.equal(
+            streaming.evidence().shadowReadback.inUse,
+            0,
+            "Abort must cancel independent shadow demand"
+          );
           aborted = true;
           frame--;
           continue; // Retry the exact same frame with a new command.
@@ -236,6 +305,26 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
         await read.mapAsync(GPUMapMode.READ);
         const words = new Uint32Array(read.getMappedRange().slice(0));
         read.unmap();
+        await Promise.all([shadowRead.mapAsync(GPUMapMode.READ), demandRead.mapAsync(GPUMapMode.READ)]);
+        const shadowWords = new Uint32Array(shadowRead.getMappedRange().slice(0));
+        const demandBytes = demandRead.getMappedRange().slice(0),
+          demandWords = new Uint32Array(demandBytes);
+        shadowRead.unmap();
+        demandRead.unmap();
+        assert.equal(shadowWords[4] + shadowWords[6], 0, "Shadow work must retain complete resident cut");
+        const shadowCounts = [0, 0];
+        for (let index = 0; index < shadowWords[1]; index++) shadowCounts[shadowWords[8 + index * 6]]++;
+        assert.ok(
+          shadowCounts.every((count) => count >= 1),
+          "Shadow missing pages cannot erase coarse coverage"
+        );
+        assert.equal(demandWords[2], 0, "Shadow demand cannot overflow this fixture");
+        for (let index = 0; index < Math.min(demandWords[0], demandWords[1]); index++) {
+          const demand = unpackGeometryPageDemandV1(new Uint8Array(demandBytes, 16 + index * 16, 16));
+          assert.equal(demand.shadow, true, "Independent shadow producer must tag feedback");
+          assert.equal(demand.priority, 65535);
+          shadowDemandRecords++;
+        }
         assert.equal(words[4] + words[6], 0, "pressure produced invalid/overflow work");
         const counts = [0, 0];
         for (let index = 0; index < words[1]; index++) counts[words[8 + index * 6]]++;
@@ -243,6 +332,10 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
           counts.every((count) => count >= 1),
           "coarse coverage lost an accepted instance"
         );
+        if (frame === 0) {
+          const sameFrame = await streaming.consumeCompleted(frame, performance.now());
+          assert.equal(sameFrame.consumedReadbacks, 0, "Neither view may consume same-frame feedback");
+        }
         await streaming.consumeAfterCompletion(frame, device.queue.onSubmittedWorkDone(), performance.now());
         await streaming.scheduler.drainReads();
         const evidence = streaming.evidence();
@@ -251,6 +344,7 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
         frames.push({
           frame,
           counts,
+          shadowCounts,
           uploads: evidence.scheduler.uploadedBytes,
           verifiedBytes: evidence.scheduler.verifiedBytes,
           pending: evidence.scheduler.pending,
@@ -277,10 +371,54 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
     );
     assert.equal(evidence.scheduler.failed, 0);
     assert.equal(evidence.lastError, null);
+    assert.ok(shadowDemandRecords > 0, "Real missing shadow pages must produce delayed feedback");
+    assert.ok(evidence.shadowReadback.submitted > 1);
+    await device.queue.onSubmittedWorkDone();
+    const retirements = [],
+      retirement = {
+        destroyAfterGpuDone(resource) {
+          retirements.push(resource);
+        }
+      };
+    const beforeReplacement = frameInstances.allocatedBytes;
+    const replaced = shadowOwner.prepare(
+      shadowJob,
+      { key: { traversalCapacity: 8, meshletWorkCandidateCapacity: 8 } },
+      camera,
+      retirement
+    );
+    assert.notEqual(replaced, shadowPrepared);
+    assert.equal(retirements.length, 1);
+    assert.equal(
+      frameInstances.allocatedBytes,
+      beforeReplacement * 2,
+      "Old view resources remain live until retirement"
+    );
+    retirements[0].destroy();
+    retirements[0].destroy();
+    assert.equal(
+      frameInstances.allocatedBytes,
+      beforeReplacement,
+      "Repeated retirement cannot destroy the current view"
+    );
+    shadowOwner.release(shadowJob.runtime, retirement);
+    assert.equal(
+      frameInstances.allocatedBytes,
+      beforeReplacement,
+      "Release must respect the last-reader completion"
+    );
+    shadowOwner.destroy();
+    for (const resource of retirements) resource.destroy();
+    assert.equal(
+      frameInstances.allocatedBytes,
+      0,
+      "Teardown and pending callbacks cannot double release or leak"
+    );
     return {
       boundaries,
       frames,
       evidence,
+      shadowDemandRecords,
       physicalCapacityBytes: 2 * MiB,
       logicalFinePageBytes: 6 * 2 * 262144,
       limitations: ["Small correctness/pressure fixture; not G2.4 scene-scale performance"]
@@ -288,6 +426,8 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
   } finally {
     await device.queue.onSubmittedWorkDone();
     streaming?.destroy();
+    shadowOwner.destroy();
+    frameInstances.destroy();
     hierarchy.destroy();
     candidate.destroy();
     runtime.destroy();

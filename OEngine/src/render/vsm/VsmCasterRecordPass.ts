@@ -25,6 +25,21 @@ export interface VsmCasterRecordFrame {
 
 const CONSTANT_BYTES = 256;
 
+export function vsmCasterDispatch(capacity: number, dimension: number): readonly [number, number] {
+  const groups = Math.ceil(capacity / 64);
+  if (
+    !Number.isSafeInteger(capacity) ||
+    capacity <= 0 ||
+    capacity > 0xffffffff ||
+    !Number.isSafeInteger(dimension) ||
+    dimension <= 0 ||
+    groups > dimension ** 2
+  ) {
+    throw new RangeError("VSM caster work exceeds the negotiated 2D dispatch grid");
+  }
+  return [Math.min(groups, dimension), Math.ceil(groups / dimension)];
+}
+
 function packConstants(input: VsmCasterRecordInputs): ArrayBuffer {
   const data = new ArrayBuffer(CONSTANT_BYTES);
   const floats = new Float32Array(data);
@@ -99,6 +114,8 @@ export class VsmCasterRecordPass {
   }
 
   addToGraph(graph: FrameGraph, input: VsmCasterRecordInputs): VsmCasterRecordFrame {
+    const dimension = this.device.limits.maxComputeWorkgroupsPerDimension;
+    vsmCasterDispatch(input.workCapacity, dimension);
     if (input.resources.profile === "shadow-disabled")
       throw new Error("VSM caster records require an enabled profile");
     if (!Number.isSafeInteger(input.generation) || input.generation < 0)
@@ -142,7 +159,7 @@ export class VsmCasterRecordPass {
       );
     });
     const currentConstants = update.write(constants);
-    const produce = graph.add("VSM/caster records", {}, (_data, resolved, context) => {
+    const produce = graph.add("VSM/caster records", input, (data, resolved, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
       const casterGpu = resolved.get(caster) as GPUBuffer;
       const telemetryGpu = resolved.get(telemetry) as GPUBuffer;
@@ -166,7 +183,10 @@ export class VsmCasterRecordPass {
       const pass = command.beginComputePass({ label: "VSM/caster records" });
       pass.setPipeline(this.casterPipeline);
       pass.setBindGroup(0, group);
-      pass.dispatchWorkgroups(Math.ceil(input.workCapacity / 64));
+      // Keep the legal capacity baseline: the extra actual-count prepare pass
+      // did not establish break-even for this consumer in the G2.3 cost probe.
+      const [x, y] = vsmCasterDispatch(data.workCapacity, dimension);
+      pass.dispatchWorkgroups(x, y, 1);
       pass.end();
     });
     produce.read(currentConstants);

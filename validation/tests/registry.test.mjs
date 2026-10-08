@@ -23,7 +23,9 @@ test("registry rejects duplicate identity and runtime backend switches", () => {
 
 test("registry rejects unowned artifacts, unbounded timeout and fuzzy allowlists", () => {
   const broken = structuredClone(registry);
-  broken.cases[0].timeoutMs = 999999;
+  // Registry order can begin with an L4 perf case. Exceed the largest legal
+  // timeout instead of assuming the first case has the shorter contract limit.
+  broken.cases[0].timeoutMs = 1_800_001;
   broken.cases[0].artifacts = ["mystery"];
   broken.cases[0].errorAllowlist = [{ pattern: ".*" }];
   const errors = validateRegistry(broken);
