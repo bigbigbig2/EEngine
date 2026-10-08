@@ -43,6 +43,8 @@ export class ShadeImage {
   }
 
   normalized = true;
+  /** Cold import bytes. Parsing/decode belongs to the bounded codec Worker. */
+  encoded_mime_type: string | undefined;
 
   #source: unknown;
 
@@ -100,6 +102,12 @@ export class ShadeImage {
     return t;
   }
 
+  static fromEncodedImage(bytes: ArrayBuffer, mimeType: string): ShadeImage {
+    const image = ShadeImage.fromArrayBuffer(bytes, 4, ShadeDataType.Uint8, 0, 0, 1);
+    image.encoded_mime_type = encodedImageMime(bytes, mimeType);
+    return image;
+  }
+
   static fromSampler2D(e: Sampler2DLike): ShadeImage {
     const t = new ShadeImage();
     t.#source = e;
@@ -130,6 +138,35 @@ export class ShadeImage {
     i.normalized = false;
     return i;
   }
+}
+
+// File maps and HTTP responses may omit MIME. This only selects the cold owner;
+// browser/libktx still own container parsing and validation.
+function encodedImageMime(bytes: ArrayBuffer, declared: string): string {
+  if (declared && declared !== "application/octet-stream") {
+    return declared;
+  }
+  const header = new Uint8Array(bytes, 0, Math.min(12, bytes.byteLength));
+  const matches = (magic: readonly number[]) => magic.every((byte, index) => header[index] === byte);
+  if (matches([137, 80, 78, 71, 13, 10, 26, 10])) {
+    return "image/png";
+  }
+  if (matches([255, 216, 255])) {
+    return "image/jpeg";
+  }
+  if (
+    matches([82, 73, 70, 70]) &&
+    header[8] === 87 &&
+    header[9] === 69 &&
+    header[10] === 66 &&
+    header[11] === 80
+  ) {
+    return "image/webp";
+  }
+  if (matches([171, 75, 84, 88, 32, 50, 48, 187, 13, 10, 26, 10])) {
+    return "image/ktx2";
+  }
+  throw new Error("Encoded material image requires a supported MIME or image signature");
 }
 
 Object.defineProperty(ShadeImage.prototype, "isShadeImage", {

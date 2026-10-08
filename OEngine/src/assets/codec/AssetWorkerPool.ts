@@ -1,4 +1,4 @@
-import type { AssetCodecPriority } from "./AssetCodecTypes.js";
+type AssetCodecPriority = 0 | 1 | 2;
 
 export interface AssetWorkerPoolOptions {
   readonly maxWorkers: number;

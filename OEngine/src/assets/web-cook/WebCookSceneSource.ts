@@ -35,7 +35,6 @@ export type WebCookSceneSourceOptions = VirtualGeometrySceneSourceOptionsV1 & {
    */
   readonly textureCache?: Map<string, Promise<ShadeTexture>>;
   /** Negotiated GPU dimension limit for decoded authored images. */
-  readonly maxImageDimension?: number;
   /** Optional diagnostic timing for this Product's material mapping. */
   readonly onMappingTiming?: (timing: WebCookSceneMappingTiming) => void;
 };
@@ -155,13 +154,7 @@ export async function createWebCookSceneSourceAsync(
       catalogIndices,
       catalogIndices.map(() => 0),
     );
-    const result = buildVirtualGeometrySceneSourceV1(
-      descriptor,
-      profiles,
-      instances,
-      [material],
-      options,
-    );
+    const result = buildVirtualGeometrySceneSourceV1(descriptor, profiles, instances, [material], options);
     options.onMappingTiming?.({
       textureCacheHits: 0,
       textureCacheMisses: 0,
@@ -199,15 +192,10 @@ export async function createWebCookSceneSourceAsync(
           throw signal.reason instanceof Error
             ? signal.reason
             : new DOMException("The operation was aborted", "AbortError");
-        const blob = new Blob([payload.bytes], {
-          type: payload.mimeType ?? imageInfo.mimeType ?? "application/octet-stream",
-        });
-        if (typeof createImageBitmap !== "function")
-          throw new Error("Web Cook authored textures require createImageBitmap support");
-        const decodeStarted = timing ? performance.now() : 0;
-        const bitmap = await decodeWebCookImageBitmap(blob, options.maxImageDimension);
-        if (timing) timing.imageDecodeMs += performance.now() - decodeStarted;
-        const image = ShadeImage.fromImageBitmap(bitmap);
+        const image = ShadeImage.fromEncodedImage(
+          payload.bytes,
+          payload.mimeType ?? imageInfo.mimeType ?? "application/octet-stream",
+        );
         const texture = ShadeTexture.from(image);
         texture.magFilter = filterValue(info.sampler.magFilter, false);
         texture.minFilter = filterValue(info.sampler.minFilter, false);
@@ -219,6 +207,9 @@ export async function createWebCookSceneSourceAsync(
         return texture;
       });
       textureBySource.set(key, pending);
+      pending.catch(() => {
+        if (textureBySource.get(key) === pending) textureBySource.delete(key);
+      });
     } else if (timing) timing.textureCacheHits++;
     return pending;
   };
@@ -284,35 +275,9 @@ export async function createWebCookSceneSourceAsync(
   for (let index = 0; index < materials.length; index++)
     if (!materials[index]) materials[index] = new StandardShadeMaterial();
   const { profiles, instances } = buildProfilesAndInstances(catalog, catalogIndices, materialIndices);
-  const result = buildVirtualGeometrySceneSourceV1(
-    descriptor,
-    profiles,
-    instances,
-    materials,
-    options,
-  );
+  const result = buildVirtualGeometrySceneSourceV1(descriptor, profiles, instances, materials, options);
   if (timing) options.onMappingTiming?.(timing);
   return result;
-}
-
-/** The browser's external-image upload cannot accept a bitmap above the device limit. */
-export async function decodeWebCookImageBitmap(blob: Blob, maxDimension?: number): Promise<ImageBitmap> {
-  const bitmap = await createImageBitmap(blob);
-  if (maxDimension === undefined || Math.max(bitmap.width, bitmap.height) <= maxDimension) return bitmap;
-  if (!Number.isSafeInteger(maxDimension) || maxDimension < 1) {
-    bitmap.close();
-    throw new RangeError("Web Cook maxImageDimension must be a positive integer");
-  }
-  const scale = maxDimension / Math.max(bitmap.width, bitmap.height);
-  try {
-    return await createImageBitmap(bitmap, {
-      resizeWidth: Math.max(1, Math.round(bitmap.width * scale)),
-      resizeHeight: Math.max(1, Math.round(bitmap.height * scale)),
-      resizeQuality: "high",
-    });
-  } finally {
-    bitmap.close();
-  }
 }
 
 function sceneAssetIndices(

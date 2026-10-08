@@ -7,7 +7,7 @@ import { ShadeTransparencyMode } from "../material/enums.js";
 import {
   lowerNativeMaterial,
   nativeMaterialDynamicInputs,
-  nativeMaterialParameters
+  nativeMaterialParameters,
 } from "../shaders/native_material.js";
 import { nativeSurfacePublicationDescriptors } from "../shaders/native_surface.js";
 import { nativeVisibilityShader } from "../shaders/native_visibility.js";
@@ -17,12 +17,12 @@ import type { ShadeTexture } from "../texture/ShadeTexture.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
 import {
   GpuNativeMaterialPublication,
-  type NativeMaterialPublicationSource
+  type NativeMaterialPublicationSource,
 } from "./GpuNativeMaterialPublication.js";
 import { createNativeMaterialBindings, type NativeMaterialBindings } from "./NativeMaterialBindings.js";
 import { NativeMaterialProducts } from "./NativeMaterialProducts.js";
 import type { TextureBindingSet } from "./TextureResidency.js";
-import type { TextureSurfacePublication } from "./TextureVariation.js";
+import type { TextureSurfacePublication } from "./TextureSurfacePublication.js";
 
 export interface NativeSceneMaterialSource {
   readonly materialSlot: number;
@@ -79,14 +79,14 @@ export class GpuNativeMaterialScene {
     private readonly texturePublications: ReadonlyMap<ShadeTexture, TextureSurfacePublication>,
     command: ShadeGPUCommandContext,
     private readonly productGeometry: boolean,
-    private readonly physicalSun: boolean
+    private readonly physicalSun: boolean,
   ) {
     if (command.closed || command.device !== graphics.device) {
       throw new Error("Native scene publication requires its open upload transaction");
     }
     const graphs = materialSources.map((source) => source.graph);
     this.products = graphs.some((graph) =>
-      graph.productReads?.some((read) => read.field.constant === undefined)
+      graph.productReads?.some((read) => read.field.constant === undefined),
     )
       ? new NativeMaterialProducts(
           graphics.device,
@@ -94,7 +94,7 @@ export class GpuNativeMaterialScene {
           command,
           undefined,
           undefined,
-          graphics.resource_accounting
+          graphics.resource_accounting,
         )
       : null;
     try {
@@ -152,8 +152,8 @@ export class GpuNativeMaterialScene {
       (source) =>
         source.material.transparency_mode === ShadeTransparencyMode.AlphaTested &&
         source.graph.instructions.some(
-          (instruction) => (instruction.dependency & APPEARANCE_DEPENDENCY.View) !== 0
-        )
+          (instruction) => (instruction.dependency & APPEARANCE_DEPENDENCY.View) !== 0,
+        ),
     );
   }
 
@@ -185,7 +185,7 @@ export class GpuNativeMaterialScene {
           if (this.candidate === next && !this.stopped) {
             this.error = error;
           }
-        }
+        },
       );
     }
     return (this.candidate ?? this.active!).ready;
@@ -207,7 +207,7 @@ export class GpuNativeMaterialScene {
           this.retiring.add(previous);
           void previous.publication.retire(this.lastCompletion).then(
             () => this.retiring.delete(previous),
-            () => this.retiring.delete(previous)
+            () => this.retiring.delete(previous),
           );
         }
         this.active = selected;
@@ -224,7 +224,7 @@ export class GpuNativeMaterialScene {
     return (
       changed &&
       this.materialSources.some(
-        (source) => source.material.transparency_mode === ShadeTransparencyMode.AlphaTested
+        (source) => source.material.transparency_mode === ShadeTransparencyMode.AlphaTested,
       )
     );
   }
@@ -301,8 +301,8 @@ export class GpuNativeMaterialScene {
         raster: {
           alphaCutoff: data[constants.length]!,
           alphaMask: source.material.transparency_mode === ShadeTransparencyMode.AlphaTested,
-          hasEmissiveTexture: source.material.texture_emissive !== undefined
-        }
+          hasEmissiveTexture: source.material.texture_emissive !== undefined,
+        },
       });
     }
     if (
@@ -316,7 +316,7 @@ export class GpuNativeMaterialScene {
       values.every(
         (data, index) =>
           previous.values[index]!.length === data.length &&
-          previous.values[index]!.every((value, word) => Object.is(value, data[word]))
+          previous.values[index]!.every((value, word) => Object.is(value, data[word])),
       )
     ) {
       return previous;
@@ -331,8 +331,8 @@ export class GpuNativeMaterialScene {
           entries.every(
             (entry, word) =>
               entry.binding === bound.entries[word]!.binding &&
-              entry.resource === bound.entries[word]!.resource
-          )
+              entry.resource === bound.entries[word]!.resource,
+          ),
       );
       if (bindingSet < 0) {
         bindingSet = physicalSets.length;
@@ -343,8 +343,8 @@ export class GpuNativeMaterialScene {
     const binKeys = new Set(
       routedSources.map(
         (source, index) =>
-          `${source.program.key}/${source.bindingSet}/${this.materialSources[index]!.material.is_unlit}`
-      )
+          `${source.program.key}/${source.bindingSet}/${this.materialSources[index]!.material.is_unlit}`,
+      ),
     );
     const complete = routedSources.map((source, index) => ({
       ...source,
@@ -356,16 +356,16 @@ export class GpuNativeMaterialScene {
           productGeometry: this.productGeometry,
           unlit: this.materialSources[index]!.material.is_unlit,
           reactive: true,
-          physicalSun: this.physicalSun && !this.materialSources[index]!.material.is_unlit
+          physicalSun: this.physicalSun && !this.materialSources[index]!.material.is_unlit,
         },
-        this.graphics.device.limits
-      )
+        this.graphics.device.limits,
+      ),
     }));
     const publication = new GpuNativeMaterialPublication(
       this.graphics.device,
       this.graphics.appearance_programs,
       complete,
-      this.graphics.resource_accounting
+      this.graphics.resource_accounting,
     );
     const routes = publication.bins.map((bin, index) => {
       const sourceIndex = publication.entries.findIndex((entry) => entry.executionBin === index);
@@ -373,7 +373,7 @@ export class GpuNativeMaterialScene {
         ...bin,
         materialEntries: bindings[sourceIndex]!.entries,
         frameInputs: new Float32Array(Math.max(1, complete[sourceIndex]!.program.inputCount) * 4),
-        unlit: this.materialSources[sourceIndex]!.material.is_unlit
+        unlit: this.materialSources[sourceIndex]!.material.is_unlit,
       };
     });
     return {
@@ -384,14 +384,14 @@ export class GpuNativeMaterialScene {
       values,
       unlit,
       routes,
-      ready: false
+      ready: false,
     };
   }
 
   private obtainMaterialBindings(
     index: number,
     source: NativeSceneMaterialSource,
-    set: TextureBindingSet
+    set: TextureBindingSet,
   ): NativeMaterialBindings {
     // Compiled graph/Product contents are immutable until Scene resync. The
     // mutable residency inputs below are compared by exact values and physical
@@ -410,8 +410,8 @@ export class GpuNativeMaterialScene {
         publication?.generation,
         publication?.currentRevision ?? publication?.revision,
         publication?.currentMinimumMip,
-        texture.runtime_asset_package_v2?.width,
-        texture.runtime_asset_package_v2?.height
+        texture.texture_product?.metadata.storageWidth,
+        texture.texture_product?.metadata.storageHeight,
       );
     }
     const previous = this.materialBindings[index];
@@ -430,15 +430,15 @@ export class GpuNativeMaterialScene {
       textureMipRanges: this.mipRanges,
       texturePublications: this.texturePublications,
       ...(this.products ? { packedProducts: this.products } : {}),
-      obtainSampler: (descriptor) => this.graphics.samplers.obtain(descriptor)
+      obtainSampler: (descriptor) => this.graphics.samplers.obtain(descriptor),
     });
     const bindings = Object.freeze({
       ...bound,
       program: Object.freeze({
         ...bound.program,
         instanceInputs: true,
-        key: `${bound.program.key}/instance-inputs`
-      })
+        key: `${bound.program.key}/instance-inputs`,
+      }),
     });
     this.materialBindings[index] = { identity, bindings };
     return bindings;
@@ -455,14 +455,14 @@ export class GpuNativeMaterialScene {
           partitioned: true,
           productGeometry: this.productGeometry,
           shadow: vsmAtlas,
-          vsmAtlas
+          vsmAtlas,
         });
         for (const cullMode of ["back", "none"] as const) {
           for (const late of !vsmAtlas && this.productGeometry ? [false, true] : [false]) {
             jobs.push(
               this.graphics.render_pipelines.prepare(
-                nativeVisibilityPipelineDescriptor(shader, vsmAtlas, cullMode, late)
-              )
+                nativeVisibilityPipelineDescriptor(shader, vsmAtlas, cullMode, late),
+              ),
             );
           }
         }
@@ -479,7 +479,7 @@ export class GpuNativeMaterialScene {
       this.stopped = true;
       void command.gpuDone.then(
         () => this.destroy(),
-        () => this.destroy()
+        () => this.destroy(),
       );
     });
   }
@@ -495,13 +495,13 @@ export class GpuNativeMaterialScene {
     const stagingBytes = this.candidate?.publication.allocatedBytes ?? 0;
     const retiringBytes = [...this.retiring].reduce(
       (bytes, snapshot) => bytes + snapshot.publication.allocatedBytes,
-      0
+      0,
     );
     return {
       allocatedBytes: residentBytes + stagingBytes + retiringBytes,
       residentBytes,
       stagingBytes,
-      retiringBytes
+      retiringBytes,
     };
   }
 

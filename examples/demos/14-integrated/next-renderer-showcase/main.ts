@@ -1,9 +1,16 @@
 import {
-  createDefaultWebCookWorker, load_gltf, OrbitControls, PerspectiveCamera, Renderer, Scene,
+  createDefaultWebCookWorker,
+  load_gltf,
+  OrbitControls,
+  PerspectiveCamera,
+  Renderer,
+  Scene,
   webCookCatalogSceneFraming,
   RenderDebugView,
-  type MultiProductSceneHandles, type WebCookCatalogSceneFramingV1,
-  type WebCookRuntimeAsset, type RenderDebugViewName
+  type MultiProductSceneHandles,
+  type WebCookCatalogSceneFramingV1,
+  type WebCookRuntimeAsset,
+  type RenderDebugViewName,
 } from "../../../../OEngine/src/index.ts";
 import { BenchmarkCapture, type CaptureRequest } from "./BenchmarkCapture.ts";
 
@@ -13,14 +20,15 @@ const geometryDebugRenderViews: Readonly<Record<GeometryDebugView, RenderDebugVi
   triangle: RenderDebugView.VisibilityKey,
   shading: RenderDebugView.MaterialId,
   meshlet: RenderDebugView.MeshletId,
-  depth: RenderDebugView.Depth
+  depth: RenderDebugView.Depth,
 };
 const geometryDebugDescriptions: Readonly<Record<GeometryDebugView, string>> = {
   none: "生产画面。选择视图可直接检查 Visibility、材质归属和 Meshlet 分区。",
-  triangle: "Triangle：按当前 VisibilityKey 的 Meshlet 与局部三角形分色。三角形边界出现彩色碎片是此视图的预期结果。",
+  triangle:
+    "Triangle：按当前 VisibilityKey 的 Meshlet 与局部三角形分色。三角形边界出现彩色碎片是此视图的预期结果。",
   shading: "Shading：按当前可见像素的 resident MaterialRecord 分色，用来查材质归属。",
   meshlet: "Meshlet：按当前可见 Meshlet 分色。色块边界是 Meshlet 分块，不代表几何缺失。",
-  depth: "Depth：显示硬件反向 Z 深度，用来检查几何覆盖、裁剪和深度竞争。"
+  depth: "Depth：显示硬件反向 Z 深度，用来检查几何覆盖、裁剪和深度竞争。",
 };
 
 function element<T extends Element>(id: string): T {
@@ -55,10 +63,19 @@ const baseIrradiance = [1.474, 1.8504, 1.91198] as const;
 const settings = {
   autoExposure: false,
   fixedExposure: 4,
-  gtao: true, fsr3: true, bloom: true, hzb: true, cone: true,
-  autoRotate: false, profiler: false, renderScale: 1, sse: 4,
-  sunAzimuth: 30, sunElevation: 63, sunIntensity: 1.5,
-  debugView: "none" as GeometryDebugView
+  gtao: true,
+  fsr3: true,
+  bloom: true,
+  hzb: true,
+  cone: true,
+  autoRotate: false,
+  profiler: false,
+  renderScale: 1,
+  sse: 4,
+  sunAzimuth: 30,
+  sunElevation: 63,
+  sunIntensity: 1.5,
+  debugView: "none" as GeometryDebugView,
 };
 
 let renderer: Renderer | undefined;
@@ -83,7 +100,8 @@ let loadStart = performance.now();
 let starting: Promise<void> | undefined;
 let captureExtent: readonly [number, number] | null = null;
 let capturePaused = false;
-let captureTarget: { end: number; resolve(): void; reject(error: unknown): void; timer: number } | null = null;
+let captureTarget: { end: number; resolve(): void; reject(error: unknown): void; timer: number } | null =
+  null;
 let savedCamera: { matrix: number[]; target: number[] } | null = null;
 let hudUpdatedAt = 0;
 let captureConditions: Record<string, unknown> = {};
@@ -94,11 +112,18 @@ interface ShowcaseDiagnosticHost {
   prepare?: (renderer: Renderer) => Promise<void>;
   onTrajectoryFrame?: (snapshot: ReturnType<typeof frameSnapshot>) => Promise<void>;
 }
-const diagnosticHost = (globalThis as typeof globalThis & {
-  __surfaceDiagnostic?: ShowcaseDiagnosticHost;
-}).__surfaceDiagnostic;
+const diagnosticHost = (
+  globalThis as typeof globalThis & {
+    __surfaceDiagnostic?: ShowcaseDiagnosticHost;
+  }
+).__surfaceDiagnostic;
 const diagnosticVsm = diagnosticHost?.vsm ?? false;
-let capturePath: { begin:number; frames:number; position:readonly number[]; target:readonly number[] } | null = null;
+let capturePath: {
+  begin: number;
+  frames: number;
+  position: readonly number[];
+  target: readonly number[];
+} | null = null;
 
 function publishedSceneFacts() {
   const graphics = renderer?.graphics;
@@ -113,25 +138,41 @@ function publishedSceneFacts() {
     materialInstances: runtime.materialDictionaryCount,
     programs: publication ? new Set(publication.entries.map((entry) => entry.programIndex)).size : 0,
     executionBins: publication?.bins.length ?? 0,
-    bindingSets: publication ? new Set(publication.bins.map((bin) => bin.bindingSet)).size : 0
+    bindingSets: publication ? new Set(publication.bins.map((bin) => bin.bindingSet)).size : 0,
   };
 }
 
 const capture = new BenchmarkCapture({
   beginMeasurement: (begin, request) => {
     if (request.trajectory !== "orbit-return") return;
-    capturePath = { begin, frames:request.frames, position:[camera!.transform.position.x,camera!.transform.position.y,camera!.transform.position.z],
-      target:[controls!.target.x,controls!.target.y,controls!.target.z] };
+    capturePath = {
+      begin,
+      frames: request.frames,
+      position: [camera!.transform.position.x, camera!.transform.position.y, camera!.transform.position.z],
+      target: [controls!.target.x, controls!.target.y, controls!.target.z],
+    };
   },
-  endMeasurement: () => { capturePath=null; },
-  renderer: () => { if (!renderer || !refinementComplete || failed) throw new Error(`Scene is not ready: ${state.textContent}`); return renderer; },
-  prepare: request => {
-    savedCamera = { matrix: Array.from(camera!.transform.matrix), target: [controls!.target.x, controls!.target.y, controls!.target.z] };
-    captureExtent = [request.width, request.height]; capturePaused = true;
+  endMeasurement: () => {
+    capturePath = null;
+  },
+  renderer: () => {
+    if (!renderer || !refinementComplete || failed)
+      throw new Error(`Scene is not ready: ${state.textContent}`);
+    return renderer;
+  },
+  prepare: (request) => {
+    savedCamera = {
+      matrix: Array.from(camera!.transform.matrix),
+      target: [controls!.target.x, controls!.target.y, controls!.target.z],
+    };
+    captureExtent = [request.width, request.height];
+    capturePaused = true;
     setView(request.view);
     setViewDistance(request.distanceScale);
-    camera!.aspect = request.width / request.height; camera!.update();
-    renderer!.setResolutionScale(1); renderer!.resize(request.width, request.height);
+    camera!.aspect = request.width / request.height;
+    camera!.update();
+    renderer!.setResolutionScale(1);
+    renderer!.resize(request.width, request.height);
     renderer!.xe_gtao_enabled = request.profile !== "no-ao";
     renderer!.fsr3_enabled = request.profile !== "no-fsr3";
     renderer!.bloom_enabled = request.profile !== "no-bloom";
@@ -142,31 +183,84 @@ const capture = new BenchmarkCapture({
     renderer!.packed_visibility_sse_threshold = 4;
     renderer!.invalidateTemporalHistory();
     canvas.style.pointerEvents = "none";
-    const diagnostic = globalThis as typeof globalThis & { __surfaceDiagnostic?: { mode: string; pipelineInitialization: string } };
-    captureConditions = { modelUrl, shaderMode: diagnostic.__surfaceDiagnostic?.mode ?? "production", coverage: request.coverage, output: [request.width, request.height], internalScale: 1,
-      camera: { transform: Array.from(camera!.transform.matrix), viewProjection: Array.from(camera!.view_projection_matrix),
-        near: camera!.near, far: camera!.far, fov: camera!.fov },
-      features: { gtao: renderer!.xe_gtao_enabled, fsr3: renderer!.fsr3_enabled, bloom: renderer!.bloom_enabled,
-        vsm: diagnosticVsm && renderer!.shadowVisibilityEnabled, jitter: false, hzb: true, cone: true, currentHzbLateRecheck: false, sse: 4 },
-      sun: scene.physical_environment.snapshot(), exposure: settings.fixedExposure, textureMaxResolution: 1024,
+    const diagnostic = globalThis as typeof globalThis & {
+      __surfaceDiagnostic?: { mode: string; pipelineInitialization: string };
+    };
+    captureConditions = {
+      modelUrl,
+      shaderMode: diagnostic.__surfaceDiagnostic?.mode ?? "production",
+      coverage: request.coverage,
+      output: [request.width, request.height],
+      internalScale: 1,
+      camera: {
+        transform: Array.from(camera!.transform.matrix),
+        viewProjection: Array.from(camera!.view_projection_matrix),
+        near: camera!.near,
+        far: camera!.far,
+        fov: camera!.fov,
+      },
+      features: {
+        gtao: renderer!.xe_gtao_enabled,
+        fsr3: renderer!.fsr3_enabled,
+        bloom: renderer!.bloom_enabled,
+        vsm: diagnosticVsm && renderer!.shadowVisibilityEnabled,
+        jitter: false,
+        hzb: true,
+        cone: true,
+        currentHzbLateRecheck: false,
+        sse: 4,
+      },
+      sun: scene.physical_environment.snapshot(),
+      exposure: settings.fixedExposure,
       instanceCount: publishedSceneFacts()?.instances ?? scene.instance_count,
-      nativeScene: publishedSceneFacts(), counters: request.counters,
-      trajectory:request.trajectory, trajectoryRadians:0.05, trajectoryStages:"equal thirds: static, sin(pi*t) orbit returning to base, settled",
-      frameDeltaSeconds: 1 / 60, hudIntervalMs: 250, scheduling: "timer-driven; Renderer two-frame completion backpressure",
-      pipelineInitialization: diagnostic.__surfaceDiagnostic?.pipelineInitialization ?? "native-production" };
+      nativeScene: publishedSceneFacts(),
+      counters: request.counters,
+      trajectory: request.trajectory,
+      trajectoryRadians: 0.05,
+      trajectoryStages: "equal thirds: static, sin(pi*t) orbit returning to base, settled",
+      frameDeltaSeconds: 1 / 60,
+      hudIntervalMs: 250,
+      scheduling: "timer-driven; Renderer two-frame completion backpressure",
+      pipelineInitialization: diagnostic.__surfaceDiagnostic?.pipelineInitialization ?? "native-production",
+    };
     return captureConditions;
   },
-  conditions: () => ({ ...captureConditions, camera: { transform: Array.from(camera!.transform.matrix), viewProjection: Array.from(camera!.view_projection_matrix),
-    near: camera!.near, far: camera!.far, fov: camera!.fov } }),
-  setDistance: scale => { setViewDistance(scale); renderer!.invalidateTemporalHistory(); },
+  conditions: () => ({
+    ...captureConditions,
+    camera: {
+      transform: Array.from(camera!.transform.matrix),
+      viewProjection: Array.from(camera!.view_projection_matrix),
+      near: camera!.near,
+      far: camera!.far,
+      fov: camera!.fov,
+    },
+  }),
+  setDistance: (scale) => {
+    setViewDistance(scale);
+    renderer!.invalidateTemporalHistory();
+  },
   stability: () => {
     const state = renderer!.geometryStreamingEvidence(scene);
-    return { signature: JSON.stringify(state ? [state.residency.productGeneration, state.residency.activeRevisions,
-      state.residency.residentPages, state.residency.uploadedBytes, state.residency.evictedPages] : null),
+    return {
+      signature: JSON.stringify(
+        state
+          ? [
+              state.residency.productGeneration,
+              state.residency.activeRevisions,
+              state.residency.residentPages,
+              state.residency.uploadedBytes,
+              state.residency.evictedPages,
+            ]
+          : null,
+      ),
       busy: Boolean(state && state.scheduler.inFlightBytes > 0),
-      failed: Boolean(state && (state.scheduler.failed || state.residency.failedPages || state.scheduler.malformedReadbacks)) };
+      failed: Boolean(
+        state &&
+          (state.scheduler.failed || state.residency.failedPages || state.scheduler.malformedReadbacks),
+      ),
+    };
   },
-  renderFrames: async count => {
+  renderFrames: async (count) => {
     if (capturePath && diagnosticHost?.onTrajectoryFrame) {
       // Diagnostic screenshots happen between completed frame submissions.
       // Static timing keeps the normal uninterrupted batch path.
@@ -180,27 +274,46 @@ const capture = new BenchmarkCapture({
     await renderFrameBatch(count);
   },
   restore: (retainView = false) => {
-    if (captureTarget) { clearTimeout(captureTarget.timer); captureTarget.reject(new Error("Capture stopped")); captureTarget = null; }
-    capturePaused = false; captureExtent = null; canvas.style.pointerEvents = "";
+    if (captureTarget) {
+      clearTimeout(captureTarget.timer);
+      captureTarget.reject(new Error("Capture stopped"));
+      captureTarget = null;
+    }
+    capturePaused = false;
+    captureExtent = null;
+    canvas.style.pointerEvents = "";
     if (savedCamera && !retainView) {
       // Restore the actual pose; restoring only position would lose camera orientation.
       camera!.transform.fromMatrix(savedCamera.matrix);
-      controls!.target.set(...savedCamera.target as [number, number, number]); controls!.reset(); camera!.update(); savedCamera = null;
+      controls!.target.set(...(savedCamera.target as [number, number, number]));
+      controls!.reset();
+      camera!.update();
+      savedCamera = null;
     }
     savedCamera = null;
     renderer!.perf_gpu_counters_enabled = settings.profiler;
-    renderer!.profiler.configure({ enabled: settings.profiler, gpuSampleInterval: 1, gpuCounterSampleInterval: 8, historyCapacity: 180 });
-    renderer!.xe_gtao_enabled = settings.gtao; renderer!.fsr3_enabled = settings.fsr3; renderer!.bloom_enabled = settings.bloom;
+    renderer!.profiler.configure({
+      enabled: settings.profiler,
+      gpuSampleInterval: 1,
+      gpuCounterSampleInterval: 8,
+      historyCapacity: 180,
+    });
+    renderer!.xe_gtao_enabled = settings.gtao;
+    renderer!.fsr3_enabled = settings.fsr3;
+    renderer!.bloom_enabled = settings.bloom;
     renderer!.shadowVisibilityEnabled = false;
     renderer!.render_debug_view = geometryDebugRenderViews[settings.debugView];
-    renderer!.packed_visibility_hzb_enabled = settings.hzb; renderer!.packed_visibility_cone_enabled = settings.cone;
-    renderer!.packed_visibility_sse_threshold = settings.sse; renderer!.setResolutionScale(settings.renderScale);
-    renderer!.invalidateTemporalHistory(); resize();
+    renderer!.packed_visibility_hzb_enabled = settings.hzb;
+    renderer!.packed_visibility_cone_enabled = settings.cone;
+    renderer!.packed_visibility_sse_threshold = settings.sse;
+    renderer!.setResolutionScale(settings.renderScale);
+    renderer!.invalidateTemporalHistory();
+    resize();
   },
-  status: message => {
+  status: (message) => {
     element<HTMLElement>("benchmark-state").textContent = message;
     if ("__surfaceDiagnostic" in globalThis) console.info(`SURFACE_CAPTURE ${message}`);
-  }
+  },
 });
 
 function renderFrameBatch(count: number): Promise<void> {
@@ -222,20 +335,28 @@ function frameSnapshot() {
     output: [canvas.width, canvas.height],
     camera: {
       transform: Array.from(camera!.transform.matrix),
-      viewProjection: Array.from(camera!.view_projection_matrix)
+      viewProjection: Array.from(camera!.view_projection_matrix),
     },
     trajectoryFrame: capturePath ? renderer!.frame_count - 1 - capturePath.begin : null,
-    benchmark: element<HTMLElement>("benchmark-state").textContent
+    benchmark: element<HTMLElement>("benchmark-state").textContent,
   };
 }
 
 /** Explicit diagnostic seam for local automation; no private Renderer mutation. */
 export const showcaseDiagnostics = {
-  start: () => starting ??= start(),
-  get ready() { return refinementComplete && firstFrameComplete && !failed; },
-  get failed() { return failed; },
-  get busy() { return capture.busy; },
-  get snapshot() { return renderer && camera ? frameSnapshot() : null; },
+  start: () => (starting ??= start()),
+  get ready() {
+    return refinementComplete && firstFrameComplete && !failed;
+  },
+  get failed() {
+    return failed;
+  },
+  get busy() {
+    return capture.busy;
+  },
+  get snapshot() {
+    return renderer && camera ? frameSnapshot() : null;
+  },
   pause: async () => {
     if (capture.busy) throw new Error("Cannot pause an active capture");
     capturePaused = true;
@@ -244,24 +365,50 @@ export const showcaseDiagnostics = {
   },
   stepFrames: async (count = 1) => {
     if (capture.busy) throw new Error("Cannot step an active capture");
-    if (!Number.isSafeInteger(count) || count < 1 || count > 16) throw new Error("Invalid diagnostic frame count");
+    if (!Number.isSafeInteger(count) || count < 1 || count > 16)
+      throw new Error("Invalid diagnostic frame count");
     await renderFrameBatch(count);
     await renderer!.device.queue.onSubmittedWorkDone();
     return frameSnapshot();
   },
-  get lastCapture() { return capture.last; },
+  get lastCapture() {
+    return capture.last;
+  },
   // Completed snapshots are needed by diagnostics: latest is normally still pending.
-  get profiles() { return renderer?.profiler.history ?? []; },
-  get adapter() { return renderer?.adapter_info; },
-  get runtime() { return { frameCount: renderer?.frame_count, diagnostics: renderer?.profiler.diagnostics,
-    preparation: capture.preparation, visibility: document.visibilityState, streaming: renderer?.geometryStreamingEvidence(scene),
-    nativeScene: publishedSceneFacts(), memory: renderer?.graphics ? renderer.memoryEvidence() : undefined }; },
-  capture: async (request: CaptureRequest = {}) => { await showcaseDiagnostics.start(); return capture.run(request); },
-  dispose: release
+  get profiles() {
+    return renderer?.profiler.history ?? [];
+  },
+  get adapter() {
+    return renderer?.adapter_info;
+  },
+  get runtime() {
+    return {
+      frameCount: renderer?.frame_count,
+      diagnostics: renderer?.profiler.diagnostics,
+      preparation: capture.preparation,
+      visibility: document.visibilityState,
+      streaming: renderer?.geometryStreamingEvidence(scene),
+      nativeScene: publishedSceneFacts(),
+      memory: renderer?.graphics ? renderer.memoryEvidence() : undefined,
+    };
+  },
+  capture: async (request: CaptureRequest = {}) => {
+    await showcaseDiagnostics.start();
+    return capture.run(request);
+  },
+  dispose: release,
 };
 Object.assign(globalThis, { __eengineShowcase: showcaseDiagnostics });
 
-for (const id of ["toggle-gtao", "toggle-fsr3", "toggle-bloom", "toggle-hzb", "toggle-cone", "toggle-rotate", "toggle-profiler"]) {
+for (const id of [
+  "toggle-gtao",
+  "toggle-fsr3",
+  "toggle-bloom",
+  "toggle-hzb",
+  "toggle-cone",
+  "toggle-rotate",
+  "toggle-profiler",
+]) {
   element<HTMLInputElement>(id).addEventListener("change", () => applySettings());
 }
 for (const id of ["render-scale", "sse-threshold", "sun-azimuth", "sun-elevation", "sun-intensity"]) {
@@ -277,13 +424,23 @@ debugViewSelect.addEventListener("change", () => {
 });
 element<HTMLButtonElement>("export-diagnostics").addEventListener("click", exportDiagnostics);
 element<HTMLButtonElement>("run-benchmark").addEventListener("click", () => {
-  void showcaseDiagnostics.capture({ profile: element<HTMLSelectElement>("benchmark-profile").value as CaptureRequest["profile"],
-    coverage: element<HTMLSelectElement>("benchmark-view").value as CaptureRequest["coverage"] })
-    .catch(error => { element<HTMLElement>("benchmark-state").textContent = String(error); });
+  void showcaseDiagnostics
+    .capture({
+      profile: element<HTMLSelectElement>("benchmark-profile").value as CaptureRequest["profile"],
+      coverage: element<HTMLSelectElement>("benchmark-view").value as CaptureRequest["coverage"],
+    })
+    .catch((error) => {
+      element<HTMLElement>("benchmark-state").textContent = String(error);
+    });
 });
 element<HTMLButtonElement>("cancel-benchmark").addEventListener("click", () => {
-  capture.cancel(); capturePaused = true;
-  if (captureTarget) { clearTimeout(captureTarget.timer); captureTarget.reject(new Error("Capture cancelled")); captureTarget = null; }
+  capture.cancel();
+  capturePaused = true;
+  if (captureTarget) {
+    clearTimeout(captureTarget.timer);
+    captureTarget.reject(new Error("Capture cancelled"));
+    captureTarget = null;
+  }
 });
 element<HTMLButtonElement>("export-benchmark").addEventListener("click", () => {
   if (capture.last) downloadJson(capture.last, "eengine-showcase-capture");
@@ -296,12 +453,16 @@ panelToggle.addEventListener("click", () => {
   panelToggle.setAttribute("aria-expanded", String(!nextCollapsed));
   panelToggle.setAttribute("aria-label", nextCollapsed ? "打开调试面板" : "收起调试面板");
 });
-startButton.addEventListener("click", () => {
-  startButton.disabled = true;
-  startButton.hidden = true;
-  setLoading("初始化 WebGPU", "创建设备与渲染上下文", 0.03);
-  void showcaseDiagnostics.start().catch(error => fail(error));
-}, { once: true });
+startButton.addEventListener(
+  "click",
+  () => {
+    startButton.disabled = true;
+    startButton.hidden = true;
+    setLoading("初始化 WebGPU", "创建设备与渲染上下文", 0.03);
+    void showcaseDiagnostics.start().catch((error) => fail(error));
+  },
+  { once: true },
+);
 
 function setState(message: string, status: "loading" | "ready" | "error" = "ready"): void {
   state.textContent = message;
@@ -317,22 +478,31 @@ function setLoading(title: string, detail: string, progress: number): void {
   const clamped = Math.max(0, Math.min(1, progress));
   loadingProgress.style.width = `${clamped * 100}%`;
   loadingPercent.textContent = `${Math.round(clamped * 100)}%`;
-  loadingElapsed.textContent = loadStart > 0
-    ? `${((performance.now() - loadStart) / 1000).toFixed(1)} s` : "--";
+  loadingElapsed.textContent =
+    loadStart > 0 ? `${((performance.now() - loadStart) / 1000).toFixed(1)} s` : "--";
 }
 
 function cookStageLabel(stage: string): string {
   switch (stage) {
-    case "bootstrap-cook": return "生成首个可渲染产品";
-    case "refinement": return "精化完整场景";
-    case "cook-complete": return "产品烹饪完成";
-    default: return `处理 ${stage}`;
+    case "bootstrap-cook":
+      return "生成首个可渲染产品";
+    case "refinement":
+      return "精化完整场景";
+    case "cook-complete":
+      return "产品烹饪完成";
+    default:
+      return `处理 ${stage}`;
   }
 }
 
 function cookTimingSummary(timings: Readonly<Record<string, number>>): string {
   const phases: string[] = [];
-  for (const [key, label] of [["catalogMs", "目录"], ["bootstrapCookMs", "首批产品"], ["activationStreamMs", "激活"], ["refinementMs", "精化"]] as const) {
+  for (const [key, label] of [
+    ["catalogMs", "目录"],
+    ["bootstrapCookMs", "首批产品"],
+    ["activationStreamMs", "激活"],
+    ["refinementMs", "精化"],
+  ] as const) {
     const value = timings[key];
     if (typeof value === "number" && value > 0) phases.push(`${label} ${(value / 1000).toFixed(1)}s`);
   }
@@ -340,12 +510,12 @@ function cookTimingSummary(timings: Readonly<Record<string, number>>): string {
 }
 
 function applySun(): void {
-  const azimuth = settings.sunAzimuth * Math.PI / 180;
-  const elevation = settings.sunElevation * Math.PI / 180;
-  scene.physical_environment.setSun([
-    Math.cos(elevation) * Math.cos(azimuth), Math.sin(elevation),
-    Math.cos(elevation) * Math.sin(azimuth)
-  ], baseIrradiance.map(value => value * settings.sunIntensity) as [number, number, number]);
+  const azimuth = (settings.sunAzimuth * Math.PI) / 180;
+  const elevation = (settings.sunElevation * Math.PI) / 180;
+  scene.physical_environment.setSun(
+    [Math.cos(elevation) * Math.cos(azimuth), Math.sin(elevation), Math.cos(elevation) * Math.sin(azimuth)],
+    baseIrradiance.map((value) => value * settings.sunIntensity) as [number, number, number],
+  );
   element<HTMLOutputElement>("sun-azimuth-value").value = `${settings.sunAzimuth}°`;
   element<HTMLOutputElement>("sun-elevation-value").value = `${settings.sunElevation}°`;
   element<HTMLOutputElement>("sun-intensity-value").value = `${settings.sunIntensity.toFixed(2)}×`;
@@ -380,8 +550,12 @@ function applySettings(): void {
   renderer.setResolutionScale(settings.renderScale);
   if (controls) controls.autoRotate = settings.autoRotate;
   if (settings.profiler) {
-    renderer.profiler.configure({ enabled: true, gpuSampleInterval: 1,
-      gpuCounterSampleInterval: 8, historyCapacity: 180 });
+    renderer.profiler.configure({
+      enabled: true,
+      gpuSampleInterval: 1,
+      gpuCounterSampleInterval: 8,
+      historyCapacity: 180,
+    });
     renderer.profiler.setMode("record");
     renderer.perf_gpu_counters_enabled = true;
     diagnosticState.textContent = "GPU timestamp 与 counters 采样中";
@@ -399,9 +573,12 @@ async function start(): Promise<void> {
   if (!context) throw new Error("无法创建 WebGPU canvas context");
   loadStart = performance.now();
   renderer = new Renderer({
-    enableVsm: diagnosticVsm, enablePhysicalEnvironment: true, autoExposure: settings.autoExposure,
-    fixedExposure: settings.fixedExposure, renderScale: 1,
-    requiredLimits: { maxStorageBuffersPerShaderStage: 16 }, textureMaxResolution: 1024
+    enableVsm: diagnosticVsm,
+    enablePhysicalEnvironment: true,
+    autoExposure: settings.autoExposure,
+    fixedExposure: settings.fixedExposure,
+    renderScale: 1,
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
   });
   renderer.shadowVisibilityEnabled = false;
   renderer.temporal_jitter_enabled = false;
@@ -419,39 +596,54 @@ async function start(): Promise<void> {
   const worker = createDefaultWebCookWorker({
     maxCanonicalInputBytes: 128 * 1024 * 1024,
     maxDecodedProductBytes: 512 * 1024 * 1024,
-    runtimeProfile: "portable-single"
+    runtimeProfile: "portable-single",
   });
   asset = load_gltf(modelUrl, {
-    worker, runtimeProfile: "portable-single",
-    sessionId: `next-renderer-showcase-${crypto.randomUUID()}`, sessionGeneration: 1,
+    worker,
+    runtimeProfile: "portable-single",
+    sessionId: `next-renderer-showcase-${crypto.randomUUID()}`,
+    sessionGeneration: 1,
     budgets: {
-      maxConcurrentWorkers: 1, maxSourceBytes: 128 * 1024 * 1024,
-      maxWasmBytes: 128 * 1024 * 1024, maxOutputBytes: 256 * 1024 * 1024,
-      maxQueuedEvents: 1024
+      maxConcurrentWorkers: 1,
+      maxSourceBytes: 128 * 1024 * 1024,
+      maxWasmBytes: 128 * 1024 * 1024,
+      maxOutputBytes: 256 * 1024 * 1024,
+      maxQueuedEvents: 1024,
     },
-    initialOutputPageCredits: 64, maxBufferedPages: 64, maxBufferedBytes: 64 * 262144,
-    onSceneCatalogReady: catalog => {
+    initialOutputPageCredits: 64,
+    maxBufferedPages: 64,
+    maxBufferedBytes: 64 * 262144,
+    onSceneCatalogReady: (catalog) => {
       framing = webCookCatalogSceneFraming(catalog, { fitHeight: 5.4, fitBase: [0, -1, 0] });
       instanceReadout.textContent = String(catalog.instances.length);
     },
-    onProgress: progress => {
+    onProgress: (progress) => {
       if (closed || refinementComplete) return;
       const total = progress.catalogPrimitives;
       const count = total > 0 ? `${progress.units}/${total} 个几何单元` : "等待目录";
       const fraction = progress.fraction ?? (total > 0 ? progress.units / total : 0);
-      const stageProgress = progress.stage === "bootstrap-cook"
-        ? 0.1 + Math.min(0.35, fraction * 0.35)
-        : progress.stage === "refinement"
-          ? 0.45 + Math.min(0.42, fraction * 0.42)
-          : progress.stage === "cook-complete" ? 0.9 : 0.12;
+      const stageProgress =
+        progress.stage === "bootstrap-cook"
+          ? 0.1 + Math.min(0.35, fraction * 0.35)
+          : progress.stage === "refinement"
+            ? 0.45 + Math.min(0.42, fraction * 0.42)
+            : progress.stage === "cook-complete"
+              ? 0.9
+              : 0.12;
       const elapsed = progress.elapsedMs ?? performance.now() - loadStart;
       const timing = cookTimingSummary(progress.timings);
       setState(`${cookStageLabel(progress.stage)} · ${count}`, "loading");
-      setLoading(cookStageLabel(progress.stage), `${count} · ${(elapsed / 1000).toFixed(1)}s${timing}`, stageProgress);
-    }
+      setLoading(
+        cookStageLabel(progress.stage),
+        `${count} · ${(elapsed / 1000).toFixed(1)}s${timing}`,
+        stageProgress,
+      );
+    },
   });
   loading = renderer.uploadWebCookedMultiProductScene(scene, asset, {
-    signal: new AbortController().signal, fitHeight: 5.4, fitBase: [0, -1, 0]
+    signal: new AbortController().signal,
+    fitHeight: 5.4,
+    fitBase: [0, -1, 0],
   });
   handles = await loading;
   if (closed) return;
@@ -479,7 +671,7 @@ async function start(): Promise<void> {
   setState("场景已加载 · 等待首帧 GPU 完成", "loading");
   setLoading("准备首帧", "场景已加载，正在等待 GPU 管线编译与首帧渲染完成", 0.95);
   frameId = requestAnimationFrame(draw);
-  void renderer.graphics.device.lost.then(info => {
+  void renderer.graphics.device.lost.then((info) => {
     if (!closed) fail(new Error(`GPU 设备丢失：${info.reason} ${info.message}`));
   });
 }
@@ -512,36 +704,52 @@ function resize(): void {
 
 function draw(now: number): void {
   if (closed || !renderer || !camera || failed) return;
-  if (capturePaused) { frameId = requestAnimationFrame(draw); return; }
+  if (capturePaused) {
+    frameId = requestAnimationFrame(draw);
+    return;
+  }
   const delta = previousTime > 0 ? Math.min(0.1, Math.max(1 / 240, (now - previousTime) / 1000)) : 1 / 60;
   previousTime = now;
   if (!capture.busy) controls?.update(delta);
   if (capturePath) {
-    const index=renderer.frame_count-capturePath.begin, third=Math.floor(capturePath.frames/3);
-    const angle=index>=third && index<2*third ? 0.05*Math.sin(Math.PI*(index-third+1)/third) : 0;
-    const [x,y,z]=capturePath.position, [cx,cy,cz]=capturePath.target;
-    const dx=x!-cx!, dz=z!-cz!, cosine=Math.cos(angle), sine=Math.sin(angle);
-    camera.transform.position.set(cx!+dx*cosine-dz*sine,y!,cz!+dx*sine+dz*cosine);
-    camera.transform.lookAt({x:cx!,y:cy!,z:cz!});
+    const index = renderer.frame_count - capturePath.begin,
+      third = Math.floor(capturePath.frames / 3);
+    const angle =
+      index >= third && index < 2 * third ? 0.05 * Math.sin((Math.PI * (index - third + 1)) / third) : 0;
+    const [x, y, z] = capturePath.position,
+      [cx, cy, cz] = capturePath.target;
+    const dx = x! - cx!,
+      dz = z! - cz!,
+      cosine = Math.cos(angle),
+      sine = Math.sin(angle);
+    camera.transform.position.set(cx! + dx * cosine - dz * sine, y!, cz! + dx * sine + dz * cosine);
+    camera.transform.lookAt({ x: cx!, y: cy!, z: cz! });
   }
   camera.update();
   try {
     const previousFrame = renderer.frame_count;
     const encodeStart = Date.now();
-    if (!renderer.render(camera, scene, capture.busy ? 1 / 60 : delta)) throw new Error("WebGPU 设备已失效，渲染已停止");
-      if (renderer.frame_count !== previousFrame) {
-        if (firstFrameCompletion === null) {
-          firstFrameCompletion = renderer.device.queue.onSubmittedWorkDone().then(() => {
+    if (!renderer.render(camera, scene, capture.busy ? 1 / 60 : delta))
+      throw new Error("WebGPU 设备已失效，渲染已停止");
+    if (renderer.frame_count !== previousFrame) {
+      if (firstFrameCompletion === null) {
+        firstFrameCompletion = renderer.device.queue
+          .onSubmittedWorkDone()
+          .then(() => {
             if (closed || failed) return;
             firstFrameComplete = true;
             setState(`场景已就绪 · ${Math.round(performance.now() - loadStart)} ms`, "ready");
             setLoading("场景已就绪", "首帧 GPU 渲染已完成", 1);
             loadingOverlay.dataset.visible = "false";
-          }).catch(fail);
-        }
-        capture.encoded(previousFrame, encodeStart, Date.now());
+          })
+          .catch(fail);
+      }
+      capture.encoded(previousFrame, encodeStart, Date.now());
       if (captureTarget && renderer.frame_count >= captureTarget.end) {
-        capturePaused = true; clearTimeout(captureTarget.timer); captureTarget.resolve(); captureTarget = null;
+        capturePaused = true;
+        clearTimeout(captureTarget.timer);
+        captureTarget.resolve();
+        captureTarget = null;
       }
       if (previousRenderedTime > 0) {
         const instantaneous = 1000 / Math.max(1, now - previousRenderedTime);
@@ -549,7 +757,10 @@ function draw(now: number): void {
       }
       previousRenderedTime = now;
     }
-    if (now - hudUpdatedAt >= 250) { updateHud(); hudUpdatedAt = now; }
+    if (now - hudUpdatedAt >= 250) {
+      updateHud();
+      hudUpdatedAt = now;
+    }
   } catch (error) {
     fail(error);
     return;
@@ -557,14 +768,18 @@ function draw(now: number): void {
   if (capture.busy && !capturePaused) {
     // Benchmark submissions must not inherit browser presentation/occlusion pacing.
     // Renderer.render still enforces its existing completion-based frame limit.
-    captureTimer = window.setTimeout(() => { captureTimer = null; draw(performance.now()); }, 0);
+    captureTimer = window.setTimeout(() => {
+      captureTimer = null;
+      draw(performance.now());
+    }, 0);
   } else frameId = requestAnimationFrame(draw);
 }
 
 function updateHud(): void {
   if (!renderer) return;
   fpsReadout.textContent = `${fps.toFixed(0)} FPS`;
-  instanceReadout.textContent = instanceReadout.textContent === "--" ? String(scene.instance_count) : instanceReadout.textContent;
+  instanceReadout.textContent =
+    instanceReadout.textContent === "--" ? String(scene.instance_count) : instanceReadout.textContent;
   const graph = renderer.mainFrameGraphEvidence();
   const connected = graph?.program.stages.includes("surface") && graph.program.stages.includes("present");
   pathBadge.textContent = connected ? "Next · 已接通" : "等待首帧";
@@ -579,12 +794,15 @@ function updateHud(): void {
   const frame = renderer.profiler.latest;
   if (!frame) return;
   const completedProfiles = renderer.profiler.history.reverse();
-  const gpuFrame = completedProfiles.find(snapshot => snapshot.gpu.sampled &&
-    !snapshot.gpu.pending && snapshot.gpu.segments.length > 0);
+  const gpuFrame = completedProfiles.find(
+    (snapshot) => snapshot.gpu.sampled && !snapshot.gpu.pending && snapshot.gpu.segments.length > 0,
+  );
   const gpu = gpuFrame?.gpu.segments.reduce((sum, segment) => sum + segment.durationMs, 0);
   cpuReadout.textContent = Number.isFinite(frame.cpuMs.frame) ? `${frame.cpuMs.frame.toFixed(2)} ms` : "--";
   gpuReadout.textContent = gpu === undefined ? "等待" : `${gpu.toFixed(2)} ms`;
-  const counters = completedProfiles.find(snapshot => snapshot.gpuCounters.values.geometryVisiblePixels !== undefined)?.gpuCounters.values;
+  const counters = completedProfiles.find(
+    (snapshot) => snapshot.gpuCounters.values.geometryVisiblePixels !== undefined,
+  )?.gpuCounters.values;
   if (counters) {
     element<HTMLElement>("surface-visible-readout").textContent = `${counters.geometryVisiblePixels}`;
   }
@@ -593,16 +811,28 @@ function updateHud(): void {
 
 function exportDiagnostics(): void {
   const data = {
-    schema: "eengine-next-showcase-v1", capturedAt: new Date().toISOString(),
-    modelUrl, settings, adapter: renderer?.adapter_info,
+    schema: "eengine-next-showcase-v1",
+    capturedAt: new Date().toISOString(),
+    modelUrl,
+    settings,
+    adapter: renderer?.adapter_info,
     camera: camera ? { position: camera.transform.position, near: camera.near, far: camera.far } : null,
-    frameCount: renderer?.frame_count ?? 0, diagnostics: renderer?.profiler.diagnostics ?? null,
+    frameCount: renderer?.frame_count ?? 0,
+    diagnostics: renderer?.profiler.diagnostics ?? null,
     streaming: renderer?.geometryStreamingEvidence(scene) ?? null,
     latestProfile: renderer?.profiler.latest ?? null,
-    completedGpuProfile: renderer?.profiler.history.reverse().find(snapshot => snapshot.gpu.sampled &&
-      !snapshot.gpu.pending && snapshot.gpu.segments.length > 0) ?? null,
+    completedGpuProfile:
+      renderer?.profiler.history
+        .reverse()
+        .find(
+          (snapshot) => snapshot.gpu.sampled && !snapshot.gpu.pending && snapshot.gpu.segments.length > 0,
+        ) ?? null,
     graph: renderer?.mainFrameGraphEvidence() ?? null,
-    surfaceProfile: renderer?.profiler.history.reverse().find(snapshot => snapshot.gpu.segments.some(segment => segment.label.includes("SurfaceV4/"))) ?? null
+    surfaceProfile:
+      renderer?.profiler.history
+        .reverse()
+        .find((snapshot) => snapshot.gpu.segments.some((segment) => segment.label.includes("SurfaceV4/"))) ??
+      null,
   };
   downloadJson(data, "eengine-next-showcase");
 }
@@ -618,7 +848,11 @@ function downloadJson(data: unknown, prefix: string): void {
 
 function fail(error: unknown): void {
   capture.cancel();
-  if (captureTarget) { clearTimeout(captureTarget.timer); captureTarget.reject(error); captureTarget = null; }
+  if (captureTarget) {
+    clearTimeout(captureTarget.timer);
+    captureTarget.reject(error);
+    captureTarget = null;
+  }
   failed = true;
   console.error(error);
   setState(error instanceof Error ? error.message : String(error), "error");
@@ -631,7 +865,10 @@ async function release(): Promise<void> {
   if (closed) return;
   closed = true;
   cancelAnimationFrame(frameId);
-  if (captureTimer !== null) { clearTimeout(captureTimer); captureTimer = null; }
+  if (captureTimer !== null) {
+    clearTimeout(captureTimer);
+    captureTimer = null;
+  }
   resizeObserver?.disconnect();
   controls?.dispose();
   try {
@@ -648,4 +885,10 @@ async function release(): Promise<void> {
 }
 
 applySun();
-window.addEventListener("pagehide", () => { void release(); }, { once: true });
+window.addEventListener(
+  "pagehide",
+  () => {
+    void release();
+  },
+  { once: true },
+);

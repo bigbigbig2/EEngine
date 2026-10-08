@@ -2,7 +2,6 @@ import path from "node:path";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
-import { preserveAssetUrl } from "./tools/preserve-asset-url.mjs";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const sourcePackage = JSON.parse(readFileSync(path.resolve(root, "package.json"), "utf8")) as {
@@ -21,10 +20,10 @@ const distributableExports = Object.fromEntries(
       subpath,
       {
         types: sourceTarget.replace(/^\.\/src\//, "./types/").replace(/\.ts$/, ".d.ts"),
-        import: subpath === "." ? "./shade-reconstructed.js" : "./addons/inspector/index.js"
-      }
+        import: subpath === "." ? "./shade-reconstructed.js" : "./addons/inspector/index.js",
+      },
     ];
-  })
+  }),
 );
 
 const distributablePackage = {
@@ -36,19 +35,18 @@ const distributablePackage = {
   module: "./shade-reconstructed.js",
   types: "./types/index.d.ts",
   exports: distributableExports,
-  sideEffects: ["./shade-reconstructed.js"]
+  sideEffects: ["./shade-reconstructed.js"],
 };
 
 const nativeAssets = [
   ["avif_dec.wasm", "src/loaders/avif_dec.wasm"],
-  ["asset-codec/libktx_read.wasm", "src/assets/codec/vendor/ktx-software-4.4.2/libktx_read.wasm"],
   [
     "web-cook/oengine-web-geometry-cooker.mjs",
-    "src/assets/web-cook/wasm/vendor/oengine-web-geometry-cooker.mjs"
+    "src/assets/web-cook/wasm/vendor/oengine-web-geometry-cooker.mjs",
   ],
   [
     "web-cook/oengine-web-geometry-cooker.wasm",
-    "src/assets/web-cook/wasm/vendor/oengine-web-geometry-cooker.wasm"
+    "src/assets/web-cook/wasm/vendor/oengine-web-geometry-cooker.wasm",
   ],
   ["assets/textures/stbn_unitvec1.bin", "src/render/assets/textures/stbn_unitvec1.bin"],
   ["assets/textures/stbn_unitvec2.bin", "src/render/assets/textures/stbn_unitvec2.bin"],
@@ -56,14 +54,13 @@ const nativeAssets = [
   ["assets/textures/stbn_vec1.bin", "src/render/assets/textures/stbn_vec1.bin"],
   ["assets/textures/stbn_vec2.bin", "src/render/assets/textures/stbn_vec2.bin"],
   ["assets/textures/stbn_vec3.bin", "src/render/assets/textures/stbn_vec3.bin"],
-  ["assets/textures/split_sum.bin", "src/render/assets/textures/split_sum.bin"]
+  ["assets/textures/split_sum.bin", "src/render/assets/textures/split_sum.bin"],
 ] as const;
 
 const textureAssetUrlSource = "new URL(`./assets/textures/${name}`, import.meta.url).href";
 const textureAssetUrlPlaceholder = "globalThis.__shade_re_texture_asset_url__(name)";
 const avifWasmUrlSource = 'new URL("avif_dec.wasm", import.meta.url).href';
 const avifWasmUrlPlaceholder = "globalThis.__shade_re_avif_wasm_url__";
-const ktxWasmUrlPlaceholder = "globalThis.__shade_re_ktx_wasm_url__";
 
 /**
  * Native asset URLs must remain relative to the installed module so a
@@ -88,27 +85,17 @@ const preserveConsumerAssetUrls = {
       }
       return code.replace(avifWasmUrlSource, avifWasmUrlPlaceholder);
     }
-    if (id.endsWith("/assets/codec/Ktx2BasisCodec.ts")) {
-      // The repository may keep this source as CRLF on Windows, while the
-      // contract literal is intentionally written with normalized LF.
-      const code = readFileSync(id, "utf8").replace(/\r\n/g, "\n");
-      return preserveAssetUrl(code, "./vendor/ktx-software-4.4.2/libktx_read.wasm", ktxWasmUrlPlaceholder);
-    }
     return null;
   },
   renderChunk(code: string) {
     const texturePattern = /globalThis\.__shade_re_texture_asset_url__\(([^)]+)\)/g;
     let restored = code.replace(
       texturePattern,
-      (_match, name: string) => `new URL(\`./assets/textures/\${${name}}\`, import.meta.url).href`
+      (_match, name: string) => `new URL(\`./assets/textures/\${${name}}\`, import.meta.url).href`,
     );
     restored = restored.replaceAll(avifWasmUrlPlaceholder, avifWasmUrlSource);
-    restored = restored.replaceAll(
-      ktxWasmUrlPlaceholder,
-      'new URL("asset-codec/libktx_read.wasm", import.meta.url)'
-    );
     return restored === code ? null : { code: restored, map: null };
-  }
+  },
 };
 
 export default defineConfig({
@@ -122,32 +109,33 @@ export default defineConfig({
         this.emitFile({
           type: "asset",
           fileName: "package.json",
-          source: `${JSON.stringify(distributablePackage, null, 2)}\n`
+          source: `${JSON.stringify(distributablePackage, null, 2)}\n`,
         });
         this.emitFile({
           type: "asset",
           fileName: "addons/inspector/inspector.css",
-          source: readFileSync(path.resolve(root, "src/addons/inspector/inspector.css"))
+          source: readFileSync(path.resolve(root, "src/addons/inspector/inspector.css")),
         });
         for (const [fileName, sourcePath] of nativeAssets) {
           this.emitFile({
             type: "asset",
             fileName,
-            source: readFileSync(path.resolve(root, sourcePath))
+            source: readFileSync(path.resolve(root, sourcePath)),
           });
         }
-      }
-    }
+      },
+    },
   ],
   build: {
     lib: {
       entry: {
         index: path.resolve(root, "src/index.ts"),
-        "addons/inspector/index": path.resolve(root, "src/addons/inspector/index.ts")
+        "addons/inspector/index": path.resolve(root, "src/addons/inspector/index.ts"),
       },
       name: "ShadeReconstructed",
       formats: ["es"],
-      fileName: (_format, entryName) => (entryName === "index" ? "shade-reconstructed.js" : `${entryName}.js`)
+      fileName: (_format, entryName) =>
+        entryName === "index" ? "shade-reconstructed.js" : `${entryName}.js`,
     },
     outDir: "dist",
     emptyOutDir: true,
@@ -160,8 +148,8 @@ export default defineConfig({
           if (name === "avif_dec.wasm") return "avif_dec.wasm";
           if (name.endsWith(".bin")) return "assets/textures/[name][extname]";
           return "assets/[name]-[hash][extname]";
-        }
-      }
-    }
-  }
+        },
+      },
+    },
+  },
 });

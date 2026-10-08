@@ -2,7 +2,7 @@ import { AssetWorkerPool } from "./AssetWorkerPool.js";
 import {
   estimatePcTextureCookBytes,
   type PcTextureCookOptions,
-  type PcTextureCookEvidence
+  type PcTextureCookEvidence,
 } from "./PcTextureCook.js";
 import {
   PC_TEXTURE_INPUT_LIMIT,
@@ -10,7 +10,7 @@ import {
   textureProductHash,
   validateTextureProduct,
   type TextureProduct,
-  type TextureProductMetadata
+  type TextureProductMetadata,
 } from "../TextureProduct.js";
 
 export interface PcTextureCookTask {
@@ -44,13 +44,13 @@ export class PcTexturePreparation {
       maxInFlightEstimatedBytes?: number;
       maxQueuedTasks?: number;
       createWorker?: () => Promise<Worker> | Worker;
-    } = {}
+    } = {},
   ) {
     this.pool = new AssetWorkerPool({
       maxWorkers: options.maxWorkers ?? 1,
       maxInFlightEstimatedBytes: options.maxInFlightEstimatedBytes ?? PC_TEXTURE_WASM_LIMIT,
       maxQueuedTasks: options.maxQueuedTasks ?? 256,
-      createWorker: options.createWorker ?? createPcTextureWorker
+      createWorker: options.createWorker ?? createPcTextureWorker,
     });
   }
   async cookRgba(
@@ -59,7 +59,7 @@ export class PcTexturePreparation {
     height: number,
     options: PcTextureCookOptions,
     signal?: AbortSignal,
-    providedMips?: readonly ArrayBuffer[]
+    providedMips?: readonly ArrayBuffer[],
   ): Promise<{ product: TextureProduct; evidence: PcTextureCookEvidence }> {
     const providedBytes = providedMips?.reduce((sum, mip) => sum + mip.byteLength, 0) ?? 0;
     if (input.byteLength + providedBytes > PC_TEXTURE_INPUT_LIMIT) {
@@ -70,7 +70,7 @@ export class PcTexturePreparation {
       height,
       options.semantic,
       options.exactAlpha === true || options.semantic === "alpha-mask",
-      providedBytes
+      providedBytes,
     );
     if (estimatedPeakBytes > PC_TEXTURE_WASM_LIMIT) {
       throw new RangeError("Provided mip memory admission failed");
@@ -83,30 +83,30 @@ export class PcTexturePreparation {
         width,
         height,
         options,
-        ...(providedMips ? { providedMips } : {})
+        ...(providedMips ? { providedMips } : {}),
       },
       estimatedPeakBytes,
-      signal
+      signal,
     );
   }
   async importKtx(
     input: ArrayBuffer,
     options: PcTextureCookOptions,
-    signal?: AbortSignal
+    signal?: AbortSignal,
   ): Promise<{ product: TextureProduct; evidence: PcTextureCookEvidence }> {
     // Hold the bounded parse credit first; libktx then admits parsed decode/output
     // footprint before load/transcode. Never estimates compressed input * 8.
     return this.submit(
       { taskId: this.nextTaskId++, kind: "ktx", input, width: 0, height: 0, options },
       PC_TEXTURE_WASM_LIMIT,
-      signal
+      signal,
     );
   }
   async cookImage(
     input: ArrayBuffer,
     mimeType: "image/png" | "image/jpeg" | "image/webp",
     options: PcTextureCookOptions,
-    signal?: AbortSignal
+    signal?: AbortSignal,
   ): Promise<{ product: TextureProduct; evidence: PcTextureCookEvidence }> {
     if (!["image/png", "image/jpeg", "image/webp"].includes(mimeType)) {
       throw new Error("Raw image MIME unsupported");
@@ -116,7 +116,7 @@ export class PcTexturePreparation {
     return this.submit(
       { taskId: this.nextTaskId++, kind: "image", input, width: 0, height: 0, mimeType, options },
       PC_TEXTURE_WASM_LIMIT,
-      signal
+      signal,
     );
   }
   evidence(): ReturnType<AssetWorkerPool["evidence"]> {
@@ -133,7 +133,7 @@ export class PcTexturePreparation {
   private async submit(
     task: PcTextureCookTask,
     estimatedPeakBytes: number,
-    signal?: AbortSignal
+    signal?: AbortSignal,
   ): Promise<{ product: TextureProduct; evidence: PcTextureCookEvidence }> {
     this.assertLive(signal);
     if (
@@ -153,12 +153,12 @@ export class PcTexturePreparation {
       request: {
         ...task,
         queuedAtMs: performance.timeOrigin + performance.now(),
-        options: { ...task.options, sourceHash }
+        options: { ...task.options, sourceHash },
       },
       transfer: [task.input, ...(task.providedMips ?? [])],
       estimatedPeakBytes,
       priority: 0,
-      signal
+      signal,
     });
     this.assertLive(signal);
     if (epoch !== this.epoch) {
@@ -200,10 +200,13 @@ export class PcTexturePreparation {
   }
 }
 
-export async function createPcTextureWorker(
-  url = new URL("./workers/pc-texture-worker.ts", import.meta.url)
-): Promise<Worker> {
-  const worker = new Worker(url, { type: "module", name: "oengine-pc-texture-cook" });
+export async function createPcTextureWorker(url?: URL): Promise<Worker> {
+  const worker = url
+    ? new Worker(url, { type: "module", name: "oengine-pc-texture-cook" })
+    : new Worker(new URL("./workers/pc-texture-worker.ts", import.meta.url), {
+        type: "module",
+        name: "oengine-pc-texture-cook",
+      });
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => fail(new Error("PC texture Worker initialization timeout")), 30000);
     function cleanup(): void {

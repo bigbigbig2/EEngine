@@ -19,6 +19,7 @@ const DEFAULT_SCALE = [1, 1, 1];
 export type GltfFileMap = Map<string, File | Blob | ArrayBuffer>;
 
 export interface GltfImageDef {
+  encodedSource?: ArrayBuffer;
   uri?: string;
   bufferView?: number;
   mimeType?: string;
@@ -38,6 +39,7 @@ export interface GltfTextureDef {
   name?: string;
   extensions?: {
     EXT_texture_webp?: { source?: number };
+    KHR_texture_basisu?: { source?: number };
   };
 }
 
@@ -351,9 +353,11 @@ export class GltfLoader {
 
     const imageDefs = (e.images ?? []) as GltfImageDef[];
     const allowedSources = collectLoadImageSources(e.materials, e.textures, this.loadImageSlots);
-    const i: Promise<ImageBitmap | undefined>[] = [];
-    const toBitmap = (blob: Blob): Promise<ImageBitmap> =>
-      createImageBitmap(blob, { premultiplyAlpha: "none" });
+    const i: Promise<GltfImageDef | undefined>[] = [];
+    const toBitmap = async (blob: Blob): Promise<GltfImageDef> => ({
+      encodedSource: await blob.arrayBuffer(),
+      mimeType: blob.type,
+    });
 
     for (let v = 0; v < imageDefs.length; ++v) {
       if (!shouldLoadImageSource(allowedSources, v)) continue;
@@ -395,6 +399,7 @@ export class GltfLoader {
 }
 
 const SUPPORTED_REQUIRED_EXTENSIONS = new Set([
+  "KHR_texture_basisu",
   "EXT_texture_webp",
   "KHR_lights_punctual",
   "KHR_materials_emissive_strength",

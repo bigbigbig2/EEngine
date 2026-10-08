@@ -1,5 +1,4 @@
 import {
-  TEXTURE_BINDING_SET_MAX_RESIDENT_SETS,
   TEXTURE_BINDING_SET_SLOT_COUNT,
   TEXTURE_BINDING_SET_SAMPLER_CLASS_COUNT,
 } from "./TextureBindingSetPolicy.js";
@@ -15,11 +14,7 @@ export interface PhysicalSamplingSelection {
 }
 
 export function residentSamplingProfile(bindingSetId: number): PhysicalSamplingSelection {
-  if (
-    !Number.isInteger(bindingSetId) ||
-    bindingSetId < 0 ||
-    bindingSetId >= TEXTURE_BINDING_SET_MAX_RESIDENT_SETS
-  ) {
+  if (!Number.isInteger(bindingSetId) || bindingSetId < 0 || bindingSetId > 0xffffffff) {
     throw new RangeError(`Resident physical sampling set ${bindingSetId} is invalid`);
   }
   return Object.freeze({

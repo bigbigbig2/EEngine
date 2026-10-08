@@ -4,7 +4,7 @@ state: current
 verifies:
   files:
     - project/workstreams/active/eengine-next-clean-rebuild.yaml
-    - OEngine/src/assets/TextureAssetPackage.ts
+    - OEngine/src/assets/PcMaterialTextures.ts
     - OEngine/src/assets/TextureProduct.ts
     - OEngine/tools/texture-codec
     - OEngine/tools/build-pc-texture-codec.mjs
@@ -16,9 +16,9 @@ verifies:
     - OEngine/src/texture
     - OEngine/src/gpu/TextureResidency.ts
     - OEngine/src/gpu/GpuTextureRefAbi.ts
+    - OEngine/src/gpu/GpuShadingMaterialAbi.ts
     - OEngine/src/gpu/TextureBindingSetPolicy.ts
-    - OEngine/src/gpu/TextureVariation.ts
-    - OEngine/src/gpu/TextureVariationResidency.ts
+    - OEngine/src/gpu/TextureSurfacePublication.ts
     - OEngine/src/gpu/GPUTextureManager.ts
     - OEngine/src/gpu/MipmapGenerator.ts
     - OEngine/src/gpu/NativeMaterialBindings.ts
@@ -36,85 +36,65 @@ verifies:
 
 # PC-First GPU Native Texture Compression
 
-这是 virtual-resources-v4 的 Texture Compression slice 设计 authority；阶段状态、施工入口和实测结果只在[执行计划](../next-execution/eengine-v4-texture-compression-execution-2026-10.md)。[V4 母稿](./eengine-v4-native-shading-2026-10.md)仍是全局 authority。本文区分已有源码与冻结目标，不宣称production切换或整个slice验收完成。
+这是 virtual-resources-v4 的 Texture Compression slice 设计 authority；阶段状态、施工入口和实测结果只在[执行计划](../next-execution/eengine-v4-texture-compression-execution-2026-10.md)。[V4 母稿](./eengine-v4-native-shading-2026-10.md)仍是全局 authority。本文区分当前生产源码、冻结目标与验收；production cutover 的证据只读 Execution，不能由文档设计推断整个 slice 已验收。
 
-第一轮源码审查起点为 `579fd521b3e948ca2f3bb716aaec28f9d758cb0a`。第二轮复核 `99ca968aced19cd8fbe99b2fec6320e16b8f79e0`，仅交付Design V2。T4.0开工fetch后HEAD/origin/master=`b39f23a0e21a57c469cf2396d646ac80571fc48e`，production源码无变化；已跑真实Texture/codec/Spark component baseline，结果见Execution §9。下文仍区分当前实现、目标与候选，不以文档或component通过证明production切换。
+历史设计起点与 T4.0/T4.1 源码身份保留在 Execution。当前源码事实按 T4.2 cutover 更新，实施与验证身份见 Execution §11 和机器 artifact；不将旧 baseline 数字追认为新路径收益。
 
 ## 1. 当前源码事实
 
-### 1.1 实际数据流
+### 1.1 Production 数据流
 
 ```mermaid
 flowchart TD
-  GLB[Raw GLB PNG/JPEG/WebP] --> Decode[createImageBitmap / ShadeImage / ShadeTexture]
-  Web[WebCook geometry catalog + authored image reader] --> Decode
-  Decode --> Source[GPUTextureManager standalone RGBA texture + source mip generation]
-  Source --> Raw[TextureResidency resize copy + RGBA array bank mip generation]
-  External[Explicit KTX2 helper caller] --> Worker[AssetCodecService / Worker / libktx_read]
-  Worker --> Repack[BC mip arrays / serialize TextureAssetPackageV2 / reopen]
-  Encoded[Explicit encoded TextureAssetPackageV2] --> Segment[TextureResidency package segments / compressed writeTexture]
-  Repack --> Segment
-  Raw --> Publish[GpuRenderWorld transaction / TextureRef / Native Material publication]
-  Segment --> Publish
-  Publish --> Surface[SurfaceV4 native material sampling]
-  Publish --> Alpha[NativeVisibility + VSM native alpha coverage]
+  GLB[Raw GLB / PNG JPEG WebP / KHR_texture_basisu] --> Source[Encoded ShadeImage + authored sampler]
+  Web[WebCook catalog + image reader] --> Source
+  Source --> Cold[PcMaterialTextures / bounded PcTexturePreparation Worker]
+  Cold --> Codec[Pinned Basis encode / libktx parse extract transcode]
+  Codec --> Product[Immutable TextureProduct metadata3 / CPU BC7 BC4 + exact R8 mips]
+  Disk[RuntimeAsset container2 / saved final BC Product] --> Product
+  Product --> Residency[TextureResidency format extent mip array segments]
+  Residency --> Publish[GpuRenderWorld transaction / TextureRef ABI3 / Native publication]
+  Publish --> Surface[SurfaceV4 native material]
+  Publish --> Alpha[NativeVisibility + VSM exact coverage]
   Publish --> Temporal[Native material versions / NativeTemporalFacts]
-  Environment[Authored or Physical Environment owner] --> IBL[float radiance / GGX / irradiance / DFG]
-  IBL --> Surface
+  Env[Independent float Environment / IBL] --> Surface
 ```
 
-| 层                    | 当前事实 / ownership                                                                                                                                           | 证据入口                                                                         |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| Raw input             | GltfLoader 解 PNG/JPEG/WebP；required `KHR_texture_basisu` 明确拒绝；没有把公开 KTX helper 接入该 loader                                                       | `loaders/gltf/GltfLoader.ts`、`gltfTextures.ts`                                  |
-| WebCook input         | Geometry 已是 Product；图像仍 range read 后 `createImageBitmap`，按 source/sampler/usage 缓存 Promise；失败 Promise 没有自动移除                               | `assets/web-cook/WebCookSceneSource.ts::createWebCookSceneSourceAsync`           |
-| CPU asset             | ShadeImage 保存 decoded image；ShadeTexture 保存 sampler/usage 或 runtime package。当前 cache 的 usage 分 srgb/linear/normal，不是完整 scalar-channel identity | `texture/*`、WebCook mapper                                                      |
-| Raw persistent GPU    | standalone source texture 与 RGBA array bank 并存；先 source mip，再 resize copy，再给整个 touched bank 生 mip                                                 | `GPUTextureManager.obtain`、`TextureResidency.stage`、`MipmapGenerator`          |
-| Cooked persistent GPU | package segment 按 `variant.format` 创建 2D array，直接上传 encoded blocks。BC 不会又展开成 RGBA8                                                              | `TextureResidency.applyPackageSegmentPlans`、`stageTextureAssetPackageV2ToLayer` |
-| KTX ingestion         | lazy WASM Worker 输出 BC；helper 再 serialize/reopen package。是可调用 codec 基础，不能据此称 authored GLB 已走 BC                                             | `Ktx2BasisCodec.prepareKtx2TextureAssetPackageV2`                                |
-| Offline writer        | V2 writer 支持 final encoded variants；低质量 `ReferenceTextureCodec` 是 test-only，不是 production BC cooker                                                  | `TextureAssetPackage.ts`、`ReferenceTextureCodec.ts`                             |
-| Shader binding        | native bindings 只声明实际用到的 bank/resource，静态 WGSL；不是 bindless，也不是总会绑定 9 张纹理                                                              | `NativeMaterialBindings.createNativeMaterialBindings`                            |
-| Coverage              | main alpha-tested Visibility / VSM 共用 native alpha graph，自己的 geometry producer 提供 C/X/Y                                                                | `nativeMaterialCoverageProgram`、`NativeVisibilityPass`、`VsmAtlasRasterPass`    |
-| Temporal              | 生产 NativeTemporalFacts 读 native material versions；旧 `temporal_facts.ts` 的 texture route reader 不是当前 pass                                             | `NativeTemporalFactsPass.ts`、`native_surface_aux.ts`                            |
-| Transparent           | 当前 Renderer/FrameProgram 没有完整 authored transparent texture shading producer；classification/mask 留存不等于功能完成                                      | Renderer/FrameProgram、native pass 接线                                          |
-| Environment           | authored octahedral source、radiance mip、GGX、irradiance/DFG 属独立 owner；主要 GPU 产品是 rgba16float                                                        | `GpuAuthoredEnvironment`、`GPUSceneEnvironmentManager`、PhysicalEnvironment      |
+| 层                         | 当前实现事实                                                                                                                                         | 源码 owner                                                 |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| Raw GLTF/WebCook           | 保留 encoded bytes，KHR_texture_basisu 支持并优先选择；loader 不 decode/resize、不创建长期 GPU texture                                               | GltfLoader、gltfTextures、WebCookSceneSource               |
+| Cold preparation           | Renderer 所有 scene publication 入口 await 完整 material batch；source/semantic/channel/exact-alpha 区分，ORM/AO 同图保留多通道；失败 Promise 可重试 | PcMaterialTextures、RendererCore                           |
+| Fixed cooked               | ShadeTexture.fromProduct 直接进入 Residency；不初始化 Worker，不 serialize/reopen、不做 runtime mips                                                 | ShadeTexture、TextureProduct、TextureResidency             |
+| Codec                      | raw PNG/JPEG/WebP 在有界 Worker 中 decode/canonical mip/quality6 encode；KTX 使用 libktx metadata/load/extract/transcode；必要转换或缺链才 recook    | PcTextureCook、PcTexturePreparation、pc-texture-worker     |
+| Physical GPU               | 唯一 material owner，BC7/BC4/R8 immutable array segments；按本批需求分配或复用 free layers；tight writeTexture                                       | TextureResidency                                           |
+| Native consumers           | 静态 channel/coverage glue、material-local routes；覆盖 Surface、main/VSM alpha、CPU mip/revision、Temporal native versions                          | NativeMaterialBindings、GpuNativeMaterialScene/Publication |
+| Environment / transparency | float IBL 保持原 owner，未新增 BC6H；仍未建立完整 authored transparent texture shading                                                               | GpuAuthoredEnvironment、Renderer/FrameProgram              |
 
-因此答案是：**BC compressed package upload 已存在生产可消费入口；真实 large authored GLB/WebCook 默认链仍是 decoded RGBA。** 不把 test fixture 的 BC 格式覆盖追认为所有 native material 数值正确。
+本轮 production 已只接受 schema3 BC Product。schema2、5 固定 RGBA banks、旧 codec Worker/header parser、serialize→reopen 链、variation GPU owner 已删除。已完成的 consumer/component 验证与整个 slice 的 authored/performance acceptance 分开，逐项结果只读 Execution。
 
-### 1.2 当前容量、mip 和成本陷阱
+### 1.2 容量、mip、发布与资源账
 
-- 5 个 RGBA size classes：256/512/1024/2048/4096；默认 layer 上限 64/32/16/32/2，实际可由场景配置改大。另有 4 个 package 槽位 × 最多 4 个 sets，最多 16 个 package segments，材质最多引用 4 个 package segments。
-- segment 按 format/width/height/mipCount 精确分组；capacity 不原地增长，新批次容易新建 segment。logical descriptor capacity 又与 RGBA bank capacities 绑定，不能支持大目录而不一起增加 RGBA allocation。
-- TextureRef ABI2 是 version4 / bank4 / routing2 / layer22；logical handle/generation 与物理 route 不同。一个 format 一个 GPU array，同 format 不同 base extent/mipCount 也不能混在同一个 array。
-- 当前 `GPU_TEXTURE_BANK_COUNT=9` 的 5+4 分配是历史物理分工；native 实际资源生成不要求这套分工。完整 Standard graph 最多 10 个 texture roles，不能假定 4 package slots 足够。
-- cooked coarse-first 会分配**完整 mip chain**，只先上传 tail；不是稀疏分配，不减少 reserved VRAM。alpha-mask 当前从 mip0 开始；base-color 含 alpha 不自动等价于 alpha-mask semantic。
-- minMip 编码是有限 0..6/full，promotion 小于 6 会跳到 0；不是任意逐 mip scheduler。revision/minMip 在成功提交后发布，失败不能发布新 clamp。
-- package uploader 将行补到 256B 并 `.slice()`；`queue.writeTexture` 本身不要求 256B row 对齐，encoder buffer-to-texture copy 才要求。GPU/driver copy 仍不可避免，不能宣称 upload 零复制。
-- `physicalTextureExtent` 是 block upload footprint，**不是 GPUTexture base extent**。当前 createTexture 使用 source logical extent：没有 `texture-compression-unaligned` 时，非 4 倍数 BC base extent 不合法。逐 source mip 独立 round 也不等于合法 storage mip chain。
-- T4.0 的 `decodedPeakBytes` 汇总 mip RGBA-equivalent 与 variation sidecar，836B=340B+496B，不是实际峰值。T4.1 已把 load evidence 升为 schema2，拆成 `rgbaEquivalentBytes`、`retainedSidecarBytes`、`actualDecodedPeakBytes:null`；历史失败保留，340B/496B 各自断言。`copyBytes=0`、transfer counters 不证明无内部复制。
-- TextureResidency 分配 32MiB variation owner、stage/promote 写 variation/version GPU 数据。符号闭包没有当前 production variation-query GPU consumer；NativeMaterialBindings 只要 slot/generation/revision/minMip。旧 route 的 variation 字段仍被 CPU pack，但不证明 shader 有 reader。
-- GPUTextureManager 的 source cache 没有独立 release/destroy API，GraphicsContext.destroy 未调用它；这是需审计的 owner 缺口，不能仅凭统计断言 driver 泄漏。切换后 material 不再创建 standalone source GPU texture；环境 owner 不顺带改写。
+- TextureRef ABI3；ShadingMaterial ABI8，route 32B（移除旧64B variation字段），tuple identity完整u32，不塞入bin两bit。material-local slots 0..15；logical handle 容量 4095，global segment/tuple 不再受 4 sets/16 segments 限制。每 shader descriptor 仍受真实 device sampled/sampler 等限额；Renderer 最低16、最高请求19 sampled。
+- segment key 为 format/storage width/height/mipCount；layer0 neutral，live layers 1..N。新 immutable 段按当前 batch 需求创建，重复 immutable Product 引用共享；完整 chain 已分配，tail-first 只减少初始 upload，不减少 reserved VRAM。
+- exact coverage 产品两 plane 首次全链上传；其他产品 initial minMip=min(6,last)，promotion 在成功 command finish 后推进 clamp/revision。Native binding 的新 route constants 发布后更新，稳定 shader/pipeline identity 可复用。
+- dimension、chunk shape/validated identity、完整 lit sampled/sampler footprint、layer/handle 与 2GiB 所有现存段+新段峰值在分配前预检。queued writes 不可撤销：abort 目标到真实 queue completion 才复用；rejected fence 不授权回收。
+- release/replacement 以 refcount、generation/object identity、fence 守卫；material stage/release reservations 阻止重复释放和不同未提交事务交叉。恢复重建 Residency，从 CPU immutable Product replay，late task 不进入新 epoch。
+- evidence schema7：实际 payload/live/allocated/retiring/quarantine、各 format、segments 与逐 mip accepted upload bytes；RGBA-equivalent 单独记录，不冒称 actual decode peak/driver VRAM。无 material resize/mip/private submit/variation32MiB。
+- GPUTextureManager/MipmapGenerator 仍用于环境/effect，material 不再创建 standalone source。bitmap cold source 保留 replay snapshot，安全 handoff 后 close；GPU source cache 的旧 material 生命周期缺口随路线退休，不冒称环境 owner 已重构。
 
-与旧文档/命名冲突：`desktop-bc` / `worker-transcoded` / `portable-rgba8` 是 package provenance/profile，不是完整 production 覆盖证明；`normal-linear → BC5` policy 不证明当前 signed XYZ consumer 正确；`hdr-linear` 候选为空，不代表 BC6H 已支持。
+### 1.3 当前 codec 与 immutable Product owner
 
-### 1.3 当前 KTX owner
+保持 KTX-Software 4.4.2 pin `4d6fc70eaf62ad0558e63e8d97eb9766118327a6`，Basis pin `99f52d63aa6799cbdaecfe977111dc5ec3b31d47`。实际 vendor 在 `vendor/pc-texture`：Basis WASM97,020B、libktx520,112B，完整 hash/license/NOTICE/build recipe 见 source.json。已退休 libktx_read legacy JS/WASM 与 EEngine semantic header parser，只有 magic/MIME/byte-cap preflight；shape/DFD/levels/Zstd/错误归 upstream。
 
-本地 pin：KTX-Software v4.4.2，commit `4d6fc70eaf62ad0558e63e8d97eb9766118327a6`；vendor WASM 769,795B、JS 277,279B，WASM SHA256 `8336a23659f306c93f45816022dcdfae122f66eaf566488a2b7cf40e0bf65f0e`。2026-10-09 GitHub release 查询仍以 v4.4.2 为最新 stable；调查 upstream HEAD `4f2d7bc7e26d92b0f0e61a7381b92e48a4485a5d`，不自动升级。
+RuntimeAsset container2 + texture metadata3 继续作为同一家族产品，owned/disk validator 共用；save 才 serialize。兼容 full-chain BC KTX 只 extract，Basis 只 transcode，shape/transfer/缺链需要转换才 canonical cook。逐 mip 借用 WASM view 在 delete/transfer 前 copy 是必要 ownership 成本。
 
-当前 local header reader 读 80B、以 supercompression 0/1 猜 UASTC/ETC1S，拒绝 Zstd2，再让 libktx parse。它已超过 magic/byte-cap preflight，形成重复 semantic parser。upstream C texture 有 shape/levels；JS texture binding 有 colorModel/transferFunction/supercompressScheme/vkFormat，但**当前 read binding 没有完整暴露 numLevels/numLayers/numFaces/baseDepth**；createInfo 的同名字段不是 read texture getter。T4.1 在同一 upstream pin 上增加薄 read-only getter/error bridge 并重建，不能假装现有 JS 已可直接取得全部字段。
+默认1Worker、256MiB estimated in-flight、queue256，task input/output各128MiB；Basis retained heap最大160MiB、libktx96MiB，合计256MiB。credit admission、cancel/late epoch/init failure/retry/dispose 维持原 pool；browser decode/driver实际峰值仍 UNKNOWN。源 URI/sampler 不改变 block payload identity，semantic/channel/recipe 会改变。
 
-libktx constructor 将 JS 输入复制进 WASM，再创建 loaded texture；`getImage` 返回借用 heap view，本地逐 mip copy 在 delete/transfer 前必要。`finally delete()` 和 Worker transferable ownership 保留。当前 estimatedPeak=`max(8MiB,input×8)` 是调度估计；不是测量。默认最多 4 Worker、256MiB in-flight estimate、256 queued、3 failures，需要保留可取消/销毁行为，不把这些值认证为 4GB 预算最优。
+### 1.4 历史 baseline 与验证边界
 
-薄 bridge 同时提供 upstream metadata-only parse（不带 `KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT`）：先验证 dimensions/shape/levels/DFD 与预计 decoded/block bytes，再申请 cold-task credits 并加载数据。不能让很小 supercompressed input 绕过 host budget，先展开巨大纹理后才验证限额。Worker WASM maximum memory 与 task/output byte cap 有明确上限，超额明确失败并释放 credits；估计峰值与 actual linear-memory high-water 分开。不是另写 parser，也不增加本帧控制环。
+T4.0 是旧 RGBA production 实测，不从名称推断 BC：原32MiB variation、source mip+bank resize/mip、NPOT base extent及重复 parser 等问题记录保留在 Execution §9。T4.1 非production construction 记录保留在 §10，不能把其当时状态读成当前状态。
 
-### 1.4 T4.1 非production产品边界
-
-`TextureProduct.ts` 实现 RuntimeAsset container2 / texture metadata3、共享 owned/disk validator、recipe/payload identity、完整 BC7/BC4 与有限 exact R8 planes。`PcTextureCook.ts`、`PcTexturePreparation.ts`、`pc-texture-worker.ts` 是 cold CPU producer，使用既有 WorkerPool；不创建 GPU owner。`writeTextureProductPlane` 仅对 caller-owned array layer 写 tight block rows，不 allocate/submit/publish；当前直接 consumer 只有独立 GPU oracle。
-
-新 `vendor/pc-texture` 是 pinned Basis direct encoder 与同 pin libktx read-only bridge；shape/DFD/levels/Zstd 仍由 libktx 解析。输入只做 magic/byte cap，先持有 bounded task credit，再解析尺寸并验证 live decode/output 预算，最后 load/transcode。Basis retained heap硬上限160MiB、libktx96MiB，合计256MiB；统计是两 heap 长度之和，浏览器原生 decode/driver峰值仍 UNKNOWN。PNG/JPEG/WebP decode 在 Worker admission 后执行，bitmap finally close；不是生产稳定帧工作。
-
-兼容 full-chain BC KTX 只提取 blocks，Basis 只 transcode；缺 mips/unaligned/需要 semantic 转换时才 canonical cook。完整 supplied/external mips 按 source domain 验证，再逐级映射到 ceil4 storage domain，额外 storage tail 复用 source 最后一层；不 normalize 已提供的 signed/non-unit XYZ。raw mip 仍 normalize-after-linear-filter；DFD transfer 与目标不同则只在 cold path 转换 RGB，alpha不做 gamma。save 才序列化，立即 upload 不 serialize/reopen。
-
-**生产仍是原 schema2/原 KTX Worker/原 Residency 与 material 消费链。** 两套文件的暂存是执行计划要求的非production construction，不是 runtime selector/bridge。T4.2 才原子接线所有 consumers、退休重复 parser/old worker/raw source route；本轮不升级为 production adoption，不解决 GPU source-cache teardown。
+T4.2 切换前保存完整 dungeon 1080p baseline：7,990,584B GLB、798 primitives/instances、25 materials/images/textures 原2048²尺寸，texture allocated771,752,376B/live559,240,500B，CPU30 samples P50/P95=2.3/3.4ms。旧 upload ledger=0 是统计缺项，不是无上传。新生产 fixture 已验证 BC/R8、真实 Surface/main/VSM/Temporal、恢复卸载清零；dungeon after-cutover、load/first useful/full-quality/全帧性能矩阵属于下一验收单元，未运行不写0、不认证收益。用户禁止后续运行477MB模型。
 
 ## 2. 最终决策
 
@@ -275,7 +255,7 @@ readback 仅 delayed diagnostics，不参与本帧 texture readiness；Spark 编
 
 ## 5. 开源 Source Map
 
-以下记录实际源码阅读和采用边界。T4.1 的 Basis/libktx 非production构建已落在 `OEngine/tools/texture-codec`，binary/glue hashes 与编译器记录在 `vendor/pc-texture/source.json`，NOTICE/各依赖license同目录保留；独立 oracle 结果见Execution。producer glue 与上游未修改 core 分开记录，production adoption 仍须 T4.2 全消费者接线，不以 vendor 文件存在替代证明。
+以下记录实际源码阅读和采用边界。T4.1 的 Basis/libktx 非production构建已落在 `OEngine/tools/texture-codec`，binary/glue hashes 与编译器记录在 `vendor/pc-texture/source.json`，NOTICE/各依赖license同目录保留；独立 oracle 结果见Execution。producer glue 与上游未修改 core 分开记录，T4.2 的 cold producer/唯一 Residency/全部 native consumers 已接线，证据见 Execution §11；不以 vendor 文件存在替代验证。
 
 | Reference / pin / license                                                                                                                                                                                                                    | 实读 hot path                                                                                                                                                                                                                                                                                                                                                                                                                         | Local / Adopt / Adapt / Reject                                                                                                                                                                                                                                                                                                               |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -304,16 +284,16 @@ Spark [repository LICENSE](https://github.com/Ludicon/spark.js/blob/b9ea643a08cb
 
 bytes公式为ESTIMATE；当前实测见Execution §9和 `OEngine/benchmarks/texture-compression-t4-0.json`，§6.2仅历史输入。actual host/driver峰值与GPU copy独立时间仍UNKNOWN，不使用Spark demo认证EEngine。
 
-| 成本             | 当前 raw RGBA baseline        | KTX2/Basis Worker→BC                                | Spark raw GPU encode→BC（候选）                                                          | Cooked BC direct（固定资产）                               |
-| ---------------- | ----------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| Input/用途       | PNG/JPEG/WebP decoded         | 已压缩 external KTX2                                | raw/UGC/GPUTexture，保留 replay source                                                   | final BC archive/chunks                                    |
-| CPU              | browser decode/mapper         | init/queue/libktx/transcode/owned copy；当前 repack | browser decode/command encode/plan；cold pipeline init 单列                              | metadata/chunk checks/plan/publication；decode/transcode=0 |
-| Host peak        | decoded/source bytes          | input+WASM high-water+owned blocks/repack           | source encoded+decoded+job metadata，GPU source 本身不算 host decoded                    | retained package/views/bounded staging                     |
-| Upload/copy      | RGBA source+resize            | BC blocks writeTexture                              | RGBA source upload；mip/NPOT source copy；encoded buffer→BC array copy；exact alpha 单列 | tight BC/R8 rows，无编码/源RGBA上传                        |
-| GPU temp         | standalone source+mips        | upload 暂存（可观测部分）                           | RGBA chain+NPOT tmp+padded block buffer+in-flight/cached jobs                            | 有界 upload 暂存，無 codec temp                            |
-| Persistent GPU   | RGBA banks/variation/retiring | BC/R8 arrays/neutral/free/retiring                  | **同一 Residency arrays**；不额外持有 standalone BC texture                              | 同左                                                       |
-| Commands/submits | 原 Renderer 接线              | Worker 不加 frame submit                            | stock 内部 submit，仅 probe；拟 S2/S3 caller encoder，同 frame submit                    | 原统一 frame submit                                        |
-| Mip/caching      | source+bank两次 GPU mip       | 完整 BC chain，无 runtime compressed mip            | cold GPU encode 每 mip；canonical full chain/exact coverage；GPU结果不自动形成 CPU cache | offline full chain，tail upload/promotion，runtime mip=0   |
+| 成本             | 切换前 raw RGBA baseline      | KTX2/Basis Worker→BC                                                    | Spark raw GPU encode→BC（候选）                                                          | Cooked BC direct（固定资产）                               |
+| ---------------- | ----------------------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| Input/用途       | PNG/JPEG/WebP decoded         | 已压缩 external KTX2                                                    | raw/UGC/GPUTexture，保留 replay source                                                   | final BC archive/chunks                                    |
+| CPU              | browser decode/mapper         | init/queue/libktx/transcode/owned copy；owned copy，无 upload 前 repack | browser decode/command encode/plan；cold pipeline init 单列                              | metadata/chunk checks/plan/publication；decode/transcode=0 |
+| Host peak        | decoded/source bytes          | input+WASM high-water+owned blocks/repack                               | source encoded+decoded+job metadata，GPU source 本身不算 host decoded                    | retained package/views/bounded staging                     |
+| Upload/copy      | RGBA source+resize            | BC blocks writeTexture                                                  | RGBA source upload；mip/NPOT source copy；encoded buffer→BC array copy；exact alpha 单列 | tight BC/R8 rows，无编码/源RGBA上传                        |
+| GPU temp         | standalone source+mips        | upload 暂存（可观测部分）                                               | RGBA chain+NPOT tmp+padded block buffer+in-flight/cached jobs                            | 有界 upload 暂存，無 codec temp                            |
+| Persistent GPU   | RGBA banks/variation/retiring | BC/R8 arrays/neutral/free/retiring                                      | **同一 Residency arrays**；不额外持有 standalone BC texture                              | 同左                                                       |
+| Commands/submits | 原 Renderer 接线              | Worker 不加 frame submit                                                | stock 内部 submit，仅 probe；拟 S2/S3 caller encoder，同 frame submit                    | 原统一 frame submit                                        |
+| Mip/caching      | source+bank两次 GPU mip       | 完整 BC chain，无 runtime compressed mip                                | cold GPU encode 每 mip；canonical full chain/exact coverage；GPU结果不自动形成 CPU cache | offline full chain，tail upload/promotion，runtime mip=0   |
 
 定义每路径完整 critical wall time（重叠时用实测 critical span，不把阶段和简单相加当证据）：
 
@@ -350,6 +330,6 @@ Residency ideal为exact live blocks；expected加neutral/free容量与metadata�
 
 `Texture Memory ≈ ResidentPageCount × BytesPerPage`：VT 减少 resident pages，BC 减少每页 bytes，两者是乘法收益，不是互替。Spark 未来最多成为 dynamic/procedural/decal-bake page 的 optional GPU encoder，直接写 BC physical page；它不负责 virtual address/table、feedback、调度、eviction/cache policy 或 gutters。这里只保留 compressed format/recipe/target-copy/replay integration point，不创建 `IVirtualTexturePageEncoder` 或任何 VT API；page borders/filtering 在未来 VT owner 闭合。
 
-验收需真实GPU证明format、sampling、sRGB一次解码、normal signedZ/length、ORM channels、exact main/VSM alpha、NPOT/repeat/tail/derivatives/LOD、progressive clamp、generation与replacement/abort/retry/loss/fence。source catalog全部覆盖、同quality不减少maps、compressed distribution和owner accounting可核对；historical测试通过不代替当前product消费。现有tiny texture component仅4×4 RGBA clamp，不足作BC闭包。
+验收需真实GPU证明format、sampling、sRGB一次解码、normal signedZ/length、ORM channels、exact main/VSM alpha、NPOT/repeat/tail/derivatives/LOD、progressive clamp、generation与replacement/abort/retry/loss/fence。source catalog全部覆盖、同quality不减少maps、compressed distribution和owner accounting可核对；historical测试通过不代替当前product消费。现有 texture component 已迁为 raw cold cook→唯一 BC Residency→native sampling/promotion/fenced zero；它不代替 authored acceptance。
 
-施工状态与下一授权边界只读[Execution](../next-execution/eengine-v4-texture-compression-execution-2026-10.md)。Spark=DEFER，不继续候选研究或建立第二Residency；source cache lifetime 与旧 production 路线的 NPOT/consumer 接线留给 T4.2。非production product 通过不等于压缩生产验收。后续用dungeon原尺寸完整catalog与1K/2K/4K语义矩阵，477MB/66Product性能与本轮完整Renderer frame测量均未运行。T4.3结束STOP，不自动开始VT。
+施工状态与下一授权边界只读[Execution](../next-execution/eengine-v4-texture-compression-execution-2026-10.md)。Spark=DEFER，BC5/BC6H/VT 未实施。下一授权验收使用 dungeon 原尺寸完整目录与独立1K/2K/4K语义矩阵；477MB模型禁止运行。T4.3结束STOP，不自动开始VT。

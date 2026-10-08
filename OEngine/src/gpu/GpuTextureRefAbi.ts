@@ -1,4 +1,4 @@
-export const GPU_TEXTURE_REF_ABI_VERSION = 2;
+export const GPU_TEXTURE_REF_ABI_VERSION = 3;
 export const GPU_TEXTURE_REF_INVALID = 0xffffffff;
 export const GPU_TEXTURE_REF_VERSION_SHIFT = 28;
 export const GPU_TEXTURE_REF_VERSION_MASK = 0xf0000000;
@@ -14,12 +14,8 @@ export const GPU_TEXTURE_REF_ROUTING = Object.freeze({
   AlphaFromAlpha: 2,
 });
 
-export const GPU_TEXTURE_BANK_SIZES = Object.freeze([256, 512, 1024, 2048, 4096] as const);
-export const GPU_TEXTURE_BANK_MAX_CAPACITIES = Object.freeze([64, 32, 16, 32, 2] as const);
-export const GPU_TEXTURE_RGBA_BANK_COUNT = GPU_TEXTURE_BANK_SIZES.length;
-export const GPU_TEXTURE_PACKAGE_BANK_COUNT = 4;
-export const GPU_TEXTURE_PACKAGE_BANK_BEGIN = GPU_TEXTURE_RGBA_BANK_COUNT;
-export const GPU_TEXTURE_BANK_COUNT = GPU_TEXTURE_RGBA_BANK_COUNT + GPU_TEXTURE_PACKAGE_BANK_COUNT;
+/** TextureRef bank bits are material-local slots, never a global bank index. */
+export const GPU_TEXTURE_BANK_COUNT = 16;
 export const GPU_TEXTURE_BANK_ALL_MASK = (1 << GPU_TEXTURE_BANK_COUNT) - 1;
 
 export interface GpuTextureRef {
@@ -111,38 +107,6 @@ fn oengine_texture_ref_valid(texture_ref: u32) -> bool {
 }
 `;
 
-const GPU_TEXTURE_BANK_BINDING_NAMES = Object.freeze([
-  "oengine_texture_bank_0",
-  "oengine_texture_bank_1",
-  "oengine_texture_bank_2",
-  "oengine_texture_bank_3",
-  "oengine_texture_bank_4",
-  "oengine_texture_bank_5",
-  "oengine_texture_bank_6",
-  "oengine_texture_bank_7",
-  "oengine_texture_bank_8",
-]);
-
-function sampleGradientBranches(sampler: string, bankMask: number): string {
-  return GPU_TEXTURE_BANK_BINDING_NAMES.map((texture, bank) =>
-    (bankMask & (1 << bank)) === 0
-      ? ""
-      : `  if bank == ${bank}u { return oengine_texture_ref_apply_routing(texture_ref, oengine_sample_texture_clamped(${texture}, ${sampler}, texture_ref, sampler_class, uv, layer, uv_dx, uv_dy)); }`,
-  )
-    .filter(Boolean)
-    .join("\n");
-}
-
-function sampleLevelBranches(sampler: string, bankMask: number): string {
-  return GPU_TEXTURE_BANK_BINDING_NAMES.map((texture, bank) =>
-    (bankMask & (1 << bank)) === 0
-      ? ""
-      : `  if bank == ${bank}u { return oengine_texture_ref_apply_routing(texture_ref, textureSampleLevel(${texture}, ${sampler}, uv, layer, 0.0)); }`,
-  )
-    .filter(Boolean)
-    .join("\n");
-}
-
 /** Same residency/mip policy for direct resource-profile sampling and bank routing. */
 export const GPU_TEXTURE_CLAMPED_SAMPLE_WGSL = /* wgsl */ `
 fn oengine_sample_texture_clamped(
@@ -160,109 +124,5 @@ fn oengine_sample_texture_clamped(
   let min_mip = select(code, 0u,
     code == OENGINE_MATERIAL_SAMPLER_FULL_MIP_CODE || code > max_mip);
   return textureSampleLevel(texture, texture_sampler, uv, layer, max(lod, f32(min_mip)));
-}
-`;
-
-/** Shared explicit-bank sampling policy specialized to a static material read set. */
-export function gpuTextureBankSampleWgsl(bankMask = GPU_TEXTURE_BANK_ALL_MASK): string {
-  if (!Number.isInteger(bankMask) || bankMask < 1 || (bankMask & ~GPU_TEXTURE_BANK_ALL_MASK) !== 0) {
-    throw new RangeError("Texture bank sample WGSL requires at least one valid bank");
-  }
-  return /* wgsl */ `
-${GPU_TEXTURE_CLAMPED_SAMPLE_WGSL}
-
-fn oengine_sample_texture_bank(
-  texture_ref: u32,
-  sampler_class: u32,
-  uv: vec2f,
-  uv_dx: vec2f,
-  uv_dy: vec2f,
-  fallback: vec4f
-) -> vec4f {
-  if !oengine_texture_ref_valid(texture_ref) { return fallback; }
-  let bank = oengine_texture_ref_bank(texture_ref);
-  let layer = i32(oengine_texture_ref_layer(texture_ref));
-  let address = sampler_class & OENGINE_MATERIAL_SAMPLER_ADDRESS_MASK;
-  let linear = (sampler_class & OENGINE_MATERIAL_SAMPLER_LINEAR) != 0u;
-  if linear {
-    if address == 0u {
-${sampleGradientBranches("sampler_clamp_linear", bankMask)}
-    } else if address == 2u {
-${sampleGradientBranches("sampler_mirror_linear", bankMask)}
-    } else {
-${sampleGradientBranches("sampler_repeat_linear", bankMask)}
-    }
-  } else if address == 0u {
-${sampleGradientBranches("sampler_clamp_nearest", bankMask)}
-  } else if address == 2u {
-${sampleGradientBranches("sampler_mirror_nearest", bankMask)}
-  } else {
-${sampleGradientBranches("sampler_repeat_nearest", bankMask)}
-  }
-  return fallback;
-}
-
-fn oengine_sample_texture_bank_level_zero(
-  texture_ref: u32,
-  sampler_class: u32,
-  uv: vec2f,
-  fallback: vec4f
-) -> vec4f {
-  if !oengine_texture_ref_valid(texture_ref) { return fallback; }
-  let bank = oengine_texture_ref_bank(texture_ref);
-  let layer = i32(oengine_texture_ref_layer(texture_ref));
-  let address = sampler_class & OENGINE_MATERIAL_SAMPLER_ADDRESS_MASK;
-  let linear = (sampler_class & OENGINE_MATERIAL_SAMPLER_LINEAR) != 0u;
-  if linear {
-    if address == 0u {
-${sampleLevelBranches("sampler_clamp_linear", bankMask)}
-    } else if address == 2u {
-${sampleLevelBranches("sampler_mirror_linear", bankMask)}
-    } else {
-${sampleLevelBranches("sampler_repeat_linear", bankMask)}
-    }
-  } else if address == 0u {
-${sampleLevelBranches("sampler_clamp_nearest", bankMask)}
-  } else if address == 2u {
-${sampleLevelBranches("sampler_mirror_nearest", bankMask)}
-  } else {
-${sampleLevelBranches("sampler_repeat_nearest", bankMask)}
-  }
-  return fallback;
-}
-`;
-}
-
-/** Shared all-bank policy retained for visibility/transparent consumers. */
-export const GPU_TEXTURE_BANK_SAMPLE_WGSL = gpuTextureBankSampleWgsl();
-
-/** Shared nearest-load primitives for alpha-tested visibility and shadow consumers. */
-export const GPU_TEXTURE_BANK_ALPHA_LOAD_WGSL = /* wgsl */ `
-fn oengine_texture_bank_size(bank: u32) -> i32 {
-  if bank == 0u { return i32(textureDimensions(oengine_texture_bank_0).x); }
-  if bank == 1u { return i32(textureDimensions(oengine_texture_bank_1).x); }
-  if bank == 2u { return i32(textureDimensions(oengine_texture_bank_2).x); }
-  if bank == 3u { return i32(textureDimensions(oengine_texture_bank_3).x); }
-  if bank == 4u { return i32(textureDimensions(oengine_texture_bank_4).x); }
-  if bank == 5u { return i32(textureDimensions(oengine_texture_bank_5).x); }
-  if bank == 6u { return i32(textureDimensions(oengine_texture_bank_6).x); }
-  if bank == 7u { return i32(textureDimensions(oengine_texture_bank_7).x); }
-  return i32(textureDimensions(oengine_texture_bank_8).x);
-}
-
-fn oengine_texture_bank_alpha(texture_ref: u32, pixel: vec2i) -> f32 {
-  let bank = oengine_texture_ref_bank(texture_ref);
-  let layer = i32(oengine_texture_ref_layer(texture_ref));
-  var value = vec4f(1.0);
-  if bank == 0u { value = textureLoad(oengine_texture_bank_0, pixel, layer, 0); }
-  else if bank == 1u { value = textureLoad(oengine_texture_bank_1, pixel, layer, 0); }
-  else if bank == 2u { value = textureLoad(oengine_texture_bank_2, pixel, layer, 0); }
-  else if bank == 3u { value = textureLoad(oengine_texture_bank_3, pixel, layer, 0); }
-  else if bank == 4u { value = textureLoad(oengine_texture_bank_4, pixel, layer, 0); }
-  else if bank == 5u { value = textureLoad(oengine_texture_bank_5, pixel, layer, 0); }
-  else if bank == 6u { value = textureLoad(oengine_texture_bank_6, pixel, layer, 0); }
-  else if bank == 7u { value = textureLoad(oengine_texture_bank_7, pixel, layer, 0); }
-  else { value = textureLoad(oengine_texture_bank_8, pixel, layer, 0); }
-  return oengine_texture_ref_apply_routing(texture_ref, value).a;
 }
 `;

@@ -11,12 +11,37 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "pc-texture-residency",
+    file: "OEngine/tests/oracle/pc-texture-residency-gpu.mjs",
+    url: "/OEngine/tests/oracle/pc-texture-residency-gpu.mjs",
+    entry: "runPcTextureResidencyGpuOracle",
+    requiredFeatures: ["texture-compression-bc"],
+    requiredLimits: { maxSampledTexturesPerShaderStage: 19, maxStorageBuffersPerShaderStage: 10 },
+    description:
+      "T4.2 sole BC Residency, NPOT/R8/scalar routes, actual native sampling, abort/promotion/fenced zero.",
+    timeoutMs: 120000,
+  }),
+  Object.freeze({
+    name: "texture-renderer",
+    file: "OEngine/tests/oracle/texture-renderer-gpu.mjs",
+    url: "/OEngine/tests/oracle/texture-renderer-gpu.mjs",
+    entry: "runTextureRendererGpuOracle",
+    allowPrefixes: [
+      "examples/assets/three/rendering-lab/dungeon_warkarma.glb",
+      "OEngine/src/render/assets/",
+      "OEngine/src/assets/web-cook/wasm/vendor/",
+    ],
+    description: "Complete small authored dungeon Renderer, original 25 textures, 1080p.",
+    timeoutMs: 1800000,
+  }),
+  Object.freeze({
     name: "pc-texture-recovery",
     file: "OEngine/tests/oracle/pc-texture-product-gpu.mjs",
     url: "/OEngine/tests/oracle/pc-texture-product-gpu.mjs",
     entry: "runPcTextureRecoveryGpuOracle",
     requiredFeatures: ["texture-compression-bc", "float32-filterable"],
-    description: "T4.1 affected replay validation: controlled device destroy, fresh adapter, disk Product and exact coverage/native sampling.",
+    description:
+      "T4.1 affected replay validation: controlled device destroy, fresh adapter, disk Product and exact coverage/native sampling.",
     timeoutMs: 180000,
   }),
   Object.freeze({
@@ -25,7 +50,8 @@ export const oracles = Object.freeze([
     url: "/OEngine/tests/oracle/pc-texture-import-gpu.mjs",
     entry: "runPcTextureImportGpuOracle",
     requiredFeatures: ["texture-compression-bc"],
-    description: "T4.1 real browser KTX Worker, ETC1S/UASTC/Zstd, full mips, compressed array decode and failed-import retry.",
+    description:
+      "T4.1 real browser KTX Worker, ETC1S/UASTC/Zstd, full mips, compressed array decode and failed-import retry.",
     timeoutMs: 180000,
   }),
   Object.freeze({
@@ -34,22 +60,9 @@ export const oracles = Object.freeze([
     url: "/OEngine/tests/oracle/pc-texture-product-gpu.mjs",
     entry: "runPcTextureProductGpuOracle",
     requiredFeatures: ["texture-compression-bc", "float32-filterable"],
-    description: "T4.1 non-production BC product/full mips/NPOT/native evaluator/coverage/Worker and new-device replay.",
-    timeoutMs: 1800000,
-  }),
-  Object.freeze({
-    name: "texture-baseline",
-    file: "OEngine/tests/oracle/texture-baseline-gpu.mjs",
-    url: "/OEngine/tests/oracle/texture-baseline-gpu.mjs",
-    entry: "runTextureBaselineGpuOracle",
-    requiredFeatures: ["texture-compression-bc", "timestamp-query"],
-    allowPrefixes: [
-      "examples/assets/three/rendering-lab/dungeon_warkarma.glb",
-      "OEngine/tests/fixtures/texture-codec/",
-    ],
     description:
-      "T4.0 current authored dungeon texture residency, codec/direct upload, ledger and retirement baseline; no large scene.",
-    timeoutMs: 180000,
+      "T4.1 non-production BC product/full mips/NPOT/native evaluator/coverage/Worker and new-device replay.",
+    timeoutMs: 1800000,
   }),
   Object.freeze({
     name: "texture-encoder-probe",
@@ -70,7 +83,7 @@ export const oracles = Object.freeze([
     allowPrefixes: ["OEngine/src/render/assets/"],
     requiredFeatures: ["timestamp-query"],
     description: "Untimed real GPU occupancy, compact ranges and list-length accounting for L3.3.",
-    timeoutMs: 180000
+    timeoutMs: 180000,
   }),
   Object.freeze({
     name: "lighting-dynamics",
@@ -80,7 +93,7 @@ export const oracles = Object.freeze([
     allowPrefixes: ["OEngine/src/render/assets/"],
     requiredFeatures: ["timestamp-query"],
     description: "Targeted retained light parameter updates, add/remove/reorder and independent colored HDR.",
-    timeoutMs: 180000
+    timeoutMs: 180000,
   }),
   Object.freeze({
     name: "lighting-acceptance",
@@ -91,28 +104,28 @@ export const oracles = Object.freeze([
     requiredFeatures: ["timestamp-query"],
     description:
       "L3.3 same-workload production local light matrix, low coverage, dynamic publication and independent HDR.",
-    timeoutMs: 1800000
+    timeoutMs: 1800000,
   }),
   Object.freeze({
     name: "local-light-integration",
     file: "OEngine/tests/oracle/native-surface-integration-gpu.mjs",
     url: "/OEngine/tests/oracle/native-surface-integration-gpu.mjs",
     entry: "runLocalLightIntegrationGpuOracle",
-    requiredFeatures: ["texture-formats-tier1"],
+    requiredFeatures: ["texture-compression-bc", "texture-formats-tier1"],
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     description:
       "Native light ABI with all material routes/two binding sets/alpha/Sun/VSM/AO/Temporal/FSR and resource-limit continuation.",
-    timeoutMs: 180000
+    timeoutMs: 180000,
   }),
   Object.freeze({
     name: "local-light-epochs",
     file: "OEngine/tests/oracle/native-surface-integration-gpu.mjs",
     url: "/OEngine/tests/oracle/native-surface-integration-gpu.mjs",
     entry: "runLocalLightEpochGpuOracle",
-    requiredFeatures: ["texture-formats-tier1"],
+    requiredFeatures: ["texture-compression-bc", "texture-formats-tier1"],
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     description: "Local-light old epoch teardown, rejection and complete new device reconstruction.",
-    timeoutMs: 180000
+    timeoutMs: 180000,
   }),
   Object.freeze({
     name: "local-light-native",
@@ -123,7 +136,7 @@ export const oracles = Object.freeze([
     allowPrefixes: ["OEngine/src/render/assets/"],
     description:
       "L3.2 sole production generator/product/native consumer on real winner/material/Sun/VSM/IBL/AO/Temporal providers.",
-    timeoutMs: 240000
+    timeoutMs: 240000,
   }),
   Object.freeze({
     name: "local-light-cost",
@@ -133,7 +146,7 @@ export const oracles = Object.freeze([
     requiredFeatures: ["timestamp-query"],
     allowPrefixes: ["OEngine/src/render/assets/"],
     description: "L3.1 alternating same-work DIRECT/SPARSE generator+native Surface 1080p cost.",
-    timeoutMs: 900000
+    timeoutMs: 900000,
   }),
   Object.freeze({
     name: "local-light-work",
@@ -142,7 +155,7 @@ export const oracles = Object.freeze([
     entry: "runLocalLightWorkGpuOracle",
     description:
       "L3.1 isolated local-light count/scan/scatter, complete overflow, staged DB abort/retry and independent support coverage.",
-    timeoutMs: 180000
+    timeoutMs: 180000,
   }),
   Object.freeze({
     name: "lighting-support",
@@ -153,7 +166,7 @@ export const oracles = Object.freeze([
     requiredFeatures: ["timestamp-query"],
     description:
       "L3.0 actual production HDR support at finite-radius, offscreen, unbounded, huge Spot and near crossings.",
-    timeoutMs: 180000
+    timeoutMs: 180000,
   }),
   Object.freeze({
     name: "lighting-low-coverage",
@@ -164,7 +177,7 @@ export const oracles = Object.freeze([
     requiredFeatures: ["timestamp-query"],
     description:
       "L3.0 same 1080p production scene/material/quality at far camera, 0/1/4/8/16/32 raw 120-frame baseline.",
-    timeoutMs: 240000
+    timeoutMs: 240000,
   }),
   Object.freeze({
     name: "lighting-baseline",
@@ -175,7 +188,7 @@ export const oracles = Object.freeze([
     requiredFeatures: ["timestamp-query"],
     description:
       "L3.0 unchanged production Lighting, 1080p, 0..1024 Point/Spot/mixed sparse/overlap, independent HDR and raw timestamps.",
-    timeoutMs: 900000
+    timeoutMs: 900000,
   }),
   Object.freeze({
     name: "lighting-boundaries",
@@ -183,7 +196,7 @@ export const oracles = Object.freeze([
     url: "/OEngine/tests/oracle/lighting-boundaries-gpu.mjs",
     entry: "runLightingBoundariesGpuOracle",
     description: "L3.0 independent boundary expectations evaluated by actual LightDatabase WGSL helpers.",
-    timeoutMs: 120000
+    timeoutMs: 120000,
   }),
   Object.freeze({
     name: "geometry-shadow-view",
@@ -195,7 +208,7 @@ export const oracles = Object.freeze([
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     description:
       "Actual Renderer off-camera caster, native alpha, visible receiver HDR and shadow abort/retry.",
-    timeoutMs: 180_000
+    timeoutMs: 180_000,
   }),
   Object.freeze({
     name: "geometry-budgeted-residency",
@@ -205,7 +218,7 @@ export const oracles = Object.freeze([
     requiredLimits: { maxStorageBuffersPerShaderStage: 16, maxStorageBufferBindingSize: 268435456 },
     description:
       "Budget/profile boundary bank accesses, true pressure, pinned coarse coverage and fair delayed uploads.",
-    timeoutMs: 180_000
+    timeoutMs: 180_000,
   }),
   Object.freeze({
     name: "native-surface-multi-product-production",
@@ -217,7 +230,7 @@ export const oracles = Object.freeze([
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     description:
       "Actual Renderer with two same-revision Products, abort/retry, alpha/Temporal and all-source device recovery.",
-    timeoutMs: 240_000
+    timeoutMs: 240_000,
   }),
   Object.freeze({
     name: "native-surface-acceptance",
@@ -229,7 +242,7 @@ export const oracles = Object.freeze([
     description:
       "S3 actual Renderer 1080p high coverage Standard/coat/custom/Unlit, 4/8/32 lights and 1/8/32 native programs, HDR oracle and timings.",
     note: "Generated scene complements authored Showcase image acceptance; renderer negotiates its own complete device profile.",
-    timeoutMs: 600000
+    timeoutMs: 600000,
   }),
   Object.freeze({
     name: "native-surface-product-production",
@@ -241,7 +254,7 @@ export const oracles = Object.freeze([
     requiredFeatures: ["texture-formats-tier1"],
     description:
       "S2 actual ordinary Scene WASM Product admission, native Visibility/VSM/Surface/Temporal/recovery closure.",
-    timeoutMs: 180000
+    timeoutMs: 180000,
   }),
   Object.freeze({
     name: "native-surface-production",
@@ -254,7 +267,7 @@ export const oracles = Object.freeze([
     description:
       "S2 actual Renderer ownership, native instance publication, winner/HDR/Temporal/FSR, update/abort/retry/resize.",
     note: "Renderer negotiates its own device; oracle captures errors on that real production device. This is a correctness closure, not S3 performance acceptance.",
-    timeoutMs: 180000
+    timeoutMs: 180000,
   }),
   Object.freeze({
     name: "native-surface-resource-profile",
@@ -262,10 +275,10 @@ export const oracles = Object.freeze([
     url: "/OEngine/tests/oracle/native-surface-integration-gpu.mjs",
     entry: "runNativeSurfaceResourceProfileGpuOracle",
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
-    requiredFeatures: ["texture-formats-tier1"],
+    requiredFeatures: ["texture-compression-bc", "texture-formats-tier1"],
     description:
       "S1 complete Product-geometry resource profile, native sunlight and resident winner input; not VG scene acceptance.",
-    timeoutMs: 120000
+    timeoutMs: 120000,
   }),
   Object.freeze({
     name: "native-surface-device-epoch",
@@ -274,7 +287,7 @@ export const oracles = Object.freeze([
     entry: "runNativeSurfaceDeviceEpochGpuOracle",
     description:
       "S1 controlled device destruction and native subsystem reconstruction on two independent device epochs.",
-    timeoutMs: 120000
+    timeoutMs: 120000,
   }),
   Object.freeze({
     name: "native-surface-cost",
@@ -282,9 +295,9 @@ export const oracles = Object.freeze([
     url: "/OEngine/tests/oracle/native-surface-integration-gpu.mjs",
     entry: "runNativeSurfaceCostGpuOracle",
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
-    requiredFeatures: ["texture-formats-tier1", "timestamp-query"],
+    requiredFeatures: ["texture-compression-bc", "texture-formats-tier1", "timestamp-query"],
     description: "S1 isolated 1080p native multi-route/Temporal/FSR cost; not production acceptance.",
-    timeoutMs: 180000
+    timeoutMs: 180000,
   }),
   Object.freeze({
     name: "native-surface-perspective",
@@ -292,9 +305,9 @@ export const oracles = Object.freeze([
     url: "/OEngine/tests/oracle/native-surface-integration-gpu.mjs",
     entry: "runNativeSurfacePerspectiveGpuOracle",
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
-    requiredFeatures: ["texture-formats-tier1"],
+    requiredFeatures: ["texture-compression-bc", "texture-formats-tier1"],
     description: "S1 perspective reconstruction, physical sun math and real GPU exposure update.",
-    timeoutMs: 120000
+    timeoutMs: 120000,
   }),
   Object.freeze({
     name: "native-execution-bins",
@@ -303,7 +316,7 @@ export const oracles = Object.freeze([
     entry: "runNativeExecutionBinsGpuOracle",
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     description: "S1 native pixel execution bins, complete tails, capacity and unique-writer coverage.",
-    timeoutMs: 60000
+    timeoutMs: 60000,
   }),
   Object.freeze({
     name: "native-surface-integration",
@@ -311,19 +324,20 @@ export const oracles = Object.freeze([
     url: "/OEngine/tests/oracle/native-surface-integration-gpu.mjs",
     entry: "runNativeSurfaceIntegrationGpuOracle",
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
-    requiredFeatures: ["texture-formats-tier1"],
+    requiredFeatures: ["texture-compression-bc", "texture-formats-tier1"],
     description: "S1 isolated native winner/material/HDR/Temporal/FSR chain; no production cutover.",
-    timeoutMs: 120000
+    timeoutMs: 120000,
   }),
   Object.freeze({
     name: "native-material",
     file: "OEngine/tests/oracle/native-material-gpu.mjs",
     url: "/OEngine/tests/oracle/native-material-gpu.mjs",
     entry: "runNativeMaterialGpuOracle",
+    requiredFeatures: ["texture-compression-bc"],
     description:
       "S1 native Standard/Coat/Unlit/custom graph, explicit gradients and immutable publication transactions.",
     timeoutMs: 60000,
-    note: "Component only: fixture geometry inputs and linear textures; no production cutover or S1 closure claim."
+    note: "Component only: fixture geometry inputs and linear textures; no production cutover or S1 closure claim.",
   }),
   Object.freeze({
     name: "framegraph-lifecycle",
@@ -334,7 +348,7 @@ export const oracles = Object.freeze([
     description:
       "A0/A1 production compiled executor, pooled/native lifetime, resize binding and diagnostics WGSL.",
     timeoutMs: 60000,
-    note: "Real GPU component chain with independent buffer/diagnostic assertions."
+    note: "Real GPU component chain with independent buffer/diagnostic assertions.",
   }),
   Object.freeze({
     name: "frame-timing",
@@ -344,7 +358,7 @@ export const oracles = Object.freeze([
     requiredFeatures: ["timestamp-query"],
     description: "A0 persistent timer modes, query/marker tax and real GPU span/result assertions.",
     timeoutMs: 60000,
-    note: "Production timer components, not a full-frame benchmark."
+    note: "Production timer components, not a full-frame benchmark.",
   }),
   Object.freeze({
     name: "environment-probe",
@@ -354,7 +368,7 @@ export const oracles = Object.freeze([
     description:
       "Minimal real-GPU smoke test: one compute dispatch, storage-buffer readback, asserted on the CPU.",
     timeoutMs: 60_000,
-    note: "Run this first on a new machine or CI runner; it separates harness/driver availability from oracle logic."
+    note: "Run this first on a new machine or CI runner; it separates harness/driver availability from oracle logic.",
   }),
   Object.freeze({
     name: "hzb-conservative",
@@ -365,7 +379,7 @@ export const oracles = Object.freeze([
     description:
       "Exhaustive rg16float half-boundary reduction plus all 1296 HZB footprint rectangles against buildHzbReference.",
     timeoutMs: 180_000,
-    note: "Independent CPU reference; strongest numeric oracle in the repository."
+    note: "Independent CPU reference; strongest numeric oracle in the repository.",
   }),
   Object.freeze({
     name: "virtual-geometry-handoff",
@@ -376,7 +390,7 @@ export const oracles = Object.freeze([
     description:
       "VirtualGeometryMeshletWorkCandidate queue/draw-indirect handoff with exact compacted cluster IDs.",
     timeoutMs: 180_000,
-    note: "Drives the production owner VirtualGeometryMeshletWorkCandidate from OEngine/.test-dist."
+    note: "Drives the production owner VirtualGeometryMeshletWorkCandidate from OEngine/.test-dist.",
   }),
   Object.freeze({
     name: "geometry-product-scale",
@@ -388,7 +402,7 @@ export const oracles = Object.freeze([
     description:
       "Product publication, depth-0/deep forests, instance multiplicity, multi-Product and fail-closed work/abort controls.",
     timeoutMs: 180_000,
-    note: "Uses production MultiRuntime, HierarchicalWorkGenerator and MeshletWorkCandidate; no alternative renderer."
+    note: "Uses production MultiRuntime, HierarchicalWorkGenerator and MeshletWorkCandidate; no alternative renderer.",
   }),
   Object.freeze({
     name: "geometry-scale-production",
@@ -401,7 +415,7 @@ export const oracles = Object.freeze([
     timeoutMs: 300000,
     description:
       "Actual Renderer 1080p exhaustive raster/winner coverage for 10k/100k procedural instances and 8/66 Products.",
-    note: "Resident position-only Unlit scale fixture, not authored material/streaming quality or historical speedup."
+    note: "Resident position-only Unlit scale fixture, not authored material/streaming quality or historical speedup.",
   }),
   Object.freeze({
     name: "virtual-geometry-instance-culling",
@@ -412,7 +426,7 @@ export const oracles = Object.freeze([
     description:
       "HierarchicalWorkGenerator root/hierarchy kernels over 20 camera frames, with the old double-transform false rejection as negative control.",
     timeoutMs: 180_000,
-    note: "Drives the production owner HierarchicalWorkGenerator from OEngine/.test-dist."
+    note: "Drives the production owner HierarchicalWorkGenerator from OEngine/.test-dist.",
   }),
   Object.freeze({
     name: "self-test-wrong-kernel",
@@ -424,8 +438,8 @@ export const oracles = Object.freeze([
       "Negative control: the HZB reduction oracle with a deliberately non-conservative GPU kernel.",
     timeoutMs: 180_000,
     negativeControl: true,
-    note: "Must FAIL. Proves the harness propagates failures produced by real GPU output. Never a production oracle."
-  })
+    note: "Must FAIL. Proves the harness propagates failures produced by real GPU output. Never a production oracle.",
+  }),
 ]);
 
 export function findOracle(name) {

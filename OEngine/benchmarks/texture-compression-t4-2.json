@@ -1,0 +1,4458 @@
+{
+  "schemaVersion": 1,
+  "stage": "T4.2",
+  "kind": "Production BC Residency cutover functional/lifecycle closure; not T4.3 acceptance",
+  "sourceParentSha": "2fdcab02114bd385f6830f96a9d76bd5ce3d2cbb",
+  "dirtyImplementationBuild": true,
+  "productionCutover": true,
+  "latestBuildIdentity": {
+    "schemaVersion": 1,
+    "recipe": "tsc -p tsconfig.test.json + pinned codec vendor copy",
+    "node": "v24.14.0",
+    "dependencyScope": "conservative: engine src, configs, lock and compiler identity",
+    "sourceSha256": "7c411d37f6d204431920badc589b55179e8d67923aef480dc0d5670d98b67112",
+    "outputSha256": "782ab78f74952399973733217f8ca541d726a21d557592f5f2e872fd31e91ca2",
+    "completedAt": "2026-10-08T23:03:27.586Z"
+  },
+  "abi": {
+    "textureRef": 3,
+    "shadingMaterial": 8,
+    "textureRouteStrideBytes": 32,
+    "localSlots": 16,
+    "logicalHandles": 4095
+  },
+  "records": {
+    "residency": {
+      "file": ".local/t4-2-residency-final-abi-retry.json",
+      "sha256": "047fe5e23753cdd36509c72f4777381e0800f7a2f6504461b9a9a91e5832efd1",
+      "buildIdentity": {
+        "schemaVersion": 1,
+        "recipe": "tsc -p tsconfig.test.json + pinned codec vendor copy",
+        "node": "v24.14.0",
+        "dependencyScope": "conservative: engine src, configs, lock and compiler identity",
+        "sourceSha256": "7c411d37f6d204431920badc589b55179e8d67923aef480dc0d5670d98b67112",
+        "outputSha256": "782ab78f74952399973733217f8ca541d726a21d557592f5f2e872fd31e91ca2",
+        "completedAt": "2026-10-08T23:03:27.586Z"
+      },
+      "oracleSha256": "c28492901a1f22b77022772c45b4cdb5d905a72facab48abefea5ff1259a26fb",
+      "adapter": {
+        "vendor": "nvidia",
+        "architecture": "turing",
+        "device": "",
+        "description": "",
+        "isFallbackAdapter": false,
+        "subgroupMinSize": 32,
+        "subgroupMaxSize": 32
+      },
+      "chrome": "154.0.8037.98",
+      "status": "passed",
+      "summary": {
+        "status": "passed",
+        "samples": 76,
+        "maxError": 0,
+        "tolerance": 0.0001,
+        "npot": true,
+        "exactCoverage": true,
+        "bc4Channel": 2,
+        "promotionAbortRetry": true,
+        "rawWorkerCount": 1,
+        "cookedWorkerCount": 0,
+        "capacity": {
+          "segments": 22,
+          "tuples": 21,
+          "tenMaps": 10,
+          "sampledTextures": 18,
+          "nativeSurfaceCompiled": true,
+          "materialPublication": true,
+          "fencedBytes": 0
+        },
+        "before": {
+          "schemaVersion": 7,
+          "textureCapacity": 4095,
+          "residentTextureCount": 4,
+          "retiringTextureCount": 0,
+          "pendingTextureCount": 0,
+          "quarantinedTextureCount": 0,
+          "allocatedBytes": 3174,
+          "allocatedPeakBytes": 3174,
+          "physicalAllocatedBytes": 3174,
+          "transactionPeakBytes": 3174,
+          "descriptorBytes": 0,
+          "residentTextureBytes": 1587,
+          "retiringTextureBytes": 0,
+          "retiringBytes": 0,
+          "logicalResidentBytes": 1587,
+          "rgbaEquivalentResidentBytes": 4928,
+          "uploadBytes": 2283,
+          "copyBytes": 0,
+          "transcodeBytes": 0,
+          "directPackageCount": 4,
+          "workerTranscodeCount": 0,
+          "uncompressedFallbackCount": 0,
+          "formatDistribution": [
+            {
+              "format": "bc7-rgba-unorm-srgb",
+              "residentTextureCount": 2,
+              "residentBytes": 512
+            },
+            {
+              "format": "r8unorm",
+              "residentTextureCount": 2,
+              "residentBytes": 403
+            },
+            {
+              "format": "bc7-rgba-unorm",
+              "residentTextureCount": 1,
+              "residentBytes": 400
+            },
+            {
+              "format": "bc4-r-unorm",
+              "residentTextureCount": 1,
+              "residentBytes": 272
+            }
+          ],
+          "resizeDispatchCount": 0,
+          "runtimeMipGenerationCount": 0,
+          "cookedRuntimeMipGenerationCount": 0,
+          "bankCopyOperationCount": 0,
+          "bankGrowCount": 6,
+          "abortedBankGrowCount": 0,
+          "cookedResidentTextureCount": 4,
+          "compressedResidentTextureCount": 4,
+          "segmentCount": 6,
+          "bindingSetCount": 4,
+          "bindingSlotUtilization": 0.09375,
+          "bindingSetPreflightFailures": 0,
+          "highResolutionArrayAllocated": false,
+          "banks": [],
+          "packageSegments": [
+            {
+              "segment": 1,
+              "format": "bc7-rgba-unorm-srgb",
+              "width": 20,
+              "height": 12,
+              "mipLevelCount": 5,
+              "allocatedCapacity": 2,
+              "residentTextureCount": 1,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 800
+            },
+            {
+              "segment": 2,
+              "format": "r8unorm",
+              "width": 20,
+              "height": 12,
+              "mipLevelCount": 5,
+              "allocatedCapacity": 2,
+              "residentTextureCount": 1,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 636
+            },
+            {
+              "segment": 3,
+              "format": "bc7-rgba-unorm",
+              "width": 20,
+              "height": 12,
+              "mipLevelCount": 5,
+              "allocatedCapacity": 2,
+              "residentTextureCount": 1,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 800
+            },
+            {
+              "segment": 4,
+              "format": "bc4-r-unorm",
+              "width": 24,
+              "height": 16,
+              "mipLevelCount": 5,
+              "allocatedCapacity": 2,
+              "residentTextureCount": 1,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 544
+            },
+            {
+              "segment": 5,
+              "format": "bc7-rgba-unorm-srgb",
+              "width": 8,
+              "height": 8,
+              "mipLevelCount": 4,
+              "allocatedCapacity": 2,
+              "residentTextureCount": 1,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 224
+            },
+            {
+              "segment": 6,
+              "format": "r8unorm",
+              "width": 8,
+              "height": 8,
+              "mipLevelCount": 4,
+              "allocatedCapacity": 2,
+              "residentTextureCount": 1,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 170
+            }
+          ],
+          "textureLedger": [
+            {
+              "assetIdentity": "1dea8c0cfb0f836fef518bb5f7ab40394ab19f716d5a7031aa5744c6712215d7",
+              "sourceUri": "fixture://residency",
+              "state": "resident",
+              "refCount": 1,
+              "bankClass": 0,
+              "segment": 1,
+              "layer": 1,
+              "sourceWidth": 17,
+              "sourceHeight": 9,
+              "decodedWidth": 17,
+              "decodedHeight": 9,
+              "gpuWidth": 20,
+              "gpuHeight": 12,
+              "format": "bc7-rgba-unorm-srgb",
+              "mipLevelCount": 5,
+              "logicalBytes": 1272,
+              "residentBytes": 400,
+              "allocatedBytes": 400
+            },
+            {
+              "assetIdentity": "1dea8c0cfb0f836fef518bb5f7ab40394ab19f716d5a7031aa5744c6712215d7",
+              "sourceUri": "fixture://residency",
+              "state": "resident",
+              "refCount": 1,
+              "bankClass": 1,
+              "segment": 2,
+              "layer": 1,
+              "sourceWidth": 17,
+              "sourceHeight": 9,
+              "decodedWidth": 17,
+              "decodedHeight": 9,
+              "gpuWidth": 20,
+              "gpuHeight": 12,
+              "format": "r8unorm",
+              "mipLevelCount": 5,
+              "logicalBytes": 1272,
+              "residentBytes": 318,
+              "allocatedBytes": 318
+            },
+            {
+              "assetIdentity": "a66476b167c79c10f83aa3ebc7a86a4901c212e7b5b419c55a4585c4eb461671",
+              "sourceUri": "fixture://residency",
+              "state": "resident",
+              "refCount": 1,
+              "bankClass": 0,
+              "segment": 3,
+              "layer": 1,
+              "sourceWidth": 20,
+              "sourceHeight": 12,
+              "decodedWidth": 20,
+              "decodedHeight": 12,
+              "gpuWidth": 20,
+              "gpuHeight": 12,
+              "format": "bc7-rgba-unorm",
+              "mipLevelCount": 5,
+              "logicalBytes": 1272,
+              "residentBytes": 400,
+              "allocatedBytes": 400
+            },
+            {
+              "assetIdentity": "0e1ffa427c4ea828d36720628b91015e69c3370a1d33360dc05d84668a6ec79b",
+              "sourceUri": "fixture://residency",
+              "state": "resident",
+              "refCount": 1,
+              "bankClass": 0,
+              "segment": 4,
+              "layer": 1,
+              "sourceWidth": 24,
+              "sourceHeight": 16,
+              "decodedWidth": 24,
+              "decodedHeight": 16,
+              "gpuWidth": 24,
+              "gpuHeight": 16,
+              "format": "bc4-r-unorm",
+              "mipLevelCount": 5,
+              "logicalBytes": 2044,
+              "residentBytes": 272,
+              "allocatedBytes": 272
+            },
+            {
+              "assetIdentity": "ced3cab10efbb83c87789fb77f60c62a695ed0d2e67b156c7986c787f5d0e804",
+              "sourceUri": "image:0",
+              "state": "resident",
+              "refCount": 1,
+              "bankClass": 0,
+              "segment": 5,
+              "layer": 1,
+              "sourceWidth": 8,
+              "sourceHeight": 8,
+              "decodedWidth": 8,
+              "decodedHeight": 8,
+              "gpuWidth": 8,
+              "gpuHeight": 8,
+              "format": "bc7-rgba-unorm-srgb",
+              "mipLevelCount": 4,
+              "logicalBytes": 340,
+              "residentBytes": 112,
+              "allocatedBytes": 112
+            },
+            {
+              "assetIdentity": "ced3cab10efbb83c87789fb77f60c62a695ed0d2e67b156c7986c787f5d0e804",
+              "sourceUri": "image:0",
+              "state": "resident",
+              "refCount": 1,
+              "bankClass": 1,
+              "segment": 6,
+              "layer": 1,
+              "sourceWidth": 8,
+              "sourceHeight": 8,
+              "decodedWidth": 8,
+              "decodedHeight": 8,
+              "gpuWidth": 8,
+              "gpuHeight": 8,
+              "format": "r8unorm",
+              "mipLevelCount": 4,
+              "logicalBytes": 340,
+              "residentBytes": 85,
+              "allocatedBytes": 85
+            }
+          ],
+          "privateSubmitCount": 0,
+          "progressiveMipUploadBytes": 1344,
+          "mipPromotionCount": 1,
+          "mipUploadCount": 40
+        },
+        "after": {
+          "schemaVersion": 7,
+          "textureCapacity": 4095,
+          "residentTextureCount": 0,
+          "retiringTextureCount": 0,
+          "pendingTextureCount": 0,
+          "quarantinedTextureCount": 0,
+          "allocatedBytes": 0,
+          "allocatedPeakBytes": 3174,
+          "physicalAllocatedBytes": 0,
+          "transactionPeakBytes": 3174,
+          "descriptorBytes": 0,
+          "residentTextureBytes": 0,
+          "retiringTextureBytes": 0,
+          "retiringBytes": 0,
+          "logicalResidentBytes": 0,
+          "rgbaEquivalentResidentBytes": 0,
+          "uploadBytes": 2283,
+          "copyBytes": 0,
+          "transcodeBytes": 0,
+          "directPackageCount": 0,
+          "workerTranscodeCount": 0,
+          "uncompressedFallbackCount": 0,
+          "formatDistribution": [],
+          "resizeDispatchCount": 0,
+          "runtimeMipGenerationCount": 0,
+          "cookedRuntimeMipGenerationCount": 0,
+          "bankCopyOperationCount": 0,
+          "bankGrowCount": 6,
+          "abortedBankGrowCount": 0,
+          "cookedResidentTextureCount": 0,
+          "compressedResidentTextureCount": 0,
+          "segmentCount": 0,
+          "bindingSetCount": 0,
+          "bindingSlotUtilization": 0,
+          "bindingSetPreflightFailures": 0,
+          "highResolutionArrayAllocated": false,
+          "banks": [],
+          "packageSegments": [],
+          "textureLedger": [],
+          "privateSubmitCount": 0,
+          "progressiveMipUploadBytes": 1344,
+          "mipPromotionCount": 1,
+          "mipUploadCount": 40
+        }
+      },
+      "gpuErrors": [],
+      "scopedGpuErrors": [],
+      "error": null
+    },
+    "native": {
+      "file": ".local/t4-2-native-final-abi.json",
+      "sha256": "00f64e5e56282ff3dd4ddef4e42bfeeb3077674300a9b5d5604d85f9d3e8a314",
+      "buildIdentity": {
+        "schemaVersion": 1,
+        "recipe": "tsc -p tsconfig.test.json + pinned codec vendor copy",
+        "node": "v24.14.0",
+        "dependencyScope": "conservative: engine src, configs, lock and compiler identity",
+        "sourceSha256": "7c411d37f6d204431920badc589b55179e8d67923aef480dc0d5670d98b67112",
+        "outputSha256": "782ab78f74952399973733217f8ca541d726a21d557592f5f2e872fd31e91ca2",
+        "completedAt": "2026-10-08T23:03:27.586Z"
+      },
+      "oracleSha256": "fc67637eb16c1ecf18a929bc67196a694fb06cb24e0b1bc6ba2c8d8f20100703",
+      "adapter": {
+        "vendor": "nvidia",
+        "architecture": "turing",
+        "device": "",
+        "description": "",
+        "isFallbackAdapter": false,
+        "subgroupMinSize": 32,
+        "subgroupMaxSize": 32
+      },
+      "chrome": "154.0.8037.98",
+      "status": "passed",
+      "summary": {
+        "status": "passed",
+        "scope": "S1 compiler/publication component; not complete SurfaceV4",
+        "results": [
+          {
+            "name": "standard",
+            "pixelsPerRun": 32,
+            "outputCount": 23,
+            "maxAbsoluteError": 0,
+            "cpuIdealFilterDeviation": 0.1336045265197754,
+            "nativePrograms": 1,
+            "physicalBindingSets": 2,
+            "textureQueries": [1, 1],
+            "publicationBytes": 328,
+            "verified": "native graph, C/X/Y, SampleGrad, two physical texture sets, stable/abort/retry/update/fence",
+            "missingGradientNegativeControl": "not applicable"
+          },
+          {
+            "name": "coated",
+            "pixelsPerRun": 32,
+            "outputCount": 23,
+            "maxAbsoluteError": 0,
+            "cpuIdealFilterDeviation": 0.1336045265197754,
+            "nativePrograms": 1,
+            "physicalBindingSets": 2,
+            "textureQueries": [1, 1],
+            "publicationBytes": 336,
+            "verified": "native graph, C/X/Y, SampleGrad, two physical texture sets, stable/abort/retry/update/fence",
+            "missingGradientNegativeControl": "not applicable"
+          },
+          {
+            "name": "unlit",
+            "pixelsPerRun": 32,
+            "outputCount": 4,
+            "maxAbsoluteError": 0,
+            "cpuIdealFilterDeviation": 0.060122013092041016,
+            "nativePrograms": 1,
+            "physicalBindingSets": 2,
+            "textureQueries": [1],
+            "publicationBytes": 144,
+            "verified": "native graph, C/X/Y, SampleGrad, two physical texture sets, stable/abort/retry/update/fence",
+            "missingGradientNegativeControl": "not applicable"
+          },
+          {
+            "name": "custom",
+            "pixelsPerRun": 32,
+            "outputCount": 13,
+            "maxAbsoluteError": 1.7881393432617188e-7,
+            "cpuIdealFilterDeviation": 0.060180485248565674,
+            "nativePrograms": 1,
+            "physicalBindingSets": 2,
+            "textureQueries": [3, 1],
+            "publicationBytes": 224,
+            "verified": "native graph, C/X/Y, SampleGrad, two physical texture sets, stable/abort/retry/update/fence",
+            "missingGradientNegativeControl": "detected"
+          },
+          {
+            "name": "arithmetic",
+            "pixelsPerRun": 32,
+            "outputCount": 13,
+            "maxAbsoluteError": 0,
+            "cpuIdealFilterDeviation": 2.980232238769531e-7,
+            "nativePrograms": 1,
+            "physicalBindingSets": 2,
+            "textureQueries": [],
+            "publicationBytes": 88,
+            "verified": "all scalar operations against independent CPU and GPU, stable/abort/retry/update/fence",
+            "missingGradientNegativeControl": "not applicable"
+          }
+        ],
+        "filtering": {
+          "status": "diagnostic",
+          "method": "spatially constant per-mip markers isolate gradient LOD; direct explicit-level samples isolate filtering precision",
+          "maxGradientCpuError": 0.06680227071046829,
+          "maxExplicitLevelCpuError": 0.0020238757133483887,
+          "maxGradientLodDeviation": 0.08009004592895508,
+          "maxExplicitLodDeviation": 0.001865983009338379,
+          "records": [
+            {
+              "lane": 0,
+              "cpuLod": 0,
+              "gradEffectiveLod": 0,
+              "levelEffectiveLod": 0,
+              "gradCpuError": 0.000048041343688964844,
+              "explicitLevelCpuError": 0.000048041343688964844
+            },
+            {
+              "lane": 1,
+              "cpuLod": 1.0565834045410156,
+              "gradEffectiveLod": 1.136673092842102,
+              "levelEffectiveLod": 1.0547178983688354,
+              "gradCpuError": 0.005930721759796143,
+              "explicitLevelCpuError": 0.0018181800842285156
+            },
+            {
+              "lane": 2,
+              "cpuLod": 2.6415460109710693,
+              "gradEffectiveLod": 2.71875,
+              "levelEffectiveLod": 2.640685796737671,
+              "gradCpuError": 0.02039283514022827,
+              "explicitLevelCpuError": 0.00008307397365570068
+            },
+            {
+              "lane": 3,
+              "cpuLod": 3.863938570022583,
+              "gradEffectiveLod": 3.9413909912109375,
+              "levelEffectiveLod": 3.8633267879486084,
+              "gradCpuError": 0.0636836513876915,
+              "explicitLevelCpuError": 0.0005263090133666992
+            },
+            {
+              "lane": 4,
+              "cpuLod": 0,
+              "gradEffectiveLod": 0,
+              "levelEffectiveLod": 0,
+              "gradCpuError": 0.00007364153861999512,
+              "explicitLevelCpuError": 0.00007364153861999512
+            },
+            {
+              "lane": 5,
+              "cpuLod": 1.0565834045410156,
+              "gradEffectiveLod": 1.136673092842102,
+              "levelEffectiveLod": 1.0547178983688354,
+              "gradCpuError": 0.005050003528594971,
+              "explicitLevelCpuError": 0.0005043372511863708
+            },
+            {
+              "lane": 6,
+              "cpuLod": 2.6415457725524902,
+              "gradEffectiveLod": 2.71875,
+              "levelEffectiveLod": 2.640685796737671,
+              "gradCpuError": 0.006776094436645508,
+              "explicitLevelCpuError": 0.00005990266799926758
+            },
+            {
+              "lane": 7,
+              "cpuLod": 3.863938331604004,
+              "gradEffectiveLod": 3.9413909912109375,
+              "levelEffectiveLod": 3.8633267879486084,
+              "gradCpuError": 0.06406804919242859,
+              "explicitLevelCpuError": 0.0005081295967102051
+            },
+            {
+              "lane": 8,
+              "cpuLod": 0,
+              "gradEffectiveLod": 0,
+              "levelEffectiveLod": 0,
+              "gradCpuError": 0.00007724761962890625,
+              "explicitLevelCpuError": 0.00007724761962890625
+            },
+            {
+              "lane": 9,
+              "cpuLod": 1.0565834045410156,
+              "gradEffectiveLod": 1.136673092842102,
+              "levelEffectiveLod": 1.0547178983688354,
+              "gradCpuError": 0.004291355609893799,
+              "explicitLevelCpuError": 0.00014901161193847656
+            },
+            {
+              "lane": 10,
+              "cpuLod": 2.6415460109710693,
+              "gradEffectiveLod": 2.71875,
+              "levelEffectiveLod": 2.640685796737671,
+              "gradCpuError": 0.00632709264755249,
+              "explicitLevelCpuError": 0.00011217594146728516
+            },
+            {
+              "lane": 11,
+              "cpuLod": 3.863938570022583,
+              "gradEffectiveLod": 3.9413909912109375,
+              "levelEffectiveLod": 3.8633267879486084,
+              "gradCpuError": 0.06442161649465561,
+              "explicitLevelCpuError": 0.0005360394716262817
+            },
+            {
+              "lane": 12,
+              "cpuLod": 0,
+              "gradEffectiveLod": 0,
+              "levelEffectiveLod": 0,
+              "gradCpuError": 0.00004503130912780762,
+              "explicitLevelCpuError": 0.00004503130912780762
+            },
+            {
+              "lane": 13,
+              "cpuLod": 1.0565838813781738,
+              "gradEffectiveLod": 1.136673092842102,
+              "levelEffectiveLod": 1.0547178983688354,
+              "gradCpuError": 0.004477828741073608,
+              "explicitLevelCpuError": 0.00014472007751464844
+            },
+            {
+              "lane": 14,
+              "cpuLod": 2.6415460109710693,
+              "gradEffectiveLod": 2.71875,
+              "levelEffectiveLod": 2.640685796737671,
+              "gradCpuError": 0.005939126014709473,
+              "explicitLevelCpuError": 0.00004267692565917969
+            },
+            {
+              "lane": 15,
+              "cpuLod": 3.863938570022583,
+              "gradEffectiveLod": 3.9413909912109375,
+              "levelEffectiveLod": 3.8633267879486084,
+              "gradCpuError": 0.06477280706167221,
+              "explicitLevelCpuError": 0.0005205422639846802
+            },
+            {
+              "lane": 16,
+              "cpuLod": 0,
+              "gradEffectiveLod": 0,
+              "levelEffectiveLod": 0,
+              "gradCpuError": 0.000009000301361083984,
+              "explicitLevelCpuError": 0.000009000301361083984
+            },
+            {
+              "lane": 17,
+              "cpuLod": 1.0565838813781738,
+              "gradEffectiveLod": 1.136673092842102,
+              "levelEffectiveLod": 1.0547178983688354,
+              "gradCpuError": 0.006275638937950134,
+              "explicitLevelCpuError": 0.00010988116264343262
+            },
+            {
+              "lane": 18,
+              "cpuLod": 2.6415460109710693,
+              "gradEffectiveLod": 2.71875,
+              "levelEffectiveLod": 2.640685796737671,
+              "gradCpuError": 0.00552058219909668,
+              "explicitLevelCpuError": 0.0000921785831451416
+            },
+            {
+              "lane": 19,
+              "cpuLod": 3.863938331604004,
+              "gradEffectiveLod": 3.9413909912109375,
+              "levelEffectiveLod": 3.8633267879486084,
+              "gradCpuError": 0.06519126147031784,
+              "explicitLevelCpuError": 0.0005598664283752441
+            },
+            {
+              "lane": 20,
+              "cpuLod": 0,
+              "gradEffectiveLod": 0,
+              "levelEffectiveLod": 0,
+              "gradCpuError": 0.00003698468208312988,
+              "explicitLevelCpuError": 0.00003698468208312988
+            },
+            {
+              "lane": 21,
+              "cpuLod": 1.0565838813781738,
+              "gradEffectiveLod": 1.136673092842102,
+              "levelEffectiveLod": 1.0547178983688354,
+              "gradCpuError": 0.013600528240203857,
+              "explicitLevelCpuError": 0.0007982254028320312
+            },
+            {
+              "lane": 22,
+              "cpuLod": 2.6415460109710693,
+              "gradEffectiveLod": 2.71875,
+              "levelEffectiveLod": 2.640685796737671,
+              "gradCpuError": 0.005117297172546387,
+              "explicitLevelCpuError": 0.000059217214584350586
+            },
+            {
+              "lane": 23,
+              "cpuLod": 3.863938331604004,
+              "gradEffectiveLod": 3.9413909912109375,
+              "levelEffectiveLod": 3.8633267879486084,
+              "gradCpuError": 0.06551799178123474,
+              "explicitLevelCpuError": 0.0005535632371902466
+            },
+            {
+              "lane": 24,
+              "cpuLod": 0,
+              "gradEffectiveLod": 0,
+              "levelEffectiveLod": 0,
+              "gradCpuError": 0.00005155801773071289,
+              "explicitLevelCpuError": 0.00005155801773071289
+            },
+            {
+              "lane": 25,
+              "cpuLod": 1.0565838813781738,
+              "gradEffectiveLod": 1.136673092842102,
+              "levelEffectiveLod": 1.0547178983688354,
+              "gradCpuError": 0.06680227071046829,
+              "explicitLevelCpuError": 0.0015428811311721802
+            },
+            {
+              "lane": 26,
+              "cpuLod": 2.6415457725524902,
+              "gradEffectiveLod": 2.71875,
+              "levelEffectiveLod": 2.640685796737671,
+              "gradCpuError": 0.004759848117828369,
+              "explicitLevelCpuError": 0.00020939111709594727
+            },
+            {
+              "lane": 27,
+              "cpuLod": 3.863938331604004,
+              "gradEffectiveLod": 3.9413909912109375,
+              "levelEffectiveLod": 3.8633267879486084,
+              "gradCpuError": 0.062204763293266296,
+              "explicitLevelCpuError": 0.0006318837404251099
+            },
+            {
+              "lane": 28,
+              "cpuLod": 0,
+              "gradEffectiveLod": 0,
+              "levelEffectiveLod": 0,
+              "gradCpuError": 0.00009942054748535156,
+              "explicitLevelCpuError": 0.00009942054748535156
+            },
+            {
+              "lane": 29,
+              "cpuLod": 1.056583046913147,
+              "gradEffectiveLod": 1.136673092842102,
+              "levelEffectiveLod": 1.0547178983688354,
+              "gradCpuError": 0.06539732217788696,
+              "explicitLevelCpuError": 0.0014677122235298157
+            },
+            {
+              "lane": 30,
+              "cpuLod": 2.6415457725524902,
+              "gradEffectiveLod": 2.71875,
+              "levelEffectiveLod": 2.640685796737671,
+              "gradCpuError": 0.011831283569335938,
+              "explicitLevelCpuError": 0.0020238757133483887
+            },
+            {
+              "lane": 31,
+              "cpuLod": 3.863938570022583,
+              "gradEffectiveLod": 3.9413909912109375,
+              "levelEffectiveLod": 3.8633267879486084,
+              "gradCpuError": 0.04777064174413681,
+              "explicitLevelCpuError": 0.001119270920753479
+            }
+          ]
+        },
+        "bindings": {
+          "status": "passed",
+          "actualTextureResidency": true,
+          "actualStaticResidency": true,
+          "minMipTail": 6,
+          "promotedMinMip": 0,
+          "abortedPromotion": "retained tail",
+          "coverageAlpha": "matches native shading",
+          "productTextureCount": 2,
+          "maxProductError": 1.1920928955078125e-7,
+          "packedProducts": {
+            "fields": 20,
+            "textureBindings": 1,
+            "payloadBytes": 2800,
+            "physicalBytes": 4096,
+            "maxAbsoluteError": 4.656612873077393e-10,
+            "reference": "CPU cooked-field evaluator, actual half payload, original dimensions/mips/domain"
+          },
+          "tolerance": 0.0001,
+          "scope": "native binding/publication component, fixture CXY; no winner/Surface/production adoption"
+        }
+      },
+      "gpuErrors": [],
+      "scopedGpuErrors": [],
+      "error": null
+    },
+    "surface": {
+      "file": ".local/t4-2-surface-final-abi.json",
+      "sha256": "9ce16d59927d9d7be9d5f67927dc9acaadaa0a5bb154f8442d50c90f988539a3",
+      "buildIdentity": {
+        "schemaVersion": 1,
+        "recipe": "tsc -p tsconfig.test.json + pinned codec vendor copy",
+        "node": "v24.14.0",
+        "dependencyScope": "conservative: engine src, configs, lock and compiler identity",
+        "sourceSha256": "7c411d37f6d204431920badc589b55179e8d67923aef480dc0d5670d98b67112",
+        "outputSha256": "782ab78f74952399973733217f8ca541d726a21d557592f5f2e872fd31e91ca2",
+        "completedAt": "2026-10-08T23:03:27.586Z"
+      },
+      "oracleSha256": "b91a9af324823f40cabd3c1535ead046abd99488c9c5eaa6a9748bd6d2657fb2",
+      "adapter": {
+        "vendor": "nvidia",
+        "architecture": "turing",
+        "device": "",
+        "description": "",
+        "isFallbackAdapter": false,
+        "subgroupMinSize": 32,
+        "subgroupMaxSize": 32
+      },
+      "chrome": "154.0.8037.98",
+      "status": "passed",
+      "summary": {
+        "verdict": "passed",
+        "first": {
+          "visiblePixels": 9512,
+          "maximumError": 0.00022462687500002243,
+          "cachedMeshlets": 5,
+          "arenaBytes": 104960,
+          "preparedVertices": 120,
+          "preparedTriangles": 60,
+          "arenaOwnerBytes": 104960,
+          "programs": 4,
+          "bins": 4,
+          "bindingSets": 3
+        },
+        "retry": {
+          "visiblePixels": 9626,
+          "maximumError": 0.00033362477511755806,
+          "cachedMeshlets": 5,
+          "arenaBytes": 104960,
+          "preparedVertices": 120,
+          "preparedTriangles": 60,
+          "arenaOwnerBytes": 104960,
+          "programs": 4,
+          "bins": 4,
+          "bindingSets": 3
+        },
+        "stable": {
+          "visiblePixels": 9629,
+          "maximumError": 0.00033362477511755806,
+          "cachedMeshlets": 5,
+          "arenaBytes": 104960,
+          "preparedVertices": 120,
+          "preparedTriangles": 60,
+          "arenaOwnerBytes": 104960,
+          "programs": 4,
+          "bins": 4,
+          "bindingSets": 3
+        },
+        "preparedFixed": {
+          "visiblePixels": 9549,
+          "maximumError": 0.00033362477511755806,
+          "cachedMeshlets": 5,
+          "arenaBytes": 104960,
+          "preparedVertices": 120,
+          "preparedTriangles": 60,
+          "arenaOwnerBytes": 104960,
+          "programs": 4,
+          "bins": 4,
+          "bindingSets": 3
+        },
+        "residentMiss": {
+          "visiblePixels": 9549,
+          "maximumError": 0.00033362477511755806,
+          "cachedMeshlets": 0,
+          "arenaBytes": 1632,
+          "preparedVertices": 1,
+          "preparedTriangles": 0,
+          "arenaOwnerBytes": 1632,
+          "programs": 4,
+          "bins": 4,
+          "bindingSets": 3
+        },
+        "preparedRestored": {
+          "visiblePixels": 9549,
+          "maximumError": 0.00033362477511755806,
+          "cachedMeshlets": 5,
+          "arenaBytes": 104960,
+          "preparedVertices": 120,
+          "preparedTriangles": 60,
+          "arenaOwnerBytes": 104960,
+          "programs": 4,
+          "bins": 4,
+          "bindingSets": 3
+        },
+        "nearClipPrepared": {
+          "visiblePixels": 2529,
+          "maximumError": 0.0003065724999998798,
+          "cachedMeshlets": 5,
+          "arenaBytes": 104960,
+          "preparedVertices": 120,
+          "preparedTriangles": 60,
+          "arenaOwnerBytes": 104960,
+          "programs": 4,
+          "bins": 4,
+          "bindingSets": 3
+        },
+        "nearClipResident": {
+          "visiblePixels": 2529,
+          "maximumError": 0.0003065724999998798,
+          "cachedMeshlets": 0,
+          "arenaBytes": 1632,
+          "preparedVertices": 1,
+          "preparedTriangles": 0,
+          "arenaOwnerBytes": 1632,
+          "programs": 4,
+          "bins": 4,
+          "bindingSets": 3
+        },
+        "nearClipMaximumError": 0,
+        "preparedMissMaximumError": 0,
+        "arenaOwnerPeakBytes": 1325824,
+        "diagnosticPassMs": {
+          "Renderer/visibility-frame/R3-D/Fused root hierarchy work generation": {
+            "samples": 16,
+            "median": 0.027808,
+            "minimum": 0.025599999999999998,
+            "maximum": 0.028672
+          },
+          "Renderer/visibility-frame/R3-B/Hierarchy round 1": {
+            "samples": 16,
+            "median": 0.092672,
+            "minimum": 0.086112,
+            "maximum": 0.09379199999999999
+          },
+          "Renderer/visibility-frame/R3-B/Hierarchy round 2": {
+            "samples": 16,
+            "median": 0.082816,
+            "minimum": 0.081184,
+            "maximum": 0.083616
+          },
+          "Renderer/visibility-frame/R3-B/Hierarchy round 3": {
+            "samples": 16,
+            "median": 0.08211199999999999,
+            "minimum": 0.08105599999999999,
+            "maximum": 0.08288
+          },
+          "Renderer/visibility-frame/S1 Product MeshletWork": {
+            "samples": 16,
+            "median": 0.052064,
+            "minimum": 0.051104,
+            "maximum": 0.052576
+          },
+          "Renderer/visibility-frame/Geometry/frame_instance_begin": {
+            "samples": 16,
+            "median": 0.01168,
+            "minimum": 0.010495999999999998,
+            "maximum": 0.012288
+          },
+          "Renderer/visibility-frame/Geometry/frame_instance_select": {
+            "samples": 16,
+            "median": 0.068288,
+            "minimum": 0.06662399999999999,
+            "maximum": 0.069632
+          },
+          "Renderer/visibility-frame/Geometry/frame_instance_finalize": {
+            "samples": 16,
+            "median": 0.00912,
+            "minimum": 0.007904,
+            "maximum": 0.01056
+          },
+          "Renderer/visibility-frame/Geometry/frame_instance_build": {
+            "samples": 16,
+            "median": 0.026144,
+            "minimum": 0.024928,
+            "maximum": 0.027936
+          },
+          "Renderer/visibility-frame/Geometry/frame_vertices_begin": {
+            "samples": 16,
+            "median": 0.005376,
+            "minimum": 0.00448,
+            "maximum": 0.006111999999999999
+          },
+          "Renderer/visibility-frame/Geometry/frame_vertices_build": {
+            "samples": 16,
+            "median": 0.028768,
+            "minimum": 0.028607999999999998,
+            "maximum": 0.029792
+          },
+          "Renderer/visibility-frame/Geometry/frame_vertices_finalize": {
+            "samples": 16,
+            "median": 0.0034879999999999998,
+            "minimum": 0.002368,
+            "maximum": 0.004096
+          },
+          "Renderer/visibility-frame/Native raster/begin": {
+            "samples": 16,
+            "median": 0.015392,
+            "minimum": 0.013503999999999999,
+            "maximum": 0.016287999999999997
+          },
+          "Renderer/visibility-frame/Native raster/count": {
+            "samples": 16,
+            "median": 0.020032,
+            "minimum": 0.018272,
+            "maximum": 0.021184
+          },
+          "Renderer/visibility-frame/Native raster/prefix": {
+            "samples": 16,
+            "median": 0.02336,
+            "minimum": 0.021792,
+            "maximum": 0.024576
+          },
+          "Renderer/visibility-frame/Native raster/scatter": {
+            "samples": 16,
+            "median": 0.020352000000000002,
+            "minimum": 0.019007999999999997,
+            "maximum": 0.022848
+          },
+          "Renderer/visibility-frame/Visibility/native material winner": {
+            "samples": 16,
+            "median": 0.017471999999999998,
+            "minimum": 0.016384,
+            "maximum": 0.018432
+          },
+          "Renderer/visibility-frame/HZB/compute-pyramid": {
+            "samples": 16,
+            "median": 0.049152,
+            "minimum": 0.047712,
+            "maximum": 0.04976
+          },
+          "Renderer/visibility-frame/VSM/receiver demand": {
+            "samples": 16,
+            "median": 0.017887999999999998,
+            "minimum": 0.016576,
+            "maximum": 0.018432
+          },
+          "Renderer/visibility-frame/VSM/allocate pages": {
+            "samples": 16,
+            "median": 0.025023999999999998,
+            "minimum": 0.023424,
+            "maximum": 0.026624
+          },
+          "Renderer/visibility-frame/VSM/caster records": {
+            "samples": 16,
+            "median": 0.010239999999999999,
+            "minimum": 0.010239999999999999,
+            "maximum": 0.011552
+          },
+          "Renderer/visibility-frame/VSM/finalize raster indirect": {
+            "samples": 16,
+            "median": 0.0051199999999999996,
+            "minimum": 0.004096,
+            "maximum": 0.005952
+          },
+          "Renderer/visibility-frame/VSM/partitioned compiled caster raster": {
+            "samples": 16,
+            "median": 0.010239999999999999,
+            "minimum": 0.008992,
+            "maximum": 0.011807999999999999
+          },
+          "Renderer/visibility-frame/VSM/content commit": {
+            "samples": 16,
+            "median": 0.014143999999999999,
+            "minimum": 0.012832,
+            "maximum": 0.014655999999999999
+          },
+          "Renderer/visibility-frame/VSM/publish sampled content version": {
+            "samples": 16,
+            "median": 0.0048319999999999995,
+            "minimum": 0.0030399999999999997,
+            "maximum": 0.005856
+          },
+          "Renderer/visibility-frame/LocalLightWork/bounds": {
+            "samples": 16,
+            "median": 0.010176,
+            "minimum": 0.009184,
+            "maximum": 0.011328
+          },
+          "Renderer/visibility-frame/LocalLightWork/scan": {
+            "samples": 16,
+            "median": 0.017344,
+            "minimum": 0.016,
+            "maximum": 0.0184
+          },
+          "Renderer/visibility-frame/LocalLightWork/schedule": {
+            "samples": 16,
+            "median": 0.005791999999999999,
+            "minimum": 0.004863999999999999,
+            "maximum": 0.006144
+          },
+          "Renderer/visibility-frame/LocalLightWork/occupancy": {
+            "samples": 16,
+            "median": 0.019455999999999998,
+            "minimum": 0.018432,
+            "maximum": 0.020191999999999998
+          },
+          "Renderer/visibility-frame/LocalLightWork/count": {
+            "samples": 16,
+            "median": 0.092608,
+            "minimum": 0.090112,
+            "maximum": 0.09561599999999999
+          },
+          "Renderer/visibility-frame/LocalLightWork/add": {
+            "samples": 16,
+            "median": 0.005183999999999999,
+            "minimum": 0.004096,
+            "maximum": 0.005728
+          },
+          "Renderer/visibility-frame/LocalLightWork/allocate": {
+            "samples": 16,
+            "median": 0.007104,
+            "minimum": 0.006304,
+            "maximum": 0.008128
+          },
+          "Renderer/visibility-frame/LocalLightWork/scatter_schedule": {
+            "samples": 16,
+            "median": 0.004096,
+            "minimum": 0.004096,
+            "maximum": 0.0041919999999999995
+          },
+          "Renderer/visibility-frame/LocalLightWork/scatter": {
+            "samples": 16,
+            "median": 0.094208,
+            "minimum": 0.091968,
+            "maximum": 0.09759999999999999
+          },
+          "Renderer/visibility-frame/LocalLightWork/finalize": {
+            "samples": 16,
+            "median": 0.009056,
+            "minimum": 0.008192,
+            "maximum": 0.00992
+          },
+          "Renderer/visibility-frame/XeGTAO/generate view normals": {
+            "samples": 16,
+            "median": 0.019392,
+            "minimum": 0.018335999999999998,
+            "maximum": 0.088256
+          },
+          "Renderer/visibility-frame/XeGTAO/prefilter weighted view depth": {
+            "samples": 16,
+            "median": 0.016384,
+            "minimum": 0.016128,
+            "maximum": 0.10502399999999999
+          },
+          "Renderer/visibility-frame/XeGTAO/weighted depth mip 4": {
+            "samples": 16,
+            "median": 0.0063999999999999994,
+            "minimum": 0.006144,
+            "maximum": 0.011807999999999999
+          },
+          "Renderer/visibility-frame/XeGTAO/Main scalar high": {
+            "samples": 16,
+            "median": 0.03248,
+            "minimum": 0.031039999999999998,
+            "maximum": 0.0712
+          },
+          "Renderer/visibility-frame/XeGTAO/denoise 1": {
+            "samples": 16,
+            "median": 0.02896,
+            "minimum": 0.028447999999999998,
+            "maximum": 0.04736
+          },
+          "Renderer/visibility-frame/unnamed-63": {
+            "samples": 16,
+            "median": 0,
+            "minimum": 0,
+            "maximum": 0.000032
+          },
+          "Renderer/visibility-frame/SurfaceV4/bins count": {
+            "samples": 16,
+            "median": 0.030463999999999998,
+            "minimum": 0.028768,
+            "maximum": 0.03136
+          },
+          "Renderer/visibility-frame/SurfaceV4/bins scan": {
+            "samples": 16,
+            "median": 0.013408,
+            "minimum": 0.012511999999999999,
+            "maximum": 0.01424
+          },
+          "Renderer/visibility-frame/SurfaceV4/bins finalize": {
+            "samples": 16,
+            "median": 0.01248,
+            "minimum": 0.0112,
+            "maximum": 0.013568
+          },
+          "Renderer/visibility-frame/SurfaceV4/bins scatter": {
+            "samples": 16,
+            "median": 0.029248,
+            "minimum": 0.028672,
+            "maximum": 0.030496
+          },
+          "Renderer/visibility-frame/SurfaceV4/native opaque + background": {
+            "samples": 16,
+            "median": 0.249856,
+            "minimum": 0.246304,
+            "maximum": 0.30607999999999996
+          },
+          "Renderer/visibility-frame/Native Temporal Facts/resolve": {
+            "samples": 16,
+            "median": 0.050848,
+            "minimum": 0.050272,
+            "maximum": 0.18659199999999998
+          },
+          "Renderer/visibility-frame/Environment/Physical Sky radiance": {
+            "samples": 16,
+            "median": 0.024576,
+            "minimum": 0.024319999999999998,
+            "maximum": 0.025599999999999998
+          },
+          "Renderer/visibility-frame/Environment/Aerial Perspective": {
+            "samples": 16,
+            "median": 0.023743999999999998,
+            "minimum": 0.022816,
+            "maximum": 0.118784
+          },
+          "Renderer/visibility-frame/FSR3/GPU pre-exposure ratio": {
+            "samples": 16,
+            "median": 0.005568,
+            "minimum": 0.004416,
+            "maximum": 0.006144
+          },
+          "Renderer/visibility-frame/FSR3 Prepare Inputs": {
+            "samples": 16,
+            "median": 0.040959999999999996,
+            "minimum": 0.039936,
+            "maximum": 0.111776
+          },
+          "Renderer/visibility-frame/FSR3 Luma SPD": {
+            "samples": 16,
+            "median": 0.07923199999999998,
+            "minimum": 0.07776,
+            "maximum": 0.178784
+          },
+          "Renderer/visibility-frame/FSR3 Shading SPD": {
+            "samples": 16,
+            "median": 0.07779200000000001,
+            "minimum": 0.073056,
+            "maximum": 0.10195199999999999
+          },
+          "Renderer/visibility-frame/FSR3 Shading Change": {
+            "samples": 16,
+            "median": 0.012288,
+            "minimum": 0.011136,
+            "maximum": 0.020256
+          },
+          "Renderer/visibility-frame/FSR3 Clear New Locks": {
+            "samples": 16,
+            "median": 0,
+            "minimum": 0,
+            "maximum": 0.000032
+          },
+          "Renderer/visibility-frame/FSR3 Prepare Reactivity": {
+            "samples": 16,
+            "median": 0.063776,
+            "minimum": 0.063136,
+            "maximum": 0.066688
+          },
+          "Renderer/visibility-frame/FSR3 Luma Instability": {
+            "samples": 16,
+            "median": 0.033631999999999995,
+            "minimum": 0.024256,
+            "maximum": 0.034816
+          },
+          "Renderer/visibility-frame/FSR3 Accumulate": {
+            "samples": 16,
+            "median": 0.126496,
+            "minimum": 0.12476799999999999,
+            "maximum": 0.21772799999999998
+          },
+          "Renderer/visibility-frame/FSR3 RCAS": {
+            "samples": 16,
+            "median": 0.024096,
+            "minimum": 0.022591999999999998,
+            "maximum": 0.024576
+          },
+          "Renderer/visibility-frame/Bloom/extract threshold": {
+            "samples": 16,
+            "median": 0.023264,
+            "minimum": 0.022528,
+            "maximum": 0.049152
+          },
+          "Renderer/visibility-frame/Bloom/downsample 1": {
+            "samples": 16,
+            "median": 0.009344,
+            "minimum": 0.008192,
+            "maximum": 0.019968
+          },
+          "Renderer/visibility-frame/Bloom/downsample 2": {
+            "samples": 16,
+            "median": 0.008032,
+            "minimum": 0.006719999999999999,
+            "maximum": 0.014336
+          },
+          "Renderer/visibility-frame/Bloom/downsample 3": {
+            "samples": 16,
+            "median": 0.007968,
+            "minimum": 0.006496,
+            "maximum": 0.013344
+          },
+          "Renderer/visibility-frame/Bloom/downsample 4": {
+            "samples": 16,
+            "median": 0.007584,
+            "minimum": 0.006431999999999999,
+            "maximum": 0.012447999999999999
+          },
+          "Renderer/visibility-frame/Bloom/upsample 3": {
+            "samples": 16,
+            "median": 0.00784,
+            "minimum": 0.006656,
+            "maximum": 0.012288
+          },
+          "Renderer/visibility-frame/Bloom/upsample 2": {
+            "samples": 16,
+            "median": 0.007711999999999999,
+            "minimum": 0.00656,
+            "maximum": 0.012799999999999999
+          },
+          "Renderer/visibility-frame/Bloom/upsample 1": {
+            "samples": 16,
+            "median": 0.008352,
+            "minimum": 0.008192,
+            "maximum": 0.018368
+          },
+          "Renderer/visibility-frame/Bloom/upsample 0": {
+            "samples": 16,
+            "median": 0.015136,
+            "minimum": 0.014336,
+            "maximum": 0.042463999999999995
+          },
+          "Renderer/visibility-frame/Bloom/composite HDR": {
+            "samples": 16,
+            "median": 0.022112,
+            "minimum": 0.02096,
+            "maximum": 0.022976
+          },
+          "Renderer/visibility-frame/Surface/present radiance": {
+            "samples": 16,
+            "median": 0.024224,
+            "minimum": 0.022528,
+            "maximum": 0.024863999999999997
+          }
+        },
+        "alphaRejected": {
+          "visiblePixels": 7852,
+          "maximumError": 0.00033362477511755806,
+          "cachedMeshlets": 5,
+          "arenaBytes": 104960,
+          "preparedVertices": 120,
+          "preparedTriangles": 60,
+          "arenaOwnerBytes": 104960,
+          "programs": 4,
+          "bins": 4,
+          "bindingSets": 3
+        },
+        "alphaRestored": {
+          "visiblePixels": 9624,
+          "maximumError": 0.00033362477511755806,
+          "cachedMeshlets": 5,
+          "arenaBytes": 104960,
+          "preparedVertices": 120,
+          "preparedTriangles": 60,
+          "arenaOwnerBytes": 104960,
+          "programs": 4,
+          "bins": 4,
+          "bindingSets": 3
+        },
+        "resized": {
+          "visiblePixels": 12526,
+          "maximumError": 0.00033362477511755806,
+          "cachedMeshlets": 5,
+          "arenaBytes": 104960,
+          "preparedVertices": 120,
+          "preparedTriangles": 60,
+          "arenaOwnerBytes": 104960,
+          "programs": 4,
+          "bins": 4,
+          "bindingSets": 3
+        },
+        "moved": {
+          "visiblePixels": 12578,
+          "maximumError": 0.00033362477511755806,
+          "cachedMeshlets": 5,
+          "arenaBytes": 104960,
+          "preparedVertices": 120,
+          "preparedTriangles": 60,
+          "arenaOwnerBytes": 104960,
+          "programs": 4,
+          "bins": 4,
+          "bindingSets": 3
+        },
+        "cameraCut": {
+          "visiblePixels": 12533,
+          "maximumError": 0.00033362477511755806,
+          "cachedMeshlets": 5,
+          "arenaBytes": 104960,
+          "preparedVertices": 120,
+          "preparedTriangles": 60,
+          "arenaOwnerBytes": 104960,
+          "programs": 4,
+          "bins": 4,
+          "bindingSets": 3
+        },
+        "recovered": {
+          "visiblePixels": 12657,
+          "maximumError": 0.00033362477511755806,
+          "cachedMeshlets": 5,
+          "arenaBytes": 104960,
+          "preparedVertices": 120,
+          "preparedTriangles": 60,
+          "arenaOwnerBytes": 104960,
+          "programs": 4,
+          "bins": 4,
+          "bindingSets": 3
+        },
+        "vsm": {
+          "allocatedPages": 8,
+          "contentValidPages": 8,
+          "writtenCasters": 22,
+          "overflow": 0
+        },
+        "scratchBytes": 807120,
+        "normalOrm": true,
+        "alpha": true,
+        "controlledDeviceRecovery": true,
+        "localLightSceneSwap": true,
+        "localLightEpochRetired": true,
+        "stableGraphCacheHits": 16,
+        "recoveredSceneRelease": true,
+        "abortRetry": true,
+        "actualRenderer": true,
+        "cookedTextureWorkerCount": 0,
+        "textureEvidence": {
+          "schemaVersion": 7,
+          "textureCapacity": 4095,
+          "residentTextureCount": 0,
+          "retiringTextureCount": 0,
+          "pendingTextureCount": 0,
+          "quarantinedTextureCount": 0,
+          "allocatedBytes": 0,
+          "allocatedPeakBytes": 2522,
+          "physicalAllocatedBytes": 0,
+          "transactionPeakBytes": 2522,
+          "descriptorBytes": 0,
+          "residentTextureBytes": 0,
+          "retiringTextureBytes": 0,
+          "retiringBytes": 0,
+          "logicalResidentBytes": 0,
+          "rgbaEquivalentResidentBytes": 0,
+          "uploadBytes": 741,
+          "copyBytes": 0,
+          "transcodeBytes": 0,
+          "directPackageCount": 0,
+          "workerTranscodeCount": 0,
+          "uncompressedFallbackCount": 0,
+          "formatDistribution": [],
+          "resizeDispatchCount": 0,
+          "runtimeMipGenerationCount": 0,
+          "cookedRuntimeMipGenerationCount": 0,
+          "bankCopyOperationCount": 0,
+          "bankGrowCount": 3,
+          "abortedBankGrowCount": 0,
+          "cookedResidentTextureCount": 0,
+          "compressedResidentTextureCount": 0,
+          "segmentCount": 0,
+          "bindingSetCount": 0,
+          "bindingSlotUtilization": 0,
+          "bindingSetPreflightFailures": 0,
+          "highResolutionArrayAllocated": false,
+          "banks": [],
+          "packageSegments": [],
+          "textureLedger": [],
+          "privateSubmitCount": 0,
+          "progressiveMipUploadBytes": 0,
+          "mipPromotionCount": 0,
+          "mipUploadCount": 12
+        },
+        "productGeometry": true,
+        "limitations": [
+          "Correctness closure only; no S3 P50/P95 or image acceptance",
+          "Resident cooked geometry, no streamed VG acceptance"
+        ]
+      },
+      "gpuErrors": [],
+      "scopedGpuErrors": [],
+      "error": null
+    },
+    "integration": {
+      "file": ".local/t4-2-integration-final-abi.json",
+      "sha256": "3317860873a3a423af5d9206c07c20992f04bf1547a73c7e28d355cdd72c54e0",
+      "buildIdentity": {
+        "schemaVersion": 1,
+        "recipe": "tsc -p tsconfig.test.json + pinned codec vendor copy",
+        "node": "v24.14.0",
+        "dependencyScope": "conservative: engine src, configs, lock and compiler identity",
+        "sourceSha256": "7c411d37f6d204431920badc589b55179e8d67923aef480dc0d5670d98b67112",
+        "outputSha256": "782ab78f74952399973733217f8ca541d726a21d557592f5f2e872fd31e91ca2",
+        "completedAt": "2026-10-08T23:03:27.586Z"
+      },
+      "oracleSha256": "d9615d170bdcf8993fbbd0be638dd73697c330b07006bfb3a6d50bddc8c5a3bb",
+      "adapter": {
+        "vendor": "nvidia",
+        "architecture": "turing",
+        "device": "",
+        "description": "",
+        "isFallbackAdapter": false,
+        "subgroupMinSize": 32,
+        "subgroupMaxSize": 32
+      },
+      "chrome": "154.0.8037.98",
+      "status": "passed",
+      "summary": {
+        "scope": "S1 isolated integration; production ownership unchanged",
+        "rows": [
+          {
+            "index": 0,
+            "visible": 7168,
+            "valid": 0,
+            "reactive": 7168,
+            "unlitMaxError": 0.00023819554072554427,
+            "pbrMaxError": 0.00033716851080622945,
+            "pbrSamples": 48,
+            "fallback": false,
+            "reset": true,
+            "surfaceBytes": 100292,
+            "auxBytes": 32768,
+            "temporalBytes": 262176,
+            "cpuEncodeMs": 8.400000005960464,
+            "cpuPrepareMs": 60.29999999701977,
+            "timing": "[undefined]",
+            "exposureValue": 1.25
+          },
+          {
+            "index": 1,
+            "visible": 7168,
+            "valid": 7168,
+            "reactive": 1024,
+            "unlitMaxError": 0.00023819554072554427,
+            "pbrMaxError": 0.00033716851080622945,
+            "pbrSamples": 48,
+            "fallback": false,
+            "reset": false,
+            "surfaceBytes": 100292,
+            "auxBytes": 32768,
+            "temporalBytes": 262176,
+            "cpuEncodeMs": 1.2000000029802322,
+            "cpuPrepareMs": 1.7999999970197678,
+            "timing": "[undefined]",
+            "exposureValue": 1.25
+          },
+          {
+            "index": 2,
+            "visible": 7168,
+            "valid": 7168,
+            "reactive": 1024,
+            "unlitMaxError": 0.00023819554072554427,
+            "pbrMaxError": 0.00033716851080622945,
+            "pbrSamples": 48,
+            "fallback": true,
+            "reset": false,
+            "surfaceBytes": 100292,
+            "auxBytes": 32768,
+            "temporalBytes": 262176,
+            "cpuEncodeMs": 1.2999999970197678,
+            "cpuPrepareMs": 1.8999999910593033,
+            "timing": "[undefined]",
+            "exposureValue": 1.25
+          },
+          {
+            "index": 3,
+            "visible": 7168,
+            "valid": 7168,
+            "reactive": 1024,
+            "unlitMaxError": 0.00023819554072554427,
+            "pbrMaxError": 0.00033716851080622945,
+            "pbrSamples": 48,
+            "fallback": false,
+            "reset": false,
+            "surfaceBytes": 100292,
+            "auxBytes": 32768,
+            "temporalBytes": 262176,
+            "cpuEncodeMs": 1.1000000089406967,
+            "cpuPrepareMs": 3,
+            "timing": "[undefined]",
+            "exposureValue": 1.25
+          },
+          {
+            "index": 4,
+            "visible": 7168,
+            "valid": 7168,
+            "reactive": 2048,
+            "unlitMaxError": 0.00023819554072554427,
+            "pbrMaxError": 0.00033716851080622945,
+            "pbrSamples": 48,
+            "fallback": false,
+            "reset": false,
+            "surfaceBytes": 100292,
+            "auxBytes": 32768,
+            "temporalBytes": 262176,
+            "cpuEncodeMs": 1.2000000029802322,
+            "cpuPrepareMs": 8.5,
+            "timing": "[undefined]",
+            "exposureValue": 1.25
+          },
+          {
+            "index": 5,
+            "visible": 7168,
+            "valid": 0,
+            "reactive": 7168,
+            "unlitMaxError": 0.00023819554072554427,
+            "pbrMaxError": 0.00033716851080622945,
+            "pbrSamples": 48,
+            "fallback": false,
+            "reset": true,
+            "surfaceBytes": 100292,
+            "auxBytes": 32768,
+            "temporalBytes": 262176,
+            "cpuEncodeMs": 1.300000011920929,
+            "cpuPrepareMs": 1.7000000029802322,
+            "timing": "[undefined]",
+            "exposureValue": 1.25
+          },
+          {
+            "index": 6,
+            "visible": 5824,
+            "valid": 5824,
+            "reactive": 1144,
+            "unlitMaxError": 0.00023819554072554427,
+            "pbrMaxError": 0.0002445987877203737,
+            "pbrSamples": 36,
+            "fallback": false,
+            "reset": false,
+            "surfaceBytes": 100292,
+            "auxBytes": 32768,
+            "temporalBytes": 262176,
+            "cpuEncodeMs": 1.0999999940395355,
+            "cpuPrepareMs": 2.800000011920929,
+            "timing": "[undefined]",
+            "exposureValue": 1.25
+          },
+          {
+            "index": 7,
+            "visible": 5824,
+            "valid": 5824,
+            "reactive": 5824,
+            "unlitMaxError": 0.00047639108145108855,
+            "pbrMaxError": 0.0004891975754407474,
+            "pbrSamples": 36,
+            "fallback": false,
+            "reset": false,
+            "surfaceBytes": 100292,
+            "auxBytes": 32768,
+            "temporalBytes": 262176,
+            "cpuEncodeMs": 1.2000000029802322,
+            "cpuPrepareMs": 1.5,
+            "timing": "[undefined]",
+            "exposureValue": 2.5
+          },
+          {
+            "index": 8,
+            "visible": 5824,
+            "valid": 5824,
+            "reactive": 5824,
+            "unlitMaxError": 0.00047639108145108855,
+            "pbrMaxError": 0.0004891975754407474,
+            "pbrSamples": 36,
+            "fallback": false,
+            "reset": false,
+            "surfaceBytes": 100292,
+            "auxBytes": 32768,
+            "temporalBytes": 262176,
+            "cpuEncodeMs": 1.199999988079071,
+            "cpuPrepareMs": 2.1000000089406967,
+            "timing": "[undefined]",
+            "exposureValue": 2.5
+          },
+          {
+            "index": 9,
+            "visible": 16128,
+            "valid": 0,
+            "reactive": 16128,
+            "unlitMaxError": 0.00023819554072554427,
+            "pbrMaxError": 0.00027940262963599416,
+            "pbrSamples": 48,
+            "fallback": false,
+            "reset": true,
+            "surfaceBytes": 223172,
+            "auxBytes": 73728,
+            "temporalBytes": 589856,
+            "cpuEncodeMs": 1,
+            "cpuPrepareMs": 3.8999999910593033,
+            "timing": "[undefined]",
+            "exposureValue": 1.25
+          },
+          {
+            "index": 10,
+            "visible": 16128,
+            "valid": 16128,
+            "reactive": 2304,
+            "unlitMaxError": 0.00023819554072554427,
+            "pbrMaxError": 0.00027940262963599416,
+            "pbrSamples": 48,
+            "fallback": false,
+            "reset": false,
+            "surfaceBytes": 223172,
+            "auxBytes": 73728,
+            "temporalBytes": 589856,
+            "cpuEncodeMs": 0.9000000059604645,
+            "cpuPrepareMs": 2.2999999970197678,
+            "timing": "[undefined]",
+            "exposureValue": 1.25
+          }
+        ],
+        "programs": 4,
+        "executionBins": 8,
+        "instances": 8,
+        "perspective": 0,
+        "physicalSun": false,
+        "localLightWork": true,
+        "productResourceProfile": false,
+        "packedCookedMaterial": false,
+        "nativeSunContinuations": 0,
+        "gpuExposureUpdate": true,
+        "resizeAbortRetry": true,
+        "lossReport": null,
+        "bindingSets": 2,
+        "rasterPartitionBytes": 19648,
+        "nativeGpuDrawScheduling": true,
+        "vsmCoverage": {
+          "covered": 14336,
+          "comparedPixels": 16384,
+          "maxDepthError": 0,
+          "rejected": [
+            {
+              "page": true,
+              "queue": false,
+              "overflow": false,
+              "diagnostics": [0, 0, 0, 0]
+            },
+            {
+              "page": false,
+              "queue": true,
+              "overflow": false,
+              "diagnostics": [0, 0, 1, 0]
+            },
+            {
+              "page": false,
+              "queue": false,
+              "overflow": true,
+              "diagnostics": [1, 0, 0, 0]
+            },
+            {
+              "page": false,
+              "queue": false,
+              "overflow": false,
+              "diagnostics": [0, 0, 0, 0]
+            }
+          ],
+          "actualCasterAbi": true,
+          "actualAtlasPageMath": true,
+          "nativeAlphaMatchesMain": true
+        },
+        "maxMotionPixelError": 0,
+        "motionSamples": 5824,
+        "negativeDeterminant": true,
+        "nonuniformScale": true,
+        "nativeWinner": true,
+        "normalOrm": true,
+        "coat": true,
+        "customGraph": true,
+        "actualFsrChain": true,
+        "maxFallbackDifference": 0,
+        "limitations": [
+          "Authored LightDatabase records, new DIRECT LocalLightWork and resident VSM page fixtures; not scene producer cost",
+          "No S3 performance or whole-scene visual acceptance claim"
+        ]
+      },
+      "gpuErrors": [],
+      "scopedGpuErrors": [],
+      "error": null
+    },
+    "multi": {
+      "file": ".local/t4-2-multi-final-abi.json",
+      "sha256": "1baf9761a1f3503f74b835e28fc76590c334c0d7f62616549549adfcccf47330",
+      "buildIdentity": {
+        "schemaVersion": 1,
+        "recipe": "tsc -p tsconfig.test.json + pinned codec vendor copy",
+        "node": "v24.14.0",
+        "dependencyScope": "conservative: engine src, configs, lock and compiler identity",
+        "sourceSha256": "7c411d37f6d204431920badc589b55179e8d67923aef480dc0d5670d98b67112",
+        "outputSha256": "782ab78f74952399973733217f8ca541d726a21d557592f5f2e872fd31e91ca2",
+        "completedAt": "2026-10-08T23:03:27.586Z"
+      },
+      "oracleSha256": "b91a9af324823f40cabd3c1535ead046abd99488c9c5eaa6a9748bd6d2657fb2",
+      "adapter": {
+        "vendor": "nvidia",
+        "architecture": "turing",
+        "device": "",
+        "description": "",
+        "isFallbackAdapter": false,
+        "subgroupMinSize": 32,
+        "subgroupMaxSize": 32
+      },
+      "chrome": "154.0.8037.98",
+      "status": "passed",
+      "summary": {
+        "verdict": "passed",
+        "first": {
+          "visiblePixels": 9512,
+          "maximumError": 0.00022462687500002243,
+          "cachedMeshlets": 5,
+          "arenaBytes": 104960,
+          "preparedVertices": 120,
+          "preparedTriangles": 60,
+          "arenaOwnerBytes": 104960,
+          "programs": 4,
+          "bins": 4,
+          "bindingSets": 3
+        },
+        "retry": {
+          "visiblePixels": 9626,
+          "maximumError": 0.00033362477511755806,
+          "cachedMeshlets": 5,
+          "arenaBytes": 104960,
+          "preparedVertices": 120,
+          "preparedTriangles": 60,
+          "arenaOwnerBytes": 104960,
+          "programs": 4,
+          "bins": 4,
+          "bindingSets": 3
+        },
+        "stable": {
+          "visiblePixels": 9629,
+          "maximumError": 0.00033362477511755806,
+          "cachedMeshlets": 5,
+          "arenaBytes": 104960,
+          "preparedVertices": 120,
+          "preparedTriangles": 60,
+          "arenaOwnerBytes": 104960,
+          "programs": 4,
+          "bins": 4,
+          "bindingSets": 3
+        },
+        "preparedFixed": {
+          "visiblePixels": 9549,
+          "maximumError": 0.00033362477511755806,
+          "cachedMeshlets": 5,
+          "arenaBytes": 104960,
+          "preparedVertices": 120,
+          "preparedTriangles": 60,
+          "arenaOwnerBytes": 104960,
+          "programs": 4,
+          "bins": 4,
+          "bindingSets": 3
+        },
+        "residentMiss": {
+          "visiblePixels": 9549,
+          "maximumError": 0.00033362477511755806,
+          "cachedMeshlets": 0,
+          "arenaBytes": 1632,
+          "preparedVertices": 1,
+          "preparedTriangles": 0,
+          "arenaOwnerBytes": 1632,
+          "programs": 4,
+          "bins": 4,
+          "bindingSets": 3
+        },
+        "preparedRestored": {
+          "visiblePixels": 9549,
+          "maximumError": 0.00033362477511755806,
+          "cachedMeshlets": 5,
+          "arenaBytes": 104960,
+          "preparedVertices": 120,
+          "preparedTriangles": 60,
+          "arenaOwnerBytes": 104960,
+          "programs": 4,
+          "bins": 4,
+          "bindingSets": 3
+        },
+        "nearClipPrepared": {
+          "visiblePixels": 2529,
+          "maximumError": 0.0003065724999998798,
+          "cachedMeshlets": 5,
+          "arenaBytes": 104960,
+          "preparedVertices": 120,
+          "preparedTriangles": 60,
+          "arenaOwnerBytes": 104960,
+          "programs": 4,
+          "bins": 4,
+          "bindingSets": 3
+        },
+        "nearClipResident": {
+          "visiblePixels": 2529,
+          "maximumError": 0.0003065724999998798,
+          "cachedMeshlets": 0,
+          "arenaBytes": 1632,
+          "preparedVertices": 1,
+          "preparedTriangles": 0,
+          "arenaOwnerBytes": 1632,
+          "programs": 4,
+          "bins": 4,
+          "bindingSets": 3
+        },
+        "nearClipMaximumError": 0,
+        "preparedMissMaximumError": 0,
+        "arenaOwnerPeakBytes": 1325824,
+        "diagnosticPassMs": {
+          "Renderer/visibility-frame/R3-D/Fused root hierarchy work generation": {
+            "samples": 16,
+            "median": 0.027456,
+            "minimum": 0.026015999999999997,
+            "maximum": 0.029183999999999998
+          },
+          "Renderer/visibility-frame/R3-B/Hierarchy round 1": {
+            "samples": 16,
+            "median": 0.092672,
+            "minimum": 0.086016,
+            "maximum": 0.09526399999999999
+          },
+          "Renderer/visibility-frame/R3-B/Hierarchy round 2": {
+            "samples": 16,
+            "median": 0.08201599999999999,
+            "minimum": 0.080192,
+            "maximum": 0.08396799999999999
+          },
+          "Renderer/visibility-frame/R3-B/Hierarchy round 3": {
+            "samples": 16,
+            "median": 0.083072,
+            "minimum": 0.0808,
+            "maximum": 0.083616
+          },
+          "Renderer/visibility-frame/S1 Product MeshletWork": {
+            "samples": 16,
+            "median": 0.051424,
+            "minimum": 0.050047999999999995,
+            "maximum": 0.0528
+          },
+          "Renderer/visibility-frame/Geometry/frame_instance_begin": {
+            "samples": 16,
+            "median": 0.011712,
+            "minimum": 0.010784,
+            "maximum": 0.012288
+          },
+          "Renderer/visibility-frame/Geometry/frame_instance_select": {
+            "samples": 16,
+            "median": 0.06790399999999999,
+            "minimum": 0.066496,
+            "maximum": 0.06956799999999999
+          },
+          "Renderer/visibility-frame/Geometry/frame_instance_finalize": {
+            "samples": 16,
+            "median": 0.008864,
+            "minimum": 0.008192,
+            "maximum": 0.010752
+          },
+          "Renderer/visibility-frame/Geometry/frame_instance_build": {
+            "samples": 16,
+            "median": 0.02592,
+            "minimum": 0.024576,
+            "maximum": 0.027232
+          },
+          "Renderer/visibility-frame/Geometry/frame_vertices_begin": {
+            "samples": 16,
+            "median": 0.0054399999999999995,
+            "minimum": 0.0042239999999999995,
+            "maximum": 0.006144
+          },
+          "Renderer/visibility-frame/Geometry/frame_vertices_build": {
+            "samples": 16,
+            "median": 0.028768,
+            "minimum": 0.028575999999999997,
+            "maximum": 0.029952
+          },
+          "Renderer/visibility-frame/Geometry/frame_vertices_finalize": {
+            "samples": 16,
+            "median": 0.003456,
+            "minimum": 0.002528,
+            "maximum": 0.004096
+          },
+          "Renderer/visibility-frame/Native raster/begin": {
+            "samples": 16,
+            "median": 0.015104,
+            "minimum": 0.01312,
+            "maximum": 0.01616
+          },
+          "Renderer/visibility-frame/Native raster/count": {
+            "samples": 16,
+            "median": 0.020032,
+            "minimum": 0.018656,
+            "maximum": 0.020479999999999998
+          },
+          "Renderer/visibility-frame/Native raster/prefix": {
+            "samples": 16,
+            "median": 0.023968,
+            "minimum": 0.021568,
+            "maximum": 0.024576
+          },
+          "Renderer/visibility-frame/Native raster/scatter": {
+            "samples": 16,
+            "median": 0.020064,
+            "minimum": 0.0184,
+            "maximum": 0.022176
+          },
+          "Renderer/visibility-frame/Visibility/native material winner": {
+            "samples": 16,
+            "median": 0.016384,
+            "minimum": 0.014719999999999999,
+            "maximum": 0.017536
+          },
+          "Renderer/visibility-frame/HZB/compute-pyramid": {
+            "samples": 16,
+            "median": 0.049184,
+            "minimum": 0.047807999999999996,
+            "maximum": 0.3072
+          },
+          "Renderer/visibility-frame/VSM/receiver demand": {
+            "samples": 16,
+            "median": 0.018208,
+            "minimum": 0.017024,
+            "maximum": 0.020288
+          },
+          "Renderer/visibility-frame/VSM/allocate pages": {
+            "samples": 16,
+            "median": 0.024576,
+            "minimum": 0.023424,
+            "maximum": 0.026624
+          },
+          "Renderer/visibility-frame/VSM/caster records": {
+            "samples": 16,
+            "median": 0.010367999999999999,
+            "minimum": 0.010239999999999999,
+            "maximum": 0.011488
+          },
+          "Renderer/visibility-frame/VSM/finalize raster indirect": {
+            "samples": 16,
+            "median": 0.004576,
+            "minimum": 0.004096,
+            "maximum": 0.005791999999999999
+          },
+          "Renderer/visibility-frame/VSM/partitioned compiled caster raster": {
+            "samples": 16,
+            "median": 0.009888,
+            "minimum": 0.008864,
+            "maximum": 0.013184
+          },
+          "Renderer/visibility-frame/VSM/content commit": {
+            "samples": 16,
+            "median": 0.014208,
+            "minimum": 0.012384,
+            "maximum": 0.014336
+          },
+          "Renderer/visibility-frame/VSM/publish sampled content version": {
+            "samples": 16,
+            "median": 0.0045119999999999995,
+            "minimum": 0.003872,
+            "maximum": 0.00592
+          },
+          "Renderer/visibility-frame/LocalLightWork/bounds": {
+            "samples": 16,
+            "median": 0.010208,
+            "minimum": 0.009984,
+            "maximum": 0.010239999999999999
+          },
+          "Renderer/visibility-frame/LocalLightWork/scan": {
+            "samples": 16,
+            "median": 0.01728,
+            "minimum": 0.016512,
+            "maximum": 0.018304
+          },
+          "Renderer/visibility-frame/LocalLightWork/schedule": {
+            "samples": 16,
+            "median": 0.005696,
+            "minimum": 0.004096,
+            "maximum": 0.006144
+          },
+          "Renderer/visibility-frame/LocalLightWork/occupancy": {
+            "samples": 16,
+            "median": 0.019455999999999998,
+            "minimum": 0.017248,
+            "maximum": 0.020256
+          },
+          "Renderer/visibility-frame/LocalLightWork/count": {
+            "samples": 16,
+            "median": 0.092064,
+            "minimum": 0.090112,
+            "maximum": 0.09267199999999999
+          },
+          "Renderer/visibility-frame/LocalLightWork/add": {
+            "samples": 16,
+            "median": 0.004896,
+            "minimum": 0.004096,
+            "maximum": 0.005728
+          },
+          "Renderer/visibility-frame/LocalLightWork/allocate": {
+            "samples": 16,
+            "median": 0.0072959999999999995,
+            "minimum": 0.006272,
+            "maximum": 0.008192
+          },
+          "Renderer/visibility-frame/LocalLightWork/scatter_schedule": {
+            "samples": 16,
+            "median": 0.004096,
+            "minimum": 0.004096,
+            "maximum": 0.00416
+          },
+          "Renderer/visibility-frame/LocalLightWork/scatter": {
+            "samples": 16,
+            "median": 0.093344,
+            "minimum": 0.091712,
+            "maximum": 0.094208
+          },
+          "Renderer/visibility-frame/LocalLightWork/finalize": {
+            "samples": 16,
+            "median": 0.009311999999999999,
+            "minimum": 0.008576,
+            "maximum": 0.010144
+          },
+          "Renderer/visibility-frame/XeGTAO/generate view normals": {
+            "samples": 16,
+            "median": 0.019552,
+            "minimum": 0.018432,
+            "maximum": 0.06748799999999999
+          },
+          "Renderer/visibility-frame/XeGTAO/prefilter weighted view depth": {
+            "samples": 16,
+            "median": 0.016672,
+            "minimum": 0.01584,
+            "maximum": 0.07897599999999999
+          },
+          "Renderer/visibility-frame/XeGTAO/weighted depth mip 4": {
+            "samples": 16,
+            "median": 0.006431999999999999,
+            "minimum": 0.006144,
+            "maximum": 0.011167999999999999
+          },
+          "Renderer/visibility-frame/XeGTAO/Main scalar high": {
+            "samples": 16,
+            "median": 0.032576,
+            "minimum": 0.030879999999999998,
+            "maximum": 0.059424
+          },
+          "Renderer/visibility-frame/XeGTAO/denoise 1": {
+            "samples": 16,
+            "median": 0.028895999999999998,
+            "minimum": 0.028672,
+            "maximum": 0.045056
+          },
+          "Renderer/visibility-frame/unnamed-63": {
+            "samples": 16,
+            "median": 0,
+            "minimum": 0,
+            "maximum": 0.000032
+          },
+          "Renderer/visibility-frame/SurfaceV4/bins count": {
+            "samples": 16,
+            "median": 0.030719999999999997,
+            "minimum": 0.028895999999999998,
+            "maximum": 0.031807999999999996
+          },
+          "Renderer/visibility-frame/SurfaceV4/bins scan": {
+            "samples": 16,
+            "median": 0.013439999999999999,
+            "minimum": 0.012447999999999999,
+            "maximum": 0.014336
+          },
+          "Renderer/visibility-frame/SurfaceV4/bins finalize": {
+            "samples": 16,
+            "median": 0.012511999999999999,
+            "minimum": 0.011744,
+            "maximum": 0.013503999999999999
+          },
+          "Renderer/visibility-frame/SurfaceV4/bins scatter": {
+            "samples": 16,
+            "median": 0.029344,
+            "minimum": 0.028352,
+            "maximum": 0.030656
+          },
+          "Renderer/visibility-frame/SurfaceV4/native opaque + background": {
+            "samples": 16,
+            "median": 0.25190399999999996,
+            "minimum": 0.246464,
+            "maximum": 0.303104
+          },
+          "Renderer/visibility-frame/Native Temporal Facts/resolve": {
+            "samples": 16,
+            "median": 0.050783999999999996,
+            "minimum": 0.048735999999999995,
+            "maximum": 0.18806399999999998
+          },
+          "Renderer/visibility-frame/Environment/Physical Sky radiance": {
+            "samples": 16,
+            "median": 0.024576,
+            "minimum": 0.024384,
+            "maximum": 0.025696
+          },
+          "Renderer/visibility-frame/Environment/Aerial Perspective": {
+            "samples": 16,
+            "median": 0.02352,
+            "minimum": 0.022528,
+            "maximum": 0.116992
+          },
+          "Renderer/visibility-frame/FSR3/GPU pre-exposure ratio": {
+            "samples": 16,
+            "median": 0.0054719999999999994,
+            "minimum": 0.0045119999999999995,
+            "maximum": 0.006144
+          },
+          "Renderer/visibility-frame/FSR3 Prepare Inputs": {
+            "samples": 16,
+            "median": 0.040768,
+            "minimum": 0.037408,
+            "maximum": 0.111968
+          },
+          "Renderer/visibility-frame/FSR3 Luma SPD": {
+            "samples": 16,
+            "median": 0.079616,
+            "minimum": 0.07779199999999999,
+            "maximum": 0.178496
+          },
+          "Renderer/visibility-frame/FSR3 Shading SPD": {
+            "samples": 16,
+            "median": 0.077792,
+            "minimum": 0.074176,
+            "maximum": 0.100576
+          },
+          "Renderer/visibility-frame/FSR3 Shading Change": {
+            "samples": 16,
+            "median": 0.012447999999999999,
+            "minimum": 0.011968,
+            "maximum": 0.020479999999999998
+          },
+          "Renderer/visibility-frame/FSR3 Clear New Locks": {
+            "samples": 16,
+            "median": 0,
+            "minimum": 0,
+            "maximum": 0.000032
+          },
+          "Renderer/visibility-frame/FSR3 Prepare Reactivity": {
+            "samples": 16,
+            "median": 0.063488,
+            "minimum": 0.062079999999999996,
+            "maximum": 0.065344
+          },
+          "Renderer/visibility-frame/FSR3 Luma Instability": {
+            "samples": 16,
+            "median": 0.034207999999999995,
+            "minimum": 0.022976,
+            "maximum": 0.034816
+          },
+          "Renderer/visibility-frame/FSR3 Accumulate": {
+            "samples": 16,
+            "median": 0.125856,
+            "minimum": 0.12495999999999999,
+            "maximum": 0.22704
+          },
+          "Renderer/visibility-frame/FSR3 RCAS": {
+            "samples": 16,
+            "median": 0.024,
+            "minimum": 0.022528,
+            "maximum": 0.024832
+          },
+          "Renderer/visibility-frame/Bloom/extract threshold": {
+            "samples": 16,
+            "median": 0.022912,
+            "minimum": 0.021023999999999998,
+            "maximum": 0.051199999999999996
+          },
+          "Renderer/visibility-frame/Bloom/downsample 1": {
+            "samples": 16,
+            "median": 0.00928,
+            "minimum": 0.008192,
+            "maximum": 0.018944
+          },
+          "Renderer/visibility-frame/Bloom/downsample 2": {
+            "samples": 16,
+            "median": 0.007871999999999999,
+            "minimum": 0.006592,
+            "maximum": 0.014336
+          },
+          "Renderer/visibility-frame/Bloom/downsample 3": {
+            "samples": 16,
+            "median": 0.007744,
+            "minimum": 0.006592,
+            "maximum": 0.012735999999999999
+          },
+          "Renderer/visibility-frame/Bloom/downsample 4": {
+            "samples": 16,
+            "median": 0.00784,
+            "minimum": 0.006528,
+            "maximum": 0.012288
+          },
+          "Renderer/visibility-frame/Bloom/upsample 3": {
+            "samples": 16,
+            "median": 0.007904,
+            "minimum": 0.006624,
+            "maximum": 0.012863999999999999
+          },
+          "Renderer/visibility-frame/Bloom/upsample 2": {
+            "samples": 16,
+            "median": 0.007808,
+            "minimum": 0.006592,
+            "maximum": 0.014336
+          },
+          "Renderer/visibility-frame/Bloom/upsample 1": {
+            "samples": 16,
+            "median": 0.008288,
+            "minimum": 0.008032,
+            "maximum": 0.018432
+          },
+          "Renderer/visibility-frame/Bloom/upsample 0": {
+            "samples": 16,
+            "median": 0.014912,
+            "minimum": 0.014336,
+            "maximum": 0.041951999999999996
+          },
+          "Renderer/visibility-frame/Bloom/composite HDR": {
+            "samples": 16,
+            "median": 0.021471999999999998,
+            "minimum": 0.018656,
+            "maximum": 0.023039999999999998
+          },
+          "Renderer/visibility-frame/Surface/present radiance": {
+            "samples": 16,
+            "median": 0.024384,
+            "minimum": 0.020447999999999997,
+            "maximum": 0.0248
+          }
+        },
+        "alphaRejected": {
+          "visiblePixels": 7852,
+          "maximumError": 0.00033362477511755806,
+          "cachedMeshlets": 5,
+          "arenaBytes": 104960,
+          "preparedVertices": 120,
+          "preparedTriangles": 60,
+          "arenaOwnerBytes": 104960,
+          "programs": 4,
+          "bins": 4,
+          "bindingSets": 3
+        },
+        "alphaRestored": {
+          "visiblePixels": 9624,
+          "maximumError": 0.00033362477511755806,
+          "cachedMeshlets": 5,
+          "arenaBytes": 104960,
+          "preparedVertices": 120,
+          "preparedTriangles": 60,
+          "arenaOwnerBytes": 104960,
+          "programs": 4,
+          "bins": 4,
+          "bindingSets": 3
+        },
+        "resized": {
+          "visiblePixels": 12526,
+          "maximumError": 0.00033362477511755806,
+          "cachedMeshlets": 5,
+          "arenaBytes": 104960,
+          "preparedVertices": 120,
+          "preparedTriangles": 60,
+          "arenaOwnerBytes": 104960,
+          "programs": 4,
+          "bins": 4,
+          "bindingSets": 3
+        },
+        "moved": {
+          "visiblePixels": 12578,
+          "maximumError": 0.00033362477511755806,
+          "cachedMeshlets": 5,
+          "arenaBytes": 104960,
+          "preparedVertices": 120,
+          "preparedTriangles": 60,
+          "arenaOwnerBytes": 104960,
+          "programs": 4,
+          "bins": 4,
+          "bindingSets": 3
+        },
+        "cameraCut": {
+          "visiblePixels": 12533,
+          "maximumError": 0.00033362477511755806,
+          "cachedMeshlets": 5,
+          "arenaBytes": 104960,
+          "preparedVertices": 120,
+          "preparedTriangles": 60,
+          "arenaOwnerBytes": 104960,
+          "programs": 4,
+          "bins": 4,
+          "bindingSets": 3
+        },
+        "recovered": {
+          "visiblePixels": 12657,
+          "maximumError": 0.00033362477511755806,
+          "cachedMeshlets": 5,
+          "arenaBytes": 104960,
+          "preparedVertices": 120,
+          "preparedTriangles": 60,
+          "arenaOwnerBytes": 104960,
+          "programs": 4,
+          "bins": 4,
+          "bindingSets": 3
+        },
+        "vsm": {
+          "allocatedPages": 8,
+          "contentValidPages": 8,
+          "writtenCasters": 22,
+          "overflow": 0
+        },
+        "scratchBytes": 807120,
+        "normalOrm": true,
+        "alpha": true,
+        "controlledDeviceRecovery": true,
+        "localLightSceneSwap": true,
+        "localLightEpochRetired": true,
+        "stableGraphCacheHits": 16,
+        "recoveredSceneRelease": true,
+        "abortRetry": true,
+        "actualRenderer": true,
+        "cookedTextureWorkerCount": 0,
+        "textureEvidence": {
+          "schemaVersion": 7,
+          "textureCapacity": 4095,
+          "residentTextureCount": 0,
+          "retiringTextureCount": 0,
+          "pendingTextureCount": 0,
+          "quarantinedTextureCount": 0,
+          "allocatedBytes": 0,
+          "allocatedPeakBytes": 2522,
+          "physicalAllocatedBytes": 0,
+          "transactionPeakBytes": 2522,
+          "descriptorBytes": 0,
+          "residentTextureBytes": 0,
+          "retiringTextureBytes": 0,
+          "retiringBytes": 0,
+          "logicalResidentBytes": 0,
+          "rgbaEquivalentResidentBytes": 0,
+          "uploadBytes": 741,
+          "copyBytes": 0,
+          "transcodeBytes": 0,
+          "directPackageCount": 0,
+          "workerTranscodeCount": 0,
+          "uncompressedFallbackCount": 0,
+          "formatDistribution": [],
+          "resizeDispatchCount": 0,
+          "runtimeMipGenerationCount": 0,
+          "cookedRuntimeMipGenerationCount": 0,
+          "bankCopyOperationCount": 0,
+          "bankGrowCount": 3,
+          "abortedBankGrowCount": 0,
+          "cookedResidentTextureCount": 0,
+          "compressedResidentTextureCount": 0,
+          "segmentCount": 0,
+          "bindingSetCount": 0,
+          "bindingSlotUtilization": 0,
+          "bindingSetPreflightFailures": 0,
+          "highResolutionArrayAllocated": false,
+          "banks": [],
+          "packageSegments": [],
+          "textureLedger": [],
+          "privateSubmitCount": 0,
+          "progressiveMipUploadBytes": 0,
+          "mipPromotionCount": 0,
+          "mipUploadCount": 12
+        },
+        "productGeometry": "multi",
+        "limitations": [
+          "Correctness closure only; no S3 P50/P95 or image acceptance",
+          "Resident cooked geometry, no streamed VG acceptance"
+        ]
+      },
+      "gpuErrors": [],
+      "scopedGpuErrors": [],
+      "error": null
+    },
+    "ktx": {
+      "file": ".local/t4-2-import-final-abi.json",
+      "sha256": "dc48d10aaf5bb4c1fcf36eaad46557a3abf68fbea96756ba95cffafa55739c7a",
+      "buildIdentity": {
+        "schemaVersion": 1,
+        "recipe": "tsc -p tsconfig.test.json + pinned codec vendor copy",
+        "node": "v24.14.0",
+        "dependencyScope": "conservative: engine src, configs, lock and compiler identity",
+        "sourceSha256": "7c411d37f6d204431920badc589b55179e8d67923aef480dc0d5670d98b67112",
+        "outputSha256": "782ab78f74952399973733217f8ca541d726a21d557592f5f2e872fd31e91ca2",
+        "completedAt": "2026-10-08T23:03:27.586Z"
+      },
+      "oracleSha256": "eb52484c989e6fbcfe4a1b3714f9489886aafbafa8eca3e0ca0d86fdc050e588",
+      "adapter": {
+        "vendor": "nvidia",
+        "architecture": "turing",
+        "device": "",
+        "description": "",
+        "isFallbackAdapter": false,
+        "subgroupMinSize": 32,
+        "subgroupMaxSize": 32
+      },
+      "chrome": "154.0.8037.98",
+      "status": "passed",
+      "summary": {
+        "stage": "T4.1",
+        "scope": "external KTX -> real browser Worker -> Product -> array layer1 -> hardware BC7 decode; no production cutover",
+        "cases": [
+          {
+            "name": "rgba-64x64-mipmap-etc1s.ktx2",
+            "identity": "49d68c5a7c3e39f5ece8aa246835ef07117e90a9326928d5667d3aff9f6fd276",
+            "mips": 7,
+            "uploaded": 5488,
+            "maxError": 0,
+            "samples": 5461,
+            "worker": {
+              "prepareMs": 10.200000002980232,
+              "encodeMs": 0,
+              "transcodeMs": 57.20000000298023,
+              "ownedCopyBytes": 5488,
+              "wasmLinearHighWaterBytes": 33554432,
+              "workerTaskMs": 67.90000000596046,
+              "decodeMs": 0,
+              "queueAndInitMs": 46.300048828125
+            }
+          },
+          {
+            "name": "luminance-alpha-32x32-uastc.ktx2",
+            "identity": "c8eddefbb6f69a9637050417c37cffc7b5f8090dca55c8b281430036ffe8a4f5",
+            "mips": 6,
+            "uploaded": 1392,
+            "maxError": 0,
+            "samples": 1365,
+            "worker": {
+              "prepareMs": 3.199999988079071,
+              "encodeMs": 74.00000002980232,
+              "transcodeMs": 1.0999999940395355,
+              "ownedCopyBytes": 6852,
+              "wasmLinearHighWaterBytes": 33554432,
+              "workerTaskMs": 79.20000000298023,
+              "decodeMs": 0,
+              "queueAndInitMs": 0.2001953125
+            }
+          },
+          {
+            "name": "uastc-zstd.ktx2",
+            "identity": "f1534e119fae228df68023ae51e4fbb76ca7c61e2b96b233485abd9e832324c0",
+            "mips": 11,
+            "uploaded": 1398128,
+            "maxError": 0,
+            "samples": 1398101,
+            "worker": {
+              "prepareMs": 12.700000002980232,
+              "encodeMs": 0,
+              "transcodeMs": 32,
+              "ownedCopyBytes": 1398128,
+              "wasmLinearHighWaterBytes": 33554432,
+              "workerTaskMs": 44.70000000298023,
+              "decodeMs": 0,
+              "queueAndInitMs": 0.100341796875
+            }
+          }
+        ],
+        "teardown": {
+          "activeWorkers": 0,
+          "peakActiveWorkers": 1,
+          "inFlightEstimatedBytes": 0,
+          "peakInFlightEstimatedBytes": 268435456,
+          "queuedTasks": 0,
+          "workerFailures": 0
+        }
+      },
+      "gpuErrors": [],
+      "scopedGpuErrors": [],
+      "error": null
+    },
+    "before": {
+      "file": ".local/t4-2-renderer-before-budget.json",
+      "sha256": "b116a84535b9e3943c1d32d3dbd5d1b1087bd40d281870e468a993c07473d910",
+      "buildIdentity": {
+        "schemaVersion": 1,
+        "recipe": "tsc -p tsconfig.test.json + pinned codec vendor copy",
+        "node": "v24.14.0",
+        "dependencyScope": "conservative: engine src, configs, lock and compiler identity",
+        "sourceSha256": "e0979a31e02a4723e1b3cf1d4a2d977d40eb94c3bbeff89b1a093c1711e51784",
+        "outputSha256": "3c747bce286743dcf5a8ae0d36020f0e33f0812efe52277bf4731f0d9c00e595",
+        "completedAt": "2026-10-08T22:00:43.922Z"
+      },
+      "oracleSha256": "28b0bd1594a99421df02bd69537204ffc979f19dcfa3f803f3cb4fd0dc9da6ce",
+      "adapter": {
+        "vendor": "nvidia",
+        "architecture": "turing",
+        "device": "",
+        "description": "",
+        "isFallbackAdapter": false,
+        "subgroupMinSize": 32,
+        "subgroupMaxSize": 32
+      },
+      "chrome": "154.0.8037.98",
+      "status": "passed",
+      "summary": {
+        "scope": "Full authored dungeon Renderer baseline; not T4.3 acceptance",
+        "sourceHash": "cac0fc8c16d107e7ac4e69efde89c2cb6ef4bc66c34456a4dd0923218e5aafb1",
+        "sourceBytes": 7990584,
+        "resolution": [1920, 1080],
+        "renderScale": 1,
+        "camera": [10, 7, 12, 0, 3, 0],
+        "uploadWallMs": 12363,
+        "cpu": {
+          "p50": 2.300000011920929,
+          "p95": 3.3999999910593033,
+          "max": 4,
+          "n": 30
+        },
+        "ledger": {
+          "schemaVersion": 6,
+          "localVariation": {
+            "bytes": 33554432,
+            "residentTextures": 9,
+            "freeBytes": 28160,
+            "builds": 9,
+            "nodes": 1043124,
+            "degraded": 7,
+            "rejected": 16,
+            "offlineBuilds": 0
+          },
+          "textureCapacity": 141,
+          "residentTextureCount": 25,
+          "retiringTextureCount": 0,
+          "allocatedBytes": 771752376,
+          "allocatedPeakBytes": 771752376,
+          "residentTextureBytes": 559240500,
+          "retiringTextureBytes": 0,
+          "logicalResidentBytes": 559240500,
+          "physicalAllocatedBytes": 771752376,
+          "retiringBytes": 0,
+          "transactionPeakBytes": 771752376,
+          "uploadBytes": 0,
+          "copyBytes": 0,
+          "transcodeBytes": 0,
+          "directPackageCount": 0,
+          "workerTranscodeCount": 0,
+          "uncompressedFallbackCount": 25,
+          "formatDistribution": [
+            {
+              "format": "rgba8unorm",
+              "residentTextureCount": 25,
+              "residentBytes": 559240500
+            }
+          ],
+          "bankGrowCount": 1,
+          "abortedBankGrowCount": 0,
+          "resizeDispatchCount": 25,
+          "runtimeMipGenerationCount": 7,
+          "cookedResidentTextureCount": 0,
+          "compressedResidentTextureCount": 0,
+          "cookedRuntimeMipGenerationCount": 0,
+          "bankCopyOperationCount": 0,
+          "segmentCount": 2,
+          "bindingSetCount": 1,
+          "bindingSlotUtilization": 0.5555555555555556,
+          "bindingSetPreflightFailures": 0,
+          "highResolutionArrayAllocated": true,
+          "banks": [
+            {
+              "segment": 0,
+              "bankClass": 0,
+              "size": 256,
+              "physicalSize": 256,
+              "maxCapacity": 64,
+              "allocatedCapacity": 64,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 63,
+              "allocatedBytes": 22369536
+            },
+            {
+              "segment": 0,
+              "bankClass": 1,
+              "size": 512,
+              "physicalSize": 512,
+              "maxCapacity": 32,
+              "allocatedCapacity": 0,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 0
+            },
+            {
+              "segment": 0,
+              "bankClass": 2,
+              "size": 1024,
+              "physicalSize": 1024,
+              "maxCapacity": 16,
+              "allocatedCapacity": 0,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 0
+            },
+            {
+              "segment": 0,
+              "bankClass": 3,
+              "size": 2048,
+              "physicalSize": 2048,
+              "maxCapacity": 32,
+              "allocatedCapacity": 32,
+              "residentTextureCount": 25,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 6,
+              "allocatedBytes": 715827840
+            },
+            {
+              "segment": 0,
+              "bankClass": 4,
+              "size": 4096,
+              "physicalSize": 4096,
+              "maxCapacity": 2,
+              "allocatedCapacity": 0,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 0
+            }
+          ],
+          "packageSegments": [
+            {
+              "segment": 0,
+              "format": "rgba8unorm",
+              "width": 1,
+              "height": 1,
+              "mipLevelCount": 1,
+              "allocatedCapacity": 0,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 0
+            },
+            {
+              "segment": 1,
+              "format": "rgba8unorm",
+              "width": 1,
+              "height": 1,
+              "mipLevelCount": 1,
+              "allocatedCapacity": 0,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 0
+            },
+            {
+              "segment": 2,
+              "format": "rgba8unorm",
+              "width": 1,
+              "height": 1,
+              "mipLevelCount": 1,
+              "allocatedCapacity": 0,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 0
+            },
+            {
+              "segment": 3,
+              "format": "rgba8unorm",
+              "width": 1,
+              "height": 1,
+              "mipLevelCount": 1,
+              "allocatedCapacity": 0,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 0
+            },
+            {
+              "segment": 4,
+              "format": "rgba8unorm",
+              "width": 1,
+              "height": 1,
+              "mipLevelCount": 1,
+              "allocatedCapacity": 0,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 0
+            },
+            {
+              "segment": 5,
+              "format": "rgba8unorm",
+              "width": 1,
+              "height": 1,
+              "mipLevelCount": 1,
+              "allocatedCapacity": 0,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 0
+            },
+            {
+              "segment": 6,
+              "format": "rgba8unorm",
+              "width": 1,
+              "height": 1,
+              "mipLevelCount": 1,
+              "allocatedCapacity": 0,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 0
+            },
+            {
+              "segment": 7,
+              "format": "rgba8unorm",
+              "width": 1,
+              "height": 1,
+              "mipLevelCount": 1,
+              "allocatedCapacity": 0,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 0
+            },
+            {
+              "segment": 8,
+              "format": "rgba8unorm",
+              "width": 1,
+              "height": 1,
+              "mipLevelCount": 1,
+              "allocatedCapacity": 0,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 0
+            },
+            {
+              "segment": 9,
+              "format": "rgba8unorm",
+              "width": 1,
+              "height": 1,
+              "mipLevelCount": 1,
+              "allocatedCapacity": 0,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 0
+            },
+            {
+              "segment": 10,
+              "format": "rgba8unorm",
+              "width": 1,
+              "height": 1,
+              "mipLevelCount": 1,
+              "allocatedCapacity": 0,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 0
+            },
+            {
+              "segment": 11,
+              "format": "rgba8unorm",
+              "width": 1,
+              "height": 1,
+              "mipLevelCount": 1,
+              "allocatedCapacity": 0,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 0
+            },
+            {
+              "segment": 12,
+              "format": "rgba8unorm",
+              "width": 1,
+              "height": 1,
+              "mipLevelCount": 1,
+              "allocatedCapacity": 0,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 0
+            },
+            {
+              "segment": 13,
+              "format": "rgba8unorm",
+              "width": 1,
+              "height": 1,
+              "mipLevelCount": 1,
+              "allocatedCapacity": 0,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 0
+            },
+            {
+              "segment": 14,
+              "format": "rgba8unorm",
+              "width": 1,
+              "height": 1,
+              "mipLevelCount": 1,
+              "allocatedCapacity": 0,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 0
+            },
+            {
+              "segment": 15,
+              "format": "rgba8unorm",
+              "width": 1,
+              "height": 1,
+              "mipLevelCount": 1,
+              "allocatedCapacity": 0,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 0
+            }
+          ],
+          "textureLedger": [
+            {
+              "assetIdentity": "image:10",
+              "sourceUri": null,
+              "state": "resident",
+              "refCount": 1,
+              "bankClass": 3,
+              "segment": -1,
+              "layer": 9,
+              "sourceWidth": 2048,
+              "sourceHeight": 2048,
+              "decodedWidth": 2048,
+              "decodedHeight": 2048,
+              "gpuWidth": 2048,
+              "gpuHeight": 2048,
+              "format": "rgba8unorm",
+              "mipLevelCount": 12,
+              "logicalBytes": 22369620,
+              "residentBytes": 22369620,
+              "allocatedBytes": 22369620
+            },
+            {
+              "assetIdentity": "image:11",
+              "sourceUri": null,
+              "state": "resident",
+              "refCount": 1,
+              "bankClass": 3,
+              "segment": -1,
+              "layer": 2,
+              "sourceWidth": 2048,
+              "sourceHeight": 2048,
+              "decodedWidth": 2048,
+              "decodedHeight": 2048,
+              "gpuWidth": 2048,
+              "gpuHeight": 2048,
+              "format": "rgba8unorm",
+              "mipLevelCount": 12,
+              "logicalBytes": 22369620,
+              "residentBytes": 22369620,
+              "allocatedBytes": 22369620
+            },
+            {
+              "assetIdentity": "image:12",
+              "sourceUri": null,
+              "state": "resident",
+              "refCount": 1,
+              "bankClass": 3,
+              "segment": -1,
+              "layer": 3,
+              "sourceWidth": 2048,
+              "sourceHeight": 2048,
+              "decodedWidth": 2048,
+              "decodedHeight": 2048,
+              "gpuWidth": 2048,
+              "gpuHeight": 2048,
+              "format": "rgba8unorm",
+              "mipLevelCount": 12,
+              "logicalBytes": 22369620,
+              "residentBytes": 22369620,
+              "allocatedBytes": 22369620
+            },
+            {
+              "assetIdentity": "image:13",
+              "sourceUri": null,
+              "state": "resident",
+              "refCount": 1,
+              "bankClass": 3,
+              "segment": -1,
+              "layer": 10,
+              "sourceWidth": 2048,
+              "sourceHeight": 2048,
+              "decodedWidth": 2048,
+              "decodedHeight": 2048,
+              "gpuWidth": 2048,
+              "gpuHeight": 2048,
+              "format": "rgba8unorm",
+              "mipLevelCount": 12,
+              "logicalBytes": 22369620,
+              "residentBytes": 22369620,
+              "allocatedBytes": 22369620
+            },
+            {
+              "assetIdentity": "image:14",
+              "sourceUri": null,
+              "state": "resident",
+              "refCount": 1,
+              "bankClass": 3,
+              "segment": -1,
+              "layer": 11,
+              "sourceWidth": 2048,
+              "sourceHeight": 2048,
+              "decodedWidth": 2048,
+              "decodedHeight": 2048,
+              "gpuWidth": 2048,
+              "gpuHeight": 2048,
+              "format": "rgba8unorm",
+              "mipLevelCount": 12,
+              "logicalBytes": 22369620,
+              "residentBytes": 22369620,
+              "allocatedBytes": 22369620
+            },
+            {
+              "assetIdentity": "image:15",
+              "sourceUri": null,
+              "state": "resident",
+              "refCount": 1,
+              "bankClass": 3,
+              "segment": -1,
+              "layer": 12,
+              "sourceWidth": 2048,
+              "sourceHeight": 2048,
+              "decodedWidth": 2048,
+              "decodedHeight": 2048,
+              "gpuWidth": 2048,
+              "gpuHeight": 2048,
+              "format": "rgba8unorm",
+              "mipLevelCount": 12,
+              "logicalBytes": 22369620,
+              "residentBytes": 22369620,
+              "allocatedBytes": 22369620
+            },
+            {
+              "assetIdentity": "image:16",
+              "sourceUri": null,
+              "state": "resident",
+              "refCount": 1,
+              "bankClass": 3,
+              "segment": -1,
+              "layer": 13,
+              "sourceWidth": 2048,
+              "sourceHeight": 2048,
+              "decodedWidth": 2048,
+              "decodedHeight": 2048,
+              "gpuWidth": 2048,
+              "gpuHeight": 2048,
+              "format": "rgba8unorm",
+              "mipLevelCount": 12,
+              "logicalBytes": 22369620,
+              "residentBytes": 22369620,
+              "allocatedBytes": 22369620
+            },
+            {
+              "assetIdentity": "image:17",
+              "sourceUri": null,
+              "state": "resident",
+              "refCount": 1,
+              "bankClass": 3,
+              "segment": -1,
+              "layer": 14,
+              "sourceWidth": 2048,
+              "sourceHeight": 2048,
+              "decodedWidth": 2048,
+              "decodedHeight": 2048,
+              "gpuWidth": 2048,
+              "gpuHeight": 2048,
+              "format": "rgba8unorm",
+              "mipLevelCount": 12,
+              "logicalBytes": 22369620,
+              "residentBytes": 22369620,
+              "allocatedBytes": 22369620
+            },
+            {
+              "assetIdentity": "image:18",
+              "sourceUri": null,
+              "state": "resident",
+              "refCount": 1,
+              "bankClass": 3,
+              "segment": -1,
+              "layer": 15,
+              "sourceWidth": 2048,
+              "sourceHeight": 2048,
+              "decodedWidth": 2048,
+              "decodedHeight": 2048,
+              "gpuWidth": 2048,
+              "gpuHeight": 2048,
+              "format": "rgba8unorm",
+              "mipLevelCount": 12,
+              "logicalBytes": 22369620,
+              "residentBytes": 22369620,
+              "allocatedBytes": 22369620
+            },
+            {
+              "assetIdentity": "image:19",
+              "sourceUri": null,
+              "state": "resident",
+              "refCount": 1,
+              "bankClass": 3,
+              "segment": -1,
+              "layer": 16,
+              "sourceWidth": 2048,
+              "sourceHeight": 2048,
+              "decodedWidth": 2048,
+              "decodedHeight": 2048,
+              "gpuWidth": 2048,
+              "gpuHeight": 2048,
+              "format": "rgba8unorm",
+              "mipLevelCount": 12,
+              "logicalBytes": 22369620,
+              "residentBytes": 22369620,
+              "allocatedBytes": 22369620
+            },
+            {
+              "assetIdentity": "image:20",
+              "sourceUri": null,
+              "state": "resident",
+              "refCount": 1,
+              "bankClass": 3,
+              "segment": -1,
+              "layer": 17,
+              "sourceWidth": 2048,
+              "sourceHeight": 2048,
+              "decodedWidth": 2048,
+              "decodedHeight": 2048,
+              "gpuWidth": 2048,
+              "gpuHeight": 2048,
+              "format": "rgba8unorm",
+              "mipLevelCount": 12,
+              "logicalBytes": 22369620,
+              "residentBytes": 22369620,
+              "allocatedBytes": 22369620
+            },
+            {
+              "assetIdentity": "image:21",
+              "sourceUri": null,
+              "state": "resident",
+              "refCount": 1,
+              "bankClass": 3,
+              "segment": -1,
+              "layer": 18,
+              "sourceWidth": 2048,
+              "sourceHeight": 2048,
+              "decodedWidth": 2048,
+              "decodedHeight": 2048,
+              "gpuWidth": 2048,
+              "gpuHeight": 2048,
+              "format": "rgba8unorm",
+              "mipLevelCount": 12,
+              "logicalBytes": 22369620,
+              "residentBytes": 22369620,
+              "allocatedBytes": 22369620
+            },
+            {
+              "assetIdentity": "image:22",
+              "sourceUri": null,
+              "state": "resident",
+              "refCount": 1,
+              "bankClass": 3,
+              "segment": -1,
+              "layer": 19,
+              "sourceWidth": 2048,
+              "sourceHeight": 2048,
+              "decodedWidth": 2048,
+              "decodedHeight": 2048,
+              "gpuWidth": 2048,
+              "gpuHeight": 2048,
+              "format": "rgba8unorm",
+              "mipLevelCount": 12,
+              "logicalBytes": 22369620,
+              "residentBytes": 22369620,
+              "allocatedBytes": 22369620
+            },
+            {
+              "assetIdentity": "image:23",
+              "sourceUri": null,
+              "state": "resident",
+              "refCount": 1,
+              "bankClass": 3,
+              "segment": -1,
+              "layer": 20,
+              "sourceWidth": 2048,
+              "sourceHeight": 2048,
+              "decodedWidth": 2048,
+              "decodedHeight": 2048,
+              "gpuWidth": 2048,
+              "gpuHeight": 2048,
+              "format": "rgba8unorm",
+              "mipLevelCount": 12,
+              "logicalBytes": 22369620,
+              "residentBytes": 22369620,
+              "allocatedBytes": 22369620
+            },
+            {
+              "assetIdentity": "image:24",
+              "sourceUri": null,
+              "state": "resident",
+              "refCount": 1,
+              "bankClass": 3,
+              "segment": -1,
+              "layer": 21,
+              "sourceWidth": 2048,
+              "sourceHeight": 2048,
+              "decodedWidth": 2048,
+              "decodedHeight": 2048,
+              "gpuWidth": 2048,
+              "gpuHeight": 2048,
+              "format": "rgba8unorm",
+              "mipLevelCount": 12,
+              "logicalBytes": 22369620,
+              "residentBytes": 22369620,
+              "allocatedBytes": 22369620
+            },
+            {
+              "assetIdentity": "image:25",
+              "sourceUri": null,
+              "state": "resident",
+              "refCount": 1,
+              "bankClass": 3,
+              "segment": -1,
+              "layer": 22,
+              "sourceWidth": 2048,
+              "sourceHeight": 2048,
+              "decodedWidth": 2048,
+              "decodedHeight": 2048,
+              "gpuWidth": 2048,
+              "gpuHeight": 2048,
+              "format": "rgba8unorm",
+              "mipLevelCount": 12,
+              "logicalBytes": 22369620,
+              "residentBytes": 22369620,
+              "allocatedBytes": 22369620
+            },
+            {
+              "assetIdentity": "image:26",
+              "sourceUri": null,
+              "state": "resident",
+              "refCount": 1,
+              "bankClass": 3,
+              "segment": -1,
+              "layer": 23,
+              "sourceWidth": 2048,
+              "sourceHeight": 2048,
+              "decodedWidth": 2048,
+              "decodedHeight": 2048,
+              "gpuWidth": 2048,
+              "gpuHeight": 2048,
+              "format": "rgba8unorm",
+              "mipLevelCount": 12,
+              "logicalBytes": 22369620,
+              "residentBytes": 22369620,
+              "allocatedBytes": 22369620
+            },
+            {
+              "assetIdentity": "image:27",
+              "sourceUri": null,
+              "state": "resident",
+              "refCount": 1,
+              "bankClass": 3,
+              "segment": -1,
+              "layer": 24,
+              "sourceWidth": 2048,
+              "sourceHeight": 2048,
+              "decodedWidth": 2048,
+              "decodedHeight": 2048,
+              "gpuWidth": 2048,
+              "gpuHeight": 2048,
+              "format": "rgba8unorm",
+              "mipLevelCount": 12,
+              "logicalBytes": 22369620,
+              "residentBytes": 22369620,
+              "allocatedBytes": 22369620
+            },
+            {
+              "assetIdentity": "image:28",
+              "sourceUri": null,
+              "state": "resident",
+              "refCount": 1,
+              "bankClass": 3,
+              "segment": -1,
+              "layer": 25,
+              "sourceWidth": 2048,
+              "sourceHeight": 2048,
+              "decodedWidth": 2048,
+              "decodedHeight": 2048,
+              "gpuWidth": 2048,
+              "gpuHeight": 2048,
+              "format": "rgba8unorm",
+              "mipLevelCount": 12,
+              "logicalBytes": 22369620,
+              "residentBytes": 22369620,
+              "allocatedBytes": 22369620
+            },
+            {
+              "assetIdentity": "image:4",
+              "sourceUri": null,
+              "state": "resident",
+              "refCount": 1,
+              "bankClass": 3,
+              "segment": -1,
+              "layer": 1,
+              "sourceWidth": 2048,
+              "sourceHeight": 2048,
+              "decodedWidth": 2048,
+              "decodedHeight": 2048,
+              "gpuWidth": 2048,
+              "gpuHeight": 2048,
+              "format": "rgba8unorm",
+              "mipLevelCount": 12,
+              "logicalBytes": 22369620,
+              "residentBytes": 22369620,
+              "allocatedBytes": 22369620
+            },
+            {
+              "assetIdentity": "image:5",
+              "sourceUri": null,
+              "state": "resident",
+              "refCount": 1,
+              "bankClass": 3,
+              "segment": -1,
+              "layer": 4,
+              "sourceWidth": 2048,
+              "sourceHeight": 2048,
+              "decodedWidth": 2048,
+              "decodedHeight": 2048,
+              "gpuWidth": 2048,
+              "gpuHeight": 2048,
+              "format": "rgba8unorm",
+              "mipLevelCount": 12,
+              "logicalBytes": 22369620,
+              "residentBytes": 22369620,
+              "allocatedBytes": 22369620
+            },
+            {
+              "assetIdentity": "image:6",
+              "sourceUri": null,
+              "state": "resident",
+              "refCount": 1,
+              "bankClass": 3,
+              "segment": -1,
+              "layer": 5,
+              "sourceWidth": 2048,
+              "sourceHeight": 2048,
+              "decodedWidth": 2048,
+              "decodedHeight": 2048,
+              "gpuWidth": 2048,
+              "gpuHeight": 2048,
+              "format": "rgba8unorm",
+              "mipLevelCount": 12,
+              "logicalBytes": 22369620,
+              "residentBytes": 22369620,
+              "allocatedBytes": 22369620
+            },
+            {
+              "assetIdentity": "image:7",
+              "sourceUri": null,
+              "state": "resident",
+              "refCount": 1,
+              "bankClass": 3,
+              "segment": -1,
+              "layer": 6,
+              "sourceWidth": 2048,
+              "sourceHeight": 2048,
+              "decodedWidth": 2048,
+              "decodedHeight": 2048,
+              "gpuWidth": 2048,
+              "gpuHeight": 2048,
+              "format": "rgba8unorm",
+              "mipLevelCount": 12,
+              "logicalBytes": 22369620,
+              "residentBytes": 22369620,
+              "allocatedBytes": 22369620
+            },
+            {
+              "assetIdentity": "image:8",
+              "sourceUri": null,
+              "state": "resident",
+              "refCount": 1,
+              "bankClass": 3,
+              "segment": -1,
+              "layer": 7,
+              "sourceWidth": 2048,
+              "sourceHeight": 2048,
+              "decodedWidth": 2048,
+              "decodedHeight": 2048,
+              "gpuWidth": 2048,
+              "gpuHeight": 2048,
+              "format": "rgba8unorm",
+              "mipLevelCount": 12,
+              "logicalBytes": 22369620,
+              "residentBytes": 22369620,
+              "allocatedBytes": 22369620
+            },
+            {
+              "assetIdentity": "image:9",
+              "sourceUri": null,
+              "state": "resident",
+              "refCount": 1,
+              "bankClass": 3,
+              "segment": -1,
+              "layer": 8,
+              "sourceWidth": 2048,
+              "sourceHeight": 2048,
+              "decodedWidth": 2048,
+              "decodedHeight": 2048,
+              "gpuWidth": 2048,
+              "gpuHeight": 2048,
+              "format": "rgba8unorm",
+              "mipLevelCount": 12,
+              "logicalBytes": 22369620,
+              "residentBytes": 22369620,
+              "allocatedBytes": 22369620
+            }
+          ],
+          "privateSubmitCount": 0,
+          "progressiveMipUploadBytes": 0,
+          "mipPromotionCount": 0,
+          "mipUploadCount": 0
+        },
+        "afterRelease": {
+          "schemaVersion": 6,
+          "localVariation": {
+            "bytes": 33554432,
+            "residentTextures": 0,
+            "freeBytes": 33418752,
+            "builds": 9,
+            "nodes": 1043124,
+            "degraded": 7,
+            "rejected": 16,
+            "offlineBuilds": 0
+          },
+          "textureCapacity": 141,
+          "residentTextureCount": 0,
+          "retiringTextureCount": 0,
+          "allocatedBytes": 771752376,
+          "allocatedPeakBytes": 771752376,
+          "residentTextureBytes": 0,
+          "retiringTextureBytes": 0,
+          "logicalResidentBytes": 0,
+          "physicalAllocatedBytes": 771752376,
+          "retiringBytes": 0,
+          "transactionPeakBytes": 771752376,
+          "uploadBytes": 0,
+          "copyBytes": 0,
+          "transcodeBytes": 0,
+          "directPackageCount": 0,
+          "workerTranscodeCount": 0,
+          "uncompressedFallbackCount": 0,
+          "formatDistribution": [],
+          "bankGrowCount": 1,
+          "abortedBankGrowCount": 0,
+          "resizeDispatchCount": 25,
+          "runtimeMipGenerationCount": 7,
+          "cookedResidentTextureCount": 0,
+          "compressedResidentTextureCount": 0,
+          "cookedRuntimeMipGenerationCount": 0,
+          "bankCopyOperationCount": 0,
+          "segmentCount": 2,
+          "bindingSetCount": 0,
+          "bindingSlotUtilization": 0,
+          "bindingSetPreflightFailures": 0,
+          "highResolutionArrayAllocated": true,
+          "banks": [
+            {
+              "segment": 0,
+              "bankClass": 0,
+              "size": 256,
+              "physicalSize": 256,
+              "maxCapacity": 64,
+              "allocatedCapacity": 64,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 63,
+              "allocatedBytes": 22369536
+            },
+            {
+              "segment": 0,
+              "bankClass": 1,
+              "size": 512,
+              "physicalSize": 512,
+              "maxCapacity": 32,
+              "allocatedCapacity": 0,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 0
+            },
+            {
+              "segment": 0,
+              "bankClass": 2,
+              "size": 1024,
+              "physicalSize": 1024,
+              "maxCapacity": 16,
+              "allocatedCapacity": 0,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 0
+            },
+            {
+              "segment": 0,
+              "bankClass": 3,
+              "size": 2048,
+              "physicalSize": 2048,
+              "maxCapacity": 32,
+              "allocatedCapacity": 32,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 31,
+              "allocatedBytes": 715827840
+            },
+            {
+              "segment": 0,
+              "bankClass": 4,
+              "size": 4096,
+              "physicalSize": 4096,
+              "maxCapacity": 2,
+              "allocatedCapacity": 0,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 0
+            }
+          ],
+          "packageSegments": [
+            {
+              "segment": 0,
+              "format": "rgba8unorm",
+              "width": 1,
+              "height": 1,
+              "mipLevelCount": 1,
+              "allocatedCapacity": 0,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 0
+            },
+            {
+              "segment": 1,
+              "format": "rgba8unorm",
+              "width": 1,
+              "height": 1,
+              "mipLevelCount": 1,
+              "allocatedCapacity": 0,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 0
+            },
+            {
+              "segment": 2,
+              "format": "rgba8unorm",
+              "width": 1,
+              "height": 1,
+              "mipLevelCount": 1,
+              "allocatedCapacity": 0,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 0
+            },
+            {
+              "segment": 3,
+              "format": "rgba8unorm",
+              "width": 1,
+              "height": 1,
+              "mipLevelCount": 1,
+              "allocatedCapacity": 0,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 0
+            },
+            {
+              "segment": 4,
+              "format": "rgba8unorm",
+              "width": 1,
+              "height": 1,
+              "mipLevelCount": 1,
+              "allocatedCapacity": 0,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 0
+            },
+            {
+              "segment": 5,
+              "format": "rgba8unorm",
+              "width": 1,
+              "height": 1,
+              "mipLevelCount": 1,
+              "allocatedCapacity": 0,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 0
+            },
+            {
+              "segment": 6,
+              "format": "rgba8unorm",
+              "width": 1,
+              "height": 1,
+              "mipLevelCount": 1,
+              "allocatedCapacity": 0,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 0
+            },
+            {
+              "segment": 7,
+              "format": "rgba8unorm",
+              "width": 1,
+              "height": 1,
+              "mipLevelCount": 1,
+              "allocatedCapacity": 0,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 0
+            },
+            {
+              "segment": 8,
+              "format": "rgba8unorm",
+              "width": 1,
+              "height": 1,
+              "mipLevelCount": 1,
+              "allocatedCapacity": 0,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 0
+            },
+            {
+              "segment": 9,
+              "format": "rgba8unorm",
+              "width": 1,
+              "height": 1,
+              "mipLevelCount": 1,
+              "allocatedCapacity": 0,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 0
+            },
+            {
+              "segment": 10,
+              "format": "rgba8unorm",
+              "width": 1,
+              "height": 1,
+              "mipLevelCount": 1,
+              "allocatedCapacity": 0,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 0
+            },
+            {
+              "segment": 11,
+              "format": "rgba8unorm",
+              "width": 1,
+              "height": 1,
+              "mipLevelCount": 1,
+              "allocatedCapacity": 0,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 0
+            },
+            {
+              "segment": 12,
+              "format": "rgba8unorm",
+              "width": 1,
+              "height": 1,
+              "mipLevelCount": 1,
+              "allocatedCapacity": 0,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 0
+            },
+            {
+              "segment": 13,
+              "format": "rgba8unorm",
+              "width": 1,
+              "height": 1,
+              "mipLevelCount": 1,
+              "allocatedCapacity": 0,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 0
+            },
+            {
+              "segment": 14,
+              "format": "rgba8unorm",
+              "width": 1,
+              "height": 1,
+              "mipLevelCount": 1,
+              "allocatedCapacity": 0,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 0
+            },
+            {
+              "segment": 15,
+              "format": "rgba8unorm",
+              "width": 1,
+              "height": 1,
+              "mipLevelCount": 1,
+              "allocatedCapacity": 0,
+              "residentTextureCount": 0,
+              "retiringTextureCount": 0,
+              "freeLayerCount": 0,
+              "allocatedBytes": 0
+            }
+          ],
+          "textureLedger": [],
+          "privateSubmitCount": 0,
+          "progressiveMipUploadBytes": 0,
+          "mipPromotionCount": 0,
+          "mipUploadCount": 0
+        },
+        "errors": []
+      },
+      "gpuErrors": [],
+      "scopedGpuErrors": [],
+      "error": null
+    }
+  },
+  "component": {
+    "runId": "2026-10-08T23-08-46-926Z-texture-residency-component-2b540387-9b39-4950-bdf6-d0406d8e9d6e",
+    "status": "passed",
+    "evidenceStatus": "diagnostic-only",
+    "provenance": {
+      "commit": "2fdcab02114bd385f6830f96a9d76bd5ce3d2cbb",
+      "tree": "f9685c6a55a15c1254d4af571f5ef27bc3e3b08f",
+      "dirty": true,
+      "engineSourceSha256": "7c411d37f6d204431920badc589b55179e8d67923aef480dc0d5670d98b67112",
+      "hostBuildId": "cb53c740847c75f261d0bc496cc0338202af268035d0f2cb0f295bafd24d56cb",
+      "browserExecutable": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+      "browserExecutableSha256": "6849d2982038de9f9489a7b3858f3b785b7fec06a842c93c517281d21995c8ca",
+      "browserVersion": "154.0.8037.98",
+      "browserStorage": "fresh-disk-profile",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/154.0.0.0 Safari/537.36",
+      "startedAt": "2026-10-08T23:08:46.926Z",
+      "completedAt": "2026-10-08T23:08:49.677Z"
+    },
+    "page": {
+      "schemaVersion": 1,
+      "caseId": "texture-residency-component",
+      "workloadId": "texture-residency-component-v1",
+      "runId": "2026-10-08T23-08-46-926Z-texture-residency-component-2b540387-9b39-4950-bdf6-d0406d8e9d6e",
+      "nonce": "d04f0b66d7252db8aca3588e10bc73218e93e84c0e5ea2a2",
+      "registrySha256": "25c656549b593aa78ff1a96dade30cf6e433369147a260e6353f1985ca323a60",
+      "workloadSha256": "8687f69f813a1172c221d584423fd93d862926f25ba65dbdbc6ec6d000682219",
+      "hostBuildId": "cb53c740847c75f261d0bc496cc0338202af268035d0f2cb0f295bafd24d56cb",
+      "documentId": "ace8b365-baf2-4771-9f7e-44a50c8fcabc",
+      "navigationCount": 1,
+      "state": "disposed",
+      "outcome": "passed",
+      "startedAt": "2026-10-08T23:08:48.568Z",
+      "completedAt": "2026-10-08T23:08:48.963Z",
+      "disposedAt": "2026-10-08T23:08:49.048Z",
+      "phases": [
+        {
+          "state": "created",
+          "at": "2026-10-08T23:08:48.568Z"
+        },
+        {
+          "state": "negotiating",
+          "at": "2026-10-08T23:08:48.568Z"
+        },
+        {
+          "state": "ready",
+          "at": "2026-10-08T23:08:48.727Z"
+        },
+        {
+          "state": "warming",
+          "at": "2026-10-08T23:08:48.920Z"
+        },
+        {
+          "state": "sampling",
+          "at": "2026-10-08T23:08:48.953Z"
+        },
+        {
+          "state": "draining",
+          "at": "2026-10-08T23:08:48.962Z"
+        },
+        {
+          "state": "passed",
+          "at": "2026-10-08T23:08:48.963Z"
+        },
+        {
+          "state": "disposed",
+          "at": "2026-10-08T23:08:49.048Z"
+        }
+      ],
+      "evidence": {
+        "adapter": {
+          "info": {
+            "vendor": "nvidia",
+            "architecture": "turing",
+            "device": "",
+            "description": "",
+            "subgroupMinSize": 32,
+            "subgroupMaxSize": 32,
+            "isFallbackAdapter": false
+          },
+          "features": [
+            "bgra8unorm-storage",
+            "chromium-experimental-multi-draw-indirect",
+            "chromium-experimental-sampling-resource-table",
+            "chromium-experimental-timestamp-query-inside-passes",
+            "clip-distances",
+            "core-features-and-limits",
+            "depth-clip-control",
+            "depth32float-stencil8",
+            "dual-source-blending",
+            "float32-blendable",
+            "float32-filterable",
+            "indirect-first-instance",
+            "primitive-index",
+            "rg11b10ufloat-renderable",
+            "shader-f16",
+            "subgroup-size-control",
+            "subgroups",
+            "texture-component-swizzle",
+            "texture-compression-bc",
+            "texture-compression-bc-sliced-3d",
+            "texture-compression-unaligned",
+            "texture-formats-tier1",
+            "texture-formats-tier2",
+            "timestamp-query"
+          ],
+          "limits": {
+            "maxTextureDimension1D": 16384,
+            "maxTextureDimension2D": 16384,
+            "maxTextureDimension3D": 2048,
+            "maxTextureArrayLayers": 2048,
+            "maxBindGroups": 4,
+            "maxBindGroupsPlusVertexBuffers": 24,
+            "maxBindingsPerBindGroup": 1000,
+            "maxDynamicUniformBuffersPerPipelineLayout": 10,
+            "maxDynamicStorageBuffersPerPipelineLayout": 8,
+            "maxSampledTexturesPerShaderStage": 48,
+            "maxSamplersPerShaderStage": 16,
+            "maxStorageBuffersPerShaderStage": 16,
+            "maxStorageTexturesPerShaderStage": 8,
+            "maxUniformBuffersPerShaderStage": 12,
+            "maxUniformBufferBindingSize": 65536,
+            "maxStorageBufferBindingSize": 2147483644,
+            "minUniformBufferOffsetAlignment": 256,
+            "minStorageBufferOffsetAlignment": 256,
+            "maxVertexBuffers": 8,
+            "maxBufferSize": 2147483648,
+            "maxVertexAttributes": 30,
+            "maxVertexBufferArrayStride": 2048,
+            "maxInterStageShaderVariables": 28,
+            "maxColorAttachments": 8,
+            "maxColorAttachmentBytesPerSample": 128,
+            "maxComputeWorkgroupStorageSize": 32768,
+            "maxComputeInvocationsPerWorkgroup": 1024,
+            "maxComputeWorkgroupSizeX": 1024,
+            "maxComputeWorkgroupSizeY": 1024,
+            "maxComputeWorkgroupSizeZ": 64,
+            "maxComputeWorkgroupsPerDimension": 65535,
+            "maxImmediateSize": 64
+          }
+        },
+        "sampling": {
+          "tail": [0.984375, 0.0159912109375, 0, 1],
+          "promoted": [0, 1, 0, 1],
+          "before": {
+            "schemaVersion": 7,
+            "textureCapacity": 4095,
+            "residentTextureCount": 1,
+            "retiringTextureCount": 0,
+            "pendingTextureCount": 0,
+            "quarantinedTextureCount": 0,
+            "allocatedBytes": 43744,
+            "allocatedPeakBytes": 43744,
+            "physicalAllocatedBytes": 43744,
+            "transactionPeakBytes": 43744,
+            "descriptorBytes": 0,
+            "residentTextureBytes": 21872,
+            "retiringTextureBytes": 0,
+            "retiringBytes": 0,
+            "logicalResidentBytes": 21872,
+            "rgbaEquivalentResidentBytes": 87380,
+            "uploadBytes": 21904,
+            "copyBytes": 0,
+            "transcodeBytes": 0,
+            "directPackageCount": 1,
+            "workerTranscodeCount": 0,
+            "uncompressedFallbackCount": 0,
+            "formatDistribution": [
+              {
+                "format": "bc7-rgba-unorm-srgb",
+                "residentTextureCount": 1,
+                "residentBytes": 21872
+              }
+            ],
+            "resizeDispatchCount": 0,
+            "runtimeMipGenerationCount": 0,
+            "cookedRuntimeMipGenerationCount": 0,
+            "bankCopyOperationCount": 0,
+            "bankGrowCount": 1,
+            "abortedBankGrowCount": 0,
+            "cookedResidentTextureCount": 1,
+            "compressedResidentTextureCount": 1,
+            "segmentCount": 1,
+            "bindingSetCount": 1,
+            "bindingSlotUtilization": 0.0625,
+            "bindingSetPreflightFailures": 0,
+            "highResolutionArrayAllocated": false,
+            "banks": [],
+            "packageSegments": [
+              {
+                "segment": 1,
+                "format": "bc7-rgba-unorm-srgb",
+                "width": 128,
+                "height": 128,
+                "mipLevelCount": 8,
+                "allocatedCapacity": 2,
+                "residentTextureCount": 1,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 43744
+              }
+            ],
+            "textureLedger": [
+              {
+                "assetIdentity": "4025e6376261a4de0e25440a31e0db80fc9f2cac6bda93079ff30e3d7aa98012",
+                "sourceUri": "image:0",
+                "state": "resident",
+                "refCount": 1,
+                "bankClass": 0,
+                "segment": 1,
+                "layer": 1,
+                "sourceWidth": 128,
+                "sourceHeight": 128,
+                "decodedWidth": 128,
+                "decodedHeight": 128,
+                "gpuWidth": 128,
+                "gpuHeight": 128,
+                "format": "bc7-rgba-unorm-srgb",
+                "mipLevelCount": 8,
+                "logicalBytes": 87380,
+                "residentBytes": 21872,
+                "allocatedBytes": 21872
+              }
+            ],
+            "privateSubmitCount": 0,
+            "progressiveMipUploadBytes": 21872,
+            "mipPromotionCount": 1,
+            "mipUploadCount": 10
+          },
+          "after": {
+            "schemaVersion": 7,
+            "textureCapacity": 4095,
+            "residentTextureCount": 0,
+            "retiringTextureCount": 0,
+            "pendingTextureCount": 0,
+            "quarantinedTextureCount": 0,
+            "allocatedBytes": 0,
+            "allocatedPeakBytes": 43744,
+            "physicalAllocatedBytes": 0,
+            "transactionPeakBytes": 43744,
+            "descriptorBytes": 0,
+            "residentTextureBytes": 0,
+            "retiringTextureBytes": 0,
+            "retiringBytes": 0,
+            "logicalResidentBytes": 0,
+            "rgbaEquivalentResidentBytes": 0,
+            "uploadBytes": 21904,
+            "copyBytes": 0,
+            "transcodeBytes": 0,
+            "directPackageCount": 0,
+            "workerTranscodeCount": 0,
+            "uncompressedFallbackCount": 0,
+            "formatDistribution": [],
+            "resizeDispatchCount": 0,
+            "runtimeMipGenerationCount": 0,
+            "cookedRuntimeMipGenerationCount": 0,
+            "bankCopyOperationCount": 0,
+            "bankGrowCount": 1,
+            "abortedBankGrowCount": 0,
+            "cookedResidentTextureCount": 0,
+            "compressedResidentTextureCount": 0,
+            "segmentCount": 0,
+            "bindingSetCount": 0,
+            "bindingSlotUtilization": 0,
+            "bindingSetPreflightFailures": 0,
+            "highResolutionArrayAllocated": false,
+            "banks": [],
+            "packageSegments": [],
+            "textureLedger": [],
+            "privateSubmitCount": 0,
+            "progressiveMipUploadBytes": 21872,
+            "mipPromotionCount": 1,
+            "mipUploadCount": 10
+          },
+          "format": "bc7-rgba-unorm-srgb",
+          "nativeConsumer": true
+        },
+        "readback": {
+          "bytes": 32,
+          "matches": true,
+          "tail": [0.984375, 0.0159912109375, 0, 1],
+          "promoted": [0, 1, 0, 1]
+        }
+      },
+      "errors": [],
+      "disposeEvidence": {
+        "buffers": 0,
+        "textures": 0,
+        "samplers": 0,
+        "devices": 0,
+        "intentionalDeviceDestroy": true
+      }
+    },
+    "artifacts": {
+      "result.json": {
+        "path": "D:\\code\\EEngine - 副本\\.local\\validation\\2026-10-08T23-08-46-926Z-texture-residency-component-2b540387-9b39-4950-bdf6-d0406d8e9d6e/result.json",
+        "sha256": "3cdac08db87f33855f6343ee576c4e6900555d0fc31b5aef69181120d94f5823"
+      },
+      "events.json": {
+        "path": "D:\\code\\EEngine - 副本\\.local\\validation\\2026-10-08T23-08-46-926Z-texture-residency-component-2b540387-9b39-4950-bdf6-d0406d8e9d6e/events.json",
+        "sha256": "e3e3f56a21d2fb70dabc2b506db41f322545ac406a4f8048bafc6fe0a114ba94"
+      },
+      "readback.json": {
+        "path": "D:\\code\\EEngine - 副本\\.local\\validation\\2026-10-08T23-08-46-926Z-texture-residency-component-2b540387-9b39-4950-bdf6-d0406d8e9d6e/readback.json",
+        "sha256": "90ed8e2cc05fee83feafd97964fc1409c1b81a9c8a1d1483fa1a59d69bf962d1"
+      },
+      "screenshot.png": {
+        "path": "D:\\code\\EEngine - 副本\\.local\\validation\\2026-10-08T23-08-46-926Z-texture-residency-component-2b540387-9b39-4950-bdf6-d0406d8e9d6e/screenshot.png",
+        "sha256": "931b76f186529cc442ad0a00872e05ad6cedaebf5f99436a6c35506a34690b33"
+      }
+    }
+  },
+  "originalFailures": [
+    {
+      "file": ".local/t4-2-capacity-latest.json",
+      "sha256": "68f72f9ca113885f557b7aea43bee0fa0ebb694d3d3377c608a69334cf80fa73",
+      "status": "failed",
+      "buildIdentity": {
+        "schemaVersion": 1,
+        "recipe": "tsc -p tsconfig.test.json + pinned codec vendor copy",
+        "node": "v24.14.0",
+        "dependencyScope": "conservative: engine src, configs, lock and compiler identity",
+        "sourceSha256": "058c26f45c11d80f3bac3d11ac1c8ac1694553d48d1e4afdb25973ad634a0e45",
+        "outputSha256": "3c93e7176c343e55f56f534b5324a997aeaf3f5c566b37ec1c702e0bf2b15b66",
+        "completedAt": "2026-10-08T22:50:08.870Z"
+      },
+      "error": {
+        "kind": "assertion-or-throw",
+        "name": "RangeError",
+        "code": null,
+        "message": "Appearance storage buffers exceed negotiated device limit (10/8)",
+        "stack": "RangeError: Appearance storage buffers exceed negotiated device limit (10/8)\n    at validateProfile (http://127.0.0.1:4148/OEngine/.test-dist/gpu/AppearanceProgramRegistry.js:309:19)\n    at AppearanceProgramRegistry.acquire (http://127.0.0.1:4148/OEngine/.test-dist/gpu/AppearanceProgramRegistry.js:65:9)\n    at verifyCapacity (http://127.0.0.1:4148/OEngine/tests/oracle/pc-texture-residency-gpu.mjs:389:26)\n    at async runPcTextureResidencyGpuOracle (http://127.0.0.1:4148/OEngine/tests/oracle/pc-texture-residency-gpu.mjs:300:22)\n    at async run (http://127.0.0.1:4148/__gpu-oracle/page/host.mjs:214:15)\n    at async http://127.0.0.1:4148/__gpu-oracle/page/host.mjs:266:11"
+      },
+      "failureKind": "oracle-throw",
+      "gpuErrors": []
+    },
+    {
+      "file": ".local/t4-2-integration-latest.json",
+      "sha256": "e6fe34d7aca3d08f5cbc1aa4e4cbb40e84ba49775f86130da6b6d82fd0dcf351",
+      "status": "failed",
+      "buildIdentity": {
+        "schemaVersion": 1,
+        "recipe": "tsc -p tsconfig.test.json + pinned codec vendor copy",
+        "node": "v24.14.0",
+        "dependencyScope": "conservative: engine src, configs, lock and compiler identity",
+        "sourceSha256": "32caf928bcaecab7e02b89a36b4bc1420bd2242ec5ff703c91afc26bd585d41e",
+        "outputSha256": "4f5eff7f3b8736fff7714aa2ad76c5a339c8c44c8b06e0c9c55c6f792388ce2a",
+        "completedAt": "2026-10-08T22:44:22.060Z"
+      },
+      "error": {
+        "kind": "assertion-or-throw",
+        "name": "Error",
+        "code": null,
+        "message": "Independent PBR pixel1292 material1 component0: 0.391845703125 vs 0.38413083765939593",
+        "stack": "Error: Independent PBR pixel1292 material1 component0: 0.391845703125 vs 0.38413083765939593\n    at check (http://127.0.0.1:9713/OEngine/tests/oracle/native-surface-integration-gpu.mjs:34:25)\n    at http://127.0.0.1:9713/OEngine/tests/oracle/native-surface-integration-gpu.mjs:652:15\n    at Array.forEach (<anonymous>)\n    at frame (http://127.0.0.1:9713/OEngine/tests/oracle/native-surface-integration-gpu.mjs:649:22)\n    at async runNativeSurfaceIntegrationGpuOracle (http://127.0.0.1:9713/OEngine/tests/oracle/native-surface-integration-gpu.mjs:705:19)\n    at async run (http://127.0.0.1:9713/__gpu-oracle/page/host.mjs:214:15)\n    at async http://127.0.0.1:9713/__gpu-oracle/page/host.mjs:266:11"
+      },
+      "failureKind": "oracle-throw",
+      "gpuErrors": []
+    },
+    {
+      "file": ".local/t4-2-native-material-first.json",
+      "sha256": "143a48c65556c33bf7051cf62f37fa37f6bc4b146131ab00ffd2c5b31a5d1795",
+      "status": "failed",
+      "buildIdentity": {
+        "schemaVersion": 1,
+        "recipe": "tsc -p tsconfig.test.json + pinned codec vendor copy",
+        "node": "v24.14.0",
+        "dependencyScope": "conservative: engine src, configs, lock and compiler identity",
+        "sourceSha256": "3079225d4a93bba1fa8141978022843c7f0fe33d23ecd1a72cee4892f7b84345",
+        "outputSha256": "d99571e647e8c44e0dc41ac3ce74a3c73d3b897214f1769f6716614f6774aba4",
+        "completedAt": "2026-10-08T22:24:47.373Z"
+      },
+      "error": {
+        "kind": "assertion-or-throw",
+        "name": "Error",
+        "code": null,
+        "message": "Provided mip chain must match full source domain",
+        "stack": "Error: Provided mip chain must match full source domain\n    at cookPcTextureRgba (http://127.0.0.1:6556/OEngine/.test-dist/assets/codec/PcTextureCook.js:77:15)\n    at fixtureTexture (http://127.0.0.1:6556/OEngine/tests/oracle/texture-fixture.mjs:8:29)\n    at async createNativeMaterialBindingFixture (http://127.0.0.1:6556/OEngine/tests/oracle/native-material-bindings-gpu.mjs:74:19)\n    at async runNativeMaterialBindingsGpuOracle (http://127.0.0.1:6556/OEngine/tests/oracle/native-material-bindings-gpu.mjs:389:15)\n    at async runNativeMaterialGpuOracle (http://127.0.0.1:6556/OEngine/tests/oracle/native-material-gpu.mjs:538:22)\n    at async run (http://127.0.0.1:6556/__gpu-oracle/page/host.mjs:214:15)\n    at async http://127.0.0.1:6556/__gpu-oracle/page/host.mjs:266:11"
+      },
+      "failureKind": "oracle-throw",
+      "gpuErrors": []
+    },
+    {
+      "file": ".local/t4-2-renderer-before-complete.json",
+      "sha256": "dbe5a709033572626db8f6646e715ee58e7b07997dfbdcdf677610a46b96059b",
+      "status": "failed",
+      "buildIdentity": {
+        "schemaVersion": 1,
+        "recipe": "tsc -p tsconfig.test.json + pinned codec vendor copy",
+        "node": "v24.14.0",
+        "dependencyScope": "conservative: engine src, configs, lock and compiler identity",
+        "sourceSha256": "c71d70a4f905c43259b32a840bfc87becedfb12874b18692b3c9e95b227d1f0d",
+        "outputSha256": "b99a11ed569f93ce1fe4a74c504a5d40f678d75bb95ff7967a011c0fa476b2bf",
+        "completedAt": "2026-10-08T21:47:06.204Z"
+      },
+      "error": {
+        "kind": "assertion-or-throw",
+        "name": "Error",
+        "code": null,
+        "message": "Full dungeon publication missing",
+        "stack": "Error: Full dungeon publication missing\n    at check (http://127.0.0.1:11884/OEngine/tests/oracle/texture-renderer-gpu.mjs:7:55)\n    at runTextureRendererGpuOracle (http://127.0.0.1:11884/OEngine/tests/oracle/texture-renderer-gpu.mjs:35:5)\n    at async run (http://127.0.0.1:11884/__gpu-oracle/page/host.mjs:214:15)\n    at async http://127.0.0.1:11884/__gpu-oracle/page/host.mjs:266:11"
+      },
+      "failureKind": "oracle-throw",
+      "gpuErrors": []
+    },
+    {
+      "file": ".local/t4-2-renderer-before-final.json",
+      "sha256": "d29ed65686c5bb1f1cee30a5bfb7dfe580c6a183cee91a91ceceab35836f9f13",
+      "status": "failed",
+      "buildIdentity": {
+        "schemaVersion": 1,
+        "recipe": "tsc -p tsconfig.test.json + pinned codec vendor copy",
+        "node": "v24.14.0",
+        "dependencyScope": "conservative: engine src, configs, lock and compiler identity",
+        "sourceSha256": "c71d70a4f905c43259b32a840bfc87becedfb12874b18692b3c9e95b227d1f0d",
+        "outputSha256": "b99a11ed569f93ce1fe4a74c504a5d40f678d75bb95ff7967a011c0fa476b2bf",
+        "completedAt": "2026-10-08T21:47:06.204Z"
+      },
+      "error": {
+        "kind": "assertion-or-throw",
+        "name": "Error",
+        "code": null,
+        "message": "Full dungeon publication missing: 64/798 instances, 18/25 materials",
+        "stack": "Error: Full dungeon publication missing: 64/798 instances, 18/25 materials\n    at check (http://127.0.0.1:5366/OEngine/tests/oracle/texture-renderer-gpu.mjs:7:55)\n    at runTextureRendererGpuOracle (http://127.0.0.1:5366/OEngine/tests/oracle/texture-renderer-gpu.mjs:36:5)\n    at async run (http://127.0.0.1:5366/__gpu-oracle/page/host.mjs:214:15)\n    at async http://127.0.0.1:5366/__gpu-oracle/page/host.mjs:266:11"
+      },
+      "failureKind": "oracle-throw",
+      "gpuErrors": []
+    },
+    {
+      "file": ".local/t4-2-renderer-before-frozen-final.json",
+      "sha256": "5ae2962439903a0c55b096a7044943f43d9fac918c2b45f55805a68ab114b9bc",
+      "status": "failed",
+      "buildIdentity": {
+        "schemaVersion": 1,
+        "recipe": "tsc -p tsconfig.test.json + pinned codec vendor copy",
+        "node": "v24.14.0",
+        "dependencyScope": "conservative: engine src, configs, lock and compiler identity",
+        "sourceSha256": "e0979a31e02a4723e1b3cf1d4a2d977d40eb94c3bbeff89b1a093c1711e51784",
+        "outputSha256": "3c747bce286743dcf5a8ae0d36020f0e33f0812efe52277bf4731f0d9c00e595",
+        "completedAt": "2026-10-08T22:00:43.922Z"
+      },
+      "error": {
+        "kind": "assertion-or-throw",
+        "name": "RangeError",
+        "code": null,
+        "message": "Geometry Product activation cut exceeds shared GPU slot capacity",
+        "stack": "RangeError: Geometry Product activation cut exceeds shared GPU slot capacity\n    at #fillActivationCut (http://127.0.0.1:6176/OEngine/.test-dist/gpu/VirtualGeometryResidency.js:122:19)\n    at VirtualGeometryResidency.create (http://127.0.0.1:6176/OEngine/.test-dist/gpu/VirtualGeometryResidency.js:104:43)\n    at GeometryProductMultiRuntimeV1.createEntry (http://127.0.0.1:6176/OEngine/.test-dist/gpu/GeometryProductMultiRuntime.js:496:48)\n    at GeometryProductMultiRuntimeV1.load (http://127.0.0.1:6176/OEngine/.test-dist/gpu/GeometryProductMultiRuntime.js:169:28)\n    at http://127.0.0.1:6176/OEngine/.test-dist/render/pipeline/RendererCore.js:641:49"
+      },
+      "failureKind": "oracle-throw",
+      "gpuErrors": []
+    },
+    {
+      "file": ".local/t4-2-renderer-before-frozen.json",
+      "sha256": "1835e2a9097c62a7fa758f40eddbead05d6e2198d0276d76a7db11796847c7b4",
+      "status": "failed",
+      "buildIdentity": null,
+      "error": {
+        "name": "Error",
+        "message": "test build is stale: production input changed; run npm run build:test",
+        "stack": "Error: test build is stale: production input changed; run npm run build:test\n    at verifyTestBuild (file:///D:/code/EEngine%20-%20%E5%89%AF%E6%9C%AC/tools/test-build.mjs:51:11)\n    at async file:///D:/code/EEngine%20-%20%E5%89%AF%E6%9C%AC/tools/gpu-oracle.mjs:341:21"
+      },
+      "failureKind": "harness-error",
+      "gpuErrors": []
+    },
+    {
+      "file": ".local/t4-2-renderer-before-full.json",
+      "sha256": "19a930cee29c0e04861122b57dbd66d7a737ebd20229e30aeb5fbe00640f01dc",
+      "status": "failed",
+      "buildIdentity": {
+        "schemaVersion": 1,
+        "recipe": "tsc -p tsconfig.test.json + pinned codec vendor copy",
+        "node": "v24.14.0",
+        "dependencyScope": "conservative: engine src, configs, lock and compiler identity",
+        "sourceSha256": "c71d70a4f905c43259b32a840bfc87becedfb12874b18692b3c9e95b227d1f0d",
+        "outputSha256": "b99a11ed569f93ce1fe4a74c504a5d40f678d75bb95ff7967a011c0fa476b2bf",
+        "completedAt": "2026-10-08T21:47:06.204Z"
+      },
+      "error": {
+        "kind": "assertion-or-throw",
+        "name": "Error",
+        "code": null,
+        "message": "Dungeon admission: {\"state\":\"failed\",\"offered\":2,\"activated\":1,\"rejected\":1,\"replacements\":0,\"retiring\":0,\"activeGeneration\":1,\"lastRejection\":\"Geometry Product replacement does not target the active revision\",\"failure\":\"Geometry Product replacement does not target the active revision\"}",
+        "stack": "Error: Dungeon admission: {\"state\":\"failed\",\"offered\":2,\"activated\":1,\"rejected\":1,\"replacements\":0,\"retiring\":0,\"activeGeneration\":1,\"lastRejection\":\"Geometry Product replacement does not target the active revision\",\"failure\":\"Geometry Product replacement does not target the active revision\"}\n    at check (http://127.0.0.1:14975/OEngine/tests/oracle/texture-renderer-gpu.mjs:7:55)\n    at runTextureRendererGpuOracle (http://127.0.0.1:14975/OEngine/tests/oracle/texture-renderer-gpu.mjs:35:7)\n    at async run (http://127.0.0.1:14975/__gpu-oracle/page/host.mjs:214:15)\n    at async http://127.0.0.1:14975/__gpu-oracle/page/host.mjs:266:11"
+      },
+      "failureKind": "oracle-throw",
+      "gpuErrors": []
+    },
+    {
+      "file": ".local/t4-2-renderer-before-multi-full.json",
+      "sha256": "c633c47626f82ca09093c4c4f0df98766f164a8cb2df58c1dbbe006c7bb19d84",
+      "status": "failed",
+      "buildIdentity": {
+        "schemaVersion": 1,
+        "recipe": "tsc -p tsconfig.test.json + pinned codec vendor copy",
+        "node": "v24.14.0",
+        "dependencyScope": "conservative: engine src, configs, lock and compiler identity",
+        "sourceSha256": "c71d70a4f905c43259b32a840bfc87becedfb12874b18692b3c9e95b227d1f0d",
+        "outputSha256": "b99a11ed569f93ce1fe4a74c504a5d40f678d75bb95ff7967a011c0fa476b2bf",
+        "completedAt": "2026-10-08T21:47:06.204Z"
+      },
+      "error": {
+        "name": "Error",
+        "message": "test build is stale: production input changed; run npm run build:test",
+        "stack": "Error: test build is stale: production input changed; run npm run build:test\n    at verifyTestBuild (file:///D:/code/EEngine%20-%20%E5%89%AF%E6%9C%AC/tools/test-build.mjs:51:11)\n    at async file:///D:/code/EEngine%20-%20%E5%89%AF%E6%9C%AC/tools/gpu-oracle.mjs:415:5"
+      },
+      "failureKind": "harness-error",
+      "gpuErrors": []
+    },
+    {
+      "file": ".local/t4-2-renderer-before-multi.json",
+      "sha256": "4a9918d470918324aadeb90937c1efeb7d42f12f0d86e3e040106b973369edb1",
+      "status": "failed",
+      "buildIdentity": null,
+      "error": {
+        "name": "Error",
+        "message": "test build is stale: production input changed; run npm run build:test",
+        "stack": "Error: test build is stale: production input changed; run npm run build:test\n    at verifyTestBuild (file:///D:/code/EEngine%20-%20%E5%89%AF%E6%9C%AC/tools/test-build.mjs:51:11)\n    at async file:///D:/code/EEngine%20-%20%E5%89%AF%E6%9C%AC/tools/gpu-oracle.mjs:341:21"
+      },
+      "failureKind": "harness-error",
+      "gpuErrors": []
+    },
+    {
+      "file": ".local/t4-2-renderer-before-rerun.json",
+      "sha256": "b30910985fb59506cad2f1d34f3de388e270a20ac4f2c6188181c22621463e28",
+      "status": "failed",
+      "buildIdentity": {
+        "schemaVersion": 1,
+        "recipe": "tsc -p tsconfig.test.json + pinned codec vendor copy",
+        "node": "v24.14.0",
+        "dependencyScope": "conservative: engine src, configs, lock and compiler identity",
+        "sourceSha256": "c71d70a4f905c43259b32a840bfc87becedfb12874b18692b3c9e95b227d1f0d",
+        "outputSha256": "b99a11ed569f93ce1fe4a74c504a5d40f678d75bb95ff7967a011c0fa476b2bf",
+        "completedAt": "2026-10-08T21:47:06.204Z"
+      },
+      "error": {
+        "kind": "assertion-or-throw",
+        "name": "Error",
+        "code": null,
+        "message": "Graceful disposal requires an open settled session",
+        "stack": "Error: Graceful disposal requires an open settled session\n    at WebCookClient.disposeAsync (http://127.0.0.1:3181/OEngine/.test-dist/assets/web-cook/WebCookClient.js:243:19)\n    at WebCookRuntimeAsset.disposeAsync (http://127.0.0.1:3181/OEngine/.test-dist/assets/web-cook/WebCookRuntimeAsset.js:193:39)\n    at runTextureRendererGpuOracle (http://127.0.0.1:3181/OEngine/tests/oracle/texture-renderer-gpu.mjs:58:28)\n    at async run (http://127.0.0.1:3181/__gpu-oracle/page/host.mjs:214:15)\n    at async http://127.0.0.1:3181/__gpu-oracle/page/host.mjs:266:11"
+      },
+      "failureKind": "oracle-throw",
+      "gpuErrors": []
+    },
+    {
+      "file": ".local/t4-2-renderer-before-retry.json",
+      "sha256": "6f5f8b208f4637fb43949e1aa7c97071bce6701dde6ef3a749ad60cbd982e0c6",
+      "status": "failed",
+      "buildIdentity": {
+        "schemaVersion": 1,
+        "recipe": "tsc -p tsconfig.test.json + pinned codec vendor copy",
+        "node": "v24.14.0",
+        "dependencyScope": "conservative: engine src, configs, lock and compiler identity",
+        "sourceSha256": "c71d70a4f905c43259b32a840bfc87becedfb12874b18692b3c9e95b227d1f0d",
+        "outputSha256": "b99a11ed569f93ce1fe4a74c504a5d40f678d75bb95ff7967a011c0fa476b2bf",
+        "completedAt": "2026-10-08T21:47:06.204Z"
+      },
+      "error": {
+        "kind": "assertion-or-throw",
+        "name": "Error",
+        "code": null,
+        "message": "Web Cook Worker failed",
+        "stack": "Error: Web Cook Worker failed\n    at waitForActiveProduct (http://127.0.0.1:12435/OEngine/.test-dist/render/pipeline/RendererCore.js:101:19)\n    at async Renderer.uploadProductScene (http://127.0.0.1:12435/OEngine/.test-dist/render/pipeline/RendererCore.js:506:9)\n    at async runTextureRendererGpuOracle (http://127.0.0.1:12435/OEngine/tests/oracle/texture-renderer-gpu.mjs:28:5)\n    at async run (http://127.0.0.1:12435/__gpu-oracle/page/host.mjs:214:15)\n    at async http://127.0.0.1:12435/__gpu-oracle/page/host.mjs:266:11"
+      },
+      "failureKind": "oracle-throw",
+      "gpuErrors": []
+    },
+    {
+      "file": ".local/t4-2-renderer-before.json",
+      "sha256": "8df8cd6d097531eb2057cc35034aeffbb0eeed561194e7ef26f2fd418fcefec5",
+      "status": "failed",
+      "buildIdentity": {
+        "schemaVersion": 1,
+        "recipe": "tsc -p tsconfig.test.json + pinned codec vendor copy",
+        "node": "v24.14.0",
+        "dependencyScope": "conservative: engine src, configs, lock and compiler identity",
+        "sourceSha256": "c71d70a4f905c43259b32a840bfc87becedfb12874b18692b3c9e95b227d1f0d",
+        "outputSha256": "b99a11ed569f93ce1fe4a74c504a5d40f678d75bb95ff7967a011c0fa476b2bf",
+        "completedAt": "2026-10-08T21:47:06.204Z"
+      },
+      "error": {
+        "kind": "assertion-or-throw",
+        "name": "Error",
+        "code": null,
+        "message": "Failed to deserialize image \"http://127.0.0.1:2968/OEngine/.test-dist/render/assets/textures/stbn_vec1.bin\"",
+        "stack": "Error: Failed to deserialize image \"http://127.0.0.1:2968/OEngine/.test-dist/render/assets/textures/stbn_vec1.bin\"\n    at load_shade_image_from_url (http://127.0.0.1:2968/OEngine/.test-dist/texture/deserialize_shade_image.js:33:21)\n    at async Promise.all (index 0)\n    at async #load (http://127.0.0.1:2968/OEngine/.test-dist/render/STATIC_GRAPHICS_ENGINE_ASSETS.js:21:58)\n    at async GraphicsContext.initialize (http://127.0.0.1:2968/OEngine/.test-dist/gpu/GraphicsContext.js:228:9)\n    at async Renderer.initialize (http://127.0.0.1:2968/OEngine/.test-dist/render/pipeline/RendererCore.js:1094:9)\n    at async runTextureRendererGpuOracle (http://127.0.0.1:2968/OEngine/tests/oracle/texture-renderer-gpu.mjs:23:5)\n    at async run (http://127.0.0.1:2968/__gpu-oracle/page/host.mjs:214:15)\n    at async http://127.0.0.1:2968/__gpu-oracle/page/host.mjs:266:11"
+      },
+      "failureKind": "oracle-throw",
+      "gpuErrors": []
+    },
+    {
+      "file": ".local/t4-2-residency-final-abi.json",
+      "sha256": "138f747bd7ccd76fe3aca52b1db4f8246941d25774be12900ead1f332fbb4f33",
+      "status": "failed",
+      "buildIdentity": {
+        "schemaVersion": 1,
+        "recipe": "tsc -p tsconfig.test.json + pinned codec vendor copy",
+        "node": "v24.14.0",
+        "dependencyScope": "conservative: engine src, configs, lock and compiler identity",
+        "sourceSha256": "7c411d37f6d204431920badc589b55179e8d67923aef480dc0d5670d98b67112",
+        "outputSha256": "782ab78f74952399973733217f8ca541d726a21d557592f5f2e872fd31e91ca2",
+        "completedAt": "2026-10-08T23:03:27.586Z"
+      },
+      "error": {
+        "kind": "assertion-or-throw",
+        "name": "Error",
+        "code": null,
+        "message": "GpuMaterialStageHandle is stale or not resident",
+        "stack": "Error: GpuMaterialStageHandle is stale or not resident\n    at GpuMaterialStore.release (http://127.0.0.1:10240/OEngine/.test-dist/gpu/GpuMaterialStore.js:204:19)\n    at verifyCapacity (http://127.0.0.1:10240/OEngine/tests/oracle/pc-texture-residency-gpu.mjs:415:17)\n    at async runPcTextureResidencyGpuOracle (http://127.0.0.1:10240/OEngine/tests/oracle/pc-texture-residency-gpu.mjs:301:22)\n    at async run (http://127.0.0.1:10240/__gpu-oracle/page/host.mjs:214:15)\n    at async http://127.0.0.1:10240/__gpu-oracle/page/host.mjs:266:11"
+      },
+      "failureKind": "oracle-throw",
+      "gpuErrors": []
+    },
+    {
+      "file": ".local/t4-2-residency-first.json",
+      "sha256": "eb5369b733908e2acd60a61f95864b27aaa341191f495dfd7782e4fb98d20fcb",
+      "status": "failed",
+      "buildIdentity": {
+        "schemaVersion": 1,
+        "recipe": "tsc -p tsconfig.test.json + pinned codec vendor copy",
+        "node": "v24.14.0",
+        "dependencyScope": "conservative: engine src, configs, lock and compiler identity",
+        "sourceSha256": "e338a7884da21fe3970dc108a7a6c69c3ebe51fde841352e523421434fcbc71a",
+        "outputSha256": "e92cfe87345e6847f4493a65169cf523f3acc3da0c6dcb77f481ad9706c82d38",
+        "completedAt": "2026-10-08T22:32:38.209Z"
+      },
+      "error": {
+        "kind": "assertion-or-throw",
+        "name": "Error",
+        "code": null,
+        "message": "Scalar Product lacks requested channel",
+        "stack": "Error: Scalar Product lacks requested channel\n    at TextureResidency.stage (http://127.0.0.1:1465/OEngine/.test-dist/gpu/TextureResidency.js:127:27)\n    at runPcTextureResidencyGpuOracle (http://127.0.0.1:1465/OEngine/tests/oracle/pc-texture-residency-gpu.mjs:33:27)\n    at async run (http://127.0.0.1:1465/__gpu-oracle/page/host.mjs:214:15)\n    at async http://127.0.0.1:1465/__gpu-oracle/page/host.mjs:266:11"
+      },
+      "failureKind": "oracle-throw",
+      "gpuErrors": []
+    },
+    {
+      "file": ".local/t4-2-residency-second.json",
+      "sha256": "6772be1fb4a6db5a42cd812a6e52fdfe9bbdabd2c96cc6bc1844105781b97a96",
+      "status": "failed",
+      "buildIdentity": {
+        "schemaVersion": 1,
+        "recipe": "tsc -p tsconfig.test.json + pinned codec vendor copy",
+        "node": "v24.14.0",
+        "dependencyScope": "conservative: engine src, configs, lock and compiler identity",
+        "sourceSha256": "7bb3e7e09cdee536a921bcd21cbad4f9a14f10f9e96e332087ef84a8599fc770",
+        "outputSha256": "a73c2bca33c639c8863992ad2fdce8c37bd5fc627c7db95ec2d726449aac0ea2",
+        "completedAt": "2026-10-08T22:35:10.135Z"
+      },
+      "error": {
+        "kind": "assertion-or-throw",
+        "name": "Error",
+        "code": null,
+        "message": "Unclassified GPU submit owner label 'TextureResidency/oracle-upload'",
+        "stack": "Error: Unclassified GPU submit owner label 'TextureResidency/oracle-upload'\n    at submitGpuCommands (http://127.0.0.1:9796/OEngine/.test-dist/gpu/GpuQueueEvidence.js:40:15)\n    at ShadeGPUCommandContext.finish (http://127.0.0.1:9796/OEngine/.test-dist/framegraph/ShadeGPUCommandContext.js:371:13)\n    at runPcTextureResidencyGpuOracle (http://127.0.0.1:9796/OEngine/tests/oracle/pc-texture-residency-gpu.mjs:40:58)\n    at async run (http://127.0.0.1:9796/__gpu-oracle/page/host.mjs:214:15)\n    at async http://127.0.0.1:9796/__gpu-oracle/page/host.mjs:266:11"
+      },
+      "failureKind": "oracle-throw",
+      "gpuErrors": []
+    },
+    {
+      "file": ".local/t4-2-residency-third.json",
+      "sha256": "9775ba828a794231f623f1249020ee436456550ba71ec665a069b8315f11095f",
+      "status": "failed",
+      "buildIdentity": {
+        "schemaVersion": 1,
+        "recipe": "tsc -p tsconfig.test.json + pinned codec vendor copy",
+        "node": "v24.14.0",
+        "dependencyScope": "conservative: engine src, configs, lock and compiler identity",
+        "sourceSha256": "7bb3e7e09cdee536a921bcd21cbad4f9a14f10f9e96e332087ef84a8599fc770",
+        "outputSha256": "a73c2bca33c639c8863992ad2fdce8c37bd5fc627c7db95ec2d726449aac0ea2",
+        "completedAt": "2026-10-08T22:35:10.135Z"
+      },
+      "error": {
+        "kind": "assertion-or-throw",
+        "name": "Error",
+        "code": null,
+        "message": "Unclassified GPU submit owner label 'Renderer/visibility-frame/oracle-upload'",
+        "stack": "Error: Unclassified GPU submit owner label 'Renderer/visibility-frame/oracle-upload'\n    at submitGpuCommands (http://127.0.0.1:1162/OEngine/.test-dist/gpu/GpuQueueEvidence.js:40:15)\n    at ShadeGPUCommandContext.finish (http://127.0.0.1:1162/OEngine/.test-dist/framegraph/ShadeGPUCommandContext.js:371:13)\n    at runPcTextureResidencyGpuOracle (http://127.0.0.1:1162/OEngine/tests/oracle/pc-texture-residency-gpu.mjs:40:58)\n    at async run (http://127.0.0.1:1162/__gpu-oracle/page/host.mjs:214:15)\n    at async http://127.0.0.1:1162/__gpu-oracle/page/host.mjs:266:11"
+      },
+      "failureKind": "oracle-throw",
+      "gpuErrors": []
+    }
+  ],
+  "node": {
+    "path": ".local/t4-2-node-final-abi.log",
+    "sha256": "fb3d7c41b7701cd3a750acf99825d3d887a21f04b4dc2c3ac4c20fb0133d202f",
+    "passed": 62,
+    "failed": 0
+  },
+  "notRun": [
+    "Authored dungeon after-cutover/load/readiness/frame P50/P95: T4.3",
+    "477MB model: user excluded, do not run",
+    "Repeated 1K/2K/4K slow quality6 matrix unchanged from T4.1",
+    "Cross-GPU/cross-browser/natural driver device loss",
+    "Actual browser decode/driver host and GPU peak; software accounting only",
+    "Spark/BC5/BC6H/Virtual Texture"
+  ],
+  "limitations": [
+    "All six final GPU oracles use the latest route ABI source/build identity",
+    "No matched production performance improvement claim",
+    "Original failed reports retained; targeted fixes rerun without tolerance changes",
+    "Browser component diagnostic-only evidence; actual result/events/readback/screenshot/dispose gates passed"
+  ],
+  "checks": {
+    "engineTypecheckBuild": "passed",
+    "freshBuildTest": "passed",
+    "validationTypecheck": "passed",
+    "docsVerify": "0 findings; 66 historical warnings",
+    "documentSystem": "7/7 passed",
+    "buildFreshnessAndJson": "3/3 passed",
+    "gpuHostContract": "45/45 passed",
+    "navigation": "doctor and registry --check passed",
+    "format": "69 handwritten touched files passed; generated registry checked by generator",
+    "newOwnerStyleGuard": "0 findings across 3 files",
+    "diffCheck": "passed"
+  },
+  "failureClassification": [
+    {
+      "group": "baseline harness",
+      "files": "t4-2-renderer-before*.json",
+      "rootCause": "Test static assets/Worker URL, unsettled session, incomplete bootstrap coverage, single-Product replacement semantics and insufficient Geometry activation budget. Correct full multi-Product dungeon at original quality with explicit existing 512MiB capacity passed before cutover; production Geometry algorithm unchanged.",
+      "rerun": ".local/t4-2-renderer-before-budget.json"
+    },
+    {
+      "group": "fixture migration",
+      "files": "t4-2-native-material-first.json",
+      "rootCause": "Provided mip fixture did not describe the complete source domain. Migrated full-chain BC fixture preserves numeric/gradient assertions.",
+      "rerun": ".local/t4-2-native-final-abi.json"
+    },
+    {
+      "group": "fixture route/submit",
+      "files": "t4-2-residency-first/second/third.json",
+      "rootCause": "BC4 fixture requested unavailable vector channels; corrected scalar readMask. Test owner labels were outside existing allowed production submit categories; fixed test labels.",
+      "rerun": ".local/t4-2-residency-final-abi-retry.json"
+    },
+    {
+      "group": "oracle promotion",
+      "files": "t4-2-integration-latest.json",
+      "rootCause": "Oracle called new promotion API with textures instead of materials; minimum mip remained coarse. Correct material owner passed original independent PBR/coverage gates.",
+      "rerun": ".local/t4-2-integration-final-abi.json"
+    },
+    {
+      "group": "capacity device admission",
+      "files": "t4-2-capacity-latest.json",
+      "rootCause": "Capacity oracle device enabled only 8 storage buffers; actual packed Surface requires 10. Oracle now negotiates same production budget before building complete native descriptor.",
+      "rerun": ".local/t4-2-residency-final-abi-retry.json"
+    },
+    {
+      "group": "oracle handle",
+      "files": "t4-2-residency-final-abi.json",
+      "rootCause": "Oracle passed stage object rather than stage.handle to MaterialStore.release. Correct handle exercises fenced material and texture release.",
+      "rerun": ".local/t4-2-residency-final-abi-retry.json"
+    },
+    {
+      "group": "browser observation/artifact",
+      "files": "t4-2-component-run/retry.log",
+      "rootCause": "Native sampling constants were not refreshed after promotion; then readback evidence was absent although page assertions passed. Refreshed snapshot and recorded actual readback.",
+      "rerun": ".local/t4-2-component-final-abi.log"
+    }
+  ]
+}

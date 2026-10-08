@@ -4,7 +4,7 @@ import { compileCanonicalMaterial } from "../material/CanonicalMaterial.js";
 import type { CanonicalMaterial } from "../material/CanonicalMaterial.js";
 import type { CompiledAppearanceGraph } from "../material/AppearanceGraphCompiler.js";
 import { updateAppearanceFieldVersions } from "../material/AppearanceFieldIdentity.js";
-import type { TextureSurfacePublication } from "./TextureVariation.js";
+import type { TextureSurfacePublication } from "./TextureSurfacePublication.js";
 import type { ShadeTexture } from "../texture/ShadeTexture.js";
 import {
   GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE,
@@ -282,10 +282,7 @@ export class GpuMaterialStore {
             textureBindingSetId: association.textureBindingSetId,
             residencySlot: publication?.slot ?? 0,
             residencyRevision: publication?.revision ?? 0,
-            variationKnown: publication?.variation.known ?? false,
             samplingSignature: routeSignature,
-            variationLow: publication?.variation.low,
-            variationHigh: publication?.variation.high,
           });
           const routeSlot = slot * GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL + routeIndex;
           command.writeBuffer(

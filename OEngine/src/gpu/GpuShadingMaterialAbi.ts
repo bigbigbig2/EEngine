@@ -4,14 +4,14 @@ import {
   packGpuMaterialVisibilityRecord,
   type GpuMaterialVisibilityPackedSource,
 } from "./GpuMaterialVisibilityAbi.js";
-import { decodeGpuShadingBinId, GPU_SHADING_PROGRAM_COUNT } from "./GpuShadingProgramAbi.js";
+import { GPU_SHADING_PROGRAM_COUNT } from "./GpuShadingProgramAbi.js";
 import { GPU_CLOSURE_MATERIAL_STRIDE, GPU_CLOSURE_MATERIAL_WGSL } from "./GpuClosureMaterialAbi.js";
 
-export const GPU_SHADING_MATERIAL_ABI_VERSION = 7;
+export const GPU_SHADING_MATERIAL_ABI_VERSION = 8;
 export const GPU_SHADING_MATERIAL_HEADER_STRIDE = 48;
 export const GPU_SHADING_MATERIAL_RECORD_STRIDE =
   GPU_SHADING_MATERIAL_HEADER_STRIDE + GPU_MATERIAL_VISIBILITY_RECORD_STRIDE + GPU_CLOSURE_MATERIAL_STRIDE;
-export const GPU_SHADING_TEXTURE_ROUTE_STRIDE = 64;
+export const GPU_SHADING_TEXTURE_ROUTE_STRIDE = 32;
 export const GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL = 10;
 /** Publication-time facts, separate from Material Visibility payload flags. */
 export const GPU_SHADING_MATERIAL_FLAGS = Object.freeze({
@@ -50,10 +50,7 @@ export interface GpuShadingTextureRouteRecord {
   readonly textureBindingSetId: number;
   readonly residencySlot?: number;
   readonly residencyRevision?: number;
-  readonly variationKnown?: boolean;
   readonly samplingSignature?: number;
-  readonly variationLow?: readonly [number, number, number, number];
-  readonly variationHigh?: readonly [number, number, number, number];
 }
 
 export function packGpuShadingMaterialRecord(
@@ -129,15 +126,9 @@ export function packGpuShadingTextureRoute(route: GpuShadingTextureRouteRecord):
     route.textureBindingSetId,
     route.residencySlot ?? 0,
     route.residencyRevision ?? 0,
-    Number(route.variationKnown ?? false),
     route.samplingSignature ?? 0,
+    0,
   ].forEach((value, index) => view.setUint32(index * 4, value, true));
-  (route.variationLow ?? [0, 0, 0, 0]).forEach((value, index) =>
-    view.setFloat32(32 + index * 4, value, true),
-  );
-  (route.variationHigh ?? [1, 1, 1, 1]).forEach((value, index) =>
-    view.setFloat32(48 + index * 4, value, true),
-  );
   return bytes;
 }
 
@@ -160,20 +151,7 @@ export function unpackGpuShadingTextureRoute(
     textureBindingSetId: view.getUint32(12, true),
     residencySlot: view.getUint32(16, true),
     residencyRevision: view.getUint32(20, true),
-    variationKnown: view.getUint32(24, true) === 1,
-    samplingSignature: view.getUint32(28, true),
-    variationLow: [0, 1, 2, 3].map((index) => view.getFloat32(32 + index * 4, true)) as [
-      number,
-      number,
-      number,
-      number,
-    ],
-    variationHigh: [0, 1, 2, 3].map((index) => view.getFloat32(48 + index * 4, true)) as [
-      number,
-      number,
-      number,
-      number,
-    ],
+    samplingSignature: view.getUint32(24, true),
   };
   validateRoute(route);
   return Object.freeze(route);
@@ -206,10 +184,8 @@ struct OEngineShadingTextureRoute {
   texture_binding_set_id: u32,
   residency_slot: u32,
   residency_revision: u32,
-  variation_known: u32,
   sampling_signature: u32,
-  variation_low: vec4f,
-  variation_high: vec4f,
+  _pad: u32,
 };
 `;
 
@@ -221,10 +197,7 @@ function validateHeader(header: GpuShadingMaterialRecordHeader): void {
   ) {
     throw new RangeError("Shading material program id must be in [0, 15]");
   }
-  const bin = decodeGpuShadingBinId((header.textureBindingSetId << 4) | header.programId);
-  if (bin.textureBindingSetId !== header.textureBindingSetId) {
-    throw new RangeError("Shading material TextureBindingSet id must be in [0, 3]");
-  }
+  assertU32(header.textureBindingSetId, "material texture binding tuple id");
   assertNonZeroU32(header.materialGeneration, "material generation");
   assertNonZeroU32(header.textureGeneration, "texture generation");
   assertNonZeroU32(header.publicationRevision, "publication revision");
@@ -238,26 +211,9 @@ function validateRoute(route: GpuShadingTextureRouteRecord): void {
   assertU32(route.residencySlot ?? 0, "residency slot");
   assertU32(route.residencyRevision ?? 0, "residency revision");
   assertU32(route.samplingSignature ?? 0, "sampling signature");
-  const low = route.variationLow ?? [0, 0, 0, 0],
-    high = route.variationHigh ?? [1, 1, 1, 1];
-  if (
-    low.length !== 4 ||
-    high.length !== 4 ||
-    !low.every(
-      (value, index) => Number.isFinite(value) && Number.isFinite(high[index]) && value <= high[index]!,
-    )
-  ) {
-    throw new RangeError("Shading texture variation bounds are invalid");
-  }
   assertNonZeroU32(route.textureGeneration, "texture route generation");
   assertNonZeroU32(route.publicationRevision, "texture route publication revision");
-  if (
-    !Number.isInteger(route.textureBindingSetId) ||
-    route.textureBindingSetId < 0 ||
-    route.textureBindingSetId > 3
-  ) {
-    throw new RangeError("Texture route TextureBindingSet id must be in [0, 3]");
-  }
+  assertU32(route.textureBindingSetId, "texture route binding tuple id");
 }
 
 function assertNonZeroU32(value: number, label: string): void {

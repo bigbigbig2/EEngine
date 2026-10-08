@@ -16,7 +16,14 @@ export function collectLoadImageSources(
     const top = m as unknown as Record<string, { index: number } | undefined>;
     for (const g of loadImageSlots) {
       const p = top[g] ?? pbr[g];
-      if (p !== undefined) a.add(textures![p.index]!.source!);
+      if (p !== undefined) {
+        const texture = textures![p.index]!;
+        a.add(
+          texture.extensions?.KHR_texture_basisu?.source ??
+            texture.extensions?.EXT_texture_webp?.source ??
+            texture.source!,
+        );
+      }
     }
   }
   return a;

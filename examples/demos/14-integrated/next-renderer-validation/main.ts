@@ -1,9 +1,16 @@
 import {
-  createDefaultWebCookWorker, load_gltf, OrbitControls, PerspectiveCamera, Renderer, Scene,
+  createDefaultWebCookWorker,
+  load_gltf,
+  OrbitControls,
+  PerspectiveCamera,
+  Renderer,
+  Scene,
   webCookCatalogSceneFraming,
   type FrameProfileSnapshot,
-  type MultiProductSceneHandles, type WebCookCatalogSceneFramingV1,
-  type WebCookProductPublicationTiming, type WebCookRuntimeAsset
+  type MultiProductSceneHandles,
+  type WebCookCatalogSceneFramingV1,
+  type WebCookProductPublicationTiming,
+  type WebCookRuntimeAsset,
 } from "../../../../OEngine/src/index.ts";
 
 function element<T extends Element>(selector: string): T {
@@ -51,9 +58,18 @@ let failed = false;
 let gpuUnavailable = false;
 let firstCutReady = false;
 let refinementComplete = false;
-let cookProgress: { stage: string; units: number; total: number; elapsedMs: number;
-  timings: Readonly<Record<string, number>> } = {
-  stage: "catalog", units: 0, total: 0, elapsedMs: 0, timings: {}
+let cookProgress: {
+  stage: string;
+  units: number;
+  total: number;
+  elapsedMs: number;
+  timings: Readonly<Record<string, number>>;
+} = {
+  stage: "catalog",
+  units: 0,
+  total: 0,
+  elapsedMs: 0,
+  timings: {},
 };
 let publicationCount = 0;
 let publicationTotals = { waitMs: 0, runtimeMs: 0, mapMs: 0, mergeMs: 0, publishMs: 0 };
@@ -73,15 +89,19 @@ for (const input of [azimuthInput, elevationInput]) {
   input.addEventListener("change", publishSun);
 }
 publishSun();
-startButton.addEventListener("click", () => {
-  startButton.disabled = true;
-  startButton.hidden = true;
-  void start().catch(error => {
-    if (closed) return;
-    fail(error);
-    void release();
-  });
-}, { once: true });
+startButton.addEventListener(
+  "click",
+  () => {
+    startButton.disabled = true;
+    startButton.hidden = true;
+    void start().catch((error) => {
+      if (closed) return;
+      fail(error);
+      void release();
+    });
+  },
+  { once: true },
+);
 
 async function start(): Promise<void> {
   if (!navigator.gpu) throw new Error("当前浏览器不支持 WebGPU");
@@ -92,22 +112,22 @@ async function start(): Promise<void> {
     enablePhysicalEnvironment: !disableEnvironment,
     renderScale: 1,
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
-    textureMaxResolution: 1024
   });
   renderer.shadowVisibilityEnabled = false;
   renderer.xe_gtao_enabled = !disableGtao;
   renderer.fsr3_enabled = !bypassFsr3;
   renderer.bloom_enabled = !disableBloom;
   renderer.perf_gpu_counters_enabled = perfMode;
-  if (boundedFrame) renderer.packed_geometry_work_budget = {
-    maxTestedHierarchyNodes: 16384,
-    targetMeshletWork: 2048,
-    maxMeshletWork: 4096,
-    targetRasterVertices: 262144,
-    maxRasterVertices: 524288,
-    maxRiskyTriangles: 65536,
-    maxSetupBytes: 2 * 1024 * 1024
-  };
+  if (boundedFrame)
+    renderer.packed_geometry_work_budget = {
+      maxTestedHierarchyNodes: 16384,
+      targetMeshletWork: 2048,
+      maxMeshletWork: 4096,
+      targetRasterVertices: 262144,
+      maxRasterVertices: 524288,
+      maxRiskyTriangles: 65536,
+      maxSetupBytes: 2 * 1024 * 1024,
+    };
   setState("初始化 WebGPU", "loading");
   await renderer.initialize({ context });
   if (closed) return;
@@ -118,36 +138,48 @@ async function start(): Promise<void> {
   const worker = createDefaultWebCookWorker({
     maxCanonicalInputBytes: 128 * 1024 * 1024,
     maxDecodedProductBytes: 512 * 1024 * 1024,
-    runtimeProfile: "portable-single"
+    runtimeProfile: "portable-single",
   });
   asset = load_gltf(modelUrl, {
-    worker, runtimeProfile: "portable-single",
-    sessionId: `next-renderer-validation-${crypto.randomUUID()}`, sessionGeneration: 1,
+    worker,
+    runtimeProfile: "portable-single",
+    sessionId: `next-renderer-validation-${crypto.randomUUID()}`,
+    sessionGeneration: 1,
     budgets: {
-      maxConcurrentWorkers: 1, maxSourceBytes: 128 * 1024 * 1024,
-      maxWasmBytes: 128 * 1024 * 1024, maxOutputBytes: 256 * 1024 * 1024,
-      maxQueuedEvents: 1024
+      maxConcurrentWorkers: 1,
+      maxSourceBytes: 128 * 1024 * 1024,
+      maxWasmBytes: 128 * 1024 * 1024,
+      maxOutputBytes: 256 * 1024 * 1024,
+      maxQueuedEvents: 1024,
     },
-    initialOutputPageCredits: 64, maxBufferedPages: 64,
+    initialOutputPageCredits: 64,
+    maxBufferedPages: 64,
     maxBufferedBytes: 64 * 262144,
-    onSceneCatalogReady: catalog => {
+    onSceneCatalogReady: (catalog) => {
       framing = webCookCatalogSceneFraming(catalog, { fitHeight: 5.4, fitBase: [0, -1, 0] });
       element<HTMLElement>("#instance-count").textContent = String(catalog.instances.length);
     },
-    onProgress: progress => {
-      cookProgress = { stage: progress.stage, units: progress.units,
-        total: progress.catalogPrimitives, elapsedMs: progress.elapsedMs ?? 0,
-        timings: progress.timings };
+    onProgress: (progress) => {
+      cookProgress = {
+        stage: progress.stage,
+        units: progress.units,
+        total: progress.catalogPrimitives,
+        elapsedMs: progress.elapsedMs ?? 0,
+        timings: progress.timings,
+      };
       if (closed || refinementComplete) return;
-      const count = progress.catalogPrimitives > 0
-        ? ` ${progress.units}/${progress.catalogPrimitives}` : "";
+      const count = progress.catalogPrimitives > 0 ? ` ${progress.units}/${progress.catalogPrimitives}` : "";
       setState(`${firstCutReady ? "精化场景" : "加载场景"} · ${progress.stage}${count}`, "loading");
-    }
+    },
   });
   loading = renderer.uploadWebCookedMultiProductScene(scene, asset, {
-    signal: abort.signal, fitHeight: 5.4, fitBase: [0, -1, 0],
-    geometryOnly, singleLitMaterial, skipAuthoredTextures,
-    onProductPublicationTiming: timing => {
+    signal: abort.signal,
+    fitHeight: 5.4,
+    fitBase: [0, -1, 0],
+    geometryOnly,
+    singleLitMaterial,
+    skipAuthoredTextures,
+    onProductPublicationTiming: (timing) => {
       publicationCount++;
       lastPublication = timing;
       publicationTotals.waitMs += timing.sourceWaitMs;
@@ -155,8 +187,12 @@ async function start(): Promise<void> {
       publicationTotals.mapMs += timing.sceneMapMs;
       publicationTotals.mergeMs += timing.sourceMergeMs;
       publicationTotals.publishMs += timing.scenePublishMs;
-      if (loadOnly) setState(`加载 Product ${publicationCount} · ${Math.round(performance.now() - loadStartedAt)} ms`, "loading");
-    }
+      if (loadOnly)
+        setState(
+          `加载 Product ${publicationCount} · ${Math.round(performance.now() - loadStartedAt)} ms`,
+          "loading",
+        );
+    },
   });
   handles = await loading;
   if (closed) return;
@@ -185,8 +221,7 @@ async function start(): Promise<void> {
     }
     const interval = previous > 0 ? Math.max(1, now - previous) : 0;
     previous = now;
-    if (interval > 0) fps = fps === 0 ? 1000 / interval :
-      fps * 0.9 + (1000 / interval) * 0.1;
+    if (interval > 0) fps = fps === 0 ? 1000 / interval : fps * 0.9 + (1000 / interval) * 0.1;
     try {
       if (!perfMode) controls?.update(Math.min(0.1, (interval || 16.7) / 1000));
       camera.update();
@@ -195,11 +230,21 @@ async function start(): Promise<void> {
         throw new Error("WebGPU 设备已失效，渲染已停止");
       }
       const diagnostics = renderer.profiler.diagnostics;
-      if (diagnostics.validationErrorCount > 0 || diagnostics.uncapturedErrorCount > 0 || diagnostics.deviceLostCount > 0) {
+      if (
+        diagnostics.validationErrorCount > 0 ||
+        diagnostics.uncapturedErrorCount > 0 ||
+        diagnostics.deviceLostCount > 0
+      ) {
         gpuUnavailable = diagnostics.deviceLostCount > 0;
-        throw new Error(`GPU 验证失败，已停止提交（validation=${diagnostics.validationErrorCount}, uncaptured=${diagnostics.uncapturedErrorCount}）`);
+        throw new Error(
+          `GPU 验证失败，已停止提交（validation=${diagnostics.validationErrorCount}, uncaptured=${diagnostics.uncapturedErrorCount}）`,
+        );
       }
-      if (perfMode && perfStartFrame >= 0 && renderer.frame_count >= perfStartFrame + perfWarmup + perfFrames) {
+      if (
+        perfMode &&
+        perfStartFrame >= 0 &&
+        renderer.frame_count >= perfStartFrame + perfWarmup + perfFrames
+      ) {
         void completePerf();
       } else frameId = requestAnimationFrame(draw);
     } catch (error) {
@@ -214,18 +259,27 @@ async function start(): Promise<void> {
   if (closed || failed) return;
   refinementComplete = true;
   if (perfMode && renderer) {
-    renderer.profiler.configure({ enabled: true, gpuSampleInterval: 1,
-      gpuCounterSampleInterval: 8, historyCapacity: perfWarmup + perfFrames + 32 });
+    renderer.profiler.configure({
+      enabled: true,
+      gpuSampleInterval: 1,
+      gpuCounterSampleInterval: 8,
+      historyCapacity: perfWarmup + perfFrames + 32,
+    });
     renderer.profiler.setMode("record");
     perfStartFrame = renderer.frame_count;
     perfState.ready = true;
   }
   if (loadOnly) {
-    console.info("A-D scene loading diagnostics", JSON.stringify({
-      elapsedMs: Math.round(performance.now() - loadStartedAt),
-      publicationCount, totals: publicationTotals, lastPublication,
-      cookProgress
-    }));
+    console.info(
+      "A-D scene loading diagnostics",
+      JSON.stringify({
+        elapsedMs: Math.round(performance.now() - loadStartedAt),
+        publicationCount,
+        totals: publicationTotals,
+        lastPublication,
+        cookProgress,
+      }),
+    );
   }
   setState(loadOnly ? "场景已加载（未渲染）" : "场景已就绪", "ready");
   refresh();
@@ -265,12 +319,12 @@ function updateSunLabels(): void {
 
 function publishSun(): void {
   updateSunLabels();
-  const azimuth = Number(azimuthInput.value) * Math.PI / 180;
-  const elevation = Number(elevationInput.value) * Math.PI / 180;
-  scene.physical_environment.setSun([
-    Math.cos(elevation) * Math.cos(azimuth), Math.sin(elevation),
-    Math.cos(elevation) * Math.sin(azimuth)
-  ], [1.474, 1.8504, 1.91198]);
+  const azimuth = (Number(azimuthInput.value) * Math.PI) / 180;
+  const elevation = (Number(elevationInput.value) * Math.PI) / 180;
+  scene.physical_environment.setSun(
+    [Math.cos(elevation) * Math.cos(azimuth), Math.sin(elevation), Math.cos(elevation) * Math.sin(azimuth)],
+    [1.474, 1.8504, 1.91198],
+  );
 }
 
 function refresh(): void {
@@ -278,21 +332,25 @@ function refresh(): void {
   const graph = renderer.mainFrameGraphEvidence();
   const stages = graph?.program.stages ?? [];
   const expected = ["visibility", "surface", "temporal-facts", "fsr3", "radiometry", "bloom", "present"];
-  const connected = expected.every(stage => stages.includes(stage as typeof stages[number])) &&
-    !stages.includes("vsm");
+  const connected =
+    expected.every((stage) => stages.includes(stage as (typeof stages)[number])) && !stages.includes("vsm");
   element<HTMLElement>("#path-state").textContent = graph ? (connected ? "已接通" : "检查节点") : "等待首帧";
   element<HTMLElement>("#frame-rate").textContent = fps ? `${fps.toFixed(0)} fps` : "--";
   const diagnostics = renderer.profiler.diagnostics;
   element<HTMLElement>("#gpu-errors").textContent = String(
-    diagnostics.uncapturedErrorCount + diagnostics.validationErrorCount + diagnostics.deviceLostCount
+    diagnostics.uncapturedErrorCount + diagnostics.validationErrorCount + diagnostics.deviceLostCount,
   );
   fillList("#program-stages", stages);
-  fillList("#graph-passes", graph?.dump.passes.filter(pass => !pass.culled).map(pass => pass.name) ?? []);
+  fillList("#graph-passes", graph?.dump.passes.filter((pass) => !pass.culled).map((pass) => pass.name) ?? []);
 }
 
-function fillList(selector: string, values: readonly string[], className = (_value: string): string => ""): void {
+function fillList(
+  selector: string,
+  values: readonly string[],
+  className = (_value: string): string => "",
+): void {
   const list = element<HTMLOListElement>(selector);
-  const entries = (values.length ? values : ["等待首帧"]).map(value => {
+  const entries = (values.length ? values : ["等待首帧"]).map((value) => {
     const item = document.createElement("li");
     item.textContent = value;
     item.className = className(value);
@@ -304,22 +362,36 @@ function fillList(selector: string, values: readonly string[], className = (_val
 function exportDiagnostics(): void {
   const graph = renderer?.mainFrameGraphEvidence();
   const data = {
-    schema: "eengine-next-validation-v1", capturedAt: new Date().toISOString(),
-    mode: "baseline", modelUrl, adapter: renderer?.adapter_info,
-    geometryOnly, singleLitMaterial, skipAuthoredTextures, disableGtao,
-    bypassFsr3, disableBloom, disableEnvironment, boundedFrame, loadOnly,
+    schema: "eengine-next-validation-v1",
+    capturedAt: new Date().toISOString(),
+    mode: "baseline",
+    modelUrl,
+    adapter: renderer?.adapter_info,
+    geometryOnly,
+    singleLitMaterial,
+    skipAuthoredTextures,
+    disableGtao,
+    bypassFsr3,
+    disableBloom,
+    disableEnvironment,
+    boundedFrame,
+    loadOnly,
     sun: scene.physical_environment.snapshot(),
     camera: camera ? { position: camera.transform.position, near: camera.near, far: camera.far } : null,
     instances: handles?.current().source.count ?? 0,
     frameCount: renderer?.frame_count ?? 0,
     cookProgress,
-    loading: { elapsedMs: Math.round(performance.now() - loadStartedAt),
-      publicationCount, totals: publicationTotals, lastPublication },
+    loading: {
+      elapsedMs: Math.round(performance.now() - loadStartedAt),
+      publicationCount,
+      totals: publicationTotals,
+      lastPublication,
+    },
     cook: asset?.evidence(),
     diagnostics: renderer?.profiler.diagnostics,
     performance: perfReport ?? null,
     program: graph?.program ?? null,
-    graphPasses: graph?.dump.passes.filter(pass => !pass.culled).map(pass => pass.name) ?? []
+    graphPasses: graph?.dump.passes.filter((pass) => !pass.culled).map((pass) => pass.name) ?? [],
   };
   const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
   const link = document.createElement("a");
@@ -338,16 +410,44 @@ function percentile(values: number[], q: number): number | null {
 function summarizePerf(frames: FrameProfileSnapshot[]): Record<string, unknown> {
   const numbers = (select: (frame: FrameProfileSnapshot) => number | undefined) =>
     frames.map(select).filter((value): value is number => value !== undefined && Number.isFinite(value));
-  const pair = (values: number[]) => ({ p50: percentile([...values], 0.5), p95: percentile([...values], 0.95), count: values.length });
-  const gpuFrames = frames.filter(frame => frame.gpu.sampled && !frame.gpu.pending && frame.gpu.segments.length > 0);
-  const labels = new Set(gpuFrames.flatMap(frame => frame.gpu.segments.map(segment => segment.label)));
-  const gpuPasses = Object.fromEntries([...labels].sort().map(label => [label,
-    pair(gpuFrames.map(frame => frame.gpu.segments.filter(segment => segment.label === label)
-      .reduce((sum, segment) => sum + segment.durationMs, 0)))]));
-  const phases = new Set(gpuFrames.flatMap(frame => frame.gpu.segments.map(segment => segment.phase)));
-  const gpuPhases = Object.fromEntries([...phases].sort().map(phase => [phase,
-    pair(gpuFrames.map(frame => frame.gpu.segments.filter(segment => segment.phase === phase)
-      .reduce((sum, segment) => sum + segment.durationMs, 0)))]));
+  const pair = (values: number[]) => ({
+    p50: percentile([...values], 0.5),
+    p95: percentile([...values], 0.95),
+    count: values.length,
+  });
+  const gpuFrames = frames.filter(
+    (frame) => frame.gpu.sampled && !frame.gpu.pending && frame.gpu.segments.length > 0,
+  );
+  const labels = new Set(gpuFrames.flatMap((frame) => frame.gpu.segments.map((segment) => segment.label)));
+  const gpuPasses = Object.fromEntries(
+    [...labels]
+      .sort()
+      .map((label) => [
+        label,
+        pair(
+          gpuFrames.map((frame) =>
+            frame.gpu.segments
+              .filter((segment) => segment.label === label)
+              .reduce((sum, segment) => sum + segment.durationMs, 0),
+          ),
+        ),
+      ]),
+  );
+  const phases = new Set(gpuFrames.flatMap((frame) => frame.gpu.segments.map((segment) => segment.phase)));
+  const gpuPhases = Object.fromEntries(
+    [...phases]
+      .sort()
+      .map((phase) => [
+        phase,
+        pair(
+          gpuFrames.map((frame) =>
+            frame.gpu.segments
+              .filter((segment) => segment.phase === phase)
+              .reduce((sum, segment) => sum + segment.durationMs, 0),
+          ),
+        ),
+      ]),
+  );
   const moduleRules: Readonly<Record<string, RegExp>> = {
     GeometryVisibility: /R3-|S1 Product|VisibilityKey|visibility pass|Meshlet bucket/i,
     HZB: /HZB/i,
@@ -359,37 +459,83 @@ function summarizePerf(frames: FrameProfileSnapshot[]): Record<string, unknown> 
     FSR3: /FSR3/i,
     Radiometry: /Radiometry/i,
     Bloom: /Bloom/i,
-    Present: /Present/i
+    Present: /Present/i,
   };
-  const gpuModules = Object.fromEntries(Object.entries(moduleRules).map(([name, pattern]) => [name,
-    pair(gpuFrames.map(frame => frame.gpu.segments.filter(segment => pattern.test(segment.label))
-      .reduce((sum, segment) => sum + segment.durationMs, 0)))]));
-  const counterFrames = frames.filter(frame => frame.gpuCounters.sampled &&
-    !frame.gpuCounters.pending && !frame.gpuCounters.dropped);
-  const counterNames = new Set(counterFrames.flatMap(frame => Object.keys(frame.gpuCounters.values)));
-  const gpuWork = Object.fromEntries([...counterNames].sort().map(name => [name,
-    pair(counterFrames.map(frame => frame.gpuCounters.values[name as keyof typeof frame.gpuCounters.values])
-      .filter((value): value is number => value !== undefined))]));
-  const cpuLabels = new Set(frames.flatMap(frame => Object.keys(frame.cpuMs)));
-  const cpu = Object.fromEntries([...cpuLabels].sort().map(name => [name, pair(numbers(frame => frame.cpuMs[name]))]));
-  const hostCounters = new Set(frames.flatMap(frame => Object.keys(frame.counters)));
+  const gpuModules = Object.fromEntries(
+    Object.entries(moduleRules).map(([name, pattern]) => [
+      name,
+      pair(
+        gpuFrames.map((frame) =>
+          frame.gpu.segments
+            .filter((segment) => pattern.test(segment.label))
+            .reduce((sum, segment) => sum + segment.durationMs, 0),
+        ),
+      ),
+    ]),
+  );
+  const counterFrames = frames.filter(
+    (frame) => frame.gpuCounters.sampled && !frame.gpuCounters.pending && !frame.gpuCounters.dropped,
+  );
+  const counterNames = new Set(counterFrames.flatMap((frame) => Object.keys(frame.gpuCounters.values)));
+  const gpuWork = Object.fromEntries(
+    [...counterNames]
+      .sort()
+      .map((name) => [
+        name,
+        pair(
+          counterFrames
+            .map((frame) => frame.gpuCounters.values[name as keyof typeof frame.gpuCounters.values])
+            .filter((value): value is number => value !== undefined),
+        ),
+      ]),
+  );
+  const cpuLabels = new Set(frames.flatMap((frame) => Object.keys(frame.cpuMs)));
+  const cpu = Object.fromEntries(
+    [...cpuLabels].sort().map((name) => [name, pair(numbers((frame) => frame.cpuMs[name]))]),
+  );
+  const hostCounters = new Set(frames.flatMap((frame) => Object.keys(frame.counters)));
   return {
-    schema: "eengine-next-perf-v1", capturedAt: new Date().toISOString(),
-    gpu: renderer?.adapter_info, browser: navigator.userAgent,
-    scene: "dungeon_warkarma.glb", resolution: [perfWidth, perfHeight], dpr: 1,
-    renderScale: 1, vsm: false,
+    schema: "eengine-next-perf-v1",
+    capturedAt: new Date().toISOString(),
+    gpu: renderer?.adapter_info,
+    browser: navigator.userAgent,
+    scene: "dungeon_warkarma.glb",
+    resolution: [perfWidth, perfHeight],
+    dpr: 1,
+    renderScale: 1,
+    vsm: false,
     variants: { disableGtao, bypassFsr3, disableBloom, disableEnvironment, boundedFrame },
-    warmupFrames: perfWarmup, requestedFrames: perfFrames, measuredFrames: frames.length,
-    cpu, gpuFrameMs: pair(gpuFrames.map(frame => frame.gpu.segments.reduce(
-      (sum, segment) => sum + segment.durationMs, 0))), gpuPhases, gpuModules, gpuPasses, gpuWork,
-    hostCounters: Object.fromEntries([...hostCounters].sort().map(name => [name,
-      pair(numbers(frame => frame.counters[name]))])),
-    uploads: { writes: pair(numbers(frame => frame.uploads.writes)), bytes: pair(numbers(frame => frame.uploads.bytes)) },
-    readbacks: { count: pair(numbers(frame => frame.readbacks.count)), bytes: pair(numbers(frame => frame.readbacks.bytes)) },
-    submits: pair(numbers(frame => frame.submits.count)),
-    graph: Object.fromEntries(["builds", "compiles", "executes", "cacheHits", "cacheMisses", "cacheEvictions"]
-      .map(name => [name, pair(numbers(frame => frame.graph[name as keyof typeof frame.graph]))])),
-    memory: renderer?.memoryEvidence(), diagnostics: renderer?.profiler.diagnostics
+    warmupFrames: perfWarmup,
+    requestedFrames: perfFrames,
+    measuredFrames: frames.length,
+    cpu,
+    gpuFrameMs: pair(
+      gpuFrames.map((frame) => frame.gpu.segments.reduce((sum, segment) => sum + segment.durationMs, 0)),
+    ),
+    gpuPhases,
+    gpuModules,
+    gpuPasses,
+    gpuWork,
+    hostCounters: Object.fromEntries(
+      [...hostCounters].sort().map((name) => [name, pair(numbers((frame) => frame.counters[name]))]),
+    ),
+    uploads: {
+      writes: pair(numbers((frame) => frame.uploads.writes)),
+      bytes: pair(numbers((frame) => frame.uploads.bytes)),
+    },
+    readbacks: {
+      count: pair(numbers((frame) => frame.readbacks.count)),
+      bytes: pair(numbers((frame) => frame.readbacks.bytes)),
+    },
+    submits: pair(numbers((frame) => frame.submits.count)),
+    graph: Object.fromEntries(
+      ["builds", "compiles", "executes", "cacheHits", "cacheMisses", "cacheEvictions"].map((name) => [
+        name,
+        pair(numbers((frame) => frame.graph[name as keyof typeof frame.graph])),
+      ]),
+    ),
+    memory: renderer?.memoryEvidence(),
+    diagnostics: renderer?.profiler.diagnostics,
   };
 }
 
@@ -399,14 +545,20 @@ async function completePerf(): Promise<void> {
   // GPU timestamp and counter readbacks patch the existing profiler frames asynchronously.
   const deadline = performance.now() + 15000;
   while (performance.now() < deadline) {
-    const frames = renderer.profiler.history.filter(frame => frame.frameIndex >= first &&
-      frame.frameIndex < first + perfFrames);
-    if (frames.length === perfFrames && frames.every(frame => !frame.gpu.sampled || !frame.gpu.pending) &&
-        frames.every(frame => !frame.gpuCounters.sampled || !frame.gpuCounters.pending)) break;
-    await new Promise(resolve => window.setTimeout(resolve, 100));
+    const frames = renderer.profiler.history.filter(
+      (frame) => frame.frameIndex >= first && frame.frameIndex < first + perfFrames,
+    );
+    if (
+      frames.length === perfFrames &&
+      frames.every((frame) => !frame.gpu.sampled || !frame.gpu.pending) &&
+      frames.every((frame) => !frame.gpuCounters.sampled || !frame.gpuCounters.pending)
+    )
+      break;
+    await new Promise((resolve) => window.setTimeout(resolve, 100));
   }
-  const frames = renderer.profiler.history.filter(frame => frame.frameIndex >= first &&
-    frame.frameIndex < first + perfFrames);
+  const frames = renderer.profiler.history.filter(
+    (frame) => frame.frameIndex >= first && frame.frameIndex < first + perfFrames,
+  );
   perfReport = summarizePerf(frames);
   perfState.report = perfReport;
   perfState.complete = true;
@@ -448,4 +600,10 @@ async function release(): Promise<void> {
   }
 }
 
-window.addEventListener("pagehide", () => { void release(); }, { once: true });
+window.addEventListener(
+  "pagehide",
+  () => {
+    void release();
+  },
+  { once: true },
+);

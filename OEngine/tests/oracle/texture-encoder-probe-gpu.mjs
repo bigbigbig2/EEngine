@@ -1,4 +1,4 @@
-import { check, distribution } from "./texture-baseline-gpu.mjs";
+import { check, distribution } from "./texture-test-utils.mjs";
 
 const sparkRevision = "b9ea643a08cb9eef3a9ddc64564089bdd6fd0daf";
 const sparkSourceHash = "7d3cfe62db69ac317d8288ec6820fc896ab5a39731aa8f6802d34151e69dc469";

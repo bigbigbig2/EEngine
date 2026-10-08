@@ -1,6 +1,12 @@
 import { openRuntimeAssetPackageV2, writeRuntimeAssetPackageV2 } from "./RuntimeAssetManifestV2.js";
 import { encodedTextureMipByteLength, physicalTextureExtent } from "./codec/TextureFormatLayout.js";
-import type { TextureSemanticV2 } from "./TextureAssetPackage.js";
+export type TextureSemanticV2 =
+  | "base-color-srgb"
+  | "normal-linear"
+  | "orm-linear"
+  | "occlusion-linear"
+  | "alpha-mask"
+  | "emissive-srgb";
 
 export const PC_TEXTURE_INPUT_LIMIT = 128 * 1024 * 1024;
 export const PC_TEXTURE_OUTPUT_LIMIT = 128 * 1024 * 1024;
@@ -61,6 +67,11 @@ export interface TextureProduct {
     runtimeMipPasses: 0;
   }>;
 }
+const validatedProducts = new WeakSet<TextureProduct>();
+export function assertValidatedTextureProduct(product: TextureProduct): void {
+  if (!validatedProducts.has(product))
+    throw new Error("Texture Product must be created by the schema3 validator");
+}
 
 export function pcTextureStorageExtent(width: number, height: number): readonly [number, number] {
   dimension(width);
@@ -85,7 +96,7 @@ export function textureProductPayloadBytes(
   width: number,
   height: number,
   semantic: TextureSemanticV2,
-  exactAlpha: boolean
+  exactAlpha: boolean,
 ): number {
   const [w, h] = pcTextureStorageExtent(width, height);
   let bytes = 0;
@@ -108,7 +119,7 @@ export function textureProductPayloadBytes(
 export async function validateTextureProduct(
   metadata: TextureProductMetadata,
   chunks: ReadonlyMap<string, Uint8Array>,
-  packageBytes = 0
+  packageBytes = 0,
 ): Promise<TextureProduct> {
   if (metadata.schemaVersion !== 3) {
     throw new Error("Texture metadata requires schema3; recook schema2 asset");
@@ -143,7 +154,7 @@ export async function validateTextureProduct(
       "normal-linear",
       "orm-linear",
       "occlusion-linear",
-      "alpha-mask"
+      "alpha-mask",
     ].includes(metadata.semantic)
   ) {
     throw new Error("Texture semantic invalid");
@@ -176,7 +187,7 @@ export async function validateTextureProduct(
     "exactAlpha",
     "uvScaleBias",
     "recipe",
-    "planes"
+    "planes",
   ]);
   exactKeys(metadata.recipe, ["encoder", "revision", "binaryHash", "filter", "quality"]);
   const expectedRoles =
@@ -193,7 +204,7 @@ export async function validateTextureProduct(
     metadata.sourceWidth,
     metadata.sourceHeight,
     metadata.semantic,
-    metadata.exactAlpha
+    metadata.exactAlpha,
   );
   if (metadata.planes.length !== expectedRoles.length) {
     throw new Error("Texture plane count invalid");
@@ -222,7 +233,7 @@ export async function validateTextureProduct(
         "physicalHeight",
         "byteLength",
         "chunkId",
-        "hash"
+        "hash",
       ]);
       const mw = Math.max(1, Math.floor(w / 2 ** l)),
         mh = Math.max(1, Math.floor(h / 2 ** l));
@@ -268,23 +279,23 @@ export async function validateTextureProduct(
         sourceUri: undefined,
         sourceHash: undefined,
         sourceBytes: undefined,
-        planes: metadata.planes.map((p) => ({ role: p.role, format: p.format }))
-      })
-    )
+        planes: metadata.planes.map((p) => ({ role: p.role, format: p.format })),
+      }),
+    ),
   );
   const identity = await textureProductHash(
     new TextEncoder().encode(
       canonical({
         sourceHash: metadata.sourceHash,
         recipeHash,
-        payloads: metadata.planes.map((p) => p.mips.map((m) => m.hash))
-      })
-    )
+        payloads: metadata.planes.map((p) => p.mips.map((m) => m.hash)),
+      }),
+    ),
   );
   // Normalize through a private metadata copy; payloads are ownership hand-offs.
   const ownedMetadata = JSON.parse(JSON.stringify(metadata)) as TextureProductMetadata;
   deepFreeze(ownedMetadata);
-  return Object.freeze({
+  const product: TextureProduct = Object.freeze({
     metadata: ownedMetadata,
     identity,
     recipeHash,
@@ -296,9 +307,11 @@ export async function validateTextureProduct(
       coverageBytes,
       packageBytes,
       actualDecodedPeakBytes: null,
-      runtimeMipPasses: 0 as const
-    })
+      runtimeMipPasses: 0 as const,
+    }),
   });
+  validatedProducts.add(product);
+  return product;
 }
 
 export async function saveTextureProduct(product: TextureProduct): Promise<ArrayBuffer> {
@@ -323,12 +336,12 @@ export async function saveTextureProduct(product: TextureProduct): Promise<Array
             { name: "maxTextureArrayLayers", min: 1 },
             {
               name: "maxTextureDimension2D",
-              min: Math.max(product.metadata.storageWidth, product.metadata.storageHeight)
-            }
+              min: Math.max(product.metadata.storageWidth, product.metadata.storageHeight),
+            },
           ],
-          chunkIds: ["texture-metadata", ...product.chunks.keys()]
-        }
-      ]
+          chunkIds: ["texture-metadata", ...product.chunks.keys()],
+        },
+      ],
     },
     chunks: [
       {
@@ -338,7 +351,7 @@ export async function saveTextureProduct(product: TextureProduct): Promise<Array
         compression: "none",
         decodedBytes: data.byteLength,
         expectedResidentBytes: 0,
-        data
+        data,
       },
       ...product.metadata.planes.flatMap((plane) =>
         plane.mips.map((mip) => ({
@@ -348,10 +361,10 @@ export async function saveTextureProduct(product: TextureProduct): Promise<Array
           compression: plane.format,
           decodedBytes: mip.width * mip.height * (plane.role === "coverage" ? 1 : 4),
           expectedResidentBytes: mip.byteLength,
-          data: product.chunks.get(mip.chunkId)!
-        }))
-      )
-    ]
+          data: product.chunks.get(mip.chunkId)!,
+        })),
+      ),
+    ],
   });
 }
 
@@ -366,7 +379,7 @@ export async function openTextureProduct(bytes: ArrayBuffer): Promise<TexturePro
     throw new Error("Missing texture metadata");
   }
   const metadata = JSON.parse(
-    new TextDecoder("utf-8", { fatal: true }).decode(metadataBytes)
+    new TextDecoder("utf-8", { fatal: true }).decode(metadataBytes),
   ) as TextureProductMetadata;
   const chunks = new Map(runtime.chunks);
   chunks.delete("texture-metadata");
@@ -384,7 +397,7 @@ export async function openTextureProduct(bytes: ArrayBuffer): Promise<TexturePro
     canonical(v[0]!.requiredLimits) !==
       canonical([
         { name: "maxTextureArrayLayers", min: 1 },
-        { name: "maxTextureDimension2D", min: Math.max(metadata.storageWidth, metadata.storageHeight) }
+        { name: "maxTextureDimension2D", min: Math.max(metadata.storageWidth, metadata.storageHeight) },
       ]) ||
     canonical([...v[0]!.chunkIds].sort()) !== canonical([...runtime.chunks.keys()].sort())
   ) {
@@ -415,7 +428,8 @@ export function writeTextureProductPlane(
   planeIndex: number,
   target: GPUTexture,
   layer: number,
-  minMip = 0
+  minMip = 0,
+  onUploaded?: (bytes: number) => void,
 ): number {
   if (!device.features.has("texture-compression-bc")) {
     throw new Error("PC texture profile requires BC");
@@ -455,11 +469,12 @@ export function writeTextureProductPlane(
       product.chunks.get(mip.chunkId)! as Uint8Array<ArrayBuffer>,
       {
         bytesPerRow: mip.byteLength / (mip.physicalHeight / block),
-        rowsPerImage: mip.physicalHeight / block
+        rowsPerImage: mip.physicalHeight / block,
       },
-      { width: mip.physicalWidth, height: mip.physicalHeight, depthOrArrayLayers: 1 }
+      { width: mip.physicalWidth, height: mip.physicalHeight, depthOrArrayLayers: 1 },
     );
     bytes += mip.byteLength;
+    onUploaded?.(mip.byteLength);
   }
   return bytes;
 }

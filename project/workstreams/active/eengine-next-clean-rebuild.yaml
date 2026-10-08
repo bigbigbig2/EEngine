@@ -24,7 +24,7 @@ currentSlice:
     direct GPU upload, complete native consumers and fenced residency. Preserve M1/M2/M3
     foundations; unit states and acceptance live only in the texture execution authority.
     Product construction and validation follow the execution authority.
-    Production cutover requires the next authorized unit. Never run the excluded
+    Proceed only within the explicitly authorized unit boundary. Never run the excluded
     477MB authored workload. Do not start VT automatically.
 
 nextModules:

@@ -5,7 +5,7 @@ verifies:
   files:
     - project/workstreams/active/eengine-next-clean-rebuild.yaml
     - docs/next-design/eengine-v4-texture-compression-2026-10.md
-    - OEngine/src/assets/TextureAssetPackage.ts
+    - OEngine/src/assets/PcMaterialTextures.ts
     - OEngine/src/assets/TextureProduct.ts
     - OEngine/tools/texture-codec
     - OEngine/tools/build-pc-texture-codec.mjs
@@ -13,6 +13,9 @@ verifies:
     - OEngine/src/assets/web-cook
     - OEngine/src/loaders/gltf
     - OEngine/src/gpu/TextureResidency.ts
+    - OEngine/src/gpu/TextureSurfacePublication.ts
+    - OEngine/src/gpu/GpuShadingMaterialAbi.ts
+    - OEngine/src/gpu/GpuMaterialStore.ts
     - OEngine/src/gpu/NativeMaterialBindings.ts
     - OEngine/src/gpu/GpuNativeMaterialScene.ts
     - OEngine/src/gpu/GpuNativeMaterialPublication.ts
@@ -28,10 +31,13 @@ verifies:
     - OEngine/tests/oracle/pc-texture-import-gpu.mjs
     - OEngine/tests/contract/native-material-bindings.test.mjs
     - OEngine/tests/oracle/native-material-bindings-gpu.mjs
-    - OEngine/tests/oracle/texture-baseline-gpu.mjs
+    - OEngine/tests/oracle/pc-texture-residency-gpu.mjs
+    - OEngine/tests/oracle/texture-renderer-gpu.mjs
+    - OEngine/tests/contract/texture-residency.test.mjs
     - OEngine/tests/oracle/texture-encoder-probe-gpu.mjs
     - OEngine/benchmarks/texture-compression-t4-0.json
     - OEngine/benchmarks/texture-compression-t4-1.json
+    - OEngine/benchmarks/texture-compression-t4-2.json
     - tools/test-build.mjs
     - tools/gpu-oracle/registry.mjs
     - tools/gpu-oracle/server.mjs
@@ -42,7 +48,7 @@ verifies:
 
 # PC Texture Compression 执行计划
 
-本文件是Texture Compression slice的唯一单元状态/执行authority；架构与Source Map见[Design](../next-design/eengine-v4-texture-compression-2026-10.md)。全局不变量、失败分类沿用[V4 execution](./eengine-v4-native-shading-execution-2026-10.md#validation-failure-contract)和[VALIDATION](../VALIDATION.md)。T4.1仅构建非production产品；**T4.2 cutover与T4.3验收未开始**。用户明确排除400多MB模型，后续场景测试均不再运行它；改变的是验收workload范围，不是缩小同一个场景后声称等价。
+本文件是Texture Compression slice的唯一单元状态/执行authority；架构与Source Map见[Design](../next-design/eengine-v4-texture-compression-2026-10.md)。全局不变量、失败分类沿用[V4 execution](./eengine-v4-native-shading-execution-2026-10.md#validation-failure-contract)和[VALIDATION](../VALIDATION.md)。T4.2已完成唯一BC Residency生产切换与必需功能/生命周期检查（§11）；**T4.3 authored/performance验收未开始，整个Texture Compression slice尚未关闭**。用户明确排除400多MB模型，后续场景测试均不再运行它；改变的是验收workload范围，不是缩小同一个场景后声称等价。
 
 ## 1. 单元与停止边界
 
@@ -50,7 +56,7 @@ verifies:
 | ------------------------------------------- | ----------- | ------------------------------------------------------------------------------ | ------------------------------ |
 | T4.0 Current Texture Baseline & PC Contract | closed      | 当前source/quality/capability/成本与reference；有限 GPU encoder decision probe | baseline与采用裁决后STOP       |
 | T4.1 PC BC Texture Product                  | closed      | upstream cook/import→schema3/mips/planes；Spark DEFER，非production            | composite功能验证后STOP        |
-| T4.2 Production BC Residency Cutover        | not-started | GLB/WebCook→Residency→Material→Surface/main/VSM/Temporal，原子切换并删除旧路线 | 单一production owner验证后STOP |
+| T4.2 Production BC Residency Cutover        | closed      | GLB/WebCook→Residency→Material→Surface/main/VSM/Temporal，原子切换并删除旧路线 | 单一production owner验证后STOP |
 | T4.3 Texture Compression Acceptance         | not-started | 真实authored、quality、load/CPU/GPU、memory、lifecycle                         | 关闭slice后STOP，不自动开始VT  |
 
 只接受明确授权的当前单元；不因设计已ready自动执行后续。若用户授权完整slice，仍以连续责任单元闭合后集中验证，不每helper跑heavy场景。
@@ -59,13 +65,13 @@ verifies:
 
 第一轮源码审查 `579fd521b3e948ca2f3bb716aaec28f9d758cb0a`；Design V2 复核 HEAD/origin/master=`99ca968aced19cd8fbe99b2fec6320e16b8f79e0`。开始实施重新fetch/status/HEAD/remote，读workstream.authority和真实源码；不reset已有用户改动。用 `node tools/vibe.mjs context <path>` 定位owner和近目录AGENTS。
 
-已有foundation保留：TextureAssetPackage/RuntimeAsset container2、encoded mips、实际BC package upload、bounded WorkerPool/Service、transaction/refcount/generation、native exact resource bindings、progressive publication与fenced retirement。当前authored默认RGBA、BC5正常法线消费不成立、schema2 NPOT upload和重复header parser有缺口；不是从零Codec系统。
+以下为设计开工时事实，不是当前生产状态（当前见Design §1和本文§11）：已有foundation保留：TextureAssetPackage/RuntimeAsset container2、encoded mips、实际BC package upload、bounded WorkerPool/Service、transaction/refcount/generation、native exact resource bindings、progressive publication与fenced retirement。当前authored默认RGBA、BC5正常法线消费不成立、schema2 NPOT upload和重复header parser有缺口；不是从零Codec系统。
 
 生产目标冻结：2026 Chrome+ PC WebGPU BC-required、1650Ti4GB/1080p，唯一Renderer/统一frame submit。保留全部authored maps/quality、Geometry、Surface、Lighting/VSM/Temporal/FSR功能；不顺带优化别的模块、不建fallback matrix/Texture OS。
 
 ## 3. T4.0 — Current Texture Path Baseline & Production Contract
 
-### Entry / 源码闭包
+### Entry / 源码闭包（T4.0开工时名称，旧owner已于T4.2退休）
 
 先读下列owner及全部直接consumer：
 
@@ -137,7 +143,7 @@ T4.0合同冻结（§9）。Spark裁决DEFER，下面条件化任务7本轮不�
 ### Targeted 验证与功能 exit
 
 - typecheck、shader compile、build与fresh `npm --prefix OEngine run build:test`；先少量codec/package/ownership tests，再集中必要真实GPU。
-- 复用 `asset-codec-service.test.mjs`、`runtime-asset-v2.test.mjs`，增加新schema/坏chunk/fullmip/NPOT/channel/abort/loss意义断言；ReferenceTextureCodec仍test-only，不作生产quality证据。
+- 复用 `asset-codec-service.test.mjs`、`runtime-asset-v2.test.mjs`，增加新schema/坏chunk/fullmip/NPOT/channel/abort/loss意义断言；当时ReferenceTextureCodec仅test-only，不作生产quality证据；T4.2已删除，其必要语义由schema3/真实上游与native oracle验证。
 - 1K/2K/4K BC7sRGB/linear normal/ORM、BC4scalar、exactR8coverage、tail/NPOT完整chain；同source多material、不同sampler、不同semantic、differentUV不得乱pack。
 - CPU参考+真实GPU采样：sRGB只一次解码、signedZ/nonunitnormal、R/G/B/A映射、LOD/derivatives、repeat/clamp/mirror、main/VSM coverage等价。NPOT不报validationerror且原始/canonical质量预算通过。
 - Worker/init/queue/encode/transcode/ownedcopy/peak分别测小代表case，记录MEASURED/ESTIMATE/UNKNOWN。没有matched证据不改Basis standalone runtime决策。
@@ -346,7 +352,7 @@ NPOT全域ceil4存储、storage chain逐级floor到1×1、UV identity；provided
 
 T4.0统计缺陷已修：旧load evidence schema2拆为`rgbaEquivalentBytes`、全部已加载unique variation chunks的`retainedSidecarBytes`、`actualDecodedPeakBytes:null`。340B/496B以及双variant340B/992B分别断言，不把sidecar改名成decodepeak，不伪造真实峰值。
 
-**production仍是旧schema2/旧KTX Worker/旧GLB与WebCook/TextureResidency/native material链。** 本轮只新增非production产品和独立consumer，不增runtime selector或第二GPU owner；T4.2原子切换并退休旧依赖尚未开始。Spark DEFER；BC5/BC6H/VT未实施。
+**T4.1结束时production仍是旧schema2/旧KTX Worker/旧GLB与WebCook/TextureResidency/native material链。** 本轮只新增非production产品和独立consumer，不增runtime selector或第二GPU owner；T4.2原子切换并退休旧依赖尚未开始。Spark DEFER；BC5/BC6H/VT未实施。
 
 ### 10.2 验证与失败处理
 
@@ -371,4 +377,46 @@ BC4初始参考失败保留：upstreamCPU decoder floor到u8与hardware RGTC精�
 
 `typecheck/build`与fresh `build:test`通过；document-system7/7、docs-verify当前0findings/66historywarnings、vibe doctor/registry/context、scoped format与手写文件diff whitespace检查通过。upstream license/NOTICE原样复制的trailing spaces/EOF空行保留，不改授权文本来消除格式诊断。477MB模型未运行且后续禁止运行；authored Renderer scene/production source-cache teardown/真实预算/first-useful-frame/fullquality/frame P50/P95属于T4.2/T4.3，本轮NOT-RUN。跨GPU/browser、自然device loss和driver/host真实峰值未测，受控new-device replay不冒称这些已经完成。
 
-**T4.1 = closed（非production functional closure）；T4.2 / T4.3 = not-started。STOP。** 不自动切换Residency、不启动VT或其它模块。
+**历史T4.1停止点：T4.1 = closed（非production functional closure）；当时T4.2 / T4.3 = not-started。STOP。** 不自动切换Residency、不启动VT或其它模块。
+
+## 11. T4.2 实施结果（2026-10-09）
+
+### 11.1 原子切换与当前 owner
+
+开工fetch后HEAD=`2fdcab02114bd385f6830f96a9d76bd5ce3d2cbb`，origin/master=`b39f23a0e21a57c469cf2396d646ac80571fc48e`，初始工作区clean。机器归档：[texture-compression-t4-2.json](../../OEngine/benchmarks/texture-compression-t4-2.json)。最新dirty实现的source SHA256=`7c411d37f6d204431920badc589b55179e8d67923aef480dc0d5670d98b67112`，test build output SHA256=`782ab78f74952399973733217f8ca541d726a21d557592f5f2e872fd31e91ca2`；这些是源码/build内容身份，不把parent commit说成clean新实现。各oracle原始hash/设备/误差/错误与browser result/events/readback/screenshot校验和在归档中。
+
+GLTF/WebCook保持encoded image来源，支持KHR_texture_basisu；缺MIME只做cheap magic识别，不扩写KTX parser。所有Renderer scene publication入口先完成bounded cold preparation，再进入唯一TextureResidency。PcMaterialTextures按reachable graph leaves、semantic/channel/exactAlpha去重并完整批次替换CPU材质，ORM/AO共享保留完整通道；custom graph更新同native binding，已close bitmap保留replay source。Renderer destruction/loss取消cold任务，GPU stage前检查device epoch。default Worker由literal new URL交给Vite打包，真实source browser验证已使用此入口。
+
+Residency只接validated schema3 immutable Products，按format/storage extent/full mip chain的immutable array segments分配；neutral layer0、live层1..N，本批需求分配/复用free layer。logical handles4095，material-local slots0..15，global segments/tuples无旧4/16配额；完整lit descriptor与2GiB old+new/pending/retiring预算在allocation/write之前preflight。无独立material GPU source/resize/mip/variation或私有submit，cooked直接tight writeTexture，cold Basis/libktx/offline都是producer而非GPU owner。
+
+TextureRef ABI3、ShadingMaterial ABI8、texture route64→32B；移除variation packed字段和旧[0,3] route validator。tuple identity为完整u32，classification/bin不再截成两bit。native channel/BC与exactR8 plane、GpuRenderWorld/MaterialStore/publication、main Visibility/VSM alpha/Surface/Temporal共同切换；coverage两plane首次fullchain，其他tail-first→promotion。revision/clamp只在commit发布，abort已queue-write的fresh layer隔离到真实completion，rejected fence不授予复用，generation/object guard保护晚fence与替换。
+
+已删除metadata2 TextureAssetPackage、旧Planner/Service/codec Worker/header parser/重复libktx vendor、RGBA banks/settings/source resize、variation GPU owner/query/helper/tests和旧出口。CPU publication facts归TextureSurfacePublication，真实Appearance Products/normal moments与独立environment GPUTextureManager/MipmapGenerator保留。没有旧/新adapter、RGBA fallback、第二GPU ownership或本帧readback控制环。Spark、BC5、BC6H、VT均未实施。
+
+### 11.2 必需检查与真实 GPU 闭包
+
+GPU串行，Chrome154.0.8037.98 / NVIDIA Turing hardware adapter；最新ABI变更后重新集中跑下列受影响项，test source/build freshness gate均通过。native数值1e-4及coverage严格相等门限保持，完整Renderer HDR使用其既有独立reference gate，不能混成1e-4编码误差宣称。
+
+| 检查                             | 实际结果 / 证据边界                                                                                                                                                                                                                                                                                                   |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Node targeted                    | 最新62/62：Residency事务/共享/晚fence/underflow/queue部分失败账、ABI8完整u32 tuple65537、FrameProgram/native scene/packed world、resource stability、WorkerPool/RuntimeAsset/WebCook/glTF；另产品轻量positive 7/7此前通过。没有重跑不变的慢1K/2K/4K quality6完整矩阵                                                  |
+| PC Residency GPU                 | 76 samples、maxError0；NPOT/BC4 channel2/exactR8、promotion abort/retry、raw default Worker1/cooked0；22 segments/21 tuples、十map实MaterialStore publication、18 sampled full native Surface shader在19 sampled/10 storage device成功；fencedBytes0                                                                  |
+| Native material GPU              | standard/coated/unlit/custom/arithmetic、真实BC/R8 routes、梯度/LOD、packed Products/normal moments、stable/abort/retry/update/fence通过；正常Products maxError1.192e-7，独立native arithmetic maxError1.788e-7                                                                                                       |
+| Native Surface integration       | 独立PBR、normal/ORM/coat/custom、main/VSM alpha逐像素depth maxError0、motion、Temporal/FSR、resize/abort/retry通过；不是独立全场景性能验收                                                                                                                                                                            |
+| Product / Multi-Product Renderer | 两个实际production Renderer oracle通过，BC/R8 material、VSM8有效pages/22casters/overflow0、local light Scene swap、controlled device recovery/完整Scene release、stable graph cache hit16。cooked Worker0、material resize/mip/copy/privateSubmit0；恢复后卸载texture live/retiring/pending/quarantine/allocated全部0 |
+| Browser component                | fresh-disk Chrome source/Vite Worker真实raw128²→BC Residency→native sample；tail[0.984375,0.01599,0,1]→promoted[0,1,0,1]，BC allocated43,744B→fenced0。result/events/readback/screenshot/dispose/error gates通过；runner标diagnostic-only，不冒称authored acceptance                                                  |
+| External KTX Worker              | ETC1S/UASTC/Zstd真实bounded Worker、每mip BC7 layer1、maxError0、badimport→retry、active/queue/credits最终0通过。此import oracle也已在最新route ABI source/build上重跑；不是完整scene load验收                                                                                                                        |
+
+保留17份原failed GPU/baseline报告及checksum，不复写passed。baseline先修test assets/Worker接线/未settled disposal、完整multiProduct bootstrap与原有Geometry512MiB配置；未改Geometry算法。native fixture迁完整source mip域；scalar fixture只请求合法channel；oracle submit label回归已有owner分类。integration最初漏promotion因传textures而非materials，修test调用后同PBR gate通过。容量fixture原device只启8 storage，实际Surface需10，改与production相同协商；最后MaterialStore release错传stage而非stage.handle修正。browser初始promotion constants未刷新、随后缺readback evidence均分类保留并受影响重跑。没有调容差、删必要assertion或把production错误列为无关豁免。
+
+### 11.3 成本、文档与停止
+
+切换前补全原始dungeon Renderer baseline：完整7,990,584B GLB/SHA256 `cac0fc8c16d107e7ac4e69efde89c2cb6ef4bc66c34456a4dd0923218e5aafb1`、798 primitives/instances、25 materials/images/textures原2048²、1080p/scale1、camera[10,7,12]→[0,3,0]、exposure1/autoExposure false。warm20/sample30 CPU P50/P95/max=2.3/3.4/4.0ms，upload wall约12,363ms；旧texture allocated771,752,376B/live559,240,500B、variation32MiB、resize25，旧upload ledger0仅缺统计。此数据在新实现前采集，有原build/source身份；不与477MB历史数据混比。
+
+新Residency component测得4 Products初始6segments allocated3,174B/useful1,587B，接受的mip write共2,283B（含promotion/retry）→fenced allocated0；browser128² useful21,872B/allocated43,744B/upload21,904B。这是小组件实际账，**不能据此认证整个dungeon驻留、4GB全Renderer峰值或前后性能收益**。账按成功接受的逐mip写入累计，后续写失败不丢既有上传bytes；完整reserved chain、neutral/free/retiring计入allocated，RGBA-equivalent与actual peak分开。格式策略、quality6与完整authored源未降低。
+
+engine typecheck/production build/fresh build:test、validation typecheck通过；Vite产出default pc-texture-worker约1.796MB。文档/导航/current事实与退休owner同步更新；最终docs-verify 0 findings/66 historical warnings、document-system7/7、build freshness/JSON3/3、GPU host contract45/45、vibe doctor/registry均通过；69个手写变更文件format与diff检查通过，生成registry按生成器内容校验，不为Prettier重写；三个新增/重写owner的style guard为0 findings。Shader代码/codec来源未因文档收尾再改。
+
+**NOT-RUN / 下一单元必测：** dungeon after-cutover完整authored闭包、coldraw与persisted cookeddirect load/readiness/full-quality、同条件CPU/GPU P50/P95与全目录预算/fragmentation峰值属于T4.3；不能把§9 forecast当实测。真实browser decode/driver host/GPU峰值、crossGPU/browser、自然driver loss未测；当前只有软件ledger与controlled loss。477MB模型永久excluded，本轮及后续均不自动运行。没有production dist完整browser场景验收，不把source/Vite Worker组件通过说成所有打包入口已验收。
+
+**T4.2 = closed；T4.3 = not-started；Texture Compression slice = 尚未验收关闭。STOP。** 不自动进入T4.3、VT、Lighting或其它模块。

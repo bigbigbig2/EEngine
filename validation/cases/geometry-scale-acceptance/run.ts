@@ -7,7 +7,7 @@ import {
   createDefaultWebCookWorker,
   load_gltf,
   type WebCookRuntimeAsset,
-  type MultiProductSceneHandles
+  type MultiProductSceneHandles,
 } from "../../../OEngine/src/index.ts";
 import { decodeFloat16 } from "../../../OEngine/src/core/Float16.ts";
 import { summarizeGpuTimingCost } from "../../../OEngine/src/debug/GpuTimingCost.ts";
@@ -24,7 +24,7 @@ export async function runAuthoredScaleAcceptance(lighting = false) {
     bytes: 477591060,
     triangles: 4871612,
     primitives: 1920,
-    sha256: "54b608872aec11ce07b26fad6c0ad14a662314e6480bf8d833e5088b59c9851f"
+    sha256: "54b608872aec11ce07b26fad6c0ad14a662314e6480bf8d833e5088b59c9851f",
   };
   const canvas = document.querySelector<HTMLCanvasElement>("#output")!;
   const status = document.querySelector<HTMLPreElement>("#status")!;
@@ -39,9 +39,9 @@ export async function runAuthoredScaleAcceptance(lighting = false) {
   const controller = createValidationController(
     {
       caseId: lighting ? "lighting-acceptance" : "geometry-scale-acceptance",
-      workloadId: lighting ? "lighting-acceptance-v1" : "geometry-scale-acceptance-v1"
+      workloadId: lighting ? "lighting-acceptance-v1" : "geometry-scale-acceptance-v1",
     },
-    dispose
+    dispose,
   );
   function check(value: unknown, message: string): asserts value {
     if (!value) throw new Error(message);
@@ -53,7 +53,7 @@ export async function runAuthoredScaleAcceptance(lighting = false) {
       count: sorted.length,
       p50: sorted[Math.ceil(sorted.length * 0.5) - 1],
       p95: sorted[Math.ceil(sorted.length * 0.95) - 1],
-      max: sorted.at(-1)
+      max: sorted.at(-1),
     };
   }
   async function dispose() {
@@ -63,7 +63,7 @@ export async function runAuthoredScaleAcceptance(lighting = false) {
         const released = geometryProductGpuBudgetEvidence(renderer!.device);
         check(
           released.totalBytes === 0 && released.allocations === 0 && released.metadataAllocations === 0,
-          "Recovered Scene unload retained Product GPU ownership before Renderer destruction"
+          "Recovered Scene unload retained Product GPU ownership before Renderer destruction",
         );
         controller.addEvidence("releasedSceneProductCapacity", released);
         await releaseRecoveredScene?.(); // Repeat unload must be safe.
@@ -92,16 +92,10 @@ export async function runAuthoredScaleAcceptance(lighting = false) {
         mounted.status === 206 &&
           mounted.headers.get("x-source-sha256") === frozen.sha256 &&
           mounted.headers.get("content-range") === `bytes 0-11/${frozen.bytes}`,
-        "Frozen source unavailable"
+        "Frozen source unavailable",
       );
       controller.addEvidence("source", frozen);
-      // Frozen catalog image headers and the mapper's image/sampler/usage keys:
-      // 4 <=256px routes, 514 >256px routes. Four compatible 512px physical
-      // banks provide 516 usable layers; quality and the existing 2GiB cap stay.
-      const textureBankMaxCapacities = [64, 130, 130, 130, 130] as const;
-      // Complete K0 packing measured 1,332 pinned slots (333MiB). The default
-      // 128MiB is a valid negative admission case, not a complete-scene budget.
-      // Four 96MiB banks leave 204 slots (51MiB) for demand-driven refinement.
+      // Historical RGBA capacity/512px policy retired by T4.2; original artifacts retain their identity.
       const geometryCapacityBytes = 384 * MiB;
       controller.addEvidence("geometryCapacityPlan", {
         activationPages: 655,
@@ -112,23 +106,13 @@ export async function runAuthoredScaleAcceptance(lighting = false) {
         refinementHeadroomBytes: 51 * MiB,
         metadataBytes: 64 * MiB,
         policy:
-          "Measured complete activation footprint; existing application configuration, unchanged 512MiB bank ceiling"
-      });
-      controller.addEvidence("textureCapacityPlan", {
-        uniqueTextureRoutes: 518,
-        smallRoutes: 4,
-        largeRoutes: 514,
-        textureBankMaxCapacities,
-        maximumRgbaBankBytes: 749381536,
-        policy: "Existing application capacity configuration; no TextureResidency owner change"
+          "Measured complete activation footprint; existing application configuration, unchanged 512MiB bank ceiling",
       });
       const started = performance.now();
       renderer = new Renderer({
         autoExposure: false,
         fixedExposure: 1,
-        textureMaxResolution: 512,
-        textureBankMaxCapacities,
-        requiredFeatures: ["timestamp-query"]
+        requiredFeatures: ["timestamp-query"],
       });
       const context = canvas.getContext("webgpu");
       check(context, "WebGPU canvas unavailable");
@@ -151,7 +135,7 @@ export async function runAuthoredScaleAcceptance(lighting = false) {
           maxSessionSpillBytes: 1024 * MiB,
           maxTrianglesPerProduct: 131072,
           maxVerticesPerProduct: 524288,
-          maxDomainsPerProduct: 64
+          maxDomainsPerProduct: 64,
         }),
         runtimeProfile: "portable-single",
         sessionId: `geometry-scale-${crypto.randomUUID()}`,
@@ -161,12 +145,12 @@ export async function runAuthoredScaleAcceptance(lighting = false) {
           maxSourceBytes: 128 * MiB,
           maxWasmBytes: 512 * MiB,
           maxOutputBytes: 128 * MiB,
-          maxQueuedEvents: 2048
+          maxQueuedEvents: 2048,
         },
         initialOutputPageCredits: 128,
         maxBufferedPages: 128,
         maxBufferedBytes: 32 * MiB,
-        onProductTaskTrace: (trace) => controller.addEvidence("currentTask", trace)
+        onProductTaskTrace: (trace) => controller.addEvidence("currentTask", trace),
       });
       handles = await renderer.uploadWebCookedMultiProductScene(scene, asset, {
         fitHeight: 10,
@@ -176,7 +160,7 @@ export async function runAuthoredScaleAcceptance(lighting = false) {
         onProductPublicationTiming: (timing) => {
           publications.push(timing);
           status.textContent = `Published ${timing.shardIndex} Products (not yet settled)`;
-        }
+        },
       });
       await handles.settled();
       if (lighting) {
@@ -198,13 +182,13 @@ export async function runAuthoredScaleAcceptance(lighting = false) {
             position: [light.position.x, light.position.y, light.position.z],
             distance: light.distance,
             radius: light.radius,
-            intensity: light.intensity
+            intensity: light.intensity,
           });
         }
         controller.addEvidence("lightingWorkload", {
           seed: 3303,
           lights,
-          threshold: "NONE/SPARSE; automatic nonzero DIRECT disabled"
+          threshold: "NONE/SPARSE; automatic nonzero DIRECT disabled",
         });
       }
       const catalog = asset.catalog;
@@ -218,7 +202,7 @@ export async function runAuthoredScaleAcceptance(lighting = false) {
         if (task.spatial) {
           check(
             task.sceneAssetIndices.length === 1 && task.shardOrdinal !== undefined && task.shardCount,
-            "Missing spatial task identity"
+            "Missing spatial task identity",
           );
           const index = task.sceneAssetIndices[0]!;
           const set = shards.get(index) ?? new Set<number>();
@@ -244,12 +228,12 @@ export async function runAuthoredScaleAcceptance(lighting = false) {
         covered.size === frozen.primitives &&
           [...covered.values()].reduce((a, b) => a + b, 0) === frozen.triangles &&
           catalog.primitives.every((p) => covered.get(p.catalogIndex) === p.triangleCount),
-        "Authored source triangle union incomplete"
+        "Authored source triangle union incomplete",
       );
       check(
         handles.current().shardCount === completed.length &&
           handles.runtime.evidence().active === completed.length,
-        "Not every cooked Product is active"
+        "Not every cooked Product is active",
       );
       controller.addEvidence("publication", {
         settledMs: performance.now() - started,
@@ -259,7 +243,7 @@ export async function runAuthoredScaleAcceptance(lighting = false) {
         instanceCount: handles.current().source.count,
         timings: publications,
         runtime: handles.runtime.evidence(),
-        producer: asset.evidence()
+        producer: asset.evidence(),
       });
       controller.transition("ready");
       controller.transition("warming");
@@ -323,7 +307,7 @@ export async function runAuthoredScaleAcceptance(lighting = false) {
             if (first === 0 && !recovered) {
               controller.addEvidence("startup", {
                 firstProductionFrameCompletedMs: performance.now() - started,
-                policy: "Full authored settlement precedes the first frame; not progressive-load TTFMF"
+                policy: "Full authored settlement precedes the first frame; not progressive-load TTFMF",
               });
             }
             return ms;
@@ -353,21 +337,21 @@ export async function runAuthoredScaleAcceptance(lighting = false) {
           const row = Math.ceil((prepared.width * 8) / 256) * 256;
           capture = gpu.createBuffer({
             size: row * prepared.height,
-            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
           });
           encoder.copyTextureToBuffer({ texture: prepared.output }, { buffer: capture, bytesPerRow: row }, [
             prepared.width,
-            prepared.height
+            prepared.height,
           ]);
           const winnerRow = Math.ceil((prepared.width * 4) / 256) * 256;
           winnerCapture = gpu.createBuffer({
             size: winnerRow * prepared.height,
-            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
           });
           encoder.copyTextureToBuffer(
             { texture: prepared.visibility },
             { buffer: winnerCapture, bytesPerRow: winnerRow },
-            [prepared.width, prepared.height]
+            [prepared.width, prepared.height],
           );
         };
       };
@@ -408,14 +392,14 @@ export async function runAuthoredScaleAcceptance(lighting = false) {
         gpuSampleInterval: 1,
         gpuCounterSampleInterval: 1,
         gpuTimingMode: "full",
-        historyCapacity: 512
+        historyCapacity: 512,
       });
       renderer.perf_gpu_counters_enabled = true;
       const records = [];
       controller.transition("sampling");
       for (const [name, distance] of [
         ["near", 10],
-        ["far", 35]
+        ["far", 35],
       ] as const) {
         camera.transform.position.set(0, 5, distance);
         camera.transform.lookAt({ x: 0, y: 5, z: 0 });
@@ -432,7 +416,7 @@ export async function runAuthoredScaleAcceptance(lighting = false) {
             enabled: true,
             gpuTimingMode: "full",
             gpuSampleInterval: 1,
-            gpuCounterSampleInterval: 1
+            gpuCounterSampleInterval: 1,
           });
           renderer.perf_gpu_counters_enabled = true;
         }
@@ -447,13 +431,13 @@ export async function runAuthoredScaleAcceptance(lighting = false) {
         for (let attempt = 0; attempt < 100; ++attempt) {
           const count = renderer.profiler.history.filter(
             (p) =>
-              p.frameIndex >= first && p.frameIndex < first + sampleFrames && p.gpu.sampled && !p.gpu.pending
+              p.frameIndex >= first && p.frameIndex < first + sampleFrames && p.gpu.sampled && !p.gpu.pending,
           ).length;
           if (count === sampleFrames) break;
           await new Promise((resolve) => setTimeout(resolve, 5));
         }
         const profiles = renderer.profiler.history.filter(
-          (p) => p.frameIndex >= first && p.frameIndex < first + sampleFrames
+          (p) => p.frameIndex >= first && p.frameIndex < first + sampleFrames,
         );
         check(
           profiles.length === sampleFrames &&
@@ -465,16 +449,16 @@ export async function runAuthoredScaleAcceptance(lighting = false) {
                 p.submits.count === 1 &&
                 p.gpu.mode === "full" &&
                 p.gpu.segments.some(
-                  (segment) => segment.scope === "pass" && segment.label.includes("Geometry/frame_")
-                )
+                  (segment) => segment.scope === "pass" && segment.label.includes("Geometry/frame_"),
+                ),
             ),
-          "Incomplete production timing or extra submit"
+          "Incomplete production timing or extra submit",
         );
         const costs = profiles.map((p) => summarizeGpuTimingCost(p.gpu.segments));
         if (lighting) {
           check(
             profiles.every((p) => p.gpuCounters?.values.localLightAdmitted === 32),
-            "Production lighting lost authored local lights"
+            "Production lighting lost authored local lights",
           );
         }
         records.push({
@@ -488,16 +472,16 @@ export async function runAuthoredScaleAcceptance(lighting = false) {
                 ["publication", "prepare", "encode"].map((key) => [
                   key,
                   distribution(
-                    profiles.map((p) => lightCpu.get(p.frameIndex)![key as keyof typeof currentCpu])
-                  )
-                ])
+                    profiles.map((p) => lightCpu.get(p.frameIndex)![key as keyof typeof currentCpu]),
+                  ),
+                ]),
               )
             : null,
           gpuFrameMs: distribution(
             costs.map((c) => {
               check(c.commandSpanMs !== null, "No frame span");
               return c.commandSpanMs;
-            })
+            }),
           ),
           profiles,
           output: await inspect(),
@@ -505,7 +489,7 @@ export async function runAuthoredScaleAcceptance(lighting = false) {
           productCapacity: geometryProductGpuBudgetEvidence(gpu),
           resourceLedger: renderer.graphics.resource_accounting.snapshot(),
           runtime: handles.runtime.evidence(),
-          streaming: handles.streaming?.evidence() ?? null
+          streaming: handles.streaming?.evidence() ?? null,
         });
         controller.addEvidence("scale", records);
       }
@@ -542,7 +526,7 @@ export async function runAuthoredScaleAcceptance(lighting = false) {
         oldCapacity.totalBytes === 0 &&
           oldCapacity.allocations === 0 &&
           oldCapacity.metadataAllocations === 0,
-        "Lost device retained authored Product GPU ownership after recovery"
+        "Lost device retained authored Product GPU ownership after recovery",
       );
       controller.addEvidence("releasedOldEpochProductCapacity", oldCapacity);
       gpu = renderer.device;
@@ -553,11 +537,11 @@ export async function runAuthoredScaleAcceptance(lighting = false) {
       const afterRecovery = renderer.geometryStreamingEvidence(scene);
       check(
         Reflect.get(renderer, "deviceEpoch") === 2 && afterRecovery?.products.length === completed.length,
-        "Device recovery did not replay every authored Product"
+        "Device recovery did not replay every authored Product",
       );
       check(
         new Set(afterRecovery.products.map((p) => p.productGeneration)).size === completed.length,
-        "Recovered Product identities alias generations"
+        "Recovered Product identities alias generations",
       );
       check(renderer.geometryStreamingError() === null, "Recovered source replay/streaming failed");
       controller.addEvidence("recovery", {
@@ -566,7 +550,7 @@ export async function runAuthoredScaleAcceptance(lighting = false) {
         output: await inspect(),
         memory: renderer.memoryEvidence(),
         productCapacity: geometryProductGpuBudgetEvidence(gpu),
-        limitation: "Controlled device destruction; not a driver fault"
+        limitation: "Controlled device destruction; not a driver fault",
       });
       controller.transition("draining");
       await gpu.queue.onSubmittedWorkDone();
@@ -574,7 +558,7 @@ export async function runAuthoredScaleAcceptance(lighting = false) {
       const released = geometryProductGpuBudgetEvidence(gpu);
       check(
         released.totalBytes === 0 && released.allocations === 0 && released.metadataAllocations === 0,
-        "Authored Product GPU ownership retained after teardown"
+        "Authored Product GPU ownership retained after teardown",
       );
       controller.addEvidence("releasedProductCapacity", released);
       controller.pass();
@@ -587,7 +571,7 @@ export async function runAuthoredScaleAcceptance(lighting = false) {
         producer: asset?.evidence() ?? null,
         memory: renderer?.memoryEvidence() ?? null,
         textures: renderer?.graphics.texture_residency_if_created?.evidence() ?? null,
-        productCapacity: renderer ? geometryProductGpuBudgetEvidence(renderer.device) : null
+        productCapacity: renderer ? geometryProductGpuBudgetEvidence(renderer.device) : null,
       });
       controller.fail(error instanceof Error ? (error.stack ?? error.message) : String(error));
     }

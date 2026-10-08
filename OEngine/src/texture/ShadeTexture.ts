@@ -4,7 +4,7 @@
 
 import { hashMix, hashOptional } from "../core/hashMix.js";
 import { hashString } from "../core/memoryUtils.js";
-import type { TextureAssetPackageV2 } from "../assets/TextureAssetPackage.js";
+import type { TextureProduct } from "../assets/TextureProduct.js";
 import { ShadeTextureFlags } from "./ShadeTextureFlags.js";
 import { TextureFilterType } from "./TextureFilterType.js";
 import { ShadeImage } from "./ShadeImage.js";
@@ -40,7 +40,7 @@ export class ShadeTexture {
   }
 
   #image: ShadeImage | undefined;
-  #runtimeAssetPackageV2: TextureAssetPackageV2 | undefined;
+  #textureProduct: TextureProduct | undefined;
 
   get isShadeTexture(): boolean {
     return true;
@@ -51,8 +51,8 @@ export class ShadeTexture {
   }
 
   /** Device-independent cooked source consumed by TextureResidency. */
-  get runtime_asset_package_v2(): TextureAssetPackageV2 | undefined {
-    return this.#runtimeAssetPackageV2;
+  get texture_product(): TextureProduct | undefined {
+    return this.#textureProduct;
   }
 
   setFlag(flag: number): void {
@@ -93,9 +93,9 @@ export class ShadeTexture {
     return t;
   }
 
-  static fromAssetPackageV2(source: TextureAssetPackageV2): ShadeTexture {
+  static fromProduct(source: TextureProduct): ShadeTexture {
     const texture = new ShadeTexture();
-    texture.#runtimeAssetPackageV2 = source;
+    texture.#textureProduct = source;
     texture.flags = 0;
     return texture;
   }
@@ -104,9 +104,7 @@ export class ShadeTexture {
     return hashMix(
       this.appearance_content_version === undefined ? 0 : hashString(this.appearance_content_version),
       hashOptional(this.#image),
-      this.#runtimeAssetPackageV2 === undefined
-        ? 0
-        : hashString(this.#runtimeAssetPackageV2.runtime.manifest.assetId),
+      this.#textureProduct === undefined ? 0 : hashString(this.#textureProduct.identity),
       this.flags,
       this.minFilter,
       this.magFilter,
@@ -121,7 +119,7 @@ export class ShadeTexture {
     return (
       this.appearance_content_version === other.appearance_content_version &&
       this.#image === other.#image &&
-      this.#runtimeAssetPackageV2 === other.#runtimeAssetPackageV2 &&
+      this.#textureProduct === other.#textureProduct &&
       this.flags === other.flags &&
       this.minFilter === other.minFilter &&
       this.magFilter === other.magFilter &&

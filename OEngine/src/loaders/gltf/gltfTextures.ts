@@ -54,10 +54,16 @@ export interface GltfTextureDef {
   sampler?: number;
   extensions?: {
     EXT_texture_webp?: { source?: number };
+    KHR_texture_basisu?: { source?: number };
   };
 }
 
-export function imageFromBitmap(bitmap: ImageBitmap): ShadeImage {
+export function imageFromBitmap(
+  bitmap: ImageBitmap | { encodedSource?: ArrayBuffer; mimeType?: string },
+): ShadeImage {
+  if ("encodedSource" in bitmap && bitmap.encodedSource)
+    return ShadeImage.fromEncodedImage(bitmap.encodedSource, bitmap.mimeType ?? "application/octet-stream");
+  if (!("width" in bitmap)) throw new Error("glTF image source was not loaded");
   return ShadeImage.fromImageBitmap(bitmap);
 }
 
@@ -68,7 +74,7 @@ export function textureFromGltf(
 ): ShadeTexture {
   let sourceIndex: number | undefined;
   const s = texDef.extensions;
-  if (s !== undefined) sourceIndex = s.EXT_texture_webp?.source;
+  if (s !== undefined) sourceIndex = s.KHR_texture_basisu?.source ?? s.EXT_texture_webp?.source;
   if (sourceIndex === undefined) sourceIndex = texDef.source;
   const img = images[sourceIndex!]!;
 

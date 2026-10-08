@@ -122,7 +122,12 @@ export function buildGlbSceneCatalog(source: GlbRangeReadableSource): GlbSceneCa
   // EXT_texture_webp is decoded by the same browser createImageBitmap path as
   // PNG/JPEG payloads; keeping it in the catalog contract lets the Dungeon GLB
   // reach Product admission instead of failing before any source Range.
-  const supportedRequired = new Set(["KHR_texture_transform", "KHR_materials_unlit", "EXT_texture_webp"]);
+  const supportedRequired = new Set([
+    "KHR_texture_transform",
+    "KHR_materials_unlit",
+    "EXT_texture_webp",
+    "KHR_texture_basisu",
+  ]);
   for (const extension of requiredExtensions)
     if (!supportedRequired.has(extension))
       throw new Error(`GLB requires unsupported extension '${extension}'`);
@@ -399,7 +404,7 @@ interface GltfMaterial {
 interface GltfTexture {
   source?: unknown;
   sampler?: unknown;
-  extensions?: { EXT_texture_webp?: { source?: unknown } };
+  extensions?: { EXT_texture_webp?: { source?: unknown }; KHR_texture_basisu?: { source?: unknown } };
 }
 interface GltfImage {
   uri?: unknown;
@@ -802,7 +807,10 @@ function textureSlot(
 function textureInfos(document: GltfCatalogDocument): readonly GlbCookTextureInfo[] {
   return Object.freeze(
     (document.textures ?? []).map((texture, index) => {
-      const source = texture.source ?? texture.extensions?.EXT_texture_webp?.source;
+      const source =
+        texture.extensions?.KHR_texture_basisu?.source ??
+        texture.extensions?.EXT_texture_webp?.source ??
+        texture.source;
       if (!Number.isSafeInteger(source) || (source as number) < 0) {
         throw new Error(`GLB texture ${index} source is invalid`);
       }

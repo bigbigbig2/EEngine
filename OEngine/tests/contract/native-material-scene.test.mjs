@@ -4,7 +4,7 @@ import { AppearanceProgramRegistry } from "../../.test-dist/gpu/AppearanceProgra
 import { StandardShadeMaterial } from "../../.test-dist/material/StandardShadeMaterial.js";
 import {
   AppearanceGraphBuilder,
-  snapshotAppearanceTexture
+  snapshotAppearanceTexture,
 } from "../../.test-dist/material/AppearanceGraph.js";
 import { lowerStandardAppearanceGraph } from "../../.test-dist/material/StandardAppearanceGraph.js";
 import { compileAppearanceGraph } from "../../.test-dist/material/AppearanceGraphCompiler.js";
@@ -32,7 +32,7 @@ function fixture() {
       maxUniformBuffersPerShaderStage: 12,
       maxSampledTexturesPerShaderStage: 16,
       maxSamplersPerShaderStage: 16,
-      maxStorageTexturesPerShaderStage: 4
+      maxStorageTexturesPerShaderStage: 4,
     },
     pushErrorScope() {},
     popErrorScope: async () => null,
@@ -51,11 +51,11 @@ function fixture() {
         unmap() {},
         destroy() {
           this.destroyed = true;
-        }
+        },
       };
       buffers.push(buffer);
       return buffer;
-    }
+    },
   };
   const registry = new AppearanceProgramRegistry(device);
   const samplers = new Map();
@@ -67,9 +67,9 @@ function fixture() {
         const key = JSON.stringify(descriptor);
         if (!samplers.has(key)) samplers.set(key, { descriptor });
         return samplers.get(key);
-      }
+      },
     },
-    render_pipelines: { prepare: async () => ({}) }
+    render_pipelines: { prepare: async () => ({}) },
   };
   const command = () => ({
     device,
@@ -77,7 +77,7 @@ function fixture() {
     gpuDone: Promise.resolve(),
     onBeforeFinish: new ChangeSignal(),
     onFinished: new ChangeSignal(),
-    onAborted: new ChangeSignal()
+    onAborted: new ChangeSignal(),
   });
   return { device, registry, graphics, buffers, command };
 }
@@ -96,7 +96,7 @@ test("stable native Scene keeps code/bindings; numeric edits remain atomic acros
     new Map(),
     upload,
     false,
-    false
+    false,
   );
   await scene.ready;
   upload.onBeforeFinish.send1(upload);
@@ -179,7 +179,7 @@ test("binding reuse observes route values, physical bank identity, generation an
     products: null,
     materialBindings: [],
     mipRanges: new Map([[texture, [0, 4]]]),
-    texturePublications: new Map([[texture, publication]])
+    texturePublications: new Map([[texture, publication]]),
   });
   const source = { graph, textureRefs: refs };
   const obtain = () => scene.obtainMaterialBindings(0, source, set);
@@ -206,7 +206,9 @@ test("binding reuse observes route values, physical bank identity, generation an
   scene.mipRanges.set(texture, [1, 4]);
   const mip = obtain();
   assert.equal(obtain(), mip);
-  Object.defineProperty(texture, "runtime_asset_package_v2", { value: { width: 64, height: 64 } });
+  Object.defineProperty(texture, "texture_product", {
+    value: { metadata: { storageWidth: 64, storageHeight: 64, planes: [{ mips: Array(7).fill({}) }] } },
+  });
   const mipAsset = obtain();
   assert.notDeepEqual(mipAsset.program.constants, mip.program.constants);
   assert.equal(obtain(), mipAsset);

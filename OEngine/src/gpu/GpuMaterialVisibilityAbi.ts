@@ -489,9 +489,9 @@ export function encodeSamplerClass(
 
 function mipClampCode(texture: ShadeTexture | null, residentMipRange?: readonly [number, number]): number {
   if (texture === null || residentMipRange === undefined) return GPU_MATERIAL_VISIBILITY_SAMPLER.FullMipCode;
-  const asset = texture.runtime_asset_package_v2;
+  const asset = texture.texture_product;
   if (asset === undefined) return GPU_MATERIAL_VISIBILITY_SAMPLER.FullMipCode;
-  const maxMip = Math.floor(Math.log2(Math.max(asset.width, asset.height)));
+  const maxMip = asset.metadata.planes[0]!.mips.length - 1;
   const availableMip = residentMipRange[0];
   if (!Number.isInteger(availableMip) || availableMip <= 0)
     return GPU_MATERIAL_VISIBILITY_SAMPLER.FullMipCode;
@@ -511,7 +511,7 @@ function addressMode(value: number): number | null {
 }
 
 export function isUsableTexture(texture: ShadeTexture): boolean {
-  if (texture.runtime_asset_package_v2 !== undefined) return true;
+  if (texture.texture_product !== undefined) return true;
   const image = texture.image;
   return image !== undefined && image.width > 0 && image.height > 0 && image.depth <= 1;
 }

@@ -8,6 +8,7 @@ paths:
   - OEngine/src/material/**
   - OEngine/src/texture/**
   - OEngine/src/assets/Texture*.ts
+  - OEngine/src/assets/PcMaterialTextures.ts
   - OEngine/src/assets/codec/**
   - OEngine/src/assets/web-cook/WebCookSceneSource.ts
   - OEngine/src/gpu/Texture*.ts

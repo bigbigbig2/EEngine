@@ -173,7 +173,9 @@
       "caseKind": "component",
       "changedPaths": [
         "validation/cases/texture-residency-component",
-        "OEngine/src/assets/TextureAssetPackage.ts",
+        "OEngine/src/assets/TextureProduct.ts",
+        "OEngine/src/assets/PcMaterialTextures.ts",
+        "OEngine/src/assets/codec/PcTexturePreparation.ts",
         "OEngine/src/gpu/TextureResidency.ts",
         "OEngine/src/gpu/GpuTextureRefAbi.ts",
         "OEngine/src/gpu/GpuMaterialVisibilityAbi.ts"

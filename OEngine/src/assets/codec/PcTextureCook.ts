@@ -12,9 +12,9 @@ import {
   type TextureProduct,
   type TextureProductMetadata,
   type TextureProductPlane,
-  type TextureProductRecipe
+  type TextureProductRecipe,
 } from "../TextureProduct.js";
-import type { TextureSemanticV2 } from "../TextureAssetPackage.js";
+import type { TextureSemanticV2 } from "../TextureProduct.js";
 import { encodedTextureMipByteLength, physicalTextureExtent } from "./TextureFormatLayout.js";
 
 export const BASIS_BC_REVISION = "99f52d63aa6799cbdaecfe977111dc5ec3b31d47";
@@ -80,7 +80,7 @@ export async function initializePcTextureCodecs(): Promise<PcTextureCodecs> {
     basis: await createBasisBcModule({ wasmBinary: binaries[0]! }),
     ktx: await createKtxPcModule({ wasmBinary: binaries[1]! }),
     basisHash: identity.hashes["basis_bc.wasm"]!,
-    ktxHash: identity.hashes["ktx_pc.wasm"]!
+    ktxHash: identity.hashes["ktx_pc.wasm"]!,
   };
 }
 
@@ -89,7 +89,7 @@ export function estimatePcTextureCookBytes(
   height: number,
   semantic: TextureSemanticV2,
   exactAlpha: boolean,
-  providedBytes = 0
+  providedBytes = 0,
 ): number {
   const [w, h] = pcTextureStorageExtent(width, height);
   const output = textureProductPayloadBytes(width, height, semantic, exactAlpha);
@@ -122,7 +122,7 @@ export async function cookPcTextureRgba(
   width: number,
   height: number,
   options: PcTextureCookOptions,
-  providedMips?: readonly Uint8Array[]
+  providedMips?: readonly Uint8Array[],
 ): Promise<PcTextureCookResult> {
   const started = performance.now();
   const exactAlpha = options.exactAlpha === true || options.semantic === "alpha-mask";
@@ -148,7 +148,7 @@ export async function cookPcTextureRgba(
     revision: BASIS_BC_REVISION,
     binaryHash: codecs.basisHash,
     quality: "bc7e-scalar-6-bc4-hq",
-    filter: providedMips ? "provided" : normal ? "linear-normal" : "linear"
+    filter: providedMips ? "provided" : normal ? "linear-normal" : "linear",
   };
   let source = rgba,
     sw = width,
@@ -165,7 +165,7 @@ export async function cookPcTextureRgba(
     planes.push({
       role: options.semantic === "occlusion-linear" ? "scalar" : "color",
       format: pcTextureFormat(options.semantic),
-      mips: []
+      mips: [],
     });
   }
   if (exactAlpha) {
@@ -209,7 +209,7 @@ export async function cookPcTextureRgba(
           mh,
           plane.format === "bc4-r-unorm" ? 4 : 7,
           srgb,
-          channel
+          channel,
         );
       }
       ownedCopyBytes += payload.byteLength;
@@ -232,9 +232,9 @@ export async function cookPcTextureRgba(
       exactAlpha,
       uvScaleBias: [1, 1, 0, 0],
       recipe,
-      planes
+      planes,
     },
-    chunks
+    chunks,
   );
   return {
     product,
@@ -246,8 +246,8 @@ export async function cookPcTextureRgba(
       wasmLinearHighWaterBytes: codecs.basis.HEAPU8.byteLength + codecs.ktx.HEAPU8.byteLength,
       workerTaskMs: null,
       decodeMs: 0,
-      queueAndInitMs: null
-    }
+      queueAndInitMs: null,
+    },
   };
 }
 
@@ -256,7 +256,7 @@ export async function cookPcTextureRgba(
 export async function importPcTextureKtx(
   codecs: PcTextureCodecs,
   input: Uint8Array,
-  options: PcTextureCookOptions
+  options: PcTextureCookOptions,
 ): Promise<PcTextureCookResult> {
   const start = performance.now();
   let transcodeMs = 0;
@@ -373,9 +373,9 @@ export async function importPcTextureKtx(
           revision: KTX_PC_REVISION,
           binaryHash: codecs.ktxHash,
           filter: "provided",
-          quality: "external-final"
+          quality: "external-final",
         },
-        planes: [plane]
+        planes: [plane],
       };
       const product = await validateTextureProduct(metadata, chunks);
       return {
@@ -388,8 +388,8 @@ export async function importPcTextureKtx(
           wasmLinearHighWaterBytes: codecs.basis.HEAPU8.byteLength + codecs.ktx.HEAPU8.byteLength,
           workerTaskMs: null,
           decodeMs: 0,
-          queueAndInitMs: null
-        }
+          queueAndInitMs: null,
+        },
       };
     }
     // Missing mips/unaligned base/semantic conversion: upstream RGBA decode then
@@ -425,7 +425,7 @@ export async function importPcTextureKtx(
       w,
       h,
       sourceOptions,
-      preserveMips ? supplied.slice(1) : undefined
+      preserveMips ? supplied.slice(1) : undefined,
     );
     return {
       product: result.product,
@@ -434,8 +434,8 @@ export async function importPcTextureKtx(
         prepareMs: result.evidence.prepareMs + importPrepareMs,
         transcodeMs,
         ownedCopyBytes:
-          result.evidence.ownedCopyBytes + supplied.reduce((sum, mip) => sum + mip.byteLength, 0)
-      }
+          result.evidence.ownedCopyBytes + supplied.reduce((sum, mip) => sum + mip.byteLength, 0),
+      },
     };
   } finally {
     texture.delete();
@@ -449,7 +449,7 @@ export function encodePcTextureMip(
   h: number,
   format: 4 | 7,
   srgb: boolean,
-  channel: number
+  channel: number,
 ): Uint8Array {
   validateRgbaBytes(rgba, w, h);
   if ((format !== 4 && format !== 7) || !Number.isInteger(channel) || channel < 0 || channel > 3) {
@@ -457,7 +457,7 @@ export function encodePcTextureMip(
   }
   const size = Math.ceil(w / 4) * Math.ceil(h / 4) * (format === 7 ? 16 : 8);
   return nativeBytes(module, rgba, size, (src, dst) =>
-    module._bc_encode(src, w, h, format, Number(srgb), channel, dst)
+    module._bc_encode(src, w, h, format, Number(srgb), channel, dst),
   );
 }
 export function decodePcTextureMip(
@@ -465,7 +465,7 @@ export function decodePcTextureMip(
   blocks: Uint8Array,
   w: number,
   h: number,
-  format: 4 | 7
+  format: 4 | 7,
 ): Uint8Array {
   pcTextureStorageExtent(w, h);
   if (
@@ -487,7 +487,7 @@ export function resamplePcTexture(
   w: number,
   h: number,
   srgb: boolean,
-  normal: boolean
+  normal: boolean,
 ): Uint8Array {
   validateRgbaBytes(source, sw, sh);
   pcTextureStorageExtent(w, h);
@@ -495,7 +495,7 @@ export function resamplePcTexture(
     throw new RangeError("Resample output budget exceeded");
   }
   return nativeBytes(module, source, w * h * 4, (src, dst) =>
-    module._bc_resample(src, sw, sh, dst, w, h, Number(srgb), Number(normal))
+    module._bc_resample(src, sw, sh, dst, w, h, Number(srgb), Number(normal)),
   );
 }
 function validateRgbaBytes(rgba: Uint8Array, w: number, h: number): void {
@@ -524,7 +524,7 @@ function nativeBytes(
   module: BasisBcModule,
   input: Uint8Array,
   size: number,
-  call: (src: number, dst: number) => number
+  call: (src: number, dst: number) => number,
 ): Uint8Array {
   let src = 0,
     dst = 0;
@@ -558,7 +558,7 @@ async function appendMip(
   level: number,
   w: number,
   h: number,
-  payload: Uint8Array
+  payload: Uint8Array,
 ): Promise<void> {
   const expected = encodedTextureMipByteLength(plane.format, w, h);
   if (payload.byteLength !== expected) {
@@ -574,7 +574,7 @@ async function appendMip(
     physicalHeight: ph,
     byteLength: expected,
     chunkId,
-    hash: await textureProductHash(payload)
+    hash: await textureProductHash(payload),
   });
   chunks.set(chunkId, payload);
 }

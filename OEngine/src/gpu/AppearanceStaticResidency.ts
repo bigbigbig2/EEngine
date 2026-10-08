@@ -3,10 +3,6 @@ import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContex
 import { stageAppearanceAssetUpload, type AppearanceAssetDestination } from "./AppearanceAssetUpload.js";
 import type { AppearanceProgramRegistry } from "./AppearanceProgramRegistry.js";
 import type { ResourceAccounting, ResourceHandle } from "../debug/profiling/ResourceAccounting.js";
-import type {
-  TextureVariationResidency,
-  TextureStaticVariationPublication,
-} from "./TextureVariationResidency.js";
 
 export interface AppearanceStaticBudget {
   readonly maxAssets: number;
@@ -17,7 +13,6 @@ export interface AppearanceStaticBudget {
 export interface AppearanceStaticLease {
   readonly assetId: string;
   destination(field: string): AppearanceAssetDestination;
-  variation(field: string): TextureStaticVariationPublication | null;
   /** Publication releases after its last GPU consumer has completed; idempotent. */
   release(): void;
 }
@@ -27,7 +22,6 @@ interface Entry {
   readonly textures: GPUTexture[];
   readonly accounting: ResourceHandle[];
   readonly destinations: Map<string, AppearanceAssetDestination>;
-  readonly summaries: Map<string, TextureStaticVariationPublication>;
   command: ShadeGPUCommandContext | null;
   refs: number;
   state: "staging" | "resident" | "retiring" | "destroyed";
@@ -75,7 +69,6 @@ export class AppearanceStaticResidency {
       maxStagingBytes: 64 * 1024 * 1024,
     },
     private readonly accounting?: ResourceAccounting,
-    private readonly variations?: TextureVariationResidency,
   ) {
     for (const [name, value] of Object.entries(budget))
       if (!Number.isSafeInteger(value) || value < (name === "maxAssets" ? 1 : 0)) {
@@ -106,11 +99,6 @@ export class AppearanceStaticResidency {
         if (target === undefined)
           throw new RangeError(`Static Appearance texture field '${field}' is missing`);
         return target;
-      },
-      variation: (field: string) => {
-        if (released || owned.state === "destroyed" || owned.state === "retiring")
-          throw new Error("Static Appearance lease is not consumable");
-        return owned.summaries.get(field) ?? null;
       },
       release: () => {
         if (released) return;
@@ -206,7 +194,6 @@ export class AppearanceStaticResidency {
       textures: [],
       accounting: [],
       destinations: new Map(),
-      summaries: new Map(),
       command,
       refs: 0,
       state: "staging",
@@ -263,24 +250,6 @@ export class AppearanceStaticResidency {
         maxStagingBytes: padded,
         maxResidentBytes: asset.residentBytes,
       });
-      if (this.variations)
-        for (const field of asset.fields) {
-          const destination = entry.destinations.get(field.name);
-          if (!destination) continue;
-          const texture = destination.texture;
-          entry.summaries.set(
-            field.name,
-            this.variations.stageStatic(command, {
-              texture,
-              layer: destination.layer,
-              width: texture.width,
-              height: texture.height,
-              mipCount: texture.mipLevelCount,
-              availableMip: 0,
-              decodeSrgb: false,
-            }),
-          );
-        }
       return entry;
     } catch (error) {
       this.dispose(entry);
@@ -294,19 +263,12 @@ export class AppearanceStaticResidency {
 
   private dispose(entry: Entry): void {
     if (entry.state === "destroyed") return;
-    const staging = entry.state === "staging";
     entry.state = "destroyed";
     entry.command = null;
     if (this.current.get(entry.id) === entry) this.current.delete(entry.id);
     this.physical.delete(entry);
     this.allocatedBytes -= entry.bytes;
     for (const texture of entry.textures) texture.destroy();
-    // Staging rollback belongs to the command's summary transaction. Resident
-    // disposal occurs after the texture's GPU fence and retires the shared slots.
-    if (!staging)
-      for (const summary of entry.summaries.values())
-        if (summary.slot !== 0) this.variations?.retire(summary.slot, summary.generation);
-    entry.summaries.clear();
     for (const handle of entry.accounting) this.accounting?.destroyed(handle);
   }
 }

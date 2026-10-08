@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { productDescriptorForAssetRecords } from "../helpers/geometry-product-fixture.mjs";
 
-const { createWebCookSceneSource, createWebCookSceneSourceAsync, decodeWebCookImageBitmap } = await import(
+const { createWebCookSceneSource, createWebCookSceneSourceAsync } = await import(
   "../../.test-dist/assets/web-cook/WebCookSceneSource.js"
 );
 const { webCookCatalogSceneFraming } = await import("../../.test-dist/assets/web-cook/WebCookSceneBounds.js");
@@ -11,30 +11,23 @@ const { mergeVirtualGeometryProductSceneSourcesV1 } = await import(
 );
 const { mat4TransformAABB } = await import("../../.test-dist/core/math/Mat4.js");
 
-test("Web Cook image decode fits the negotiated dimension without distorting aspect", async () => {
-  const previous = globalThis.createImageBitmap;
-  let closed = 0;
-  let requested;
-  globalThis.createImageBitmap = async (_source, options) => {
-    if (!options)
-      return {
-        width: 600,
-        height: 8400,
-        close() {
-          closed++;
-        },
-      };
-    requested = options;
-    return { width: options.resizeWidth, height: options.resizeHeight, close() {} };
+test("Web Cook cold source preserves encoded input without loader decode or resize", async () => {
+  const { ShadeImage } = await import("../../.test-dist/texture/ShadeImage.js");
+  const prior = globalThis.createImageBitmap;
+  globalThis.createImageBitmap = () => {
+    throw new Error("Loader must not decode or resize");
   };
   try {
-    const bitmap = await decodeWebCookImageBitmap(new Blob(), 8192);
-    assert.deepEqual([bitmap.width, bitmap.height], [585, 8192]);
-    assert.equal(requested.resizeQuality, "high");
-    assert.equal(closed, 1);
+    const bytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]).buffer;
+    const image = ShadeImage.fromEncodedImage(bytes, "");
+    assert.equal(image.source, bytes);
+    assert.equal(image.encoded_mime_type, "image/png");
+    assert.equal(image.width, 0);
+    assert.equal(image.height, 0);
+    // Real dimensions are parsed by the bounded Worker and checked against the device,
+    // rather than silently fitting an oversized authored image.
   } finally {
-    if (previous === undefined) delete globalThis.createImageBitmap;
-    else globalThis.createImageBitmap = previous;
+    globalThis.createImageBitmap = prior;
   }
 });
 
@@ -79,8 +72,9 @@ test("separate Web Cook Products use one catalog fit without moving earlier inst
     );
     assert.equal(mapped.materials[0].metallic_factor, 1, "missing glTF metallicFactor defaults to one");
     assert.equal(
-      createWebCookSceneSource(catalog, productDescriptorForAssetRecords(assetRecords), { sceneAssetIndices: [index] }).materials[0]
-        .metallic_factor,
+      createWebCookSceneSource(catalog, productDescriptorForAssetRecords(assetRecords), {
+        sceneAssetIndices: [index],
+      }).materials[0].metallic_factor,
       1,
     );
     parts.push({
@@ -301,10 +295,14 @@ test("Web Cook async mapper materializes authored texture slots before scene sou
         uri: `https://example.test/${imageIndex}.png`,
       })),
     };
-    const result = await createWebCookSceneSourceAsync(catalog, productDescriptorForAssetRecords(assetRecords), async () => ({
-      bytes: new Uint8Array([1, 2, 3]).buffer,
-      mimeType: "image/png",
-    }));
+    const result = await createWebCookSceneSourceAsync(
+      catalog,
+      productDescriptorForAssetRecords(assetRecords),
+      async () => ({
+        bytes: new Uint8Array([1, 2, 3]).buffer,
+        mimeType: "image/png",
+      }),
+    );
     const material = result.materials[0];
     assert.ok(material.texture_albedo);
     assert.ok(material.texture_normal);
@@ -379,12 +377,24 @@ test("Web Cook async mapper shares matching image usage but separates normal mip
     // revision is still resident. Sharing the cache keeps one resident texture
     // per image instead of one per revision.
     const cache = new Map();
-    const first = await createWebCookSceneSourceAsync(catalog, productDescriptorForAssetRecords(assetRecords), readImage, undefined, {
-      textureCache: cache,
-    });
-    const second = await createWebCookSceneSourceAsync(catalog, productDescriptorForAssetRecords(assetRecords), readImage, undefined, {
-      textureCache: cache,
-    });
+    const first = await createWebCookSceneSourceAsync(
+      catalog,
+      productDescriptorForAssetRecords(assetRecords),
+      readImage,
+      undefined,
+      {
+        textureCache: cache,
+      },
+    );
+    const second = await createWebCookSceneSourceAsync(
+      catalog,
+      productDescriptorForAssetRecords(assetRecords),
+      readImage,
+      undefined,
+      {
+        textureCache: cache,
+      },
+    );
     assert.equal(decodes, 2, "sRGB and normal usage each decode once");
     assert.equal(cache.size, 2);
     assert.equal(
@@ -396,7 +406,11 @@ test("Web Cook async mapper shares matching image usage but separates normal mip
     assert.notEqual(first.materials[0].texture_albedo, first.materials[0].texture_normal);
     // Without a cache each revision owns its own texture, which is what doubles
     // the layers a size-class bank must hold during a replacement.
-    const isolated = await createWebCookSceneSourceAsync(catalog, productDescriptorForAssetRecords(assetRecords), readImage);
+    const isolated = await createWebCookSceneSourceAsync(
+      catalog,
+      productDescriptorForAssetRecords(assetRecords),
+      readImage,
+    );
     assert.equal(decodes, 4);
     assert.notEqual(first.materials[0].texture_albedo, isolated.materials[0].texture_albedo);
   } finally {

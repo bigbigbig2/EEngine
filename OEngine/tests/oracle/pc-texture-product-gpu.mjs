@@ -1,23 +1,23 @@
-import { check } from "./texture-baseline-gpu.mjs";
+import { check } from "./texture-test-utils.mjs";
 import {
   initializePcTextureCodecs,
   cookPcTextureRgba,
   decodePcTextureMip,
-  resamplePcTexture
+  resamplePcTexture,
 } from "../../.test-dist/assets/codec/PcTextureCook.js";
 import {
   PcTexturePreparation,
-  createPcTextureWorker
+  createPcTextureWorker,
 } from "../../.test-dist/assets/codec/PcTexturePreparation.js";
 import {
   writeTextureProductPlane,
   openTextureProduct,
   saveTextureProduct,
-  textureProductHash
+  textureProductHash,
 } from "../../.test-dist/assets/TextureProduct.js";
 import {
   AppearanceGraphBuilder,
-  snapshotAppearanceTexture
+  snapshotAppearanceTexture,
 } from "../../.test-dist/material/AppearanceGraph.js";
 import { compileAppearanceGraph } from "../../.test-dist/material/AppearanceGraphCompiler.js";
 import { lowerNativeMaterial } from "../../.test-dist/shaders/native_material.js";
@@ -35,9 +35,9 @@ function sourceImage(w, h, semantic) {
             40 + ((x >> 4) % 128),
             60 + ((y >> 4) % 128),
             100 + (((x + y) >> 4) % 128),
-            (x + y) % 2 ? 127 : 128
+            (x + y) % 2 ? 127 : 128,
           ],
-          i
+          i,
         );
     }
   return a;
@@ -54,18 +54,18 @@ async function expandBc4Reference(device, encoder, source, reference, mip) {
 fn main(@builtin(global_invocation_id) id: vec3u) {
   if any(id.xy >= textureDimensions(output)) { return; }
   textureStore(output, id.xy, textureLoad(source, vec2i(id.xy), 1, 0));
-}`
+}`,
   });
   const pipeline = await device.createComputePipelineAsync({
     layout: "auto",
-    compute: { module, entryPoint: "main" }
+    compute: { module, entryPoint: "main" },
   });
   const group = device.createBindGroup({
     layout: pipeline.getBindGroupLayout(0),
     entries: [
       {
         binding: 0,
-        resource: source.createView({ dimension: "2d-array", baseMipLevel: mip.level, mipLevelCount: 1 })
+        resource: source.createView({ dimension: "2d-array", baseMipLevel: mip.level, mipLevelCount: 1 }),
       },
       {
         binding: 1,
@@ -74,10 +74,10 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
           baseMipLevel: mip.level,
           mipLevelCount: 1,
           baseArrayLayer: 1,
-          arrayLayerCount: 1
-        })
-      }
-    ]
+          arrayLayerCount: 1,
+        }),
+      },
+    ],
   });
   const pass = encoder.beginComputePass();
   pass.setPipeline(pipeline);
@@ -90,7 +90,7 @@ function graphProgram(semantic) {
     uv = b.input("uv0", 2, "surface", undefined, "uv0");
   const sample = b.texture(
     snapshotAppearanceTexture(new ShadeTexture(), "linear-rgb", [0.13, -0.09], [1.3, 0.8], 0.2),
-    uv
+    uv,
   );
   b.output("rgba", sample);
   if (semantic === "normal-linear") {
@@ -99,9 +99,9 @@ function graphProgram(semantic) {
       b.operation(
         "subtract",
         b.operation("multiply", b.swizzle(sample, [0, 1, 2]), b.constant(2)),
-        b.constant(1)
+        b.constant(1),
       ),
-      b.constant([1.7, 0.6, 1])
+      b.constant([1.7, 0.6, 1]),
     );
     b.output("normalScale", xyz);
   }
@@ -126,7 +126,7 @@ function qualityObservation(codecs, product, source) {
         mip.width,
         mip.height,
         semantic === "base-color-srgb",
-        semantic === "normal-linear"
+        semantic === "normal-linear",
       );
     }
     sw = mip.width;
@@ -136,7 +136,7 @@ function qualityObservation(codecs, product, source) {
       product.chunks.get(mip.chunkId),
       sw,
       sh,
-      semantic === "occlusion-linear" ? 4 : 7
+      semantic === "occlusion-linear" ? 4 : 7,
     );
     let samples = 0,
       squaredError = 0,
@@ -167,7 +167,7 @@ function qualityObservation(codecs, product, source) {
             maximumAngleDegrees,
             (Math.acos(Math.max(-1, Math.min(1, a.reduce((sum, v, c) => sum + v * b[c], 0) / (al * bl)))) *
               180) /
-              Math.PI
+              Math.PI,
           );
         }
       }
@@ -179,13 +179,13 @@ function qualityObservation(codecs, product, source) {
       rmse: Math.sqrt(squaredError / (samples * channels)),
       maximumError,
       maximumAngleDegrees,
-      maximumLengthError
+      maximumLengthError,
     });
   }
   return {
     reference:
       "pinned upstream CPU block decode; independent native/WASM byte equivalence is a separate Node gate",
-    mips: result
+    mips: result,
   };
 }
 
@@ -203,7 +203,7 @@ async function sampleProduct(device, codecs, product) {
       size: [w, h, 3],
       mipLevelCount: plane.mips.length,
       format: plane.format,
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
     });
     const referenceFormat =
       plane.format === "bc4-r-unorm"
@@ -218,7 +218,7 @@ async function sampleProduct(device, codecs, product) {
       check(
         writeTextureProductPlane(device, product, pi, target, 1) ===
           plane.mips.reduce((sum, m) => sum + m.byteLength, 0),
-        "tight upload accounting mismatch"
+        "tight upload accounting mismatch",
       );
       const program = graphProgram(product.metadata.semantic),
         n = 96,
@@ -255,17 +255,17 @@ fn main(@builtin(global_invocation_id) id:vec3u){
  output[i*${width}u+${program.outputCount + 1}u]=select(0.0,1.0,a>=127.0/255.0);
  output[i*${width}u+${program.outputCount + 2}u]=select(0.0,1.0,a>=128.0/255.0);
  output[i*${width}u+${program.outputCount + 3}u]=select(0.0,1.0,a>=0.5);
-}`
+}`,
       });
       const errors = (await module.getCompilationInfo()).messages.filter((m) => m.type === "error");
       check(!errors.length, JSON.stringify(errors));
       const pipeline = await device.createComputePipelineAsync({
         layout: "auto",
-        compute: { module, entryPoint: "main" }
+        compute: { module, entryPoint: "main" },
       });
       const constants = device.createBuffer({
         size: Math.max(program.constants.length * 4, 4),
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
       });
       buffers.push(constants);
       device.queue.writeBuffer(constants, 0, new Float32Array(program.constants));
@@ -275,17 +275,17 @@ fn main(@builtin(global_invocation_id) id:vec3u){
           addressModeV: addressMode,
           minFilter: "linear",
           magFilter: "linear",
-          mipmapFilter: "linear"
+          mipmapFilter: "linear",
         });
         const size = n * width * 4;
         const stride = Math.ceil(size / 256) * 256;
         const output = device.createBuffer({
           size: stride * 2,
-          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
+          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
         });
         const read = device.createBuffer({
           size: stride * 2,
-          usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+          usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
         });
         buffers.push(output, read);
         const encoder = device.createCommandEncoder();
@@ -297,7 +297,7 @@ fn main(@builtin(global_invocation_id) id:vec3u){
           usage:
             GPUTextureUsage.TEXTURE_BINDING |
             GPUTextureUsage.COPY_DST |
-            (plane.format === "bc4-r-unorm" ? GPUTextureUsage.STORAGE_BINDING : 0)
+            (plane.format === "bc4-r-unorm" ? GPUTextureUsage.STORAGE_BINDING : 0),
         });
         try {
           for (const m of plane.mips) {
@@ -314,7 +314,7 @@ fn main(@builtin(global_invocation_id) id:vec3u){
               { texture: referenceArray, mipLevel: m.level, origin: [0, 0, 1] },
               bytes,
               { bytesPerRow: m.width * (plane.format === "r8unorm" ? 1 : 4) },
-              { width: m.width, height: m.height }
+              { width: m.width, height: m.height },
             );
           }
           for (const [index, texture] of [target, referenceArray].entries()) {
@@ -324,8 +324,8 @@ fn main(@builtin(global_invocation_id) id:vec3u){
                 { binding: 0, resource: texture.createView({ dimension: "2d-array" }) },
                 { binding: 1, resource: sampler },
                 { binding: 2, resource: { buffer: output, offset: index * stride, size } },
-                { binding: 3, resource: { buffer: constants } }
-              ]
+                { binding: 3, resource: { buffer: constants } },
+              ],
             });
             const pass = encoder.beginComputePass();
             pass.setPipeline(pipeline);
@@ -348,7 +348,7 @@ fn main(@builtin(global_invocation_id) id:vec3u){
                 sample: Math.floor(i / width),
                 channel: i % width,
                 actual: data[i],
-                reference: data[i + stride / 4]
+                reference: data[i + stride / 4],
               };
             }
             if (i % width >= program.outputCount + 1 && plane.role === "coverage") {
@@ -369,7 +369,7 @@ fn main(@builtin(global_invocation_id) id:vec3u){
   }
   check(
     maxError <= 0.0001,
-    `BC native shader numerical error ${maxError} exceeds unchanged 1e-4: ${JSON.stringify(worst)}`
+    `BC native shader numerical error ${maxError} exceeds unchanged 1e-4: ${JSON.stringify(worst)}`,
   );
   return { maxError, samples, coverageChecks };
 }
@@ -381,11 +381,11 @@ export async function runPcTextureProductGpuOracle(device) {
     createWorker: async () => {
       const started = performance.now();
       const worker = await createPcTextureWorker(
-        new URL("../../.test-dist/assets/codec/workers/pc-texture-worker.js", import.meta.url)
+        new URL("../../.test-dist/assets/codec/workers/pc-texture-worker.js", import.meta.url),
       );
       workerInitializations.push(performance.now() - started);
       return worker;
-    }
+    },
   });
   const cases = [];
   let recoveryProduct;
@@ -398,7 +398,7 @@ export async function runPcTextureProductGpuOracle(device) {
         const { product, evidence } = await service.cookRgba(rgba.buffer, size, size, {
           semantic,
           sourceUri: `fixture://${size}/${semantic}`,
-          channel: semantic === "occlusion-linear" ? 1 : 0
+          channel: semantic === "occlusion-linear" ? 1 : 0,
         });
         const ready = performance.now(),
           sampling = await sampleProduct(device, codecs, product);
@@ -410,20 +410,20 @@ export async function runPcTextureProductGpuOracle(device) {
           bytes: product.evidence,
           identity: product.identity,
           quality: qualityObservation(codecs, product, qualitySource),
-          ...sampling
+          ...sampling,
         });
       }
     const rgba = sourceImage(257, 129, "base-color-srgb");
     const { product } = await service.cookRgba(rgba.buffer, 257, 129, {
       semantic: "base-color-srgb",
       exactAlpha: true,
-      sourceUri: "fixture://NPOT/coverage"
+      sourceUri: "fixture://NPOT/coverage",
     });
     recoveryProduct = await openTextureProduct(await saveTextureProduct(product));
     cases.push({
       size: "257x129",
       semantic: "exact coverage",
-      ...(await sampleProduct(device, codecs, recoveryProduct))
+      ...(await sampleProduct(device, codecs, recoveryProduct)),
     });
     const suppliedNormal = await service.cookRgba(
       sourceImage(32, 32, "normal-linear").buffer,
@@ -431,14 +431,14 @@ export async function runPcTextureProductGpuOracle(device) {
       32,
       {
         semantic: "normal-linear",
-        sourceUri: "fixture://provided-signed-nonunit"
+        sourceUri: "fixture://provided-signed-nonunit",
       },
       undefined,
-      [16, 8, 4, 2, 1].map((size) => new Uint8Array(size * size * 4).fill(32).buffer)
+      [16, 8, 4, 2, 1].map((size) => new Uint8Array(size * size * 4).fill(32).buffer),
     );
     cases.push({
       semantic: "provided signed/non-unit normal",
-      ...(await sampleProduct(device, codecs, suppliedNormal.product))
+      ...(await sampleProduct(device, codecs, suppliedNormal.product)),
     });
     // Cancellation terminates an assigned worker; same producer can retry without
     // a late result changing this CPU product or a material epoch.
@@ -448,18 +448,18 @@ export async function runPcTextureProductGpuOracle(device) {
       2048,
       2048,
       { semantic: "normal-linear", sourceUri: "fixture://abort" },
-      controller.signal
+      controller.signal,
     );
     const rejected = pending.then(
       () => false,
-      (e) => e.name === "AbortError"
+      (e) => e.name === "AbortError",
     );
     while (service.evidence().activeWorkers === 0) await new Promise((r) => setTimeout(r, 5));
     controller.abort();
     check(await rejected, "Assigned Worker cancellation failed");
     const retry = await service.cookRgba(sourceImage(32, 32, "orm-linear").buffer, 32, 32, {
       semantic: "orm-linear",
-      sourceUri: "fixture://retry"
+      sourceUri: "fixture://retry",
     });
     check(retry.product.evidence.ownedPayloadBytes > 0, "Worker retry failed");
     for (const type of ["image/png", "image/jpeg", "image/webp"]) {
@@ -471,12 +471,12 @@ export async function runPcTextureProductGpuOracle(device) {
       check(blob.type === type, `${type} unavailable`);
       const cooked = await service.cookImage(await blob.arrayBuffer(), type, {
         semantic: "base-color-srgb",
-        sourceUri: `fixture://${type}`
+        sourceUri: `fixture://${type}`,
       });
       cases.push({
         rawDecode: type,
         worker: cooked.evidence,
-        ...(await sampleProduct(device, codecs, cooked.product))
+        ...(await sampleProduct(device, codecs, cooked.product)),
       });
     }
   } finally {
@@ -485,12 +485,12 @@ export async function runPcTextureProductGpuOracle(device) {
   const final = service.evidence();
   check(
     final.activeWorkers === 0 && final.queuedTasks === 0 && final.inFlightEstimatedBytes === 0,
-    "Worker teardown credits not zero"
+    "Worker teardown credits not zero",
   );
   // Keep prefix evidence if a later device replay fails; no production diagnostics.
   console.info(
     "T4.1 completed product matrix",
-    JSON.stringify({ cases, workerTeardown: final, workerInitializations })
+    JSON.stringify({ cases, workerTeardown: final, workerInitializations }),
   );
   const replay = await replayDeviceEpoch(codecs, recoveryProduct);
   return {
@@ -503,13 +503,13 @@ export async function runPcTextureProductGpuOracle(device) {
     deviceEpochReplay: replay,
     largeModel: "NOT-RUN user excluded",
     gpuEncoding: "NONE Spark DEFER",
-    actualDriverPeakBytes: null
+    actualDriverPeakBytes: null,
   };
 }
 async function replayDeviceEpoch(codecs, product) {
   const adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
   const old = await adapter.requestDevice({
-    requiredFeatures: ["texture-compression-bc", "float32-filterable"]
+    requiredFeatures: ["texture-compression-bc", "float32-filterable"],
   });
   let before;
   try {
@@ -521,7 +521,7 @@ async function replayDeviceEpoch(codecs, product) {
   const loss = await old.lost;
   const freshAdapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
   const recovered = await freshAdapter.requestDevice({
-    requiredFeatures: ["texture-compression-bc", "float32-filterable"]
+    requiredFeatures: ["texture-compression-bc", "float32-filterable"],
   });
   let replay;
   const errors = [];
@@ -551,7 +551,7 @@ export async function runPcTextureRecoveryGpuOracle(device) {
   const { product } = await cookPcTextureRgba(codecs, sourceImage(257, 129, "base-color-srgb"), 257, 129, {
     semantic: "base-color-srgb",
     exactAlpha: true,
-    sourceUri: "fixture://NPOT/coverage"
+    sourceUri: "fixture://NPOT/coverage",
   });
   const owned = await openTextureProduct(await saveTextureProduct(product));
   const mips = [
@@ -559,7 +559,7 @@ export async function runPcTextureRecoveryGpuOracle(device) {
     [8, 4],
     [4, 2],
     [2, 1],
-    [1, 1]
+    [1, 1],
   ].map(([w, h]) => new Uint8Array(w * h * 4).fill(32));
   const normal = await cookPcTextureRgba(
     codecs,
@@ -568,15 +568,15 @@ export async function runPcTextureRecoveryGpuOracle(device) {
     17,
     {
       semantic: "normal-linear",
-      sourceUri: "fixture://provided-NPOT"
+      sourceUri: "fixture://provided-NPOT",
     },
-    mips
+    mips,
   );
   return {
     stage: "T4.1",
     scope: "affected device-epoch replay only, same helper as full matrix; fresh adapter per device",
     identity: owned.identity,
     providedNpotNormal: await sampleProduct(device, codecs, normal.product),
-    replay: await replayDeviceEpoch(codecs, owned)
+    replay: await replayDeviceEpoch(codecs, owned),
   };
 }

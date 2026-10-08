@@ -57,13 +57,7 @@ async function run() {
       "Frozen source unavailable",
     );
     controller.addEvidence("source", frozen);
-    // Frozen catalog image headers and the mapper's image/sampler/usage keys:
-    // 4 <=256px routes, 514 >256px routes. Four compatible 512px physical
-    // banks provide 516 usable layers; quality and the existing 2GiB cap stay.
-    const textureBankMaxCapacities = [64, 130, 130, 130, 130] as const;
-    // Complete K0 packing measured 1,332 pinned slots (333MiB). The default
-    // 128MiB is a valid negative admission case, not a complete-scene budget.
-    // Four 96MiB banks leave 204 slots (51MiB) for demand-driven refinement.
+    // Historical RGBA capacity/512px policy retired by T4.2; original artifacts retain their identity.
     const geometryCapacityBytes = 384 * MiB;
     controller.addEvidence("geometryCapacityPlan", {
       activationPages: 655,
@@ -76,20 +70,10 @@ async function run() {
       policy:
         "Measured complete activation footprint; existing application configuration, unchanged 512MiB bank ceiling",
     });
-    controller.addEvidence("textureCapacityPlan", {
-      uniqueTextureRoutes: 518,
-      smallRoutes: 4,
-      largeRoutes: 514,
-      textureBankMaxCapacities,
-      maximumRgbaBankBytes: 749381536,
-      policy: "Existing application capacity configuration; no TextureResidency owner change",
-    });
     const started = performance.now();
     renderer = new Renderer({
       autoExposure: false,
       fixedExposure: 1,
-      textureMaxResolution: 512,
-      textureBankMaxCapacities,
       requiredFeatures: ["timestamp-query"],
     });
     const context = canvas.getContext("webgpu");

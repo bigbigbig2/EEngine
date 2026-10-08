@@ -175,7 +175,9 @@ export async function startStaticServer({ root, harnessRoot, allowPrefixes, vend
             "/OEngine/.test-dist/assets/web-cook/wasm/vendor/",
             "/OEngine/src/assets/web-cook/wasm/vendor/",
           )
-        : pathname;
+        : pathname === "/OEngine/.test-dist/assets/codec/workers/pc-texture-worker.ts"
+          ? pathname.replace(/\.ts$/, ".js")
+          : pathname;
     const resolved = pathname.startsWith(PAGE_PREFIX)
       ? (() => {
           const absolute = resolve(harnessRoot, pathname.slice(PAGE_PREFIX.length));

@@ -7,7 +7,7 @@ import { GPUSceneEnvironmentManager } from "../../gpu/GPUSceneEnvironmentManager
 import type { CompiledFrameGraphDump } from "../../framegraph/FrameGraph.js";
 import {
   summarizeFrameGraphResources,
-  type FrameResourceSummary
+  type FrameResourceSummary,
 } from "../../framegraph/FrameResourceSummary.js";
 import { CompiledFrameGraphCache } from "../../framegraph/CompiledFrameGraphCache.js";
 import { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
@@ -25,7 +25,7 @@ import { planNativeExecutionBins } from "../surface/NativeExecutionBins.js";
 import {
   LocalLightWorkGenerator,
   localLightPublication,
-  type LocalLightWorkFrame
+  type LocalLightWorkFrame,
 } from "../lighting/LocalLightWorkGenerator.js";
 import { PhysicalSkyPass } from "../passes/PhysicalSkyPass.js";
 import { AerialPerspectivePass } from "../passes/AerialPerspectivePass.js";
@@ -33,7 +33,7 @@ import { FrameProgramCache, type FrameProgram } from "../program/FrameProgram.js
 import {
   assertFrameProgramBindings,
   type SceneFrameBindings,
-  type EmptyFrameBindings
+  type EmptyFrameBindings,
 } from "../program/FrameProgramBindings.js";
 import { VisibilityCounterPass } from "../passes/VisibilityCounterPass.js";
 import { lowerFrameProgram, type FrameProgramOwners } from "../program/FrameProgramLowering.js";
@@ -45,7 +45,7 @@ import { BloomPass } from "../passes/BloomPass.js";
 import { RenderDebugViewPass } from "../passes/RenderDebugViewPass.js";
 import {
   RenderDebugView as RenderDebugViewValue,
-  type RenderDebugView
+  type RenderDebugView,
 } from "../../debug/RenderDebugView.js";
 import { captureGpuAdapterIdentity, type BenchmarkAdapterIdentity } from "../../debug/EnvironmentManifest.js";
 import type { HierarchicalZBuffer } from "../HierarchicalZBuffer.js";
@@ -62,7 +62,7 @@ import type {
   InstancePatchBatch,
   InstancePatchResult,
   InstanceSetHandle,
-  InstanceSource
+  InstanceSource,
 } from "../../gpu/GpuScene.js";
 import { createSceneResidencyManifest } from "../../gpu/GpuSceneResidencyManifest.js";
 import type {
@@ -71,18 +71,18 @@ import type {
   GpuRenderWorldRuntime,
   PackedScenePatchBatch,
   PackedSceneSource,
-  VirtualGeometrySceneSource
+  VirtualGeometrySceneSource,
 } from "../../gpu/GpuRenderWorld.js";
 import {
   VirtualGeometryResidency,
-  VIRTUAL_GEOMETRY_PRODUCT_REQUIRED_STORAGE_BUFFERS_PER_SHADER_STAGE
+  VIRTUAL_GEOMETRY_PRODUCT_REQUIRED_STORAGE_BUFFERS_PER_SHADER_STAGE,
 } from "../../gpu/VirtualGeometryResidency.js";
 import type { VirtualGeometryResidencyOptionsV1 } from "../../gpu/VirtualGeometryResidency.js";
 import { GeometryPageStreamingRuntimeV1 } from "../../gpu/GeometryPageStreamingRuntime.js";
 import {
   GEOMETRY_PRODUCT_MULTI_RUNTIME_MIN_CAPACITY_V1,
   GeometryProductMultiRuntimeV1,
-  type GeometryProductShardHandleV1
+  type GeometryProductShardHandleV1,
 } from "../../gpu/GeometryProductMultiRuntime.js";
 import { GeometryProductAdmissionController } from "../../gpu/GeometryProductAdmission.js";
 import type { GeometryProductAdmissionTransaction } from "../../gpu/GeometryProductAdmission.js";
@@ -90,37 +90,37 @@ import type { WebCookRuntimeAsset } from "../../assets/web-cook/WebCookRuntimeAs
 import type { StandardShadeMaterial } from "../../material/StandardShadeMaterial.js";
 import {
   createWebCookSceneSourceAsync,
-  type WebCookSceneMappingTiming
+  type WebCookSceneMappingTiming,
 } from "../../assets/web-cook/WebCookSceneSource.js";
 import {
   webCookCatalogSceneFraming,
-  type WebCookCatalogSceneFramingV1
+  type WebCookCatalogSceneFramingV1,
 } from "../../assets/web-cook/WebCookSceneBounds.js";
 import { createOegPackSceneSource } from "../../assets/geometry-product/OegPackSceneSourceV1.js";
 import {
   buildVirtualGeometrySceneSourceV1,
   mergeVirtualGeometryProductSceneSourcesV1,
-  type VirtualGeometryProductScenePartV1
+  type VirtualGeometryProductScenePartV1,
 } from "../../assets/geometry-product/VirtualGeometrySceneSourceV1.js";
 import type { CookedSceneGeometryProductV1 } from "../../assets/geometry-product/SceneGeometryCanonicalizerV1.js";
 import type { OegPackProductAsset } from "../../assets/geometry-product/OegPackProductAsset.js";
 import type {
   GeometryProductDescriptorV1,
-  GeometryProductProviderV1
+  GeometryProductProviderV1,
 } from "../../assets/geometry-product/GeometryProductV1.js";
 import type { VirtualGeometrySceneSourceResultV1 } from "../../assets/geometry-product/VirtualGeometrySceneSourceV1.js";
 import {
   createPackedSceneSourceFromScene,
-  type SceneGeometryAssetBinding
+  type SceneGeometryAssetBinding,
 } from "../../gpu/GpuSceneAdapter.js";
 import { DEFAULT_GEOMETRY_WORK_BUDGET, type GeometryWorkBudget } from "../GeometryWorkBudget.js";
 import {
   DEFAULT_RENDERER_CONFIG,
   mergeRendererConfig,
   validateRendererConfig,
-  type RendererConfig
+  type RendererConfig,
 } from "../RendererConfig.js";
-import { TEXTURE_RESIDENCY_MAX_SIZE } from "../../gpu/TextureResidency.js";
+import { prepareMaterialTextureProducts } from "../../assets/PcMaterialTextures.js";
 import type { GraphicsMemoryEvidence, GraphicsOwnerCreationEvidence } from "../../gpu/GraphicsContext.js";
 import { PhysicalEnvironmentRuntime } from "../environment/PhysicalEnvironmentRuntime.js";
 import { Fsr3UpscalerRuntime } from "../passes/fsr3/Fsr3UpscalerRuntime.js";
@@ -150,7 +150,7 @@ function createPackedHierarchyView(camera: PerspectiveCamera, viewportHeight: nu
       camera.frustum[offset]!,
       camera.frustum[offset + 1]!,
       camera.frustum[offset + 2]!,
-      camera.frustum[offset + 3]!
+      camera.frustum[offset + 3]!,
     ]);
   }
   return {
@@ -159,7 +159,7 @@ function createPackedHierarchyView(camera: PerspectiveCamera, viewportHeight: nu
     viewportHeight,
     verticalFovRadians: camera.fov,
     nearPlane: camera.near,
-    frustumPlanes: planes
+    frustumPlanes: planes,
   };
 }
 
@@ -172,13 +172,13 @@ function packedPreviousHzb(hzb: HierarchicalZBuffer, previousWorldToClip: ArrayL
         width: hzb.width,
         height: hzb.height,
         mipLevelCount: hzb.mipLevelCount,
-        worldToClipMatrix: previousWorldToClip
+        worldToClipMatrix: previousWorldToClip,
       };
 }
 
 async function waitForActiveProduct(
   controller: GeometryProductAdmissionController,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<void> {
   while (true) {
     if (signal?.aborted) throw signal.reason ?? new Error("Product admission aborted");
@@ -193,7 +193,7 @@ async function waitForActiveProduct(
 
 function refreshProductSceneSourceForRecovery(
   scene: Scene,
-  source: VirtualGeometrySceneSource
+  source: VirtualGeometrySceneSource,
 ): VirtualGeometrySceneSource {
   const meshes = source.meshes;
   if (!meshes) return source;
@@ -213,7 +213,7 @@ function refreshProductSceneSourceForRecovery(
     meshes,
     materialIndices,
     currentTransforms,
-    previousTransforms: currentTransforms.slice()
+    previousTransforms: currentTransforms.slice(),
   });
 }
 export interface RendererCapabilities {
@@ -228,7 +228,7 @@ export interface ProductSceneSourceMapper {
       residency: VirtualGeometryResidency;
       descriptor: GeometryProductDescriptorV1;
       source: GeometryProductRevisionSourceV1;
-    }>
+    }>,
   ): VirtualGeometrySceneSourceResultV1 | Promise<VirtualGeometrySceneSourceResultV1>;
 }
 
@@ -402,8 +402,22 @@ export class Renderer {
   private _render_resolution = new Vec2(1, 1);
   private _format: GPUTextureFormat = "bgra8unorm";
   private _displayProfile: "sdr" | "hdr" = "sdr";
+  private async prepareTextureProducts(
+    materials: readonly StandardShadeMaterial[],
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const epoch = this.deviceEpoch;
+    const combined = signal
+      ? AbortSignal.any([signal, this.texturePreparationAbort.signal])
+      : this.texturePreparationAbort.signal;
+    await prepareMaterialTextureProducts(materials, combined);
+    if (this._destroyed || this._deviceLost || epoch !== this.deviceEpoch) {
+      throw new Error("Texture preparation belongs to an expired Renderer device");
+    }
+  }
   private _deviceLost = false;
   private _destroyed = false;
+  private readonly texturePreparationAbort = new AbortController();
   private _explicitlyDestroyed = false;
   private _ownsDevice = false;
   private _recoveryPromise: Promise<Renderer> | null = null;
@@ -565,7 +579,7 @@ export class Renderer {
   patchInstances(
     handle: InstanceSetHandle,
     batch: InstancePatchBatch,
-    command: ShadeGPUCommandContext
+    command: ShadeGPUCommandContext,
   ): InstancePatchResult {
     return this._graphics.gpu_scene.patch(handle, batch, command);
   }
@@ -595,7 +609,7 @@ export class Renderer {
    */
   async uploadScene(
     scene: Scene,
-    geometryAssets: readonly SceneGeometryAssetBinding[]
+    geometryAssets: readonly SceneGeometryAssetBinding[],
   ): Promise<GpuRenderWorldHandle> {
     const adapted = createPackedSceneSourceFromScene(scene, geometryAssets);
     return this.uploadRenderWorldSource(scene, adapted.source, adapted.meshes);
@@ -614,7 +628,7 @@ export class Renderer {
       fitHeight?: number;
       fitBase?: readonly [number, number, number];
       signal?: AbortSignal;
-    }> = {}
+    }> = {},
   ): Promise<ProductSceneHandles> {
     const sourceMapper: ProductSceneSourceMapper = ({ descriptor }) => {
       if (options.signal?.aborted)
@@ -624,14 +638,14 @@ export class Renderer {
         cooked.canonicalization.profiles,
         cooked.canonicalization.instances,
         cooked.canonicalization.materials,
-        { fitHeight: options.fitHeight, fitBase: options.fitBase }
+        { fitHeight: options.fitHeight, fitBase: options.fitBase },
       );
       return Object.freeze({
         materials: mapped.materials,
         source: Object.freeze({
           ...mapped.source,
-          meshes: Object.freeze([...scene.instances.instances])
-        })
+          meshes: Object.freeze([...scene.instances.instances]),
+        }),
       });
     };
     return this.uploadProductScene(scene, cooked.provider, sourceMapper, { signal: options.signal });
@@ -656,7 +670,7 @@ export class Renderer {
       readonly multiRuntime?: GeometryProductMultiRuntimeV1;
       /** Transfers Scene-unload responsibility; low-level admission stays caller-owned by default. */
       readonly releaseWithScene?: boolean;
-    }> = { bindings: residency.bindings(), assetCount: residency.descriptor.assetRecords.byteLength / 128 }
+    }> = { bindings: residency.bindings(), assetCount: residency.descriptor.assetRecords.byteLength / 128 },
   ): Promise<GpuRenderWorldHandle> {
     const storageBufferLimit = Number(this.device.limits.maxStorageBuffersPerShaderStage);
     if (
@@ -666,30 +680,31 @@ export class Renderer {
       throw new Error(
         `Virtual Geometry Product consumer requires maxStorageBuffersPerShaderStage >= ` +
           `${VIRTUAL_GEOMETRY_PRODUCT_REQUIRED_STORAGE_BUFFERS_PER_SHADER_STAGE}; ` +
-          `initialize Renderer with requiredLimits.maxStorageBuffersPerShaderStage before admission (device permits ${storageBufferLimit})`
+          `initialize Renderer with requiredLimits.maxStorageBuffersPerShaderStage before admission (device permits ${storageBufferLimit})`,
       );
     }
     if (publication.assetCount !== source.assetCount) {
       throw new RangeError("Virtual Product source assetCount does not match its descriptor");
     }
+    await this.prepareTextureProducts(source.materials);
     if (streamingRuntime !== null && publication.registerStreaming !== false) {
       streamingRuntime.registerProduct(residency.sourceForStreaming());
     }
     const command = ShadeGPUCommandContext.create(
       this._graphics,
-      "Renderer/GpuRenderWorld/residency-transaction"
+      "Renderer/GpuRenderWorld/residency-transaction",
     );
     try {
       const handle = this._graphics.render_world.stageVirtualProduct(
         scene,
         source,
         publication.bindings,
-        command
+        command,
       );
       await this._graphics.render_world.prepareNativeMaterials(
         handle,
         command,
-        this._environmentRuntime !== null
+        this._environmentRuntime !== null,
       );
       beforeSubmit?.();
       command.finish();
@@ -706,8 +721,8 @@ export class Renderer {
           sceneSource: source,
           streamingEnabled: streamingRuntime !== null,
           releaseWithScene: publication.releaseWithScene === true,
-          ...(publication.multiRuntime === undefined ? {} : { multiRuntime: publication.multiRuntime })
-        })
+          ...(publication.multiRuntime === undefined ? {} : { multiRuntime: publication.multiRuntime }),
+        }),
       );
       return handle;
     } catch (error) {
@@ -734,7 +749,7 @@ export class Renderer {
     scene: Scene,
     provider: GeometryProductProviderV1,
     mapSource: ProductSceneSourceMapper,
-    options: ProductSceneOptions = {}
+    options: ProductSceneOptions = {},
   ): Promise<ProductSceneHandles> {
     let state: ProductSceneState | undefined;
     let firstHandle: GpuRenderWorldHandle | undefined;
@@ -752,7 +767,7 @@ export class Renderer {
             const mapped = await mapSource({
               residency,
               descriptor: residency.descriptor,
-              source: candidate.source
+              source: candidate.source,
             });
             options.onMaterials?.(mapped.materials);
             candidate.publishGpuRecord();
@@ -764,7 +779,7 @@ export class Renderer {
               () => {
                 if (candidate.state !== "ready-to-activate")
                   throw new Error("Product candidate was cancelled before Scene submit");
-              }
+              },
             );
             candidate.markSceneSubmitted();
             state = { residency, streaming, source: mapped.source, materials: mapped.materials };
@@ -776,7 +791,7 @@ export class Renderer {
               } catch (rollbackError) {
                 throw new AggregateError(
                   [error, rollbackError],
-                  "Initial Product publication and rollback failed"
+                  "Initial Product publication and rollback failed",
                 );
               }
             }
@@ -788,13 +803,13 @@ export class Renderer {
           const publication = publicationTail.then(() =>
             this.swapProductScene(scene, state!, candidate, mapSource, options, (completion) => {
               retirementBoundaries.set(candidate.generation, { previousGeneration, completion });
-            })
+            }),
           );
           publicationTail = publication;
           await publication;
         }
       },
-      options.residency
+      options.residency,
     );
     admission.onActivated((transaction) => {
       const retirement = retirementBoundaries.get(transaction.generation);
@@ -804,7 +819,7 @@ export class Renderer {
         .then(() => retirement.completion)
         .then(
           () => admission.retireReplaced(retirement.previousGeneration),
-          () => admission.retireReplaced(retirement.previousGeneration)
+          () => admission.retireReplaced(retirement.previousGeneration),
         );
     });
     const consuming = admission.consume(provider, options.signal);
@@ -850,7 +865,7 @@ export class Renderer {
           residency: published.residency,
           streaming: published.streaming,
           source: published.source,
-          materials: published.materials
+          materials: published.materials,
         }),
       get residency() {
         return published.residency;
@@ -863,7 +878,7 @@ export class Renderer {
       },
       get materials() {
         return published.materials;
-      }
+      },
     });
   }
 
@@ -875,11 +890,11 @@ export class Renderer {
   async uploadWebCookedScene(
     scene: Scene,
     asset: WebCookRuntimeAsset,
-    options: WebCookedSceneOptions = {}
+    options: WebCookedSceneOptions = {},
   ): Promise<ProductSceneHandles> {
     // One cache for the whole scene lifetime. A replacement revision maps the
     // same authored images while the outgoing revision is still resident; sharing
-    // the decoded textures keeps a size class from having to hold both copies.
+    // the cold sources lets immutable BC Products and resident layers be shared.
     const textureCache = new Map<string, Promise<ShadeTexture>>();
     let framing: WebCookCatalogSceneFramingV1 | undefined;
     return this.uploadProductScene(
@@ -891,7 +906,7 @@ export class Renderer {
         if (options.fitHeight !== undefined && framing === undefined) {
           framing = webCookCatalogSceneFraming(catalog, {
             fitHeight: options.fitHeight,
-            fitBase: options.fitBase
+            fitBase: options.fitBase,
           });
           if (framing.unknownBoundPrimitives > 0)
             throw new Error("Web Cook catalog fit cannot cover primitives with unknown bounds");
@@ -909,14 +924,10 @@ export class Renderer {
             geometryOnly: options.geometryOnly,
             singleLitMaterial: options.singleLitMaterial,
             skipAuthoredTextures: options.skipAuthoredTextures,
-            maxImageDimension: Math.min(
-              Number(this.device.limits.maxTextureDimension2D),
-              this._initializationConfig?.textureMaxResolution ?? TEXTURE_RESIDENCY_MAX_SIZE
-            )
-          }
+          },
         );
       },
-      options
+      options,
     );
   }
 
@@ -929,7 +940,7 @@ export class Renderer {
   async uploadWebCookedMultiProductScene(
     scene: Scene,
     asset: WebCookRuntimeAsset,
-    options: WebCookedSceneOptions = {}
+    options: WebCookedSceneOptions = {},
   ): Promise<MultiProductSceneHandles> {
     let runtime: GeometryProductMultiRuntimeV1 | undefined;
     const textureCache = new Map<string, Promise<ShadeTexture>>();
@@ -965,14 +976,14 @@ export class Renderer {
                   catalog.primitives.reduce(
                     (extra, primitive) =>
                       extra + Math.max(0, Math.ceil(primitive.triangleCount / 131_072) - 1),
-                    0
-                  )
-              )
+                    0,
+                  ),
+              ),
           });
           if (options.fitHeight !== undefined && framing === undefined) {
             framing = webCookCatalogSceneFraming(catalog, {
               fitHeight: options.fitHeight,
-              fitBase: options.fitBase
+              fitBase: options.fitBase,
             });
             if (framing.unknownBoundPrimitives > 0)
               throw new Error("Web Cook catalog fit cannot cover primitives with unknown bounds");
@@ -994,16 +1005,12 @@ export class Renderer {
               geometryOnly: options.geometryOnly,
               singleLitMaterial: options.singleLitMaterial,
               skipAuthoredTextures: options.skipAuthoredTextures,
-              maxImageDimension: Math.min(
-                Number(this.device.limits.maxTextureDimension2D),
-                this._initializationConfig?.textureMaxResolution ?? TEXTURE_RESIDENCY_MAX_SIZE
-              ),
               onMappingTiming: options.onProductPublicationTiming
                 ? (timing) => {
                     mapping = timing;
                   }
-                : undefined
-            }
+                : undefined,
+            },
           );
           const mappedAt = performance.now();
           parts.push(
@@ -1011,8 +1018,8 @@ export class Renderer {
               source: mapped.source,
               productTableSlot: shard.productTableSlot,
               productGeneration: shard.productGeneration,
-              assetReferenceBegin: shard.assetReferenceBegin
-            })
+              assetReferenceBegin: shard.assetReferenceBegin,
+            }),
           );
           const combined = mergeVirtualGeometryProductSceneSourcesV1(parts);
           const mergedAt = performance.now();
@@ -1027,13 +1034,13 @@ export class Renderer {
               assetCount: combined.assetCount,
               registerStreaming: false,
               multiRuntime: runtime,
-              releaseWithScene: true
+              releaseWithScene: true,
             });
             state = Object.freeze({
               source: combined,
               shardCount: 1,
               firstResidency: shard.residency,
-              streaming
+              streaming,
             });
             resolveFirst();
           } else {
@@ -1045,13 +1052,13 @@ export class Renderer {
                 ? (timing) => {
                     appendTiming = timing;
                   }
-                : undefined
+                : undefined,
             );
             state = Object.freeze({
               source: combined,
               shardCount: parts.length,
               firstResidency: shardHandles[0]!.residency,
-              streaming
+              streaming,
             });
             this._virtualProductScenes.set(
               scene,
@@ -1062,8 +1069,8 @@ export class Renderer {
                 sceneSource: combined,
                 streamingEnabled: streaming !== null,
                 releaseWithScene: true,
-                multiRuntime: runtime
-              })
+                multiRuntime: runtime,
+              }),
             );
           }
           lastPublishedAt = performance.now();
@@ -1076,7 +1083,7 @@ export class Renderer {
               sourceMergeMs: mergedAt - mappedAt,
               scenePublishMs: lastPublishedAt - mergedAt,
               mapping: mapping!,
-              ...(appendTiming === undefined ? {} : { append: appendTiming })
+              ...(appendTiming === undefined ? {} : { append: appendTiming }),
             });
         }
         if (state === undefined)
@@ -1112,7 +1119,7 @@ export class Renderer {
         streaming?.destroy();
         runtime?.destroy();
         released = true;
-      }
+      },
     });
   }
 
@@ -1120,14 +1127,15 @@ export class Renderer {
     scene: Scene,
     source: VirtualGeometrySceneSource,
     runtime: GeometryProductMultiRuntimeV1,
-    onTiming?: (timing: WebCookAppendPublicationTiming) => void
+    onTiming?: (timing: WebCookAppendPublicationTiming) => void,
   ): Promise<void> {
     const previous = this._graphics.render_world.runtime(scene);
     if (previous === null) throw new Error("Multi-Product append requires an active Scene publication");
+    await this.prepareTextureProducts(source.materials);
     const started = onTiming ? performance.now() : 0;
     const command = ShadeGPUCommandContext.create(
       this._graphics,
-      "Renderer/GpuRenderWorld/multi-product-append"
+      "Renderer/GpuRenderWorld/multi-product-append",
     );
     try {
       this._visibilityFeature.release(previous, command);
@@ -1135,13 +1143,13 @@ export class Renderer {
         scene,
         source,
         runtime.bindings(),
-        command
+        command,
       );
       const stagedAt = onTiming ? performance.now() : 0;
       await this._graphics.render_world.prepareNativeMaterials(
         handle,
         command,
-        this._environmentRuntime !== null
+        this._environmentRuntime !== null,
       );
       const preparedAt = onTiming ? performance.now() : 0;
       command.finish();
@@ -1151,7 +1159,7 @@ export class Renderer {
         stageMs: stagedAt - started,
         scenePrepareMs: preparedAt - stagedAt,
         submitMs: submittedAt - preparedAt,
-        commitMs: performance.now() - submittedAt
+        commitMs: performance.now() - submittedAt,
       });
     } catch (error) {
       if (!command.closed) command.abort(error);
@@ -1167,7 +1175,7 @@ export class Renderer {
   async uploadOegPackScene(
     scene: Scene,
     asset: OegPackProductAsset,
-    options: OegPackSceneOptions = {}
+    options: OegPackSceneOptions = {},
   ): Promise<ProductSceneHandles> {
     return this.uploadProductScene(
       scene,
@@ -1177,9 +1185,9 @@ export class Renderer {
           fitHeight: options.fitHeight,
           fitBase: options.fitBase,
           scale: options.scale,
-          offset: options.offset
+          offset: options.offset,
         }),
-      options
+      options,
     );
   }
 
@@ -1193,7 +1201,7 @@ export class Renderer {
     next: GeometryProductAdmissionTransaction,
     mapSource: ProductSceneSourceMapper,
     options: ProductSceneOptions,
-    onCommitted: (retirementCompletion: Promise<void>) => void
+    onCommitted: (retirementCompletion: Promise<void>) => void,
   ): Promise<void> {
     const previous = { residency: state.residency, streaming: state.streaming };
     const nextResidency = next.residency;
@@ -1202,14 +1210,15 @@ export class Renderer {
     const mapped = await mapSource({
       residency: nextResidency,
       descriptor: nextResidency.descriptor,
-      source: next.source
+      source: next.source,
     });
     options.onMaterials?.(mapped.materials);
+    await this.prepareTextureProducts(mapped.materials, options.signal);
     const nextStreaming =
       options.stream === false ? null : new GeometryPageStreamingRuntimeV1(this.device, nextResidency);
     const command = ShadeGPUCommandContext.create(
       this._graphics,
-      "Renderer/GpuRenderWorld/residency-transaction"
+      "Renderer/GpuRenderWorld/residency-transaction",
     );
     try {
       nextStreaming?.registerProduct(nextResidency.sourceForStreaming());
@@ -1223,12 +1232,12 @@ export class Renderer {
         mapped.source,
         nextResidency.bindings(),
         command,
-        true
+        true,
       );
       await this._graphics.render_world.prepareNativeMaterials(
         handle,
         command,
-        this._environmentRuntime !== null
+        this._environmentRuntime !== null,
       );
       if (next.state !== "ready-to-activate")
         throw new Error("Product replacement was cancelled before Scene submit");
@@ -1244,8 +1253,8 @@ export class Renderer {
           source: nextResidency.sourceForStreaming(),
           sceneSource: mapped.source,
           streamingEnabled: nextStreaming !== null,
-          releaseWithScene: false
-        })
+          releaseWithScene: false,
+        }),
       );
       state.residency = nextResidency;
       state.streaming = nextStreaming;
@@ -1259,8 +1268,8 @@ export class Renderer {
           },
           () => {
             previous.streaming?.destroy();
-          }
-        )
+          },
+        ),
       );
     } catch (error) {
       if (!command.closed) command.abort(error);
@@ -1275,14 +1284,14 @@ export class Renderer {
    */
   async resyncScene(
     scene: Scene,
-    geometryAssets: readonly SceneGeometryAssetBinding[]
+    geometryAssets: readonly SceneGeometryAssetBinding[],
   ): Promise<GpuRenderWorldHandle> {
     const adapted = createPackedSceneSourceFromScene(scene, geometryAssets);
     // Validate the replacement before retiring the current runtime. GPU
     // allocation still happens only after the explicit release commits.
     createSceneResidencyManifest(adapted.source, {
       maxBufferSize: Number(this.device.limits.maxBufferSize),
-      maxStorageBufferBindingSize: Number(this.device.limits.maxStorageBufferBindingSize)
+      maxStorageBufferBindingSize: Number(this.device.limits.maxStorageBufferBindingSize),
     });
     await this.releaseScene(scene);
     return this.uploadRenderWorldSource(scene, adapted.source, adapted.meshes);
@@ -1291,15 +1300,16 @@ export class Renderer {
   private async uploadRenderWorldSource(
     scene: Scene,
     source: PackedSceneSource,
-    ordinaryMeshes?: readonly import("../../scene/Mesh.js").Mesh[]
+    ordinaryMeshes?: readonly import("../../scene/Mesh.js").Mesh[],
   ): Promise<GpuRenderWorldHandle> {
+    await this.prepareTextureProducts(source.materials);
     const manifest = createSceneResidencyManifest(source, {
       maxBufferSize: Number(this.device.limits.maxBufferSize),
-      maxStorageBufferBindingSize: Number(this.device.limits.maxStorageBufferBindingSize)
+      maxStorageBufferBindingSize: Number(this.device.limits.maxStorageBufferBindingSize),
     });
     const command = ShadeGPUCommandContext.create(
       this._graphics,
-      "Renderer/GpuRenderWorld/residency-transaction"
+      "Renderer/GpuRenderWorld/residency-transaction",
     );
     let uploadCommitted = false;
     try {
@@ -1311,7 +1321,7 @@ export class Renderer {
       await this._graphics.render_world.prepareNativeMaterials(
         handle,
         command,
-        this._environmentRuntime !== null
+        this._environmentRuntime !== null,
       );
       command.finish();
       await command.submitted;
@@ -1329,7 +1339,7 @@ export class Renderer {
         } catch (rollbackError) {
           throw new AggregateError(
             [error, rollbackError],
-            "GpuRenderWorld upload failed and its committed residency rollback also failed"
+            "GpuRenderWorld upload failed and its committed residency rollback also failed",
           );
         }
       }
@@ -1356,7 +1366,7 @@ export class Renderer {
     }
     const command = ShadeGPUCommandContext.create(
       this._graphics,
-      "Renderer/GpuRenderWorld/release-transaction"
+      "Renderer/GpuRenderWorld/release-transaction",
     );
     let handles: readonly AssetHandle[];
     try {
@@ -1386,7 +1396,7 @@ export class Renderer {
   /** Called only after all submitted Scene consumers are fenced. */
   private completeSceneProductRelease(
     scene: Scene,
-    product: ReturnType<Renderer["_virtualProductScenes"]["get"]>
+    product: ReturnType<Renderer["_virtualProductScenes"]["get"]>,
   ): void {
     if (product?.releaseWithScene) {
       product.streamingRuntime?.destroy();
@@ -1458,28 +1468,26 @@ export class Renderer {
       "core-features-and-limits",
       "indirect-first-instance",
       "texture-formats-tier1",
-      ...(config.requiredFeatures ?? [])
+      "texture-compression-bc",
+      ...(config.requiredFeatures ?? []),
     ]);
     const minStorageBuffers = Math.max(
       VIRTUAL_GEOMETRY_PRODUCT_REQUIRED_STORAGE_BUFFERS_PER_SHADER_STAGE,
-      config.requiredLimits?.maxStorageBuffersPerShaderStage ?? 0
+      config.requiredLimits?.maxStorageBuffersPerShaderStage ?? 0,
     );
     const limits = {
       maxStorageBuffersPerShaderStage: minStorageBuffers,
       maxStorageBufferBindingSize: Number(adapter.limits.maxStorageBufferBindingSize),
       maxBufferSize: Number(adapter.limits.maxBufferSize),
       maxStorageTexturesPerShaderStage: Number(adapter.limits.maxStorageTexturesPerShaderStage),
+      maxSampledTexturesPerShaderStage: Math.min(19, Number(adapter.limits.maxSampledTexturesPerShaderStage)),
       ...(config.requiredLimits?.maxColorAttachmentBytesPerSample === undefined
         ? {}
-        : { maxColorAttachmentBytesPerSample: config.requiredLimits.maxColorAttachmentBytesPerSample })
+        : { maxColorAttachmentBytesPerSample: config.requiredLimits.maxColorAttachmentBytesPerSample }),
     };
     for (const feature of ["primitive-index", "subgroups", "timestamp-query"] as const) {
       if (adapter.features.has(feature)) requiredFeatures.add(feature);
     }
-    const compression = (
-      ["texture-compression-bc", "texture-compression-astc", "texture-compression-etc2"] as const
-    ).find((feature) => adapter.features.has(feature));
-    if (compression) requiredFeatures.add(compression);
     for (const feature of requiredFeatures) {
       if (!adapter.features.has(feature))
         throw new Error(`Required WebGPU feature '${feature}' is unavailable`);
@@ -1492,7 +1500,7 @@ export class Renderer {
       options.device ??
       (await adapter.requestDevice({
         requiredFeatures: [...requiredFeatures],
-        requiredLimits: limits
+        requiredLimits: limits,
       }));
     for (const feature of requiredFeatures) {
       if (!device.features.has(feature)) throw new Error(`Caller device lacks '${feature}'`);
@@ -1511,26 +1519,21 @@ export class Renderer {
         maxStorageBuffersPerShaderStage: Number(device.limits.maxStorageBuffersPerShaderStage),
         maxColorAttachmentBytesPerSample: Number(device.limits.maxColorAttachmentBytesPerSample),
         maxBufferSize: Number(device.limits.maxBufferSize),
-        maxStorageBufferBindingSize: Number(device.limits.maxStorageBufferBindingSize)
+        maxStorageBufferBindingSize: Number(device.limits.maxStorageBufferBindingSize),
       }),
-      record: captureWebGpuCapabilityRecord(gpu, device, adapter)
+      record: captureWebGpuCapabilityRecord(gpu, device, adapter),
     });
     device.lost.then((info) => {
       if (!this._destroyed) {
         this._deviceLost = true;
+        this.texturePreparationAbort.abort(new Error("Device lost during texture preparation"));
         for (const state of this._virtualProductScenes.values()) {
           state.streamingRuntime?.destroy();
         }
         if (info.reason !== "destroyed") console.error("GPUDevice lost", info);
       }
     });
-    this._graphics = new GraphicsContext(
-      device,
-      this._profiler,
-      config.textureMaxResolution ?? TEXTURE_RESIDENCY_MAX_SIZE,
-      config.geometryResidency,
-      config.textureBankMaxCapacities
-    );
+    this._graphics = new GraphicsContext(device, this._profiler, config.geometryResidency);
     await this._graphics.initialize();
     const canvas = context.canvas as HTMLCanvasElement;
     this._width = Math.max(1, canvas.clientWidth || canvas.width);
@@ -1564,7 +1567,7 @@ export class Renderer {
           format: "rgba16float",
           alphaMode: "opaque",
           colorSpace: "display-p3",
-          toneMapping: { mode: "extended" }
+          toneMapping: { mode: "extended" },
         });
         const actual = this.context.getConfiguration();
         if (
@@ -1615,7 +1618,7 @@ export class Renderer {
     this._output_resolution.set(outputWidth, outputHeight);
     this._render_resolution.set(
       Math.max(1, Math.floor(outputWidth * this.resolutionScale)),
-      Math.max(1, Math.floor(outputHeight * this.resolutionScale))
+      Math.max(1, Math.floor(outputHeight * this.resolutionScale)),
     );
     this._renderTargets.resize(this._render_resolution.x, this._render_resolution.y);
     const canvas = this.context.canvas as HTMLCanvasElement;
@@ -1631,7 +1634,7 @@ export class Renderer {
       alphaMode: "opaque",
       ...(this._displayProfile === "hdr"
         ? { colorSpace: "display-p3" as const, toneMapping: { mode: "extended" as const } }
-        : {})
+        : {}),
     });
   }
 
@@ -1655,7 +1658,7 @@ export class Renderer {
       vsmAllocatePages: this._vsmAllocatePages,
       vsmCasterRecords: this._vsmCasterRecords,
       vsmAtlasRaster: this._vsmAtlasRaster,
-      vsmInvalidation: this._vsmInvalidation
+      vsmInvalidation: this._vsmInvalidation,
     };
   }
 
@@ -1691,7 +1694,7 @@ export class Renderer {
           lastPoll === null || frameTimeMs === 0 ? undefined : (lastPoll.uploadedBytes * 1000) / frameTimeMs,
         gpuPressure: Math.max(0, Math.min(1, this._streamingGpuFrameTimeMs / 16.67 - 1)),
         frameTimeMs,
-        targetFrameTimeMs: 16.67
+        targetFrameTimeMs: 16.67,
       });
     }
     this._profiler.beginFrame(frameIndex);
@@ -1712,13 +1715,13 @@ export class Renderer {
           this._render_resolution.x,
           this._render_resolution.y,
           this._output_resolution.x,
-          this._output_resolution.y
+          this._output_resolution.y,
         ) === false
       ) {
         this._temporal.histories.invalidateNames(["color"], "internal-resize");
       }
       const preExposure: PreExposureContract = this._radiometry.beginFrame(
-        this._environmentRuntime === null ? 0 : scene.physical_environment.revision + 1
+        this._environmentRuntime === null ? 0 : scene.physical_environment.revision + 1,
       );
       if (this._activeCamera !== camera) {
         cameraChanged = true;
@@ -1746,7 +1749,7 @@ export class Renderer {
         taaJitter:
           this.temporal_jitter_enabled && this._render_debug_view === RenderDebugViewValue.None
             ? undefined
-            : [0, 0]
+            : [0, 0],
       });
       temporalActive = true;
       this._graphics.encodeFrameMaintenance(command);
@@ -1754,18 +1757,17 @@ export class Renderer {
       environmentGeneration = this._environmentRuntime?.record(
         command.gpu_encoder,
         scene.physical_environment.snapshot(),
-        [camera.transform.matrix[12]!, camera.transform.matrix[13]!, camera.transform.matrix[14]!]
+        [camera.transform.matrix[12]!, camera.transform.matrix[13]!, camera.transform.matrix[14]!],
       );
       if (environmentGeneration !== undefined && environmentGeneration !== null) {
         this._environmentRuntime!.writeParameters((buffer, data) =>
-          command.writeBuffer(buffer, 0, data, 0, data.byteLength)
+          command.writeBuffer(buffer, 0, data, 0, data.byteLength),
         );
       }
       const environment = this._environments.obtain(scene);
-      const activeSets = Array.from({ length: 4 }, (_, setId) => setId).filter((setId) =>
-        runtime.activeShadingSummary.binRefCounts
-          .slice(setId * 16, setId * 16 + 16)
-          .some((count) => count > 0)
+      const summary = runtime.activeShadingSummary;
+      const activeSets = Array.from(summary.standardSetRefCounts, (_, setId) => setId).filter(
+        (setId) => summary.standardSetRefCounts[setId]! + summary.coatedSetRefCounts[setId]! > 0,
       );
       const textureBankMask =
         activeSets.reduce((mask, setId) => {
@@ -1774,7 +1776,7 @@ export class Renderer {
           return mask | set.textureBankMask;
         }, 0) || 1;
       const hasLit = runtime.activeShadingSummary.binRefCounts.some(
-        (count, classId) => count > 0 && (classId & 15) >= 4
+        (count, classId) => count > 0 && (classId & 15) >= 4,
       );
       if (hasLit) {
         environment.lights.update(command);
@@ -1813,7 +1815,7 @@ export class Renderer {
         for (let index = 0; index < 16; index++) {
           matrixDelta = Math.max(
             matrixDelta,
-            Math.abs(currentViewMatrix[index]! - previousViewMatrix[index]!)
+            Math.abs(currentViewMatrix[index]! - previousViewMatrix[index]!),
           );
         }
         // The current WebGPU visibility path has one previous-HZB producer
@@ -1839,7 +1841,7 @@ export class Renderer {
       const cameraPosition: [number, number, number] = [
         camera.transform.matrix[12]!,
         camera.transform.matrix[13]!,
-        camera.transform.matrix[14]!
+        camera.transform.matrix[14]!,
       ];
       const sunDirection = scene.physical_environment.snapshot().sunDirectionWorld;
       const vsmEnabled =
@@ -1853,7 +1855,7 @@ export class Renderer {
             cameraPosition,
             camera.far,
             this._vsm!,
-            this._vsmGeneration.currentGeneration
+            this._vsmGeneration.currentGeneration,
           )
         : null;
       const vsmGeneration = this._vsmGeneration.begin({
@@ -1866,21 +1868,21 @@ export class Renderer {
         cameraCut: cameraCut || cameraChanged,
         clipOriginExtent: vsmPreview?.clipOriginExtent ?? [],
         width,
-        height
+        height,
       });
       if (vsmGeneration.temporalInvalidate) this._temporalFacts.invalidate();
       this._gpuRadiometry.prepareFrame(
         colorHistory.readIndex,
         colorHistory.writeIndex,
         colorHistory.readValid,
-        timeDeltaSeconds
+        timeDeltaSeconds,
       );
       this._temporalFacts.prepareFrame(
         width,
         height,
         identityHistory.readIndex,
         identityHistory.writeIndex,
-        identityHistory.readValid
+        identityHistory.readValid,
       );
       this._fsr3.prepareFrame(command, {
         renderWidth: width,
@@ -1894,13 +1896,13 @@ export class Renderer {
         cameraInfiniteFar: camera.isInfiniteFar,
         frameTimeMs: Math.max(0, timeDeltaSeconds * 1000),
         reset: !this._temporal.histories.state("color").readValid,
-        historyReadIndex: this._temporal.histories.state("color").readIndex
+        historyReadIndex: this._temporal.histories.state("color").readIndex,
       });
       hzb.beginFrame(frameIndex, {
         renderScale: Math.round(this.resolutionScale * 1_000_000),
         feature:
           Number(this.packed_visibility_hzb_enabled) |
-          (Number(this.packed_visibility_current_hzb_late_recheck_enabled) << 1)
+          (Number(this.packed_visibility_current_hzb_late_recheck_enabled) << 1),
       });
       const bindings = this._graphics.render_world.bindings();
       const prepareJob = {
@@ -1927,7 +1929,7 @@ export class Renderer {
         currentHzbLateRecheck:
           this.packed_visibility_current_hzb_late_recheck_enabled && runtime.virtualGeometry !== null
             ? { width: hzb.width, height: hzb.height, mipLevelCount: hzb.mipLevelCount }
-            : null
+            : null,
       };
       const job: PackedVisibilityJob = {
         ...prepareJob,
@@ -1935,8 +1937,8 @@ export class Renderer {
           prepareJob,
           sampleGeometryCounters ? this._profiler.gpuCounterBuffer! : runtime.counterSink,
           view.gpu_camera_state.buffer,
-          command
-        )
+          command,
+        ),
       };
       if (hasLit) {
         const publication = localLightPublication(environment.lights);
@@ -1951,19 +1953,19 @@ export class Renderer {
               ? [0, camera.near]
               : [
                   camera.near / (camera.far - camera.near),
-                  (camera.far * camera.near) / (camera.far - camera.near)
+                  (camera.far * camera.near) / (camera.far - camera.near),
                 ],
             projection: [
               view.gpu_camera_state.projection_matrix[0]!,
               view.gpu_camera_state.projection_matrix[5]!,
               -view.gpu_camera_state.projection_matrix[8]!,
-              -view.gpu_camera_state.projection_matrix[9]!
+              -view.gpu_camera_state.projection_matrix[9]!,
             ],
-            view: camera.view_matrix
+            view: camera.view_matrix,
           },
           frameIndex,
           deviceEpoch: this.deviceEpoch,
-          mode: publication.ids.length === 0 ? 0 : 2
+          mode: publication.ids.length === 0 ? 0 : 2,
         });
       }
       const graphBindings: SceneFrameBindings = {
@@ -2000,10 +2002,10 @@ export class Renderer {
               cameraPosition,
               camera.far,
               this._vsm!,
-              vsmGeneration.generation
+              vsmGeneration.generation,
             )
           : null,
-        vsmGeneration
+        vsmGeneration,
       };
       finishViewPrepare();
       const program = this._programCache.getOrCreate({
@@ -2029,7 +2031,7 @@ export class Renderer {
         authoredEnvironment: hasLit && scene.lights.environment !== undefined,
         fsr3Enabled: this.fsr3_enabled,
         bloomEnabled: this.bloom_enabled,
-        debugView: this._render_debug_view
+        debugView: this._render_debug_view,
       });
       assertFrameProgramBindings(program, graphBindings);
       // The compiled Surface recipe captures immutable code/layout ownership.
@@ -2042,8 +2044,8 @@ export class Renderer {
         {
           hit: () => this._profiler.recordGraphCacheHit(),
           miss: () => this._profiler.recordGraphCacheMiss(),
-          evict: () => this._profiler.recordGraphCacheEviction()
-        }
+          evict: () => this._profiler.recordGraphCacheEviction(),
+        },
       );
       this._lastFrameGraph = Object.freeze({
         cacheKey: graphKey,
@@ -2053,8 +2055,8 @@ export class Renderer {
           products: program.products,
           facts: program.facts,
           stages: program.stages,
-          bindingRoles: program.bindingRoles
-        }
+          bindingRoles: program.bindingRoles,
+        },
       });
       command.encodeCompiledGraph(compiled, graphBindings);
       if (sampleGeometryCounters) {
@@ -2075,7 +2077,7 @@ export class Renderer {
             "localLightIndicesOffset",
             "localLightIndicesWritten",
             "localLightRegionTasks",
-            "localLightTaskBudget"
+            "localLightTaskBudget",
           ]);
         }
         this._profiler.registerGpuCounterFields([
@@ -2095,7 +2097,7 @@ export class Renderer {
           "geometryVisiblePixels",
           "shadedPixels",
           "emptyVisibilityPixels",
-          "invalidVisibilityKeys"
+          "invalidVisibilityKeys",
         ]);
         this._profiler.encodeGpuCounterReadback(command);
       }
@@ -2175,7 +2177,7 @@ export class Renderer {
       const bindings: EmptyFrameBindings = {
         kind: "empty",
         deviceEpoch: this.deviceEpoch,
-        swapchain: this.context.getCurrentTexture().createView()
+        swapchain: this.context.getCurrentTexture().createView(),
       };
       const program = this._programCache.getOrCreate({
         kind: "empty",
@@ -2184,14 +2186,14 @@ export class Renderer {
         outputWidth: this._output_resolution.x,
         outputHeight: this._output_resolution.y,
         outputFormat: this._format,
-        capabilityProfile: String(this.deviceEpoch)
+        capabilityProfile: String(this.deviceEpoch),
       });
       assertFrameProgramBindings(program, bindings);
       const graphKey = program.key;
       const compiled = this._graphCache.getOrCreate(graphKey, () => lowerFrameProgram(program, bindings), {
         hit: () => this._profiler.recordGraphCacheHit(),
         miss: () => this._profiler.recordGraphCacheMiss(),
-        evict: () => this._profiler.recordGraphCacheEviction()
+        evict: () => this._profiler.recordGraphCacheEviction(),
       });
       this._lastFrameGraph = Object.freeze({
         cacheKey: graphKey,
@@ -2201,8 +2203,8 @@ export class Renderer {
           products: program.products,
           facts: program.facts,
           stages: program.stages,
-          bindingRoles: program.bindingRoles
-        }
+          bindingRoles: program.bindingRoles,
+        },
       });
       command.encodeCompiledGraph(compiled, bindings);
       this._frameCoordinator.submitFrame(frame);
@@ -2231,6 +2233,7 @@ export class Renderer {
   private shutdown(): void {
     if (this._destroyed) return;
     this._destroyed = true;
+    this.texturePreparationAbort.abort(new Error("Renderer destroyed during texture preparation"));
     this._deviceLost = true;
     this._visibilityFeature?.destroy();
     this._xeGtaoMain?.destroy();
@@ -2297,7 +2300,7 @@ export class Renderer {
         readPage: (pageId, signal) => source.readPage(pageId, signal),
         release: () => {
           if (sourcesCommitted) source.release();
-        }
+        },
       });
       try {
         await replacement.initialize({ context: checkpoint.context, config: checkpoint.config });
@@ -2307,10 +2310,10 @@ export class Renderer {
           if (entry.ordinaryMeshes) {
             const bindings = entry.ordinaryMeshes.map((mesh, index) => ({
               geometry: mesh.geometry,
-              asset: entry.source.geometries[entry.source.geometryIndices[index]!]!
+              asset: entry.source.geometries[entry.source.geometryIndices[index]!]!,
             }));
             await replacement.uploadScene(entry.scene, [
-              ...new Map(bindings.map((binding) => [binding.geometry, binding])).values()
+              ...new Map(bindings.map((binding) => [binding.geometry, binding])).values(),
             ]);
           } else {
             await replacement.uploadPackedScene(entry.scene, entry.source);
@@ -2341,7 +2344,7 @@ export class Renderer {
               entry.generation,
               entry.slot,
               undefined,
-              entry.residency
+              entry.residency,
             ));
           residency.activatePublication();
           const streaming = entry.streamingEnabled
@@ -2362,15 +2365,15 @@ export class Renderer {
                 ? {
                     bindings: residency.bindings(),
                     assetCount: entry.sceneSource.assetCount,
-                    releaseWithScene: true
+                    releaseWithScene: true,
                   }
                 : {
                     bindings: multiRuntime.bindings(),
                     assetCount: entry.sceneSource.assetCount,
                     registerStreaming: false,
                     multiRuntime,
-                    releaseWithScene: true
-                  }
+                    releaseWithScene: true,
+                  },
             );
           } catch (error) {
             streaming?.destroy();
@@ -2423,8 +2426,8 @@ export class Renderer {
             state.residency.residencyProfile.profile === "Disabled"
               ? ("Portable" as const)
               : state.residency.residencyProfile.profile,
-          configuredCapacityBytes: state.residency.residencyProfile.capacityBytes
-        } satisfies VirtualGeometryResidencyOptionsV1
+          configuredCapacityBytes: state.residency.residencyProfile.capacityBytes,
+        } satisfies VirtualGeometryResidencyOptionsV1,
       };
       return product;
     });
@@ -2435,7 +2438,7 @@ export class Renderer {
       height: this._height,
       resolutionScale: this.resolutionScale,
       scenes: this._graphics.render_world.recoveryScenes(),
-      products
+      products,
     };
   }
 }

@@ -166,8 +166,9 @@ export function assertFrameProgramBindings(plan: FrameProgram, bindings: FramePr
     throw new Error("Frame Program visibility shape changed");
   }
   const counts = bindings.runtime.activeShadingSummary.binRefCounts;
-  const activeSets = Array.from({ length: 4 }, (_, setId) => setId).filter((setId) =>
-    counts.slice(setId * 16, setId * 16 + 16).some((count) => count > 0)
+  const summary = bindings.runtime.activeShadingSummary;
+  const activeSets = Array.from(summary.standardSetRefCounts, (_, setId) => setId).filter(
+    (setId) => summary.standardSetRefCounts[setId]! + summary.coatedSetRefCounts[setId]! > 0,
   );
   const hasLit = counts.some((count, classId) => count > 0 && (classId & 15) >= 4);
   if (
@@ -184,13 +185,13 @@ export function assertFrameProgramBindings(plan: FrameProgram, bindings: FramePr
       throw new Error(`Frame Program texture set ${setId} is not resident`);
     }
     textureBankMask |= bindingSet.textureBankMask;
-    for (let bank = 0; bank < 9; bank++) {
+    for (let bank = 0; bank < bindingSet.textureBanks.length; bank++) {
       if (!bindingSet.textureBanks[bank] || bindingSet.bankDescriptors[bank]?.bindingSlot !== bank) {
         throw new Error(`Frame Program texture bank ${setId}:${bank} publication is incomplete`);
       }
     }
   }
-  if ((textureBankMask || 1) !== (request.textureBankMask ?? 0x1ff)) {
+  if ((textureBankMask || 1) !== (request.textureBankMask ?? 0xffff)) {
     throw new Error("Frame Program texture bank layout changed");
   }
   if ((bindings.environment !== null) !== request.physicalEnvironment) {
@@ -236,7 +237,7 @@ export function assertFrameProgramBindings(plan: FrameProgram, bindings: FramePr
     request.internalWidth,
     request.internalHeight,
     request.outputWidth,
-    request.outputHeight
+    request.outputHeight,
   );
   bindings.temporalFacts.assertPreparedFrame(request.internalWidth, request.internalHeight);
 }

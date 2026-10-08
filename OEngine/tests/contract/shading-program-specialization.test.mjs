@@ -32,7 +32,7 @@ test("shared environment BRDF oracle preserves split-sum multiple scattering and
 
 test("material and texture-route publication ABI validates generations and exact strides", () => {
   assert.equal(GPU_MATERIAL_VISIBILITY_ABI_VERSION, 8);
-  assert.equal(GPU_SHADING_MATERIAL_ABI_VERSION, 7);
+  assert.equal(GPU_SHADING_MATERIAL_ABI_VERSION, 8);
   const header = {
     programId: GPU_SHADING_PROGRAM.PbrGeneric,
     textureBindingSetId: 2,
@@ -68,17 +68,20 @@ test("material and texture-route publication ABI validates generations and exact
     textureBindingSetId: 2,
   };
   const routeBytes = packGpuShadingTextureRoute(route);
+  assert.equal(GPU_SHADING_TEXTURE_ROUTE_STRIDE, 32);
   assert.equal(routeBytes.byteLength, GPU_SHADING_TEXTURE_ROUTE_STRIDE);
   assert.deepEqual(unpackGpuShadingTextureRoute(routeBytes), {
     ...route,
     residencySlot: 0,
     residencyRevision: 0,
-    variationKnown: false,
     samplingSignature: 0,
-    variationLow: [0, 0, 0, 0],
-    variationHigh: [1, 1, 1, 1],
   });
   assert.throws(() => packGpuShadingTextureRoute({ ...route, textureGeneration: 0 }), /non-zero/u);
+  assert.equal(
+    unpackGpuShadingTextureRoute(packGpuShadingTextureRoute({ ...route, textureBindingSetId: 65537 }))
+      .textureBindingSetId,
+    65537,
+  );
 });
 
 function materialPayload() {

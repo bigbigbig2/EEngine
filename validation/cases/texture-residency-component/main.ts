@@ -1,173 +1,198 @@
-import { createValidationController } from "../../harness/browser.ts";
 import {
+  createValidationController,
   attachGpuErrorCollection,
   snapshotAdapterInfo,
   snapshotGpuFeatures,
   snapshotGpuLimits,
-  withGpuErrorScopes
 } from "../../harness/browser.ts";
-import { GPU_MATERIAL_VISIBILITY_RECORD_WGSL } from "../../../OEngine/src/gpu/GpuMaterialVisibilityAbi.ts";
-import { gpuTextureBankSampleWgsl } from "../../../OEngine/src/gpu/GpuTextureRefAbi.ts";
+import { GraphicsContext } from "../../../OEngine/src/gpu/GraphicsContext.ts";
+import { ShadeGPUCommandContext } from "../../../OEngine/src/framegraph/ShadeGPUCommandContext.ts";
+import { ShadeImage } from "../../../OEngine/src/texture/ShadeImage.ts";
+import { ShadeTexture } from "../../../OEngine/src/texture/ShadeTexture.ts";
+import { StandardShadeMaterial } from "../../../OEngine/src/material/StandardShadeMaterial.ts";
+import { prepareMaterialTextureProducts } from "../../../OEngine/src/assets/PcMaterialTextures.ts";
+import {
+  AppearanceGraphBuilder,
+  snapshotAppearanceTexture,
+} from "../../../OEngine/src/material/AppearanceGraph.ts";
+import { compileAppearanceGraph } from "../../../OEngine/src/material/AppearanceGraphCompiler.ts";
+import { lowerNativeMaterial } from "../../../OEngine/src/shaders/native_material.ts";
+import { createNativeMaterialBindings } from "../../../OEngine/src/gpu/NativeMaterialBindings.ts";
 
-const canvas = document.querySelector<HTMLCanvasElement>("#output");
 const status = document.querySelector<HTMLElement>("#status");
 let device: GPUDevice | undefined;
-let errorCollection: ReturnType<typeof attachGpuErrorCollection> | undefined;
+let graphics: GraphicsContext | undefined;
+let errors: ReturnType<typeof attachGpuErrorCollection> | undefined;
 let intentionalLoss = false;
-const owned: GPUTexture[] = [];
-const ownedBuffers: GPUBuffer[] = [];
-const ownedSamplers: GPUSampler[] = [];
-
-const controller = createValidationController({
-  caseId: "texture-residency-component",
-  workloadId: "texture-residency-component-v1"
-}, async () => {
-  for (const buffer of ownedBuffers.splice(0)) buffer.destroy();
-  for (const texture of owned.splice(0)) texture.destroy();
-  ownedSamplers.splice(0);
-  errorCollection?.remove();
-  intentionalLoss = true;
-  device?.destroy();
-  if (status) status.textContent = "disposed";
-  return { buffers: 0, textures: 0, samplers: 0, devices: 0, intentionalDeviceDestroy: intentionalLoss };
-});
-
-function paddedRows(width: number, height: number, rgba: readonly [number, number, number, number]): Uint8Array {
-  const bytesPerRow = 256;
-  const output = new Uint8Array(bytesPerRow * height);
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) output.set(rgba, y * bytesPerRow + x * 4);
-  }
-  return output;
-}
-
-function writeSolidMip(texture: GPUTexture, level: number, width: number, height: number, rgba: readonly [number, number, number, number]): void {
-  device!.queue.writeTexture(
-    { texture, mipLevel: level },
-    paddedRows(width, height, rgba),
-    { bytesPerRow: 256, rowsPerImage: height },
-    { width, height, depthOrArrayLayers: 1 }
-  );
-}
-
-function matches(actual: readonly number[], expected: readonly number[]): boolean {
-  return actual.length === expected.length && actual.every((value, index) => Math.abs(value - expected[index]!) < 0.02);
-}
+const buffers: GPUBuffer[] = [];
+const controller = createValidationController(
+  {
+    caseId: "texture-residency-component",
+    workloadId: "texture-residency-component-v1",
+  },
+  async () => {
+    if (device) await device.queue.onSubmittedWorkDone();
+    graphics?.destroy();
+    buffers.splice(0).forEach((buffer) => buffer.destroy());
+    errors?.remove();
+    intentionalLoss = true;
+    device?.destroy();
+    return { buffers: 0, textures: 0, samplers: 0, devices: 0, intentionalDeviceDestroy: true };
+  },
+);
 
 try {
   controller.transition("negotiating");
-  if (!window.isSecureContext || !navigator.gpu) {
-    controller.unsupported("WebGPU secure context is unavailable");
+  const adapter = await navigator.gpu?.requestAdapter({ powerPreference: "high-performance" });
+  if (!adapter?.features.has("texture-compression-bc")) {
+    controller.unsupported("PC texture profile requires texture-compression-bc");
   } else {
-    const adapter = await navigator.gpu.requestAdapter({ featureLevel: "core", powerPreference: "high-performance" });
-    if (!adapter || !adapter.features.has("core-features-and-limits")) {
-      controller.unsupported("WebGPU core-features-and-limits is unavailable");
-    } else {
-      controller.addEvidence("adapter", {
-        info: snapshotAdapterInfo(adapter.info),
-        features: snapshotGpuFeatures(adapter.features),
-        limits: snapshotGpuLimits(adapter.limits)
-      });
-      device = await adapter.requestDevice({ label: "Mode A texture residency validation", requiredFeatures: ["core-features-and-limits"] });
-      errorCollection = attachGpuErrorCollection(device, controller, () => intentionalLoss);
-      controller.addEvidence("device", { features: snapshotGpuFeatures(device.features), limits: snapshotGpuLimits(device.limits) });
-      controller.transition("ready");
-
-      const texture = device.createTexture({
-        label: "Mode A logical texture",
-        size: [4, 4, 1],
-        mipLevelCount: 3,
-        format: "rgba8unorm",
-        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
-      });
-      owned.push(texture);
-      const sampler = device.createSampler({ minFilter: "linear", magFilter: "linear" });
-      ownedSamplers.push(sampler);
-      const settings = device.createBuffer({ label: "Mode A sampler publication", size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-      const output = device.createBuffer({ label: "Mode A sampled output", size: 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
-      const readback = device.createBuffer({ label: "Mode A sampled readback", size: 16, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
-      ownedBuffers.push(settings, output, readback);
-
-      const shaderCode = `${GPU_MATERIAL_VISIBILITY_RECORD_WGSL}\n${gpuTextureBankSampleWgsl(1)}\n` + /* wgsl */ `
-@group(0) @binding(0) var oengine_texture_bank_0: texture_2d_array<f32>;
-@group(0) @binding(1) var sampler_clamp_linear: sampler;
-@group(0) @binding(2) var sampler_mirror_linear: sampler;
-@group(0) @binding(3) var sampler_repeat_linear: sampler;
-@group(0) @binding(4) var sampler_clamp_nearest: sampler;
-@group(0) @binding(5) var sampler_mirror_nearest: sampler;
-@group(0) @binding(6) var sampler_repeat_nearest: sampler;
-@group(0) @binding(7) var<uniform> sampler_class: u32;
-@group(0) @binding(8) var<storage, read_write> output: array<vec4f>;
-@compute @workgroup_size(1)
-fn main() {
-  output[0] = oengine_sample_texture_bank(0x20000001u, sampler_class,
-    vec2f(0.5), vec2f(0.0), vec2f(0.0), vec4f(0.0));
-}`;
-      const module = device.createShaderModule({ label: "Mode A texture sampling shader", code: shaderCode });
-      const compilation = await module.getCompilationInfo();
-      controller.addEvidence("shaderCompilation", compilation.messages.map((message) => ({ type: message.type, message: message.message, lineNum: message.lineNum, linePos: message.linePos })));
-      if (compilation.messages.some((message) => message.type === "error")) throw new Error("Mode A texture sampling WGSL compilation failed");
-      const pipeline = await withGpuErrorScopes(device, "Mode A texture sampling pipeline", () =>
-        device!.createComputePipelineAsync({ label: "Mode A texture sampling pipeline", layout: "auto", compute: { module, entryPoint: "main" } })
-      );
-      const bindGroup = device.createBindGroup({
-        label: "Mode A texture sampling bindings",
-        layout: pipeline.value.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: texture.createView({ dimension: "2d-array" }) },
-          { binding: 1, resource: sampler }, { binding: 2, resource: sampler }, { binding: 3, resource: sampler },
-          { binding: 4, resource: sampler }, { binding: 5, resource: sampler }, { binding: 6, resource: sampler },
-          { binding: 7, resource: { buffer: settings } }, { binding: 8, resource: { buffer: output } }
-        ]
-      });
-
-      controller.transition("warming");
-      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-      controller.transition("sampling");
-      writeSolidMip(texture, 1, 2, 2, [255, 0, 0, 255]);
-      writeSolidMip(texture, 2, 1, 1, [255, 0, 0, 255]);
-      device.queue.writeBuffer(settings, 0, new Uint32Array([49]));
-      const runSample = async (label: string): Promise<number[]> => {
-        const encoder = device!.createCommandEncoder({ label });
-        const pass = encoder.beginComputePass({ label: `${label} pass` });
-        pass.setPipeline(pipeline.value); pass.setBindGroup(0, bindGroup); pass.dispatchWorkgroups(1); pass.end();
-        encoder.copyBufferToBuffer(output, 0, readback, 0, 16);
-        device!.queue.submit([encoder.finish()]);
-        await device!.queue.onSubmittedWorkDone();
-        await readback.mapAsync(GPUMapMode.READ);
-        const values = [...new Float32Array(readback.getMappedRange().slice(0))];
-        readback.unmap();
-        return values;
-      };
-      const tailSample = await runSample("Mode A mip tail sample");
-      writeSolidMip(texture, 0, 4, 4, [0, 255, 0, 255]);
-      device.queue.writeBuffer(settings, 0, new Uint32Array([17]));
-      const promotedSample = await runSample("Mode A promoted mip sample");
-      const tailMatches = matches(tailSample, [1, 0, 0, 1]);
-      const promotedMatches = matches(promotedSample, [0, 1, 0, 1]);
-      controller.addEvidence("sampling", {
-        textureDimensions: [4, 4],
-        mipLevelCount: 3,
-        initialResidentMipRange: [1, 2],
-        promotedResidentMipRange: [0, 2],
-        tailSamplerClass: 49,
-        promotedSamplerClass: 17,
-        tailSample,
-        promotedSample,
-        tailMatches,
-        promotedMatches
-      });
-      controller.addEvidence("submit", { main: 2, additional: [] });
-      controller.transition("draining");
-      controller.addEvidence("readback", { bytes: 32, matches: tailMatches && promotedMatches });
-      if (!tailMatches || !promotedMatches) throw new Error("Mode A texture sampling did not observe the expected tail and promoted mip colors");
-      if (canvas) {
-        const context = canvas.getContext("2d");
-        if (context) { context.fillStyle = "#0e8a5f"; context.fillRect(0, 0, canvas.width, canvas.height); }
+    controller.addEvidence("adapter", {
+      info: snapshotAdapterInfo(adapter.info),
+      features: snapshotGpuFeatures(adapter.features),
+      limits: snapshotGpuLimits(adapter.limits),
+    });
+    device = await adapter.requestDevice({ requiredFeatures: ["texture-compression-bc"] });
+    errors = attachGpuErrorCollection(device, controller, () => intentionalLoss);
+    graphics = new GraphicsContext(device);
+    controller.transition("ready");
+    const pixels = new Uint8Array(128 * 128 * 4);
+    for (let y = 0; y < 128; y++) {
+      for (let x = 0; x < 128; x++) {
+        pixels.set(
+          x >= 56 && x < 72 && y >= 56 && y < 72 ? [0, 255, 0, 255] : [255, 0, 0, 255],
+          (y * 128 + x) * 4,
+        );
       }
-      if (status) status.textContent = "passed";
-      controller.pass();
     }
+    const material = new StandardShadeMaterial();
+    material.is_unlit = true;
+    material.texture_albedo = ShadeTexture.from(ShadeImage.fromArrayBuffer(pixels, 4, "uint8", 128, 128));
+    await prepareMaterialTextureProducts([material]);
+    const residency = graphics.texture_residency;
+    const upload = ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame");
+    const stage = residency.stage([material], upload);
+    upload.finish();
+    await upload.gpuDone;
+    controller.transition("warming");
+    const g = new AppearanceGraphBuilder(),
+      uv = g.input("uv0", 2, "surface", undefined, "uv0");
+    g.output("rgba", g.texture(snapshotAppearanceTexture(material.texture_albedo!, "srgb-rgb"), uv));
+    const graph = compileAppearanceGraph(g.build());
+    const currentBindings = () =>
+      createNativeMaterialBindings({
+        graph,
+        program: lowerNativeMaterial(graph),
+        group: 1,
+        bindingSet: stage.bindings.bindingSets.find(
+          (set) => set.id === stage.materialBindingSetIds.get(material),
+        )!,
+        textureRoutingRefs: stage.materialTextureRoutingRefs.get(material)!,
+        textureMipRanges: stage.textureMipRanges,
+        texturePublications: stage.surfacePublications,
+        obtainSampler: (descriptor) => graphics!.samplers.obtain(descriptor),
+      });
+    const binding = currentBindings();
+    const constants = device.createBuffer({
+      size: binding.program.constants.length * 4,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    const output = device.createBuffer({ size: 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
+    const read = device.createBuffer({ size: 16, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+    buffers.push(constants, output, read);
+    const module = device.createShaderModule({
+      code: `
+@group(0) @binding(0) var<storage,read> constants:array<f32>;
+@group(0) @binding(1) var<storage,read_write> output:array<vec4f>;
+fn native_material_constant(base:u32,slot:u32)->f32{return constants[base+slot];}
+${binding.program.source}
+@compute @workgroup_size(1) fn main(){
+ var inputs:NativeMaterialInputs;
+ inputs.center[0]=vec4f(0.5,0.5,0.0,0.0);
+ inputs.x[0]=vec4f(0.500001,0.5,0.0,0.0);
+ inputs.y[0]=vec4f(0.5,0.500001,0.0,0.0);
+ let result=native_material_evaluate(0u,inputs);
+ output[0]=vec4f(result[0],result[1],result[2],result[3]);
+}`,
+    });
+    const layouts = [
+      device.createBindGroupLayout({
+        entries: [
+          { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+          { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+        ],
+      }),
+      device.createBindGroupLayout({ entries: [...binding.layoutEntries] }),
+    ];
+    const pipeline = await device.createComputePipelineAsync({
+      layout: device.createPipelineLayout({ bindGroupLayouts: layouts }),
+      compute: { module, entryPoint: "main" },
+    });
+    const groups = [
+      device.createBindGroup({
+        layout: layouts[0],
+        entries: [
+          { binding: 0, resource: { buffer: constants } },
+          { binding: 1, resource: { buffer: output } },
+        ],
+      }),
+      device.createBindGroup({ layout: layouts[1], entries: [...binding.entries] }),
+    ];
+    const sample = async () => {
+      const current = currentBindings();
+      if (current.program.source !== binding.program.source)
+        throw new Error("Mip publication changed native code identity");
+      device!.queue.writeBuffer(constants, 0, new Float32Array(current.program.constants));
+      const command = ShadeGPUCommandContext.create(graphics!, "Renderer/visibility-frame");
+      const pass = command.beginComputePass();
+      pass.setPipeline(pipeline);
+      groups.forEach((group, index) => pass.setBindGroup(index, group));
+      pass.dispatchWorkgroups(1);
+      pass.end();
+      command.gpu_encoder.copyBufferToBuffer(output, 0, read, 0, 16);
+      command.finish();
+      await command.gpuDone;
+      await read.mapAsync(GPUMapMode.READ);
+      const values = [...new Float32Array(read.getMappedRange())];
+      read.unmap();
+      return values;
+    };
+    controller.transition("sampling");
+    const tail = await sample();
+    const promotion = ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame");
+    residency.promote([material], promotion);
+    promotion.finish();
+    await promotion.gpuDone;
+    const promoted = await sample();
+    if (
+      tail.some((value) => !Number.isFinite(value)) ||
+      promoted.some((value) => !Number.isFinite(value)) ||
+      promoted[1]! < 0.98 ||
+      tail[1]! > 0.2
+    )
+      throw new Error("Native BC sampling did not observe mip promotion");
+    const before = residency.evidence();
+    const release = ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame");
+    residency.release([material], release);
+    release.finish();
+    await release.gpuDone;
+    await Promise.resolve();
+    await Promise.resolve();
+    const after = residency.evidence();
+    if (after.allocatedBytes || after.residentTextureCount || after.retiringTextureCount)
+      throw new Error("Fenced BC residency did not clear");
+    controller.addEvidence("sampling", {
+      tail,
+      promoted,
+      before,
+      after,
+      format: "bc7-rgba-unorm-srgb",
+      nativeConsumer: true,
+    });
+    controller.addEvidence("readback", { bytes: 32, matches: true, tail, promoted });
+    controller.transition("draining");
+    if (status) status.textContent = "passed";
+    controller.pass();
   }
 } catch (error) {
   controller.fail(error instanceof Error ? error.message : String(error));

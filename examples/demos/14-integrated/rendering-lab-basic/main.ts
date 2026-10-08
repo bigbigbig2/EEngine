@@ -1,13 +1,24 @@
 import {
-  createDefaultWebCookWorker, DirectionalLight, load_environment_map, load_gltf, OrbitControls, PerspectiveCamera,
-  RenderDebugView, Renderer, Scene, webCookCatalogSceneFraming,
-  type MultiProductSceneHandles, type WebCookRuntimeAsset, type WebCookSceneCatalogSnapshot
+  createDefaultWebCookWorker,
+  DirectionalLight,
+  load_environment_map,
+  load_gltf,
+  OrbitControls,
+  PerspectiveCamera,
+  RenderDebugView,
+  Renderer,
+  Scene,
+  webCookCatalogSceneFraming,
+  type MultiProductSceneHandles,
+  type WebCookRuntimeAsset,
+  type WebCookSceneCatalogSnapshot,
 } from "../../../../OEngine/src/index.ts";
 import { BasicPanel } from "./panel.ts";
 import { BasicTelemetry } from "./telemetry.ts";
 
 const sourceUrl = new URL("../../../assets/three/rendering-lab/dungeon_warkarma.glb", import.meta.url).href;
-const environmentUrl = new URL("../../../assets/three/rendering-lab/venice_sunset_1k.hdr", import.meta.url).href;
+const environmentUrl = new URL("../../../assets/three/rendering-lab/venice_sunset_1k.hdr", import.meta.url)
+  .href;
 const canvas = document.querySelector<HTMLCanvasElement>("#viewport")!;
 const telemetry = new BasicTelemetry(sourceUrl);
 const scene = new Scene();
@@ -27,18 +38,22 @@ let closing = false;
 let settled = false;
 
 const panel = new BasicPanel(telemetry, {
-  center: () => placeCamera(false), overview: () => placeCamera(true),
-  reload: () => location.reload(), release: () => { void release(); },
-  gpuCounters: enabled => {
+  center: () => placeCamera(false),
+  overview: () => placeCamera(true),
+  reload: () => location.reload(),
+  release: () => {
+    void release();
+  },
+  gpuCounters: (enabled) => {
     if (!renderer || closing) return;
     renderer.profiler.setMode(enabled ? "record" : "live");
     telemetry.event("GPU 像素诊断", enabled ? "on" : "off");
-  }
+  },
 });
 document.querySelector("#meshlet-view")!.addEventListener("click", () => setColorMode(true));
 document.querySelector("#solid-view")!.addEventListener("click", () => setColorMode(false));
 
-void start().catch(error => {
+void start().catch((error) => {
   if (closing) return;
   telemetry.error = error instanceof Error ? error.message : String(error);
   telemetry.event("加载失败", telemetry.error);
@@ -54,19 +69,28 @@ async function start(): Promise<void> {
   renderer = new Renderer({
     debug: false,
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
-    textureMaxResolution: 1024,
+
     renderSettings: {
       resolution: { mode: "fixed", internalScale: 1 },
       features: {
-        shadows: false, screenSpaceDiffuseMode: "off", screenSpaceReflections: false,
-        temporalAntiAliasing: false, bloom: false, automaticExposure: false,
-        motionBlur: false, sharpening: false
+        shadows: false,
+        screenSpaceDiffuseMode: "off",
+        screenSpaceReflections: false,
+        temporalAntiAliasing: false,
+        bloom: false,
+        automaticExposure: false,
+        motionBlur: false,
+        sharpening: false,
       },
       post: {
-        exposureCompensation: 1, colorGradingLift: 0, colorGradingGamma: 1,
-        colorGradingGain: 1, colorGradingSaturation: 1, colorGradingContrast: 1
-      }
-    }
+        exposureCompensation: 1,
+        colorGradingLift: 0,
+        colorGradingGamma: 1,
+        colorGradingGain: 1,
+        colorGradingSaturation: 1,
+        colorGradingContrast: 1,
+      },
+    },
   });
   await renderer.initialize({ context });
   if (closing) return;
@@ -74,9 +98,19 @@ async function start(): Promise<void> {
   renderer.packed_visibility_cone_enabled = true;
   renderer.packed_visibility_hzb_enabled = true;
   renderer.packed_visibility_sse_threshold = 4;
-  renderer.profiler.configure({ enabled: true, gpuSampleInterval: 8, gpuCounterSampleInterval: 16, historyCapacity: 400, cpuPassTimings: true });
-  renderer.profiler.subscribe(frame => telemetry.acceptFrame(frame));
-  telemetry.adapter = { identity: renderer.adapter_info, gpuTimestamp: renderer.profiler.gpuTimestampAvailable, features: renderer.capabilities.features };
+  renderer.profiler.configure({
+    enabled: true,
+    gpuSampleInterval: 8,
+    gpuCounterSampleInterval: 16,
+    historyCapacity: 400,
+    cpuPassTimings: true,
+  });
+  renderer.profiler.subscribe((frame) => telemetry.acceptFrame(frame));
+  telemetry.adapter = {
+    identity: renderer.adapter_info,
+    gpuTimestamp: renderer.profiler.gpuTimestampAvailable,
+    features: renderer.capabilities.features,
+  };
   telemetry.features = { ...renderer.render_settings.features };
   panel.paint();
   telemetry.event("WebGPU 就绪", renderer.adapter_info?.device ?? "adapter");
@@ -85,9 +119,13 @@ async function start(): Promise<void> {
   sun.name = "Rendering Lab Sun";
   sun.intensity = 2.8;
   sun.casts_shadow = false;
-  const azimuth = -36 * Math.PI / 180;
-  const elevation = 65 * Math.PI / 180;
-  sun.forward = [Math.cos(elevation) * Math.cos(azimuth), -Math.sin(elevation), Math.cos(elevation) * Math.sin(azimuth)];
+  const azimuth = (-36 * Math.PI) / 180;
+  const elevation = (65 * Math.PI) / 180;
+  sun.forward = [
+    Math.cos(elevation) * Math.cos(azimuth),
+    -Math.sin(elevation),
+    Math.cos(elevation) * Math.sin(azimuth),
+  ];
   scene.addChild(sun);
   scene.lights.environment = await load_environment_map(environmentUrl);
   if (closing) return;
@@ -97,14 +135,24 @@ async function start(): Promise<void> {
   const worker = createDefaultWebCookWorker({
     maxCanonicalInputBytes: 128 * 1024 * 1024,
     maxDecodedProductBytes: 512 * 1024 * 1024,
-    runtimeProfile: "portable-single"
+    runtimeProfile: "portable-single",
   });
   asset = load_gltf(sourceUrl, {
-    worker, runtimeProfile: "portable-single",
-    sessionId: `rendering-lab-basic-${crypto.randomUUID()}`, sessionGeneration: 1,
-    budgets: { maxConcurrentWorkers: 1, maxSourceBytes: 128 * 1024 * 1024, maxWasmBytes: 128 * 1024 * 1024, maxOutputBytes: 256 * 1024 * 1024, maxQueuedEvents: 1024 },
-    initialOutputPageCredits: 64, maxBufferedPages: 64, maxBufferedBytes: 64 * 262144,
-    onSceneCatalogReady: value => {
+    worker,
+    runtimeProfile: "portable-single",
+    sessionId: `rendering-lab-basic-${crypto.randomUUID()}`,
+    sessionGeneration: 1,
+    budgets: {
+      maxConcurrentWorkers: 1,
+      maxSourceBytes: 128 * 1024 * 1024,
+      maxWasmBytes: 128 * 1024 * 1024,
+      maxOutputBytes: 256 * 1024 * 1024,
+      maxQueuedEvents: 1024,
+    },
+    initialOutputPageCredits: 64,
+    maxBufferedPages: 64,
+    maxBufferedBytes: 64 * 262144,
+    onSceneCatalogReady: (value) => {
       catalog = value;
       telemetry.catalog = value;
       telemetry.acceptMaterialCatalog(value);
@@ -113,20 +161,23 @@ async function start(): Promise<void> {
       telemetry.event("GLB 目录就绪", `${value.primitiveCount} primitives`);
       panel.paint();
     },
-    onProgress: progress => {
+    onProgress: (progress) => {
       telemetry.progress = progress;
-      if (progress.stage === "cook-complete") telemetry.event("Worker Cook 完成", `${progress.units} primitives`);
-    }
+      if (progress.stage === "cook-complete")
+        telemetry.event("Worker Cook 完成", `${progress.units} primitives`);
+    },
   });
   refreshId = window.setInterval(refresh, 500);
   loading = renderer.uploadWebCookedMultiProductScene(scene, asset, {
-    signal: abort.signal, geometryOnly: false,
-    fitHeight: 5.4, fitBase: [0, -1, 0],
-    onProductPublicationTiming: timing => {
+    signal: abort.signal,
+    geometryOnly: false,
+    fitHeight: 5.4,
+    fitBase: [0, -1, 0],
+    onProductPublicationTiming: (timing) => {
       telemetry.publications.push(timing);
       telemetry.firstPublishedAt ??= performance.now() - telemetry.startedAt;
       telemetry.shardCount = timing.shardIndex;
-    }
+    },
   });
   handles = await loading;
   if (closing) return;
@@ -194,7 +245,11 @@ function placeCamera(overview: boolean): void {
   const center = framing.center;
   const radius = framing.radius;
   const distance = overview ? radius * 2.6 : radius * 1.5;
-  camera.transform.position.set(center[0] + distance, center[1] + distance * 0.55, center[2] + distance * 1.2);
+  camera.transform.position.set(
+    center[0] + distance,
+    center[1] + distance * 0.55,
+    center[2] + distance * 1.2,
+  );
   camera.transform.lookAt({ x: center[0], y: center[1], z: center[2] });
   controls.target.set(...center);
   controls.reset();
@@ -216,10 +271,14 @@ function refresh(): void {
   telemetry.streaming = handles?.streaming?.evidence() ?? null;
   telemetry.texture = renderer.textureResidencyEvidence();
   const graph = renderer.mainFrameGraphEvidence();
-  telemetry.graph = graph === null ? null : {
-    outputMode: graph.outputMode, outputFormat: graph.outputFormat,
-    passes: graph.dump.passes.filter(pass => !pass.culled).map(pass => pass.name)
-  };
+  telemetry.graph =
+    graph === null
+      ? null
+      : {
+          outputMode: graph.outputMode,
+          outputFormat: graph.outputFormat,
+          passes: graph.dump.passes.filter((pass) => !pass.culled).map((pass) => pass.name),
+        };
   telemetry.finalOutput = renderer.finalOutputEvidence();
   if (handles) {
     telemetry.sourceCount = handles.current().source.count;
@@ -228,8 +287,15 @@ function refresh(): void {
     telemetry.materialCount = handles.current().source.materials.length;
   }
   telemetry.acceptMemory(renderer.memoryEvidence());
-  telemetry.peakGpuBytes = Math.max(telemetry.peakGpuBytes, renderer.profiler.latest?.counters["gpu.residentBytes"] ?? 0);
-  telemetry.adapter = { ...(telemetry.adapter as object), deviceErrors: renderer.profiler.diagnostics.uncapturedErrorCount + renderer.profiler.diagnostics.validationErrorCount };
+  telemetry.peakGpuBytes = Math.max(
+    telemetry.peakGpuBytes,
+    renderer.profiler.latest?.counters["gpu.residentBytes"] ?? 0,
+  );
+  telemetry.adapter = {
+    ...(telemetry.adapter as object),
+    deviceErrors:
+      renderer.profiler.diagnostics.uncapturedErrorCount + renderer.profiler.diagnostics.validationErrorCount,
+  };
   panel.paint();
 }
 
@@ -246,7 +312,11 @@ async function release(waitForCleanup = true): Promise<void> {
   if (!settled) asset?.cancel("demo released");
   try {
     if (loading && !handles) {
-      try { handles = await loading; } catch { /* No Scene was published. */ }
+      try {
+        handles = await loading;
+      } catch {
+        /* No Scene was published. */
+      }
     }
     if (handles) {
       await handles.settled().catch(() => undefined);
@@ -266,4 +336,10 @@ async function release(waitForCleanup = true): Promise<void> {
   }
 }
 
-window.addEventListener("pagehide", () => { void release(false); }, { once: true });
+window.addEventListener(
+  "pagehide",
+  () => {
+    void release(false);
+  },
+  { once: true },
+);
