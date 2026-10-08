@@ -37,11 +37,11 @@ Web/Offline/procedural Scene mapper 读取完整 immutable descriptor，按真�
 
 Streaming mainring 由命令提交 commit、abort cancel；延迟map/consume后 exact slot/generation 分发IO/upload，不按同revision首个Product路由。Scheduler的in-flight reservation与verified raw pages共预算，read/upload按Product服务次数与本地priority/age公平排序；physical pressure实际接入frame间revoke→真实queue fence→release→upload retry。错误留在runtime/Renderer diagnostics；无本帧readback控制或额外submit。超工作集仍会thrash，不保证任意小预算达到完整fine LOD。
 
-Renderer device loss checkpoint/replay全部active/dormant owned sources及slot/generation/asset ranges，重新注册各Product streaming；失败replay保持sources可retry。小GPU压力fixture验证coarse coverage、pin保护与两Product进展，真实双Product Renderer验证winner/native HDR/Temporal接口和恢复。固定section比例、全大场景公平/IO性能、shadow demand真实producer、Arena紧化和完整Geometry成本仍有对应M2后续责任；当前不存在可据此宣称的完整large-scene acceptance。
+Renderer device loss checkpoint/replay全部active/dormant owned sources及slot/generation/asset ranges，重新注册各Product streaming；失败replay保持sources可retry。GPU压力fixture验证coarse coverage、pin保护与多Product进展，真实Renderer消费winner/native HDR/Temporal并恢复全部Product。独立shadow view是实际VSM caster及延迟page demand producer；FrameGeometryArena已按真实需求预留lean产品。完整本地authored大场景及规模压力通过既定正确性/恢复/卸载验收，具体source、artifact、成本和OPEN仅见执行计划G2.4；有限预算仍有thrash，不据此宣称所有IO/fairness策略或性能已最优。
 
 Residency publication事件同步管理streaming source注册：dormant/retiring撤销注册并取消IO/verified队列，active恢复，destroy/device loss解除订阅；CPU取消不替代末读GPU fence。单Product退休不会继续向已释放source/owner上传迟到页。
 
-Scene卸载区分caller admission与Renderer创建/recovery replay的Product责任：后者由`releaseScene`撤publication、取消streaming，末读GPU fence成功后释放Product/source并移除登记；前者默认保留caller释放责任。失败fence保登记可重试，重复卸载不提交空命令，迟到卸载不删新Product登记。Device loss即取消main/shadow mapping与IO，source仍由checkpoint保留供replay/retry；存活device的真实mapping失败不被归为取消。实际验证与大型Runner未完成范围见执行计划G2.4。
+Scene卸载区分caller admission与Renderer创建/recovery replay的Product责任：后者由`releaseScene`撤publication、取消streaming，末读GPU fence成功后释放Product/source并移除登记；前者默认保留caller释放责任。失败fence保登记可重试，重复卸载不提交空命令，迟到卸载不删新Product登记。Device loss取消main/shadow mapping与IO，source仍由checkpoint保留供replay/retry。GPU ring在真实loss通知reset；map abort/range失效先于通知时，仅失败冷路径等queue完成或loss并允许通知交付，只有观察到loss/destroy才取消，存活device的真实mapping/fence失败仍可观察。完整authored Runner已验证恢复旧epoch与Scene释放后的Product banks/metadata/allocations归零；实际验收范围与OPEN见执行计划G2.4。
 
 ## 边界与验证
 

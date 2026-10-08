@@ -70,7 +70,7 @@ verifies:
 3. 固定存活语义、真实合法场景、容量/失败行为和 Cost Card。按 §1.5 判断复杂度：简单工程代码直接实现，复杂模块优先研究成熟开源 hot path，再决定本地方案；实际引用或移植时核读相关完整阶段、license、关键分支并记录本地映射。计划或参考存在不代表移植完成。
 4. 连续完成本阶段责任，再 architecture review、集中验证、分类定位失败、根因修复及受影响回归。缺少必需项就保持未完成，不能由测试颜色决定架构。
 5. 在本阶段实施记录写 source/build 身份、实际交付、验证结果/限制、未运行项和开放问题。关闭后停在下一阶段边界；仅大模块/入口变化同步 currentSlice。
-6. **每个大模块完成即 STOP。** M1 已关闭，本次只设计 M2（§8），不启动 implementation；后续用户授权执行才开始当前单元。M2 完成后依真实代码重新评审后续模块，不自动跨到 VT、Lighting、GI 或 ReSTIR。
+6. **每个大模块完成即 STOP。** M1 与 M2 已关闭（M2 结果见 §8.6.1）。停在模块边界，依真实代码重新评审后续模块；后续用户授权后才开始，不自动跨到 VT、Lighting、GI 或 ReSTIR。
 
 **分阶段开发，不分阶段迁移 production。** 对 M1：S0 是小型实验，S1 在非生产环境构建完整 subsystem；两阶段中 RendererCore 和 FrameProgram 的生产 Surface 完整保持旧路径。S2 是唯一 production architecture switch，切换与删除属于同一个不可拆开的单元。阶段内部允许临时编译失败、无图或仅有隔离 harness；稳定边界必须是 100% 旧 Surface 或 100% SurfaceV4。对 M2：保留正确 Geometry owner；局部共享 ABI/核心 owner 重写也须完整构建、一次切换全部直接 consumers 并立即删除旧职责，但不强迫全 Geometry 从零 construction，不造 legacy bridge。
 
@@ -650,7 +650,7 @@ frequency extraction也要计update/persistent uniform/边界读取成本，不�
 
 ### 8.1 当前边界与单元顺序
 
-**M2 已进入实施，G2.0/G2.1/G2.2/G2.3 关闭，G2.4=active。** 规划时 2026-10-08 fetch 后 HEAD/origin/master=`a66667e04222481ca130c4c6d878118bf649bb9f`，起始工作区干净；规划已提交为 `d44823e2c11415fe7c24364c4c41a661bb181a8e`，随后按用户授权实施前四个单元。M1结果、28个既有失败及未运行项不被追改。真实数据流、KEEP矩阵、Q1–Q7、成本卡、WebGPU limits与参考比较见[母稿 §11](../next-design/eengine-v4-native-shading-2026-10.md#11-m2--geometry--virtual-geometry-alignment--scale-optimization)；本节保存执行边界和实际状态，结果见 §8.2.1/§8.3.1/§8.4.1/§8.5.1。
+**M2=closed，G2.0–G2.4 全部关闭；STOP，不激活下一模块。** 规划时 2026-10-08 fetch 后 HEAD/origin/master=`a66667e04222481ca130c4c6d878118bf649bb9f`，起始工作区干净；规划已提交为 `d44823e2c11415fe7c24364c4c41a661bb181a8e`，随后按用户授权实施全部五个单元。M1结果、28个既有失败及未运行项不被追改。真实数据流、KEEP矩阵、Q1–Q7、成本卡、WebGPU limits与参考比较见[母稿 §11](../next-design/eengine-v4-native-shading-2026-10.md#11-m2--geometry--virtual-geometry-alignment--scale-optimization)；本节保存执行边界和实际状态，结果见 §8.2.1/§8.3.1/§8.4.1/§8.5.1/§8.6.1。
 
 ```mermaid
 flowchart TD
@@ -668,7 +668,7 @@ flowchart TD
 | G2.1 Budgeted Residency & Multi-Product Streaming Closure | **closed，结果与限制见 §8.3.1** | ABI3实际容量、唯一GPU目录/fence回收、bounded公平IO、压力pump与全部Product恢复闭合 |
 | G2.2 Lean Geometry Products & Native Consumers | **closed** | lean v7 cook/recook、96B frame attributes、需求预留与全部native readers闭合，见 §8.4.1 |
 | G2.3 View Work Closure & Scale Tuning | **closed，记录见 §8.5.1** | actual-count二维expansion、独立shadow view与VSM直接消费/延迟demand闭合；成本/限制如实记录 |
-| G2.4 Geometry Scale Acceptance | **active，记录见 §8.6.1** | 前述全部闭合后的大场景、压力、质量/生命周期/真实成本集中验收；随后STOP |
+| G2.4 Geometry Scale Acceptance | **closed，结果与OPEN见 §8.6.1** | 完整本地authored大场景与100k压力正确性、恢复/卸载及成本记录闭合；停止，开放性能/跨设备范围留后续验证 |
 
 这是五个architecture units，不是几十个patch或五套authority。G2.0先定义容量所需语义和基本合法producer；G2.3消费该合同实现实际work编码/优化，不能将G2.0必要正确性拖到后面。局部owner重写按“完整construction→全部direct consumers原子切换→立即purge→集中验证”；稳定边界仍一个Geometry产品合同，无A/B adapter、legacy decoder或运行时兼容owner。原本正确的cook、Scene、FrameGraph、Surface与算法基础保持，不重建整模块。
 
@@ -943,9 +943,9 @@ shadow14passes（1hierarchy+9ordinarycandidate+4instances）、1round/depth0。s
 
 所有M2真实correctness或存活语义失败必须在新owner通过；退休ABI测试可迁移/删除表示断言，不能删coverage/fence/abort/numeric语义。其余Material/Texture既有失败独立保留，不冒充Geometry解决。记录目标未达到的根因，不能用硬ms阈值逼出cache/proof/reuse。**完成后STOP**，依此时代码与Lighting/VT实际成本再设计下一个大模块，不自动执行M3。
 
-#### 8.6.1 G2.4 实施记录（2026-10-08，进行中）
+#### 8.6.1 G2.4 实施记录（2026-10-08，已关闭；保留各轮历史）
 
-**active，M2未关闭。** 本轮fetch后HEAD/origin/master=`25c6347e53293b0320892ef09978979867baba62`；保留未提交G2.3。复核其源码与八份同构建GPU报告，没有重开项，不重复G2.3完整矩阵。G2.3记录中的停止边界为当轮事实。
+**当轮active，M2未关闭。** 本轮fetch后HEAD/origin/master=`25c6347e53293b0320892ef09978979867baba62`；保留未提交G2.3。复核其源码与八份同构建GPU报告，没有重开项，不重复G2.3完整矩阵。G2.3记录中的停止边界为当轮事实。
 
 新鲜build:test后全Node首次553项546通过/7失败；5项WebCook mapping fixture仅提供assetRecords，缺合法hierarchy/bootstrap，修复为完整独立Product descriptor后7项targeted通过，全Node551通过/2失败。剩余Material zero-coat与Texture decoded-peak为既有unrelated，未修、未称全绿。真实GPU规模work oracle扩展至18cases，含10k/100k实例及8/64/66Products；66Product fixture须显式协商slotCapacity=66，默认64拒绝原失败保留，不改变production默认。修后18cases真实GPU通过；这是work generation oracle，不是100k完整raster/画质验收。
 
@@ -962,7 +962,7 @@ shadow14passes（1hierarchy+9ordinarycandidate+4instances）、1round/depth0。s
 
 ##### G2.4 后续验证与恢复释放修复（2026-10-08）
 
-**G2.4仍active，M2未关闭。** 完整K0 artifact为`.local/validation/2026-10-08T02-06-02-132Z-web-authored-large-cook-k0-6c9ce085-282f-415d-9345-d87fd5b06a82/`：66Products、3775pages两次校验、完整catalog/triangle/shard union通过。首activation 11357.625ms、total 268974.28ms；WASM364118016B，source峰值26548620B、canonical21896048B、spill990137200B，disposal后spill/owners为0、3775releases。Chrome incognito OPFS实际约995MiB造成原storage失败；Runner改用全新独立disk-backed临时profile，独立1.10GiB写入/清理诊断通过，不使用用户profile。
+**当轮G2.4仍active，M2未关闭。** 完整K0 artifact为`.local/validation/2026-10-08T02-06-02-132Z-web-authored-large-cook-k0-6c9ce085-282f-415d-9345-d87fd5b06a82/`：66Products、3775pages两次校验、完整catalog/triangle/shard union通过。首activation 11357.625ms、total 268974.28ms；WASM364118016B，source峰值26548620B、canonical21896048B、spill990137200B，disposal后spill/owners为0、3775releases。Chrome incognito OPFS实际约995MiB造成原storage失败；Runner改用全新独立disk-backed临时profile，独立1.10GiB写入/清理诊断通过，不使用用户profile。
 
 完整activation真实packing为655pages/1332physical slots/349175808B（333MiB），upload194076588B。原128MiB在45Products拒绝是合法negative admission，保留原失败。宿主使用现有384MiB配置（4×96MiB/1536slots，余204slots=51MiB refinement），metadata64MiB，不提高512MiB ceiling。完整catalog为518texture routes（4small/514large），现有texture bank配置`[64,130,130,130,130]`提供516个512px可用层；最大RGBA bank749381536B，既有2GiB cap与512px画质不变。
 
@@ -979,6 +979,103 @@ Streaming在device-lost通知即注销scheduler generations、取消IO、revokes
 另有真实1080p raster规模oracle：10k/8Products与100k/66Products穷举unique work/winner instance coverage通过；100k单次诊断MeshletWork P50=6.344544ms、Geometry prepare=12.582528ms、raster/Visibility=27.781536ms、nativeSurface=1.226208ms。两规模frame GPU P50/P95约13.244416/91.767968ms与59.230208/382.277632ms，长尾UNKNOWN。fixture为position-only resident Unlit、每meshlet一个triangle但384vertex slots，不代表authored复杂场景，不据此宣称正式性能改善。Product64MiB banks+64MiB metadata与Renderer账本分列。
 
 本次生命周期Cost Card：新增GPU bytes/ALU/samples/atomics/barriers/dispatch/working set均0；新增CPU release责任bit、WeakRef loss callback及await后常数检查。删除卸载后孤立的Product预算与失效epoch pump工作，真实Scene释放需既有末读queue fence，重复release不再submit；live-owner存活期间预算不变。它是必需correctness closure，不作为cache/命中率优化或GPU提速声明。完整大场景Runner闭包、actual100M源（未找到，未运行）、正式同条件性能/画质、hardware DRAM/register counters仍未完成；LightCluster external bottleneck与两项unrelated Node失败未改。**先提交可审查修复，不关闭G2.4、不进入下一模块。**
+
+##### G2.4 最终验收与 M2 关闭（2026-10-08）
+
+**G2.4=closed，M2=closed。STOP，不激活下一模块。** 以下是最终源码冻结后的实际验收；上文 active、失败、中断及缺项都是各自当轮事实，不追改为通过。按用户指定，本机必需 authored 规模使用完整本地 `large.glb`，不运行 Zorah/100M。关闭代表本模块 correctness、规模合同和生命周期验收闭合，不代表 CPU/GPU 性能目标、完整 AAA 画质或所有开放项已解决。
+
+###### 源码 / 构建 / workload / artifact 身份
+
+开始前重新 fetch，HEAD/origin/master=`3651e99ee5b55aa05cfe05b5d4aa5ab2213b6761`，起始工作区干净。最终结果对应该基线加本轮未提交的 readback cold-error 修复与验收采样/释放断言；artifact 明确 `dirty:true`，不是 clean-revision claim。
+
+| 身份 | 最终值 |
+|---|---|
+| engine source SHA256 | `ec9b88acf1e7521b3b41d2706ad1b2b6782a9757eb2d1f0606a305da57c11e5b` |
+| fresh build:test output SHA256 | `ba79f973038049d753fba052579dc05be784ed681fcb76bcc917c9fb4751f722`；完成于 UTC 04:37:49.406 |
+| validation host build | `71ffe5e4ecea381f376e1b8735d0549e7cf8de27a8d821ef3f1029d327b92e42` |
+| registry / workload SHA256 | `cd6315a78d49c05e91dd3a5e38a41c248527e35b4dc862839d4e921a34e685e3` / `521d95c084fa532d3386e791640b0faa5a5707468fe73ac589aeef44419672ba` |
+| authored source | `large.glb`，477591060B，SHA256=`54b608872aec11ce07b26fad6c0ad14a662314e6480bf8d833e5088b59c9851f` |
+| complete production artifact | `.local/validation/2026-10-08T04-44-58-737Z-geometry-scale-acceptance-37e9fca3-9bae-4e31-93fb-60375aaa390b/`；UTC 04:44:58.737–04:54:02.997 |
+
+production runner **exit0 / passed / disposed**，`result.json`、`events.json`、`screenshot.png`齐全；freshness、identity、browserErrors、pageOutcome、disposed、artifacts 六 gate 都 true。events SHA256=`7ff1a99bfea9cc7c847208dff5e5c68b8fae6b945092ea60d36fd4209f782834`（1749B），screenshot SHA256=`face053533036fb6f6016febbe24eb322d2287c3bdca46369edccfce4fd9ecde`（244497B），独立读取核对 manifest。无 unexpected browser error、GPU validation/page/request error、timeout 或 source mismatch；仅 Vite debug 与两条精确 allowlist 的 Windows powerPreference warning。运行于本机 NVIDIA Turing hardware adapter / Windows Chrome154.0.8037.98，fresh disk profile；系统识别 GTX1650Ti4GB，不将泛化 Turing 字段当跨 GPU 证据。现有 runner 分类为 `diagnostic-only`：可用于本模块验收，不提升正式跨架构 performance claim。
+
+workload保持1920×1080、renderScale1、完整 authored 材质和既定512纹理质量：**66 Products / 1920 primitives / 4,871,612 source triangles / 1944 merged instances / 518 texture routes**。`requiresDisposed`、`requiresEveryPlannedShard`、`requiresExactSourceTriangleCoverage`、`requiresFullCatalogCoverage`均为 true；每个 planned shard、catalog 和源三角形 union 完整核对，未裁场景、漏工作或改容差。真实 main/shadow/VSM/HDR/Temporal/FSR 链、20帧 camera motion、1280×720→1920×1080 resize、受控 device loss 后全部66 Product 的新 generation recovery、非空有限 winner/HDR 均通过。截图已查看；没有独立整场景 pixel reference，不宣称由截图证明 AAA 画质或光度等价。
+
+###### 最后阻塞的分类与最小修复
+
+两轮完整原失败保留于 `.local/validation/2026-10-08T04-08-25-326Z-geometry-scale-acceptance-6b608abe-582d-4e44-839c-10f37ead4109/`、`.local/validation/2026-10-08T04-25-23-831Z-geometry-scale-acceptance-4c981838-b438-4e2a-9d07-d610f1c487a7/`，页面语义/释放断言通过但 runner browserErrors gate 失败，不能追认通过。实际失序诊断证明 `device.destroy` 的 pending map AbortError / mapped-range invalidation 可先于 `device.lost` 通知；属于真实 lifecycle notification race，不是应 allowlist 的错误。
+
+`GpuGeometryDemandReadbackRingV1` 用 WeakRef 在真实 loss 通知销毁/reset ring。只有 mapping 聚合失败的 cold path 才等待实际 loss 或 queue completion，并允许一个 host task 交付 loss 通知；**仅观察到 loss/destroy 才取消，经过时间不证明 loss，live AbortError/mapping/fence 仍拒绝**。聚合错误保留原始 causes；main/shadow active/queued、通知前 map abort 和 range invalidation 独立覆盖。没有新 GPU 资源/dispatch/submit、fallback 或第二 renderer。
+
+采样 harness 发现 full profiler 既有120帧窗口不足以覆盖两个30+48帧段，far 原会变成 coarse；现按每 camera 段重启 full capture，并要求48个 sampled/full/nonpending/nontruncated profile、Geometry pass 与单 submit 全部存在。保存逐帧 CPU render 时间，恢复后在旧 device 账本上新增 Product 零占用断言。这是测量/验收完整性修正，不降低 workload 或修饰性能。
+
+Cost Card：成功 GPU hot path 新增 bytes/ALU/samples/atomics/barriers/dispatch/persistent/scratch 均0；每 ring 一个 CPU WeakRef/loss callback，失败时才有 queue completion / host task。没有正常帧额外 submit；旧 epoch 回调被取消而非上传到新 owner。该修复是正确性责任，不作缓存收益或 GPU 提速声明；具体失败冷路径 CPU latency 未单独测量。
+
+###### 恢复 / fence / teardown 的实际闭包
+
+`releaseScene`撤 Scene publication→注销 streaming、取消IO/readback→等真实末读 GPU fence→销毁 Renderer-owned/replay-owned Product→回收 shared banks/metadata/source；borrowed admission 仍由 caller 释放。失败 fence 保登记可重试，迟到 fence 不删除 replacement，重复释放安全。最终 authored case 在 **Renderer.destroy 之前**核对恢复 Scene 释放为0；受控 loss/recovery 后旧 device 的 Product bank/metadata/allocation也为0。最终 current/old epoch Product totalBytes、allocations、metadataAllocations全部0；恢复66Products，winner/HDR38413非零像素，streaming lastError=null。
+
+producer最终disposed：active/waiting sessions、source/WASM/output reserved bytes、provider bufferedPages/Bytes均0，transport关闭且queuedEvents/failures、provider staleEvents/failures为0。只把这些 owner 账本称为归零；不把 `GPUBuffer.destroy`调用或此账本当 driver physical VRAM 完成释放的证明。独立最终 K0 页重读/spill释放证据另列下方。
+
+###### 真实 GPU / CPU / Geometry 计量
+
+每 camera 段30 warmup + **48个 full profiles**；下表单位ms，P50/P95。Geometry按每帧先求 hierarchy、Product work、frame geometry、raster/Visibility、HZB之和再取分位数，不相加各 pass P95。包括实际重复标签的 main/shadow preparation，排除VSM raster、Surface和Temporal；main/shadow独立成本未拆出。CPU是同步 `renderer.render()`用时，不包含随后显式等待queue完成。
+
+| 项 | near P50 / P95 | far P50 / P95 |
+|---|---:|---:|
+| **Geometry total** | **3.619680 / 18.847520** | **3.589728 / 4.106400** |
+| hierarchy | .586400 / 4.021536 | .524800 / .558112 |
+| MeshletWork | .141952 / .779680 | .134336 / .143552 |
+| frame geometry prepare | 1.066720 / 3.854176 | 1.040928 / 1.419712 |
+| raster / Visibility | 1.659264 / 9.109568 | 1.667328 / 1.841056 |
+| HZB | .165888 / 1.024416 | .159744 / .167904 |
+| native Surface（含bins及fused lighting） | 4.560640 / 28.987744 | 4.540416 / 6.477792 |
+| VSM | .584928 / 3.585504 | .532000 / .851488 |
+| LightCluster stage | .005888 / .020480 | .004640 / .007552 |
+| native Temporal facts | .628384 / 2.219552 | .628896 / .642976 |
+| FSR3 | 4.726336 / 40.139968 | 4.770144 / 5.505760 |
+| environment | .524576 / 3.928032 | .522240 / .529536 |
+| **整帧 GPU command span** | **17.521120 / 121.776128** | **17.360896 / 19.461536** |
+| **CPU renderer.render** | **59.140 / 86.765** | **52.905 / 61.575** |
+| CPU profiler内部frame | 12.010 / 20.665 | 10.825 / 14.975 |
+| CPU graph-execute | 11.225 / 19.190 | 9.910 / 14.245 |
+| CPU render减内部frame（逐帧配对） | 46.535 / 66.270 | 41.880 / 50.235 |
+
+**CPU host bottleneck=OPEN**，未独立计时区域是主要测量缺口；full profiling/资源账与streaming observation包含在本口径，不能直接外推无profiling interactive性能。`streaming.evidence()`遍历全部Products及profiler外围工作是可定位候选（INFERENCE），不是已证实根因；streaming pump CPU独立时间=UNKNOWN。近景GPU多owner同时长尾、整帧P95=121.776128ms，**根因UNKNOWN**，无硬件counter，不猜为paging/register spill/clock，也不通过重复跑更好数字覆盖原结果。
+
+该 authored 场景不是4/8/many local-light压力，微小LightCluster不推翻M1多灯30ms外部问题；Surface fused lighting/BRDF未独立拆时。Geometry在此场景median约3.6ms，不应把外部LightCluster/FSR/host时间算成Geometry瓶颈。
+
+H/C/M/V计数P50/P95：near=`9455/9455`、`1677/1713`、`4734/5520`、`57036/155900`；far=`9339/9339`、`1672/1703`、`4672/5560`、`84351/167976`。输出检查点visible near155811/far65955，非全屏high coverage。E/Nv/Nt=**UNKNOWN**：对应未接线计数的0不得解释为无工作；invalid winner、demand overflow/malformed、generation/failed page错误为0。
+
+完整production run重新cook并settled=373762.180ms；首次production frame完成=377221.795ms，case刻意先等全部settled，**不是渐进加载TTFMF**。66任务canonicalize/WASM-plan/spill/publish累计各19.282/208.859/34.898/80.776s，任务/worker区间可重叠，不相加为global critical time。runtime load P50/P95=23.190/118.800ms；Scene map=7.275/1608.720ms、publish=731.590/11343.835ms。page read近7.650/70.760ms、远6.775/62.070ms，包含IO/调度而非纯GPU带宽。保留完整原trace于artifact，未补造精确host分解。
+
+###### 容量 / reserved / used / retiring
+
+完整activation为655pages、1332physical slots=333MiB；configured banks **4×96MiB=384MiB**、metadata64MiB，共448MiB（469762048B），refinement余51MiB。近/远实际resident分别397934592/382730240B，快照retiring0，不把capacity当每帧traffic。FrameGeometryArena126110464B（约120.27MiB）另计；raw Product合同与lean prepared representation仍一个合法consumer链。
+
+部分`memoryEvidence.allocatedBytes`=1671680600B（约1.557GiB）；部分resource ledger live=1329854772B、peak=1338164496B、retired peak=400837212B。Texture/material allocated793030832B、logical346537572B，是另一owner的容量机会。账本覆盖不同，**不相加/重复计shared banks、不宣称完整driver VRAM**；driver physical residency、完整resize/replacement峰值=UNKNOWN。
+
+near/far累计evictions335/726、reloads28/171、thrash7/14MiB，采样时pending691/694，最终卸载全部撤销，failed/stale/malformed/overflow0；不是全部fine工作集常驻或无thrash。producer source/WASM/output reserved峰值128/512/32MiB，disposed后都0；cook spill peak990137200B，释放验证见K0。
+
+###### 最终集中验证与开放范围
+
+| 验证 | 最终结果 / 范围 |
+|---|---|
+| engine typecheck/build、fresh build:test、validation typecheck | 通过，日志`.local/g2-4-final-build*`、`.local/g2-4-final-validation-typecheck.txt`，build身份见上文 |
+| lifecycle targeted | 29/29，pending main/shadow loss、live failure、owned/borrowed release、失败fence/retry、late replacement；`.local/g2-4-final-lifecycle-targeted.txt` |
+| 全Node | **570项，568pass / 2fail / 0cancelled**；仅既有Material zero-coat与Texture decoded-peak（836vs340），unrelated未修，不称全绿；`.local/g2-4-final-node-v2*` |
+| 最终同构建GPU | `geometry-budgeted-residency`、`native-surface-multi-product-production`、`geometry-shadow-view`、`geometry-product-scale`（18cases）、`geometry-scale-production`通过；`.local/g2-4-final-{budgeted-residency,multi-product-production,shadow-view,product-scale,scale-production}-v2.json`，均同source/output身份，无GPU/page/request error |
+| complete authored production | 上文完整artifact六gate通过，不用截图/局部oracle代替runner |
+| 独立完整cook K0 | `.local/validation/2026-10-08T04-58-56-575Z-web-authored-large-cook-k0-a971be89-ad7f-487c-89c0-6f306a62dcd3/`，同最终engine source；66Products/3775pages全部校验和重读、catalog/triangle/shards完整，六gate及manifest通过；total278663.800ms，dispose后spillCurrentBytes/OwnerCount=0、3775releases |
+| 收尾文档/导航 | docs-verify 0 findings、66既有history warnings；documentation/validation tests18/18，vibe doctor、registry --check、readback context与git diff --check通过；未再启动GPU/engine测试 |
+
+真实1080p穷举raster压力：10k/8Products GPU P50/P95=22.097888/27.148224ms、CPU=2.4/6.3ms、visible497624；100k/66Products GPU=67.049312/332.513632ms、CPU=1.9/2.2ms、visible500026。完整work/winner实例集合、overflow与lifecycle通过。fixture是position-only/resident/Unlit、每meshlet一triangle却384vertex slots，**仅证明work scale/completeness，不能当authored性能**；extreme-scale tail=OPEN，根因UNKNOWN，不在G2.4另造Geometry优化架构。
+
+actual100M/Zorah=`not-run`：本轮实际发现本地Zorah glTF及两份合计约41.7GB declared buffers，**不能再称source unavailable**；但无冻结/已配置验证的100M route或独立triangle/catalog核验，且用户明确选择本机`large.glb`验收，不运行Zorah。先前“未找到”保留为当轮事实，本条纠正当前范围；不以4.87M或100k实例冒称100M覆盖，不阻塞本次用户指定M2关闭。
+
+其他OPEN：跨GPU/browser、长时质量/独立整场景pixel oracle、硬件DRAM/register/spill、精确gather带宽/CPU pump、完整driver VRAM/峰值、CPU host成本、near/100k尾延迟、有限residentpool thrash、外部Lighting性能和两项unrelated Node。不存在未处理的本轮必需Geometry correctness/lifecycle failure。开源adoption不升级；旧B2-NUM缺陷不追认为修复。
+
+**停止边界：** 用户要求停止补测并先关闭G2.4，后续手动测试。执行停止时独立K0已于UTC05:03:49.026正常结束，不记为中断，也不再启动GPU作业。workstream.currentSlice标记M2 complete，详细结果仅此处。下一步先定向审查host未计时区；若按Lighting/VT/Geometry三项排序，优先重新校准Lighting（既有多灯瓶颈），VT是实测capacity候选，Geometry不因当前长尾重新整模块重写。该建议不是下一模块启动授权，不激活或实施任何后续模块。
 
 ### 8.7 28个既有失败的分类与迁移责任
 

@@ -24,7 +24,61 @@ import { GPU_COUNTER_BYTE_SIZE } from "../../.test-dist/debug/GpuFrameCounters.j
 const MiB = 1024 * 1024;
 const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 
+async function checkPendingDemandDeviceLoss() {
+  const results = [];
+  for (const [shadow, queued] of [[false, false], [true, false], [false, true], [true, true]]) {
+    const adapter = await navigator.gpu.requestAdapter();
+    assert.ok(adapter, "Demand cancellation adapter unavailable");
+    const device = await adapter.requestDevice();
+    const errors = [];
+    device.addEventListener("uncapturederror", (event) => errors.push(event.error.message));
+    // This isolated check exercises only the real readback/loss owner; no
+    // residency uploads are needed to cancel a committed demand copy.
+    const streaming = new GeometryPageStreamingRuntimeV1(device, { evidence: () => ({}) }, {
+      readback: { slotCount: 2, bytesPerSlot: 64 }
+    });
+    const source = device.createBuffer({
+      label: "Geometry cancellation demand",
+      size: 32,
+      usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
+    });
+    try {
+      const encoder = device.createCommandEncoder();
+      const finished = [];
+      const command = {
+        gpu_encoder: encoder,
+        onFinished: { addOne: (callback) => finished.push(callback) },
+        onAborted: { addOne() {} }
+      };
+      if (shadow) streaming.encodeShadowDemandReadback(command, source, 1);
+      else streaming.encodeDemandReadback(command, source, 1);
+      device.queue.submit([encoder.finish()]);
+      finished.forEach((callback) => callback());
+      await device.queue.onSubmittedWorkDone();
+      const poll = queued
+        ? streaming.consumeAfterCompletion(1, Promise.resolve())
+        : streaming.consumeCompleted(2);
+      if (!queued) await Promise.resolve();
+      device.destroy();
+      assert.equal((await poll).cancelled, true, "Loss must revoke the pending map");
+      await device.lost;
+      const evidence = streaming.evidence();
+      assert.equal(evidence.lastError, null);
+      assert.equal(evidence.readback.inUse, 0);
+      if (shadow) assert.equal(evidence.shadowReadback.inUse, 0);
+      assert.deepEqual(errors, []);
+      results.push({ shadow, queued, cancelled: true, evidence });
+    } finally {
+      streaming.destroy();
+      source.destroy();
+      device.destroy();
+    }
+  }
+  return results;
+}
+
 export async function runGeometryBudgetedResidencyGpuOracle(device) {
+  const pendingDemandDeviceLoss = await checkPendingDemandDeviceLoss();
   const boundaries = [];
   const shader = device.createShaderModule({
     code: `${GEOMETRY_PRODUCT_GPU_WGSL_V1}
@@ -415,6 +469,7 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
       "Teardown and pending callbacks cannot double release or leak"
     );
     return {
+      pendingDemandDeviceLoss,
       boundaries,
       frames,
       evidence,

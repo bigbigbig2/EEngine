@@ -227,7 +227,15 @@ async function run() {
         renderer!.render(camera, scene, 1 / 60);
         const ms = performance.now() - before;
         await gpu.queue.onSubmittedWorkDone();
-        if (renderer!.frame_count !== first) return ms;
+        if (renderer!.frame_count !== first) {
+          if (first === 0 && !recovered) {
+            controller.addEvidence("startup", {
+              firstProductionFrameCompletedMs: performance.now() - started,
+              policy: "Full authored settlement precedes the first frame; not progressive-load TTFMF"
+            });
+          }
+          return ms;
+        }
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
       throw new Error("Complete authored publication never became renderable");
@@ -320,6 +328,9 @@ async function run() {
       camera.transform.position.set(0, 5, distance);
       camera.transform.lookAt({ x: 0, y: 5, z: 0 });
       camera.update();
+      // A full capture is deliberately bounded to 120 frames by the existing
+      // profiler. Rearm each segment so both 30+48 windows retain pass timings.
+      renderer.profiler.configure({ gpuTimingMode: "full" });
       for (let frame = 0; frame < 30; ++frame) await tick();
       const first = renderer.frame_count;
       const cpu = [];
@@ -338,7 +349,14 @@ async function run() {
         profiles.length === 48 &&
           profiles.every(
             (p) =>
-              p.gpu.sampled && !p.gpu.pending && !p.counters["gpu.timing.truncated"] && p.submits.count === 1
+              p.gpu.sampled &&
+              !p.gpu.pending &&
+              !p.counters["gpu.timing.truncated"] &&
+              p.submits.count === 1 &&
+              p.gpu.mode === "full" &&
+              p.gpu.segments.some(
+                (segment) => segment.scope === "pass" && segment.label.includes("Geometry/frame_")
+              )
           ),
         "Incomplete production timing or extra submit"
       );
@@ -346,6 +364,7 @@ async function run() {
       records.push({
         name,
         cpuEncodeMs: distribution(cpu),
+        cpuRenderSamplesMs: cpu,
         gpuFrameMs: distribution(
           costs.map((c) => {
             check(c.commandSpanMs !== null, "No frame span");
@@ -384,11 +403,18 @@ async function run() {
     check(beforeRecovery?.products.length === completed.length, "Incomplete pre-loss Product registration");
     await gpu.queue.onSubmittedWorkDone();
     intentionalLoss = true;
+    const oldDevice = gpu;
     gpu.destroy();
     await errors.lost;
     errors.remove();
     renderer = await renderer.recoverAfterDeviceLoss();
     recovered = true;
+    const oldCapacity = geometryProductGpuBudgetEvidence(oldDevice);
+    check(
+      oldCapacity.totalBytes === 0 && oldCapacity.allocations === 0 && oldCapacity.metadataAllocations === 0,
+      "Lost device retained authored Product GPU ownership after recovery"
+    );
+    controller.addEvidence("releasedOldEpochProductCapacity", oldCapacity);
     gpu = renderer.device;
     intentionalLoss = false;
     errors = attachGpuErrorCollection(gpu, controller, () => intentionalLoss);

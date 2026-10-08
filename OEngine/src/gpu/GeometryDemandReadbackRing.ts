@@ -163,7 +163,7 @@ export class GeometryDemandReadbackRingV1 {
       for (const result of results) this.release(result.slotIndex);
       throw new AggregateError(
         failures.map((failure) => failure.reason),
-        "Geometry demand mapping failed"
+        `Geometry demand mapping failed: ${failures.map((failure) => String(failure.reason)).join("; ")}`
       );
     }
     results.sort((a, b) => a.frameIndex - b.frameIndex || a.slotIndex - b.slotIndex);
@@ -247,6 +247,8 @@ export class GpuGeometryDemandReadbackRingV1 {
         }
       }
     });
+    const ring = new WeakRef(this);
+    void this.#device.lost.then(() => ring.deref()?.destroy());
   }
 
   get bytesPerSlot(): number {
@@ -275,7 +277,29 @@ export class GpuGeometryDemandReadbackRingV1 {
 
   async poll(completedFrame: number): Promise<readonly GeometryDemandReadbackResultV1[]> {
     this.assertAlive();
-    return this.#ring.poll(completedFrame);
+    try {
+      return await this.#ring.poll(completedFrame);
+    } catch (error) {
+      // Device destruction can abort a pending map or invalidate a just-mapped
+      // range before the device.lost notification task is delivered. On this
+      // cold error path, join queue completion and allow notification delivery.
+      // Only an observed loss/destroy revokes work; elapsed time never does.
+      if (error instanceof AggregateError) {
+        const lost = await Promise.race([
+          this.#device.lost.then(() => true),
+          this.#device.queue.onSubmittedWorkDone().then(() => false)
+        ]);
+        if (lost) {
+          this.destroy();
+        } else {
+          await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        }
+      }
+      if (this.#destroyed) {
+        return Object.freeze([]);
+      }
+      throw error;
+    }
   }
 
   release(slotIndex: number): void {

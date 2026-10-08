@@ -42,6 +42,7 @@ class FakeBuffer {
 function device() {
   return {
     lost: new Promise(() => {}),
+    queue: { onSubmittedWorkDone: async () => {} },
     createBuffer(descriptor) {
       return new FakeBuffer(descriptor);
     }
@@ -146,6 +147,68 @@ test("live-device mapping failures remain observable", async () => {
   await assert.rejects(runtime.consumeAfterCompletion(1, Promise.resolve()), (error) => {
     assert.match(error.message, /Geometry demand mapping failed/);
     assert.match(error.errors[0].message, /real live mapping failure/);
+    return true;
+  });
+  assert.match(runtime.evidence().lastError, /mapping failed/);
+  runtime.destroy();
+});
+
+for (const [shadow, rangeInvalidated] of [[false, false], [true, false], [false, true], [true, true]]) {
+  test(`${rangeInvalidated ? "mapped range invalidation" : "map abort"} before loss notification cancels ${shadow ? "shadow" : "main"} pump`, async () => {
+    const lost = deferred();
+    const started = deferred();
+    const mapping = deferred();
+    const buffers = [];
+    const gpu = {
+      lost: lost.promise,
+      queue: { onSubmittedWorkDone: async () => {} },
+      createBuffer(descriptor) {
+        const buffer = new FakeBuffer(descriptor);
+        buffer.mapAsync = () => { started.resolve(); return mapping.promise; };
+        if (rangeInvalidated) {
+          buffer.getMappedRange = () => { throw new DOMException("Lost mapped range", "OperationError"); };
+        }
+        buffers.push(buffer);
+        return buffer;
+      }
+    };
+    const runtime = new GeometryPageStreamingRuntimeV1(gpu, { evidence: () => ({}) }, {
+      readback: { slotCount: 2, bytesPerSlot: 64 }
+    });
+    const source = new FakeBuffer({ size: 32, usage: 0 });
+    if (shadow) runtime.encodeShadowDemandReadback(command(), source, 1);
+    else runtime.encodeDemandReadback(command(), source, 1);
+    const active = runtime.consumeAfterCompletion(1, Promise.resolve());
+    await started.promise;
+    if (rangeInvalidated) mapping.resolve();
+    else mapping.reject(new DOMException("Buffer unmapped before mapping resolved", "AbortError"));
+    // Real Chrome delivers this cancellation before the device-loss task.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    lost.resolve({ reason: "destroyed" });
+    assert.equal((await active).cancelled, true);
+    assert.equal(runtime.evidence().lastError, null);
+    assert.equal(runtime.evidence().readback.inUse, 0);
+    if (shadow) assert.equal(runtime.evidence().shadowReadback.inUse, 0);
+    assert.ok(buffers.every((buffer) => buffer.destroyed));
+    runtime.destroy();
+  });
+}
+
+test("live-device AbortError is not classified as loss", async () => {
+  const gpu = device();
+  gpu.queue = { onSubmittedWorkDone: async () => {} };
+  gpu.createBuffer = (descriptor) => {
+    const buffer = new FakeBuffer(descriptor);
+    buffer.mapAsync = async () => { throw new DOMException("live map abort", "AbortError"); };
+    return buffer;
+  };
+  const runtime = new GeometryPageStreamingRuntimeV1(gpu, { evidence: () => ({}) }, {
+    readback: { slotCount: 2, bytesPerSlot: 64 }
+  });
+  runtime.encodeDemandReadback(command(), new FakeBuffer({ size: 32, usage: 0 }), 1);
+  await assert.rejects(runtime.consumeAfterCompletion(1, Promise.resolve()), (error) => {
+    assert.match(error.message, /Geometry demand mapping failed/);
+    assert.equal(error.errors[0].name, "AbortError");
     return true;
   });
   assert.match(runtime.evidence().lastError, /mapping failed/);
