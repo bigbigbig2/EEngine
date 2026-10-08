@@ -10,6 +10,7 @@ import type { GpuRadiometryPass } from "../temporal/GpuRadiometryPass.js";
 import type { PhysicalEnvironmentRuntime } from "../environment/PhysicalEnvironmentRuntime.js";
 import type { PreExposureContract } from "../RadiometryContract.js";
 import type { FrameProgram } from "./FrameProgram.js";
+import type { LocalLightWorkFrame } from "../lighting/LocalLightWorkGenerator.js";
 import type { VsmResources } from "../vsm/VsmResources.js";
 import type { VsmDirectionalFrameConstants } from "../vsm/VsmReceiverDemandPass.js";
 import type { VsmGenerationState } from "../vsm/VsmGeneration.js";
@@ -35,6 +36,8 @@ export type SceneFrameBindings = Readonly<{
   lightingEnvironmentRevision: number;
   /** GPU light collection publication revision; independent from sky/IBL revision. */
   lightingLightRevision: number;
+  localLightWork: LocalLightWorkFrame | null;
+  localLightCounters: GPUBuffer;
   lightingSunRevision: number;
   environment: PhysicalEnvironmentRuntime | null;
   /** Persistent VSM owner; null is valid for the explicit shadow-disabled profile. */
@@ -56,11 +59,31 @@ export type FrameProgramBindings = SceneFrameBindings | EmptyFrameBindings;
 /** Check structural assumptions before a cached graph starts encoding GPU work. */
 export function assertFrameProgramBindings(plan: FrameProgram, bindings: FrameProgramBindings): void {
   const request = plan.request;
-  if (request.kind !== bindings.kind) throw new Error("Frame Program binding kind changed");
+  if (request.kind !== bindings.kind) {
+    throw new Error("Frame Program binding kind changed");
+  }
   if (request.capabilityProfile !== String(bindings.deviceEpoch)) {
     throw new Error("Frame Program device epoch changed");
   }
-  if (request.kind === "empty" || bindings.kind === "empty") return;
+  if (request.kind === "empty" || bindings.kind === "empty") {
+    return;
+  }
+  if (request.hasLit !== (bindings.localLightWork !== null)) {
+    throw new Error("Frame Program LocalLightWork publication is missing or unexpected");
+  }
+  if (bindings.localLightWork !== null) {
+    const local = bindings.localLightWork.request;
+    if (
+      local.frameIndex !== bindings.frameIndex ||
+      local.deviceEpoch !== bindings.deviceEpoch ||
+      local.publication.buffer !== bindings.view.environment.lights.buffer_data ||
+      local.publication.revision !== bindings.lightingLightRevision ||
+      local.view.width !== request.internalWidth ||
+      local.view.height !== request.internalHeight
+    ) {
+      throw new Error("Frame Program LocalLightWork context is stale");
+    }
+  }
   if (
     bindings.depth.width !== request.internalWidth ||
     bindings.depth.height !== request.internalHeight ||
@@ -157,7 +180,9 @@ export function assertFrameProgramBindings(plan: FrameProgram, bindings: FramePr
   let textureBankMask = 0;
   for (const setId of activeSets) {
     const bindingSet = bindings.runtime.materialResources.bindingSets.find((set) => set.id === setId);
-    if (!bindingSet) throw new Error(`Frame Program texture set ${setId} is not resident`);
+    if (!bindingSet) {
+      throw new Error(`Frame Program texture set ${setId} is not resident`);
+    }
     textureBankMask |= bindingSet.textureBankMask;
     for (let bank = 0; bank < 9; bank++) {
       if (!bindingSet.textureBanks[bank] || bindingSet.bankDescriptors[bank]?.bindingSlot !== bank) {

@@ -4,12 +4,13 @@ import type {
   ResourceHandle as AccountingResourceHandle
 } from "./profiling/ResourceAccounting.js";
 
-export const GPU_COUNTER_SCHEMA_VERSION = 28;
-export const GPU_COUNTER_BYTE_SIZE = 768;
+export const GPU_COUNTER_SCHEMA_VERSION = 29;
+export const GPU_COUNTER_BYTE_SIZE = 832;
 
 /** Stable schema holes; indices are never silently reused across ABI revisions. */
 export const GPU_COUNTER_RESERVED_INDICES = Object.freeze([
-  9, 10, 12, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 125, 126, 127, 128, 129, 130, 131
+  16, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 9, 10, 12, 88, 89, 90, 91,
+  92, 93, 94, 95, 96, 97, 125, 126, 127, 128, 129, 130, 131
 ] as const);
 
 /** Stable queueOverflowMask bits; material/light bits are reserved until wired. */
@@ -50,7 +51,6 @@ export const GPU_COUNTER_FIELDS = [
     index: 15,
     semantic: "active non-transparent MaterialRecords addressable by the bounded Material Resolve kernel set"
   },
-  { name: "activeLights", index: 16, semantic: "active local lights" },
   { name: "queueOverflowMask", index: 17, semantic: "registered queue overflow bits" },
   {
     name: "rootStageQueueReservations",
@@ -103,53 +103,6 @@ export const GPU_COUNTER_FIELDS = [
     semantic: "Material Resolve pixels using an emissive texture feature bit"
   },
   { name: "unlitSurfacePixels", index: 28, semantic: "Material Resolve pixels using the unlit feature bit" },
-  {
-    name: "candidateLightsAttempted",
-    index: 29,
-    semantic: "frustum-visible local light list append attempts"
-  },
-  { name: "candidateLightsWritten", index: 30, semantic: "bounded frustum-visible local light list writes" },
-  { name: "activeLightsAttempted", index: 31, semantic: "HZB-filtered local light list append attempts" },
-  { name: "clusterTestedLights", index: 32, semantic: "light-vs-cluster intersection tests" },
-  { name: "clusterLightIndicesAttempted", index: 33, semantic: "cluster index reservations attempted" },
-  { name: "clusterLightIndicesWritten", index: 34, semantic: "bounded cluster index writes" },
-  { name: "clusterOverflowClusters", index: 35, semantic: "clusters using an explicit overflow flag" },
-  {
-    name: "clusterFallbackLights",
-    index: 36,
-    semantic: "active-list light evaluations caused by conservative fallback"
-  },
-  {
-    name: "clusterLightReferences",
-    index: 37,
-    semantic: "lights evaluated by direct lighting across all clusters"
-  },
-  { name: "clusterMaxLights", index: 38, semantic: "maximum evaluated lights in one cluster" },
-  { name: "clusterHistogram0", index: 39, semantic: "clusters evaluating zero local lights" },
-  { name: "clusterHistogram1", index: 40, semantic: "clusters evaluating one local light" },
-  { name: "clusterHistogram4", index: 41, semantic: "clusters evaluating two to four local lights" },
-  { name: "clusterHistogram8", index: 42, semantic: "clusters evaluating five to eight local lights" },
-  { name: "clusterHistogram16", index: 43, semantic: "clusters evaluating nine to sixteen local lights" },
-  {
-    name: "clusterHistogram32",
-    index: 44,
-    semantic: "clusters evaluating seventeen to thirty-two local lights"
-  },
-  {
-    name: "clusterHistogram64",
-    index: 45,
-    semantic: "clusters evaluating thirty-three to sixty-four local lights"
-  },
-  {
-    name: "clusterHistogram128",
-    index: 46,
-    semantic: "clusters evaluating sixty-five to one-hundred-twenty-eight local lights"
-  },
-  {
-    name: "clusterHistogram256",
-    index: 47,
-    semantic: "clusters evaluating more than one-hundred-twenty-eight local lights"
-  },
   {
     name: "iblSampledPixels",
     index: 48,
@@ -453,8 +406,88 @@ export const GPU_COUNTER_FIELDS = [
     name: "longRangeProviderDuplicates",
     index: 139,
     semantic: "sampled valid receivers for which more than one authoritative long-range provider was selected"
-  }
+  },
   // Slots 140..191 are retired Surface ABI holes; live counter indices stay unchanged.
+  {
+    name: "localLightAbi",
+    index: 192,
+    semantic: "finalized LocalLightWork header word 0; sampled copy, not BRDF evaluations"
+  },
+  {
+    name: "localLightMode",
+    index: 193,
+    semantic: "finalized LocalLightWork header word 1; sampled copy, not BRDF evaluations"
+  },
+  {
+    name: "localLightFlags",
+    index: 194,
+    semantic: "finalized LocalLightWork header word 2; sampled copy, not BRDF evaluations"
+  },
+  {
+    name: "localLightEpoch",
+    index: 195,
+    semantic: "finalized LocalLightWork header word 3; sampled copy, not BRDF evaluations"
+  },
+  {
+    name: "localLightFrame",
+    index: 196,
+    semantic: "finalized LocalLightWork header word 4; sampled copy, not BRDF evaluations"
+  },
+  {
+    name: "localLightPublication",
+    index: 197,
+    semantic: "finalized LocalLightWork header word 5; sampled copy, not BRDF evaluations"
+  },
+  {
+    name: "localLightAdmitted",
+    index: 198,
+    semantic: "finalized LocalLightWork header word 6; sampled copy, not BRDF evaluations"
+  },
+  {
+    name: "localLightAllOffset",
+    index: 199,
+    semantic: "finalized LocalLightWork header word 7; sampled copy, not BRDF evaluations"
+  },
+  {
+    name: "localLightGlobalCount",
+    index: 200,
+    semantic: "finalized LocalLightWork header word 8; sampled copy, not BRDF evaluations"
+  },
+  {
+    name: "localLightGlobalOffset",
+    index: 201,
+    semantic: "finalized LocalLightWork header word 9; sampled copy, not BRDF evaluations"
+  },
+  {
+    name: "localLightClusters",
+    index: 202,
+    semantic: "finalized LocalLightWork header word 10; sampled copy, not BRDF evaluations"
+  },
+  {
+    name: "localLightIndexCapacity",
+    index: 203,
+    semantic: "finalized LocalLightWork header word 11; sampled copy, not BRDF evaluations"
+  },
+  {
+    name: "localLightIndicesOffset",
+    index: 204,
+    semantic: "finalized LocalLightWork header word 12; sampled copy, not BRDF evaluations"
+  },
+  {
+    name: "localLightIndicesWritten",
+    index: 205,
+    semantic: "finalized LocalLightWork header word 13; sampled copy, not BRDF evaluations"
+  },
+  {
+    name: "localLightRegionTasks",
+    index: 206,
+    semantic: "finalized LocalLightWork header word 14; sampled copy, not BRDF evaluations"
+  },
+  {
+    name: "localLightTaskBudget",
+    index: 207,
+    semantic: "finalized LocalLightWork header word 15; sampled copy, not BRDF evaluations"
+  }
 ] as const;
 
 export type GpuCounterFieldName = (typeof GPU_COUNTER_FIELDS)[number]["name"];

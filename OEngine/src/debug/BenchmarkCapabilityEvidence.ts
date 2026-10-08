@@ -102,7 +102,7 @@ export const BENCHMARK_FEATURE_SET_EVIDENCE = {
   },
   "clustered-lighting": {
     status: "supported",
-    requiredGpuCounters: ["activeLights", "queueOverflowMask"]
+    requiredGpuCounters: ["localLightAdmitted", "localLightFlags", "localLightIndicesWritten"]
   },
   ibl: {
     status: "supported",
@@ -219,7 +219,6 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
   emptyVisibilityPixels: supported("VisibilityCounterPass/final-visibility reducer"),
   invalidVisibilityKeys: supported("VisibilityCounterPass/direct VisibilityKey reserved-key reducer"),
   activeMaterials: supported("Material Resolve/active MaterialRecord counter"),
-  activeLights: supported("Renderer/active-light-list reducer"),
   queueOverflowMask: supported("Renderer/registered-GPU-list overflow reducers"),
   rootStageQueueReservations: supported("HierarchicalWorkGenerator/fused-root workgroup reservation reducer"),
   traversalQueueReservations: supported("HierarchicalWorkGenerator/post-root workgroup reservation reducer"),
@@ -233,25 +232,22 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
   ormTexturePixels: unsupported("V4-S3", "Retired Surface reducer; no native counter producer"),
   emissiveTexturePixels: unsupported("V4-S3", "Retired Surface reducer; no native counter producer"),
   unlitSurfacePixels: unsupported("V4-S3", "Retired Surface reducer; no native counter producer"),
-  candidateLightsAttempted: supported("LightClusterPass/FX-02 bounded-list reducer"),
-  candidateLightsWritten: supported("LightClusterPass/FX-02 bounded-list reducer"),
-  activeLightsAttempted: supported("LightClusterPass/FX-02 bounded-list reducer"),
-  clusterTestedLights: supported("LightClusterPass/FX-02 cluster statistics reducer"),
-  clusterLightIndicesAttempted: supported("LightClusterPass/FX-02 cluster-data reducer"),
-  clusterLightIndicesWritten: supported("LightClusterPass/FX-02 cluster-data reducer"),
-  clusterOverflowClusters: supported("LightClusterPass/FX-02 cluster statistics reducer"),
-  clusterFallbackLights: supported("LightClusterPass/FX-02 cluster statistics reducer"),
-  clusterLightReferences: supported("LightClusterPass/FX-02 cluster statistics reducer"),
-  clusterMaxLights: supported("LightClusterPass/FX-02 cluster statistics reducer"),
-  clusterHistogram0: supported("LightClusterPass/FX-02 cluster histogram reducer"),
-  clusterHistogram1: supported("LightClusterPass/FX-02 cluster histogram reducer"),
-  clusterHistogram4: supported("LightClusterPass/FX-02 cluster histogram reducer"),
-  clusterHistogram8: supported("LightClusterPass/FX-02 cluster histogram reducer"),
-  clusterHistogram16: supported("LightClusterPass/FX-02 cluster histogram reducer"),
-  clusterHistogram32: supported("LightClusterPass/FX-02 cluster histogram reducer"),
-  clusterHistogram64: supported("LightClusterPass/FX-02 cluster histogram reducer"),
-  clusterHistogram128: supported("LightClusterPass/FX-02 cluster histogram reducer"),
-  clusterHistogram256: supported("LightClusterPass/FX-02 cluster histogram reducer"),
+  localLightAbi: supported("LocalLightWork/finalized header sampled copy"),
+  localLightMode: supported("LocalLightWork/finalized header sampled copy"),
+  localLightFlags: supported("LocalLightWork/finalized header sampled copy"),
+  localLightEpoch: supported("LocalLightWork/finalized header sampled copy"),
+  localLightFrame: supported("LocalLightWork/finalized header sampled copy"),
+  localLightPublication: supported("LocalLightWork/finalized header sampled copy"),
+  localLightAdmitted: supported("LocalLightWork/finalized header sampled copy"),
+  localLightAllOffset: supported("LocalLightWork/finalized header sampled copy"),
+  localLightGlobalCount: supported("LocalLightWork/finalized header sampled copy"),
+  localLightGlobalOffset: supported("LocalLightWork/finalized header sampled copy"),
+  localLightClusters: supported("LocalLightWork/finalized header sampled copy"),
+  localLightIndexCapacity: supported("LocalLightWork/finalized header sampled copy"),
+  localLightIndicesOffset: supported("LocalLightWork/finalized header sampled copy"),
+  localLightIndicesWritten: supported("LocalLightWork/finalized header sampled copy"),
+  localLightRegionTasks: supported("LocalLightWork/finalized header sampled copy"),
+  localLightTaskBudget: supported("LocalLightWork/finalized header sampled copy"),
   iblSampledPixels: unsupported("V4-S3", "Retired Surface reducer; no native counter producer"),
   iblMip0: unsupported("V4-S3", "Retired Surface reducer; no native counter producer"),
   iblMip1: unsupported("V4-S3", "Retired Surface reducer; no native counter producer"),
@@ -268,11 +264,26 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
   shadowAtlasPixelsUpdated: supported("PackedCsmShadowPass/atlas update reducer"),
   shadowAlphaRasterWork: supported("PackedCsmShadowPass/alpha flag reducer"),
   shadowQueueOverflowMask: supported("PackedCsmShadowPass/per-cascade overflow reducer"),
-  transparentRasterWork: supported("PackedTransparentOitPass/bounded queue reducer"),
-  transparentTriangles: supported("PackedTransparentOitPass/exact meshlet triangle reducer"),
-  transparentReactivePixels: supported("PackedTransparentOitPass/reactive texture reducer"),
-  transparentMomentFiniteFailures: supported("PackedTransparentOitPass/power-moment finite reducer"),
-  transparentQueueOverflowMask: supported("PackedTransparentOitPass/queue overflow reducer"),
+  transparentRasterWork: unsupported(
+    "L3.2",
+    "Unreachable legacy transparent owner retired; no production counter producer"
+  ),
+  transparentTriangles: unsupported(
+    "L3.2",
+    "Unreachable legacy transparent owner retired; no production counter producer"
+  ),
+  transparentReactivePixels: unsupported(
+    "L3.2",
+    "Unreachable legacy transparent owner retired; no production counter producer"
+  ),
+  transparentMomentFiniteFailures: unsupported(
+    "L3.2",
+    "Unreachable legacy transparent owner retired; no production counter producer"
+  ),
+  transparentQueueOverflowMask: unsupported(
+    "L3.2",
+    "Unreachable legacy transparent owner retired; no production counter producer"
+  ),
   temporalReactivePixels: supported("TemporalClassificationPass/reactive reducer"),
   temporalDisoccludedPixels: supported("TemporalClassificationPass/disocclusion reducer"),
   temporalHistoryRejectedPixels: supported("TemporalClassificationPass/history rejection reducer"),

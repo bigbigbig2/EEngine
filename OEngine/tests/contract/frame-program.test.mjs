@@ -7,7 +7,7 @@ import { HzbHistoryState } from "../../.test-dist/render/HzbHistory.js";
 import {
   FrameGraph,
   FrameGraphBindingLayout,
-  FrameGraphContext,
+  FrameGraphContext
 } from "../../.test-dist/framegraph/FrameGraph.js";
 import { BloomPass } from "../../.test-dist/render/passes/BloomPass.js";
 
@@ -27,7 +27,7 @@ const scene = {
   currentHzbLateRecheck: false,
   activeSets: [0],
   hasLit: true,
-  physicalEnvironment: true,
+  physicalEnvironment: true
 };
 
 test("Bloom upsamples each mip at its high input extent", () => {
@@ -41,7 +41,7 @@ test("Bloom upsamples each mip at its high input extent", () => {
       createShaderModule: () => ({}),
       createBindGroupLayout: () => ({}),
       createPipelineLayout: () => ({}),
-      createComputePipeline: () => ({}),
+      createComputePipeline: () => ({})
     };
     const graph = new FrameGraph("Bloom extents");
     const sceneColor = graph.create_resource("test/scene", {
@@ -50,13 +50,13 @@ test("Bloom upsamples each mip at its high input extent", () => {
       height: 360,
       format: "rgba16float",
       domain: "output-full",
-      usage: 3,
+      usage: 3
     });
     const preExposure = graph.import_resource("test/pre-exposure", { kind: "imported" }, {});
     new BloomPass(device).addToGraph(graph, { scene: sceneColor, preExposure, width: 640, height: 360 });
     for (let level = 0; level < 4; level++) {
       const node = Array.from({ length: graph.resourceNodeCount }, (_, id) => graph.getResourceNode(id)).find(
-        (node) => node.name === `Bloom/up${level}`,
+        (node) => node.name === `Bloom/up${level}`
       );
       assert.ok(node);
       const descriptor = graph.getDescriptor(node.id);
@@ -79,34 +79,39 @@ test("Frame Program closes the current scene product demand with a structural ke
     "depth",
     "hzb",
     "meshlet-work",
-    "light-cluster",
+    "local-light-work",
     "surface-radiance",
     "temporal-motion",
     "sky-radiance",
     "aerial-radiance",
     "reconstructed-color",
-    "swapchain",
+    "swapchain"
   ])
     assert.ok(first.products.includes(product), product);
   assert.equal(first.directLighting, true);
-  assert.deepEqual(first.facts.find((fact) => fact.product === "light-cluster").consumers, ["surface"]);
-  assert.deepEqual(first.facts.find((fact) => fact.product === "hzb").consumers, [
-    "light-cluster",
-    "visibility",
-  ]);
+  assert.deepEqual(first.facts.find((fact) => fact.product === "local-light-work").consumers, ["surface"]);
+  assert.deepEqual(first.facts.find((fact) => fact.product === "hzb").consumers, ["visibility"]);
   assert.notEqual(first.key, buildFrameProgram({ ...scene, internalWidth: 800 }).key);
   const noEnvironment = buildFrameProgram({ ...scene, physicalEnvironment: false });
   assert.ok(!noEnvironment.products.includes("sky-radiance"));
   assert.ok(!noEnvironment.products.includes("aerial-radiance"));
   const unlit = buildFrameProgram({ ...scene, hasLit: false });
-  assert.ok(!unlit.products.includes("light-cluster"));
+  assert.ok(!unlit.products.includes("local-light-work"));
   assert.deepEqual(first.facts.find((fact) => fact.product === "temporal-motion").consumers, [
     "temporal-facts",
-    "fsr3",
+    "fsr3"
   ]);
   assert.ok(!first.products.includes("shading-work"));
   assert.deepEqual(first.facts.find((fact) => fact.product === "visibility").extent, [640, 360]);
   assert.equal(first.facts.find((fact) => fact.product === "temporal-motion").format, "rg32float");
+});
+
+test("local-light occupancy depends on raw winner/depth and cannot force Geometry HZB", () => {
+  const program = buildFrameProgram({ ...scene, previousHzb: false, currentHzbLateRecheck: false });
+  assert.equal(program.buildHzb, false);
+  assert.ok(!program.products.includes("hzb"));
+  assert.ok(program.products.includes("local-light-work"));
+  assert.ok(program.bindingRoles.includes("local-light-work"));
 });
 
 test("lit scalar AO closes a same-frame producer while off and unlit omit it", () => {
@@ -121,7 +126,7 @@ test("lit scalar AO closes a same-frame producer while off and unlit omit it", (
   assert.notEqual(high.key, off.key);
   assert.throws(
     () => buildFrameProgram({ ...scene, hasLit: false, aoProfile: "scalar-high" }),
-    /lit Surface consumer/u,
+    /lit Surface consumer/u
   );
   const unlit = buildFrameProgram({ ...scene, hasLit: false, aoProfile: "off" });
   assert.ok(!unlit.stages.includes("xe-gtao"));
@@ -131,22 +136,24 @@ test("directional shadows demand independent Geometry only for an enabled lit co
   for (const shadowProfile of ["vsm-directional-high", "vsm-directional-bounded"]) {
     const plan = buildFrameProgram({ ...scene, shadowProfile });
     assert.ok(plan.stages.includes("vsm"));
-    assert.deepEqual(
-      plan.facts.find((fact) => fact.product === "shadow-geometry-work").consumers,
-      ["vsm"],
-    );
+    assert.deepEqual(plan.facts.find((fact) => fact.product === "shadow-geometry-work").consumers, ["vsm"]);
     assert.ok(plan.products.includes("shadow-allocation"));
   }
   for (const shadowProfile of ["off", "shadow-disabled"]) {
     const plan = buildFrameProgram({ ...scene, shadowProfile });
     assert.ok(!plan.stages.includes("vsm"));
-    for (const product of ["shadow-geometry-work", "shadow-visibility", "shadow-demand", "shadow-allocation"]) {
+    for (const product of [
+      "shadow-geometry-work",
+      "shadow-visibility",
+      "shadow-demand",
+      "shadow-allocation"
+    ]) {
       assert.ok(!plan.products.includes(product), product);
     }
   }
   assert.throws(
     () => buildFrameProgram({ ...scene, hasLit: false, shadowProfile: "vsm-directional-high" }),
-    /lit Surface consumer/,
+    /lit Surface consumer/
   );
   const unlit = buildFrameProgram({ ...scene, hasLit: false, shadowProfile: "off" });
   assert.ok(!unlit.products.includes("shadow-geometry-work"));
@@ -176,7 +183,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
     activeSets: [0],
     hasLit: false,
     physicalEnvironment: false,
-    capabilityProfile: "7",
+    capabilityProfile: "7"
   };
   const plan = buildFrameProgram(request);
   const resource = {};
@@ -195,11 +202,11 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
           id: 0,
           textureBankMask: 0x1ff,
           textureBanks: Array(9).fill(resource),
-          bankDescriptors: Array.from({ length: 9 }, (_, bindingSlot) => ({ bindingSlot })),
-        },
-      ],
+          bankDescriptors: Array.from({ length: 9 }, (_, bindingSlot) => ({ bindingSlot }))
+        }
+      ]
     },
-    counterSink: resource,
+    counterSink: resource
   };
   runtime.activeShadingSummary.binRefCounts[0] = 1;
   const job = {
@@ -209,8 +216,8 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
     assets: {
       sparseShading: {
         assetMetadataHeap: resource,
-        vertexPayloadHeap: resource,
-      },
+        vertexPayloadHeap: resource
+      }
     },
     scene: { instances: resource },
     prepared: {
@@ -223,17 +230,17 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
           layout: {
             header: { offset: 0 },
             sourceDirectory: { offset: 256 },
-            filteredDirectory: { offset: 512 },
-          },
-        },
+            filteredDirectory: { offset: 512 }
+          }
+        }
       },
-      currentHzbLateRecheck: null,
-    },
+      currentHzbLateRecheck: null
+    }
   };
   const hzb = {
     getCurrentTexture() {
       throw new Error("feature-off HZB was accessed");
-    },
+    }
   };
   const fsr3 = {
     assertPreparedFrame() {},
@@ -241,7 +248,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
       const history = graph.import_resource(
         "test/FSR3 history",
         { kind: "imported" },
-        bind("history", (runtime) => runtime.history),
+        bind("history", (runtime) => runtime.history)
       );
       const pass = graph.add("test/FSR3", {}, () => {});
       pass.read(input.color);
@@ -258,10 +265,10 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
         height: 720,
         format: "rgba16float",
         domain: "output-full",
-        usage: 7,
+        usage: 7
       });
     },
-    history: resource,
+    history: resource
   };
   const camera = {};
   const temporalFacts = {
@@ -277,7 +284,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
         input.meshletWork,
         input.instances,
         input.currentCamera,
-        input.previousCamera,
+        input.previousCamera
       ])
         pass.read(value);
       return {
@@ -287,7 +294,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
           height: 360,
           format: "rg32float",
           domain: "internal-full",
-          usage: 7,
+          usage: 7
         }),
         mask: pass.create("test/temporal-mask", {
           kind: "transient_texture",
@@ -295,7 +302,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
           height: 360,
           format: "rgba8unorm",
           domain: "internal-full",
-          usage: 7,
+          usage: 7
         }),
         identity: pass.create("test/temporal-identity", {
           kind: "transient_texture",
@@ -303,10 +310,10 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
           height: 360,
           format: "rgba32uint",
           domain: "internal-full",
-          usage: 7,
-        }),
+          usage: 7
+        })
       };
-    },
+    }
   };
   const bindings = {
     kind: "scene",
@@ -323,17 +330,19 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
       height: 360,
       gpu_camera_state: { buffer: resource },
       gpu_previous_camera_state: { buffer: resource },
-      frame_index: 1,
+      frame_index: 1
     },
     swapchain: resource,
     preExposure: { multiplier: 1 },
+    localLightWork: null,
+    localLightCounters: resource,
     fsr3,
     temporalFacts,
     vsm: null,
     vsmFrame: null,
     vsmGeneration: { deviceEpoch: 7, generation: 1 },
     radiometry: { readBuffer: () => resource, writeBuffer: () => resource },
-    environment: null,
+    environment: null
   };
   const owners = {
     visibility: {
@@ -350,7 +359,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
           height: 360,
           format: "r32uint",
           domain: "internal-full",
-          usage: 7,
+          usage: 7
         });
         return {
           counters: pass.write(input.counters),
@@ -359,10 +368,13 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
             depth,
             frameInstances: producedFrameInstances,
             frameGeometry,
-            frameAttributes: input.frameAttributes === input.frameGeometry ? frameGeometry : pass.write(input.frameAttributes),
+            frameAttributes:
+              input.frameAttributes === input.frameGeometry
+                ? frameGeometry
+                : pass.write(input.frameAttributes),
             meshletWork: { records: meshletWork },
-            domain: { width: 640, height: 360 },
-          },
+            domain: { width: 640, height: 360 }
+          }
         };
       },
       addCurrentHzbLateRecheckToGraph(graph, _job, input) {
@@ -380,10 +392,10 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
             visibilityKey,
             depth,
             meshletWork: { records },
-            domain: input.sourceFrame.domain,
-          },
+            domain: input.sourceFrame.domain
+          }
         };
-      },
+      }
     },
     visibilityCounters: { addToGraph() {} },
     surface: { neutralLightingEntries: [], prepareFrameNow() {}, encode() {} },
@@ -400,7 +412,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
         pass.read(input.previousExposure);
         const adaptedExposure = pass.write(input.priorExposure);
         return { previousExposure: input.previousExposure, adaptedExposure };
-      },
+      }
     },
     bloom: {
       addToGraph(graph, input) {
@@ -413,9 +425,9 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
           height: 720,
           format: "rgba16float",
           domain: "output-full",
-          usage: 7,
+          usage: 7
         });
-      },
+      }
     },
     present: {
       addToGraph(graph, color, swapchain, exposure, preExposure) {
@@ -426,25 +438,23 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
         pass.write(swapchain);
         pass.make_side_effect();
         return swapchain;
-      },
+      }
     },
     temporalFacts,
     sky: null,
     aerial: null,
-    lightCluster() {
-      throw new Error("feature-off light cluster");
-    },
+    localLightWork: null
   };
   assertFrameProgramBindings(plan, bindings);
   assert.throws(() => assertFrameProgramBindings(plan, { ...bindings, deviceEpoch: 8 }), /device epoch/);
   assert.throws(
     () => assertFrameProgramBindings(plan, { ...bindings, depth: { ...bindings.depth, width: 800 } }),
-    /depth descriptor/,
+    /depth descriptor/
   );
   assert.throws(
     () =>
       assertFrameProgramBindings(plan, { ...bindings, view: { ...bindings.view, camera: { camera: {} } } }),
-    /View publication/,
+    /View publication/
   );
   const texturedRuntime = { ...runtime, activeShadingSummary: { binRefCounts: Array(64).fill(0) } };
   texturedRuntime.activeShadingSummary.binRefCounts[2] = 1;
@@ -452,24 +462,24 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
   const texturedBindings = {
     ...bindings,
     runtime: texturedRuntime,
-    job: { ...job, runtime: texturedRuntime },
+    job: { ...job, runtime: texturedRuntime }
   };
   assertFrameProgramBindings(texturedPlan, texturedBindings);
   const missingBankRuntime = {
     ...texturedRuntime,
     materialResources: {
       ...texturedRuntime.materialResources,
-      bindingSets: [{ id: 0, textureBanks: [], bankDescriptors: [] }],
-    },
+      bindingSets: [{ id: 0, textureBanks: [], bankDescriptors: [] }]
+    }
   };
   assert.throws(
     () =>
       assertFrameProgramBindings(texturedPlan, {
         ...texturedBindings,
         runtime: missingBankRuntime,
-        job: { ...texturedBindings.job, runtime: missingBankRuntime },
+        job: { ...texturedBindings.job, runtime: missingBankRuntime }
       }),
-    /texture bank 0:0 publication/,
+    /texture bank 0:0 publication/
   );
   const currentHzb = { width: 320, height: 180, format: "rg16float" };
   const previousHzb = { width: 320, height: 180, format: "rg16float" };
@@ -477,13 +487,13 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
     width: 320,
     height: 180,
     getCurrentTexture: () => currentHzb,
-    getPreviousTexture: () => previousHzb,
+    getPreviousTexture: () => previousHzb
   };
   const historyPlan = buildFrameProgram({ ...request, previousHzb: true });
   const historyBindings = {
     ...bindings,
     hzb: validHzb,
-    view: { ...bindings.view, hierarchical_z_buffer: validHzb },
+    view: { ...bindings.view, hierarchical_z_buffer: validHzb }
   };
   assertFrameProgramBindings(historyPlan, historyBindings);
   const aliasedHzb = { ...validHzb, getPreviousTexture: () => currentHzb };
@@ -492,9 +502,9 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
       assertFrameProgramBindings(historyPlan, {
         ...historyBindings,
         hzb: aliasedHzb,
-        view: { ...historyBindings.view, hierarchical_z_buffer: aliasedHzb },
+        view: { ...historyBindings.view, hierarchical_z_buffer: aliasedHzb }
       }),
-    /aliases current/,
+    /aliases current/
   );
   const compiled = lowerFrameProgram(plan, bindings, owners);
   const dump = compiled.dump();
@@ -508,8 +518,8 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
       "test/FSR3",
       "test/Radiometry",
       "test/Bloom",
-      "test/Present",
-    ],
+      "test/Present"
+    ]
   );
   const pass = (name) => dump.passes.find((entry) => entry.name === name);
   assert.ok(pass("SurfaceV4/native opaque").reads.includes(producedFrameInstances));
@@ -519,7 +529,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
     ["SurfaceV4/native opaque", "test/Temporal Facts"],
     ["test/Temporal Facts", "test/FSR3"],
     ["test/FSR3", "test/Radiometry"],
-    ["test/Bloom", "test/Present"],
+    ["test/Bloom", "test/Present"]
   ]) {
     assert.ok(pass(consumer).dependencies.includes(pass(producer).id), `${producer} -> ${consumer}`);
   }
@@ -528,15 +538,15 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
       (entry) =>
         entry.name.includes("HZB") ||
         entry.name.startsWith("physical-environment") ||
-        entry.name.startsWith("Lighting/"),
-    ),
+        entry.name.startsWith("Lighting/")
+    )
   );
   assert.equal(dump.resources.find((entry) => entry.name === "test/FSR3 history").binding, "fsr3/history");
   const lut = { transmittance: {}, scattering: {}, higherOrderScattering: {}, irradiance: {} };
   const environment = {
     parameters: { size: 64 },
     luts: { views: lut },
-    ibl: { views: { diffuse: {}, specular: {}, dfg: {} } },
+    ibl: { views: { diffuse: {}, specular: {}, dfg: {} } }
   };
   const environmentPlan = buildFrameProgram({ ...request, physicalEnvironment: true });
   const environmentOwners = {
@@ -551,7 +561,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
         pass.read(input.higherOrder);
         pass.read(input.environment);
         return pass.write(input.hdr);
-      },
+      }
     },
     aerial: {
       addToGraph(graph, input) {
@@ -568,10 +578,10 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
           height: 360,
           format: "rgba16float",
           domain: "internal-full",
-          usage: 7,
+          usage: 7
         });
-      },
-    },
+      }
+    }
   };
   const environmentBindings = { ...bindings, environment };
   assertFrameProgramBindings(environmentPlan, environmentBindings);
@@ -588,17 +598,17 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
       "test/FSR3",
       "test/Radiometry",
       "test/Bloom",
-      "test/Present",
-    ],
+      "test/Present"
+    ]
   );
   assert.equal(
     withEnvironment.resources.find((entry) => entry.name === "physical-environment-transmittance").binding,
-    "physical-environment-transmittance",
+    "physical-environment-transmittance"
   );
   const latePlan = buildFrameProgram({ ...request, currentHzbLateRecheck: true });
   const lateJob = {
     ...job,
-    prepared: { ...job.prepared, currentHzbLateRecheck: { queue: resource, drawIndirect: resource } },
+    prepared: { ...job.prepared, currentHzbLateRecheck: { queue: resource, drawIndirect: resource } }
   };
   const lateBindings = { ...historyBindings, job: lateJob };
   assertFrameProgramBindings(latePlan, lateBindings);
@@ -610,7 +620,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
   assert.ok(
     lateDump.passes
       .find((entry) => entry.name === "SurfaceV4/native opaque")
-      .dependencies.includes(lateDump.passes.find((entry) => entry.name === "test/Late HZB recheck").id),
+      .dependencies.includes(lateDump.passes.find((entry) => entry.name === "test/Late HZB recheck").id)
   );
   const empty = lowerFrameProgram(
     buildFrameProgram({
@@ -620,13 +630,13 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
       outputWidth: 1280,
       outputHeight: 720,
       outputFormat: "bgra8unorm",
-      capabilityProfile: "7",
+      capabilityProfile: "7"
     }),
-    { kind: "empty", deviceEpoch: 7, swapchain: resource },
+    { kind: "empty", deviceEpoch: 7, swapchain: resource }
   ).dump();
   assert.deepEqual(
     empty.executablePassOrder.map((id) => empty.passes[id].name),
-    ["Renderer/empty present"],
+    ["Renderer/empty present"]
   );
 });
 
@@ -637,7 +647,7 @@ test("compiled graph resolves the environment role from each frame binding", () 
   const lut = graph.import_resource(
     "environment-lut",
     { kind: "imported", label: "LUT" },
-    layout.slot("environment-lut", initial, (bindings) => bindings.environment.lut),
+    layout.slot("environment-lut", initial, (bindings) => bindings.environment.lut)
   );
   const seen = [];
   const consumer = graph.add("consume-current-lut", {}, (_data, resources) => {

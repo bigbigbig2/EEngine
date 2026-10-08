@@ -21,7 +21,7 @@ import {
   DIRECTIONAL_LIGHT_DESCRIPTOR,
   DIRECTIONAL_LIGHT_RECORD_TYPE
 } from "../../.test-dist/gpu/LightDatabase.js";
-import { lightSphereDistanceAttenuation } from "../../.test-dist/render/ClusteredLightingReference.js";
+import { lightSphereDistanceAttenuation } from "../../.test-dist/render/DirectLightingReference.js";
 import { decodeFloat16, encodeFloat16 } from "../../.test-dist/core/Float16.js";
 
 const CELL = 8;
@@ -248,28 +248,30 @@ export async function createNativeSurfaceFixture(
       { direction: [0, 0, -1], color: [0.8, 0.6, 0.4], flags: 1 }
     ]);
     const lights = storage(lightWords, "S1/real light database ABI");
-    // Same near/far mapping as LightClusterPass.packSettings. Lists are a
-    // fixture, but geometry -> view depth -> logarithmic slice is real work.
-    const offsetNear = 0.1 + 0.2;
-    const zScale = 4.06;
-    const blend = (100 - offsetNear * Math.pow(2, 23 / zScale)) / (100 - offsetNear);
-    const clusterParameters = uniform(
-      new Float32Array([(1 - blend) / offsetNear, blend, zScale, 0]),
-      "S1/cluster parameters"
-    );
-    const clusterCount = Math.ceil(WIDTH / 32) * Math.ceil(HEIGHT / 32) * 24;
-    const clusterLookup = storage(clusterCount * 16, "S1/cluster metadata ABI");
-    const clusterData = storage(
-      new Uint32Array([8, 8, 8, 0, 8, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7]),
-      "S1/cluster index ABI"
-    );
-    const setLightCount = (count) => {
-      const lookup = new Uint32Array(clusterCount * 4);
-      for (let i = 0; i < clusterCount; i++) {
-        lookup.set([0, count, 0, 0], i * 4);
-      }
-      device.queue.writeBuffer(clusterLookup, 0, lookup);
-      device.queue.writeBuffer(clusterData, 16, new Uint32Array([count]));
+    // Complete DIRECT fixture uses the same frame-local ABI as production.
+    const packedLocal = new ArrayBuffer(128);
+    new Uint32Array(packedLocal).set([
+      WIDTH,
+      HEIGHT,
+      Math.ceil(WIDTH / 32),
+      Math.ceil(HEIGHT / 32),
+      1,
+      0,
+      1,
+      8
+    ]);
+    const localFloats = new Float32Array(packedLocal);
+    localFloats.set([0.1, 100, 0, 0.1, 1, 1, 0, 0], 8);
+    localFloats.set(identity, 16);
+    const localParameters = uniform(new Uint32Array(packedLocal), "native/local parameters");
+    const localLookup = storage(8, "native/local lookup");
+    const localData = storage(160, "native/local complete IDs");
+    const setLightCount = (count, frameIndex = 0) => {
+      const header = new Uint32Array(40);
+      header.set([1, count ? 1 : 0, 0, 1, frameIndex, 1, count, 0, 0, count, 0, 0, count * 2]);
+      header.set([0, 1, 2, 3, 4, 5, 6, 7], 32);
+      device.queue.writeBuffer(localData, 0, header);
+      device.queue.writeBuffer(localParameters, 20, new Uint32Array([frameIndex, 1, count]));
     };
     const pages = new Uint32Array((16 * 16 + 8 * 8 + 4 * 4 + 2 * 2 + 1 + 1) * 8);
     for (let y = 0; y < 16; y++) {
@@ -359,9 +361,9 @@ export async function createNativeSurfaceFixture(
     const exposure = storage(new Float32Array([1.25, 0, 0, 0]), "S1/GPU exposure");
     const lightingEntries = [
       { binding: 0, resource: { buffer: lights } },
-      { binding: 1, resource: { buffer: clusterParameters } },
-      { binding: 2, resource: { buffer: clusterLookup } },
-      { binding: 3, resource: { buffer: clusterData } },
+      { binding: 1, resource: { buffer: localParameters } },
+      { binding: 2, resource: { buffer: localLookup } },
+      { binding: 3, resource: { buffer: localData } },
       { binding: 4, resource: { buffer: view } },
       { binding: 5, resource: diffuseEnvironment.createView() },
       { binding: 6, resource: specularEnvironment.createView() },

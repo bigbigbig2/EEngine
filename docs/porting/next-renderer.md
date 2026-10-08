@@ -8,8 +8,6 @@ verifies:
     - OEngine/src/render/surface
     - OEngine/src/framegraph/FrameGraph.ts
     - OEngine/src/shaders/surface_geometry_completion.ts
-    - OEngine/tests/oracle/native-surface-shader.mjs
-    - OEngine/tests/oracle/native-surface-gpu.mjs
     - OEngine/src/shaders/native_material.ts
     - OEngine/src/gpu/GpuNativeMaterialPublication.ts
     - OEngine/src/gpu/NativeMaterialBindings.ts

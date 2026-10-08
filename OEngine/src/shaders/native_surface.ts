@@ -2,7 +2,7 @@ import type { NativeMaterialProgram } from "./native_material.js";
 import type { AppearanceProgramDescriptor } from "../gpu/AppearanceProgramRegistry.js";
 import { NATIVE_MATERIAL_DIRECTORY_WGSL } from "../gpu/GpuNativeMaterialPublication.js";
 import { surfaceGeometryCompletionWgsl } from "./surface_geometry_completion.js";
-import { createProductionSparseDirectLightingWgsl } from "./lighting_direct.js";
+import { NATIVE_LOCAL_LIGHTING } from "./native_local_lighting.js";
 import { OCTAHEDRAL_SAMPLE_WGSL } from "./environment_ibl.js";
 import { LINEAR_REC709_TO_REC2020_WGSL } from "./working_color.js";
 import { nativeSurfaceAuxWgsl } from "./native_surface_aux.js";
@@ -19,12 +19,6 @@ export interface NativeSurfaceShaderProfile {
   readonly physicalSun?: boolean;
   /** Resource-limit continuation: recompute native inputs, then add shadowed sun. */
   readonly additiveSun?: boolean;
-}
-
-/** Compile-time provider injection for isolated subsystem construction. No runtime selector. */
-export interface NativeSurfaceDirectLighting {
-  readonly source: string;
-  readonly declarations: string;
 }
 
 export const NATIVE_SURFACE_SETTINGS_BYTES = 144;
@@ -50,8 +44,7 @@ const texture = (binding: number, sampleType: GPUTextureSampleType): GPUBindGrou
 export function nativeSurfaceDescriptor(
   program: NativeMaterialProgram,
   materialLayout: readonly GPUBindGroupLayoutEntry[],
-  profile: NativeSurfaceShaderProfile,
-  directLighting?: NativeSurfaceDirectLighting
+  profile: NativeSurfaceShaderProfile
 ): AppearanceProgramDescriptor {
   if (profile.additiveSun && (!profile.physicalSun || profile.unlit || profile.reactive)) {
     throw new RangeError("Native sun continuation requires a lit sun profile without a second Aux writer");
@@ -108,7 +101,7 @@ export function nativeSurfaceDescriptor(
     material.push(read(2));
   }
   return {
-    source: nativeSurfaceWgsl(program, profile, directLighting),
+    source: nativeSurfaceWgsl(program, profile),
     entryPoint: "main",
     workgroupSize: 64,
     groups: [
@@ -132,10 +125,9 @@ export function nativeSurfacePublicationDescriptors(
   program: NativeMaterialProgram,
   materialLayout: readonly GPUBindGroupLayoutEntry[],
   profile: NativeSurfaceShaderProfile,
-  limits: Pick<GPUSupportedLimits, "maxSampledTexturesPerShaderStage">,
-  directLighting?: NativeSurfaceDirectLighting
+  limits: Pick<GPUSupportedLimits, "maxSampledTexturesPerShaderStage">
 ): { descriptor: AppearanceProgramDescriptor; continuation?: AppearanceProgramDescriptor } {
-  const descriptor = nativeSurfaceDescriptor(program, materialLayout, profile, directLighting);
+  const descriptor = nativeSurfaceDescriptor(program, materialLayout, profile);
   const sampled = descriptor.groups.reduce(
     (sum, group) => sum + group.filter((entry) => entry.texture !== undefined).length,
     0
@@ -144,22 +136,12 @@ export function nativeSurfacePublicationDescriptors(
     return { descriptor };
   }
   return {
-    descriptor: nativeSurfaceDescriptor(
-      program,
-      materialLayout,
-      { ...profile, physicalSun: false },
-      directLighting
-    ),
-    continuation: nativeSurfaceDescriptor(
-      program,
-      materialLayout,
-      {
-        ...profile,
-        additiveSun: true,
-        reactive: false
-      },
-      directLighting
-    )
+    descriptor: nativeSurfaceDescriptor(program, materialLayout, { ...profile, physicalSun: false }),
+    continuation: nativeSurfaceDescriptor(program, materialLayout, {
+      ...profile,
+      additiveSun: true,
+      reactive: false
+    })
   };
 }
 
@@ -183,8 +165,7 @@ const GEOMETRY_INPUTS: Readonly<Record<string, number>> = Object.freeze({
 /** Native straight-line material + real winner recovery and provider math, invocation-private. */
 export function nativeSurfaceWgsl(
   program: NativeMaterialProgram,
-  profile: NativeSurfaceShaderProfile,
-  directLighting?: NativeSurfaceDirectLighting
+  profile: NativeSurfaceShaderProfile
 ): string {
   let needs = (1 << 7) | (1 << 5) | (1 << 6);
   const inputs: string[] = [];
@@ -239,7 +220,7 @@ export function nativeSurfaceWgsl(
   const lighting = profile.unlit
     ? ""
     : /* wgsl */ `
-${directLighting?.source ?? createProductionSparseDirectLightingWgsl(true, "vsm")}
+${NATIVE_LOCAL_LIGHTING.source}
 ${profile.physicalSun ? nativeSurfacePhysicalSunWgsl(true) : ""}
 ${OCTAHEDRAL_SAMPLE_WGSL}
 struct NativeShadingView {
@@ -249,12 +230,7 @@ struct NativeShadingView {
   reserved: u32,
 }
 @group(1) @binding(0) var<storage, read> node: array<u32>;
-${
-  directLighting?.declarations ??
-  `@group(1) @binding(1) var<uniform> cluster_parameters: vec3f;
-@group(1) @binding(2) var<storage, read> cluster_lookup: array<ClusterMetadata>;
-@group(1) @binding(3) var<storage, read> cluster_data: ClusterData;`
-}
+${NATIVE_LOCAL_LIGHTING.declarations}
 @group(1) @binding(4) var<uniform> shading_view: NativeShadingView;
 @group(1) @binding(5) var environment_diffuse: texture_2d<f32>;
 @group(1) @binding(6) var environment_specular: texture_2d<f32>;

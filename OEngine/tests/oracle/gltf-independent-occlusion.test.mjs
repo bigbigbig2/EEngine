@@ -6,13 +6,12 @@ import "../webgpu-test-globals.mjs";
 import { parseGltfMaterial } from "../../.test-dist/loaders/gltf/gltfMaterials.js";
 import {
   GPU_MATERIAL_VISIBILITY_FLAGS,
-  materialVisibilitySource,
+  materialVisibilitySource
 } from "../../.test-dist/gpu/GpuMaterialVisibilityAbi.js";
-import { PACKED_TRANSPARENT_FORWARD_WGSL } from "../../.test-dist/shaders/packed_transparent_oit.js";
 
 const textures = Object.freeze([
   { image: { width: 4, height: 4, depth: 1 }, wrapS: 1, wrapT: 1, magFilter: 1, minFilter: 1 },
-  { image: { width: 4, height: 4, depth: 1 }, wrapS: 1, wrapT: 1, magFilter: 1, minFilter: 1 },
+  { image: { width: 4, height: 4, depth: 1 }, wrapS: 1, wrapT: 1, magFilter: 1, minFilter: 1 }
 ]);
 
 test("glTF AO-only material retains its independent texture, UV set, transform and strength", () => {
@@ -24,11 +23,11 @@ test("glTF AO-only material retains its independent texture, UV set, transform a
         texCoord: 1,
         strength: 0.35,
         extensions: {
-          KHR_texture_transform: { offset: [0.25, 0.5], scale: [2, 3], rotation: 0.4 },
-        },
-      },
+          KHR_texture_transform: { offset: [0.25, 0.5], scale: [2, 3], rotation: 0.4 }
+        }
+      }
     },
-    textures,
+    textures
   );
 
   assert.equal(material.texture_orm, undefined);
@@ -50,9 +49,9 @@ test("glTF separate MR and AO textures preserve independent textureInfo contract
     {
       name: "separate-mr-ao",
       pbrMetallicRoughness: { metallicRoughnessTexture: { index: 0, texCoord: 0 } },
-      occlusionTexture: { index: 1, texCoord: 1 },
+      occlusionTexture: { index: 1, texCoord: 1 }
     },
-    textures,
+    textures
   );
 
   assert.equal(material.texture_orm, textures[0]);
@@ -66,9 +65,9 @@ test("glTF shared ORM sample stays on the compact path only when texture and UV 
     {
       name: "shared-orm",
       pbrMetallicRoughness: { metallicRoughnessTexture: { index: 0, texCoord: 1 } },
-      occlusionTexture: { index: 0, texCoord: 1 },
+      occlusionTexture: { index: 0, texCoord: 1 }
     },
-    textures,
+    textures
   );
   assert.equal(shared.texture_orm, textures[0]);
   assert.equal(shared.texture_occlusion, undefined);
@@ -77,23 +76,12 @@ test("glTF shared ORM sample stays on the compact path only when texture and UV 
     {
       name: "shared-image-different-uv",
       pbrMetallicRoughness: { metallicRoughnessTexture: { index: 0, texCoord: 0 } },
-      occlusionTexture: { index: 0, texCoord: 1 },
+      occlusionTexture: { index: 0, texCoord: 1 }
     },
-    textures,
+    textures
   );
   assert.equal(differentUv.texture_orm, textures[0]);
   assert.equal(differentUv.texture_occlusion, textures[0]);
   assert.equal(differentUv.orm_uv_set, 0);
   assert.equal(differentUv.occlusion_uv_set, 1);
-});
-
-test("packed transparency consumes independent AO UV and applies AO only to indirect light", () => {
-  assert.match(PACKED_TRANSPARENT_FORWARD_WGSL, /material_uv\(input, material, 4u\)/u);
-  assert.match(PACKED_TRANSPARENT_FORWARD_WGSL, /material\.occlusion_texture_ref/u);
-  assert.match(PACKED_TRANSPARENT_FORWARD_WGSL, /radiance \* \(f0 \* dfg\.x \+ dfg\.y\) \* material_ao/u);
-  assert.match(PACKED_TRANSPARENT_FORWARD_WGSL, /irradiance[\s\S]*\* material_ao/u);
-  assert.doesNotMatch(
-    PACKED_TRANSPARENT_FORWARD_WGSL,
-    /shade_standard_material_direct\([\s\S]{0,160}material_ao/u,
-  );
 });

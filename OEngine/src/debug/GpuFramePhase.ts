@@ -15,7 +15,7 @@ export const GPU_FRAME_PHASES = [
   "hardware-raster",
   "hzb",
   "material-resolve",
-  "light-cluster",
+  "local-light-work",
   "lighting-and-ibl",
   "shadow",
   "transparency",
@@ -46,9 +46,9 @@ const PHASE_RULES: readonly PhaseRule[] = [
   rule(
     "observability",
     /visibilitycounter/,
+    /locallightwork\/sampled header/,
     /visibility pixel counters/,
     /r0 visibility counter/,
-    /lightcluster\/fx-02 stats/,
     /sparseshading\/.*(?:counter|diagnostic|readback)/,
     /gpu.?counter/,
     /sampled sparse safety counters/,
@@ -69,7 +69,7 @@ const PHASE_RULES: readonly PhaseRule[] = [
   rule("animation", /animation/, /skinning/),
   rule("shadow", /shadow/),
   rule("transparency", /transparent/, /\boit\b/),
-  rule("light-cluster", /lightcluster/, /light cluster/, /cluster assign/),
+  rule("local-light-work", /locallightwork\//),
   rule(
     "material-resolve",
     /appearance/,

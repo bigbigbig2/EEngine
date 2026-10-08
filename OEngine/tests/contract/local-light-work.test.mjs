@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import "../webgpu-test-globals.mjs";
 import { LocalLightWorkGenerator } from "../../.test-dist/render/lighting/LocalLightWorkGenerator.js";
 import { localLightId, localLightDepthSlice } from "../../.test-dist/gpu/GpuLocalLightWorkAbi.js";
+import { FrameGraph, FrameGraphBindingLayout, FrameGraphContext } from "../../.test-dist/framegraph/FrameGraph.js";
 
 globalThis.GPUBufferUsage ??= { COPY_SRC: 4, COPY_DST: 8, UNIFORM: 64, STORAGE: 128, INDIRECT: 256 };
 
@@ -119,6 +120,50 @@ const requestFor = (ids = new Uint32Array()) => ({
   deviceEpoch: 3,
   frameIndex: 10,
   mode: ids.length ? 2 : 0
+});
+
+test("compiled LightWork recipe late-binds every frame, buffer and command without rebuilding", () => {
+  const first = {
+    frame: { parameters: {}, lookup: {}, data: {}, request: { view: { width: 32, height: 32 } } },
+    visibility: { view: {} }, depth: { view: {} }, database: {}, command: {}
+  };
+  const second = {
+    frame: { parameters: {}, lookup: {}, data: {}, request: { view: { width: 32, height: 32 } } },
+    visibility: { view: {} }, depth: { view: {} }, database: {}, command: {}
+  };
+  const graph = new FrameGraph("local-light cached recipe");
+  const layout = new FrameGraphBindingLayout();
+  const bind = (name, resolve) => layout.slot(name, first, resolve);
+  const imported = (name, resolve) => graph.import_resource(name, { kind: "imported" }, bind(name, resolve));
+  const observed = [];
+  const owner = Object.create(LocalLightWorkGenerator.prototype);
+  owner.encode = (command, frame, inputs) => observed.push({ command, frame, inputs });
+  const product = owner.addToGraph(graph, bind("job", (b) => ({ frame: b.frame })), {
+    parameters: bind("parameters", (b) => b.frame.parameters),
+    lookup: bind("lookup", (b) => b.frame.lookup),
+    data: bind("data", (b) => b.frame.data)
+  }, {
+    visibility: imported("winner", (b) => b.visibility),
+    depth: imported("depth", (b) => b.depth),
+    database: imported("database", (b) => b.database)
+  });
+  const consumer = graph.add("native consumer", {}, (_job, resources) => {
+    observed.at(-1).data = resources.get(product.data);
+  });
+  consumer.read(product.data);
+  consumer.make_side_effect();
+  const compiled = graph.compile();
+  for (const bindings of [first, second]) {
+    compiled.execute(new FrameGraphContext({ encoder: bindings.command }), bindings);
+  }
+  assert.equal(observed.length, 2);
+  for (const [index, bindings] of [first, second].entries()) {
+    assert.equal(observed[index].command, bindings.command);
+    assert.equal(observed[index].frame, bindings.frame);
+    assert.equal(observed[index].data, bindings.frame.data);
+    assert.equal(observed[index].inputs.visibility, bindings.visibility);
+    assert.equal(observed[index].inputs.depth, bindings.depth);
+  }
 });
 
 test("typed IDs reject identity truncation and log-depth end slices are unbounded", () => {

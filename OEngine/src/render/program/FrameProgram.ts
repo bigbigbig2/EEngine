@@ -24,7 +24,7 @@ export type FrameProduct =
   | "meshlet-work"
   | "shadow-geometry-work"
   | "hzb"
-  | "light-cluster"
+  | "local-light-work"
   | "indirect-visibility"
   | "shadow-demand"
   | "shadow-allocation"
@@ -34,7 +34,7 @@ export type FrameProgramStage =
   | "clear-present"
   | "visibility"
   | "hzb"
-  | "light-cluster"
+  | "local-light-work"
   | "xe-gtao"
   | "vsm"
   | "surface"
@@ -244,11 +244,11 @@ const PRODUCT_SPEC: Readonly<
     invalid: "zero identity",
     version: "history-role"
   },
-  "light-cluster": {
-    producer: "light-cluster",
+  "local-light-work": {
+    producer: "local-light-work",
     domain: "gpu-work",
     format: "structured-buffer",
-    value: "clustered direct-light lookup",
+    value: "finalized bounded local-light work",
     coverage: "lit surface",
     invalid: "zero lights",
     version: "frame"
@@ -407,7 +407,7 @@ const INPUT_CONTRACTS: Readonly<
   "surface-radiance": {
     visibility: { domain: "internal-full", value: "packed VisibilityKey" },
     "meshlet-work": { domain: "gpu-work", value: "bounded GPU MeshletWork" },
-    "light-cluster": { domain: "gpu-work", value: "clustered direct-light lookup" },
+    "local-light-work": { domain: "gpu-work", value: "finalized bounded local-light work" },
     "indirect-visibility": { domain: "internal-full", value: "unexposed indirect visibility [0,1]" },
     "shadow-visibility": { domain: "gpu-work", value: "directional VSM visibility with page fallback" },
     depth: { domain: "internal-full", value: "reverse depth" }
@@ -428,7 +428,10 @@ const INPUT_CONTRACTS: Readonly<
   "shadow-allocation": {
     "shadow-demand": { domain: "gpu-work", value: "bounded directional VSM receiver demand" }
   },
-  "light-cluster": { hzb: { domain: "internal-half", value: "hierarchical depth range" } },
+  "local-light-work": {
+    visibility: { domain: "internal-full", value: "packed VisibilityKey" },
+    depth: { domain: "internal-full", value: "reverse depth" }
+  },
   visibility: {
     "meshlet-work": { domain: "gpu-work", value: "bounded GPU MeshletWork" },
     depth: { domain: "internal-full", value: "reverse depth" }
@@ -581,7 +584,7 @@ function dependencies(product: FrameProduct, request: FrameProgramRequest): read
         "visibility",
         "meshlet-work",
         "depth",
-        ...(request.hasLit ? ["light-cluster" as const] : []),
+        ...(request.hasLit ? ["local-light-work" as const] : []),
         ...(request.shadowProfile === "vsm-directional-high" ||
         request.shadowProfile === "vsm-directional-bounded"
           ? ["shadow-visibility" as const]
@@ -596,8 +599,8 @@ function dependencies(product: FrameProduct, request: FrameProgramRequest): read
       return ["shadow-demand"];
     case "shadow-visibility":
       return ["visibility", "depth", "shadow-geometry-work"];
-    case "light-cluster":
-      return ["hzb"];
+    case "local-light-work":
+      return ["visibility", "depth"];
     case "visibility":
       return ["meshlet-work", "depth"];
     case "hzb":
@@ -631,7 +634,7 @@ function createProgram(request: FrameProgramRequest, key: string): FrameProgram 
     });
   }
   const directLighting = request.hasLit;
-  const buildHzb = request.previousHzb || request.currentHzbLateRecheck || directLighting;
+  const buildHzb = request.previousHzb || request.currentHzbLateRecheck;
   const visiting = new Set<FrameProduct>();
   const visited = new Set<FrameProduct>();
   const ordered: FrameProduct[] = [];
@@ -668,7 +671,7 @@ function createProgram(request: FrameProgramRequest, key: string): FrameProgram 
   const stages: FrameProgramStage[] = [
     "visibility",
     ...(buildHzb ? ["hzb" as const] : []),
-    ...(directLighting ? ["light-cluster" as const] : []),
+    ...(directLighting ? ["local-light-work" as const] : []),
     ...(request.shadowProfile !== undefined &&
     request.shadowProfile !== "off" &&
     request.shadowProfile !== "shadow-disabled"
@@ -723,6 +726,7 @@ function createProgram(request: FrameProgramRequest, key: string): FrameProgram 
       "job",
       "camera",
       "view",
+      ...(directLighting ? ["local-light-work"] : []),
       "depth",
       "swapchain",
       "fsr3-history",

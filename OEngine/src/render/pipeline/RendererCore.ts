@@ -22,7 +22,11 @@ import { XeGtaoDenoisePass } from "../ao/XeGtaoDenoisePass.js";
 import { SurfacePresentPass } from "../surface/SurfacePresentPass.js";
 import { SurfaceV4 } from "../surface/SurfaceV4.js";
 import { planNativeExecutionBins } from "../surface/NativeExecutionBins.js";
-import { LightClusterPass } from "../passes/LightClusterPass.js";
+import {
+  LocalLightWorkGenerator,
+  localLightPublication,
+  type LocalLightWorkFrame
+} from "../lighting/LocalLightWorkGenerator.js";
 import { PhysicalSkyPass } from "../passes/PhysicalSkyPass.js";
 import { AerialPerspectivePass } from "../passes/AerialPerspectivePass.js";
 import { FrameProgramCache, type FrameProgram } from "../program/FrameProgram.js";
@@ -352,7 +356,7 @@ export class Renderer {
   private _xeGtaoPreparation!: XeGtaoPreparationPass;
   private _xeGtaoMain!: XeGtaoMainPass;
   private _xeGtaoDenoise!: XeGtaoDenoisePass;
-  private _lightCluster: LightClusterPass | null = null;
+  private _localLightWork!: LocalLightWorkGenerator;
   private _physicalSky: PhysicalSkyPass | null = null;
   private _aerialPerspective: AerialPerspectivePass | null = null;
   private _present!: SurfacePresentPass;
@@ -1580,6 +1584,8 @@ export class Renderer {
     this._xeGtaoDenoise = new XeGtaoDenoisePass(device, 1);
     this._present = new SurfacePresentPass(device, this._format, this._displayProfile);
     this._surface = new SurfaceV4(device, true, this._graphics);
+    this._localLightWork = new LocalLightWorkGenerator(device, this.deviceEpoch, this._graphics);
+    await this._localLightWork.ready;
     this._temporalFacts = new NativeTemporalFactsPass(device);
     this._gpuRadiometry = new GpuRadiometryPass(device, config.autoExposure, config.fixedExposure);
     this._bloom = new BloomPass(device);
@@ -1644,7 +1650,7 @@ export class Renderer {
       present: this._present,
       sky: this._physicalSky,
       aerial: this._aerialPerspective,
-      lightCluster: () => (this._lightCluster ??= new LightClusterPass(this._graphics)),
+      localLightWork: this._localLightWork,
       vsmReceiverDemand: this._vsmReceiverDemand,
       vsmAllocatePages: this._vsmAllocatePages,
       vsmCasterRecords: this._vsmCasterRecords,
@@ -1698,6 +1704,7 @@ export class Renderer {
     let environmentGeneration: number | null | undefined;
     let cameraCut = false;
     let cameraChanged = false;
+    let localLightWork: LocalLightWorkFrame | null = null;
     try {
       const finishScenePrepare = this._profiler.beginCpuSection("scene-prepare");
       if (
@@ -1931,6 +1938,34 @@ export class Renderer {
           command
         )
       };
+      if (hasLit) {
+        const publication = localLightPublication(environment.lights);
+        localLightWork = this._localLightWork.prepare({
+          publication,
+          view: {
+            width,
+            height,
+            near: camera.near,
+            far: camera.far,
+            depthConversion: camera.isInfiniteFar
+              ? [0, camera.near]
+              : [
+                  camera.near / (camera.far - camera.near),
+                  (camera.far * camera.near) / (camera.far - camera.near)
+                ],
+            projection: [
+              view.gpu_camera_state.projection_matrix[0]!,
+              view.gpu_camera_state.projection_matrix[5]!,
+              -view.gpu_camera_state.projection_matrix[8]!,
+              -view.gpu_camera_state.projection_matrix[9]!
+            ],
+            view: camera.view_matrix
+          },
+          frameIndex,
+          deviceEpoch: this.deviceEpoch,
+          mode: publication.ids.length === 0 ? 0 : 2
+        });
+      }
       const graphBindings: SceneFrameBindings = {
         kind: "scene",
         deviceEpoch: this.deviceEpoch,
@@ -1953,6 +1988,8 @@ export class Renderer {
             ? (environment.lights.authoredIbl.publicationRevision | 0x80000000) >>> 0
             : (environmentGeneration ?? this._environmentRuntime?.state.active?.snapshot.generation ?? 0),
         lightingLightRevision: environment.lights.publicationRevision,
+        localLightWork,
+        localLightCounters: sampleGeometryCounters ? this._profiler.gpuCounterBuffer! : runtime.counterSink,
         lightingSunRevision:
           environmentGeneration ?? this._environmentRuntime?.state.active?.snapshot.generation ?? 0,
         environment: this._environmentRuntime,
@@ -2021,6 +2058,26 @@ export class Renderer {
       });
       command.encodeCompiledGraph(compiled, graphBindings);
       if (sampleGeometryCounters) {
+        if (localLightWork !== null) {
+          this._profiler.registerGpuCounterFields([
+            "localLightAbi",
+            "localLightMode",
+            "localLightFlags",
+            "localLightEpoch",
+            "localLightFrame",
+            "localLightPublication",
+            "localLightAdmitted",
+            "localLightAllOffset",
+            "localLightGlobalCount",
+            "localLightGlobalOffset",
+            "localLightClusters",
+            "localLightIndexCapacity",
+            "localLightIndicesOffset",
+            "localLightIndicesWritten",
+            "localLightRegionTasks",
+            "localLightTaskBudget"
+          ]);
+        }
         this._profiler.registerGpuCounterFields([
           "geometryNodesTested",
           "geometryClustersAccepted",
@@ -2082,6 +2139,9 @@ export class Renderer {
       this._fsr3.invalidate();
       this._temporalFacts.abort();
       this._surface.abort();
+      if (localLightWork !== null) {
+        this._localLightWork.abort(localLightWork);
+      }
       this._gpuRadiometry.abort();
       if (environmentGeneration !== undefined && environmentGeneration !== null) {
         try {
@@ -2181,6 +2241,7 @@ export class Renderer {
     this._present?.destroy();
     this._temporalFacts?.destroy();
     this._surface?.destroy();
+    this._localLightWork?.destroy();
     this._gpuRadiometry?.destroy();
     this._bloom?.destroy();
     this._renderDebugViewPass?.destroy();

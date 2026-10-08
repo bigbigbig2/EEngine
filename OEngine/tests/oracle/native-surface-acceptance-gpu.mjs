@@ -21,7 +21,7 @@ import { createPackedSceneSourceFromScene } from "../../.test-dist/gpu/GpuSceneA
 import { GPU_INSTANCE_FLAGS } from "../../.test-dist/gpu/GpuInstanceAbi.js";
 import { GPU_VISIBILITY_KEY_MESHLET_WORK_SLOT_MASK } from "../../.test-dist/gpu/GpuVisibilityKeyAbi.js";
 import { summarizeGpuTimingCost } from "../../.test-dist/debug/GpuTimingCost.js";
-import { lightSphereDistanceAttenuation } from "../../.test-dist/render/ClusteredLightingReference.js";
+import { lightSphereDistanceAttenuation } from "../../.test-dist/render/DirectLightingReference.js";
 
 const check = (condition, message) => {
   if (!condition) throw new Error(message);
@@ -120,15 +120,22 @@ export async function runCase({
   const referenceLookup = lighting
     ? device.createBuffer({
         label: "L3.0 zero-local lookup",
-        size: 60 * 34 * 24 * 16,
+        size: 8,
         usage: GPUBufferUsage.STORAGE
       })
     : null;
   const referenceData = lighting
     ? device.createBuffer({
         label: "L3.0 zero-local data",
-        size: 32 + 16380 * 4,
-        usage: GPUBufferUsage.STORAGE
+        size: 132,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+      })
+    : null;
+  const referenceParameters = lighting
+    ? device.createBuffer({
+        label: "zero-local parameters",
+        size: 128,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
       })
     : null;
   const referenceHdr = lighting
@@ -246,7 +253,6 @@ export async function runCase({
   const encode = renderer._surface.encode.bind(renderer._surface);
   renderer._surface.encode = (encoder) => {
     encode(encoder);
-    construction?.encode(encoder);
     if (!inspectNext) return;
     const make = (size) =>
       device.createBuffer({
@@ -271,16 +277,51 @@ export async function runCase({
     clusterInspection?.encode(encoder, frame.lightingEntries);
     let reference = null;
     if (referenceSurface) {
+      const packed = new ArrayBuffer(128);
+      const revision = renderer._environments.get(scene).lights.publicationRevision;
+      new Uint32Array(packed).set([
+        frame.width,
+        frame.height,
+        Math.ceil(frame.width / 32),
+        Math.ceil(frame.height / 32),
+        renderer.deviceEpoch,
+        frame.frameIndex,
+        revision,
+        0
+      ]);
+      const floats = new Float32Array(packed);
+      floats.set(
+        [
+          camera.near,
+          camera.far,
+          0,
+          camera.near,
+          camera.projection_matrix[0],
+          camera.projection_matrix[5],
+          0,
+          0
+        ],
+        8
+      );
+      floats.set(frame.viewMatrix, 16);
+      device.queue.writeBuffer(referenceParameters, 0, packed);
+      device.queue.writeBuffer(
+        referenceData,
+        0,
+        new Uint32Array([1, 0, 0, renderer.deviceEpoch, frame.frameIndex, revision])
+      );
       referenceSurface.prepareFrameNow({
         ...frame,
         output: referenceHdr,
         reactive: frame.reactive ? referenceReactive : undefined,
         lightingEntries: frame.lightingEntries.map((entry) =>
-          entry.binding === 2
-            ? { binding: 2, resource: { buffer: referenceLookup } }
-            : entry.binding === 3
-              ? { binding: 3, resource: { buffer: referenceData } }
-              : entry
+          entry.binding === 1
+            ? { binding: 1, resource: { buffer: referenceParameters } }
+            : entry.binding === 2
+              ? { binding: 2, resource: { buffer: referenceLookup } }
+              : entry.binding === 3
+                ? { binding: 3, resource: { buffer: referenceData } }
+                : entry
         )
       });
       referenceSurface.encode(encoder);
@@ -308,7 +349,6 @@ export async function runCase({
       renderer.render(camera, scene);
       const elapsed = performance.now() - start;
       await device.queue.onSubmittedWorkDone();
-      await construction?.settle();
       check(errors.length === 0, `Acceptance GPU errors: ${errors.join(" | ")}`);
       if (renderer.frame_count !== previous) return elapsed;
       await new Promise((resolve) => setTimeout(resolve, 5));
@@ -789,8 +829,11 @@ fn inspect(@builtin(local_invocation_index) index: u32) {
     return { records, providers, resize: { before, after }, baselineCoverage: baseline.coverage };
   } finally {
     await construction?.destroy();
+    const localOwner = renderer._localLightWork;
     renderer.destroy();
     await device.queue.onSubmittedWorkDone();
+    await Promise.resolve();
+    check(localOwner.allocatedBytes === 0, "Fenced LocalLightWork teardown residue");
     if (inspection)
       [inspection.hdr, inspection.winner, inspection.work, inspection.reference]
         .filter(Boolean)
@@ -798,6 +841,7 @@ fn inspect(@builtin(local_invocation_index) index: u32) {
     referenceSurface?.destroy();
     clusterInspection?.destroy();
     referenceLookup?.destroy();
+    referenceParameters?.destroy();
     referenceData?.destroy();
     referenceHdr?.destroy();
     referenceReactive?.destroy();

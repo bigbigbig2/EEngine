@@ -10,7 +10,6 @@ paths:
   - OEngine/src/gpu/GpuNativeMaterialPublication.ts
   - OEngine/src/gpu/NativeMaterialBindings.ts
   - OEngine/src/gpu/NativeMaterialProducts.ts
-  - OEngine/src/render/ClusteredLightingReference.ts
   - OEngine/src/render/DirectLightingReference.ts
   - OEngine/src/render/IblAlignment.ts
   - OEngine/src/render/surface/**
@@ -44,7 +43,6 @@ watch:
   - OEngine/src/render/surface/**
   - OEngine/src/render/environment/**
   - OEngine/src/render/assets/takram/**
-  - OEngine/src/render/ClusteredLightingReference.ts
   - OEngine/src/render/DirectLightingReference.ts
   - OEngine/src/render/IblAlignment.ts
   - OEngine/src/shaders/**

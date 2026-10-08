@@ -12,13 +12,13 @@ verifies:
 
 ## 当前源码接线
 
-核对日期：2026-10-05；源码基准 11a7af962dd4eae54e900e31d28dc856d540d443。本轮核对 owner 与主链注册，未重新认证所有生命周期分支。
+核对日期：2026-10-08，M3 L3.2 工作树。这里记录当前 owner 与主链注册；实际验证结果及阶段状态只在模块执行计划。
 
-[RendererCore](../../OEngine/src/render/pipeline/RendererCore.ts) 创建 FrameCoordinator、SurfaceWorkRuntime、TemporalFactsPass 等长期 owners。[FrameProgramLowering](../../OEngine/src/render/program/FrameProgramLowering.ts) 将场景产品绑定并注册到 FrameGraph，其中包含 SurfaceWork 与后续 FSR3 链。
+[RendererCore](../../OEngine/src/render/pipeline/RendererCore.ts) 创建 FrameCoordinator、SurfaceV4、LocalLightWorkGenerator、NativeTemporalFactsPass 等长期 owners。[FrameProgramLowering](../../OEngine/src/render/program/FrameProgramLowering.ts) 将场景产品逐帧绑定到缓存 FrameGraph，连接最终 winner/depth→LocalLightWork→native Surface→Temporal/FSR3。
 
 [FrameCoordinator](../../OEngine/src/render/FrameCoordinator.ts) 持有当前 command context，通过 submitFrame 的 command.finish 收口提交，并依据 gpuDone 退役 inFlight。canBeginFrame 限制未完成帧数量；这是 GPU completion 背压，不是读取本帧 visibility/work 后由 CPU 决策。
 
-SurfaceWork 的 demand、geometry、Appearance、lighting、Store 发布和 reconstruction 注册同一个 graph。各 pass 消费共享资源，不拥有独立 frame submit。
+Geometry、native Material publication、LocalLightWork、Surface、VSM 与后处理注册同一个 graph。各 pass 消费显式产品，不拥有独立 frame submit。LightDatabase 仍归 Scene environment，generator 只拥有自己的 frame allocation；提交后按真实 gpuDone fence 复用或销毁，abort 不推进产品历史，device loss 退休旧 epoch。
 
 ## 原则与验证边界
 

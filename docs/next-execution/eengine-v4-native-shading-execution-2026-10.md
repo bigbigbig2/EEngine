@@ -43,7 +43,7 @@ verifies:
     - OEngine/src/shaders/hierarchical_work_generation.ts
     - OEngine/src/shaders/virtual_geometry_work.ts
     - OEngine/tools/oengine-asset-core/src/geometry/GeometryCooker.cpp
-    - OEngine/src/render/passes/LightClusterPass.ts
+    - OEngine/src/render/lighting/LocalLightWorkGenerator.ts
     - OEngine/src/render/vsm/VsmAtlasRasterPass.ts
     - OEngine/src/render/passes/fsr3/Fsr3UpscalerRuntime.ts
     - OEngine/src/framegraph/FrameGraph.ts
@@ -179,7 +179,7 @@ STOP；依据真实代码再设计 M2
 
 重新 fetch 后 HEAD=origin/master=`0386bea5fc59a98cefd3f54d2be589ab9b2ed0eb`。实施开始时已有上轮 authority/执行模型的五份未提交文档改动，予以保留。结果对应本轮未提交源码；build:test source SHA256=`e5e1873a94e15aca81f2dd9bf8f559fbf532ffd16d02ae3b53e86b94dddcd0c1`、output SHA256=`e916927e7f85b234de6268b93b7dd838ab9f5083dfbc021c0dee983e33ae8abc`，完整 probe 入口 SHA256=`222af56fe48cfb75af9b309a5ac810187e05982984e4e0fe4a74675d47934e07`。实际 fused GML8VI WGSL SHA256=`226668cbda4779b43c0ec2f6d365fb8455fc747545e730874ebb0f307fcdb83d`，各 variant 的 source digest 都保存在报告。上述是测量身份，不是已提交 revision 或正式性能 evidence。
 
-交付限于 [native shader generator](../../OEngine/tests/oracle/native-surface-shader.mjs)、[isolated runner/oracle](../../OEngine/tests/oracle/native-surface-gpu.mjs) 及现有 registry 的两个入口。共享 `surfaceGeometryCompletionWgsl` 只增加可关闭 diagnostic atomic 的参数；四种生产默认组合生成的 WGSL 与 HEAD **逐字节相同**。RendererCore、FrameProgram、publication owner、旧 Surface 生命周期均未改接；没有旧 VM、cache、signal/history/field heap、binning、queue、proof 或 Reconstruct 依赖。
+当时交付限于 `native-surface-shader.mjs`、`native-surface-gpu.mjs` 及 registry 的两个入口；这些依赖旧 Lighting ABI 的 S0 实验已于 M3 L3.2 退休，源码与原结果由 Git/既有 artifact 保留，现行数值语义由 native production/integration 与 LocalLightWork oracle 承担。共享 `surfaceGeometryCompletionWgsl` 当时只增加可关闭 diagnostic atomic 的参数；四种生产默认组合生成的 WGSL 与该起点 HEAD **逐字节相同**。当时 RendererCore、FrameProgram、publication owner、旧 Surface 生命周期均未改接；没有旧 VM、cache、signal/history/field heap、binning、queue、proof 或 Reconstruct 依赖。
 
 ### 3.1.2 Workload 与 SIMPLIFIED INPUT
 

@@ -47,7 +47,7 @@ export function textureDomain<D extends ResolutionDomain>(
   domain: D,
   width: number,
   height: number,
-  scale: number,
+  scale: number
 ): TextureDomain<D> {
   if (!Number.isInteger(width) || width <= 0 || !Number.isInteger(height) || height <= 0) {
     throw new RangeError("TextureDomain width and height must be positive integers");
@@ -59,12 +59,12 @@ export function textureDomain<D extends ResolutionDomain>(
 export function requireDomain(
   producer: TextureDomain,
   expected: ResolutionDomain,
-  conversionOwner?: string,
+  conversionOwner?: string
 ): void {
   if (producer.domain === expected) return;
   if (conversionOwner !== undefined && conversionOwner.length > 0) return;
   throw new Error(
-    `Resolution domain mismatch: received ${producer.domain}, expected ${expected}; declare a conversion owner`,
+    `Resolution domain mismatch: received ${producer.domain}, expected ${expected}; declare a conversion owner`
   );
 }
 
@@ -88,7 +88,7 @@ export const LONG_RANGE_DIFFUSE_PROVIDER_PRECEDENCE = Object.freeze([
   "brick4",
   "probe-volume",
   "ibl",
-  "black",
+  "black"
 ] as const satisfies readonly LongRangeDiffuseProvider[]);
 
 /** Working-linear pre-exposure identity shared by every HDR-like FrameProduct. */
@@ -192,14 +192,11 @@ export interface ReflectionCorrectionFrame {
   readonly domain: TextureDomain<"internal-full">;
 }
 
-/** GPU-produced clustered-light products consumed by direct lighting. */
-export interface LightClusterFrame {
+/** Finalized frame-local local-light products consumed by native direct lighting. */
+export interface LocalLightWorkProduct {
   readonly parameters: ResourceId;
   readonly lookup: ResourceId;
   readonly data: ResourceId;
-  readonly candidateLightList: ResourceId;
-  readonly activeLightList: ResourceId;
-  readonly counters: ResourceId | null;
   readonly width: number;
   readonly height: number;
   readonly tileSize: number;
@@ -265,7 +262,7 @@ export function visibilityFrame(input: VisibilityFrame): VisibilityFrame {
   return Object.freeze({
     ...input,
     meshletWork: meshletWorkFrame(input.meshletWork),
-    domain: textureDomain("internal-full", input.domain.width, input.domain.height, input.domain.scale),
+    domain: textureDomain("internal-full", input.domain.width, input.domain.height, input.domain.scale)
   });
 }
 
@@ -279,7 +276,7 @@ export function opaqueLightingFrame(input: OpaqueLightingFrame): OpaqueLightingF
   }
   return Object.freeze({
     ...input,
-    domain: textureDomain("internal-full", input.domain.width, input.domain.height, input.domain.scale),
+    domain: textureDomain("internal-full", input.domain.width, input.domain.height, input.domain.scale)
   });
 }
 
@@ -291,23 +288,22 @@ export function directLightingFrame(input: DirectLightingFrame): DirectLightingF
   }
   return Object.freeze({
     ...input,
-    domain: textureDomain("internal-full", input.domain.width, input.domain.height, input.domain.scale),
+    domain: textureDomain("internal-full", input.domain.width, input.domain.height, input.domain.scale)
   });
 }
 
-/** Freeze the producer/consumer ABI for one clustered-light frame. */
-export function lightClusterFrame(input: LightClusterFrame): LightClusterFrame {
-  for (const name of ["parameters", "lookup", "data", "candidateLightList", "activeLightList"] as const) {
-    requireResourceId(input[name], `LightClusterFrame.${name}`);
+/** Freeze the producer/consumer ABI for one finalized local-light frame. */
+export function localLightWorkProduct(input: LocalLightWorkProduct): LocalLightWorkProduct {
+  for (const name of ["parameters", "lookup", "data"] as const) {
+    requireResourceId(input[name], `LocalLightWorkProduct.${name}`);
   }
-  requireResourceId(input.counters, "LightClusterFrame.counters");
   if (
     !Number.isInteger(input.width) ||
     input.width <= 0 ||
     !Number.isInteger(input.height) ||
     input.height <= 0
   ) {
-    throw new RangeError("LightClusterFrame dimensions must be positive integers");
+    throw new RangeError("LocalLightWorkProduct dimensions must be positive integers");
   }
   if (
     !Number.isInteger(input.tileSize) ||
@@ -315,7 +311,7 @@ export function lightClusterFrame(input: LightClusterFrame): LightClusterFrame {
     !Number.isInteger(input.depthSlices) ||
     input.depthSlices <= 0
   ) {
-    throw new RangeError("LightClusterFrame layout must be positive integers");
+    throw new RangeError("LocalLightWorkProduct layout must be positive integers");
   }
   return Object.freeze({ ...input });
 }
@@ -327,7 +323,7 @@ export function shadowVisibilityFrame(input: ShadowVisibilityFrame): ShadowVisib
     ["physicalAtlasDepth", input.physicalAtlasDepth],
     ["pageMeta", input.pageMeta],
     ["lightProjection", input.lightProjection],
-    ["overflowMask", input.overflowMask],
+    ["overflowMask", input.overflowMask]
   ] as const)
     requireResourceId(value, `ShadowVisibilityFrame.${name}`);
   if (!Number.isSafeInteger(input.generation) || input.generation < 0) {
@@ -372,7 +368,7 @@ export function shadowVisibilityFrame(input: ShadowVisibilityFrame): ShadowVisib
   for (const [name, value] of [
     ["normalOffsetScale", input.normalOffsetScale],
     ["depthBias", input.depthBias],
-    ["slopeScale", input.slopeScale],
+    ["slopeScale", input.slopeScale]
   ] as const) {
     if (!Number.isFinite(value) || value < 0) {
       throw new RangeError(`ShadowVisibilityFrame ${name} must be finite and non-negative`);
@@ -409,7 +405,7 @@ export function shadingSurfaceLiteFrame(input: ShadingSurfaceLiteFrame): Shading
   }
   return Object.freeze({
     ...input,
-    domain: requireInternalFullDomain(input.domain, "ShadingSurfaceLiteFrame"),
+    domain: requireInternalFullDomain(input.domain, "ShadingSurfaceLiteFrame")
   });
 }
 
@@ -425,7 +421,7 @@ export function diffuseSurfaceLiteFrame(input: DiffuseSurfaceLiteFrame): Diffuse
   }
   return Object.freeze({
     ...input,
-    domain: requireInternalFullDomain(input.domain, "DiffuseSurfaceLiteFrame"),
+    domain: requireInternalFullDomain(input.domain, "DiffuseSurfaceLiteFrame")
   });
 }
 
@@ -453,12 +449,12 @@ export function longRangeDiffuseFrame(input: LongRangeDiffuseFrame): LongRangeDi
     ...input,
     precedence: LONG_RANGE_DIFFUSE_PROVIDER_PRECEDENCE,
     preExposure: preExposureContract(input.preExposure),
-    domain: requireInternalFullDomain(input.domain, "LongRangeDiffuseFrame"),
+    domain: requireInternalFullDomain(input.domain, "LongRangeDiffuseFrame")
   });
 }
 
 export function preExposedOpaqueHdrBaselineFrame(
-  input: PreExposedOpaqueHdrBaselineFrame,
+  input: PreExposedOpaqueHdrBaselineFrame
 ): PreExposedOpaqueHdrBaselineFrame {
   requireRequiredResourceId(input.hdr, "PreExposedOpaqueHdrBaselineFrame.hdr");
   requireResourceId(input.baselineSpecular, "PreExposedOpaqueHdrBaselineFrame.baselineSpecular");
@@ -467,13 +463,13 @@ export function preExposedOpaqueHdrBaselineFrame(
   }
   if (input.reflectionCorrectionExpected !== (input.baselineSpecular !== null)) {
     throw new Error(
-      "Opaque HDR baseline must materialize baseline specular iff reflection correction is expected",
+      "Opaque HDR baseline must materialize baseline specular iff reflection correction is expected"
     );
   }
   return Object.freeze({
     ...input,
     preExposure: preExposureContract(input.preExposure),
-    domain: requireInternalFullDomain(input.domain, "PreExposedOpaqueHdrBaselineFrame"),
+    domain: requireInternalFullDomain(input.domain, "PreExposedOpaqueHdrBaselineFrame")
   });
 }
 
@@ -491,7 +487,7 @@ export function opaqueColorPyramidFrame(input: OpaqueColorPyramidFrame): OpaqueC
   return Object.freeze({
     ...input,
     preExposure: preExposureContract(input.preExposure),
-    domain: requireInternalFullDomain(input.domain, "OpaqueColorPyramidFrame"),
+    domain: requireInternalFullDomain(input.domain, "OpaqueColorPyramidFrame")
   });
 }
 
@@ -500,7 +496,7 @@ export function finalColorPyramidFrame(input: FinalColorPyramidFrame): FinalColo
   requireRequiredResourceId(input.texture, "FinalColorPyramidFrame.texture");
   if (input.source === input.texture) {
     throw new Error(
-      "FinalColorPyramidFrame must preserve a source resource distinct from its mipmapped texture",
+      "FinalColorPyramidFrame must preserve a source resource distinct from its mipmapped texture"
     );
   }
   requirePositiveInteger(input.mipLevelCount, "FinalColorPyramidFrame.mipLevelCount");
@@ -516,7 +512,7 @@ export function finalColorPyramidFrame(input: FinalColorPyramidFrame): FinalColo
   return Object.freeze({
     ...input,
     preExposure: preExposureContract(input.preExposure),
-    domain,
+    domain
   });
 }
 
@@ -547,7 +543,7 @@ export function temporalReconstructionFrame(input: TemporalReconstructionFrame):
     ...input,
     preExposure: preExposureContract(input.preExposure),
     inputDomain: requireInternalFullDomain(input.inputDomain, "TemporalReconstructionFrame input"),
-    domain: requireOutputFullDomain(input.domain, "TemporalReconstructionFrame"),
+    domain: requireOutputFullDomain(input.domain, "TemporalReconstructionFrame")
   });
 }
 
@@ -557,7 +553,7 @@ export function reflectionCorrectionFrame(input: ReflectionCorrectionFrame): Ref
     "ssrSpecular",
     "resolvedSpecular",
     "confidence",
-    "variance",
+    "variance"
   ] as const) {
     requireRequiredResourceId(input[name], `ReflectionCorrectionFrame.${name}`);
   }
@@ -567,7 +563,7 @@ export function reflectionCorrectionFrame(input: ReflectionCorrectionFrame): Ref
   return Object.freeze({
     ...input,
     preExposure: preExposureContract(input.preExposure),
-    domain: requireInternalFullDomain(input.domain, "ReflectionCorrectionFrame"),
+    domain: requireInternalFullDomain(input.domain, "ReflectionCorrectionFrame")
   });
 }
 

@@ -363,7 +363,8 @@ export class GraphicsContext {
       this.buffer_allocator_staging.gpu_memory_usage +
       this.allocator_textures.gpu_memory_usage +
       this.textures.gpu_memory_usage +
-      this.nativeSurfaceAllocatedBytes()
+      this.nativeSurfaceAllocatedBytes() +
+      this.localLightAllocatedBytes()
     );
   }
 
@@ -381,6 +382,10 @@ export class GraphicsContext {
       bytes += (owners[owner]?.buffer ?? 0) + (owners[owner]?.texture ?? 0);
     }
     return bytes;
+  }
+
+  private localLightAllocatedBytes(): number {
+    return this.resource_accounting.snapshot().owners.LocalLightWork?.buffer ?? 0;
   }
 
   /** Internal observability seam used by renderer evidence; it owns no resources. */
@@ -454,6 +459,7 @@ export class GraphicsContext {
       fragmentationBytes,
       owners: Object.freeze({
         nativeSurfaceScratch: Object.freeze({ allocatedBytes: this.nativeSurfaceAllocatedBytes() }),
+        localLightWork: Object.freeze({ allocatedBytes: this.localLightAllocatedBytes() }),
         appearance: Object.freeze({ ...appearance }),
         staticAppearance: Object.freeze({ ...staticAppearance }),
         frameInstances: Object.freeze({ allocatedBytes: this.frameInstancesValue?.allocatedBytes ?? 0 }),

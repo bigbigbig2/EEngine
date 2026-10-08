@@ -15,9 +15,6 @@ verifies:
     - OEngine/tests/oracle/local-light-work-gpu.mjs
     - OEngine/tests/oracle/local-light-native-gpu.mjs
     - OEngine/tests/oracle/native-surface-integration-gpu.mjs
-    - OEngine/src/render/passes/LightClusterPass.ts
-    - OEngine/src/shaders/light_cluster.ts
-    - OEngine/src/shaders/lighting_direct.ts
     - OEngine/src/shaders/native_surface.ts
     - OEngine/src/render/surface/SurfaceV4.ts
     - OEngine/src/render/program
@@ -45,16 +42,16 @@ M3 的唯一设计依据是 [Lighting Design](../next-design/eengine-v4-lighting
 
 ## 1. 当前状态与停止点
 
-2026-10-08，`git fetch origin` 后 HEAD/origin/master=`ae140163886b71bf9a153033ba2e1460dc612ab9`，起始工作区干净。M3 source audit、两份模块authority、pinned source map与执行边界完成；**M3 production implementation 未开始，M3未验收**。详细源码事实、成本估算、方案选择与ABI均在Design，不把历史计时冒称本轮baseline。
+设计起点为 `ae140163886b71bf9a153033ba2e1460dc612ab9`；L3.2 开工重新 fetch 后 HEAD=origin/master=`b1652fb9dbee3d294ef177080c3c273add677c1a`，工作区干净。M3 当前阶段见下表，设计起点与既往数字保留为历史输入，不替代本轮结果。
 
 | 阶段 | 状态 | 单元与退出结果 |
 | --- | --- | --- |
 | L3.0 Baseline & Lighting Contract | **closed** | 30 cases/3,600帧baseline、必要数值修复与8个GPU入口通过；见§8 |
 | L3.1 Complete Local Light Work Construction | **closed** | 非生产generator/product/native consumer、材质/provider/lifecycle与同数学成本闭包完成；production仍旧Lighting，见§9 |
-| L3.2 Atomic Lighting Cutover & Purge | **next / not-started** | 同单元切所有production consumers并立即删除旧管理链 |
-| L3.3 Production Lighting Acceptance | not-started | 同条件完整正确性/生命周期/成本；关闭M3后STOP |
+| L3.2 Atomic Lighting Cutover & Purge | **closed** | 全部生产consumer原子切换、旧owner/ABI立即删除、CPU与8个GPU入口通过；见§10 |
+| L3.3 Production Lighting Acceptance | **next / not-started** | 同条件完整正确性/生命周期/成本；关闭M3后STOP |
 
-设计提交 `811e7f1e` 后用户授权开始 L3.0；本轮在该单元闭合后 STOP，不开始 L3.1。原设计轮没有 production implementation 或 GPU 性能声明。
+原设计轮没有 production implementation 或 GPU 性能声明；日期化 §8/§9 为各自结束时的快照，最新出口以本节与 §10 为准。
 
 ## 2. 实施纪律
 
@@ -358,3 +355,65 @@ Git起点为上述`a184c975`+本轮修改；最终engine source content SHA256=`
 6入口全部passed，无GPU/scoped/page errors、failed requests、device loss或runner timeout；controlled device destruction单列于epoch summary。engine typecheck/build与fresh build:test通过，targeted CPU28/28、documentation/JSON projection9/9；docs-verify 0 findings/66既有historical warnings，doctor/registry/context/diff检查通过。按`.prettierrc.json`的Prettier与新owner style guard通过；旧`tools/format.mjs --check`忽略项目trailingComma配置而报告5文件差异，未为此改工具或源码。没有跑全Node、跨GPU/browser、400MB authored Lighting acceptance或硬件counter；这些不冒称完成。
 
 **L3.1 = closed；L3.2 = next / not-started；M3仍active。STOP。** 生产仍100%旧Lighting。下一单元必须原子切全部production consumer并立即purge旧cluster owner/ABI；本轮的compile-time隔离注入不是长期old/new selector，不能保留成生产bridge。
+
+## 10. L3.2 实施与原子切换结果（2026-10-08）
+
+本节覆盖§9之后的生产切换；§8/§9仅保留当时事实。开工HEAD=origin/master=`b1652fb9dbee3d294ef177080c3c273add677c1a`，工作区干净；本轮没有进入L3.3。
+
+### 10.1 唯一生产 ownership 与立即 purge
+
+当前生产数据流为 `LightDatabase staged publication → LocalLightWorkGenerator → finalized parameters/lookup/data → SurfaceV4 native consumer → HDR`。Renderer在device epoch初始化唯一generator，按帧prepare，失败时abort，destroy/recovery退休旧owner；已提交allocation必须等待真实command.gpuDone fence，不因destroy调用提前复用。DB借用关系与frame/epoch/publication/extent在FrameProgram绑定和新consumer中检查。
+
+FrameProgram的`local-light-work`节点直接依赖本帧最终VisibilityKey与Depth；Lighting不再要求HZB。Geometry自己的HZB保留。compiled graph只捕获稳定resource IDs，job、parameters/lookup/data、DB、winner/depth与command通过当帧late bindings解析；同一compiled graph重复执行的CPU测试核对不同帧对象与GPU资源身份，生产GPU测试核对稳定帧缓存命中与Scene A→B→A切换。所有production/native Sun continuation无条件使用新ABI，删除compile-time旧/新provider注入，保留一个生产submit。
+
+生产零local灯用NONE，非零用SPARSE；DIRECT仅保留新系统完整admitted-list的有界正确性降级与oracle显式模式。自动非零DIRECT threshold仍为0/禁用，没有用旧cluster性能或少量oracle帧设阈值。overflow可检测并完整降级，不丢灯；flags中的count/scatter mismatch与invalid context均触发HDR数值拒绝。
+
+切换同单元立即删除LightClusterPass、旧light_cluster kernels、legacy lighting_direct consumer/ABI/CAS/private256、旧list/metadata资源与graph owner；全库核实无生产构造/导出的PackedTransparentOitPass及wrapper也删除。独立attenuation/Spot数学移到DirectLightingReference，存活数值/loader语义断言保留。旧S0 shader/viability实验入口及其只服务旧ABI的fixtures退休，新生产与独立数学oracle承担现行语义；不是删除必要数值断言以过测试。imports/exports、owner construction、资源分配、graph nodes、设置/diagnostics与tests搜索无旧runtime路径；既往generated shader-source-audit中的历史路径不构成运行依赖。
+
+GpuFrameCounters升为schema29/832B，旧local槽位16及29–47封存，不复用；新槽位192–207按需复制finalized header前64B，标为observability，不解释成BRDF evaluation或DRAM counter。LocalLightWork原生buffer计入GraphicsContext resource accounting，6MiB/frame、最多2 in-flight加1 replacement、18MiB peak合同保留；LightDatabase、BRDF、Global Sun/Directionals、VSM、IBL、AO、Geometry和Temporal保持原职责。
+
+### 10.2 集中正确性与生命周期验证
+
+typecheck/production build、fresh build:test、targeted CPU **67/67**通过。CPU覆盖FrameProgram、compiled graph late bindings、new work/admission/depth、lighting math、native material/Surface、transaction、graph executor、timing和glTF独立occlusion语义；没有跑全Node suite。
+
+最终8个GPU入口串行、共同冻结engine/test build运行：
+
+| 入口 | 实际验证与结果 |
+| --- | --- |
+| native-surface-production | passed；实际Renderer，16稳定帧全部cache hit、Scene切换、abort/retry、resize/camera cut、受控loss/recovery、旧epoch灯光分配归零、fenced teardown ledger归零 |
+| native-surface-resource-profile | passed；4 Programs/2 BindingSets，完整材质纹理profile及2个Sun continuation，现行storage/sampled limits不扩张 |
+| local-light-native | passed；18个HDR记录，NONE/DIRECT/SPARSE 0/1/4/8/32、forced overflow、8Program custom与6个支持域；一个生产submit、cache hit；frame/extent负控制均拒绝 |
+| geometry-shadow-view | passed；真实独立shadow Geometry/VSM链、alpha、caster/receiver运动、遮挡与clip边界保持成立 |
+| local-light-integration | passed；native材料/normal-ORM/coat/custom/alpha、Sun/VSM/IBL/AO/Temporal/FSR、preExposure与resize/abort/retry |
+| local-light-epochs | passed；两次独立device epoch重建；受控destroy后的记录bytes 1,649,621→0，新旧epoch拒绝成立 |
+| local-light-work | passed；count/scan/scatter、完整overflow、staged DB abort/retry、支持覆盖与stale rejection；teardownBytes=0 |
+| lighting-boundaries | passed；保留独立Point/Spot incident/cone/center数学验证 |
+
+18条HDR记录的最大独立direct delta误差=`0.00019307082404981107`；原数值门槛未放宽。forced index overflow最终DIRECT/flags2且数值正确。1080p记录SPARSE最大单帧reservedBytes=4,989,272、owner峰值14,966,664，均在既定budget内；这是oracle实例的owner bytes，不是driver VRAM或L3.3场景内存验收。
+
+全部最终artifact status=passed，gpuErrors/scopedGpuErrors/pageErrors/failedRequests为空，无非预期deviceLost或runner failure。epoch oracle主动destroy单列于summary。每个入口console仍保留静态host的既有403资源提示，不能报告console为空；它没有形成page/GPU错误或oracle失败。
+
+原始失败原件保留：`.local/l3-2-cpu-original.txt`的假view resolver预期与实际接口不符、`.local/l3-2-production-original.json`的fixture使用不存在的`mesh.transform.matrix`、`.local/l3-2-native-original.json`的旧construction.encode hook，均归类**test migration bug**，修正真实fixture接线后重跑原断言；`.local/l3-2-production-retry.json`由源文件变更触发freshness拒绝，归类**build freshness**，重新build:test后重跑。没有把这些失败追认为通过或恢复旧runtime。
+
+### 10.3 最终身份与 artifact
+
+Git起点加本轮工作区修改；最终engine source SHA256=`ee84ed30f0a750d2d4c73a530b66b31a0571d08ae63099d34c62958578b8d981`，fresh build:test output SHA256=`e4907d2665874212c693a0e7c7c5994bc2ace739e8c5be51e205ae46b04104ca`。最终8份artifact共有该identity；`.local/`为ignored本机验证原件，不作正式claim晋升。
+
+| Artifact | SHA256 |
+| --- | --- |
+| `.local/l3-2-production-closure.json` | `581e77c354b005d9224ad0bd50caf5faf7b28c11bbe201abd3b7e5c0ed0f37d1` |
+| `.local/l3-2-profile-closure.json` | `3b49f5612b98f6a53b015a929f64c4686eaca191992eaa4707a26eb00d80db9c` |
+| `.local/l3-2-native-closure.json` | `732ad40f227de7d65396e8f700148d7ee61562bac4c974e3d3eb281a288b2442` |
+| `.local/l3-2-shadow-closure.json` | `6c66b250f26b7d67bd382ceb90515585e9142ee93c73a0b323c15ba3a7676cfc` |
+| `.local/l3-2-integration-closure.json` | `1bc2457add25e0168a2030cf011028b0a326f08edf2265e60db4539cf444803d` |
+| `.local/l3-2-epochs-closure.json` | `ba95eb2e957598663ff5fdb3f36d72837090be55b2969c0ccb2c4620780cc2cf` |
+| `.local/l3-2-work-closure.json` | `579cfc835b7fec2a2bd23c745ef8e1a2abb5eb154e6cfa3516dbfd85985b9646` |
+| `.local/l3-2-boundaries-closure.json` | `7b082851b89f84a74c3ffc5a6ab91ba346584a352b79e1c62326c41e9ee93082` |
+
+### 10.4 出口与未运行范围
+
+当前domain事实与M3 design入口已同步；旧Native Shading/porting文档只移除退休路径引用，历史数值不改写。documentation/JSON projection测试9/9、docs-verify 0 findings（66个既有historical warnings）、doctor、registry/context与diff检查通过。没有创建新workstream/status/authority。
+
+没有运行L3.3完整同条件Lighting成本矩阵、400MB authored场景、跨GPU/browser或硬件DRAM/register/spill counters。本轮GPU帧用于切换正确性与资源闭包，不据此宣称生产净提速；§9记录的DIRECT/SPARSE成本限制继续有效。Point/Spot shadow能力没有扩展，不重开M1/M2、不修改画质或降低最终acceptance workload。
+
+**L3.2 = closed；L3.3 = next / not-started；M3仍active。STOP。** 下一单元按§6完成生产Lighting验收与成本判断，本轮不自动开始。

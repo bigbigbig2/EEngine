@@ -15,14 +15,11 @@ verifies:
     - OEngine/src/shaders/lighting_brdf.ts
     - OEngine/src/gpu/GPUDatabase.ts
     - OEngine/src/gpu/GPUSceneEnvironmentContext.ts
-    - OEngine/src/render/passes/LightClusterPass.ts
-    - OEngine/src/render/ClusteredLightingReference.ts
+    - OEngine/src/render/DirectLightingReference.ts
     - OEngine/src/render/pipeline/RendererCore.ts
     - OEngine/src/render/pipeline/FrameProducts.ts
     - OEngine/src/render/program
     - OEngine/src/render/surface/SurfaceV4.ts
-    - OEngine/src/shaders/light_cluster.ts
-    - OEngine/src/shaders/lighting_direct.ts
     - OEngine/src/shaders/native_surface.ts
     - OEngine/src/shaders/native_surface_lighting.ts
     - OEngine/src/render/vsm
@@ -38,7 +35,7 @@ verifies:
 
 # M3 Lighting V4：局部灯光工作生成
 
-本文是 M3 的设计 authority；阶段、状态与实施结果只在 [M3 执行计划](../next-execution/eengine-v4-lighting-execution-2026-10.md)。[全局 V4 母稿](./eengine-v4-native-shading-2026-10.md)继续约束单一 Renderer、native Material、产品责任、成本与原子切换。本文中的新名称/ABI 是待实施设计，不是现有能力声明。
+本文是 M3 的设计 authority；阶段、状态与实施结果只在 [M3 执行计划](../next-execution/eengine-v4-lighting-execution-2026-10.md)。[全局 V4 母稿](./eengine-v4-native-shading-2026-10.md)继续约束单一 Renderer、native Material、产品责任、成本与原子切换。下文源码审查是设计起点快照；L3.2 已将 LocalLightWork 接入唯一生产链并删除旧 cluster owner，当前接线见 [Shading](../domains/shading.md)，验证范围与未运行项以执行计划为准。
 
 2026-10-08 重新 `git fetch origin`，审查起点 HEAD/origin/master 均为 `ae140163886b71bf9a153033ba2e1460dc612ab9`，工作区干净。源码及符号引用是事实依据；M1/M2 关闭范围和 CPU OPEN 不因本文改变。本轮只设计，未修改生产 TS/WGSL、未运行新 GPU benchmark。
 

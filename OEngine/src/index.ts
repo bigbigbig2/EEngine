@@ -14,7 +14,7 @@ export type {
   SourceNumericArray,
   SourceVertexDataType,
   SourceVertexStream,
-  SourceVertexStreamInput,
+  SourceVertexStreamInput
 } from "./assets/SourceGeometry.js";
 export {
   BEVY_MESHLET_REFERENCE_COMMIT,
@@ -25,7 +25,7 @@ export {
   createGeometryCookRecipe,
   createGeometryCookRecipeV3,
   geometryCookRecipeV3Key,
-  geometryCookRecipeKey,
+  geometryCookRecipeKey
 } from "./assets/GeometryCookRecipe.js";
 export type {
   DegenerateTrianglePolicy,
@@ -36,7 +36,7 @@ export type {
   GeometryCookRecipeV3,
   GeometryVertexProfile,
   MissingAttributePolicy,
-  NonManifoldPolicy,
+  NonManifoldPolicy
 } from "./assets/GeometryCookRecipe.js";
 export {
   RUNTIME_ASSET_FORMAT_VERSION,
@@ -45,14 +45,14 @@ export {
   RuntimeAssetPackageError,
   openRuntimeAssetPackage,
   validateRuntimeAssetPackage,
-  writeRuntimeAssetPackage,
+  writeRuntimeAssetPackage
 } from "./assets/RuntimeAssetPackage.js";
 export {
   RUNTIME_ASSET_MANIFEST_V2_SCHEMA_VERSION,
   RuntimeAssetManifestV2Error,
   openRuntimeAssetPackageV2,
   selectRuntimeAssetVariantV2,
-  writeRuntimeAssetPackageV2,
+  writeRuntimeAssetPackageV2
 } from "./assets/RuntimeAssetManifestV2.js";
 export type {
   RuntimeAssetChunkInputV2,
@@ -63,7 +63,7 @@ export type {
   RuntimeAssetPackageV2,
   RuntimeAssetPackageWriteInputV2,
   RuntimeAssetSourceProvenanceV2,
-  RuntimeAssetVariantV2,
+  RuntimeAssetVariantV2
 } from "./assets/RuntimeAssetManifestV2.js";
 export {
   BRICK4_BRANCH_WORDS,
@@ -72,11 +72,11 @@ export {
   BRICK4_PROBE_WORDS,
   BRICK4_STORAGE_HEADER_BYTES,
   createBrick4LightMapPackageV1,
-  validateBrick4LightMapPackageV1,
+  validateBrick4LightMapPackageV1
 } from "./assets/Brick4LightMapPackage.js";
 export type {
   Brick4LightMapPackageV1,
-  Brick4LightMapPackageValidation,
+  Brick4LightMapPackageValidation
 } from "./assets/Brick4LightMapPackage.js";
 export type { Brick4LightMapEvidence } from "./gpu/Brick4LightMap.js";
 export {
@@ -85,7 +85,7 @@ export {
   openTextureAssetPackageV2,
   selectTextureAssetVariantV2,
   uploadTextureAssetPackageV2,
-  writeEncodedTextureAssetPackageV2,
+  writeEncodedTextureAssetPackageV2
 } from "./assets/TextureAssetPackage.js";
 export type {
   SelectedTextureVariantV2,
@@ -100,25 +100,25 @@ export type {
   TextureUploadEvidenceV2,
   TextureUploadOptionsV2,
   TextureVariantMetadataV2,
-  UploadedTextureAssetV2,
+  UploadedTextureAssetV2
 } from "./assets/TextureAssetPackage.js";
 export { RuntimeAssetResidencyState } from "./assets/RuntimeAssetResidency.js";
 export {
   HttpRangeReadablePackV3,
   MemoryRangeReadablePackV3,
   OegPackV3Error,
-  openOegPackV3,
+  openOegPackV3
 } from "./assets/OegPackV3.js";
 export type { OegPackHeaderV3, OegPackV3, RangeReadablePackV3 } from "./assets/OegPackV3.js";
 export {
   AssetCodecService,
   AssetCodecTaskError,
-  defaultAssetCodecWorkerCount,
+  defaultAssetCodecWorkerCount
 } from "./assets/codec/AssetCodecService.js";
 export type {
   AssetCodecIdentityEvidence,
   AssetCodecServiceEvidence,
-  AssetCodecServiceOptions,
+  AssetCodecServiceOptions
 } from "./assets/codec/AssetCodecService.js";
 export {
   KTX_SOFTWARE_CODEC_ID,
@@ -129,7 +129,7 @@ export {
   createKtx2TranscodeTask,
   encodedTextureVariantFromKtx2Result,
   estimateKtx2TranscodePeakBytes,
-  prepareKtx2TextureAssetPackageV2,
+  prepareKtx2TextureAssetPackageV2
 } from "./assets/codec/Ktx2BasisCodec.js";
 export type { PrepareKtx2TextureOptions } from "./assets/codec/Ktx2BasisCodec.js";
 export { planTextureDecode } from "./assets/codec/AssetCodecPlanner.js";
@@ -140,12 +140,12 @@ export type {
   WebCookProductPage,
   WebCookProductRevision,
   WebCookUnitContext,
-  WebRuntimeCooker,
+  WebRuntimeCooker
 } from "./assets/web-cook/WebCookCoordinator.js";
 export { WebCookProductProvider } from "./assets/web-cook/WebCookProductProvider.js";
 export type {
   WebCookProductProviderEvidence,
-  WebCookProductProviderOptions,
+  WebCookProductProviderOptions
 } from "./assets/web-cook/WebCookProductProvider.js";
 export { WebCookClient } from "./assets/web-cook/WebCookClient.js";
 export type { WebCookClientEvidence, WebCookClientOptions } from "./assets/web-cook/WebCookClient.js";
@@ -154,7 +154,7 @@ export type {
   WebCookBudgetEvidence,
   WebCookBudgetKind,
   WebCookBudgetLease,
-  WebCookGlobalBudgetLimits,
+  WebCookGlobalBudgetLimits
 } from "./assets/web-cook/WebCookBudget.js";
 export { WebCookRuntimeAsset } from "./assets/web-cook/WebCookRuntimeAsset.js";
 export type { WebCookSceneCatalogSnapshot, WebCookProgress } from "./assets/web-cook/WebCookClient.js";
@@ -163,71 +163,71 @@ export type {
   WebCookProductTaskIdentityV1,
   WebCookProductTaskMetricsV1,
   WebCookProductTaskPhase,
-  WebCookProductTaskTraceEventV1,
+  WebCookProductTaskTraceEventV1
 } from "./assets/web-cook/ProductTaskTrace.js";
 export {
   webCookCatalogSceneBounds,
-  webCookCatalogSceneFraming,
+  webCookCatalogSceneFraming
 } from "./assets/web-cook/WebCookSceneBounds.js";
 export type {
   WebCookCatalogSceneFramingOptionsV1,
   WebCookCatalogSceneFramingV1,
   WebCookSceneBoundsV1,
-  WebCookSceneBoundsSourceV1,
+  WebCookSceneBoundsSourceV1
 } from "./assets/web-cook/WebCookSceneBounds.js";
 export type { WebCookBootstrapOptions } from "./assets/web-cook/protocol/CookSessionProtocol.js";
 export {
   createWebCookSceneSource,
-  createWebCookSceneSourceAsync,
+  createWebCookSceneSourceAsync
 } from "./assets/web-cook/WebCookSceneSource.js";
 export type {
   WebCookSceneSourceOptions,
-  WebCookSceneSourceResult,
+  WebCookSceneSourceResult
 } from "./assets/web-cook/WebCookSceneSource.js";
 export { load_oegpack_product, OegPackProductAsset } from "./assets/geometry-product/OegPackProductAsset.js";
 export type {
   OegPackProductAssetEvidenceV1,
   OegPackProductAssetOptions,
-  OegPackProductSourceSelectionV3,
+  OegPackProductSourceSelectionV3
 } from "./assets/geometry-product/OegPackProductAsset.js";
 export { createOegPackSceneSource } from "./assets/geometry-product/OegPackSceneSourceV1.js";
 export {
   OEGPACK_SCENE_MANIFEST_SCHEMA_V3,
   OegPackSceneManifestError,
   parseOegPackSceneManifestV3,
-  resolveOegPackScenePackUrlV3,
+  resolveOegPackScenePackUrlV3
 } from "./assets/geometry-product/OegPackSceneManifestV3.js";
 export type {
   OegPackSceneManifestAssetV3,
   OegPackSceneManifestInstanceV3,
   OegPackSceneManifestPackV3,
-  OegPackSceneManifestV3,
+  OegPackSceneManifestV3
 } from "./assets/geometry-product/OegPackSceneManifestV3.js";
 export {
   buildVirtualGeometrySceneSourceV1,
-  mergeVirtualGeometryProductSceneSourcesV1,
+  mergeVirtualGeometryProductSceneSourcesV1
 } from "./assets/geometry-product/VirtualGeometrySceneSourceV1.js";
 export type {
   VirtualGeometryProductScenePartV1,
   VirtualGeometrySceneInstanceV1,
   VirtualGeometrySceneSourceOptionsV1,
-  VirtualGeometrySceneSourceResultV1,
+  VirtualGeometrySceneSourceResultV1
 } from "./assets/geometry-product/VirtualGeometrySceneSourceV1.js";
 export {
   canonicalizeSceneGeometryV1,
-  cookSceneGeometryProductV1,
+  cookSceneGeometryProductV1
 } from "./assets/geometry-product/SceneGeometryCanonicalizerV1.js";
 export type {
   SceneGeometryCanonicalizationV1,
   SceneGeometryProductOptions,
-  CookedSceneGeometryProductV1,
+  CookedSceneGeometryProductV1
 } from "./assets/geometry-product/SceneGeometryCanonicalizerV1.js";
 export {
   MemoryWebGeometryPageSpillStoreV1,
   OpfsWebGeometryPageSpillStoreV1,
   createPreferredWebGeometryPageSpillStoreV1,
   pageSpillKeyV1,
-  WEB_GEOMETRY_PAGE_ARTIFACT_VERSION_V1,
+  WEB_GEOMETRY_PAGE_ARTIFACT_VERSION_V1
 } from "./assets/geometry-product/WebGeometryPageSpillStoreV1.js";
 export type {
   OpfsWebGeometryPageSpillStoreOptionsV1,
@@ -236,18 +236,18 @@ export type {
   WebGeometryPageSpillEvidenceV1,
   WebGeometryPageSpillKeyV1,
   WebGeometryPageSpillStoreOptionsV1,
-  WebGeometryPageSpillStoreV1,
+  WebGeometryPageSpillStoreV1
 } from "./assets/geometry-product/WebGeometryPageSpillStoreV1.js";
 export { createDefaultWebGeometryCookerModule } from "./assets/web-cook/wasm/WebGeometryCookerAbi.js";
 export {
   createWebCookWorker,
   createWebCookWorkerPool,
-  createDefaultWebCookWorker,
+  createDefaultWebCookWorker
 } from "./assets/web-cook/WebCookWorkerFactory.js";
 export type {
   DefaultWebCookWorkerFactoryOptions,
   WebCookWorkerFactoryOptions,
-  WebCookRuntimeProfileCapability,
+  WebCookRuntimeProfileCapability
 } from "./assets/web-cook/WebCookWorkerFactory.js";
 export { resolveWebCookRuntimeProfile } from "./assets/web-cook/WebCookWorkerFactory.js";
 export { WebCookWorkerPool } from "./assets/web-cook/WebCookWorkerPool.js";
@@ -259,30 +259,30 @@ export { GeometryPageSchedulerV1 } from "./gpu/GeometryPageScheduler.js";
 export type {
   GeometryPageSchedulerEvidenceV1,
   GeometryPageSchedulerOptionsV1,
-  GeometryPageUploadSinkV1,
+  GeometryPageUploadSinkV1
 } from "./gpu/GeometryPageScheduler.js";
 export {
   GeometryDemandReadbackRingV1,
-  GpuGeometryDemandReadbackRingV1,
+  GpuGeometryDemandReadbackRingV1
 } from "./gpu/GeometryDemandReadbackRing.js";
 export type {
   GeometryDemandReadbackResultV1,
   GeometryDemandReadbackSlotV1,
   GeometryDemandReadbackSlotStateV1,
-  GpuGeometryDemandReadbackRingOptionsV1,
+  GpuGeometryDemandReadbackRingOptionsV1
 } from "./gpu/GeometryDemandReadbackRing.js";
 export { GeometryPageStreamingRuntimeV1 } from "./gpu/GeometryPageStreamingRuntime.js";
 export type {
   GeometryPageStreamingPollEvidenceV1,
   GeometryPageStreamingRuntimeEvidenceV1,
-  GeometryPageStreamingRuntimeOptionsV1,
+  GeometryPageStreamingRuntimeOptionsV1
 } from "./gpu/GeometryPageStreamingRuntime.js";
 export { VirtualGeometryResidency } from "./gpu/VirtualGeometryResidency.js";
 export type {
   GeometryPageLocationV1,
   GeometryProductGpuBindingsV1,
   VirtualGeometryResidencyEvidenceV1,
-  VirtualGeometryResidencyOptionsV1,
+  VirtualGeometryResidencyOptionsV1
 } from "./gpu/VirtualGeometryResidency.js";
 export {
   GEOMETRY_PRODUCT_RESIDENCY_PROFILE_ABI_VERSION_V1,
@@ -293,7 +293,7 @@ export {
   GEOMETRY_PRODUCT_PORTABLE_CAPACITY_BYTES_V1,
   GEOMETRY_PRODUCT_BALANCED_CAPACITY_BYTES_V1,
   GEOMETRY_PRODUCT_HIGH_END_CAPACITY_BYTES_V1,
-  selectGeometryProductResidencyProfileV1,
+  selectGeometryProductResidencyProfileV1
 } from "./gpu/GeometryProductResidencyProfile.js";
 export type {
   GeometryProductResidencyLimitsV1,
@@ -301,12 +301,12 @@ export type {
   GeometryProductResidencyProfileRequestV1,
   GeometryProductResidencyProfileOptionsV1,
   GeometryProductResidencyProfilePlanV1,
-  GeometryProductResidencyRuntimeEvidenceV1,
+  GeometryProductResidencyRuntimeEvidenceV1
 } from "./gpu/GeometryProductResidencyProfile.js";
 export {
   GEOMETRY_PRODUCT_MULTI_RUNTIME_ABI_VERSION_V1,
   GEOMETRY_PRODUCT_MULTI_RUNTIME_MIN_CAPACITY_V1,
-  GeometryProductMultiRuntimeV1,
+  GeometryProductMultiRuntimeV1
 } from "./gpu/GeometryProductMultiRuntime.js";
 export type {
   GeometryProductInstanceIdentityV1,
@@ -314,7 +314,7 @@ export type {
   GeometryProductPageCompletionResultV1,
   GeometryProductPageIdentityV1,
   GeometryProductShardHandleV1,
-  GeometryProductShardStateV1,
+  GeometryProductShardStateV1
 } from "./gpu/GeometryProductMultiRuntime.js";
 export {
   GEOMETRY_PAGE_DEMAND_ABI_VERSION,
@@ -335,25 +335,25 @@ export {
   packGeometryPageDemandV1,
   reserveGeometryPageDemandV1,
   unpackGeometryPageDemandHeaderV1,
-  unpackGeometryPageDemandV1,
+  unpackGeometryPageDemandV1
 } from "./gpu/GeometryPageDemandAbiV1.js";
 export type {
   GeometryPageDemandV1,
   GeometryPageDemandQueueHeaderV1,
   GeometryPageDemandQueueStateV1,
-  GeometryPageDemandMaskStateV1,
+  GeometryPageDemandMaskStateV1
 } from "./gpu/GeometryPageDemandAbiV1.js";
 export { WebCookWorkerTransport } from "./assets/web-cook/WebCookWorkerTransport.js";
 export type {
   WebCookWorkerPort,
-  WebCookWorkerTransportEvidence,
+  WebCookWorkerTransportEvidence
 } from "./assets/web-cook/WebCookWorkerTransport.js";
 export { WebCookWorkerHost, installWebCookWorkerHost } from "./assets/web-cook/WebCookWorkerHost.js";
 export type { WebCookWorkerHostOptions, WebCookWorkerHostPort } from "./assets/web-cook/WebCookWorkerHost.js";
 export { installWebCookWorkerEntry } from "./assets/web-cook/WebCookWorkerEntry.js";
 export type {
   WebCookWorkerEntryOptions,
-  WebCookWorkerModuleFactory,
+  WebCookWorkerModuleFactory
 } from "./assets/web-cook/WebCookWorkerEntry.js";
 export { selectTextureTranscodeTarget } from "./assets/codec/TextureCodecPolicy.js";
 export type {
@@ -365,16 +365,16 @@ export type {
   AssetCodecTaskResult,
   Ktx2SourceEncoding,
   Ktx2TranscodeTargetFormat,
-  Ktx2TranscodeTask,
+  Ktx2TranscodeTask
 } from "./assets/codec/AssetCodecTypes.js";
 export type {
   TextureDecodePlan,
   TextureDecodePlanRequest,
-  TexturePlanVariant,
+  TexturePlanVariant
 } from "./assets/codec/AssetCodecPlanner.js";
 export type {
   TextureCodecCapabilities,
-  TextureCodecTargetRequest,
+  TextureCodecTargetRequest
 } from "./assets/codec/TextureCodecPolicy.js";
 export type {
   RuntimeAssetRequestState,
@@ -384,7 +384,7 @@ export type {
   RuntimeAssetResidencyEvidence,
   RuntimeAssetResidencyReservation,
   RuntimeAssetPhysicalRange,
-  RuntimeAssetResidentRange,
+  RuntimeAssetResidentRange
 } from "./assets/RuntimeAssetResidency.js";
 export type {
   RuntimeAssetManifest,
@@ -395,20 +395,20 @@ export type {
   RuntimeAssetSectionView,
   RuntimeAssetValidationIssue,
   RuntimeAssetValidationReport,
-  RuntimeAssetValidationSeverity,
+  RuntimeAssetValidationSeverity
 } from "./assets/RuntimeAssetPackage.js";
 // GeometryAssetPackage/GeometryCooker remain test/tool oracle modules only;
 // production consumers enter through the Product ABI below.
 export {
   DEFAULT_GEOMETRY_WORK_BUDGET,
   GeometryAdaptiveSseController,
-  normalizeGeometryWorkBudget,
+  normalizeGeometryWorkBudget
 } from "./render/GeometryWorkBudget.js";
 export type {
   GeometryAdaptiveSseOptions,
   GeometryBudgetMode,
   GeometryWorkBudget,
-  GeometryWorkSample,
+  GeometryWorkSample
 } from "./render/GeometryWorkBudget.js";
 export type {
   GpuSceneEvidence,
@@ -419,21 +419,21 @@ export type {
   InstanceVisibilityPatch,
   InstanceSetHandle,
   InstanceSource,
-  InstanceTransformPatch,
+  InstanceTransformPatch
 } from "./gpu/GpuScene.js";
 export { INSTANCE_SOURCE_FLAGS } from "./gpu/GpuScene.js";
 export type { GraphicsOwnerCreationEvidence } from "./gpu/GraphicsContext.js";
 export type {
   WebGpuApiProbes,
   WebGpuCapabilityRecord,
-  WebGpuSpecializationRecord,
+  WebGpuSpecializationRecord
 } from "./gpu/WebGpuCapabilityRecord.js";
 export type { TextureBindingSetPolicyRecord } from "./gpu/TextureBindingSetPolicy.js";
 export { projectedGeometryErrorPixels, selectGeometryHierarchy } from "./geometry/GeometryHierarchy.js";
 export type {
   GeometryHierarchyProjection,
   GeometryHierarchySelection,
-  GeometryHierarchySelectionOptions,
+  GeometryHierarchySelectionOptions
 } from "./geometry/GeometryHierarchy.js";
 export { Camera } from "./camera/Camera.js";
 export { DirectionalLight } from "./light/DirectionalLight.js";
@@ -455,12 +455,12 @@ export type {
   ProductSceneSourceMapper,
   ProductSceneState,
   WebCookProductPublicationTiming,
-  WebCookedSceneOptions,
+  WebCookedSceneOptions
 } from "./render/pipeline/RendererCore.js";
 export {
   DEFAULT_RENDERER_CONFIG,
   mergeRendererConfig,
-  validateRendererConfig,
+  validateRendererConfig
 } from "./render/RendererConfig.js";
 export type { RendererConfig } from "./render/RendererConfig.js";
 export type { RendererDebugConfig, ResolvedRendererDebugConfig } from "./addons/debug/RendererDebugConfig.js";
@@ -468,20 +468,20 @@ export { createRenderFrameContract } from "./render/RenderFrameContract.js";
 export type { RenderFrameContract } from "./render/RenderFrameContract.js";
 export {
   directLightingFrame,
-  lightClusterFrame,
+  localLightWorkProduct,
   opaqueLightingFrame,
   requireDomain,
-  textureDomain,
+  textureDomain
 } from "./render/pipeline/FrameProducts.js";
 export type {
   FinalTemporalSurfaceFrame,
   DirectLightingFrame,
-  LightClusterFrame,
+  LocalLightWorkProduct,
   OpaqueLightingFrame,
   OpaqueTemporalSurfaceFrame,
   ReflectionFrame,
   TemporalSurfaceFrame,
-  TextureDomain,
+  TextureDomain
 } from "./render/pipeline/FrameProducts.js";
 export { STATIC_GRAPHICS_ENGINE_ASSETS } from "./render/STATIC_GRAPHICS_ENGINE_ASSETS.js";
 export { Scene } from "./scene/Scene.js";
@@ -506,7 +506,7 @@ export type {
   AppearanceNode,
   AppearanceRef,
   AppearanceRange,
-  AppearanceTextureBinding,
+  AppearanceTextureBinding
 } from "./material/AppearanceGraph.js";
 export { compileAppearanceGraph } from "./material/AppearanceGraphCompiler.js";
 export type { CompiledAppearanceGraph } from "./material/AppearanceGraphCompiler.js";
@@ -514,7 +514,7 @@ export { cookAppearanceMipProduct } from "./material/AppearanceMipCooker.js";
 export type {
   AppearanceBakeOptions,
   AppearanceCookedProduct,
-  AppearanceSourceFootprint,
+  AppearanceSourceFootprint
 } from "./material/AppearanceMipCooker.js";
 export { cookAppearanceNormalProduct } from "./material/AppearanceNormalCooker.js";
 export type { AppearanceNormalBakePair } from "./material/AppearanceNormalCooker.js";
@@ -532,20 +532,20 @@ export type {
   GlbBufferDescriptor,
   GlbRangeReadableSource,
   GlbRangeSourceOptions,
-  GlbSourceIdentity,
+  GlbSourceIdentity
 } from "./loaders/gltf/streaming/GlbRangeSource.js";
 export { buildGlbSceneCatalog } from "./loaders/gltf/streaming/GlbSceneCatalog.js";
 export type {
   GlbByteRange,
   GlbCookPrimitive,
-  GlbSceneCatalog,
+  GlbSceneCatalog
 } from "./loaders/gltf/streaming/GlbSceneCatalog.js";
 export { load_usd } from "./loaders/load_usd.js";
 export {
   BENCHMARK_RESULT_SCHEMA_VERSION,
   captureGpuAdapterIdentity,
   captureWebGpuLimits,
-  createEnvironmentManifest,
+  createEnvironmentManifest
 } from "./debug/EnvironmentManifest.js";
 export type {
   BenchmarkAdapterIdentity,
@@ -557,18 +557,18 @@ export type {
   BenchmarkPlatformIdentity,
   BenchmarkPowerPreference,
   BenchmarkRunEnvironmentInput,
-  BenchmarkWebGpuEnvironmentInput,
+  BenchmarkWebGpuEnvironmentInput
 } from "./debug/EnvironmentManifest.js";
 export { FrameProfiler } from "./debug/FrameProfiler.js";
 export {
   validateBenchmarkEvidence,
-  validateIndependentBenchmarkRunGroup,
+  validateIndependentBenchmarkRunGroup
 } from "./debug/BenchmarkEvidenceGate.js";
 export {
   BENCHMARK_CAPABILITY_EVIDENCE_SCHEMA_VERSION,
   BENCHMARK_FEATURE_SET_EVIDENCE,
   BENCHMARK_GPU_COUNTER_EVIDENCE,
-  createBenchmarkCapabilityEvidence,
+  createBenchmarkCapabilityEvidence
 } from "./debug/BenchmarkCapabilityEvidence.js";
 export type {
   BenchmarkCapabilityEvidence,
@@ -579,7 +579,7 @@ export type {
   SupportedCounterEvidence,
   SupportedFeatureSetEvidence,
   UnsupportedCounterEvidence,
-  UnsupportedFeatureSetEvidence,
+  UnsupportedFeatureSetEvidence
 } from "./debug/BenchmarkCapabilityEvidence.js";
 export type {
   BenchmarkCapabilityBlocker,
@@ -587,7 +587,7 @@ export type {
   BenchmarkEvidenceReport,
   BenchmarkEvidenceSeverity,
   BenchmarkRunIdentityEvidence,
-  IndependentBenchmarkRunGroupReport,
+  IndependentBenchmarkRunGroupReport
 } from "./debug/BenchmarkEvidenceGate.js";
 export { GPU_FRAME_PHASES, classifyGpuFramePhase } from "./debug/GpuFramePhase.js";
 export type { GpuFramePhase } from "./debug/GpuFramePhase.js";
@@ -595,11 +595,11 @@ export {
   RENDER_DEBUG_VIEW_OPTIONS,
   RenderDebugView,
   getRenderDebugViewStatus,
-  isRenderableRenderDebugView,
+  isRenderableRenderDebugView
 } from "./debug/RenderDebugView.js";
 export type {
   RenderDebugViewStatus,
-  RenderDebugView as RenderDebugViewName,
+  RenderDebugView as RenderDebugViewName
 } from "./debug/RenderDebugView.js";
 export type {
   FrameCountEvidence,
@@ -615,12 +615,12 @@ export type {
   FrameProfilerMode,
   FrameProfilerDiagnostics,
   FrameReadbackEvidence,
-  FrameUploadEvidence,
+  FrameUploadEvidence
 } from "./debug/FrameProfiler.js";
 export {
   MetricRegistry,
   DEFAULT_METRIC_DESCRIPTORS,
-  summarizeProfileSeries,
+  summarizeProfileSeries
 } from "./debug/profiling/MetricRegistry.js";
 export { summarizeMetricCoverage } from "./debug/profiling/ProfileStatistics.js";
 export type { ProfileCoverageSummary, ProfileSeriesSummary } from "./debug/profiling/ProfileStatistics.js";
@@ -633,7 +633,7 @@ export type {
   MetricMeasurement,
   MetricCost,
   MetricScope,
-  MetricAggregation,
+  MetricAggregation
 } from "./debug/profiling/Metric.js";
 export { ProfileHistory } from "./debug/profiling/ProfileHistory.js";
 export type { ProfileFrame, ProfileFramePatch } from "./debug/profiling/ProfileFrame.js";
@@ -641,7 +641,7 @@ export type { ProfileSpan, ProfileClockDomain } from "./debug/profiling/ProfileS
 export {
   ResourceAccounting,
   estimateBufferBytes,
-  estimateTextureBytes,
+  estimateTextureBytes
 } from "./debug/profiling/ResourceAccounting.js";
 export type {
   AccountedResourceCategory,
@@ -649,13 +649,13 @@ export type {
   ResourceCategorySnapshot,
   ResourceAccountedInput,
   ResourceAccountingSnapshot,
-  ResourceHandle,
+  ResourceHandle
 } from "./debug/profiling/ResourceAccounting.js";
 export {
   GPU_COUNTER_BYTE_SIZE,
   GPU_COUNTER_FIELDS,
   GPU_COUNTER_SCHEMA_VERSION,
-  decodeGpuCounterValues,
+  decodeGpuCounterValues
 } from "./debug/GpuFrameCounters.js";
 export type { GpuCounterFieldName, GpuCounterValues } from "./debug/GpuFrameCounters.js";
 export { BenchmarkHarness, serializeBenchmarkResult, summarizeSeries } from "./debug/BenchmarkHarness.js";
@@ -664,33 +664,33 @@ export type {
   BenchmarkCaseManifest,
   BenchmarkResult,
   BenchmarkSummary,
-  SeriesSummary,
+  SeriesSummary
 } from "./debug/BenchmarkHarness.js";
 export type {
   BenchmarkComparison,
   BenchmarkDeltaStatus,
-  BenchmarkMetricDelta,
+  BenchmarkMetricDelta
 } from "./debug/BenchmarkComparison.js";
 export {
   SURFACE_TIMING_PHASES,
   classifySurfaceTimingPhase,
-  surfaceTimingTotalsForFrame,
+  surfaceTimingTotalsForFrame
 } from "./debug/SurfacePhaseTiming.js";
 export type { SurfaceTimingPhase, SurfaceTimingSegment } from "./debug/SurfacePhaseTiming.js";
 export { BenchmarkRunController } from "./debug/BenchmarkRunController.js";
 export type {
   BenchmarkRunOptions,
   BenchmarkRunProgress,
-  BenchmarkRunState,
+  BenchmarkRunState
 } from "./debug/BenchmarkRunController.js";
 export {
   BENCHMARK_SCENE_MANIFEST_SCHEMA_VERSION,
   createBenchmarkCaseManifest,
-  validateBenchmarkSceneManifest,
+  validateBenchmarkSceneManifest
 } from "./debug/BenchmarkSceneManifest.js";
 export type {
   BenchmarkAssetManifest,
   BenchmarkAssetRuntimeStatus,
   BenchmarkCameraKeyframe,
-  BenchmarkSceneManifest,
+  BenchmarkSceneManifest
 } from "./debug/BenchmarkSceneManifest.js";

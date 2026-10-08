@@ -17,7 +17,8 @@ export const oracles = Object.freeze([
     entry: "runLocalLightIntegrationGpuOracle",
     requiredFeatures: ["texture-formats-tier1"],
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
-    description: "L3.1 native light ABI with all material routes/two binding sets/alpha/Sun/VSM/AO/Temporal/FSR and resource-limit continuation.",
+    description:
+      "Native light ABI with all material routes/two binding sets/alpha/Sun/VSM/AO/Temporal/FSR and resource-limit continuation.",
     timeoutMs: 180000
   }),
   Object.freeze({
@@ -27,7 +28,7 @@ export const oracles = Object.freeze([
     entry: "runLocalLightEpochGpuOracle",
     requiredFeatures: ["texture-formats-tier1"],
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
-    description: "L3.1 old epoch teardown, rejection and complete new device reconstruction.",
+    description: "Local-light old epoch teardown, rejection and complete new device reconstruction.",
     timeoutMs: 180000
   }),
   Object.freeze({
@@ -37,7 +38,8 @@ export const oracles = Object.freeze([
     entry: "runLocalLightNativeGpuOracle",
     requiredFeatures: ["timestamp-query"],
     allowPrefixes: ["OEngine/src/render/assets/"],
-    description: "L3.1 new generator/product/native consumer on real winner/material/Sun/VSM/IBL/AO/Temporal providers, isolated ownership.",
+    description:
+      "L3.2 sole production generator/product/native consumer on real winner/material/Sun/VSM/IBL/AO/Temporal providers.",
     timeoutMs: 240000
   }),
   Object.freeze({
@@ -55,7 +57,8 @@ export const oracles = Object.freeze([
     file: "OEngine/tests/oracle/local-light-work-gpu.mjs",
     url: "/OEngine/tests/oracle/local-light-work-gpu.mjs",
     entry: "runLocalLightWorkGpuOracle",
-    description: "L3.1 isolated local-light count/scan/scatter, complete overflow, staged DB abort/retry and independent support coverage.",
+    description:
+      "L3.1 isolated local-light count/scan/scatter, complete overflow, staged DB abort/retry and independent support coverage.",
     timeoutMs: 180000
   }),
   Object.freeze({
@@ -65,7 +68,8 @@ export const oracles = Object.freeze([
     entry: "runLightingSupportGpuOracle",
     allowPrefixes: ["OEngine/src/render/assets/"],
     requiredFeatures: ["timestamp-query"],
-    description: "L3.0 actual production HDR support at finite-radius, offscreen, unbounded, huge Spot and near crossings.",
+    description:
+      "L3.0 actual production HDR support at finite-radius, offscreen, unbounded, huge Spot and near crossings.",
     timeoutMs: 180000
   }),
   Object.freeze({
@@ -75,7 +79,8 @@ export const oracles = Object.freeze([
     entry: "runLightingLowCoverageGpuOracle",
     allowPrefixes: ["OEngine/src/render/assets/"],
     requiredFeatures: ["timestamp-query"],
-    description: "L3.0 same 1080p production scene/material/quality at far camera, 0/1/4/8/16/32 raw 120-frame baseline.",
+    description:
+      "L3.0 same 1080p production scene/material/quality at far camera, 0/1/4/8/16/32 raw 120-frame baseline.",
     timeoutMs: 240000
   }),
   Object.freeze({
@@ -85,7 +90,8 @@ export const oracles = Object.freeze([
     entry: "runLightingBaselineGpuOracle",
     allowPrefixes: ["OEngine/src/render/assets/"],
     requiredFeatures: ["timestamp-query"],
-    description: "L3.0 unchanged production Lighting, 1080p, 0..1024 Point/Spot/mixed sparse/overlap, independent HDR and raw timestamps.",
+    description:
+      "L3.0 unchanged production Lighting, 1080p, 0..1024 Point/Spot/mixed sparse/overlap, independent HDR and raw timestamps.",
     timeoutMs: 900000
   }),
   Object.freeze({
@@ -114,8 +120,9 @@ export const oracles = Object.freeze([
     url: "/OEngine/tests/oracle/geometry-budgeted-residency-gpu.mjs",
     entry: "runGeometryBudgetedResidencyGpuOracle",
     requiredLimits: { maxStorageBuffersPerShaderStage: 16, maxStorageBufferBindingSize: 268435456 },
-    description: "Budget/profile boundary bank accesses, true pressure, pinned coarse coverage and fair delayed uploads.",
-    timeoutMs: 180_000,
+    description:
+      "Budget/profile boundary bank accesses, true pressure, pinned coarse coverage and fair delayed uploads.",
+    timeoutMs: 180_000
   }),
   Object.freeze({
     name: "native-surface-multi-product-production",
@@ -125,8 +132,9 @@ export const oracles = Object.freeze([
     allowPrefixes: ["OEngine/src/render/assets/", "OEngine/src/assets/web-cook/wasm/vendor/"],
     requiredFeatures: ["texture-formats-tier1"],
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
-    description: "Actual Renderer with two same-revision Products, abort/retry, alpha/Temporal and all-source device recovery.",
-    timeoutMs: 240_000,
+    description:
+      "Actual Renderer with two same-revision Products, abort/retry, alpha/Temporal and all-source device recovery.",
+    timeoutMs: 240_000
   }),
   Object.freeze({
     name: "native-surface-acceptance",
@@ -135,7 +143,8 @@ export const oracles = Object.freeze([
     entry: "runNativeSurfaceAcceptanceGpuOracle",
     allowPrefixes: ["OEngine/src/render/assets/"],
     requiredFeatures: ["timestamp-query"],
-    description: "S3 actual Renderer 1080p high coverage Standard/coat/custom/Unlit, 4/8/32 lights and 1/8/32 native programs, HDR oracle and timings.",
+    description:
+      "S3 actual Renderer 1080p high coverage Standard/coat/custom/Unlit, 4/8/32 lights and 1/8/32 native programs, HDR oracle and timings.",
     note: "Generated scene complements authored Showcase image acceptance; renderer negotiates its own complete device profile.",
     timeoutMs: 600000
   }),
@@ -147,7 +156,8 @@ export const oracles = Object.freeze([
     allowPrefixes: ["OEngine/src/render/assets/", "OEngine/src/assets/web-cook/wasm/vendor/"],
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     requiredFeatures: ["texture-formats-tier1"],
-    description: "S2 actual ordinary Scene WASM Product admission, native Visibility/VSM/Surface/Temporal/recovery closure.",
+    description:
+      "S2 actual ordinary Scene WASM Product admission, native Visibility/VSM/Surface/Temporal/recovery closure.",
     timeoutMs: 180000
   }),
   Object.freeze({
@@ -158,7 +168,8 @@ export const oracles = Object.freeze([
     allowPrefixes: ["OEngine/src/render/assets/"],
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     requiredFeatures: ["texture-formats-tier1"],
-    description: "S2 actual Renderer ownership, native instance publication, winner/HDR/Temporal/FSR, update/abort/retry/resize.",
+    description:
+      "S2 actual Renderer ownership, native instance publication, winner/HDR/Temporal/FSR, update/abort/retry/resize.",
     note: "Renderer negotiates its own device; oracle captures errors on that real production device. This is a correctness closure, not S3 performance acceptance.",
     timeoutMs: 180000
   }),
@@ -232,27 +243,6 @@ export const oracles = Object.freeze([
     note: "Component only: fixture geometry inputs and linear textures; no production cutover or S1 closure claim."
   }),
   Object.freeze({
-    name: "native-surface-numeric",
-    file: "OEngine/tests/oracle/native-surface-gpu.mjs",
-    url: "/OEngine/tests/oracle/native-surface-gpu.mjs",
-    entry: "runNativeSurfaceGpuNumericProbe",
-    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
-    requiredFeatures: ["timestamp-query"],
-    description: "S0 targeted numeric validation without the timing/calibration matrix.",
-    timeoutMs: 60000
-  }),
-  Object.freeze({
-    name: "native-surface-viability",
-    file: "OEngine/tests/oracle/native-surface-gpu.mjs",
-    url: "/OEngine/tests/oracle/native-surface-gpu.mjs",
-    entry: "runNativeSurfaceGpuProbe",
-    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
-    requiredFeatures: ["timestamp-query"],
-    description: "S0 isolated native Geometry/PBR/cluster/VSM/IBL costs and compact44 comparison.",
-    timeoutMs: 180000,
-    note: "Not production performance or an alternate renderer. Reports fixture simplifications; the execution authority decides viability from reviewed evidence, not the harness pass flag."
-  }),
-  Object.freeze({
     name: "framegraph-lifecycle",
     file: "OEngine/tests/oracle/framegraph-lifecycle-gpu.mjs",
     url: "/OEngine/tests/oracle/framegraph-lifecycle-gpu.mjs",
@@ -312,7 +302,8 @@ export const oracles = Object.freeze([
     entry: "runGeometryProductScaleGpuOracle",
     requiredFeatures: ["timestamp-query"],
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
-    description: "Product publication, depth-0/deep forests, instance multiplicity, multi-Product and fail-closed work/abort controls.",
+    description:
+      "Product publication, depth-0/deep forests, instance multiplicity, multi-Product and fail-closed work/abort controls.",
     timeoutMs: 180_000,
     note: "Uses production MultiRuntime, HierarchicalWorkGenerator and MeshletWorkCandidate; no alternative renderer."
   }),
@@ -325,7 +316,8 @@ export const oracles = Object.freeze([
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     requiredFeatures: ["texture-formats-tier1", "timestamp-query"],
     timeoutMs: 300000,
-    description: "Actual Renderer 1080p exhaustive raster/winner coverage for 10k/100k procedural instances and 8/66 Products.",
+    description:
+      "Actual Renderer 1080p exhaustive raster/winner coverage for 10k/100k procedural instances and 8/66 Products.",
     note: "Resident position-only Unlit scale fixture, not authored material/streaming quality or historical speedup."
   }),
   Object.freeze({

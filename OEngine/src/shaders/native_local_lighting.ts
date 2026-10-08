@@ -2,10 +2,9 @@ import { LIGHT_DATABASE_READ_CHUNK, DIRECTIONAL_LIGHT_DESCRIPTOR } from "../gpu/
 import { LOCAL_LIGHT_TYPES_WGSL } from "../gpu/GpuLocalLightWorkAbi.js";
 import { LIGHTING_BRDF_MATH_WGSL, LIGHTING_BRDF_TYPES_WGSL } from "./lighting_brdf.js";
 import { VSM_SAMPLING_WGSL } from "./vsm_sampling.js";
-import type { NativeSurfaceDirectLighting } from "./native_surface.js";
 
 /** New local-light consumer. Reads only finalized products; never owns work generation. */
-export const NATIVE_LOCAL_LIGHTING: NativeSurfaceDirectLighting = {
+export const NATIVE_LOCAL_LIGHTING = {
   declarations: /* wgsl */ `
 ${LOCAL_LIGHT_TYPES_WGSL}
 @group(1) @binding(1) var<uniform> local_parameters: LocalLightParameters;
@@ -49,7 +48,7 @@ fn shade_standard_material_direct(material: StandardMaterial, geometry: SurfaceG
     re_direct_physical(incident, geometry, material, &reflected);
   }
   // Poison stale output for the HDR numeric gate; rgba16float may clamp the sentinel.
-  if local_data.abi != 1u || local_data.epoch != local_parameters.context.x || local_data.frame != local_parameters.context.y || local_data.frame != shading_view.frame_index || local_parameters.grid.x != shading_view.width || local_parameters.grid.y != shading_view.height || local_data.publication != local_parameters.context.z || local_data.admitted != local_parameters.context.w || (local_data.flags & 8u) != 0u {
+  if local_data.abi != 1u || local_data.epoch != local_parameters.context.x || local_data.frame != local_parameters.context.y || local_data.frame != shading_view.frame_index || local_parameters.grid.x != shading_view.width || local_parameters.grid.y != shading_view.height || local_data.publication != local_parameters.context.z || local_data.admitted != local_parameters.context.w || (local_data.flags & 12u) != 0u {
     return vec3f(3.402823e38);
   }
   if local_data.mode == 1u {

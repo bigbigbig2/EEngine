@@ -8,14 +8,12 @@ import {
   GPULightCollection,
   packPointLightRecord,
   packSpotLightRecord,
-  packDirectionalLightRecord,
+  packDirectionalLightRecord
 } from "../../.test-dist/gpu/LightDatabase.js";
 import {
   lightSphereDistanceAttenuation,
-  spotLightAttenuation,
-  assertLightListCapacity,
-  clusterDepthToSlice,
-} from "../../.test-dist/render/ClusteredLightingReference.js";
+  spotLightAttenuation
+} from "../../.test-dist/render/DirectLightingReference.js";
 
 test("finite spherical support is cutoff plus emitter radius; zero cutoff is unbounded", () => {
   assert.equal(lightSphereDistanceAttenuation(2.5, 2, 1), 0.140625);
@@ -29,7 +27,7 @@ test("default casts_shadow with no published provider ID is not a shadow request
   for (const [Type, pack] of [
     [PointLight, packPointLightRecord],
     [SpotLight, packSpotLightRecord],
-    [DirectionalLight, packDirectionalLightRecord],
+    [DirectionalLight, packDirectionalLightRecord]
   ]) {
     const light = new Type();
     assert.equal(light.casts_shadow, true);
@@ -50,19 +48,19 @@ test("unsupported authored shadow publication fails before mutating the LightDat
   }
 });
 
-test("admission rejects loss rather than truncating a complete light list", () => {
-  assert.doesNotThrow(() => assertLightListCapacity(16380, 16380));
-  assert.throws(() => assertLightListCapacity(16381, 16380), RangeError);
+test("local-light identity rejects unrepresentable slots without truncation", async () => {
+  const { localLightId } = await import("../../.test-dist/gpu/GpuLocalLightWorkAbi.js");
+  assert.equal(localLightId(0xffffff, 1), 0x1ffffff);
+  assert.throws(() => localLightId(0x1000000, 0), RangeError);
 });
 
-test("log cluster boundary convention clamps near/far and assigns every boundary", () => {
-  const parameters = { x: 1, y: 0, z: 1 };
-  assert.equal(clusterDepthToSlice(0, parameters, 24), 0);
-  assert.equal(clusterDepthToSlice(1, parameters, 24), 0);
-  for (let slice = 1; slice < 24; slice++) {
-    assert.equal(clusterDepthToSlice(2 ** slice, parameters, 24), slice);
-    assert.ok(clusterDepthToSlice(2 ** slice * (1 - 1e-6), parameters, 24) < slice);
-    assert.ok(clusterDepthToSlice(2 ** slice * (1 + 1e-6), parameters, 24) > slice);
+test("log slices assign near/far and beyond-far to bounded cells", async () => {
+  const { localLightDepthSlice } = await import("../../.test-dist/gpu/GpuLocalLightWorkAbi.js");
+  assert.equal(localLightDepthSlice(0, 1, 2 ** 23), 0);
+  for (let slice = 1; slice < 23; slice++) {
+    assert.equal(localLightDepthSlice(2 ** slice, 1, 2 ** 23), slice);
+    assert.equal(localLightDepthSlice(2 ** slice * (1 - 1e-6), 1, 2 ** 23), slice - 1);
+    assert.equal(localLightDepthSlice(2 ** slice * (1 + 1e-6), 1, 2 ** 23), slice);
   }
-  assert.equal(clusterDepthToSlice(2 ** 30, parameters, 24), 24);
+  assert.equal(localLightDepthSlice(2 ** 30, 1, 2 ** 23), 23);
 });

@@ -1,4 +1,4 @@
-import { lightSphereDistanceAttenuation } from "../../.test-dist/render/ClusteredLightingReference.js";
+import { lightSphereDistanceAttenuation } from "../../.test-dist/render/DirectLightingReference.js";
 const srgb = (v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
 const normalize = (v) => {
   const length = Math.hypot(...v);
@@ -55,7 +55,14 @@ export function nativeFixtureExpectedPixel(
   width,
   height,
   materialSlot,
-  { scale = [1, 1, 1], perspective = 0, preExposure = 1.25, sunTransmission = null, gain = 0.7, customRoughness = 0.45 } = {}
+  {
+    scale = [1, 1, 1],
+    perspective = 0,
+    preExposure = 1.25,
+    sunTransmission = null,
+    gain = 0.7,
+    customRoughness = 0.45
+  } = {}
 ) {
   const family = materialSlot % 4,
     variant = materialSlot >= 4;

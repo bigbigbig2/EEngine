@@ -13,7 +13,7 @@ import { RenderDebugView as RenderDebugViewValue } from "../../debug/RenderDebug
 import type { NativeTemporalFactsPass } from "../temporal/NativeTemporalFactsPass.js";
 import type { GpuRadiometryPass } from "../temporal/GpuRadiometryPass.js";
 import type { BloomPass } from "../passes/BloomPass.js";
-import type { LightClusterPass } from "../passes/LightClusterPass.js";
+import type { LocalLightWorkGenerator } from "../lighting/LocalLightWorkGenerator.js";
 import type { VisibilityCounterPass } from "../passes/VisibilityCounterPass.js";
 import type { PhysicalSkyPass } from "../passes/PhysicalSkyPass.js";
 import type { AerialPerspectivePass } from "../passes/AerialPerspectivePass.js";
@@ -34,6 +34,7 @@ import {
 } from "../../gpu/ShadowContract.js";
 import type { EmptyFrameBindings, FrameProgramBindings, SceneFrameBindings } from "./FrameProgramBindings.js";
 import type { FrameProgram, FrameProduct } from "./FrameProgram.js";
+import { counterByteOffset } from "../../debug/GpuFrameCounters.js";
 
 export type FrameProgramOwners = Readonly<{
   visibility: VisibilityFeature;
@@ -46,7 +47,7 @@ export type FrameProgramOwners = Readonly<{
   debug: RenderDebugViewPass;
   sky: PhysicalSkyPass | null;
   aerial: AerialPerspectivePass | null;
-  lightCluster: () => LightClusterPass;
+  localLightWork: LocalLightWorkGenerator;
   xeGtaoPreparation: XeGtaoPreparationPass;
   xeGtaoMain: XeGtaoMainPass;
   xeGtaoDenoise: XeGtaoDenoisePass;
@@ -204,7 +205,7 @@ function compileSceneGraph(
     { kind: "imported", label: "published instance records" },
     bind("scene-instances", (bindings) => bindings.job.scene.instances)
   );
-  const needsDirectLight = plan.stages.includes("light-cluster");
+  const needsDirectLight = plan.stages.includes("local-light-work");
   const geometryMetadata = graph.import_resource(
     "geometry-metadata",
     { kind: "imported", label: "geometry metadata" },
@@ -409,16 +410,41 @@ function compileSceneGraph(
   const clusters =
     lightRecords === undefined
       ? undefined
-      : owners.lightCluster().addToGraph(
+      : owners.localLightWork.addToGraph(
           graph,
-          bind("surface-light-cluster", (bindings) => ({
-            camera: bindings.camera,
-            lights: bindings.view.environment.lights,
-            width: result.frame.domain.width,
-            height: result.frame.domain.height
-          })),
-          { camera: cameraBuffer, lightDatabase: lightRecords, hzb: builtHzb! }
+          bind("local-light-work-job", (bindings) => ({ frame: bindings.localLightWork! })),
+          {
+            parameters: bind("local-light-parameters", (bindings) => bindings.localLightWork!.parameters),
+            lookup: bind("local-light-lookup", (bindings) => bindings.localLightWork!.lookup),
+            data: bind("local-light-data", (bindings) => bindings.localLightWork!.data)
+          },
+          { visibility: result.frame.visibilityKey, depth: result.frame.depth, database: lightRecords }
         );
+  if (clusters !== undefined) {
+    const sink = graph.import_resource(
+      "local-light-counter-sink",
+      { kind: "imported" },
+      bind("local-light-counter-sink", (bindings) => bindings.localLightCounters)
+    );
+    const observed = graph.add(
+      "LocalLightWork/sampled header",
+      bind("local-light-counter-job", (bindings) => ({ enabled: bindings.job.countersEnabled })),
+      (job, resources, context) => {
+        if (job.enabled) {
+          (context.encoder as ShadeGPUCommandContext).gpu_encoder.copyBufferToBuffer(
+            resources.get(clusters.data) as GPUBuffer,
+            0,
+            resources.get(sink) as GPUBuffer,
+            counterByteOffset("localLightAbi"),
+            64
+          );
+        }
+      }
+    );
+    observed.read(clusters.data);
+    observed.write(sink);
+    observed.make_side_effect();
+  }
   const scalarAo =
     plan.request.aoProfile === "scalar-high"
       ? (() => {
@@ -510,7 +536,7 @@ function compileSceneGraph(
     plan.request.hasLit &&
     (lightRecords === undefined || clusters === undefined || surfaceEnvironment === undefined)
   ) {
-    throw new Error("Native Surface requires direct-light cluster and IBL providers");
+    throw new Error("Native Surface requires LocalLightWork and IBL providers");
   }
   const previousCamera = graph.import_resource(
     "previous-camera",
