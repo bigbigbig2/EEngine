@@ -11,6 +11,33 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "pc-texture-recovery",
+    file: "OEngine/tests/oracle/pc-texture-product-gpu.mjs",
+    url: "/OEngine/tests/oracle/pc-texture-product-gpu.mjs",
+    entry: "runPcTextureRecoveryGpuOracle",
+    requiredFeatures: ["texture-compression-bc", "float32-filterable"],
+    description: "T4.1 affected replay validation: controlled device destroy, fresh adapter, disk Product and exact coverage/native sampling.",
+    timeoutMs: 180000,
+  }),
+  Object.freeze({
+    name: "pc-texture-import",
+    file: "OEngine/tests/oracle/pc-texture-import-gpu.mjs",
+    url: "/OEngine/tests/oracle/pc-texture-import-gpu.mjs",
+    entry: "runPcTextureImportGpuOracle",
+    requiredFeatures: ["texture-compression-bc"],
+    description: "T4.1 real browser KTX Worker, ETC1S/UASTC/Zstd, full mips, compressed array decode and failed-import retry.",
+    timeoutMs: 180000,
+  }),
+  Object.freeze({
+    name: "pc-texture-product",
+    file: "OEngine/tests/oracle/pc-texture-product-gpu.mjs",
+    url: "/OEngine/tests/oracle/pc-texture-product-gpu.mjs",
+    entry: "runPcTextureProductGpuOracle",
+    requiredFeatures: ["texture-compression-bc", "float32-filterable"],
+    description: "T4.1 non-production BC product/full mips/NPOT/native evaluator/coverage/Worker and new-device replay.",
+    timeoutMs: 1800000,
+  }),
+  Object.freeze({
     name: "texture-baseline",
     file: "OEngine/tests/oracle/texture-baseline-gpu.mjs",
     url: "/OEngine/tests/oracle/texture-baseline-gpu.mjs",

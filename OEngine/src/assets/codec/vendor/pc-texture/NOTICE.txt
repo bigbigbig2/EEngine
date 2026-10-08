@@ -1,0 +1,27 @@
+EEngine PC texture codec build
+
+Basis Universal: https://github.com/BinomialLLC/basis_universal
+Revision: 99f52d63aa6799cbdaecfe977111dc5ec3b31d47
+Apache-2.0. See BASIS-LICENSE and BASIS-NOTICE. Upstream sources are unmodified.
+Compiled modules: encoder/basisu_bc7e_scalar.cpp, basisu_bc15_spmd.cpp,
+basisu_resampler.cpp, basisu_resample_filters.cpp, transcoder/basisu_transcoder.cpp
+and their upstream headers. These include derived BC7 encoder notices retained
+in upstream source; BASIS-NOTICE accompanies this distribution.
+
+KTX-Software: https://github.com/KhronosGroup/KTX-Software
+Release: v4.4.2; revision: 4d6fc70eaf62ad0558e63e8d97eb9766118327a6
+See KTX-LICENSE and KTX-LICENSES for Apache-2.0 and third-party notices.
+The read-only library includes upstream Basis and Zstd dependencies. KTX1,
+GL/Vulkan upload, tools and ETC software unpack are disabled. Upstream source
+is unmodified; this is not a blanket relicensing of all upstream dependencies.
+
+Local glue: OEngine/tools/texture-codec/{BcCodec.cpp,KtxRead.cpp,CMakeLists.txt}.
+Build: node OEngine/tools/build-pc-texture-codec.mjs all
+Compiler revision, binary hashes and glue input hashes: source.json.
+Basis native reference: BcReference.cpp; same pinned portable core, separate
+native compilation. Neither library owns GPU resources or submits commands.
+BcMath.h imports std float sqrt/floor for the native MinGW reference, matching
+the global overloads expected by the upstream scalar port and Emscripten.
+The retained Basis heap is capped at 160 MiB and libktx at 96 MiB
+(256 MiB combined per Worker).
+No Spark shader/code is included in this distribution.

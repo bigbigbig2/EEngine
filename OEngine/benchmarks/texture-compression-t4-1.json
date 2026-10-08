@@ -1,0 +1,1380 @@
+{
+  "schemaVersion": 1,
+  "stage": "T4.1",
+  "kind": "Non-production PC BC Texture Product functional closure; composite GPU evidence",
+  "sourceParentSha": "ceb40c2e75da7601ec35d6aa05162cc2b66cdf26",
+  "dirtyImplementationBuild": true,
+  "productionCutover": false,
+  "scope": "CPU-owned schema3 Product, upstream cook/import, caller-owned compressed array upload and actual native material evaluator",
+  "validationMethod": {
+    "fullMatrixOriginalStatus": "failed",
+    "completedPrefix": "1K/2K/4K x BaseColor/XYZ normal/ORM/BC4 G; full tails; NPOT exact coverage; provided signed/non-unit normal; real PNG/JPEG/WebP Worker; assigned cancel/retry; teardown zero. All assertions precede the final consumed-adapter requestDevice failure.",
+    "fullMatrixCaseMetrics": null,
+    "prefixEvidenceLimit": "Original runner returned no summary on throw. Completion of the prefix is inferred from the failing requestDevice location and sequential control flow, not reconstructed per-case results.",
+    "affectedRerun": "Same replay helper now requests a fresh adapter for each device. Targeted replay plus latest provided NPOT, external KTX and existing native-material passed. Expensive unchanged raw matrix was not rerun solely for the final harness device creation fix.",
+    "latestRawAlgorithmChange": "Only provided/external NPOT source-domain mip handling changed after the full GPU matrix; targeted Node and GPU NPOT validation cover that change.",
+    "tolerance": 0.0001,
+    "exactCoverage": "strict equality; no tolerance",
+    "samplingReference": "BC7 upstream unpack + same hardware sRGB conversion; BC4 unfiltered hardware textureLoad expanded to test-only R32float, then independently sampled. Does not claim exact hardware RGTC equals floored CPU u8 decoder.",
+    "nativeReference": "Separate native executable built from the pinned unmodified upstream scalar core and EEngine glue; hashes frozen before the WASM candidate. Same algorithm, separate compilation/encoding; not an independent codec implementation.",
+    "timing": "Functional cold single observations with concurrent CPU reference work. Not paired distributions and not proof of performance improvement. Full GPU matrix case timings unavailable after original throw."
+  },
+  "records": {
+    "fullProductMatrixOriginal": {
+      "tool": "gpu-oracle",
+      "toolVersion": 1,
+      "hostBuildId": "1868287120aa",
+      "buildIdentity": {
+        "schemaVersion": 1,
+        "recipe": "tsc -p tsconfig.test.json + pinned codec vendor copy",
+        "node": "v24.14.0",
+        "dependencyScope": "conservative: engine src, configs, lock and compiler identity",
+        "sourceSha256": "079ce4ca157d0f24cafe8366b27e855d1410cd0d95ef7a684fc3aa0b605d861b",
+        "outputSha256": "af1be8710d310f49968a44b934b93451c4e2f047daf770e1582ff9eb35fbf031",
+        "completedAt": "2026-10-08T20:29:44.584Z"
+      },
+      "oracleSha256": "e3b239b1ca87a37e8168cdafc9e13f299b0536b1fdc9a5ede792320a63481895",
+      "oracle": "pc-texture-product",
+      "oracleFile": "OEngine/tests/oracle/pc-texture-product-gpu.mjs",
+      "oracleEntry": "runPcTextureProductGpuOracle",
+      "registry": {
+        "description": "T4.1 non-production BC product/full mips/NPOT/native evaluator/coverage/Worker and new-device replay.",
+        "note": null,
+        "negativeControl": false
+      },
+      "status": "failed",
+      "failureKind": "oracle-throw",
+      "summary": null,
+      "error": {
+        "kind": "assertion-or-throw",
+        "name": "OperationError",
+        "code": 0,
+        "message": "Failed to execute 'requestDevice' on 'GPUAdapter': adapter is \"consumed\": it has already been used to create a device\n    at CreateDeviceInternal (..\\..\\third_party\\dawn\\src\\dawn\\native\\Adapter.cpp:311)\n",
+        "stack": "OperationError: Failed to execute 'requestDevice' on 'GPUAdapter': adapter is \"consumed\": it has already been used to create a device\n    at CreateDeviceInternal (..\\..\\third_party\\dawn\\src\\dawn\\native\\Adapter.cpp:311)\n"
+      },
+      "adapter": {
+        "vendor": "nvidia",
+        "architecture": "turing",
+        "device": "",
+        "description": "",
+        "isFallbackAdapter": false,
+        "subgroupMinSize": 32,
+        "subgroupMaxSize": 32
+      },
+      "adapterKind": "hardware",
+      "device": {
+        "features": ["core-features-and-limits", "float32-filterable", "texture-compression-bc"],
+        "limits": {
+          "maxComputeWorkgroupSizeX": 256,
+          "maxComputeInvocationsPerWorkgroup": 256,
+          "maxStorageBufferBindingSize": 134217728,
+          "maxStorageBuffersPerShaderStage": 8
+        },
+        "adapterLimits": {
+          "maxStorageBuffersPerShaderStage": 16
+        }
+      },
+      "deviceLost": null,
+      "gpuErrors": [],
+      "scopedGpuErrors": [],
+      "environment": {
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/154.0.0.0 Safari/537.36",
+        "webgpuExposed": true,
+        "wgslLanguageFeatures": [
+          "buffer_view",
+          "immediate_address_space",
+          "linear_indexing",
+          "packed_4x8_integer_dot_product",
+          "pointer_composite_access",
+          "readonly_and_readwrite_storage_textures",
+          "subgroup_id",
+          "subgroup_uniformity",
+          "swizzle_assignment",
+          "texture_and_sampler_let",
+          "texture_formats_tier1",
+          "uniform_buffer_standard_layout",
+          "unrestricted_pointer_parameters"
+        ]
+      },
+      "timings": {
+        "oracleMs": 1400025.4,
+        "browserLaunchMs": 546,
+        "navigationMs": 1400548,
+        "totalMs": 1402587
+      },
+      "chrome": {
+        "executablePath": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+        "version": "154.0.8037.98",
+        "headless": true,
+        "transport": "launch",
+        "contextMode": "isolated-new-context",
+        "launchAttempts": [
+          {
+            "transport": "launch",
+            "ok": true
+          }
+        ],
+        "endpoint": null,
+        "args": null,
+        "processLogPath": null,
+        "processLog": null,
+        "environmentHints": []
+      },
+      "pageErrors": [],
+      "failedRequests": [],
+      "runFailure": null,
+      "rawArtifactSha256": "5b655b2c0e312ee6000d5f0d411217c854fade23265ed4f3a7941d617784b932",
+      "rawArtifactPath": ".local/t4-1-product-final.json",
+      "consoleNonWarning": [
+        {
+          "type": "error",
+          "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+        }
+      ]
+    },
+    "externalKtx": {
+      "tool": "gpu-oracle",
+      "toolVersion": 1,
+      "hostBuildId": "ca050d4f3f46",
+      "buildIdentity": {
+        "schemaVersion": 1,
+        "recipe": "tsc -p tsconfig.test.json + pinned codec vendor copy",
+        "node": "v24.14.0",
+        "dependencyScope": "conservative: engine src, configs, lock and compiler identity",
+        "sourceSha256": "c71d70a4f905c43259b32a840bfc87becedfb12874b18692b3c9e95b227d1f0d",
+        "outputSha256": "b99a11ed569f93ce1fe4a74c504a5d40f678d75bb95ff7967a011c0fa476b2bf",
+        "completedAt": "2026-10-08T21:33:54.607Z"
+      },
+      "oracleSha256": "c93c852893a9133a9d00b9fa32e06e002a4ad34017143004cff7f0f862c6be67",
+      "oracle": "pc-texture-import",
+      "oracleFile": "OEngine/tests/oracle/pc-texture-import-gpu.mjs",
+      "oracleEntry": "runPcTextureImportGpuOracle",
+      "registry": {
+        "description": "T4.1 real browser KTX Worker, ETC1S/UASTC/Zstd, full mips, compressed array decode and failed-import retry.",
+        "note": null,
+        "negativeControl": false
+      },
+      "status": "passed",
+      "failureKind": null,
+      "summary": {
+        "stage": "T4.1",
+        "scope": "external KTX -> real browser Worker -> Product -> array layer1 -> hardware BC7 decode; no production cutover",
+        "cases": [
+          {
+            "name": "rgba-64x64-mipmap-etc1s.ktx2",
+            "identity": "49d68c5a7c3e39f5ece8aa246835ef07117e90a9326928d5667d3aff9f6fd276",
+            "mips": 7,
+            "uploaded": 5488,
+            "maxError": 0,
+            "samples": 5461,
+            "worker": {
+              "prepareMs": 10.600000008940697,
+              "encodeMs": 0,
+              "transcodeMs": 44.8999999910593,
+              "ownedCopyBytes": 5488,
+              "wasmLinearHighWaterBytes": 33554432,
+              "workerTaskMs": 56,
+              "decodeMs": 0,
+              "queueAndInitMs": 46.199951171875
+            }
+          },
+          {
+            "name": "luminance-alpha-32x32-uastc.ktx2",
+            "identity": "c8eddefbb6f69a9637050417c37cffc7b5f8090dca55c8b281430036ffe8a4f5",
+            "mips": 6,
+            "uploaded": 1392,
+            "maxError": 0,
+            "samples": 1365,
+            "worker": {
+              "prepareMs": 3.4000000059604645,
+              "encodeMs": 74.40000000596046,
+              "transcodeMs": 1.2999999970197678,
+              "ownedCopyBytes": 6852,
+              "wasmLinearHighWaterBytes": 33554432,
+              "workerTaskMs": 80.1000000089407,
+              "decodeMs": 0,
+              "queueAndInitMs": 0.5
+            }
+          },
+          {
+            "name": "uastc-zstd.ktx2",
+            "identity": "f1534e119fae228df68023ae51e4fbb76ca7c61e2b96b233485abd9e832324c0",
+            "mips": 11,
+            "uploaded": 1398128,
+            "maxError": 0,
+            "samples": 1398101,
+            "worker": {
+              "prepareMs": 12.5,
+              "encodeMs": 0,
+              "transcodeMs": 22.900000005960464,
+              "ownedCopyBytes": 1398128,
+              "wasmLinearHighWaterBytes": 33554432,
+              "workerTaskMs": 35.400000005960464,
+              "decodeMs": 0,
+              "queueAndInitMs": 0.300048828125
+            }
+          }
+        ],
+        "teardown": {
+          "activeWorkers": 0,
+          "peakActiveWorkers": 1,
+          "inFlightEstimatedBytes": 0,
+          "peakInFlightEstimatedBytes": 268435456,
+          "queuedTasks": 0,
+          "workerFailures": 0
+        }
+      },
+      "error": null,
+      "adapter": {
+        "vendor": "nvidia",
+        "architecture": "turing",
+        "device": "",
+        "description": "",
+        "isFallbackAdapter": false,
+        "subgroupMinSize": 32,
+        "subgroupMaxSize": 32
+      },
+      "adapterKind": "hardware",
+      "device": {
+        "features": ["core-features-and-limits", "texture-compression-bc"],
+        "limits": {
+          "maxComputeWorkgroupSizeX": 256,
+          "maxComputeInvocationsPerWorkgroup": 256,
+          "maxStorageBufferBindingSize": 134217728,
+          "maxStorageBuffersPerShaderStage": 8
+        },
+        "adapterLimits": {
+          "maxStorageBuffersPerShaderStage": 16
+        }
+      },
+      "deviceLost": null,
+      "gpuErrors": [],
+      "scopedGpuErrors": [],
+      "environment": {
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/154.0.0.0 Safari/537.36",
+        "webgpuExposed": true,
+        "wgslLanguageFeatures": [
+          "buffer_view",
+          "immediate_address_space",
+          "linear_indexing",
+          "packed_4x8_integer_dot_product",
+          "pointer_composite_access",
+          "readonly_and_readwrite_storage_textures",
+          "subgroup_id",
+          "subgroup_uniformity",
+          "swizzle_assignment",
+          "texture_and_sampler_let",
+          "texture_formats_tier1",
+          "uniform_buffer_standard_layout",
+          "unrestricted_pointer_parameters"
+        ]
+      },
+      "timings": {
+        "oracleMs": 699,
+        "browserLaunchMs": 420,
+        "navigationMs": 1030,
+        "totalMs": 2660
+      },
+      "chrome": {
+        "executablePath": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+        "version": "154.0.8037.98",
+        "headless": true,
+        "transport": "launch",
+        "contextMode": "isolated-new-context",
+        "launchAttempts": [
+          {
+            "transport": "launch",
+            "ok": true
+          }
+        ],
+        "endpoint": null,
+        "args": null,
+        "processLogPath": null,
+        "processLog": null,
+        "environmentHints": []
+      },
+      "pageErrors": [],
+      "failedRequests": [],
+      "runFailure": null,
+      "rawArtifactSha256": "558cf92c96102bbb583059759618aedd492c11bd0f6b4e3aa28b01567b3aa7d1",
+      "rawArtifactPath": ".local/t4-1-import-latest.json",
+      "consoleNonWarning": [
+        {
+          "type": "error",
+          "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+        }
+      ]
+    },
+    "deviceReplayAndProvidedNpot": {
+      "tool": "gpu-oracle",
+      "toolVersion": 1,
+      "hostBuildId": "ca050d4f3f46",
+      "buildIdentity": {
+        "schemaVersion": 1,
+        "recipe": "tsc -p tsconfig.test.json + pinned codec vendor copy",
+        "node": "v24.14.0",
+        "dependencyScope": "conservative: engine src, configs, lock and compiler identity",
+        "sourceSha256": "c71d70a4f905c43259b32a840bfc87becedfb12874b18692b3c9e95b227d1f0d",
+        "outputSha256": "b99a11ed569f93ce1fe4a74c504a5d40f678d75bb95ff7967a011c0fa476b2bf",
+        "completedAt": "2026-10-08T21:33:54.607Z"
+      },
+      "oracleSha256": "39b227d5531d422e329e695f05511025f5e34fe92b85e6928c1735061699693f",
+      "oracle": "pc-texture-recovery",
+      "oracleFile": "OEngine/tests/oracle/pc-texture-product-gpu.mjs",
+      "oracleEntry": "runPcTextureRecoveryGpuOracle",
+      "registry": {
+        "description": "T4.1 affected replay validation: controlled device destroy, fresh adapter, disk Product and exact coverage/native sampling.",
+        "note": null,
+        "negativeControl": false
+      },
+      "status": "passed",
+      "failureKind": null,
+      "summary": {
+        "stage": "T4.1",
+        "scope": "affected device-epoch replay only, same helper as full matrix; fresh adapter per device",
+        "identity": "d86090de3c6e1d35e0a04ea3890cfc611b2ff17b1269caf6d55e9c09b3785bba",
+        "providedNpotNormal": {
+          "maxError": 0,
+          "samples": 288,
+          "coverageChecks": 0
+        },
+        "replay": {
+          "before": {
+            "maxError": 0,
+            "samples": 576,
+            "coverageChecks": 864
+          },
+          "after": {
+            "maxError": 0,
+            "samples": 576,
+            "coverageChecks": 864
+          },
+          "lossReason": "destroyed",
+          "errors": []
+        }
+      },
+      "error": null,
+      "adapter": {
+        "vendor": "nvidia",
+        "architecture": "turing",
+        "device": "",
+        "description": "",
+        "isFallbackAdapter": false,
+        "subgroupMinSize": 32,
+        "subgroupMaxSize": 32
+      },
+      "adapterKind": "hardware",
+      "device": {
+        "features": ["core-features-and-limits", "float32-filterable", "texture-compression-bc"],
+        "limits": {
+          "maxComputeWorkgroupSizeX": 256,
+          "maxComputeInvocationsPerWorkgroup": 256,
+          "maxStorageBufferBindingSize": 134217728,
+          "maxStorageBuffersPerShaderStage": 8
+        },
+        "adapterLimits": {
+          "maxStorageBuffersPerShaderStage": 16
+        }
+      },
+      "deviceLost": null,
+      "gpuErrors": [],
+      "scopedGpuErrors": [],
+      "environment": {
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/154.0.0.0 Safari/537.36",
+        "webgpuExposed": true,
+        "wgslLanguageFeatures": [
+          "buffer_view",
+          "immediate_address_space",
+          "linear_indexing",
+          "packed_4x8_integer_dot_product",
+          "pointer_composite_access",
+          "readonly_and_readwrite_storage_textures",
+          "subgroup_id",
+          "subgroup_uniformity",
+          "swizzle_assignment",
+          "texture_and_sampler_let",
+          "texture_formats_tier1",
+          "uniform_buffer_standard_layout",
+          "unrestricted_pointer_parameters"
+        ]
+      },
+      "timings": {
+        "oracleMs": 871.8,
+        "browserLaunchMs": 435,
+        "navigationMs": 1410,
+        "totalMs": 3079
+      },
+      "chrome": {
+        "executablePath": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+        "version": "154.0.8037.98",
+        "headless": true,
+        "transport": "launch",
+        "contextMode": "isolated-new-context",
+        "launchAttempts": [
+          {
+            "transport": "launch",
+            "ok": true
+          }
+        ],
+        "endpoint": null,
+        "args": null,
+        "processLogPath": null,
+        "processLog": null,
+        "environmentHints": []
+      },
+      "pageErrors": [],
+      "failedRequests": [],
+      "runFailure": null,
+      "rawArtifactSha256": "97e817b9732367ca74221eb6f4eb4381a2e5623ee21de830ea958b818c9ce74b",
+      "rawArtifactPath": ".local/t4-1-recovery-latest.json",
+      "consoleNonWarning": [
+        {
+          "type": "error",
+          "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+        }
+      ]
+    },
+    "existingNativeMaterial": {
+      "tool": "gpu-oracle",
+      "toolVersion": 1,
+      "hostBuildId": "ca050d4f3f46",
+      "buildIdentity": {
+        "schemaVersion": 1,
+        "recipe": "tsc -p tsconfig.test.json + pinned codec vendor copy",
+        "node": "v24.14.0",
+        "dependencyScope": "conservative: engine src, configs, lock and compiler identity",
+        "sourceSha256": "c71d70a4f905c43259b32a840bfc87becedfb12874b18692b3c9e95b227d1f0d",
+        "outputSha256": "b99a11ed569f93ce1fe4a74c504a5d40f678d75bb95ff7967a011c0fa476b2bf",
+        "completedAt": "2026-10-08T21:33:54.607Z"
+      },
+      "oracleSha256": "fc67637eb16c1ecf18a929bc67196a694fb06cb24e0b1bc6ba2c8d8f20100703",
+      "oracle": "native-material",
+      "oracleFile": "OEngine/tests/oracle/native-material-gpu.mjs",
+      "oracleEntry": "runNativeMaterialGpuOracle",
+      "registry": {
+        "description": "S1 native Standard/Coat/Unlit/custom graph, explicit gradients and immutable publication transactions.",
+        "note": "Component only: fixture geometry inputs and linear textures; no production cutover or S1 closure claim.",
+        "negativeControl": false
+      },
+      "status": "passed",
+      "failureKind": null,
+      "summary": {
+        "status": "passed",
+        "scope": "S1 compiler/publication component; not complete SurfaceV4",
+        "results": [
+          {
+            "name": "standard",
+            "pixelsPerRun": 32,
+            "outputCount": 23,
+            "maxAbsoluteError": 0,
+            "cpuIdealFilterDeviation": 0.1336045265197754,
+            "nativePrograms": 1,
+            "physicalBindingSets": 2,
+            "textureQueries": [1, 1],
+            "publicationBytes": 328,
+            "verified": "native graph, C/X/Y, SampleGrad, two physical texture sets, stable/abort/retry/update/fence",
+            "missingGradientNegativeControl": "not applicable"
+          },
+          {
+            "name": "coated",
+            "pixelsPerRun": 32,
+            "outputCount": 23,
+            "maxAbsoluteError": 0,
+            "cpuIdealFilterDeviation": 0.1336045265197754,
+            "nativePrograms": 1,
+            "physicalBindingSets": 2,
+            "textureQueries": [1, 1],
+            "publicationBytes": 336,
+            "verified": "native graph, C/X/Y, SampleGrad, two physical texture sets, stable/abort/retry/update/fence",
+            "missingGradientNegativeControl": "not applicable"
+          },
+          {
+            "name": "unlit",
+            "pixelsPerRun": 32,
+            "outputCount": 4,
+            "maxAbsoluteError": 0,
+            "cpuIdealFilterDeviation": 0.060122013092041016,
+            "nativePrograms": 1,
+            "physicalBindingSets": 2,
+            "textureQueries": [1],
+            "publicationBytes": 144,
+            "verified": "native graph, C/X/Y, SampleGrad, two physical texture sets, stable/abort/retry/update/fence",
+            "missingGradientNegativeControl": "not applicable"
+          },
+          {
+            "name": "custom",
+            "pixelsPerRun": 32,
+            "outputCount": 13,
+            "maxAbsoluteError": 1.7881393432617188e-7,
+            "cpuIdealFilterDeviation": 0.060180485248565674,
+            "nativePrograms": 1,
+            "physicalBindingSets": 2,
+            "textureQueries": [3, 1],
+            "publicationBytes": 224,
+            "verified": "native graph, C/X/Y, SampleGrad, two physical texture sets, stable/abort/retry/update/fence",
+            "missingGradientNegativeControl": "detected"
+          },
+          {
+            "name": "arithmetic",
+            "pixelsPerRun": 32,
+            "outputCount": 13,
+            "maxAbsoluteError": 0,
+            "cpuIdealFilterDeviation": 2.980232238769531e-7,
+            "nativePrograms": 1,
+            "physicalBindingSets": 2,
+            "textureQueries": [],
+            "publicationBytes": 88,
+            "verified": "all scalar operations against independent CPU and GPU, stable/abort/retry/update/fence",
+            "missingGradientNegativeControl": "not applicable"
+          }
+        ],
+        "filtering": {
+          "status": "diagnostic",
+          "method": "spatially constant per-mip markers isolate gradient LOD; direct explicit-level samples isolate filtering precision",
+          "maxGradientCpuError": 0.06680227071046829,
+          "maxExplicitLevelCpuError": 0.0020238757133483887,
+          "maxGradientLodDeviation": 0.08009004592895508,
+          "maxExplicitLodDeviation": 0.001865983009338379,
+          "records": [
+            {
+              "lane": 0,
+              "cpuLod": 0,
+              "gradEffectiveLod": 0,
+              "levelEffectiveLod": 0,
+              "gradCpuError": 0.000048041343688964844,
+              "explicitLevelCpuError": 0.000048041343688964844
+            },
+            {
+              "lane": 1,
+              "cpuLod": 1.0565834045410156,
+              "gradEffectiveLod": 1.136673092842102,
+              "levelEffectiveLod": 1.0547178983688354,
+              "gradCpuError": 0.005930721759796143,
+              "explicitLevelCpuError": 0.0018181800842285156
+            },
+            {
+              "lane": 2,
+              "cpuLod": 2.6415460109710693,
+              "gradEffectiveLod": 2.71875,
+              "levelEffectiveLod": 2.640685796737671,
+              "gradCpuError": 0.02039283514022827,
+              "explicitLevelCpuError": 0.00008307397365570068
+            },
+            {
+              "lane": 3,
+              "cpuLod": 3.863938570022583,
+              "gradEffectiveLod": 3.9413909912109375,
+              "levelEffectiveLod": 3.8633267879486084,
+              "gradCpuError": 0.0636836513876915,
+              "explicitLevelCpuError": 0.0005263090133666992
+            },
+            {
+              "lane": 4,
+              "cpuLod": 0,
+              "gradEffectiveLod": 0,
+              "levelEffectiveLod": 0,
+              "gradCpuError": 0.00007364153861999512,
+              "explicitLevelCpuError": 0.00007364153861999512
+            },
+            {
+              "lane": 5,
+              "cpuLod": 1.0565834045410156,
+              "gradEffectiveLod": 1.136673092842102,
+              "levelEffectiveLod": 1.0547178983688354,
+              "gradCpuError": 0.005050003528594971,
+              "explicitLevelCpuError": 0.0005043372511863708
+            },
+            {
+              "lane": 6,
+              "cpuLod": 2.6415457725524902,
+              "gradEffectiveLod": 2.71875,
+              "levelEffectiveLod": 2.640685796737671,
+              "gradCpuError": 0.006776094436645508,
+              "explicitLevelCpuError": 0.00005990266799926758
+            },
+            {
+              "lane": 7,
+              "cpuLod": 3.863938331604004,
+              "gradEffectiveLod": 3.9413909912109375,
+              "levelEffectiveLod": 3.8633267879486084,
+              "gradCpuError": 0.06406804919242859,
+              "explicitLevelCpuError": 0.0005081295967102051
+            },
+            {
+              "lane": 8,
+              "cpuLod": 0,
+              "gradEffectiveLod": 0,
+              "levelEffectiveLod": 0,
+              "gradCpuError": 0.00007724761962890625,
+              "explicitLevelCpuError": 0.00007724761962890625
+            },
+            {
+              "lane": 9,
+              "cpuLod": 1.0565834045410156,
+              "gradEffectiveLod": 1.136673092842102,
+              "levelEffectiveLod": 1.0547178983688354,
+              "gradCpuError": 0.004291355609893799,
+              "explicitLevelCpuError": 0.00014901161193847656
+            },
+            {
+              "lane": 10,
+              "cpuLod": 2.6415460109710693,
+              "gradEffectiveLod": 2.71875,
+              "levelEffectiveLod": 2.640685796737671,
+              "gradCpuError": 0.00632709264755249,
+              "explicitLevelCpuError": 0.00011217594146728516
+            },
+            {
+              "lane": 11,
+              "cpuLod": 3.863938570022583,
+              "gradEffectiveLod": 3.9413909912109375,
+              "levelEffectiveLod": 3.8633267879486084,
+              "gradCpuError": 0.06442161649465561,
+              "explicitLevelCpuError": 0.0005360394716262817
+            },
+            {
+              "lane": 12,
+              "cpuLod": 0,
+              "gradEffectiveLod": 0,
+              "levelEffectiveLod": 0,
+              "gradCpuError": 0.00004503130912780762,
+              "explicitLevelCpuError": 0.00004503130912780762
+            },
+            {
+              "lane": 13,
+              "cpuLod": 1.0565838813781738,
+              "gradEffectiveLod": 1.136673092842102,
+              "levelEffectiveLod": 1.0547178983688354,
+              "gradCpuError": 0.004477828741073608,
+              "explicitLevelCpuError": 0.00014472007751464844
+            },
+            {
+              "lane": 14,
+              "cpuLod": 2.6415460109710693,
+              "gradEffectiveLod": 2.71875,
+              "levelEffectiveLod": 2.640685796737671,
+              "gradCpuError": 0.005939126014709473,
+              "explicitLevelCpuError": 0.00004267692565917969
+            },
+            {
+              "lane": 15,
+              "cpuLod": 3.863938570022583,
+              "gradEffectiveLod": 3.9413909912109375,
+              "levelEffectiveLod": 3.8633267879486084,
+              "gradCpuError": 0.06477280706167221,
+              "explicitLevelCpuError": 0.0005205422639846802
+            },
+            {
+              "lane": 16,
+              "cpuLod": 0,
+              "gradEffectiveLod": 0,
+              "levelEffectiveLod": 0,
+              "gradCpuError": 0.000009000301361083984,
+              "explicitLevelCpuError": 0.000009000301361083984
+            },
+            {
+              "lane": 17,
+              "cpuLod": 1.0565838813781738,
+              "gradEffectiveLod": 1.136673092842102,
+              "levelEffectiveLod": 1.0547178983688354,
+              "gradCpuError": 0.006275638937950134,
+              "explicitLevelCpuError": 0.00010988116264343262
+            },
+            {
+              "lane": 18,
+              "cpuLod": 2.6415460109710693,
+              "gradEffectiveLod": 2.71875,
+              "levelEffectiveLod": 2.640685796737671,
+              "gradCpuError": 0.00552058219909668,
+              "explicitLevelCpuError": 0.0000921785831451416
+            },
+            {
+              "lane": 19,
+              "cpuLod": 3.863938331604004,
+              "gradEffectiveLod": 3.9413909912109375,
+              "levelEffectiveLod": 3.8633267879486084,
+              "gradCpuError": 0.06519126147031784,
+              "explicitLevelCpuError": 0.0005598664283752441
+            },
+            {
+              "lane": 20,
+              "cpuLod": 0,
+              "gradEffectiveLod": 0,
+              "levelEffectiveLod": 0,
+              "gradCpuError": 0.00003698468208312988,
+              "explicitLevelCpuError": 0.00003698468208312988
+            },
+            {
+              "lane": 21,
+              "cpuLod": 1.0565838813781738,
+              "gradEffectiveLod": 1.136673092842102,
+              "levelEffectiveLod": 1.0547178983688354,
+              "gradCpuError": 0.013600528240203857,
+              "explicitLevelCpuError": 0.0007982254028320312
+            },
+            {
+              "lane": 22,
+              "cpuLod": 2.6415460109710693,
+              "gradEffectiveLod": 2.71875,
+              "levelEffectiveLod": 2.640685796737671,
+              "gradCpuError": 0.005117297172546387,
+              "explicitLevelCpuError": 0.000059217214584350586
+            },
+            {
+              "lane": 23,
+              "cpuLod": 3.863938331604004,
+              "gradEffectiveLod": 3.9413909912109375,
+              "levelEffectiveLod": 3.8633267879486084,
+              "gradCpuError": 0.06551799178123474,
+              "explicitLevelCpuError": 0.0005535632371902466
+            },
+            {
+              "lane": 24,
+              "cpuLod": 0,
+              "gradEffectiveLod": 0,
+              "levelEffectiveLod": 0,
+              "gradCpuError": 0.00005155801773071289,
+              "explicitLevelCpuError": 0.00005155801773071289
+            },
+            {
+              "lane": 25,
+              "cpuLod": 1.0565838813781738,
+              "gradEffectiveLod": 1.136673092842102,
+              "levelEffectiveLod": 1.0547178983688354,
+              "gradCpuError": 0.06680227071046829,
+              "explicitLevelCpuError": 0.0015428811311721802
+            },
+            {
+              "lane": 26,
+              "cpuLod": 2.6415457725524902,
+              "gradEffectiveLod": 2.71875,
+              "levelEffectiveLod": 2.640685796737671,
+              "gradCpuError": 0.004759848117828369,
+              "explicitLevelCpuError": 0.00020939111709594727
+            },
+            {
+              "lane": 27,
+              "cpuLod": 3.863938331604004,
+              "gradEffectiveLod": 3.9413909912109375,
+              "levelEffectiveLod": 3.8633267879486084,
+              "gradCpuError": 0.062204763293266296,
+              "explicitLevelCpuError": 0.0006318837404251099
+            },
+            {
+              "lane": 28,
+              "cpuLod": 0,
+              "gradEffectiveLod": 0,
+              "levelEffectiveLod": 0,
+              "gradCpuError": 0.00009942054748535156,
+              "explicitLevelCpuError": 0.00009942054748535156
+            },
+            {
+              "lane": 29,
+              "cpuLod": 1.056583046913147,
+              "gradEffectiveLod": 1.136673092842102,
+              "levelEffectiveLod": 1.0547178983688354,
+              "gradCpuError": 0.06539732217788696,
+              "explicitLevelCpuError": 0.0014677122235298157
+            },
+            {
+              "lane": 30,
+              "cpuLod": 2.6415457725524902,
+              "gradEffectiveLod": 2.71875,
+              "levelEffectiveLod": 2.640685796737671,
+              "gradCpuError": 0.011831283569335938,
+              "explicitLevelCpuError": 0.0020238757133483887
+            },
+            {
+              "lane": 31,
+              "cpuLod": 3.863938570022583,
+              "gradEffectiveLod": 3.9413909912109375,
+              "levelEffectiveLod": 3.8633267879486084,
+              "gradCpuError": 0.04777064174413681,
+              "explicitLevelCpuError": 0.001119270920753479
+            }
+          ]
+        },
+        "bindings": {
+          "status": "passed",
+          "actualTextureResidency": true,
+          "actualStaticResidency": true,
+          "minMipTail": 6,
+          "promotedMinMip": 0,
+          "abortedPromotion": "retained tail",
+          "coverageAlpha": "matches native shading",
+          "productTextureCount": 2,
+          "maxProductError": 1.1920928955078125e-7,
+          "packedProducts": {
+            "fields": 20,
+            "textureBindings": 1,
+            "payloadBytes": 2800,
+            "physicalBytes": 4096,
+            "maxAbsoluteError": 4.656612873077393e-10,
+            "reference": "CPU cooked-field evaluator, actual half payload, original dimensions/mips/domain"
+          },
+          "tolerance": 0.0001,
+          "scope": "native binding/publication component, fixture CXY; no winner/Surface/production adoption"
+        }
+      },
+      "error": null,
+      "adapter": {
+        "vendor": "nvidia",
+        "architecture": "turing",
+        "device": "",
+        "description": "",
+        "isFallbackAdapter": false,
+        "subgroupMinSize": 32,
+        "subgroupMaxSize": 32
+      },
+      "adapterKind": "hardware",
+      "device": {
+        "features": ["core-features-and-limits"],
+        "limits": {
+          "maxComputeWorkgroupSizeX": 256,
+          "maxComputeInvocationsPerWorkgroup": 256,
+          "maxStorageBufferBindingSize": 134217728,
+          "maxStorageBuffersPerShaderStage": 8
+        },
+        "adapterLimits": {
+          "maxStorageBuffersPerShaderStage": 16
+        }
+      },
+      "deviceLost": null,
+      "gpuErrors": [],
+      "scopedGpuErrors": [],
+      "environment": {
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/154.0.0.0 Safari/537.36",
+        "webgpuExposed": true,
+        "wgslLanguageFeatures": [
+          "buffer_view",
+          "immediate_address_space",
+          "linear_indexing",
+          "packed_4x8_integer_dot_product",
+          "pointer_composite_access",
+          "readonly_and_readwrite_storage_textures",
+          "subgroup_id",
+          "subgroup_uniformity",
+          "swizzle_assignment",
+          "texture_and_sampler_let",
+          "texture_formats_tier1",
+          "uniform_buffer_standard_layout",
+          "unrestricted_pointer_parameters"
+        ]
+      },
+      "timings": {
+        "oracleMs": 3451.5,
+        "browserLaunchMs": 406,
+        "navigationMs": 3774,
+        "totalMs": 5453
+      },
+      "chrome": {
+        "executablePath": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+        "version": "154.0.8037.98",
+        "headless": true,
+        "transport": "launch",
+        "contextMode": "isolated-new-context",
+        "launchAttempts": [
+          {
+            "transport": "launch",
+            "ok": true
+          }
+        ],
+        "endpoint": null,
+        "args": null,
+        "processLogPath": null,
+        "processLog": null,
+        "environmentHints": []
+      },
+      "pageErrors": [],
+      "failedRequests": [],
+      "runFailure": null,
+      "rawArtifactSha256": "38e4eb49ddfe38778337687cedd0d8271cc9b10259bb1c3b1f815f5caf0252c1",
+      "rawArtifactPath": ".local/t4-1-native-material-final.json",
+      "consoleNonWarning": [
+        {
+          "type": "error",
+          "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+        }
+      ]
+    },
+    "bc4IntegerReferenceFailure": {
+      "tool": "gpu-oracle",
+      "toolVersion": 1,
+      "hostBuildId": "ddf954a09f99",
+      "buildIdentity": {
+        "schemaVersion": 1,
+        "recipe": "tsc -p tsconfig.test.json + pinned codec vendor copy",
+        "node": "v24.14.0",
+        "dependencyScope": "conservative: engine src, configs, lock and compiler identity",
+        "sourceSha256": "279a272fcf84cc06b7c2dd97f9812352562082f7712431c6a79e005068b30eca",
+        "outputSha256": "dd4eca2190f782dc26fc134844223fd9918b8984073218b6f6608571afda1a51",
+        "completedAt": "2026-10-08T19:49:05.793Z"
+      },
+      "oracleSha256": "d645389732b880d484179114b5116891ff51b49ff213345d471b81132708246e",
+      "oracle": "pc-texture-product",
+      "oracleFile": "OEngine/tests/oracle/pc-texture-product-gpu.mjs",
+      "oracleEntry": "runPcTextureProductGpuOracle",
+      "registry": {
+        "description": "T4.1 non-production BC product/full mips/NPOT/native evaluator/coverage/Worker and new-device replay.",
+        "note": null,
+        "negativeControl": false
+      },
+      "status": "failed",
+      "failureKind": "oracle-throw",
+      "summary": null,
+      "error": {
+        "kind": "assertion-or-throw",
+        "name": "Error",
+        "code": null,
+        "message": "BC native shader numerical error 0.004257261753082275 exceeds unchanged 1e-4",
+        "stack": "Error: BC native shader numerical error 0.004257261753082275 exceeds unchanged 1e-4\n    at check (http://127.0.0.1:6451/OEngine/tests/oracle/texture-baseline-gpu.mjs:20:25)\n    at sampleProduct (http://127.0.0.1:6451/OEngine/tests/oracle/pc-texture-product-gpu.mjs:99:2)\n    at async runPcTextureProductGpuOracle (http://127.0.0.1:6451/OEngine/tests/oracle/pc-texture-product-gpu.mjs:112:43)\n    at async run (http://127.0.0.1:6451/__gpu-oracle/page/host.mjs:214:15)\n    at async http://127.0.0.1:6451/__gpu-oracle/page/host.mjs:266:11"
+      },
+      "adapter": {
+        "vendor": "nvidia",
+        "architecture": "turing",
+        "device": "",
+        "description": "",
+        "isFallbackAdapter": false,
+        "subgroupMinSize": 32,
+        "subgroupMaxSize": 32
+      },
+      "adapterKind": "hardware",
+      "device": {
+        "features": ["core-features-and-limits", "texture-compression-bc"],
+        "limits": {
+          "maxComputeWorkgroupSizeX": 256,
+          "maxComputeInvocationsPerWorkgroup": 256,
+          "maxStorageBufferBindingSize": 134217728,
+          "maxStorageBuffersPerShaderStage": 8
+        },
+        "adapterLimits": {
+          "maxStorageBuffersPerShaderStage": 16
+        }
+      },
+      "deviceLost": null,
+      "gpuErrors": [],
+      "scopedGpuErrors": [],
+      "environment": {
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/154.0.0.0 Safari/537.36",
+        "webgpuExposed": true,
+        "wgslLanguageFeatures": [
+          "buffer_view",
+          "immediate_address_space",
+          "linear_indexing",
+          "packed_4x8_integer_dot_product",
+          "pointer_composite_access",
+          "readonly_and_readwrite_storage_textures",
+          "subgroup_id",
+          "subgroup_uniformity",
+          "swizzle_assignment",
+          "texture_and_sampler_let",
+          "texture_formats_tier1",
+          "uniform_buffer_standard_layout",
+          "unrestricted_pointer_parameters"
+        ]
+      },
+      "timings": {
+        "oracleMs": 52570.1,
+        "browserLaunchMs": 467,
+        "navigationMs": 53097,
+        "totalMs": 54774
+      },
+      "chrome": {
+        "executablePath": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+        "version": "154.0.8037.98",
+        "headless": true,
+        "transport": "launch",
+        "contextMode": "isolated-new-context",
+        "launchAttempts": [
+          {
+            "transport": "launch",
+            "ok": true
+          }
+        ],
+        "endpoint": null,
+        "args": null,
+        "processLogPath": null,
+        "processLog": null,
+        "environmentHints": []
+      },
+      "pageErrors": [],
+      "failedRequests": [],
+      "runFailure": null,
+      "rawArtifactSha256": "fb3e81e86971dc232c7bc3922ea559f6b6998f0de1fea3b747dd63f118e8da78",
+      "rawArtifactPath": ".local/t4-1-product-first.json",
+      "consoleNonWarning": [
+        {
+          "type": "error",
+          "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+        }
+      ]
+    },
+    "bc4FloatReferenceFailure": {
+      "tool": "gpu-oracle",
+      "toolVersion": 1,
+      "hostBuildId": "1868287120aa",
+      "buildIdentity": {
+        "schemaVersion": 1,
+        "recipe": "tsc -p tsconfig.test.json + pinned codec vendor copy",
+        "node": "v24.14.0",
+        "dependencyScope": "conservative: engine src, configs, lock and compiler identity",
+        "sourceSha256": "279a272fcf84cc06b7c2dd97f9812352562082f7712431c6a79e005068b30eca",
+        "outputSha256": "dd4eca2190f782dc26fc134844223fd9918b8984073218b6f6608571afda1a51",
+        "completedAt": "2026-10-08T19:49:05.793Z"
+      },
+      "oracleSha256": "7c0169a792b531aa4edb76a0c80f91c2e0c61012f3706302b3c9fc718843551c",
+      "oracle": "pc-texture-product",
+      "oracleFile": "OEngine/tests/oracle/pc-texture-product-gpu.mjs",
+      "oracleEntry": "runPcTextureProductGpuOracle",
+      "registry": {
+        "description": "T4.1 non-production BC product/full mips/NPOT/native evaluator/coverage/Worker and new-device replay.",
+        "note": null,
+        "negativeControl": false
+      },
+      "status": "failed",
+      "failureKind": "harness-error",
+      "summary": null,
+      "error": {
+        "name": "Error",
+        "message": "test build is stale: production input changed; run npm run build:test",
+        "stack": "Error: test build is stale: production input changed; run npm run build:test\n    at verifyTestBuild (file:///D:/code/EEngine%20-%20%E5%89%AF%E6%9C%AC/tools/test-build.mjs:51:11)\n    at async file:///D:/code/EEngine%20-%20%E5%89%AF%E6%9C%AC/tools/gpu-oracle.mjs:415:5"
+      },
+      "adapter": null,
+      "adapterKind": null,
+      "device": null,
+      "deviceLost": null,
+      "gpuErrors": [],
+      "scopedGpuErrors": [],
+      "environment": null,
+      "timings": {
+        "oracleMs": null,
+        "browserLaunchMs": 428,
+        "navigationMs": 54099,
+        "totalMs": 55591
+      },
+      "chrome": {
+        "executablePath": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+        "version": "154.0.8037.98",
+        "headless": true,
+        "transport": "launch",
+        "contextMode": "isolated-new-context",
+        "launchAttempts": [
+          {
+            "transport": "launch",
+            "ok": true
+          }
+        ],
+        "endpoint": null,
+        "args": null,
+        "processLogPath": null,
+        "processLog": null,
+        "environmentHints": []
+      },
+      "pageErrors": [],
+      "failedRequests": [],
+      "runFailure": null,
+      "rawArtifactSha256": "b9da3d6b5942f8366a9c52fae0c3805825a86b12ddb6d03e824292e63cb22f8c",
+      "rawArtifactPath": ".local/t4-1-product-float-reference.json",
+      "consoleNonWarning": [
+        {
+          "type": "error",
+          "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+        }
+      ]
+    },
+    "ktxSrgbReferenceFailure": {
+      "tool": "gpu-oracle",
+      "toolVersion": 1,
+      "hostBuildId": "31e885d701f1",
+      "buildIdentity": {
+        "schemaVersion": 1,
+        "recipe": "tsc -p tsconfig.test.json + pinned codec vendor copy",
+        "node": "v24.14.0",
+        "dependencyScope": "conservative: engine src, configs, lock and compiler identity",
+        "sourceSha256": "079ce4ca157d0f24cafe8366b27e855d1410cd0d95ef7a684fc3aa0b605d861b",
+        "outputSha256": "af1be8710d310f49968a44b934b93451c4e2f047daf770e1582ff9eb35fbf031",
+        "completedAt": "2026-10-08T20:29:44.584Z"
+      },
+      "oracleSha256": "eaa6dd23dd527b7a1bab38cae0d4c123ae49923782f24a48abd343e404682552",
+      "oracle": "pc-texture-import",
+      "oracleFile": "OEngine/tests/oracle/pc-texture-import-gpu.mjs",
+      "oracleEntry": "runPcTextureImportGpuOracle",
+      "registry": {
+        "description": "T4.1 real browser KTX Worker, ETC1S/UASTC/Zstd, full mips, compressed array decode and failed-import retry.",
+        "note": null,
+        "negativeControl": false
+      },
+      "status": "failed",
+      "failureKind": "oracle-throw",
+      "summary": null,
+      "error": {
+        "kind": "assertion-or-throw",
+        "name": "Error",
+        "code": null,
+        "message": "KTX hardware decode error 0.002124449666882855 exceeds unchanged 1e-4",
+        "stack": "Error: KTX hardware decode error 0.002124449666882855 exceeds unchanged 1e-4\n    at check (http://127.0.0.1:7024/OEngine/tests/oracle/texture-baseline-gpu.mjs:20:25)\n    at runPcTextureImportGpuOracle (http://127.0.0.1:7024/OEngine/tests/oracle/pc-texture-import-gpu.mjs:130:9)\n    at async run (http://127.0.0.1:7024/__gpu-oracle/page/host.mjs:214:15)\n    at async http://127.0.0.1:7024/__gpu-oracle/page/host.mjs:266:11"
+      },
+      "adapter": {
+        "vendor": "nvidia",
+        "architecture": "turing",
+        "device": "",
+        "description": "",
+        "isFallbackAdapter": false,
+        "subgroupMinSize": 32,
+        "subgroupMaxSize": 32
+      },
+      "adapterKind": "hardware",
+      "device": {
+        "features": ["core-features-and-limits", "texture-compression-bc"],
+        "limits": {
+          "maxComputeWorkgroupSizeX": 256,
+          "maxComputeInvocationsPerWorkgroup": 256,
+          "maxStorageBufferBindingSize": 134217728,
+          "maxStorageBuffersPerShaderStage": 8
+        },
+        "adapterLimits": {
+          "maxStorageBuffersPerShaderStage": 16
+        }
+      },
+      "deviceLost": null,
+      "gpuErrors": [],
+      "scopedGpuErrors": [],
+      "environment": {
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/154.0.0.0 Safari/537.36",
+        "webgpuExposed": true,
+        "wgslLanguageFeatures": [
+          "buffer_view",
+          "immediate_address_space",
+          "linear_indexing",
+          "packed_4x8_integer_dot_product",
+          "pointer_composite_access",
+          "readonly_and_readwrite_storage_textures",
+          "subgroup_id",
+          "subgroup_uniformity",
+          "swizzle_assignment",
+          "texture_and_sampler_let",
+          "texture_formats_tier1",
+          "uniform_buffer_standard_layout",
+          "unrestricted_pointer_parameters"
+        ]
+      },
+      "timings": {
+        "oracleMs": 443,
+        "browserLaunchMs": 471,
+        "navigationMs": 830,
+        "totalMs": 2659
+      },
+      "chrome": {
+        "executablePath": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+        "version": "154.0.8037.98",
+        "headless": true,
+        "transport": "launch",
+        "contextMode": "isolated-new-context",
+        "launchAttempts": [
+          {
+            "transport": "launch",
+            "ok": true
+          }
+        ],
+        "endpoint": null,
+        "args": null,
+        "processLogPath": null,
+        "processLog": null,
+        "environmentHints": []
+      },
+      "pageErrors": [],
+      "failedRequests": [],
+      "runFailure": null,
+      "rawArtifactSha256": "380c0ee5899d1727bb933a63e578aeaac53e037de540029c2a2438e76aba4f0d",
+      "rawArtifactPath": ".local/t4-1-import-final.json",
+      "consoleNonWarning": [
+        {
+          "type": "error",
+          "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+        }
+      ]
+    }
+  },
+  "nativeCanonical": {
+    "rawArtifactSha256": "ac98fcd247a0517faa43569414f03222532e5b64edcc891e848d31c521a4f1f9",
+    "caseCount": 4,
+    "cases": [
+      {
+        "w": 257,
+        "h": 129,
+        "semantic": "base-color-srgb",
+        "reference": [
+          "4a6925097cc262123d4d8712296e2c26e543ea769bf279b873f8cf397f009d47",
+          "2131ac3b85471a17134bc2b3ba4443333664977a782767cd55a1e87e91455a64",
+          "271b402e713c5dd6ff381c4353deb32abf4d5cf141065dac1f2075f92282c430",
+          "891cf622acc824a9845befbc6503865c1eed086404517e8a20ad4efbb414359c",
+          "75ac6ec4a0ecaf1ae2259366dd4c4056435fa2f3a19646f1d138939796748924",
+          "af2bedc0d081c92073391f79017431f396bff83abbcb64b7538605938d9b555a",
+          "5db68ce4a4c8f7b59ce58303aa3c0ab9e7f82d47844eb4ed5f867b90c26e83f8",
+          "56f7d44532965bc13512dc9b205f5927108aebb551ebb9cc918f1043ec6b9fe9",
+          "0af29d3df6a3d045fb9d64974d6a13596221b72b04af9b39ed8e3d9fe61cad4b"
+        ],
+        "candidateMipHashes": [
+          "4a6925097cc262123d4d8712296e2c26e543ea769bf279b873f8cf397f009d47",
+          "2131ac3b85471a17134bc2b3ba4443333664977a782767cd55a1e87e91455a64",
+          "271b402e713c5dd6ff381c4353deb32abf4d5cf141065dac1f2075f92282c430",
+          "891cf622acc824a9845befbc6503865c1eed086404517e8a20ad4efbb414359c",
+          "75ac6ec4a0ecaf1ae2259366dd4c4056435fa2f3a19646f1d138939796748924",
+          "af2bedc0d081c92073391f79017431f396bff83abbcb64b7538605938d9b555a",
+          "5db68ce4a4c8f7b59ce58303aa3c0ab9e7f82d47844eb4ed5f867b90c26e83f8",
+          "56f7d44532965bc13512dc9b205f5927108aebb551ebb9cc918f1043ec6b9fe9",
+          "0af29d3df6a3d045fb9d64974d6a13596221b72b04af9b39ed8e3d9fe61cad4b"
+        ],
+        "candidate": "3cc897aa010876484dab79197a30076132141ae6e9510cfe763e224209530895",
+        "wasmLinearHighWaterBytes": 33554432
+      },
+      {
+        "w": 257,
+        "h": 129,
+        "semantic": "normal-linear",
+        "reference": [
+          "f8272933fa69d5fd817e5d8b20d859b439502d90df46390812e1c5955cb3008c",
+          "af5c5295c48f1babb48bbdd2bab68a8bdc73595f9d1d997a576cfa6579817a7e",
+          "d09ac40b6179f6ee3c08aa505bdbe32396a07dc69efb9f52ef3915ce511ea33d",
+          "b871e8f6356143db01b1891621cf7b6c0501732e7f76e2a96d11a3c09924a58f",
+          "fe64be868ed2fd11a63d04cbd456698e6578314ac58500f7e8b5061aea4e23ca",
+          "f7b261f917cb5f7c3fadc82055aede1b0fea3cedbc404fc848d398c3f7473e74",
+          "89bbb0d973437e1b3e50003c23de913c6d35fc40a0c9b772bc491676dc8e3e84",
+          "f27aae2b5d2639eee84fc57f163d41e80b83a93a11513b6973c7eab649ca44d3",
+          "8cbe6d7e6f7e5ca195db99f2aeaa7f3c80034786e207e3c2b5f8c479cadd9dbb"
+        ],
+        "candidateMipHashes": [
+          "f8272933fa69d5fd817e5d8b20d859b439502d90df46390812e1c5955cb3008c",
+          "af5c5295c48f1babb48bbdd2bab68a8bdc73595f9d1d997a576cfa6579817a7e",
+          "d09ac40b6179f6ee3c08aa505bdbe32396a07dc69efb9f52ef3915ce511ea33d",
+          "b871e8f6356143db01b1891621cf7b6c0501732e7f76e2a96d11a3c09924a58f",
+          "fe64be868ed2fd11a63d04cbd456698e6578314ac58500f7e8b5061aea4e23ca",
+          "f7b261f917cb5f7c3fadc82055aede1b0fea3cedbc404fc848d398c3f7473e74",
+          "89bbb0d973437e1b3e50003c23de913c6d35fc40a0c9b772bc491676dc8e3e84",
+          "f27aae2b5d2639eee84fc57f163d41e80b83a93a11513b6973c7eab649ca44d3",
+          "8cbe6d7e6f7e5ca195db99f2aeaa7f3c80034786e207e3c2b5f8c479cadd9dbb"
+        ],
+        "candidate": "ea6376407b199b09cb3488db98c596ced20d0385893eba0c0bfc579599c7a59d",
+        "wasmLinearHighWaterBytes": 33554432
+      },
+      {
+        "w": 257,
+        "h": 129,
+        "semantic": "orm-linear",
+        "reference": [
+          "60fa2932d079d22ff892640e67e8522c1ec725d81b9e2bf0f99ef13c5b1ba0e8",
+          "7b2a772a813e8614c3bda315274fd640cd1342a4858ff53dd670102363ce9d6a",
+          "a5656990675061387cad29fdf7bd78ecb00b74f347b28fdb8a105605360970af",
+          "d921d1fbfe09b22ddbe79e78adb0c17d9a139c3db0298ba539cf8a4004f54c85",
+          "05a49968fe46ae3a6eacd0d5e9a0b6f5ff1facdcbbc152fcd820ac1b49828a04",
+          "7350432113dd0a2e5fa08e2ba668f3940d42fe7418a92cc902817e99d8d3a9aa",
+          "2ce27129893cd2d086b2924cadcb6b8cc47fb71f5af5653041a5b23a406a81b6",
+          "56f7d44532965bc13512dc9b205f5927108aebb551ebb9cc918f1043ec6b9fe9",
+          "0af29d3df6a3d045fb9d64974d6a13596221b72b04af9b39ed8e3d9fe61cad4b"
+        ],
+        "candidateMipHashes": [
+          "60fa2932d079d22ff892640e67e8522c1ec725d81b9e2bf0f99ef13c5b1ba0e8",
+          "7b2a772a813e8614c3bda315274fd640cd1342a4858ff53dd670102363ce9d6a",
+          "a5656990675061387cad29fdf7bd78ecb00b74f347b28fdb8a105605360970af",
+          "d921d1fbfe09b22ddbe79e78adb0c17d9a139c3db0298ba539cf8a4004f54c85",
+          "05a49968fe46ae3a6eacd0d5e9a0b6f5ff1facdcbbc152fcd820ac1b49828a04",
+          "7350432113dd0a2e5fa08e2ba668f3940d42fe7418a92cc902817e99d8d3a9aa",
+          "2ce27129893cd2d086b2924cadcb6b8cc47fb71f5af5653041a5b23a406a81b6",
+          "56f7d44532965bc13512dc9b205f5927108aebb551ebb9cc918f1043ec6b9fe9",
+          "0af29d3df6a3d045fb9d64974d6a13596221b72b04af9b39ed8e3d9fe61cad4b"
+        ],
+        "candidate": "08cfad68ac63740cafc09ddea2098796381078c25decaf344e3ea5db2a42b211",
+        "wasmLinearHighWaterBytes": 33554432
+      },
+      {
+        "w": 257,
+        "h": 129,
+        "semantic": "occlusion-linear",
+        "reference": [
+          "59f5fba9b7954b56d2e6f5b5edf126b96b5dca24ae65de3d55e9aadac3e6741b",
+          "226b22a272002c53c5905a005522f251a66e6db7e933d456af65d1e4f3fa9200",
+          "ee0f89cb7628c158c8eb27c697860ca4cbe1fcc5ba93936d95ec79a42a646d42",
+          "70d90906eae796bbe7a81508462eaf8598fee347c19955c2b0cc36ee595568f5",
+          "b2d2090f8072870aae77e712d0595157c0367d3865aa11de6f505a3f7a3fe51c",
+          "74237409b6e7f10895a1f3f763343ad7496371e16a189e0f4dd508abd6c296cc",
+          "ecf5f3c1fa5352b670c456a30897ea9e7bed29fda7b8c56b4501cecb1dffb2d9",
+          "1166dd60938b9897744ccf94acb457ec11f8dfffd4c4c84823ee3bba578c6a79",
+          "1166dd60938b9897744ccf94acb457ec11f8dfffd4c4c84823ee3bba578c6a79"
+        ],
+        "candidateMipHashes": [
+          "59f5fba9b7954b56d2e6f5b5edf126b96b5dca24ae65de3d55e9aadac3e6741b",
+          "226b22a272002c53c5905a005522f251a66e6db7e933d456af65d1e4f3fa9200",
+          "ee0f89cb7628c158c8eb27c697860ca4cbe1fcc5ba93936d95ec79a42a646d42",
+          "70d90906eae796bbe7a81508462eaf8598fee347c19955c2b0cc36ee595568f5",
+          "b2d2090f8072870aae77e712d0595157c0367d3865aa11de6f505a3f7a3fe51c",
+          "74237409b6e7f10895a1f3f763343ad7496371e16a189e0f4dd508abd6c296cc",
+          "ecf5f3c1fa5352b670c456a30897ea9e7bed29fda7b8c56b4501cecb1dffb2d9",
+          "1166dd60938b9897744ccf94acb457ec11f8dfffd4c4c84823ee3bba578c6a79",
+          "1166dd60938b9897744ccf94acb457ec11f8dfffd4c4c84823ee3bba578c6a79"
+        ],
+        "candidate": "4422aa385b76f6159b1679f4f427a1b25b0b2196ea42abc6a2ad1290d2443151",
+        "wasmLinearHighWaterBytes": 33554432
+      }
+    ],
+    "targetedNpotAllMipHashesEqual": true,
+    "originalFullRun": {
+      "status": "failed",
+      "logSha256": "92f1908f058bcc248c5aa1c63ad690551f35860751d4a526a891b7bcc90d8d4b",
+      "log": "✔ residency routes stay instance data; physical bank/sampler profiles define native programs (6.3896ms)\n✔ dynamic snapshots validate ranges and widths and coverage retains live dynamic inputs (2.2596ms)\n✔ constant normal Products use no texture resources and preserve the normal decode (1.1056ms)\n✔ invalid physical routes and mismatched compiler products reject before GPU consumption (0.6473ms)\n✔ asset codec task contract rejects invalid or unavailable protocol values (2.881ms)\n✔ bounded pool preserves priority, FIFO, concurrency, memory, and transfer lists (5.3092ms)\n✔ pool releases reservations after errors, replaces a failed worker, and cancels work (2.1301ms)\n✔ pool dispose rejects queued and active tasks idempotently (1.1226ms)\n✔ codec service is lazy, bounded by hardware concurrency, and publishes stable evidence (1.6053ms)\n✔ texture planner selects direct, worker, then explicitly declared fallback (0.9874ms)\n✔ pinned Khronos libktx WASM transcodes the deterministic UASTC fixture to BC7 (240.1358ms)\n✔ pinned ETC1S mip chain normalizes into the ordinary encoded package contract (215.438ms)\n✔ schema3 NPOT whole-domain full tails, exact coverage, disk/in-memory same contract (815.9195ms)\n✔ scalar source channel, semantic identity, provided signed non-unit normal mips (10.4091ms)\n✔ libktx metadata admission, ETC1S full chain, UASTC missing mips recook, real Zstd (142.4218ms)\n✔ native independent quality6 encoder matches WASM; upstream CPU decode (150.0637ms)\n✖ native canonical reference precedes WASM: full mip BC7/BC4 at 1K/2K/4K and NPOT (3498872.4266ms)\n✔ preparation init failure, invalid result, queued/assigned cancellation, retry and dispose (17.8524ms)\n✔ native byte-domain checks precede pointer reads; overflow is explicit (0.3339ms)\n✔ encoded-variant writer round-trips BC7 provenance and explicit physical extents (36.4715ms)\n✔ Runtime Package V2 metadata is deterministic and rejects corruption (14.2118ms)\n✔ Texture Cooker V2 preserves color-space, normal, and mask mip semantics in its portable oracle (19.2025ms)\n✔ Texture Cooker V2 emits complete offline mip chains and capability-selected physical variants (22.8684ms)\n✔ BC5 normal and BC4 mask blocks preserve their declared sampling semantics (7.6719ms)\n✔ Texture Package V2 uploads selected BC mips without runtime mip work (6.8406ms)\n✔ Texture Cooker V2 selects a declared portable fallback for unaligned bases and keeps identity dimensional (11.0149ms)\n✔ real tsc output rejects both changed production input and edited compiled output (976.5185ms)\nℹ tests 27\nℹ suites 0\nℹ pass 26\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 3500187.3941\n\n✖ failing tests:\n\ntest at OEngine\\tests\\unit\\pc-texture-product.test.mjs:178:1\n✖ native canonical reference precedes WASM: full mip BC7/BC4 at 1K/2K/4K and NPOT (3498872.4266ms)\n  AssertionError [ERR_ASSERTION]: 257x129 base-color-srgb\n  + actual - expected\n  \n    [\n  +   '4a6925097cc262123d4d8712296e2c26e543ea769bf279b873f8cf397f009d47',\n  -   '64d7c34c2c36dd068305f5b16ef9c7817e9103bc06845d0b366d79f8cc70536e',\n      '2131ac3b85471a17134bc2b3ba4443333664977a782767cd55a1e87e91455a64',\n      '271b402e713c5dd6ff381c4353deb32abf4d5cf141065dac1f2075f92282c430',\n      '891cf622acc824a9845befbc6503865c1eed086404517e8a20ad4efbb414359c',\n      '75ac6ec4a0ecaf1ae2259366dd4c4056435fa2f3a19646f1d138939796748924',\n      'af2bedc0d081c92073391f79017431f396bff83abbcb64b7538605938d9b555a',\n  \n      at TestContext.<anonymous> (file:///D:/code/EEngine%20-%20%E5%89%AF%E6%9C%AC/OEngine/tests/unit/pc-texture-product.test.mjs:264:14)\n      at async Test.run (node:internal/test_runner/test:1125:7)\n      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7) {\n    generatedMessage: false,\n    code: 'ERR_ASSERTION',\n    actual: [ '4a6925097cc262123d4d8712296e2c26e543ea769bf279b873f8cf397f009d47', '2131ac3b85471a17134bc2b3ba4443333664977a782767cd55a1e87e91455a64', '271b402e713c5dd6ff381c4353deb32abf4d5cf141065dac1f2075f92282c430', '891cf622acc824a9845befbc6503865c1eed086404517e8a20ad4efbb414359c', '75ac6ec4a0ecaf1ae2259366dd4c4056435fa2f3a19646f1d138939796748924', 'af2bedc0d081c92073391f79017431f396bff83abbcb64b7538605938d9b555a', '5db68ce4a4c8f7b59ce58303aa3c0ab9e7f82d47844eb4ed5f867b90c26e83f8', '56f7d44532965bc13512dc9b205f5927108aebb551ebb9cc918f1043ec6b9fe9', '0af29d3df6a3d045fb9d64974d6a13596221b72b04af9b39ed8e3d9fe61cad4b' ],\n    expected: [ '64d7c34c2c36dd068305f5b16ef9c7817e9103bc06845d0b366d79f8cc70536e', '2131ac3b85471a17134bc2b3ba4443333664977a782767cd55a1e87e91455a64', '271b402e713c5dd6ff381c4353deb32abf4d5cf141065dac1f2075f92282c430', '891cf622acc824a9845befbc6503865c1eed086404517e8a20ad4efbb414359c', '75ac6ec4a0ecaf1ae2259366dd4c4056435fa2f3a19646f1d138939796748924', 'af2bedc0d081c92073391f79017431f396bff83abbcb64b7538605938d9b555a', '5db68ce4a4c8f7b59ce58303aa3c0ab9e7f82d47844eb4ed5f867b90c26e83f8', '56f7d44532965bc13512dc9b205f5927108aebb551ebb9cc918f1043ec6b9fe9', '0af29d3df6a3d045fb9d64974d6a13596221b72b04af9b39ed8e3d9fe61cad4b' ],\n    operator: 'deepStrictEqual',\n    diff: 'simple'\n  }\n",
+      "completedPrefixCases": 12,
+      "prefixEvidence": "1K/2K/4K x four semantics passed full mip hash assertions before NPOT mip0 failed. Original loop wrote detailed records only at completion, so prefix hash records are unavailable.",
+      "rootCause": "Identical NPOT resample bytes, but MinGW global sqrt/floor overload lookup differed from Emscripten. Native-only BcMath.h imports std float overloads; upstream source, WASM binary, quality and assertions unchanged.",
+      "affectedRerunLogSha256": "43eebedc45c8a63767285acc728f1b530d4d0736ec1e2bf2c8db7488f14673a0",
+      "affectedRerunLog": "✔ native canonical reference precedes WASM: full mip BC7/BC4 257x129 (8332.9674ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 8445.827\n",
+      "compositeClosure": "Original 12 completed cases plus corrected NPOT four semantics. No end-to-end passed full reference rerun; old failure retained. New tests split dimensions and save hashes before assertions to retain future evidence."
+    }
+  },
+  "codec": {
+    "pins": {
+      "basis": "99f52d63aa6799cbdaecfe977111dc5ec3b31d47",
+      "ktx": "4d6fc70eaf62ad0558e63e8d97eb9766118327a6"
+    },
+    "emscripten": "emcc (Emscripten gcc/clang-like replacement + linker emulating GNU ld) 6.0.9 (4e4223852a0835923411059a3929907d7df1232e)\r",
+    "recipe": "OEngine/tools/build-pc-texture-codec.mjs",
+    "memoryMaximumPerModule": {
+      "basis": 167772160,
+      "ktx": 100663296
+    },
+    "memoryMaximumPerWorker": 268435456,
+    "quality": "bc7e_scalar slowest/quality6; perceptual sRGB, linear uniform; BC4 scalar high_quality",
+    "modifications": "Upstream unchanged. EEngine C ABI block extraction/resampling and read-only KTX embind metadata/load/error ownership. Native MinGW compiler shim selects the upstream port's expected float sqrt/floor overloads.",
+    "glueHashes": {
+      "BcCodec.cpp": "5b8b881e8cc8199a86024103ce66ba5e6007de096d5707cd00ea5526bd946c83",
+      "BcReference.cpp": "b61b1c4930914edce5ada4912eb3f35c253af573ec5a07d9fbad7db0cbc06a36",
+      "BcMath.h": "a5fc22437ab60e1862f32d42111f7c2a3ba51f38d4170c6d96e5583f62d195b0",
+      "KtxRead.cpp": "50c2ec63434638ba09fd6f7f7871fd7169a72ab3ec2da183259f582c1e4f125d",
+      "CMakeLists.txt": "aac4e3707dd0643c780b2e2b6a2a62d97716bb5a3f37badfbd2a0b2bfa430092"
+    },
+    "hashes": {
+      "basis_bc.js": "43328f3e54c79d35399a623bf253265b0cdafd9f2fd86ce27fef9f34a30dfdd5",
+      "basis_bc.wasm": "8e29b96897f8b9a1f26c947d0e72bd531083efa5475c28f9b47a1f273155ef13",
+      "ktx_pc.js": "8e3620554283228b3b759083eb17292d172c6fb51285688c6ba140456b1cf7ee",
+      "ktx_pc.wasm": "7fcc1aaf2d0564a602defef4eb672412606b73fd9e45fa3e22b5d2e50f5fa5c9"
+    }
+  },
+  "memoryContract": {
+    "workerCountDefault": 1,
+    "basisWasmMaximumBytes": 167772160,
+    "ktxWasmMaximumBytes": 100663296,
+    "combinedWasmMaximumBytes": 268435456,
+    "taskInputMaximumBytes": 134217728,
+    "taskOutputMaximumBytes": 134217728,
+    "nativeDecodePeakBytes": null,
+    "actualHostPeakBytes": null,
+    "actualDriverPeakBytes": null
+  },
+  "notRun": [
+    "477MB authored workload: user permanently excluded",
+    "Authored renderer cutover/load/frame/VRAM: T4.2/T4.3 scope",
+    "Matched raw WASM vs Spark/direct P50/P95: no adoption/performance claim",
+    "Full GPU matrix end-to-end passed rerun: retained original failure plus affected replay evidence",
+    "Uncontrolled hardware device loss, cross-GPU/cross-browser and driver memory counters"
+  ],
+  "spark": "DEFER; no integration",
+  "stopBoundary": "T4.1; T4.2 not started"
+}

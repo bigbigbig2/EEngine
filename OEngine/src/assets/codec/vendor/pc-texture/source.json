@@ -1,0 +1,28 @@
+{
+  "pins": {
+    "basis": "99f52d63aa6799cbdaecfe977111dc5ec3b31d47",
+    "ktx": "4d6fc70eaf62ad0558e63e8d97eb9766118327a6"
+  },
+  "emscripten": "emcc (Emscripten gcc/clang-like replacement + linker emulating GNU ld) 6.0.9 (4e4223852a0835923411059a3929907d7df1232e)\r",
+  "recipe": "OEngine/tools/build-pc-texture-codec.mjs",
+  "memoryMaximumPerModule": {
+    "basis": 167772160,
+    "ktx": 100663296
+  },
+  "memoryMaximumPerWorker": 268435456,
+  "quality": "bc7e_scalar slowest/quality6; perceptual sRGB, linear uniform; BC4 scalar high_quality",
+  "modifications": "Upstream unchanged. EEngine C ABI block extraction/resampling and read-only KTX embind metadata/load/error ownership. Native MinGW compiler shim selects the upstream port's expected float sqrt/floor overloads.",
+  "glueHashes": {
+    "BcCodec.cpp": "5b8b881e8cc8199a86024103ce66ba5e6007de096d5707cd00ea5526bd946c83",
+    "BcReference.cpp": "b61b1c4930914edce5ada4912eb3f35c253af573ec5a07d9fbad7db0cbc06a36",
+    "BcMath.h": "a5fc22437ab60e1862f32d42111f7c2a3ba51f38d4170c6d96e5583f62d195b0",
+    "KtxRead.cpp": "50c2ec63434638ba09fd6f7f7871fd7169a72ab3ec2da183259f582c1e4f125d",
+    "CMakeLists.txt": "aac4e3707dd0643c780b2e2b6a2a62d97716bb5a3f37badfbd2a0b2bfa430092"
+  },
+  "hashes": {
+    "basis_bc.js": "43328f3e54c79d35399a623bf253265b0cdafd9f2fd86ce27fef9f34a30dfdd5",
+    "basis_bc.wasm": "8e29b96897f8b9a1f26c947d0e72bd531083efa5475c28f9b47a1f273155ef13",
+    "ktx_pc.js": "8e3620554283228b3b759083eb17292d172c6fb51285688c6ba140456b1cf7ee",
+    "ktx_pc.wasm": "7fcc1aaf2d0564a602defef4eb672412606b73fd9e45fa3e22b5d2e50f5fa5c9"
+  }
+}

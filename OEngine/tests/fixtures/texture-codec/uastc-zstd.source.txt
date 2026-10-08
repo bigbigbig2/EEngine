@@ -1,0 +1,8 @@
+Fixture: uastc-zstd.ktx2
+Source: KhronosGroup/KTX-Software
+Revision: 4f2d7bc7e26d92b0f0e61a7381b92e48a4485a5d
+Path: tests/resources/ktx2/ktx_document_uastc_rdo_4_zstd_5.ktx2
+Repository: https://github.com/KhronosGroup/KTX-Software
+License: upstream Apache-2.0; see codec/vendor/pc-texture/KTX-LICENSE.
+Unmodified fixture. This research revision is distinct from the production
+codec source pin v4.4.2 (4d6fc70eaf62ad0558e63e8d97eb9766118327a6).

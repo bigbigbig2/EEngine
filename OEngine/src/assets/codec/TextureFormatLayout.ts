@@ -5,6 +5,7 @@ export interface TextureFormatBlockLayout {
 }
 
 const LAYOUTS = new Map<GPUTextureFormat, TextureFormatBlockLayout>([
+  ["r8unorm", { blockWidth: 1, blockHeight: 1, bytesPerBlock: 1 }],
   ["rgba8unorm", { blockWidth: 1, blockHeight: 1, bytesPerBlock: 4 }],
   ["rgba8unorm-srgb", { blockWidth: 1, blockHeight: 1, bytesPerBlock: 4 }],
   ["bc1-rgba-unorm", { blockWidth: 4, blockHeight: 4, bytesPerBlock: 8 }],

@@ -87,12 +87,46 @@ test("Runtime Package V2 metadata is deterministic and rejects corruption", asyn
   }
   assert.equal(opened.evidence.sourceBytes, 8 * 8 * 4);
   assert.ok(opened.evidence.packageBytes > opened.evidence.sourceBytes);
-  assert.equal(opened.evidence.decodedPeakBytes, 8 * 8 * 4 + 4 * 4 * 4 + 2 * 2 * 4 + 4);
+  assert.equal(opened.evidence.rgbaEquivalentBytes, 8 * 8 * 4 + 4 * 4 * 4 + 2 * 2 * 4 + 4);
+  assert.equal(opened.evidence.retainedSidecarBytes, 496);
+  assert.equal(opened.evidence.actualDecodedPeakBytes, null);
 
   const corrupt = first.slice(0);
   const bytes = new Uint8Array(corrupt);
   bytes[bytes.length - 1] ^= 0x80;
   await assert.rejects(() => openTextureAssetPackageV2(corrupt), /checksum|content hash/i);
+});
+
+test("loaded sidecars cover all owned variants, independently of RGBA layout equivalent", async () => {
+  const source = sourceTexture("base-color-srgb");
+  const variant = {
+    profile: "portable-rgba8",
+    semantic: source.semantic,
+    format: "rgba8unorm-srgb",
+    blockWidth: 1,
+    blockHeight: 1,
+    bytesPerBlock: 4,
+    codecId: "reference-rgba8",
+    codecRevision: "fixture-v1",
+    codecBinaryHash: "9".repeat(64),
+    mips: [8, 4, 2, 1].map((size, level) => ({
+      level,
+      logicalWidth: size,
+      logicalHeight: size,
+      physicalWidth: size,
+      physicalHeight: size,
+      payload: new Uint8Array(size * size * 4).fill(128),
+    })),
+  };
+  const asset = await openTextureAssetPackageV2(
+    await writeEncodedTextureAssetPackageV2(source, [
+      variant,
+      { ...variant, profile: "worker-transcoded" },
+    ]),
+  );
+  assert.equal(asset.evidence.rgbaEquivalentBytes, 340);
+  assert.equal(asset.evidence.retainedSidecarBytes, 992);
+  assert.equal(asset.evidence.actualDecodedPeakBytes, null);
 });
 
 test("Texture Cooker V2 preserves color-space, normal, and mask mip semantics in its portable oracle", async () => {

@@ -286,7 +286,9 @@ async function codecBaseline(device) {
           finalMinimumMip: publication.currentMinimumMip,
         },
         live,
-        decodedPeakIsRgbaEquivalent: asset.evidence.decodedPeakBytes,
+        rgbaEquivalentBytes: asset.evidence.rgbaEquivalentBytes,
+        retainedSidecarBytes: asset.evidence.retainedSidecarBytes,
+        actualDecodedPeakBytes: asset.evidence.actualDecodedPeakBytes,
         actualWasmPeakBytes: null,
       });
       command = ShadeGPUCommandContext.create(graphics, "Renderer/GpuRenderWorld/release-transaction");

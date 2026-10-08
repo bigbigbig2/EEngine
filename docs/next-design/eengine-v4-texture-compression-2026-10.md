@@ -5,6 +5,9 @@ verifies:
   files:
     - project/workstreams/active/eengine-next-clean-rebuild.yaml
     - OEngine/src/assets/TextureAssetPackage.ts
+    - OEngine/src/assets/TextureProduct.ts
+    - OEngine/tools/texture-codec
+    - OEngine/tools/build-pc-texture-codec.mjs
     - OEngine/src/assets/RuntimeAssetManifestV2.ts
     - OEngine/src/assets/RuntimeAssetResidency.ts
     - OEngine/src/assets/codec
@@ -33,7 +36,7 @@ verifies:
 
 # PC-First GPU Native Texture Compression
 
-这是 virtual-resources-v4 的 Texture Compression slice 设计 authority；阶段状态、施工入口和实测结果只在[执行计划](../next-execution/eengine-v4-texture-compression-execution-2026-10.md)。[V4 母稿](./eengine-v4-native-shading-2026-10.md)仍是全局 authority。本文冻结目标，不宣称已经实现或验收。
+这是 virtual-resources-v4 的 Texture Compression slice 设计 authority；阶段状态、施工入口和实测结果只在[执行计划](../next-execution/eengine-v4-texture-compression-execution-2026-10.md)。[V4 母稿](./eengine-v4-native-shading-2026-10.md)仍是全局 authority。本文区分已有源码与冻结目标，不宣称production切换或整个slice验收完成。
 
 第一轮源码审查起点为 `579fd521b3e948ca2f3bb716aaec28f9d758cb0a`。第二轮复核 `99ca968aced19cd8fbe99b2fec6320e16b8f79e0`，仅交付Design V2。T4.0开工fetch后HEAD/origin/master=`b39f23a0e21a57c469cf2396d646ac80571fc48e`，production源码无变化；已跑真实Texture/codec/Spark component baseline，结果见Execution §9。下文仍区分当前实现、目标与候选，不以文档或component通过证明production切换。
 
@@ -87,7 +90,7 @@ flowchart TD
 - minMip 编码是有限 0..6/full，promotion 小于 6 会跳到 0；不是任意逐 mip scheduler。revision/minMip 在成功提交后发布，失败不能发布新 clamp。
 - package uploader 将行补到 256B 并 `.slice()`；`queue.writeTexture` 本身不要求 256B row 对齐，encoder buffer-to-texture copy 才要求。GPU/driver copy 仍不可避免，不能宣称 upload 零复制。
 - `physicalTextureExtent` 是 block upload footprint，**不是 GPUTexture base extent**。当前 createTexture 使用 source logical extent：没有 `texture-compression-unaligned` 时，非 4 倍数 BC base extent 不合法。逐 source mip 独立 round 也不等于合法 storage mip chain。
-- `decodedPeakBytes` 汇总 variant 的 `chunk.decodedBytes`：mip 部分按 logical texels×4，若带 local-variation sidecar 也加其 bytes；不是实际 WASM/browser peak。T4.0 重现 8² fixture 的836B=340B mip RGBA-equivalent+496B sidecar，旧340B assertion失败保留。`copyBytes=0`、transfer counters 不证明无内部复制。
+- T4.0 的 `decodedPeakBytes` 汇总 mip RGBA-equivalent 与 variation sidecar，836B=340B+496B，不是实际峰值。T4.1 已把 load evidence 升为 schema2，拆成 `rgbaEquivalentBytes`、`retainedSidecarBytes`、`actualDecodedPeakBytes:null`；历史失败保留，340B/496B 各自断言。`copyBytes=0`、transfer counters 不证明无内部复制。
 - TextureResidency 分配 32MiB variation owner、stage/promote 写 variation/version GPU 数据。符号闭包没有当前 production variation-query GPU consumer；NativeMaterialBindings 只要 slot/generation/revision/minMip。旧 route 的 variation 字段仍被 CPU pack，但不证明 shader 有 reader。
 - GPUTextureManager 的 source cache 没有独立 release/destroy API，GraphicsContext.destroy 未调用它；这是需审计的 owner 缺口，不能仅凭统计断言 driver 泄漏。切换后 material 不再创建 standalone source GPU texture；环境 owner 不顺带改写。
 
@@ -102,6 +105,16 @@ flowchart TD
 libktx constructor 将 JS 输入复制进 WASM，再创建 loaded texture；`getImage` 返回借用 heap view，本地逐 mip copy 在 delete/transfer 前必要。`finally delete()` 和 Worker transferable ownership 保留。当前 estimatedPeak=`max(8MiB,input×8)` 是调度估计；不是测量。默认最多 4 Worker、256MiB in-flight estimate、256 queued、3 failures，需要保留可取消/销毁行为，不把这些值认证为 4GB 预算最优。
 
 薄 bridge 同时提供 upstream metadata-only parse（不带 `KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT`）：先验证 dimensions/shape/levels/DFD 与预计 decoded/block bytes，再申请 cold-task credits 并加载数据。不能让很小 supercompressed input 绕过 host budget，先展开巨大纹理后才验证限额。Worker WASM maximum memory 与 task/output byte cap 有明确上限，超额明确失败并释放 credits；估计峰值与 actual linear-memory high-water 分开。不是另写 parser，也不增加本帧控制环。
+
+### 1.4 T4.1 非production产品边界
+
+`TextureProduct.ts` 实现 RuntimeAsset container2 / texture metadata3、共享 owned/disk validator、recipe/payload identity、完整 BC7/BC4 与有限 exact R8 planes。`PcTextureCook.ts`、`PcTexturePreparation.ts`、`pc-texture-worker.ts` 是 cold CPU producer，使用既有 WorkerPool；不创建 GPU owner。`writeTextureProductPlane` 仅对 caller-owned array layer 写 tight block rows，不 allocate/submit/publish；当前直接 consumer 只有独立 GPU oracle。
+
+新 `vendor/pc-texture` 是 pinned Basis direct encoder 与同 pin libktx read-only bridge；shape/DFD/levels/Zstd 仍由 libktx 解析。输入只做 magic/byte cap，先持有 bounded task credit，再解析尺寸并验证 live decode/output 预算，最后 load/transcode。Basis retained heap硬上限160MiB、libktx96MiB，合计256MiB；统计是两 heap 长度之和，浏览器原生 decode/driver峰值仍 UNKNOWN。PNG/JPEG/WebP decode 在 Worker admission 后执行，bitmap finally close；不是生产稳定帧工作。
+
+兼容 full-chain BC KTX 只提取 blocks，Basis 只 transcode；缺 mips/unaligned/需要 semantic 转换时才 canonical cook。完整 supplied/external mips 按 source domain 验证，再逐级映射到 ceil4 storage domain，额外 storage tail 复用 source 最后一层；不 normalize 已提供的 signed/non-unit XYZ。raw mip 仍 normalize-after-linear-filter；DFD transfer 与目标不同则只在 cold path 转换 RGB，alpha不做 gamma。save 才序列化，立即 upload 不 serialize/reopen。
+
+**生产仍是原 schema2/原 KTX Worker/原 Residency 与 material 消费链。** 两套文件的暂存是执行计划要求的非production construction，不是 runtime selector/bridge。T4.2 才原子接线所有 consumers、退休重复 parser/old worker/raw source route；本轮不升级为 production adoption，不解决 GPU source-cache teardown。
 
 ## 2. 最终决策
 
@@ -181,7 +194,7 @@ flowchart TD
 
 KTX2 是 external/import container，不是 Renderer abstraction。final BC KTX2 由 libktx cold extraction 写 RuntimeAsset manifest/chunks/checksums；不实现第二 KTX2 residency、不更换 container2。缺 mips、NPOT 或 scalar 通道不匹配时，upstream decode+同 recipe cook，不能将转码正常输入无故展开重编码。新增 import 不包括 HDR/cube/array，既有普通 GLB 功能不减少。
 
-Offline primary 使用 Basis `dds_mode → process_source_images → build_dds` 的 direct BC7/BC4 pack，窄适配 block vectors，不先编码 universal 中间格式、不自己 parse DDS。相同 core 提供默认 browser WASM cold cook，复用 bounded WorkerPool/Service；binary lazy，cooked load 不启动。CPU输出与 package-open 使用同一 validated view（owned mip chunks+metadata），立即消费不 serialize→parse，只有保存调用 writer。借用 WASM view 在 delete/transfer 前一次 owned copy；shared archive 不可误 detach，hash/validation 每个 immutable package 加载一次。
+Offline primary 使用 Basis direct BC7/BC4 core；`dds_mode → process_source_images → build_dds` 是研究质量设置/packer的入口，T4.1薄 glue直接调用 scalar encoder，返回 per-mip blocks，不执行DDS container pipeline、不先编码 universal 中间格式、不自己 parse DDS。相同 core 提供默认 browser WASM cold cook，复用 bounded WorkerPool/Service；binary lazy，cooked load 不启动。CPU输出与 package-open 使用同一 validated view（owned mip chunks+metadata），立即消费不 serialize→parse，只有保存调用 writer。借用 WASM view 在 delete/transfer 前一次 owned copy；shared archive 不可误 detach，hash/validation 每个 immutable package 加载一次。
 
 ### 3.1 Texture asset metadata schema3
 
@@ -262,7 +275,7 @@ readback 仅 delayed diagnostics，不参与本帧 texture readiness；Spark 编
 
 ## 5. 开源 Source Map
 
-以下为**实际源码阅读和拟采用**，不是本轮vendor/port已完成。T4.1必须补本地移植/构建diff、binary hash、NOTICE以及independent oracle后才升级adoption claim。
+以下记录实际源码阅读和采用边界。T4.1 的 Basis/libktx 非production构建已落在 `OEngine/tools/texture-codec`，binary/glue hashes 与编译器记录在 `vendor/pc-texture/source.json`，NOTICE/各依赖license同目录保留；独立 oracle 结果见Execution。producer glue 与上游未修改 core 分开记录，production adoption 仍须 T4.2 全消费者接线，不以 vendor 文件存在替代证明。
 
 | Reference / pin / license                                                                                                                                                                                                                    | 实读 hot path                                                                                                                                                                                                                                                                                                                                                                                                                         | Local / Adopt / Adapt / Reject                                                                                                                                                                                                                                                                                                               |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -339,4 +352,4 @@ Residency ideal为exact live blocks；expected加neutral/free容量与metadata�
 
 验收需真实GPU证明format、sampling、sRGB一次解码、normal signedZ/length、ORM channels、exact main/VSM alpha、NPOT/repeat/tail/derivatives/LOD、progressive clamp、generation与replacement/abort/retry/loss/fence。source catalog全部覆盖、同quality不减少maps、compressed distribution和owner accounting可核对；historical测试通过不代替当前product消费。现有tiny texture component仅4×4 RGBA clamp，不足作BC闭包。
 
-**T4.0 baseline与有限裁决已完成；READY FOR T4.1**。Spark=DEFER，T4.1沿Basis/native/WASM与libktx主产品施工，不为候选继续研究或建立第二Residency。当前source cache lifetime、NPOT、decoded metric缺口已定位，必须由T4.1/T4.2对应owner闭合；baseline记录缺陷不等于压缩生产验收。后续用dungeon原尺寸完整catalog与1K/2K/4K语义矩阵，477MB/66Product性能和全Renderer frame baseline为未运行范围。T4.3结束STOP，不自动开始VT。
+施工状态与下一授权边界只读[Execution](../next-execution/eengine-v4-texture-compression-execution-2026-10.md)。Spark=DEFER，不继续候选研究或建立第二Residency；source cache lifetime 与旧 production 路线的 NPOT/consumer 接线留给 T4.2。非production product 通过不等于压缩生产验收。后续用dungeon原尺寸完整catalog与1K/2K/4K语义矩阵，477MB/66Product性能与本轮完整Renderer frame测量均未运行。T4.3结束STOP，不自动开始VT。

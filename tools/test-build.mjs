@@ -74,9 +74,9 @@ export async function buildTests(root = REPO_ROOT) {
   if (result.status !== 0)
     throw new Error(`test compilation failed: ${result.error?.message ?? result.status}`);
   // Browser codec Workers import this existing JS/WASM dependency; tsc only emits TS.
-  const codecVendor = resolve(engine, "src/assets/codec/vendor/ktx-software-4.4.2");
+  const codecVendor = resolve(engine, "src/assets/codec/vendor");
   if (existsSync(codecVendor)) {
-    await cp(codecVendor, resolve(output, "assets/codec/vendor/ktx-software-4.4.2"), { recursive: true });
+    await cp(codecVendor, resolve(output, "assets/codec/vendor"), { recursive: true });
   }
   if (before !== (await sourceIdentity(root)))
     throw new Error("source changed during test compilation; rebuild");

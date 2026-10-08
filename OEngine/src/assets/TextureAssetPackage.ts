@@ -117,10 +117,13 @@ export interface TextureAssetPackageV2 {
 }
 
 export interface TextureAssetLoadEvidenceV2 {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly sourceBytes: number;
   readonly packageBytes: number;
-  readonly decodedPeakBytes: number;
+  /** Layout equivalent, not actual browser/WASM peak allocation. */
+  readonly rgbaEquivalentBytes: number;
+  readonly retainedSidecarBytes: number;
+  readonly actualDecodedPeakBytes: null;
   readonly expectedResidentBytesByVariant: Readonly<Record<string, number>>;
 }
 
@@ -307,29 +310,39 @@ export async function openTextureAssetPackageV2(bytes: ArrayBuffer): Promise<Tex
   }
   const metadata = validateTextureMetadata(raw, runtime.manifest);
   const expectedResidentBytesByVariant: Record<string, number> = {};
-  let decodedPeakBytes = 0;
+  let rgbaEquivalentBytes = 0;
+  let retainedSidecarBytes = 0;
   for (const variant of runtime.manifest.variants) {
     let variantResidentBytes = 0;
-    let variantDecodedBytes = 0;
+    let variantRgbaBytes = 0;
     for (const id of variant.chunkIds) {
       if (id === TEXTURE_METADATA_CHUNK_ID) continue;
       const chunk = runtime.manifest.chunks.find((candidate) => candidate.id === id);
       if (chunk === undefined)
         throw new Error(`Texture variant '${variant.id}' references missing chunk '${id}'`);
       variantResidentBytes += chunk.expectedResidentBytes;
-      variantDecodedBytes += chunk.decodedBytes;
+      if (chunk.semantic !== "texture-local-variation-v1") {
+        variantRgbaBytes += chunk.decodedBytes;
+      }
     }
     expectedResidentBytesByVariant[variant.id] = variantResidentBytes;
-    decodedPeakBytes = Math.max(decodedPeakBytes, variantDecodedBytes);
+    rgbaEquivalentBytes = Math.max(rgbaEquivalentBytes, variantRgbaBytes);
+  }
+  for (const chunk of runtime.manifest.chunks) {
+    if (chunk.semantic === "texture-local-variation-v1") {
+      retainedSidecarBytes += runtime.chunks.get(chunk.id)!.byteLength;
+    }
   }
   return Object.freeze({
     runtime,
     ...metadata,
     evidence: Object.freeze({
-      schemaVersion: 1,
+      schemaVersion: 2,
       sourceBytes: metadata.sourceByteLength,
       packageBytes: bytes.byteLength,
-      decodedPeakBytes,
+      rgbaEquivalentBytes,
+      retainedSidecarBytes,
+      actualDecodedPeakBytes: null,
       expectedResidentBytesByVariant: Object.freeze(expectedResidentBytesByVariant),
     }),
   });
