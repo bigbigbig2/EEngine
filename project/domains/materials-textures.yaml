@@ -6,9 +6,16 @@ intent: Carry authored material slots and mip residency into a single production
 paths:
   - docs/domains/materials-textures.md
   - OEngine/src/material/**
+  - OEngine/src/texture/**
   - OEngine/src/assets/Texture*.ts
+  - OEngine/src/assets/codec/**
+  - OEngine/src/assets/web-cook/WebCookSceneSource.ts
   - OEngine/src/gpu/Texture*.ts
   - OEngine/src/gpu/GpuMaterial*.ts
+  - OEngine/src/gpu/NativeMaterialBindings.ts
+  - OEngine/src/gpu/GpuNativeMaterial*.ts
+  - docs/next-design/eengine-v4-texture-compression-2026-10.md
+  - docs/next-execution/eengine-v4-texture-compression-execution-2026-10.md
   - validation/cases/texture-residency-component/**
   - validation/cases/glb-web-product/**
 currentDocs:

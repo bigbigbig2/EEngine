@@ -48,6 +48,8 @@ verifies:
 
 本文件是 **V4 全局架构不变量 authority**，保留 M1/M2 设计；[原执行计划](../next-execution/eengine-v4-native-shading-execution-2026-10.md)保留其实施结果与通用验证纪律。M3 已转入独立 [Lighting Design](./eengine-v4-lighting-2026-10.md) / [Lighting Execution](../next-execution/eengine-v4-lighting-execution-2026-10.md)，当前模块唯一 authority 由 [workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)导航，不复制完整任务。源码定义当前实现事实，`docs/domains/`在真实代码切换后更新。本文 §2 是 M1 切换前快照，§11 是 M2 设计；文档采纳不证明实现、GPU 验证或来源 adoption。
 
+Texture Compression 使用独立 [Texture Design](./eengine-v4-texture-compression-2026-10.md) / [Texture Execution](../next-execution/eengine-v4-texture-compression-execution-2026-10.md)，本母稿不复制其产品/施工细节。
+
 2026-10-07 执行 `git fetch origin` 后，HEAD、master、origin/master 均为 `b69a0a60b13930212fdc98f988443186fad024e4`；开始时仅两份 V4 提案未跟踪。下文源码定位以该快照为审查起点，实施必须重新检查 HEAD/工作区与直接消费者。
 
 ## 1. Authority 与设计输入
