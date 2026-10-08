@@ -21,6 +21,12 @@ export interface NativeSurfaceShaderProfile {
   readonly additiveSun?: boolean;
 }
 
+/** Compile-time provider injection for isolated subsystem construction. No runtime selector. */
+export interface NativeSurfaceDirectLighting {
+  readonly source: string;
+  readonly declarations: string;
+}
+
 export const NATIVE_SURFACE_SETTINGS_BYTES = 144;
 
 const COMPUTE = 4;
@@ -44,7 +50,8 @@ const texture = (binding: number, sampleType: GPUTextureSampleType): GPUBindGrou
 export function nativeSurfaceDescriptor(
   program: NativeMaterialProgram,
   materialLayout: readonly GPUBindGroupLayoutEntry[],
-  profile: NativeSurfaceShaderProfile
+  profile: NativeSurfaceShaderProfile,
+  directLighting?: NativeSurfaceDirectLighting
 ): AppearanceProgramDescriptor {
   if (profile.additiveSun && (!profile.physicalSun || profile.unlit || profile.reactive)) {
     throw new RangeError("Native sun continuation requires a lit sun profile without a second Aux writer");
@@ -101,7 +108,7 @@ export function nativeSurfaceDescriptor(
     material.push(read(2));
   }
   return {
-    source: nativeSurfaceWgsl(program, profile),
+    source: nativeSurfaceWgsl(program, profile, directLighting),
     entryPoint: "main",
     workgroupSize: 64,
     groups: [
@@ -125,9 +132,10 @@ export function nativeSurfacePublicationDescriptors(
   program: NativeMaterialProgram,
   materialLayout: readonly GPUBindGroupLayoutEntry[],
   profile: NativeSurfaceShaderProfile,
-  limits: Pick<GPUSupportedLimits, "maxSampledTexturesPerShaderStage">
+  limits: Pick<GPUSupportedLimits, "maxSampledTexturesPerShaderStage">,
+  directLighting?: NativeSurfaceDirectLighting
 ): { descriptor: AppearanceProgramDescriptor; continuation?: AppearanceProgramDescriptor } {
-  const descriptor = nativeSurfaceDescriptor(program, materialLayout, profile);
+  const descriptor = nativeSurfaceDescriptor(program, materialLayout, profile, directLighting);
   const sampled = descriptor.groups.reduce(
     (sum, group) => sum + group.filter((entry) => entry.texture !== undefined).length,
     0
@@ -136,12 +144,22 @@ export function nativeSurfacePublicationDescriptors(
     return { descriptor };
   }
   return {
-    descriptor: nativeSurfaceDescriptor(program, materialLayout, { ...profile, physicalSun: false }),
-    continuation: nativeSurfaceDescriptor(program, materialLayout, {
-      ...profile,
-      additiveSun: true,
-      reactive: false
-    })
+    descriptor: nativeSurfaceDescriptor(
+      program,
+      materialLayout,
+      { ...profile, physicalSun: false },
+      directLighting
+    ),
+    continuation: nativeSurfaceDescriptor(
+      program,
+      materialLayout,
+      {
+        ...profile,
+        additiveSun: true,
+        reactive: false
+      },
+      directLighting
+    )
   };
 }
 
@@ -165,7 +183,8 @@ const GEOMETRY_INPUTS: Readonly<Record<string, number>> = Object.freeze({
 /** Native straight-line material + real winner recovery and provider math, invocation-private. */
 export function nativeSurfaceWgsl(
   program: NativeMaterialProgram,
-  profile: NativeSurfaceShaderProfile
+  profile: NativeSurfaceShaderProfile,
+  directLighting?: NativeSurfaceDirectLighting
 ): string {
   let needs = (1 << 7) | (1 << 5) | (1 << 6);
   const inputs: string[] = [];
@@ -220,7 +239,7 @@ export function nativeSurfaceWgsl(
   const lighting = profile.unlit
     ? ""
     : /* wgsl */ `
-${createProductionSparseDirectLightingWgsl(true, "vsm")}
+${directLighting?.source ?? createProductionSparseDirectLightingWgsl(true, "vsm")}
 ${profile.physicalSun ? nativeSurfacePhysicalSunWgsl(true) : ""}
 ${OCTAHEDRAL_SAMPLE_WGSL}
 struct NativeShadingView {
@@ -230,9 +249,12 @@ struct NativeShadingView {
   reserved: u32,
 }
 @group(1) @binding(0) var<storage, read> node: array<u32>;
-@group(1) @binding(1) var<uniform> cluster_parameters: vec3f;
+${
+  directLighting?.declarations ??
+  `@group(1) @binding(1) var<uniform> cluster_parameters: vec3f;
 @group(1) @binding(2) var<storage, read> cluster_lookup: array<ClusterMetadata>;
-@group(1) @binding(3) var<storage, read> cluster_data: ClusterData;
+@group(1) @binding(3) var<storage, read> cluster_data: ClusterData;`
+}
 @group(1) @binding(4) var<uniform> shading_view: NativeShadingView;
 @group(1) @binding(5) var environment_diffuse: texture_2d<f32>;
 @group(1) @binding(6) var environment_specular: texture_2d<f32>;

@@ -28,6 +28,8 @@ import { GPUTextureAllocator } from "../../.test-dist/gpu/GPUTextureAllocator.js
 import { GPUSamplerCache } from "../../.test-dist/gpu/GPUSamplerCache.js";
 import { FrameProfiler } from "../../.test-dist/debug/FrameProfiler.js";
 import { PACKED_CAMERA_TYPE } from "../../.test-dist/shaders/packed_camera.js";
+import { LocalLightWorkGenerator } from "../../.test-dist/render/lighting/LocalLightWorkGenerator.js";
+import { NATIVE_LOCAL_LIGHTING } from "../../.test-dist/shaders/native_local_lighting.js";
 
 const check = (condition, message) => {
   if (!condition) throw new Error(message);
@@ -55,7 +57,8 @@ export async function runNativeSurfaceIntegrationGpuOracle(
     perspective = 0,
     physicalSun = false,
     controlledLoss = false,
-    productGeometry = false
+    productGeometry = false,
+    localLighting = false
   } = {}
 ) {
   const graphics = {
@@ -75,6 +78,8 @@ export async function runNativeSurfaceIntegrationGpuOracle(
     }
   };
   const registry = new AppearanceProgramRegistry(device);
+  const localOwner = localLighting ? new LocalLightWorkGenerator(device, 37) : null;
+  await localOwner?.ready;
   const surface = new SurfaceV4(device, true),
     aux = new NativeSurfaceAuxResources(device);
   const temporal = new NativeTemporalFactsPass(device),
@@ -202,7 +207,8 @@ export async function runNativeSurfaceIntegrationGpuOracle(
             reactive: true,
             physicalSun: physicalSun && index !== 2
           },
-          device.limits
+          device.limits,
+          localLighting ? NATIVE_LOCAL_LIGHTING : undefined
         )
       }))
     );
@@ -367,6 +373,33 @@ export async function runNativeSurfaceIntegrationGpuOracle(
           )
         : null;
       const allocation = aux.prepare("Temporal", width, height);
+      const localFrame = localOwner?.prepare({
+        publication: {
+          buffer: fixture.lightingEntries[0].resource.buffer,
+          revision: 1,
+          ids: new Uint32Array([0, 1, 2, 3, 4, 5, 6, 7]),
+          currentRevision: () => 1
+        },
+        view: {
+          width,
+          height,
+          near: 0.1,
+          far: 100,
+          depthConversion: [0, 0.1],
+          projection: [1, 1, 0, 0],
+          view: identity
+        },
+        frameIndex: index,
+        deviceEpoch: 37,
+        mode: 1,
+        visibility: fixture.visibility.createView(),
+        depth: fixture.depth.createView()
+      });
+      const lightingEntries = [
+        ...(localFrame?.lightingEntries ?? fixture.lightingEntries.filter((entry) => entry.binding <= 3)),
+        ...fixture.lightingEntries.filter((entry) => entry.binding > 3),
+        ...(physicalSun ? sunEntries : [])
+      ];
       await surface.prepareFrame({
         width,
         height,
@@ -385,7 +418,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
             }
           : geometry(),
         publication,
-        lightingEntries: physicalSun ? [...fixture.lightingEntries, ...sunEntries] : fixture.lightingEntries,
+        lightingEntries,
         routes: routeResources(publication),
         reactive: allocation.opaqueReactive
       });
@@ -443,10 +476,8 @@ export async function runNativeSurfaceIntegrationGpuOracle(
         background = update.write(backgroundResource);
         prior = update.write(prior);
       }
-      for (const [index, entry] of (physicalSun
-        ? [...fixture.lightingEntries, ...sunEntries]
-        : fixture.lightingEntries
-      ).entries()) {
+      for (const [index, entry] of lightingEntries.entries()) {
+        if (localFrame && (entry.binding === 2 || entry.binding === 3)) continue;
         dependencies.push(imported(`lighting provider ${index}`, entry.resource.buffer ?? entry.resource));
       }
       for (const [bin, route] of routeResources(publication).entries())
@@ -456,10 +487,20 @@ export async function runNativeSurfaceIntegrationGpuOracle(
       for (const id of dependencies) winner.read(id);
       const winnerVis = winner.write(vis),
         winnerDepth = winner.write(depth);
+      const localProducts = localFrame
+        ? localOwner.addToGraph(graph, command, localFrame, [winnerVis, winnerDepth, ...dependencies])
+        : null;
       const reactiveResource = imported("opaque reactive", allocation.opaqueReactive, "internal-full");
       const products = surface.addToGraph(
         graph,
-        [winnerVis, winnerDepth, exposure, background, ...dependencies],
+        [
+          winnerVis,
+          winnerDepth,
+          exposure,
+          background,
+          ...dependencies,
+          ...(localProducts ? [localProducts.data, localProducts.lookup] : [])
+        ],
         reactiveResource
       );
       const facts = temporal.addToGraph(
@@ -821,6 +862,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
     const lossReport = controlledLoss
       ? await (async () => {
           const ownedBytes = () =>
+            (localOwner?.allocatedBytes ?? 0) +
             surface.allocatedBytes +
             aux.allocatedBytes +
             temporal.allocatedBytes +
@@ -840,8 +882,18 @@ export async function runNativeSurfaceIntegrationGpuOracle(
             rejected = true;
           }
           check(rejected, "Old epoch retained native program encoding");
+          let localLightEpochRejected = false;
+          if (localOwner) {
+            try {
+              localOwner.prepare({});
+            } catch (error) {
+              if (!error.message.includes("unavailable or not ready")) throw error;
+              localLightEpochRejected = true;
+            }
+            check(localLightEpochRejected, "Old epoch retained LocalLightWork preparation");
+          }
           publications.length = 0;
-          return { reason: loss.reason, bytesBefore, bytesAfter: 0, oldEpochRejected: true };
+          return { reason: loss.reason, bytesBefore, bytesAfter: 0, oldEpochRejected: true, localLightEpochRejected };
         })()
       : null;
     return {
@@ -852,6 +904,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
       instances: fixture.instanceCount,
       perspective,
       physicalSun,
+      localLightWork: localLighting,
       productResourceProfile: productGeometry,
       packedCookedMaterial: productGeometry,
       nativeSunContinuations,
@@ -873,13 +926,17 @@ export async function runNativeSurfaceIntegrationGpuOracle(
       actualFsrChain: true,
       maxFallbackDifference,
       limitations: [
-        "Authored cluster lists and resident VSM page fixtures; not scene producer cost",
+        localLighting
+          ? "Authored LightDatabase records, new DIRECT LocalLightWork and resident VSM page fixtures; not scene producer cost"
+          : "Authored cluster lists and resident VSM page fixtures; not scene producer cost",
         "No S3 performance or whole-scene visual acceptance claim"
       ]
     };
   } finally {
     if (!controlledLoss) await device.queue.onSubmittedWorkDone();
     surface.destroy();
+    localOwner?.destroy();
+    check(!localOwner || localOwner.allocatedBytes === 0, "Local light integration teardown residue");
     aux.destroy();
     temporal.destroy();
     fsr.destroy();
@@ -933,3 +990,33 @@ export async function runNativeSurfaceDeviceEpochGpuOracle() {
 // geometry oracles; this entry does not claim a streamed VG scene acceptance.
 export const runNativeSurfaceResourceProfileGpuOracle = (device) =>
   runNativeSurfaceIntegrationGpuOracle(device, { productGeometry: true, physicalSun: true });
+
+export const runLocalLightIntegrationGpuOracle = (device) =>
+  runNativeSurfaceIntegrationGpuOracle(device, {
+    localLighting: true,
+    productGeometry: true,
+    physicalSun: true
+  });
+
+export async function runLocalLightEpochGpuOracle() {
+  const epochs = [];
+  for (let epoch = 0; epoch < 2; epoch++) {
+    const adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
+    check(adapter, "Local light epochs require a hardware adapter");
+    const device = await adapter.requestDevice({
+      requiredFeatures: ["texture-formats-tier1"],
+      requiredLimits: { maxStorageBuffersPerShaderStage: 16 }
+    });
+    const errors = [];
+    device.addEventListener("uncapturederror", (event) => errors.push(event.error.message));
+    try {
+      epochs.push(
+        await runNativeSurfaceIntegrationGpuOracle(device, { localLighting: true, controlledLoss: true })
+      );
+      check(errors.length === 0, `Local light epoch GPU errors: ${errors}`);
+    } finally {
+      device.destroy();
+    }
+  }
+  return { scope: "L3.1 complete reconstruction on two independently destroyed epochs", epochs };
+}

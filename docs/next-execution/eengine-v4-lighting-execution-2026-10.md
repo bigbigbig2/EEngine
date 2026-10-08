@@ -6,6 +6,15 @@ verifies:
     - docs/next-design/eengine-v4-lighting-2026-10.md
     - project/workstreams/active/eengine-next-clean-rebuild.yaml
     - OEngine/src/gpu/LightDatabase.ts
+    - OEngine/src/gpu/GpuLocalLightWorkAbi.ts
+    - OEngine/src/render/lighting/LocalLightWorkGenerator.ts
+    - OEngine/src/shaders/local_light_work.ts
+    - OEngine/src/shaders/native_local_lighting.ts
+    - OEngine/src/shaders/lighting_brdf.ts
+    - OEngine/tests/contract/local-light-work.test.mjs
+    - OEngine/tests/oracle/local-light-work-gpu.mjs
+    - OEngine/tests/oracle/local-light-native-gpu.mjs
+    - OEngine/tests/oracle/native-surface-integration-gpu.mjs
     - OEngine/src/render/passes/LightClusterPass.ts
     - OEngine/src/shaders/light_cluster.ts
     - OEngine/src/shaders/lighting_direct.ts
@@ -41,8 +50,8 @@ M3 的唯一设计依据是 [Lighting Design](../next-design/eengine-v4-lighting
 | 阶段 | 状态 | 单元与退出结果 |
 | --- | --- | --- |
 | L3.0 Baseline & Lighting Contract | **closed** | 30 cases/3,600帧baseline、必要数值修复与8个GPU入口通过；见§8 |
-| L3.1 Complete Local Light Work Construction | **next / not-started** | 非生产完整generator/product/consumer闭包；不是逐步production迁移 |
-| L3.2 Atomic Lighting Cutover & Purge | not-started | 同单元切所有production consumers并立即删除旧管理链 |
+| L3.1 Complete Local Light Work Construction | **closed** | 非生产generator/product/native consumer、材质/provider/lifecycle与同数学成本闭包完成；production仍旧Lighting，见§9 |
+| L3.2 Atomic Lighting Cutover & Purge | **next / not-started** | 同单元切所有production consumers并立即删除旧管理链 |
 | L3.3 Production Lighting Acceptance | not-started | 同条件完整正确性/生命周期/成本；关闭M3后STOP |
 
 设计提交 `811e7f1e` 后用户授权开始 L3.0；本轮在该单元闭合后 STOP，不开始 L3.1。原设计轮没有 production implementation 或 GPU 性能声明。
@@ -94,11 +103,11 @@ baseline真实输入/身份/原始artifact完整，数字明确实测或估算�
 | Native consumer / providers | NONE/DIRECT/SPARSE→同direct incident/BRDF；Global Sun/VSM/IBL/AO/HDR/continuation/Unlit与真实资源limits；consumer不能管理LightWork |
 | Lifecycle / isolated integration | 初始化完整域、绑定identity、abort/retry、resize/rebind/last-use fence、release/loss取消readback；集中same-workload成本 |
 
-预计新增路径为 `render/lighting/LocalLightWorkGenerator.ts`、`gpu/GpuLocalLightWorkAbi.ts`、`shaders/local_light_work.ts`，由实际本地风格确定，**本轮未创建**。用既有GPU oracle harness隔离generator→真实native consumer，不预填成功列表/HDR。复用LightDatabase、Geometry/Material providers和math，不import旧cluster owner。shader/math提取不能靠字符串marker从legacy fullscreen runtime偷偷保旧产品。
+构建路径为 `render/lighting/LocalLightWorkGenerator.ts`、`gpu/GpuLocalLightWorkAbi.ts`、`shaders/local_light_work.ts`，独立consumer为 `shaders/native_local_lighting.ts`。用既有GPU oracle harness隔离generator→真实native consumer，不预填成功列表/HDR。复用LightDatabase、Geometry/Material providers和math，不import旧cluster owner。纯BRDF提取到 `lighting_brdf.ts`，不靠字符串marker从legacy fullscreen runtime保留旧产品；实施结果见§9。
 
 必须验证count/scatter使用同predicate、all-admitted segment始终完整、unbounded/finite互斥、zero/multiple同类型灯不重复或丢失；source slot24bit超界拒绝，scan重复prefix和多层边界/dispatch limits完整。Finalize只可从SPARSE降级DIRECT，所有WG atomic OR flags，不允许其他WG恢复SPARSE覆盖失败；提交后Surface只读immutable final版本。
 
-集中验证一次：engine typecheck/build、新鲜build:test，ABI/CPU independent oracle、shader compilation，真实GPU0/1/4/8/32/mixed、empty/one/full/forced index overflow/region budget/count mismatch/stale输入；HDR独立点样本+完整finite域/coverage。匹配新DIRECT/SPARSE交替计量Surface+generator总成本，确认非零threshold、6MiB/18MiB峰值与最坏fallback；无净收益机制删除或禁用，不加cache/history。
+集中验证一次：engine typecheck/build、新鲜build:test，ABI/CPU independent oracle、shader compilation，真实GPU0/1/4/8/32/mixed、empty/one/full/forced index overflow/region budget/count mismatch/stale输入；HDR独立点样本+完整finite域/coverage。匹配新DIRECT/SPARSE交替计量Surface+generator总成本，校准threshold或按否证合同保留0/禁用、核验6MiB/18MiB峰值与最坏fallback；无净收益机制删除或禁用，不加cache/history。
 
 退出必须是**production-equivalent functional closure**：全部现行nativePrograms/多Bindings/normal-ORM/coat/Unlit/custom、alpha winner、Sun/VSM/IBL/AO/preExposure、Temporal所需输出与publication更新成立；不是“只写完一个scan”“只支持4Point”即可cutover。直接shadow能力限制明确且被测试。production仍只有旧owner。
 
@@ -280,3 +289,72 @@ profile冻结：Surface全shader storage≤16、sampled≤16，保finite Sun con
 理想净赢的必要条件为 `2f<1`，充分条件还要扣occupancy/scan/atomics/list/dispatch。DIRECT比较 `V*N*incident_test + accepted*BRDF` 与SPARSE的同数学总成本，阈值必须使用low/high coverage、finite/unbounded、Point/Spot/mixed全覆盖校准。**当前threshold=0/禁用**；L3.0旧cluster的4灯成本只能证明旧管理昂贵，不能证明新DIRECT16灯一定更快。没有DRAM/ALU/spill硬件counter，不用估计流量除理论带宽冒称真实性能。
 
 L3.1集中隔离验证时首先用同一冻结fixture测新两mode的producer+Surface逐帧总量，保相同材质/曝光/全局provider；最佳稀疏case都不赢就否证并局部修订推荐方案，不加cache/history/proof救成本。profile预算、finite支持域、overflow完整输出与shader resource limits不可因成本失败缩小正确性范围。sources仍仅reference，没有本轮来源adoption或新Lighting性能改善声明。
+
+## 9. L3.1 实施记录（2026-10-08）
+
+开工fetch后HEAD/origin/master=`a184c975aeabe19e8cde67cf0a0159cb40d6405f`，工作区干净。构建仅在非生产环境；RendererCore、FrameProgramOwners/Lowering继续唯一旧LightClusterPass。新frame产品没有喂旧cluster owner，隔离harness借同一个真实command/submit与实际winner/material/global providers验证新consumer，不创建第二个Renderer。
+
+### 9.1 实际闭包与来源
+
+`LightDatabase staged/active typed slots → LocalLightWorkGenerator → parameters/lookup/data → native_local_lighting → SurfaceV4 HDR/Aux → Temporal/FSR`。bounds保守覆盖finite emitter radius、near crossing/offscreen，unbounded或极大支持域走互斥global tail；winner/depth occupancy、64-region任务、多层portable scan、同sphere predicate count/scatter、finalize与2D indirect形成完整闭包。没有旧filtered list、private256、global CAS、subgroup要求或readback控制。
+
+ABI按Design §5：128B parameters、128B header、8B ranges、typed low24/high8 IDs，零payload物理data至少132B；N≤16380/I=1048576。region/index溢出保持完整all-admitted DIRECT；mismatch/invalid flags不能算成功。consumer核验ABI/epoch/frame/publication/count以及真实shading_view的frame/extent，错误context毒化HDR数值；rgba16float可把哨兵夹成65504，因此验证以独立HDR数值拒绝为准，不承诺一定生成Infinity。
+
+Generator owns PSO与有界frame allocations，借DB/winner/depth。FrameGraph只声明宏依赖；Surface只读final产品。真实fence前不复用submitted allocation，最多2 encoded/submitted +1 prepared replacement；不同extent、mode、N、capacity有明确allocation identity。旧frame encode/abort不得影响复用后的frame；encoded abort→retry重写header并清scratch/lookup/indirect。device loss取消owner，旧epoch拒绝，新device完整重建；owner没有自己的diagnostic readback。
+
+Local：既有DB publication、native graph compiler、winner reconstruction、纯incident/BRDF、Sun/VSM/IBL/AO、Surface与FrameGraph。Reference：实际重读 [M3 Source Map](../porting/next-renderer.md#m3-lighting-source-map2026-10-08reference-only) 中Bevy `fd98063564218bd210308675602a3e9643014c31`（MIT OR Apache-2.0）的cluster_z_slice、cluster_raster、cluster_allocate、cluster.wesl sphere bounds与clustered_forward消费路径。Adopt：light-centric conservative bounds、同predicate双遍与compact ranges的组织思想。Adapt：portable WGSL、显式typed DB slots、opaque winner occupancy、无subgroup、多层并行scan与完整DIRECT溢出。Reject：容量不足丢项后延迟resize、串行global scan、mesh shader/bindless假设。Original：本地ABI/epoch与publication合同、64-region任务、fenced allocation pool、Surface资源profile和独立oracle；不是逐行移植或production source adoption声明。
+
+### 9.2 验证范围与失败处理
+
+针对ABI、owner和现行lighting/Surface合同的Node tests为28/28。独立GPU sphere coverage包含0/1/4/8/32/257、empty winner、near/far及far外有限灯支持、5500跨真实DB pages、重复prefix/多层scan、forced 2D、两类完整overflow、mismatch/invalid/stale、DB staged abort→retry与teardown=0。native GPU入口10组场景包含DIRECT/SPARSE、forced overflow、8 custom Programs及6组支持域；64实例、独立HDR点样本与完整finite域保原合同，最大delta error约0.000193071，frame/extent故意污染均被原numeric gate拒绝。
+
+隔离integration使用4Programs、8ExecutionBins、2BindingSets，保normal/ORM/coat/Unlit/custom/alpha、Product完整16-storage profile、2个Sun continuations、真实VSM/IBL/AO、preExposure 1.25→2.5、motion/Temporal/FSR、负determinant/nonuniform scale、publication update与resize abort→retry。两次独立device受控destroy，每epoch已计账owners从1649621B归零，旧native program与旧LocalLightWork prepare拒绝；这是controlled device destruction，不冒称driver故障或正式production Lighting recovery。
+
+原失败保留在`.local/`：harness command捕获错误、零runtime array不足132B、writable indirect与indirect usage同scope冲突、FrameGraph root/written版本误接成cycle、full capture在120帧自动降coarse，以及fault测试误以为rgba16float一定存Infinity。分别修最小真实GPU布局/绑定或测试接线，未减少覆盖、放宽容差或加生产fallback。旧production `native-surface-production`回归通过，纯BRDF提取没有改数值；其`recoveredSceneRelease=false`仍不扩大为Product release证据。
+
+上述功能结果不代替L3.2 production cutover或L3.3验收。
+
+### 9.3 最终 Cost Card 与决策
+
+最终同一source/build下，1080p/renderScale1，64实例/64材质、完整normal/ORM、同一camera/曝光/Sun/VSM/IBL/XeGTAO/Temporal/FSR；mixed Point/Spot，high coverage约94.4%，low coverage约23.4%仅改变camera距离。13组各60预热+240有效计时帧，DIRECT/SPARSE逐帧交替，每mode30预热+120有效样本，共3120个计时帧。计时段保一个production submit；readback/inspection与report在计时外。full profiler每120帧续开capture，缺scope/truncated/multi-submit仍失败，不把coarse样本计零。
+
+以下均为 **MEASURED ms**；Total是每帧新generator pass之和+新native Surface pass之和，再取分位数，包含background/fused material/global providers，不冒称纯local BRDF时间。旧cluster/Surface仍编码，**排除于新Total但会影响cache/thermal**；整帧不是未来切换后的production成本。
+
+| 分布 / N | DIRECT Total P50/P95/max | SPARSE Total P50/P95/max | SPARSE generator P50/P95 |
+| --- | --- | --- | --- |
+| sparse / 0（两者实际NONE） | 11.688/63.936/71.193 | 11.543/40.710/69.599 | 0/0 |
+| sparse / 1 | 11.039/67.347/87.924 | 11.257/68.622/158.278 | .496/1.685 |
+| sparse / 4 | 19.175/67.044/81.242 | 17.393/26.729/77.658 | .558/1.060 |
+| sparse / 8 | 20.199/23.250/24.904 | 15.877/18.395/20.765 | .582/.968 |
+| sparse / 32 | 38.760/114.694/202.228 | 21.396/80.568/133.064 | .795/2.432 |
+| sparse / 64 | 44.039/124.004/210.018 | 21.945/70.662/97.022 | 1.170/3.467 |
+| overlap / 1 | 7.976/20.017/65.882 | 8.952/11.028/37.678 | .829/1.074 |
+| overlap / 4 | 8.891/12.112/78.037 | 11.600/30.587/88.319 | 2.196/3.366 |
+| overlap / 8 | 12.323/20.860/113.351 | 17.442/30.229/111.648 | 3.597/5.040 |
+| overlap / 32 | 41.550/86.909/197.158 | 57.585/63.971/226.071 | 20.019/22.831 |
+| low coverage / 1 | 4.903/19.567/23.812 | 5.364/9.036/35.194 | .527/1.474 |
+| low coverage / 4 | 4.336/5.281/20.763 | 4.297/5.359/20.222 | .491/.555 |
+| low coverage / 8 | 4.831/5.607/7.152 | 4.481/5.620/6.553 | .503/.543 |
+
+理想稀疏32/64灯有新Total净收益，推荐light-centric方案没有被最佳case否证。high overlap双遍仍付明显负收益管理税；只记录限制，不用生产切换声明或缓存掩盖。少灯/coverage/P95没有一致crossover，Point-only/Spot-only/unbounded全条件阈值也未校准，**非零DIRECT自动threshold继续0/禁用**，不机械选4/8/16，不建立在线学习器；显式DIRECT与完整overflow fallback均已实现。L3.3仍需检验真实production分布与该性能缺口，本轮不为数字继续改算法。
+
+4GB profile descriptor保留I=1048576/6MiB frame/18MiB peak。真实1080p/64灯SPARSE reserve=4990808B，交替模式owner池峰值9981940B；NONE产品总328B、data132B；不存在C级旧metadata dummy。最大admission的descriptor arithmetic/CPU owner test为5774520B/frame、三份17323560B，**不是16380灯真实GPU性能实测**。所有GPU owner teardown均0；logical indices/regions/global IDs、每pass/max/count/raw ticks在artifact，reserved不冒称DRAM流量或driver-hidden VRAM。DIRECT仍保O(N) scratch、GPU fallback仍执行固定尾段，实际12/14dispatch与流量估算沿Design；无隐性巨型allocator或history。
+
+设备为NVIDIA GTX1650Ti/Turing、Chrome154.0.8037.98，采样时观察温度89–91°C、graphics clock约645–735MHz（不是完整受控热轨迹）；跨轮绝对值不同，长尾原因 **UNKNOWN**，spill/atomics只能INFERENCE。只证明本fixture内交替模式和功能闭包，不宣称旧→新production提速、L3.3验收、DRAM/ALU/register counter或大场景完成。
+
+### 9.4 身份、artifact 与关闭
+
+Git起点为上述`a184c975`+本轮修改；最终engine source content SHA256=`4396e9d8fea7a7a589c1370a580e3a20adf10e5db37d42b5aa718bc3dad541ac`，fresh build:test output SHA256=`deea7d561161d8596e8a595ef990d0225cbf6fead38b98c5beab08b2383a43d2`。下列6份最终artifact共用该identity，各自保存entry hash/manifest/browser/raw数据；旧失败与中间成功仍保留，不能把它们追认为最终通过。`.local/`为ignored实验原件，不做claim晋升。
+
+| Artifact | SHA256 |
+| --- | --- |
+| `.local/l3-1-work-final-closure.json` | `7b8e0012553ff5b890ccb07fbecb38989fc6bd1962dd870b4959dc95037db468` |
+| `.local/l3-1-native-final-closure.json` | `1136d7e907650b9ef31c9c24a5de386749478e4c475cd5b195fd8b12e685d433` |
+| `.local/l3-1-integration-final-closure.json` | `2f0a04bbe9f14968cbfbfa813186cbb1ce1b1b77dee265d26ee06e7a51261d48` |
+| `.local/l3-1-epochs-final-closure.json` | `681ea10372100b87545d612246642230fabc36cd1e669c17bf1f7d0e18cfbe6e` |
+| `.local/l3-1-production-regression.json` | `e0c9db8e73e656a6e76e065f8d73837dc7e61e7ec50fa9c745b2c3016f64f3cd` |
+| `.local/l3-1-cost-final-closure.json` | `cc833afe0292a451d8aba53b0b26a95fb50c82ecd0427379f7ddfc58cfed6b61` |
+
+6入口全部passed，无GPU/scoped/page errors、failed requests、device loss或runner timeout；controlled device destruction单列于epoch summary。engine typecheck/build与fresh build:test通过，targeted CPU28/28、documentation/JSON projection9/9；docs-verify 0 findings/66既有historical warnings，doctor/registry/context/diff检查通过。按`.prettierrc.json`的Prettier与新owner style guard通过；旧`tools/format.mjs --check`忽略项目trailingComma配置而报告5文件差异，未为此改工具或源码。没有跑全Node、跨GPU/browser、400MB authored Lighting acceptance或硬件counter；这些不冒称完成。
+
+**L3.1 = closed；L3.2 = next / not-started；M3仍active。STOP。** 生产仍100%旧Lighting。下一单元必须原子切全部production consumer并立即purge旧cluster owner/ABI；本轮的compile-time隔离注入不是长期old/new selector，不能保留成生产bridge。

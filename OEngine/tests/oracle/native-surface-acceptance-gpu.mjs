@@ -11,7 +11,7 @@ import { createGeometryCookRecipe } from "../../.test-dist/assets/GeometryCookRe
 import { StandardShadeMaterial } from "../../.test-dist/material/StandardShadeMaterial.js";
 import {
   AppearanceGraphBuilder,
-  snapshotAppearanceTexture,
+  snapshotAppearanceTexture
 } from "../../.test-dist/material/AppearanceGraph.js";
 import { PointLight } from "../../.test-dist/light/PointLight.js";
 import { SpotLight } from "../../.test-dist/light/SpotLight.js";
@@ -37,7 +37,7 @@ const distribution = (values) => {
     count: sorted.length,
     p50: sorted[Math.ceil(sorted.length * 0.5) - 1],
     p95: sorted[Math.ceil(sorted.length * 0.95) - 1],
-    max: sorted.at(-1),
+    max: sorted.at(-1)
   };
 };
 
@@ -52,22 +52,22 @@ function customGraph(textures, repetitions) {
       g.operation(
         "multiply",
         g.operation("sin", g.operation("multiply", coordinate, g.constant(3 + i))),
-        g.constant(0.02),
-      ),
+        g.constant(0.02)
+      )
     );
   }
   const normal = g.texture(snapshotAppearanceTexture(textures.normal, "linear-rgb"), coordinate);
   const shifted = g.operation(
     "add",
     coordinate,
-    g.operation("multiply", g.swizzle(normal, [0, 1]), g.constant(0.002)),
+    g.operation("multiply", g.swizzle(normal, [0, 1]), g.constant(0.002))
   );
   const color = g.texture(snapshotAppearanceTexture(textures.color, "srgb-rgb"), shifted);
   const orm = g.texture(snapshotAppearanceTexture(textures.orm, "linear-rgb"), coordinate);
   const normalTs = g.operation(
     "subtract",
     g.operation("multiply", g.swizzle(normal, [0, 1, 2]), g.constant(2)),
-    g.constant(1),
+    g.constant(1)
   );
   g.output("baseColor", g.operation("multiply", g.swizzle(color, [0, 1, 2]), g.parameter("gain", 0.7)));
   g.output("alpha", g.constant(1));
@@ -90,16 +90,23 @@ function customGraph(textures, repetitions) {
  * inspection frames. CPU timing covers renderer.render; waits are host-side.
  * This generated scene complements the authored Showcase, not a whole-renderer
  * quality/streaming acceptance claim. */
-async function runCase({ name, programs = 1, complex = false, unlit = false, lighting = null }) {
+export async function runCase({
+  name,
+  programs = 1,
+  complex = false,
+  unlit = false,
+  lighting = null,
+  construction = null
+}) {
   const width = 1920,
     height = 1080;
   const cameraZ = lighting?.cameraZ ?? 6;
-  const sampleCount = lighting?.correctnessOnly ? 1 : 120;
+  const sampleCount = lighting?.correctnessOnly ? 1 : (lighting?.sampleCount ?? 120);
   const renderer = new Renderer({
     autoExposure: false,
     fixedExposure: 1,
     textureMaxResolution: 256,
-    requiredFeatures: ["timestamp-query"],
+    requiredFeatures: ["timestamp-query"]
   });
   const canvas = new OffscreenCanvas(width, height);
   const context = canvas.getContext("webgpu");
@@ -114,14 +121,14 @@ async function runCase({ name, programs = 1, complex = false, unlit = false, lig
     ? device.createBuffer({
         label: "L3.0 zero-local lookup",
         size: 60 * 34 * 24 * 16,
-        usage: GPUBufferUsage.STORAGE,
+        usage: GPUBufferUsage.STORAGE
       })
     : null;
   const referenceData = lighting
     ? device.createBuffer({
         label: "L3.0 zero-local data",
         size: 32 + 16380 * 4,
-        usage: GPUBufferUsage.STORAGE,
+        usage: GPUBufferUsage.STORAGE
       })
     : null;
   const referenceHdr = lighting
@@ -129,7 +136,7 @@ async function runCase({ name, programs = 1, complex = false, unlit = false, lig
         label: "L3.0 same-frame reference",
         size: [width, height],
         format: "rgba16float",
-        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
+        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC
       })
     : null;
   const referenceReactive = lighting
@@ -137,7 +144,7 @@ async function runCase({ name, programs = 1, complex = false, unlit = false, lig
         label: "L3.0 reference reactive",
         size: [width, height],
         format: "rgba8unorm",
-        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
+        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
       })
     : null;
   await referenceSurface?.ready;
@@ -151,14 +158,15 @@ async function runCase({ name, programs = 1, complex = false, unlit = false, lig
   camera.transform.position.set(0, 0, cameraZ);
   camera.transform.lookAt({ x: 0, y: 0, z: 0 });
   camera.update();
+  await construction?.initialize(renderer, scene, camera);
   const textures = {
     normal: await authoredTexture("normal-linear", () => [128, 128, 255, 255], 256),
     orm: await authoredTexture("orm-linear", () => [255, 128, 64, 255], 256),
     color: await authoredTexture(
       "base-color-srgb",
       (x, y, size) => [x < size / 2 ? 96 : 192, y < size / 2 ? 128 : 64, 64, 255],
-      256,
-    ),
+      256
+    )
   };
   const geometry = new BoxGeometry(1, 1, 1);
   const cooked = await cookGeometryAssetPackage(buildBoxSourceGeometry(1, 1, 1), createGeometryCookRecipe());
@@ -193,7 +201,7 @@ async function runCase({ name, programs = 1, complex = false, unlit = false, lig
       -5.25 + (index % 8) * 1.5,
       -2.8875 + Math.floor(index / 8) * 0.825,
       0,
-      1,
+      1
     ]);
     return Mesh.from(geometry, material, matrix);
   });
@@ -232,17 +240,19 @@ async function runCase({ name, programs = 1, complex = false, unlit = false, lig
   const prepare = renderer._surface.prepareFrameNow.bind(renderer._surface);
   renderer._surface.prepareFrameNow = (value, ...rest) => {
     frame = value;
+    construction?.prepare(value);
     return prepare(value, ...rest);
   };
   const encode = renderer._surface.encode.bind(renderer._surface);
   renderer._surface.encode = (encoder) => {
     encode(encoder);
+    construction?.encode(encoder);
     if (!inspectNext) return;
     const make = (size) =>
       device.createBuffer({
         label: "S3/untimed inspection",
         size,
-        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
       });
     const hdrPitch = Math.ceil((frame.width * 8) / 256) * 256;
     const keyPitch = Math.ceil((frame.width * 4) / 256) * 256;
@@ -251,11 +261,11 @@ async function runCase({ name, programs = 1, complex = false, unlit = false, lig
     const work = make(frame.geometry.meshletWork.size);
     encoder.copyTextureToBuffer({ texture: frame.output }, { buffer: hdr, bytesPerRow: hdrPitch }, [
       frame.width,
-      frame.height,
+      frame.height
     ]);
     encoder.copyTextureToBuffer({ texture: frame.visibility }, { buffer: winner, bytesPerRow: keyPitch }, [
       frame.width,
-      frame.height,
+      frame.height
     ]);
     encoder.copyBufferToBuffer(frame.geometry.meshletWork, 0, work, 0, work.size);
     clusterInspection?.encode(encoder, frame.lightingEntries);
@@ -270,14 +280,14 @@ async function runCase({ name, programs = 1, complex = false, unlit = false, lig
             ? { binding: 2, resource: { buffer: referenceLookup } }
             : entry.binding === 3
               ? { binding: 3, resource: { buffer: referenceData } }
-              : entry,
-        ),
+              : entry
+        )
       });
       referenceSurface.encode(encoder);
       reference = make(hdrPitch * frame.height);
       encoder.copyTextureToBuffer({ texture: referenceHdr }, { buffer: reference, bytesPerRow: hdrPitch }, [
         frame.width,
-        frame.height,
+        frame.height
       ]);
     }
     inspection = {
@@ -288,7 +298,7 @@ async function runCase({ name, programs = 1, complex = false, unlit = false, lig
       hdrPitch,
       keyPitch,
       width: frame.width,
-      height: frame.height,
+      height: frame.height
     };
   };
   const tick = async () => {
@@ -298,6 +308,8 @@ async function runCase({ name, programs = 1, complex = false, unlit = false, lig
       renderer.render(camera, scene);
       const elapsed = performance.now() - start;
       await device.queue.onSubmittedWorkDone();
+      await construction?.settle();
+      check(errors.length === 0, `Acceptance GPU errors: ${errors.join(" | ")}`);
       if (renderer.frame_count !== previous) return elapsed;
       await new Promise((resolve) => setTimeout(resolve, 5));
     }
@@ -320,7 +332,7 @@ async function runCase({ name, programs = 1, complex = false, unlit = false, lig
     await Promise.all(
       [current.hdr, current.winner, current.work, current.reference]
         .filter(Boolean)
-        .map((buffer) => buffer.mapAsync(GPUMapMode.READ)),
+        .map((buffer) => buffer.mapAsync(GPUMapMode.READ))
     );
     const hdr = new Uint16Array(current.hdr.getMappedRange());
     const reference = current.reference ? new Uint16Array(current.reference.getMappedRange()) : null;
@@ -335,7 +347,7 @@ async function runCase({ name, programs = 1, complex = false, unlit = false, lig
         const offset = (y * current.hdrPitch) / 2 + x * 4;
         check(
           [0, 1, 2].every((k) => Number.isFinite(decodeFloat16(hdr[offset + k]))),
-          "Non-finite HDR in actual output domain",
+          "Non-finite HDR in actual output domain"
         );
         const key = winner[(y * current.keyPitch) / 4 + x];
         if (key === 0xffffffff) continue;
@@ -349,7 +361,7 @@ async function runCase({ name, programs = 1, complex = false, unlit = false, lig
     }
     check(
       instances.size === 64 && lit === visible,
-      `Required 64 instances lost shading: ${instances.size}/${lit}/${visible}`,
+      `Required 64 instances lost shading: ${instances.size}/${lit}/${visible}; GPU errors: ${errors.join(" | ")}`
     );
     const samples = [];
     for (let iy = 0; iy < 8; iy++) {
@@ -358,7 +370,7 @@ async function runCase({ name, programs = 1, complex = false, unlit = false, lig
         const x = lighting?.cameraZ
             ? Math.round(
                 width *
-                  (0.5 + (-5.25 + ix * 1.5) / ((2 * viewDistance * Math.tan(Math.PI / 6) * width) / height)),
+                  (0.5 + (-5.25 + ix * 1.5) / ((2 * viewDistance * Math.tan(Math.PI / 6) * width) / height))
               )
             : Math.round(width * (0.08 + ix * 0.12)),
           y = lighting?.cameraZ
@@ -375,7 +387,7 @@ async function runCase({ name, programs = 1, complex = false, unlit = false, lig
           rgb: [0, 1, 2].map((k) => decodeFloat16(hdr[(y * current.hdrPitch) / 2 + x * 4 + k])),
           referenceRgb: reference
             ? [0, 1, 2].map((k) => decodeFloat16(reference[(y * current.hdrPitch) / 2 + x * 4 + k]))
-            : undefined,
+            : undefined
         });
       }
     }
@@ -393,7 +405,7 @@ async function runCase({ name, programs = 1, complex = false, unlit = false, lig
       coverage: visible / (current.width * current.height),
       materials: counts.size,
       samples,
-      clusters: await clusterInspection?.read(),
+      clusters: await clusterInspection?.read()
     };
   };
   // Untimed inspection of the actual bound provider products. This extra
@@ -423,16 +435,16 @@ fn inspect(@builtin(local_invocation_index) index: u32) {
   values[index + 64u] = textureLoad(specular, vec2i(uv * vec2f(textureDimensions(specular))), 0);
   values[index + 128u] = textureLoad(dfg, vec2i(uv * vec2f(textureDimensions(dfg))), 0);
 }
-`,
+`
       });
       check(
         !(await module.getCompilationInfo()).messages.some((m) => m.type === "error"),
-        "Provider inspection WGSL invalid",
+        "Provider inspection WGSL invalid"
       );
       const pipeline = await device.createComputePipelineAsync({
         label: "S3/provider inspection",
         layout: "auto",
-        compute: { module, entryPoint: "inspect" },
+        compute: { module, entryPoint: "inspect" }
       });
       const entries = [5, 6, 7].map((binding, index) => {
         const entry = frame.lightingEntries.find((e) => e.binding === binding);
@@ -443,7 +455,7 @@ fn inspect(@builtin(local_invocation_index) index: u32) {
       const group = device.createBindGroup({
         label: "S3/actual IBL views",
         layout: pipeline.getBindGroupLayout(0),
-        entries,
+        entries
       });
       const encoder = device.createCommandEncoder({ label: "S3/untimed provider inspection" });
       encoder.copyBufferToBuffer(vsm.pageTable, 0, pages, 0, pages.size);
@@ -466,7 +478,7 @@ fn inspect(@builtin(local_invocation_index) index: u32) {
       const counts = new Uint32Array(casters.getMappedRange());
       check(
         allocated > 0 && valid > 0 && counts[1] > 0 && counts[2] === 0,
-        `VSM page/caster work invalid: allocated=${allocated}, valid=${valid}, caster header=${counts}`,
+        `VSM page/caster work invalid: allocated=${allocated}, valid=${valid}, caster header=${counts}`
       );
       const floats = new Float32Array(download.getMappedRange());
       check(floats.every(Number.isFinite), "IBL provider contains non-finite values");
@@ -483,7 +495,7 @@ fn inspect(@builtin(local_invocation_index) index: u32) {
         validPages: valid,
         casters: counts[1],
         overflow: counts[2],
-        iblPeaks: peaks,
+        iblPeaks: peaks
       };
     } finally {
       for (const buffer of buffers) {
@@ -506,62 +518,71 @@ fn inspect(@builtin(local_invocation_index) index: u32) {
       lighting?.cameraZ
         ? baseline.coverage >= 0.23 && baseline.coverage <= 0.25
         : baseline.coverage >= 0.94 && baseline.coverage <= 0.98,
-      `Unexpected unchanged scene coverage at cameraZ=${cameraZ}: ${baseline.coverage}`,
+      `Unexpected unchanged scene coverage at cameraZ=${cameraZ}: ${baseline.coverage}`
     );
     const runtime = renderer.graphics.render_world.runtime(scene);
     const publication = runtime.nativeMaterials.publication;
     const sourceBySlot = new Map(
-      runtime.nativeMaterials.materialSources.map((source) => [source.materialSlot, source.material]),
+      runtime.nativeMaterials.materialSources.map((source) => [source.materialSlot, source.material])
     );
     const actualPrograms = new Set(publication.entries.map((entry) => entry.programIndex)).size;
     check(
       actualPrograms === programs,
-      `Requested ${programs} structural programs but published ${actualPrograms}`,
+      `Requested ${programs} structural programs but published ${actualPrograms}`
     );
     const records = [];
     for (const count of lighting?.counts ?? (unlit ? [0] : complex ? [8, 32] : [4, 8, 32])) {
       addLights(count);
-      for (let i = 0; i < 30; i++) await tick();
+      for (let i = 0; i < (lighting?.warmupFrames ?? 30); i++) await tick();
       renderer.profiler.setMode("record");
       renderer.profiler.configure({
         enabled: true,
         gpuSampleInterval: 1,
         gpuCounterSampleInterval: 1,
         gpuTimingMode: "full",
-        historyCapacity: 512,
+        historyCapacity: 512
       });
       renderer.perf_gpu_counters_enabled = true;
       const first = renderer.frame_count;
       const cpu = [];
-      for (let i = 0; i < sampleCount; i++) cpu.push(await tick());
+      for (let i = 0; i < sampleCount; i++) {
+        // Full diagnostic capture has a bounded 120-frame window.
+        if (i > 0 && i % 120 === 0) renderer.profiler.configure({ gpuTimingMode: "full" });
+        cpu.push(await tick());
+      }
       for (let wait = 0; wait < 100; wait++) {
         const ready = renderer.profiler.history.filter(
           (p) =>
-            p.frameIndex >= first && p.frameIndex < first + sampleCount && p.gpu.sampled && !p.gpu.pending,
+            p.frameIndex >= first && p.frameIndex < first + sampleCount && p.gpu.sampled && !p.gpu.pending
         );
         if (ready.length === sampleCount) break;
         await new Promise((resolve) => setTimeout(resolve, 5));
       }
       const profiles = renderer.profiler.history.filter(
-        (p) => p.frameIndex >= first && p.frameIndex < first + sampleCount,
+        (p) => p.frameIndex >= first && p.frameIndex < first + sampleCount
       );
       check(
         profiles.length === sampleCount &&
           profiles.every(
             (p) =>
-              p.gpu.sampled && !p.gpu.pending && !p.counters["gpu.timing.truncated"] && p.submits.count === 1,
+              p.gpu.sampled && !p.gpu.pending && !p.counters["gpu.timing.truncated"] && p.submits.count === 1
           ),
-        "Incomplete/ambiguous production timestamps or multiple submits",
+        "Incomplete/ambiguous production timestamps or multiple submits"
       );
       const costs = profiles.map((p) => summarizeGpuTimingCost(p.gpu.segments));
       const stage = profiles.map((p) =>
         p.gpu.segments
           .filter((s) => s.scope === "stage" && s.label.endsWith("/native-surface"))
-          .reduce((n, s) => n + s.durationMs, 0),
+          .reduce((n, s) => n + s.durationMs, 0)
       );
       check(
         stage.every((v) => v > 0),
-        "Required native Surface stage scope missing",
+        `Required native Surface stage scope missing: ${JSON.stringify(
+          profiles
+            .filter((_, index) => stage[index] <= 0)
+            .slice(0, 1)
+            .map((profile) => ({ frame: profile.frameIndex, segments: profile.gpu.segments }))
+        )}`
       );
       const outputs = await inspect();
       const collection = renderer._environments.get(scene).lights;
@@ -575,7 +596,7 @@ fn inspect(@builtin(local_invocation_index) index: u32) {
             ((((sample.x + 0.5) / width) * 2 - 1) * ((cameraZ - 0.05) * Math.tan(Math.PI / 6)) * width) /
               height,
             (1 - ((sample.y + 0.5) / height) * 2) * ((cameraZ - 0.05) * Math.tan(Math.PI / 6)),
-            0.05,
+            0.05
           ];
           const material = sourceBySlot.get(sample.materialSlot);
           check(material !== undefined, "Numeric reference material is unpublished");
@@ -585,12 +606,12 @@ fn inspect(@builtin(local_invocation_index) index: u32) {
             roughness: (0.8 * 128) / 255,
             normal: normalize([1 / 255, 1 / 255, 1]),
             coatNormal: [0, 0, 1],
-            coat: [0, 1],
+            coat: [0, 1]
           };
           let expected = [0, 0, 0];
           for (const light of lights) {
             const delta = [light.position.x, light.position.y, light.position.z].map(
-              (v, i) => v - position[i],
+              (v, i) => v - position[i]
             );
             const centerDistance = Math.hypot(...delta);
             // Independent support/fade definition; do not use the production CPU helper for M3.
@@ -620,7 +641,7 @@ fn inspect(@builtin(local_invocation_index) index: u32) {
               position,
               normalize(delta),
               [attenuation * light.intensity, attenuation * light.intensity, attenuation * light.intensity],
-              [0, 0, cameraZ],
+              [0, 0, cameraZ]
             );
             expected = expected.map((v, k) => v + contribution[k]);
           }
@@ -631,7 +652,7 @@ fn inspect(@builtin(local_invocation_index) index: u32) {
             maxDirectDeltaError = Math.max(maxDirectDeltaError, error);
             check(
               error < 0.002 + Math.abs(v) * 0.003,
-              `Independent point-light delta ${count}: ${actual} vs ${v} @${sample.x},${sample.y}`,
+              `Independent point-light delta ${count}: ${actual} vs ${v} @${sample.x},${sample.y}`
             );
           });
         }
@@ -642,10 +663,10 @@ fn inspect(@builtin(local_invocation_index) index: u32) {
           const expected = workingColor([
             material.diffuse_color.r,
             material.diffuse_color.g,
-            material.diffuse_color.b,
+            material.diffuse_color.b
           ]);
           sample.rgb.forEach((v, k) =>
-            check(Math.abs(v - expected[k]) < 0.002, "Independent Unlit HDR differs"),
+            check(Math.abs(v - expected[k]) < 0.002, "Independent Unlit HDR differs")
           );
         });
       }
@@ -654,13 +675,13 @@ fn inspect(@builtin(local_invocation_index) index: u32) {
         "surfaceManagementMs",
         "surfaceEvaluationMs",
         "passSumMs",
-        "commandSpanMs",
+        "commandSpanMs"
       ];
       const memory = renderer.memoryEvidence();
       const passLabels = [
         ...new Set(
-          profiles.flatMap((p) => p.gpu.segments.filter((s) => s.scope === "pass").map((s) => s.label)),
-        ),
+          profiles.flatMap((p) => p.gpu.segments.filter((s) => s.scope === "pass").map((s) => s.label))
+        )
       ];
       records.push({
         name,
@@ -671,7 +692,7 @@ fn inspect(@builtin(local_invocation_index) index: u32) {
         inspectionJitter: {
           period: outputs.jitterPeriod,
           phase: outputs.jitterPhase,
-          frameIndex: outputs.inspectionFrame,
+          frameIndex: outputs.inspectionFrame
         },
         instances: runtime.instanceCount,
         materials: runtime.materialDictionaryCount,
@@ -687,6 +708,7 @@ fn inspect(@builtin(local_invocation_index) index: u32) {
         memory,
         diagnosticReferenceBytes: referenceSurface?.allocatedBytes ?? 0,
         clusterObservation: outputs.clusters,
+        constructedLocalLighting: await construction?.record(profiles),
         dispatches: distribution(profiles.map((p) => p.counters["gpu.commands.dispatch"] ?? 0)),
         actualLights,
         lightConfiguration: lighting
@@ -702,13 +724,13 @@ fn inspect(@builtin(local_invocation_index) index: u32) {
                 distance: light.distance,
                 intensity: light.intensity,
                 angle: light.angle,
-                penumbra: light.penumbra,
+                penumbra: light.penumbra
               })),
               features: [...device.features],
               limits: {
                 storage: device.limits.maxStorageBuffersPerShaderStage,
-                sampled: device.limits.maxSampledTexturesPerShaderStage,
-              },
+                sampled: device.limits.maxSampledTexturesPerShaderStage
+              }
             }
           : undefined,
         raw: lighting
@@ -720,7 +742,7 @@ fn inspect(@builtin(local_invocation_index) index: u32) {
               submits: profile.submits,
               cpuOwners: profile.cpuMs,
               graph: profile.graph,
-              gpuCounters: profile.gpuCounters,
+              gpuCounters: profile.gpuCounters
             }))
           : undefined,
         counters: profiles[0].counters,
@@ -731,15 +753,15 @@ fn inspect(@builtin(local_invocation_index) index: u32) {
               profiles.map((p) =>
                 p.gpu.segments
                   .filter((s) => s.scope === "pass" && s.label === label)
-                  .reduce((sum, s) => sum + s.durationMs, 0),
-              ),
-            ),
-          ]),
-        ),
+                  .reduce((sum, s) => sum + s.durationMs, 0)
+              )
+            )
+          ])
+        )
       });
       if (lighting)
         console.info(
-          `L3.0 ${name}/${count}: ${JSON.stringify({ cpu: records.at(-1).cpuRenderMs, passes: records.at(-1).passes })}`,
+          `L3.0 ${name}/${count}: ${JSON.stringify({ cpu: records.at(-1).cpuRenderMs, passes: records.at(-1).passes })}`
         );
     }
     if (complex) {
@@ -748,7 +770,7 @@ fn inspect(@builtin(local_invocation_index) index: u32) {
       const edited = await inspect();
       check(
         edited.samples.some((sample, i) => sample.rgb.some((v, k) => v !== beforeEdit.samples[i].rgb[k])),
-        "Custom parameter edit was not consumed",
+        "Custom parameter edit was not consumed"
       );
     }
     const before = renderer.memoryEvidence();
@@ -761,11 +783,12 @@ fn inspect(@builtin(local_invocation_index) index: u32) {
     const after = renderer.memoryEvidence();
     check(
       after.owners.nativeSurfaceScratch.allocatedBytes <= before.owners.nativeSurfaceScratch.allocatedBytes,
-      "Completed resize leaked native scratch",
+      "Completed resize leaked native scratch"
     );
     check(errors.length === 0, `Acceptance GPU errors: ${errors}`);
     return { records, providers, resize: { before, after }, baselineCoverage: baseline.coverage };
   } finally {
+    await construction?.destroy();
     renderer.destroy();
     await device.queue.onSubmittedWorkDone();
     if (inspection)
@@ -790,20 +813,20 @@ export async function runLightingBaselineGpuOracle() {
     { name: "mixed-sparse-high-a", lighting: { type: "mixed", distribution: "sparse", counts: [64, 128] } },
     {
       name: "point-overlap-low-b",
-      lighting: { type: "point", distribution: "overlap", counts: [8, 16, 32] },
+      lighting: { type: "point", distribution: "overlap", counts: [8, 16, 32] }
     },
     { name: "mixed-sparse-high-b", lighting: { type: "mixed", distribution: "sparse", counts: [256, 1024] } },
     { name: "spot-overlap-low", lighting: { type: "spot", distribution: "overlap", counts: [1, 8, 32] } },
     {
       name: "point-overlap-high",
-      lighting: { type: "point", distribution: "overlap", counts: [64, 128, 256, 1024] },
+      lighting: { type: "point", distribution: "overlap", counts: [64, 128, 256, 1024] }
     },
     { name: "mixed-overlap-low", lighting: { type: "mixed", distribution: "overlap", counts: [4, 16] } },
     {
       name: "spot-overlap-high",
-      lighting: { type: "spot", distribution: "overlap", counts: [64, 128, 256, 1024] },
+      lighting: { type: "spot", distribution: "overlap", counts: [64, 128, 256, 1024] }
     },
-    { name: "coat-custom", complex: true, lighting: { type: "mixed", distribution: "sparse", counts: [8] } },
+    { name: "coat-custom", complex: true, lighting: { type: "mixed", distribution: "sparse", counts: [8] } }
   ])
     cases.push(await runCase(specification));
   return {
@@ -816,14 +839,13 @@ export async function runLightingBaselineGpuOracle() {
       "Not the 400MB authored large asset",
       "No hardware spill/register/DRAM counters",
       "Full instrumentation; external serialized GPU waits excluded from CPU render",
-      "New DIRECT/SPARSE crossover not measured",
-    ],
+      "New DIRECT/SPARSE crossover not measured"
+    ]
   };
 }
 
-export async function runLightingSupportGpuOracle() {
-  const cases = [];
-  for (const specification of [
+export function lightingSupportSpecifications() {
+  return [
     {
       name: "point-radius-offscreen",
       type: "point",
@@ -832,7 +854,7 @@ export async function runLightingSupportGpuOracle() {
         light.radius = 4;
         light.distance = 1;
         light.intensity = 4;
-      },
+      }
     },
     {
       name: "point-unbounded-offscreen",
@@ -840,7 +862,7 @@ export async function runLightingSupportGpuOracle() {
       boundary: (light) => {
         light.position.set(8, 0, 4);
         light.distance = 0;
-      },
+      }
     },
     {
       name: "spot-radius-shell",
@@ -849,14 +871,14 @@ export async function runLightingSupportGpuOracle() {
         light.position.set(0, 0, 4);
         light.radius = 4;
         light.distance = 1;
-      },
+      }
     },
     {
       name: "spot-unbounded",
       type: "spot",
       boundary: (light) => {
         light.distance = 0;
-      },
+      }
     },
     {
       name: "spot-default-distance-hard-edge",
@@ -864,7 +886,7 @@ export async function runLightingSupportGpuOracle() {
       boundary: (light) => {
         light.distance = 3.4028234663852886e38;
         light.penumbra = 0;
-      },
+      }
     },
     {
       name: "point-near-crossing",
@@ -873,14 +895,19 @@ export async function runLightingSupportGpuOracle() {
         light.position.set(0, 0, 6);
         light.distance = 0.5;
         light.radius = 6;
-      },
-    },
-  ])
+      }
+    }
+  ];
+}
+
+export async function runLightingSupportGpuOracle() {
+  const cases = [];
+  for (const specification of lightingSupportSpecifications())
     cases.push(
       await runCase({
         name: specification.name,
-        lighting: { ...specification, counts: [1], correctnessOnly: true, distribution: "boundary" },
-      }),
+        lighting: { ...specification, counts: [1], correctnessOnly: true, distribution: "boundary" }
+      })
     );
   return { verdict: "passed", actualRenderer: true, correctnessOnly: true, cases };
 }
@@ -888,7 +915,7 @@ export async function runLightingSupportGpuOracle() {
 export async function runLightingLowCoverageGpuOracle() {
   const result = await runCase({
     name: "point-low-coverage",
-    lighting: { type: "point", distribution: "overlap", cameraZ: 12, counts: [0, 1, 4, 8, 16, 32] },
+    lighting: { type: "point", distribution: "overlap", cameraZ: 12, counts: [0, 1, 4, 8, 16, 32] }
   });
   return {
     verdict: "passed",
@@ -896,8 +923,8 @@ export async function runLightingLowCoverageGpuOracle() {
     cases: [result],
     limitations: [
       "Same geometry/material/resolution/quality; only camera distance changed for coverage input",
-      "No DIRECT/SPARSE calibration",
-    ],
+      "No DIRECT/SPARSE calibration"
+    ]
   };
 }
 
@@ -908,7 +935,7 @@ export async function runNativeSurfaceAcceptanceGpuOracle() {
     { name: "complex", complex: true },
     { name: "programs-8", complex: true, programs: 8 },
     { name: "programs-32", complex: true, programs: 32 },
-    { name: "unlit", unlit: true },
+    { name: "unlit", unlit: true }
   ])
     cases.push(await runCase(specification));
   return {
@@ -918,7 +945,7 @@ export async function runNativeSurfaceAcceptanceGpuOracle() {
     limitations: [
       "Generated 64-instance grid, not authored-scene image acceptance",
       "No hardware register/spill counters",
-      "No performance comparison against retired Surface",
-    ],
+      "No performance comparison against retired Surface"
+    ]
   };
 }

@@ -4,6 +4,8 @@ primaryOwner: shading
 owner: OEngine/src/material, OEngine/src/render, OEngine/src/shaders
 intent: Compile material graphs to native programs and shade every opaque winner through one Surface production owner.
 paths:
+  - OEngine/src/gpu/GpuLocalLightWorkAbi.ts
+  - OEngine/src/render/lighting/**
   - OEngine/src/gpu/GpuNativeMaterialScene.ts
   - OEngine/src/gpu/GpuNativeMaterialPublication.ts
   - OEngine/src/gpu/NativeMaterialBindings.ts
@@ -33,6 +35,8 @@ checks:
   - model
   - registry
 watch:
+  - OEngine/src/gpu/GpuLocalLightWorkAbi.ts
+  - OEngine/src/render/lighting/**
   - OEngine/src/gpu/GpuNativeMaterialScene.ts
   - OEngine/src/gpu/GpuNativeMaterialPublication.ts
   - OEngine/src/gpu/NativeMaterialBindings.ts

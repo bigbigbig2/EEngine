@@ -11,6 +11,54 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "local-light-integration",
+    file: "OEngine/tests/oracle/native-surface-integration-gpu.mjs",
+    url: "/OEngine/tests/oracle/native-surface-integration-gpu.mjs",
+    entry: "runLocalLightIntegrationGpuOracle",
+    requiredFeatures: ["texture-formats-tier1"],
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    description: "L3.1 native light ABI with all material routes/two binding sets/alpha/Sun/VSM/AO/Temporal/FSR and resource-limit continuation.",
+    timeoutMs: 180000
+  }),
+  Object.freeze({
+    name: "local-light-epochs",
+    file: "OEngine/tests/oracle/native-surface-integration-gpu.mjs",
+    url: "/OEngine/tests/oracle/native-surface-integration-gpu.mjs",
+    entry: "runLocalLightEpochGpuOracle",
+    requiredFeatures: ["texture-formats-tier1"],
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    description: "L3.1 old epoch teardown, rejection and complete new device reconstruction.",
+    timeoutMs: 180000
+  }),
+  Object.freeze({
+    name: "local-light-native",
+    file: "OEngine/tests/oracle/local-light-native-gpu.mjs",
+    url: "/OEngine/tests/oracle/local-light-native-gpu.mjs",
+    entry: "runLocalLightNativeGpuOracle",
+    requiredFeatures: ["timestamp-query"],
+    allowPrefixes: ["OEngine/src/render/assets/"],
+    description: "L3.1 new generator/product/native consumer on real winner/material/Sun/VSM/IBL/AO/Temporal providers, isolated ownership.",
+    timeoutMs: 240000
+  }),
+  Object.freeze({
+    name: "local-light-cost",
+    file: "OEngine/tests/oracle/local-light-native-gpu.mjs",
+    url: "/OEngine/tests/oracle/local-light-native-gpu.mjs",
+    entry: "runLocalLightCostGpuOracle",
+    requiredFeatures: ["timestamp-query"],
+    allowPrefixes: ["OEngine/src/render/assets/"],
+    description: "L3.1 alternating same-work DIRECT/SPARSE generator+native Surface 1080p cost.",
+    timeoutMs: 900000
+  }),
+  Object.freeze({
+    name: "local-light-work",
+    file: "OEngine/tests/oracle/local-light-work-gpu.mjs",
+    url: "/OEngine/tests/oracle/local-light-work-gpu.mjs",
+    entry: "runLocalLightWorkGpuOracle",
+    description: "L3.1 isolated local-light count/scan/scatter, complete overflow, staged DB abort/retry and independent support coverage.",
+    timeoutMs: 180000
+  }),
+  Object.freeze({
     name: "lighting-support",
     file: "OEngine/tests/oracle/native-surface-acceptance-gpu.mjs",
     url: "/OEngine/tests/oracle/native-surface-acceptance-gpu.mjs",

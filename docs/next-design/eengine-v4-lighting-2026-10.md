@@ -8,6 +8,11 @@ verifies:
     - OEngine/src/scene/Scene.ts
     - OEngine/src/gpu/LightDatabase.ts
     - OEngine/src/gpu/LightCapacity.ts
+    - OEngine/src/gpu/GpuLocalLightWorkAbi.ts
+    - OEngine/src/render/lighting/LocalLightWorkGenerator.ts
+    - OEngine/src/shaders/local_light_work.ts
+    - OEngine/src/shaders/native_local_lighting.ts
+    - OEngine/src/shaders/lighting_brdf.ts
     - OEngine/src/gpu/GPUDatabase.ts
     - OEngine/src/gpu/GPUSceneEnvironmentContext.ts
     - OEngine/src/render/passes/LightClusterPass.ts
@@ -191,7 +196,7 @@ Scan counts：生成8B/cluster range（offset,count）和总E；若E>I或arithme
 
 Finalize每cluster核验cursor=count、全部writes合法；scatter任何mismatch/overflow设置全帧DIRECT flags。Surface只能读finalize后的data header/metadata版本；**不得一边填列表一边消费、不得消费partial**。DIRECT fallback读取all-admitted IDs，包含未入bounds的灯，不依赖错误filtered list；SPARSE读取本cluster列表加unbounded tail（finite/unbounded互斥），无双计数。
 
-常见SPARSE约11个compute dispatch：bounds1、light task scan3、occupancy1、count1、cluster scan3、scatter1、finalize1，另有clear/upload；较大extent的scan递归额外dispatch按level记录。early DIRECT/NONE时用GPU indirect zero跳过occupancy/count/cluster scan/scatter，最后发布正确header；CPU低灯DIRECT topology不分配大grid。不能为减少dispatch未经成本证明合成megakernel。
+L3.1 的1080p SPARSE在N≤256时为12个compute dispatch：bounds1、light task scan1、schedule1、occupancy1、count1、cluster scan3、allocate1、scatter schedule1、scatter1、finalize1，另有clear/upload；N>256增加task scan层，通常14个。GPU发现空bounds/region或index溢出时，count/scatter indirect归零，仍执行occupancy/cluster scan/allocate/finalize固定尾段；不能把它写成完全免费跳过。CPU NONE/DIRECT无local compute dispatch、不分配大grid。进一步跳过固定尾段须有测量依据，不能为减少dispatch未经成本证明合成megakernel。
 
 ### 4.3 Low-light选择与 Cost Card
 
@@ -207,8 +212,8 @@ NONE（N=0）是数学必然成立的无local贡献；Global Sun/Directionals/IB
 | --- | --- | --- |
 | LightDatabase | 既有packed records，Scene persistent | GPUSceneEnvironmentContext/GPULightCollection owns；publication writes；generator/global+local shading reads |
 | LocalLightParameters | 128B uniform，view/frame | generator上传；含grid/near-far-log/view profile/capacity/publication context；Surface/producer读 |
-| LocalLightLookup | 8B/cluster `{offset:u32,count:u32}`，NONE/DIRECT合法tiny dummy | FrameGraph transient；scan写、finalize依赖；Surface仅SPARSE读 |
-| LocalLightData | 128B header + u32 payload，frame/view-local | FrameGraph transient；bounds/scan/scatter/finalize分段唯一writer；Surface借读，不能destroy |
+| LocalLightLookup | 8B/cluster `{offset:u32,count:u32}`，NONE/DIRECT合法tiny dummy | generator拥有frame allocations与真实fence；FrameGraph声明宏依赖，allocate写、finalize依赖；Surface仅SPARSE读 |
+| LocalLightData | 128B header + u32 payload，frame/view-local；空runtime array物理至少132B | generator拥有frame allocations与真实fence；bounds/scatter/finalize分段writer；Surface借读，不能destroy |
 | 内部scratch | occupancy4T、bounds32N、prefix/scan、counts/cursors；indirect 16B/阶段 | generator声明图寿命/预算，只有内部pass读写，不能泄漏给Surface |
 
 Data header按32×u32=128B，word布局：0 abiVersion=1；1 mode（0 NONE/1 DIRECT/2 SPARSE）；2 flags；3 deviceEpoch；4 frameIndex；5 lightPublicationRevision；6 admittedCount；7 allIdsOffset；8 globalLocalCount；9 globalLocalOffset；10 clusterCount；11 indexCapacity；12 indicesOffset；13 indicesWritten；14 paddedRegionTasks；15 taskBudget；16..31 reserved=0。offset均为payload中的u32 word，不含header；all IDs/global tail/index各是明确不重叠slice。只有SPARSE发布indicesWritten=E，NONE=0，fallback/direct不得信任残留indices。
@@ -223,10 +228,10 @@ Surface group1继续使用 DB storage、parameters uniform、lookup storage、da
 
 - admission保当前Point+Spot<=16,380、Directional<=32、database slot/record/table合法；超界创建资源前明确拒绝，没有截断/未来resize弥补漏灯。
 - 4GB/1080p初始SPARSE预算 **I=1,048,576 tuples（4MiB）**、单frame physical products+scratch **6MiB ceiling**。这是初始capacity设计，不是实测最优。2 in-flight +1 resize/replacement峰值最多18MiB；需按真实graph allocation/fence计账，不能假设destroy即时释放。
-- region launch工作上界 `sum(64×g_l)<=8I`，saturating scan超过budget置flag并选DIRECT、indirect=0。8I是有界工作保护值，不是已测break-even；L3.0/L3.1计量后可降低，但不丢贡献。u32所有multiply/add/prefix先checked或saturate至budget+1，extent/dispatch2D/buffer limits在分配前协商。
+- region launch工作上界 `sum(64×g_l)<=8I`，超过budget置flag并选DIRECT、indirect=0。L3.1以CPU preflight证明 `ceil(C/64)×64×N<=u32max` 后运行精确portable scan，不宣称GPU用了saturating scan。8I是有界工作保护值，不是已测break-even；L3.0/L3.1计量后可降低，但不丢贡献。extent/dispatch2D/buffer limits在分配前协商。
 - pair E>I则全帧DIRECT，不返回前I项；all-admitted段独立容量>=N，因此完整fallback可执行。不能无限grow图资源；future-frame delayed overflow statistics仅提示容量policy，不是正确性依赖。
 - FULL DIRECT worst O(V×N)，极端16380全屏会很慢并可能触发device timeout；不宣称bounded memory等于bounded frame time。高重叠压力若频繁fallback/超时，验收记录为能力/性能缺口，不能把partial image算通过、偷偷减灯或增加runtime bridge。
-- NONE/direct topology只需要header/IDs/tiny lookup；Scene/mode/capacity tier变化进入既有cache key，稳定帧不重compile。SPARSE资源不能被同时未过fence的frame覆盖；FrameGraph allocator必须尊重真实last-use。profile/epoch变化使cache失效，而revision/count仅更新late bindings/上传。
+- NONE/direct topology只需要header/IDs/tiny lookup；L3.1 owner另保O(N) scratch，不分配C级grid或I级indices。Scene/mode/capacity tier变化进入既有cache key，稳定帧不重compile。SPARSE资源不能被同时未过fence的frame覆盖；generator的有界allocation复用必须尊重真实last-use。最多2个encoded/submitted frame与1个prepared replacement，峰值18MiB；profile/epoch变化使cache失效，而revision/count更新late bindings/上传。
 
 ## 6. Cost Map 与可证伪条件
 
@@ -240,7 +245,7 @@ Surface group1继续使用 DB storage、parameters uniform、lookup storage、da
 | random access | per任务shared light read48/64B + mask/predicate；per pair count/cursor atomics至少各一次；Surface DB高度共享，逻辑bytes不是DRAM |
 | ALU / specials | bounds O(N)、task binarysearch ceil(log2N)/WG、slice log/exp、sphere tests；保BRDF/texture/VSM useful work不变；scanO(C+N)加workgroup barriers |
 | atomics / barriers | distributed2E原子；occupancyWG tree约6轮、scan block约8轮以上，完整dispatch间graph依赖；没有globalCAS、没有每lane1KiBID数组 |
-| pipelines / dispatch | finite kernels约11dispatch，DIRECT约1、NONE零local；少灯收益不能被11dispatch管理税吃掉 |
+| pipelines / dispatch | 10个device-local PSO，1080p SPARSE通常12/14dispatch，DIRECT/NONE零local compute；少灯收益需扣完整管理税 |
 | CPU | publication更新、常量latebind、有限dispatchencode；不引入每帧全Product/page scan或完整light-work evidence |
 
 理想小范围灯：Q≈C×N×f，f是conservative bounds覆盖率；忽略固定税，双遍需2f<1才少于旧C×N。50%受益时理想0.5旧tests仍要扣occupancy/scan/atomics；0%受益（f=1）新tests约2倍旧，是 **负收益**，此时必须由DIRECT避免list管理或如实承认高重叠限制。100%空域/极小灯收益最多省去旧tests，还要付16.59MB扫描；低coverage、不多灯未必赚钱，NONE/校准DIRECT不付它。
