@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFile, readdir, writeFile, rm } from "node:fs/promises";
+import { readFile, readdir, writeFile, rm, cp } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { resolve, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -73,11 +73,16 @@ export async function buildTests(root = REPO_ROOT) {
   );
   if (result.status !== 0)
     throw new Error(`test compilation failed: ${result.error?.message ?? result.status}`);
+  // Browser codec Workers import this existing JS/WASM dependency; tsc only emits TS.
+  const codecVendor = resolve(engine, "src/assets/codec/vendor/ktx-software-4.4.2");
+  if (existsSync(codecVendor)) {
+    await cp(codecVendor, resolve(output, "assets/codec/vendor/ktx-software-4.4.2"), { recursive: true });
+  }
   if (before !== (await sourceIdentity(root)))
     throw new Error("source changed during test compilation; rebuild");
   const manifest = {
     schemaVersion: 1,
-    recipe: "tsc -p tsconfig.test.json",
+    recipe: "tsc -p tsconfig.test.json + pinned codec vendor copy",
     node: process.version,
     dependencyScope: "conservative: engine src, configs, lock and compiler identity",
     sourceSha256: before,

@@ -23,7 +23,9 @@ currentSlice:
     Establish a BC-required PC profile and cooked final-block Texture Product with
     direct GPU upload, complete native consumers and fenced residency. Preserve M1/M2/M3
     foundations; unit states and acceptance live only in the texture execution authority.
-    Design is complete; implementation requires the next authorized unit. Do not start VT automatically.
+    Design and initial baseline decisions are available in the execution authority.
+    Production construction requires the next authorized unit. Never run the excluded
+    477MB authored workload. Do not start VT automatically.
 
 nextModules:
   - id: virtual-resources-v4

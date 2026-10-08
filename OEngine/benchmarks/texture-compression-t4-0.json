@@ -1,0 +1,5256 @@
+{
+  "schemaVersion": 1,
+  "kind": "T4.0 component baseline and optional encoder decision, not production compression acceptance",
+  "sourceParentSha": "b39f23a0e21a57c469cf2396d646ac80571fc48e",
+  "dirtyProbeTools": true,
+  "productionSourceChanged": false,
+  "records": {
+    "texture-baseline": {
+      "rawArtifactSha256": "f8a2be2b5e2ceef2ddfd8cc2d0cb0904f6ca9b1a3fa9f11dc955d80e3699bfa9",
+      "tool": "gpu-oracle",
+      "toolVersion": 1,
+      "hostBuildId": "b6f7ef76dff3",
+      "buildIdentity": {
+        "schemaVersion": 1,
+        "recipe": "tsc -p tsconfig.test.json + pinned codec vendor copy",
+        "node": "v24.14.0",
+        "dependencyScope": "conservative: engine src, configs, lock and compiler identity",
+        "sourceSha256": "b146a6b552f92ef6cd639cac01cac7228bf8e7d0ddd1f444a0fcbe32829a2f65",
+        "outputSha256": "0ffc2747ff16df19cb9fa402597eb6c56a7a987603031ef714d87a3d9cb5af59",
+        "completedAt": "2026-10-08T19:06:08.410Z"
+      },
+      "oracleSha256": "45b224151dc0a331145f3677b3bb0cee8182167938bc1d712337d78a15ba6b7b",
+      "oracle": "texture-baseline",
+      "oracleFile": "OEngine/tests/oracle/texture-baseline-gpu.mjs",
+      "oracleEntry": "runTextureBaselineGpuOracle",
+      "registry": {
+        "description": "T4.0 current authored dungeon texture residency, codec/direct upload, ledger and retirement baseline; no large scene.",
+        "note": null,
+        "negativeControl": false
+      },
+      "status": "passed",
+      "failureKind": null,
+      "summary": {
+        "schemaVersion": 1,
+        "stage": "T4.0",
+        "capacity": {
+          "adapterSampled": 48,
+          "deviceSampled": 16,
+          "arrayLayers": 256,
+          "textureDimension": 8192,
+          "adapterFeatures": [
+            "bgra8unorm-storage",
+            "chromium-experimental-multi-draw-indirect",
+            "chromium-experimental-sampling-resource-table",
+            "chromium-experimental-timestamp-query-inside-passes",
+            "clip-distances",
+            "core-features-and-limits",
+            "depth-clip-control",
+            "depth32float-stencil8",
+            "dual-source-blending",
+            "float32-blendable",
+            "float32-filterable",
+            "indirect-first-instance",
+            "primitive-index",
+            "rg11b10ufloat-renderable",
+            "shader-f16",
+            "subgroup-size-control",
+            "subgroups",
+            "texture-component-swizzle",
+            "texture-compression-bc",
+            "texture-compression-bc-sliced-3d",
+            "texture-compression-unaligned",
+            "texture-formats-tier1",
+            "texture-formats-tier2",
+            "timestamp-query"
+          ],
+          "bcEnabled": true,
+          "conservativeTenMapDemand": 19,
+          "minimum": 16,
+          "negotiated19": {
+            "enabledLimit": 19,
+            "legal19": true,
+            "rejected20": "The number of sampled textures (20) in the Compute stage exceeds the maximum per-stage limit (19). This adapter supports a higher maxSampledTexturesPerShaderStage of 48, which can be specified in requiredLimits when calling requestDevice(). Limits differ by hardware, so always check the adapter limits prior to requesting a higher limit.\n - While validating binding counts\n - While validating [BindGroupLayoutDescriptor]\n - While calling [Device].CreateBindGroupLayout([BindGroupLayoutDescriptor]).\n",
+            "scope": "layout capability, not future full native material closure"
+          },
+          "npotWithoutOptionalFeature": {
+            "width": 257,
+            "height": 129,
+            "rejected": "The size ([Extent3D width:257, height:129, depthOrArrayLayers:1]) of the texture is not a multiple of the block width (4) and height (4) of the texture format (TextureFormat::BC7RGBAUnorm).\n - While validating [TextureDescriptor].\n - While calling [Device].CreateTexture([TextureDescriptor]).\n",
+            "futureStorageWidth": 260,
+            "futureStorageHeight": 132
+          }
+        },
+        "scene": {
+          "scope": "real authored images/materials -> production raw upload/mip/Residency; not a renderer frame or large-scene result",
+          "source": {
+            "url": "/examples/assets/three/rendering-lab/dungeon_warkarma.glb",
+            "sourceSha256": "cac0fc8c16d107e7ac4e69efde89c2cb6ef4bc66c34456a4dd0923218e5aafb1",
+            "bytes": 7990584,
+            "primitives": 798,
+            "textures": 25,
+            "materials": 25,
+            "sourceImageBytes": 2379388
+          },
+          "decoded": [
+            {
+              "index": 0,
+              "width": 2048,
+              "height": 2048,
+              "rgbaEquivalentBytes": 16777216
+            },
+            {
+              "index": 1,
+              "width": 2048,
+              "height": 2048,
+              "rgbaEquivalentBytes": 16777216
+            },
+            {
+              "index": 2,
+              "width": 2048,
+              "height": 2048,
+              "rgbaEquivalentBytes": 16777216
+            },
+            {
+              "index": 3,
+              "width": 2048,
+              "height": 2048,
+              "rgbaEquivalentBytes": 16777216
+            },
+            {
+              "index": 4,
+              "width": 2048,
+              "height": 2048,
+              "rgbaEquivalentBytes": 16777216
+            },
+            {
+              "index": 5,
+              "width": 2048,
+              "height": 2048,
+              "rgbaEquivalentBytes": 16777216
+            },
+            {
+              "index": 6,
+              "width": 2048,
+              "height": 2048,
+              "rgbaEquivalentBytes": 16777216
+            },
+            {
+              "index": 7,
+              "width": 2048,
+              "height": 2048,
+              "rgbaEquivalentBytes": 16777216
+            },
+            {
+              "index": 8,
+              "width": 2048,
+              "height": 2048,
+              "rgbaEquivalentBytes": 16777216
+            },
+            {
+              "index": 9,
+              "width": 2048,
+              "height": 2048,
+              "rgbaEquivalentBytes": 16777216
+            },
+            {
+              "index": 10,
+              "width": 2048,
+              "height": 2048,
+              "rgbaEquivalentBytes": 16777216
+            },
+            {
+              "index": 11,
+              "width": 2048,
+              "height": 2048,
+              "rgbaEquivalentBytes": 16777216
+            },
+            {
+              "index": 12,
+              "width": 2048,
+              "height": 2048,
+              "rgbaEquivalentBytes": 16777216
+            },
+            {
+              "index": 13,
+              "width": 2048,
+              "height": 2048,
+              "rgbaEquivalentBytes": 16777216
+            },
+            {
+              "index": 14,
+              "width": 2048,
+              "height": 2048,
+              "rgbaEquivalentBytes": 16777216
+            },
+            {
+              "index": 15,
+              "width": 2048,
+              "height": 2048,
+              "rgbaEquivalentBytes": 16777216
+            },
+            {
+              "index": 16,
+              "width": 2048,
+              "height": 2048,
+              "rgbaEquivalentBytes": 16777216
+            },
+            {
+              "index": 17,
+              "width": 2048,
+              "height": 2048,
+              "rgbaEquivalentBytes": 16777216
+            },
+            {
+              "index": 18,
+              "width": 2048,
+              "height": 2048,
+              "rgbaEquivalentBytes": 16777216
+            },
+            {
+              "index": 19,
+              "width": 2048,
+              "height": 2048,
+              "rgbaEquivalentBytes": 16777216
+            },
+            {
+              "index": 20,
+              "width": 2048,
+              "height": 2048,
+              "rgbaEquivalentBytes": 16777216
+            },
+            {
+              "index": 21,
+              "width": 2048,
+              "height": 2048,
+              "rgbaEquivalentBytes": 16777216
+            },
+            {
+              "index": 22,
+              "width": 2048,
+              "height": 2048,
+              "rgbaEquivalentBytes": 16777216
+            },
+            {
+              "index": 23,
+              "width": 2048,
+              "height": 2048,
+              "rgbaEquivalentBytes": 16777216
+            },
+            {
+              "index": 24,
+              "width": 2048,
+              "height": 2048,
+              "rgbaEquivalentBytes": 16777216
+            }
+          ],
+          "decodedRgbaEquivalentBytes": 419430400,
+          "actualBrowserDecodedPeakBytes": null,
+          "readMs": 35.099999994039536,
+          "loadDecodeMs": 286.8999999910593,
+          "stageCpuMs": 203.6000000089407,
+          "submission": {
+            "synchronousMs": 1.0999999940395355,
+            "completionWallMs": 314.5
+          },
+          "evidenceCpuMs": 7.5,
+          "stableBindingsCpuMs": {
+            "p50": 0,
+            "p95": 0,
+            "max": 0.10000000894069672,
+            "n": 20
+          },
+          "bindingSetCount": 1,
+          "sourceGpuBytes": 559240500,
+          "ledger": {
+            "schemaVersion": 6,
+            "localVariation": {
+              "bytes": 33554432,
+              "residentTextures": 9,
+              "freeBytes": 28160,
+              "builds": 9,
+              "nodes": 1043124,
+              "degraded": 7,
+              "rejected": 16,
+              "offlineBuilds": 0
+            },
+            "textureCapacity": 141,
+            "residentTextureCount": 25,
+            "retiringTextureCount": 0,
+            "allocatedBytes": 771752376,
+            "allocatedPeakBytes": 771752376,
+            "residentTextureBytes": 559240500,
+            "retiringTextureBytes": 0,
+            "logicalResidentBytes": 559240500,
+            "physicalAllocatedBytes": 771752376,
+            "retiringBytes": 0,
+            "transactionPeakBytes": 771752376,
+            "uploadBytes": 0,
+            "copyBytes": 0,
+            "transcodeBytes": 0,
+            "directPackageCount": 0,
+            "workerTranscodeCount": 0,
+            "uncompressedFallbackCount": 25,
+            "formatDistribution": [
+              {
+                "format": "rgba8unorm",
+                "residentTextureCount": 25,
+                "residentBytes": 559240500
+              }
+            ],
+            "bankGrowCount": 1,
+            "abortedBankGrowCount": 0,
+            "resizeDispatchCount": 25,
+            "runtimeMipGenerationCount": 1,
+            "cookedResidentTextureCount": 0,
+            "compressedResidentTextureCount": 0,
+            "cookedRuntimeMipGenerationCount": 0,
+            "bankCopyOperationCount": 0,
+            "segmentCount": 2,
+            "bindingSetCount": 1,
+            "bindingSlotUtilization": 0.5555555555555556,
+            "bindingSetPreflightFailures": 0,
+            "highResolutionArrayAllocated": true,
+            "banks": [
+              {
+                "segment": 0,
+                "bankClass": 0,
+                "size": 256,
+                "physicalSize": 256,
+                "maxCapacity": 64,
+                "allocatedCapacity": 64,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 63,
+                "allocatedBytes": 22369536
+              },
+              {
+                "segment": 0,
+                "bankClass": 1,
+                "size": 512,
+                "physicalSize": 512,
+                "maxCapacity": 32,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 0,
+                "bankClass": 2,
+                "size": 1024,
+                "physicalSize": 1024,
+                "maxCapacity": 16,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 0,
+                "bankClass": 3,
+                "size": 2048,
+                "physicalSize": 2048,
+                "maxCapacity": 32,
+                "allocatedCapacity": 32,
+                "residentTextureCount": 25,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 6,
+                "allocatedBytes": 715827840
+              },
+              {
+                "segment": 0,
+                "bankClass": 4,
+                "size": 4096,
+                "physicalSize": 4096,
+                "maxCapacity": 2,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              }
+            ],
+            "packageSegments": [
+              {
+                "segment": 0,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 1,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 2,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 3,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 4,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 5,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 6,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 7,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 8,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 9,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 10,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 11,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 12,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 13,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 14,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 15,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              }
+            ],
+            "textureLedger": [
+              {
+                "assetIdentity": "image:0",
+                "sourceUri": null,
+                "state": "resident",
+                "refCount": 1,
+                "bankClass": 3,
+                "segment": -1,
+                "layer": 1,
+                "sourceWidth": 2048,
+                "sourceHeight": 2048,
+                "decodedWidth": 2048,
+                "decodedHeight": 2048,
+                "gpuWidth": 2048,
+                "gpuHeight": 2048,
+                "format": "rgba8unorm",
+                "mipLevelCount": 12,
+                "logicalBytes": 22369620,
+                "residentBytes": 22369620,
+                "allocatedBytes": 22369620
+              },
+              {
+                "assetIdentity": "image:1",
+                "sourceUri": null,
+                "state": "resident",
+                "refCount": 1,
+                "bankClass": 3,
+                "segment": -1,
+                "layer": 2,
+                "sourceWidth": 2048,
+                "sourceHeight": 2048,
+                "decodedWidth": 2048,
+                "decodedHeight": 2048,
+                "gpuWidth": 2048,
+                "gpuHeight": 2048,
+                "format": "rgba8unorm",
+                "mipLevelCount": 12,
+                "logicalBytes": 22369620,
+                "residentBytes": 22369620,
+                "allocatedBytes": 22369620
+              },
+              {
+                "assetIdentity": "image:10",
+                "sourceUri": null,
+                "state": "resident",
+                "refCount": 1,
+                "bankClass": 3,
+                "segment": -1,
+                "layer": 11,
+                "sourceWidth": 2048,
+                "sourceHeight": 2048,
+                "decodedWidth": 2048,
+                "decodedHeight": 2048,
+                "gpuWidth": 2048,
+                "gpuHeight": 2048,
+                "format": "rgba8unorm",
+                "mipLevelCount": 12,
+                "logicalBytes": 22369620,
+                "residentBytes": 22369620,
+                "allocatedBytes": 22369620
+              },
+              {
+                "assetIdentity": "image:11",
+                "sourceUri": null,
+                "state": "resident",
+                "refCount": 1,
+                "bankClass": 3,
+                "segment": -1,
+                "layer": 12,
+                "sourceWidth": 2048,
+                "sourceHeight": 2048,
+                "decodedWidth": 2048,
+                "decodedHeight": 2048,
+                "gpuWidth": 2048,
+                "gpuHeight": 2048,
+                "format": "rgba8unorm",
+                "mipLevelCount": 12,
+                "logicalBytes": 22369620,
+                "residentBytes": 22369620,
+                "allocatedBytes": 22369620
+              },
+              {
+                "assetIdentity": "image:12",
+                "sourceUri": null,
+                "state": "resident",
+                "refCount": 1,
+                "bankClass": 3,
+                "segment": -1,
+                "layer": 13,
+                "sourceWidth": 2048,
+                "sourceHeight": 2048,
+                "decodedWidth": 2048,
+                "decodedHeight": 2048,
+                "gpuWidth": 2048,
+                "gpuHeight": 2048,
+                "format": "rgba8unorm",
+                "mipLevelCount": 12,
+                "logicalBytes": 22369620,
+                "residentBytes": 22369620,
+                "allocatedBytes": 22369620
+              },
+              {
+                "assetIdentity": "image:13",
+                "sourceUri": null,
+                "state": "resident",
+                "refCount": 1,
+                "bankClass": 3,
+                "segment": -1,
+                "layer": 14,
+                "sourceWidth": 2048,
+                "sourceHeight": 2048,
+                "decodedWidth": 2048,
+                "decodedHeight": 2048,
+                "gpuWidth": 2048,
+                "gpuHeight": 2048,
+                "format": "rgba8unorm",
+                "mipLevelCount": 12,
+                "logicalBytes": 22369620,
+                "residentBytes": 22369620,
+                "allocatedBytes": 22369620
+              },
+              {
+                "assetIdentity": "image:14",
+                "sourceUri": null,
+                "state": "resident",
+                "refCount": 1,
+                "bankClass": 3,
+                "segment": -1,
+                "layer": 15,
+                "sourceWidth": 2048,
+                "sourceHeight": 2048,
+                "decodedWidth": 2048,
+                "decodedHeight": 2048,
+                "gpuWidth": 2048,
+                "gpuHeight": 2048,
+                "format": "rgba8unorm",
+                "mipLevelCount": 12,
+                "logicalBytes": 22369620,
+                "residentBytes": 22369620,
+                "allocatedBytes": 22369620
+              },
+              {
+                "assetIdentity": "image:15",
+                "sourceUri": null,
+                "state": "resident",
+                "refCount": 1,
+                "bankClass": 3,
+                "segment": -1,
+                "layer": 16,
+                "sourceWidth": 2048,
+                "sourceHeight": 2048,
+                "decodedWidth": 2048,
+                "decodedHeight": 2048,
+                "gpuWidth": 2048,
+                "gpuHeight": 2048,
+                "format": "rgba8unorm",
+                "mipLevelCount": 12,
+                "logicalBytes": 22369620,
+                "residentBytes": 22369620,
+                "allocatedBytes": 22369620
+              },
+              {
+                "assetIdentity": "image:16",
+                "sourceUri": null,
+                "state": "resident",
+                "refCount": 1,
+                "bankClass": 3,
+                "segment": -1,
+                "layer": 17,
+                "sourceWidth": 2048,
+                "sourceHeight": 2048,
+                "decodedWidth": 2048,
+                "decodedHeight": 2048,
+                "gpuWidth": 2048,
+                "gpuHeight": 2048,
+                "format": "rgba8unorm",
+                "mipLevelCount": 12,
+                "logicalBytes": 22369620,
+                "residentBytes": 22369620,
+                "allocatedBytes": 22369620
+              },
+              {
+                "assetIdentity": "image:17",
+                "sourceUri": null,
+                "state": "resident",
+                "refCount": 1,
+                "bankClass": 3,
+                "segment": -1,
+                "layer": 18,
+                "sourceWidth": 2048,
+                "sourceHeight": 2048,
+                "decodedWidth": 2048,
+                "decodedHeight": 2048,
+                "gpuWidth": 2048,
+                "gpuHeight": 2048,
+                "format": "rgba8unorm",
+                "mipLevelCount": 12,
+                "logicalBytes": 22369620,
+                "residentBytes": 22369620,
+                "allocatedBytes": 22369620
+              },
+              {
+                "assetIdentity": "image:18",
+                "sourceUri": null,
+                "state": "resident",
+                "refCount": 1,
+                "bankClass": 3,
+                "segment": -1,
+                "layer": 19,
+                "sourceWidth": 2048,
+                "sourceHeight": 2048,
+                "decodedWidth": 2048,
+                "decodedHeight": 2048,
+                "gpuWidth": 2048,
+                "gpuHeight": 2048,
+                "format": "rgba8unorm",
+                "mipLevelCount": 12,
+                "logicalBytes": 22369620,
+                "residentBytes": 22369620,
+                "allocatedBytes": 22369620
+              },
+              {
+                "assetIdentity": "image:19",
+                "sourceUri": null,
+                "state": "resident",
+                "refCount": 1,
+                "bankClass": 3,
+                "segment": -1,
+                "layer": 20,
+                "sourceWidth": 2048,
+                "sourceHeight": 2048,
+                "decodedWidth": 2048,
+                "decodedHeight": 2048,
+                "gpuWidth": 2048,
+                "gpuHeight": 2048,
+                "format": "rgba8unorm",
+                "mipLevelCount": 12,
+                "logicalBytes": 22369620,
+                "residentBytes": 22369620,
+                "allocatedBytes": 22369620
+              },
+              {
+                "assetIdentity": "image:2",
+                "sourceUri": null,
+                "state": "resident",
+                "refCount": 1,
+                "bankClass": 3,
+                "segment": -1,
+                "layer": 3,
+                "sourceWidth": 2048,
+                "sourceHeight": 2048,
+                "decodedWidth": 2048,
+                "decodedHeight": 2048,
+                "gpuWidth": 2048,
+                "gpuHeight": 2048,
+                "format": "rgba8unorm",
+                "mipLevelCount": 12,
+                "logicalBytes": 22369620,
+                "residentBytes": 22369620,
+                "allocatedBytes": 22369620
+              },
+              {
+                "assetIdentity": "image:20",
+                "sourceUri": null,
+                "state": "resident",
+                "refCount": 1,
+                "bankClass": 3,
+                "segment": -1,
+                "layer": 21,
+                "sourceWidth": 2048,
+                "sourceHeight": 2048,
+                "decodedWidth": 2048,
+                "decodedHeight": 2048,
+                "gpuWidth": 2048,
+                "gpuHeight": 2048,
+                "format": "rgba8unorm",
+                "mipLevelCount": 12,
+                "logicalBytes": 22369620,
+                "residentBytes": 22369620,
+                "allocatedBytes": 22369620
+              },
+              {
+                "assetIdentity": "image:21",
+                "sourceUri": null,
+                "state": "resident",
+                "refCount": 1,
+                "bankClass": 3,
+                "segment": -1,
+                "layer": 22,
+                "sourceWidth": 2048,
+                "sourceHeight": 2048,
+                "decodedWidth": 2048,
+                "decodedHeight": 2048,
+                "gpuWidth": 2048,
+                "gpuHeight": 2048,
+                "format": "rgba8unorm",
+                "mipLevelCount": 12,
+                "logicalBytes": 22369620,
+                "residentBytes": 22369620,
+                "allocatedBytes": 22369620
+              },
+              {
+                "assetIdentity": "image:22",
+                "sourceUri": null,
+                "state": "resident",
+                "refCount": 1,
+                "bankClass": 3,
+                "segment": -1,
+                "layer": 23,
+                "sourceWidth": 2048,
+                "sourceHeight": 2048,
+                "decodedWidth": 2048,
+                "decodedHeight": 2048,
+                "gpuWidth": 2048,
+                "gpuHeight": 2048,
+                "format": "rgba8unorm",
+                "mipLevelCount": 12,
+                "logicalBytes": 22369620,
+                "residentBytes": 22369620,
+                "allocatedBytes": 22369620
+              },
+              {
+                "assetIdentity": "image:23",
+                "sourceUri": null,
+                "state": "resident",
+                "refCount": 1,
+                "bankClass": 3,
+                "segment": -1,
+                "layer": 24,
+                "sourceWidth": 2048,
+                "sourceHeight": 2048,
+                "decodedWidth": 2048,
+                "decodedHeight": 2048,
+                "gpuWidth": 2048,
+                "gpuHeight": 2048,
+                "format": "rgba8unorm",
+                "mipLevelCount": 12,
+                "logicalBytes": 22369620,
+                "residentBytes": 22369620,
+                "allocatedBytes": 22369620
+              },
+              {
+                "assetIdentity": "image:24",
+                "sourceUri": null,
+                "state": "resident",
+                "refCount": 1,
+                "bankClass": 3,
+                "segment": -1,
+                "layer": 25,
+                "sourceWidth": 2048,
+                "sourceHeight": 2048,
+                "decodedWidth": 2048,
+                "decodedHeight": 2048,
+                "gpuWidth": 2048,
+                "gpuHeight": 2048,
+                "format": "rgba8unorm",
+                "mipLevelCount": 12,
+                "logicalBytes": 22369620,
+                "residentBytes": 22369620,
+                "allocatedBytes": 22369620
+              },
+              {
+                "assetIdentity": "image:3",
+                "sourceUri": null,
+                "state": "resident",
+                "refCount": 1,
+                "bankClass": 3,
+                "segment": -1,
+                "layer": 4,
+                "sourceWidth": 2048,
+                "sourceHeight": 2048,
+                "decodedWidth": 2048,
+                "decodedHeight": 2048,
+                "gpuWidth": 2048,
+                "gpuHeight": 2048,
+                "format": "rgba8unorm",
+                "mipLevelCount": 12,
+                "logicalBytes": 22369620,
+                "residentBytes": 22369620,
+                "allocatedBytes": 22369620
+              },
+              {
+                "assetIdentity": "image:4",
+                "sourceUri": null,
+                "state": "resident",
+                "refCount": 1,
+                "bankClass": 3,
+                "segment": -1,
+                "layer": 5,
+                "sourceWidth": 2048,
+                "sourceHeight": 2048,
+                "decodedWidth": 2048,
+                "decodedHeight": 2048,
+                "gpuWidth": 2048,
+                "gpuHeight": 2048,
+                "format": "rgba8unorm",
+                "mipLevelCount": 12,
+                "logicalBytes": 22369620,
+                "residentBytes": 22369620,
+                "allocatedBytes": 22369620
+              },
+              {
+                "assetIdentity": "image:5",
+                "sourceUri": null,
+                "state": "resident",
+                "refCount": 1,
+                "bankClass": 3,
+                "segment": -1,
+                "layer": 6,
+                "sourceWidth": 2048,
+                "sourceHeight": 2048,
+                "decodedWidth": 2048,
+                "decodedHeight": 2048,
+                "gpuWidth": 2048,
+                "gpuHeight": 2048,
+                "format": "rgba8unorm",
+                "mipLevelCount": 12,
+                "logicalBytes": 22369620,
+                "residentBytes": 22369620,
+                "allocatedBytes": 22369620
+              },
+              {
+                "assetIdentity": "image:6",
+                "sourceUri": null,
+                "state": "resident",
+                "refCount": 1,
+                "bankClass": 3,
+                "segment": -1,
+                "layer": 7,
+                "sourceWidth": 2048,
+                "sourceHeight": 2048,
+                "decodedWidth": 2048,
+                "decodedHeight": 2048,
+                "gpuWidth": 2048,
+                "gpuHeight": 2048,
+                "format": "rgba8unorm",
+                "mipLevelCount": 12,
+                "logicalBytes": 22369620,
+                "residentBytes": 22369620,
+                "allocatedBytes": 22369620
+              },
+              {
+                "assetIdentity": "image:7",
+                "sourceUri": null,
+                "state": "resident",
+                "refCount": 1,
+                "bankClass": 3,
+                "segment": -1,
+                "layer": 8,
+                "sourceWidth": 2048,
+                "sourceHeight": 2048,
+                "decodedWidth": 2048,
+                "decodedHeight": 2048,
+                "gpuWidth": 2048,
+                "gpuHeight": 2048,
+                "format": "rgba8unorm",
+                "mipLevelCount": 12,
+                "logicalBytes": 22369620,
+                "residentBytes": 22369620,
+                "allocatedBytes": 22369620
+              },
+              {
+                "assetIdentity": "image:8",
+                "sourceUri": null,
+                "state": "resident",
+                "refCount": 1,
+                "bankClass": 3,
+                "segment": -1,
+                "layer": 9,
+                "sourceWidth": 2048,
+                "sourceHeight": 2048,
+                "decodedWidth": 2048,
+                "decodedHeight": 2048,
+                "gpuWidth": 2048,
+                "gpuHeight": 2048,
+                "format": "rgba8unorm",
+                "mipLevelCount": 12,
+                "logicalBytes": 22369620,
+                "residentBytes": 22369620,
+                "allocatedBytes": 22369620
+              },
+              {
+                "assetIdentity": "image:9",
+                "sourceUri": null,
+                "state": "resident",
+                "refCount": 1,
+                "bankClass": 3,
+                "segment": -1,
+                "layer": 10,
+                "sourceWidth": 2048,
+                "sourceHeight": 2048,
+                "decodedWidth": 2048,
+                "decodedHeight": 2048,
+                "gpuWidth": 2048,
+                "gpuHeight": 2048,
+                "format": "rgba8unorm",
+                "mipLevelCount": 12,
+                "logicalBytes": 22369620,
+                "residentBytes": 22369620,
+                "allocatedBytes": 22369620
+              }
+            ],
+            "privateSubmitCount": 0,
+            "progressiveMipUploadBytes": 0,
+            "mipPromotionCount": 0,
+            "mipUploadCount": 0
+          },
+          "afterRelease": {
+            "schemaVersion": 6,
+            "localVariation": {
+              "bytes": 33554432,
+              "residentTextures": 0,
+              "freeBytes": 33418752,
+              "builds": 9,
+              "nodes": 1043124,
+              "degraded": 7,
+              "rejected": 16,
+              "offlineBuilds": 0
+            },
+            "textureCapacity": 141,
+            "residentTextureCount": 0,
+            "retiringTextureCount": 0,
+            "allocatedBytes": 771752376,
+            "allocatedPeakBytes": 771752376,
+            "residentTextureBytes": 0,
+            "retiringTextureBytes": 0,
+            "logicalResidentBytes": 0,
+            "physicalAllocatedBytes": 771752376,
+            "retiringBytes": 0,
+            "transactionPeakBytes": 771752376,
+            "uploadBytes": 0,
+            "copyBytes": 0,
+            "transcodeBytes": 0,
+            "directPackageCount": 0,
+            "workerTranscodeCount": 0,
+            "uncompressedFallbackCount": 0,
+            "formatDistribution": [],
+            "bankGrowCount": 1,
+            "abortedBankGrowCount": 0,
+            "resizeDispatchCount": 25,
+            "runtimeMipGenerationCount": 1,
+            "cookedResidentTextureCount": 0,
+            "compressedResidentTextureCount": 0,
+            "cookedRuntimeMipGenerationCount": 0,
+            "bankCopyOperationCount": 0,
+            "segmentCount": 2,
+            "bindingSetCount": 0,
+            "bindingSlotUtilization": 0,
+            "bindingSetPreflightFailures": 0,
+            "highResolutionArrayAllocated": true,
+            "banks": [
+              {
+                "segment": 0,
+                "bankClass": 0,
+                "size": 256,
+                "physicalSize": 256,
+                "maxCapacity": 64,
+                "allocatedCapacity": 64,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 63,
+                "allocatedBytes": 22369536
+              },
+              {
+                "segment": 0,
+                "bankClass": 1,
+                "size": 512,
+                "physicalSize": 512,
+                "maxCapacity": 32,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 0,
+                "bankClass": 2,
+                "size": 1024,
+                "physicalSize": 1024,
+                "maxCapacity": 16,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 0,
+                "bankClass": 3,
+                "size": 2048,
+                "physicalSize": 2048,
+                "maxCapacity": 32,
+                "allocatedCapacity": 32,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 31,
+                "allocatedBytes": 715827840
+              },
+              {
+                "segment": 0,
+                "bankClass": 4,
+                "size": 4096,
+                "physicalSize": 4096,
+                "maxCapacity": 2,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              }
+            ],
+            "packageSegments": [
+              {
+                "segment": 0,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 1,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 2,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 3,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 4,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 5,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 6,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 7,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 8,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 9,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 10,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 11,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 12,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 13,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 14,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 15,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              }
+            ],
+            "textureLedger": [],
+            "privateSubmitCount": 0,
+            "progressiveMipUploadBytes": 0,
+            "mipPromotionCount": 0,
+            "mipUploadCount": 0
+          },
+          "pendingBeforeRelease": 0,
+          "lifecycle": {
+            "sourceOwnerSurvivesGraphicsDestroy": 25,
+            "accountingAfterGraphicsDestroy": {
+              "totalBytes": 0,
+              "peakBytes": 771786908,
+              "liveBytes": 0,
+              "retiredBytes": 0,
+              "livePeakBytes": 771786908,
+              "retiredPeakBytes": 976,
+              "createdCount": 482,
+              "destroyedCount": 482,
+              "counts": {
+                "buffer": 0,
+                "texture": 0,
+                "sampler": 0,
+                "bindGroup": 0,
+                "pipeline": 0
+              },
+              "categories": {
+                "resident": {
+                  "bytes": 0,
+                  "peakBytes": 771752376,
+                  "count": 0
+                },
+                "upload": {
+                  "bytes": 0,
+                  "peakBytes": 33556,
+                  "count": 0
+                },
+                "transient": {
+                  "bytes": 0,
+                  "peakBytes": 976,
+                  "count": 0
+                }
+              },
+              "owners": {}
+            },
+            "probeExplicitSourceCleanup": true
+          },
+          "limitations": [
+            "No full renderer CPU/GPU frame measured",
+            "Browser native decode peak and driver VRAM unavailable",
+            "Raw upload/copy bytes are not comprehensively counted by current Residency evidence",
+            "GPUTextureManager source cache is not destroyed by GraphicsContext; probe cleans it explicitly"
+          ]
+        },
+        "codecs": {
+          "fixtures": [
+            {
+              "file": "luminance-alpha-32x32-uastc.ktx2",
+              "sourceSha256": "c59c2174a0db4e12d2bbbab8f830cd9f2f1716194bbda89fac5ccbd57aae5268",
+              "sourceBytes": 1296,
+              "cold": {
+                "wallMs": 86.90000000596046,
+                "evidence": {
+                  "queueWaitMs": 37.79999999701977,
+                  "workerMs": 48.900000005960464,
+                  "wallMs": 86.70000000298023,
+                  "inputBytes": 1296,
+                  "outputBytes": 1024,
+                  "estimatedPeakBytes": 8388608,
+                  "codecId": "khronos-ktx-software-libktx-read",
+                  "codecRevision": "v4.4.2+4d6fc70eaf62ad0558e63e8d97eb9766118327a6",
+                  "codecBinaryHash": "8336a23659f306c93f45816022dcdfae122f66eaf566488a2b7cf40e0bf65f0e"
+                }
+              },
+              "warmWallMs": {
+                "p50": 0.20000000298023224,
+                "p95": 0.4000000059604645,
+                "max": 0.5,
+                "n": 20
+              },
+              "finalTaskEvidence": {
+                "queueWaitMs": 0.20000000298023224,
+                "workerMs": 0,
+                "wallMs": 0.20000000298023224,
+                "inputBytes": 1296,
+                "outputBytes": 1024,
+                "estimatedPeakBytes": 8388608,
+                "codecId": "khronos-ktx-software-libktx-read",
+                "codecRevision": "v4.4.2+4d6fc70eaf62ad0558e63e8d97eb9766118327a6",
+                "codecBinaryHash": "8336a23659f306c93f45816022dcdfae122f66eaf566488a2b7cf40e0bf65f0e"
+              },
+              "packageStatus": "rejected-incomplete-mip-chain",
+              "packageUpload": "not-run",
+              "actualWasmPeakBytes": null
+            },
+            {
+              "file": "rgba-64x64-mipmap-etc1s.ktx2",
+              "sourceSha256": "267b18c4badb42fb9739ef42b5e5cd9c2d95872e55ae298a82000fb402c33958",
+              "sourceBytes": 719,
+              "cold": {
+                "wallMs": 2,
+                "evidence": {
+                  "queueWaitMs": 0.30000001192092896,
+                  "workerMs": 1.699999988079071,
+                  "wallMs": 2,
+                  "inputBytes": 719,
+                  "outputBytes": 5488,
+                  "estimatedPeakBytes": 8388608,
+                  "codecId": "khronos-ktx-software-libktx-read",
+                  "codecRevision": "v4.4.2+4d6fc70eaf62ad0558e63e8d97eb9766118327a6",
+                  "codecBinaryHash": "8336a23659f306c93f45816022dcdfae122f66eaf566488a2b7cf40e0bf65f0e"
+                }
+              },
+              "warmWallMs": {
+                "p50": 0.29999999701976776,
+                "p95": 0.5,
+                "max": 0.6000000089406967,
+                "n": 20
+              },
+              "finalTaskEvidence": {
+                "queueWaitMs": 0,
+                "workerMs": 0.10000000894069672,
+                "wallMs": 0.10000000894069672,
+                "inputBytes": 719,
+                "outputBytes": 5488,
+                "estimatedPeakBytes": 8388608,
+                "codecId": "khronos-ktx-software-libktx-read",
+                "codecRevision": "v4.4.2+4d6fc70eaf62ad0558e63e8d97eb9766118327a6",
+                "codecBinaryHash": "8336a23659f306c93f45816022dcdfae122f66eaf566488a2b7cf40e0bf65f0e"
+              },
+              "packageBytes": 11476,
+              "serializeMs": 4.0999999940395355,
+              "parseMs": 2.4000000059604645,
+              "publicationCpuMs": 1.8999999910593033,
+              "uploadSubmission": {
+                "synchronousMs": 0.29999999701976776,
+                "completionWallMs": 7.799999997019768
+              },
+              "progressive": {
+                "initial": {
+                  "minimumMip": 6,
+                  "revision": 1,
+                  "uploadBytes": 16
+                },
+                "abortedPromotionUnpublished": true,
+                "promotionCpuMs": 0.30000001192092896,
+                "promotionSubmission": {
+                  "synchronousMs": 0.09999999403953552,
+                  "completionWallMs": 15.099999994039536
+                },
+                "finalMinimumMip": 0
+              },
+              "live": {
+                "schemaVersion": 6,
+                "localVariation": {
+                  "bytes": 33554432,
+                  "residentTextures": 1,
+                  "freeBytes": 33403648,
+                  "builds": 2,
+                  "nodes": 456,
+                  "degraded": 0,
+                  "rejected": 0,
+                  "offlineBuilds": 0
+                },
+                "textureCapacity": 141,
+                "residentTextureCount": 1,
+                "retiringTextureCount": 0,
+                "allocatedBytes": 55935512,
+                "allocatedPeakBytes": 55935512,
+                "residentTextureBytes": 5488,
+                "retiringTextureBytes": 0,
+                "logicalResidentBytes": 21844,
+                "physicalAllocatedBytes": 55935512,
+                "retiringBytes": 0,
+                "transactionPeakBytes": 55935512,
+                "uploadBytes": 7728,
+                "copyBytes": 0,
+                "transcodeBytes": 5488,
+                "directPackageCount": 0,
+                "workerTranscodeCount": 1,
+                "uncompressedFallbackCount": 0,
+                "formatDistribution": [
+                  {
+                    "format": "bc7-rgba-unorm-srgb",
+                    "residentTextureCount": 1,
+                    "residentBytes": 5488
+                  }
+                ],
+                "bankGrowCount": 1,
+                "abortedBankGrowCount": 0,
+                "resizeDispatchCount": 0,
+                "runtimeMipGenerationCount": 0,
+                "cookedResidentTextureCount": 1,
+                "compressedResidentTextureCount": 1,
+                "cookedRuntimeMipGenerationCount": 0,
+                "bankCopyOperationCount": 0,
+                "segmentCount": 2,
+                "bindingSetCount": 1,
+                "bindingSlotUtilization": 0.6666666666666666,
+                "bindingSetPreflightFailures": 0,
+                "highResolutionArrayAllocated": false,
+                "banks": [
+                  {
+                    "segment": 0,
+                    "bankClass": 0,
+                    "size": 256,
+                    "physicalSize": 256,
+                    "maxCapacity": 64,
+                    "allocatedCapacity": 64,
+                    "residentTextureCount": 0,
+                    "retiringTextureCount": 0,
+                    "freeLayerCount": 63,
+                    "allocatedBytes": 22369536
+                  },
+                  {
+                    "segment": 0,
+                    "bankClass": 1,
+                    "size": 512,
+                    "physicalSize": 512,
+                    "maxCapacity": 32,
+                    "allocatedCapacity": 0,
+                    "residentTextureCount": 0,
+                    "retiringTextureCount": 0,
+                    "freeLayerCount": 0,
+                    "allocatedBytes": 0
+                  },
+                  {
+                    "segment": 0,
+                    "bankClass": 2,
+                    "size": 1024,
+                    "physicalSize": 1024,
+                    "maxCapacity": 16,
+                    "allocatedCapacity": 0,
+                    "residentTextureCount": 0,
+                    "retiringTextureCount": 0,
+                    "freeLayerCount": 0,
+                    "allocatedBytes": 0
+                  },
+                  {
+                    "segment": 0,
+                    "bankClass": 3,
+                    "size": 2048,
+                    "physicalSize": 2048,
+                    "maxCapacity": 32,
+                    "allocatedCapacity": 0,
+                    "residentTextureCount": 0,
+                    "retiringTextureCount": 0,
+                    "freeLayerCount": 0,
+                    "allocatedBytes": 0
+                  },
+                  {
+                    "segment": 0,
+                    "bankClass": 4,
+                    "size": 4096,
+                    "physicalSize": 4096,
+                    "maxCapacity": 2,
+                    "allocatedCapacity": 0,
+                    "residentTextureCount": 0,
+                    "retiringTextureCount": 0,
+                    "freeLayerCount": 0,
+                    "allocatedBytes": 0
+                  }
+                ],
+                "packageSegments": [
+                  {
+                    "segment": 0,
+                    "format": "bc7-rgba-unorm-srgb",
+                    "width": 64,
+                    "height": 64,
+                    "mipLevelCount": 7,
+                    "allocatedCapacity": 2,
+                    "residentTextureCount": 1,
+                    "retiringTextureCount": 0,
+                    "freeLayerCount": 0,
+                    "allocatedBytes": 10976
+                  },
+                  {
+                    "segment": 1,
+                    "format": "rgba8unorm",
+                    "width": 1,
+                    "height": 1,
+                    "mipLevelCount": 1,
+                    "allocatedCapacity": 0,
+                    "residentTextureCount": 0,
+                    "retiringTextureCount": 0,
+                    "freeLayerCount": 0,
+                    "allocatedBytes": 0
+                  },
+                  {
+                    "segment": 2,
+                    "format": "rgba8unorm",
+                    "width": 1,
+                    "height": 1,
+                    "mipLevelCount": 1,
+                    "allocatedCapacity": 0,
+                    "residentTextureCount": 0,
+                    "retiringTextureCount": 0,
+                    "freeLayerCount": 0,
+                    "allocatedBytes": 0
+                  },
+                  {
+                    "segment": 3,
+                    "format": "rgba8unorm",
+                    "width": 1,
+                    "height": 1,
+                    "mipLevelCount": 1,
+                    "allocatedCapacity": 0,
+                    "residentTextureCount": 0,
+                    "retiringTextureCount": 0,
+                    "freeLayerCount": 0,
+                    "allocatedBytes": 0
+                  },
+                  {
+                    "segment": 4,
+                    "format": "rgba8unorm",
+                    "width": 1,
+                    "height": 1,
+                    "mipLevelCount": 1,
+                    "allocatedCapacity": 0,
+                    "residentTextureCount": 0,
+                    "retiringTextureCount": 0,
+                    "freeLayerCount": 0,
+                    "allocatedBytes": 0
+                  },
+                  {
+                    "segment": 5,
+                    "format": "rgba8unorm",
+                    "width": 1,
+                    "height": 1,
+                    "mipLevelCount": 1,
+                    "allocatedCapacity": 0,
+                    "residentTextureCount": 0,
+                    "retiringTextureCount": 0,
+                    "freeLayerCount": 0,
+                    "allocatedBytes": 0
+                  },
+                  {
+                    "segment": 6,
+                    "format": "rgba8unorm",
+                    "width": 1,
+                    "height": 1,
+                    "mipLevelCount": 1,
+                    "allocatedCapacity": 0,
+                    "residentTextureCount": 0,
+                    "retiringTextureCount": 0,
+                    "freeLayerCount": 0,
+                    "allocatedBytes": 0
+                  },
+                  {
+                    "segment": 7,
+                    "format": "rgba8unorm",
+                    "width": 1,
+                    "height": 1,
+                    "mipLevelCount": 1,
+                    "allocatedCapacity": 0,
+                    "residentTextureCount": 0,
+                    "retiringTextureCount": 0,
+                    "freeLayerCount": 0,
+                    "allocatedBytes": 0
+                  },
+                  {
+                    "segment": 8,
+                    "format": "rgba8unorm",
+                    "width": 1,
+                    "height": 1,
+                    "mipLevelCount": 1,
+                    "allocatedCapacity": 0,
+                    "residentTextureCount": 0,
+                    "retiringTextureCount": 0,
+                    "freeLayerCount": 0,
+                    "allocatedBytes": 0
+                  },
+                  {
+                    "segment": 9,
+                    "format": "rgba8unorm",
+                    "width": 1,
+                    "height": 1,
+                    "mipLevelCount": 1,
+                    "allocatedCapacity": 0,
+                    "residentTextureCount": 0,
+                    "retiringTextureCount": 0,
+                    "freeLayerCount": 0,
+                    "allocatedBytes": 0
+                  },
+                  {
+                    "segment": 10,
+                    "format": "rgba8unorm",
+                    "width": 1,
+                    "height": 1,
+                    "mipLevelCount": 1,
+                    "allocatedCapacity": 0,
+                    "residentTextureCount": 0,
+                    "retiringTextureCount": 0,
+                    "freeLayerCount": 0,
+                    "allocatedBytes": 0
+                  },
+                  {
+                    "segment": 11,
+                    "format": "rgba8unorm",
+                    "width": 1,
+                    "height": 1,
+                    "mipLevelCount": 1,
+                    "allocatedCapacity": 0,
+                    "residentTextureCount": 0,
+                    "retiringTextureCount": 0,
+                    "freeLayerCount": 0,
+                    "allocatedBytes": 0
+                  },
+                  {
+                    "segment": 12,
+                    "format": "rgba8unorm",
+                    "width": 1,
+                    "height": 1,
+                    "mipLevelCount": 1,
+                    "allocatedCapacity": 0,
+                    "residentTextureCount": 0,
+                    "retiringTextureCount": 0,
+                    "freeLayerCount": 0,
+                    "allocatedBytes": 0
+                  },
+                  {
+                    "segment": 13,
+                    "format": "rgba8unorm",
+                    "width": 1,
+                    "height": 1,
+                    "mipLevelCount": 1,
+                    "allocatedCapacity": 0,
+                    "residentTextureCount": 0,
+                    "retiringTextureCount": 0,
+                    "freeLayerCount": 0,
+                    "allocatedBytes": 0
+                  },
+                  {
+                    "segment": 14,
+                    "format": "rgba8unorm",
+                    "width": 1,
+                    "height": 1,
+                    "mipLevelCount": 1,
+                    "allocatedCapacity": 0,
+                    "residentTextureCount": 0,
+                    "retiringTextureCount": 0,
+                    "freeLayerCount": 0,
+                    "allocatedBytes": 0
+                  },
+                  {
+                    "segment": 15,
+                    "format": "rgba8unorm",
+                    "width": 1,
+                    "height": 1,
+                    "mipLevelCount": 1,
+                    "allocatedCapacity": 0,
+                    "residentTextureCount": 0,
+                    "retiringTextureCount": 0,
+                    "freeLayerCount": 0,
+                    "allocatedBytes": 0
+                  }
+                ],
+                "textureLedger": [
+                  {
+                    "assetIdentity": "e880450e45e5f9fbf6b10426b0416dfdfa79d84819325943895f92ed1db418f9",
+                    "sourceUri": "fixture://rgba-64x64-mipmap-etc1s.ktx2",
+                    "state": "resident",
+                    "refCount": 1,
+                    "bankClass": 5,
+                    "segment": 0,
+                    "layer": 1,
+                    "sourceWidth": 64,
+                    "sourceHeight": 64,
+                    "decodedWidth": 64,
+                    "decodedHeight": 64,
+                    "gpuWidth": 64,
+                    "gpuHeight": 64,
+                    "format": "bc7-rgba-unorm-srgb",
+                    "mipLevelCount": 7,
+                    "logicalBytes": 21844,
+                    "residentBytes": 5488,
+                    "allocatedBytes": 5488
+                  }
+                ],
+                "privateSubmitCount": 0,
+                "progressiveMipUploadBytes": 7728,
+                "mipPromotionCount": 1,
+                "mipUploadCount": 2
+              },
+              "decodedPeakIsRgbaEquivalent": 21844,
+              "actualWasmPeakBytes": null
+            }
+          ],
+          "serviceAfterDestroy": {
+            "schemaVersion": 2,
+            "tasksQueued": 46,
+            "tasksCompleted": 46,
+            "tasksFailed": 0,
+            "tasksCancelled": 0,
+            "activeWorkers": 0,
+            "peakActiveWorkers": 1,
+            "queuedTasks": 0,
+            "inFlightEstimatedBytes": 0,
+            "peakInFlightEstimatedBytes": 8388608,
+            "queueWaitMs": 45.59999994933605,
+            "workerMs": 55.500000044703484,
+            "wallMs": 101.09999999403954,
+            "inputBytes": 46345,
+            "outputBytes": 149776,
+            "transferBytes": 196121,
+            "workerFailures": 0,
+            "directPathCount": 0,
+            "workerPathCount": 46,
+            "uncompressedPathCount": 0,
+            "codecIdentities": [
+              {
+                "codecId": "khronos-ktx-software-libktx-read",
+                "codecRevision": "v4.4.2+4d6fc70eaf62ad0558e63e8d97eb9766118327a6",
+                "codecBinaryHash": "8336a23659f306c93f45816022dcdfae122f66eaf566488a2b7cf40e0bf65f0e",
+                "completedTaskCount": 46
+              }
+            ]
+          },
+          "afterRelease": {
+            "schemaVersion": 6,
+            "localVariation": {
+              "bytes": 33554432,
+              "residentTextures": 0,
+              "freeBytes": 33418752,
+              "builds": 2,
+              "nodes": 456,
+              "degraded": 0,
+              "rejected": 0,
+              "offlineBuilds": 0
+            },
+            "textureCapacity": 141,
+            "residentTextureCount": 0,
+            "retiringTextureCount": 0,
+            "allocatedBytes": 55924536,
+            "allocatedPeakBytes": 55935512,
+            "residentTextureBytes": 0,
+            "retiringTextureBytes": 0,
+            "logicalResidentBytes": 0,
+            "physicalAllocatedBytes": 55924536,
+            "retiringBytes": 0,
+            "transactionPeakBytes": 55935512,
+            "uploadBytes": 7728,
+            "copyBytes": 0,
+            "transcodeBytes": 0,
+            "directPackageCount": 0,
+            "workerTranscodeCount": 0,
+            "uncompressedFallbackCount": 0,
+            "formatDistribution": [],
+            "bankGrowCount": 1,
+            "abortedBankGrowCount": 0,
+            "resizeDispatchCount": 0,
+            "runtimeMipGenerationCount": 0,
+            "cookedResidentTextureCount": 0,
+            "compressedResidentTextureCount": 0,
+            "cookedRuntimeMipGenerationCount": 0,
+            "bankCopyOperationCount": 0,
+            "segmentCount": 1,
+            "bindingSetCount": 0,
+            "bindingSlotUtilization": 0,
+            "bindingSetPreflightFailures": 0,
+            "highResolutionArrayAllocated": false,
+            "banks": [
+              {
+                "segment": 0,
+                "bankClass": 0,
+                "size": 256,
+                "physicalSize": 256,
+                "maxCapacity": 64,
+                "allocatedCapacity": 64,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 63,
+                "allocatedBytes": 22369536
+              },
+              {
+                "segment": 0,
+                "bankClass": 1,
+                "size": 512,
+                "physicalSize": 512,
+                "maxCapacity": 32,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 0,
+                "bankClass": 2,
+                "size": 1024,
+                "physicalSize": 1024,
+                "maxCapacity": 16,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 0,
+                "bankClass": 3,
+                "size": 2048,
+                "physicalSize": 2048,
+                "maxCapacity": 32,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 0,
+                "bankClass": 4,
+                "size": 4096,
+                "physicalSize": 4096,
+                "maxCapacity": 2,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              }
+            ],
+            "packageSegments": [
+              {
+                "segment": 0,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 1,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 2,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 3,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 4,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 5,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 6,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 7,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 8,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 9,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 10,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 11,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 12,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 13,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 14,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              },
+              {
+                "segment": 15,
+                "format": "rgba8unorm",
+                "width": 1,
+                "height": 1,
+                "mipLevelCount": 1,
+                "allocatedCapacity": 0,
+                "residentTextureCount": 0,
+                "retiringTextureCount": 0,
+                "freeLayerCount": 0,
+                "allocatedBytes": 0
+              }
+            ],
+            "textureLedger": [],
+            "privateSubmitCount": 0,
+            "progressiveMipUploadBytes": 7728,
+            "mipPromotionCount": 1,
+            "mipUploadCount": 2
+          },
+          "rawWasmBcEncode": {
+            "status": "not-available",
+            "reason": "Pinned upstream WASM C API outputs Basis, not direct BC7/BC4 chunks; the thin direct-block bridge is T4.1"
+          },
+          "zstd": {
+            "status": "unsupported-current-local-parser",
+            "reason": "readKtx2Header rejects supercompression 2 before upstream parse; do not silently reinterpret"
+          }
+        },
+        "excludedLargeScene": {
+          "sourceBytes": 477591060,
+          "status": "not-run-user-excluded",
+          "replacementIsNotEquivalentScale": true
+        }
+      },
+      "error": null,
+      "adapter": {
+        "vendor": "nvidia",
+        "architecture": "turing",
+        "device": "",
+        "description": "",
+        "isFallbackAdapter": false,
+        "subgroupMinSize": 32,
+        "subgroupMaxSize": 32
+      },
+      "adapterKind": "hardware",
+      "device": {
+        "features": ["core-features-and-limits", "texture-compression-bc", "timestamp-query"],
+        "limits": {
+          "maxComputeWorkgroupSizeX": 256,
+          "maxComputeInvocationsPerWorkgroup": 256,
+          "maxStorageBufferBindingSize": 134217728,
+          "maxStorageBuffersPerShaderStage": 8
+        },
+        "adapterLimits": {
+          "maxStorageBuffersPerShaderStage": 16
+        }
+      },
+      "deviceLost": null,
+      "gpuErrors": [],
+      "scopedGpuErrors": [],
+      "environment": {
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/154.0.0.0 Safari/537.36",
+        "webgpuExposed": true,
+        "wgslLanguageFeatures": [
+          "buffer_view",
+          "immediate_address_space",
+          "linear_indexing",
+          "packed_4x8_integer_dot_product",
+          "pointer_composite_access",
+          "readonly_and_readwrite_storage_textures",
+          "subgroup_id",
+          "subgroup_uniformity",
+          "swizzle_assignment",
+          "texture_and_sampler_let",
+          "texture_formats_tier1",
+          "uniform_buffer_standard_layout",
+          "unrestricted_pointer_parameters"
+        ]
+      },
+      "timings": {
+        "oracleMs": 1323,
+        "browserLaunchMs": 402,
+        "navigationMs": 1659,
+        "totalMs": 3253
+      },
+      "chrome": {
+        "executablePath": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+        "version": "154.0.8037.98",
+        "headless": true,
+        "transport": "launch",
+        "contextMode": "isolated-new-context",
+        "launchAttempts": [
+          {
+            "transport": "launch",
+            "ok": true
+          }
+        ],
+        "endpoint": null,
+        "args": null,
+        "processLogPath": null,
+        "processLog": null,
+        "environmentHints": []
+      },
+      "console": [
+        {
+          "type": "warning",
+          "text": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127"
+        },
+        {
+          "type": "error",
+          "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+        },
+        {
+          "type": "warning",
+          "text": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127"
+        }
+      ],
+      "pageErrors": [],
+      "failedRequests": [],
+      "runFailure": null
+    },
+    "texture-encoder-probe": {
+      "rawArtifactSha256": "9de94767cb6d0eb1b56067203cb81a879d53e0b3a876c015350af1ba434cdb93",
+      "tool": "gpu-oracle",
+      "toolVersion": 1,
+      "hostBuildId": "b6f7ef76dff3",
+      "buildIdentity": {
+        "schemaVersion": 1,
+        "recipe": "tsc -p tsconfig.test.json + pinned codec vendor copy",
+        "node": "v24.14.0",
+        "dependencyScope": "conservative: engine src, configs, lock and compiler identity",
+        "sourceSha256": "b146a6b552f92ef6cd639cac01cac7228bf8e7d0ddd1f444a0fcbe32829a2f65",
+        "outputSha256": "0ffc2747ff16df19cb9fa402597eb6c56a7a987603031ef714d87a3d9cb5af59",
+        "completedAt": "2026-10-08T19:06:08.410Z"
+      },
+      "oracleSha256": "170b07a23da8cb36c0ee51ab61c33314cda197408471a9b0e12d8e9fa60b987f",
+      "oracle": "texture-encoder-probe",
+      "oracleFile": "OEngine/tests/oracle/texture-encoder-probe-gpu.mjs",
+      "oracleEntry": "runTextureEncoderProbeGpuOracle",
+      "registry": {
+        "description": "T4.0 isolated pinned external Spark 1K/2K/4K encode cost/quality/output ownership probe; never a production owner.",
+        "note": null,
+        "negativeControl": false
+      },
+      "status": "passed",
+      "failureKind": null,
+      "summary": {
+        "schemaVersion": 1,
+        "stage": "T4.0",
+        "sparkRevision": "b9ea643a08cb9eef3a9ddc64564089bdd6fd0daf",
+        "sparkSourceHash": "7d3cfe62db69ac317d8288ec6820fc896ab5a39731aa8f6802d34151e69dc469",
+        "initMs": 99.59999999403954,
+        "enabledFeatures": ["core-features-and-limits", "texture-compression-bc", "timestamp-query"],
+        "cases": [
+          {
+            "width": 1024,
+            "height": 1024,
+            "storageWidth": 1024,
+            "storageHeight": 1024,
+            "layers": 1,
+            "semantic": "base-color",
+            "format": "bc7-rgba-unorm-srgb",
+            "mipCount": 11,
+            "sourceEncodedBytes": 59152,
+            "decodeMs": 8.5,
+            "initSharedMs": 99.59999999403954,
+            "residentBytes": 1398128,
+            "allocatedOutputBytes": 1398128,
+            "sourceDecodedRgbaBytes": 4194304,
+            "cpuMs": {
+              "p50": 0.7000000029802322,
+              "p95": 0.9000000059604645,
+              "max": 1,
+              "n": 20
+            },
+            "readyWallMs": {
+              "p50": 6,
+              "p95": 6.9000000059604645,
+              "max": 7.300000011920929,
+              "n": 20
+            },
+            "encodeGpuMs": {
+              "p50": 0.2088,
+              "p95": 0.210112,
+              "max": 0.210656,
+              "n": 20
+            },
+            "mipGpuMs": {
+              "p50": 0.20912,
+              "p95": 0.210784,
+              "max": 0.237984,
+              "n": 20
+            },
+            "firstReadyEqualsFullReady": true,
+            "evidence": {
+              "queryCount": 4,
+              "passKinds": ["beginComputePass", "beginComputePass"],
+              "dispatches": 21,
+              "encoders": 1,
+              "submits": 1,
+              "sourceUploadBytes": 4194304,
+              "bufferAllocatedBytes": 1401088,
+              "rgbaAllocatedBytes": 5592404,
+              "blockCopyPaddedBytes": 1401088,
+              "destinations": [
+                {
+                  "mip": 0,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 1,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 2,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 3,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 4,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 5,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 6,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 7,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 8,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 9,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 10,
+                  "origin": [0, 0, 0]
+                }
+              ],
+              "encodeGpuMs": 0.210656,
+              "mipGpuMs": 0.209152,
+              "diagnosticSubmits": 1
+            },
+            "estimatedTempGpuPeakBytes": 6993492,
+            "direct": {
+              "cpuMs": {
+                "p50": 0.5,
+                "p95": 0.7000000029802322,
+                "max": 0.7000000029802322,
+                "n": 20
+              },
+              "readyWallMs": {
+                "p50": 0.7999999970197678,
+                "p95": 1.7999999970197678,
+                "max": 5.0999999940395355,
+                "n": 20
+              },
+              "uploadBytes": 1398128,
+              "runtimeTranscode": 0,
+              "runtimeEncode": 0,
+              "packageParse": "excluded: preowned final blocks"
+            },
+            "quality": {
+              "samplePixels": 4096,
+              "mip": 0,
+              "rmseChannels": [
+                0.7815624375249876, 0.7134656285519296, 0.9417870728699773, 0.5533103503008054
+              ],
+              "maxChannelError": 2,
+              "alphaThresholdFlips": 0,
+              "reference": "generated byte source; sRGB sample re-encoded only by diagnostic shader",
+              "canonicalMipQuality": "not-proven",
+              "acceptance": "observational, not production quality adoption"
+            },
+            "batches": {
+              "sparkWall": [
+                {
+                  "p50": 5.799999997019768,
+                  "p95": 7.300000011920929,
+                  "max": 7.300000011920929,
+                  "n": 10
+                },
+                {
+                  "p50": 6.0999999940395355,
+                  "p95": 6.9000000059604645,
+                  "max": 6.9000000059604645,
+                  "n": 10
+                }
+              ],
+              "directWall": [
+                {
+                  "p50": 1.0999999940395355,
+                  "p95": 5.0999999940395355,
+                  "max": 5.0999999940395355,
+                  "n": 10
+                },
+                {
+                  "p50": 0.7000000029802322,
+                  "p95": 1.300000011920929,
+                  "max": 1.300000011920929,
+                  "n": 10
+                }
+              ]
+            }
+          },
+          {
+            "width": 1024,
+            "height": 1024,
+            "storageWidth": 1024,
+            "storageHeight": 1024,
+            "layers": 1,
+            "semantic": "normal",
+            "format": "bc7-rgba-unorm",
+            "mipCount": 11,
+            "sourceEncodedBytes": 32870,
+            "decodeMs": 7.200000002980232,
+            "initSharedMs": 99.59999999403954,
+            "residentBytes": 1398128,
+            "allocatedOutputBytes": 1398128,
+            "sourceDecodedRgbaBytes": 4194304,
+            "cpuMs": {
+              "p50": 0.6000000089406967,
+              "p95": 0.8999999910593033,
+              "max": 1.0999999940395355,
+              "n": 20
+            },
+            "readyWallMs": {
+              "p50": 6,
+              "p95": 7,
+              "max": 7.0999999940395355,
+              "n": 20
+            },
+            "encodeGpuMs": {
+              "p50": 0.212992,
+              "p95": 0.222848,
+              "max": 0.48128,
+              "n": 20
+            },
+            "mipGpuMs": {
+              "p50": 0.368128,
+              "p95": 0.3776,
+              "max": 0.37888,
+              "n": 20
+            },
+            "firstReadyEqualsFullReady": true,
+            "evidence": {
+              "queryCount": 4,
+              "passKinds": ["beginComputePass", "beginComputePass"],
+              "dispatches": 21,
+              "encoders": 1,
+              "submits": 1,
+              "sourceUploadBytes": 4194304,
+              "bufferAllocatedBytes": 1401088,
+              "rgbaAllocatedBytes": 5592404,
+              "blockCopyPaddedBytes": 1401088,
+              "destinations": [
+                {
+                  "mip": 0,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 1,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 2,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 3,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 4,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 5,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 6,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 7,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 8,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 9,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 10,
+                  "origin": [0, 0, 0]
+                }
+              ],
+              "encodeGpuMs": 0.211392,
+              "mipGpuMs": 0.367712,
+              "diagnosticSubmits": 1
+            },
+            "estimatedTempGpuPeakBytes": 6993492,
+            "direct": {
+              "cpuMs": {
+                "p50": 0.5,
+                "p95": 0.5,
+                "max": 0.5999999940395355,
+                "n": 20
+              },
+              "readyWallMs": {
+                "p50": 0.7000000029802322,
+                "p95": 1,
+                "max": 3.7000000029802322,
+                "n": 20
+              },
+              "uploadBytes": 1398128,
+              "runtimeTranscode": 0,
+              "runtimeEncode": 0,
+              "packageParse": "excluded: preowned final blocks"
+            },
+            "quality": {
+              "samplePixels": 4096,
+              "mip": 0,
+              "rmseChannels": [1, 1, 1, 0],
+              "maxChannelError": 1,
+              "alphaThresholdFlips": 0,
+              "reference": "generated byte source; sRGB sample re-encoded only by diagnostic shader",
+              "canonicalMipQuality": "not-proven",
+              "acceptance": "observational, not production quality adoption"
+            },
+            "batches": {
+              "sparkWall": [
+                {
+                  "p50": 6,
+                  "p95": 7.0999999940395355,
+                  "max": 7.0999999940395355,
+                  "n": 10
+                },
+                {
+                  "p50": 6,
+                  "p95": 6.899999991059303,
+                  "max": 6.899999991059303,
+                  "n": 10
+                }
+              ],
+              "directWall": [
+                {
+                  "p50": 0.7000000029802322,
+                  "p95": 3.7000000029802322,
+                  "max": 3.7000000029802322,
+                  "n": 10
+                },
+                {
+                  "p50": 0.699999988079071,
+                  "p95": 1,
+                  "max": 1,
+                  "n": 10
+                }
+              ]
+            }
+          },
+          {
+            "width": 1024,
+            "height": 1024,
+            "storageWidth": 1024,
+            "storageHeight": 1024,
+            "layers": 1,
+            "semantic": "orm",
+            "format": "bc7-rgba-unorm",
+            "mipCount": 11,
+            "sourceEncodedBytes": 59152,
+            "decodeMs": 7.5,
+            "initSharedMs": 99.59999999403954,
+            "residentBytes": 1398128,
+            "allocatedOutputBytes": 1398128,
+            "sourceDecodedRgbaBytes": 4194304,
+            "cpuMs": {
+              "p50": 0.6000000089406967,
+              "p95": 0.7999999970197678,
+              "max": 1,
+              "n": 20
+            },
+            "readyWallMs": {
+              "p50": 5.9000000059604645,
+              "p95": 7.0999999940395355,
+              "max": 7.200000002980232,
+              "n": 20
+            },
+            "encodeGpuMs": {
+              "p50": 0.206848,
+              "p95": 0.210816,
+              "max": 0.218624,
+              "n": 20
+            },
+            "mipGpuMs": {
+              "p50": 0.206848,
+              "p95": 0.211968,
+              "max": 0.26432,
+              "n": 20
+            },
+            "firstReadyEqualsFullReady": true,
+            "evidence": {
+              "queryCount": 4,
+              "passKinds": ["beginComputePass", "beginComputePass"],
+              "dispatches": 21,
+              "encoders": 1,
+              "submits": 1,
+              "sourceUploadBytes": 4194304,
+              "bufferAllocatedBytes": 1401088,
+              "rgbaAllocatedBytes": 5592404,
+              "blockCopyPaddedBytes": 1401088,
+              "destinations": [
+                {
+                  "mip": 0,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 1,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 2,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 3,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 4,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 5,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 6,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 7,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 8,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 9,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 10,
+                  "origin": [0, 0, 0]
+                }
+              ],
+              "encodeGpuMs": 0.208896,
+              "mipGpuMs": 0.205824,
+              "diagnosticSubmits": 1
+            },
+            "estimatedTempGpuPeakBytes": 6993492,
+            "direct": {
+              "cpuMs": {
+                "p50": 0.5,
+                "p95": 0.6000000089406967,
+                "max": 0.7000000029802322,
+                "n": 20
+              },
+              "readyWallMs": {
+                "p50": 0.7000000029802322,
+                "p95": 1.2999999970197678,
+                "max": 3.7999999970197678,
+                "n": 20
+              },
+              "uploadBytes": 1398128,
+              "runtimeTranscode": 0,
+              "runtimeEncode": 0,
+              "packageParse": "excluded: preowned final blocks"
+            },
+            "quality": {
+              "samplePixels": 4096,
+              "mip": 0,
+              "rmseChannels": [
+                0.7815624375249876, 0.7134656285519296, 0.9417870728699773, 0.5533103503008054
+              ],
+              "maxChannelError": 2,
+              "alphaThresholdFlips": 0,
+              "reference": "generated byte source; sRGB sample re-encoded only by diagnostic shader",
+              "canonicalMipQuality": "not-proven",
+              "acceptance": "observational, not production quality adoption"
+            },
+            "batches": {
+              "sparkWall": [
+                {
+                  "p50": 5.9000000059604645,
+                  "p95": 7.0999999940395355,
+                  "max": 7.0999999940395355,
+                  "n": 10
+                },
+                {
+                  "p50": 5.9000000059604645,
+                  "p95": 7.200000002980232,
+                  "max": 7.200000002980232,
+                  "n": 10
+                }
+              ],
+              "directWall": [
+                {
+                  "p50": 0.7000000029802322,
+                  "p95": 3.7999999970197678,
+                  "max": 3.7999999970197678,
+                  "n": 10
+                },
+                {
+                  "p50": 0.7000000029802322,
+                  "p95": 1.2999999970197678,
+                  "max": 1.2999999970197678,
+                  "n": 10
+                }
+              ]
+            }
+          },
+          {
+            "width": 1024,
+            "height": 1024,
+            "storageWidth": 1024,
+            "storageHeight": 1024,
+            "layers": 1,
+            "semantic": "scalar",
+            "format": "bc4-r-unorm",
+            "mipCount": 11,
+            "sourceEncodedBytes": 59152,
+            "decodeMs": 6.5,
+            "initSharedMs": 99.59999999403954,
+            "residentBytes": 699064,
+            "allocatedOutputBytes": 699064,
+            "sourceDecodedRgbaBytes": 4194304,
+            "cpuMs": {
+              "p50": 0.7000000029802322,
+              "p95": 1.0999999940395355,
+              "max": 1.1000000089406967,
+              "n": 20
+            },
+            "readyWallMs": {
+              "p50": 5.9000000059604645,
+              "p95": 7,
+              "max": 7.4000000059604645,
+              "n": 20
+            },
+            "encodeGpuMs": {
+              "p50": 0.102592,
+              "p95": 0.10416,
+              "max": 0.1088,
+              "n": 20
+            },
+            "mipGpuMs": {
+              "p50": 0.372416,
+              "p95": 0.384448,
+              "max": 0.399232,
+              "n": 20
+            },
+            "firstReadyEqualsFullReady": true,
+            "evidence": {
+              "queryCount": 4,
+              "passKinds": ["beginComputePass", "beginComputePass"],
+              "dispatches": 21,
+              "encoders": 1,
+              "submits": 1,
+              "sourceUploadBytes": 4194304,
+              "bufferAllocatedBytes": 704768,
+              "rgbaAllocatedBytes": 5592404,
+              "blockCopyPaddedBytes": 704768,
+              "destinations": [
+                {
+                  "mip": 0,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 1,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 2,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 3,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 4,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 5,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 6,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 7,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 8,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 9,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 10,
+                  "origin": [0, 0, 0]
+                }
+              ],
+              "encodeGpuMs": 0.102368,
+              "mipGpuMs": 0.366592,
+              "diagnosticSubmits": 1
+            },
+            "estimatedTempGpuPeakBytes": 6297172,
+            "direct": {
+              "cpuMs": {
+                "p50": 0.29999999701976776,
+                "p95": 0.30000001192092896,
+                "max": 0.4000000059604645,
+                "n": 20
+              },
+              "readyWallMs": {
+                "p50": 0.5,
+                "p95": 0.7000000029802322,
+                "max": 0.7999999970197678,
+                "n": 20
+              },
+              "uploadBytes": 699064,
+              "runtimeTranscode": 0,
+              "runtimeEncode": 0,
+              "packageParse": "excluded: preowned final blocks"
+            },
+            "quality": {
+              "samplePixels": 4096,
+              "mip": 0,
+              "rmseChannels": [0.7180703308172536, 0, 0, 0],
+              "maxChannelError": 1,
+              "alphaThresholdFlips": 0,
+              "reference": "generated byte source; sRGB sample re-encoded only by diagnostic shader",
+              "canonicalMipQuality": "not-proven",
+              "acceptance": "observational, not production quality adoption"
+            },
+            "batches": {
+              "sparkWall": [
+                {
+                  "p50": 5.899999991059303,
+                  "p95": 7,
+                  "max": 7,
+                  "n": 10
+                },
+                {
+                  "p50": 5.9000000059604645,
+                  "p95": 7.4000000059604645,
+                  "max": 7.4000000059604645,
+                  "n": 10
+                }
+              ],
+              "directWall": [
+                {
+                  "p50": 0.5,
+                  "p95": 0.7000000029802322,
+                  "max": 0.7000000029802322,
+                  "n": 10
+                },
+                {
+                  "p50": 0.4000000059604645,
+                  "p95": 0.7999999970197678,
+                  "max": 0.7999999970197678,
+                  "n": 10
+                }
+              ]
+            }
+          },
+          {
+            "width": 2048,
+            "height": 2048,
+            "storageWidth": 2048,
+            "storageHeight": 2048,
+            "layers": 1,
+            "semantic": "base-color",
+            "format": "bc7-rgba-unorm-srgb",
+            "mipCount": 12,
+            "sourceEncodedBytes": 180735,
+            "decodeMs": 28.200000002980232,
+            "initSharedMs": 99.59999999403954,
+            "residentBytes": 5592432,
+            "allocatedOutputBytes": 5592432,
+            "sourceDecodedRgbaBytes": 16777216,
+            "cpuMs": {
+              "p50": 1.7000000029802322,
+              "p95": 2.4000000059604645,
+              "max": 2.7999999970197678,
+              "n": 20
+            },
+            "readyWallMs": {
+              "p50": 10.5,
+              "p95": 12.200000002980232,
+              "max": 12.299999997019768,
+              "n": 20
+            },
+            "encodeGpuMs": {
+              "p50": 0.570304,
+              "p95": 0.576064,
+              "max": 0.576224,
+              "n": 20
+            },
+            "mipGpuMs": {
+              "p50": 0.453792,
+              "p95": 0.472224,
+              "max": 0.856288,
+              "n": 20
+            },
+            "firstReadyEqualsFullReady": true,
+            "evidence": {
+              "queryCount": 4,
+              "passKinds": ["beginComputePass", "beginComputePass"],
+              "dispatches": 23,
+              "encoders": 1,
+              "submits": 1,
+              "sourceUploadBytes": 16777216,
+              "bufferAllocatedBytes": 5595392,
+              "rgbaAllocatedBytes": 22369620,
+              "blockCopyPaddedBytes": 5595392,
+              "destinations": [
+                {
+                  "mip": 0,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 1,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 2,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 3,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 4,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 5,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 6,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 7,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 8,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 9,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 10,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 11,
+                  "origin": [0, 0, 0]
+                }
+              ],
+              "encodeGpuMs": 0.567232,
+              "mipGpuMs": 0.45056,
+              "diagnosticSubmits": 1
+            },
+            "estimatedTempGpuPeakBytes": 27965012,
+            "direct": {
+              "cpuMs": {
+                "p50": 0.9000000059604645,
+                "p95": 1.199999988079071,
+                "max": 1.5,
+                "n": 20
+              },
+              "readyWallMs": {
+                "p50": 2.5,
+                "p95": 6.600000008940697,
+                "max": 6.800000011920929,
+                "n": 20
+              },
+              "uploadBytes": 5592432,
+              "runtimeTranscode": 0,
+              "runtimeEncode": 0,
+              "packageParse": "excluded: preowned final blocks"
+            },
+            "quality": {
+              "samplePixels": 4096,
+              "mip": 0,
+              "rmseChannels": [0.8046495743489833, 0.577279787559724, 0.7561596020351788, 0.506548908670229],
+              "maxChannelError": 2,
+              "alphaThresholdFlips": 0,
+              "reference": "generated byte source; sRGB sample re-encoded only by diagnostic shader",
+              "canonicalMipQuality": "not-proven",
+              "acceptance": "observational, not production quality adoption"
+            },
+            "batches": {
+              "sparkWall": [
+                {
+                  "p50": 10.900000005960464,
+                  "p95": 12.200000002980232,
+                  "max": 12.200000002980232,
+                  "n": 10
+                },
+                {
+                  "p50": 10,
+                  "p95": 12.299999997019768,
+                  "max": 12.299999997019768,
+                  "n": 10
+                }
+              ],
+              "directWall": [
+                {
+                  "p50": 2.5999999940395355,
+                  "p95": 6.800000011920929,
+                  "max": 6.800000011920929,
+                  "n": 10
+                },
+                {
+                  "p50": 2.3999999910593033,
+                  "p95": 6.600000008940697,
+                  "max": 6.600000008940697,
+                  "n": 10
+                }
+              ]
+            }
+          },
+          {
+            "width": 2048,
+            "height": 2048,
+            "storageWidth": 2048,
+            "storageHeight": 2048,
+            "layers": 1,
+            "semantic": "normal",
+            "format": "bc7-rgba-unorm",
+            "mipCount": 12,
+            "sourceEncodedBytes": 118249,
+            "decodeMs": 25.5,
+            "initSharedMs": 99.59999999403954,
+            "residentBytes": 5592432,
+            "allocatedOutputBytes": 5592432,
+            "sourceDecodedRgbaBytes": 16777216,
+            "cpuMs": {
+              "p50": 1.7000000029802322,
+              "p95": 2.5,
+              "max": 2.7000000029802322,
+              "n": 20
+            },
+            "readyWallMs": {
+              "p50": 10.399999991059303,
+              "p95": 12,
+              "max": 13,
+              "n": 20
+            },
+            "encodeGpuMs": {
+              "p50": 0.595232,
+              "p95": 0.598752,
+              "max": 0.818624,
+              "n": 20
+            },
+            "mipGpuMs": {
+              "p50": 1.099136,
+              "p95": 1.110208,
+              "max": 1.111264,
+              "n": 20
+            },
+            "firstReadyEqualsFullReady": true,
+            "evidence": {
+              "queryCount": 4,
+              "passKinds": ["beginComputePass", "beginComputePass"],
+              "dispatches": 23,
+              "encoders": 1,
+              "submits": 1,
+              "sourceUploadBytes": 16777216,
+              "bufferAllocatedBytes": 5595392,
+              "rgbaAllocatedBytes": 22369620,
+              "blockCopyPaddedBytes": 5595392,
+              "destinations": [
+                {
+                  "mip": 0,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 1,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 2,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 3,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 4,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 5,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 6,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 7,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 8,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 9,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 10,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 11,
+                  "origin": [0, 0, 0]
+                }
+              ],
+              "encodeGpuMs": 0.594208,
+              "mipGpuMs": 1.099488,
+              "diagnosticSubmits": 1
+            },
+            "estimatedTempGpuPeakBytes": 27965012,
+            "direct": {
+              "cpuMs": {
+                "p50": 0.8999999910593033,
+                "p95": 1.4000000059604645,
+                "max": 1.5,
+                "n": 20
+              },
+              "readyWallMs": {
+                "p50": 2.6000000089406967,
+                "p95": 6.299999997019768,
+                "max": 6.5,
+                "n": 20
+              },
+              "uploadBytes": 5592432,
+              "runtimeTranscode": 0,
+              "runtimeEncode": 0,
+              "packageParse": "excluded: preowned final blocks"
+            },
+            "quality": {
+              "samplePixels": 4096,
+              "mip": 0,
+              "rmseChannels": [1, 1, 1, 0],
+              "maxChannelError": 1,
+              "alphaThresholdFlips": 0,
+              "reference": "generated byte source; sRGB sample re-encoded only by diagnostic shader",
+              "canonicalMipQuality": "not-proven",
+              "acceptance": "observational, not production quality adoption"
+            },
+            "batches": {
+              "sparkWall": [
+                {
+                  "p50": 10.799999997019768,
+                  "p95": 13,
+                  "max": 13,
+                  "n": 10
+                },
+                {
+                  "p50": 10,
+                  "p95": 11.700000002980232,
+                  "max": 11.700000002980232,
+                  "n": 10
+                }
+              ],
+              "directWall": [
+                {
+                  "p50": 2.5,
+                  "p95": 6.5,
+                  "max": 6.5,
+                  "n": 10
+                },
+                {
+                  "p50": 3.2000000029802322,
+                  "p95": 6.200000002980232,
+                  "max": 6.200000002980232,
+                  "n": 10
+                }
+              ]
+            }
+          },
+          {
+            "width": 2048,
+            "height": 2048,
+            "storageWidth": 2048,
+            "storageHeight": 2048,
+            "layers": 1,
+            "semantic": "orm",
+            "format": "bc7-rgba-unorm",
+            "mipCount": 12,
+            "sourceEncodedBytes": 180735,
+            "decodeMs": 26,
+            "initSharedMs": 99.59999999403954,
+            "residentBytes": 5592432,
+            "allocatedOutputBytes": 5592432,
+            "sourceDecodedRgbaBytes": 16777216,
+            "cpuMs": {
+              "p50": 2.5,
+              "p95": 3.3999999910593033,
+              "max": 4,
+              "n": 20
+            },
+            "readyWallMs": {
+              "p50": 11.700000002980232,
+              "p95": 13,
+              "max": 13.900000005960464,
+              "n": 20
+            },
+            "encodeGpuMs": {
+              "p50": 0.57104,
+              "p95": 0.574816,
+              "max": 0.577536,
+              "n": 20
+            },
+            "mipGpuMs": {
+              "p50": 0.446464,
+              "p95": 0.47072,
+              "max": 0.471808,
+              "n": 20
+            },
+            "firstReadyEqualsFullReady": true,
+            "evidence": {
+              "queryCount": 4,
+              "passKinds": ["beginComputePass", "beginComputePass"],
+              "dispatches": 23,
+              "encoders": 1,
+              "submits": 1,
+              "sourceUploadBytes": 16777216,
+              "bufferAllocatedBytes": 5595392,
+              "rgbaAllocatedBytes": 22369620,
+              "blockCopyPaddedBytes": 5595392,
+              "destinations": [
+                {
+                  "mip": 0,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 1,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 2,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 3,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 4,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 5,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 6,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 7,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 8,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 9,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 10,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 11,
+                  "origin": [0, 0, 0]
+                }
+              ],
+              "encodeGpuMs": 0.571392,
+              "mipGpuMs": 0.444416,
+              "diagnosticSubmits": 1
+            },
+            "estimatedTempGpuPeakBytes": 27965012,
+            "direct": {
+              "cpuMs": {
+                "p50": 1,
+                "p95": 1.4000000059604645,
+                "max": 1.5,
+                "n": 20
+              },
+              "readyWallMs": {
+                "p50": 2.9000000059604645,
+                "p95": 7.200000002980232,
+                "max": 8.399999991059303,
+                "n": 20
+              },
+              "uploadBytes": 5592432,
+              "runtimeTranscode": 0,
+              "runtimeEncode": 0,
+              "packageParse": "excluded: preowned final blocks"
+            },
+            "quality": {
+              "samplePixels": 4096,
+              "mip": 0,
+              "rmseChannels": [0.8046495743489833, 0.577279787559724, 0.7561596020351788, 0.506548908670229],
+              "maxChannelError": 2,
+              "alphaThresholdFlips": 0,
+              "reference": "generated byte source; sRGB sample re-encoded only by diagnostic shader",
+              "canonicalMipQuality": "not-proven",
+              "acceptance": "observational, not production quality adoption"
+            },
+            "batches": {
+              "sparkWall": [
+                {
+                  "p50": 11.200000002980232,
+                  "p95": 13.900000005960464,
+                  "max": 13.900000005960464,
+                  "n": 10
+                },
+                {
+                  "p50": 11.700000002980232,
+                  "p95": 12.200000002980232,
+                  "max": 12.200000002980232,
+                  "n": 10
+                }
+              ],
+              "directWall": [
+                {
+                  "p50": 2.6000000089406967,
+                  "p95": 7.200000002980232,
+                  "max": 7.200000002980232,
+                  "n": 10
+                },
+                {
+                  "p50": 2.9000000059604645,
+                  "p95": 8.399999991059303,
+                  "max": 8.399999991059303,
+                  "n": 10
+                }
+              ]
+            }
+          },
+          {
+            "width": 2048,
+            "height": 2048,
+            "storageWidth": 2048,
+            "storageHeight": 2048,
+            "layers": 1,
+            "semantic": "scalar",
+            "format": "bc4-r-unorm",
+            "mipCount": 12,
+            "sourceEncodedBytes": 180735,
+            "decodeMs": 26.799999997019768,
+            "initSharedMs": 99.59999999403954,
+            "residentBytes": 2796216,
+            "allocatedOutputBytes": 2796216,
+            "sourceDecodedRgbaBytes": 16777216,
+            "cpuMs": {
+              "p50": 1.8999999910593033,
+              "p95": 2.699999988079071,
+              "max": 3.1000000089406967,
+              "n": 20
+            },
+            "readyWallMs": {
+              "p50": 9.200000002980232,
+              "p95": 11.399999991059303,
+              "max": 11.900000005960464,
+              "n": 20
+            },
+            "encodeGpuMs": {
+              "p50": 0.21712,
+              "p95": 0.22144,
+              "max": 0.224352,
+              "n": 20
+            },
+            "mipGpuMs": {
+              "p50": 1.093632,
+              "p95": 1.11104,
+              "max": 1.41312,
+              "n": 20
+            },
+            "firstReadyEqualsFullReady": true,
+            "evidence": {
+              "queryCount": 4,
+              "passKinds": ["beginComputePass", "beginComputePass"],
+              "dispatches": 23,
+              "encoders": 1,
+              "submits": 1,
+              "sourceUploadBytes": 16777216,
+              "bufferAllocatedBytes": 2801920,
+              "rgbaAllocatedBytes": 22369620,
+              "blockCopyPaddedBytes": 2801920,
+              "destinations": [
+                {
+                  "mip": 0,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 1,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 2,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 3,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 4,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 5,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 6,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 7,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 8,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 9,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 10,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 11,
+                  "origin": [0, 0, 0]
+                }
+              ],
+              "encodeGpuMs": 0.21728,
+              "mipGpuMs": 1.093376,
+              "diagnosticSubmits": 1
+            },
+            "estimatedTempGpuPeakBytes": 25171540,
+            "direct": {
+              "cpuMs": {
+                "p50": 1,
+                "p95": 1.2000000029802322,
+                "max": 1.300000011920929,
+                "n": 20
+              },
+              "readyWallMs": {
+                "p50": 1.699999988079071,
+                "p95": 4.200000002980232,
+                "max": 4.800000011920929,
+                "n": 20
+              },
+              "uploadBytes": 2796216,
+              "runtimeTranscode": 0,
+              "runtimeEncode": 0,
+              "packageParse": "excluded: preowned final blocks"
+            },
+            "quality": {
+              "samplePixels": 4096,
+              "mip": 0,
+              "rmseChannels": [0.7071067811865476, 0, 0, 0],
+              "maxChannelError": 1,
+              "alphaThresholdFlips": 0,
+              "reference": "generated byte source; sRGB sample re-encoded only by diagnostic shader",
+              "canonicalMipQuality": "not-proven",
+              "acceptance": "observational, not production quality adoption"
+            },
+            "batches": {
+              "sparkWall": [
+                {
+                  "p50": 8.600000008940697,
+                  "p95": 11.900000005960464,
+                  "max": 11.900000005960464,
+                  "n": 10
+                },
+                {
+                  "p50": 9.5,
+                  "p95": 11.200000002980232,
+                  "max": 11.200000002980232,
+                  "n": 10
+                }
+              ],
+              "directWall": [
+                {
+                  "p50": 1.5,
+                  "p95": 4.800000011920929,
+                  "max": 4.800000011920929,
+                  "n": 10
+                },
+                {
+                  "p50": 1.800000011920929,
+                  "p95": 4.200000002980232,
+                  "max": 4.200000002980232,
+                  "n": 10
+                }
+              ]
+            }
+          },
+          {
+            "width": 4096,
+            "height": 4096,
+            "storageWidth": 4096,
+            "storageHeight": 4096,
+            "layers": 1,
+            "semantic": "base-color",
+            "format": "bc7-rgba-unorm-srgb",
+            "mipCount": 13,
+            "sourceEncodedBytes": 604361,
+            "decodeMs": 99.59999999403954,
+            "initSharedMs": 99.59999999403954,
+            "residentBytes": 22369648,
+            "allocatedOutputBytes": 22369648,
+            "sourceDecodedRgbaBytes": 67108864,
+            "cpuMs": {
+              "p50": 5.9000000059604645,
+              "p95": 7.9000000059604645,
+              "max": 8.700000002980232,
+              "n": 20
+            },
+            "readyWallMs": {
+              "p50": 26,
+              "p95": 27.900000005960464,
+              "max": 28.299999997019768,
+              "n": 20
+            },
+            "encodeGpuMs": {
+              "p50": 1.941504,
+              "p95": 2.256128,
+              "max": 2.27728,
+              "n": 20
+            },
+            "mipGpuMs": {
+              "p50": 1.323008,
+              "p95": 1.497088,
+              "max": 1.774912,
+              "n": 20
+            },
+            "firstReadyEqualsFullReady": true,
+            "evidence": {
+              "queryCount": 4,
+              "passKinds": ["beginComputePass", "beginComputePass"],
+              "dispatches": 25,
+              "encoders": 1,
+              "submits": 1,
+              "sourceUploadBytes": 67108864,
+              "bufferAllocatedBytes": 22372608,
+              "rgbaAllocatedBytes": 89478484,
+              "blockCopyPaddedBytes": 22372608,
+              "destinations": [
+                {
+                  "mip": 0,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 1,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 2,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 3,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 4,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 5,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 6,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 7,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 8,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 9,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 10,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 11,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 12,
+                  "origin": [0, 0, 0]
+                }
+              ],
+              "encodeGpuMs": 1.824768,
+              "mipGpuMs": 1.252096,
+              "diagnosticSubmits": 1
+            },
+            "estimatedTempGpuPeakBytes": 111851092,
+            "direct": {
+              "cpuMs": {
+                "p50": 2.2000000029802322,
+                "p95": 2.7000000029802322,
+                "max": 3.7000000029802322,
+                "n": 20
+              },
+              "readyWallMs": {
+                "p50": 10.799999997019768,
+                "p95": 12,
+                "max": 14.099999994039536,
+                "n": 20
+              },
+              "uploadBytes": 22369648,
+              "runtimeTranscode": 0,
+              "runtimeEncode": 0,
+              "packageParse": "excluded: preowned final blocks"
+            },
+            "quality": {
+              "samplePixels": 4096,
+              "mip": 0,
+              "rmseChannels": [
+                0.9110862335695782, 0.8811170112419803, 0.9034169078421103, 0.6023229771061369
+              ],
+              "maxChannelError": 3,
+              "alphaThresholdFlips": 0,
+              "reference": "generated byte source; sRGB sample re-encoded only by diagnostic shader",
+              "canonicalMipQuality": "not-proven",
+              "acceptance": "observational, not production quality adoption"
+            },
+            "batches": {
+              "sparkWall": [
+                {
+                  "p50": 26.600000008940697,
+                  "p95": 27.400000005960464,
+                  "max": 27.400000005960464,
+                  "n": 10
+                },
+                {
+                  "p50": 24.799999997019768,
+                  "p95": 28.299999997019768,
+                  "max": 28.299999997019768,
+                  "n": 10
+                }
+              ],
+              "directWall": [
+                {
+                  "p50": 10.799999997019768,
+                  "p95": 14.099999994039536,
+                  "max": 14.099999994039536,
+                  "n": 10
+                },
+                {
+                  "p50": 10.600000008940697,
+                  "p95": 11.900000005960464,
+                  "max": 11.900000005960464,
+                  "n": 10
+                }
+              ]
+            }
+          },
+          {
+            "width": 4096,
+            "height": 4096,
+            "storageWidth": 4096,
+            "storageHeight": 4096,
+            "layers": 1,
+            "semantic": "normal",
+            "format": "bc7-rgba-unorm",
+            "mipCount": 13,
+            "sourceEncodedBytes": 442537,
+            "decodeMs": 115.29999999701977,
+            "initSharedMs": 99.59999999403954,
+            "residentBytes": 22369648,
+            "allocatedOutputBytes": 22369648,
+            "sourceDecodedRgbaBytes": 67108864,
+            "cpuMs": {
+              "p50": 6.199999988079071,
+              "p95": 8.700000002980232,
+              "max": 11,
+              "n": 20
+            },
+            "readyWallMs": {
+              "p50": 27.600000008940697,
+              "p95": 32,
+              "max": 35.900000005960464,
+              "n": 20
+            },
+            "encodeGpuMs": {
+              "p50": 1.711584,
+              "p95": 1.914432,
+              "max": 1.91488,
+              "n": 20
+            },
+            "mipGpuMs": {
+              "p50": 3.3304,
+              "p95": 3.61472,
+              "max": 3.843872,
+              "n": 20
+            },
+            "firstReadyEqualsFullReady": true,
+            "evidence": {
+              "queryCount": 4,
+              "passKinds": ["beginComputePass", "beginComputePass"],
+              "dispatches": 25,
+              "encoders": 1,
+              "submits": 1,
+              "sourceUploadBytes": 67108864,
+              "bufferAllocatedBytes": 22372608,
+              "rgbaAllocatedBytes": 89478484,
+              "blockCopyPaddedBytes": 22372608,
+              "destinations": [
+                {
+                  "mip": 0,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 1,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 2,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 3,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 4,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 5,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 6,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 7,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 8,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 9,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 10,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 11,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 12,
+                  "origin": [0, 0, 0]
+                }
+              ],
+              "encodeGpuMs": 1.613856,
+              "mipGpuMs": 3.3304,
+              "diagnosticSubmits": 1
+            },
+            "estimatedTempGpuPeakBytes": 111851092,
+            "direct": {
+              "cpuMs": {
+                "p50": 2.2999999970197678,
+                "p95": 3,
+                "max": 3.800000011920929,
+                "n": 20
+              },
+              "readyWallMs": {
+                "p50": 10.799999997019768,
+                "p95": 12.100000008940697,
+                "max": 12.299999997019768,
+                "n": 20
+              },
+              "uploadBytes": 22369648,
+              "runtimeTranscode": 0,
+              "runtimeEncode": 0,
+              "packageParse": "excluded: preowned final blocks"
+            },
+            "quality": {
+              "samplePixels": 4096,
+              "mip": 0,
+              "rmseChannels": [1, 1, 1, 0],
+              "maxChannelError": 1,
+              "alphaThresholdFlips": 0,
+              "reference": "generated byte source; sRGB sample re-encoded only by diagnostic shader",
+              "canonicalMipQuality": "not-proven",
+              "acceptance": "observational, not production quality adoption"
+            },
+            "batches": {
+              "sparkWall": [
+                {
+                  "p50": 28.5,
+                  "p95": 31.400000005960464,
+                  "max": 31.400000005960464,
+                  "n": 10
+                },
+                {
+                  "p50": 26.799999997019768,
+                  "p95": 35.900000005960464,
+                  "max": 35.900000005960464,
+                  "n": 10
+                }
+              ],
+              "directWall": [
+                {
+                  "p50": 10.799999997019768,
+                  "p95": 12.100000008940697,
+                  "max": 12.100000008940697,
+                  "n": 10
+                },
+                {
+                  "p50": 10.199999988079071,
+                  "p95": 12.299999997019768,
+                  "max": 12.299999997019768,
+                  "n": 10
+                }
+              ]
+            }
+          },
+          {
+            "width": 4096,
+            "height": 4096,
+            "storageWidth": 4096,
+            "storageHeight": 4096,
+            "layers": 1,
+            "semantic": "orm",
+            "format": "bc7-rgba-unorm",
+            "mipCount": 13,
+            "sourceEncodedBytes": 604361,
+            "decodeMs": 100.79999999701977,
+            "initSharedMs": 99.59999999403954,
+            "residentBytes": 22369648,
+            "allocatedOutputBytes": 22369648,
+            "sourceDecodedRgbaBytes": 67108864,
+            "cpuMs": {
+              "p50": 5.700000002980232,
+              "p95": 7.800000011920929,
+              "max": 8,
+              "n": 20
+            },
+            "readyWallMs": {
+              "p50": 23.599999994039536,
+              "p95": 26.30000001192093,
+              "max": 27,
+              "n": 20
+            },
+            "encodeGpuMs": {
+              "p50": 1.561568,
+              "p95": 1.703008,
+              "max": 1.739104,
+              "n": 20
+            },
+            "mipGpuMs": {
+              "p50": 1.10128,
+              "p95": 1.272544,
+              "max": 1.274048,
+              "n": 20
+            },
+            "firstReadyEqualsFullReady": true,
+            "evidence": {
+              "queryCount": 4,
+              "passKinds": ["beginComputePass", "beginComputePass"],
+              "dispatches": 25,
+              "encoders": 1,
+              "submits": 1,
+              "sourceUploadBytes": 67108864,
+              "bufferAllocatedBytes": 22372608,
+              "rgbaAllocatedBytes": 89478484,
+              "blockCopyPaddedBytes": 22372608,
+              "destinations": [
+                {
+                  "mip": 0,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 1,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 2,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 3,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 4,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 5,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 6,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 7,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 8,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 9,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 10,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 11,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 12,
+                  "origin": [0, 0, 0]
+                }
+              ],
+              "encodeGpuMs": 1.544352,
+              "mipGpuMs": 1.091712,
+              "diagnosticSubmits": 1
+            },
+            "estimatedTempGpuPeakBytes": 111851092,
+            "direct": {
+              "cpuMs": {
+                "p50": 2.300000011920929,
+                "p95": 3,
+                "max": 3.0999999940395355,
+                "n": 20
+              },
+              "readyWallMs": {
+                "p50": 10.799999997019768,
+                "p95": 12.400000005960464,
+                "max": 12.900000005960464,
+                "n": 20
+              },
+              "uploadBytes": 22369648,
+              "runtimeTranscode": 0,
+              "runtimeEncode": 0,
+              "packageParse": "excluded: preowned final blocks"
+            },
+            "quality": {
+              "samplePixels": 4096,
+              "mip": 0,
+              "rmseChannels": [
+                0.9110862335695782, 0.8811170112419803, 0.9034169078421103, 0.6023229771061369
+              ],
+              "maxChannelError": 3,
+              "alphaThresholdFlips": 0,
+              "reference": "generated byte source; sRGB sample re-encoded only by diagnostic shader",
+              "canonicalMipQuality": "not-proven",
+              "acceptance": "observational, not production quality adoption"
+            },
+            "batches": {
+              "sparkWall": [
+                {
+                  "p50": 23.600000008940697,
+                  "p95": 27,
+                  "max": 27,
+                  "n": 10
+                },
+                {
+                  "p50": 23.399999991059303,
+                  "p95": 26.299999997019768,
+                  "max": 26.299999997019768,
+                  "n": 10
+                }
+              ],
+              "directWall": [
+                {
+                  "p50": 10.5,
+                  "p95": 12,
+                  "max": 12,
+                  "n": 10
+                },
+                {
+                  "p50": 12,
+                  "p95": 12.900000005960464,
+                  "max": 12.900000005960464,
+                  "n": 10
+                }
+              ]
+            }
+          },
+          {
+            "width": 4096,
+            "height": 4096,
+            "storageWidth": 4096,
+            "storageHeight": 4096,
+            "layers": 1,
+            "semantic": "scalar",
+            "format": "bc4-r-unorm",
+            "mipCount": 13,
+            "sourceEncodedBytes": 604361,
+            "decodeMs": 100.5,
+            "initSharedMs": 99.59999999403954,
+            "residentBytes": 11184824,
+            "allocatedOutputBytes": 11184824,
+            "sourceDecodedRgbaBytes": 67108864,
+            "cpuMs": {
+              "p50": 6.0999999940395355,
+              "p95": 8.200000002980232,
+              "max": 10.5,
+              "n": 20
+            },
+            "readyWallMs": {
+              "p50": 24.700000002980232,
+              "p95": 27.80000001192093,
+              "max": 30.399999991059303,
+              "n": 20
+            },
+            "encodeGpuMs": {
+              "p50": 0.482016,
+              "p95": 0.49152,
+              "max": 0.701056,
+              "n": 20
+            },
+            "mipGpuMs": {
+              "p50": 2.977792,
+              "p95": 2.994144,
+              "max": 3.194912,
+              "n": 20
+            },
+            "firstReadyEqualsFullReady": true,
+            "evidence": {
+              "queryCount": 4,
+              "passKinds": ["beginComputePass", "beginComputePass"],
+              "dispatches": 25,
+              "encoders": 1,
+              "submits": 1,
+              "sourceUploadBytes": 67108864,
+              "bufferAllocatedBytes": 11190528,
+              "rgbaAllocatedBytes": 89478484,
+              "blockCopyPaddedBytes": 11190528,
+              "destinations": [
+                {
+                  "mip": 0,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 1,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 2,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 3,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 4,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 5,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 6,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 7,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 8,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 9,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 10,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 11,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 12,
+                  "origin": [0, 0, 0]
+                }
+              ],
+              "encodeGpuMs": 0.483328,
+              "mipGpuMs": 2.99008,
+              "diagnosticSubmits": 1
+            },
+            "estimatedTempGpuPeakBytes": 100669012,
+            "direct": {
+              "cpuMs": {
+                "p50": 1.7000000029802322,
+                "p95": 2.5999999940395355,
+                "max": 2.5999999940395355,
+                "n": 20
+              },
+              "readyWallMs": {
+                "p50": 5.700000002980232,
+                "p95": 8.5,
+                "max": 8.799999997019768,
+                "n": 20
+              },
+              "uploadBytes": 11184824,
+              "runtimeTranscode": 0,
+              "runtimeEncode": 0,
+              "packageParse": "excluded: preowned final blocks"
+            },
+            "quality": {
+              "samplePixels": 4096,
+              "mip": 0,
+              "rmseChannels": [0.739509972887452, 0, 0, 0],
+              "maxChannelError": 2,
+              "alphaThresholdFlips": 0,
+              "reference": "generated byte source; sRGB sample re-encoded only by diagnostic shader",
+              "canonicalMipQuality": "not-proven",
+              "acceptance": "observational, not production quality adoption"
+            },
+            "batches": {
+              "sparkWall": [
+                {
+                  "p50": 24.30000001192093,
+                  "p95": 27.5,
+                  "max": 27.5,
+                  "n": 10
+                },
+                {
+                  "p50": 24.700000002980232,
+                  "p95": 30.399999991059303,
+                  "max": 30.399999991059303,
+                  "n": 10
+                }
+              ],
+              "directWall": [
+                {
+                  "p50": 5.700000002980232,
+                  "p95": 8.5,
+                  "max": 8.5,
+                  "n": 10
+                },
+                {
+                  "p50": 4.299999997019768,
+                  "p95": 8.799999997019768,
+                  "max": 8.799999997019768,
+                  "n": 10
+                }
+              ]
+            }
+          },
+          {
+            "width": 257,
+            "height": 129,
+            "storageWidth": 260,
+            "storageHeight": 132,
+            "layers": 1,
+            "semantic": "orm",
+            "format": "bc7-rgba-unorm",
+            "mipCount": 9,
+            "sourceEncodedBytes": 2360,
+            "decodeMs": 0.7000000029802322,
+            "initSharedMs": 99.59999999403954,
+            "residentBytes": 46464,
+            "allocatedOutputBytes": 46464,
+            "sourceDecodedRgbaBytes": 132612,
+            "cpuMs": {
+              "p50": 0.29999999701976776,
+              "p95": 0.5,
+              "max": 0.6000000089406967,
+              "n": 20
+            },
+            "readyWallMs": {
+              "p50": 3.9000000059604645,
+              "p95": 5.299999997019768,
+              "max": 5.799999997019768,
+              "n": 20
+            },
+            "encodeGpuMs": {
+              "p50": 0.057344,
+              "p95": 0.061472,
+              "max": 0.063488,
+              "n": 20
+            },
+            "mipGpuMs": {
+              "p50": 0.085984,
+              "p95": 0.108544,
+              "max": 0.143808,
+              "n": 20
+            },
+            "firstReadyEqualsFullReady": true,
+            "evidence": {
+              "queryCount": 6,
+              "passKinds": ["beginComputePass", "beginComputePass", "beginComputePass"],
+              "dispatches": 18,
+              "encoders": 1,
+              "submits": 1,
+              "sourceUploadBytes": 132612,
+              "bufferAllocatedBytes": 62464,
+              "rgbaAllocatedBytes": 315524,
+              "blockCopyPaddedBytes": 62464,
+              "destinations": [
+                {
+                  "mip": 0,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 1,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 2,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 3,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 4,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 5,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 6,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 7,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 8,
+                  "origin": [0, 0, 0]
+                }
+              ],
+              "encodeGpuMs": 0.058752,
+              "mipGpuMs": 0.085632,
+              "diagnosticSubmits": 1
+            },
+            "estimatedTempGpuPeakBytes": 377988,
+            "direct": {
+              "cpuMs": {
+                "p50": 0,
+                "p95": 0.10000000894069672,
+                "max": 0.10000000894069672,
+                "n": 20
+              },
+              "readyWallMs": {
+                "p50": 0.20000000298023224,
+                "p95": 0.20000000298023224,
+                "max": 0.29999999701976776,
+                "n": 20
+              },
+              "uploadBytes": 46464,
+              "runtimeTranscode": 0,
+              "runtimeEncode": 0,
+              "packageParse": "excluded: preowned final blocks"
+            },
+            "quality": {
+              "samplePixels": 4096,
+              "mip": 0,
+              "rmseChannels": [1.5757252794348386, 1.190989937509969, 1.3344518420497609, 0.5079927564690269],
+              "maxChannelError": 8,
+              "alphaThresholdFlips": 238,
+              "reference": "generated byte source; sRGB sample re-encoded only by diagnostic shader",
+              "canonicalMipQuality": "not-proven",
+              "acceptance": "observational, not production quality adoption"
+            },
+            "batches": {
+              "sparkWall": [
+                {
+                  "p50": 3.7999999970197678,
+                  "p95": 5.299999997019768,
+                  "max": 5.299999997019768,
+                  "n": 10
+                },
+                {
+                  "p50": 3.9000000059604645,
+                  "p95": 5.799999997019768,
+                  "max": 5.799999997019768,
+                  "n": 10
+                }
+              ],
+              "directWall": [
+                {
+                  "p50": 0.19999998807907104,
+                  "p95": 0.29999999701976776,
+                  "max": 0.29999999701976776,
+                  "n": 10
+                },
+                {
+                  "p50": 0.20000000298023224,
+                  "p95": 0.20000000298023224,
+                  "max": 0.20000000298023224,
+                  "n": 10
+                }
+              ]
+            }
+          },
+          {
+            "width": 256,
+            "height": 256,
+            "storageWidth": 256,
+            "storageHeight": 256,
+            "layers": 2,
+            "semantic": "array-layer-probe",
+            "format": "bc7-rgba-unorm",
+            "mipCount": 9,
+            "sourceEncodedBytes": 7899,
+            "decodeMs": 0.8999999910593033,
+            "initSharedMs": 99.59999999403954,
+            "residentBytes": 87408,
+            "allocatedOutputBytes": 174816,
+            "sourceDecodedRgbaBytes": 262144,
+            "cpuMs": {
+              "p50": 0.20000000298023224,
+              "p95": 0.3999999910593033,
+              "max": 0.4000000059604645,
+              "n": 20
+            },
+            "readyWallMs": {
+              "p50": 4.200000002980232,
+              "p95": 5.5,
+              "max": 5.5999999940395355,
+              "n": 20
+            },
+            "encodeGpuMs": {
+              "p50": 0.058208,
+              "p95": 0.060096,
+              "max": 0.060448,
+              "n": 20
+            },
+            "mipGpuMs": {
+              "p50": 0.049728,
+              "p95": 0.05072,
+              "max": 0.051008,
+              "n": 20
+            },
+            "firstReadyEqualsFullReady": true,
+            "evidence": {
+              "queryCount": 4,
+              "passKinds": ["beginComputePass", "beginComputePass"],
+              "dispatches": 17,
+              "encoders": 1,
+              "submits": 1,
+              "sourceUploadBytes": 262144,
+              "bufferAllocatedBytes": 90368,
+              "rgbaAllocatedBytes": 349524,
+              "blockCopyPaddedBytes": 90368,
+              "destinations": [
+                {
+                  "mip": 0,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 1,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 2,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 3,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 4,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 5,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 6,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 7,
+                  "origin": [0, 0, 0]
+                },
+                {
+                  "mip": 8,
+                  "origin": [0, 0, 0]
+                }
+              ],
+              "encodeGpuMs": 0.060096,
+              "mipGpuMs": 0.050304,
+              "diagnosticSubmits": 1
+            },
+            "estimatedTempGpuPeakBytes": 439892,
+            "direct": {
+              "cpuMs": {
+                "p50": 0,
+                "p95": 0.10000000894069672,
+                "max": 0.20000000298023224,
+                "n": 20
+              },
+              "readyWallMs": {
+                "p50": 0.20000000298023224,
+                "p95": 0.3999999910593033,
+                "max": 0.4000000059604645,
+                "n": 20
+              },
+              "uploadBytes": 87408,
+              "runtimeTranscode": 0,
+              "runtimeEncode": 0,
+              "packageParse": "excluded: preowned final blocks"
+            },
+            "quality": {
+              "samplePixels": 4096,
+              "mip": 0,
+              "rmseChannels": [
+                0.8190839013800723, 0.6451819631894555, 1.1690591168756181, 0.2795084971874737
+              ],
+              "maxChannelError": 3,
+              "alphaThresholdFlips": 0,
+              "reference": "generated byte source; sRGB sample re-encoded only by diagnostic shader",
+              "canonicalMipQuality": "not-proven",
+              "acceptance": "observational, not production quality adoption"
+            },
+            "batches": {
+              "sparkWall": [
+                {
+                  "p50": 4.399999991059303,
+                  "p95": 5.5,
+                  "max": 5.5,
+                  "n": 10
+                },
+                {
+                  "p50": 4,
+                  "p95": 5.5999999940395355,
+                  "max": 5.5999999940395355,
+                  "n": 10
+                }
+              ],
+              "directWall": [
+                {
+                  "p50": 0.20000000298023224,
+                  "p95": 0.29999999701976776,
+                  "max": 0.29999999701976776,
+                  "n": 10
+                },
+                {
+                  "p50": 0.20000000298023224,
+                  "p95": 0.4000000059604645,
+                  "max": 0.4000000059604645,
+                  "n": 10
+                }
+              ]
+            }
+          }
+        ],
+        "decision": "DEFER",
+        "reasons": [
+          "Stock API submits privately and copies only to array layer zero; no caller encoder/encoded buffer API",
+          "Canonical semantic full-mip equivalence and lifecycle adaptation not proven",
+          "Matched raw direct-BC WASM encoder bridge is T4.1, currently unavailable"
+        ],
+        "methodology": {
+          "warmup": 3,
+          "samples": 20,
+          "batches": [10, 10],
+          "GPUWaitExcludedFromCpu": true,
+          "GPUQueries": "per-pass instrumentation; one separate diagnostic resolve submit",
+          "temporaryBytes": "descriptor-derived upper bound, not driver VRAM",
+          "encodedReadback": "diagnostic comparator setup only; not production preparation",
+          "comparisonOrder": "sequential Spark then direct; exploratory, not paired adoption evidence",
+          "sRGB": "base-color uses hardware sRGB; diagnostic shader returns encoded bytes for source comparison",
+          "actualHostPeak": null,
+          "productionRendererCpuImpact": null,
+          "qualityThreshold": "not promoted to adoption from exploratory fixture"
+        },
+        "ownership": {
+          "standaloneProductionOwner": "REJECT",
+          "strictOutputTextureWorks": true,
+          "arbitraryArrayLayer": false,
+          "publicBlockBuffer": false,
+          "callerCommandEncoder": false,
+          "requiredAdaptation": "S2 JS adaptation + request-owned resources + fence; no shader rewrite",
+          "additionalEncodedCopy": "internal block buffer -> target, already required; no extra S2 copy"
+        }
+      },
+      "error": null,
+      "adapter": {
+        "vendor": "nvidia",
+        "architecture": "turing",
+        "device": "",
+        "description": "",
+        "isFallbackAdapter": false,
+        "subgroupMinSize": 32,
+        "subgroupMaxSize": 32
+      },
+      "adapterKind": "hardware",
+      "device": {
+        "features": ["core-features-and-limits", "texture-compression-bc", "timestamp-query"],
+        "limits": {
+          "maxComputeWorkgroupSizeX": 256,
+          "maxComputeInvocationsPerWorkgroup": 256,
+          "maxStorageBufferBindingSize": 134217728,
+          "maxStorageBuffersPerShaderStage": 8
+        },
+        "adapterLimits": {
+          "maxStorageBuffersPerShaderStage": 16
+        }
+      },
+      "deviceLost": null,
+      "gpuErrors": [],
+      "scopedGpuErrors": [],
+      "environment": {
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/154.0.0.0 Safari/537.36",
+        "webgpuExposed": true,
+        "wgslLanguageFeatures": [
+          "buffer_view",
+          "immediate_address_space",
+          "linear_indexing",
+          "packed_4x8_integer_dot_product",
+          "pointer_composite_access",
+          "readonly_and_readwrite_storage_textures",
+          "subgroup_id",
+          "subgroup_uniformity",
+          "swizzle_assignment",
+          "texture_and_sampler_let",
+          "texture_formats_tier1",
+          "uniform_buffer_standard_layout",
+          "unrestricted_pointer_parameters"
+        ]
+      },
+      "timings": {
+        "oracleMs": 12227.1,
+        "browserLaunchMs": 416,
+        "navigationMs": 12741,
+        "totalMs": 14331
+      },
+      "chrome": {
+        "executablePath": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+        "version": "154.0.8037.98",
+        "headless": true,
+        "transport": "launch",
+        "contextMode": "isolated-new-context",
+        "launchAttempts": [
+          {
+            "transport": "launch",
+            "ok": true
+          }
+        ],
+        "endpoint": null,
+        "args": null,
+        "processLogPath": null,
+        "processLog": null,
+        "environmentHints": []
+      },
+      "console": [
+        {
+          "type": "warning",
+          "text": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127"
+        },
+        {
+          "type": "error",
+          "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+        }
+      ],
+      "pageErrors": [],
+      "failedRequests": [],
+      "runFailure": null
+    },
+    "native-material": {
+      "rawArtifactSha256": "5bea2e150fd71740d28ff943a2d427c4e0b43defdab5d87c6572cc6cb2ea8dd1",
+      "tool": "gpu-oracle",
+      "toolVersion": 1,
+      "hostBuildId": "b6f7ef76dff3",
+      "buildIdentity": {
+        "schemaVersion": 1,
+        "recipe": "tsc -p tsconfig.test.json + pinned codec vendor copy",
+        "node": "v24.14.0",
+        "dependencyScope": "conservative: engine src, configs, lock and compiler identity",
+        "sourceSha256": "b146a6b552f92ef6cd639cac01cac7228bf8e7d0ddd1f444a0fcbe32829a2f65",
+        "outputSha256": "0ffc2747ff16df19cb9fa402597eb6c56a7a987603031ef714d87a3d9cb5af59",
+        "completedAt": "2026-10-08T19:06:08.410Z"
+      },
+      "oracleSha256": "fc67637eb16c1ecf18a929bc67196a694fb06cb24e0b1bc6ba2c8d8f20100703",
+      "oracle": "native-material",
+      "oracleFile": "OEngine/tests/oracle/native-material-gpu.mjs",
+      "oracleEntry": "runNativeMaterialGpuOracle",
+      "registry": {
+        "description": "S1 native Standard/Coat/Unlit/custom graph, explicit gradients and immutable publication transactions.",
+        "note": "Component only: fixture geometry inputs and linear textures; no production cutover or S1 closure claim.",
+        "negativeControl": false
+      },
+      "status": "passed",
+      "failureKind": null,
+      "summary": {
+        "status": "passed",
+        "scope": "S1 compiler/publication component; not complete SurfaceV4",
+        "results": [
+          {
+            "name": "standard",
+            "pixelsPerRun": 32,
+            "outputCount": 23,
+            "maxAbsoluteError": 0,
+            "cpuIdealFilterDeviation": 0.1336045265197754,
+            "nativePrograms": 1,
+            "physicalBindingSets": 2,
+            "textureQueries": [1, 1],
+            "publicationBytes": 328,
+            "verified": "native graph, C/X/Y, SampleGrad, two physical texture sets, stable/abort/retry/update/fence",
+            "missingGradientNegativeControl": "not applicable"
+          },
+          {
+            "name": "coated",
+            "pixelsPerRun": 32,
+            "outputCount": 23,
+            "maxAbsoluteError": 0,
+            "cpuIdealFilterDeviation": 0.1336045265197754,
+            "nativePrograms": 1,
+            "physicalBindingSets": 2,
+            "textureQueries": [1, 1],
+            "publicationBytes": 336,
+            "verified": "native graph, C/X/Y, SampleGrad, two physical texture sets, stable/abort/retry/update/fence",
+            "missingGradientNegativeControl": "not applicable"
+          },
+          {
+            "name": "unlit",
+            "pixelsPerRun": 32,
+            "outputCount": 4,
+            "maxAbsoluteError": 0,
+            "cpuIdealFilterDeviation": 0.060122013092041016,
+            "nativePrograms": 1,
+            "physicalBindingSets": 2,
+            "textureQueries": [1],
+            "publicationBytes": 144,
+            "verified": "native graph, C/X/Y, SampleGrad, two physical texture sets, stable/abort/retry/update/fence",
+            "missingGradientNegativeControl": "not applicable"
+          },
+          {
+            "name": "custom",
+            "pixelsPerRun": 32,
+            "outputCount": 13,
+            "maxAbsoluteError": 1.7881393432617188e-7,
+            "cpuIdealFilterDeviation": 0.060180485248565674,
+            "nativePrograms": 1,
+            "physicalBindingSets": 2,
+            "textureQueries": [3, 1],
+            "publicationBytes": 224,
+            "verified": "native graph, C/X/Y, SampleGrad, two physical texture sets, stable/abort/retry/update/fence",
+            "missingGradientNegativeControl": "detected"
+          },
+          {
+            "name": "arithmetic",
+            "pixelsPerRun": 32,
+            "outputCount": 13,
+            "maxAbsoluteError": 0,
+            "cpuIdealFilterDeviation": 2.980232238769531e-7,
+            "nativePrograms": 1,
+            "physicalBindingSets": 2,
+            "textureQueries": [],
+            "publicationBytes": 88,
+            "verified": "all scalar operations against independent CPU and GPU, stable/abort/retry/update/fence",
+            "missingGradientNegativeControl": "not applicable"
+          }
+        ],
+        "filtering": {
+          "status": "diagnostic",
+          "method": "spatially constant per-mip markers isolate gradient LOD; direct explicit-level samples isolate filtering precision",
+          "maxGradientCpuError": 0.06680227071046829,
+          "maxExplicitLevelCpuError": 0.0020238757133483887,
+          "maxGradientLodDeviation": 0.08009004592895508,
+          "maxExplicitLodDeviation": 0.001865983009338379,
+          "records": [
+            {
+              "lane": 0,
+              "cpuLod": 0,
+              "gradEffectiveLod": 0,
+              "levelEffectiveLod": 0,
+              "gradCpuError": 0.000048041343688964844,
+              "explicitLevelCpuError": 0.000048041343688964844
+            },
+            {
+              "lane": 1,
+              "cpuLod": 1.0565834045410156,
+              "gradEffectiveLod": 1.136673092842102,
+              "levelEffectiveLod": 1.0547178983688354,
+              "gradCpuError": 0.005930721759796143,
+              "explicitLevelCpuError": 0.0018181800842285156
+            },
+            {
+              "lane": 2,
+              "cpuLod": 2.6415460109710693,
+              "gradEffectiveLod": 2.71875,
+              "levelEffectiveLod": 2.640685796737671,
+              "gradCpuError": 0.02039283514022827,
+              "explicitLevelCpuError": 0.00008307397365570068
+            },
+            {
+              "lane": 3,
+              "cpuLod": 3.863938570022583,
+              "gradEffectiveLod": 3.9413909912109375,
+              "levelEffectiveLod": 3.8633267879486084,
+              "gradCpuError": 0.0636836513876915,
+              "explicitLevelCpuError": 0.0005263090133666992
+            },
+            {
+              "lane": 4,
+              "cpuLod": 0,
+              "gradEffectiveLod": 0,
+              "levelEffectiveLod": 0,
+              "gradCpuError": 0.00007364153861999512,
+              "explicitLevelCpuError": 0.00007364153861999512
+            },
+            {
+              "lane": 5,
+              "cpuLod": 1.0565834045410156,
+              "gradEffectiveLod": 1.136673092842102,
+              "levelEffectiveLod": 1.0547178983688354,
+              "gradCpuError": 0.005050003528594971,
+              "explicitLevelCpuError": 0.0005043372511863708
+            },
+            {
+              "lane": 6,
+              "cpuLod": 2.6415457725524902,
+              "gradEffectiveLod": 2.71875,
+              "levelEffectiveLod": 2.640685796737671,
+              "gradCpuError": 0.006776094436645508,
+              "explicitLevelCpuError": 0.00005990266799926758
+            },
+            {
+              "lane": 7,
+              "cpuLod": 3.863938331604004,
+              "gradEffectiveLod": 3.9413909912109375,
+              "levelEffectiveLod": 3.8633267879486084,
+              "gradCpuError": 0.06406804919242859,
+              "explicitLevelCpuError": 0.0005081295967102051
+            },
+            {
+              "lane": 8,
+              "cpuLod": 0,
+              "gradEffectiveLod": 0,
+              "levelEffectiveLod": 0,
+              "gradCpuError": 0.00007724761962890625,
+              "explicitLevelCpuError": 0.00007724761962890625
+            },
+            {
+              "lane": 9,
+              "cpuLod": 1.0565834045410156,
+              "gradEffectiveLod": 1.136673092842102,
+              "levelEffectiveLod": 1.0547178983688354,
+              "gradCpuError": 0.004291355609893799,
+              "explicitLevelCpuError": 0.00014901161193847656
+            },
+            {
+              "lane": 10,
+              "cpuLod": 2.6415460109710693,
+              "gradEffectiveLod": 2.71875,
+              "levelEffectiveLod": 2.640685796737671,
+              "gradCpuError": 0.00632709264755249,
+              "explicitLevelCpuError": 0.00011217594146728516
+            },
+            {
+              "lane": 11,
+              "cpuLod": 3.863938570022583,
+              "gradEffectiveLod": 3.9413909912109375,
+              "levelEffectiveLod": 3.8633267879486084,
+              "gradCpuError": 0.06442161649465561,
+              "explicitLevelCpuError": 0.0005360394716262817
+            },
+            {
+              "lane": 12,
+              "cpuLod": 0,
+              "gradEffectiveLod": 0,
+              "levelEffectiveLod": 0,
+              "gradCpuError": 0.00004503130912780762,
+              "explicitLevelCpuError": 0.00004503130912780762
+            },
+            {
+              "lane": 13,
+              "cpuLod": 1.0565838813781738,
+              "gradEffectiveLod": 1.136673092842102,
+              "levelEffectiveLod": 1.0547178983688354,
+              "gradCpuError": 0.004477828741073608,
+              "explicitLevelCpuError": 0.00014472007751464844
+            },
+            {
+              "lane": 14,
+              "cpuLod": 2.6415460109710693,
+              "gradEffectiveLod": 2.71875,
+              "levelEffectiveLod": 2.640685796737671,
+              "gradCpuError": 0.005939126014709473,
+              "explicitLevelCpuError": 0.00004267692565917969
+            },
+            {
+              "lane": 15,
+              "cpuLod": 3.863938570022583,
+              "gradEffectiveLod": 3.9413909912109375,
+              "levelEffectiveLod": 3.8633267879486084,
+              "gradCpuError": 0.06477280706167221,
+              "explicitLevelCpuError": 0.0005205422639846802
+            },
+            {
+              "lane": 16,
+              "cpuLod": 0,
+              "gradEffectiveLod": 0,
+              "levelEffectiveLod": 0,
+              "gradCpuError": 0.000009000301361083984,
+              "explicitLevelCpuError": 0.000009000301361083984
+            },
+            {
+              "lane": 17,
+              "cpuLod": 1.0565838813781738,
+              "gradEffectiveLod": 1.136673092842102,
+              "levelEffectiveLod": 1.0547178983688354,
+              "gradCpuError": 0.006275638937950134,
+              "explicitLevelCpuError": 0.00010988116264343262
+            },
+            {
+              "lane": 18,
+              "cpuLod": 2.6415460109710693,
+              "gradEffectiveLod": 2.71875,
+              "levelEffectiveLod": 2.640685796737671,
+              "gradCpuError": 0.00552058219909668,
+              "explicitLevelCpuError": 0.0000921785831451416
+            },
+            {
+              "lane": 19,
+              "cpuLod": 3.863938331604004,
+              "gradEffectiveLod": 3.9413909912109375,
+              "levelEffectiveLod": 3.8633267879486084,
+              "gradCpuError": 0.06519126147031784,
+              "explicitLevelCpuError": 0.0005598664283752441
+            },
+            {
+              "lane": 20,
+              "cpuLod": 0,
+              "gradEffectiveLod": 0,
+              "levelEffectiveLod": 0,
+              "gradCpuError": 0.00003698468208312988,
+              "explicitLevelCpuError": 0.00003698468208312988
+            },
+            {
+              "lane": 21,
+              "cpuLod": 1.0565838813781738,
+              "gradEffectiveLod": 1.136673092842102,
+              "levelEffectiveLod": 1.0547178983688354,
+              "gradCpuError": 0.013600528240203857,
+              "explicitLevelCpuError": 0.0007982254028320312
+            },
+            {
+              "lane": 22,
+              "cpuLod": 2.6415460109710693,
+              "gradEffectiveLod": 2.71875,
+              "levelEffectiveLod": 2.640685796737671,
+              "gradCpuError": 0.005117297172546387,
+              "explicitLevelCpuError": 0.000059217214584350586
+            },
+            {
+              "lane": 23,
+              "cpuLod": 3.863938331604004,
+              "gradEffectiveLod": 3.9413909912109375,
+              "levelEffectiveLod": 3.8633267879486084,
+              "gradCpuError": 0.06551799178123474,
+              "explicitLevelCpuError": 0.0005535632371902466
+            },
+            {
+              "lane": 24,
+              "cpuLod": 0,
+              "gradEffectiveLod": 0,
+              "levelEffectiveLod": 0,
+              "gradCpuError": 0.00005155801773071289,
+              "explicitLevelCpuError": 0.00005155801773071289
+            },
+            {
+              "lane": 25,
+              "cpuLod": 1.0565838813781738,
+              "gradEffectiveLod": 1.136673092842102,
+              "levelEffectiveLod": 1.0547178983688354,
+              "gradCpuError": 0.06680227071046829,
+              "explicitLevelCpuError": 0.0015428811311721802
+            },
+            {
+              "lane": 26,
+              "cpuLod": 2.6415457725524902,
+              "gradEffectiveLod": 2.71875,
+              "levelEffectiveLod": 2.640685796737671,
+              "gradCpuError": 0.004759848117828369,
+              "explicitLevelCpuError": 0.00020939111709594727
+            },
+            {
+              "lane": 27,
+              "cpuLod": 3.863938331604004,
+              "gradEffectiveLod": 3.9413909912109375,
+              "levelEffectiveLod": 3.8633267879486084,
+              "gradCpuError": 0.062204763293266296,
+              "explicitLevelCpuError": 0.0006318837404251099
+            },
+            {
+              "lane": 28,
+              "cpuLod": 0,
+              "gradEffectiveLod": 0,
+              "levelEffectiveLod": 0,
+              "gradCpuError": 0.00009942054748535156,
+              "explicitLevelCpuError": 0.00009942054748535156
+            },
+            {
+              "lane": 29,
+              "cpuLod": 1.056583046913147,
+              "gradEffectiveLod": 1.136673092842102,
+              "levelEffectiveLod": 1.0547178983688354,
+              "gradCpuError": 0.06539732217788696,
+              "explicitLevelCpuError": 0.0014677122235298157
+            },
+            {
+              "lane": 30,
+              "cpuLod": 2.6415457725524902,
+              "gradEffectiveLod": 2.71875,
+              "levelEffectiveLod": 2.640685796737671,
+              "gradCpuError": 0.011831283569335938,
+              "explicitLevelCpuError": 0.0020238757133483887
+            },
+            {
+              "lane": 31,
+              "cpuLod": 3.863938570022583,
+              "gradEffectiveLod": 3.9413909912109375,
+              "levelEffectiveLod": 3.8633267879486084,
+              "gradCpuError": 0.04777064174413681,
+              "explicitLevelCpuError": 0.001119270920753479
+            }
+          ]
+        },
+        "bindings": {
+          "status": "passed",
+          "actualTextureResidency": true,
+          "actualStaticResidency": true,
+          "minMipTail": 6,
+          "promotedMinMip": 0,
+          "abortedPromotion": "retained tail",
+          "coverageAlpha": "matches native shading",
+          "productTextureCount": 2,
+          "maxProductError": 1.1920928955078125e-7,
+          "packedProducts": {
+            "fields": 20,
+            "textureBindings": 1,
+            "payloadBytes": 2800,
+            "physicalBytes": 4096,
+            "maxAbsoluteError": 4.656612873077393e-10,
+            "reference": "CPU cooked-field evaluator, actual half payload, original dimensions/mips/domain"
+          },
+          "tolerance": 0.0001,
+          "scope": "native binding/publication component, fixture CXY; no winner/Surface/production adoption"
+        }
+      },
+      "error": null,
+      "adapter": {
+        "vendor": "nvidia",
+        "architecture": "turing",
+        "device": "",
+        "description": "",
+        "isFallbackAdapter": false,
+        "subgroupMinSize": 32,
+        "subgroupMaxSize": 32
+      },
+      "adapterKind": "hardware",
+      "device": {
+        "features": ["core-features-and-limits"],
+        "limits": {
+          "maxComputeWorkgroupSizeX": 256,
+          "maxComputeInvocationsPerWorkgroup": 256,
+          "maxStorageBufferBindingSize": 134217728,
+          "maxStorageBuffersPerShaderStage": 8
+        },
+        "adapterLimits": {
+          "maxStorageBuffersPerShaderStage": 16
+        }
+      },
+      "deviceLost": null,
+      "gpuErrors": [],
+      "scopedGpuErrors": [],
+      "environment": {
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/154.0.0.0 Safari/537.36",
+        "webgpuExposed": true,
+        "wgslLanguageFeatures": [
+          "buffer_view",
+          "immediate_address_space",
+          "linear_indexing",
+          "packed_4x8_integer_dot_product",
+          "pointer_composite_access",
+          "readonly_and_readwrite_storage_textures",
+          "subgroup_id",
+          "subgroup_uniformity",
+          "swizzle_assignment",
+          "texture_and_sampler_let",
+          "texture_formats_tier1",
+          "uniform_buffer_standard_layout",
+          "unrestricted_pointer_parameters"
+        ]
+      },
+      "timings": {
+        "oracleMs": 3342.8,
+        "browserLaunchMs": 427,
+        "navigationMs": 3671,
+        "totalMs": 5295
+      },
+      "chrome": {
+        "executablePath": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+        "version": "154.0.8037.98",
+        "headless": true,
+        "transport": "launch",
+        "contextMode": "isolated-new-context",
+        "launchAttempts": [
+          {
+            "transport": "launch",
+            "ok": true
+          }
+        ],
+        "endpoint": null,
+        "args": null,
+        "processLogPath": null,
+        "processLog": null,
+        "environmentHints": []
+      },
+      "console": [
+        {
+          "type": "warning",
+          "text": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127"
+        },
+        {
+          "type": "error",
+          "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+        }
+      ],
+      "pageErrors": [],
+      "failedRequests": [],
+      "runFailure": null
+    }
+  },
+  "initialFailures": {
+    "texture-baseline-label-failure": {
+      "rawArtifactSha256": "ce3e764e8144fb6a2c967c411bd740a2364ad3bbba5759d4617052f11ef2be62",
+      "error": {
+        "kind": "assertion-or-throw",
+        "name": "Error",
+        "code": null,
+        "message": "Unclassified GPU submit owner label 'T4.0 authored texture stage'",
+        "stack": "Error: Unclassified GPU submit owner label 'T4.0 authored texture stage'\n    at submitGpuCommands (http://127.0.0.1:4258/OEngine/.test-dist/gpu/GpuQueueEvidence.js:40:15)\n    at ShadeGPUCommandContext.finish (http://127.0.0.1:4258/OEngine/.test-dist/framegraph/ShadeGPUCommandContext.js:371:13)\n    at submit (http://127.0.0.1:4258/OEngine/tests/oracle/texture-baseline-gpu.mjs:38:11)\n    at authoredBaseline (http://127.0.0.1:4258/OEngine/tests/oracle/texture-baseline-gpu.mjs:83:30)\n    at async runTextureBaselineGpuOracle (http://127.0.0.1:4258/OEngine/tests/oracle/texture-baseline-gpu.mjs:293:17)\n    at async run (http://127.0.0.1:4258/__gpu-oracle/page/host.mjs:214:15)\n    at async http://127.0.0.1:4258/__gpu-oracle/page/host.mjs:266:11"
+      },
+      "failureKind": "oracle-throw"
+    },
+    "texture-baseline-mips-failure": {
+      "rawArtifactSha256": "7b4f472301fc179226517dfecba73c33c317a9098844848c06006e68ed4be59c",
+      "error": {
+        "kind": "assertion-or-throw",
+        "name": "RangeError",
+        "code": null,
+        "message": "Encoded texture variant 0 mip chain is incomplete",
+        "stack": "RangeError: Encoded texture variant 0 mip chain is incomplete\n    at validateEncodedVariant (http://127.0.0.1:1623/OEngine/.test-dist/assets/TextureAssetPackage.js:369:15)\n    at http://127.0.0.1:1623/OEngine/.test-dist/assets/TextureAssetPackage.js:15:63\n    at Array.map (<anonymous>)\n    at writeEncodedTextureAssetPackageV2 (http://127.0.0.1:1623/OEngine/.test-dist/assets/TextureAssetPackage.js:15:39)\n    at codecBaseline (http://127.0.0.1:1623/OEngine/tests/oracle/texture-baseline-gpu.mjs:202:34)\n    at async runTextureBaselineGpuOracle (http://127.0.0.1:1623/OEngine/tests/oracle/texture-baseline-gpu.mjs:294:18)\n    at async run (http://127.0.0.1:1623/__gpu-oracle/page/host.mjs:214:15)\n    at async http://127.0.0.1:1623/__gpu-oracle/page/host.mjs:266:11"
+      },
+      "failureKind": "oracle-throw"
+    },
+    "texture-encoder-module-failure": {
+      "rawArtifactSha256": "a4462ae7085338c922565e98a38512ce9a8ed08fe514ff74761af8b4a6dd9eb8",
+      "error": {
+        "kind": "assertion-or-throw",
+        "name": "TypeError",
+        "code": null,
+        "message": "Failed to fetch dynamically imported module: http://127.0.0.1:7816/.local/texture-design-spark/src/shaders/utils.wgsl?raw",
+        "stack": "TypeError: Failed to fetch dynamically imported module: http://127.0.0.1:7816/.local/texture-design-spark/src/shaders/utils.wgsl?raw"
+      },
+      "failureKind": "oracle-throw"
+    }
+  },
+  "unitOutput": "✔ residency routes stay instance data; physical bank/sampler profiles define native programs (8.5892ms)\n✔ dynamic snapshots validate ranges and widths and coverage retains live dynamic inputs (2.7948ms)\n✔ constant normal Products use no texture resources and preserve the normal decode (1.1145ms)\n✔ invalid physical routes and mismatched compiler products reject before GPU consumption (0.6001ms)\n✔ asset codec task contract rejects invalid or unavailable protocol values (3.9776ms)\n✔ bounded pool preserves priority, FIFO, concurrency, memory, and transfer lists (5.1937ms)\n✔ pool releases reservations after errors, replaces a failed worker, and cancels work (1.2532ms)\n✔ pool dispose rejects queued and active tasks idempotently (0.7099ms)\n✔ codec service is lazy, bounded by hardware concurrency, and publishes stable evidence (1.3602ms)\n✔ texture planner selects direct, worker, then explicitly declared fallback (0.4588ms)\n✔ pinned Khronos libktx WASM transcodes the deterministic UASTC fixture to BC7 (199.045ms)\n✔ pinned ETC1S mip chain normalizes into the ordinary encoded package contract (182.9316ms)\n✔ encoded-variant writer round-trips BC7 provenance and explicit physical extents (31.929ms)\n✖ Runtime Package V2 metadata is deterministic and rejects corruption (13.0264ms)\n✔ Texture Cooker V2 preserves color-space, normal, and mask mip semantics in its portable oracle (18.4071ms)\n✔ Texture Cooker V2 emits complete offline mip chains and capability-selected physical variants (23.4155ms)\n✔ BC5 normal and BC4 mask blocks preserve their declared sampling semantics (7.2119ms)\n✔ Texture Package V2 uploads selected BC mips without runtime mip work (5.0613ms)\n✔ Texture Cooker V2 selects a declared portable fallback for unaligned bases and keeps identity dimensional (11.6793ms)\nℹ tests 19\nℹ suites 0\nℹ pass 18\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 511.2574\n\n✖ failing tests:\n\ntest at OEngine\\tests\\unit\\runtime-asset-v2.test.mjs:68:1\n✖ Runtime Package V2 metadata is deterministic and rejects corruption (13.0264ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n  \n  836 !== 340\n  \n      at TestContext.<anonymous> (file:///D:/code/EEngine%20-%20%E5%89%AF%E6%9C%AC/OEngine/tests/unit/runtime-asset-v2.test.mjs:90:10)\n      at async Test.run (node:internal/test_runner/test:1125:7)\n      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7) {\n    generatedMessage: true,\n    code: 'ERR_ASSERTION',\n    actual: 836,\n    expected: 340,\n    operator: 'strictEqual',\n    diff: 'simple'\n  }\n",
+  "excluded": "477MB workload excluded by user; no equivalent-scale claim",
+  "hostHardwareInventory": [
+    {
+      "Name": "Todesk Virtual Display Adapter",
+      "DriverVersion": "16.44.2.509",
+      "AdapterRAM": null
+    },
+    {
+      "Name": "OrayIddDriver Device",
+      "DriverVersion": "17.50.19.949",
+      "AdapterRAM": null
+    },
+    {
+      "Name": "Intel(R) UHD Graphics",
+      "DriverVersion": "27.20.100.8853",
+      "AdapterRAM": 1073741824
+    },
+    {
+      "Name": "NVIDIA GeForce GTX 1650 Ti",
+      "DriverVersion": "32.0.15.8142",
+      "AdapterRAM": 4293918720
+    }
+  ],
+  "hardwareIdentityScope": "Windows inventory corroborates the only NVIDIA GPU as GTX1650Ti; browser reports hardware NVIDIA/Turing but hides exact device"
+}

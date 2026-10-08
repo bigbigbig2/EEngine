@@ -22,6 +22,12 @@ verifies:
     - OEngine/tests/unit/runtime-asset-v2.test.mjs
     - OEngine/tests/contract/native-material-bindings.test.mjs
     - OEngine/tests/oracle/native-material-bindings-gpu.mjs
+    - OEngine/tests/oracle/texture-baseline-gpu.mjs
+    - OEngine/tests/oracle/texture-encoder-probe-gpu.mjs
+    - OEngine/benchmarks/texture-compression-t4-0.json
+    - tools/test-build.mjs
+    - tools/gpu-oracle/registry.mjs
+    - tools/gpu-oracle/server.mjs
     - validation/cases/texture-residency-component
     - validation/cases/lighting-acceptance
     - validation/workloads/lighting-acceptance-v1.yaml
@@ -29,13 +35,13 @@ verifies:
 
 # PC Texture Compression 执行计划
 
-本文件是 Texture Compression slice 的唯一单元状态/执行 authority；架构与Source Map见[Design](../next-design/eengine-v4-texture-compression-2026-10.md)。全局不变量、失败分类沿用[V4 execution](./eengine-v4-native-shading-execution-2026-10.md#validation-failure-contract)和[VALIDATION](../VALIDATION.md)。当前仅设计完成，**未开始 production 实现、未声明压缩验收通过**。
+本文件是Texture Compression slice的唯一单元状态/执行authority；架构与Source Map见[Design](../next-design/eengine-v4-texture-compression-2026-10.md)。全局不变量、失败分类沿用[V4 execution](./eengine-v4-native-shading-execution-2026-10.md#validation-failure-contract)和[VALIDATION](../VALIDATION.md)。**T4.0 baseline已关闭；未开始T4.1 production产品构建，未声明压缩验收通过。** 用户明确排除400多MB模型，后续场景测试均不再运行它；改变的是验收workload范围，不是缩小同一个场景后声称等价。
 
 ## 1. 单元与停止边界
 
 | 单元                                        | 状态        | 责任闭包                                                                       | 结束边界                       |
 | ------------------------------------------- | ----------- | ------------------------------------------------------------------------------ | ------------------------------ |
-| T4.0 Current Texture Baseline & PC Contract | not-started | 当前source/quality/capability/成本与reference；有限 GPU encoder decision probe | baseline与采用裁决后STOP       |
+| T4.0 Current Texture Baseline & PC Contract | closed      | 当前source/quality/capability/成本与reference；有限 GPU encoder decision probe | baseline与采用裁决后STOP       |
 | T4.1 PC BC Texture Product                  | not-started | upstream cook/import→schema3/mips/planes；条件化 GPU cold encode，非production | functional GPU oracle后STOP    |
 | T4.2 Production BC Residency Cutover        | not-started | GLB/WebCook→Residency→Material→Surface/main/VSM/Temporal，原子切换并删除旧路线 | 单一production owner验证后STOP |
 | T4.3 Texture Compression Acceptance         | not-started | 真实authored、quality、load/CPU/GPU、memory、lifecycle                         | 关闭slice后STOP，不自动开始VT  |
@@ -65,10 +71,10 @@ verifies:
 
 1. 保存clean source SHA、build source SHA/buildId、Chrome/adapter/device features/limits、workload/source身份，保持当前Lighting/M2已关闭范围。
 2. 复用现有texture component与authored runner/controller的observe入口，按需采一次ledger；加计时仅load/scene publication窗口，不在每帧遍历catalog。区分raw/direct/transcoded比例、source bytes、RGBA-equivalent与actual decoded bytes。
-3. source identity：本地477,591,060B GLB，SHA256 `54b608872aec11ce07b26fad6c0ad14a662314e6480bf8d833e5088b59c9851f`，1,920 primitives、4,871,612 triangles、完整planned shards（历史66 Products，实际run核对）、518 routes历史目录。逐catalog image/semantic/route记账，source缺失则如实blocked，不换tiny scene。
-4. 同条件authored recipe先采用现有 `complete-authored-textures-512-native-v4` 的512上限，**不再下调**。另外1K/2K/4K component完整mip验证高分辨率；512-authored性能不能宣称覆盖全部4K目录。保持1080p/renderScale1、camera、材质/灯光/纹理数量，不能去VSM/Temporal/FSR获益。
-5. 只跑一次必要fresh authored baseline（如已有当前source/build完整匹配artifact可复用）；不要重测完整Lighting矩阵。保存result/events/screenshot/dispose/freshness/browser gates；旧dirty M3数据仅historical。
-6. 冻结canonical CPU/GPU参考：sRGB/linear、LinearNormal mip signedZ/非unit、ORM/scalar channels、alpha cutoff/coverage、address/LOD/derivatives。既有numeric assertion不放宽；新增BC有损质量budget以source semantic和独立误差依据确定，在编码结果前记录。NPOT原始与whole-domain上采样reference并列。
+3. 用户授权的新source：`examples/assets/three/rendering-lab/dungeon_warkarma.glb`，7,990,584B，SHA256 `cac0fc8c16d107e7ac4e69efde89c2cb6ef4bc66c34456a4dd0923218e5aafb1`；798 primitives、72,137 triangles、25 materials/images/textures。T4.0仅加载其完整image/material目录走真实TextureResidency，不构造Renderer几何场景；不是66Product验收。477MB旧source明确excluded，禁止自动跑。
+4. dungeon保留全部25张2048²图，原sampler/semantic，无512cap；另1K/2K/4K完整mip与257×129 NPOT矩阵。未来完整Renderer比较保持1080p/renderScale1、camera、灯光与所有功能；本阶段component timing不冒称renderer.render/frame结果。
+5. 集中一次fresh texture baseline+可选encoder probe+既有native material oracle；只为真实runner/覆盖缺口修正重跑受影响入口，不重测Lighting。source/build/oracle身份、完整catalog/ledger、GPU错误、retirement结果保存机器artifact；full frame screenshot/first-useful-frame不在component中伪造，后续authored闭包必测。
+6. canonical source recipe/CPU-GPU reference与质量比较规则冻结见§9.4；已有numeric断言不变。区分当前raw LinearNormal归一化producer与signed XYZ/nonunitconsumer，不宣称当前mip保留方差。Spark只做探索质量观测，未完成canonical逐mip对照不允许ADOPT。
 
 ### 小 decision probes（不是新的架构研究）
 
@@ -109,7 +115,7 @@ baseline ledger、same-condition recipe/quality/reference、format计划、capac
 
 ### Entry
 
-T4.0合同冻结。重读Design §2格式、§3schema/capacity、§5pinned Source Map；非production harness直接构造新产品，不增production selector/bridge。
+T4.0合同冻结（§9）。Spark裁决DEFER，下面条件化任务7本轮不执行；不得在T4.1重开Spark研究。重读Design §2格式、§3schema/capacity、§5pinned Source Map；非production harness直接构造新产品，不增production selector/bridge。
 
 ### Tasks / 连续责任模块
 
@@ -179,7 +185,7 @@ delete前逐符号追真实consumer。GPUTextureManager/MipmapGenerator对enviro
 
 T4.2关闭；冻结freshsource/build/workload。复用现有validationrunner/controller与Lighting/authoredcase的cook/catalog/publication/recovery/resize/motion/dispose，不新建benchmarkframework。注册一个texturecompressionworkload可以，不能再做第二Renderer或改成小fixture。T4.0保存的原始baseline必须仍可比较。
 
-完整477MB authored GLB、全部plannedshards/66Products、1920primitives、4.87Mtriangles、全texture/materialcatalog，1080p/renderScale1、相同camera/light/quality。GLBsourceSHA与bytes严格核对；1K/2K/4K矩阵另测完整mip，不替代authored。coldrawcook和warmcookeddirectload分别记录：同语义/质量合同，不要求不同encoder产生bit-identical BC。fixed生产验收仍以persisted finalBC direct为主；若采用Spark，单列rawGPUcook（无永久cache时）、source/recovery/temp峰值、争用P95与额外command数量，不能把其收益归directload。
+**禁止运行477MB模型。** 完整dungeon authored source、798 primitives、72,137 triangles、全部25 materials/images/textures、原2048²尺寸，1080p/renderScale1、相同camera/light/quality；sourceSHA/bytes严格核对。用正常raw/cooked scene入口跑全部geometry/material/texture，不把T4.0仅image/materialstage当完整scene。1K/2K/4K与coverage/normal矩阵另测；dungeon主要ORM/AO复用，不代替其它semantic覆盖。coldrawcook与warmcookeddirect保持同recipe，固定生产以persisted finalBC direct为主。T4.0尚无完整frame baseline，T4.2切换前用此小场景补一次原raw完整frame artifact，再与T4.3比较；不能用历史477MB数据混比。未来另选真实场景须用户授权，禁止悄悄恢复旧large case。
 
 ### 必需 artifact 与指标
 
@@ -210,7 +216,7 @@ T4.2关闭；冻结freshsource/build/workload。复用现有validationrunner/con
 
 T4.3只有满足必需gates才closed，记录source/build/workload/codecidentity、finalcatalog/formatquality、lifetime归零、memory峰值、load/CPU/GPU对照、未运行项。更新本execution与currentSlice一次，不制造第二progress/status authority。
 
-可以OPEN：BC5normal新semantic、BC6Hofflineenvironment、fulltransparency、hardwarecounter/crossdevice、真实VTpaging、DEFER/REJECT的Spark候选及未来商业分发许可。它们不是本slice已实现功能。若477MB源/目标BCdevice不可用如实not-run，不生成替代数据认证通过。
+可以OPEN：BC5normal新semantic、BC6Hofflineenvironment、fulltransparency、hardwarecounter/crossdevice、真实VTpaging、DEFER的Spark与未来商业分发许可。477MB/66Product范围是用户主动excluded，始终不认证该规模通过，也不作为新dungeon范围的关闭门禁；目标BCdevice不可用或新范围必需项缺失仍未完成。
 
 TextureCompression结束后STOP；后续VirtualTexture/PageResidency必须根据真实产品/成本重新授权和设计，不自动施工GI/Lighting/Temporal。
 
@@ -227,3 +233,92 @@ TextureCompression结束后STOP；后续VirtualTexture/PageResidency必须根据
 复核 `99ca968` 源码 ownership 与 Spark `b9ea643` 实际 encode/copy/submit、mip/normal、临时资源、API/tests、MIT/EULA。统一重组 fixed/external/raw 生命周期、S1/S2/S3、四路径 Cost Card、GPU-only结果的持久化与replay、VT乘法关系；T4.0增加有限决策probe，T4.1条件采用，T4.2 destructive cutover仍唯一Residency。学习研究许可不作评估阻塞，商业分发核对单列。只改现有Design/Execution，workstream保持planned、authority/VT后继导航不变。
 
 轻量验证：docs-verify当前0 findings/66 history warnings；document-system 7/7；vibe doctor、registry --check、Residency context、两文档scoped format与diff whitespace检查通过。没有production改动，未跑typecheck/build/GPU probe/authored；所有Spark性能与真实接入仍待T4.0，未声称ADOPT或性能收益。**TEXTURE DESIGN V2 = READY FOR T4.0**，T4.\*仍not-started；提交设计后STOP。
+
+## 9. T4.0 实施结果（2026-10-09）
+
+### 9.1 身份、范围与可复现入口
+
+开工fetch后HEAD/origin/master均为 `b39f23a0e21a57c469cf2396d646ac80571fc48e`，工作区clean。只新增oracle/测试构建资产拷贝与静态host raw shader支持；**OEngine/src无改动**。记录的dirty probe工具不冒称clean production revision。
+
+机器artifact：[texture-compression-t4-0.json](../../OEngine/benchmarks/texture-compression-t4-0.json)。各record保存source/output/oracle SHA、Chrome、adapter/device、P50/P95/max/N、完整ledger、质量观测与初始失败；原JSON和Node输出另留`.local/t4-0/`。fresh build source hash=`b146a6b552f92ef6cd639cac01cac7228bf8e7d0ddd1f444a0fcbe32829a2f65`，output hash=`0ffc2747ff16df19cb9fa402597eb6c56a7a987603031ef714d87a3d9cb5af59`。Chrome154.0.8037.98，hardware NVIDIA/Turing，非软件adapter；Windows inventory唯一NVIDIA为GeForce GTX1650Ti，driver32.0.15.8142，与browser identity一致。browser本身隐藏精确device名；OS inventory一并保存，不凭architecture单字段猜型号。
+
+```powershell
+npm --prefix OEngine run build:test
+node --test OEngine/tests/unit/asset-codec-service.test.mjs OEngine/tests/unit/runtime-asset-v2.test.mjs OEngine/tests/contract/native-material-bindings.test.mjs
+node tools/gpu-oracle.mjs texture-baseline --json
+node tools/gpu-oracle.mjs texture-encoder-probe --json
+node tools/gpu-oracle.mjs native-material --json
+```
+
+Spark入口须外部checkout `Ludicon/spark.js` 到`.local/texture-design-spark`，固定 `b9ea643a08cb9eef3a9ddc64564089bdd6fd0daf`，全tree clean。oracle核对`src/spark.js` SHA256=`7d3cfe62db69ac317d8288ec6820fc896ab5a39731aa8f6802d34151e69dc469`；不提交上游shader。使用生产KTX Worker的编译JS/WASM（build:test现在复制已有vendor并纳入output hash）。GPU作业串行、结束关闭device/browser/server。
+
+477MB模型**未运行且后续不再运行**。新dungeon是完整真实texture catalog，不是原large缩规模；T4.0仅image/material→Residency component，未跑Renderer geometry/frame，所以frame P50/P95、first useful frame、screenshot、effect总VRAM为NOT-RUN。它们在T4.2切换前补小场景基线、T4.3闭合；不伪称旧66Product验收或压缩生产完成。
+
+### 9.2 当前真实路径与内存
+
+| 项目                  | 当前MEASURED结果                                                                                |
+| --------------------- | ----------------------------------------------------------------------------------------------- |
+| dungeon source        | 7,990,584B；798 primitives / 72,137 triangles；完整25 images/textures/materials                 |
+| Source images         | 2,379,388B WebP；25张2048²，全部保留原尺寸，无texture cap                                       |
+| Decode representation | 419,430,400B base RGBA-equivalent；browser actual/native peak UNKNOWN                           |
+| Production path比例   | raw RGBA 25/25；direct BC package 0/25；Worker 0/25                                             |
+| Source GPU mip chains | 559,240,500B；standalone source cache，未计入Residency账                                        |
+| Residency             | 559,240,500B live texels；allocated771,752,376B（array容量/neutral/variation/descriptor）       |
+| 合计可复算分配        | 1,330,992,876B=standalone+Residency；非driver VRAM，effects/driver暂存另计UNKNOWN               |
+| 工作                  | 25 resize dispatch；bank mip batch计数1；32MiB variation仍分配，9 builds/16 rejected            |
+| Lifecycle             | release+真实fence后resident/retiring均0；Graphics统计destroy后0，但25 standalone源texture仍存活 |
+
+sourceOwner存活不是driver泄漏counter证明，也不能被软件统计归零掩盖。probe显式destroy source contexts/MipmapGenerator并close bitmaps只为测试清理，**没有修生产owner**；T4.2必须退休material source route并闭合相关lifetime。
+
+Raw read35ms级，load/decode286.90ms，stage203.60ms，同步finish/submit1.10ms，finish至completion314.50ms，按需evidence7.50ms；均单次cold component observation，不能写P50。stable bindings N20为0/0.1ms（浏览器clock量化，0不代表零成本）。load与queue completion重叠，不将阶段和当critical path；raw evidence的upload/copy=0是统计缺口，不能说未上传。
+
+KTX真实Worker：UASTC32² input1296B→BC7 1024B，首次Worker启动含cold86.9ms，warm P50/P95/max=0.20/0.40/0.50ms，N20；只有mip0，当前full-chain writer明确拒绝，不造missing mips。ETC1S64² input719B→BC7 sRGB fullchain5488B，同一已初始化Worker首次2.0ms（**不是独立cold init**），warm0.30/0.50/0.60ms，N20。serializer4.10ms、open2.40ms、stage1.90ms单次；不是一般package解析吞吐。
+
+ETC package真实BC array2层分配10,976B（含neutral），tail mip6初始16B上传；abort promotion不推进minMip/revision，retry成功到mip0，cooked runtime mip=0。成功publication累计upload counter7728B大于5488B usefulblocks，源于当前人工row padding；aborted queue writes不进成功计数，不冒称该counter覆盖全部真实写。Service destroy后active/queued/in-flight credits均0。actual WASM峰值UNKNOWN，8MiB estimated credit不是测量。当前Zstd被local header reader拒绝，read shape/getter缺口留给已定义T4.1 upstream bridge。
+
+### 9.3 Spark有限probe与裁决
+
+14 cases：1K/2K/4K×BaseColor sRGB、BC7 XYZ Normal、ORM、BC4 scalar；另257×129→260×132 NPOT及2-layer target。明确fullchain到1×1；禁auto/BC5、ASTC/ETC。init/preload BC7/BC4=99.6ms单次；本enableddevice没有shader-f16，测的是上游f32变体。每case warm3/sample20，分两批10保留distribution；Spark后direct顺序测试，**探索比较而非paired adoption evidence**。timestampWrites由probe在compute/render pass正确接线，诊断resolve另1submit，不用stock getTimeElapsed。
+
+| Case          | Spark CPU P50/P95 ms | Spark full-ready P50/P95 ms | Encode GPU P50/P95 ms | Mip GPU P50/P95 ms | Direct full-ready P50/P95 ms |
+| ------------- | -------------------- | --------------------------- | --------------------- | ------------------ | ---------------------------- |
+| 1K BaseColor  | 0.70/0.90            | 6.00/6.90                   | 0.209/0.210           | 0.209/0.211        | 0.80/1.80                    |
+| 2K BaseColor  | 1.70/2.40            | 10.50/12.20                 | 0.570/0.576           | 0.454/0.472        | 2.50/6.60                    |
+| 4K BaseColor  | 5.90/7.90            | 26.00/27.90                 | 1.942/2.256           | 1.323/1.497        | 10.80/12.00                  |
+| 4K Normal XYZ | 6.20/8.70            | 27.60/32.00                 | 1.712/1.914           | 3.330/3.615        | 10.80/12.10                  |
+| 4K ORM        | 5.70/7.80            | 23.60/26.30                 | 1.562/1.703           | 1.101/1.273        | 10.80/12.40                  |
+| 4K scalar BC4 | 6.10/8.20            | 24.70/27.80                 | 0.482/0.492           | 2.978/2.994        | 5.70/8.50                    |
+
+CPU含async API/command/source upload host提交，不含主动GPU wait；ready wall含completion，decode/init不在warm span。Spark目标texture由caller在span外预分配，direct comparator在span内allocate；这个差别与顺序测量一起明确保留，不能把表当matched生产break-even。timestamp只包含pass；block copy GPU独立时间、driver/native decode峰值、normal帧争用、Renderer CPU影响UNKNOWN。host timer观测为0.1ms步进，不能从0.xms宣称精细收益；GPU query与wrapper开销没有matched无instrumentation测量，结果保持component成本等级。
+
+4K BaseColor PNG604,361B，decode99.6ms单次；source upload67,108,864B，RGBAchain89,478,484B+padded blockbuffer22,372,608B=temp descriptor upperbound111,851,092B，另output22,369,648B。encoded destination有13copies、25dispatch、2computepass、1stock submit；padded footprint不是硬件总线bytes。BC4输出11,184,824B；其GPU temp100,669,012B。direct comparator是相同预先owned blocks完整upload，含allocate/queue completion、不含package IO/parse/publication。
+
+为了构造相同direct comparator，probe**诊断阶段**读回一次BC blocks；这不属于runtime producer、不计进direct warm timing，也不是计划中的GPU→CPU→GPU生产路径。采样每case mip0的4096像素：sRGB一次硬件decode后仅diagnostic re-encode比较源字节；方形BC7最大误差1–3/255，NPOT8/255；不从这些观察放宽任何gate。fullchain写入成功不证明canonical每mip质量、normalScale/variance/coverage/derivatives全部通过。
+
+**裁决：DEFER / OPTIONAL。** stock能使用strict caller texture，也能收array texture，但所有copy origin隐含layer0（当前layer0是Residency neutral，不能拿来写live内容）；不能选layer>0，无公开block buffer或caller encoder，仍私有submit。S1长期standalone owner REJECT；S2至少需要JS caller encoder/layer/strict identity、request-owned输入/params/blocks及真实fence；S3备用，没有写适配代码。没有matched raw direct-BC WASM bridge、canonical逐mip等价与recovery接线，不能批准替换browser cook。学习研究许可不是本次DEFER理由。T4.1不执行Spark条件任务。
+
+### 9.4 冻结的production合同、budget与owner
+
+- Capability实测：adapter sampled limit48，baseline enabled device16；另只request19的device接受19-binding layout，20明确拒绝。此为能力/admission probe，不宣称未来完整十map native shader已闭合。enableddevice不启用unaligned：257×129 BC createTexture明确拒绝，whole-domain260×132存储方案保留，不能只算upload footprint就认为base extent合法。
+- Profile/format/schema：BC REQUIRED；BaseColor/Emissive BC7 sRGB，normal/ORM BC7 linear，独立scalar BC4，exact coverage R8；BC5/BC6H DEFER，ASTC/ETC optional tooling。Runtime container2、texture metadata3，sole TextureResidency；固定cooked direct、external libktx、raw browser默认Basis WASM。
+- Reference/quality：既有native binding budget **0.0001不变**，BC解码后的shader数值与独立读取同block参考比较；encode有损质量以pin Basis bc7e_scalar **quality6、同semantic weights/完整canonical mips**为参考，candidate不得比此独立encoder更差，记录color linear误差/normal angular+length/ORM通道误差。首次canonical reference必须在候选比较前生成保存hash，不能用Spark输出作自己的reference或从本表误差倒推容差。exact alpha每mip/阈值coverage不变；opaque lossy alpha不能替它。
+- Normal recipe：当前raw GPU LinearNormal平均后normalize；保留此producer recipe。外部/预烘焙nonunit XYZ和signedZ仍保留consumer语义，不用XY正Z重建替换；NPOT整个domain上采样，storage chain floor至tail、uvScaleBias identity，与canonical CPU/GPU reference验证，不以stock resize结果认证等价。
+- Budget：保持当前Texture **2,147,483,648B硬上限**，新owner计入neutral/live/free/pending/retiring、in-flight copy及material source临时纹理，不能只算live或重复排除旧owner。当前defaultWorker estimated in-flight256MiB、queue256保留；T4.1按parsed dimensions/fullmips获取credits，不能仅input×8估计。单task encoded input/output各上限128MiB、单Worker linear memory上限256MiB；source decode+所有owned buffers另记host峰值，不能把WASM maximum当实际消耗。无法满足明确admission failure，禁止降低尺寸/漏map。actual browser/driver peak保留UNKNOWN，不认证4GB全Renderer装入。
+- dungeon BC forecast **ESTIMATE**：25张2K ORM/AO保持3channel BC7，同一图的AO复用；useful139,810,800B、一个26层段（25live+neutral）145,403,232B，old/new两完整BC段290,806,464B，未含descriptor/upload/effects。不是把当前array allocated直接除4；目录不是25 scalar BC4，不能丢ORM通道取节省。T4.2从真实new ledger验证forecast/全owner峰值，T4.3前后同catalog/quality比较。
+
+| 生命周期            | 当前/目标 owner与必需边界                                                                                                           |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Source/import       | GltfLoader/browser bitmap或可重读source；任务epoch、cancel/late output、bitmap close由cold preparation负责                          |
+| Worker              | Service/Pool持有credits与Worker；cancel/init failure/retry/dispose已有unit coverage，实际WASM hard cap由T4.1 bridge补               |
+| Immutable product   | CPU-ownedchunks或archive views；sampler与semantic/recipe identity区分，不serialize/reopen作为upload前置                             |
+| GPU transaction     | TextureResidency reserve/write/commit/abort；queue writes已发生不能撤销，abort资源隔离到fence，promotion revision只在成功submit发布 |
+| Replacement/release | GpuRenderWorld/Material publication引用，Residency generation/epoch+gpuDone retirement；旧fence不能释放新对象                       |
+| Device loss         | 新device完整replay CPU product/raw source；旧Worker/fence不写新epoch；完整recovery acceptance仍T4.2/T4.3必需，不冒称本probe已测     |
+
+### 9.5 验证、失败与停止
+
+fresh build:test通过；codec/runtimeasset/nativebindings Node **18/19**：保留唯一`decodedPeakBytes`836≠340失败，根因是现有portable variant额外496B variation sidecar计入decoded字段，不是新增真实预算溢出。T4.1需拆清RGBA-equivalent/sidecar/actual peak的证据字段并迁移语义断言，不在baseline修改测试或把836硬改340。
+
+三个GPU oracle通过、GPU scope/uncaptured error均空、无device loss/page exception/failed request。harness favicon403 console error单列，不当纹理请求失败。native-material真实bindings检查包含tail6→0、abort/retry/fence、coverage和packed Products，maxProductError1.192e-7，原1e-4 gate；不是新BC Product或全Renderer验收。runner初始label错误、单mip writer拒绝和Spark raw-module MIME错误保存artifact；只修oracle提交label/测试host原始WGSL模块接线，未吞异常。
+
+测试构建/vendor身份检查及GPU JSON保真测试3/3通过；GPU host静态合同45/45。docs-verify **0 findings/66 historical warnings**，document-system7/7，vibe doctor/registry --check、scoped format与diff whitespace均通过；registry只格式化新条目，不改既有模块表示。不跑全Lighting/Geometry、477MB、production切换、VT或完整Renderer矩阵。剩余UNKNOWN有明确owner：host真实decode/WASM/driver峰值、完整frame/load readiness、canonical BC quality闭包、actual upload全账、source cache teardown、Spark接入/recovery。它们是后续产品/切换/acceptance项；T4.0以baseline事实、缺口和有限DEFER裁决关闭，**STOP在T4.1之前**。

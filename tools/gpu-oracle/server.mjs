@@ -61,7 +61,7 @@ export const VENDOR_PREFIX = "/__gpu-oracle/vendor/";
  */
 export const VENDOR_MODULES = Object.freeze({
   "gl-matrix": { package: "gl-matrix", entry: "esm/index.js" },
-  "meshoptimizer": { package: "meshoptimizer", entry: "index.js" },
+  meshoptimizer: { package: "meshoptimizer", entry: "index.js" },
   "meshoptimizer/clusterizer": { package: "meshoptimizer", entry: "meshopt_clusterizer.js" },
   "meshoptimizer/simplifier": { package: "meshoptimizer", entry: "meshopt_simplifier.js" },
 });
@@ -171,7 +171,10 @@ export async function startStaticServer({ root, harnessRoot, allowPrefixes, vend
     const resourcePath = pathname.startsWith("/OEngine/.test-dist/render/assets/")
       ? pathname.replace("/OEngine/.test-dist/render/assets/", "/OEngine/src/render/assets/")
       : pathname.startsWith("/OEngine/.test-dist/assets/web-cook/wasm/vendor/")
-        ? pathname.replace("/OEngine/.test-dist/assets/web-cook/wasm/vendor/", "/OEngine/src/assets/web-cook/wasm/vendor/")
+        ? pathname.replace(
+            "/OEngine/.test-dist/assets/web-cook/wasm/vendor/",
+            "/OEngine/src/assets/web-cook/wasm/vendor/",
+          )
         : pathname;
     const resolved = pathname.startsWith(PAGE_PREFIX)
       ? (() => {
@@ -208,6 +211,14 @@ export async function startStaticServer({ root, harnessRoot, allowPrefixes, vend
       return;
     }
     requests.push(pathname);
+    // External shader probes use the same raw-string import as their upstream bundler.
+    if (pathname.endsWith(".wgsl") && new URL(request.url, "http://127.0.0.1").searchParams.has("raw")) {
+      const source = await readFile(resolved.absolute, "utf8");
+      send(200, `export default ${JSON.stringify(source)};`, {
+        "content-type": "text/javascript; charset=utf-8",
+      });
+      return;
+    }
     const contentType =
       CONTENT_TYPES.get(extname(resolved.absolute).toLowerCase()) ?? "application/octet-stream";
     // Specifier rewriting for JavaScript modules.

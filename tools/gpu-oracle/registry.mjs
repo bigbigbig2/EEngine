@@ -11,6 +11,31 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "texture-baseline",
+    file: "OEngine/tests/oracle/texture-baseline-gpu.mjs",
+    url: "/OEngine/tests/oracle/texture-baseline-gpu.mjs",
+    entry: "runTextureBaselineGpuOracle",
+    requiredFeatures: ["texture-compression-bc", "timestamp-query"],
+    allowPrefixes: [
+      "examples/assets/three/rendering-lab/dungeon_warkarma.glb",
+      "OEngine/tests/fixtures/texture-codec/",
+    ],
+    description:
+      "T4.0 current authored dungeon texture residency, codec/direct upload, ledger and retirement baseline; no large scene.",
+    timeoutMs: 180000,
+  }),
+  Object.freeze({
+    name: "texture-encoder-probe",
+    file: "OEngine/tests/oracle/texture-encoder-probe-gpu.mjs",
+    url: "/OEngine/tests/oracle/texture-encoder-probe-gpu.mjs",
+    entry: "runTextureEncoderProbeGpuOracle",
+    requiredFeatures: ["texture-compression-bc", "timestamp-query"],
+    allowPrefixes: [".local/texture-design-spark/src/"],
+    description:
+      "T4.0 isolated pinned external Spark 1K/2K/4K encode cost/quality/output ownership probe; never a production owner.",
+    timeoutMs: 300000,
+  }),
+  Object.freeze({
     name: "lighting-product-inspection",
     file: "OEngine/tests/oracle/lighting-product-inspection-gpu.mjs",
     url: "/OEngine/tests/oracle/lighting-product-inspection-gpu.mjs",

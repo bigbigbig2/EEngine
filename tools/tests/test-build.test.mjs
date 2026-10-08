@@ -16,6 +16,7 @@ test("real tsc output rejects both changed production input and edited compiled 
     await writeFile(join(root, p), s);
   };
   await write("OEngine/src/index.ts", "export const value: number = 1;");
+  await write("OEngine/src/assets/codec/vendor/ktx-software-4.4.2/read.js", "export const codec = 1;");
   await write(
     "OEngine/tsconfig.test.json",
     JSON.stringify({
@@ -33,6 +34,10 @@ test("real tsc output rejects both changed production input and edited compiled 
   await assert.rejects(verifyTestBuild(root), /identity missing/);
   await buildTests(root);
   await verifyTestBuild(root);
+  assert.equal(
+    await readFile(join(root, "OEngine/.test-dist/assets/codec/vendor/ktx-software-4.4.2/read.js"), "utf8"),
+    "export const codec = 1;",
+  );
   await write("OEngine/src/index.ts", "export const value: number = 2;");
   await assert.rejects(verifyTestBuild(root), /input changed/);
   await buildTests(root);
