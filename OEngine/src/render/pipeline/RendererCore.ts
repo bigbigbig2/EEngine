@@ -496,6 +496,13 @@ export class Renderer {
   packed_visibility_sse_threshold = 4;
   /** Showcase/debug hosts can disable subpixel jitter while inspecting geometry. */
   temporal_jitter_enabled = true;
+  get temporalJitterActive(): boolean {
+    return this.fsr3_enabled && this.temporal_jitter_enabled &&
+      (this._render_debug_view === RenderDebugViewValue.None ||
+       this._render_debug_view === RenderDebugViewValue.Velocity ||
+       this._render_debug_view === RenderDebugViewValue.HistoryValidity ||
+       this._render_debug_view === RenderDebugViewValue.Reactive);
+  }
   packed_geometry_work_budget: GeometryWorkBudget = DEFAULT_GEOMETRY_WORK_BUDGET;
   packed_visibility_cone_enabled = true;
   packed_visibility_hzb_enabled = true;
@@ -563,6 +570,8 @@ export class Renderer {
       identity: this._temporal.histories.state("identity"),
       fsr3Generation: this._fsr3?.generation ?? 0,
       fsr3AllocatedBytes: this._fsr3?.allocatedBytes ?? 0,
+      jitter: this._fsr3?.jitterEvidence() ?? null,
+      phaseIndex: Math.max(0, this._frame_count - 1) % this._temporal.jitter.jitter_sequence_size,
     });
   }
   /** CPU-observed submission/completion evidence, available after initialization.
@@ -617,8 +626,30 @@ export class Renderer {
     return this._render_resolution.x / this._render_resolution.y;
   }
   get pixel_ratio(): number {
-    return 1;
+    const canvas = this.context?.canvas as HTMLCanvasElement | undefined;
+    return this.pixelRatioOverride ?? (canvas?.style && typeof window !== "undefined" ? window.devicePixelRatio : 1);
   }
+  /** Resize uses CSS pixels; null restores the display's current DPR. */
+  set pixel_ratio(value: number | null) {
+    if (value !== null && (!Number.isFinite(value) || value <= 0)) {
+      throw new RangeError("pixel ratio must be finite and positive");
+    }
+    this.pixelRatioOverride = value;
+    if (this.device) {
+      this.resize(this._width, this._height, true);
+    }
+  }
+  resolutionEvidence() {
+    return {
+      css: [this._width, this._height] as const,
+      output: [this._output_resolution.x, this._output_resolution.y] as const,
+      internal: [this._render_resolution.x, this._render_resolution.y] as const,
+      pixelRatio: this.appliedPixelRatio,
+      renderScale: this.resolutionScale,
+    };
+  }
+  private pixelRatioOverride: number | null = null;
+  private appliedPixelRatio = 1;
   private resolutionScale = 1;
   setResolutionScale(scale: number): void {
     if (!Number.isFinite(scale) || scale <= 0 || scale > 1)
@@ -1678,12 +1709,19 @@ export class Renderer {
   }
 
   resize(width: number, height: number, force = false): void {
-    if (!force && width === this._width && height === this._height) return;
+    if (!Number.isFinite(width) || !Number.isFinite(height)) {
+      throw new RangeError("CSS viewport dimensions must be finite");
+    }
+    const ratio = this.pixel_ratio;
     const nextWidth = Math.max(1, Math.floor(width));
     const nextHeight = Math.max(1, Math.floor(height));
-    planNativeExecutionBins(this.device.limits, { width: nextWidth, height: nextHeight, bins: [] });
-    const outputWidth = nextWidth;
-    const outputHeight = nextHeight;
+    if (!force && nextWidth === this._width && nextHeight === this._height && ratio === this.appliedPixelRatio) {
+      return;
+    }
+    const outputWidth = Math.max(1, Math.round(nextWidth * ratio));
+    const outputHeight = Math.max(1, Math.round(nextHeight * ratio));
+    planNativeExecutionBins(this.device.limits, { width: outputWidth, height: outputHeight, bins: [] });
+    this.appliedPixelRatio = ratio;
     this._width = nextWidth;
     this._height = nextHeight;
     this._output_resolution.set(outputWidth, outputHeight);
@@ -1747,6 +1785,9 @@ export class Renderer {
       this._lastFrameDeferral = "gpu-completion";
       this._completionDeferredTicks++;
       return true;
+    }
+    if (this.pixel_ratio !== this.appliedPixelRatio) {
+      this.resize(this._width, this._height);
     }
     const runtime = this._graphics.render_world_if_created?.runtime(scene);
     if (!runtime) {
@@ -1838,7 +1879,7 @@ export class Renderer {
         temporalEnabled: true,
         nssEnabled: false,
         taaJitter:
-          this.temporal_jitter_enabled && this._render_debug_view === RenderDebugViewValue.None
+          this.temporalJitterActive
             ? undefined
             : [0, 0],
       });
@@ -1877,8 +1918,8 @@ export class Renderer {
       const view = this._views.obtain(GPUViewKey.from(camera, scene), environment);
       const width = this._render_resolution.x;
       const height = this._render_resolution.y;
-      view.setJitter(frameJitter[0], frameJitter[1]);
       view.setViewportSize(width, height);
+      view.setJitter(frameJitter[0], frameJitter[1]);
       view.setUpscaleRatio(this._output_resolution.x / width, this._output_resolution.y / height);
       const patchResult = this._graphics.render_world.encodePendingPatch(scene, command);
       const materialPublication = runtime.nativeMaterials!;
@@ -2392,6 +2433,7 @@ export class Renderer {
       });
       try {
         await replacement.initialize({ context: checkpoint.context, config: checkpoint.config });
+        replacement.pixel_ratio = checkpoint.pixelRatio;
         replacement.resize(checkpoint.width, checkpoint.height);
         replacement.setResolutionScale(checkpoint.resolutionScale);
         for (const entry of checkpoint.scenes) {
@@ -2525,6 +2567,7 @@ export class Renderer {
       width: this._width,
       height: this._height,
       resolutionScale: this.resolutionScale,
+      pixelRatio: this.pixelRatioOverride,
       scenes: this._graphics.render_world.recoveryScenes(),
       products,
     };

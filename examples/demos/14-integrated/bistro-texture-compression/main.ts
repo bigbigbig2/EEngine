@@ -357,7 +357,7 @@ function snapshot() {
       gtao: renderer?.xe_gtao_enabled ?? false,
       fsr3: renderer?.fsr3_enabled ?? false,
       bloom: renderer?.bloom_enabled ?? false,
-      jitter: !!renderer?.temporal_jitter_enabled && renderer.render_debug_view === RenderDebugView.None,
+      jitter: renderer?.temporalJitterActive ?? false,
       hzb: renderer?.packed_visibility_hzb_enabled ?? false,
       cone: renderer?.packed_visibility_cone_enabled ?? false,
       sse: renderer?.packed_visibility_sse_threshold ?? null,
@@ -370,6 +370,7 @@ function snapshot() {
           }
         : null,
       temporal: renderer?.temporalHistoryEvidence() ?? null,
+      resolution: renderer?.resolutionEvidence() ?? null,
       exposure: { autoExposure, fixedExposure, actualAdaptedExposure: "GPU ONLY / NOT READ BACK" },
       environment: scene.physical_environment.snapshot(),
       authoredLights: 0,
@@ -472,6 +473,7 @@ for (const [key, label] of [
   ["frame", "Submitted frame"],
   ["temporal", "FSR3 generation / color resets"],
   ["resolution", "Internal / output"],
+  ["jitter", "Raster / FSR jitter (pixels)"],
   ["clip", "Camera near / far"],
   ["stages", "Frame stages"]
 ]) {
@@ -576,7 +578,8 @@ function refresh(): void {
     geometryErrors: `${(g?.failed ?? 0) + (scheduler?.failed ?? 0)} / ${state.streamingError ?? "none"}`,
     frame: String(state.frame),
     temporal: `${state.temporal?.fsr3Generation ?? 0} / ${state.temporal?.color.invalidationCount ?? 0} (${state.temporal?.color.lastInvalidationReason ?? "none"})`,
-    resolution: `${canvas.width} x ${canvas.height} (${renderer.internal_resolution_scale.toFixed(2)}x)`,
+    resolution: `${state.resolution?.internal.join(" × ")} → ${state.resolution?.output.join(" × ")}\nCSS ${state.resolution?.css.join(" × ")} / DPR ${state.resolution?.pixelRatio}`,
+    jitter: `${state.temporal?.jitter?.committed.map(value => value.toFixed(3)).join(", ")}\nphase ${state.temporal?.phaseIndex} / ${state.temporal?.jitter?.phaseCount}`,
     clip: `${camera.near.toFixed(3)} / ${camera.far.toFixed(1)}`,
     stages: state.stages.join("\n")
   };

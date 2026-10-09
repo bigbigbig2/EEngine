@@ -176,9 +176,9 @@ export function createNativeMaterialBindings(source: NativeMaterialBindingSource
     const address = samplerClass.value & S.AddressMask;
     const wrap = address === 0 ? "clamp-to-edge" : address === 2 ? "mirror-repeat" : "repeat";
     const filter = (samplerClass.value & S.LinearBit) !== 0 ? "linear" : "nearest";
-    const sampler = resource(
-      `sampler/${wrap}/${filter}`,
-      `${wrap} ${filter}`,
+    const obtainMaterialSampler = (anisotropy: number): string => resource(
+      `sampler/${wrap}/${filter}/${anisotropy}`,
+      `${wrap} ${filter} anisotropy ${anisotropy}`,
       { sampler: { type: "filtering" } },
       () =>
         source.obtainSampler({
@@ -187,9 +187,13 @@ export function createNativeMaterialBindings(source: NativeMaterialBindingSource
           minFilter: filter,
           magFilter: filter,
           mipmapFilter: filter,
+          maxAnisotropy: anisotropy,
         }),
       "sampler",
     );
+    const sampler = obtainMaterialSampler(needsColor && filter === "linear" ? 8 : 1);
+    // Exact alpha must match Visibility/VSM sampling; only RGB gets anisotropy.
+    const alphaSampler = alphaTexture ? obtainMaterialSampler(1) : sampler;
     const product = binding.texture.texture_product;
     const primarySample = texture
       ? `oengine_sample_texture_clamped(${texture}, ${sampler}, reference, u32(${samplerValue}), uv, i32(oengine_texture_ref_layer(reference)), dx, dy)`
@@ -201,7 +205,7 @@ export function createNativeMaterialBindings(source: NativeMaterialBindingSource
       valueExpression = `vec4f(${channels.join(", ")})`;
     }
     const alphaSample = alphaTexture
-      ? `let alpha = oengine_sample_texture_clamped(${alphaTexture}, ${sampler}, reference, u32(${samplerValue}), uv, i32(${constant(coverage!.layer)}), dx, dy).r;\n  return vec4f((${valueExpression}).rgb, alpha);`
+      ? `let alpha = oengine_sample_texture_clamped(${alphaTexture}, ${alphaSampler}, reference, u32(${samplerValue}), uv, i32(${constant(coverage!.layer)}), dx, dy).r;\n  return vec4f((${valueExpression}).rgb, alpha);`
       : `return ${valueExpression};`;
     callbacks.push(/* wgsl */ `
 fn native_material_sample_${index}(material_base: u32, uv: vec2f, dx: vec2f, dy: vec2f) -> vec4f {
@@ -287,7 +291,7 @@ fn native_material_product_${index}(material_base: u32, uv: vec2f, dx: vec2f, dy
       "texture_2d_array<f32>",
     );
     const sampler = resource(
-      "product-sampler",
+      "product-sampler/8",
       "cooked Product clamp linear",
       { sampler: { type: "filtering" } },
       () =>
@@ -297,6 +301,7 @@ fn native_material_product_${index}(material_base: u32, uv: vec2f, dx: vec2f, dy
           minFilter: "linear",
           magFilter: "linear",
           mipmapFilter: "linear",
+          maxAnisotropy: 8,
         }),
       "sampler",
     );

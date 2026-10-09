@@ -10,6 +10,7 @@ import { Fsr3LumaInstabilityPass } from "./Fsr3LumaInstabilityPass.js";
 import { Fsr3AccumulatePass } from "./Fsr3AccumulatePass.js";
 import { Fsr3RcasPass, packFsr3RcasConstants } from "./Fsr3RcasPass.js";
 import { FSR3_UPSCALER_CONSTANTS_BYTES, packFsr3UpscalerConstants } from "./Fsr3UpscalerConstants.js";
+import { fsr3JitterPhaseCount } from "../../TemporalJitterController.js";
 
 // P_t and P_(t-1) remain on the GPU. The SDK constant is updated before any
 // FSR stage reads it, in the same frame command encoder.
@@ -85,6 +86,15 @@ export class Fsr3UpscalerRuntime {
   private generationValue = 0;
   private frameIndex = -1;
   private previousJitter: readonly [number, number] = [0, 0];
+  /** Last submitted offsets in actual top-left raster pixels; no GPU readback. */
+  jitterEvidence() {
+    return {
+      committed: this.previousJitter,
+      pending: this.pending?.jitter ?? null,
+      phaseCount: fsr3JitterPhaseCount(this.size[0], this.size[2]),
+      committedFrame: this.frameIndex,
+    };
+  }
   private pending: { jitter: readonly [number, number]; frameIndex: number } | null = null;
 
   private checkpoint: {
@@ -301,9 +311,8 @@ export class Fsr3UpscalerRuntime {
       throw new RangeError("FSR3 requires finite perspective camera near and vertical FOV");
     }
     const [width, height, outputWidth, outputHeight] = size;
-    // Projection[8]/[9] offsets clip space. Perspective division and the
-    // viewport Y flip make the actual screen displacement -jitter/2 pixels.
-    const jitter: readonly [number, number] = [-frame.jitter[0] * 0.5, -frame.jitter[1] * 0.5];
+    // TemporalFabric and raster projection use the same top-left pixel offset.
+    const jitter: readonly [number, number] = [frame.jitter[0], frame.jitter[1]];
     const previousJitter = this.frameIndex < 0 ? ([0, 0] as const) : this.previousJitter;
     const near = Math.min(frame.cameraNear, frame.cameraFar);
     const far = Math.max(frame.cameraNear, frame.cameraFar);
@@ -316,7 +325,7 @@ export class Fsr3UpscalerRuntime {
           Math.tan(frame.cameraFovY / 2)
         ]
       : [-q, q * far, (Math.tan(frame.cameraFovY / 2) * width) / height, Math.tan(frame.cameraFovY / 2)];
-    const phaseCount = Math.max(1, Math.trunc(8 * (outputWidth / width) ** 2));
+    const phaseCount = fsr3JitterPhaseCount(width, outputWidth);
     const nextFrameIndex = this.frameIndex + 1;
     const constants = packFsr3UpscalerConstants({
       renderSize: [width, height],
@@ -510,6 +519,7 @@ export class Fsr3UpscalerRuntime {
       dilatedMotion: prepared.dilatedMotion,
       dilatedDepth: prepared.dilatedDepth,
       reactiveMask: input.reactiveMask,
+      validityMask: input.validityMask,
       transparencyMask: defaultMask,
       previousAccumulation,
       currentAccumulation,

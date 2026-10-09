@@ -23,6 +23,7 @@ ${FSR3_UPSCALER_CONSTANTS_WGSL}
 @group(0) @binding(11) var dilated_reactive: texture_storage_2d<rgba8unorm, write>;
 @group(0) @binding(12) var new_locks: texture_storage_2d<r8unorm, write>;
 @group(0) @binding(13) var current_accumulation: texture_storage_2d<r8unorm, write>;
+@group(0) @binding(14) var temporal_mask: texture_2d<f32>;
 
 fn clamp_load(pixel: vec2i, offset: vec2i, size: vec2i) -> vec2i {
   return clamp(pixel + offset, vec2i(0), size - vec2i(1));
@@ -98,6 +99,9 @@ fn motion_divergence(uv: vec2f, motion: vec2f, current_depth: f32) -> f32 {
   let other_motion = textureLoad(dilated_motion, reprojected, 0).xy;
   let other_velocity = velocity_4k(other_motion);
   let velocity = velocity_4k(motion);
+  if (velocity == 0.0) {
+    return 0.0;
+  }
   let distance_factor = min_divided_by_max(
     view_depth(other_depth) * constants.view_space_to_meters_factor,
     view_depth(current_depth) * constants.view_space_to_meters_factor);
@@ -178,7 +182,11 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let uv = (vec2f(pixel) + vec2f(0.5)) / vec2f(constants.render_size);
   let motion = textureLoad(dilated_motion, pixel, 0).xy;
   let depth = textureLoad(dilated_depth, pixel, 0).x;
-  let disocclusion = compute_disocclusion(uv, motion, view_depth(depth));
+  // Hard replacement/invalid motion is local disocclusion, never a dilated
+  // shading-change signal. Native mask G/B carries these separate contracts.
+  let temporal_facts = textureLoad(temporal_mask, pixel, 0);
+  let hard_invalid = temporal_facts.y < 0.5 || temporal_facts.z > 0.5;
+  let disocclusion = max(compute_disocclusion(uv, motion, view_depth(depth)), select(0.0, 1.0, hard_invalid));
   let shading_uv = clamp_uv(uv - constants.jitter_offset / vec2f(constants.render_size),
     constants.render_size / 2, textureDimensions(shading_change));
   let change = max(dilate_reactive(pixel),
@@ -249,6 +257,7 @@ export class Fsr3PrepareReactivityPass {
           visibility: GPUShaderStage.COMPUTE,
           storageTexture: { access: "write-only", format: "r8unorm" },
         },
+        { binding: 14, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
       ],
     });
     this.pipeline = device.createComputePipeline({
@@ -265,6 +274,7 @@ export class Fsr3PrepareReactivityPass {
       dilatedMotion: ResourceId;
       dilatedDepth: ResourceId;
       reactiveMask: ResourceId;
+      validityMask: ResourceId;
       transparencyMask: ResourceId;
       previousAccumulation: ResourceId;
       currentAccumulation: ResourceId;
@@ -305,6 +315,7 @@ export class Fsr3PrepareReactivityPass {
           { binding: 11, resource: resolveTextureView(resources.get(masks)) },
           { binding: 12, resource: locks },
           { binding: 13, resource: resolveTextureView(resources.get(data.currentAccumulation)) },
+          { binding: 14, resource: resolveTextureView(resources.get(data.validityMask)) },
         ],
       });
       const pass = command.beginComputePass({ label: "FSR3 Prepare Reactivity" });
@@ -335,6 +346,7 @@ export class Fsr3PrepareReactivityPass {
       input.dilatedMotion,
       input.dilatedDepth,
       input.reactiveMask,
+      input.validityMask,
       input.transparencyMask,
       input.previousAccumulation,
       input.shadingChange,

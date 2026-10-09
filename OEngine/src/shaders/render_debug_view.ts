@@ -471,10 +471,9 @@ ${SSR_FULLSCREEN_VERTEX_WGSL}
 const PI: f32 = 3.141592653589793;
 
 ${DEBUG_VIEW_SETTINGS_WGSL}
-${GPU_SHADING_SURFACE_LITE_WGSL}
 
 @group(0) @binding(0) var source: texture_2d<f32>;
-@group(0) @binding(1) var surface_metadata: texture_2d<u32>;
+@group(0) @binding(1) var temporal_mask: texture_2d<f32>;
 @group(0) @binding(2) var surface_depth: texture_depth_2d;
 @group(0) @binding(3) var<uniform> settings: DebugViewSettings;
 
@@ -492,19 +491,40 @@ fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
   if textureLoad(surface_depth, coordinate, 0) <= 0.0 {
     return vec4f(0.0, 0.0, 0.0, 1.0);
   }
-  let metadata = textureLoad(surface_metadata, coordinate, 0).r;
-  if (settings.contract.x == 1u && metadata == ${VIS_MESH_CLEAR_SENTINEL}u) {
-    return vec4f(0.0, 0.0, 0.0, 1.0);
+  if textureLoad(temporal_mask, coordinate, 0).g < 0.5 {
+    return vec4f(1.0, 0.1, 0.05, 1.0);
   }
-  if (settings.contract.x == 0u && !oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_VALID)) {
-    return vec4f(0.0, 0.0, 0.0, 1.0);
-  }
-  let velocity = textureLoad(source, coordinate, 0).rg /
-    vec2f(max(dimensions, vec2u(1u)));
+  // Production NativeTemporalFacts is already current-minus-previous UV.
+  let velocity = textureLoad(source, coordinate, 0).rg;
   let magnitude = clamp(length(velocity) * 100.0, 0.0, 1.0);
   let hue = (atan2(velocity.y, velocity.x) + PI) / (2.0 * PI);
   let direction_color = hue_to_rgb(hue);
   let background = vec3f(0.08);
   return vec4f(mix(background, direction_color, magnitude), 1.0);
+}
+`;
+
+export const NATIVE_TEMPORAL_MASK_DEBUG_WGSL = /* wgsl */ `
+${SSR_FULLSCREEN_VERTEX_WGSL}
+${DEBUG_VIEW_SETTINGS_WGSL}
+${DEBUG_VIEW_COORDINATE_WGSL}
+struct NativeTemporalDebugMode {
+  value: vec4u,
+};
+@group(0) @binding(0) var temporal_mask: texture_2d<f32>;
+@group(0) @binding(1) var surface_depth: texture_depth_2d;
+@group(0) @binding(2) var<uniform> settings: DebugViewSettings;
+@group(0) @binding(3) var<uniform> mode: NativeTemporalDebugMode;
+@fragment
+fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
+  let pixel = source_coordinate(position.xy, textureDimensions(temporal_mask));
+  if textureLoad(surface_depth, pixel, 0) <= 0.0 {
+    return vec4f(0.0, 0.0, 0.0, 1.0);
+  }
+  let facts = textureLoad(temporal_mask, pixel, 0);
+  if mode.value.x == 1u {
+    return vec4f(1.0 - facts.g, facts.g * (1.0 - facts.b), facts.b, 1.0);
+  }
+  return vec4f(vec3f(facts.r), 1.0);
 }
 `;

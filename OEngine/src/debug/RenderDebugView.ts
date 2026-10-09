@@ -131,9 +131,9 @@ export const RENDER_DEBUG_VIEW_OPTIONS: readonly RenderDebugViewStatus[] = [
     RenderDebugView.HistoryValidity,
     "History validity",
     "supported",
-    "显示 Surface ABI v1 motion-valid 与 reactive 状态",
+    "Native TemporalFacts：绿色 motion-valid，红色 invalid motion，蓝色 hard replacement",
   ),
-  descriptor(RenderDebugView.Reactive, "Reactive", "supported", "显示必须拒绝时域历史的像素"),
+  descriptor(RenderDebugView.Reactive, "Reactive", "supported", "显示软 reactive；不包含局部 hard rejection"),
   descriptor(
     RenderDebugView.IndirectDiffuse,
     "Diffuse IBL",

@@ -64,15 +64,15 @@ test("FSR3 frame constants follow camera jitter and retain history across ordina
   fsr3.assertPreparedFrame(640, 360, 1280, 720);
   assert.throws(() => fsr3.assertPreparedFrame(800, 360, 1280, 720), /prepared frame/);
   assert.equal(fsr3.generation, 1);
-  assert.equal(h.writes[0].getFloat32(64, true), -0.25);
-  assert.equal(h.writes[0].getFloat32(68, true), 0.125);
+  assert.equal(h.writes[0].getFloat32(64, true), 0.5);
+  assert.equal(h.writes[0].getFloat32(68, true), -0.25);
   assert.equal(h.writes[0].getFloat32(124, true), 0);
   fsr3.commit(Promise.resolve());
   fsr3.prepareFrame(h.command, { ...frame, jitter: [-0.5, 0.25], reset: false });
   assert.equal(fsr3.generation, 1);
-  assert.equal(h.writes[1].getFloat32(72, true), -0.25);
-  assert.equal(h.writes[1].getFloat32(76, true), 0.125);
-  assert.ok(Math.abs(h.writes[1].getFloat32(96, true) - -0.5 / 640) < 1e-9);
+  assert.equal(h.writes[1].getFloat32(72, true), 0.5);
+  assert.equal(h.writes[1].getFloat32(76, true), -0.25);
+  assert.ok(Math.abs(h.writes[1].getFloat32(96, true) - 1 / 640) < 1e-9);
   // The GPU ratio pass replaces this neutral CPU placeholder before FSR3 reads it.
   assert.equal(h.writes[1].getFloat32(116, true), 1);
   assert.equal(h.writes[1].getFloat32(124, true), 1);
@@ -202,7 +202,7 @@ test("FSR3 ordinary and resize abort restore committed history roles and jitter 
   assert.equal(fsr3.readIndex, role);
   fsr3.prepareFrame(h.command, { ...frame, reset: false });
   assert.equal(h.writes.at(-1).getFloat32(124, true), 1);
-  assert.equal(h.writes.at(-1).getFloat32(72, true), -0.25);
+  assert.equal(h.writes.at(-1).getFloat32(72, true), 0.5);
   fsr3.commit(Promise.resolve());
   fsr3.destroy();
 });

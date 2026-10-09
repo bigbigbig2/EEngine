@@ -11,6 +11,14 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "temporal-input-contract",
+    file: "OEngine/tests/oracle/temporal-input-contract-gpu.mjs",
+    url: "/OEngine/tests/oracle/temporal-input-contract-gpu.mjs",
+    entry: "runTemporalInputContractGpuOracle",
+    requiredLimits: { maxStorageTexturesPerShaderStage: 3 },
+    description: "Production identity/coverage/jittered motion and shared conservative LOD anchor numeric contract.",
+  }),
+  Object.freeze({
     name: "pc-texture-residency",
     file: "OEngine/tests/oracle/pc-texture-residency-gpu.mjs",
     url: "/OEngine/tests/oracle/pc-texture-residency-gpu.mjs",

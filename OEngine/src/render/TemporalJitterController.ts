@@ -14,7 +14,11 @@ export class TemporalJitterController {
   }
 
   set jitter_sequence_size(value: number) {
-    this.sequenceSize = Math.max(1, Math.ceil(value));
+    const size = Math.max(1, Math.ceil(value));
+    if (size === this.sequenceSize) {
+      return;
+    }
+    this.sequenceSize = size;
     this.rebuild();
   }
 
@@ -43,6 +47,11 @@ export class TemporalJitterController {
 }
 
 const ZERO_FRAME_JITTER = Object.freeze([0, 0]) as readonly [number, number];
+
+/** FidelityFX SDK 1.1.4 Halton phase rule; offsets are raster pixels. */
+export function fsr3JitterPhaseCount(renderWidth: number, outputWidth: number): number {
+  return Math.max(1, Math.trunc(8 * (outputWidth / Math.max(1, renderWidth)) ** 2));
+}
 
 export function resolveFrameJitter(
   temporalEnabled: boolean,

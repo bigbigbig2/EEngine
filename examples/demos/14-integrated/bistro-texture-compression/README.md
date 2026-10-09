@@ -465,6 +465,153 @@ Local diagnostic artifacts are in `.local/bistro-texture-compression/`:
 `motion-partial-fix-result.json`, `motion-fix-result.json`,
 `expanded-bank-gpu-result.json`, and `motion-fix-desktop.png`.
 
+## Production temporal input correction (2026-10-09)
+
+This change was developed against HEAD `b5007067`, using the current production
+Renderer and the existing Cooked Bistro assets. It does not change exposure,
+lighting, RCAS sharpness, texture quality, alpha cutoff or the FSR3 Accumulate
+formula. The following are source-confirmed defects:
+
+- Primitive, meshlet and LOD winners entered the geometry identity hash. Their
+  changes became reactive=1, then dilated shading change, suppressing accumulation.
+- A fixed reverse-Z depth cutoff of 0.0001 invalidated genuine distant geometry.
+  Infinite reverse-Z geometry now accepts positive depth; empty sky is depth=0.
+- Raster jitter had half the requested displacement, used viewport dimensions
+  before they were updated, and cycled 16 phases while FSR3 used 8 at 1x.
+- Output/backing resolution used CSS dimensions without DPR.
+- MASK interiors had a permanent reactive penalty; native RGB samplers had no
+  anisotropy. Existing temporal debug views also consumed retired metadata and
+  divided UV motion by dimensions a second time.
+
+### Files and ownership
+
+Paths below are relative to `OEngine/src/`, unless otherwise specified.
+
+| File | Change and reason |
+| --- | --- |
+| `shaders/native_surface_aux.ts` | Stable resource identity; local hard replacement separated from soft reactive; positive reverse-Z validity; bounded actual MASK coverage edge hint. |
+| `shaders/native_surface.ts` | Publishes MASK status to the existing temporal aux product. |
+| `render/surface/NativeSurfaceAux.ts` | CPU mask semantics match the production hard/soft distinction. |
+| `render/temporal/NativeTemporalFactsPass.ts` | Documents the actual motion and mask contract; keeps transactional identity ownership. |
+| `render/passes/fsr3/Fsr3PrepareReactivityPass.ts` | Consumes local validity/replacement as disocclusion; guards zero-motion division. |
+| `render/passes/fsr3/Fsr3UpscalerRuntime.ts` | Uses direct raster pixel jitter and shared SDK phase count; supplies the validity input and read-only jitter evidence. |
+| `render/TemporalJitterController.ts`, `render/TemporalFabric.ts` | One production Halton phase rule derived from actual internal/output widths. |
+| `render/ViewContext.ts` | Converts raster pixel offsets to the actual camera projection convention. |
+| `render/pipeline/RendererCore.ts` | Sets viewport before jitter; separates CSS/DPR/output/internal extents; supports DPR override/recovery and read-only evidence. |
+| `gpu/NativeMaterialBindings.ts` | Linear mipmapped RGB gets 8x anisotropy; exact coverage and nearest remain 1x; resource keys include anisotropy. |
+| `shaders/hierarchy_lod.ts` | Shared conservative SSE camera anchor and its 32-byte ABI. |
+| `shaders/hierarchical_work_generation.ts`, `shaders/virtual_geometry_work.ts` | Root publishes anchors; traversal and coarse meshlet gate use the same stable SSE. |
+| `render/HierarchicalWorkGenerator.ts` | Owns current/committed anchors, resource limits, same-encoder copy, accounting and retirement. |
+| `render/MeshletWorkCandidate.ts`, `render/passes/PackedVisibilityPass.ts`, `render/ShadowGeometryWork.ts` | Close the new binding through every direct consumer. Shadow stability is disabled and its existing SSE semantics are retained. |
+| `render/passes/RenderDebugViewPass.ts`, `render/program/FrameProgramLowering.ts`, `shaders/render_debug_view.ts`, `debug/RenderDebugView.ts` | Existing temporal diagnostic views now read native motion/mask products. |
+| This demo's `main.ts`, `index.html` | Show jitter/resolution evidence and expose motion, validity/replacement and soft-reactive views. |
+| `OEngine/tests/contract/{temporal-input-contract,fsr3-frame-lifetime,native-surface-aux}.test.mjs` | Numeric projection/DPR/phase checks and hard/soft/abort lifecycle semantics. |
+| `OEngine/tests/oracle/temporal-input-contract-gpu.mjs`, `tools/gpu-oracle/registry.mjs` | Real production GPU input and conservative LOD semantic checks. |
+| `OEngine/tests/oracle/{geometry-budgeted-residency,geometry-product-scale,virtual-geometry-handoff}-gpu.mjs` | Supply the new production anchor binding in existing independent geometry checks. |
+
+### Final data contract
+
+| Product | Space / units / domain | History and validity |
+| --- | --- | --- |
+| Jitter | Halton(2,3)-0.5; actual top-left raster pixels at internal resolution. Phase count is `trunc(8*(outputWidth/internalWidth)^2)`. | Fabric selects the submitted frame's sample. Runtime retains only committed previous jitter; abort restores it. |
+| Camera / Visibility / Surface | Current VP has current jitter; previous VP has the last submitted jitter. `P[8] -= 2*Jx/W`, `P[9] += 2*Jy/H` produce raster displacement `(Jx,Jy)`. | View copies camera state in the ordinary frame encoder. Hierarchy frustum/SSE uses the unjittered camera. |
+| Native motion | RG32 float, internal pixels storing **current-minus-previous top-left UV**, including both jitters. Sky uses rotation without translation. | Invalid projection, motion state, bounds, publication or global reset clears mask.G. |
+| Identity | RGBA32 uint: instance slot, resource/topology generation signature, material signature, material slot. | Same-instance geometry replacement and same-slot material publication replacement set B. Triangle/meshlet/LOD/winner variation does not. Scene/camera replacement remains owned by global history invalidation. |
+| Native mask | RGBA8: R soft reactive; G valid motion; B local hard replacement; A diagnostic bits. | MASK interiors have R=0. Actual coverage/winner edges have a bounded 0.1 hint (0.098 after quantization). |
+| FSR Prepare Inputs | Negates Native motion, then subtracts `(previousJ-currentJ)/internalSize`; result is **previous-minus-current UV without jitter**. | Selects/dilates nearest reverse-Z depth and motion, reconstructs previous depth in the existing frame. |
+| FSR Reactivity | Depth disocclusion plus local invalid/replacement; soft R still follows SDK dilation/shading-change rules. | Hard invalidation no longer becomes dilated shading change. Zero velocity cannot form 0/0. |
+| Luma Instability / Accumulate / RCAS | Existing SDK translation; internal evidence reconstructs output-domain radiance. | Accumulate equations and RCAS settings retained. Ordinary camera movement does not reset history. |
+| Present | Physical output = rounded CSS size * DPR; internal = floored output * renderScale. | Output/format/scene/device/explicit resets retain existing ownership; internal-size changes invalidate internal identity while output color can survive supported resize. |
+
+### LOD stability and cost card
+
+Previously traversal and coarse handoff used the current camera position with a
+single hard SSE boundary. The main perspective view now freezes one camera
+anchor per instance until translation exceeds 5% of its nearest enclosing-sphere
+distance (clamped by near). Projection/SSE/height/near and instance/resource/
+transform revisions reset the anchor. Orthographic and shadow views retain their
+existing decision. This is a stable SSE band, not per-cluster hysteresis.
+
+Both consumers use `max(distance(anchor,cluster)-radius-anchorBudget,near)`.
+Subtracting the complete allowed translation bounds the true SSE by triangle
+inequality, including loose cluster spheres. Thus the choice is conservatively
+finer, with the same complementary refine `>` / keep `<=` threshold and complete
+coarse fallback while refinement pages are absent. Small rotation already leaves
+radial SSE unchanged. This mechanism does not provide geomorph or remove page
+arrival popping after larger movements.
+
+| Mechanism | Additional or removed cost | Expected / worst behavior |
+| --- | --- | --- |
+| LOD anchor | 64 bytes/instance persistent for current+committed; 32 bytes/instance same-encoder copy/frame. Root reads/writes one record and computes a small revision hash and distances. Traversal/coarse gate reads one 32-byte record and subtracts the budget. No new dispatch, atomics or CPU readback. | Fixed tax at 0/50/100% stabilization benefit. Instance-scoped memory, including ordinary retirement of replaced worksets. Conservative refinement can increase geometry work; no FPS improvement or measured break-even is claimed. |
+| Temporal identity | Removes primitive mapping/hash inputs; existing identity/mask allocations remain unchanged. | No new full-screen pass. Resource replacement still rejects locally. |
+| MASK edge hint | Four neighbor Visibility uint reads (16 bytes) only on MASK pixels; 0–4 bounded meshlet records when a neighbor resolves to a different work slot. No extra R8 sample. | Interior can accumulate; complicated coverage gets a bounded hint rather than permanent rejection. No measured GPU cost claim. |
+| Local hard invalid | One extra existing-mask load in Reactivity and one texture binding. | No extra allocation/pass. SDK accumulation equations remain unchanged. |
+| Anisotropy | Hardware anisotropic RGB filtering up to 8x, no additional GPUTexture storage. Nearest/coverage remain 1x. | Oblique sampling may cost more; hardware fetch count is not assumed to equal eight shader samples. |
+| DPR | Native physical output; pixel work grows approximately with DPR squared. | Prevents compositor enlargement; higher physical resolution can reduce FPS. Quality is not silently capped. |
+
+### Actual validation
+
+Engine typecheck, fresh `build:test`, Bistro typecheck/build and 25 targeted
+contract tests passed. Real GPU checks passed: temporal input contract, native
+Surface integration, geometry Product scale (18 cases) and meshlet handoff
+(50 cases). Handoff's first run retained a fixture anchor at the near camera
+while testing far mode; supplying the actual case's root-produced anchor fixed
+the fixture without changing its independent expected counts. Both failures
+and successful results are retained locally.
+
+The full Cooked Bistro ran on NVIDIA/Turing, Chrome 154 WebGPU, using the
+RTX 2060 8GB baseline. The first capture exposed the distant reverse-Z validity
+bug; it was retained and followed by a targeted repair and one corrected full
+load. Static windows warmed 60 submitted frames; controlled slow rotation ran
+60 steps. Sparse probes sampled a 64x36 grid, **not every pixel**:
+
+| View / SSE | Static visible probes / mean accumulation | Slow visible probes / mean accumulation |
+| --- | --- | --- |
+| Far / 4 | 117 / 0.9947 | 124 / 0.9959 |
+| Far / 2 | 126 / 0.9963 | 128 / 0.9948 |
+| Far / 1 | 128 / 0.9953 | 124 / 0.9956 |
+| Near / 1 | 905 / 0.9970 | 918 / 0.9975 |
+
+All these visible probes had zero invalid motion, hard rejection and zero
+accumulation. Slow movement retained each capture's FSR history generation.
+The actual damped OrbitControls fixture also retained history. GPU semantic
+checks independently verified primitive/meshlet/LOD changes, MASK interior/edge,
+true replacement, invalid motion, far depth and jitter cancellation. The LOD
+probe crossed ordinary SSE=4 while stable SSE stayed identical within the anchor
+band. Roof/window edge screenshots show spatial smoothing; bypass/on brightness
+differs in the existing radiometry path, so this is not a clean photometric A/B
+or complete visual acceptance.
+
+Real browser contexts at DPR 1/1.25/1.5/2, CSS 800x600, produced backing/output
+800x600 / 1000x750 / 1200x900 / 1600x1200. Resize and renderScale=0.75 also matched
+output/internal dimensions. Actual projection displacement matched FSR pixel
+jitter within approximately 2e-8 pixels. Normal runtime does no diagnostic GPU
+readback; the sparse capture was injected only by a local test script.
+
+No Bistro GPU/page errors were recorded; Release returned texture and geometry
+owner allocation to zero. Geometry at SSE=1 still had 1077 pending reads with
+maxConcurrentReads=1, despite zero evictions/reloads. Finer pages arriving can
+therefore still change a fixed-camera silhouette. Full texture mips are not
+proof that all geometric refinements are resident. Streaming scheduling and
+page-arrival transitions remain unresolved temporal stability limits.
+
+Local evidence is under `.local/bistro-texture-compression/`: `aa-browser-result.json`,
+`aa-before-far-depth.json` (also contains the DPR checks), `aa-temporal-oracle.json`,
+`aa-native-integration.json`, `aa-geometry-scale.json`, `aa-geometry-handoff.json`,
+`aa-geometry-handoff-initial-failure.json`, `aa-debug-result.json` and screenshots.
+
+Source map: existing FidelityFX SDK 1.1.4, MIT, pinned
+`c6efa6bf7f2027b3ec94f28578bb5965eabb9e55`. Jitter phases/cancellation were checked
+against `tools/fsr3-port/upstream/sdk/src/components/fsr3upscaler/ffx_fsr3upscaler.cpp`
+and the pixel/projection contract in `sdk/include/FidelityFX/host/ffx_fsr3upscaler.h`.
+The existing accumulation/shading-change formula was checked against
+`sdk/include/FidelityFX/gpu/fsr3upscaler/ffx_fsr3upscaler_prepare_reactivity.h`.
+Projection signs and input masks are EEngine adaptations; the conservative
+instance anchor is an original local mechanism. `tools/fsr3-port/validate.mjs`
+still fails on 15 existing vendored license/build/Vulkan-wrapper digests; the
+algorithm/host files used here were not among those mismatches. This change does
+not update the manifest or claim complete source-package provenance validation.
+
 ## Explicit Scope
 
 | Capability                   | Status            |

@@ -279,6 +279,7 @@ export async function runGeometryProductScaleGpuOracle(device) {
         virtualGeometry: multi.bindings(),
         visibleClusters: h.generated.visibleClusters,
         viewUniform: h.generated.viewUniform,
+      lodAnchors: h.generated.lodAnchors,
         visibleClusterCapacity: h.generated.visibleClusterCapacity,
         capacity: fault === "work" ? 1 : meshlets,
         counterBuffer: counters,

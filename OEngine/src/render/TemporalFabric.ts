@@ -3,7 +3,7 @@ import {
   type TemporalHistoryDescriptor,
   type TemporalHistoryRevision,
 } from "./TemporalHistoryRegistry.js";
-import { TemporalJitterController, resolveFrameJitter } from "./TemporalJitterController.js";
+import { TemporalJitterController, resolveFrameJitter, fsr3JitterPhaseCount } from "./TemporalJitterController.js";
 import type { PreExposureContract } from "./RadiometryContract.js";
 
 export interface TemporalFabricFrame {
@@ -62,6 +62,7 @@ export class TemporalFabric {
     if (frame.output[0] < 1 || frame.output[1] < 1 || frame.internal[0] < 1 || frame.internal[1] < 1) {
       throw new RangeError("Temporal fabric resolutions must be positive");
     }
+    this.jitter.jitter_sequence_size = fsr3JitterPhaseCount(frame.internal[0], frame.output[0]);
     this.jitter.frame_index = frame.frameIndex;
     const revision: TemporalHistoryRevision = {
       outputWidth: frame.output[0],

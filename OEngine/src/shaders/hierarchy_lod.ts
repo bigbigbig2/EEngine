@@ -1,4 +1,5 @@
 /** Shared view ABI and complementary SSE decision for hierarchy and meshlet handoff. */
+export const HIERARCHY_LOD_ANCHOR_BYTES = 32;
 export const HIERARCHY_LOD_WGSL = /* wgsl */ `
 struct OEngineHierarchyView {
   camera_position: vec4f,
@@ -18,6 +19,11 @@ struct OEngineHierarchyView {
 struct OEngineWorldSphere {
   center: vec3f,
   radius: f32,
+};
+struct OEngineLodAnchor {
+  // xyz frozen camera position; w maximum allowed camera displacement.
+  camera: vec4f,
+  revision: vec4u,
 };
 fn hierarchy_conservative_scale(transform: mat4x4f) -> f32 {
   let x_axis = transform[0].xyz;
@@ -78,16 +84,81 @@ fn hierarchy_projected_error_pixels(
   conservative_scale: f32,
   view: ptr<uniform, OEngineHierarchyView>
 ) -> f32 {
+  return hierarchy_projected_error_at_position(object_error, sphere, conservative_scale,
+    (*view).camera_position.xyz, view);
+}
+
+fn hierarchy_projected_error_at_position(
+  object_error: f32,
+  sphere: OEngineWorldSphere,
+  conservative_scale: f32,
+  camera_position: vec3f,
+  view: ptr<uniform, OEngineHierarchyView>
+) -> f32 {
   let world_error = object_error * conservative_scale;
   if (*view).orthographic.y > 0.5 {
     return world_error / (*view).orthographic.x * (*view).sse.y;
   }
   let nearest_distance = max(
-    distance(sphere.center, (*view).camera_position.xyz) - sphere.radius,
+    distance(sphere.center, camera_position) - sphere.radius,
     (*view).sse.w
   );
   return world_error / nearest_distance * (*view).sse.z *
     0.5 * (*view).sse.y;
+}
+
+// Main perspective view only. The frozen denominator subtracts the entire
+// allowed displacement, bounding SSE for every cluster, including loose spheres.
+// Hierarchy traversal and coarse meshlet handoff MUST share this decision.
+fn hierarchy_lod_stability_fraction(view: ptr<uniform, OEngineHierarchyView>) -> f32 {
+  return select(0.0, 0.05, (*view).orthographic.y < 0.5 && (*view).scene.w == 0u);
+}
+fn hierarchy_projected_error_at_anchor(
+  object_error: f32,
+  sphere: OEngineWorldSphere,
+  conservative_scale: f32,
+  anchor: OEngineLodAnchor,
+  view: ptr<uniform, OEngineHierarchyView>
+) -> f32 {
+  if ((*view).orthographic.y > 0.5) {
+    return object_error * conservative_scale / (*view).orthographic.x * (*view).sse.y;
+  }
+  let nearest_distance = max(
+    distance(sphere.center, anchor.camera.xyz) - sphere.radius - anchor.camera.w,
+    (*view).sse.w
+  );
+  return object_error * conservative_scale / nearest_distance * (*view).sse.z * 0.5 * (*view).sse.y;
+}
+
+// One unique root invocation writes each current anchor before culling.
+fn hierarchy_update_lod_anchor(
+  previous: OEngineLodAnchor,
+  instance: OEngineInstanceRecord,
+  sphere: OEngineWorldSphere,
+  view: ptr<uniform, OEngineHierarchyView>
+) -> OEngineLodAnchor {
+  var signature = 2166136261u;
+  let sse_words = bitcast<vec4u>((*view).sse);
+  for (var lane = 0u; lane < 4u; lane++) {
+    signature = (signature ^ sse_words[lane]) * 16777619u;
+  }
+  signature = (signature ^ instance.instance_set_generation) * 16777619u;
+  signature = (signature ^ oengine_instance_geometry_generation(instance)) * 16777619u;
+  signature = (signature ^ instance.dynamic_revision) * 16777619u;
+  signature = (signature ^ bitcast<u32>((*view).orthographic.x)) * 16777619u;
+  signature = (signature ^ bitcast<u32>((*view).orthographic.y)) * 16777619u;
+  signature = (signature ^ (*view).scene.w) * 16777619u;
+  signature |= 1u;
+  let fraction = hierarchy_lod_stability_fraction(view);
+  if (fraction == 0.0 || previous.revision.x != signature ||
+      distance(previous.camera.xyz, (*view).camera_position.xyz) > previous.camera.w) {
+    let deadband = fraction * max(
+      distance((*view).camera_position.xyz, sphere.center) - sphere.radius,
+      (*view).sse.w
+    );
+    return OEngineLodAnchor(vec4f((*view).camera_position.xyz, deadband), vec4u(signature, 0u, 0u, 0u));
+  }
+  return previous;
 }
 
 `;

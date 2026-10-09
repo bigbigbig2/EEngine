@@ -85,6 +85,7 @@ export async function runVirtualGeometryHandoffGpuOracle(device) {
   viewBytes[2] = 10;
   viewBytes.set([2, 100, 1, 0.1], 28);
   const viewUniform = buffer(viewBytes, GPUBufferUsage.UNIFORM);
+  const lodAnchors = buffer(new Float32Array([0, 0, 10, 0, 0, 0, 0, 0]));
   const counterBuffer = buffer(GPU_COUNTER_BYTE_SIZE);
   const owner = new VirtualGeometryMeshletWorkCandidate(device);
   const copyModule = device.createShaderModule({
@@ -157,6 +158,9 @@ export async function runVirtualGeometryHandoffGpuOracle(device) {
         device.queue.writeBuffer(visibleClusters, 0, visible);
         device.queue.writeBuffer(bank, 0, bankBytes);
         device.queue.writeBuffer(viewUniform, 0, viewBytes);
+        // This isolated consumer fixture has no root producer: supply that
+        // producer's zero-budget anchor at the current case's camera position.
+        device.queue.writeBuffer(lodAnchors, 0, new Float32Array([0, 0, viewBytes[2], 0, 0, 0, 0, 0]));
         // Overflow must retain enough survivors to exercise bounded reservation.
         if (mode === "overflow") {
           for (let m = 0; m < count; m++) words[16 + m * 12 + 3] = 0xffffffff;
@@ -167,6 +171,7 @@ export async function runVirtualGeometryHandoffGpuOracle(device) {
           virtualGeometry: { metadata, banks, productGeneration: 1 },
           visibleClusters,
           viewUniform,
+          lodAnchors,
           visibleClusterCapacity: 1,
           capacity,
           counterBuffer,

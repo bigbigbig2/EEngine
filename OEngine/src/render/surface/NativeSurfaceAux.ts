@@ -244,11 +244,12 @@ export function nativeSurfaceTemporalMask(
   ) {
     throw new RangeError("Invalid native Temporal response");
   }
-  let mismatch = true;
+  let mismatch = false;
   let bits = responseBits;
   motionValid = motionValid && historyValid;
   if (historyValid && motionValid) {
-    mismatch = current[0] !== previous[0] || current[1] !== previous[1] || current[2] !== previous[2];
+    mismatch = current[0] === previous[0] &&
+      (current[1] !== previous[1] || (current[3] === previous[3] && current[2] !== previous[2]));
     for (let lane = 0; lane < 4; lane++) {
       if (current[lane] !== previous[lane]) {
         bits |= 1 << lane;
@@ -259,7 +260,7 @@ export function nativeSurfaceTemporalMask(
     bits |= 16;
   }
   return [
-    Math.max(Math.min(1, Math.max(0, opaqueReactive)), Number(mismatch || !motionValid)),
+    Math.min(1, Math.max(0, opaqueReactive)),
     Number(motionValid),
     Number(mismatch),
     bits / 255

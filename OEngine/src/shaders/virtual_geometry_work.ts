@@ -65,6 +65,7 @@ struct OEngineDrawIndirectArgs {
 @group(0) @binding(9) var<storage, read> product_bank_3: array<u32>;
 @group(0) @binding(10) var<storage, read> product_instances: array<OEngineInstanceRecord>;
 @group(0) @binding(11) var<uniform> product_view: OEngineHierarchyView;
+@group(0) @binding(12) var<storage, read> product_lod_anchors: array<OEngineLodAnchor>;
 // Only the prepare entry uses this group; expansion never binds writable args.
 @group(1) @binding(0) var<storage, read_write> product_dispatch: array<u32>;
 
@@ -205,9 +206,9 @@ fn generate_virtual_geometry_work(@builtin(workgroup_id) group: vec3u,
             bitcast<f32>(product_bank_word(location.bank_index, header + 2u)),
             bitcast<f32>(product_bank_word(location.bank_index, header + 3u)));
           let error = bitcast<f32>(product_bank_word(location.bank_index, header + 10u));
-          let projected_error = hierarchy_projected_error_pixels(error,
-            hierarchy_transform_sphere(sphere, transform),
-            hierarchy_conservative_scale(transform), &product_view);
+          let projected_error = hierarchy_projected_error_at_anchor(error,
+            hierarchy_transform_sphere(sphere, transform), hierarchy_conservative_scale(transform),
+            product_lod_anchors[visible.instance_record_index - product_view.scene.x], &product_view);
           keep = projected_error <= product_view.sse.x;
         } else {
           // Can't read refine metadata - keep coarse

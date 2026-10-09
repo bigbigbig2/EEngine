@@ -92,7 +92,7 @@ test("motion uses jittered clip coordinates and rejects out-of-domain reprojecti
   });
 });
 
-test("Temporal mask preserves identity mismatch versus transform-only change and invalid/reactive semantics", () => {
+test("Temporal mask separates winner changes, same-slot replacement and invalid motion from reactive", () => {
   assert.deepEqual(nativeSurfaceTemporalMask([1, 2, 3, 4], [1, 2, 3, 5], true, true, 0, 0), [
     0,
     1,
@@ -100,26 +100,26 @@ test("Temporal mask preserves identity mismatch versus transform-only change and
     8 / 255
   ]);
   assert.deepEqual(nativeSurfaceTemporalMask([1, 2, 3, 4], [1, 2, 9, 4], true, true, 0.25, 64), [
-    1,
+    0.25,
     1,
     1,
     68 / 255
   ]);
   assert.deepEqual(nativeSurfaceTemporalMask([1, 2, 3, 4], [1, 2, 3, 4], false, false, 0, 0), [
-    1,
     0,
-    1,
+    0,
+    0,
     16 / 255
   ]);
   assert.deepEqual(nativeSurfaceTemporalMask([1, 2, 3, 4], [1, 2, 3, 4], false, true, 0, 0), [
-    1,
     0,
-    1,
+    0,
+    0,
     16 / 255
   ]);
 });
 
-test("FSR mapping consumes the merged TemporalFacts reactive and validity channels", () => {
+test("FSR mapping consumes the separate TemporalFacts soft reactive and validity channels", () => {
   assert.deepEqual(nativeSurfaceAuxFsrInputs({ motion: 3, mask: 4, identity: 5 }), {
     motion: 3,
     validityMask: 4,

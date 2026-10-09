@@ -2,7 +2,6 @@ import type { NativeSurfaceAuxProfile } from "../render/surface/NativeSurfaceAux
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
-import { GPU_MESHLET_RECORD_SCHEMA } from "../gpu/GpuGeometryAbi.js";
 import { PACKED_CAMERA_TYPE } from "./packed_camera.js";
 
 /** Composable Surface fragment; one winner/background write, no new dispatch. */
@@ -15,7 +14,7 @@ export function nativeSurfaceAuxWgsl(profile: NativeSurfaceAuxProfile, group = 0
   }
   if (profile === "Base") {
     return /* wgsl */ `
-fn native_surface_aux_write(pixel: vec2i, opaque_reactive: f32) {}
+fn native_surface_aux_write(pixel: vec2i, opaque_reactive: vec2f) {}
 `;
   }
   if (profile !== "Temporal") {
@@ -24,21 +23,21 @@ fn native_surface_aux_write(pixel: vec2i, opaque_reactive: f32) {}
   return /* wgsl */ `
 @group(${group}) @binding(${startBinding}) var native_surface_opaque_reactive: texture_storage_2d<rgba8unorm, write>;
 
-// Match TemporalFacts response rules; material evaluation stays full-rate f32.
-fn native_surface_aux_reactive(emissive: vec3f, has_emissive_texture: bool, alpha_mask: bool) -> f32 {
-  let emissive_reactive = select(0.0, 1.0, any(emissive > vec3f(1.0)) || has_emissive_texture);
-  return max(emissive_reactive, select(0.0, 0.25, alpha_mask));
+// Static emission and MASK interiors can accumulate. Shading Change owns
+// radiance variation; G marks surfaces whose exact coverage edge needs a hint.
+fn native_surface_aux_reactive(alpha_mask: bool) -> vec2f {
+  return vec2f(0.0, select(0.0, 1.0, alpha_mask));
 }
 
-fn native_surface_aux_write(pixel: vec2i, opaque_reactive: f32) {
-  textureStore(native_surface_opaque_reactive, pixel, vec4f(clamp(opaque_reactive, 0.0, 1.0), 0.0, 0.0, 0.0));
+fn native_surface_aux_write(pixel: vec2i, opaque_reactive: vec2f) {
+  textureStore(native_surface_opaque_reactive, pixel, vec4f(clamp(opaque_reactive, vec2f(0.0), vec2f(1.0)), 0.0, 0.0));
 }
 `;
 }
 
 /**
- * Native publication TemporalFacts. Same local geometry/material/sky mathematics
- * as temporal_facts.ts; source of truth for the isolated native consumer.
+ * Production native TemporalFacts. Resource identity is separate from raster
+ * winners and LOD; local hard replacement is separate from soft reactive.
  * Workgroup 8x8, sequential full-domain writes, random bounded geometry/version
  * reads and one previous-identity point read. No atomics, barriers or submission.
  * RG32 motion retains f32 UV precision: RG16 can exceed 0.1 render pixel for
@@ -81,26 +80,19 @@ fn native_facts_hash_step(value: u32, word: u32) -> u32 {
   return (value ^ word) * 16777619u;
 }
 
-fn native_facts_geometry_signature(instance: OEngineInstanceRecord, work: OEngineMeshletRasterWork, primitive: u32) -> u32 {
+fn native_facts_geometry_signature(instance: OEngineInstanceRecord, work: OEngineMeshletRasterWork) -> u32 {
   var signature = native_facts_hash_step(2166136261u, instance.instance_set_generation);
   signature = native_facts_hash_step(signature, oengine_instance_geometry_generation(instance));
-  signature = native_facts_hash_step(signature, work.geometry_slot);
-  if (!oengine_instance_virtual_geometry(instance)) {
-    let at = facts.source.x + work.meshlet_slot * ${GPU_MESHLET_RECORD_SCHEMA.stride / 4}u;
-    let map = asset_metadata[at + ${GPU_MESHLET_RECORD_SCHEMA.offsets.surface_primitive_word_offset! / 4}u];
-    return native_facts_hash_step(signature, vertex_payload[facts.source.y + map + primitive]);
-  }
-  // Product has no source correspondence: retain distinct logical triangle/LOD.
-  signature = native_facts_hash_step(signature, work.meshlet_slot);
-  signature = native_facts_hash_step(signature, primitive);
-  return native_facts_hash_step(signature, work.packed_profile_lod);
+  // Representation winners are not resource identity: adjacent triangles,
+  // meshlets and LODs must retain history through ordinary jitter coverage.
+  return native_facts_hash_step(signature, work.geometry_slot);
 }
 
 fn native_facts_material_signature(instance: OEngineInstanceRecord, material_slot: u32) -> u32 {
   var signature = native_facts_hash_step(2166136261u, instance.material_handle);
   signature = native_facts_hash_step(signature, instance.flags);
-  // Different slots conservatively reject reuse even for equal content. This
-  // is a change detector; the publication signature covers graph/parameters,
+  // A same-slot publication change is hard; different visibility/material
+  // winners use depth/shading confidence. The signature covers graph/parameters,
   // raster, texture content/residency and Product revisions atomically.
   signature = native_facts_hash_step(signature, material_slot);
   let version = native_material_versions[material_slot];
@@ -142,8 +134,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   var identity = vec4u(0u);
   var valid = false;
   var change_bits = 0u;
-  var reactive = clamp(textureLoad(opaque_reactive, pixel, 0).x, 0.0, 1.0);
-  if (key == OENGINE_VISIBILITY_KEY_EMPTY && depth <= 0.0001) {
+  let opaque_response = textureLoad(opaque_reactive, pixel, 0);
+  var reactive = clamp(opaque_response.x, 0.0, 1.0);
+  if (key == OENGINE_VISIBILITY_KEY_EMPTY && depth == 0.0) {
     // Infinite sky reprojection includes rotation/jitter and excludes translation.
     let previous_clip = native_facts_sky_previous_clip(uv);
     let previous_uv = previous_clip.xy / previous_clip.w * vec2f(0.5, -0.5) + vec2f(0.5);
@@ -160,14 +153,16 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
           material_slot < facts.material_slot_count && material_slot < arrayLength(&native_material_versions)) {
         let instance = instances[work.instance_slot];
         identity = vec4u(work.instance_slot + 1u,
-          native_facts_geometry_signature(instance, work, resolved_key.local_primitive),
-          native_facts_material_signature(instance, material_slot), instance.dynamic_revision);
+          native_facts_geometry_signature(instance, work),
+          native_facts_material_signature(instance, material_slot), material_slot + 1u);
         let previous_clip = native_facts_previous_clip(uv, depth, instance);
         let previous_uv = previous_clip.xy / previous_clip.w * vec2f(0.5, -0.5) + vec2f(0.5);
         motion = uv - previous_uv;
         valid = all(abs(previous_clip) < vec4f(3.402823466e38)) &&
           native_material_versions[material_slot].y != 0u && oengine_instance_motion_valid(instance) &&
-          depth > 0.0001 && previous_clip.w > 1e-6 && previous_clip.z >= 0.0 &&
+          // Infinite reverse-Z has valid geometry arbitrarily close to zero.
+          // A fixed depth epsilon silently invalidates distant buildings.
+          depth > 0.0 && previous_clip.w > 1e-6 && previous_clip.z >= 0.0 &&
           previous_clip.z <= previous_clip.w && native_facts_inside(previous_uv);
       }
     }
@@ -175,22 +170,52 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   // NaN comparisons fail. UV range already bounds finite motion; a reset/cut
   // rejects both background and geometry, rather than publishing valid motion.
   valid = valid && facts.previous_valid != 0u && all(abs(motion) < vec2f(2.0));
-  var mismatch = true;
+  var mismatch = false;
   if (valid) {
     let previous_pixel = clamp(vec2i((uv - motion) * vec2f(f32(facts.width), f32(facts.height))),
       vec2i(0), vec2i(i32(facts.width), i32(facts.height)) - vec2i(1));
     let previous = textureLoad(previous_identity, previous_pixel, 0);
-    mismatch = any(previous.xyz != identity.xyz);
-    if (previous.x != identity.x) { change_bits |= 1u; }
-    if (previous.y != identity.y) { change_bits |= 2u; }
-    if (previous.z != identity.z) { change_bits |= 4u; }
-    if (previous.w != identity.w) { change_bits |= 8u; }
+    // A different visibility winner is handled by depth and shading evidence,
+    // not a hard rejection dilated across its silhouette. Within the same
+    // instance, topology/replacement and same-slot publication changes are hard.
+    let same_instance = previous.x == identity.x;
+    mismatch = same_instance && (previous.y != identity.y ||
+      (previous.w == identity.w && previous.z != identity.z));
+    if (previous.x != identity.x) {
+      change_bits |= 1u;
+    }
+    if (previous.y != identity.y) {
+      change_bits |= 2u;
+    }
+    if (previous.z != identity.z) {
+      change_bits |= 4u;
+    }
+    if (previous.w != identity.w) {
+      change_bits |= 8u;
+    }
   }
   if (!valid) {
     change_bits |= 16u;
   }
-  reactive = max(reactive, select(0.0, 1.0, mismatch || !valid));
+  if (opaque_response.y > 0.5) {
+    // Visibility has already applied exact R8 coverage with the authored cutoff.
+    // Only actual coverage/winner edges get a bounded soft hint; no extra R8
+    // sample and no blanket penalty on the leaf interior.
+    let offsets = array<vec2i, 4>(vec2i(-1, 0), vec2i(1, 0), vec2i(0, -1), vec2i(0, 1));
+    for (var i = 0u; i < 4u; i++) {
+      let neighbor_pixel = clamp(pixel + offsets[i], vec2i(0), vec2i(i32(facts.width), i32(facts.height)) - 1);
+      let neighbor = oengine_visibility_key_resolve(textureLoad(visibility_key, neighbor_pixel, 0).x,
+        meshlet_work.header.generation, meshlet_work.header.written_count);
+      if (neighbor.valid == 0u) {
+        reactive = max(reactive, 0.1);
+      } else if (neighbor.meshlet_work_slot != (key & OENGINE_VISIBILITY_KEY_MESHLET_WORK_SLOT_MASK) &&
+                 meshlet_work.elements[neighbor.meshlet_work_slot].instance_slot + 1u != identity.x) {
+        reactive = max(reactive, 0.1);
+      }
+    }
+  }
   textureStore(output_motion, pixel, vec4f(select(vec2f(0.0), motion, valid), 0.0, 0.0));
+  // R soft reactive; G valid jittered motion; B local hard replacement.
   textureStore(output_mask, pixel, vec4f(reactive, select(0.0, 1.0, valid), select(0.0, 1.0, mismatch), f32(change_bits) / 255.0));
   textureStore(output_identity, pixel, identity);
 }

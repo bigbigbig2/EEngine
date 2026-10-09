@@ -1,4 +1,5 @@
 import { GPU_COUNTER_BYTE_SIZE } from "../debug/GpuFrameCounters.js";
+import { HIERARCHY_LOD_ANCHOR_BYTES } from "../shaders/hierarchy_lod.js";
 import type {
   ResourceAccounting,
   ResourceHandle as AccountingResourceHandle,
@@ -772,6 +773,11 @@ export class VirtualGeometryMeshletWorkCandidate {
           buffer: { type: "read-only-storage", minBindingSize: 176 },
         },
         { binding: 11, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 256 } },
+        {
+          binding: 12,
+          visibility: GPUShaderStage.COMPUTE,
+          buffer: { type: "read-only-storage", minBindingSize: HIERARCHY_LOD_ANCHOR_BYTES }
+        },
       ],
     });
     const module = device.createShaderModule({
@@ -808,6 +814,7 @@ export class VirtualGeometryMeshletWorkCandidate {
     readonly virtualGeometry: GeometryProductGpuBindingsV1;
     readonly visibleClusters: GPUBuffer;
     readonly viewUniform: GPUBuffer;
+    readonly lodAnchors: GPUBuffer;
     readonly visibleClusterCapacity: number;
     readonly capacity: number;
     readonly counterBuffer: GPUBuffer;
@@ -913,7 +920,8 @@ export class VirtualGeometryMeshletWorkCandidate {
         { binding: 5, resource: { buffer: input.virtualGeometry.metadata } },
         ...banks.map((buffer, index) => ({ binding: index + 6, resource: { buffer } })),
         { binding: 10, resource: { buffer: input.scene.instances } },
-        { binding: 11, resource: { buffer: input.viewUniform } }
+        { binding: 11, resource: { buffer: input.viewUniform } },
+        { binding: 12, resource: { buffer: input.lodAnchors } }
       ];
       const bindGroup = this.device.createBindGroup({
         label: "S1 Product MeshletWork bindings",

@@ -139,7 +139,8 @@ export class ShadowGeometryWork {
         ? this.product.prepare({
             ...common,
             virtualGeometry: job.virtualGeometry,
-            viewUniform: hierarchy.generated.viewUniform
+            viewUniform: hierarchy.generated.viewUniform,
+            lodAnchors: hierarchy.generated.lodAnchors!
           })
         : this.ordinary.prepare({
             ...common,

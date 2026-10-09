@@ -29,6 +29,7 @@ import {
   GEOMETRY_PAGE_DEMAND_HEADER_BYTES,
 } from "../gpu/GeometryPageDemandAbiV1.js";
 import { writeGpuBuffer } from "../gpu/GpuQueueEvidence.js";
+import { HIERARCHY_LOD_ANCHOR_BYTES } from "../shaders/hierarchy_lod.js";
 import {
   HIERARCHICAL_VIEW_OFFSETS,
   HIERARCHICAL_VIEW_UNIFORM_SIZE,
@@ -131,6 +132,8 @@ export interface HierarchicalWorkEvidenceLayout {
 export interface GeneratedHierarchyWork {
   /** Shared per-frame view/SSE for the complementary meshlet LOD gate. */
   readonly viewUniform: GPUBuffer;
+  /** Current per-instance stable SSE camera positions; owned by hierarchy. */
+  readonly lodAnchors: GPUBuffer | null;
   /** Header begins at byte 0; VisibleCluster records begin at byte 32. */
   readonly visibleClusters: GPUBuffer;
   readonly visibleClusterCapacity: number;
@@ -183,6 +186,8 @@ interface PreparedState {
   readonly evidence: GPUBuffer | null;
   readonly evidenceLayout: HierarchicalWorkEvidenceLayout;
   readonly viewUniform: GPUBuffer;
+  readonly lodAnchors: GPUBuffer | null;
+  readonly previousLodAnchors: GPUBuffer | null;
   rootBindGroup: GPUBindGroup | null;
   hzbRootBindGroups: WeakMap<GPUTextureView, GPUBindGroup>;
   traversalBindGroups: readonly [GPUBindGroup, GPUBindGroup] | null;
@@ -246,6 +251,16 @@ const VIRTUAL_INSTANCE_GROUP: GPUBindGroupLayoutDescriptor = {
   label: "S1 Geometry Product/fused root group0",
   entries: [
     ...INSTANCE_GROUP.entries,
+    {
+      binding: 13,
+      visibility: GPUShaderStage.COMPUTE,
+      buffer: { type: "storage", minBindingSize: HIERARCHY_LOD_ANCHOR_BYTES }
+    },
+    {
+      binding: 15,
+      visibility: GPUShaderStage.COMPUTE,
+      buffer: { type: "read-only-storage", minBindingSize: HIERARCHY_LOD_ANCHOR_BYTES }
+    },
     { binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
     {
       binding: 12,
@@ -330,6 +345,11 @@ const VIRTUAL_TRAVERSAL_GROUP: GPUBindGroupLayoutDescriptor = {
   label: "S1 Geometry Product/hierarchy traversal group1",
   entries: [
     ...TRAVERSAL_GROUP.entries,
+    {
+      binding: 12,
+      visibility: GPUShaderStage.COMPUTE,
+      buffer: { type: "read-only-storage", minBindingSize: HIERARCHY_LOD_ANCHOR_BYTES }
+    },
     { binding: 11, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
     {
       binding: 13,
@@ -651,6 +671,23 @@ export class HierarchicalWorkGenerator {
       const pageDemandMask = virtualGeometryEnabled
         ? this.createPageDemandMask("S4/GeometryPageDemandMask", pageDemandMaskWordCount, buffers)
         : null;
+      const anchorBytes = Math.max(HIERARCHY_LOD_ANCHOR_BYTES, scene.instanceCount * HIERARCHY_LOD_ANCHOR_BYTES);
+      if (virtualGeometryEnabled && anchorBytes > Number(this.device.limits.maxStorageBufferBindingSize)) {
+        throw new RangeError("LOD anchors exceed maxStorageBufferBindingSize");
+      }
+      const makeAnchors = (label: string): GPUBuffer | null =>
+        virtualGeometryEnabled
+          ? this.createBuffer(
+              {
+                label,
+                size: anchorBytes,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
+              },
+              buffers
+            )
+          : null;
+      const lodAnchors = makeAnchors("Geometry/LOD current anchors");
+      const previousLodAnchors = makeAnchors("Geometry/LOD committed anchors");
       const rasterQueue = rasterExpansionEnabled
         ? this.createQueue(
             "R3-D/RasterWorkQueue",
@@ -718,6 +755,8 @@ export class HierarchicalWorkGenerator {
               pingArgs!,
               pageDemand ?? undefined,
               pageDemandMask ?? undefined,
+              lodAnchors ?? undefined,
+              previousLodAnchors ?? undefined,
             )
           : null;
       const createTraversalGroup = (
@@ -744,6 +783,7 @@ export class HierarchicalWorkGenerator {
               ? []
               : [
                   { binding: 11, resource: { buffer: scene.virtualGeometry.metadata } },
+                  { binding: 12, resource: { buffer: lodAnchors! } },
                   { binding: 13, resource: { buffer: pageDemand! } },
                   { binding: 14, resource: { buffer: pageDemandMask! } },
                 ]),
@@ -807,6 +847,7 @@ export class HierarchicalWorkGenerator {
       });
       const generated = Object.freeze({
         viewUniform,
+        lodAnchors,
         visibleClusters: selectedQueue,
         visibleClusterCapacity: scene.visibleClusterCapacity,
         rasterWork: rasterQueue,
@@ -841,6 +882,8 @@ export class HierarchicalWorkGenerator {
         pageDemand,
         pageDemandMask,
         pageDemandMaskWordCount,
+        lodAnchors,
+        previousLodAnchors,
         dispatchArgs: pingArgs !== null && pongArgs !== null ? [pingArgs, pongArgs, selectedArgs] : null,
         evidence,
         evidenceLayout,
@@ -907,6 +950,8 @@ export class HierarchicalWorkGenerator {
         args[0],
         state.pageDemand ?? undefined,
         state.pageDemandMask ?? undefined,
+        state.lodAnchors ?? undefined,
+        state.previousLodAnchors ?? undefined,
       );
       const createTraversalGroup = (
         label: string,
@@ -932,6 +977,7 @@ export class HierarchicalWorkGenerator {
               ? []
               : [
                   { binding: 11, resource: { buffer: state.scene.virtualGeometry.metadata } },
+                  { binding: 12, resource: { buffer: state.lodAnchors! } },
                   { binding: 13, resource: { buffer: state.pageDemand! } },
                   { binding: 14, resource: { buffer: state.pageDemandMask! } },
                 ]),
@@ -1107,6 +1153,11 @@ export class HierarchicalWorkGenerator {
       }
     }
 
+    if (state.lodAnchors !== null && state.previousLodAnchors !== null) {
+      // The history update exists only in the owning encoder: abort cannot
+      // advance it. Current anchors also feed the later meshlet handoff.
+      encoder.copyBufferToBuffer(state.lodAnchors, 0, state.previousLodAnchors, 0, state.lodAnchors.size);
+    }
     this.writeSampledEvidence(state, encoder);
     return prepared.generated;
   }
@@ -1235,6 +1286,8 @@ export class HierarchicalWorkGenerator {
     outputArgs: GPUBuffer,
     pageDemand?: GPUBuffer,
     pageDemandMask?: GPUBuffer,
+    lodAnchors?: GPUBuffer,
+    previousLodAnchors?: GPUBuffer,
     hzbView?: GPUTextureView,
   ): GPUBindGroup {
     return this.device.createBindGroup({
@@ -1254,6 +1307,8 @@ export class HierarchicalWorkGenerator {
           ? []
           : [
               { binding: 9, resource: { buffer: scene.virtualGeometry.metadata } },
+              { binding: 13, resource: { buffer: lodAnchors! } },
+              { binding: 15, resource: { buffer: previousLodAnchors! } },
               { binding: 12, resource: { buffer: pageDemand! } },
               { binding: 14, resource: { buffer: pageDemandMask! } },
             ]),
@@ -1501,6 +1556,8 @@ export class HierarchicalWorkGenerator {
       args[0],
       state.pageDemand ?? undefined,
       state.pageDemandMask ?? undefined,
+      state.lodAnchors ?? undefined,
+      state.previousLodAnchors ?? undefined,
       hzbView,
     );
     state.hzbRootBindGroups.set(hzbView, group);
@@ -1563,6 +1620,7 @@ export class HierarchicalWorkGenerator {
             ? []
             : [
                 { binding: 11, resource: { buffer: state.scene.virtualGeometry.metadata } },
+                { binding: 12, resource: { buffer: state.lodAnchors! } },
                 { binding: 13, resource: { buffer: state.pageDemand! } },
                 { binding: 14, resource: { buffer: state.pageDemandMask! } },
               ]),

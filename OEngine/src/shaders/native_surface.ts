@@ -212,7 +212,7 @@ export function nativeSurfaceWgsl(
   };
   const reactiveDeclaration = nativeSurfaceAuxWgsl(profile.reactive ? "Temporal" : "Base");
   const reactiveWrite = profile.reactive
-    ? `native_surface_aux_write(vec2i(pixel), native_surface_aux_reactive(${vector("emissive", "vec3f(0.0)")}, (raster_flags & 2u) != 0u, (raster_flags & 1u) != 0u));`
+    ? `native_surface_aux_write(vec2i(pixel), native_surface_aux_reactive((raster_flags & 1u) != 0u));`
     : "";
   const productBindings = profile.productGeometry
     ? `@group(0) @binding(10) var<storage, read> product_heap: array<u32>;\n${Array.from({ length: 4 }, (_, index) => `@group(0) @binding(${11 + index}) var<storage, read> product_bank_${index}: array<u32>;`).join("\n")}`

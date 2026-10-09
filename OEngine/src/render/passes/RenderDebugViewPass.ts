@@ -23,6 +23,7 @@ import {
   SURFACE_COLOR_DEBUG_WGSL,
   SURFACE_EMISSIVE_DEBUG_WGSL,
   SURFACE_FLAGS_DEBUG_WGSL,
+  NATIVE_TEMPORAL_MASK_DEBUG_WGSL,
   SURFACE_NORMAL_DEBUG_WGSL,
   SURFACE_PBR_DEBUG_WGSL,
   SSR_HISTORY_CONFIDENCE_DEBUG_WGSL,
@@ -43,6 +44,7 @@ export type RenderDebugViewResources = {
   gAlbedo: ResourceId | null;
   gEmissive: ResourceId | null;
   surfaceFlags: ResourceId | null;
+  temporalMask: ResourceId | null;
   indirectDiffuse: ResourceId | null;
   indirectSpecular: ResourceId | null;
   linearHdr: ResourceId | null;
@@ -88,7 +90,7 @@ export class RenderDebugViewPass {
         createPipeline(
           "Render debug/Velocity",
           VELOCITY_DEBUG_WGSL,
-          [floatTextureEntry(0), uintTextureEntry(1), depthTextureEntry(2), uniformEntry(3)],
+          [floatTextureEntry(0), floatTextureEntry(1), depthTextureEntry(2), uniformEntry(3)],
           surfaceProfile,
         ),
       ],
@@ -171,8 +173,8 @@ export class RenderDebugViewPass {
         RenderDebugViewValue.HistoryValidity,
         createPipeline(
           "Render debug/History validity",
-          SURFACE_FLAGS_DEBUG_WGSL,
-          [uintTextureEntry(0), depthTextureEntry(1), uniformEntry(2), uniformEntry(3, 16)],
+          NATIVE_TEMPORAL_MASK_DEBUG_WGSL,
+          [floatTextureEntry(0), depthTextureEntry(1), uniformEntry(2), uniformEntry(3, 16)],
           surfaceProfile,
         ),
       ],
@@ -180,8 +182,8 @@ export class RenderDebugViewPass {
         RenderDebugViewValue.Reactive,
         createPipeline(
           "Render debug/Reactive",
-          SURFACE_FLAGS_DEBUG_WGSL,
-          [uintTextureEntry(0), depthTextureEntry(1), uniformEntry(2), uniformEntry(3, 16)],
+          NATIVE_TEMPORAL_MASK_DEBUG_WGSL,
+          [floatTextureEntry(0), depthTextureEntry(1), uniformEntry(2), uniformEntry(3, 16)],
           surfaceProfile,
         ),
       ],
@@ -384,7 +386,7 @@ function inputResourceIds(
       if (resources.velocity === null) {
         throw new Error("RenderDebugViewPass requires a velocity resource");
       }
-      return [resources.velocity, requireSurfaceMetadata(view, resources), resources.depth];
+      return [resources.velocity, requireOptionalTexture(view, resources.temporalMask), resources.depth];
     case RenderDebugViewValue.BaseColor:
     case RenderDebugViewValue.Occlusion:
       return [
@@ -413,7 +415,7 @@ function inputResourceIds(
       ];
     case RenderDebugViewValue.HistoryValidity:
     case RenderDebugViewValue.Reactive:
-      return [requireSurfaceMetadata(view, resources), resources.depth];
+      return [requireOptionalTexture(view, resources.temporalMask), resources.depth];
     case RenderDebugViewValue.IndirectDiffuse:
       return [requireOptionalTexture(view, resources.indirectDiffuse)];
     case RenderDebugViewValue.IndirectSpecular:

@@ -8,9 +8,9 @@ import { resolveTextureView } from "../RenderTargetViews.js";
 export interface NativeTemporalFactProducts {
   /** Jittered current-minus-previous UV; invalid motion is zero. */
   readonly motion: ResourceId;
-  /** R=merged reactive, G=motion validity, B=identity mismatch, A=change byte/255. */
+  /** R=soft reactive, G=motion validity, B=local hard replacement, A=change byte/255. */
   readonly mask: ResourceId;
-  /** Exact instance slot plus local geometry/material change signatures and transform revision. */
+  /** Instance slot, topology/resource signature, material signature, material slot+1. */
   readonly identity: ResourceId;
 }
 

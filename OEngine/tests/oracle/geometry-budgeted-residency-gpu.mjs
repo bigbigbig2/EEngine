@@ -249,6 +249,7 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
       virtualGeometry: runtime.bindings(),
       visibleClusters: h.generated.visibleClusters,
       viewUniform: h.generated.viewUniform,
+      lodAnchors: h.generated.lodAnchors,
       visibleClusterCapacity: 12,
       capacity: 12,
       counterBuffer: counters,

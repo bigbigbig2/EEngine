@@ -839,6 +839,7 @@ function compileSceneGraph(
             gAlbedo: null,
             gEmissive: null,
             surfaceFlags: null,
+            temporalMask: facts.mask,
             indirectDiffuse: null,
             indirectSpecular: null,
             linearHdr: reconstructedRadiance,

@@ -621,6 +621,7 @@ export class PackedVisibilityPass {
         meshletWorkCandidate = this.virtualMeshletCandidate.prepare({
           virtualGeometry: job.virtualGeometry,
           viewUniform: prepared.generated.viewUniform,
+          lodAnchors: prepared.generated.lodAnchors!,
           visibleClusters: prepared.generated.visibleClusters,
           visibleClusterCapacity: prepared.generated.visibleClusterCapacity,
           capacity: key.meshletWorkCandidateCapacity,

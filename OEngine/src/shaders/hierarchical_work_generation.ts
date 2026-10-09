@@ -305,7 +305,7 @@ fn hierarchy_instance_enabled(
 @group(0) @binding(6) var<storage, read_write> hierarchy_selected: OEngineVisibleClusterQueue;
 @group(0) @binding(7) var<storage, read_write> hierarchy_output_dispatch: OEngineDispatchIndirectArgs;
 @group(0) @binding(8) var<storage, read_write> hierarchy_counters: array<atomic<u32>>;
-${virtualGeometryEnabled ? "@group(0) @binding(9) var<storage, read> hierarchy_product_heap: array<u32>;\n@group(0) @binding(12) var<storage, read_write> hierarchy_page_demand: OEngineGeometryPageDemandQueueV1;\n@group(0) @binding(14) var<storage, read_write> hierarchy_page_demand_mask: OEngineGeometryPageDemandMaskV1;" : ""}
+${virtualGeometryEnabled ? "@group(0) @binding(13) var<storage, read_write> hierarchy_lod_anchors: array<OEngineLodAnchor>;\n@group(0) @binding(15) var<storage, read> hierarchy_previous_lod_anchors: array<OEngineLodAnchor>;\n@group(0) @binding(9) var<storage, read> hierarchy_product_heap: array<u32>;\n@group(0) @binding(12) var<storage, read_write> hierarchy_page_demand: OEngineGeometryPageDemandQueueV1;\n@group(0) @binding(14) var<storage, read_write> hierarchy_page_demand_mask: OEngineGeometryPageDemandMaskV1;" : ""}
 
 // meshoptimizer v1.0 README/meshoptimizer.h perspective cone test. OEngine
 // accepts only positive-orientation uniform-scale transforms; every other
@@ -485,6 +485,10 @@ fn r3_fused_root_cull(
       instance.bounds_sphere,
       oengine_instance_current_object_to_world(instance)
     );
+${virtualGeometryEnabled ? `
+    hierarchy_lod_anchors[invocation_index] = hierarchy_update_lod_anchor(
+      hierarchy_previous_lod_anchors[invocation_index], instance, instance_sphere, &hierarchy_view);
+` : ""}
     if hierarchy_instance_enabled(instance, hierarchy_view.scene.w, hierarchy_view.limits.y) &&
       hierarchy_sphere_in_frustum(instance_sphere, &hierarchy_view) {
       atomicAdd(&hierarchy_wg_visible_instances, 1u);
@@ -726,7 +730,7 @@ ${virtualGeometryEnabled ? "            child_node" : "            hierarchy_chi
 @group(1) @binding(7) var<storage, read_write> traversal_selected: OEngineVisibleClusterQueue;
 @group(1) @binding(8) var<storage, read_write> traversal_output_dispatch: OEngineDispatchIndirectArgs;
 @group(1) @binding(9) var<storage, read_write> traversal_counters: array<atomic<u32>>;
-${virtualGeometryEnabled ? "@group(1) @binding(11) var<storage, read> traversal_product_heap: array<u32>;\n@group(1) @binding(13) var<storage, read_write> traversal_page_demand: OEngineGeometryPageDemandQueueV1;\n@group(1) @binding(14) var<storage, read_write> traversal_page_demand_mask: OEngineGeometryPageDemandMaskV1;" : ""}
+${virtualGeometryEnabled ? "@group(1) @binding(12) var<storage, read> traversal_lod_anchors: array<OEngineLodAnchor>;\n@group(1) @binding(11) var<storage, read> traversal_product_heap: array<u32>;\n@group(1) @binding(13) var<storage, read_write> traversal_page_demand: OEngineGeometryPageDemandQueueV1;\n@group(1) @binding(14) var<storage, read_write> traversal_page_demand_mask: OEngineGeometryPageDemandMaskV1;" : ""}
 
 @compute @workgroup_size(${HIERARCHICAL_WORKGROUP_SIZE})
 fn r3_traverse_clusters(
@@ -795,8 +799,9 @@ ${
         let transform = oengine_instance_current_object_to_world(instance);
         let scale = hierarchy_conservative_scale(transform);
         let sphere = hierarchy_transform_sphere(node.bounds_sphere, transform);
-        let projected_error = hierarchy_projected_error_pixels(
-          node.max_parent_error, sphere, scale, &traversal_view
+        let projected_error = hierarchy_projected_error_at_anchor(
+          node.max_parent_error, sphere, scale,
+          traversal_lod_anchors[work.instance_record_index - traversal_view.scene.x], &traversal_view
         );
         if hierarchy_sphere_in_frustum(sphere, &traversal_view) &&
           projected_error > traversal_view.sse.x {
