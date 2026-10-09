@@ -1,0 +1,36 @@
+schemaVersion: 1
+id: texture-compression-acceptance-v1
+resolution: [1920, 1080]
+deviceScaleFactor: 1
+renderScale: 1
+quality: complete-authored-original-2k-bc7-quality6-native-v4
+features:
+  [web-cook, multi-product-runtime, visibility, native-surface, vsm, temporal, fsr, bc-texture-products]
+seed: 4300
+cameraPath: dungeon-static-motion-resize-recovery-v1
+warmupFrames: 30
+sampleFrames: 120
+sampleCadence: 1
+timestampRequired: true
+independentRuns: 1
+geometry:
+  source: authored-dungeon-glb
+  sourceSha256: cac0fc8c16d107e7ac4e69efde89c2cb6ef4bc66c34456a4dd0923218e5aafb1
+  sourceBytes: 7990584
+  sourceTriangles: 72137
+  primitives: 798
+  configuredCapacityBytes: 536870912
+  catalogCoverage: all-primitives
+  productCount: record-only
+texture:
+  sourceImages: 25
+  sourceTextures: 25
+  authoredResolution: 2048
+  requiredFeature: texture-compression-bc
+  cookedTranscode: 0
+acceptance:
+  requiresSettled: true
+  requiresDisposed: true
+  requiresFullCatalogCoverage: true
+  requiresExactSourceTriangleCoverage: true
+  requiresEveryPlannedShard: true

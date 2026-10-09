@@ -165,6 +165,41 @@
       "artifacts": [
         "result",
         "events",
+        "screenshot"
+      ],
+      "automatic": true,
+      "buildTarget": "production",
+      "caseKind": "production",
+      "changedPaths": [
+        "validation/cases/texture-compression-acceptance",
+        "validation/workloads/texture-compression-acceptance-v1.yaml",
+        "OEngine/src/assets/TextureProduct.ts",
+        "OEngine/src/gpu/TextureResidency.ts",
+        "OEngine/src/render/pipeline/RendererCore.ts"
+      ],
+      "decision": "ADR-0020",
+      "domain": "materials-textures",
+      "errorAllowlist": [
+        {
+          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
+          "reason": "Chrome platform warning; device capability is captured.",
+          "source": "console:warning"
+        }
+      ],
+      "harness": "production",
+      "id": "texture-compression-acceptance",
+      "kind": "perf",
+      "lab": false,
+      "level": "L4",
+      "profile": "geometry-scale",
+      "route": "/cases/texture-compression-acceptance/index.html",
+      "timeoutMs": 1800000,
+      "workloadId": "texture-compression-acceptance-v1"
+    },
+    {
+      "artifacts": [
+        "result",
+        "events",
         "screenshot",
         "readback"
       ],
@@ -928,6 +963,57 @@
       "seed": 13,
       "timestampRequired": false,
       "warmupFrames": 1
+    },
+    "texture-compression-acceptance-v1": {
+      "acceptance": {
+        "requiresDisposed": true,
+        "requiresEveryPlannedShard": true,
+        "requiresExactSourceTriangleCoverage": true,
+        "requiresFullCatalogCoverage": true,
+        "requiresSettled": true
+      },
+      "cameraPath": "dungeon-static-motion-resize-recovery-v1",
+      "deviceScaleFactor": 1,
+      "features": [
+        "web-cook",
+        "multi-product-runtime",
+        "visibility",
+        "native-surface",
+        "vsm",
+        "temporal",
+        "fsr",
+        "bc-texture-products"
+      ],
+      "geometry": {
+        "catalogCoverage": "all-primitives",
+        "configuredCapacityBytes": 536870912,
+        "primitives": 798,
+        "productCount": "record-only",
+        "source": "authored-dungeon-glb",
+        "sourceBytes": 7990584,
+        "sourceSha256": "cac0fc8c16d107e7ac4e69efde89c2cb6ef4bc66c34456a4dd0923218e5aafb1",
+        "sourceTriangles": 72137
+      },
+      "id": "texture-compression-acceptance-v1",
+      "independentRuns": 1,
+      "quality": "complete-authored-original-2k-bc7-quality6-native-v4",
+      "renderScale": 1,
+      "resolution": [
+        1920,
+        1080
+      ],
+      "sampleCadence": 1,
+      "sampleFrames": 120,
+      "seed": 4300,
+      "texture": {
+        "authoredResolution": 2048,
+        "cookedTranscode": 0,
+        "requiredFeature": "texture-compression-bc",
+        "sourceImages": 25,
+        "sourceTextures": 25
+      },
+      "timestampRequired": true,
+      "warmupFrames": 30
     },
     "texture-residency-component-v1": {
       "cameraPath": "none",

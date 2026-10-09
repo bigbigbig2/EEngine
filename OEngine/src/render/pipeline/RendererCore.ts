@@ -275,6 +275,10 @@ export interface ProductSceneHandles {
 }
 
 export interface WebCookedSceneOptions extends ProductSceneOptions {
+  /** Caller-owned scene cache keyed by the WebCook mapper's source/sampler/usage
+   * identity. Seed with validated Products for cooked load; scope to one catalog.
+   * Cache misses retain normal cold preparation and propagate its failures. */
+  readonly textureCache?: Map<string, Promise<ShadeTexture>>;
   /** Skip authored image/material mapping for geometry inspection. */
   readonly geometryOnly?: boolean;
   /** Publish all geometry with one lit material for diagnosis. */
@@ -895,7 +899,7 @@ export class Renderer {
     // One cache for the whole scene lifetime. A replacement revision maps the
     // same authored images while the outgoing revision is still resident; sharing
     // the cold sources lets immutable BC Products and resident layers be shared.
-    const textureCache = new Map<string, Promise<ShadeTexture>>();
+    const textureCache = options.textureCache ?? new Map<string, Promise<ShadeTexture>>();
     let framing: WebCookCatalogSceneFramingV1 | undefined;
     return this.uploadProductScene(
       scene,
@@ -943,7 +947,7 @@ export class Renderer {
     options: WebCookedSceneOptions = {},
   ): Promise<MultiProductSceneHandles> {
     let runtime: GeometryProductMultiRuntimeV1 | undefined;
-    const textureCache = new Map<string, Promise<ShadeTexture>>();
+    const textureCache = options.textureCache ?? new Map<string, Promise<ShadeTexture>>();
     let framing: WebCookCatalogSceneFramingV1 | undefined;
     const parts: VirtualGeometryProductScenePartV1[] = [];
     const shardHandles: GeometryProductShardHandleV1[] = [];
@@ -1662,6 +1666,8 @@ export class Renderer {
     };
   }
 
+  private readonly promotedTextureRuntimes = new WeakSet<GpuRenderWorldRuntime>();
+
   render(camera: PerspectiveCamera, scene: Scene, timeDeltaSeconds = 1 / 60): boolean {
     if (this._deviceLost || this._destroyed) return false;
     // A healthy device may defer this tick. No graph/resources/history are
@@ -1709,6 +1715,12 @@ export class Renderer {
     let cameraChanged = false;
     let localLightWork: LocalLightWorkFrame | null = null;
     try {
+      // Tail-first upload is already committed. Promote once in the ordinary
+      // frame transaction; abort retains the coarse publication for retry.
+      if (!this.promotedTextureRuntimes.has(runtime)) {
+        this._graphics.texture_residency.promote(runtime.materials, command);
+        command.onFinished.addOne(() => this.promotedTextureRuntimes.add(runtime));
+      }
       const finishScenePrepare = this._profiler.beginCpuSection("scene-prepare");
       if (
         this._fsr3.canRetainHistory(

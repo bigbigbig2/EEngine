@@ -154,6 +154,7 @@ try {
   url.searchParams.set("registrySha256", registrySha256);
   url.searchParams.set("workloadSha256", workloadSha256);
   url.searchParams.set("hostBuildId", hostBuildId);
+  url.searchParams.set("engineSourceSha256", engineSourceSha256);
   // Formal PERF cases need the same revision identity that the artifact carries;
   // expose it as immutable query data rather than asking the page to run git.
   url.searchParams.set("revision", commit);

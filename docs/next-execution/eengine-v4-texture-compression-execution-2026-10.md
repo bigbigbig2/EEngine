@@ -38,26 +38,31 @@ verifies:
     - OEngine/benchmarks/texture-compression-t4-0.json
     - OEngine/benchmarks/texture-compression-t4-1.json
     - OEngine/benchmarks/texture-compression-t4-2.json
+    - OEngine/benchmarks/texture-compression-t4-3.json
     - tools/test-build.mjs
     - tools/gpu-oracle/registry.mjs
     - tools/gpu-oracle/server.mjs
     - validation/cases/texture-residency-component
     - validation/cases/lighting-acceptance
     - validation/workloads/lighting-acceptance-v1.yaml
+    - validation/cases/texture-compression-acceptance
+    - validation/workloads/texture-compression-acceptance-v1.yaml
+    - validation/src/runner/run-case.mjs
+    - validation/vite.config.ts
 ---
 
 # PC Texture Compression 执行计划
 
-本文件是Texture Compression slice的唯一单元状态/执行authority；架构与Source Map见[Design](../next-design/eengine-v4-texture-compression-2026-10.md)。全局不变量、失败分类沿用[V4 execution](./eengine-v4-native-shading-execution-2026-10.md#validation-failure-contract)和[VALIDATION](../VALIDATION.md)。T4.2已完成唯一BC Residency生产切换与必需功能/生命周期检查（§11）；**T4.3 authored/performance验收未开始，整个Texture Compression slice尚未关闭**。用户明确排除400多MB模型，后续场景测试均不再运行它；改变的是验收workload范围，不是缩小同一个场景后声称等价。
+本文件是Texture Compression slice的唯一单元状态/执行authority；架构与Source Map见[Design](../next-design/eengine-v4-texture-compression-2026-10.md)。全局不变量、失败分类沿用[V4 execution](./eengine-v4-native-shading-execution-2026-10.md#validation-failure-contract)和[VALIDATION](../VALIDATION.md)。**T4.0–T4.3与Texture Compression slice均closed**，最终authored/质量/成本/生命周期结果与OPEN限制见§12；不代表整帧性能已改善或整个Renderer验收结束。用户明确排除400多MB模型，后续场景测试均不再运行它；改变的是验收workload范围，不是缩小同一个场景后声称等价。STOP，不自动开始VT。
 
 ## 1. 单元与停止边界
 
-| 单元                                        | 状态        | 责任闭包                                                                       | 结束边界                       |
-| ------------------------------------------- | ----------- | ------------------------------------------------------------------------------ | ------------------------------ |
-| T4.0 Current Texture Baseline & PC Contract | closed      | 当前source/quality/capability/成本与reference；有限 GPU encoder decision probe | baseline与采用裁决后STOP       |
-| T4.1 PC BC Texture Product                  | closed      | upstream cook/import→schema3/mips/planes；Spark DEFER，非production            | composite功能验证后STOP        |
-| T4.2 Production BC Residency Cutover        | closed      | GLB/WebCook→Residency→Material→Surface/main/VSM/Temporal，原子切换并删除旧路线 | 单一production owner验证后STOP |
-| T4.3 Texture Compression Acceptance         | not-started | 真实authored、quality、load/CPU/GPU、memory、lifecycle                         | 关闭slice后STOP，不自动开始VT  |
+| 单元                                        | 状态   | 责任闭包                                                                       | 结束边界                       |
+| ------------------------------------------- | ------ | ------------------------------------------------------------------------------ | ------------------------------ |
+| T4.0 Current Texture Baseline & PC Contract | closed | 当前source/quality/capability/成本与reference；有限 GPU encoder decision probe | baseline与采用裁决后STOP       |
+| T4.1 PC BC Texture Product                  | closed | upstream cook/import→schema3/mips/planes；Spark DEFER，非production            | composite功能验证后STOP        |
+| T4.2 Production BC Residency Cutover        | closed | GLB/WebCook→Residency→Material→Surface/main/VSM/Temporal，原子切换并删除旧路线 | 单一production owner验证后STOP |
+| T4.3 Texture Compression Acceptance         | closed | 真实authored、quality、load/CPU/GPU、memory、lifecycle                         | 关闭slice后STOP，不自动开始VT  |
 
 只接受明确授权的当前单元；不因设计已ready自动执行后续。若用户授权完整slice，仍以连续责任单元闭合后集中验证，不每helper跑heavy场景。
 
@@ -419,4 +424,82 @@ engine typecheck/production build/fresh build:test、validation typecheck通过�
 
 **NOT-RUN / 下一单元必测：** dungeon after-cutover完整authored闭包、coldraw与persisted cookeddirect load/readiness/full-quality、同条件CPU/GPU P50/P95与全目录预算/fragmentation峰值属于T4.3；不能把§9 forecast当实测。真实browser decode/driver host/GPU峰值、crossGPU/browser、自然driver loss未测；当前只有软件ledger与controlled loss。477MB模型永久excluded，本轮及后续均不自动运行。没有production dist完整browser场景验收，不把source/Vite Worker组件通过说成所有打包入口已验收。
 
-**T4.2 = closed；T4.3 = not-started；Texture Compression slice = 尚未验收关闭。STOP。** 不自动进入T4.3、VT、Lighting或其它模块。
+**T4.2结束时：T4.2 = closed；T4.3当时 = not-started；Texture Compression slice当时尚未验收关闭。** 这是T4.2历史边界，当前验收读§12。不得自动进入VT、Lighting或其它模块。
+
+## 12. T4.3 实施与验收（2026-10-09）
+
+### 12.1 当前源码与验收方法
+
+开工 fetch 成功，HEAD `863a59bceb4fb78b25b443f3dd0ee22f83834f84`，origin/master `b39f23a0e21a57c469cf2396d646ac80571fc48e`，初始工作区 clean。本阶段只补必需接线和验收：WebCookedSceneOptions 开放 mapper 已有的 scene-scoped textureCache，raw/cooked 共用同一个 uploadWebCookedMultiProductScene、TextureResidency 和 Renderer。磁盘 schema3 包重新打开、hash/identity 检查后 seed cache；没有第二条 renderer/纹理 owner，没有 BC readback。
+
+源码审查发现 T4.2 的 Residency promotion 和 native live clamp 已存在，但 Renderer 没有 promotion caller，非 coverage 纹理无法达到 full quality。修复为新 immutable RenderWorld runtime 的首个普通 frame transaction 调用既有 promote，成功 finish 才记入 WeakSet；abort 会保留 retry，replacement/recovery 新 runtime 自动失效，稳定帧不重复扫描。首次 coarse publication 仍合法，全 mip 为已烘焙 blocks，无 runtime mip generation、独立 submit 或新 scheduler。
+
+独立 case `texture-compression-acceptance` 使用完整 dungeon；fitHeight=8、camera [10,7,12]→[0,3,0]、near=.05，与 §11.3 原始 oracle 源码保持一致。原 25 张 2048² ORM/AO 图、798 primitives、72,137 triangles、所有计划 shard 保留；1920×1080/scale1/exposure1，所有真实 Renderer 功能不变。normal/profiling 各 warmup30/sample120；同步 render CPU 与 harness queue completion wait 分离；HDR/winner readback 只在独立 inspection frame，不进入成本样本。
+
+Vite 的固定目录 `.local/texture-compression-dungeon` 只保存验收输出，不是 production cache：bounded PUT、固定 filename、manifest 最后保存，包逐个 checksum 校验。每个 cold job 完成即保存唯一包，保存 IO 包含在 raw load wall 内并单列 `diagnosticArchiveWriteMs`；不能把这项诊断 IO 当作 production cook 必需成本。raw 首次完成后存真实 cold prefix/runId；受影响重跑可以重用包与原 prefix，但必须标注原始 source/build/run 身份，不能将 archived cold timing 说成新一轮 cold load。cooked package read/parse与Renderer initialize单列；`firstUsefulFrameMs/fullQualityMs`从geometry load开始，`endToEndFirstUsefulFrameMs/endToEndFullQualityMs`另包含此前包读取/解析和初始化。真实 GPU 作业串行；不运行 excluded 477MB 模型。
+
+本节只说明方法；最终通过依据为§12.3–12.5的新鲜结果，不能由方法本身推断验收。
+
+### 12.2 原失败与受影响重跑
+
+原始 artifact 全部保留于 `.local/validation`，不得覆写为 passed：
+
+- `2026-10-09T00-15-34-651Z-...-8a92787e-f130-4ed9-9263-9fa78b43d632`：cold完成后 `Incomplete texture catalog`。分类为validation assertion错误：GLB25张image有24个唯一SHA256，两张字节完全相同；独立读取原GLB bufferViews证实，不是漏图。改为仍强制25 authored引用、24唯一Product及24resident，未减目录或放宽容差。
+- `2026-10-09T00-45-11-007Z-...-1994bd74-5490-4c46-b749-8ea58e4211d7`：raw/cooked、resize/motion/recovery/HDR全部完成，raw/cooked winner与HDR汇总完全一致；runner仍failed，24包和manifest的PUT共25条 `net::ERR_ABORTED`，另旧device主动destroy回调在共享intentional标志重置后误报。分类为宿主artifact IO/epoch观察错误。改PUT为200 JSON字节确认并消费完整响应；按GPUDevice WeakSet记录主动销毁，受控loss明确断言reason=destroyed，不放宽unexpected-error规则。
+- `2026-10-09T01-13-47-870Z-...-24df8053-ea40-4a4d-bc9b-491f079cdfbf`：修复后全部runner gates passed。
+- `2026-10-09T01-15-14-546Z-...-bd3cef68-026a-48ad-a095-1d145987122e`：补浏览器PUT receipt受影响验证、cooked cache miss/read/decode严格为0及raw/cooked HDR汇总精确相等；全部runner gates passed，errors空。重用第二轮真实cold包/prefix，明确非新cold测量。当时GPU独立矩阵仍待结束，最终结果读§12.3。
+
+本轮误用root的旧TypeScript入口出现大量泛型typed array等错误；改用engine实际TypeScript5.9.3后validation typecheck通过。未修改无关源码以适配错误toolchain。
+
+### 12.3 最终身份、质量与生命周期
+
+机器汇总：[texture-compression-t4-3.json](../../OEngine/benchmarks/texture-compression-t4-3.json)。起始source commit为§12.1的HEAD；新实现的engine source SHA256=`422fe60fae9dd2da0f9695ad9b6a6c8be72414612742e1d042555a956390d9de`，fresh test output SHA256=`50c0f43e6ebf6e38e6edf533e89ccf04cd623d426afc37b303af45776ff44f6e`（完成于2026-10-09T00:15:13.535Z）。六个GPU oracle与最终authored runner使用同一engine source；汇总保存完整build、host、workload、codec recipe/binary与artifact hash身份。
+
+最终run=`2026-10-09T01-41-40-786Z-texture-compression-acceptance-6dd67a0b-4d4f-4360-b715-45ee63b31ef6`，全部freshness/identity/browserErrors/pageOutcome/disposed/artifacts gates为true，errors空。raw prefix来自§12.2第二轮，冷数据复用有明确原run/source标记；最终cooked/load/frame/recovery是新测。完整目录保持798 primitives/instances、72,137 triangles、13 Products、25 material/texture/image引用、原2048²/full12mips；24个唯一内容都以`bc7-rgba-unorm`驻留。dungeon以ORM/AO为主，不能代替独立颜色/normal/alpha矩阵。
+
+| 新鲜GPU验证                             | 实际结果与边界                                                                                                                                                                                                                                                                                                                           |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| pc-texture-product                      | 完整1K/2K/4K×4 semantics及NPOT/exact coverage、provided signed/non-unit normal、PNG/JPEG/WebP，共17 cases；native sampling最大误差7.6294e-6，原1e-4门限不变。旧/新device各576 samples/864 exact coverage checks，maxError0；assigned cancel/retry、Worker/queue/credits清零。encoder有损误差/角度逐mip保存，不将sampling误差冒称压缩无损 |
+| pc-texture-residency                    | 实际唯一Residency与native sampling76 samples/maxError0；NPOT、BC4 channel、exact R8、promotion abort/retry；22segments/21tuples/10maps/18sampled完整admission，fenced bytes0；cookedWorkerCount0                                                                                                                                         |
+| native-material                         | 实际bindings/live tail6→0、abort/retry/update/fence、packed Products；maxProductError1.1921e-7。理想CPU filtering偏差仍单列，不偷换原hardware reference                                                                                                                                                                                  |
+| native-surface-integration              | main/VSM exact alpha一致，VSM16,384比较像素maxDepthError0；normal/ORM、PBR、coat/custom graph、motion/Temporal/FSR与resize abort/retry通过。component不单独证明authored生产ownership                                                                                                                                                     |
+| native-surface-multi-product-production | 实际Renderer多Product、alpha/Temporal、abort/retry、全source controlled recovery通过；不是恢复旧renderer                                                                                                                                                                                                                                 |
+| pc-texture-import                       | ETC1S7mips/UASTC缺链recook6mips/Zstd11mips，经真实Worker逐mip BC array sampling，maxError0；failed import→retry与credits清零                                                                                                                                                                                                             |
+
+authored raw/cooked winner count与Surface HDR汇总精确相等，没有调容差；native sampler constants实测full mip code7，而非只验证upload账。所有publication cooked cache misses/image reads/decode为0，cold texture tasks/encode/transcode/runtime mip均0。motion20帧、1280×720 resize→1080p恢复、受控device destroy→新epoch全部Products replay通过，无recook；old texture与old Geometry owner均0，最后真实fenced unload的allocated/live/pending/retiring/quarantine texture与Geometry allocations/metadata全0。截图已目视核对非空真实dungeon。自然driver故障、全局effect缓存清零不在此texture owner声明内。
+
+### 12.4 成本结果（MEASURED，非driver VRAM）
+
+normal与full profiling各warm30/sample120；queue completion等待单列，不进入同步render CPU。下面采用最终run，不挑最好的一轮；raw为已保存的真实第二轮prefix。
+
+| ms，P50 / P95 / max        | Raw cold后的稳定帧    | 最终Cooked direct稳定帧                        |
+| -------------------------- | --------------------- | ---------------------------------------------- |
+| normal renderer.render CPU | 3.86 / 5.62 / 9.28    | 4.03 / 6.91 / 7.88                             |
+| full profiling CPU         | 4.38 / 7.47 / 10.08   | 4.06 / 6.23 / 12.35                            |
+| GPU command span           | 25.12 / 27.62 / 28.73 | 28.07 / 115.60 / 171.90                        |
+| Surface GPU pass sum       | 9.08 / 10.74 / 12.31  | 9.95 / 52.59 / 65.66                           |
+| Shadow GPU stage           | 见artifact            | 0.85 / 2.79 / 4.63                             |
+| Local Light Work GPU       | 见artifact            | 0.0041 / 0.0082 / 0.0095；本场景0 local lights |
+
+另外两个passed受影响run的GPU P50/P95分别45.81/52.16ms、42.13/103.65ms，CPU分别5.66/10.12ms、3.96/5.66ms；全部保存。GPU尾延迟与跨run漂移明显，原因未证明，不能归因为BC bandwidth或宣称加速。最终最大的已计时GPU范围是unclassified stage P50/P95=14.88/56.59ms与native Surface约9.97/52.62ms；shader texture samples的独立成本、driver preemption/clock/DRAM均UNKNOWN。旧基线CPU N30为2.3/3.4ms，当前观察值更高，不声明CPU改善；旧完整GPU未测，没有可用的GPU前后收益比较。
+
+| Bytes / load                   | 实际结果                                                                                                                                                                                                                                      |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| authored encoded images        | 25引用2,379,388B，24唯一内容2,270,654B；base RGBA-equivalent25×2048²×4=419,430,400B是布局ESTIMATE，不是decode peak                                                                                                                            |
+| texture live / allocated peak  | 134,218,368B / 173,365,392B；旧live559,240,500B / allocated771,752,376B，allocated减少77.54%。当前7segments的neutral/slack39,147,024B全部计入，不隐藏fragmentation                                                                            |
+| full upload                    | 134,251,776B=tail33,408B+promotion134,218,368B；tight writeTexture、0 private frame submit、0 runtime compressed mip。旧upload ledger0是缺统计，不能计算upload speedup                                                                        |
+| graphics / resource / Geometry | Graphics snapshot465,788,068B；registered resource peak467,321,184B；Geometry独立预算页池536,870,912B+metadata67,108,864B。覆盖范围不同，不机械相加成driver峰值；Texture2GiB硬上限满足，无OOM/validation error，不认证driver4GB物理峰值       |
+| cold raw                       | settled1,481.00s；first useful1,482.97s、full quality1,483.13s；含诊断包保存8.95s。25jobs encode sum1,458.09s、decode1.53s、Worker task1,463.94s、owned-copy279,620,900B、WASM high-water max41,025,536B；不可把各job high-water求和冒称peak  |
+| cooked direct                  | package134,420,544B；read/hash/open/cache3,377.47ms，其中open parse1,624.82ms；Renderer initialize3,047.99ms。geometry/publication load起点到full quality20,127.20ms；含包读取与初始化的端到端first useful26,409.71ms/full quality26,552.76ms |
+
+固定资产direct确实避免decode/encode/transcode/codec Worker，但final BC包远大于本场景JPEG等source，带来IO/storage成本。与旧upload wall12,363ms计时范围不完全一致，也没有proved load speedup。browser raw首次quality6 BC7 cook约24.7分钟是明确OPEN usability代价，推荐固定资产提前cook；本轮不重开Spark或降低quality。
+
+### 12.5 关闭、检查与OPEN
+
+engine typecheck/production build/fresh build:test及最终freshness核对通过；validation最终以engine TypeScript5.9.3通过。targeted Node30/30（跳过未变codec的完整native/WASM配对重编码矩阵），GPU host contract45/45；六个fresh GPU oracle与最终browser case均passed。最终docs-verify为0 findings/66历史warnings，文档/导航/构建身份工具测试8/8，vibe doctor与registry check均通过；scoped Prettier、diff whitespace及artifact/Execution source/build SHA一致性核对通过。不以旧文档代替新验证。
+
+OPEN/NOT-RUN：真实browser decoder/driver host与VRAM峰值、hardware bandwidth/register/spill/crossGPU/crossbrowser、自然driver fault；production dist独立完整browser load未运行，当前是source/Vite生产Renderer。完整native/WASM配对矩阵曾因误选入口启动，未完成即停止，非断言失败，本轮不计其passed；算法/quality/binary未改，T4.1原参考保留，当前完整GPU矩阵新跑通过。用户excluded的477MB/66Product场景未运行、未认证。Spark DEFER、BC5 normal、BC6H环境、完整transparency、VT未实施。
+
+实际性能OPEN为raw冷烘焙、direct包IO/校验、7segments neutral成本与GPU尾延迟；shader/driver归因尚不足，不把Geometry/Lighting/GI的优化算本slice完成。按§6，只有性能低于预期可公开记录而不自动发起新架构；质量、完整目录、容量、正确消费、恢复与teardown必需gates已通过。
+
+**T4.3 = closed；Texture Compression slice = closed。STOP。** BC REQUIRED、唯一TextureResidency与同一Renderer保持；Virtual Texture/Page Residency仍是后续独立授权/设计模块，未启动。

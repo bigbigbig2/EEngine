@@ -1,0 +1,25 @@
+schemaVersion: 1
+id: texture-compression-acceptance
+route: /cases/texture-compression-acceptance/index.html
+buildTarget: production
+workloadId: texture-compression-acceptance-v1
+profile: geometry-scale
+timeoutMs: 1800000
+artifacts: [result, events, screenshot]
+changedPaths:
+  - validation/cases/texture-compression-acceptance
+  - validation/workloads/texture-compression-acceptance-v1.yaml
+  - OEngine/src/assets/TextureProduct.ts
+  - OEngine/src/gpu/TextureResidency.ts
+  - OEngine/src/render/pipeline/RendererCore.ts
+errorAllowlist:
+  - source: console:warning
+    exact: The powerPreference option is currently ignored when calling
+      requestAdapter() on Windows. See https://crbug.com/369219127
+    reason: Chrome platform warning; device capability is captured.
+harness: production
+domain: materials-textures
+caseKind: production
+kind: perf
+level: L4
+decision: ADR-0020

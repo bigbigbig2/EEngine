@@ -18,7 +18,7 @@ goal: >-
 currentSlice:
   id: texture-compression-v4
   title: Virtual resources V4 / PC GPU Native Texture Compression
-  status: active
+  status: closed
   goal: >-
     Establish a BC-required PC profile and cooked final-block Texture Product with
     direct GPU upload, complete native consumers and fenced residency. Preserve M1/M2/M3

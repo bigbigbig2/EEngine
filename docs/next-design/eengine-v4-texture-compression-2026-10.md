@@ -38,7 +38,7 @@ verifies:
 
 这是 virtual-resources-v4 的 Texture Compression slice 设计 authority；阶段状态、施工入口和实测结果只在[执行计划](../next-execution/eengine-v4-texture-compression-execution-2026-10.md)。[V4 母稿](./eengine-v4-native-shading-2026-10.md)仍是全局 authority。本文区分当前生产源码、冻结目标与验收；production cutover 的证据只读 Execution，不能由文档设计推断整个 slice 已验收。
 
-历史设计起点与 T4.0/T4.1 源码身份保留在 Execution。当前源码事实按 T4.2 cutover 更新，实施与验证身份见 Execution §11 和机器 artifact；不将旧 baseline 数字追认为新路径收益。
+历史设计起点与 T4.0/T4.1 源码身份保留在 Execution。当前源码事实按 T4.2 cutover 与 T4.3 必需接线更新，实施与验证身份见 Execution §11–12 和机器 artifact；不将旧 baseline 数字追认为新路径收益。
 
 ## 1. 当前源码事实
 
@@ -60,15 +60,15 @@ flowchart TD
   Env[Independent float Environment / IBL] --> Surface
 ```
 
-| 层                         | 当前实现事实                                                                                                                                         | 源码 owner                                                 |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| Raw GLTF/WebCook           | 保留 encoded bytes，KHR_texture_basisu 支持并优先选择；loader 不 decode/resize、不创建长期 GPU texture                                               | GltfLoader、gltfTextures、WebCookSceneSource               |
-| Cold preparation           | Renderer 所有 scene publication 入口 await 完整 material batch；source/semantic/channel/exact-alpha 区分，ORM/AO 同图保留多通道；失败 Promise 可重试 | PcMaterialTextures、RendererCore                           |
-| Fixed cooked               | ShadeTexture.fromProduct 直接进入 Residency；不初始化 Worker，不 serialize/reopen、不做 runtime mips                                                 | ShadeTexture、TextureProduct、TextureResidency             |
-| Codec                      | raw PNG/JPEG/WebP 在有界 Worker 中 decode/canonical mip/quality6 encode；KTX 使用 libktx metadata/load/extract/transcode；必要转换或缺链才 recook    | PcTextureCook、PcTexturePreparation、pc-texture-worker     |
-| Physical GPU               | 唯一 material owner，BC7/BC4/R8 immutable array segments；按本批需求分配或复用 free layers；tight writeTexture                                       | TextureResidency                                           |
-| Native consumers           | 静态 channel/coverage glue、material-local routes；覆盖 Surface、main/VSM alpha、CPU mip/revision、Temporal native versions                          | NativeMaterialBindings、GpuNativeMaterialScene/Publication |
-| Environment / transparency | float IBL 保持原 owner，未新增 BC6H；仍未建立完整 authored transparent texture shading                                                               | GpuAuthoredEnvironment、Renderer/FrameProgram              |
+| 层                         | 当前实现事实                                                                                                                                         | 源码 owner                                                   |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| Raw GLTF/WebCook           | 保留 encoded bytes，KHR_texture_basisu 支持并优先选择；loader 不 decode/resize、不创建长期 GPU texture                                               | GltfLoader、gltfTextures、WebCookSceneSource                 |
+| Cold preparation           | Renderer 所有 scene publication 入口 await 完整 material batch；source/semantic/channel/exact-alpha 区分，ORM/AO 同图保留多通道；失败 Promise 可重试 | PcMaterialTextures、RendererCore                             |
+| Fixed cooked               | ShadeTexture.fromProduct 直接进入 Residency；WebCook 可 seed catalog-scoped textureCache；不初始化 Worker、不做额外 serialize/reopen 或 runtime mips | ShadeTexture、TextureProduct、TextureResidency、RendererCore |
+| Codec                      | raw PNG/JPEG/WebP 在有界 Worker 中 decode/canonical mip/quality6 encode；KTX 使用 libktx metadata/load/extract/transcode；必要转换或缺链才 recook    | PcTextureCook、PcTexturePreparation、pc-texture-worker       |
+| Physical GPU               | 唯一 material owner，BC7/BC4/R8 immutable array segments；按本批需求分配或复用 free layers；tight writeTexture                                       | TextureResidency                                             |
+| Native consumers           | 静态 channel/coverage glue、material-local routes；覆盖 Surface、main/VSM alpha、CPU mip/revision、Temporal native versions                          | NativeMaterialBindings、GpuNativeMaterialScene/Publication   |
+| Environment / transparency | float IBL 保持原 owner，未新增 BC6H；仍未建立完整 authored transparent texture shading                                                               | GpuAuthoredEnvironment、Renderer/FrameProgram                |
 
 本轮 production 已只接受 schema3 BC Product。schema2、5 固定 RGBA banks、旧 codec Worker/header parser、serialize→reopen 链、variation GPU owner 已删除。已完成的 consumer/component 验证与整个 slice 的 authored/performance acceptance 分开，逐项结果只读 Execution。
 
@@ -76,7 +76,7 @@ flowchart TD
 
 - TextureRef ABI3；ShadingMaterial ABI8，route 32B（移除旧64B variation字段），tuple identity完整u32，不塞入bin两bit。material-local slots 0..15；logical handle 容量 4095，global segment/tuple 不再受 4 sets/16 segments 限制。每 shader descriptor 仍受真实 device sampled/sampler 等限额；Renderer 最低16、最高请求19 sampled。
 - segment key 为 format/storage width/height/mipCount；layer0 neutral，live layers 1..N。新 immutable 段按当前 batch 需求创建，重复 immutable Product 引用共享；完整 chain 已分配，tail-first 只减少初始 upload，不减少 reserved VRAM。
-- exact coverage 产品两 plane 首次全链上传；其他产品 initial minMip=min(6,last)，promotion 在成功 command finish 后推进 clamp/revision。Native binding 的新 route constants 发布后更新，稳定 shader/pipeline identity 可复用。
+- exact coverage 产品两 plane 首次全链上传；其他产品 initial minMip=min(6,last)。T4.3 接通新 immutable RenderWorld runtime 的普通 frame promotion，成功 command finish 后推进 clamp/revision；abort 重试、replacement/recovery 重新接线，稳定帧不重复扫描。Native binding 的新 route constants 发布后更新，稳定 shader/pipeline identity 可复用。
 - dimension、chunk shape/validated identity、完整 lit sampled/sampler footprint、layer/handle 与 2GiB 所有现存段+新段峰值在分配前预检。queued writes 不可撤销：abort 目标到真实 queue completion 才复用；rejected fence 不授权回收。
 - release/replacement 以 refcount、generation/object identity、fence 守卫；material stage/release reservations 阻止重复释放和不同未提交事务交叉。恢复重建 Residency，从 CPU immutable Product replay，late task 不进入新 epoch。
 - evidence schema7：实际 payload/live/allocated/retiring/quarantine、各 format、segments 与逐 mip accepted upload bytes；RGBA-equivalent 单独记录，不冒称 actual decode peak/driver VRAM。无 material resize/mip/private submit/variation32MiB。
@@ -94,7 +94,7 @@ RuntimeAsset container2 + texture metadata3 继续作为同一家族产品，own
 
 T4.0 是旧 RGBA production 实测，不从名称推断 BC：原32MiB variation、source mip+bank resize/mip、NPOT base extent及重复 parser 等问题记录保留在 Execution §9。T4.1 非production construction 记录保留在 §10，不能把其当时状态读成当前状态。
 
-T4.2 切换前保存完整 dungeon 1080p baseline：7,990,584B GLB、798 primitives/instances、25 materials/images/textures 原2048²尺寸，texture allocated771,752,376B/live559,240,500B，CPU30 samples P50/P95=2.3/3.4ms。旧 upload ledger=0 是统计缺项，不是无上传。新生产 fixture 已验证 BC/R8、真实 Surface/main/VSM/Temporal、恢复卸载清零；dungeon after-cutover、load/first useful/full-quality/全帧性能矩阵属于下一验收单元，未运行不写0、不认证收益。用户禁止后续运行477MB模型。
+T4.2 切换前保存完整 dungeon 1080p baseline：7,990,584B GLB、798 primitives/instances、25 materials/images/textures 原2048²尺寸，texture allocated771,752,376B/live559,240,500B，CPU30 samples P50/P95=2.3/3.4ms。旧 upload ledger=0 是统计缺项，不是无上传。T4.3 authored runner 保留25个引用，按24个唯一内容共享BC驻留，分别观测 raw cold 与 disk Product direct、实际 native full-mip clamp、normal/full profiling、恢复和fenced清零；具体结果及尚未运行范围只读 Execution §12。旧基线无完整GPU timestamps，不能认证整帧GPU加速。用户禁止后续运行477MB模型。
 
 ## 2. 最终决策
 
@@ -332,4 +332,4 @@ Residency ideal为exact live blocks；expected加neutral/free容量与metadata�
 
 验收需真实GPU证明format、sampling、sRGB一次解码、normal signedZ/length、ORM channels、exact main/VSM alpha、NPOT/repeat/tail/derivatives/LOD、progressive clamp、generation与replacement/abort/retry/loss/fence。source catalog全部覆盖、同quality不减少maps、compressed distribution和owner accounting可核对；historical测试通过不代替当前product消费。现有 texture component 已迁为 raw cold cook→唯一 BC Residency→native sampling/promotion/fenced zero；它不代替 authored acceptance。
 
-施工状态与下一授权边界只读[Execution](../next-execution/eengine-v4-texture-compression-execution-2026-10.md)。Spark=DEFER，BC5/BC6H/VT 未实施。下一授权验收使用 dungeon 原尺寸完整目录与独立1K/2K/4K语义矩阵；477MB模型禁止运行。T4.3结束STOP，不自动开始VT。
+施工状态与下一授权边界只读[Execution](../next-execution/eengine-v4-texture-compression-execution-2026-10.md)。Spark=DEFER，BC5/BC6H/VT 未实施。验收范围为 dungeon 原尺寸完整目录与独立1K/2K/4K语义矩阵，最终结果与开放成本读Execution §12；477MB模型禁止运行。T4.3结束STOP，不自动开始VT。
