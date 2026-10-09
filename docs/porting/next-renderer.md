@@ -20,6 +20,12 @@ verifies:
     - OEngine/tests/oracle/native-surface-integration-gpu.mjs
     - OEngine/tests/oracle/native-surface-production-gpu.mjs
     - OEngine/src/gpu/VirtualGeometryResidency.ts
+    - OEngine/src/gpu/GeometryPageDemandAbiV1.ts
+    - OEngine/src/gpu/GeometryPageScheduler.ts
+    - OEngine/src/gpu/GeometryPageStreamingRuntime.ts
+    - OEngine/src/gpu/GeometryProductGpuAbiV1.ts
+    - OEngine/src/gpu/GeometryProductResidentAttributes.ts
+    - OEngine/src/shaders/hierarchical_work_generation.ts
     - OEngine/src/gpu/GeometryProductMultiRuntime.ts
     - OEngine/src/render/HierarchicalWorkGenerator.ts
     - OEngine/src/render/ShadowGeometryWork.ts
@@ -31,6 +37,14 @@ verifies:
     - docs/porting/nyx-function-map.json
 ---
 # EEngine Next：开源迁移来源与采用边界
+
+## Bistro 几何驻留修复（2026-10-09）
+
+Reference：沿用已记录 Nyx `bc7e5b1e51f6b3b8af4771db81ffaa714fcbe64b`、MiniEngine MIT；本轮重新核读本地 `MiniEngine/Model/Shaders/DAGCull.slang::ProcessNodeBatch` 的 accepted group request mask 写入（在 resident 判断之前），以及 `GeometryStreaming.cpp::Update` 的 LastUsedFrame 更新与仅 missing page 入 IO。
+
+Adapt：`hierarchical_work_generation` 的主视图/VSM resident usage 与 missing request 共享原 delayed queue；scheduler 忽略 usage IO，residency 更新 last-used；complete feedback watermark 才授权 age-based eviction，shared pool 每轮共用一个驱逐预算。保留原 GPU fence、Product slot/generation、coarse cut 与完整 overflow 合同，不引入当前帧 CPU visible/work 控制。
+
+Original：runtime Geometry GPU ABI 4 的 page location word 3 在低两位 lifecycle flags 之外编码 16-byte aligned directory offset；CPU publication 与两个 WGSL lookup reader 一起切换。`GeometryProductResidentAttributes`/`VirtualGeometryResidency` 把目录/展开属性放进 raw page padding，必要时继续预约原 bounded pool 的额外 slots；payload→tail→location 顺序发布，所有 slots 同 fence 退休。OEGPACK/Texture Product 不变。成本卡与 Bistro 验证记录位于 demo README；不宣称新 donor 移植或全 Renderer 性能验收。
 
 > V4 全局不变量见 [V4 母稿](../next-design/eengine-v4-native-shading-2026-10.md)，当前模块设计/执行读取 [workstream.authority](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)，生产事实查源码和 domains。下文日期化来源条目的阶段、当前、§编号与旧设计链接都属于记录当时的快照，仅供追溯；不改变 adoption，也不定义第二套 current 架构。
 

@@ -347,9 +347,12 @@ export class GeometryPageSchedulerV1 {
 
   ingestDemands(demands: readonly GeometryPageDemandV1[], nowMs = 0): void {
     const unique = deduplicateGeometryPageDemandsV1(demands);
-    this.#requested += demands.length;
+    this.#requested += demands.reduce((count, demand) => count + (demand.residentUsage ? 0 : 1), 0);
     this.#deduplicated += demands.length - unique.length;
     for (const demand of unique) {
+      if (demand.residentUsage) {
+        continue;
+      }
       const product = this.#products.get(demand.productGeneration);
       if (
         !product ||

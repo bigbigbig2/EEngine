@@ -69,6 +69,84 @@ function encoder() {
   };
 }
 
+test("resident feedback protects hot pages without IO and bounds shared-pool eviction", async () => {
+  const events = [];
+  const { GeometryPageSchedulerV1 } = await import("../../.test-dist/gpu/GeometryPageScheduler.js");
+  const scheduler = new GeometryPageSchedulerV1({
+    maxConcurrentReads: 1, maxInFlightBytes: 262144, maxUploadBytesPerFrame: 262144,
+  });
+  // Exercise feedback/retirement under pressure independently of page decoding.
+  scheduler.drainUploadBudget = () => 0;
+  const evidence = scheduler.evidence.bind(scheduler);
+  scheduler.evidence = () => ({ ...evidence(), blockedUploads: 1 });
+  const makeResidency = (generation) => {
+    const used = new Map();
+    return {
+      publicationActive: true, publicationChanged: new Signal(),
+      productGeneration: generation, productTableSlot: generation - 1,
+      descriptor: { productId: new Uint8Array(32), revision: 0, decodedPageBytes: 262144, pageRecords: new Uint8Array(64) },
+      touchPage(page, frame) { used.set(page, frame); },
+      recordDemand() { throw new Error("Usage must not be recorded as a miss"); },
+      selectEvictionCandidates(frame, bytes, age) {
+        events.push({ generation, frame, bytes });
+        return bytes >= 262144 && frame - (used.get(0) ?? -100) >= age ? [0] : [];
+      },
+      residentPagePhysicalBytes() { return 262144; },
+      beginRetirePage(page) { events.push(`begin:${generation}:${page}`); },
+      completeRetirePage(page) { events.push(`end:${generation}:${page}`); },
+      evidence() { return {}; },
+    };
+  };
+  const first = makeResidency(1), second = makeResidency(2), third = makeResidency(3);
+  const runtime = new GeometryPageStreamingRuntimeV1(device(), first, {
+    scheduler, readback: { slotCount: 2, bytesPerSlot: 64 },
+  });
+  for (const residency of [first, second, third]) {
+    runtime.registerProduct({
+      descriptor: residency.descriptor,
+      readPage() { throw new Error("Resident usage must never read a page"); }, release() {},
+    }, residency);
+  }
+  const buffer = new FakeBuffer({ size: 32, usage: 0 });
+  buffer.bytes.set(packGeometryPageDemandHeaderV1({ attempted: 1, capacity: 1, overflow: 0, frameRevisionLow: 10 }));
+  buffer.bytes.set(packGeometryPageDemandV1({
+    productTableSlot: 0, productGeneration: 1, pageId: 0, priority: 0,
+    currentViewMissing: false, shadow: false, predictive: false, residentUsage: true,
+  }), 16);
+  runtime.encodeDemandReadback(command(), buffer, 10);
+  await runtime.consumeCompleted(100); // completion clock must not age the hot page
+  assert.deepEqual(events, [
+    { generation: 1, frame: 10, bytes: 262144 },
+    { generation: 2, frame: 10, bytes: 262144 }, "begin:2:0", "end:2:0",
+  ]);
+  assert.equal(scheduler.evidence().requested, 0);
+  assert.equal(scheduler.evidence().inFlightBytes, 0);
+  assert.equal(scheduler.evidence().verifiedBytes, 0);
+  events.length = 0;
+  buffer.bytes.set(packGeometryPageDemandHeaderV1({ attempted: 2, capacity: 1, overflow: 1, frameRevisionLow: 101 }));
+  runtime.encodeDemandReadback(command(), buffer, 101);
+  await runtime.consumeCompleted(102);
+  assert.deepEqual(events, []); // incomplete usage cannot authorize eviction
+  // A complete main snapshot cannot override incomplete active-shadow usage.
+  buffer.bytes.set(packGeometryPageDemandHeaderV1({ attempted: 1, capacity: 1, overflow: 0, frameRevisionLow: 103 }));
+  runtime.encodeDemandReadback(command(), buffer, 103);
+  buffer.bytes.set(packGeometryPageDemandHeaderV1({ attempted: 2, capacity: 1, overflow: 1, frameRevisionLow: 103 }));
+  runtime.encodeShadowDemandReadback(command(), buffer, 103);
+  await runtime.consumeCompleted(104);
+  assert.deepEqual(events, []);
+  // Fill the shadow ring without consuming it. A dropped shadow copy must
+  // still prevent the incomplete snapshot from aging pages by a newer main clock.
+  for (const frame of [104, 105, 106, 107]) {
+    runtime.encodeShadowDemandReadback(command(), buffer, frame);
+  }
+  buffer.bytes.set(packGeometryPageDemandHeaderV1({ attempted: 1, capacity: 1, overflow: 0, frameRevisionLow: 107 }));
+  runtime.encodeDemandReadback(command(), buffer, 107);
+  await runtime.consumeCompleted(108);
+  assert.deepEqual(events, []);
+  assert.ok(runtime.evidence().shadowReadback.overflow > 0);
+  runtime.destroy();
+});
+
 test("GPU demand ring copies in-frame and maps only after a later completion", async () => {
   const ring = new GpuGeometryDemandReadbackRingV1({
     device: device(),

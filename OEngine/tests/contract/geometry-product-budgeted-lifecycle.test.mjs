@@ -56,6 +56,52 @@ const demand = (slot, generation, pageId, priority = 0) => ({
   shadow: false
 });
 
+test("page tail directory and decoded attributes never overwrite authored geometry", async () => {
+  const gpu = device();
+  const createBuffer = gpu.createBuffer.bind(gpu);
+  gpu.createBuffer = (descriptor) => {
+    const buffer = createBuffer(descriptor);
+    buffer.bytes = new Uint8Array(descriptor.size);
+    return buffer;
+  };
+  gpu.queue.writeBuffer = (buffer, offset, data) => {
+    const bytes = ArrayBuffer.isView(data)
+      ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+      : new Uint8Array(data);
+    buffer.bytes.set(bytes, offset);
+  };
+  const runtime = new GeometryProductMultiRuntimeV1(gpu, {
+    metadataBytes: 64 * 1024, residency: { configuredCapacityBytes: 2 * MiB },
+  });
+  const fixture = await streamingProductFixture(2);
+  const handle = await runtime.load(fixture.source);
+  try {
+    const residency = handle.residency;
+    assert.equal(residency.tryUploadPage(await fixture.source.readPage(1)), true);
+    assert.equal(residency.evidence().residentBytes, 2 * 262144);
+    for (const pageId of [0, 1]) {
+      const original = await fixture.source.readPage(pageId);
+      const location = residency.pageLocation(pageId);
+      assert.equal(location.residentBankIndex, location.bankIndex);
+      assert.equal(location.residentSlotIndex, location.slotIndex);
+      assert.equal(location.residentByteOffset, 176);
+      const buffer = residency.bank(location.bankIndex);
+      const base = location.slotIndex * 262144;
+      assert.deepEqual(buffer.bytes.slice(base, base + 176), new Uint8Array(original.bytes, 0, 176));
+      const view = new DataView(buffer.bytes.buffer);
+      const directory = base + location.residentByteOffset;
+      const descriptorWord = view.getUint32(directory, true);
+      const address = view.getUint32(directory + descriptorWord * 4, true);
+      const values = new DataView(residency.bank(address >>> 30).bytes.buffer);
+      const attributeOffset = (address & 0x3fffffff) * 4;
+      assert.deepEqual([0, 1, 2].map(axis => values.getFloat32(attributeOffset + 80 + axis * 4, true)), [-0.5, -0.5, 0]);
+    }
+  } finally {
+    runtime.destroy();
+  }
+  assert.equal(geometryProductGpuBudgetEvidence(gpu).totalBytes, 0);
+});
+
 test("budget/profile final slots round trip with an explicit physical capacity", () => {
   const limits = device().limits;
   for (const [profile, bytes, last] of [

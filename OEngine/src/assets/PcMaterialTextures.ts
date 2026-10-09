@@ -6,6 +6,7 @@ import { ShadeTransparencyMode } from "../material/enums.js";
 import { ShadeTexture } from "../texture/ShadeTexture.js";
 import type { ShadeImage } from "../texture/ShadeImage.js";
 import { PcTexturePreparation } from "./codec/PcTexturePreparation.js";
+import type { PcTextureCookEvidence } from "./codec/PcTextureCook.js";
 import type { TextureSemanticV2 } from "./TextureProduct.js";
 import type { TextureProduct } from "./TextureProduct.js";
 
@@ -56,6 +57,7 @@ export function materialTextureLeaves(material: StandardShadeMaterial): readonly
 export async function prepareMaterialTextureProducts(
   materials: readonly StandardShadeMaterial[],
   signal?: AbortSignal,
+  onCooked?: (evidence: PcTextureCookEvidence) => void,
 ): Promise<void> {
   let cooker: PcTexturePreparation | undefined;
   const changes: Array<() => void> = [];
@@ -124,12 +126,18 @@ export async function prepareMaterialTextureProducts(
                 options,
                 signal,
               )
-        ).then((result) => result.product);
+        ).then((result) => {
+          onCooked?.(result.evidence);
+          return result.product;
+        });
       } else {
         const rgba = imageRgba(image);
         pending = cooker
           .cookRgba(rgba.buffer as ArrayBuffer, image.width, image.height, options, signal)
-          .then((result) => result.product);
+          .then((result) => {
+            onCooked?.(result.evidence);
+            return result.product;
+          });
       }
       products.set(key, pending);
       pending.catch(() => {

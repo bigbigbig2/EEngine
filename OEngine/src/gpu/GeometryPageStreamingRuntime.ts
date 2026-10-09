@@ -58,6 +58,11 @@ export class GeometryPageStreamingRuntimeV1 {
   #pollTail: Promise<unknown> = Promise.resolve();
   #lastError: string | null = null;
   #lastPoll: GeometryPageStreamingPollEvidenceV1 | null = null;
+  #mainFeedbackFrame = -1;
+  #shadowFeedbackFrame = -1;
+  #mainFeedbackComplete = false;
+  #shadowFeedbackComplete = false;
+  #lastShadowAttemptedFrame = -1;
   #destroyed = false;
 
   constructor(
@@ -201,6 +206,9 @@ export class GeometryPageStreamingRuntimeV1 {
     frameIndex: number
   ): number | undefined {
     this.assertAlive();
+    // A full ring drops a snapshot, not the fact that shadows still consume
+    // resident pages. Keep incomplete shadow feedback protective under pressure.
+    this.#lastShadowAttemptedFrame = Math.max(this.#lastShadowAttemptedFrame, frameIndex);
     this.#shadowReadback ??= new GpuGeometryDemandReadbackRingV1({
       device: this.#device
     });
@@ -235,9 +243,11 @@ export class GeometryPageStreamingRuntimeV1 {
     let consumedReadbacks = 0;
     let malformedReadbacks = 0;
     for (const result of results) {
+      this.#mainFeedbackFrame = result.frameIndex;
+      this.#mainFeedbackComplete = false;
       try {
         this.#scheduler.ingestDemandReadback(result.bytes, nowMs);
-        this.recordResidencyFeedback(result.bytes, result.frameIndex);
+        this.#mainFeedbackComplete = this.recordResidencyFeedback(result.bytes, result.frameIndex);
         consumedReadbacks++;
       } catch (error) {
         this.#lastError = error instanceof Error ? error.message : String(error);
@@ -247,9 +257,11 @@ export class GeometryPageStreamingRuntimeV1 {
       }
     }
     for (const result of shadowResults) {
+      this.#shadowFeedbackFrame = result.frameIndex;
+      this.#shadowFeedbackComplete = false;
       try {
         this.#scheduler.ingestDemandReadback(result.bytes, nowMs);
-        this.recordResidencyFeedback(result.bytes, result.frameIndex);
+        this.#shadowFeedbackComplete = this.recordResidencyFeedback(result.bytes, result.frameIndex);
         consumedReadbacks++;
       } catch (error) {
         this.#lastError = error instanceof Error ? error.message : String(error);
@@ -281,21 +293,28 @@ export class GeometryPageStreamingRuntimeV1 {
       ) => pageResidency(identity).tryUploadPage(page)
     };
     let uploadedBytes = this.#scheduler.drainUploadBudget(sink);
-    if (this.#scheduler.evidence().blockedUploads > 0) {
+    const feedbackFrame = this.evictionFeedbackFrame();
+    if (this.#scheduler.evidence().blockedUploads > 0 && feedbackFrame >= 0) {
       // This is a frame-between pump, never a current-frame control round trip.
       // Revocation is enqueued before the real queue fence captures ALL submitted
       // consumers, including newer frames than this delayed feedback.
       const candidates: Array<{ residency: VirtualGeometryResidency; pages: readonly number[] }> = [];
+      let evictionBytesRemaining = this.#scheduler.budget().maxUploadBytesPerFrame;
       for (const residency of this.#residencies.values()) {
-        if (!residency.publicationActive) {
+        if (!residency.publicationActive || evictionBytesRemaining <= 0) {
           continue;
         }
         const pages = residency.selectEvictionCandidates(
-          completedFrame,
-          this.#scheduler.budget().maxUploadBytesPerFrame,
+          feedbackFrame,
+          evictionBytesRemaining,
           2
         );
-        if (pages.length > 0) candidates.push({ residency, pages });
+        if (pages.length > 0) {
+          candidates.push({ residency, pages });
+          for (const pageId of pages) {
+            evictionBytesRemaining -= residency.residentPagePhysicalBytes(pageId);
+          }
+        }
       }
       if (candidates.length > 0) {
         const retired = candidates.map(({ residency, pages }) => {
@@ -334,7 +353,22 @@ export class GeometryPageStreamingRuntimeV1 {
     return this.#lastPoll;
   }
 
-  private recordResidencyFeedback(bytes: ArrayBuffer, frameIndex: number): void {
+  private evictionFeedbackFrame(): number {
+    if (!this.#mainFeedbackComplete) {
+      return -1;
+    }
+    // Compare age against observed feedback, never the newer completion clock.
+    // An active shadow producer must have a complete snapshot too. Once shadow
+    // work stops, historical shadow usage remains in each page's lastUsed.
+    if (this.#lastShadowAttemptedFrame >= this.#mainFeedbackFrame) {
+      return this.#shadowFeedbackComplete
+        ? Math.min(this.#mainFeedbackFrame, this.#shadowFeedbackFrame)
+        : -1;
+    }
+    return this.#mainFeedbackFrame;
+  }
+
+  private recordResidencyFeedback(bytes: ArrayBuffer, frameIndex: number): boolean {
     const view = new Uint8Array(bytes);
     const header = unpackGeometryPageDemandHeaderV1(view);
     for (let index = 0; index < Math.min(header.attempted, header.capacity); index++) {
@@ -347,6 +381,10 @@ export class GeometryPageStreamingRuntimeV1 {
         demand.pageId >= residency.descriptor.pageRecords.byteLength / 32
       )
         continue;
+      if (demand.residentUsage) {
+        residency.touchPage(demand.pageId, frameIndex);
+        continue;
+      }
       residency.recordDemand(
         demand.pageId,
         frameIndex,
@@ -354,6 +392,7 @@ export class GeometryPageStreamingRuntimeV1 {
         demand.predictive
       );
     }
+    return header.overflow === 0 && header.attempted <= header.capacity;
   }
 
   /** Couples a submission completion token to the delayed frame poll. */

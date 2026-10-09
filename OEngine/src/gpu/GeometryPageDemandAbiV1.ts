@@ -5,8 +5,9 @@ export const GEOMETRY_PAGE_DEMAND_MAX_PRIORITY = 0xffff;
 export const GEOMETRY_PAGE_DEMAND_FLAG_CURRENT_VIEW_MISSING = 1 << 16;
 export const GEOMETRY_PAGE_DEMAND_FLAG_SHADOW = 1 << 17;
 export const GEOMETRY_PAGE_DEMAND_FLAG_PREDICTIVE = 1 << 18;
+export const GEOMETRY_PAGE_DEMAND_FLAG_RESIDENT_USAGE = 1 << 19;
 export const GEOMETRY_PAGE_DEMAND_DEFAULT_FLAGS_V1 = 0x0001ffff;
-export const GEOMETRY_PAGE_DEMAND_FLAGS_MASK = 0x00070000;
+export const GEOMETRY_PAGE_DEMAND_FLAGS_MASK = 0x000f0000;
 /** Readback ring upper bound for one bounded demand queue. */
 export const GEOMETRY_PAGE_DEMAND_MAX_QUEUE_BYTES_V1 = 256 * 1024;
 export const GEOMETRY_PAGE_DEMAND_MAX_RECORD_CAPACITY_V1 =
@@ -26,6 +27,8 @@ export interface GeometryPageDemandV1 {
   readonly currentViewMissing: boolean;
   readonly shadow: boolean;
   readonly predictive: boolean;
+  /** Usage feedback updates residency age without scheduling source IO. */
+  readonly residentUsage?: boolean;
 }
 
 export interface GeometryPageDemandQueueHeaderV1 {
@@ -123,7 +126,7 @@ export function unpackGeometryPageDemandV1(bytes: Uint8Array, byteOffset = 0): G
     throw new RangeError("GeometryPageDemand record range is invalid");
   const view = new DataView(bytes.buffer, bytes.byteOffset + byteOffset, 16),
     packed = view.getUint32(12, true);
-  if ((packed & ~0x0007ffff) !== 0)
+  if ((packed & ~(GEOMETRY_PAGE_DEMAND_FLAGS_MASK | GEOMETRY_PAGE_DEMAND_MAX_PRIORITY)) !== 0)
     throw new RangeError("GeometryPageDemand reserved priority/flags bits are non-zero");
   const record = Object.freeze({
     productTableSlot: view.getUint32(0, true),
@@ -133,6 +136,7 @@ export function unpackGeometryPageDemandV1(bytes: Uint8Array, byteOffset = 0): G
     currentViewMissing: (packed & GEOMETRY_PAGE_DEMAND_FLAG_CURRENT_VIEW_MISSING) !== 0,
     shadow: (packed & GEOMETRY_PAGE_DEMAND_FLAG_SHADOW) !== 0,
     predictive: (packed & GEOMETRY_PAGE_DEMAND_FLAG_PREDICTIVE) !== 0,
+    ...((packed & GEOMETRY_PAGE_DEMAND_FLAG_RESIDENT_USAGE) !== 0 ? { residentUsage: true } : {}),
   });
   validateDemand(record);
   return record;
@@ -250,10 +254,14 @@ function packPriorityFlags(record: GeometryPageDemandV1): number {
     record.priority |
     (record.currentViewMissing ? GEOMETRY_PAGE_DEMAND_FLAG_CURRENT_VIEW_MISSING : 0) |
     (record.shadow ? GEOMETRY_PAGE_DEMAND_FLAG_SHADOW : 0) |
-    (record.predictive ? GEOMETRY_PAGE_DEMAND_FLAG_PREDICTIVE : 0)
+    (record.predictive ? GEOMETRY_PAGE_DEMAND_FLAG_PREDICTIVE : 0) |
+    (record.residentUsage ? GEOMETRY_PAGE_DEMAND_FLAG_RESIDENT_USAGE : 0)
   );
 }
 function demandPriority(record: GeometryPageDemandV1): number {
+  if (record.residentUsage) {
+    return -1;
+  }
   return (
     record.priority +
     (record.currentViewMissing ? 0x1000000 : 0) +

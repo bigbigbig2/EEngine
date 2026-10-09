@@ -19,6 +19,8 @@ export interface ProductResidentMeshlet {
   readonly byteLength: number;
 }
 export interface ProductResidentPage {
+  readonly directoryByteOffset: number;
+  readonly rawPayloadBytes: number;
   readonly directoryWords: number;
   readonly groups: readonly {
     readonly offset: number;
@@ -53,12 +55,14 @@ export function prepareProductResidentAttributes(
   const groups: { offset: number; descriptorBase: number; meshletCount: number }[] = [];
   const meshlets: ProductResidentMeshlet[] = [];
   let mapWords = 0,
-    descriptorWords = 0;
+    descriptorWords = 0,
+    rawPayloadBytes = 0;
   const pageRecord = decodeGeometryProductPageRecordV1(descriptor, pageId);
   const workload = geometryProductWorkload(descriptor);
   for (let group = pageRecord.firstGroup; group < pageRecord.firstGroup + pageRecord.groupCount; group++) {
     const offset = directory.getUint32(group * 16 + 4, true);
     const payload = directory.getUint32(group * 16 + 8, true);
+    rawPayloadBytes = Math.max(rawPayloadBytes, offset + payload);
     const header = decodeGroupHeaderV3(page, offset);
     if (
       header.payloadBytes !== payload ||
@@ -160,9 +164,14 @@ export function prepareProductResidentAttributes(
   if (!groups.length) throw new RangeError("Product resident page has no groups");
   if ((mapWords + descriptorWords) * 4 > OEGPACK_V3_PAGE_BYTES)
     throw new RangeError("Product resident directory exceeds one slot");
-  let slotCount = 2,
-    cursor = Math.ceil((mapWords + descriptorWords) / 4) * 16;
-  let uploadBytes = OEGPACK_V3_PAGE_BYTES + (mapWords + descriptorWords) * 4;
+  const directoryBytes = (mapWords + descriptorWords) * 4;
+  rawPayloadBytes = Math.ceil(rawPayloadBytes / 4) * 4;
+  const tailOffset = Math.ceil(rawPayloadBytes / 16) * 16;
+  const useRawTail = tailOffset + Math.ceil(directoryBytes / 16) * 16 <= OEGPACK_V3_PAGE_BYTES;
+  const directoryByteOffset = useRawTail ? tailOffset : 0;
+  let slotCount = useRawTail ? 1 : 2,
+    cursor = directoryByteOffset + Math.ceil(directoryBytes / 16) * 16;
+  let uploadBytes = rawPayloadBytes + directoryBytes;
   for (const meshlet of meshlets) {
     if (cursor + meshlet.byteLength > OEGPACK_V3_PAGE_BYTES) {
       slotCount++;
@@ -172,6 +181,8 @@ export function prepareProductResidentAttributes(
     uploadBytes += meshlet.byteLength;
   }
   return Object.freeze({
+    directoryByteOffset,
+    rawPayloadBytes,
     directoryWords: mapWords + descriptorWords,
     groups: Object.freeze(groups),
     meshlets: Object.freeze(meshlets),

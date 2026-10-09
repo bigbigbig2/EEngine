@@ -96,6 +96,10 @@ test("resident page validates the hierarchy count before trusting its exact work
   const { descriptor, page } = triangleProductFixture();
   const result = prepareProductResidentAttributes(descriptor, 0, page.buffer);
   assert.equal(result.meshlets.length, 1);
+  assert.equal(result.slotCount, 1);
+  assert.equal(result.directoryByteOffset, 176);
+  assert.equal(result.rawPayloadBytes, 176);
+  assert.equal(result.uploadBytes, 176 + result.directoryWords * 4 + 3 * 96);
   assert.deepEqual([...result.meshlets[0].values.slice(20, 23)], [-0.5, -0.5, 0]);
   const bad = { ...descriptor, hierarchyNodes: descriptor.hierarchyNodes.slice() };
   new DataView(bad.hierarchyNodes.buffer).setUint32(44, (1 << 25) | 1, true);

@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bistro Exterior | EEngine</title>
+    <link rel="icon" href="data:," />
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>Bistro Exterior</h1>
+        <span>EEngine V4 Texture Compression</span>
+      </div>
+      <nav aria-label="Scene actions">
+        <button id="frame-scene" title="Frame the complete exterior">Frame scene</button>
+        <button id="reload" title="Release resources and reload the scene">Reload</button>
+        <button id="release" title="Release the scene and await GPU retirement">Release</button>
+        <button id="export" title="Download the current resource and timing evidence">Export</button>
+      </nav>
+    </header>
+    <main>
+      <div class="viewport">
+        <canvas id="viewport" aria-label="Bistro Exterior scene"></canvas>
+        <div id="loading" role="status">
+          <strong id="phase">Initializing WebGPU</strong><span id="elapsed">0 s</span>
+        </div>
+      </div>
+      <aside>
+        <div class="mode">
+          <strong id="mode-name">Cooked</strong><a id="mode-switch" href="?mode=raw">Raw</a>
+        </div>
+        <details open class="diagnostic-controls">
+          <summary>Render diagnostics</summary>
+          <label class="control"
+            >View<select id="debug-view">
+              <option value="none">Final shaded</option>
+              <option value="visibility-key">Triangle / visibility key</option>
+              <option value="meshlet-id">Meshlet ID</option>
+              <option value="material-id">Material ID</option>
+              <option value="depth">Reverse-Z depth</option>
+              <option value="linear-hdr">Pre-exposed HDR / clipped display</option>
+              <option disabled>BaseColor / Normal / ORM: NOT WIRED</option>
+              <option disabled>SSR / GI views: NOT WIRED</option>
+            </select></label
+          >
+          <div class="toggles">
+            <label><input id="vsm" type="checkbox" checked /> VSM shadows</label>
+            <label><input id="gtao" type="checkbox" checked /> GTAO</label>
+            <label><input id="fsr3" type="checkbox" checked /> FSR3 temporal</label>
+            <label><input id="bloom" type="checkbox" checked /> Bloom</label>
+            <label><input id="jitter" type="checkbox" checked /> Camera jitter</label>
+            <label><input id="hzb" type="checkbox" checked /> HZB culling</label>
+            <label><input id="cone" type="checkbox" checked /> Cone culling</label>
+            <label><input id="damping" type="checkbox" checked /> Orbit damping</label>
+          </div>
+          <label class="control"
+            >LOD SSE<input id="sse" type="number" value="4" min="0.1" max="64" step="0.1"
+          /></label>
+          <label class="control"
+            >Sun intensity <output id="sun-value">1.00</output
+            ><input id="sun" type="range" min="0" max="4" step="0.05" value="1"
+          /></label>
+          <label class="control"
+            >Sky intensity <output id="sky-value">1.00</output
+            ><input id="sky" type="range" min="0" max="4" step="0.05" value="1"
+          /></label>
+          <label class="control"
+            >Exposure<select id="exposure-mode">
+              <option value="auto">Auto</option>
+              <option value="fixed">Fixed</option>
+            </select></label
+          >
+          <label class="control"
+            >Fixed exposure<input id="fixed-exposure" type="number" value="1" min="0.01" max="64" step="0.01"
+          /></label>
+          <button
+            id="apply-exposure"
+            title="Release and reload with the selected Renderer exposure configuration"
+          >
+            Apply exposure and reload
+          </button>
+          <div class="playback">
+            <label><input id="pause" type="checkbox" /> Pause rendering</label
+            ><button id="step" title="Submit one ordinary frame while paused" disabled>Step frame</button>
+          </div>
+          <dl id="render-state"></dl>
+        </details>
+        <label class="profile"><input id="profile" type="checkbox" /> Profiled run</label>
+        <dl id="metrics"></dl>
+        <p class="limitation">Known source-material conversion limitation</p>
+        <p class="limitation" id="importer-note">
+          glTF material importer: KHR_materials_specular factors/maps supported.
+        </p>
+        <details>
+          <summary>Current scope</summary>
+          <dl id="scope"></dl>
+        </details>
+        <p id="error" role="alert"></p>
+      </aside>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

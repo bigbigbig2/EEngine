@@ -3,6 +3,7 @@ import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
+import { bistroLocalModel } from "./demos/14-integrated/bistro-texture-compression/local-model";
 
 const examplesRoot = fileURLToPath(new URL(".", import.meta.url));
 const demosRoot = resolve(examplesRoot, "demos");
@@ -34,7 +35,7 @@ function collectExamplePages(directory: string): Record<string, string> {
 
 export default defineConfig({
   root: examplesRoot,
-  plugins: [{
+  plugins: [bistroLocalModel(examplesRoot), {
     name: "large-basic-offline-source",
     configureServer(server) {
       server.middlewares.use(async (request, response, next) => {

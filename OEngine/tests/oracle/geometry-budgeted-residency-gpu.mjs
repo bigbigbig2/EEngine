@@ -120,6 +120,7 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
         Math.min(767, plan.slotsPerBank - 1),
         plan.slotsPerBank - 1
       ])) {
+        const directoryByteOffset = 176;
         device.queue.writeBuffer(
           locations,
           64,
@@ -128,12 +129,13 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
             slotIndex: slot,
             residentBankIndex: 2,
             residentSlotIndex: slot,
+            residentByteOffset: directoryByteOffset,
             productGeneration: 19,
             flags: 1
           })
         );
         const marker = 0x12340000 + slot;
-        device.queue.writeBuffer(pool.banks[2], slot * 262144, new Uint32Array([marker]));
+        device.queue.writeBuffer(pool.banks[2], slot * 262144 + directoryByteOffset, new Uint32Array([marker]));
         const encoder = device.createCommandEncoder();
         const pass = encoder.beginComputePass();
         pass.setPipeline(pipeline);
@@ -155,7 +157,7 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
         await read.mapAsync(GPUMapMode.READ);
         const words = new Uint32Array(read.getMappedRange().slice(0));
         read.unmap();
-        assert.deepEqual([...words], [1, slot * 262144, slot * 65536, marker]);
+        assert.deepEqual([...words], [1, slot * 262144, slot * 65536 + directoryByteOffset / 4, marker]);
         boundaries.push({ profile: plan.profile, capacityBytes: plan.capacityBytes, slot, marker: words[3] });
       }
     } finally {
@@ -167,8 +169,8 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
     }
   }
 
-  // Eight physical slots; two pinned coarse pages use four. Six fine pages
-  // require twelve more slots, so the real residency must evict and retry.
+  // Eight physical slots. Two pinned roots plus one visible six-page chain
+  // fit after tail reuse; switching instances must reclaim the old fine pages.
   const runtime = new GeometryProductMultiRuntimeV1(device, {
     metadataBytes: 64 * 1024,
     residency: { configuredCapacityBytes: 2 * MiB }
@@ -190,7 +192,7 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
   let streaming;
   const frames = [];
   try {
-    const fixtures = [await streamingProductFixture(), await streamingProductFixture()];
+    const fixtures = [await streamingProductFixture(6), await streamingProductFixture(6)];
     const handles = [];
     for (const fixture of fixtures) handles.push(await runtime.load(fixture.source));
     streaming = new GeometryPageStreamingRuntimeV1(device, handles[0].residency, {
@@ -235,9 +237,9 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
         instanceBegin: 0,
         instanceCount: 2,
         maxHierarchyDepth: 0,
-        traversalWorkCapacity: 8,
-        visibleClusterCapacity: 8,
-        rasterWorkCapacity: 8,
+        traversalWorkCapacity: 12,
+        visibleClusterCapacity: 12,
+        rasterWorkCapacity: 12,
         counterBuffer: counters,
         virtualGeometry: runtime.bindings()
       },
@@ -247,8 +249,8 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
       virtualGeometry: runtime.bindings(),
       visibleClusters: h.generated.visibleClusters,
       viewUniform: h.generated.viewUniform,
-      visibleClusterCapacity: 8,
-      capacity: 8,
+      visibleClusterCapacity: 12,
+      capacity: 12,
       counterBuffer: counters,
       countersEnabled: true,
       scene
@@ -275,9 +277,9 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
         instanceBegin: 0,
         instanceCount: 2,
         hierarchyMaxDepth: 0,
-        hierarchyTraversalCapacity: 8,
-        hierarchyVisibleClusterCapacity: 8,
-        hierarchyRasterWorkCapacity: 8,
+        hierarchyTraversalCapacity: 12,
+        hierarchyVisibleClusterCapacity: 12,
+        hierarchyRasterWorkCapacity: 12,
         counterSink: counters
       },
       virtualGeometry: runtime.bindings(),
@@ -287,7 +289,7 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
     const shadowPrepared = shadowOwner.prepare(
       shadowJob,
       {
-        key: { traversalCapacity: 8, meshletWorkCandidateCapacity: 8 }
+        key: { traversalCapacity: 12, meshletWorkCandidateCapacity: 12 }
       },
       camera,
       {
@@ -305,9 +307,25 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
       GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
     );
     let shadowDemandRecords = 0;
+    let residentUsageRecords = 0;
     let aborted = false;
     try {
-      for (let frame = 0; frame < 24; frame++) {
+      for (let frame = 0; frame < 72; frame++) {
+        const activeInstance = Math.floor(frame / 24) % 2;
+        records.forEach((record, index) => {
+          // The flags lane is owned by packGpuInstanceRecord, not a test offset.
+          const updated = packGpuInstanceRecord({
+            geometryRecordIndex: handles[index].assetReferenceBegin,
+            geometryGeneration: handles[index].productGeneration,
+            materialHandle: 0,
+            flags: GPU_INSTANCE_FLAGS.VirtualGeometry | GPU_INSTANCE_FLAGS.CastsShadow |
+              (index === activeInstance ? GPU_INSTANCE_FLAGS.Active : 0),
+            debugId: index, boundsSphere: [0, 0, 0, 1],
+            boundsMin: [-1, -1, -1], boundsMax: [1, 1, 1],
+            currentObjectToWorld: identity, previousObjectToWorld: identity,
+          });
+          device.queue.writeBuffer(instances, index * record.byteLength, updated);
+        });
         const encoder = device.createCommandEncoder();
         const callbacks = [],
           aborts = [];
@@ -369,21 +387,25 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
         const shadowCounts = [0, 0];
         for (let index = 0; index < shadowWords[1]; index++) shadowCounts[shadowWords[8 + index * 6]]++;
         assert.ok(
-          shadowCounts.every((count) => count >= 1),
+          shadowCounts[activeInstance] >= 1 && shadowCounts[1 - activeInstance] === 0,
           "Shadow missing pages cannot erase coarse coverage"
         );
         assert.equal(demandWords[2], 0, "Shadow demand cannot overflow this fixture");
         for (let index = 0; index < Math.min(demandWords[0], demandWords[1]); index++) {
           const demand = unpackGeometryPageDemandV1(new Uint8Array(demandBytes, 16 + index * 16, 16));
           assert.equal(demand.shadow, true, "Independent shadow producer must tag feedback");
-          assert.equal(demand.priority, 65535);
-          shadowDemandRecords++;
+          if (demand.residentUsage) {
+            residentUsageRecords++;
+          } else {
+            assert.equal(demand.priority, 65535);
+            shadowDemandRecords++;
+          }
         }
         assert.equal(words[4] + words[6], 0, "pressure produced invalid/overflow work");
         const counts = [0, 0];
         for (let index = 0; index < words[1]; index++) counts[words[8 + index * 6]]++;
         assert.ok(
-          counts.every((count) => count >= 1),
+          counts[activeInstance] >= 1 && counts[1 - activeInstance] === 0,
           "coarse coverage lost an accepted instance"
         );
         if (frame === 0) {
@@ -404,6 +426,10 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
           pending: evidence.scheduler.pending,
           residents: evidence.products.map((product) => product.residentPages)
         });
+        if (frame % 24 >= 20) {
+          assert.equal(evidence.products[activeInstance].residentPages, 6, "Static active chain must fully converge");
+          assert.equal(evidence.scheduler.blockedUploads, 0);
+        }
       }
     } finally {
       candidate.release(work);
@@ -420,12 +446,13 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
       )
     );
     assert.ok(
-      evidence.scheduler.uploadedBytes > 2 * MiB,
+      fixtures.reduce((sum, fixture) => sum + fixture.reads, 0) > 12,
       "pressure uploads failed to progress beyond capacity"
     );
     assert.equal(evidence.scheduler.failed, 0);
     assert.equal(evidence.lastError, null);
     assert.ok(shadowDemandRecords > 0, "Real missing shadow pages must produce delayed feedback");
+    assert.ok(residentUsageRecords > 0, "Resident shadow pages must refresh eviction age");
     assert.ok(evidence.shadowReadback.submitted > 1);
     await device.queue.onSubmittedWorkDone();
     const retirements = [],
@@ -437,7 +464,7 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
     const beforeReplacement = frameInstances.allocatedBytes;
     const replaced = shadowOwner.prepare(
       shadowJob,
-      { key: { traversalCapacity: 8, meshletWorkCandidateCapacity: 8 } },
+      { key: { traversalCapacity: 12, meshletWorkCandidateCapacity: 12 } },
       camera,
       retirement
     );
@@ -474,8 +501,9 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
       frames,
       evidence,
       shadowDemandRecords,
+      residentUsageRecords,
       physicalCapacityBytes: 2 * MiB,
-      logicalFinePageBytes: 6 * 2 * 262144,
+      logicalFinePageBytes: 10 * 262144,
       limitations: ["Small correctness/pressure fixture; not G2.4 scene-scale performance"]
     };
   } finally {

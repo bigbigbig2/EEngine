@@ -13,7 +13,11 @@ import {
   GPU_WORK_GENERATION_WGSL,
 } from "../gpu/GpuWorkGenerationAbi.js";
 import { counterByteOffset } from "../debug/GpuFrameCounters.js";
-import { GEOMETRY_PAGE_DEMAND_WGSL } from "../gpu/GeometryPageDemandAbiV1.js";
+import {
+  GEOMETRY_PAGE_DEMAND_FLAG_RESIDENT_USAGE,
+  GEOMETRY_PAGE_DEMAND_FLAG_SHADOW,
+  GEOMETRY_PAGE_DEMAND_WGSL,
+} from "../gpu/GeometryPageDemandAbiV1.js";
 import { VIRTUAL_GEOMETRY_PRODUCT_WGSL } from "./virtual_geometry_product.js";
 
 export const HIERARCHICAL_WORKGROUP_SIZE = 64;
@@ -809,6 +813,13 @@ ${
                 &traversal_product_heap, asset, group.page_id
               );
               if location.valid {
+                hierarchy_emit_page_demand_v1(
+                  &traversal_page_demand, &traversal_page_demand_mask,
+                  asset, group.page_id,
+                  ${GEOMETRY_PAGE_DEMAND_FLAG_RESIDENT_USAGE}u |
+                    (traversal_view.limits.z & ${GEOMETRY_PAGE_DEMAND_FLAG_SHADOW}u),
+                  traversal_view.limits.w
+                );
                 selected = true;
                 selected_cluster = group_id;
               } else {

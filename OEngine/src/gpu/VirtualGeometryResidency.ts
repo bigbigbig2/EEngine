@@ -54,6 +54,7 @@ export interface GeometryPageLocationV1 {
   readonly flags: number;
   readonly residentBankIndex: number;
   readonly residentSlotIndex: number;
+  readonly residentByteOffset?: number;
 }
 
 export interface VirtualGeometryResidencyEvidenceV1 {
@@ -481,10 +482,10 @@ export class VirtualGeometryResidency {
     const location = this.#pageLocations.get(pageId);
     if (!location) return false;
     this.#frameClock = Math.max(this.#frameClock, frameIndex);
-    this.#pageLastUsed.set(pageId, frameIndex);
+    this.#pageLastUsed.set(pageId, Math.max(this.#pageLastUsed.get(pageId) ?? 0, frameIndex));
     const history = this.#pageHistory.get(pageId);
     if (history) {
-      history.lastUsed = frameIndex;
+      history.lastUsed = Math.max(history.lastUsed, frameIndex);
       history.visibleFrequency = Math.min(255, history.visibleFrequency + 1);
     }
     return true;
@@ -566,6 +567,10 @@ export class VirtualGeometryResidency {
       bytes += pageBytes;
     }
     return Object.freeze(selected);
+  }
+  residentPagePhysicalBytes(pageId: number): number {
+    this.#assertPageId(pageId);
+    return (this.#pageSlots.get(pageId)?.length ?? 0) * OEGPACK_V3_PAGE_BYTES;
   }
   groupAddress(groupId: number): (GeometryPageLocationV1 & { readonly byteOffset: number }) | undefined {
     if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed");
@@ -733,12 +738,18 @@ export class VirtualGeometryResidency {
       // Decode only after the full physical capacity check. A queued completion
       // keeps a small layout plan, never an expanded CPU copy of its vertices.
       const prepared = prepareProductResidentAttributes(this.#descriptor, page.pageId, page.bytes);
-      const root = allocate();
+      const root = prepared.directoryByteOffset > 0 ? raw : allocate();
       const directory = new Uint32Array(prepared.directoryWords);
       for (const group of prepared.groups) directory[group.offset / 16] = group.descriptorBase;
       const groupDescriptors = new Map(prepared.groups.map((group) => [group.offset, group.descriptorBase]));
       let current = root;
-      let cursor = Math.ceil(directory.byteLength / 16) * 16;
+      let cursor = prepared.directoryByteOffset + Math.ceil(directory.byteLength / 16) * 16;
+      // Only authored payload is needed. Upload it before writing into padding.
+      this.device.queue.writeBuffer(
+        this.#banks[raw.bankIndex]!,
+        raw.slotIndex * OEGPACK_V3_PAGE_BYTES,
+        new Uint8Array(page.bytes, 0, prepared.rawPayloadBytes)
+      );
       for (const meshlet of prepared.meshlets) {
         if (cursor + meshlet.values.byteLength > OEGPACK_V3_PAGE_BYTES) {
           current = allocate();
@@ -753,25 +764,21 @@ export class VirtualGeometryResidency {
       }
       this.device.queue.writeBuffer(
         this.#banks[root.bankIndex]!,
-        root.slotIndex * OEGPACK_V3_PAGE_BYTES,
+        root.slotIndex * OEGPACK_V3_PAGE_BYTES + prepared.directoryByteOffset,
         directory
-      );
-      this.device.queue.writeBuffer(
-        this.#banks[raw.bankIndex]!,
-        raw.slotIndex * OEGPACK_V3_PAGE_BYTES,
-        new Uint8Array(page.bytes)
       );
       const slots = Object.freeze([raw, ...extras]);
       this.#pageSlots.set(page.pageId, slots);
       for (const slot of slots) this.#slotOwners.set(slotKey(slot.bankIndex, slot.slotIndex), page.pageId);
       this.#uploadedBytes +=
-        page.bytes.byteLength +
+        prepared.rawPayloadBytes +
         directory.byteLength +
         prepared.meshlets.reduce((sum, meshlet) => sum + meshlet.values.byteLength, 0);
       return Object.freeze({
         ...raw,
         residentBankIndex: root.bankIndex,
         residentSlotIndex: root.slotIndex,
+        residentByteOffset: prepared.directoryByteOffset,
         productGeneration: this.#productGeneration,
         flags
       });

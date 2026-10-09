@@ -406,17 +406,58 @@ export class Renderer {
   private _render_resolution = new Vec2(1, 1);
   private _format: GPUTextureFormat = "bgra8unorm";
   private _displayProfile: "sdr" | "hdr" = "sdr";
+  private readonly texturePreparationStats = {
+    activeBatches: 0,
+    completedBatches: 0,
+    cookedTasks: 0,
+    wallMs: 0,
+    decodeMs: 0,
+    encodeMs: 0,
+    failure: null as string | null
+  };
+  private readonly texturePreparationStarts = new Set<{ started: number }>();
+
+  /** Cold-work observation only. Batch wall times may overlap; no GPU work or
+   * codec settings change. Failure and completed-task totals survive release. */
+  texturePreparationEvidence() {
+    return Object.freeze({
+      ...this.texturePreparationStats,
+      activeElapsedMs: [...this.texturePreparationStarts].reduce(
+        (sum, batch) => sum + performance.now() - batch.started,
+        0
+      )
+    });
+  }
+
   private async prepareTextureProducts(
     materials: readonly StandardShadeMaterial[],
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<void> {
     const epoch = this.deviceEpoch;
     const combined = signal
       ? AbortSignal.any([signal, this.texturePreparationAbort.signal])
       : this.texturePreparationAbort.signal;
-    await prepareMaterialTextureProducts(materials, combined);
-    if (this._destroyed || this._deviceLost || epoch !== this.deviceEpoch) {
-      throw new Error("Texture preparation belongs to an expired Renderer device");
+    const started = performance.now();
+    const batch = { started };
+    this.texturePreparationStarts.add(batch);
+    this.texturePreparationStats.activeBatches++;
+    try {
+      await prepareMaterialTextureProducts(materials, combined, (evidence) => {
+        this.texturePreparationStats.cookedTasks++;
+        this.texturePreparationStats.decodeMs += evidence.decodeMs;
+        this.texturePreparationStats.encodeMs += evidence.encodeMs;
+      });
+      if (this._destroyed || this._deviceLost || epoch !== this.deviceEpoch) {
+        throw new Error("Texture preparation belongs to an expired Renderer device");
+      }
+      this.texturePreparationStats.completedBatches++;
+    } catch (error) {
+      this.texturePreparationStats.failure = error instanceof Error ? error.message : String(error);
+      throw error;
+    } finally {
+      this.texturePreparationStats.wallMs += performance.now() - started;
+      this.texturePreparationStats.activeBatches--;
+      this.texturePreparationStarts.delete(batch);
     }
   }
   private _deviceLost = false;

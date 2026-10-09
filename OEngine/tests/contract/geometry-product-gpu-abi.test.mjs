@@ -48,7 +48,7 @@ test("Geometry Product GPU location mirror rejects reserved flags", () => {
     productGeneration: 1,
     flags: 1,
   });
-  new DataView(bytes.buffer).setUint32(12, 5, true);
+  new DataView(bytes.buffer).setUint32(12, 0x10001, true);
   assert.equal(validateGeometryProductGpuLocationV1(bytes, 1).valid, false);
   assert.throws(
     () => encodeGeometryProductGpuLocationV1({ bankIndex: 4, slotIndex: 0, productGeneration: 1, flags: 1 }),
@@ -69,6 +69,20 @@ test("Geometry Product GPU location mirror rejects reserved flags", () => {
   });
   new DataView(outOfBank.buffer).setUint32(0, 4, true);
   assert.equal(validateGeometryProductGpuLocationV1(outOfBank, 1).valid, false);
+});
+
+test("resident directory offset is aligned, bounded and independent of lifecycle flags", () => {
+  const location = {
+    bankIndex: 0, slotIndex: 5, residentBankIndex: 0, residentSlotIndex: 5,
+    residentByteOffset: 176, productGeneration: 2, flags: 3,
+  };
+  const bytes = encodeGeometryProductGpuLocationV1(location);
+  assert.equal(new DataView(bytes.buffer).getUint32(12, true), 47);
+  assert.equal(validateGeometryProductGpuLocationV1(bytes, 2).valid, true);
+  assert.equal(validateGeometryProductGpuLocationV1(bytes, 2).flags, 3);
+  for (const offset of [-16, 4, 262144]) {
+    assert.throws(() => encodeGeometryProductGpuLocationV1({ ...location, residentByteOffset: offset }), /offset/);
+  }
 });
 
 test("Geometry Product GPU metadata records freeze product ranges and asset references", () => {

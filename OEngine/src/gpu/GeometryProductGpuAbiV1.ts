@@ -1,6 +1,8 @@
 import type { GeometryPageLocationV1 } from "./VirtualGeometryResidency.js";
 
-export const GEOMETRY_PRODUCT_GPU_ABI_VERSION_V1 = 3;
+export const GEOMETRY_PRODUCT_GPU_ABI_VERSION_V1 = 4;
+/** Location word 3: low two lifecycle flags, bits 2..15 directory offset / 16. */
+const GEOMETRY_PAGE_DIRECTORY_OFFSET_MASK = 0xfffc;
 export const GEOMETRY_PAGE_LOCATION_STRIDE = 16;
 export const GEOMETRY_PAGE_LOCATION_NON_RESIDENT = 0xffffffff;
 export const GEOMETRY_PAGE_LOCATION_RESIDENT = 1;
@@ -114,6 +116,15 @@ export function encodeGeometryProductGpuLocationV1(
     location.residentSlotIndex >= GEOMETRY_PRODUCT_GPU_SLOTS_PER_BANK_V1
   )
     throw new RangeError("invalid Product resident directory location");
+  const directoryOffset = location.residentByteOffset ?? 0;
+  if (
+    !Number.isInteger(directoryOffset) ||
+    directoryOffset < 0 ||
+    directoryOffset >= GEOMETRY_PRODUCT_GPU_PAGE_BYTES_V1 ||
+    directoryOffset % 16 !== 0
+  ) {
+    throw new RangeError("invalid Product resident directory offset");
+  }
   view.setUint32(0, location.bankIndex, true);
   view.setUint32(
     4,
@@ -126,7 +137,7 @@ export function encodeGeometryProductGpuLocationV1(
     true
   );
   view.setUint32(8, location.productGeneration, true);
-  view.setUint32(12, location.flags, true);
+  view.setUint32(12, location.flags | ((directoryOffset / 16) << 2), true);
   return bytes;
 }
 
@@ -152,9 +163,10 @@ export function validateGeometryProductGpuLocationV1(
     slotIndex = packedSlot & 0xffff,
     directorySlot = (packedSlot >>> 16) - 1,
     productGeneration = view.getUint32(8, true),
-    flags = view.getUint32(12, true);
+    packedFlags = view.getUint32(12, true),
+    flags = packedFlags & 3;
   const resident = (flags & GEOMETRY_PAGE_LOCATION_RESIDENT) !== 0;
-  const validFlags = (flags & ~(GEOMETRY_PAGE_LOCATION_RESIDENT | GEOMETRY_PAGE_LOCATION_PINNED)) === 0;
+  const validFlags = (packedFlags & ~0xffff) === 0;
   const valid =
     resident &&
     validFlags &&
@@ -549,12 +561,14 @@ fn oengine_geometry_product_lookup_page_heap_v1(
   let resident_plus_one = packed_slot >> 16u;
   let resident = resident_plus_one - 1u;
   let generation = (*heap)[at + 2u];
-  let flags = (*heap)[at + 3u];
+  let packed_flags = (*heap)[at + 3u];
+  let flags = packed_flags & 3u;
+  let directory_word = (packed_flags & ${GEOMETRY_PAGE_DIRECTORY_OFFSET_MASK}u);
   let physical_slots = (*heap)[12];
   let resident_bank = resident / OENGINE_GEOMETRY_SLOTS_PER_BANK_V1;
   let resident_slot = resident % OENGINE_GEOMETRY_SLOTS_PER_BANK_V1;
   let valid = (flags & OENGINE_GEOMETRY_PAGE_LOCATION_RESIDENT_V1) != 0u &&
-    (flags & ~(OENGINE_GEOMETRY_PAGE_LOCATION_RESIDENT_V1 | OENGINE_GEOMETRY_PAGE_LOCATION_PINNED_V1)) == 0u &&
+    (packed_flags & ~65535u) == 0u &&
     physical_slots > 0u && physical_slots <= OENGINE_GEOMETRY_SLOTS_PER_BANK_V1 &&
     bank < OENGINE_GEOMETRY_BANK_COUNT_MAX_V1 && slot < physical_slots &&
     resident_plus_one > 0u && resident_bank < OENGINE_GEOMETRY_BANK_COUNT_MAX_V1 &&
@@ -563,7 +577,7 @@ fn oengine_geometry_product_lookup_page_heap_v1(
     return OEngineGeometryPageLookupV1(false, 0u, 0u, 0u, 0u, 0u);
   }
   return OEngineGeometryPageLookupV1(true, bank, slot << OENGINE_GEOMETRY_PAGE_SHIFT_V1,
-    flags, resident_bank, resident_slot << (OENGINE_GEOMETRY_PAGE_SHIFT_V1 - 2u));
+    flags, resident_bank, (resident_slot << (OENGINE_GEOMETRY_PAGE_SHIFT_V1 - 2u)) + directory_word);
 }
 fn oengine_geometry_product_lookup_asset_v1(products: ptr<storage, array<OEngineGeometryProductTableRecordV1>, read>, refs: ptr<storage, array<OEngineGeometryProductAssetReferenceV1>, read>, geometry_slot: u32, expected_generation: u32) -> OEngineGeometryProductAssetLookupV1 {
   if (geometry_slot >= arrayLength(refs)) { return OEngineGeometryProductAssetLookupV1(false, 0u, 0u, 0u); }
@@ -580,10 +594,10 @@ fn oengine_geometry_product_lookup_page_v1(
   let raw_slot = location.slot_index & 0xffffu;
   let resident_plus_one = location.slot_index >> 16u;
   let resident = resident_plus_one - 1u;
-  let valid_flags = (location.flags & ~(OENGINE_GEOMETRY_PAGE_LOCATION_RESIDENT_V1 | OENGINE_GEOMETRY_PAGE_LOCATION_PINNED_V1)) == 0u;
+  let valid_flags = (location.flags & ~65535u) == 0u;
   let valid = valid_flags && (location.flags & OENGINE_GEOMETRY_PAGE_LOCATION_RESIDENT_V1) != 0u && location.bank_index < OENGINE_GEOMETRY_BANK_COUNT_MAX_V1 && raw_slot < OENGINE_GEOMETRY_SLOTS_PER_BANK_V1 && location.product_generation == expected_generation && resident_plus_one != 0u && resident < OENGINE_GEOMETRY_BANK_COUNT_MAX_V1 * OENGINE_GEOMETRY_SLOTS_PER_BANK_V1;
   if (!valid) { return OEngineGeometryPageLookupV1(false, 0u, 0u, 0u, 0u, 0u); }
-  return OEngineGeometryPageLookupV1(true, location.bank_index, raw_slot << OENGINE_GEOMETRY_PAGE_SHIFT_V1, location.flags, resident / OENGINE_GEOMETRY_SLOTS_PER_BANK_V1, (resident % OENGINE_GEOMETRY_SLOTS_PER_BANK_V1) << (OENGINE_GEOMETRY_PAGE_SHIFT_V1 - 2u));
+  return OEngineGeometryPageLookupV1(true, location.bank_index, raw_slot << OENGINE_GEOMETRY_PAGE_SHIFT_V1, location.flags & 3u, resident / OENGINE_GEOMETRY_SLOTS_PER_BANK_V1, ((resident % OENGINE_GEOMETRY_SLOTS_PER_BANK_V1) << (OENGINE_GEOMETRY_PAGE_SHIFT_V1 - 2u)) + (location.flags & ${GEOMETRY_PAGE_DIRECTORY_OFFSET_MASK}u));
 }
 `;
 

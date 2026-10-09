@@ -51,3 +51,14 @@ test("Product-local demand mask records bounded page-id overflow", () => {
   assert.equal(mask.overflow, 1);
   assert.throws(() => abi.geometryPageDemandMaskWordCountV1(0), /positive/i);
 });
+
+test("resident usage round trips without replacing a missing-page request", () => {
+  const request = {
+    productTableSlot: 1, productGeneration: 2, pageId: 3, priority: 100,
+    currentViewMissing: true, shadow: false, predictive: false,
+  };
+  const usage = { ...request, priority: 0, currentViewMissing: false, residentUsage: true };
+  assert.deepEqual(abi.unpackGeometryPageDemandV1(abi.packGeometryPageDemandV1(usage)), usage);
+  assert.deepEqual(abi.deduplicateGeometryPageDemandsV1([request, usage]), [request]);
+  assert.deepEqual(abi.deduplicateGeometryPageDemandsV1([usage, request]), [request]);
+});

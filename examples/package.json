@@ -4,6 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "demo:bistro": "vite --host 127.0.0.1 --strictPort --open /demos/14-integrated/bistro-texture-compression/index.html",
+    "typecheck:bistro": "tsc --noEmit -p demos/14-integrated/bistro-texture-compression/tsconfig.json",
+    "build:bistro": "vite build --config demos/14-integrated/bistro-texture-compression/vite.config.ts",
     "dev": "vite --host 0.0.0.0 --strictPort",
     "storybook": "concurrently --kill-others --success first \"yarn dev\" \"yarn storybook:catalog\"",
     "storybook:catalog": "yarn generate:stories && storybook dev -p 6006 --no-open",
