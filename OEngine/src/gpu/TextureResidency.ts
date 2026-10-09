@@ -662,6 +662,10 @@ export class TextureResidency {
       ),
     }));
   }
+  /** Scalar owner epoch for material consumers; no ledger/bank enumeration. */
+  get publicationRevision(): number {
+    return this.nextRevision;
+  }
   descriptor(reference: number): TextureResidencyDescriptor | null {
     const handle = decodeTextureHandle(reference),
       entry = handle ? this.descriptors.get(handle.slot) : undefined;

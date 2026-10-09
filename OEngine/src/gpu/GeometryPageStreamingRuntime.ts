@@ -438,6 +438,11 @@ export class GeometryPageStreamingRuntimeV1 {
     });
   }
 
+  /** O(1) production pressure input; full evidence is a diagnostic operation. */
+  get lastPoll(): GeometryPageStreamingPollEvidenceV1 | null {
+    return this.#lastPoll;
+  }
+
   evidence(): GeometryPageStreamingRuntimeEvidenceV1 {
     return Object.freeze({
       readback: this.#readback.evidence(),

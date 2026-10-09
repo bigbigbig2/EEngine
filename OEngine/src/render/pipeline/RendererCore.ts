@@ -401,9 +401,9 @@ export class Renderer {
   private _capabilities: RendererCapabilities | null = null;
   private _adapterInfo: BenchmarkAdapterIdentity | null = null;
   private _frame_count = 0;
-  private _lastFrameDeferral: "none" | "gpu-completion" | "history-retirement" | "device-unavailable" = "none";
+  private _lastFrameDeferral: "none" | "gpu-completion" | "publication-ready" | "device-unavailable" = "none";
   private _completionDeferredTicks = 0;
-  private _historyDeferredTicks = 0;
+  private _publicationDeferredTicks = 0;
   private _width = 1;
   private _height = 1;
   private _output_resolution = new Vec2(1, 1);
@@ -497,11 +497,14 @@ export class Renderer {
   /** Showcase/debug hosts can disable subpixel jitter while inspecting geometry. */
   temporal_jitter_enabled = true;
   get temporalJitterActive(): boolean {
-    return this.fsr3_enabled && this.temporal_jitter_enabled &&
+    return (
+      this.fsr3_enabled &&
+      this.temporal_jitter_enabled &&
       (this._render_debug_view === RenderDebugViewValue.None ||
-       this._render_debug_view === RenderDebugViewValue.Velocity ||
-       this._render_debug_view === RenderDebugViewValue.HistoryValidity ||
-       this._render_debug_view === RenderDebugViewValue.Reactive);
+        this._render_debug_view === RenderDebugViewValue.Velocity ||
+        this._render_debug_view === RenderDebugViewValue.HistoryValidity ||
+        this._render_debug_view === RenderDebugViewValue.Reactive)
+    );
   }
   packed_geometry_work_budget: GeometryWorkBudget = DEFAULT_GEOMETRY_WORK_BUDGET;
   packed_visibility_cone_enabled = true;
@@ -582,8 +585,21 @@ export class Renderer {
       ...this._frameCoordinator.evidence(),
       lastDeferral: this._lastFrameDeferral,
       completionDeferredTicks: this._completionDeferredTicks,
-      historyDeferredTicks: this._historyDeferredTicks,
+      publicationDeferredTicks: this._publicationDeferredTicks,
+      // Submitted temporal history is ordered on the same queue, not gated
+      // by host completion. The readiness gate below waits for publications.
+      historyDeferredTicks: 0
     });
+  }
+  /** Wake a host that missed an admission tick, without changing resource fences. */
+  get onFrameAvailable(): ChangeSignal {
+    return this._frameCoordinator.onFrameAvailable;
+  }
+  get maxFramesInFlight(): number {
+    return this._frameCoordinator.maxFramesInFlight;
+  }
+  set maxFramesInFlight(value: number) {
+    this._frameCoordinator.maxFramesInFlight = value;
   }
   get shadowVisibilityEnabled(): boolean {
     return this._shadowVisibilityEnabled;
@@ -627,7 +643,10 @@ export class Renderer {
   }
   get pixel_ratio(): number {
     const canvas = this.context?.canvas as HTMLCanvasElement | undefined;
-    return this.pixelRatioOverride ?? (canvas?.style && typeof window !== "undefined" ? window.devicePixelRatio : 1);
+    return (
+      this.pixelRatioOverride ??
+      (canvas?.style && typeof window !== "undefined" ? window.devicePixelRatio : 1)
+    );
   }
   /** Resize uses CSS pixels; null restores the display's current DPR. */
   set pixel_ratio(value: number | null) {
@@ -1772,6 +1791,46 @@ export class Renderer {
   }
 
   private readonly promotedTextureRuntimes = new WeakSet<GpuRenderWorldRuntime>();
+  private readonly shadingFacts = new WeakMap<
+    GpuRenderWorldRuntime,
+    {
+      summary: GpuRenderWorldRuntime["activeShadingSummary"];
+      bindings: GpuRenderWorldRuntime["materialResources"]["bindingSets"];
+      activeSets: number[];
+      textureBankMask: number;
+      hasLit: boolean;
+    }
+  >();
+
+  private obtainShadingFacts(runtime: GpuRenderWorldRuntime) {
+    const summary = runtime.activeShadingSummary;
+    const bindings = runtime.materialResources.bindingSets;
+    const previous = this.shadingFacts.get(runtime);
+    if (previous?.summary === summary && previous.bindings === bindings) {
+      return previous;
+    }
+    const activeSets: number[] = [];
+    let textureBankMask = 0;
+    for (let setId = 0; setId < summary.standardSetRefCounts.length; setId++) {
+      if (summary.standardSetRefCounts[setId]! + summary.coatedSetRefCounts[setId]! > 0) {
+        const set = bindings.find((candidate) => candidate.id === setId);
+        if (!set) {
+          throw new Error(`Active texture set ${setId} is not resident`);
+        }
+        activeSets.push(setId);
+        textureBankMask |= set.textureBankMask;
+      }
+    }
+    const next = {
+      summary,
+      bindings,
+      activeSets,
+      textureBankMask: textureBankMask || 1,
+      hasLit: summary.binRefCounts.some((count, classId) => count > 0 && (classId & 15) >= 4)
+    };
+    this.shadingFacts.set(runtime, next);
+    return next;
+  }
 
   render(camera: PerspectiveCamera, scene: Scene, timeDeltaSeconds = 1 / 60): boolean {
     this._lastFrameDeferral = "none";
@@ -1780,10 +1839,12 @@ export class Renderer {
       return false;
     }
     // A healthy device may defer this tick. No graph/resources/history are
-    // advanced until one of the two submitted frames has completed.
+    // advanced until an admitted submission completes. Notify the host once
+    // the slot is reusable, so a missed RAF need not wait a whole next refresh.
     if (!this._frameCoordinator.canBeginFrame) {
       this._lastFrameDeferral = "gpu-completion";
       this._completionDeferredTicks++;
+      this._frameCoordinator.deferFrame();
       return true;
     }
     if (this.pixel_ratio !== this.appliedPixelRatio) {
@@ -1795,8 +1856,8 @@ export class Renderer {
       return this.renderEmptyScene();
     }
     if (!this._surface.canPrepareFrame() || !runtime.nativeMaterials!.canPrepareFrame()) {
-      this._lastFrameDeferral = "history-retirement";
-      this._historyDeferredTicks++;
+      this._lastFrameDeferral = "publication-ready";
+      this._publicationDeferredTicks++;
       return true;
     }
     if (this._historyRuntime !== runtime) {
@@ -1813,7 +1874,7 @@ export class Renderer {
         for (let i = 0; i < 16; i++) delta = Math.max(delta, Math.abs(current[i]! - previous[i]!));
       this._streamingCameraMatrices.set(scene, current);
       const frameTimeMs = Math.max(0, timeDeltaSeconds * 1000);
-      const lastPoll = streaming.evidence().lastPoll;
+      const lastPoll = streaming.lastPoll;
       streaming.updatePressure({
         cameraState: delta > 0.25 ? "cut" : delta > 1e-5 ? "moving" : "stable",
         ioThroughputBytesPerSecond:
@@ -1897,19 +1958,7 @@ export class Renderer {
         );
       }
       const environment = this._environments.obtain(scene);
-      const summary = runtime.activeShadingSummary;
-      const activeSets = Array.from(summary.standardSetRefCounts, (_, setId) => setId).filter(
-        (setId) => summary.standardSetRefCounts[setId]! + summary.coatedSetRefCounts[setId]! > 0,
-      );
-      const textureBankMask =
-        activeSets.reduce((mask, setId) => {
-          const set = runtime.materialResources.bindingSets.find((candidate) => candidate.id === setId);
-          if (!set) throw new Error(`Active texture set ${setId} is not resident`);
-          return mask | set.textureBankMask;
-        }, 0) || 1;
-      const hasLit = runtime.activeShadingSummary.binRefCounts.some(
-        (count, classId) => count > 0 && (classId & 15) >= 4,
-      );
+      const { activeSets, textureBankMask, hasLit } = this.obtainShadingFacts(runtime);
       if (hasLit) {
         environment.lights.update(command);
       }

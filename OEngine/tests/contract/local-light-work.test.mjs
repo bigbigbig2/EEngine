@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 import "../webgpu-test-globals.mjs";
 import { LocalLightWorkGenerator } from "../../.test-dist/render/lighting/LocalLightWorkGenerator.js";
 import { localLightId, localLightDepthSlice } from "../../.test-dist/gpu/GpuLocalLightWorkAbi.js";
-import { FrameGraph, FrameGraphBindingLayout, FrameGraphContext } from "../../.test-dist/framegraph/FrameGraph.js";
+import {
+  FrameGraph,
+  FrameGraphBindingLayout,
+  FrameGraphContext
+} from "../../.test-dist/framegraph/FrameGraph.js";
 
 globalThis.GPUBufferUsage ??= { COPY_SRC: 4, COPY_DST: 8, UNIFORM: 64, STORAGE: 128, INDIRECT: 256 };
 
@@ -125,11 +129,17 @@ const requestFor = (ids = new Uint32Array()) => ({
 test("compiled LightWork recipe late-binds every frame, buffer and command without rebuilding", () => {
   const first = {
     frame: { parameters: {}, lookup: {}, data: {}, request: { view: { width: 32, height: 32 } } },
-    visibility: { view: {} }, depth: { view: {} }, database: {}, command: {}
+    visibility: { view: {} },
+    depth: { view: {} },
+    database: {},
+    command: {}
   };
   const second = {
     frame: { parameters: {}, lookup: {}, data: {}, request: { view: { width: 32, height: 32 } } },
-    visibility: { view: {} }, depth: { view: {} }, database: {}, command: {}
+    visibility: { view: {} },
+    depth: { view: {} },
+    database: {},
+    command: {}
   };
   const graph = new FrameGraph("local-light cached recipe");
   const layout = new FrameGraphBindingLayout();
@@ -138,15 +148,20 @@ test("compiled LightWork recipe late-binds every frame, buffer and command witho
   const observed = [];
   const owner = Object.create(LocalLightWorkGenerator.prototype);
   owner.encode = (command, frame, inputs) => observed.push({ command, frame, inputs });
-  const product = owner.addToGraph(graph, bind("job", (b) => ({ frame: b.frame })), {
-    parameters: bind("parameters", (b) => b.frame.parameters),
-    lookup: bind("lookup", (b) => b.frame.lookup),
-    data: bind("data", (b) => b.frame.data)
-  }, {
-    visibility: imported("winner", (b) => b.visibility),
-    depth: imported("depth", (b) => b.depth),
-    database: imported("database", (b) => b.database)
-  });
+  const product = owner.addToGraph(
+    graph,
+    bind("job", (b) => ({ frame: b.frame })),
+    {
+      parameters: bind("parameters", (b) => b.frame.parameters),
+      lookup: bind("lookup", (b) => b.frame.lookup),
+      data: bind("data", (b) => b.frame.data)
+    },
+    {
+      visibility: imported("winner", (b) => b.visibility),
+      depth: imported("depth", (b) => b.depth),
+      database: imported("database", (b) => b.database)
+    }
+  );
   const consumer = graph.add("native consumer", {}, (_job, resources) => {
     observed.at(-1).data = resources.get(product.data);
   });
@@ -241,7 +256,7 @@ test("epoch and scan limits reject before pipeline/resource construction", async
   assert.throws(() => new LocalLightWorkGenerator(device, 3), /portable scan/);
 });
 
-test("two encoded frames retain admission until abort or their submitted fence", async () => {
+test("three distinct slots retain admission until abort or their submitted fence", async () => {
   const { device } = fakeDevice();
   const owner = new LocalLightWorkGenerator(device, 3);
   await owner.ready;
@@ -251,9 +266,12 @@ test("two encoded frames retain admission until abort or their submitted fence",
     c = commandFor(device);
   owner.encode(a.command, frames[0]);
   owner.encode(b.command, frames[1]);
-  assert.throws(() => owner.encode(c.command, frames[2]), /third in-flight/);
-  a.command.abort();
   owner.encode(c.command, frames[2]);
+  assert.throws(() => owner.prepare(requestFor()), /in-flight capacity/);
+  a.command.abort();
+  const replacement = owner.prepare(requestFor());
+  assert.equal(replacement.data, frames[0].data);
+  owner.abort(replacement);
   b.command.abort();
   c.command.abort();
   owner.destroy();

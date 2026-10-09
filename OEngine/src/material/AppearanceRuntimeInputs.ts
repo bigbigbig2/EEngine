@@ -1,10 +1,12 @@
 import type { StandardShadeMaterial } from "./StandardShadeMaterial.js";
+import { ChangeSignal } from "../core/Signal.js";
 
 export type AppearanceDynamicValue = readonly [number, number?, number?, number?];
 
 /** Frame inputs are numeric data. Mutation does not change program topology,
  * allocate GPU resources or require Scene resync. */
 export class AppearanceRuntimeInputs {
+  readonly onChanged = new ChangeSignal();
   private readonly values = new Map<string, Float32Array>();
   private readonly versions = new Map<string, number>();
   set(name: string, value: AppearanceDynamicValue): void {
@@ -20,18 +22,25 @@ export class AppearanceRuntimeInputs {
     if (previous?.length === next.length && previous.every((v, i) => Object.is(v, next[i]))) return;
     this.values.set(name, next);
     this.versions.set(name, (this.versions.get(name) ?? 0) + 1);
+    this.onChanged.send1(this);
   }
   get(name: string): Float32Array | undefined {
-    return this.values.get(name);
+    // Edits go through set(), which validates and publishes the revision.
+    // Returning owned mutable storage would silently bypass that boundary.
+    return this.values.get(name)?.slice();
   }
   version(name: string): number {
     return this.versions.get(name) ?? 0;
   }
   copy(other: AppearanceRuntimeInputs): void {
+    if (other === this) {
+      return;
+    }
     this.values.clear();
     this.versions.clear();
     for (const [name, value] of other.values) this.values.set(name, value.slice());
     for (const [name, version] of other.versions) this.versions.set(name, version);
+    this.onChanged.send1(this);
   }
 }
 

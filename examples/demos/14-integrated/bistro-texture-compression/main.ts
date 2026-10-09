@@ -81,7 +81,8 @@ const phases: Array<{ phase: string; atMs: number }> = [];
 const publications: WebCookProductPublicationTiming[] = [];
 const cpu = { normal: [] as number[], profiled: [] as number[] };
 const intervals: number[] = [];
-const callbacks: Array<{ atMs: number; submitted: boolean }> = [];
+const callbacks: Array<{ atMs: number; submitted: boolean; source: "raf" | "ready" }> = [];
+let resumeFrame: (() => void) | undefined;
 let lastSubmittedAt: number | null = null;
 let renderer: Renderer | undefined;
 let asset: WebCookRuntimeAsset | undefined;
@@ -227,6 +228,7 @@ function snapshot() {
   const streaming = renderer?.geometryStreamingEvidence(scene) ?? null;
   const sampleElapsedMs = callbacks.length > 1 ? callbacks.at(-1)!.atMs - callbacks[0]!.atMs : 0;
   const sampledCallbacks = callbacks.slice(1);
+  const rafCallbacks = callbacks.filter((sample) => sample.source === "raf");
   const submittedCallbacks = sampledCallbacks.reduce((sum, sample) => sum + Number(sample.submitted), 0);
   const submission = renderer?.frameSubmissionEvidence() ?? null;
   const completion = { normal: [] as number[], profiled: [] as number[] };
@@ -322,12 +324,14 @@ function snapshot() {
         surfacePassSumMs: percentile(surface)
       },
       rafIntervalMs: percentile(
-        sampledCallbacks.map((sample, index) => sample.atMs - callbacks[index]!.atMs)
+        rafCallbacks.slice(1).map((sample, index) => sample.atMs - rafCallbacks[index]!.atMs)
       ),
       submittedIntervalMs: percentile(intervals),
       submissions: {
         sampleElapsedMs,
         callbacks: sampledCallbacks.length,
+        rafCallbacks: sampledCallbacks.filter((sample) => sample.source === "raf").length,
+        readyCallbacks: sampledCallbacks.filter((sample) => sample.source === "ready").length,
         submitted: submittedCallbacks,
         deferred: sampledCallbacks.length - submittedCallbacks,
         framesPerSecond: sampleElapsedMs > 0 ? (submittedCallbacks * 1000) / sampleElapsedMs : null,
@@ -429,13 +433,13 @@ const rows: Array<[string, string]> = [
   ["First useful", "first"],
   ["Full texture mips", "full"],
   ["Submitted FPS / interval P50", "fps"],
-  ["Callbacks / deferred", "callbacks"],
+  ["RAF / ready / deferred", "callbacks"],
   ["Normal CPU P50/P95", "cpu"],
   ["Profiled CPU P50/P95", "profiledCpu"],
   ["Normal submit/completion P50/P95", "completion"],
   ["Profiled submit/completion P50/P95", "profiledCompletion"],
   ["In-flight / limit", "inFlight"],
-  ["Completion / history deferrals", "deferrals"],
+  ["Completion / publication deferrals", "deferrals"],
   ["Profiled GPU P50/P95", "gpu"],
   ["Profiled Surface P50/P95", "surface"],
   ["Total software bytes", "total"]
@@ -579,7 +583,7 @@ function refresh(): void {
     frame: String(state.frame),
     temporal: `${state.temporal?.fsr3Generation ?? 0} / ${state.temporal?.color.invalidationCount ?? 0} (${state.temporal?.color.lastInvalidationReason ?? "none"})`,
     resolution: `${state.resolution?.internal.join(" × ")} → ${state.resolution?.output.join(" × ")}\nCSS ${state.resolution?.css.join(" × ")} / DPR ${state.resolution?.pixelRatio}`,
-    jitter: `${state.temporal?.jitter?.committed.map(value => value.toFixed(3)).join(", ")}\nphase ${state.temporal?.phaseIndex} / ${state.temporal?.jitter?.phaseCount}`,
+    jitter: `${state.temporal?.jitter?.committed.map((value) => value.toFixed(3)).join(", ")}\nphase ${state.temporal?.phaseIndex} / ${state.temporal?.jitter?.phaseCount}`,
     clip: `${camera.near.toFixed(3)} / ${camera.far.toFixed(1)}`,
     stages: state.stages.join("\n")
   };
@@ -618,13 +622,13 @@ function refresh(): void {
       raf && s.stable.submissions.framesPerSecond !== null
         ? `${s.stable.submissions.framesPerSecond.toFixed(1)} / ${raf.p50.toFixed(2)} ms`
         : "PENDING",
-    callbacks: `${s.stable.submissions.callbacks} / ${s.stable.submissions.deferred}`,
+    callbacks: `${s.stable.submissions.rafCallbacks} / ${s.stable.submissions.readyCallbacks} / ${s.stable.submissions.deferred}`,
     cpu: pair(s.stable.normal.cpuFrameMs),
     profiledCpu: pair(s.stable.profiled.cpuFrameMs),
     completion: pair(s.stable.completionLatencyMs.normal),
     profiledCompletion: pair(s.stable.completionLatencyMs.profiled),
     inFlight: `${s.stable.submission?.inFlight ?? 0} / ${s.stable.submission?.inFlightLimit ?? 0}`,
-    deferrals: `${s.stable.submission?.completionDeferredTicks ?? 0} / ${s.stable.submission?.historyDeferredTicks ?? 0}`,
+    deferrals: `${s.stable.submission?.completionDeferredTicks ?? 0} / ${s.stable.submission?.publicationDeferredTicks ?? 0}`,
     gpu: pair(s.stable.profiled.gpuCommandSpanMs),
     surface: pair(s.stable.profiled.surfacePassSumMs),
     total: bytes(s.memory?.allocatedBytes)
@@ -743,13 +747,12 @@ async function start(): Promise<void> {
   resize();
   frameScene();
   let previous = performance.now();
-  const frame = (now: number) => {
+  const draw = (now: number, source: "raf" | "ready") => {
     if (closing || !renderer) return;
     try {
       const interval = now - previous;
       previous = now;
       if (paused && stepFrames === 0) {
-        frameId = requestAnimationFrame(frame);
         return;
       }
       const begin = performance.now();
@@ -762,7 +765,7 @@ async function start(): Promise<void> {
       const duration = performance.now() - begin;
       if (submitted && fullQualityMs !== null) stableFrames++;
       if (!paused && fullQualityMs !== null && stableFrames > 60 && document.visibilityState === "visible") {
-        callbacks.push({ atMs: now, submitted });
+        callbacks.push({ atMs: now, submitted, source });
         if (callbacks.length > 600) callbacks.shift();
         if (submitted) {
           append(cpu[profiled ? "profiled" : "normal"], duration);
@@ -802,11 +805,18 @@ async function start(): Promise<void> {
           .catch(fail);
       }
       if (renderer.profiler.diagnostics.deviceLostCount) throw new Error("WebGPU device lost");
-      frameId = requestAnimationFrame(frame);
     } catch (error) {
       fail(error);
     }
   };
+  const frame = () => {
+    draw(performance.now(), "raf");
+    if (!closing) frameId = requestAnimationFrame(frame);
+  };
+  resumeFrame = () => {
+    if (!closing && document.visibilityState === "visible") draw(performance.now(), "ready");
+  };
+  renderer.onFrameAvailable.add(resumeFrame);
   frameId = requestAnimationFrame(frame);
   await handles.settled();
   settled = true;
@@ -869,6 +879,8 @@ async function release(): Promise<void> {
   if (closing) return;
   lastSnapshot = renderer ? snapshot() : undefined;
   closing = true;
+  if (resumeFrame) renderer?.onFrameAvailable.remove(resumeFrame);
+  resumeFrame = undefined;
   diagnosticControlsDisabled(true);
   cancelAnimationFrame(frameId);
   clearInterval(refreshId);

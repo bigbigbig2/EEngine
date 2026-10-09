@@ -117,17 +117,42 @@ function fmin3(e: number, t: number, n: number): number {
 
 export class Color {
   readonly isColor = true;
-  r: number;
-  g: number;
-  b: number;
-  a: number;
+  private red: number;
+  private green: number;
+  private blue: number;
+  private alpha: number;
   readonly onChanged = new ChangeSignal();
 
   constructor(r = 0, g = 0, b = 0, a = 1) {
-    this.r = r;
-    this.g = g;
-    this.b = b;
-    this.a = a;
+    this.red = r;
+    this.green = g;
+    this.blue = b;
+    this.alpha = a;
+  }
+
+  get r(): number {
+    return this.red;
+  }
+  set r(value: number) {
+    this.set(value, this.green, this.blue, this.alpha);
+  }
+  get g(): number {
+    return this.green;
+  }
+  set g(value: number) {
+    this.set(this.red, value, this.blue, this.alpha);
+  }
+  get b(): number {
+    return this.blue;
+  }
+  set b(value: number) {
+    this.set(this.red, this.green, value, this.alpha);
+  }
+  get a(): number {
+    return this.alpha;
+  }
+  set a(value: number) {
+    this.set(this.red, this.green, this.blue, value);
   }
 
   get 0(): number {
@@ -178,10 +203,10 @@ export class Color {
     const i = this.b;
     const o = this.a;
     if (s === r && ag === g && i === b && o === a) return this;
-    this.r = r;
-    this.g = g;
-    this.b = b;
-    this.a = a;
+    this.red = r;
+    this.green = g;
+    this.blue = b;
+    this.alpha = a;
     if (this.onChanged.hasHandlers()) {
       this.onChanged.send8(r, g, b, a, s, ag, i, o);
     }

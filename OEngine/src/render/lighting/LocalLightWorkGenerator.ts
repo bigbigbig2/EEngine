@@ -471,15 +471,9 @@ export class LocalLightWorkGenerator {
     ) {
       throw new Error("LocalLightWork frame is stale or already encoded");
     }
-    let submitted = 0;
-    for (const allocation of this.allocations) {
-      if (allocation.state === "submitted" || allocation.state === "encoded") {
-        submitted++;
-      }
-    }
-    if (submitted >= 2) {
-      throw new Error("LocalLightWork requires completion before a third in-flight frame");
-    }
+    // prepare() already owns at most three distinct fenced allocations within
+    // LOCAL_LIGHT_PEAK_BUDGET. Frame admission is the coordinator's concern;
+    // an unrelated count of submitted slots must not reject this reserved one.
     this.validate(frame.request);
     const allocation = state.allocation;
     allocation.state = "encoded";

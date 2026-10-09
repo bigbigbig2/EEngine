@@ -17,9 +17,8 @@ const { compileAppearanceGraph } = await import("../../.test-dist/material/Appea
 const { lowerNativeMaterial } = await import("../../.test-dist/shaders/native_material.js");
 const { AppearanceProgramRegistry } = await import("../../.test-dist/gpu/AppearanceProgramRegistry.js");
 const { GpuNativeMaterialPublication } = await import("../../.test-dist/gpu/GpuNativeMaterialPublication.js");
-const { NativeRasterWorkPartitions } = await import(
-  "../../.test-dist/render/surface/NativeRasterWorkPartitions.js"
-);
+const { NativeRasterWorkPartitions } =
+  await import("../../.test-dist/render/surface/NativeRasterWorkPartitions.js");
 const { NativeVisibilityPass } = await import("../../.test-dist/render/surface/NativeVisibilityPass.js");
 const { FrameGraph } = await import("../../.test-dist/framegraph/FrameGraph.js");
 const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
@@ -122,7 +121,8 @@ function fixture({ reactive = false, compact = false } = {}) {
     reactive
   });
   const publication = new GpuNativeMaterialPublication(device, registry, [
-    { materialSlot: 0, bindingSet: 0, program, descriptor }
+    { materialSlot: 0, bindingSet: 0, program, descriptor },
+    ...(compact === "two" ? [{ materialSlot: 1, bindingSet: 1, program, descriptor }] : [])
   ]);
   const buffer = (size) =>
     device.createBuffer({
@@ -157,7 +157,18 @@ function fixture({ reactive = false, compact = false } = {}) {
     publication,
     lightingEntries: [],
     routes: [
-      { programIndex: 0, bindingSet: 0, materialEntries: [], frameInputs: new Float32Array(4), unlit: true }
+      { programIndex: 0, bindingSet: 0, materialEntries: [], frameInputs: new Float32Array(4), unlit: true },
+      ...(compact === "two"
+        ? [
+            {
+              programIndex: 0,
+              bindingSet: 1,
+              materialEntries: [],
+              frameInputs: new Float32Array(4),
+              unlit: true
+            }
+          ]
+        : [])
     ]
   };
   const pass = {
@@ -173,6 +184,9 @@ function fixture({ reactive = false, compact = false } = {}) {
     end() {}
   };
   const encoder = {
+    clearBuffer(...args) {
+      calls.push(["clear", ...args]);
+    },
     copyBufferToBuffer(...args) {
       calls.push(["copy", ...args]);
     },
@@ -243,6 +257,47 @@ test("SurfaceV4 resize abort keeps committed extent and resize commit retires on
   await Promise.resolve();
   assert.equal(original.destroyed, true);
   surface.destroy();
+  await f.publication.retire(Promise.resolve());
+  f.registry.destroy();
+});
+
+test("attachment rotation shares ordered bin scratch but retires each binding at its exact fence", async () => {
+  const f = fixture({ compact: "two" }),
+    surface = new SurfaceV4(f.device);
+  await f.publication.ready;
+  f.publication.commit();
+  const a = deferred(),
+    b = deferred();
+  await surface.prepareFrame(f.frame);
+  const bins = surface.executionBins;
+  assert.ok(bins.queue);
+  const original = surface.preparedState;
+  surface.encode(f.encoder);
+  surface.commit(a.promise);
+  await surface.prepareFrame({ ...f.frame, ...f.images(16, 8), frameIndex: 1 });
+  assert.equal(surface.executionBins, bins);
+  const replacement = surface.preparedState;
+  surface.encode(f.encoder);
+  surface.commit(b.promise);
+  assert.equal(original.binBindings.settings.destroyed, false);
+  a.resolve();
+  await a.promise;
+  await Promise.resolve();
+  assert.equal(original.binBindings.settings.destroyed, true);
+  assert.equal(bins.queue.destroyed, false, "old attachment must not destroy shared queue");
+  await surface.prepareFrame({ ...f.frame, ...f.images(16, 8), frameIndex: 2 });
+  const aborted = surface.preparedState;
+  surface.abort();
+  assert.equal(aborted.binBindings.settings.destroyed, true);
+  assert.equal(bins.queue.destroyed, false);
+  surface.destroy();
+  assert.equal(bins.queue.destroyed, false);
+  b.resolve();
+  await b.promise;
+  await Promise.resolve();
+  assert.equal(replacement.binBindings.settings.destroyed, true);
+  assert.equal(bins.queue.destroyed, true);
+  assert.equal(surface.allocatedBytes, 0);
   await f.publication.retire(Promise.resolve());
   f.registry.destroy();
 });

@@ -58,7 +58,9 @@ export class ShadeGPUCommandContext {
   #finished = false;
   #submitted = false;
   #submittedAtMs: number | null = null;
+  #submitCpuMs = 0;
   #gpuDonePromise: Promise<void> | undefined;
+  #queueDonePromise: Promise<void> | undefined;
   #abortCause: unknown | undefined;
   #label = "";
 
@@ -162,13 +164,23 @@ export class ShadeGPUCommandContext {
     });
   }
 
-  /** Resolves only after the queue has completed all work submitted so far. */
+  /** One completion future for this submission's queue prefix. Calls before
+   * and after submit return the same future, including all reuse observers. */
   get gpuDone(): Promise<void> {
-    return (this.#gpuDonePromise ??= this.submitted.then(() => this.device.queue.onSubmittedWorkDone()));
+    if (this.#gpuDonePromise !== undefined) {
+      return this.#gpuDonePromise;
+    }
+    if (this.#submitted) {
+      return (this.#gpuDonePromise = this.#queueDonePromise!);
+    }
+    return (this.#gpuDonePromise ??= this.submitted.then(() => this.#queueDonePromise!));
   }
   /** CPU timestamp at queue submission; null for unsubmitted/aborted commands. */
   get submittedAtMs(): number | null {
     return this.#submittedAtMs;
+  }
+  get submitCpuMs(): number {
+    return this.#submitCpuMs;
   }
 
   static create(graphics: GraphicsContext, label = ""): ShadeGPUCommandContext {
@@ -258,13 +270,14 @@ export class ShadeGPUCommandContext {
       retired = true;
       resource.destroy();
     };
-    const retireAfterQueueIdle = (): void => {
-      void this.device.queue.onSubmittedWorkDone().then(destroy, destroy);
-    };
-    this.onFinished.addOne(retireAfterQueueIdle);
+    this.onFinished.addOne(() => {
+      void this.gpuDone.then(destroy, destroy);
+    });
     // The resource may have been used by an earlier submission even if this
     // encoder aborts, so abort is not permission to destroy it immediately.
-    this.onAborted.addOne(retireAfterQueueIdle);
+    this.onAborted.addOne(() => {
+      void this.device.queue.onSubmittedWorkDone().then(destroy, destroy);
+    });
   }
 
   recordGraphBuild(): void {
@@ -498,7 +511,12 @@ export class ShadeGPUCommandContext {
       const commandBuffer = encoder.finish();
       const submittedAtMs = performance.now();
       submitGpuCommands(this.#graphics.device!, this.#label || "unlabeled-command-context", [commandBuffer]);
+      this.#submitCpuMs = performance.now() - submittedAtMs;
       this.#submittedAtMs = submittedAtMs;
+      // Capture one queue-prefix fence synchronously at this submission. All
+      // lifetime/reuse/admission observers share it; later submits cannot extend
+      // this command's completion through a deferred onSubmittedWorkDone call.
+      this.#queueDonePromise = this.device.queue.onSubmittedWorkDone();
     } catch (cause) {
       this.abort(cause);
       throw cause;
@@ -510,7 +528,7 @@ export class ShadeGPUCommandContext {
     this.#submitted = true;
     this.#encoder = undefined;
     this.#timedEncoderFacade = undefined;
-    this.#releaseBuffers(this.device.queue.onSubmittedWorkDone());
+    this.#releaseBuffers(this.#queueDonePromise!);
 
     if (timer !== undefined) {
       const callbacks = [...this.#debugTimersCallbacks];

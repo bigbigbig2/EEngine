@@ -405,6 +405,11 @@ This requires no asset recook. The fixture defaults to 128 MiB.
 
 ### Actual Cooked Desktop Check
 
+Historical capture from the earlier demo layout and renderer revision. Its
+all-effects settings, smaller render outputs and pre-AA code differ from the
+current full-window default. Keep its raw observations for reference; use the
+2026-10-09 frame-scheduling section below for this change's isolated conclusions.
+
 Hardware: Windows, NVIDIA **RTX 2060 SUPER 8192 MiB** (local hardware query),
 Chrome/WebGPU, adapter identity `nvidia/turing`; browser device/description and
 driver version were not exposed. The requested RTX 2060 8 GB baseline is retained
@@ -611,6 +616,180 @@ instance anchor is an original local mechanism. `tools/fsr3-port/validate.mjs`
 still fails on 15 existing vendored license/build/Vulkan-wrapper digests; the
 algorithm/host files used here were not among those mismatches. This change does
 not update the manifest or claim complete source-package provenance validation.
+
+## Frame scheduling and stable-frame work (2026-10-09)
+
+Source baseline: `57f1499a`. Actual hardware: NVIDIA RTX 2060 SUPER, 8192 MiB,
+driver 591.86; Chrome 154.0.8037.58, WebGPU adapter NVIDIA/Turing. These results
+are not GTX 1650 Ti results. Cooked Bistro, complete scene, SSE=4, renderScale=1,
+DPR=1, physical 1920x1080 / 2560x1440. The camera starts at 0.3 of the automatic
+framing distance and rotates at 0.15 radians/second around the same target.
+Each capture resets that pose, warms 1.5 seconds and samples 5 seconds. The loaded
+scene is retained through the matrix; geometry page arrival can still vary.
+
+Default effects here mean FSR3+jitter on, VSM/GTAO/Bloom off. The diagnostic
+`effects=off` also disables FSR3+jitter. Physical sky, aerial perspective and
+radiometry remain in both: this is an optional-effects baseline, not an unlit
+or texture-free scene. Full timestamps/counters are separate profiled runs.
+
+### Confirmed source issues and corrections
+
+| Owner | Before | Current production behavior |
+| --- | --- | --- |
+| `OEngine/src/framegraph/ShadeGPUCommandContext.ts` | Lazy `gpuDone` registered queue completion in a later microtask; allocator and retirement could register additional observations. | Capture one queue-prefix fence immediately after the sole submit. Pre/post-submit owners observe the same future. Transient reuse, retirement and coordinator completion share that observation; abort retirement still protects earlier users. |
+| `OEngine/src/render/FrameCoordinator.ts` | Hard two-frame admission; a rejected host tick waited for its next RAF. | Default remains two; only bounded 2/3 policies are admitted. A deferred tick gets one coalesced availability notification after same-fence reuse observers run. The coordinator never renders or submits on its own. |
+| `OEngine/src/render/lighting/LocalLightWorkGenerator.ts` | Three allocations existed under the 18 MiB budget, but an extra encode guard rejected the third. | Each prepared allocation remains uniquely reserved and fenced; the conflicting two-submission guard is removed. No allocation budget increase. |
+| `OEngine/src/gpu/GpuNativeMaterialScene.ts` | Every stable frame rebuilt and compared a complete material snapshot. | Authored numeric/raster change signals and the TextureResidency publication revision gate snapshots. Unchanged admission is O(1); mutations retain candidate/commit/abort and exact retirement. Graph/Product topology still requires Scene resync. |
+| `OEngine/src/material/{StandardShadeMaterial,AppearanceRuntimeInputs,LinearModifier}.ts`, `OEngine/src/core/Color.ts` | Scalar/channel edits had no complete publication notification. | Direct scalar assignment, color-channel edits, modifier factor edits and explicit dynamic-input changes notify the existing material owner. Replaced values detach handlers; `get()` cannot expose silently mutable dynamic-input storage. |
+| `OEngine/src/gpu/{TextureResidency,GeometryPageStreamingRuntime}.ts` | Renderer read a complete streaming evidence snapshot just to obtain `lastPoll`. | Read-only O(1) publication revision and `lastPoll`; full evidence remains available to the debug panel/capture. |
+| `OEngine/src/render/pipeline/RendererCore.ts` | Recomputed stable active texture sets/bank masks; publication readiness was called history retirement. | Memoize facts by immutable scene summary and physical binding-array identity. Report publication deferrals separately. Temporal history uses ordered submissions, not an observed-completion admission fence. |
+| `OEngine/src/render/surface/SurfaceV4.ts` | Cloned already-synchronous frame inputs and recreated full-resolution bin scratch when physical attachments rotated. | Numeric uploads and bind groups capture synchronously; immutable profiles validate on binding identity changes. Same publication/extent shares ordered GPU bin scratch; each state's bindings retire at its exact fence. Abort/replacement/resize retain complete ownership. |
+| `main.ts` | An admission-deferred RAF always waited for the next RAF. | Consume the coalesced availability signal with latest input. Count RAF, ready callbacks, submissions and deferrals separately; unsubscribe on Release. Submitted FPS is not presented FPS. |
+
+### Isolated source A/B
+
+The **owner baseline** below replaces only GpuNativeMaterialScene and SurfaceV4
+with their actual `57f1499a` source, using diagnostic Vite route interception.
+Other owners use this change's production code. It isolates this pair's work;
+it is not a measurement of the entire old Renderer. No second renderer path
+ships in production. Both normal-run columns use limit=2 and wake=false.
+
+| Moving camera, normal run | 1080p owner baseline | 1080p corrected | 1440p owner baseline | 1440p corrected |
+| --- | ---: | ---: | ---: | ---: |
+| Submitted FPS | 55.95 | 56.46 | 55.45 | 56.12 |
+| CPU ms P50/P95 | 3.55 / 4.50 | 1.72 / 2.43 | 3.41 / 4.46 | 1.72 / 2.39 |
+| Observed completion ms P50/P95 | 12.92 / 21.94 | 10.76 / 16.51 | 17.94 / 26.64 | 14.72 / 27.33 |
+| Completion deferrals in 5-second window | 5 | 2 | 7 | 4 |
+| History deferrals | 0 | 0 | 0 | 0 |
+| Peak in-flight in sampled window | 2 | 2 | 2 | 2 |
+
+Enabling the corrected coalesced wakeup produced 56.84 / 57.11 submitted FPS
+in the window-mode moving runs, with 2 / 6 ready callbacks. These short captures
+show recovery of occasional missed ticks, not a large sustained FPS improvement.
+Queue.submit CPU duration was approximately 0.02 ms P50 and 0.03 ms P95.
+
+| Strict 2/3 admission A/B, wake=false | 2-frame FPS / deferrals | 3-frame FPS / deferrals |
+| --- | ---: | ---: |
+| 1080p static | 56.58 / 1 | 56.80 / 1 |
+| 1080p moving | 56.64 / 1 | 56.47 / 1 |
+| 1440p static | 56.27 / 3 | 56.35 / 2 |
+| 1440p moving | 55.39 / 6 | 55.93 / 1 |
+
+Observed peaks were 2/3 respectively. Three-frame admission is **not proven to
+be the main cause of the reported 50 FPS**, so default remains two. It can retain
+one additional transient frame and increase input age while saturated. During
+the 1080p 3-frame case, cumulative software-accounting peak advanced from
+1,505,849,747 to 1,651,285,251 bytes. This accounting excludes the separately
+reported geometry allocator; it is not driver VRAM or an independently reset
+per-case peak. The 1440p resize/previous-case high-water mark is not a clean
+three-frame transient-peak measurement.
+
+### GPU costs, separately profiled
+
+Normal runs do not produce timestamps. Full profiled captures below use only
+`scope=pass` for phase sums, and `scope=span` for total command span; stage/pass
+overlap is never summed twice. Values are P50/P95 milliseconds for moving views.
+
+| GPU work | 1080p | 1440p |
+| --- | ---: | ---: |
+| Command span | 6.574 / 8.106 | 9.904 / 11.310 |
+| Hierarchy traversal | 0.209 / 0.231 | 0.213 / 0.229 |
+| Product MeshletWork | 0.078 / 0.086 | 0.085 / 0.094 |
+| Frame instance transforms | 0.049 / 0.061 | 0.050 / 0.067 |
+| Frame vertices | 0.500 / 0.809 | 0.593 / 0.906 |
+| Native raster partitioning | 0.061 / 0.072 | 0.064 / 0.072 |
+| Visibility raster | 1.081 / 1.432 | 1.379 / 2.334 |
+| HZB build | 0.078 / 0.088 | 0.112 / 0.121 |
+| Execution bins count/scan/finalize/scatter | 0.238 / 0.506 | 0.388 / 0.401 |
+| Native opaque Surface | 1.435 / 1.869 | 2.157 / 2.548 |
+| Temporal facts | 0.264 / 0.275 | 0.487 / 0.758 |
+| FSR3 total | 1.757 / 2.366 | 3.035 / 4.486 |
+| Sky/aerial/IBL passes | 0.202 / 0.209 | 0.346 / 0.641 |
+| Radiometry/present | 0.179 / 0.185 | 0.308 / 0.315 |
+
+GPU owner-baseline spans were 6.439/8.065 and 9.905/11.534 ms; corrected spans
+are effectively unchanged. The patch removes host work/allocation rather than
+claiming a shader speedup. Optional-effects-off spans were 5.671/7.024 and
+6.366/7.915 ms. VSM/GTAO/Bloom execute no passes in these default captures.
+No per-bin pixel histogram or correct multi-bin dense counterfactual was
+measured, so binning's net saved shading work is not claimed. Its measured tax
+alone does not justify a new dense/compact selection algorithm.
+
+### Timeline and limitations
+
+Window-mode empty RAF after releasing the entire Renderer was 56.76 callbacks/s,
+interval P50/P95 17.585/18.185 ms. Headless empty RAF was 56.74/s. These are
+automation-host callback rates, **not measured monitor refresh/present rates**.
+The ordinary window was positioned offscreen; this is not an on-screen 60 Hz
+presentation acceptance test. The corrected normal scene follows this callback
+rate with few deferrals. CPU generates/submits work, GPU finishes well before
+most next callbacks, and no new host frame is requested until that callback.
+Low GPU utilization is therefore consistent with the measured work/cadence,
+not evidence that shaders or a two-frame fence consumed 20 ms.
+
+Adjacent GPU command spans in the isolated captures had approximately 10.8 ms
+(1080p) / 7.8 ms (1440p) P50 gaps. These are gaps in **this Renderer timeline**,
+not proof that every queue on the whole GPU was idle. CPU and GPU clock origins
+were not calibrated: submit-to-GPU-begin and GPU-end-to-observed-callback remain
+UNKNOWN. Queue completion includes preceding queue work and browser observation;
+it is never labeled GPU command duration. Global nvidia-smi usage is recorded
+only as machine-wide context, not per-Renderer driver allocation.
+
+The initial admission/fence/wakeup/scratch experiments ran while another Bistro
+page was still present. Their long completion/vertex times and 3-frame collapse
+are retained as interference/failure diagnostics, **excluded from isolated
+before/after conclusions**. After the user released the other page, the matrix
+above was rerun. The temporary pre/post-completion-future mismatch discovered
+during development was corrected; one identical future now covers reuse and
+admission and has an independent ordering regression test.
+
+HZB inspection disproved another proposed root cause: PackedVisibilityPass's
+Virtual Geometry traversal passes `previousHzb: null`, even for static views.
+Moving HZB ON/OFF therefore does not measure restored early occlusion. Ordinary
+geometry still fails open on camera matrix changes. Existing current-HZB late
+recheck filters already-generated work after a full first raster; it cannot
+recover nodes rejected by early traversal. A real deferred-occluded-work/recovery
+queue remains **NOT IMPLEMENTED**. Blindly retaining old-view rejection could
+drop visible geometry, and re-traversing/rebuilding/rasterizing all geometry
+twice would impose a large fixed tax. This change leaves that algorithm untouched.
+
+### Cost card and validation
+
+| Mechanism | Fixed/additional cost | Avoided work / break-even |
+| --- | --- | --- |
+| Numeric material notifications | One authored-field observer setup per material, change notifications on actual edits; one dirty/texture-epoch check per stable frame. No GPU bytes, ALU, atomics, samples or dispatch changes. | Stable frames avoid O(materials + parameters + binding comparisons) snapshots. Fully animated publications still perform the complete snapshot plus notification cost. The measured combined material/Surface improvement is about 1.7-1.8 ms P50; separate attribution is not measured. |
+| Stable shading facts / `lastPoll` | One immutable-identity memo and O(1) runtime reads. | Avoid stable texture-set filtering and all-product/page evidence scans. No GPU work or quality change. |
+| Shared bin scratch | Small CPU reference bookkeeping per state; original GPU count/scan/scatter/consumer dispatches and barriers remain unchanged. | At 0/50/100% attachment rotation, avoid 0/half/all repeated `4*W*H + O(bins)` queue/scratch allocations and fenced destruction. Pixel queue alone is 7.91/14.06 MiB at 1080p/1440p. State-specific small bindings still rotate; retirement/resize memory remains bounded by admitted pending work. No shader-speed claim. |
+| Shared completion / coalesced host wake | One physical completion observation per submit; bounded 600-entry CPU timing evidence and a pending bit. No GPU feedback, extra dispatch or separate submit. | Multiple owners share the same fence. With zero deferrals, no ready render runs; with deferral, use the newly reusable slot without waiting a whole extra host callback. GPU-busy input age is still bounded by the flight policy. |
+
+Engine/Bistro typecheck, fresh build:test, Bistro build, 34 targeted contract
+tests and the real native-surface-integration GPU oracle passed. Tests cover
+same-future queue prefix, late submit, coalesced reuse ordering, teardown,
+material edits, exact fences, shared scratch, resize/abort and three distinct
+LocalLightWork slots. Full Bistro captures recorded no GPU/page errors; Release
+returned TextureResidency and geometry owner allocation to zero. No complete
+60 Hz presented-frame or input-to-photon acceptance is claimed.
+
+Run the lightweight diagnostic from repository root with the dev server on 5174:
+
+```powershell
+node tools/diagnose-bistro-scheduling.mjs admission
+node tools/diagnose-bistro-scheduling.mjs desktop --window
+node tools/diagnose-bistro-scheduling.mjs owners-before --window --owner-baseline
+node tools/diagnose-bistro-scheduling.mjs gpu-details --window --gpu-details
+```
+
+Run GPU captures serially with one Bistro page. `--owner-baseline` substitutes
+only the two documented source owners; it does not modify the worktree or ship
+a fallback. Local evidence is in `.local/bistro-texture-compression/`:
+`scheduling-isolated-final.json`, `scheduling-isolated-original-owners.json`,
+`scheduling-desktop-final.json`, `scheduling-desktop-original-owners.json`,
+`scheduling-desktop-gpu-details.json` and `perf-native-integration.json`.
+Earlier `scheduling-admission`, `scheduling-fence-cpu`, `scheduling-wake-final`,
+`scheduling-shared-fence` and the pre-release rows of `scheduling-scratch-final`
+remain rejected/interference diagnostics. On-screen present pacing, safe moving
+Virtual Geometry HZB recovery and per-bin shading-benefit measurements remain
+the next performance work; they are not silently described as fixed here.
 
 ## Explicit Scope
 

@@ -6,11 +6,22 @@ function harness(profiled = false) {
   const pending = [];
   const coordinator = new FrameCoordinator({ profiler: { enabled: profiled } }, (_, label) => {
     let resolve, reject;
-    const gpuDone = new Promise((yes, no) => { resolve = yes; reject = no; });
+    const gpuDone = new Promise((yes, no) => {
+      resolve = yes;
+      reject = no;
+    });
     const command = {
-      label, gpuDone, closed: false, submittedAtMs: null,
-      finish() { this.submittedAtMs = performance.now(); this.closed = true; },
-      abort() { this.closed = true; }
+      label,
+      gpuDone,
+      closed: false,
+      submittedAtMs: null,
+      finish() {
+        this.submittedAtMs = performance.now();
+        this.closed = true;
+      },
+      abort() {
+        this.closed = true;
+      }
     };
     pending.push({ resolve, reject });
     return command;
@@ -34,7 +45,9 @@ test("completion evidence observes the existing two-frame fence and separates fa
   assert.equal(evidence.completionSamples[0].frameIndex, 0);
   assert.equal(evidence.completionSamples[0].profiled, true);
   assert.ok(evidence.completionSamples[0].elapsedMs >= 0);
-  assert.throws(() => { evidence.completionSamples[0].frameIndex = 9; }, TypeError);
+  assert.throws(() => {
+    evidence.completionSamples[0].frameIndex = 9;
+  }, TypeError);
   pending[1].reject(new Error("device lost"));
   await Promise.resolve();
   assert.equal(coordinator.evidence().inFlight, 0);
@@ -67,4 +80,74 @@ test("completion samples remain bounded without retaining frame commands", async
   assert.equal(evidence.completionSamples.length, 600);
   assert.equal(evidence.completionSamples[0].frameIndex, 50);
   assert.equal(evidence.completionSamples.at(-1).profiled, false);
+});
+
+test("bounded two/three policy retains pending frames and rejects unbounded admission", async () => {
+  const { coordinator, pending } = harness();
+  coordinator.submitFrame(coordinator.beginFrame(0, "frame"));
+  coordinator.submitFrame(coordinator.beginFrame(1, "frame"));
+  assert.equal(coordinator.canBeginFrame, false);
+  coordinator.maxFramesInFlight = 3;
+  coordinator.submitFrame(coordinator.beginFrame(2, "frame"));
+  assert.equal(coordinator.canBeginFrame, false);
+  assert.throws(() => {
+    coordinator.maxFramesInFlight = 4;
+  }, /2 or 3/);
+  coordinator.maxFramesInFlight = 2;
+  pending[0].resolve();
+  await Promise.resolve();
+  assert.equal(coordinator.canBeginFrame, false);
+  pending[1].resolve();
+  await Promise.resolve();
+  assert.equal(coordinator.canBeginFrame, true);
+  const evidence = coordinator.evidence();
+  assert.equal(evidence.peakInFlight, 3);
+  assert.equal(evidence.submissionSamples.length, 3);
+  assert.throws(() => {
+    evidence.submissionSamples[0].inFlight = 99;
+  }, TypeError);
+  assert.throws(() => evidence.submissionSamples.push({}), TypeError);
+  assert.ok(evidence.submissionSamples[1].intervalMs >= 0);
+  assert.ok(evidence.completionSamples[0].observedAtMs >= evidence.submissionSamples[0].submittedAtMs);
+  pending[2].resolve();
+  coordinator.destroy();
+});
+
+test("deferred host wakes once after reuse observers and never creates its own frame", async () => {
+  const { coordinator, pending } = harness();
+  const events = [];
+  coordinator.onFrameAvailable.add(() => events.push("ready"));
+  const first = coordinator.beginFrame(0, "frame");
+  coordinator.submitFrame(first);
+  coordinator.submitFrame(coordinator.beginFrame(1, "frame"));
+  first.command.gpuDone.then(() => events.push("reuse"));
+  coordinator.deferFrame();
+  coordinator.deferFrame();
+  pending[0].resolve();
+  pending[1].resolve();
+  await Promise.resolve();
+  assert.deepEqual(events, ["reuse"]);
+  await Promise.resolve();
+  assert.deepEqual(events, ["reuse", "ready"]);
+  assert.equal(coordinator.evidence().submittedCount, 2);
+  coordinator.destroy();
+});
+
+test("intervening RAF or teardown cancels a completion wakeup", async () => {
+  for (const destroy of [false, true]) {
+    const { coordinator, pending } = harness();
+    let wakes = 0;
+    coordinator.onFrameAvailable.add(() => {
+      wakes++;
+    });
+    coordinator.submitFrame(coordinator.beginFrame(0, "frame"));
+    coordinator.deferFrame();
+    pending[0].resolve();
+    await Promise.resolve();
+    if (destroy) coordinator.destroy();
+    else coordinator.abortFrame(coordinator.beginFrame(1, "RAF"));
+    await Promise.resolve();
+    assert.equal(wakes, 0);
+    coordinator.destroy();
+  }
 });

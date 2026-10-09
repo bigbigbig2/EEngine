@@ -70,6 +70,9 @@ export class GpuNativeMaterialScene {
   // frame inputs remain live and are checked separately by snapshot().
   private readonly materialBindings: (MaterialBindingSnapshot | undefined)[] = [];
   private nextRevision = 1;
+  private inputsDirty = true;
+  private observedTextureRevision = -1;
+  private readonly unsubscribeInputs: Array<() => void> = [];
 
   constructor(
     private readonly graphics: GraphicsContext,
@@ -98,7 +101,16 @@ export class GpuNativeMaterialScene {
         )
       : null;
     try {
+      for (const material of new Set(materialSources.map((source) => source.material))) {
+        const changed = () => {
+          this.inputsDirty = true;
+        };
+        material.onChanged.add(changed);
+        this.unsubscribeInputs.push(() => material.onChanged.remove(changed));
+      }
       const initial = this.snapshot();
+      this.inputsDirty = false;
+      this.observedTextureRevision = graphics.texture_residency_if_created?.publicationRevision ?? 0;
       this.candidate = initial;
       this.ready = Promise.all([initial.publication.ready, this.prepareRasterPrograms(initial)]).then(() => {
         if (this.stopped) {
@@ -121,6 +133,10 @@ export class GpuNativeMaterialScene {
       });
       command.onAborted.addOne(() => this.destroy());
     } catch (error) {
+      for (const unsubscribe of this.unsubscribeInputs) {
+        unsubscribe();
+      }
+      this.unsubscribeInputs.length = 0;
       this.products?.destroy();
       throw error;
     }
@@ -173,7 +189,13 @@ export class GpuNativeMaterialScene {
     if (!this.resident || this.stopped || this.prepared !== null) {
       throw new Error("Native scene is unavailable or already prepared");
     }
+    const textureRevision = this.graphics.texture_residency_if_created?.publicationRevision ?? 0;
+    if (!this.inputsDirty && textureRevision === this.observedTextureRevision) {
+      return (this.candidate ?? this.active!).ready;
+    }
     const next = this.snapshot(this.candidate ?? this.active!);
+    this.inputsDirty = false;
+    this.observedTextureRevision = textureRevision;
     if (next !== this.candidate && next !== this.active) {
       this.candidate?.publication.abort();
       this.candidate = next;
@@ -511,6 +533,10 @@ export class GpuNativeMaterialScene {
 
   destroy(): void {
     this.stopped = true;
+    for (const unsubscribe of this.unsubscribeInputs) {
+      unsubscribe();
+    }
+    this.unsubscribeInputs.length = 0;
     this.active?.publication.destroy();
     this.candidate?.publication.destroy();
     this.retiring.forEach((snapshot) => snapshot.publication.destroy());

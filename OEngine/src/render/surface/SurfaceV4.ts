@@ -115,6 +115,9 @@ export class SurfaceV4 {
   private destroyed = false;
   private lastCompletion: Promise<void> = Promise.resolve();
   private readonly retired = new Set<ExtentState>();
+  // Attachment changes replace bind groups, not the ordered GPU scratch queue.
+  // References include submitted retired states until their exact fences settle.
+  private readonly binReferences = new Map<NativeExecutionBins, number>();
   private readonly accountingHandles = new Map<GPUBuffer | GPUTexture, ResourceHandle>();
 
   constructor(
@@ -232,7 +235,6 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   get allocatedBytes(): number {
     const bytes = (state: ExtentState): number =>
       state.width * state.height * (Number(state.ownsHdr) * 8 + Number(state.initialHdr !== null) * 8) +
-      state.bins.allocatedBytes +
       state.resources.reduce((total, buffer) => total + buffer.size, 0);
     let total =
       this.neutralBuffers.reduce((total, buffer) => total + buffer.size, 0) +
@@ -243,6 +245,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     }
     for (const state of this.retired) {
       total += bytes(state);
+    }
+    for (const bins of this.binReferences.keys()) {
+      total += bins.allocatedBytes;
     }
     return total;
   }
@@ -287,28 +292,10 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       throw new Error("SurfaceV4 is stopped or already prepared");
     }
     this.validate(frame);
-    const snapshotEntries = (entries: readonly GPUBindGroupEntry[]): readonly GPUBindGroupEntry[] =>
-      entries.map((entry) => {
-        const resource = entry.resource as GPUBufferBinding;
-        return { ...entry, resource: resource.buffer === undefined ? entry.resource : { ...resource } };
-      });
-    frame = {
-      ...frame,
-      cameraPosition: [...frame.cameraPosition],
-      viewMatrix: Array.from(frame.viewMatrix),
-      geometry: {
-        ...frame.geometry,
-        source: [...frame.geometry.source],
-        sourcePayload: [...frame.geometry.sourcePayload],
-        ...(frame.geometry.productBanks ? { productBanks: [...frame.geometry.productBanks] } : {})
-      },
-      lightingEntries: snapshotEntries(frame.lightingEntries),
-      routes: frame.routes.map((route) => ({
-        ...route,
-        frameInputs: route.frameInputs.slice(),
-        materialEntries: snapshotEntries(route.materialEntries)
-      }))
-    };
+    // This path is synchronous: GPU groups capture resources and writeBuffer
+    // copies numeric data before returning. No asynchronous consumer observes
+    // these authored arrays, so cloning the complete route publication here
+    // adds work without providing a transaction/lifetime boundary.
     this.preparing = true;
     const epoch = ++this.prepareEpoch;
     let candidate: ExtentState | null = null;
@@ -319,7 +306,6 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       if (this.destroyed || epoch !== this.prepareEpoch) {
         throw new Error("SurfaceV4 prepare was superseded");
       }
-      this.validateProfiles(frame);
       const resourceIdentity = (entries: readonly GPUBindGroupEntry[]): unknown[] =>
         entries.flatMap((entry) => {
           const resource = entry.resource as GPUBufferBinding;
@@ -344,6 +330,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
           route.programIndex,
           route.bindingSet,
           route.unlit,
+          route.frameInputs.byteLength,
           ...resourceIdentity(route.materialEntries)
         ])
       ];
@@ -352,6 +339,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         this.state.identity.length !== identity.length ||
         this.state.identity.some((value, index) => value !== identity[index])
       ) {
+        // Immutable shader layouts and physical bindings are validated when
+        // they change; finite frame-varying values still validate every frame.
+        this.validateProfiles(frame);
         candidate = this.createState(frame, identity, preparedBins);
         if (this.destroyed || epoch !== this.prepareEpoch) {
           throw new Error("SurfaceV4 stopped during prepare");
@@ -718,7 +708,14 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     identity: readonly unknown[],
     preparedBins?: NativeExecutionBins
   ): ExtentState {
+    const sharedBins =
+      this.state?.width === frame.width &&
+      this.state.height === frame.height &&
+      this.state.publication === frame.publication
+        ? this.state.bins
+        : null;
     const bins =
+      sharedBins ??
       preparedBins ??
       new NativeExecutionBins(this.device, {
         graphics: this.graphics,
@@ -729,6 +726,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     const resources: GPUBuffer[] = [];
     let hdr: GPUTexture | null = null;
     let finalHdr: GPUTexture | null = null;
+    let binBindings: NativeExecutionBinsBindings | null = null;
     const buffer = (size: number, values?: Uint32Array): GPUBuffer => {
       const result = this.device.createBuffer({
         size,
@@ -883,7 +881,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
           ...(continuation ? { continuation } : {})
         });
       });
-      const binBindings =
+      binBindings =
         bins.plan.mode === "compact"
           ? bins.createBindings({
               visibility: frame.visibility.createView(),
@@ -893,6 +891,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
               generation: frame.generation
             })
           : null;
+      this.binReferences.set(bins, (this.binReferences.get(bins) ?? 0) + 1);
       return {
         width: frame.width,
         height: frame.height,
@@ -923,7 +922,11 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         }
       }
       resources.forEach((resource) => this.releaseResource(resource));
-      bins.destroy();
+      if (sharedBins === null) {
+        bins.destroy();
+      } else if (binBindings !== null) {
+        bins.releaseBindings(binBindings);
+      }
       throw error;
     }
   }
@@ -1091,14 +1094,25 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     if (state.initialHdr) {
       this.releaseResource(state.initialHdr);
     }
-    state.bins.destroy();
+    if (state.binBindings !== null) {
+      state.bins.releaseBindings(state.binBindings);
+    }
+    const references = this.binReferences.get(state.bins)! - 1;
+    if (references === 0) {
+      this.binReferences.delete(state.bins);
+      state.bins.destroy();
+    } else {
+      this.binReferences.set(state.bins, references);
+    }
     state.resources.forEach((resource) => this.releaseResource(resource));
     this.retired.delete(state);
   }
 
   private retire(state: ExtentState): void {
     this.retired.add(state);
-    void state.bins.retire(this.lastCompletion).catch(() => undefined);
+    // A subsequent submitted frame may use the same queue. Queue ordering
+    // serializes count/scan/scatter/Surface reads; release only this state's
+    // bindings after its fence, and destroy shared scratch at the final release.
     const resources: (GPUBuffer | GPUTexture)[] = [...state.resources];
     if (state.ownsHdr) {
       resources.push(state.hdr);

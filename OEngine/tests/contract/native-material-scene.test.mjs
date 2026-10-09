@@ -4,13 +4,15 @@ import { AppearanceProgramRegistry } from "../../.test-dist/gpu/AppearanceProgra
 import { StandardShadeMaterial } from "../../.test-dist/material/StandardShadeMaterial.js";
 import {
   AppearanceGraphBuilder,
-  snapshotAppearanceTexture,
+  snapshotAppearanceTexture
 } from "../../.test-dist/material/AppearanceGraph.js";
 import { lowerStandardAppearanceGraph } from "../../.test-dist/material/StandardAppearanceGraph.js";
 import { compileAppearanceGraph } from "../../.test-dist/material/AppearanceGraphCompiler.js";
 import { ShadeTexture } from "../../.test-dist/texture/ShadeTexture.js";
 import { encodeGpuTextureRef } from "../../.test-dist/gpu/GpuTextureRefAbi.js";
 import { ChangeSignal } from "../../.test-dist/core/Signal.js";
+import { Color } from "../../.test-dist/core/Color.js";
+import { LinearModifier } from "../../.test-dist/material/LinearModifier.js";
 
 globalThis.GPUShaderStage = { COMPUTE: 4, FRAGMENT: 2, VERTEX: 1 };
 globalThis.GPUBufferUsage = { STORAGE: 128, UNIFORM: 64, COPY_DST: 8, COPY_SRC: 4 };
@@ -32,7 +34,7 @@ function fixture() {
       maxUniformBuffersPerShaderStage: 12,
       maxSampledTexturesPerShaderStage: 16,
       maxSamplersPerShaderStage: 16,
-      maxStorageTexturesPerShaderStage: 4,
+      maxStorageTexturesPerShaderStage: 4
     },
     pushErrorScope() {},
     popErrorScope: async () => null,
@@ -51,25 +53,26 @@ function fixture() {
         unmap() {},
         destroy() {
           this.destroyed = true;
-        },
+        }
       };
       buffers.push(buffer);
       return buffer;
-    },
+    }
   };
   const registry = new AppearanceProgramRegistry(device);
   const samplers = new Map();
   const graphics = {
     device,
+    texture_residency_if_created: { publicationRevision: 1 },
     appearance_programs: registry,
     samplers: {
       obtain(descriptor) {
         const key = JSON.stringify(descriptor);
         if (!samplers.has(key)) samplers.set(key, { descriptor });
         return samplers.get(key);
-      },
+      }
     },
-    render_pipelines: { prepare: async () => ({}) },
+    render_pipelines: { prepare: async () => ({}) }
   };
   const command = () => ({
     device,
@@ -77,7 +80,7 @@ function fixture() {
     gpuDone: Promise.resolve(),
     onBeforeFinish: new ChangeSignal(),
     onFinished: new ChangeSignal(),
-    onAborted: new ChangeSignal(),
+    onAborted: new ChangeSignal()
   });
   return { device, registry, graphics, buffers, command };
 }
@@ -96,7 +99,7 @@ test("stable native Scene keeps code/bindings; numeric edits remain atomic acros
     new Map(),
     upload,
     false,
-    false,
+    false
   );
   await scene.ready;
   upload.onBeforeFinish.send1(upload);
@@ -104,12 +107,19 @@ test("stable native Scene keeps code/bindings; numeric edits remain atomic acros
   const active = scene.active;
   const bindings = scene.bindings[0];
   const initialAllocations = f.buffers.length;
+  const snapshot = scene.snapshot.bind(scene);
+  let snapshots = 0;
+  scene.snapshot = (...args) => {
+    snapshots++;
+    return snapshot(...args);
+  };
   for (let i = 0; i < 8; i++) {
     assert.equal(scene.canPrepareFrame(), true);
     assert.equal(scene.bindings[0], bindings);
     assert.equal(scene.active, active);
   }
   assert.equal(f.buffers.length, initialAllocations);
+  assert.equal(snapshots, 0, "unchanged publication must not audit all materials");
   material.diffuse_color.r = 0.25; // Direct field edit remains supported.
   scene.canPrepareFrame();
   await tick();
@@ -144,6 +154,7 @@ test("stable native Scene keeps code/bindings; numeric edits remain atomic acros
   unlit.onFinished.send1(unlit);
   await tick();
   set.generation++;
+  f.graphics.texture_residency_if_created.publicationRevision++;
   scene.canPrepareFrame();
   await tick();
   assert.equal(scene.canPrepareFrame(), true);
@@ -179,7 +190,7 @@ test("binding reuse observes route values, physical bank identity, generation an
     products: null,
     materialBindings: [],
     mipRanges: new Map([[texture, [0, 4]]]),
-    texturePublications: new Map([[texture, publication]]),
+    texturePublications: new Map([[texture, publication]])
   });
   const source = { graph, textureRefs: refs };
   const obtain = () => scene.obtainMaterialBindings(0, source, set);
@@ -207,10 +218,44 @@ test("binding reuse observes route values, physical bank identity, generation an
   const mip = obtain();
   assert.equal(obtain(), mip);
   Object.defineProperty(texture, "texture_product", {
-    value: { metadata: { storageWidth: 64, storageHeight: 64, planes: [{ mips: Array(7).fill({}) }] } },
+    value: { metadata: { storageWidth: 64, storageHeight: 64, planes: [{ mips: Array(7).fill({}) }] } }
   });
   const mipAsset = obtain();
   assert.notDeepEqual(mipAsset.program.constants, mip.program.constants);
   assert.equal(obtain(), mipAsset);
   f.registry.destroy();
+});
+
+test("authored numeric edits publish changes, detach replaced values and preserve JSON", () => {
+  const material = new StandardShadeMaterial();
+  let changes = 0;
+  material.onChanged.add(() => {
+    changes++;
+  });
+  material.roughness_factor = 0.3;
+  material.roughness_factor = 0.3;
+  assert.equal(changes, 1);
+  material.diffuse_color.set(0.2, 0.3, 0.4, 0.8);
+  assert.equal(changes, 2, "a vector edit publishes once");
+  material.diffuse_color.r = 0.4;
+  assert.equal(changes, 3);
+  const old = material.diffuse_color;
+  material.diffuse_color = new Color(0.5, 0.6, 0.7, 1);
+  const afterReplace = changes;
+  old.r = 0.1;
+  assert.equal(changes, afterReplace);
+  material.diffuse_color.g = 0.1;
+  assert.equal(changes, afterReplace + 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(material.diffuse_color)), { r: 0.5, g: 0.1, b: 0.7, a: 1 });
+  material.ambient_factors = new LinearModifier(0.8, 0);
+  const afterModifier = changes;
+  material.ambient_factors.a = 0.5;
+  assert.equal(changes, afterModifier + 1);
+  material.appearance_inputs.set("phase", [0.25]);
+  const afterInput = changes;
+  material.appearance_inputs.get("phase")[0] = 0.75;
+  assert.equal(material.appearance_inputs.get("phase")[0], 0.25);
+  assert.equal(changes, afterInput, "returned copy cannot silently mutate a publication");
+  material.appearance_inputs.set("phase", [0.75]);
+  assert.equal(changes, afterInput + 1);
 });

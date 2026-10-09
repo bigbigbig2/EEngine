@@ -3,16 +3,28 @@
  */
 
 import { hashFloat } from "../core/hashMix.js";
+import { ChangeSignal } from "../core/Signal.js";
 
 export class LinearModifier {
-  a: number;
+  private factor: number;
+  readonly onChanged = new ChangeSignal();
   b: number;
   source = 0;
   transient = false;
 
   constructor(a = 1, b = 0) {
-    this.a = a;
+    this.factor = a;
     this.b = b;
+  }
+
+  get a(): number {
+    return this.factor;
+  }
+  set a(value: number) {
+    if (!Object.is(value, this.factor)) {
+      this.factor = value;
+      this.onChanged.send1(this);
+    }
   }
 
   copy(other: LinearModifier): void {

@@ -9,6 +9,7 @@ import { LinearModifier } from "./LinearModifier.js";
 import type { ShadeTexture } from "../texture/ShadeTexture.js";
 import type { AppearanceMaterialDefinition } from "./AppearanceMaterialDefinition.js";
 import { AppearanceRuntimeInputs } from "./AppearanceRuntimeInputs.js";
+import { ChangeSignal } from "../core/Signal.js";
 
 function refOrDeepEquals(a: unknown, b: unknown): boolean {
   if (a === b) return true;
@@ -92,6 +93,53 @@ export class StandardShadeMaterial extends ShadeMaterial {
   clearcoat_normal_uv_rotation = 0;
   emissive_factor = new Color(0, 0, 0);
   ambient_factors = new LinearModifier(1, 1);
+
+  /** Numeric/raster publication changes; graph and texture topology still resync. */
+  readonly onChanged = new ChangeSignal();
+
+  constructor() {
+    super();
+    const changed = () => this.onChanged.send1(this);
+    // Install once on authored fields, preserving direct assignment semantics.
+    // Stable rendering observes this signal, never a full numeric snapshot.
+    for (const key of [
+      "alpha_cutoff",
+      "normal_scale",
+      "clearcoat_normal_scale",
+      "is_unlit",
+      "roughness_factor",
+      "metallic_factor",
+      "ior_factor",
+      "specular_factor",
+      "clearcoat_factor",
+      "clearcoat_roughness_factor",
+      "transparency_mode",
+      "texture_emissive",
+      "diffuse_color",
+      "emissive_factor",
+      "specular_color_factor",
+      "ambient_factors"
+    ] as const) {
+      let value = this[key];
+      const signal = (entry: typeof value): ChangeSignal | undefined =>
+        entry instanceof Color || entry instanceof LinearModifier ? entry.onChanged : undefined;
+      signal(value)?.add(changed);
+      Object.defineProperty(this, key, {
+        enumerable: true,
+        configurable: false,
+        get: () => value,
+        set: (next: typeof value) => {
+          if (!Object.is(next, value)) {
+            signal(value)?.remove(changed);
+            value = next;
+            signal(value)?.add(changed);
+            changed();
+          }
+        }
+      });
+    }
+    this.appearance_inputs.onChanged.add(changed);
+  }
 
   override get textures(): ShadeTexture[] {
     const textures = this.is_unlit
