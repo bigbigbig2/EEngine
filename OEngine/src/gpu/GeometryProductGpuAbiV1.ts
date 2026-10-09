@@ -1,6 +1,6 @@
 import type { GeometryPageLocationV1 } from "./VirtualGeometryResidency.js";
 
-export const GEOMETRY_PRODUCT_GPU_ABI_VERSION_V1 = 4;
+export const GEOMETRY_PRODUCT_GPU_ABI_VERSION_V1 = 5;
 /** Location word 3: low two lifecycle flags, bits 2..15 directory offset / 16. */
 const GEOMETRY_PAGE_DIRECTORY_OFFSET_MASK = 0xfffc;
 export const GEOMETRY_PAGE_LOCATION_STRIDE = 16;
@@ -10,15 +10,16 @@ export const GEOMETRY_PAGE_LOCATION_PINNED = 2;
 export const GEOMETRY_PRODUCT_GPU_PAGE_SHIFT_V1 = 18;
 export const GEOMETRY_PRODUCT_GPU_PAGE_BYTES_V1 = 1 << GEOMETRY_PRODUCT_GPU_PAGE_SHIFT_V1;
 export const GEOMETRY_PRODUCT_GPU_BANK_COUNT_MAX_V1 = 4;
-/** Address namespace ceiling, NOT the negotiated physical bank capacity. */
-export const GEOMETRY_PRODUCT_GPU_SLOTS_PER_BANK_V1 = 1024;
+/** Address namespace ceiling, NOT the negotiated physical bank capacity.
+ * Four banks plus the nonresident sentinel fit the packed high 16 bits. */
+export const GEOMETRY_PRODUCT_GPU_SLOTS_PER_BANK_V1 = 2048;
 export const GEOMETRY_PRODUCT_TABLE_RECORD_STRIDE_V1 = 64;
 export const GEOMETRY_PRODUCT_ASSET_REFERENCE_STRIDE_V1 = 16;
 export const GEOMETRY_PRODUCT_TABLE_FLAG_ACTIVE_V1 = 1;
 export const GEOMETRY_PRODUCT_METADATA_HEAP_HEADER_BYTES_V1 = 64;
 
 export interface GeometryProductMetadataHeapHeaderV1 {
-  /** Actual physical capacity; the packed resident address namespace is 1024. */
+  /** Actual physical capacity within the packed resident address namespace. */
   readonly slotsPerBank: number;
   readonly productCount: number;
   readonly productCapacity: number;

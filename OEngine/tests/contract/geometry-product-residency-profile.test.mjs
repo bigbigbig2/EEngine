@@ -133,6 +133,26 @@ test("Phase H chooses the three physical profiles from negotiated limits", () =>
   assert.equal(highEnd.capacityBytes, 1024 * 1024 * 1024);
 });
 
+test("an explicit working-set bank target preserves four bindings and obeys both limits", () => {
+  const MiB = 1024 ** 2;
+  const options = { requestedProfile: "HighEnd", configuredCapacityBytes: 1536 * MiB, configuredBankBytes: 384 * MiB };
+  const selected = selectGeometryProductResidencyProfileV1(limits(512 * MiB), options);
+  assert.equal(selected.bankCount, 4);
+  assert.equal(selected.bankBytes, 384 * MiB);
+  assert.equal(selected.capacityBytes, 1536 * MiB);
+  const deviceClamped = selectGeometryProductResidencyProfileV1(limits(256 * MiB), options);
+  assert.equal(deviceClamped.capacityBytes, 1024 * MiB);
+  const budgetClamped = selectGeometryProductResidencyProfileV1(limits(512 * MiB), { ...options, configuredCapacityBytes: 768 * MiB });
+  assert.equal(budgetClamped.capacityBytes, 768 * MiB);
+  const unchanged = selectGeometryProductResidencyProfileV1(limits(512 * MiB), { requestedProfile: "HighEnd" });
+  assert.equal(unchanged.capacityBytes, 1024 * MiB);
+  const namespaceClamped = selectGeometryProductResidencyProfileV1(limits(1024 * MiB), { ...options, configuredBankBytes: 1024 * MiB, configuredCapacityBytes: 4096 * MiB });
+  assert.equal(namespaceClamped.capacityBytes, 2048 * MiB);
+  assert.throws(() => selectGeometryProductResidencyProfileV1(limits(512 * MiB), { configuredBankBytes: 384 * MiB }), /requires finite configuredCapacityBytes/);
+  assert.throws(() => selectGeometryProductResidencyProfileV1(limits(512 * MiB), { ...options, configuredCapacityBytes: Infinity }), /requires finite configuredCapacityBytes/);
+  assert.throws(() => selectGeometryProductResidencyProfileV1(limits(512 * MiB), { ...options, configuredBankBytes: NaN }), /page-sized integer/);
+});
+
 test("Phase H falls back without recook and does not guess physical VRAM", () => {
   const plan = selectGeometryProductResidencyProfileV1(limits(192 * 1024 * 1024), {
     requestedProfile: "HighEnd",

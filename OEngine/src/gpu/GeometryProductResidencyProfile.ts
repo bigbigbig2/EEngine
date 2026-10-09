@@ -1,4 +1,5 @@
 import { OEGPACK_V3_PAGE_BYTES } from "../assets/GeometryAbiV3.js";
+import { GEOMETRY_PRODUCT_GPU_SLOTS_PER_BANK_V1 } from "./GeometryProductGpuAbiV1.js";
 
 /** Phase H profile selector ABI. This changes physical capacity only; Product/Page ABI stays V1. */
 export const GEOMETRY_PRODUCT_RESIDENCY_PROFILE_ABI_VERSION_V1 = 1;
@@ -38,6 +39,9 @@ export interface GeometryProductResidencyProfileOptionsV1 {
   readonly featureEnabled?: boolean;
   /** Explicit application budget; it is not inferred from physical VRAM. */
   readonly configuredCapacityBytes?: number;
+  /** Explicit per-bank target for an application working set. Defaults retain
+   * the profile tier; device limits and configuredCapacityBytes remain caps. */
+  readonly configuredBankBytes?: number;
 }
 
 export interface GeometryProductResidencyProfilePlanV1 {
@@ -88,6 +92,15 @@ export function selectGeometryProductResidencyProfileV1(
   ) {
     throw new RangeError("Geometry Product configuredCapacityBytes must be positive or infinite");
   }
+  if (
+    options.configuredBankBytes !== undefined &&
+    (!Number.isSafeInteger(options.configuredBankBytes) || options.configuredBankBytes < OEGPACK_V3_PAGE_BYTES)
+  ) {
+    throw new RangeError("Geometry Product configuredBankBytes must be a positive page-sized integer");
+  }
+  if (options.configuredBankBytes !== undefined && !Number.isFinite(options.configuredCapacityBytes)) {
+    throw new RangeError("Geometry Product explicit bank target requires finite configuredCapacityBytes");
+  }
   if (!featureEnabled) return disabledPlan(normalizedLimits, requestedProfile, evidence, "feature-off");
   if (normalizedLimits.maxStorageBuffersPerShaderStage < 16) {
     return disabledPlan(normalizedLimits, requestedProfile, evidence, "unsupported-limits");
@@ -95,7 +108,8 @@ export function selectGeometryProductResidencyProfileV1(
 
   const maximumBankBytes = Math.min(
     normalizedLimits.maxBufferSize,
-    normalizedLimits.maxStorageBufferBindingSize
+    normalizedLimits.maxStorageBufferBindingSize,
+    GEOMETRY_PRODUCT_GPU_SLOTS_PER_BANK_V1 * OEGPACK_V3_PAGE_BYTES
   );
   const capacityLimit = Math.min(
     configuredCapacityBytes,
@@ -111,12 +125,12 @@ export function selectGeometryProductResidencyProfileV1(
   if (!PROFILE_ORDER.includes(requested)) {
     throw new RangeError("Unknown Geometry Product residency profile");
   }
-  // A profile is a ceiling, not a mandatory allocation tier. Four equal,
-  // page-aligned banks preserve bindings while fitting the application budget.
+  // An explicit bank target overrides the default profile ceiling. Four equal,
+  // page-aligned banks still fit the device limits and application budget.
   const bankBytes =
     Math.floor(
       Math.min(
-        PROFILE_BANK_BYTES[requested],
+        options.configuredBankBytes ?? PROFILE_BANK_BYTES[requested],
         maximumBankBytes,
         configuredCapacityBytes / GEOMETRY_PRODUCT_RESIDENCY_BANK_COUNT_V1
       ) / OEGPACK_V3_PAGE_BYTES

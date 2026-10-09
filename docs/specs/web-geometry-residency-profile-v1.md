@@ -4,6 +4,7 @@ state: current
 verifies:
   files:
     - OEngine/src/gpu/GeometryProductResidencyProfile.ts
+    - OEngine/src/gpu/GeometryProductGpuAbiV1.ts
     - OEngine/src/gpu/GeometryProductSlotPool.ts
     - OEngine/src/gpu/GeometryProductGpuBudget.ts
     - OEngine/src/gpu/VirtualGeometryResidency.ts
@@ -25,9 +26,10 @@ format or cache identity.
 
 The profile selects physical bank capacity. Product descriptors, 256 KiB decoded
 pages, PageID identity, hierarchy and cooked bytes remain unchanged; no recook is
-required for a capacity change. Runtime GPU ABI version 3 publishes actual
+required for a capacity change. Runtime GPU ABI version 5 publishes actual
 `slotsPerBank` in metadata header word 12. Its resident-address namespace uses
-1024 slots per bank; this ceiling is distinct from allocated physical capacity.
+2048 slots per bank; this ceiling is distinct from allocated physical capacity.
+The runtime rebuilds CPU/WGSL locations together; older GPU headers are rejected.
 
 ## Profiles
 
@@ -45,6 +47,13 @@ profile without a budget may allocate its full ceiling. Actual bank bytes are
 `floor(min(profile ceiling, both buffer limits, configured budget / 4) / 256 KiB)
 * 256 KiB`. Budgets below four pages fail closed; small banks are valid. This
 default is an allocation policy, not a measured optimum for large scenes.
+
+`configuredBankBytes` can explicitly override the default profile ceiling when
+paired with a finite `configuredCapacityBytes`. Bank bytes are still clamped to
+both device buffer limits, the configured total divided by four, and the GPU
+address namespace (512 MiB per bank), then aligned down to 256 KiB. Default
+profile selection and ceilings stay as listed above. The selected profile label
+describes the tier; `bankBytes`/`capacityBytes` record the actual allocation.
 
 All profiles also require the Product consumer's negotiated
 `maxStorageBuffersPerShaderStage >= 16`. The selector reads the post-device
@@ -93,7 +102,7 @@ Contract coverage is in
 - Portable/Balanced/HighEnd selection from negotiated limits;
 - small budgets, explicit fallback and runtime-pressure ceilings without recook;
 - low-limit and feature-off zero-bank allocation;
-- actual slots versus packed address namespace, including 511/512/767/1023;
+- actual slots versus packed address namespace, including 511/512/767/1023/1024/1535/2047;
 - Balanced residency using four 192 MiB banks with unchanged cooked pages.
 
 Budgeted lifecycle contracts and the `geometry-budgeted-residency` GPU oracle

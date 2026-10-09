@@ -56,7 +56,7 @@ test("Geometry Product GPU location mirror rejects reserved flags", () => {
   );
   assert.throws(
     () =>
-      encodeGeometryProductGpuLocationV1({ bankIndex: 0, slotIndex: 1024, productGeneration: 1, flags: 1 }),
+      encodeGeometryProductGpuLocationV1({ bankIndex: 0, slotIndex: 2048, residentBankIndex: 0, residentSlotIndex: 0, productGeneration: 1, flags: 1 }),
     /invalid/,
   );
   const outOfBank = encodeGeometryProductGpuLocationV1({
@@ -69,6 +69,23 @@ test("Geometry Product GPU location mirror rejects reserved flags", () => {
   });
   new DataView(outOfBank.buffer).setUint32(0, 4, true);
   assert.equal(validateGeometryProductGpuLocationV1(outOfBank, 1).valid, false);
+});
+
+test("expanded banks retain raw and resident addresses without truncation", () => {
+  for (const slot of [1023, 1024, 1535, 2047]) {
+    for (let bank = 0; bank < 4; bank++) {
+      const bytes = encodeGeometryProductGpuLocationV1({
+        bankIndex: bank, slotIndex: slot, residentBankIndex: bank, residentSlotIndex: slot,
+        residentByteOffset: 262128, productGeneration: 7, flags: 1,
+      });
+      const packed = new DataView(bytes.buffer).getUint32(4, true);
+      assert.equal(packed & 65535, slot);
+      assert.equal((packed >>> 16) - 1, bank * 2048 + slot);
+      assert.equal(validateGeometryProductGpuLocationV1(bytes, 7, slot + 1).valid, true);
+      assert.equal(validateGeometryProductGpuLocationV1(bytes, 7, slot + 1).byteOffset, slot * 262144);
+      assert.equal(validateGeometryProductGpuLocationV1(bytes, 7, slot).valid, false);
+    }
+  }
 });
 
 test("resident directory offset is aligned, bounded and independent of lifecycle flags", () => {

@@ -326,6 +326,122 @@ geometry residency. Local artifacts: `.local/bistro-texture-compression/` contai
 The final dropped-shadow safeguard was checked with focused CPU/GPU tests after
 this Bistro run; the complete asset was not loaded again for that guard.
 
+## Camera Motion And Submission Measurement (2026-10-09)
+
+The demo measures **submitted FPS**, not RAF callbacks or presented frames.
+`Renderer.render()` still returns device health when a tick is deferred. The
+demo therefore checks `frame_count` advancement, counts unsubmitted callbacks
+separately, and includes their gaps in submission intervals. CPU P50/P95 covers
+controls, camera update and `render()` on submitted callbacks only; it does not
+measure total browser CPU use. Normal and profiled samples are separate, with
+60 submitted warmup frames after full texture mips or a sample reset. Pause/Step
+consumes a step only when submission occurs.
+
+`FrameCoordinator.evidence()` records submission-to-observed-completion latency
+using the existing command fence. It includes queue waiting, GPU work, browser
+delivery and CPU scheduling, so it is **not GPU timestamp duration or display
+latency**. In-flight capacity stays at two; neither profiling nor the evidence
+API adds a frame submission. Presented FPS and driver actual VRAM stay UNKNOWN.
+
+Two camera-motion bugs invalidated temporal history: incrementing camera
+identity on every VP change, and treating an absolute VP element delta > 0.25
+as a cut. The latter is world-scale dependent. These triggered repeated FSR3
+history allocation, with generation reaching 372 in an earlier diagnostic.
+Ordinary motion now retains history for reprojection. Changing the camera object
+still resets the temporal domain. Same-camera teleports/cuts must call
+`invalidateTemporalHistory()`; Frame scene already does. Explicit reset also
+reaches VSM invalidation on the next successful submission, and abort retains
+that pending reset. HZB still fails open during camera motion.
+
+The two expensive passes were Luma Instability and Accumulate. Local diagnostic
+shader rewrites produced bit-identical small-oracle results but no useful Bistro
+speedup, so production shaders and FSR3 quality settings were preserved. The
+implemented fix addresses their history lifetime, not their algorithm.
+
+The 8 GB Bistro host now explicitly requests **4 x 384 MiB = 1536 MiB** geometry
+capacity. `?geometryMiB=1024` selects the previous budget; accepted values are
+128..2048 MiB. Device limits and the runtime address namespace still cap actual
+allocation. Other hosts keep their existing default profile ceilings. Runtime
+GPU ABI 5 expands the address namespace to 2048 slots per bank, with matching
+CPU encoding and generated WGSL decoding; older GPU headers are rejected. The
+four bindings, record strides and offline Product/page bytes are unchanged.
+This requires no asset recook. The fixture defaults to 128 MiB.
+
+### Cost Card
+
+- Statistics: at most 600 callback/completion samples per owner, bounded CPU
+  collection and snapshot copies; no shader work, readback, new fence or submit.
+- Temporal fix: removes repeated allocation/retirement during ordinary motion.
+  Passes, sample counts and reprojection math stay unchanged. At zero camera
+  motion there is no expected GPU improvement from this fix.
+- Bistro capacity: reserves an additional 512 MiB, with unchanged shader ALU,
+  binding and dispatch counts. Below the old working-set ceiling this extra
+  capacity gives no benefit. Above it, pages can remain resident and avoid
+  eviction/refetch. A working set exceeding the new ceiling may still churn;
+  this is a capacity choice for this host, not a geometry compression claim.
+
+### Actual Cooked Desktop Check
+
+Hardware: Windows, NVIDIA **RTX 2060 SUPER 8192 MiB** (local hardware query),
+Chrome/WebGPU, adapter identity `nvidia/turing`; browser device/description and
+driver version were not exposed. The requested RTX 2060 8 GB baseline is retained
+as the host target. These numbers are not GTX 1650 Ti results.
+
+One page, all default effects enabled, SSE 4 and resolution scale 1, with a
+repeatable near-camera orbit at 0.35 rad/s. Each capture lasted 10 seconds with
+warmup excluded. Window dimensions include the sidebar/header; actual render
+outputs were 1540x1010 and 2180x1370. The intermediate run had already removed
+the camera-revision bug and allocated 1.5 GiB, but still had the VP cut heuristic.
+It is retained to isolate the final correction; it is not the original HEAD.
+
+| Moving capture | Intermediate submitted FPS | Final submitted FPS | Final CPU P50/P95 ms | Final completion P50/P95 ms |
+| --- | ---: | ---: | ---: | ---: |
+| 1920x1080 window, normal | 50.83 | 55.23 | 4.93 / 6.88 | 18.36 / 30.96 |
+| 2560x1440 window, normal | 32.91 | 51.60 | 5.37 / 7.54 | 22.28 / 45.11 |
+| 1920x1080 window, profiled | 49.63 | 56.00 | 5.48 / 7.75 | 17.87 / 30.34 |
+| 2560x1440 window, profiled | 36.59 | 56.31 | 4.70 / 7.02 | 20.29 / 32.38 |
+
+| Final profiled capture | GPU command span P50/P95 ms | Surface sum P50/P95 ms | FSR3 pass sum P50/P95 ms | Luma Instability P50/P95 ms | Accumulate P50/P95 ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 1540x1010 output | 8.47 / 9.61 | 2.37 / 3.15 | 1.29 / 1.77 | 0.067 / 0.068 | 0.477 / 0.740 |
+| 2180x1370 output | 13.00 / 14.31 | 4.26 / 5.16 | 2.37 / 2.68 | 0.120 / 0.124 | 0.926 / 0.940 |
+
+For the larger intermediate profiled capture, FSR3 P95 was 14.97 ms, Luma
+Instability 6.05 ms and Accumulate 6.30 ms. Final ordinary-motion generation
+deltas were zero in every capture. Resize advanced generation 1 -> 2, and the
+explicit reset check advanced it 2 -> 3. Static final normal submission rates
+were 57.00 and 54.66 FPS. Normal/profiling differences include residency warmup
+and browser scheduling; they do not demonstrate that profiling makes rendering
+faster. No sustained-60-FPS claim is made.
+
+Queue backpressure remains measurable: the two final normal moving windows had
+36 and 65 completion deferrals over the full captures, zero history-retirement
+deferrals. In the warmed callback windows, 32/530 and 58/519 callbacks were not
+submitted. GPU timestamps exclude queue waiting/browser delivery, and a 13 ms
+GPU span does not imply a sub-16.67 ms observed completion. The larger normal
+completion P95 exceeded two 60 Hz callback intervals. Increasing the in-flight
+limit would add latency and retained resources; this check leaves that limit
+unchanged. The geometry demand readback ring also skipped 435 reservations over
+the run while busy; demand overflow remained zero. That counter is not VRAM
+exhaustion and needs separate scheduling investigation if it delays refinement.
+
+Final geometric residency was 1087.25 MiB inside the actual 1536 MiB heap;
+evictions/reloads were zero throughout motion and after stopping. Texture live
+remained 986.71 MiB, allocated/peak 1002.72 MiB: 202 BC7 Products, 10 exact R8
+coverage planes, zero BC4, six segments, zero RGBA fallback/codec Workers.
+First useful/full texture mips were 41.998/41.998 s in this load; original GLB
+read and Raw cook were not performed. Release returned both texture and geometry
+accounting to zero. Existing importer/material appearance limitations remain.
+
+Validation: engine/demo typecheck, demo build, fresh `build:test`, 87 targeted
+contracts, small desktop controls/step/reload/release smoke, expanded-slot WGSL
+GPU oracle (1024, 1535, 2047 plus physical-boundary rejection), and the complete
+Cooked captures. The global docs verifier still reports the pre-existing missing
+frontmatter in `docs/status.generated.md`; the touched specs have no findings.
+Local diagnostic artifacts are in `.local/bistro-texture-compression/`:
+`motion-partial-fix-result.json`, `motion-fix-result.json`,
+`expanded-bank-gpu-result.json`, and `motion-fix-desktop.png`.
+
 ## Explicit Scope
 
 | Capability                   | Status            |

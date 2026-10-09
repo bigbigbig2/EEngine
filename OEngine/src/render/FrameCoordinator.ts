@@ -23,6 +23,27 @@ export class FrameCoordinator {
   private active: FrameEncoding | null = null;
   private destroyed = false;
   private readonly inFlight = new Set<FrameEncoding>();
+  private submittedCount = 0;
+  private completedCount = 0;
+  private failedCompletionCount = 0;
+  private readonly completionSamples: Array<{
+    frameIndex: number;
+    elapsedMs: number;
+    profiled: boolean;
+  }> = [];
+
+  /** Browser-observed queue completion latency, not a GPU timestamp duration.
+   * Bounded CPU samples reuse the existing fence; no readback or extra submit. */
+  evidence() {
+    return Object.freeze({
+      submittedCount: this.submittedCount,
+      completedCount: this.completedCount,
+      failedCompletionCount: this.failedCompletionCount,
+      inFlight: this.inFlight.size,
+      inFlightLimit: 2,
+      completionSamples: Object.freeze(this.completionSamples.slice()),
+    });
+  }
 
   /** Queue-completion backpressure bounds fence-retained transient resources.
    * This observes completion only; it never reads GPU work/visibility data. */
@@ -58,12 +79,26 @@ export class FrameCoordinator {
   submitFrame(frame: FrameEncoding): FrameExecutionEvidence {
     this.assertActive(frame);
     try {
+      const profiled = this.graphics.profiler?.enabled ?? false;
       frame.command.finish();
+      const startedAt = frame.command.submittedAtMs ?? performance.now();
+      this.submittedCount++;
       this.inFlight.add(frame);
       const completed = () => {
         this.inFlight.delete(frame);
+        if (this.destroyed) return;
+        this.completedCount++;
+        this.completionSamples.push(Object.freeze({
+          frameIndex: frame.frameIndex,
+          elapsedMs: performance.now() - startedAt,
+          profiled,
+        }));
+        if (this.completionSamples.length > 600) this.completionSamples.shift();
       };
-      void frame.command.gpuDone.then(completed, completed);
+      void frame.command.gpuDone.then(completed, () => {
+        this.inFlight.delete(frame);
+        if (!this.destroyed) this.failedCompletionCount++;
+      });
     } catch (cause) {
       if (!frame.command.closed) {
         try {

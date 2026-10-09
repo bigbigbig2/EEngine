@@ -57,6 +57,7 @@ export class ShadeGPUCommandContext {
   #debugTimerErrorCallbacks = new Set<(error: unknown) => void>();
   #finished = false;
   #submitted = false;
+  #submittedAtMs: number | null = null;
   #gpuDonePromise: Promise<void> | undefined;
   #abortCause: unknown | undefined;
   #label = "";
@@ -164,6 +165,10 @@ export class ShadeGPUCommandContext {
   /** Resolves only after the queue has completed all work submitted so far. */
   get gpuDone(): Promise<void> {
     return (this.#gpuDonePromise ??= this.submitted.then(() => this.device.queue.onSubmittedWorkDone()));
+  }
+  /** CPU timestamp at queue submission; null for unsubmitted/aborted commands. */
+  get submittedAtMs(): number | null {
+    return this.#submittedAtMs;
   }
 
   static create(graphics: GraphicsContext, label = ""): ShadeGPUCommandContext {
@@ -491,7 +496,9 @@ export class ShadeGPUCommandContext {
         }
       }
       const commandBuffer = encoder.finish();
+      const submittedAtMs = performance.now();
       submitGpuCommands(this.#graphics.device!, this.#label || "unlabeled-command-context", [commandBuffer]);
+      this.#submittedAtMs = submittedAtMs;
     } catch (cause) {
       this.abort(cause);
       throw cause;

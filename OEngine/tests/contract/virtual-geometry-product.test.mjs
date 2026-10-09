@@ -149,9 +149,11 @@ test("Product-aware residency uploads activation pages with generation-tagged lo
     },
   };
   const residency = await VirtualGeometryResidency.create(device, source, 7);
-  assert.equal(writes.filter((write) => write.bytes === 262144).length, 1);
-  assert.equal(writes.find((write) => write.bytes === 262144).offset, 0);
-  assert.deepEqual(residency.pageLocation(0), { bankIndex: 0, slotIndex: 0, residentBankIndex: 0, residentSlotIndex: 1, productGeneration: 7, flags: 3 });
+  assert.equal(writes.filter((write) => write.bytes === TRIANGLE_PRODUCT_PAYLOAD_BYTES).length, 1);
+  assert.equal(writes.find((write) => write.bytes === TRIANGLE_PRODUCT_PAYLOAD_BYTES).offset, 0);
+  assert.equal(writes.filter((write) => write.bytes === 262144).length, 0);
+  assert.equal(residency.residentPagePhysicalBytes(0), 262144);
+  assert.deepEqual(residency.pageLocation(0), { bankIndex: 0, slotIndex: 0, residentBankIndex: 0, residentSlotIndex: 0, residentByteOffset: 176, productGeneration: 7, flags: 3 });
   assert.equal(residency.groupAddress(0).byteOffset, 0);
   assert.equal(new DataView(residency.writePageLocation(residency.pageLocation(0))).getUint32(8, true), 7);
   assert.equal(residency.evidence().residentPages, 1);
@@ -360,10 +362,11 @@ test("eviction weighs GPU request/visibility, prediction and refetch cost; recor
   upload(1);
   upload(2);
   residency.recordDemand(2, 10, true, false, 4);
-  assert.deepEqual(residency.selectEvictionCandidates(12, 524288, 2), [1]);
+  assert.equal(residency.residentPagePhysicalBytes(1), 262144);
+  assert.deepEqual(residency.selectEvictionCandidates(12, 262144, 2), [1]);
   residency.recordDemand(1, 13, false, true, 1);
-  assert.deepEqual(residency.selectEvictionCandidates(15, 524288, 0), [2]);
-  assert.deepEqual(residency.selectEvictionCandidates(22, 524288, 0), [1]);
+  assert.deepEqual(residency.selectEvictionCandidates(15, 262144, 0), [2]);
+  assert.deepEqual(residency.selectEvictionCandidates(22, 262144, 0), [1]);
   residency.beginRetirePage(1);
   residency.completeRetirePage(1);
   residency.recordDemand(1, 23, true, false, 1);
@@ -372,9 +375,9 @@ test("eviction weighs GPU request/visibility, prediction and refetch cost; recor
   assert.equal(evidence.shortTermRerequests, 1);
   assert.equal(evidence.reloads, 1);
   // Thrash counts re-fetched source bytes; eviction budgets count both
-  // physical raw and decoded-attribute slots.
+  // actual physical slots, including attributes packed into page padding.
   assert.equal(evidence.thrashBytes, 262144);
   assert.equal(evidence.averagePageLifetimeFrames, 22);
-  assert.deepEqual(residency.selectEvictionCandidates(23, 524288, 0), [2]);
+  assert.deepEqual(residency.selectEvictionCandidates(23, 262144, 0), [2]);
   residency.destroy();
 });

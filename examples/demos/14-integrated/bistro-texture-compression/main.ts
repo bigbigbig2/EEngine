@@ -25,6 +25,11 @@ const MiB = 1024 ** 2;
 const query = new URLSearchParams(location.search);
 const fixture = query.get("fixture") === "1";
 const cookedMode = query.get("mode") !== "raw";
+const requestedGeometryMiB = Number(query.get("geometryMiB") ?? (fixture ? 128 : 1536));
+const geometryCapacityBytes =
+  Number.isSafeInteger(requestedGeometryMiB) && requestedGeometryMiB >= 128 && requestedGeometryMiB <= 2048
+    ? requestedGeometryMiB * MiB
+    : (fixture ? 128 : 1536) * MiB;
 const autoExposure = query.get("exposure") !== "fixed";
 const requestedExposure = Number(query.get("fixedExposure") ?? 1);
 const fixedExposure =
@@ -64,6 +69,8 @@ const phases: Array<{ phase: string; atMs: number }> = [];
 const publications: WebCookProductPublicationTiming[] = [];
 const cpu = { normal: [] as number[], profiled: [] as number[] };
 const intervals: number[] = [];
+const callbacks: Array<{ atMs: number; submitted: boolean }> = [];
+let lastSubmittedAt: number | null = null;
 let renderer: Renderer | undefined;
 let asset: WebCookRuntimeAsset | undefined;
 let handles: Pick<MultiProductSceneHandles, "settled"> | undefined;
@@ -100,6 +107,8 @@ function resetFrameSamples(): void {
   cpu.normal.length = 0;
   cpu.profiled.length = 0;
   intervals.length = 0;
+  callbacks.length = 0;
+  lastSubmittedAt = null;
   stableFrames = 0;
   sampleResetFrame = renderer?.frame_count ?? 0;
 }
@@ -204,6 +213,16 @@ function snapshot() {
       0
     ) ?? 0;
   const streaming = renderer?.geometryStreamingEvidence(scene) ?? null;
+  const sampleElapsedMs = callbacks.length > 1 ? callbacks.at(-1)!.atMs - callbacks[0]!.atMs : 0;
+  const sampledCallbacks = callbacks.slice(1);
+  const submittedCallbacks = sampledCallbacks.reduce((sum, sample) => sum + Number(sample.submitted), 0);
+  const submission = renderer?.frameSubmissionEvidence() ?? null;
+  const completion = { normal: [] as number[], profiled: [] as number[] };
+  for (const sample of submission?.completionSamples ?? []) {
+    if (sample.frameIndex >= Math.max(fullFrame, sampleResetFrame) + 60) {
+      completion[sample.profiled ? "profiled" : "normal"].push(sample.elapsedMs);
+    }
+  }
   const geometryPages =
     streaming?.products.reduce(
       (sum, product) => ({
@@ -290,7 +309,19 @@ function snapshot() {
         gpuCommandSpanMs: percentile(gpu),
         surfacePassSumMs: percentile(surface)
       },
-      rafIntervalMs: percentile(intervals),
+      rafIntervalMs: percentile(sampledCallbacks.map((sample, index) => sample.atMs - callbacks[index]!.atMs)),
+      submittedIntervalMs: percentile(intervals),
+      submissions: {
+        sampleElapsedMs,
+        callbacks: sampledCallbacks.length,
+        submitted: submittedCallbacks,
+        deferred: sampledCallbacks.length - submittedCallbacks,
+        framesPerSecond: sampleElapsedMs > 0 ? submittedCallbacks * 1000 / sampleElapsedMs : null,
+        callbacksPerSecond: sampleElapsedMs > 0 ? sampledCallbacks.length * 1000 / sampleElapsedMs : null,
+        presentedFramesPerSecond: null
+      },
+      completionLatencyMs: { normal: percentile(completion.normal), profiled: percentile(completion.profiled) },
+      submission,
       warmupFrames: 60,
       visibility: document.visibilityState
     },
@@ -298,6 +329,7 @@ function snapshot() {
     memory: renderer?.graphics ? renderer.memoryEvidence() : null,
     resourceAccounting: renderer?.graphics?.resource_accounting.snapshot() ?? null,
     geometry: renderer?.device ? geometryProductGpuBudgetEvidence(renderer.device) : null,
+    geometryRequestedCapacityBytes: geometryCapacityBytes,
     streaming,
     geometryPages,
     renderState: {
@@ -312,6 +344,7 @@ function snapshot() {
       hzb: renderer?.packed_visibility_hzb_enabled ?? false,
       cone: renderer?.packed_visibility_cone_enabled ?? false,
       sse: renderer?.packed_visibility_sse_threshold ?? null,
+      temporal: renderer?.temporalHistoryEvidence() ?? null,
       exposure: { autoExposure, fixedExposure, actualAdaptedExposure: "GPU ONLY / NOT READ BACK" },
       environment: scene.physical_environment.snapshot(),
       authoredLights: 0,
@@ -369,8 +402,14 @@ const rows: Array<[string, string]> = [
   ["Raw preparation", "preparation"],
   ["First useful", "first"],
   ["Full texture mips", "full"],
-  ["FPS / frame ms", "fps"],
+  ["Submitted FPS / interval P50", "fps"],
+  ["Callbacks / deferred", "callbacks"],
   ["Normal CPU P50/P95", "cpu"],
+  ["Profiled CPU P50/P95", "profiledCpu"],
+  ["Normal submit/completion P50/P95", "completion"],
+  ["Profiled submit/completion P50/P95", "profiledCompletion"],
+  ["In-flight / limit", "inFlight"],
+  ["Completion / history deferrals", "deferrals"],
   ["Profiled GPU P50/P95", "gpu"],
   ["Profiled Surface P50/P95", "surface"],
   ["Total software bytes", "total"]
@@ -398,6 +437,7 @@ for (const [key, label] of [
   ["pages", "Resident / pinned pages"],
   ["geometryBytes", "Resident geometry bytes"],
   ["geometryCapacity", "Shared heap / metadata"],
+  ["geometryRequested", "Requested geometry capacity"],
   ["io", "Pending / in-flight"],
   ["evictions", "Evictions / reloads"],
   ["thrash", "Short-term thrash bytes"],
@@ -405,6 +445,7 @@ for (const [key, label] of [
   ["overflow", "Demand / readback overflow"],
   ["geometryErrors", "Failed / stream error"],
   ["frame", "Submitted frame"],
+  ["temporal", "FSR3 generation / color resets"],
   ["resolution", "Internal / output"],
   ["clip", "Camera near / far"],
   ["stages", "Frame stages"]
@@ -483,6 +524,7 @@ function refresh(): void {
     pages: g ? `${g.resident} / ${g.pinned}` : "PENDING",
     geometryBytes: bytes(g?.residentBytes),
     geometryCapacity: `${bytes(s.geometry?.allocatedBytes)} / ${bytes(s.geometry?.metadataBytes)}`,
+    geometryRequested: bytes(s.geometryRequestedCapacityBytes),
     io: `${scheduler?.pending ?? 0} / ${bytes(scheduler?.inFlightBytes)}`,
     evictions: `${g?.evicted ?? 0} / ${g?.reloads ?? 0}`,
     thrash: bytes(g?.thrashBytes),
@@ -490,6 +532,7 @@ function refresh(): void {
     overflow: `${scheduler?.demandOverflow ?? 0} / ${s.streaming?.readback.overflow ?? 0}`,
     geometryErrors: `${(g?.failed ?? 0) + (scheduler?.failed ?? 0)} / ${state.streamingError ?? "none"}`,
     frame: String(state.frame),
+    temporal: `${state.temporal?.fsr3Generation ?? 0} / ${state.temporal?.color.invalidationCount ?? 0} (${state.temporal?.color.lastInvalidationReason ?? "none"})`,
     resolution: `${canvas.width} x ${canvas.height} (${renderer.internal_resolution_scale.toFixed(2)}x)`,
     clip: `${camera.near.toFixed(3)} / ${camera.far.toFixed(1)}`,
     stages: state.stages.join("\n")
@@ -498,7 +541,7 @@ function refresh(): void {
   if (p?.activeBatches) setPhase(`Preparing BC Texture Products (${p.cookedTasks} cooked)`);
   else if (!settled && publications.length) setPhase("Mapping / publishing GPU Render World");
   else if (settled && fullQualityMs === null) setPhase("Full mip promotion");
-  const raf = s.stable.rafIntervalMs;
+  const raf = s.stable.submittedIntervalMs;
   const values: Record<string, string> = {
     adapter:
       [s.adapter?.description, s.adapter?.device, s.adapter?.vendor, s.adapter?.architecture]
@@ -525,8 +568,16 @@ function refresh(): void {
     preparation: time((p?.wallMs ?? 0) + (p?.activeElapsedMs ?? 0)),
     first: time(firstUsefulMs),
     full: time(fullQualityMs),
-    fps: raf ? `${(1000 / raf.p50).toFixed(1)} / ${raf.p50.toFixed(2)}` : "PENDING",
+    fps: raf && s.stable.submissions.framesPerSecond !== null
+      ? `${s.stable.submissions.framesPerSecond.toFixed(1)} / ${raf.p50.toFixed(2)} ms`
+      : "PENDING",
+    callbacks: `${s.stable.submissions.callbacks} / ${s.stable.submissions.deferred}`,
     cpu: pair(s.stable.normal.cpuFrameMs),
+    profiledCpu: pair(s.stable.profiled.cpuFrameMs),
+    completion: pair(s.stable.completionLatencyMs.normal),
+    profiledCompletion: pair(s.stable.completionLatencyMs.profiled),
+    inFlight: `${s.stable.submission?.inFlight ?? 0} / ${s.stable.submission?.inFlightLimit ?? 0}`,
+    deferrals: `${s.stable.submission?.completionDeferredTicks ?? 0} / ${s.stable.submission?.historyDeferredTicks ?? 0}`,
     gpu: pair(s.stable.profiled.gpuCommandSpanMs),
     surface: pair(s.stable.profiled.surfacePassSumMs),
     total: bytes(s.memory?.allocatedBytes)
@@ -566,7 +617,7 @@ async function start(): Promise<void> {
   setPhase("Reading / parsing GLB range catalog");
   refreshId = window.setInterval(refresh, 500);
   if (cookedMode) {
-    loading = loadCookedScene(renderer, scene, cookedBase, abort.signal, setPhase).then((value) => {
+    loading = loadCookedScene(renderer, scene, cookedBase, abort.signal, setPhase, geometryCapacityBytes).then((value) => {
       cooked = value;
       sourceBytes = value.manifest.source.bytes;
       framing = value.framing;
@@ -612,7 +663,11 @@ async function start(): Promise<void> {
     loading = renderer.uploadWebCookedMultiProductScene(scene, asset, {
       signal: abort.signal,
       multiProductMetadataBytes: 128 * MiB,
-      residency: { configuredCapacityBytes: 1024 * MiB },
+      residency: {
+        requestedProfile: "HighEnd",
+        configuredCapacityBytes: geometryCapacityBytes,
+        configuredBankBytes: geometryCapacityBytes / 4
+      },
       onMaterials: () => setPhase("Preparing BC Texture Products"),
       onProductPublicationTiming: (value) => {
         publications.push(value);
@@ -639,20 +694,30 @@ async function start(): Promise<void> {
         frameId = requestAnimationFrame(frame);
         return;
       }
-      if (paused) stepFrames--;
       const begin = performance.now();
       controls?.update(Math.min(0.1, interval / 1000));
       camera.update();
-      const submitted = renderer.render(camera, scene, Math.min(0.1, interval / 1000));
+      const beforeFrame = renderer.frame_count;
+      renderer.render(camera, scene, Math.min(0.1, interval / 1000));
+      const submitted = renderer.frame_count > beforeFrame;
+      if (paused && submitted) stepFrames--;
       const duration = performance.now() - begin;
+      if (submitted && fullQualityMs !== null) stableFrames++;
       if (
-        submitted &&
+        !paused &&
         fullQualityMs !== null &&
-        ++stableFrames > 60 &&
+        stableFrames > 60 &&
         document.visibilityState === "visible"
       ) {
-        append(cpu[profiled ? "profiled" : "normal"], duration);
-        append(intervals, interval);
+        callbacks.push({ atMs: now, submitted });
+        if (callbacks.length > 600) callbacks.shift();
+        if (submitted) {
+          append(cpu[profiled ? "profiled" : "normal"], duration);
+          if (lastSubmittedAt !== null) append(intervals, now - lastSubmittedAt);
+          lastSubmittedAt = now;
+        }
+      } else {
+        lastSubmittedAt = null;
       }
       if (
         submitted &&
@@ -905,6 +970,7 @@ element<HTMLInputElement>("pause").addEventListener("change", (event) => {
   resetFrameSamples();
   renderer?.invalidateTemporalHistory();
 });
+document.addEventListener("visibilitychange", resetFrameSamples);
 element("step").addEventListener("click", () => {
   if (paused) stepFrames++;
 });

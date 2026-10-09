@@ -122,7 +122,7 @@ test("budget/profile final slots round trip with an explicit physical capacity",
         flags: 1
       });
       assert.equal(validateGeometryProductGpuLocationV1(encoded, 19, plan.slotsPerBank).valid, true);
-      assert.equal(new DataView(encoded.buffer).getUint32(4, true) >>> 16, 2 * 1024 + slot + 1);
+      assert.equal(new DataView(encoded.buffer).getUint32(4, true) >>> 16, 2 * 2048 + slot + 1);
       assert.equal(validateGeometryProductGpuLocationV1(encoded, 20, plan.slotsPerBank).valid, false);
     }
   }

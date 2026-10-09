@@ -59,7 +59,8 @@ export async function loadCookedScene(
   scene: Scene,
   base: string,
   signal: AbortSignal,
-  phase: (value: string) => void
+  phase: (value: string) => void,
+  geometryCapacityBytes = 1024 * 1024 ** 2
 ) {
   const fetchBytes = async (uri: string) => {
     const response = await fetch(new URL(uri, base), { signal });
@@ -138,7 +139,11 @@ export async function loadCookedScene(
   try {
     phase("Opening offline Geometry Products (no geometry cook)");
     runtime = new GeometryProductMultiRuntimeV1(renderer.device, {
-      residency: { requestedProfile: "HighEnd", configuredCapacityBytes: 1024 * 1024 ** 2 },
+      residency: {
+        requestedProfile: "HighEnd",
+        configuredCapacityBytes: geometryCapacityBytes,
+        configuredBankBytes: geometryCapacityBytes / 4
+      },
       metadataBytes: 128 * 1024 ** 2
     });
     const parts: VirtualGeometryProductScenePartV1[] = [];

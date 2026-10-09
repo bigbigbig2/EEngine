@@ -395,11 +395,15 @@ export class Renderer {
   private readonly _previousViewMatrices = new WeakMap<GPUViewContext, Float32Array>();
   private _activeCamera: PerspectiveCamera | null = null;
   private _cameraRevision = 0;
+  private _temporalResetPending = false;
   private readonly _rendererConfig: RendererConfig;
   private _initializationConfig: RendererConfig | null = null;
   private _capabilities: RendererCapabilities | null = null;
   private _adapterInfo: BenchmarkAdapterIdentity | null = null;
   private _frame_count = 0;
+  private _lastFrameDeferral: "none" | "gpu-completion" | "history-retirement" | "device-unavailable" = "none";
+  private _completionDeferredTicks = 0;
+  private _historyDeferredTicks = 0;
   private _width = 1;
   private _height = 1;
   private _output_resolution = new Vec2(1, 1);
@@ -544,11 +548,33 @@ export class Renderer {
   geometryStreamingEvidence(scene: Scene): ReturnType<GeometryPageStreamingRuntimeV1["evidence"]> | null {
     return this._virtualProductScenes.get(scene)?.streamingRuntime?.evidence() ?? null;
   }
-  /** Drops temporal/exposure history after a diagnostic feature or camera cut changes. */
+  /** Drops temporal/exposure history after a diagnostic change or same-camera
+   * teleport/cut. Ordinary camera motion is reprojected and must retain history. */
   invalidateTemporalHistory(): void {
+    this._temporalResetPending = true;
     this._temporal.invalidate();
     this._fsr3.invalidate();
     this._surface.invalidate();
+  }
+  /** Read-only history lifecycle evidence; no GPU readback or rendering changes. */
+  temporalHistoryEvidence() {
+    return Object.freeze({
+      color: this._temporal.histories.state("color"),
+      identity: this._temporal.histories.state("identity"),
+      fsr3Generation: this._fsr3?.generation ?? 0,
+      fsr3AllocatedBytes: this._fsr3?.allocatedBytes ?? 0,
+    });
+  }
+  /** CPU-observed submission/completion evidence, available after initialization.
+   * Completion latency includes browser scheduling; it is not GPU frame time. */
+  frameSubmissionEvidence() {
+    if (!this._frameCoordinator) return null;
+    return Object.freeze({
+      ...this._frameCoordinator.evidence(),
+      lastDeferral: this._lastFrameDeferral,
+      completionDeferredTicks: this._completionDeferredTicks,
+      historyDeferredTicks: this._historyDeferredTicks,
+    });
   }
   get shadowVisibilityEnabled(): boolean {
     return this._shadowVisibilityEnabled;
@@ -1710,16 +1736,28 @@ export class Renderer {
   private readonly promotedTextureRuntimes = new WeakSet<GpuRenderWorldRuntime>();
 
   render(camera: PerspectiveCamera, scene: Scene, timeDeltaSeconds = 1 / 60): boolean {
-    if (this._deviceLost || this._destroyed) return false;
+    this._lastFrameDeferral = "none";
+    if (this._deviceLost || this._destroyed) {
+      this._lastFrameDeferral = "device-unavailable";
+      return false;
+    }
     // A healthy device may defer this tick. No graph/resources/history are
     // advanced until one of the two submitted frames has completed.
-    if (!this._frameCoordinator.canBeginFrame) return true;
+    if (!this._frameCoordinator.canBeginFrame) {
+      this._lastFrameDeferral = "gpu-completion";
+      this._completionDeferredTicks++;
+      return true;
+    }
     const runtime = this._graphics.render_world_if_created?.runtime(scene);
     if (!runtime) {
       if (scene.instance_count !== 0) throw new Error("Scene has no GPU Render World publication");
       return this.renderEmptyScene();
     }
-    if (!this._surface.canPrepareFrame() || !runtime.nativeMaterials!.canPrepareFrame()) return true;
+    if (!this._surface.canPrepareFrame() || !runtime.nativeMaterials!.canPrepareFrame()) {
+      this._lastFrameDeferral = "history-retirement";
+      this._historyDeferredTicks++;
+      return true;
+    }
     if (this._historyRuntime !== runtime) {
       this._historyRuntime = runtime;
       this._sceneHistoryEpoch++;
@@ -1752,7 +1790,7 @@ export class Renderer {
     let temporalActive = false;
     let activeHzb: HierarchicalZBuffer | null = null;
     let environmentGeneration: number | null | undefined;
-    let cameraCut = false;
+    const cameraCut = this._temporalResetPending;
     let cameraChanged = false;
     let localLightWork: LocalLightWorkFrame | null = null;
     try {
@@ -1877,17 +1915,13 @@ export class Renderer {
         // view.  Invalidate HZB for every real matrix change; the next stable
         // frame rebuilds it and restores the fast path without dropping work.
         if (matrixDelta > 1e-5) {
-          this._cameraRevision = this._cameraRevision >= 0xfffffffe ? 1 : this._cameraRevision + 1;
+          // Camera identity is a temporal discontinuity, not ordinary motion.
+          // Motion vectors reproject history while HZB must fail open separately.
           hzb.invalidate("camera-cut");
         }
-        // Camera motion invalidates temporal data, but never changes graph topology.
-        if (matrixDelta > 0.25) {
-          cameraCut = true;
-          hzb.invalidate("camera-cut");
-          this._temporal.histories.invalidate("camera-cut");
-          this._fsr3.invalidate();
-          this._surface.invalidate();
-        }
+        // VP element deltas depend on world scale and cannot identify a cut.
+        // Same-camera teleports use invalidateTemporalHistory(); switching the
+        // camera object changes the revision at TemporalFabric.begin().
       }
       const identityHistory = this._temporal.histories.state("identity");
       const colorHistory = this._temporal.histories.state("color");
@@ -2158,6 +2192,7 @@ export class Renderer {
       this._temporal.markProduced("identity");
       view.finish_frame(command, frameIndex);
       command.onFinished.addOne(() => this._previousViewMatrices.set(view, currentViewMatrix));
+      command.onFinished.addOne(() => { this._temporalResetPending = false; });
       this._profiler.measure("submit", () => this._frameCoordinator.submitFrame(frame));
       this._fsr3.commit(command.gpuDone);
       this._temporalFacts.commit(command.gpuDone);
