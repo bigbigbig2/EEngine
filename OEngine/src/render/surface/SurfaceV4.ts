@@ -1,3 +1,5 @@
+import { createNativeTextureView } from "../../gpu/GPUTextureDescriptors.js";
+import { GpuBindGroupCache } from "../../gpu/GpuBindGroupResourceCache.js";
 import type { ResourceHandle } from "../../debug/profiling/ResourceAccounting.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
@@ -73,6 +75,7 @@ interface RouteState {
 }
 
 interface ExtentState {
+  readonly allocation: ExtentAllocation;
   readonly width: number;
   readonly height: number;
   readonly publication: GpuNativeMaterialPublication;
@@ -91,6 +94,24 @@ interface ExtentState {
   readonly binBindings: NativeExecutionBinsBindings | null;
 }
 
+/** Storage depends on extent/code, while frame products are late-bound. References
+ * include submitted binding snapshots until their actual completion fences. */
+interface ExtentAllocation {
+  readonly width: number;
+  readonly height: number;
+  readonly publication: GpuNativeMaterialPublication;
+  readonly borrowedOutput: boolean;
+  readonly bins: NativeExecutionBins;
+  readonly settings: GPUBuffer;
+  readonly shadingView: GPUBuffer;
+  readonly resources: GPUBuffer[];
+  readonly routeBuffers: ReadonlyArray<Readonly<{ constants: GPUBuffer; inputs: GPUBuffer }>>;
+  readonly ownedHdr: GPUTexture | null;
+  readonly initialHdr: GPUTexture | null;
+  binSettings?: GPUBuffer;
+  references: number;
+}
+
 /**
  * Native opaque production owner. It borrows
  * Geometry/material/Lighting resources, owns HDR/execution scratch and submits
@@ -100,6 +121,7 @@ interface ExtentState {
  * pipelines, groups and scratch. Resize/rebind retires against the last fence.
  */
 export class SurfaceV4 {
+  private readonly bindGroups = new GpuBindGroupCache();
   readonly ready: Promise<void>;
   private neutralEntries: readonly GPUBindGroupEntry[] | null = null;
   private neutralBuffers: readonly GPUBuffer[] = [];
@@ -120,7 +142,7 @@ export class SurfaceV4 {
   constructor(
     private readonly device: GPUDevice,
     private readonly reactive = false,
-    private readonly graphics?: GraphicsContext
+    private readonly graphics?: GraphicsContext,
   ) {
     this.backgroundLayout = device.createBindGroupLayout({
       label: "SurfaceV4/background layout",
@@ -130,18 +152,18 @@ export class SurfaceV4 {
         {
           binding: 2,
           visibility: GPUShaderStage.COMPUTE,
-          storageTexture: { format: "rgba16float", access: "write-only" }
+          storageTexture: { format: "rgba16float", access: "write-only" },
         },
         ...(reactive
           ? [
               {
                 binding: 3,
                 visibility: GPUShaderStage.COMPUTE,
-                storageTexture: { format: "rgba8unorm" as const, access: "write-only" as const }
-              }
+                storageTexture: { format: "rgba8unorm" as const, access: "write-only" as const },
+              },
             ]
-          : [])
-      ]
+          : []),
+      ],
     });
     this.ready = device
       .createComputePipelineAsync({
@@ -161,10 +183,10 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   textureStore(hdr, vec2i(id.xy), textureLoad(background, vec2i(id.xy), 0));
   ${reactive ? "textureStore(reactive, vec2i(id.xy), vec4f(0.0));" : ""}
 }
-`
+`,
           }),
-          entryPoint: "main"
-        }
+          entryPoint: "main",
+        },
       })
       .then((pipeline) => {
         if (this.destroyed) {
@@ -188,18 +210,18 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     const atlas = this.device.createTexture({
       size: [1, 1],
       format: "depth32float",
-      usage: GPUTextureUsage.TEXTURE_BINDING
+      usage: GPUTextureUsage.TEXTURE_BINDING,
     });
     const ao = this.device.createTexture({
       size: [1, 1],
       format: "rgba8unorm",
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
     });
     this.device.queue.writeTexture(
       { texture: ao },
       new Uint8Array([255, 255, 255, 255]),
       { bytesPerRow: 4 },
-      [1, 1]
+      [1, 1],
     );
     this.neutralBuffers = [shadowConstants, pageTable];
     this.neutralBuffers.forEach((buffer) => this.track(buffer, "buffer", buffer.size));
@@ -209,8 +231,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     this.neutralEntries = [
       { binding: 8, resource: { buffer: shadowConstants } },
       { binding: 9, resource: { buffer: pageTable } },
-      { binding: 10, resource: atlas.createView() },
-      { binding: 11, resource: ao.createView() }
+      { binding: 10, resource: createNativeTextureView(atlas) },
+      { binding: 11, resource: createNativeTextureView(ao) },
     ];
     return this.neutralEntries;
   }
@@ -230,19 +252,27 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   }
 
   get allocatedBytes(): number {
-    const bytes = (state: ExtentState): number =>
-      state.width * state.height * (Number(state.ownsHdr) * 8 + Number(state.initialHdr !== null) * 8) +
-      state.bins.allocatedBytes +
-      state.resources.reduce((total, buffer) => total + buffer.size, 0);
-    let total =
-      this.neutralBuffers.reduce((total, buffer) => total + buffer.size, 0) +
-      (this.neutralEntries === null ? 0 : 8) +
-      (this.state === null ? 0 : bytes(this.state));
-    if (this.preparedState !== null && this.preparedState !== this.state) {
-      total += bytes(this.preparedState);
+    const allocations = new Set<ExtentAllocation>();
+    if (this.state !== null) {
+      allocations.add(this.state.allocation);
+    }
+    if (this.preparedState !== null) {
+      allocations.add(this.preparedState.allocation);
     }
     for (const state of this.retired) {
-      total += bytes(state);
+      allocations.add(state.allocation);
+    }
+    let total =
+      this.neutralBuffers.reduce((total, buffer) => total + buffer.size, 0) +
+      (this.neutralEntries === null ? 0 : 8);
+    for (const allocation of allocations) {
+      total +=
+        allocation.width *
+        allocation.height *
+        (Number(allocation.ownedHdr !== null) + Number(allocation.initialHdr !== null)) *
+        8;
+      total += allocation.bins.allocatedBytes;
+      total += allocation.resources.reduce((bytes, buffer) => bytes + buffer.size, 0);
     }
     return total;
   }
@@ -262,17 +292,19 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     try {
       await this.ready;
       await frame.publication.ready;
-      bins = new NativeExecutionBins(this.device, {
-        width: frame.width,
-        height: frame.height,
-        bins: frame.publication.bins
-      });
-      await bins.ready;
+      if (this.reusableAllocation(frame) === null) {
+        bins = new NativeExecutionBins(this.device, {
+          width: frame.width,
+          height: frame.height,
+          bins: frame.publication.bins,
+        });
+        await bins.ready;
+      }
       if (this.destroyed || epoch !== this.prepareEpoch) {
         throw new Error("SurfaceV4 prepare was superseded");
       }
       this.preparing = false;
-      this.prepareFrameNow(frame, bins);
+      this.prepareFrameNow(frame, bins ?? undefined);
     } finally {
       this.preparing = false;
       if (bins !== null && this.preparedState?.bins !== bins) {
@@ -300,14 +332,14 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         ...frame.geometry,
         source: [...frame.geometry.source],
         sourcePayload: [...frame.geometry.sourcePayload],
-        ...(frame.geometry.productBanks ? { productBanks: [...frame.geometry.productBanks] } : {})
+        ...(frame.geometry.productBanks ? { productBanks: [...frame.geometry.productBanks] } : {}),
       },
       lightingEntries: snapshotEntries(frame.lightingEntries),
       routes: frame.routes.map((route) => ({
         ...route,
         frameInputs: route.frameInputs.slice(),
-        materialEntries: snapshotEntries(route.materialEntries)
-      }))
+        materialEntries: snapshotEntries(route.materialEntries),
+      })),
     };
     this.preparing = true;
     const epoch = ++this.prepareEpoch;
@@ -344,8 +376,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
           route.programIndex,
           route.bindingSet,
           route.unlit,
-          ...resourceIdentity(route.materialEntries)
-        ])
+          ...resourceIdentity(route.materialEntries),
+        ]),
       ];
       if (
         this.state === null ||
@@ -372,7 +404,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       this.device.queue.writeBuffer(
         state.shadingView,
         0,
-        new Uint32Array([frame.width, frame.height, frame.frameIndex, 0])
+        new Uint32Array([frame.width, frame.height, frame.frameIndex, 0]),
       );
       if (state.binBindings !== null) {
         state.bins.updateGeneration(state.binBindings, frame.generation);
@@ -428,7 +460,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       (frame.preExposure.usage & GPUBufferUsage.COPY_SRC) === 0 ||
       frame.viewMatrix.length !== 16 ||
       ![...frame.cameraPosition, ...Array.from(frame.viewMatrix)].every((value) =>
-        Number.isFinite(Math.fround(value))
+        Number.isFinite(Math.fround(value)),
       )
     ) {
       throw new RangeError("SurfaceV4 requires finite camera and a GPU pre-exposure product");
@@ -437,7 +469,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       frame.visibility,
       frame.depth,
       frame.background,
-      ...(frame.reactive ? [frame.reactive] : [])
+      ...(frame.reactive ? [frame.reactive] : []),
     ]) {
       if (image.width !== frame.width || image.height !== frame.height || image.depthOrArrayLayers !== 1) {
         throw new RangeError("Native Surface input products must share the render extent");
@@ -473,7 +505,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       geometry.instances,
       frame.publication.constants,
       frame.publication.directory,
-      ...(geometry.productHeap === undefined ? [] : [geometry.productHeap, ...geometry.productBanks!])
+      ...(geometry.productHeap === undefined ? [] : [geometry.productHeap, ...geometry.productBanks!]),
     ]) {
       if (
         buffer.size < 4 ||
@@ -497,7 +529,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       bins.some(
         (bin, index) =>
           bin.programIndex !== frame.routes[index]!.programIndex ||
-          bin.bindingSet !== frame.routes[index]!.bindingSet
+          bin.bindingSet !== frame.routes[index]!.bindingSet,
       )
     ) {
       throw new Error("SurfaceV4 routes must cover the complete publication bins in order");
@@ -540,7 +572,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         5,
         7,
         ...(this.reactive ? [8] : []),
-        ...(product ? [10, 11, 12, 13, 14] : [])
+        ...(product ? [10, 11, 12, 13, 14] : []),
       ];
       const materialBindings = [0, 1, 3, 4, ...(compact ? [2] : [])];
       if (
@@ -550,7 +582,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         materialBindings.some((binding) => !material.some((entry) => entry.binding === binding))
       ) {
         throw new Error(
-          "SurfaceV4 dense/compact, reactive or Product shader profile is incompatible with its resources"
+          "SurfaceV4 dense/compact, reactive or Product shader profile is incompatible with its resources",
         );
       }
       if ((lighting.length === 0) !== route.unlit) {
@@ -560,7 +592,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         [geometry, [0], "uniform"],
         [geometry, [1, 2, 3, 4, ...(product ? [10, 11, 12, 13, 14] : [])], "read-only-storage"],
         [material, [0, 1, ...(compact ? [2] : [])], "read-only-storage"],
-        [material, [3, 4], "uniform"]
+        [material, [3, 4], "uniform"],
       ] as const) {
         for (const binding of bindings) {
           if (group.find((entry) => entry.binding === binding)?.buffer?.type !== type) {
@@ -615,7 +647,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         throw new RangeError("SurfaceV4 complete shader resources exceed negotiated limits");
       }
       const program = frame.publication.entries.find(
-        (entry) => entry.programIndex === route.programIndex
+        (entry) => entry.programIndex === route.programIndex,
       )!.program;
       const inputBytes = Math.max(16, program.inputCount * 16);
       let requiredInputs = 0;
@@ -636,8 +668,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       this.validateEntries(
         lighting.filter((entry) => entry.binding !== 4),
         frame.lightingEntries.filter(
-          (entry) => entry.binding !== 4 && lighting.some((expected) => expected.binding === entry.binding)
-        )
+          (entry) => entry.binding !== 4 && lighting.some((expected) => expected.binding === entry.binding),
+        ),
       );
       this.validateEntries(descriptor.groups[3]!, route.materialEntries);
       const continuation = frame.publication.continuation(route.programIndex);
@@ -658,8 +690,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         this.validateEntries(
           next.groups[1]!,
           frame.lightingEntries.filter((entry) =>
-            next.groups[1]!.some((expected) => expected.binding === entry.binding)
-          )
+            next.groups[1]!.some((expected) => expected.binding === entry.binding),
+          ),
         );
         this.validateEntries(next.groups[3]!, route.materialEntries);
       }
@@ -668,7 +700,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 
   private validateEntries(
     layout: readonly GPUBindGroupLayoutEntry[],
-    entries: readonly GPUBindGroupEntry[]
+    entries: readonly GPUBindGroupEntry[],
   ): void {
     if (
       entries.length !== layout.length ||
@@ -706,34 +738,52 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
           offset + size > resource.buffer.size
         ) {
           throw new RangeError(
-            "SurfaceV4 borrowed buffer binding violates its size, access or alignment profile"
+            "SurfaceV4 borrowed buffer binding violates its size, access or alignment profile",
           );
         }
       }
     }
   }
 
+  private reusableAllocation(frame: NativeSurfaceFrame): ExtentAllocation | null {
+    const allocation = this.state?.allocation;
+    if (
+      allocation !== undefined &&
+      allocation.width === frame.width &&
+      allocation.height === frame.height &&
+      allocation.publication === frame.publication &&
+      allocation.borrowedOutput === (frame.output !== undefined)
+    ) {
+      return allocation;
+    }
+    return null;
+  }
+
   private createState(
     frame: NativeSurfaceFrame,
     identity: readonly unknown[],
-    preparedBins?: NativeExecutionBins
+    preparedBins?: NativeExecutionBins,
   ): ExtentState {
+    const previous = this.reusableAllocation(frame);
     const bins =
+      previous?.bins ??
       preparedBins ??
       new NativeExecutionBins(this.device, {
         graphics: this.graphics,
         width: frame.width,
         height: frame.height,
-        bins: frame.publication.bins
+        bins: frame.publication.bins,
       });
-    const resources: GPUBuffer[] = [];
+    const resources: GPUBuffer[] = previous?.resources ?? [];
+    let allocation: ExtentAllocation | null = previous;
+    let binBindings: NativeExecutionBinsBindings | null = null;
     let hdr: GPUTexture | null = null;
     let finalHdr: GPUTexture | null = null;
     const buffer = (size: number, values?: Uint32Array): GPUBuffer => {
       const result = this.device.createBuffer({
         size,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-        mappedAtCreation: values !== undefined
+        mappedAtCreation: values !== undefined,
       });
       resources.push(result);
       this.track(result, "buffer", size);
@@ -744,25 +794,27 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       return result;
     };
     try {
-      if (preparedBins === undefined && this.graphics === undefined) {
+      if (previous === null && preparedBins === undefined && this.graphics === undefined) {
         throw new Error("Synchronous SurfaceV4 construction requires the admitted graphics pipeline cache");
       }
-      const settings = buffer(NATIVE_SURFACE_SETTINGS_BYTES);
-      const shadingView = buffer(16);
+      const settings = previous?.settings ?? buffer(NATIVE_SURFACE_SETTINGS_BYTES);
+      const shadingView = previous?.shadingView ?? buffer(16);
       const continuation = frame.routes.some(
-        (route) => frame.publication.continuation(route.programIndex) !== null
+        (route) => frame.publication.continuation(route.programIndex) !== null,
       );
       hdr =
+        (continuation ? previous?.initialHdr : previous?.ownedHdr) ??
         (!continuation ? frame.output : undefined) ??
         this.device.createTexture({
           label: "SurfaceV4/HDR",
           size: [frame.width, frame.height],
           format: "rgba16float",
-          usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC
+          usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
         });
       if (continuation) {
         finalHdr =
           frame.output ??
+          previous?.ownedHdr ??
           this.device.createTexture({
             label: "SurfaceV4/resource-limited final HDR",
             size: [frame.width, frame.height],
@@ -771,13 +823,13 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
               GPUTextureUsage.STORAGE_BINDING |
               GPUTextureUsage.TEXTURE_BINDING |
               GPUTextureUsage.COPY_SRC |
-              GPUTextureUsage.COPY_DST
+              GPUTextureUsage.COPY_DST,
           });
       }
-      if (hdr !== frame.output) {
+      if (previous === null && hdr !== frame.output) {
         this.track(hdr, "texture", frame.width * frame.height * 8);
       }
-      if (finalHdr !== null && finalHdr !== frame.output) {
+      if (previous === null && finalHdr !== null && finalHdr !== frame.output) {
         this.track(finalHdr, "texture", frame.width * frame.height * 8);
       }
       const geometryEntries: GPUBindGroupEntry[] = [
@@ -786,11 +838,11 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         { binding: 2, resource: { buffer: frame.geometry.arena } },
         { binding: 3, resource: { buffer: frame.geometry.vertexPayload } },
         { binding: 4, resource: { buffer: frame.geometry.instances } },
-        { binding: 5, resource: frame.visibility.createView() },
-        { binding: 7, resource: hdr.createView() }
+        { binding: 5, resource: createNativeTextureView(frame.visibility) },
+        { binding: 7, resource: createNativeTextureView(hdr) },
       ];
       if (frame.reactive !== undefined) {
-        geometryEntries.push({ binding: 8, resource: frame.reactive.createView() });
+        geometryEntries.push({ binding: 8, resource: createNativeTextureView(frame.reactive) });
       }
       if (frame.geometry.productHeap !== undefined) {
         if (frame.geometry.productBanks === undefined) {
@@ -798,50 +850,54 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         }
         geometryEntries.push({ binding: 10, resource: { buffer: frame.geometry.productHeap } });
         frame.geometry.productBanks.forEach((bank, index) =>
-          geometryEntries.push({ binding: 11 + index, resource: { buffer: bank } })
+          geometryEntries.push({ binding: 11 + index, resource: { buffer: bank } }),
         );
       }
-      const backgroundGroup = this.device.createBindGroup({
+      const backgroundGroup = this.bindGroups.create(this.device, {
         layout: this.backgroundLayout,
         entries: [
-          { binding: 0, resource: frame.visibility.createView() },
-          { binding: 1, resource: frame.background.createView() },
-          { binding: 2, resource: hdr.createView() },
-          ...(frame.reactive ? [{ binding: 3, resource: frame.reactive.createView() }] : [])
-        ]
+          { binding: 0, resource: createNativeTextureView(frame.visibility) },
+          { binding: 1, resource: createNativeTextureView(frame.background) },
+          { binding: 2, resource: createNativeTextureView(hdr) },
+          ...(frame.reactive ? [{ binding: 3, resource: createNativeTextureView(frame.reactive) }] : []),
+        ],
       });
       const lightingEntries = [
         ...frame.lightingEntries.filter((entry) => entry.binding !== 4),
-        { binding: 4, resource: { buffer: shadingView } }
+        { binding: 4, resource: { buffer: shadingView } },
       ];
       const routes: RouteState[] = [];
       frame.routes.forEach((route, bin) => {
         const pipeline = frame.publication.pipeline(route.programIndex);
         const descriptor = frame.publication.descriptor(route.programIndex);
-        const constants = buffer(16, new Uint32Array([bin, 0, 0, 0]));
+        const constants =
+          previous?.routeBuffers[bin]!.constants ?? buffer(16, new Uint32Array([bin, 0, 0, 0]));
         const program = frame.publication.entries.find(
-          (entry) => entry.programIndex === route.programIndex
+          (entry) => entry.programIndex === route.programIndex,
         )!.program;
-        const inputs = buffer(Math.max(16, program.inputCount * 16));
+        const inputs = previous?.routeBuffers[bin]!.inputs ?? buffer(Math.max(16, program.inputCount * 16));
         const entries: GPUBindGroupEntry[] = [
           { binding: 0, resource: { buffer: frame.publication.constants } },
           { binding: 1, resource: { buffer: frame.publication.directory } },
           { binding: 3, resource: { buffer: constants } },
-          { binding: 4, resource: { buffer: inputs } }
+          { binding: 4, resource: { buffer: inputs } },
         ];
         if (bins.queue !== null) {
           entries.push({ binding: 2, resource: { buffer: bins.queue } });
         }
         const groups = [
-          this.device.createBindGroup({ layout: pipeline.layouts[0]!, entries: geometryEntries }),
-          this.device.createBindGroup({
+          this.bindGroups.create(this.device, { layout: pipeline.layouts[0]!, entries: geometryEntries }),
+          this.bindGroups.create(this.device, {
             layout: pipeline.layouts[1]!,
             entries: lightingEntries.filter((entry) =>
-              descriptor.groups[1]!.some((expected) => expected.binding === entry.binding)
-            )
+              descriptor.groups[1]!.some((expected) => expected.binding === entry.binding),
+            ),
           }),
-          this.device.createBindGroup({ layout: pipeline.layouts[2]!, entries }),
-          this.device.createBindGroup({ layout: pipeline.layouts[3]!, entries: route.materialEntries })
+          this.bindGroups.create(this.device, { layout: pipeline.layouts[2]!, entries }),
+          this.bindGroups.create(this.device, {
+            layout: pipeline.layouts[3]!,
+            entries: route.materialEntries,
+          }),
         ];
         const next = frame.publication.continuation(route.programIndex);
         const continuation =
@@ -850,29 +906,31 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
             : {
                 pipeline: next.pipeline.pipeline,
                 groups: [
-                  this.device.createBindGroup({
+                  this.bindGroups.create(this.device, {
                     layout: next.pipeline.layouts[0]!,
                     entries: [
                       ...geometryEntries.map((entry) =>
-                        entry.binding === 7 ? { binding: 7, resource: finalHdr!.createView() } : entry
+                        entry.binding === 7
+                          ? { binding: 7, resource: createNativeTextureView(finalHdr!) }
+                          : entry,
                       ),
-                      { binding: 9, resource: hdr!.createView() }
+                      { binding: 9, resource: createNativeTextureView(hdr!) },
                     ].filter((entry) =>
-                      next.descriptor.groups[0]!.some((expected) => expected.binding === entry.binding)
-                    )
+                      next.descriptor.groups[0]!.some((expected) => expected.binding === entry.binding),
+                    ),
                   }),
-                  this.device.createBindGroup({
+                  this.bindGroups.create(this.device, {
                     layout: next.pipeline.layouts[1]!,
                     entries: lightingEntries.filter((entry) =>
-                      next.descriptor.groups[1]!.some((expected) => expected.binding === entry.binding)
-                    )
+                      next.descriptor.groups[1]!.some((expected) => expected.binding === entry.binding),
+                    ),
                   }),
-                  this.device.createBindGroup({ layout: next.pipeline.layouts[2]!, entries }),
-                  this.device.createBindGroup({
+                  this.bindGroups.create(this.device, { layout: next.pipeline.layouts[2]!, entries }),
+                  this.bindGroups.create(this.device, {
                     layout: next.pipeline.layouts[3]!,
-                    entries: route.materialEntries
-                  })
-                ]
+                    entries: route.materialEntries,
+                  }),
+                ],
               };
         routes.push({
           route,
@@ -880,20 +938,40 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
           groups,
           constants,
           inputs,
-          ...(continuation ? { continuation } : {})
+          ...(continuation ? { continuation } : {}),
         });
       });
-      const binBindings =
+      binBindings =
         bins.plan.mode === "compact"
-          ? bins.createBindings({
-              visibility: frame.visibility.createView(),
-              meshletWork: frame.geometry.meshletWork,
-              frameInstances: frame.geometry.instances,
-              materialDirectory: frame.publication.directory,
-              generation: frame.generation
-            })
+          ? bins.createBindings(
+              {
+                visibility: createNativeTextureView(frame.visibility),
+                meshletWork: frame.geometry.meshletWork,
+                frameInstances: frame.geometry.instances,
+                materialDirectory: frame.publication.directory,
+                generation: frame.generation,
+              },
+              previous?.binSettings,
+            )
           : null;
+      allocation ??= {
+        width: frame.width,
+        height: frame.height,
+        publication: frame.publication,
+        borrowedOutput: frame.output !== undefined,
+        bins,
+        settings,
+        shadingView,
+        resources,
+        routeBuffers: routes.map(({ constants, inputs }) => ({ constants, inputs })),
+        ownedHdr: frame.output === undefined ? (finalHdr ?? hdr) : null,
+        initialHdr: finalHdr === null ? null : hdr,
+        binSettings: binBindings?.settings,
+        references: 0,
+      };
+      allocation.references++;
       return {
+        allocation,
         width: frame.width,
         height: frame.height,
         publication: frame.publication,
@@ -909,9 +987,15 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         routes,
         identity,
         backgroundGroup,
-        binBindings
+        binBindings,
       };
     } catch (error) {
+      if (binBindings !== null) {
+        bins.releaseBindings(binBindings);
+      }
+      if (previous !== null) {
+        throw error;
+      }
       if (hdr !== frame.output) {
         if (hdr) {
           this.releaseResource(hdr);
@@ -940,7 +1024,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS.generation,
         state.settings,
         44,
-        4
+        4,
       );
       if (state.binBindings !== null) {
         encoder.copyBufferToBuffer(
@@ -948,7 +1032,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
           GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS.generation,
           state.binBindings.settings,
           16,
-          4
+          4,
         );
       }
     }
@@ -973,7 +1057,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       // Global HDR dependency: finish the first pass before any additive read.
       encoder.copyTextureToTexture({ texture: state.initialHdr! }, { texture: state.hdr }, [
         state.width,
-        state.height
+        state.height,
       ]);
       const sun = encoder.beginComputePass({ label: "SurfaceV4/resource-limited native sun" });
       for (const [bin, route] of state.routes.entries()) {
@@ -997,7 +1081,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   addToGraph(
     graph: FrameGraph,
     dependencies: readonly ResourceId[],
-    reactive?: ResourceId
+    reactive?: ResourceId,
   ): NativeSurfaceGraphProducts {
     if (!this.prepared) {
       throw new Error("SurfaceV4 frame must be prepared before graph construction");
@@ -1009,7 +1093,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     const hdr = graph.import_resource(
       "SurfaceV4/HDR",
       { kind: "imported", domain: "internal-full" },
-      this.hdr
+      this.hdr,
     );
     const pass = graph.add("SurfaceV4/native opaque", {}, (_data, _resources, context) => {
       const encoder = resolveGpuEncoder(context);
@@ -1068,7 +1152,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   private track(resource: GPUBuffer | GPUTexture, kind: "buffer" | "texture", bytes: number): void {
     const handle = this.graphics?.resource_accounting.created(
       { kind, category: "transient", owner: "SurfaceV4", bytes, label: resource.label },
-      resource
+      resource,
     );
     if (handle) {
       this.accountingHandles.set(resource, handle);
@@ -1085,20 +1169,27 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   }
 
   private release(state: ExtentState): void {
-    if (state.ownsHdr) {
-      this.releaseResource(state.hdr);
+    if (state.binBindings !== null) {
+      state.bins.releaseBindings(state.binBindings);
     }
-    if (state.initialHdr) {
-      this.releaseResource(state.initialHdr);
+    const allocation = state.allocation;
+    allocation.references--;
+    if (allocation.references === 0) {
+      if (allocation.ownedHdr !== null) {
+        this.releaseResource(allocation.ownedHdr);
+      }
+      if (allocation.initialHdr !== null) {
+        this.releaseResource(allocation.initialHdr);
+      }
+      allocation.bins.destroy();
+      allocation.resources.forEach((resource) => this.releaseResource(resource));
     }
-    state.bins.destroy();
-    state.resources.forEach((resource) => this.releaseResource(resource));
     this.retired.delete(state);
   }
 
   private retire(state: ExtentState): void {
     this.retired.add(state);
-    void state.bins.retire(this.lastCompletion).catch(() => undefined);
+    if (this.state?.allocation !== state.allocation) state.bins.markStorageRetired();
     const resources: (GPUBuffer | GPUTexture)[] = [...state.resources];
     if (state.ownsHdr) {
       resources.push(state.hdr);
@@ -1106,7 +1197,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     if (state.initialHdr) {
       resources.push(state.initialHdr);
     }
-    for (const resource of resources) {
+    for (const resource of this.state?.allocation === state.allocation ? [] : resources) {
       const handle = this.accountingHandles.get(resource);
       if (handle) {
         this.graphics?.resource_accounting.setRetired(handle, true);
@@ -1114,11 +1205,12 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     }
     void this.lastCompletion.then(
       () => this.release(state),
-      () => this.release(state)
+      () => this.release(state),
     );
   }
 
   destroy(): void {
+    this.bindGroups.clear();
     if (this.destroyed) {
       return;
     }
@@ -1138,8 +1230,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     }
     this.preparedState = null;
     if (this.state !== null) {
-      this.retire(this.state);
+      const state = this.state;
       this.state = null;
+      this.retire(state);
     }
     this.backgroundPipeline = null;
   }

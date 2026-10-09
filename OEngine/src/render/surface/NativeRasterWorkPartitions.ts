@@ -2,7 +2,7 @@ import type { ResourceHandle } from "../../debug/profiling/ResourceAccounting.js
 import type { GpuNativeMaterialPublication } from "../../gpu/GpuNativeMaterialPublication.js";
 import {
   GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE,
-  GPU_MESHLET_RASTER_WORK_RECORD_STRIDE
+  GPU_MESHLET_RASTER_WORK_RECORD_STRIDE,
 } from "../../gpu/GpuMeshletRasterWorkAbi.js";
 import { nativeRasterPartitionsWgsl } from "../../shaders/native_raster_partitions.js";
 import { GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS } from "../../gpu/GpuMeshletRasterWorkAbi.js";
@@ -14,6 +14,8 @@ export interface NativeRasterPartitionInput {
   readonly publication: GpuNativeMaterialPublication;
   readonly capacity: number;
   readonly meshletWordBase: number;
+  /** Main-view arena directory; caster work has a different slot namespace. */
+  readonly frameGeometryHeader?: number;
   readonly generation: number;
   readonly caster?: boolean;
   readonly graphics?: GraphicsContext;
@@ -50,7 +52,7 @@ export class NativeRasterWorkPartitions {
 
   constructor(
     private readonly device: GPUDevice,
-    readonly input: NativeRasterPartitionInput
+    readonly input: NativeRasterPartitionInput,
   ) {
     const limits = device.limits;
     this.count = input.publication.bins.length * 8;
@@ -61,7 +63,7 @@ export class NativeRasterWorkPartitions {
       this.count * 16,
       this.count * this.partitionStride,
       32,
-      16
+      16,
     ];
     if (
       !Number.isSafeInteger(input.capacity) ||
@@ -73,6 +75,10 @@ export class NativeRasterWorkPartitions {
       !Number.isSafeInteger(input.meshletWordBase) ||
       input.meshletWordBase < 0 ||
       input.meshletWordBase > 0xffffffff ||
+      (input.frameGeometryHeader !== undefined &&
+        (!Number.isSafeInteger(input.frameGeometryHeader) ||
+          input.frameGeometryHeader < 0 ||
+          input.frameGeometryHeader > 0xffffffff)) ||
       limits.maxStorageBuffersPerShaderStage < 7 ||
       limits.maxUniformBufferBindingSize < 32 ||
       limits.maxComputeWorkgroupSizeX < 64 ||
@@ -102,7 +108,7 @@ export class NativeRasterWorkPartitions {
       this.buffers.push(buffer);
       const handle = input.graphics?.resource_accounting.created(
         { kind: "buffer", category: "transient", owner: "NativeRasterWorkPartitions", bytes: size, label },
-        buffer
+        buffer,
       );
       if (handle) {
         this.accountingHandles.push(handle);
@@ -114,14 +120,14 @@ export class NativeRasterWorkPartitions {
         ...Array.from({ length: 6 }, (_, binding) => ({
           binding,
           visibility: GPUShaderStage.COMPUTE,
-          buffer: { type: (binding < 3 ? "read-only-storage" : "storage") as GPUBufferBindingType }
+          buffer: { type: (binding < 3 ? "read-only-storage" : "storage") as GPUBufferBindingType },
         })),
-        { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } }
-      ]
+        { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+      ],
     };
     const layout = device.createBindGroupLayout(layoutDescriptor);
     const dispatchDescriptor: GPUBindGroupLayoutDescriptor = {
-      entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }]
+      entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }],
     };
     const dispatchLayout = device.createBindGroupLayout(dispatchDescriptor);
     try {
@@ -129,19 +135,19 @@ export class NativeRasterWorkPartitions {
       this.states = make(
         "Native raster/states and diagnostics",
         sizes[1]!,
-        GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
+        GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
       );
       this.draws = make("Native raster/draws", sizes[2]!, GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT);
       this.partitionSettings = make(
         "Native raster/partition uniforms",
         sizes[3]!,
-        GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+        GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       );
       this.settings = make("Native raster/settings", 32, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
       this.dispatch = make(
         "Native raster/source dispatch",
         16,
-        GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT
+        GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT,
       );
       const values = new Uint32Array(sizes[3]! / 4);
       for (let partition = 0; partition < this.count; partition++) {
@@ -157,10 +163,10 @@ export class NativeRasterWorkPartitions {
           limits.maxComputeWorkgroupsPerDimension,
           input.generation,
           input.meshletWordBase,
+          input.frameGeometryHeader ?? 0,
+          input.frameGeometryHeader !== undefined && !input.caster ? 1 : 0,
           0,
-          0,
-          0
-        ])
+        ]),
       );
       this.group = device.createBindGroup({
         layout,
@@ -171,12 +177,12 @@ export class NativeRasterWorkPartitions {
           this.states,
           this.indices,
           this.draws,
-          this.settings
-        ].map((buffer, binding) => ({ binding, resource: { buffer } }))
+          this.settings,
+        ].map((buffer, binding) => ({ binding, resource: { buffer } })),
       });
       this.dispatchGroup = device.createBindGroup({
         layout: dispatchLayout,
-        entries: [{ binding: 0, resource: { buffer: this.dispatch } }]
+        entries: [{ binding: 0, resource: { buffer: this.dispatch } }],
       });
       const module = device.createShaderModule({ code: nativeRasterPartitionsWgsl(input.caster) });
       const mainLayout = device.createPipelineLayout({ bindGroupLayouts: [layout] });
@@ -185,10 +191,10 @@ export class NativeRasterWorkPartitions {
         this.pipelines = ["begin", "count", "prefix", "scatter"].map((entryPoint, index) =>
           input.graphics!.compute_pipelines.obtain({
             layout: {
-              bindGroupLayouts: index === 0 ? [layoutDescriptor, dispatchDescriptor] : [layoutDescriptor]
+              bindGroupLayouts: index === 0 ? [layoutDescriptor, dispatchDescriptor] : [layoutDescriptor],
             },
-            compute: { module: { code: nativeRasterPartitionsWgsl(input.caster) }, entryPoint }
-          })
+            compute: { module: { code: nativeRasterPartitionsWgsl(input.caster) }, entryPoint },
+          }),
         );
         this.ready = Promise.resolve();
       } else {
@@ -196,9 +202,9 @@ export class NativeRasterWorkPartitions {
           ["begin", "count", "prefix", "scatter"].map((entryPoint, index) =>
             device.createComputePipelineAsync({
               layout: index === 0 ? beginLayout : mainLayout,
-              compute: { module, entryPoint }
-            })
-          )
+              compute: { module, entryPoint },
+            }),
+          ),
         )
           .then((pipelines) => {
             if (this.destroyed) {
@@ -243,7 +249,7 @@ export class NativeRasterWorkPartitions {
     }
     for (let stage = 0; stage < 4; stage++) {
       const pass = encoder.beginComputePass({
-        label: `Native raster/${["begin", "count", "prefix", "scatter"][stage]}`
+        label: `Native raster/${["begin", "count", "prefix", "scatter"][stage]}`,
       });
       pass.setPipeline(this.pipelines[stage]!);
       pass.setBindGroup(0, this.group);
@@ -262,11 +268,11 @@ export class NativeRasterWorkPartitions {
   retire(completion: Promise<void>): Promise<void> {
     this.retiring = true;
     this.accountingHandles.forEach((handle) =>
-      this.input.graphics?.resource_accounting.setRetired(handle, true)
+      this.input.graphics?.resource_accounting.setRetired(handle, true),
     );
     return completion.then(
       () => this.destroy(),
-      () => this.destroy()
+      () => this.destroy(),
     );
   }
 

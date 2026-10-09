@@ -1,3 +1,4 @@
+import { GpuBindGroupCache } from "../../../gpu/GpuBindGroupResourceCache.js";
 import type { FrameGraph } from "../../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../../framegraph/ShadeGPUCommandContext.js";
@@ -131,6 +132,7 @@ interface PipelinePair {
 }
 
 export class Fsr3ShadingChangePyramidPass {
+  private readonly bindGroups = new GpuBindGroupCache();
   private readonly source: PipelinePair;
   private readonly reduce: PipelinePair;
 
@@ -277,7 +279,7 @@ export class Fsr3ShadingChangePyramidPass {
     width: number,
     height: number,
   ): void {
-    const bind = this.device.createBindGroup({
+    const bind = this.bindGroups.create(this.device, {
       layout: pair.layout,
       entries: resources.map((resource, binding) => ({ binding, resource })),
     });

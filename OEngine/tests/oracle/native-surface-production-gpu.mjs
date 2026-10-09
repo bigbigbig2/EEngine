@@ -355,7 +355,7 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
     );
     hdrSnapshot = hdr.slice();
     const header = actualFrame.geometry.sourcePayload[3] & 0x7fffffff;
-    check(arenaWords[header] === 4, "Production consumed an obsolete frame geometry layout");
+    check(arenaWords[header] === 5, "Production consumed an obsolete frame geometry layout");
     const directory = arenaWords[header + (actualFrame.geometry.sourcePayload[3] >>> 31 ? 5 : 4)];
     let cachedMeshlets = 0;
     for (let slot = 0; slot < arenaWords[directory]; slot++) {

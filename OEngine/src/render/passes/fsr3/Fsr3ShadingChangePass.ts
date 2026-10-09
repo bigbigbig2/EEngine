@@ -1,3 +1,4 @@
+import { GpuBindGroupCache } from "../../../gpu/GpuBindGroupResourceCache.js";
 import type { FrameGraph } from "../../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../../framegraph/ShadeGPUCommandContext.js";
@@ -39,6 +40,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 `;
 
 export class Fsr3ShadingChangePass {
+  private readonly bindGroups = new GpuBindGroupCache();
   private readonly layout: GPUBindGroupLayout;
   private readonly pipeline: GPUComputePipeline;
   private readonly sampler: GPUSampler;
@@ -84,7 +86,7 @@ export class Fsr3ShadingChangePass {
     const height = Math.floor(input.height / 2);
     const builder = graph.add("FSR3/Shading Change", input, (data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
-      const bind = this.device.createBindGroup({
+      const bind = this.bindGroups.create(this.device, {
         layout: this.layout,
         entries: [
           { binding: 0, resource: resolveTextureView(resources.get(data.spdMips[0]!)) },

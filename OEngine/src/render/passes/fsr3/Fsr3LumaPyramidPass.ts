@@ -1,3 +1,4 @@
+import { GpuBindGroupCache } from "../../../gpu/GpuBindGroupResourceCache.js";
 import type { FrameGraph } from "../../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../../framegraph/ShadeGPUCommandContext.js";
@@ -5,16 +6,57 @@ import { resolveTextureView } from "../../RenderTargetViews.js";
 import { FSR3_UPSCALER_CONSTANTS_WGSL } from "./Fsr3UpscalerConstants.js";
 
 // WebGPU lowering of SDK SPD for the luma pyramid. The SDK performs the 2x2
-// reductions in one dispatch with a global counter. WebGPU has no cross-
-// workgroup barrier, so each mip is a separate dispatch on the frame encoder.
+// reductions in one dispatch with a global counter. Each 8x8 tile reduces up
+// to four levels locally; cross-tile reductions use another frame dispatch.
 // The source callbacks, reduction order, mip-5 fp16 store/load boundary,
 // farthest-depth mip-1 output and final frame-info update are preserved.
-const SOURCE_WGSL = /* wgsl */ `
+function reductionWgsl(source: boolean, levels: number): string {
+  const outputSide = 8 >> (levels - 1);
+  return /* wgsl */ `
+${source ? SOURCE_INPUT_WGSL : REDUCE_INPUT_WGSL}
+var<workgroup> tile: array<vec4f, 64>;
+@compute @workgroup_size(8, 8)
+fn main(@builtin(workgroup_id) group: vec3u, @builtin(local_invocation_id) lane: vec3u) {
+  let first_size = ${source ? "textureDimensions(farthest_mip1)" : "(textureDimensions(source) + vec2u(1u)) / 2u"};
+  let first_pixel = group.xy * 8u + lane.xy;
+  let src = vec2i(min(first_pixel, first_size - vec2u(1u))) * 2;
+  let value = (source_value(src) + source_value(src + vec2i(0, 1)) +
+    source_value(src + vec2i(1, 0)) + source_value(src + vec2i(1, 1))) * 0.25;
+  ${source ? "if all(first_pixel < first_size) { textureStore(farthest_mip1, vec2i(first_pixel), vec4f(value.z, 0.0, 0.0, 0.0)); }" : ""}
+  tile[lane.y * 8u + lane.x] = value;
+  ${Array.from({ length: levels - 1 }, (_, index) => {
+    const side = 4 >> index;
+    return /* wgsl */ `
+  workgroupBarrier();
+  var reduced_${index}: vec4f;
+  if all(lane.xy < vec2u(${side}u)) {
+    // NPOT clamping applies at every level, not only to the original tile.
+    let previous_size = (first_size + vec2u(${(1 << index) - 1}u)) / ${1 << index}u;
+    let last = min(vec2u(${side * 2}u), previous_size - group.xy * ${side * 2}u) - vec2u(1u);
+    let p0 = min(lane.xy * 2u, last);
+    let p1 = min(lane.xy * 2u + vec2u(1u), last);
+    reduced_${index} = (tile[p0.y * 8u + p0.x] + tile[p1.y * 8u + p0.x] +
+      tile[p0.y * 8u + p1.x] + tile[p1.y * 8u + p1.x]) * 0.25;
+  }
+  // All reads must finish before compacting into the shared tile.
+  workgroupBarrier();
+  if all(lane.xy < vec2u(${side}u)) { tile[lane.y * 8u + lane.x] = reduced_${index}; }
+`;
+  }).join("\n")}
+  let dst = group.xy * ${outputSide}u + lane.xy;
+  if all(lane.xy < vec2u(${outputSide}u)) && all(dst < textureDimensions(destination)) {
+    textureStore(destination, vec2i(dst), tile[lane.y * 8u + lane.x]);
+  }
+}
+`;
+}
+
+const SOURCE_INPUT_WGSL = /* wgsl */ `
 ${FSR3_UPSCALER_CONSTANTS_WGSL}
 @group(0) @binding(0) var current_luma: texture_2d<f32>;
 @group(0) @binding(1) var farthest_depth: texture_2d<f32>;
 @group(0) @binding(2) var<uniform> constants: Fsr3Constants;
-@group(0) @binding(3) var mip0: texture_storage_2d<rgba32float, write>;
+@group(0) @binding(3) var destination: texture_storage_2d<rgba32float, write>;
 @group(0) @binding(4) var farthest_mip1: texture_storage_2d<r16float, write>;
 
 fn source_value(pixel: vec2i) -> vec4f {
@@ -25,32 +67,13 @@ fn source_value(pixel: vec2i) -> vec4f {
   return vec4f(log_luma, luma, farthest, 0.0);
 }
 
-@compute @workgroup_size(8, 8, 1)
-fn main(@builtin(global_invocation_id) id: vec3u) {
-  let dst = vec2i(id.xy);
-  if (any(dst >= vec2i(textureDimensions(mip0)))) { return; }
-  let src = dst * 2;
-  let value = (source_value(src) + source_value(src + vec2i(0, 1)) +
-    source_value(src + vec2i(1, 0)) + source_value(src + vec2i(1, 1))) * 0.25;
-  textureStore(mip0, dst, value);
-  textureStore(farthest_mip1, dst, vec4f(value.z, 0.0, 0.0, 0.0));
-}
 `;
 
-const REDUCE_F32_WGSL = /* wgsl */ `
+const REDUCE_INPUT_WGSL = /* wgsl */ `
 @group(0) @binding(0) var source: texture_2d<f32>;
 @group(0) @binding(1) var destination: texture_storage_2d<rgba32float, write>;
-fn load_clamped(pixel: vec2i) -> vec4f {
+fn source_value(pixel: vec2i) -> vec4f {
   return textureLoad(source, clamp(pixel, vec2i(0), vec2i(textureDimensions(source)) - vec2i(1)), 0);
-}
-@compute @workgroup_size(8, 8, 1)
-fn main(@builtin(global_invocation_id) id: vec3u) {
-  let dst = vec2i(id.xy);
-  if (any(dst >= vec2i(textureDimensions(destination)))) { return; }
-  let src = dst * 2;
-  let value = (load_clamped(src) + load_clamped(src + vec2i(0, 1)) +
-    load_clamped(src + vec2i(1, 0)) + load_clamped(src + vec2i(1, 1))) * 0.25;
-  textureStore(destination, dst, value);
 }
 `;
 
@@ -94,6 +117,7 @@ fn main() {
 interface PipelinePair {
   readonly layout: GPUBindGroupLayout;
   readonly pipeline: GPUComputePipeline;
+  readonly outputSide?: number;
 }
 
 export interface Fsr3LumaPyramidOutput {
@@ -102,8 +126,9 @@ export interface Fsr3LumaPyramidOutput {
 }
 
 export class Fsr3LumaPyramidPass {
-  private readonly source: PipelinePair;
-  private readonly reduceF32: PipelinePair;
+  private readonly bindGroups = new GpuBindGroupCache();
+  private readonly source: readonly PipelinePair[];
+  private readonly reduceF32: readonly PipelinePair[];
   private readonly quantize: PipelinePair;
   private readonly frameInfo: PipelinePair;
 
@@ -135,17 +160,23 @@ export class Fsr3LumaPyramidPass {
         }),
       };
     };
-    this.source = make("FSR3 Luma SPD source", SOURCE_WGSL, [
-      texture(0),
-      texture(1),
-      uniform(2),
-      storage(3, "rgba32float"),
-      storage(4, "r16float"),
-    ]);
-    this.reduceF32 = make("FSR3 Luma SPD f32 reduce", REDUCE_F32_WGSL, [
-      texture(0),
-      storage(1, "rgba32float"),
-    ]);
+    this.source = Array.from({ length: 4 }, (_, index) => ({
+      ...make(`FSR3 Luma SPD source/${index + 1} levels`, reductionWgsl(true, index + 1), [
+        texture(0),
+        texture(1),
+        uniform(2),
+        storage(3, "rgba32float"),
+        storage(4, "r16float"),
+      ]),
+      outputSide: 8 >> index,
+    }));
+    this.reduceF32 = Array.from({ length: 4 }, (_, index) => ({
+      ...make(`FSR3 Luma SPD f32/${index + 1} levels`, reductionWgsl(false, index + 1), [
+        texture(0),
+        storage(1, "rgba32float"),
+      ]),
+      outputSide: 8 >> index,
+    }));
     this.quantize = make("FSR3 Luma SPD mip5 quantize", QUANTIZE_MIP5_WGSL, [
       texture(0),
       storage(1, "rg16float"),
@@ -177,9 +208,16 @@ export class Fsr3LumaPyramidPass {
     let height = Math.ceil(input.height / 2);
     const sourceWidth = width;
     const sourceHeight = height;
+    const sourceLevels = Math.min(mipCount, 4);
+    for (let level = 1; level < sourceLevels; level++) {
+      width = Math.ceil(width / 2);
+      height = Math.ceil(height / 2);
+    }
+    const firstWidth = width;
+    const firstHeight = height;
     const source = graph.add("FSR3/Luma SPD source", input, (data, resources, context) => {
       this.dispatch(
-        this.source,
+        this.source[sourceLevels - 1]!,
         context.encoder as ShadeGPUCommandContext,
         [
           resolveTextureView(resources.get(data.currentLuma)),
@@ -188,31 +226,43 @@ export class Fsr3LumaPyramidPass {
           resolveTextureView(resources.get(firstMip)),
           resolveTextureView(resources.get(farthestDepthMip1)),
         ],
-        sourceWidth,
-        sourceHeight,
+        firstWidth,
+        firstHeight,
       );
     });
-    const firstMip = this.createTexture(source, "FSR3/luma SPD mip0", width, height, "rgba32float");
+    const firstMip = this.createTexture(
+      source,
+      `FSR3/luma SPD mip${sourceLevels - 1}`,
+      width,
+      height,
+      "rgba32float",
+    );
     const farthestDepthMip1 = this.createTexture(
       source,
       "FSR3/farthest depth mip1",
-      width,
-      height,
+      sourceWidth,
+      sourceHeight,
       "r16float",
     );
     source.read(input.currentLuma);
     source.read(input.farthestDepth);
     source.read(input.constants);
     let previous = firstMip;
-    for (let mip = 1; mip < mipCount; mip++) {
-      width = Math.ceil(width / 2);
-      height = Math.ceil(height / 2);
+    for (let nextMip = sourceLevels; nextMip < mipCount; ) {
+      // Stop at the SDK's real fp16 boundary before reducing higher levels.
+      const levels = Math.min(4, mipCount - nextMip, nextMip <= 5 ? 6 - nextMip : 4);
+      const mip = nextMip + levels - 1;
+      nextMip += levels;
+      for (let level = 0; level < levels; level++) {
+        width = Math.ceil(width / 2);
+        height = Math.ceil(height / 2);
+      }
       const targetWidth = width;
       const targetHeight = height;
       const from = previous;
       const builder = graph.add(`FSR3/Luma SPD mip${mip}`, { from }, (data, resources, context) => {
         this.dispatch(
-          this.reduceF32,
+          this.reduceF32[levels - 1]!,
           context.encoder as ShadeGPUCommandContext,
           [resolveTextureView(resources.get(data.from)), resolveTextureView(resources.get(target))],
           targetWidth,
@@ -291,14 +341,15 @@ export class Fsr3LumaPyramidPass {
     width: number,
     height: number,
   ): void {
-    const bind = this.device.createBindGroup({
+    const bind = this.bindGroups.create(this.device, {
       layout: pair.layout,
       entries: resources.map((resource, binding) => ({ binding, resource })),
     });
     const pass = command.beginComputePass({ label: "FSR3 Luma SPD" });
     pass.setPipeline(pair.pipeline);
     pass.setBindGroup(0, bind);
-    pass.dispatchWorkgroups(Math.ceil(width / 8), Math.ceil(height / 8));
+    const side = pair.outputSide ?? 8;
+    pass.dispatchWorkgroups(Math.ceil(width / side), Math.ceil(height / side));
     pass.end();
   }
 }

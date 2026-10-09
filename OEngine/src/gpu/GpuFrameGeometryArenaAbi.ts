@@ -5,7 +5,7 @@ import { GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_CAPACITY } from "./GpuVisibilityKey
 /** Single raw-word Surface binding; producers bind disjoint typed subranges.
  * Directories retain final MeshletWork namespaces separately. No work-slot or
  * physical arena offset is a persistent Appearance identity. */
-export const FRAME_GEOMETRY_ARENA_VERSION = 4;
+export const FRAME_GEOMETRY_ARENA_VERSION = 5;
 export const FRAME_GEOMETRY_ARENA_HEADER_SIZE = 64;
 export const FRAME_GEOMETRY_ARENA_HEADER_WORDS = Object.freeze({
   version: 0,
@@ -18,7 +18,7 @@ export const FRAME_GEOMETRY_ARENA_HEADER_WORDS = Object.freeze({
   triangles: 7,
   filteredWorkCapacity: 13,
   attributes: 14,
-  attributeCapacity: 15
+  attributeCapacity: 15,
 });
 export interface FrameGeometryArenaBudget {
   readonly workCapacity: number;
@@ -34,7 +34,7 @@ export interface FrameGeometryArenaBudget {
  * product; misses reconstruct from resident geometry at identical precision. */
 export function frameGeometryArenaBudgetForWork(
   workCapacity: number,
-  filteredWorkCapacity: number
+  filteredWorkCapacity: number,
 ): FrameGeometryArenaBudget {
   if (
     !Number.isSafeInteger(workCapacity) ||
@@ -54,7 +54,7 @@ export function frameGeometryArenaBudgetForWork(
     filteredWorkCapacity,
     vertexCapacity: capacity,
     triangleCapacity: capacity,
-    maxBytes: 128 * 1024 * 1024
+    maxBytes: 128 * 1024 * 1024,
   });
 }
 export interface FrameGeometryArenaRegion {
@@ -79,14 +79,14 @@ export function frameGeometryArenaLayout(
   limits: Pick<
     GPUSupportedLimits,
     "minStorageBufferOffsetAlignment" | "maxStorageBufferBindingSize" | "maxBufferSize"
-  >
+  >,
 ): FrameGeometryArenaLayout {
   if (
     !Number.isSafeInteger(metadataBytes) ||
     metadataBytes < 4 ||
     metadataBytes % 4 !== 0 ||
     !Object.entries(budget).every(
-      ([key, n]) => Number.isSafeInteger(n) && (key === "filteredWorkCapacity" ? n >= 0 : n > 0)
+      ([key, n]) => Number.isSafeInteger(n) && (key === "filteredWorkCapacity" ? n >= 0 : n > 0),
     ) ||
     [budget.workCapacity, budget.vertexCapacity, budget.triangleCapacity].some((n) => n > 0xffffffff) ||
     (budget.filteredWorkCapacity ?? 0) > budget.workCapacity
@@ -117,8 +117,8 @@ export function frameGeometryArenaLayout(
     0,
     Math.min(
       budget.vertexCapacity,
-      Math.floor((maximum - attributeOffset) / GPU_FRAME_VERTEX_ATTRIBUTE_STRIDE)
-    )
+      Math.floor((maximum - attributeOffset) / GPU_FRAME_VERTEX_ATTRIBUTE_STRIDE),
+    ),
   );
   const attributes = region(Math.max(16, attributeCapacity * GPU_FRAME_VERTEX_ATTRIBUTE_STRIDE));
   if (
@@ -139,13 +139,13 @@ export function frameGeometryArenaLayout(
     triangles,
     attributes,
     attributeCapacity,
-    byteLength: cursor
+    byteLength: cursor,
   });
 }
 
 export function frameGeometryArenaHeader(
   layout: FrameGeometryArenaLayout,
-  budget: FrameGeometryArenaBudget
+  budget: FrameGeometryArenaBudget,
 ): Uint32Array<ArrayBuffer> {
   const words = new Uint32Array(FRAME_GEOMETRY_ARENA_HEADER_SIZE / 4),
     at = FRAME_GEOMETRY_ARENA_HEADER_WORDS;

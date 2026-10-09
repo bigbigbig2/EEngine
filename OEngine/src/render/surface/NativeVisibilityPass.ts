@@ -6,7 +6,7 @@ import type { GpuNativeMaterialPublication } from "../../gpu/GpuNativeMaterialPu
 import {
   nativeVisibilityShader,
   NATIVE_VISIBILITY_VIEW_BYTES,
-  type NativeVisibilityShader
+  type NativeVisibilityShader,
 } from "../../shaders/native_visibility.js";
 import { NativeRasterWorkPartitions } from "./NativeRasterWorkPartitions.js";
 import { GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS } from "../../gpu/GpuMeshletRasterWorkAbi.js";
@@ -15,7 +15,7 @@ export function nativeVisibilityPipelineDescriptor(
   shader: NativeVisibilityShader,
   shadow: boolean,
   cullMode: GPUCullMode,
-  late = false
+  late = false,
 ): CachedRenderPipelineDescriptor {
   const module = { code: shader.source };
   return {
@@ -24,14 +24,14 @@ export function nativeVisibilityPipelineDescriptor(
     fragment: {
       module,
       entryPoint: shader.fragmentEntryPoint,
-      targets: shadow ? [] : [{ format: "r32uint" }]
+      targets: shadow ? [] : [{ format: "r32uint" }],
     },
     primitive: { topology: "triangle-list", cullMode, frontFace: "ccw" },
     depthStencil: {
       format: "depth32float",
       depthWriteEnabled: true,
-      depthCompare: late ? "greater-equal" : "greater"
-    }
+      depthCompare: late ? "greater-equal" : "greater",
+    },
   };
 }
 
@@ -81,7 +81,7 @@ export class NativeVisibilityPass {
 
   constructor(
     private readonly device: GPUDevice,
-    input: NativeVisibilityInput
+    input: NativeVisibilityInput,
   ) {
     // Snapshot CPU descriptors before asynchronous PSO creation. Borrowed GPU
     // resources remain owned by their publication through the last frame fence.
@@ -92,15 +92,15 @@ export class NativeVisibilityPass {
         ...input.geometry,
         source: Object.freeze([...input.geometry.source]) as NativeSurfaceGeometry["source"],
         sourcePayload: Object.freeze([
-          ...input.geometry.sourcePayload
+          ...input.geometry.sourcePayload,
         ]) as NativeSurfaceGeometry["sourcePayload"],
         ...(input.geometry.productBanks
           ? {
               productBanks: Object.freeze([
-                ...input.geometry.productBanks
-              ]) as NativeSurfaceGeometry["productBanks"]
+                ...input.geometry.productBanks,
+              ]) as NativeSurfaceGeometry["productBanks"],
             }
-          : {})
+          : {}),
       }),
       routes: Object.freeze(
         input.routes.map((route) =>
@@ -112,14 +112,14 @@ export class NativeVisibilityPass {
                 const resource = entry.resource as GPUBufferBinding;
                 return Object.freeze({
                   ...entry,
-                  resource: resource.buffer === undefined ? entry.resource : Object.freeze({ ...resource })
+                  resource: resource.buffer === undefined ? entry.resource : Object.freeze({ ...resource }),
                 });
-              })
-            )
-          })
-        )
+              }),
+            ),
+          }),
+        ),
       ),
-      ...(input.vsmAtlas ? { vsmAtlas: Object.freeze({ ...input.vsmAtlas }) } : {})
+      ...(input.vsmAtlas ? { vsmAtlas: Object.freeze({ ...input.vsmAtlas }) } : {}),
     });
     this.input = input;
     if (
@@ -154,7 +154,7 @@ export class NativeVisibilityPass {
       input.publication.constants,
       input.publication.directory,
       ...(input.geometry.productHeap ? [input.geometry.productHeap, ...input.geometry.productBanks!] : []),
-      ...(input.vsmAtlas ? [input.vsmAtlas.pageTable] : [])
+      ...(input.vsmAtlas ? [input.vsmAtlas.pageTable] : []),
     ]) {
       if (
         buffer.size < 4 ||
@@ -192,8 +192,8 @@ export class NativeVisibilityPass {
           partitioned: true,
           productGeometry: input.geometry.productHeap !== undefined,
           shadow: input.shadow || input.vsmAtlas !== undefined,
-          vsmAtlas: input.vsmAtlas !== undefined
-        }
+          vsmAtlas: input.vsmAtlas !== undefined,
+        },
       );
       for (const stage of [GPUShaderStage.VERTEX, GPUShaderStage.FRAGMENT]) {
         let storage = 0,
@@ -247,9 +247,10 @@ export class NativeVisibilityPass {
       publication: input.publication,
       capacity: input.capacity,
       meshletWordBase: input.geometry.source[1],
+      frameGeometryHeader: input.vsmAtlas === undefined ? input.geometry.sourcePayload[3] : undefined,
       generation: input.generation,
       caster: input.vsmAtlas !== undefined,
-      graphics: input.graphics
+      graphics: input.graphics,
     });
     try {
       this.view = this.buffer(NATIVE_VISIBILITY_VIEW_BYTES, input.view);
@@ -279,7 +280,7 @@ export class NativeVisibilityPass {
   private buffer(size: number, values?: ArrayBufferView<ArrayBuffer>): GPUBuffer {
     const buffer = this.device.createBuffer({
       size,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     this.buffers.push(buffer);
     const handle = this.input.graphics?.resource_accounting.created(
@@ -288,9 +289,9 @@ export class NativeVisibilityPass {
         category: "transient",
         owner: "NativeVisibilityPass",
         bytes: size,
-        label: buffer.label
+        label: buffer.label,
       },
-      buffer
+      buffer,
     );
     if (handle) {
       this.accountingHandles.push(handle);
@@ -310,7 +311,7 @@ export class NativeVisibilityPass {
       (this.input.vsmAtlas && words[39] !== generation)
     ) {
       throw new RangeError(
-        "Native visibility view must contain finite camera values and matching generations"
+        "Native visibility view must contain finite camera values and matching generations",
       );
     }
   }
@@ -318,7 +319,7 @@ export class NativeVisibilityPass {
   private createRoute(
     route: NativeSurfaceRoute,
     bin: number,
-    shader: NativeVisibilityShader
+    shader: NativeVisibilityShader,
   ): RouteState | Promise<RouteState> {
     const { device, input } = this;
     const entry = input.publication.entries.find((entry) => entry.executionBin === bin)!;
@@ -332,9 +333,9 @@ export class NativeVisibilityPass {
             shader,
             Boolean(input.shadow || input.vsmAtlas),
             cullMode,
-            input.late
-          )
-        )
+            input.late,
+          ),
+        ),
       ) as [GPURenderPipeline, GPURenderPipeline];
       return this.bindRoute(route, bin, layouts, pipelines);
     }
@@ -346,18 +347,18 @@ export class NativeVisibilityPass {
           fragment: {
             module,
             entryPoint: shader.fragmentEntryPoint,
-            targets: input.shadow || input.vsmAtlas ? [] : [{ format: "r32uint" }]
+            targets: input.shadow || input.vsmAtlas ? [] : [{ format: "r32uint" }],
           },
           primitive: { topology: "triangle-list", cullMode, frontFace: "ccw" },
           depthStencil: {
             format: "depth32float",
             depthWriteEnabled: true,
-            depthCompare: input.late ? "greater-equal" : "greater"
-          }
-        })
-      )
+            depthCompare: input.late ? "greater-equal" : "greater",
+          },
+        }),
+      ),
     ).then((pipelines) =>
-      this.bindRoute(route, bin, layouts, pipelines as [GPURenderPipeline, GPURenderPipeline])
+      this.bindRoute(route, bin, layouts, pipelines as [GPURenderPipeline, GPURenderPipeline]),
     );
   }
 
@@ -365,7 +366,7 @@ export class NativeVisibilityPass {
     route: NativeSurfaceRoute,
     bin: number,
     layouts: readonly GPUBindGroupLayout[],
-    pipelines: readonly [GPURenderPipeline, GPURenderPipeline]
+    pipelines: readonly [GPURenderPipeline, GPURenderPipeline],
   ): RouteState {
     if (this.destroyed) {
       throw new Error("Native visibility cancelled during readiness");
@@ -381,7 +382,7 @@ export class NativeVisibilityPass {
       { binding: 3, resource: { buffer: this.view } },
       { binding: 4, resource: { buffer: input.geometry.vertexPayload } },
       { binding: 5, resource: { buffer: this.partitions.indices } },
-      { binding: 6, resource: { buffer: this.partitions.states } }
+      { binding: 6, resource: { buffer: this.partitions.states } },
     ];
     if (input.geometry.productHeap) {
       if (!input.geometry.productBanks) {
@@ -389,13 +390,13 @@ export class NativeVisibilityPass {
       }
       geometryEntries.push({ binding: 8, resource: { buffer: input.geometry.productHeap } });
       input.geometry.productBanks.forEach((bank, index) =>
-        geometryEntries.push({ binding: 9 + index, resource: { buffer: bank } })
+        geometryEntries.push({ binding: 9 + index, resource: { buffer: bank } }),
       );
     }
     if (input.vsmAtlas) {
       geometryEntries.push(
         { binding: 13, resource: { buffer: input.vsmAtlas.constants } },
-        { binding: 14, resource: { buffer: input.vsmAtlas.pageTable } }
+        { binding: 14, resource: { buffer: input.vsmAtlas.pageTable } },
       );
     }
     const partitionGroups = Array.from({ length: 8 }, (_, partition) =>
@@ -408,11 +409,11 @@ export class NativeVisibilityPass {
             resource: {
               buffer: this.partitions.partitionSettings,
               offset: (bin * 8 + partition) * this.partitions.partitionStride,
-              size: 16
-            }
-          }
-        ]
-      })
+              size: 16,
+            },
+          },
+        ],
+      }),
     );
     const groups = [
       partitionGroups[0]!,
@@ -423,10 +424,10 @@ export class NativeVisibilityPass {
           { binding: 0, resource: { buffer: input.publication.constants } },
           { binding: 1, resource: { buffer: input.publication.directory } },
           { binding: 3, resource: { buffer: routeBuffer } },
-          { binding: 4, resource: { buffer: inputs } }
-        ]
+          { binding: 4, resource: { buffer: inputs } },
+        ],
       }),
-      device.createBindGroup({ layout: layouts[3]!, entries: route.materialEntries })
+      device.createBindGroup({ layout: layouts[3]!, entries: route.materialEntries }),
     ];
     return { pipelines, groups, partitionGroups, inputs };
   }
@@ -440,7 +441,7 @@ export class NativeVisibilityPass {
   update(
     view: Uint8Array<ArrayBuffer>,
     frameInputs: readonly Float32Array<ArrayBuffer>[],
-    generation: number
+    generation: number,
   ): void {
     if (
       this.destroyed ||
@@ -460,7 +461,7 @@ export class NativeVisibilityPass {
     this.partitions.updateGeneration(generation);
     this.device.queue.writeBuffer(this.view, 0, view);
     this.routes.forEach((route, index) =>
-      this.device.queue.writeBuffer(route.inputs, 0, frameInputs[index]!)
+      this.device.queue.writeBuffer(route.inputs, 0, frameInputs[index]!),
     );
   }
 
@@ -488,7 +489,7 @@ export class NativeVisibilityPass {
         GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS.generation,
         this.view,
         152,
-        4
+        4,
       );
       if (this.input.vsmAtlas === undefined) {
         this.partitions.copyGeneration(encoder, this.input.generationSource);
@@ -503,11 +504,14 @@ export class NativeVisibilityPass {
       throw new Error("Native visibility is not ready");
     }
     for (const [bin, route] of this.routes.entries()) {
+      // These groups do not depend on the triangle bucket or draw side.
+      // Keep the original draw order so equal-depth winner ownership is unchanged.
+      route.groups.forEach((group, index) => {
+        if (index !== 0) pass.setBindGroup(index, group);
+      });
       for (let partition = 0; partition < 8; partition++) {
         pass.setPipeline(route.pipelines[partition & 1]!);
-        route.groups.forEach((group, index) =>
-          pass.setBindGroup(index, index === 0 ? route.partitionGroups[partition]! : group)
-        );
+        pass.setBindGroup(0, route.partitionGroups[partition]!);
         pass.drawIndirect(this.partitions.draws, (bin * 8 + partition) * 16);
       }
     }
@@ -517,17 +521,17 @@ export class NativeVisibilityPass {
     if (this.destroyed || this.retiring) {
       return completion.then(
         () => undefined,
-        () => undefined
+        () => undefined,
       );
     }
     this.retiring = true;
     this.accountingHandles.forEach((handle) =>
-      this.input.graphics?.resource_accounting.setRetired(handle, true)
+      this.input.graphics?.resource_accounting.setRetired(handle, true),
     );
     void this.partitions.retire(completion);
     return completion.then(
       () => this.destroy(),
-      () => this.destroy()
+      () => this.destroy(),
     );
   }
 

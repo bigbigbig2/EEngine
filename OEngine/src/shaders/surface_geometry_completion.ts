@@ -12,7 +12,7 @@ import { surfaceGeometryDecodeWgsl } from "./surface_geometry_reader.js";
 export function surfaceGeometryCompletionWgsl(
   product: boolean,
   frameAttributes = false,
-  diagnostics = true
+  diagnostics = true,
 ): string {
   return /* wgsl */ `
 ${GPU_INSTANCE_RECORD_WGSL}
@@ -45,6 +45,13 @@ fn geometry_build_completion(key: u32) -> GeometryCompletion {
   if decoded.valid == 0u { return result; }
   let work = meshlet_work.elements[decoded.meshlet_work_slot];
   let instance = frame_instances[work.instance_slot];
+  return geometry_complete_resolved(decoded, work, instance);
+}
+// Native Surface has already validated and resolved these inputs for its route.
+// Keep the key entry point for consumers that perform their own resolution.
+fn geometry_complete_resolved(decoded: OEngineVisibilityKeyResolveResult,
+  work: OEngineMeshletRasterWork, instance: OEngineFrameInstanceRecord) -> GeometryCompletion {
+  var result: GeometryCompletion;
   ${
     frameAttributes
       ? /* wgsl */ `

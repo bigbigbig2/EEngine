@@ -1,3 +1,4 @@
+import { GpuBindGroupCache } from "../../gpu/GpuBindGroupResourceCache.js";
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
@@ -41,6 +42,7 @@ ${LINEAR_REC709_TO_REC2020_WGSL}
 `;
 
 export class AerialPerspectivePass {
+  private readonly bindGroups = new GpuBindGroupCache();
   private readonly pipeline: GPUComputePipeline;
   private readonly layout: GPUBindGroupLayout;
   private readonly sampler: GPUSampler;
@@ -99,7 +101,7 @@ export class AerialPerspectivePass {
   ): ResourceId {
     const node = graph.add("Environment/Aerial Perspective", input, (_data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
-      const bind = this.device.createBindGroup({
+      const bind = this.bindGroups.create(this.device, {
         layout: this.layout,
         entries: [
           { binding: 0, resource: resolveTextureView(resources.get(input.scene)) },
@@ -138,5 +140,7 @@ export class AerialPerspectivePass {
     node.read(input.preExposure);
     return node.write(output);
   }
-  destroy(): void {}
+  destroy(): void {
+    this.bindGroups.clear();
+  }
 }

@@ -1,5 +1,8 @@
-import { FRAME_GEOMETRY_ARENA_HEADER_WORDS as H, FRAME_GEOMETRY_ARENA_VERSION } from "../gpu/GpuFrameGeometryArenaAbi.js";
-import { GPU_FRAME_VERTEX_ATTRIBUTE_VECTORS } from "../gpu/GpuFrameGeometryAttributesAbi.js";
+import {
+  FRAME_GEOMETRY_ARENA_HEADER_WORDS as H,
+  FRAME_GEOMETRY_ARENA_VERSION,
+} from "../gpu/GpuFrameGeometryArenaAbi.js";
+import { GPU_FRAME_VERTEX_ATTRIBUTE_WORDS } from "../gpu/GpuFrameGeometryAttributesAbi.js";
 
 /** Read the existing Geometry owner's committed frame directory. A real cache
  * capacity miss keeps the exact source path; no second owner or CPU control. */
@@ -31,7 +34,8 @@ fn surface_frame_corner(frame: SurfaceFrameGeometry, primitive: u32, corner: u32
   return (source_heap[frame.triangle_base + primitive] >> (corner * 8u)) & 255u;
 }
 fn surface_frame_attribute(frame: SurfaceFrameGeometry, vertex: u32, field: u32) -> vec4f {
-  let at = frame.attribute_base + ((frame.vertex_base + vertex) * ${GPU_FRAME_VERTEX_ATTRIBUTE_VECTORS}u + field) * 4u;
+  let at = frame.attribute_base + (frame.vertex_base + vertex) * ${GPU_FRAME_VERTEX_ATTRIBUTE_WORDS}u + select(field * 4u, 18u, field == 5u);
+  if field == 4u { return vec4f(bitcast<vec2f>(vec2u(source_heap[at], source_heap[at + 1u])), 0.0, 0.0); }
   return bitcast<vec4f>(vec4u(source_heap[at], source_heap[at + 1u], source_heap[at + 2u], source_heap[at + 3u]));
 }
 fn surface_frame_clip(frame: SurfaceFrameGeometry, vertex: u32) -> vec4f {

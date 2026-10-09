@@ -2,6 +2,10 @@ import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js"
 import { GPU_MESHLET_RECORD_SCHEMA } from "../gpu/GpuGeometryAbi.js";
 import { GPU_INSTANCE_FLAGS } from "../gpu/GpuInstanceAbi.js";
 import { NATIVE_MATERIAL_DIRECTORY_WGSL } from "../gpu/GpuNativeMaterialPublication.js";
+import {
+  FRAME_GEOMETRY_ARENA_HEADER_WORDS as H,
+  FRAME_GEOMETRY_ARENA_VERSION,
+} from "../gpu/GpuFrameGeometryArenaAbi.js";
 
 /** Native material classification over the existing count/prefix/scatter raster
  * algorithm. Four 32-triangle buckets and two draw sides per execution bin.
@@ -62,6 +66,22 @@ fn native_raster_partition(slot: u32) -> u32 {
     let at = settings[1].x + record.meshlet_slot * ${GPU_MESHLET_RECORD_SCHEMA.stride / 4}u;
     if at + ${GPU_MESHLET_RECORD_SCHEMA.stride / 4}u > arrayLength(&metadata) { return 0xffffffffu; }
     count = metadata[at + ${GPU_MESHLET_RECORD_SCHEMA.offsets.triangle_count! / 4}u];
+  }
+  ${
+    caster
+      ? ""
+      : /* wgsl */ `else if settings[1].z != 0u {
+    let header = settings[1].y & 0x7fffffffu;
+    if metadata[header + ${H.version}u] == ${FRAME_GEOMETRY_ARENA_VERSION}u {
+      let base = metadata[header + select(${H.sourceDirectory}u, ${H.filteredDirectory}u,
+        (settings[1].y & 0x80000000u) != 0u)];
+      if metadata[base + 1u] == work.header.generation && slot < metadata[base] {
+        let entry = base + 4u + slot * 4u;
+        // A real preparation capacity miss keeps the complete source draw.
+        if metadata[entry + 2u] != 0u { count = metadata[entry + 3u]; }
+      }
+    }
+  }`
   }
   if count == 0u || count > 128u {
     return 0xffffffffu;

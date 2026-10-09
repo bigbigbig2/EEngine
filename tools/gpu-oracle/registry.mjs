@@ -11,12 +11,31 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "native-raster-triangle-count",
+    file: "OEngine/tests/oracle/native-raster-triangle-count-gpu.mjs",
+    url: "/OEngine/tests/oracle/native-raster-triangle-count-gpu.mjs",
+    entry: "runNativeRasterTriangleCountGpuOracle",
+    requiredLimits: { maxStorageBuffersPerShaderStage: 7 },
+    description:
+      "Production triangle bucket edges and sides, complete capacity-miss and stale-directory work.",
+  }),
+  Object.freeze({
+    name: "fsr3-luma-pyramid",
+    file: "OEngine/tests/oracle/fsr3-luma-pyramid-gpu.mjs",
+    url: "/OEngine/tests/oracle/fsr3-luma-pyramid-gpu.mjs",
+    entry: "runFsr3LumaPyramidGpuOracle",
+    requiredFeatures: ["texture-formats-tier1"],
+    description:
+      "Production local multi-mip reduction against a CPU f32 NPOT reference and frozen per-mip GPU fp16/depth/exposure expectations.",
+  }),
+  Object.freeze({
     name: "temporal-input-contract",
     file: "OEngine/tests/oracle/temporal-input-contract-gpu.mjs",
     url: "/OEngine/tests/oracle/temporal-input-contract-gpu.mjs",
     entry: "runTemporalInputContractGpuOracle",
     requiredLimits: { maxStorageTexturesPerShaderStage: 3 },
-    description: "Production identity/coverage/jittered motion and shared conservative LOD anchor numeric contract.",
+    description:
+      "Production identity/coverage/jittered motion and shared conservative LOD anchor numeric contract.",
   }),
   Object.freeze({
     name: "pc-texture-residency",

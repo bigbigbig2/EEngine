@@ -106,6 +106,8 @@ export class id extends sd implements GPUTextureDescriptor {
 export class gd extends sd implements GPUTextureViewDescriptor {
   format: GPUTextureFormat | undefined;
   dimension: GPUTextureViewDimension | undefined;
+  usage: GPUTextureUsageFlags | undefined;
+  swizzle: string | undefined;
   aspect: GPUTextureAspect = "all";
   baseMipLevel = 0;
   mipLevelCount: number | undefined;
@@ -125,6 +127,8 @@ export class gd extends sd implements GPUTextureViewDescriptor {
     this.copyLabel(descriptor);
     this.format = descriptor.format;
     this.dimension = descriptor.dimension;
+    this.usage = descriptor.usage;
+    this.swizzle = descriptor.swizzle;
     this.aspect = descriptor.aspect ?? "all";
     this.baseMipLevel = descriptor.baseMipLevel ?? 0;
     this.mipLevelCount = descriptor.mipLevelCount;
@@ -165,11 +169,39 @@ export function createNativeTexture(device: GPUDevice, descriptor: GPUTextureDes
   });
 }
 
+const nativeViews = new WeakMap<GPUTexture, Map<string, GPUTextureView>>();
+
 export function createNativeTextureView(
   texture: GPUTexture,
   descriptor?: GPUTextureViewDescriptor | gd,
 ): GPUTextureView {
-  return texture.createView(nativeTextureViewDescriptor(descriptor));
+  const native = nativeTextureViewDescriptor(descriptor);
+  const key = [
+    native.format ?? "",
+    native.dimension ?? "",
+    native.aspect,
+    native.baseMipLevel,
+    native.mipLevelCount ?? "",
+    native.baseArrayLayer,
+    native.arrayLayerCount ?? "",
+    native.usage ?? 0,
+    native.swizzle ?? "rgba",
+    native.label,
+  ].join("|");
+  let views = nativeViews.get(texture);
+  if (views === undefined) {
+    views = new Map();
+    nativeViews.set(texture, views);
+  }
+  let view = views.get(key);
+  if (view === undefined) {
+    view = texture.createView(native);
+    if (views.size >= 32) {
+      views.delete(views.keys().next().value!);
+    }
+    views.set(key, view);
+  }
+  return view;
 }
 
 function nativeTextureExtent(extent: GPUExtent3D): NativeTextureExtent {

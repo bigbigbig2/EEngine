@@ -11,11 +11,11 @@ import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
 import { NATIVE_MATERIAL_DIRECTORY_WGSL } from "../gpu/GpuNativeMaterialPublication.js";
 import {
   FRAME_GEOMETRY_ARENA_HEADER_WORDS as H,
-  FRAME_GEOMETRY_ARENA_VERSION
+  FRAME_GEOMETRY_ARENA_VERSION,
 } from "../gpu/GpuFrameGeometryArenaAbi.js";
 import {
-  GPU_FRAME_VERTEX_ATTRIBUTE_VECTORS,
-  GPU_FRAME_VERTEX_WORLD_FIELDS as W
+  GPU_FRAME_VERTEX_ATTRIBUTE_WORDS,
+  GPU_FRAME_VERTEX_WORLD_FIELDS as W,
 } from "../gpu/GpuFrameGeometryAttributesAbi.js";
 
 export const NATIVE_VISIBILITY_VIEW_BYTES = 192;
@@ -60,7 +60,7 @@ export function nativeVisibilityView(
     filtered?: boolean;
     source: readonly [number, number, number, number];
     sourcePayload: readonly [number, number, number, number];
-  }>
+  }>,
 ): Uint8Array<ArrayBuffer> {
   if (
     !Number.isInteger(generation) ||
@@ -91,7 +91,7 @@ export function nativeVisibilityView(
   }
   new Uint32Array(bytes.buffer).set(
     [prepared.layout.header.offset / 4, Number(view.filtered ?? false), generation, 0],
-    36
+    36,
   );
   new Uint32Array(bytes.buffer).set(view.source, 40);
   new Uint32Array(bytes.buffer).set(view.sourcePayload, 44);
@@ -112,8 +112,13 @@ export function nativeVisibilityShader(
     shadow = false,
     partitioned = false,
     productGeometry = false,
-    vsmAtlas = false
-  }: Readonly<{ shadow?: boolean; partitioned?: boolean; productGeometry?: boolean; vsmAtlas?: boolean }> = {}
+    vsmAtlas = false,
+  }: Readonly<{
+    shadow?: boolean;
+    partitioned?: boolean;
+    productGeometry?: boolean;
+    vsmAtlas?: boolean;
+  }> = {},
 ): NativeVisibilityShader {
   const expressions: Readonly<Record<string, string>> = {
     uv0: "vec4f(fragment.uv01.xy, 0.0, 0.0)",
@@ -130,7 +135,7 @@ export function nativeVisibilityShader(
       "vec4f(native_visibility_normal(view.camera_position.xyz - fragment.world_position.xyz, normal), 0.0)",
     cameraPosition: "vec4f(view.camera_position.xyz, 1.0)",
     viewPosition: "view.view_matrix * fragment.world_position",
-    viewNormal: "view.view_matrix * vec4f(normal, 0.0)"
+    viewNormal: "view.view_matrix * vec4f(normal, 0.0)",
   };
   const inputs: string[] = [];
   program.inputs.forEach((input, slot) => {
@@ -139,7 +144,7 @@ export function nativeVisibilityShader(
       ? `vec4f(${Array.from(
           { length: 4 },
           (_, channel) =>
-            `native_material_constant(entry.constant_base, ${program.constants.length + 2 + slot * 4 + channel}u)`
+            `native_material_constant(entry.constant_base, ${program.constants.length + 2 + slot * 4 + channel}u)`,
         ).join(", ")})`
       : `native_frame_inputs[${slot}u]`;
     const expression = uniform ? materialInput : expressions[input.name];
@@ -229,7 +234,9 @@ fn native_visibility_vec4(at: u32) -> vec4f {
   return bitcast<vec4f>(vec4u(arena[at], arena[at + 1u], arena[at + 2u], arena[at + 3u]));
 }
 fn native_visibility_attribute(base: u32, vertex: u32, field: u32) -> vec4f {
-  return native_visibility_vec4(base + (vertex * ${GPU_FRAME_VERTEX_ATTRIBUTE_VECTORS}u + field) * 4u);
+  let at = base + vertex * ${GPU_FRAME_VERTEX_ATTRIBUTE_WORDS}u + select(field * 4u, 18u, field == 5u);
+  if field == 4u { return vec4f(bitcast<vec2f>(vec2u(arena[at], arena[at + 1u])), 0.0, 0.0); }
+  return native_visibility_vec4(at);
 }
 @vertex
 fn native_visibility_vertex(@builtin(vertex_index) vertex: u32, @builtin(instance_index) instance_index: u32) -> NativeVisibilityVertex {
@@ -359,10 +366,10 @@ fn native_visibility_fragment(fragment: NativeVisibilityVertex) -> @location(0) 
 ${inputs.join("\n")}
   ${vsmAtlas ? `if any(fragment.position.xy < fragment.page_bounds.xy) || any(fragment.position.xy >= fragment.page_bounds.zw) { discard; }` : ""}
   // All fragment derivatives have been produced before any coverage discard.
-  let alpha = native_coverage_alpha(entry.constant_base, inputs);
   let flags = native_coverage_flags(entry.constant_base);
-  if (flags & 1u) != 0u && alpha < native_coverage_cutoff(entry.constant_base) {
-    discard;
+  if (flags & 1u) != 0u {
+    let alpha = native_coverage_alpha(entry.constant_base, inputs);
+    if alpha < native_coverage_cutoff(entry.constant_base) { discard; }
   }
   let key = oengine_visibility_key_try_encode(fragment.work, fragment.primitive);
   if key.valid == 0u {
@@ -374,7 +381,7 @@ ${inputs.join("\n")}
   const read = (binding: number, visibility: number): GPUBindGroupLayoutEntry => ({
     binding,
     visibility,
-    buffer: { type: "read-only-storage" }
+    buffer: { type: "read-only-storage" },
   });
   const groups = [
     [
@@ -386,21 +393,21 @@ ${inputs.join("\n")}
         ? [
             read(5, 1),
             read(6, 1),
-            { binding: 7, visibility: 1, buffer: { type: "uniform" as const, minBindingSize: 16 } }
+            { binding: 7, visibility: 1, buffer: { type: "uniform" as const, minBindingSize: 16 } },
           ]
         : []),
       ...(productGeometry ? [read(8, 1), read(9, 1), read(10, 1), read(11, 1), read(12, 1)] : []),
       ...(vsmAtlas
         ? [
             { binding: 13, visibility: 1, buffer: { type: "uniform" as const, minBindingSize: 192 } },
-            read(14, 1)
+            read(14, 1),
           ]
         : []),
       {
         binding: 3,
         visibility: 3,
-        buffer: { type: "uniform" as const, minBindingSize: NATIVE_VISIBILITY_VIEW_BYTES }
-      }
+        buffer: { type: "uniform" as const, minBindingSize: NATIVE_VISIBILITY_VIEW_BYTES },
+      },
     ],
     [],
     [
@@ -410,15 +417,15 @@ ${inputs.join("\n")}
       {
         binding: 4,
         visibility: 2,
-        buffer: { type: "uniform" as const, minBindingSize: Math.max(program.inputCount, 1) * 16 }
-      }
+        buffer: { type: "uniform" as const, minBindingSize: Math.max(program.inputCount, 1) * 16 },
+      },
     ],
-    materialLayout.map((entry) => ({ ...entry, visibility: 2 }))
+    materialLayout.map((entry) => ({ ...entry, visibility: 2 })),
   ];
   return Object.freeze({
     source,
     groups: Object.freeze(groups),
     vertexEntryPoint: "native_visibility_vertex",
-    fragmentEntryPoint: "native_visibility_fragment"
+    fragmentEntryPoint: "native_visibility_fragment",
   });
 }
