@@ -2,6 +2,11 @@
 # yarn lockfile v1
 
 
+lucide@^1.54.0:
+  version "1.54.0"
+  resolved "https://registry.npmmirror.com/lucide/-/lucide-1.54.0.tgz#ad26b0331c599c2b507a1ff8b7d7eb091ea9bd9c"
+  integrity sha512-2N2brA+7NYLDlxG2QNcmGej5Qhw3pYMPN9MLktTNkQfs7Sk/2g2e8s0CUWibLz5lPVKMYesxm+k/ndDB7E1JjQ==
+
 "@adobe/css-tools@^4.4.0":
   version "4.5.0"
   resolved "https://registry.npmmirror.com/@adobe/css-tools/-/css-tools-4.5.0.tgz"

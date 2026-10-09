@@ -18,6 +18,18 @@ import { materialTextureLeaves } from "../../../../OEngine/src/assets/PcMaterial
 import { ShadeTransparencyMode } from "../../../../OEngine/src/material/enums.ts";
 import { summarizeGpuTimingCost } from "../../../../OEngine/src/debug/GpuTimingCost.ts";
 import { geometryProductGpuBudgetEvidence } from "../../../../OEngine/src/gpu/GeometryProductGpuBudget.ts";
+import {
+  createElement,
+  createIcons,
+  ChevronRight,
+  Download,
+  PanelRightClose,
+  PanelRightOpen,
+  RotateCw,
+  Scan,
+  Square,
+  StepForward
+} from "lucide";
 import "./style.css";
 import { loadCookedScene } from "./cooked-scene.ts";
 
@@ -309,18 +321,23 @@ function snapshot() {
         gpuCommandSpanMs: percentile(gpu),
         surfacePassSumMs: percentile(surface)
       },
-      rafIntervalMs: percentile(sampledCallbacks.map((sample, index) => sample.atMs - callbacks[index]!.atMs)),
+      rafIntervalMs: percentile(
+        sampledCallbacks.map((sample, index) => sample.atMs - callbacks[index]!.atMs)
+      ),
       submittedIntervalMs: percentile(intervals),
       submissions: {
         sampleElapsedMs,
         callbacks: sampledCallbacks.length,
         submitted: submittedCallbacks,
         deferred: sampledCallbacks.length - submittedCallbacks,
-        framesPerSecond: sampleElapsedMs > 0 ? submittedCallbacks * 1000 / sampleElapsedMs : null,
-        callbacksPerSecond: sampleElapsedMs > 0 ? sampledCallbacks.length * 1000 / sampleElapsedMs : null,
+        framesPerSecond: sampleElapsedMs > 0 ? (submittedCallbacks * 1000) / sampleElapsedMs : null,
+        callbacksPerSecond: sampleElapsedMs > 0 ? (sampledCallbacks.length * 1000) / sampleElapsedMs : null,
         presentedFramesPerSecond: null
       },
-      completionLatencyMs: { normal: percentile(completion.normal), profiled: percentile(completion.profiled) },
+      completionLatencyMs: {
+        normal: percentile(completion.normal),
+        profiled: percentile(completion.profiled)
+      },
       submission,
       warmupFrames: 60,
       visibility: document.visibilityState
@@ -344,6 +361,14 @@ function snapshot() {
       hzb: renderer?.packed_visibility_hzb_enabled ?? false,
       cone: renderer?.packed_visibility_cone_enabled ?? false,
       sse: renderer?.packed_visibility_sse_threshold ?? null,
+      renderScale: renderer?.internal_resolution_scale ?? null,
+      controls: controls
+        ? {
+            damping: controls.enableDamping,
+            dampingFactor: controls.dampingFactor,
+            rotateSpeed: controls.rotateSpeed
+          }
+        : null,
       temporal: renderer?.temporalHistoryEvidence() ?? null,
       exposure: { autoExposure, fixedExposure, actualAdaptedExposure: "GPU ONLY / NOT READ BACK" },
       environment: scene.physical_environment.snapshot(),
@@ -507,6 +532,24 @@ function refresh(): void {
     lastGeometrySample = { uploaded: g.uploadedBytes, evicted: g.evicted, reloads: g.reloads };
   }
   const state = s.renderState;
+  element("quick-fps").textContent = s.stable.submissions.framesPerSecond?.toFixed(1) ?? "--";
+  const activeCpu = profiled ? s.stable.profiled.cpuFrameMs : s.stable.normal.cpuFrameMs;
+  element("quick-cpu").textContent = activeCpu ? `${activeCpu.p50.toFixed(1)} ms` : "--";
+  element("quick-gpu").textContent =
+    profiled && s.stable.profiled.gpuCommandSpanMs
+      ? `${s.stable.profiled.gpuCommandSpanMs.p50.toFixed(1)} ms`
+      : "--";
+  element("fsr3-generation").textContent = String(state.temporal?.fsr3Generation ?? 0);
+  const vsm = renderer.vsmCapabilities;
+  for (const [key, value] of Object.entries({
+    profile: vsm?.profile ?? "Unavailable",
+    atlas: vsm ? `${vsm.atlasDimension} x ${vsm.atlasDimension}` : "--",
+    clips: String(vsm?.clipLevels ?? 0),
+    page: vsm ? `${vsm.pageSize} px + ${vsm.border} px border` : "--",
+    slots: String(vsm?.residentSlots ?? 0),
+    taps: String(vsm?.pcfTapCount ?? 0)
+  }))
+    vsmCells.get(key)!.textContent = value;
   const renderValues: Record<string, string> = {
     effects: [
       state.vsm && "VSM",
@@ -568,9 +611,10 @@ function refresh(): void {
     preparation: time((p?.wallMs ?? 0) + (p?.activeElapsedMs ?? 0)),
     first: time(firstUsefulMs),
     full: time(fullQualityMs),
-    fps: raf && s.stable.submissions.framesPerSecond !== null
-      ? `${s.stable.submissions.framesPerSecond.toFixed(1)} / ${raf.p50.toFixed(2)} ms`
-      : "PENDING",
+    fps:
+      raf && s.stable.submissions.framesPerSecond !== null
+        ? `${s.stable.submissions.framesPerSecond.toFixed(1)} / ${raf.p50.toFixed(2)} ms`
+        : "PENDING",
     callbacks: `${s.stable.submissions.callbacks} / ${s.stable.submissions.deferred}`,
     cpu: pair(s.stable.normal.cpuFrameMs),
     profiledCpu: pair(s.stable.profiled.cpuFrameMs),
@@ -592,7 +636,9 @@ async function start(): Promise<void> {
   const context = canvas.getContext("webgpu");
   if (!context) throw new Error("WebGPU canvas context is unavailable");
   element("mode-name").textContent = cookedMode ? "Cooked" : "Raw";
-  element<HTMLAnchorElement>("mode-switch").href = cookedMode ? "?mode=raw" : "?mode=cooked";
+  const alternateMode = new URL(location.href);
+  alternateMode.searchParams.set("mode", cookedMode ? "raw" : "cooked");
+  element<HTMLAnchorElement>("mode-switch").href = alternateMode.href;
   element("mode-switch").textContent = cookedMode ? "Raw" : "Cooked";
   element("importer-note").textContent = cookedMode
     ? "glTF material importer: KHR_materials_specular factors/maps supported."
@@ -612,12 +658,21 @@ async function start(): Promise<void> {
   });
   await renderer.initialize({ context });
   if (closing) return;
+  // VSM stays available for the live switch; its frame work starts disabled.
+  for (const [id, set] of effectSwitches) set(renderer, element<HTMLInputElement>(id).checked);
   renderer.profiler.configure({ enabled: false });
   scene.physical_environment.setSun(sunDirection, sunIrradiance);
   setPhase("Reading / parsing GLB range catalog");
   refreshId = window.setInterval(refresh, 500);
   if (cookedMode) {
-    loading = loadCookedScene(renderer, scene, cookedBase, abort.signal, setPhase, geometryCapacityBytes).then((value) => {
+    loading = loadCookedScene(
+      renderer,
+      scene,
+      cookedBase,
+      abort.signal,
+      setPhase,
+      geometryCapacityBytes
+    ).then((value) => {
       cooked = value;
       sourceBytes = value.manifest.source.bytes;
       framing = value.framing;
@@ -703,12 +758,7 @@ async function start(): Promise<void> {
       if (paused && submitted) stepFrames--;
       const duration = performance.now() - begin;
       if (submitted && fullQualityMs !== null) stableFrames++;
-      if (
-        !paused &&
-        fullQualityMs !== null &&
-        stableFrames > 60 &&
-        document.visibilityState === "visible"
-      ) {
+      if (!paused && fullQualityMs !== null && stableFrames > 60 && document.visibilityState === "visible") {
         callbacks.push({ atMs: now, submitted });
         if (callbacks.length > 600) callbacks.shift();
         if (submitted) {
@@ -776,6 +826,8 @@ function frameScene(): void {
   const c = framing.center,
     r = framing.radius;
   camera.fov_degrees = 60;
+  element<HTMLInputElement>("fov").value = "60";
+  element("fov-value").textContent = "60 deg";
   camera.near = Math.max(0.01, r / 5000);
   camera.far = r * 20;
   const halfFov = Math.atan(Math.tan(Math.PI / 6) * Math.min(1, camera.aspect));
@@ -868,6 +920,39 @@ async function release(): Promise<void> {
 }
 
 element("frame-scene").addEventListener("click", frameScene);
+createIcons({ icons: { Download, PanelRightClose, RotateCw, Scan, Square, StepForward } });
+for (const summary of document.querySelectorAll("summary")) {
+  summary.append(createElement(ChevronRight, { "aria-hidden": "true" }));
+}
+const panel = element("debug-panel");
+const panelBody = element("panel-body");
+const panelToggle = element<HTMLButtonElement>("panel-toggle");
+panelToggle.addEventListener("click", () => {
+  const collapsed = panel.classList.toggle("collapsed");
+  panelBody.hidden = collapsed;
+  panelToggle.setAttribute("aria-expanded", String(!collapsed));
+  panelToggle.title = collapsed ? "Expand panel" : "Collapse panel";
+  panelToggle.setAttribute("aria-label", panelToggle.title);
+  panelToggle.replaceChildren(
+    createElement(collapsed ? PanelRightOpen : PanelRightClose, { "aria-hidden": "true" })
+  );
+});
+const vsmCells = new Map<string, HTMLElement>();
+for (const [key, label] of [
+  ["profile", "Profile"],
+  ["atlas", "Atlas"],
+  ["clips", "Clip levels"],
+  ["page", "Page size"],
+  ["slots", "Resident slot capacity"],
+  ["taps", "PCF taps"]
+]) {
+  const dt = document.createElement("dt"),
+    dd = document.createElement("dd");
+  dt.textContent = label!;
+  dd.textContent = "--";
+  vsmCells.set(key!, dd);
+  element("vsm-state").append(dt, dd);
+}
 function diagnosticControlsDisabled(disabled: boolean): void {
   for (const control of document.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>(
     ".diagnostic-controls input, .diagnostic-controls select, .diagnostic-controls button"
@@ -880,12 +965,17 @@ diagnosticControlsDisabled(true);
 document.querySelector("aside")!.addEventListener("keydown", (event) => event.stopPropagation());
 element<HTMLSelectElement>("exposure-mode").value = autoExposure ? "auto" : "fixed";
 element<HTMLInputElement>("fixed-exposure").value = String(fixedExposure);
+function syncExposureControls(): void {
+  element("fixed-exposure-control").hidden = element<HTMLSelectElement>("exposure-mode").value !== "fixed";
+}
+element("exposure-mode").addEventListener("change", syncExposureControls);
+syncExposureControls();
 element("debug-view").addEventListener("change", (event) => {
   if (!renderer) return;
   renderer.render_debug_view = (event.target as HTMLSelectElement).value as RenderDebugViewName;
   resetFrameSamples();
 });
-for (const [id, set] of [
+const effectSwitches = [
   [
     "vsm",
     (r: Renderer, v: boolean) => {
@@ -928,17 +1018,81 @@ for (const [id, set] of [
       r.packed_visibility_cone_enabled = v;
     }
   ]
-] as const) {
+] as const;
+function syncEffectParameters(id: string): void {
+  const input = element<HTMLInputElement>(id);
+  const parameters = input.getAttribute("aria-controls");
+  if (parameters) element(parameters).hidden = !input.checked;
+}
+for (const [id, set] of effectSwitches) {
+  syncEffectParameters(id);
   element<HTMLInputElement>(id).addEventListener("change", (event) => {
+    syncEffectParameters(id);
     if (!renderer) return;
-    set(renderer, (event.target as HTMLInputElement).checked);
+    const enabled = (event.target as HTMLInputElement).checked;
+    if (id === "fsr3" && !enabled) {
+      // The production bypass requires equal internal/output extents.
+      renderer.internal_resolution_scale = 1;
+      element<HTMLInputElement>("render-scale").value = "1";
+      element("render-scale-value").textContent = "100%";
+      element<HTMLInputElement>("jitter").checked = false;
+      renderer.temporal_jitter_enabled = false;
+    }
+    set(renderer, enabled);
     renderer.invalidateTemporalHistory();
     resetFrameSamples();
   });
 }
 element<HTMLInputElement>("damping").addEventListener("change", (event) => {
+  syncEffectParameters("damping");
   if (controls) controls.enableDamping = (event.target as HTMLInputElement).checked;
 });
+for (const [id, format, apply] of [
+  [
+    "render-scale",
+    (v: number) => `${Math.round(v * 100)}%`,
+    (v: number) => {
+      if (renderer?.fsr3_enabled) {
+        renderer.internal_resolution_scale = v;
+        camera.aspect = renderer.aspect_ratio;
+        camera.update();
+      }
+    }
+  ],
+  [
+    "damping-factor",
+    (v: number) => v.toFixed(2),
+    (v: number) => {
+      if (controls) controls.dampingFactor = v;
+    }
+  ],
+  [
+    "orbit-speed",
+    (v: number) => v.toFixed(2),
+    (v: number) => {
+      if (controls) controls.rotateSpeed = v;
+    }
+  ],
+  [
+    "fov",
+    (v: number) => `${v} deg`,
+    (v: number) => {
+      camera.fov_degrees = v;
+      camera.update();
+    }
+  ]
+] as const) {
+  const input = element<HTMLInputElement>(id);
+  input.addEventListener("input", () => {
+    element(`${id}-value`).textContent = format(Number(input.value));
+  });
+  input.addEventListener("change", () => {
+    if (!input.checkValidity()) return;
+    apply(Number(input.value));
+    renderer?.invalidateTemporalHistory();
+    resetFrameSamples();
+  });
+}
 element<HTMLInputElement>("sse").addEventListener("change", (event) => {
   const input = event.target as HTMLInputElement;
   if (!renderer || !input.checkValidity()) return;
@@ -1001,7 +1155,7 @@ function failCleanup(error: unknown): void {
 }
 element<HTMLInputElement>("profile").addEventListener("change", (event) => {
   profiled = (event.target as HTMLInputElement).checked;
-  stableFrames = 0;
+  resetFrameSamples();
   renderer?.profiler.configure({
     enabled: profiled,
     gpuTimingMode: profiled ? "full" : "production",

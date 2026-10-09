@@ -32,6 +32,28 @@ fixture cooked by `offline-scene-cook.test.mjs` (two materials, including MASK).
 `?fixture=1&mode=raw` uses `validation/public/assets/oengine/glb-web-product-v1.glb`. The heading and report
 identify this as a fixture. It does not count as Bistro acceptance.
 
+## Scene Controls
+
+The canvas fills the browser viewport. A translucent white panel overlays its
+right side; collapsing the panel leaves the render extent unchanged. Each effect
+has a separate switch and reveals its parameters or diagnostics when enabled.
+VSM, GTAO and Bloom start disabled; FSR3, camera jitter, HZB, cone culling and
+orbit damping start enabled. Profiling remains opt-in.
+
+Live controls use existing Renderer/OrbitControls APIs: render scale, jitter,
+LOD SSE, sun/sky intensity, camera FOV, rotation speed and damping factor.
+Disabling FSR3 restores scale 1 and disables jitter, preserving the production
+equal-extent bypass. Exposure changes still require release and reload.
+VSM device-negotiated atlas/page/filter settings, GTAO radius/power and Bloom
+threshold/intensity are read-only, labeled fixed where appropriate; no new
+shader tuning contract is introduced. GPU P50 is available only in a profiled
+run, while CPU/FPS use the existing submitted-frame statistics.
+
+Full viewport rendering increases pixel count compared with the old reserved
+header/sidebar layout. The historical performance captures below used all
+effects enabled and the explicitly recorded smaller render extents; they are
+not measurements of these new defaults.
+
 ## Current Production Route
 
 The latest public GLB route is `load_gltf()` -> `GlbRangeSource`/WebCook catalog
@@ -198,9 +220,9 @@ introducing another telemetry owner. Failed phases remain in the report.
 
 ## Desktop Diagnostics And Current Visual Failure
 
-The desktop sidebar exposes current production knobs: VSM shadows, GTAO, FSR3,
+The desktop overlay exposes current production knobs: VSM shadows, GTAO, FSR3,
 Bloom, camera jitter, HZB/cone culling, Orbit damping and LOD SSE. Sun/sky intensity
-use `PhysicalEnvironmentInput`. Defaults preserve the original run. Exposure is
+use `PhysicalEnvironmentInput`. VSM, GTAO and Bloom now start disabled. Exposure is
 immutable Renderer configuration: Apply exposure and reload releases owners and
 reopens Cooked assets with `?exposure=fixed&fixedExposure=1` (or Auto). This does
 not run an encoder. Pause stops frame submission; Step submits one ordinary frame.
@@ -213,10 +235,11 @@ BaseColor/normal/ORM, velocity/history, SSR and separate IBL views currently lac
 the required SurfaceV4 outputs in `FrameProgramLowering`. They are not enabled
 merely because the historical debug descriptor labels them supported.
 
-The current frame includes native material/physical sun, sky diffuse/specular
-IBL, physical sky, aerial perspective, VSM, GTAO, FSR3, GPU auto exposure, Bloom
-and SDR display grading. There are no authored lamps/HDR in this model. SSR and
-screen-space GI are not wired into this Frame Program. A listed Frame stage may
+The default frame includes native material/physical sun, sky diffuse/specular
+IBL, physical sky, aerial perspective, FSR3, GPU auto exposure and SDR display
+grading. VSM, GTAO and Bloom are enabled with their switches. There are no authored
+lamps/HDR in this model. SSR and screen-space GI are not wired into this Frame
+Program. A listed Frame stage may
 remain as a copy/disabled stage; Active effects reports the actual control state.
 
 2026-10-09 targeted Cooked Bistro diagnosis on the same NVIDIA Turing/WebGPU
@@ -387,8 +410,8 @@ Chrome/WebGPU, adapter identity `nvidia/turing`; browser device/description and
 driver version were not exposed. The requested RTX 2060 8 GB baseline is retained
 as the host target. These numbers are not GTX 1650 Ti results.
 
-One page, all default effects enabled, SSE 4 and resolution scale 1, with a
-repeatable near-camera orbit at 0.35 rad/s. Each capture lasted 10 seconds with
+One page, all effects enabled (the defaults at capture time), SSE 4 and resolution
+scale 1, with a repeatable near-camera orbit at 0.35 rad/s. Each capture lasted 10 seconds with
 warmup excluded. Window dimensions include the sidebar/header; actual render
 outputs were 1540x1010 and 2180x1370. The intermediate run had already removed
 the camera-revision bug and allocated 1.5 GiB, but still had the VP cut heuristic.
