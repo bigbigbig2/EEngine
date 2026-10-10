@@ -146,6 +146,19 @@ test("FSR3 graph roles follow the prepared frame and retired histories wait for 
   assert.ok(executable.indexOf("FSR3/GPU pre-exposure ratio") < executable.indexOf("FSR3/Prepare Inputs"));
   assert.equal(dump.resources.find((entry) => entry.name === "FSR3/previous color").imported, true);
   assert.equal(dump.resources.find((entry) => entry.name === "FSR3/current color").imported, true);
+  assert.equal(dump.resources.some((entry) => entry.name === "FSR3/upscaled color"), false);
+  const accumulate = dump.passes.find((entry) => entry.name === "FSR3/Accumulate");
+  const rcas = dump.passes.find((entry) => entry.name === "FSR3/RCAS");
+  const writtenColor = accumulate.writes[0];
+  assert.equal(accumulate.writes.length, 1);
+  assert.ok(rcas.reads.includes(writtenColor));
+  assert.ok(rcas.dependencies.includes(accumulate.id));
+  assert.ok(executable.indexOf("FSR3/Accumulate") < executable.indexOf("FSR3/RCAS"));
+  // Same physical imported history, different logical version. Reading the
+  // original version would have no dependency on this frame's writer.
+  const originalColor = dump.resources.find((entry) => entry.name === "FSR3/current color").logicalSlot;
+  assert.notEqual(writtenColor, originalColor);
+  assert.equal(rcas.reads.includes(originalColor), false);
   const read = resolvers.get("FSR3/previous color");
   const write = resolvers.get("FSR3/current color");
   assert.ok(read && write);

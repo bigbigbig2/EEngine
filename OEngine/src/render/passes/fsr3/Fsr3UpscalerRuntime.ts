@@ -546,7 +546,7 @@ export class Fsr3UpscalerRuntime {
       width: input.width,
       height: input.height,
     });
-    const accumulated = this.accumulate.addToGraph(graph, {
+    const accumulatedHistory = this.accumulate.addToGraph(graph, {
       color: input.color,
       dilatedMotion: prepared.dilatedMotion,
       lumaInstability: instability.instability,
@@ -561,7 +561,7 @@ export class Fsr3UpscalerRuntime {
       height: input.outputHeight,
     });
     return this.rcas.addToGraph(graph, {
-      color: accumulated.color,
+      color: accumulatedHistory,
       exposure: luma.frameInfo,
       constants: rcasConstants,
       width: input.outputWidth,

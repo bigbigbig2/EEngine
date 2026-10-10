@@ -32,7 +32,7 @@ verifies:
 
 # EEngine V4：最终像素阶段与资源预算性能重构
 
-本设计是当前性能模块的唯一设计依据；单元状态、实施顺序与停止条件只在[执行计划](../next-execution/eengine-v4-performance-optimization-execution-2026-10.md)。全局不变量继承[V4 Native Shading 母稿](./eengine-v4-native-shading-2026-10.md)，导航由 [workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml) 持有。本轮只制定方案，没有切换生产代码、进行新 benchmark 或获得优化 After。
+本设计是当前性能模块的唯一设计依据；单元状态、实施顺序、真实代码切换及After结果只在[执行计划](../next-execution/eengine-v4-performance-optimization-execution-2026-10.md)。全局不变量继承[V4 Native Shading 母稿](./eengine-v4-native-shading-2026-10.md)，导航由 [workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml) 持有。设计目标本身不证明实现或性能已经达标。
 
 **决定：停止扩展高级效果，主攻 VSM consumer 的物理执行结构与 WebGPU 原生 Temporal；保留 GPU Scene→Virtual Geometry→Visibility→Native Material 主干。** 不把这一阶段缩成若干 ALU 小补丁，也不先承诺拆 pass 一定更快。完整重构必须能说明删除哪些生产工作、额外付出什么，以及如何证伪。
 

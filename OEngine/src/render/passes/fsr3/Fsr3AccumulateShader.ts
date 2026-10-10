@@ -16,7 +16,6 @@ ${FSR3_UPSCALER_CONSTANTS_WGSL}
 @group(0) @binding(8) var linear_clamp: sampler;
 @group(0) @binding(9) var<uniform> constants: Fsr3Constants;
 @group(0) @binding(10) var current_history: texture_storage_2d<rgba16float, write>;
-@group(0) @binding(11) var upscaled_output: texture_storage_2d<rgba16float, write>;
 
 fn exposure() -> f32 {
   let value = textureLoad(input_exposure, vec2i(0), 0).x;
@@ -234,6 +233,5 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let mixed_ycocg = mix(history_tonemapped, upsampled_tonemapped, alpha);
   let result = max(vec3f(0.0), inverse_tonemap(ycocg_to_rgb(mixed_ycocg)) / exposure());
   textureStore(current_history, pixel, vec4f(result, lock));
-  textureStore(upscaled_output, pixel, vec4f(result, 1.0));
 }
 `;

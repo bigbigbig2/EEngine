@@ -25,7 +25,7 @@ verifies:
 
 # EEngine V4 性能优化执行计划
 
-唯一设计见[性能设计](../next-design/eengine-v4-performance-optimization-2026-10.md)。本文件拥有单元状态与实施出口；workstream仅导航。**P1已实现并完成限定正确性/成本验证，采用Q-exact；其余单元仍未实施。** 不把局部收益写成稳定60FPS或整个VSM模块验收，不自行同时启动多个单元。
+唯一设计见[性能设计](../next-design/eengine-v4-performance-optimization-2026-10.md)。本文件拥有单元状态与实施出口；workstream仅导航。**P1已关闭Q-exact局部出口；P2已关闭T1同算法产品删除，T2/T3尚未实施，Native Temporal V2整体未完成。** 不把局部工作删除写成稳定帧时改善或60FPS，不自行同时启动多个单元。
 
 ## 1. 状态、实施入口与停止边界
 
@@ -33,14 +33,14 @@ verifies:
 |---|---|---|
 | P0 源码、已有证据与设计 | complete（文档出口） | `f495f04b`源码/报告、成本边界、来源与失败分析；不等于新代码gate通过 |
 | P1 VSM Sampling/Projection V2 | complete（Q-exact局部出口，热状态限制见§3.6） | post-commit compact publication→Native/debug/continuation唯一consumer；numeric通过，局部净P50改善，全帧/P95不承诺 |
-| P2 Native Temporal V2 | not-started | 同算法执行删除→native-resolution算法设计/非生产验证→唯一policy owner原子切换；质量失败时只保留已证实的同算法成果 |
+| P2 Native Temporal V2 | in-progress（T1 complete；T2/T3 not-started） | T1结果见§4.2；同算法执行删除→native-resolution算法设计/非生产验证→唯一policy owner原子切换；整体仍未完成 |
 | P3 IBL hardware-friendly publication | not-started | 合法源尺寸/format/预算证明→physical+authored producer→Native binding/DFG/coat→退休与完整numeric/成本 |
 | P4 4GB资源预算与容量策略 | not-started | 全owner账本/峰值→独立capacity配置→moving working-set与驻留验证；growable pool另按完整生命周期闭合 |
 | P5 动态VSM局部失效 | conditional / not-started | 突发因果→old/new caster delta→稳定depth域/局部dirty→全部consumer与压力出口 |
 | P6 PCF算法与后续upscaler/residency研究 | conditional / not-started | 只有前述数据支持且质量合同明确才制定实现；无自动扩展 |
 | P7 性能模块验收 | not-started | 目标硬件1080p同质量/coverage、动态/压力/热状态、CPU与资源峰值，列出剩余gap与VSM R4未闭合项 |
 
-**P1已经关闭，停在P2入口，等待用户下一任务。** 不自动进入Temporal，不临时换一堆PCF小技巧。P3/P4可在单元边界按实际数据调整顺序；任何调整先重读源码/当前结果，不把本表当无限自动任务。
+**P1复核通过；本次关闭P2-T1后停在T2入口。** 按§4每个子单元出口停止，不把T1称为完整Native Temporal V2。P3/P4可在单元边界按实际数据调整顺序；任何调整先重读源码/当前结果，不把本表当无限自动任务。
 
 P1内部只有两步：先完成下述资格记录，再冻结**一个**Q或S实施目标及Cost Card。资格诊断作为该单元的设施，不扩展成新的性能框架；候选After失败后不在同一单元连续换第二套shader。停止点是“采纳一个净收益候选”或“拒绝并恢复稳定生产状态”，不是不断增加variants/跑完整baseline。实施记录只追加到本计划的对应单元，不新建重复progress文档。
 
@@ -166,6 +166,41 @@ T3质量门在实现前列入对应单元记录：固定camera/motion/曝光序�
 
 正确性还覆盖pause/step/admissiondefer、resize/renderScale切换、pre-submitabort/retry、in-flightretirement、device loss、destroy，frame_count/timeDelta仍按真实submission。性能After独立同质量1080p/window，多轮记录Temporal同帧净成本、Total、Native、CPU与新增memory；T3若未取得同质量证据不切换，可提交T1/T2且明确V2尚未完成。
 
+### 4.1 T1实施前冻结：同算法产品闭包
+
+【源码事实】`f6f7189f`的Accumulate向history与临时upscaled各写一次同样的RGB、同样的RGBA16F转换；前者alpha为lock，后者alpha为1。唯一直接消费者RCAS只读取RGB，写出的最终alpha始终为1。T1在所有scale删除第二产品，返回`builder.write(currentHistory)`的写版本供RCAS读；不改FSR数学、history16tap、3×3current采样、曝光、抖动、锁和锐化。
+
+Cost Card（先于Dungeon After冻结）：删除一RGBA16F顺序store/pixel、一个output-full临时texture及一storage binding；1080p为16,588,800B/帧（15.82MiB逻辑写流量），RGB ALU/loads/samples不变。新增GPU ALU、load/store、atomic/barrier、dispatch/pass、workgroup memory、history均为0；RCAS原有五tap读取改为同帧history物理纹理。CPU不再声明/获取该临时产品和binding，未测量逐帧分配时间。persistent working set不变；逻辑瞬态产品删除不等于OS显存减15.82MiB，物理池别名与在途帧决定实际收益。理想情况消除对应写带宽及分配压力；通常受ALU/history采样主导，时间收益未知；最差可能因不同物理纹理地址/驱动调度导致局部时间噪声或退化。0/50/100%写流量转为净外存减少分别为0/8,294,400/16,588,800B，不是帧时百分比。break-even为删除store/资源处理的实际成本大于任何新增物理访问/调度影响；不能把整个Accumulate时间当可获得收益。没有额外submit或CPU反馈控制。
+
+验证：冻结旧Accumulate WGSL只作为测试fixture，实际新pass→写后history→实际RCAS与旧双产品逐位比较；CPU graph检查禁止读写前版本，history commit/abort/resize/fence用既有owner检查。最小GPU组覆盖1:1及上采样、partial extent、jitter两轴flip、initial/resolved、motion越界、reactive/disocclusion、HDR与曝光变化、lock alpha和最终alpha1；真实Native integration随后检查整体接线。性能只在单元闭合后用既定三轮240帧、counter独立窗口；Before取P1已保存After，不重跑完整baseline。T2/T3不在本次出口实现。
+
+### 4.2 T1出口：产品删除成立，稳定帧时改善未证实
+
+【Previous Task Gate】重新核对`f6f7189f`的P1实际diff、post-content-commit publication及全部Native/debug/Sun consumers、原GPU/After记录，fresh build:test后28个受影响checks通过；新鲜sampling GPU oracle的74,032个query/PCF逐位一致。没有发现需要补交的生产遗漏。P1的热状态、尾帧、完整VSM R4与跨驱动缺项仍如§3.6，不从局部通过扩大验收。
+
+【源码/接线事实】Accumulate删除binding11、第二textureStore、`FSR3/upscaled color`临时texture及双产品接口；唯一返回写后history，runtime直接交RCAS，binding10也解析写版本。RCAS数学不变，只读RGB，最终alpha1；history的lock alpha不变。cached graph仍晚绑定Fsr3 owner的read/write槽；prepare不换槽，成功submit后commit，abort/resize/fence/device loss仍由原owner管理。Native Facts、identity、reactivity、SPD、history filter、RCAS五tap、所有输出consumer保留；dispatch/pass数量不减少，无新增submit、atomics或production双路径。冻结旧shader只在oracle fixture中。
+
+【实测口径】原件`.local/validation/p2-t1-2026-10-11/`；Before是`.local/validation/p1-vsm-2026-10-11/after/`，不是重新跑Baseline。After使用明确performanceCapture throughput、G生产shader，无K/receiver instrumentation；固定原近景、1920×1080/DPR1/scale1、高质量VSM4×4、FSR ON、GTAO/Bloom OFF、geometry1536MiB。每轮严格取`[targetStart,targetEnd)`的240 CPU帧/60完整GPU样本，线性分位数；不使用UI滚动窗口代替目标窗口。Temporal为每帧两段temporal stage（Facts与FSR）之和再求分位数，Accumulate+RCAS同理，不相加各pass的P50/P95。
+
+| 窗口 | Accumulate P50/P95 ms | RCAS P50 ms | Accumulate+RCAS P50/P95 ms | Temporal P50/P95 ms | Total span P50/P95 ms |
+|---|---:|---:|---:|---:|---:|
+| Before full-1 | 1.995 / 2.683 | .224 | 2.222 / 2.973 | 5.516 / 7.636 | 32.750 / 43.063 |
+| Before full-2 | 2.156 / 2.821 | .238 | 2.395 / 3.118 | 6.057 / 7.121 | 21.288 / 25.532 |
+| Before full-3 | 2.235 / 3.470 | .246 | 2.482 / 3.777 | 6.216 / 9.047 | 21.783 / 34.541 |
+| After full-1 | 2.083 / 2.849 | .229 | 2.318 / 3.153 | 5.692 / 7.728 | 34.240 / 38.903 |
+| After full-2 | 2.203 / 3.393 | .242 | 2.446 / 3.744 | 6.172 / 9.156 | 21.792 / 33.831 |
+| After full-3 | 2.095 / 4.154 | .233 | 2.328 / 4.539 | 5.944 / 10.295 | 20.977 / 54.362 |
+
+【判断】确定删掉无consumer的重复写出与资源，**未取得稳定GPU帧时改善证据**。前两轮局部P50更慢，第三轮局部P50下降而P95与mean退化（Accumulate+RCAS mean 2.700→3.131ms）；全帧第三轮P95也恶化，全部保留。Before/After driver581.42、89–91°C、SW thermal slowdown全Active，clock分别300–1350与300–1215MHz，采样稀疏无锁频，不能作精确因果比例或认定尾帧退化由T1造成。Native未改，After P50为9.414/10.049/9.691ms，也有跨轮波动。没有寄存器/occupancy/外存写事务硬件计数；不宣称所有15.82MiB都转化为DRAM流量或速度收益。
+
+【CPU/内存】同步render CPU固定240帧Before P50/P95 2.715/4.810、2.467/4.027、2.535/5.710ms，After 2.420/4.100、2.363/4.117、2.230/3.381ms。CDP TaskDuration两次采样差Before3546/1722/1646ms、After3160/1511/1551ms，对应page墙钟窗口Before8.100/6.095/6.093s、After8.109/6.077/7.085s，包含其它CPU及窗口overshoot，不是240帧同步render时间，不宣称全部CPU成本提速。软件shared transient texture pool三轮均275,292,880→242,115,280B，少33,177,600B/31.64MiB（本次两份在途产品）；审计全API live同量下降，persistent FSR仍78,797,009B。单产品逻辑删除15.82MiB，池/OS收益只引用本次观察，不泛化到所有in-flight/alias场景。Chrome GPU进程full-2专用显存Before2579.74MiB、After两次2541.13/2555.08MiB；不同采样时点和shared/system开销，不当作精确allocator因果。整个Renderer旧软件owner账仍漏项，用API容量、payload、OS驻留不同口径分别记录。
+
+【场景/错误】After三轮实际Dungeon coverage90.657–90.708%，counter shadedPixels2,073,600、meshlet605、invalidVisibilityKeys0；resident1207/pinned381、evicted/reload/failed0，streaming error为空。main/shadow readback ring丢slot保留（counter末各32），scheduler demandOverflow/malformed0，不把丢样称为无overflow；旧completeness/eviction保护未改。VSM末帧demand323/allocated437，各allocation失败位0；dirty0只描述末帧。runner errors空；`accepted:false`是诊断报告未获全模块正式验收，不当作成功验收。Before/After full-2截图人工检查无明显变化，numeric为主要证据。Submitted FPS是report滚动吞吐，32.839/40.870/37.823；Presented不可得，不与固定GPU窗口混算。
+
+【正确性与限制】typecheck、引擎build、fresh build:test、Dungeon诊断build通过；15个Temporal/FSR contract检查通过，含写版本真实依赖、原槽不读、history角色/resize abort/retry与completion fence。新`fsr3-accumulate-products`真实生产pass→history→RCAS在16组比较90,376个32bit读回word逐位一致（1:1、2×、非整数ratio、NPOT/partial、HDR、exposure、jitter、motion/rejection、initial/resolved、reactivity、lock与opacity）。这是冻结本地旧数学的产品等价验证，不是新的独立FSR算法证明。Native integration实际FSR chain、history retention/motion/曝光/resize abort-retry通过；`native-surface-device-epoch`两个独立device epoch销毁/重建通过，不等于模拟driver fault/整个Renderer recovery。初次oracle失败为fixture R16F输入误声明storage usage；第二次为fixture对FrameGraph而非compiled graph调用destroy，修复后重跑通过，未改生产数学或放宽断言，原失败保存。
+
+【出口】保留同算法冗余产品删除及已量到的瞬态容量收益，帧时收益标为未知。未运行完整旧baseline、锁频ABBA、driver硬件计数、T3动态画质矩阵及全部Renderer recovery/交互browser矩阵；本单元没有改变simulation/admission/temporal reset策略。按§4子单元出口停止，T2需要独立tile数值/成本验证；T3数学/质量合同及新图仍未实施，**P2整体未完成**。来源核对与实际映射见porting，非新FSR算法adoption。
+
 ## 5. P3：IBL完整publication优化
 
 实现前先完成layout/support域证明：physical128²/8mip与authored1…device合法square/NPOT、四种当前sourceformat、当前累计256MiB与outgoing/scratch峰值。compactpaddedatlas优先，N+2超limit或峰值挤出旧合法input时不能静默下采样/拒绝；定案同mipstorage的interiorhardware+seam精确算法或拒绝候选。这里只做必要有限layout，不造通用textureframework。
@@ -216,4 +251,4 @@ P7必须同时回答：GTX1650Ti4GB/1080p高质量/≥80%覆盖是否达到稳�
 
 未达到目标时保留真实分布/剩余gap，重新排名最多一个下个单元；不能恢复advanced-effects开发或改scale/taps包装性能成功。硬件计数/热状态/OSresidency缺项如实列出；其它GPU型号结果不转写为目标平台已通过。
 
-当前出口：P0完成设计，P1完成Q-exact唯一生产切换及§3.6的限定验证/成本测量；P2–P7仍为规划。局部净P50改善与热状态限制同时保留，不宣称稳定60FPS、完整VSM R4验收或后续算法已实现。
+当前出口：P0完成设计，P1完成Q-exact唯一生产切换及§3.6的限定验证/成本测量；P2完成T1同算法产品删除及§4.2验证，T2/T3和P3–P7仍未实施。T1帧时改善未证实，容量收益与热状态/尾帧限制同时保留，不宣称完整Native Temporal V2、稳定60FPS或VSM R4验收。

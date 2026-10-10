@@ -9,6 +9,10 @@ verifies:
   - OEngine/src/render/program/FrameProgramLowering.ts
   - OEngine/src/render/temporal/GpuRadiometryPass.ts
   - OEngine/src/render/temporal/ExposureSettings.ts
+  - OEngine/src/render/passes/fsr3/Fsr3AccumulatePass.ts
+  - OEngine/src/render/passes/fsr3/Fsr3AccumulateShader.ts
+  - OEngine/src/render/passes/fsr3/Fsr3RcasPass.ts
+  - OEngine/src/render/passes/fsr3/Fsr3UpscalerRuntime.ts
 ---
 # Frame Runtime
 
@@ -23,6 +27,8 @@ verifies:
 Geometry、native Material publication、LocalLightWork、Surface、VSM 与后处理注册同一个 graph。各 pass 消费显式产品，不拥有独立 frame submit。LightDatabase 仍归 Scene environment，generator 只拥有自己的 frame allocation；提交后按真实 gpuDone fence 复用或销毁，abort 不推进产品历史，device loss 退休旧 epoch。
 
 `GpuRadiometryPass` 独立持有曝光双槽和有效性：颜色/TAA reset、resize、Sun/Sky edit、camera cut 不重置曝光，commit 换槽，abort 保留，device epoch 初始化与 `resetExposure()` 显式重置。主链保留 P(n−1) render→去预曝光 HDR histogram→percentile/highlight/log adaptation→E(n)，FSR 先读旧两槽，Presentation 再使用 E/P。常规帧没有 CPU 读回；`readExposureDiagnostics()` 是调用者主动请求的单次 32B readback，不能驱动 frame work。
+
+FSR Accumulate只写本帧RGBA16F color history（RGB与alpha lock）。RCAS读取该`builder.write(currentHistory)`的写版本，仅使用RGB并输出alpha1；不再声明或写出重复的upscaled color临时纹理。仍由`Fsr3UpscalerRuntime`管理双槽history与prepare/commit/abort/resize/fence，只有成功submit后commit换槽，FrameGraph声明同帧Accumulate→RCAS依赖。此产品删除适用于native及upscale域，没有替换FSR算法。
 
 ## 原则与验证边界
 

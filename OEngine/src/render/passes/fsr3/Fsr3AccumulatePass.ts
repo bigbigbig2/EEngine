@@ -5,11 +5,6 @@ import type { ShadeGPUCommandContext } from "../../../framegraph/ShadeGPUCommand
 import { resolveTextureView } from "../../RenderTargetViews.js";
 import { FSR3_ACCUMULATE_WGSL } from "./Fsr3AccumulateShader.js";
 
-export interface Fsr3AccumulatedOutput {
-  readonly currentHistory: ResourceId;
-  readonly color: ResourceId;
-}
-
 export class Fsr3AccumulatePass {
   private readonly bindGroups = new GpuBindGroupCache();
   private readonly layout: GPUBindGroupLayout;
@@ -31,11 +26,6 @@ export class Fsr3AccumulatePass {
         { binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
         {
           binding: 10,
-          visibility: GPUShaderStage.COMPUTE,
-          storageTexture: { access: "write-only", format: "rgba16float" },
-        },
-        {
-          binding: 11,
           visibility: GPUShaderStage.COMPUTE,
           storageTexture: { access: "write-only", format: "rgba16float" },
         },
@@ -64,7 +54,7 @@ export class Fsr3AccumulatePass {
       width: number;
       height: number;
     },
-  ): Fsr3AccumulatedOutput {
+  ): ResourceId {
     const builder = graph.add("FSR3/Accumulate", input, (data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
       const bind = this.bindGroups.create(this.device, {
@@ -80,8 +70,7 @@ export class Fsr3AccumulatePass {
           { binding: 7, resource: resolveTextureView(resources.get(data.exposure)) },
           { binding: 8, resource: this.sampler },
           { binding: 9, resource: { buffer: resources.get(data.constants) as GPUBuffer } },
-          { binding: 10, resource: resolveTextureView(resources.get(data.currentHistory)) },
-          { binding: 11, resource: resolveTextureView(resources.get(output)) },
+          { binding: 10, resource: resolveTextureView(resources.get(currentHistory)) },
         ],
       });
       const pass = command.beginComputePass({ label: "FSR3 Accumulate" });
@@ -89,14 +78,6 @@ export class Fsr3AccumulatePass {
       pass.setBindGroup(0, bind);
       pass.dispatchWorkgroups(Math.ceil(data.width / 8), Math.ceil(data.height / 8));
       pass.end();
-    });
-    const output = builder.create("FSR3/upscaled color", {
-      kind: "transient_texture",
-      width: input.width,
-      height: input.height,
-      format: "rgba16float",
-      domain: "output-full",
-      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
     });
     for (const resource of [
       input.color,
@@ -108,9 +89,12 @@ export class Fsr3AccumulatePass {
       input.previousHistory,
       input.exposure,
       input.constants,
-    ])
+    ]) {
       builder.read(resource);
+    }
+    // RCAS reads only RGB. Keep lock in alpha and return the written version,
+    // so the graph orders its consumer after this frame's accumulation.
     const currentHistory = builder.write(input.currentHistory);
-    return { currentHistory, color: output };
+    return currentHistory;
   }
 }

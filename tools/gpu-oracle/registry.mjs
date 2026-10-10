@@ -11,6 +11,13 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "fsr3-accumulate-products",
+    file: "OEngine/tests/oracle/fsr3-accumulate-products-gpu.mjs",
+    url: "/OEngine/tests/oracle/fsr3-accumulate-products-gpu.mjs",
+    entry: "runFsr3AccumulateProductsGpuOracle",
+    description: "Production history-write to RCAS against frozen duplicate-output math: full RGB, lock alpha, HDR, jitter, motion, partial extents and upscale ratios.",
+  }),
+  Object.freeze({
     name: "vsm-sampling-publication",
     file: "OEngine/tests/oracle/vsm-sampling-publication-gpu.mjs",
     url: "/OEngine/tests/oracle/vsm-sampling-publication-gpu.mjs",
