@@ -21,17 +21,20 @@ export function summarizeVsmReceiverRequests(headers) {
   let raw = 0,
     groupPages = 0,
     groupWords = 0,
+    globalAttempts = 0,
     activeGroups = 0,
     ratioSum = 0;
   const histogram = Array(65).fill(0);
   for (let i = 0; i < groupCount; i++) {
     const at = 4 + i * 4;
-    const [attempts, uniquePages, uniqueWords, duplicates] = groups.slice(at, at + 4);
+    const [attempts, uniquePages, uniqueWords, publishedWords] = groups.slice(at, at + 4);
+    const duplicates = attempts - uniquePages;
     assert.ok(attempts <= 64 && uniqueWords <= uniquePages && uniquePages <= attempts);
-    assert.equal(duplicates, attempts - uniquePages);
+    assert.ok(publishedWords >= uniqueWords && publishedWords <= attempts);
     raw += attempts;
     groupPages += uniquePages;
     groupWords += uniqueWords;
+    globalAttempts += publishedWords;
     histogram[uniquePages]++;
     if (attempts !== 0) {
       activeGroups++;
@@ -66,7 +69,7 @@ export function summarizeVsmReceiverRequests(headers) {
     groupCount,
     activeGroups,
     rawRequests: raw,
-    atomicOrAttempts: raw,
+    atomicOrAttempts: globalAttempts,
     uniqueReceiverPages: uniquePages,
     uniqueReceiverBitsetWords: uniqueWords,
     coarseFallbackPages: coarsePages,

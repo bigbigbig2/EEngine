@@ -4,12 +4,14 @@ export async function runPerformanceDiagnosticGpuOracle(device) {
   const source = vsmReceiverDemandDiagnosticWgsl();
   const reduction = source.slice(source.indexOf("@group(0) @binding(7)"),
     source.indexOf("@compute @workgroup_size(64)", source.indexOf("@group(0) @binding(7)")));
+  const aggregation = source.slice(source.indexOf("var<workgroup> receiver_words:"),
+    source.indexOf("@group(0) @binding(7)"));
   const code = /* wgsl */ `
 const VSM_INVALID_SLOT: u32 = 0xffffffffu;
 struct Constants { dimensions: vec4u, control: vec4u, }
 @group(0) @binding(3) var<uniform> constants: Constants;
 @group(0) @binding(4) var<storage, read_write> requested: array<atomic<u32>>;
-fn diagnostic_receiver_page(id: vec3u) -> u32 {
+fn receiver_page(id: vec3u) -> u32 {
   if (id.x >= constants.dimensions.x || id.y >= constants.dimensions.y || constants.control.z == 3u) {
     return VSM_INVALID_SLOT;
   }
@@ -17,6 +19,7 @@ fn diagnostic_receiver_page(id: vec3u) -> u32 {
   if (constants.control.z == 1u) { return id.y * constants.dimensions.x + id.x; }
   return (id.x % 2u) + ((id.x / 2u) % 2u) * 32u;
 }
+${aggregation}
 ${reduction}
 `;
   const module = device.createShaderModule({ code });
@@ -55,7 +58,7 @@ ${reduction}
           pages.push(page); bits[page >>> 5] |= 1 << (page & 31);
         }
         const unique = new Set(pages).size, words = new Set(pages.map((p) => p >>> 5)).size;
-        expected.push(pages.length, unique, words, pages.length - unique);
+        expected.push(pages.length, unique, words, words);
       }
       expected.push(...bits);
       if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error(JSON.stringify({ mode, actual, expected }));

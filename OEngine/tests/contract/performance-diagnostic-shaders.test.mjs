@@ -56,12 +56,16 @@ test("Native diagnostic specializations retain winner predicates and G is the so
   assert.throws(() => nativeSurfaceWgsl(program, { ...profile, costSlice: "A", additiveSun: true }), /fused/);
 });
 
-test("VSM diagnostic barriers follow all receiver early exits and preserve the global attempt", () => {
+test("VSM aggregation keeps barriers uniform and diagnostics count actual publications", () => {
   const source = vsmReceiverDemandDiagnosticWgsl();
   const main = source.slice(source.indexOf("fn main("), source.indexOf("fn mark_coarse("));
   assert.doesNotMatch(main, /return;/);
   assert.equal(main.match(/workgroupBarrier\(\)/g).length, 2);
-  assert.match(main, /atomicOr\(&requested\[page \/ 32u\]/);
+  assert.match(main, /publish_receiver_word\(page, lane\)/);
   assert.match(main, /diagnostic_workgroups\[index \+ 1u\]/);
-  assert.doesNotMatch(VSM_RECEIVER_DEMAND_WGSL, /diagnostic_|workgroupBarrier/);
+  assert.doesNotMatch(VSM_RECEIVER_DEMAND_WGSL, /diagnostic_/);
+  assert.equal(VSM_RECEIVER_DEMAND_WGSL.match(/workgroupBarrier\(\)/g).length, 1);
+  assert.equal(source.match(/atomicAdd\(&diagnostic_totals\[3\]/g).length, 2);
+  assert.match(VSM_RECEIVER_DEMAND_WGSL, /attempt < 64u/);
+  assert.match(VSM_RECEIVER_DEMAND_WGSL, /if \(!merged\)/);
 });

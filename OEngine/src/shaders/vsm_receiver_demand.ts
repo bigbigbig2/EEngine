@@ -3,6 +3,46 @@ import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import { VSM_PAGE_TABLE_WGSL } from "./vsm_page_table.js";
 
+/** Portable 64-lane aggregation. Workgroup storage is zero-initialized by WGSL.
+ * A bounded probe failure publishes the original bit instead of dropping it. */
+export const VSM_RECEIVER_WORD_AGGREGATION_WGSL = /* wgsl */ `
+var<workgroup> receiver_words: array<atomic<u32>, 64>;
+var<workgroup> receiver_masks: array<atomic<u32>, 64>;
+
+fn publish_receiver_word(page: u32, lane: u32) {
+  if (page != VSM_INVALID_SLOT) {
+    let word = page / 32u;
+    let bit = 1u << (page % 32u);
+    // page is u32, so word + 1 cannot overflow. Zero remains the empty key.
+    let key = word + 1u;
+    var slot = (word * 2654435761u) & 63u;
+    var merged = false;
+    for (var attempt = 0u; attempt < 64u; attempt++) {
+      let reservation = atomicCompareExchangeWeak(&receiver_words[slot], 0u, key);
+      if (reservation.exchanged || reservation.old_value == key) {
+        atomicOr(&receiver_masks[slot], bit);
+        merged = true;
+        break;
+      }
+      // A spurious failure at an empty slot retries that slot. The bound also
+      // covers spurious failures; exhaustion still publishes the exact bit.
+      if (reservation.old_value != 0u) {
+        slot = (slot + 1u) & 63u;
+      }
+    }
+    if (!merged) {
+      atomicOr(&requested[word], bit);
+    }
+  }
+  // Empty/partial groups and rejected receiver lanes must all reach this.
+  workgroupBarrier();
+  let key = atomicLoad(&receiver_words[lane]);
+  if (key != 0u) {
+    atomicOr(&requested[key - 1u], atomicLoad(&receiver_masks[lane]));
+  }
+}
+`;
+
 /** Receiver-driven directional VSM demand. GPU allocation consumes this bounded buffer next. */
 export const VSM_RECEIVER_DEMAND_WGSL = /* wgsl */ `
 ${VSM_PAGE_TABLE_WGSL}
@@ -49,42 +89,52 @@ fn world_from_depth(pixel: vec2u, depth: f32) -> vec3f {
   return projected.xyz / projected.w;
 }
 
-@compute @workgroup_size(8, 8, 1)
-fn main(@builtin(global_invocation_id) id: vec3u) {
+fn receiver_page(id: vec3u) -> u32 {
   if (id.x >= constants.dimensions.x || id.y >= constants.dimensions.y) {
-    return;
+    return VSM_INVALID_SLOT;
   }
   let pixel = id.xy;
   let depth = textureLoad(receiver_depth, vec2i(pixel), 0);
   if (depth <= 0.0001) {
-    return;
+    return VSM_INVALID_SLOT;
   }
   let key = textureLoad(visibility_key, vec2i(pixel), 0).x;
   if (key == 0xffffffffu || key == 0xfffffffeu) {
-    return;
+    return VSM_INVALID_SLOT;
   }
   let decoded = oengine_visibility_key_resolve(key, meshlet_work.header.generation, meshlet_work.header.written_count);
   if (decoded.valid == 0u || decoded.meshlet_work_slot >= min(meshlet_work.header.capacity, arrayLength(&meshlet_work.elements))) {
-    return;
+    return VSM_INVALID_SLOT;
   }
   let instance_slot = meshlet_work.elements[decoded.meshlet_work_slot].instance_slot;
   if (instance_slot >= arrayLength(&instances)) {
-    return;
+    return VSM_INVALID_SLOT;
   }
   let instance = instances[instance_slot];
   if ((instance.flags & ${GPU_INSTANCE_FLAGS.Active | GPU_INSTANCE_FLAGS.ReceivesShadow}u) != ${GPU_INSTANCE_FLAGS.Active | GPU_INSTANCE_FLAGS.ReceivesShadow}u ||
-      (instance.flags & ${GPU_INSTANCE_FLAGS.Transparent}u) != 0u || oengine_instance_shading_bin_id(instance.flags) < 4u) { return; }
+      (instance.flags & ${GPU_INSTANCE_FLAGS.Transparent}u) != 0u || oengine_instance_shading_bin_id(instance.flags) < 4u) {
+    return VSM_INVALID_SLOT;
+  }
   let world = world_from_depth(pixel, depth);
   let light_position = (constants.light_view * vec4f(world, 1.0)).xyz;
   let level = vsm_select_clip(light_position.xy, constants.clip_origin_extent, constants.control.x, constants.dimensions.w);
   if (level == VSM_INVALID_SLOT) {
-    return;
+    return VSM_INVALID_SLOT;
   }
   let mip = 0u;
   let clip = constants.clip_origin_extent[level];
   let world_page = vsm_world_page(light_position.xy, clip, mip, constants.dimensions.w);
   let virtual_page = vsm_world_page_entry_index(level, mip, world_page, constants.dimensions.w);
-  atomicOr(&requested[virtual_page / 32u], 1u << (virtual_page % 32u));
+  return virtual_page;
+}
+
+${VSM_RECEIVER_WORD_AGGREGATION_WGSL}
+
+@compute @workgroup_size(8, 8, 1)
+fn main(@builtin(global_invocation_id) id: vec3u,
+  @builtin(local_invocation_index) lane: u32) {
+  let page = receiver_page(id);
+  publish_receiver_word(page, lane);
 }
 @compute @workgroup_size(64)
 fn mark_coarse(@builtin(global_invocation_id) id: vec3u) {
@@ -108,37 +158,29 @@ fn mark_coarse(@builtin(global_invocation_id) id: vec3u) {
 `;
 
 /** Temporary diagnostic specialization. Reuse the exact production receiver
- * predicate/projection, with all early exits inside a helper, before uniform
- * barriers. 256B pages + 12B workgroup atomics, two barriers and one 16B write
- * per group. Original global atomicOr attempts remain unchanged. Never time this.
+ * predicate/projection and aggregation. Adds 256B pages + 16B atomics, two
+ * barriers and one 16B write per group. Raw counts are logical receiver
+ * attempts before aggregation, not the new global atomic count. Never time this.
  */
 export function vsmReceiverDemandDiagnosticWgsl(): string {
   const begin = VSM_RECEIVER_DEMAND_WGSL.indexOf("@compute @workgroup_size(8, 8, 1)");
   const end = VSM_RECEIVER_DEMAND_WGSL.indexOf("@compute @workgroup_size(64)", begin);
   const original = VSM_RECEIVER_DEMAND_WGSL.slice(begin, end);
-  const signature = "@compute @workgroup_size(8, 8, 1)\nfn main(@builtin(global_invocation_id) id: vec3u)";
-  const attempt = "atomicOr(&requested[virtual_page / 32u], 1u << (virtual_page % 32u));";
-  if (begin < 0 || end < 0 || !original.includes(signature) || !original.includes(attempt)) {
+  if (begin < 0 || end < 0 || !original.includes("publish_receiver_word(page, lane);")) {
     throw new Error("VSM diagnostic receiver specialization no longer matches its producer");
   }
-  const receiver = original
-    .replace(signature, "fn diagnostic_receiver_page(id: vec3u) -> u32")
-    .replaceAll("return;", "return VSM_INVALID_SLOT;")
-    .replace(attempt, "return virtual_page;");
   const main = /* wgsl */ `
 @group(0) @binding(7) var<storage, read_write> diagnostic_workgroups: array<vec4u>;
 var<workgroup> diagnostic_pages: array<u32, 64>;
-var<workgroup> diagnostic_totals: array<atomic<u32>, 3>;
+var<workgroup> diagnostic_totals: array<atomic<u32>, 4>;
 
 @compute @workgroup_size(8, 8, 1)
 fn main(@builtin(global_invocation_id) id: vec3u,
   @builtin(local_invocation_index) lane: u32, @builtin(workgroup_id) group: vec3u,
   @builtin(num_workgroups) groups: vec3u) {
-  let page = diagnostic_receiver_page(id);
+  let page = receiver_page(id);
   diagnostic_pages[lane] = page;
-  if (page != VSM_INVALID_SLOT) {
-    atomicOr(&requested[page / 32u], 1u << (page % 32u));
-  }
+  publish_receiver_word(page, lane);
   workgroupBarrier();
   if (page != VSM_INVALID_SLOT) {
     var first_page = true;
@@ -158,12 +200,23 @@ fn main(@builtin(global_invocation_id) id: vec3u,
     let raw = atomicLoad(&diagnostic_totals[0]);
     let pages = atomicLoad(&diagnostic_totals[1]);
     let words = atomicLoad(&diagnostic_totals[2]);
-    diagnostic_workgroups[index + 1u] = vec4u(raw, pages, words, raw - pages);
+    let global_attempts = atomicLoad(&diagnostic_totals[3]);
+    diagnostic_workgroups[index + 1u] = vec4u(raw, pages, words, global_attempts);
     if (index == 0u) {
       diagnostic_workgroups[0] = vec4u(constants.dimensions.xy, constants.control.y, groups.x * groups.y);
     }
   }
 }
 `;
-  return VSM_RECEIVER_DEMAND_WGSL.slice(0, begin) + receiver + main + VSM_RECEIVER_DEMAND_WGSL.slice(end);
+  // Count both exhausted-probe publication and normal slot publication. This
+  // specialization is absent from timed/production shaders.
+  const aggregation = VSM_RECEIVER_WORD_AGGREGATION_WGSL.replaceAll(
+    "atomicOr(&requested[",
+    "atomicAdd(&diagnostic_totals[3], 1u);\n    atomicOr(&requested["
+  );
+  const prefix = VSM_RECEIVER_DEMAND_WGSL.slice(0, begin).replace(
+    VSM_RECEIVER_WORD_AGGREGATION_WGSL,
+    aggregation
+  );
+  return prefix + main + VSM_RECEIVER_DEMAND_WGSL.slice(end);
 }

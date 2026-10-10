@@ -11,6 +11,14 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "vsm-receiver-aggregation",
+    file: "OEngine/tests/oracle/vsm-receiver-aggregation-gpu.mjs",
+    url: "/OEngine/tests/oracle/vsm-receiver-aggregation-gpu.mjs",
+    entry: "runVsmReceiverAggregationGpuOracle",
+    description:
+      "Exact production word aggregation, full-table collisions, partial/empty groups, bounded fallback and reset.",
+  }),
+  Object.freeze({
     name: "performance-diagnostics",
     file: "OEngine/tests/oracle/performance-diagnostic-gpu.mjs",
     url: "/OEngine/tests/oracle/performance-diagnostic-gpu.mjs",

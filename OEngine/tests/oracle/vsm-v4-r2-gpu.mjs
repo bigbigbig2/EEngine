@@ -397,7 +397,7 @@ export async function runVsmR2GpuOracle(device) {
     const output = make(points.length * 16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
     const module = device.createShaderModule({
       code: `
-struct GpuPrimitiveTypeTable { direction: vec3f, };
+struct GpuPrimitiveTypeTable { direction: vec3f, color: vec3f, };
 ${VSM_SAMPLING_WGSL}
 @group(0) @binding(0) var<uniform> vsm_constants: VsmSamplingConstants;
 @group(0) @binding(1) var<storage, read> vsm_page_table: array<VsmPageEntry>;
@@ -409,7 +409,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   if (id.x >= arrayLength(&positions)) { return; }
   let query = vsm_query_directional(positions[id.x].xy);
   let visibility = vsm_sample_directional(positions[id.x].xyz, vec3f(0.0, 1.0, 0.0),
-    GpuPrimitiveTypeTable(vec3f(0.0, 1.0, 0.0)));
+    GpuPrimitiveTypeTable(vec3f(0.0, 1.0, 0.0), vec3f(1.0)));
   results[id.x] = vec4u(query.status, query.target_status, query.level, bitcast<u32>(visibility));
 }`,
     });

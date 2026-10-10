@@ -11,10 +11,11 @@ test("receiver counts exclude coarse pages sharing a requested bitset word", () 
   constants[45] = 7;
   const result = summarizeVsmReceiverRequests({
     receiverConstants: constants,
-    receiverWorkgroups: [8, 8, 7, 1, 64, 1, 1, 63],
+    receiverWorkgroups: [8, 8, 7, 1, 64, 1, 1, 1],
     receiverRequestedWords: [1 | (1 << 5)]
   });
   assert.equal(result.rawRequests, 64);
+  assert.equal(result.atomicOrAttempts, 1);
   assert.equal(result.uniqueReceiverPages, 1);
   assert.equal(result.uniqueReceiverBitsetWords, 1);
   assert.equal(result.coarseFallbackPages, 1);
@@ -23,9 +24,9 @@ test("receiver counts exclude coarse pages sharing a requested bitset word", () 
     () =>
       summarizeVsmReceiverRequests({
         receiverConstants: constants,
-        receiverWorkgroups: [8, 8, 7, 1, 64, 1, 1, 62],
+        receiverWorkgroups: [8, 8, 7, 1, 64, 1, 1, 0],
         receiverRequestedWords: [1]
       }),
-    /63/
+    /publishedWords/
   );
 });
