@@ -16,7 +16,8 @@ import {
   type WebCookSceneCatalogSnapshot,
   type WebCookProductPublicationTiming,
 } from "../../../../OEngine/src/index.ts";
-import { materialTextureLeaves } from "../../../../OEngine/src/assets/PcMaterialTextures.ts";
+import { DungeonFramePacing } from "./frame-pacing.ts";
+import { createTextureQualityReader } from "./texture-quality.ts";
 import { ShadeTransparencyMode } from "../../../../OEngine/src/material/enums.ts";
 import { summarizeGpuTimingCost } from "../../../../OEngine/src/debug/GpuTimingCost.ts";
 import { geometryProductGpuBudgetEvidence } from "../../../../OEngine/src/gpu/GeometryProductGpuBudget.ts";
@@ -39,6 +40,8 @@ import { calendarSunDirection, formatSunDay, formatSunTime, SUN_CALENDAR_YEAR } 
 
 const MiB = 1024 ** 2;
 const query = new URLSearchParams(location.search);
+const performanceCapture = query.get("performanceCapture") === "1";
+const textureQuality = createTextureQualityReader();
 const fixture = false;
 const cookedMode = query.get("mode") !== "raw";
 const requestedGeometryMiB = Number(query.get("geometryMiB") ?? (fixture ? 128 : 1536));
@@ -86,6 +89,7 @@ const phases: Array<{ phase: string; atMs: number }> = [];
 const publications: WebCookProductPublicationTiming[] = [];
 const cpu = { normal: [] as number[], profiled: [] as number[] };
 const intervals: number[] = [];
+const interactionCpu: number[] = [];
 const callbacks: Array<{ atMs: number; submitted: boolean; source: "raf" | "ready"; frameIndex: number; cpuMs: number }> = [];
 let resumeFrame: (() => void) | undefined;
 let lastSubmittedAt: number | null = null;
@@ -115,7 +119,7 @@ let teardown: unknown = null;
 let progressTimings: Readonly<Record<string, number>> | null = null;
 let lastSnapshot: ReturnType<typeof snapshot> | undefined;
 let paused = false;
-let stepFrames = 0;
+let framePacing: DungeonFramePacing | undefined;
 let sampleResetFrame = 0;
 let geometryActivity = "PENDING";
 let geometryDelta = { uploadedBytes: 0, evicted: 0, reloads: 0 };
@@ -125,6 +129,7 @@ function resetFrameSamples(): void {
   cpu.normal.length = 0;
   cpu.profiled.length = 0;
   intervals.length = 0;
+  interactionCpu.length = 0;
   callbacks.length = 0;
   lastSubmittedAt = null;
   stableFrames = 0;
@@ -156,36 +161,10 @@ function append(values: number[], value: number): void {
 function snapshot() {
   const runtime = renderer?.graphics?.render_world.runtime(scene);
   const texture = renderer?.graphics?.texture_residency_if_created?.evidence() ?? null;
-  const leaves = [...new Set(runtime?.materials.flatMap((m) => [...materialTextureLeaves(m)]) ?? [])];
-  const products = new Map(leaves.map((t) => [t.texture_product?.identity, t.texture_product]));
   const masks =
     runtime?.materials.filter((m) => m.transparency_mode === ShadeTransparencyMode.AlphaTested) ?? [];
   const quality = {
-    productCount: [...products.values()].filter(Boolean).length,
-    textureLeafCount: leaves.length,
-    allLeavesHaveSchema3: leaves.every((t) => t.texture_product?.metadata.schemaVersion === 3),
-    allFullMips: leaves.every((t) => {
-      const m = t.texture_product?.metadata;
-      return (
-        !!m &&
-        m.planes.every(
-          (p) => p.mips.length === Math.floor(Math.log2(Math.max(m.storageWidth, m.storageHeight))) + 1,
-        )
-      );
-    }),
-    transferFunctions: leaves.every((t) => {
-      const m = t.texture_product?.metadata;
-      if (!m) return false;
-      const srgb = m.semantic === "base-color-srgb" || m.semantic === "emissive-srgb";
-      const expected = srgb
-        ? "bc7-rgba-unorm-srgb"
-        : m.semantic === "occlusion-linear"
-          ? "bc4-r-unorm"
-          : m.semantic === "alpha-mask"
-            ? "r8unorm"
-            : "bc7-rgba-unorm";
-      return m.planes[0]?.format === expected;
-    }),
+    ...textureQuality.read(runtime ?? undefined),
     maskMaterials: masks.length,
     exactMaskCoverage: masks.every(
       (m) =>
@@ -323,6 +302,14 @@ function snapshot() {
       publications,
     },
     stable: {
+      cpuScope: "Synchronous render attempt only; interaction ticks sampled separately; async CPU work excluded",
+      interactionCpuMs: percentile(interactionCpu),
+      pacing: {
+        mode: framePacing?.mode ?? (performanceCapture ? "max-throughput" : "interactive"),
+        interactionTicks: framePacing?.interactionTicks ?? 0,
+        readyWakeups: framePacing?.readyWakeups ?? 0,
+        submittedFrames: framePacing?.submittedFrames ?? 0,
+      },
       normal: { cpuFrameMs: percentile(cpu.normal), gpuFrameMs: null, surfaceMs: null },
       profiled: {
         cpuFrameMs: percentile(cpu.profiled),
@@ -450,9 +437,12 @@ const rows: Array<[string, string]> = [
   ["First useful", "first"],
   ["Full texture mips", "full"],
   ["Submitted FPS / interval P50", "fps"],
+  ["Presented FPS", "presented"],
+  ["RAF interval P50/P95", "raf"],
   ["RAF / ready / deferred", "callbacks"],
-  ["Normal CPU P50/P95", "cpu"],
-  ["Profiled CPU P50/P95", "profiledCpu"],
+  ["Interaction CPU P50/P95", "interactionCpu"],
+  ["Normal render CPU P50/P95", "cpu"],
+  ["Profiled render CPU P50/P95", "profiledCpu"],
   ["Normal submit/completion P50/P95", "completion"],
   ["Profiled submit/completion P50/P95", "profiledCompletion"],
   ["In-flight / limit", "inFlight"],
@@ -555,6 +545,9 @@ function refresh(): void {
     lastGeometrySample = { uploaded: g.uploadedBytes, evicted: g.evicted, reloads: g.reloads };
   }
   const state = s.renderState;
+  cells.get("presented")!.textContent = "UNAVAILABLE";
+  cells.get("raf")!.textContent = pair(s.stable.rafIntervalMs);
+  cells.get("interactionCpu")!.textContent = pair(s.stable.interactionCpuMs);
   element("quick-fps").textContent = s.stable.submissions.framesPerSecond?.toFixed(1) ?? "--";
   const activeCpu = profiled ? s.stable.profiled.cpuFrameMs : s.stable.normal.cpuFrameMs;
   element("quick-cpu").textContent = activeCpu ? `${activeCpu.p50.toFixed(1)} ms` : "--";
@@ -761,8 +754,8 @@ async function start(): Promise<void> {
   if (closing) return;
   controls = new OrbitControls(camera, canvas);
   controls.enableDamping = true;
-  if (query.get("performanceCapture") === "1") {
-    // Keep update/damping work identical, but isolate the fixed camera from input.
+  if (performanceCapture) {
+    // Keep the fixed benchmark camera isolated from user input.
     controls.pointer.stop();
     controls.keyboard.stop();
   }
@@ -771,7 +764,7 @@ async function start(): Promise<void> {
   resizeObserver.observe(canvas.parentElement!);
   resize();
   frameScene();
-  if (query.get("performanceCapture") === "1" && query.has("performanceCamera")) {
+  if (performanceCapture && query.has("performanceCamera")) {
     const values = query.get("performanceCamera")!.split(",").map(Number);
     if (values.length !== 6 || !values.every(Number.isFinite)) throw new RangeError("Invalid diagnostic camera");
     camera.transform.position.set(values[0]!, values[1]!, values[2]!);
@@ -781,27 +774,18 @@ async function start(): Promise<void> {
     camera.update();
     renderer.invalidateTemporalHistory();
   }
-  let previous = performance.now();
-  const draw = (now: number, source: "raf" | "ready") => {
-    if (closing || !renderer) return;
+  const draw = (now: number, submittedFrameDelta: number, source: "raf" | "ready"): boolean => {
+    if (closing || !renderer) return false;
     try {
-      const interval = now - previous;
-      previous = now;
-      if (paused && stepFrames === 0) {
-        return;
-      }
       const begin = performance.now();
-      controls?.update(Math.min(0.1, interval / 1000));
-      camera.update();
       const beforeFrame = renderer.frame_count;
-      renderer.render(camera, scene, Math.min(0.1, interval / 1000));
+      renderer.render(camera, scene, submittedFrameDelta);
       const submitted = renderer.frame_count > beforeFrame;
-      if (paused && submitted) stepFrames--;
       const duration = performance.now() - begin;
       if (submitted && fullQualityMs !== null) stableFrames++;
       if (!paused && fullQualityMs !== null && stableFrames > 60 && document.visibilityState === "visible") {
         callbacks.push({ atMs: now, submitted, source, frameIndex: renderer.frame_count - 1, cpuMs: duration });
-        if (callbacks.length > (query.get("performanceCapture") === "1" ? 8000 : 600)) callbacks.shift();
+        if (callbacks.length > (performanceCapture ? 8000 : 600)) callbacks.shift();
         if (submitted) {
           append(cpu[profiled ? "profiled" : "normal"], duration);
           if (lastSubmittedAt !== null) append(intervals, now - lastSubmittedAt);
@@ -840,16 +824,38 @@ async function start(): Promise<void> {
           .catch(fail);
       }
       if (renderer.profiler.diagnostics.deviceLostCount) throw new Error("WebGPU device lost");
+      return submitted;
+    } catch (error) {
+      fail(error);
+      return false;
+    }
+  };
+  framePacing = new DungeonFramePacing(
+    performanceCapture ? "max-throughput" : "interactive",
+    (interactionDelta) => {
+      const begin = performance.now();
+      controls!.update(interactionDelta);
+      if (!controls!.enabled) camera.update();
+      if (!paused && fullQualityMs !== null && stableFrames > 60) {
+        append(interactionCpu, performance.now() - begin);
+      }
+    },
+    draw,
+  );
+  framePacing.setPaused(paused);
+  framePacing.setVisible(document.visibilityState === "visible");
+  const frame = () => {
+    try {
+      // Use callback execution time for both clocks. A RAF presentation timestamp
+      // can precede a ready callback that ran before this delayed RAF callback.
+      framePacing!.raf(performance.now());
     } catch (error) {
       fail(error);
     }
-  };
-  const frame = () => {
-    draw(performance.now(), "raf");
     if (!closing) frameId = requestAnimationFrame(frame);
   };
   resumeFrame = () => {
-    if (!closing && document.visibilityState === "visible") draw(performance.now(), "ready");
+    if (!closing) framePacing?.ready(performance.now());
   };
   renderer.onFrameAvailable.add(resumeFrame);
   frameId = requestAnimationFrame(frame);
@@ -866,6 +872,7 @@ function resize(): void {
   const bounds = canvas.parentElement!.getBoundingClientRect();
   renderer.resize(Math.max(1, Math.round(bounds.width)), Math.max(1, Math.round(bounds.height)));
   camera.aspect = renderer.aspect_ratio;
+  controls?.updateViewportSize();
   camera.update();
 }
 
@@ -914,6 +921,8 @@ async function release(): Promise<void> {
   if (closing) return;
   lastSnapshot = renderer ? snapshot() : undefined;
   closing = true;
+  framePacing?.dispose();
+  textureQuality.clear();
   exposureDiagnostic = null;
   element("exposure-diagnostic").textContent = "Renderer released; previous exposure sample is stale";
   if (resumeFrame) renderer?.onFrameAvailable.remove(resumeFrame);
@@ -922,6 +931,7 @@ async function release(): Promise<void> {
   cancelAnimationFrame(frameId);
   clearInterval(refreshId);
   resizeObserver?.disconnect();
+  document.removeEventListener("visibilitychange", visibilityChanged);
   controls?.dispose();
   abort.abort(new Error("Demo released"));
   element<HTMLButtonElement>("release").disabled = true;
@@ -1268,13 +1278,17 @@ for (const id of ["sun", "sky"] as const) {
 element<HTMLInputElement>("pause").addEventListener("change", (event) => {
   paused = (event.target as HTMLInputElement).checked;
   element<HTMLButtonElement>("step").disabled = !paused;
-  stepFrames = 0;
+  framePacing?.setPaused(paused);
   resetFrameSamples();
   renderer?.invalidateTemporalHistory();
 });
-document.addEventListener("visibilitychange", resetFrameSamples);
+const visibilityChanged = () => {
+  framePacing?.setVisible(document.visibilityState === "visible");
+  resetFrameSamples();
+};
+document.addEventListener("visibilitychange", visibilityChanged);
 element("step").addEventListener("click", () => {
-  if (paused) stepFrames++;
+  framePacing?.step();
 });
 element("apply-exposure").addEventListener("click", () => {
   const input = element<HTMLInputElement>("fixed-exposure");
@@ -1346,7 +1360,7 @@ element("export").addEventListener("click", () => {
 Object.assign(window, { dungeonDemo: { report, release } });
 // Explicit diagnostic host only. Raw samples and existing profiler controls do
 // not change the ordinary example or add a frame submission/readback owner.
-if (query.get("performanceCapture") === "1") {
+if (performanceCapture) {
   Object.assign(window, {
     dungeonPerformance: {
       configure(mode: "production" | "coarse" | "stage" | "full", cpuPassTimings = false, counters = false, gpuSampleInterval = 4) {

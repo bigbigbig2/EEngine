@@ -147,12 +147,20 @@ export class OrbitControls {
   private keyboardConnected = false;
   private readonly keyboardTarget: Document;
   private readonly scratchTransform = new Transform3D();
+  private readonly scratchOffset = new Vec3();
+  private viewportHeight = 1;
+  private readonly resizeObserver: ResizeObserver | undefined;
   private readonly listeners = new Map<string, Set<OrbitControlsListener>>();
 
   constructor(camera: PerspectiveCamera, domElement: HTMLElement) {
     this.camera = camera;
     this.domElement = domElement;
     this.keyboardTarget = domElement.ownerDocument;
+    this.updateViewportSize();
+    this.resizeObserver = typeof ResizeObserver === "undefined"
+      ? undefined
+      : new ResizeObserver(() => this.updateViewportSize());
+    this.resizeObserver?.observe(domElement);
     this.syncFromCamera();
     this.connectPointer();
     this.connectKeyboard();
@@ -208,16 +216,19 @@ export class OrbitControls {
     else this.onEnd.send1(event);
   }
 
-  private readPosition(event: MouseEvent): { x: number; y: number } {
-    const rect = this.domElement.getBoundingClientRect();
-    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+  /** Refresh after a host resize; pointer deltas never need DOM offsets. */
+  updateViewportSize(): void {
+    this.viewportHeight = Math.max(1, this.domElement.clientHeight);
   }
 
   private readonly onPointerDown = (event: PointerEvent): void => {
     if (!this.enabled) return;
     this.domElement.setPointerCapture?.(event.pointerId);
-    const p = this.readPosition(event);
-    this.pointers.set(event.pointerId, { ...p, pointerType: event.pointerType });
+    this.pointers.set(event.pointerId, {
+      x: event.clientX,
+      y: event.clientY,
+      pointerType: event.pointerType,
+    });
     if (event.pointerType === "touch") {
       if (this.pointers.size === 1) this.state = "rotate";
       else if (this.pointers.size === 2) {
@@ -237,29 +248,31 @@ export class OrbitControls {
     if (!this.enabled) return;
     const previous = this.pointers.get(event.pointerId);
     if (previous === undefined) return;
-    const current = this.readPosition(event);
-    this.pointers.set(event.pointerId, { ...current, pointerType: previous.pointerType });
-    const height = Math.max(1, this.domElement.clientHeight);
+    const deltaX = event.clientX - previous.x;
+    const deltaY = event.clientY - previous.y;
+    previous.x = event.clientX;
+    previous.y = event.clientY;
+    const height = this.viewportHeight;
     if (event.pointerType === "touch") {
       if (this.pointers.size === 1 && this.state === "rotate" && this.enableRotate) {
         this.rotate(
-          ((current.x - previous.x) * TWO_PI) / height,
-          ((current.y - previous.y) * TWO_PI) / height,
+          (deltaX * TWO_PI) / height,
+          (deltaY * TWO_PI) / height,
         );
       } else if (this.pointers.size >= 2) {
-        const before = this.touchMidpoint;
+        const beforeX = this.touchMidpoint.x;
+        const beforeY = this.touchMidpoint.y;
         const beforeDistance = this.touchDistance;
         this.updateTouchReference();
-        if (this.enablePan) this.pan(this.touchMidpoint.x - before.x, this.touchMidpoint.y - before.y);
+        if (this.enablePan) this.pan(this.touchMidpoint.x - beforeX, this.touchMidpoint.y - beforeY);
         if (this.enableZoom && beforeDistance > EPS && this.touchDistance > EPS)
           this.dollyOut(this.touchDistance / beforeDistance);
       }
     } else if (this.state === "rotate" && this.enableRotate) {
-      this.rotate(((current.x - previous.x) * TWO_PI) / height, ((current.y - previous.y) * TWO_PI) / height);
+      this.rotate((deltaX * TWO_PI) / height, (deltaY * TWO_PI) / height);
     } else if (this.state === "pan" && this.enablePan)
-      this.pan(current.x - previous.x, current.y - previous.y);
+      this.pan(deltaX, deltaY);
     else if (this.state === "dolly" && this.enableZoom) {
-      const deltaY = current.y - previous.y;
       const factor = Math.pow(0.95, this.zoomSpeed * Math.abs(deltaY * 0.01));
       if (deltaY < 0) this.dollyIn(factor);
       else if (deltaY > 0) this.dollyOut(factor);
@@ -308,14 +321,15 @@ export class OrbitControls {
   };
 
   private updateTouchReference(): void {
-    const values = [...this.pointers.values()];
-    if (values.length < 2) {
+    const iterator = this.pointers.values();
+    const a = iterator.next().value;
+    const b = iterator.next().value;
+    if (!a || !b) {
       this.touchDistance = 0;
       return;
     }
-    const a = values[0]!;
-    const b = values[1]!;
-    this.touchMidpoint = { x: (a.x + b.x) * 0.5, y: (a.y + b.y) * 0.5 };
+    this.touchMidpoint.x = (a.x + b.x) * 0.5;
+    this.touchMidpoint.y = (a.y + b.y) * 0.5;
     this.touchDistance = Math.hypot(a.x - b.x, a.y - b.y);
   }
 
@@ -368,7 +382,7 @@ export class OrbitControls {
   }
 
   pan(deltaX: number, deltaY: number): void {
-    const height = Math.max(1, this.domElement.clientHeight);
+    const height = this.viewportHeight;
     const distance = ((this.spherical.radius * Math.tan(this.camera.fov * 0.5)) / height) * 2 * this.panSpeed;
     const matrix = this.camera.transform.matrix;
     // three.js cameras look down local -Z, while OEngine cameras look down local +Z.
@@ -401,7 +415,7 @@ export class OrbitControls {
 
   /** 将外部设置的相机姿态同步回轨道状态。 */
   private syncFromCamera(): void {
-    const offset = new Vec3().subVectors(this.camera.transform.position, this.target);
+    const offset = this.scratchOffset.subVectors(this.camera.transform.position, this.target);
     const radius = Math.max(EPS, offset.length());
     this.spherical.radius = clamp(radius, this.minDistance, this.maxDistance);
     this.spherical.theta = Math.atan2(offset.x, offset.z);
@@ -436,11 +450,17 @@ export class OrbitControls {
   }
 
   /**
-   * 应在每帧 render 前调用。返回值表示相机是否发生变化。
-   * `deltaTime` 仅用于 autoRotate/键盘平移，单位为秒。
+   * Call once per interaction tick, never from a GPU-completion retry.
+   * Seconds; dampingFactor is the fraction consumed at 60 Hz. No-argument
+   * callers retain that reference tick. With damping, zero time only finalizes matrices.
    */
   update(deltaTime = 1 / 60): boolean {
-    if (!this.enabled) return false;
+    if (!this.enabled) {
+      return false;
+    }
+    if (!Number.isFinite(deltaTime) || deltaTime < 0) {
+      throw new RangeError("OrbitControls deltaTime must be finite and non-negative");
+    }
     const externalChange =
       !this.lastPosition.equals(this.camera.transform.position) ||
       this.lastRotation.x !== this.camera.transform.rotation.x ||
@@ -458,8 +478,12 @@ export class OrbitControls {
     }
     if (this.autoRotate)
       this.sphericalDelta.theta -= (TWO_PI / 60 / 60) * this.autoRotateSpeed * (deltaTime * 60);
-    const damping = this.enableDamping ? clamp(this.dampingFactor, 0, 1) : 1;
-    const oldPosition = this.lastPosition.clone();
+    const damping = this.enableDamping
+      ? 1 - Math.pow(1 - clamp(this.dampingFactor, 0, 1), deltaTime * 60)
+      : 1;
+    const oldX = this.lastPosition.x;
+    const oldY = this.lastPosition.y;
+    const oldZ = this.lastPosition.z;
     this.spherical.theta += this.sphericalDelta.theta * damping;
     this.spherical.phi += this.sphericalDelta.phi * damping;
     this.spherical.theta = clamp(this.spherical.theta, this.minAzimuthAngle, this.maxAzimuthAngle);
@@ -469,17 +493,16 @@ export class OrbitControls {
       Math.min(Math.PI - EPS, this.maxPolarAngle),
     );
     this.spherical.radius = clamp(
-      this.spherical.radius * (1 + (this.scale - 1) * damping),
+      this.spherical.radius * Math.pow(this.scale, damping),
       this.minDistance,
       this.maxDistance,
     );
     this.target.addScaled(this.panOffset, damping);
-    const targetOffset = new Vec3().subVectors(this.target, Vec3.zero);
-    const targetLength = targetOffset.length();
+    const targetLength = this.target.length();
     if (targetLength > this.maxTargetRadius) this.target.multiplyScalar(this.maxTargetRadius / targetLength);
     if (targetLength < this.minTargetRadius && targetLength > EPS)
       this.target.multiplyScalar(this.minTargetRadius / targetLength);
-    const offset = new Vec3().setFromSphericalCoords(
+    const offset = this.scratchOffset.setFromSphericalCoords(
       this.spherical.radius,
       this.spherical.phi,
       this.spherical.theta,
@@ -497,8 +520,14 @@ export class OrbitControls {
     this.sphericalDelta.theta *= 1 - damping;
     this.sphericalDelta.phi *= 1 - damping;
     this.panOffset.multiplyScalar(1 - damping);
-    this.scale = 1 + (this.scale - 1) * (1 - damping);
-    const changed = oldPosition.distanceTo(this.lastPosition) > EPS || externalChange;
+    // Dolly is multiplicative: decay its logarithm, so equal elapsed time
+    // consumes the same total scale at any tick rate (including wheel impulses).
+    this.scale = Math.pow(this.scale, 1 - damping);
+    const changed = Math.hypot(
+      oldX - this.lastPosition.x,
+      oldY - this.lastPosition.y,
+      oldZ - this.lastPosition.z,
+    ) > EPS || externalChange;
     if (changed) this.dispatch("change");
     return changed;
   }
@@ -506,6 +535,7 @@ export class OrbitControls {
   dispose(): void {
     this.disconnectPointer();
     this.disconnectKeyboard();
+    this.resizeObserver?.disconnect();
     this.listeners.clear();
     this.onChange.removeAll();
     this.onStart.removeAll();

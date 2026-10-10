@@ -25,7 +25,8 @@ const FRAME_ADMISSION_LIMITS = Object.freeze({ latency: 2, throughput: 3 });
  */
 export class FrameCoordinator {
   /** Coalesced wakeup for a host whose render callback was admission-deferred.
-   * Owners consume completion first; the host then reads its latest scene/input.
+   * Owners consume completion first; the host may retry its finalized render
+   * state or wait for display RAF. This is never an input/simulation tick.
    * This notification never encodes or submits work itself. */
   readonly onFrameAvailable = new ChangeSignal();
   private admissionDeferred = false;

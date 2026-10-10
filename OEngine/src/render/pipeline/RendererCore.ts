@@ -2376,8 +2376,12 @@ export class Renderer {
           console.error("Environment abort failed after render error", abortError);
         }
       }
-      this._frame_count++;
-      this.onFrameFinished.send1(this._frame_count);
+      // An aborted encoding is not a submitted frame. Publication/observer
+      // errors after queue submission still count, exactly once.
+      if (command.wasSubmitted && this._frame_count === frameIndex) {
+        this._frame_count++;
+        this.onFrameFinished.send1(this._frame_count);
+      }
       throw error;
     } finally {
       this._profiler.endFrame();
@@ -2436,8 +2440,10 @@ export class Renderer {
       return true;
     } catch (error) {
       if (!command.closed) this._frameCoordinator.abortFrame(frame, error);
-      this._frame_count++;
-      this.onFrameFinished.send1(this._frame_count);
+      if (command.wasSubmitted && this._frame_count === frameIndex) {
+        this._frame_count++;
+        this.onFrameFinished.send1(this._frame_count);
+      }
       throw error;
     } finally {
       this._profiler.endFrame();
