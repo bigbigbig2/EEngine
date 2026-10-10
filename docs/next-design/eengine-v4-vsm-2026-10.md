@@ -37,9 +37,9 @@ verifies:
 
 # VSM V4：完整太阳阴影、稳定页面与有界工作
 
-本文件是 **VSM V4 模块设计依据**，实施顺序、实际切换与阶段状态仅在[执行计划](../next-execution/eengine-v4-vsm-execution-2026-10.md)。全局约束继承[V4 母稿](./eengine-v4-native-shading-2026-10.md)。当前 workstream 为 VSM V4，Minimal GPU Work 继续暂停；R0建立源码/来源设计与当前设备基线，用户随后授权实施R1、R2与R3。下文明确标注实际ABI与责任切换；真实验证及剩余模块验收范围只读执行计划。
+本文件是 **VSM V4 模块设计依据**，实施顺序、实际切换与阶段状态仅在[执行计划](../next-execution/eengine-v4-vsm-execution-2026-10.md)。全局约束继承[V4 母稿](./eengine-v4-native-shading-2026-10.md)。当前 workstream 已切到[性能优化](./eengine-v4-performance-optimization-2026-10.md)，暂停新功能扩展，Minimal GPU Work 继续暂停；VSM 未完成的模块验收义务仍保留。R0建立源码/来源设计与当时设备基线，用户随后授权实施R1、R2与R3。下文明确标注实际ABI与责任切换；真实验证及剩余模块验收范围只读执行计划。
 
-当前开发/验证设备经 `nvidia-smi` 确认为 **RTX 2060 SUPER 8GB（8192 MiB，driver 591.86）**。当前设备1080p作为本模块实机验收环境；原1650 Ti 4GB仍保留为架构的低显存适配目标，其跨设备成本/性能未运行、不推定通过。旧实验保留原设备身份，不能跨机器比较P50/P95或将8GB解释为无限容量。
+本模块R0时的开发/验证设备经 `nvidia-smi` 确认为 **RTX 2060 SUPER 8GB（8192 MiB，driver 591.86）**；这是当时记录，不是2026-10-11性能设计中新探测的硬件。该设备1080p用于本模块相应实机验收；1650 Ti 4GB仍是低显存目标。后续Dungeon性能报告按各自实际设备记录，不能据此补认本模块跨设备完整验收。旧实验保留原设备身份，不能跨机器比较P50/P95或将8GB解释为无限容量。
 
 旧 [VSM design](./vsm.md) / [VSM execution](../next-execution/vsm.md)仅用来追溯来源、早期数学和 owner；其中旧 Surface、main-view caster、执行顺序与完成状态不能作为本模块 authority。已有独立 shadow view/native coverage/太阳 consumer 是复用基础，而不是未实现项。
 

@@ -23,7 +23,7 @@ verifies:
 
 # VSM V4 执行计划
 
-唯一模块设计见[VSM V4 design](../next-design/eengine-v4-vsm-2026-10.md)，全局规则继承[V4 母稿](../next-design/eengine-v4-native-shading-2026-10.md)。旧Module E只提供追溯，不定义V4实施或状态。用户已授权R0、R1，完成R1补验并提交dbc1002e后，又授权实施R2；R2提交2a0bd0df后，用户授权提交并实施R3。当前workstream为VSM V4，Minimal GPU Work仍暂停；R3结束停在R4入口，不自动启动R4或VT。
+唯一模块设计见[VSM V4 design](../next-design/eengine-v4-vsm-2026-10.md)，全局规则继承[V4 母稿](../next-design/eengine-v4-native-shading-2026-10.md)。旧Module E只提供追溯，不定义V4实施或状态。用户已授权R0、R1，完成R1补验并提交dbc1002e后，又授权实施R2；R2提交2a0bd0df后，用户授权提交并实施R3。当前workstream切到[性能优化执行](./eengine-v4-performance-optimization-execution-2026-10.md)，新功能扩展暂停，Minimal GPU Work仍暂停；R3结束停在R4入口，其未完成验收义务不因性能模块启用而关闭，不自动启动R4或VT。
 
 ## 1. 状态与停止点
 

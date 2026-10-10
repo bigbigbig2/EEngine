@@ -38,6 +38,14 @@ verifies:
     - OEngine/src/shaders/hierarchical_work_generation.ts
     - OEngine/src/gpu/GeometryProductMultiRuntime.ts
     - OEngine/src/render/HierarchicalWorkGenerator.ts
+    - OEngine/src/shaders/environment_ibl.ts
+    - OEngine/src/render/environment/PhysicalSkyIblResources.ts
+    - OEngine/src/gpu/GpuAuthoredEnvironment.ts
+    - OEngine/src/shaders/vsm_sampling.ts
+    - OEngine/src/render/vsm/VsmGeneration.ts
+    - OEngine/src/render/passes/fsr3/Fsr3UpscalerRuntime.ts
+    - OEngine/src/render/passes/fsr3/Fsr3AccumulateShader.ts
+    - docs/next-design/eengine-v4-performance-optimization-2026-10.md
     - OEngine/src/render/ShadowGeometryWork.ts
     - OEngine/src/render/FrameGeometryArena.ts
     - OEngine/src/assets/geometry-product/GeometryProductWorkload.ts
@@ -1484,3 +1492,20 @@ Appearance 切片之后已接通独立六路 signal history：`SurfaceWorkRuntim
 全成本准入、沿用已有工作域的完整请求预留、address/remaining Geometry需求拆分及跨dispatch发布为本地 **Exact Closure Cache Publication** 的设计细化，不新增同名近似效果或第二算法owner。本轮没有固定新的identity编码/record stride/槽数，不把旧实验的表示变化当完整算法移植。
 
 来源只支撑上述责任和差异，不提供本地准入类别的实测收益。首个普通合法有收益类别、真实closure清单与集中生产证据未成立前，不提升采用状态；源码事实和当前缺口统一在执行文档§8。
+
+## 性能模块研究映射（2026-10-11）
+
+对应[性能设计](../next-design/eengine-v4-performance-optimization-2026-10.md)与[执行计划](../next-execution/eengine-v4-performance-optimization-execution-2026-10.md)。本节为源码研究与拟议Local/Adapt映射，**不是新方案已移植、已采用或已有GPU收益的声明**。已有native DFG与receiver聚合的来源/验证继续由原实施记录负责；不把本节候选追认为已有adoption。
+
+| Reference / license / pinned revision | 具体执行入口 | 拟议本地映射与适配边界 |
+|---|---|---|
+| [Filament](https://github.com/google/filament/blob/41f996de8fcc2d6b60b73159aa1bc44a05a40700/shaders/src/surface_light_indirect.fs)，Apache-2.0，`41f996de8fcc2d6b60b73159aa1bc44a05a40700` | `PrefilteredDFG_LUT/prefilteredRadiance/specularDFG/evaluateClearCoatIBL`；硬件filtered textureLod与DFG/coat读取 | `PhysicalSkyIblResources/GpuAuthoredEnvironment`→完整seam-aware产品→`native_environment`；原oct wrap/roughness/DFG Fc-totalvisibility/single-scatter保留，不能直接把cubemap采样坐标套到octatlas。新filtering尚未采用 |
+| [Filament shadow](https://github.com/google/filament/blob/f840f1e6aa65ec915f6bc8a2c67869f5ad631e35/shaders/src/surface_shadowing.fs)，Apache-2.0，`f840f1e6aa65ec915f6bc8a2c67869f5ad631e35` | `ShadowSample_PCF_Low`：4次comparison-filter fetch构造Gaussian3×3 | 仅PCF V2算法研究；当前box4×4/reverse-depth/gutter/zero必须独立数学与质量验收，不声称同核等价，不恢复已拒绝的整数tap去重 |
+| [Blender EEVEE](https://github.com/blender/blender/blob/aed2b5972fc25ca8448ceaf8d98957e0065deb2a/source/blender/draw/engines/eevee/shaders/eevee_shadow_tilemap_finalize.bsl.hh)，GPL-2.0-or-later，`aed2b5972fc25ca8448ceaf8d98957e0065deb2a` | `tilemap_finalize_main`先选择已allocated/valid LOD并写最终采样产品；同目录`eevee_shadow.bsl.hh::ShadowRenderData.read_depth`消费compact地址 | Architecture reference only；自主WGSL Q publication→Native原PCF，保留完整身份与post-content-commit；不复制GPL实现，不移植task/mesh/bindless框架，不推断必然更快 |
+| [AMD FidelityFX SDK](https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/blob/c6efa6bf7f2027b3ec94f28578bb5965eabb9e55/sdk/include/FidelityFX/gpu/fsr3upscaler/ffx_fsr3upscaler_accumulate.h)，MIT，`c6efa6bf7f2027b3ec94f28578bb5965eabb9e55` | Accumulate sharpening permutation只在非sharpen时另写upscaled；`sdk/src/components/fsr3upscaler/ffx_fsr3upscaler.cpp`把current history作为RCAS输入 | `Fsr3AccumulatePass`写后history ResourceId→RCAS，删除重复RGB输出；EEngine alpha是lock，RCAS仅RGB；wave64/fp16/原生SPD能力不盲目搬。尚未实施本次产品删除 |
+| [WickedEngine](https://github.com/turanszkij/WickedEngine/blob/df44c3db4c4927492bc9c791eac715d98d7ed091/WickedEngine/shaders/temporalaaCS.hlsl)，[MIT](https://github.com/turanszkij/WickedEngine/blob/df44c3db4c4927492bc9c791eac715d98d7ed091/LICENSE.txt)，`df44c3db4c4927492bc9c791eac715d98d7ed091` | current color/depth shared halo→uniform barrier→3×3邻域→history rejection/blend→output | EEngine f32 current-neighborhood协作读取与Native Temporal研究；不复制packedhalf/Gather或删完整identity/reactivity，不能以其简单TAA证明FSR同质量 |
+| [pmndrs/upscaler](https://github.com/pmndrs/upscaler/tree/5821d915c4e3a595c913d399e832155d8dade338)，[MIT](https://github.com/pmndrs/upscaler/blob/5821d915c4e3a595c913d399e832155d8dade338/LICENSE)，`5821d915c4e3a595c913d399e832155d8dade338` | `src/Upscaler.ts::_encodeGuides/_encodeLate`；`src/shaders/reconstruct.ts::RECONSTRUCT_SHADER/DEPTH_CLIP_SHADER`分别scatter与读取、下一bufferclear；`shadingChange.ts::main/lumaPair/scaleResponse/memoryUpdate`共享4×4/8×8均值、history-range；`accumulate.ts`重投影/rectification/locks | Native Temporal V2候选。保持EEngine同一FrameGraph/submit、prepare/commit/abort与全identity；其正linear-depth atomicMin/prevUV符号/relief/best-tap/8帧f16blockmemory不是本地当前reverse-depth weighted语义。算法重新验收，不照搬上游独立encoder/submit或bench overrides |
+
+pmndrs的[PARITY](https://github.com/pmndrs/upscaler/blob/5821d915c4e3a595c913d399e832155d8dade338/docs/research/PARITY.md)报告ratio2、1920×1080输出、Apple Metal、ABBA实验source-style +36%/+76%；shading detector .044ms vs .231ms是旧测量，后续修改未全部复测。该文同时记录cross-frame depth在dolly错误失效和8bitRCAS画面验收漏掉linear HDR fireflies的失败/修正。数字只作来源实验，**不作为GTX1650Ti/native1:1的时间预测或质量保证**；吸收同帧scatter边界、HDR读回与动态质量失败教训。其production仍为多dispatch，不能引用成两kernel完整Temporal事实。
+
+上述来源研究不需要新的技能/通用架构层。性能设计的Cost Card、支持域/limits/峰值证明、numeric/lifecycle与真实新production GPU消费/净成本齐备前，全部新Adapt保持proposed。
