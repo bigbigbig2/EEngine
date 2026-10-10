@@ -777,6 +777,23 @@ R02 的当前边界：[Surface Kernel Binding V1](../specs/surface-kernel-bindin
 
 ## 4. Virtual Shadow 与世界 GI
 
+### VSM V4 Design Source Map（2026-10-10，reference only）
+
+本轮为[VSM V4 设计](../next-design/eengine-v4-vsm-2026-10.md)重新核对固定源码，不实施生产或提升R07 adoption。用户授权启动V4-R0，workstream已切换；旧Module E的设计/执行仅用于追溯，V4目标与单元状态分别见新设计和[执行计划](../next-execution/eengine-v4-vsm-execution-2026-10.md)。Minimal GPU Work仍暂停。
+
+Reference：Timberdoodle `1987cf3b8ddda42585d2470bb5806efbc96c6cae`，Apache-2.0；从GitHub重取 `src/rendering/virtual_shadow_maps` 的页面标记、free/allocate、wrapped/invalidate、dirty commit、directional/shared caster、dirty HIZ、`vsm.inl`/`vsm_state.hpp`，并核对 `src/shader_lib/vsm_util.glsl`、`vsm_sampling.hlsl`、`src/shader_shared/vsm_shared.inl` 和根LICENSE。忽略目录 `.local/validation/vsm-v4-design/reference` 保存原件与SHA256 manifest。`allocate_pages.hlsl` SHA256为 `e135e9a9afe29a9cb71bb26811d7cb63b7d888f3a318b0fc595f52e3d1fdccad`，`find_free_pages.glsl`为 `9100fe0320a70154c98550ac222e81c4a7d95a685ad580ec7750747458adb2d4`。
+
+| 固定源hot path | 本地设计决策 / 差异 |
+|---|---|
+| `mark_required_pages.hlsl::main`先atomic标记页，first request才append；`vsm_util.glsl::clip_info_from_uvs`与wrapped coordinates | 参考预去重与共同页寻址；本地完整bitset+prefix消除receiver前缀截断，不复制wave-first-lane或footprint输入假设 |
+| `find_free_pages.glsl::main`扫描physical slots，`allocate_pages.hlsl::main`使用free/not-visited列表维护正反映射 | 参考分阶段slot选择；本地分离frame serial/content epoch并先touch全部需求，不复制64-bit meta、wave32或容量截断 |
+| `free_wrapped_pages.hlsl::main`、`invalidate_pages.hlsl::main`及`vsm.inl::get_vsm_projections` | 参考世界页网格滚动与边缘撤销；本地固定epoch内depth anchor/range，cast/coverage/resident-cut与abort事务另有真实owner |
+| `clear_dirty_bit.glsl::main`按page request清dirty | 参考逐页完成；本地还核验Geometry/pair/native partition成功，0caster空页可以ready，partial不能发布 |
+| `cull_and_draw_directional_pages.hlsl` task/mesh entry、shared `generic_vsm_mesh`、fragment atomicMin和dirty HIZ | 拒绝直接搬DispatchMesh/Daxa/virtual-screen atomic depth；复用本地native hardware atlas、exact R8 coverage/cutoff，compact explicit/implicit pairing为Original |
+| `src/rendering/tasks/shade_opaque.hlsl::get_vsm_shadow/vsm_shadow_test`、`vsm_util.glsl` | 固定revision的directional consumer实际在shade_opaque，按每页camera position row重建深度；`vsm_sampling.hlsl`主要Point/Spot，不能冒称Sun入口。参考保存投影身份的必要性；本地固定epoch depth/gutter/ready/coarse合同独立验证，不复制forward min-depth或mask mip2/cutoff0.5 |
+
+Local：既有ShadowGeometryWork、Scene/source ABI、native OPAQUE/MASK与Physical Sun。Original/Adapt：全域需求容量、方向光96页coarse pin、world page key和稳定GPU depth reduction、16B pair与同数学隐式容量路径、真实per-page完成与V4事务。上述为设计，未进行新WGSL/CPU oracle或production GPU采用验证，也没有性能提升声明。
+
 ### R07 · Timberdoodle：VSM 页面算法候选，执行后端必须重做
 
 - **Upstream / Revision**：[Ipotrick/Timberdoodle](https://github.com/Ipotrick/Timberdoodle/tree/1987cf3b8ddda42585d2470bb5806efbc96c6cae)，`1987cf3b8ddda42585d2470bb5806efbc96c6cae`。
