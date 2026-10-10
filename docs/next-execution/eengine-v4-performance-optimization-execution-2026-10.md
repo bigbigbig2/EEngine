@@ -25,7 +25,7 @@ verifies:
 
 # EEngine V4 性能优化执行计划
 
-唯一设计见[性能设计](../next-design/eengine-v4-performance-optimization-2026-10.md)。本文件拥有单元状态与实施出口；workstream仅导航。**P1已关闭Q-exact局部出口；P2已关闭T1同算法产品删除，T2/T3尚未实施，Native Temporal V2整体未完成。** 不把局部工作删除写成稳定帧时改善或60FPS，不自行同时启动多个单元。
+唯一设计见[性能设计](../next-design/eengine-v4-performance-optimization-2026-10.md)。本文件拥有单元状态与实施出口；workstream仅导航。**P1已关闭Q-exact局部出口；P2已关闭T1，T2实验拒绝采用，T3延期，Native Temporal V2整体未完成。** 不把局部工作删除写成稳定帧时改善或60FPS，不自行同时启动多个单元。
 
 ## 1. 状态、实施入口与停止边界
 
@@ -33,14 +33,14 @@ verifies:
 |---|---|---|
 | P0 源码、已有证据与设计 | complete（文档出口） | `f495f04b`源码/报告、成本边界、来源与失败分析；不等于新代码gate通过 |
 | P1 VSM Sampling/Projection V2 | complete（Q-exact局部出口，热状态限制见§3.6） | post-commit compact publication→Native/debug/continuation唯一consumer；numeric通过，局部净P50改善，全帧/P95不承诺 |
-| P2 Native Temporal V2 | in-progress（T1 complete；T2/T3 not-started） | T1结果见§4.2；同算法执行删除→native-resolution算法设计/非生产验证→唯一policy owner原子切换；整体仍未完成 |
+| P2 Native Temporal V2 | in-progress（T1 complete；T2 rejected；T3 deferred） | T1/T2结果见§4.2/4.4；新算法尚未实施，整体未完成 |
 | P3 IBL hardware-friendly publication | not-started | 合法源尺寸/format/预算证明→physical+authored producer→Native binding/DFG/coat→退休与完整numeric/成本 |
 | P4 4GB资源预算与容量策略 | not-started | 全owner账本/峰值→独立capacity配置→moving working-set与驻留验证；growable pool另按完整生命周期闭合 |
 | P5 动态VSM局部失效 | conditional / not-started | 突发因果→old/new caster delta→稳定depth域/局部dirty→全部consumer与压力出口 |
 | P6 PCF算法与后续upscaler/residency研究 | conditional / not-started | 只有前述数据支持且质量合同明确才制定实现；无自动扩展 |
 | P7 性能模块验收 | not-started | 目标硬件1080p同质量/coverage、动态/压力/热状态、CPU与资源峰值，列出剩余gap与VSM R4未闭合项 |
 
-**P1复核通过；本次关闭P2-T1后停在T2入口。** 按§4每个子单元出口停止，不把T1称为完整Native Temporal V2。P3/P4可在单元边界按实际数据调整顺序；任何调整先重读源码/当前结果，不把本表当无限自动任务。
+**P1/T1复核通过；本次关闭T2实验并拒绝生产采用，随后按用户任务继续P3；T3保持延期。** 不把T1/T2称为完整Native Temporal V2。P3/P4可在单元边界按实际数据调整顺序；任何调整先重读源码/当前结果，不把本表当无限自动任务。
 
 P1内部只有两步：先完成下述资格记录，再冻结**一个**Q或S实施目标及Cost Card。资格诊断作为该单元的设施，不扩展成新的性能框架；候选After失败后不在同一单元连续换第二套shader。停止点是“采纳一个净收益候选”或“拒绝并恢复稳定生产状态”，不是不断增加variants/跑完整baseline。实施记录只追加到本计划的对应单元，不新建重复progress文档。
 
@@ -201,6 +201,32 @@ Cost Card（先于Dungeon After冻结）：删除一RGBA16F顺序store/pixel、�
 
 【出口】保留同算法冗余产品删除及已量到的瞬态容量收益，帧时收益标为未知。未运行完整旧baseline、锁频ABBA、driver硬件计数、T3动态画质矩阵及全部Renderer recovery/交互browser矩阵；本单元没有改变simulation/admission/temporal reset策略。按§4子单元出口停止，T2需要独立tile数值/成本验证；T3数学/质量合同及新图仍未实施，**P2整体未完成**。来源核对与实际映射见porting，非新FSR算法adoption。
 
+### 4.3 T2实施前冻结：native current-color tile
+
+【资格/范围】T1新鲜15项CPU checks与产品GPU oracle通过，原profile与提交一致。本次用户授权继续P2并随后P3，覆盖原每子单元停止规则；仍分单元提交、GPU串行、一个变量测量。WickedEngine固定revision的`temporalaaCS.hlsl::main`只参考halo→uniform barrier→邻域执行方式，不复制packed half/Gather、depth/motion算法。当前FSR在1:1的flip后支持域始终[-1,0,1]，因此8×8输出只需要10×10 current-color tile；真正upscale继续同owner的通用kernel，不是旧/新bridge。
+
+Cost Card：每完整组current逻辑textureLoad 576→100，prepared-color f32曝光/YCoCg亦由576→100次，history16tap、initial逐pixel tonemap与所有滤波/权重顺序不变。1080p最多减少15,422,400次逻辑texel读取/帧（RGBA16F按8B计约117.66MiB逻辑流量，cache下实际DRAM删除未知）。新增100×vec4f=1600B workgroup storage、100次shared写、576次shared读/组、一次uniform workgroupBarrier及index/halo ALU；没有global产品/history/atomics/pass/submit增加。所有partial组inactive lane仍初始化全部100cells，再barrier，再按原extent return。当前RGB预处理保持f32，不共享motion-dependent history。新增一个冷pipeline，生产按真实render/output域选择；upscale没有shared声明/税。best为current loads/ALU主导时盈利；通常纹理cache与history/权重占比限制收益；worst shared/register/occupancy税超过删除工作则撤回。0/50/100%逻辑读取节省转为DRAM节省是0/58.83/117.66MiB敏感性，不是时间提升比例。break-even为current读取与预处理节省大于shared/barrier/occupancy代价。Before使用T1已保存三轮，Accumulate约2.08–2.20ms只作全pass理论上界。
+
+最小验证：冻结旧产品oracle加入多tile/NPOT/partial的1:1与原upscale组，逐bit比较history RGB/lock与RCAS；检查所有halo写先于uniform barrier，原math/identity/lifecycle不变。单元闭合后才做限定Dungeon三轮After；无净收益证据不能仅凭576→100宣称更快。T3另需质量合同，不把T2冒称新算法。
+
+### 4.4 T2出口：数值一致，但净成本不支持采用
+
+【实测事实】原件`.local/validation/p2-t2-2026-10-11/`。T1 gate新鲜build:test、15项contract、90,376 words GPU产品对照通过。T2候选fresh build:test/typecheck/engine及Dungeon诊断build、15项checks、24组209,440 words产品对照逐位通过；Native integration actualFSRChain与resizeAbortRetry通过。partial/multiple tile/NPOT、jitter flip、HDR/曝光、16tap history与lock alpha没有改变。
+
+三轮限定After仍取固定240帧/60完整GPU样本、同帧阶段和再求线性分位数（ms）：
+
+| 轮次 | T1 Accumulate P50/P95 | tile Accumulate P50/P95 | tile Accumulate+RCAS P50/P95 | tile Temporal P50/P95 | tile Total P50/P95 |
+|---|---:|---:|---:|---:|---:|
+| full-1 | 2.083/2.849 | 1.949/2.946 | 2.167/3.227 | 5.485/7.559 | 32.291/44.313 |
+| full-2 | 2.203/3.393 | 2.072/4.191 | 2.304/4.619 | 5.875/10.514 | 20.419/31.190 |
+| full-3 | 2.095/4.154 | 2.101/5.214 | 2.333/5.742 | 5.993/13.754 | 20.625/40.084 |
+
+【拒绝依据】前两轮P50下降、第三轮不降，所有Accumulate P95变差；未锁频且Native同步波动，不作因果比例。增加最小1080p同输入ABBA GPU执行对照，每次12 reference+12 candidate、4次untimed warmup，保留所有原始timestamp：两次generic/tile P50为1.77464/1.794624、1.792/1.814528ms；第二次mean也由1.792037增至1.855072ms。合成prepared inputs不替代Dungeon或硬件计数，但没有支持shared净盈利；**拒绝生产T2**，撤回generator/dual pipeline/domain inputs，生产仍为T1单Accumulate。同算法576→100逻辑loads未证明DRAM/时间收益。测试专用candidate snapshot仅用于复现拒绝，不是production fallback；扩大后的产品oracle保留，撤回后fresh build:test与产品GPU复验通过。
+
+【条件/CPU/容量】fixed camera/1080p/high4×4/FSR/geometry1536MiB，coverage90.664–90.708%，resident1207/pinned381、evict/reload/failed0、streaming error空。热窗口89–91°C、SW thermal Active、稀疏graphics读数465–1350MHz；不从短oracle推断锁频收益。同步render CPU P50/P95为3.315/5.325、2.328/3.825、2.288/3.532ms，首轮更慢保留；CDP TaskDuration3417/1515/1409ms，墙钟7.104/6.066/6.072s，不是同步CPU全成本。transient texture仍242,115,280B，无容量节省；readback丢样与overflow/completeness原状态不清零。
+
+【出口/未运行】按候选拒绝规则闭合T2实验；T1成立，**完整Native Temporal V2仍未完成**。T3未冻结/实施新算法及动态画质矩阵，不强切生产。用户本轮明确后续P3，可在同算法退守边界继续IBL单元；未运行完整旧baseline、锁频硬件计数、全Renderer loss恢复、T3画质验收。原失败/outlier保留。
+
 ## 5. P3：IBL完整publication优化
 
 实现前先完成layout/support域证明：physical128²/8mip与authored1…device合法square/NPOT、四种当前sourceformat、当前累计256MiB与outgoing/scratch峰值。compactpaddedatlas优先，N+2超limit或峰值挤出旧合法input时不能静默下采样/拒绝；定案同mipstorage的interiorhardware+seam精确算法或拒绝候选。这里只做必要有限layout，不造通用textureframework。
@@ -251,4 +277,4 @@ P7必须同时回答：GTX1650Ti4GB/1080p高质量/≥80%覆盖是否达到稳�
 
 未达到目标时保留真实分布/剩余gap，重新排名最多一个下个单元；不能恢复advanced-effects开发或改scale/taps包装性能成功。硬件计数/热状态/OSresidency缺项如实列出；其它GPU型号结果不转写为目标平台已通过。
 
-当前出口：P0完成设计，P1完成Q-exact唯一生产切换及§3.6的限定验证/成本测量；P2完成T1同算法产品删除及§4.2验证，T2/T3和P3–P7仍未实施。T1帧时改善未证实，容量收益与热状态/尾帧限制同时保留，不宣称完整Native Temporal V2、稳定60FPS或VSM R4验收。
+当前出口：P0完成设计，P1完成Q-exact唯一生产切换及§3.6的限定验证/成本测量；P2完成T1，T2实验拒绝生产采用，T3延期，P3–P7仍未实施。T1帧时改善未证实，容量收益与热状态/尾帧限制同时保留，不宣称完整Native Temporal V2、稳定60FPS或VSM R4验收。

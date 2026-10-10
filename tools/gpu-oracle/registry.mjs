@@ -11,6 +11,14 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "fsr3-accumulate-cost",
+    file: "OEngine/tests/oracle/fsr3-accumulate-cost-gpu.mjs",
+    url: "/OEngine/tests/oracle/fsr3-accumulate-cost-gpu.mjs",
+    entry: "runFsr3AccumulateCostGpuOracle",
+    requiredFeatures: ["timestamp-query"],
+    description: "ABBA same-input 1080p current tile versus general Accumulate execution; raw timestamps, no quality claim.",
+  }),
+  Object.freeze({
     name: "fsr3-accumulate-products",
     file: "OEngine/tests/oracle/fsr3-accumulate-products-gpu.mjs",
     url: "/OEngine/tests/oracle/fsr3-accumulate-products-gpu.mjs",

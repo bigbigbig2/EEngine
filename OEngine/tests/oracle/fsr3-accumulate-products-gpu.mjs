@@ -31,7 +31,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   const cases = [];
   // 1:1, true upscaling and non-integral ratios; partial workgroups/edge clamps.
   for (const [width, height, outputWidth, outputHeight] of [
-    [8, 8, 8, 8], [17, 9, 17, 9], [17, 9, 34, 18], [33, 17, 49, 25],
+    [8, 8, 8, 8], [17, 9, 17, 9], [33, 17, 33, 17], [65, 33, 65, 33],
+    [17, 9, 34, 18], [33, 17, 49, 25],
   ]) {
     for (const phase of [0, 1, 2, 3]) {
       const owned = [];
