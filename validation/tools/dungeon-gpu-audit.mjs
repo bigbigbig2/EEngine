@@ -120,7 +120,7 @@ export function installDungeonGpuAudit() {
     const original = GPUDevice.prototype[method];
     GPUDevice.prototype[method] = function (desc) {
       if (method === "createShaderModule") {
-        const slice = /Native cost slice: ([A-G])/.exec(desc.code)?.[1];
+        const slice = /Native cost slice: (B0|[A-G])\b/.exec(desc.code)?.[1];
         if (slice) nativeCostSlices.add(slice);
       }
       const at = performance.now();

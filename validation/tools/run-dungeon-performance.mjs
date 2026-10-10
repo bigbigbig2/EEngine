@@ -26,8 +26,8 @@ const frames = Number(option("frames", "240"));
 const nativeCostSlice = option("native-slice", null);
 const vsmDemandDiagnostics = args.includes("--vsm-demand-diagnostics");
 const gpuSampleInterval = Number(option("gpu-sample-interval", "4"));
-if (nativeCostSlice !== null && !/^[A-G]$/.test(nativeCostSlice))
-  throw new Error("--native-slice must be A through G");
+if (nativeCostSlice !== null && !/^(?:[A-G]|B0)$/.test(nativeCostSlice))
+  throw new Error("--native-slice must be A through G, or B0 (center inputs)");
 if (vsmDemandDiagnostics && nativeCostSlice !== null && nativeCostSlice !== "G")
   throw new Error("VSM statistics require full native shading");
 const scenarios = args.includes("--load-only")

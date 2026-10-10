@@ -18,7 +18,7 @@ import {
 } from "./native_surface_lighting.js";
 
 /** Diagnostic shader specialization only; G is byte-for-byte the normal source. */
-export type NativeSurfaceCostSlice = "A" | "B" | "C" | "D" | "E" | "F" | "G";
+export type NativeSurfaceCostSlice = "A" | "B0" | "B" | "C" | "D" | "E" | "F" | "G";
 
 export interface NativeSurfaceShaderProfile {
   readonly compact: boolean;
@@ -228,8 +228,8 @@ export function nativeSurfaceWgsl(
   profile: NativeSurfaceShaderProfile
 ): string {
   const costSlice = profile.costSlice ?? "G";
-  if (!/^[A-G]$/.test(costSlice)) {
-    throw new RangeError("Native cost slice must be A through G");
+  if (!/^(?:[A-G]|B0)$/.test(costSlice)) {
+    throw new RangeError("Native cost slice must be A through G, or B0 (center inputs)");
   }
   if (costSlice !== "G" && profile.additiveSun) {
     throw new Error("Native cost slicing requires the fused resource profile");
@@ -450,7 +450,7 @@ ${rasterFlags}
   let basis = mat3x3f(tangent.xyz, cross(normal, tangent.xyz) * tangent.w, normal);
 ${material}
 `;
-  if (costSlice === "A" || costSlice === "B" || costSlice === "C") {
+  if (costSlice === "A" || costSlice === "B0" || costSlice === "B" || costSlice === "C") {
     // Fixed output would DCE the reconstruction. Consume every requested corner
     // and interpolation result. This deliberately adds anchor ALU and changes
     // liveness: A/B/C are diagnostic bounds, not standalone production costs.
@@ -464,18 +464,28 @@ ${material}
     );
     evaluation = `${rasterFlags}\n  var diagnostic_anchor = ${cornerTerms.join(" +\n    ")};\n`;
     if (costSlice !== "A") {
-      evaluation += `  var inputs: NativeMaterialInputs;\n${inputs.join("\n")}\n`;
+      // B0 shares A's reconstruction anchor, but consumes only center inputs.
+      // B additionally keeps finite one-pixel footprints and neighbour inputs live.
+      const diagnosticInputs = costSlice === "B0"
+        ? inputs.filter((line) => line.startsWith("  inputs.center["))
+        : inputs;
+      evaluation += `  var inputs: NativeMaterialInputs;\n${diagnosticInputs.join("\n")}\n`;
       for (let index = 0; index < program.inputCount; index++) {
         for (const [point, factor] of [
           ["center", "1.17"],
           ["x", "1.93"],
           ["y", "2.71"]
         ]) {
+          if (costSlice === "B0" && point !== "center") {
+            continue;
+          }
           evaluation += `  diagnostic_anchor += dot(inputs.${point}[${index}u], vec4f(0.13, 0.19, 0.23, 0.29)) * ${factor};\n`;
         }
       }
-      evaluation +=
-        "  diagnostic_anchor += dot(interpolation.dx, vec3f(0.61, 0.67, 0.71)) + dot(interpolation.dy, vec3f(0.73, 0.79, 0.83));\n";
+      if (costSlice !== "B0") {
+        evaluation +=
+          "  diagnostic_anchor += dot(interpolation.dx, vec3f(0.61, 0.67, 0.71)) + dot(interpolation.dy, vec3f(0.73, 0.79, 0.83));\n";
+      }
     }
     if (costSlice === "C") {
       evaluation += "  let values = native_material_evaluate(entry.constant_base, inputs);\n";

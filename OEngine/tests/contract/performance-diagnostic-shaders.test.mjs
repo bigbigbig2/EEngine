@@ -16,7 +16,7 @@ test("Native diagnostic specializations retain winner predicates and G is the so
   const program = lowerNativeMaterial(compileAppearanceGraph(graph.build()));
   const profile = { compact: true, productGeometry: true, unlit: false, reactive: true, physicalSun: true };
   const generated = Object.fromEntries(
-    ["A", "B", "C", "D", "E", "F", "G"].map((costSlice) => [
+    ["A", "B0", "B", "C", "D", "E", "F", "G"].map((costSlice) => [
       costSlice,
       nativeSurfaceWgsl(program, { ...profile, costSlice })
     ])
@@ -34,6 +34,8 @@ test("Native diagnostic specializations retain winner predicates and G is the so
   }
   assert.doesNotMatch(main(generated.A), /native_material_evaluate\(/);
   assert.match(main(generated.A), /corners.position.p0/);
+  assert.match(main(generated.B0), /inputs.center\[/);
+  assert.doesNotMatch(main(generated.B0), /inputs\.[xy]\[|interpolation\.(dx|dy)|native_material_evaluate\(/);
   for (const point of ["center", "x", "y"])
     assert.match(main(generated.B), new RegExp(`inputs\\.${point}\\[`));
   assert.match(main(generated.B), /interpolation.dx/);

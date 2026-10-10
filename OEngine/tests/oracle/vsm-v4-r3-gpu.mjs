@@ -362,7 +362,7 @@ export async function runVsmR3GpuOracle(device) {
     const samplingUniform = make(256, GPUBufferUsage.UNIFORM, samplingConstants);
     const samplingOutput = make(16, storage);
     const samplingCode =
-      `struct GpuPrimitiveTypeTable { direction: vec3f, }\n` +
+      `struct GpuPrimitiveTypeTable { direction: vec3f, color: vec3f, }\n` +
       VSM_SAMPLING_WGSL +
       `
 @group(0) @binding(0) var<uniform> vsm_constants: VsmSamplingConstants;
