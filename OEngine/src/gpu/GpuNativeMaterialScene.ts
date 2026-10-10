@@ -3,13 +3,18 @@ import type { CompiledAppearanceGraph } from "../material/AppearanceGraphCompile
 import { APPEARANCE_DEPENDENCY } from "../material/AppearanceGraphCompiler.js";
 import { standardAppearanceParameters } from "../material/AppearanceRuntimeInputs.js";
 import type { StandardShadeMaterial } from "../material/StandardShadeMaterial.js";
+import { observeNativeMaterial } from "../material/NativeMaterialMutation.js";
 import { ShadeTransparencyMode } from "../material/enums.js";
 import {
   lowerNativeMaterial,
   nativeMaterialDynamicInputs,
   nativeMaterialParameters,
 } from "../shaders/native_material.js";
-import { nativeSurfacePublicationDescriptors } from "../shaders/native_surface.js";
+import {
+  nativeSurfaceMaterialGraph,
+  nativeSurfaceBindingGroups,
+  nativeSurfacePublicationDescriptors,
+} from "../shaders/native_surface.js";
 import { nativeVisibilityShader } from "../shaders/native_visibility.js";
 import { nativeVisibilityPipelineDescriptor } from "../render/surface/NativeVisibilityPass.js";
 import type { NativeSurfaceRoute } from "../render/surface/SurfaceV4.js";
@@ -19,10 +24,20 @@ import {
   GpuNativeMaterialPublication,
   type NativeMaterialPublicationSource,
 } from "./GpuNativeMaterialPublication.js";
-import { createNativeMaterialBindings, type NativeMaterialBindings } from "./NativeMaterialBindings.js";
+import {
+  createNativeMaterialBindings,
+  createNativeCoverageBindings,
+  nativeMaterialCoverageProgram,
+  type NativeMaterialBindings,
+} from "./NativeMaterialBindings.js";
 import { NativeMaterialProducts } from "./NativeMaterialProducts.js";
 import type { TextureBindingSet } from "./TextureResidency.js";
 import type { TextureSurfacePublication } from "./TextureSurfacePublication.js";
+import {
+  nativeMaterialRequiredBanks,
+  planNativeMaterialPhysicalBanks,
+  type NativeMaterialPhysicalBankProfile,
+} from "./NativeMaterialPhysicalBanks.js";
 
 export interface NativeSceneMaterialSource {
   readonly materialSlot: number;
@@ -40,6 +55,9 @@ interface Snapshot {
   readonly values: readonly Float32Array<ArrayBuffer>[];
   readonly unlit: readonly boolean[];
   readonly routes: readonly NativeSurfaceRoute[];
+  readonly viewDependentCoverage: boolean;
+  readonly hasMask: boolean;
+  readonly hasLit: boolean;
   ready: boolean;
 }
 
@@ -70,6 +88,8 @@ export class GpuNativeMaterialScene {
   // frame inputs remain live and are checked separately by snapshot().
   private readonly materialBindings: (MaterialBindingSnapshot | undefined)[] = [];
   private nextRevision = 1;
+  private dirty = true;
+  private readonly detachMutations: (() => void)[] = [];
 
   constructor(
     private readonly graphics: GraphicsContext,
@@ -98,7 +118,16 @@ export class GpuNativeMaterialScene {
         )
       : null;
     try {
+      const changed = () => {
+        this.dirty = true;
+      };
+      for (const source of materialSources)
+        this.detachMutations.push(observeNativeMaterial(source.material, changed));
+      const residency = graphics.texture_residency;
+      if (residency?.onPublicationChanged)
+        this.detachMutations.push(residency.onPublicationChanged.subscribe(changed));
       const initial = this.snapshot();
+      this.dirty = false;
       this.candidate = initial;
       this.ready = Promise.all([initial.publication.ready, this.prepareRasterPrograms(initial)]).then(() => {
         if (this.stopped) {
@@ -121,6 +150,7 @@ export class GpuNativeMaterialScene {
       });
       command.onAborted.addOne(() => this.destroy());
     } catch (error) {
+      this.detachMutations.forEach((detach) => detach());
       this.products?.destroy();
       throw error;
     }
@@ -148,13 +178,12 @@ export class GpuNativeMaterialScene {
   }
 
   get viewDependentCoverage(): boolean {
-    return this.materialSources.some(
-      (source) =>
-        source.material.transparency_mode === ShadeTransparencyMode.AlphaTested &&
-        source.graph.instructions.some(
-          (instruction) => (instruction.dependency & APPEARANCE_DEPENDENCY.View) !== 0,
-        ),
-    );
+    return (this.prepared ?? this.candidate ?? this.active)?.viewDependentCoverage ?? false;
+  }
+
+  /** Lighting demand follows the same candidate/commit owner as native code. */
+  get hasLit(): boolean {
+    return (this.prepared ?? this.candidate ?? this.active)?.hasLit ?? false;
   }
 
   get routes(): readonly NativeSurfaceRoute[] {
@@ -173,7 +202,9 @@ export class GpuNativeMaterialScene {
     if (!this.resident || this.stopped || this.prepared !== null) {
       throw new Error("Native scene is unavailable or already prepared");
     }
+    if (!this.dirty) return (this.candidate ?? this.active!).ready;
     const next = this.snapshot(this.candidate ?? this.active!);
+    this.dirty = false;
     if (next !== this.candidate && next !== this.active) {
       this.candidate?.publication.abort();
       this.candidate = next;
@@ -221,12 +252,7 @@ export class GpuNativeMaterialScene {
     command.onAborted.addOne(() => {
       this.prepared = null;
     });
-    return (
-      changed &&
-      this.materialSources.some(
-        (source) => source.material.transparency_mode === ShadeTransparencyMode.AlphaTested,
-      )
-    );
+    return changed && selected.hasMask;
   }
 
   private snapshot(previous?: Snapshot): Snapshot {
@@ -235,44 +261,113 @@ export class GpuNativeMaterialScene {
     const sources: Omit<NativeMaterialPublicationSource, "bindingSet" | "descriptor">[] = [];
     const values: Float32Array<ArrayBuffer>[] = [];
     const bindingSets = this.bindingSets();
+    const resolved = this.materialSources.map((source) => {
+      const set = bindingSets.find((set) => set.id === source.textureBindingSetId);
+      if (!set) throw new Error("Native material texture set is not resident");
+      const graph = nativeSurfaceMaterialGraph(source.graph, source.material.is_unlit);
+      const groups = nativeSurfaceBindingGroups([], {
+        compact: true,
+        productGeometry: this.productGeometry,
+        reactive: true,
+        unlit: source.material.is_unlit,
+        physicalSun: this.physicalSun && !source.material.is_unlit,
+      });
+      const providers = groups.reduce((sum, group) => sum + group.filter((entry) => entry.texture).length, 0);
+      const productTextures = graph.productReads?.some((read) => read.field.constant === undefined) ? 1 : 0;
+      return {
+        set,
+        graph,
+        limit: Math.min(
+          16,
+          this.graphics.device.limits.maxSampledTexturesPerShaderStage - providers - productTextures,
+        ),
+      };
+    });
+    const profiles = planNativeMaterialPhysicalBanks(
+      resolved.map((entry, index) => ({
+        banks: nativeMaterialRequiredBanks(
+          entry.graph,
+          entry.set,
+          this.materialSources[index]!.textureRefs,
+          this.texturePublications,
+        ),
+        limit: entry.limit,
+      })),
+    );
+    const coverageProfiles = planNativeMaterialPhysicalBanks(
+      resolved.map((entry, index) => {
+        const source = this.materialSources[index]!;
+        const graph =
+          source.material.transparency_mode === ShadeTransparencyMode.AlphaTested
+            ? nativeMaterialCoverageProgram(source.graph)
+            : undefined;
+        return {
+          banks: graph
+            ? nativeMaterialRequiredBanks(graph, entry.set, source.textureRefs, this.texturePublications)
+            : [],
+          limit: Math.min(
+            16,
+            this.graphics.device.limits.maxSampledTexturesPerShaderStage -
+              (graph?.productReads?.some((read) => read.field.constant === undefined) ? 1 : 0),
+          ),
+        };
+      }),
+    );
     for (let sourceIndex = 0; sourceIndex < this.materialSources.length; sourceIndex++) {
       const source = this.materialSources[sourceIndex]!;
       const set = bindingSets.find((set) => set.id === source.textureBindingSetId);
       if (set === undefined) {
         throw new Error("Native material texture set is not resident");
       }
-      const bound = this.obtainMaterialBindings(sourceIndex, source, set);
+      const bound = this.obtainMaterialBindings(
+        sourceIndex,
+        source,
+        set,
+        profiles[sourceIndex],
+        coverageProfiles[sourceIndex],
+      );
       const program = bound.program;
-      const parameters: Record<string, readonly number[]> = {};
       const standard = standardAppearanceParameters(source.material);
-      for (const name of Object.keys(program.parameterSlots)) {
-        const authored = source.material.appearance_inputs.get(name);
-        const value = standard.get(name);
-        if (authored !== undefined) {
-          parameters[name] = Array.from(authored);
-        } else if (value !== undefined) {
-          parameters[name] = [value];
+      const parametersFor = (target: typeof program): Record<string, readonly number[]> => {
+        const parameters: Record<string, readonly number[]> = {};
+        for (const name of Object.keys(target.parameterSlots)) {
+          const authored = source.material.appearance_inputs.get(name);
+          const value = standard.get(name);
+          if (authored !== undefined) parameters[name] = Array.from(authored);
+          else if (value !== undefined) parameters[name] = [value];
         }
-      }
-      const dynamic: Record<string, readonly number[]> = {};
-      for (const input of program.inputs) {
-        if (input.domain === "dynamic" || input.domain === "nonlocal") {
-          const value = source.material.appearance_inputs.get(input.name);
-          if (value === undefined) {
-            throw new RangeError(`Native material input '${input.name}' has no authored value`);
+        return parameters;
+      };
+      const inputsFor = (target: typeof program): Float32Array<ArrayBuffer> => {
+        const dynamic: Record<string, readonly number[]> = {};
+        for (const input of target.inputs) {
+          if (input.domain === "dynamic" || input.domain === "nonlocal") {
+            const value = source.material.appearance_inputs.get(input.name);
+            if (value === undefined)
+              throw new RangeError(`Native material input '${input.name}' has no authored value`);
+            dynamic[input.name] = Array.from(value);
           }
-          dynamic[input.name] = Array.from(value);
         }
-      }
-      const inputs = nativeMaterialDynamicInputs(program, dynamic);
+        return nativeMaterialDynamicInputs(target, dynamic);
+      };
+      const parameters = parametersFor(program);
+      const inputs = inputsFor(program);
       const constants = nativeMaterialParameters(program, parameters);
-      const data = new Float32Array(constants.length + 2 + inputs.length);
+      const coverageParameters = bound.coverage ? parametersFor(bound.coverage.program) : undefined;
+      const coverageInputs = bound.coverage ? inputsFor(bound.coverage.program) : undefined;
+      const coverageConstants = bound.coverage
+        ? nativeMaterialParameters(bound.coverage.program, coverageParameters)
+        : new Float32Array(0);
+      const mainLength = constants.length + 2 + inputs.length;
+      const data = new Float32Array(mainLength + coverageConstants.length + (coverageInputs?.length ?? 0));
       data.set(constants);
       data[constants.length] = Math.max(0, Math.min(1, source.material.alpha_cutoff));
       data[constants.length + 1] =
         Number(source.material.transparency_mode === ShadeTransparencyMode.AlphaTested) |
         (Number(source.material.texture_emissive !== undefined) << 1);
       data.set(inputs, constants.length + 2);
+      data.set(coverageConstants, mainLength);
+      if (coverageInputs) data.set(coverageInputs, mainLength + coverageConstants.length);
       if (!data.every(Number.isFinite)) {
         throw new RangeError("Native instance publication requires finite material data");
       }
@@ -298,6 +393,17 @@ export class GpuNativeMaterialScene {
         parameters,
         inputs,
         valueRevision,
+        ...(bound.coverage
+          ? {
+              coverage: {
+                program: bound.coverage.program,
+                layoutEntries: bound.coverage.layoutEntries,
+                materialEntries: bound.coverage.entries,
+                parameters: coverageParameters,
+                inputs: coverageInputs,
+              },
+            }
+          : {}),
         raster: {
           alphaCutoff: data[constants.length]!,
           alphaMask: source.material.transparency_mode === ShadeTransparencyMode.AlphaTested,
@@ -384,6 +490,17 @@ export class GpuNativeMaterialScene {
       values,
       unlit,
       routes,
+      hasLit: routes.some((route) => !route.unlit),
+      hasMask: this.materialSources.some(
+        (source) => source.material.transparency_mode === ShadeTransparencyMode.AlphaTested,
+      ),
+      viewDependentCoverage: this.materialSources.some(
+        (source) =>
+          source.material.transparency_mode === ShadeTransparencyMode.AlphaTested &&
+          source.graph.instructions.some(
+            (instruction) => (instruction.dependency & APPEARANCE_DEPENDENCY.View) !== 0,
+          ),
+      ),
       ready: false,
     };
   }
@@ -392,12 +509,26 @@ export class GpuNativeMaterialScene {
     index: number,
     source: NativeSceneMaterialSource,
     set: TextureBindingSet,
+    physicalProfile?: NativeMaterialPhysicalBankProfile,
+    coverageProfile?: NativeMaterialPhysicalBankProfile,
   ): NativeMaterialBindings {
     // Compiled graph/Product contents are immutable until Scene resync. The
     // mutable residency inputs below are compared by exact values and physical
     // object identity, never a hash or a frame number. No GPU resource is owned
     // by this CPU memo; replacement/loss still belongs to the existing owners.
-    const identity: unknown[] = [source.graph, set.id, set.generation, this.products, ...set.textureBanks];
+    const mask = source.material.transparency_mode === ShadeTransparencyMode.AlphaTested;
+    const identity: unknown[] = [
+      source.graph,
+      mask,
+      source.material.is_unlit,
+      set.id,
+      set.generation,
+      this.products,
+      ...set.textureBanks,
+      ...(physicalProfile?.banks.flatMap((bank) => [bank.segment, bank.view]) ?? []),
+      "coverage-profile",
+      ...(coverageProfile?.banks.flatMap((bank) => [bank.segment, bank.view]) ?? []),
+    ];
     for (const sample of source.graph.samples) {
       const texture = sample.binding.texture;
       const mipRange = this.mipRanges.get(texture);
@@ -422,7 +553,7 @@ export class GpuNativeMaterialScene {
     ) {
       return previous.bindings;
     }
-    const bound = createNativeMaterialBindings({
+    const bindingSource = {
       graph: source.graph,
       program: lowerNativeMaterial(source.graph),
       bindingSet: set,
@@ -430,10 +561,32 @@ export class GpuNativeMaterialScene {
       textureMipRanges: this.mipRanges,
       texturePublications: this.texturePublications,
       ...(this.products ? { packedProducts: this.products } : {}),
-      obtainSampler: (descriptor) => this.graphics.samplers.obtain(descriptor),
+      obtainSampler: (descriptor: GPUSamplerDescriptor) => this.graphics.samplers.obtain(descriptor),
+    };
+    const shadingGraph = nativeSurfaceMaterialGraph(source.graph, source.material.is_unlit);
+    const bound = createNativeMaterialBindings({
+      ...bindingSource,
+      graph: shadingGraph,
+      program: lowerNativeMaterial(shadingGraph),
+      physicalProfile,
     });
+    const coverage = mask
+      ? createNativeCoverageBindings({ ...bindingSource, physicalProfile: coverageProfile })
+      : undefined;
     const bindings = Object.freeze({
       ...bound,
+      ...(coverage
+        ? {
+            coverage: Object.freeze({
+              ...coverage,
+              program: Object.freeze({
+                ...coverage.program,
+                instanceInputs: true,
+                key: `${coverage.program.key}/instance-inputs`,
+              }),
+            }),
+          }
+        : {}),
       program: Object.freeze({
         ...bound.program,
         instanceInputs: true,
@@ -445,26 +598,21 @@ export class GpuNativeMaterialScene {
   }
 
   private async prepareRasterPrograms(snapshot: Snapshot): Promise<void> {
-    const programs = new Map<string, number>();
-    snapshot.sources.forEach((source, index) => programs.set(source.program.key, index));
     const jobs: Promise<GPURenderPipeline>[] = [];
-    for (const index of programs.values()) {
-      const source = snapshot.sources[index]!;
+    for (const rasterClass of snapshot.publication.rasterClasses) {
       for (const vsmAtlas of [false, true]) {
-        const shader = nativeVisibilityShader(source.program, snapshot.bindings[index]!.layoutEntries, {
+        const shader = nativeVisibilityShader(rasterClass.program, rasterClass.layoutEntries, {
           partitioned: true,
           productGeometry: this.productGeometry,
           shadow: vsmAtlas,
           vsmAtlas,
         });
         for (const cullMode of ["back", "none"] as const) {
-          for (const late of !vsmAtlas && this.productGeometry ? [false, true] : [false]) {
-            jobs.push(
-              this.graphics.render_pipelines.prepare(
-                nativeVisibilityPipelineDescriptor(shader, vsmAtlas, cullMode, late),
-              ),
-            );
-          }
+          jobs.push(
+            this.graphics.render_pipelines.prepare(
+              nativeVisibilityPipelineDescriptor(shader, vsmAtlas, cullMode),
+            ),
+          );
         }
       }
     }
@@ -510,6 +658,8 @@ export class GpuNativeMaterialScene {
   }
 
   destroy(): void {
+    this.detachMutations.forEach((detach) => detach());
+    this.detachMutations.length = 0;
     this.stopped = true;
     this.active?.publication.destroy();
     this.candidate?.publication.destroy();

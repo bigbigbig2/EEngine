@@ -2,6 +2,7 @@ import { GpuBindGroupCache } from "../../gpu/GpuBindGroupResourceCache.js";
 import {
   LOCAL_LIGHT_ABI_VERSION,
   LOCAL_LIGHT_FRAME_BUDGET,
+  LOCAL_LIGHT_FRAME_CAPACITY,
   LOCAL_LIGHT_HEADER_WORDS,
   LOCAL_LIGHT_INDEX_CAPACITY,
   LOCAL_LIGHT_MAX_ADMITTED,
@@ -316,12 +317,16 @@ export class LocalLightWorkGenerator {
       for (const previous of [...this.allocations]) {
         if (
           previous.state === "free" &&
-          (this.allocations.length >= 3 || this.allocatedBytes + bytes > LOCAL_LIGHT_PEAK_BUDGET)
+          (this.allocations.length >= LOCAL_LIGHT_FRAME_CAPACITY ||
+            this.allocatedBytes + bytes > LOCAL_LIGHT_PEAK_BUDGET)
         ) {
           this.release(previous);
         }
       }
-      if (this.allocations.length >= 3 || this.allocatedBytes + bytes > LOCAL_LIGHT_PEAK_BUDGET) {
+      if (
+        this.allocations.length >= LOCAL_LIGHT_FRAME_CAPACITY ||
+        this.allocatedBytes + bytes > LOCAL_LIGHT_PEAK_BUDGET
+      ) {
         throw new Error("LocalLightWork in-flight capacity exhausted; retain the real completion fence");
       }
       const create = (label: string, size: number, usage: GPUBufferUsageFlags): GPUBuffer => {
@@ -473,15 +478,8 @@ export class LocalLightWorkGenerator {
     ) {
       throw new Error("LocalLightWork frame is stale or already encoded");
     }
-    let submitted = 0;
-    for (const allocation of this.allocations) {
-      if (allocation.state === "submitted" || allocation.state === "encoded") {
-        submitted++;
-      }
-    }
-    if (submitted >= 2) {
-      throw new Error("LocalLightWork requires completion before a third in-flight frame");
-    }
+    // prepare() owns the complete bounded allocation pool. No separate
+    // two-frame encode gate: it would contradict that pool and frame admission.
     this.validate(frame.request);
     const allocation = state.allocation;
     allocation.state = "encoded";

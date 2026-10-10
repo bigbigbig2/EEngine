@@ -30,7 +30,7 @@ import { shadowVisibilityFrame, type ShadowVisibilityFrame } from "../pipeline/F
 import {
   SHADOW_DEPTH_BIAS,
   SHADOW_DEPTH_SLOPE_SCALE,
-  SHADOW_NORMAL_OFFSET_SCALE
+  SHADOW_NORMAL_OFFSET_SCALE,
 } from "../../gpu/ShadowContract.js";
 import type { EmptyFrameBindings, FrameProgramBindings, SceneFrameBindings } from "./FrameProgramBindings.js";
 import type { FrameProgram, FrameProduct } from "./FrameProgram.js";
@@ -64,7 +64,7 @@ function assertTextureProduct(
   plan: FrameProgram,
   graph: FrameGraph,
   product: FrameProduct,
-  resource: ResourceId
+  resource: ResourceId,
 ): void {
   const fact = plan.facts.find((entry) => entry.product === product);
   if (!fact) throw new Error(`Frame Program has no demand for ${product}`);
@@ -85,7 +85,7 @@ function assertTextureProduct(
 export function lowerFrameProgram(
   plan: FrameProgram,
   initial: FrameProgramBindings,
-  owners?: FrameProgramOwners
+  owners?: FrameProgramOwners,
 ): CompiledFrameGraph {
   if (plan.request.kind !== initial.kind) throw new Error("Frame Program and frame bindings disagree");
   if (initial.kind === "empty") return compileEmptyGraph(initial);
@@ -99,7 +99,7 @@ function compileEmptyGraph(initial: EmptyFrameBindings): CompiledFrameGraph {
   const swapchain = graph.import_resource(
     "swapchain",
     { kind: "imported", label: "swapchain" },
-    layout.slot("swapchain", initial, (bindings) => bindings.swapchain)
+    layout.slot("swapchain", initial, (bindings) => bindings.swapchain),
   );
   const clear = graph.add("Renderer/empty present", {}, (_data, resources, context) => {
     const command = context.encoder as ShadeGPUCommandContext;
@@ -109,9 +109,9 @@ function compileEmptyGraph(initial: EmptyFrameBindings): CompiledFrameGraph {
           view: resolveTextureView(resources.get(swapchain)),
           loadOp: "clear",
           storeOp: "store",
-          clearValue: { r: 0.025, g: 0.035, b: 0.05, a: 1 }
-        }
-      ]
+          clearValue: { r: 0.025, g: 0.035, b: 0.05, a: 1 },
+        },
+      ],
     });
     pass.end();
   });
@@ -122,7 +122,7 @@ function compileEmptyGraph(initial: EmptyFrameBindings): CompiledFrameGraph {
 function compileSceneGraph(
   plan: FrameProgram,
   initial: SceneFrameBindings,
-  owners: FrameProgramOwners
+  owners: FrameProgramOwners,
 ): CompiledFrameGraph {
   if (plan.request.kind !== "scene") throw new Error("Scene graph requires a scene Frame Program");
   for (const stage of ["visibility", "surface", "fsr3", "present"] as const) {
@@ -163,7 +163,7 @@ function compileSceneGraph(
     vsmFrameBinding = vsmFrame;
     const contentVersion = owners.vsmInvalidation.addToGraph(graph, {
       resources: vsmOwner,
-      state: bind("vsm-generation-state", (bindings) => bindings.vsmGeneration)
+      state: bind("vsm-generation-state", (bindings) => bindings.vsmGeneration),
     });
     const demand = owners.vsmReceiverDemand.addToGraph(
       graph,
@@ -176,8 +176,8 @@ function compileSceneGraph(
         resources: vsmOwner,
         generation: bindings.vsmFrame!.generation,
         lightView: bindings.vsmFrame!.lightView,
-        clipOriginExtent: bindings.vsmFrame!.clipOriginExtent
-      }))
+        clipOriginExtent: bindings.vsmFrame!.clipOriginExtent,
+      })),
     );
     vsmSamplingConstants = demand.samplingConstants;
     if (plan.products.includes("shadow-allocation")) {
@@ -190,31 +190,31 @@ function compileSceneGraph(
           demand: demand.demand,
           resources: vsmOwner,
           generation: bindings.vsmFrame!.generation,
-          contentVersion
-        }))
+          contentVersion,
+        })),
       );
     }
   }
   const materialRecords = graph.import_resource(
     "material-records",
     { kind: "imported", label: "published material records" },
-    bind("material-records", (bindings) => bindings.runtime.materialResources.materialRecords)
+    bind("material-records", (bindings) => bindings.runtime.materialResources.materialRecords),
   );
   const instances = graph.import_resource(
     "scene-instances",
     { kind: "imported", label: "published instance records" },
-    bind("scene-instances", (bindings) => bindings.job.scene.instances)
+    bind("scene-instances", (bindings) => bindings.job.scene.instances),
   );
   const needsDirectLight = plan.stages.includes("local-light-work");
   const geometryMetadata = graph.import_resource(
     "geometry-metadata",
     { kind: "imported", label: "geometry metadata" },
-    bind("geometry-metadata", (bindings) => bindings.job.assets.sparseShading.assetMetadataHeap)
+    bind("geometry-metadata", (bindings) => bindings.job.assets.sparseShading.assetMetadataHeap),
   );
   const vertexPayload = graph.import_resource(
     "vertex-payload",
     { kind: "imported", label: "geometry vertex payload" },
-    bind("vertex-payload", (bindings) => bindings.job.assets.sparseShading.vertexPayloadHeap)
+    bind("vertex-payload", (bindings) => bindings.job.assets.sparseShading.vertexPayloadHeap),
   );
   const virtualMetadata = plan.request.virtualGeometry
     ? graph.import_resource(
@@ -223,7 +223,7 @@ function compileSceneGraph(
         bind("virtual-geometry-metadata", (bindings) => {
           if (!bindings.runtime.virtualGeometry) throw new Error("Virtual geometry publication changed");
           return bindings.runtime.virtualGeometry.metadata;
-        })
+        }),
       )
     : undefined;
   const virtualBanks = plan.request.virtualGeometry
@@ -235,35 +235,35 @@ function compileSceneGraph(
             const resource = bindings.runtime.virtualGeometry?.banks[bank];
             if (!resource) throw new Error(`Virtual geometry bank ${bank} is not resident`);
             return resource;
-          })
-        )
+          }),
+        ),
       )
     : undefined;
   if (vsmAllocation !== null && vsmOwnerBinding !== null && vsmFrameBinding !== null) {
     const geometryRecords = graph.import_resource(
       "vsm-geometry-records",
       { kind: "imported", label: "VSM geometry records" },
-      bind("vsm-geometry-records", (bindings) => bindings.job.assets.geometryRecords)
+      bind("vsm-geometry-records", (bindings) => bindings.job.assets.geometryRecords),
     );
     const meshletRecords = graph.import_resource(
       "vsm-meshlet-records",
       { kind: "imported", label: "VSM meshlet records" },
-      bind("vsm-meshlet-records", (bindings) => bindings.job.assets.meshletRecords)
+      bind("vsm-meshlet-records", (bindings) => bindings.job.assets.meshletRecords),
     );
     const meshletVertexIndices = graph.import_resource(
       "vsm-meshlet-vertex-indices",
       { kind: "imported", label: "VSM meshlet vertex indices" },
-      bind("vsm-meshlet-vertex-indices", (bindings) => bindings.job.assets.meshletVertexIndices)
+      bind("vsm-meshlet-vertex-indices", (bindings) => bindings.job.assets.meshletVertexIndices),
     );
     const meshletTriangleIndices = graph.import_resource(
       "vsm-meshlet-triangle-indices",
       { kind: "imported", label: "VSM meshlet triangle indices" },
-      bind("vsm-meshlet-triangle-indices", (bindings) => bindings.job.assets.meshletTriangleIndices)
+      bind("vsm-meshlet-triangle-indices", (bindings) => bindings.job.assets.meshletTriangleIndices),
     );
     const vertexStreamData = graph.import_resource(
       "vsm-vertex-stream-data",
       { kind: "imported", label: "VSM vertex stream data" },
-      bind("vsm-vertex-stream-data", (bindings) => bindings.job.assets.vertexStreamData)
+      bind("vsm-vertex-stream-data", (bindings) => bindings.job.assets.vertexStreamData),
     );
     const shadowWork = graph.import_resource(
       "shadow-meshlet-work",
@@ -272,7 +272,7 @@ function compileSceneGraph(
         const shadow = bindings.job.prepared.shadowGeometry;
         if (!shadow) throw new Error("VSM requires Shadow Geometry work publication");
         return shadow.work.queue;
-      })
+      }),
     );
     const shadowInstances = graph.import_resource(
       "shadow-frame-instances",
@@ -281,7 +281,7 @@ function compileSceneGraph(
         const shadow = bindings.job.prepared.shadowGeometry;
         if (!shadow) throw new Error("VSM requires Shadow Geometry instance publication");
         return shadow.instances.records;
-      })
+      }),
     );
     const shadow = owners.visibility.addShadowToGraph(
       graph,
@@ -302,15 +302,15 @@ function compileSceneGraph(
           graph.import_resource(
             "shadow-cluster-records",
             { kind: "imported" },
-            bind("shadow-cluster-records", (bindings) => bindings.job.assets.clusterRecords)
+            bind("shadow-cluster-records", (bindings) => bindings.job.assets.clusterRecords),
           ),
           graph.import_resource(
             "shadow-cluster-children",
             { kind: "imported" },
-            bind("shadow-cluster-children", (bindings) => bindings.job.assets.clusterChildren)
-          )
-        ]
-      }
+            bind("shadow-cluster-children", (bindings) => bindings.job.assets.clusterChildren),
+          ),
+        ],
+      },
     );
     const caster = owners.vsmCasterRecords.addToGraph(
       graph,
@@ -321,8 +321,8 @@ function compileSceneGraph(
         resources: bindings.vsm!,
         frame: bindings.vsmFrame!,
         generation: bindings.vsmFrame!.generation,
-        workCapacity: bindings.job.prepared.shadowGeometry!.work.capacity
-      }))
+        workCapacity: bindings.job.prepared.shadowGeometry!.work.capacity,
+      })),
     );
     const atlas = owners.vsmAtlasRaster.addToGraph(
       graph,
@@ -332,7 +332,7 @@ function compileSceneGraph(
           runtime: bindings.runtime,
           assets: bindings.job.assets,
           vertices: bindings.job.prepared.workSet.frameVertices,
-          meshletWork: bindings.job.prepared.shadowGeometry!.work.queue
+          meshletWork: bindings.job.prepared.shadowGeometry!.work.queue,
         },
         camera: cameraBuffer,
         frameInstances: shadow.frameInstances,
@@ -353,8 +353,8 @@ function compileSceneGraph(
         geometries: geometryRecords,
         materials: materialRecords,
         productHeap: virtualMetadata,
-        productBanks: virtualBanks
-      }))
+        productBanks: virtualBanks,
+      })),
     );
     vsmAtlasDepth = atlas.atlasDepth;
     vsmContentVersion = atlas.contentVersion;
@@ -380,14 +380,14 @@ function compileSceneGraph(
       depthBias: SHADOW_DEPTH_BIAS,
       slopeScale: SHADOW_DEPTH_SLOPE_SCALE,
       atlasWidth: vsmOwnerBinding.capabilities.atlasDimension,
-      atlasHeight: vsmOwnerBinding.capabilities.atlasDimension
+      atlasHeight: vsmOwnerBinding.capabilities.atlasDimension,
     });
   }
   const lightRecords = needsDirectLight
     ? graph.import_resource(
         "light-records",
         { kind: "imported", label: "scene light records" },
-        bind("light-records", (bindings) => bindings.view.environment.lights.buffer_data)
+        bind("light-records", (bindings) => bindings.view.environment.lights.buffer_data),
       )
     : undefined;
   const physicalEnvironmentSun = !plan.request.physicalEnvironment
@@ -395,7 +395,7 @@ function compileSceneGraph(
     : graph.import_resource(
         "physical-environment-sun",
         { kind: "imported", label: "Physical Environment Sun" },
-        bind("physical-environment-sun", (bindings) => bindings.environment!.parameters)
+        bind("physical-environment-sun", (bindings) => bindings.environment!.parameters),
       );
   const atmosphereEnvironment = !plan.request.physicalEnvironment
     ? undefined
@@ -404,8 +404,8 @@ function compileSceneGraph(
         { kind: "imported", label: "Physical Environment transmittance" },
         bind(
           "physical-environment-transmittance",
-          (bindings) => bindings.environment!.luts.views.transmittance
-        )
+          (bindings) => bindings.environment!.luts.views.transmittance,
+        ),
       );
   const clusters =
     lightRecords === undefined
@@ -416,15 +416,15 @@ function compileSceneGraph(
           {
             parameters: bind("local-light-parameters", (bindings) => bindings.localLightWork!.parameters),
             lookup: bind("local-light-lookup", (bindings) => bindings.localLightWork!.lookup),
-            data: bind("local-light-data", (bindings) => bindings.localLightWork!.data)
+            data: bind("local-light-data", (bindings) => bindings.localLightWork!.data),
           },
-          { visibility: result.frame.visibilityKey, depth: result.frame.depth, database: lightRecords }
+          { visibility: result.frame.visibilityKey, depth: result.frame.depth, database: lightRecords },
         );
   if (clusters !== undefined) {
     const sink = graph.import_resource(
       "local-light-counter-sink",
       { kind: "imported" },
-      bind("local-light-counter-sink", (bindings) => bindings.localLightCounters)
+      bind("local-light-counter-sink", (bindings) => bindings.localLightCounters),
     );
     const observed = graph.add(
       "LocalLightWork/sampled header",
@@ -436,10 +436,10 @@ function compileSceneGraph(
             0,
             resources.get(sink) as GPUBuffer,
             counterByteOffset("localLightAbi"),
-            64
+            64,
           );
         }
-      }
+      },
     );
     observed.read(clusters.data);
     observed.write(sink);
@@ -461,8 +461,8 @@ function compileSceneGraph(
               // contract can replace this pair without changing the donor math.
               radiusMeters: 1,
               metersPerWorldUnit: 1,
-              noiseIndex: 0
-            }))
+              noiseIndex: 0,
+            })),
           });
           const main = owners.xeGtaoMain.addToGraph(graph, { prepared });
           const visibility = owners.xeGtaoDenoise.addToGraph(graph, { prepared, main });
@@ -480,12 +480,12 @@ function compileSceneGraph(
       : undefined;
   const bindRadiometry = (
     name: string,
-    resolve: (runtime: import("../temporal/GpuRadiometryPass.js").GpuRadiometryPass) => GPUBuffer
+    resolve: (runtime: import("../temporal/GpuRadiometryPass.js").GpuRadiometryPass) => GPUBuffer,
   ): ResourceId =>
     graph.import_resource(
       `radiometry/${name}`,
       { kind: "imported", label: `Radiometry ${name}` },
-      bind(`radiometry/${name}`, (bindings) => resolve(bindings.radiometry))
+      bind(`radiometry/${name}`, (bindings) => resolve(bindings.radiometry)),
     );
   const gpuPreviousExposure = owners.radiometry.importPreviousExposure(graph, bindRadiometry);
   const gpuPriorExposure = owners.radiometry.importPriorExposure(graph, bindRadiometry);
@@ -496,22 +496,22 @@ function compileSceneGraph(
           { kind: "imported" },
           bind(
             "lighting-authored-diffuse",
-            (bindings) => bindings.view.environment.lights.authoredIbl.views.diffuse
-          )
+            (bindings) => bindings.view.environment.lights.authoredIbl.views.diffuse,
+          ),
         ),
         specular: graph.import_resource(
           "Lighting/authored filtered specular",
           { kind: "imported" },
           bind(
             "lighting-authored-specular",
-            (bindings) => bindings.view.environment.lights.authoredIbl.views.specular
-          )
+            (bindings) => bindings.view.environment.lights.authoredIbl.views.specular,
+          ),
         ),
         dfg: graph.import_resource(
           "Lighting/authored DFG",
           { kind: "imported" },
-          bind("lighting-authored-dfg", (bindings) => bindings.view.environment.lights.authoredIbl.views.dfg)
-        )
+          bind("lighting-authored-dfg", (bindings) => bindings.view.environment.lights.authoredIbl.views.dfg),
+        ),
       }
     : !plan.request.physicalEnvironment
       ? undefined
@@ -519,18 +519,18 @@ function compileSceneGraph(
           diffuse: graph.import_resource(
             "Lighting/sky diffuse irradiance",
             { kind: "imported" },
-            bind("lighting-sky-diffuse", (bindings) => bindings.environment!.ibl.views.diffuse)
+            bind("lighting-sky-diffuse", (bindings) => bindings.environment!.ibl.views.diffuse),
           ),
           specular: graph.import_resource(
             "Lighting/sky filtered specular",
             { kind: "imported" },
-            bind("lighting-sky-specular", (bindings) => bindings.environment!.ibl.views.specular)
+            bind("lighting-sky-specular", (bindings) => bindings.environment!.ibl.views.specular),
           ),
           dfg: graph.import_resource(
             "Lighting/DFG",
             { kind: "imported" },
-            bind("lighting-dfg", (bindings) => bindings.environment!.ibl.views.dfg)
-          )
+            bind("lighting-dfg", (bindings) => bindings.environment!.ibl.views.dfg),
+          ),
         };
   if (
     plan.request.hasLit &&
@@ -541,35 +541,13 @@ function compileSceneGraph(
   const previousCamera = graph.import_resource(
     "previous-camera",
     { kind: "imported" },
-    bind("previous-camera", (bindings) => bindings.view.gpu_previous_camera_state.buffer)
+    bind("previous-camera", (bindings) => bindings.view.gpu_previous_camera_state.buffer),
   );
   const nativeVersions = graph.import_resource(
     "native-material-versions",
     { kind: "imported" },
-    bind("native-material-versions", (bindings) => bindings.runtime.nativeMaterials!.publication.versions)
+    bind("native-material-versions", (bindings) => bindings.runtime.nativeMaterials!.publication.versions),
   );
-  const backgroundPass = graph.add("SurfaceV4/empty background", {}, (_data, resources, context) => {
-    const command = context.encoder as ShadeGPUCommandContext;
-    const pass = command.beginRenderPass({
-      colorAttachments: [
-        {
-          view: resolveTextureView(resources.get(background)),
-          loadOp: "clear",
-          storeOp: "store",
-          clearValue: { r: 0, g: 0, b: 0, a: 1 }
-        }
-      ]
-    });
-    pass.end();
-  });
-  const background = backgroundPass.create("SurfaceV4/background", {
-    kind: "transient_texture",
-    width: plan.request.internalWidth,
-    height: plan.request.internalHeight,
-    format: "rgba16float",
-    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-    domain: "internal-full"
-  });
   const nativeFrame = bind("native-surface-frame", (bindings) => ({ bindings }));
   let nativeHdr = -1;
   let reactive = -1;
@@ -604,7 +582,7 @@ function compileSceneGraph(
           ) {
             return {
               binding: 9,
-              resource: { buffer: resources.get(shadowContract.virtualPageTable) as GPUBuffer }
+              resource: { buffer: resources.get(shadowContract.virtualPageTable) as GPUBuffer },
             };
           }
           if (entry.binding === 10 && vsmAtlasDepth !== null) {
@@ -614,15 +592,15 @@ function compileSceneGraph(
             return { binding: 11, resource: resolveTextureView(resources.get(scalarAo)) };
           }
           return entry;
-        })
+        }),
       );
       if (frame.environment !== null) {
         entries.push(
           ...nativeSurfacePhysicalSunEntries({
             parameters: frame.environment.parameters,
             transmittance: frame.environment.luts.views.transmittance,
-            sampler: frame.environment.luts.sampler
-          })
+            sampler: frame.environment.luts.sampler,
+          }),
         );
       }
     }
@@ -635,14 +613,13 @@ function compileSceneGraph(
       cameraPosition: [
         frame.camera.transform.matrix[12]!,
         frame.camera.transform.matrix[13]!,
-        frame.camera.transform.matrix[14]!
+        frame.camera.transform.matrix[14]!,
       ],
       preExposure: resources.get(gpuPreviousExposure) as GPUBuffer,
       viewMatrix: frame.camera.view_matrix,
       output: texture(nativeHdr),
       visibility: texture(result.frame.visibilityKey),
       depth: frame.depth.gpu_texture,
-      background: texture(background),
       reactive: texture(reactive),
       geometry: nativeWinnerGeometry(
         frame.job.assets,
@@ -650,11 +627,10 @@ function compileSceneGraph(
         resources.get(result.frame.meshletWork.records) as GPUBuffer,
         resources.get(result.frame.frameInstances) as GPUBuffer,
         frame.runtime,
-        plan.request.currentHzbLateRecheck
       ),
       publication: material.publication,
       routes: material.routes,
-      lightingEntries: entries
+      lightingEntries: entries,
     });
     owners.surface.encode((context.encoder as ShadeGPUCommandContext).gpu_encoder);
   });
@@ -665,7 +641,6 @@ function compileSceneGraph(
     result.frame.frameInstances,
     result.frame.frameGeometry,
     vertexPayload,
-    background,
     gpuPreviousExposure,
     lightRecords,
     clusters?.parameters,
@@ -682,7 +657,7 @@ function compileSceneGraph(
     physicalEnvironmentSun,
     atmosphereEnvironment,
     virtualMetadata,
-    ...(virtualBanks ?? [])
+    ...(virtualBanks ?? []),
   ]) {
     if (id !== undefined && id !== null) {
       native.read(id);
@@ -699,7 +674,7 @@ function compileSceneGraph(
       GPUTextureUsage.TEXTURE_BINDING |
       GPUTextureUsage.RENDER_ATTACHMENT |
       GPUTextureUsage.COPY_SRC |
-      GPUTextureUsage.COPY_DST
+      GPUTextureUsage.COPY_DST,
   });
   reactive = native.create("SurfaceV4/reactive", {
     kind: "transient_texture",
@@ -707,7 +682,8 @@ function compileSceneGraph(
     height: plan.request.internalHeight,
     format: "rgba8unorm",
     domain: "internal-full",
-    usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
+    usage:
+      GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT,
   });
   const facts = owners.temporalFacts.addToGraph(
     graph,
@@ -725,16 +701,16 @@ function compileSceneGraph(
       previousCamera,
       assetMetadata: geometryMetadata,
       vertexPayload,
-      sourceBindings: bind("native-temporal-source", (bindings) => bindings.job.assets.sparseShading)
+      sourceBindings: bind("native-temporal-source", (bindings) => bindings.job.assets.sparseShading),
     },
-    (name, resolve) => bind(`native-temporal/${name}`, (bindings) => resolve(bindings.temporalFacts))
+    (name, resolve) => bind(`native-temporal/${name}`, (bindings) => resolve(bindings.temporalFacts)),
   );
   const skyRadiance = !plan.stages.includes("physical-sky")
     ? undefined
     : graph.import_resource(
         "physical-environment-sky-radiance",
         { kind: "imported", label: "Physical Environment sky radiance" },
-        bind("physical-environment-sky-radiance", (bindings) => bindings.environment!.luts.views.scattering)
+        bind("physical-environment-sky-radiance", (bindings) => bindings.environment!.luts.views.scattering),
       );
   const higherOrderScattering = !plan.stages.includes("physical-sky")
     ? undefined
@@ -743,8 +719,8 @@ function compileSceneGraph(
         { kind: "imported", label: "Physical Environment higher-order scattering" },
         bind(
           "physical-environment-higher-order-scattering",
-          (bindings) => bindings.environment!.luts.views.higherOrderScattering
-        )
+          (bindings) => bindings.environment!.luts.views.higherOrderScattering,
+        ),
       );
   const environmentRadiance =
     !plan.stages.includes("physical-sky") ||
@@ -761,7 +737,7 @@ function compileSceneGraph(
           scattering: skyRadiance,
           higherOrder: higherOrderScattering,
           environment: physicalEnvironmentSun!,
-          preExposure: gpuPreviousExposure
+          preExposure: gpuPreviousExposure,
         });
   const aerialRadiance =
     !plan.stages.includes("aerial") ||
@@ -781,7 +757,7 @@ function compileSceneGraph(
           higherOrder: higherOrderScattering,
           preExposure: gpuPreviousExposure,
           width: result.frame.domain.width,
-          height: result.frame.domain.height
+          height: result.frame.domain.height,
         });
   const reconstructedRadiance = initial.fsr3.addToGraph(
     graph,
@@ -797,9 +773,9 @@ function compileSceneGraph(
       height: result.frame.domain.height,
       outputWidth: plan.request.outputWidth,
       outputHeight: plan.request.outputHeight,
-      enabled: plan.request.fsr3Enabled
+      enabled: plan.request.fsr3Enabled,
     },
-    (name, resolve) => bind(`fsr3/${name}`, (bindings) => resolve(bindings.fsr3))
+    (name, resolve) => bind(`fsr3/${name}`, (bindings) => resolve(bindings.fsr3)),
   );
   const radiometry = owners.radiometry.addToGraph(
     graph,
@@ -808,21 +784,21 @@ function compileSceneGraph(
       width: plan.request.outputWidth,
       height: plan.request.outputHeight,
       previousExposure: gpuPreviousExposure,
-      priorExposure: gpuPriorExposure
+      priorExposure: gpuPriorExposure,
     },
-    bindRadiometry
+    bindRadiometry,
   );
   const bloom = owners.bloom.addToGraph(graph, {
     scene: reconstructedRadiance,
     preExposure: gpuPreviousExposure,
     width: plan.request.outputWidth,
     height: plan.request.outputHeight,
-    enabled: plan.request.bloomEnabled
+    enabled: plan.request.bloomEnabled,
   });
   const swapchain = graph.import_resource(
     "swapchain",
     { kind: "imported", label: "swapchain" },
-    bind("swapchain", (bindings) => bindings.swapchain)
+    bind("swapchain", (bindings) => bindings.swapchain),
   );
   const debugColor =
     plan.request.debugView !== undefined && plan.request.debugView !== RenderDebugViewValue.None
@@ -846,10 +822,10 @@ function compileSceneGraph(
             screenSpaceReflectionHitMiss: null,
             screenSpaceReflectionResolve: null,
             screenSpaceReflectionTemporal: null,
-            screenSpaceReflectionHistoryConfidence: null
+            screenSpaceReflectionHistoryConfidence: null,
           } satisfies RenderDebugViewResources,
           plan.request.outputWidth,
-          plan.request.outputHeight
+          plan.request.outputHeight,
         )
       : null;
   owners.present.addToGraph(
@@ -860,7 +836,7 @@ function compileSceneGraph(
     gpuPreviousExposure,
     plan.request.outputWidth,
     plan.request.outputHeight,
-    debugColor !== null
+    debugColor !== null,
   );
   return graph.compile();
 }
@@ -870,7 +846,7 @@ function lowerVisibility(
   plan: FrameProgram,
   graph: FrameGraph,
   bind: SceneBind,
-  owners: FrameProgramOwners
+  owners: FrameProgramOwners,
 ): {
   result: PackedVisibilityOutputs;
   cameraBuffer: ResourceId;
@@ -880,20 +856,20 @@ function lowerVisibility(
   const depth = graph.import_resource(
     "depth",
     { kind: "imported", label: "depth32float" },
-    bind("depth", (bindings) => bindings.depth)
+    bind("depth", (bindings) => bindings.depth),
   );
   const cameraBuffer = graph.import_resource(
     "camera",
     { kind: "imported", label: "current camera" },
-    bind("camera", (bindings) => bindings.view.gpu_camera_state.buffer)
+    bind("camera", (bindings) => bindings.view.gpu_camera_state.buffer),
   );
   const counters = graph.import_resource(
     "visibility-counters",
     { kind: "imported", label: "counter sink" },
     bind(
       "counter-sink",
-      (bindings) => bindings.job.prepared.bindings?.counters ?? bindings.runtime.counterSink
-    )
+      (bindings) => bindings.job.prepared.bindings?.counters ?? bindings.runtime.counterSink,
+    ),
   );
   const work = graph.import_resource(
     "meshlet-work",
@@ -902,26 +878,26 @@ function lowerVisibility(
       const queue = bindings.job.prepared.workSet.meshletWorkCandidate;
       if (!queue) throw new Error("Visibility did not prepare MeshletWork");
       return queue.queue;
-    })
+    }),
   );
-  const previousHzb = plan.request.previousHzb
-    ? graph.import_resource(
-        "previous-hzb",
-        { kind: "imported", label: "previous HZB" },
-        bind("previous-hzb", (bindings) => bindings.hzb.getPreviousTexture())
-      )
-    : undefined;
+  const previousHzb =
+    plan.request.previousHzb || plan.request.currentHzbLateRecheck
+      ? graph.import_resource(
+          "previous-hzb",
+          { kind: "imported", label: "previous HZB" },
+          bind("previous-hzb", (bindings) => bindings.hzb.getPreviousTexture()),
+        )
+      : undefined;
   const frameInstances = graph.import_resource(
     "frame-instances",
     { kind: "imported", label: "GPU-selected frame instance transforms" },
-    bind("frame-instances", (bindings) => bindings.job.prepared.workSet.frameInstances.records)
+    bind("frame-instances", (bindings) => bindings.job.prepared.workSet.frameInstances.records),
   );
   const frameGeometry = graph.import_resource(
     "frame-geometry",
     { kind: "imported", label: "GPU-selected shared frame geometry" },
-    bind("frame-geometry", (bindings) => bindings.job.prepared.workSet.frameGeometry.buffer)
+    bind("frame-geometry", (bindings) => bindings.job.prepared.workSet.frameGeometry.buffer),
   );
-  const frameAttributes = frameGeometry;
   let result = owners.visibility.addToGraph(
     graph,
     bind("visibility-job", (bindings) => bindings.job),
@@ -931,16 +907,15 @@ function lowerVisibility(
       meshletWorkRecords: work,
       frameInstances,
       frameGeometry,
-      frameAttributes,
       previousHzb,
-      depth
-    }
+      depth,
+    },
   );
   const hzbCurrent = plan.stages.includes("hzb")
     ? graph.import_resource(
         "current-hzb",
         { kind: "imported", label: "current HZB" },
-        bind("current-hzb", (bindings) => bindings.hzb.getCurrentTexture())
+        bind("current-hzb", (bindings) => bindings.hzb.getCurrentTexture()),
       )
     : undefined;
   const hzbBuilder =
@@ -951,22 +926,12 @@ function lowerVisibility(
           bind("hzb-build", (bindings) => ({ hzb: bindings.hzb, depth: bindings.depth })),
           (data, _resources, context) => {
             data.hzb.build((context.encoder as ShadeGPUCommandContext).gpu_encoder, data.depth);
-          }
+          },
         );
   hzbBuilder?.read(result.frame.depth);
-  const builtHzb = hzbBuilder?.write(hzbCurrent!);
+  let builtHzb = hzbBuilder?.write(hzbCurrent!);
   if (plan.request.currentHzbLateRecheck) {
     if (builtHzb === undefined) throw new Error("Late visibility recheck requires current HZB");
-    const filteredWork = graph.import_resource(
-      "late-recheck-work",
-      { kind: "imported", label: "filtered MeshletWork" },
-      bind("late-work", (bindings) => bindings.job.prepared.currentHzbLateRecheck!.queue)
-    );
-    const filteredIndirect = graph.import_resource(
-      "late-recheck-indirect",
-      { kind: "imported", label: "filtered indirect draw" },
-      bind("late-indirect", (bindings) => bindings.job.prepared.currentHzbLateRecheck!.drawIndirect)
-    );
     result = owners.visibility.addCurrentHzbLateRecheckToGraph(
       graph,
       bind("late-visibility-job", (bindings) => bindings.job),
@@ -975,23 +940,30 @@ function lowerVisibility(
         counters: result.counters,
         currentHzb: builtHzb,
         sourceMeshletWork: result.frame.meshletWork.records,
-        filteredMeshletWork: filteredWork,
-        filteredDrawIndirect: filteredIndirect,
         visibilityKey: result.frame.visibilityKey,
         depth: result.frame.depth,
-        sourceFrame: result.frame
-      }
+        sourceFrame: result.frame,
+      },
     );
+    const finalHzb = graph.add(
+      "Visibility/final HZB",
+      bind("hzb-final", (bindings) => ({ hzb: bindings.hzb, depth: bindings.depth })),
+      (data, _resources, context) =>
+        data.hzb.build((context.encoder as ShadeGPUCommandContext).gpu_encoder, data.depth),
+    );
+    finalHzb.read(result.frame.depth);
+    builtHzb = finalHzb.write(builtHzb);
+    finalHzb.make_side_effect();
   }
   owners.visibilityCounters.addToGraph(
     graph,
     result.frame.domain,
     {
       visibility: result.frame.visibilityKey,
-      counters: result.counters
+      counters: result.counters,
     },
     "visibility-key",
-    bind("visibility-counter-sampling", (bindings) => ({ enabled: bindings.job.countersEnabled }))
+    bind("visibility-counter-sampling", (bindings) => ({ enabled: bindings.job.countersEnabled })),
   );
   return { result, cameraBuffer, builtHzb };
 }

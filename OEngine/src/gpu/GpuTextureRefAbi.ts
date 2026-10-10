@@ -14,7 +14,8 @@ export const GPU_TEXTURE_REF_ROUTING = Object.freeze({
   AlphaFromAlpha: 2,
 });
 
-/** TextureRef bank bits are material-local slots, never a global bank index. */
+/** Bank bits address the bounded consumer profile. Residency publishes source
+ * tuple slots; Native material publication remaps them into shared scene banks. */
 export const GPU_TEXTURE_BANK_COUNT = 16;
 export const GPU_TEXTURE_BANK_ALL_MASK = (1 << GPU_TEXTURE_BANK_COUNT) - 1;
 

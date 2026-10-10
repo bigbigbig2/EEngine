@@ -22,7 +22,7 @@ export const GPU_FRAME_PHASES = [
   "temporal",
   "post",
   "observability",
-  "unclassified"
+  "unclassified",
 ] as const;
 
 export type GpuFramePhase = (typeof GPU_FRAME_PHASES)[number];
@@ -38,10 +38,16 @@ const PHASE_RULES: readonly PhaseRule[] = [
   rule(
     "lighting-and-ibl",
     /surfacev4\/native opaque/,
+    /surfacev4\/native winner shading/,
+    /surfacev4\/hdr and aux initialization/,
     /surfacev4\/resource-limited native sun/,
-    /surfacev4\/empty background/
+    /surfacev4\/empty background/,
   ),
   rule("hardware-raster", /visibility\/native material winner/),
+  rule("hardware-raster", /native raster\//, /geometry\/frame_vertices/),
+  rule("hzb", /hzb\/compute-pyramid/, /visibility\/(?:previous-hzb predict|current-hzb recover)/),
+  rule("temporal", /fsr3(?:\/| )/),
+  rule("lighting-and-ibl", /environment\/(?:physical sky radiance|aerial perspective)/),
   rule("shadow", /vsm\//),
   rule(
     "observability",
@@ -53,7 +59,7 @@ const PHASE_RULES: readonly PhaseRule[] = [
     /gpu.?counter/,
     /sampled sparse safety counters/,
     /counter accumulator/,
-    /render debug/
+    /render debug/,
   ),
   rule(
     "upload",
@@ -64,7 +70,7 @@ const PHASE_RULES: readonly PhaseRule[] = [
     /gpuscenecontext\/database-(?:build|incremental-update)/,
     /gpuresidentmaterialcontext\/texture-write/,
     /gpulightcollection\/build/,
-    /volumetrics update/
+    /volumetrics update/,
   ),
   rule("animation", /animation/, /skinning/),
   rule("shadow", /shadow/),
@@ -83,7 +89,7 @@ const PHASE_RULES: readonly PhaseRule[] = [
     /sparseshading\/active-bin/,
     /material depth/,
     /gbuffer/,
-    /g-buffer/
+    /g-buffer/,
   ),
   rule("hzb", /^hzb$/, /^hzb\//, /hzb\/build/, /hierarchical z/),
   rule("software-raster", /software raster/, /compute raster/, /\bsw raster/),
@@ -94,7 +100,7 @@ const PHASE_RULES: readonly PhaseRule[] = [
     /packed visibilitykey\/depth .*drawindirect/,
     /hardware raster/,
     /\bhw raster/,
-    /^visibility$/
+    /^visibility$/,
   ),
   rule("instance-cull", /instance.?cull/, /frustum.?filter/, /scene.?mesh.?filter/),
   rule(
@@ -106,7 +112,7 @@ const PHASE_RULES: readonly PhaseRule[] = [
     /meshlet expand/,
     /prefix/,
     /scatter/,
-    /work generation/
+    /work generation/,
   ),
   rule(
     "temporal",
@@ -116,7 +122,7 @@ const PHASE_RULES: readonly PhaseRule[] = [
     /\bnss\b/,
     /velocity/,
     /occlusion confidence/,
-    /history/
+    /history/,
   ),
   rule(
     "post",
@@ -128,7 +134,7 @@ const PHASE_RULES: readonly PhaseRule[] = [
     /tone map/,
     /final output/,
     /postprocess/,
-    /post process/
+    /post process/,
   ),
   rule(
     "lighting-and-ibl",
@@ -141,9 +147,9 @@ const PHASE_RULES: readonly PhaseRule[] = [
     /\bssr\b/,
     /ambient occlusion/,
     /reflection/,
-    /lightprobe/
+    /lightprobe/,
   ),
-  rule("frame", /^frame$/, /renderer\/main/, /main frame/)
+  rule("frame", /^frame$/, /renderer\/main/, /main frame/),
 ];
 
 const PHASE_CACHE = new Map<string, GpuFramePhase>();

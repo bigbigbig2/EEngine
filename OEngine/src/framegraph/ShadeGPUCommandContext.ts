@@ -59,6 +59,10 @@ export class ShadeGPUCommandContext {
   #submitted = false;
   #submittedAtMs: number | null = null;
   #gpuDonePromise: Promise<void> | undefined;
+  #submittedPromise: Promise<void> | undefined;
+  #resolveSubmitted: (() => void) | undefined;
+  #rejectSubmitted: ((cause: unknown) => void) | undefined;
+  #submissionFence: Promise<void> | undefined;
   #abortCause: unknown | undefined;
   #label = "";
 
@@ -155,16 +159,15 @@ export class ShadeGPUCommandContext {
     if (this.#finished) {
       return this.#abortCause === undefined ? Promise.resolve() : Promise.reject(this.#abortCause);
     }
-    return new Promise((resolve, reject) => {
-      this.onFinished.addOne(resolve);
-      this.onAborted.addOne((_context: ShadeGPUCommandContext, cause: unknown) => reject(cause));
-      if (this.#finished) resolve();
-    });
+    return (this.#submittedPromise ??= new Promise((resolve, reject) => {
+      this.#resolveSubmitted = resolve;
+      this.#rejectSubmitted = reject;
+    }));
   }
 
-  /** Resolves only after the queue has completed all work submitted so far. */
+  /** This submission's captured queue fence. Later submissions cannot extend it. */
   get gpuDone(): Promise<void> {
-    return (this.#gpuDonePromise ??= this.submitted.then(() => this.device.queue.onSubmittedWorkDone()));
+    return (this.#gpuDonePromise ??= this.submitted.then(() => this.#submissionFence!));
   }
   /** CPU timestamp at queue submission; null for unsubmitted/aborted commands. */
   get submittedAtMs(): number | null {
@@ -498,6 +501,8 @@ export class ShadeGPUCommandContext {
       const commandBuffer = encoder.finish();
       const submittedAtMs = performance.now();
       submitGpuCommands(this.#graphics.device!, this.#label || "unlabeled-command-context", [commandBuffer]);
+      // Capture before publication callbacks or another command can submit.
+      this.#submissionFence = this.device.queue.onSubmittedWorkDone();
       this.#submittedAtMs = submittedAtMs;
     } catch (cause) {
       this.abort(cause);
@@ -508,9 +513,12 @@ export class ShadeGPUCommandContext {
     arrayRemoveFirst(openContexts, this);
     this.#finished = true;
     this.#submitted = true;
+    this.#resolveSubmitted?.();
+    this.#resolveSubmitted = undefined;
+    this.#rejectSubmitted = undefined;
     this.#encoder = undefined;
     this.#timedEncoderFacade = undefined;
-    this.#releaseBuffers(this.device.queue.onSubmittedWorkDone());
+    this.#releaseBuffers(this.#submissionFence!);
 
     if (timer !== undefined) {
       const callbacks = [...this.#debugTimersCallbacks];
@@ -556,6 +564,9 @@ export class ShadeGPUCommandContext {
     arrayRemoveFirst(openContexts, this);
     this.#finished = true;
     this.#abortCause = cause;
+    this.#rejectSubmitted?.(cause);
+    this.#resolveSubmitted = undefined;
+    this.#rejectSubmitted = undefined;
     this.#encoder = undefined;
     this.#timedEncoderFacade = undefined;
     this.#releaseBuffers();

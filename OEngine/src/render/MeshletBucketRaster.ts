@@ -15,7 +15,6 @@ export function nativeWinnerGeometry(
   work: GPUBuffer,
   instances: GPUBuffer,
   runtime: GpuRenderWorldRuntime,
-  filtered = false
 ): NativeSurfaceGeometry {
   const source = assets.sparseShading;
   const product = runtime.virtualGeometry;
@@ -28,20 +27,15 @@ export function nativeWinnerGeometry(
       source.geometryWordBase,
       source.meshletWordBase,
       source.meshletVertexWordBase,
-      source.meshletTriangleWordBase
+      source.meshletTriangleWordBase,
     ],
-    sourcePayload: [
-      source.vertexDataWordBase,
-      0,
-      0,
-      (vertices.arena.layout.header.offset / 4) | (filtered ? 0x80000000 : 0)
-    ],
+    sourcePayload: [source.vertexDataWordBase, 0, 0, vertices.arena.layout.header.offset / 4],
     ...(product
       ? {
           productHeap: product.metadata,
-          productBanks: product.banks.slice(0, 4) as [GPUBuffer, GPUBuffer, GPUBuffer, GPUBuffer]
+          productBanks: product.banks.slice(0, 4) as [GPUBuffer, GPUBuffer, GPUBuffer, GPUBuffer],
         }
-      : {})
+      : {}),
   };
 }
 
@@ -69,36 +63,29 @@ export class MeshletBucketRaster {
     runtime: GpuRenderWorldRuntime,
     _prepared: PreparedMeshletWorkCandidate,
     _assets: GpuAssetBindings,
-    _queue?: GPUBuffer
+    _queue?: GPUBuffer,
   ): void {
     if (runtime.nativeMaterials === null) {
       throw new Error("Visibility requires native material publication");
     }
   }
 
-  encodeRaster(
-    encoder: GPUCommandEncoder,
-    input: MeshletBucketRasterInputs
-  ): void {
+  encodeRaster(encoder: GPUCommandEncoder, input: MeshletBucketRasterInputs): void {
     this.encode(encoder, input, input.prepared.queue, false);
   }
 
-  encodeFilteredVirtualRaster(
-    encoder: GPUCommandEncoder,
-    input: MeshletBucketRasterInputs,
-    queue: GPUBuffer
-  ): void {
+  encodeRecoveryRaster(encoder: GPUCommandEncoder, input: MeshletBucketRasterInputs): void {
     if (!input.prepared.productMode) {
       throw new Error("Late HZB raster requires Product geometry");
     }
-    this.encode(encoder, input, queue, true);
+    this.encode(encoder, input, input.prepared.queue, true);
   }
 
   private encode(
     encoder: GPUCommandEncoder,
     input: MeshletBucketRasterInputs,
     queue: GPUBuffer,
-    late: boolean
+    late: boolean,
   ): void {
     const scene = input.runtime.nativeMaterials!;
     const geometry = nativeWinnerGeometry(
@@ -107,15 +94,14 @@ export class MeshletBucketRaster {
       queue,
       input.frameInstances,
       input.runtime,
-      late
     );
     const view = nativeVisibilityView(input.frameVertices.arena, 1, {
       clipFromWorld: new Float32Array(16),
       viewMatrix: new Float32Array(16),
       cameraPosition: [0, 0, 0],
-      filtered: late,
+      filtered: false,
       source: geometry.source,
-      sourcePayload: geometry.sourcePayload
+      sourcePayload: geometry.sourcePayload,
     });
     let pass = this.passes.get(queue);
     if (
@@ -136,34 +122,32 @@ export class MeshletBucketRaster {
         graphics: this.graphics,
         geometry,
         publication: scene.publication,
-        routes: scene.routes,
         capacity: input.prepared.capacity,
         generation: 1,
         generationSource: queue,
         camera: input.camera,
         view,
-        late
       });
       this.passes.set(queue, pass);
     } else {
-      pass.update(
-        view,
-        scene.routes.map((route) => route.frameInputs),
-        1
-      );
+      pass.update(view, 1);
     }
-    pass.encode(encoder, {
-      label: "Visibility/native material winner",
-      colorAttachments: late
-        ? [{ view: input.visibilityKey, loadOp: "load", storeOp: "store" }]
-        : gpuVisibilityKeyRenderPassAttachments(input.visibilityKey),
-      depthStencilAttachment: {
-        view: input.depth,
-        depthClearValue: 0,
-        depthLoadOp: late ? "load" : "clear",
-        depthStoreOp: "store"
-      }
-    });
+    pass.encode(
+      encoder,
+      {
+        label: "Visibility/native material winner",
+        colorAttachments: late
+          ? [{ view: input.visibilityKey, loadOp: "load", storeOp: "store" }]
+          : gpuVisibilityKeyRenderPassAttachments(input.visibilityKey),
+        depthStencilAttachment: {
+          view: input.depth,
+          depthClearValue: 0,
+          depthLoadOp: late ? "load" : "clear",
+          depthStoreOp: "store",
+        },
+      },
+      late,
+    );
   }
 
   release(queue: GPUBuffer): void {

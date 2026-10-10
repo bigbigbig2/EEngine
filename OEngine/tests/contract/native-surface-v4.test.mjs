@@ -132,9 +132,9 @@ function fixture({ reactive = false, compact = false } = {}) {
   const images = (width, height) => ({
     visibility: device.createTexture({ size: [width, height], format: "r32uint", usage: 20 }),
     depth: device.createTexture({ size: [width, height], format: "depth32float", usage: 20 }),
-    background: device.createTexture({ size: [width, height], format: "rgba16float", usage: 4 }),
+    background: device.createTexture({ size: [width, height], format: "rgba16float", usage: 5 }),
     ...(reactive
-      ? { reactive: device.createTexture({ size: [width, height], format: "rgba8unorm", usage: 12 }) }
+      ? { reactive: device.createTexture({ size: [width, height], format: "rgba8unorm", usage: 28 }) }
       : {}),
   });
   const frame = {
@@ -177,6 +177,9 @@ function fixture({ reactive = false, compact = false } = {}) {
   const encoder = {
     copyBufferToBuffer(...args) {
       calls.push(["copy", ...args]);
+    },
+    copyTextureToTexture(...args) {
+      calls.push(["copyTexture", ...args]);
     },
     beginComputePass() {
       return pass;
@@ -222,7 +225,7 @@ test("SurfaceV4 rotates borrowed frame products without reallocating execution s
   const surface = new SurfaceV4(f.device, true);
   await f.publication.ready;
   f.publication.commit();
-  const output = () => f.device.createTexture({ size: [16, 8], format: "rgba16float", usage: 12 });
+  const output = () => f.device.createTexture({ size: [16, 8], format: "rgba16float", usage: 30 });
   const frames = [
     { ...f.frame, output: output() },
     {
@@ -319,9 +322,9 @@ test("SurfaceV4 rejects concurrent prepare, profile mismatch and invalid inputs 
   await f.publication.ready;
   f.publication.commit();
   const gate = deferred();
-  f.device.createComputePipelineAsync = (descriptor) => gate.promise.then(() => descriptor);
+  const delayedPublication = Object.assign(Object.create(f.publication), { ready: gate.promise });
   const surface = new SurfaceV4(f.device);
-  const preparing = surface.prepareFrame(f.frame);
+  const preparing = surface.prepareFrame({ ...f.frame, publication: delayedPublication });
   await assert.rejects(surface.prepareFrame(f.frame), /already prepared/);
   surface.abort();
   gate.resolve();
@@ -384,7 +387,6 @@ test("native raster scheduling emits indirect commands per bin, aborts readiness
   const input = {
     geometry: f.frame.geometry,
     publication: f.publication,
-    routes: f.frame.routes,
     capacity: 1,
     generation: 7,
     view: new Uint8Array(192),
@@ -404,7 +406,7 @@ test("native raster scheduling emits indirect commands per bin, aborts readiness
   const fence = deferred(),
     retirement = owner.retire(fence.promise);
   assert.throws(() => owner.encode(f.encoder, { colorAttachments: [] }), /not ready/);
-  assert.throws(() => owner.update(input.view, [new Float32Array(4)], 7), /ready/);
+  assert.throws(() => owner.update(input.view, 7), /ready/);
   assert.ok(resources.some((resource) => !resource.destroyed));
   fence.resolve();
   await retirement;
@@ -439,18 +441,16 @@ test("native visibility snapshots asynchronous descriptors and rejects invalid p
   const input = {
     geometry: f.frame.geometry,
     publication: f.publication,
-    routes: f.frame.routes,
     capacity: 1,
     generation: 7,
     view,
   };
   const owner = new NativeVisibilityPass(f.device, input);
   input.geometry.source[0] = 100;
-  input.routes[0].frameInputs[0] = 123;
   new Float32Array(view.buffer)[0] = NaN;
   await owner.ready;
   assert.equal(owner.input.geometry.source[0], 0);
-  assert.equal(owner.input.routes[0].frameInputs[0], 0);
+  assert.equal(owner.input.publication.rasterClasses[0].program, null);
   assert.equal(new Float32Array(owner.input.view.buffer)[0], 0);
   owner.destroy();
   const count = f.resources.length;

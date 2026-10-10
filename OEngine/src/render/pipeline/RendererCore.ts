@@ -4,14 +4,14 @@ import { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import { captureWebGpuCapabilityRecord } from "../../gpu/WebGpuCapabilityRecord.js";
 import { preflightResidentSurfaceLimits } from "../../gpu/PhysicalSamplingProfile.js";
 import { GPUSceneEnvironmentManager } from "../../gpu/GPUSceneEnvironmentManager.js";
-import type { CompiledFrameGraphDump } from "../../framegraph/FrameGraph.js";
+import type { CompiledFrameGraph, CompiledFrameGraphDump } from "../../framegraph/FrameGraph.js";
 import {
   summarizeFrameGraphResources,
   type FrameResourceSummary,
 } from "../../framegraph/FrameResourceSummary.js";
 import { CompiledFrameGraphCache } from "../../framegraph/CompiledFrameGraphCache.js";
 import { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
-import { FrameCoordinator } from "../FrameCoordinator.js";
+import { FrameCoordinator, type FrameAdmissionProfile } from "../FrameCoordinator.js";
 import { RenderTargets } from "../RenderTargets.js";
 import { GPUViewKey, ViewManager } from "../ViewManager.js";
 import { GPUCameraStateManager } from "../GPUCameraState.js";
@@ -392,7 +392,6 @@ export class Renderer {
     }
   >();
   private readonly _streamingCameraMatrices = new Map<Scene, Float32Array>();
-  private readonly _previousViewMatrices = new WeakMap<GPUViewContext, Float32Array>();
   private _activeCamera: PerspectiveCamera | null = null;
   private _cameraRevision = 0;
   private _temporalResetPending = false;
@@ -401,7 +400,8 @@ export class Renderer {
   private _capabilities: RendererCapabilities | null = null;
   private _adapterInfo: BenchmarkAdapterIdentity | null = null;
   private _frame_count = 0;
-  private _lastFrameDeferral: "none" | "gpu-completion" | "history-retirement" | "device-unavailable" = "none";
+  private _lastFrameDeferral: "none" | "gpu-completion" | "history-retirement" | "device-unavailable" =
+    "none";
   private _completionDeferredTicks = 0;
   private _historyDeferredTicks = 0;
   private _width = 1;
@@ -417,7 +417,7 @@ export class Renderer {
     wallMs: 0,
     decodeMs: 0,
     encodeMs: 0,
-    failure: null as string | null
+    failure: null as string | null,
   };
   private readonly texturePreparationStarts = new Set<{ started: number }>();
 
@@ -428,14 +428,14 @@ export class Renderer {
       ...this.texturePreparationStats,
       activeElapsedMs: [...this.texturePreparationStarts].reduce(
         (sum, batch) => sum + performance.now() - batch.started,
-        0
-      )
+        0,
+      ),
     });
   }
 
   private async prepareTextureProducts(
     materials: readonly StandardShadeMaterial[],
-    signal?: AbortSignal
+    signal?: AbortSignal,
   ): Promise<void> {
     const epoch = this.deviceEpoch;
     const combined = signal
@@ -486,10 +486,15 @@ export class Renderer {
   private _render_debug_view: RenderDebugView = RenderDebugViewValue.None;
   private _lastFrameGraph: Readonly<{
     cacheKey: string;
-    dump: CompiledFrameGraphDump;
-    resources: FrameResourceSummary;
+    compiled: CompiledFrameGraph;
     program: Pick<FrameProgram, "products" | "facts" | "stages" | "bindingRoles">;
   }> | null = null;
+  private _shadingSummaryCache: {
+    summary: GpuRenderWorldRuntime["activeShadingSummary"];
+    sets: GpuRenderWorldRuntime["materialResources"]["bindingSets"];
+    activeSets: number[];
+    textureBankMask: number;
+  } | null = null;
   private readonly _graphCache = new CompiledFrameGraphCache(8);
   private readonly _programCache = new FrameProgramCache(8);
   protected deviceEpoch = 1;
@@ -497,11 +502,14 @@ export class Renderer {
   /** Showcase/debug hosts can disable subpixel jitter while inspecting geometry. */
   temporal_jitter_enabled = true;
   get temporalJitterActive(): boolean {
-    return this.fsr3_enabled && this.temporal_jitter_enabled &&
+    return (
+      this.fsr3_enabled &&
+      this.temporal_jitter_enabled &&
       (this._render_debug_view === RenderDebugViewValue.None ||
-       this._render_debug_view === RenderDebugViewValue.Velocity ||
-       this._render_debug_view === RenderDebugViewValue.HistoryValidity ||
-       this._render_debug_view === RenderDebugViewValue.Reactive);
+        this._render_debug_view === RenderDebugViewValue.Velocity ||
+        this._render_debug_view === RenderDebugViewValue.HistoryValidity ||
+        this._render_debug_view === RenderDebugViewValue.Reactive)
+    );
   }
   packed_geometry_work_budget: GeometryWorkBudget = DEFAULT_GEOMETRY_WORK_BUDGET;
   packed_visibility_cone_enabled = true;
@@ -512,7 +520,7 @@ export class Renderer {
   bloom_enabled = true;
   /** Diagnostic counter sampling; the normal production frame keeps shader atomics off. */
   perf_gpu_counters_enabled = false;
-  packed_visibility_current_hzb_late_recheck_enabled = false;
+  packed_visibility_current_hzb_late_recheck_enabled = true;
   packed_meshlet_work_candidate_capacity: number | undefined;
   packed_meshlet_work_compaction: "auto" | "portable" | "subgroup" = "auto";
   /** Deprecated diagnostic knob; Module A forces full-rate Surface until Surface v2. */
@@ -585,6 +593,12 @@ export class Renderer {
       historyDeferredTicks: this._historyDeferredTicks,
     });
   }
+  get frameAdmissionProfile(): FrameAdmissionProfile {
+    return this._frameCoordinator.admissionProfile;
+  }
+  set frameAdmissionProfile(profile: FrameAdmissionProfile) {
+    this._frameCoordinator.admissionProfile = profile;
+  }
   get shadowVisibilityEnabled(): boolean {
     return this._shadowVisibilityEnabled;
   }
@@ -627,7 +641,10 @@ export class Renderer {
   }
   get pixel_ratio(): number {
     const canvas = this.context?.canvas as HTMLCanvasElement | undefined;
-    return this.pixelRatioOverride ?? (canvas?.style && typeof window !== "undefined" ? window.devicePixelRatio : 1);
+    return (
+      this.pixelRatioOverride ??
+      (canvas?.style && typeof window !== "undefined" ? window.devicePixelRatio : 1)
+    );
   }
   /** Resize uses CSS pixels; null restores the display's current DPR. */
   set pixel_ratio(value: number | null) {
@@ -1538,7 +1555,14 @@ export class Renderer {
     return this._graphics.memoryEvidence();
   }
   mainFrameGraphEvidence() {
-    return this._lastFrameGraph;
+    const last = this._lastFrameGraph;
+    if (!last) return null;
+    return Object.freeze({
+      cacheKey: last.cacheKey,
+      program: last.program,
+      dump: last.compiled.dump(),
+      resources: summarizeFrameGraphResources(last.compiled),
+    });
   }
 
   async initialize(options: RendererInitializeOptions = {}): Promise<void> {
@@ -1715,7 +1739,12 @@ export class Renderer {
     const ratio = this.pixel_ratio;
     const nextWidth = Math.max(1, Math.floor(width));
     const nextHeight = Math.max(1, Math.floor(height));
-    if (!force && nextWidth === this._width && nextHeight === this._height && ratio === this.appliedPixelRatio) {
+    if (
+      !force &&
+      nextWidth === this._width &&
+      nextHeight === this._height &&
+      ratio === this.appliedPixelRatio
+    ) {
       return;
     }
     const outputWidth = Math.max(1, Math.round(nextWidth * ratio));
@@ -1780,7 +1809,7 @@ export class Renderer {
       return false;
     }
     // A healthy device may defer this tick. No graph/resources/history are
-    // advanced until one of the two submitted frames has completed.
+    // advanced until the bounded admission policy has a free frame context.
     if (!this._frameCoordinator.canBeginFrame) {
       this._lastFrameDeferral = "gpu-completion";
       this._completionDeferredTicks++;
@@ -1813,7 +1842,7 @@ export class Renderer {
         for (let i = 0; i < 16; i++) delta = Math.max(delta, Math.abs(current[i]! - previous[i]!));
       this._streamingCameraMatrices.set(scene, current);
       const frameTimeMs = Math.max(0, timeDeltaSeconds * 1000);
-      const lastPoll = streaming.evidence().lastPoll;
+      const lastPoll = streaming.lastPoll;
       streaming.updatePressure({
         cameraState: delta > 0.25 ? "cut" : delta > 1e-5 ? "moving" : "stable",
         ioThroughputBytesPerSecond:
@@ -1878,10 +1907,7 @@ export class Renderer {
         preExposure,
         temporalEnabled: true,
         nssEnabled: false,
-        taaJitter:
-          this.temporalJitterActive
-            ? undefined
-            : [0, 0],
+        taaJitter: this.temporalJitterActive ? undefined : [0, 0],
       });
       temporalActive = true;
       this._graphics.encodeFrameMaintenance(command);
@@ -1898,18 +1924,21 @@ export class Renderer {
       }
       const environment = this._environments.obtain(scene);
       const summary = runtime.activeShadingSummary;
-      const activeSets = Array.from(summary.standardSetRefCounts, (_, setId) => setId).filter(
-        (setId) => summary.standardSetRefCounts[setId]! + summary.coatedSetRefCounts[setId]! > 0,
-      );
-      const textureBankMask =
-        activeSets.reduce((mask, setId) => {
-          const set = runtime.materialResources.bindingSets.find((candidate) => candidate.id === setId);
-          if (!set) throw new Error(`Active texture set ${setId} is not resident`);
-          return mask | set.textureBankMask;
-        }, 0) || 1;
-      const hasLit = runtime.activeShadingSummary.binRefCounts.some(
-        (count, classId) => count > 0 && (classId & 15) >= 4,
-      );
+      const sets = runtime.materialResources.bindingSets;
+      if (this._shadingSummaryCache?.summary !== summary || this._shadingSummaryCache.sets !== sets) {
+        const activeSets = Array.from(summary.standardSetRefCounts, (_, setId) => setId).filter(
+          (setId) => summary.standardSetRefCounts[setId]! + summary.coatedSetRefCounts[setId]! > 0,
+        );
+        const textureBankMask =
+          activeSets.reduce((mask, setId) => {
+            const set = sets.find((candidate) => candidate.id === setId);
+            if (!set) throw new Error(`Active texture set ${setId} is not resident`);
+            return mask | set.textureBankMask;
+          }, 0) || 1;
+        this._shadingSummaryCache = { summary, sets, activeSets, textureBankMask };
+      }
+      const { activeSets, textureBankMask } = this._shadingSummaryCache;
+      const hasLit = runtime.nativeMaterials!.hasLit;
       if (hasLit) {
         environment.lights.update(command);
       }
@@ -1940,30 +1969,9 @@ export class Renderer {
       const hzb = view.hierarchical_z_buffer;
       activeHzb = hzb;
       hzb.resetFrameStatistics();
-      const currentViewMatrix = Float32Array.from(camera.view_projection_matrix);
-      const previousViewMatrix = this._previousViewMatrices.get(view);
-      if (previousViewMatrix) {
-        let matrixDelta = 0;
-        for (let index = 0; index < 16; index++) {
-          matrixDelta = Math.max(
-            matrixDelta,
-            Math.abs(currentViewMatrix[index]! - previousViewMatrix[index]!),
-          );
-        }
-        // The current WebGPU visibility path has one previous-HZB producer
-        // and no Nyx-style current-view recovery pass.  A moving camera can
-        // therefore make newly exposed geometry look occluded by the old
-        // view.  Invalidate HZB for every real matrix change; the next stable
-        // frame rebuilds it and restores the fast path without dropping work.
-        if (matrixDelta > 1e-5) {
-          // Camera identity is a temporal discontinuity, not ordinary motion.
-          // Motion vectors reproject history while HZB must fail open separately.
-          hzb.invalidate("camera-cut");
-        }
-        // VP element deltas depend on world scale and cannot identify a cut.
-        // Same-camera teleports use invalidateTemporalHistory(); switching the
-        // camera object changes the revision at TemporalFabric.begin().
-      }
+      // Normal motion retains prediction. Explicit cuts invalidate history;
+      // current-frame recovery, rather than VP epsilon, makes prediction safe.
+      if (cameraCut || cameraChanged) hzb.invalidate("camera-cut");
       const identityHistory = this._temporal.histories.state("identity");
       const colorHistory = this._temporal.histories.state("color");
       const cameraPosition: [number, number, number] = [
@@ -2048,9 +2056,12 @@ export class Renderer {
         coneEnabled: this.packed_visibility_cone_enabled,
         meshletWorkCandidateCapacity: this.packed_meshlet_work_candidate_capacity,
         meshletWorkCompactionPath: this.packed_meshlet_work_compaction,
-        previousHzb: this.packed_visibility_hzb_enabled
-          ? packedPreviousHzb(hzb, view.gpu_previous_camera_state.view_projection_matrix)
-          : null,
+        previousHzb:
+          this.packed_visibility_hzb_enabled &&
+          runtime.virtualGeometry !== null &&
+          this.packed_visibility_current_hzb_late_recheck_enabled
+            ? packedPreviousHzb(hzb, view.gpu_previous_camera_state.view_projection_matrix)
+            : null,
         demandFrameRevisionLow: frameIndex >>> 0,
         streamingRuntime: streaming ?? undefined,
         demandFrameIndex: frameIndex,
@@ -2177,8 +2188,7 @@ export class Renderer {
       );
       this._lastFrameGraph = Object.freeze({
         cacheKey: graphKey,
-        dump: compiled.dump(),
-        resources: summarizeFrameGraphResources(compiled),
+        compiled,
         program: {
           products: program.products,
           facts: program.facts,
@@ -2232,8 +2242,9 @@ export class Renderer {
       this._temporal.markProduced("color");
       this._temporal.markProduced("identity");
       view.finish_frame(command, frameIndex);
-      command.onFinished.addOne(() => this._previousViewMatrices.set(view, currentViewMatrix));
-      command.onFinished.addOne(() => { this._temporalResetPending = false; });
+      command.onFinished.addOne(() => {
+        this._temporalResetPending = false;
+      });
       this._profiler.measure("submit", () => this._frameCoordinator.submitFrame(frame));
       this._fsr3.commit(command.gpuDone);
       this._temporalFacts.commit(command.gpuDone);
@@ -2326,8 +2337,7 @@ export class Renderer {
       });
       this._lastFrameGraph = Object.freeze({
         cacheKey: graphKey,
-        dump: compiled.dump(),
-        resources: summarizeFrameGraphResources(compiled),
+        compiled,
         program: {
           products: program.products,
           facts: program.facts,

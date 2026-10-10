@@ -47,8 +47,8 @@ export interface NativeSurfaceFrame {
   readonly output?: GPUTexture;
   readonly visibility: GPUTexture;
   readonly depth: GPUTexture;
-  /** Provider-owned, already pre-exposed working-color HDR. Only empty winners copy it. */
-  readonly background: GPUTexture;
+  /** Optional provider-owned pre-exposed HDR initialization image. Default is black. */
+  readonly background?: GPUTexture;
   readonly geometry: NativeSurfaceGeometry;
   readonly publication: GpuNativeMaterialPublication;
   /** Lighting group entries use native_surface.ts bindings 0..11, including real AO and VSM. */
@@ -66,7 +66,6 @@ export interface NativeSurfaceGraphProducts {
 }
 
 interface RouteState {
-  readonly route: NativeSurfaceRoute;
   readonly pipeline: GPUComputePipeline;
   readonly groups: readonly GPUBindGroup[];
   readonly constants: GPUBuffer;
@@ -90,7 +89,8 @@ interface ExtentState {
   readonly generationSource?: GPUBuffer;
   readonly routes: RouteState[];
   readonly identity: readonly unknown[];
-  readonly backgroundGroup: GPUBindGroup;
+  readonly background: GPUTexture | undefined;
+  readonly reactive: GPUTexture | undefined;
   readonly binBindings: NativeExecutionBinsBindings | null;
 }
 
@@ -126,8 +126,6 @@ export class SurfaceV4 {
   private neutralEntries: readonly GPUBindGroupEntry[] | null = null;
   private neutralBuffers: readonly GPUBuffer[] = [];
   private neutralTextures: readonly GPUTexture[] = [];
-  private readonly backgroundLayout: GPUBindGroupLayout;
-  private backgroundPipeline: GPUComputePipeline | null = null;
   private state: ExtentState | null = null;
   private preparedState: ExtentState | null = null;
   private prepared = false;
@@ -144,57 +142,7 @@ export class SurfaceV4 {
     private readonly reactive = false,
     private readonly graphics?: GraphicsContext,
   ) {
-    this.backgroundLayout = device.createBindGroupLayout({
-      label: "SurfaceV4/background layout",
-      entries: [
-        { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } },
-        { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "unfilterable-float" } },
-        {
-          binding: 2,
-          visibility: GPUShaderStage.COMPUTE,
-          storageTexture: { format: "rgba16float", access: "write-only" },
-        },
-        ...(reactive
-          ? [
-              {
-                binding: 3,
-                visibility: GPUShaderStage.COMPUTE,
-                storageTexture: { format: "rgba8unorm" as const, access: "write-only" as const },
-              },
-            ]
-          : []),
-      ],
-    });
-    this.ready = device
-      .createComputePipelineAsync({
-        label: "SurfaceV4/background empty winner writer",
-        layout: device.createPipelineLayout({ bindGroupLayouts: [this.backgroundLayout] }),
-        compute: {
-          module: device.createShaderModule({
-            code: /* wgsl */ `
-@group(0) @binding(0) var visibility: texture_2d<u32>;
-@group(0) @binding(1) var background: texture_2d<f32>;
-@group(0) @binding(2) var hdr: texture_storage_2d<rgba16float, write>;
-${reactive ? "@group(0) @binding(3) var reactive: texture_storage_2d<rgba8unorm, write>;" : ""}
-@compute @workgroup_size(8, 8)
-fn main(@builtin(global_invocation_id) id: vec3u) {
-  if any(id.xy >= textureDimensions(visibility)) { return; }
-  if textureLoad(visibility, vec2i(id.xy), 0).r != 0xffffffffu { return; }
-  textureStore(hdr, vec2i(id.xy), textureLoad(background, vec2i(id.xy), 0));
-  ${reactive ? "textureStore(reactive, vec2i(id.xy), vec4f(0.0));" : ""}
-}
-`,
-          }),
-          entryPoint: "main",
-        },
-      })
-      .then((pipeline) => {
-        if (this.destroyed) {
-          throw new Error("SurfaceV4 stopped before pipeline readiness");
-        }
-        this.backgroundPipeline = pipeline;
-      });
-    void this.ready.catch(() => undefined);
+    this.ready = Promise.resolve();
     void device.lost.then(() => this.destroy());
   }
 
@@ -278,7 +226,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   }
 
   canPrepareFrame(): boolean {
-    return !this.destroyed && !this.prepared && !this.preparing && this.backgroundPipeline !== null;
+    return !this.destroyed && !this.prepared && !this.preparing;
   }
 
   async prepareFrame(frame: NativeSurfaceFrame): Promise<void> {
@@ -319,35 +267,12 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       throw new Error("SurfaceV4 is stopped or already prepared");
     }
     this.validate(frame);
-    const snapshotEntries = (entries: readonly GPUBindGroupEntry[]): readonly GPUBindGroupEntry[] =>
-      entries.map((entry) => {
-        const resource = entry.resource as GPUBufferBinding;
-        return { ...entry, resource: resource.buffer === undefined ? entry.resource : { ...resource } };
-      });
-    frame = {
-      ...frame,
-      cameraPosition: [...frame.cameraPosition],
-      viewMatrix: Array.from(frame.viewMatrix),
-      geometry: {
-        ...frame.geometry,
-        source: [...frame.geometry.source],
-        sourcePayload: [...frame.geometry.sourcePayload],
-        ...(frame.geometry.productBanks ? { productBanks: [...frame.geometry.productBanks] } : {}),
-      },
-      lightingEntries: snapshotEntries(frame.lightingEntries),
-      routes: frame.routes.map((route) => ({
-        ...route,
-        frameInputs: route.frameInputs.slice(),
-        materialEntries: snapshotEntries(route.materialEntries),
-      })),
-    };
+    // Synchronous preparation consumes descriptors and uploads numeric values
+    // before returning. No CPU descriptor is retained by a GPU consumer.
     this.preparing = true;
     const epoch = ++this.prepareEpoch;
     let candidate: ExtentState | null = null;
     try {
-      if (this.backgroundPipeline === null) {
-        throw new Error("SurfaceV4 pipelines must be admitted before encoding");
-      }
       if (this.destroyed || epoch !== this.prepareEpoch) {
         throw new Error("SurfaceV4 prepare was superseded");
       }
@@ -430,6 +355,22 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   }
 
   private validate(frame: NativeSurfaceFrame): void {
+    if (frame.output !== undefined) {
+      const required =
+        GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT;
+      if (
+        frame.output.width !== frame.width ||
+        frame.output.height !== frame.height ||
+        frame.output.depthOrArrayLayers !== 1 ||
+        frame.output.format !== "rgba16float" ||
+        (frame.output.usage & required) !== required ||
+        frame.output === frame.background
+      ) {
+        throw new RangeError(
+          "SurfaceV4 HDR output requires the complete initialization/write profile and a distinct source",
+        );
+      }
+    }
     if (this.reactive !== (frame.reactive !== undefined)) {
       throw new Error("SurfaceV4 demanded reactive profile must match its physical outputs");
     }
@@ -468,7 +409,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     for (const image of [
       frame.visibility,
       frame.depth,
-      frame.background,
+      ...(frame.background ? [frame.background] : []),
       ...(frame.reactive ? [frame.reactive] : []),
     ]) {
       if (image.width !== frame.width || image.height !== frame.height || image.depthOrArrayLayers !== 1) {
@@ -478,18 +419,25 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     if (
       frame.visibility.format !== "r32uint" ||
       frame.depth.format !== "depth32float" ||
-      /uint$|sint$|^depth|^stencil/.test(frame.background.format) ||
+      (frame.background && frame.background.format !== "rgba16float") ||
       (frame.reactive && frame.reactive.format !== "rgba8unorm")
     ) {
       throw new RangeError("Native Surface winner/Aux formats violate their consumer contract");
     }
-    for (const image of [frame.visibility, frame.depth, frame.background]) {
+    for (const image of [frame.visibility, frame.depth]) {
       if ((image.usage & GPUTextureUsage.TEXTURE_BINDING) === 0) {
         throw new RangeError("SurfaceV4 sampled input products require TEXTURE_BINDING usage");
       }
     }
-    if (frame.reactive !== undefined && (frame.reactive.usage & GPUTextureUsage.STORAGE_BINDING) === 0) {
-      throw new RangeError("SurfaceV4 reactive product requires STORAGE_BINDING usage");
+    if (frame.background && (frame.background.usage & GPUTextureUsage.COPY_SRC) === 0) {
+      throw new RangeError("SurfaceV4 background initialization image requires COPY_SRC usage");
+    }
+    if (
+      frame.reactive !== undefined &&
+      (frame.reactive.usage & (GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT)) !==
+        (GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT)
+    ) {
+      throw new RangeError("SurfaceV4 reactive product requires STORAGE_BINDING and RENDER_ATTACHMENT usage");
     }
     const geometry = frame.geometry;
     if (
@@ -809,7 +757,12 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
           label: "SurfaceV4/HDR",
           size: [frame.width, frame.height],
           format: "rgba16float",
-          usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
+          usage:
+            GPUTextureUsage.STORAGE_BINDING |
+            GPUTextureUsage.TEXTURE_BINDING |
+            GPUTextureUsage.COPY_SRC |
+            GPUTextureUsage.COPY_DST |
+            GPUTextureUsage.RENDER_ATTACHMENT,
         });
       if (continuation) {
         finalHdr =
@@ -853,15 +806,6 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
           geometryEntries.push({ binding: 11 + index, resource: { buffer: bank } }),
         );
       }
-      const backgroundGroup = this.bindGroups.create(this.device, {
-        layout: this.backgroundLayout,
-        entries: [
-          { binding: 0, resource: createNativeTextureView(frame.visibility) },
-          { binding: 1, resource: createNativeTextureView(frame.background) },
-          { binding: 2, resource: createNativeTextureView(hdr) },
-          ...(frame.reactive ? [{ binding: 3, resource: createNativeTextureView(frame.reactive) }] : []),
-        ],
-      });
       const lightingEntries = [
         ...frame.lightingEntries.filter((entry) => entry.binding !== 4),
         { binding: 4, resource: { buffer: shadingView } },
@@ -933,7 +877,6 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
                 ],
               };
         routes.push({
-          route,
           pipeline: pipeline.pipeline,
           groups,
           constants,
@@ -986,7 +929,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         resources,
         routes,
         identity,
-        backgroundGroup,
+        background: frame.background,
+        reactive: frame.reactive,
         binBindings,
       };
     } catch (error) {
@@ -1013,7 +957,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   }
 
   encode(encoder: GPUCommandEncoder): void {
-    if (!this.prepared || this.encoded || this.preparedState === null || this.backgroundPipeline === null) {
+    if (!this.prepared || this.encoded || this.preparedState === null) {
       throw new Error("SurfaceV4 requires one encoding of a prepared frame");
     }
     const state = this.preparedState;
@@ -1039,10 +983,37 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     if (state.binBindings !== null) {
       state.bins.encode(encoder, state.binBindings);
     }
-    const pass = encoder.beginComputePass({ label: "SurfaceV4/native opaque + background" });
-    pass.setPipeline(this.backgroundPipeline);
-    pass.setBindGroup(0, state.backgroundGroup);
-    pass.dispatchWorkgroups(Math.ceil(state.width / 8), Math.ceil(state.height / 8));
+    const target = state.initialHdr ?? state.hdr;
+    const attachments: GPURenderPassColorAttachment[] = [];
+    if (state.background !== undefined) {
+      encoder.copyTextureToTexture({ texture: state.background }, { texture: target }, [
+        state.width,
+        state.height,
+      ]);
+    } else {
+      attachments.push({
+        view: createNativeTextureView(target),
+        loadOp: "clear",
+        storeOp: "store",
+        clearValue: { r: 0, g: 0, b: 0, a: 1 },
+      });
+    }
+    if (state.reactive !== undefined) {
+      attachments.push({
+        view: createNativeTextureView(state.reactive),
+        loadOp: "clear",
+        storeOp: "store",
+        clearValue: { r: 0, g: 0, b: 0, a: 0 },
+      });
+    }
+    if (attachments.length !== 0) {
+      const initialize = encoder.beginRenderPass({
+        label: "SurfaceV4/HDR and Aux initialization",
+        colorAttachments: attachments,
+      });
+      initialize.end();
+    }
+    const pass = encoder.beginComputePass({ label: "SurfaceV4/native winner shading" });
     for (const [bin, route] of state.routes.entries()) {
       pass.setPipeline(route.pipeline);
       route.groups.forEach((group, index) => pass.setBindGroup(index, group));
@@ -1234,6 +1205,5 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       this.state = null;
       this.retire(state);
     }
-    this.backgroundPipeline = null;
   }
 }

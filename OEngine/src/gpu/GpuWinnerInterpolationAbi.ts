@@ -26,13 +26,15 @@ const WINNER_DY_VALID: u32 = ${WINNER_INTERPOLATION_FLAGS.dy}u;
  * interpolation read these exact clip positions. Triangles contain 3 local u8
  * indices; original corner order is preserved, including mirrored instances.
  * The owner retains all buffers until the last frame consumer completes. */
-export const FRAME_GEOMETRY_MESHLET_STRIDE = 16;
+export const FRAME_GEOMETRY_MESHLET_STRIDE = 24;
 export const FRAME_GEOMETRY_WGSL = /* wgsl */ `
 struct FrameGeometryMeshlet {
   vertex_base: u32,
   triangle_base: u32,
   vertex_count: u32,
   triangle_count: u32,
+  resident_address: u32,
+  vertex_indices: u32,
 }
 struct FrameGeometryDirectory {
   work_count: u32,

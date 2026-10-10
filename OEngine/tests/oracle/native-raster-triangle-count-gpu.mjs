@@ -19,18 +19,18 @@ export async function runNativeRasterTriangleCountGpuOracle(device) {
   queue.set([counts.length, counts.length, 0, counts.length, 0, 7, 0, 0]);
   counts.forEach((_, i) => queue.set([0, 0, 0, 0, 128 | (i % 2 ? 16 : 0), 0], 8 + i * 6));
   const work = buffer(queue),
-    material = buffer(new Uint32Array([0, 0, 0, 0]));
-  const metadata = new Uint32Array(16 + 4 + counts.length * 4);
+    material = buffer(new Uint32Array([0, 0, 0, 1]));
+  const metadata = new Uint32Array(16 + 4 + counts.length * 6);
   metadata[0] = FRAME_GEOMETRY_ARENA_VERSION;
   metadata[4] = 16;
   metadata[5] = 16;
   metadata.set([counts.length, 7, 0, 0], 16);
-  counts.forEach((count, i) => metadata.set([0, 0, i === 7 ? 0 : 128, count], 20 + i * 4));
+  counts.forEach((count, i) => metadata.set([0, 0, i === 7 ? 0 : 128, count], 20 + i * 6));
   const arena = buffer(metadata);
   const owner = new NativeRasterWorkPartitions(device, {
     work,
     metadata: arena,
-    publication: { directory: material, bins: [{}] },
+    publication: { rasterDirectory: material, rasterClasses: [{}] },
     capacity: counts.length,
     meshletWordBase: 0,
     frameGeometryHeader: 0,

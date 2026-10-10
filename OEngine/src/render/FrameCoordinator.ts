@@ -2,6 +2,7 @@ import type { GraphicsContext } from "../gpu/GraphicsContext.js";
 import { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 
 export interface FrameEncoding {
+  readonly slotIndex: number;
   readonly frameIndex: number;
   readonly command: ShadeGPUCommandContext;
 }
@@ -14,6 +15,8 @@ export interface FrameExecutionEvidence {
 }
 
 type FrameCommandFactory = (graphics: GraphicsContext, label: string) => ShadeGPUCommandContext;
+export type FrameAdmissionProfile = "latency" | "throughput";
+const FRAME_ADMISSION_LIMITS = Object.freeze({ latency: 2, throughput: 3 });
 
 /**
  * Owns the only command context that may submit work for a render tick.
@@ -23,6 +26,8 @@ export class FrameCoordinator {
   private active: FrameEncoding | null = null;
   private destroyed = false;
   private readonly inFlight = new Set<FrameEncoding>();
+  private readonly slots: (FrameEncoding | null)[] = [null, null, null];
+  private profile: FrameAdmissionProfile = "latency";
   private submittedCount = 0;
   private completedCount = 0;
   private failedCompletionCount = 0;
@@ -40,7 +45,9 @@ export class FrameCoordinator {
       completedCount: this.completedCount,
       failedCompletionCount: this.failedCompletionCount,
       inFlight: this.inFlight.size,
-      inFlightLimit: 2,
+      inFlightLimit: FRAME_ADMISSION_LIMITS[this.profile],
+      admissionProfile: this.profile,
+      frameContextCapacity: this.slots.length,
       completionSamples: Object.freeze(this.completionSamples.slice()),
     });
   }
@@ -48,7 +55,19 @@ export class FrameCoordinator {
   /** Queue-completion backpressure bounds fence-retained transient resources.
    * This observes completion only; it never reads GPU work/visibility data. */
   get canBeginFrame(): boolean {
-    return !this.destroyed && this.active === null && this.inFlight.size < 2;
+    return (
+      !this.destroyed && this.active === null && this.inFlight.size < FRAME_ADMISSION_LIMITS[this.profile]
+    );
+  }
+
+  get admissionProfile(): FrameAdmissionProfile {
+    return this.profile;
+  }
+  set admissionProfile(profile: FrameAdmissionProfile) {
+    if (!Object.hasOwn(FRAME_ADMISSION_LIMITS, profile))
+      throw new RangeError("Unknown frame admission profile");
+    if (this.active !== null) throw new Error("Cannot change admission during frame encoding");
+    this.profile = profile;
   }
 
   constructor(
@@ -68,49 +87,40 @@ export class FrameCoordinator {
     if (submitLabel.length === 0) {
       throw new Error("render-frame submit label must not be empty");
     }
+    const slotIndex = this.slots.findIndex((slot) => slot === null);
+    if (slotIndex < 0) throw new Error("Bounded frame context capacity is exhausted");
     const frame: FrameEncoding = {
+      slotIndex,
       frameIndex,
       command: this.createCommand(this.graphics, submitLabel),
     };
+    this.slots[frame.slotIndex] = frame;
     this.active = frame;
     return frame;
   }
 
   submitFrame(frame: FrameEncoding): FrameExecutionEvidence {
     this.assertActive(frame);
+    const profiled = this.graphics.profiler?.enabled ?? false;
     try {
-      const profiled = this.graphics.profiler?.enabled ?? false;
       frame.command.finish();
-      const startedAt = frame.command.submittedAtMs ?? performance.now();
-      this.submittedCount++;
-      this.inFlight.add(frame);
-      const completed = () => {
-        this.inFlight.delete(frame);
-        if (this.destroyed) return;
-        this.completedCount++;
-        this.completionSamples.push(Object.freeze({
-          frameIndex: frame.frameIndex,
-          elapsedMs: performance.now() - startedAt,
-          profiled,
-        }));
-        if (this.completionSamples.length > 600) this.completionSamples.shift();
-      };
-      void frame.command.gpuDone.then(completed, () => {
-        this.inFlight.delete(frame);
-        if (!this.destroyed) this.failedCompletionCount++;
-      });
+      this.retainSubmittedFrame(frame, profiled);
     } catch (cause) {
-      if (!frame.command.closed) {
-        try {
-          frame.command.abort(cause);
-        } catch (abortError) {
-          console.error("Frame abort failed after submit error", abortError);
+      // Publication may throw after queue submission. Such a frame still owns
+      // its admission slot until the captured GPU fence settles.
+      if (frame.command.wasSubmitted) this.retainSubmittedFrame(frame, profiled);
+      else {
+        this.slots[frame.slotIndex] = null;
+        if (!frame.command.closed) {
+          try {
+            frame.command.abort(cause);
+          } catch (abortError) {
+            console.error("Frame abort failed after submit error", abortError);
+          }
         }
       }
       throw cause;
     } finally {
-      // ShadeGPUCommandContext may have already closed itself while finish
-      // threw. The coordinator must never retain that dead active frame.
       this.active = null;
     }
     return {
@@ -121,9 +131,36 @@ export class FrameCoordinator {
     };
   }
 
+  private retainSubmittedFrame(frame: FrameEncoding, profiled: boolean): void {
+    if (this.inFlight.has(frame)) return;
+    const startedAt = frame.command.submittedAtMs ?? performance.now();
+    this.submittedCount++;
+    this.inFlight.add(frame);
+    const completed = () => {
+      this.inFlight.delete(frame);
+      if (this.slots[frame.slotIndex] === frame) this.slots[frame.slotIndex] = null;
+      if (this.destroyed) return;
+      this.completedCount++;
+      this.completionSamples.push(
+        Object.freeze({
+          frameIndex: frame.frameIndex,
+          elapsedMs: performance.now() - startedAt,
+          profiled,
+        }),
+      );
+      if (this.completionSamples.length > 600) this.completionSamples.shift();
+    };
+    void frame.command.gpuDone.then(completed, () => {
+      this.inFlight.delete(frame);
+      if (this.slots[frame.slotIndex] === frame) this.slots[frame.slotIndex] = null;
+      if (!this.destroyed) this.failedCompletionCount++;
+    });
+  }
+
   abortFrame(frame: FrameEncoding, cause: unknown): void {
     this.assertActive(frame);
     this.active = null;
+    this.slots[frame.slotIndex] = null;
     frame.command.abort(cause);
   }
 
@@ -136,6 +173,7 @@ export class FrameCoordinator {
     }
     this.destroyed = true;
     this.inFlight.clear();
+    this.slots.fill(null);
   }
 
   private assertActive(frame: FrameEncoding): void {

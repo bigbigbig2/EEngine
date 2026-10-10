@@ -33,7 +33,13 @@ interface State {
   readonly buffers: readonly GPUBuffer[];
   readonly handles: readonly ResourceHandle[];
 }
-const ENTRIES = ["frame_vertices_begin", "frame_vertices_build", "frame_vertices_finalize"] as const;
+const ENTRIES = [
+  "frame_vertices_begin",
+  "frame_vertices_build",
+  "frame_vertices_finalize",
+  "frame_vertices_recovery_begin",
+  "frame_vertices_recovery_build",
+] as const;
 
 /** Device owner for selected frame geometry preparation; publication awaits
  * asynchronous PSOs. Arena storage is borrowed and owned/accounted separately. */
@@ -43,6 +49,8 @@ export class FrameGeometryVertices {
   private readonly layouts: readonly GPUBindGroupLayout[];
   private readonly publicationLayout: GPUBindGroupLayout;
   private readonly indirectLayout: GPUBindGroupLayout;
+  private readonly recoveryLayout: GPUBindGroupLayout;
+  private readonly recoveryGroups = new WeakMap<GPUBuffer, GPUBindGroup>();
   private pipelines: readonly (readonly GPUComputePipeline[])[] | null = null;
   private destroyed = false;
   constructor(
@@ -55,14 +63,14 @@ export class FrameGeometryVertices {
       throw new RangeError("Invalid frame vertex owner budget");
     const l = device.limits;
     if (
-      l.maxStorageBuffersPerShaderStage < 15 ||
-      l.maxBindingsPerBindGroup < 18 ||
-      l.maxBindGroups < 2 ||
+      l.maxStorageBuffersPerShaderStage < 14 ||
+      l.maxBindingsPerBindGroup < 17 ||
+      l.maxBindGroups < 3 ||
       l.maxComputeInvocationsPerWorkgroup < FRAME_VERTEX_WORKGROUP_SIZE ||
       l.maxComputeWorkgroupSizeX < FRAME_VERTEX_WORKGROUP_SIZE
     ) {
       throw new RangeError(
-        "Frame vertices require fifteen storage bindings for mixed ordinary/Product geometry and 128 lanes",
+        "Frame vertices require fourteen storage bindings for mixed ordinary/Product geometry and 128 lanes",
       );
     }
     const entry = (binding: number, type: GPUBufferBindingType): GPUBindGroupLayoutEntry => ({
@@ -83,7 +91,7 @@ export class FrameGeometryVertices {
           ...[1, 2, 3, 7, ...(product ? [8, 9, 10, 11, 12] : [])].map((binding) =>
             entry(binding, "read-only-storage"),
           ),
-          ...[13, 14, 15, 16, 17].map((binding) => entry(binding, "storage")),
+          ...[13, 14, 15, 16].map((binding) => entry(binding, "storage")),
         ],
       }),
     );
@@ -91,6 +99,8 @@ export class FrameGeometryVertices {
       entries: [uniform, entry(2, "read-only-storage"), entry(13, "storage"), entry(16, "storage")],
     });
     this.indirectLayout = device.createBindGroupLayout({ entries: [entry(0, "storage")] });
+    this.recoveryLayout = device.createBindGroupLayout({ entries: [entry(0, "read-only-storage")] });
+    const empty = device.createBindGroupLayout({ entries: [] });
     const beginLayout = device.createPipelineLayout({
       bindGroupLayouts: [this.publicationLayout, this.indirectLayout],
     });
@@ -110,11 +120,17 @@ export class FrameGeometryVertices {
           );
         }
         const buildLayout = device.createPipelineLayout({ bindGroupLayouts: [this.layouts[profile]!] });
+        const recoveryBegin = device.createPipelineLayout({
+          bindGroupLayouts: [this.publicationLayout, this.indirectLayout, this.recoveryLayout],
+        });
+        const recoveryBuild = device.createPipelineLayout({
+          bindGroupLayouts: [this.layouts[profile]!, empty, this.recoveryLayout],
+        });
         return Promise.all(
           ENTRIES.map((entryPoint, i) =>
             device.createComputePipelineAsync({
               label: `Geometry/${entryPoint}/${product}`,
-              layout: i === 0 ? beginLayout : i === 1 ? buildLayout : finalizeLayout,
+              layout: [beginLayout, buildLayout, finalizeLayout, recoveryBegin, recoveryBuild][i]!,
               compute: { module, entryPoint },
             }),
           ),
@@ -144,8 +160,11 @@ export class FrameGeometryVertices {
     const { arena, instances, work, assets } = input,
       product = input.product !== undefined,
       l = this.device.limits;
-    const fixedBytes = FRAME_VERTEX_SETTINGS_SIZE + FRAME_VERTEX_CONTROL_SIZE + 32 + ((arena.budget.filteredWorkCapacity ?? 0) > 0 ? 16 : 0);
-    const attributeCapacity = arena.layout.attributeCapacity;
+    const fixedBytes =
+      FRAME_VERTEX_SETTINGS_SIZE +
+      FRAME_VERTEX_CONTROL_SIZE +
+      32 +
+      ((arena.budget.filteredWorkCapacity ?? 0) > 0 ? 16 : 0);
     if (
       arena.budget.workCapacity > l.maxComputeWorkgroupsPerDimension ** 2 ||
       work.size <
@@ -170,7 +189,7 @@ export class FrameGeometryVertices {
     ] as [string, GPUBuffer][]) {
       gpuStorageRange(b, l, 4, `Frame vertex ${name}`);
     }
-    requireDisjointStorageRanges([], [arena.sourceDirectory, arena.clips, arena.triangles, arena.attributes]);
+    requireDisjointStorageRanges([], [arena.sourceDirectory, arena.clips, arena.triangles]);
     const buffers: GPUBuffer[] = [],
       handles: ResourceHandle[] = [];
     const make = (label: string, size: number, usage: GPUBufferUsageFlags) => {
@@ -216,7 +235,7 @@ export class FrameGeometryVertices {
             )
           : rasterSettings;
       const addressing = (directory: number) =>
-        new Uint32Array([directory / 4, arena.clips.offset / 4, arena.triangles.offset / 4, arena.attributes.offset / 4]);
+        new Uint32Array([directory / 4, arena.clips.offset / 4, arena.triangles.offset / 4, 0]);
       writeGpuBuffer(
         this.device.queue,
         "Geometry/frame-raster-addressing",
@@ -239,7 +258,7 @@ export class FrameGeometryVertices {
         0,
         new Uint32Array([
           arena.budget.workCapacity,
-          attributeCapacity,
+          arena.budget.vertexCapacity,
           arena.budget.triangleCapacity,
           l.maxComputeWorkgroupsPerDimension,
           0,
@@ -261,7 +280,6 @@ export class FrameGeometryVertices {
         { binding: 14, resource: arena.clips },
         { binding: 15, resource: arena.triangles },
         { binding: 16, resource: { buffer: control } },
-        { binding: 17, resource: arena.attributes },
       ];
       const group = this.device.createBindGroup({
         layout: this.layouts[product ? 1 : 0]!,
@@ -320,7 +338,7 @@ export class FrameGeometryVertices {
   encode(encoder: GPUCommandEncoder, p: PreparedFrameVertices): void {
     const pipelines = this.requireReady(),
       s = this.require(p);
-    for (let stage = 0; stage < ENTRIES.length; stage++) {
+    for (let stage = 0; stage < 3; stage++) {
       const pass = encoder.beginComputePass({ label: `Geometry/${ENTRIES[stage]}` });
       pass.setPipeline(pipelines[s.product ? 1 : 0]![stage]!);
       pass.setBindGroup(0, stage === 1 ? s.group : s.publicationGroup);
@@ -328,6 +346,31 @@ export class FrameGeometryVertices {
         pass.setBindGroup(1, s.indirectGroup);
         pass.dispatchWorkgroups(1);
       } else if (stage === 1) pass.dispatchWorkgroupsIndirect(s.indirect, 0);
+      else pass.dispatchWorkgroups(1);
+      pass.end();
+    }
+  }
+  encodeRecovery(encoder: GPUCommandEncoder, p: PreparedFrameVertices, deferred: GPUBuffer): void {
+    const pipelines = this.requireReady(),
+      s = this.require(p);
+    gpuStorageRange(deferred, this.device.limits, 36, "Frame geometry recovery indices");
+    let group = this.recoveryGroups.get(deferred);
+    if (!group) {
+      group = this.device.createBindGroup({
+        layout: this.recoveryLayout,
+        entries: [{ binding: 0, resource: { buffer: deferred } }],
+      });
+      this.recoveryGroups.set(deferred, group);
+    }
+    for (const stage of [3, 4, 2]) {
+      const pass = encoder.beginComputePass({ label: `Geometry/${ENTRIES[stage]}` });
+      pass.setPipeline(pipelines[s.product ? 1 : 0]![stage]!);
+      pass.setBindGroup(0, stage === 4 ? s.group : s.publicationGroup);
+      if (stage !== 2) pass.setBindGroup(2, group);
+      if (stage === 3) {
+        pass.setBindGroup(1, s.indirectGroup);
+        pass.dispatchWorkgroups(1);
+      } else if (stage === 4) pass.dispatchWorkgroupsIndirect(s.indirect, 0);
       else pass.dispatchWorkgroups(1);
       pass.end();
     }

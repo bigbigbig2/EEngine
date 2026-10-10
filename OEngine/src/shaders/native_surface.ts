@@ -1,4 +1,8 @@
 import type { NativeMaterialProgram } from "./native_material.js";
+import {
+  selectAppearanceProductProgram,
+  type CompiledAppearanceGraph,
+} from "../material/AppearanceGraphCompiler.js";
 import type { AppearanceProgramDescriptor } from "../gpu/AppearanceProgramRegistry.js";
 import { NATIVE_MATERIAL_DIRECTORY_WGSL } from "../gpu/GpuNativeMaterialPublication.js";
 import { surfaceGeometryCompletionWgsl } from "./surface_geometry_completion.js";
@@ -22,6 +26,48 @@ export interface NativeSurfaceShaderProfile {
 }
 
 export const NATIVE_SURFACE_SETTINGS_BYTES = 144;
+const SURFACE_GRAPHS = new WeakMap<CompiledAppearanceGraph, Map<boolean, CompiledAppearanceGraph>>();
+
+/** Native Surface consumes radiance inputs only. Alpha belongs to the independent
+ * coverage raster program; retaining it here would issue samples with no consumer. */
+export function nativeSurfaceMaterialGraph(
+  graph: CompiledAppearanceGraph,
+  unlit: boolean,
+): CompiledAppearanceGraph {
+  let variants = SURFACE_GRAPHS.get(graph);
+  const cached = variants?.get(unlit);
+  if (cached) return cached;
+  const consumed = new Set(
+    unlit
+      ? ["baseColor"]
+      : [
+          "baseColor",
+          "metallic",
+          "roughness",
+          "occlusion",
+          "ior",
+          "specularWeight",
+          "specularColor",
+          "emissive",
+          "coatWeight",
+          "coatRoughness",
+          "coatNormalTS",
+          "coatNormalTSValidity",
+          "normalTS",
+          "normalTSValidity",
+        ],
+  );
+  const selected = selectAppearanceProductProgram(
+    graph,
+    Object.fromEntries(Object.entries(graph.outputs).filter(([name]) => consumed.has(name))),
+  );
+  if (!variants) {
+    variants = new Map();
+    SURFACE_GRAPHS.set(graph, variants);
+  }
+  variants.set(unlit, selected);
+  return selected;
+}
 
 const COMPUTE = 4;
 const read = (binding: number): GPUBindGroupLayoutEntry => ({
@@ -46,6 +92,19 @@ export function nativeSurfaceDescriptor(
   materialLayout: readonly GPUBindGroupLayoutEntry[],
   profile: NativeSurfaceShaderProfile,
 ): AppearanceProgramDescriptor {
+  return {
+    source: nativeSurfaceWgsl(program, profile),
+    entryPoint: "main",
+    workgroupSize: 64,
+    groups: nativeSurfaceBindingGroups(materialLayout, profile),
+  };
+}
+
+/** Layout planning never generates the large shader. */
+export function nativeSurfaceBindingGroups(
+  materialLayout: readonly GPUBindGroupLayoutEntry[],
+  profile: NativeSurfaceShaderProfile,
+): readonly (readonly GPUBindGroupLayoutEntry[])[] {
   if (profile.additiveSun && (!profile.physicalSun || profile.unlit || profile.reactive)) {
     throw new RangeError("Native sun continuation requires a lit sun profile without a second Aux writer");
   }
@@ -100,19 +159,14 @@ export function nativeSurfaceDescriptor(
   if (profile.compact) {
     material.push(read(2));
   }
-  return {
-    source: nativeSurfaceWgsl(program, profile),
-    entryPoint: "main",
-    workgroupSize: 64,
-    groups: [
-      geometry,
-      profile.additiveSun
-        ? lighting.filter((entry) => [0, 8, 9, 10, 12, 13, 14].includes(entry.binding))
-        : lighting,
-      material,
-      materialLayout,
-    ],
-  };
+  return [
+    geometry,
+    profile.additiveSun
+      ? lighting.filter((entry) => [0, 8, 9, 10, 12, 13, 14].includes(entry.binding))
+      : lighting,
+    material,
+    materialLayout,
+  ];
 }
 
 /** Two finite physical plans, selected only by the complete negotiated binding
@@ -167,7 +221,7 @@ export function nativeSurfaceWgsl(
   program: NativeMaterialProgram,
   profile: NativeSurfaceShaderProfile,
 ): string {
-  let needs = (1 << 7) | (1 << 5) | (1 << 6);
+  let needs = profile.unlit ? 0 : (1 << 7) | (1 << 5) | (1 << 6);
   const inputs: string[] = [];
   program.inputs.forEach((input, index) => {
     let expression: string;
@@ -197,6 +251,11 @@ export function nativeSurfaceWgsl(
       );
     }
   });
+  // Tangent orthogonalization, normal orientation and view-direction fallback
+  // require normal/position even when only that derived input is authored.
+  if ((needs & ((1 << 5) | (1 << 6) | (1 << 8) | (1 << 11) | (1 << 12) | (1 << 14))) !== 0) {
+    needs |= (1 << 5) | (1 << 7);
+  }
   const scalar = (name: string, fallback: string): string => {
     const output = program.outputs[name];
     return output === undefined ? fallback : `values[${output[0]}u]`;
@@ -246,9 +305,12 @@ fn native_environment(material: StandardMaterial, normal: vec3f, direction: vec3
   let size = textureDimensions(environment_dfg);
   let dfg_pixel = vec2i(clamp(vec2f(saturate(dot(normal, direction)), material.roughness) * vec2f(size), vec2f(0.0), vec2f(size) - vec2f(1.0)));
   let dfg = textureLoad(environment_dfg, dfg_pixel, 0).xy;
-  let coat_radiance = sample_prefiltered_environment(environment_specular, reflect(-direction, material.coatNormal), material.coatRoughness);
+  var coat_radiance = vec3f(0.0);
+  if material.coatFactor > 0.0 {
+    coat_radiance = sample_prefiltered_environment(environment_specular, reflect(-direction, material.coatNormal), material.coatRoughness) * material.coatFactor * 0.04;
+  }
   let ao = textureLoad(ambient_occlusion, vec2i(min(pixel, textureDimensions(ambient_occlusion) - vec2u(1u))), 0).r * material.occlusion;
-  return irradiance * material.diffuse * RECIPROCAL_PI * ao + radiance * (material.specularF0 * dfg.x + vec3f(dfg.y)) + coat_radiance * material.coatFactor * 0.04;
+  return irradiance * material.diffuse * RECIPROCAL_PI * ao + radiance * (material.specularF0 * dfg.x + vec3f(dfg.y)) + coat_radiance;
 }
 `;
   const material = profile.unlit
@@ -280,12 +342,14 @@ fn native_environment(material: StandardMaterial, normal: vec3f, direction: vec3
   const pixelSelection = profile.compact
     ? /* wgsl */ `
   let record = route.x * 8u;
-  let work_index = (group.y * groups.x + group.x) * 64u + lane;
-  if work_index >= native_pixels[record + 1u] {
-    return;
-  }
-  let linear = native_pixels[native_pixels[record] + work_index];
-  let pixel = vec2u(linear % settings.dimensions.x, linear / settings.dimensions.x);
+  let work_index = group.y * groups.x + group.x;
+  if work_index >= native_tiles[record + 1u] { return; }
+  let address = native_tiles[record] + work_index * 3u;
+  let mask = native_tiles[address + 1u + lane / 32u];
+  if (mask & (1u << (lane % 32u))) == 0u { return; }
+  let tile = native_tiles[address] & 0x7fffffffu;
+  let tiles_x = (settings.dimensions.x + 7u) / 8u;
+  let pixel = vec2u((tile % tiles_x) * 8u + lane % 8u, (tile / tiles_x) * 8u + lane / 8u);
 `
     : "  let pixel = id.xy;";
   return /* wgsl */ `
@@ -313,7 +377,7 @@ ${reactiveDeclaration}
 ${productBindings}
 @group(2) @binding(0) var<storage, read> native_constants: array<f32>;
 @group(2) @binding(1) var<storage, read> native_directory: array<NativeMaterialDirectoryEntry>;
-${profile.compact ? "@group(2) @binding(2) var<storage, read> native_pixels: array<u32>;" : ""}
+${profile.compact ? "@group(2) @binding(2) var<storage, read> native_tiles: array<u32>;" : ""}
 @group(2) @binding(3) var<uniform> route: vec4u;
 @group(2) @binding(4) var<uniform> native_frame_inputs: array<vec4f, ${Math.max(program.inputCount, 1)}>;
 const geometry_needs: u32 = ${needs}u;

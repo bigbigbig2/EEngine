@@ -20,13 +20,13 @@ test("arena reserves admitted work with bounded headroom, rather than filling th
   assert.equal(tiny.triangleCapacity, 384);
   const layout = frameGeometryArenaLayout(236, tiny, limits);
   assert.ok(layout.byteLength < 64 * 1024);
-  assert.equal(layout.attributeCapacity, tiny.vertexCapacity);
-  assert.equal(layout.attributes.size, tiny.vertexCapacity * 88);
+  assert.equal(layout.clips.size, tiny.vertexCapacity * 16);
+  assert.equal(layout.triangles.size, tiny.triangleCapacity * 4);
   assert.equal(layout.filteredDirectory, layout.sourceDirectory);
   const large = frameGeometryArenaBudgetForWork(1 << 20, 1 << 20);
   assert.equal(large.vertexCapacity, 1 << 20);
   const capped = frameGeometryArenaLayout(236, large, limits);
-  assert.ok(capped.attributeCapacity < large.vertexCapacity);
+  assert.equal(capped.clips.size, large.vertexCapacity * 16);
   assert.ok(capped.byteLength <= 128 * 1024 * 1024);
   assert.throws(() => frameGeometryArenaBudgetForWork(0, 0), /admitted/);
   assert.throws(() => frameGeometryArenaBudgetForWork(1, 2), /admitted/);
@@ -103,7 +103,7 @@ test("arena layout retains raw metadata offsets and budgets physical gaps and bo
     assert.equal(layout.byteLength, end);
     assert.equal(layout.metadataBytes, 236);
     const header = frameGeometryArenaHeader(layout, budget);
-    assert.deepEqual(Array.from(header.slice(0, 4)), [5, 3, 9, 3]);
+    assert.deepEqual(Array.from(header.slice(0, 4)), [7, 3, 9, 3]);
     assert.equal(header[4] * 4, layout.sourceDirectory.offset);
     assert.equal(header[5] * 4, layout.filteredDirectory.offset);
     assert.deepEqual(
@@ -120,7 +120,7 @@ test("views without late HZB allocate no second directory; filtered queues have 
   assert.ok(direct.byteLength < full.byteLength);
   assert.equal(frameGeometryArenaHeader(direct, { ...budget, filteredWorkCapacity: 0 })[13], 0);
   const partial = frameGeometryArenaLayout(236, { ...budget, filteredWorkCapacity: 1 }, limits);
-  assert.equal(partial.filteredDirectory.size, 32);
+  assert.equal(partial.filteredDirectory.size, 40);
   assert.throws(
     () => frameGeometryArenaLayout(236, { ...budget, filteredWorkCapacity: 4 }, limits),
     RangeError,
@@ -143,17 +143,15 @@ test("arena preflight rejects invalid bounds and whole-buffer limits before allo
   f.owner.destroy();
 });
 
-test("prepared attributes use remaining arena capacity without exceeding a whole binding", () => {
+test("minimal raster cache allocates no shading payload; its complete bound is checked", () => {
   const full = frameGeometryArenaLayout(236, budget, limits);
-  assert.equal(full.attributeCapacity, 9);
-  assert.equal(full.attributes.size, 9 * 88);
-  const smallLimit = full.attributes.offset + 3 * 88;
-  const partial = frameGeometryArenaLayout(236, { ...budget, maxBytes: smallLimit }, limits);
-  assert.equal(partial.attributeCapacity, 3);
-  assert.equal(partial.byteLength, smallLimit);
-  const zero = frameGeometryArenaLayout(236, { ...budget, maxBytes: full.attributes.offset + 16 }, limits);
-  assert.equal(zero.attributeCapacity, 0);
-  assert.equal(zero.attributes.size, 16, "a legal empty typed binding is independent of prepared capacity");
+  assert.equal(full.clips.size, 9 * 16);
+  assert.equal(full.triangles.size, 3 * 4);
+  assert.equal("attributes" in full, false);
+  const exact = frameGeometryArenaLayout(236, { ...budget, maxBytes: full.byteLength }, limits);
+  assert.equal(exact.byteLength, full.byteLength);
+  assert.throws(() => frameGeometryArenaLayout(236, { ...budget, maxBytes: full.byteLength - 1 }, limits), /limit/);
+  assert.deepEqual([...frameGeometryArenaHeader(full, budget).slice(14)], [0, 0]);
 });
 test("aborted metadata publication retries; committed stable frames encode zero copies", () => {
   const f = fixture(),

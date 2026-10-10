@@ -1,8 +1,11 @@
 import type { ResourceHandle } from "../../debug/profiling/ResourceAccounting.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
-import type { NativeSurfaceGeometry, NativeSurfaceRoute } from "./SurfaceV4.js";
-import type { GpuNativeMaterialPublication } from "../../gpu/GpuNativeMaterialPublication.js";
+import type { NativeSurfaceGeometry } from "./SurfaceV4.js";
+import type {
+  GpuNativeMaterialPublication,
+  NativeRasterClass,
+} from "../../gpu/GpuNativeMaterialPublication.js";
 import {
   nativeVisibilityShader,
   NATIVE_VISIBILITY_VIEW_BYTES,
@@ -15,7 +18,6 @@ export function nativeVisibilityPipelineDescriptor(
   shader: NativeVisibilityShader,
   shadow: boolean,
   cullMode: GPUCullMode,
-  late = false,
 ): CachedRenderPipelineDescriptor {
   const module = { code: shader.source };
   return {
@@ -30,17 +32,15 @@ export function nativeVisibilityPipelineDescriptor(
     depthStencil: {
       format: "depth32float",
       depthWriteEnabled: true,
-      depthCompare: late ? "greater-equal" : "greater",
+      depthCompare: "greater",
     },
   };
 }
 
 export interface NativeVisibilityInput {
   readonly graphics?: GraphicsContext;
-  readonly late?: boolean;
   readonly geometry: NativeSurfaceGeometry;
   readonly publication: GpuNativeMaterialPublication;
-  readonly routes: readonly NativeSurfaceRoute[];
   readonly capacity: number;
   readonly generation: number;
   readonly generationSource?: GPUBuffer;
@@ -55,17 +55,17 @@ interface RouteState {
   readonly pipelines: readonly [GPURenderPipeline, GPURenderPipeline];
   readonly groups: readonly GPUBindGroup[];
   readonly partitionGroups: readonly GPUBindGroup[];
-  readonly inputs: GPUBuffer;
+  readonly inputs: GPUBuffer | null;
 }
 
-/** Native raster subsystem, not connected to production until S2. GPU partitions
- * preserve original work slots; indirect commands scale with unique execution
- * bins, triangle buckets and side, never material instances. Capacity misses
+/** Production native raster. GPU partitions preserve original work slots;
+ * indirect commands scale with raster classes, triangle buckets and side,
+ * never OPAQUE materials or Surface execution bins. Capacity misses
  * use the same exact resident/Product source decoder as native shading.
  * Await this.ready and publication.ready before atomic scene activation.
  * No submit, CPU-visible work control, old publication/runtime or history.
  * NativeRasterWorkPartitions owns the scheduling Cost Card. This owner adds
- * 192B view + 16B/bin route + input uniforms and two render PSOs/bin; zero new
+ * 192B view + 16B/class route + MASK input uniforms and two render PSOs/class; zero new
  * full-frame intermediates. Main/shadow share native CXY alpha and raster data.
  */
 export class NativeVisibilityPass {
@@ -102,31 +102,11 @@ export class NativeVisibilityPass {
             }
           : {}),
       }),
-      routes: Object.freeze(
-        input.routes.map((route) =>
-          Object.freeze({
-            ...route,
-            frameInputs: route.frameInputs.slice(),
-            materialEntries: Object.freeze(
-              route.materialEntries.map((entry) => {
-                const resource = entry.resource as GPUBufferBinding;
-                return Object.freeze({
-                  ...entry,
-                  resource: resource.buffer === undefined ? entry.resource : Object.freeze({ ...resource }),
-                });
-              }),
-            ),
-          }),
-        ),
-      ),
       ...(input.vsmAtlas ? { vsmAtlas: Object.freeze({ ...input.vsmAtlas }) } : {}),
     });
     this.input = input;
-    if (
-      input.view.byteLength !== NATIVE_VISIBILITY_VIEW_BYTES ||
-      input.routes.length !== input.publication.bins.length
-    ) {
-      throw new RangeError("Native visibility requires the complete view and execution routes");
+    if (input.view.byteLength !== NATIVE_VISIBILITY_VIEW_BYTES) {
+      throw new RangeError("Native visibility requires the complete view");
     }
     this.validateView(input.view, input.generation);
     const limits = device.limits;
@@ -151,8 +131,8 @@ export class NativeVisibilityPass {
       input.geometry.arena,
       input.geometry.instances,
       input.geometry.vertexPayload,
-      input.publication.constants,
-      input.publication.directory,
+      input.publication.rasterConstants,
+      input.publication.rasterDirectory,
       ...(input.geometry.productHeap ? [input.geometry.productHeap, ...input.geometry.productBanks!] : []),
       ...(input.vsmAtlas ? [input.vsmAtlas.pageTable] : []),
     ]) {
@@ -173,28 +153,13 @@ export class NativeVisibilityPass {
       throw new RangeError("Native VSM requires its complete atlas constants");
     }
     const shaders: NativeVisibilityShader[] = [];
-    for (const [index, route] of input.routes.entries()) {
-      const bin = input.publication.bins[index]!;
-      const entry = input.publication.entries.find((entry) => entry.executionBin === index)!;
-      if (
-        route.programIndex !== bin.programIndex ||
-        route.bindingSet !== bin.bindingSet ||
-        route.frameInputs.byteLength !== Math.max(16, entry.program.inputCount * 16) ||
-        route.frameInputs.byteLength > limits.maxUniformBufferBindingSize ||
-        !route.frameInputs.every(Number.isFinite)
-      ) {
-        throw new RangeError("Native visibility routes do not match their immutable publication");
-      }
-      const shader = nativeVisibilityShader(
-        entry.program,
-        input.publication.descriptor(route.programIndex).groups[3]!,
-        {
-          partitioned: true,
-          productGeometry: input.geometry.productHeap !== undefined,
-          shadow: input.shadow || input.vsmAtlas !== undefined,
-          vsmAtlas: input.vsmAtlas !== undefined,
-        },
-      );
+    for (const route of input.publication.rasterClasses) {
+      const shader = nativeVisibilityShader(route.program, route.layoutEntries, {
+        partitioned: true,
+        productGeometry: input.geometry.productHeap !== undefined,
+        shadow: input.shadow || input.vsmAtlas !== undefined,
+        vsmAtlas: input.vsmAtlas !== undefined,
+      });
       for (const stage of [GPUShaderStage.VERTEX, GPUShaderStage.FRAGMENT]) {
         let storage = 0,
           sampled = 0,
@@ -254,7 +219,9 @@ export class NativeVisibilityPass {
     });
     try {
       this.view = this.buffer(NATIVE_VISIBILITY_VIEW_BYTES, input.view);
-      const candidates = input.routes.map((route, bin) => this.createRoute(route, bin, shaders[bin]!));
+      const candidates = input.publication.rasterClasses.map((route, bin) =>
+        this.createRoute(route, bin, shaders[bin]!),
+      );
       if (input.graphics !== undefined) {
         this.routes = candidates as RouteState[];
       }
@@ -317,24 +284,18 @@ export class NativeVisibilityPass {
   }
 
   private createRoute(
-    route: NativeSurfaceRoute,
+    route: NativeRasterClass,
     bin: number,
     shader: NativeVisibilityShader,
   ): RouteState | Promise<RouteState> {
     const { device, input } = this;
-    const entry = input.publication.entries.find((entry) => entry.executionBin === bin)!;
     const layouts = shader.groups.map((entries) => device.createBindGroupLayout({ entries }));
     const layout = device.createPipelineLayout({ bindGroupLayouts: layouts });
     const module = device.createShaderModule({ code: shader.source });
     if (input.graphics !== undefined) {
       const pipelines = (["back", "none"] as const).map((cullMode) =>
         input.graphics!.render_pipelines.obtain(
-          nativeVisibilityPipelineDescriptor(
-            shader,
-            Boolean(input.shadow || input.vsmAtlas),
-            cullMode,
-            input.late,
-          ),
+          nativeVisibilityPipelineDescriptor(shader, Boolean(input.shadow || input.vsmAtlas), cullMode),
         ),
       ) as [GPURenderPipeline, GPURenderPipeline];
       return this.bindRoute(route, bin, layouts, pipelines);
@@ -353,7 +314,7 @@ export class NativeVisibilityPass {
           depthStencil: {
             format: "depth32float",
             depthWriteEnabled: true,
-            depthCompare: input.late ? "greater-equal" : "greater",
+            depthCompare: "greater",
           },
         }),
       ),
@@ -363,7 +324,7 @@ export class NativeVisibilityPass {
   }
 
   private bindRoute(
-    route: NativeSurfaceRoute,
+    route: NativeRasterClass,
     bin: number,
     layouts: readonly GPUBindGroupLayout[],
     pipelines: readonly [GPURenderPipeline, GPURenderPipeline],
@@ -372,9 +333,11 @@ export class NativeVisibilityPass {
       throw new Error("Native visibility cancelled during readiness");
     }
     const { device, input } = this;
-    const entry = input.publication.entries.find((entry) => entry.executionBin === bin)!;
     const routeBuffer = this.buffer(16, new Uint32Array([bin, 0, 0, 0]));
-    const inputs = this.buffer(Math.max(16, entry.program.inputCount * 16), route.frameInputs);
+    const inputs =
+      route.program === null
+        ? null
+        : this.buffer(Math.max(16, route.program.inputCount * 16), route.frameInputs);
     const geometryEntries: GPUBindGroupEntry[] = [
       { binding: 0, resource: { buffer: input.geometry.meshletWork } },
       { binding: 1, resource: { buffer: input.geometry.arena } },
@@ -421,10 +384,12 @@ export class NativeVisibilityPass {
       device.createBindGroup({
         layout: layouts[2]!,
         entries: [
-          { binding: 0, resource: { buffer: input.publication.constants } },
-          { binding: 1, resource: { buffer: input.publication.directory } },
+          ...(inputs === null
+            ? []
+            : [{ binding: 0, resource: { buffer: input.publication.rasterConstants } }]),
+          { binding: 1, resource: { buffer: input.publication.rasterDirectory } },
           { binding: 3, resource: { buffer: routeBuffer } },
-          { binding: 4, resource: { buffer: inputs } },
+          ...(inputs === null ? [] : [{ binding: 4, resource: { buffer: inputs } }]),
         ],
       }),
       device.createBindGroup({ layout: layouts[3]!, entries: route.materialEntries }),
@@ -438,44 +403,31 @@ export class NativeVisibilityPass {
       : this.partitions.allocatedBytes + this.buffers.reduce((total, buffer) => total + buffer.size, 0);
   }
 
-  update(
-    view: Uint8Array<ArrayBuffer>,
-    frameInputs: readonly Float32Array<ArrayBuffer>[],
-    generation: number,
-  ): void {
+  update(view: Uint8Array<ArrayBuffer>, generation: number): void {
     if (
       this.destroyed ||
       this.retiring ||
       this.routes === null ||
-      view.byteLength !== NATIVE_VISIBILITY_VIEW_BYTES ||
-      frameInputs.length !== this.routes.length
+      view.byteLength !== NATIVE_VISIBILITY_VIEW_BYTES
     ) {
       throw new Error("Native visibility update requires a ready complete route profile");
     }
     this.validateView(view, generation);
-    for (const [index, values] of frameInputs.entries()) {
-      if (values.byteLength !== this.routes[index]!.inputs.size || !values.every(Number.isFinite)) {
-        throw new RangeError("Native visibility dynamic inputs exceed their profile");
-      }
-    }
     this.partitions.updateGeneration(generation);
     this.device.queue.writeBuffer(this.view, 0, view);
-    this.routes.forEach((route, index) =>
-      this.device.queue.writeBuffer(route.inputs, 0, frameInputs[index]!),
-    );
   }
 
-  encode(encoder: GPUCommandEncoder, attachments: GPURenderPassDescriptor): void {
+  encode(encoder: GPUCommandEncoder, attachments: GPURenderPassDescriptor, recovery = false): void {
     if (this.destroyed || this.retiring || this.routes === null) {
       throw new Error("Native visibility is not ready");
     }
-    this.prepareEncoding(encoder);
+    this.prepareEncoding(encoder, recovery);
     const pass = encoder.beginRenderPass(attachments);
     this.draw(pass);
     pass.end();
   }
 
-  prepareEncoding(encoder: GPUCommandEncoder): void {
+  prepareEncoding(encoder: GPUCommandEncoder, recovery = false): void {
     const camera = this.input.camera;
     if (camera !== undefined) {
       // PackedCamera: VP=6*64, view=2*64, world position=inverseView translation.
@@ -495,7 +447,7 @@ export class NativeVisibilityPass {
         this.partitions.copyGeneration(encoder, this.input.generationSource);
       }
     }
-    this.partitions.encode(encoder);
+    this.partitions.encode(encoder, recovery);
   }
 
   /** VSM shares the same render pass with page clearing. Partitions encode before it begins. */

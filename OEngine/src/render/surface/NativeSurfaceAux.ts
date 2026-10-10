@@ -23,7 +23,7 @@ function assertProfile(profile: NativeSurfaceAuxProfile): void {
 
 export function nativeSurfaceAuxLayoutEntries(
   profile: NativeSurfaceAuxProfile,
-  startBinding = 8
+  startBinding = 8,
 ): GPUBindGroupLayoutEntry[] {
   assertProfile(profile);
   if (!Number.isSafeInteger(startBinding) || startBinding < 0) {
@@ -36,14 +36,14 @@ export function nativeSurfaceAuxLayoutEntries(
     {
       binding: startBinding,
       visibility: GPUShaderStage.COMPUTE,
-      storageTexture: { access: "write-only", format: "rgba8unorm" }
-    }
+      storageTexture: { access: "write-only", format: "rgba8unorm" },
+    },
   ];
 }
 
 export function nativeSurfaceAuxEntries(
   allocation: NativeSurfaceAuxAllocation,
-  startBinding = 8
+  startBinding = 8,
 ): GPUBindGroupEntry[] {
   nativeSurfaceAuxLayoutEntries(allocation.profile, startBinding);
   if (allocation.opaqueReactiveView === null) {
@@ -109,7 +109,10 @@ export class NativeSurfaceAuxResources {
           label: "SurfaceV4/opaque reactive",
           size: [width, height],
           format: "rgba8unorm",
-          usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
+          usage:
+            GPUTextureUsage.STORAGE_BINDING |
+            GPUTextureUsage.TEXTURE_BINDING |
+            GPUTextureUsage.RENDER_ATTACHMENT,
         });
       }
       this.prepared = Object.freeze({
@@ -118,7 +121,7 @@ export class NativeSurfaceAuxResources {
         height,
         opaqueReactive: texture,
         opaqueReactiveView: texture?.createView() ?? null,
-        allocatedBytes: profile === "Temporal" ? width * height * 4 : 0
+        allocatedBytes: profile === "Temporal" ? width * height * 4 : 0,
       });
       return this.prepared;
     } catch (error) {
@@ -193,7 +196,7 @@ export function nativeSurfaceTemporalMaterialSignature(input: {
     input.instanceFlags,
     input.materialSlot,
     input.signature,
-    input.valueRevision
+    input.valueRevision,
   ]) {
     if (!Number.isInteger(word) || word < 0 || word > 0xffffffff) {
       throw new RangeError("Native Temporal material words must be u32");
@@ -234,7 +237,7 @@ export function nativeSurfaceTemporalMask(
   historyValid: boolean,
   motionValid: boolean,
   opaqueReactive: number,
-  responseBits: number
+  responseBits: number,
 ): readonly [number, number, number, number] {
   if (
     !Number.isFinite(opaqueReactive) ||
@@ -248,7 +251,8 @@ export function nativeSurfaceTemporalMask(
   let bits = responseBits;
   motionValid = motionValid && historyValid;
   if (historyValid && motionValid) {
-    mismatch = current[0] === previous[0] &&
+    mismatch =
+      current[0] === previous[0] &&
       (current[1] !== previous[1] || (current[3] === previous[3] && current[2] !== previous[2]));
     for (let lane = 0; lane < 4; lane++) {
       if (current[lane] !== previous[lane]) {
@@ -259,12 +263,7 @@ export function nativeSurfaceTemporalMask(
   if (!motionValid) {
     bits |= 16;
   }
-  return [
-    Math.min(1, Math.max(0, opaqueReactive)),
-    Number(motionValid),
-    Number(mismatch),
-    bits / 255
-  ];
+  return [Math.min(1, Math.max(0, opaqueReactive)), Number(motionValid), Number(mismatch), bits / 255];
 }
 
 /** Direct FSR3UpscalerRuntime.addToGraph input names; no synthesized history facts. */

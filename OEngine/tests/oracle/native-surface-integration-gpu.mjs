@@ -120,7 +120,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
             entries = [...binding.entries];
           const set = fixture.commonFor(fixture.materials[0]).bindingSet;
           for (let bank = 0; bank < set.textureBanks.length; bank++) {
-            if ((binding.bankMask & (1 << bank)) !== 0) continue;
+            if (entries.some(entry => entry.resource === set.textureBanks[bank])) continue;
             const slot = layoutEntries.length;
             layoutEntries.push({
               binding: slot,
@@ -274,7 +274,6 @@ export async function runNativeSurfaceIntegrationGpuOracle(
       const owner = new NativeVisibilityPass(device, {
         geometry: geometry(),
         publication,
-        routes: routeResources(publication),
         capacity: fixture.workCount,
         generation: fixture.generation,
         view: new Uint8Array(visibilityView),

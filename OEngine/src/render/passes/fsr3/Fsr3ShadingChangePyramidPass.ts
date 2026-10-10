@@ -95,13 +95,18 @@ fn source_value(pixel_in: vec2i) -> vec4f {
   return vec4f(diff, select(0.0, sign(diff), diff != 0.0), 1.0, 0.0);
 }
 
-@compute @workgroup_size(8, 8, 1)
-fn main(@builtin(global_invocation_id) id: vec3u) {
-  let dst = vec2i(id.xy);
-  if (any(id.xy >= textureDimensions(spd_mip0))) { return; }
-  let src = dst * 2;
-  let value = (source_value(src) + source_value(src + vec2i(0, 1)) +
-    source_value(src + vec2i(1, 0)) + source_value(src + vec2i(1, 1))) * 0.25;
+var<workgroup> source_values: array<vec4f, 256>;
+@compute @workgroup_size(16, 16, 1)
+fn main(@builtin(workgroup_id) group: vec3u, @builtin(local_invocation_id) lane: vec3u) {
+  let index = lane.y * 16u + lane.x;
+  source_values[index] = source_value(vec2i(group.xy * 16u + lane.xy));
+  workgroupBarrier();
+  if ((lane.x & 1u) != 0u || (lane.y & 1u) != 0u) { return; }
+  let dst = vec2i(group.xy * 8u + lane.xy / 2u);
+  if (any(vec2u(dst) >= textureDimensions(spd_mip0))) { return; }
+  // Same source coordinates and f32 addition order as SDK SpdReduce4.
+  let value = (source_values[index] + source_values[index + 16u] +
+    source_values[index + 1u] + source_values[index + 17u]) * 0.25;
   textureStore(scratch_mip0, dst, value);
   textureStore(spd_mip0, dst, vec4f(value.xy, 0.0, 0.0));
 }
@@ -137,6 +142,13 @@ export class Fsr3ShadingChangePyramidPass {
   private readonly reduce: PipelinePair;
 
   constructor(private readonly device: GPUDevice) {
+    if (
+      device.limits.maxComputeInvocationsPerWorkgroup < 256 ||
+      device.limits.maxComputeWorkgroupSizeX < 16 ||
+      device.limits.maxComputeWorkgroupSizeY < 16 ||
+      device.limits.maxComputeWorkgroupStorageSize < 4096
+    )
+      throw new RangeError("FSR3 shading source requires its complete 16x16/4KiB profile");
     const texture = (binding: number): GPUBindGroupLayoutEntry => ({
       binding,
       visibility: GPUShaderStage.COMPUTE,

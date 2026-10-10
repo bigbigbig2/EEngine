@@ -11,6 +11,15 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "fsr3-shading-pyramid",
+    file: "OEngine/tests/oracle/fsr3-shading-pyramid-gpu.mjs",
+    url: "/OEngine/tests/oracle/fsr3-shading-pyramid-gpu.mjs",
+    entry: "runFsr3ShadingPyramidGpuOracle",
+    requiredFeatures: ["texture-formats-tier1"],
+    description:
+      "Production parallel source lanes against frozen serial SDK math: NPOT, jitter, motion, exposure and f32/f16 products.",
+  }),
+  Object.freeze({
     name: "native-raster-triangle-count",
     file: "OEngine/tests/oracle/native-raster-triangle-count-gpu.mjs",
     url: "/OEngine/tests/oracle/native-raster-triangle-count-gpu.mjs",

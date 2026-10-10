@@ -29,6 +29,10 @@ export const GPU_MESHLET_RASTER_FLAGS = Object.freeze({
   SelectiveExact: 1 << 30,
   /** Authored/debug request that forces the classifier onto the exact route. */
   ForceExact: 1 << 31,
+  /** Frame-local prediction only. Same-frame current-HZB recovery owns this bit. */
+  OcclusionDeferred: 1 << 27,
+  /** Recovered in the current view; second raster preserves the original slot. */
+  OcclusionRecovered: 1 << 28,
 } as const);
 
 export const GPU_MESHLET_DECODE_PROFILE = Object.freeze({

@@ -50,7 +50,6 @@ export async function runNativeVsmCoverageGpuOracle(
   const owner = new NativeVisibilityPass(device, {
     geometry: { ...fixture.geometry, meshletWork: caster },
     publication,
-    routes,
     capacity: fixture.workCount,
     generation: fixture.generation,
     view,

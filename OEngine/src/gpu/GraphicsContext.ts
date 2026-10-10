@@ -34,7 +34,7 @@ import { AppearanceStaticResidency } from "./AppearanceStaticResidency.js";
 import { FrameInstanceTransforms } from "../render/FrameInstanceTransforms.js";
 import { FrameGeometryVertices } from "../render/FrameGeometryVertices.js";
 import { FrameGeometryArena } from "../render/FrameGeometryArena.js";
-import { CurrentHzbLateRecheckGpu } from "../render/CurrentHzbLateRecheck.js";
+import { TemporalOcclusionWork } from "../render/TemporalOcclusionWork.js";
 import { TextureResidency } from "./TextureResidency.js";
 import { GPU_MATERIAL_VISIBILITY_RECORD_STRIDE } from "./GpuMaterialVisibilityAbi.js";
 import {
@@ -92,7 +92,7 @@ export class GraphicsContext {
   private frameInstancesValue: FrameInstanceTransforms | undefined;
   private frameVerticesValue: FrameGeometryVertices | undefined;
   private frameGeometryArenaValue: FrameGeometryArena | undefined;
-  private currentHzbRecheckValue: CurrentHzbLateRecheckGpu | undefined;
+  private currentHzbRecheckValue: TemporalOcclusionWork | undefined;
   private textureResidencyValue: TextureResidency | undefined;
   private readonly assetStoreOptions: Readonly<GpuAssetStoreOptions>;
   private timerIncrementValue = 0;
@@ -276,8 +276,8 @@ export class GraphicsContext {
 
   /** Stable canonical Surface field owner. Admission is GPU/FrameGraph driven;
    * this getter only creates the bounded resident storage. */
-  get current_hzb_recheck(): CurrentHzbLateRecheckGpu {
-    this.currentHzbRecheckValue ??= new CurrentHzbLateRecheckGpu(this.device, this.resource_accounting);
+  get current_hzb_recheck(): TemporalOcclusionWork {
+    this.currentHzbRecheckValue ??= new TemporalOcclusionWork(this.device, this.resource_accounting);
     return this.currentHzbRecheckValue;
   }
 

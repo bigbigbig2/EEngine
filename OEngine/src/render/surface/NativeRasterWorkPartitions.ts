@@ -24,9 +24,9 @@ export interface NativeRasterPartitionInput {
 /** S1 native raster scheduling over the existing foundation algorithm, not a
  * bridge to the old Surface publication. The source queue is borrowed; this
  * owner allocates only indices/partition metadata/indirect commands. No submit,
- * per-instance CPU draws or readback. Draw commands scale with unique bins.
+ * per-instance CPU draws or readback. Draw commands scale with raster classes.
  * Cost: 4W+32P+alignment*P+64 bytes; two O(W) classifications, 2 global atomics/work,
- * one O(P) serial prefix, four dispatches, no shader barriers. P=8 unique bins.
+ * one O(P) serial prefix, four dispatches, no shader barriers. P=8 raster classes.
  * Small-bucket empty draws are zero-count indirect commands, not geometry work.
  * For one bin, optional unpartitioned oracle/raster-foundation organization can
  * avoid this management tax; this owner never selects a second shading path.
@@ -41,10 +41,12 @@ export class NativeRasterWorkPartitions {
   readonly count: number;
   readonly allocatedBytes: number;
   private readonly settings: GPUBuffer;
+  private readonly recoverySettings: GPUBuffer;
   private readonly dispatch: GPUBuffer;
   private readonly buffers: GPUBuffer[] = [];
   private readonly accountingHandles: ResourceHandle[] = [];
   private readonly group: GPUBindGroup;
+  private readonly recoveryGroup: GPUBindGroup;
   private readonly dispatchGroup: GPUBindGroup;
   private pipelines: readonly GPUComputePipeline[] | null = null;
   private destroyed = false;
@@ -55,7 +57,7 @@ export class NativeRasterWorkPartitions {
     readonly input: NativeRasterPartitionInput,
   ) {
     const limits = device.limits;
-    this.count = input.publication.bins.length * 8;
+    this.count = input.publication.rasterClasses.length * 8;
     this.partitionStride = Math.max(16, limits.minUniformBufferOffsetAlignment);
     const sizes = [
       input.capacity * 4,
@@ -64,6 +66,7 @@ export class NativeRasterWorkPartitions {
       this.count * this.partitionStride,
       32,
       16,
+      32,
     ];
     if (
       !Number.isSafeInteger(input.capacity) ||
@@ -94,7 +97,7 @@ export class NativeRasterWorkPartitions {
     ) {
       throw new RangeError("Native raster partitions exceed complete queue, dispatch or resource capacity");
     }
-    for (const buffer of [input.work, input.metadata, input.publication.directory]) {
+    for (const buffer of [input.work, input.metadata, input.publication.rasterDirectory]) {
       if (
         (buffer.usage & GPUBufferUsage.STORAGE) === 0 ||
         buffer.size < 4 ||
@@ -144,6 +147,11 @@ export class NativeRasterWorkPartitions {
         GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       );
       this.settings = make("Native raster/settings", 32, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
+      this.recoverySettings = make(
+        "Native raster/recovery settings",
+        32,
+        GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      );
       this.dispatch = make(
         "Native raster/source dispatch",
         16,
@@ -172,12 +180,35 @@ export class NativeRasterWorkPartitions {
         layout,
         entries: [
           input.work,
-          input.publication.directory,
+          input.publication.rasterDirectory,
           input.metadata,
           this.states,
           this.indices,
           this.draws,
           this.settings,
+        ].map((buffer, binding) => ({ binding, resource: { buffer } })),
+      });
+      const recoveryValues = new Uint32Array([
+        input.capacity,
+        this.count,
+        limits.maxComputeWorkgroupsPerDimension,
+        input.generation,
+        input.meshletWordBase,
+        input.frameGeometryHeader ?? 0,
+        input.frameGeometryHeader !== undefined && !input.caster ? 1 : 0,
+        1,
+      ]);
+      device.queue.writeBuffer(this.recoverySettings, 0, recoveryValues);
+      this.recoveryGroup = device.createBindGroup({
+        layout,
+        entries: [
+          input.work,
+          input.publication.rasterDirectory,
+          input.metadata,
+          this.states,
+          this.indices,
+          this.draws,
+          this.recoverySettings,
         ].map((buffer, binding) => ({ binding, resource: { buffer } })),
       });
       this.dispatchGroup = device.createBindGroup({
@@ -228,6 +259,13 @@ export class NativeRasterWorkPartitions {
 
   copyGeneration(encoder: GPUCommandEncoder, queue: GPUBuffer): void {
     encoder.copyBufferToBuffer(queue, GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS.generation, this.settings, 12, 4);
+    encoder.copyBufferToBuffer(
+      queue,
+      GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS.generation,
+      this.recoverySettings,
+      12,
+      4,
+    );
   }
 
   updateGeneration(generation: number): void {
@@ -241,9 +279,10 @@ export class NativeRasterWorkPartitions {
       throw new RangeError("Native raster generation must be a live u32");
     }
     this.device.queue.writeBuffer(this.settings, 12, new Uint32Array([generation]));
+    this.device.queue.writeBuffer(this.recoverySettings, 12, new Uint32Array([generation]));
   }
 
-  encode(encoder: GPUCommandEncoder): void {
+  encode(encoder: GPUCommandEncoder, recovery = false): void {
     if (this.destroyed || this.retiring || this.pipelines === null) {
       throw new Error("Native raster partitions are not ready");
     }
@@ -252,7 +291,7 @@ export class NativeRasterWorkPartitions {
         label: `Native raster/${["begin", "count", "prefix", "scatter"][stage]}`,
       });
       pass.setPipeline(this.pipelines[stage]!);
-      pass.setBindGroup(0, this.group);
+      pass.setBindGroup(0, recovery ? this.recoveryGroup : this.group);
       if (stage === 0) {
         pass.setBindGroup(1, this.dispatchGroup);
         pass.dispatchWorkgroups(Math.ceil(this.count / 64));

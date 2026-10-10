@@ -341,7 +341,7 @@ export async function createNativeSurfaceFixture(
       WIDTH,
       HEIGHT,
       "rgba16float",
-      uploadedTextureUsage | GPUTextureUsage.STORAGE_BINDING
+      uploadedTextureUsage | GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_SRC
     );
     const backgroundValues = new Uint16Array(WIDTH * HEIGHT * 4);
     for (let p = 0; p < WIDTH * HEIGHT; p++)

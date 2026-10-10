@@ -21,6 +21,14 @@ export interface NativeMaterialPublicationSource {
   readonly valueRevision?: number;
   /** Additional real resource-owner revision; combined with the binding helper's revision. */
   readonly resourceRevision?: number;
+  /** Required for MASK. Full Surface evaluation is never a raster fallback. */
+  readonly coverage?: Readonly<{
+    program: NativeMaterialProgram;
+    layoutEntries: readonly GPUBindGroupLayoutEntry[];
+    materialEntries: readonly GPUBindGroupEntry[];
+    parameters?: Readonly<Record<string, readonly number[]>>;
+    inputs?: Float32Array<ArrayBuffer>;
+  }>;
   /** Raster and shading share these two instance constants immediately after program.constants. */
   readonly raster?: Readonly<{
     alphaCutoff: number;
@@ -44,6 +52,23 @@ export interface NativeMaterialExecutionBin {
   readonly programIndex: number;
   readonly bindingSet: number;
 }
+
+export interface NativeRasterClass {
+  /** Class zero is universal OPAQUE and has no material evaluator/resources. */
+  readonly program: NativeMaterialProgram | null;
+  readonly layoutEntries: readonly GPUBindGroupLayoutEntry[];
+  readonly materialEntries: readonly GPUBindGroupEntry[];
+  readonly frameInputs: Float32Array<ArrayBuffer>;
+}
+
+export const NATIVE_RASTER_DIRECTORY_WGSL = /* wgsl */ `
+struct NativeRasterDirectoryEntry {
+  constant_base: u32,
+  raster_class: u32,
+  flags: u32,
+  valid: u32,
+}
+`;
 
 /** Slot-indexed native material lookup. Invalid slots have programIndex = 0xffffffff. */
 export const NATIVE_MATERIAL_DIRECTORY_WORDS = 4;
@@ -71,6 +96,9 @@ export class GpuNativeMaterialPublication {
   readonly directory: GPUBuffer;
   /** Slot-indexed vec2u(signature, value_revision); unpublished slots are zero. */
   readonly versions: GPUBuffer;
+  readonly rasterClasses: readonly NativeRasterClass[];
+  readonly rasterConstants: GPUBuffer;
+  readonly rasterDirectory: GPUBuffer;
   readonly materialSlotCount: number;
   readonly ready: Promise<void>;
   private readonly physicalBytes: number;
@@ -89,7 +117,7 @@ export class GpuNativeMaterialPublication {
     device: GPUDevice,
     registry: AppearanceProgramRegistry,
     sources: readonly NativeMaterialPublicationSource[],
-    private readonly accounting?: ResourceAccounting
+    private readonly accounting?: ResourceAccounting,
   ) {
     const values: number[] = [];
     const entries: NativeMaterialPublishedEntry[] = [];
@@ -97,6 +125,16 @@ export class GpuNativeMaterialPublication {
     const programIndices = new Map<string, number>();
     const bins: NativeMaterialExecutionBin[] = [];
     const binIndices = new Map<string, number>();
+    const rasterValues: number[] = [];
+    const rasterClasses: NativeRasterClass[] = [
+      Object.freeze({
+        program: null,
+        layoutEntries: Object.freeze([]),
+        materialEntries: Object.freeze([]),
+        frameInputs: new Float32Array(4),
+      }),
+    ];
+    const rasterEntries: number[][] = [];
     let directoryCount = 1;
     // Validate every source and total allocation before acquiring or creating resources.
     for (const source of sources) {
@@ -149,7 +187,7 @@ export class GpuNativeMaterialPublication {
         throw new RangeError("Native instance input publication requires every compiled input slot");
       }
       const data = new Float32Array(
-        parameters.length + NATIVE_MATERIAL_RASTER_CONSTANT_WORDS + (instanceInputs?.length ?? 0)
+        parameters.length + NATIVE_MATERIAL_RASTER_CONSTANT_WORDS + (instanceInputs?.length ?? 0),
       );
       data.set(parameters);
       data[parameters.length] = Math.max(0, Math.min(1, alphaCutoff));
@@ -158,13 +196,81 @@ export class GpuNativeMaterialPublication {
       if (instanceInputs !== undefined) {
         data.set(instanceInputs, parameters.length + NATIVE_MATERIAL_RASTER_CONSTANT_WORDS);
       }
+      let rasterClass = 0;
+      const rasterBase = rasterValues.length;
+      if (source.raster?.alphaMask) {
+        const coverage = source.coverage;
+        if (
+          coverage === undefined ||
+          coverage.program.outputs.alpha?.length !== 1 ||
+          Object.keys(coverage.program.outputs).length !== 1
+        ) {
+          throw new RangeError(
+            "MASK publication requires its independent scalar coverage dependency program",
+          );
+        }
+        const inputs = coverage.inputs ?? new Float32Array(Math.max(1, coverage.program.inputCount) * 4);
+        if (
+          inputs.length !== Math.max(1, coverage.program.inputCount) * 4 ||
+          !inputs.every(Number.isFinite) ||
+          (coverage.program.instanceInputs && coverage.inputs === undefined)
+        ) {
+          throw new RangeError("Native coverage publication requires every finite input slot");
+        }
+        rasterClass = rasterClasses.findIndex(
+          (candidate) =>
+            candidate.program?.key === coverage.program.key &&
+            candidate.materialEntries.length === coverage.materialEntries.length &&
+            candidate.materialEntries.every(
+              (entry, index) =>
+                entry.binding === coverage.materialEntries[index]!.binding &&
+                entry.resource === coverage.materialEntries[index]!.resource,
+            ) &&
+            (coverage.program.instanceInputs ||
+              candidate.frameInputs.every((value, index) => Object.is(value, inputs[index]))),
+        );
+        if (rasterClass < 0) {
+          rasterClass = rasterClasses.length;
+          rasterClasses.push(
+            Object.freeze({
+              program: coverage.program,
+              layoutEntries: Object.freeze(
+                coverage.layoutEntries.map((entry) => Object.freeze(structuredClone(entry))),
+              ),
+              materialEntries: Object.freeze([...coverage.materialEntries]),
+              frameInputs: inputs.slice(),
+            }),
+          );
+        }
+        const authoredCoverage = coverage.parameters ?? source.parameters;
+        const parameters = Object.fromEntries(
+          Object.keys(coverage.program.parameterSlots)
+            .filter((name) => authoredCoverage?.[name] !== undefined)
+            .map((name) => [name, authoredCoverage![name]!]),
+        );
+        rasterValues.push(
+          ...nativeMaterialParameters(coverage.program, parameters),
+          Math.max(0, Math.min(1, alphaCutoff)),
+          1,
+        );
+        if (coverage.program.instanceInputs) rasterValues.push(...inputs);
+      }
+      rasterEntries.push([rasterBase, rasterClass, Number(source.raster?.alphaMask ?? false), 1]);
       const bits = new Uint32Array(data.buffer, data.byteOffset, data.length);
+      const coverageBits = new Uint32Array(Float32Array.from(rasterValues.slice(rasterBase)).buffer);
       // These hashes only reject temporal reuse after changes. They are not exact identity,
       // cache keys, or substitutes for a scene owner's monotonic value revision.
       const signature = nativeMaterialRevision([source.program.key, source.bindingSet]);
       const valueRevision =
         source.valueRevision ??
-        nativeMaterialRevision([source.program.resourceRevision ?? 0, source.resourceRevision ?? 0, ...bits]);
+        nativeMaterialRevision([
+          source.program.resourceRevision ?? 0,
+          source.resourceRevision ?? 0,
+          source.coverage?.program.resourceRevision ?? 0,
+          source.coverage?.program.key ?? "opaque",
+          ...bits,
+          ...coverageBits,
+        ]);
       entries.push(
         Object.freeze({
           materialSlot: source.materialSlot,
@@ -174,8 +280,8 @@ export class GpuNativeMaterialPublication {
           executionBin: 0,
           signature,
           valueRevision,
-          program: source.program
-        })
+          program: source.program,
+        }),
       );
       for (const value of data) {
         values.push(value);
@@ -184,14 +290,20 @@ export class GpuNativeMaterialPublication {
     const constantBytes = Math.max(values.length * 4, 4);
     const directoryBytes = directoryCount * NATIVE_MATERIAL_DIRECTORY_WORDS * 4;
     const versionBytes = directoryCount * 8;
+    const rasterConstantBytes = Math.max(rasterValues.length * 4, 4);
     const maximum = Math.min(
       Number(device.limits.maxBufferSize),
-      Number(device.limits.maxStorageBufferBindingSize)
+      Number(device.limits.maxStorageBufferBindingSize),
     );
-    if (constantBytes > maximum || directoryBytes > maximum || versionBytes > maximum) {
+    if (
+      constantBytes > maximum ||
+      directoryBytes > maximum ||
+      versionBytes > maximum ||
+      rasterConstantBytes > maximum
+    ) {
       throw new RangeError("Native material publication exceeds negotiated buffer limits");
     }
-    this.physicalBytes = constantBytes + directoryBytes + versionBytes;
+    this.physicalBytes = constantBytes + directoryBytes * 2 + versionBytes + rasterConstantBytes;
     this.materialSlotCount = directoryCount;
     const buffers: GPUBuffer[] = [];
     try {
@@ -261,11 +373,31 @@ export class GpuNativeMaterialPublication {
       });
       this.entries = Object.freeze(entries);
       this.bins = Object.freeze(bins);
+      this.rasterClasses = Object.freeze(rasterClasses);
+      this.rasterConstants = device.createBuffer({
+        label: "Visibility/coverage constants",
+        size: rasterConstantBytes,
+        usage: GPUBufferUsage.STORAGE,
+        mappedAtCreation: true,
+      });
+      buffers.push(this.rasterConstants);
+      new Float32Array(this.rasterConstants.getMappedRange()).set(rasterValues);
+      this.rasterConstants.unmap();
+      this.rasterDirectory = device.createBuffer({
+        label: "Visibility/raster directory",
+        size: directoryBytes,
+        usage: GPUBufferUsage.STORAGE,
+        mappedAtCreation: true,
+      });
+      buffers.push(this.rasterDirectory);
+      const rasterDirectory = new Uint32Array(this.rasterDirectory.getMappedRange());
+      sources.forEach((source, index) => rasterDirectory.set(rasterEntries[index]!, source.materialSlot * 4));
+      this.rasterDirectory.unmap();
       this.constants = device.createBuffer({
         label: "SurfaceV4/material constants",
         size: constantBytes,
         usage: GPUBufferUsage.STORAGE,
-        mappedAtCreation: true
+        mappedAtCreation: true,
       });
       buffers.push(this.constants);
       new Float32Array(this.constants.getMappedRange()).set(values);
@@ -274,7 +406,7 @@ export class GpuNativeMaterialPublication {
         label: "SurfaceV4/material directory",
         size: directoryBytes,
         usage: GPUBufferUsage.STORAGE,
-        mappedAtCreation: true
+        mappedAtCreation: true,
       });
       buffers.push(this.directory);
       const directory = new Uint32Array(this.directory.getMappedRange());
@@ -285,7 +417,7 @@ export class GpuNativeMaterialPublication {
       for (const entry of entries) {
         directory.set(
           [entry.constantBase, entry.programIndex, entry.bindingSet, entry.executionBin],
-          entry.materialSlot * NATIVE_MATERIAL_DIRECTORY_WORDS
+          entry.materialSlot * NATIVE_MATERIAL_DIRECTORY_WORDS,
         );
       }
       this.directory.unmap();
@@ -293,7 +425,7 @@ export class GpuNativeMaterialPublication {
         label: "SurfaceV4/material versions",
         size: versionBytes,
         usage: GPUBufferUsage.STORAGE,
-        mappedAtCreation: true
+        mappedAtCreation: true,
       });
       buffers.push(this.versions);
       const versions = new Uint32Array(this.versions.getMappedRange());
@@ -308,9 +440,9 @@ export class GpuNativeMaterialPublication {
             category: "resident",
             owner: "GpuNativeMaterialPublication",
             bytes: buffer.size,
-            label: buffer.label
+            label: buffer.label,
           },
-          buffer
+          buffer,
         );
         if (handle !== undefined) {
           this.accountingHandles.push(handle);
@@ -328,7 +460,7 @@ export class GpuNativeMaterialPublication {
         }
         this.pipelines = Object.freeze(this.primaryLeaseIndices.map((index) => pipelines[index]!));
         this.continuationPipelines = Object.freeze(
-          this.continuationLeaseIndices.map((index) => (index === null ? null : pipelines[index]!))
+          this.continuationLeaseIndices.map((index) => (index === null ? null : pipelines[index]!)),
         );
         this.state = "ready";
       })
@@ -369,7 +501,7 @@ export class GpuNativeMaterialPublication {
   }
 
   continuation(
-    programIndex: number
+    programIndex: number,
   ): { descriptor: AppearanceProgramDescriptor; pipeline: Awaited<AppearanceProgramLease["ready"]> } | null {
     this.pipeline(programIndex);
     const descriptor = this.continuations[programIndex];
@@ -405,6 +537,8 @@ export class GpuNativeMaterialPublication {
     this.constants.destroy();
     this.directory.destroy();
     this.versions.destroy();
+    this.rasterConstants.destroy();
+    this.rasterDirectory.destroy();
     this.accountingHandles.forEach((handle) => this.accounting?.destroyed(handle));
     this.accountingHandles.length = 0;
     this.leases.forEach((lease) => lease.release());

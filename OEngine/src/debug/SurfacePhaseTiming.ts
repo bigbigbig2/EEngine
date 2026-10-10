@@ -12,20 +12,23 @@ export interface SurfaceTimingSegment {
 /** Physical native passes only. Fused shading includes Geometry/Material/Lighting;
  * timestamps cannot separate their instruction cost inside one shader. */
 export function classifySurfaceTimingPhase(
-  segment: Pick<SurfaceTimingSegment, "label">
+  segment: Pick<SurfaceTimingSegment, "label">,
 ): SurfaceTimingPhase | null {
   const raw = segment.label.toLowerCase();
   const label = raw.slice(raw.lastIndexOf("surfacev4/"));
   if (label.startsWith("surfacev4/bins ")) {
     return "executionBins";
   }
-  if (label.startsWith("surfacev4/native opaque")) {
+  if (label.startsWith("surfacev4/native opaque") || label.startsWith("surfacev4/native winner shading")) {
     return "nativeShading";
   }
   if (label.startsWith("surfacev4/resource-limited native sun")) {
     return "nativeSun";
   }
-  if (label.startsWith("surfacev4/empty background")) {
+  if (
+    label.startsWith("surfacev4/empty background") ||
+    label.startsWith("surfacev4/hdr and aux initialization")
+  ) {
     return "background";
   }
   return null;
@@ -33,7 +36,7 @@ export function classifySurfaceTimingPhase(
 
 /** Sum same-frame physical passes before percentile aggregation, excluding nested spans. */
 export function surfaceTimingTotalsForFrame(
-  segments: readonly SurfaceTimingSegment[]
+  segments: readonly SurfaceTimingSegment[],
 ): ReadonlyMap<SurfaceTimingPhase, number> {
   const totals = new Map<SurfaceTimingPhase, number>();
   for (const segment of segments) {

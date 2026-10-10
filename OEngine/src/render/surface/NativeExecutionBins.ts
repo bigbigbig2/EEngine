@@ -6,9 +6,8 @@ import {
   NATIVE_EXECUTION_BIN_WORDS,
   NATIVE_EXECUTION_CLASSIFY_WGSL,
   NATIVE_EXECUTION_FINALIZE_WGSL,
-  NATIVE_EXECUTION_HISTOGRAM_SHARDS,
-  NATIVE_EXECUTION_PREFIX_WGSL,
-  NATIVE_EXECUTION_SCAN_SIZE,
+  NATIVE_EXECUTION_TILE_WORDS,
+  NATIVE_EXECUTION_SHARED_BYTES,
   NATIVE_EXECUTION_WORKGROUP_SIZE,
 } from "../../shaders/native_execution_bins.js";
 
@@ -35,19 +34,12 @@ export interface NativeExecutionBinsInputs {
   readonly generation: number;
 }
 
-interface ScanLevel {
-  readonly count: number;
-  readonly input: number;
-  readonly output: number;
-  readonly sums: number;
-}
-
 export interface NativeExecutionBinsPlan {
   readonly mode: "empty" | "dense" | "compact";
   readonly pixels: number;
   readonly queueBytes: number;
   readonly scratchBytes: number;
-  readonly scanLevels: readonly ScanLevel[];
+  readonly tileCapacity: number;
   readonly maxGroups: number;
   readonly tiles: readonly [number, number];
   readonly dispatches: number;
@@ -107,10 +99,8 @@ export function planNativeExecutionBins(
   }
   const pixels = options.width * options.height;
   uint(pixels, "Pixel count", true);
-  const tiles = nativeExecutionDispatch(
-    Math.ceil(options.width / 8) * Math.ceil(options.height / 8),
-    maxGroups,
-  );
+  const tileCapacity = Math.ceil(options.width / 8) * Math.ceil(options.height / 8);
+  const tiles = nativeExecutionDispatch(tileCapacity, maxGroups);
   if (bins <= 1) {
     nativeExecutionDispatch(Math.ceil(pixels / NATIVE_EXECUTION_WORKGROUP_SIZE), maxGroups);
     return Object.freeze({
@@ -118,41 +108,26 @@ export function planNativeExecutionBins(
       pixels,
       queueBytes: 0,
       scratchBytes: 0,
-      scanLevels: Object.freeze([]),
+      tileCapacity,
       maxGroups,
       tiles,
       dispatches: 0,
     });
   }
   if (
-    limits.maxComputeWorkgroupSizeX < NATIVE_EXECUTION_SCAN_SIZE ||
-    limits.maxComputeInvocationsPerWorkgroup < NATIVE_EXECUTION_SCAN_SIZE ||
-    limits.maxComputeWorkgroupStorageSize < NATIVE_EXECUTION_SCAN_SIZE * 4 ||
+    limits.maxComputeWorkgroupSizeX < NATIVE_EXECUTION_WORKGROUP_SIZE ||
+    limits.maxComputeInvocationsPerWorkgroup < NATIVE_EXECUTION_WORKGROUP_SIZE ||
+    limits.maxComputeWorkgroupStorageSize < NATIVE_EXECUTION_SHARED_BYTES ||
     limits.maxStorageBuffersPerShaderStage < 6
   ) {
-    throw new RangeError("Native execution bins require 256-lane scan and six storage bindings");
+    throw new RangeError(
+      "Native execution bins require 64-lane tile classification and six storage bindings",
+    );
   }
-  const queueWords = pixels + bins * NATIVE_EXECUTION_BIN_WORDS;
+  const queueWords = bins * (NATIVE_EXECUTION_BIN_WORDS + tileCapacity * NATIVE_EXECUTION_TILE_WORDS);
   uint(queueWords, "Queue word count", true);
-  const levels: ScanLevel[] = [];
+  const words = 4 + bins;
   nativeExecutionDispatch(Math.ceil(bins / NATIVE_EXECUTION_WORKGROUP_SIZE), maxGroups);
-  let words = 4 + bins * NATIVE_EXECUTION_HISTOGRAM_SHARDS;
-  let count = bins;
-  let input = 0;
-  while (true) {
-    const output = words;
-    words += count;
-    const sums = words;
-    const blocks = Math.ceil(count / NATIVE_EXECUTION_SCAN_SIZE);
-    words += blocks;
-    levels.push(Object.freeze({ count, input, output, sums }));
-    nativeExecutionDispatch(blocks, maxGroups);
-    if (blocks === 1) {
-      break;
-    }
-    input = sums;
-    count = blocks;
-  }
   const maximum = Math.min(Number(limits.maxBufferSize), Number(limits.maxStorageBufferBindingSize));
   if (queueWords * 4 > maximum || words * 4 > maximum || bins * 8 > maximum) {
     throw new RangeError("Complete native execution working set exceeds negotiated buffer limits");
@@ -162,10 +137,10 @@ export function planNativeExecutionBins(
     pixels,
     queueBytes: queueWords * 4,
     scratchBytes: words * 4,
-    scanLevels: Object.freeze(levels),
+    tileCapacity,
     maxGroups,
     tiles,
-    dispatches: 2 * levels.length + 2,
+    dispatches: 2,
   });
 }
 
@@ -175,33 +150,21 @@ export interface NativeExecutionBinsBindings {
   readonly group: GPUBindGroup;
 }
 
-/**
- * S1 non-production work generation. The caller owns the frame encoder, queue
- * submission and fences. encode() neither submits nor reads counters back.
- *
- * Cost Card (logical traffic, not measured DRAM): compact adds 4N + 32B queue,
- * ~128B bytes sharded histogram plus ~4B bytes scan scratch (B = bin count).
- * Two winner gathers/pixel, one index write+read, two global atomic reservations
- * per tile/distinct-bin, 2 count + 3 scatter workgroup barriers. A uniform tile
- * reserves 64 pixels at once; a 64-distinct tile pays up to 64 comparisons/lane
- * and one atomic/pixel/pass. Prefix has 17 shared barriers/block and O(B*32)
- * histogram reads, four dispatches at B<=256. No samples/history/cache.
- * Dense has zero management allocation/dispatch. Multi-bin break-even is the
- * measured avoided redundant full-screen work/divergence minus this tax; no
- * speedup is claimed. 0/50/100% reuse is inapplicable (no reuse mechanism).
- *
+/** GPU-only tile work publication. Each bin has capacity for every tile; no
+ * current-frame readback or lossy budget. One classifier plus finalization,
+ * without prefix scan, pixel queue or scatter. Logical queue capacity is
+ * 12 * tiles * bins + 32 * bins bytes, versus the retired 4 * pixels queue.
+ * This trades bounded bank capacity for removing a full-screen gather/write.
  * Reference: WickedEngine df44c3db4c4927492bc9c791eac715d98d7ed091, MIT,
- * visibility_resolveCS.hlsl::main, tile-local bin publication; FidelityFX
- * ParallelSort 0c539948c8d196ae338d91efbc8ca495f1ea0d1d, MIT,
- * FFX_ParallelSort.h count/reduce/scan/scatter stages. This is a local binning
- * algorithm, not a radix-sort port; no Wave/bindless/ExecuteIndirect assumption.
+ * visibility_resolveCS.hlsl::main (per-bin tile banks). Local portable hash
+ * and exact pixel masks replace its Wave/bindless assumptions.
  */
 export class NativeExecutionBins {
   private readonly bindGroups = new GpuBindGroupCache();
   readonly plan: NativeExecutionBinsPlan;
   readonly bins: readonly NativeExecutionBin[];
   readonly queue: GPUBuffer | null = null;
-  /** words 0/1: malformed winner / scatter invariant failure; must be zero. */
+  /** words 0/1: malformed winner / tile capacity invariant failure; must be zero. */
   readonly scratch: GPUBuffer | null = null;
   private readonly baseAllocatedBytes: number;
   readonly ready: Promise<void>;
@@ -212,11 +175,7 @@ export class NativeExecutionBins {
   private readonly bindingSettings = new Map<GPUBuffer, number>();
   private classifyLayout: GPUBindGroupLayout | null = null;
   private countPipeline: GPUComputePipeline | null = null;
-  private scatterPipeline: GPUComputePipeline | null = null;
-  private scanPipeline: GPUComputePipeline | null = null;
-  private addPipeline: GPUComputePipeline | null = null;
   private finalizePipeline: GPUComputePipeline | null = null;
-  private readonly scanGroups: GPUBindGroup[] = [];
   private finalizeGroup: GPUBindGroup | null = null;
   private knownBins: GPUBuffer | null = null;
   private state: "preparing" | "ready" | "retiring" | "destroyed" = "preparing";
@@ -265,57 +224,23 @@ export class NativeExecutionBins {
         ],
       };
       this.classifyLayout = device.createBindGroupLayout(classifyDescriptor);
-      const scanDescriptor: GPUBindGroupLayoutDescriptor = {
-        entries: [
-          { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-          { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-        ],
-      };
-      const scanLayout = device.createBindGroupLayout(scanDescriptor);
       const finalizeDescriptor: GPUBindGroupLayoutDescriptor = {
         entries: [
           { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-          { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+          { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
           { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
           { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
         ],
       };
       const finalizeLayout = device.createBindGroupLayout(finalizeDescriptor);
-      for (const [index, level] of this.plan.scanLevels.entries()) {
-        const parent = this.plan.scanLevels[index + 1]?.output ?? 0;
-        const settings = this.buffer(
-          "scan settings",
-          32,
-          GPUBufferUsage.UNIFORM,
-          new Uint32Array([
-            level.count,
-            level.input,
-            level.output,
-            level.sums,
-            parent,
-            this.bins.length,
-            NATIVE_EXECUTION_HISTOGRAM_SHARDS,
-            index === 0 ? 1 : 0,
-          ]),
-        );
-        this.scanGroups.push(
-          this.bindGroups.create(device, {
-            layout: scanLayout,
-            entries: [
-              { binding: 0, resource: { buffer: settings } },
-              { binding: 1, resource: { buffer: this.scratch } },
-            ],
-          }),
-        );
-      }
       const settings = this.buffer(
         "finalize settings",
         16,
         GPUBufferUsage.UNIFORM,
         new Uint32Array([
           this.bins.length,
-          NATIVE_EXECUTION_HISTOGRAM_SHARDS,
-          this.plan.scanLevels[0]!.output,
+          this.plan.tileCapacity,
+          this.bins.length * NATIVE_EXECUTION_BIN_WORDS,
           this.plan.maxGroups,
         ]),
       );
@@ -332,16 +257,11 @@ export class NativeExecutionBins {
         label: "SurfaceV4/bins classify",
         code: NATIVE_EXECUTION_CLASSIFY_WGSL,
       });
-      const prefix = device.createShaderModule({
-        label: "SurfaceV4/bins prefix",
-        code: NATIVE_EXECUTION_PREFIX_WGSL,
-      });
       const finalize = device.createShaderModule({
         label: "SurfaceV4/bins finalize",
         code: NATIVE_EXECUTION_FINALIZE_WGSL,
       });
       const classifyPipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [this.classifyLayout] });
-      const scanPipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [scanLayout] });
       const finalizePipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [finalizeLayout] });
       if (options.graphics !== undefined) {
         const pipeline = (
@@ -353,10 +273,7 @@ export class NativeExecutionBins {
             layout: { bindGroupLayouts: [layout] },
             compute: { module: { code }, entryPoint },
           });
-        this.countPipeline = pipeline(NATIVE_EXECUTION_CLASSIFY_WGSL, "count", classifyDescriptor);
-        this.scatterPipeline = pipeline(NATIVE_EXECUTION_CLASSIFY_WGSL, "scatter", classifyDescriptor);
-        this.scanPipeline = pipeline(NATIVE_EXECUTION_PREFIX_WGSL, "scan", scanDescriptor);
-        this.addPipeline = pipeline(NATIVE_EXECUTION_PREFIX_WGSL, "add", scanDescriptor);
+        this.countPipeline = pipeline(NATIVE_EXECUTION_CLASSIFY_WGSL, "classify", classifyDescriptor);
         this.finalizePipeline = pipeline(NATIVE_EXECUTION_FINALIZE_WGSL, "finalize", finalizeDescriptor);
         this.state = "ready";
         this.ready = Promise.resolve();
@@ -364,33 +281,18 @@ export class NativeExecutionBins {
         this.ready = Promise.all([
           device.createComputePipelineAsync({
             layout: classifyPipelineLayout,
-            compute: { module: classify, entryPoint: "count" },
-          }),
-          device.createComputePipelineAsync({
-            layout: classifyPipelineLayout,
-            compute: { module: classify, entryPoint: "scatter" },
-          }),
-          device.createComputePipelineAsync({
-            layout: scanPipelineLayout,
-            compute: { module: prefix, entryPoint: "scan" },
-          }),
-          device.createComputePipelineAsync({
-            layout: scanPipelineLayout,
-            compute: { module: prefix, entryPoint: "add" },
+            compute: { module: classify, entryPoint: "classify" },
           }),
           device.createComputePipelineAsync({
             layout: finalizePipelineLayout,
             compute: { module: finalize, entryPoint: "finalize" },
           }),
         ])
-          .then(([count, scatter, scan, add, finalize]) => {
+          .then(([classify, finalize]) => {
             if (this.state !== "preparing") {
               throw new Error("Native execution bins were cancelled before readiness");
             }
-            this.countPipeline = count;
-            this.scatterPipeline = scatter;
-            this.scanPipeline = scan;
-            this.addPipeline = add;
+            this.countPipeline = classify;
             this.finalizePipeline = finalize;
             this.state = "ready";
           })
@@ -449,7 +351,7 @@ export class NativeExecutionBins {
   }
 
   get allocatedBytes(): number {
-    return this.baseAllocatedBytes + this.bindingSettings.size * 32;
+    return this.state === "destroyed" ? 0 : this.baseAllocatedBytes + this.bindingSettings.size * 32;
   }
 
   /** Create once per stable input identity and reuse on replay. */
@@ -474,7 +376,7 @@ export class NativeExecutionBins {
         this.width,
         this.height,
         this.bins.length,
-        NATIVE_EXECUTION_HISTOGRAM_SHARDS,
+        this.plan.tileCapacity,
         inputs.generation,
         Math.ceil(this.width / 8),
         this.bins.length * NATIVE_EXECUTION_BIN_WORDS,
@@ -567,24 +469,7 @@ export class NativeExecutionBins {
       pass.dispatchWorkgroups(dimensions[0], dimensions[1]);
       pass.end();
     };
-    dispatch(this.countPipeline!, bindings.group, this.plan.tiles, "count");
-    for (const [index, level] of this.plan.scanLevels.entries()) {
-      dispatch(
-        this.scanPipeline!,
-        this.scanGroups[index]!,
-        nativeExecutionDispatch(Math.ceil(level.count / NATIVE_EXECUTION_SCAN_SIZE), this.plan.maxGroups),
-        "scan",
-      );
-    }
-    for (let index = this.plan.scanLevels.length - 2; index >= 0; index--) {
-      const level = this.plan.scanLevels[index]!;
-      dispatch(
-        this.addPipeline!,
-        this.scanGroups[index]!,
-        nativeExecutionDispatch(Math.ceil(level.count / NATIVE_EXECUTION_SCAN_SIZE), this.plan.maxGroups),
-        "add",
-      );
-    }
+    dispatch(this.countPipeline!, bindings.group, this.plan.tiles, "classify");
     dispatch(
       this.finalizePipeline!,
       this.finalizeGroup!,
@@ -594,7 +479,6 @@ export class NativeExecutionBins {
       ),
       "finalize",
     );
-    dispatch(this.scatterPipeline!, bindings.group, this.plan.tiles, "scatter");
   }
 
   indirectOffset(bin: number): number {
