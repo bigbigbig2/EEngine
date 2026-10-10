@@ -159,7 +159,15 @@ function fixture({ reactive = false, compact = false } = {}) {
     routes: [
       { programIndex: 0, bindingSet: 0, materialEntries: [], frameInputs: new Float32Array(4), unlit: true },
       ...(compact === "two"
-        ? [{ programIndex: 0, bindingSet: 1, materialEntries: [], frameInputs: new Float32Array(4), unlit: true }]
+        ? [
+            {
+              programIndex: 0,
+              bindingSet: 1,
+              materialEntries: [],
+              frameInputs: new Float32Array(4),
+              unlit: true,
+            },
+          ]
         : []),
     ],
   };
@@ -512,6 +520,42 @@ test("native visibility snapshots asynchronous descriptors and rejects invalid p
   f.device.limits.maxStorageBuffersPerShaderStage = 1;
   assert.throws(() => new NativeVisibilityPass(f.device, input), /stage resources/);
   assert.equal(f.resources.length, count);
+  await f.publication.retire(Promise.resolve());
+  f.registry.destroy();
+});
+
+test("VSM complete Cartesian domain and borrowed source bounds are rejected before partition allocation", async () => {
+  const f = fixture();
+  await f.publication.ready;
+  f.publication.commit();
+  const pairs = f.device.createBuffer({ size: 48, usage: GPUBufferUsage.STORAGE });
+  const bounds = f.device.createBuffer({ size: 48, usage: GPUBufferUsage.STORAGE });
+  const input = {
+    work: pairs,
+    metadata: f.frame.geometry.arena,
+    publication: f.publication,
+    capacity: 1,
+    meshletWordBase: 0,
+    generation: 7,
+    caster: {
+      source: f.frame.geometry.meshletWork,
+      bounds,
+      sourceCapacity: 1,
+      pairCapacity: 1,
+      dirtyCapacity: 900,
+    },
+  };
+  const count = f.resources.length;
+  for (const caster of [
+    { ...input.caster, sourceCapacity: 4772186 },
+    { ...input.caster, sourceCapacity: 1.5 },
+    { ...input.caster, pairCapacity: 0 },
+    { ...input.caster, sourceCapacity: 2 },
+    { ...input.caster, bounds: { size: 16, usage: GPUBufferUsage.STORAGE } },
+  ]) {
+    assert.throws(() => new NativeRasterWorkPartitions(f.device, { ...input, caster }), /u32|complete/);
+    assert.equal(f.resources.length, count, "invalid full support domain allocated partition storage");
+  }
   await f.publication.retire(Promise.resolve());
   f.registry.destroy();
 });

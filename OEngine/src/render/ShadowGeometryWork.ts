@@ -18,6 +18,7 @@ import type { PreparedFrameInstances } from "./FrameInstanceTransforms.js";
 import type { PackedVisibilityPrepareJob } from "./passes/PackedVisibilityPass.js";
 import type { VisibilityWorkSet } from "./VisibilityWorkSet.js";
 import type { VsmDirectionalFrameConstants } from "./vsm/VsmReceiverDemandPass.js";
+import { ShadowMeshletBounds } from "./ShadowMeshletBounds.js";
 
 /** Union of clipmap XY coverage, extruded along the directional light.
  * No camera occlusion/cone test or camera SSE is valid for this caster view. */
@@ -64,6 +65,7 @@ export interface PreparedShadowGeometry {
   readonly hierarchy: PreparedHierarchyWork;
   readonly work: PreparedMeshletWorkCandidate;
   readonly instances: PreparedFrameInstances;
+  readonly bounds: ShadowMeshletBounds;
 }
 
 /** Geometry-owned shadow selection. Shares scene/residency, never main selected work. */
@@ -131,6 +133,7 @@ export class ShadowGeometryWork {
     );
     let work: PreparedMeshletWorkCandidate | null = null;
     let instances: PreparedFrameInstances | null = null;
+    let bounds: ShadowMeshletBounds | null = null;
     try {
       const common = {
         visibleClusters: hierarchy.generated.visibleClusters,
@@ -160,7 +163,15 @@ export class ShadowGeometryWork {
         workCapacity: work.capacity,
         instanceCapacity: Math.floor(job.scene.instances.size / GPU_INSTANCE_RECORD_STRIDE),
       });
+      bounds = new ShadowMeshletBounds(
+        this.graphics.device,
+        work,
+        job.scene.instances,
+        job.assets.meshletRecords,
+        this.graphics.resource_accounting,
+      );
     } catch (error) {
+      bounds?.destroy();
       if (instances) {
         this.graphics.frame_instances.release(instances);
       }
@@ -170,10 +181,11 @@ export class ShadowGeometryWork {
       this.hierarchy.release(hierarchy);
       throw error;
     }
-    const next = Object.freeze({ mainResources: main, hierarchy, work, instances });
+    const next = Object.freeze({ mainResources: main, hierarchy, work, instances, bounds });
     this.allocations.add(next);
     this.states.set(job.runtime, next);
     if (existing) {
+      existing.bounds.retire();
       command.destroyAfterGpuDone({ destroy: () => this.dispose(existing) });
     }
     return next;
@@ -183,6 +195,7 @@ export class ShadowGeometryWork {
     job: PackedVisibilityPrepareJob,
     prepared: PreparedShadowGeometry,
     command: ShadeGPUCommandContext,
+    allocation: GPUBuffer,
   ): void {
     if (!job.shadowFrame) {
       throw new Error("Shadow Geometry is missing its light view");
@@ -212,6 +225,7 @@ export class ShadowGeometryWork {
       this.ordinary.encode(command, prepared.work);
     }
     this.graphics.frame_instances.encode(command.gpu_encoder, prepared.instances);
+    prepared.bounds.encode(command, job.shadowFrame.lightView, allocation);
   }
 
   release(runtime: GpuRenderWorldRuntime, command: ShadeGPUCommandContext): void {
@@ -220,6 +234,7 @@ export class ShadowGeometryWork {
       return;
     }
     this.states.delete(runtime);
+    state.bounds.retire();
     command.destroyAfterGpuDone({ destroy: () => this.dispose(state) });
   }
 
@@ -250,6 +265,7 @@ export class ShadowGeometryWork {
       return;
     }
     this.graphics.frame_instances.release(state.instances);
+    state.bounds.destroy();
     this.releaseWork(state.work);
     this.hierarchy.release(state.hierarchy);
   }

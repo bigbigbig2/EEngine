@@ -11,6 +11,15 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "vsm-v4-r3",
+    file: "OEngine/tests/oracle/vsm-v4-r3-gpu.mjs",
+    url: "/OEngine/tests/oracle/vsm-v4-r3-gpu.mjs",
+    entry: "runVsmR3GpuOracle",
+    requiredLimits: { maxStorageBuffersPerShaderStage: 8 },
+    description:
+      "Tight Geometry bounds, C−1/C/C+1 explicit/implicit modes, native partition failure, empty completion, abort retry and gutter addresses.",
+  }),
+  Object.freeze({
     name: "vsm-v4-r2",
     file: "OEngine/tests/oracle/vsm-v4-r2-gpu.mjs",
     url: "/OEngine/tests/oracle/vsm-v4-r2-gpu.mjs",

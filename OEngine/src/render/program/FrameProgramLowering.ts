@@ -145,7 +145,7 @@ function compileSceneGraph(
   const instances = graph.import_resource(
     "scene-instances",
     { kind: "imported", label: "published instance records" },
-    bind("scene-instances", (bindings) => bindings.job.scene.instances)
+    bind("scene-instances", (bindings) => bindings.job.scene.instances),
   );
   let vsmOwnerBinding: NonNullable<SceneFrameBindings["vsm"]> | null = null;
   let vsmFrameBinding: NonNullable<SceneFrameBindings["vsmFrame"]> | null = null;
@@ -172,7 +172,7 @@ function compileSceneGraph(
     const contentVersion = owners.vsmInvalidation.addToGraph(graph, {
       resources: vsmOwner,
       state: bind("vsm-generation-state", (bindings) => bindings.vsmGeneration),
-      frame: vsmFrame
+      frame: vsmFrame,
     });
     const depthRange = owners.vsmDepthBounds.addToGraph(
       graph,
@@ -182,8 +182,8 @@ function compileSceneGraph(
         state: bindings.vsmGeneration,
         instances,
         instanceBegin: bindings.runtime.instanceBegin,
-        instanceCount: bindings.runtime.instanceCount
-      }))
+        instanceCount: bindings.runtime.instanceCount,
+      })),
     );
     vsmDepthRange = depthRange;
     const demand = owners.vsmReceiverDemand.addToGraph(
@@ -215,7 +215,7 @@ function compileSceneGraph(
           generation: bindings.vsmFrame!.generation,
           contentVersion,
           frameSerial: bindings.vsmGeneration.frameSerial,
-          frame: vsmFrame
+          frame: vsmFrame,
         })),
       );
     }
@@ -310,6 +310,12 @@ function compileSceneGraph(
         camera: cameraBuffer,
         instances,
         meshletWork: shadowWork,
+        allocation: vsmAllocation!.allocation,
+        meshletBounds: graph.import_resource(
+          "shadow-meshlet-bounds",
+          { kind: "imported" },
+          bind("shadow-meshlet-bounds", (bindings) => bindings.job.prepared.shadowGeometry!.bounds.records),
+        ),
         frameInstances: shadowInstances,
         productHeap: virtualMetadata,
         productBanks: virtualBanks,
@@ -337,7 +343,7 @@ function compileSceneGraph(
       bind("vsm-caster-job", (bindings) => ({
         allocation: vsmAllocation!,
         meshletWork: shadow.meshletWork,
-        instances,
+        meshletBounds: shadow.meshletBounds,
         resources: bindings.vsm!,
         frame: bindings.vsmFrame!,
         depthRange: vsmDepthRange!,
@@ -360,7 +366,7 @@ function compileSceneGraph(
         cameraPosition: [
           bindings.camera.transform.matrix[12]!,
           bindings.camera.transform.matrix[13]!,
-          bindings.camera.transform.matrix[14]!
+          bindings.camera.transform.matrix[14]!,
         ],
         viewMatrix: bindings.camera.view_matrix,
         clipFromWorld: bindings.camera.view_projection_matrix,

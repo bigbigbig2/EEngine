@@ -9,123 +9,68 @@ import { StandardShadeMaterial } from "../../.test-dist/material/StandardShadeMa
 import { ShadeTransparencyMode } from "../../.test-dist/material/enums.js";
 import { PerspectiveCamera } from "../../.test-dist/camera/PerspectiveCamera.js";
 import { createPackedSceneSourceFromScene } from "../../.test-dist/gpu/GpuSceneAdapter.js";
+import { GPU_MESHLET_RASTER_WORK_WGSL } from "../../.test-dist/gpu/GpuMeshletRasterWorkAbi.js";
+import { GPU_INSTANCE_RECORD_WGSL } from "../../.test-dist/gpu/GpuInstanceAbi.js";
 import { GPU_INSTANCE_FLAGS } from "../../.test-dist/gpu/GpuInstanceAbi.js";
 import { decodeFloat16 } from "../../.test-dist/core/Float16.js";
 import { GPU_COUNTER_BYTE_SIZE, counterByteOffset } from "../../.test-dist/debug/GpuFrameCounters.js";
 import { authoredTexture } from "./native-surface-production-gpu.mjs";
 import { VsmCasterRecordPass } from "../../.test-dist/render/vsm/VsmCasterRecordPass.js";
 
-// Exercise the production caster/finalize pipelines with independently authored
-// headers. No pages means this isolates header rejection, not shading performance.
-async function checkCasterHeaders(device) {
-  const retained = [],
-    owner = new VsmCasterRecordPass(device);
-  const make = (size, usage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST) => {
-    const buffer = device.createBuffer({ size, usage });
-    retained.push(buffer);
-    return buffer;
-  };
-  const work = make(80),
-    allocation = make(48),
-    pages = make(32),
-    instances = make(176);
-  const caster = make(80, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
-  const telemetry = make(32),
-    indirect = make(48, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
-  const read = make(64, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
-  const constants = new Uint32Array(64);
-  constants.set([1, 128, 0, 128], 40);
-  constants.set([17, 2, 2, 1], 44);
-  const group = device.createBindGroup({
-    layout: owner.casterLayout,
-    entries: [
-      { binding: 0, resource: { buffer: owner.constants } },
-      { binding: 1, resource: { buffer: allocation } },
-      { binding: 2, resource: { buffer: pages } },
-      { binding: 3, resource: { buffer: work } },
-      { binding: 4, resource: { buffer: instances } },
-      { binding: 5, resource: { buffer: caster } },
-      { binding: 6, resource: { buffer: telemetry } },
-    ],
-  });
-  const final = device.createBindGroup({
-    layout: owner.finalizeLayout,
-    entries: [
-      { binding: 0, resource: { buffer: owner.constants } },
-      { binding: 1, resource: { buffer: allocation } },
-      { binding: 5, resource: { buffer: caster } },
-      { binding: 7, resource: { buffer: indirect } },
-    ],
-  });
-  const cases = [];
-  try {
-    for (const [name, written, capacity, invalid, overflow, controlCapacity, expectedFailure] of [
-      ["empty", 0, 2, 0, 0, 2, 0],
-      ["one", 1, 2, 0, 0, 2, 0],
-      ["full", 2, 2, 0, 0, 2, 0],
-      ["invalid", 1, 2, 1, 0, 2, 1],
-      ["overflow", 1, 2, 0, 1, 2, 1],
-      ["header-bound", 2, 1, 0, 0, 2, 1],
-      ["physical-bound", 3, 3, 0, 0, 3, 1],
-      ["consumer-bound", 2, 2, 0, 0, 1, 1],
-    ]) {
-      constants[45] = controlCapacity;
-      device.queue.writeBuffer(owner.constants, 0, constants);
-      device.queue.writeBuffer(
-        work,
-        0,
-        new Uint32Array([written, written, 0, capacity, overflow, 11, invalid, 0]),
-      );
-      const encoder = device.createCommandEncoder();
-      encoder.clearBuffer(caster);
-      encoder.clearBuffer(telemetry);
-      const pass = encoder.beginComputePass();
-      pass.setPipeline(owner.casterPipeline);
-      pass.setBindGroup(0, group);
-      pass.dispatchWorkgroups(1);
-      pass.end();
-      const finalize = encoder.beginComputePass();
-      finalize.setPipeline(owner.finalizePipeline);
-      finalize.setBindGroup(0, final);
-      finalize.dispatchWorkgroups(1);
-      finalize.end();
-      encoder.copyBufferToBuffer(caster, 0, read, 0, 16);
-      encoder.copyBufferToBuffer(indirect, 0, read, 16, 48);
-      device.queue.submit([encoder.finish()]);
-      await read.mapAsync(GPUMapMode.READ);
-      const values = [...new Uint32Array(read.getMappedRange().slice(0))];
-      read.unmap();
-      assert.equal(values[2], expectedFailure, `${name}: exact malformed-header rejection`);
-      assert.equal(values[3], 17, `${name}: current caster generation`);
-      assert.equal(values[5], 0, `${name}: no partial draw without pages`);
-      cases.push({ name, overflow: values[2], generation: values[3] });
-    }
-    return cases;
-  } finally {
-    await device.queue.onSubmittedWorkDone();
-    owner.destroy();
-    retained.forEach((buffer) => buffer.destroy());
-  }
-}
+import { runVsmR3GpuOracle as checkCasterHeaders } from "./vsm-v4-r3-gpu.mjs";
 
 /** Actual Renderer/VSM/Surface chain. Counterfactual control copies main
- * selected work into shadow inputs only in the oracle; no production switch. */
+ * selected cast work into shadow inputs only in the oracle; no production switch. */
 export async function runGeometryShadowViewGpuOracle() {
   const width = 384,
     height = 224;
   const renderer = new Renderer({
     autoExposure: false,
     fixedExposure: 1,
-    requiredFeatures: ["timestamp-query"],
+    requiredFeatures: ["timestamp-query"]
   });
   const canvas = new OffscreenCanvas(width, height);
   await renderer.initialize({ context: canvas.getContext("webgpu") });
   renderer.resize(width, height);
   renderer.temporal_jitter_enabled = false;
+  renderer.fsr3_enabled = false;
   const device = renderer.device,
     errors = [],
     retained = [];
   device.addEventListener("uncapturederror", (event) => errors.push(event.error.message));
+  // Counterfactual uses the real main selection but must retain valid cast semantics.
+  const controlPipeline = device.createComputePipeline({
+    label: "Oracle/main-selected cast filter",
+    layout: "auto",
+    compute: {
+      module: device.createShaderModule({
+        label: "Oracle/cast filter WGSL",
+        code: `
+${GPU_MESHLET_RASTER_WORK_WGSL}
+${GPU_INSTANCE_RECORD_WGSL}
+@group(0) @binding(0) var<storage, read_write> queue: OEngineMeshletWorkQueueRead;
+@group(0) @binding(1) var<storage, read> instances: array<OEngineInstanceRecord>;
+@compute @workgroup_size(1)
+fn main() {
+  var written = 0u;
+  for (var slot = 0u; slot < queue.header.written_count; slot++) {
+    let record = queue.elements[slot];
+    if record.instance_slot < arrayLength(&instances) &&
+      (instances[record.instance_slot].flags & ${GPU_INSTANCE_FLAGS.CastsShadow}u) != 0u {
+      queue.elements[written] = record;
+      written++;
+    }
+  }
+  queue.header.attempted_count = written;
+  queue.header.written_count = written;
+  queue.header.consumed_count = 0u;
+}
+`
+      }),
+      entryPoint: "main"
+    }
+  });
+  const controlGroups = new Map();
   const scene = new Scene();
   scene.physical_environment.setSun([0, 5 / Math.hypot(5, 3), 3 / Math.hypot(5, 3)], [8, 8, 8]);
   scene.physical_environment.setSkyLuminanceScale(0);
@@ -193,12 +138,12 @@ export async function runGeometryShadowViewGpuOracle() {
   let shadowCpuMs = 0;
   const shadowCounters = device.createBuffer({
     size: GPU_COUNTER_BYTE_SIZE,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
   });
   retained.push(shadowCounters);
   const mainCounters = device.createBuffer({
     size: GPU_COUNTER_BYTE_SIZE,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
   });
   retained.push(mainCounters);
   const visibility = renderer._visibilityFeature,
@@ -220,9 +165,9 @@ export async function runGeometryShadowViewGpuOracle() {
   shadowOwner.hierarchy.prepare = (scene, config) =>
     prepareShadowHierarchy(
       { ...scene, counterBuffer: shadowCounters },
-      { ...config, countersEnabled: true, diagnosticsEnabled: true },
+      { ...config, countersEnabled: true, diagnosticsEnabled: true }
     );
-  shadowOwner.encode = (job, prepared, command) => {
+  shadowOwner.encode = (job, prepared, command, allocation) => {
     const start = performance.now();
     command.gpu_encoder.clearBuffer(shadowCounters);
     // Oracle-only pass labels distinguish views without modifying production shaders.
@@ -233,22 +178,22 @@ export async function runGeometryShadowViewGpuOracle() {
           return (descriptor) =>
             target.beginComputePass({
               ...descriptor,
-              label: `Shadow/${descriptor?.label ?? "work"}`,
+              label: `Shadow/${descriptor?.label ?? "work"}`
             });
         const value = Reflect.get(target, key, target);
         return typeof value === "function" ? value.bind(target) : value;
-      },
+      }
     });
     const scopedCommand = new Proxy(command, {
       get(target, key) {
         if (key === "gpu_encoder") return scopedEncoder;
         const value = Reflect.get(target, key, target);
         return typeof value === "function" ? value.bind(target) : value;
-      },
+      }
     });
     const clips = clipOverride ?? (broad ? [[-10000, -10000, 20000, 1]] : null);
     const shadowJob = clips ? { ...job, shadowFrame: { ...job.shadowFrame, clipOriginExtent: clips } } : job;
-    encodeShadow(shadowJob, prepared, scopedCommand);
+    encodeShadow(shadowJob, prepared, scopedCommand, allocation);
     if (baseline) {
       const main = actualJob.prepared.workSet;
       command.gpu_encoder.copyBufferToBuffer(
@@ -256,8 +201,25 @@ export async function runGeometryShadowViewGpuOracle() {
         0,
         prepared.work.queue,
         0,
-        main.meshletWorkCandidate.queue.size,
+        main.meshletWorkCandidate.queue.size
       );
+      let controlGroup = controlGroups.get(prepared.work.queue);
+      if (!controlGroup) {
+        controlGroup = device.createBindGroup({
+          layout: controlPipeline.getBindGroupLayout(0),
+          entries: [
+            { binding: 0, resource: { buffer: prepared.work.queue } },
+            { binding: 1, resource: { buffer: shadowJob.scene.instances } }
+          ]
+        });
+        controlGroups.set(prepared.work.queue, controlGroup);
+      }
+      const filter = command.gpu_encoder.beginComputePass({ label: "Oracle/main-selected cast filter" });
+      filter.setPipeline(controlPipeline);
+      filter.setBindGroup(0, controlGroup);
+      filter.dispatchWorkgroups(1);
+      filter.end();
+      prepared.bounds.encode(scopedCommand, shadowJob.shadowFrame.lightView, allocation);
     }
     shadowCpuMs = performance.now() - start;
   };
@@ -287,28 +249,28 @@ export async function runGeometryShadowViewGpuOracle() {
       0,
       selectedStats,
       0,
-      32,
+      32
     );
     encoder.copyBufferToBuffer(
       actualJob.prepared.shadowGeometry.hierarchy.generated.visibleClusters,
       0,
       selectedStats,
       32,
-      32,
+      32
     );
     encoder.copyTextureToBuffer({ texture: actualFrame.output }, { buffer: hdr, bytesPerRow: pitch }, [
       width,
-      height,
+      height
     ]);
     encoder.copyTextureToBuffer(
       { texture: actualFrame.visibility },
       { buffer: winner, bytesPerRow: keyPitch },
-      [width, height],
+      [width, height]
     );
     for (const [source, destination] of [
       [actualFrame.geometry.meshletWork, main],
       [actualJob.prepared.shadowGeometry.work.queue, shadow],
-      [renderer._vsm.casterRecords, casters],
+      [renderer._vsm.casterRecords, casters]
     ]) {
       encoder.copyBufferToBuffer(source, 0, destination, 0, destination.size);
     }
@@ -333,11 +295,11 @@ export async function runGeometryShadowViewGpuOracle() {
       capture.casters,
       capture.winner,
       capture.shadowStats,
-      capture.selectedStats,
+      capture.selectedStats
     ];
     await Promise.all(reads.map((buffer) => buffer.mapAsync(GPUMapMode.READ)));
     const [hdr, main, shadow, casters, winner, shadowStats, selectedStats] = reads.map((buffer) =>
-      buffer.getMappedRange().slice(0),
+      buffer.getMappedRange().slice(0)
     );
     reads.forEach((buffer) => buffer.unmap());
     const selected = (bytes) => {
@@ -346,9 +308,15 @@ export async function runGeometryShadowViewGpuOracle() {
       return [...new Set(Array.from({ length: words[1] }, (_, index) => words[8 + index * 6]))].sort();
     };
     const casterWords = new Uint32Array(casters);
-    assert.equal(casterWords[2], 0, `${name}: caster queue cannot truncate`);
+    assert.equal(casterWords[2], 0, `${name}: pair source cannot fail`);
+    assert.equal(casterWords[4], 0, `${name}: small fixture must fit explicit pairs`);
     const casterInstances = [
-      ...new Set(Array.from({ length: casterWords[1] }, (_, index) => casterWords[4 + index * 8])),
+      ...new Set(
+        Array.from(
+          { length: casterWords[1] },
+          (_, index) => new Uint32Array(shadow)[8 + casterWords[8 + index * 4] * 6]
+        )
+      )
     ].sort();
     const values = new Uint16Array(hdr);
     let radiance = 0,
@@ -389,12 +357,12 @@ export async function runGeometryShadowViewGpuOracle() {
         shadowH: counter("geometryNodesTested"),
         shadowE: counter("traversalQueueReservations"),
         shadowC: new Uint32Array(selectedStats)[8],
-        shadowM: new Uint32Array(shadow)[1],
+        shadowM: new Uint32Array(shadow)[1]
       },
       casterRecords: casterWords[1],
       receiverRadiance: radiance / samples,
       shadowQueueBytes: capture.shadow.size,
-      shadowInstancesBytes: actualJob.prepared.shadowGeometry.instances.byteLength,
+      shadowInstancesBytes: actualJob.prepared.shadowGeometry.instances.byteLength
     };
   };
   try {
@@ -404,14 +372,19 @@ export async function runGeometryShadowViewGpuOracle() {
       casterIndex = instanceBegin + casterSlot;
     baseline = true;
     await tick();
+    await tick();
+    await tick();
     const old = await inspect("main-selected-counterfactual");
     assert.deepEqual(
       old.mainInstances,
       [receiverIndex],
-      `Caster must really be outside main camera: ${JSON.stringify(old)}`,
+      `Caster must really be outside main camera: ${JSON.stringify(old)}`
     );
     assert.deepEqual(old.casterInstances, [], "Main selected work misses off-camera caster");
     baseline = false;
+    // The oracle changes the shadow source outside production publication.
+    renderer.shadowVisibilityEnabled = false;
+    renderer.shadowVisibilityEnabled = true;
     renderer.invalidateTemporalHistory();
     await tick();
     const independent = await inspect("independent-shadow-view");
@@ -420,14 +393,14 @@ export async function runGeometryShadowViewGpuOracle() {
     assert.deepEqual(independent.casterInstances, [casterIndex]);
     assert.ok(
       independent.receiverRadiance < old.receiverRadiance * 0.8,
-      `Off-camera caster must darken visible receiver: ${JSON.stringify({ old, independent })}`,
+      `Off-camera caster must darken visible receiver: ${JSON.stringify({ old, independent })}`
     );
     casterMaterial.alpha_cutoff = 0.8;
     await tick();
     const alphaDiscard = await inspect("alpha-discard");
     assert.ok(
       alphaDiscard.receiverRadiance > independent.receiverRadiance * 1.2,
-      "VSM must respect native alpha",
+      "VSM must respect native alpha"
     );
     casterMaterial.alpha_cutoff = 0.2;
     abort = true;
@@ -443,12 +416,12 @@ export async function runGeometryShadowViewGpuOracle() {
     }
     assert.ok(
       failure?.message.includes("injected shadow chain abort"),
-      "Expected shadow-chain abort must propagate",
+      "Expected shadow-chain abort must propagate"
     );
     assert.equal(
       renderer._temporal.histories.state("identity").readIndex,
       before,
-      "Abort cannot publish history",
+      "Abort cannot publish history"
     );
     abort = false;
     await tick();
@@ -463,14 +436,14 @@ export async function runGeometryShadowViewGpuOracle() {
       frameId: renderer.frame_count,
       transforms: {
         indices: new Uint32Array([casterSlot]),
-        transforms: new Float32Array(caster.transform_global.matrix),
-      },
+        transforms: new Float32Array(caster.transform_global.matrix)
+      }
     });
     await tick();
     const casterMoved = await inspect("caster-moved");
     assert.ok(
       casterMoved.receiverRadiance > independent.receiverRadiance + 0.1,
-      `Moving caster must update shadow: ${JSON.stringify({ casterMoved, matrix: [...caster.transform_global.matrix], generation: actualJob.shadowFrame.generation })}`,
+      `Moving caster must update shadow: ${JSON.stringify({ casterMoved, matrix: [...caster.transform_global.matrix], generation: actualJob.shadowFrame.generation })}`
     );
     caster.transform_local.position.set(0, 5, 3);
     caster.transform_local.updateMatrix();
@@ -484,11 +457,8 @@ export async function runGeometryShadowViewGpuOracle() {
       frameId: renderer.frame_count,
       transforms: {
         indices: new Uint32Array([casterSlot, receiverSlot]),
-        transforms: new Float32Array([
-          ...caster.transform_global.matrix,
-          ...receiver.transform_global.matrix,
-        ]),
-      },
+        transforms: new Float32Array([...caster.transform_global.matrix, ...receiver.transform_global.matrix])
+      }
     });
     await tick();
     const receiverMoved = await inspect("receiver-moved");
@@ -499,7 +469,7 @@ export async function runGeometryShadowViewGpuOracle() {
       enabled: true,
       gpuSampleInterval: 1,
       gpuTimingMode: "full",
-      historyCapacity: 128,
+      historyCapacity: 128
     });
     for (let frame = 0; frame < 32; frame++) await tick();
     const measurements = [];
@@ -509,9 +479,11 @@ export async function runGeometryShadowViewGpuOracle() {
       const first = renderer.frame_count;
       const cpuSamples = [];
       for (let sample = 0; sample < 16; sample++) {
-        // Same mathematical Sun; an authored publication makes pages dirty.
-        if (mode !== "clean-clipmap")
-          scene.physical_environment.setSun([0, 5 / Math.hypot(5, 3), 3 / Math.hypot(5, 3)], [8, 8, 8]);
+        // Identical Sun inputs correctly retain depth; public shadow toggles force the dirty control.
+        if (mode !== "clean-clipmap") {
+          renderer.shadowVisibilityEnabled = false;
+          renderer.shadowVisibilityEnabled = true;
+        }
         await tick();
         cpuSamples.push(shadowCpuMs);
       }
@@ -525,17 +497,17 @@ export async function runGeometryShadowViewGpuOracle() {
         await new Promise((resolve) => setTimeout(resolve, 5));
       }
       const profiles = renderer.profiler.history.filter(
-        (p) => p.frameIndex >= first && p.frameIndex < first + 16 && p.gpu.sampled && !p.gpu.pending,
+        (p) => p.frameIndex >= first && p.frameIndex < first + 16 && p.gpu.sampled && !p.gpu.pending
       );
       assert.equal(profiles.length, 16, "Complete diagnostic GPU sample set");
       assert.ok(
         profiles.every((p) => !p.counters["gpu.timing.truncated"] && p.submits.count === 1),
-        "Complete single-submit work",
+        "Complete single-submit work"
       );
       const labels = [
         ...new Set(
-          profiles.flatMap((p) => p.gpu.segments.filter((s) => s.scope === "pass").map((s) => s.label)),
-        ),
+          profiles.flatMap((p) => p.gpu.segments.filter((s) => s.scope === "pass").map((s) => s.label))
+        )
       ];
       const passMs = Object.fromEntries(
         labels.map((label) => {
@@ -543,11 +515,11 @@ export async function runGeometryShadowViewGpuOracle() {
             .map((p) =>
               p.gpu.segments
                 .filter((s) => s.scope === "pass" && s.label === label)
-                .reduce((sum, s) => sum + s.durationMs, 0),
+                .reduce((sum, s) => sum + s.durationMs, 0)
             )
             .sort((a, b) => a - b);
           return [label, { p50: values[7], p95: values[15] }];
-        }),
+        })
       );
       const percentile = (values) => {
         const sorted = [...values].sort((a, b) => a - b);
@@ -558,8 +530,8 @@ export async function runGeometryShadowViewGpuOracle() {
           profiles.map((p) =>
             p.gpu.segments
               .filter((s) => s.scope === "pass" && pattern.test(s.label))
-              .reduce((sum, s) => sum + s.durationMs, 0),
-          ),
+              .reduce((sum, s) => sum + s.durationMs, 0)
+          )
         );
       measurements.push({
         mode,
@@ -570,29 +542,29 @@ export async function runGeometryShadowViewGpuOracle() {
         shadowGpuMs: totals(/\/Shadow\//),
         casterGpuMs: totals(/VSM.*caster|VSM\/finalize raster indirect/),
         shadowPassCount: profiles[0].gpu.segments.filter(
-          (s) => s.scope === "pass" && s.label.includes("/Shadow/"),
+          (s) => s.scope === "pass" && s.label.includes("/Shadow/")
         ).length,
         shadowHierarchyBytes: shadowOwner.hierarchy.evidence(actualJob.prepared.shadowGeometry.hierarchy)
           .transientBytes,
         mainInstances: actualJob.prepared.workSet.frameInstances.byteLength,
         shadowHierarchyDepth: actualJob.runtime.hierarchyMaxDepth,
-        shadowRounds: actualJob.prepared.shadowGeometry.hierarchy.generated.encodedRoundCount,
+        shadowRounds: actualJob.prepared.shadowGeometry.hierarchy.generated.encodedRoundCount
       });
       const empty = mode.startsWith("empty");
       assert.equal(
         selected.shadowInstances.length,
         empty ? 0 : broad ? 129 : 1,
-        `${mode}: the counterfactual must actually change selected work`,
+        `${mode}: the counterfactual must actually change selected work`
       );
       assert.deepEqual(
         selected.casterInstances,
         empty || mode === "clean-clipmap" ? [] : [casterIndex],
-        `${mode}: complete dirty-page caster set`,
+        `${mode}: complete dirty-page caster set`
       );
       if (!empty)
         assert.ok(
           selected.receiverRadiance < old.receiverRadiance * 0.8,
-          `${mode}: same visible receiver shadow`,
+          `${mode}: same visible receiver shadow`
         );
     }
     broad = false;
@@ -616,19 +588,21 @@ export async function runGeometryShadowViewGpuOracle() {
         transforms: new Float32Array([
           ...caster.transform_global.matrix,
           ...receiver.transform_global.matrix,
-          ...occluder.transform_global.matrix,
-        ]),
-      },
+          ...occluder.transform_global.matrix
+        ])
+      }
     });
     for (let frame = 0; frame < 8; frame++) await tick();
     const cameraOccluded = await inspect("camera-occluded-caster");
     assert.equal(
       cameraOccluded.winnerCounts[casterIndex] ?? 0,
       0,
-      `Caster must be camera-occluded; conservative main work may survive: ${JSON.stringify(cameraOccluded)}`,
+      `Caster must be camera-occluded; conservative main work may survive: ${JSON.stringify(cameraOccluded)}`
     );
     assert.deepEqual(cameraOccluded.shadowInstances, [casterIndex]);
     scene.physical_environment.setSun([0, 2 / Math.hypot(2, 3), 3 / Math.hypot(2, 3)], [8, 8, 8]);
+    renderer.shadowVisibilityEnabled = false;
+    renderer.shadowVisibilityEnabled = true;
     await tick();
     const occludedDirty = await inspect("camera-occluded-dirty-caster");
     assert.deepEqual(occludedDirty.casterInstances, [casterIndex]);
@@ -637,7 +611,7 @@ export async function runGeometryShadowViewGpuOracle() {
     const occludedDiscard = await inspect("camera-occluded-alpha-discard");
     assert.ok(
       occludedDiscard.receiverRadiance > occludedDirty.receiverRadiance + 0.1,
-      `Camera-hidden caster must affect HDR: ${JSON.stringify({ occludedDirty, occludedDiscard })}`,
+      `Camera-hidden caster must affect HDR: ${JSON.stringify({ occludedDirty, occludedDiscard })}`
     );
     const lightView = actualJob.shadowFrame.lightView;
     const lightX = lightView[4] * 2 + lightView[8] * 3 + lightView[12];
@@ -670,7 +644,7 @@ export async function runGeometryShadowViewGpuOracle() {
       clipEdge,
       clipOutside,
       headerCases,
-      limitations: "Small ordinary Geometry; Product paging/deep/scale and recovery use separate oracles.",
+      limitations: "Small ordinary Geometry; Product paging/deep/scale and recovery use separate oracles."
     };
   } finally {
     await device.queue.onSubmittedWorkDone();

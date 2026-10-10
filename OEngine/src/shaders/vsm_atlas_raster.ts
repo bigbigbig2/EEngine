@@ -56,7 +56,7 @@ fn atlas_position(light: vec3f, entry: VsmPageEntry, virtual_page: u32) -> vec4f
   let depth = (constants.depth_range.y - light.z) * constants.depth_range.z;
   return vec4f(ndc, depth, 1.0);
 }
-fn valid_page(record: VsmCasterRecord) -> VsmPageEntry {
+fn valid_page(record: VsmPair) -> VsmPageEntry {
   if (record.virtual_page >= arrayLength(&page_table.entries)) { return VsmPageEntry(0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0, 0, 0u, 0u); }
   let entry = page_table.entries[record.virtual_page];
   if (entry.slot_x + entry.slot_y * max(1u, constants.dimensions.w / (constants.dimensions.y + constants.dimensions.z * 2u)) != record.page_slot ||

@@ -597,7 +597,7 @@ export class Renderer {
       publicationDeferredTicks: this._publicationDeferredTicks,
       // Submitted temporal history is ordered on the same queue, not gated
       // by host completion. The readiness gate below waits for publications.
-      historyDeferredTicks: 0
+      historyDeferredTicks: 0,
     });
   }
   /** Wake a host that missed an admission tick, without changing resource fences. */
@@ -1276,6 +1276,7 @@ export class Renderer {
     );
     try {
       this._visibilityFeature.release(previous, command);
+      this._vsmAtlasRaster?.release(previous, command);
       const handle = this._graphics.render_world.stageVirtualProductAppend(
         scene,
         source,
@@ -1360,6 +1361,7 @@ export class Renderer {
     try {
       nextStreaming?.registerProduct(nextResidency.sourceForStreaming());
       this._visibilityFeature.release(oldRuntime, command);
+      this._vsmAtlasRaster?.release(oldRuntime, command);
       const handles = this._graphics.render_world.release(scene, command);
       this._graphics.assets.releaseMany(handles, command);
       this._views.releaseScene(scene, command);
@@ -1508,6 +1510,7 @@ export class Renderer {
     let handles: readonly AssetHandle[];
     try {
       this._visibilityFeature.release(runtime, command);
+      this._vsmAtlasRaster?.release(runtime, command);
       handles = this._graphics.render_world.release(scene, command);
       this._graphics.assets.releaseMany(handles, command);
       this._views.releaseScene(scene, command);
@@ -2193,7 +2196,7 @@ export class Renderer {
             : {
                 ...vsmPreview,
                 generation: vsmGeneration.generation,
-                projectionEpoch: vsmGeneration.projectionEpoch
+                projectionEpoch: vsmGeneration.projectionEpoch,
               },
         vsmGeneration,
       };

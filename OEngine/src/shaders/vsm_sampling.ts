@@ -100,9 +100,10 @@ fn vsm_atlas_texel(entry: VsmPageEntry, local_uv: vec2f, offset: vec2f) -> vec2i
   let stride = page_size + border * 2u;
   let base = vec2f(f32(entry.slot_x * stride + border),
     f32(entry.slot_y * stride + border));
-  let interior = clamp(local_uv * f32(page_size) + offset,
-    vec2f(0.0), vec2f(f32(page_size) - 1.0));
-  return vec2i(base + floor(interior + vec2f(0.5)));
+  let texel = floor(local_uv * f32(page_size) + offset + vec2f(0.5));
+  // PCF reads the rasterized gutter. The clamp only protects the physical slot.
+  let in_slot = clamp(texel, vec2f(-f32(border)), vec2f(f32(page_size + border) - 1.0));
+  return vec2i(base + in_slot);
 }
 
 fn vsm_sample_page(entry: VsmPageEntry, local_uv: vec2f,
@@ -119,7 +120,10 @@ fn vsm_sample_page(entry: VsmPageEntry, local_uv: vec2f,
         f32(taps) - vec2f(0.5)) * 1.5;
       let stored = textureLoad(vsm_atlas_depth,
         vsm_atlas_texel(entry, local_uv, center), 0);
-      visible += select(1.0, 0.0, stored > reference_depth + bias);
+      // Reverse depth zero is the clear/empty value. Caster bounds include
+      // padding, so every rasterized caster has positive depth. Receivers can
+      // lie beyond the caster-only far bound and have negative reference depth.
+      visible += select(1.0, 0.0, stored > 0.0 && stored > reference_depth + bias);
       total += 1.0;
     }
   }

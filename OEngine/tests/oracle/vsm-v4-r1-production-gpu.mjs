@@ -53,8 +53,14 @@ export async function runVsmR1ProductionGpuOracle({ r2Lifecycle = false } = {}) 
   camera.transform.lookAt({ x: 0, y: 0, z: 0 });
   camera.update();
   let frame = null,
-    abort = false;
+    abort = false,
+    shadowFrame = null;
   const instrument = () => {
+    const prepareVisibility = renderer._visibilityFeature.prepare.bind(renderer._visibilityFeature);
+    renderer._visibilityFeature.prepare = (job, ...rest) => {
+      shadowFrame = job.shadowFrame;
+      return prepareVisibility(job, ...rest);
+    };
     const prepare = renderer._surface.prepareFrameNow.bind(renderer._surface);
     renderer._surface.prepareFrameNow = (input, ...rest) => {
       frame = input;
@@ -86,6 +92,8 @@ export async function runVsmR1ProductionGpuOracle({ r2Lifecycle = false } = {}) 
       pages: vsm.pageTable,
       depth: vsm.depthRange,
       caster: vsm.casterRecords,
+      shadowWork: renderer._vsmAtlasRaster.nativePasses.get(vsm.casterRecords).input.vsmAtlas.source,
+      shadowBounds: renderer._vsmAtlasRaster.nativePasses.get(vsm.casterRecords).input.vsmAtlas.bounds,
       demand: vsm.demand,
       instances: renderer.graphics.gpu_scene.bindings().instances,
     };
@@ -95,7 +103,7 @@ export async function runVsmR1ProductionGpuOracle({ r2Lifecycle = false } = {}) 
       const size =
         name === "instances"
           ? runtime.instanceCount * 176
-          : name === "pages" || name === "caster"
+          : name === "pages" || name === "caster" || name === "shadowWork" || name === "shadowBounds"
             ? source.size
             : 16;
       const target = device.createBuffer({ size, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
@@ -149,11 +157,69 @@ export async function runVsmR1ProductionGpuOracle({ r2Lifecycle = false } = {}) 
     }
     const casterCounts = new Array(runtime.instanceCount).fill(0);
     const casterPages = new Set();
+    check(words.caster[4] === 0, "This small production fixture must fit explicit mode");
     for (let index = 0; index < words.caster[1]; index++) {
-      const instance = words.caster[4 + index * 8] - runtime.instanceBegin;
+      const sourceSlot = words.caster[8 + index * 4];
+      check(sourceSlot < words.shadowWork[1], "Pair references an unpublished shadow source");
+      const instance = words.shadowWork[8 + sourceSlot * 6] - runtime.instanceBegin;
       check(instance >= 0 && instance < runtime.instanceCount, "Caster record references another Scene");
       casterCounts[instance]++;
-      casterPages.add(words.caster[4 + index * 8 + 5]);
+      casterPages.add(words.caster[8 + index * 4 + 2]);
+    }
+    let productBoundsChecked = 0;
+    if (words.caster[6] > 0) {
+      check(
+        words.shadowBounds[0] === words.shadowWork[1] && words.shadowBounds[1] === 0,
+        "Real Product bounds failed or missed selected work",
+      );
+      const bounds = new Float32Array(words.shadowBounds.buffer),
+        source = new Float32Array(words.instances.buffer);
+      const light = shadowFrame.lightView.map(Math.fround);
+      for (let instance = 0; instance < runtime.instanceCount; instance++) {
+        const union = [Infinity, Infinity, -Infinity, -Infinity];
+        for (let slot = 0; slot < words.shadowWork[1]; slot++) {
+          if (words.shadowWork[8 + slot * 6] !== runtime.instanceBegin + instance) continue;
+          check(words.shadowBounds[4 + slot * 8 + 5] === 1, "Product meshlet bounds not valid");
+          const at = 4 + slot * 8;
+          union[0] = Math.min(union[0], bounds[at]);
+          union[1] = Math.min(union[1], bounds[at + 1]);
+          union[2] = Math.max(union[2], bounds[at + 2]);
+          union[3] = Math.max(union[3], bounds[at + 3]);
+        }
+        if (!Number.isFinite(union[0])) continue;
+        const base = instance * 44,
+          expected = [Infinity, Infinity, -Infinity, -Infinity];
+        for (let corner = 0; corner < 8; corner++) {
+          const point = [0, 1, 2].map((axis) => source[base + (corner & (1 << axis) ? 12 : 8) + axis]);
+          const world = [0, 1, 2].map(
+            (axis) =>
+              source[base + 16 + axis] * point[0] +
+              source[base + 20 + axis] * point[1] +
+              source[base + 24 + axis] * point[2] +
+              source[base + 19 + axis * 4],
+          );
+          const xy = [0, 1].map(
+            (axis) =>
+              light[axis] * world[0] +
+              light[4 + axis] * world[1] +
+              light[8 + axis] * world[2] +
+              light[12 + axis],
+          );
+          expected[0] = Math.min(expected[0], xy[0]);
+          expected[1] = Math.min(expected[1], xy[1]);
+          expected[2] = Math.max(expected[2], xy[0]);
+          expected[3] = Math.max(expected[3], xy[1]);
+        }
+        check(
+          union[0] <= expected[0] &&
+            union[1] <= expected[1] &&
+            union[2] >= expected[2] &&
+            union[3] >= expected[3] &&
+            union.every((value, axis) => Math.abs(value - expected[axis]) < 1e-3),
+          `Product selected meshlets differ from independent complete box corners: ${JSON.stringify({ union, expected })}`,
+        );
+        productBoundsChecked++;
+      }
     }
     return {
       generation: renderer._vsmGeneration.currentGeneration,
@@ -161,10 +227,11 @@ export async function runVsmR1ProductionGpuOracle({ r2Lifecycle = false } = {}) 
       flags: Array.from({ length: runtime.instanceCount }, (_, i) => words.instances[i * 44 + 2]),
       pages,
       emptyReadyPages: pages.filter((page) => !casterPages.has(page.index)).length,
-      caster: [...words.caster.slice(0, 4)],
+      caster: [...words.caster.slice(0, 8)],
       casterCounts,
       demand: [...words.demand],
       luminance,
+      productBoundsChecked,
     };
   };
   try {
@@ -287,6 +354,10 @@ export async function runVsmR1ProductionGpuOracle({ r2Lifecycle = false } = {}) 
         JSON.stringify(transformed.depth) !== JSON.stringify(castsOn.depth) &&
         (transformed.flags[0] & 6) === 6,
       "Transform patch lost shadow semantics or retained old caster depth",
+    );
+    check(
+      transformed.productBoundsChecked === 2,
+      "Independent Product bounds oracle did not inspect the real new epoch",
     );
     ground.receiveShadow = false;
     caster.receiveShadow = false;

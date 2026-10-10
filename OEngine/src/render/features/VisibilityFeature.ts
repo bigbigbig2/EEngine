@@ -75,7 +75,7 @@ export class VisibilityFeature {
     const prepared = this.implementation.prepareHierarchy(job, counters, camera, command);
     return Object.freeze({
       ...prepared,
-      shadowGeometry: this.shadow.prepare(job, prepared.workSet, camera, command)
+      shadowGeometry: this.shadow.prepare(job, prepared.workSet, camera, command),
     });
   }
 
@@ -87,23 +87,31 @@ export class VisibilityFeature {
       instances: ResourceId;
       meshletWork: ResourceId;
       frameInstances: ResourceId;
+      meshletBounds: ResourceId;
+      allocation: ResourceId;
       productHeap?: ResourceId;
       productBanks?: readonly ResourceId[];
       geometrySources: readonly ResourceId[];
-    }
-  ): { meshletWork: ResourceId; frameInstances: ResourceId } {
+    },
+  ): { meshletWork: ResourceId; frameInstances: ResourceId; meshletBounds: ResourceId } {
     const prepared = job.prepared.shadowGeometry;
     if (!prepared) {
       throw new Error("VSM requires independently prepared Shadow Geometry");
     }
-    const pass = graph.add("Geometry/shadow view work", job, (data, _resources, context) => {
+    const pass = graph.add("Geometry/shadow view work", job, (data, resources, context) => {
       if (!data.prepared.shadowGeometry) {
         throw new Error("Shadow Geometry publication is missing");
       }
-      this.shadow.encode(data, data.prepared.shadowGeometry, context.encoder as ShadeGPUCommandContext);
+      this.shadow.encode(
+        data,
+        data.prepared.shadowGeometry,
+        context.encoder as ShadeGPUCommandContext,
+        resources.get(inputs.allocation) as GPUBuffer,
+      );
     });
     pass.read(inputs.camera);
     pass.read(inputs.instances);
+    pass.read(inputs.allocation);
     for (const source of inputs.geometrySources) {
       pass.read(source);
     }
@@ -113,7 +121,11 @@ export class VisibilityFeature {
     for (const bank of inputs.productBanks ?? []) {
       pass.read(bank);
     }
-    return { meshletWork: pass.write(inputs.meshletWork), frameInstances: pass.write(inputs.frameInstances) };
+    return {
+      meshletWork: pass.write(inputs.meshletWork),
+      frameInstances: pass.write(inputs.frameInstances),
+      meshletBounds: pass.write(inputs.meshletBounds),
+    };
   }
 
   release(runtime: GpuRenderWorldRuntime, command: ShadeGPUCommandContext): void {

@@ -9,6 +9,11 @@ verifies:
     - OEngine/src/gpu/GpuInstanceAbi.ts
     - OEngine/src/gpu/GpuScene.ts
     - OEngine/src/gpu/GpuRenderWorld.ts
+    - OEngine/src/gpu/GpuVsmPairAbi.ts
+    - OEngine/src/render/ShadowMeshletBounds.ts
+    - OEngine/src/shaders/shadow_meshlet_bounds.ts
+    - OEngine/src/shaders/vsm_pair_page.ts
+    - OEngine/tests/oracle/vsm-v4-r3-gpu.mjs
     - OEngine/src/render/ShadowGeometryWork.ts
     - OEngine/src/render/vsm
     - OEngine/src/render/surface/NativeVisibilityPass.ts
@@ -32,7 +37,7 @@ verifies:
 
 # VSM V4：完整太阳阴影、稳定页面与有界工作
 
-本文件是 **VSM V4 模块设计依据**，实施顺序、实际切换与阶段状态仅在[执行计划](../next-execution/eengine-v4-vsm-execution-2026-10.md)。全局约束继承[V4 母稿](./eengine-v4-native-shading-2026-10.md)。当前 workstream 为 VSM V4，Minimal GPU Work 继续暂停；R0建立源码/来源设计与当前设备基线，用户随后授权实施R1与R2。下文明确标注实际ABI与责任切换；R3 pair/implicit/gutter仍为目标，不由文档采纳证明已实现。
+本文件是 **VSM V4 模块设计依据**，实施顺序、实际切换与阶段状态仅在[执行计划](../next-execution/eengine-v4-vsm-execution-2026-10.md)。全局约束继承[V4 母稿](./eengine-v4-native-shading-2026-10.md)。当前 workstream 为 VSM V4，Minimal GPU Work 继续暂停；R0建立源码/来源设计与当前设备基线，用户随后授权实施R1、R2与R3。下文明确标注实际ABI与责任切换；真实验证及剩余模块验收范围只读执行计划。
 
 当前开发/验证设备经 `nvidia-smi` 确认为 **RTX 2060 SUPER 8GB（8192 MiB，driver 591.86）**。当前设备1080p作为本模块实机验收环境；原1650 Ti 4GB仍保留为架构的低显存适配目标，其跨设备成本/性能未运行、不推定通过。旧实验保留原设备身份，不能跨机器比较P50/P95或将8GB解释为无限容量。
 
@@ -116,12 +121,12 @@ ReceivesShadow在receiver和native Sun consumer使用同一实例语义；不得
 
 CPU lifecycle提供prepare/commit/abort；未submit不提交origin/epoch/Scene事实，abort→retry重置全frame scratch。提交后GPU内容只有page completion允许ready。device loss整namespace退休；任何旧diagnostic/fence不能修改新owner。
 
-R1/R2实际ABI（producer和全部direct consumer同步；R3配对模式尚未实现）：
+R1–R3实际ABI（producer和全部direct consumer同步）：
 
 | 产品 | 布局 / owner |
 |---|---|
 | page entry | `VsmPageState`/`vsm_page_table`，12words/48B：slotX/Y、mip、flags、generation、fallbackMip、contentVersion、projectionEpoch、signed worldX/Y、namespace、reserved。clip/mip plane由完整entry地址定义，modulo只决定存储位置 |
-| meta / demand / page work / caster | meta8words/32B，lastVisited为submitted frame serial。R2 demand header16B为fineCount/written/overflow/generation，record16B为virtualPage/reserved slot/signed worldXY；touch后records复用于miss，header仍表示完整需求。page work32B最后8B为signed worldXY；caster仍旧32B，仅R3替换 |
+| meta / demand / page work / caster | meta8words/32B，lastVisited为submitted frame serial。R2 demand header16B为fineCount/written/overflow/generation，record16B为virtualPage/reserved slot/signed worldXY；touch后records复用于miss，header仍表示完整需求。page work32B最后8B为signed worldXY；R3 pair header32B、record16B，source独立借用 |
 | 公共投影块 | `VsmProjection`，buffer256B、WGSL最小240B：light matrix0、clips64、dimensions160、control176、参数192、GPUdepth208、identity224。各pass局部control意义不同，不复制独立light/depth公式 |
 | stable depth | `VsmDepthBoundsPass`唯一producer，persistent16B `[minZ,maxZ,inverseRange,valid]`。64lane两级归约所有active且cast且非BLEND实例的原始AABB，affine support包含shear/negative/nonuniform；无caster域为[-0.51,0.51]，invalid source发布valid0而非伪造深度 |
 | depth consumers | GPUcopy16B进入receiver/sampling、caster、native raster常量208；raster用`(maxZ-lightZ)*inverseRange`，不逐点clamp；采样bias按实际clip/mip shadow texel乘inverseRange |
@@ -143,13 +148,13 @@ R1/R2实际ABI（producer和全部direct consumer同步；R3配对模式尚未�
 
 Geometry继续一次独立clip union traversal，无main HZB/cone，保守resident cut。现有SSE=0先保持，不顺手引入shadow LOD近似。Geometry提供每个shadow meshlet保守light-space XY bounds：ordinary用已有meshlet AABB，Product用真实meshlet header AABB；变换必须包含非均匀缩放/shear/negative determinant。非法/非有限bounds是可见失败，不能当零记录。
 
-显式模式按meshlet投影页矩形枚举，在dirty-page lookup中过滤；包含实际mip/clip与border扩张，不为每meshlet遍历全部allocation，不使用instance sphere替代meshlet空间精度。pair目标记录16B：完整workSlot/pageSlot/virtualPage/状态word，source/material/raster flags继续读取独立shadow work。最终ABI由一个TS/WGSL owner定义，native partitions不得读取旧32B caster布局。避免在每个pair复制24B source工作。
+R3显式模式对实际W逐一检查实际D个唯一dirty页，使用紧致meshlet XY bounds、实际clip/mip与border扩张，不使用instance sphere。选择有界D扫描而非虚拟页dirty lookup，省掉high约525KB索引产品、reset/scatter与随机查找；代价是O(WD)页测试，后续必须按真实成本复核。pair记录16B：workSlot/pageSlot/virtualPage/status；source/material/raster flags独立借用shadow work。GpuVsmPairAbi是唯一TS/WGSL定义：32B header为attempted/written/failure/generation/mode/sourceCount/dirtyCount/sourceGeneration，mode0显式、1隐式、2失败。E>C时written=0，所有partial记录不可达；错误不能冒充正常容量压力。
 
 必须有 **同一新VSM中的隐式完整模式**：显式pair queue超容量时，忽略全部partial显式结果；对实际dirty页D和已分类的合法shadow work W执行完整笛卡尔候选域。每个native raster partition的GPU draw instance count为`W_partition × D`；vertex以instance index映射完整work/page，保守bounds不重叠就退化为不光栅的primitive，重叠则使用同一source、MASK、depth/border数学。无需存全部W×D records，不需要CPU读回，也不逐page重新traverse scene。
 
 隐式模式是容量正确性路径，不是性能承诺，且不是旧CSM/双Renderer/VM。每partition的u32乘法上界与dispatch/绑定在Scene/profile preflight；超支持域明确拒绝，不能整数wrap。反复进入隐式模式表明容量/配对设计未达到正常场景成本目标；验收必须统计，不能用它悄悄长期支付W×D×vertex税。
 
-比较过的替代：只扩容无法给未来视角完整保证；全pair worst-case分配是`32 W S`级显存，不适合4GB；按最坏组合固定数百raster waves引入大量空CPU编码/draw；逐page全Scene traversal重复工作。故推荐紧致显式正常路径+无巨大record存储的同数学隐式压力路径。隐式路径尚未GPU构建；其resource profile与最坏成本是实施前和退出时的必需否证项。
+比较过的替代：只扩容无法给未来视角完整保证；全pair worst-case分配是`32 W S`级显存，不适合4GB；按最坏组合固定数百raster waves引入大量空CPU编码/draw；逐page全Scene traversal重复工作。故推荐紧致显式正常路径+无巨大record存储的同数学隐式压力路径。R3已构建并验证两种模式同数学；正常完整Bistro全失效在原C65536反复进入implicit但页面能完成，故high采用C262144、bounded保留16384。扩容是正常成本预算，容量正确性不依赖扩容；完整场景隐式比例/最坏成本仍在R4核验。
 
 ### 4.5 页面完成与采样
 
@@ -169,14 +174,14 @@ border保留4texel，pair bounds按border覆盖域膨胀，raster写完整slot g
 | slots分阶段选择 | R2 candidate 8S+16：high7216B/bounded1816B；meta32S，page48V。touch随机读取唯一request/page/meta；collect与publish_dirty各两次顺序S扫描，分配随机撤销旧page并写新page/meta | touch和allocate为实际count indirect，collect_slots与publish_dirty各1group，管理合计10dispatch/8pipelines、独立pass顺序；touch telemetry或miss atomicOr、每miss content marker，删除锁/CAS重试与每miss O(S)搜索。free先于当前frame无需求clean/dirty，不严格LRU |
 | stable world pages | R1实际page48B，较32B增加16V：high V131040增加2096640B；bounded V87360增加1397760B。meta仍32B；window常量256B。query新增world/epoch/namespace字段读取，随机页访问仍存在 | full/roll扫描V entries、64lane，steady不执行window dispatch；R2撤销匹配reverse meta，删除无reader的旧dirty bitset。相机/光强不全失效；0%可复用仍付key税，50/100%可复用省下对应clear/raster有效工作，完整净收益未测 |
 | stable depth bounds | epoch变化读取N条176B中必要AABB/affine字段；partials16ceil(N/64)B、constants80B、persistent16B。所有投影buffer仍256B；enabled帧3×16B GPUcopy，不新增binding | 64lane两级归约，2dispatch、WG内barriers，无atomics；steady0bounds dispatch/ALU，仍有48Bcopy。连续太阳运动/coverage变化最坏每帧全归约；supportdot(abs(lightZrow),halfExtent)，不靠sphere近似深度域 |
-| bounds+compact pairs | 16W可选bounds产品有实际两个消费者；16E pair writes+4E partition indices，旧为32E+4E；C=262144候选预算4MiB pair+1MiB indices，非最终固定值 | tighter page tests新增AABB变换ALU，减少无关append；每有效pair预约atomic与native count/scatter税仍有。需要完整storage-stage profile |
-| implicit capacity mode | 不分配全16WS；只用现有work/dirty列表、有限K indirect args；没有新增shadow texture samples | hardware vertex最坏W D bucketVertices，重复bounds/source读取，可能非常慢；仅容量压力。理想常态为0次进入，成本必须真实测 |
+| bounds+compact pairs | Geometry bounds32Wcapacity+112B（header16/constants80/indirect16）；普通/Product真实AABB affine support及保守浮点余量。pair32+16C，high4194336B、bounded262176B；indices4max(C,Wcapacity)，不复制source | bounds prepare→actual indirect produce两dispatch，pair prepare→actual compact→finalize三dispatch；O(WD)页测试，每相交pair一次atomic ticket，无CAS；partition仍count/scatter。pair compute8storage，ordinary bounds6、Product prepare11；ordinary native vertex11/Product16，须在创建前协商实际profile |
+| implicit capacity mode | 不分配全16WD；indices仅保存W分类，draw count为W_partition×D；只用现有work/dirty列表、有限K indirect args；没有新增shadow texture samples | hardware vertex最坏W D bucketVertices，重复bounds/source读取，可能非常慢；仅容量压力。理想常态为0次进入，成本必须真实测 |
 | page completion | O(D)状态/version写，替代O(E)caster扫描/锁；空页也能提交 | one page writer，无每caster page-lock竞争；读取实际失败状态，命令顺序不可删 |
-| gutter PCF | atlas仍depth32float 4096²=64MiB，900个136²slot；保原4×4 high PCF最多16loads | border扩大raster域/fragment成本；不增加per-tap page-table lookup；真实纹理缓存成本UNKNOWN |
+| gutter PCF | atlas仍depth32float 4096²=64MiB，900个136²slot；保原4×4 high PCF最多16loads | border扩大raster域/fragment成本；不增加per-tap page-table lookup；每tap额外stored>0比较：reverse-Z clear0是空值，caster padding使实际caster depth正；negative reference不把空页变阴影，正depth仍能遮挡far receiver。真实纹理缓存成本UNKNOWN |
 
 资源按物理对象去重，包含shadow hierarchy/work/frame instances、bounds、native partition buffers、atlas、页表/请求/状态、retiring和在途frame。64MiB atlas不是VSM总账；旧owner与replacement同时存活的峰值单列。R1 high主要owner为64MiB atlas+6289920B页表+约2MiB caster+其他，不能拿该估算冒称driver VRAM。R2已删除旧allocator/append，但没有旧/新同质量全场景GPU时间对照，不能声明净收益；resident-cut观察CPU为O(注册Products)，stable不分配，变更才刷新revision快照。
 
-Dirty比例0/50/100%：normal steady应没有clear/raster/pair有效工作，Geometry可通过GPU空dirty门控indirect；全部失效必须完整重新生产coarse+fine，不能靠拖延或减少caster得到漂亮数字。收益条件为新增mark/scan/key/bounds管理成本小于所省重复需求、随机slot扫描、错误全失效和无关caster/raster；若理想静态和稀疏dirtycase都不赚钱，否证具体优化，不新增cache/proof/megakernel。
+Dirty比例0/50/100%：D=0时bounds produce、pair compact、native classify/raster有效工作由GPU门控；shadow hierarchy/work/frame-instance准备和固定header/管理仍执行，不能称整个Geometry免费；全部失效必须完整重新生产coarse+fine，不能靠拖延或减少caster得到漂亮数字。收益条件为新增mark/scan/key/bounds管理成本小于所省重复需求、随机slot扫描、错误全失效和无关caster/raster；若理想静态和稀疏dirtycase都不赚钱，否证具体优化，不新增cache/proof/megakernel。
 
 ## 6. 参考来源与平台差异
 
@@ -196,4 +201,4 @@ bitset全域compaction、方向光coarse pin、compact explicit/implicit容量�
 
 完整cooked Bistro必须保持1591instances、2829226source triangles、132materials与405texture images及全部mips，原camera/default Sun并扩多姿态/太阳角度，先确认source identity和residency。在当前RTX2060 SUPER 8GB、1080p验收VSM producer、shadow Geometry、native raster、Surface、整帧P50/P95和完整memory峰值；1650Ti4GB适配按明确预算核算，实机未测保留未验证。GPU作业串行。原无影/补flags仍overflow的失败原件保存，诊断扩容不是正式修复。
 
-R0只涵盖设计、独立算术与既有实现诊断。R1新WGSL、CPU/oracle、真实production小场景及完整Bistro重cook/GPU语义与深度结果见执行计划；同条件1080p成本尚缺，R2已切换需求、驻留、查询和唯一dirty页发布；R3 caster压力模式尚未切换，完整Bistro仍复现caster overflow/0ready。不能用R1通过宣布VSM V4完整修复或性能提升。
+R0只涵盖设计、独立算术与既有实现诊断。R1新WGSL、CPU/oracle、真实production小场景及完整Bistro重cook/GPU语义与深度结果见执行计划；同条件1080p成本尚缺，R2已切换需求、驻留、查询和唯一dirty页发布；R3已原子切换compact pair/implicit/逐页完成/gutter，完整Bistro已恢复895ready及145请求粗页完成。该接线结果不替代1080p多姿态/动态/细节驻留/显存峰值/整帧成本验收；不能宣布VSM模块或性能目标全部完成。

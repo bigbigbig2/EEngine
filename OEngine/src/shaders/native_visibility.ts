@@ -1,5 +1,6 @@
 import { FRAME_GEOMETRY_MESHLET_STRIDE } from "../gpu/GpuWinnerInterpolationAbi.js";
-import { NATIVE_CASTER_QUEUE_WGSL } from "./native_raster_partitions.js";
+import { VSM_PAIR_WGSL, SHADOW_BOUNDS_WGSL } from "../gpu/GpuVsmPairAbi.js";
+import { VSM_PAIR_PAGE_WGSL } from "./vsm_pair_page.js";
 import { VSM_ATLAS_PAGE_MATH } from "./vsm_atlas_raster.js";
 import { VSM_PAGE_TABLE_WGSL } from "./vsm_page_table.js";
 import type { NativeMaterialProgram } from "./native_material.js";
@@ -201,14 +202,14 @@ export function nativeVisibilityShader(
 ${GPU_INSTANCE_RECORD_WGSL}
 ${GPU_FRAME_INSTANCE_WGSL}
 ${GPU_MESHLET_RASTER_WORK_WGSL}
-${vsmAtlas ? NATIVE_CASTER_QUEUE_WGSL : ""}
+${vsmAtlas ? VSM_PAIR_WGSL + SHADOW_BOUNDS_WGSL : ""}
 ${GPU_VISIBILITY_KEY_WGSL}
 ${NATIVE_RASTER_DIRECTORY_WGSL}
 struct NativeVisibilityView {
   clip_from_world: mat4x4f, view_matrix: mat4x4f, camera_position: vec4f,
   arena: vec4u, source: vec4u, source_payload: vec4u,
 }
-@group(0) @binding(0) var<storage, read> meshlet_work: ${vsmAtlas ? "NativeCasterQueue" : "OEngineMeshletWorkQueueRead"};
+@group(0) @binding(0) var<storage, read> meshlet_work: ${vsmAtlas ? "VsmPairQueue" : "OEngineMeshletWorkQueueRead"};
 @group(0) @binding(1) var<storage, read> arena: array<u32>;
 @group(0) @binding(2) var<storage, read> frame_instances: array<OEngineFrameInstanceRecord>;
 @group(0) @binding(3) var<uniform> view: NativeVisibilityView;
@@ -246,7 +247,19 @@ struct VsmAtlasConstants {
 struct VsmPageTableBuffer { entries: array<VsmPageEntry>, }
 @group(0) @binding(13) var<uniform> constants: VsmAtlasConstants;
 @group(0) @binding(14) var<storage, read> page_table: VsmPageTableBuffer;
-${VSM_ATLAS_PAGE_MATH}`
+@group(0) @binding(15) var<storage, read> shadow_work: OEngineMeshletWorkQueueRead;
+@group(0) @binding(16) var<storage, read> shadow_bounds: ShadowBoundsQueue;
+struct VsmPageWork {
+  virtual_page: u32, slot: u32, priority: u32, generation: u32,
+  flags: u32, fallback_mip: u32, world: vec2i,
+}
+struct VsmAllocation {
+  attempted: u32, written: u32, overflow: u32, generation: u32,
+  records: array<VsmPageWork>,
+}
+@group(0) @binding(17) var<storage, read> allocation: VsmAllocation;
+${VSM_ATLAS_PAGE_MATH}
+${VSM_PAIR_PAGE_WGSL}`
     : ""
 }
 ${program === null ? "" : program.source + nativeCoverageEvaluationWgsl(program)}
@@ -268,20 +281,47 @@ fn native_visibility_vertex(@builtin(vertex_index) vertex: u32, @builtin(instanc
   ${
     partitioned
       ? `let partition_state = native_raster_states[native_raster_partition.x];
-  if instance_index >= partition_state.x { return output; }
+  ${
+    vsmAtlas
+      ? `let implicit = meshlet_work.header.mode == 1u;
+  let pages_per_work = select(1u, meshlet_work.header.dirty_count, implicit);
+  if pages_per_work == 0u { return output; }
+  let partition_index = instance_index / pages_per_work;
+  if partition_index >= partition_state.x { return output; }
+  let work_index = native_raster_indices[partition_state.y + partition_index];`
+      : `if instance_index >= partition_state.x { return output; }
   let work_index = native_raster_indices[partition_state.y + instance_index];`
+  }`
       : "let work_index = instance_index;"
   }
   let generation = view.arena.z;
-  if meshlet_work.header.generation != ${vsmAtlas ? "view.arena.w" : "generation"} ||
-    work_index >= min(meshlet_work.header.written_count, ${vsmAtlas ? "arrayLength(&meshlet_work.elements)" : "min(meshlet_work.header.capacity, arrayLength(&meshlet_work.elements))"}) { return output; }
+  if meshlet_work.header.generation != ${vsmAtlas ? "view.arena.w" : "generation"} ${
+    vsmAtlas
+      ? `|| meshlet_work.header.failure != 0u || meshlet_work.header.mode > 1u ||
+    meshlet_work.header.source_generation != generation || shadow_work.header.generation != generation ||
+    shadow_bounds.header.generation != generation`
+      : `|| work_index >= min(meshlet_work.header.written_count, min(meshlet_work.header.capacity, arrayLength(&meshlet_work.elements)))`
+  } { return output; }
   ${
     vsmAtlas
-      ? `let caster = meshlet_work.elements[work_index];
+      ? `var caster: VsmPair;
+  if meshlet_work.header.mode == 1u {
+    let page_index = instance_index % meshlet_work.header.dirty_count;
+    if page_index >= allocation.written { return output; }
+    let dirty = allocation.records[page_index];
+    if dirty.virtual_page >= arrayLength(&page_table.entries) ||
+       !vsm_pair_page_valid(dirty, page_table.entries[dirty.virtual_page]) { return output; }
+    caster = VsmPair(work_index, dirty.slot, dirty.virtual_page, 1u);
+  } else {
+    if work_index >= min(meshlet_work.header.written_count, arrayLength(&meshlet_work.elements)) { return output; }
+    caster = meshlet_work.elements[work_index];
+  }
   let page = valid_page(caster);
-  if (page.flags & 11u) != 11u || caster.virtual_page >= arrayLength(&page_table.entries) { return output; }
-  let work = OEngineMeshletRasterWork(caster.instance_slot, caster.geometry_slot, caster.meshlet_slot,
-    caster.material_slot_or_range, caster.packed_raster_flags, caster.packed_profile_lod);`
+  if (page.flags & 11u) != 11u || caster.status != 1u || caster.work_slot >= meshlet_work.header.source_count ||
+     caster.work_slot >= arrayLength(&shadow_work.elements) || caster.work_slot >= shadow_bounds.header.count { return output; }
+  let bound = shadow_bounds.elements[caster.work_slot];
+  if bound.valid == 0u || !vsm_pair_overlaps(bound.light_xy, page, caster.virtual_page) { return output; }
+  let work = shadow_work.elements[caster.work_slot];`
       : "let work = meshlet_work.elements[work_index];"
   }
   if work.instance_slot >= arrayLength(&frame_instances) || work.material_slot_or_range >= arrayLength(&native_directory) { return output; }
@@ -296,7 +336,9 @@ fn native_visibility_vertex(@builtin(vertex_index) vertex: u32, @builtin(instanc
   let cached = ${vsmAtlas ? "false" : "arena[directory + 1u] == generation && work_index < arena[directory] && arena[at + 2u] != 0u"};
   let primitive = vertex / 3u;
   let input_corner = vertex % 3u;
-  let corner = select(input_corner, 3u - input_corner, instance.normal_x.w < 0.0 && input_corner != 0u);
+  // Atlas row addressing reflects light Y once; include that reflection in
+  // winding while retaining the instance determinant for normals/tangents.
+  let corner = select(input_corner, 3u - input_corner, instance.normal_x.w ${vsmAtlas ? ">=" : "<"} 0.0 && input_corner != 0u);
   if primitive > OENGINE_VISIBILITY_KEY_MAX_LOCAL_PRIMITIVE { return output; }
   var local_vertex: u32;
   if cached {
@@ -369,9 +411,13 @@ fn native_visibility_fragment(fragment: NativeVisibilityVertex) -> @location(0) 
   let alpha = native_coverage_alpha(entry.constant_base, inputs);
   if alpha < native_coverage_cutoff(entry.constant_base) { discard; }`
   }
-  let key = oengine_visibility_key_try_encode(fragment.work, fragment.primitive);
+  ${
+    vsmAtlas
+      ? "return 0u;"
+      : `let key = oengine_visibility_key_try_encode(fragment.work, fragment.primitive);
   if key.valid == 0u { discard; }
-  return key.key;
+  return key.key;`
+  }
 }
 `;
   const read = (binding: number, visibility: number): GPUBindGroupLayoutEntry => ({
@@ -393,7 +439,7 @@ fn native_visibility_fragment(fragment: NativeVisibilityVertex) -> @location(0) 
       uniform(3, 3, NATIVE_VISIBILITY_VIEW_BYTES),
       ...(partitioned ? [read(5, 1), read(6, 1), uniform(7, 1, 16)] : []),
       ...(productGeometry ? [read(8, 1), read(9, 1), read(10, 1), read(11, 1), read(12, 1)] : []),
-      ...(vsmAtlas ? [uniform(13, 1, 240), read(14, 1)] : [])
+      ...(vsmAtlas ? [uniform(13, 1, 240), read(14, 1), read(15, 1), read(16, 1), read(17, 1)] : []),
     ],
     [],
     [

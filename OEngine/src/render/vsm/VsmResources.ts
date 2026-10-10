@@ -1,4 +1,5 @@
 import type { VsmCapabilities } from "./VsmCapabilities.js";
+import { VSM_PAIR_HEADER_BYTES, VSM_PAIR_STRIDE } from "../../gpu/GpuVsmPairAbi.js";
 
 export type VsmBufferKey =
   | "pageTable"
@@ -31,7 +32,13 @@ export interface VsmDiagnostics {
     countByteOffset: number;
     stride: number;
   }>;
-  readonly casterRecords: Readonly<{ buffer: GPUBuffer; byteOffset: number }>;
+  readonly casterRecords: Readonly<{
+    buffer: GPUBuffer;
+    byteOffset: number;
+    headerBytes: number;
+    stride: number;
+    modeByteOffset: number;
+  }>;
   readonly atlasPixels: number;
   readonly samplingFallback: null;
   readonly overflowMask: null;
@@ -222,7 +229,13 @@ export class VsmResources {
         countByteOffset: 4,
         stride: 32,
       }),
-      casterRecords: Object.freeze({ buffer: casterRecords, byteOffset: 0 }),
+      casterRecords: Object.freeze({
+        buffer: casterRecords,
+        byteOffset: 0,
+        headerBytes: VSM_PAIR_HEADER_BYTES,
+        stride: VSM_PAIR_STRIDE,
+        modeByteOffset: 16,
+      }),
       atlasPixels: this.atlasDepth.width * this.atlasDepth.height,
       samplingFallback: null,
       overflowMask: null,

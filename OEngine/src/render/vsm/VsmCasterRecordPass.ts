@@ -6,11 +6,12 @@ import { VSM_CASTER_RECORDS_WGSL } from "../../shaders/vsm_caster_records.js";
 import type { VsmDirectionalFrameConstants } from "./VsmReceiverDemandPass.js";
 import type { VsmResources } from "./VsmResources.js";
 import type { VsmAllocationFrame } from "./VsmResidency.js";
+import { vsmImplicitDomain } from "../../gpu/GpuVsmPairAbi.js";
 
 export interface VsmCasterRecordInputs {
   readonly allocation: VsmAllocationFrame;
   readonly meshletWork: ResourceId;
-  readonly instances: ResourceId;
+  readonly meshletBounds: ResourceId;
   readonly resources: VsmResources;
   readonly frame: VsmDirectionalFrameConstants;
   readonly depthRange: ResourceId;
@@ -23,6 +24,9 @@ export interface VsmCasterRecordFrame {
   readonly rasterIndirect: ResourceId;
   readonly generation: number;
   readonly capacity: number;
+  readonly meshletWork: ResourceId;
+  readonly meshletBounds: ResourceId;
+  readonly workCapacity: number;
 }
 
 const CONSTANT_BYTES = 256;
@@ -56,6 +60,7 @@ function packConstants(input: VsmCasterRecordInputs): ArrayBuffer {
     ],
     44,
   );
+  uints[59] = input.resources.capabilities.limits.maxComputeWorkgroupsPerDimension;
   return data;
 }
 
@@ -63,9 +68,15 @@ function packConstants(input: VsmCasterRecordInputs): ArrayBuffer {
 export class VsmCasterRecordPass {
   private readonly constants: GPUBuffer;
   private readonly casterLayout: GPUBindGroupLayout;
-  private readonly finalizeLayout: GPUBindGroupLayout;
+  private readonly mainLayout: GPUBindGroupLayout;
+  private readonly preparePipeline: GPUComputePipeline;
   private readonly casterPipeline: GPUComputePipeline;
   private readonly finalizePipeline: GPUComputePipeline;
+  private bindings: Readonly<{
+    buffers: readonly GPUBuffer[];
+    full: GPUBindGroup;
+    main: GPUBindGroup;
+  }> | null = null;
 
   constructor(private readonly device: GPUDevice) {
     this.constants = device.createBuffer({
@@ -77,21 +88,28 @@ export class VsmCasterRecordPass {
       label: "VSM/caster records layout",
       entries: [
         { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
         { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
         { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
         { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
         { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
         { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+        { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
       ],
     });
-    this.finalizeLayout = device.createBindGroupLayout({
-      label: "VSM/raster indirect finalize layout",
+    this.mainLayout = device.createBindGroupLayout({
       entries: [
         { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-        { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-        { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+        ...[1, 2, 3, 4].map((binding) => ({
+          binding,
+          visibility: GPUShaderStage.COMPUTE,
+          buffer: { type: "read-only-storage" as const },
+        })),
+        ...[5, 6].map((binding) => ({
+          binding,
+          visibility: GPUShaderStage.COMPUTE,
+          buffer: { type: "storage" as const },
+        })),
       ],
     });
     const module = device.createShaderModule({
@@ -100,22 +118,50 @@ export class VsmCasterRecordPass {
     });
     this.casterPipeline = device.createComputePipeline({
       label: "VSM/caster records",
-      layout: device.createPipelineLayout({ bindGroupLayouts: [this.casterLayout] }),
+      layout: device.createPipelineLayout({ bindGroupLayouts: [this.mainLayout] }),
       compute: { module, entryPoint: "main" },
+    });
+    this.preparePipeline = device.createComputePipeline({
+      label: "VSM/prepare actual pair dispatch",
+      layout: device.createPipelineLayout({ bindGroupLayouts: [this.casterLayout] }),
+      compute: { module, entryPoint: "prepare_pairs" },
     });
     this.finalizePipeline = device.createComputePipeline({
       label: "VSM/fixed raster indirect",
-      layout: device.createPipelineLayout({ bindGroupLayouts: [this.finalizeLayout] }),
+      layout: device.createPipelineLayout({ bindGroupLayouts: [this.casterLayout] }),
       compute: { module, entryPoint: "finalize_indirect" },
     });
+  }
+
+  private bindingGroups(buffers: readonly GPUBuffer[]): Readonly<{ full: GPUBindGroup; main: GPUBindGroup }> {
+    const cached = this.bindings;
+    if (cached && buffers.every((buffer, index) => buffer === cached.buffers[index])) {
+      return cached;
+    }
+    const entries = buffers.map((buffer, binding) => ({ binding, resource: { buffer } }));
+    this.bindings = {
+      buffers,
+      full: this.device.createBindGroup({
+        label: "VSM/pair prepare/finalize bindings",
+        layout: this.casterLayout,
+        entries,
+      }),
+      main: this.device.createBindGroup({
+        label: "VSM/pair append bindings",
+        layout: this.mainLayout,
+        entries: entries.slice(0, 7),
+      }),
+    };
+    return this.bindings;
   }
 
   addToGraph(graph: FrameGraph, input: VsmCasterRecordInputs): VsmCasterRecordFrame {
     const dimension = this.device.limits.maxComputeWorkgroupsPerDimension;
     vsmCasterDispatch(input.workCapacity, dimension);
+    vsmImplicitDomain(input.workCapacity, input.resources.capabilities.residentSlots);
     if (input.resources.profile === "shadow-disabled")
       throw new Error("VSM caster records require an enabled profile");
-    if (!Number.isSafeInteger(input.generation) || input.generation < 0)
+    if (!Number.isSafeInteger(input.generation) || input.generation < 1 || input.generation > 0xffffffff)
       throw new RangeError("VSM caster generation is invalid");
     const casterBuffer = input.resources.casterRecords;
     const indirectBuffer = input.resources.rasterIndirect;
@@ -130,7 +176,7 @@ export class VsmCasterRecordPass {
     const allocation = input.allocation.allocation;
     const pageTable = input.allocation.pageTable;
     const work = input.meshletWork;
-    const instances = input.instances;
+    const bounds = input.meshletBounds;
     const caster = graph.import_resource(
       "VSM/caster records",
       { kind: "imported", label: "VSM caster records" },
@@ -159,7 +205,7 @@ export class VsmCasterRecordPass {
         0,
         this.constants,
         VSM_DEPTH_RANGE_BYTE_OFFSET,
-        VSM_DEPTH_RANGE_BYTES
+        VSM_DEPTH_RANGE_BYTES,
       );
     });
     update.read(input.depthRange);
@@ -168,72 +214,83 @@ export class VsmCasterRecordPass {
       const command = context.encoder as ShadeGPUCommandContext;
       const casterGpu = resolved.get(caster) as GPUBuffer;
       const telemetryGpu = resolved.get(telemetry) as GPUBuffer;
-      command.clearBuffer(casterGpu, 0, 16);
       // The first 16 bytes are E5 allocation telemetry; E6 uses the next
       // 16-byte lane for caster/raster overflow counters.
       command.clearBuffer(telemetryGpu, 16, 16);
-      const group = this.device.createBindGroup({
-        label: "VSM/caster records bindings",
-        layout: this.casterLayout,
-        entries: [
-          { binding: 0, resource: { buffer: resolved.get(currentConstants) as GPUBuffer } },
-          { binding: 1, resource: { buffer: resolved.get(allocation) as GPUBuffer } },
-          { binding: 2, resource: { buffer: resolved.get(pageTable) as GPUBuffer } },
-          { binding: 3, resource: { buffer: resolved.get(work) as GPUBuffer } },
-          { binding: 4, resource: { buffer: resolved.get(instances) as GPUBuffer } },
-          { binding: 5, resource: { buffer: casterGpu } },
-          { binding: 6, resource: { buffer: telemetryGpu } },
-        ],
-      });
-      const pass = command.beginComputePass({ label: "VSM/caster records" });
+      const groups = this.bindingGroups([
+        resolved.get(currentConstants) as GPUBuffer,
+        resolved.get(allocation) as GPUBuffer,
+        resolved.get(pageTable) as GPUBuffer,
+        resolved.get(work) as GPUBuffer,
+        resolved.get(bounds) as GPUBuffer,
+        casterGpu,
+        telemetryGpu,
+        resolved.get(indirect) as GPUBuffer,
+      ]);
+      const prepare = command.beginComputePass({ label: "VSM/prepare actual pair dispatch" });
+      prepare.setPipeline(this.preparePipeline);
+      prepare.setBindGroup(0, groups.full);
+      prepare.dispatchWorkgroups(1);
+      prepare.end();
+      const pass = command.beginComputePass({ label: "VSM/compact pairs" });
       pass.setPipeline(this.casterPipeline);
-      pass.setBindGroup(0, group);
-      // Keep the legal capacity baseline: the extra actual-count prepare pass
-      // did not establish break-even for this consumer in the G2.3 cost probe.
-      const [x, y] = vsmCasterDispatch(data.workCapacity, dimension);
-      pass.dispatchWorkgroups(x, y, 1);
+      pass.setBindGroup(0, groups.main);
+      pass.dispatchWorkgroupsIndirect(resolved.get(indirect) as GPUBuffer, 0);
       pass.end();
     });
     produce.read(currentConstants);
     produce.read(allocation);
     produce.read(pageTable);
     produce.read(work);
-    produce.read(instances);
+    produce.read(bounds);
     const producedCaster = produce.write(caster);
-    produce.write(telemetry);
+    const producedTelemetry = produce.write(telemetry);
+    const preparedIndirect = produce.write(indirect);
     produce.make_side_effect();
     const finalize = graph.add("VSM/finalize raster indirect", {}, (_data, resolved, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
-      const group = this.device.createBindGroup({
-        label: "VSM/finalize raster indirect bindings",
-        layout: this.finalizeLayout,
-        entries: [
-          { binding: 0, resource: { buffer: resolved.get(currentConstants) as GPUBuffer } },
-          { binding: 1, resource: { buffer: resolved.get(allocation) as GPUBuffer } },
-          { binding: 5, resource: { buffer: resolved.get(caster) as GPUBuffer } },
-          { binding: 7, resource: { buffer: resolved.get(indirect) as GPUBuffer } },
-        ],
-      });
+      const groups = this.bindingGroups([
+        resolved.get(currentConstants) as GPUBuffer,
+        resolved.get(allocation) as GPUBuffer,
+        resolved.get(pageTable) as GPUBuffer,
+        resolved.get(work) as GPUBuffer,
+        resolved.get(bounds) as GPUBuffer,
+        resolved.get(producedCaster) as GPUBuffer,
+        resolved.get(producedTelemetry) as GPUBuffer,
+        resolved.get(preparedIndirect) as GPUBuffer,
+      ]);
       const pass = command.beginComputePass({ label: "VSM/finalize raster indirect" });
       pass.setPipeline(this.finalizePipeline);
-      pass.setBindGroup(0, group);
+      pass.setBindGroup(0, groups.full);
       pass.dispatchWorkgroups(1);
       pass.end();
     });
     finalize.read(currentConstants);
     finalize.read(allocation);
     finalize.read(producedCaster);
-    const producedIndirect = finalize.write(indirect);
+    finalize.read(preparedIndirect);
+    finalize.read(pageTable);
+    finalize.read(work);
+    finalize.read(bounds);
+    const completeCaster = finalize.write(producedCaster);
+    finalize.write(producedTelemetry);
+    const producedIndirect = finalize.write(preparedIndirect);
     finalize.make_side_effect();
     return {
-      casterRecords: producedCaster,
+      casterRecords: completeCaster,
       rasterIndirect: producedIndirect,
       generation: input.generation,
       capacity: input.resources.capabilities.casterRecordCapacity,
+      meshletWork: work,
+      meshletBounds: bounds,
+      get workCapacity() {
+        return input.workCapacity;
+      },
     };
   }
 
   destroy(): void {
+    this.bindings = null;
     this.constants.destroy();
   }
 }

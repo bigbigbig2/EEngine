@@ -13,6 +13,7 @@ import {
 } from "../../shaders/native_visibility.js";
 import { NativeRasterWorkPartitions } from "./NativeRasterWorkPartitions.js";
 import { GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS } from "../../gpu/GpuMeshletRasterWorkAbi.js";
+import type { NativeVsmRasterInput } from "./NativeRasterWorkPartitions.js";
 
 export function nativeVisibilityPipelineDescriptor(
   shader: NativeVisibilityShader,
@@ -47,8 +48,10 @@ export interface NativeVisibilityInput {
   readonly camera?: GPUBuffer;
   readonly view: Uint8Array<ArrayBuffer>;
   readonly shadow?: boolean;
-  /** Actual VSM caster queue (16B header/32B records), atlas constants/page table. */
-  readonly vsmAtlas?: Readonly<{ constants: GPUBuffer; pageTable: GPUBuffer }>;
+  /** Actual 16B pairs and complete independent Geometry source/bounds. */
+  readonly vsmAtlas?: Readonly<
+    NativeVsmRasterInput & { constants: GPUBuffer; pageTable: GPUBuffer; allocation: GPUBuffer }
+  >;
 }
 
 interface RouteState {
@@ -134,7 +137,9 @@ export class NativeVisibilityPass {
       input.publication.rasterConstants,
       input.publication.rasterDirectory,
       ...(input.geometry.productHeap ? [input.geometry.productHeap, ...input.geometry.productBanks!] : []),
-      ...(input.vsmAtlas ? [input.vsmAtlas.pageTable] : []),
+      ...(input.vsmAtlas
+        ? [input.vsmAtlas.pageTable, input.vsmAtlas.source, input.vsmAtlas.bounds, input.vsmAtlas.allocation]
+        : []),
     ]) {
       if (
         buffer.size < 4 ||
@@ -214,7 +219,7 @@ export class NativeVisibilityPass {
       meshletWordBase: input.geometry.source[1],
       frameGeometryHeader: input.vsmAtlas === undefined ? input.geometry.sourcePayload[3] : undefined,
       generation: input.generation,
-      caster: input.vsmAtlas !== undefined,
+      caster: input.vsmAtlas,
       graphics: input.graphics,
     });
     try {
@@ -360,6 +365,9 @@ export class NativeVisibilityPass {
       geometryEntries.push(
         { binding: 13, resource: { buffer: input.vsmAtlas.constants } },
         { binding: 14, resource: { buffer: input.vsmAtlas.pageTable } },
+        { binding: 15, resource: { buffer: input.vsmAtlas.source } },
+        { binding: 16, resource: { buffer: input.vsmAtlas.bounds } },
+        { binding: 17, resource: { buffer: input.vsmAtlas.allocation } },
       );
     }
     const partitionGroups = Array.from({ length: 8 }, (_, partition) =>

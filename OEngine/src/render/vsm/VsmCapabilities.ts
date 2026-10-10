@@ -8,6 +8,7 @@ import {
   vsmEntriesPerClipLevel,
   vsmScanBytes,
 } from "./VsmPageState.js";
+import { VSM_PAIR_HEADER_BYTES, VSM_PAIR_STRIDE } from "../../gpu/GpuVsmPairAbi.js";
 
 export type VsmProfile = "vsm-directional-high" | "vsm-directional-bounded" | "shadow-disabled";
 
@@ -85,7 +86,7 @@ function makeCapabilities(
   const slotCandidatesBytes = Math.max(256, residentSlots * 8 + 16);
   const coarseReservedSlots = clipLevels * (VSM_VIRTUAL_PAGES_PER_AXIS / 32 + 1) ** 2;
   const allocationBytes = Math.max(256, residentSlots * 32 + 16);
-  const casterRecordBytes = Math.max(256, casterRecordCapacity * 32 + 16);
+  const casterRecordBytes = Math.max(256, casterRecordCapacity * VSM_PAIR_STRIDE + VSM_PAIR_HEADER_BYTES);
   return Object.freeze({
     profile,
     reason,
@@ -164,14 +165,14 @@ function profileFits(
 
 /** Negotiate once after device creation and before any VSM resource allocation. */
 export function negotiateVsmCapabilities(device: GPUDevice): VsmCapabilities {
-  if (profileFits(device, HIGH_ATLAS, 6, 65536)) {
+  if (profileFits(device, HIGH_ATLAS, 6, 262144)) {
     return makeCapabilities(
       device,
       "vsm-directional-high",
       "device limits satisfy directional high profile",
       6,
       HIGH_ATLAS,
-      65536,
+      262144,
     );
   }
   if (profileFits(device, BOUNDED_ATLAS, 4, 16384)) {

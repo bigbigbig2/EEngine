@@ -295,7 +295,11 @@ export async function runVsmR2GpuOracle(device) {
     GPUBufferUsage.UNIFORM,
     new Uint32Array([7, 7, resources.namespace, profile.atlasPagesPerAxis]),
   );
-  const caster = make(16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, new Uint32Array([0, 0, 0, 7]));
+  const caster = make(
+    32,
+    GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    new Uint32Array([0, 0, 0, 7, 0, 0, 0, 7]),
+  );
   const completion = make(16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, new Uint32Array(4));
   const commit = device.createComputePipeline({
     layout: "auto",
@@ -333,6 +337,7 @@ export async function runVsmR2GpuOracle(device) {
   });
   const publishEmpty = async () => {
     const encoder = device.createCommandEncoder();
+    encoder.copyBufferToBuffer(resources.allocation, 4, caster, 24, 4);
     const raster = encoder.beginRenderPass({
       colorAttachments: [],
       depthStencilAttachment: {
@@ -361,6 +366,8 @@ export async function runVsmR2GpuOracle(device) {
       [16, -48],
       [48, -48],
       [1e6, 1e6],
+      [-48, -16],
+      [-48, -16],
     ];
     const authored = new Uint32Array(profile.virtualEntryCount * 12);
     const author = (point, mip, flags, epoch = 7) => {
@@ -385,7 +392,7 @@ export async function runVsmR2GpuOracle(device) {
     const positions = make(
       points.length * 16,
       GPUBufferUsage.STORAGE,
-      new Float32Array(points.flatMap(([x, y]) => [x, y, 0, 1])),
+      new Float32Array(points.flatMap(([x, y], index) => [x, y, index === 6 ? 4 : index === 7 ? -4 : 0, 1])),
     );
     const output = make(points.length * 16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
     const module = device.createShaderModule({
@@ -438,7 +445,44 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       Array.from({ length: 6 }, (_, i) => actual[i * 4 + 3]).every((value) => value === 0x3f800000),
       "Cleared empty/invalid query did not return neutral visibility",
     );
-    return { statuses, coarseTargetStatus: actual[5], neutralVisibility: true };
+    check(
+      actual[24] === 0 && actual[27] === 0x3f800000,
+      "Empty reverse-depth page must remain neutral beyond the caster far bound",
+    );
+    check(
+      actual[28] === 0 && actual[31] === 0x3f800000,
+      "Receiver ahead of caster depth must remain visible",
+    );
+    // Independently authored positive depth must still shadow receivers beyond far.
+    const shadowEncoder = device.createCommandEncoder();
+    const shadowClear = shadowEncoder.beginRenderPass({
+      colorAttachments: [],
+      depthStencilAttachment: {
+        view: resources.atlasDepthView,
+        depthLoadOp: "clear",
+        depthClearValue: 0.75,
+        depthStoreOp: "store",
+      },
+    });
+    shadowClear.end();
+    const shadowSample = shadowEncoder.beginComputePass();
+    shadowSample.setPipeline(pipeline);
+    shadowSample.setBindGroup(0, group);
+    shadowSample.dispatchWorkgroups(1);
+    shadowSample.end();
+    device.queue.submit([shadowEncoder.finish()]);
+    const blocked = await inspect(output);
+    check(
+      blocked[3] === 0 && blocked[27] === 0 && blocked[31] === 0x3f800000,
+      "Positive caster depth must shadow within/beyond far and preserve receivers ahead of near",
+    );
+    return {
+      statuses,
+      coarseTargetStatus: actual[5],
+      neutralVisibility: true,
+      emptyOutsideCasterDepth: true,
+      positiveCasterOutsideDepth: true,
+    };
   };
   device.pushErrorScope("validation");
   try {
@@ -514,7 +558,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     device.queue.writeBuffer(completion, 4, new Uint32Array([0]));
     device.queue.writeBuffer(caster, 8, new Uint32Array([1]));
     await publishEmpty();
-    check((await readState()).map.get(1000).flags & 2, "Caster overflow published ready");
+    check((await readState()).map.get(1000).flags & 2, "Geometry/pair failure published ready");
     device.queue.writeBuffer(caster, 8, new Uint32Array([0]));
     await publishEmpty();
     check(

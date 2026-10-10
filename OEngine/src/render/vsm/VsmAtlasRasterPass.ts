@@ -199,6 +199,9 @@ export class VsmAtlasRasterPass {
           native.input.geometry.arena !== geometry.arena ||
           native.input.geometry.instances !== geometry.instances ||
           native.input.geometry.productHeap !== geometry.productHeap ||
+          native.input.geometry.vertexPayload !== geometry.vertexPayload ||
+          native.input.vsmAtlas?.source !== resolved.get(data.caster.meshletWork) ||
+          native.input.vsmAtlas?.bounds !== resolved.get(data.caster.meshletBounds) ||
           native.input.vsmAtlas?.pageTable !== resolved.get(pageTable))
       ) {
         void native.retire(this.graphics.device.queue.onSubmittedWorkDone());
@@ -210,12 +213,21 @@ export class VsmAtlasRasterPass {
           graphics: this.graphics,
           geometry,
           publication: scene.publication,
-          capacity: data.caster.capacity,
+          capacity: Math.max(data.caster.capacity, data.caster.workCapacity),
           generation: data.generation,
           generationSource: data.publication.meshletWork,
           camera: resolved.get(data.camera) as GPUBuffer,
           view,
-          vsmAtlas: { constants: this.constants, pageTable: resolved.get(pageTable) as GPUBuffer },
+          vsmAtlas: {
+            constants: this.constants,
+            pageTable: resolved.get(pageTable) as GPUBuffer,
+            source: resolved.get(data.caster.meshletWork) as GPUBuffer,
+            bounds: resolved.get(data.caster.meshletBounds) as GPUBuffer,
+            allocation: resolved.get(data.allocation) as GPUBuffer,
+            sourceCapacity: data.caster.workCapacity,
+            pairCapacity: data.caster.capacity,
+            dirtyCapacity: data.resources.capabilities.residentSlots,
+          },
         });
         this.nativePasses.set(queue, native);
       } else {
@@ -245,6 +257,8 @@ export class VsmAtlasRasterPass {
       currentConstants,
       input.allocation,
       caster,
+      input.caster.meshletWork,
+      input.caster.meshletBounds,
       indirect,
       pageTable,
       input.instances,
@@ -346,5 +360,16 @@ export class VsmAtlasRasterPass {
     this.nativePasses.clear();
     this.constants.destroy();
     this.commitConstants.destroy();
+  }
+
+  /** Borrowed Scene source/publication is retained only through its last GPU fence. */
+  release(runtime: GpuRenderWorldRuntime, command: ShadeGPUCommandContext): void {
+    const publication = runtime.nativeMaterials?.publication;
+    for (const [queue, pass] of this.nativePasses) {
+      if (pass.input.publication === publication) {
+        this.nativePasses.delete(queue);
+        void pass.retire(command.gpuDone);
+      }
+    }
   }
 }

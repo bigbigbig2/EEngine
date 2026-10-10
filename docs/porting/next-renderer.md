@@ -4,6 +4,10 @@ state: current
 verifies:
   files:
     - tools
+    - OEngine/src/gpu/GpuVsmPairAbi.ts
+    - OEngine/src/render/ShadowMeshletBounds.ts
+    - OEngine/src/shaders/shadow_meshlet_bounds.ts
+    - OEngine/src/shaders/vsm_pair_page.ts
     - OEngine/src/gpu/GpuNativeMaterialScene.ts
     - OEngine/src/render/surface
     - OEngine/src/framegraph/FrameGraph.ts
@@ -794,7 +798,7 @@ Reference：Timberdoodle `1987cf3b8ddda42585d2470bb5806efbc96c6cae`，Apache-2.0
 
 Local：既有ShadowGeometryWork、Scene/source ABI、native OPAQUE/MASK与Physical Sun。R1本地实现完整world key、稳定reverse-Z、affine AABB support、GPU两级归约与submit事务；完整Bistro源已恢复并真实重cook，结果只读VSM执行计划。R2再次核读上述固定revision的mark_required_pages、find_free_pages、allocate_pages、clear_dirty_bit与Apache-2.0 LICENSE，参考标记→slot列表→正反映射→逐页清dirty的责任拆分，未复制源代码。
 
-Adapt / Original：本地 `vsm_receiver_demand`/`vsm_demand_scan` 用完整bitset+portable64lane两级prefix；`vsm_allocate_pages`先touch全部requested，以submitted frame serial回收无人需求dirty/clean slot，coarse/fine各自free优先；`vsm_page_commit`消费真实native partition诊断与caster失败并核full key/reverse owner。原子切换VsmResources、FrameGraph、Surface query和诊断，删除锁与无consumer的dirty bitset。本地coarse保留/guard方案独立于donor：fine128窗口滚动最多5×5交集、8×8 coarse地址环、high最多150/bounded100预留；拒绝4×4别名，不修改fine投影。新CPU、独立GPU、真实小Scene与完整BistroGPU接线已有证据，但Bistro仍被旧global caster容量阻断；16B pair/implicit/gutter仍待R3。没有Timberdoodle完整port/adoption或性能提升声明，R07保持not adopted。
+Adapt / Original：本地 `vsm_receiver_demand`/`vsm_demand_scan` 用完整bitset+portable64lane两级prefix；`vsm_allocate_pages`先touch全部requested，以submitted frame serial回收无人需求dirty/clean slot，coarse/fine各自free优先；`vsm_page_commit`消费真实native partition诊断与caster失败并核full key/reverse owner。原子切换VsmResources、FrameGraph、Surface query和诊断，删除锁与无consumer的dirty bitset。本地coarse保留/guard方案独立于donor：fine128窗口滚动最多5×5交集、8×8 coarse地址环、high最多150/bounded100预留；拒绝4×4别名，不修改fine投影。R2出口时Bistro仍被旧global caster容量阻断。R3再次核读directional/shared task/mesh/fragment hot path：参考meshlet页裁剪和阶段责任，不复制wave32/DispatchMesh/Daxa指针/dirty-HIZ后端。Original：GpuVsmPairAbi、ShadowMeshletBounds、实际dirty列表扫描/16B紧致pair、GPU explicit/implicit选择、native W_partition×D draw、unique page completion和gutter/clear0规则；ordinary/Product真实source、失败/abort/退休全部同步切换。显式/隐式MASK/depth同数学、独立affine边界、partial poison、真实Renderer链与完整Bistro895ready已有GPU证据，原C65536也能恢复页面；成本范围与未验收项只读执行计划。没有Timberdoodle完整port/adoption或性能提升声明，R07保持not adopted。
 
 Reference reuse：Native `GltfImporter.cpp::InstanceShadowFlags`复用项目已固定的cgltf `jsmn_parse`/`cgltf_decode_string`/`cgltf_skip_json`读取root extras，没有新增JSON parser donor或复制VSM算法。来源文件`D:/Nyx-main/MiniEngine/ThirdParty/cgltf/cgltf.h`，SHA256 `123d322d3eff8db5dc34a690131037a89972dff91793050caa48353a5911b4d7`；沿用既有cgltf MIT许可和native CMake来源，node默认/显式关闭policy由本地`InstanceShadowSemantics`定义，fresh Native cook与TS解析合同核对。
 
