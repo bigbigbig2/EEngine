@@ -14,8 +14,7 @@ struct Constants {
 @group(0) @binding(0) var<uniform> constants: Constants;
 @group(0) @binding(1) var<storage, read_write> pages: array<VsmPageEntry>;
 @group(0) @binding(2) var<storage, read_write> metas: array<VsmMetaEntry>;
-@group(0) @binding(3) var<storage, read_write> dirty: array<atomic<u32>>;
-@group(0) @binding(4) var<storage, read_write> content: array<atomic<u32>>;
+@group(0) @binding(3) var<storage, read_write> content: array<atomic<u32>>;
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
@@ -29,9 +28,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let coordinate = vsm_page_entry_coordinates(id.x, constants.dimensions.x);
   let world = vec2i(entry.world_x, entry.world_y);
   let minimum = vsm_window_minimum(constants.clips[coordinate.x], coordinate.y, constants.dimensions.x);
-  let axis = max(1u, constants.dimensions.x >> coordinate.y);
   let local = world - minimum;
-  let outside = any(local < vec2i(0)) || any(local >= vec2i(i32(axis)));
+  let outside = any(local < vec2i(0)) || any(local >= vsm_window_size(constants.clips[coordinate.x], coordinate.y, constants.dimensions.x));
   let stale = entry.generation != constants.control.x || !vsm_key_matches(entry, world, constants.identity);
   if (constants.control.y != 0u || outside || stale) {
     let slot = entry.slot_y * constants.dimensions.y + entry.slot_x;
@@ -45,7 +43,6 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     }
     entry.flags = 0u;
     pages[id.x] = entry;
-    atomicAnd(&dirty[id.x / 32u], ~(1u << (id.x % 32u)));
     atomicStore(&content[1u], 1u);
   }
 }

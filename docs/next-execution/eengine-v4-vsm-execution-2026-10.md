@@ -16,11 +16,12 @@ verifies:
     - OEngine/src/core/InstanceShadowSemantics.ts
     - OEngine/src/assets
     - OEngine/src/scene
+    - tools/gpu-oracle/registry.mjs
 ---
 
 # VSM V4 执行计划
 
-唯一模块设计见[VSM V4 design](../next-design/eengine-v4-vsm-2026-10.md)，全局规则继承[V4 母稿](../next-design/eengine-v4-native-shading-2026-10.md)。旧Module E只提供追溯，不定义V4实施或状态。用户已授权R0，随后明确要求继续R1；当前workstream为VSM V4，Minimal GPU Work仍暂停。不自动启动R2/R3或VT。
+唯一模块设计见[VSM V4 design](../next-design/eengine-v4-vsm-2026-10.md)，全局规则继承[V4 母稿](../next-design/eengine-v4-native-shading-2026-10.md)。旧Module E只提供追溯，不定义V4实施或状态。用户已授权R0、R1，完成R1补验并提交dbc1002e后，又授权实施R2；当前workstream为VSM V4，Minimal GPU Work仍暂停。不自动启动R3或VT。
 
 ## 1. 状态与停止点
 
@@ -28,11 +29,11 @@ verifies:
 |---|---|---|
 | V4-R0 源码与来源设计 | complete（设计/当前实现基线） | GPU原失败与当前设备基线、SOURCE分类、独立坐标算术、固定donor核对、候选成本与路线 |
 | V4-R1 实例语义与稳定投影 | complete（单元语义/投影出口） | Cooker/Scene→cast/receive→Geometry/Surface；world page key、稳定depth、epoch/prepare/commit/abort→全部consumer；完整Bistro新资产与GPU接线结果见§3.1 |
-| V4-R2 完整需求与驻留 | not-started | bitset→unique request/touch→slot选择→page/meta/dirty/coarse→采样和页工作 |
+| V4-R2 完整需求与驻留 | complete（单元需求/驻留出口；Bistro caster压力仍未修复） | bitset→unique request/touch→slot选择→page/meta/dirty/coarse→采样和页工作 |
 | V4-R3 caster与页面完成 | not-started | Geometry bounds/source→compact explicit或implicit全工作→native raster→per-page completion→Surface |
 | V4-R4 完整场景验收 | not-started | 真实cook Bistro、动态/压力/生命周期、正确性/画质/成本和资源峰值 |
 
-R0在R1入口停止；后续用户授权实施R1。R1完成后停在R2入口，不自动启动R2/R3或VT；单元语义/投影出口通过不等于完整VSM修复或性能验收。
+R0、R1在各自入口停止后由用户继续授权。R2完成后停在R3入口，不自动启动R3或VT；单元需求/驻留出口通过不等于完整VSM修复或性能验收。
 
 ## 2. V4-R0 设计依据与已做检查
 
@@ -115,12 +116,42 @@ GPU原件在`.local/validation/vsm-v4-r1/{gpu,production,integration}-result.jso
 
 1. 非生产完整构建receiver全域bitset+prefix、共同clip/mip selector；取完整request域，不接旧8192像素append。
 2. touch全部requested后扫描S slots生成free/reclaim，再分配唯一miss；同epoch多frame回收、dirty无人需求撤销、mapping/meta完整发布。
-3. 实现high96 coarse页优先保留/生产与fine pressure策略；coarse pinned不等于永久采样旧内容。物理能力不足保证完整coarse集合则明确拒绝。
+3. 实现完整coarse guard集合优先保留/生产与fine pressure策略（R2修正：high对齐96、滚动最多150；bounded对齐64、最多100）；coarse pinned不等于永久采样旧内容。物理能力不足保证完整coarse集合则明确拒绝。
 4. clear/raster/commit改为接收唯一dirty page产品，为R3提供完整input；先保证无caster空页和现有caster成功域合法完成，不声称此时显式caster overflow已有恢复。
 5. 集中切全部需求/allocator/采样/诊断consumer并删除旧append、页锁去重和generation-LRU；不得两allocator写同pool。
 
 退出：>8192可见receiver独立预期页集合；高entropy/不同GPU执行顺序集合相同；相同content epoch替换页面/循环回收；touch-vs-evict竞争；free/clean/dirty/pinned的complete映射；全部coarse覆盖域可用、fine压力明确归类；0caster页ready；failure不ready；稳定页面移动；abort/resize/Scene/loss；真实管理税及内存。GPU串行，不把固定容量微测代替完整receiver集合。
 
+### 4.1 R2实施与验证记录（2026-10-10）
+
+**生产切换：** Receiver从去重前8192像素append改为完整虚拟页bitset，真实instance receive/Active/opaque-or-MASK/lit Sun语义保留；共同first-containing-world-window/mip0 selector，域外不clamp。portable64lane两级popcount/prefix/scatter生成唯一请求；high65scan groups完整。全部touch先完成，随后扫描物理slot，free优先，再回收当前submitted frame无需求的clean/dirty页；与content generation分离。miss压缩复用request scratch，完整requested bitset与header计数不变。独立coarse/fine池保证需求粗页容量；mapping/meta和唯一dirty页工作完整发布后，clear→actual native raster→按dirty页commit。空页可ready，native malformed/caster overflow/revoked reverse owner/key不符不得ready；每页version一次推进。旧append/逐miss slot搜索、pageLocks/slotLocks、generation-LRU和无consumer的dirty bitset已删除，没有并存allocator或新frame submit。
+
+**粗页设计修正：** extent/4的coarse世界尺度保持不变。fine128窗口滚动1fine页后最多交5×5粗页，4×4存储环会别名；mip5改为8×8环，各clip21888entries。high131328/bounded87552 virtual entries；high预留150/900 slots、fine750，bounded预留100/225、fine125。对齐需求high96/bounded64；非对齐最多150/100。Geometry包含完整guard cells和gutter余量，未改变fine投影、降低fine mip或裁掉receiver。预留闲置槽不借给fine，其质量/容量代价列入Cost Card。
+
+**查询与诊断：** Surface直接调用同一ready query，返回fine/coarse/missing/stale/dirty/outside；coarse保留fine targetStatus。没有hot-path每像素全局atomic计数。diagnostics dirtyPages为allocation records offset16/count offset4/stride32；samplingFallback与overflowMask没有实际producer，返回null而不是假零。Surface disabled-provider仍走原关闭语义，neutral binding由旧32B修为48B真实ABI；没有为测试新建fallback。
+
+| 检查 | 实际结果与范围 |
+|---|---|
+| 集中构建/CPU | typecheck、engine build与新鲜build:test通过；49/49定向合同通过，含fresh Native cook、source/GPU flags、页域/粗页滚动负坐标、Surface/native绑定/退休、frame transforms、真实source revision/streaming取消失败语义。旧CPU generation-LRU模拟及锁/旧stride源码断言已退休；R1 affine/depth/negative数学与当前语义断言保留 |
+| 独立R2实际GPU owner/FrameGraph | 256×128=32768真实receiver像素→独立预期16384fine页+96coarse，完整请求16480，overflow0；每个fine bit均核验，正反屏幕映射的需求集合相同。846mapped=96coarse+750fine，fine misses15634；完整coarse仍保留。所有touch先于evict：同epoch回收749无人需求页（含强制dirty旧页），page0的slot/version保留；fine窗口各滚1页后150coarse全覆盖。唯一page/slot/dirty writer断言通过；actual atlas clear+authored合法空caster/native completion夹具完成一次且不重复推进；失败/撤销meta不ready，恢复成功；预提交abort页表逐字不变，同serial重试通过 |
+| Portable binding上限 | 单独request maxStorageBuffersPerShaderStage=8的真实device跑同R2全部GPU检查，high仍完整通过；按entry-specific auto layout分别缓存group，不能跨pipeline借auto group。实际生产Renderer仍协商16供Surface其他provider，不把adapter上限当device能力 |
+| 六类查询 | 实际生产sampling WGSL，独立 authored page fixtures输出[0,1,2,3,4,5]对应fine/coarse/missing/stale/dirty/outside；coarse targetStatus=missing；empty clear和非法页均neutral=1。夹具不替代完整Bistro各类比例或gutter/seam画质 |
+| 真实Renderer Scene→WASM→Product→GPU Scene | 原R1 projection/receive/cast/transform/sun abort→retry/controlled loss语义复跑通过；initial895ready、intersection815保留，errors=[]。新增实际0caster工作空页900ready；resize不推进epoch，public shadowVisibilityEnabled off/on真实推进epoch并ready；全部cast off仍建立合法中性depth range且900empty页ready；替换单实例Scene推进epoch7，释放旧Scene不损坏新产品，随后release新Scene通过。原公开Mesh receive off在recovery后保留 |
+| 原R1独立数学与native MASK | R1 GPU oracle保留affine support/negative/world roll，preserved2/released1通过；native Surface physicalSun integration通过，main/VSM MASK covered14336/compared16384/maxDepthError0，原normal/ORM/coat/HDR/negative/nonuniform/motion/FSR/resize/abort数值断言保留。MASK VSM page/source由夹具authored，非Bistro成本/画质结论 |
+
+**实际管理税与内存：** RTX2060 SUPER8GB，真实production allocator/FrameGraph，timestamp-query，12次/组，固定900mapped、完整150coarse+750fine请求；分别author ready/dirty状态后验证D为0/450/900。管理10dispatch（6scan+touch+collect+allocate+dirty publication）、8pipelines，touch/miss间接dispatch；receiver2dispatch在同一pass。按最终gpu-result.json的pass timestamp差值之和，0/50/100%管理P50/P95为0.088864/0.092128、0.092128/0.106496、0.092320/0.101536ms。32768receiver/16384fine完整压力下receiver pass P50/P95=0.018432/0.019840ms，receiver+管理合计0.132544/0.135328ms。测的是夹具stage执行，未含全部copy、CPUencode、Geometry/caster/raster/Surface与1080p整帧；12样本不足以声称正式稳态P95或性能提升。另一次8binding设备结果及全部样本另存portable-result.json，不混作同条件加速比。
+
+VsmResources真实固定high buffers=10635816B，atlas=67108864B，合计77744680B；其中page6303744、meta28800、request2101264、2bitset32832、scan33880、slot candidates7216、page work28816、caster2097168B。相比R1该owner增加1382732B：完整request从262160增至2101264、guard页表增13824、新增scratch，同时删除524160page locks/3600slot locks/16380dirty mask。allocator常量256B（旧64B）等pass-owned资源及shadow hierarchy/native partitions/retiring还须另计，以上不是driver显存峰值或整个VSM总账。D=0仍有mark/scan管理税；收益/break-even必须以后用同质量端到端核验，原错误截断不能当速度基线。
+
+**完整Bistro实际接线：** 使用R1真实recook的完整产品：源SHA256 fd2e08c41da4d89bba1b04f4bd8df4824c6937bbe53a17edd4e278f7e3b5f641、1591instances/2829226triangles/132materials/405images/full mips。隔离Vite5194，原Loader/default Sun/camera、960×640、fixedExposure1、calendar/FSR/jitter关闭；不改资产flags、容量或渲染算法。全部1591实际cast/receive；actual fine需求initial788、settled783、末帧783，coarse145，需求overflow0，145coarse全部mapped、coarse failure0；fine misses末帧33（750fine slots）。page current/dirty895、ready0。caster initial attempted129504/written65536/overflow63968；settled139088/65536/73552；最后139393/65536/73857。仍是旧instance-sphere×dirty全局caster容量协议阻断，未扩容掩盖；R2需求更完整使旧故障压力更明显，不能追认为质量修复。末帧同epoch回收12slot、touch883；真实streaming publication先推进epoch，随后无source变化的light-axis pair保持epoch47，depth逐位不变，独立8角depth误差<1e-4。errors=[]。Bistro完整shadow画质及coarse真实ready恢复留R3/R4。
+
+**失败保留与分类：** R2目录保存初次WGSL非法vec2i混合参数/保留字meta造成pipeline失败，局部改类型/命名后重跑；独立夹具初次用未登记submit label，改用实际frame owner label；扩展生产夹具错误地把合法0caster neutral depth判为invalid、使用非公开vsm_enabled属性，依据实际源码纠正断言和调用后保持目标分支检查。public off/on随后发现真实Surface disabled binding旧32B不足48B，修唯一ABI owner后重跑。独立abort第一次未消费completion拒绝形成expected pageerror，现明确等待并核验预期拒绝，errors=[]。首个Bistro运行遇源文件格式化触发Vite HMR重载，保留有initial有效GPU结果的环境失败，再于源码稳定后完整重跑。未吞真实错误、跳断言或放宽容差。
+
+**架构审查与出口：** 用WebGPU审查检查producer→全部consumer、ABI/usage/entry-specific layouts、13barrier portable prefix、独立pass跨WG排序、全域容量/overflow、一次frame submit、staging abort、namespace/Scene/device retirement。reverse owner的flags/mip/slot/generation也在touch/dirty publication/commit处核验；无本帧CPU读回控制或新private submit。新资源创建前preflight完整buffer/dispatch/64lane/1024B workgroup scratch/8storage limits。R2单元complete，停在R3入口；旧global caster完整容量恢复、compact pair/implicit、meshlet bounds与gutter/seam、full Bistro1080p画质/P50/P95及1650Ti实机仍未完成，不启动Minimal GPU Work或VT。
+
+可复跑的正式入口为 `node tools/gpu-oracle.mjs vsm-v4-r2`（8storage portable完整正确性；未请求timestamp时成本明确UNKNOWN），已运行passed、gpuErrors/scopedGpuErrors=[]，registered-result.json保留build与source hash。
+
+原件位于.local/validation/vsm-v4-r2：gpu/portable/production/math/integration-result.json、bistro-result.json、bistro-stable-pair.json、off/on截图及timestamp命名failure原件。git diff --check通过。docs-verify仍为1 finding/74 historical warnings：仅既有且Git忽略的docs/status.generated.md缺frontmatter；本轮文档无新增finding，全库文档检查不记通过。
 ## 5. V4-R3：紧致配对、完整压力模式与逐页提交
 
 1. Geometry bounds产品覆盖ordinary/Product真实meshlet、shear/negative scale和border；source invalid/缺页保合法coarse cut，不能悄悄跳caster。

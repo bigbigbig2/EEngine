@@ -1,3 +1,4 @@
+import { VSM_PAGE_ENTRY_WORDS } from "../vsm/VsmPageState.js";
 import { createNativeTextureView } from "../../gpu/GPUTextureDescriptors.js";
 import { GpuBindGroupCache } from "../../gpu/GpuBindGroupResourceCache.js";
 import type { ResourceHandle } from "../../debug/profiling/ResourceAccounting.js";
@@ -156,7 +157,10 @@ export class SurfaceV4 {
       return this.neutralEntries;
     }
     const shadowConstants = this.device.createBuffer({ size: 256, usage: GPUBufferUsage.UNIFORM });
-    const pageTable = this.device.createBuffer({ size: 32, usage: GPUBufferUsage.STORAGE });
+    const pageTable = this.device.createBuffer({
+      size: VSM_PAGE_ENTRY_WORDS * 4,
+      usage: GPUBufferUsage.STORAGE,
+    });
     const atlas = this.device.createTexture({
       size: [1, 1],
       format: "depth32float",

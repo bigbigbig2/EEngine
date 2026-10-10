@@ -11,6 +11,15 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "vsm-v4-r2",
+    file: "OEngine/tests/oracle/vsm-v4-r2-gpu.mjs",
+    url: "/OEngine/tests/oracle/vsm-v4-r2-gpu.mjs",
+    entry: "runVsmR2GpuOracle",
+    requiredLimits: { maxStorageBuffersPerShaderStage: 8 },
+    description:
+      "Complete receiver demand, coarse guard capacity, same-epoch reclamation, empty completion, query states and abort retry.",
+  }),
+  Object.freeze({
     name: "fsr3-shading-pyramid",
     file: "OEngine/tests/oracle/fsr3-shading-pyramid-gpu.mjs",
     url: "/OEngine/tests/oracle/fsr3-shading-pyramid-gpu.mjs",

@@ -1,4 +1,4 @@
-import { VSM_PAGE_TABLE_WGSL } from "../../shaders/vsm_page_table.js";
+import { VSM_PAGE_COMMIT_WGSL } from "../../shaders/vsm_page_commit.js";
 import { packVsmProjection, VSM_DEPTH_RANGE_BYTE_OFFSET, VSM_DEPTH_RANGE_BYTES } from "./VsmProjection.js";
 import { NativeVisibilityPass } from "../surface/NativeVisibilityPass.js";
 import { nativeWinnerGeometry } from "../MeshletBucketRaster.js";
@@ -17,55 +17,6 @@ import type { VsmDirectionalFrameConstants } from "./VsmReceiverDemandPass.js";
 import type { VsmResources } from "./VsmResources.js";
 import type { VsmCasterRecordFrame } from "./VsmCasterRecordPass.js";
 import { VSM_CONTENT_VERSION_WGSL } from "../../shaders/vsm_content_version.js";
-
-const DIRTY_COMMIT_WGSL = /* wgsl */ `
-${VSM_PAGE_TABLE_WGSL}
-struct Constants { generation: u32, projection_epoch: u32, content_namespace: u32, atlas_axis: u32 };
-struct Record { instance_record_index: u32, geometry_record_index: u32, meshlet_record_index: u32, material_handle: u32, page_slot: u32, virtual_page: u32, raster_flags: u32, packed_profile_lod: u32 };
-struct Caster { attempted: u32, written: u32, overflow: u32, generation: u32, records: array<Record> };
-struct Table { entries: array<VsmPageEntry>, }
-struct Metas { entries: array<VsmMetaEntry>, }
-struct Locks { values: array<atomic<u32>>, }
-@group(0) @binding(0) var<uniform> constants: Constants;
-@group(0) @binding(1) var<storage, read> caster: Caster;
-@group(0) @binding(2) var<storage, read_write> page_table: Table;
-@group(0) @binding(3) var<storage, read_write> meta_table: Metas;
-@group(0) @binding(4) var<storage, read_write> page_locks: Locks;
-@group(0) @binding(5) var<storage, read_write> content_version:array<atomic<u32>>;
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) id: vec3u) {
-  // A truncated caster list cannot prove that any dirty page is complete.
-  if (caster.overflow != 0u) { return; }
-  let count = min(caster.written, arrayLength(&caster.records));
-  if (id.x >= count) { return; }
-  let record = caster.records[id.x];
-  if (record.virtual_page >= arrayLength(&page_table.entries) || record.virtual_page >= arrayLength(&page_locks.values)) { return; }
-  let lock = atomicCompareExchangeWeak(&page_locks.values[record.virtual_page], 0u, 1u);
-  if (!lock.exchanged) { return; }
-  var entry = page_table.entries[record.virtual_page];
-  if (entry.generation == constants.generation && entry.projection_epoch == constants.projection_epoch &&
-      entry.content_namespace == constants.content_namespace && entry.slot_y * constants.atlas_axis + entry.slot_x == record.page_slot &&
-      (entry.flags & 1u) != 0u && (entry.flags & 8u) != 0u) {
-    if ((entry.flags & 2u) != 0u) {
-      // This lock owns publication of the completed page content. Multiple
-      // caster records for one page advance its content version only once.
-      entry.reserved_0 = max(1u, entry.reserved_0 + 1u);
-      atomicStore(&content_version[1u],1u);
-    }
-    entry.flags = entry.flags & ~2u;
-    page_table.entries[record.virtual_page] = entry;
-    if (record.page_slot < arrayLength(&meta_table.entries)) {
-      var slot_meta = meta_table.entries[record.page_slot];
-      if (slot_meta.virtual_page == record.virtual_page && slot_meta.generation == constants.generation) {
-        slot_meta.flags = slot_meta.flags & ~2u;
-        slot_meta.reserved_0 = entry.reserved_0;
-        meta_table.entries[record.page_slot] = slot_meta;
-      }
-    }
-  }
-  atomicStore(&page_locks.values[record.virtual_page], 0u);
-}
-`;
 
 export interface VsmAtlasRasterInputs {
   readonly caster: VsmCasterRecordFrame;
@@ -89,7 +40,6 @@ export interface VsmAtlasRasterInputs {
   readonly pageTable: ResourceId;
   readonly allocation: ResourceId;
   readonly metaTable: ResourceId;
-  readonly pageLocks: ResourceId;
   readonly contentVersion: ResourceId;
   readonly instances: ResourceId;
   readonly meshlets: ResourceId;
@@ -154,7 +104,9 @@ export class VsmAtlasRasterPass {
       entries: [
         { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
         { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-        ...[2, 3, 4, 5].map((binding) => ({
+        { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        ...[2, 3, 5].map((binding) => ({
           binding,
           visibility: GPUShaderStage.COMPUTE,
           buffer: { type: "storage" as GPUBufferBindingType },
@@ -164,7 +116,7 @@ export class VsmAtlasRasterPass {
     this.commitPipeline = graphics.compute_pipelines.obtain({
       label: "VSM/dirty content commit",
       layout: { bindGroupLayouts: [this.commitLayout] },
-      compute: { module: { code: DIRTY_COMMIT_WGSL }, entryPoint: "main" },
+      compute: { module: { code: VSM_PAGE_COMMIT_WGSL }, entryPoint: "main" },
     });
     this.contentLayout = {
       entries: [
@@ -215,7 +167,7 @@ export class VsmAtlasRasterPass {
         0,
         this.constants,
         VSM_DEPTH_RANGE_BYTE_OFFSET,
-        VSM_DEPTH_RANGE_BYTES
+        VSM_DEPTH_RANGE_BYTES,
       );
     });
     update.read(input.depthRange);
@@ -325,7 +277,7 @@ export class VsmAtlasRasterPass {
           data.generation,
           data.frame.projectionEpoch,
           data.frame.namespace,
-          data.resources.capabilities.atlasPagesPerAxis
+          data.resources.capabilities.atlasPagesPerAxis,
         ]).buffer,
         0,
         16,
@@ -337,14 +289,15 @@ export class VsmAtlasRasterPass {
           { buffer: resolved.get(caster) as GPUBuffer },
           { buffer: resolved.get(pageTable) as GPUBuffer },
           { buffer: resolved.get(data.metaTable) as GPUBuffer },
-          { buffer: resolved.get(data.pageLocks) as GPUBuffer },
+          { buffer: this.nativePasses.get(resolved.get(caster) as GPUBuffer)!.completionStatusBuffer },
           { buffer: resolved.get(data.contentVersion) as GPUBuffer },
+          { buffer: resolved.get(data.allocation) as GPUBuffer },
         ],
       });
       const pass = command.beginComputePass({ label: "VSM/content commit" });
       pass.setPipeline(this.commitPipeline);
       pass.setBindGroup(0, group);
-      pass.dispatchWorkgroups(Math.ceil(data.caster.capacity / 64));
+      pass.dispatchWorkgroups(Math.ceil(data.resources.capabilities.residentSlots / 64));
       pass.end();
     });
     commit.read(caster);
@@ -353,7 +306,7 @@ export class VsmAtlasRasterPass {
     const publishedPageTable = commit.write(pageTable),
       publishedMetaTable = commit.write(input.metaTable);
     const dirtyContent = commit.write(input.contentVersion);
-    commit.write(input.pageLocks);
+    commit.read(input.allocation);
     commit.make_side_effect();
     commit.dependsOn(raster);
     const publishContent = graph.add(

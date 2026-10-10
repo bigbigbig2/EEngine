@@ -53,14 +53,16 @@ export class VsmPageTable {
     encoder.clearBuffer(this.pageTableBuffer);
     encoder.clearBuffer(this.metaTableBuffer);
     for (const buffer of [
-      this.resources.dirtyMask,
       this.resources.generation,
       this.resources.overflowCounters,
       this.resources.allocation,
       this.resources.casterRecords,
       this.resources.rasterIndirect,
-      this.resources.pageLocks,
-      this.resources.slotLocks,
+      this.resources.requestedPages,
+      this.resources.missingPages,
+      this.resources.demandScan,
+      this.resources.demandIndirect,
+      this.resources.slotCandidates,
     ]) {
       if (buffer) encoder.clearBuffer(buffer);
     }
@@ -70,7 +72,6 @@ export class VsmPageTable {
   /** Invalidates generation-visible state while retaining physical storage capacity. */
   invalidateGeneration(encoder: GPUCommandEncoder): void {
     for (const buffer of [
-      this.resources.dirtyMask,
       this.resources.generation,
       this.resources.overflowCounters,
     ]) {

@@ -8,6 +8,7 @@ import {
   VSM_PAGE_ENTRY_WORDS,
   VSM_PAGE_FLAGS,
   vsmEntriesPerClipLevel,
+  vsmWorldPageEntryIndex,
   vsmPageGenerationMatches,
   vsmPageTableEntryByteOffset,
   vsmPageTableEntryIndex,
@@ -16,12 +17,9 @@ import { VsmResources } from "../../.test-dist/render/vsm/VsmResources.js";
 import {
   vsmReceiverDispatch,
   buildVsmDirectionalFrameConstants,
-  packVsmSamplingConstants
+  packVsmSamplingConstants,
 } from "../../.test-dist/render/vsm/VsmReceiverDemandPass.js";
 import { vsmCasterDispatch } from "../../.test-dist/render/vsm/VsmCasterRecordPass.js";
-import { VSM_ALLOCATE_PAGES_WGSL } from "../../.test-dist/shaders/vsm_allocate_pages.js";
-import { VSM_ATLAS_PAGE_CLEAR_WGSL } from "../../.test-dist/shaders/vsm_atlas_raster.js";
-import { VSM_CASTER_RECORDS_WGSL } from "../../.test-dist/shaders/vsm_caster_records.js";
 import { VSM_PAGE_TABLE_WGSL } from "../../.test-dist/shaders/vsm_page_table.js";
 import { VSM_RECEIVER_DEMAND_WGSL } from "../../.test-dist/shaders/vsm_receiver_demand.js";
 import { VSM_SAMPLING_WGSL } from "../../.test-dist/shaders/vsm_sampling.js";
@@ -39,6 +37,9 @@ function device(overrides = {}) {
     maxBufferSize: 128 * 1024 * 1024,
     maxStorageBuffersPerShaderStage: 8,
     maxComputeWorkgroupsPerDimension: 65535,
+    maxComputeWorkgroupSizeX: 256,
+    maxComputeInvocationsPerWorkgroup: 256,
+    maxComputeWorkgroupStorageSize: 16384,
     ...overrides,
   };
   return {
@@ -56,67 +57,16 @@ function device(overrides = {}) {
   };
 }
 
-/** Sequential reference for the GPU allocator's page/meta invariants. */
-function referenceAllocate(slotCount, frames) {
-  const slots = Array.from({ length: slotCount }, () => null);
-  const pages = new Map();
-  const outcomes = [];
-  for (const frame of frames) {
-    for (const request of frame.pages) {
-      let slot = pages.get(request);
-      if (slot !== undefined) {
-        const meta = slots[slot];
-        assert.equal(meta.page, request);
-        if (meta.generation !== frame.generation) meta.dirty = true;
-        meta.generation = frame.generation;
-        meta.lastVisited = frame.generation;
-        outcomes.push({ page: request, slot, dirty: meta.dirty });
-        continue;
-      }
-      slot = slots.findIndex((meta) => meta === null);
-      if (slot < 0) {
-        const candidates = slots
-          .map((meta, index) => ({ meta, index }))
-          .filter(({ meta }) => !meta.dirty && !meta.inFlight && meta.lastVisited !== frame.generation)
-          .sort((a, b) => a.meta.lastVisited - b.meta.lastVisited);
-        slot = candidates[0]?.index ?? -1;
-      }
-      if (slot < 0) {
-        outcomes.push({ page: request, slot: null, dirty: true });
-        continue;
-      }
-      if (slots[slot] !== null) pages.delete(slots[slot].page);
-      slots[slot] = {
-        page: request,
-        generation: frame.generation,
-        lastVisited: frame.generation,
-        dirty: true,
-        inFlight: false,
-      };
-      pages.set(request, slot);
-      outcomes.push({ page: request, slot, dirty: true });
-    }
-    if (frame.commit)
-      for (const meta of slots)
-        if (meta && meta.generation === frame.generation) {
-          meta.dirty = false;
-        }
-    for (const [page, slot] of pages) assert.equal(slots[slot].page, page);
-    assert.equal(new Set(pages.values()).size, pages.size);
-  }
-  return { outcomes, pages, slots };
-}
-
 test("VSM page table has disjoint mip planes and full 48-byte world entries", () => {
   const pages = 128;
   const perLevel = vsmEntriesPerClipLevel(pages);
   assert.equal(VSM_MIP_LEVELS, 6);
   assert.equal(VSM_PAGE_ENTRY_WORDS, 12);
-  assert.equal(perLevel, 21840);
+  assert.equal(perLevel, 21888);
   const seen = new Set();
   for (let level = 0; level < 6; level++) {
     for (let mip = 0; mip < VSM_MIP_LEVELS; mip++) {
-      const axis = pages >> mip;
+      const axis = mip === 5 ? 8 : pages >> mip;
       for (let y = 0; y < axis; y++)
         for (let x = 0; x < axis; x++) {
           const index = vsmPageTableEntryIndex(level, mip, x, y, pages);
@@ -131,7 +81,7 @@ test("VSM page table has disjoint mip planes and full 48-byte world entries", ()
   assert.throws(() => vsmPageTableEntryIndex(0, 1, 64, 0, pages), /outside/);
 });
 
-test("VSM profile preflight covers page table, locks and disabled fallback", () => {
+test("VSM profile preflight covers complete demand, coarse reserve and device limits", () => {
   const highDevice = device();
   const high = negotiateVsmCapabilities(highDevice);
   assert.equal(high.profile, "vsm-directional-high");
@@ -140,13 +90,29 @@ test("VSM profile preflight covers page table, locks and disabled fallback", () 
   const table = new VsmPageTable(resources);
   assert.equal(table.virtualEntryCount, high.virtualEntryCount);
   assert.equal(resources.pageTable.size, high.pageTableBytes);
-  assert.ok(resources.pageLocks.size >= high.virtualEntryCount * 4);
+  assert.equal(high.virtualEntryCount, 131328);
+  assert.equal(high.demandCapacity, high.virtualEntryCount);
+  assert.equal(resources.demand.size, 131328 * 16 + 16);
+  assert.equal(resources.requestedPages.size, 16416);
+  assert.equal(high.coarseReservedSlots, 150);
+  assert.equal(resources.pageLocks, undefined);
+  assert.equal(resources.slotLocks, undefined);
   assert.equal(table.entryByteOffset(0, 1, 0, 0), 128 * 128 * 48);
   resources.destroy();
 
   const bounded = negotiateVsmCapabilities(device({ maxTextureDimension2D: 2048 }));
   assert.equal(bounded.profile, "vsm-directional-bounded");
   assert.equal(bounded.pageTableBytes, bounded.virtualEntryCount * 48);
+  assert.equal(bounded.virtualEntryCount, 87552);
+  assert.equal(bounded.coarseReservedSlots, 100);
+  for (const overrides of [
+    { maxComputeWorkgroupSizeX: 32 },
+    { maxComputeInvocationsPerWorkgroup: 32 },
+    { maxComputeWorkgroupStorageSize: 512 },
+    { maxComputeWorkgroupsPerDimension: 1000 },
+  ]) {
+    assert.equal(negotiateVsmCapabilities(device(overrides)).profile, "shadow-disabled");
+  }
   assert.equal(
     negotiateVsmCapabilities(
       device({
@@ -187,7 +153,7 @@ test("receiver dispatch covers odd extents and sampling fails open for invalid p
   assert.equal(vsmPageGenerationMatches(current, 8), false);
   assert.equal(vsmPageGenerationMatches({ ...current, flags: 0 }, 7), false);
   assert.match(VSM_SAMPLING_WGSL, /entry\.mip != mip/u);
-  assert.match(VSM_SAMPLING_WGSL, /if \(current && \(entry\.flags & 2u\) == 0u\)/u);
+  assert.match(VSM_SAMPLING_WGSL, /VSM_QUERY_DIRTY/u);
   assert.match(VSM_SAMPLING_WGSL, /return 1\.0;/u);
   assert.match(VSM_PAGE_TABLE_WGSL, /vsm_page_entry_coordinates/u);
 });
@@ -198,7 +164,7 @@ test("directional clipmap keeps a world-fixed basis and camera-centered window",
   try {
     for (const center of [
       [0, 0, 8],
-      [1234.25, -567.5, 810.75]
+      [1234.25, -567.5, 810.75],
     ]) {
       const frame = buildVsmDirectionalFrameConstants([0, 2, 3], center, 2048, resources, 71);
       const matrix = frame.lightView;
@@ -207,7 +173,7 @@ test("directional clipmap keeps a world-fixed basis and camera-centered window",
           matrix[axis] * center[0] +
           matrix[4 + axis] * center[1] +
           matrix[8 + axis] * center[2] +
-          matrix[12 + axis]
+          matrix[12 + axis],
       );
       assert.deepEqual(matrix.slice(12), [0, 0, 0, 1]);
       for (const [x, y, extent] of frame.clipOriginExtent) {
@@ -218,7 +184,7 @@ test("directional clipmap keeps a world-fixed basis and camera-centered window",
       const view = shadowGeometryView(frame);
       // Camera center must lie inside every light prism plane even far from origin.
       assert.ok(
-        view.frustumPlanes.every(([x, y, z, w]) => x * center[0] + y * center[1] + z * center[2] + w >= 0)
+        view.frustumPlanes.every(([x, y, z, w]) => x * center[0] + y * center[1] + z * center[2] + w >= 0),
       );
       const packed = packVsmSamplingConstants({ resources, frame, width: 1920, height: 1080, ...frame });
       const uints = new Uint32Array(packed),
@@ -229,7 +195,7 @@ test("directional clipmap keeps a world-fixed basis and camera-centered window",
     assert.throws(() => shadowGeometryView({ lightView: [NaN], clipOriginExtent: [[0, 0, 1, 1]] }), /finite/);
     assert.throws(
       () => shadowGeometryView({ lightView: Array(16).fill(0), clipOriginExtent: [[0, 0, 0, 1]] }),
-      /invalid/
+      /invalid/,
     );
   } finally {
     resources.destroy();
@@ -244,34 +210,20 @@ test("caster capacity dispatch covers the second row without dropping work", () 
   assert.throws(() => vsmCasterDispatch(0, 65535), /dispatch/);
 });
 
-test("allocation and raster keep overflow dirty and clear only newly written slots", () => {
-  assert.match(VSM_ALLOCATE_PAGES_WGSL, /if \(observed >= constants\.control\.z\)/u);
-  assert.match(VSM_ALLOCATE_PAGES_WGSL, /atomicAdd\(&allocation\.overflow, 1u\)/u);
-  assert.match(VSM_ALLOCATE_PAGES_WGSL, /slot_meta\.last_visited == generation/u);
-  assert.match(VSM_ALLOCATE_PAGES_WGSL, /VSM_PAGE_DIRTY \| VSM_PAGE_IN_FLIGHT/u);
-  assert.match(VSM_CASTER_RECORDS_WGSL, /page_overlaps_sphere\(center, radius, page, entry\)/u);
-  assert.match(VSM_CASTER_RECORDS_WGSL, /raster_indirect\[2\] = OEngineDrawIndirectArgs\(6u/u);
-  assert.match(VSM_ATLAS_PAGE_CLEAR_WGSL, /\(record\.flags & 2u\) == 0u/u);
-  assert.match(VSM_ATLAS_PAGE_CLEAR_WGSL, /record\.slot >= constants\.control\.w/u);
-});
-
-test("allocation CPU oracle prefers free slots, reuses pages and fails open on protected overflow", () => {
-  const result = referenceAllocate(2, [
-    { generation: 1, pages: [4, 5], commit: true },
-    { generation: 2, pages: [4, 6, 7], commit: false },
-  ]);
-  assert.deepEqual(result.outcomes, [
-    { page: 4, slot: 0, dirty: true },
-    { page: 5, slot: 1, dirty: true },
-    { page: 4, slot: 0, dirty: true },
-    { page: 6, slot: 1, dirty: true },
-    { page: 7, slot: null, dirty: true },
-  ]);
-  assert.equal(result.pages.has(5), false);
-  assert.equal(result.pages.get(4), 0);
-  assert.equal(result.pages.get(6), 1);
-  assert.match(VSM_ALLOCATE_PAGES_WGSL, /meta_table\.entries\[slot\]\.virtual_page == virtual_page/u);
-  assert.match(VSM_ALLOCATE_PAGES_WGSL, /meta_table\.entries\[candidate\]\.flags = 0u/u);
+test("rolling fine domain has independent unique addresses for every coarse guard cell", () => {
+  for (let offset = -130; offset <= 130; offset++) {
+    const minimum = Math.floor(offset / 32);
+    const maximum = Math.floor((offset + 127) / 32);
+    const cells = new Set();
+    for (let y = minimum; y <= maximum; y++) {
+      for (let x = minimum; x <= maximum; x++) {
+        const address = vsmWorldPageEntryIndex(0, 5, x, y, 128);
+        assert.ok(!cells.has(address), "coarse ring aliases rolling guard cells");
+        cells.add(address);
+      }
+    }
+    assert.equal(cells.size, offset % 32 === 0 ? 16 : 25);
+  }
 });
 
 test("VSM device epoch and invalidation facts stay monotonic and bounded", () => {

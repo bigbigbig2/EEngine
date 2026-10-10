@@ -451,6 +451,10 @@ export class NativeVisibilityPass {
   }
 
   /** VSM shares the same render pass with page clearing. Partitions encode before it begins. */
+  get completionStatusBuffer(): GPUBuffer {
+    return this.partitions.states;
+  }
+
   draw(pass: GPURenderPassEncoder): void {
     if (this.routes === null || this.destroyed || this.retiring) {
       throw new Error("Native visibility is not ready");

@@ -18,7 +18,7 @@ export async function runVsmR1GpuOracle(device) {
     const result = device.createBuffer({ size, usage, mappedAtCreation: data !== undefined });
     if (data !== undefined) {
       new Uint8Array(result.getMappedRange()).set(
-        new Uint8Array(data.buffer ?? data, data.byteOffset ?? 0, data.byteLength)
+        new Uint8Array(data.buffer ?? data, data.byteOffset ?? 0, data.byteLength),
       );
       result.unmap();
     }
@@ -40,7 +40,7 @@ export async function runVsmR1GpuOracle(device) {
     const info = await module.getCompilationInfo();
     check(
       !info.messages.some((message) => message.type === "error"),
-      `${label}: ${info.messages.map((message) => message.message).join("\n")}`
+      `${label}: ${info.messages.map((message) => message.message).join("\n")}`,
     );
     return module;
   };
@@ -50,7 +50,7 @@ export async function runVsmR1GpuOracle(device) {
       receiver: VSM_RECEIVER_DEMAND_WGSL,
       allocation: VSM_ALLOCATE_PAGES_WGSL,
       caster: VSM_CASTER_RECORDS_WGSL,
-      clear: VSM_ATLAS_PAGE_CLEAR_WGSL
+      clear: VSM_ATLAS_PAGE_CLEAR_WGSL,
     })) {
       await compile(label, code);
     }
@@ -60,17 +60,17 @@ export async function runVsmR1GpuOracle(device) {
         { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
         { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
         { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-        { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }
-      ]
+        { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      ],
     });
     const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [layout] });
     const first = await device.createComputePipelineAsync({
       layout: pipelineLayout,
-      compute: { module: boundsModule, entryPoint: "instance_bounds" }
+      compute: { module: boundsModule, entryPoint: "instance_bounds" },
     });
     const final = await device.createComputePipelineAsync({
       layout: pipelineLayout,
-      compute: { module: boundsModule, entryPoint: "publish_depth" }
+      compute: { module: boundsModule, entryPoint: "publish_depth" },
     });
     const matrix = [1, 0, 0.75, 0, -0.5, 2, -0.25, 0, 0, 0.3, -3, 0, 4, -2, 7, 1];
     const minimum = [-2, -3, -1],
@@ -85,7 +85,7 @@ export async function runVsmR1GpuOracle(device) {
       boundsMin: minimum,
       boundsMax: maximum,
       currentObjectToWorld: matrix,
-      previousObjectToWorld: matrix
+      previousObjectToWorld: matrix,
     }));
     const bytes = packGpuInstanceRecords(records);
     const instances = buffer(bytes.byteLength, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, bytes);
@@ -99,14 +99,14 @@ export async function runVsmR1GpuOracle(device) {
       layout,
       entries: [constants, instances, scratch, product].map((buffer, binding) => ({
         binding,
-        resource: { buffer }
-      }))
+        resource: { buffer },
+      })),
     });
     const reduce = async () => {
       const encoder = device.createCommandEncoder();
       for (const [pipeline, count] of [
         [first, 3],
-        [final, 1]
+        [final, 1],
       ]) {
         const pass = encoder.beginComputePass();
         pass.setPipeline(pipeline);
@@ -127,11 +127,11 @@ export async function runVsmR1GpuOracle(device) {
       high = Math.max(...corners);
     check(
       depth[3] === 1 && depth[0] < low && depth[1] > high,
-      "GPU range must conservatively contain all independent eight-corner depths"
+      "GPU range must conservatively contain all independent eight-corner depths",
     );
     check(
       Math.abs(depth[0] - (low - 0.01)) < 1e-5 && Math.abs(depth[1] - (high + 0.01)) < 1e-5,
-      "GPU range must be tight with declared padding"
+      "GPU range must be tight with declared padding",
     );
     new Float32Array(bytes.buffer)[8] = NaN;
     device.queue.writeBuffer(instances, 0, bytes);
@@ -141,7 +141,7 @@ export async function runVsmR1GpuOracle(device) {
     const empty = await reduce();
     check(
       empty[3] === 1 && Math.abs(empty[0] + 0.51) < 1e-6 && Math.abs(empty[1] - 0.51) < 1e-6,
-      "no-caster domain must publish finite empty depth"
+      "no-caster domain must publish finite empty depth",
     );
 
     const pagesPerAxis = 8,
@@ -151,7 +151,7 @@ export async function runVsmR1GpuOracle(device) {
     const worlds = [
       [-3, -3],
       [-4, -3],
-      [3, -3]
+      [3, -3],
     ];
     worlds.forEach(([x, y], slot) => {
       const index = vsmWorldPageEntryIndex(0, 0, x, y, pagesPerAxis);
@@ -160,27 +160,26 @@ export async function runVsmR1GpuOracle(device) {
     });
     const pages = buffer(pageWords.byteLength, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC, pageWords);
     const metas = buffer(metaWords.byteLength, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC, metaWords);
-    const dirty = buffer(Math.ceil(entryCount / 32) * 4, GPUBufferUsage.STORAGE);
     const content = buffer(16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
     const packed = packVsmProjection({
       lightView: Array(16).fill(0),
       clipOriginExtent: [[-3, -4, 8, 1]],
       generation: 7,
       projectionEpoch: 7,
-      namespace: 19
+      namespace: 19,
     });
     new Uint32Array(packed).set([8, 3, 0, 0, 7, 0, 0, 0], 40);
     const windowConstants = buffer(256, GPUBufferUsage.UNIFORM, packed);
     const windowPipeline = await device.createComputePipelineAsync({
       layout: "auto",
-      compute: { module: await compile("window", VSM_INVALIDATION_WGSL), entryPoint: "main" }
+      compute: { module: await compile("window", VSM_INVALIDATION_WGSL), entryPoint: "main" },
     });
     const windowGroup = device.createBindGroup({
       layout: windowPipeline.getBindGroupLayout(0),
-      entries: [windowConstants, pages, metas, dirty, content].map((buffer, binding) => ({
+      entries: [windowConstants, pages, metas, content].map((buffer, binding) => ({
         binding,
-        resource: { buffer }
-      }))
+        resource: { buffer },
+      })),
     });
     const encoder = device.createCommandEncoder(),
       pass = encoder.beginComputePass();
@@ -196,7 +195,7 @@ export async function runVsmR1GpuOracle(device) {
       const expected = slot === 1 ? 0 : 9;
       check(
         resultPages[index * 12 + 3] === expected && resultMetas[slot * 8 + 3] === expected,
-        "rolling must preserve intersection and release departed slot"
+        "rolling must preserve intersection and release departed slot",
       );
     });
     const error = await device.popErrorScope();
@@ -206,7 +205,7 @@ export async function runVsmR1GpuOracle(device) {
       expectedCasterRange: [low, high],
       empty,
       rolling: "preserved 2, released 1",
-      shaderCompile: "passed"
+      shaderCompile: "passed",
     };
   } finally {
     for (const resource of retained) resource.destroy();

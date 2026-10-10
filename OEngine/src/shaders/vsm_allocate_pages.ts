@@ -1,258 +1,227 @@
 import { VSM_PAGE_TABLE_WGSL } from "./vsm_page_table.js";
 
-/** GPU-only VSM residency: dedupe, free-slot reservation, bounded eviction and work publication. */
+/** Touch completes before slot reclamation. Coarse has reserved capacity;
+ * all page and slot writers are unique. No cross-workgroup locks or retries. */
 export const VSM_ALLOCATE_PAGES_WGSL = /* wgsl */ `
 ${VSM_PAGE_TABLE_WGSL}
-
 struct Constants {
-  control: vec4u,     // generation, demand capacity, resident slot count, clip level count
-  dimensions: vec4u,  // virtual pages/axis, atlas pages/axis, virtual entry count, reserved
-  identity: vec4u, // projection epoch, owner namespace, reserved
+  control: vec4u, // generation, request capacity, slots, clips
+  dimensions: vec4u, // pages, atlas axis, entries, submitted frame serial
+  identity: vec4u, // projection epoch, namespace, coarse reserved slots
+  clips: array<vec4f, 6>,
 };
-
-struct VsmDemandRecord {
+struct Request {
   virtual_page: u32,
-  mip: u32,
-  priority: u32,
-  flags: u32,
-  world_page: vec2i,
-  reserved: vec2u,
+  slot: u32,
+  world: vec2i,
 };
-
-struct VsmDemandBuffer {
-  attempted: atomic<u32>,
-  written: atomic<u32>,
-  overflow: atomic<u32>,
-  generation: atomic<u32>,
-  records: array<VsmDemandRecord>,
+struct Requests {
+  fine_count: u32,
+  written: u32,
+  overflow: u32,
+  generation: u32,
+  records: array<Request>,
 };
-
-struct VsmPageWork {
+struct PageWork {
   virtual_page: u32,
   slot: u32,
   priority: u32,
   generation: u32,
   flags: u32,
   fallback_mip: u32,
-  reserved_0: u32,
-  reserved_1: u32,
+  world: vec2i,
 };
-
-struct VsmAllocationBuffer {
-  attempted: atomic<u32>,
-  written: atomic<u32>,
-  overflow: atomic<u32>,
-  generation: atomic<u32>,
-  records: array<VsmPageWork>,
+struct Allocation {
+  attempted: u32,
+  written: u32,
+  overflow: u32,
+  generation: u32,
+  records: array<PageWork>,
 };
-
-struct VsmTelemetryBuffer {
-  allocation_failed: atomic<u32>,
-  evictions: atomic<u32>,
-  reused: atomic<u32>,
-  lock_contention: atomic<u32>,
+struct Candidates {
+  coarse_count: u32,
+  fine_count: u32,
+  reserved: vec2u,
+  indices: array<u32>,
 };
-
-struct VsmPageTableBuffer { entries: array<VsmPageEntry>, };
-struct VsmMetaTableBuffer { entries: array<VsmMetaEntry>, };
-struct VsmLockBuffer { values: array<atomic<u32>>, };
-
 @group(0) @binding(0) var<uniform> constants: Constants;
-@group(0) @binding(1) var<storage, read_write> demand: VsmDemandBuffer;
-@group(0) @binding(2) var<storage, read_write> page_table: VsmPageTableBuffer;
-@group(0) @binding(3) var<storage, read_write> meta_table: VsmMetaTableBuffer;
-@group(0) @binding(4) var<storage, read_write> allocation: VsmAllocationBuffer;
-@group(0) @binding(5) var<storage, read_write> page_locks: VsmLockBuffer;
-@group(0) @binding(6) var<storage, read_write> slot_locks: VsmLockBuffer;
-@group(0) @binding(7) var<storage, read_write> telemetry: VsmTelemetryBuffer;
-@group(0) @binding(8) var<storage, read_write> content_version:array<atomic<u32>>;
+@group(0) @binding(1) var<storage, read> requested: array<u32>;
+@group(0) @binding(2) var<storage, read_write> missing: array<atomic<u32>>;
+@group(0) @binding(3) var<storage, read> requests: Requests;
+@group(0) @binding(4) var<storage, read_write> pages: array<VsmPageEntry>;
+@group(0) @binding(5) var<storage, read_write> metas: array<VsmMetaEntry>;
+@group(0) @binding(6) var<storage, read_write> allocation: Allocation;
+@group(0) @binding(7) var<storage, read_write> candidates: Candidates;
+@group(0) @binding(8) var<storage, read_write> telemetry: array<atomic<u32>>;
+@group(0) @binding(9) var<storage, read_write> content: array<atomic<u32>>;
+@group(0) @binding(10) var<storage, read> scan: array<vec2u>;
+var<workgroup> prefix: array<vec4u, 64>;
 
-const VSM_PAGE_DIRTY: u32 = 2u;
-const VSM_PAGE_IN_FLIGHT: u32 = 4u;
-const VSM_PAGE_ALLOCATED_AND_VALID: u32 = 9u;
-const VSM_INVALID: u32 = 0xffffffffu;
-
-fn append_work(record: VsmPageWork) -> bool {
-  var observed = atomicLoad(&allocation.written);
-  loop {
-    if (observed >= constants.control.z) {
-      atomicAdd(&allocation.overflow, 1u);
-      return false;
+fn scan_lanes(lane: u32, value: vec4u) -> vec4u {
+  prefix[lane] = value;
+  workgroupBarrier();
+  for (var stride = 1u; stride < 64u; stride *= 2u) {
+    var prior = vec4u(0u);
+    if (lane >= stride) {
+      prior = prefix[lane - stride];
     }
-    let result = atomicCompareExchangeWeak(&allocation.written, observed, observed + 1u);
-    if (result.exchanged) {
-      allocation.records[observed] = record;
-      return true;
-    }
-    observed = result.old_value;
+    workgroupBarrier();
+    prefix[lane] += prior;
+    workgroupBarrier();
   }
+  return prefix[lane] - value;
 }
-
-fn release_page_lock(index: u32) {
-  atomicStore(&page_locks.values[index], 0u);
+fn is_requested(page: u32) -> bool {
+  return page < constants.dimensions.z && (requested[page / 32u] & (1u << (page % 32u))) != 0u;
 }
-
-fn release_slot_lock(index: u32) {
-  atomicStore(&slot_locks.values[index], 0u);
-}
-
-fn fallback_mip(mip: u32) -> u32 {
-  return min(mip + 1u, constants.control.w - 1u);
-}
-
 @compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) id: vec3u) {
-  let demand_index = id.x;
-  if (demand_index == 0u) {
-    atomicStore(&allocation.generation, constants.control.x);
-  }
-  let demand_count = min(atomicLoad(&demand.written), constants.control.y);
-  if (demand_index >= demand_count) { return; }
-  atomicAdd(&allocation.attempted, 1u);
-
-  let request = demand.records[demand_index];
-  let virtual_page = request.virtual_page;
-  if (virtual_page >= constants.dimensions.z) { return; }
-
-  // One logical page is processed once even when many receiver pixels requested it.
-  var page_observed = atomicLoad(&page_locks.values[virtual_page]);
-  var page_acquired = false;
-  for (var retry = 0u; retry < 8u; retry++) {
-    if (page_observed != 0u) { break; }
-    let result = atomicCompareExchangeWeak(&page_locks.values[virtual_page], 0u, 1u);
-    if (result.exchanged) {
-      page_acquired = true;
-      break;
-    }
-    page_observed = result.old_value;
-  }
-  if (!page_acquired) {
-    atomicAdd(&telemetry.lock_contention, 1u);
+fn touch(@builtin(global_invocation_id) id: vec3u) {
+  if (id.x >= requests.written) {
     return;
   }
-
-  let generation = constants.control.x;
-  let current = page_table.entries[virtual_page];
-  if ((current.flags & VSM_PAGE_ALLOCATED_AND_VALID) == VSM_PAGE_ALLOCATED_AND_VALID) {
-    let slot = current.slot_y * constants.dimensions.y + current.slot_x;
-    if (slot < constants.control.z) {
-      let slot_result = atomicCompareExchangeWeak(&slot_locks.values[slot], 0u, 1u);
-      if (slot_result.exchanged) {
-        let verified = page_table.entries[virtual_page];
-        if ((verified.flags & VSM_PAGE_ALLOCATED_AND_VALID) == VSM_PAGE_ALLOCATED_AND_VALID &&
-            verified.slot_x == current.slot_x && verified.slot_y == current.slot_y &&
-            meta_table.entries[slot].virtual_page == virtual_page) {
-          if (verified.generation == generation && vsm_key_matches(verified, request.world_page, constants.identity)) {
-            if (verified.flags & VSM_PAGE_DIRTY)!=0u { atomicStore(&content_version[1u],1u); }
-            meta_table.entries[slot].last_visited = generation;
-            let work = VsmPageWork(virtual_page, slot, request.priority, generation,
-              verified.flags, verified.fallback_mip, 0u, 0u);
-            _ = append_work(work);
-            atomicAdd(&telemetry.reused, 1u);
-          } else if ((meta_table.entries[slot].flags & VSM_PAGE_IN_FLIGHT) == 0u) {
-            // A generation change invalidates the old sample, but the same
-            // virtual page can safely reuse its physical slot in place.
-            let flags = 1u | VSM_PAGE_DIRTY | VSM_PAGE_GENERATION_VALID;
-            let fallback = fallback_mip(request.mip);
-            page_table.entries[virtual_page] = VsmPageEntry(
-              verified.slot_x, verified.slot_y, request.mip, flags, generation,
-              fallback, 0u, constants.identity.x, request.world_page.x, request.world_page.y, constants.identity.y, 0u);
-            atomicStore(&content_version[1u],1u);
-            meta_table.entries[slot] = VsmMetaEntry(virtual_page, request.mip,
-              generation, flags, generation, slot, 0u, 0u);
-            _ = append_work(VsmPageWork(virtual_page, slot, request.priority,
-              generation, flags, fallback, 0u, 0u));
-          }
-        }
-        release_slot_lock(slot);
-        release_page_lock(virtual_page);
-        return;
-      }
-    }
-    atomicAdd(&telemetry.lock_contention, 1u);
-    release_page_lock(virtual_page);
+  let request = requests.records[id.x];
+  var entry = pages[request.virtual_page];
+  let slot = entry.slot_y * constants.dimensions.y + entry.slot_x;
+  let mapped = (entry.flags & 9u) == 9u && slot < constants.control.z;
+  if (mapped && metas[slot].virtual_page == request.virtual_page &&
+      (metas[slot].flags & 9u) == 9u && metas[slot].generation == constants.control.x &&
+      metas[slot].owner == slot && metas[slot].mip == entry.mip &&
+      vsm_key_matches(entry, request.world, constants.identity) && entry.generation == constants.control.x) {
+    metas[slot].last_visited = constants.dimensions.w;
+    atomicAdd(&telemetry[2], 1u);
     return;
   }
-
-  var selected_slot = VSM_INVALID;
-
-  // Free pages are always preferred. The slot lock is retained until the next
-  // allocation pass, preventing same-frame eviction of newly published work.
-  for (var slot = 0u; slot < constants.control.z; slot++) {
-    if (atomicLoad(&slot_locks.values[slot]) != 0u) { continue; }
-    let slot_result = atomicCompareExchangeWeak(&slot_locks.values[slot], 0u, 1u);
-    if (!slot_result.exchanged) { continue; }
-    if ((meta_table.entries[slot].flags & VSM_PAGE_ALLOCATED_AND_VALID) == 0u) {
-      selected_slot = slot;
-      break;
-    }
-    release_slot_lock(slot);
+  if (mapped && metas[slot].virtual_page == request.virtual_page) {
+    metas[slot].flags = 0u;
+    atomicStore(&content[1], 1u);
   }
-
-  // Otherwise choose the oldest bounded candidate that is not current, dirty or in flight.
-  if (selected_slot == VSM_INVALID) {
-    var candidate = VSM_INVALID;
-    var oldest = 0xffffffffu;
-    for (var slot = 0u; slot < constants.control.z; slot++) {
-      if (atomicLoad(&slot_locks.values[slot]) != 0u) { continue; }
-      let slot_meta = meta_table.entries[slot];
-      let slot_protected = (slot_meta.flags & (VSM_PAGE_DIRTY | VSM_PAGE_IN_FLIGHT)) != 0u;
-      if ((slot_meta.flags & VSM_PAGE_ALLOCATED_AND_VALID) != VSM_PAGE_ALLOCATED_AND_VALID ||
-          slot_protected || slot_meta.last_visited == generation) { continue; }
-      if (slot_meta.last_visited <= oldest) {
-        oldest = slot_meta.last_visited;
-        candidate = slot;
-      }
-    }
-    if (candidate != VSM_INVALID) {
-      // Keep the same page -> slot lock order as the reuse path. Acquiring
-      // slot first and then its owning page would permit a cross-demand cycle.
-      let old_meta = meta_table.entries[candidate];
-      let old_virtual = old_meta.virtual_page;
-      if (old_virtual < constants.dimensions.z) {
-        let old_page_result = atomicCompareExchangeWeak(&page_locks.values[old_virtual], 0u, 1u);
-        if (old_page_result.exchanged) {
-          let slot_result = atomicCompareExchangeWeak(&slot_locks.values[candidate], 0u, 1u);
-          if (slot_result.exchanged) {
-            let verify_meta = meta_table.entries[candidate];
-            if (verify_meta.virtual_page == old_virtual &&
-                (verify_meta.flags & (VSM_PAGE_DIRTY | VSM_PAGE_IN_FLIGHT)) == 0u &&
-                verify_meta.last_visited != generation) {
-              page_table.entries[old_virtual].slot_x = VSM_INVALID;
-              page_table.entries[old_virtual].slot_y = VSM_INVALID;
-              page_table.entries[old_virtual].flags = 0u;
-              page_table.entries[old_virtual].generation = verify_meta.generation;
-              atomicStore(&content_version[1u],1u);
-              meta_table.entries[candidate].flags = 0u;
-              atomicAdd(&telemetry.evictions, 1u);
-              selected_slot = candidate;
-            }
-            if (selected_slot != candidate) { release_slot_lock(candidate); }
-          }
-          release_page_lock(old_virtual);
-        }
-      }
+  pages[request.virtual_page].flags = 0u;
+  atomicOr(&missing[request.virtual_page / 32u], 1u << (request.virtual_page % 32u));
+}
+fn slot_class(slot: u32) -> u32 {
+  let slot_meta = metas[slot];
+  let coarse = slot < constants.identity.z;
+  if ((slot_meta.flags & 9u) != 9u) {
+    return select(2u, 0u, coarse);
+  }
+  // Dirty but unrequested content is reclaimable. Content generations do
+  // not substitute for frame visits and cannot permanently lock the pool.
+  if (slot_meta.last_visited != constants.dimensions.w && !is_requested(slot_meta.virtual_page) &&
+      (slot_meta.flags & 4u) == 0u) {
+    return select(3u, 1u, coarse);
+  }
+  return 4u;
+}
+@compute @workgroup_size(64)
+fn collect_slots(@builtin(local_invocation_index) lane: u32) {
+  let span = (constants.control.z + 63u) / 64u;
+  let begin = lane * span;
+  let end = min(begin + span, constants.control.z);
+  var counts = vec4u(0u);
+  for (var slot = begin; slot < end; slot++) {
+    let category = slot_class(slot);
+    if (category < 4u) {
+      counts[category]++;
     }
   }
-
-  if (selected_slot == VSM_INVALID) {
-    atomicAdd(&allocation.overflow, 1u);
-    atomicAdd(&telemetry.allocation_failed, 1u);
-    release_page_lock(virtual_page);
+  var base = scan_lanes(lane, counts);
+  let total = prefix[63];
+  if (lane == 63u) {
+    candidates.coarse_count = total.x + total.y;
+    candidates.fine_count = total.z + total.w;
+  }
+  for (var slot = begin; slot < end; slot++) {
+    let category = slot_class(slot);
+    if (category >= 4u) {
+      continue;
+    }
+    var index = base[category];
+    if (category == 1u) {
+      index += total.x;
+    }
+    if (category >= 2u) {
+      index += constants.control.z;
+      if (category == 3u) {
+        index += total.z;
+      }
+    }
+    candidates.indices[index] = slot;
+    base[category]++;
+  }
+}
+@compute @workgroup_size(64)
+fn allocate(@builtin(global_invocation_id) id: vec3u) {
+  let words = (constants.dimensions.z + 31u) / 32u;
+  let groups = (words + 63u) / 64u;
+  let totals = scan[words + groups * 2u];
+  if (id.x >= totals.x + totals.y) {
     return;
   }
-
-  let slot_x = selected_slot % constants.dimensions.y;
-  let slot_y = selected_slot / constants.dimensions.y;
-  let flags = 1u | VSM_PAGE_DIRTY | VSM_PAGE_GENERATION_VALID;
-  let page = VsmPageEntry(slot_x, slot_y, request.mip, flags, generation,
-    fallback_mip(request.mip), 0u, constants.identity.x, request.world_page.x, request.world_page.y, constants.identity.y, 0u);
-  page_table.entries[virtual_page] = page;
-  atomicStore(&content_version[1u],1u);
-  meta_table.entries[selected_slot] = VsmMetaEntry(virtual_page, request.mip, generation,
-    flags, generation, selected_slot, 0u, 0u);
-  _ = append_work(VsmPageWork(virtual_page, selected_slot, request.priority, generation,
-    flags, fallback_mip(request.mip), 0u, 0u));
-  release_page_lock(virtual_page);
+  let coarse = id.x < totals.x;
+  let ordinal = select(id.x - totals.x, id.x, coarse);
+  let count = select(candidates.fine_count, candidates.coarse_count, coarse);
+  if (ordinal >= count) {
+    atomicAdd(&telemetry[0], 1u);
+    if (coarse) {
+      atomicAdd(&telemetry[3], 1u);
+    }
+    return;
+  }
+  let request = requests.records[id.x];
+  let slot = candidates.indices[select(constants.control.z + ordinal, ordinal, coarse)];
+  let old_meta = metas[slot];
+  if ((old_meta.flags & 9u) == 9u && old_meta.virtual_page < constants.dimensions.z) {
+    let old_entry = pages[old_meta.virtual_page];
+    if (old_entry.slot_y * constants.dimensions.y + old_entry.slot_x == slot) {
+      pages[old_meta.virtual_page].flags = 0u;
+      atomicAdd(&telemetry[1], 1u);
+    }
+  }
+  let coordinate = vsm_page_entry_coordinates(request.virtual_page, constants.dimensions.x);
+  let flags = 11u | select(0u, 16u, coarse);
+  pages[request.virtual_page] = VsmPageEntry(slot % constants.dimensions.y,
+    slot / constants.dimensions.y, coordinate.y, flags, constants.control.x,
+    5u, 0u, constants.identity.x, request.world.x, request.world.y, constants.identity.y, 0u);
+  metas[slot] = VsmMetaEntry(request.virtual_page, coordinate.y, constants.dimensions.w,
+    flags, constants.control.x, slot, 0u, 0u);
+  atomicStore(&content[1], 1u);
+}
+fn dirty_slot(slot: u32) -> bool {
+  let slot_meta = metas[slot];
+  if (slot_meta.virtual_page >= constants.dimensions.z || !is_requested(slot_meta.virtual_page)) {
+    return false;
+  }
+  let entry = pages[slot_meta.virtual_page];
+  return (entry.flags & 11u) == 11u && entry.generation == constants.control.x &&
+    entry.projection_epoch == constants.identity.x && entry.content_namespace == constants.identity.y &&
+    entry.slot_y * constants.dimensions.y + entry.slot_x == slot && slot_meta.generation == constants.control.x &&
+    (slot_meta.flags & 11u) == 11u && slot_meta.owner == slot && slot_meta.mip == entry.mip;
+}
+@compute @workgroup_size(64)
+fn publish_dirty(@builtin(local_invocation_index) lane: u32) {
+  let span = (constants.control.z + 63u) / 64u;
+  let begin = lane * span;
+  let end = min(begin + span, constants.control.z);
+  var count = 0u;
+  for (var slot = begin; slot < end; slot++) {
+    count += select(0u, 1u, dirty_slot(slot));
+  }
+  var at = scan_lanes(lane, vec4u(count, 0u, 0u, 0u)).x;
+  if (lane == 63u) {
+    allocation.attempted = prefix[63].x;
+    allocation.written = prefix[63].x;
+    allocation.overflow = 0u;
+    allocation.generation = constants.control.x;
+  }
+  for (var slot = begin; slot < end; slot++) {
+    if (!dirty_slot(slot)) {
+      continue;
+    }
+    let slot_meta = metas[slot];
+    let entry = pages[slot_meta.virtual_page];
+    allocation.records[at] = PageWork(slot_meta.virtual_page, slot, 0u, constants.control.x,
+      entry.flags, 5u, vec2i(entry.world_x, entry.world_y));
+    at++;
+  }
 }
 `;

@@ -18,21 +18,21 @@ export class VsmInvalidationPass {
     this.constants = device.createBuffer({
       label: "VSM/window invalidation constants",
       size: 256,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     this.layout = device.createBindGroupLayout({
       entries: [
         { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-        ...[1, 2, 3, 4].map((binding) => ({
+        ...[1, 2, 3].map((binding) => ({
           binding,
           visibility: GPUShaderStage.COMPUTE,
-          buffer: { type: "storage" as GPUBufferBindingType }
-        }))
-      ]
+          buffer: { type: "storage" as GPUBufferBindingType },
+        })),
+      ],
     });
     this.pipeline = device.createComputePipeline({
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }),
-      compute: { module: device.createShaderModule({ code: VSM_INVALIDATION_WGSL }), entryPoint: "main" }
+      compute: { module: device.createShaderModule({ code: VSM_INVALIDATION_WGSL }), entryPoint: "main" },
     });
   }
   addToGraph(
@@ -45,21 +45,15 @@ export class VsmInvalidationPass {
   ): ResourceId | null {
     if (input.resources.profile === "shadow-disabled") return null;
     const generation = input.resources.generation;
-    const dirtyMask = input.resources.dirtyMask;
     const overflowCounters = input.resources.overflowCounters;
     const contentVersion = input.resources.contentVersion;
-    if (!generation || !dirtyMask || !overflowCounters || !contentVersion) {
+    if (!generation || !overflowCounters || !contentVersion) {
       throw new Error("VSM invalidation resources are unavailable");
     }
     const generationResource = graph.import_resource(
       "VSM/generation facts",
       { kind: "imported", label: "VSM generation facts" },
       generation,
-    );
-    const dirtyResource = graph.import_resource(
-      "VSM/invalidation dirty mask",
-      { kind: "imported", label: "VSM dirty mask" },
-      dirtyMask,
     );
     const overflowResource = graph.import_resource(
       "VSM/invalidation telemetry",
@@ -74,18 +68,17 @@ export class VsmInvalidationPass {
     const pageResource = graph.import_resource(
       "VSM/window pages",
       { kind: "imported" },
-      input.resources.pageTable!
+      input.resources.pageTable!,
     );
     const metaResource = graph.import_resource(
       "VSM/window slots",
       { kind: "imported" },
-      input.resources.metaTable!
+      input.resources.metaTable!,
     );
     const node = graph.add("VSM/publish invalidation facts", input, (data, resources, context) => {
       const state = data.state;
       const command = context.encoder as ShadeGPUCommandContext;
       const generationBuffer = resources.get(generationResource) as GPUBuffer;
-      const dirtyBuffer = resources.get(dirtyResource) as GPUBuffer;
       const overflowBuffer = resources.get(overflowResource) as GPUBuffer;
       const flags =
         (state.fullInvalidate ? 1 : 0) |
@@ -100,13 +93,9 @@ export class VsmInvalidationPass {
         state.sceneRevision >>> 0,
         state.casterRevision >>> 0,
         state.projectionEpoch,
-        state.frameSerial
+        state.frameSerial,
       ]);
       command.writeBuffer(generationBuffer, 0, header.buffer, 0, header.byteLength);
-      // A generation mismatch already makes old pages non-sampleable. The
-      // bounded mask is cleared only for a full invalidation; allocation and
-      // raster passes publish new dirty bits in the same frame.
-      if (state.fullInvalidate) command.clearBuffer(dirtyBuffer);
       // Keep diagnostics frame-local while preserving the GPU-only control
       // path. Allocation and caster passes overwrite their own ranges.
       command.clearBuffer(overflowBuffer);
@@ -124,9 +113,8 @@ export class VsmInvalidationPass {
             { binding: 0, resource: { buffer: this.constants } },
             { binding: 1, resource: { buffer: resources.get(pageResource) as GPUBuffer } },
             { binding: 2, resource: { buffer: resources.get(metaResource) as GPUBuffer } },
-            { binding: 3, resource: { buffer: dirtyBuffer } },
-            { binding: 4, resource: { buffer: resources.get(contentResource) as GPUBuffer } }
-          ]
+            { binding: 3, resource: { buffer: resources.get(contentResource) as GPUBuffer } },
+          ],
         });
         const pass = command.beginComputePass({ label: "VSM/revoke departed world pages" });
         pass.setPipeline(this.pipeline);
@@ -136,7 +124,6 @@ export class VsmInvalidationPass {
       }
     });
     node.write(generationResource);
-    node.write(dirtyResource);
     node.write(overflowResource);
     node.write(pageResource);
     node.write(metaResource);

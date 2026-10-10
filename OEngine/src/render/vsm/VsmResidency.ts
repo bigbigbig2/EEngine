@@ -8,7 +8,6 @@ export interface VsmAllocationFrame {
   readonly demand: ResourceId;
   readonly pageTable: ResourceId;
   readonly metaTable: ResourceId;
-  readonly pageLocks: ResourceId;
   readonly contentVersion: ResourceId;
   readonly generation: number;
   readonly capacity: number;
@@ -26,18 +25,14 @@ export function requireResidencyBuffers(resources: VsmResources): {
   pageTable: GPUBuffer;
   metaTable: GPUBuffer;
   allocation: GPUBuffer;
-  pageLocks: GPUBuffer;
-  slotLocks: GPUBuffer;
   overflowCounters: GPUBuffer;
 } {
   const pageTable = resources.pageTable;
   const metaTable = resources.metaTable;
   const allocation = resources.allocation;
-  const pageLocks = resources.pageLocks;
-  const slotLocks = resources.slotLocks;
   const overflowCounters = resources.overflowCounters;
-  if (!pageTable || !metaTable || !allocation || !pageLocks || !slotLocks || !overflowCounters) {
+  if (!pageTable || !metaTable || !allocation || !overflowCounters) {
     throw new Error("VSM residency buffers are unavailable for the negotiated profile");
   }
-  return { pageTable, metaTable, allocation, pageLocks, slotLocks, overflowCounters };
+  return { pageTable, metaTable, allocation, overflowCounters };
 }

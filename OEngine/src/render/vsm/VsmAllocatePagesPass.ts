@@ -2,183 +2,250 @@ import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import { VSM_ALLOCATE_PAGES_WGSL } from "../../shaders/vsm_allocate_pages.js";
-import { requireResidencyBuffers, type VsmAllocationFrame } from "./VsmResidency.js";
-import type { VsmResources } from "./VsmResources.js";
+import { VSM_DEMAND_SCAN_WGSL } from "../../shaders/vsm_demand_scan.js";
+import type { VsmAllocationFrame } from "./VsmResidency.js";
+import type { VsmResources, VsmBufferKey } from "./VsmResources.js";
+import type { VsmDirectionalFrameConstants } from "./VsmProjection.js";
 
 export interface VsmAllocatePagesInputs {
+  /** The receiver-produced complete request bitset, before compaction. */
   readonly demand: ResourceId;
   readonly resources: VsmResources;
   readonly generation: number;
+  readonly frameSerial: number;
   readonly contentVersion: ResourceId;
-  readonly frame: import("./VsmProjection.js").VsmDirectionalFrameConstants;
+  readonly frame: VsmDirectionalFrameConstants;
 }
 
-const CONSTANT_BYTES = 256;
+type Stage =
+  | "count_words"
+  | "prefix_requests"
+  | "prefix_misses"
+  | "scatter"
+  | "touch"
+  | "collect_slots"
+  | "allocate"
+  | "publish_dirty";
+const STAGES: readonly Stage[] = [
+  "count_words",
+  "prefix_requests",
+  "prefix_misses",
+  "scatter",
+  "touch",
+  "collect_slots",
+  "allocate",
+  "publish_dirty",
+];
 
-function packConstants(input: VsmAllocatePagesInputs): ArrayBuffer {
-  const capabilities = input.resources.capabilities;
-  const data = new ArrayBuffer(CONSTANT_BYTES);
+/** Shared scan/residency constants ABI: three vec4u followed by six clip vec4f. */
+export function packVsmResidencyConstants(input: VsmAllocatePagesInputs): ArrayBuffer {
+  const profile = input.resources.capabilities;
+  const data = new ArrayBuffer(256);
   new Uint32Array(data).set([
-    input.generation >>> 0,
-    capabilities.demandCapacity >>> 0,
-    capabilities.residentSlots >>> 0,
-    capabilities.clipLevels >>> 0,
-    capabilities.virtualPagesPerAxis >>> 0,
-    capabilities.atlasPagesPerAxis >>> 0,
-    capabilities.virtualEntryCount,
+    input.generation,
+    profile.demandCapacity,
+    profile.residentSlots,
+    profile.clipLevels,
+    profile.virtualPagesPerAxis,
+    profile.atlasPagesPerAxis,
+    profile.virtualEntryCount,
+    input.frameSerial,
+    input.frame.projectionEpoch,
+    input.frame.namespace,
+    profile.coarseReservedSlots,
     0,
   ]);
-  new Uint32Array(data).set([input.frame.projectionEpoch, input.frame.namespace, 0, 0], 8);
+  const floats = new Float32Array(data);
+  for (let level = 0; level < profile.clipLevels; level++) {
+    floats.set(input.frame.clipOriginExtent[level]!, 12 + level * 4);
+  }
   return data;
 }
 
-/** GPU residency owner. It never reads demand or chooses pages on the CPU. */
+/** Complete-domain GPU residency. Constant pipelines/bindings, actual request
+ * dispatches, and ordered publications in the renderer's single frame submit. */
 export class VsmAllocatePagesPass {
   private readonly constants: GPUBuffer;
-  private readonly layout: GPUBindGroupLayout;
-  private readonly pipeline: GPUComputePipeline;
+  private readonly pipelines = new Map<Stage, GPUComputePipeline>();
+  private readonly bindings = new WeakMap<VsmResources, Map<string, GPUBindGroup>>();
 
   constructor(private readonly device: GPUDevice) {
     this.constants = device.createBuffer({
-      label: "VSM/allocation constants",
-      size: CONSTANT_BYTES,
+      label: "VSM/complete residency constants",
+      size: 256,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
-    this.layout = device.createBindGroupLayout({
-      label: "VSM/allocation layout",
-      entries: [
-        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-        { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-        { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-        { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-        { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-        { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-        { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-        { binding: 8, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-      ],
+    const scan = device.createShaderModule({
+      label: "VSM/unique request prefix",
+      code: VSM_DEMAND_SCAN_WGSL,
     });
-    this.pipeline = device.createComputePipeline({
-      label: "VSM/allocate pages",
-      layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }),
-      compute: {
-        module: device.createShaderModule({
-          label: "VSM/allocate pages WGSL",
-          code: VSM_ALLOCATE_PAGES_WGSL,
+    const residency = device.createShaderModule({
+      label: "VSM/ordered residency",
+      code: VSM_ALLOCATE_PAGES_WGSL,
+    });
+    for (const entryPoint of STAGES) {
+      const scanStage =
+        entryPoint === "count_words" ||
+        entryPoint === "prefix_requests" ||
+        entryPoint === "prefix_misses" ||
+        entryPoint === "scatter";
+      this.pipelines.set(
+        entryPoint,
+        device.createComputePipeline({
+          label: `VSM/${entryPoint}`,
+          // Entry-specific layouts retain the portable eight-storage-buffer limit.
+          layout: "auto",
+          compute: { module: scanStage ? scan : residency, entryPoint },
         }),
-        entryPoint: "main",
-      },
+      );
+    }
+  }
+
+  private group(stage: Stage, resources: VsmResources, misses: boolean): GPUBindGroup {
+    let groups = this.bindings.get(resources);
+    if (groups === undefined) {
+      groups = new Map();
+      this.bindings.set(resources, groups);
+    }
+    const name = `${stage}/${misses ? "misses" : "requests"}`;
+    const prior = groups.get(name);
+    if (prior !== undefined) {
+      return prior;
+    }
+    const entries: GPUBindGroupEntry[] = [{ binding: 0, resource: { buffer: this.constants } }];
+    const bind = (binding: number, key: VsmBufferKey) => {
+      const buffer = resources.getBuffer(key);
+      if (buffer === null) {
+        throw new Error(`VSM ${stage} requires ${key}`);
+      }
+      entries.push({ binding, resource: { buffer } });
+    };
+    const bits: VsmBufferKey = misses ? "missingPages" : "requestedPages";
+    if (stage === "count_words" || stage === "scatter") {
+      bind(1, bits);
+      bind(2, "demandScan");
+      if (stage === "scatter") {
+        bind(3, "demand");
+      }
+    } else if (stage === "prefix_requests" || stage === "prefix_misses") {
+      bind(2, "demandScan");
+      if (stage === "prefix_requests") {
+        bind(3, "demand");
+      }
+      bind(4, "demandIndirect");
+    } else if (stage === "touch") {
+      bind(2, "missingPages");
+      bind(3, "demand");
+      bind(4, "pageTable");
+      bind(5, "metaTable");
+      bind(8, "overflowCounters");
+      bind(9, "contentVersion");
+    } else if (stage === "collect_slots") {
+      bind(1, "requestedPages");
+      bind(5, "metaTable");
+      bind(7, "slotCandidates");
+    } else if (stage === "allocate") {
+      bind(3, "demand");
+      bind(4, "pageTable");
+      bind(5, "metaTable");
+      bind(7, "slotCandidates");
+      bind(8, "overflowCounters");
+      bind(9, "contentVersion");
+      bind(10, "demandScan");
+    } else {
+      bind(1, "requestedPages");
+      bind(4, "pageTable");
+      bind(5, "metaTable");
+      bind(6, "allocation");
+    }
+    const group = this.device.createBindGroup({
+      label: `VSM/${name}`,
+      layout: this.pipelines.get(stage)!.getBindGroupLayout(0),
+      entries,
     });
+    groups.set(name, group);
+    return group;
   }
 
   addToGraph(graph: FrameGraph, input: VsmAllocatePagesInputs): VsmAllocationFrame {
-    const resources = requireResidencyBuffers(input.resources);
-    if (input.resources.profile === "shadow-disabled") {
+    const resources = input.resources;
+    if (resources.profile === "shadow-disabled") {
       throw new Error("VSM allocation requires an enabled profile");
     }
-    if (!Number.isSafeInteger(input.generation) || input.generation < 0) {
-      throw new RangeError("VSM allocation generation is invalid");
+    for (const value of [input.generation, input.frameSerial]) {
+      if (!Number.isSafeInteger(value) || value < 1 || value >= 0xffffffff) {
+        throw new RangeError("VSM residency epoch/frame serial must be uint32");
+      }
     }
-    const demandBuffer = input.resources.demand;
-    if (!demandBuffer) throw new Error("VSM demand buffer is unavailable");
-
-    const constants = graph.import_resource(
-      "VSM/allocation constants",
-      { kind: "imported", label: "VSM allocation constants" },
-      this.constants,
+    const keys: readonly VsmBufferKey[] = [
+      "pageTable",
+      "metaTable",
+      "demand",
+      "missingPages",
+      "demandScan",
+      "demandIndirect",
+      "slotCandidates",
+      "allocation",
+      "overflowCounters",
+    ];
+    const handles = new Map<VsmBufferKey, ResourceId>();
+    for (const key of keys) {
+      const buffer = resources.getBuffer(key);
+      if (buffer === null) {
+        throw new Error(`VSM complete residency requires ${key}`);
+      }
+      handles.set(key, graph.import_resource(`VSM/residency ${key}`, { kind: "imported" }, buffer));
+    }
+    const produce = graph.add(
+      "VSM/complete demand and ordered residency",
+      input,
+      (data, _resolved, context) => {
+        const command = context.encoder as ShadeGPUCommandContext;
+        const owner = data.resources;
+        command.writeBuffer(this.constants, 0, packVsmResidencyConstants(data), 0, 256);
+        command.clearBuffer(owner.missingPages!);
+        command.clearBuffer(owner.overflowCounters!, 0, 16);
+        const wordGroups = Math.ceil(Math.ceil(owner.capabilities.virtualEntryCount / 32) / 64);
+        const encode = (stage: Stage, misses: boolean, indirect = false) => {
+          const pass = command.beginComputePass({ label: `VSM/${stage}/${misses ? "misses" : "requests"}` });
+          pass.setPipeline(this.pipelines.get(stage)!);
+          pass.setBindGroup(0, this.group(stage, owner, misses));
+          if (indirect) {
+            pass.dispatchWorkgroupsIndirect(owner.demandIndirect!, 0);
+          } else {
+            pass.dispatchWorkgroups(stage === "count_words" || stage === "scatter" ? wordGroups : 1);
+          }
+          pass.end();
+        };
+        encode("count_words", false);
+        encode("prefix_requests", false);
+        encode("scatter", false);
+        encode("touch", false, true);
+        encode("collect_slots", false);
+        // Reuse the request records after touch. The immutable requested bitset
+        // still protects all hits; the demand header preserves complete counts.
+        encode("count_words", true);
+        encode("prefix_misses", true);
+        encode("scatter", true);
+        encode("allocate", true, true);
+        encode("publish_dirty", false);
+      },
     );
-    const demand = input.demand;
-    const pageTable = graph.import_resource(
-      "VSM/page table allocation",
-      { kind: "imported", label: "VSM page table" },
-      resources.pageTable,
-    );
-    const metaTable = graph.import_resource(
-      "VSM/meta table allocation",
-      { kind: "imported", label: "VSM meta table" },
-      resources.metaTable,
-    );
-    const allocation = graph.import_resource(
-      "VSM/allocation work",
-      { kind: "imported", label: "VSM allocation work" },
-      resources.allocation,
-    );
-    const pageLocks = graph.import_resource(
-      "VSM/page locks",
-      { kind: "imported", label: "VSM page locks" },
-      resources.pageLocks,
-    );
-    const slotLocks = graph.import_resource(
-      "VSM/slot locks",
-      { kind: "imported", label: "VSM slot locks" },
-      resources.slotLocks,
-    );
-    const telemetry = graph.import_resource(
-      "VSM/allocation telemetry",
-      { kind: "imported", label: "VSM allocation telemetry" },
-      resources.overflowCounters,
-    );
-
-    const update = graph.add("VSM/update allocation constants", input, (data, _resources, context) => {
-      (context.encoder as ShadeGPUCommandContext).writeBuffer(
-        this.constants,
-        0,
-        packConstants(data),
-        0,
-        CONSTANT_BYTES,
-      );
-    });
-    const currentConstants = update.write(constants);
-    const produce = graph.add("VSM/allocate pages", {}, (_data, resolved, context) => {
-      const command = context.encoder as ShadeGPUCommandContext;
-      const allocationBuffer = resolved.get(allocation) as GPUBuffer;
-      const pageLocksBuffer = resolved.get(pageLocks) as GPUBuffer;
-      const slotLocksBuffer = resolved.get(slotLocks) as GPUBuffer;
-      const telemetryBuffer = resolved.get(telemetry) as GPUBuffer;
-      command.clearBuffer(allocationBuffer, 0, 16);
-      command.clearBuffer(pageLocksBuffer, 0, pageLocksBuffer.size);
-      command.clearBuffer(slotLocksBuffer, 0, slotLocksBuffer.size);
-      command.clearBuffer(telemetryBuffer, 0, 16);
-      const group = this.device.createBindGroup({
-        label: "VSM/allocate pages bindings",
-        layout: this.layout,
-        entries: [
-          { binding: 0, resource: { buffer: resolved.get(currentConstants) as GPUBuffer } },
-          { binding: 1, resource: { buffer: resolved.get(demand) as GPUBuffer } },
-          { binding: 2, resource: { buffer: resolved.get(pageTable) as GPUBuffer } },
-          { binding: 3, resource: { buffer: resolved.get(metaTable) as GPUBuffer } },
-          { binding: 4, resource: { buffer: allocationBuffer } },
-          { binding: 5, resource: { buffer: pageLocksBuffer } },
-          { binding: 6, resource: { buffer: slotLocksBuffer } },
-          { binding: 7, resource: { buffer: telemetryBuffer } },
-          { binding: 8, resource: { buffer: resolved.get(input.contentVersion) as GPUBuffer } },
-        ],
-      });
-      const pass = command.beginComputePass({ label: "VSM/allocate pages" });
-      pass.setPipeline(this.pipeline);
-      pass.setBindGroup(0, group);
-      pass.dispatchWorkgroups(Math.ceil(input.resources.capabilities.demandCapacity / 64));
-      pass.end();
-    });
-    produce.read(currentConstants);
-    produce.read(demand);
-    const publishedPageTable = produce.write(pageTable);
-    const publishedMetaTable = produce.write(metaTable);
-    const publishedAllocation = produce.write(allocation);
-    const publishedPageLocks = produce.write(pageLocks);
-    const publishedContent = produce.write(input.contentVersion);
-    produce.write(slotLocks);
-    produce.write(telemetry);
+    produce.read(input.demand);
+    const published = new Map<VsmBufferKey, ResourceId>();
+    for (const [key, handle] of handles) {
+      published.set(key, produce.write(handle));
+    }
+    const contentVersion = produce.write(input.contentVersion);
     produce.make_side_effect();
     return {
-      allocation: publishedAllocation,
-      demand,
-      pageTable: publishedPageTable,
-      metaTable: publishedMetaTable,
-      pageLocks: publishedPageLocks,
-      contentVersion: publishedContent,
+      allocation: published.get("allocation")!,
+      demand: published.get("demand")!,
+      pageTable: published.get("pageTable")!,
+      metaTable: published.get("metaTable")!,
+      contentVersion,
       generation: input.generation,
-      capacity: input.resources.capabilities.residentSlots,
+      capacity: resources.capabilities.residentSlots,
     };
   }
 

@@ -6,13 +6,15 @@ export type VsmBufferKey =
   | "demand"
   | "allocation"
   | "casterRecords"
-  | "dirtyMask"
   | "generation"
   | "overflowCounters"
   | "rasterIndirect"
   | "pageConstants"
-  | "pageLocks"
-  | "slotLocks"
+  | "requestedPages"
+  | "missingPages"
+  | "demandScan"
+  | "demandIndirect"
+  | "slotCandidates"
   | "contentVersion"
   | "depthRange";
 let nextContentNamespace = 1;
@@ -22,11 +24,17 @@ export interface VsmDiagnostics {
   readonly generation: GPUBuffer;
   readonly pageDemand: Readonly<{ buffer: GPUBuffer; byteOffset: number }>;
   readonly allocationFailure: Readonly<{ buffer: GPUBuffer; byteOffset: number }>;
-  readonly dirtyPages: Readonly<{ buffer: GPUBuffer; byteOffset: number; byteLength: number }>;
+  readonly dirtyPages: Readonly<{
+    buffer: GPUBuffer;
+    byteOffset: number;
+    byteLength: number;
+    countByteOffset: number;
+    stride: number;
+  }>;
   readonly casterRecords: Readonly<{ buffer: GPUBuffer; byteOffset: number }>;
   readonly atlasPixels: number;
-  readonly samplingFallback: Readonly<{ buffer: GPUBuffer; byteOffset: number }>;
-  readonly overflowMask: Readonly<{ buffer: GPUBuffer; byteOffset: number }>;
+  readonly samplingFallback: null;
+  readonly overflowMask: null;
 }
 
 /** Persistent device-local VSM storage. FrameGraph owns only per-frame scratch. */
@@ -73,27 +81,29 @@ export class VsmResources {
     this.createBuffer(
       "metaTable",
       capabilities.metaTableBytes,
-      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     );
-    this.createBuffer("demand", capabilities.demandBytes, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
+    this.createBuffer(
+      "demand",
+      capabilities.demandBytes,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+    );
     this.createBuffer(
       "allocation",
       capabilities.allocationBytes,
-      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     );
     this.createBuffer(
       "casterRecords",
       capabilities.casterRecordBytes,
       GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     );
-    const dirtyWords = Math.ceil(capabilities.virtualEntryCount / 32);
-    this.createBuffer(
-      "dirtyMask",
-      Math.max(256, dirtyWords * 4),
-      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    );
     this.createBuffer("generation", 256, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
-    this.createBuffer("overflowCounters", 256, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
+    this.createBuffer(
+      "overflowCounters",
+      256,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+    );
     this.createBuffer(
       "rasterIndirect",
       5 * 4 * 64,
@@ -102,17 +112,29 @@ export class VsmResources {
     this.createBuffer(
       "depthRange",
       16,
-      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
     );
     this.createBuffer("pageConstants", 256, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
+    for (const key of ["requestedPages", "missingPages"] as const) {
+      this.createBuffer(
+        key,
+        capabilities.requestedPagesBytes,
+        GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+      );
+    }
     this.createBuffer(
-      "pageLocks",
-      Math.max(256, capabilities.virtualEntryCount * 4),
+      "demandScan",
+      capabilities.demandScanBytes,
       GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     );
     this.createBuffer(
-      "slotLocks",
-      Math.max(256, capabilities.residentSlots * 4),
+      "demandIndirect",
+      16,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST,
+    );
+    this.createBuffer(
+      "slotCandidates",
+      capabilities.slotCandidatesBytes,
       GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     );
     this.createBuffer("contentVersion", 16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, [
@@ -146,9 +168,6 @@ export class VsmResources {
   get casterRecords(): GPUBuffer | null {
     return this.getBuffer("casterRecords");
   }
-  get dirtyMask(): GPUBuffer | null {
-    return this.getBuffer("dirtyMask");
-  }
   get generation(): GPUBuffer | null {
     return this.getBuffer("generation");
   }
@@ -161,11 +180,20 @@ export class VsmResources {
   get pageConstants(): GPUBuffer | null {
     return this.getBuffer("pageConstants");
   }
-  get pageLocks(): GPUBuffer | null {
-    return this.getBuffer("pageLocks");
+  get requestedPages(): GPUBuffer | null {
+    return this.getBuffer("requestedPages");
   }
-  get slotLocks(): GPUBuffer | null {
-    return this.getBuffer("slotLocks");
+  get missingPages(): GPUBuffer | null {
+    return this.getBuffer("missingPages");
+  }
+  get demandScan(): GPUBuffer | null {
+    return this.getBuffer("demandScan");
+  }
+  get demandIndirect(): GPUBuffer | null {
+    return this.getBuffer("demandIndirect");
+  }
+  get slotCandidates(): GPUBuffer | null {
+    return this.getBuffer("slotCandidates");
   }
   /** version, frame dirty marker, last generation, immutable owner namespace. */
   get contentVersion(): GPUBuffer | null {
@@ -177,33 +205,27 @@ export class VsmResources {
     const generation = this.generation;
     const pageDemand = this.demand;
     const allocationFailure = this.overflowCounters;
-    const dirtyPages = this.dirtyMask;
+    const dirtyPages = this.allocation;
     const casterRecords = this.casterRecords;
-    const samplingFallback = this.overflowCounters;
-    const overflowMask = this.overflowCounters;
-    if (
-      !generation ||
-      !pageDemand ||
-      !allocationFailure ||
-      !dirtyPages ||
-      !casterRecords ||
-      !this.atlasDepth ||
-      !samplingFallback ||
-      !overflowMask
-    )
+    if (!generation || !pageDemand || !allocationFailure || !dirtyPages || !casterRecords || !this.atlasDepth)
       return null;
     return Object.freeze({
       generation,
       pageDemand: Object.freeze({ buffer: pageDemand, byteOffset: 0 }),
-      // E5 allocation telemetry occupies words 0..3; E6 caster/raster
-      // telemetry occupies words 4..7. Sampling fallback and overflow mask
-      // are reserved in the same GPU telemetry block for the consumer.
+      // Allocation words: fine/coarse misses, evictions, touches, coarse failures.
+      // Caster/raster occupy words 4..5. Query counters are not produced.
       allocationFailure: Object.freeze({ buffer: allocationFailure, byteOffset: 0 }),
-      dirtyPages: Object.freeze({ buffer: dirtyPages, byteOffset: 0, byteLength: dirtyPages.size }),
+      dirtyPages: Object.freeze({
+        buffer: dirtyPages,
+        byteOffset: 16,
+        byteLength: dirtyPages.size - 16,
+        countByteOffset: 4,
+        stride: 32,
+      }),
       casterRecords: Object.freeze({ buffer: casterRecords, byteOffset: 0 }),
       atlasPixels: this.atlasDepth.width * this.atlasDepth.height,
-      samplingFallback: Object.freeze({ buffer: samplingFallback, byteOffset: 24 }),
-      overflowMask: Object.freeze({ buffer: overflowMask, byteOffset: 28 }),
+      samplingFallback: null,
+      overflowMask: null,
     });
   }
 

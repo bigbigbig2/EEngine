@@ -1,8 +1,9 @@
+import { VSM_PAGE_SIZE, VSM_BORDER, VSM_VIRTUAL_PAGES_PER_AXIS } from "./vsm/VsmCapabilities.js";
 import type { GeometryHierarchyView } from "../geometry/GeometryHierarchy.js";
 import { GPU_INSTANCE_FLAGS, GPU_INSTANCE_RECORD_STRIDE } from "../gpu/GpuInstanceAbi.js";
 import {
   GEOMETRY_PAGE_DEMAND_MAX_PRIORITY,
-  GEOMETRY_PAGE_DEMAND_FLAG_SHADOW
+  GEOMETRY_PAGE_DEMAND_FLAG_SHADOW,
 } from "../gpu/GeometryPageDemandAbiV1.js";
 import type { GpuRenderWorldRuntime } from "../gpu/GpuRenderWorld.js";
 import type { GraphicsContext } from "../gpu/GraphicsContext.js";
@@ -11,7 +12,7 @@ import { HierarchicalWorkGenerator, type PreparedHierarchyWork } from "./Hierarc
 import {
   MeshletWorkCandidate,
   VirtualGeometryMeshletWorkCandidate,
-  type PreparedMeshletWorkCandidate
+  type PreparedMeshletWorkCandidate,
 } from "./MeshletWorkCandidate.js";
 import type { PreparedFrameInstances } from "./FrameInstanceTransforms.js";
 import type { PackedVisibilityPrepareJob } from "./passes/PackedVisibilityPass.js";
@@ -33,10 +34,14 @@ export function shadowGeometryView(frame: VsmDirectionalFrameConstants): Geometr
     if (![x, y, extent].every(Number.isFinite) || extent <= 0) {
       throw new RangeError("Shadow Geometry clipmap coverage is invalid");
     }
-    minX = Math.min(minX, x);
-    minY = Math.min(minY, y);
-    maxX = Math.max(maxX, x + extent);
-    maxY = Math.max(maxY, y + extent);
+    // Coarse guard cells extend beyond the fine window. Geometry must cover
+    // their full world cells, not merely the receiver's fine clip rectangle.
+    const coarsePageWorld = extent / (VSM_VIRTUAL_PAGES_PER_AXIS >> 5);
+    const gutterWorld = (coarsePageWorld * VSM_BORDER) / VSM_PAGE_SIZE;
+    minX = Math.min(minX, Math.floor(x / coarsePageWorld) * coarsePageWorld - gutterWorld);
+    minY = Math.min(minY, Math.floor(y / coarsePageWorld) * coarsePageWorld - gutterWorld);
+    maxX = Math.max(maxX, Math.ceil((x + extent) / coarsePageWorld) * coarsePageWorld + gutterWorld);
+    maxY = Math.max(maxY, Math.ceil((y + extent) / coarsePageWorld) * coarsePageWorld + gutterWorld);
   }
   return {
     kind: "orthographic",
@@ -49,8 +54,8 @@ export function shadowGeometryView(frame: VsmDirectionalFrameConstants): Geometr
       [matrix[1]!, matrix[5]!, matrix[9]!, matrix[13]! - minY],
       [-matrix[1]!, -matrix[5]!, -matrix[9]!, maxY - matrix[13]!],
       [0, 0, 0, 1],
-      [0, 0, 0, 1]
-    ]
+      [0, 0, 0, 1],
+    ],
   };
 }
 
@@ -74,7 +79,7 @@ export class ShadowGeometryWork {
     this.hierarchy = new HierarchicalWorkGenerator(
       graphics.device,
       graphics.resource_accounting,
-      "ShadowGeometryWork"
+      "ShadowGeometryWork",
     );
     this.ordinary = new MeshletWorkCandidate(graphics.device, graphics.resource_accounting);
     this.product = new VirtualGeometryMeshletWorkCandidate(graphics.device, graphics.resource_accounting);
@@ -84,7 +89,7 @@ export class ShadowGeometryWork {
     job: PackedVisibilityPrepareJob,
     main: VisibilityWorkSet,
     camera: GPUBuffer,
-    command: ShadeGPUCommandContext
+    command: ShadeGPUCommandContext,
   ): PreparedShadowGeometry | null {
     if (!job.shadowFrame) {
       this.release(job.runtime, command);
@@ -98,7 +103,7 @@ export class ShadowGeometryWork {
         this.ordinary.rebind(existing.work, {
           camera,
           counterBuffer: job.runtime.counterSink,
-          countersEnabled: false
+          countersEnabled: false,
         });
       }
       return existing;
@@ -114,15 +119,15 @@ export class ShadowGeometryWork {
         visibleClusterCapacity: job.runtime.hierarchyVisibleClusterCapacity,
         rasterWorkCapacity: job.runtime.hierarchyRasterWorkCapacity,
         counterBuffer: job.runtime.counterSink,
-        virtualGeometry: job.virtualGeometry
+        virtualGeometry: job.virtualGeometry,
       },
       {
         sseThreshold: 0,
         countersEnabled: false,
         diagnosticsEnabled: false,
         rasterExpansionEnabled: false,
-        traversalWorkCapacity: main.key.traversalCapacity
-      }
+        traversalWorkCapacity: main.key.traversalCapacity,
+      },
     );
     let work: PreparedMeshletWorkCandidate | null = null;
     let instances: PreparedFrameInstances | null = null;
@@ -133,27 +138,27 @@ export class ShadowGeometryWork {
         capacity: main.key.meshletWorkCandidateCapacity,
         counterBuffer: job.runtime.counterSink,
         countersEnabled: false,
-        scene: job.scene
+        scene: job.scene,
       };
       work = job.virtualGeometry
         ? this.product.prepare({
             ...common,
             virtualGeometry: job.virtualGeometry,
             viewUniform: hierarchy.generated.viewUniform,
-            lodAnchors: hierarchy.generated.lodAnchors!
+            lodAnchors: hierarchy.generated.lodAnchors!,
           })
         : this.ordinary.prepare({
             ...common,
             camera,
             assets: job.assets,
-            compactionPath: main.key.meshletWorkCompactionPath
+            compactionPath: main.key.meshletWorkCompactionPath,
           });
       instances = this.graphics.frame_instances.prepare({
         camera,
         source: job.scene.instances,
         work: work.queue,
         workCapacity: work.capacity,
-        instanceCapacity: Math.floor(job.scene.instances.size / GPU_INSTANCE_RECORD_STRIDE)
+        instanceCapacity: Math.floor(job.scene.instances.size / GPU_INSTANCE_RECORD_STRIDE),
       });
     } catch (error) {
       if (instances) {
@@ -177,7 +182,7 @@ export class ShadowGeometryWork {
   encode(
     job: PackedVisibilityPrepareJob,
     prepared: PreparedShadowGeometry,
-    command: ShadeGPUCommandContext
+    command: ShadeGPUCommandContext,
   ): void {
     if (!job.shadowFrame) {
       throw new Error("Shadow Geometry is missing its light view");
@@ -192,8 +197,8 @@ export class ShadowGeometryWork {
         requiredInstanceFlags: GPU_INSTANCE_FLAGS.CastsShadow,
         excludedInstanceFlags: GPU_INSTANCE_FLAGS.Transparent,
         demandFrameRevisionLow: job.demandFrameRevisionLow,
-        pageDemandFlags: GEOMETRY_PAGE_DEMAND_MAX_PRIORITY | GEOMETRY_PAGE_DEMAND_FLAG_SHADOW
-      }
+        pageDemandFlags: GEOMETRY_PAGE_DEMAND_MAX_PRIORITY | GEOMETRY_PAGE_DEMAND_FLAG_SHADOW,
+      },
     );
     if (job.streamingRuntime) {
       if (!generated.pageDemand || job.demandFrameIndex === undefined) {

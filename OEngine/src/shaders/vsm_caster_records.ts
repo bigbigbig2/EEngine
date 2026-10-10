@@ -51,7 +51,7 @@ struct VsmCasterBuffer {
   records: array<VsmCasterRecord>,
 };
 struct VsmPageTableBuffer { entries: array<VsmPageEntry>, };
-struct VsmTelemetry { allocation_failed: atomic<u32>, evictions: atomic<u32>, reused: atomic<u32>, lock_contention: atomic<u32>, caster_overflow: atomic<u32>, raster_overflow: atomic<u32>, reserved_0: atomic<u32>, reserved_1: atomic<u32> };
+struct VsmTelemetry { allocation_failed: atomic<u32>, evictions: atomic<u32>, reused: atomic<u32>, coarse_failure: atomic<u32>, caster_overflow: atomic<u32>, raster_overflow: atomic<u32>, reserved_0: atomic<u32>, reserved_1: atomic<u32> };
 
 @group(0) @binding(0) var<uniform> constants: Constants;
 @group(0) @binding(1) var<storage, read_write> allocation: VsmAllocationBuffer;

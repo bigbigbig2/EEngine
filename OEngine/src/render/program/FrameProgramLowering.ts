@@ -214,6 +214,7 @@ function compileSceneGraph(
           resources: vsmOwner,
           generation: bindings.vsmFrame!.generation,
           contentVersion,
+          frameSerial: bindings.vsmGeneration.frameSerial,
           frame: vsmFrame
         })),
       );
@@ -371,7 +372,6 @@ function compileSceneGraph(
         pageTable: vsmAllocation!.pageTable,
         allocation: vsmAllocation!.allocation,
         metaTable: vsmAllocation!.metaTable,
-        pageLocks: vsmAllocation!.pageLocks,
         contentVersion: vsmAllocation!.contentVersion,
         instances,
         meshlets: meshletRecords,
