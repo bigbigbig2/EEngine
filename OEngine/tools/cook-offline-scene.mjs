@@ -123,11 +123,20 @@ async function textureTask(taskPath) {
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
     }
-    if (task.mimeType !== "image/png") throw new Error(`Offline PNG producer cannot decode ${task.mimeType}`);
     const require = createRequire(resolve(root, ".local/offline-cook-deps/package.json"));
-    const { PNG } = require("pngjs");
-    // pngjs returns straight RGBA; gamma adjustment is deliberately not requested.
-    const decoded = PNG.sync.read(encoded);
+    let decoded;
+    if (task.mimeType === "image/png") {
+      const { PNG } = require("pngjs");
+      // pngjs returns straight RGBA; gamma adjustment is deliberately not requested.
+      decoded = PNG.sync.read(encoded);
+    } else if (task.mimeType === "image/webp") {
+      const sharp = require("sharp");
+      const { data, info } = await sharp(encoded).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+      if (info.channels !== 4) throw new Error("WebP decoder must produce straight RGBA");
+      decoded = { data, width: info.width, height: info.height };
+    } else {
+      throw new Error(`Offline image producer cannot decode ${task.mimeType}`);
+    }
     const decodeMs = performance.now() - started;
     const scratch = dirname(taskPath);
     const result = await cookPcTextureRgba(
@@ -181,6 +190,11 @@ async function cookScene(input, output, workers) {
   const sourceBytes = header.readUInt32LE(8);
   const jsonLength = header.readUInt32LE(12);
   const document = JSON.parse((await range(input, 20, jsonLength)).toString("utf8"));
+  // Resolve the encoded WebP source before the ordinary material importer maps textures.
+  for (const texture of document.textures ?? []) {
+    const webpSource = texture.extensions?.EXT_texture_webp?.source;
+    if (webpSource !== undefined) texture.source = webpSource;
+  }
   const binHeader = await range(input, 20 + jsonLength, 8);
   if (binHeader.readUInt32LE(4) !== 0x004e4942 || document.buffers?.length !== 1)
     throw new Error("Expected one embedded GLB buffer");
@@ -213,7 +227,7 @@ async function cookScene(input, output, workers) {
       const textureIndex = textureIndices.get(texture);
       const imageIndex = document.textures[textureIndex].source;
       const image = document.images[imageIndex];
-      if (image.bufferView === undefined) throw new Error("Expected embedded PNG image");
+      if (image.bufferView === undefined) throw new Error("Expected embedded image");
       const view = document.bufferViews[image.bufferView];
       let semantic = materialTextureSemantic(property);
       if (semantic === "occlusion-linear" && multichannel.has(texture.image)) semantic = "orm-linear";
@@ -421,6 +435,9 @@ async function cookScene(input, output, workers) {
       totalEncodeMs: receipts.reduce((sum, r) => sum + r.encodeMs, 0),
       wallMs: performance.now() - started,
       pngDecoder: "pngjs 7.0.0, straight RGBA, no gamma adjustment",
+      ...(list.some(([, task]) => task.mimeType === "image/webp")
+        ? { webpDecoder: "sharp 0.34.5, straight RGBA, no resize or gamma adjustment" }
+        : {}),
       runtimeDecode: 0,
       runtimeEncode: 0,
       runtimeTranscode: 0,

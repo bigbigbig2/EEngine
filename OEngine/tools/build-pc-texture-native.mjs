@@ -32,8 +32,10 @@ const sources = [
 ];
 await mkdir(resolve(root, ".local/t4-1-codec-build"), { recursive: true });
 run(probe.compiler, [
-  "-std=c++17",
+  // Basis fixed-point constexpr checks require the C++20 signed-shift rules.
+  "-std=c++2a",
   "-O2",
+  ...(process.platform === "win32" ? ["-static"] : []),
   "-DNDEBUG",
   "-DBASISU_SUPPORT_SSE=0",
   "-DBASISD_SUPPORT_KTX2_ZSTD=0",

@@ -60,6 +60,7 @@ const sources = [
   join(nyxRoot, "MiniEngine", "ThirdParty", "lz4", "lz4.c"),
 ];
 const args = [
+  ...(process.platform === "win32" ? ["-static"] : []),
   "-std=c++2a", "-O2", "-Wall", "-Wextra", "-Werror=return-type", "-fno-fast-math", "-ffp-contract=off", "-pthread", "-DNOMINMAX",
   `-I${join(coreDir, "include")}`,
   `-I${meshoptimizerDir}`,
