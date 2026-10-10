@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import { bistroLocalModel } from "./demos/14-integrated/bistro-texture-compression/local-model";
+import { dungeonLocalModel } from "./demos/14-integrated/dungeon-warkarma-texture-compression/local-model";
 
 const examplesRoot = fileURLToPath(new URL(".", import.meta.url));
 const demosRoot = resolve(examplesRoot, "demos");
@@ -15,7 +16,7 @@ function collectExamplePages(directory: string): Record<string, string> {
   const pages: Record<string, string> = {};
 
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
+    if (!entry.isDirectory() || entry.name === "dist") continue;
     const child = resolve(directory, entry.name);
     const nested = readdirSync(child, { withFileTypes: true });
     const hasPage = nested.some((candidate) => candidate.isFile() && candidate.name === "index.html");
@@ -35,7 +36,7 @@ function collectExamplePages(directory: string): Record<string, string> {
 
 export default defineConfig({
   root: examplesRoot,
-  plugins: [bistroLocalModel(examplesRoot), {
+  plugins: [bistroLocalModel(examplesRoot), dungeonLocalModel(examplesRoot), {
     name: "large-basic-offline-source",
     configureServer(server) {
       server.middlewares.use(async (request, response, next) => {

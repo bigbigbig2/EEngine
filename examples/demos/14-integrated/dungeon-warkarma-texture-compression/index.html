@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dungeon Warkarma | EEngine</title>
+    <link rel="icon" href="data:," />
+  </head>
+  <body>
+    <main class="viewport">
+      <canvas id="viewport" aria-label="Dungeon Warkarma scene"></canvas>
+      <div id="loading" role="status">
+        <span class="status-dot"></span><strong id="phase">Initializing WebGPU</strong
+        ><span id="elapsed">0 s</span>
+      </div>
+    </main>
+    <aside id="debug-panel" aria-label="Render controls">
+      <header class="panel-header">
+        <div>
+          <h1>Dungeon Warkarma</h1>
+          <span>Texture Compression / V4</span>
+        </div>
+        <button
+          id="panel-toggle"
+          class="icon-button"
+          title="Collapse panel"
+          aria-label="Collapse panel"
+          aria-expanded="true"
+          aria-controls="panel-body"
+        >
+          <i data-lucide="panel-right-close"></i>
+        </button>
+      </header>
+      <div id="panel-body">
+        <div class="panel-overview">
+          <div class="mode">
+            <strong id="mode-name">Cooked</strong><a id="mode-switch" href="?mode=raw">Raw</a>
+          </div>
+          <nav aria-label="Scene actions">
+            <button
+              id="frame-scene"
+              class="icon-button"
+              title="Frame complete scene"
+              aria-label="Frame complete scene"
+            >
+              <i data-lucide="scan"></i>
+            </button>
+            <button
+              id="reload"
+              class="icon-button"
+              title="Release and reload"
+              aria-label="Release and reload"
+            >
+              <i data-lucide="rotate-cw"></i>
+            </button>
+            <button
+              id="release"
+              class="icon-button"
+              title="Release GPU resources"
+              aria-label="Release GPU resources"
+            >
+              <i data-lucide="square"></i>
+            </button>
+            <button id="export" class="icon-button" title="Export evidence" aria-label="Export evidence">
+              <i data-lucide="download"></i>
+            </button>
+          </nav>
+        </div>
+        <div class="quick-stats">
+          <div><span>FPS</span><strong id="quick-fps">--</strong></div>
+          <div><span>CPU P50</span><strong id="quick-cpu">--</strong></div>
+          <div><span>GPU P50</span><strong id="quick-gpu">--</strong></div>
+        </div>
+        <div class="diagnostic-controls">
+          <details class="section" open>
+            <summary>Display</summary>
+            <div class="section-body">
+              <label class="control"
+                >View<select id="debug-view">
+                  <option value="none">Final shaded</option>
+                  <option value="visibility-key">Triangle / visibility key</option>
+                  <option value="meshlet-id">Meshlet ID</option>
+                  <option value="material-id">Material ID</option>
+                  <option value="depth">Reverse-Z depth</option>
+                  <option value="velocity">Temporal motion (UV)</option>
+                  <option value="history-validity">Temporal validity / hard replacement</option>
+                  <option value="reactive">Soft reactive</option>
+                  <option value="linear-hdr">Pre-exposed HDR</option>
+                  <option disabled>BaseColor / Normal / ORM: NOT WIRED</option>
+                  <option disabled>SSR / GI: NOT WIRED</option>
+                </select></label
+              >
+            </div>
+          </details>
+          <section class="effect section">
+            <label class="effect-heading" for="vsm"
+              ><span>VSM <small>Directional shadows</small></span
+              ><input id="vsm" class="switch" type="checkbox" role="switch" aria-controls="vsm-parameters" checked
+            /></label>
+            <div id="vsm-parameters" class="effect-parameters" hidden>
+              <label class="control">Debug view<select id="vsm-debug-view">
+                <option value="none">Final shaded</option>
+                <option value="visibility">Shadow visibility</option>
+                <option value="clip-level">Clip levels</option>
+                <option value="page-state">Page state</option>
+              </select></label>
+              <p class="note" id="vsm-debug-note">Shadow visibility：白=受光，黑=遮挡，紫=无有效页。调试视图不用于画质或性能测量。</p>
+              <label class="control">PCF samples<output id="vsm-taps-value">4 × 4 (16)</output><input id="vsm-taps" type="range" min="1" max="4" step="1" value="4" /></label>
+              <label class="control">Filter radius (texels)<output id="vsm-radius-value">0.75</output><input id="vsm-radius" type="range" min="0" max="3" step="0.05" value="0.75" /></label>
+              <p class="note">采样数影响 GPU 成本；半径改变边缘滤波宽度，不是物理光源大小。1×1 为单次采样。</p>
+              <label class="control">Depth bias (texels)<output id="vsm-depth-bias-value">2.00</output><input id="vsm-depth-bias" type="range" min="0" max="8" step="0.05" value="2" /></label>
+              <label class="control">Normal bias (texels)<output id="vsm-normal-bias-value">0.50</output><input id="vsm-normal-bias" type="range" min="0" max="4" step="0.05" value="0.5" /></label>
+              <label class="control">Slope bias (texels)<output id="vsm-slope-bias-value">1.50</output><input id="vsm-slope-bias" type="range" min="0" max="8" step="0.05" value="1.5" /></label>
+              <p class="note">增大 bias 可减轻自阴影条纹，过大会让阴影脱离物体。Normal / slope 项按表面朝向调节深度偏移。</p>
+              <label class="control">Coverage scale<output id="vsm-coverage-value">1.00 ×</output><input id="vsm-coverage" type="range" min="0.25" max="4" step="0.05" value="1" /></label>
+              <p class="note">缩小覆盖提高近处精度；扩大覆盖降低精度。松开滑块后应用，覆盖改变会重建页面。</p>
+              <div class="vsm-actions"><button id="vsm-rebuild" class="text-button">Rebuild pages</button><button id="vsm-reset" class="text-button">Reset VSM</button></div>
+              <dl id="vsm-state"></dl>
+            </div>
+          </section>
+          <section class="effect section">
+            <label class="effect-heading" for="gtao"
+              ><span>GTAO <small>Ambient occlusion</small></span
+              ><input id="gtao" class="switch" type="checkbox" role="switch" aria-controls="gtao-parameters"
+            /></label>
+            <div id="gtao-parameters" class="effect-parameters" hidden>
+              <dl>
+                <dt>Quality</dt>
+                <dd>Scalar high</dd>
+                <dt>Radius (fixed)</dt>
+                <dd>1 m</dd>
+                <dt>Final power (fixed)</dt>
+                <dd>2.2</dd>
+                <dt>World scale</dt>
+                <dd>1 m / unit</dd>
+              </dl>
+            </div>
+          </section>
+          <section class="effect section">
+            <label class="effect-heading" for="bloom"
+              ><span>Bloom <small>HDR glow</small></span
+              ><input
+                id="bloom"
+                class="switch"
+                type="checkbox"
+                role="switch"
+                aria-controls="bloom-parameters"
+            /></label>
+            <div id="bloom-parameters" class="effect-parameters" hidden>
+              <dl>
+                <dt>Threshold (fixed)</dt>
+                <dd>1.0 scene units</dd>
+                <dt>Intensity (fixed)</dt>
+                <dd>0.1</dd>
+                <dt>Pyramid levels</dt>
+                <dd>5</dd>
+                <dt>Filter</dt>
+                <dd>High / HDR</dd>
+              </dl>
+            </div>
+          </section>
+          <section class="effect section">
+            <label class="effect-heading" for="fsr3"
+              ><span>FSR3 <small>Temporal reconstruction</small></span
+              ><input
+                id="fsr3"
+                class="switch"
+                type="checkbox"
+                role="switch"
+                checked
+                aria-controls="fsr3-parameters"
+            /></label>
+            <div id="fsr3-parameters" class="effect-parameters">
+              <label class="control"
+                >Render scale<output id="render-scale-value">100%</output
+                ><input id="render-scale" type="range" min="0.5" max="1" step="0.05" value="1"
+              /></label>
+              <label class="toggle-row"
+                >Camera jitter<input id="jitter" class="switch" type="checkbox" role="switch" checked
+              /></label>
+              <dl>
+                <dt>RCAS sharpness (fixed)</dt>
+                <dd>0.2</dd>
+                <dt>History generation</dt>
+                <dd id="fsr3-generation">--</dd>
+              </dl>
+            </div>
+          </section>
+          <details class="section">
+            <summary>Geometry / visibility</summary>
+            <div class="section-body">
+              <label class="toggle-row"
+                >HZB culling<input id="hzb" class="switch" type="checkbox" role="switch" checked
+              /></label>
+              <label class="toggle-row"
+                >Cone culling<input id="cone" class="switch" type="checkbox" role="switch" checked
+              /></label>
+              <label class="control"
+                >LOD SSE<input id="sse" type="number" value="4" min="0.1" max="64" step="0.1"
+              /></label>
+            </div>
+          </details>
+          <details class="section">
+            <summary>Sun / sky</summary>
+            <div class="section-body">
+              <label class="toggle-row"
+                >Date / time sun<input
+                  id="sun-calendar"
+                  class="switch"
+                  type="checkbox"
+                  role="switch"
+                  aria-controls="sun-calendar-parameters"
+                  checked
+              /></label>
+              <div id="sun-calendar-parameters" hidden>
+                <label class="control"
+                  >Day of year<output id="sun-day-value">13 Feb · 44/365</output
+                  ><input id="sun-day" type="range" min="1" max="365" step="1" value="44"
+                /></label>
+                <label class="control"
+                  >Time of day<output id="sun-time-value">13:00</output
+                  ><input id="sun-time" type="range" min="0" max="24" step="0.1" value="13"
+                /></label>
+                <label class="control"
+                  >Latitude (°)<input
+                    id="sun-latitude"
+                    type="number"
+                    min="-90"
+                    max="90"
+                    step="0.1"
+                    value="35"
+                    required
+                /></label>
+                <label class="control"
+                  >Longitude (°)<input
+                    id="sun-longitude"
+                    type="number"
+                    min="-180"
+                    max="180"
+                    step="0.1"
+                    value="0"
+                    required
+                /></label>
+                <dl>
+                  <dt>Calendar</dt>
+                  <dd>2026 · local solar time</dd>
+                  <dt>Sun altitude</dt>
+                  <dd id="sun-altitude-value">--</dd>
+                </dl>
+              </div>
+              <label class="control"
+                >Direct sun intensity<output id="sun-value">2.20</output
+                ><input id="sun" type="range" min="0" max="4" step="0.05" value="2.2"
+              /></label>
+              <label class="control"
+                >Sky energy<output id="sky-value">3.00</output
+                ><input id="sky" type="range" min="0" max="4" step="0.05" value="3"
+              /></label>
+              <p class="note">Sky energy scales the background, environment lighting and aerial scattering. Direct sun is independent.</p>
+              <label class="control">Lighting view<select id="lighting-contribution">
+                <option value="all">All lighting</option>
+                <option value="background-only">Sky background only</option>
+                <option value="diffuse-only">Sky diffuse IBL only</option>
+                <option value="specular-only">Sky specular IBL only</option>
+                <option value="direct-only">Direct lighting only</option>
+                <option value="aerial-only">Aerial scattering only</option>
+              </select></label>
+              <label class="toggle-row">Aerial perspective<input id="aerial-perspective" class="switch" type="checkbox" role="switch" checked /></label>
+              <p class="note">Use Fixed exposure to compare lighting contributions. Views isolate lit materials; unlit objects remain visible. Aerial scattering is excluded except in its own view.</p>
+            </div>
+          </details>
+          <details class="section">
+            <summary>Exposure</summary>
+            <div class="section-body">
+              <label class="control"
+                >Mode<select id="exposure-mode">
+                  <option value="auto">Auto</option>
+                  <option value="fixed" selected>Fixed</option>
+                </select></label
+              >
+              <label class="control" id="fixed-exposure-control" hidden
+                >Fixed exposure<input
+                  id="fixed-exposure"
+                  type="number"
+                  value="5"
+                  min="0.01"
+                  max="64"
+                  step="0.01"
+              /></label>
+              <button
+                id="apply-exposure"
+                class="text-button"
+                title="Release and reload with this exposure configuration"
+              >
+                <i data-lucide="rotate-cw"></i>Apply and reload
+              </button>
+              <label class="control">Meter low percentile (%)<input id="exposure-low" type="number" min="0" max="97" step="1" value="60" /></label>
+              <label class="control">Meter high percentile (%)<input id="exposure-high" type="number" min="1" max="98" step="1" value="95" /></label>
+              <label class="control">Highlight headroom (stops)<input id="exposure-headroom" type="number" min="0" max="16" step="0.25" value="2" /></label>
+              <p class="note">Highlights use the 98th percentile. Range: 2⁻¹²–2¹⁶. Settings apply on reload.</p>
+              <button id="read-exposure" class="text-button">Read exposure once</button>
+              <button id="reset-exposure" class="text-button">Reset exposure</button>
+              <output id="exposure-diagnostic">No sample requested</output>
+            </div>
+          </details>
+          <details class="section">
+            <summary>Camera / controls</summary>
+            <div class="section-body">
+              <label class="toggle-row"
+                >Orbit damping<input
+                  id="damping"
+                  class="switch"
+                  type="checkbox"
+                  role="switch"
+                  checked
+                  aria-controls="damping-parameters"
+              /></label>
+              <div id="damping-parameters">
+                <label class="control"
+                  >Damping factor<output id="damping-factor-value">0.08</output
+                  ><input id="damping-factor" type="range" min="0.01" max="0.5" step="0.01" value="0.08"
+                /></label>
+              </div>
+              <label class="control"
+                >Field of view<output id="fov-value">60 deg</output
+                ><input id="fov" type="range" min="25" max="100" step="1" value="60"
+              /></label>
+              <label class="control"
+                >Orbit speed<output id="orbit-speed-value">1.00</output
+                ><input id="orbit-speed" type="range" min="0.1" max="3" step="0.1" value="1"
+              /></label>
+            </div>
+          </details>
+          <details class="section">
+            <summary>Frame / profiling</summary>
+            <div class="section-body">
+              <label class="toggle-row"
+                >Pause rendering<input id="pause" class="switch" type="checkbox" role="switch"
+              /></label>
+              <button id="step" class="text-button" title="Submit one ordinary frame" disabled>
+                <i data-lucide="step-forward"></i>Step frame
+              </button>
+              <label class="toggle-row"
+                >Profiled run<input id="profile" class="switch" type="checkbox" role="switch"
+              /></label>
+            </div>
+          </details>
+        </div>
+        <details class="section">
+          <summary>Render / residency state</summary>
+          <div class="section-body"><dl id="render-state"></dl></div>
+        </details>
+        <details class="section">
+          <summary>Resource / timing evidence</summary>
+          <div class="section-body"><dl id="metrics"></dl></div>
+        </details>
+        <details class="section">
+          <summary>Material / current scope</summary>
+          <div class="section-body">
+            <p class="limitation">Known source-material conversion limitation</p>
+            <p class="limitation" id="importer-note">
+              glTF material importer: KHR_materials_specular factors/maps supported.
+            </p>
+            <dl id="scope"></dl>
+          </div>
+        </details>
+        <p id="error" role="alert"></p>
+      </div>
+    </aside>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

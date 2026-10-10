@@ -1,4 +1,5 @@
 import type { NativeMaterialProgram } from "./native_material.js";
+import { GPU_INSTANCE_FLAGS } from "../gpu/GpuInstanceAbi.js";
 import {
   selectAppearanceProductProgram,
   type CompiledAppearanceGraph,
@@ -382,6 +383,19 @@ fn native_environment(material: StandardMaterial, normal: vec3f, direction: vec3
   let view_depth = max(-(settings.view_matrix * vec4f(position, 1.0)).z, 1e-4);
 ${materialLighting}
 `;
+  // Cost card: unchanged 256B VSM uniform/bindings, 8x8 workgroup and frame passes.
+  // Normal mode adds one uniform branch, no samples/atomics/barriers/allocations.
+  // Debug adds page-table queries and (mask only) <=16 depth loads per lit pixel;
+  // its benefit is inspection only. Disable it for cost/quality measurements.
+  const vsmDebug = profile.physicalSun && !profile.unlit
+    ? /* wgsl */ `
+  if (vsm_constants.identity.z != 0u) {
+    let receives_shadow = (frame_instances[work.instance_slot].source.flags & ${GPU_INSTANCE_FLAGS.ReceivesShadow}u) != 0u;
+    output_radiance = oengine_linear_rec709_to_rec2020(vsm_debug_color(position, mapped_normal,
+      normalize(native_physical_sun.sun_direction_world), receives_shadow));
+  }
+`
+    : "";
   const pixelSelection = profile.compact
     ? /* wgsl */ `
   let record = route.x * 8u;
@@ -511,7 +525,9 @@ ${material}
   // P is the positive GPU exposure published by radiometry. An artistic lower
   // floor here would disagree with Sky/Aerial and HDR metering above L=1800.
   let contribution = oengine_linear_rec709_to_rec2020(color) * settings.camera_position_exposure.w;
-  textureStore(hdr, vec2i(pixel), vec4f(${profile.additiveSun ? "textureLoad(prior_native_hdr, vec2i(pixel), 0).rgb + contribution" : "contribution"}, 1.0));
+  var output_radiance = ${profile.additiveSun ? "textureLoad(prior_native_hdr, vec2i(pixel), 0).rgb + contribution" : "contribution"};
+${vsmDebug}
+  textureStore(hdr, vec2i(pixel), vec4f(output_radiance, 1.0));
   ${reactiveWrite}
 }
 `;

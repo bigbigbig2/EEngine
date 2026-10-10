@@ -129,6 +129,7 @@ import { RadiometryRuntime, type PreExposureContract } from "../RadiometryContra
 import { negotiateVsmCapabilities } from "../vsm/VsmCapabilities.js";
 import { VsmResources, type VsmDiagnostics } from "../vsm/VsmResources.js";
 import { buildVsmDirectionalFrameConstants, VsmReceiverDemandPass } from "../vsm/VsmReceiverDemandPass.js";
+import { VSM_DEFAULT_SETTINGS, resolveVsmSettings, type VsmSettings } from "../vsm/VsmSettings.js";
 import { VsmAllocatePagesPass } from "../vsm/VsmAllocatePagesPass.js";
 import { VsmCasterRecordPass } from "../vsm/VsmCasterRecordPass.js";
 import { VsmAtlasRasterPass } from "../vsm/VsmAtlasRasterPass.js";
@@ -491,6 +492,7 @@ export class Renderer {
   private _vsmAtlasRaster!: VsmAtlasRasterPass;
   private _vsmInvalidation!: VsmInvalidationPass;
   private readonly _vsmGeneration = new VsmGeneration();
+  private _vsmSettings: Readonly<VsmSettings> = VSM_DEFAULT_SETTINGS;
   private _vsmCasterPublicationRevision = 0;
   private _shadowVisibilityEnabled = true;
   private _render_debug_view: RenderDebugView = RenderDebugViewValue.None;
@@ -558,6 +560,24 @@ export class Renderer {
   }
   get vsmCapabilities() {
     return this._vsm?.capabilities ?? null;
+  }
+  /** Immutable tuning snapshot. Invalid values throw before changing live state. */
+  get vsmSettings(): Readonly<VsmSettings> {
+    return this._vsmSettings;
+  }
+  /** Applies atomically on the next frame; no submit, readback or resource resize. */
+  setVsmSettings(patch: Partial<VsmSettings>): void {
+    const next = resolveVsmSettings(this._vsmSettings, patch);
+    if (Object.keys(next).every(key => next[key as keyof VsmSettings] === this._vsmSettings[key as keyof VsmSettings])) {
+      return;
+    }
+    this._vsmSettings = next;
+    this.invalidateTemporalHistory();
+  }
+  /** Schedules a full page rebuild through the normal prepare/commit/abort path. */
+  invalidateVsmPages(): void {
+    this._vsmGeneration.invalidate();
+    this.invalidateTemporalHistory();
   }
   /** GPU-resident VSM diagnostic locations; never a CPU work-control input. */
   vsmDiagnostics(): VsmDiagnostics | null {
@@ -2056,6 +2076,8 @@ export class Renderer {
             camera.far,
             this._vsm!,
             this._vsmGeneration.currentGeneration,
+            this._vsmGeneration.currentProjectionEpoch,
+            this._vsmSettings,
           )
         : null;
       const vsmGeneration = this._vsmGeneration.prepare({

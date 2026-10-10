@@ -1,0 +1,8 @@
+{
+  "id": "dungeon-warkarma-texture-compression",
+  "title": "Dungeon Warkarma - Cooked",
+  "category": "14-integrated",
+  "order": 16,
+  "description": "Independent copy of the Bistro controls and rendering defaults, loading locally owned offline Dungeon Warkarma geometry and BC texture products.",
+  "tags": ["integrated", "gltf", "offline-cook", "texture-compression", "v4"]
+}

@@ -15,7 +15,10 @@
     "typecheck": "yarn generate:stories && tsc --noEmit",
     "build": "yarn typecheck && yarn build:examples && yarn build:storybook",
     "build:examples": "vite build",
-    "build:storybook": "yarn generate:stories && storybook build -o storybook-static"
+    "build:storybook": "yarn generate:stories && storybook build -o storybook-static",
+    "demo:dungeon": "vite --config demos/14-integrated/dungeon-warkarma-texture-compression/vite.config.ts --host 127.0.0.1 --strictPort --open /demos/14-integrated/dungeon-warkarma-texture-compression/index.html",
+    "typecheck:dungeon": "tsc --noEmit -p demos/14-integrated/dungeon-warkarma-texture-compression/tsconfig.json",
+    "build:dungeon": "vite build --config demos/14-integrated/dungeon-warkarma-texture-compression/vite.config.ts"
   },
   "dependencies": {
     "@tweakpane/core": "^2.0.5",
@@ -26,6 +29,7 @@
   "devDependencies": {
     "@storybook/addon-docs": "^10.5.10",
     "@storybook/react-vite": "^10.5.10",
+    "@types/node": "22",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
     "@webgpu/types": "^0.1.64",

@@ -1,0 +1,8192 @@
+{
+  "schema": "oengine-offline-scene-materials-v1",
+  "source": {
+    "path": "D:\\code\\EEngine - 副本\\examples\\demos\\14-integrated\\dungeon-warkarma-texture-compression\\assets\\dungeon_warkarma.glb",
+    "bytes": 7990584,
+    "sha256": "cac0fc8c16d107e7ac4e69efde89c2cb6ef4bc66c34456a4dd0923218e5aafb1",
+    "triangles": 72137,
+    "meshes": 798,
+    "primitives": 798,
+    "materials": 25,
+    "textures": 25,
+    "images": 25
+  },
+  "geometryManifest": "scene.oescene",
+  "geometryManifestHash": "5abffb2e550ef5439fd17d4078411aaff655064cb8b2f0b6b0938b2ab4e7c94e",
+  "gltf": {
+    "materials": [
+      {
+        "name": "Wall_Dark_Blue",
+        "doubleSided": true,
+        "pbrMetallicRoughness": {
+          "baseColorFactor": [
+            0.029429631307721138,
+            0.029678627848625183,
+            0.031474437564611435,
+            1
+          ],
+          "metallicFactor": 0,
+          "metallicRoughnessTexture": {
+            "index": 0
+          }
+        },
+        "occlusionTexture": {
+          "index": 0
+        }
+      },
+      {
+        "name": "Wall_Dark_White",
+        "doubleSided": true,
+        "pbrMetallicRoughness": {
+          "baseColorFactor": [
+            0.09760766476392746,
+            0.09760766476392746,
+            0.09760766476392746,
+            1
+          ],
+          "metallicFactor": 0,
+          "metallicRoughnessTexture": {
+            "index": 1
+          }
+        },
+        "occlusionTexture": {
+          "index": 1
+        }
+      },
+      {
+        "name": "Stone",
+        "doubleSided": true,
+        "pbrMetallicRoughness": {
+          "baseColorFactor": [
+            0.03421842306852341,
+            0.024804065003991127,
+            0.024571778252720833,
+            1
+          ],
+          "metallicFactor": 0,
+          "metallicRoughnessTexture": {
+            "index": 2
+          }
+        },
+        "occlusionTexture": {
+          "index": 2
+        }
+      },
+      {
+        "name": "Tile_Borders__0",
+        "doubleSided": true,
+        "pbrMetallicRoughness": {
+          "baseColorFactor": [
+            1,
+            0,
+            0.3310827314853668,
+            1
+          ],
+          "metallicFactor": 0,
+          "metallicRoughnessTexture": {
+            "index": 3
+          }
+        },
+        "occlusionTexture": {
+          "index": 3
+        }
+      },
+      {
+        "name": "Steps",
+        "doubleSided": true,
+        "pbrMetallicRoughness": {
+          "baseColorFactor": [
+            0.10021823644638062,
+            0.10021823644638062,
+            0.10021823644638062,
+            1
+          ],
+          "metallicFactor": 0,
+          "metallicRoughnessTexture": {
+            "index": 4
+          }
+        },
+        "occlusionTexture": {
+          "index": 4
+        }
+      },
+      {
+        "name": "P_Steps",
+        "doubleSided": true,
+        "pbrMetallicRoughness": {
+          "baseColorFactor": [
+            0.11962991952896118,
+            0.11962991952896118,
+            0.11962991952896118,
+            1
+          ],
+          "metallicFactor": 0,
+          "metallicRoughnessTexture": {
+            "index": 5
+          }
+        },
+        "occlusionTexture": {
+          "index": 5
+        }
+      },
+      {
+        "name": "Tile_Border",
+        "doubleSided": true,
+        "pbrMetallicRoughness": {
+          "baseColorFactor": [
+            0.1316312700510025,
+            0.124381884932518,
+            0.124381884932518,
+            1
+          ],
+          "metallicFactor": 0,
+          "metallicRoughnessTexture": {
+            "index": 6
+          }
+        },
+        "occlusionTexture": {
+          "index": 6
+        }
+      },
+      {
+        "name": "Floor_01",
+        "doubleSided": true,
+        "pbrMetallicRoughness": {
+          "baseColorFactor": [
+            0.0851527750492096,
+            0.07545094192028046,
+            0.07545094192028046,
+            1
+          ],
+          "metallicFactor": 0,
+          "metallicRoughnessTexture": {
+            "index": 7
+          }
+        },
+        "occlusionTexture": {
+          "index": 7
+        }
+      },
+      {
+        "name": "Floor_02",
+        "pbrMetallicRoughness": {
+          "baseColorFactor": [
+            0.02321026660501957,
+            0.023554038256406784,
+            0.025191469117999077,
+            1
+          ],
+          "metallicFactor": 0,
+          "metallicRoughnessTexture": {
+            "index": 8
+          }
+        },
+        "occlusionTexture": {
+          "index": 8
+        }
+      },
+      {
+        "name": "Floor_Stone",
+        "doubleSided": true,
+        "pbrMetallicRoughness": {
+          "baseColorFactor": [
+            0.10751855373382568,
+            0.10664347559213638,
+            0.11387883871793747,
+            1
+          ],
+          "metallicFactor": 0,
+          "metallicRoughnessTexture": {
+            "index": 9
+          }
+        },
+        "occlusionTexture": {
+          "index": 9
+        }
+      },
+      {
+        "name": "Pillars",
+        "doubleSided": true,
+        "pbrMetallicRoughness": {
+          "baseColorFactor": [
+            0.14758262038230896,
+            0.14133299887180328,
+            0.13940337300300598,
+            1
+          ],
+          "metallicFactor": 0,
+          "metallicRoughnessTexture": {
+            "index": 10
+          }
+        },
+        "occlusionTexture": {
+          "index": 10
+        }
+      },
+      {
+        "name": "Tiles",
+        "doubleSided": true,
+        "pbrMetallicRoughness": {
+          "baseColorFactor": [
+            0.1941319853067398,
+            0.1941319853067398,
+            0.1941319853067398,
+            1
+          ],
+          "metallicFactor": 0,
+          "metallicRoughnessTexture": {
+            "index": 11
+          }
+        },
+        "occlusionTexture": {
+          "index": 11
+        }
+      },
+      {
+        "name": "Torch_Flame",
+        "doubleSided": true,
+        "pbrMetallicRoughness": {
+          "baseColorFactor": [
+            0.699402391910553,
+            0.2166408896446228,
+            0.027595967054367065,
+            1
+          ],
+          "metallicFactor": 0,
+          "metallicRoughnessTexture": {
+            "index": 12
+          }
+        },
+        "emissiveFactor": [
+          1,
+          1,
+          0.2927776277065277
+        ],
+        "occlusionTexture": {
+          "index": 12
+        }
+      },
+      {
+        "name": "Torch_Wood",
+        "doubleSided": true,
+        "pbrMetallicRoughness": {
+          "baseColorFactor": [
+            0.2596389949321747,
+            0.1623069941997528,
+            0.04032739996910095,
+            1
+          ],
+          "metallicFactor": 0,
+          "metallicRoughnessTexture": {
+            "index": 13
+          }
+        },
+        "occlusionTexture": {
+          "index": 13
+        }
+      },
+      {
+        "name": "Torch_Metal",
+        "doubleSided": true,
+        "pbrMetallicRoughness": {
+          "baseColorFactor": [
+            0.08554299920797348,
+            0.08847200125455856,
+            0.30381500720977783,
+            1
+          ],
+          "metallicFactor": 0,
+          "metallicRoughnessTexture": {
+            "index": 14
+          }
+        },
+        "occlusionTexture": {
+          "index": 14
+        }
+      },
+      {
+        "name": "Weapon_Metal",
+        "doubleSided": true,
+        "pbrMetallicRoughness": {
+          "baseColorFactor": [
+            0.3631739914417267,
+            0.3477939963340759,
+            0.5594760179519653,
+            1
+          ],
+          "metallicFactor": 0,
+          "metallicRoughnessTexture": {
+            "index": 15
+          }
+        },
+        "occlusionTexture": {
+          "index": 15
+        }
+      },
+      {
+        "name": "Weapon_Wood",
+        "doubleSided": true,
+        "pbrMetallicRoughness": {
+          "baseColorFactor": [
+            0.2438378632068634,
+            0.12795881927013397,
+            0.0923290029168129,
+            1
+          ],
+          "metallicFactor": 0,
+          "metallicRoughnessTexture": {
+            "index": 16
+          }
+        },
+        "occlusionTexture": {
+          "index": 16
+        }
+      },
+      {
+        "name": "Cloth_Red",
+        "doubleSided": true,
+        "pbrMetallicRoughness": {
+          "baseColorFactor": [
+            0.17172344028949738,
+            0.009096247144043446,
+            0.009096247144043446,
+            1
+          ],
+          "metallicFactor": 0,
+          "metallicRoughnessTexture": {
+            "index": 17
+          }
+        },
+        "occlusionTexture": {
+          "index": 17
+        }
+      },
+      {
+        "name": "Cloth_Wood",
+        "doubleSided": true,
+        "pbrMetallicRoughness": {
+          "baseColorFactor": [
+            0.43425068259239197,
+            0.1084635853767395,
+            0.06141332909464836,
+            1
+          ],
+          "metallicFactor": 0,
+          "metallicRoughnessTexture": {
+            "index": 18
+          }
+        },
+        "occlusionTexture": {
+          "index": 18
+        }
+      },
+      {
+        "name": "Global_Wood",
+        "doubleSided": true,
+        "pbrMetallicRoughness": {
+          "baseColorFactor": [
+            0.2527695298194885,
+            0.09574239701032639,
+            0.026974720880389214,
+            1
+          ],
+          "metallicFactor": 0,
+          "metallicRoughnessTexture": {
+            "index": 19
+          }
+        },
+        "occlusionTexture": {
+          "index": 19
+        }
+      },
+      {
+        "name": "Global_Metal",
+        "doubleSided": true,
+        "pbrMetallicRoughness": {
+          "baseColorFactor": [
+            0.11170888692140579,
+            0.12134367972612381,
+            0.1316312700510025,
+            1
+          ],
+          "metallicFactor": 0,
+          "metallicRoughnessTexture": {
+            "index": 20
+          }
+        },
+        "occlusionTexture": {
+          "index": 20
+        }
+      },
+      {
+        "name": "Coin",
+        "doubleSided": true,
+        "pbrMetallicRoughness": {
+          "baseColorFactor": [
+            0.8282921314239502,
+            0.6211086511611938,
+            0.11844594031572342,
+            1
+          ],
+          "metallicFactor": 0,
+          "metallicRoughnessTexture": {
+            "index": 21
+          }
+        },
+        "occlusionTexture": {
+          "index": 21
+        }
+      },
+      {
+        "name": "Skull",
+        "doubleSided": true,
+        "pbrMetallicRoughness": {
+          "baseColorFactor": [
+            0.3206165134906769,
+            0.24154900014400482,
+            0.15184873342514038,
+            1
+          ],
+          "metallicFactor": 0,
+          "metallicRoughnessTexture": {
+            "index": 22
+          }
+        },
+        "occlusionTexture": {
+          "index": 22
+        }
+      },
+      {
+        "name": "Global_White",
+        "doubleSided": true,
+        "pbrMetallicRoughness": {
+          "baseColorFactor": [
+            0.3417455852031708,
+            0.3417455852031708,
+            0.3417455852031708,
+            1
+          ],
+          "metallicFactor": 0,
+          "metallicRoughnessTexture": {
+            "index": 23
+          }
+        },
+        "occlusionTexture": {
+          "index": 23
+        }
+      },
+      {
+        "name": "Global_Black",
+        "doubleSided": true,
+        "pbrMetallicRoughness": {
+          "baseColorFactor": [
+            0.007149217650294304,
+            0.007149217650294304,
+            0.007149217650294304,
+            1
+          ],
+          "metallicFactor": 0,
+          "metallicRoughnessTexture": {
+            "index": 24
+          }
+        },
+        "occlusionTexture": {
+          "index": 24
+        }
+      }
+    ],
+    "textures": [
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 0
+          }
+        },
+        "source": 0
+      },
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 1
+          }
+        },
+        "source": 1
+      },
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 2
+          }
+        },
+        "source": 2
+      },
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 3
+          }
+        },
+        "source": 3
+      },
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 4
+          }
+        },
+        "source": 4
+      },
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 5
+          }
+        },
+        "source": 5
+      },
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 6
+          }
+        },
+        "source": 6
+      },
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 7
+          }
+        },
+        "source": 7
+      },
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 8
+          }
+        },
+        "source": 8
+      },
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 9
+          }
+        },
+        "source": 9
+      },
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 10
+          }
+        },
+        "source": 10
+      },
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 11
+          }
+        },
+        "source": 11
+      },
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 12
+          }
+        },
+        "source": 12
+      },
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 13
+          }
+        },
+        "source": 13
+      },
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 14
+          }
+        },
+        "source": 14
+      },
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 15
+          }
+        },
+        "source": 15
+      },
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 16
+          }
+        },
+        "source": 16
+      },
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 17
+          }
+        },
+        "source": 17
+      },
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 18
+          }
+        },
+        "source": 18
+      },
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 19
+          }
+        },
+        "source": 19
+      },
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 20
+          }
+        },
+        "source": 20
+      },
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 21
+          }
+        },
+        "source": 21
+      },
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 22
+          }
+        },
+        "source": 22
+      },
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 23
+          }
+        },
+        "source": 23
+      },
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 24
+          }
+        },
+        "source": 24
+      }
+    ],
+    "samplers": [
+      {
+        "magFilter": 9729,
+        "minFilter": 9987,
+        "wrapS": 10497,
+        "wrapT": 10497
+      }
+    ]
+  },
+  "bindings": [
+    {
+      "texture_orm": {
+        "textureIndex": 0,
+        "uri": "textures/43595cbe17f922c7b0ed579a51ee6ed0bf97f6d09c35edb8984e7f2cf59d1525.textureproduct"
+      }
+    },
+    {
+      "texture_orm": {
+        "textureIndex": 1,
+        "uri": "textures/b367ae2ebdce131ef1cb73156c71391347d2f3fa61b29e8b29e1d0e680368b0e.textureproduct"
+      }
+    },
+    {
+      "texture_orm": {
+        "textureIndex": 2,
+        "uri": "textures/0314db31b9facd95af79247af50660684b156b49384d4f4f6a6beceb86efcafa.textureproduct"
+      }
+    },
+    {
+      "texture_orm": {
+        "textureIndex": 3,
+        "uri": "textures/f5e390c5853bd92e75ac3f589cd536c2137d1cfe8430616dc45afc5538ce8d17.textureproduct"
+      }
+    },
+    {
+      "texture_orm": {
+        "textureIndex": 4,
+        "uri": "textures/f7442ecbe0c3935dee6a52453b078fddb4593860ab765dbdb285f09dd162287d.textureproduct"
+      }
+    },
+    {
+      "texture_orm": {
+        "textureIndex": 5,
+        "uri": "textures/17500748f2a9363ba549757517216264ebb46f0f6807db9f818e2d293eee59f6.textureproduct"
+      }
+    },
+    {
+      "texture_orm": {
+        "textureIndex": 6,
+        "uri": "textures/0434c8c39956ed839faad97365e66c2e7b5e2b8dfdc6f3706d1a917bbac22ee9.textureproduct"
+      }
+    },
+    {
+      "texture_orm": {
+        "textureIndex": 7,
+        "uri": "textures/ab0d9450a52981490fa28178e08affea094ea1653e761a979b01acd2aba42454.textureproduct"
+      }
+    },
+    {
+      "texture_orm": {
+        "textureIndex": 8,
+        "uri": "textures/1e7a290651a5436b7ee9c0eca9f5c3f0939b2d7ed52eb465ecba2adae2836247.textureproduct"
+      }
+    },
+    {
+      "texture_orm": {
+        "textureIndex": 9,
+        "uri": "textures/7fdb4e0a097198ea7ba1c746dc2634dba3c92fdbb80b0ee204accb15e9a62bf0.textureproduct"
+      }
+    },
+    {
+      "texture_orm": {
+        "textureIndex": 10,
+        "uri": "textures/0ecb51d19510f78e81d6017afb19bbc872621f62b1cff84c9e3541eb0f0b9733.textureproduct"
+      }
+    },
+    {
+      "texture_orm": {
+        "textureIndex": 11,
+        "uri": "textures/648bab7aefeb367d99e733e1b4ab235d0b357a78a480dafc48596a8d539c5c35.textureproduct"
+      }
+    },
+    {
+      "texture_orm": {
+        "textureIndex": 12,
+        "uri": "textures/4db0e4282caae5d3024fd97b20cdcec899bd15d534f147c1575bd2582a5fc8e7.textureproduct"
+      }
+    },
+    {
+      "texture_orm": {
+        "textureIndex": 13,
+        "uri": "textures/49675d9aef0ad4c29d4f737c6fd644b13f4189769be7635c02c797a9c97c55e7.textureproduct"
+      }
+    },
+    {
+      "texture_orm": {
+        "textureIndex": 14,
+        "uri": "textures/e4455242db150b761be6c612e32609c90c1070a8cc26f3a4f417a3f46f506e15.textureproduct"
+      }
+    },
+    {
+      "texture_orm": {
+        "textureIndex": 15,
+        "uri": "textures/8ddc2e01cbcc456785214da3be72f2942c21ccc1ef314a815560c8304810e160.textureproduct"
+      }
+    },
+    {
+      "texture_orm": {
+        "textureIndex": 16,
+        "uri": "textures/ab70adc6cdc862565c7dd40bd6dc048353c4452f5adb17a1ea38753825617eb2.textureproduct"
+      }
+    },
+    {
+      "texture_orm": {
+        "textureIndex": 17,
+        "uri": "textures/40cd80b1bce42ae0bb81026f587269ad60ddeb0c98f11fd812c4c1e9c90f9f05.textureproduct"
+      }
+    },
+    {
+      "texture_orm": {
+        "textureIndex": 18,
+        "uri": "textures/a1a4d43b47cba882c678cc51d87c7763140683bad18dfff3b9c0af67a3aad368.textureproduct"
+      }
+    },
+    {
+      "texture_orm": {
+        "textureIndex": 19,
+        "uri": "textures/eab87e7a5fd8a309870eb52527492954e4dd74ed909e50b719d481c849bece82.textureproduct"
+      }
+    },
+    {
+      "texture_orm": {
+        "textureIndex": 20,
+        "uri": "textures/bb027d1b881398a38a68b244ccf38a28576cc0eeb81f0a661647744122e25cf6.textureproduct"
+      }
+    },
+    {
+      "texture_orm": {
+        "textureIndex": 21,
+        "uri": "textures/8df195a10df6a8a5fb842c3d2d978ff4973287e1fecec14abed3502442ad803a.textureproduct"
+      }
+    },
+    {
+      "texture_orm": {
+        "textureIndex": 22,
+        "uri": "textures/9cc40e41d9b37a7f647bfdbd06d0525ab9037d4b4223a8bd2499729330bba20b.textureproduct"
+      }
+    },
+    {
+      "texture_orm": {
+        "textureIndex": 23,
+        "uri": "textures/1de1858dd21b74c98f46cb928787808fc5a145c1f1e3baa5e0181e6cb72d8814.textureproduct"
+      }
+    },
+    {
+      "texture_orm": {
+        "textureIndex": 24,
+        "uri": "textures/6769bbfea16eff32d95e4e9acc9e0c367ad511e5405c7a753c334aaf8e4fa3a3.textureproduct"
+      }
+    }
+  ],
+  "instanceMaterials": [
+    0,
+    0,
+    1,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    0,
+    0,
+    0,
+    1,
+    0,
+    1,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    1,
+    0,
+    1,
+    0,
+    1,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    0,
+    0,
+    1,
+    0,
+    1,
+    0,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    3,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    0,
+    0,
+    4,
+    4,
+    5,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    6,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    1,
+    0,
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    7,
+    8,
+    9,
+    10,
+    10,
+    10,
+    10,
+    10,
+    10,
+    10,
+    10,
+    10,
+    10,
+    10,
+    10,
+    10,
+    10,
+    10,
+    10,
+    10,
+    10,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    11,
+    4,
+    4,
+    4,
+    12,
+    13,
+    14,
+    12,
+    13,
+    14,
+    12,
+    13,
+    14,
+    12,
+    13,
+    14,
+    12,
+    13,
+    14,
+    12,
+    13,
+    14,
+    12,
+    13,
+    14,
+    12,
+    13,
+    14,
+    12,
+    13,
+    14,
+    12,
+    13,
+    14,
+    12,
+    13,
+    14,
+    12,
+    13,
+    14,
+    12,
+    13,
+    14,
+    12,
+    13,
+    14,
+    12,
+    13,
+    14,
+    12,
+    13,
+    14,
+    12,
+    13,
+    14,
+    12,
+    13,
+    14,
+    12,
+    13,
+    14,
+    12,
+    13,
+    14,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    17,
+    18,
+    17,
+    18,
+    17,
+    18,
+    17,
+    18,
+    17,
+    18,
+    17,
+    18,
+    17,
+    18,
+    17,
+    18,
+    17,
+    18,
+    17,
+    18,
+    17,
+    18,
+    17,
+    18,
+    17,
+    18,
+    17,
+    19,
+    20,
+    19,
+    20,
+    19,
+    20,
+    19,
+    20,
+    19,
+    20,
+    19,
+    20,
+    19,
+    20,
+    19,
+    20,
+    19,
+    20,
+    19,
+    20,
+    19,
+    20,
+    19,
+    20,
+    19,
+    20,
+    19,
+    19,
+    19,
+    19,
+    19,
+    19,
+    19,
+    19,
+    19,
+    19,
+    19,
+    19,
+    19,
+    19,
+    19,
+    19,
+    19,
+    19,
+    20,
+    20,
+    19,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    21,
+    19,
+    17,
+    22,
+    22,
+    22,
+    22,
+    22,
+    20,
+    20,
+    20,
+    20,
+    17,
+    23,
+    19,
+    20,
+    20,
+    19,
+    24,
+    20,
+    19,
+    20,
+    19,
+    24,
+    20,
+    19,
+    20,
+    19,
+    24,
+    20,
+    19,
+    20,
+    19,
+    24,
+    20,
+    19,
+    20,
+    19,
+    24,
+    20,
+    19,
+    20,
+    19,
+    24,
+    22,
+    20,
+    19,
+    20,
+    19,
+    20,
+    20
+  ],
+  "instanceProfiles": [
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": false
+    }
+  ],
+  "products": [
+    {
+      "uri": "textures/43595cbe17f922c7b0ed579a51ee6ed0bf97f6d09c35edb8984e7f2cf59d1525.textureproduct",
+      "identity": "e519f46c785f7f7df311033e3150492380ce65e3d3f495401eb3846652dbe0b2"
+    },
+    {
+      "uri": "textures/b367ae2ebdce131ef1cb73156c71391347d2f3fa61b29e8b29e1d0e680368b0e.textureproduct",
+      "identity": "c7ccaa8c1c43af6bc4e7bf7ddb60abc5d4b7842e5276003fb2258a4864c7ebe8"
+    },
+    {
+      "uri": "textures/0314db31b9facd95af79247af50660684b156b49384d4f4f6a6beceb86efcafa.textureproduct",
+      "identity": "f20eac12566133de1f7add9be84e0e0a5f61d4395328cf7ffe8e70546def9f0c"
+    },
+    {
+      "uri": "textures/f5e390c5853bd92e75ac3f589cd536c2137d1cfe8430616dc45afc5538ce8d17.textureproduct",
+      "identity": "5fdc69618ced4ba739ed19ad3e602f643e4648145d1e6b453ed5b0a641004357"
+    },
+    {
+      "uri": "textures/f7442ecbe0c3935dee6a52453b078fddb4593860ab765dbdb285f09dd162287d.textureproduct",
+      "identity": "5fdc69618ced4ba739ed19ad3e602f643e4648145d1e6b453ed5b0a641004357"
+    },
+    {
+      "uri": "textures/17500748f2a9363ba549757517216264ebb46f0f6807db9f818e2d293eee59f6.textureproduct",
+      "identity": "2bedd70c4bd590f5a9aa5d3402298770dd5a2be9611b4a2184482f931040f2ff"
+    },
+    {
+      "uri": "textures/0434c8c39956ed839faad97365e66c2e7b5e2b8dfdc6f3706d1a917bbac22ee9.textureproduct",
+      "identity": "23bf801d55fe5bfed635e75155e8150136f38e99a38ab9d91107b9fd903b8c9f"
+    },
+    {
+      "uri": "textures/ab0d9450a52981490fa28178e08affea094ea1653e761a979b01acd2aba42454.textureproduct",
+      "identity": "96c37ce160284768f66384ca543c3f7cb6f9983546f5c610c0407a883e0d1d82"
+    },
+    {
+      "uri": "textures/1e7a290651a5436b7ee9c0eca9f5c3f0939b2d7ed52eb465ecba2adae2836247.textureproduct",
+      "identity": "3ef6a58471263aa327a6ef00a4e9735199cb97b7f08218a2f3da64e544c0912a"
+    },
+    {
+      "uri": "textures/7fdb4e0a097198ea7ba1c746dc2634dba3c92fdbb80b0ee204accb15e9a62bf0.textureproduct",
+      "identity": "f582d29cc72caedcc3db9dd4a369e70d0f2e0cb7b3b0f99b39fa4818b0651a2d"
+    },
+    {
+      "uri": "textures/0ecb51d19510f78e81d6017afb19bbc872621f62b1cff84c9e3541eb0f0b9733.textureproduct",
+      "identity": "0dda96fd393c6c1b08af8f8cc459ef6c108158137257fdb54a8627ec8222ce4d"
+    },
+    {
+      "uri": "textures/648bab7aefeb367d99e733e1b4ab235d0b357a78a480dafc48596a8d539c5c35.textureproduct",
+      "identity": "6c2dd528bab8bf0d260b71cbfc040006d0474f9c5b2d34c855392665c6d7b7f4"
+    },
+    {
+      "uri": "textures/4db0e4282caae5d3024fd97b20cdcec899bd15d534f147c1575bd2582a5fc8e7.textureproduct",
+      "identity": "d163e5b40cefa405eec89536e68c35da8d8a283a2b127fb66f2dddbca917ceeb"
+    },
+    {
+      "uri": "textures/49675d9aef0ad4c29d4f737c6fd644b13f4189769be7635c02c797a9c97c55e7.textureproduct",
+      "identity": "a5b200b94c4fedf62ec2f6d0e12cd63f726004a5b8eb316dd6249e7155e991e8"
+    },
+    {
+      "uri": "textures/e4455242db150b761be6c612e32609c90c1070a8cc26f3a4f417a3f46f506e15.textureproduct",
+      "identity": "fe897c4cd609ec8435da6a38d3a912421a16ff3af6de7fe99458c5f75c550778"
+    },
+    {
+      "uri": "textures/8ddc2e01cbcc456785214da3be72f2942c21ccc1ef314a815560c8304810e160.textureproduct",
+      "identity": "e0889ed4d47859fc413dc48f9dcd4f0c06d9550a39e1fc62191f29368b780153"
+    },
+    {
+      "uri": "textures/ab70adc6cdc862565c7dd40bd6dc048353c4452f5adb17a1ea38753825617eb2.textureproduct",
+      "identity": "2f0b8c9fb989cc53698c973dbe1cdf663f8e16d2dddf062dbb220db284392e22"
+    },
+    {
+      "uri": "textures/40cd80b1bce42ae0bb81026f587269ad60ddeb0c98f11fd812c4c1e9c90f9f05.textureproduct",
+      "identity": "45c470d2d78b25effabc1f59907ef5278315190f29a74d022977a828343566eb"
+    },
+    {
+      "uri": "textures/a1a4d43b47cba882c678cc51d87c7763140683bad18dfff3b9c0af67a3aad368.textureproduct",
+      "identity": "863f4453771105236ded792006adc4f152f69f473b955a85bab24318ddeb5249"
+    },
+    {
+      "uri": "textures/eab87e7a5fd8a309870eb52527492954e4dd74ed909e50b719d481c849bece82.textureproduct",
+      "identity": "194ad2a71962c3981b2f91e1aab7d2fe9ca8c087571b0327ba6b2aa58283dfe2"
+    },
+    {
+      "uri": "textures/bb027d1b881398a38a68b244ccf38a28576cc0eeb81f0a661647744122e25cf6.textureproduct",
+      "identity": "89e8345d4e3facc37d9435acc0722afcf1d80bbdb07e90e2215d74df6a3c0e33"
+    },
+    {
+      "uri": "textures/8df195a10df6a8a5fb842c3d2d978ff4973287e1fecec14abed3502442ad803a.textureproduct",
+      "identity": "0673c5ff3e454580738b58812e3a08a06e02bf605b92d00f317e2e4a5ee86538"
+    },
+    {
+      "uri": "textures/9cc40e41d9b37a7f647bfdbd06d0525ab9037d4b4223a8bd2499729330bba20b.textureproduct",
+      "identity": "68b9ec66046571e7748ff30c47e05cd1ae3ed5c66c41b96fdd58088f95af886a"
+    },
+    {
+      "uri": "textures/1de1858dd21b74c98f46cb928787808fc5a145c1f1e3baa5e0181e6cb72d8814.textureproduct",
+      "identity": "61233cd67905a45bb71a7586c9793e3027cf759c6656c99e77aef56f8ec74f57"
+    },
+    {
+      "uri": "textures/6769bbfea16eff32d95e4e9acc9e0c367ad511e5405c7a753c334aaf8e4fa3a3.textureproduct",
+      "identity": "3a62f359648c733c132ecbf1e6b1448242622e4a2a70b8876679bd5e9d763da5"
+    }
+  ],
+  "evidence": {
+    "products": 25,
+    "bc7": 25,
+    "bc4": 0,
+    "r8": 0,
+    "packageBytes": 140025000,
+    "payloadBytes": 139810800,
+    "totalEncodeMs": 3743810.5767,
+    "wallMs": 4994.4104,
+    "pngDecoder": "pngjs 7.0.0, straight RGBA, no gamma adjustment",
+    "webpDecoder": "sharp 0.34.5, straight RGBA, no resize or gamma adjustment",
+    "runtimeDecode": 0,
+    "runtimeEncode": 0,
+    "runtimeTranscode": 0,
+    "runtimeMipGeneration": 0,
+    "runtimeCodecWorkers": 0,
+    "runtimeGeometryCook": 0
+  }
+}

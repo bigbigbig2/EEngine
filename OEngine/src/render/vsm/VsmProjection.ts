@@ -1,4 +1,5 @@
 import type { VsmResources } from "./VsmResources.js";
+import { VSM_DEFAULT_SETTINGS, type VsmSettings } from "./VsmSettings.js";
 
 export const VSM_PROJECTION_CONSTANT_BYTES = 256;
 export const VSM_DEPTH_RANGE_BYTE_OFFSET = 208;
@@ -11,6 +12,7 @@ export interface VsmDirectionalFrameConstants {
   readonly namespace: number;
   readonly lightView: readonly number[];
   readonly clipOriginExtent: readonly (readonly [number, number, number, number])[];
+  readonly settings?: Readonly<VsmSettings>;
 }
 
 function normalize3(x: number, y: number, z: number): [number, number, number] {
@@ -28,7 +30,8 @@ export function buildVsmDirectionalFrameConstants(
   cameraFar: number,
   resources: VsmResources,
   generation: number,
-  projectionEpoch = generation
+  projectionEpoch = generation,
+  settings: Readonly<VsmSettings> = VSM_DEFAULT_SETTINGS
 ): VsmDirectionalFrameConstants {
   const profile = resources.capabilities;
   if (resources.profile === "shadow-disabled") {
@@ -73,7 +76,7 @@ export function buildVsmDirectionalFrameConstants(
   if (!Number.isFinite(cameraFar) || cameraFar <= 0 || !cameraPosition.every(Number.isFinite)) {
     throw new RangeError("VSM camera must be finite with positive far distance");
   }
-  const baseExtent = Math.max(32, Math.min(Math.max(32, cameraFar), 2048) * 0.125);
+  const baseExtent = Math.max(32, Math.min(Math.max(32, cameraFar), 2048) * 0.125) * settings.clipExtentScale;
   const levels = Array.from({ length: profile.clipLevels }, (_, level) => {
     const extent = baseExtent * 2 ** level;
     const texelWorld = extent / (profile.virtualPagesPerAxis * profile.pageSize);
@@ -91,6 +94,7 @@ export function buildVsmDirectionalFrameConstants(
     generation,
     projectionEpoch,
     namespace: resources.namespace,
+    settings,
     lightView,
     clipOriginExtent: Object.freeze(levels)
   });

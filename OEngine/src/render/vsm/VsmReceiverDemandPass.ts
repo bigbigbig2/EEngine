@@ -3,6 +3,7 @@ import {
   VSM_PROJECTION_CONSTANT_BYTES,
   VSM_DEPTH_RANGE_BYTE_OFFSET,
   VSM_DEPTH_RANGE_BYTES,
+  VSM_IDENTITY_BYTE_OFFSET,
   type VsmDirectionalFrameConstants,
 } from "./VsmProjection.js";
 export { buildVsmDirectionalFrameConstants, type VsmDirectionalFrameConstants } from "./VsmProjection.js";
@@ -12,11 +13,7 @@ import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandCon
 import { resolveTextureView } from "../RenderTargetViews.js";
 import { VsmResources } from "./VsmResources.js";
 import { VSM_RECEIVER_DEMAND_WGSL } from "../../shaders/vsm_receiver_demand.js";
-import {
-  SHADOW_NORMAL_OFFSET_SCALE,
-  SHADOW_DEPTH_BIAS,
-  SHADOW_DEPTH_SLOPE_SCALE,
-} from "../../gpu/ShadowContract.js";
+import { VSM_DEFAULT_SETTINGS, VSM_DEBUG_VIEWS } from "./VsmSettings.js";
 
 export interface VsmReceiverDemandInputs {
   readonly width: number;
@@ -78,17 +75,19 @@ export function packVsmSamplingConstants(input: VsmReceiverDemandInputs): ArrayB
     uints = new Uint32Array(data);
   const profile = input.resources.capabilities;
   uints.set([profile.virtualPagesPerAxis, profile.pageSize, profile.border, profile.atlasPagesPerAxis], 40);
-  uints.set([profile.clipLevels, input.generation, profile.pcfTapCount, profile.atlasDimension], 44);
-  const depthPerTexel = 1; // Actual world texel * inverse depth range is applied by the sampler.
+  const settings = input.frame.settings ?? VSM_DEFAULT_SETTINGS;
+  const taps = Math.min(profile.pcfTapCount, settings.pcfTapsPerAxis);
+  uints.set([profile.clipLevels, input.generation, taps, profile.atlasDimension], 44);
   floats.set(
     [
-      SHADOW_NORMAL_OFFSET_SCALE * depthPerTexel,
-      SHADOW_DEPTH_BIAS * depthPerTexel,
-      SHADOW_DEPTH_SLOPE_SCALE * depthPerTexel,
-      0,
+      settings.normalBiasTexels,
+      settings.depthBiasTexels,
+      settings.slopeBiasTexels,
+      settings.filterRadiusTexels * 2,
     ],
     48,
   );
+  uints[VSM_IDENTITY_BYTE_OFFSET / 4 + 2] = VSM_DEBUG_VIEWS[settings.debugView];
   return data;
 }
 

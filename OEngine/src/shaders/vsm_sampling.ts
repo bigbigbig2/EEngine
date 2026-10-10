@@ -16,9 +16,9 @@ struct VsmSamplingConstants {
   clip_origin_extent: array<vec4f, 6>,
   dimensions: vec4u, // virtual pages/axis, page size, border, atlas pages/axis
   control: vec4u,    // clip levels, generation, taps per axis, atlas dimension
-  filter_params: vec4f, // biases in actual shadow texels
+  filter_params: vec4f, // normal/depth/slope bias, PCF width in actual shadow texels
   depth_range: vec4f, // GPU caster min/max Z, inverse range, validity
-  identity: vec4u, // projection epoch, owner namespace
+  identity: vec4u, // projection epoch, owner namespace, debug view, reserved
 };
 
 const VSM_QUERY_FINE: u32 = 0u;
@@ -117,7 +117,7 @@ fn vsm_sample_page(entry: VsmPageEntry, local_uv: vec2f,
         continue;
       }
       let center = (vec2f(f32(x) + 0.5, f32(y) + 0.5) /
-        f32(taps) - vec2f(0.5)) * 1.5;
+        f32(taps) - vec2f(0.5)) * vsm_constants.filter_params.w;
       let stored = textureLoad(vsm_atlas_depth,
         vsm_atlas_texel(entry, local_uv, center), 0);
       // Reverse depth zero is the clear/empty value. Caster bounds include
@@ -151,5 +151,39 @@ fn vsm_sample_directional(position_ws: vec3f, normal_ws: vec3f,
     exp2(f32(entry.mip)) * vsm_constants.depth_range.z;
   return vsm_sample_page(entry, local_uv, reference_depth,
     (vsm_constants.filter_params.y + slope_bias + normal_bias) * depth_per_texel);
+}
+
+// Debug-only queries. No per-pixel atomic counter or additional frame product.
+fn vsm_debug_color(position_ws: vec3f, normal_ws: vec3f, sun_direction: vec3f,
+  receives_shadow: bool) -> vec3f {
+  if (!receives_shadow || vsm_constants.depth_range.w == 0.0) {
+    return vec3f(0.0, 0.6, 0.6);
+  }
+  let light = (vsm_constants.light_view * vec4f(position_ws, 1.0)).xyz;
+  let query = vsm_query_directional(light.xy);
+  let mode = vsm_constants.identity.z;
+  if (mode == 3u) {
+    switch query.status {
+      case VSM_QUERY_FINE: { return vec3f(0.05, 0.85, 0.15); }
+      case VSM_QUERY_COARSE: { return vec3f(0.1, 0.3, 1.0); }
+      case VSM_QUERY_MISSING: { return vec3f(1.0, 0.0, 1.0); }
+      case VSM_QUERY_STALE: { return vec3f(1.0, 0.05, 0.0); }
+      case VSM_QUERY_DIRTY: { return vec3f(1.0, 0.8, 0.0); }
+      default: { return vec3f(0.25); }
+    }
+  }
+  if (query.status != VSM_QUERY_FINE && query.status != VSM_QUERY_COARSE) {
+    // Never disguise a missing page as measured shadow visibility.
+    return vec3f(1.0, 0.0, 1.0);
+  }
+  if (mode == 2u) {
+    let colors = array<vec3f, 6>(vec3f(0.9, 0.1, 0.1), vec3f(1.0, 0.55, 0.0),
+      vec3f(0.9, 0.85, 0.0), vec3f(0.05, 0.8, 0.15), vec3f(0.0, 0.5, 1.0), vec3f(0.65, 0.1, 1.0));
+    return colors[min(query.level, 5u)];
+  }
+  var incident: GpuPrimitiveTypeTable;
+  incident.direction = sun_direction;
+  incident.color = vec3f(1.0);
+  return vec3f(vsm_sample_directional(position_ws, normal_ws, incident));
 }
 `;

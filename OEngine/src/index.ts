@@ -639,3 +639,4 @@ export type {
 } from "./debug/BenchmarkSceneManifest.js";
 
 export type { PhysicalLightingDiagnostic } from "./render/environment/PhysicalEnvironmentState.js";
+export { VSM_DEFAULT_SETTINGS, type VsmSettings, type VsmDebugView } from "./render/vsm/VsmSettings.js";
