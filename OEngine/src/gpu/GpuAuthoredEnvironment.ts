@@ -86,6 +86,7 @@ type AuthoredIblSet = {
  * Source and filtered levels are separate; successful submission publishes the
  * generation and GPU completion retires the outgoing physical allocation. */
 export class GpuAuthoredEnvironment {
+  readonly sampler: GPUSampler;
   private active: AuthoredIblSet | null = null;
   private pending: AuthoredIblSet | null = null;
   private pendingCommand: ShadeGPUCommandContext | null = null;
@@ -95,7 +96,16 @@ export class GpuAuthoredEnvironment {
   constructor(
     private readonly graphics: GraphicsContext,
     private readonly maxBytes = 256 * 1024 * 1024,
-  ) {}
+  ) {
+    this.sampler = graphics.samplers.obtain({
+      label: "AuthoredIBL/DFG linear clamp",
+      minFilter: "linear",
+      magFilter: "linear",
+      mipmapFilter: "nearest",
+      addressModeU: "clamp-to-edge",
+      addressModeV: "clamp-to-edge",
+    });
+  }
   get publicationRevision(): number {
     return this.revision;
   }

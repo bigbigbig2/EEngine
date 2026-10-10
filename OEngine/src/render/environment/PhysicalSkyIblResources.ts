@@ -27,6 +27,7 @@ type SkySet = {
 
 /** Device-local sky radiance, Filament GGX prefilter and DFG publication. */
 export class PhysicalSkyIblResources {
+  readonly sampler: GPUSampler;
   private readonly radiancePipeline: GPUComputePipeline;
   private readonly mipPipeline: GPUComputePipeline;
   private readonly prefilterPipeline: GPUComputePipeline;
@@ -53,6 +54,14 @@ export class PhysicalSkyIblResources {
     ) {
       throw new RangeError("Physical sky IBL exceeds device limits");
     }
+    this.sampler = device.createSampler({
+      label: "PhysicalSkyIBL/DFG linear clamp",
+      minFilter: "linear",
+      magFilter: "linear",
+      mipmapFilter: "nearest",
+      addressModeU: "clamp-to-edge",
+      addressModeV: "clamp-to-edge",
+    });
     const pipeline = (label: string, code: string, entryPoint: string): GPUComputePipeline =>
       device.createComputePipeline({
         label,

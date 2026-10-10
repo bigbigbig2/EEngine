@@ -608,6 +608,12 @@ function compileSceneGraph(
         { binding: 5, resource: resolveTextureView(resources.get(surfaceEnvironment!.diffuse)) },
         { binding: 6, resource: resolveTextureView(resources.get(surfaceEnvironment!.specular)) },
         { binding: 7, resource: resolveTextureView(resources.get(surfaceEnvironment!.dfg)) },
+        {
+          binding: 15,
+          resource: plan.request.authoredEnvironment
+            ? frame.view.environment.lights.authoredIbl.sampler
+            : frame.environment!.ibl.sampler,
+        },
         ...owners.surface.neutralLightingEntries.map((entry) => {
           if (entry.binding === 8 && vsmSamplingConstants !== null) {
             return { binding: 8, resource: { buffer: resources.get(vsmSamplingConstants) as GPUBuffer } };

@@ -412,6 +412,7 @@ export async function createNativeSurfaceFixture(
       { binding: 5, resource: diffuseEnvironment.createView() },
       { binding: 6, resource: specularEnvironment.createView() },
       { binding: 7, resource: dfg.createView() },
+        { binding: 15, resource: device.createSampler({ minFilter: "linear", magFilter: "linear" }) },
       { binding: 8, resource: { buffer: vsmConstants } },
       { binding: 9, resource: { buffer: samplingDescriptors } },
       { binding: 10, resource: atlas.createView() },

@@ -17,7 +17,7 @@ import { StandardShadeMaterial } from "../../.test-dist/material/StandardShadeMa
 import { AppearanceGraphBuilder } from "../../.test-dist/material/AppearanceGraph.js";
 import { PointLight } from "../../.test-dist/light/PointLight.js";
 import { DirectionalLight } from "../../.test-dist/light/DirectionalLight.js";
-import { ShadeTexture } from "../../.test-dist/texture/ShadeTexture.js";
+import { ShadeTexture, ShadeImage } from "../../.test-dist/texture/ShadeTexture.js";
 import { ShadeTransparencyMode, ShadeDrawSide } from "../../.test-dist/material/enums.js";
 import { fixtureTexture } from "./texture-fixture.mjs";
 import { PerspectiveCamera } from "../../.test-dist/camera/PerspectiveCamera.js";
@@ -65,7 +65,7 @@ export async function authoredTexture(semantic, texel, extent = 16) {
  * The renderer negotiates its own device because its complete capability profile
  * is larger than the component-oracle host's profile. Its errors are checked here.
  */
-export async function runNativeSurfaceProductionGpuOracle(_device, productGeometry = false) {
+export async function runNativeSurfaceProductionGpuOracle(_device, productGeometry = false, authoredEnvironment = false) {
   let renderer = new Renderer({ autoExposure: false, fixedExposure: 1 });
   const canvas = new OffscreenCanvas(384, 224);
   const context = canvas.getContext("webgpu");
@@ -76,6 +76,15 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
   const errors = [];
   device.addEventListener("uncapturederror", (event) => errors.push(event.error.message));
   const scene = new Scene();
+  if (authoredEnvironment) {
+    const image = new ShadeImage();
+    image.width = image.height = 7;
+    image.depth = 1;
+    image.data_type = "float32";
+    image.color_space = 2;
+    image.source = new Float32Array(7 * 7 * 4).fill(0.25).buffer;
+    scene.lights.environment = ShadeTexture.from(image);
+  }
   const geometry = new BoxGeometry(1.4, 1.4, 1.4);
   const cooked = await cookGeometryAssetPackage(
     buildBoxSourceGeometry(1.4, 1.4, 1.4),
@@ -810,6 +819,16 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
     instrument();
     await tick();
     const recovered = await inspect();
+    if (authoredEnvironment) {
+      const owner = renderer._environments.get(scene).lights.authoredIbl;
+      const entries = actualFrame.lightingEntries;
+      for (const [binding, resource] of [
+        [5, owner.views.diffuse], [6, owner.views.specular], [7, owner.views.dfg], [15, owner.sampler],
+      ]) {
+        check(entries.find(entry => entry.binding === binding)?.resource === resource,
+          `Actual Native binding ${binding} did not consume the recovered authored IBL publication`);
+      }
+    }
     if (productGeometry === "multi") {
       const streaming = renderer.geometryStreamingEvidence(scene);
       check(streaming.products.length === 2, "Recovery dropped an active Product");
@@ -921,6 +940,7 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
       recoveredSceneRelease: Boolean(productGeometry),
       abortRetry: true,
       nativeLightingMutation: true,
+      authoredEnvironment,
       actualRenderer: true,
       cookedTextureWorkerCount: textureWorkerCount,
       textureEvidence,
@@ -941,6 +961,10 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
 
 export async function runNativeSurfaceProductProductionGpuOracle(device) {
   return runNativeSurfaceProductionGpuOracle(device, true);
+}
+
+export async function runNativeSurfaceAuthoredIblProductionGpuOracle(device) {
+  return runNativeSurfaceProductionGpuOracle(device, false, true);
 }
 
 export async function runNativeSurfaceMultiProductProductionGpuOracle(device) {

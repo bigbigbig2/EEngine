@@ -34,7 +34,7 @@ verifies:
 | P0 源码、已有证据与设计 | complete（文档出口） | `f495f04b`源码/报告、成本边界、来源与失败分析；不等于新代码gate通过 |
 | P1 VSM Sampling/Projection V2 | complete（Q-exact局部出口，热状态限制见§3.6） | post-commit compact publication→Native/debug/continuation唯一consumer；numeric通过，局部净P50改善，全帧/P95不承诺 |
 | P2 Native Temporal V2 | in-progress（T1 complete；T2 rejected；T3 deferred） | T1/T2结果见§4.2/4.4；新算法尚未实施，整体未完成 |
-| P3 IBL hardware-friendly publication | not-started | 合法源尺寸/format/预算证明→physical+authored producer→Native binding/DFG/coat→退休与完整numeric/成本 |
+| P3 IBL hardware-friendly publication | complete（exact radiance addressing + filtered DFG） | hardware radiance候选精度失败，改为原四点权重/有界寻址；完整生产接线、原支持域、numeric/lifecycle与限定成本见§5.3 |
 | P4 4GB资源预算与容量策略 | not-started | 全owner账本/峰值→独立capacity配置→moving working-set与驻留验证；growable pool另按完整生命周期闭合 |
 | P5 动态VSM局部失效 | conditional / not-started | 突发因果→old/new caster delta→稳定depth域/局部dirty→全部consumer与压力出口 |
 | P6 PCF算法与后续upscaler/residency研究 | conditional / not-started | 只有前述数据支持且质量合同明确才制定实现；无自动扩展 |
@@ -229,6 +229,55 @@ Cost Card：每完整组current逻辑textureLoad 576→100，prepared-color f32�
 
 ## 5. P3：IBL完整publication优化
 
+### 5.1 实施前冻结：同 mip 产品的 interior filtering
+
+【源码事实/选择】physical为128²/8mips、diffuse32²、DFG64²，authored为合法square/NPOT与四种source format，先转换成linear rgba16float再过滤。原累计峰值检查为`allocatedBytes + raw + 2*mipChain + diffuse + DFG <= 256MiB`，含pending/outgoing/scratch；没有多余峰值额度的合法输入。padded atlas的N+2会超过原maxDimension边界且增加转换峰值，因此选择设计§5.1允许的同mip storage方案：interior完整2×2 footprint用hardware bilinear，seam/corner继续原wrap与f32权重。显式两个integer LOD sample后按原blend混合，避免NPOT时隐式trilinear改变支持域。DFG用同sampler linear/clamp；不改producer GGX128/diffuse256/DFG物理模型。
+
+【容量/生命周期】每个texture size/mip/format、budget表达式与GPU texture live/peak完全不变；无需gutter、conversion、scratch或新增pass。owner各持有一个cold sampler，pending/active仍选同一组texture views；原commit/abort/gpuDone退休不改。材质sampler由三种wrap×(nearest1/linear1/linear8)最多9个、Product最多1个，加Sun1+IBL1最多12，低于WebGPU core最低16；sampled texture数不增加，原有限Sun continuation保留。sampler不可用新增纹理支持域缩水换取。
+
+Cost Card：interior diffuse/spec两mip/DFG由4+8+4 logical loads变为1+2+1 filtered fetch，AO不变，coat由8→2；底层仍可读取同样texels，不宣称DRAM四倍下降。删除interior wrap整数除余/parity与手工权重/mix，新增每mip footprint判定/分支和一个filtering sampler binding；seam保留原四loads/权重，可能增加branch/liveness税。working set新增sampler对象但0B texture/buffer/history，无atomics/barriers/dispatch/frame submit，也无环境发布conversion税。best为大mip interior且pixel多；通常取决于seam比例、texture unit与compiler，未知；worst粗mip/小尺寸或divergence占主导更慢。0/50/100% interior比例的理想manual-load删除为0/6/12 calls每普通pixel（实际texels不减少）；break-even为省ALU/显式指令大于分支/filtering/寄存器代价。IBL D→E差分仅给定位上限，不能等同实际收益。
+
+【验证冻结】原prefilter不变，冻结本地旧manual函数仅oracle使用。先比较axes/seams/corners/signedzero、texelcenter/half、1×1/NPOT/mip末级、roughness边界、HDR孤立亮点/plateau、DFG与coat。沿用Native数值合同`max(.001, abs(expected)*.002)`及既有DFG独立oracle，不因硬件filter误差放宽；不合格则拒绝候选。actual physical/authored producer→Native、abort/retry/outgoing fence/device epoch与budget边界随后检查。成本包括static Native与环境更新事务，后者本方案没有新增GPU发布工作；GPU串行，Before使用T1生产After，不使用已拒绝T2的After。
+
+### 5.2 数值拒绝与精确候选定案（成本测量之前）
+
+【实测事实】interior hardware候选在`3/bright-point`、roughness0失败：原f32为628.418518、硬件632，误差3.581482超过原相对.002合同。NPOT是当前合法输入，HDR亮点不能删，因此拒绝radiance硬件bilinear，不放宽容差。原失败`filtering-gpu.json`保留；一次stale build harness拒绝也保留并新鲜build重跑。
+
+【替代/数学依据】Native radiance仍用原四load及相同f32权重顺序。oct_encode有效direction给uv∈[0,1]，bilinear整数neighbor只在[-1,N]；原general wrap可替换为负边+N/正边−N，单轴越界XOR决定反射。N=1原负边crossing计算不同但所有地址都是0，输出相同。删除所有这些neighbor的integer division/modulo，增加比较/select/subtract，没有新增分支或缓存；各NPOT mip、corner、粗mip使用同一helper。泛用source prefilter仍保留原general wrap，不能把有界证明套到任意坐标。
+
+修订Cost Card：radiance samples/loads/bytes保持diffuse4+specular8（coat再8），只删除每neighbor的vector余数×2与division、abs/crossing；替换为有界比较/select/加减，random footprint和原weights/mip blend保持。DFG四load/手工mix→一linear fetch，底层texels未必减少；新增cold sampler/binding，texture/buffer/shared/history0B、pass/dispatch/atomic/barrier0、environment publication GPU税0。best为整数寻址主导，通常受纹理/BRDF限制，worst compiler原已简化或采样管线税抵消；净收益仍须测。0/50/100%地址ALU转化为时间收益不能由源码推导，整个IBL差分只能作上限。
+
+初步GPU oracle15组10,950 queries覆盖1/3/7/32/128、smooth/2048亮点/plateau、seams/axis/NPOT/mips/roughness/HDR与DFG，通过原容差。随后对radiance收紧为逐bit等价（同数学应完全相同）；DFG继续独立积分与原容差验收。完整producer/consumer切换不采用已拒绝的radiance硬件路径，也不留per-frame诊断分支。
+
+### 5.3 P3出口：精确 radiance 寻址采用，DFG独立过滤
+
+【Previous Task Gate】T1复核成立；T2数值通过但两次ABBA不支持净收益，生产撤回并独立提交拒绝记录。P2算法T3仍延期，不能将此次P3称为完整Temporal V2。用户明确要求后续P3，按设计允许的同算法退守边界调整顺序，不同时改Temporal/VSM/资源预算。
+
+【实际生产路径】`PhysicalSkyIblResources.sampler`与`GpuAuthoredEnvironment.sampler`在cold创建；原record→pending views→同frame convolution→Native→commit/abort→gpuDone退休全部保留。FrameProgram按真实authored/physical owner给group1 binding15，DFG7为float、radiance5/6仍unfilterable。所有lit dense/compact/product/reactive/fused profiles和coat使用同一有界radiance helper；unlit与有限Sun continuation不消费IBL/sampler。无第二renderer、每帧debug branch、atlas/new texture/new buffer/new pass/new submit。原cube/oct方向、GGX128/diffuse256、mips、roughness quadratic LOD、DFG Fc/totalvisibility、single scatter、AO/HDR/pre-exposure不改。
+
+【完整支持域】原physical128²/8、authored合法square/NPOT、四种format、device limits及累计256MiB表达式原样保留，所有GPU texture descriptor/allocations及scratch/outgoing重叠原样；capacity新增0B。新增sampler计入shader资源footprint，生产material有限sampler上界10，加Sun与IBL为12≤core16；未提高能力要求。sampler无destroy API，physical随owner/device回收，authored复用原device-local sampler cache；没有新的退休产品。源prefilter general wrap仍由原owner保留，Native只调用有界地址helper，非永久新旧实现选择。
+
+【正确性】fresh build:test、engine typecheck/build、Dungeon诊断build与20项受影响contracts通过。`ibl-filtering`最终15组42,705 queries，radiance三RGB共128,115 words逐bit一致；新增actual DFG producer的密集掠射/首texel/subtexel坐标，DFG沿用`max(.001, abs(expected)*.002)`，最大绝对误差约.000350。既有31项Schlick/Smith独立积分DFG oracle原断言通过。Native integration含normal/ORM/coat、motion/reactive/actualFSR chain与resize abort/retry通过；双device epoch销毁/重建通过。`ibl-publication`actual authored四format/NPOT、pre-submit abort/retry、same-source去重、scratch/outgoing fence及预算拒绝、actual physical完整LUT/sky/filter/DFG、probe25单位跨界与Sun更新通过，无私有生产submit。最初publication test使用浏览器assert shim不支持throws，修test捕获后重跑通过，原失败保留，不改生产断言或算法。
+
+真实`native-authored-ibl-production`两轮通过，第二轮明确检查恢复后actual Native bindings5/6/7/15分别等于新authored owner views/sampler；真实Renderer lit winner含normal/coat，scene swap、resize、abort/retry、admission burst、controlled device loss/recover及destroy通过。此生产oraclelit部分检查有限/正HDR，精确过滤数学由上述独立冻结shader对照与DFG积分承担；不冒称完整动态IBL画质验收。
+
+【测量口径】原件`.local/validation/p3-ibl-2026-10-11/`。Before为T1已保存After，非拒绝T2候选结果、未重新跑完整baseline。默认G生产Native、无需求统计atomics，performanceCapture max-throughput、原fixed camera、1920×1080/DPR1/scale1、VSM high4×4/radius.75、FSR ON、GTAO/Bloom OFF、geometry1536MiB。每轮严格240 CPU frames/60 GPU samples；Temporal为同帧Facts+FSR之和再求线性分位数，各pass分位数不相加（ms）：
+
+| 窗口 | Native P50/P95 | Temporal P50/P95 | Total command span P50/P95 |
+|---|---:|---:|---:|
+| T1 Before full-1 | 9.414/13.650 | 5.692/7.728 | 34.240/38.903 |
+| T1 Before full-2 | 10.049/16.614 | 6.172/9.156 | 21.792/33.831 |
+| T1 Before full-3 | 9.691/25.075 | 5.944/10.295 | 20.977/54.362 |
+| P3 After full-1 | 7.836/9.325 | 5.977/6.508 | 30.253/40.977 |
+| P3 After full-2 | 8.228/20.819 | 6.165/15.059 | 19.364/48.853 |
+| P3 After full-3 | 8.513/9.352 | 6.342/7.057 | 20.144/21.714 |
+
+【判断】采用精确有界寻址+DFG过滤：三轮局部P50方向一致下降约1.18–1.82ms，新增常规税小、GPU产品容量不变、数值/生命周期通过。**这是本次热状态下观察差，不是锁频因果收益或稳定全帧改善保证**；没有拆分DFG/address各自贡献，不能把整个下降归给硬件DFG。第二轮Native/Temporal/Total P95均更差保留；Native mean 11.678→10.818ms但Total mean24.647→24.885ms，不能从Native P50推断整窗口平均必然盈利。GTX1650Ti/581.42，After窗口89–91°C、SW thermal Active、graphics675–1245MHz，Before300–1215MHz，稀疏读数无逐帧锁频。仍缺register/spill/occupancy/cache/DRAM及锁频ABBA；不宣称删掉的地址ALU完全变成收益。
+
+【CPU/内存/覆盖】After同步render CPU P50/P95为2.795/4.775、2.367/3.562、2.350/3.715ms，Before2.420/4.100、2.363/4.117、2.230/3.381ms，不宣称CPU提速。CDP TaskDuration3504/1578/1611ms、墙钟7.091/6.084/6.078s，含其它CPU与overshoot。三轮API live2,432,355,229B、peak2,511,119,293–2,511,152,061B，transient textures242,115,280B，与T1容量一致；这些不是OS驻留/物理峰值证明。coverage90.664–90.708%、shadedPixels2,073,600、meshlet605、invalid keys0，resident1207/pinned381、evict/reload/failed0、streaming error空。counter末main/shadow readback丢slot各51保留，scheduler demandOverflow/malformed0，原completeness/eviction保护未改；VSM末demand324/allocated438、错误位0/dirty0仅描述末帧，不证明窗口全settled。Before/After截图人工检查无明显变化，numeric为主要证据。
+
+【环境更新成本与限制】本方案没有gutter/conversion、额外texture/dispatch或改变prefilter循环，**源码上新增GPU publication work为0**；真实probe/Sun重烘焙事务与fence已运行，未取得锁频动态publication P50/P95/编辑频率break-even或独立cold编译成本数据。没有把原先就存在的sky预过滤突发当作已优化。未运行完整baseline、所有设备/driver支持域GPU实证、全部动态IBL quality矩阵与P7综合验收；全系统驻留/thermal调优未做。P3单元关闭后停止，不进入P4或新高级effect，P2-T3和60FPS目标仍未完成。
+
 实现前先完成layout/support域证明：physical128²/8mip与authored1…device合法square/NPOT、四种当前sourceformat、当前累计256MiB与outgoing/scratch峰值。compactpaddedatlas优先，N+2超limit或峰值挤出旧合法input时不能静默下采样/拒绝；定案同mipstorage的interiorhardware+seam精确算法或拒绝候选。这里只做必要有限layout，不造通用textureframework。
 
 然后一次闭合：`PhysicalSkyIblResources.record/commit/abort/destroy`与`GpuAuthoredEnvironment.record/onAborted/onFinished`→linear16floatfiltered产品/gutter/DFG→`PhysicalEnvironmentRuntime`existingencoder/publication→`nativeSurfaceBindingGroups`与全部litNativeprofiles/DFG/coat→accounting/scratch/gpuDone退休。sourceprefilter数学不变，resize本身不重烘焙；环境更新tax要在cameraprobe跨量化边界/Sun编辑时测，不只测永不更新的静态图。
@@ -277,4 +326,4 @@ P7必须同时回答：GTX1650Ti4GB/1080p高质量/≥80%覆盖是否达到稳�
 
 未达到目标时保留真实分布/剩余gap，重新排名最多一个下个单元；不能恢复advanced-effects开发或改scale/taps包装性能成功。硬件计数/热状态/OSresidency缺项如实列出；其它GPU型号结果不转写为目标平台已通过。
 
-当前出口：P0完成设计，P1完成Q-exact唯一生产切换及§3.6的限定验证/成本测量；P2完成T1，T2实验拒绝生产采用，T3延期，P3–P7仍未实施。T1帧时改善未证实，容量收益与热状态/尾帧限制同时保留，不宣称完整Native Temporal V2、稳定60FPS或VSM R4验收。
+当前出口：P0完成设计，P1完成Q-exact唯一生产切换；P2完成T1，T2实验拒绝生产采用，T3延期；P3完成精确radiance寻址/DFG过滤与§5.3的限定正确性/成本，P4–P7未实施。T1稳定帧时改善未证实，P3热状态/尾帧限制保留，不宣称完整Native Temporal V2、稳定60FPS或VSM R4验收。

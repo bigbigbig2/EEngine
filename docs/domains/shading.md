@@ -10,6 +10,9 @@ verifies:
   - OEngine/src/shaders/native_surface.ts
   - OEngine/src/render/environment/PhysicalEnvironmentRuntime.ts
   - OEngine/src/shaders/native_environment_brdf.ts
+  - OEngine/src/shaders/native_environment_sample.ts
+  - OEngine/src/render/environment/PhysicalSkyIblResources.ts
+  - OEngine/src/gpu/GpuAuthoredEnvironment.ts
   - OEngine/src/render/program/FrameProgramLowering.ts
 ---
 # Shading
@@ -27,6 +30,8 @@ verifies:
 [LocalLightWorkGenerator](../../OEngine/src/render/lighting/LocalLightWorkGenerator.ts) 借用 Scene-owned LightDatabase staged-or-active publication 和最终 raw winner/depth，产生 128B parameters/header、8B cluster ranges 与 typed complete/compact IDs。零 local lights 使用 NONE；非零生产默认 SPARSE，预算溢出以完整 DIRECT 同数学求值，自动非零 DIRECT 阈值仍禁用。Renderer 拥有 device-local async pipelines 与 fenced frame allocations，Surface 只读 finalized 产品；cache 图逐帧绑定参数/资源/command，不捕获旧 Scene，Lighting 不再要求 HZB。Sun、VSM、IBL、AO 保持独立 provider。
 
 当前 native IBL 使用共享 `native_environment_brdf.ts`：physical/authored 的 DFG 均为 Fc/total visibility，消费系数 `mix(Fc,Total,F0)`；texel-centred NoV/roughness 做 clamp-to-edge 双线性。Clearcoat 以 Schlick NoV Fresnel 衰减 base lobes 并添加 coat，仍为既有 single-scatter profile。环境 diffuse 乘现有 AO/material occlusion，specular 尚无完整场景 sky visibility/GI。PhysicalEnvironment 的分项诊断参数被 native/Sky/Aerial 共同消费；它不改变 IBL cache identity，Unlit 保留自身颜色。
+
+2026-10-11 P3：`native_environment_sample.ts` 的 diffuse/specular/coat radiance保持四点f32权重和原roughness整数mip blend，利用neighbor∈[-1,N]的范围删除通用oct wrap的division/modulo，seam/corner/NPOT不变。DFG使用两个IBL owner稳定linear/clamp sampler，Native group1 binding7为float、binding15为filtering sampler；FrameProgram逐帧绑定当前authored或physical owner。环境GGX128/diffuse256、texture尺寸/mips/格式/预算与publication commit/abort/fence不变，无新增GPU pass/texture/history。radiance硬件bilinear候选因HDR精度失败已拒绝，成本与缺项只读[性能执行§5](../next-execution/eengine-v4-performance-optimization-execution-2026-10.md#5-p3ibl完整publication优化)。
 
 旧 LightClusterPass、cluster-centric kernels、16B metadata/CAS/private256、legacy lighting_direct 和不可达的 PackedTransparentOitPass/wrapper 已删除；透明并非当前 production producer。GpuFrameCounters schema29 封存旧 local-light 槽位，追加 finalized header 的按需采样复制，不能把这些字段解释为 BRDF evaluations 或真实 DRAM traffic。
 

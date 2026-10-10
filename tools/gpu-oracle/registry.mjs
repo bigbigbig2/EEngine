@@ -11,6 +11,30 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "native-authored-ibl-production",
+    file: "OEngine/tests/oracle/native-surface-production-gpu.mjs",
+    url: "/OEngine/tests/oracle/native-surface-production-gpu.mjs",
+    entry: "runNativeSurfaceAuthoredIblProductionGpuOracle",
+    allowPrefixes: ["OEngine/src/render/assets/"],
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    requiredFeatures: ["texture-formats-tier1"],
+    description: "Real Renderer NPOT authored environment to lit Native winner, resize/abort/scene switch and controlled device recovery.",
+  }),
+  Object.freeze({
+    name: "ibl-publication",
+    file: "OEngine/tests/oracle/ibl-publication-gpu.mjs",
+    url: "/OEngine/tests/oracle/ibl-publication-gpu.mjs",
+    entry: "runIblPublicationGpuOracle",
+    description: "Actual physical/authored IBL publication to Native sampling: NPOT/four formats, abort retry, scratch fence, probe/Sun updates and destroy.",
+  }),
+  Object.freeze({
+    name: "ibl-filtering",
+    file: "OEngine/tests/oracle/ibl-filtering-gpu.mjs",
+    url: "/OEngine/tests/oracle/ibl-filtering-gpu.mjs",
+    entry: "runIblFilteringGpuOracle",
+    description: "Native oct filtering vs frozen manual math: seams, NPOT, integer mips, HDR and DFG; unchanged tolerance.",
+  }),
+  Object.freeze({
     name: "fsr3-accumulate-cost",
     file: "OEngine/tests/oracle/fsr3-accumulate-cost-gpu.mjs",
     url: "/OEngine/tests/oracle/fsr3-accumulate-cost-gpu.mjs",

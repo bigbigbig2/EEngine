@@ -8,7 +8,7 @@ import type { AppearanceProgramDescriptor } from "../gpu/AppearanceProgramRegist
 import { NATIVE_MATERIAL_DIRECTORY_WGSL } from "../gpu/GpuNativeMaterialPublication.js";
 import { surfaceGeometryCompletionWgsl } from "./surface_geometry_completion.js";
 import { NATIVE_LOCAL_LIGHTING } from "./native_local_lighting.js";
-import { OCTAHEDRAL_SAMPLE_WGSL } from "./environment_ibl.js";
+import { NATIVE_ENVIRONMENT_SAMPLE_WGSL } from "./native_environment_sample.js";
 import { ENVIRONMENT_BRDF_WGSL } from "./native_environment_brdf.js";
 import { LINEAR_REC709_TO_REC2020_WGSL } from "./working_color.js";
 import { nativeSurfaceAuxWgsl } from "./native_surface_aux.js";
@@ -159,12 +159,17 @@ export function nativeSurfaceBindingGroups(
         uniform(4),
         texture(5, "unfilterable-float"),
         texture(6, "unfilterable-float"),
-        texture(7, "unfilterable-float"),
+        texture(7, "float"),
         uniform(8),
         read(9),
         texture(10, "depth"),
         texture(11, "float")
       ];
+  if (!profile.unlit) {
+    // Both IBL owners publish linear rgba16float. Only DFG uses hardware
+    // filtering; oct radiance keeps exact f32 interpolation and seam support.
+    lighting.push({ binding: 15, visibility: COMPUTE, sampler: { type: "filtering" } });
+  }
   const material: GPUBindGroupLayoutEntry[] = [read(0), read(1), uniform(3), uniform(4)];
   if (!profile.unlit && profile.physicalSun) {
     lighting.push(...nativeSurfacePhysicalSunLayoutEntries());
@@ -301,7 +306,7 @@ export function nativeSurfaceWgsl(
     : /* wgsl */ `
 ${NATIVE_LOCAL_LIGHTING.source}
 ${profile.physicalSun ? nativeSurfacePhysicalSunWgsl(costSlice === "G" || costSlice === "K" || costSlice === "Q0", costSlice === "Q0") : ""}
-${OCTAHEDRAL_SAMPLE_WGSL}
+${NATIVE_ENVIRONMENT_SAMPLE_WGSL}
 ${ENVIRONMENT_BRDF_WGSL}
 struct NativeShadingView {
   width: u32,
@@ -315,6 +320,7 @@ ${NATIVE_LOCAL_LIGHTING.declarations}
 @group(1) @binding(5) var environment_diffuse: texture_2d<f32>;
 @group(1) @binding(6) var environment_specular: texture_2d<f32>;
 @group(1) @binding(7) var environment_dfg: texture_2d<f32>;
+@group(1) @binding(15) var environment_sampler: sampler;
 @group(1) @binding(8) var<uniform> vsm_constants: VsmSamplingConstants;
 @group(1) @binding(9) var<storage, read> vsm_sampling_descriptors: array<VsmSamplingDescriptor>;
 @group(1) @binding(10) var vsm_atlas_depth: texture_depth_2d;
@@ -328,16 +334,16 @@ fn native_environment(material: StandardMaterial, normal: vec3f, direction: vec3
   }`
       : ""
   }
-  let irradiance = sample_octahedral_bilinear(environment_diffuse, vec2u(0u), textureDimensions(environment_diffuse).x, normal, 0u).rgb;
+  let irradiance = sample_native_environment_mip(environment_diffuse, normal, 0u);
   let reflection = reflect(-direction, normal);
-  let radiance = sample_prefiltered_environment(environment_specular, reflection, material.roughness);
-  let dfg = sample_environment_dfg(environment_dfg, saturate(dot(normal, direction)), material.roughness);
+  let radiance = sample_native_environment(environment_specular, reflection, material.roughness);
+  let dfg = sample_environment_dfg(environment_dfg, environment_sampler, saturate(dot(normal, direction)), material.roughness);
   var base_attenuation = 1.0;
   var coat_radiance = vec3f(0.0);
   if material.coatFactor > 0.0 {
     let coat_fresnel = environment_clearcoat_fresnel(dot(material.coatNormal, direction), material.coatFactor);
     base_attenuation = 1.0 - coat_fresnel;
-    coat_radiance = sample_prefiltered_environment(environment_specular,
+    coat_radiance = sample_native_environment(environment_specular,
       reflect(-direction, material.coatNormal), material.coatRoughness) * coat_fresnel;
   }
   let ao = textureLoad(ambient_occlusion, vec2i(min(pixel, textureDimensions(ambient_occlusion) - vec2u(1u))), 0).r * material.occlusion;

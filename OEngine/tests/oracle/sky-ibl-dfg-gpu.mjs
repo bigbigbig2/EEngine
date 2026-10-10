@@ -86,9 +86,10 @@ ${ENVIRONMENT_BRDF_WGSL}
 @group(0) @binding(0) var lut: texture_2d<f32>;
 @group(0) @binding(1) var<storage, read> cases: array<vec4f>;
 @group(0) @binding(2) var<storage, read_write> results: array<vec4f>;
+@group(0) @binding(3) var linear_clamp: sampler;
 @compute @workgroup_size(1) fn main(@builtin(global_invocation_id) id: vec3u) {
   let c = cases[id.x];
-  let dfg = sample_environment_dfg(lut, c.x, c.y);
+  let dfg = sample_environment_dfg(lut, linear_clamp, c.x, c.y);
   results[id.x] = vec4f(environment_dfg_single_scatter(dfg, vec3f(c.z)), environment_clearcoat_fresnel(c.x, 1.0));
 }`,
       }),
@@ -117,6 +118,7 @@ ${ENVIRONMENT_BRDF_WGSL}
           { binding: 0, resource: texture.createView() },
           { binding: 1, resource: { buffer: input } },
           { binding: 2, resource: { buffer: output } },
+          { binding: 3, resource: device.createSampler({ minFilter: "linear", magFilter: "linear" }) },
         ],
       }),
     );

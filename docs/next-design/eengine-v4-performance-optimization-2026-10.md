@@ -10,6 +10,7 @@ verifies:
     - OEngine/src/shaders/native_execution_bins.ts
     - OEngine/src/shaders/environment_ibl.ts
     - OEngine/src/shaders/native_environment_brdf.ts
+    - OEngine/src/shaders/native_environment_sample.ts
     - OEngine/src/shaders/vsm_sampling.ts
     - OEngine/src/shaders/vsm_page_table.ts
     - OEngine/src/render/environment
@@ -223,7 +224,7 @@ RCAS维持当前质量入口。若新resolve要代替锐化，需证明同质量
 
 ### 5.1 IBL硬件友好publication/filtering
 
-当前 `native_environment`通常执行diffuse4 load、specular8、DFG4、AO1，共17逻辑loads，coat再加8；oct wrap对每neighbor做integer divide/modulo/parity reflection。`rgba16float`支持filtered采样，但current layout把IBL5/6/7设为unfilterable-float。目标保持GGX128 samples、diffuse256 samples、roughness→LOD映射、DFG(Fc,total visibility)与single scattering；**把seam处理移到环境发布，Native用硬件filter**。
+Before `native_environment`通常执行diffuse4 load、specular8、DFG4、AO1，共17逻辑loads，coat再加8；oct wrap对每neighbor做integer divide/modulo/parity reflection。`rgba16float`支持filtered采样，但Before layout把IBL5/6/7设为unfilterable-float。初始目标保持GGX128 samples、diffuse256 samples、roughness→LOD映射、DFG(Fc,total visibility)与single scattering；把seam处理移到环境发布，Native用硬件filter。以下为候选设计，实际采用与拒绝以执行结果为准。
 
 推荐每原mip tile有1-texel ring与corner，由现有oct_wrap生成，compact atlas显式记录origin/size；sample坐标 `(origin+1+octUV*N_l)/atlasSize`，硬件texel−0.5与原bilinear对齐；两次LOD0 atlas fetch按原roughness LOD混合，不给atlas自动mip。DFG直接linear/clamp原64²LUT。ring来自完成的原mip，不能同dispatch跨workgroup读尚未完成的邻接output。原filtered scratch只存到conversion完成，随后fenced retirement，不永久保留两套IBL产品。
 
@@ -234,6 +235,8 @@ RCAS维持当前质量入口。若新resolve要代替锐化，需证明同质量
 Cost Card：normal非coat逻辑filter调用由16点loads→diffuse1/spec2/DFG1 filtered fetch，AOload不变；底层过滤仍可能读16个texel，**不是4× DRAM节省**。删除重复地址/wrap/mix ALU，增加sampler、tile metadata/绑定、每环境publication conversion/gutter dispatch与scratch峰值，无每帧额外history/atomic。physical sky `record→pending views→commit(gpuDone)→active/retired`、authored `record/onAborted/onFinished/gpuDone`同时切换；原runtime同frame encoder、不增加submit。camera探针量化/Sun变化导致更新频繁时，新增发布税可能吞掉每pixel收益。best静态环境/pixel多；worst持续重烘焙、大源/预算边界或driver filtered rounding不通过；break-even为累计Native省时大于publication及峰值税。0%拒绝、50/100%是删除手工采样工作的敏感性，不是IBL整体收益。D→E约2–2.6ms仅定位区间。
 
 当前lit consumer由physical/authored供IBL，unlit不采样；`neutralLightingEntries`只覆盖VSM/AO，不存在要迁移的neutral IBL owner。`environment_ibl.ts`未接线的旧background/diffuse常量不是production consumer；prefilter自身helpers不得因Native换sample就一起改数学。
+
+**P3实现后的设计修正（2026-10-11）**：padded atlas不能覆盖原maxDimension/累计峰值域；interior硬件radiance过滤也在合法NPOT HDR亮点上违反原数值容差，拒绝采用，不能把“支持filterable”当同质量证明。最终使用同mip rgba16float产品、Native有界oct neighbor寻址和原四点f32插值，删除通用division/modulo；DFG单独hardware linear/clamp已通过原积分/数值检查。没有gutter/conversion/new texture/new dispatch，原producer采样数学和容量不改。原radiance硬件方案不留生产fallback或诊断分支。实际Cost Card、After、拒绝与生命周期见执行§5，不能据此宣称整个IBL已变为四fetch。
 
 ### 5.2 Memory预算V2
 
