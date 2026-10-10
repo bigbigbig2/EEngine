@@ -153,6 +153,10 @@ const EVICTION_THRASH_WINDOW_FRAMES = 60;
 
 /** Product-owned bootstrap admission and decoded-page heap. Later demand/eviction extends this owner. */
 export class VirtualGeometryResidency {
+  #contentRevision = 0;
+  get contentRevision(): number {
+    return this.#contentRevision;
+  }
   /** CPU source registration follows publication; GPU retirement remains fenced. */
   readonly publicationChanged = new Signal<"active" | "inactive" | "destroyed">();
   readonly #banks: GPUBuffer[] = [];
@@ -609,6 +613,7 @@ export class VirtualGeometryResidency {
     if (this.#pageLocations.has(page.pageId)) return;
     if (this.#retiringLocations.has(page.pageId))
       throw new Error("Geometry Product page is retiring and cannot be re-uploaded yet");
+    if (this.#contentRevision >= 0xfffffffe) throw new RangeError("Geometry content revision exhausted");
     const slot = this.#acquireSlot();
     if (!slot) throw new Error("Geometry Product shared resident heap is full; page must remain queued");
     let location: GeometryPageLocationV1;
@@ -624,11 +629,14 @@ export class VirtualGeometryResidency {
     this.#onResident(page.pageId);
     this.#publishPageLocation(page.pageId, location);
     this.#publishGroupsForPage(page.pageId, location);
+    this.#contentRevision++;
   }
   beginRetirePage(pageId: number): void {
     this.#assertPageId(pageId);
     const location = this.#pageLocations.get(pageId);
     if (!location || (location.flags & GEOMETRY_PAGE_LOCATION_PINNED) !== 0) return;
+    if (this.#contentRevision >= 0xfffffffe) throw new RangeError("Geometry content revision exhausted");
+    this.#contentRevision++;
     this.#pageLocations.delete(pageId);
     this.#retiringLocations.set(pageId, location);
     this.#pageLastUsed.delete(pageId);

@@ -222,7 +222,10 @@ export function assertFrameProgramBindings(plan: FrameProgram, bindings: FramePr
   }
   if (
     bindings.vsmGeneration.deviceEpoch !== bindings.deviceEpoch ||
-    (bindings.vsmFrame !== null && bindings.vsmFrame.generation !== bindings.vsmGeneration.generation)
+    (bindings.vsmFrame !== null &&
+      (bindings.vsmFrame.generation !== bindings.vsmGeneration.generation ||
+        bindings.vsmFrame.projectionEpoch !== bindings.vsmGeneration.projectionEpoch ||
+        bindings.vsmFrame.namespace !== bindings.vsm?.namespace))
   ) {
     throw new Error("Frame Program VSM generation facts are stale");
   }

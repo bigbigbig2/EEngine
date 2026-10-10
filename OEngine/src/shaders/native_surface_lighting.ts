@@ -1,3 +1,4 @@
+import { GPU_INSTANCE_FLAGS } from "../gpu/GpuInstanceAbi.js";
 import { ATMOSPHERE_RUNTIME_WGSL } from "./atmosphere/runtime.js";
 
 export interface NativeSurfacePhysicalSunProvider {
@@ -40,7 +41,9 @@ export function nativeSurfacePhysicalSunEntries(
  */
 export function nativeSurfacePhysicalSunWgsl(shadowed: boolean): string {
   const visibility = shadowed
-    ? "  incident.color *= vsm_sample_directional(geometry.position, geometry.shading_normal, incident);"
+    ? `  if ((instance_flags & ${GPU_INSTANCE_FLAGS.ReceivesShadow}u) != 0u) {
+    incident.color *= vsm_sample_directional(geometry.position, geometry.shading_normal, incident);
+  }`
     : "";
   return /* wgsl */ `
 ${ATMOSPHERE_RUNTIME_WGSL}
@@ -48,7 +51,7 @@ ${ATMOSPHERE_RUNTIME_WGSL}
 @group(1) @binding(13) var native_solar_transmittance: texture_2d<f32>;
 @group(1) @binding(14) var native_solar_sampler: sampler;
 
-fn native_surface_physical_sun(material: StandardMaterial, geometry: SurfaceGeometry) -> vec3f {
+fn native_surface_physical_sun(material: StandardMaterial, geometry: SurfaceGeometry, instance_flags: u32) -> vec3f {
   var incident: GpuPrimitiveTypeTable;
   incident.direction = normalize(native_physical_sun.sun_direction_world);
   incident.color = atmosphere_sun_irradiance(geometry.position, native_physical_sun,

@@ -146,7 +146,7 @@ export class NativeVisibilityPass {
     }
     if (
       input.vsmAtlas &&
-      (input.vsmAtlas.constants.size < 192 ||
+      (input.vsmAtlas.constants.size < 240 ||
         input.vsmAtlas.constants.size > limits.maxUniformBufferBindingSize ||
         (input.vsmAtlas.constants.usage & GPUBufferUsage.UNIFORM) === 0)
     ) {

@@ -1,3 +1,4 @@
+import { instanceShadowFlagsFromExtras } from "../../../core/InstanceShadowSemantics.js";
 import type { GlbRangeReadableSource } from "./GlbRangeSource.js";
 
 export interface GlbByteRange {
@@ -7,12 +8,7 @@ export interface GlbByteRange {
 }
 
 export type GlbCookAttributeSemantic =
-  | "POSITION"
-  | "NORMAL"
-  | "TANGENT"
-  | "TEXCOORD_0"
-  | "TEXCOORD_1"
-  | "COLOR_0";
+  "POSITION" | "NORMAL" | "TANGENT" | "TEXCOORD_0" | "TEXCOORD_1" | "COLOR_0";
 
 export interface GlbCookAccessor {
   readonly accessorIndex: number;
@@ -108,6 +104,7 @@ export interface GlbSceneInstance {
   readonly nodeIndex: number;
   readonly meshIndex: number;
   readonly worldMatrix: Float32Array;
+  readonly flags?: number;
 }
 
 /** Builds a compact dependency catalog without reading any BIN payload. */
@@ -159,7 +156,15 @@ export function buildGlbSceneCatalog(source: GlbRangeReadableSource): GlbSceneCa
           `GLB node ${nodeIndex} is reachable with multiple world transforms; static instance publication is ambiguous`,
         );
       }
-      instanceByNode.set(nodeIndex, Object.freeze({ nodeIndex, meshIndex: node.mesh, worldMatrix }));
+      instanceByNode.set(
+        nodeIndex,
+        Object.freeze({
+          nodeIndex,
+          meshIndex: node.mesh,
+          worldMatrix,
+          flags: instanceShadowFlagsFromExtras(node.extras)
+        })
+      );
     }
     for (const child of node.children ?? []) visit(child, visited, worldMatrix);
     visited.delete(nodeIndex);
@@ -355,6 +360,7 @@ interface GltfAccessor {
   max?: unknown;
 }
 interface GltfNode {
+  extras?: unknown;
   mesh?: number;
   skin?: number;
   children?: number[];

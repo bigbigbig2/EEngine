@@ -1,3 +1,4 @@
+import { INSTANCE_SHADOW_SEMANTICS } from "../../core/InstanceShadowSemantics.js";
 /**
  * `scene.oescene` contract V3 (schema `oengine-scene-v3`).
  *
@@ -41,6 +42,7 @@ export interface OegPackSceneManifestInstanceV3 {
 
 export interface OegPackSceneManifestV3 {
   readonly schema: typeof OEGPACK_SCENE_MANIFEST_SCHEMA_V3;
+  readonly instanceSemantics: typeof INSTANCE_SHADOW_SEMANTICS;
   readonly packs: readonly OegPackSceneManifestPackV3[];
   readonly assets: readonly OegPackSceneManifestAssetV3[];
   readonly instances: readonly OegPackSceneManifestInstanceV3[];
@@ -68,7 +70,12 @@ export function parseOegPackSceneManifestV3(
     );
   }
   if (!isRecord(value)) throw new OegPackSceneManifestError("scene manifest must be a JSON object");
-  requireExactKeys(value, ["schema", "packs", "assets", "instances"], "scene manifest");
+  if (value.instanceSemantics !== INSTANCE_SHADOW_SEMANTICS) {
+    throw new OegPackSceneManifestError(
+      "Scene instance semantics are legacy or unsupported; re-cook the source asset (do not infer zero flags)"
+    );
+  }
+  requireExactKeys(value, ["schema", "instanceSemantics", "packs", "assets", "instances"], "scene manifest");
   if (value.schema !== OEGPACK_SCENE_MANIFEST_SCHEMA_V3) {
     throw new OegPackSceneManifestError(
       `scene manifest schema must be '${OEGPACK_SCENE_MANIFEST_SCHEMA_V3}'`,
@@ -83,6 +90,7 @@ export function parseOegPackSceneManifestV3(
   );
   return Object.freeze({
     schema: OEGPACK_SCENE_MANIFEST_SCHEMA_V3,
+    instanceSemantics: INSTANCE_SHADOW_SEMANTICS,
     packs: Object.freeze(packs),
     assets: Object.freeze(assets),
     instances: Object.freeze(instances),

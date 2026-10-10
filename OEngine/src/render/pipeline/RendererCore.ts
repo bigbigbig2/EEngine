@@ -1,3 +1,4 @@
+import { VsmDepthBoundsPass } from "../vsm/VsmDepthBoundsPass.js";
 import { ChangeSignal } from "../../core/Signal.js";
 import { Vec2 } from "../../core/math/Vec2.js";
 import { GraphicsContext } from "../../gpu/GraphicsContext.js";
@@ -132,6 +133,8 @@ import { VsmAllocatePagesPass } from "../vsm/VsmAllocatePagesPass.js";
 import { VsmCasterRecordPass } from "../vsm/VsmCasterRecordPass.js";
 import { VsmAtlasRasterPass } from "../vsm/VsmAtlasRasterPass.js";
 import { VsmInvalidationPass } from "../vsm/VsmInvalidationPass.js";
+import { GPU_INSTANCE_FLAGS } from "../../gpu/GpuInstanceAbi.js";
+import { DEFAULT_INSTANCE_SHADOW_FLAGS } from "../../core/InstanceShadowSemantics.js";
 import { VsmGeneration } from "../vsm/VsmGeneration.js";
 
 export interface RendererInitializeOptions {
@@ -201,17 +204,24 @@ function refreshProductSceneSourceForRecovery(
   if (meshes.length !== source.count) throw new Error("Product recovery mesh count changed");
   const currentTransforms = new Float32Array(source.count * 16);
   const materialIndices = new Uint32Array(source.count);
+  const flags = new Uint32Array(source.count);
   for (let index = 0; index < meshes.length; index++) {
     const mesh = meshes[index]!;
     currentTransforms.set(mesh.transform_global.matrix, index * 16);
     const materialIndex = source.materials.indexOf(mesh.material as StandardShadeMaterial);
     if (materialIndex < 0) throw new Error("Product recovery material is outside the published dictionary");
     materialIndices[index] = materialIndex;
+    flags[index] =
+      ((source.flags?.[index] ?? DEFAULT_INSTANCE_SHADOW_FLAGS) &
+        ~(GPU_INSTANCE_FLAGS.CastsShadow | GPU_INSTANCE_FLAGS.ReceivesShadow)) |
+      (mesh.castShadow ? GPU_INSTANCE_FLAGS.CastsShadow : 0) |
+      (mesh.receiveShadow ? GPU_INSTANCE_FLAGS.ReceivesShadow : 0);
   }
   return Object.freeze({
     ...source,
     meshes,
     materialIndices,
+    flags,
     currentTransforms,
     previousTransforms: currentTransforms.slice(),
   });
@@ -474,6 +484,7 @@ export class Renderer {
   private _recoveryCheckpoint: ReturnType<Renderer["checkpointRecovery"]> | null = null;
   private _streamingGpuFrameTimeMs = 0;
   private _vsm: VsmResources | null = null;
+  private _vsmDepthBounds!: VsmDepthBoundsPass;
   private _vsmReceiverDemand!: VsmReceiverDemandPass;
   private _vsmAllocatePages!: VsmAllocatePagesPass;
   private _vsmCasterRecords!: VsmCasterRecordPass;
@@ -1680,11 +1691,12 @@ export class Renderer {
     // earlier would dereference an undefined device owner.
     if (config.enableVsm !== false) {
       this._vsm = VsmResources.create(device, negotiateVsmCapabilities(device));
+      this._vsmDepthBounds = new VsmDepthBoundsPass(device);
       this._vsmReceiverDemand = new VsmReceiverDemandPass(device);
       this._vsmAllocatePages = new VsmAllocatePagesPass(device);
       this._vsmCasterRecords = new VsmCasterRecordPass(device);
       this._vsmAtlasRaster = new VsmAtlasRasterPass(this._graphics);
-      this._vsmInvalidation = new VsmInvalidationPass();
+      this._vsmInvalidation = new VsmInvalidationPass(device);
     }
     this._frameCoordinator = new FrameCoordinator(this._graphics);
     this._environments = new GPUSceneEnvironmentManager(this._graphics);
@@ -1799,6 +1811,7 @@ export class Renderer {
       sky: this._physicalSky,
       aerial: this._aerialPerspective,
       localLightWork: this._localLightWork,
+      vsmDepthBounds: this._vsmDepthBounds,
       vsmReceiverDemand: this._vsmReceiverDemand,
       vsmAllocatePages: this._vsmAllocatePages,
       vsmCasterRecords: this._vsmCasterRecords,
@@ -1992,8 +2005,10 @@ export class Renderer {
         (patchResult !== null && patchResult.dirtyInstanceCount > 0)
       ) {
         const previousCasterRevision = this._vsmCasterPublicationRevision;
-        this._vsmCasterPublicationRevision =
-          previousCasterRevision >= 0xfffffffe ? 1 : previousCasterRevision + 1;
+        if (previousCasterRevision >= 0xfffffffe) {
+          throw new RangeError("VSM caster publication revision exhausted");
+        }
+        this._vsmCasterPublicationRevision = previousCasterRevision + 1;
         command.onAborted.addOne(() => {
           this._vsmCasterPublicationRevision = previousCasterRevision;
         });
@@ -2027,18 +2042,22 @@ export class Renderer {
             this._vsmGeneration.currentGeneration,
           )
         : null;
-      const vsmGeneration = this._vsmGeneration.begin({
+      const vsmGeneration = this._vsmGeneration.prepare({
         deviceEpoch: this.deviceEpoch,
-        scene,
+        scene: runtime,
         sceneRevision: runtime.shadingPublication.revision,
         casterRevision: this._vsmCasterPublicationRevision,
-        sunRevision: scene.physical_environment.revision,
+        sourceRevision:
+          streaming?.contentRevision ?? this._virtualProductScenes.get(scene)?.residency.contentRevision ?? 0,
         sunDirection,
         cameraCut: cameraCut || cameraChanged,
         clipOriginExtent: vsmPreview?.clipOriginExtent ?? [],
         width,
         height,
       });
+      command.onFinished.addOne(() => this._vsmGeneration.commit(vsmGeneration));
+      command.onAborted.addOne(() => this._vsmGeneration.abort());
+      if (vsmEnabled) this._vsmDepthBounds.prepareFrame(runtime.instanceCount, command);
       if (vsmGeneration.temporalInvalidate) this._temporalFacts.invalidate();
       this._gpuRadiometry.prepareFrame(
         colorHistory.readIndex,
@@ -2168,15 +2187,14 @@ export class Renderer {
           environmentGeneration ?? this._environmentRuntime?.state.active?.snapshot.generation ?? 0,
         environment: this._environmentRuntime,
         vsm: this._vsm,
-        vsmFrame: vsmEnabled
-          ? buildVsmDirectionalFrameConstants(
-              sunDirection,
-              cameraPosition,
-              camera.far,
-              this._vsm!,
-              vsmGeneration.generation,
-            )
-          : null,
+        vsmFrame:
+          vsmPreview === null
+            ? null
+            : {
+                ...vsmPreview,
+                generation: vsmGeneration.generation,
+                projectionEpoch: vsmGeneration.projectionEpoch
+              },
         vsmGeneration,
       };
       finishViewPrepare();
@@ -2422,6 +2440,8 @@ export class Renderer {
     this._renderDebugViewPass?.destroy();
     this._vsm?.destroy();
     this._vsm = null;
+    this._vsmDepthBounds?.destroy();
+    this._vsmInvalidation?.destroy();
     this._vsmReceiverDemand?.destroy();
     this._vsmAllocatePages?.destroy();
     this._vsmCasterRecords?.destroy();

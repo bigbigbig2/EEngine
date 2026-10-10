@@ -13,7 +13,8 @@ export type VsmBufferKey =
   | "pageConstants"
   | "pageLocks"
   | "slotLocks"
-  | "contentVersion";
+  | "contentVersion"
+  | "depthRange";
 let nextContentNamespace = 1;
 
 /** GPU-resident diagnostic locations. Consumers must not map them to steer work. */
@@ -30,6 +31,7 @@ export interface VsmDiagnostics {
 
 /** Persistent device-local VSM storage. FrameGraph owns only per-frame scratch. */
 export class VsmResources {
+  readonly namespace: number;
   readonly profile: VsmCapabilities["profile"];
   readonly atlasDepth: GPUTexture | null;
   readonly atlasDepthView: GPUTextureView | null;
@@ -40,16 +42,17 @@ export class VsmResources {
     private readonly device: GPUDevice,
     readonly capabilities: VsmCapabilities,
   ) {
+    if (nextContentNamespace >= 0xfffffffe) {
+      throw new RangeError("VSM content namespace exhausted");
+    }
+    this.namespace = nextContentNamespace++;
     this.profile = capabilities.profile;
     if (capabilities.profile === "shadow-disabled") {
       this.atlasDepth = null;
       this.atlasDepthView = null;
       return;
     }
-    if (nextContentNamespace >= 0xfffffffe) {
-      throw new RangeError("VSM content namespace exhausted");
-    }
-    const contentNamespace = nextContentNamespace++;
+    const contentNamespace = this.namespace;
     this.atlasDepth = device.createTexture({
       label: `VSM/${capabilities.profile}/depth-atlas`,
       size: {
@@ -72,7 +75,7 @@ export class VsmResources {
       capabilities.metaTableBytes,
       GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     );
-    this.createBuffer("demand", capabilities.demandBytes, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
+    this.createBuffer("demand", capabilities.demandBytes, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
     this.createBuffer(
       "allocation",
       capabilities.allocationBytes,
@@ -96,6 +99,11 @@ export class VsmResources {
       5 * 4 * 64,
       GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST,
     );
+    this.createBuffer(
+      "depthRange",
+      16,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
+    );
     this.createBuffer("pageConstants", 256, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
     this.createBuffer(
       "pageLocks",
@@ -117,6 +125,10 @@ export class VsmResources {
 
   static create(device: GPUDevice, capabilities: VsmCapabilities): VsmResources {
     return new VsmResources(device, capabilities);
+  }
+
+  get depthRange(): GPUBuffer | null {
+    return this.getBuffer("depthRange");
   }
 
   get pageTable(): GPUBuffer | null {

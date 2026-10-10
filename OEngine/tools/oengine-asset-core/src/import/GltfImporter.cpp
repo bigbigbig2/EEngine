@@ -24,6 +24,39 @@ struct CgltfDeleter {
     void operator()(cgltf_data* data) const { if (data) cgltf_free(data); }
 };
 
+// Reuse the pinned cgltf JSON tokenizer/decoder; inspect only root node extras.
+// No substring search: nested or string-valued keys must not change semantics.
+std::uint32_t InstanceShadowFlags(const cgltf_extras& extras) {
+    std::uint32_t flags = (1u << 1u) | (1u << 2u);
+    if (!extras.data) return flags;
+    const std::size_t bytes = std::strlen(extras.data);
+    jsmn_parser parser;
+    jsmn_init(&parser);
+    const int count = jsmn_parse(&parser, extras.data, bytes, nullptr, 0u);
+    if (count <= 0) throw std::runtime_error("invalid node extras JSON");
+    std::vector<jsmntok_t> tokens(static_cast<std::size_t>(count));
+    jsmn_init(&parser);
+    if (jsmn_parse(&parser, extras.data, bytes, tokens.data(), tokens.size()) != count)
+        throw std::runtime_error("invalid node extras JSON tokens");
+    if (tokens[0].type != JSMN_OBJECT) return flags;
+    for (int index = 1; index < count;) {
+        const auto& token = tokens[index];
+        std::string key(extras.data + token.start, extras.data + token.end);
+        cgltf_decode_string(key.data());
+        key.resize(std::strlen(key.c_str()));
+        const auto& value = tokens[index + 1];
+        const std::uint32_t bit = key == "castShadow" ? (1u << 1u) : key == "receiveShadow" ? (1u << 2u) : 0u;
+        if (bit != 0u) {
+            const std::string text(extras.data + value.start, extras.data + value.end);
+            if (value.type != JSMN_PRIMITIVE || (text != "true" && text != "false"))
+                throw std::runtime_error(key + " must be boolean when declared");
+            flags = text == "true" ? flags | bit : flags & ~bit;
+        }
+        index = cgltf_skip_json(tokens.data(), index + 1);
+    }
+    return flags;
+}
+
 // cgltf parses EXT_meshopt_compression but leaves decoding to its caller.
 // Read only referenced views; the virtual decoded buffer need not exist on disk.
 std::vector<unsigned char> ReadBufferRange(
@@ -314,6 +347,7 @@ ImportedSceneV3 ImportGltfCanonical(const std::string& path) {
         if (meshIndex >= meshToAsset.size() || meshToAsset[meshIndex] == kInvalidId) continue;
         SceneInstanceV3 instance;
         instance.assetIndex = meshToAsset[meshIndex];
+        instance.flags = InstanceShadowFlags(node.extras);
         cgltf_node_transform_world(&node, instance.worldTransform.data());
         output.instances.push_back(instance);
     }

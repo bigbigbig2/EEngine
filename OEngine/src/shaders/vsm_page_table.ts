@@ -13,7 +13,11 @@ struct VsmPageEntry {
   generation: u32,
   fallback_mip: u32,
   reserved_0: u32,
-  reserved_1: u32,
+  projection_epoch: u32,
+  world_x: i32,
+  world_y: i32,
+  content_namespace: u32,
+  reserved_2: u32,
 };
 
 struct VsmMetaEntry {
@@ -55,7 +59,9 @@ fn vsm_page_entry_coordinates(index: u32, pages_per_axis: u32) -> vec4u {
   for (var mip = 0u; mip < VSM_MIP_LEVELS; mip++) {
     let axis = max(1u, pages_per_axis >> mip);
     let plane = axis * axis;
-    if (local < plane) { return vec4u(level, mip, local % axis, local / axis); }
+    if (local < plane) {
+      return vec4u(level, mip, local % axis, local / axis);
+    }
     local -= plane;
   }
   return vec4u(0xffffffffu);
@@ -66,6 +72,26 @@ fn vsm_page_is_current(entry: VsmPageEntry, generation: u32) -> bool {
     (entry.flags & VSM_PAGE_GENERATION_VALID) != 0u && entry.generation == generation;
 }
 
+fn vsm_floor_mod(value: i32, axis: u32) -> u32 {
+  let divisor = i32(axis);
+  return u32(((value % divisor) + divisor) % divisor);
+}
+fn vsm_world_page_entry_index(level: u32, mip: u32, world: vec2i, pages: u32) -> u32 {
+  let axis = max(1u, pages >> mip);
+  return vsm_page_entry_index(level, mip, vsm_floor_mod(world.x, axis), vsm_floor_mod(world.y, axis), pages);
+}
+fn vsm_world_page(light_xy: vec2f, clip: vec4f, mip: u32, pages: u32) -> vec2i {
+  return vec2i(floor(light_xy / (clip.z / f32(max(1u, pages >> mip)))));
+}
+fn vsm_window_minimum(clip: vec4f, mip: u32, pages: u32) -> vec2i {
+  let axis = max(1u, pages >> mip);
+  let center = clip.xy + vec2f(clip.z * 0.5);
+  return vec2i(floor(center / (clip.z / f32(axis)))) - vec2i(i32(axis / 2u));
+}
+fn vsm_key_matches(entry: VsmPageEntry, world: vec2i, identity: vec4u) -> bool {
+  return entry.world_x == world.x && entry.world_y == world.y &&
+    entry.projection_epoch == identity.x && entry.content_namespace == identity.y;
+}
 fn vsm_page_slot(entry: VsmPageEntry) -> vec2u {
   return vec2u(entry.slot_x, entry.slot_y);
 }

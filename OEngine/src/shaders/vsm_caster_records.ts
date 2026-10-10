@@ -1,11 +1,11 @@
-import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
+import { GPU_INSTANCE_RECORD_WGSL, GPU_INSTANCE_FLAGS } from "../gpu/GpuInstanceAbi.js";
 import { GPU_GEOMETRY_RECORD_WGSL, GPU_MESHLET_RECORD_WGSL } from "../gpu/GpuGeometryAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import { VSM_PAGE_TABLE_WGSL } from "./vsm_page_table.js";
 import { HIERARCHY_LOD_WGSL } from "./hierarchy_lod.js";
 
-const GPU_INSTANCE_RASTER_CASTS_SHADOW = 1 << 1;
-const GPU_INSTANCE_RASTER_TRANSPARENT = 1 << 6;
+const GPU_INSTANCE_RASTER_CASTS_SHADOW = GPU_INSTANCE_FLAGS.CastsShadow;
+const GPU_INSTANCE_RASTER_TRANSPARENT = GPU_INSTANCE_FLAGS.Transparent;
 const VSM_PAGE_ALLOCATED = 1;
 const VSM_PAGE_DIRTY = 2;
 const VSM_PAGE_GENERATION_VALID = 8;
@@ -24,6 +24,9 @@ struct Constants {
   clip_origin_extent: array<vec4f, 6>,
   dimensions: vec4u, // pages/axis, page size, border, atlas dimension
   control: vec4u,    // generation, work capacity, record capacity, resident slots
+  parameters: vec4f,
+  depth_range: vec4f,
+  identity: vec4u,
 };
 struct VsmPageWork {
   virtual_page: u32, slot: u32, priority: u32, generation: u32,
@@ -84,18 +87,17 @@ fn append_caster(record: VsmCasterRecord) {
 }
 
 fn page_overlaps_sphere(center: vec3f, radius: f32, work: VsmPageWork,
-  page_mip: u32) -> bool {
+  entry: VsmPageEntry) -> bool {
   let pages = constants.dimensions.x;
   let coordinates = vsm_page_entry_coordinates(work.virtual_page, pages);
   let level = min(coordinates.x, 5u);
-  let page_x = coordinates.z;
-  let page_y = coordinates.w;
-  let mip = min(page_mip, 5u);
+  let page_x = entry.world_x;
+  let page_y = entry.world_y;
+  let mip = min(entry.mip, 5u);
   let axis = max(1u, pages >> mip);
   let extent = constants.clip_origin_extent[level].z;
-  let origin = constants.clip_origin_extent[level].xy;
   let page_world = extent / f32(axis);
-  let minimum = origin + vec2f(f32(page_x), f32(page_y)) * page_world;
+  let minimum = vec2f(f32(page_x), f32(page_y)) * page_world;
   let maximum = minimum + vec2f(page_world);
   let q = clamp(center.xy, minimum, maximum);
   return distance(q, center.xy) <= radius;
@@ -106,7 +108,7 @@ fn main(@builtin(global_invocation_id) id: vec3u, @builtin(num_workgroups) grid:
   let index = id.x + id.y * grid.x * 64u;
   let capacity = min(constants.control.y,
     min(meshlet_work.header.capacity, arrayLength(&meshlet_work.elements)));
-  let failure = meshlet_work.header.invalid_count | meshlet_work.header.overflow_count |
+  let failure = select(1u, 0u, constants.depth_range.w != 0.0) | meshlet_work.header.invalid_count | meshlet_work.header.overflow_count |
     select(0u, 1u, meshlet_work.header.written_count > capacity);
   if (index == 0u) {
     atomicStore(&caster.generation, constants.control.x);
@@ -138,10 +140,10 @@ fn main(@builtin(global_invocation_id) id: vec3u, @builtin(num_workgroups) grid:
     let entry = page_table.entries[page.virtual_page];
     let atlas_axis = max(1u, constants.dimensions.w / (constants.dimensions.y + constants.dimensions.z * 2u));
     if (entry.slot_x + entry.slot_y * atlas_axis != page.slot ||
-        entry.generation != constants.control.x ||
+        entry.generation != constants.control.x || entry.projection_epoch != constants.identity.x || entry.content_namespace != constants.identity.y ||
         (entry.flags & (${VSM_PAGE_ALLOCATED}u | ${VSM_PAGE_DIRTY}u | ${VSM_PAGE_GENERATION_VALID}u)) !=
           (${VSM_PAGE_ALLOCATED}u | ${VSM_PAGE_DIRTY}u | ${VSM_PAGE_GENERATION_VALID}u)) { continue; }
-    if (!page_overlaps_sphere(center, radius, page, entry.mip)) { continue; }
+    if (!page_overlaps_sphere(center, radius, page, entry)) { continue; }
     append_caster(VsmCasterRecord(work.instance_slot, work.geometry_slot, work.meshlet_slot,
       work.material_slot_or_range, page.slot, page.virtual_page, work.packed_raster_flags,
       work.packed_profile_lod));

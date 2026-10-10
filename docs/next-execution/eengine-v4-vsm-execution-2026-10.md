@@ -11,23 +11,28 @@ verifies:
     - OEngine/src/shaders
     - OEngine/src/gpu/GpuInstanceAbi.ts
     - OEngine/tests/oracle
+    - OEngine/tests/contract
+    - OEngine/tests/unit/geometry-page-streaming-runtime.test.mjs
+    - OEngine/src/core/InstanceShadowSemantics.ts
+    - OEngine/src/assets
+    - OEngine/src/scene
 ---
 
 # VSM V4 执行计划
 
-唯一模块设计见[VSM V4 design](../next-design/eengine-v4-vsm-2026-10.md)，全局规则继承[V4 母稿](../next-design/eengine-v4-native-shading-2026-10.md)。旧Module E只提供追溯，不定义V4实施或状态。用户已授权启动V4-R0，当前workstream切至VSM V4；Minimal GPU Work仍暂停。R0不自动跨入R1生产重构。
+唯一模块设计见[VSM V4 design](../next-design/eengine-v4-vsm-2026-10.md)，全局规则继承[V4 母稿](../next-design/eengine-v4-native-shading-2026-10.md)。旧Module E只提供追溯，不定义V4实施或状态。用户已授权R0，随后明确要求继续R1；当前workstream为VSM V4，Minimal GPU Work仍暂停。不自动启动R2/R3或VT。
 
 ## 1. 状态与停止点
 
 | 单元 | 状态 | 完整责任闭包 |
 |---|---|---|
 | V4-R0 源码与来源设计 | complete（设计/当前实现基线） | GPU原失败与当前设备基线、SOURCE分类、独立坐标算术、固定donor核对、候选成本与路线 |
-| V4-R1 实例语义与稳定投影 | not-started | Cooker/Scene→cast/receive→Geometry/Surface；world page key、稳定depth、epoch/prepare/commit/abort→全部consumer |
+| V4-R1 实例语义与稳定投影 | in-progress（完整Bistro源文件缺失） | Cooker/Scene→cast/receive→Geometry/Surface；world page key、稳定depth、epoch/prepare/commit/abort→全部consumer；实际结果与剩余项见§3.1 |
 | V4-R2 完整需求与驻留 | not-started | bitset→unique request/touch→slot选择→page/meta/dirty/coarse→采样和页工作 |
 | V4-R3 caster与页面完成 | not-started | Geometry bounds/source→compact explicit或implicit全工作→native raster→per-page completion→Surface |
 | V4-R4 完整场景验收 | not-started | 真实cook Bistro、动态/压力/生命周期、正确性/画质/成本和资源峰值 |
 
-本轮闭合R0后停止在R1入口。设计不代表实现采用，未关闭任意production VSM故障；R0完成不等于VSM已修复或验收。
+R0在R1入口停止；本轮按后续用户授权实施R1。R1尚未满足完整资产出口，不能关闭单元或进入R2；定向通过不等于完整VSM修复或性能验收。
 
 ## 2. V4-R0 设计依据与已做检查
 
@@ -56,7 +61,7 @@ verifies:
 
 按producer→产品→全部consumer复核：资产语义由Scene发布；页面/需求/驻留/完成由VSM持有；Geometry提供完整独立shadow work；native raster提供实际执行状态；Physical Sun只消费ready。生产切换和旧职责删除落在R1–R3相应原子单元，单frame submit与GPU-only work control保持。R0未改变production，因此不存在新owner已接线的声明。
 
-仍需实施否证：隐式W×D模式的最坏顶点税/u32域、tight meshlet bounds在shear与Product下的完整性、coarse页真实生产与质量、稳定depth范围和coverage/resident-cut失效。Cost Card为估算，不能据此验收性能。R0出口是设计依据、来源映射、失败分类和当前机器复现齐备；R1仍not-started。
+仍需实施否证：隐式W×D模式的最坏顶点税/u32域、tight meshlet bounds在shear与Product下的完整性、coarse页真实生产与质量、稳定depth范围和coverage/resident-cut失效。Cost Card为估算，不能据此验收性能。R0出口是设计依据、来源映射、失败分类和当前机器复现齐备；R0出口时R1尚未启动，后续实施见下节。
 
 ## 3. V4-R1：实例语义与稳定投影
 
@@ -67,6 +72,33 @@ verifies:
 5. 冻结并原子切换TS/WGSL page/constant/header ABI与所有需求、分配、caster、raster、采样、FrameProgram/debug消费者；删除旧relative signature/advance-before-submit职责。
 
 退出：fresh typecheck/build:test/build；独立page地址/negative/深度/变换数学；真实GPU页内、跨页、light-axis camera和sun方向/光强；cook→binary→GPU cast/receive语义与显式off；abort→retry/device epoch。失败保原件并局部修，不恢复旧CSM/relative cache。该单元结束不宣称需求/caster容量已闭合。
+
+### 3.1 R1实施记录（2026-10-10）
+
+**已切换的生产职责：**
+
+- 实例语义唯一CPU定义为`cast-receive-explicit-v1`、cast bit1/receive bit2、缺省6、显式0保留。Native root node extras、普通/packed glTF、GlbSceneCatalog、offline/range拆primitive、WebCook catalog/Coordinator/source、公开Scene→WASM canonicalizer和GPU Scene/RenderWorld同切；recipe canonical JSON/hash与manifest带该身份。旧manifest拒绝并提示重cook。Mesh实时属性经SceneChangeSet发布，材质分类patch保留语义，abort重新编码；恢复从公开Mesh重建flags且保留其他位。
+- `VsmProjection`替换camera-relative basis和signature；世界固定basis，所有clip/mip使用signed world page与floor modulo。page entry改为48B，全部receiver/allocator/caster/native atlas/dirty commit/sampling/FrameProgram与diagnostic夹具同步；没有双页表或过渡adapter。GPU窗口扫描撤销离开窗口的页，匹配reverse meta才释放slot；intersection内容保留。
+- `VsmDepthBoundsPass`两级64lane归约完整Scene caster AABB/affine；GPU depth产品唯一发布，3个constant consumer消费同一范围。invalid source不作为ready依据。bias按实际shadow texel/depth range转换；native MASK绑定真实camera position/view/clip矩阵，删除零camera输入。view-dependent coverage保守逐帧失效。
+- `VsmGeneration.prepare/commit/abort`替换提前advance；submit后才记previous/epoch/frame serial，abort→retry候选相同。runtime对象身份检测同一个Scene内来源替换；caster publication与resident-cut revision独立。streaming比较所有实际residency revision，包括直接public upload/retire，非streaming读取本owner。device namespace与revision耗尽显式拒绝。renderer销毁新增bounds/invalidation资源；scratch扩容旧buffer按command完成退休。
+- 必要局部修复：3实例真实生产场景暴露TemporalOcclusionWork deferred buffer44B小于WGSL最小48B，改最小分配48B，保持原header/算法。未重构Temporal模块。
+
+**验证事实（RTX2060 SUPER 8GB，GPU作业串行）：**
+
+| 检查 | 实际结果 / 限制 |
+|---|---|
+| Native与WASM工件 | Native build、portable-single/pthreads实际Emscripten build、web cooker core oracle通过；4个工件SHA更新到工具README。两种WASM编译不等于应用线程profile或完整Bistro性能验收 |
+| 最终构建 | fresh `npm run build:test`、`npm run typecheck`与`npm run build`通过；build包含既有pc-texture依赖的node:module浏览器externalization提示，未当新VSM错误 |
+| 定向CPU/Native合同 | 最终fresh build后11个测试文件80/80通过，覆盖flags、fresh Native cook、recipe hash、manifest legacy拒绝、public shadow patch abort、真实GpuScene上传保留MASK分类、resident-cut revision、signed地址与projection事务。首次扩展运行79/80；旧pressure夹具仅改diagnostic snapshot而runtime读live getter，修夹具后受影响25/25及最终80/80通过，未放宽断言 |
+| 独立GPU数学/页撤销 | `vsm-v4-r1-gpu.mjs`：130实例跨3个workgroup，独立八角点计算caster Z[-7,11.5]，GPU含padding为[-7.01000023,11.51000023]；shear/negative/nonuniform、invalid bounds和empty域通过。负world窗口保留2页、撤销1页并释放reverse meta |
+| 完整小场景生产链 | `vsm-v4-r1-production-gpu.mjs`：公共Scene→fresh WASM→Product→Renderer→VSM→native Surface；192×128、3个完整box实例、固定曝光、FSR3/jitter关闭。初始900ready且无caster overflow；页内、跨页与光轴移动epoch/depth不变，900交集页version保留；初始2次bounds dispatch，所有camera移动0次。仅太阳强度不失效；receive off需求0且实际HDR增亮；cast off/on实际caster记录退出/恢复；变换推进epoch并更新depth且保留flags。太阳方向编码后注入abort不提前推进，retry正常ready；controlled loss→device epoch2、新namespace、receive off与depth保持，uncaptured errors=[] |
+| Native Surface / MASK消费链 | `runNativeSurfaceIntegrationGpuOracle(device,{physicalSun:true})`通过。MASK main/VSM比较16384像素、covered14336、maxDepthError0；独立PBR/normal/coat/customGraph/HDR、negative/nonuniform、motion、FSR与resize/abort/retry断言保留。VSM/光源产品为authored fixture，不是完整生产成本或Bistro验收 |
+
+GPU原件在`.local/validation/vsm-v4-r1/{gpu,production,integration}-result.json`，最终CPU运行原件为`cpu-result.txt`；失败原件包含WGSL保留字、旧开发服务器缓存/URL问题、未normalize的太阳fixture、Temporal最小binding、diagnostic COPY_SRC、测试使用错误transform API和旧夹具仅Active却预期收影。按shader/API/环境/fixture分别定位修复，未吞错误、跳断言或扩大容差。streaming旧pressure夹具失败另存`streaming-fixture-failure.txt`。R0失败目录原件保留。`git diff --check`通过；docs-verify仍有1 finding/74 historical warnings，唯一finding为未修改且Git忽略的旧`docs/status.generated.md`缺frontmatter，本轮文档零新增finding，全库检查不记通过。
+
+**架构审查与成本边界：** producer→product→全部消费者已核对；生产仍单frame submit，无本帧GPU读回控制，新GPU读回只在oracle诊断。page48B增加16V、depth16B/partials16ceil(N/64)/constants80B与window256B、steady48B GPUcopy、epoch2bounds dispatch/roll全V扫描的实际账见Design §5。CPU观察registered Products为O(Products)，stable不分配。只证明接线/语义和省掉无关camera bounds dispatch；没有GPU时间、0/50/100%完整场景成本或性能改善声明。浮点大世界质量、view-dependent MASK独立numeric与真实VG refine/texture-promote场景尚未单独验收，不能用合成revision代替真实产品实验。
+
+**完整资产阻塞与停止点：** 原始`D:/shu/engine/.local/models/BistroExterior_static_fixed_occlusion.glb`已不存在；既有`bistro-cooked/geometry-input.gltf`引用该丢失buffer，native重cook在import阶段真实失败（cannot open glTF buffer），隔离目标`bistro-cooked-vsm-r1`未获得新产品。原GLB身份为1035637812B、SHA256 `fd2e08c41da4d89bba1b04f4bd8df4824c6937bbe53a17edd4e278f7e3b5f641`。需原文件实际新路径后重cook并核对完整1591instances/2829226triangles/132materials/405images；不能修改旧cooked flags代替。完整Bistro新链、1080p画质/P50/P95及1650Ti实机均未运行。R1保持in-progress，R2/R3不启动；旧8192pixel append、锁竞态、generation-LRU、coarse不完整、无caster空页ready缺口、global caster overflow和gutter问题仍按后续单元处理。
 
 ## 4. V4-R2：完整需求、slot回收与coarse产品
 
@@ -99,6 +131,6 @@ verifies:
 
 模块关闭要求：必要正确性/生命周期/真实GPU接线全部完成，完整场景功能恢复，成本结果和目标设备限制明确；不能只写“build通过”。仍未达成本目标则保持相应验收OPEN。完整Renderer其他effect matrix/跨GPU/browser留最终集成，不替代本模块必需验证。关闭后STOP，再依据届时源码设计VT或下一模块。
 
-## 7. 本轮验证结果
+## 7. R0验证结果（历史执行记录）
 
 本轮完成源码/固定来源审查、独立double算术、当前实现GPU诊断及文档/导航检查。太阳日历独立4项测试（包含80组天文比较）、Bistro typecheck/build通过；build存在既有node:module浏览器externalization和chunk-size提示。`git diff --check`通过；`node tools/docs-verify.mjs`报告1 finding/74 historical warnings，唯一finding来自本轮未修改且被Git忽略的旧 `docs/status.generated.md` 缺frontmatter，新增设计/执行与本轮来源记录无finding；全库文档检查不记为通过。`vibe context`已指向VSM V4设计/执行与active模块。engine build:test、shader compile、新WGSL/CPU oracle、新V4 production GPU、Bistro新架构画质与P50/P95 **未运行**，因为R0未实施production。现有实现诊断不提升新设计采用状态。

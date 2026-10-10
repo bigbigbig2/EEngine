@@ -44,7 +44,8 @@ struct CanonicalGeometryAsset {
 struct SceneInstanceV3 {
     std::uint32_t assetIndex = 0u;
     std::array<float, 16> worldTransform{};
-    std::uint32_t flags = 0u;
+    // Instance ABI, distinct from meshlet material classification bits.
+    std::uint32_t flags = (1u << 1u) | (1u << 2u);
 };
 
 struct ImportedSceneV3 {

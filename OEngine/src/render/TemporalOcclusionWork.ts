@@ -121,7 +121,9 @@ export class TemporalOcclusionWork {
   prepare(input: TemporalOcclusionInputs): PreparedTemporalOcclusion {
     this.assertReady();
     const l = this.device.limits,
-      bytes = 32 + input.capacity * 4;
+      // The vec4-aligned WGSL header plus one runtime-array element has a
+      // 48-byte minimum binding size, including capacities one through three.
+      bytes = Math.max(48, 32 + input.capacity * 4);
     if (
       !Number.isSafeInteger(input.capacity) ||
       input.capacity < 1 ||

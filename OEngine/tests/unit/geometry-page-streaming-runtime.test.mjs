@@ -69,6 +69,48 @@ function encoder() {
   };
 }
 
+test("shadow content identity observes every resident owner and explicit retirement without demand readback", async () => {
+  const makeResidency = (generation) => ({
+    contentRevision: 0,
+    productGeneration: generation,
+    productTableSlot: generation - 1,
+    publicationActive: true,
+    publicationChanged: new Signal(),
+    descriptor: { productId: new Uint8Array(32), revision: 0, decodedPageBytes: 262144, pageRecords: new Uint8Array(64) },
+    pageLocation: () => ({ flags: 0 }),
+    beginRetirePage() { this.contentRevision++; },
+    completeRetirePage() {},
+    evidence() { return {}; },
+  });
+  const first = makeResidency(1), second = makeResidency(2);
+  const runtime = new GeometryPageStreamingRuntimeV1(device(), first, {
+    readback: { slotCount: 2, bytesPerSlot: 64 }
+  });
+  const register = (residency) => runtime.registerProduct({
+    descriptor: residency.descriptor,
+    readPage() { throw new Error("Content observation must not read a page"); },
+    release() {}
+  }, residency);
+  register(first);
+  const initial = runtime.contentRevision;
+  assert.equal(runtime.contentRevision, initial);
+  register(second);
+  const appended = runtime.contentRevision;
+  assert.ok(appended > initial);
+  second.contentRevision++; // Direct public-owner upload, bypassing streaming's upload sink.
+  const uploaded = runtime.contentRevision;
+  assert.ok(uploaded > appended);
+  const fence = deferred();
+  const retirement = runtime.retirePages([1], fence.promise, second);
+  const revoked = runtime.contentRevision;
+  assert.ok(revoked > uploaded, "revoked cut must invalidate before physical retirement completes");
+  fence.resolve();
+  await retirement;
+  assert.equal(runtime.contentRevision, revoked, "slot release does not change already-revoked content");
+  assert.equal(runtime.evidence().readback.submitted, 0);
+  runtime.destroy();
+});
+
 test("resident feedback protects hot pages without IO and bounds shared-pool eviction", async () => {
   const events = [];
   const { GeometryPageSchedulerV1 } = await import("../../.test-dist/gpu/GeometryPageScheduler.js");
@@ -77,8 +119,8 @@ test("resident feedback protects hot pages without IO and bounds shared-pool evi
   });
   // Exercise feedback/retirement under pressure independently of page decoding.
   scheduler.drainUploadBudget = () => 0;
-  const evidence = scheduler.evidence.bind(scheduler);
-  scheduler.evidence = () => ({ ...evidence(), blockedUploads: 1 });
+  // The runtime consumes the live pressure getter, not the diagnostic snapshot.
+  Object.defineProperty(scheduler, "blockedUploads", { get: () => 1 });
   const makeResidency = (generation) => {
     const used = new Map();
     return {

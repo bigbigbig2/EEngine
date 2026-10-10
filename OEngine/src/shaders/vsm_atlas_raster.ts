@@ -45,25 +45,26 @@ fn atlas_position(light: vec3f, entry: VsmPageEntry, virtual_page: u32) -> vec4f
   let coordinates = vsm_page_entry_coordinates(virtual_page, pages);
   let level = min(5u, coordinates.x);
   let page_axis = max(1u, pages >> min(entry.mip, 5u));
-  let page_x = coordinates.z;
-  let page_y = coordinates.w;
+  let page_x = entry.world_x;
+  let page_y = entry.world_y;
   let extent = constants.clip_origin_extent[level].z;
-  let uv = (light.xy - constants.clip_origin_extent[level].xy) / max(extent, 1e-5) * f32(page_axis) - vec2f(f32(page_x), f32(page_y));
+  let uv = light.xy / (extent / f32(page_axis)) - vec2f(f32(page_x), f32(page_y));
   let slot_x = entry.slot_x;
   let slot_y = entry.slot_y;
   let texel = vec2f(f32(slot_x * (constants.dimensions.y + constants.dimensions.z * 2u) + constants.dimensions.z), f32(slot_y * (constants.dimensions.y + constants.dimensions.z * 2u) + constants.dimensions.z)) + uv * f32(constants.dimensions.y);
   let ndc = vec2f(texel.x / f32(constants.dimensions.w) * 2.0 - 1.0, 1.0 - texel.y / f32(constants.dimensions.w) * 2.0);
-  let depth = clamp(0.5 - light.z / max(extent * 8.0, 1.0), 0.0, 1.0);
+  let depth = (constants.depth_range.y - light.z) * constants.depth_range.z;
   return vec4f(ndc, depth, 1.0);
 }
 fn valid_page(record: VsmCasterRecord) -> VsmPageEntry {
-  if (record.virtual_page >= arrayLength(&page_table.entries)) { return VsmPageEntry(0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u); }
+  if (record.virtual_page >= arrayLength(&page_table.entries)) { return VsmPageEntry(0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0, 0, 0u, 0u); }
   let entry = page_table.entries[record.virtual_page];
   if (entry.slot_x + entry.slot_y * max(1u, constants.dimensions.w / (constants.dimensions.y + constants.dimensions.z * 2u)) != record.page_slot ||
-      entry.generation != constants.control.x ||
+      entry.generation != constants.control.x || constants.depth_range.w == 0.0 ||
+      entry.projection_epoch != constants.identity.x || entry.content_namespace != constants.identity.y ||
       (entry.flags & (${VSM_PAGE_ALLOCATED}u | ${VSM_PAGE_DIRTY}u | ${VSM_PAGE_GENERATION_VALID}u)) !=
         (${VSM_PAGE_ALLOCATED}u | ${VSM_PAGE_DIRTY}u | ${VSM_PAGE_GENERATION_VALID}u)) {
-    return VsmPageEntry(0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u);
+    return VsmPageEntry(0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0, 0, 0u, 0u);
   }
   return entry;
 }

@@ -170,7 +170,7 @@ export function meshRangeDocument(document, catalog, meshIndex, input) {
   for (const nodeIndex of catalog.meshes[meshIndex].nodes) {
     for (const [primitiveIndex, primitive] of mesh.primitives.entries()) {
       nodes[nodeMap.get(nodeIndex)].children.push(nodes.length);
-      nodes.push({ mesh: primitiveIndex });
+      nodes.push({ mesh: primitiveIndex, extras: document.nodes[nodeIndex].extras });
       instanceMaterials.push(primitive.material ?? document.materials?.length ?? 0);
       const attributes = primitive.attributes;
       instanceProfiles.push({
@@ -423,7 +423,13 @@ export async function cookRangeScene(options) {
         elapsedMs: performance.now() - started
       });
     }
-    const scene = { schema: "oengine-scene-v3", packs: [], assets: [], instances: [] };
+    const scene = {
+      schema: "oengine-scene-v3",
+      instanceSemantics: "cast-receive-explicit-v1",
+      packs: [],
+      assets: [],
+      instances: []
+    };
     const instanceMaterials = [],
       instanceProfiles = [],
       sourceInstances = [];

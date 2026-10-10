@@ -337,7 +337,7 @@ fn native_environment(material: StandardMaterial, normal: vec3f, direction: vec3
   let direction = native_safe_normal(settings.camera_position_exposure.xyz - position, mapped_normal);
   let geometry = SurfaceGeometry(mapped_normal, native_safe_normal(corners.world_plane.xyz, normal), position, direction);
   let view_depth = max(-(settings.view_matrix * vec4f(position, 1.0)).z, 1e-4);
-  let color = ${profile.additiveSun ? "native_surface_physical_sun(material, geometry)" : `shade_standard_material_direct(material, geometry, vec2f(pixel) + vec2f(0.5), view_depth) + native_environment(material, mapped_normal, direction, pixel)${profile.physicalSun ? " + native_surface_physical_sun(material, geometry)" : ""}`};
+  let color = ${profile.additiveSun ? "native_surface_physical_sun(material, geometry, frame_instances[work.instance_slot].source.flags)" : `shade_standard_material_direct(material, geometry, vec2f(pixel) + vec2f(0.5), view_depth) + native_environment(material, mapped_normal, direction, pixel)${profile.physicalSun ? " + native_surface_physical_sun(material, geometry, frame_instances[work.instance_slot].source.flags)" : ""}`};
 `;
   const pixelSelection = profile.compact
     ? /* wgsl */ `

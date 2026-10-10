@@ -13,6 +13,37 @@ export class Mesh extends Node3D {
   declare isMesh: boolean;
   private _geometry: MeshletGeometryBase | undefined;
   private _material: ShadeMaterial | undefined;
+  private _castShadow = true;
+  private _receiveShadow = true;
+  readonly onShadowSemanticsChanged = new ChangeSignal<Mesh>();
+  get castShadow(): boolean {
+    return this._castShadow;
+  }
+  set castShadow(value: boolean) {
+    if (typeof value !== "boolean") {
+      throw new TypeError("Mesh.castShadow must be boolean");
+    }
+    if (this._castShadow === value) {
+      return;
+    }
+    this._castShadow = value;
+    this.#version++;
+    this.onShadowSemanticsChanged.send1(this);
+  }
+  get receiveShadow(): boolean {
+    return this._receiveShadow;
+  }
+  set receiveShadow(value: boolean) {
+    if (typeof value !== "boolean") {
+      throw new TypeError("Mesh.receiveShadow must be boolean");
+    }
+    if (this._receiveShadow === value) {
+      return;
+    }
+    this._receiveShadow = value;
+    this.#version++;
+    this.onShadowSemanticsChanged.send1(this);
+  }
   readonly onGeometryChanged = new ChangeSignal<Mesh>();
   readonly onMaterialChanged = new ChangeSignal<Mesh>();
   bounding_box: Float32Array = new Float32Array(6);
@@ -75,6 +106,8 @@ export class Mesh extends Node3D {
     super.copy(other);
     this.geometry = other.geometry;
     this.material = other.material;
+    this.castShadow = other.castShadow;
+    this.receiveShadow = other.receiveShadow;
     this.name = other.name;
     this.bounding_box.set(other.bounding_box);
     this.bounding_sphere.set(other.bounding_sphere);

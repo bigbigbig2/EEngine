@@ -64,6 +64,37 @@ export class GeometryPageStreamingRuntimeV1 {
   #shadowFeedbackComplete = false;
   #lastShadowAttemptedFrame = -1;
   #destroyed = false;
+  #contentRevision = 0;
+  readonly #observedContentRevisions = new Map<VirtualGeometryResidency, number>();
+  /** Observe actual owners, including public upload/retire calls outside the scheduler.
+   * No demand readback advances this identity; steady reads allocate nothing. */
+  get contentRevision(): number {
+    const includesPrimary = this.#residencies.has(this.#residency.productGeneration);
+    const count = this.#residencies.size + (includesPrimary ? 0 : 1);
+    let changed = this.#observedContentRevisions.size !== count;
+    if (!includesPrimary && this.#observedContentRevisions.get(this.#residency) !== this.#residency.contentRevision) {
+      changed = true;
+    }
+    for (const residency of this.#residencies.values()) {
+      if (this.#observedContentRevisions.get(residency) !== residency.contentRevision) {
+        changed = true;
+      }
+    }
+    if (changed) {
+      if (this.#contentRevision >= 0xfffffffe) {
+        throw new RangeError("Geometry content revision exhausted");
+      }
+      this.#contentRevision++;
+      this.#observedContentRevisions.clear();
+      if (!includesPrimary) {
+        this.#observedContentRevisions.set(this.#residency, this.#residency.contentRevision);
+      }
+      for (const residency of this.#residencies.values()) {
+        this.#observedContentRevisions.set(residency, residency.contentRevision);
+      }
+    }
+    return this.#contentRevision;
+  }
 
   constructor(
     device: GPUDevice,
@@ -290,7 +321,9 @@ export class GeometryPageStreamingRuntimeV1 {
       uploadPage: (
         page: import("../assets/geometry-product/GeometryProductV1.js").GeometryPageProductV1,
         identity: import("./GeometryPageDemandAbiV1.js").GeometryPageDemandV1,
-      ) => pageResidency(identity).tryUploadPage(page),
+      ) => {
+        return pageResidency(identity).tryUploadPage(page);
+      }
     };
     let uploadedBytes = this.#scheduler.drainUploadBudget(sink);
     const feedbackFrame = this.evictionFeedbackFrame();

@@ -8,7 +8,7 @@ import {
   GPU_FRAME_INSTANCE_STRIDE,
   GPU_FRAME_INSTANCE_OFFSETS
 } from "../../.test-dist/gpu/GpuFrameInstanceAbi.js";
-import { GPU_INSTANCE_RECORD_STRIDE, packGpuInstanceRecord } from "../../.test-dist/gpu/GpuInstanceAbi.js";
+import { GPU_INSTANCE_RECORD_STRIDE, GPU_INSTANCE_FLAGS, packGpuInstanceRecord } from "../../.test-dist/gpu/GpuInstanceAbi.js";
 import {
   GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE,
   GPU_MESHLET_RASTER_WORK_RECORD_STRIDE,
@@ -86,7 +86,7 @@ export async function createNativeSurfaceFixture(
         geometryGeneration: 3,
         instanceSetGeneration: 7,
         materialHandle: 0,
-        flags: 1,
+        flags: GPU_INSTANCE_FLAGS.Active | GPU_INSTANCE_FLAGS.CastsShadow | GPU_INSTANCE_FLAGS.ReceivesShadow,
         debugId: 0,
         boundsSphere: [0, 0, 0, 2],
         boundsMin: [-1, -1, 0, 0],
@@ -273,10 +273,10 @@ export async function createNativeSurfaceFixture(
       device.queue.writeBuffer(localData, 0, header);
       device.queue.writeBuffer(localParameters, 20, new Uint32Array([frameIndex, 1, count]));
     };
-    const pages = new Uint32Array((16 * 16 + 8 * 8 + 4 * 4 + 2 * 2 + 1 + 1) * 8);
+    const pages = new Uint32Array((16 * 16 + 8 * 8 + 4 * 4 + 2 * 2 + 1 + 1) * 12);
     for (let y = 0; y < 16; y++) {
       for (let x = 0; x < 16; x++) {
-        pages.set([x, y, 0, 9, GENERATION, 0, 0, 0], (x + y * 16) * 8);
+        pages.set([x, y, 0, 9, GENERATION, 0, 0, GENERATION, (x < 8 ? x : x - 16) >>> 0, (y < 8 ? y : y - 16) >>> 0, 1, 0], (x + y * 16) * 12);
       }
     }
     const pageTable = storage(pages, "S1/resident VSM page ABI");
@@ -284,6 +284,8 @@ export async function createNativeSurfaceFixture(
     vsmValues.set(identity);
     vsmValues.set([-1, -1, 2, 0], 16);
     new Uint32Array(vsmValues.buffer).set([16, 128, 2, 16, 1, GENERATION, 2, 2112], 40);
+    vsmValues.set([-8, 8, 1 / 16, 1], 52);
+    new Uint32Array(vsmValues.buffer).set([GENERATION, 1, 0, 0], 56);
     const vsmConstants = uniform(vsmValues, "S1/VSM constants");
     const atlas = makeTexture(
       2112,

@@ -7,6 +7,7 @@ ${VSM_PAGE_TABLE_WGSL}
 struct Constants {
   control: vec4u,     // generation, demand capacity, resident slot count, clip level count
   dimensions: vec4u,  // virtual pages/axis, atlas pages/axis, virtual entry count, reserved
+  identity: vec4u, // projection epoch, owner namespace, reserved
 };
 
 struct VsmDemandRecord {
@@ -14,7 +15,8 @@ struct VsmDemandRecord {
   mip: u32,
   priority: u32,
   flags: u32,
-  receiver_bounds: vec4f,
+  world_page: vec2i,
+  reserved: vec2u,
 };
 
 struct VsmDemandBuffer {
@@ -140,7 +142,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         if ((verified.flags & VSM_PAGE_ALLOCATED_AND_VALID) == VSM_PAGE_ALLOCATED_AND_VALID &&
             verified.slot_x == current.slot_x && verified.slot_y == current.slot_y &&
             meta_table.entries[slot].virtual_page == virtual_page) {
-          if (verified.generation == generation) {
+          if (verified.generation == generation && vsm_key_matches(verified, request.world_page, constants.identity)) {
             if (verified.flags & VSM_PAGE_DIRTY)!=0u { atomicStore(&content_version[1u],1u); }
             meta_table.entries[slot].last_visited = generation;
             let work = VsmPageWork(virtual_page, slot, request.priority, generation,
@@ -154,7 +156,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
             let fallback = fallback_mip(request.mip);
             page_table.entries[virtual_page] = VsmPageEntry(
               verified.slot_x, verified.slot_y, request.mip, flags, generation,
-              fallback, 0u, 0u);
+              fallback, 0u, constants.identity.x, request.world_page.x, request.world_page.y, constants.identity.y, 0u);
             atomicStore(&content_version[1u],1u);
             meta_table.entries[slot] = VsmMetaEntry(virtual_page, request.mip,
               generation, flags, generation, slot, 0u, 0u);
@@ -244,7 +246,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let slot_y = selected_slot / constants.dimensions.y;
   let flags = 1u | VSM_PAGE_DIRTY | VSM_PAGE_GENERATION_VALID;
   let page = VsmPageEntry(slot_x, slot_y, request.mip, flags, generation,
-    fallback_mip(request.mip), 0u, 0u);
+    fallback_mip(request.mip), 0u, constants.identity.x, request.world_page.x, request.world_page.y, constants.identity.y, 0u);
   page_table.entries[virtual_page] = page;
   atomicStore(&content_version[1u],1u);
   meta_table.entries[selected_slot] = VsmMetaEntry(virtual_page, request.mip, generation,

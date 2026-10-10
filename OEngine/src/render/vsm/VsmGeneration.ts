@@ -1,8 +1,4 @@
-/**
- * CPU-owned lifecycle facts for one VSM device epoch.  This object publishes
- * only bounded control facts to the FrameGraph; it never reads GPU demand or
- * decides which virtual pages are resident.
- */
+/** CPU transaction for VSM content/projection epochs. Page work stays on GPU. */
 export type VsmInvalidationReason =
   | "initial"
   | "device-epoch"
@@ -13,190 +9,181 @@ export type VsmInvalidationReason =
   | "resize"
   | "page-quantum"
   | "none";
-
 export interface VsmGenerationInput {
   readonly deviceEpoch: number;
   readonly scene: object;
   readonly sceneRevision: number;
   readonly casterRevision: number;
-  readonly sunRevision: number;
+  readonly sourceRevision?: number;
   readonly sunDirection: readonly [number, number, number];
   readonly cameraCut: boolean;
   readonly clipOriginExtent: readonly (readonly [number, number, number, number])[];
   readonly width: number;
   readonly height: number;
 }
-
 export interface VsmGenerationState {
   readonly generation: number;
+  readonly projectionEpoch: number;
+  readonly frameSerial: number;
   readonly deviceEpoch: number;
   readonly sceneRevision: number;
   readonly casterRevision: number;
-  readonly sunRevision: number;
   readonly reason: VsmInvalidationReason;
   readonly reasonMask: number;
   readonly fullInvalidate: boolean;
   readonly temporalInvalidate: boolean;
   readonly pageQuantumChanged: boolean;
   readonly resized: boolean;
-  readonly clipSignature: string;
+  readonly rebuildDepth: boolean;
 }
-
-const REASON_MASK: Record<VsmInvalidationReason, number> = {
-  initial: 1 << 0,
-  "device-epoch": 1 << 1,
-  scene: 1 << 2,
-  "camera-cut": 1 << 3,
-  sun: 1 << 4,
-  "caster-publication": 1 << 5,
-  resize: 1 << 6,
-  "page-quantum": 1 << 7,
-  none: 0,
-};
-
-function finiteRevision(value: number, label: string): number {
-  if (!Number.isSafeInteger(value) || value < 0 || value > 0xffffffff) {
-    throw new RangeError(`VSM ${label} must be a uint32`);
+const REASONS: VsmInvalidationReason[] = [
+  "initial",
+  "device-epoch",
+  "scene",
+  "camera-cut",
+  "sun",
+  "caster-publication",
+  "resize",
+  "page-quantum"
+];
+export function vsmInvalidationReasonMask(reason: VsmInvalidationReason): number {
+  const index = REASONS.indexOf(reason);
+  return index < 0 ? 0 : 1 << index;
+}
+function advance(value: number): number {
+  if (value >= 0xfffffffe) {
+    throw new RangeError("VSM epoch exhausted; recreate the device owner namespace");
   }
-  return value;
+  return value + 1;
 }
-
-function clipSignature(levels: readonly (readonly [number, number, number, number])[]): string {
-  return levels.map((level) => level.map((value) => Math.round(value * 1e5) / 1e5).join(",")).join(";");
-}
-
-function sameDirection(
-  left: readonly [number, number, number],
-  right: readonly [number, number, number],
-): boolean {
-  return (
-    Math.abs(left[0] - right[0]) < 1e-5 &&
-    Math.abs(left[1] - right[1]) < 1e-5 &&
-    Math.abs(left[2] - right[2]) < 1e-5
-  );
-}
-
-/** Monotonic, non-zero generation state. It is reset by constructing a new owner after device loss. */
+/** prepare has no submitted side effects; abort retains the previous epoch/window. */
 export class VsmGeneration {
   private generation = 1;
-  private previous: {
-    readonly deviceEpoch: number;
-    readonly scene: object;
-    readonly sceneRevision: number;
-    readonly casterRevision: number;
-    readonly sunRevision: number;
-    readonly sunDirection: readonly [number, number, number];
-    readonly clipSignature: string;
-    readonly width: number;
-    readonly height: number;
-  } | null = null;
-
+  private projectionEpoch = 1;
+  private frameSerial = 0;
+  private previous: VsmGenerationInput | null = null;
+  private pending: { state: VsmGenerationState; input: VsmGenerationInput } | null = null;
+  private forced = true;
+  private invalidationSerial = 0;
+  private preparedInvalidationSerial = 0;
   get currentGeneration(): number {
     return this.generation;
   }
-
-  /** Force the next active shadow frame to rebuild page contents. */
-  invalidate(): void {
-    this.previous = null;
+  get currentProjectionEpoch(): number {
+    return this.projectionEpoch;
   }
-
-  begin(input: VsmGenerationInput): VsmGenerationState {
-    finiteRevision(input.deviceEpoch, "device epoch");
-    finiteRevision(input.sceneRevision, "scene revision");
-    finiteRevision(input.casterRevision, "caster revision");
-    finiteRevision(input.sunRevision, "sun revision");
+  invalidate(): void {
+    this.forced = true;
+    this.invalidationSerial = advance(this.invalidationSerial);
+  }
+  prepare(input: VsmGenerationInput): VsmGenerationState {
+    if (this.pending !== null) {
+      throw new Error("VSM already has a pending frame");
+    }
+    for (const value of [
+      input.deviceEpoch,
+      input.sceneRevision,
+      input.casterRevision,
+      input.sourceRevision ?? 0
+    ]) {
+      if (!Number.isSafeInteger(value) || value < 0 || value > 0xffffffff) {
+        throw new RangeError("VSM revision must be uint32");
+      }
+    }
     if (
-      !Number.isSafeInteger(input.width) ||
-      input.width < 1 ||
-      !Number.isSafeInteger(input.height) ||
-      input.height < 1
+      ![input.width, input.height].every((value) => Number.isSafeInteger(value) && value > 0) ||
+      !input.sunDirection.every(Number.isFinite) ||
+      !input.clipOriginExtent.every((level) => level.every(Number.isFinite))
     ) {
-      throw new RangeError("VSM render extent is invalid");
+      throw new RangeError("VSM frame inputs must be finite with positive render extent");
     }
-    const signature = clipSignature(input.clipOriginExtent);
     const previous = this.previous;
-    let reason: VsmInvalidationReason = "none";
-    let fullInvalidate = false;
-    let temporalInvalidate = false;
-    let pageQuantumChanged = false;
-    let resized = false;
-
-    if (previous === null) {
-      reason = "initial";
-      fullInvalidate = true;
-      temporalInvalidate = true;
-    } else if (previous.deviceEpoch !== input.deviceEpoch) {
-      reason = "device-epoch";
-      fullInvalidate = true;
-      temporalInvalidate = true;
-    } else if (previous.scene !== input.scene || previous.sceneRevision !== input.sceneRevision) {
-      reason = "scene";
-      fullInvalidate = true;
-      temporalInvalidate = true;
-    } else if (input.cameraCut) {
-      reason = "camera-cut";
-      fullInvalidate = true;
-      temporalInvalidate = true;
-    } else if (
-      previous.sunRevision !== input.sunRevision ||
-      !sameDirection(previous.sunDirection, input.sunDirection)
-    ) {
-      reason = "sun";
-      fullInvalidate = true;
-      temporalInvalidate = true;
-    } else if (previous.casterRevision !== input.casterRevision) {
-      reason = "caster-publication";
-      // A caster publication can affect any receiver page. Keep this bounded
-      // by invalidating the generation; GPU demand repopulates only visible
-      // pages and no CPU page loop is introduced.
-      fullInvalidate = true;
-      temporalInvalidate = true;
-    } else if (previous.width !== input.width || previous.height !== input.height) {
-      reason = "resize";
-      resized = true;
-      temporalInvalidate = true;
-    } else if (previous.clipSignature !== signature) {
-      reason = "page-quantum";
-      pageQuantumChanged = true;
-      // The current page-table ABI has no toroidal remap metadata. Until a
-      // proven wrapped-page remap is added, a page-quantum shift must not
-      // reuse a slot under a new world origin; use the bounded generation
-      // fallback and let GPU demand repopulate visible pages.
-      fullInvalidate = true;
-      temporalInvalidate = true;
-    }
-
-    if (fullInvalidate) {
-      this.generation = this.generation >= 0xfffffffe ? 1 : this.generation + 1;
-    }
-    this.previous = {
-      deviceEpoch: input.deviceEpoch,
-      scene: input.scene,
-      sceneRevision: input.sceneRevision,
-      casterRevision: input.casterRevision,
-      sunRevision: input.sunRevision,
-      sunDirection: [...input.sunDirection] as [number, number, number],
-      clipSignature: signature,
-      width: input.width,
-      height: input.height,
-    };
-    return Object.freeze({
-      generation: this.generation,
+    const deviceChanged = previous !== null && previous.deviceEpoch !== input.deviceEpoch;
+    const sceneChanged =
+      previous !== null && (previous.scene !== input.scene || previous.sceneRevision !== input.sceneRevision);
+    const sunChanged =
+      previous !== null &&
+      input.sunDirection.some((value, i) => Math.fround(value) !== Math.fround(previous.sunDirection[i]!));
+    const casterChanged =
+      previous !== null &&
+      (previous.casterRevision !== input.casterRevision || previous.sourceRevision !== input.sourceRevision);
+    const profileChanged =
+      previous !== null &&
+      (previous.clipOriginExtent.length !== input.clipOriginExtent.length ||
+        input.clipOriginExtent.some((level, i) => level[2] !== previous.clipOriginExtent[i]?.[2]));
+    const pageQuantumChanged =
+      previous !== null &&
+      input.clipOriginExtent.some(
+        (level, i) =>
+          level[0] !== previous.clipOriginExtent[i]?.[0] || level[1] !== previous.clipOriginExtent[i]?.[1]
+      );
+    const resized = previous !== null && (previous.width !== input.width || previous.height !== input.height);
+    const fullInvalidate =
+      this.forced ||
+      previous === null ||
+      deviceChanged ||
+      sceneChanged ||
+      sunChanged ||
+      casterChanged ||
+      profileChanged;
+    const reason: VsmInvalidationReason =
+      this.forced || previous === null
+        ? "initial"
+        : deviceChanged
+          ? "device-epoch"
+          : sceneChanged
+            ? "scene"
+            : sunChanged || profileChanged
+              ? "sun"
+              : casterChanged
+                ? "caster-publication"
+                : pageQuantumChanged
+                  ? "page-quantum"
+                  : resized
+                    ? "resize"
+                    : input.cameraCut
+                      ? "camera-cut"
+                      : "none";
+    const state: VsmGenerationState = Object.freeze({
+      generation: fullInvalidate ? advance(this.generation) : this.generation,
+      projectionEpoch: fullInvalidate ? advance(this.projectionEpoch) : this.projectionEpoch,
+      frameSerial: advance(this.frameSerial),
       deviceEpoch: input.deviceEpoch,
       sceneRevision: input.sceneRevision,
       casterRevision: input.casterRevision,
-      sunRevision: input.sunRevision,
       reason,
-      reasonMask: REASON_MASK[reason],
+      reasonMask: vsmInvalidationReasonMask(reason),
       fullInvalidate,
-      temporalInvalidate,
+      rebuildDepth: fullInvalidate,
+      temporalInvalidate: fullInvalidate || input.cameraCut || resized,
       pageQuantumChanged,
       resized,
-      clipSignature: signature,
     });
+    this.pending = {
+      state,
+      input: {
+        ...input,
+        sunDirection: [...input.sunDirection],
+        clipOriginExtent: input.clipOriginExtent.map(
+          (level) => [...level] as [number, number, number, number]
+        )
+      }
+    };
+    this.preparedInvalidationSerial = this.invalidationSerial;
+    return state;
   }
-}
-
-export function vsmInvalidationReasonMask(reason: VsmInvalidationReason): number {
-  return REASON_MASK[reason];
+  commit(state: VsmGenerationState): void {
+    if (this.pending?.state !== state) {
+      throw new Error("VSM commit does not own the pending frame");
+    }
+    this.previous = this.pending.input;
+    this.generation = state.generation;
+    this.projectionEpoch = state.projectionEpoch;
+    this.frameSerial = state.frameSerial;
+    this.pending = null;
+    this.forced = this.preparedInvalidationSerial !== this.invalidationSerial;
+  }
+  abort(): void {
+    this.pending = null;
+  }
 }

@@ -109,6 +109,7 @@ export interface GltfBufferView {
 }
 
 export interface GltfNode {
+  extras?: unknown;
   name?: string;
   children?: number[];
   mesh?: number;

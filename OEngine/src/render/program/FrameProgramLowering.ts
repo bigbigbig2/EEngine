@@ -20,6 +20,7 @@ import type { AerialPerspectivePass } from "../passes/AerialPerspectivePass.js";
 import type { XeGtaoPreparationPass } from "../ao/XeGtaoPreparationPass.js";
 import type { XeGtaoMainPass } from "../ao/XeGtaoMainPass.js";
 import type { XeGtaoDenoisePass } from "../ao/XeGtaoDenoisePass.js";
+import type { VsmDepthBoundsPass } from "../vsm/VsmDepthBoundsPass.js";
 import type { VsmReceiverDemandPass } from "../vsm/VsmReceiverDemandPass.js";
 import type { VsmAllocatePagesPass } from "../vsm/VsmAllocatePagesPass.js";
 import type { VsmCasterRecordPass } from "../vsm/VsmCasterRecordPass.js";
@@ -51,6 +52,7 @@ export type FrameProgramOwners = Readonly<{
   xeGtaoPreparation: XeGtaoPreparationPass;
   xeGtaoMain: XeGtaoMainPass;
   xeGtaoDenoise: XeGtaoDenoisePass;
+  vsmDepthBounds: VsmDepthBoundsPass;
   vsmReceiverDemand: VsmReceiverDemandPass;
   vsmAllocatePages: VsmAllocatePagesPass;
   vsmCasterRecords: VsmCasterRecordPass;
@@ -140,11 +142,17 @@ function compileSceneGraph(
     throw new Error("Native material publication is missing");
   }
   assertTextureProduct(plan, graph, "visibility", result.frame.visibilityKey);
+  const instances = graph.import_resource(
+    "scene-instances",
+    { kind: "imported", label: "published instance records" },
+    bind("scene-instances", (bindings) => bindings.job.scene.instances)
+  );
   let vsmOwnerBinding: NonNullable<SceneFrameBindings["vsm"]> | null = null;
   let vsmFrameBinding: NonNullable<SceneFrameBindings["vsmFrame"]> | null = null;
   let vsmAllocation: VsmAllocationFrame | null = null;
   let vsmAtlasDepth: ResourceId | null = null;
   let vsmSamplingConstants: ResourceId | null = null;
+  let vsmDepthRange: ResourceId | null = null;
   let vsmContentVersion: ResourceId | null = null;
   let shadowContract: ShadowVisibilityFrame | null = null;
   if (plan.products.includes("shadow-demand")) {
@@ -164,7 +172,20 @@ function compileSceneGraph(
     const contentVersion = owners.vsmInvalidation.addToGraph(graph, {
       resources: vsmOwner,
       state: bind("vsm-generation-state", (bindings) => bindings.vsmGeneration),
+      frame: vsmFrame
     });
+    const depthRange = owners.vsmDepthBounds.addToGraph(
+      graph,
+      bind("vsm-depth-range-job", (bindings) => ({
+        resources: vsmOwner,
+        frame: vsmFrame,
+        state: bindings.vsmGeneration,
+        instances,
+        instanceBegin: bindings.runtime.instanceBegin,
+        instanceCount: bindings.runtime.instanceCount
+      }))
+    );
+    vsmDepthRange = depthRange;
     const demand = owners.vsmReceiverDemand.addToGraph(
       graph,
       bind("vsm-receiver-job", (bindings) => ({
@@ -173,10 +194,12 @@ function compileSceneGraph(
         camera: cameraBuffer,
         depth: result.frame.depth,
         visibilityKey: result.frame.visibilityKey,
+        instances,
+        meshletWork: result.frame.meshletWork.records,
+        depthRange,
+        frame: vsmFrame,
         resources: vsmOwner,
         generation: bindings.vsmFrame!.generation,
-        lightView: bindings.vsmFrame!.lightView,
-        clipOriginExtent: bindings.vsmFrame!.clipOriginExtent,
       })),
     );
     vsmSamplingConstants = demand.samplingConstants;
@@ -191,6 +214,7 @@ function compileSceneGraph(
           resources: vsmOwner,
           generation: bindings.vsmFrame!.generation,
           contentVersion,
+          frame: vsmFrame
         })),
       );
     }
@@ -199,11 +223,6 @@ function compileSceneGraph(
     "material-records",
     { kind: "imported", label: "published material records" },
     bind("material-records", (bindings) => bindings.runtime.materialResources.materialRecords),
-  );
-  const instances = graph.import_resource(
-    "scene-instances",
-    { kind: "imported", label: "published instance records" },
-    bind("scene-instances", (bindings) => bindings.job.scene.instances),
   );
   const needsDirectLight = plan.stages.includes("local-light-work");
   const geometryMetadata = graph.import_resource(
@@ -320,6 +339,7 @@ function compileSceneGraph(
         instances,
         resources: bindings.vsm!,
         frame: bindings.vsmFrame!,
+        depthRange: vsmDepthRange!,
         generation: bindings.vsmFrame!.generation,
         workCapacity: bindings.job.prepared.shadowGeometry!.work.capacity,
       })),
@@ -336,7 +356,15 @@ function compileSceneGraph(
         },
         camera: cameraBuffer,
         frameInstances: shadow.frameInstances,
+        cameraPosition: [
+          bindings.camera.transform.matrix[12]!,
+          bindings.camera.transform.matrix[13]!,
+          bindings.camera.transform.matrix[14]!
+        ],
+        viewMatrix: bindings.camera.view_matrix,
+        clipFromWorld: bindings.camera.view_projection_matrix,
         frameGeometry: result.frame.frameGeometry,
+        depthRange: vsmDepthRange!,
         resources: bindings.vsm!,
         frame: bindings.vsmFrame!,
         generation: bindings.vsmFrame!.generation,

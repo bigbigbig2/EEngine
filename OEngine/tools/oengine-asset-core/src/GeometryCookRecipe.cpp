@@ -9,6 +9,7 @@
 namespace oengine::asset {
 
 void ValidateRecipe(const GeometryCookRecipeV3& r) {
+    if (r.instanceSemantics != "cast-receive-explicit-v1") throw std::runtime_error("unsupported instance semantics; re-cook source");
     if (r.hierarchyAlgorithmVersion != "nyx-hierarchy-v4.1-conservative-spheres") throw std::runtime_error("unsupported hierarchy algorithm version");
     if (r.vertexProfileVersion != "static-pbr-page-local-f32-lean-v7") throw std::runtime_error("Lean geometry requires the v7 vertex/publication profile");
     if (r.meshletMaxVertices < 3u || r.meshletMaxVertices > 128u) throw std::runtime_error("meshletMaxVertices must be in [3,128]");
@@ -44,6 +45,7 @@ std::string CanonicalRecipeJson(const GeometryCookRecipeV3& r) {
       << "\",\"groupTargetMeshlets\":" << r.groupTargetMeshlets
       << ",\"hierarchyAlgorithmVersion\":\"" << r.hierarchyAlgorithmVersion
       << "\",\"hierarchyFanout\":" << r.hierarchyFanout
+      << ",\"instanceSemantics\":\"" << r.instanceSemantics << "\""
       << ",\"lodErrorMergeFactor\":" << r.lodErrorMergeFactor
       << ",\"meshletMaxTriangles\":" << r.meshletMaxTriangles
       << ",\"meshletMaxVertices\":" << r.meshletMaxVertices

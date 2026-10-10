@@ -10,6 +10,7 @@ export interface VsmAllocatePagesInputs {
   readonly resources: VsmResources;
   readonly generation: number;
   readonly contentVersion: ResourceId;
+  readonly frame: import("./VsmProjection.js").VsmDirectionalFrameConstants;
 }
 
 const CONSTANT_BYTES = 256;
@@ -27,6 +28,7 @@ function packConstants(input: VsmAllocatePagesInputs): ArrayBuffer {
     capabilities.virtualEntryCount,
     0,
   ]);
+  new Uint32Array(data).set([input.frame.projectionEpoch, input.frame.namespace, 0, 0], 8);
   return data;
 }
 

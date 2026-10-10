@@ -1,3 +1,4 @@
+import { packVsmProjection, VSM_DEPTH_RANGE_BYTE_OFFSET, VSM_DEPTH_RANGE_BYTES } from "./VsmProjection.js";
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
@@ -12,6 +13,7 @@ export interface VsmCasterRecordInputs {
   readonly instances: ResourceId;
   readonly resources: VsmResources;
   readonly frame: VsmDirectionalFrameConstants;
+  readonly depthRange: ResourceId;
   readonly generation: number;
   readonly workCapacity: number;
 }
@@ -41,13 +43,8 @@ export function vsmCasterDispatch(capacity: number, dimension: number): readonly
 }
 
 function packConstants(input: VsmCasterRecordInputs): ArrayBuffer {
-  const data = new ArrayBuffer(CONSTANT_BYTES);
-  const floats = new Float32Array(data);
+  const data = packVsmProjection(input.frame);
   const uints = new Uint32Array(data);
-  floats.set(input.frame.lightView, 0);
-  for (let level = 0; level < 6; level++) {
-    floats.set(input.frame.clipOriginExtent[level] ?? [0, 0, 1, 1], 16 + level * 4);
-  }
   const profile = input.resources.capabilities;
   uints.set([profile.virtualPagesPerAxis, profile.pageSize, profile.border, profile.atlasDimension], 40);
   uints.set(
@@ -157,7 +154,15 @@ export class VsmCasterRecordPass {
         0,
         CONSTANT_BYTES,
       );
+      (context.encoder as ShadeGPUCommandContext).copyBufferToBuffer(
+        _resources.get(data.depthRange) as GPUBuffer,
+        0,
+        this.constants,
+        VSM_DEPTH_RANGE_BYTE_OFFSET,
+        VSM_DEPTH_RANGE_BYTES
+      );
     });
+    update.read(input.depthRange);
     const currentConstants = update.write(constants);
     const produce = graph.add("VSM/caster records", input, (data, resolved, context) => {
       const command = context.encoder as ShadeGPUCommandContext;

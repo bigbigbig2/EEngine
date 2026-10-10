@@ -121,7 +121,12 @@ export function createWebCookSceneSource(
       const instance = instanceByNode.get(nodeIndex);
       if (!instance)
         throw new Error(`Web Cook Product instance node ${nodeIndex} is missing from the GLB catalog`);
-      instances.push({ assetIndex, materialIndex, transform: Float32Array.from(instance.worldMatrix) });
+      instances.push({
+        assetIndex,
+        materialIndex,
+        flags: instance.flags,
+        transform: Float32Array.from(instance.worldMatrix)
+      });
     }
   }
   for (let index = 0; index < materials.length; index++)
@@ -340,6 +345,7 @@ function buildProfilesAndInstances(
       instances.push({
         assetIndex,
         materialIndex: materialIndices[assetIndex]!,
+        flags: instance.flags,
         transform: Float32Array.from(instance.worldMatrix),
       });
     }

@@ -514,6 +514,13 @@ test("Instance V2 narrows stable, small, large, static, material, and visibility
   assert.equal(fields.materialCount, 1);
   assert.equal(fields.visibilityCount, 1);
   assert.equal(fields.uploadedBytes, 20 + 8 + 4);
+  const visibilityWrite = writes.at(-1);
+  const visibilityView = new DataView(visibilityWrite.data, visibilityWrite.dataOffset, visibilityWrite.size);
+  assert.equal(
+    visibilityView.getUint32(0, true),
+    classified | GPU_INSTANCE_FLAGS.Active | GPU_INSTANCE_FLAGS.CastsShadow,
+    "cast/receive patch must preserve MASK and double-sided classification in the actual GPU upload"
+  );
   fieldsCommand.finish();
   assert.equal(scene.evidence().staticPatchBytes, 20);
   assert.equal(scene.evidence().materialPatchBytes, 8);

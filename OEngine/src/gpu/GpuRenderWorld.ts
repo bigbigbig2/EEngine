@@ -1,3 +1,4 @@
+import { DEFAULT_INSTANCE_SHADOW_FLAGS } from "../core/InstanceShadowSemantics.js";
 import type { GeometryAssetPackage } from "../assets/GeometryAssetPackage.js";
 import { validateGeometryProductSceneWorkLimits } from "../assets/geometry-product/GeometryProductWorkload.js";
 import { GPU_COUNTER_BYTE_SIZE } from "../debug/GpuFrameCounters.js";
@@ -393,7 +394,7 @@ export class GpuRenderWorld {
       normalizedFlags[index] = materialClassificationFlags(
         material,
         classification.binIds[index]!,
-        source.flags?.[index] ?? 0,
+        source.flags?.[index] ?? DEFAULT_INSTANCE_SHADOW_FLAGS
       );
     }
     const instanceSource: InstanceSource = {
@@ -913,7 +914,19 @@ export class GpuRenderWorld {
       materialDictionaryIndices.push(dictionaryIndex);
     }
 
-    if (transformIndices.length === 0 && materialIndices.length === 0) {
+    const visibilityIndices: number[] = [];
+    const visibilityFlags: number[] = [];
+    for (const mesh of snapshot.changedMeshShadowSemantics) {
+      const index = adapter.instanceIndexByMesh.get(mesh);
+      if (index === undefined) continue;
+      visibilityIndices.push(index);
+      visibilityFlags.push(
+        GPU_INSTANCE_FLAGS.Active |
+          (mesh.castShadow ? GPU_INSTANCE_FLAGS.CastsShadow : 0) |
+          (mesh.receiveShadow ? GPU_INSTANCE_FLAGS.ReceivesShadow : 0)
+      );
+    }
+    if (transformIndices.length === 0 && materialIndices.length === 0 && visibilityIndices.length === 0) {
       adapter.lastRevision = snapshot.revision;
       this.ordinarySceneStableFrameCount++;
       return null;
@@ -922,6 +935,13 @@ export class GpuRenderWorld {
     const runtime = this.byScene.get(scene)!;
     const batch: PackedScenePatchBatch = {
       frameId: snapshot.revision,
+      visibility:
+        visibilityIndices.length === 0
+          ? undefined
+          : {
+              indices: Uint32Array.from(visibilityIndices),
+              flags: Uint32Array.from(visibilityFlags)
+            },
       transforms:
         transformIndices.length === 0
           ? undefined

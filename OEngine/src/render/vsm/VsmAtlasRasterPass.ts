@@ -1,3 +1,5 @@
+import { VSM_PAGE_TABLE_WGSL } from "../../shaders/vsm_page_table.js";
+import { packVsmProjection, VSM_DEPTH_RANGE_BYTE_OFFSET, VSM_DEPTH_RANGE_BYTES } from "./VsmProjection.js";
 import { NativeVisibilityPass } from "../surface/NativeVisibilityPass.js";
 import { nativeWinnerGeometry } from "../MeshletBucketRaster.js";
 import { nativeVisibilityView } from "../../shaders/native_visibility.js";
@@ -17,13 +19,12 @@ import type { VsmCasterRecordFrame } from "./VsmCasterRecordPass.js";
 import { VSM_CONTENT_VERSION_WGSL } from "../../shaders/vsm_content_version.js";
 
 const DIRTY_COMMIT_WGSL = /* wgsl */ `
-struct Constants { generation: u32, reserved0: u32, reserved1: u32, reserved2: u32 };
+${VSM_PAGE_TABLE_WGSL}
+struct Constants { generation: u32, projection_epoch: u32, content_namespace: u32, atlas_axis: u32 };
 struct Record { instance_record_index: u32, geometry_record_index: u32, meshlet_record_index: u32, material_handle: u32, page_slot: u32, virtual_page: u32, raster_flags: u32, packed_profile_lod: u32 };
 struct Caster { attempted: u32, written: u32, overflow: u32, generation: u32, records: array<Record> };
-struct Entry { slot_x: u32, slot_y: u32, mip: u32, flags: u32, generation: u32, fallback_mip: u32, reserved_0: u32, reserved_1: u32 };
-struct Meta { virtual_page: u32, mip: u32, last_visited: u32, flags: u32, generation: u32, owner: u32, reserved_0: u32, reserved_1: u32 };
-struct Table { entries: array<Entry>, }
-struct Metas { entries: array<Meta>, }
+struct Table { entries: array<VsmPageEntry>, }
+struct Metas { entries: array<VsmMetaEntry>, }
 struct Locks { values: array<atomic<u32>>, }
 @group(0) @binding(0) var<uniform> constants: Constants;
 @group(0) @binding(1) var<storage, read> caster: Caster;
@@ -42,7 +43,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let lock = atomicCompareExchangeWeak(&page_locks.values[record.virtual_page], 0u, 1u);
   if (!lock.exchanged) { return; }
   var entry = page_table.entries[record.virtual_page];
-  if (entry.generation == constants.generation && (entry.flags & 1u) != 0u && (entry.flags & 8u) != 0u) {
+  if (entry.generation == constants.generation && entry.projection_epoch == constants.projection_epoch &&
+      entry.content_namespace == constants.content_namespace && entry.slot_y * constants.atlas_axis + entry.slot_x == record.page_slot &&
+      (entry.flags & 1u) != 0u && (entry.flags & 8u) != 0u) {
     if ((entry.flags & 2u) != 0u) {
       // This lock owns publication of the completed page content. Multiple
       // caster records for one page advance its content version only once.
@@ -68,6 +71,7 @@ export interface VsmAtlasRasterInputs {
   readonly caster: VsmCasterRecordFrame;
   readonly resources: VsmResources;
   readonly frame: VsmDirectionalFrameConstants;
+  readonly depthRange: ResourceId;
   readonly generation: number;
   readonly publication: Readonly<{
     runtime: GpuRenderWorldRuntime;
@@ -76,6 +80,9 @@ export interface VsmAtlasRasterInputs {
     meshletWork: GPUBuffer;
   }>;
   readonly camera: ResourceId;
+  readonly cameraPosition: readonly [number, number, number];
+  readonly viewMatrix: ArrayLike<number>;
+  readonly clipFromWorld: ArrayLike<number>;
   readonly frameInstances: ResourceId;
   /** Foundation metadata/header only; VSM never consumes main prepared clips. */
   readonly frameGeometry?: ResourceId;
@@ -97,12 +104,8 @@ export interface VsmAtlasRasterInputs {
 const CONSTANT_BYTES = 256;
 
 function packConstants(input: VsmAtlasRasterInputs): ArrayBuffer {
-  const data = new ArrayBuffer(CONSTANT_BYTES);
-  const floats = new Float32Array(data);
+  const data = packVsmProjection(input.frame);
   const uints = new Uint32Array(data);
-  floats.set(input.frame.lightView, 0);
-  for (let level = 0; level < 6; level++)
-    floats.set(input.frame.clipOriginExtent[level] ?? [0, 0, 1, 1], 16 + level * 4);
   const c = input.resources.capabilities;
   uints.set([c.virtualPagesPerAxis, c.pageSize, c.border, c.atlasDimension], 40);
   uints.set([input.generation >>> 0, 0, c.casterRecordCapacity >>> 0, c.residentSlots >>> 0], 44);
@@ -207,7 +210,15 @@ export class VsmAtlasRasterPass {
         0,
         CONSTANT_BYTES,
       );
+      (context.encoder as ShadeGPUCommandContext).copyBufferToBuffer(
+        _resolved.get(data.depthRange) as GPUBuffer,
+        0,
+        this.constants,
+        VSM_DEPTH_RANGE_BYTE_OFFSET,
+        VSM_DEPTH_RANGE_BYTES
+      );
     });
+    update.read(input.depthRange);
     const currentConstants = update.write(constants);
     const raster = graph.add("VSM/partitioned compiled caster raster", input, (data, resolved, context) => {
       const command = context.encoder as ShadeGPUCommandContext,
@@ -222,9 +233,9 @@ export class VsmAtlasRasterPass {
         runtime,
       );
       const view = nativeVisibilityView(data.publication.vertices.arena, data.generation, {
-        clipFromWorld: new Float32Array(16),
-        viewMatrix: new Float32Array(16),
-        cameraPosition: [0, 0, 0],
+        clipFromWorld: data.clipFromWorld,
+        viewMatrix: data.viewMatrix,
+        cameraPosition: data.cameraPosition,
         source: geometry.source,
         sourcePayload: geometry.sourcePayload,
       });
@@ -310,7 +321,12 @@ export class VsmAtlasRasterPass {
       command.writeBuffer(
         this.commitConstants,
         0,
-        new Uint32Array([data.generation >>> 0, 0, 0, 0]).buffer,
+        new Uint32Array([
+          data.generation,
+          data.frame.projectionEpoch,
+          data.frame.namespace,
+          data.resources.capabilities.atlasPagesPerAxis
+        ]).buffer,
         0,
         16,
       );

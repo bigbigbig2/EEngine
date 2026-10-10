@@ -241,6 +241,7 @@ ${
     ? `${VSM_PAGE_TABLE_WGSL}
 struct VsmAtlasConstants {
   light_view: mat4x4f, clip_origin_extent: array<vec4f, 6>, dimensions: vec4u, control: vec4u,
+  parameters: vec4f, depth_range: vec4f, identity: vec4u,
 }
 struct VsmPageTableBuffer { entries: array<VsmPageEntry>, }
 @group(0) @binding(13) var<uniform> constants: VsmAtlasConstants;
@@ -392,7 +393,7 @@ fn native_visibility_fragment(fragment: NativeVisibilityVertex) -> @location(0) 
       uniform(3, 3, NATIVE_VISIBILITY_VIEW_BYTES),
       ...(partitioned ? [read(5, 1), read(6, 1), uniform(7, 1, 16)] : []),
       ...(productGeometry ? [read(8, 1), read(9, 1), read(10, 1), read(11, 1), read(12, 1)] : []),
-      ...(vsmAtlas ? [uniform(13, 1, 192), read(14, 1)] : []),
+      ...(vsmAtlas ? [uniform(13, 1, 240), read(14, 1)] : [])
     ],
     [],
     [

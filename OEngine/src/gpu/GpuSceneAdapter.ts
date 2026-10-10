@@ -7,6 +7,7 @@ import type { MeshletGeometryBase } from "../geometry/BoxGeometry.js";
 import type { AssetHandle } from "./GpuAssetStore.js";
 import type { InstanceSource } from "./GpuScene.js";
 import type { PackedSceneSource } from "./GpuRenderWorld.js";
+import { instanceShadowFlagsFromExtras } from "../core/InstanceShadowSemantics.js";
 
 export interface SceneInstanceAdapterOptions {
   readonly geometryHandle: (geometry: MeshletGeometryBase, mesh: Mesh) => AssetHandle;
@@ -110,7 +111,7 @@ export function createPackedSceneSourceFromScene(
       boundsSpheres,
       boundsMin,
       boundsMax,
-      flags: new Uint32Array(meshes.length),
+      flags: Uint32Array.from(meshes, (mesh) => instanceShadowFlagsFromExtras(mesh)),
       debugIds,
     }),
   });
@@ -168,6 +169,7 @@ export function createInstanceSourceFromScene(
     boundsMin,
     boundsMax,
     debugIds,
+    flags: Uint32Array.from(meshes, (mesh) => instanceShadowFlagsFromExtras(mesh))
   });
 }
 

@@ -21,6 +21,7 @@ export interface SceneChangeSnapshot {
   readonly transformedNodes: readonly SceneTransformChange[];
   readonly changedMeshBounds: readonly Mesh[];
   readonly changedMeshMaterials: readonly Mesh[];
+  readonly changedMeshShadowSemantics: readonly Mesh[];
   readonly changedLights: readonly Light[];
 }
 
@@ -34,6 +35,7 @@ type SceneChangeEvent =
       boundsChanged: boolean;
     }
   | { revision: number; kind: "light"; light: Light }
+  | { revision: number; kind: "shadow-semantics"; mesh: Mesh }
   | { revision: number; kind: "material"; mesh: Mesh };
 
 const DEFAULT_HISTORY_CAPACITY = 4096;
@@ -86,6 +88,9 @@ export class SceneChangeSet {
       mesh,
     });
   }
+  recordShadowSemantics(mesh: Mesh): void {
+    this.push({ revision: ++this.currentRevision, kind: "shadow-semantics", mesh });
+  }
 
   changesSince(lastRevision: number): SceneChangeSnapshot {
     const fullResyncRequired =
@@ -93,6 +98,7 @@ export class SceneChangeSet {
     const firstPreviousGlobal = new Map<Node3D, Float32Array>();
     const changedMeshBounds = new Set<Mesh>();
     const changedMeshMaterials = new Set<Mesh>();
+    const changedMeshShadowSemantics = new Set<Mesh>();
     const changedLights = new Set<Light>();
     let instanceStructureChanged = fullResyncRequired;
 
@@ -111,6 +117,8 @@ export class SceneChangeSet {
           }
         } else if (event.kind === "light") {
           changedLights.add(event.light);
+        } else if (event.kind === "shadow-semantics") {
+          changedMeshShadowSemantics.add(event.mesh);
         } else {
           changedMeshMaterials.add(event.mesh);
         }
@@ -127,6 +135,7 @@ export class SceneChangeSet {
       })),
       changedMeshBounds: Array.from(changedMeshBounds),
       changedMeshMaterials: Array.from(changedMeshMaterials),
+      changedMeshShadowSemantics: Array.from(changedMeshShadowSemantics),
       changedLights: Array.from(changedLights),
     };
   }

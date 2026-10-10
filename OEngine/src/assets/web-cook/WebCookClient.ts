@@ -31,6 +31,7 @@ export interface WebCookSceneCatalogSnapshot {
     readonly nodeIndex: number;
     readonly meshIndex: number;
     readonly worldMatrix: readonly number[];
+    readonly flags?: number;
   }[];
   readonly primitives: readonly {
     readonly assetKey: string;

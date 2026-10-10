@@ -779,7 +779,7 @@ R02 的当前边界：[Surface Kernel Binding V1](../specs/surface-kernel-bindin
 
 ### VSM V4 Design Source Map（2026-10-10，reference only）
 
-本轮为[VSM V4 设计](../next-design/eengine-v4-vsm-2026-10.md)重新核对固定源码，不实施生产或提升R07 adoption。用户授权启动V4-R0，workstream已切换；旧Module E的设计/执行仅用于追溯，V4目标与单元状态分别见新设计和[执行计划](../next-execution/eengine-v4-vsm-execution-2026-10.md)。Minimal GPU Work仍暂停。
+R0为[VSM V4 设计](../next-design/eengine-v4-vsm-2026-10.md)重新核对固定源码，没有实施生产或提升R07 adoption。后续用户授权R1的本地实现记录如下；旧Module E只用于追溯，目标和状态分别见设计和[执行计划](../next-execution/eengine-v4-vsm-execution-2026-10.md)。Minimal GPU Work仍暂停。
 
 Reference：Timberdoodle `1987cf3b8ddda42585d2470bb5806efbc96c6cae`，Apache-2.0；从GitHub重取 `src/rendering/virtual_shadow_maps` 的页面标记、free/allocate、wrapped/invalidate、dirty commit、directional/shared caster、dirty HIZ、`vsm.inl`/`vsm_state.hpp`，并核对 `src/shader_lib/vsm_util.glsl`、`vsm_sampling.hlsl`、`src/shader_shared/vsm_shared.inl` 和根LICENSE。忽略目录 `.local/validation/vsm-v4-design/reference` 保存原件与SHA256 manifest。`allocate_pages.hlsl` SHA256为 `e135e9a9afe29a9cb71bb26811d7cb63b7d888f3a318b0fc595f52e3d1fdccad`，`find_free_pages.glsl`为 `9100fe0320a70154c98550ac222e81c4a7d95a685ad580ec7750747458adb2d4`。
 
@@ -792,7 +792,9 @@ Reference：Timberdoodle `1987cf3b8ddda42585d2470bb5806efbc96c6cae`，Apache-2.0
 | `cull_and_draw_directional_pages.hlsl` task/mesh entry、shared `generic_vsm_mesh`、fragment atomicMin和dirty HIZ | 拒绝直接搬DispatchMesh/Daxa/virtual-screen atomic depth；复用本地native hardware atlas、exact R8 coverage/cutoff，compact explicit/implicit pairing为Original |
 | `src/rendering/tasks/shade_opaque.hlsl::get_vsm_shadow/vsm_shadow_test`、`vsm_util.glsl` | 固定revision的directional consumer实际在shade_opaque，按每页camera position row重建深度；`vsm_sampling.hlsl`主要Point/Spot，不能冒称Sun入口。参考保存投影身份的必要性；本地固定epoch depth/gutter/ready/coarse合同独立验证，不复制forward min-depth或mask mip2/cutoff0.5 |
 
-Local：既有ShadowGeometryWork、Scene/source ABI、native OPAQUE/MASK与Physical Sun。Original/Adapt：全域需求容量、方向光96页coarse pin、world page key和稳定GPU depth reduction、16B pair与同数学隐式容量路径、真实per-page完成与V4事务。上述为设计，未进行新WGSL/CPU oracle或production GPU采用验证，也没有性能提升声明。
+Local：既有ShadowGeometryWork、Scene/source ABI、native OPAQUE/MASK与Physical Sun。R1已本地实现`VsmProjection`/`VsmGeneration`/`VsmDepthBoundsPass`/`vsm_invalidation`及48B完整world page key，采用本地reverse-Z、AABB affine support、GPU两级归约与submit事务；有新CPU/独立GPU及fresh WASM真实生产小场景证据，完整Bistro资产仍缺，不宣称性能提升或Timberdoodle代码移植。全域需求容量、方向光96页coarse pin、16B pair/implicit和真实per-page完成仍是R2/R3目标；R07保持not adopted。
+
+Reference reuse：Native `GltfImporter.cpp::InstanceShadowFlags`复用项目已固定的cgltf `jsmn_parse`/`cgltf_decode_string`/`cgltf_skip_json`读取root extras，没有新增JSON parser donor或复制VSM算法。来源文件`D:/Nyx-main/MiniEngine/ThirdParty/cgltf/cgltf.h`，SHA256 `123d322d3eff8db5dc34a690131037a89972dff91793050caa48353a5911b4d7`；沿用既有cgltf MIT许可和native CMake来源，node默认/显式关闭policy由本地`InstanceShadowSemantics`定义，fresh Native cook与TS解析合同核对。
 
 ### R07 · Timberdoodle：VSM 页面算法候选，执行后端必须重做
 

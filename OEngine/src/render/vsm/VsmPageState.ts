@@ -1,5 +1,5 @@
 /** Fixed GPU layouts shared by the page-table and receiver-demand stages. */
-export const VSM_PAGE_ENTRY_WORDS = 8;
+export const VSM_PAGE_ENTRY_WORDS = 12;
 export const VSM_META_ENTRY_WORDS = 8;
 export const VSM_PAGE_WORK_WORDS = 8;
 export const VSM_DEMAND_HEADER_WORDS = 4;
@@ -21,6 +21,11 @@ export interface VsmPageEntry {
   readonly flags: number;
   readonly generation: number;
   readonly fallbackMip: number;
+  readonly projectionEpoch: number;
+  readonly worldX: number;
+  readonly worldY: number;
+  readonly namespace: number;
+  readonly contentVersion: number;
 }
 
 export interface VsmMetaEntry {
@@ -53,10 +58,8 @@ export interface VsmDemandRecord {
   readonly mip: number;
   readonly priority: number;
   readonly flags: number;
-  readonly receiverMinX: number;
-  readonly receiverMinY: number;
-  readonly receiverMaxX: number;
-  readonly receiverMaxY: number;
+  readonly worldX: number;
+  readonly worldY: number;
 }
 
 export function vsmEntriesPerClipLevel(pagesPerAxis: number): number {
@@ -127,4 +130,22 @@ export function vsmPageGenerationMatches(
     (entry.flags & VSM_PAGE_FLAGS.generationValid) !== 0 &&
     entry.generation === generation
   );
+}
+
+/** World coordinates retain their full signed identity; modulo only selects storage. */
+export function vsmWorldPageEntryIndex(
+  level: number,
+  mip: number,
+  worldX: number,
+  worldY: number,
+  pages: number
+): number {
+  const axis = Math.max(1, Math.floor(pages / 2 ** mip));
+  for (const value of [worldX, worldY]) {
+    if (!Number.isInteger(value) || value < -0x80000000 || value > 0x7fffffff) {
+      throw new RangeError("VSM world page coordinate must be i32");
+    }
+  }
+  const mod = (value: number) => ((value % axis) + axis) % axis;
+  return vsmPageTableEntryIndex(level, mip, mod(worldX), mod(worldY), pages);
 }

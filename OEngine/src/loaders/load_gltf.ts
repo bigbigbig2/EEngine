@@ -1,3 +1,8 @@
+import {
+  instanceShadowFlagsFromExtras,
+  INSTANCE_CASTS_SHADOW,
+  INSTANCE_RECEIVES_SHADOW
+} from "../core/InstanceShadowSemantics.js";
 /**
  * glTF 加载入口：读取 GLB 或 glTF 资源，并转换为场景、材质、纹理和动画对象。
  */
@@ -140,6 +145,9 @@ function buildSceneBundle(doc: GltfDocument): SceneBundle {
       const u = skinned ? new SkinnedMesh() : new Mesh();
       u.geometry = geom;
       u.material = d;
+      const shadowFlags = instanceShadowFlagsFromExtras(gltfNode.extras);
+      u.castShadow = (shadowFlags & INSTANCE_CASTS_SHADOW) !== 0;
+      u.receiveShadow = (shadowFlags & INSTANCE_RECEIVES_SHADOW) !== 0;
       u.transform_global.fromMatrix(gltfNode.worldMatrix!);
       if (r.name !== undefined) u.name = r.name;
       o.push(u);
@@ -392,7 +400,7 @@ export function buildPackedGltfSource(doc: GltfDocument): PackedGltfSource {
       const source = packedGeometries[geometryIndex]!;
       const materialIndex = product.materialIndex;
       const material = packedMaterials[materialIndex]!;
-      let instanceFlags = GPU_INSTANCE_FLAGS.CastsShadow;
+      let instanceFlags = instanceShadowFlagsFromExtras(node.extras);
       if (material.transparency_mode === ShadeTransparencyMode.AlphaTested) {
         instanceFlags |= GPU_INSTANCE_FLAGS.AlphaTested;
       }

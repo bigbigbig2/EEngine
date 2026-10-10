@@ -22,8 +22,8 @@ currentSlice:
   title: Complete Physical Sun Virtual Shadow Maps
   status: active
   goal: >-
-    Begin the user-authorized V4-R0 source/reference design and current-device baseline.
-    Restore complete Sun shadow semantics through the VSM authority's owner units.
+    Continue the user-authorized VSM owner units from source/reference design and
+    current-device baseline. Restore complete Sun shadow semantics through the authority.
     Unit states and stopping boundaries live only in the execution authority.
     Preserve whole-texture compression and FSR3; do not start VT or the excluded workload.
 

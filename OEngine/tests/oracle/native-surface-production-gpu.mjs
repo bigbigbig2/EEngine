@@ -282,7 +282,7 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
     const words = new Uint32Array(pages.getMappedRange());
     let allocated = 0,
       contentValid = 0;
-    for (let word = 0; word < words.length; word += 8) {
+    for (let word = 0; word < words.length; word += 12) {
       if ((words[word + 3] & 1) !== 0) {
         allocated++;
       }

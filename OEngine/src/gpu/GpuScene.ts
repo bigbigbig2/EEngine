@@ -1,3 +1,4 @@
+import { DEFAULT_INSTANCE_SHADOW_FLAGS } from "../core/InstanceShadowSemantics.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import type { AssetHandle, GpuAssetStore } from "./GpuAssetStore.js";
 import { mat4 } from "gl-matrix";
@@ -196,13 +197,7 @@ export interface GpuSceneEvidence {
 }
 
 type EntryState =
-  | "pending"
-  | "resident"
-  | "pending-append"
-  | "pending-patch"
-  | "pending-release"
-  | "released"
-  | "aborted";
+  "pending" | "resident" | "pending-append" | "pending-patch" | "pending-release" | "released" | "aborted";
 
 interface InstanceSetEntry {
   readonly handle: InstanceSetHandle;
@@ -1136,7 +1131,7 @@ export class GpuScene {
         source.materialHandles[index]!,
         true,
       );
-      let flags = (source.flags?.[index] ?? 0) | GPU_INSTANCE_FLAGS.Active;
+      let flags = (source.flags?.[index] ?? DEFAULT_INSTANCE_SHADOW_FLAGS) | GPU_INSTANCE_FLAGS.Active;
       if (source.virtualGeometry !== undefined) flags |= GPU_INSTANCE_FLAGS.VirtualGeometry;
       view.setUint32(base + GPU_INSTANCE_RECORD_OFFSETS.debug_id, source.debugIds?.[index] ?? index, true);
       copyFiniteF32(
@@ -1442,7 +1437,7 @@ function normalizePatch(
     return delta === 0 ? left - right : delta;
   });
   let write = 0;
-  for (let read = 0; read < orders.length; ) {
+  for (let read = 0; read < orders.length;) {
     const index = indices[orders[read]!]!;
     let lastOrder = orders[read]!;
     read++;

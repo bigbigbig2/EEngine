@@ -278,6 +278,7 @@ export class WebCookCoordinator {
               nodeIndex: instance.nodeIndex,
               meshIndex: instance.meshIndex,
               worldMatrix: Array.from(instance.worldMatrix),
+              flags: instance.flags
             })),
             primitives: this.#catalog.primitives.map((primitive, index) => ({
               assetKey: primitiveKey(primitive),
@@ -498,7 +499,8 @@ export class WebCookCoordinator {
               : { sceneAssetIndices: Uint32Array.from(revision.sceneAssetIndices) }),
           }),
         );
-        const singlePageBootstrap = this.#liveRevisions.length === 1 && descriptor.activationPageIds.length === 1;
+        const singlePageBootstrap =
+          this.#liveRevisions.length === 1 && descriptor.activationPageIds.length === 1;
         for (const pageId of descriptor.activationPageIds) {
           await this.emitPage(revision, pageId, false, singlePageBootstrap);
         }
@@ -566,7 +568,8 @@ export class WebCookCoordinator {
                 : { sceneAssetIndices: Uint32Array.from(revision.sceneAssetIndices) }),
             }),
           );
-          const singlePageBootstrap = this.#liveRevisions.length === 1 && descriptor.activationPageIds.length === 1;
+          const singlePageBootstrap =
+            this.#liveRevisions.length === 1 && descriptor.activationPageIds.length === 1;
           for (const pageId of descriptor.activationPageIds) {
             await this.emitPage(revision, pageId, false, singlePageBootstrap);
           }
@@ -639,7 +642,8 @@ export class WebCookCoordinator {
     }
     return (async () => {
       try {
-        const singlePageBootstrap = this.#liveRevisions.length === 1 && descriptor.activationPageIds.length === 1;
+        const singlePageBootstrap =
+          this.#liveRevisions.length === 1 && descriptor.activationPageIds.length === 1;
         for (const pageId of descriptor.activationPageIds) {
           await this.emitPage(revision, pageId, false, singlePageBootstrap);
         }
@@ -1112,8 +1116,10 @@ export class WebCookCoordinator {
   }
   private async waitForOutputCredit(bytes: number, prefetchedKey?: string): Promise<void> {
     const startedAt = Date.now();
-    while (!this.#session.canEmitPage(bytes) &&
-      (prefetchedKey === undefined || !this.#deliveredPageKeys.has(prefetchedKey))) {
+    while (
+      !this.#session.canEmitPage(bytes) &&
+      (prefetchedKey === undefined || !this.#deliveredPageKeys.has(prefetchedKey))
+    ) {
       if (this.#abort.signal.aborted || this.#state === "disposed" || this.#state === "failed")
         throw this.#abort.signal.reason ?? new Error("Web Cook stopped while awaiting output credit");
       await new Promise<void>((resolve) => this.#creditWaiters.add(resolve));

@@ -248,7 +248,7 @@ void WriteSceneManifest(
     for (std::uint32_t packIndex = 0; packIndex < packs.size(); ++packIndex) for (std::uint32_t record = 0; record < packs[packIndex].sourceAssetIndices.size(); ++record) locations[packs[packIndex].sourceAssetIndices[record]] = {packIndex, record};
     std::ofstream output(path, std::ios::binary | std::ios::trunc);
     if (!output) throw std::runtime_error("cannot create scene manifest");
-    output << std::setprecision(9) << "{\n  \"schema\": \"oengine-scene-v3\",\n  \"packs\": [\n";
+    output << std::setprecision(9) << "{\n  \"schema\": \"oengine-scene-v3\",\n  \"instanceSemantics\": \"cast-receive-explicit-v1\",\n  \"packs\": [\n";
     for (std::size_t i = 0; i < packs.size(); ++i) {
         output << "    {\"packId\":\"" << Hex(packs[i].packId) << "\",\"uri\":\"" << JsonEscape(FileName(packs[i].path)) << "\"}" << (i + 1u == packs.size() ? "\n" : ",\n");
     }

@@ -1,4 +1,5 @@
 import { mat4 } from "gl-matrix";
+import { INSTANCE_CASTS_SHADOW, INSTANCE_RECEIVES_SHADOW } from "../core/InstanceShadowSemantics.js";
 import { GPU_SHADING_BIN_COUNT } from "./GpuShadingProgramAbi.js";
 
 export const GPU_INSTANCE_ABI_VERSION = 9;
@@ -14,8 +15,8 @@ export const GPU_INSTANCE_SHADING_BIN_MASK = (GPU_SHADING_BIN_COUNT - 1) << GPU_
 
 export const GPU_INSTANCE_FLAGS = Object.freeze({
   Active: 1 << 0,
-  CastsShadow: 1 << 1,
-  ReceivesShadow: 1 << 2,
+  CastsShadow: INSTANCE_CASTS_SHADOW,
+  ReceivesShadow: INSTANCE_RECEIVES_SHADOW,
   AlphaTested: 1 << 3,
   DoubleSided: 1 << 4,
   /** Velocity must output zero because current-to-previous motion is not invertible. */

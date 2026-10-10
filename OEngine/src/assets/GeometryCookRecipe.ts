@@ -15,6 +15,7 @@ export type GeometryVertexProfile = "static-pbr-compact-v2" | "explicit-float32-
 
 /** Runtime/debug mirror only; the native C++ recipe is production-authoritative. */
 export interface GeometryCookRecipeV3 {
+  readonly instanceSemantics: "cast-receive-explicit-v1";
   readonly recipeVersion: 3;
   readonly meshoptimizerRevision: string;
   readonly hierarchyAlgorithmVersion: "nyx-hierarchy-v4.1-conservative-spheres";
@@ -47,6 +48,7 @@ export interface GeometryCookRecipeV3 {
 
 export function createGeometryCookRecipeV3(input: Partial<GeometryCookRecipeV3> = {}): GeometryCookRecipeV3 {
   const recipe: GeometryCookRecipeV3 = {
+    instanceSemantics: "cast-receive-explicit-v1",
     recipeVersion: 3,
     meshoptimizerRevision: "meshoptimizer-1.3-9e1f07b159d3",
     hierarchyAlgorithmVersion: "nyx-hierarchy-v4.1-conservative-spheres",
@@ -79,6 +81,7 @@ export function createGeometryCookRecipeV3(input: Partial<GeometryCookRecipeV3> 
   };
   if (
     recipe.recipeVersion !== 3 ||
+    recipe.instanceSemantics !== "cast-receive-explicit-v1" ||
     recipe.vertexProfileVersion !== "static-pbr-page-local-f32-lean-v7" ||
     recipe.hierarchyAlgorithmVersion !== "nyx-hierarchy-v4.1-conservative-spheres"
   )
@@ -132,6 +135,7 @@ export function geometryCookRecipeV3Key(recipe: GeometryCookRecipeV3): string {
     groupTargetMeshlets: recipe.groupTargetMeshlets,
     hierarchyAlgorithmVersion: recipe.hierarchyAlgorithmVersion,
     hierarchyFanout: recipe.hierarchyFanout,
+    instanceSemantics: recipe.instanceSemantics,
     lodErrorMergeFactor: canonicalRecipeF32(recipe.lodErrorMergeFactor),
     meshletMaxTriangles: recipe.meshletMaxTriangles,
     meshletMaxVertices: recipe.meshletMaxVertices,

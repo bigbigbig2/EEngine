@@ -1,11 +1,15 @@
 # OEngine Web Geometry Cooker
 
-Current artifacts (2026-10-08 / G2.4): native, portable-single and pthread
+Current artifacts (2026-10-10 / VSM V4-R1): native, portable-single and pthread
 producers use input ABI 4, `static-pbr-page-local-f32-lean-v7` and hierarchy
 recipe `nyx-hierarchy-v4.1-conservative-spheres`. Sphere merge recomputes the
 required radius about the stored f32 center and rounds outward; the independent
 translated-hierarchy oracle tests strict double containment. This changes
 content/recipe identity, not page layout. Existing Products need recooking.
+The canonical recipe now includes `instanceSemantics: cast-receive-explicit-v1`.
+Native glTF node extras and public Scene/WASM producers preserve explicit
+cast/receive off, with both enabled by default. Legacy scene manifests without
+this policy are rejected and require recooking; zero flags are never inferred.
 Runtime
 Groups contain page-local local indices and authored vertices, without the
 retired 64-byte/triangle continuity payload (bits 6/7). Obsolete artifacts and
@@ -50,8 +54,8 @@ canonical-window builder, and the Phase D optional spill-release hook
 (`abi_version == 4`):
 
 ```text
-oengine-web-geometry-cooker.mjs   SHA-256 de6778326d6ce9cba027cb8b479cfbd8d518ce691779813bbb2fea71568f8c5f
-oengine-web-geometry-cooker.wasm  SHA-256 fb1dc19ac74db8d52e7a32101af1c81c8689e79d0908f9d2ab66bf318aebd442
+oengine-web-geometry-cooker.mjs   SHA-256 1479ec4f16200e4cdbe94e65295b6198f41b6c0d061d90fbe922df87ea1e4156
+oengine-web-geometry-cooker.wasm  SHA-256 a3d7d8082f420d627a173d20f3df4f4974ed64f9f322317e392bae9eb4a73a0f
 ```
 
 The cooker emits one Product asset per canonical material domain, so a
@@ -87,8 +91,8 @@ The current artifact carries the same ADR-0017/ADR-0018 Phase B ABI
 (`abi_version == 4`):
 
 ```text
-threads/oengine-web-geometry-cooker.mjs   SHA-256 088665a4c8ca9f5f7b3da8b4eac1f8f708da5d89291c6527b2b39f6027cf0396
-threads/oengine-web-geometry-cooker.wasm  SHA-256 bcc9a007efb70241a2012cb03655b1bca365ccb2e97a199b5d920ca0c86a6d5b
+threads/oengine-web-geometry-cooker.mjs   SHA-256 02daaae63b8af3c19141e1152a1fb2e364c2fc26ee6b8f6c9f0028bb4a2408fb
+threads/oengine-web-geometry-cooker.wasm  SHA-256 c507bbccf7fab7a6b2419057d9882462fc6be5b9b7c7fc04f402fbbae9590ac6
 ```
 
 2026-09-29: both artifacts rebuilt for nyx-hierarchy-v3.1 and

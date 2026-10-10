@@ -1245,6 +1245,7 @@ export class Scene extends Node3D {
         const mesh = node as Mesh;
         mesh.onMaterialChanged.add(this.onMeshMaterialChanged, this);
         mesh.onGeometryChanged.add(this.onMeshGeometryChanged, this);
+        mesh.onShadowSemanticsChanged.add(this.onMeshShadowSemanticsChanged, this);
       }
     });
     if (instanceStructureChanged) {
@@ -1263,6 +1264,7 @@ export class Scene extends Node3D {
         const mesh = node as Mesh;
         mesh.onMaterialChanged.remove(this.onMeshMaterialChanged, this);
         mesh.onGeometryChanged.remove(this.onMeshGeometryChanged, this);
+        mesh.onShadowSemanticsChanged.remove(this.onMeshShadowSemanticsChanged, this);
       }
       if ((node as Light).isLight === true) {
         const light = node as Light;
@@ -1348,6 +1350,9 @@ export class Scene extends Node3D {
 
   private onMeshGeometryChanged(mesh: Mesh): void {
     if (this.instances.has(mesh)) this.changeSet.recordInstanceStructureChanged();
+  }
+  private onMeshShadowSemanticsChanged(mesh: Mesh): void {
+    if (this.instances.has(mesh)) this.changeSet.recordShadowSemantics(mesh);
   }
 }
 

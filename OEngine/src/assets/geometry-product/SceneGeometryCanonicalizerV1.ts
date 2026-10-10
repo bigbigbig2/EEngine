@@ -1,3 +1,4 @@
+import { INSTANCE_CASTS_SHADOW, INSTANCE_RECEIVES_SHADOW } from "../../core/InstanceShadowSemantics.js";
 import type { MeshletGeometryBase } from "../../geometry/BoxGeometry.js";
 import type { Mesh } from "../../scene/Mesh.js";
 import type { Scene } from "../../scene/Scene.js";
@@ -130,7 +131,8 @@ export function canonicalizeSceneGeometryV1(scene: Scene): SceneGeometryCanonica
       assetIndex: domainIndex,
       materialIndex,
       transform: Float32Array.from(mesh.transform_global.matrix),
-      flags: 0,
+      flags:
+        (mesh.castShadow ? INSTANCE_CASTS_SHADOW : 0) | (mesh.receiveShadow ? INSTANCE_RECEIVES_SHADOW : 0)
     });
   }
 

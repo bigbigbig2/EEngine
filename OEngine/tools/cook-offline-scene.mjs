@@ -275,7 +275,10 @@ async function cookScene(input, output, workers) {
       const primitive = geometry.meshes[meshIndex].primitives[0];
       const a = primitive.attributes;
       const child = geometry.nodes.length;
-      geometry.nodes.push({ mesh: meshIndex });
+      geometry.nodes.push({
+        mesh: meshIndex,
+        ...(node.extras === undefined ? {} : { extras: structuredClone(node.extras) })
+      });
       (geometry.nodes[nodeIndex].children ??= []).push(child);
       instanceMaterials.push(primitive.material ?? 0);
       instanceProfiles.push({

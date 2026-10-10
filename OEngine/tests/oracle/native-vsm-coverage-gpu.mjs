@@ -31,12 +31,15 @@ export async function runNativeVsmCoverageGpuOracle(
     words.set([work % fixture.instanceCount, 0, work, work % 8, 0, 0, 16, 0], 4 + work * 8);
   const caster = make(words, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
   const pages = make(
-    new Uint32Array([0, 0, 0, 11, fixture.generation, 0, 0, 0]),
+    new Uint32Array([0, 0, 0, 11, fixture.generation, 0, 0, fixture.generation, 0, 0, 1, 0]),
     GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
   );
-  const constants = new Float32Array(48);
+  const constants = new Float32Array(60);
   constants.set([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
-  constants.set([-1, -1, 2, 0], 16);
+  constants.set([1, 1], 12);
+  constants.set([0, 0, 2, 0], 16);
+  constants.set([-8, 8, 1 / 16, 1], 52);
+  new Uint32Array(constants.buffer).set([fixture.generation, 1, 0, 0], 56);
   new Uint32Array(constants.buffer).set([1, 128, 2, 132, fixture.generation, 1, fixture.workCount, 1], 40);
   const settings = make(constants, GPUBufferUsage.UNIFORM);
   const atlas = device.createTexture({

@@ -6,6 +6,7 @@
 namespace oengine::asset {
 
 struct GeometryCookRecipeV3 {
+    std::string instanceSemantics = "cast-receive-explicit-v1";
     std::string meshoptimizerRevision = "meshoptimizer-1.3-9e1f07b159d3";
     std::string hierarchyAlgorithmVersion = "nyx-hierarchy-v4.1-conservative-spheres";
     std::uint32_t meshletMaxVertices = 64u;

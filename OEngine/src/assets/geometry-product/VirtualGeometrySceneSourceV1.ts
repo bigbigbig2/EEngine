@@ -1,3 +1,4 @@
+import { DEFAULT_INSTANCE_SHADOW_FLAGS } from "../../core/InstanceShadowSemantics.js";
 import type { VirtualGeometryGeometryProfile, VirtualGeometrySceneSource } from "../../gpu/GpuRenderWorld.js";
 import { StandardShadeMaterial } from "../../material/StandardShadeMaterial.js";
 import type { GeometryProductDescriptorV1 } from "./GeometryProductV1.js";
@@ -116,7 +117,7 @@ export function buildVirtualGeometrySceneSourceV1(
   if (instances.length === 0) {
     throw new RangeError("Virtual Geometry scene source requires at least one instance");
   }
-  const declaredFlags = instances[0]!.flags !== undefined;
+  const declaredFlags = instances.some((instance) => instance.flags !== undefined);
   if (declaredFlags && instances.some((instance) => instance.flags === undefined))
     throw new RangeError("Virtual Geometry scene instances must declare flags together");
 
@@ -302,7 +303,7 @@ export function mergeVirtualGeometryProductSceneSourcesV1(
       }
       boundsMin.push(...source.boundsMin.subarray(index * 3, index * 3 + 3));
       boundsMax.push(...source.boundsMax.subarray(index * 3, index * 3 + 3));
-      if (hasFlags) flags.push(source.flags?.[index] ?? 0);
+      if (hasFlags) flags.push(source.flags?.[index] ?? DEFAULT_INSTANCE_SHADOW_FLAGS);
       if (hasDebugIds) debugIds.push(source.debugIds?.[index] ?? geometryIndices.length - 1);
     }
     expectedAssetBegin += source.assetCount;

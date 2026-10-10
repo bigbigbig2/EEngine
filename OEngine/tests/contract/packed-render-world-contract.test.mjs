@@ -781,6 +781,38 @@ test("Ordinary Scene patch abort retries and structural edits require explicit f
   assert.equal(fixture.registry.evidence().ordinarySceneFullResyncRequiredCount, 1);
 });
 
+test("Ordinary Scene shadow patch retries after abort and does not reclassify material", () => {
+  const fixture = createPackedRegistryFixture();
+  const scene = new Scene();
+  const material = fixture.manifest.source.materials[0];
+  material.transparency_mode = ShadeTransparencyMode.AlphaTested;
+  material.draw_side = ShadeDrawSide.Double;
+  const mesh = Mesh.from(new BoxGeometry(1, 1, 1), material);
+  scene.add(mesh);
+  const stage = new FakeCommand("ordinary-shadow-stage");
+  fixture.registry.stageOrdinaryScene(scene, fixture.manifest, fixture.assetHandles, [mesh], stage);
+  stage.finish();
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  const expected = GPU_INSTANCE_FLAGS.Active;
+  const abandoned = new FakeCommand("ordinary-shadow-abort");
+  fixture.registry.encodePendingPatch(scene, abandoned);
+  assert.deepEqual([...fixture.calls.patches.at(-1).visibility.indices], [0]);
+  assert.equal(fixture.calls.patches.at(-1).visibility.flags[0], expected);
+  assert.equal(fixture.calls.patches.at(-1).materials, undefined);
+  abandoned.abort(new Error("injected shadow patch failure"));
+  const retry = new FakeCommand("ordinary-shadow-retry");
+  assert.notEqual(fixture.registry.encodePendingPatch(scene, retry), null);
+  assert.equal(fixture.calls.patches.at(-1).visibility.flags[0], expected);
+  retry.finish();
+  assert.equal(fixture.registry.evidence().ordinaryScenePatchCount, 1);
+  mesh.castShadow = true;
+  const enabled = new FakeCommand("ordinary-shadow-enable");
+  fixture.registry.encodePendingPatch(scene, enabled);
+  assert.equal(fixture.calls.patches.at(-1).visibility.flags[0], expected | GPU_INSTANCE_FLAGS.CastsShadow);
+  enabled.finish();
+});
+
 test("Frame evidence detects extra submit, stable-graph rebuild, IO, and feature-off resources", () => {
   const profiler = new FrameProfiler({ enabled: true, now: () => 0 });
   profiler.beginFrame(7);

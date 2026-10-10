@@ -521,7 +521,7 @@ fn inspect(@builtin(local_invocation_index) index: u32) {
       const words = new Uint32Array(pages.getMappedRange());
       let allocated = 0,
         valid = 0;
-      for (let i = 0; i < words.length; i += 8) {
+      for (let i = 0; i < words.length; i += 12) {
         if (words[i + 3] & 1) allocated++;
         if (words[i + 3] & 8) valid++;
       }
