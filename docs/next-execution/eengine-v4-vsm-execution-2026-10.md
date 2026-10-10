@@ -27,12 +27,12 @@ verifies:
 | 单元 | 状态 | 完整责任闭包 |
 |---|---|---|
 | V4-R0 源码与来源设计 | complete（设计/当前实现基线） | GPU原失败与当前设备基线、SOURCE分类、独立坐标算术、固定donor核对、候选成本与路线 |
-| V4-R1 实例语义与稳定投影 | in-progress（完整Bistro源文件缺失） | Cooker/Scene→cast/receive→Geometry/Surface；world page key、稳定depth、epoch/prepare/commit/abort→全部consumer；实际结果与剩余项见§3.1 |
+| V4-R1 实例语义与稳定投影 | complete（单元语义/投影出口） | Cooker/Scene→cast/receive→Geometry/Surface；world page key、稳定depth、epoch/prepare/commit/abort→全部consumer；完整Bistro新资产与GPU接线结果见§3.1 |
 | V4-R2 完整需求与驻留 | not-started | bitset→unique request/touch→slot选择→page/meta/dirty/coarse→采样和页工作 |
 | V4-R3 caster与页面完成 | not-started | Geometry bounds/source→compact explicit或implicit全工作→native raster→per-page completion→Surface |
 | V4-R4 完整场景验收 | not-started | 真实cook Bistro、动态/压力/生命周期、正确性/画质/成本和资源峰值 |
 
-R0在R1入口停止；本轮按后续用户授权实施R1。R1尚未满足完整资产出口，不能关闭单元或进入R2；定向通过不等于完整VSM修复或性能验收。
+R0在R1入口停止；后续用户授权实施R1。R1完成后停在R2入口，不自动启动R2/R3或VT；单元语义/投影出口通过不等于完整VSM修复或性能验收。
 
 ## 2. V4-R0 设计依据与已做检查
 
@@ -96,9 +96,20 @@ R0在R1入口停止；本轮按后续用户授权实施R1。R1尚未满足完整
 
 GPU原件在`.local/validation/vsm-v4-r1/{gpu,production,integration}-result.json`，最终CPU运行原件为`cpu-result.txt`；失败原件包含WGSL保留字、旧开发服务器缓存/URL问题、未normalize的太阳fixture、Temporal最小binding、diagnostic COPY_SRC、测试使用错误transform API和旧夹具仅Active却预期收影。按shader/API/环境/fixture分别定位修复，未吞错误、跳断言或扩大容差。streaming旧pressure夹具失败另存`streaming-fixture-failure.txt`。R0失败目录原件保留。`git diff --check`通过；docs-verify仍有1 finding/74 historical warnings，唯一finding为未修改且Git忽略的旧`docs/status.generated.md`缺frontmatter，本轮文档零新增finding，全库检查不记通过。
 
-**架构审查与成本边界：** producer→product→全部消费者已核对；生产仍单frame submit，无本帧GPU读回控制，新GPU读回只在oracle诊断。page48B增加16V、depth16B/partials16ceil(N/64)/constants80B与window256B、steady48B GPUcopy、epoch2bounds dispatch/roll全V扫描的实际账见Design §5。CPU观察registered Products为O(Products)，stable不分配。只证明接线/语义和省掉无关camera bounds dispatch；没有GPU时间、0/50/100%完整场景成本或性能改善声明。浮点大世界质量、view-dependent MASK独立numeric与真实VG refine/texture-promote场景尚未单独验收，不能用合成revision代替真实产品实验。
+**架构审查与成本边界：** producer→product→全部消费者已核对；生产仍单frame submit，无本帧GPU读回控制，新GPU读回只在oracle诊断。page48B增加16V、depth16B/partials16ceil(N/64)/constants80B与window256B、steady48B GPUcopy、epoch2bounds dispatch/roll全V扫描的实际账见Design §5。CPU观察registered Products为O(Products)，stable不分配。只证明接线/语义和省掉无关camera bounds dispatch；没有GPU时间、0/50/100%完整场景成本或性能改善声明。浮点大世界质量、view-dependent MASK独立numeric与texture coverage promote/demote尚未单独验收，留在模块验收，不记已通过；真实VG流式publication失效补验见下文，完整refine质量仍须R3/R4。
 
-**完整资产阻塞与停止点：** 原始`D:/shu/engine/.local/models/BistroExterior_static_fixed_occlusion.glb`已不存在；既有`bistro-cooked/geometry-input.gltf`引用该丢失buffer，native重cook在import阶段真实失败（cannot open glTF buffer），隔离目标`bistro-cooked-vsm-r1`未获得新产品。原GLB身份为1035637812B、SHA256 `fd2e08c41da4d89bba1b04f4bd8df4824c6937bbe53a17edd4e278f7e3b5f641`。需原文件实际新路径后重cook并核对完整1591instances/2829226triangles/132materials/405images；不能修改旧cooked flags代替。完整Bistro新链、1080p画质/P50/P95及1650Ti实机均未运行。R1保持in-progress，R2/R3不启动；旧8192pixel append、锁竞态、generation-LRU、coarse不完整、无caster空页ready缺口、global caster overflow和gutter问题仍按后续单元处理。
+**原始资产缺失失败（保留历史）：** 首次原始`D:/shu/engine/.local/models/BistroExterior_static_fixed_occlusion.glb`不存在；既有`bistro-cooked/geometry-input.gltf`引用丢失buffer，native重cook在import阶段真实失败（cannot open glTF buffer），隔离目标`bistro-cooked-vsm-r1`未获得新产品。当时R1保持in-progress，不修改旧cooked flags代替，也不进入R2。
+
+**完整资产恢复与补验（2026-10-10）：** 用户恢复同路径源文件；实际大小1035637812B、SHA256 `fd2e08c41da4d89bba1b04f4bd8df4824c6937bbe53a17edd4e278f7e3b5f641`与原身份一致。先保存旧manifest/receipt/README到`.local/validation/vsm-v4-r1/bistro-before-recook`，再用R1 Native cooker真实重建原`bistro-cooked`几何/实例；纹理逐项校验来源、配方、工件hash后复用，未把累计encode时间当本轮重编码时间。
+
+- 几何receipt key从`3a263ed3c969e242c8efafcc80cedbc37d1408b02ecc941557c65eb0cad1b3bc`变为`406e42d9f0ed21c231df2232b4681cfce58c9c0f2cde51989ec2a3f6dc62e35b`，Native重cook44.717s；整个重cook/复核调用108.732s。新scene manifest hash为`de7c76f8e64caea51e37f25926b258f64b32f9a9aa1c68a8afa64010ec862230`，4个新pack身份不同于旧产品，manifest携带`cast-receive-explicit-v1`，1591实例flags均为6。
+- `verify-offline-scene.mjs`独立检查全部4pack和405纹理产品通过：1591primitive instances、2829226source triangles、1513unique geometry assets、132materials（122 OPAQUE/10 MASK）、405images/full mips；273BC7 sRGB、132BC7 linear、10exact R8 coverage，202unique texture identities。几何186208720B、纹理1311548642B。未裁剪模型或禁用MASK。
+- fresh隔离Vite5193→示例原Loader→Product→GPU Scene→VSM，RTX2060 SUPER 8GB，960×640、原camera/default Sun、固定曝光1、calendar/FSR3/jitter关闭，保持production capacity65536。只附加diagnostic入口及透传的projection输入记录，未HTTP补flags/容量/渲染算法。暂停示例并等待queue完成后读回，避免CPU已经推进下一提交而GPU拷贝仍对应旧帧。实际GPU cast=receive=1591，全部active；202BC7+10R8纹理平面/full mips，GPU纹理live1034645106B，几何银行1.5GiB+metadata128MiB。示例`fullGeometrySettled`不证明fine streaming完成，实际scheduler仍有pending，不能据此声明完整细节驻留。
+- 独立double八角点从全部实际GPU实例AABB/affine投影：含padding期望Z为[-83.632500287,38.356676177]，GPU为[-83.632499695,38.356674194]，valid=1，误差小于绝对1e-4；沿光轴往返1世界单位时depth逐位保持。真实VG上传使resident页数增加、sourceRevision25→28，实际`caster-publication`推进epoch28→31；随后`light-axis-2`→`light-axis-3`来源28/caster1/scene1不变、reason=none，epoch31保持。不是合成revision，也未冻结streaming来取得通过。
+- R2/R3原问题仍复现：initial attempted67045/written65536/overflow1509、503dirty/0ready；30帧后诊断attempted68926/overflow3390、468dirty/0ready；最后光轴帧attempted75994/overflow10458、520dirty/0ready。属于全局caster容量与页面完成的未切换协议；不扩容掩盖、不将此结果算作完整阴影画质通过。R0旧0cast失败保留，R1修复的是原语义阻断和投影身份。
+- 原件为`bistro-recook.log`、`bistro-verify.txt`、`bistro-result.json`、`bistro-gpu-paused-retry-log.txt`与off/on截图，均在`.local/validation/vsm-v4-r1`。首次自动播放读回把并发source publication误当camera-only变化，epoch断言失败；真实数据另存`bistro-first-streaming-result.json`及timestamp失败。随后暂停/单步和真实输入trace分离两因素，重跑通过、errors=[]。另有隐藏pause控件的Playwright可见性超时，改为触发已有示例change事件，生产代码未变。
+
+**R1出口与停止点：** 原提交`58cac80b`的fresh构建、80/80合同与GPU数学/完整小场景生命周期结果仍适用于未修改的生产代码；本轮只重cook本地资产、补完整BistroGPU语义/稳定深度/真实source失效检查并更新记录，无需重复WASM/build。R1单元complete，停在R2入口。1080p画质/P50/P95、完整refine/coverage压力、1650Ti实机未运行，属于后续模块验收，未记完成。旧8192pixel append、锁竞态、generation-LRU、coarse不完整、无caster空页ready缺口、global caster overflow和gutter仍按R2/R3处理，整个VSM模块仍未完成。
 
 ## 4. V4-R2：完整需求、slot回收与coarse产品
 

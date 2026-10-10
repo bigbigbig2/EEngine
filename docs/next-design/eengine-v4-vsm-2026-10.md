@@ -192,4 +192,4 @@ bitset全域compaction、方向光coarse pin、compact explicit/implicit容量�
 
 完整cooked Bistro必须保持1591instances、2829226source triangles、132materials与405texture images及全部mips，原camera/default Sun并扩多姿态/太阳角度，先确认source identity和residency。在当前RTX2060 SUPER 8GB、1080p验收VSM producer、shadow Geometry、native raster、Surface、整帧P50/P95和完整memory峰值；1650Ti4GB适配按明确预算核算，实机未测保留未验证。GPU作业串行。原无影/补flags仍overflow的失败原件保存，诊断扩容不是正式修复。
 
-R0只涵盖设计、独立算术与既有实现诊断。R1新WGSL、CPU/oracle与真实production小场景结果见执行计划；完整Bistro重cook与同条件1080p成本尚缺，R2/R3需求、驻留、caster与完成协议尚未切换。不能用定向通过宣布VSM V4完整修复或性能提升。
+R0只涵盖设计、独立算术与既有实现诊断。R1新WGSL、CPU/oracle、真实production小场景及完整Bistro重cook/GPU语义与深度结果见执行计划；同条件1080p成本尚缺，R2/R3需求、驻留、caster与完成协议尚未切换，完整Bistro仍复现caster overflow/0ready。不能用R1通过宣布VSM V4完整修复或性能提升。
