@@ -21,7 +21,7 @@ function harness(profiled = false) {
       },
       abort() {
         this.closed = true;
-      }
+      },
     };
     pending.push({ resolve, reject });
     return command;
@@ -150,4 +150,38 @@ test("intervening RAF or teardown cancels a completion wakeup", async () => {
     assert.equal(wakes, 0);
     coordinator.destroy();
   }
+});
+
+test("three bounded contexts honor profile changes, abort and rejected completion", async () => {
+  const { coordinator, pending } = harness();
+  coordinator.admissionProfile = "throughput";
+  const frames = [];
+  for (let i = 0; i < 3; i++) {
+    const frame = coordinator.beginFrame(i, "frame");
+    frames.push(frame);
+    coordinator.submitFrame(frame);
+  }
+  assert.equal(new Set(frames.map((frame) => frame.slotIndex)).size, 3);
+  assert.equal(coordinator.canBeginFrame, false);
+  assert.throws(() => coordinator.beginFrame(3, "overflow"), /completion/);
+  coordinator.admissionProfile = "latency";
+  pending[0].resolve();
+  await Promise.resolve();
+  assert.equal(coordinator.canBeginFrame, false, "lower limit must drain existing submissions");
+  pending[1].reject(new Error("loss"));
+  await Promise.resolve();
+  assert.equal(coordinator.canBeginFrame, true);
+  const retry = coordinator.beginFrame(3, "retry");
+  assert.equal(retry.slotIndex, frames[0].slotIndex);
+  coordinator.abortFrame(retry, new Error("abort"));
+  assert.equal(coordinator.evidence().inFlight, 1);
+  assert.equal(coordinator.evidence().inFlightLimit, 2);
+  assert.equal(coordinator.evidence().frameContextCapacity, 3);
+  assert.throws(() => {
+    coordinator.admissionProfile = "unbounded";
+  }, /Unknown/);
+  coordinator.destroy();
+  pending[2].resolve();
+  await Promise.resolve();
+  assert.equal(coordinator.canBeginFrame, false);
 });

@@ -239,7 +239,6 @@ test("production Visibility publishes metadata only after submission and orders 
     counters: 2,
     frameInstances: 3,
     frameGeometry: 4,
-    frameAttributes: 4,
     meshletWorkRecords: 5,
     depth: 6
   };

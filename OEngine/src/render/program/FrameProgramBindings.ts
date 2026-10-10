@@ -165,12 +165,14 @@ export function assertFrameProgramBindings(plan: FrameProgram, bindings: FramePr
   ) {
     throw new Error("Frame Program visibility shape changed");
   }
-  const counts = bindings.runtime.activeShadingSummary.binRefCounts;
   const summary = bindings.runtime.activeShadingSummary;
   const activeSets = Array.from(summary.standardSetRefCounts, (_, setId) => setId).filter(
     (setId) => summary.standardSetRefCounts[setId]! + summary.coatedSetRefCounts[setId]! > 0,
   );
-  const hasLit = counts.some((count, classId) => count > 0 && (classId & 15) >= 4);
+  if (bindings.runtime.nativeMaterials === null) {
+    throw new Error("Frame Program requires a native material publication");
+  }
+  const hasLit = bindings.runtime.nativeMaterials.hasLit;
   if (
     activeSets.length !== request.activeSets.length ||
     activeSets.some((id, index) => id !== request.activeSets[index]) ||

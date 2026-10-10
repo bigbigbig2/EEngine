@@ -143,7 +143,7 @@ export async function runCase({
         label: "L3.0 same-frame reference",
         size: [width, height],
         format: "rgba16float",
-        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
+        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC | GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_DST,
       })
     : null;
   const referenceReactive = lighting

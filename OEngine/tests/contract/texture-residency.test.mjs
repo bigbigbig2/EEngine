@@ -133,10 +133,14 @@ test("tail/promotion commits atomically; exact coverage is full; stable bindings
     r = new TextureResidency(f.graphics),
     a = await material(128),
     b = await material(17, 2, true);
+  let notifications = 0;
+  r.onPublicationChanged.subscribe(() => notifications++);
   const c = command(f.graphics.device),
     s = r.stage([a, b], c);
   assert.equal(r.descriptor(s.textureRefs.get(a.texture_albedo)), null);
+  assert.equal(notifications, 0, "unsubmitted physical changes are not publications");
   c.finish();
+  assert.equal(notifications, 1);
   assert.equal(s.surfacePublications.get(a.texture_albedo).currentMinimumMip, 6);
   assert.equal(s.surfacePublications.get(b.texture_albedo).currentMinimumMip, 0);
   assert.equal(r.bindings(), r.bindings());
@@ -144,10 +148,12 @@ test("tail/promotion commits atomically; exact coverage is full; stable bindings
   const p = command(f.graphics.device);
   r.promote([a], p);
   p.abort();
+  assert.equal(notifications, 1, "aborted promotion cannot notify a committed mip");
   assert.equal(s.surfacePublications.get(a.texture_albedo).currentRevision, old);
   const n = command(f.graphics.device);
   r.promote([a], n);
   n.finish();
+  assert.equal(notifications, 2);
   assert.equal(s.surfacePublications.get(a.texture_albedo).currentMinimumMip, 0);
   assert.notEqual(s.surfacePublications.get(a.texture_albedo).currentRevision, old);
   const rel = command(f.graphics.device);

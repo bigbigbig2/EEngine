@@ -5,6 +5,7 @@ import test from "node:test";
 
 const abi = await import("../../.test-dist/render/CurrentHzbLateRecheck.js");
 const shader = await import("../../.test-dist/shaders/current_hzb_late_recheck.js");
+const temporal = await import("../../.test-dist/shaders/temporal_occlusion_work.js");
 
 function hzb() {
   // One HZB texel at reverse-Z 0.8 is a conservative occluder for the
@@ -74,12 +75,9 @@ test("WGSL keeps current-HZB producer/consumer, bounded reservation, and fail-op
   assert.match(shader.CURRENT_HZB_LATE_RECHECK_WGSL, /recheck_candidate_valid/u);
   assert.match(shader.CURRENT_HZB_LATE_RECHECK_WGSL, /CURRENT_HZB_RECHECK_CONSERVATIVE/u);
   assert.match(shader.CURRENT_HZB_LATE_RECHECK_WGSL, /recheck_output\.header\.overflow_count/u);
-  const production = shader.CURRENT_HZB_MESHLET_WORK_LATE_RECHECK_WGSL;
-  assert.match(production, /current_source: OEngineMeshletWorkQueueRead/u);
-  assert.match(production, /current_output: OEngineMeshletWorkQueue/u);
-  assert.match(production, /source_fail_open/u);
-  assert.match(production, /current_meshlet_occluded/u);
-  assert.match(production, /atomicStore\(&current_draw\.instance_count, written\)/u);
-  assert.doesNotMatch(production, /source_invalid[\s\S]*instance_count, select\(written, 0u/u);
-  assert.equal(abi.CURRENT_HZB_MESHLET_WORK_MAX_CAPACITY, 0x01000000);
+  const production = temporal.TEMPORAL_OCCLUSION_WORK_WGSL;
+  assert.match(production, /fn predict/);
+  assert.match(production, /fn recover/);
+  assert.match(production, /occlusion.indices\[index\] = slot/);
+  assert.doesNotMatch(production, /current_output/);
 });

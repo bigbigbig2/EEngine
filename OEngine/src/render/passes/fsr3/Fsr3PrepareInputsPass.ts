@@ -1,3 +1,4 @@
+import { GpuBindGroupCache } from "../../../gpu/GpuBindGroupResourceCache.js";
 import type { FrameGraph } from "../../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../../framegraph/ShadeGPUCommandContext.js";
@@ -120,13 +121,14 @@ export interface Fsr3PreparedInputs {
 
 /** First SDK dispatch; the later FSR3 stages consume these GPU products. */
 export class Fsr3PrepareInputsPass {
+  private readonly bindGroups = new GpuBindGroupCache();
   private readonly layout: GPUBindGroupLayout;
   private readonly pipeline: GPUComputePipeline;
 
   constructor(private readonly device: GPUDevice) {
     const module = device.createShaderModule({
       label: "FSR3 Prepare Inputs",
-      code: FSR3_PREPARE_INPUTS_WGSL
+      code: FSR3_PREPARE_INPUTS_WGSL,
     });
     this.layout = device.createBindGroupLayout({
       entries: [
@@ -137,31 +139,31 @@ export class Fsr3PrepareInputsPass {
         {
           binding: 4,
           visibility: GPUShaderStage.COMPUTE,
-          storageTexture: { access: "write-only", format: "rg16float" }
+          storageTexture: { access: "write-only", format: "rg16float" },
         },
         {
           binding: 5,
           visibility: GPUShaderStage.COMPUTE,
-          storageTexture: { access: "write-only", format: "r32float" }
+          storageTexture: { access: "write-only", format: "r32float" },
         },
         {
           binding: 6,
           visibility: GPUShaderStage.COMPUTE,
-          storageTexture: { access: "write-only", format: "r16float" }
+          storageTexture: { access: "write-only", format: "r16float" },
         },
         {
           binding: 7,
           visibility: GPUShaderStage.COMPUTE,
-          storageTexture: { access: "write-only", format: "r16float" }
+          storageTexture: { access: "write-only", format: "r16float" },
         },
         { binding: 8, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-        { binding: 9, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } }
-      ]
+        { binding: 9, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
+      ],
     });
     this.pipeline = device.createComputePipeline({
       label: "FSR3 Prepare Inputs",
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }),
-      compute: { module, entryPoint: "main" }
+      compute: { module, entryPoint: "main" },
     });
   }
 
@@ -176,7 +178,7 @@ export class Fsr3PrepareInputsPass {
       currentLuma?: ResourceId;
       width: number;
       height: number;
-    }
+    },
   ): Fsr3PreparedInputs {
     const depthBytes = input.width * input.height * Uint32Array.BYTES_PER_ELEMENT;
     if (
@@ -191,7 +193,7 @@ export class Fsr3PrepareInputsPass {
       const command = context.encoder as ShadeGPUCommandContext;
       const reconstructed = resources.get(output.reconstructedDepth) as GPUBuffer;
       command.gpu_encoder.clearBuffer(reconstructed);
-      const bind = this.device.createBindGroup({
+      const bind = this.bindGroups.create(this.device, {
         layout: this.layout,
         entries: [
           { binding: 0, resource: resolveTextureView(resources.get(data.color)) },
@@ -203,8 +205,8 @@ export class Fsr3PrepareInputsPass {
           { binding: 6, resource: resolveTextureView(resources.get(output.farthestDepth)) },
           { binding: 7, resource: resolveTextureView(resources.get(output.currentLuma)) },
           { binding: 8, resource: { buffer: reconstructed } },
-          { binding: 9, resource: resolveTextureView(resources.get(data.validityMask)) }
-        ]
+          { binding: 9, resource: resolveTextureView(resources.get(data.validityMask)) },
+        ],
       });
       const pass = command.beginComputePass({ label: "FSR3 Prepare Inputs" });
       pass.setPipeline(this.pipeline);
@@ -219,7 +221,7 @@ export class Fsr3PrepareInputsPass {
         height: input.height,
         format,
         domain: "internal-full",
-        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
+        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
       });
     const output: Fsr3PreparedInputs = {
       dilatedMotion: texture("FSR3/dilated motion", "rg16float"),
@@ -232,8 +234,8 @@ export class Fsr3PrepareInputsPass {
       reconstructedDepth: builder.create("FSR3/reconstructed previous depth", {
         kind: "transient_buffer",
         size: depthBytes,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-      })
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      }),
     };
     builder.read(input.color);
     builder.read(input.depth);

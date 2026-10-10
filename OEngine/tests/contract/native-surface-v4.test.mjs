@@ -8,7 +8,7 @@ globalThis.GPUTextureUsage = {
   COPY_DST: 2,
   TEXTURE_BINDING: 4,
   STORAGE_BINDING: 8,
-  RENDER_ATTACHMENT: 16
+  RENDER_ATTACHMENT: 16,
 };
 const { SurfaceV4 } = await import("../../.test-dist/render/surface/SurfaceV4.js");
 const { nativeSurfaceDescriptor } = await import("../../.test-dist/shaders/native_surface.js");
@@ -49,14 +49,14 @@ function fixture({ reactive = false, compact = false } = {}) {
       maxComputeWorkgroupSizeX: 256,
       maxComputeInvocationsPerWorkgroup: 256,
       maxComputeWorkgroupStorageSize: 32768,
-      maxComputeWorkgroupsPerDimension: 65535
+      maxComputeWorkgroupsPerDimension: 65535,
     },
     lost: loss.promise,
     pushErrorScope() {},
     popErrorScope: async () => null,
     createShaderModule: (descriptor) => ({
       ...descriptor,
-      getCompilationInfo: async () => ({ messages: [] })
+      getCompilationInfo: async () => ({ messages: [] }),
     }),
     createBindGroupLayout: (descriptor) => descriptor,
     createPipelineLayout: (descriptor) => descriptor,
@@ -75,7 +75,7 @@ function fixture({ reactive = false, compact = false } = {}) {
         unmap() {},
         destroy() {
           this.destroyed = true;
-        }
+        },
       };
       resources.push(buffer);
       return buffer;
@@ -93,7 +93,7 @@ function fixture({ reactive = false, compact = false } = {}) {
         },
         destroy() {
           this.destroyed = true;
-        }
+        },
       };
       resources.push(texture);
       return texture;
@@ -106,8 +106,8 @@ function fixture({ reactive = false, compact = false } = {}) {
             ? new Uint8Array(value)
             : new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
         new Uint8Array(buffer.bytes, offset, bytes.length).set(bytes);
-      }
-    }
+      },
+    },
   };
   const builder = new AppearanceGraphBuilder();
   builder.output("baseColor", builder.constant([0.1, 0.2, 0.3]));
@@ -115,27 +115,27 @@ function fixture({ reactive = false, compact = false } = {}) {
   const program = lowerNativeMaterial(compileAppearanceGraph(builder.build()));
   const registry = new AppearanceProgramRegistry(device);
   const descriptor = nativeSurfaceDescriptor(program, [], {
-    compact,
+    compact: Boolean(compact),
     productGeometry: false,
     unlit: true,
-    reactive
+    reactive,
   });
   const publication = new GpuNativeMaterialPublication(device, registry, [
     { materialSlot: 0, bindingSet: 0, program, descriptor },
-    ...(compact === "two" ? [{ materialSlot: 1, bindingSet: 1, program, descriptor }] : [])
+    ...(compact === "two" ? [{ materialSlot: 1, bindingSet: 1, program, descriptor }] : []),
   ]);
   const buffer = (size) =>
     device.createBuffer({
       size,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
     });
   const images = (width, height) => ({
     visibility: device.createTexture({ size: [width, height], format: "r32uint", usage: 20 }),
     depth: device.createTexture({ size: [width, height], format: "depth32float", usage: 20 }),
-    background: device.createTexture({ size: [width, height], format: "rgba16float", usage: 4 }),
+    background: device.createTexture({ size: [width, height], format: "rgba16float", usage: 5 }),
     ...(reactive
-      ? { reactive: device.createTexture({ size: [width, height], format: "rgba8unorm", usage: 12 }) }
-      : {})
+      ? { reactive: device.createTexture({ size: [width, height], format: "rgba8unorm", usage: 28 }) }
+      : {}),
   });
   const frame = {
     width: 16,
@@ -152,28 +152,22 @@ function fixture({ reactive = false, compact = false } = {}) {
       vertexPayload: buffer(256),
       instances: buffer(512),
       source: [0, 0, 0, 0],
-      sourcePayload: [0, 0, 0, 0]
+      sourcePayload: [0, 0, 0, 0],
     },
     publication,
     lightingEntries: [],
     routes: [
       { programIndex: 0, bindingSet: 0, materialEntries: [], frameInputs: new Float32Array(4), unlit: true },
       ...(compact === "two"
-        ? [
-            {
-              programIndex: 0,
-              bindingSet: 1,
-              materialEntries: [],
-              frameInputs: new Float32Array(4),
-              unlit: true
-            }
-          ]
-        : [])
-    ]
+        ? [{ programIndex: 0, bindingSet: 1, materialEntries: [], frameInputs: new Float32Array(4), unlit: true }]
+        : []),
+    ],
   };
   const pass = {
     setPipeline() {},
-    setBindGroup() {},
+    setBindGroup(...args) {
+      calls.push(["bind", ...args]);
+    },
     dispatchWorkgroups(...args) {
       calls.push(["dispatch", ...args]);
     },
@@ -181,7 +175,7 @@ function fixture({ reactive = false, compact = false } = {}) {
     drawIndirect(...args) {
       calls.push(["drawIndirect", ...args]);
     },
-    end() {}
+    end() {},
   };
   const encoder = {
     clearBuffer(...args) {
@@ -190,12 +184,15 @@ function fixture({ reactive = false, compact = false } = {}) {
     copyBufferToBuffer(...args) {
       calls.push(["copy", ...args]);
     },
+    copyTextureToTexture(...args) {
+      calls.push(["copyTexture", ...args]);
+    },
     beginComputePass() {
       return pass;
     },
     beginRenderPass() {
       return pass;
-    }
+    },
   };
   return { device, loss, resources, calls, frame, publication, registry, images, encoder };
 }
@@ -225,6 +222,71 @@ test("SurfaceV4 dense frame reuses resources across generations, has one HDR wri
   surface.destroy();
   await Promise.resolve();
   assert.equal(hdr.destroyed, true);
+  await f.publication.retire(Promise.resolve());
+  f.registry.destroy();
+});
+
+test("SurfaceV4 rotates borrowed frame products without reallocating execution storage and abort preserves it", async () => {
+  const f = fixture({ reactive: true });
+  const surface = new SurfaceV4(f.device, true);
+  await f.publication.ready;
+  f.publication.commit();
+  const output = () => f.device.createTexture({ size: [16, 8], format: "rgba16float", usage: 30 });
+  const frames = [
+    { ...f.frame, output: output() },
+    {
+      ...f.frame,
+      ...f.images(16, 8),
+      output: output(),
+      preExposure: f.device.createBuffer({ size: 16, usage: 4 }),
+    },
+  ];
+  const borrowed = new Set(f.resources);
+  await surface.prepareFrame(frames[0]);
+  const owned = f.resources.filter((resource) => !borrowed.has(resource));
+  const bins = surface.executionBins;
+  surface.encode(f.encoder);
+  const first = deferred();
+  surface.commit(first.promise);
+  const buffers = f.resources.filter((resource) => resource.bytes);
+  for (let frameIndex = 1; frameIndex < 8; frameIndex++) {
+    const frame = { ...frames[frameIndex % 2], frameIndex, generation: frameIndex + 7 };
+    await surface.prepareFrame(frame);
+    assert.equal(surface.hdr, frame.output, "the current borrowed output must be bound");
+    assert.equal(surface.executionBins, bins, "frame binding rotation must not replace the queue");
+    assert.equal(
+      f.resources.filter((resource) => resource.bytes).length,
+      buffers.length,
+      "steady frames must not allocate buffers",
+    );
+    if (frameIndex === 3) {
+      surface.abort();
+      assert.ok(
+        buffers.every((buffer) => !buffer.destroyed),
+        "abort must keep shared execution storage alive",
+      );
+      await surface.prepareFrame(frame);
+    }
+    surface.encode(f.encoder);
+    surface.commit(Promise.resolve());
+  }
+  surface.destroy();
+  await Promise.resolve();
+  assert.ok(
+    owned.some((resource) => !resource.destroyed),
+    "the first pending fence still owns execution storage",
+  );
+  first.resolve();
+  await first.promise;
+  await Promise.resolve();
+  assert.ok(
+    owned.every((resource) => resource.destroyed),
+    "all owned storage must retire after its last use",
+  );
+  assert.ok(
+    frames.every((frame) => !frame.output.destroyed),
+    "borrowed outputs must not be destroyed",
+  );
   await f.publication.retire(Promise.resolve());
   f.registry.destroy();
 });
@@ -261,7 +323,7 @@ test("SurfaceV4 resize abort keeps committed extent and resize commit retires on
   f.registry.destroy();
 });
 
-test("attachment rotation shares ordered bin scratch but retires each binding at its exact fence", async () => {
+test("attachment rotation shares allocation storage and retires binding references at their exact fence", async () => {
   const f = fixture({ compact: "two" }),
     surface = new SurfaceV4(f.device);
   await f.publication.ready;
@@ -277,18 +339,23 @@ test("attachment rotation shares ordered bin scratch but retires each binding at
   await surface.prepareFrame({ ...f.frame, ...f.images(16, 8), frameIndex: 1 });
   assert.equal(surface.executionBins, bins);
   const replacement = surface.preparedState;
+  assert.equal(replacement.allocation, original.allocation);
+  assert.equal(replacement.binBindings.settings, original.binBindings.settings);
   surface.encode(f.encoder);
   surface.commit(b.promise);
   assert.equal(original.binBindings.settings.destroyed, false);
   a.resolve();
   await a.promise;
   await Promise.resolve();
-  assert.equal(original.binBindings.settings.destroyed, true);
+  assert.equal(bins.bindings.has(original.binBindings), false, "old binding retires at its fence");
+  assert.equal(bins.bindings.has(replacement.binBindings), true);
+  assert.equal(original.binBindings.settings.destroyed, false, "shared settings retain the live reference");
   assert.equal(bins.queue.destroyed, false, "old attachment must not destroy shared queue");
   await surface.prepareFrame({ ...f.frame, ...f.images(16, 8), frameIndex: 2 });
   const aborted = surface.preparedState;
   surface.abort();
-  assert.equal(aborted.binBindings.settings.destroyed, true);
+  assert.equal(bins.bindings.has(aborted.binBindings), false, "abort releases only its binding reference");
+  assert.equal(aborted.binBindings.settings.destroyed, false);
   assert.equal(bins.queue.destroyed, false);
   surface.destroy();
   assert.equal(bins.queue.destroyed, false);
@@ -307,9 +374,9 @@ test("SurfaceV4 rejects concurrent prepare, profile mismatch and invalid inputs 
   await f.publication.ready;
   f.publication.commit();
   const gate = deferred();
-  f.device.createComputePipelineAsync = (descriptor) => gate.promise.then(() => descriptor);
+  const delayedPublication = Object.assign(Object.create(f.publication), { ready: gate.promise });
   const surface = new SurfaceV4(f.device);
-  const preparing = surface.prepareFrame(f.frame);
+  const preparing = surface.prepareFrame({ ...f.frame, publication: delayedPublication });
   await assert.rejects(surface.prepareFrame(f.frame), /already prepared/);
   surface.abort();
   gate.resolve();
@@ -317,14 +384,14 @@ test("SurfaceV4 rejects concurrent prepare, profile mismatch and invalid inputs 
   assert.equal(surface.allocatedBytes, 0);
   await assert.rejects(
     surface.prepareFrame({ ...f.frame, preExposure: { size: 16, usage: 0 } }),
-    /GPU pre-exposure/
+    /GPU pre-exposure/,
   );
   await assert.rejects(
     surface.prepareFrame({
       ...f.frame,
-      routes: [{ ...f.frame.routes[0], frameInputs: new Float32Array([NaN, 0, 0, 0]) }]
+      routes: [{ ...f.frame.routes[0], frameInputs: new Float32Array([NaN, 0, 0, 0]) }],
     }),
-    /finite/
+    /finite/,
   );
   const wrong = fixture({ compact: true });
   await wrong.publication.ready;
@@ -349,7 +416,7 @@ test("SurfaceV4 declares reactive new version and device loss destroys active ow
     reactive = graph.import_resource(
       "reactive",
       { kind: "imported", domain: "internal-full" },
-      f.frame.reactive
+      f.frame.reactive,
     );
   assert.throws(() => surface.addToGraph(graph, []), /declare every/);
   const products = surface.addToGraph(graph, [], reactive);
@@ -372,21 +439,26 @@ test("native raster scheduling emits indirect commands per bin, aborts readiness
   const input = {
     geometry: f.frame.geometry,
     publication: f.publication,
-    routes: f.frame.routes,
     capacity: 1,
     generation: 7,
-    view: new Uint8Array(192)
+    view: new Uint8Array(192),
   };
   new Uint32Array(input.view.buffer)[38] = 7;
   const owner = new NativeVisibilityPass(f.device, input);
   await owner.ready;
   owner.encode(f.encoder, { colorAttachments: [] });
   assert.equal(f.calls.filter((call) => call[0] === "drawIndirect").length, 8);
+  f.calls.length = 0;
+  owner.draw(f.encoder.beginRenderPass({ colorAttachments: [] }));
+  const rasterBindings = f.calls.filter((call) => call[0] === "bind");
+  for (const index of [1, 2, 3]) {
+    assert.equal(rasterBindings.filter((call) => call[1] === index).length, 1);
+  }
   const resources = f.resources.slice();
   const fence = deferred(),
     retirement = owner.retire(fence.promise);
   assert.throws(() => owner.encode(f.encoder, { colorAttachments: [] }), /not ready/);
-  assert.throws(() => owner.update(input.view, [new Float32Array(4)], 7), /ready/);
+  assert.throws(() => owner.update(input.view, 7), /ready/);
   assert.ok(resources.some((resource) => !resource.destroyed));
   fence.resolve();
   await retirement;
@@ -400,9 +472,9 @@ test("native raster scheduling emits indirect commands per bin, aborts readiness
         publication: f.publication,
         capacity: 1e9,
         meshletWordBase: 0,
-        generation: 7
+        generation: 7,
       }),
-    /capacity/
+    /capacity/,
   );
   assert.equal(f.resources.length, count);
   const pending = new NativeVisibilityPass(f.device, input);
@@ -421,18 +493,16 @@ test("native visibility snapshots asynchronous descriptors and rejects invalid p
   const input = {
     geometry: f.frame.geometry,
     publication: f.publication,
-    routes: f.frame.routes,
     capacity: 1,
     generation: 7,
-    view
+    view,
   };
   const owner = new NativeVisibilityPass(f.device, input);
   input.geometry.source[0] = 100;
-  input.routes[0].frameInputs[0] = 123;
   new Float32Array(view.buffer)[0] = NaN;
   await owner.ready;
   assert.equal(owner.input.geometry.source[0], 0);
-  assert.equal(owner.input.routes[0].frameInputs[0], 0);
+  assert.equal(owner.input.publication.rasterClasses[0].program, null);
   assert.equal(new Float32Array(owner.input.view.buffer)[0], 0);
   owner.destroy();
   const count = f.resources.length;

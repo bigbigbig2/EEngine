@@ -2,12 +2,11 @@ import { surfaceGeometryDecodeWgsl } from "./surface_geometry_reader.js";
 export { frameGeometrySourceWgsl, FRAME_ATTRIBUTE_OCT_DECODE_WGSL } from "./geometry_source_decode.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { GPU_FRAME_INSTANCE_WGSL } from "../gpu/GpuFrameInstanceAbi.js";
-import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
-import { FRAME_GEOMETRY_WGSL } from "../gpu/GpuWinnerInterpolationAbi.js";
 import {
-  GPU_FRAME_VERTEX_ATTRIBUTE_VECTORS,
-  GPU_FRAME_VERTEX_WORLD_FIELDS as W
-} from "../gpu/GpuFrameGeometryAttributesAbi.js";
+  GPU_MESHLET_RASTER_WORK_WGSL,
+  GPU_MESHLET_RASTER_FLAGS as F,
+} from "../gpu/GpuMeshletRasterWorkAbi.js";
+import { FRAME_GEOMETRY_WGSL } from "../gpu/GpuWinnerInterpolationAbi.js";
 
 export const FRAME_VERTEX_SETTINGS_SIZE = 64;
 export const FRAME_VERTEX_CONTROL_SIZE = 32;
@@ -31,8 +30,8 @@ struct FrameVertexControl { vertices: atomic<u32>, triangles: atomic<u32>, commi
 @group(0) @binding(14) var<storage, read_write> frame_clips: array<vec4f>;
 @group(0) @binding(15) var<storage, read_write> frame_triangles: array<u32>;
 @group(0) @binding(16) var<storage, read_write> control: FrameVertexControl;
-@group(0) @binding(17) var<storage, read_write> frame_attributes: array<vec4f>;
 @group(1) @binding(0) var<storage, read_write> frame_indirect: vec4u;
+@group(2) @binding(0) var<storage, read> recovery_indices: array<u32>;
 @group(0) @binding(3) var<storage, read> asset_heap: array<u32>;
 @group(0) @binding(7) var<storage, read> vertex_payload: array<u32>;
 ${
@@ -46,9 +45,7 @@ var<workgroup> vertex_base: u32;
 var<workgroup> triangle_base: u32;
 var<workgroup> source_counts: vec2u;
 var<workgroup> source_clip_matrix: mat4x4f;
-var<workgroup> source_world_matrix: mat4x4f;
-var<workgroup> source_normal_matrix: mat3x3f;
-var<workgroup> source_orientation: f32;
+var<workgroup> recovery_valid: u32;
 
 fn frame_vertex_reserve(counter: ptr<storage, atomic<u32>, read_write>, count: u32, capacity: u32) -> u32 {
   // A reservation cannot fail because another workgroup won a CAS race.
@@ -75,14 +72,11 @@ fn frame_vertices_setup(slot: u32) {
     source_counts = vec2u(0u); vertex_base = 0xffffffffu; triangle_base = 0xffffffffu;
     if slot >= frame_directory.work_count { return; }
     let work = work_queue.elements[slot];
-    frame_directory.meshlets[slot] = FrameGeometryMeshlet(0u, 0u, 0u, 0u);
+    frame_directory.meshlets[slot] = FrameGeometryMeshlet(0u, 0u, 0u, 0u, 0u, 0u);
+    if (work.packed_raster_flags & ${F.OcclusionDeferred}u) != 0u { return; }
     if work.instance_slot < arrayLength(&frame_instances) && frame_instances[work.instance_slot].generation == control.generation {
       source_counts = surface_source_load(work);
       source_clip_matrix = frame_instances[work.instance_slot].object_to_clip;
-      let instance = frame_instances[work.instance_slot];
-      source_world_matrix = oengine_instance_current_object_to_world(instance.source);
-      source_orientation = sign(instance.normal_x.w);
-      source_normal_matrix = mat3x3f(instance.normal_x.xyz, instance.normal_y, instance.normal_z.xyz) * source_orientation;
       if all(source_counts > vec2u(0u)) && all(source_counts <= vec2u(${FRAME_VERTEX_WORKGROUP_SIZE}u)) {
         vertex_base = frame_vertex_reserve(&control.vertices, source_counts.x, settings.vertex_capacity);
         if vertex_base != 0xffffffffu {
@@ -91,7 +85,17 @@ fn frame_vertices_setup(slot: u32) {
       }
     }
     if vertex_base != 0xffffffffu && triangle_base != 0xffffffffu {
-      frame_directory.meshlets[slot] = FrameGeometryMeshlet(vertex_base, triangle_base, source_counts.x, source_counts.y);
+      var resident_address = settings.source_payload.x + source_geometry.resident_attribute_word_offset;
+      var vertex_indices = settings.source.z + source_meshlet.vertex_offset;
+      ${
+        product
+          ? `if surface_source_product {
+        resident_address = product_source_resident_address;
+        vertex_indices = 0xffffffffu;
+      }`
+          : ""
+      }
+      frame_directory.meshlets[slot] = FrameGeometryMeshlet(vertex_base, triangle_base, source_counts.x, source_counts.y, resident_address, vertex_indices);
       ${observe ? "atomicAdd(&control.committed, 1u);" : ""}
     } else { ${observe ? "atomicAdd(&control.misses, 1u);" : ""} }
 }
@@ -103,20 +107,8 @@ fn frame_vertices_build(@builtin(workgroup_id) group: vec3u, @builtin(local_invo
   if vertex_base == 0xffffffffu || triangle_base == 0xffffffffu { return; }
   if lane < source_counts.x {
     let at = vertex_base + lane;
-    frame_clips[at] = source_clip_matrix * vec4f(surface_source_vertex_position(lane), 1.0);
-    let base = at * ${GPU_FRAME_VERTEX_ATTRIBUTE_VECTORS}u;
-    let normal = surface_source_vertex_normal(lane);
-    let tangent = surface_source_vertex_tangent(lane);
     let position = surface_source_vertex_position(lane);
-    frame_attributes[base + ${W.normal}u] = vec4f(source_normal_matrix * normal.xyz, normal.w);
-    frame_attributes[base + ${W.tangent}u] = vec4f(
-      (source_world_matrix * vec4f(tangent.xyz, 0.0)).xyz,
-      tangent.w * source_orientation
-    );
-    frame_attributes[base + 2u] = vec4f(surface_source_vertex_uv(lane, 0u), surface_source_vertex_uv(lane, 1u));
-    frame_attributes[base + 3u] = surface_source_vertex_color(lane);
-    frame_attributes[base + 4u] = vec4f(surface_source_vertex_uv(lane, 2u), 0.0, 0.0);
-    frame_attributes[base + ${W.position}u] = source_world_matrix * vec4f(position, 1.0);
+    frame_clips[at] = source_clip_matrix * vec4f(position, 1.0);
   }
   if lane < source_counts.y {
     frame_triangles[triangle_base + lane] = surface_source_triangle_corner(lane, 0u) |
@@ -129,6 +121,36 @@ fn frame_vertices_finalize() {
   // fails. Published directory entries only reference complete paired storage.
   frame_directory.vertex_count = min(atomicLoad(&control.vertices), settings.vertex_capacity);
   frame_directory.triangle_count = min(atomicLoad(&control.triangles), settings.triangle_capacity);
+}
+@compute @workgroup_size(1)
+fn frame_vertices_recovery_begin() {
+  let count = recovery_indices[0];
+  let x = min(count, settings.max_workgroups);
+  control.grid_x = x; control.grid_y = max(1u, (count + max(x, 1u) - 1u) / max(x, 1u));
+  frame_indirect = vec4u(x, control.grid_y, 1u, 0u);
+}
+@compute @workgroup_size(${FRAME_VERTEX_WORKGROUP_SIZE})
+fn frame_vertices_recovery_build(@builtin(workgroup_id) group: vec3u, @builtin(local_invocation_index) lane: u32) {
+  let index = group.y * control.grid_x + group.x;
+  if lane == 0u {
+    recovery_valid = 0u;
+    if index < recovery_indices[0] {
+      let slot = recovery_indices[8u + index];
+      if (work_queue.elements[slot].packed_raster_flags & ${F.OcclusionRecovered}u) != 0u {
+        recovery_valid = 1u;
+        frame_vertices_setup(slot);
+      }
+    }
+  }
+  if workgroupUniformLoad(&recovery_valid) == 0u { return; }
+  if vertex_base == 0xffffffffu || triangle_base == 0xffffffffu { return; }
+  if lane < source_counts.x {
+    frame_clips[vertex_base + lane] = source_clip_matrix * vec4f(surface_source_vertex_position(lane), 1.0);
+  }
+  if lane < source_counts.y {
+    frame_triangles[triangle_base + lane] = surface_source_triangle_corner(lane, 0u) |
+      (surface_source_triangle_corner(lane, 1u) << 8u) | (surface_source_triangle_corner(lane, 2u) << 16u);
+  }
 }
 `;
 }

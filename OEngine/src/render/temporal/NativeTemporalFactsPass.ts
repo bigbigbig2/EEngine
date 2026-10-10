@@ -1,3 +1,4 @@
+import { GpuBindGroupCache } from "../../gpu/GpuBindGroupResourceCache.js";
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
@@ -34,7 +35,7 @@ export interface NativeTemporalFactsInput {
 
 export type NativeTemporalFactsGraphBinder = <T extends object>(
   name: string,
-  resolve: (runtime: NativeTemporalFactsPass) => T
+  resolve: (runtime: NativeTemporalFactsPass) => T,
 ) => T;
 
 type HistorySet = {
@@ -53,6 +54,7 @@ type HistorySet = {
  * Resize allocation is transactional; abort preserves the previous committed set.
  */
 export class NativeTemporalFactsPass {
+  private readonly bindGroups = new GpuBindGroupCache();
   private readonly layout: GPUBindGroupLayout;
   private readonly pipeline: GPUComputePipeline;
   private readonly constants: GPUBuffer;
@@ -90,23 +92,23 @@ export class NativeTemporalFactsPass {
         {
           binding: 10,
           visibility: GPUShaderStage.COMPUTE,
-          storageTexture: { access: "write-only", format: "rg32float" }
+          storageTexture: { access: "write-only", format: "rg32float" },
         },
         {
           binding: 11,
           visibility: GPUShaderStage.COMPUTE,
-          storageTexture: { access: "write-only", format: "rgba8unorm" }
+          storageTexture: { access: "write-only", format: "rgba8unorm" },
         },
         {
           binding: 12,
           visibility: GPUShaderStage.COMPUTE,
-          storageTexture: { access: "write-only", format: "rgba32uint" }
+          storageTexture: { access: "write-only", format: "rgba32uint" },
         },
         { binding: 15, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
         { binding: 16, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
         { binding: 17, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-        { binding: 18, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "unfilterable-float" } }
-      ]
+        { binding: 18, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "unfilterable-float" } },
+      ],
     });
     this.pipeline = device.createComputePipeline({
       label: "SurfaceV4/Native Temporal Facts",
@@ -114,15 +116,15 @@ export class NativeTemporalFactsPass {
       compute: {
         module: device.createShaderModule({
           label: "Native Temporal Facts",
-          code: NATIVE_TEMPORAL_FACTS_WGSL
+          code: NATIVE_TEMPORAL_FACTS_WGSL,
         }),
-        entryPoint: "main"
-      }
+        entryPoint: "main",
+      },
     });
     this.constants = device.createBuffer({
       label: "Native Temporal Facts/constants",
       size: 32,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     void device.lost.then(() => this.destroy());
   }
@@ -159,8 +161,8 @@ export class NativeTemporalFactsPass {
               label: `Native Temporal Facts/identity/${index}`,
               size: [width, height],
               format: "rgba32uint",
-              usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
-            })
+              usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
+            }),
           );
         }
       } catch (error) {
@@ -211,7 +213,7 @@ export class NativeTemporalFactsPass {
   addToGraph(
     graph: FrameGraph,
     input: NativeTemporalFactsInput,
-    bind: NativeTemporalFactsGraphBinder
+    bind: NativeTemporalFactsGraphBinder,
   ): NativeTemporalFactProducts {
     this.assertPreparedFrame(input.width, input.height);
     if (
@@ -224,12 +226,12 @@ export class NativeTemporalFactsPass {
     const previous = graph.import_resource(
       "Native Temporal Facts/previous identity",
       { kind: "imported", domain: "internal-full" },
-      bind("previous-identity", (runtime) => runtime.history("read"))
+      bind("previous-identity", (runtime) => runtime.history("read")),
     );
     const current = graph.import_resource(
       "Native Temporal Facts/current identity",
       { kind: "imported", domain: "internal-full" },
-      bind("current-identity", (runtime) => runtime.history("write"))
+      bind("current-identity", (runtime) => runtime.history("write")),
     );
     const node = graph.add("Native Temporal Facts/resolve", input, (data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
@@ -242,7 +244,7 @@ export class NativeTemporalFactsPass {
       command.writeBuffer(this.constants, 0, this.constantWords.buffer, 0, 32);
       const texture = (id: ResourceId) => resolveTextureView(resources.get(id));
       const buffer = (id: ResourceId) => ({ buffer: resources.get(id) as GPUBuffer });
-      const group = this.device.createBindGroup({
+      const group = this.bindGroups.create(this.device, {
         layout: this.layout,
         entries: [
           { binding: 0, resource: texture(data.visibility) },
@@ -259,8 +261,8 @@ export class NativeTemporalFactsPass {
           { binding: 15, resource: buffer(data.assetMetadata) },
           { binding: 16, resource: buffer(data.vertexPayload) },
           { binding: 17, resource: buffer(data.materialVersions) },
-          { binding: 18, resource: texture(data.opaqueReactive) }
-        ]
+          { binding: 18, resource: texture(data.opaqueReactive) },
+        ],
       });
       const pass = command.beginComputePass({ label: "Native Temporal Facts/resolve" });
       pass.setPipeline(this.pipeline);
@@ -279,7 +281,7 @@ export class NativeTemporalFactsPass {
       input.previousCamera,
       input.assetMetadata,
       input.vertexPayload,
-      previous
+      previous,
     ]) {
       node.read(id);
     }
@@ -289,7 +291,7 @@ export class NativeTemporalFactsPass {
       height: input.height,
       format: "rg32float",
       domain: "internal-full",
-      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
+      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
     });
     const mask = node.create("Native Temporal Facts/reactive and validity", {
       kind: "transient_texture",
@@ -297,7 +299,7 @@ export class NativeTemporalFactsPass {
       height: input.height,
       format: "rgba8unorm",
       domain: "internal-full",
-      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
+      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
     });
     const identity = node.write(current);
     return { motion, mask, identity };
@@ -325,6 +327,7 @@ export class NativeTemporalFactsPass {
   }
 
   destroy(): void {
+    this.bindGroups.clear();
     if (this.destroyed) {
       return;
     }

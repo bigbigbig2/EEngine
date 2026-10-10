@@ -6,7 +6,7 @@ import { localLightId, localLightDepthSlice } from "../../.test-dist/gpu/GpuLoca
 import {
   FrameGraph,
   FrameGraphBindingLayout,
-  FrameGraphContext
+  FrameGraphContext,
 } from "../../.test-dist/framegraph/FrameGraph.js";
 
 globalThis.GPUBufferUsage ??= { COPY_SRC: 4, COPY_DST: 8, UNIFORM: 64, STORAGE: 128, INDIRECT: 256 };
@@ -26,7 +26,7 @@ const signal = () => {
     },
     emit() {
       for (const callback of callbacks.splice(0)) callback();
-    }
+    },
   };
 };
 const fakeDevice = () => {
@@ -41,7 +41,7 @@ const fakeDevice = () => {
       maxComputeInvocationsPerWorkgroup: 256,
       maxComputeWorkgroupSizeX: 256,
       maxComputeWorkgroupStorageSize: 16384,
-      maxStorageBuffersPerShaderStage: 16
+      maxStorageBuffersPerShaderStage: 16,
     },
     queue: { writeBuffer() {} },
     createBuffer(descriptor) {
@@ -50,7 +50,7 @@ const fakeDevice = () => {
         destroyed: false,
         destroy() {
           this.destroyed = true;
-        }
+        },
       };
       buffers.push(buffer);
       return buffer;
@@ -71,9 +71,9 @@ const fakeDevice = () => {
       return {
         getBindGroupLayout() {
           return {};
-        }
+        },
       };
-    }
+    },
   };
   return { device, buffers, loss };
 };
@@ -93,9 +93,9 @@ const commandFor = (device) => {
           setBindGroup() {},
           dispatchWorkgroups() {},
           dispatchWorkgroupsIndirect() {},
-          end() {}
+          end() {},
         };
-      }
+      },
     },
     finish() {
       this.closed = true;
@@ -104,7 +104,7 @@ const commandFor = (device) => {
     abort() {
       this.closed = true;
       this.onAborted.emit();
-    }
+    },
   };
   return { command, fence };
 };
@@ -117,13 +117,13 @@ const requestFor = (ids = new Uint32Array()) => ({
     far: 2000,
     depthConversion: [0, 0.1],
     projection: [1, 1, 0, 0],
-    view: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
+    view: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
   },
   visibility: {},
   depth: {},
   deviceEpoch: 3,
   frameIndex: 10,
-  mode: ids.length ? 2 : 0
+  mode: ids.length ? 2 : 0,
 });
 
 test("compiled LightWork recipe late-binds every frame, buffer and command without rebuilding", () => {
@@ -132,14 +132,14 @@ test("compiled LightWork recipe late-binds every frame, buffer and command witho
     visibility: { view: {} },
     depth: { view: {} },
     database: {},
-    command: {}
+    command: {},
   };
   const second = {
     frame: { parameters: {}, lookup: {}, data: {}, request: { view: { width: 32, height: 32 } } },
     visibility: { view: {} },
     depth: { view: {} },
     database: {},
-    command: {}
+    command: {},
   };
   const graph = new FrameGraph("local-light cached recipe");
   const layout = new FrameGraphBindingLayout();
@@ -154,13 +154,13 @@ test("compiled LightWork recipe late-binds every frame, buffer and command witho
     {
       parameters: bind("parameters", (b) => b.frame.parameters),
       lookup: bind("lookup", (b) => b.frame.lookup),
-      data: bind("data", (b) => b.frame.data)
+      data: bind("data", (b) => b.frame.data),
     },
     {
       visibility: imported("winner", (b) => b.visibility),
       depth: imported("depth", (b) => b.depth),
-      database: imported("database", (b) => b.database)
-    }
+      database: imported("database", (b) => b.database),
+    },
   );
   const consumer = graph.add("native consumer", {}, (_job, resources) => {
     observed.at(-1).data = resources.get(product.data);
@@ -187,7 +187,7 @@ test("typed IDs reject identity truncation and log-depth end slices are unbounde
     [0x1000000, 0],
     [-1, 0],
     [0, 2],
-    [1.5, 1]
+    [1.5, 1],
   ])
     assert.throws(() => localLightId(slot, type));
   assert.equal(localLightDepthSlice(0, 0.1, 2000), 0);
@@ -213,7 +213,7 @@ test("maximum admitted profile and three retained allocations remain below 6/18M
   const frames = [
     owner.prepare(requestFor(ids)),
     owner.prepare(requestFor(ids)),
-    owner.prepare(requestFor(ids))
+    owner.prepare(requestFor(ids)),
   ];
   for (const frame of frames) assert.ok(frame.reservedBytes <= 6 * 1024 * 1024);
   assert.ok(owner.allocatedBytes <= 18 * 1024 * 1024);
@@ -256,7 +256,7 @@ test("epoch and scan limits reject before pipeline/resource construction", async
   assert.throws(() => new LocalLightWorkGenerator(device, 3), /portable scan/);
 });
 
-test("three distinct slots retain admission until abort or their submitted fence", async () => {
+test("three bounded products retain admission until abort or their submitted fence", async () => {
   const { device } = fakeDevice();
   const owner = new LocalLightWorkGenerator(device, 3);
   await owner.ready;
@@ -268,10 +268,13 @@ test("three distinct slots retain admission until abort or their submitted fence
   owner.encode(b.command, frames[1]);
   owner.encode(c.command, frames[2]);
   assert.throws(() => owner.prepare(requestFor()), /in-flight capacity/);
+  assert.equal(new Set(frames.map((frame) => frame.data)).size, 3);
   a.command.abort();
   const replacement = owner.prepare(requestFor());
   assert.equal(replacement.data, frames[0].data);
-  owner.abort(replacement);
+  const retry = commandFor(device);
+  owner.encode(retry.command, replacement);
+  retry.command.abort();
   b.command.abort();
   c.command.abort();
   owner.destroy();
@@ -288,7 +291,7 @@ test("retirement retains submitted allocations until their exact fence, not repl
   a.command.finish();
   const replacement = owner.prepare({
     ...requestFor(),
-    view: { ...requestFor().view, width: 1280, height: 720 }
+    view: { ...requestFor().view, width: 1280, height: 720 },
   });
   const b = commandFor(device);
   owner.encode(b.command, replacement);

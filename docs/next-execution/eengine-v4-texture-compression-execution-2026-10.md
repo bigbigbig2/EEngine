@@ -22,6 +22,26 @@ verifies:
     - OEngine/src/gpu/GpuRenderWorld.ts
     - OEngine/src/render/pipeline/RendererCore.ts
     - OEngine/src/render/surface
+    - OEngine/src/gpu/GPUTextureContext.ts
+    - OEngine/src/gpu/GPUTextureDescriptors.ts
+    - OEngine/src/gpu/GpuBindGroupResourceCache.ts
+    - OEngine/src/gpu/GpuFrameGeometryArenaAbi.ts
+    - OEngine/src/gpu/GpuFrameGeometryAttributesAbi.ts
+    - OEngine/src/render/passes/fsr3
+    - OEngine/src/render/passes/AerialPerspectivePass.ts
+    - OEngine/src/render/lighting/LocalLightWorkGenerator.ts
+    - OEngine/src/render/temporal/GpuRadiometryPass.ts
+    - OEngine/src/shaders/native_surface.ts
+    - OEngine/src/shaders/surface_geometry_completion.ts
+    - OEngine/src/shaders/frame_geometry_vertices.ts
+    - OEngine/src/shaders/native_raster_partitions.ts
+    - OEngine/src/shaders/native_visibility.ts
+    - OEngine/src/shaders/surface_frame_geometry.ts
+    - OEngine/tests/unit/cached-gpu-bindings.test.mjs
+    - OEngine/tests/contract/fsr3-luma-pyramid.test.mjs
+    - OEngine/tests/oracle/fsr3-luma-pyramid-gpu.mjs
+    - OEngine/tests/oracle/fixtures/fsr3-luma-reference.mjs
+    - OEngine/tests/oracle/native-raster-triangle-count-gpu.mjs
     - OEngine/src/render/vsm
     - OEngine/src/render/temporal/NativeTemporalFactsPass.ts
     - OEngine/tests/unit/asset-codec-service.test.mjs
@@ -52,6 +72,55 @@ verifies:
 ---
 
 # PC Texture Compression 执行计划
+
+## Bistro 性能修复授权与执行顺序（2026-10-10）
+
+用户在实际源码/GPU 分析后明确授权按五项顺序实施；这是已完成基础链的成本修复，不自动开始 VT 或下一大模块。执行方式为当前会话自行实施，不使用子 agent。保持 full-rate native、全部 authored 材质语义、单帧 submit、真实 fence、abort/retry、device loss、容量溢出与近裁剪/梯度语义。
+
+1. **Surface 生命周期**：`SurfaceV4` 分离尺寸/publication 所有的执行资源与轮换的帧绑定；`NativeExecutionBins` 复用帧设置。先增加轮换输出/曝光/geometry binding 的稳态分配与 abort/fence 回归，再修改 producer/consumer/lifetime。目标为稳定尺寸下不新建 Buffer，不将新绑定误认为新尺寸。
+2. **绑定与命令复用**：资源 view 使用真实 texture 身份/descriptor；绑定组按真实 layout/resource/offset/size 匹配、有界保留；Visibility 保持 draw 顺序，将每 route 的稳定 group 1–3 提到 partition 循环外。回归必须覆盖轮换、descriptor 区别、资源 replacement、resize、teardown。
+3. **三角形准备成本**：研究当前 frame geometry/winner 及固定 Forge/Wicked 来源，选取局部、可摊薄的复用方式；完整覆盖 retained geometry、source capacity miss、透视导数和退化。若候选的 ideal/worst Cost Card 或真实 GPU 成本不成立，不将实验强行接入 production。
+4. **FSR3 归约**：参考已冻结 SDK 1.1.4 SPD，workgroup 内多级归约、跨 workgroup 保持真实 dispatch 边界；保留 source/reduction 顺序、NPOT、mip5 fp16、frame-info 与 effect-owned history。独立 CPU reference 和 GPU oracle 验证后切换全部消费者。
+5. **Visibility/属性**：GPU producer 获取真实 triangle count，减少 padded vertex work；按消费者检查属性布局与 coverage 依赖。所有几何表示、main/VSM/Temporal 的直接消费者一起核对，不丢 work 换预算。
+
+**成本约束**：步骤 1 删除每稳态帧 30 个 Surface Buffer 创建及约 6.47 MB 队列重建，shader ALU/samples/dispatch 不增加；步骤 2 删除已稳定输入的绑定创建及冗余状态切换，固定 descriptor 保留必须有界。步骤 3 的三角形系数若物化需 48 B/triangle，另计目录/producer/读写，不默认全场景物化；0/50/100% 重用都计固定税。步骤 4 删除中间 mip 写回/读回和 dispatch，以 tile workgroup memory/barrier 替代，跨 tile 不使用全局自旋。步骤 5 删除 bucket padding 对应的 vertex invocation，不新增 CPU 可见 work 控制。
+
+五项代码修复已实施；第 3 项采用消除重复解析，否决全局系数物化候选。以下记录实际闭包、成本与验证，不将测试通过提升为 FPS 或来源 adoption 声明。
+
+### 修复闭包与 Cost Card
+
+| 项目 | 实际工作、成本与边界 |
+| --- | --- |
+| Surface 生命周期 | 按 extent/publication/输出 ownership 复用 allocation，轮换 borrowed 图像、曝光和 Lighting 输入只换 frame snapshot。稳定帧 Surface Buffer 创建30→0，不再重建约6.47MB bins存储；必要 uniforms仍写。queue writes与submit顺序一致，snapshot随实际fence释放，abort撤销candidate，resize/publication replacement才退休物理资源。GPU bytes/ALU/samples/dispatch不新增；0%复用承担原分配加检查，50%/100%删除一半/全部重建，同尺寸第二个轮换帧即可摊薄。 |
+| 绑定与命令 | 每layout最多16组descriptor，每texture最多32个view，身份包括实际资源、layout、绑定编号、offset/size、mip/layer、usage/swizzle。淘汰只丢引用，不销毁borrowed资源；有destroy的owner清缓存，其余随owner回收。增加有界CPU比较/引用，无新增GPU产品/dispatch；0%命中仍创建且多比较，持续唯一tuple的worst不保证收益。稳定帧BG76→1，其中Surface48→0；Visibility每route绑定调用32→11，88次draw和顺序不变，未新增RenderBundle。 |
+| 三角形准备 | 使用已解析的decoded key、raster work、instance进入geometry_complete_resolved，删除重复解析及目录/instance读取，无新产品/缓存/atomics/barrier/dispatch。保留homogeneous近裁剪、导数、顶点与source fallback数学，独立ALU/访存收益UNKNOWN。全局48B coefficient+16B plane候选对2.829M triangles至少约181MB，另需目录与producer；0/50/100%重用都先支付ALU/写入/容量，低覆盖微三角无法摊薄，缺乏break-even证据，因此REJECT。 |
+| FSR3 Luma SPD | 8×8 workgroup、1024B tile、最多四级归约，每额外级两次barrier，无atomics/global spin。1920×1080/842 dispatch13→6，删除mip0/1/2/4/6/7/8 rgba32float产品及对应写回/读回，分别减少10,922,032B/8,522,320B logical bytes，不等同driver allocation。保留source/log与加法顺序、逐级NPOT clamp、farthest R16、mip5 RG16 store/load、frame-info/history。source/reduce pipeline2→8变体，增加cold PSO/LDS/barrier；partial/tiny tile仍填充64 lanes，零融合级worst不保证加速。收益取决于尺寸与可删mip/dispatch，重用率不是此机制的成本变量。 |
+| Visibility/属性 | 主视图在V5/generation/valid vertex count匹配时读committed directory真实triangle count；32/64/96/128档最多31 padding，capacity miss/stale保持完整source128，VSM不读取主视图命名空间。0/50/100%有效directory减少0/部分/全部可省padding；满128档收益0且多目录检查。opaque删alpha求值，MASK保留exact coverage/显式梯度，梯度在branch/discard前。frame attributes96→88B/vertex（8.33%），仅删UV2固定零z/w，保留全部authored FP32；main/Surface/VSM/Temporal与arena容量/V5 ABI同步，无新增dispatch/atomics/barrier。同arena预算可准备更多顶点，总frame_vertices时间不保证下降。 |
+
+研究参考为冻结Forge Apache-2.0 `cd5046893faba2dc7869243873bf01f02a6f0df9` 的VisibilityBufferShadingUtilities、Wicked MIT `df44c3db4c4927492bc9c791eac715d98d7ed091`，以及FidelityFX SDK1.1.4 MIT `c6efa6bf7f2027b3ec94f28578bb5965eabb9e55` 的 `sdk/include/FidelityFX/gpu/spd/ffx_spd.h`。本轮Local/Adapt保留既有EEngine homogeneous数学，SPD吸收workgroup内多级归约，跨workgroup用WebGPU dispatch，不移植全局计数器协议，不新增来源adoption claim。
+
+### 实际验证与限制
+
+engine typecheck、production build、新鲜build:test、Bistro typecheck/build通过；相关Node contract/unit46/46通过，覆盖tuple/range/subresource、abort/retry、pending fence、resize/retirement、device loss、arena容量与命令顺序。7个fresh production GPU oracle串行通过：fsr3-luma-pyramid、native-raster-triangle-count、native-surface-production、native-surface-product-production、geometry-shadow-view、local-light-integration、native-surface-multi-product-production（含recovery）。原数值容差未放宽。
+
+Luma oracle实际执行FrameGraph，覆盖2×2、3×5、9×17、65×33、129×257、1920×1080；mip5前独立f32 CPU reference（2e-5），frame-info与每个R16 depth像素严格比较开工HEAD `57f1499a` 冻结的旧per-mip GPU reference。不冒称全链独立CPU fp16 oracle；保留初始3×5 NPOT失败和CPU half RNE与硬件转换不符的原失败。Triangle count GPU oracle覆盖1/32/33/64/65/96/128、双sided、capacity miss与stale directory，诊断计数0。
+
+全量Node首轮577项中572 pass；4项失败在隔离开工HEAD编译源码上原样复现：Material closure zero-coat sample、OEGPACK A8 bootstrap roots、offline cook缺本地pngjs、Nyx projected-error GPU evidence缺项。未修无关owner或放宽断言。另大型pc-texture-product native BC矩阵长时间编码后中止，为NOT-COMPLETED，不宣称全量通过或deadlock。原失败/中止/基线日志在 `.local/bistro-repair-*.txt`，GPU结果在 `.local/bistro-repair-final-*.json`。
+
+Bistro使用用户请求的实际约1.035GB原场景，132材质/405图像、完整cooked mips、2.829M source triangles。街景[20,5,-45]→[20,5,5]，1920×842/scale1，FSR3/jitter开、VSM/GTAO/Bloom关；HEAD隔离源码与修改后同demo串行观测。GPU full profiling与普通CPU分开，各120帧弃前8、N112，未同时运行两个场景。稳定创建确认：全帧Buffer30→0、BindGroup76→1，Surface Buffer30→0、BindGroup48→0。
+
+| GPU ms，P50/P95（诊断观察） | 开工HEAD | 修改后首轮 |
+| --- | --- | --- |
+| command span | 41.36/168.17 | 37.52/39.08 |
+| Surface native opaque | 14.95/47.75 | 14.86/15.91 |
+| Visibility native material | 9.95/47.99 | 4.94/5.52 |
+| frame_vertices_build | 3.71/12.01 | 3.55/4.31 |
+| FSR3 Luma SPD | 0.282/1.071 | 0.192/0.201 |
+| FSR3全部 | 8.14/49.26 | 9.16/9.77 |
+
+两轮89–90°C，修改后约810MHz、基线750→630MHz，长尾大，不能计算可信净收益或推断RTX2060 FPS。分项只计pass scope，span含未分类工作，中位数不可机械相加。基线实际提交帧CPU P50/P95为4.64/5.905ms；修改后最终仅实际提交帧复核4.07/5.235ms，N112，仍为全帧0 Buffer/1 BindGroup、Surface两项0、GPU errors/device loss0；不提升为正式性能claim。
+
+docs-verify 0 findings/66 historical warnings，37个源码/测试文件格式检查与diff whitespace通过。诊断场景已fenced release，临时尺寸覆盖撤销，基线服务退出，未改用户5173服务。当前仍未达到60FPS，Surface与FSR3其他阶段仍占主要时间；未降低材质/纹理/分辨率/effect质量。同频配对、正式1080p P50/P95、RTX2060、register/spill/bandwidth、driver VRAM、全Renderer画质仍OPEN/NOT-RUN。五项授权修复到此停止，不跨入VT/下一大模块。
 
 本文件是Texture Compression slice的唯一单元状态/执行authority；架构与Source Map见[Design](../next-design/eengine-v4-texture-compression-2026-10.md)。全局不变量、失败分类沿用[V4 execution](./eengine-v4-native-shading-execution-2026-10.md#validation-failure-contract)和[VALIDATION](../VALIDATION.md)。**T4.0–T4.3与Texture Compression slice均closed**，最终authored/质量/成本/生命周期结果与OPEN限制见§12；不代表整帧性能已改善或整个Renderer验收结束。用户明确排除400多MB模型，后续场景测试均不再运行它；改变的是验收workload范围，不是缩小同一个场景后声称等价。STOP，不自动开始VT。
 

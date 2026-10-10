@@ -1,3 +1,4 @@
+import { GpuBindGroupCache } from "../../../gpu/GpuBindGroupResourceCache.js";
 import type { FrameGraph } from "../../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../../framegraph/ShadeGPUCommandContext.js";
@@ -217,6 +218,7 @@ export interface Fsr3ReactivityOutput {
 }
 
 export class Fsr3PrepareReactivityPass {
+  private readonly bindGroups = new GpuBindGroupCache();
   private readonly layout: GPUBindGroupLayout;
   private readonly pipeline: GPUComputePipeline;
   private readonly sampler: GPUSampler;
@@ -298,7 +300,7 @@ export class Fsr3PrepareReactivityPass {
         ],
       });
       clear.end();
-      const bind = this.device.createBindGroup({
+      const bind = this.bindGroups.create(this.device, {
         layout: this.layout,
         entries: [
           { binding: 0, resource: { buffer: resources.get(data.reconstructedDepth) as GPUBuffer } },

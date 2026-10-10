@@ -6,6 +6,81 @@
 
 type PrimitiveKey = string | number | boolean | bigint | symbol | null | undefined;
 
+interface CachedDescriptor {
+  readonly entries: readonly GPUBindGroupEntry[];
+  readonly group: GPUBindGroup;
+}
+
+/** Owner-local, bounded binding reuse. Layout, binding numbers and buffer ranges
+ * are part of identity. Eviction drops references, never destroys borrowed GPU
+ * resources or groups still referenced by already encoded commands. */
+export class GpuBindGroupCache {
+  private layouts = new WeakMap<GPUBindGroupLayout, CachedDescriptor[]>();
+
+  constructor(private readonly capacity = 16) {
+    if (!Number.isSafeInteger(capacity) || capacity < 1) {
+      throw new RangeError("Bind group cache capacity must be a positive integer");
+    }
+  }
+
+  create(device: GPUDevice, descriptor: GPUBindGroupDescriptor): GPUBindGroup {
+    const entries = Array.from(descriptor.entries);
+    let cached = this.layouts.get(descriptor.layout);
+    if (cached === undefined) {
+      cached = [];
+      this.layouts.set(descriptor.layout, cached);
+    }
+    for (let index = 0; index < cached.length; index++) {
+      const candidate = cached[index]!;
+      if (entries.length !== candidate.entries.length) {
+        continue;
+      }
+      let equal = true;
+      for (let binding = 0; binding < entries.length; binding++) {
+        const a = entries[binding]!,
+          b = candidate.entries[binding]!;
+        if (a.binding !== b.binding || !equalBindingResource(a.resource, b.resource)) {
+          equal = false;
+          break;
+        }
+      }
+      if (equal) {
+        if (index > 0) {
+          cached.splice(index, 1);
+          cached.unshift(candidate);
+        }
+        return candidate.group;
+      }
+    }
+    const group = device.createBindGroup(descriptor);
+    const snapshot = entries.map(({ binding, resource }) => ({
+      binding,
+      resource: isGpuBufferBinding(resource) ? { ...resource } : resource,
+    }));
+    cached.unshift({ entries: snapshot, group });
+    if (cached.length > this.capacity) {
+      cached.pop();
+    }
+    return group;
+  }
+
+  clear(): void {
+    this.layouts = new WeakMap();
+  }
+}
+
+function equalBindingResource(a: GPUBindingResource, b: GPUBindingResource): boolean {
+  if (isGpuBufferBinding(a)) {
+    return (
+      isGpuBufferBinding(b) &&
+      a.buffer === b.buffer &&
+      (a.offset ?? 0) === (b.offset ?? 0) &&
+      (a.size ?? -1) === (b.size ?? -1)
+    );
+  }
+  return a === b;
+}
+
 interface TupleNode<TValue extends object> {
   readonly objects: WeakMap<object, TupleNode<TValue>>;
   readonly primitives: Map<PrimitiveKey, TupleNode<TValue>>;

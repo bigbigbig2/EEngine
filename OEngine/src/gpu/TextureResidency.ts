@@ -10,6 +10,7 @@ import {
 } from "../assets/TextureProduct.js";
 import type { ShadeTexture } from "../texture/ShadeTexture.js";
 import type { TextureSurfacePublication } from "./TextureSurfacePublication.js";
+import { Signal } from "../core/Signal.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
 import { encodeGpuTextureRef, GPU_TEXTURE_BANK_COUNT } from "./GpuTextureRefAbi.js";
 import {
@@ -102,6 +103,8 @@ interface MaterialEntry {
  * queue-write destinations remain quarantined until actual queue completion;
  * rejection does not grant reuse. Handles and material tuples are CPU-owned. */
 export class TextureResidency {
+  /** Committed physical/route/mip changes; stable frames perform no ledger scan. */
+  readonly onPublicationChanged = new Signal();
   private readonly segments = new Set<Segment>();
   private readonly entries = new Map<string, Entry>();
   private readonly quarantined = new Set<Entry>();
@@ -454,6 +457,7 @@ export class TextureResidency {
         for (const operation of retained) {
           operation.entry.staging = undefined;
         }
+        this.onPublicationChanged.emit();
       });
       const refs = new Map<ShadeTexture, number>(),
         publications = new Map<ShadeTexture, TextureSurfacePublication>();
@@ -576,6 +580,7 @@ export class TextureResidency {
         }
         if (pending.length) {
           this.promotionCount++;
+          this.onPublicationChanged.emit();
         }
       });
     } catch (error) {
@@ -645,6 +650,7 @@ export class TextureResidency {
             }
             this.releaseSet(owner.set);
             this.cachedBindings = undefined;
+            this.onPublicationChanged.emit();
           },
           () => {
             /* Device destruction owns loss cleanup. */
@@ -825,6 +831,7 @@ export class TextureResidency {
       return;
     }
     this.destroyed = true;
+    this.onPublicationChanged.clear();
     for (const segment of this.segments) {
       this.destroySegment(segment);
     }

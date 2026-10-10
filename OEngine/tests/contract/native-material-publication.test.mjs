@@ -127,14 +127,14 @@ test("raster cutoff and flags are instance constants and invalidate values witho
   const base = f.source();
   const first = new GpuNativeMaterialPublication(f.device, f.registry, [base]);
   const changed = new GpuNativeMaterialPublication(f.device, f.registry, [
-    { ...base, raster: { alphaCutoff: 0.75, alphaMask: true, hasEmissiveTexture: true } }
+    { ...base, coverage: { program: base.program, layoutEntries: [], materialEntries: [] }, raster: { alphaCutoff: 0.75, alphaMask: true, hasEmissiveTexture: true } }
   ]);
   const at = base.program.constants.length;
   assert.deepEqual([...new Float32Array(first.constants.bytes).subarray(at, at + 2)], [0.5, 0]);
   assert.deepEqual([...new Float32Array(changed.constants.bytes).subarray(at, at + 2)], [0.75, 3]);
   assert.equal(first.entries[0].signature, changed.entries[0].signature);
   assert.notEqual(first.entries[0].valueRevision, changed.entries[0].valueRevision);
-  assert.equal(first.allocatedBytes, base.program.constants.length * 4 + 8 + 16 + 8);
+  assert.equal(first.allocatedBytes, base.program.constants.length * 4 + 8 + 32 + 8 + 4);
   assert.throws(
     () =>
       new GpuNativeMaterialPublication(f.device, f.registry, [
@@ -157,6 +157,7 @@ test("cancellation while compiling releases candidate resources; retry shares th
   assert.throws(() => first.commit(), /complete/);
   first.abort();
   assert.ok(f.buffers.every((buffer) => buffer.destroyed));
+  const abortedBufferCount = f.buffers.length;
   const retry = new GpuNativeMaterialPublication(f.device, f.registry, [f.source(0.8)]);
   await tick();
   assert.equal(f.compiles.length, 1);
@@ -171,7 +172,7 @@ test("cancellation while compiling releases candidate resources; retry shares th
   assert.equal(retry.pipeline(0).pipeline.label, "pipeline");
   const fence = deferred();
   const retired = retry.retire(fence.promise);
-  assert.ok(f.buffers.slice(3).every((buffer) => !buffer.destroyed));
+  assert.ok(f.buffers.slice(abortedBufferCount).every((buffer) => !buffer.destroyed));
   assert.throws(() => retry.pipeline(0), /encoding/);
   fence.resolve();
   await retired;

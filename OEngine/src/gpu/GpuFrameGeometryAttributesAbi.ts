@@ -4,17 +4,11 @@
  * as evidence that deformation has run. */
 export const GPU_FRAME_ATTRIBUTE_VECTORS = 6;
 export const GPU_FRAME_ATTRIBUTE_STRIDE = GPU_FRAME_ATTRIBUTE_VECTORS * 16;
-/** Prepared frame vertices publish only the values consumed by raster and
- * winner reconstruction: world normal/tangent/position and authored UV/color.
- * Immutable residency remains object-space; neither representation aliases it. */
-export const GPU_FRAME_VERTEX_ATTRIBUTE_VECTORS = 6;
-export const GPU_FRAME_VERTEX_ATTRIBUTE_STRIDE = GPU_FRAME_VERTEX_ATTRIBUTE_VECTORS * 16;
-export const GPU_FRAME_VERTEX_WORLD_FIELDS = Object.freeze({ normal: 0, tangent: 1, position: 5 });
 export const GPU_FRAME_ATTRIBUTE_FIELDS = Object.freeze({
   normal: 0,
   tangent: 1,
   uv01: 2,
   color: 3,
   uv2: 4,
-  position: 5
+  position: 5,
 });

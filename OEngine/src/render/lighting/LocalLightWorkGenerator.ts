@@ -1,13 +1,15 @@
+import { GpuBindGroupCache } from "../../gpu/GpuBindGroupResourceCache.js";
 import {
   LOCAL_LIGHT_ABI_VERSION,
   LOCAL_LIGHT_FRAME_BUDGET,
+  LOCAL_LIGHT_FRAME_CAPACITY,
   LOCAL_LIGHT_HEADER_WORDS,
   LOCAL_LIGHT_INDEX_CAPACITY,
   LOCAL_LIGHT_MAX_ADMITTED,
   LOCAL_LIGHT_MODE,
   LOCAL_LIGHT_PARAMETERS_BYTES,
   LOCAL_LIGHT_PEAK_BUDGET,
-  localLightId
+  localLightId,
 } from "../../gpu/GpuLocalLightWorkAbi.js";
 import { LOCAL_LIGHT_SCAN_WGSL, LOCAL_LIGHT_WORK_WGSL } from "../../shaders/local_light_work.js";
 import { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
@@ -38,7 +40,7 @@ export function localLightPublication(lights: GPULightCollection): LocalLightPub
     buffer: lights.buffer_data,
     revision: lights.publicationRevision,
     ids,
-    currentRevision: () => lights.publicationRevision
+    currentRevision: () => lights.publicationRevision,
   };
 }
 
@@ -106,6 +108,7 @@ export interface LocalLightWorkFrame {
 
 /** Owns fenced frame products; borrows the staged DB and graph-produced winner/depth. */
 export class LocalLightWorkGenerator {
+  private readonly bindGroups = new GpuBindGroupCache();
   private readonly pipelines = new Map<string, GPUComputePipeline>();
   private readonly allocations: Allocation[] = [];
   private readonly accountingHandles = new Map<GPUBuffer, ResourceHandle>();
@@ -125,7 +128,7 @@ export class LocalLightWorkGenerator {
   constructor(
     private readonly device: GPUDevice,
     readonly deviceEpoch: number,
-    private readonly graphics?: GraphicsContext
+    private readonly graphics?: GraphicsContext,
   ) {
     if (!Number.isInteger(deviceEpoch) || deviceEpoch < 0 || deviceEpoch > 0xffffffff) {
       throw new RangeError("LocalLightWork epoch must fit the GPU context");
@@ -169,7 +172,7 @@ export class LocalLightWorkGenerator {
       "allocate",
       "scatter_schedule",
       "scatter",
-      "finalize"
+      "finalize",
     ];
     const module = this.device.createShaderModule({ label: "LocalLightWork", code: LOCAL_LIGHT_WORK_WGSL });
     // Pair kernels omit writable indirect arguments to preserve indirect usage scopes.
@@ -180,11 +183,11 @@ export class LocalLightWorkGenerator {
         { binding: 1, visibility: 4, buffer: { type: "uniform" } },
         { binding: 2, visibility: 4, buffer: { type: "read-only-storage" } },
         ...[3, 4, 5, 6].map(
-          (binding): GPUBindGroupLayoutEntry => ({ binding, visibility: 4, buffer: { type: "storage" } })
+          (binding): GPUBindGroupLayoutEntry => ({ binding, visibility: 4, buffer: { type: "storage" } }),
         ),
         { binding: 7, visibility: 4, texture: { sampleType: "uint" } },
-        { binding: 8, visibility: 4, texture: { sampleType: "depth" } }
-      ]
+        { binding: 8, visibility: 4, texture: { sampleType: "depth" } },
+      ],
     });
     const pipelineLayout = this.device.createPipelineLayout({ bindGroupLayouts: [layout] });
     const pairLayout = this.device.createPipelineLayout({
@@ -196,17 +199,17 @@ export class LocalLightWorkGenerator {
             { binding: 1, visibility: 4, buffer: { type: "uniform" } },
             { binding: 2, visibility: 4, buffer: { type: "read-only-storage" } },
             ...[3, 4, 5].map(
-              (binding): GPUBindGroupLayoutEntry => ({ binding, visibility: 4, buffer: { type: "storage" } })
-            )
-          ]
-        })
-      ]
+              (binding): GPUBindGroupLayoutEntry => ({ binding, visibility: 4, buffer: { type: "storage" } }),
+            ),
+          ],
+        }),
+      ],
     });
     for (const entryPoint of stages) {
       const pipeline = await this.device.createComputePipelineAsync({
         label: `LocalLightWork/${entryPoint}`,
         layout: entryPoint === "count" || entryPoint === "scatter" ? pairLayout : pipelineLayout,
-        compute: { module, entryPoint }
+        compute: { module, entryPoint },
       });
       if (this.disposed) {
         throw new Error("LocalLightWork pipeline initialization cancelled");
@@ -215,23 +218,23 @@ export class LocalLightWorkGenerator {
     }
     const scanModule = this.device.createShaderModule({
       label: "LocalLightWork/scan",
-      code: LOCAL_LIGHT_SCAN_WGSL
+      code: LOCAL_LIGHT_SCAN_WGSL,
     });
     const scanLayout = this.device.createPipelineLayout({
       bindGroupLayouts: [
         this.device.createBindGroupLayout({
           entries: [
             { binding: 0, visibility: 4, buffer: { type: "uniform" } },
-            { binding: 1, visibility: 4, buffer: { type: "storage" } }
-          ]
-        })
-      ]
+            { binding: 1, visibility: 4, buffer: { type: "storage" } },
+          ],
+        }),
+      ],
     });
     for (const entryPoint of ["scan", "add"]) {
       const pipeline = await this.device.createComputePipelineAsync({
         label: `LocalLightWork/${entryPoint}`,
         layout: scanLayout,
-        compute: { module: scanModule, entryPoint }
+        compute: { module: scanModule, entryPoint },
       });
       if (this.disposed) {
         throw new Error("LocalLightWork scan initialization cancelled");
@@ -252,8 +255,8 @@ export class LocalLightWorkGenerator {
         ...request.view,
         view: Array.from(request.view.view),
         projection: [...request.view.projection],
-        depthConversion: [...request.view.depthConversion]
-      }
+        depthConversion: [...request.view.depthConversion],
+      },
     };
     const { width, height } = request.view;
     const n = request.publication.ids.length;
@@ -276,7 +279,7 @@ export class LocalLightWorkGenerator {
       scanStages.push({
         entry: "scan",
         groups: blocks,
-        settings: new Uint32Array([source, destination, sums, count])
+        settings: new Uint32Array([source, destination, sums, count]),
       });
       if (blocks > 1) {
         const offsets = scratchWords;
@@ -285,7 +288,7 @@ export class LocalLightWorkGenerator {
         scanStages.push({
           entry: "add",
           groups: blocks,
-          settings: new Uint32Array([offsets, destination, 0, count])
+          settings: new Uint32Array([offsets, destination, 0, count]),
         });
       }
     };
@@ -314,19 +317,23 @@ export class LocalLightWorkGenerator {
       for (const previous of [...this.allocations]) {
         if (
           previous.state === "free" &&
-          (this.allocations.length >= 3 || this.allocatedBytes + bytes > LOCAL_LIGHT_PEAK_BUDGET)
+          (this.allocations.length >= LOCAL_LIGHT_FRAME_CAPACITY ||
+            this.allocatedBytes + bytes > LOCAL_LIGHT_PEAK_BUDGET)
         ) {
           this.release(previous);
         }
       }
-      if (this.allocations.length >= 3 || this.allocatedBytes + bytes > LOCAL_LIGHT_PEAK_BUDGET) {
+      if (
+        this.allocations.length >= LOCAL_LIGHT_FRAME_CAPACITY ||
+        this.allocatedBytes + bytes > LOCAL_LIGHT_PEAK_BUDGET
+      ) {
         throw new Error("LocalLightWork in-flight capacity exhausted; retain the real completion fence");
       }
       const create = (label: string, size: number, usage: GPUBufferUsageFlags): GPUBuffer => {
         const buffer = this.device.createBuffer({
           label: `LocalLightWork/${label}`,
           size,
-          usage: usage | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
+          usage: usage | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
         });
         const handle = this.graphics?.resource_accounting.created(
           {
@@ -334,9 +341,9 @@ export class LocalLightWorkGenerator {
             category: "transient",
             owner: "LocalLightWork",
             bytes: size,
-            label: buffer.label
+            label: buffer.label,
           },
-          buffer
+          buffer,
         );
         if (handle) {
           this.accountingHandles.set(buffer, handle);
@@ -353,7 +360,7 @@ export class LocalLightWorkGenerator {
         scans: scanStages.map(() => create("scan parameters", 16, GPUBufferUsage.UNIFORM)),
         bytes,
         key,
-        state: "free"
+        state: "free",
       };
       this.allocations.push(allocation);
     }
@@ -368,7 +375,7 @@ export class LocalLightWorkGenerator {
       this.deviceEpoch,
       request.frameIndex,
       request.publication.revision,
-      n
+      n,
     ]);
     floats.set([request.view.near, request.view.far, ...request.view.depthConversion], 8);
     floats.set(request.view.projection, 12);
@@ -390,7 +397,7 @@ export class LocalLightWorkGenerator {
       2 * n,
       0,
       0,
-      request.taskBudget ?? 8 * LOCAL_LIGHT_INDEX_CAPACITY
+      request.taskBudget ?? 8 * LOCAL_LIGHT_INDEX_CAPACITY,
     ]);
     header.set(request.publication.ids, LOCAL_LIGHT_HEADER_WORDS);
     this.device.queue.writeBuffer(allocation.parameters, 0, packed);
@@ -406,23 +413,23 @@ export class LocalLightWorkGenerator {
         cursors,
         occupancy,
         this.device.limits.maxComputeWorkgroupsPerDimension,
-        0
-      ])
+        0,
+      ]),
     );
     const scans = scanStages.map((stage, index) => {
       this.device.queue.writeBuffer(allocation!.scans[index]!, 0, stage.settings);
       return {
         stage,
-        group: this.device.createBindGroup({
+        group: this.bindGroups.create(this.device, {
           layout: this.pipelines.get(stage.entry)!.getBindGroupLayout(0),
           entries: [
             { binding: 0, resource: { buffer: allocation!.scans[index]! } },
-            { binding: 1, resource: { buffer: allocation!.scratch } }
-          ]
-        })
+            { binding: 1, resource: { buffer: allocation!.scratch } },
+          ],
+        }),
       };
     });
-    const pairGroup = this.device.createBindGroup({
+    const pairGroup = this.bindGroups.create(this.device, {
       layout: this.pipelines.get("count")!.getBindGroupLayout(0),
       entries: [
         { binding: 0, resource: { buffer: allocation.parameters } },
@@ -430,8 +437,8 @@ export class LocalLightWorkGenerator {
         { binding: 2, resource: { buffer: request.publication.buffer } },
         { binding: 3, resource: { buffer: allocation.data } },
         { binding: 4, resource: { buffer: allocation.scratch } },
-        { binding: 5, resource: { buffer: allocation.lookup } }
-      ]
+        { binding: 5, resource: { buffer: allocation.lookup } },
+      ],
     });
     allocation.state = "prepared";
     const frame: LocalLightWorkFrame = {
@@ -444,8 +451,8 @@ export class LocalLightWorkGenerator {
         { binding: 0, resource: { buffer: request.publication.buffer } },
         { binding: 1, resource: { buffer: allocation.parameters } },
         { binding: 2, resource: { buffer: allocation.lookup } },
-        { binding: 3, resource: { buffer: allocation.data } }
-      ]
+        { binding: 3, resource: { buffer: allocation.data } },
+      ],
     };
     if (allocation.frame) {
       this.frames.delete(allocation.frame);
@@ -458,7 +465,7 @@ export class LocalLightWorkGenerator {
   encode(
     command: ShadeGPUCommandContext,
     frame: LocalLightWorkFrame,
-    inputs?: { visibility: GPUTextureView; depth: GPUTextureView }
+    inputs?: { visibility: GPUTextureView; depth: GPUTextureView },
   ): void {
     const state = this.frames.get(frame);
     if (
@@ -471,9 +478,8 @@ export class LocalLightWorkGenerator {
     ) {
       throw new Error("LocalLightWork frame is stale or already encoded");
     }
-    // prepare() already owns at most three distinct fenced allocations within
-    // LOCAL_LIGHT_PEAK_BUDGET. Frame admission is the coordinator's concern;
-    // an unrelated count of submitted slots must not reject this reserved one.
+    // prepare() owns the complete bounded allocation pool. No separate
+    // two-frame encode gate: it would contradict that pool and frame admission.
     this.validate(frame.request);
     const allocation = state.allocation;
     allocation.state = "encoded";
@@ -510,7 +516,7 @@ export class LocalLightWorkGenerator {
     if (!visibility || !depth) {
       throw new Error("LocalLightWork requires this frame's raw winner and depth");
     }
-    const group = this.device.createBindGroup({
+    const group = this.bindGroups.create(this.device, {
       layout: this.pipelines.get("bounds")!.getBindGroupLayout(0),
       entries: [
         { binding: 0, resource: { buffer: allocation.parameters } },
@@ -521,8 +527,8 @@ export class LocalLightWorkGenerator {
         { binding: 5, resource: { buffer: allocation.lookup } },
         { binding: 6, resource: { buffer: allocation.indirect } },
         { binding: 7, resource: visibility },
-        { binding: 8, resource: depth }
-      ]
+        { binding: 8, resource: depth },
+      ],
     });
     const dispatch = (entry: string, groups: number, y = 1, indirect = false): void => {
       const pass = encoder.beginComputePass({ label: `LocalLightWork/${entry}` });
@@ -551,7 +557,7 @@ export class LocalLightWorkGenerator {
     dispatch(
       "occupancy",
       Math.ceil(frame.request.view.width / 32),
-      Math.ceil(frame.request.view.height / 32)
+      Math.ceil(frame.request.view.height / 32),
     );
     dispatch("count", 0, 1, true);
     scan(state.taskScanCount, state.scans.length);
@@ -579,19 +585,19 @@ export class LocalLightWorkGenerator {
     graph: FrameGraph,
     job: { frame: LocalLightWorkFrame },
     products: { parameters: GPUBuffer; lookup: GPUBuffer; data: GPUBuffer },
-    inputs: { visibility: ResourceId; depth: ResourceId; database: ResourceId }
+    inputs: { visibility: ResourceId; depth: ResourceId; database: ResourceId },
   ): LocalLightWorkProduct {
     const parameters = graph.import_resource(
       "LocalLightWork/parameters",
       { kind: "imported" },
-      products.parameters
+      products.parameters,
     );
     const lookup = graph.import_resource("LocalLightWork/lookup", { kind: "imported" }, products.lookup);
     const data = graph.import_resource("LocalLightWork/data", { kind: "imported" }, products.data);
     const node = graph.add("LocalLightWork/generate", job, (current, resources, context) => {
       this.encode(context.encoder as ShadeGPUCommandContext, current.frame, {
         visibility: resolveTextureView(resources.get(inputs.visibility)),
-        depth: resolveTextureView(resources.get(inputs.depth))
+        depth: resolveTextureView(resources.get(inputs.depth)),
       });
     });
     for (const input of [inputs.visibility, inputs.depth, inputs.database]) {
@@ -605,7 +611,7 @@ export class LocalLightWorkGenerator {
       width: job.frame.request.view.width,
       height: job.frame.request.view.height,
       tileSize: 32,
-      depthSlices: 24
+      depthSlices: 24,
     });
   }
 
@@ -616,7 +622,7 @@ export class LocalLightWorkGenerator {
     }
     if (
       ![view.width, view.height, request.frameIndex, publication.revision].every(
-        (value) => Number.isInteger(value) && value >= 0 && value <= 0xffffffff
+        (value) => Number.isInteger(value) && value >= 0 && value <= 0xffffffff,
       ) ||
       view.width === 0 ||
       view.height === 0
@@ -655,7 +661,7 @@ export class LocalLightWorkGenerator {
     }
     for (const value of [
       request.indexCapacity ?? LOCAL_LIGHT_INDEX_CAPACITY,
-      request.taskBudget ?? 8 * LOCAL_LIGHT_INDEX_CAPACITY
+      request.taskBudget ?? 8 * LOCAL_LIGHT_INDEX_CAPACITY,
     ]) {
       if (!Number.isInteger(value) || value < 0 || value > 8 * LOCAL_LIGHT_INDEX_CAPACITY) {
         throw new RangeError("LocalLightWork invalid bounded capacity");
@@ -671,6 +677,7 @@ export class LocalLightWorkGenerator {
   }
 
   destroy(): void {
+    this.bindGroups.clear();
     if (this.disposed) {
       return;
     }
@@ -697,7 +704,7 @@ export class LocalLightWorkGenerator {
       allocation.data,
       allocation.scratch,
       allocation.indirect,
-      ...allocation.scans
+      ...allocation.scans,
     ]) {
       buffer.destroy();
       const handle = this.accountingHandles.get(buffer);

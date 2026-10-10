@@ -1,10 +1,18 @@
-import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
+import { FRAME_GEOMETRY_MESHLET_STRIDE } from "../gpu/GpuWinnerInterpolationAbi.js";
+import {
+  GPU_MESHLET_RASTER_WORK_WGSL,
+  GPU_MESHLET_RASTER_FLAGS as F,
+} from "../gpu/GpuMeshletRasterWorkAbi.js";
 import { GPU_MESHLET_RECORD_SCHEMA } from "../gpu/GpuGeometryAbi.js";
 import { GPU_INSTANCE_FLAGS } from "../gpu/GpuInstanceAbi.js";
-import { NATIVE_MATERIAL_DIRECTORY_WGSL } from "../gpu/GpuNativeMaterialPublication.js";
+import { NATIVE_RASTER_DIRECTORY_WGSL } from "../gpu/GpuNativeMaterialPublication.js";
+import {
+  FRAME_GEOMETRY_ARENA_HEADER_WORDS as H,
+  FRAME_GEOMETRY_ARENA_VERSION,
+} from "../gpu/GpuFrameGeometryArenaAbi.js";
 
-/** Native material classification over the existing count/prefix/scatter raster
- * algorithm. Four 32-triangle buckets and two draw sides per execution bin.
+/** Raster-class classification over the count/prefix/scatter raster algorithm.
+ * Four 32-triangle buckets and two draw sides per OPAQUE/coverage class.
  * Work slots are preserved; queue headers remain the authoritative generation.
  * No material records/old coverage directory/Tape or CPU-visible work control. */
 export const NATIVE_CASTER_QUEUE_WGSL = /* wgsl */ `
@@ -33,10 +41,10 @@ struct NativeCasterQueue {
 export function nativeRasterPartitionsWgsl(caster = false): string {
   return /* wgsl */ `
 ${GPU_MESHLET_RASTER_WORK_WGSL}
-${NATIVE_MATERIAL_DIRECTORY_WGSL}
+${NATIVE_RASTER_DIRECTORY_WGSL}
 ${caster ? NATIVE_CASTER_QUEUE_WGSL : ""}
 @group(0) @binding(0) var<storage, read> work: ${caster ? "NativeCasterQueue" : "OEngineMeshletWorkQueueRead"};
-@group(0) @binding(1) var<storage, read> directory: array<NativeMaterialDirectoryEntry>;
+@group(0) @binding(1) var<storage, read> directory: array<NativeRasterDirectoryEntry>;
 @group(0) @binding(2) var<storage, read> metadata: array<u32>;
 @group(0) @binding(3) var<storage, read_write> states: array<atomic<u32>>;
 @group(0) @binding(4) var<storage, read_write> indices: array<u32>;
@@ -54,7 +62,7 @@ fn native_raster_partition(slot: u32) -> u32 {
   }
   if (record.packed_raster_flags & ${GPU_INSTANCE_FLAGS.Transparent}u) != 0u { return 0xffffffffu; }
   let material = directory[record.material_slot_or_range];
-  if material.execution_bin >= settings[0].y / 8u || material.program_index == 0xffffffffu {
+  if material.raster_class >= settings[0].y / 8u || material.valid == 0u {
     return 0xffffffffu;
   }
   var count = 128u;
@@ -63,18 +71,42 @@ fn native_raster_partition(slot: u32) -> u32 {
     if at + ${GPU_MESHLET_RECORD_SCHEMA.stride / 4}u > arrayLength(&metadata) { return 0xffffffffu; }
     count = metadata[at + ${GPU_MESHLET_RECORD_SCHEMA.offsets.triangle_count! / 4}u];
   }
+  ${
+    caster
+      ? ""
+      : /* wgsl */ `else if settings[1].z != 0u {
+    let header = settings[1].y & 0x7fffffffu;
+    if metadata[header + ${H.version}u] == ${FRAME_GEOMETRY_ARENA_VERSION}u {
+      let base = metadata[header + select(${H.sourceDirectory}u, ${H.filteredDirectory}u,
+        (settings[1].y & 0x80000000u) != 0u)];
+      if metadata[base + 1u] == work.header.generation && slot < metadata[base] {
+        let entry = base + 4u + slot * ${FRAME_GEOMETRY_MESHLET_STRIDE / 4}u;
+        // A real preparation capacity miss keeps the complete source draw.
+        if metadata[entry + 2u] != 0u { count = metadata[entry + 3u]; }
+      }
+    }
+  }`
+  }
   if count == 0u || count > 128u {
     return 0xffffffffu;
   }
   let bucket = (count - 1u) / 32u;
   let side = select(0u, 1u, (record.packed_raster_flags & ${GPU_INSTANCE_FLAGS.DoubleSided}u) != 0u);
-  return material.execution_bin * 8u + bucket * 2u + side;
+  return material.raster_class * 8u + bucket * 2u + side;
 }
 fn native_raster_count() -> u32 {
   if work.header.generation != settings[0].w {
     return 0u;
   }
   return min(work.header.written_count, min(${caster ? "settings[0].x" : "work.header.capacity"}, min(settings[0].x, arrayLength(&work.elements))));
+}
+fn native_raster_selected(slot: u32) -> bool {
+  ${
+    caster
+      ? "return true;"
+      : `let flags = work.elements[slot].packed_raster_flags;
+  return (flags & ${F.OcclusionDeferred}u) == 0u && (settings[1].w == 0u || (flags & ${F.OcclusionRecovered}u) != 0u);`
+  }
 }
 @compute @workgroup_size(64)
 fn begin(@builtin(global_invocation_id) id: vec3u) {
@@ -110,6 +142,7 @@ fn count(@builtin(global_invocation_id) id: vec3u) {
   if slot >= native_raster_count() {
     return;
   }
+  if !native_raster_selected(slot) { return; }
   let key = native_raster_partition(slot);
   if key != 0xffffffffu {
     atomicAdd(&states[key * 4u], 1u);
@@ -133,6 +166,7 @@ fn scatter(@builtin(global_invocation_id) id: vec3u) {
   if slot >= native_raster_count() {
     return;
   }
+  if !native_raster_selected(slot) { return; }
   let key = native_raster_partition(slot);
   if key == 0xffffffffu {
     return;

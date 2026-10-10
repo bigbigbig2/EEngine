@@ -5,6 +5,7 @@ import { AppearanceProgramRegistry } from "../../.test-dist/gpu/AppearanceProgra
 import { GpuNativeMaterialPublication } from "../../.test-dist/gpu/GpuNativeMaterialPublication.js";
 import {
   createNativeMaterialBindings,
+  createNativeCoverageBindings,
   nativeMaterialCoverageProgram,
 } from "../../.test-dist/gpu/NativeMaterialBindings.js";
 import { ShadeGPUCommandContext } from "../../.test-dist/framegraph/ShadeGPUCommandContext.js";
@@ -218,6 +219,9 @@ export async function createNativeMaterialBindingFixture(
         ...(packedOwner ? { packedProducts: packedOwner } : {}),
       }),
     );
+    const coverageBindings = compiledGraphs.map((graph, index) =>
+      materials[index].transparency_mode === ShadeTransparencyMode.AlphaTested
+        ? createNativeCoverageBindings({ ...commonFor(materials[index]), graph, program: lowerNativeMaterial(graph), ...(packedOwner ? { packedProducts: packedOwner } : {}) }) : null);
     const sources = bindings.map((binding, materialSlot) => ({
       materialSlot,
       material: materials[materialSlot],
@@ -227,6 +231,7 @@ export async function createNativeMaterialBindingFixture(
       compiledGraph: compiledGraphs[materialSlot],
       program: binding.program,
       bindings: binding,
+      ...(coverageBindings[materialSlot] ? { coverage: { program: coverageBindings[materialSlot].program, layoutEntries: coverageBindings[materialSlot].layoutEntries, materialEntries: coverageBindings[materialSlot].entries } } : {}),
       raster: {
         alphaCutoff: materials[materialSlot].alpha_cutoff,
         alphaMask: materials[materialSlot].transparency_mode === ShadeTransparencyMode.AlphaTested,

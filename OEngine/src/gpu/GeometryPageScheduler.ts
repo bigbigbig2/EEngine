@@ -2,13 +2,13 @@ import {
   deduplicateGeometryPageDemandsV1,
   unpackGeometryPageDemandHeaderV1,
   unpackGeometryPageDemandV1,
-  type GeometryPageDemandV1
+  type GeometryPageDemandV1,
 } from "./GeometryPageDemandAbiV1.js";
 import {
   GEOMETRY_PRODUCT_PAGE_RECORD_STRIDE,
   decodeGeometryProductPageRecordV1,
   type GeometryProductRevisionSourceV1,
-  type GeometryPageProductV1
+  type GeometryPageProductV1,
 } from "../assets/geometry-product/GeometryProductV1.js";
 
 export type GeometryPageOperationStateV1 =
@@ -172,7 +172,7 @@ export class GeometryPageSchedulerV1 {
     cameraState: "moving",
     gpuPressure: 0,
     framePressure: 0,
-    ioPressure: 0
+    ioPressure: 0,
   });
 
   constructor(options: GeometryPageSchedulerOptionsV1) {
@@ -219,7 +219,7 @@ export class GeometryPageSchedulerV1 {
       minConcurrentReads,
       minInFlightBytes,
       minUploadBytesPerFrame,
-      targetIoThroughputBytesPerSecond
+      targetIoThroughputBytesPerSecond,
     });
     this.#budget = this.#makeBudget(1);
   }
@@ -228,7 +228,7 @@ export class GeometryPageSchedulerV1 {
     productTableSlot: number,
     generation: number,
     source: GeometryProductRevisionSourceV1,
-    options: GeometryPageRegistrationOptionsV1 = {}
+    options: GeometryPageRegistrationOptionsV1 = {},
   ): void {
     const pageCount = source.descriptor.pageRecords.byteLength / GEOMETRY_PRODUCT_PAGE_RECORD_STRIDE;
     const pageBytes = source.descriptor.decodedPageBytes;
@@ -263,7 +263,7 @@ export class GeometryPageSchedulerV1 {
       pageCount,
       ownsSource: options.sourceOwnership !== "external",
       readsServed: 0,
-      uploadsServed: 0
+      uploadsServed: 0,
     });
     this.#minimumPageBytes = Math.max(this.#minimumPageBytes, pageBytes);
     this.#budget = this.#makeBudget(this.#currentScale());
@@ -284,7 +284,7 @@ export class GeometryPageSchedulerV1 {
     this.#products.delete(generation);
     this.#minimumPageBytes = [...this.#products.values()].reduce(
       (max, candidate) => Math.max(max, candidate.source.descriptor.decodedPageBytes),
-      0
+      0,
     );
     this.#budget = this.#makeBudget(this.#currentScale());
     if (product.ownsSource) product.source.release();
@@ -376,7 +376,7 @@ export class GeometryPageSchedulerV1 {
         state: "queued",
         attempts: 0,
         nextRetryAt: nowMs,
-        age: 0
+        age: 0,
       });
     }
     this.pump(nowMs);
@@ -400,7 +400,7 @@ export class GeometryPageSchedulerV1 {
         .sort(
           (a, b) =>
             a.product.readsServed - b.product.readsServed ||
-            priority(b.demand) + b.age - priority(a.demand) - a.age
+            priority(b.demand) + b.age - priority(a.demand) - a.age,
         )[0];
       if (!operation) break;
       operation.state = "producing-or-reading";
@@ -428,7 +428,7 @@ export class GeometryPageSchedulerV1 {
           this.#inFlight.delete(task);
           this.#inFlightBytes -= bytes;
           this.pump(nowMs);
-        }
+        },
       );
     }
   }
@@ -446,13 +446,13 @@ export class GeometryPageSchedulerV1 {
       .sort(
         (a, b) =>
           a.product.uploadsServed - b.product.uploadsServed ||
-          priority(b.demand) + b.age - priority(a.demand) - a.age
+          priority(b.demand) + b.age - priority(a.demand) - a.age,
       );
     while (ready.length > 0) {
       ready.sort(
         (a, b) =>
           a.product.uploadsServed - b.product.uploadsServed ||
-          priority(b.demand) + b.age - priority(a.demand) - a.age
+          priority(b.demand) + b.age - priority(a.demand) - a.age,
       );
       const operation = ready.shift()!;
       const page = operation.page!;
@@ -509,6 +509,10 @@ export class GeometryPageSchedulerV1 {
     return this.#operations.get(`${productGeneration}:${pageId}`)?.state ?? "absent";
   }
 
+  get blockedUploads(): number {
+    return this.#blockedUploads;
+  }
+
   evidence(): GeometryPageSchedulerEvidenceV1 {
     return Object.freeze({
       requested: this.#requested,
@@ -524,7 +528,7 @@ export class GeometryPageSchedulerV1 {
         (operation) =>
           operation.state === "queued" ||
           operation.state === "upload-queued" ||
-          operation.state === "producing-or-reading"
+          operation.state === "producing-or-reading",
       ).length,
       lastError: this.#lastError,
       readLatencyP50Ms: percentile(this.#readLatencies, 0.5),
@@ -544,8 +548,8 @@ export class GeometryPageSchedulerV1 {
         cameraCutBursts: this.#cameraCutBursts,
         throttledFrames: this.#throttledFrames,
         lastPressure: this.#lastPressure,
-        budget: this.#budget
-      })
+        budget: this.#budget,
+      }),
     });
   }
 
@@ -558,7 +562,7 @@ export class GeometryPageSchedulerV1 {
     const load = Math.max(
       this.#lastPressure.gpuPressure,
       this.#lastPressure.framePressure,
-      this.#lastPressure.ioPressure
+      this.#lastPressure.ioPressure,
     );
     if (this.#lastPressure.cameraState === "cut") return 1;
     return (this.#lastPressure.cameraState === "stable" ? 0.7 : 0.9) * (1 - 0.55 * load);
@@ -568,20 +572,20 @@ export class GeometryPageSchedulerV1 {
     const bounded = Math.max(0.25, Math.min(1, scale));
     const maxConcurrentReads = Math.max(
       this.#options.minConcurrentReads,
-      Math.min(this.#options.maxConcurrentReads, Math.floor(this.#options.maxConcurrentReads * bounded))
+      Math.min(this.#options.maxConcurrentReads, Math.floor(this.#options.maxConcurrentReads * bounded)),
     );
     const maxInFlightBytes = Math.max(
       this.#minimumPageBytes,
       this.#options.minInFlightBytes,
-      Math.min(this.#options.maxInFlightBytes, Math.floor(this.#options.maxInFlightBytes * bounded))
+      Math.min(this.#options.maxInFlightBytes, Math.floor(this.#options.maxInFlightBytes * bounded)),
     );
     const maxUploadBytesPerFrame = Math.max(
       this.#minimumPageBytes,
       this.#options.minUploadBytesPerFrame,
       Math.min(
         this.#options.maxUploadBytesPerFrame,
-        Math.floor(this.#options.maxUploadBytesPerFrame * bounded)
-      )
+        Math.floor(this.#options.maxUploadBytesPerFrame * bounded),
+      ),
     );
     return Object.freeze({ maxConcurrentReads, maxInFlightBytes, maxUploadBytesPerFrame });
   }
@@ -598,7 +602,7 @@ export class GeometryPageSchedulerV1 {
     try {
       const page = await operation.product.source.readPage(
         operation.demand.pageId,
-        operation.controller?.signal
+        operation.controller?.signal,
       );
       const descriptor = operation.product.source.descriptor;
       const expected = decodeGeometryProductPageRecordV1(descriptor, operation.demand.pageId);
@@ -627,7 +631,7 @@ export class GeometryPageSchedulerV1 {
         productId: page.productId.slice(),
         decodedHash128: page.decodedHash128.slice(),
         decodedPageHash128: page.decodedPageHash128.slice(),
-        bytes: page.bytes.slice(0)
+        bytes: page.bytes.slice(0),
       });
       this.#verifiedBytes += operation.page.bytes.byteLength;
       operation.state = "verified";
@@ -644,7 +648,7 @@ export class GeometryPageSchedulerV1 {
       }
       operation.attempts++;
       const deterministic = /hash|size|key|profile|corrupt|unsupported|identity|integrity/i.test(
-        error instanceof Error ? error.message : String(error)
+        error instanceof Error ? error.message : String(error),
       );
       if (!deterministic && operation.attempts <= this.#options.maxRetries) {
         operation.state = "queued";

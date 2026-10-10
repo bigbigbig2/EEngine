@@ -3,6 +3,7 @@ import test from "node:test";
 import { AppearanceGraphBuilder } from "../../.test-dist/material/AppearanceGraph.js";
 import { compileAppearanceGraph } from "../../.test-dist/material/AppearanceGraphCompiler.js";
 import { lowerNativeMaterial } from "../../.test-dist/shaders/native_material.js";
+import { nativeMaterialCoverageProgram } from "../../.test-dist/gpu/NativeMaterialBindings.js";
 import {
   nativeCoverageEvaluationWgsl,
   nativeVisibilityShader,
@@ -11,6 +12,16 @@ import {
 } from "../../.test-dist/shaders/native_visibility.js";
 
 const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+test("universal OPAQUE emits only clip and visibility identity, with no material machinery", () => {
+  const shader = nativeVisibilityShader(null, [], { partitioned: true, productGeometry: true });
+  const outputs = shader.source.slice(shader.source.indexOf("struct NativeVisibilityVertex"), shader.source.indexOf("fn native_visibility_vec4"));
+  assert.doesNotMatch(outputs, /uv|normal|tangent|color|world_position|material|flags/);
+  assert.doesNotMatch(shader.source, /native_material_evaluate|NativeMaterialInputs|native_constants|native_frame_inputs|textureSample/);
+  const fragment = shader.source.slice(shader.source.indexOf("fn native_visibility_fragment"));
+  assert.doesNotMatch(fragment, /dpdx|dpdy|native_directory/);
+  assert.equal(shader.groups[3].length, 0);
+  assert.deepEqual(shader.groups[2].map(binding => binding.binding), [1, 3]);
+});
 function program() {
   const graph = new AppearanceGraphBuilder();
   const uv = graph.input("uv0", 2, "surface", undefined, "uv0");
@@ -23,10 +34,10 @@ function program() {
       graph.input("time", 1, "dynamic", { low: 0, high: 2 })
     )
   );
-  return lowerNativeMaterial(compileAppearanceGraph(graph.build()));
+  return lowerNativeMaterial(nativeMaterialCoverageProgram(compileAppearanceGraph(graph.build())));
 }
 
-test("main and shadow share original full-program alpha offsets and raster suffix", () => {
+test("main and shadow share coverage-program alpha offsets and raster suffix", () => {
   const p = program();
   const main = nativeVisibilityShader(p, []);
   const shadow = nativeVisibilityShader(p, [], { shadow: true });
@@ -39,7 +50,7 @@ test("main and shadow share original full-program alpha offsets and raster suffi
   assert.match(coverage, new RegExp(`material_base, ${p.constants.length + 1}u`));
   assert.ok(main.source.includes(coverage));
   assert.ok(shadow.source.includes(coverage));
-  assert.match(shadow.source, /output.position = view.clip_from_world \* output.world_position/);
+  assert.match(shadow.source, /output.position = view.clip_from_world \* world_position/);
   assert.doesNotMatch(main.source, /output.position = view.clip_from_world/);
   assert.match(main.source, /return key.key/);
   // Hardware writes depth; do not replace it with a material-generated frag_depth.
@@ -65,15 +76,15 @@ test("raster CXY precedes alpha discard, uniform inputs have no screen derivativ
   assert.equal(shader.groups[2].find((entry) => entry.binding === 1).visibility, 3);
   assert.equal(shader.groups[3][0].visibility, 2);
   assert.equal(materialLayout[0].visibility, 4);
-  assert.match(shader.source, /material.execution_bin != route.x/);
+  assert.match(shader.source, /material.raster_class != route.x/);
   assert.match(shader.source, /instance.normal_x.w < 0.0 && input_corner != 0u/);
   assert.match(shader.source, /let cached = arena\[directory \+ 1u\] == generation/);
 });
 
-test("raster snapshots exact arena/source addressing and allows exact fallback for partial attributes", () => {
+test("raster snapshots exact arena/source addressing and allows exact fallback for raster capacity misses", () => {
   const prepared = {
     budget: { vertexCapacity: 128, filteredWorkCapacity: 4 },
-    layout: { attributeCapacity: 128, header: { offset: 1024 } }
+    layout: { header: { offset: 1024 } }
   };
   const view = {
     clipFromWorld: identity,
@@ -88,7 +99,7 @@ test("raster snapshots exact arena/source addressing and allows exact fallback f
   assert.deepEqual([...new Uint32Array(bytes.buffer).subarray(36, 40)], [256, 1, 17, 0]);
   assert.deepEqual([...new Float32Array(bytes.buffer).subarray(32, 35)], [1, 2, 3]);
   assert.equal(
-    nativeVisibilityView({ ...prepared, layout: { ...prepared.layout, attributeCapacity: 127 } }, 17, view)
+    nativeVisibilityView({ ...prepared, layout: { ...prepared.layout } }, 17, view)
       .byteLength,
     192
   );

@@ -195,7 +195,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
       standardSetRefCounts: new Uint32Array([1]),
       coatedSetRefCounts: new Uint32Array([0]),
     },
-    nativeMaterials: { publication: { versions: resource, materialSlotCount: 16 } },
+    nativeMaterials: { hasLit: false, publication: { versions: resource, materialSlotCount: 16 } },
     materialResources: {
       materialRecords: resource,
       textureRouteRecords: resource,
@@ -372,10 +372,6 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
             depth,
             frameInstances: producedFrameInstances,
             frameGeometry,
-            frameAttributes:
-              input.frameAttributes === input.frameGeometry
-                ? frameGeometry
-                : pass.write(input.frameAttributes),
             meshletWork: { records: meshletWork },
             domain: { width: 640, height: 360 },
           },
@@ -385,10 +381,9 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
         const pass = graph.add("test/Late HZB recheck", {}, () => {});
         pass.read(input.currentHzb);
         pass.read(input.sourceMeshletWork);
-        const records = pass.write(input.filteredMeshletWork);
+        const records = pass.write(input.sourceMeshletWork);
         const visibilityKey = pass.write(input.visibilityKey);
         const depth = pass.write(input.depth);
-        pass.write(input.filteredDrawIndirect);
         return {
           counters: input.counters,
           frame: {
@@ -450,6 +445,11 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
     localLightWork: null,
   };
   assertFrameProgramBindings(plan, bindings);
+  runtime.activeShadingSummary.binRefCounts[4] = 1;
+  assertFrameProgramBindings(plan, bindings); // Retired Scene code class cannot override native demand.
+  runtime.nativeMaterials.hasLit = true;
+  assert.throws(() => assertFrameProgramBindings(plan, bindings), /lighting shape/);
+  runtime.nativeMaterials.hasLit = false;
   assert.throws(() => assertFrameProgramBindings(plan, { ...bindings, deviceEpoch: 8 }), /device epoch/);
   assert.throws(
     () => assertFrameProgramBindings(plan, { ...bindings, depth: { ...bindings.depth, width: 800 } }),
@@ -525,7 +525,6 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
     dump.executablePassOrder.map((id) => dump.passes[id].name),
     [
       "test/Visibility",
-      "SurfaceV4/empty background",
       "SurfaceV4/native opaque",
       "test/Temporal Facts",
       "test/FSR3",
@@ -603,7 +602,6 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
     withEnvironment.executablePassOrder.map((id) => withEnvironment.passes[id].name),
     [
       "test/Visibility",
-      "SurfaceV4/empty background",
       "SurfaceV4/native opaque",
       "test/Temporal Facts",
       "test/Sky",

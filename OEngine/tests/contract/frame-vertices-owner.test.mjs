@@ -4,7 +4,7 @@ import "../webgpu-test-globals.mjs";
 globalThis.GPUBufferUsage = { UNIFORM: 64, STORAGE: 128, INDIRECT: 256, COPY_SRC: 4, COPY_DST: 8 };
 import { FrameGeometryVertices } from "../../.test-dist/render/FrameGeometryVertices.js";
 import { FrameGeometryArena } from "../../.test-dist/render/FrameGeometryArena.js";
-import { CurrentHzbLateRecheckGpu } from "../../.test-dist/render/CurrentHzbLateRecheck.js";
+import { TemporalOcclusionWork } from "../../.test-dist/render/TemporalOcclusionWork.js";
 import { ResourceAccounting } from "../../.test-dist/debug/profiling/ResourceAccounting.js";
 function fixture(filtered = true) {
   const accounting = new ResourceAccounting(),
@@ -20,7 +20,7 @@ function fixture(filtered = true) {
     maxComputeWorkgroupsPerDimension: 2,
     minStorageBufferOffsetAlignment: 256,
     maxStorageBufferBindingSize: 1 << 24,
-    maxBufferSize: 1 << 24
+    maxBufferSize: 1 << 24,
   };
   const device = {
     limits,
@@ -42,11 +42,11 @@ function fixture(filtered = true) {
           unmap() {},
           destroy() {
             this.destroyed++;
-          }
+          },
         };
       buffers.push(b);
       return b;
-    }
+    },
   };
   const arenaOwner = new FrameGeometryArena(device, accounting),
     metadata = { size: 256, usage: GPUBufferUsage.COPY_SRC };
@@ -56,7 +56,7 @@ function fixture(filtered = true) {
     vertexCapacity: 9,
     triangleCapacity: 3,
 
-    maxBytes: 16384
+    maxBytes: 16384,
   };
   const arena = arenaOwner.prepare(metadata, 256, budget),
     source = { size: 1024, usage: GPUBufferUsage.STORAGE };
@@ -72,9 +72,9 @@ function fixture(filtered = true) {
         meshletWordBase: 0,
         meshletVertexWordBase: 0,
         meshletTriangleWordBase: 0,
-        vertexDataWordBase: 0
-      }
-    }
+        vertexDataWordBase: 0,
+      },
+    },
   };
   const encoder = {
     beginComputePass() {
@@ -91,16 +91,16 @@ function fixture(filtered = true) {
         dispatchWorkgroupsIndirect(...args) {
           commands.push(["indirect", ...args]);
         },
-        end() {}
+        end() {},
       };
-    }
+    },
   };
   const lateInput = {
     sourceGeometry: arena.sourceDirectory,
     filteredGeometry: arena.filteredDirectory,
     sourceQueue: source,
     capacity: 4,
-    camera: {},
+    camera: { size: 2048, usage: GPUBufferUsage.UNIFORM },
     instances: source,
     virtualGeometry: { metadata: source },
     productBanks: [source, source, source, source],
@@ -108,7 +108,7 @@ function fixture(filtered = true) {
     countersEnabled: false,
     width: 1,
     height: 1,
-    mipLevelCount: 1
+    mipLevelCount: 1,
   };
   return { device, accounting, buffers, commands, arenaOwner, input, encoder, lateInput, loss };
 }
@@ -122,7 +122,8 @@ test("selected vertices borrow the sole arena, await async preparation and reuse
   // Settings 64B, control 32B, indirect 16B and two raster addresses 16B each.
   assert.equal(p.byteLength, 144);
   assert.equal(f.accounting.snapshot().totalBytes, arenaBytes + 144);
-  assert.equal(p.arena.attributes.buffer, p.arena.buffer, "borrowed attributes share the sole arena owner");
+  assert.equal(p.arena.clips.buffer, p.arena.buffer, "borrowed clips share the sole arena owner");
+  assert.equal(p.arena.attributes, undefined, "candidate attributes were retired");
   const count = f.buffers.length;
   for (let i = 0; i < 3; i++) owner.encode(f.encoder, p);
   assert.equal(f.buffers.length, count);
@@ -160,24 +161,26 @@ test("vertex byte/dispatch/capability failure and binding exceptions never leak 
   other.release(p);
   assert.equal(f.accounting.snapshot().totalBytes, 0);
   f.device.limits.maxBindingsPerBindGroup = 16;
-  assert.throws(() => new FrameGeometryVertices(f.device), /fifteen storage/);
+  assert.throws(() => new FrameGeometryVertices(f.device), /fourteen storage/);
   owner.destroy();
   other.destroy();
 });
 test("HZB owner uses separate indirect write/read scopes and GPU completion retirement, with no arena ownership", async () => {
   const f = fixture(),
-    owner = new CurrentHzbLateRecheckGpu(f.device, f.accounting);
-  assert.throws(() => owner.prepare(f.lateInput), /completed scene preparation/);
+    owner = new TemporalOcclusionWork(f.device, f.accounting);
+  assert.throws(() => owner.prepare(f.lateInput), /not ready/);
   await owner.ready;
   const p = owner.prepare(f.lateInput);
-  assert.equal(owner.allocatedBytes, 32 + 4 * 24 + 64);
+  assert.equal(owner.allocatedBytes, 32 + 4 * 4 + 80 + 32);
   assert.ok(owner.matches(p, { ...f.lateInput }));
-  assert.ok(!owner.matches(p, { ...f.lateInput, filteredGeometry: f.input.arena.sourceDirectory }));
-  owner.encode(f.encoder, p, {});
-  assert.equal(f.commands.filter((c) => c[0] === "indirect").length, 1);
-  assert.equal(f.commands.filter((c) => c[0] === "group" && c[1] === 1).length, 1);
+  assert.ok(!owner.matches(p, { ...f.lateInput, sourceQueue: { ...f.lateInput.sourceQueue } }));
+  owner.predict(f.encoder, p, {}, null);
+  owner.recover(f.encoder, p, {});
+  assert.equal(f.commands.filter((c) => c[0] === "indirect").length, 2);
+  assert.equal(f.commands.filter((c) => c[0] === "group" && c[1] === 1).length, 2);
   owner.release(p);
   assert.equal(owner.allocatedBytes, 0);
+  assert.equal(f.lateInput.sourceQueue.destroyed, undefined);
   assert.equal(f.input.arena.buffer.destroyed, 0);
   f.arenaOwner.destroy();
   owner.destroy();
@@ -185,11 +188,11 @@ test("HZB owner uses separate indirect write/read scopes and GPU completion reti
 });
 test("HZB alias/capacity/binding failures are rejected or rolled back, including destroy during compilation", async () => {
   const f = fixture(),
-    owner = new CurrentHzbLateRecheckGpu(f.device, f.accounting);
+    owner = new TemporalOcclusionWork(f.device, f.accounting);
   await owner.ready;
   assert.throws(
-    () => owner.prepare({ ...f.lateInput, filteredGeometry: f.lateInput.sourceGeometry }),
-    /overlap/
+    () => owner.prepare({ ...f.lateInput, sourceQueue: { size: 4, usage: GPUBufferUsage.STORAGE } }),
+    /complete queue capacity/,
   );
   assert.throws(() => owner.prepare({ ...f.lateInput, capacity: 257 }), RangeError);
   f.device.createBindGroup = () => {
@@ -200,7 +203,7 @@ test("HZB alias/capacity/binding failures are rejected or rolled back, including
   assert.equal(f.accounting.snapshot().totalBytes, f.arenaOwner.allocatedBytes);
   owner.destroy();
   f.arenaOwner.destroy();
-  const pending = new CurrentHzbLateRecheckGpu(f.device);
+  const pending = new TemporalOcclusionWork(f.device);
   pending.destroy();
-  await assert.rejects(pending.ready, /stopped during preparation/);
+  await assert.rejects(pending.ready, /stopped during readiness/);
 });

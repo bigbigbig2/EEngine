@@ -3,7 +3,7 @@ import test from "node:test";
 import {
   NativeExecutionBins,
   planNativeExecutionBins,
-  nativeExecutionDispatch
+  nativeExecutionDispatch,
 } from "../../.test-dist/render/surface/NativeExecutionBins.js";
 
 const limits = {
@@ -14,7 +14,7 @@ const limits = {
   maxComputeInvocationsPerWorkgroup: 256,
   maxComputeWorkgroupStorageSize: 16384,
   maxStorageBuffersPerShaderStage: 8,
-  maxTextureDimension2D: 16384
+  maxTextureDimension2D: 16384,
 };
 const bins = (count) => Array.from({ length: count }, (_, programIndex) => ({ programIndex, bindingSet: 0 }));
 const options = (count, extra = {}) => ({ width: 1920, height: 1080, bins: bins(count), ...extra });
@@ -32,30 +32,31 @@ test("one known bin bypasses all management resources, dispatches and pipelines"
   assert.throws(() => owner.encode({}), /not ready/);
 });
 
-test("compact capacity covers every screen pixel and command count follows bins", () => {
+test("tile banks cover every tile in every bin without a pixel queue or scan", () => {
   const plan = planNativeExecutionBins(limits, options(7));
-  assert.equal(plan.queueBytes, 1920 * 1080 * 4 + 7 * 32);
-  assert.equal(plan.dispatches, 4);
-  assert.equal(plan.scanLevels.length, 1);
-  const hierarchical = planNativeExecutionBins(limits, options(65537));
-  assert.equal(hierarchical.scanLevels.length, 3);
-  assert.equal(hierarchical.dispatches, 8);
-  assert.equal(hierarchical.scanLevels[1].input, hierarchical.scanLevels[0].sums);
-  assert.equal(hierarchical.scanLevels[2].input, hierarchical.scanLevels[1].sums);
+  assert.equal(plan.tileCapacity, 240 * 135);
+  assert.equal(plan.queueBytes, 7 * (240 * 135 * 12 + 32));
+  assert.equal(plan.scratchBytes, (4 + 7) * 4);
+  assert.equal(plan.dispatches, 2);
+  assert.throws(() => planNativeExecutionBins(limits, options(400)), /working set/);
+  assert.throws(() => planNativeExecutionBins(limits, options(65537)), /Queue word count/);
+  const many = planNativeExecutionBins(limits, options(513, { width: 37, height: 21 }));
+  assert.equal(many.tileCapacity, 15);
+  assert.equal(many.dispatches, 2);
 });
 
 test("preflight rejects incomplete capacity and capability before resource creation", () => {
   assert.throws(
     () => planNativeExecutionBins({ ...limits, maxStorageBufferBindingSize: 4096 }, options(2)),
-    /working set/
+    /working set/,
   );
   assert.throws(
     () => planNativeExecutionBins({ ...limits, maxStorageBuffersPerShaderStage: 5 }, options(2)),
-    /six storage/
+    /six storage/,
   );
   assert.throws(
-    () => planNativeExecutionBins({ ...limits, maxComputeInvocationsPerWorkgroup: 128 }, options(2)),
-    /256-lane/
+    () => planNativeExecutionBins({ ...limits, maxComputeInvocationsPerWorkgroup: 32 }, options(2)),
+    /64-lane/,
   );
   assert.throws(
     () =>
@@ -64,17 +65,17 @@ test("preflight rejects incomplete capacity and capability before resource creat
         options(2, {
           bins: [
             { programIndex: 0, bindingSet: 0 },
-            { programIndex: 0, bindingSet: 0 }
-          ]
-        })
+            { programIndex: 0, bindingSet: 0 },
+          ],
+        }),
       ),
-    /unique/
+    /unique/,
   );
   assert.throws(() => planNativeExecutionBins(limits, options(2, { width: 0 })), /Width/);
   assert.throws(() => planNativeExecutionBins(limits, options(2, { width: 16385 })), /texture limit/);
   assert.throws(
     () => planNativeExecutionBins(limits, options(2, { maxWorkgroupsPerDimension: 2 })),
-    /2D dispatch/
+    /2D dispatch/,
   );
 });
 
@@ -95,7 +96,7 @@ function gpuFixture() {
     queue: {
       writeBuffer(buffer, offset, values) {
         new Uint32Array(buffer.bytes, offset, values.length).set(values);
-      }
+      },
     },
     createBuffer({ size }) {
       const resource = {
@@ -108,7 +109,7 @@ function gpuFixture() {
         unmap() {},
         destroy() {
           this.destroyed = true;
-        }
+        },
       };
       resources.push(resource);
       return resource;
@@ -117,7 +118,7 @@ function gpuFixture() {
     createPipelineLayout: (descriptor) => descriptor,
     createBindGroup: (descriptor) => descriptor,
     createShaderModule: (descriptor) => descriptor,
-    createComputePipelineAsync: async (descriptor) => descriptor
+    createComputePipelineAsync: async (descriptor) => descriptor,
   };
   return { device, resources };
 }
@@ -134,14 +135,14 @@ test("replay resets scratch and readiness, input snapshot and fence retirement a
     meshletWork: {},
     frameInstances: {},
     materialDirectory: {},
-    generation: 7
+    generation: 7,
   });
   assert.equal(new Uint32Array(bindings.settings.bytes)[0], 19, "input extent must be immutable");
   owner.updateGeneration(bindings, 0xffffffff);
   assert.equal(
     new Uint32Array(bindings.settings.bytes)[4],
     0xffffffff,
-    "generation must retain all u32 bits"
+    "generation must retain all u32 bits",
   );
   assert.throws(() => owner.updateGeneration(bindings, 0), /nonzero u32/);
   assert.throws(() => owner.updateGeneration({}, 7), /live owner/);
@@ -161,21 +162,21 @@ test("replay resets scratch and readiness, input snapshot and fence retirement a
         dispatchWorkgroups() {
           dispatches++;
         },
-        end() {}
+        end() {},
       };
-    }
+    },
   };
   owner.encode(encoder, bindings);
   owner.encode(encoder, bindings);
   assert.equal(clears, 2);
-  assert.equal(dispatches, 8);
+  assert.equal(dispatches, 4);
   assert.equal(owner.indirectOffset(2), 72);
   assert.throws(() => owner.indirectOffset(3), /no indirect/);
   let release;
   const retirement = owner.retire(
     new Promise((resolve) => {
       release = resolve;
-    })
+    }),
   );
   assert.throws(() => owner.encode(encoder, bindings), /not ready/);
   assert.ok(resources.every((resource) => !resource.destroyed));
@@ -209,7 +210,9 @@ test("rejected completion fences still release bin ownership and device loss sto
   assert.ok(f.resources.every((resource) => resource.destroyed));
   let lose;
   const denseFixture = gpuFixture();
-  denseFixture.device.lost = new Promise((resolve) => { lose = resolve; });
+  denseFixture.device.lost = new Promise((resolve) => {
+    lose = resolve;
+  });
   const dense = new NativeExecutionBins(denseFixture.device, options(1));
   await dense.ready;
   lose({ reason: "destroyed" });

@@ -7,13 +7,14 @@ export const LOCAL_LIGHT_DEPTH_SLICES = 24;
 export const LOCAL_LIGHT_MAX_ADMITTED = 16_380;
 export const LOCAL_LIGHT_INDEX_CAPACITY = 1_048_576;
 export const LOCAL_LIGHT_FRAME_BUDGET = 6 * 1024 * 1024;
-export const LOCAL_LIGHT_PEAK_BUDGET = 3 * LOCAL_LIGHT_FRAME_BUDGET;
+export const LOCAL_LIGHT_FRAME_CAPACITY = 3;
+export const LOCAL_LIGHT_PEAK_BUDGET = LOCAL_LIGHT_FRAME_CAPACITY * LOCAL_LIGHT_FRAME_BUDGET;
 export const LOCAL_LIGHT_MODE = { NONE: 0, DIRECT: 1, SPARSE: 2 } as const;
 export const LOCAL_LIGHT_FLAGS = {
   REGION_BUDGET: 1,
   INDEX_CAPACITY: 2,
   COUNT_SCATTER_MISMATCH: 4,
-  INVALID_WORK: 8
+  INVALID_WORK: 8,
 } as const;
 
 export function localLightId(slot: number, type: number): number {
@@ -26,7 +27,7 @@ export function localLightId(slot: number, type: number): number {
 export function localLightDepthSlice(depth: number, near: number, far: number): number {
   return Math.min(
     23,
-    Math.max(0, Math.floor((Math.log2(Math.max(depth, near) / near) * 23) / Math.log2(far / near)))
+    Math.max(0, Math.floor((Math.log2(Math.max(depth, near) / near) * 23) / Math.log2(far / near))),
   );
 }
 

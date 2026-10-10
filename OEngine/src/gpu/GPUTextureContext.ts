@@ -246,6 +246,8 @@ function viewDescriptorKey(descriptor: GPUTextureViewDescriptor): string {
     label: descriptor.label ?? "",
     format: descriptor.format ?? "",
     dimension: descriptor.dimension ?? "",
+    usage: descriptor.usage ?? 0,
+    swizzle: descriptor.swizzle ?? "rgba",
     aspect: descriptor.aspect ?? "all",
     baseMipLevel: descriptor.baseMipLevel ?? 0,
     mipLevelCount: descriptor.mipLevelCount ?? -1,

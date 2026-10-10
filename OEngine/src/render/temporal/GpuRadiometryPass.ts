@@ -1,3 +1,4 @@
+import { GpuBindGroupCache } from "../../gpu/GpuBindGroupResourceCache.js";
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
@@ -93,6 +94,7 @@ type RadiometryResourceBinder = (
 ) => ResourceId;
 
 export class GpuRadiometryPass {
+  private readonly bindGroups = new GpuBindGroupCache();
   private readonly layout0: GPUBindGroupLayout;
   private readonly layout1: GPUBindGroupLayout;
   private readonly histogramPipeline: GPUComputePipeline;
@@ -216,7 +218,7 @@ export class GpuRadiometryPass {
     const meter = graph.add("Radiometry/Wicked histogram", input, (data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
       const constants = command.allocateTransientBufferAndLoad(makeSettings(), GPUBufferUsage.UNIFORM);
-      const group = this.device.createBindGroup({
+      const group = this.bindGroups.create(this.device, {
         layout: this.layout0,
         entries: [
           { binding: 0, resource: resolveTextureView(resources.get(data.scene)) },
@@ -242,7 +244,7 @@ export class GpuRadiometryPass {
     const reduce = graph.add("Radiometry/adapt exposure", {}, (_data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
       const constants = command.allocateTransientBufferAndLoad(makeSettings(), GPUBufferUsage.UNIFORM);
-      const group = this.device.createBindGroup({
+      const group = this.bindGroups.create(this.device, {
         layout: this.layout1,
         entries: [
           { binding: 0, resource: { buffer: resources.get(histogram) as GPUBuffer } },
@@ -272,6 +274,7 @@ export class GpuRadiometryPass {
     this.prepared = false;
   }
   destroy(): void {
+    this.bindGroups.clear();
     for (const buffer of this.buffers) buffer.destroy();
   }
 }

@@ -1,3 +1,4 @@
+import { GpuBindGroupCache } from "../../../gpu/GpuBindGroupResourceCache.js";
 import type { FrameGraph } from "../../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../../framegraph/ShadeGPUCommandContext.js";
@@ -74,6 +75,7 @@ export function packFsr3RcasConstants(sharpness: number): ArrayBuffer {
 }
 
 export class Fsr3RcasPass {
+  private readonly bindGroups = new GpuBindGroupCache();
   private readonly layout: GPUBindGroupLayout;
   private readonly pipeline: GPUComputePipeline;
 
@@ -110,7 +112,7 @@ export class Fsr3RcasPass {
   ): ResourceId {
     const builder = graph.add("FSR3/RCAS", input, (data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
-      const bind = this.device.createBindGroup({
+      const bind = this.bindGroups.create(this.device, {
         layout: this.layout,
         entries: [
           { binding: 0, resource: resolveTextureView(resources.get(data.color)) },

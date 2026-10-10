@@ -10,15 +10,22 @@ import type { TextureSurfacePublication } from "./TextureSurfacePublication.js";
 import { encodeSamplerClass, GPU_MATERIAL_VISIBILITY_SAMPLER as S } from "./GpuMaterialVisibilityAbi.js";
 import {
   decodeGpuTextureRef,
+  encodeGpuTextureRef,
   GPU_TEXTURE_REF_INVALID,
   GPU_TEXTURE_REF_WGSL,
   GPU_TEXTURE_CLAMPED_SAMPLE_WGSL,
 } from "./GpuTextureRefAbi.js";
+import {
+  nativeMaterialRequiredBanks,
+  planNativeMaterialPhysicalBanks,
+  type NativeMaterialPhysicalBankProfile,
+} from "./NativeMaterialPhysicalBanks.js";
 
 export interface NativeMaterialBindingSource {
   readonly graph: CompiledAppearanceGraph;
   readonly program: NativeMaterialProgram;
   readonly bindingSet: TextureBindingSet;
+  readonly physicalProfile?: NativeMaterialPhysicalBankProfile;
   /** Material-local physical routes from TextureResidencyStage, not logical handles. */
   readonly textureRoutingRefs: ReadonlyMap<ShadeTexture, number>;
   readonly textureMipRanges: ReadonlyMap<ShadeTexture, readonly [number, number]>;
@@ -43,6 +50,9 @@ export interface NativeMaterialBindings {
   readonly bankMask: number;
   readonly productTextureCount: number;
   readonly routeConstantBytes: number;
+  /** Scene requests this only for MASK. It is an independently lowered alpha
+   * dependency graph, with its own resource layout and parameter offsets. */
+  readonly coverage?: NativeMaterialBindings;
 }
 
 /** Finite change detector for Temporal invalidation, never exact resource identity. */
@@ -80,6 +90,7 @@ export function createNativeMaterialBindings(source: NativeMaterialBindingSource
   const declarations: string[] = [];
   const callbacks: string[] = [];
   const resources = new Map<string | GPUTexture, number>();
+  const bankSelectors = new Map<string, string>();
   const revisions: (string | number)[] = [source.bindingSet.id, source.bindingSet.generation];
   let bankMask = 0;
   let productTextureCount = 0;
@@ -111,14 +122,68 @@ export function createNativeMaterialBindings(source: NativeMaterialBindingSource
     }
     return `native_material_resource_${binding}`;
   };
+  const profile =
+    source.physicalProfile ??
+    planNativeMaterialPhysicalBanks([
+      {
+        banks: nativeMaterialRequiredBanks(
+          graph,
+          source.bindingSet,
+          source.textureRoutingRefs,
+          source.texturePublications,
+        ),
+        limit: 16,
+      },
+    ])[0]!;
+  const bankTextures =
+    graph.samples.length === 0
+      ? []
+      : profile.banks.map((bank, slot) =>
+          resource(
+            `bank/profile/${slot}`,
+            `physical bank ${slot}`,
+            { texture: { sampleType: "float", viewDimension: "2d-array" } },
+            () => bank.view,
+            "texture_2d_array<f32>",
+          ),
+        );
+  const profileSlot = (localSlot: number): number => {
+    const descriptor = source.bindingSet.bankDescriptors[localSlot];
+    const slot = descriptor && profile.slots.get(descriptor.segment);
+    if (slot === undefined || profile.banks[slot]?.view !== source.bindingSet.textureBanks[localSlot]) {
+      throw new RangeError("Native physical bank profile does not contain its complete source route");
+    }
+    bankMask |= 1 << slot;
+    return slot;
+  };
+  const bankSample = (sampler: string): string => {
+    let name = bankSelectors.get(sampler);
+    if (name !== undefined) return name;
+    name = `native_material_bank_sample_${bankSelectors.size}`;
+    bankSelectors.set(sampler, name);
+    callbacks.push(`
+fn ${name}(reference: u32, sampler_class: u32, uv: vec2f, layer: i32, dx: vec2f, dy: vec2f) -> vec4f {
+  switch oengine_texture_ref_bank(reference) {
+${bankTextures.map((texture, slot) => `    case ${slot}u: { return oengine_sample_texture_clamped(${texture}, ${sampler}, reference, sampler_class, uv, layer, dx, dy); }`).join("\n")}
+    default: { return vec4f(0.0); }
+  }
+}`);
+    return name;
+  };
   graph.samples.forEach((sample, index) => {
     const binding = sample.binding;
-    const reference = source.textureRoutingRefs.get(binding.texture) ?? GPU_TEXTURE_REF_INVALID;
-    const decoded = decodeGpuTextureRef(reference);
-    if (reference !== GPU_TEXTURE_REF_INVALID && decoded === null) {
+    const sourceReference = source.textureRoutingRefs.get(binding.texture) ?? GPU_TEXTURE_REF_INVALID;
+    const decoded = decodeGpuTextureRef(sourceReference);
+    if (sourceReference !== GPU_TEXTURE_REF_INVALID && decoded === null) {
       throw new RangeError("Native material requires a valid physical TextureResidency route");
     }
     const publication = source.texturePublications.get(binding.texture);
+    const coverage = publication?.coverage;
+    const needsAlpha = (sample.readMask & 8) !== 0;
+    const needsColor = (sample.readMask & 7) !== 0 || (needsAlpha && coverage === undefined);
+    const reference = decoded
+      ? encodeGpuTextureRef(needsColor ? profileSlot(decoded.bankClass) : 0, decoded.layer, decoded.routing)
+      : GPU_TEXTURE_REF_INVALID;
     const mipRange = source.textureMipRanges.get(binding.texture);
     const minimumMip = publication?.currentMinimumMip ?? mipRange?.[0];
     const samplerClass = encodeSamplerClass(
@@ -136,6 +201,7 @@ export function createNativeMaterialBindings(source: NativeMaterialBindingSource
     // narrow the set of material snapshots accepted by the current owner.
     revisions.push(
       binding.contentVersion ?? "unversioned",
+      sourceReference,
       reference,
       samplerClass.value,
       publication?.slot ?? 0,
@@ -147,56 +213,41 @@ export function createNativeMaterialBindings(source: NativeMaterialBindingSource
     const high = constant(reference >>> 16);
     const samplerValue = constant(samplerClass.value);
     const fallback = binding.fallback.map(constant);
-    const bank = decoded?.bankClass ?? 0;
-    bankMask |= 1 << bank;
-    const coverage = publication?.coverage;
-    const needsAlpha = (sample.readMask & 8) !== 0;
-    const needsColor = (sample.readMask & 7) !== 0 || (needsAlpha && coverage === undefined);
-    const residentTexture = (slot: number): string =>
-      resource(
-        `bank/${slot}`,
-        `resident slot ${slot}`,
-        { texture: { sampleType: "float", viewDimension: "2d-array" } },
-        () => {
-          const view = source.bindingSet.textureBanks[slot];
-          if (!view) throw new RangeError("Native material texture slot is absent");
-          return view;
-        },
-        "texture_2d_array<f32>",
-      );
-    const texture = needsColor ? residentTexture(bank) : undefined;
     const coverageSlot =
       needsAlpha && coverage
         ? source.bindingSet.bankDescriptors.findIndex((descriptor) => descriptor.segment === coverage.segment)
         : -1;
     if (needsAlpha && coverage && coverageSlot < 0)
       throw new Error("Native exact coverage plane missing from material tuple");
-    const alphaTexture = coverageSlot >= 0 ? residentTexture(coverageSlot) : undefined;
-    if (coverageSlot >= 0) bankMask |= 1 << coverageSlot;
+    const alphaReference =
+      coverageSlot >= 0 && decoded
+        ? encodeGpuTextureRef(profileSlot(coverageSlot), Math.max(1, coverage!.layer))
+        : GPU_TEXTURE_REF_INVALID;
     const address = samplerClass.value & S.AddressMask;
     const wrap = address === 0 ? "clamp-to-edge" : address === 2 ? "mirror-repeat" : "repeat";
     const filter = (samplerClass.value & S.LinearBit) !== 0 ? "linear" : "nearest";
-    const obtainMaterialSampler = (anisotropy: number): string => resource(
-      `sampler/${wrap}/${filter}/${anisotropy}`,
-      `${wrap} ${filter} anisotropy ${anisotropy}`,
-      { sampler: { type: "filtering" } },
-      () =>
-        source.obtainSampler({
-          addressModeU: wrap,
-          addressModeV: wrap,
-          minFilter: filter,
-          magFilter: filter,
-          mipmapFilter: filter,
-          maxAnisotropy: anisotropy,
-        }),
-      "sampler",
-    );
+    const obtainMaterialSampler = (anisotropy: number): string =>
+      resource(
+        `sampler/${wrap}/${filter}/${anisotropy}`,
+        `${wrap} ${filter} anisotropy ${anisotropy}`,
+        { sampler: { type: "filtering" } },
+        () =>
+          source.obtainSampler({
+            addressModeU: wrap,
+            addressModeV: wrap,
+            minFilter: filter,
+            magFilter: filter,
+            mipmapFilter: filter,
+            maxAnisotropy: anisotropy,
+          }),
+        "sampler",
+      );
     const sampler = obtainMaterialSampler(needsColor && filter === "linear" ? 8 : 1);
     // Exact alpha must match Visibility/VSM sampling; only RGB gets anisotropy.
-    const alphaSampler = alphaTexture ? obtainMaterialSampler(1) : sampler;
+    const alphaSampler = needsAlpha ? obtainMaterialSampler(1) : sampler;
     const product = binding.texture.texture_product;
-    const primarySample = texture
-      ? `oengine_sample_texture_clamped(${texture}, ${sampler}, reference, u32(${samplerValue}), uv, i32(oengine_texture_ref_layer(reference)), dx, dy)`
+    const primarySample = needsColor
+      ? `${bankSample(sampler)}(reference, u32(${samplerValue}), uv, i32(oengine_texture_ref_layer(reference)), dx, dy)`
       : "vec4f(1.0)";
     let valueExpression = "oengine_texture_ref_apply_routing(reference, value)";
     if (product?.metadata.semantic === "occlusion-linear") {
@@ -204,9 +255,18 @@ export function createNativeMaterialBindings(source: NativeMaterialBindingSource
       channels[product.metadata.channel] = "value.r";
       valueExpression = `vec4f(${channels.join(", ")})`;
     }
-    const alphaSample = alphaTexture
-      ? `let alpha = oengine_sample_texture_clamped(${alphaTexture}, ${alphaSampler}, reference, u32(${samplerValue}), uv, i32(${constant(coverage!.layer)}), dx, dy).r;\n  return vec4f((${valueExpression}).rgb, alpha);`
-      : `return ${valueExpression};`;
+    let alphaSample = `return ${valueExpression};`;
+    if (needsAlpha) {
+      const alphaLow = constant(alphaReference & 0xffff);
+      const alphaHigh = constant(alphaReference >>> 16);
+      const alphaLayer = constant(coverage?.layer ?? 0);
+      alphaSample = `let alpha_reference = u32(${alphaLow}) | (u32(${alphaHigh}) << 16u);
+  if alpha_reference != OENGINE_TEXTURE_REF_INVALID {
+    let alpha = ${bankSample(alphaSampler)}(alpha_reference, u32(${samplerValue}), uv, i32(${alphaLayer}), dx, dy).r;
+    return vec4f((${valueExpression}).rgb, alpha);
+  }
+  return ${valueExpression};`;
+    }
     callbacks.push(/* wgsl */ `
 fn native_material_sample_${index}(material_base: u32, uv: vec2f, dx: vec2f, dy: vec2f) -> vec4f {
   let reference = u32(${low}) | (u32(${high}) << 16u);
@@ -360,4 +420,20 @@ export function nativeMaterialCoverageProgram(graph: CompiledAppearanceGraph): C
     throw new RangeError("Native coverage requires one scalar alpha output");
   }
   return selectAppearanceProductProgram(graph, { alpha });
+}
+
+export function createNativeCoverageBindings(source: NativeMaterialBindingSource): NativeMaterialBindings {
+  const graph = nativeMaterialCoverageProgram(source.graph);
+  for (const sample of graph.samples) {
+    if (
+      (sample.readMask & 8) !== 0 &&
+      sample.binding.texture.texture_product?.metadata.planes.some((plane) =>
+        plane.format.startsWith("bc"),
+      ) &&
+      source.texturePublications.get(sample.binding.texture)?.coverage === undefined
+    ) {
+      throw new RangeError("MASK coverage cannot substitute BC alpha for its exact R8 plane");
+    }
+  }
+  return createNativeMaterialBindings({ ...source, graph, program: lowerNativeMaterial(graph) });
 }
