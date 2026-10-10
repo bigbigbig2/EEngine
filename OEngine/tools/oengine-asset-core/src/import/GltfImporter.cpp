@@ -4,10 +4,13 @@
 #include "cgltf.h"
 
 #include "oengine_asset/CanonicalGeometry.h"
+#include "meshoptimizer.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <limits>
 #include <map>
 #include <memory>
@@ -20,6 +23,116 @@ namespace {
 struct CgltfDeleter {
     void operator()(cgltf_data* data) const { if (data) cgltf_free(data); }
 };
+
+// cgltf parses EXT_meshopt_compression but leaves decoding to its caller.
+// Read only referenced views; the virtual decoded buffer need not exist on disk.
+std::vector<unsigned char> ReadBufferRange(
+    const cgltf_data& data, const cgltf_buffer& buffer, const std::string& path,
+    std::size_t offset, std::size_t size) {
+    if (offset > buffer.size || size > buffer.size - offset) {
+        throw std::runtime_error("glTF buffer range exceeds declared size");
+    }
+    if (buffer.data) {
+        const auto* bytes = static_cast<const unsigned char*>(buffer.data);
+        return {bytes + offset, bytes + offset + size};
+    }
+    if (!buffer.uri) {
+        if (&buffer != data.buffers || !data.bin || offset > data.bin_size || size > data.bin_size - offset) {
+            throw std::runtime_error("glTF buffer has no readable payload");
+        }
+        const auto* bytes = static_cast<const unsigned char*>(data.bin);
+        return {bytes + offset, bytes + offset + size};
+    }
+    std::string uri(buffer.uri);
+    if (uri.rfind("data:", 0u) == 0u || uri.find("://") != std::string::npos) {
+        throw std::runtime_error("range importer requires a local external buffer");
+    }
+    cgltf_decode_uri(uri.data());
+    uri.resize(std::strlen(uri.c_str()));
+    const auto source = std::filesystem::path(path).parent_path() / std::filesystem::path(uri);
+    std::ifstream input(source, std::ios::binary | std::ios::ate);
+    if (!input) throw std::runtime_error("cannot open glTF buffer: " + source.string());
+    const auto length = input.tellg();
+    if (length < 0 || std::uint64_t(length) != buffer.size) {
+        throw std::runtime_error("glTF external buffer size differs from descriptor");
+    }
+    if (offset > std::size_t(std::numeric_limits<std::streamoff>::max()) ||
+        size > std::size_t(std::numeric_limits<std::streamsize>::max())) {
+        throw std::runtime_error("glTF range exceeds host file limits");
+    }
+    std::vector<unsigned char> bytes(size);
+    input.seekg(std::streamoff(offset));
+    input.read(reinterpret_cast<char*>(bytes.data()), std::streamsize(size));
+    if (!input) throw std::runtime_error("short read of glTF buffer range");
+    return bytes;
+}
+
+void LoadView(cgltf_data& data, cgltf_buffer_view* view, const std::string& path) {
+    if (!view || view->data) return;
+    std::vector<unsigned char> decoded;
+    if (view->has_meshopt_compression) {
+        const auto& compression = view->meshopt_compression;
+        if (!compression.buffer || compression.count == 0u || compression.stride == 0u ||
+            compression.count > std::numeric_limits<std::size_t>::max() / compression.stride ||
+            compression.count * compression.stride != view->size) {
+            throw std::runtime_error("invalid meshopt decoded extent");
+        }
+        const auto encoded = ReadBufferRange(data, *compression.buffer, path, compression.offset, compression.size);
+        decoded.resize(view->size);
+        int result = -1;
+        switch (compression.mode) {
+        case cgltf_meshopt_compression_mode_attributes:
+            if (compression.stride > 256u || compression.stride % 4u != 0u) {
+                throw std::runtime_error("invalid meshopt attribute stride");
+            }
+            result = meshopt_decodeVertexBuffer(decoded.data(), compression.count, compression.stride, encoded.data(), encoded.size());
+            break;
+        case cgltf_meshopt_compression_mode_triangles:
+        case cgltf_meshopt_compression_mode_indices:
+            if ((compression.stride != 2u && compression.stride != 4u) ||
+                (compression.mode == cgltf_meshopt_compression_mode_triangles && compression.count % 3u != 0u) ||
+                compression.filter != cgltf_meshopt_compression_filter_none) {
+                throw std::runtime_error("invalid meshopt index layout");
+            }
+            result = compression.mode == cgltf_meshopt_compression_mode_triangles
+                ? meshopt_decodeIndexBuffer(decoded.data(), compression.count, compression.stride, encoded.data(), encoded.size())
+                : meshopt_decodeIndexSequence(decoded.data(), compression.count, compression.stride, encoded.data(), encoded.size());
+            break;
+        default:
+            throw std::runtime_error("unsupported meshopt compression mode");
+        }
+        if (result != 0) throw std::runtime_error("meshopt buffer decode failed: " + std::to_string(result));
+        switch (compression.filter) {
+        case cgltf_meshopt_compression_filter_none: break;
+        case cgltf_meshopt_compression_filter_octahedral:
+            if (compression.stride != 4u && compression.stride != 8u) throw std::runtime_error("invalid meshopt oct stride");
+            meshopt_decodeFilterOct(decoded.data(), compression.count, compression.stride); break;
+        case cgltf_meshopt_compression_filter_quaternion:
+            if (compression.stride != 8u) throw std::runtime_error("invalid meshopt quaternion stride");
+            meshopt_decodeFilterQuat(decoded.data(), compression.count, compression.stride); break;
+        case cgltf_meshopt_compression_filter_exponential:
+            meshopt_decodeFilterExp(decoded.data(), compression.count, compression.stride); break;
+        default: throw std::runtime_error("unsupported meshopt filter");
+        }
+    } else {
+        if (!view->buffer) throw std::runtime_error("glTF view has no buffer");
+        decoded = ReadBufferRange(data, *view->buffer, path, view->offset, view->size);
+    }
+    // cgltf_free owns view.data through this same allocator.
+    void* memory = data.memory.alloc_func(data.memory.user_data, decoded.size());
+    if (!memory) throw std::bad_alloc();
+    std::memcpy(memory, decoded.data(), decoded.size());
+    view->data = memory;
+}
+
+void LoadAccessor(cgltf_data& data, const cgltf_accessor* accessor, const std::string& path) {
+    if (!accessor) return;
+    LoadView(data, accessor->buffer_view, path);
+    if (accessor->is_sparse) {
+        LoadView(data, accessor->sparse.indices_buffer_view, path);
+        LoadView(data, accessor->sparse.values_buffer_view, path);
+    }
+}
 
 const cgltf_accessor* FindAttribute(
     const cgltf_primitive& primitive, cgltf_attribute_type type, int index = 0) {
@@ -149,10 +262,29 @@ ImportedSceneV3 ImportGltfCanonical(const std::string& path) {
     const cgltf_result parse = cgltf_parse_file(&options, path.c_str(), &raw);
     if (parse != cgltf_result_success) throw std::runtime_error("cgltf_parse_file failed: " + std::to_string(parse));
     std::unique_ptr<cgltf_data, CgltfDeleter> data(raw);
-    const cgltf_result buffers = cgltf_load_buffers(&options, data.get(), path.c_str());
-    if (buffers != cgltf_result_success) throw std::runtime_error("cgltf_load_buffers failed: " + std::to_string(buffers));
     const cgltf_result validation = cgltf_validate(data.get());
     if (validation != cgltf_result_success) throw std::runtime_error("cgltf_validate failed: " + std::to_string(validation));
+    // Keep the existing embedded-data URI import capability. Large range jobs
+    // contain external files and never enter cgltf's whole-buffer loader.
+    bool hasDataUri = false;
+    for (cgltf_size index = 0u; index < data->buffers_count; ++index) {
+        const char* uri = data->buffers[index].uri;
+        hasDataUri |= uri && std::strncmp(uri, "data:", 5u) == 0;
+    }
+    if (hasDataUri) {
+        const auto buffers = cgltf_load_buffers(&options, data.get(), path.c_str());
+        if (buffers != cgltf_result_success) throw std::runtime_error("cgltf_load_buffers failed: " + std::to_string(buffers));
+    }
+
+    for (cgltf_size mesh = 0u; mesh < data->meshes_count; ++mesh) {
+        for (cgltf_size primitive = 0u; primitive < data->meshes[mesh].primitives_count; ++primitive) {
+            const auto& value = data->meshes[mesh].primitives[primitive];
+            LoadAccessor(*data, value.indices, path);
+            for (cgltf_size attribute = 0u; attribute < value.attributes_count; ++attribute) {
+                LoadAccessor(*data, value.attributes[attribute].data, path);
+            }
+        }
+    }
 
     ImportedSceneV3 output;
     std::vector<std::uint32_t> meshToAsset(data->meshes_count, kInvalidId);

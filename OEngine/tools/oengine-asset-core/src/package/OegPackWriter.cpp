@@ -276,7 +276,9 @@ WriteSceneResultV3 CookAndWriteSceneV3(
     RequireLittleEndian(); ValidateRecipe(recipe);
     const auto started = std::chrono::steady_clock::now();
     CreateDirectories(outputDirectory);
+    std::cerr << "phase=import\n";
     ImportedSceneV3 imported = ImportGltfCanonical(inputPath);
+    std::cerr << "phase=hierarchy assets=" << imported.assets.size() << "\n";
     const std::uint64_t sourceBytes = FileSize(inputPath);
     std::vector<CookedAssetV3> cooked(imported.assets.size());
     std::vector<CookEvidenceV3> assetEvidence(imported.assets.size());
@@ -306,6 +308,7 @@ WriteSceneResultV3 CookAndWriteSceneV3(
     }
     std::vector<double> pageFills;
     for (const std::vector<std::uint32_t>& shard : shards) {
+        std::cerr << "phase=pack assets=" << shard.size() << "\n";
         std::vector<CookedAssetV3> assets;
         for (std::uint32_t index : shard) assets.push_back(cooked[index]);
         result.packs.push_back(WritePack(outputDirectory, std::move(assets), shard, recipe, concurrency, result.evidence, pageFills));

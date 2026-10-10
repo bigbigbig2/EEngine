@@ -6,6 +6,8 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <windows.h>
+#include <psapi.h>
 
 namespace {
 
@@ -29,6 +31,7 @@ void PrintUsage() {
         << "oengine-asset-cooker validate <pack.oegpack> [--metadata-only]\n"
         << "Options:\n"
         << "  --threads N                 bounded geometry build concurrency\n"
+        << "  --memory-limit N            hard process commit limit in bytes (Windows)\n"
         << "  --shard-bytes N             target compressed pack shard size\n"
         << "  --meshlet-vertices N        cook profile, maximum 128\n"
         << "  --meshlet-triangles N       cook profile, maximum 128\n"
@@ -54,6 +57,7 @@ int main(int argc, char** argv) {
         std::string output;
         std::uint32_t threads = std::max(1u, std::thread::hardware_concurrency());
         std::uint64_t shardBytes = 256ull * 1024ull * 1024ull;
+        std::uint64_t memoryLimit = 0u;
         oengine::asset::GeometryCookRecipeV3 recipe;
         for (int i = 2; i < argc; ++i) {
             const std::string option = argv[i];
@@ -61,6 +65,7 @@ int main(int argc, char** argv) {
             const std::string value = argv[++i];
             if (option == "--out") output = value;
             else if (option == "--threads") threads = std::uint32_t(ParseU64(value, "threads"));
+            else if (option == "--memory-limit") memoryLimit = ParseU64(value, "memory-limit");
             else if (option == "--shard-bytes") shardBytes = ParseU64(value, "shard-bytes");
             else if (option == "--meshlet-vertices") recipe.meshletMaxVertices = std::uint32_t(ParseU64(value, "meshlet-vertices"));
             else if (option == "--meshlet-triangles") recipe.meshletMaxTriangles = std::uint32_t(ParseU64(value, "meshlet-triangles"));
@@ -72,6 +77,21 @@ int main(int argc, char** argv) {
         }
         if (output.empty()) throw std::runtime_error("--out is required");
         if (threads == 0u) throw std::runtime_error("--threads must be positive");
+        struct JobHandle {
+            HANDLE value = nullptr;
+            ~JobHandle() { if (value) CloseHandle(value); }
+        } job;
+        if (memoryLimit != 0u) {
+            if (memoryLimit > SIZE_MAX) throw std::runtime_error("memory limit exceeds host capacity");
+            job.value = CreateJobObjectA(nullptr, nullptr);
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
+            limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_PROCESS_MEMORY;
+            limits.ProcessMemoryLimit = SIZE_T(memoryLimit);
+            if (!job.value || !SetInformationJobObject(job.value, JobObjectExtendedLimitInformation, &limits, sizeof(limits)) ||
+                !AssignProcessToJobObject(job.value, GetCurrentProcess())) {
+                throw std::runtime_error("cannot install process memory limit: " + std::to_string(GetLastError()));
+            }
+        }
         const auto result = oengine::asset::CookAndWriteSceneV3(input, output, recipe, shardBytes, threads);
         const auto& e = result.evidence;
         std::string scenePath = result.scenePath;
@@ -94,6 +114,12 @@ int main(int argc, char** argv) {
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "oengine-asset-cooker: " << error.what() << "\n";
+        PROCESS_MEMORY_COUNTERS_EX counters{};
+        counters.cb = sizeof(counters);
+        if (GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&counters), sizeof(counters))) {
+            std::cerr << "peakWorkingBytes=" << counters.PeakWorkingSetSize
+                      << " peakCommitBytes=" << counters.PeakPagefileUsage << "\n";
+        }
         return 1;
     }
 }

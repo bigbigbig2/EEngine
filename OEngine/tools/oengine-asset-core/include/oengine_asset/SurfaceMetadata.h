@@ -82,11 +82,13 @@ inline SurfacePrimitiveMetadata SurfaceTriangleBounds(const CanonicalVertex& a,c
     return result;
 }
 /** Local Continuity-Domain builder: full-record equality is not geometry identity. */
-inline SourceSurfaceDomains BuildSourceSurfaceDomains(const MaterialDomain& source,std::uint32_t domainBase=0u) {
+inline SourceSurfaceDomains BuildSourceSurfaceDomains(const MaterialDomain& source,std::uint32_t domainBase=0u,
+    bool buildVertexLineage=true) {
     if(source.indices.size()%3u)throw std::runtime_error("Invalid Surface triangle count");
     const auto count=std::uint32_t(source.indices.size()/3u);
     if(std::uint64_t(domainBase)+count>=kInvalidId)throw std::runtime_error("Surface domain namespace exhausted");
-    SourceSurfaceDomains result;result.triangles.resize(count);result.vertices.resize(source.vertices.size());
+    SourceSurfaceDomains result;result.triangles.resize(count);
+    if(buildVertexLineage)result.vertices.resize(source.vertices.size());
     std::array<std::vector<std::uint32_t>,kSurfaceDomainCount> parents;
     for(auto& field:parents){field.resize(count);std::iota(field.begin(),field.end(),0u);}
     auto root=[&](unsigned field,std::uint32_t triangle){
@@ -137,7 +139,7 @@ inline SourceSurfaceDomains BuildSourceSurfaceDomains(const MaterialDomain& sour
     }
     for(std::uint32_t triangle=0;triangle<count;++triangle)for(unsigned field=0;field<kSurfaceDomainCount;++field){
         const auto id=domainBase+root(field,triangle)+1u;result.triangles[triangle].domains[field]=id;
-        for(unsigned corner=0;corner<3;++corner)result.vertices[source.indices[triangle*3u+corner]][field].insert(id);
+        if(buildVertexLineage)for(unsigned corner=0;corner<3;++corner)result.vertices[source.indices[triangle*3u+corner]][field].insert(id);
     }
     return result;
 }

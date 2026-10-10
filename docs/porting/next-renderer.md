@@ -34,9 +34,27 @@ verifies:
     - OEngine/tests/oracle/geometry-product-scale-gpu.mjs
     - OEngine/tools/oengine-asset-core/src/geometry/GeometryCooker.cpp
     - OEngine/tools/oengine-asset-core/vendor/meshoptimizer/source.json
+    - OEngine/tools/cook-range-gltf-scene.mjs
+    - OEngine/tools/oengine-asset-core/src/import/GltfImporter.cpp
+    - OEngine/tools/oengine-asset-core/include/oengine_asset/SurfaceMetadata.h
+    - OEngine/tests/contract/range-offline-cook.test.mjs
     - docs/porting/nyx-function-map.json
 ---
 # EEngine Next：开源迁移来源与采用边界
+
+## Zorah range offline producer（2026-10-09）
+
+Local：`cook-range-gltf-scene.mjs` 将原始 Mesh 的完整 Primitive 和默认场景实例映射为有独立进程内存上限的串行任务，输出既有 OEGPACK V3 / `oengine-offline-scene-materials-v1`。不切三角形、不改 SSE、simplification recipe 或 Renderer ownership。每个任务落盘、验证并退出后才处理下一个；源/producer hash、包 checksum 和 receipt 支持恢复。完整场景 manifest 仅在全部目录、实例及包内 `sourceTriangleCount` 核对后发布；单网格试验使用 `probe.*`，不声明完整场景通过。此入口明确为静态、无贴图的 external glTF profile。
+
+Reference / Local Calls：沿用本地 vendored meshoptimizer `9e1f07b159d3cb777f1c67ed31fc11fd117986f4`，MIT，`vertexcodec.cpp::meshopt_decodeVertexBuffer`、`indexcodec.cpp::meshopt_decodeIndexBuffer/meshopt_decodeIndexSequence`、`vertexfilter.cpp::meshopt_decodeFilterOct/Quat/Exp`。`GltfImporter.cpp::LoadView` 直接调用这些 decoder，检查 count/stride/range 和失败结果；不重写 codec。cgltf 沿用 Nyx pin 的 `MiniEngine/ThirdParty/cgltf/cgltf.h`（SHA256 `123d322d3eff8db5dc34a690131037a89972dff91793050caa48353a5911b4d7`，MIT），用其结构解析、allocator、accessor 和 node transform；本地 `ReadBufferRange` 用64位文件偏移提供实际引用的 view，避免分配 meshopt virtual buffer。
+
+Adapt：`BuildSourceSurfaceDomains` 可按真实 consumer 省略 per-vertex lineage 输出；`CookDomain` 和 `SimplifyGroup` 两处仅使用 triangle metadata，局部继承 lineage 仍保留。独立 native oracle 比对完整64B三角形记录逐字节相同；没有删材质连续性、normal/UV/error 语义，也没有恢复退休的 runtime Surface contracts。完整压缩/未压缩 fixture 经独立 JS decoder 核对 oriented triangle 的循环旋转语义后，native 包与实例逐字节/逐字段一致。
+
+Cost Card（offline CPU）：GPU bytes、ALU、samples、atomics/barriers、dispatch/pipeline 和 runtime hot-path 增量均0。读取是单 Mesh 引用范围，codec 工作仍覆盖全部源几何；CPU 常驻从整场景 canonical/cooked 集合改为一个 Mesh 的任务，文件落盘后进程退出。任务进程 commit 硬上限默认24GiB，父进程另持 glTF/catalog/receipt；无消费者 lineage 省去每顶点六个 set 对象及节点分配。没有收益开关的固定 runtime 管理税；共享 view 单任务内只解码一次，跨 Mesh 的重复引用可能重复解码。理想/expected/worst 分别为小 Mesh、普通 Mesh、最大单 Mesh 的临时工作集；超过上限明确失败，不降低质量或截断工作。实际最大网格、全目录、总 bootstrap/metadata 容量和 GPU performance 必须分别实测，源码接线不提升 Zorah runtime/adoption/performance claim。
+
+实际试验：RTX 2060 SUPER 8GB / i7-11700 / 64GB RAM 主机，mesh 2018 的32,054,609源三角形、16,005,261顶点，以一个 native 进程、一个线程、24GiB commit 上限完成。Native cook 1,134,640ms，工作集峰值16,097,185,792B；包804,711,682B，4111页、22947组、26254层次节点。全部源三角形及该网格唯一实例保留；bootstrap 81页、物理21,233,664B、有效payload 5,074,944B，包元数据1,891,328B。计入当前`prepareProductResidentAttributes`的目录和展开属性后，启动物理驻留为131槽、34,340,864B，不能用raw page容量代替这一占用。原生全包验证，以及现有 CPU `openOegPackV3` / Product descriptor 校验、全部启动页 checksum/layout、当前 resident attribute preparation 均通过；receipt 重用通过。初次24GiB上限下的`bad allocation`原始日志保留在本地验证目录；省略未消费 lineage 输出后重新运行通过，不追认原失败。
+
+复现入口：`node OEngine/tools/cook-range-gltf-scene.mjs .local/validation/nyx-zorah/extracted/zorah_main_public.v2.gltf .local/validation/nyx-zorah/cooked --mesh largest --memory-gib 24`。去掉`--mesh largest`才是全目录串行任务，会核验并复用该网格产物；完整 manifest 仅全部任务完成后发布。本轮最大网格试验不是全场景验收，2068网格/19144 primitive实例的全量 cook、合计启动容量、真实 GPU 加载与 Surface V4 性能尚未验证；Zorah无纹理/UV，不能提供纹理压缩压测结论。
 
 ## Bistro 几何驻留修复（2026-10-09）
 

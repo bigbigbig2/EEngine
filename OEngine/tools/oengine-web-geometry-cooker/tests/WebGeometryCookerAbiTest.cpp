@@ -513,6 +513,10 @@ void AssertIndependentSurfaceContinuity() {
     }
     domain.indices={0,1,2,3,4,5};
     auto result=BuildSourceSurfaceDomains(domain);
+    const auto triangleOnly=BuildSourceSurfaceDomains(domain,0u,false);
+    assert(triangleOnly.vertices.empty());
+    assert(triangleOnly.triangles.size()==result.triangles.size());
+    assert(std::memcmp(triangleOnly.triangles.data(),result.triangles.data(),result.triangles.size()*sizeof(SurfacePrimitiveMetadata))==0);
     assert(result.triangles[0].domains[0]==result.triangles[1].domains[0]);
     assert(result.triangles[0].domains[1]!=result.triangles[1].domains[1]);
     for(unsigned field=2;field<6;++field)assert(result.triangles[0].domains[field]==result.triangles[1].domains[field]);

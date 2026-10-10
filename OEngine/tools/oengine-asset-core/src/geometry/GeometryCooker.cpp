@@ -424,7 +424,7 @@ bool SimplifyGroup(
         temp.indices=compactIndices;
         std::vector<SurfaceVertexLineage> compactLineage(count);
         for(std::size_t i=0;i<reduced.size();++i)MergeSurfaceLineage(compactLineage[remap[i]],originalLineage[reduced[i]]);
-        auto continuity=BuildSourceSurfaceDomains(temp,nextSurfaceDomain);
+        auto continuity=BuildSourceSurfaceDomains(temp,nextSurfaceDomain,false);
         nextSurfaceDomain+=std::uint32_t(compactIndices.size()/3u);
         for(std::uint32_t triangle=0;triangle<continuity.triangles.size();++triangle){
             auto& metadata=continuity.triangles[triangle];
@@ -735,7 +735,9 @@ SerializedGroupV3 SerializeGroup(
 
 DomainProduct CookDomain(MaterialDomain source, const GeometryCookRecipeV3& recipe, CookEvidenceV3& evidence,
     std::uint32_t& nextSurfaceDomain) {
-    const auto sharing = BuildSourceSurfaceDomains(source, nextSurfaceDomain);
+    // Both cook consumers use triangle domains; vertex lineage is reconstructed
+    // locally from meshlet metadata during SimplifyGroup.
+    const auto sharing = BuildSourceSurfaceDomains(source, nextSurfaceDomain, false);
     nextSurfaceDomain+=std::uint32_t(source.indices.size()/3u);
     const auto stableDomainEnd=nextSurfaceDomain;
     std::vector<Meshlet> meshlets = BuildMeshlets(source, recipe, source.indices, sharing.triangles);
