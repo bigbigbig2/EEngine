@@ -39,8 +39,19 @@ verifies:
     - OEngine/tools/oengine-asset-core/include/oengine_asset/SurfaceMetadata.h
     - OEngine/tests/contract/range-offline-cook.test.mjs
     - docs/porting/nyx-function-map.json
+    - examples/demos/14-integrated/bistro-texture-compression/sun-calendar.ts
+    - examples/demos/14-integrated/bistro-texture-compression/main.ts
+    - examples/tests/sun-calendar.test.mjs
 ---
 # EEngine Next：开源迁移来源与采用边界
+
+## Bistro 日期 / 太阳时间控制（2026-10-10）
+
+Reference：Takram [three-geospatial](https://github.com/takram-design-engineering/three-geospatial/tree/b012ad06d858fc035d88aacfd73f092f93c994e4)，revision `b012ad06d858fc035d88aacfd73f092f93c994e4`，MIT；`storybook-webgpu/src/controls/localDateControls.ts::getLocalDate`（1–365日、0–24h、longitude/15时间偏移）、`locationControls.ts::useLocationControls`（North-Up-East本地坐标），及已归档 `packages/atmosphere/src/celestialDirections.ts::getSunDirectionECI/getECIToECEFRotationMatrix`。沿用同一 Astronomy Engine，demo dependency精确固定 `2.1.19`（MIT；examples/yarn.lock保留包完整性）；直接调用 `GeoVector(Body.Sun, ..., false)`、`Rotation_EQJ_EQD`、`SiderealTime`、`Pivot`、`RotateVector`，不重写天文历表。
+
+Local / Adapt：`sun-calendar.ts::calendarSunDirection`将上述地心太阳向量转为普通场景的+X北/+Y上/+Z东单位向量；年份明确固定2026（365日），24:00表示次日00:00，与宿主时区/DST无关；时间为参考项目的当地太阳时，并非民用时区时间。`main.ts::applySunControls`只在用户提交日期/时间/位置或强度修改时更新既有 `PhysicalEnvironmentInput.setSun`；原有Surface/Sky/IBL/Aerial/VSM consumer与环境publication不改变owner。默认由开关保留场景方向，开启日期控制后强度修改保留日期生成方向；报告包含参数，便于复现。
+
+Cost Card：该控制本身新增GPU资源、bytes、samples、ALU、atomics/barriers、dispatch与submit均0；CPU天文计算只在UI change，逐帧增量0。太阳方向改变仍触发现有IBL重生成与启用VSM的既有失效成本，因此拖动只更新读数，松开滑块才提交；没有自动推进时间、shader日历或额外GPU调度。独立Horizon/topocentric参考覆盖80组日期/时间/纬度，允许地心与地表太阳视差上限5e-5向量距离；该控制验证不提升整体Atmosphere来源adoption或性能等级。
 
 ## Zorah range offline producer（2026-10-09）
 

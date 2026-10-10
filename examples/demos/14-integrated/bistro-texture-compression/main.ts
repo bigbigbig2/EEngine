@@ -32,6 +32,7 @@ import {
 } from "lucide";
 import "./style.css";
 import { loadCookedScene } from "./cooked-scene.ts";
+import { calendarSunDirection, formatSunDay, formatSunTime, SUN_CALENDAR_YEAR } from "./sun-calendar.ts";
 
 const MiB = 1024 ** 2;
 const query = new URLSearchParams(location.search);
@@ -377,6 +378,11 @@ function snapshot() {
       resolution: renderer?.resolutionEvidence() ?? null,
       exposure: { autoExposure, fixedExposure, actualAdaptedExposure: "GPU ONLY / NOT READ BACK" },
       environment: scene.physical_environment.snapshot(),
+      sunCalendar: {
+        enabled: element<HTMLInputElement>("sun-calendar").checked,
+        year: SUN_CALENDAR_YEAR,
+        ...readSunCalendar()
+      },
       authoredLights: 0,
       authoredHdr: false,
       ssr: "NOT WIRED IN CURRENT FRAME PROGRAM",
@@ -668,7 +674,7 @@ async function start(): Promise<void> {
   // VSM stays available for the live switch; its frame work starts disabled.
   for (const [id, set] of effectSwitches) set(renderer, element<HTMLInputElement>(id).checked);
   renderer.profiler.configure({ enabled: false });
-  scene.physical_environment.setSun(sunDirection, sunIrradiance);
+  applySunControls();
   setPhase("Reading / parsing GLB range catalog");
   refreshId = window.setInterval(refresh, 500);
   if (cookedMode) {
@@ -1115,17 +1121,76 @@ element<HTMLInputElement>("sse").addEventListener("change", (event) => {
   renderer.invalidateTemporalHistory();
   resetFrameSamples();
 });
+function readSunCalendar() {
+  return {
+    dayOfYear: Number(element<HTMLInputElement>("sun-day").value),
+    timeOfDay: Number(element<HTMLInputElement>("sun-time").value),
+    latitude: Number(element<HTMLInputElement>("sun-latitude").value),
+    longitude: Number(element<HTMLInputElement>("sun-longitude").value),
+  };
+}
+function applySunControls(): void {
+  const enabled = element<HTMLInputElement>("sun-calendar").checked;
+  element("sun-calendar-parameters").hidden = !enabled;
+  if (enabled) {
+    const invalid = ["sun-day", "sun-time", "sun-latitude", "sun-longitude"]
+      .map((id) => element<HTMLInputElement>(id))
+      .find((input) => !input.checkValidity());
+    if (invalid) {
+      invalid.reportValidity();
+      return;
+    }
+  }
+  const parameters = readSunCalendar();
+  element("sun-day-value").textContent = formatSunDay(parameters.dayOfYear);
+  element("sun-time-value").textContent = formatSunTime(parameters.timeOfDay);
+  const position = enabled ? calendarSunDirection(parameters) : null;
+  element("sun-altitude-value").textContent = position ? `${position.altitudeDegrees.toFixed(1)}°` : "--";
+  const intensity = Number(element<HTMLInputElement>("sun").value);
+  scene.physical_environment.setSun(
+    position?.direction ?? sunDirection,
+    sunIrradiance.map((value) => value * intensity) as [number, number, number],
+  );
+}
+element("sun-calendar").addEventListener("change", () => {
+  applySunControls();
+  renderer?.invalidateTemporalHistory();
+  resetFrameSamples();
+});
+for (const id of ["sun-day", "sun-time", "sun-latitude", "sun-longitude"] as const) {
+  element<HTMLInputElement>(id).addEventListener("input", () => {
+    const input = element<HTMLInputElement>(id);
+    if (!input.checkValidity()) {
+      return;
+    }
+    if (id === "sun-day") {
+      element("sun-day-value").textContent = formatSunDay(Number(input.value));
+    }
+    if (id === "sun-time") {
+      element("sun-time-value").textContent = formatSunTime(Number(input.value));
+    }
+  });
+  // Commit on release, like the intensity controls. Dragging does not repeatedly
+  // regenerate the physical sky IBL or restart temporal history each frame.
+  element<HTMLInputElement>(id).addEventListener("change", () => {
+    const valid = ["sun-day", "sun-time", "sun-latitude", "sun-longitude"].every(
+      (parameter) => element<HTMLInputElement>(parameter).checkValidity(),
+    );
+    if (!valid) {
+      return;
+    }
+    applySunControls();
+    renderer?.invalidateTemporalHistory();
+    resetFrameSamples();
+  });
+}
 for (const id of ["sun", "sky"] as const) {
   element<HTMLInputElement>(id).addEventListener("input", () => {
     element(`${id}-value`).textContent = Number(element<HTMLInputElement>(id).value).toFixed(2);
   });
   element<HTMLInputElement>(id).addEventListener("change", () => {
     const value = Number(element<HTMLInputElement>(id).value);
-    if (id === "sun")
-      scene.physical_environment.setSun(
-        sunDirection,
-        sunIrradiance.map((v) => v * value) as [number, number, number]
-      );
+    if (id === "sun") applySunControls();
     else scene.physical_environment.setSkyLuminanceScale(value);
     element(`${id}-value`).textContent = value.toFixed(2);
     renderer?.invalidateTemporalHistory();

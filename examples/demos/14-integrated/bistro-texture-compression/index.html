@@ -184,6 +184,50 @@
           <details class="section">
             <summary>Sun / sky</summary>
             <div class="section-body">
+              <label class="toggle-row"
+                >Date / time sun<input
+                  id="sun-calendar"
+                  class="switch"
+                  type="checkbox"
+                  role="switch"
+                  aria-controls="sun-calendar-parameters"
+              /></label>
+              <div id="sun-calendar-parameters" hidden>
+                <label class="control"
+                  >Day of year<output id="sun-day-value">21 Jun · 172/365</output
+                  ><input id="sun-day" type="range" min="1" max="365" step="1" value="172"
+                /></label>
+                <label class="control"
+                  >Time of day<output id="sun-time-value">10:00</output
+                  ><input id="sun-time" type="range" min="0" max="24" step="0.1" value="10"
+                /></label>
+                <label class="control"
+                  >Latitude (°)<input
+                    id="sun-latitude"
+                    type="number"
+                    min="-90"
+                    max="90"
+                    step="0.1"
+                    value="35"
+                    required
+                /></label>
+                <label class="control"
+                  >Longitude (°)<input
+                    id="sun-longitude"
+                    type="number"
+                    min="-180"
+                    max="180"
+                    step="0.1"
+                    value="0"
+                    required
+                /></label>
+                <dl>
+                  <dt>Calendar</dt>
+                  <dd>2026 · local solar time</dd>
+                  <dt>Sun altitude</dt>
+                  <dd id="sun-altitude-value">--</dd>
+                </dl>
+              </div>
               <label class="control"
                 >Sun intensity<output id="sun-value">1.00</output
                 ><input id="sun" type="range" min="0" max="4" step="0.05" value="1"

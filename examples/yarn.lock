@@ -2,11 +2,6 @@
 # yarn lockfile v1
 
 
-lucide@^1.54.0:
-  version "1.54.0"
-  resolved "https://registry.npmmirror.com/lucide/-/lucide-1.54.0.tgz#ad26b0331c599c2b507a1ff8b7d7eb091ea9bd9c"
-  integrity sha512-2N2brA+7NYLDlxG2QNcmGej5Qhw3pYMPN9MLktTNkQfs7Sk/2g2e8s0CUWibLz5lPVKMYesxm+k/ndDB7E1JjQ==
-
 "@adobe/css-tools@^4.4.0":
   version "4.5.0"
   resolved "https://registry.npmmirror.com/@adobe/css-tools/-/css-tools-4.5.0.tgz"
@@ -1012,6 +1007,11 @@ ast-types@^0.16.1:
   dependencies:
     tslib "^2.0.1"
 
+astronomy-engine@2.1.19:
+  version "2.1.19"
+  resolved "https://registry.npmjs.org/astronomy-engine/-/astronomy-engine-2.1.19.tgz#41b9fd2afb7eba3485e3803cbd9033011f8557af"
+  integrity sha512-8yWKNf7UeNbH458h3sAJ6ZgAjE5jTXp/mNNRFoC20j2SHwZIjAQeEsBB2Q3uCFRaTCCJRv33K2XhkhZQMXoX6w==
+
 balanced-match@^4.0.2:
   version "4.0.4"
   resolved "https://registry.npmmirror.com/balanced-match/-/balanced-match-4.0.4.tgz"
@@ -1366,6 +1366,11 @@ lru-cache@^5.1.1:
   integrity sha512-KpNARQA3Iwv+jTA0utUVVbrh+Jlrr1Fv0e56GGzAFOXN7dk/FviaDW8LHmK52DlcH4WP2n6gI8vN1aesBFgo9w==
   dependencies:
     yallist "^3.0.2"
+
+lucide@^1.54.0:
+  version "1.54.0"
+  resolved "https://registry.npmmirror.com/lucide/-/lucide-1.54.0.tgz#ad26b0331c599c2b507a1ff8b7d7eb091ea9bd9c"
+  integrity sha512-2N2brA+7NYLDlxG2QNcmGej5Qhw3pYMPN9MLktTNkQfs7Sk/2g2e8s0CUWibLz5lPVKMYesxm+k/ndDB7E1JjQ==
 
 lz-string@^1.5.0:
   version "1.5.0"
