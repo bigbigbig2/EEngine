@@ -14,6 +14,7 @@ import {
   nativeSurfaceMaterialGraph,
   nativeSurfaceBindingGroups,
   nativeSurfacePublicationDescriptors,
+  type NativeSurfaceCostSlice,
 } from "../shaders/native_surface.js";
 import { nativeVisibilityShader } from "../shaders/native_visibility.js";
 import { nativeVisibilityPipelineDescriptor } from "../render/surface/NativeVisibilityPass.js";
@@ -38,6 +39,14 @@ import {
   planNativeMaterialPhysicalBanks,
   type NativeMaterialPhysicalBankProfile,
 } from "./NativeMaterialPhysicalBanks.js";
+
+// Undefined outside an explicitly enabled diagnostic bundle. Evaluated once at
+// module initialization; the resulting shader has no diagnostic runtime branch.
+declare const __EENGINE_PERFORMANCE_DIAGNOSTICS__: boolean;
+const NATIVE_COST_SLICE = typeof __EENGINE_PERFORMANCE_DIAGNOSTICS__ !== "undefined" &&
+  __EENGINE_PERFORMANCE_DIAGNOSTICS__
+  ? (new URLSearchParams(globalThis.location.search).get("nativeCostSlice") ?? "G") as NativeSurfaceCostSlice
+  : undefined;
 
 export interface NativeSceneMaterialSource {
   readonly materialSlot: number;
@@ -463,6 +472,7 @@ export class GpuNativeMaterialScene {
           unlit: this.materialSources[index]!.material.is_unlit,
           reactive: true,
           physicalSun: this.physicalSun && !this.materialSources[index]!.material.is_unlit,
+          costSlice: NATIVE_COST_SLICE,
         },
         this.graphics.device.limits,
       ),

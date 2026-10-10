@@ -1,7 +1,7 @@
 import {
-  deduplicateGeometryPageDemandsV1,
+  GeometryPageDemandBatchV1,
+  GEOMETRY_PAGE_DEMAND_FLAG_RESIDENT_USAGE,
   unpackGeometryPageDemandHeaderV1,
-  unpackGeometryPageDemandV1,
   type GeometryPageDemandV1,
 } from "./GeometryPageDemandAbiV1.js";
 import {
@@ -142,6 +142,7 @@ export class GeometryPageSchedulerV1 {
   };
   readonly #products = new Map<number, RegisteredProduct>();
   readonly #operations = new Map<string, Operation>();
+  readonly #demandBatch = new GeometryPageDemandBatchV1();
   readonly #inFlight = new Set<Promise<void>>();
   #budget: GeometryPageSchedulerBudgetV1;
   #minimumPageBytes = 0;
@@ -326,19 +327,16 @@ export class GeometryPageSchedulerV1 {
     return this.#budget;
   }
 
-  /** Consumes a delayed GPU demand readback; it never rebuilds visible work. */
-  ingestDemandReadback(bytes: ArrayBuffer | Uint8Array, nowMs = 0): void {
+  /** Consumes delayed feedback. Returned scratch is valid until the next ingestion;
+   * residency must consume it synchronously, without retaining it across an await. */
+  ingestDemandReadback(bytes: ArrayBuffer | Uint8Array, nowMs = 0): GeometryPageDemandBatchV1 {
     const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
     try {
       const header = unpackGeometryPageDemandHeaderV1(view);
       if (header.overflow !== 0) this.#demandOverflow++;
-      const count = Math.min(header.attempted, header.capacity);
-      const required = 16 + count * 16;
-      if (required > view.byteLength) throw new RangeError("GeometryPageDemand readback is truncated");
-      const records: GeometryPageDemandV1[] = [];
-      for (let index = 0; index < count; index++)
-        records.push(unpackGeometryPageDemandV1(view, 16 + index * 16));
-      this.ingestDemands(records, nowMs);
+      this.#demandBatch.decodeRecords(view, header);
+      this.ingestDemandBatch(this.#demandBatch, nowMs);
+      return this.#demandBatch;
     } catch (error) {
       this.#malformedReadbacks++;
       throw error;
@@ -346,32 +344,43 @@ export class GeometryPageSchedulerV1 {
   }
 
   ingestDemands(demands: readonly GeometryPageDemandV1[], nowMs = 0): void {
-    const unique = deduplicateGeometryPageDemandsV1(demands);
-    this.#requested += demands.reduce((count, demand) => count + (demand.residentUsage ? 0 : 1), 0);
-    this.#deduplicated += demands.length - unique.length;
-    for (const demand of unique) {
-      if (demand.residentUsage) {
+    this.#demandBatch.setRecords(demands);
+    this.ingestDemandBatch(this.#demandBatch, nowMs, demands);
+  }
+
+  private ingestDemandBatch(
+    batch: GeometryPageDemandBatchV1,
+    nowMs: number,
+    records?: readonly GeometryPageDemandV1[]
+  ): void {
+    this.#requested += batch.requested;
+    this.#deduplicated += batch.count - batch.uniqueCount;
+    const words = batch.words;
+    for (const index of batch.uniqueIndices) {
+      const at = index * 4;
+      if ((words[at + 3]! & GEOMETRY_PAGE_DEMAND_FLAG_RESIDENT_USAGE) !== 0) {
         continue;
       }
-      const product = this.#products.get(demand.productGeneration);
-      if (
-        !product ||
-        product.productTableSlot !== demand.productTableSlot ||
-        demand.pageId >= product.pageCount
-      ) {
+      const slot = words[at]!;
+      const generation = words[at + 1]!;
+      const pageId = words[at + 2]!;
+      const product = this.#products.get(generation);
+      if (!product || product.productTableSlot !== slot || pageId >= product.pageCount) {
         this.#stale++;
         continue;
       }
-      const key = operationKey(demand);
+      const key = `${generation}:${pageId}`;
       const existing = this.#operations.get(key);
       if (existing) {
         existing.age++;
-        if (priority(demand) > priority(existing.demand)) existing.demand = demand;
+        if (batch.priority(index) > priority(existing.demand)) {
+          existing.demand = records?.[index] ?? batch.materialize(index);
+        }
         continue;
       }
       this.#operations.set(key, {
         key,
-        demand,
+        demand: records?.[index] ?? batch.materialize(index),
         product,
         state: "queued",
         attempts: 0,
@@ -665,9 +674,6 @@ export class GeometryPageSchedulerV1 {
   }
 }
 
-function operationKey(demand: GeometryPageDemandV1): string {
-  return `${demand.productGeneration}:${demand.pageId}`;
-}
 function priority(demand: GeometryPageDemandV1): number {
   return (
     demand.priority +

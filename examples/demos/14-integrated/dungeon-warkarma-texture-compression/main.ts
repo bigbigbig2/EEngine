@@ -761,6 +761,11 @@ async function start(): Promise<void> {
   if (closing) return;
   controls = new OrbitControls(camera, canvas);
   controls.enableDamping = true;
+  if (query.get("performanceCapture") === "1") {
+    // Keep update/damping work identical, but isolate the fixed camera from input.
+    controls.pointer.stop();
+    controls.keyboard.stop();
+  }
   diagnosticControlsDisabled(false);
   resizeObserver = new ResizeObserver(resize);
   resizeObserver.observe(canvas.parentElement!);
@@ -1344,18 +1349,18 @@ Object.assign(window, { dungeonDemo: { report, release } });
 if (query.get("performanceCapture") === "1") {
   Object.assign(window, {
     dungeonPerformance: {
-      configure(mode: "production" | "coarse" | "stage" | "full", cpuPassTimings = false, counters = false) {
+      configure(mode: "production" | "coarse" | "stage" | "full", cpuPassTimings = false, counters = false, gpuSampleInterval = 4) {
         if (!renderer) throw new Error("Renderer is not initialized");
         profiled = mode !== "production";
         element<HTMLInputElement>("profile").checked = profiled;
         resetFrameSamples();
         renderer.perf_gpu_counters_enabled = counters;
         renderer.profiler.clear();
-        renderer.profiler.setMode(counters ? "record" : "live");
+        renderer.profiler.setMode(counters || gpuSampleInterval < 4 ? "record" : "live");
         renderer.profiler.configure({
           enabled: profiled,
           gpuTimingMode: mode,
-          gpuSampleInterval: 4,
+          gpuSampleInterval,
           gpuCounterSampleInterval: 4,
           cpuPassTimings,
           historyCapacity: 512,
@@ -1373,6 +1378,7 @@ if (query.get("performanceCapture") === "1") {
         graph: renderer?.mainFrameGraphEvidence() ?? null,
         vsmCapabilities: renderer?.vsmCapabilities ?? null,
         deviceFeatures: renderer ? [...renderer.device.features] : [],
+        gpuSampleInterval: renderer?.profiler.gpuSampleInterval ?? null,
         instanceBegin: renderer?.graphics?.render_world.runtime(scene)?.instanceBegin ?? null,
         instanceCount: renderer?.graphics?.render_world.runtime(scene)?.instanceCount ?? null,
         deviceLimits: renderer ? Object.fromEntries(Object.keys(GPUSupportedLimits.prototype).map(key => [key, renderer!.device.limits[key as keyof GPUSupportedLimits]])) : {},

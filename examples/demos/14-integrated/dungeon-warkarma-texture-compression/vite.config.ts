@@ -5,6 +5,10 @@ import { dungeonLocalModel } from "./local-model";
 
 const examplesRoot = fileURLToPath(new URL("../../../", import.meta.url));
 export default defineConfig({
+  // Explicit diagnostic build only. Ordinary builds erase both switches.
+  define: {
+    __EENGINE_PERFORMANCE_DIAGNOSTICS__: process.env.EENGINE_PERFORMANCE_DIAGNOSTICS === "1"
+  },
   root: examplesRoot,
   plugins: [dungeonLocalModel(examplesRoot)],
   server: {

@@ -11,6 +11,13 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "performance-diagnostics",
+    file: "OEngine/tests/oracle/performance-diagnostic-gpu.mjs",
+    url: "/OEngine/tests/oracle/performance-diagnostic-gpu.mjs",
+    entry: "runPerformanceDiagnosticGpuOracle",
+    description: "VSM diagnostic reduction against independent CPU sets, partial/empty groups and dispatch reset.",
+  }),
+  Object.freeze({
     name: "sky-radiometry",
     file: "OEngine/tests/oracle/sky-radiometry-gpu.mjs",
     url: "/OEngine/tests/oracle/sky-radiometry-gpu.mjs",

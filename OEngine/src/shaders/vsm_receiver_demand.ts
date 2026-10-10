@@ -106,3 +106,64 @@ fn mark_coarse(@builtin(global_invocation_id) id: vec3u) {
 }
 
 `;
+
+/** Temporary diagnostic specialization. Reuse the exact production receiver
+ * predicate/projection, with all early exits inside a helper, before uniform
+ * barriers. 256B pages + 12B workgroup atomics, two barriers and one 16B write
+ * per group. Original global atomicOr attempts remain unchanged. Never time this.
+ */
+export function vsmReceiverDemandDiagnosticWgsl(): string {
+  const begin = VSM_RECEIVER_DEMAND_WGSL.indexOf("@compute @workgroup_size(8, 8, 1)");
+  const end = VSM_RECEIVER_DEMAND_WGSL.indexOf("@compute @workgroup_size(64)", begin);
+  const original = VSM_RECEIVER_DEMAND_WGSL.slice(begin, end);
+  const signature = "@compute @workgroup_size(8, 8, 1)\nfn main(@builtin(global_invocation_id) id: vec3u)";
+  const attempt = "atomicOr(&requested[virtual_page / 32u], 1u << (virtual_page % 32u));";
+  if (begin < 0 || end < 0 || !original.includes(signature) || !original.includes(attempt)) {
+    throw new Error("VSM diagnostic receiver specialization no longer matches its producer");
+  }
+  const receiver = original
+    .replace(signature, "fn diagnostic_receiver_page(id: vec3u) -> u32")
+    .replaceAll("return;", "return VSM_INVALID_SLOT;")
+    .replace(attempt, "return virtual_page;");
+  const main = /* wgsl */ `
+@group(0) @binding(7) var<storage, read_write> diagnostic_workgroups: array<vec4u>;
+var<workgroup> diagnostic_pages: array<u32, 64>;
+var<workgroup> diagnostic_totals: array<atomic<u32>, 3>;
+
+@compute @workgroup_size(8, 8, 1)
+fn main(@builtin(global_invocation_id) id: vec3u,
+  @builtin(local_invocation_index) lane: u32, @builtin(workgroup_id) group: vec3u,
+  @builtin(num_workgroups) groups: vec3u) {
+  let page = diagnostic_receiver_page(id);
+  diagnostic_pages[lane] = page;
+  if (page != VSM_INVALID_SLOT) {
+    atomicOr(&requested[page / 32u], 1u << (page % 32u));
+  }
+  workgroupBarrier();
+  if (page != VSM_INVALID_SLOT) {
+    var first_page = true;
+    var first_word = true;
+    for (var previous = 0u; previous < lane; previous++) {
+      let other = diagnostic_pages[previous];
+      first_page = first_page && other != page;
+      first_word = first_word && (other == VSM_INVALID_SLOT || other / 32u != page / 32u);
+    }
+    atomicAdd(&diagnostic_totals[0], 1u);
+    if (first_page) { atomicAdd(&diagnostic_totals[1], 1u); }
+    if (first_word) { atomicAdd(&diagnostic_totals[2], 1u); }
+  }
+  workgroupBarrier();
+  if (lane == 0u) {
+    let index = group.y * groups.x + group.x;
+    let raw = atomicLoad(&diagnostic_totals[0]);
+    let pages = atomicLoad(&diagnostic_totals[1]);
+    let words = atomicLoad(&diagnostic_totals[2]);
+    diagnostic_workgroups[index + 1u] = vec4u(raw, pages, words, raw - pages);
+    if (index == 0u) {
+      diagnostic_workgroups[0] = vec4u(constants.dimensions.xy, constants.control.y, groups.x * groups.y);
+    }
+  }
+}
+`;
+  return VSM_RECEIVER_DEMAND_WGSL.slice(0, begin) + receiver + main + VSM_RECEIVER_DEMAND_WGSL.slice(end);
+}

@@ -16,7 +16,13 @@ import {
   VirtualGeometryResidency,
   type VirtualGeometryResidencyEvidenceV1,
 } from "./VirtualGeometryResidency.js";
-import { unpackGeometryPageDemandHeaderV1, unpackGeometryPageDemandV1 } from "./GeometryPageDemandAbiV1.js";
+import {
+  GEOMETRY_PAGE_DEMAND_FLAG_CURRENT_VIEW_MISSING,
+  GEOMETRY_PAGE_DEMAND_FLAG_SHADOW,
+  GEOMETRY_PAGE_DEMAND_FLAG_PREDICTIVE,
+  GEOMETRY_PAGE_DEMAND_FLAG_RESIDENT_USAGE,
+  type GeometryPageDemandBatchV1,
+} from "./GeometryPageDemandAbiV1.js";
 
 export interface GeometryPageStreamingRuntimeOptionsV1 {
   readonly scheduler?: GeometryPageSchedulerV1;
@@ -277,8 +283,8 @@ export class GeometryPageStreamingRuntimeV1 {
       this.#mainFeedbackFrame = result.frameIndex;
       this.#mainFeedbackComplete = false;
       try {
-        this.#scheduler.ingestDemandReadback(result.bytes, nowMs);
-        this.#mainFeedbackComplete = this.recordResidencyFeedback(result.bytes, result.frameIndex);
+        const batch = this.#scheduler.ingestDemandReadback(result.bytes, nowMs);
+        this.#mainFeedbackComplete = this.recordResidencyFeedback(batch, result.frameIndex);
         consumedReadbacks++;
       } catch (error) {
         this.#lastError = error instanceof Error ? error.message : String(error);
@@ -291,8 +297,8 @@ export class GeometryPageStreamingRuntimeV1 {
       this.#shadowFeedbackFrame = result.frameIndex;
       this.#shadowFeedbackComplete = false;
       try {
-        this.#scheduler.ingestDemandReadback(result.bytes, nowMs);
-        this.#shadowFeedbackComplete = this.recordResidencyFeedback(result.bytes, result.frameIndex);
+        const batch = this.#scheduler.ingestDemandReadback(result.bytes, nowMs);
+        this.#shadowFeedbackComplete = this.recordResidencyFeedback(batch, result.frameIndex);
         consumedReadbacks++;
       } catch (error) {
         this.#lastError = error instanceof Error ? error.message : String(error);
@@ -395,28 +401,30 @@ export class GeometryPageStreamingRuntimeV1 {
     return this.#mainFeedbackFrame;
   }
 
-  private recordResidencyFeedback(bytes: ArrayBuffer, frameIndex: number): boolean {
-    const view = new Uint8Array(bytes);
-    const header = unpackGeometryPageDemandHeaderV1(view);
-    for (let index = 0; index < Math.min(header.attempted, header.capacity); index++) {
-      const demand = unpackGeometryPageDemandV1(view, 16 + index * 16);
-      const residency = this.#residencies.get(demand.productGeneration);
+  private recordResidencyFeedback(batch: GeometryPageDemandBatchV1, frameIndex: number): boolean {
+    const header = batch.header!;
+    const words = batch.words;
+    for (let index = 0; index < batch.count; index++) {
+      const at = index * 4;
+      const pageId = words[at + 2]!;
+      const flags = words[at + 3]!;
+      const residency = this.#residencies.get(words[at + 1]!);
       if (
         residency === undefined ||
         !residency.publicationActive ||
-        demand.productTableSlot !== residency.productTableSlot ||
-        demand.pageId >= residency.descriptor.pageRecords.byteLength / 32
+        words[at] !== residency.productTableSlot ||
+        pageId >= residency.descriptor.pageRecords.byteLength / 32
       )
         continue;
-      if (demand.residentUsage) {
-        residency.touchPage(demand.pageId, frameIndex);
+      if ((flags & GEOMETRY_PAGE_DEMAND_FLAG_RESIDENT_USAGE) !== 0) {
+        residency.touchPage(pageId, frameIndex);
         continue;
       }
       residency.recordDemand(
-        demand.pageId,
+        pageId,
         frameIndex,
-        demand.currentViewMissing || demand.shadow,
-        demand.predictive,
+        (flags & (GEOMETRY_PAGE_DEMAND_FLAG_CURRENT_VIEW_MISSING | GEOMETRY_PAGE_DEMAND_FLAG_SHADOW)) !== 0,
+        (flags & GEOMETRY_PAGE_DEMAND_FLAG_PREDICTIVE) !== 0
       );
     }
     return header.overflow === 0 && header.attempted <= header.capacity;

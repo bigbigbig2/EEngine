@@ -653,3 +653,86 @@ test("runtime destruction unregisters the Product and aborts pending page reads"
   assert.equal(scheduler.evidence().cancelled, 1);
   await scheduler.drainReads();
 });
+
+test("canonical residency feedback preserves raw multiplicity, order and full generation/slot rejection", async () => {
+  const { GeometryPageStreamingRuntimeV1 } = await import(
+    "../../.test-dist/gpu/GeometryPageStreamingRuntime.js"
+  );
+  const abi = await import("../../.test-dist/gpu/GeometryPageDemandAbiV1.js");
+  const { GeometryPageSchedulerV1 } = await import("../../.test-dist/gpu/GeometryPageScheduler.js");
+  const events = [];
+  const residency = {
+    productGeneration: 0x80000001,
+    productTableSlot: 0xfffffffe,
+    publicationActive: true,
+    publicationChanged: new Signal(),
+    descriptor: {
+      productId: new Uint8Array(32),
+      revision: 0,
+      decodedPageBytes: 16,
+      pageRecords: new Uint8Array(64)
+    },
+    touchPage: (page, frame) => events.push(["touch", page, frame]),
+    recordDemand: (page, frame, missing, predictive) =>
+      events.push(["demand", page, frame, missing, predictive]),
+    evidence: () => ({})
+  };
+  const scheduler = new GeometryPageSchedulerV1({ maxConcurrentReads: 1, maxInFlightBytes: 16 });
+  const runtime = new GeometryPageStreamingRuntimeV1(device(), residency, { scheduler });
+  runtime.registerProduct({
+    descriptor: residency.descriptor,
+    readPage: () => new Promise(() => {}),
+    release() {}
+  });
+  const record = {
+    productGeneration: residency.productGeneration,
+    productTableSlot: residency.productTableSlot,
+    pageId: 0,
+    priority: 2,
+    currentViewMissing: false,
+    shadow: false,
+    predictive: false
+  };
+  const records = [
+    { ...record, residentUsage: true },
+    { ...record, shadow: true },
+    { ...record, predictive: true },
+    { ...record, residentUsage: true },
+    { ...record, productGeneration: 1 },
+    { ...record, productTableSlot: 1 },
+    { ...record, pageId: 5 }
+  ];
+  const bytes = new Uint8Array(16 + records.length * 16);
+  bytes.set(
+    abi.packGeometryPageDemandHeaderV1({
+      attempted: records.length,
+      capacity: records.length,
+      overflow: 0,
+      frameRevisionLow: 12
+    })
+  );
+  records.forEach((d, i) => bytes.set(abi.packGeometryPageDemandV1(d), 16 + i * 16));
+  const expected = [];
+  for (let i = 0; i < records.length; i++) {
+    const d = abi.unpackGeometryPageDemandV1(bytes, 16 + i * 16);
+    if (
+      d.productGeneration !== residency.productGeneration ||
+      d.productTableSlot !== residency.productTableSlot ||
+      d.pageId >= 2
+    )
+      continue;
+    expected.push(
+      d.residentUsage
+        ? ["touch", d.pageId, 12]
+        : ["demand", d.pageId, 12, d.currentViewMissing || d.shadow, d.predictive]
+    );
+  }
+  const batch = scheduler.ingestDemandReadback(bytes);
+  assert.equal(runtime.recordResidencyFeedback(batch, 12), true);
+  assert.deepEqual(events, expected);
+  events.length = 0;
+  residency.publicationActive = false;
+  runtime.recordResidencyFeedback(batch, 12);
+  assert.deepEqual(events, []);
+  runtime.destroy();
+});

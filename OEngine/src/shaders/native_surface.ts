@@ -2,7 +2,7 @@ import type { NativeMaterialProgram } from "./native_material.js";
 import { GPU_INSTANCE_FLAGS } from "../gpu/GpuInstanceAbi.js";
 import {
   selectAppearanceProductProgram,
-  type CompiledAppearanceGraph,
+  type CompiledAppearanceGraph
 } from "../material/AppearanceGraphCompiler.js";
 import type { AppearanceProgramDescriptor } from "../gpu/AppearanceProgramRegistry.js";
 import { NATIVE_MATERIAL_DIRECTORY_WGSL } from "../gpu/GpuNativeMaterialPublication.js";
@@ -14,8 +14,11 @@ import { LINEAR_REC709_TO_REC2020_WGSL } from "./working_color.js";
 import { nativeSurfaceAuxWgsl } from "./native_surface_aux.js";
 import {
   nativeSurfacePhysicalSunLayoutEntries,
-  nativeSurfacePhysicalSunWgsl,
+  nativeSurfacePhysicalSunWgsl
 } from "./native_surface_lighting.js";
+
+/** Diagnostic shader specialization only; G is byte-for-byte the normal source. */
+export type NativeSurfaceCostSlice = "A" | "B" | "C" | "D" | "E" | "F" | "G";
 
 export interface NativeSurfaceShaderProfile {
   readonly compact: boolean;
@@ -25,6 +28,7 @@ export interface NativeSurfaceShaderProfile {
   readonly physicalSun?: boolean;
   /** Resource-limit continuation: recompute native inputs, then add shadowed sun. */
   readonly additiveSun?: boolean;
+  readonly costSlice?: NativeSurfaceCostSlice;
 }
 
 export const NATIVE_SURFACE_SETTINGS_BYTES = 144;
@@ -34,7 +38,7 @@ const SURFACE_GRAPHS = new WeakMap<CompiledAppearanceGraph, Map<boolean, Compile
  * coverage raster program; retaining it here would issue samples with no consumer. */
 export function nativeSurfaceMaterialGraph(
   graph: CompiledAppearanceGraph,
-  unlit: boolean,
+  unlit: boolean
 ): CompiledAppearanceGraph {
   let variants = SURFACE_GRAPHS.get(graph);
   const cached = variants?.get(unlit);
@@ -56,12 +60,12 @@ export function nativeSurfaceMaterialGraph(
           "coatNormalTS",
           "coatNormalTSValidity",
           "normalTS",
-          "normalTSValidity",
-        ],
+          "normalTSValidity"
+        ]
   );
   const selected = selectAppearanceProductProgram(
     graph,
-    Object.fromEntries(Object.entries(graph.outputs).filter(([name]) => consumed.has(name))),
+    Object.fromEntries(Object.entries(graph.outputs).filter(([name]) => consumed.has(name)))
   );
   if (!variants) {
     variants = new Map();
@@ -75,37 +79,37 @@ const COMPUTE = 4;
 const read = (binding: number): GPUBindGroupLayoutEntry => ({
   binding,
   visibility: COMPUTE,
-  buffer: { type: "read-only-storage" },
+  buffer: { type: "read-only-storage" }
 });
 const uniform = (binding: number): GPUBindGroupLayoutEntry => ({
   binding,
   visibility: COMPUTE,
-  buffer: { type: "uniform" },
+  buffer: { type: "uniform" }
 });
 const texture = (binding: number, sampleType: GPUTextureSampleType): GPUBindGroupLayoutEntry => ({
   binding,
   visibility: COMPUTE,
-  texture: { sampleType },
+  texture: { sampleType }
 });
 
 /** Full physical profile, including providers. No auto layout or material-count specialization. */
 export function nativeSurfaceDescriptor(
   program: NativeMaterialProgram,
   materialLayout: readonly GPUBindGroupLayoutEntry[],
-  profile: NativeSurfaceShaderProfile,
+  profile: NativeSurfaceShaderProfile
 ): AppearanceProgramDescriptor {
   return {
     source: nativeSurfaceWgsl(program, profile),
     entryPoint: "main",
     workgroupSize: 64,
-    groups: nativeSurfaceBindingGroups(materialLayout, profile),
+    groups: nativeSurfaceBindingGroups(materialLayout, profile)
   };
 }
 
 /** Layout planning never generates the large shader. */
 export function nativeSurfaceBindingGroups(
   materialLayout: readonly GPUBindGroupLayoutEntry[],
-  profile: NativeSurfaceShaderProfile,
+  profile: NativeSurfaceShaderProfile
 ): readonly (readonly GPUBindGroupLayoutEntry[])[] {
   if (profile.additiveSun && (!profile.physicalSun || profile.unlit || profile.reactive)) {
     throw new RangeError("Native sun continuation requires a lit sun profile without a second Aux writer");
@@ -120,8 +124,8 @@ export function nativeSurfaceBindingGroups(
     {
       binding: 7,
       visibility: COMPUTE,
-      storageTexture: { format: "rgba16float", access: "write-only" },
-    },
+      storageTexture: { format: "rgba16float", access: "write-only" }
+    }
   ];
   if (profile.additiveSun) {
     geometry.push(texture(9, "unfilterable-float"));
@@ -130,7 +134,7 @@ export function nativeSurfaceBindingGroups(
     geometry.push({
       binding: 8,
       visibility: COMPUTE,
-      storageTexture: { format: "rgba8unorm", access: "write-only" },
+      storageTexture: { format: "rgba8unorm", access: "write-only" }
     });
   }
   if (profile.productGeometry) {
@@ -152,7 +156,7 @@ export function nativeSurfaceBindingGroups(
         uniform(8),
         read(9),
         texture(10, "depth"),
-        texture(11, "float"),
+        texture(11, "float")
       ];
   const material: GPUBindGroupLayoutEntry[] = [read(0), read(1), uniform(3), uniform(4)];
   if (!profile.unlit && profile.physicalSun) {
@@ -167,7 +171,7 @@ export function nativeSurfaceBindingGroups(
       ? lighting.filter((entry) => [0, 8, 9, 10, 12, 13, 14].includes(entry.binding))
       : lighting,
     material,
-    materialLayout,
+    materialLayout
   ];
 }
 
@@ -181,12 +185,12 @@ export function nativeSurfacePublicationDescriptors(
   program: NativeMaterialProgram,
   materialLayout: readonly GPUBindGroupLayoutEntry[],
   profile: NativeSurfaceShaderProfile,
-  limits: Pick<GPUSupportedLimits, "maxSampledTexturesPerShaderStage">,
+  limits: Pick<GPUSupportedLimits, "maxSampledTexturesPerShaderStage">
 ): { descriptor: AppearanceProgramDescriptor; continuation?: AppearanceProgramDescriptor } {
   const descriptor = nativeSurfaceDescriptor(program, materialLayout, profile);
   const sampled = descriptor.groups.reduce(
     (sum, group) => sum + group.filter((entry) => entry.texture !== undefined).length,
-    0,
+    0
   );
   if (sampled <= limits.maxSampledTexturesPerShaderStage || !profile.physicalSun || profile.unlit) {
     return { descriptor };
@@ -196,8 +200,8 @@ export function nativeSurfacePublicationDescriptors(
     continuation: nativeSurfaceDescriptor(program, materialLayout, {
       ...profile,
       additiveSun: true,
-      reactive: false,
-    }),
+      reactive: false
+    })
   };
 }
 
@@ -215,14 +219,21 @@ const GEOMETRY_INPUTS: Readonly<Record<string, number>> = Object.freeze({
   worldNormal: 11,
   worldTangent: 12,
   viewPosition: 13,
-  viewNormal: 14,
+  viewNormal: 14
 });
 
 /** Native straight-line material + real winner recovery and provider math, invocation-private. */
 export function nativeSurfaceWgsl(
   program: NativeMaterialProgram,
-  profile: NativeSurfaceShaderProfile,
+  profile: NativeSurfaceShaderProfile
 ): string {
+  const costSlice = profile.costSlice ?? "G";
+  if (!/^[A-G]$/.test(costSlice)) {
+    throw new RangeError("Native cost slice must be A through G");
+  }
+  if (costSlice !== "G" && profile.additiveSun) {
+    throw new Error("Native cost slicing requires the fused resource profile");
+  }
   let needs = profile.unlit ? 0 : (1 << 7) | (1 << 5) | (1 << 6);
   const inputs: string[] = [];
   program.inputs.forEach((input, index) => {
@@ -232,7 +243,7 @@ export function nativeSurfaceWgsl(
         ? `vec4f(${Array.from(
             { length: 4 },
             (_, channel) =>
-              `native_material_constant(entry.constant_base, ${program.constants.length + 2 + index * 4 + channel}u)`,
+              `native_material_constant(entry.constant_base, ${program.constants.length + 2 + index * 4 + channel}u)`
           ).join(", ")})`
         : `native_frame_inputs[${index}u]`;
     } else {
@@ -246,10 +257,10 @@ export function nativeSurfaceWgsl(
     for (const [point, weights] of [
       ["center", "interpolation.weights"],
       ["x", "interpolation.weights + interpolation.dx"],
-      ["y", "interpolation.weights + interpolation.dy"],
+      ["y", "interpolation.weights + interpolation.dy"]
     ]) {
       inputs.push(
-        `  inputs.${point}[${index}u] = ${expression.replace("corners, weights", `corners, ${weights}`)};`,
+        `  inputs.${point}[${index}u] = ${expression.replace("corners, weights", `corners, ${weights}`)};`
       );
     }
   });
@@ -282,7 +293,7 @@ export function nativeSurfaceWgsl(
     ? ""
     : /* wgsl */ `
 ${NATIVE_LOCAL_LIGHTING.source}
-${profile.physicalSun ? nativeSurfacePhysicalSunWgsl(true) : ""}
+${profile.physicalSun ? nativeSurfacePhysicalSunWgsl(costSlice === "G") : ""}
 ${OCTAHEDRAL_SAMPLE_WGSL}
 ${ENVIRONMENT_BRDF_WGSL}
 struct NativeShadingView {
@@ -346,7 +357,7 @@ fn native_environment(material: StandardMaterial, normal: vec3f, direction: vec3
   const directEnabled = profile.physicalSun
     ? "native_physical_sun.diagnostic_mode == 0u || native_physical_sun.diagnostic_mode == 4u"
     : "true";
-  const materialLighting = profile.additiveSun
+  let materialLighting = profile.additiveSun
     ? `  var color = vec3f(0.0);
   if (${directEnabled}) {
     color = ${sunLighting};
@@ -356,6 +367,23 @@ fn native_environment(material: StandardMaterial, normal: vec3f, direction: vec3
     direct = ${directLighting};
   }
   let color = direct + native_environment(material, mapped_normal, direction, pixel);`;
+  if ((costSlice === "D" || costSlice === "E") && !profile.unlit) {
+    // One real shared BRDF evaluation under unit irradiance. F replaces this
+    // incident with the actual atmosphere Sun; it does not add a second BRDF.
+    const direction = profile.physicalSun
+      ? "normalize(native_physical_sun.sun_direction_world)"
+      : "normalize(vec3f(0.3, 0.8, 0.4))";
+    materialLighting = /* wgsl */ `
+  var diagnostic_incident: GpuPrimitiveTypeTable;
+  diagnostic_incident.direction = ${direction};
+  diagnostic_incident.color = vec3f(1.0);
+  var diagnostic_reflected: ReflectedLight;
+  re_direct_physical(diagnostic_incident, geometry, material, &diagnostic_reflected);
+  let local = shade_standard_material_direct(material, geometry, vec2f(pixel) + vec2f(0.5), view_depth);
+  let color = local + diagnostic_reflected.diffuse + diagnostic_reflected.specular${
+    costSlice === "E" ? " + native_environment(material, mapped_normal, direction, pixel)" : ""
+  };`;
+  }
   const material = profile.unlit
     ? /* wgsl */ `
   let color = ${vector("baseColor", "vec3f(0.0)")};
@@ -387,15 +415,16 @@ ${materialLighting}
   // Normal mode adds one uniform branch, no samples/atomics/barriers/allocations.
   // Debug adds page-table queries and (mask only) <=16 depth loads per lit pixel;
   // its benefit is inspection only. Disable it for cost/quality measurements.
-  const vsmDebug = profile.physicalSun && !profile.unlit
-    ? /* wgsl */ `
+  const vsmDebug =
+    costSlice === "G" && profile.physicalSun && !profile.unlit
+      ? /* wgsl */ `
   if (vsm_constants.identity.z != 0u) {
     let receives_shadow = (frame_instances[work.instance_slot].source.flags & ${GPU_INSTANCE_FLAGS.ReceivesShadow}u) != 0u;
     output_radiance = oengine_linear_rec709_to_rec2020(vsm_debug_color(position, mapped_normal,
       normalize(native_physical_sun.sun_direction_world), receives_shadow));
   }
 `
-    : "";
+      : "";
   const pixelSelection = profile.compact
     ? /* wgsl */ `
   let record = route.x * 8u;
@@ -409,7 +438,56 @@ ${materialLighting}
   let pixel = vec2u((tile % tiles_x) * 8u + lane % 8u, (tile / tiles_x) * 8u + lane / 8u);
 `
     : "  let pixel = id.xy;";
+  const rasterFlags = `  let raster_flags = u32(native_material_constant(entry.constant_base, ${program.constants.length + 1}u));`;
+  let evaluation = /* wgsl */ `
+  var inputs: NativeMaterialInputs;
+${inputs.join("\n")}
+  let values = native_material_evaluate(entry.constant_base, inputs);
+${rasterFlags}
+  let position = native_attribute(corners.position, interpolation.weights).xyz;
+  let normal = native_geometry_input(corners, interpolation.weights, 5u).xyz;
+  let tangent = native_geometry_input(corners, interpolation.weights, 6u);
+  let basis = mat3x3f(tangent.xyz, cross(normal, tangent.xyz) * tangent.w, normal);
+${material}
+`;
+  if (costSlice === "A" || costSlice === "B" || costSlice === "C") {
+    // Fixed output would DCE the reconstruction. Consume every requested corner
+    // and interpolation result. This deliberately adds anchor ALU and changes
+    // liveness: A/B/C are diagnostic bounds, not standalone production costs.
+    const fields = ["position", "normal", "tangent", "uv", "uv2", "color"];
+    const cornerTerms = fields.flatMap((field) =>
+      [0, 1, 2].map((corner) => `dot(corners.${field}.p${corner}, vec4f(0.13, 0.19, 0.23, 0.29))`)
+    );
+    cornerTerms.push(
+      "dot(corners.world_plane, vec4f(0.31, 0.37, 0.41, 0.43))",
+      "dot(interpolation.weights, vec3f(0.47, 0.53, 0.59))"
+    );
+    evaluation = `${rasterFlags}\n  var diagnostic_anchor = ${cornerTerms.join(" +\n    ")};\n`;
+    if (costSlice !== "A") {
+      evaluation += `  var inputs: NativeMaterialInputs;\n${inputs.join("\n")}\n`;
+      for (let index = 0; index < program.inputCount; index++) {
+        for (const [point, factor] of [
+          ["center", "1.17"],
+          ["x", "1.93"],
+          ["y", "2.71"]
+        ]) {
+          evaluation += `  diagnostic_anchor += dot(inputs.${point}[${index}u], vec4f(0.13, 0.19, 0.23, 0.29)) * ${factor};\n`;
+        }
+      }
+      evaluation +=
+        "  diagnostic_anchor += dot(interpolation.dx, vec3f(0.61, 0.67, 0.71)) + dot(interpolation.dy, vec3f(0.73, 0.79, 0.83));\n";
+    }
+    if (costSlice === "C") {
+      evaluation += "  let values = native_material_evaluate(entry.constant_base, inputs);\n";
+      const slots = [...new Set(Object.values(program.outputs).flat())];
+      for (const slot of slots) {
+        evaluation += `  diagnostic_anchor += values[${slot}u] * 0.17;\n`;
+      }
+    }
+    evaluation += "  let color = vec3f(0.2) + vec3f(diagnostic_anchor * 0.0001);\n";
+  }
   return /* wgsl */ `
+// Native cost slice: ${costSlice}
 ${surfaceGeometryCompletionWgsl(profile.productGeometry, true, false)}
 ${lighting}
 ${LINEAR_REC709_TO_REC2020_WGSL}
@@ -513,15 +591,7 @@ ${pixelSelection}
   if (interpolation.flags & WINNER_VALUE_VALID) == 0u {
     return;
   }
-  var inputs: NativeMaterialInputs;
-${inputs.join("\n")}
-  let values = native_material_evaluate(entry.constant_base, inputs);
-  let raster_flags = u32(native_material_constant(entry.constant_base, ${program.constants.length + 1}u));
-  let position = native_attribute(corners.position, interpolation.weights).xyz;
-  let normal = native_geometry_input(corners, interpolation.weights, 5u).xyz;
-  let tangent = native_geometry_input(corners, interpolation.weights, 6u);
-  let basis = mat3x3f(tangent.xyz, cross(normal, tangent.xyz) * tangent.w, normal);
-${material}
+${evaluation}
   // P is the positive GPU exposure published by radiometry. An artistic lower
   // floor here would disagree with Sky/Aerial and HDR metering above L=1800.
   let contribution = oengine_linear_rec709_to_rec2020(color) * settings.camera_position_exposure.w;

@@ -9,7 +9,8 @@ export function installDungeonGpuAudit() {
     peakBytes = 0,
     bytes = 0;
   const calls = [],
-    hashes = [];
+    hashes = [],
+    nativeCostSlices = new Set();
   const originalDigest = SubtleCrypto.prototype.digest;
   SubtleCrypto.prototype.digest = function (algorithm, data) {
     const record = {
@@ -118,6 +119,10 @@ export function installDungeonGpuAudit() {
   ]) {
     const original = GPUDevice.prototype[method];
     GPUDevice.prototype[method] = function (desc) {
+      if (method === "createShaderModule") {
+        const slice = /Native cost slice: ([A-G])/.exec(desc.code)?.[1];
+        if (slice) nativeCostSlices.add(slice);
+      }
       const at = performance.now();
       const value = original.call(this, desc);
       const record = { method, label: desc.label ?? "", at, hostMs: performance.now() - at };
@@ -168,6 +173,7 @@ export function installDungeonGpuAudit() {
       peakBytes,
       calls,
       hashes,
+      nativeCostSlices: [...nativeCostSlices],
       unknownFormats: live()
         .filter((r) => r.bytes === null)
         .map((r) => r.format),
@@ -182,6 +188,23 @@ export function installDungeonGpuAudit() {
         ["dirtyHeader", diagnostics.dirtyPages.buffer, 0, 16],
         ["casterHeader", diagnostics.casterRecords.buffer, 0, 32]
       ];
+      const receiverGroups = live()
+        .find((r) => r.label === "Diagnostic/VSM receiver workgroups")
+        ?.ref.deref();
+      if (receiverGroups) {
+        const requested = live()
+          .find((r) => r.label.endsWith("/requestedPages"))
+          ?.ref.deref();
+        const constants = live()
+          .find((r) => r.label === "VSM/receiver demand constants")
+          ?.ref.deref();
+        if (!requested || !constants) throw new Error("VSM receiver diagnostic products are incomplete");
+        copies.push(
+          ["receiverWorkgroups", receiverGroups, 0, receiverGroups.size],
+          ["receiverRequestedWords", requested, 0, requested.size],
+          ["receiverConstants", constants, 0, constants.size]
+        );
+      }
       const result = {};
       const encoder = device.createCommandEncoder({ label: "Diagnostic/VSM headers (paused)" });
       const staging = copies.map(([label, source, offset, size]) => {

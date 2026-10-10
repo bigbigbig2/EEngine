@@ -9,6 +9,7 @@ import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { installDungeonGpuAudit } from "./dungeon-gpu-audit.mjs";
+import { summarizeVsmReceiverRequests } from "./vsm-receiver-statistics.mjs";
 const runFile = promisify(execFile);
 const args = process.argv.slice(2);
 function option(name, fallback) {
@@ -22,6 +23,13 @@ const root = resolve(import.meta.dirname, "../..");
 const demo = "examples/demos/14-integrated/dungeon-warkarma-texture-compression";
 const out = resolve(root, option("out", ".local/validation/dungeon-performance-2026-10-10"));
 const frames = Number(option("frames", "240"));
+const nativeCostSlice = option("native-slice", null);
+const vsmDemandDiagnostics = args.includes("--vsm-demand-diagnostics");
+const gpuSampleInterval = Number(option("gpu-sample-interval", "4"));
+if (nativeCostSlice !== null && !/^[A-G]$/.test(nativeCostSlice))
+  throw new Error("--native-slice must be A through G");
+if (vsmDemandDiagnostics && nativeCostSlice !== null && nativeCostSlice !== "G")
+  throw new Error("VSM statistics require full native shading");
 const scenarios = args.includes("--load-only")
   ? []
   : option(
@@ -361,6 +369,8 @@ try {
   const urlObject = new URL(
     `http://127.0.0.1:5186/demos/14-integrated/dungeon-warkarma-texture-compression/index.html?performanceCapture=1&geometryMiB=${report.options.geometryMiB}`
   );
+  if (nativeCostSlice !== null) urlObject.searchParams.set("nativeCostSlice", nativeCostSlice);
+  if (vsmDemandDiagnostics) urlObject.searchParams.set("vsmDemandDiagnostics", "1");
   if (args.includes("--near") && !args.includes("--camera-search")) {
     const b = modelBounds(await readFile(resolve(root, demo, "assets/dungeon_warkarma.glb")));
     const offset = option("cameraOffset", "-7,-2,-7").split(",").map(Number),
@@ -398,6 +408,14 @@ try {
     gpuAudit: await run.page.evaluate(() => window.dungeonGpuAudit?.snapshot())
   };
   if (report.load.report.failure) throw new Error(JSON.stringify(report.load.report.failure));
+  report.options.nativeCostSlice = nativeCostSlice;
+  report.options.vsmDemandDiagnostics = vsmDemandDiagnostics;
+  report.options.gpuSampleInterval = gpuSampleInterval;
+  if (nativeCostSlice !== null && !report.load.gpuAudit?.nativeCostSlices?.includes(nativeCostSlice)) {
+    throw new Error(
+      "Requested Native cost slice was not compiled; use EENGINE_PERFORMANCE_DIAGNOSTICS=1 build"
+    );
+  }
   console.log(
     JSON.stringify({
       phase: "loaded",
@@ -510,8 +528,9 @@ try {
           ? "coarse"
           : "full";
     const startFrame = await run.page.evaluate(
-      ([mode, counters]) => window.dungeonPerformance.configure(mode, mode === "full", counters),
-      [mode, name === "counters"]
+      ([mode, counters, interval]) =>
+        window.dungeonPerformance.configure(mode, mode === "full", counters, interval),
+      [mode, name === "counters", gpuSampleInterval]
     );
     await run.page.waitForFunction(
       (n) => window.dungeonDemo.report().renderState.frame >= n + 60,
@@ -555,6 +574,13 @@ try {
       capture.vsmHeaders = await run.page.evaluate(() =>
         window.dungeonGpuAudit.vsmHeaders(window.dungeonPerformance.vsmDiagnostics())
       );
+      if (vsmDemandDiagnostics) {
+        if (!capture.vsmHeaders?.receiverWorkgroups)
+          throw new Error("VSM receiver instrumentation was not compiled");
+        capture.vsmReceiverStatistics = summarizeVsmReceiverRequests(capture.vsmHeaders);
+      } else if (capture.vsmHeaders?.receiverWorkgroups) {
+        throw new Error("Instrumentation is active during a timing run");
+      }
       capture.gpuResources = await run.page.evaluate(() => window.dungeonGpuAudit.snapshot());
       await control("pause", false, true);
       if (args.includes("--near") && (capture.coverage.ratio < 0.8 || capture.coverage.invalid))
@@ -574,6 +600,30 @@ try {
     });
     await run.page.screenshot({ path: resolve(out, `${name}.png`) });
     await writeFile(resolve(out, "suite.json"), JSON.stringify(report, null, 2));
+    if (report.cameraSelection?.selected && name !== "motion") {
+      const selected = report.cameraSelection.selected;
+      const camera = capture.report.renderState.camera;
+      if (["position", "target"].some((field) =>
+        camera[field].some((value, axis) => Math.abs(value - selected[field][axis]) > 1e-6))) {
+        throw new Error(`Fixed camera changed during ${name}; raw capture saved`);
+      }
+    }
+    if (nativeCostSlice !== null && mode === "full") {
+      const windowFrames = capture.raw.frames.filter(
+        (frame) => frame.frameIndex >= capture.targetStart && frame.frameIndex < capture.targetEnd
+      );
+      const interval = capture.raw.gpuSampleInterval;
+      const expected = windowFrames.filter((frame) => frame.frameIndex % interval === 0).length;
+      const complete = windowFrames.filter(
+        (frame) => frame.gpu.sampled && frame.gpu.mode === "full" && !frame.gpu.pending &&
+          !frame.counters["gpu.timing.truncated"] &&
+          frame.gpu.segments.some((segment) => segment.label.includes("native winner shading"))
+      ).length;
+      if (windowFrames.length !== frames || !expected || complete !== expected) {
+        throw new Error(`Native slice ${nativeCostSlice} incomplete full timing window: ` +
+          `${complete}/${expected} GPU samples, ${windowFrames.length}/${frames} frames; raw capture saved`);
+      }
+    }
     console.log(
       JSON.stringify({
         phase: "capture",
