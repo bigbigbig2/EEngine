@@ -111,11 +111,11 @@ interface RegisteredProduct {
   readonly source: GeometryProductRevisionSourceV1;
   readonly pageCount: number;
   readonly ownsSource: boolean;
+  readonly operations: Map<number, Operation>;
   readsServed: number;
   uploadsServed: number;
 }
 interface Operation {
-  readonly key: string;
   demand: GeometryPageDemandV1;
   readonly product: RegisteredProduct;
   state: GeometryPageOperationStateV1;
@@ -141,7 +141,9 @@ export class GeometryPageSchedulerV1 {
     targetIoThroughputBytesPerSecond: number;
   };
   readonly #products = new Map<number, RegisteredProduct>();
-  readonly #operations = new Map<string, Operation>();
+  // Preserve global insertion order for stable scheduling ties across Products.
+  // Identity lookup belongs to the registered generation's numeric page map.
+  readonly #operations = new Set<Operation>();
   readonly #demandBatch = new GeometryPageDemandBatchV1();
   readonly #inFlight = new Set<Promise<void>>();
   #budget: GeometryPageSchedulerBudgetV1;
@@ -263,6 +265,7 @@ export class GeometryPageSchedulerV1 {
       source,
       pageCount,
       ownsSource: options.sourceOwnership !== "external",
+      operations: new Map(),
       readsServed: 0,
       uploadsServed: 0,
     });
@@ -273,15 +276,14 @@ export class GeometryPageSchedulerV1 {
   unregisterProduct(generation: number): void {
     const product = this.#products.get(generation);
     if (!product) return;
-    for (const [key, operation] of this.#operations) {
-      if (operation.product.generation === generation) {
-        operation.controller?.abort();
-        this.dropVerified(operation);
-        operation.state = "failed";
-        this.#operations.delete(key);
-        this.#cancelled++;
-      }
+    for (const operation of product.operations.values()) {
+      operation.controller?.abort();
+      this.dropVerified(operation);
+      operation.state = "failed";
+      this.#operations.delete(operation);
+      this.#cancelled++;
     }
+    product.operations.clear();
     this.#products.delete(generation);
     this.#minimumPageBytes = [...this.#products.values()].reduce(
       (max, candidate) => Math.max(max, candidate.source.descriptor.decodedPageBytes),
@@ -369,8 +371,7 @@ export class GeometryPageSchedulerV1 {
         this.#stale++;
         continue;
       }
-      const key = `${generation}:${pageId}`;
-      const existing = this.#operations.get(key);
+      const existing = product.operations.get(pageId);
       if (existing) {
         existing.age++;
         if (batch.priority(index) > priority(existing.demand)) {
@@ -378,15 +379,16 @@ export class GeometryPageSchedulerV1 {
         }
         continue;
       }
-      this.#operations.set(key, {
-        key,
+      const operation: Operation = {
         demand: records?.[index] ?? batch.materialize(index),
         product,
         state: "queued",
         attempts: 0,
         nextRetryAt: nowMs,
         age: 0,
-      });
+      };
+      product.operations.set(pageId, operation);
+      this.#operations.add(operation);
     }
     this.pump(nowMs);
   }
@@ -395,7 +397,7 @@ export class GeometryPageSchedulerV1 {
   tick(nowMs = 0, pressure?: GeometryPageSchedulerPressureV1): void {
     if (!Number.isFinite(nowMs) || nowMs < 0)
       throw new RangeError("Geometry page scheduler time must be non-negative");
-    for (const operation of this.#operations.values()) {
+    for (const operation of this.#operations) {
       if (operation.state === "queued" || operation.state === "upload-queued") operation.age++;
     }
     if (pressure !== undefined) this.setPressure(pressure);
@@ -404,13 +406,22 @@ export class GeometryPageSchedulerV1 {
 
   pump(nowMs = 0): void {
     while (this.#inFlight.size < this.#budget.maxConcurrentReads) {
-      const operation = [...this.#operations.values()]
-        .filter((candidate) => candidate.state === "queued" && candidate.nextRetryAt <= nowMs)
-        .sort(
-          (a, b) =>
-            a.product.readsServed - b.product.readsServed ||
-            priority(b.demand) + b.age - priority(a.demand) - a.age,
-        )[0];
+      let operation: Operation | undefined;
+      for (const candidate of this.#operations) {
+        if (candidate.state !== "queued" || !(candidate.nextRetryAt <= nowMs)) {
+          continue;
+        }
+        // Strict comparison retains the first insertion on equal priority,
+        // exactly as the former stable sort. Re-select after readsServed changes.
+        if (
+          operation === undefined ||
+          candidate.product.readsServed < operation.product.readsServed ||
+          (candidate.product.readsServed === operation.product.readsServed &&
+            priority(candidate.demand) + candidate.age > priority(operation.demand) + operation.age)
+        ) {
+          operation = candidate;
+        }
+      }
       if (!operation) break;
       operation.state = "producing-or-reading";
       operation.controller = new AbortController();
@@ -450,13 +461,14 @@ export class GeometryPageSchedulerV1 {
     this.#blockedUploads = 0;
     let remaining = availableBytes ?? this.#budget.maxUploadBytesPerFrame,
       uploaded = 0;
-    const ready = [...this.#operations.values()]
-      .filter((operation) => operation.state === "upload-queued" && operation.page)
-      .sort(
-        (a, b) =>
-          a.product.uploadsServed - b.product.uploadsServed ||
-          priority(b.demand) + b.age - priority(a.demand) - a.age,
-      );
+    // Keep this call's snapshot and stable re-sorts: uploadsServed changes after
+    // each accepted upload, and a sink may ingest more demands synchronously.
+    const ready: Operation[] = [];
+    for (const operation of this.#operations) {
+      if (operation.state === "upload-queued" && operation.page !== undefined) {
+        ready.push(operation);
+      }
+    }
     while (ready.length > 0) {
       ready.sort(
         (a, b) =>
@@ -493,29 +505,36 @@ export class GeometryPageSchedulerV1 {
   }
 
   markRetiring(productGeneration: number, pageId: number): void {
-    const operation = this.#operations.get(`${productGeneration}:${pageId}`);
+    const operation = this.#products.get(productGeneration)?.operations.get(pageId);
     if (operation?.state === "resident") operation.state = "retiring";
   }
   markRetired(productGeneration: number, pageId: number): void {
-    const key = `${productGeneration}:${pageId}`,
-      operation = this.#operations.get(key);
+    const product = this.#products.get(productGeneration);
+    const operation = product?.operations.get(pageId);
     if (operation?.state === "retiring") {
       operation.state = "absent";
-      this.#operations.delete(key);
+      product!.operations.delete(pageId);
+      this.#operations.delete(operation);
     }
   }
   cancelGeneration(productGeneration: number): void {
-    for (const [key, operation] of this.#operations)
-      if (operation.product.generation === productGeneration && operation.state !== "resident") {
+    const product = this.#products.get(productGeneration);
+    if (product === undefined) {
+      return;
+    }
+    for (const [pageId, operation] of product.operations) {
+      if (operation.state !== "resident") {
         operation.controller?.abort();
         this.dropVerified(operation);
         operation.state = "failed";
-        this.#operations.delete(key);
+        product.operations.delete(pageId);
+        this.#operations.delete(operation);
         this.#cancelled++;
       }
+    }
   }
   state(productGeneration: number, pageId: number): GeometryPageOperationStateV1 {
-    return this.#operations.get(`${productGeneration}:${pageId}`)?.state ?? "absent";
+    return this.#products.get(productGeneration)?.operations.get(pageId)?.state ?? "absent";
   }
 
   get blockedUploads(): number {
@@ -523,6 +542,16 @@ export class GeometryPageSchedulerV1 {
   }
 
   evidence(): GeometryPageSchedulerEvidenceV1 {
+    let pending = 0;
+    for (const operation of this.#operations) {
+      if (
+        operation.state === "queued" ||
+        operation.state === "upload-queued" ||
+        operation.state === "producing-or-reading"
+      ) {
+        pending++;
+      }
+    }
     return Object.freeze({
       requested: this.#requested,
       deduplicated: this.#deduplicated,
@@ -533,12 +562,7 @@ export class GeometryPageSchedulerV1 {
       blockedUploads: this.#blockedUploads,
       verifiedBytes: this.#verifiedBytes,
       peakBufferedBytes: this.#peakBufferedBytes,
-      pending: [...this.#operations.values()].filter(
-        (operation) =>
-          operation.state === "queued" ||
-          operation.state === "upload-queued" ||
-          operation.state === "producing-or-reading",
-      ).length,
+      pending,
       lastError: this.#lastError,
       readLatencyP50Ms: percentile(this.#readLatencies, 0.5),
       readLatencyP95Ms: percentile(this.#readLatencies, 0.95),

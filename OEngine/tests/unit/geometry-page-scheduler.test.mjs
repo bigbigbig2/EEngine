@@ -182,7 +182,7 @@ test("page scheduler verifies identity/hash, retries transient source errors, an
 });
 
 test("page scheduler rejects deterministic hash corruption and stale generations", async () => {
-  const { descriptor, page, hash } = fixture();
+  const { descriptor, page, hash, integrity } = fixture();
   const source = {
     descriptor,
     async readPage(pageId) {
@@ -208,6 +208,7 @@ test("page scheduler rejects deterministic hash corruption and stale generations
   assert.equal(scheduler.state(9, 0), "failed");
   assert.equal(scheduler.evidence().retries, 0);
   assert.equal(scheduler.evidence().stale, 2);
+  assert.match(scheduler.evidence().lastError, /integrity hash mismatch/);
 });
 
 test("page scheduler aborts an in-flight source on generation cancellation", async () => {
