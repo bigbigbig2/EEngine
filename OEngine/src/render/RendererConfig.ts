@@ -1,3 +1,5 @@
+import { resolveExposureSettings, type ExposureSettings } from "./temporal/ExposureSettings.js";
+
 /** Immutable Renderer capability and execution configuration. */
 export interface RendererConfig {
   /** Opt in to extended Display-P3 when canvas and display report support. */
@@ -10,6 +12,8 @@ export interface RendererConfig {
   readonly autoExposure?: boolean;
   /** Fixed scene exposure used when autoExposure is false. Defaults to 1. */
   readonly fixedExposure?: number;
+  /** Immutable HDR metering policy. Changes require a new renderer. */
+  readonly exposure?: Partial<ExposureSettings>;
   /** Immutable named error budgets; omitted means exact/full-rate rejection. No shader or resource ownership transfers. */
   /** Internal visibility resolution relative to the output, in (0, 1]. */
   readonly renderScale?: number;
@@ -38,6 +42,7 @@ export function mergeRendererConfig(base: RendererConfig, override?: RendererCon
 }
 
 export function validateRendererConfig(config: RendererConfig): void {
+  resolveExposureSettings(config.exposure);
   if (
     config.renderScale !== undefined &&
     (!Number.isFinite(config.renderScale) || config.renderScale <= 0 || config.renderScale > 1)
@@ -46,9 +51,9 @@ export function validateRendererConfig(config: RendererConfig): void {
   }
   if (
     config.fixedExposure !== undefined &&
-    (!Number.isFinite(config.fixedExposure) || config.fixedExposure <= 0 || config.fixedExposure > 64)
+    (!Number.isFinite(config.fixedExposure) || config.fixedExposure < 1e-6 || config.fixedExposure > 64)
   ) {
-    throw new RangeError("fixedExposure must be finite and in (0, 64]");
+    throw new RangeError("fixedExposure must be finite and in [1e-6, 64]");
   }
   for (const [name, value] of Object.entries(config.geometryResidency ?? {})) {
     if (!Number.isSafeInteger(value) || value <= 0 || value % 4 !== 0) {

@@ -131,6 +131,8 @@ test("sun and sky edits publish parameters without regenerating the fixed Earth 
     sunDirectionWorld: [0, 1, 0],
     sunIrradiance: [1, 1, 1],
     skyLuminanceScale: 1,
+    lightingDiagnostic: "all",
+    aerialPerspectiveEnabled: true,
     shadowLength: [0, 0],
   };
   const first = environment.record(h.encoder, initial, [0, 0, 0]);
@@ -150,6 +152,24 @@ test("sun and sky edits publish parameters without regenerating the fixed Earth 
   assert.equal(parameters.getFloat32(32, true), 1.5);
   environment.commit(second, Promise.resolve());
   assert.equal(lutDispatches().length, 4);
+  const dispatchCount = h.dispatches.length;
+  const isolated = {
+    ...initial,
+    sunIrradiance: [2, 1, 1],
+    skyLuminanceScale: 1.5,
+    lightingDiagnostic: "specular-only",
+    aerialPerspectiveEnabled: false,
+  };
+  const diagnostic = environment.record(h.encoder, isolated, [0, 0, 0]);
+  environment.writeParameters((_buffer, data) => {
+    parameters = new DataView(data);
+  });
+  assert.equal(parameters.getUint32(36, true), 3);
+  assert.equal(parameters.getUint32(40, true), 1);
+  environment.abort(diagnostic);
+  assert.equal(environment.state.active.snapshot.lightingDiagnostic, "all");
+  environment.commit(environment.record(h.encoder, isolated, [0, 0, 0]), Promise.resolve());
+  assert.equal(h.dispatches.length, dispatchCount, "diagnostic must not regenerate LUT/IBL");
   environment.destroy();
 });
 
@@ -169,6 +189,8 @@ test("replaced LUT generation retires only after the submitted frame completes",
     sunDirectionWorld: [0, 1, 0],
     sunIrradiance: [1, 1, 1],
     skyLuminanceScale: 1,
+    lightingDiagnostic: "all",
+    aerialPerspectiveEnabled: true,
     shadowLength: [0, 0],
   };
   let submittedComplete;

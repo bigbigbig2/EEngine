@@ -10,7 +10,17 @@ const ATMOSPHERE_RAYLEIGH_SCATTERING: vec3f = vec3f(0.005802, 0.013558, 0.0331);
 const ATMOSPHERE_MIE_SCATTERING: vec3f = vec3f(0.003996, 0.003996, 0.003996);
 const ATMOSPHERE_SKY_RADIANCE_TO_LUMINANCE: vec3f = vec3f(114974.91644, 71305.954816, 65310.548555);
 const ATMOSPHERE_LUMINANCE_SCALE: f32 = 0.000013207021769386792;
-struct PhysicalEnvironmentParameters { sun_direction_world: vec3f, world_to_unit: f32, sun_irradiance: vec3f, generation: f32, sky_luminance_scale: f32 };
+// Existing 64-byte allocation; diagnostics use previously unused words 9/10.
+struct PhysicalEnvironmentParameters {
+  sun_direction_world: vec3f,
+  world_to_unit: f32,
+  sun_irradiance: vec3f,
+  generation: f32,
+  sky_luminance_scale: f32,
+  diagnostic_mode: u32,
+  aerial_disabled: u32,
+  _pad: u32,
+};
 struct AtmosphereScatteringSample { rayleigh: vec3f, mie: vec3f, higher_order: vec3f };
 struct AtmosphereTransport { transmittance: vec3f, inscattering: vec3f };
 fn atmosphere_sqrt_safe(v: f32) -> f32 { return sqrt(max(v, 0.0)); }

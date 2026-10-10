@@ -6,13 +6,15 @@ import {
   Renderer,
   RenderDebugView,
   type RenderDebugViewName,
+  type ExposureDiagnostics,
+  type PhysicalLightingDiagnostic,
   resolveWebCookRuntimeProfile,
   Scene,
   webCookCatalogSceneFraming,
   type MultiProductSceneHandles,
   type WebCookRuntimeAsset,
   type WebCookSceneCatalogSnapshot,
-  type WebCookProductPublicationTiming
+  type WebCookProductPublicationTiming,
 } from "../../../../OEngine/src/index.ts";
 import { materialTextureLeaves } from "../../../../OEngine/src/assets/PcMaterialTextures.ts";
 import { ShadeTransparencyMode } from "../../../../OEngine/src/material/enums.ts";
@@ -28,7 +30,7 @@ import {
   RotateCw,
   Scan,
   Square,
-  StepForward
+  StepForward,
 } from "lucide";
 import "./style.css";
 import { loadCookedScene } from "./cooked-scene.ts";
@@ -49,11 +51,17 @@ const fixedExposure =
   Number.isFinite(requestedExposure) && requestedExposure > 0 && requestedExposure <= 64
     ? requestedExposure
     : 1;
+const exposureSettings = {
+  lowPercentile: Number(query.get("exposureLow") ?? 0.6),
+  highPercentile: Number(query.get("exposureHigh") ?? 0.95),
+  highlightHeadroom: Number(query.get("exposureHeadroom") ?? 2),
+};
+let exposureDiagnostic: ExposureDiagnostics | null = null;
 const sunDirection = [0.39036003, 0.8922514, 0.22306285] as const;
 const sunIrradiance = [1.474, 1.8504, 1.91198] as const;
 const cookedBase = new URL(
   fixture ? "/assets/local-bistro/cooked-smoke/" : "/assets/local-bistro/cooked/",
-  location.href
+  location.href,
 ).href;
 const sourceUrl = fixture
   ? "/assets/local-bistro/smoke.glb"
@@ -70,7 +78,7 @@ const scope = [
   ["ASTC production fallback", "NOT TARGET"],
   ["ETC2 production fallback", "NOT TARGET"],
   ["RGBA material fallback", "REMOVED BY DESIGN"],
-  ["Full BLEND transparency path", "NOT COMPLETE"]
+  ["Full BLEND transparency path", "NOT COMPLETE"],
 ];
 const element = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const canvas = element<HTMLCanvasElement>("viewport");
@@ -140,7 +148,7 @@ function percentile(values: readonly number[]) {
   return {
     n: sorted.length,
     p50: sorted[Math.ceil(sorted.length * 0.5) - 1]!,
-    p95: sorted[Math.ceil(sorted.length * 0.95) - 1]!
+    p95: sorted[Math.ceil(sorted.length * 0.95) - 1]!,
   };
 }
 
@@ -165,7 +173,7 @@ function snapshot() {
       return (
         !!m &&
         m.planes.every(
-          (p) => p.mips.length === Math.floor(Math.log2(Math.max(m.storageWidth, m.storageHeight))) + 1
+          (p) => p.mips.length === Math.floor(Math.log2(Math.max(m.storageWidth, m.storageHeight))) + 1,
         )
       );
     }),
@@ -187,8 +195,8 @@ function snapshot() {
       (m) =>
         m.texture_albedo?.texture_product?.metadata.exactAlpha &&
         m.texture_albedo.texture_product.metadata.planes.some(
-          (p) => p.role === "coverage" && p.format === "r8unorm"
-        )
+          (p) => p.role === "coverage" && p.format === "r8unorm",
+        ),
     ),
     nativeMaterialPublication: !!runtime?.nativeMaterials,
     sourceMaterialLimitation: "Known source-material conversion limitation",
@@ -197,7 +205,7 @@ function snapshot() {
       : "NOT MAPPED: specular factors/color/maps are omitted by current WebCook mapper",
     gltfMaterialParserSpecularSupport:
       "Factors saturated to [0,1]; scalar alpha + sRGB RGB textures + UV transforms supported",
-    visualChecks: "NOT YET VERIFIED: base color, normal detail, MASK vegetation, VSM, mips"
+    visualChecks: "NOT YET VERIFIED: base color, normal detail, MASK vegetation, VSM, mips",
   };
   const gpu: number[] = [],
     surface: number[] = [];
@@ -224,7 +232,7 @@ function snapshot() {
   const freeBytes =
     texture?.packageSegments.reduce(
       (sum, s) => sum + (s.freeLayerCount * s.allocatedBytes) / s.allocatedCapacity,
-      0
+      0,
     ) ?? 0;
   const streaming = renderer?.geometryStreamingEvidence(scene) ?? null;
   const sampleElapsedMs = callbacks.length > 1 ? callbacks.at(-1)!.atMs - callbacks[0]!.atMs : 0;
@@ -249,7 +257,7 @@ function snapshot() {
         evicted: sum.evicted + product.evictedPages,
         reloads: sum.reloads + product.reloads,
         thrashBytes: sum.thrashBytes + product.thrashBytes,
-        failed: sum.failed + product.failedPages
+        failed: sum.failed + product.failedPages,
       }),
       {
         resident: 0,
@@ -260,8 +268,8 @@ function snapshot() {
         evicted: 0,
         reloads: 0,
         thrashBytes: 0,
-        failed: 0
-      }
+        failed: 0,
+      },
     ) ?? null;
   return {
     schema: "bistro-texture-compression-demo-v1",
@@ -287,14 +295,14 @@ function snapshot() {
       materials: catalog ? new Set(catalog.primitives.map((p) => p.materialIndex)).size : null,
       textures: catalog?.textures.length ?? null,
       images: catalog?.images.length ?? null,
-      transferMode: catalog?.sourceTransferMode ?? null
+      transferMode: catalog?.sourceTransferMode ?? null,
     },
     texture,
     formats: { bc7: count("bc7"), bc4: count("bc4"), r8Coverage: count("r8unorm") },
     overhead: {
       neutralBytes,
       freeBytes,
-      allocationMinusLiveBytes: texture ? texture.allocatedBytes - texture.residentTextureBytes : null
+      allocationMinusLiveBytes: texture ? texture.allocatedBytes - texture.residentTextureBytes : null,
     },
     preparation: renderer?.texturePreparationEvidence() ?? null,
     upload: texture
@@ -302,7 +310,7 @@ function snapshot() {
           tailBytes: texture.uploadBytes - texture.progressiveMipUploadBytes,
           promotionBytes: texture.progressiveMipUploadBytes,
           totalBytes: texture.uploadBytes,
-          promotionCount: texture.mipPromotionCount
+          promotionCount: texture.mipPromotionCount,
         }
       : null,
     load: {
@@ -315,17 +323,17 @@ function snapshot() {
         ? "Offline material catalog + OEGPACK ranges + validated TextureProducts; original GLB is not fetched"
         : "Range catalog read+parse are combined in producer catalogMs; no whole 1GB ArrayBuffer read",
       timings: progressTimings,
-      publications
+      publications,
     },
     stable: {
       normal: { cpuFrameMs: percentile(cpu.normal), gpuFrameMs: null, surfaceMs: null },
       profiled: {
         cpuFrameMs: percentile(cpu.profiled),
         gpuCommandSpanMs: percentile(gpu),
-        surfacePassSumMs: percentile(surface)
+        surfacePassSumMs: percentile(surface),
       },
       rafIntervalMs: percentile(
-        rafCallbacks.slice(1).map((sample, index) => sample.atMs - rafCallbacks[index]!.atMs)
+        rafCallbacks.slice(1).map((sample, index) => sample.atMs - rafCallbacks[index]!.atMs),
       ),
       submittedIntervalMs: percentile(intervals),
       submissions: {
@@ -337,15 +345,15 @@ function snapshot() {
         deferred: sampledCallbacks.length - submittedCallbacks,
         framesPerSecond: sampleElapsedMs > 0 ? (submittedCallbacks * 1000) / sampleElapsedMs : null,
         callbacksPerSecond: sampleElapsedMs > 0 ? (sampledCallbacks.length * 1000) / sampleElapsedMs : null,
-        presentedFramesPerSecond: null
+        presentedFramesPerSecond: null,
       },
       completionLatencyMs: {
         normal: percentile(completion.normal),
-        profiled: percentile(completion.profiled)
+        profiled: percentile(completion.profiled),
       },
       submission,
       warmupFrames: 60,
-      visibility: document.visibilityState
+      visibility: document.visibilityState,
     },
     quality,
     memory: renderer?.graphics ? renderer.memoryEvidence() : null,
@@ -371,17 +379,22 @@ function snapshot() {
         ? {
             damping: controls.enableDamping,
             dampingFactor: controls.dampingFactor,
-            rotateSpeed: controls.rotateSpeed
+            rotateSpeed: controls.rotateSpeed,
           }
         : null,
       temporal: renderer?.temporalHistoryEvidence() ?? null,
       resolution: renderer?.resolutionEvidence() ?? null,
-      exposure: { autoExposure, fixedExposure, actualAdaptedExposure: "GPU ONLY / NOT READ BACK" },
+      exposure: {
+        autoExposure,
+        fixedExposure,
+        settings: exposureSettings,
+        lastRequestedGpuSample: exposureDiagnostic,
+      },
       environment: scene.physical_environment.snapshot(),
       sunCalendar: {
         enabled: element<HTMLInputElement>("sun-calendar").checked,
         year: SUN_CALENDAR_YEAR,
-        ...readSunCalendar()
+        ...readSunCalendar(),
       },
       authoredLights: 0,
       authoredHdr: false,
@@ -393,20 +406,20 @@ function snapshot() {
         near: camera.near,
         far: camera.far,
         fov: camera.fov_degrees,
-        target: controls ? [controls.target.x, controls.target.y, controls.target.z] : null
+        target: controls ? [controls.target.x, controls.target.y, controls.target.z] : null,
       },
       geometryActivity,
       geometryDelta,
       streamingError:
         renderer?.geometryStreamingError() ?? streaming?.lastError ?? streaming?.scheduler.lastError ?? null,
-      visualStability: "NOT VERIFIED: full texture mips do not establish geometry or lighting stability"
+      visualStability: "NOT VERIFIED: full texture mips do not establish geometry or lighting stability",
     },
     diagnostics: renderer?.profiler.diagnostics ?? null,
     scope,
     teardown,
     acceptance: fixture
       ? "SMOKE FIXTURE ONLY"
-      : "NOT PASS: geometry/exposure stability and visual texture/MASK/VSM acceptance unresolved"
+      : "NOT PASS: geometry/exposure stability and visual texture/MASK/VSM acceptance unresolved",
   };
 }
 
@@ -448,7 +461,7 @@ const rows: Array<[string, string]> = [
   ["Completion / publication deferrals", "deferrals"],
   ["Profiled GPU P50/P95", "gpu"],
   ["Profiled Surface P50/P95", "surface"],
-  ["Total software bytes", "total"]
+  ["Total software bytes", "total"],
 ];
 const cells = new Map<string, HTMLElement>();
 for (const [label, key] of rows) {
@@ -485,7 +498,7 @@ for (const [key, label] of [
   ["resolution", "Internal / output"],
   ["jitter", "Raster / FSR jitter (pixels)"],
   ["clip", "Camera near / far"],
-  ["stages", "Frame stages"]
+  ["stages", "Frame stages"],
 ]) {
   const dt = document.createElement("dt"),
     dd = document.createElement("dd");
@@ -521,7 +534,7 @@ function refresh(): void {
       ? {
           uploadedBytes: g.uploadedBytes - lastGeometrySample.uploaded,
           evicted: g.evicted - lastGeometrySample.evicted,
-          reloads: g.reloads - lastGeometrySample.reloads
+          reloads: g.reloads - lastGeometrySample.reloads,
         }
       : { uploadedBytes: 0, evicted: 0, reloads: 0 };
     const changed =
@@ -559,7 +572,7 @@ function refresh(): void {
     clips: String(vsm?.clipLevels ?? 0),
     page: vsm ? `${vsm.pageSize} px + ${vsm.border} px border` : "--",
     slots: String(vsm?.residentSlots ?? 0),
-    taps: String(vsm?.pcfTapCount ?? 0)
+    taps: String(vsm?.pcfTapCount ?? 0),
   }))
     vsmCells.get(key)!.textContent = value;
   const renderValues: Record<string, string> = {
@@ -569,7 +582,7 @@ function refresh(): void {
       state.fsr3 && "FSR3",
       state.bloom && "Bloom",
       state.jitter && "Jitter",
-      "Sun / Sky / IBL / Atmosphere"
+      "Sun / Sky / IBL / Atmosphere",
     ]
       .filter(Boolean)
       .join("\n"),
@@ -591,7 +604,7 @@ function refresh(): void {
     resolution: `${state.resolution?.internal.join(" × ")} → ${state.resolution?.output.join(" × ")}\nCSS ${state.resolution?.css.join(" × ")} / DPR ${state.resolution?.pixelRatio}`,
     jitter: `${state.temporal?.jitter?.committed.map((value) => value.toFixed(3)).join(", ")}\nphase ${state.temporal?.phaseIndex} / ${state.temporal?.jitter?.phaseCount}`,
     clip: `${camera.near.toFixed(3)} / ${camera.far.toFixed(1)}`,
-    stages: state.stages.join("\n")
+    stages: state.stages.join("\n"),
   };
   for (const [key, value] of Object.entries(renderValues)) renderCells.get(key)!.textContent = value;
   if (p?.activeBatches) setPhase(`Preparing BC Texture Products (${p.cookedTasks} cooked)`);
@@ -637,7 +650,7 @@ function refresh(): void {
     deferrals: `${s.stable.submission?.completionDeferredTicks ?? 0} / ${s.stable.submission?.publicationDeferredTicks ?? 0}`,
     gpu: pair(s.stable.profiled.gpuCommandSpanMs),
     surface: pair(s.stable.profiled.surfacePassSumMs),
-    total: bytes(s.memory?.allocatedBytes)
+    total: bytes(s.memory?.allocatedBytes),
   };
   for (const [key, value] of Object.entries(values)) cells.get(key)!.textContent = value;
   element("elapsed").textContent = time(performance.now() - started);
@@ -667,7 +680,8 @@ async function start(): Promise<void> {
     enablePhysicalEnvironment: true,
     autoExposure,
     fixedExposure,
-    renderScale: 1
+    exposure: exposureSettings,
+    renderScale: 1,
   });
   await renderer.initialize({ context });
   if (closing) return;
@@ -684,7 +698,7 @@ async function start(): Promise<void> {
       cookedBase,
       abort.signal,
       setPhase,
-      geometryCapacityBytes
+      geometryCapacityBytes,
     ).then((value) => {
       cooked = value;
       sourceBytes = value.manifest.source.bytes;
@@ -704,7 +718,7 @@ async function start(): Promise<void> {
         maxSessionSpillBytes: 2048 * MiB,
         maxTrianglesPerProduct: 128 * 1024,
         maxVerticesPerProduct: 512 * 1024,
-        maxDomainsPerProduct: 64
+        maxDomainsPerProduct: 64,
       }),
       runtimeProfile: profile.selected,
       budgets: {
@@ -712,7 +726,7 @@ async function start(): Promise<void> {
         maxSourceBytes: 128 * MiB,
         maxWasmBytes: 512 * MiB,
         maxOutputBytes: 256 * MiB,
-        maxQueuedEvents: 2048
+        maxQueuedEvents: 2048,
       },
       initialOutputPageCredits: 512,
       maxBufferedPages: 512,
@@ -726,7 +740,7 @@ async function start(): Promise<void> {
       },
       onProgress: (value) => {
         progressTimings = value.timings;
-      }
+      },
     });
     loading = renderer.uploadWebCookedMultiProductScene(scene, asset, {
       signal: abort.signal,
@@ -734,13 +748,13 @@ async function start(): Promise<void> {
       residency: {
         requestedProfile: "HighEnd",
         configuredCapacityBytes: geometryCapacityBytes,
-        configuredBankBytes: geometryCapacityBytes / 4
+        configuredBankBytes: geometryCapacityBytes / 4,
       },
       onMaterials: () => setPhase("Preparing BC Texture Products"),
       onProductPublicationTiming: (value) => {
         publications.push(value);
         setPhase("Tail texture residency ready");
-      }
+      },
     });
   }
   handles = await loading;
@@ -854,7 +868,7 @@ function frameScene(): void {
   camera.transform.position.set(
     c[0] + distance * 0.6,
     c[1] + distance * 0.5,
-    c[2] + distance * Math.sqrt(0.39)
+    c[2] + distance * Math.sqrt(0.39),
   );
   camera.transform.lookAt({ x: c[0], y: c[1], z: c[2] });
   controls.target.set(c[0], c[1], c[2]);
@@ -871,7 +885,7 @@ function fail(error: unknown): void {
     phase,
     atMs: performance.now() - started,
     message: error instanceof Error ? error.message : String(error),
-    stack: error instanceof Error ? error.stack : undefined
+    stack: error instanceof Error ? error.stack : undefined,
   };
   element("error").textContent = `${failure.phase}: ${failure.message}`;
   console.error(error);
@@ -885,6 +899,8 @@ async function release(): Promise<void> {
   if (closing) return;
   lastSnapshot = renderer ? snapshot() : undefined;
   closing = true;
+  exposureDiagnostic = null;
+  element("exposure-diagnostic").textContent = "Renderer released; previous exposure sample is stale";
   if (resumeFrame) renderer?.onFrameAvailable.remove(resumeFrame);
   resumeFrame = undefined;
   diagnosticControlsDisabled(true);
@@ -926,7 +942,7 @@ async function release(): Promise<void> {
       texture,
       textureOwnerZero: zero,
       geometry: renderer?.device ? geometryProductGpuBudgetEvidence(renderer.device) : null,
-      prior: teardown
+      prior: teardown,
     };
     if (!zero) throw new Error("TextureResidency did not reach zero after release fence");
     element("phase").textContent = "Released";
@@ -955,7 +971,7 @@ panelToggle.addEventListener("click", () => {
   panelToggle.title = collapsed ? "Expand panel" : "Collapse panel";
   panelToggle.setAttribute("aria-label", panelToggle.title);
   panelToggle.replaceChildren(
-    createElement(collapsed ? PanelRightOpen : PanelRightClose, { "aria-hidden": "true" })
+    createElement(collapsed ? PanelRightOpen : PanelRightClose, { "aria-hidden": "true" }),
   );
 });
 const vsmCells = new Map<string, HTMLElement>();
@@ -965,7 +981,7 @@ for (const [key, label] of [
   ["clips", "Clip levels"],
   ["page", "Page size"],
   ["slots", "Resident slot capacity"],
-  ["taps", "PCF taps"]
+  ["taps", "PCF taps"],
 ]) {
   const dt = document.createElement("dt"),
     dd = document.createElement("dd");
@@ -976,7 +992,7 @@ for (const [key, label] of [
 }
 function diagnosticControlsDisabled(disabled: boolean): void {
   for (const control of document.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>(
-    ".diagnostic-controls input, .diagnostic-controls select, .diagnostic-controls button"
+    ".diagnostic-controls input, .diagnostic-controls select, .diagnostic-controls button",
   )) {
     control.disabled = disabled || (control.id === "step" && !paused);
   }
@@ -986,6 +1002,42 @@ diagnosticControlsDisabled(true);
 document.querySelector("aside")!.addEventListener("keydown", (event) => event.stopPropagation());
 element<HTMLSelectElement>("exposure-mode").value = autoExposure ? "auto" : "fixed";
 element<HTMLInputElement>("fixed-exposure").value = String(fixedExposure);
+element<HTMLInputElement>("exposure-low").value = String(exposureSettings.lowPercentile * 100);
+element<HTMLInputElement>("exposure-high").value = String(exposureSettings.highPercentile * 100);
+element<HTMLInputElement>("exposure-headroom").value = String(exposureSettings.highlightHeadroom);
+function applyLightingDiagnostic(): void {
+  scene.physical_environment.setLightingDiagnostic(
+    element<HTMLSelectElement>("lighting-contribution").value as PhysicalLightingDiagnostic,
+    element<HTMLInputElement>("aerial-perspective").checked,
+  );
+  renderer?.invalidateTemporalHistory();
+  resetFrameSamples();
+}
+element("lighting-contribution").addEventListener("change", applyLightingDiagnostic);
+element("aerial-perspective").addEventListener("change", applyLightingDiagnostic);
+element("read-exposure").addEventListener("click", async () => {
+  const active = renderer;
+  if (!active) return;
+  const button = element<HTMLButtonElement>("read-exposure");
+  button.disabled = true;
+  try {
+    const sample = await active.readExposureDiagnostics();
+    if (renderer !== active) return;
+    exposureDiagnostic = sample;
+    element("exposure-diagnostic").textContent = sample.autoExposure
+      ? `Exposure ${sample.exposure.toPrecision(5)} · Metered L ${sample.meteredLuminance.toPrecision(5)} · Adapted L ${sample.adaptedLuminance.toPrecision(5)} · Log L ${sample.adaptedLogLuminance.toFixed(3)} stops · Highlight L ${sample.highlightLuminance.toPrecision(5)} (one-shot)`
+      : `Fixed exposure ${sample.exposure.toPrecision(5)} · Meter disabled (one-shot)`;
+  } catch (error) {
+    element("exposure-diagnostic").textContent = `Diagnostic unavailable: ${String(error)}`;
+  } finally {
+    button.disabled = renderer === null || closing;
+  }
+});
+element("reset-exposure").addEventListener("click", () => {
+  renderer?.resetExposure();
+  exposureDiagnostic = null;
+  element("exposure-diagnostic").textContent = "Exposure reset; read again after the next frame";
+});
 function syncExposureControls(): void {
   element("fixed-exposure-control").hidden = element<HTMLSelectElement>("exposure-mode").value !== "fixed";
 }
@@ -1001,44 +1053,44 @@ const effectSwitches = [
     "vsm",
     (r: Renderer, v: boolean) => {
       r.shadowVisibilityEnabled = v;
-    }
+    },
   ],
   [
     "gtao",
     (r: Renderer, v: boolean) => {
       r.xe_gtao_enabled = v;
-    }
+    },
   ],
   [
     "fsr3",
     (r: Renderer, v: boolean) => {
       r.fsr3_enabled = v;
-    }
+    },
   ],
   [
     "bloom",
     (r: Renderer, v: boolean) => {
       r.bloom_enabled = v;
-    }
+    },
   ],
   [
     "jitter",
     (r: Renderer, v: boolean) => {
       r.temporal_jitter_enabled = v;
-    }
+    },
   ],
   [
     "hzb",
     (r: Renderer, v: boolean) => {
       r.packed_visibility_hzb_enabled = v;
-    }
+    },
   ],
   [
     "cone",
     (r: Renderer, v: boolean) => {
       r.packed_visibility_cone_enabled = v;
-    }
-  ]
+    },
+  ],
 ] as const;
 function syncEffectParameters(id: string): void {
   const input = element<HTMLInputElement>(id);
@@ -1078,21 +1130,21 @@ for (const [id, format, apply] of [
         camera.aspect = renderer.aspect_ratio;
         camera.update();
       }
-    }
+    },
   ],
   [
     "damping-factor",
     (v: number) => v.toFixed(2),
     (v: number) => {
       if (controls) controls.dampingFactor = v;
-    }
+    },
   ],
   [
     "orbit-speed",
     (v: number) => v.toFixed(2),
     (v: number) => {
       if (controls) controls.rotateSpeed = v;
-    }
+    },
   ],
   [
     "fov",
@@ -1100,8 +1152,8 @@ for (const [id, format, apply] of [
     (v: number) => {
       camera.fov_degrees = v;
       camera.update();
-    }
-  ]
+    },
+  ],
 ] as const) {
   const input = element<HTMLInputElement>(id);
   input.addEventListener("input", () => {
@@ -1173,8 +1225,8 @@ for (const id of ["sun-day", "sun-time", "sun-latitude", "sun-longitude"] as con
   // Commit on release, like the intensity controls. Dragging does not repeatedly
   // regenerate the physical sky IBL or restart temporal history each frame.
   element<HTMLInputElement>(id).addEventListener("change", () => {
-    const valid = ["sun-day", "sun-time", "sun-latitude", "sun-longitude"].every(
-      (parameter) => element<HTMLInputElement>(parameter).checkValidity(),
+    const valid = ["sun-day", "sun-time", "sun-latitude", "sun-longitude"].every((parameter) =>
+      element<HTMLInputElement>(parameter).checkValidity(),
     );
     if (!valid) {
       return;
@@ -1216,7 +1268,24 @@ element("apply-exposure").addEventListener("click", () => {
   }
   const url = new URL(location.href);
   url.searchParams.set("exposure", element<HTMLSelectElement>("exposure-mode").value);
+  const low = element<HTMLInputElement>("exposure-low");
+  const high = element<HTMLInputElement>("exposure-high");
+  const headroom = element<HTMLInputElement>("exposure-headroom");
+  low.setCustomValidity("");
+  for (const control of [low, high, headroom]) {
+    if (!control.checkValidity()) {
+      control.reportValidity();
+      return;
+    }
+  }
+  low.setCustomValidity(
+    Number(low.value) < Number(high.value) ? "" : "Low percentile must be below high percentile",
+  );
+  if (!low.reportValidity()) return;
   url.searchParams.set("fixedExposure", input.value);
+  url.searchParams.set("exposureLow", String(Number(low.value) / 100));
+  url.searchParams.set("exposureHigh", String(Number(high.value) / 100));
+  url.searchParams.set("exposureHeadroom", headroom.value);
   void release()
     .then(() => location.assign(url.href))
     .catch(failCleanup);
@@ -1241,7 +1310,7 @@ element<HTMLInputElement>("profile").addEventListener("change", (event) => {
     gpuTimingMode: profiled ? "full" : "production",
     gpuSampleInterval: 1,
     historyCapacity: 512,
-    warmupFrames: 0
+    warmupFrames: 0,
   });
 });
 function report() {
@@ -1249,7 +1318,7 @@ function report() {
 }
 element("export").addEventListener("click", () => {
   const url = URL.createObjectURL(
-    new Blob([JSON.stringify(report(), null, 2)], { type: "application/json" })
+    new Blob([JSON.stringify(report(), null, 2)], { type: "application/json" }),
   );
   const link = document.createElement("a");
   link.href = url;

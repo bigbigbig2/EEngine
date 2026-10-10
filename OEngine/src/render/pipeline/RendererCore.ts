@@ -567,13 +567,21 @@ export class Renderer {
   geometryStreamingEvidence(scene: Scene): ReturnType<GeometryPageStreamingRuntimeV1["evidence"]> | null {
     return this._virtualProductScenes.get(scene)?.streamingRuntime?.evidence() ?? null;
   }
-  /** Drops temporal/exposure history after a diagnostic change or same-camera
+  /** Drops color/identity temporal history after a diagnostic change or same-camera
    * teleport/cut. Ordinary camera motion is reprojected and must retain history. */
   invalidateTemporalHistory(): void {
     this._temporalResetPending = true;
     this._temporal.invalidate();
     this._fsr3.invalidate();
     this._surface.invalidate();
+  }
+  /** Explicit exposure reset. Color/TAA invalidation does not reset metering. */
+  resetExposure(): void {
+    this._gpuRadiometry.resetExposure();
+  }
+  /** One-shot GPU exposure diagnostics; no automatic/per-frame readback. */
+  readExposureDiagnostics() {
+    return this._gpuRadiometry.readDiagnostics();
   }
   /** Read-only history lifecycle evidence; no GPU readback or rendering changes. */
   temporalHistoryEvidence() {
@@ -1738,7 +1746,12 @@ export class Renderer {
     this._localLightWork = new LocalLightWorkGenerator(device, this.deviceEpoch, this._graphics);
     await this._localLightWork.ready;
     this._temporalFacts = new NativeTemporalFactsPass(device);
-    this._gpuRadiometry = new GpuRadiometryPass(device, config.autoExposure, config.fixedExposure);
+    this._gpuRadiometry = new GpuRadiometryPass(
+      device,
+      config.autoExposure,
+      config.fixedExposure,
+      config.exposure,
+    );
     this._bloom = new BloomPass(device);
     this._renderDebugViewPass = new RenderDebugViewPass(this._graphics);
     this._fsr3 = new Fsr3UpscalerRuntime(device);
@@ -2062,12 +2075,7 @@ export class Renderer {
       command.onAborted.addOne(() => this._vsmGeneration.abort());
       if (vsmEnabled) this._vsmDepthBounds.prepareFrame(runtime.instanceCount, command);
       if (vsmGeneration.temporalInvalidate) this._temporalFacts.invalidate();
-      this._gpuRadiometry.prepareFrame(
-        colorHistory.readIndex,
-        colorHistory.writeIndex,
-        colorHistory.readValid,
-        timeDeltaSeconds,
-      );
+      this._gpuRadiometry.prepareFrame(timeDeltaSeconds);
       this._temporalFacts.prepareFrame(
         width,
         height,

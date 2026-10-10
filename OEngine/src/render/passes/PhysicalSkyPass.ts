@@ -26,6 +26,9 @@ struct SkyVertex { @builtin(position) position: vec4f, @location(0) uv: vec2f };
   return SkyVertex(vec4f(p, 0.0, 1.0), p * vec2f(0.5,-0.5) + vec2f(0.5));
 }
 @fragment fn fs_main(@builtin(position) position: vec4f, @location(0) uv: vec2f) -> @location(0) vec4f {
+  if (environment.diagnostic_mode != 0u && environment.diagnostic_mode != 1u) {
+    discard;
+  }
   let pixel = vec2i(position.xy);
   if (textureLoad(depth, pixel, 0) > 0.0001) { discard; }
   let clip = vec4f(uv * vec2f(2.0,-2.0) + vec2f(-1.0,1.0), 0.0, 1.0);

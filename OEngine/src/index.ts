@@ -404,6 +404,8 @@ export {
   validateRendererConfig,
 } from "./render/RendererConfig.js";
 export type { RendererConfig } from "./render/RendererConfig.js";
+export { DEFAULT_EXPOSURE_SETTINGS } from "./render/temporal/ExposureSettings.js";
+export type { ExposureSettings, ExposureDiagnostics } from "./render/temporal/ExposureSettings.js";
 export type { RendererDebugConfig, ResolvedRendererDebugConfig } from "./addons/debug/RendererDebugConfig.js";
 export { createRenderFrameContract } from "./render/RenderFrameContract.js";
 export type { RenderFrameContract } from "./render/RenderFrameContract.js";
@@ -635,3 +637,5 @@ export type {
   BenchmarkCameraKeyframe,
   BenchmarkSceneManifest,
 } from "./debug/BenchmarkSceneManifest.js";
+
+export type { PhysicalLightingDiagnostic } from "./render/environment/PhysicalEnvironmentState.js";

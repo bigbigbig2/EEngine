@@ -20,6 +20,12 @@ verifies:
     - OEngine/src/shaders/native_execution_bins.ts
     - OEngine/src/shaders/native_material_products.ts
     - OEngine/src/shaders/native_surface.ts
+    - OEngine/src/shaders/native_environment_brdf.ts
+    - OEngine/src/render/temporal/GpuRadiometryPass.ts
+    - OEngine/src/render/temporal/ExposureSettings.ts
+    - OEngine/src/render/environment/PhysicalEnvironmentRuntime.ts
+    - OEngine/tests/oracle/sky-ibl-dfg-gpu.mjs
+    - OEngine/tests/oracle/sky-radiometry-gpu.mjs
     - OEngine/tests/oracle/native-material-gpu.mjs
     - OEngine/tests/oracle/native-surface-integration-gpu.mjs
     - OEngine/tests/oracle/native-surface-production-gpu.mjs
@@ -48,6 +54,30 @@ verifies:
     - examples/tests/sun-calendar.test.mjs
 ---
 # EEngine Next：开源迁移来源与采用边界
+
+## Sky IBL / HDR 自动曝光局部修复（2026-10-10）
+
+用户授权范围是当前天空环境镜面异常灰蓝/泛白、自动曝光爆亮和历史跳变，以及轻量分项诊断。当前生产源码为依据；没有开展 VSM R4、GI/AO、Atmosphere 或 Tone Mapping 重构。
+
+**Reference / Adapt**：沿用 Filament revision `41f996de8fcc2d6b60b73159aa1bc44a05a40700`、Apache-2.0；`shaders/src/surface_light_indirect.fs::specularDFG/evaluateClearCoatIBL`。当前 PhysicalSky 与 authored environment 的共同 `PHYSICAL_SKY_DFG_WGSL` 生产 R=Fc、G=total visibility，坐标为 texel-centred NoV/perceptual roughness；生产 native Surface 却用 F0*R+G。`native_environment_brdf.ts` 修为 Fc*(1-F0)+Total*F0，并做 clamp-to-edge 双线性采样；clearcoat 用 NoV Schlick Fresnel 加 coat lobe，同时衰减 base diffuse/specular。没有添加多次散射补偿，direct/environment 均保持现有 single-scatter profile。另查出 native Surface 把 GPU P 下限限制为 1e-4，而 Sky/测光没有这一限制；已删除该限制，材质使用实际正值 P。HDR 扩展后这避免亮度大于约1800时各路径倍率不一致。未用的旧 `environment_brdf.ts` 不是生产消费者，本次没有覆盖其 split-sum reference。
+
+**Reference / Original**：Timberdoodle revision `1987cf3b8ddda42585d2470bb5806efbc96c6cae`、Apache-2.0，`src/rendering/tasks/autoexposure.glsl` 的 percentile 思路是参考；加权 CDF、独立曝光 history 与以下高亮策略为本地实现，未宣称完整移植。既有 Wicked Games `LuminancePass1CS/LuminancePass2CS` 两段 histogram 思路、2×2 subsampling、1024 bins 和 GPU P/E 主链保留；旧归约平均与线性 luminance 适应不再是当前实现。
+
+当前单位为去除 GPU pre-exposure 后的 working-linear Rec.2020 场景亮度，沿用引擎的大气光度归一化，不把这些数值称为原始 cd/m²。范围 log2 L=[−12,16]（约 0.000244–65536），0/nonpositive bin 排除；正亮度范围外进入边缘 bin。默认取非零样本 CDF 的 60–95% 区间，以 fractional bin overlap 算 log mean；98% 亮度分位保留两档 headroom，`targetLog=max(trimmedLog,highlightLog−2)`，不是 global max 或 exposure clamp。最亮约 2% 不主导保护；小于此覆盖的高亮仍可 tone-map 到白。配置允许改变 range/percentiles/key/rates；现有 Sky/Aerial/Present 的数值保护及 FSR 有效性要求 P 在 [1e-6,1e6) 内，配置及固定曝光在创建资源前检查完整端点范围，不兼容则拒绝而不截断实际曝光。Bistro 面板暴露 low/high/headroom；key=0.18，暗→亮 speedUp=3/s、亮→暗 speedDown=1/s，按 `1−exp(−dt*speed)` 在 log L 适应。黑帧保留已提交曝光；首个提交有有效测光时直接初始化 target；黑帧只保留种子/已提交曝光，随后正常适应。
+
+曝光 owner 自己管理双槽 read/write 与有效性；只有成功 submit 的 commit 换槽，abort 不发布。TAA/jitter/颜色 reset、resize、Sun/Sky edit 与 camera cut 保留曝光历史；cut 使用正常适应。首次 renderer/device epoch、不可变配置或 fixed/auto 模式通过重新创建 Renderer 初始化；`resetExposure()` 是显式入口。FSR 在 adaptation writer 前读 P(n−1)/P(n−2)，Presentation 读 E(n)/P(n−1)，保持原 pre-exposure 时序。32B exposure buffer 的首 float ABI 保留，其余为 metered/adapted/log/target/highlight/sample diagnostics；按需 `readExposureDiagnostics()` 只做一次 32B staging copy/map，不参与 frame work control。固定曝光不测光，UI 明确显示 meter disabled。
+
+天空背景仍只绘制无几何的 depth 区；aerial 保留 scene*transmittance+in-scattering。诊断 mode 使用既有 64B environment 参数中未使用的两个 words；background/diffuse/specular/direct/aerial-only 和 aerial 开关不改变 sky/IBL cache key、不重建 LUT/IBL。分项视图针对 lit material，Unlit 保持自身颜色；direct 包含 local lights 与 Sun。主 Sky energy 滑块继续缩放 background/IBL/aerial scattering，Sun intensity 只控制 direct Sun。没有通过减小 Sky intensity、蓝通道或材质 compensation 来遮掩错误。
+
+**Cost Card**：DFG nearest 1 load → bilinear 4 loads（+3，实际纹理仍为 64² rgba16float=32KiB，无新 binding/sampler/resource/pass，不能把逻辑 sample bytes 当 DRAM traffic）；clearcoat 增加 Fresnel/base attenuation ALU，仅 coat>0 读既有 coat radiance。正常诊断模式增加 uniform 分支，无新产品。曝光仍为一 histogram+一 reduce、4KiB histogram、相同采样域/atomics；reduce workgroup scratch 2→5KiB，settings 上传逻辑 payload 32→128B/帧（+96B，allocator 对齐另计），曝光双 buffer 的总 64B 不变，无正常帧 submit/readback 增量。保护策略在黑帧、均匀帧也有 bounded CDF 税；范围 0/50/100% 的画面修复收益无法等价为 GPU 省时，此处是正确性成本，不宣称性能优化。
+
+同机 RTX 2060 SUPER 8GB / NVIDIA Turing / Chrome 154 timestamp-query，1920×1080，同纹理/固定 P、交替 old/new 顺序，8 warmup+32 samples，单独 meter/reduce：uniform1、HDR1000、80% .01+20% 1 三分布。旧 total P50 0.0977–0.0983ms / P95 0.0987–0.1085ms；新 P50 0.1563–0.1577ms / P95 0.1610–0.1638ms；主要为 reduce 约 +0.059ms，histogram 约 0.088–0.090ms 不变。未测完整 Renderer 同条件 P50/P95、DFG 单独 hot-path 时间或 GTX1650Ti，不能据此声明整帧更快。原件与脚本在 `.local/validation/sky-analysis/cost-result.json` / `cost.mjs`。
+
+**针对性验证**：engine build/typecheck、Bistro typecheck/build、新鲜 build:test；15 项 CPU（曝光 policy/roles/abort/reset、环境 publication/退休、颜色显示语义）；real GPU `sky-ibl-dfg` 真实 producer→生产 helper 对独立 double full-BRDF integral，31 cases 覆盖 F0=.04/1/0、粗糙度、NoV、双线性和边界；`sky-radiometry` 覆盖 HDR1/4/16/100/1000、第二帧 GPU P 除回、dark majority/bright sky/firefly/black、30/60/120FPS 双向单调适应与 abort/retry/reset；`native-surface-integration`、`native-surface-perspective`、`native-surface-production` 保留真实 Standard/Coat/Unlit/custom、HDR、FSR、resize/Scene/abort/retry/device epoch 消费。原有 normal-P 容差保持不变；新增 P=2e-5 的实际 native lit/unlit/FSR 消费验证使用物理域误差与 rgba16float subnormal 的存储步长 2^-24。首次新增 fixture 误认为半步长舍入而失败；独立 f32→rgba16float→f32 probe 确认本机 textureStore 可向零舍入（1.24447456e-6→1.19209290e-6），因此新数值域按一个存储 ULP 的数学预算核对，未以容差覆盖曝光倍率错误。原件 fp16-store-result.json/native-low-p-result.json 保留。中间 CPU fixture 缺 GPUBufferUsage 和 shader 使用 WGSL 保留字 diagnostic 的失败已分类并修正，失败原件保留；未追认为之前成功。
+
+**完整 Bistro**：1591 instances、完整 cooked geometry/material/texture/mips，1280×720；同一 camera/Sun1/Sky1、固定曝光1、GT7、FSR/jitter/calendar off、VSM on。固定曝光截图显示原灰蓝覆盖减少、砖墙/屋顶/石材底色更明显，背光区也变暗；天空背景保留原算法，固定曝光 sky 截图顶部 217600 个背景像素逐字节一致（pixel-comparison 原件保留）。新 auto street/sky/return-street 的 E≈4.804/2.017/4.475（连续适应，不是相同图像的曝光单因素基准），相应 metered L≈.03757/.08938/.03954。实际 cached FrameGraph 的 color/Sun/Sky edit 在 dt=0 后 E 精确保留4.474567，history有效；所有六 modes/AP toggle 发布正确且借用同一 IBL views，一次 UI diagnostics 可用，生产错误为空。固定与 auto 原件在 `.local/validation/sky-analysis/before-street-{fixed,auto}`、`dfg-fixed-fixed`、`after-{fixed,auto}`，失败文件未删除。
+
+残余：天空 diffuse 仅有现有 AO/material occlusion，环境 specular 缺完整 scene visibility，没有 multi-bounce GI；遮阳棚、室内、墙角仍可能偏亮/偏冷，背光区可能缺 bounced fill。Bistro 截图中原有几何/窗户异常在修复前后都存在，不计本次修复。这些需要独立 sky occlusion/GI 的场景遮挡合同、预算和同条件成本验证；此次没有新增 AO/GI、改 VSM 或更换大气/GT7。
 
 ## Bistro 日期 / 太阳时间控制（2026-10-10）
 
@@ -889,7 +919,7 @@ Reference reuse：Native `GltfImporter.cpp::InstanceShadowFlags`复用项目已�
 | `luminancePass2CS::main` | `GpuRadiometryPass.ts` bins + 上帧 adapted luminance → `E_t`；`GpuRadiometryOracle.ts` CPU 对照 | weighted bin-index reduction、排除 bin 0 的像素数、反 log、真实 delta-time 指数适应、key/adapted luminance、末尾清全部 bins；空图/NaN 正值守卫为本地 WebGPU 合同 |
 | source Rec.709 `dot(color, 0.2127/0.7152/0.0722)` | linear Rec.2020 的 scene luminance meter | 源系数**不能**直接用于目标 Rec.2020 RGB；改为目标工作空间亮度系数或显式转换回源基底，是具名色彩空间适配。不能一面改系数一面称字节级原样移植 |
 
-- **边界、fallback、adoption**：Wicked 返回 exposure 是 `eyeAdaptationKey/max(adaptedLuminance,epsilon)`；EEngine 将其作为 GPU `E_t`，并以已提交 `P_t` 预曝光，不照搬 Wicked 的 host 渲染架构。中心加权/percentile/高亮保护未选入本次范围。选定两段 histogram/适应为 `traceable local port`：固定源分支已核对，CPU oracle 和独立 Chrome GPU 数值比对已通过，生产 FrameGraph 的 radiometry→Present 消费已在最小示例与 Dungeon 运行。正式曝光画质/性能矩阵后置。
+- **边界、fallback、adoption**：Wicked 返回 exposure 是 `eyeAdaptationKey/max(adaptedLuminance,epsilon)`；EEngine 将其作为 GPU `E_t`，并以已提交 `P_t` 预曝光，不照搬 Wicked 的 host 渲染架构。该条目最初未选入中心加权/percentile/高亮保护；2026-10-10 局部修复已用上文记录的本地 percentile/highlight/log-adaptation 替代旧归约。原两段 histogram/适应为 `traceable local port`：固定源分支已核对，CPU oracle 和独立 Chrome GPU 数值比对已通过，生产 FrameGraph 的 radiometry→Present 消费已在最小示例与 Dungeon 运行。正式曝光画质/性能矩阵后置。
 
 ### R25 · Filament：Module D Bloom、ColorGrading 与 GT7 显示映射
 

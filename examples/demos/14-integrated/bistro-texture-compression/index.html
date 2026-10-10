@@ -229,13 +229,24 @@
                 </dl>
               </div>
               <label class="control"
-                >Sun intensity<output id="sun-value">1.00</output
+                >Direct sun intensity<output id="sun-value">1.00</output
                 ><input id="sun" type="range" min="0" max="4" step="0.05" value="1"
               /></label>
               <label class="control"
-                >Sky intensity<output id="sky-value">1.00</output
+                >Sky energy<output id="sky-value">1.00</output
                 ><input id="sky" type="range" min="0" max="4" step="0.05" value="1"
               /></label>
+              <p class="note">Sky energy scales the background, environment lighting and aerial scattering. Direct sun is independent.</p>
+              <label class="control">Lighting view<select id="lighting-contribution">
+                <option value="all">All lighting</option>
+                <option value="background-only">Sky background only</option>
+                <option value="diffuse-only">Sky diffuse IBL only</option>
+                <option value="specular-only">Sky specular IBL only</option>
+                <option value="direct-only">Direct lighting only</option>
+                <option value="aerial-only">Aerial scattering only</option>
+              </select></label>
+              <label class="toggle-row">Aerial perspective<input id="aerial-perspective" class="switch" type="checkbox" role="switch" checked /></label>
+              <p class="note">Use Fixed exposure to compare lighting contributions. Views isolate lit materials; unlit objects remain visible. Aerial scattering is excluded except in its own view.</p>
             </div>
           </details>
           <details class="section">
@@ -263,6 +274,13 @@
               >
                 <i data-lucide="rotate-cw"></i>Apply and reload
               </button>
+              <label class="control">Meter low percentile (%)<input id="exposure-low" type="number" min="0" max="97" step="1" value="60" /></label>
+              <label class="control">Meter high percentile (%)<input id="exposure-high" type="number" min="1" max="98" step="1" value="95" /></label>
+              <label class="control">Highlight headroom (stops)<input id="exposure-headroom" type="number" min="0" max="16" step="0.25" value="2" /></label>
+              <p class="note">Highlights use the 98th percentile. Range: 2⁻¹²–2¹⁶. Settings apply on reload.</p>
+              <button id="read-exposure" class="text-button">Read exposure once</button>
+              <button id="reset-exposure" class="text-button">Reset exposure</button>
+              <output id="exposure-diagnostic">No sample requested</output>
             </div>
           </details>
           <details class="section">

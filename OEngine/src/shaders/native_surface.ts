@@ -8,6 +8,7 @@ import { NATIVE_MATERIAL_DIRECTORY_WGSL } from "../gpu/GpuNativeMaterialPublicat
 import { surfaceGeometryCompletionWgsl } from "./surface_geometry_completion.js";
 import { NATIVE_LOCAL_LIGHTING } from "./native_local_lighting.js";
 import { OCTAHEDRAL_SAMPLE_WGSL } from "./environment_ibl.js";
+import { ENVIRONMENT_BRDF_WGSL } from "./native_environment_brdf.js";
 import { LINEAR_REC709_TO_REC2020_WGSL } from "./working_color.js";
 import { nativeSurfaceAuxWgsl } from "./native_surface_aux.js";
 import {
@@ -282,6 +283,7 @@ export function nativeSurfaceWgsl(
 ${NATIVE_LOCAL_LIGHTING.source}
 ${profile.physicalSun ? nativeSurfacePhysicalSunWgsl(true) : ""}
 ${OCTAHEDRAL_SAMPLE_WGSL}
+${ENVIRONMENT_BRDF_WGSL}
 struct NativeShadingView {
   width: u32,
   height: u32,
@@ -299,20 +301,60 @@ ${NATIVE_LOCAL_LIGHTING.declarations}
 @group(1) @binding(10) var vsm_atlas_depth: texture_depth_2d;
 @group(1) @binding(11) var ambient_occlusion: texture_2d<f32>;
 fn native_environment(material: StandardMaterial, normal: vec3f, direction: vec3f, pixel: vec2u) -> vec3f {
+  ${
+    profile.physicalSun
+      ? `let lighting_mode = native_physical_sun.diagnostic_mode;
+  if (lighting_mode == 1u || lighting_mode >= 4u) {
+    return vec3f(0.0);
+  }`
+      : ""
+  }
   let irradiance = sample_octahedral_bilinear(environment_diffuse, vec2u(0u), textureDimensions(environment_diffuse).x, normal, 0u).rgb;
   let reflection = reflect(-direction, normal);
   let radiance = sample_prefiltered_environment(environment_specular, reflection, material.roughness);
-  let size = textureDimensions(environment_dfg);
-  let dfg_pixel = vec2i(clamp(vec2f(saturate(dot(normal, direction)), material.roughness) * vec2f(size), vec2f(0.0), vec2f(size) - vec2f(1.0)));
-  let dfg = textureLoad(environment_dfg, dfg_pixel, 0).xy;
+  let dfg = sample_environment_dfg(environment_dfg, saturate(dot(normal, direction)), material.roughness);
+  var base_attenuation = 1.0;
   var coat_radiance = vec3f(0.0);
   if material.coatFactor > 0.0 {
-    coat_radiance = sample_prefiltered_environment(environment_specular, reflect(-direction, material.coatNormal), material.coatRoughness) * material.coatFactor * 0.04;
+    let coat_fresnel = environment_clearcoat_fresnel(dot(material.coatNormal, direction), material.coatFactor);
+    base_attenuation = 1.0 - coat_fresnel;
+    coat_radiance = sample_prefiltered_environment(environment_specular,
+      reflect(-direction, material.coatNormal), material.coatRoughness) * coat_fresnel;
   }
   let ao = textureLoad(ambient_occlusion, vec2i(min(pixel, textureDimensions(ambient_occlusion) - vec2u(1u))), 0).r * material.occlusion;
-  return irradiance * material.diffuse * RECIPROCAL_PI * ao + radiance * (material.specularF0 * dfg.x + vec3f(dfg.y)) + coat_radiance;
+  let diffuse = irradiance * material.diffuse * RECIPROCAL_PI * ao;
+  let specular = radiance * environment_dfg_single_scatter(dfg, material.specularF0);
+  ${
+    profile.physicalSun
+      ? `if (lighting_mode == 2u) {
+    return diffuse * base_attenuation;
+  }
+  if (lighting_mode == 3u) {
+    return specular * base_attenuation + coat_radiance;
+  }`
+      : ""
+  }
+  return (diffuse + specular) * base_attenuation + coat_radiance;
 }
 `;
+  const sunLighting =
+    "native_surface_physical_sun(material, geometry, frame_instances[work.instance_slot].source.flags)";
+  const directLighting =
+    "shade_standard_material_direct(material, geometry, vec2f(pixel) + vec2f(0.5), view_depth)" +
+    (profile.physicalSun ? " + " + sunLighting : "");
+  const directEnabled = profile.physicalSun
+    ? "native_physical_sun.diagnostic_mode == 0u || native_physical_sun.diagnostic_mode == 4u"
+    : "true";
+  const materialLighting = profile.additiveSun
+    ? `  var color = vec3f(0.0);
+  if (${directEnabled}) {
+    color = ${sunLighting};
+  }`
+    : `  var direct = vec3f(0.0);
+  if (${directEnabled}) {
+    direct = ${directLighting};
+  }
+  let color = direct + native_environment(material, mapped_normal, direction, pixel);`;
   const material = profile.unlit
     ? /* wgsl */ `
   let color = ${vector("baseColor", "vec3f(0.0)")};
@@ -328,6 +370,7 @@ fn native_environment(material: StandardMaterial, normal: vec3f, direction: vec3
   let f0 = (ior - 1.0) / (ior + 1.0);
   material.specularF0 = mix(vec3f(f0 * f0), base, metallic) * clamp(${scalar("specularWeight", "1.0")}, 0.0, 1.0) * max(${vector("specularColor", "vec3f(1.0)")}, vec3f(0.0));
   material.specularF90 = 1.0;
+  // Both direct and environment paths retain the existing single-scatter profile.
   material.energyCompensation = vec3f(1.0);
   material.emissive = ${vector("emissive", "vec3f(0.0)")};
   material.coatFactor = clamp(${scalar("coatWeight", "0.0")}, 0.0, 1.0);
@@ -337,7 +380,7 @@ fn native_environment(material: StandardMaterial, normal: vec3f, direction: vec3
   let direction = native_safe_normal(settings.camera_position_exposure.xyz - position, mapped_normal);
   let geometry = SurfaceGeometry(mapped_normal, native_safe_normal(corners.world_plane.xyz, normal), position, direction);
   let view_depth = max(-(settings.view_matrix * vec4f(position, 1.0)).z, 1e-4);
-  let color = ${profile.additiveSun ? "native_surface_physical_sun(material, geometry, frame_instances[work.instance_slot].source.flags)" : `shade_standard_material_direct(material, geometry, vec2f(pixel) + vec2f(0.5), view_depth) + native_environment(material, mapped_normal, direction, pixel)${profile.physicalSun ? " + native_surface_physical_sun(material, geometry, frame_instances[work.instance_slot].source.flags)" : ""}`};
+${materialLighting}
 `;
   const pixelSelection = profile.compact
     ? /* wgsl */ `
@@ -465,7 +508,9 @@ ${inputs.join("\n")}
   let tangent = native_geometry_input(corners, interpolation.weights, 6u);
   let basis = mat3x3f(tangent.xyz, cross(normal, tangent.xyz) * tangent.w, normal);
 ${material}
-  let contribution = oengine_linear_rec709_to_rec2020(color) * max(settings.camera_position_exposure.w, 1e-4);
+  // P is the positive GPU exposure published by radiometry. An artistic lower
+  // floor here would disagree with Sky/Aerial and HDR metering above L=1800.
+  let contribution = oengine_linear_rec709_to_rec2020(color) * settings.camera_position_exposure.w;
   textureStore(hdr, vec2i(pixel), vec4f(${profile.additiveSun ? "textureLoad(prior_native_hdr, vec2i(pixel), 0).rgb + contribution" : "contribution"}, 1.0));
   ${reactiveWrite}
 }

@@ -2,24 +2,28 @@ import { FrameGeometryArena } from "../../.test-dist/render/FrameGeometryArena.j
 import { FrameGeometryVertices } from "../../.test-dist/render/FrameGeometryVertices.js";
 import {
   GPU_GEOMETRY_RECORD_SCHEMA,
-  GPU_MESHLET_RECORD_SCHEMA
+  GPU_MESHLET_RECORD_SCHEMA,
 } from "../../.test-dist/gpu/GpuGeometryAbi.js";
 import {
   GPU_FRAME_INSTANCE_STRIDE,
-  GPU_FRAME_INSTANCE_OFFSETS
+  GPU_FRAME_INSTANCE_OFFSETS,
 } from "../../.test-dist/gpu/GpuFrameInstanceAbi.js";
-import { GPU_INSTANCE_RECORD_STRIDE, GPU_INSTANCE_FLAGS, packGpuInstanceRecord } from "../../.test-dist/gpu/GpuInstanceAbi.js";
+import {
+  GPU_INSTANCE_RECORD_STRIDE,
+  GPU_INSTANCE_FLAGS,
+  packGpuInstanceRecord,
+} from "../../.test-dist/gpu/GpuInstanceAbi.js";
 import {
   GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE,
   GPU_MESHLET_RASTER_WORK_RECORD_STRIDE,
   packGpuMeshletWorkQueueHeader,
-  packGpuMeshletRasterWork
+  packGpuMeshletRasterWork,
 } from "../../.test-dist/gpu/GpuMeshletRasterWorkAbi.js";
 import {
   POINT_LIGHT_DESCRIPTOR,
   POINT_LIGHT_RECORD_TYPE,
   DIRECTIONAL_LIGHT_DESCRIPTOR,
-  DIRECTIONAL_LIGHT_RECORD_TYPE
+  DIRECTIONAL_LIGHT_RECORD_TYPE,
 } from "../../.test-dist/gpu/LightDatabase.js";
 import { lightSphereDistanceAttenuation } from "../../.test-dist/render/DirectLightingReference.js";
 import { decodeFloat16, encodeFloat16 } from "../../.test-dist/core/Float16.js";
@@ -31,7 +35,7 @@ const pointLights = Array.from({ length: 8 }, (_, i) => ({
   position: [Math.cos((i * Math.PI) / 4) * 1.5, Math.sin((i * Math.PI) / 4) * 1.5, 2.5],
   color: [1.1 + i * 0.1, 0.7 + i * 0.08, 0.4 + i * 0.06],
   distance: 8,
-  radius: 0.1
+  radius: 0.1,
 }));
 /** Test scene, not a second renderer. Real arena/vertex producer and GPU ABI;
  * authored cluster lists/VSM page residency are provider fixtures, not measured
@@ -45,8 +49,8 @@ export async function createNativeSurfaceFixture(
     scale = [1, 1, 1],
     instanceCount = 8,
     perspective = 0,
-    highCoverage = false
-  } = {}
+    highCoverage = false,
+  } = {},
 ) {
   const WIDTH = width,
     HEIGHT = height;
@@ -55,7 +59,7 @@ export async function createNativeSurfaceFixture(
     const buffer = device.createBuffer({
       size: typeof dataOrSize === "number" ? dataOrSize : dataOrSize.byteLength,
       usage,
-      label
+      label,
     });
     if (typeof dataOrSize !== "number") device.queue.writeBuffer(buffer, 0, dataOrSize);
     retained.push(buffer);
@@ -93,8 +97,8 @@ export async function createNativeSurfaceFixture(
         boundsMax: [1, 1, 1, 0],
         currentObjectToWorld: transform,
         previousObjectToWorld: identity,
-        dynamicRevision: 1
-      })
+        dynamicRevision: 1,
+      }),
     );
     const instanceFloats = new Float32Array(instance.buffer);
     const clip = [...transform];
@@ -102,7 +106,7 @@ export async function createNativeSurfaceFixture(
     instanceFloats.set(clip, GPU_FRAME_INSTANCE_OFFSETS.objectToClip / 4);
     instanceFloats.set(
       [scale[1] * scale[2], 0, 0, determinant, 0, scale[0] * scale[2], 0, 0, 0, 0, scale[0] * scale[1], 0],
-      GPU_FRAME_INSTANCE_OFFSETS.normalX / 4
+      GPU_FRAME_INSTANCE_OFFSETS.normalX / 4,
     );
     new DataView(instance.buffer).setUint32(GPU_FRAME_INSTANCE_OFFSETS.generation, GENERATION, true);
     const instanceRecords = new Uint8Array(instanceCount * GPU_FRAME_INSTANCE_STRIDE);
@@ -122,7 +126,7 @@ export async function createNativeSurfaceFixture(
     const payloadFloats = new Float32Array(payload.buffer);
     metadata[GPU_GEOMETRY_RECORD_SCHEMA.offsets.resident_attribute_word_offset / 4] = attributeWordBase;
     const workBytes = new Uint8Array(
-      GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE + workCount * GPU_MESHLET_RASTER_WORK_RECORD_STRIDE
+      GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE + workCount * GPU_MESHLET_RASTER_WORK_RECORD_STRIDE,
     );
     workBytes.set(
       packGpuMeshletWorkQueueHeader({
@@ -132,8 +136,8 @@ export async function createNativeSurfaceFixture(
         capacity: workCount,
         overflowCount: 0,
         generation: GENERATION,
-        invalidCount: 0
-      })
+        invalidCount: 0,
+      }),
     );
     for (let slot = 0; slot < workCount; slot++) {
       const tileX = slot % (WIDTH / CELL),
@@ -143,7 +147,7 @@ export async function createNativeSurfaceFixture(
         vertex_offset: slot * 4,
         vertex_count: 4,
         triangle_byte_offset: slot * 8,
-        triangle_count: 2
+        triangle_count: 2,
       })) {
         metadata[at + GPU_MESHLET_RECORD_SCHEMA.offsets[name] / 4] = value;
       }
@@ -154,7 +158,7 @@ export async function createNativeSurfaceFixture(
         const y = 1 - (((tileY + (corner >> 1)) * CELL) / HEIGHT) * 2;
         payloadFloats.set(
           [0, 0, 1, 1, 1, 0, 0, 1, (x + 1) * 0.5, (y + 1) * 0.5, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, x, y, 0.5, 1],
-          attributeWordBase + (slot * 4 + corner) * 24
+          attributeWordBase + (slot * 4 + corner) * 24,
         );
       }
       workBytes.set(
@@ -166,9 +170,9 @@ export async function createNativeSurfaceFixture(
             ? [0, 0, 0, 1, 2, 3, 4, 4, 4, 5, 6, 7, 0, 4, 0, 4, 0, 4, 0, 4][slot % 20]
             : slot % materialCount,
           packedRasterFlags: 0,
-          packedProfileLod: 0
+          packedProfileLod: 0,
         }),
-        GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE + slot * GPU_MESHLET_RASTER_WORK_RECORD_STRIDE
+        GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE + slot * GPU_MESHLET_RASTER_WORK_RECORD_STRIDE,
       );
     }
     const sourceMetadata = storage(metadata, "S1/asset metadata ABI");
@@ -178,7 +182,7 @@ export async function createNativeSurfaceFixture(
       workCapacity: workCount,
       vertexCapacity: workCount * 4,
       triangleCapacity: workCount * 2,
-      maxBytes: 128 * 1024 * 1024
+      maxBytes: 128 * 1024 * 1024,
     });
     await verticesOwner.ready;
     const prepared = verticesOwner.prepare({
@@ -193,9 +197,9 @@ export async function createNativeSurfaceFixture(
           meshletWordBase: geometryWords,
           meshletVertexWordBase: 0,
           meshletTriangleWordBase: triangleWordBase,
-          vertexDataWordBase: 0
-        }
-      }
+          vertexDataWordBase: 0,
+        },
+      },
     });
     const geometryEncoder = device.createCommandEncoder();
     const commitMetadata = arenaOwner.encodeMetadataPublication(geometryEncoder, arena);
@@ -214,14 +218,14 @@ export async function createNativeSurfaceFixture(
         }
         device.queue.writeTexture({ texture, mipLevel: mip }, values, { bytesPerRow: size * 8 }, [
           size,
-          size
+          size,
         ]);
       }
       return texture;
     };
     const diffuseEnvironment = environment([0.2, 0.25, 0.3], 1);
     const specularEnvironment = environment([0.25, 0.3, 0.35], 9);
-    const dfg = environment([0.5, 0.2, 0], 1);
+    const dfg = environment([0.02, 0.8, 0], 1);
     const lightWords = new Uint32Array(32768).fill(0xffffffff);
     const lightFloats = new Float32Array(lightWords.buffer);
     const writeLightPage = (descriptor, type, page, records) => {
@@ -245,7 +249,7 @@ export async function createNativeSurfaceFixture(
     };
     writeLightPage(POINT_LIGHT_DESCRIPTOR, POINT_LIGHT_RECORD_TYPE, 8000, pointLights);
     writeLightPage(DIRECTIONAL_LIGHT_DESCRIPTOR, DIRECTIONAL_LIGHT_RECORD_TYPE, 12000, [
-      { direction: [0, 0, -1], color: [0.8, 0.6, 0.4], flags: 1 }
+      { direction: [0, 0, -1], color: [0.8, 0.6, 0.4], flags: 1 },
     ]);
     const lights = storage(lightWords, "S1/real light database ABI");
     // Complete DIRECT fixture uses the same frame-local ABI as production.
@@ -258,7 +262,7 @@ export async function createNativeSurfaceFixture(
       1,
       0,
       1,
-      8
+      8,
     ]);
     const localFloats = new Float32Array(packedLocal);
     localFloats.set([0.1, 100, 0, 0.1, 1, 1, 0, 0], 8);
@@ -276,7 +280,23 @@ export async function createNativeSurfaceFixture(
     const pages = new Uint32Array((16 * 16 + 8 * 8 + 4 * 4 + 2 * 2 + 1 + 1) * 12);
     for (let y = 0; y < 16; y++) {
       for (let x = 0; x < 16; x++) {
-        pages.set([x, y, 0, 9, GENERATION, 0, 0, GENERATION, (x < 8 ? x : x - 16) >>> 0, (y < 8 ? y : y - 16) >>> 0, 1, 0], (x + y * 16) * 12);
+        pages.set(
+          [
+            x,
+            y,
+            0,
+            9,
+            GENERATION,
+            0,
+            0,
+            GENERATION,
+            (x < 8 ? x : x - 16) >>> 0,
+            (y < 8 ? y : y - 16) >>> 0,
+            1,
+            0,
+          ],
+          (x + y * 16) * 12,
+        );
       }
     }
     const pageTable = storage(pages, "S1/resident VSM page ABI");
@@ -291,7 +311,7 @@ export async function createNativeSurfaceFixture(
       2112,
       2112,
       "depth32float",
-      GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+      GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
     );
     const atlasModule = device.createShaderModule({
       code: `
@@ -301,14 +321,14 @@ export async function createNativeSurfaceFixture(
 }
 @fragment fn fs(@builtin(position) p:vec4f)->@builtin(frag_depth) f32 {
   return select(0.0,0.8,((u32(p.x)/132u+u32(p.y)/132u)&1u)!=0u);
-}`
+}`,
     });
     const atlasPipeline = await device.createRenderPipelineAsync({
       layout: "auto",
       vertex: { module: atlasModule, entryPoint: "vs" },
       fragment: { module: atlasModule, entryPoint: "fs", targets: [] },
       primitive: { topology: "triangle-list" },
-      depthStencil: { format: "depth32float", depthWriteEnabled: true, depthCompare: "always" }
+      depthStencil: { format: "depth32float", depthWriteEnabled: true, depthCompare: "always" },
     });
     const atlasEncoder = device.createCommandEncoder();
     const atlasPass = atlasEncoder.beginRenderPass({
@@ -317,8 +337,8 @@ export async function createNativeSurfaceFixture(
         view: atlas.createView(),
         depthClearValue: 0,
         depthLoadOp: "clear",
-        depthStoreOp: "store"
-      }
+        depthStoreOp: "store",
+      },
     });
     atlasPass.setPipeline(atlasPipeline);
     atlasPass.draw(3);
@@ -331,33 +351,33 @@ export async function createNativeSurfaceFixture(
       WIDTH,
       HEIGHT,
       "r32uint",
-      GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC
+      GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
     );
     const depth = makeTexture(
       WIDTH,
       HEIGHT,
       "depth32float",
-      GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+      GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
     );
     const background = makeTexture(
       WIDTH,
       HEIGHT,
       "rgba16float",
-      uploadedTextureUsage | GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_SRC
+      uploadedTextureUsage | GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_SRC,
     );
     const backgroundValues = new Uint16Array(WIDTH * HEIGHT * 4);
     for (let p = 0; p < WIDTH * HEIGHT; p++)
       backgroundValues.set([0.02, 0.04, 0.08, 1].map(encodeFloat16), p * 4);
     device.queue.writeTexture({ texture: background }, backgroundValues, { bytesPerRow: WIDTH * 8 }, [
       WIDTH,
-      HEIGHT
+      HEIGHT,
     ]);
     const ao = makeTexture(WIDTH, HEIGHT, "r8unorm", uploadedTextureUsage);
     device.queue.writeTexture(
       { texture: ao },
       new Uint8Array(WIDTH * HEIGHT).fill(192),
       { bytesPerRow: WIDTH },
-      [WIDTH, HEIGHT]
+      [WIDTH, HEIGHT],
     );
     const view = uniform(new Uint32Array([WIDTH, HEIGHT, 0, 0]), "S1/light view");
     const exposure = storage(new Float32Array([1.25, 0, 0, 0]), "S1/GPU exposure");
@@ -373,7 +393,7 @@ export async function createNativeSurfaceFixture(
       { binding: 8, resource: { buffer: vsmConstants } },
       { binding: 9, resource: { buffer: pageTable } },
       { binding: 10, resource: atlas.createView() },
-      { binding: 11, resource: ao.createView() }
+      { binding: 11, resource: ao.createView() },
     ];
     const projection = [...identity];
     projection[3] = perspective;
@@ -398,7 +418,7 @@ export async function createNativeSurfaceFixture(
         vertexPayload,
         instances,
         source: [0, geometryWords, 0, triangleWordBase],
-        sourcePayload: [0, 0, 0, arena.layout.header.offset / 4]
+        sourcePayload: [0, 0, 0, arena.layout.header.offset / 4],
       },
       sparseShading: {
         assetMetadataHeap: sourceMetadata,
@@ -407,7 +427,7 @@ export async function createNativeSurfaceFixture(
         meshletWordBase: geometryWords,
         meshletVertexWordBase: 0,
         meshletTriangleWordBase: triangleWordBase,
-        vertexDataWordBase: 0
+        vertexDataWordBase: 0,
       },
       storage,
       uniform,
@@ -417,7 +437,7 @@ export async function createNativeSurfaceFixture(
         verticesOwner.destroy();
         arenaOwner.destroy();
         for (const resource of retained) resource.destroy();
-      }
+      },
     };
   } catch (error) {
     verticesOwner.destroy();

@@ -11,6 +11,22 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "sky-radiometry",
+    file: "OEngine/tests/oracle/sky-radiometry-gpu.mjs",
+    url: "/OEngine/tests/oracle/sky-radiometry-gpu.mjs",
+    entry: "runSkyRadiometryGpuOracle",
+    description:
+      "Production pre-exposure, HDR percentile/highlight metering, elapsed-time EV adaptation and exposure-owned abort/retry.",
+  }),
+  Object.freeze({
+    name: "sky-ibl-dfg",
+    file: "OEngine/tests/oracle/sky-ibl-dfg-gpu.mjs",
+    url: "/OEngine/tests/oracle/sky-ibl-dfg-gpu.mjs",
+    entry: "runSkyIblDfgGpuOracle",
+    description:
+      "Production Fc/Total LUT and environment consumer against independent Schlick/Smith BRDF integration.",
+  }),
+  Object.freeze({
     name: "vsm-v4-r3",
     file: "OEngine/tests/oracle/vsm-v4-r3-gpu.mjs",
     url: "/OEngine/tests/oracle/vsm-v4-r3-gpu.mjs",

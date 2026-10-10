@@ -8,6 +8,8 @@ const snapshot = Object.freeze({
   sunDirectionWorld: [0, 1, 0],
   sunIrradiance: [1.474, 1.8504, 1.91198],
   skyLuminanceScale: 1,
+  lightingDiagnostic: "all",
+  aerialPerspectiveEnabled: true,
   shadowLength: [0, 0],
 });
 

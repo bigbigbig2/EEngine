@@ -1,3 +1,13 @@
+export const PHYSICAL_LIGHTING_DIAGNOSTICS = Object.freeze({
+  all: 0,
+  "background-only": 1,
+  "diffuse-only": 2,
+  "specular-only": 3,
+  "direct-only": 4,
+  "aerial-only": 5,
+});
+export type PhysicalLightingDiagnostic = keyof typeof PHYSICAL_LIGHTING_DIAGNOSTICS;
+
 /**
  * Shared Non-Geospatial environment publication. The atmosphere equations use
  * kilometres internally; scene positions remain in EEngine world units and are
@@ -13,6 +23,8 @@ export interface PhysicalEnvironmentSnapshot {
   readonly sunDirectionWorld: readonly [number, number, number];
   readonly sunIrradiance: readonly [number, number, number];
   readonly skyLuminanceScale: number;
+  readonly lightingDiagnostic: PhysicalLightingDiagnostic;
+  readonly aerialPerspectiveEnabled: boolean;
   readonly shadowLength: readonly [number, number];
 }
 
@@ -23,6 +35,8 @@ export class PhysicalEnvironmentInput {
   sunDirectionWorld: [number, number, number] = [0.39036003, 0.8922514, 0.22306285];
   sunIrradiance: [number, number, number] = [1.474, 1.8504, 1.91198];
   skyLuminanceScale = 1;
+  lightingDiagnostic: PhysicalLightingDiagnostic = "all";
+  aerialPerspectiveEnabled = true;
   shadowLength: [number, number] = [0, 0];
   revision = 0;
 
@@ -46,6 +60,20 @@ export class PhysicalEnvironmentInput {
     this.revision++;
   }
 
+  /** Diagnostic lobe isolation; normal rendering is "all" with aerial enabled.
+   * Does not alter sky radiance, material parameters or IBL cache identity. */
+  setLightingDiagnostic(mode: PhysicalLightingDiagnostic, aerialPerspectiveEnabled = true): void {
+    if (
+      !Object.hasOwn(PHYSICAL_LIGHTING_DIAGNOSTICS, mode) ||
+      typeof aerialPerspectiveEnabled !== "boolean"
+    ) {
+      throw new RangeError("Invalid physical lighting diagnostic");
+    }
+    this.lightingDiagnostic = mode;
+    this.aerialPerspectiveEnabled = aerialPerspectiveEnabled;
+    this.revision++;
+  }
+
   setShadowLength(length: readonly [number, number]): void {
     if (length.length !== 2 || length.some((value) => !Number.isFinite(value) || value < 0)) {
       throw new RangeError("shadow lengths must be finite and non-negative");
@@ -64,6 +92,8 @@ export class PhysicalEnvironmentInput {
       sunDirectionWorld: Object.freeze([...this.sunDirectionWorld]) as readonly [number, number, number],
       sunIrradiance: Object.freeze([...this.sunIrradiance]) as readonly [number, number, number],
       skyLuminanceScale: this.skyLuminanceScale,
+      lightingDiagnostic: this.lightingDiagnostic,
+      aerialPerspectiveEnabled: this.aerialPerspectiveEnabled,
       shadowLength: Object.freeze([...this.shadowLength]) as readonly [number, number],
     });
   }
@@ -113,6 +143,12 @@ export class PhysicalEnvironmentState {
 }
 
 function validateSnapshot(snapshot: Omit<PhysicalEnvironmentSnapshot, "generation">): void {
+  if (
+    !Object.hasOwn(PHYSICAL_LIGHTING_DIAGNOSTICS, snapshot.lightingDiagnostic) ||
+    typeof snapshot.aerialPerspectiveEnabled !== "boolean"
+  ) {
+    throw new RangeError("Invalid physical lighting diagnostic snapshot");
+  }
   if (!Number.isFinite(snapshot.worldToUnit) || snapshot.worldToUnit <= 0) {
     throw new RangeError("Environment worldToUnit must be positive");
   }

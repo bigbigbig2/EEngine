@@ -1,3 +1,4 @@
+import { PHYSICAL_LIGHTING_DIAGNOSTICS } from "./PhysicalEnvironmentState.js";
 import { AtmosphereLutResources } from "./AtmosphereLutResources.js";
 import {
   PhysicalEnvironmentState,
@@ -83,7 +84,13 @@ export class PhysicalEnvironmentRuntime {
       snapshot.sunIrradiance[2],
       generation,
       snapshot.skyLuminanceScale,
+      0,
+      0,
+      0,
     ]).buffer;
+    const flags = new Uint32Array(this.pendingParameters);
+    flags[9] = PHYSICAL_LIGHTING_DIAGNOSTICS[snapshot.lightingDiagnostic];
+    flags[10] = Number(!snapshot.aerialPerspectiveEnabled);
     this.pendingGeneration = generation;
     return generation;
   }
@@ -143,6 +150,8 @@ function sameEnvironment(
     active.lutGeneration === next.lutGeneration &&
     active.worldToUnit === next.worldToUnit &&
     active.skyLuminanceScale === next.skyLuminanceScale &&
+    active.lightingDiagnostic === next.lightingDiagnostic &&
+    active.aerialPerspectiveEnabled === next.aerialPerspectiveEnabled &&
     active.sunDirectionWorld.every((value, index) => value === next.sunDirectionWorld[index]) &&
     active.sunIrradiance.every((value, index) => value === next.sunIrradiance[index]) &&
     active.shadowLength.every((value, index) => value === next.shadowLength[index])

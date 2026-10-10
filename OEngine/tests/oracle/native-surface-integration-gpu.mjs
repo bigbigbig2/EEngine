@@ -120,7 +120,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
             entries = [...binding.entries];
           const set = fixture.commonFor(fixture.materials[0]).bindingSet;
           for (let bank = 0; bank < set.textureBanks.length; bank++) {
-            if (entries.some(entry => entry.resource === set.textureBanks[bank])) continue;
+            if (entries.some((entry) => entry.resource === set.textureBanks[bank])) continue;
             const slot = layoutEntries.length;
             layoutEntries.push({
               binding: slot,
@@ -347,7 +347,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
     const rows = [];
     const frame = async (
       index,
-      { aborted = false, fallback = false, reset = false, exposureUpdate = false } = {},
+      { aborted = false, fallback = false, reset = false, exposureUpdate = false, exposureTarget = 2.5 } = {},
     ) => {
       const command = ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame");
       let timingResults = null;
@@ -450,6 +450,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
         background = backgroundResource;
       let prior = imported("prior GPU exposure", priorExposure);
       if (exposureUpdate) {
+        device.queue.writeBuffer(exposureParameters, 0, new Float32Array([exposureTarget]));
         const update = graph.add("S1/GPU radiometry producer", {}, () => {
           command.gpu_encoder.copyBufferToBuffer(fixture.exposure, 0, priorExposure, 0, 16);
           const group = device.createBindGroup({
@@ -576,7 +577,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
       fsr.commit(command.gpuDone);
       await command.gpuDone;
       if (timingReady) await timingReady;
-      if (exposureUpdate) exposureValue = 2.5;
+      if (exposureUpdate) exposureValue = exposureTarget;
       if (!verifyOutputs) {
         rows.push({
           ...rows[1],
@@ -661,7 +662,8 @@ export async function runNativeSurfaceIntegrationGpuOracle(
               unlitMaxError = Math.max(unlitMaxError, Math.abs(values[at + k] - v)); // Preserve the original budget in its 1.25 exposure domain: exposure
               // scaling cannot turn the same sRGB decode/half error into a material failure.
               check(
-                Math.abs((values[at + k] / exposureValue) * 1.25 - (v / exposureValue) * 1.25) <= 0.0004,
+                Math.abs((values[at + k] / exposureValue) * 1.25 - (v / exposureValue) * 1.25) <=
+                  0.0004 + (exposureValue < 1e-4 ? (2 ** -24 / exposureValue) * 1.25 : 0),
                 `Independent unlit HDR mismatch ${values[at + k]} vs ${v}`,
               );
             });
@@ -676,6 +678,12 @@ export async function runNativeSurfaceIntegrationGpuOracle(
               ),
             );
         }
+      }
+      if (exposureValue < 1e-4) {
+        check(
+          pbrMaxError / exposureValue <= 0.003 + 2 ** -24 / exposureValue,
+          "Low P native material must retain its physical radiance, with FP16 storage-conversion ULP budget",
+        );
       }
       check(pbrSamples > 0, `Frame${index} had no independent PBR numeric samples`);
       check(visible > width * height * 0.6, "Work coverage vanished");
@@ -855,6 +863,11 @@ export async function runNativeSurfaceIntegrationGpuOracle(
     await frame(9, { reset: true });
     await frame(10);
     check(rows.at(-1).valid === rows.at(-1).visible, "Resized stable history did not recover");
+    // A real independent rgba16float store probe confirms this backend can
+    // round subnormals toward zero. New low-P checks budget one 2^-24 storage
+    // step; all original normal-P budgets remain unchanged.
+    await frame(11, { reset: true, exposureUpdate: true, exposureTarget: 0.00002 });
+    check(rows.at(-1).pbrSamples > 0, "Low-P regression requires actual lit material samples");
     const nativeSunContinuations = publication.bins.filter(
       (bin) => publication.continuation(bin.programIndex) !== null,
     ).length;

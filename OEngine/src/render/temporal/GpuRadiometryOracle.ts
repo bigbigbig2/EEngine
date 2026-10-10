@@ -1,66 +1,105 @@
-/** CPU oracle for the selected Wicked Engine 1024-bin radiometry profile.
- * This module is diagnostic only and never controls the production GPU path. */
-const BIN_COUNT = 1024;
-const MIN_LOG = -10;
-const MAX_LOG = 2;
+/** Diagnostic CPU oracle; never reads or controls production GPU exposure. */
+import { EXPOSURE_BIN_COUNT, resolveExposureSettings, type ExposureSettings } from "./ExposureSettings.js";
 
 export interface HistogramResult {
   readonly bins: Uint32Array<ArrayBuffer>;
   readonly nonBlackPixels: number;
 }
-
-export function referenceWickedHistogram(
+export function referenceRadiometryHistogram(
   rgba: Float32Array,
   width: number,
   height: number,
   preExposure: number,
+  options: Partial<ExposureSettings> = {},
 ): HistogramResult {
   if (!(preExposure > 0) || !Number.isFinite(preExposure)) {
     throw new RangeError("Pre-exposure must be finite and positive");
   }
-  if (rgba.length < width * height * 4) throw new RangeError("Scene RGBA extent");
-  const bins = new Uint32Array(new ArrayBuffer(BIN_COUNT * 4));
+  if (rgba.length < width * height * 4) {
+    throw new RangeError("Scene RGBA extent");
+  }
+  const settings = resolveExposureSettings(options);
+  const bins = new Uint32Array(EXPOSURE_BIN_COUNT);
   let nonBlackPixels = 0;
-  for (let y = 0; y < height; y += 2)
+  for (let y = 0; y < height; y += 2) {
     for (let x = 0; x < width; x += 2) {
       const p = (y * width + x) * 4;
-      const r = Math.max(0, rgba[p]!);
-      const g = Math.max(0, rgba[p + 1]!);
-      const b = Math.max(0, rgba[p + 2]!);
-      const luminance = (r * 0.2627 + g * 0.678 + b * 0.0593) / preExposure;
+      const luminance =
+        (Math.max(0, rgba[p]!) * 0.2627 +
+          Math.max(0, rgba[p + 1]!) * 0.678 +
+          Math.max(0, rgba[p + 2]!) * 0.0593) /
+        preExposure;
       let bin = 0;
-      if (luminance > 0.001 && luminance <= 65504) {
-        const scaled = Math.min(1, Math.max(0, (Math.log2(luminance) - MIN_LOG) / (MAX_LOG - MIN_LOG)));
-        bin = Math.min(BIN_COUNT - 1, Math.trunc(scaled * (BIN_COUNT - 2)) + 1);
-      } else if (luminance > 65504) {
-        bin = BIN_COUNT - 1;
+      if (luminance > 0) {
+        const unit = Math.min(
+          1,
+          Math.max(
+            0,
+            (Math.log2(luminance) - settings.minLogLuminance) /
+              (settings.maxLogLuminance - settings.minLogLuminance),
+          ),
+        );
+        bin = 1 + Math.min(1022, Math.floor(unit * 1023));
+        nonBlackPixels++;
       }
       bins[bin]!++;
-      if (bin !== 0) nonBlackPixels++;
     }
+  }
   return { bins, nonBlackPixels };
 }
-
 export interface AdaptedExposure {
   readonly luminance: number;
   readonly exposure: number;
+  readonly meteredLuminance: number;
+  readonly targetLogLuminance: number;
 }
-
-export function referenceWickedAdaptation(
+export function referenceRadiometryAdaptation(
   histogram: HistogramResult,
   priorLuminance: number,
   deltaSeconds: number,
   historyValid: boolean,
+  options: Partial<ExposureSettings> = {},
 ): AdaptedExposure {
-  let weighted = 0;
-  for (let bin = 1; bin < BIN_COUNT; bin++) weighted += histogram.bins[bin]! * bin;
-  const prior = historyValid ? Math.min(1e4, Math.max(1e-4, priorLuminance)) : 0.18;
-  const logAverage = weighted / Math.max(histogram.nonBlackPixels, 1) - 1;
-  const target = 2 ** ((logAverage / (BIN_COUNT - 2)) * (MAX_LOG - MIN_LOG) + MIN_LOG);
-  const adapted =
-    histogram.nonBlackPixels === 0
-      ? prior
-      : prior + (target - prior) * (1 - Math.exp(-Math.max(deltaSeconds, 0.01) * 1.5));
-  const luminance = Math.min(1e4, Math.max(1e-4, adapted));
-  return { luminance, exposure: Math.min(1e4, Math.max(1e-4, 0.18 / luminance)) };
+  const settings = resolveExposureSettings(options);
+  const priorLog = Math.log2(priorLuminance > 0 ? priorLuminance : settings.keyValue);
+  let meteredLog = priorLog;
+  let targetLog = priorLog;
+  if (histogram.nonBlackPixels > 0) {
+    const total = histogram.nonBlackPixels;
+    const low = total * settings.lowPercentile;
+    const high = total * settings.highPercentile;
+    let cumulative = 0,
+      weighted = 0,
+      selected = 0;
+    let highlightLog: number | undefined;
+    for (let bin = 1; bin < EXPOSURE_BIN_COUNT; bin++) {
+      const count = histogram.bins[bin]!;
+      const end = cumulative + count;
+      const weight = Math.max(0, Math.min(end, high) - Math.max(cumulative, low));
+      const log =
+        settings.minLogLuminance +
+        ((bin - 0.5) / 1023) * (settings.maxLogLuminance - settings.minLogLuminance);
+      weighted += weight * log;
+      selected += weight;
+      if (highlightLog === undefined && count > 0 && end >= total * settings.highlightPercentile) {
+        highlightLog = log;
+      }
+      cumulative = end;
+    }
+    meteredLog = weighted / selected;
+    targetLog = Math.max(meteredLog, highlightLog! - settings.highlightHeadroom);
+  }
+  const speed = targetLog > priorLog ? settings.speedUp : settings.speedDown;
+  const dt = Number.isFinite(deltaSeconds) ? Math.min(1, Math.max(0, deltaSeconds)) : 1 / 60;
+  const adaptedLog =
+    !historyValid && histogram.nonBlackPixels > 0
+      ? targetLog
+      : priorLog + (targetLog - priorLog) * (1 - Math.exp(-dt * speed));
+  const luminance = 2 ** adaptedLog;
+  return {
+    luminance,
+    exposure: settings.keyValue / luminance,
+    meteredLuminance: 2 ** meteredLog,
+    targetLogLuminance: targetLog,
+  };
 }

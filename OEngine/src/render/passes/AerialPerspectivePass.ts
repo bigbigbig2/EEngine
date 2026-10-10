@@ -27,7 +27,8 @@ ${LINEAR_REC709_TO_REC2020_WGSL}
   let camera_position_m = camera.transform[3].xyz;
   let camera_position = atmosphere_world_to_planet(camera_position_m, environment.world_to_unit);
   let sun = normalize(environment.sun_direction_world);
-  if (d <= 0.0001) {
+  if (d <= 0.0001 || environment.aerial_disabled != 0u ||
+      (environment.diagnostic_mode != 0u && environment.diagnostic_mode != 5u)) {
     textureStore(output, pixel, scene_color);
     return;
   }
