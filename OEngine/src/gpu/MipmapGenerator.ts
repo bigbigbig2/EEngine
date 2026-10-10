@@ -107,13 +107,14 @@ export class MipmapGenerator {
     this.sampler = device.createSampler({ minFilter: "linear" });
     this.paramsStride = alignUp(MIPMAP_PARAMS_BYTES, device.limits.minUniformBufferOffsetAlignment);
     this.paramsBuffer = device.createBuffer({
-      label: "",
+      label: "MipmapGenerator/parameters",
       size: 32 * this.paramsStride,
       usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.UNIFORM,
     });
   }
 
   destroy(): void {
+    this.queue.length = 0;
     this.paramsBuffer.destroy();
   }
 

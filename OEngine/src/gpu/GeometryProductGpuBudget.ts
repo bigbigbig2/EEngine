@@ -12,6 +12,7 @@ interface Ledger {
   metadataBytes: number;
   peakBytes: number;
   metadataPeakBytes: number;
+  totalPeakBytes: number;
   allocations: number;
   metadataAllocations: number;
   capacityLimitBytes: number;
@@ -35,6 +36,7 @@ export function reserveGeometryProductGpuBytes(
       metadataBytes: 0,
       peakBytes: 0,
       metadataPeakBytes: 0,
+      totalPeakBytes: 0,
       allocations: 0,
       metadataAllocations: 0,
       capacityLimitBytes: GEOMETRY_PRODUCT_GPU_CAPACITY_LIMIT
@@ -50,6 +52,7 @@ export function reserveGeometryProductGpuBytes(
   ledger.allocatedBytes += bytes;
   ledger.allocations++;
   ledger.peakBytes = Math.max(ledger.peakBytes, ledger.allocatedBytes);
+  ledger.totalPeakBytes = Math.max(ledger.totalPeakBytes, ledger.allocatedBytes + ledger.metadataBytes);
   let released = false;
   return () => {
     if (released) return;
@@ -70,6 +73,7 @@ export function reserveGeometryProductMetadataBytes(device: GPUDevice, bytes: nu
       metadataBytes: 0,
       peakBytes: 0,
       metadataPeakBytes: 0,
+      totalPeakBytes: 0,
       allocations: 0,
       metadataAllocations: 0,
       capacityLimitBytes: GEOMETRY_PRODUCT_GPU_CAPACITY_LIMIT
@@ -81,6 +85,7 @@ export function reserveGeometryProductMetadataBytes(device: GPUDevice, bytes: nu
   ledger.metadataBytes += bytes;
   ledger.metadataAllocations++;
   ledger.metadataPeakBytes = Math.max(ledger.metadataPeakBytes, ledger.metadataBytes);
+  ledger.totalPeakBytes = Math.max(ledger.totalPeakBytes, ledger.allocatedBytes + ledger.metadataBytes);
   let released = false;
   return () => {
     if (released) return;
@@ -96,6 +101,7 @@ export function geometryProductGpuBudgetEvidence(device: GPUDevice): Readonly<{
   totalBytes: number;
   peakBytes: number;
   metadataPeakBytes: number;
+  totalPeakBytes: number;
   allocations: number;
   metadataAllocations: number;
   limitBytes: number;
@@ -108,6 +114,7 @@ export function geometryProductGpuBudgetEvidence(device: GPUDevice): Readonly<{
     totalBytes: (ledger?.allocatedBytes ?? 0) + (ledger?.metadataBytes ?? 0),
     peakBytes: ledger?.peakBytes ?? 0,
     metadataPeakBytes: ledger?.metadataPeakBytes ?? 0,
+    totalPeakBytes: ledger?.totalPeakBytes ?? 0,
     allocations: ledger?.allocations ?? 0,
     metadataAllocations: ledger?.metadataAllocations ?? 0,
     limitBytes: ledger?.capacityLimitBytes ?? GEOMETRY_PRODUCT_GPU_CAPACITY_LIMIT,

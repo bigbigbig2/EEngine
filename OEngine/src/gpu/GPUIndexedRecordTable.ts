@@ -110,6 +110,7 @@ export class GPUIndexedRecordTable<T> {
     this.type = options.type;
     const initialSize = alignUp(Math.max(1, options.initialSizeBytes ?? 4096), options.recordSizeBytes);
     this.buffer = options.device.createBuffer({
+      label: "GPUIndexedRecordTable/resident records",
       size: initialSize,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
       mappedAtCreation: false,

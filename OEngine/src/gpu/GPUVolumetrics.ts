@@ -88,7 +88,7 @@ export class GPUVolumetrics {
       pack: packGPUVolumetricRecord,
     });
     this.metadataBuffer = GPUTypedBuffer.create({
-      label: "",
+      label: "GPUVolumetrics/settings",
       device,
       type: GPU_VOLUMETRIC_METADATA_TYPE,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -110,6 +110,7 @@ export class GPUVolumetrics {
 
   destroy(): void {
     this.gpuTable.destroy();
+    this.metadataBuffer.destroy();
   }
 
   private queueVolume(index: number, volume: ParticipatingMediaVolume, transformInverse: Float32Array): void {

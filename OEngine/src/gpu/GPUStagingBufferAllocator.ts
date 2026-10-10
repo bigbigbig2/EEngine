@@ -32,7 +32,7 @@ export class GPUStagingBufferAllocator {
     const cached = index < this.cache.length ? this.cache.splice(index, 1)[0] : undefined;
     if (cached !== undefined) return cached;
     const buffer = this.device.createBuffer({
-      label: "",
+      label: "GPUStagingBufferAllocator/upload",
       size: resolvedSize,
       usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
     });

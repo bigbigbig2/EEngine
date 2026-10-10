@@ -4,6 +4,12 @@ state: current
 verifies:
   files:
     - examples/demos/14-integrated/dungeon-warkarma-texture-compression/main.ts
+    - examples/demos/14-integrated/dungeon-warkarma-texture-compression/resource-budget.ts
+    - examples/demos/14-integrated/dungeon-warkarma-texture-compression/cooked-scene.ts
+    - OEngine/src/gpu/GeometryProductGpuBudget.ts
+    - OEngine/src/gpu/GeometryProductMultiRuntime.ts
+    - validation/tools/dungeon-gpu-audit.mjs
+    - validation/tools/run-dungeon-performance.mjs
     - OEngine/src/shaders/native_surface.ts
     - OEngine/src/shaders/native_surface_lighting.ts
     - OEngine/src/shaders/lighting_brdf.ts
@@ -39,7 +45,7 @@ verifies:
 
 这是此前分析与用户提供的大胆方案的择优合并：VSM/Temporal提升为主攻架构单元；此前的IBL硬件采样、稳定depth域/局部失效和4GB预算保留为完整备选单元。不是逐项照抄附件，也不是把方案退回只有几个load/ALU的小修。方案选择优先消除百万pixel重复的管理工作、过大的shader live set和不必要的跨pass产品；支持“数毫秒量级热点值得完整重设”，不支持“新架构必定省几毫秒”的未测承诺。
 
-源码审查锚点为 `f495f04bca30f6238fdb595f73bd83748534ba65`。以下“当前”均指该版本；后续实现前必须复查源码。设计中的新产品、shader、policy 均未实现，不因本文件 `state: current` 而视为已采纳。
+初始源码审查锚点为 `f495f04bca30f6238fdb595f73bd83748534ba65`，原始方案中的“当前”指该版本；后续实现前必须复查源码。后续P1–P4采用/拒绝的设计修正明确标在对应章节，实际代码与验证出口以执行计划为准；其它新产品、shader、policy不因本文件 `state: current` 而视为已实现。
 
 ## 1. 目标、证据与成本边界
 
@@ -247,6 +253,10 @@ Cost Card：normal非coat逻辑filter调用由16点loads→diffuse1/spec2/DFG1 f
 路线：先显式platform/scene negotiated budget与完整accounting，再研究**分bank渐增的physical pool**。当前四bank绑定/slot寻址不是天然growable；WebGPU buffer不原地resize，增长可能需要new bank/copy/完整directory原子发布/old fenced退休，短期峰值反而更大。先可独立调安全容量，不先承诺512→640→768免费扩容。预算不能靠adapter型号猜VRAM，浏览器无可靠通用dedicated-budget API；使用显式target profile/device limits/scene需求，未知设备保守透明策略。
 
 Cost边界：budget调小不删除采样/ALU/dispatch，只删unused nominalbytes；一旦超working set新增evict/reload/IO/upload与VSM invalidation、P95可能恶化。growable最好静态小场景省容量，最坏迁移overlap+频繁增长与retire；break-even是容量/驻留收益超过copy、publication与reload税。variable-page/subpage可提高低密度，但涉及格式/地址/全部consumer，另开后续架构任务，本阶段不搭便车。
+
+**P4实施后的设计修正（2026-10-11，承接§5.2）**：先关闭独立容量单元，未实现growable pool。Dungeon应用显式选择`target-4gb`：2GiB诊断API envelope内分配geometry512MiB、metadata128MiB、其余owner/峰值余量1408MiB；不猜adapter型号，不把这份配置称为全局allocator硬限额或Windows驻留保证。raw/cooked/诊断runner使用同一默认；显式容量override标为custom，非法输入拒绝。现有四等大bank/device-limit协商与完整identity、feedback/eviction合同不变。
+
+记账分别报告当前payload、resident/retiring固定slots、bank空余、metadata各区间使用量、全部已观测显式API资源的live与**同时**peak及owner构成；未知format/未显式destroy资源不能当作0。完整API审计仅diagnostic开启，生产`GraphicsContext`统计仍为partial并明确标名。实测当前Dungeon全部1207pages在512MiB内驻留；受控运动加载结束后无evict/reload或source revision增长。该证据只支持这个静态Product集合，不保证更大/可编辑场景；峰值与运动加载前段原始数据不删。实际容量下降1GiB，GPU稳态帧时未证明改善，释放缺项已补齐；详细Cost Card/验证/热状态见执行§6.1。
 
 ## 6. 开源执行方式、附件采纳与拒绝
 

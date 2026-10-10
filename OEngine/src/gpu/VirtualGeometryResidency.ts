@@ -71,6 +71,12 @@ export interface VirtualGeometryResidencyEvidenceV1 {
   readonly pinnedPages: number;
   readonly residentBytes: number;
   readonly retiringBytes: number;
+  /** Current authored bytes + resident directory + expanded attributes; not
+   * cumulative upload traffic, page padding, or OS residency. */
+  readonly residentPayloadBytes: number;
+  readonly retiringPayloadBytes: number;
+  readonly residentInternalSlackBytes: number;
+  readonly totalPages: number;
   readonly evictedPages: number;
   readonly uploadedBytes: number;
   readonly bankCount: number;
@@ -170,6 +176,7 @@ export class VirtualGeometryResidency {
     readonly { readonly bankIndex: number; readonly slotIndex: number }[]
   >();
   readonly #preparedPages = new WeakMap<GeometryPageProductV1, ProductResidentPage>();
+  readonly #pagePayloadBytes = new Map<number, number>();
   readonly #pageLastUsed = new Map<number, number>();
   readonly #pageHistory = new Map<number, PageEvictionHistory>();
   readonly #pageImportance = new Map<number, number>();
@@ -654,6 +661,7 @@ export class VirtualGeometryResidency {
       this.#slotPool!.release(slot.bankIndex, slot.slotIndex);
     }
     this.#pageSlots.delete(pageId);
+    this.#pagePayloadBytes.delete(pageId);
     const history = this.#history(pageId);
     this.#lifetimeFrames += Math.max(0, this.#frameClock - history.residentSince);
     history.lastEvicted = this.#frameClock;
@@ -672,6 +680,8 @@ export class VirtualGeometryResidency {
       (location) => (location.flags & GEOMETRY_PAGE_LOCATION_PINNED) !== 0
     ).length;
     const global = geometryProductGpuBudgetEvidence(this.device);
+    const residentBytes = this.#pagePhysicalBytes(this.#pageLocations);
+    const residentPayloadBytes = this.#payloadBytes(this.#pageLocations);
     return Object.freeze({
       residencyProfile: this.#residencyProfile.profile,
       profileBankBytes: this.#residencyProfile.bankBytes,
@@ -685,8 +695,12 @@ export class VirtualGeometryResidency {
       residentPages: this.#pageLocations.size,
       pinnedPages,
       retiringPages: this.#retiringLocations.size,
-      residentBytes: this.#pagePhysicalBytes(this.#pageLocations),
+      residentBytes,
       retiringBytes: this.#pagePhysicalBytes(this.#retiringLocations),
+      residentPayloadBytes,
+      retiringPayloadBytes: this.#payloadBytes(this.#retiringLocations),
+      residentInternalSlackBytes: residentBytes - residentPayloadBytes,
+      totalPages: this.#descriptor.pageRecords.byteLength / GEOMETRY_PRODUCT_PAGE_RECORD_STRIDE,
       evictedPages: this.#evictedPages,
       uploadedBytes: this.#uploadedBytes,
       metadataBytes: this.#metadata === undefined ? 0 : this.#metadataLayout.byteLength,
@@ -713,6 +727,13 @@ export class VirtualGeometryResidency {
   #pagePhysicalBytes(pages: ReadonlyMap<number, GeometryPageLocationV1>): number {
     let bytes = 0;
     for (const pageId of pages.keys()) bytes += this.#pageSlots.get(pageId)!.length * OEGPACK_V3_PAGE_BYTES;
+    return bytes;
+  }
+  #payloadBytes(pages: ReadonlyMap<number, GeometryPageLocationV1>): number {
+    let bytes = 0;
+    for (const pageId of pages.keys()) {
+      bytes += this.#pagePayloadBytes.get(pageId)!;
+    }
     return bytes;
   }
   #prepareResidentPage(page: GeometryPageProductV1): ProductResidentPage {
@@ -777,6 +798,7 @@ export class VirtualGeometryResidency {
       );
       const slots = Object.freeze([raw, ...extras]);
       this.#pageSlots.set(page.pageId, slots);
+      this.#pagePayloadBytes.set(page.pageId, prepared.uploadBytes);
       for (const slot of slots) this.#slotOwners.set(slotKey(slot.bankIndex, slot.slotIndex), page.pageId);
       this.#uploadedBytes +=
         prepared.rawPayloadBytes +
@@ -956,6 +978,7 @@ export class VirtualGeometryResidency {
     this.#groupLocations.clear();
     this.#slotOwners.clear();
     this.#pageSlots.clear();
+    this.#pagePayloadBytes.clear();
     this.#pageLastUsed.clear();
     this.#pageHistory.clear();
   }

@@ -157,17 +157,24 @@ export class SurfaceV4 {
     if (this.neutralEntries !== null) {
       return this.neutralEntries;
     }
-    const shadowConstants = this.device.createBuffer({ size: 256, usage: GPUBufferUsage.UNIFORM });
+    const shadowConstants = this.device.createBuffer({
+      label: "SurfaceV4/neutral VSM constants",
+      size: 256,
+      usage: GPUBufferUsage.UNIFORM,
+    });
     const pageTable = this.device.createBuffer({
+      label: "SurfaceV4/neutral VSM descriptor",
       size: VSM_SAMPLING_DESCRIPTOR_BYTES,
       usage: GPUBufferUsage.STORAGE,
     });
     const atlas = this.device.createTexture({
+      label: "SurfaceV4/neutral VSM atlas",
       size: [1, 1],
       format: "depth32float",
       usage: GPUTextureUsage.TEXTURE_BINDING,
     });
     const ao = this.device.createTexture({
+      label: "SurfaceV4/neutral AO",
       size: [1, 1],
       format: "rgba8unorm",
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
@@ -747,6 +754,7 @@ export class SurfaceV4 {
     let queryKeys: GPUTexture | null = previous?.queryKeys ?? null;
     const buffer = (size: number, values?: Uint32Array): GPUBuffer => {
       const result = this.device.createBuffer({
+        label: "SurfaceV4/frame uniforms",
         size,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         mappedAtCreation: values !== undefined,

@@ -29,6 +29,7 @@ import {
 import type { GltfMaterial } from "../../../../OEngine/src/loaders/gltf/GltfLoader.ts";
 import { ShadeImage } from "../../../../OEngine/src/texture/ShadeImage.ts";
 import { ShadeTexture } from "../../../../OEngine/src/texture/ShadeTexture.ts";
+import { DUNGEON_4GB_RESOURCE_BUDGET } from "./resource-budget.ts";
 
 type Property = (typeof MATERIAL_TEXTURE_PROPERTIES)[number];
 interface CookedManifest {
@@ -62,7 +63,7 @@ export async function loadCookedScene(
   base: string,
   signal: AbortSignal,
   phase: (value: string) => void,
-  geometryCapacityBytes = 1024 * 1024 ** 2
+  geometryCapacityBytes = DUNGEON_4GB_RESOURCE_BUDGET.geometryCapacityBytes
 ) {
   const fetchBytes = async (uri: string) => {
     const response = await fetch(new URL(uri, base), { signal });
@@ -146,7 +147,7 @@ export async function loadCookedScene(
         configuredCapacityBytes: geometryCapacityBytes,
         configuredBankBytes: geometryCapacityBytes / 4
       },
-      metadataBytes: 128 * 1024 ** 2
+      metadataBytes: DUNGEON_4GB_RESOURCE_BUDGET.metadataBytes
     });
     const parts: VirtualGeometryProductScenePartV1[] = [];
     let first: GeometryProductShardHandleV1 | undefined;

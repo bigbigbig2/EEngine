@@ -67,6 +67,18 @@ export class GPUTextureManager {
     }
     return usage;
   }
+
+  destroy(): void {
+    // Descriptor-created contexts are borrowed by RenderTargets and destroyed
+    // there. Only imported image contexts and the cold mip owner belong here.
+    const contexts = new Set([...this.shared.values(), ...this.byShadeTexture.values()]);
+    for (const context of contexts) {
+      context.destroy();
+    }
+    this.shared.clear();
+    this.byShadeTexture.clear();
+    this.mipmaps.destroy();
+  }
 }
 
 function sharedTextureKey(sourceId: number, descriptor: GPUTextureDescriptor): string {

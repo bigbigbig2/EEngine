@@ -26,6 +26,7 @@ const frames = Number(option("frames", "240"));
 const nativeCostSlice = option("native-slice", null);
 const vsmDemandDiagnostics = args.includes("--vsm-demand-diagnostics");
 const gpuSampleInterval = Number(option("gpu-sample-interval", "4"));
+const movementAudit = args.includes("--movement-audit");
 if (nativeCostSlice !== null && !/^(?:[A-G]|B0|Q0|K)$/.test(nativeCostSlice))
   throw new Error("--native-slice must be A through G, B0, Q0 (query without PCF) or K (full query keys)");
 if (vsmDemandDiagnostics && nativeCostSlice !== null && nativeCostSlice !== "G")
@@ -107,7 +108,8 @@ const report = {
     width: 1920,
     height: 1080,
     headless: !args.includes("--headed"),
-    geometryMiB: option("geometryMiB", "1536")
+    geometryMiB: option("geometryMiB", null),
+    movementAudit,
   },
   manifest,
   captures: [],
@@ -367,8 +369,9 @@ try {
   scenario = "cold-load";
   const loadStart = Date.now();
   const urlObject = new URL(
-    `http://127.0.0.1:5186/demos/14-integrated/dungeon-warkarma-texture-compression/index.html?performanceCapture=1&geometryMiB=${report.options.geometryMiB}`
+    "http://127.0.0.1:5186/demos/14-integrated/dungeon-warkarma-texture-compression/index.html?performanceCapture=1"
   );
+  if (report.options.geometryMiB !== null) urlObject.searchParams.set("geometryMiB", report.options.geometryMiB);
   if (nativeCostSlice !== null) urlObject.searchParams.set("nativeCostSlice", nativeCostSlice);
   if (vsmDemandDiagnostics) urlObject.searchParams.set("vsmDemandDiagnostics", "1");
   if (args.includes("--near") && !args.includes("--camera-search")) {
@@ -517,9 +520,27 @@ try {
               false
             );
           }, 16);
+          window.__dungeonBudgetSamples = [];
         },
         [position, target]
       );
+      if (movementAudit) {
+        await run.page.evaluate(() => {
+          window.__dungeonBudgetSampler = setInterval(() => {
+            const report = window.dungeonDemo.report();
+            window.__dungeonBudgetSamples.push({
+              at: performance.now(),
+              frame: report.renderState.frame,
+              camera: report.renderState.camera,
+              geometry: report.geometry,
+              geometryMetadata: report.geometryMetadata,
+              geometryPages: report.geometryPages,
+              streaming: report.streaming,
+              failure: report.failure,
+            });
+          }, 500);
+        });
+      }
     }
     const mode =
       name.startsWith("normal") || name === "baseline-repeat"
@@ -530,7 +551,7 @@ try {
     const startFrame = await run.page.evaluate(
       ([mode, counters, interval]) =>
         window.dungeonPerformance.configure(mode, mode === "full", counters, interval),
-      [mode, name === "counters", gpuSampleInterval]
+      [mode, name === "counters" || (name === "motion" && movementAudit), gpuSampleInterval]
     );
     await run.page.waitForFunction(
       (n) => window.dungeonDemo.report().renderState.frame >= n + 60,
@@ -565,6 +586,10 @@ try {
       raw: await run.page.evaluate(() => window.dungeonPerformance.samples()),
       longTasks: await run.page.evaluate(() => window.__longTasks)
     };
+    if (name === "motion" && movementAudit) {
+      await run.page.evaluate(() => clearInterval(window.__dungeonBudgetSampler));
+      capture.movementSamples = await run.page.evaluate(() => window.__dungeonBudgetSamples);
+    }
     if (args.includes("--near") || args.includes("--audit")) {
       await control("pause", true, true);
       capture.coverage = await run.page.evaluate(
@@ -582,6 +607,30 @@ try {
         throw new Error("Instrumentation is active during a timing run");
       }
       capture.gpuResources = await run.page.evaluate(() => window.dungeonGpuAudit.snapshot());
+      const owners = Object.values(capture.gpuResources.capacityOwners);
+      if (owners.reduce((sum, owner) => sum + owner.bytes, 0) !== capture.gpuResources.bytes ||
+          Object.values(capture.gpuResources.ownersAtPeak).reduce((sum, bytes) => sum + bytes, 0) !== capture.gpuResources.peakBytes ||
+          capture.gpuResources.unknownFormats.length) {
+        await writeFile(resolve(out, `${name}.json`), JSON.stringify(capture));
+        throw new Error("API capacity inventory is incomplete or does not reconcile; raw capture saved");
+      }
+      const budget = capture.report.resourceBudget;
+      const products = capture.report.streaming.products;
+      capture.resourceBudgetEvidence = {
+        profile: budget.profile,
+        apiEnvelopeBytes: budget.apiEnvelopeBytes,
+        apiLiveBytes: capture.gpuResources.bytes,
+        apiPeakBytes: capture.gpuResources.peakBytes,
+        peakEnvelopeHeadroomBytes: budget.apiEnvelopeBytes - capture.gpuResources.peakBytes,
+        negotiatedGeometryBytes: capture.report.geometry.allocatedBytes,
+        unusedBankBytes: capture.report.geometry.allocatedBytes - products.reduce((sum, p) => sum + p.residentBytes + p.retiringBytes, 0),
+        residentPayloadBytes: products.reduce((sum, p) => sum + p.residentPayloadBytes, 0),
+        residentInternalSlackBytes: products.reduce((sum, p) => sum + p.residentInternalSlackBytes, 0),
+      };
+      if (budget.profile === "target-4gb" && capture.gpuResources.peakBytes > budget.apiEnvelopeBytes) {
+        await writeFile(resolve(out, `${name}.json`), JSON.stringify(capture));
+        throw new Error("Target 4GB API envelope exceeded; raw capture saved (not an OS VRAM measurement)");
+      }
       if (nativeCostSlice === "K") {
         capture.nativeQueryStatistics = await run.page.evaluate(() =>
           window.dungeonGpuAudit.nativeQueryStatistics()
@@ -665,6 +714,12 @@ try {
   report.beforeRelease = await run.page.evaluate(() => window.dungeonDemo.report());
   await run.page.evaluate(() => window.dungeonDemo.release());
   report.afterRelease = await run.page.evaluate(() => window.dungeonDemo.report());
+  if (args.includes("--audit")) {
+    report.afterReleaseGpuAudit = await run.page.evaluate(() => window.dungeonGpuAudit.snapshot());
+    if (report.afterReleaseGpuAudit.bytes !== 0 || report.afterReleaseGpuAudit.unknownFormats.length) {
+      throw new Error("Explicit API resources remain after owner release; raw audit retained in suite.json");
+    }
+  }
   await processes();
   await osMemory();
   await sensor();

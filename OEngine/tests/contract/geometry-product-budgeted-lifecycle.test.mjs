@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { streamingProductFixture } from "../helpers/geometry-product-fixture.mjs";
 import { GeometryProductMultiRuntimeV1 } from "../../.test-dist/gpu/GeometryProductMultiRuntime.js";
-import { geometryProductGpuBudgetEvidence } from "../../.test-dist/gpu/GeometryProductGpuBudget.js";
+import {
+  geometryProductGpuBudgetEvidence,
+  reserveGeometryProductGpuBytes,
+  reserveGeometryProductMetadataBytes,
+} from "../../.test-dist/gpu/GeometryProductGpuBudget.js";
 import { selectGeometryProductResidencyProfileV1 } from "../../.test-dist/gpu/GeometryProductResidencyProfile.js";
 import {
   encodeGeometryProductGpuLocationV1,
@@ -54,6 +58,61 @@ const demand = (slot, generation, pageId, priority = 0) => ({
   currentViewMissing: true,
   predictive: false,
   shadow: false
+});
+
+test("payload accounting follows publication, retirement, reload and release rather than cumulative uploads", async () => {
+  const gpu = device();
+  const writes = [];
+  gpu.queue.writeBuffer = (buffer, _offset, data) => {
+    if (buffer.label.includes(" bank ")) writes.push(data.byteLength);
+  };
+  const runtime = new GeometryProductMultiRuntimeV1(gpu, {
+    metadataBytes: 64 * 1024, residency: { configuredCapacityBytes: 2 * MiB },
+  });
+  const fixture = await streamingProductFixture(3);
+  const { residency } = await runtime.load(fixture.source);
+  const initial = residency.evidence();
+  assert.equal(initial.totalPages, 3);
+  assert.equal(initial.residentPayloadBytes, writes.reduce((a, b) => a + b, 0));
+  const page = await fixture.source.readPage(1);
+  assert.equal(residency.tryUploadPage(page), true);
+  const uploaded = residency.evidence();
+  const payload = uploaded.residentPayloadBytes - initial.residentPayloadBytes;
+  assert.equal(uploaded.residentPayloadBytes, writes.reduce((a, b) => a + b, 0));
+  assert.equal(uploaded.residentInternalSlackBytes, uploaded.residentBytes - uploaded.residentPayloadBytes);
+  residency.beginRetirePage(1);
+  const pending = residency.evidence();
+  assert.equal(pending.residentPayloadBytes, initial.residentPayloadBytes);
+  assert.equal(pending.retiringPayloadBytes, payload);
+  assert.ok(pending.retiringBytes >= payload);
+  residency.completeRetirePage(1);
+  assert.equal(residency.evidence().retiringPayloadBytes, 0);
+  assert.equal(residency.tryUploadPage(page), true);
+  assert.equal(residency.evidence().residentPayloadBytes, uploaded.residentPayloadBytes);
+  assert.ok(residency.evidence().uploadedBytes > residency.evidence().residentPayloadBytes);
+  const sections = runtime.evidence().metadataSections;
+  assert.equal(sections.page.usedRecords, 3);
+  assert.equal(sections.page.usedBytes, 48);
+  await runtime.release(0, residency.productGeneration);
+  assert.ok(Object.values(runtime.evidence().metadataSections).every(s => s.usedRecords === 0));
+  assert.equal(residency.evidence().residentPayloadBytes, 0);
+  assert.equal(residency.evidence().retiringPayloadBytes, 0);
+  runtime.destroy();
+  assert.equal(geometryProductGpuBudgetEvidence(gpu).totalBytes, 0);
+});
+
+test("geometry peak is simultaneous bank plus metadata capacity, not a sum of independent peaks", () => {
+  const gpu = device();
+  const releaseMetadata = reserveGeometryProductMetadataBytes(gpu, 128 * MiB);
+  releaseMetadata();
+  const releaseBank = reserveGeometryProductGpuBytes(gpu, 512 * MiB);
+  const releaseSmallMetadata = reserveGeometryProductMetadataBytes(gpu, 64 * MiB);
+  const evidence = geometryProductGpuBudgetEvidence(gpu);
+  assert.equal(evidence.totalPeakBytes, 576 * MiB);
+  assert.equal(evidence.peakBytes + evidence.metadataPeakBytes, 640 * MiB);
+  releaseSmallMetadata();
+  releaseBank();
+  assert.equal(geometryProductGpuBudgetEvidence(gpu).totalBytes, 0);
 });
 
 test("page tail directory and decoded attributes never overwrite authored geometry", async () => {

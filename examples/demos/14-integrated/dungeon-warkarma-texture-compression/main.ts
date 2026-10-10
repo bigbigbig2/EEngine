@@ -18,6 +18,7 @@ import {
 } from "../../../../OEngine/src/index.ts";
 import { DungeonFramePacing } from "./frame-pacing.ts";
 import { createTextureQualityReader } from "./texture-quality.ts";
+import { dungeonResourceBudget } from "./resource-budget.ts";
 import { ShadeTransparencyMode } from "../../../../OEngine/src/material/enums.ts";
 import { summarizeGpuTimingCost } from "../../../../OEngine/src/debug/GpuTimingCost.ts";
 import { geometryProductGpuBudgetEvidence } from "../../../../OEngine/src/gpu/GeometryProductGpuBudget.ts";
@@ -44,11 +45,8 @@ const performanceCapture = query.get("performanceCapture") === "1";
 const textureQuality = createTextureQualityReader();
 const fixture = false;
 const cookedMode = query.get("mode") !== "raw";
-const requestedGeometryMiB = Number(query.get("geometryMiB") ?? (fixture ? 128 : 1536));
-const geometryCapacityBytes =
-  Number.isSafeInteger(requestedGeometryMiB) && requestedGeometryMiB >= 128 && requestedGeometryMiB <= 2048
-    ? requestedGeometryMiB * MiB
-    : (fixture ? 128 : 1536) * MiB;
+const resourceBudget = dungeonResourceBudget(query.get("geometryMiB"));
+const geometryCapacityBytes = resourceBudget.geometryCapacityBytes;
 const autoExposure = query.get("exposure") === "auto";
 const requestedExposure = Number(query.get("fixedExposure") ?? 5);
 const fixedExposure =
@@ -343,7 +341,9 @@ function snapshot() {
     memory: renderer?.graphics ? renderer.memoryEvidence() : null,
     resourceAccounting: renderer?.graphics?.resource_accounting.snapshot() ?? null,
     geometry: renderer?.device ? geometryProductGpuBudgetEvidence(renderer.device) : null,
+    geometryMetadata: cooked?.runtime.evidence() ?? null,
     geometryRequestedCapacityBytes: geometryCapacityBytes,
+    resourceBudget,
     streaming,
     geometryPages,
     renderState: {
@@ -449,7 +449,7 @@ const rows: Array<[string, string]> = [
   ["Completion / publication deferrals", "deferrals"],
   ["Profiled GPU P50/P95", "gpu"],
   ["Profiled Surface P50/P95", "surface"],
-  ["Total software bytes", "total"],
+  ["GraphicsContext partial capacity (excludes external owners)", "total"],
 ];
 const cells = new Map<string, HTMLElement>();
 for (const [label, key] of rows) {
@@ -472,7 +472,7 @@ for (const [key, label] of [
   ["geometryActivity", "Geometry activity"],
   ["geometryDelta", "Last 0.5 s upload / evict / reload"],
   ["pages", "Resident / pinned pages"],
-  ["geometryBytes", "Resident geometry bytes"],
+  ["geometryBytes", "Resident slots / payload / internal slack"],
   ["geometryCapacity", "Shared heap / metadata"],
   ["geometryRequested", "Requested geometry capacity"],
   ["io", "Pending / in-flight"],
@@ -581,9 +581,11 @@ function refresh(): void {
     geometryActivity,
     geometryDelta: `${bytes(geometryDelta.uploadedBytes)} / ${geometryDelta.evicted} / ${geometryDelta.reloads}`,
     pages: g ? `${g.resident} / ${g.pinned}` : "PENDING",
-    geometryBytes: bytes(g?.residentBytes),
+    geometryBytes: g
+      ? `${bytes(g.residentBytes)} / ${bytes(s.streaming?.products.reduce((sum, p) => sum + p.residentPayloadBytes, 0))} / ${bytes(s.streaming?.products.reduce((sum, p) => sum + p.residentInternalSlackBytes, 0))}`
+      : "PENDING",
     geometryCapacity: `${bytes(s.geometry?.allocatedBytes)} / ${bytes(s.geometry?.metadataBytes)}`,
-    geometryRequested: bytes(s.geometryRequestedCapacityBytes),
+    geometryRequested: `${resourceBudget.profile}: ${bytes(s.geometryRequestedCapacityBytes)}`,
     io: `${scheduler?.pending ?? 0} / ${bytes(scheduler?.inFlightBytes)}`,
     evictions: `${g?.evicted ?? 0} / ${g?.reloads ?? 0}`,
     thrash: bytes(g?.thrashBytes),
@@ -737,7 +739,7 @@ async function start(): Promise<void> {
     });
     loading = renderer.uploadWebCookedMultiProductScene(scene, asset, {
       signal: abort.signal,
-      multiProductMetadataBytes: 128 * MiB,
+      multiProductMetadataBytes: resourceBudget.metadataBytes,
       residency: {
         requestedProfile: "HighEnd",
         configuredCapacityBytes: geometryCapacityBytes,

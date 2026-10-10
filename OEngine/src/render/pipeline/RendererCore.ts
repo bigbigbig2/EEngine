@@ -2486,6 +2486,7 @@ export class Renderer {
     this._vsmCasterRecords?.destroy();
     this._vsmAtlasRaster?.destroy();
     this._views?.destroy();
+    this._cameraStates?.destroy();
     this._environments?.destroy();
     this._environmentRuntime?.destroy();
     this._environmentRuntime = null;

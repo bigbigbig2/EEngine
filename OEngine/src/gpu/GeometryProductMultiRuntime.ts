@@ -84,6 +84,13 @@ export interface GeometryProductMultiRuntimeEvidenceV1 {
   readonly peakActive: number;
   readonly tableBytes: number;
   readonly metadataBytes: number;
+  readonly metadataSections: Readonly<
+    Record<string, Readonly<{
+      usedRecords: number;
+      capacityRecords: number;
+      usedBytes: number;
+    }>>
+  >;
   readonly lastError: string | null;
 }
 
@@ -627,6 +634,14 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
       peakActive: this.#peakActive,
       tableBytes: this.tableBytes,
       metadataBytes: this.#metadataLayout.byteLength,
+      metadataSections: Object.freeze(Object.fromEntries(
+        (["asset", "root", "hierarchy", "group", "page", "vertexFormat"] as const).map((name) => {
+          const capacityRecords = this.#metadataLayout[`${name}Capacity`];
+          const usedRecords = capacityRecords - this.#ranges[name]!.availableRecords;
+          const stride = { asset: 144, root: 4, hierarchy: 48, group: 16, page: 16, vertexFormat: 16 }[name];
+          return [name, Object.freeze({ usedRecords, capacityRecords, usedBytes: usedRecords * stride })];
+        }),
+      )),
       lastError: this.#lastError
     });
   }
@@ -1137,6 +1152,11 @@ class MetadataRanges {
   readonly #free: Array<{ begin: number; count: number }>;
   constructor(capacity: number) {
     this.#free = [{ begin: 0, count: capacity }];
+  }
+  get availableRecords(): number {
+    let count = 0;
+    for (const range of this.#free) count += range.count;
+    return count;
   }
   allocate(count: number): number {
     if (count === 0) return 0;

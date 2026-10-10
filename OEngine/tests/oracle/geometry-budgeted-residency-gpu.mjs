@@ -230,6 +230,7 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
         assets: {
           abiVersion: GPU_GEOMETRY_ABI_VERSION,
           geometryRecords: placeholder,
+          meshletRecords: placeholder,
           clusterRecords: placeholder,
           clusterChildren: placeholder
         },
@@ -266,10 +267,15 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
       frustumPlanes: Array.from({ length: 6 }, () => [0, 0, 0, 1])
     };
     const camera = buffer(PACKED_CAMERA_TYPE.size, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
+    // The current bounds producer is gated by the real allocation header's
+    // dirty count. This test needs caster work on every pressure tick.
+    const shadowAllocation = buffer(16);
+    device.queue.writeBuffer(shadowAllocation, 0, new Uint32Array([0, 1, 0, 0]));
     const shadowJob = {
       assets: {
         abiVersion: GPU_GEOMETRY_ABI_VERSION,
         geometryRecords: placeholder,
+        meshletRecords: placeholder,
         clusterRecords: placeholder,
         clusterChildren: placeholder
       },
@@ -332,6 +338,22 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
           aborts = [];
         const command = {
           gpu_encoder: encoder,
+          beginComputePass: descriptor => encoder.beginComputePass(descriptor),
+          writeBuffer(target, offset, data, dataOffset, size) {
+            const staging = device.createBuffer({
+              size,
+              usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+            });
+            device.queue.writeBuffer(staging, 0, data, dataOffset, size);
+            encoder.copyBufferToBuffer(staging, 0, target, offset, size);
+            callbacks.push(() => {
+              void device.queue.onSubmittedWorkDone().then(
+                () => staging.destroy(),
+                () => staging.destroy(),
+              );
+            });
+            aborts.push(() => staging.destroy());
+          },
           onFinished: {
             addOne(callback) {
               callbacks.push(callback);
@@ -349,7 +371,8 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
         shadowOwner.encode(
           { ...shadowJob, demandFrameIndex: frame, demandFrameRevisionLow: frame },
           shadowPrepared,
-          command
+          command,
+          shadowAllocation
         );
         encoder.copyBufferToBuffer(work.queue, 0, read, 0, work.queue.size);
         encoder.copyBufferToBuffer(shadowPrepared.work.queue, 0, shadowRead, 0, shadowRead.size);

@@ -251,6 +251,7 @@ export class NativeVisibilityPass {
 
   private buffer(size: number, values?: ArrayBufferView<ArrayBuffer>): GPUBuffer {
     const buffer = this.device.createBuffer({
+      label: "NativeVisibilityPass/uniforms",
       size,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });

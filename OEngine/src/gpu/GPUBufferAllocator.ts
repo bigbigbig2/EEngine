@@ -72,7 +72,7 @@ export class GPUBufferAllocator {
         );
       }
       buffer = this.device.createBuffer({
-        label: "",
+        label: "GPUBufferAllocator/shared transient",
         size: request.size,
         usage: request.usage,
       });

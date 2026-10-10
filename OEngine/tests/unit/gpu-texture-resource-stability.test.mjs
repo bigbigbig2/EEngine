@@ -7,9 +7,18 @@ import { fileURLToPath } from "node:url";
 import "../webgpu-test-globals.mjs";
 import { GPUTextureAllocator } from "../../.test-dist/gpu/GPUTextureAllocator.js";
 import { GPUTextureContext } from "../../.test-dist/gpu/GPUTextureContext.js";
+import { GPUTextureManager } from "../../.test-dist/gpu/GPUTextureManager.js";
+import { GPUCameraStateManager } from "../../.test-dist/render/GPUCameraState.js";
+import { GPUVolumetrics } from "../../.test-dist/gpu/GPUVolumetrics.js";
+import { ShadeImage, ShadeTexture } from "../../.test-dist/texture/ShadeTexture.js";
 import { resolveTextureView } from "../../.test-dist/render/RenderTargetViews.js";
 
 const oengineRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+
+globalThis.GPUBufferUsage ??= Object.freeze({
+  MAP_READ: 1, MAP_WRITE: 2, COPY_SRC: 4, COPY_DST: 8,
+  INDEX: 16, VERTEX: 32, UNIFORM: 64, STORAGE: 128, INDIRECT: 256,
+});
 
 function textureFromDescriptor(descriptor, createView) {
   const size = Array.from(descriptor.size);
@@ -79,4 +88,54 @@ test("persistent texture owners reuse their default view", () => {
   assert.equal(resolveTextureView(texture), stableView);
   assert.equal(viewCreationCount, 1);
   texture.destroy();
+});
+
+test("owner teardown destroys shared imports once, clears mip work and preserves borrowed targets", () => {
+  const destroyed = [];
+  const device = {
+    limits: { minUniformBufferOffsetAlignment: 256 },
+    queue: { writeTexture() {} },
+    createSampler() { return {}; },
+    createBuffer(descriptor) {
+      return { destroy() { destroyed.push(descriptor.label); } };
+    },
+    createTexture(descriptor) {
+      return {
+        ...textureFromDescriptor(descriptor, () => ({})),
+        destroy() { destroyed.push(descriptor.label); },
+      };
+    },
+  };
+  const manager = new GPUTextureManager({ device });
+  const image = new ShadeImage();
+  image.width = image.height = 2;
+  image.depth = 1;
+  image.source = new ArrayBuffer(16);
+  const a = ShadeTexture.from(image);
+  const b = ShadeTexture.from(image);
+  a.label = b.label = "shared import";
+  assert.equal(manager.obtain(a), manager.obtain(b));
+  assert.equal(manager.pending_mipmap_count, 1);
+  const borrowed = manager.contextFromDescriptor({
+    label: "borrowed target", size: [1, 1, 1], format: "rgba8unorm",
+    usage: GPUTextureUsage.RENDER_ATTACHMENT,
+  });
+  void borrowed.gpu_texture;
+  manager.destroy();
+  assert.equal(manager.pending_mipmap_count, 0);
+  assert.equal(manager.gpu_memory_usage, 0);
+  assert.equal(destroyed.filter(label => label === "shared import").length, 1);
+  assert.ok(destroyed.includes("MipmapGenerator/parameters"));
+  assert.ok(!destroyed.includes("borrowed target"));
+  borrowed.destroy();
+
+  const cameras = new GPUCameraStateManager(device);
+  const camera = {};
+  assert.equal(cameras.obtain(camera), cameras.obtain(camera));
+  cameras.obtain({});
+  cameras.destroy();
+  cameras.destroy();
+  assert.equal(destroyed.filter(label => label === "GPUCameraState/Ud").length, 2);
+  new GPUVolumetrics(device, { version: 0, volumes: [] }).destroy();
+  assert.ok(destroyed.includes("GPUVolumetrics/settings"));
 });

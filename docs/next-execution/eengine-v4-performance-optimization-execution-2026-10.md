@@ -20,6 +20,9 @@ verifies:
     - OEngine/tests/unit
     - OEngine/tests/oracle
     - validation/tools/run-dungeon-performance.mjs
+    - validation/tools/dungeon-gpu-audit.mjs
+    - examples/demos/14-integrated/dungeon-warkarma-texture-compression
+    - examples/tests/dungeon-resource-budget.test.mjs
     - tools/gpu-oracle/registry.mjs
 ---
 
@@ -35,7 +38,7 @@ verifies:
 | P1 VSM Sampling/Projection V2 | complete（Q-exact局部出口，热状态限制见§3.6） | post-commit compact publication→Native/debug/continuation唯一consumer；numeric通过，局部净P50改善，全帧/P95不承诺 |
 | P2 Native Temporal V2 | in-progress（T1 complete；T2 rejected；T3 deferred） | T1/T2结果见§4.2/4.4；新算法尚未实施，整体未完成 |
 | P3 IBL hardware-friendly publication | complete（exact radiance addressing + filtered DFG） | hardware radiance候选精度失败，改为原四点权重/有界寻址；完整生产接线、原支持域、numeric/lifecycle与限定成本见§5.3 |
-| P4 4GB资源预算与容量策略 | not-started | 全owner账本/峰值→独立capacity配置→moving working-set与驻留验证；growable pool另按完整生命周期闭合 |
+| P4 4GB资源预算与容量策略 | complete（Dungeon显式容量单元） | 全显式API审计/同时峰值、512MiB默认、当前payload/碎片、运动与释放验证见§6.1；全局预算强制/growable/variable-page未实施 |
 | P5 动态VSM局部失效 | conditional / not-started | 突发因果→old/new caster delta→稳定depth域/局部dirty→全部consumer与压力出口 |
 | P6 PCF算法与后续upscaler/residency研究 | conditional / not-started | 只有前述数据支持且质量合同明确才制定实现；无自动扩展 |
 | P7 性能模块验收 | not-started | 目标硬件1080p同质量/coverage、动态/压力/热状态、CPU与资源峰值，列出剩余gap与VSM R4未闭合项 |
@@ -288,7 +291,58 @@ oracle：octaxes/seams/corners/signedzero，texel/halfcenter，1×1/NPOT/mips末
 
 ## 6. P4/P5/P6条件架构单元
 
-**P4预算**：先全owneraccounting，确认geometrybanks/metadata/page-slot/texturearrays/VSM/history/transient/accountedexternal，区分effectivepayload与allocation。唯一变量为geometrynominalcapacity，先参考既有1536/512实验，不新Before全套；After保留fixedview并增加相同场景受控movement，记录working-set、pin、evict/reload/IO/upload、readbackdrops/completeness、VSMsourceinvalidations、P95/OSmemory。capacity导致质量/overflow/lifetime失败不得隐藏。growablebank单独定layout/copy/newpublication/oldfence退役/峰值，不能假设4bank地址自然可扩。variablepage推迟。
+### 6.1 P4出口：显式4GB应用预算与容量审计
+
+【Previous Task Gate】从`941345ad`实际diff重读P3全部production consumers；radiance仍为精确四loads/f32权重，只有DFG硬件过滤，有界oct地址成立，无已拒绝hardware radiance生产分支。fresh build:test、20项contracts、真实`ibl-filtering`与`ibl-publication`复验通过，无需P3补交。P2仍是T1完成、T2拒绝、T3延期，不追认为完整Temporal V2。
+
+【源码事实/完整路径】Dungeon `resource-budget.ts`→main/raw/cooked加载→现有`selectGeometryProductResidencyProfileV1`→`GeometryProductSlotPool`四个128MiB等大bank/2048slots→原GPU page directory/main+shadow消费者。唯一渲染容量变量为geometry1536→512MiB，metadata128MiB、page256KiB、所有纹理/效果/分辨率不改；device-limit协商先于创建，budget不足继续完整pressure/eviction机制，不丢demand或身份。应用显式`target-4gb`划分4096MiB设备目标与2048MiB API诊断envelope（512+128+1408）；这是配置与审计目标，**不是全Renderer自动预算分配器、全局强制限额或OS驻留保证**。未指定query使用默认；128…2048MiB override标custom，非法输入报错。raw已接线/typecheck，真实重场景本轮为cooked。
+
+`VirtualGeometryResidency`在page发布时记录authored payload+directory+expanded attributes字节，resident→retiring保留至consumer fence，completeRetire/reload/destroy同步更新；不把累计uploadedBytes当当前payload。`GeometryProductMultiRuntime.evidence`按allocator free records计算metadata占用，pending/retiring尚未free仍记账。`GeometryProductGpuBudget.totalPeakBytes`记录bank+metadata同时峰值，不相加独立峰值。streaming evidence暴露已缓存source revision与main/shadow completeness/安全frame，采样不触发revision getter。未修改canonical demand decode、调度/IO或影子保护。
+
+`dungeon-gpu-audit.mjs`仅诊断模式记录每个buffer/texture创建/销毁、live、同时peak与`ownersAtPeak`；补owner label使最终真实运行无unlabelled bucket，sum与总额一致。未知format失败，未destroy但WeakRef已收集容量单列。包括geometry/metadata/readback、TextureResidency、VSM、Facts/FSR、atmosphere、frame geometry、RenderTargets、transient pools、staging/在途重叠；**不包括canvas、pipeline/driver内部与OS驻留**。生产`GraphicsContext`账本仍partial，UI准确标名；不引入每帧生产拦截器。
+
+Cost Card：删除1,073,741,824B bank nominal capacity与cold创建责任；不减少resident payload、shader loads/samples/ALU/atomics/barriers、dispatch/pass/submit。新增每published page一个numeric→payload计数的小CPU Map与evidence读取，metadata区间/feedback统计为观察路径；create/destroy拦截、owner peak、500ms运动snapshots仅diagnostic。无新GPU buffer/texture/history/copy。best为working set≤512MiB且OS容量压力实际降低；当前全部pages适配、容量节省确定，时间收益未知；worst超working set增加evict/reload/IO/upload/VSM full invalidation与P95。0/50/100%时间收益不能从1GiB容量差换算；break-even为减少的驻留/压力成本大于新增reload/publication税，缺硬件paging因果计数。growable/variable-page另验证migration overlap与原子publication。
+
+【容量实测】Before使用保存的P3 After，不重跑旧baseline。原件`.local/validation/p4-budget-2026-10-11/`：fixed为`after/`、最终labels/feedback为`movement-wired/`、释放复验为`release-closed-retry/`。fixed近景/high4×4/FSR ON、1920×1080/DPR1/scale1、GTAO/Bloom OFF、max-throughput；各240 CPU frames/60完整GPU samples，严格`targetStart≤frameIndex<targetEnd`。
+
+| 指标 | P3 Before | P4 After |
+|---|---:|---:|
+| banks / metadata | 1536 / 128MiB | 512 / 128MiB |
+| explicit API live | 2,432,355,229B | 1,358,613,405B |
+| 同时API peak（含重叠） | 2,511,119,293–2,511,152,061B | 1,437,410,237B |
+| resident / pinned | 1207 / 381 | 1207 / 381 |
+| occupied physical slots | 1224，306MiB | 1224，306MiB |
+| 当前有效payload | 旧字段未记；无evict时upload28.97MiB | 30,377,856B，28.97MiB |
+| resident内部空洞 / unused banks | 旧字段未记 | 290,486,400B / 216,006,656B（277.03 / 206MiB） |
+
+最终labels/反馈运行live1,358,682,269B；与fixed的小额差来自运行中pool保留量，不是新配置。2GiB envelope同时峰值余量约677.18MiB。owner既有TextureResidency133.33MiB、VSM76.14MiB、Facts63.28MiB、FSR当前75.15MiB、Atmosphere16.16MiB、transient textures230.90MiB；FSR在peak有新旧重叠约150.29MiB，不能相加各owner独立peak。metadata仅361,084B record bytes（asset116208/root3228/hierarchy196032/group26272/page19312/format32，另header64/table4096），128MiB本轮刻意保留；后续协商有空间，本轮未重设比例/allocator。
+
+【成本实测，ms】Native列为`native-surface`stage（含bins），Temporal为同帧两个temporal stages之和再求分位数；VSM列仅shadow stages，**不含融合Native的PCF**。各列分位数不能相加。
+
+| 窗口 | Total P50/P95 | Native P50/P95 | Temporal P50/P95 | VSM stages P50/P95 | 同步render CPU P50/P95 |
+|---|---:|---:|---:|---:|---:|
+| P3 Before full-1 | 30.253/40.977 | 7.836/9.325 | 5.977/6.508 | 本表不重取 | 2.795/4.775 |
+| P4 After full-1 | 31.213/50.112 | 7.892/15.133 | 5.838/8.875 | 16.556/27.799 | 2.580/4.191 |
+| P3 Before full-2 | 19.364/48.853 | 8.228/20.819 | 6.165/15.059 | 本表不重取 | 2.367/3.562 |
+| P4 After full-2 | 19.637/28.928 | 8.292/12.450 | 6.195/8.769 | 1.847/2.734 | 2.440/4.720 |
+| P3 Before full-3 | 20.144/21.714 | 8.513/9.352 | 6.342/7.057 | 本表不重取 | 2.350/3.715 |
+| P4 After full-3 | 19.788/41.914 | 8.555/17.513 | 6.147/13.218 | 1.879/3.747 | 2.215/3.549 |
+
+首轮32/60 samples caster raster>2ms，后二轮均≤.021ms；`fullQuality`+60warmup不是settled，首轮不删。Total mean30.167/20.647/23.597ms，第三轮max93.908ms/P95退步保留。CDP TaskDuration3319/1685/1396ms、墙钟8.101/6.075/6.082s含overshoot/其它CPU，不能当同步render或与GPU相加。GTX1650Ti/581.42窗口88–91°C、稀疏读数SW thermal全部Active、graphics300–1350MHz，P3为89–91°C/675–1245MHz；未锁频，**不宣称GPU/CPU净提速或60FPS**。
+
+各fixed窗口仅1个Windows进程采样：Chrome集合dedicated约1516.69–1524.69MiB、shared158.90MiB、working set约1729.89–1794.05MiB；P3对应dedicated2540.56–2548.71MiB、shared158.72–158.84MiB、working set约1720.81–1889.03MiB。API/Windows容量下降方向相符，稀疏/独立热状态不证明逐资源驻留、paging消失或RAM净省。
+
+【运动/正确性】两次受控sinusoidal orbit（±.06rad，原近景，非camera cut）各480目标frames，最终wired33次500ms snapshots。frame123–250仍加载：resident704→1192/source101→228；265达到全部1207pages（Dungeon1188+playground19），pending/IO0，payload30,377,856B/source233，此后直到743不再变化，evict/reload/failed0。静态Product集合已全驻留，移动不产生新未resident页；只支持本场景，不泛化未来场景。coverage起90.673%、末90.404%，fixed90.688–90.703%，shaded2,073,600/meshlet605/invalid0，Before/After截图无明显变化。main/shadow末complete true、安全frame699；fixed droppedSlots累计11/32/44，wired运动末17/17，原incomplete shadow保护不改；packet overflow/malformed0、stream error空。运动开GPU counters、完整timing仅37samples，**不是无统计税性能窗口**。
+
+加载期间source变化仍按`VsmGeneration.prepare`触发caster-publication invalidation，不归因容量thrash。新增generation读回最初缺COPY_SRC给出无效零值；修权限regex时一次误改MAP_READ staging而失败，原件保留。最终只匹配VSM owner且检查所有copy source权限，通过末header`[242,1,0,0,1,0,242,291]`。短release复验仍加载，reason0只描述末frame；未采逐帧reason直方图，不声称整个运动无其它VSM失效。settled source恒定/无evict-reload支持“本容量未新增geometry source churn”，P5动态因果另研究。
+
+【生命周期/验证】审计发现release后8820B资源未显式销毁（mip参数8192、volumetric metadata4、manager当前camera624）；补`GraphicsContext→GPUTextureManager/MipmapGenerator`、`GPUVolumetrics`、`Renderer→GPUCameraStateManager`销毁，共享import去重，RenderTargets借用context不误销毁。最终真实Dungeon短counter/释放复验API bytes=0、unknownFormats=[]、undestroyedCollectedBytes=0、geometry/TextureResidency teardown均0；不证明Windows瞬间归零。新增owner mock覆盖共享/借用/清pending，真实`native-authored-ibl-production`复验含Renderer loss/recover/abort/resize/destroy通过。
+
+engine build/typecheck、Dungeon typecheck/diagnostic build、fresh build:test通过；此前43项相关contracts/units、最终22项budget/payload/lifecycle/canonical replay/staging/owner测试通过。真实`geometry-budgeted-residency`将过期fixture迁移到当前meshletRecords/ShadowMeshletBounds allocation/command编码合同后通过，原main/shadow缺页、pressure/eviction/coarse coverage、abort/retry/loss/fenced retirement断言保留，原3次fixture失败不删。P3 gate GPU与最终Renderer恢复GPU通过。未运行完整旧baseline、raw重场景、更大/编辑场景驻留压力、锁频/逐资源OS residency、P5/P7；未实现全局budget enforcement、growable、variable-page、metadata收缩。本P4容量单元关闭后停止。
+
+### 6.2 后续条件单元
+
+growablebank单独定layout/copy/newpublication/oldfence退役/峰值，不能假设4bank地址自然可扩。variablepage推迟；容量导致质量/overflow/lifetime失败不得隐藏。
 
 **P5动态VSM**：先关联高raster与publicationreason，只有因果支持才实现old/new完整boundsdelta与局部dirty。depthdomain稳定与contentepoch分开；全caster源包括离屏/非residentbounds。transform/shear/nonuniform/negative、MASKcoverage、remove/replace/castflag、geometryretire/lateupload、Sun/device/scene/resize/abort必须进入损伤/安全fullinvalidate。验证requested/dirty/ready/overflow、fine/coarse、allcasters与gutter一致。一个变量是失效范围，PCF/receiver/residency同时不动；静态和运动分开报告。不能只比末帧raster。
 
@@ -316,7 +370,7 @@ node tools/gpu-oracle.mjs native-surface-integration --headed --json
 node validation/tools/run-dungeon-performance.mjs --out .local/validation/performance-unit-after --frames 240 --scenarios full-1,full-2,full-3,counters --headed --geometryMiB 1536 --gpu-sample-interval 4
 ```
 
-这是保留当前高质量/geometrycapacity的限定测量组，不是默认完整suite；固定近景须带`--near --audit`。原件目录每次唯一，失败不覆盖。runnerload/settled与thermal口径按§2补足；`--native-slice`支持A…G/B0/Q0/K，K和`--vsm-demand-diagnostics`仅用于统计窗口而非timing。若改capacity，单独P4实验明确参数，不能混入P1/P2“收益”。
+这是显式保留旧1536MiB容量的限定测量组；P4默认预算测量省略`--geometryMiB`，受控运动另用`--scenarios motion --movement-audit`。不是默认完整suite；固定近景须带`--near --audit`。原件目录每次唯一，失败不覆盖。runnerload/settled与thermal口径按§2补足；`--native-slice`支持A…G/B0/Q0/K，K和`--vsm-demand-diagnostics`仅用于统计窗口而非timing。若改capacity，单独P4实验明确参数，不能混入P1/P2“收益”。
 
 实施提交前：architecture review→必要typecheck/build/freshbuild:test/targetednumeric+lifecycleGPU→限定DungeonAfter→`git diff`/`git status`/`git diff --check`；docs改动执行`node tools/docs-verify.mjs`。中文commit正文写动机、完整数据流、真实删除/新增工作与CostCard、Before/After/热状态/失败/未运行项；不提交.local/screenshot/profiling或无关改动。**一个完整单元一个连贯提交，提交后立即停止。**
 
@@ -326,4 +380,4 @@ P7必须同时回答：GTX1650Ti4GB/1080p高质量/≥80%覆盖是否达到稳�
 
 未达到目标时保留真实分布/剩余gap，重新排名最多一个下个单元；不能恢复advanced-effects开发或改scale/taps包装性能成功。硬件计数/热状态/OSresidency缺项如实列出；其它GPU型号结果不转写为目标平台已通过。
 
-当前出口：P0完成设计，P1完成Q-exact唯一生产切换；P2完成T1，T2实验拒绝生产采用，T3延期；P3完成精确radiance寻址/DFG过滤与§5.3的限定正确性/成本，P4–P7未实施。T1稳定帧时改善未证实，P3热状态/尾帧限制保留，不宣称完整Native Temporal V2、稳定60FPS或VSM R4验收。
+当前出口：P0完成设计，P1完成Q-exact唯一生产切换；P2完成T1，T2实验拒绝生产采用，T3延期；P3完成精确radiance寻址/DFG过滤与§5.3的限定正确性/成本；P4完成§6.1显式Dungeon容量/审计单元，growable/variable-page/全局预算强制延期，P5–P7未实施。T1稳定帧时改善未证实，P3热状态/尾帧限制保留，P4只确认容量下降，不宣称完整Native Temporal V2、稳定60FPS或VSM R4验收。

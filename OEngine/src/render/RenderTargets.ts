@@ -125,7 +125,7 @@ export class RenderTargets {
   private createDepthBuffer(textures: GPUTextureManager): GPUTextureContext {
     return textures.contextFromDescriptor(
       id.from({
-        label: "",
+        label: "RenderTargets/depth",
         size: [this.width, this.height, 1],
         format: VIS_DEPTH_FORMAT,
         // Hierarchical depth lives in the dedicated rg16float HZB owner. The

@@ -57,6 +57,7 @@ export class GPUTextureAllocator {
       context = new GPUTextureContext(
         this.device,
         {
+          label: "GPUTextureAllocator/shared transient",
           size: [normalized.width, normalized.height, normalized.depthOrArrayLayers],
           dimension: normalized.dimension,
           format: normalized.format,

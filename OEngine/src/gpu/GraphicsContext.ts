@@ -508,6 +508,7 @@ export class GraphicsContext {
     this.buffer_allocator_native.destroy();
     this.buffer_allocator_staging.destroy();
     this.allocator_textures.destroy();
+    this.textures.destroy();
     this.collectionLimitsValue.destroy();
     this.profiler.detachGpuDevice(this.device);
   }

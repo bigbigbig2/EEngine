@@ -35,7 +35,7 @@ export class GPUCollectionStatistics {
     this.records = new Uint32Array(columns * historyLength);
     this.globalMax = new Uint32Array(columns);
     this.stat_buffer = device.createBuffer({
-      label: "",
+      label: "GPUCollectionStatistics/history",
       usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
       size: columns * Uint32Array.BYTES_PER_ELEMENT * historyLength,
     });

@@ -11,6 +11,16 @@ export function installDungeonGpuAudit() {
   const calls = [],
     hashes = [],
     nativeCostSlices = new Set();
+  const capacityOwners = new Map();
+  let ownersAtPeak = {};
+  // Allocation ownership, not the pass that happens to use a pooled resource.
+  function allocationOwner(label) {
+    if (/^OEngine Geometry Product .* bank \d+$/.test(label)) return "geometry-banks";
+    if (/^OEngine Geometry Product .*metadata heap/.test(label)) return "geometry-metadata";
+    if (/^Geometry Page Demand readback/.test(label)) return "geometry-readback";
+    if (!label) return "unlabelled-external";
+    return label.split("/")[0];
+  }
   const originalDigest = SubtleCrypto.prototype.digest;
   SubtleCrypto.prototype.digest = function (algorithm, data) {
     const record = {
@@ -76,6 +86,10 @@ export function installDungeonGpuAudit() {
       id: records.length,
       kind,
       label: value.label,
+      allocationOwner: allocationOwner(value.label),
+      // Cold diagnostic provenance for resources not labelled by their owner.
+      // Retain the raw stack; an address/size heuristic is not ownership proof.
+      ...(!value.label ? { allocationStack: new Error().stack } : {}),
       bytes: size,
       usage: value.usage,
       destroyed: false,
@@ -95,7 +109,15 @@ export function installDungeonGpuAudit() {
     records.push(record);
     byObject.set(value, record);
     bytes += size ?? 0;
-    peakBytes = Math.max(peakBytes, bytes);
+    const owner = capacityOwners.get(record.allocationOwner) ?? { bytes: 0, peakBytes: 0, count: 0 };
+    owner.bytes += size ?? 0;
+    owner.count++;
+    owner.peakBytes = Math.max(owner.peakBytes, owner.bytes);
+    capacityOwners.set(record.allocationOwner, owner);
+    if (bytes > peakBytes) {
+      peakBytes = bytes;
+      ownersAtPeak = Object.fromEntries([...capacityOwners].map(([name, owner]) => [name, owner.bytes]));
+    }
   }
   for (const [method, kind] of [
     ["createBuffer", "buffer"],
@@ -104,9 +126,9 @@ export function installDungeonGpuAudit() {
     const original = GPUDevice.prototype[method];
     GPUDevice.prototype[method] = function (desc) {
       device = this;
-      // Diagnostic-only readback of the exact frame-wide query identity.
+      // Diagnostic-only readback of query identity and invalidation facts.
       const observedDesc =
-        method === "createBuffer" && /\/pageConstants$/.test(desc.label ?? "")
+        method === "createBuffer" && /(?:\/pageConstants$|^VSM\/[^/]+\/generation$)/.test(desc.label ?? "")
           ? { ...desc, usage: desc.usage | GPUBufferUsage.COPY_SRC }
           : desc;
       const value = original.call(this, observedDesc);
@@ -151,6 +173,9 @@ export function installDungeonGpuAudit() {
       if (r && !r.destroyed) {
         r.destroyed = true;
         bytes -= r.bytes ?? 0;
+        const owner = capacityOwners.get(r.allocationOwner);
+        owner.bytes -= r.bytes ?? 0;
+        owner.count--;
       }
       return original.call(this);
     };
@@ -286,11 +311,15 @@ export function installDungeonGpuAudit() {
     snapshot: () => ({
       bytes,
       peakBytes,
+      capacityOwners: Object.fromEntries([...capacityOwners].map(([name, owner]) => [name, { ...owner }])),
+      ownersAtPeak,
+      scope: "All observed explicit API buffer/texture capacities including upload and in-flight overlap; excludes canvas, pipeline/driver allocation and OS residency",
+      undestroyedCollectedBytes: records.reduce((sum, r) => sum + (!r.destroyed && !r.ref.deref() ? r.bytes ?? 0 : 0), 0),
       calls,
       hashes,
       nativeCostSlices: [...nativeCostSlices],
-      unknownFormats: live()
-        .filter((r) => r.bytes === null)
+      unknownFormats: records
+        .filter((r) => !r.destroyed && r.bytes === null)
         .map((r) => r.format),
       resources: records.map(({ ref, ...r }) => ({ ...r, alive: !!ref.deref() }))
     }),
@@ -298,6 +327,7 @@ export function installDungeonGpuAudit() {
       if (!diagnostics) return null;
       await device.queue.onSubmittedWorkDone();
       const copies = [
+        ["generation", diagnostics.generation, 0, 32],
         ["demand", diagnostics.pageDemand.buffer, 0, 16],
         ["allocationFailures", diagnostics.allocationFailure.buffer, 0, 32],
         ["dirtyHeader", diagnostics.dirtyPages.buffer, 0, 16],
@@ -321,6 +351,11 @@ export function installDungeonGpuAudit() {
         );
       }
       const result = {};
+      for (const [label, source] of copies) {
+        if ((source.usage & GPUBufferUsage.COPY_SRC) === 0) {
+          throw new Error(`VSM diagnostic ${label} lacks COPY_SRC`);
+        }
+      }
       const encoder = device.createCommandEncoder({ label: "Diagnostic/VSM headers (paused)" });
       const staging = copies.map(([label, source, offset, size]) => {
         const buffer = device.createBuffer({

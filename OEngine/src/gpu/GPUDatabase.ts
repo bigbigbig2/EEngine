@@ -1026,6 +1026,7 @@ export class GPUDatabase {
     const dataCapacityWords = Math.floor((bufferBytes - dataStartBytes) / GPU_DATABASE_WORD_BYTES);
     this.slotAllocator = new FixedSlotAllocator(dataCapacityWords, this.pageSlotWords);
     this.buffer = device.createBuffer({
+      label: "GPUDatabase/resident tables",
       size: bufferBytes,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
       mappedAtCreation: false,

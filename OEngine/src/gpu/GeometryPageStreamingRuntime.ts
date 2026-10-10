@@ -47,6 +47,17 @@ export interface GeometryPageStreamingRuntimeEvidenceV1 {
   readonly lastPoll: GeometryPageStreamingPollEvidenceV1 | null;
   readonly lastError: string | null;
   readonly products: readonly VirtualGeometryResidencyEvidenceV1[];
+  /** Last revision observed by production consumers; sampling evidence must
+   * not itself advance the source-publication identity. */
+  readonly contentRevision: number;
+  readonly feedback: Readonly<{
+    mainFrame: number;
+    mainComplete: boolean;
+    shadowFrame: number;
+    shadowComplete: boolean;
+    lastShadowAttemptedFrame: number;
+    evictionSafeFrame: number;
+  }>;
 }
 
 /**
@@ -489,6 +500,15 @@ export class GeometryPageStreamingRuntimeV1 {
       lastPoll: this.#lastPoll,
       lastError: this.#lastError,
       products: Object.freeze([...this.#residencies.values()].map((residency) => residency.evidence())),
+      contentRevision: this.#contentRevision,
+      feedback: Object.freeze({
+        mainFrame: this.#mainFeedbackFrame,
+        mainComplete: this.#mainFeedbackComplete,
+        shadowFrame: this.#shadowFeedbackFrame,
+        shadowComplete: this.#shadowFeedbackComplete,
+        lastShadowAttemptedFrame: this.#lastShadowAttemptedFrame,
+        evictionSafeFrame: this.evictionFeedbackFrame(),
+      }),
     });
   }
 
