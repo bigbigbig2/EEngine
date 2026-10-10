@@ -25,14 +25,14 @@ verifies:
 
 # EEngine V4 性能优化执行计划
 
-唯一设计见[性能设计](../next-design/eengine-v4-performance-optimization-2026-10.md)。本文件拥有单元状态与实施出口；workstream仅导航。**当前只完成源码/既有数据/来源研究与文档，未实现下列候选，未运行新GPU/CPU测试。** 不把规划写成实现事实，不自行同时启动多个单元。
+唯一设计见[性能设计](../next-design/eengine-v4-performance-optimization-2026-10.md)。本文件拥有单元状态与实施出口；workstream仅导航。**P1已实现并完成限定正确性/成本验证，采用Q-exact；其余单元仍未实施。** 不把局部收益写成稳定60FPS或整个VSM模块验收，不自行同时启动多个单元。
 
 ## 1. 状态、实施入口与停止边界
 
 | 单元 | 状态 | 完整出口 |
 |---|---|---|
 | P0 源码、已有证据与设计 | complete（文档出口） | `f495f04b`源码/报告、成本边界、来源与失败分析；不等于新代码gate通过 |
-| P1 VSM Sampling/Projection V2 | not-started | query/PCF/full-key资格→选Q或S一个候选→producer/产品/全部consumer/生命周期原子切换→numeric与净成本验收；也允许有证据拒绝所有候选 |
+| P1 VSM Sampling/Projection V2 | complete（Q-exact局部出口，热状态限制见§3.6） | post-commit compact publication→Native/debug/continuation唯一consumer；numeric通过，局部净P50改善，全帧/P95不承诺 |
 | P2 Native Temporal V2 | not-started | 同算法执行删除→native-resolution算法设计/非生产验证→唯一policy owner原子切换；质量失败时只保留已证实的同算法成果 |
 | P3 IBL hardware-friendly publication | not-started | 合法源尺寸/format/预算证明→physical+authored producer→Native binding/DFG/coat→退休与完整numeric/成本 |
 | P4 4GB资源预算与容量策略 | not-started | 全owner账本/峰值→独立capacity配置→moving working-set与驻留验证；growable pool另按完整生命周期闭合 |
@@ -40,7 +40,7 @@ verifies:
 | P6 PCF算法与后续upscaler/residency研究 | conditional / not-started | 只有前述数据支持且质量合同明确才制定实现；无自动扩展 |
 | P7 性能模块验收 | not-started | 目标硬件1080p同质量/coverage、动态/压力/热状态、CPU与资源峰值，列出剩余gap与VSM R4未闭合项 |
 
-**下一实施入口为P1，先补齐拆分所必需的最窄证据，再实现一个完整候选。** P1失败就停止并报告，用户继续后转P2；不临时换一堆PCF小技巧。P1成功亦立即停在P2入口，不自动进入Temporal。P3/P4可在单元边界按实际数据调整顺序；任何调整先重读源码/当前结果，不把本表当无限自动任务。
+**P1已经关闭，停在P2入口，等待用户下一任务。** 不自动进入Temporal，不临时换一堆PCF小技巧。P3/P4可在单元边界按实际数据调整顺序；任何调整先重读源码/当前结果，不把本表当无限自动任务。
 
 P1内部只有两步：先完成下述资格记录，再冻结**一个**Q或S实施目标及Cost Card。资格诊断作为该单元的设施，不扩展成新的性能框架；候选After失败后不在同一单元连续换第二套shader。停止点是“采纳一个净收益候选”或“拒绝并恢复稳定生产状态”，不是不断增加variants/跑完整baseline。实施记录只追加到本计划的对应单元，不新建重复progress文档。
 
@@ -70,7 +70,7 @@ raw、build/source fingerprint、配置、timestamps、传感器、失败与scre
 2. 保留receiver聚合、原boxPCF、完整page身份；确认新增diagnostic selector现在不存在，不能假称已有query-only结果。
 3. 最小correctness只覆盖改动链：既有Native/VSM contracts及receiver/R2/R3相关CPU checks。仅源码审查不能声称过去GPU oracle在本HEAD新鲜通过。
 
-### 3.2 最小资格实验（建议，尚未运行）
+### 3.2 最小资格实验与边界（实际运行范围见§3.5–3.6）
 
 | 假设 | 只变哪个变量 | 指标 / 支持 / 否定 |
 |---|---|---|
@@ -85,7 +85,7 @@ raw、build/source fingerprint、配置、timestamps、传感器、失败与scre
 
 资格结果先写清query量级、full-key entropy、所需产品字节与峰值、HDR/normal支持域、新增pass/初始化/consumer绑定，以及Q/S分别有哪些工作可真实删除。按设计§3.3选择最有净收益依据的一项；硬件register/occupancy计数不可用时不能把P1无限卡在取数，也不能把原因推断写成硬件事实。没有可用候选则拒绝出口，不强行实现。
 
-**Q资格**：证明fine-cell到coarse结果的所有f32边界；冻结原query oracle→完整u32identity→全写域16Bdescriptor→post-commit pageTable/contentVersion FrameGraph依赖→Native/debug/continuation全部读新product。管理页表有真实allocator/debugconsumer就保留；生产采样中被替代的query删除，不留Legacy/New fallback。异常/dirty/missing保持旧neutral与diagnostic原因，overflow未完成页不得标valid。
+**Q资格**：若预选coarse，须证明fine-cell到coarse结果的所有f32边界；Q-exact改为独立fine/coarse plane并保留原pixel寻址，不依赖该假设。冻结原query oracle→完整u32identity→全写域16Bdescriptor→post-commit pageTable/contentVersion FrameGraph依赖→Native/debug/continuation全部读新product。管理页表有真实allocator/debugconsumer就保留；生产采样中被替代的管理entry校验删除，不留Legacy/New fallback。异常/dirty/missing保持旧neutral与diagnostic原因，overflow未完成页不得标valid。
 
 **S条件资格**：确认所有现有Sun BRDF在线性有限域的因式分离，保留`re_direct_physical`的non-finite contribution拒绝语义，bias coefficient由mapped normal求出、resolved mip的depth_per_texel由resolve算，定案最小actual product。native一次material求值发布baseRGB/unshadowedSun/精确receiver facts→screen resolve16boxPCF与Sun合成→finalHDR交所有Aerial/Temporal/radiometry/debug/presentconsumer。unshadowed溢出但原shadowed有限等case不能被“线性证明”排除；若要改为系数产品/延迟finiteguard，先更新Cost Card与oracle，不能偷换支持域。保守48B/pixel布局及40B紧凑layout先做能力与4GB峰值预算；32B或half压缩必须先有numeric证明，不凭容量压力删字段。无VSM/nonreceive/unlit/background完整写域，普通/Product/coat/reactive/MASK含义保持。
 
@@ -100,6 +100,45 @@ oracle覆盖：fine/coarse/outside/missing/stale/dirty、fullslot/generation/pro
 生命周期：prepare→encode→abort/retry→submitcommit→completionretire；sun/camera/scene/casterpublication、geometryeviction、resize、device-loss/destroy。newproduct全写或有严格versionclear，不读上一frame未完成内容；in-flight不能被复用销毁。context限额采样纹理/storage buffers/storage textures/samplers完整协商，旧resource-limited continuation需重新证明。
 
 串行After按§2三轮；同时报告Native+Qpublication或Native+Sresolve+初始化+全部consumer同帧合计、Total GPU/尾帧、CPU与APIpeak。单pass下降不足以验收；温度/驻留不可比不算精确比例。净收益不成立→撤回productioncandidate、保留diagnostic与拒绝结果，P1可完成为“证伪出口”。候选numeric/支持域失败不能追认为修复；撤回后受影响的稳定生产正确性与接线检查通过，可记录为rejected出口。稳定生产仍有必需correctness/lifecycle失败时P1 incomplete，不进入P2。
+
+### 3.5 P1实施记录（2026-10-11，资格与候选冻结）
+
+【实测事实】`46a5d9f3`生产采样reference上的F/Q0/G资格组，各三轮240提交帧、固定窗口60 timestamp样本，1080p/DPR1/原近景/1536MiB/high4×4/FSR ON。Native P50分别为F `6.140/6.676/7.221`、Q0 `6.940/6.816/7.956`、G `10.204/10.918/10.315` ms。Q0保留production query、UV/reference/mapped-normal bias并加最小anchor，不执行PCF；F→Q0约`.801/.140/.735`ms，非纯query硬件计数、非严格可加成本。三组都有raster/尾帧突发，全部原值保留；热降频Active，不能凭不同轮次算精确比例。原件在`.local/validation/p1-vsm-2026-10-11/{no-query,query-only,full-reference}`。
+
+【实测事实】K从实际Native重建position记录完整world/selected/resolved query：2,073,600 receivers，32,400 screen8×8组，组内distinct fine/result求和38,942，全局326；duplicate ratio98.122%，26,709组仅一个key。该快照全fine/target fine，不证明整个窗口或运动没有fallback；K增加32B/pixel统计产品和全域初始化，**不用于timing**。初次K因Surface profile校验漏接新增binding失败，原失败保存在`full-keys`；修复完整descriptor校验后`full-keys-retry`成功，未跳断言。
+
+**冻结唯一实施候选Q-exact（本地自主实现）**：post-content-commit→每clip fine/coarse独立compact descriptor→Native/debug/continuation查询。与§3.3目标Q的区别是保留精确每pixel coarse world计算和原fallback顺序，不用fine cell中心预选最终coarse。原因：当前legal projection extent不必为2的幂，WGSL f32 division/subnormal边界没有足够跨驱动证明；用同一`vsm_world_page/window`函数寻址可消除这一支持域风险。生产只读compact状态，不读管理页表，不建立第二query实现。完整generation/epoch/namespace/world/mip/flags在producer验证，无身份压缩；allocator/caster管理表保留真实consumer。S本轮不实施：资格没有证明分离PCF的收益足以覆盖48B产品/finiteguard迁移与新增带宽。full-key重复支持后续研究，不在本候选同时加入workgroup聚合。
+
+冻结Cost Card：删除每pixel48B entry结构的字段读取与完整flags/identity验证，以及旧多mip-plane索引计算；**不删除clip选择、coarse搜索、PCF16samples或任何receiver**。新增每clip`128²+8²`个16B descriptor，共98,688条/1,579,008B（1.506MiB）；全写域一个64-lane dispatch，约98,688次管理entry验证/读，fine与coarse分面；Native读16B compact记录。实际DRAM并不等于逻辑结构大小。无新增atomics/barriers/history，PCF原ALU/纹理loads不变。FrameGraph瞬态池负责容量/在途/abort/resize/retirement；新增pipeline/binding冷准备与一个pass，常态无逐pixelCPU分配。最优：大量重复身份校验可删且产品驻缓存；通常：未知；最差：原query已cache好，publication和compact额外流量净亏。break-even为Native节省大于publication+依赖/容量税；0%节省必亏，50%/100%仅代入被测差分，不当收益预测，`.14–.80ms`本身含anchor与热条件变化，不能承诺。至少三轮After同时比较Native+publication同帧合计、Total及尾帧；净收益不足则撤回这一个候选并停在拒绝出口。
+
+### 3.6 P1出口：Q-exact采用与实际验证
+
+【源码事实】`VsmAtlasRasterPass.addToGraph`在完整dirty-page/contentVersion提交之后调用`VsmSamplingPublicationPass`，读取同帧sampling constants、写后pageTable、contentVersion；64-lane dispatch完整覆盖fine/coarse plane，包括outside/missing/dirty/stale。`FrameProgramLowering`把瞬态产品的写后ResourceId交给Surface binding1:9，Native普通/Product、debug、资源受限Sun continuation都通过同一个`vsm_lookup`消费16B记录。allocator/caster继续消费48B管理entry。无第二production sampler、独立submit、CPU反馈控制、history或持久descriptor缓存。瞬态池负责在途回收；owner销毁/设备丢失清除有限bind-group引用，下一帧全写避免abort/retry读旧产品。neutral constants保持depth-valid=0，16B neutral binding不产生假ready。
+
+【实测事实】原件根`.local/validation/p1-vsm-2026-10-11/`。下表只取每轮`targetStart≤frameIndex<targetEnd`的240提交帧/60完整timestamp样本，不使用runner轮询延长后的console窗口；没有剔除异常。最终统一采用`(n−1)*p`线性插值分位数（`final-quantiles.json`），因此与§3.5资格摘要的旧rank估计有微小差异。所有成本单位ms，净成本是**每帧Native+publication先求和再取分位数**。
+
+| 组/轮 | Native P50/P95 | publication P50 | Native+publication P50/P95 | Total command span P50/P95 |
+|---|---:|---:|---:|---:|
+| 冻结reference full-1 | 10.197 / 24.617 | — | 10.197 / 24.617 | 33.562 / 57.581 |
+| 冻结reference full-2 | 10.905 / 17.478 | — | 10.905 / 17.478 | 23.125 / 37.247 |
+| 冻结reference full-3 | 10.309 / 23.941 | — | 10.309 / 23.941 | 22.100 / 46.607 |
+| After full-1 | 9.116 / 12.464 | .049 | 9.165 / 12.520 | 32.750 / 43.063 |
+| After full-2 | 9.777 / 12.076 | .050 | 9.827 / 12.130 | 21.288 / 25.532 |
+| After full-3 | 10.095 / 16.779 | .050 | 10.144 / 16.846 | 21.783 / 34.541 |
+| 窄配对reference full-1 | 10.086 / 13.056 | — | 10.086 / 13.056 | 22.443 / 49.447 |
+| 窄配对reference full-2 | 10.033 / 35.020 | — | 10.033 / 35.020 | 21.512 / 87.098 |
+| 窄配对candidate full-1 | 9.295 / 19.311 | .049 | 9.344 / 19.394 | 22.667 / 51.004 |
+| 窄配对candidate full-2 | 9.401 / 24.148 | .049 | 9.449 / 24.245 | 20.723 / 47.942 |
+
+【判断与限制】采用Q-exact：三轮After和额外两轮窄配对均观察到覆盖新增publication税后的局部P50下降，publication约.05ms，删除工作与成本方向一致。**不是无锁频的精确因果百分比，也不是稳定全帧/P95提升证明**。GTX1650Ti、driver581.42，计时窗口88–91°C、SW thermal slowdown全部Active，频率300–1350MHz；配对reference多数活跃读数1080–1245，candidate第二轮975–1140，采样较疏不能逐帧锁频配对。窄配对第一轮净mean从10.423增至10.725、净P95从13.056增至19.394、Total P50也略变慢；不能隐藏。原After第一轮34/60样本raster>1ms（reference29/60），后两轮0/60，但仍有其它尾帧。局部数据支持保留低税候选，不支持“Q已解决VSM总体开销/所有卡顿”。S未实施；没有独立fused-PCF硬件计数、寄存器/spill/occupancy证据，不推断CSE或寄存器改善已经发生。
+
+【覆盖/CPU/内存事实】固定原近景1080p/high4×4/FSR、geometry1536MiB不变，After实际Dungeon覆盖90.657–90.694%；counter窗口全域shadedPixels2,073,600、MeshletWork605、invalidVisibilityKeys=0。三个After窗口resident1207/pinned381、evict/reload/failed=0，streaming error为空；main/shadow ring累计丢slot12→22→35（counter末47），scheduler demandOverflow/malformed=0；ring丢样不是request overflow，原completeness/eviction保护仍在，不把丢样清零来验收。末帧VSM demand326/allocated440、allocation failure各错误位0、dirty0，末帧无dirty不能证明整个窗口settled。同步render CPU固定窗口P50/P95为2.715/4.805、2.465/4.025、2.535/5.705ms（旧rank统计），不宣称CPU提速，不能代替TaskDuration。产品1.506MiB/在途实例是新增working set，计入共享瞬态池；不能称零显存税。OS一次full-2 Chrome GPU进程dedicated约2579.74MiB、shared两个adapter合计154.75MiB，不等于descriptor容量或全系统显存；完整OS/heap/资源原件保留。新增一dispatch，每帧无逐pixelCPU对象，不减少PCF samples、receiver或材质工作。
+
+【full-key诊断】最终K快照（`full-keys-identity-retry/full.json`）2,073,600 receivers、32,400 screen8×8组，组内distinct fine/result总计38,943，全局324，重复率98.12196%，所有fine。histogram `64/1/1:26709,64/2/2:5049,64/3/3:443,64/4/4:191,64/5/5:6,64/6/6:1,64/7/7:1`。完整共用generation255/epoch255/namespace1与selected/full signed-world/mip/result一起保存，来自真实Native reconstruction，不是receiver反投影。支持查询具有局部复用的假设，**不是warp/bin组共享的收益证明**；这里是screen统计域。K每pixel32B、两层全清，计时污染，未进入正式After；默认G没有K资源、分支或atomics。旧K快照不含共用identity、第一次新增identity读取错用padding偏移的记录保留，以上只引用修正后原件。
+
+【正确性与失败分类】fresh `build:test`、typecheck、引擎build、Dungeon诊断build通过；受影响41个CPU contract/unit/oracle通过，包含容量拒绝、post-commit依赖、K两层清域、resize abort/fence及device loss。真实GPU `vsm-sampling-publication`四组各18,508查询共74,032次，冻结原WGSL的状态/fallback/有效slot/mip/4×4 visibility逐位一致，覆盖完整高u32身份、signed f32 nextafter/subnormal、非2幂extent、滚动window、missing/dirty/stale/poison、gutter/零深度/负reference；R2/R3、Native integration与真实Renderer geometry-shadow-view通过。后者含off-camera caster、alpha、receiver/caster运动、HDR、故障abort/retry。Native integration初次失败是fixture仍把48B管理表绑定到新16Bconsumer，迁移fixture producer并修coarse plane容量后重跑通过，未放宽PBR容差（max error约.000256）。K初次缺binding15 profile校验、device-loss测试fixture错误均已分类修正，原失败保存；不冒充最初通过。默认场景Before/After截图人工检查无明显变化，numeric优先；未完成VSM R4全模块质量、全设备controlled loss重建、跨驱动f32全域证明、逐帧invalidation reason/caster-pair因果、锁频ABBA。P1不代替这些验收。
+
+【来源与停止】重新核对Blender固定revision的`tilemap_finalize_main`，只参考management→sampling publication的架构；Q-exact为本地原创WGSL，无GPL代码复制或移植/adoption声明，具体映射见porting。完成一次唯一生产切换后停止；P2/IBL/allocator/loader未实施，新高级effect仍延期。
 
 ## 4. P2：Native Temporal V2完整单元
 
@@ -147,7 +186,7 @@ oracle：octaxes/seams/corners/signedzero，texel/halfcenter，1×1/NPOT/mips末
 
 ## 7. 实际命令、验证与提交纪律
 
-下列是**未来实施命令**，本次文档任务不执行typecheck/build/GPUbenchmark。CPUtargeted由实际改动选择现有contract/unit文件，不要求每单元重跑全部Renderer。
+下列是按单元选择的命令模板，P1实际已运行项见§3.6；不代表后续单元已经验证。CPUtargeted由实际改动选择现有contract/unit文件，不要求每单元重跑全部Renderer。
 
 ```powershell
 node tools/vibe.mjs context OEngine/src/shaders/native_surface.ts
@@ -159,7 +198,7 @@ node tools/gpu-oracle.mjs vsm-v4-r3 --headed --json
 node tools/gpu-oracle.mjs native-surface-integration --headed --json
 ```
 
-按单元选择并串行运行，不把所有oracle同时启动。newshader/newproduct需要真实GPU wiring，测试编译旧stub失败先分类修fixture，不能放宽assertion或删除必需语义。新query-onlyselector/T3oracle尚未实现，必须注册真实selector再调用，不在计划伪造可运行命令。
+按单元选择并串行运行，不把所有oracle同时启动。newshader/newproduct需要真实GPU wiring，测试编译旧stub失败先分类修fixture，不能放宽assertion或删除必需语义。Q0/K已接诊断selector与runner，publication oracle已注册；T3oracle仍未实现，必须注册真实selector再调用，不在计划伪造可运行命令。
 
 受控After runner现有入口（完整单元完成后才使用）：
 
@@ -167,7 +206,7 @@ node tools/gpu-oracle.mjs native-surface-integration --headed --json
 node validation/tools/run-dungeon-performance.mjs --out .local/validation/performance-unit-after --frames 240 --scenarios full-1,full-2,full-3,counters --headed --geometryMiB 1536 --gpu-sample-interval 4
 ```
 
-这是保留当前高质量/geometrycapacity的限定测量组，不是默认完整suite。原件目录每次唯一，失败不覆盖。runnerload/settled与thermal口径按§2补足；`--native-slice`仅支持当前A…G/B0，`--vsm-demand-diagnostics`仅用于统计窗口而非timing。若改capacity，单独P4实验明确参数，不能混入P1/P2“收益”。
+这是保留当前高质量/geometrycapacity的限定测量组，不是默认完整suite；固定近景须带`--near --audit`。原件目录每次唯一，失败不覆盖。runnerload/settled与thermal口径按§2补足；`--native-slice`支持A…G/B0/Q0/K，K和`--vsm-demand-diagnostics`仅用于统计窗口而非timing。若改capacity，单独P4实验明确参数，不能混入P1/P2“收益”。
 
 实施提交前：architecture review→必要typecheck/build/freshbuild:test/targetednumeric+lifecycleGPU→限定DungeonAfter→`git diff`/`git status`/`git diff --check`；docs改动执行`node tools/docs-verify.mjs`。中文commit正文写动机、完整数据流、真实删除/新增工作与CostCard、Before/After/热状态/失败/未运行项；不提交.local/screenshot/profiling或无关改动。**一个完整单元一个连贯提交，提交后立即停止。**
 
@@ -177,4 +216,4 @@ P7必须同时回答：GTX1650Ti4GB/1080p高质量/≥80%覆盖是否达到稳�
 
 未达到目标时保留真实分布/剩余gap，重新排名最多一个下个单元；不能恢复advanced-effects开发或改scale/taps包装性能成功。硬件计数/热状态/OSresidency缺项如实列出；其它GPU型号结果不转写为目标平台已通过。
 
-当前文档交付：已审查源码/已有报告与固定上游reference，设计了VSM Q/S、Temporal V2、IBL与budget/局部失效的完整边界；所有新实现与建议实验未运行。仅文档/导航验证在本次完成后记录，不伪称生产性能已提高。
+当前出口：P0完成设计，P1完成Q-exact唯一生产切换及§3.6的限定验证/成本测量；P2–P7仍为规划。局部净P50改善与热状态限制同时保留，不宣称稳定60FPS、完整VSM R4验收或后续算法已实现。

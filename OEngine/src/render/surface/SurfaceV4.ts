@@ -1,4 +1,4 @@
-import { VSM_PAGE_ENTRY_WORDS } from "../vsm/VsmPageState.js";
+import { VSM_SAMPLING_DESCRIPTOR_BYTES } from "../vsm/VsmSamplingPublicationPass.js";
 import { createNativeTextureView } from "../../gpu/GPUTextureDescriptors.js";
 import { GpuBindGroupCache } from "../../gpu/GpuBindGroupResourceCache.js";
 import type { ResourceHandle } from "../../debug/profiling/ResourceAccounting.js";
@@ -98,6 +98,7 @@ interface ExtentState {
 /** Storage depends on extent/code, while frame products are late-bound. References
  * include submitted binding snapshots until their actual completion fences. */
 interface ExtentAllocation {
+  readonly queryKeys: GPUTexture | null;
   readonly width: number;
   readonly height: number;
   readonly publication: GpuNativeMaterialPublication;
@@ -158,7 +159,7 @@ export class SurfaceV4 {
     }
     const shadowConstants = this.device.createBuffer({ size: 256, usage: GPUBufferUsage.UNIFORM });
     const pageTable = this.device.createBuffer({
-      size: VSM_PAGE_ENTRY_WORDS * 4,
+      size: VSM_SAMPLING_DESCRIPTOR_BYTES,
       usage: GPUBufferUsage.STORAGE,
     });
     const atlas = this.device.createTexture({
@@ -220,6 +221,9 @@ export class SurfaceV4 {
       this.neutralBuffers.reduce((total, buffer) => total + buffer.size, 0) +
       (this.neutralEntries === null ? 0 : 8);
     for (const allocation of allocations) {
+      if (allocation.queryKeys !== null) {
+        total += allocation.width * allocation.height * 32;
+      }
       total +=
         allocation.width *
         allocation.height *
@@ -529,6 +533,7 @@ export class SurfaceV4 {
         7,
         ...(this.reactive ? [8] : []),
         ...(product ? [10, 11, 12, 13, 14] : []),
+        ...(geometry.some((entry) => entry.binding === 15) ? [15] : []),
       ];
       const materialBindings = [0, 1, 3, 4, ...(compact ? [2] : [])];
       if (
@@ -560,7 +565,11 @@ export class SurfaceV4 {
         geometry.find((entry) => entry.binding === 5)?.texture?.sampleType !== "uint" ||
         geometry.find((entry) => entry.binding === 7)?.storageTexture?.format !== "rgba16float" ||
         (this.reactive &&
-          geometry.find((entry) => entry.binding === 8)?.storageTexture?.format !== "rgba8unorm")
+          geometry.find((entry) => entry.binding === 8)?.storageTexture?.format !== "rgba8unorm") ||
+        (geometry.some((entry) => entry.binding === 15) &&
+          (geometry.find((entry) => entry.binding === 15)?.storageTexture?.format !== "rgba32uint" ||
+            geometry.find((entry) => entry.binding === 15)?.storageTexture?.viewDimension !== "2d-array" ||
+            geometry.find((entry) => entry.binding === 15)?.storageTexture?.access !== "write-only"))
       ) {
         throw new Error("SurfaceV4 native image bindings do not match winner/HDR/reactive formats");
       }
@@ -735,6 +744,7 @@ export class SurfaceV4 {
     let binBindings: NativeExecutionBinsBindings | null = null;
     let hdr: GPUTexture | null = null;
     let finalHdr: GPUTexture | null = null;
+    let queryKeys: GPUTexture | null = previous?.queryKeys ?? null;
     const buffer = (size: number, values?: Uint32Array): GPUBuffer => {
       const result = this.device.createBuffer({
         size,
@@ -793,6 +803,23 @@ export class SurfaceV4 {
       if (previous === null && finalHdr !== null && finalHdr !== frame.output) {
         this.track(finalHdr, "texture", frame.width * frame.height * 8);
       }
+      // Only diagnostic K descriptors demand this product. Regular G allocates
+      // nothing; snapshots share the normal extent/fence retirement ownership.
+      if (
+        queryKeys === null &&
+        frame.routes.some((route) =>
+          frame.publication.descriptor(route.programIndex).groups[0]!.some((entry) => entry.binding === 15),
+        )
+      ) {
+        queryKeys = this.device.createTexture({
+          label: "Diagnostic/Native VSM query keys",
+          size: [frame.width, frame.height, 2],
+          format: "rgba32uint",
+          usage:
+            GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+        });
+        this.track(queryKeys, "texture", frame.width * frame.height * 32);
+      }
       const geometryEntries: GPUBindGroupEntry[] = [
         { binding: 0, resource: { buffer: settings } },
         { binding: 1, resource: { buffer: frame.geometry.meshletWork } },
@@ -804,6 +831,9 @@ export class SurfaceV4 {
       ];
       if (frame.reactive !== undefined) {
         geometryEntries.push({ binding: 8, resource: createNativeTextureView(frame.reactive) });
+      }
+      if (queryKeys !== null) {
+        geometryEntries.push({ binding: 15, resource: queryKeys.createView({ dimension: "2d-array" }) });
       }
       if (frame.geometry.productHeap !== undefined) {
         if (frame.geometry.productBanks === undefined) {
@@ -906,6 +936,7 @@ export class SurfaceV4 {
             )
           : null;
       allocation ??= {
+        queryKeys,
         width: frame.width,
         height: frame.height,
         publication: frame.publication,
@@ -947,6 +978,9 @@ export class SurfaceV4 {
       }
       if (previous !== null) {
         throw error;
+      }
+      if (queryKeys !== null) {
+        this.releaseResource(queryKeys);
       }
       if (hdr !== frame.output) {
         if (hdr) {
@@ -990,6 +1024,29 @@ export class SurfaceV4 {
     }
     if (state.binBindings !== null) {
       state.bins.encode(encoder, state.binBindings);
+    }
+    if (state.allocation.queryKeys !== null) {
+      // Sparse winner writes require a full diagnostic clear on every frame.
+      // No receiver marker means invalid, unlit, masked or non-receiver.
+      for (let layer = 0; layer < 2; layer++) {
+        encoder
+          .beginRenderPass({
+            label: "Diagnostic/Native VSM query initialization",
+            colorAttachments: [
+              {
+                view: state.allocation.queryKeys.createView({
+                  dimension: "2d",
+                  baseArrayLayer: layer,
+                  arrayLayerCount: 1,
+                }),
+                loadOp: "clear",
+                storeOp: "store",
+                clearValue: { r: 0, g: 0, b: 0, a: 0 },
+              },
+            ],
+          })
+          .end();
+      }
     }
     const target = state.initialHdr ?? state.hdr;
     const attachments: GPURenderPassColorAttachment[] = [];
@@ -1154,6 +1211,9 @@ export class SurfaceV4 {
     const allocation = state.allocation;
     allocation.references--;
     if (allocation.references === 0) {
+      if (allocation.queryKeys !== null) {
+        this.releaseResource(allocation.queryKeys);
+      }
       if (allocation.ownedHdr !== null) {
         this.releaseResource(allocation.ownedHdr);
       }
@@ -1170,6 +1230,9 @@ export class SurfaceV4 {
     this.retired.add(state);
     if (this.state?.allocation !== state.allocation) state.bins.markStorageRetired();
     const resources: (GPUBuffer | GPUTexture)[] = [...state.resources];
+    if (state.allocation.queryKeys !== null) {
+      resources.push(state.allocation.queryKeys);
+    }
     if (state.ownsHdr) {
       resources.push(state.hdr);
     }

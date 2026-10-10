@@ -11,6 +11,13 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "vsm-sampling-publication",
+    file: "OEngine/tests/oracle/vsm-sampling-publication-gpu.mjs",
+    url: "/OEngine/tests/oracle/vsm-sampling-publication-gpu.mjs",
+    entry: "runVsmSamplingPublicationGpuOracle",
+    description: "Compact post-commit queries vs frozen original WGSL: full identity, rolling windows, f32 boundaries, all states and exact box PCF."
+  }),
+  Object.freeze({
     name: "vsm-receiver-aggregation",
     file: "OEngine/tests/oracle/vsm-receiver-aggregation-gpu.mjs",
     url: "/OEngine/tests/oracle/vsm-receiver-aggregation-gpu.mjs",

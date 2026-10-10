@@ -366,7 +366,7 @@ export async function runVsmR3GpuOracle(device) {
       VSM_SAMPLING_WGSL +
       `
 @group(0) @binding(0) var<uniform> vsm_constants: VsmSamplingConstants;
-@group(0) @binding(1) var<storage, read> vsm_page_table: array<VsmPageEntry>;
+@group(0) @binding(1) var<storage, read> vsm_sampling_descriptors: array<VsmSamplingDescriptor>;
 @group(0) @binding(2) var vsm_atlas_depth: texture_depth_2d;
 @group(1) @binding(0) var<storage, read_write> output: array<vec2i>;
 @compute @workgroup_size(1) fn check_gutter() {

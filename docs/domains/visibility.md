@@ -8,6 +8,7 @@ verifies:
     - OEngine/src/render/vsm
     - OEngine/src/shaders/vsm_page_table.ts
     - OEngine/src/shaders/vsm_sampling.ts
+    - OEngine/src/shaders/vsm_sampling_publication.ts
     - OEngine/src/gpu/GpuVisibilityKeyAbi.ts
     - OEngine/src/render/passes/PackedVisibilityPass.ts
     - OEngine/src/render/MeshletBucketRaster.ts
@@ -54,6 +55,8 @@ Product scene 容量由 descriptor 实际 forest depth、每 asset 最大层宽�
 VSM需求已由完整虚拟页bitset生成，receiver与sampler共享first-containing-clip/mip0定义。全部touch后才回收无本帧需求slot，high/bounded分别预留最多150/100粗页；只在唯一dirty页clear/raster及实际caster/native partition成功后发布ready，空页也可完成。查询明确区分fine/coarse/missing/stale/dirty/outside。页表、atlas、frame serial/content epoch与失效由VSM持有，旧append/页锁/dirty bitset已删除。Geometry ShadowMeshletBounds持有真实ordinary/Product affine XY bounds；GpuVsmPairAbi定义32B header/16B pair，VSM借用独立shadow source。E超显式容量时written=0并GPU选择完整W_partition×D implicit native draw；malformed source/partition不能ready。gutter PCF允许跨interior边缘、保护物理slot；reverse-Z clear0保持空页可见，包括receiver在caster far之外的negative reference。Scene替换/释放的borrowed native pass与bounds按command完成退休。
 
 ## 验证与目标
+
+VSM采样已采用Q-exact：`VsmAtlasRasterPass`在page/content commit之后由`VsmSamplingPublicationPass`发布同帧16B fine/coarse descriptor。完整world/mip/generation/epoch/namespace与flags在producer校验，管理页表仍服务allocator/caster；Surface的Native普通/Product、debug与Sun continuation只消费compact产品，保留原pixel f32寻址、fallback、mapped-normal bias、UV和4×4 PCF。FrameGraph瞬态池负责容量和在途退休，每帧完整覆盖invalid/dirty/missing，无持久history或额外submit。实际numeric/生产接线与热状态受限的局部成本结果见[性能执行§3.6](../next-execution/eengine-v4-performance-optimization-execution-2026-10.md#36-p1出口q-exact采用与实际验证)，不代替VSM全模块R4验收。
 
 VSM状态、实际GPU范围与未运行项只读[VSM执行计划](../next-execution/eengine-v4-vsm-execution-2026-10.md)；其余Geometry/Surface阶段只读[执行计划](../next-execution/eengine-v4-native-shading-execution-2026-10.md)。本次 ownership 切换不自动证明 traversal/raster 的全部 corner cases、VG streaming、完整画质或性能。
 

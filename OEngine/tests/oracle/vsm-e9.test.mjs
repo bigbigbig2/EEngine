@@ -23,6 +23,7 @@ import { vsmCasterDispatch } from "../../.test-dist/render/vsm/VsmCasterRecordPa
 import { VSM_PAGE_TABLE_WGSL } from "../../.test-dist/shaders/vsm_page_table.js";
 import { VSM_RECEIVER_DEMAND_WGSL } from "../../.test-dist/shaders/vsm_receiver_demand.js";
 import { VSM_SAMPLING_WGSL } from "../../.test-dist/shaders/vsm_sampling.js";
+import { VSM_SAMPLING_PUBLICATION_WGSL } from "../../.test-dist/shaders/vsm_sampling_publication.js";
 
 globalThis.GPUBufferUsage = { STORAGE: 1, COPY_DST: 2, INDIRECT: 4, UNIFORM: 8 };
 globalThis.GPUTextureUsage = { RENDER_ATTACHMENT: 1, TEXTURE_BINDING: 2 };
@@ -152,7 +153,7 @@ test("receiver dispatch covers odd extents and sampling fails open for invalid p
   assert.equal(vsmPageGenerationMatches(current, 7), true);
   assert.equal(vsmPageGenerationMatches(current, 8), false);
   assert.equal(vsmPageGenerationMatches({ ...current, flags: 0 }, 7), false);
-  assert.match(VSM_SAMPLING_WGSL, /entry\.mip != mip/u);
+  assert.match(VSM_SAMPLING_PUBLICATION_WGSL, /entry\.mip != mip/u);
   assert.match(VSM_SAMPLING_WGSL, /VSM_QUERY_DIRTY/u);
   assert.match(VSM_SAMPLING_WGSL, /return 1\.0;/u);
   assert.match(VSM_PAGE_TABLE_WGSL, /vsm_page_entry_coordinates/u);

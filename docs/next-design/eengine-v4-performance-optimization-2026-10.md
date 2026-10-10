@@ -117,6 +117,8 @@ publication必须消费**完成后的pageTable/contentVersion**，不是allocato
 
 Q目标是大量删除每pixel的full entry验证/fallback与缩短Native live set，新增便宜lookup；**不删除16PCF samples**。若query-only定位小到不足覆盖publication税，直接否决Q。
 
+**P1定案的Q-exact支持域**：不以fine-cell代表点预选最终coarse结果。每clip分别发布fine和coarse管理记录的完整校验结果，Native保留原f32 clip/world/window与fallback顺序，按原pixel坐标读取这两种compact plane。descriptor为`slot_x/slot_y/status/reserved`四个u32（16B），mip由plane确定、target failure由原query流程保留；generation/epoch/namespace/world/mip/flags在当帧post-commit producer完整验证。high布局为`6×(128²+8²)=98,688`项、1,579,008B；这比原fine-cell布局多384项，同时避免未证明的f32 coarse映射假设。完整身份不是被压缩到descriptor，而是在同帧产品发布时校验；管理页表继续由allocator/caster消费。此版本删除重复管理entry检查，**不声称删除整个fallback计算或证明register下降**。是否采纳与实测净成本见执行计划§3.5。
+
 **候选 S（完整屏幕Shadow Resolve与Sun合成）**：Native material求值一次→输出base radiance（非Sun）、unshadowedSun、receiver facts→VSM已完成atlas + screen-tile resolve→最终HDR→Aerial/Temporal/Present。resolve可合并PCF与最后合成，避免仅为一张无其它consumer的visibility mask多加一次composite。专用shadow visibility只有真实debug或额外consumer需要时才发布。**为了mapped normal正确，resolve在material事实之后；不是附件画的pre-material depth-only resolve。**
 
 最小receiver facts优先是Native按原公式算出的reference、material bias coefficient与lightXY，避免存normal再重算或用depth反投影替代原position。这里coefficient是`filter.y + slope_bias + normal_bias`，**不是已乘depth_per_texel的最终bias**；后者依赖query得到的resolved level/mip，必须由resolve按原公式乘回。完整产品写域由Surface初始化加有效winner写入闭合，不能要求现有稀疏bin invocation凭空覆盖所有背景像素：`SurfaceV4.encode`当前先copy/clear HDR和Aux，Native的mask/invalid winner/interpolation分支可以提前return。新产品需要对应的全域初始化或等价完整writer，且明确unlit/non-receiver的无阴影标记。resolve不得读取上帧残留；不能用SunRGB是否为0推断receive或query状态。identity与receive验证沿winner/frame context；未接线 counter的0不当证明。
@@ -155,7 +157,7 @@ Q/S都可以研究screen-tile query共享，但先统计**完整query key/result
 | 项目 | Q：query publication | S：screen resolve + Sun composite |
 |---|---|---|
 | 删除 | 每pixel细页完整entry检查/coarse搜索的可预解析部分；最多P次 | Native中的query/16点PCF及相关live state；lightXY/reference/material bias coefficient仍需在Native求值，最终UV/depth_per_texel转到resolve；全帧PCF仍在 |
-| 新增bytes/访问 | N×16B写+原management读取，Native额外descriptor读；N≤98,304；随机查变紧凑查 | baseline48B产品store/read；≈189.84MiB/frame新增逻辑流量，顺序screen读取；atlas仍随机/局部 |
+| 新增bytes/访问 | N×16B写+原management读取，Native额外descriptor读；Q-exact high N=98,688；随机查变紧凑查 | baseline48B产品store/read；≈189.84MiB/frame新增逻辑流量，顺序screen读取；atlas仍随机/局部 |
 | ALU/samples | 新producer N次resolve；PCF数量不变；不能按48Bentry推DRAM | Native写receiver facts/unshadowedSun；resolve per-pixel query/PCF/composite。PCF质量与samples不减；position重复重建若有必须入账 |
 | atomics/barriers | 全写域无需新增全局atomic；tile共享是后续独立资格项 | 初版无需local aggregation；采用tile共享后另算组内存/barrier税 |
 | dispatch/CPU | +1 publication；常态无逐pixelCPU allocation | +1 resolve/composite，另核算初始化pass/copy是否可并入现有步骤；Native route数不因材质实例上涨；+产品绑定/FrameGraph编码/冷编译 |

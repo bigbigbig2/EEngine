@@ -150,6 +150,7 @@ function compileSceneGraph(
   let vsmOwnerBinding: NonNullable<SceneFrameBindings["vsm"]> | null = null;
   let vsmFrameBinding: NonNullable<SceneFrameBindings["vsmFrame"]> | null = null;
   let vsmAllocation: VsmAllocationFrame | null = null;
+  let vsmSamplingDescriptors: ResourceId | null = null;
   let vsmAtlasDepth: ResourceId | null = null;
   let vsmSamplingConstants: ResourceId | null = null;
   let vsmDepthRange: ResourceId | null = null;
@@ -379,6 +380,7 @@ function compileSceneGraph(
         allocation: vsmAllocation!.allocation,
         metaTable: vsmAllocation!.metaTable,
         contentVersion: vsmAllocation!.contentVersion,
+        samplingConstants: vsmSamplingConstants!,
         instances,
         meshlets: meshletRecords,
         meshletVertices: meshletVertexIndices,
@@ -392,6 +394,7 @@ function compileSceneGraph(
     );
     vsmAtlasDepth = atlas.atlasDepth;
     vsmContentVersion = atlas.contentVersion;
+    vsmSamplingDescriptors = atlas.samplingDescriptors;
     if (vsmOwnerBinding.pageConstants === null) {
       throw new Error("Frame Program VSM sampling constants are unavailable");
     }
@@ -609,14 +612,10 @@ function compileSceneGraph(
           if (entry.binding === 8 && vsmSamplingConstants !== null) {
             return { binding: 8, resource: { buffer: resources.get(vsmSamplingConstants) as GPUBuffer } };
           }
-          if (
-            entry.binding === 9 &&
-            shadowContract?.virtualPageTable !== null &&
-            shadowContract?.virtualPageTable !== undefined
-          ) {
+          if (entry.binding === 9 && vsmSamplingDescriptors !== null) {
             return {
               binding: 9,
-              resource: { buffer: resources.get(shadowContract.virtualPageTable) as GPUBuffer },
+              resource: { buffer: resources.get(vsmSamplingDescriptors) as GPUBuffer },
             };
           }
           if (entry.binding === 10 && vsmAtlasDepth !== null) {
@@ -686,7 +685,7 @@ function compileSceneGraph(
     scalarAo,
     vsmAtlasDepth,
     vsmSamplingConstants,
-    shadowContract?.virtualPageTable,
+    vsmSamplingDescriptors,
     vsmContentVersion,
     physicalEnvironmentSun,
     atmosphereEnvironment,

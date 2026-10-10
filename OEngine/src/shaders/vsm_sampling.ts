@@ -8,7 +8,7 @@ import { VSM_PAGE_TABLE_WGSL } from "./vsm_page_table.js";
  * pages return neutral visibility so bounded residency never creates black
  * frames while the next demand pass repairs the page.
  */
-export const VSM_SAMPLING_WGSL = /* wgsl */ `
+export const VSM_SAMPLING_TYPES_WGSL = /* wgsl */ `
 ${VSM_PAGE_TABLE_WGSL}
 
 struct VsmSamplingConstants {
@@ -27,6 +27,31 @@ const VSM_QUERY_MISSING: u32 = 2u;
 const VSM_QUERY_STALE: u32 = 3u;
 const VSM_QUERY_DIRTY: u32 = 4u;
 const VSM_QUERY_OUTSIDE: u32 = 5u;
+
+// Full identities are checked by the post-content-commit producer against the
+// current frame. Only these fields have a sampling/debug consumer (16 bytes).
+struct VsmSamplingDescriptor {
+  slot_x: u32,
+  slot_y: u32,
+  status: u32,
+  reserved: u32,
+};
+
+fn vsm_sampling_entries_per_clip(pages: u32) -> u32 {
+  let coarse_axis = vsm_storage_axis(pages, 5u);
+  return pages * pages + coarse_axis * coarse_axis;
+}
+
+fn vsm_sampling_index(level: u32, mip: u32, world: vec2i, pages: u32) -> u32 {
+  let axis = vsm_storage_axis(pages, mip);
+  let plane = select(0u, pages * pages, mip == 5u);
+  return level * vsm_sampling_entries_per_clip(pages) + plane +
+    vsm_floor_mod(world.y, axis) * axis + vsm_floor_mod(world.x, axis);
+}
+`;
+
+export const VSM_SAMPLING_WGSL = /* wgsl */ `
+${VSM_SAMPLING_TYPES_WGSL}
 
 struct VsmPageQuery {
   entry: VsmPageEntry,
@@ -52,20 +77,16 @@ fn vsm_lookup(level: u32, light_xy: vec2f, mip: u32) -> VsmPageQuery {
   if (!vsm_world_in_window(world, clip, mip, pages)) {
     return VsmPageQuery(vsm_zero_entry(), level, VSM_QUERY_OUTSIDE, VSM_QUERY_OUTSIDE);
   }
-  let index = vsm_world_page_entry_index(level, mip, world, pages);
-  if (index >= arrayLength(&vsm_page_table)) {
+  let index = vsm_sampling_index(level, mip, world, pages);
+  if (index >= arrayLength(&vsm_sampling_descriptors)) {
     return VsmPageQuery(vsm_zero_entry(), level, VSM_QUERY_MISSING, VSM_QUERY_MISSING);
   }
-  let entry = vsm_page_table[index];
-  var status = select(VSM_QUERY_FINE, VSM_QUERY_COARSE, mip == 5u);
-  if ((entry.flags & VSM_PAGE_ALLOCATED) == 0u) {
-    status = VSM_QUERY_MISSING;
-  } else if (entry.mip != mip || !vsm_key_matches(entry, world, vsm_constants.identity) ||
-      !vsm_page_is_current(entry, vsm_constants.control.y)) {
-    status = VSM_QUERY_STALE;
-  } else if ((entry.flags & 6u) != 0u) {
-    status = VSM_QUERY_DIRTY;
-  }
+  let descriptor = vsm_sampling_descriptors[index];
+  // Keep the invocation-private query shape for unchanged PCF/debug consumers.
+  // No unused management fields are fetched or kept live in Native.
+  let entry = VsmPageEntry(descriptor.slot_x, descriptor.slot_y, mip, 0u,
+    0u, 0u, 0u, 0u, 0, 0, 0u, 0u);
+  let status = descriptor.status;
   return VsmPageQuery(entry, level, status, status);
 }
 

@@ -1508,4 +1508,6 @@ Appearance 切片之后已接通独立六路 signal history：`SurfaceWorkRuntim
 
 pmndrs的[PARITY](https://github.com/pmndrs/upscaler/blob/5821d915c4e3a595c913d399e832155d8dade338/docs/research/PARITY.md)报告ratio2、1920×1080输出、Apple Metal、ABBA实验source-style +36%/+76%；shading detector .044ms vs .231ms是旧测量，后续修改未全部复测。该文同时记录cross-frame depth在dolly错误失效和8bitRCAS画面验收漏掉linear HDR fireflies的失败/修正。数字只作来源实验，**不作为GTX1650Ti/native1:1的时间预测或质量保证**；吸收同帧scatter边界、HDR读回与动态质量失败教训。其production仍为多dispatch，不能引用成两kernel完整Temporal事实。
 
-上述来源研究不需要新的技能/通用架构层。性能设计的Cost Card、支持域/limits/峰值证明、numeric/lifecycle与真实新production GPU消费/净成本齐备前，全部新Adapt保持proposed。
+上述来源研究不需要新的技能/通用架构层。除下述本地P1实施外，其余新Adapt仍保持proposed；算法移植不得因来源相似而晋级adoption。
+
+P1实际Local映射（2026-10-11）：重新核对上述Blender固定revision的`tilemap_finalize_main`真实源码，仅采用management→sampling product的架构方向，**没有复制GPL代码**。本地原创`vsm_sampling_publication.ts::main`/`VsmSamplingPublicationPass`在atlas content commit后完整验证fine/coarse plane，发布16B descriptor；`vsm_sampling.ts::vsm_lookup`、Native/debug/Sun continuation消费。与Blender最终LOD预选不同，本地保留pixel精确f32 world寻址与coarse fallback，避免fine代表点推断。74,032个独立GPU原query/PCF逐位比较、真实Renderer接线及限定Dungeon净成本记录见[性能执行§3.6](../next-execution/eengine-v4-performance-optimization-execution-2026-10.md#36-p1出口q-exact采用与实际验证)。这是原创实现的局部验证，**不是Blender源码port/adoption或无条件性能证明**。

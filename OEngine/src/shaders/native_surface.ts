@@ -18,7 +18,7 @@ import {
 } from "./native_surface_lighting.js";
 
 /** Diagnostic shader specialization only; G is byte-for-byte the normal source. */
-export type NativeSurfaceCostSlice = "A" | "B0" | "B" | "C" | "D" | "E" | "F" | "G";
+export type NativeSurfaceCostSlice = "A" | "B0" | "B" | "C" | "D" | "E" | "F" | "G" | "Q0" | "K";
 
 export interface NativeSurfaceShaderProfile {
   readonly compact: boolean;
@@ -137,6 +137,13 @@ export function nativeSurfaceBindingGroups(
       storageTexture: { format: "rgba8unorm", access: "write-only" }
     });
   }
+  if (profile.costSlice === "K") {
+    geometry.push({
+      binding: 15,
+      visibility: COMPUTE,
+      storageTexture: { format: "rgba32uint", access: "write-only", viewDimension: "2d-array" },
+    });
+  }
   if (profile.productGeometry) {
     for (let binding = 10; binding < 15; binding++) {
       geometry.push(read(binding));
@@ -228,8 +235,8 @@ export function nativeSurfaceWgsl(
   profile: NativeSurfaceShaderProfile
 ): string {
   const costSlice = profile.costSlice ?? "G";
-  if (!/^(?:[A-G]|B0)$/.test(costSlice)) {
-    throw new RangeError("Native cost slice must be A through G, or B0 (center inputs)");
+  if (!/^(?:[A-G]|B0|Q0|K)$/.test(costSlice)) {
+    throw new RangeError("Native cost slice must be A through G, B0, Q0 (query without PCF) or K (full query keys)");
   }
   if (costSlice !== "G" && profile.additiveSun) {
     throw new Error("Native cost slicing requires the fused resource profile");
@@ -293,7 +300,7 @@ export function nativeSurfaceWgsl(
     ? ""
     : /* wgsl */ `
 ${NATIVE_LOCAL_LIGHTING.source}
-${profile.physicalSun ? nativeSurfacePhysicalSunWgsl(costSlice === "G") : ""}
+${profile.physicalSun ? nativeSurfacePhysicalSunWgsl(costSlice === "G" || costSlice === "K" || costSlice === "Q0", costSlice === "Q0") : ""}
 ${OCTAHEDRAL_SAMPLE_WGSL}
 ${ENVIRONMENT_BRDF_WGSL}
 struct NativeShadingView {
@@ -309,7 +316,7 @@ ${NATIVE_LOCAL_LIGHTING.declarations}
 @group(1) @binding(6) var environment_specular: texture_2d<f32>;
 @group(1) @binding(7) var environment_dfg: texture_2d<f32>;
 @group(1) @binding(8) var<uniform> vsm_constants: VsmSamplingConstants;
-@group(1) @binding(9) var<storage, read> vsm_page_table: array<VsmPageEntry>;
+@group(1) @binding(9) var<storage, read> vsm_sampling_descriptors: array<VsmSamplingDescriptor>;
 @group(1) @binding(10) var vsm_atlas_depth: texture_depth_2d;
 @group(1) @binding(11) var ambient_occlusion: texture_2d<f32>;
 fn native_environment(material: StandardMaterial, normal: vec3f, direction: vec3f, pixel: vec2u) -> vec3f {
@@ -425,6 +432,31 @@ ${materialLighting}
   }
 `
       : "";
+  // K is a statistics run, never a timing run. Full u32 world identity is
+  // retained; only bounded status/clip/mip enums share one word. Epoch,
+  // namespace and generation come from the same captured frame constants.
+  const queryKeys =
+    costSlice === "K" && !profile.unlit
+      ? /* wgsl */ `
+  if ((frame_instances[work.instance_slot].source.flags & ${GPU_INSTANCE_FLAGS.ReceivesShadow}u) != 0u && vsm_constants.depth_range.w != 0.0) {
+    let light_xy = (vsm_constants.light_view * vec4f(position, 1.0)).xy;
+    let selected = vsm_clip_level(light_xy);
+    var fine_world = vec2i(0);
+    if (selected != VSM_INVALID_SLOT) {
+      fine_world = vsm_world_page(light_xy, vsm_constants.clip_origin_extent[selected], 0u, vsm_constants.dimensions.x);
+    }
+    let query = vsm_query_directional(light_xy);
+    var resolved_world = vec2i(0);
+    if (query.status == VSM_QUERY_FINE || query.status == VSM_QUERY_COARSE) {
+      resolved_world = vsm_world_page(light_xy, vsm_constants.clip_origin_extent[query.level], query.entry.mip, vsm_constants.dimensions.x);
+    }
+    let enums = 0x80000000u | query.status | (query.target_status << 4u) |
+      (query.level << 8u) | (query.entry.mip << 12u);
+    textureStore(native_query_keys, vec2i(pixel), 0, vec4u(selected, bitcast<vec2u>(fine_world), enums));
+    textureStore(native_query_keys, vec2i(pixel), 1, vec4u(bitcast<vec2u>(resolved_world), query.entry.slot_x, query.entry.slot_y));
+  }
+`
+      : "";
   const pixelSelection = profile.compact
     ? /* wgsl */ `
   let record = route.x * 8u;
@@ -466,9 +498,8 @@ ${material}
     if (costSlice !== "A") {
       // B0 shares A's reconstruction anchor, but consumes only center inputs.
       // B additionally keeps finite one-pixel footprints and neighbour inputs live.
-      const diagnosticInputs = costSlice === "B0"
-        ? inputs.filter((line) => line.startsWith("  inputs.center["))
-        : inputs;
+      const diagnosticInputs =
+        costSlice === "B0" ? inputs.filter((line) => line.startsWith("  inputs.center[")) : inputs;
       evaluation += `  var inputs: NativeMaterialInputs;\n${diagnosticInputs.join("\n")}\n`;
       for (let index = 0; index < program.inputCount; index++) {
         for (const [point, factor] of [
@@ -517,6 +548,7 @@ struct NativeSurfaceSettings {
 @group(0) @binding(4) var<storage, read> frame_instances: array<OEngineFrameInstanceRecord>;
 @group(0) @binding(5) var visibility: texture_2d<u32>;
 @group(0) @binding(7) var hdr: texture_storage_2d<rgba16float, write>;
+${costSlice === "K" ? "@group(0) @binding(15) var native_query_keys: texture_storage_2d_array<rgba32uint, write>;" : ""}
 ${profile.additiveSun ? "@group(0) @binding(9) var prior_native_hdr: texture_2d<f32>;" : ""}
 ${reactiveDeclaration}
 ${productBindings}
@@ -602,6 +634,7 @@ ${pixelSelection}
     return;
   }
 ${evaluation}
+${queryKeys}
   // P is the positive GPU exposure published by radiometry. An artistic lower
   // floor here would disagree with Sky/Aerial and HDR metering above L=1800.
   let contribution = oengine_linear_rec709_to_rec2020(color) * settings.camera_position_exposure.w;

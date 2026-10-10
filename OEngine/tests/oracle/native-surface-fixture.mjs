@@ -1,4 +1,5 @@
 import { FrameGeometryArena } from "../../.test-dist/render/FrameGeometryArena.js";
+import { VSM_SAMPLING_PUBLICATION_WGSL } from "../../.test-dist/shaders/vsm_sampling_publication.js";
 import { FrameGeometryVertices } from "../../.test-dist/render/FrameGeometryVertices.js";
 import {
   GPU_GEOMETRY_RECORD_SCHEMA,
@@ -277,7 +278,7 @@ export async function createNativeSurfaceFixture(
       device.queue.writeBuffer(localData, 0, header);
       device.queue.writeBuffer(localParameters, 20, new Uint32Array([frameIndex, 1, count]));
     };
-    const pages = new Uint32Array((16 * 16 + 8 * 8 + 4 * 4 + 2 * 2 + 1 + 1) * 12);
+    const pages = new Uint32Array((16 * 16 + 8 * 8 + 4 * 4 + 2 * 2 + 1 + 4) * 12);
     for (let y = 0; y < 16; y++) {
       for (let x = 0; x < 16; x++) {
         pages.set(
@@ -300,13 +301,29 @@ export async function createNativeSurfaceFixture(
       }
     }
     const pageTable = storage(pages, "S1/resident VSM page ABI");
-    const vsmValues = new Float32Array(60);
+    const vsmValues = new Float32Array(64);
     vsmValues.set(identity);
     vsmValues.set([-1, -1, 2, 0], 16);
     new Uint32Array(vsmValues.buffer).set([16, 128, 2, 16, 1, GENERATION, 2, 2112], 40);
     vsmValues.set([-8, 8, 1 / 16, 1], 52);
     new Uint32Array(vsmValues.buffer).set([GENERATION, 1, 0, 0], 56);
     const vsmConstants = uniform(vsmValues, "S1/VSM constants");
+    const samplingDescriptors = storage(new Uint32Array((16 * 16 + 4) * 4), "S1/VSM sampling descriptors");
+    const samplingPipeline = await device.createComputePipelineAsync({
+      layout: "auto",
+      compute: {
+        module: device.createShaderModule({ code: VSM_SAMPLING_PUBLICATION_WGSL }),
+        entryPoint: "main",
+      },
+    });
+    const samplingGroup = device.createBindGroup({
+      layout: samplingPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: vsmConstants } },
+        { binding: 1, resource: { buffer: pageTable } },
+        { binding: 2, resource: { buffer: samplingDescriptors } },
+      ],
+    });
     const atlas = makeTexture(
       2112,
       2112,
@@ -343,6 +360,11 @@ export async function createNativeSurfaceFixture(
     atlasPass.setPipeline(atlasPipeline);
     atlasPass.draw(3);
     atlasPass.end();
+    const publishSampling = atlasEncoder.beginComputePass();
+    publishSampling.setPipeline(samplingPipeline);
+    publishSampling.setBindGroup(0, samplingGroup);
+    publishSampling.dispatchWorkgroups(Math.ceil((16 * 16 + 4) / 64));
+    publishSampling.end();
     device.queue.submit([atlasEncoder.finish()]);
     await device.queue.onSubmittedWorkDone();
 
@@ -391,7 +413,7 @@ export async function createNativeSurfaceFixture(
       { binding: 6, resource: specularEnvironment.createView() },
       { binding: 7, resource: dfg.createView() },
       { binding: 8, resource: { buffer: vsmConstants } },
-      { binding: 9, resource: { buffer: pageTable } },
+      { binding: 9, resource: { buffer: samplingDescriptors } },
       { binding: 10, resource: atlas.createView() },
       { binding: 11, resource: ao.createView() },
     ];

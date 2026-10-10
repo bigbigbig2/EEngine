@@ -17,8 +17,9 @@ const { compileAppearanceGraph } = await import("../../.test-dist/material/Appea
 const { lowerNativeMaterial } = await import("../../.test-dist/shaders/native_material.js");
 const { AppearanceProgramRegistry } = await import("../../.test-dist/gpu/AppearanceProgramRegistry.js");
 const { GpuNativeMaterialPublication } = await import("../../.test-dist/gpu/GpuNativeMaterialPublication.js");
-const { NativeRasterWorkPartitions } =
-  await import("../../.test-dist/render/surface/NativeRasterWorkPartitions.js");
+const { NativeRasterWorkPartitions } = await import(
+  "../../.test-dist/render/surface/NativeRasterWorkPartitions.js"
+);
 const { NativeVisibilityPass } = await import("../../.test-dist/render/surface/NativeVisibilityPass.js");
 const { FrameGraph } = await import("../../.test-dist/framegraph/FrameGraph.js");
 const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
@@ -27,7 +28,7 @@ const deferred = () => {
   const promise = new Promise((done) => (resolve = done));
   return { promise, resolve };
 };
-function fixture({ reactive = false, compact = false } = {}) {
+function fixture({ reactive = false, compact = false, costSlice = "G" } = {}) {
   const loss = deferred(),
     resources = [],
     calls = [];
@@ -84,7 +85,7 @@ function fixture({ reactive = false, compact = false } = {}) {
       const texture = {
         width: size[0],
         height: size[1],
-        depthOrArrayLayers: 1,
+        depthOrArrayLayers: size[2] ?? 1,
         format,
         usage,
         destroyed: false,
@@ -119,6 +120,7 @@ function fixture({ reactive = false, compact = false } = {}) {
     productGeometry: false,
     unlit: true,
     reactive,
+    costSlice,
   });
   const publication = new GpuNativeMaterialPublication(device, registry, [
     { materialSlot: 0, bindingSet: 0, program, descriptor },
@@ -198,7 +200,8 @@ function fixture({ reactive = false, compact = false } = {}) {
     beginComputePass() {
       return pass;
     },
-    beginRenderPass() {
+    beginRenderPass(descriptor) {
+      calls.push(["renderPass", descriptor]);
       return pass;
     },
   };
@@ -328,6 +331,49 @@ test("SurfaceV4 resize abort keeps committed extent and resize commit retires on
   assert.equal(original.destroyed, true);
   surface.destroy();
   await f.publication.retire(Promise.resolve());
+  f.registry.destroy();
+});
+
+test("diagnostic query keys clear both layers and share extent abort/fence/device-loss ownership", async () => {
+  const f = fixture({ costSlice: "K" }),
+    surface = new SurfaceV4(f.device);
+  await f.publication.ready;
+  f.publication.commit();
+  const fence = deferred();
+  await surface.prepareFrame(f.frame);
+  const keys = surface.preparedState.allocation.queryKeys;
+  assert.equal(keys.format, "rgba32uint");
+  assert.equal(keys.depthOrArrayLayers, 2);
+  surface.encode(f.encoder);
+  const clears = f.calls.filter(
+    ([kind, descriptor]) =>
+      kind === "renderPass" &&
+      descriptor.colorAttachments?.some((attachment) => attachment.view.texture === keys),
+  );
+  assert.equal(clears.length, 2, "sparse winners must not leave previous/background keys");
+  assert.ok(clears.every(([, descriptor]) => descriptor.colorAttachments[0].loadOp === "clear"));
+  surface.commit(fence.promise);
+  const resized = { ...f.frame, width: 32, height: 16, ...f.images(32, 16) };
+  await surface.prepareFrame(resized);
+  const aborted = surface.preparedState.allocation.queryKeys;
+  surface.abort();
+  assert.equal(aborted.destroyed, true);
+  assert.equal(keys.destroyed, false);
+  await surface.prepareFrame(resized);
+  const current = surface.preparedState.allocation.queryKeys;
+  surface.encode(f.encoder);
+  surface.commit(Promise.resolve());
+  assert.equal(keys.destroyed, false);
+  fence.resolve();
+  await fence.promise;
+  await Promise.resolve();
+  assert.equal(keys.destroyed, true);
+  f.loss.resolve({ reason: "unknown", message: "diagnostic loss" });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(current.destroyed, true);
+  await assert.rejects(surface.prepareFrame(f.frame), /stopped/);
+  surface.destroy();
   f.registry.destroy();
 });
 

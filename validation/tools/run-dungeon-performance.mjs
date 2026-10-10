@@ -26,8 +26,8 @@ const frames = Number(option("frames", "240"));
 const nativeCostSlice = option("native-slice", null);
 const vsmDemandDiagnostics = args.includes("--vsm-demand-diagnostics");
 const gpuSampleInterval = Number(option("gpu-sample-interval", "4"));
-if (nativeCostSlice !== null && !/^(?:[A-G]|B0)$/.test(nativeCostSlice))
-  throw new Error("--native-slice must be A through G, or B0 (center inputs)");
+if (nativeCostSlice !== null && !/^(?:[A-G]|B0|Q0|K)$/.test(nativeCostSlice))
+  throw new Error("--native-slice must be A through G, B0, Q0 (query without PCF) or K (full query keys)");
 if (vsmDemandDiagnostics && nativeCostSlice !== null && nativeCostSlice !== "G")
   throw new Error("VSM statistics require full native shading");
 const scenarios = args.includes("--load-only")
@@ -582,6 +582,11 @@ try {
         throw new Error("Instrumentation is active during a timing run");
       }
       capture.gpuResources = await run.page.evaluate(() => window.dungeonGpuAudit.snapshot());
+      if (nativeCostSlice === "K") {
+        capture.nativeQueryStatistics = await run.page.evaluate(() =>
+          window.dungeonGpuAudit.nativeQueryStatistics()
+        );
+      }
       await control("pause", false, true);
       if (args.includes("--near") && (capture.coverage.ratio < 0.8 || capture.coverage.invalid))
         throw new Error(`Coverage guard failed in ${name}: ${capture.coverage.ratio}`);

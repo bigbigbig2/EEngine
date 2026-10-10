@@ -4,6 +4,7 @@ import { VSM_RECEIVER_DEMAND_WGSL } from "../../.test-dist/shaders/vsm_receiver_
 import { VSM_PAGE_COMMIT_WGSL } from "../../.test-dist/shaders/vsm_page_commit.js";
 import { VSM_ATLAS_PAGE_CLEAR_WGSL } from "../../.test-dist/shaders/vsm_atlas_raster.js";
 import { VSM_SAMPLING_WGSL } from "../../.test-dist/shaders/vsm_sampling.js";
+import { VSM_SAMPLING_PUBLICATION_WGSL } from "../../.test-dist/shaders/vsm_sampling_publication.js";
 import { VsmResources } from "../../.test-dist/render/vsm/VsmResources.js";
 import { negotiateVsmCapabilities } from "../../.test-dist/render/vsm/VsmCapabilities.js";
 import { VsmAllocatePagesPass } from "../../.test-dist/render/vsm/VsmAllocatePagesPass.js";
@@ -389,6 +390,22 @@ export async function runVsmR2GpuOracle(device) {
     const packed = packVsmSamplingConstants({ resources, frame, width: 256, height: 128, generation: 7 });
     new Float32Array(packed).set([-1, 1, 0.5, 1], 52);
     const constants = make(256, GPUBufferUsage.UNIFORM, packed);
+    const descriptors = make(6 * 16448 * 16, GPUBufferUsage.STORAGE);
+    const publicationPipeline = device.createComputePipeline({
+      layout: "auto",
+      compute: {
+        module: device.createShaderModule({ code: VSM_SAMPLING_PUBLICATION_WGSL }),
+        entryPoint: "main",
+      },
+    });
+    const publicationGroup = device.createBindGroup({
+      layout: publicationPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: constants } },
+        { binding: 1, resource: { buffer: table } },
+        { binding: 2, resource: { buffer: descriptors } },
+      ],
+    });
     const positions = make(
       points.length * 16,
       GPUBufferUsage.STORAGE,
@@ -400,7 +417,7 @@ export async function runVsmR2GpuOracle(device) {
 struct GpuPrimitiveTypeTable { direction: vec3f, color: vec3f, };
 ${VSM_SAMPLING_WGSL}
 @group(0) @binding(0) var<uniform> vsm_constants: VsmSamplingConstants;
-@group(0) @binding(1) var<storage, read> vsm_page_table: array<VsmPageEntry>;
+@group(0) @binding(1) var<storage, read> vsm_sampling_descriptors: array<VsmSamplingDescriptor>;
 @group(0) @binding(2) var vsm_atlas_depth: texture_depth_2d;
 @group(0) @binding(3) var<storage, read> positions: array<vec4f>;
 @group(0) @binding(4) var<storage, read_write> results: array<vec4u>;
@@ -421,13 +438,18 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       layout: pipeline.getBindGroupLayout(0),
       entries: [
         { binding: 0, resource: { buffer: constants } },
-        { binding: 1, resource: { buffer: table } },
+        { binding: 1, resource: { buffer: descriptors } },
         { binding: 2, resource: resources.atlasDepthView },
         { binding: 3, resource: { buffer: positions } },
         { binding: 4, resource: { buffer: output } },
       ],
     });
     const encoder = device.createCommandEncoder();
+    const publicationPass = encoder.beginComputePass();
+    publicationPass.setPipeline(publicationPipeline);
+    publicationPass.setBindGroup(0, publicationGroup);
+    publicationPass.dispatchWorkgroups(Math.ceil((6 * 16448) / 64));
+    publicationPass.end();
     const pass = encoder.beginComputePass();
     pass.setPipeline(pipeline);
     pass.setBindGroup(0, group);

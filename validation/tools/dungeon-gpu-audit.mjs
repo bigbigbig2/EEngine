@@ -104,7 +104,12 @@ export function installDungeonGpuAudit() {
     const original = GPUDevice.prototype[method];
     GPUDevice.prototype[method] = function (desc) {
       device = this;
-      const value = original.call(this, desc);
+      // Diagnostic-only readback of the exact frame-wide query identity.
+      const observedDesc =
+        method === "createBuffer" && /\/pageConstants$/.test(desc.label ?? "")
+          ? { ...desc, usage: desc.usage | GPUBufferUsage.COPY_SRC }
+          : desc;
+      const value = original.call(this, observedDesc);
       add(value, kind, desc);
       return value;
     };
@@ -120,7 +125,7 @@ export function installDungeonGpuAudit() {
     const original = GPUDevice.prototype[method];
     GPUDevice.prototype[method] = function (desc) {
       if (method === "createShaderModule") {
-        const slice = /Native cost slice: (B0|[A-G])\b/.exec(desc.code)?.[1];
+        const slice = /Native cost slice: (Q0|B0|[A-GK])\b/.exec(desc.code)?.[1];
         if (slice) nativeCostSlices.add(slice);
       }
       const at = performance.now();
@@ -168,6 +173,116 @@ export function installDungeonGpuAudit() {
     return records.filter((r) => !r.destroyed && r.ref.deref());
   }
   window.dungeonGpuAudit = {
+    async nativeQueryStatistics() {
+      const texture = live()
+        .find((r) => r.label === "Diagnostic/Native VSM query keys")
+        ?.ref.deref();
+      if (!texture) throw new Error("Native query diagnostic product was not compiled");
+      await device.queue.onSubmittedWorkDone();
+      const pitch = Math.ceil((texture.width * 16) / 256) * 256;
+      const bytes = pitch * texture.height * 2;
+      const staging = device.createBuffer({
+        size: bytes,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+      });
+      const constants = live()
+        .find((r) => /\/pageConstants$/.test(r.label))
+        ?.ref.deref();
+      if (!constants) {
+        staging.destroy();
+        throw new Error("Native query frame constants are unavailable");
+      }
+      const identityStaging = device.createBuffer({
+        size: 256,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+      });
+      try {
+        const encoder = device.createCommandEncoder();
+        encoder.copyTextureToBuffer(
+          { texture },
+          { buffer: staging, bytesPerRow: pitch, rowsPerImage: texture.height },
+          [texture.width, texture.height, 2],
+        );
+        encoder.copyBufferToBuffer(constants, 0, identityStaging, 0, 256);
+        device.queue.submit([encoder.finish()]);
+        await staging.mapAsync(GPUMapMode.READ);
+        await identityStaging.mapAsync(GPUMapMode.READ);
+        const frameWords = new Uint32Array(identityStaging.getMappedRange());
+        // VsmSamplingConstants: control starts at word 44, identity at 56;
+        // words 60..63 are uniform padding, not an identity product.
+        const frameIdentity = {
+          generation: frameWords[45],
+          projectionEpoch: frameWords[56],
+          namespace: frameWords[57],
+        };
+        identityStaging.unmap();
+        const words = new Uint32Array(staging.getMappedRange());
+        const groupHistogram = {},
+          statuses = {},
+          targetStatuses = {},
+          globalFine = new Set(),
+          globalResolved = new Set();
+        let receivers = 0,
+          sumUnique = 0,
+          sumResolved = 0,
+          groups = 0;
+        for (let gy = 0; gy < texture.height; gy += 8) {
+          for (let gx = 0; gx < texture.width; gx += 8) {
+            const fine = new Set(),
+              resolved = new Set();
+            let active = 0;
+            for (let y = gy; y < Math.min(gy + 8, texture.height); y++) {
+              for (let x = gx; x < Math.min(gx + 8, texture.width); x++) {
+                const i = (y * pitch) / 4 + x * 4,
+                  code = words[i + 3];
+                if ((code & 0x80000000) === 0) continue;
+                const r = i + (pitch * texture.height) / 4;
+                const status = code & 15,
+                  target = (code >>> 4) & 15,
+                  level = (code >>> 8) & 15,
+                  mip = (code >>> 12) & 15;
+                const key = `${words[i]}:${words[i + 1] | 0}:${words[i + 2] | 0}`;
+                const result = `${status}:${target}:${level}:${mip}:${words[r] | 0}:${words[r + 1] | 0}:${words[r + 2]}:${words[r + 3]}`;
+                fine.add(key);
+                resolved.add(result);
+                globalFine.add(key);
+                globalResolved.add(result);
+                statuses[status] = (statuses[status] ?? 0) + 1;
+                targetStatuses[target] = (targetStatuses[target] ?? 0) + 1;
+                active++;
+              }
+            }
+            const bucket = `${active}/${fine.size}/${resolved.size}`;
+            groupHistogram[bucket] = (groupHistogram[bucket] ?? 0) + 1;
+            receivers += active;
+            sumUnique += fine.size;
+            sumResolved += resolved.size;
+            groups++;
+          }
+        }
+        staging.unmap();
+        return {
+          width: texture.width,
+          height: texture.height,
+          receivers,
+          groups,
+          sumUnique,
+          sumResolved,
+          globalFine: globalFine.size,
+          globalResolved: globalResolved.size,
+          statuses,
+          targetStatuses,
+          duplicateRatio: receivers ? 1 - sumUnique / receivers : null,
+          resolvedDuplicateRatio: receivers ? 1 - sumResolved / receivers : null,
+          groupHistogram,
+          frameIdentity,
+          note: "Full generation/epoch/namespace are common frame constants; timing invalid with K instrumentation.",
+        };
+      } finally {
+        staging.destroy();
+        identityStaging.destroy();
+      }
+    },
     snapshot: () => ({
       bytes,
       peakBytes,

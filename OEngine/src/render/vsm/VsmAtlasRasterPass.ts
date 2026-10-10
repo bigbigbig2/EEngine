@@ -17,6 +17,7 @@ import type { VsmDirectionalFrameConstants } from "./VsmReceiverDemandPass.js";
 import type { VsmResources } from "./VsmResources.js";
 import type { VsmCasterRecordFrame } from "./VsmCasterRecordPass.js";
 import { VSM_CONTENT_VERSION_WGSL } from "../../shaders/vsm_content_version.js";
+import { VsmSamplingPublicationPass } from "./VsmSamplingPublicationPass.js";
 
 export interface VsmAtlasRasterInputs {
   readonly caster: VsmCasterRecordFrame;
@@ -41,6 +42,7 @@ export interface VsmAtlasRasterInputs {
   readonly allocation: ResourceId;
   readonly metaTable: ResourceId;
   readonly contentVersion: ResourceId;
+  readonly samplingConstants: ResourceId;
   readonly instances: ResourceId;
   readonly meshlets: ResourceId;
   readonly meshletVertices: ResourceId;
@@ -64,6 +66,7 @@ function packConstants(input: VsmAtlasRasterInputs): ArrayBuffer {
 
 /** Dirty-slot clear -> finite compiled caster partitions -> content publication. */
 export class VsmAtlasRasterPass {
+  private readonly samplingPublication: VsmSamplingPublicationPass;
   private readonly nativePasses = new Map<GPUBuffer, NativeVisibilityPass>();
   private readonly constants: GPUBuffer;
   private readonly commitConstants: GPUBuffer;
@@ -75,6 +78,7 @@ export class VsmAtlasRasterPass {
   private readonly contentLayout: GPUBindGroupLayoutDescriptor;
   constructor(private readonly graphics: GraphicsContext) {
     const device = graphics.device;
+    this.samplingPublication = new VsmSamplingPublicationPass(device);
     this.constants = device.createBuffer({
       label: "VSM/atlas constants",
       size: CONSTANT_BYTES,
@@ -138,6 +142,7 @@ export class VsmAtlasRasterPass {
     readonly pageTable: ResourceId;
     readonly metaTable: ResourceId;
     readonly contentVersion: ResourceId;
+    readonly samplingDescriptors: ResourceId;
   } {
     if (!input.resources.atlasDepth || !input.resources.casterRecords)
       throw new Error("VSM raster resources are absent");
@@ -348,7 +353,15 @@ export class VsmAtlasRasterPass {
     publishContent.read(rasteredAtlas);
     publishContent.dependsOn(commit);
     const contentVersion = publishContent.write(dirtyContent);
+    const samplingDescriptors = this.samplingPublication.addToGraph(graph, {
+      pages: input.resources.capabilities.virtualPagesPerAxis,
+      levels: input.resources.capabilities.clipLevels,
+      constants: input.samplingConstants,
+      pageTable: publishedPageTable,
+      contentVersion,
+    });
     return {
+      samplingDescriptors,
       atlasDepth: rasteredAtlas,
       pageTable: publishedPageTable,
       metaTable: publishedMetaTable,
@@ -356,6 +369,7 @@ export class VsmAtlasRasterPass {
     };
   }
   destroy(): void {
+    this.samplingPublication.destroy();
     this.nativePasses.forEach((pass) => pass.destroy());
     this.nativePasses.clear();
     this.constants.destroy();
