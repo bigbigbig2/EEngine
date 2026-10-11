@@ -84,6 +84,23 @@ export const oracles = Object.freeze([
     timeoutMs: 120000,
   }),
   Object.freeze({
+    name: "final-pixel-temporal-pull",
+    file: "OEngine/tests/oracle/final-pixel-temporal-pull-gpu.mjs",
+    url: "/OEngine/tests/oracle/final-pixel-temporal-pull-gpu.mjs",
+    entry: "runFinalPixelTemporalPullGpuOracle",
+    requiredFeatures: ["texture-formats-tier1"],
+    timeoutMs: 300000,
+    description: "Isolated complete V5 pull candidate versus production 015548 and independent 8x8 goldens; no production selector.",
+  }),
+  Object.freeze({
+    name: "final-pixel-temporal-pull-semantics",
+    file: "OEngine/tests/oracle/final-pixel-temporal-pull-semantics-gpu.mjs",
+    url: "/OEngine/tests/oracle/final-pixel-temporal-pull-semantics-gpu.mjs",
+    entry: "runFinalPixelTemporalPullSemanticsGpuOracle",
+    timeoutMs: 120000,
+    description: "Actual V5 moment interpolation and cached pull graph: previous-view z, abort, queue-ordered roles and last-use retirement.",
+  }),
+  Object.freeze({
     name: "native-temporal-v2",
     file: "OEngine/tests/oracle/native-temporal-v2-gpu.mjs",
     url: "/OEngine/tests/oracle/native-temporal-v2-gpu.mjs",

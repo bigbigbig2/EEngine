@@ -22,6 +22,12 @@ verifies:
     - OEngine/tests/oracle/final-pixel-shadow-quality-gpu.mjs
     - OEngine/tests/contract/final-pixel-shadow-cutover.test.mjs
     - OEngine/src/shaders/native_temporal.ts
+    - OEngine/src/shaders/native_temporal_v2.ts
+    - OEngine/src/render/temporal/NativeTemporalV2.ts
+    - OEngine/tests/contract/native-temporal-pull.test.mjs
+    - OEngine/tests/oracle/final-pixel-temporal-pull-gpu.mjs
+    - OEngine/tests/oracle/final-pixel-temporal-pull-semantics-gpu.mjs
+    - OEngine/tests/oracle/reference/phase4
     - OEngine/src/shaders/vsm_sampling.ts
     - OEngine/src/gpu/GpuNativeMaterialPublication.ts
     - OEngine/src/gpu/GpuNativeMaterialScene.ts
@@ -43,7 +49,7 @@ verifies:
 
 # EEngine V5 Final Pixel Execution Authority
 
-唯一目标是[V5 Design](../next-design/eengine-v5-final-pixel-performance-2026-10.md)。本文件管理迁移单元、合同、验证、cutover与退休；候选实验进入`docs/performance/`，不追加到目标设计。source baseline `49fcaa300fafcbbe3db142df403baa3487f89956`；authority先提交为 `e2ebed8`，Phase1非生产完整闭包提交为 `9f305c4`。本次用户授权审核当前Phase、必要返工并执行下一完整Phase。Phase2结构、数值、接线与生命周期无需进一步返工；未资格融合成本按原§5.1在Phase5/6联合收口。本轮执行Phase3生产Native Temporal Seed cutover，出口与限制见§6.1。编译、prototype或组件数值通过不能称整Renderer性能/动态画质验收。
+唯一目标是[V5 Design](../next-design/eengine-v5-final-pixel-performance-2026-10.md)。本文件管理迁移单元、合同、验证、cutover与退休；候选实验进入`docs/performance/`，不追加到目标设计。source baseline `49fcaa300fafcbbe3db142df403baa3487f89956`；authority先提交为 `e2ebed8`，Phase1非生产完整闭包提交为 `9f305c4`。本次用户授权审核当前Phase、必要返工并执行下一完整Phase。Phase2/3已完成的结构、数值、接线与生命周期未发现新返工依据；未资格融合及Seed成本按§5.1/§6.1在Phase5/6联合收口。从HEAD `015548a7d5707975701a844c3b06df3ba8a28303`开始Phase4隔离V2候选；当前质量未通过、尚未production cutover，见§7.1。编译、prototype或组件数值通过不能称整Renderer性能/动态画质验收。
 
 ## 1. Phase 顺序、依赖与状态
 
@@ -53,7 +59,7 @@ verifies:
 | 1 | Final Pixel publication / Native Seed非生产完整闭包，替代重复恢复链，合法binding与唯一写域 | 非生产闭包完成；§4.2绑定修正已验证，§4.3记录出口及未获生产资格项 |
 | 2 | Shadow Physical Execution cutover：full I Shadow Resolve / mask / 重复continuation退休 | 1；结构/数值/接线/生命周期闭包完成；候选净性能未资格，联合成本收口在5/6，见§5.1 |
 | 3 | Temporal Seed cutover：Native→全部Temporal consumers；Facts恢复pass / 旧Aux退休 | 1、2；结构/必要数值/接线/生命周期/输入子质量闭包完成；净性能未资格，联合成本在5/6收口，见§6.1 |
-| 4 | Native Temporal V2完整图：native scatter / Prepare / SPD / source histories退休 | 3；未开始 |
+| 4 | Native Temporal V2完整图：native scatter / Prepare / SPD / source histories退休 | 3；隔离候选返工中，质量未通过；生产旧图尚未退休，见§7.1 |
 | 5 | Final Pixel全feature/domain集成、最后旧owner与多余常驻/生命周期税退休 | 2–4；未开始 |
 | 6 | 集中quality / production ABBA / P50/P95/P99 / 4GB simultaneous peak验收 | 5；未开始 |
 | 7 | 只有剩余gap需要：Receiver Demand V2，删除pixel projection扫描 | 6诊断；deferred，不自动实施 |
@@ -229,6 +235,14 @@ Cost gate：实际compilednativegraph没有reconstructedbuffer/clear/atomic/SPD�
 
 出口：architecture review→fresh build:test→独立golden+当前HEAD reference完整1080p质量→实际ordinary/Product/motion/policy/cut/resize/abort/epoch/3inflight/release→一次完整PhaseDungeonABBA。unit完成不等于16.67验收；旧productionnative图立即退休，无fallback。单candidate失败不会否定V2。
 
+### 7.1 Phase4当前实施边界
+
+2026-10-12重新审查：Phase3现有producer→Seed→native/upscale consumers与提交事务没有新的结构性返工证据。Phase4不可推迟到Phase5：它负责删除native scatter/SPD/source histories，且自己的质量与生命周期是原子cutover的前置；局部质量失败只要求本Phase换实现候选，不恢复scatter、不改变Analyze→Resolve→当前sharpen目标。
+
+`NativeTemporalV2`与`native_temporal_v2`目前只由oracle消费，production没有import或selector。完整候选为Analyze（最小effect-private analysis、raw current depth、1/P锐化曝光）→Resolve（color/state当前角色）→既有RCAS读取写后color版本；已删除候选原有独立1×1曝光dispatch。candidate/active/retiring、显式late binder、尺寸/role预检、提交/中止/reset/resize/fence/device-loss owner已实现；Node检查与真实cached graph/previous-depth语义检查的覆盖范围及限制只读[Phase4候选报告](../performance/2026-10-12-final-pixel-phase4-pull-candidates.md)。这些不等于Renderer整组policy或真实Native writer闭包已经完成。
+
+C59收口的typecheck/fresh build:test、7项Node与独立GPU moments/pixel integral/pixel-domain history/cached-depth-pull语义均通过，但small完整质量矩阵仍有10条硬门失败，生产仍为Seed classifier→source Prepare/scatter/clear/SPDs→旧native T3→RCAS；旧native生产结构和资源未退休。纠正了1080p jittered HDR fixture错误的单点golden，保留原失败，改用独立8×8积分且增加无空间信号的uniform大坐标数值case；质量门未放宽。完整1080p×256动态矩阵、真实Native Seed→V2、policy/AA-off/debug/bypass事务、原子cutover及完整Phase成本窗口均未完成。不能进入Phase5、宣称Phase4完成或称architecture被证伪。
+
 ## 8. Phase 5 — Integration / final retirement
 
 目标：所有feature/domain只执行所需工作，清最后常驻/role税；若前Phase已经完全删除，不为凑Phase制造helper，以全集成闭包关闭。
@@ -273,4 +287,4 @@ docs运行`node tools/docs-verify.mjs`与`git diff --check`；raw/source/build/�
 
 ## 12. 本次交付边界
 
-Phase2不需要推迟或重做架构；其未资格成本必须在Phase5/6联合收口，不能以局部候选失败阻挡独立重复工作删除。本轮执行Phase3：Native Seed接管生产及全部直接consumer，旧Facts/Aux/separate versions退休；cached graph角色捕获与质量fixture的旧clip producer接线已返工。Phase3必需出口与成本只读§6.1和performance报告；停止在Phase4边界，不自动跨入Native Temporal V2，也不宣称稳定60FPS或整图性能已资格。
+Phase2/3不需要推迟或重做架构；其未资格成本必须在Phase5/6联合收口，不能以局部候选失败阻挡独立重复工作删除。本轮进入Phase4并返工隔离V2候选；质量失败保留在performance报告，实际边界只读§7.1。Phase4尚未闭合，不跳Phase5；继续完成本Phase的detector/filter、真实producer与全部consumer/事务、必需质量和成本检查，再原子退休native旧图。不得把尚未执行的cutover、完整矩阵或benchmark记为完成。

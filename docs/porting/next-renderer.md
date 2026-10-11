@@ -23,6 +23,10 @@ verifies:
     - OEngine/src/render/temporal/NativeTemporalSeed.ts
     - OEngine/src/render/temporal/NativeTemporalPasses.ts
     - OEngine/src/shaders/native_temporal.ts
+    - OEngine/src/shaders/native_temporal_v2.ts
+    - OEngine/src/render/temporal/NativeTemporalV2.ts
+    - OEngine/tests/oracle/final-pixel-temporal-pull-gpu.mjs
+    - OEngine/tests/oracle/final-pixel-temporal-pull-semantics-gpu.mjs
     - OEngine/src/render/passes/fsr3/Fsr3UpscalerRuntime.ts
     - OEngine/src/shaders/native_execution_bins.ts
     - OEngine/src/shaders/native_material_products.ts
@@ -1563,3 +1567,11 @@ VSM atlas/residency、receiver aggregation、compact descriptor、local invalida
 ## V5 Phase3 Native Temporal Seed 物理切换（2026-10-12）
 
 Local：c71c6d31生产Facts的jittered motion、四字段identity/signature、hard/soft replacement及MASK边界语义，迁到`native_temporal_seed.ts`与`NativeTemporalMath.ts`；directory32B直接承载publication版本，raster16B保持。Adapt：Native已有position/instance/material时写最小Seed，Temporal-owned identity提交事务与轻量跨像素classification；删Facts/Aux/separate versions。未移植新外部算法，T3/FSR来源状态不变。test-only `reference/s3/native_surface_aux.mjs`冻结旧Facts源码；1080p子矩阵另用独立解析平面/相机motion核对数值放大，不将它冒称8×8积分AA golden或整Renderer质量。
+
+## V5 Phase4 previous-depth pull 非生产候选（2026-10-12）
+
+Reference：AMD MIT `c6efa6bf7f2027b3ec94f28578bb5965eabb9e55`完整`ffx_fsr3upscaler_prepare_inputs.h::PrepareInputs`、`ffx_fsr3upscaler_reproject.h`及`ffx_fsr3upscaler_accumulate.h::Accumulate`，连同HEAD `015548a7`真实T3图作为quality reference。Wicked MIT `7f776d02094571dd2c8166c7e5879d5e93d2b642`完整`temporalaaCS.hlsl::main`仅参考halo/pull物理结构；未复制其框架、简单current/previous-depth阈值或half/Gather实现。
+
+Adapt：`native_temporal_v2.ts::history_at/lanczos`手动point形式的16-point fractional history支持、center-range clamp与Gaussian统计数学，保留AMD MIT notice；不宣称完整FSR算法移植或Source Parity。Local：Native Seed的expected previous-view z与raw depth pull、完整identity比较、coverage/多尺度response、先插值within-pixel variance、scene-linear moments、解析三点二次像素积分，以及`NativeTemporalV2`单提交/abort/retirement事务。像素积分由反导数独立验证，不伪称AMD/Wicked函数。
+
+HEAD runtime/Native passes/shader冻结为test-only `tests/oracle/reference/phase4/`；shared FSR helpers/RCAS/constants仍取未改动test build，改变它们时必须保持Before冻结边界。候选仅oracle引用，无production selector。moments/pixel integral/深度pull/cached graph的GPU语义通过范围与失败fixture、尚未通过的small质量、缺失的真实Native→V2及1080p动态/成本出口见[Phase4候选报告](../performance/2026-10-12-final-pixel-phase4-pull-candidates.md)。没有production adoption、完整Runtime Validated或performance晋级。
