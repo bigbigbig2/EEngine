@@ -24,6 +24,10 @@ verifies:
     - OEngine/src/render/environment
     - OEngine/src/gpu/GpuAuthoredEnvironment.ts
     - OEngine/src/render/vsm
+    - OEngine/tests/oracle/fixtures/vsm-shadow-resolve-v2.mjs
+    - OEngine/tests/oracle/fixtures/vsm-shadow-resolve-v2-wgsl.mjs
+    - OEngine/tests/oracle/fixtures/vsm-shadow-visibility-v2-wgsl.mjs
+    - OEngine/tests/oracle/vsm-shadow-resolve-gpu.mjs
     - OEngine/src/render/surface/SurfaceV4.ts
     - OEngine/src/render/program
     - OEngine/src/render/pipeline/RendererCore.ts
@@ -111,6 +115,41 @@ CPU交互/Geometry canonical decode/数字 operation map 和receiver聚合已经
 【实测事实】必须修正“raster近乎零所以无需关注”的概括：已有 `after-repeat/full-1.json` 60个样本中37个 raster>5ms，P50≈17.787ms，frame220约17.832ms、224约17.038ms，末段才降到≈0.01–0.015ms。full-2/full-3没有同类突发。额外 invalidate/depth-bounds dispatch与高值同现，仅是关联；终点dirty=0不能证明整窗没有工作。下一轮要记录逐帧invalidation reason、dirty、pairs、commit拒绝、source revision，保留突发和transition。
 
 ## 3. VSM Sampling / Projection V2：主攻架构单元
+
+### 3.0 Shadow Projection 独立产品（2026-10-11 新授权）
+
+**实施判定：候选已完整构建、曾临时切入真实 Renderer 并测量，未通过净性能门，拒绝生产采纳。当前源码仍为 Q-exact descriptor→Native embedded PCF，不称“已经剥离”。** 下述是本次候选合同/Cost Card；可复现 shader/owner 只留在 `tests/oracle/fixtures/vsm-shadow-*-v2*.mjs`，无生产 import 或运行时 A/B 开关。详细结果与拒绝见执行§3.7。用户的生产剥离目标尚未达成，不能以候选通过 numeric 代替性能验收。
+
+用户新任务覆盖原 S 的「先完成材质再 resolve」限制：从 Visibility winner 精确重建世界位置与几何插值法线，VSM post-commit descriptors/atlas → 独立 8×8 Resolve → Directional Shadow Visibility → Native Sun。不是 GBuffer，没有 material graph、tangent、UV 或历史。BRDF/coat 继续使用材质法线；**shadow bias 有意改为几何插值法线**，双面朝向/退化 fallback 与 Native 相同。必须独立检查 normal-map 极端斜面 acne/peter-panning，不能称与旧 mapped-normal bias 逐 bit 相同。
+
+第一版保留 clip、fine/coarse fallback、reverse-Z、gutter、4×4 PCF 和 radius。采用 core `r32uint` 四个水平像素/texel：每 byte 的低 5 bit 保存可见 tap 数，高 2 bit 保存 `tapsPerAxis-1`，消费为 `count/taps²`。物理宽度 `ceil(internalWidth/4)`，逻辑域仍是 internal-full。默认 4×4 的 k/16 **无量化误差**；1/2/3 taps 同样保留原计数/除法。R8Unorm 的 k/16 不能精确表示且 storage capability 不应凭格式名假设；本版不引入该混杂变量。debug 在同一产品编码类别，16B mode uniform 决定 palette，关闭诊断时不建额外 full-screen 产品。
+
+共享范围只覆盖 fine descriptor：每 tile 的 lane 0 发布完整 `(selected clip, worldPageX, worldPageY)` 和 descriptor。其它 lane 完整 key 相等才复用，异 key/无效 leader 直接 lookup；fine 失败则每 lane 沿原坐标 coarse fallback。**不共享最终 coarse result**，同 fine page 不保证浮点计算后的 coarse window/page 相同。无 hash、atomics、容量溢出或跨帧 cache；边界/背景 lane 仍到达 barrier。若当前 query entropy 或成本不支持，拒绝该候选而不是增加第二套生产 renderer。
+
+来源：WickedEngine MIT `7f776d02094571dd2c8166c7e5879d5e93d2b642` 的 `screenspaceshadowCS.hlsl` → `wiRenderer.cpp::Postprocess_ScreenSpaceShadow` → `lightingHF.hlsli` shadow-mask consumer，作为产品分离的架构参考。其 half-resolution、upsample、多光源打包、WaveActiveBitOr/RT API 不适合本任务，不移植；本地 precise geometry、descriptor broadcast、PCF 与 byte packing 为自主实现。该来源不证明 GTX/WebGPU 净收益。
+
+实施前 Cost Card：
+
+| 项目 | Before → After |
+|---|---|
+| Native 工作 | 每 receiver query/fallback/bias、16 depth taps、对应 live values → 一个 mask uint load、byte unpack、count/taps²；Sun irradiance/BRDF 不变 |
+| Resolve 工作 | 新增 winner decode、3-corner position/normal + perspective interpolation、world→light、同样 query/bias/16 depth taps；几何读取/ALU是重复成本，不隐藏 |
+| Descriptor 逻辑读取 | full fine tile 最好 64×16B → 16B；异 key 最坏仍64×16B；coarse不承诺减少；GPU cache 实际DRAM收益未知 |
+| 产品 / 带宽 | 1080p 单产品2,073,600B（1.98MiB），每帧写同量、Native最坏每 pixel 4B load（7.91MiB逻辑，邻域cache未知）；无RGBA16F/法线附件 |
+| 同步/调度 | +1 compute pass/dispatch，+2 workgroup barriers（广播/packing），约288B shared；0 atomics、0 history、0新frame submit |
+| CPU / 常驻 | 新增两种几何 capability PSO按需缓存、144B settings+16B debug mode；bind-group资源缓存；FG瞬态跟随现有在途池，resize/abort不swap history |
+| 最好 / 通常 / 最坏 | uniform fine tile减少63个descriptor lookup，Native分离减少live state；通常需真实测量；最坏高entropy仍付全query+重复重建+屏幕写读/同步税，可能变慢 |
+| break-even | `embedded Native time - mask Native time > Resolve time +新增其它GPU税`，必须比较同帧Total P50/P95；寄存器/occupancy收益未实测不可预承诺 |
+
+质量门在 After 前固定：query/status/slot/fallback 与旧采样 oracle 完全相同（同 geometry normal）；tap count/PCF visibility 和 mask roundtrip exact；旧 mapped-normal bias 差异另列 intentional semantic delta。HDR/material/LOD/motion/preExposure不得改；固定近景覆盖≥80%、相机/分辨率/功能不改。测试 fine/coarse、negative depth、gutter、clip/page边界、无receiver、partial tile、完整 generation/epoch、dirty/stale/missing、resize/abort/retry/loss/释放。真实整帧A/B保留失败/outliers和热频，不能以 Native 桶下降证明净改善。
+
+S2 同单元重建税修订（实施前，2026-10-11）：实际 K 产品记录完整 visibility key，不拿 page coherence 代替 geometry coherence。2,073,600 receivers 中 1,680,257（81.03%）与 tile leader 的完整 winner key 相同，32,400 tile 中共 57,526 unique keys。首版 fine broadcast 的 Native+Resolve 差分未证明净收益；允许只在同一 Resolve 内广播 leader 的精确三角形 corners，不改 Geometry owner/产品/PCF。每 lane 仍验证完整 queue/instance generation、receives/bin/primitive；同 key 才复用 position/normal/coefficients/world-plane/flags，异 key 自己重建。不共享像素插值、bias、最终 PCF，也不建跨帧 cache。
+
+该局部修订 Cost Card：新增176B workgroup triangle、一次 workgroup barrier和完整 key 比较；总 shared464B、3 barriers、无atomics/新pass/新产品/history。新增 leader→shared stores及匹配lane的shared loads；删除匹配非leader的3-corner geometry读取、object→world/normal transform、winner coefficients及world plane重建。默认非virtual属性读取逻辑至少3×(position12B+normal16B)，仍保留每lane winner/instance校验和插值，实际cache/DRAM省量未知。0%匹配时全重建加同步税；50%/100%时最多减少31/63次重建每64-lane tile；当前81.03%含leader，对应可删除约79.47%的lane重建而不是整个Resolve时间。best同triangle tile，expected依driver/shared live range未知，worst高entropy及低occupancy更慢。break-even是重复重建省时超过shared/barrier/register税；Resolve当前约3.5ms仅给局部收益上界，不能预报净收益。
+
+静态 A/B 额外固定 geometry settled：pending/inflight/verified/retiring为0，resident/upload/evict/reload签名持续3秒且≥60 submitted frames不变。fullQuality不等于geometry settled。full profiler的120-sampled-frame预算在settled后重新开始，严格验证240-frame窗口60个full samples；早期混合full/coarse窗口保留为测量失败，不能选择性当稳态Before/After。
+
+上述 triangle broadcast 数值通过但成本不支持采用，已从候选移除：该轮 Resolve P50 4.706ms、Native+Resolve同帧P50 10.019ms，新增shared/barrier/liveness未因81.03%匹配而自动赚钱；热频未配对，不能宣称精确退步百分比。最终候选只有 fine descriptor broadcast，288B shared/2 barriers，16点PCF保留。两轮 settled 整帧 A/B 同样未证明净收益，生产恢复唯一原路径。后续若重新立项，必须首先说明可以实际删除哪一类主工作，而非仅把成本搬桶；此处不授权更换PCF、history、resolution或Temporal。
 
 ### 3.1 先明确可分离的数学
 

@@ -644,7 +644,7 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
       const directOriginal = Float32Array.from(meshes[0].transform_global.matrix);
       const moved = directOriginal.slice();
       moved[12] += 0.02;
-      const patch = ShadeGPUCommandContext.create(renderer.graphics, "oracle/direct instance patch");
+      const patch = ShadeGPUCommandContext.create(renderer.graphics, "GraphicsContext/one-shot-maintenance");
       renderer.patchInstances(
         runtime.instanceHandle,
         {
@@ -676,7 +676,7 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
         "direct patch did not update VSM caster snapshot"
       );
       copy.unmap();
-      const restore = ShadeGPUCommandContext.create(renderer.graphics, "oracle/direct patch restore");
+      const restore = ShadeGPUCommandContext.create(renderer.graphics, "GraphicsContext/one-shot-maintenance");
       renderer.patchInstances(
         runtime.instanceHandle,
         {

@@ -24,6 +24,7 @@ const demo = "examples/demos/14-integrated/dungeon-warkarma-texture-compression"
 const out = resolve(root, option("out", ".local/validation/dungeon-performance-2026-10-10"));
 const frames = Number(option("frames", "240"));
 const nativeCostSlice = option("native-slice", null);
+const geometrySettled = args.includes("--geometry-settled");
 const vsmDemandDiagnostics = args.includes("--vsm-demand-diagnostics");
 const gpuSampleInterval = Number(option("gpu-sample-interval", "4"));
 const movementAudit = args.includes("--movement-audit");
@@ -412,6 +413,7 @@ try {
   };
   if (report.load.report.failure) throw new Error(JSON.stringify(report.load.report.failure));
   report.options.nativeCostSlice = nativeCostSlice;
+  report.options.geometrySettled = geometrySettled;
   report.options.vsmDemandDiagnostics = vsmDemandDiagnostics;
   report.options.gpuSampleInterval = gpuSampleInterval;
   if (nativeCostSlice !== null && !report.load.gpuAudit?.nativeCostSlices?.includes(nativeCostSlice)) {
@@ -558,6 +560,39 @@ try {
       startFrame,
       { polling: 1000, timeout: 120000 }
     );
+    if (geometrySettled && name !== "motion") {
+      // Measurement gate only. fullQuality is texture quality, not the end of
+      // geometry IO/publication. Do not include source-damage/raster catch-up in
+      // a claimed steady-state A/B or change GPU work to make it settle.
+      await run.page.evaluate(() => { window.__geometrySettledProbe = null; });
+      await run.page.waitForFunction(() => {
+        const report = window.dungeonDemo.report();
+        if (report.failure) throw new Error(report.failure);
+        const scheduler = report.streaming?.scheduler;
+        const pages = report.geometryPages;
+        if (!scheduler || !pages) throw new Error("Geometry settled facts unavailable");
+        if (scheduler.lastError || scheduler.failed || pages.failed) throw new Error("Geometry settled gate saw a streaming failure");
+        const signature = `${pages.resident}:${pages.uploadedBytes}:${pages.evicted}:${pages.reloads}`;
+        if (scheduler.pending || scheduler.inFlightBytes || scheduler.verifiedBytes || pages.retiring) {
+          window.__geometrySettledProbe = null;
+          return false;
+        }
+        const previous = window.__geometrySettledProbe;
+        if (!previous || previous.signature !== signature) {
+          window.__geometrySettledProbe = { signature, at: performance.now(), frame: report.renderState.frame };
+          return false;
+        }
+        return performance.now() - previous.at >= 3000 && report.renderState.frame - previous.frame >= 60;
+      }, undefined, { polling: 500, timeout: 180000 });
+    }
+    // Full mode has a bounded 120-sampled-frame capture budget. Settling can
+    // consume it before the measurement starts. Rearm the same mode here;
+    // never combine the automatic coarse tail with full-pass timing.
+    if (geometrySettled) {
+      await run.page.evaluate(([mode, counters, interval]) =>
+        window.dungeonPerformance.configure(mode, mode === "full", counters, interval),
+      [mode, name === "counters", gpuSampleInterval]);
+    }
     const start = Date.now(),
       before = await metrics(),
       pageStart = await run.page.evaluate(() => performance.now());
@@ -662,7 +697,7 @@ try {
         throw new Error(`Fixed camera changed during ${name}; raw capture saved`);
       }
     }
-    if (nativeCostSlice !== null && mode === "full") {
+    if (mode === "full") {
       const windowFrames = capture.raw.frames.filter(
         (frame) => frame.frameIndex >= capture.targetStart && frame.frameIndex < capture.targetEnd
       );
@@ -674,7 +709,7 @@ try {
           frame.gpu.segments.some((segment) => segment.label.includes("native winner shading"))
       ).length;
       if (windowFrames.length !== frames || !expected || complete !== expected) {
-        throw new Error(`Native slice ${nativeCostSlice} incomplete full timing window: ` +
+        throw new Error(`Full timing window (${nativeCostSlice ?? "production"}) incomplete: ` +
           `${complete}/${expected} GPU samples, ${windowFrames.length}/${frames} frames; raw capture saved`);
       }
     }

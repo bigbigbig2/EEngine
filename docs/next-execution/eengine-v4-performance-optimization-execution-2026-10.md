@@ -32,10 +32,19 @@ verifies:
 
 ## 1. 状态、实施入口与停止边界
 
+2026-10-11 用户改为启动 **Shadow Projection 独立产品单元 S2**，Temporal T3 非生产探索已暂停并保留在 `.local`，未切生产。本次范围/Cost Card/质量门见设计§3.0，优先于旧 S-after-material 候选约束。S2 实验已关闭为 rejected：真实接线/numeric/lifecycle通过，净性能未证明，生产恢复原 Q-exact。**生产剥离目标未完成**，不把这个拒绝出口或旧 P1 状态改名为成功实现。
+
+Previous Gate：HEAD `9ca9ae1f`，原工作树仅 `.vscode/`。fresh build:test 后 Geometry canonical replay/Orbit/publication CPU 9/9；Temporal/Facts/Fabric 15/15。真实 GPU publication passed、receiver aggregation passed、P5 local invalidation 5184 assertions passed。403 为 oracle host 静态资源 console 记录，原件保留，GPU结果不吞错误。未发现需要独立 closure 的前阶段生产遗漏。
+
+当前 HEAD K stats（仅诊断，不能计时）：2,073,600 receivers /32,400 tiles，sum fine keys=38,954，sum resolved keys=38,954，26,705 tiles 单 key，全部 status=FINE；98.1214% fine-key重复。selected clip每tile一个。第一次 physical-slot 统计的 status enum 判断错误，输出0不是没有atlas工作；已修为 FINE=0/COARSE=1，补采见下，不把旧0当事实。fallback/运动仍由独立oracle覆盖，不能用这个静态snapshot证明。
+
+候选 K 重采已保存：sum fine/resolved/physical-slot keys均38,942，selected clips32,400，26,709 tiles单key，global pages326，duplicate98.1220%；每tile实际winner keys共57,526，leader匹配1,680,257/2,073,600=81.0309%。此候选3-plane diagnostic不是现生产2-plane K；未接线的winner统计返回null，不把它记为0。coarse/运动entropy未以此静态全FINE snapshot证明。
+
 | 单元 | 状态 | 完整出口 |
 |---|---|---|
 | P0 源码、已有证据与设计 | complete（文档出口） | `f495f04b`源码/报告、成本边界、来源与失败分析；不等于新代码gate通过 |
 | P1 VSM Sampling/Projection V2 | complete（Q-exact局部出口，热状态限制见§3.6） | post-commit compact publication→Native/debug/continuation唯一consumer；numeric通过，局部净P50改善，全帧/P95不承诺 |
+| S2 独立 Shadow Projection（本次新授权） | rejected（实验关闭；生产剥离未完成） | packed exact visibility、fine broadcast、真实完整接线/正确性已实验；两轮Total未支持收益，恢复唯一Q-exact生产，见§3.7 |
 | P2 Native Temporal V2 | in-progress（T1 complete；T2 rejected；T3 deferred） | T1/T2结果见§4.2/4.4；新算法尚未实施，整体未完成 |
 | P3 IBL hardware-friendly publication | complete（exact radiance addressing + filtered DFG） | hardware radiance候选精度失败，改为原四点权重/有界寻址；完整生产接线、原支持域、numeric/lifecycle与限定成本见§5.3 |
 | P4 4GB资源预算与容量策略 | complete（Dungeon显式容量单元） | 全显式API审计/同时峰值、512MiB默认、当前payload/碎片、运动与释放验证见§6.1；全局预算强制/growable/variable-page未实施 |
@@ -142,6 +151,31 @@ oracle覆盖：fine/coarse/outside/missing/stale/dirty、fullslot/generation/pro
 【正确性与失败分类】fresh `build:test`、typecheck、引擎build、Dungeon诊断build通过；受影响41个CPU contract/unit/oracle通过，包含容量拒绝、post-commit依赖、K两层清域、resize abort/fence及device loss。真实GPU `vsm-sampling-publication`四组各18,508查询共74,032次，冻结原WGSL的状态/fallback/有效slot/mip/4×4 visibility逐位一致，覆盖完整高u32身份、signed f32 nextafter/subnormal、非2幂extent、滚动window、missing/dirty/stale/poison、gutter/零深度/负reference；R2/R3、Native integration与真实Renderer geometry-shadow-view通过。后者含off-camera caster、alpha、receiver/caster运动、HDR、故障abort/retry。Native integration初次失败是fixture仍把48B管理表绑定到新16Bconsumer，迁移fixture producer并修coarse plane容量后重跑通过，未放宽PBR容差（max error约.000256）。K初次缺binding15 profile校验、device-loss测试fixture错误均已分类修正，原失败保存；不冒充最初通过。默认场景Before/After截图人工检查无明显变化，numeric优先；未完成VSM R4全模块质量、全设备controlled loss重建、跨驱动f32全域证明、逐帧invalidation reason/caster-pair因果、锁频ABBA。P1不代替这些验收。
 
 【来源与停止】重新核对Blender固定revision的`tilemap_finalize_main`，只参考management→sampling publication的架构；Q-exact为本地原创WGSL，无GPL代码复制或移植/adoption声明，具体映射见porting。完成一次唯一生产切换后停止；P2/IBL/allocator/loader未实施，新高级effect仍延期。
+
+### 3.7 S2出口：独立 Projection 完整实验，未采纳生产
+
+【源码事实】开始时与本次最终源码中 Physical Sun 仍使用 mapped shading normal 的 embedded query/PCF；普通 authored directional 的 `hasShadow` 在 LightDatabase producer 已拒绝，不能把其不可达分支当作第二个合法阴影namespace。本次曾完整切入临时生产源码：Visibility winner +精确3-corner position/normal→post-commit descriptors/atlas→8×8 Resolve→packed visibility→Native Sun；FrameGraph依赖、neutral/off、full写域、settings/gen/mode copies、pool/resize/abort/retry、device loss/释放一起闭合。最终因性能门未过，已恢复当前HEAD原生产owner/bindings/数学，不保留runtime双路径或测试专用fallback。全部候选源与cutover diff保存在 `.local/shadow-v2-prototype/`；精确Resolve/packing复现只留test-only fixtures，不能称新production consumer。
+
+质量/成本在After前冻结于设计§3.0。4×4/原radius/gutter/fine-coarse/reverse-Z保持，唯一有意候选质量语义为geometry-interpolated shadow bias；BRDF仍mapped normal，不把两种bias逐bit等同。mask用core r32uint四横像素/texel，低5bit count、高2bit taps-axis−1，默认k/16精确；+1.98MiB单产品、一个pass/dispatch、288B shared/2 barriers、144+16B owner buffers，0 history/atomics/独立submit。Native删除embedded sampling后仍新增Resolve重建及mask读写。fine leader broadcast可删除重复descriptor reads，**未删除16PCF depth taps**；硬件cache/寄存器计数并未直接观测。
+
+【实测事实】Previous Gate见§1。临时生产fresh build:test/typecheck；相关CPU contract/replay 30/30、diagnostic contracts 12/12。GPU exact product 600,168断言，128×64/97×43/9×7/1×1、1..4 tap axes、background/tail/no-receive/unlit/transparent/高位stale generation/invalid depth、poison full write、abort/retry和destroy拒绝；analytic +Z/grazing Sun/nonzero bias与原per-pixel sampler解码逐bit一致。完整query oracle 18,508 points×4modes×两对照，六种状态、f32 clip/window/gutter/负reference与原 frozen query/PCF一致。候选真实 `native-surface-perspective`、ordinary Renderer、Product Renderer/recovery、off-camera caster/MASK/shadow abort/retry通过，未放宽material/HDR/LOD/motion/exposure容差。测试标签 `oracle/direct instance patch/restore` 不属于已登记submit owner导致原Product oracle失败；改为已存在maintenance标签后通过，只改test不改生产submit seam。reserved WGSL `active`、旧test provider缺COPY_SRC、一次stale-build失败均保留，分别局部修正后重跑；403静态资源console记录不冒充GPU validation error。
+
+受控Dungeon max-throughput：GTX1650Ti4GB/581.42、1920×1080、DPR1/renderScale1、固定原近景、VSM high/6clips/4096/4×4/radius0.75、FSR ON、GTAO/Bloom OFF、原材质/Sun。旧生产来自独立worktree `9ca9ae1f`，仅复制相同测量runner；非新production A/B开关。静态几何settled后重新开启full capture，每轮严格240CPU frames/60完整full GPU samples。以下都是窗口自身分位，Native+Resolve先逐帧相加后取分位，**不加桶P50/P95，也不加CPU/GPU**。CPU frame仅profiler的同步render范围，不包括全部异步CPU/interaction/GC：
+
+| 窗口 | Total P50/P95 ms | Native P50/P95 | Resolve P50/P95 | 同帧Native+Resolve P50/P95 | Temporal+Facts P50/P95 | VSM management/raster P50/P95 | CPU frame P50/P95 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Embedded A1 | 21.862/67.235 | 8.860/19.068 | — | 8.860/19.068 | 6.760/25.269 | 1.401/2.823 | 2.575/5.230 |
+| Resolve B1 | 26.587/53.539 | 6.764/12.691 | 4.215/8.587 | 11.078/21.278 | 8.152/15.278 | 1.728/3.383 | 3.015/5.860 |
+| Embedded A2 | 22.248/103.940 | 8.939/45.308 | — | 8.939/45.308 | 6.868/41.571 | 1.431/3.815 | 2.360/3.940 |
+| Resolve B2 | 29.951/32.815 | 7.820/9.202 | 4.754/5.681 | 12.651/14.335 | 9.135/10.008 | 1.931/2.589 | 2.445/3.805 |
+
+A1/B1/A2/B2 sensor窗口均89–91°C附近且SW thermal Active；graphics MHz范围分别300–1170、735–1050、390–1035、300–720，采样中位825/780/945/705。不能用稀疏1秒sensor对逐帧normalize，不能以P95较低宣称收益，亦不能把精确退步百分比归因本方案。全部最大值135.808/140.374/133.168/134.230ms保留。**证据不足以通过净收益门**，不是已证明该架构在全部硬件/算法下必然更慢。早期非settled两轮Native+Resolve P50约9.053/9.361ms同样不能当纯稳态同热收益。额外triangle broadcast（464B shared/3 barriers）numeric通过而该轮Resolve4.706ms，未采用，不因为81.03%leader匹配就写收益。
+
+上述四轮model coverage90.664–90.703%、invalid0；resident1207/pinned381、pending/inflight/verified/retiring0、evict/reload/failure/overflow/malformed0、streaming error null。main/shadow反馈drop另留原counter，不混同packet overflow。API live旧1,358,822,565B→候选1,362,969,813B，+4,147,248B，与两在途mask容量一致量级；peak旧1,437,586,629/1,437,619,397→候选1,441,733,877/1,441,766,645B。均在既定envelope内、释放后API bytes0/unknown为空；**不是Windows专用显存/RAM或payload指标**。候选headed full→motion→no-vsm无console/GPU/streaming error，关闭VSM不再调Resolve且使用neutral mask；该功能关闭窗口只检查功能边界，不计同质量收益。截图保存，独立shadedPixels计数/完整动态VSM R4/normal-map极端斜面长期画质组未另完整验收，不伪称通过。
+
+原件：`.local/validation/shadow-v2-2026-10-11/{embedded-settled-1,resolve-published-1,embedded-settled-2,resolve-published-2}/`，每轮raw frames、sensors、fingerprint、API inventory、截图和errors保存。初版 `resolve-settled-1` 因settled等待消耗120采样预算，窗口32 full+28 coarse；归类测量失败，runner现重新configure并严格拒绝mixed window，原件不删。最终旧生产恢复后的fresh build:test/候选oracle复现与docs verify结果在提交正文说明，不再重跑整套baseline。
+
+【判断/待验证】本次主要把PCF成本搬到新桶，fine descriptor coherence不是PCF省采样证明，geometry重复/写读/同步税尚未被净抵消。用户以极致性能为优先，保留稳定生产路径；没有收到允许牺牲净性能只为切架构的不同偏好。后续需另冻结能真正删除主工作且通过画质门的方案，不能自动开history、hardware/少tap PCF、半分辨率或Temporal。本次止于明确拒绝，不把生产剥离或60FPS状态标complete。
 
 ## 4. P2：Native Temporal V2完整单元
 

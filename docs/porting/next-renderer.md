@@ -28,6 +28,10 @@ verifies:
     - OEngine/tests/oracle/sky-radiometry-gpu.mjs
     - OEngine/tests/oracle/native-material-gpu.mjs
     - OEngine/tests/oracle/native-surface-integration-gpu.mjs
+    - OEngine/tests/oracle/vsm-shadow-resolve-gpu.mjs
+    - OEngine/tests/oracle/fixtures/vsm-shadow-resolve-v2.mjs
+    - OEngine/tests/oracle/fixtures/vsm-shadow-resolve-v2-wgsl.mjs
+    - OEngine/tests/oracle/fixtures/vsm-shadow-visibility-v2-wgsl.mjs
     - OEngine/tests/oracle/native-surface-production-gpu.mjs
     - OEngine/src/gpu/VirtualGeometryResidency.ts
     - OEngine/src/gpu/GeometryPageDemandAbiV1.ts
@@ -1497,6 +1501,8 @@ Appearance 切片之后已接通独立六路 signal history：`SurfaceWorkRuntim
 来源只支撑上述责任和差异，不提供本地准入类别的实测收益。首个普通合法有收益类别、真实closure清单与集中生产证据未成立前，不提升采用状态；源码事实和当前缺口统一在执行文档§8。
 
 ## 性能模块研究映射（2026-10-11）
+
+S2 Shadow Projection 实验来源（未生产采纳）：实际读取 WickedEngine MIT pin `7f776d02094571dd2c8166c7e5879d5e93d2b642` 的 `screenspaceshadowCS.hlsl`、`wiRenderer.cpp::Postprocess_ScreenSpaceShadow` 和 `lightingHF.hlsli` mask consumer，只参考独立产品/lighting消费者的架构。其half-resolution、upsample、wave/RT假设不移植。原创精确receiver reconstruction、fine descriptor leader broadcast、原16点PCF、packed count mask与owner冻结于 `tests/oracle/fixtures/vsm-shadow-*-v2*.mjs`；候选曾临时接入完整Renderer并通过numeric/lifecycle，整帧A/B不支持采纳，现无production import。未移植donor算法，也不声明source adoption或性能收益；Cost Card、原失败/热状态与拒绝见[性能执行§3.7](../next-execution/eengine-v4-performance-optimization-execution-2026-10.md#37-s2出口独立-projection-完整实验未采纳生产)。
 
 对应[性能设计](../next-design/eengine-v4-performance-optimization-2026-10.md)与[执行计划](../next-execution/eengine-v4-performance-optimization-execution-2026-10.md)。本节为源码研究与拟议Local/Adapt映射，**不是新方案已移植、已采用或已有GPU收益的声明**。已有native DFG与receiver聚合的来源/验证继续由原实施记录负责；不把本节候选追认为已有adoption。
 

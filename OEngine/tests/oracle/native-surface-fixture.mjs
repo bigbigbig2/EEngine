@@ -68,7 +68,7 @@ export async function createNativeSurfaceFixture(
   };
   const storage = (data, label) =>
     makeBuffer(data, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC, label);
-  const uniform = (data, label) => makeBuffer(data, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST, label);
+  const uniform = (data, label) => makeBuffer(data, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC, label);
   const makeTexture = (width, height, format, usage, layers = 1, mipLevelCount = 1) => {
     const texture = device.createTexture({ size: [width, height, layers], format, usage, mipLevelCount });
     retained.push(texture);
@@ -435,6 +435,9 @@ export async function createNativeSurfaceFixture(
       background,
       exposure,
       lightingEntries,
+      // Provider exposure for the isolated rejected projection experiment.
+      // Existing Native bindings and fixture semantics remain unchanged.
+      vsm: { constants: vsmConstants, descriptors: samplingDescriptors, atlas },
       geometry: {
         meshletWork: work,
         arena: arena.buffer,

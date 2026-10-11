@@ -205,7 +205,8 @@ export function installDungeonGpuAudit() {
       if (!texture) throw new Error("Native query diagnostic product was not compiled");
       await device.queue.onSubmittedWorkDone();
       const pitch = Math.ceil((texture.width * 16) / 256) * 256;
-      const bytes = pitch * texture.height * 2;
+      const layers = texture.depthOrArrayLayers;
+      const bytes = pitch * texture.height * layers;
       const staging = device.createBuffer({
         size: bytes,
         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
@@ -226,7 +227,7 @@ export function installDungeonGpuAudit() {
         encoder.copyTextureToBuffer(
           { texture },
           { buffer: staging, bytesPerRow: pitch, rowsPerImage: texture.height },
-          [texture.width, texture.height, 2],
+          [texture.width, texture.height, layers],
         );
         encoder.copyBufferToBuffer(constants, 0, identityStaging, 0, 256);
         device.queue.submit([encoder.finish()]);
@@ -243,6 +244,7 @@ export function installDungeonGpuAudit() {
         identityStaging.unmap();
         const words = new Uint32Array(staging.getMappedRange());
         const groupHistogram = {},
+          queryEntropyHistogram = {},
           statuses = {},
           targetStatuses = {},
           globalFine = new Set(),
@@ -250,11 +252,21 @@ export function installDungeonGpuAudit() {
         let receivers = 0,
           sumUnique = 0,
           sumResolved = 0,
-          groups = 0;
+          groups = 0,
+          sumSelectedClips = 0,
+          sumPhysicalSlots = 0,
+          sumWinnerKeys = 0,
+          winnerLeaderMatches = 0;
         for (let gy = 0; gy < texture.height; gy += 8) {
           for (let gx = 0; gx < texture.width; gx += 8) {
             const fine = new Set(),
-              resolved = new Set();
+              resolved = new Set(),
+              selectedClips = new Set(),
+              physicalSlots = new Set(),
+              winnerKeys = new Set();
+            const winnerPlane = layers >= 3 ? (pitch * texture.height * 2) / 4 : null;
+            const leaderIndex = (gy * pitch) / 4 + gx * 4;
+            const leaderKey = winnerPlane === null ? null : words[winnerPlane + leaderIndex];
             let active = 0;
             for (let y = gy; y < Math.min(gy + 8, texture.height); y++) {
               for (let x = gx; x < Math.min(gx + 8, texture.width); x++) {
@@ -270,6 +282,15 @@ export function installDungeonGpuAudit() {
                 const result = `${status}:${target}:${level}:${mip}:${words[r] | 0}:${words[r + 1] | 0}:${words[r + 2]}:${words[r + 3]}`;
                 fine.add(key);
                 resolved.add(result);
+                selectedClips.add(words[i]);
+                if (winnerPlane !== null) {
+                  const winner = words[winnerPlane + i];
+                  winnerKeys.add(winner);
+                  if (winner === leaderKey) winnerLeaderMatches++;
+                }
+                if (status === 0 || status === 1) {
+                  physicalSlots.add(`${words[r + 2]}:${words[r + 3]}`);
+                }
                 globalFine.add(key);
                 globalResolved.add(result);
                 statuses[status] = (statuses[status] ?? 0) + 1;
@@ -279,9 +300,14 @@ export function installDungeonGpuAudit() {
             }
             const bucket = `${active}/${fine.size}/${resolved.size}`;
             groupHistogram[bucket] = (groupHistogram[bucket] ?? 0) + 1;
+            const entropy = `${active}/${selectedClips.size}/${fine.size}/${resolved.size}/${physicalSlots.size}`;
+            queryEntropyHistogram[entropy] = (queryEntropyHistogram[entropy] ?? 0) + 1;
             receivers += active;
             sumUnique += fine.size;
             sumResolved += resolved.size;
+            sumSelectedClips += selectedClips.size;
+            sumPhysicalSlots += physicalSlots.size;
+            sumWinnerKeys += winnerKeys.size;
             groups++;
           }
         }
@@ -293,6 +319,11 @@ export function installDungeonGpuAudit() {
           groups,
           sumUnique,
           sumResolved,
+          sumSelectedClips,
+          sumPhysicalSlots,
+          sumWinnerKeys: layers >= 3 ? sumWinnerKeys : null,
+          winnerLeaderMatches: layers >= 3 ? winnerLeaderMatches : null,
+          winnerLeaderMatchRatio: layers >= 3 && receivers ? winnerLeaderMatches / receivers : null,
           globalFine: globalFine.size,
           globalResolved: globalResolved.size,
           statuses,
@@ -300,6 +331,7 @@ export function installDungeonGpuAudit() {
           duplicateRatio: receivers ? 1 - sumUnique / receivers : null,
           resolvedDuplicateRatio: receivers ? 1 - sumResolved / receivers : null,
           groupHistogram,
+          queryEntropyHistogram,
           frameIdentity,
           note: "Full generation/epoch/namespace are common frame constants; timing invalid with K instrumentation.",
         };

@@ -1,6 +1,7 @@
 import { VSM_SAMPLING_WGSL } from "../../.test-dist/shaders/vsm_sampling.js";
 import { VSM_SAMPLING_PUBLICATION_WGSL } from "../../.test-dist/shaders/vsm_sampling_publication.js";
 import { REFERENCE_VSM_SAMPLING_WGSL } from "./fixtures/vsm-sampling-v1.mjs";
+import { VSM_FINE_BROADCAST_WGSL, vsmShadowResolveWgsl } from "./fixtures/vsm-shadow-resolve-v2-wgsl.mjs";
 
 const check = (value, message) => { if (!value) throw new Error(message); };
 
@@ -68,8 +69,8 @@ export async function runVsmSamplingPublicationGpuOracle(device) {
   append(-1e-38, 1e-38); append(-1e-40, -1e-40);
   const positions = new Float32Array(pointValues), count = positions.length / 4;
   const points = make(positions.byteLength, GPUBufferUsage.STORAGE, positions);
-  const outputs = [0, 1].map(() => make(count * 32, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC));
-  const staging = make(count * 64, GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ);
+  const outputs = [0, 1, 2].map(() => make(count * 32, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC));
+  const staging = make(count * 96, GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ);
   const atlas = device.createTexture({ size: [4096, 4096], format: "depth32float", usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
   const depthModule = device.createShaderModule({ code: `
 @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
@@ -82,7 +83,13 @@ export async function runVsmSamplingPublicationGpuOracle(device) {
 }` });
   const raster = await device.createRenderPipelineAsync({ layout: "auto", vertex: { module: depthModule, entryPoint: "vs" }, fragment: { module: depthModule, entryPoint: "fs", targets: [] }, depthStencil: { format: "depth32float", depthWriteEnabled: true, depthCompare: "always" } });
   const pipelines = [], groups = [];
-  for (const [index, source] of [REFERENCE_VSM_SAMPLING_WGSL, VSM_SAMPLING_WGSL].entries()) {
+  for (const product of [false, true]) {
+    for (const diagnostic of [false, true]) {
+      const info = await device.createShaderModule({ code: vsmShadowResolveWgsl(product, diagnostic) }).getCompilationInfo();
+      check(!info.messages.some(m => m.type === "error"), JSON.stringify(info.messages));
+    }
+  }
+  for (const [index, source] of [REFERENCE_VSM_SAMPLING_WGSL, VSM_SAMPLING_WGSL, VSM_SAMPLING_WGSL + VSM_FINE_BROADCAST_WGSL].entries()) {
     const declaration = index === 0 ? "vsm_page_table: array<VsmPageEntry>" : "vsm_sampling_descriptors: array<VsmSamplingDescriptor>";
     const pipeline = await compile(`
 struct GpuPrimitiveTypeTable { direction: vec3f, color: vec3f, }
@@ -93,11 +100,12 @@ ${source}
 @group(0) @binding(3) var<storage, read> points: array<vec4f>;
 @group(0) @binding(4) var<storage, read_write> output: array<vec4u>;
 @compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) id: vec3u) {
+fn main(@builtin(global_invocation_id) id: vec3u, @builtin(local_invocation_index) lane: u32) {
+  ${index === 2 ? `if (lane == 0u) { shadow_publish_fine(points[id.x].xy, id.x < arrayLength(&points)); }
+  workgroupBarrier();` : ""}
   if (id.x >= arrayLength(&points)) { return; }
-  let q = vsm_query_directional(points[id.x].xy);
-  let v = vsm_sample_directional(points[id.x].xyz, normalize(vec3f(0.7, 0.01, 0.3)),
-    GpuPrimitiveTypeTable(vec3f(0.0, 1.0, 0.0), vec3f(1.0)));
+  let q = ${index === 2 ? "shadow_query_directional" : "vsm_query_directional"}(points[id.x].xy);
+  let v = ${index === 2 ? "shadow_sample_query(points[id.x].xyz, normalize(vec3f(0.7, 0.01, 0.3)), vec3f(0.0, 1.0, 0.0), q)" : "vsm_sample_directional(points[id.x].xyz, normalize(vec3f(0.7, 0.01, 0.3)), GpuPrimitiveTypeTable(vec3f(0.0, 1.0, 0.0), vec3f(1.0)))"};
   output[id.x * 2u] = vec4u(q.status, q.target_status, q.level, bitcast<u32>(v));
   let valid = q.status == VSM_QUERY_FINE || q.status == VSM_QUERY_COARSE;
   output[id.x * 2u + 1u] = select(vec4u(0u), vec4u(q.entry.slot_x, q.entry.slot_y, q.entry.mip, 1u), valid);
@@ -148,7 +156,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       depth.setPipeline(raster); depth.draw(3); depth.end();
       const publication = encoder.beginComputePass();
       publication.setPipeline(publish); publication.setBindGroup(0, pubGroup); publication.dispatchWorkgroups(Math.ceil(perSampling * levels / 64)); publication.end();
-      for (let index = 0; index < 2; index++) {
+      for (let index = 0; index < 3; index++) {
         const pass = encoder.beginComputePass();
         pass.setPipeline(pipelines[index]); pass.setBindGroup(0, groups[index]); pass.dispatchWorkgroups(Math.ceil(count / 64)); pass.end();
         encoder.copyBufferToBuffer(outputs[index], 0, staging, index * count * 32, count * 32);
@@ -158,6 +166,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       const actual = new Uint32Array(staging.getMappedRange()), split = count * 8;
       for (let i = 0; i < split; i++) {
         check(actual[i] === actual[split + i], `mode=${mode}, point=${Math.floor(i / 8)}, word=${i % 8}: reference ${actual[i]} vs compact ${actual[split + i]}`);
+        check(actual[i] === actual[2 * split + i], `mode=${mode}, point=${Math.floor(i / 8)}, word=${i % 8}: reference ${actual[i]} vs broadcast ${actual[2 * split + i]}`);
         if (i % 8 === 0) statuses.add(actual[i]);
       }
       staging.unmap();
