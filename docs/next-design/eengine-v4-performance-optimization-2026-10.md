@@ -1,6 +1,6 @@
 ---
 id: eengine-v4-performance-optimization-2026-10
-state: current
+state: history
 verifies:
   files:
     - examples/demos/14-integrated/dungeon-warkarma-texture-compression/main.ts
@@ -47,6 +47,8 @@ verifies:
 ---
 
 # EEngine V4：最终像素阶段与资源预算性能重构
+
+> 历史 authority（2026-10-11 退休）：下一阶段目标由 [V5 Final Pixel Design](eengine-v5-final-pixel-performance-2026-10.md) 与其 Execution 唯一约束。本文保留当时设计/数据/失败，不作为新重构限制，也不追认性能通过。
 
 本设计是当前性能模块的唯一设计依据；单元状态、实施顺序、真实代码切换及After结果只在[执行计划](../next-execution/eengine-v4-performance-optimization-execution-2026-10.md)。全局不变量继承[V4 Native Shading 母稿](./eengine-v4-native-shading-2026-10.md)，导航由 [workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml) 持有。设计目标本身不证明实现或性能已经达标。
 

@@ -1,6 +1,6 @@
 ---
 id: eengine-v4-performance-optimization-execution-2026-10
-state: current
+state: history
 verifies:
   files:
     - docs/next-design/eengine-v4-performance-optimization-2026-10.md
@@ -27,6 +27,8 @@ verifies:
 ---
 
 # EEngine V4 性能优化执行计划
+
+> 历史 authority（2026-10-11 退休）：新迁移单元以 [V5 Final Pixel Execution](eengine-v5-final-pixel-performance-execution-2026-10.md) 为准。下文状态/授权/停止边界仅描述当时任务；原失败、未完成质量与净性能资格仍保留，不约束或自动授权 V5 实施。
 
 唯一设计见[性能设计](../next-design/eengine-v4-performance-optimization-2026-10.md)。本文件拥有单元状态与实施出口；workstream仅导航。**P1已关闭Q-exact局部出口；P2已关闭T1，T2实验拒绝采用；T3执行重构与targeted质量已实现，整帧净性能资格仍未通过，整体未完成。** 不把局部工作删除写成稳定帧时改善或60FPS，不自行同时启动多个单元。
 
