@@ -43,6 +43,7 @@ export interface VsmAtlasRasterInputs {
   readonly metaTable: ResourceId;
   readonly contentVersion: ResourceId;
   readonly samplingConstants: ResourceId;
+  readonly samplingTarget?: { readonly resource: ResourceId; readonly offset: number; readonly size: number };
   readonly instances: ResourceId;
   readonly meshlets: ResourceId;
   readonly meshletVertices: ResourceId;
@@ -359,6 +360,7 @@ export class VsmAtlasRasterPass {
       constants: input.samplingConstants,
       pageTable: publishedPageTable,
       contentVersion,
+      target: input.samplingTarget,
     });
     return {
       samplingDescriptors,

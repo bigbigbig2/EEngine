@@ -1,12 +1,9 @@
-import {
-  GPU_INSTANCE_FLAGS,
-  GPU_INSTANCE_SHADING_BIN_SHIFT,
-  GPU_INSTANCE_SHADING_BIN_MASK,
-} from "../gpu/GpuInstanceAbi.js";
-import { surfaceGeometryCompletionWgsl } from "./surface_geometry_completion.js";
-import { VSM_SAMPLING_WGSL } from "./vsm_sampling.js";
-import { PACKED_CAMERA_TYPE } from "./packed_camera.js";
-
+// Frozen S3/reference at 9f305c4128b0355614ececbe2be890582d6e8f2d.
+// Test only; preserve numeric and quality reference independently of production cutover.
+import { GPU_INSTANCE_FLAGS, GPU_INSTANCE_SHADING_BIN_SHIFT, GPU_INSTANCE_SHADING_BIN_MASK, } from "../../../../.test-dist/gpu/GpuInstanceAbi.js";
+import { surfaceGeometryCompletionWgsl } from "../../../../.test-dist/shaders/surface_geometry_completion.js";
+import { VSM_SAMPLING_WGSL } from "../../../../.test-dist/shaders/vsm_sampling.js";
+import { PACKED_CAMERA_TYPE } from "../../../../.test-dist/shaders/packed_camera.js";
 /** One fine descriptor broadcast, not a shared coarse-result cache. Frame-wide
  * generation/epoch/namespace are already checked by post-commit publication.
  * Full signed page coordinates and selected clip must match before reuse. */
@@ -73,9 +70,8 @@ fn shadow_sample_query(light: vec3f, normal: vec3f, sun: vec3f, query: VsmPageQu
     reference, (vsm_constants.filter_params.y + slope_bias + normal_bias) * depth_per_texel);
 }
 `;
-
-export function vsmShadowResolveWgsl(productGeometry: boolean, diagnosticKeys = false): string {
-  return /* wgsl */ `
+export function vsmShadowResolveWgsl(productGeometry, diagnosticKeys = false) {
+    return /* wgsl */ `
 ${surfaceGeometryCompletionWgsl(productGeometry, true, false)}
 ${PACKED_CAMERA_TYPE.wgsl_declaration}
 struct GpuPrimitiveTypeTable { direction: vec3f, color: vec3f, }
@@ -98,12 +94,10 @@ struct ShadowSun { direction: vec3f, world_to_unit: f32, }
 @group(0) @binding(7) var shadow_output: texture_storage_2d<r32uint, write>;
 @group(0) @binding(8) var<uniform> shadow_camera: CommandEncoder;
 ${diagnosticKeys ? "@group(0) @binding(15) var shadow_query_keys: texture_storage_2d_array<rgba32uint, write>;" : ""}
-${
-  productGeometry
-    ? `@group(0) @binding(10) var<storage, read> product_heap: array<u32>;
+${productGeometry
+        ? `@group(0) @binding(10) var<storage, read> product_heap: array<u32>;
 ${Array.from({ length: 4 }, (_, i) => `@group(0) @binding(${11 + i}) var<storage, read> product_bank_${i}: array<u32>;`).join("\n")}`
-    : ""
-}
+        : ""}
 @group(1) @binding(0) var<uniform> vsm_constants: VsmSamplingConstants;
 @group(1) @binding(1) var<storage, read> vsm_sampling_descriptors: array<VsmSamplingDescriptor>;
 @group(1) @binding(2) var vsm_atlas_depth: texture_depth_2d;
@@ -223,8 +217,7 @@ fn main(@builtin(global_invocation_id) id: vec3u, @builtin(local_invocation_inde
   ${diagnosticKeys ? "var diagnostic_fine = vec4u(0u);\n  var diagnostic_resolved = vec4u(0u);" : ""}
   if (receiver_enabled) {
     let query = shadow_query_directional(light.xy);
-    ${
-      diagnosticKeys
+    ${diagnosticKeys
         ? `let selected = vsm_clip_level(light.xy);
     var fine_world = vec2i(0);
     if (selected != VSM_INVALID_SLOT) {
@@ -237,8 +230,7 @@ fn main(@builtin(global_invocation_id) id: vec3u, @builtin(local_invocation_inde
     let enums = 0x80000000u | query.status | (query.target_status << 4u) | (query.level << 8u) | (query.entry.mip << 12u);
     diagnostic_fine = vec4u(selected, bitcast<vec2u>(fine_world), enums);
     diagnostic_resolved = vec4u(bitcast<vec2u>(resolved_world), query.entry.slot_x, query.entry.slot_y);`
-        : ""
-    }
+        : ""}
     let mode = vsm_constants.identity.z;
     if (mode == 3u) {
       value = query.status;
@@ -256,16 +248,14 @@ fn main(@builtin(global_invocation_id) id: vec3u, @builtin(local_invocation_inde
     value = 254u;
   }
   shadow_bytes[lane] = value;
-  ${
-    diagnosticKeys
-      ? `if (all(id.xy < settings.dimensions.xy)) {
+  ${diagnosticKeys
+        ? `if (all(id.xy < settings.dimensions.xy)) {
     textureStore(shadow_query_keys, vec2i(id.xy), 0, diagnostic_fine);
     textureStore(shadow_query_keys, vec2i(id.xy), 1, diagnostic_resolved);
     textureStore(shadow_query_keys, vec2i(id.xy), 2, vec4u(textureLoad(visibility, vec2i(id.xy), 0).r,
       u32(receiver_enabled), meshlet_work.header.generation, u32(receiver.depth_derived)));
   }`
-      : ""
-  }
+        : ""}
   workgroupBarrier();
   // Every real texel, including background and tail bytes, is overwritten.
   // All lanes reach all barriers even in a partial/empty edge workgroup.

@@ -144,7 +144,7 @@ test("directional shadows demand independent Geometry only for an enabled lit co
     assert.ok(!plan.stages.includes("vsm"));
     for (const product of [
       "shadow-geometry-work",
-      "shadow-visibility",
+      "shadow-sampling",
       "shadow-demand",
       "shadow-allocation",
     ]) {
@@ -159,15 +159,15 @@ test("directional shadows demand independent Geometry only for an enabled lit co
   assert.ok(!unlit.products.includes("shadow-geometry-work"));
 });
 
-test("Shadow visibility is a packed full receiver domain with a real Physical Sun consumer", () => {
+test("Shadow sampling is a committed work-domain product with a real Physical Sun consumer", () => {
   const plan = buildFrameProgram({ ...scene, internalWidth: 641, shadowProfile: "vsm-directional-high" });
-  const mask = plan.facts.find((fact) => fact.product === "shadow-visibility");
-  assert.equal(mask.domain, "internal-full");
-  assert.equal(mask.format, "r32uint");
-  assert.deepEqual(mask.extent, [161, 360]);
+  const mask = plan.facts.find((fact) => fact.product === "shadow-sampling");
+  assert.equal(mask.domain, "gpu-work");
+  assert.equal(mask.format, "structured-buffer");
+  assert.equal(mask.extent, null);
   assert.deepEqual(mask.consumers, ["surface"]);
   const noSun = buildFrameProgram({ ...scene, physicalEnvironment: false, shadowProfile: "vsm-directional-high" });
-  assert.ok(!noSun.products.includes("shadow-visibility"));
+  assert.ok(!noSun.products.includes("shadow-sampling"));
   assert.throws(
     () => buildFrameProgram({ ...scene, hasLit: false, shadowProfile: "vsm-directional-high" }),
     /VSM requires a lit Surface consumer/,
@@ -355,6 +355,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
     swapchain: resource,
     preExposure: { multiplier: 1 },
     localLightWork: null,
+    finalPixelLighting: null,
     localLightCounters: resource,
     fsr3,
     temporalFacts,

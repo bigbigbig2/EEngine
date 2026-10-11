@@ -1,3 +1,4 @@
+import type { FinalPixelLightingFrame } from "../lighting/FinalPixelLightingPublication.js";
 import type { PerspectiveCamera } from "../../camera/PerspectiveCamera.js";
 import type { GPUTextureContext } from "../../gpu/GPUTextureContext.js";
 import type { GpuRenderWorldRuntime } from "../../gpu/GpuRenderWorld.js";
@@ -37,6 +38,7 @@ export type SceneFrameBindings = Readonly<{
   /** GPU light collection publication revision; independent from sky/IBL revision. */
   lightingLightRevision: number;
   localLightWork: LocalLightWorkFrame | null;
+  finalPixelLighting: FinalPixelLightingFrame | null;
   localLightCounters: GPUBuffer;
   lightingSunRevision: number;
   environment: PhysicalEnvironmentRuntime | null;
@@ -70,6 +72,20 @@ export function assertFrameProgramBindings(plan: FrameProgram, bindings: FramePr
   }
   if (request.hasLit !== (bindings.localLightWork !== null)) {
     throw new Error("Frame Program LocalLightWork publication is missing or unexpected");
+  }
+  if (request.hasLit !== (bindings.finalPixelLighting !== null)) {
+    throw new Error("Frame Program final lighting publication is missing or unexpected");
+  }
+  if (bindings.finalPixelLighting && bindings.localLightWork) {
+    const lookup = bindings.localLightWork.lookupBinding;
+    const lighting = bindings.finalPixelLighting;
+    if (
+      lookup.buffer !== lighting.buffer ||
+      lookup.offset !== lighting.plan.lookupOffset ||
+      lookup.size !== lighting.plan.lookupBytes
+    ) {
+      throw new Error("Frame Program local producer does not write the final lighting segment");
+    }
   }
   if (bindings.localLightWork !== null) {
     const local = bindings.localLightWork.request;

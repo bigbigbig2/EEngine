@@ -1,3 +1,7 @@
+import { SurfaceV4 as S3Surface } from "./reference/s3/SurfaceV4.mjs";
+import { GpuNativeMaterialPublication as S3Publication } from "./reference/s3/GpuNativeMaterialPublication.mjs";
+import { nativeSurfacePublicationDescriptors as s3Descriptors } from "./reference/s3/native_surface.mjs";
+import { nativeSurfacePhysicalSunEntries as s3SunEntries } from "./reference/s3/native_surface_lighting.mjs";
 import { createNativeSurfaceFixture, identity } from "./native-surface-fixture.mjs";
 import { createNativeMaterialBindingFixture } from "./native-material-bindings-gpu.mjs";
 import { nativeMaterialDynamicInputs } from "../../.test-dist/shaders/native_material.js";
@@ -172,7 +176,7 @@ export async function runFinalPixelBindingBoundaryGpuOracle(device) {
     texture: { sampleType: "float" },
   }));
   const profile = { compact: true, productGeometry: true, unlit: false, reactive: true, physicalSun: true };
-  const before = nativeSurfacePublicationDescriptors(program, material, profile, device.limits);
+  const before = s3Descriptors(program, material, profile, device.limits);
   check(before.continuation, "Boundary fixture must exercise a supported old continuation");
   const registry = new AppearanceProgramRegistry(device);
   const leases = [];
@@ -508,7 +512,7 @@ ${loads}
             ? materialFixture.sources[materialSlot]
             : { materialSlot, bindingSet: 0, program }),
           valueRevision: revision,
-          ...nativeSurfacePublicationDescriptors(
+          ...(finalPixel ? nativeSurfacePublicationDescriptors : s3Descriptors)(
             materialFixture?.sources[materialSlot].program ?? program,
             materialFixture?.sources[materialSlot].bindings.layoutEntries ?? [],
             {
@@ -524,7 +528,7 @@ ${loads}
           ),
         }));
       const publication = new GpuNativeMaterialPublication(device, registry, sources(true), undefined, true);
-      const referencePublication = new GpuNativeMaterialPublication(device, registry, sources(false));
+      const referencePublication = new S3Publication(device, registry, sources(false));
       owners.push(publication, referencePublication);
       await publication.ready;
       await referencePublication.ready;
@@ -536,7 +540,7 @@ ${loads}
         "Raster-specific directory ABI changed",
       );
       const surface = new SurfaceV4(device, true, undefined, true);
-      const referenceSurface = new SurfaceV4(device, true);
+      const referenceSurface = new S3Surface(device, true);
       const temporal = new NativeTemporalSeed(device);
       const localOwner = new LocalLightWorkGenerator(device, 51);
       const vsmOwner = new VsmSamplingPublicationPass(device);
@@ -840,6 +844,7 @@ ${loads}
             generation: fixture.generation,
             frameIndex: index,
             cameraPosition: [0, 0, 3],
+            camera,
             preExposure: fixture.exposure,
             viewMatrix: view,
             visibility,
@@ -940,7 +945,7 @@ ${loads}
                   ]
                 : [
                     ...localFrame.lightingEntries,
-                    ...fixture.lightingEntries.filter((entry) => entry.binding > 3 && entry.binding !== 10),
+                    ...fixture.legacyLightingEntries.filter((entry) => entry.binding > 3 && entry.binding !== 10),
                     { binding: 10, resource: referenceShadow.createView() },
                     ...sunEntries,
                   ],

@@ -1,7 +1,7 @@
 import { createNativeSurfaceFixture } from "./native-surface-fixture.mjs";
 import { VSM_SAMPLING_WGSL } from "../../.test-dist/shaders/vsm_sampling.js";
-import { VSM_SHADOW_VISIBILITY_WGSL } from "../../.test-dist/shaders/vsm_shadow_visibility.js";
-import { VsmShadowResolvePass } from "../../.test-dist/render/vsm/VsmShadowResolvePass.js";
+import { VSM_SHADOW_VISIBILITY_WGSL } from "./reference/s3/vsm_shadow_visibility.mjs";
+import { VsmShadowResolvePass } from "./reference/s3/VsmShadowResolvePass.mjs";
 import { ShadeGPUCommandContext } from "../../.test-dist/framegraph/ShadeGPUCommandContext.js";
 import { FrameProfiler } from "../../.test-dist/debug/FrameProfiler.js";
 import { GPUBufferAllocator } from "../../.test-dist/gpu/GPUBufferAllocator.js";

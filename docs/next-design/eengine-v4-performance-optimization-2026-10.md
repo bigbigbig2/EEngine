@@ -24,9 +24,9 @@ verifies:
     - OEngine/src/render/environment
     - OEngine/src/gpu/GpuAuthoredEnvironment.ts
     - OEngine/src/render/vsm
-    - OEngine/src/render/vsm/VsmShadowResolvePass.ts
-    - OEngine/src/shaders/vsm_shadow_resolve.ts
-    - OEngine/src/shaders/vsm_shadow_visibility.ts
+    - OEngine/tests/oracle/reference/s3/VsmShadowResolvePass.mjs
+    - OEngine/tests/oracle/reference/s3/vsm_shadow_resolve.mjs
+    - OEngine/tests/oracle/reference/s3/vsm_shadow_visibility.mjs
     - OEngine/tests/oracle/vsm-shadow-receiver-gpu.mjs
     - OEngine/tests/oracle/vsm-shadow-resolve-gpu.mjs
     - OEngine/src/render/surface/SurfaceV4.ts

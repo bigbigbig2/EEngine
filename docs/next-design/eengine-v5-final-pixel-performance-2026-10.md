@@ -12,7 +12,9 @@ verifies:
     - OEngine/src/shaders/surface_geometry_reader.ts
     - OEngine/src/render/vsm
     - OEngine/src/shaders/vsm_sampling.ts
-    - OEngine/src/shaders/vsm_shadow_resolve.ts
+    - OEngine/tests/oracle/reference/s3/vsm_shadow_resolve.mjs
+    - OEngine/src/shaders/native_resolved_position.ts
+    - OEngine/src/render/lighting/FinalPixelLightingPublication.ts
     - OEngine/src/shaders/vsm_receiver_demand.ts
     - OEngine/src/render/temporal
     - OEngine/src/shaders/native_temporal.ts
@@ -41,7 +43,7 @@ verifies:
 
 ## 1. Current source truth
 
-2026-10-11 source gate：`HEAD = 49fcaa300fafcbbe3db142df403baa3487f89956`；起始 `git status --short` 仅 `?? .vscode/`。当时 workstream 为 `performance-optimization-v4`，authority 为 V4 performance design/execution，minimal-GPU-work 与 VSM 功能扩展仍暂停。本文交付时只更新文档 authority；HEAD 的 production 实现仍是下述现状。
+架构冻结时的 source gate（2026-10-11）：`HEAD = 49fcaa300fafcbbe3db142df403baa3487f89956`；起始 `git status --short` 仅 `?? .vscode/`。当时 workstream 为 `performance-optimization-v4`，authority 为 V4 performance design/execution，minimal-GPU-work 与 VSM 功能扩展仍暂停。以下现状图和重复工作图是这一冻结基线的源码快照；后续生产切换状态只读执行 authority，不能把本节历史基线误认为最新 production。
 
 最近相关提交：`49fcaa30` Native-resolution 部分 Temporal 替换；`c6e8d31d` S3 独立 Shadow Resolve；`7b6e6db1` 独立投影候选拒绝记录；`9ca9ae1f` local caster invalidation；`6eb77e8d` 4GB 应用容量；`941345ad` IBL 精确寻址/DFG；`b87a991d` shared tile 拒绝；`5850fa31` Accumulate 重复输出删除；`f6f7189f` compact sampling descriptors；`f495f04b` receiver word aggregation。提交名称不证明收益。
 
@@ -194,7 +196,8 @@ flowchart LR
 | VSM | atlas、compact descriptor区间、projection/depth/bias/filter constants、residency/content validity；Native Sun内执行其采样函数 | SurfaceRecord、per-pixel ShadowVisibility |
 | Native Surface | invocation-private winner/corners/position/geometric normal/material结果；HDR物理writer，执行Temporal规定的Seed写入 | Temporal history推进、全局Surface OS |
 | Temporal service | Seed语义、response/identity、Analyze/Resolve、color/depth/state histories、policy和事务 | Geometry frontend、material revisions的创建 |
-| FrameGraph | 当帧产品/container分配、resource versions、宏依赖、completion fence复用 | 所有effect统一状态机、shader内部调度 |
+| Final Pixel lighting scratch | 当帧descriptor/Solar/local物理container与范围uniform、三fence分配复用/退休；各logical owner直接写自己的区间 | per-pixel lighting packet、effect history、VSM/local算法 |
+| FrameGraph | 当帧产品resource versions、宏依赖、编码与owner提供的completion fence寿命 | 所有effect统一状态机、shader内部调度 |
 
 ## 6. Shadow architecture 选择：B / Fused Shadow V2
 
@@ -220,6 +223,8 @@ Native恢复corners/position后，在 material C/X/Y、大量纹理结果和BRDF
 最小跨PCF状态仍包含几何系数、地址与position/face，不是零成本融合；原`geometry_complete_resolved`一次完成所有attributes的代码形状需要在Phase内调整。延迟读取attributes是同一次resolved geometry上下文的完成，不增加Surface产品、不重新校验/定位几何。若compiler仍把大量corners或material临时量跨PCF保活，拒绝该codegen candidate并改scope/加载时点；不能仅由这个candidate慢就采纳packet C。无硬件register/spill数据时只报告source live-set与测得帧时，不把推测spill当事实。
 
 S3 depth-derived position/normal与Native三corner interpolation存在f32差异；目标明确采用**Native已有几何面的camera-facing bias**。保留PCF数学oracle不等于receiver逐bit等价；page/tap边界、镜像/掠射、normal map、孤立triangle、薄面、alpha与off-camera caster须通过独立几何/动态质量合同。禁止回退到最早raw-page-table embedded VSM；B是post-commit compact合同消费，不复活旧owner。
+
+唯一 Surface position 的数值合同：Native 已恢复的 world triangle plane 与当前 jittered camera ray 求交，作为 Sun、BRDF 和 Seed 的同一当前位置。camera inverse-VP 放现有 settings uniform，64B GPU→GPU copy，无新 binding；不读取 Depth 或邻居，不重新 decode winner/instance/geometry。齐次射线支持有限、无限远和正交投影；精确奇异或非有限结果使用同一次 resolved triangle 的重心位置。原 homogeneous barycentric/有限一像素导数继续决定属性和 LOD，计算移到PCF之后以缩短live scope，Geometry/Visibility publication 不变。新增一次 matrix-vector、两个 plane dot、clip-Z 求解/投影除法及64B uniform working set计入 ADD；不得称零成本或另建 receiver。point-PCF 已得出精确 visibility=0 时，有限材质的 Sun diffuse/specular 数学结果为零，允许跳过 atmosphere/Sun BRDF；其余 lighting、完整PCF与所有tap不删。
 
 ### 6.2 Binding footprint 与 continuation
 

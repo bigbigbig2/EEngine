@@ -934,6 +934,7 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
       "NativeRasterWorkPartitions",
       "GpuNativeMaterialPublication",
       "LocalLightWork",
+      "FinalPixelLighting",
     ];
     const beforeDestroy = ledger.snapshot();
     check(
@@ -941,6 +942,13 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
       "Native resources are missing from physical accounting",
     );
     const memory = renderer.graphics.memoryEvidence();
+    check(!renderer._vsmShadowResolve, "Retired standalone Shadow owner survived production cutover");
+    check(!("continuation" in actualFrame.publication), "Retired Sun continuation publication survived");
+    const finalLightingBytes = renderer._finalPixelLighting.allocatedBytes;
+    check(finalLightingBytes > 0 && memory.owners.finalPixelLighting.allocatedBytes === finalLightingBytes,
+      "Final lighting container missing from physical memory evidence");
+    check(actualFrame.lightingEntries.some(entry => entry.binding === 9),
+      "Production Native omitted final lighting range contract");
     const scratchBytes = nativeOwners
       .slice(0, 4)
       .reduce(

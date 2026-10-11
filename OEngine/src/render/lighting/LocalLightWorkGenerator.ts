@@ -619,14 +619,14 @@ export class LocalLightWorkGenerator {
     graph: FrameGraph,
     job: { frame: LocalLightWorkFrame },
     products: { parameters: GPUBuffer; lookup: GPUBuffer; data: GPUBuffer },
-    inputs: { visibility: ResourceId; depth: ResourceId; database: ResourceId },
+    inputs: { visibility: ResourceId; depth: ResourceId; database: ResourceId; lookup?: ResourceId },
   ): LocalLightWorkProduct {
     const parameters = graph.import_resource(
       "LocalLightWork/parameters",
       { kind: "imported" },
       products.parameters,
     );
-    const lookup = graph.import_resource("LocalLightWork/lookup", { kind: "imported" }, products.lookup);
+    const lookup = inputs.lookup ?? graph.import_resource("LocalLightWork/lookup", { kind: "imported" }, products.lookup);
     const data = graph.import_resource("LocalLightWork/data", { kind: "imported" }, products.data);
     const node = graph.add("LocalLightWork/generate", job, (current, resources, context) => {
       this.encode(context.encoder as ShadeGPUCommandContext, current.frame, {

@@ -18,29 +18,22 @@ const deferred = () => {
 };
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
-test("native resource-limit continuations publish with their primary pipeline atomically", async () => {
+test("unique native programs publish atomically and retire every code/resource lease", async () => {
   const f = fixture();
   const a = f.source();
-  const next = { ...a.descriptor, source: `${a.descriptor.source}\n// native continuation` };
-  const publication = new GpuNativeMaterialPublication(f.device, f.registry, [
-    { ...a, continuation: next },
-    { ...a, materialSlot: 1 },
-    { ...a, materialSlot: 2, continuation: next }
-  ]);
-  assert.deepEqual(
-    publication.entries.map((entry) => entry.programIndex),
-    [0, 1, 0]
-  );
+  const b = { ...a, materialSlot: 1, descriptor: { ...a.descriptor, source: `${a.descriptor.source}\n// second program` } };
+  const publication = new GpuNativeMaterialPublication(f.device, f.registry, [a, b, { ...a, materialSlot: 2 }]);
+  assert.deepEqual(publication.entries.map((entry) => entry.programIndex), [0, 1, 0]);
   await tick();
   assert.equal(f.compiles.length, 2);
   f.compiles[0].resolve({ primary: true });
   await tick();
   assert.throws(() => publication.commit(), /complete/);
-  f.compiles[1].resolve({ continuation: true });
+  f.compiles[1].resolve({ second: true });
   await publication.ready;
   publication.commit();
-  assert.equal(publication.continuation(0).pipeline.pipeline.continuation, true);
-  assert.equal(publication.continuation(1), null);
+  assert.equal(publication.pipeline(0).pipeline.primary, true);
+  assert.equal(publication.pipeline(1).pipeline.second, true);
   await publication.retire(Promise.resolve());
   assert.ok(f.buffers.every((buffer) => buffer.destroyed));
   f.registry.destroy();

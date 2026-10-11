@@ -327,9 +327,7 @@ export async function runCase({
         lightingEntries: frame.lightingEntries.map((entry) =>
           entry.binding === 1
             ? { binding: 1, resource: { buffer: referenceParameters } }
-            : entry.binding === 2
-              ? { binding: 2, resource: { buffer: referenceLookup } }
-              : entry.binding === 3
+            : entry.binding === 3
                 ? { binding: 3, resource: { buffer: referenceData } }
                 : entry,
         ),

@@ -1,6 +1,6 @@
 ---
 id: performance/final-pixel-phase1-closure-2026-10-11
-state: current
+state: history
 verifies:
   files:
     - OEngine/src/gpu/FinalPixelAbi.ts

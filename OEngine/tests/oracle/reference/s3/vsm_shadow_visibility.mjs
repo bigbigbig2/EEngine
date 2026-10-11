@@ -1,3 +1,5 @@
+// Frozen S3/reference at 9f305c4128b0355614ececbe2be890582d6e8f2d.
+// Test only; preserve numeric and quality reference independently of production cutover.
 /** Four horizontal receiver bytes in one core r32uint texel. Low five bits
  * count visible taps; bits 5..6 store axis-1. Neutral is one tap, one visible.
  * This is an exact count product, not quantized unorm visibility. */

@@ -1,3 +1,4 @@
+import { addFinalPixelSolarPublication } from "../environment/FinalPixelSolarPublication.js";
 import { nativeWinnerGeometry } from "../MeshletBucketRaster.js";
 import { nativeSurfacePhysicalSunEntries } from "../../shaders/native_surface_lighting.js";
 import { FrameGraph, FrameGraphBindingLayout, type CompiledFrameGraph } from "../../framegraph/FrameGraph.js";
@@ -25,10 +26,8 @@ import type { VsmReceiverDemandPass } from "../vsm/VsmReceiverDemandPass.js";
 import type { VsmAllocatePagesPass } from "../vsm/VsmAllocatePagesPass.js";
 import type { VsmCasterRecordPass } from "../vsm/VsmCasterRecordPass.js";
 import type { VsmAtlasRasterPass } from "../vsm/VsmAtlasRasterPass.js";
-import type { VsmShadowResolvePass } from "../vsm/VsmShadowResolvePass.js";
 import type { VsmInvalidationPass } from "../vsm/VsmInvalidationPass.js";
 import type { VsmAllocationFrame } from "../vsm/VsmResidency.js";
-import { shadowVisibilityFrame, textureDomain } from "../pipeline/FrameProducts.js";
 import type { EmptyFrameBindings, FrameProgramBindings, SceneFrameBindings } from "./FrameProgramBindings.js";
 import type { FrameProgram, FrameProduct } from "./FrameProgram.js";
 import { counterByteOffset } from "../../debug/GpuFrameCounters.js";
@@ -53,7 +52,6 @@ export type FrameProgramOwners = Readonly<{
   vsmAllocatePages: VsmAllocatePagesPass;
   vsmCasterRecords: VsmCasterRecordPass;
   vsmAtlasRaster: VsmAtlasRasterPass;
-  vsmShadowResolve: VsmShadowResolvePass;
   vsmInvalidation: VsmInvalidationPass;
 }>;
 
@@ -144,6 +142,23 @@ function compileSceneGraph(
     { kind: "imported", label: "published instance records" },
     bind("scene-instances", (bindings) => bindings.job.scene.instances),
   );
+  const lightingFrame = initial.finalPixelLighting;
+  let finalLighting: ResourceId | undefined =
+    lightingFrame === null
+      ? undefined
+      : graph.import_resource(
+          "Final Pixel/lighting directory",
+          { kind: "imported" },
+          bind("final-lighting-directory", (bindings) => bindings.finalPixelLighting!.buffer),
+        );
+  const lightingRanges =
+    lightingFrame === null
+      ? undefined
+      : graph.import_resource(
+          "Final Pixel/lighting ranges",
+          { kind: "imported" },
+          bind("final-lighting-ranges", (bindings) => bindings.finalPixelLighting!.ranges),
+        );
   let vsmOwnerBinding: NonNullable<SceneFrameBindings["vsm"]> | null = null;
   let vsmFrameBinding: NonNullable<SceneFrameBindings["vsmFrame"]> | null = null;
   let vsmAllocation: VsmAllocationFrame | null = null;
@@ -382,6 +397,14 @@ function compileSceneGraph(
         metaTable: vsmAllocation!.metaTable,
         contentVersion: vsmAllocation!.contentVersion,
         samplingConstants: vsmSamplingConstants!,
+        samplingTarget:
+          finalLighting === undefined
+            ? undefined
+            : {
+                resource: finalLighting,
+                offset: bindings.finalPixelLighting!.plan.descriptorOffset,
+                size: bindings.finalPixelLighting!.plan.descriptorBytes,
+              },
         instances,
         meshlets: meshletRecords,
         meshletVertices: meshletVertexIndices,
@@ -396,10 +419,13 @@ function compileSceneGraph(
     vsmAtlasDepth = atlas.atlasDepth;
     vsmContentVersion = atlas.contentVersion;
     vsmSamplingDescriptors = atlas.samplingDescriptors;
+    finalLighting = atlas.samplingDescriptors;
     if (vsmOwnerBinding.pageConstants === null) {
       throw new Error("Frame Program VSM sampling constants are unavailable");
     }
-    if (vsmSamplingConstants === null) throw new Error("VSM sampling constants have no producer");
+    if (vsmSamplingConstants === null) {
+      throw new Error("VSM sampling constants have no producer");
+    }
   }
   const lightRecords = needsDirectLight
     ? graph.import_resource(
@@ -425,101 +451,17 @@ function compileSceneGraph(
           (bindings) => bindings.environment!.luts.views.transmittance,
         ),
       );
-  let directionalShadowVisibility: ResourceId | null = null;
-  let directionalShadowMode: ResourceId | null = null;
-  const shadowWidth = plan.request.internalWidth;
-  const shadowHeight = plan.request.internalHeight;
-  if (plan.products.includes("shadow-visibility")) {
-    if (
-      vsmSamplingConstants === null ||
-      vsmSamplingDescriptors === null ||
-      vsmAtlasDepth === null ||
-      vsmContentVersion === null ||
-      physicalEnvironmentSun === undefined
-    ) {
-      throw new Error("Directional Shadow Resolve requires committed VSM content and Physical Sun");
-    }
-    const constants = vsmSamplingConstants;
-    const descriptors = vsmSamplingDescriptors;
-    const atlas = vsmAtlasDepth;
-    const sun = physicalEnvironmentSun;
-    const mode = graph.import_resource(
-      "VSM/Shadow Visibility mode",
+  if (finalLighting !== undefined && physicalEnvironmentSun !== undefined) {
+    const solarSource = graph.import_resource(
+      "Physical Sun/original transmittance",
       { kind: "imported" },
-      owners.vsmShadowResolve.mode,
+      bind("final-solar-source", (bindings) => bindings.environment!.luts.transmittanceTexture),
     );
-    const frame = bind("vsm-shadow-resolve-frame", (bindings) => ({ bindings }));
-    let mask = -1;
-    const resolve = graph.add("VSM/Directional Shadow Resolve", frame, (data, resources, context) => {
-      const binding = data.bindings;
-      const texture = (id: ResourceId): GPUTexture => {
-        const value = resources.get(id) as GPUTexture & { gpu_texture?: GPUTexture };
-        return value.gpu_texture ?? value;
-      };
-      owners.vsmShadowResolve.encode(context.encoder as ShadeGPUCommandContext, {
-        width: shadowWidth,
-        height: shadowHeight,
-        cameraPosition: [
-          binding.camera.transform.matrix[12]!,
-          binding.camera.transform.matrix[13]!,
-          binding.camera.transform.matrix[14]!,
-        ],
-        geometry: nativeWinnerGeometry(
-          binding.job.assets,
-          binding.job.prepared.workSet.frameVertices,
-          resources.get(result.frame.meshletWork.records) as GPUBuffer,
-          resources.get(result.frame.frameInstances) as GPUBuffer,
-          binding.runtime,
-        ),
-        visibility: texture(result.frame.visibilityKey),
-        depth: texture(result.frame.depth),
-        camera: resources.get(cameraBuffer) as GPUBuffer,
-        constants: resources.get(constants) as GPUBuffer,
-        descriptors: resources.get(descriptors) as GPUBuffer,
-        atlas: resolveTextureView(resources.get(atlas)),
-        sun: resources.get(sun) as GPUBuffer,
-        output: texture(mask),
-      });
+    finalLighting = addFinalPixelSolarPublication(graph, {
+      transmittance: solarSource,
+      target: finalLighting,
+      plan: bind("final-lighting-plan", (bindings) => bindings.finalPixelLighting!.plan),
     });
-    for (const id of [
-      result.frame.visibilityKey,
-      result.frame.depth,
-      cameraBuffer,
-      result.frame.meshletWork.records,
-      result.frame.frameInstances,
-      result.frame.frameGeometry,
-      geometryMetadata,
-      vertexPayload,
-      constants,
-      descriptors,
-      atlas,
-      sun,
-      vsmContentVersion,
-      virtualMetadata,
-      ...(virtualBanks ?? []),
-    ]) {
-      if (id !== null && id !== undefined) {
-        resolve.read(id);
-      }
-    }
-    mask = resolve.create("VSM/Directional Shadow Visibility", {
-      kind: "transient_texture",
-      width: Math.ceil(plan.request.internalWidth / 4),
-      height: plan.request.internalHeight,
-      format: "r32uint",
-      domain: "internal-full",
-      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
-    });
-    const product = shadowVisibilityFrame({
-      visibility: mask,
-      mode: resolve.write(mode),
-      packing: "four-horizontal-count-bytes",
-      biasNormal: "geometry-face",
-      domain: textureDomain("internal-full", shadowWidth, shadowHeight, 1),
-    });
-    directionalShadowVisibility = product.visibility;
-    directionalShadowMode = product.mode;
-    assertTextureProduct(plan, graph, "shadow-visibility", mask);
   }
   const clusters =
     lightRecords === undefined
@@ -532,7 +474,12 @@ function compileSceneGraph(
             lookup: bind("local-light-lookup", (bindings) => bindings.localLightWork!.lookup),
             data: bind("local-light-data", (bindings) => bindings.localLightWork!.data),
           },
-          { visibility: result.frame.visibilityKey, depth: result.frame.depth, database: lightRecords },
+          {
+            visibility: result.frame.visibilityKey,
+            depth: result.frame.depth,
+            database: lightRecords,
+            lookup: finalLighting,
+          },
         );
   if (clusters !== undefined) {
     const sink = graph.import_resource(
@@ -681,6 +628,7 @@ function compileSceneGraph(
         { binding: 0, resource: { buffer: resources.get(lightRecords!) as GPUBuffer } },
         { binding: 1, resource: { buffer: resources.get(clusters!.parameters) as GPUBuffer } },
         { binding: 2, resource: { buffer: resources.get(clusters!.lookup) as GPUBuffer } },
+        { binding: 9, resource: { buffer: resources.get(lightingRanges!) as GPUBuffer } },
         { binding: 3, resource: { buffer: resources.get(clusters!.data) as GPUBuffer } },
         { binding: 5, resource: resolveTextureView(resources.get(surfaceEnvironment!.diffuse)) },
         { binding: 6, resource: resolveTextureView(resources.get(surfaceEnvironment!.specular)) },
@@ -692,11 +640,11 @@ function compileSceneGraph(
             : frame.environment!.ibl.sampler,
         },
         ...owners.surface.neutralLightingEntries.map((entry) => {
-          if (entry.binding === 8 && directionalShadowMode !== null) {
-            return { binding: 8, resource: { buffer: resources.get(directionalShadowMode) as GPUBuffer } };
+          if (entry.binding === 8 && vsmSamplingConstants !== null) {
+            return { binding: 8, resource: { buffer: resources.get(vsmSamplingConstants) as GPUBuffer } };
           }
-          if (entry.binding === 10 && directionalShadowVisibility !== null) {
-            return { binding: 10, resource: resolveTextureView(resources.get(directionalShadowVisibility)) };
+          if (entry.binding === 10 && vsmAtlasDepth !== null) {
+            return { binding: 10, resource: resolveTextureView(resources.get(vsmAtlasDepth)) };
           }
           if (entry.binding === 11 && scalarAo !== undefined) {
             return { binding: 11, resource: resolveTextureView(resources.get(scalarAo)) };
@@ -708,8 +656,6 @@ function compileSceneGraph(
         entries.push(
           ...nativeSurfacePhysicalSunEntries({
             parameters: frame.environment.parameters,
-            transmittance: frame.environment.luts.views.transmittance,
-            sampler: frame.environment.luts.sampler,
           }),
         );
       }
@@ -727,6 +673,7 @@ function compileSceneGraph(
       ],
       preExposure: resources.get(gpuPreviousExposure) as GPUBuffer,
       viewMatrix: frame.camera.view_matrix,
+      camera: frame.view.gpu_camera_state.buffer,
       output: texture(nativeHdr),
       visibility: texture(result.frame.visibilityKey),
       depth: frame.depth.gpu_texture,
@@ -745,6 +692,7 @@ function compileSceneGraph(
     owners.surface.encode((context.encoder as ShadeGPUCommandContext).gpu_encoder);
   });
   for (const id of [
+    cameraBuffer,
     result.frame.visibilityKey,
     result.frame.depth,
     result.frame.meshletWork.records,
@@ -760,8 +708,10 @@ function compileSceneGraph(
     surfaceEnvironment?.specular,
     surfaceEnvironment?.dfg,
     scalarAo,
-    directionalShadowVisibility,
-    directionalShadowMode,
+    vsmSamplingConstants,
+    vsmAtlasDepth,
+    vsmContentVersion,
+    lightingRanges,
     physicalEnvironmentSun,
     atmosphereEnvironment,
     virtualMetadata,

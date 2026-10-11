@@ -36,9 +36,9 @@ verifies:
     - OEngine/tests/oracle/native-material-gpu.mjs
     - OEngine/tests/oracle/native-surface-integration-gpu.mjs
     - OEngine/tests/oracle/vsm-shadow-resolve-gpu.mjs
-    - OEngine/src/render/vsm/VsmShadowResolvePass.ts
-    - OEngine/src/shaders/vsm_shadow_resolve.ts
-    - OEngine/src/shaders/vsm_shadow_visibility.ts
+    - OEngine/tests/oracle/reference/s3
+    - OEngine/src/shaders/native_resolved_position.ts
+    - OEngine/src/render/lighting/FinalPixelLightingPublication.ts
     - OEngine/tests/oracle/vsm-shadow-receiver-gpu.mjs
     - OEngine/tests/oracle/native-surface-production-gpu.mjs
     - OEngine/src/gpu/VirtualGeometryResidency.ts
@@ -1546,3 +1546,12 @@ P2-T3实际Local/Adapt映射（2026-10-11）：重新核读上述AMD MIT pin的`
 P3实际Local/Reference映射（2026-10-11）：重新核读上述Filament Apache-2.0 pin的完整`surface_light_indirect.fs`，`PrefilteredDFG_LUT`为hardware textureLod，`prefilteredRadiance`为cubemap filtered fetch，`specularDFG/evaluateClearCoatIBL`保留Fc/totalvisibility与coat attenuation语义。不能把cubemap无缝过滤直接套到oct。原padded atlas容量不能闭合；本地interior hardware候选在NPOT HDR失败，原失败保留。原创`native_environment_sample.ts`采用有界neighbor fold、原f32四点权重与整数mip blend；`native_environment_brdf.ts`只将DFG改hardware clamp，physical/authored稳定sampler由同FrameProgram绑定。42,705个GPU对照含radiance逐bit、真实发布与Native/Renderer/device recovery证据和成本见性能执行§5；没有移植Filament框架或声明完整IBL算法adoption。
 
 P5实际Local/Reference映射（2026-10-11）：核读同一Blender GPL-2.0-or-later pin `aed2b5972fc25ca8448ceaf8d98957e0065deb2a` 的[`eevee_shadow.cc::ShadowModule::sync_object/end_sync`](https://github.com/blender/blender/blob/aed2b5972fc25ca8448ceaf8d98957e0065deb2a/source/blender/draw/engines/eevee/eevee_shadow.cc)、[`eevee_shadow_tag_update.bsl.hh::tag_update_vert/frag/tag_propagate`](https://github.com/blender/blender/blob/aed2b5972fc25ca8448ceaf8d98957e0065deb2a/source/blender/draw/engines/eevee/shaders/eevee_shadow_tag_update.bsl.hh)和`eevee_shadow_tilemap_lib.bsl.hh`。上游past/current caster bounds、删除/更新、directional tile coverage及LOD传播只作架构参考，**没有复制GPL代码**。本地原创`VirtualGeometryResidency` page→asset CSR/stamps→`vsm_depth_bounds`完整提交快照/old+new损伤与稳定depth域→`vsm_caster_invalidation`物理slot单writer/保留完整identity→原allocation/raster/commit；不移植mesh/bindless、截位resource id、独立submit或上游overflow漏shadow行为。5,184项独立八角/slot交测试及真实Renderer direct patch/MASK/recovery、限定Dungeon更新成本和热状态限制见性能执行§6.2；不是Blender源码port/adoption或全VSM性能保证。
+
+
+## V5 Phase2 Final Pixel physical cutover — Local source map
+
+VSM atlas/residency、receiver aggregation、compact descriptor、local invalidation与point-PCF均复用本地已实现资产；逻辑owner仍归VSM，采样物理执行移入Native Sun。`FinalPixelLightingPublication`是独立三fence frame scratch owner，VSM/Local直接写各自区间，PhysicalEnvironment发布固定128KiB原half LUT，无新submit或GPU→CPU work control。
+
+`native_resolved_position.ts`是本地原创齐次triangle-plane与jittered inverse-VP求交，不移植WickedEngine depth-neighbor normal。face来自同一次Geometry completion；原point tap、bias/radius/footprint语义保留。原homogeneous interpolation和有限一像素导数保持，计算移到PCF后缩短存活范围，没有重构Geometry frontend。
+
+旧S3从`9f305c4128b0355614ececbe2be890582d6e8f2d`编译JS冻结到`OEngine/tests/oracle/reference/s3/`，只作numeric/quality reference，production不import或设置selector。Geometry completion独立冻结，避免新Native generator污染旧reference；Solar CPU/filtered oracle、receiver解析plane和实际production GPU结果见[V5 Phase2报告](../performance/2026-10-12-final-pixel-phase2-cutover.md)。这些是Local接线与组件验证，成本未资格，不提升source adoption或Performance Improved。

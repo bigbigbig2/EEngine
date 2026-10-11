@@ -14,8 +14,6 @@ export interface NativeMaterialPublicationSource {
   readonly program: NativeMaterialProgram;
   /** Full composed native shader and explicit resource layout, including route callbacks. */
   readonly descriptor: AppearanceProgramDescriptor;
-  /** Complete resource-limited native continuation; both pipelines publish atomically. */
-  readonly continuation?: AppearanceProgramDescriptor;
   readonly parameters?: Readonly<Record<string, readonly number[]>>;
   readonly inputs?: Float32Array<ArrayBuffer>;
   /** Scene-owned monotonic nonzero value revision, when available. */
@@ -115,10 +113,7 @@ export class GpuNativeMaterialPublication {
   private state: "preparing" | "ready" | "committed" | "retiring" | "destroyed" = "preparing";
   private readonly leases: AppearanceProgramLease[] = [];
   private readonly descriptors: AppearanceProgramDescriptor[] = [];
-  private readonly continuations: (AppearanceProgramDescriptor | null)[] = [];
   private readonly primaryLeaseIndices: number[] = [];
-  private readonly continuationLeaseIndices: (number | null)[] = [];
-  private continuationPipelines: readonly (Awaited<AppearanceProgramLease["ready"]> | null)[] = [];
   private stopListening: (() => void) | null = null;
 
   constructor(
@@ -164,9 +159,6 @@ export class GpuNativeMaterialPublication {
         throw new RangeError("Native material binding set must be a finite u32 index");
       }
       registry.preflight(source.descriptor);
-      if (source.continuation !== undefined) {
-        registry.preflight(source.continuation);
-      }
       for (const revision of [source.valueRevision, source.resourceRevision]) {
         if (
           revision !== undefined &&
@@ -322,24 +314,14 @@ export class GpuNativeMaterialPublication {
     try {
       sources.forEach((source, index) => {
         const lease = registry.acquire(source.descriptor);
-        let continuation: AppearanceProgramLease | null = null;
-        try {
-          continuation = source.continuation === undefined ? null : registry.acquire(source.continuation);
-        } catch (error) {
-          lease.release();
-          throw error;
-        }
-        const programKey = JSON.stringify([lease.key, continuation?.key ?? null]);
+        const programKey = lease.key;
         let programIndex = programIndices.get(programKey);
         if (programIndex === undefined) {
           programIndex = this.descriptors.length;
           programIndices.set(programKey, programIndex);
           this.primaryLeaseIndices.push(this.leases.length);
           this.leases.push(lease);
-          this.continuationLeaseIndices.push(continuation === null ? null : this.leases.length);
-          if (continuation !== null) {
-            this.leases.push(continuation);
-          }
+
           const descriptor = structuredClone(source.descriptor);
           for (const group of descriptor.groups) {
             for (const entry of group) {
@@ -354,26 +336,8 @@ export class GpuNativeMaterialPublication {
           }
           Object.freeze(descriptor.groups);
           this.descriptors.push(Object.freeze(descriptor));
-          const next = source.continuation === undefined ? null : structuredClone(source.continuation);
-          if (next !== null) {
-            for (const group of next.groups) {
-              for (const entry of group) {
-                for (const field of ["buffer", "sampler", "texture", "storageTexture"] as const) {
-                  if (entry[field] !== undefined) {
-                    Object.freeze(entry[field]);
-                  }
-                }
-                Object.freeze(entry);
-              }
-              Object.freeze(group);
-            }
-            Object.freeze(next.groups);
-            Object.freeze(next);
-          }
-          this.continuations.push(next);
         } else {
           lease.release();
-          continuation?.release();
         }
         const binKey = `${programIndex}/${source.bindingSet}`;
         let executionBin = binIndices.get(binKey);
@@ -479,9 +443,7 @@ export class GpuNativeMaterialPublication {
           throw new Error("Native material publication was cancelled");
         }
         this.pipelines = Object.freeze(this.primaryLeaseIndices.map((index) => pipelines[index]!));
-        this.continuationPipelines = Object.freeze(
-          this.continuationLeaseIndices.map((index) => (index === null ? null : pipelines[index]!)),
-        );
+
         this.state = "ready";
       })
       .catch((error: unknown) => {
@@ -520,15 +482,6 @@ export class GpuNativeMaterialPublication {
     return this.descriptors[programIndex]!;
   }
 
-  continuation(
-    programIndex: number,
-  ): { descriptor: AppearanceProgramDescriptor; pipeline: Awaited<AppearanceProgramLease["ready"]> } | null {
-    this.pipeline(programIndex);
-    const descriptor = this.continuations[programIndex];
-    const pipeline = this.continuationPipelines[programIndex];
-    return descriptor && pipeline ? { descriptor, pipeline } : null;
-  }
-
   /** Candidate cancellation. Committed GPU ownership must retire against its actual frame fence. */
   abort(): void {
     if (this.state === "committed" || this.state === "retiring") {
@@ -563,6 +516,5 @@ export class GpuNativeMaterialPublication {
     this.accountingHandles.length = 0;
     this.leases.forEach((lease) => lease.release());
     this.pipelines = null;
-    this.continuationPipelines = [];
   }
 }

@@ -1,7 +1,7 @@
 import { VSM_SAMPLING_WGSL } from "../../.test-dist/shaders/vsm_sampling.js";
 import { VSM_SAMPLING_PUBLICATION_WGSL } from "../../.test-dist/shaders/vsm_sampling_publication.js";
 import { REFERENCE_VSM_SAMPLING_WGSL } from "./fixtures/vsm-sampling-v1.mjs";
-import { VSM_FINE_BROADCAST_WGSL, vsmShadowResolveWgsl } from "../../.test-dist/shaders/vsm_shadow_resolve.js";
+import { VSM_FINE_BROADCAST_WGSL, vsmShadowResolveWgsl } from "./reference/s3/vsm_shadow_resolve.mjs";
 
 const check = (value, message) => { if (!value) throw new Error(message); };
 

@@ -17,6 +17,7 @@ type LutSet = {
   readonly views: Readonly<Record<AtmosphereLutName, GPUTextureView>>;
   readonly sampler: GPUSampler;
   readonly textures: readonly GPUTexture[];
+  readonly sourceTextures: Readonly<Record<AtmosphereLutName, GPUTexture>>;
   readonly transforms: GPUBuffer;
   readonly stages: ReadonlyArray<{
     pipeline: GPUComputePipeline;
@@ -55,6 +56,10 @@ export class AtmosphereLutResources {
   }
   get views(): Readonly<Record<AtmosphereLutName, GPUTextureView>> {
     return (this.pending ?? this.active).views;
+  }
+  /** Original half LUT for same-encoder Final Pixel publication; ownership stays here. */
+  get transmittanceTexture(): GPUTexture {
+    return (this.pending ?? this.active).sourceTextures.transmittance;
   }
   get sampler(): GPUSampler {
     return (this.pending ?? this.active).sampler;
@@ -108,6 +113,7 @@ export class AtmosphereLutResources {
   private createSet(): LutSet {
     const views = {} as Record<AtmosphereLutName, GPUTextureView>;
     const textures: GPUTexture[] = [];
+    const sourceTextures = {} as Record<AtmosphereLutName, GPUTexture>;
     for (const name of Object.keys(ATMOSPHERE_LUT_SIZES) as AtmosphereLutName[]) {
       const size = ATMOSPHERE_LUT_SIZES[name];
       const dimension = size[2] > 1 ? "3d" : "2d";
@@ -119,6 +125,7 @@ export class AtmosphereLutResources {
         usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
       });
       textures.push(texture);
+      sourceTextures[name] = texture;
       views[name] = texture.createView({ dimension });
     }
     const sampler = this.device.createSampler({
@@ -168,7 +175,14 @@ export class AtmosphereLutResources {
       });
       return { name: stage.name, dispatch: stage.dispatch, pipeline, bindings: group };
     });
-    return { views: Object.freeze(views), sampler, textures, transforms, stages };
+    return {
+      views: Object.freeze(views),
+      sourceTextures: Object.freeze(sourceTextures),
+      sampler,
+      textures,
+      transforms,
+      stages,
+    };
   }
   private destroySet(set: LutSet): void {
     set.textures.forEach((texture) => texture.destroy());

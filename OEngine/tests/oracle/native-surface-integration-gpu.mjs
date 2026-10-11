@@ -29,6 +29,9 @@ import { GPUSamplerCache } from "../../.test-dist/gpu/GPUSamplerCache.js";
 import { FrameProfiler } from "../../.test-dist/debug/FrameProfiler.js";
 import { PACKED_CAMERA_TYPE } from "../../.test-dist/shaders/packed_camera.js";
 import { LocalLightWorkGenerator } from "../../.test-dist/render/lighting/LocalLightWorkGenerator.js";
+import { FinalPixelLightingPublication } from "../../.test-dist/render/lighting/FinalPixelLightingPublication.js";
+import { VsmSamplingPublicationPass } from "../../.test-dist/render/vsm/VsmSamplingPublicationPass.js";
+import { addFinalPixelSolarPublication } from "../../.test-dist/render/environment/FinalPixelSolarPublication.js";
 
 const check = (condition, message) => {
   if (!condition) throw new Error(message);
@@ -77,6 +80,8 @@ export async function runNativeSurfaceIntegrationGpuOracle(
   };
   const registry = new AppearanceProgramRegistry(device);
   const localOwner = new LocalLightWorkGenerator(device, 37);
+  const lightingOwner = new FinalPixelLightingPublication(device);
+  const samplingOwner = new VsmSamplingPublicationPass(device);
   await localOwner.ready;
   const surface = new SurfaceV4(device, true),
     aux = new NativeSurfaceAuxResources(device);
@@ -156,7 +161,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
       256,
       64,
       "rgba16float",
-      GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+      GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC,
     );
     const lut = new Uint16Array(256 * 64 * 4);
     for (let i = 0; i < lut.length; i += 4) lut.set([...sunTransmission, encodeFloat16(1)], i);
@@ -368,7 +373,9 @@ export async function runNativeSurfaceIntegrationGpuOracle(
           )
         : null;
       const allocation = aux.prepare("Temporal", width, height);
+      const finalLighting = lightingOwner.prepare(1, fixture.lightingPlan.descriptorCount, command);
       const localFrame = localOwner.prepare({
+        lookupTarget: { buffer: finalLighting.buffer, offset: finalLighting.plan.lookupOffset, size: finalLighting.plan.lookupBytes },
         publication: {
           buffer: fixture.lightingEntries[0].resource.buffer,
           revision: 1,
@@ -391,8 +398,10 @@ export async function runNativeSurfaceIntegrationGpuOracle(
         depth: fixture.depth.createView(),
       });
       const lightingEntries = [
-        ...localFrame.lightingEntries,
-        ...fixture.lightingEntries.filter((entry) => entry.binding > 3),
+        ...localFrame.lightingEntries.filter((entry) => entry.binding !== 2),
+        ...fixture.lightingEntries.filter((entry) => entry.binding > 3 && entry.binding !== 9),
+        { binding: 2, resource: { buffer: finalLighting.buffer } },
+        { binding: 9, resource: { buffer: finalLighting.ranges } },
         ...(physicalSun ? sunEntries : []),
       ];
       await surface.prepareFrame({
@@ -403,6 +412,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
         cameraPosition: [0, 0, 3],
         preExposure: fixture.exposure,
         viewMatrix: identity,
+        camera,
         visibility: fixture.visibility,
         depth: fixture.depth,
         background: fixture.background,
@@ -483,31 +493,26 @@ export async function runNativeSurfaceIntegrationGpuOracle(
       for (const id of dependencies) winner.read(id);
       const winnerVis = winner.write(vis),
         winnerDepth = winner.write(depth);
-      let shadowProduct = null;
+      let lightingProduct = samplingOwner.addToGraph(graph, {
+        pages: 16, levels: 1,
+        constants: imported("VSM constants", fixture.vsm.constants),
+        pageTable: imported("VSM committed page table", fixture.vsm.pageTable),
+        contentVersion: imported("VSM committed atlas", fixture.vsm.atlas),
+        target: { resource: imported("final lighting container", finalLighting.buffer),
+          offset: finalLighting.plan.descriptorOffset, size: finalLighting.plan.descriptorBytes },
+      });
       if (physicalSun) {
-        const target = imported("directional visibility", fixture.vsm.shadowVisibility);
-        const resolve = graph.add("VSM/Directional Shadow Resolve", {}, () => {
-          fixture.vsm.shadowResolve.encode(command, {
-            width, height, cameraPosition: [0, 0, 3],
-            geometry: fallback ? { ...geometry(), sourcePayload: [0, 0, 0, (fixture.geometry.sourcePayload[3] | 0x80000000) >>> 0] } : geometry(),
-            visibility: fixture.visibility,
-            depth: fixture.depth,
-            camera,
-            constants: fixture.vsm.constants, descriptors: fixture.vsm.descriptors,
-            atlas: fixture.vsm.atlas.createView(), sun: sunParameters,
-            output: fixture.vsm.shadowVisibility,
-          });
+        lightingProduct = addFinalPixelSolarPublication(graph, {
+          transmittance: imported("Sun transmittance provider", sunTexture),
+          target: lightingProduct, plan: finalLighting.plan,
         });
-        resolve.read(winnerVis);
-        resolve.read(winnerDepth);
-        for (const id of dependencies) resolve.read(id);
-        shadowProduct = resolve.write(target);
       }
       const localProducts = localFrame
         ? localOwner.addToGraph(graph, { frame: localFrame }, localFrame, {
             visibility: winnerVis,
             depth: winnerDepth,
             database: imported("local database", localFrame.request.publication.buffer),
+            lookup: lightingProduct,
           })
         : null;
       const reactiveResource = imported("opaque reactive", allocation.opaqueReactive, "internal-full");
@@ -519,7 +524,6 @@ export async function runNativeSurfaceIntegrationGpuOracle(
           exposure,
           background,
           ...dependencies,
-          ...(shadowProduct !== null ? [shadowProduct] : []),
           ...(localProducts ? [localProducts.data, localProducts.lookup] : []),
         ],
         reactiveResource,
@@ -889,13 +893,13 @@ export async function runNativeSurfaceIntegrationGpuOracle(
     // step; all original normal-P budgets remain unchanged.
     await frame(11, { reset: true, exposureUpdate: true, exposureTarget: 0.00002 });
     check(rows.at(-1).pbrSamples > 0, "Low-P regression requires actual lit material samples");
-    const nativeSunContinuations = publication.bins.filter(
-      (bin) => publication.continuation(bin.programIndex) !== null,
-    ).length;
+    const nativeSunContinuations = 0;
+    check(!("continuation" in publication), "Retired Sun continuation API survived cutover");
     const lossReport = controlledLoss
       ? await (async () => {
           const ownedBytes = () =>
             (localOwner?.allocatedBytes ?? 0) +
+            lightingOwner.allocatedBytes +
             surface.allocatedBytes +
             aux.allocatedBytes +
             temporal.allocatedBytes +
@@ -972,6 +976,9 @@ export async function runNativeSurfaceIntegrationGpuOracle(
   } finally {
     if (!controlledLoss) await device.queue.onSubmittedWorkDone();
     surface.destroy();
+    lightingOwner.destroy();
+    samplingOwner.destroy();
+    check(lightingOwner.allocatedBytes === 0, "Final lighting integration teardown residue");
     localOwner?.destroy();
     check(!localOwner || localOwner.allocatedBytes === 0, "Local light integration teardown residue");
     aux.destroy();

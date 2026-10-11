@@ -11,6 +11,15 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "final-pixel-shadow-quality",
+    file: "OEngine/tests/oracle/final-pixel-shadow-quality-gpu.mjs",
+    url: "/OEngine/tests/oracle/final-pixel-shadow-quality-gpu.mjs",
+    entry: "runFinalPixelShadowQualityGpuOracle",
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    timeoutMs: 600000,
+    description: "Full 1080p 256-frame Native receiver/Sun visibility against analytic planes, all page boundaries and frozen S3 quality envelope.",
+  }),
+  Object.freeze({
     name: "final-pixel-seed-epoch",
     file: "OEngine/tests/oracle/final-pixel-phase1-gpu.mjs",
     url: "/OEngine/tests/oracle/final-pixel-phase1-gpu.mjs",

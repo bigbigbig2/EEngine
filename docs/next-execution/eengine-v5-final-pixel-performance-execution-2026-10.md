@@ -15,6 +15,10 @@ verifies:
     - OEngine/src/shaders/native_surface.ts
     - OEngine/src/shaders/native_surface_aux.ts
     - OEngine/src/shaders/native_surface_lighting.ts
+    - OEngine/src/render/lighting/FinalPixelLightingPublication.ts
+    - OEngine/src/shaders/native_resolved_position.ts
+    - OEngine/tests/oracle/final-pixel-shadow-quality-gpu.mjs
+    - OEngine/tests/contract/final-pixel-shadow-cutover.test.mjs
     - OEngine/src/shaders/native_temporal.ts
     - OEngine/src/shaders/vsm_sampling.ts
     - OEngine/src/gpu/GpuNativeMaterialPublication.ts
@@ -37,7 +41,7 @@ verifies:
 
 # EEngine V5 Final Pixel Execution Authority
 
-唯一目标是[V5 Design](../next-design/eengine-v5-final-pixel-performance-2026-10.md)。本文件管理迁移单元、合同、验证、cutover与退休；候选实验进入`docs/performance/`，不追加到目标设计。source baseline `49fcaa300fafcbbe3db142df403baa3487f89956`。用户已授权“提交代码并开始phase1”，随后明确“继续”；authority先提交为 `e2ebed8`。当前范围是Phase1非生产完整替代闭包，生产接线须等后续Phase2/3，不能把prototype验证称生产性能/动态画质验收。
+唯一目标是[V5 Design](../next-design/eengine-v5-final-pixel-performance-2026-10.md)。本文件管理迁移单元、合同、验证、cutover与退休；候选实验进入`docs/performance/`，不追加到目标设计。source baseline `49fcaa300fafcbbe3db142df403baa3487f89956`；authority先提交为 `e2ebed8`，Phase1非生产完整闭包提交为 `9f305c4`。本次用户授权审核当前Phase、必要返工并执行下一完整Phase。当前是Phase2生产Shadow融合及候选成本返工，Temporal Seed仍等Phase3。编译、prototype或组件数值通过不能称整Renderer性能/动态画质验收。
 
 ## 1. Phase 顺序、依赖与状态
 
@@ -45,7 +49,7 @@ verifies:
 |---|---|---|
 | 0 | Source truth、目标图、数据/质量/成本合同冻结 | 用户已授权实施；文档提交e2ebed8 |
 | 1 | Final Pixel publication / Native Seed非生产完整闭包，替代重复恢复链，合法binding与唯一写域 | 非生产闭包完成；§4.2绑定修正已验证，§4.3记录出口及未获生产资格项 |
-| 2 | Shadow Physical Execution cutover：full I Shadow Resolve / mask / 重复continuation退休 | 1；未开始 |
+| 2 | Shadow Physical Execution cutover：full I Shadow Resolve / mask / 重复continuation退休 | 1；生产唯一链已切，receiver数值返工通过；成本未资格，仍在本Phase，见§5.1 |
 | 3 | Temporal Seed cutover：Native→全部Temporal consumers；Facts恢复pass / 旧Aux退休 | 1、2；未开始 |
 | 4 | Native Temporal V2完整图：native scatter / Prepare / SPD / source histories退休 | 3；未开始 |
 | 5 | Final Pixel全feature/domain集成、最后旧owner与多余常驻/生命周期税退休 | 2–4；未开始 |
@@ -169,6 +173,14 @@ ADD：Native scope VSM query/原pointPCF/bias/scalar visibility；physical looku
 
 Cost gate：删除receiver恢复/产品，ADD per-pixeldescriptor重复lookup和Nativeworking set；PCF共同项不算删除。source证明无continuation/第二geometry，全部layout合法。闭合后fresh build:test、sampling/receiver/alpha/off-camera/local-invalidation/实际Native GPU、Shadow quality子矩阵、所有组合/abort/retry/epoch；再一次有限同条件DungeonABBA，统计**Native+VSM全部工作与whole span**。单candidate慢先调本unit；不能自动留S3/改C。完整证伪门满足才提amendment。报告进performance，本执行文只记出口/链接。
 
+### 5.1 当前实施出口与返工判定
+
+Phase1无需返工或推迟：四输出Seed完整闭包已证明16/16最低binding和事务，仍是Phase3入口。Phase2不能直接照搬prototype位置候选：1080p独立plane/page checker揭示重心position的f32页误判，原失败保留；改为同一次resolved triangle plane与jittered camera齐次求交。一个matrix-vector、两个dot、clip-Z求解及投影除法；不读Depth/邻居、不重建winner/instance/geometry；奇异/非有限结果复用该triangle原重心数学。原attributes/有限一像素梯度完全保持，计算移到PCF后缩短live scope；非生产完整profile的Seed仍在同一Native invocation有效性检查后写。
+
+生产已完成logical VSM→descriptor/atlas/constants→Native Sun的唯一cutover；独立lighting scratch owner提供descriptor/Solar/local lookup各自直接写区间，三fence上限、abort/resize/deviceepoch与显存记账；Solar固定128KiB同encodercopy，无容量级descriptor/lookup拷贝。普通/Product/compact/unlit/中立、maximum material profile、真实Renderer事务已运行。旧pass/shader/mask/decoder、Sun continuation及第二HDR立即删除；冻结S3只在test-only reference中，无production selector。NativeTemporalFacts、旧Aux/versions/16B directory未提前迁移。
+
+语义与接线验证、原失败与成本数据见[Phase2报告](../performance/2026-10-12-final-pixel-phase2-cutover.md)。**成本出口尚未取得资格，Phase2未关闭。** 已有完整ABBA候选未得到稳定whole span与VSM→Native净收益；不把Native桶转移称收益，也不将热态/clock变化归一化成成功。单candidate慢不能改变B、切packet或停止Native Temporal V2。后续先完成本Phase候选成本出口及剩余质量项；正式Phase6长窗口、完整动态矩阵与4GB simultaneous peak未运行。Phase3未开始。
+
 ## 6. Phase 3 — Temporal Seed cutover / retire NativeTemporalFacts
 
 目标：geometry-dependent facts在Native生成，当前native T3/true upscale都消费Seed；不提前改Temporal算法。
@@ -237,8 +249,8 @@ DELETE（条件目标）：Npixel depth→world→lightprojection与receiverdisp
 
 性能runner是`validation/tools/run-dungeon-performance.mjs`及analyzer；≥1000样本ABBA/P99/新ROI是后续实现对runner必要扩展，当前默认60样本不冒称已支持新门。新profile/golden只在实施需要时加，本文档任务不造空placeholder。
 
-docs运行`node tools/docs-verify.mjs`与`git diff --check`；raw/source/build/失败不覆盖；中文commit一个完整单元一意图，写DELETE/ADD、实测/未运行。domains/adoption/claims只有实际切换与证据后更新，本次不改实现事实文档。
+docs运行`node tools/docs-verify.mjs`与`git diff --check`；raw/source/build/失败不覆盖；中文commit一个完整单元一意图，写DELETE/ADD、实测/未运行。domains/adoption/claims只有实际切换与证据后更新；Phase2只更新已经发生的runtime接线，不晋级性能claim。
 
 ## 12. 本次交付边界
 
-已提交V5 authority并在用户授权范围内完成Phase1非生产闭包：source-derived contracts已有实际shader/profile、producer/consumer与生命周期验证。结果与范围外失败见§4.3及报告。尚未生产cutover，没有整体动态quality/正式performance/寄存器验收，不把compile/oracle称性能收益。后续第一单元为Phase2 Shadow physical cutover，保持既定geometry-once/fusion方向及quality门；本轮在该边界STOP。
+Phase1审核结论：无需返工或延期；最低设备binding闭包、非生产Native Seed及事务仍有效。Phase2实际暴露receiver页边界误差与融合增税，需要在本Phase返工，不能将其包装为Phase3问题或回到S3。当前生产Sun直接消费VSM合同，旧Shadow/fullscreen mask/continuation已退休；NativeTemporalFacts和旧Aux仍是Phase3真实删除对象。本Phase成本资格及剩余验证只读§5.1和performance报告；未通过必需出口前不进入Phase3，不宣称60FPS、稳定收益或B架构被否定。

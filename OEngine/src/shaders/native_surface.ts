@@ -7,6 +7,7 @@ import {
 import type { AppearanceProgramDescriptor } from "../gpu/AppearanceProgramRegistry.js";
 import { NATIVE_MATERIAL_DIRECTORY_WGSL } from "../gpu/GpuNativeMaterialPublication.js";
 import { surfaceGeometryCompletionWgsl } from "./surface_geometry_completion.js";
+import { NATIVE_RESOLVED_POSITION_WGSL } from "./native_resolved_position.js";
 import { nativeLocalLighting } from "./native_local_lighting.js";
 import {
   FINAL_PIXEL_DIRECTORY_WGSL,
@@ -19,7 +20,7 @@ import { NATIVE_ENVIRONMENT_SAMPLE_WGSL } from "./native_environment_sample.js";
 import { ENVIRONMENT_BRDF_WGSL } from "./native_environment_brdf.js";
 import { LINEAR_REC709_TO_REC2020_WGSL } from "./working_color.js";
 import { nativeSurfaceAuxWgsl } from "./native_surface_aux.js";
-import { VSM_SHADOW_VISIBILITY_WGSL } from "./vsm_shadow_visibility.js";
+
 import {
   nativeSurfacePhysicalSunLayoutEntries,
   nativeSurfacePhysicalSunWgsl,
@@ -34,16 +35,12 @@ export interface NativeSurfaceShaderProfile {
   readonly unlit: boolean;
   readonly reactive: boolean;
   readonly physicalSun?: boolean;
-  /** Resource-limit continuation: recompute native inputs, then add shadowed sun. */
-  readonly additiveSun?: boolean;
   readonly costSlice?: NativeSurfaceCostSlice;
   /** V5 target only: no production composition root selects this profile yet. */
   readonly finalPixel?: boolean;
-  /** Phase 2 cutover seam: fused Sun with the existing directory/Aux ABI. */
-  readonly fusedSun?: boolean;
 }
 
-export const NATIVE_SURFACE_SETTINGS_BYTES = 144;
+export const NATIVE_SURFACE_SETTINGS_BYTES = 208;
 export const FINAL_PIXEL_SURFACE_SETTINGS_BYTES =
   NATIVE_SURFACE_SETTINGS_BYTES + NATIVE_TEMPORAL_SEED_VIEW_BYTES;
 const SURFACE_GRAPHS = new WeakMap<CompiledAppearanceGraph, Map<boolean, CompiledAppearanceGraph>>();
@@ -125,22 +122,9 @@ export function nativeSurfaceBindingGroups(
   materialLayout: readonly GPUBindGroupLayoutEntry[],
   profile: NativeSurfaceShaderProfile,
 ): readonly (readonly GPUBindGroupLayoutEntry[])[] {
-  const fusedSun = profile.finalPixel || profile.fusedSun;
-  if (fusedSun && (profile.additiveSun || (profile.costSlice !== undefined && profile.costSlice !== "G"))) {
-    throw new RangeError("Fused Sun requires a complete single-invocation lighting profile");
-  }
-  if (
-    profile.finalPixel &&
-    (!profile.reactive ||
-      profile.additiveSun ||
-      (profile.costSlice !== undefined && profile.costSlice !== "G"))
-  ) {
-    throw new RangeError(
-      "Final Pixel requires one complete Sun/Seed writer without continuation or cost slices",
-    );
-  }
-  if (profile.additiveSun && (!profile.physicalSun || profile.unlit || profile.reactive)) {
-    throw new RangeError("Native sun continuation requires a lit sun profile without a second Aux writer");
+  const fusedSun = true;
+  if (profile.finalPixel && !profile.reactive) {
+    throw new RangeError("Final Pixel requires all three Temporal outputs");
   }
   const geometry: GPUBindGroupLayoutEntry[] = [
     uniform(0),
@@ -155,9 +139,6 @@ export function nativeSurfaceBindingGroups(
       storageTexture: { format: "rgba16float", access: "write-only" },
     },
   ];
-  if (profile.additiveSun) {
-    geometry.push(texture(9, "unfilterable-float"));
-  }
   if (profile.reactive) {
     geometry.push({
       binding: 8,
@@ -188,7 +169,7 @@ export function nativeSurfaceBindingGroups(
         texture(6, "unfilterable-float"),
         texture(7, "float"),
         uniform(8),
-        texture(10, fusedSun ? "depth" : "uint"),
+        texture(10, "depth"),
         texture(11, "float"),
       ];
   if (!profile.unlit) {
@@ -201,52 +182,30 @@ export function nativeSurfaceBindingGroups(
   }
   const material: GPUBindGroupLayoutEntry[] = [read(0), read(1), uniform(3), uniform(4)];
   if (!profile.unlit && profile.physicalSun) {
-    lighting.push(...nativeSurfacePhysicalSunLayoutEntries(fusedSun));
+    lighting.push(...nativeSurfacePhysicalSunLayoutEntries());
   }
   if (profile.compact) {
     material.push(read(2));
   }
-  return [
-    geometry,
-    profile.additiveSun
-      ? lighting.filter((entry) => [0, 8, 10, 12, 13, 14].includes(entry.binding))
-      : lighting,
-    material,
-    materialLayout,
-  ];
+  return [geometry, lighting, material, materialLayout];
 }
 
-/** Two finite physical plans, selected only by the complete negotiated binding
- * footprint. The sun continuation trades repeated Geometry/Material evaluation
- * +16B/screen pixel copy and +16B/affected pixel HDR traffic for keeping the
- * original legal resource domain. A second 8B/pixel HDR exists only for this plan.
- * No material record, caching or missing provider is hidden in this plan.
- * Ordinary profiles stay fused; this is a capability boundary, not a speed claim. */
+/** One complete physical Sun profile. No resource-limit reconstruction continuation. */
 export function nativeSurfacePublicationDescriptors(
   program: NativeMaterialProgram,
   materialLayout: readonly GPUBindGroupLayoutEntry[],
   profile: NativeSurfaceShaderProfile,
   limits: Pick<GPUSupportedLimits, "maxSampledTexturesPerShaderStage">,
-): { descriptor: AppearanceProgramDescriptor; continuation?: AppearanceProgramDescriptor } {
+): { descriptor: AppearanceProgramDescriptor } {
   const descriptor = nativeSurfaceDescriptor(program, materialLayout, profile);
   const sampled = descriptor.groups.reduce(
     (sum, group) => sum + group.filter((entry) => entry.texture !== undefined).length,
     0,
   );
-  if (sampled <= limits.maxSampledTexturesPerShaderStage || !profile.physicalSun || profile.unlit) {
-    return { descriptor };
-  }
-  if (profile.finalPixel || profile.fusedSun) {
+  if (sampled > limits.maxSampledTexturesPerShaderStage) {
     throw new RangeError("Complete Final Pixel sampled footprint exceeds the negotiated limit");
   }
-  return {
-    descriptor: nativeSurfaceDescriptor(program, materialLayout, { ...profile, physicalSun: false }),
-    continuation: nativeSurfaceDescriptor(program, materialLayout, {
-      ...profile,
-      additiveSun: true,
-      reactive: false,
-    }),
-  };
+  return { descriptor };
 }
 
 const GEOMETRY_INPUTS: Readonly<Record<string, number>> = Object.freeze({
@@ -272,15 +231,12 @@ export function nativeSurfaceWgsl(
   profile: NativeSurfaceShaderProfile,
 ): string {
   const costSlice = profile.costSlice ?? "G";
-  const fusedSun = profile.finalPixel || profile.fusedSun;
+  const fusedSun = true;
   if (costSlice === "Q0") {
-    throw new RangeError("Q0 embedded VSM query slice is retired; time the Directional Shadow Resolve pass");
+    throw new RangeError("Q0 embedded VSM query slice is retired; use the Native Sun consumer timing");
   }
   if (!/^(?:[A-G]|B0|Q0|K)$/.test(costSlice)) {
     throw new RangeError("Native cost slice must be A through G, B0 or K (Resolve query keys)");
-  }
-  if (costSlice !== "G" && profile.additiveSun) {
-    throw new Error("Native cost slicing requires the fused resource profile");
   }
   let needs = profile.unlit ? (profile.finalPixel ? 1 << 7 : 0) : (1 << 7) | (1 << 5) | (1 << 6);
   const inputs: string[] = [];
@@ -345,8 +301,8 @@ export function nativeSurfaceWgsl(
     ? ""
     : /* wgsl */ `
 ${localLighting.source}
-${fusedSun ? vsmSamplingWgsl(true) : VSM_SHADOW_VISIBILITY_WGSL}
-${profile.physicalSun ? nativeSurfacePhysicalSunWgsl(costSlice === "G" || costSlice === "K", fusedSun) : ""}
+${vsmSamplingWgsl(true)}
+${profile.physicalSun ? nativeSurfacePhysicalSunWgsl(costSlice === "G" || costSlice === "K") : ""}
 ${NATIVE_ENVIRONMENT_SAMPLE_WGSL}
 ${ENVIRONMENT_BRDF_WGSL}
 struct NativeShadingView {
@@ -415,12 +371,7 @@ fn native_environment(material: StandardMaterial, normal: vec3f, direction: vec3
   const directEnabled = profile.physicalSun
     ? "native_physical_sun.diagnostic_mode == 0u || native_physical_sun.diagnostic_mode == 4u"
     : "true";
-  let materialLighting = profile.additiveSun
-    ? `  var color = vec3f(0.0);
-  if (${directEnabled}) {
-    color = ${sunLighting};
-  }`
-    : `  var direct = vec3f(0.0);
+  let materialLighting = `  var direct = vec3f(0.0);
   if (${directEnabled}) {
     direct = ${directLighting};
   }
@@ -469,13 +420,12 @@ fn native_environment(material: StandardMaterial, normal: vec3f, direction: vec3
   let view_depth = max(-(settings.view_matrix * vec4f(position, 1.0)).z, 1e-4);
 ${materialLighting}
 `;
-  // Projection/debug is already resolved by the VSM owner. Native consumes
-  // one packed byte and a 16B mode, never management descriptors or atlas taps.
+  // Debug sampling uses the existing invocation facts; no cross-pass mask.
   const vsmDebug =
     costSlice === "G" && profile.physicalSun && !profile.unlit
       ? /* wgsl */ `
-  if (${fusedSun ? "vsm_constants.identity.z" : "shadow_visibility_mode.x"} != 0u) {
-    output_radiance = oengine_linear_rec709_to_rec2020(${fusedSun ? `vsm_debug_color(position, native_face_normal(corners.world_plane.xyz, position), native_physical_sun.sun_direction_world, (corners.flags & ${GPU_INSTANCE_FLAGS.ReceivesShadow}u) != 0u)` : "directional_shadow_debug_at(pixel)"});
+  if (vsm_constants.identity.z != 0u) {
+    output_radiance = oengine_linear_rec709_to_rec2020(vsm_debug_color(position, native_face_normal(corners.world_plane.xyz, position), native_physical_sun.sun_direction_world, (corners.flags & ${GPU_INSTANCE_FLAGS.ReceivesShadow}u) != 0u));
   }
 `
       : "";
@@ -498,7 +448,7 @@ ${materialLighting}
 ${inputs.join("\n")}
   let values = native_material_evaluate(entry.constant_base, inputs);
 ${fusedSun ? "" : rasterFlags}
-  let position = native_attribute(corners.position, interpolation.weights).xyz;
+  let position = resolved_position;
   let normal = native_geometry_input(corners, interpolation.weights, 5u).xyz;
   let tangent = native_geometry_input(corners, interpolation.weights, 6u);
   let basis = mat3x3f(tangent.xyz, cross(normal, tangent.xyz) * tangent.w, normal);
@@ -552,6 +502,7 @@ ${material}
   return /* wgsl */ `
 // Native cost slice: ${costSlice}
 ${surfaceGeometryCompletionWgsl(profile.productGeometry, true, false, fusedSun)}
+${NATIVE_RESOLVED_POSITION_WGSL}
 ${lighting}
 ${LINEAR_REC709_TO_REC2020_WGSL}
 ${profile.finalPixel ? FINAL_PIXEL_DIRECTORY_WGSL : NATIVE_MATERIAL_DIRECTORY_WGSL}
@@ -562,6 +513,7 @@ struct NativeSurfaceSettings {
   camera_position_exposure: vec4f,
   view_matrix: mat4x4f,
   background: vec4f,
+  inverse_view_projection: mat4x4f,
   ${profile.finalPixel ? "temporal: NativeTemporalSeedView," : ""}
 }
 @group(0) @binding(0) var<uniform> settings: NativeSurfaceSettings;
@@ -571,7 +523,7 @@ struct NativeSurfaceSettings {
 @group(0) @binding(4) var<storage, read> frame_instances: array<OEngineFrameInstanceRecord>;
 @group(0) @binding(5) var visibility: texture_2d<u32>;
 @group(0) @binding(7) var hdr: texture_storage_2d<rgba16float, write>;
-${profile.additiveSun ? "@group(0) @binding(9) var prior_native_hdr: texture_2d<f32>;" : ""}
+
 ${reactiveDeclaration}
 ${profile.finalPixel ? "fn seed_view() -> NativeTemporalSeedView { return settings.temporal; }" : ""}
 ${productBindings}
@@ -674,25 +626,14 @@ ${pixelSelection}
     ${profile.finalPixel ? "seed_unassigned(pixel, false);" : ""}
     return;
   }
-  let ${fusedSun ? "resolved" : "corners"} = geometry_complete_resolved(decoded, work, frame_instances[work.instance_slot]);
-  let interpolation = winner_interpolate(${fusedSun ? "resolved" : "corners"}.coefficients, vec2f(pixel) + vec2f(0.5), vec2f(settings.dimensions.xy));
-  if (interpolation.flags & WINNER_VALUE_VALID) == 0u {
-    ${profile.finalPixel ? "seed_unassigned(pixel, false);" : ""}
-    return;
-  }
+  let resolved = geometry_complete_resolved(decoded, work, frame_instances[work.instance_slot]);
 ${
   fusedSun
     ? `${rasterFlags}
-  let resolved_position = native_attribute(resolved.position, interpolation.weights).xyz;
-  ${
-    profile.finalPixel
-      ? `seed_surface(pixel, resolved_position, settings.view_matrix, frame_instances[work.instance_slot].source,
-    work, entry, (raster_flags & 1u) != 0u);`
-      : ""
-  }
+  let resolved_position = native_resolved_position(resolved, pixel);
   var sun_visibility = 1.0;
   ${
-    profile.physicalSun && !profile.unlit
+    (costSlice === "G" || costSlice === "K") && profile.physicalSun && !profile.unlit
       ? `if ((resolved.flags & ${GPU_INSTANCE_FLAGS.ReceivesShadow}u) != 0u) {
     let face = native_face_normal(resolved.world_plane.xyz, resolved_position);
     var incident: GpuPrimitiveTypeTable;
@@ -702,6 +643,18 @@ ${
   }`
       : ""
   }
+  // Keep weights and finite one-pixel gradients out of the PCF live scope.
+  let interpolation = winner_interpolate(resolved.coefficients, vec2f(pixel) + vec2f(0.5), vec2f(settings.dimensions.xy));
+  if (interpolation.flags & WINNER_VALUE_VALID) == 0u {
+    ${profile.finalPixel ? "seed_unassigned(pixel, false);" : ""}
+    return;
+  }
+  ${
+    profile.finalPixel
+      ? `seed_surface(pixel, resolved_position, settings.view_matrix, frame_instances[work.instance_slot].source,
+    work, entry, (raster_flags & 1u) != 0u);`
+      : ""
+  }
   let corners = geometry_complete_attributes(resolved, frame_instances[work.instance_slot]);`
     : ""
 }
@@ -709,7 +662,7 @@ ${evaluation}
   // P is the positive GPU exposure published by radiometry. An artistic lower
   // floor here would disagree with Sky/Aerial and HDR metering above L=1800.
   let contribution = oengine_linear_rec709_to_rec2020(color) * settings.camera_position_exposure.w;
-  var output_radiance = ${profile.additiveSun ? "textureLoad(prior_native_hdr, vec2i(pixel), 0).rgb + contribution" : "contribution"};
+  var output_radiance = contribution;
 ${vsmDebug}
   textureStore(hdr, vec2i(pixel), vec4f(output_radiance, 1.0));
   ${reactiveWrite}

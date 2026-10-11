@@ -5,21 +5,11 @@ import { FINAL_PIXEL_SOLAR_SAMPLING_WGSL } from "../gpu/FinalPixelAbi.js";
 export interface NativeSurfacePhysicalSunProvider {
   /** PhysicalEnvironmentRuntime.parameters; the existing 64-byte uniform. */
   readonly parameters: GPUBuffer;
-  /** PhysicalEnvironmentRuntime.luts.views.transmittance; 256x64 rgba16float. */
-  readonly transmittance: GPUTextureView;
-  /** PhysicalEnvironmentRuntime.luts.sampler; linear filtering, clamp to edge. */
-  readonly sampler: GPUSampler;
 }
 
-export function nativeSurfacePhysicalSunLayoutEntries(finalPixel = false): GPUBindGroupLayoutEntry[] {
+export function nativeSurfacePhysicalSunLayoutEntries(): GPUBindGroupLayoutEntry[] {
   return [
     { binding: 12, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 48 } },
-    ...(finalPixel
-      ? []
-      : [
-          { binding: 13, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" as const } },
-          { binding: 14, visibility: GPUShaderStage.COMPUTE, sampler: { type: "filtering" as const } },
-        ]),
   ];
 }
 
@@ -27,11 +17,7 @@ export function nativeSurfacePhysicalSunLayoutEntries(finalPixel = false): GPUBi
 export function nativeSurfacePhysicalSunEntries(
   provider: NativeSurfacePhysicalSunProvider,
 ): GPUBindGroupEntry[] {
-  return [
-    { binding: 12, resource: { buffer: provider.parameters } },
-    { binding: 13, resource: provider.transmittance },
-    { binding: 14, resource: provider.sampler },
-  ];
+  return [{ binding: 12, resource: { buffer: provider.parameters } }];
 }
 
 /**
@@ -39,35 +25,32 @@ export function nativeSurfacePhysicalSunEntries(
  * BRDF/VSM math. Uses the existing Takram atmosphere provider unchanged: world
  * scale, altitude, finite solar disk/horizon, transmission and photometry.
  * Surface exposure/color conversion happens once after the sum of all lighting.
- * Default cost: no new allocations/dispatches/storage bindings, one uniform,
- * one texture and sampler, a filtered LUT sample and packed visibility load.
- * Fused cost: the shared frame directory carries a fixed 128KiB LUT publication;
+ * Cost: the shared frame directory carries a fixed 128KiB LUT publication;
  * four raw half-texel reads plus decode/interpolation replace hardware filtering.
  * No additional storage binding or sampler; VSM visibility is invocation-local.
  */
-export function nativeSurfacePhysicalSunWgsl(shadowed: boolean, finalPixel = false): string {
+export function nativeSurfacePhysicalSunWgsl(shadowed: boolean): string {
   // Retain the upstream provider's coordinate, horizon and photometry math;
   // replace only its single texture sample with exact half-buffer interpolation.
   const visibility = shadowed
     ? `  if ((instance_flags & ${GPU_INSTANCE_FLAGS.ReceivesShadow}u) != 0u) {
-    incident.color *= ${finalPixel ? "sun_visibility" : "directional_shadow_visibility_at(pixel)"};
+    incident.color *= sun_visibility;
   }`
     : "";
   return /* wgsl */ `
-${finalPixel ? FINAL_PIXEL_SOLAR_SAMPLING_WGSL : ""}
-${atmosphereRuntimeWgsl(finalPixel)}
+${FINAL_PIXEL_SOLAR_SAMPLING_WGSL}
+${atmosphereRuntimeWgsl(true)}
 @group(1) @binding(12) var<uniform> native_physical_sun: PhysicalEnvironmentParameters;
-${
-  finalPixel
-    ? ""
-    : `@group(1) @binding(13) var native_solar_transmittance: texture_2d<f32>;
-@group(1) @binding(14) var native_solar_sampler: sampler;`
-}
 
-fn native_surface_physical_sun(material: StandardMaterial, geometry: SurfaceGeometry, instance_flags: u32, pixel: vec2u${finalPixel ? ", sun_visibility: f32" : ""}) -> vec3f {
+fn native_surface_physical_sun(material: StandardMaterial, geometry: SurfaceGeometry, instance_flags: u32, pixel: vec2u, sun_visibility: f32) -> vec3f {
+  ${shadowed ? `if ((instance_flags & ${GPU_INSTANCE_FLAGS.ReceivesShadow}u) != 0u && sun_visibility == 0.0) {
+    // Exact zero irradiance has zero diffuse and specular contribution. The
+    // complete point-PCF already ran; no tap or geometry work is omitted.
+    return vec3f(0.0);
+  }` : ""}
   var incident: GpuPrimitiveTypeTable;
   incident.direction = normalize(native_physical_sun.sun_direction_world);
-  incident.color = atmosphere_sun_irradiance(geometry.position, native_physical_sun${finalPixel ? "" : ", native_solar_transmittance, native_solar_sampler"});
+  incident.color = atmosphere_sun_irradiance(geometry.position, native_physical_sun);
 ${visibility}
   var reflected: ReflectedLight;
   re_direct_physical(incident, geometry, material, &reflected);

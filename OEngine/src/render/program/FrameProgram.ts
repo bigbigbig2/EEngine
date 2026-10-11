@@ -28,7 +28,7 @@ export type FrameProduct =
   | "indirect-visibility"
   | "shadow-demand"
   | "shadow-allocation"
-  | "shadow-visibility";
+  | "shadow-sampling";
 
 export type FrameProgramStage =
   | "clear-present"
@@ -262,13 +262,13 @@ const PRODUCT_SPEC: Readonly<
     invalid: "visibility one",
     version: "frame",
   },
-  "shadow-visibility": {
+  "shadow-sampling": {
     producer: "vsm",
-    domain: "internal-full",
-    format: "r32uint",
-    value: "directional VSM visibility with page fallback",
-    coverage: "lit opaque surface",
-    invalid: "neutral visibility one",
+    domain: "gpu-work",
+    format: "structured-buffer",
+    value: "post-content VSM sampling contract",
+    coverage: "complete fine/coarse page domain",
+    invalid: "unavailable content is neutral visibility",
     version: "frame",
   },
   "shadow-geometry-work": {
@@ -409,20 +409,22 @@ const INPUT_CONTRACTS: Readonly<
     "meshlet-work": { domain: "gpu-work", value: "bounded GPU MeshletWork" },
     "local-light-work": { domain: "gpu-work", value: "finalized bounded local-light work" },
     "indirect-visibility": { domain: "internal-full", value: "unexposed indirect visibility [0,1]" },
-    "shadow-visibility": { domain: "internal-full", value: "directional VSM visibility with page fallback" },
+    "shadow-sampling": { domain: "gpu-work", value: "post-content VSM sampling contract" },
     depth: { domain: "internal-full", value: "reverse depth" },
   },
   "indirect-visibility": {
     visibility: { domain: "internal-full", value: "packed VisibilityKey" },
     depth: { domain: "internal-full", value: "reverse depth" },
   },
-  "shadow-visibility": {
+  "shadow-sampling": {
     "shadow-geometry-work": {
       domain: "gpu-work",
       value: "independent light-view MeshletWork and instance transforms",
     },
-    visibility: { domain: "internal-full", value: "packed VisibilityKey" },
-    depth: { domain: "internal-full", value: "reverse depth" },
+    "shadow-allocation": {
+      domain: "gpu-work",
+      value: "bounded directional VSM page allocation and work records",
+    },
   },
   "shadow-demand": {},
   "shadow-allocation": {
@@ -588,7 +590,7 @@ function dependencies(product: FrameProduct, request: FrameProgramRequest): read
         ...(request.physicalEnvironment &&
         (request.shadowProfile === "vsm-directional-high" ||
           request.shadowProfile === "vsm-directional-bounded")
-          ? ["shadow-visibility" as const]
+          ? ["shadow-sampling" as const]
           : []),
         ...(request.aoProfile === "scalar-high" ? ["indirect-visibility" as const] : []),
       ];
@@ -598,8 +600,8 @@ function dependencies(product: FrameProduct, request: FrameProgramRequest): read
       return [];
     case "shadow-allocation":
       return ["shadow-demand"];
-    case "shadow-visibility":
-      return ["visibility", "depth", "shadow-geometry-work"];
+    case "shadow-sampling":
+      return ["shadow-allocation", "shadow-geometry-work"];
     case "local-light-work":
       return ["visibility", "depth"];
     case "visibility":
@@ -709,12 +711,7 @@ function createProgram(request: FrameProgramRequest, key: string): FrameProgram 
           ? [request.outputWidth, request.outputHeight]
           : spec.domain === "internal-half"
             ? [Math.max(1, request.internalWidth >>> 1), Math.max(1, request.internalHeight >>> 1)]
-            : [
-                product === "shadow-visibility"
-                  ? Math.ceil(request.internalWidth / 4)
-                  : request.internalWidth,
-                request.internalHeight,
-              ];
+            : [request.internalWidth, request.internalHeight];
     return Object.freeze({
       ...spec,
       product,

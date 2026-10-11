@@ -1,3 +1,5 @@
+import "../webgpu-test-globals.mjs";
+import { nativeSurfacePublicationDescriptors as s3Descriptors } from "../oracle/reference/s3/native_surface.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import "../webgpu-test-globals.mjs";
@@ -45,7 +47,7 @@ test("complete Final Pixel removes the sampled-limit counterexample without a co
       visibility: 4,
       texture: { sampleType: "float" },
     }));
-    const old = nativeSurfacePublicationDescriptors(program, material, profile, {
+    const old = s3Descriptors(program, material, profile, {
       maxSampledTexturesPerShaderStage: limit,
     });
     assert.ok(old.continuation, "current supported layout requires its explicit continuation");

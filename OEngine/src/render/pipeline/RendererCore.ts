@@ -133,7 +133,8 @@ import { VSM_DEFAULT_SETTINGS, resolveVsmSettings, type VsmSettings } from "../v
 import { VsmAllocatePagesPass } from "../vsm/VsmAllocatePagesPass.js";
 import { VsmCasterRecordPass } from "../vsm/VsmCasterRecordPass.js";
 import { VsmAtlasRasterPass } from "../vsm/VsmAtlasRasterPass.js";
-import { VsmShadowResolvePass } from "../vsm/VsmShadowResolvePass.js";
+import { FinalPixelLightingPublication } from "../lighting/FinalPixelLightingPublication.js";
+import { vsmSamplingDescriptorCount } from "../vsm/VsmSamplingPublicationPass.js";
 import { VsmInvalidationPass } from "../vsm/VsmInvalidationPass.js";
 import { GPU_INSTANCE_FLAGS } from "../../gpu/GpuInstanceAbi.js";
 import { DEFAULT_INSTANCE_SHADOW_FLAGS } from "../../core/InstanceShadowSemantics.js";
@@ -491,7 +492,7 @@ export class Renderer {
   private _vsmAllocatePages!: VsmAllocatePagesPass;
   private _vsmCasterRecords!: VsmCasterRecordPass;
   private _vsmAtlasRaster!: VsmAtlasRasterPass;
-  private _vsmShadowResolve!: VsmShadowResolvePass;
+  private _finalPixelLighting!: FinalPixelLightingPublication;
   private _vsmInvalidation!: VsmInvalidationPass;
   private readonly _vsmGeneration = new VsmGeneration();
   private _vsmSettings: Readonly<VsmSettings> = VSM_DEFAULT_SETTINGS;
@@ -570,7 +571,11 @@ export class Renderer {
   /** Applies atomically on the next frame; no submit, readback or resource resize. */
   setVsmSettings(patch: Partial<VsmSettings>): void {
     const next = resolveVsmSettings(this._vsmSettings, patch);
-    if (Object.keys(next).every(key => next[key as keyof VsmSettings] === this._vsmSettings[key as keyof VsmSettings])) {
+    if (
+      Object.keys(next).every(
+        (key) => next[key as keyof VsmSettings] === this._vsmSettings[key as keyof VsmSettings],
+      )
+    ) {
       return;
     }
     this._vsmSettings = next;
@@ -1729,7 +1734,6 @@ export class Renderer {
       this._vsmAllocatePages = new VsmAllocatePagesPass(device);
       this._vsmCasterRecords = new VsmCasterRecordPass(device);
       this._vsmAtlasRaster = new VsmAtlasRasterPass(this._graphics);
-      this._vsmShadowResolve = new VsmShadowResolvePass(device);
       this._vsmInvalidation = new VsmInvalidationPass(device);
     }
     this._frameCoordinator = new FrameCoordinator(this._graphics);
@@ -1766,6 +1770,7 @@ export class Renderer {
     this._xeGtaoDenoise = new XeGtaoDenoisePass(device, 1);
     this._present = new SurfacePresentPass(device, this._format, this._displayProfile);
     this._surface = new SurfaceV4(device, true, this._graphics);
+    this._finalPixelLighting = new FinalPixelLightingPublication(device, this._graphics);
     this._localLightWork = new LocalLightWorkGenerator(device, this.deviceEpoch, this._graphics);
     await this._localLightWork.ready;
     this._temporalFacts = new NativeTemporalFactsPass(device);
@@ -1855,7 +1860,6 @@ export class Renderer {
       vsmAllocatePages: this._vsmAllocatePages,
       vsmCasterRecords: this._vsmCasterRecords,
       vsmAtlasRaster: this._vsmAtlasRaster,
-      vsmShadowResolve: this._vsmShadowResolve,
       vsmInvalidation: this._vsmInvalidation,
     };
   }
@@ -2112,7 +2116,7 @@ export class Renderer {
           runtime.instanceCount,
           command,
           vsmGeneration,
-          streaming ?? this._virtualProductScenes.get(scene)?.residency
+          streaming ?? this._virtualProductScenes.get(scene)?.residency,
         );
       }
       if (vsmGeneration.temporalInvalidate) this._temporalFacts.invalidate();
@@ -2182,10 +2186,27 @@ export class Renderer {
           command,
         ),
       };
+      let finalPixelLighting:
+        | import("../lighting/FinalPixelLightingPublication.js").FinalPixelLightingFrame
+        | null = null;
       if (hasLit) {
         const publication = localLightPublication(environment.lights);
+        const lookupCount =
+          publication.ids.length === 0 ? 1 : Math.ceil(width / 32) * Math.ceil(height / 32) * 24;
+        const descriptorCount = vsmEnabled
+          ? vsmSamplingDescriptorCount(
+              this._vsm!.capabilities.virtualPagesPerAxis,
+              this._vsm!.capabilities.clipLevels,
+            )
+          : 1;
+        finalPixelLighting = this._finalPixelLighting.prepare(lookupCount, descriptorCount, command);
         localLightWork = this._localLightWork.prepare({
           publication,
+          lookupTarget: {
+            buffer: finalPixelLighting.buffer,
+            offset: finalPixelLighting.plan.lookupOffset,
+            size: finalPixelLighting.plan.lookupBytes,
+          },
           view: {
             width,
             height,
@@ -2233,6 +2254,7 @@ export class Renderer {
             : (environmentGeneration ?? this._environmentRuntime?.state.active?.snapshot.generation ?? 0),
         lightingLightRevision: environment.lights.publicationRevision,
         localLightWork,
+        finalPixelLighting,
         localLightCounters: sampleGeometryCounters ? this._profiler.gpuCounterBuffer! : runtime.counterSink,
         lightingSunRevision:
           environmentGeneration ?? this._environmentRuntime?.state.active?.snapshot.generation ?? 0,
@@ -2503,7 +2525,7 @@ export class Renderer {
     this._vsmAllocatePages?.destroy();
     this._vsmCasterRecords?.destroy();
     this._vsmAtlasRaster?.destroy();
-    this._vsmShadowResolve?.destroy();
+    this._finalPixelLighting?.destroy();
     this._views?.destroy();
     this._cameraStates?.destroy();
     this._environments?.destroy();

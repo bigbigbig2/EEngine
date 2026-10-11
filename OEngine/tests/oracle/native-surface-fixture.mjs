@@ -1,6 +1,7 @@
 import { FrameGeometryArena } from "../../.test-dist/render/FrameGeometryArena.js";
 import { VSM_SAMPLING_PUBLICATION_WGSL } from "../../.test-dist/shaders/vsm_sampling_publication.js";
-import { VsmShadowResolvePass } from "../../.test-dist/render/vsm/VsmShadowResolvePass.js";
+import { planFinalPixelLightingDirectory } from "../../.test-dist/gpu/FinalPixelAbi.js";
+import { VsmShadowResolvePass } from "./reference/s3/VsmShadowResolvePass.mjs";
 import { FrameGeometryVertices } from "../../.test-dist/render/FrameGeometryVertices.js";
 import {
   GPU_GEOMETRY_RECORD_SCHEMA,
@@ -313,6 +314,9 @@ export async function createNativeSurfaceFixture(
     new Uint32Array(vsmValues.buffer).set([GENERATION, 1, 0, 0], 56);
     const vsmConstants = uniform(vsmValues, "S1/VSM constants");
     const samplingDescriptors = storage(new Uint32Array((16 * 16 + 4) * 4), "S1/VSM sampling descriptors");
+    const lightingPlan = planFinalPixelLightingDirectory(device.limits, 1, 16 * 16 + 4);
+    const lightingDirectory = storage(lightingPlan.bytes, "V5/fixture lighting directory");
+    const lightingRanges = uniform(lightingPlan.words, "V5/fixture lighting ranges");
     const samplingPipeline = await device.createComputePipelineAsync({
       layout: "auto",
       compute: {
@@ -369,6 +373,18 @@ export async function createNativeSurfaceFixture(
     publishSampling.setBindGroup(0, samplingGroup);
     publishSampling.dispatchWorkgroups(Math.ceil((16 * 16 + 4) / 64));
     publishSampling.end();
+    const finalSampling = atlasEncoder.beginComputePass();
+    finalSampling.setPipeline(samplingPipeline);
+    finalSampling.setBindGroup(0, device.createBindGroup({
+      layout: samplingPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: vsmConstants } },
+        { binding: 1, resource: { buffer: pageTable } },
+        { binding: 2, resource: { buffer: lightingDirectory, offset: lightingPlan.descriptorOffset, size: lightingPlan.descriptorBytes } },
+      ],
+    }));
+    finalSampling.dispatchWorkgroups(Math.ceil((16 * 16 + 4) / 64));
+    finalSampling.end();
     device.queue.submit([atlasEncoder.finish()]);
     await device.queue.onSubmittedWorkDone();
 
@@ -412,7 +428,7 @@ export async function createNativeSurfaceFixture(
     device.queue.writeTexture({ texture: shadowVisibility },
       new Uint32Array(Math.ceil(WIDTH / 4) * HEIGHT).fill(0x01010101),
       { bytesPerRow: Math.ceil(WIDTH / 4) * 4 }, [Math.ceil(WIDTH / 4), HEIGHT]);
-    const lightingEntries = [
+    const legacyLightingEntries = [
       { binding: 0, resource: { buffer: lights } },
       { binding: 1, resource: { buffer: localParameters } },
       { binding: 2, resource: { buffer: localLookup } },
@@ -425,6 +441,14 @@ export async function createNativeSurfaceFixture(
       { binding: 8, resource: { buffer: shadowResolve.mode } },
       { binding: 10, resource: shadowVisibility.createView() },
       { binding: 11, resource: ao.createView() },
+    ];
+    const lightingEntries = [
+      ...legacyLightingEntries.filter((entry) => ![2, 8, 10].includes(entry.binding)),
+      { binding: 2, resource: { buffer: lightingDirectory } },
+      { binding: 8, resource: { buffer: vsmConstants } },
+      { binding: 9, resource: { buffer: lightingRanges } },
+      { binding: 10, resource: atlas.createView() },
+      { binding: 16, resource: device.createSampler({ minFilter: "nearest", magFilter: "nearest" }) },
     ];
     const projection = [...identity];
     projection[3] = perspective;
@@ -445,6 +469,9 @@ export async function createNativeSurfaceFixture(
       background,
       exposure,
       lightingEntries,
+      legacyLightingEntries,
+      lightingPlan,
+      lightingDirectory,
       geometry: {
         meshletWork: work,
         arena: arena.buffer,

@@ -5,7 +5,7 @@ import { AppearanceGraphBuilder } from "../../.test-dist/material/AppearanceGrap
 import { compileAppearanceGraph } from "../../.test-dist/material/AppearanceGraphCompiler.js";
 import { lowerNativeMaterial } from "../../.test-dist/shaders/native_material.js";
 import { nativeSurfaceWgsl } from "../../.test-dist/shaders/native_surface.js";
-import { vsmShadowResolveWgsl } from "../../.test-dist/shaders/vsm_shadow_resolve.js";
+import { vsmShadowResolveWgsl } from "../oracle/reference/s3/vsm_shadow_resolve.mjs";
 import {
   VSM_RECEIVER_DEMAND_WGSL,
   vsmReceiverDemandDiagnosticWgsl,
@@ -52,17 +52,18 @@ test("Native diagnostic specializations retain winner predicates and G is the so
     );
   assert.match(sun(generated.F), /atmosphere_sun_irradiance/);
   assert.doesNotMatch(sun(generated.F), /vsm_sample_directional\(/);
-  assert.match(sun(generated.G), /directional_shadow_visibility_at\(pixel\)/);
+  assert.match(sun(generated.G), /incident.color \*= sun_visibility/);
   assert.throws(() => nativeSurfaceWgsl(program, { ...profile, costSlice: "Q0" }), /retired/);
   assert.doesNotMatch(generated.G, /native_query_keys|native_vsm_query_diagnostic/);
-  assert.doesNotMatch(generated.K, /vsm_query_directional|native_query_keys/);
+  assert.match(generated.K, /vsm_sample_directional\(resolved_position/);
+  assert.doesNotMatch(generated.K, /native_query_keys/);
   const diagnostic = vsmShadowResolveWgsl(true, true);
   assert.match(diagnostic, /bitcast<vec2u>\(fine_world\)/);
   assert.match(diagnostic, /textureStore\(shadow_query_keys/);
   assert.match(diagnostic, /meshlet_work.header.generation/);
   assert.doesNotMatch(vsmShadowResolveWgsl(true), /shadow_query_keys/);
   assert.throws(() => nativeSurfaceWgsl(program, { ...profile, costSlice: "unknown" }), /A through G/);
-  assert.throws(() => nativeSurfaceWgsl(program, { ...profile, costSlice: "A", additiveSun: true }), /fused/);
+  assert.doesNotMatch(generated.G, /prior_native_hdr|directional_shadow_visibility_at/);
 });
 
 test("VSM aggregation keeps barriers uniform and diagnostics count actual publications", () => {

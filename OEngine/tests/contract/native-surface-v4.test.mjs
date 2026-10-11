@@ -147,6 +147,7 @@ function fixture({ reactive = false, compact = false, costSlice = "G" } = {}) {
     cameraPosition: [0, 0, 3],
     preExposure: buffer(16),
     viewMatrix: identity,
+    camera: buffer(624),
     ...images(16, 8),
     geometry: {
       meshletWork: buffer(256),

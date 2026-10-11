@@ -201,16 +201,6 @@ export interface LocalLightWorkProduct {
   readonly depthSlices: number;
 }
 
-/** Committed VSM projection consumed by Native Physical Sun; page management
- * resources remain private to VSM. Extent describes logical receiver pixels. */
-export interface ShadowVisibilityFrame {
-  readonly visibility: ResourceId;
-  readonly mode: ResourceId;
-  readonly packing: "four-horizontal-count-bytes";
-  readonly biasNormal: "geometry-face";
-  readonly domain: TextureDomain<"internal-full">;
-}
-
 /** SSR/Local Probe 输出的镜面结果，供 correction consumer 使用。 */
 export interface ReflectionFrame {
   readonly resolvedSpecular: ResourceId;
@@ -299,25 +289,6 @@ export function localLightWorkProduct(input: LocalLightWorkProduct): LocalLightW
     throw new RangeError("LocalLightWorkProduct layout must be positive integers");
   }
   return Object.freeze({ ...input });
-}
-
-/** Freeze the actual packed projection producer/consumer contract. */
-export function shadowVisibilityFrame(input: ShadowVisibilityFrame): ShadowVisibilityFrame {
-  requireResourceId(input.visibility, "ShadowVisibilityFrame.visibility");
-  requireResourceId(input.mode, "ShadowVisibilityFrame.mode");
-  if (
-    input.visibility === null ||
-    input.mode === null ||
-    input.packing !== "four-horizontal-count-bytes" ||
-    input.biasNormal !== "geometry-face" ||
-    input.domain.domain !== "internal-full"
-  ) {
-    throw new Error("ShadowVisibilityFrame requires the exact full-rate packed receiver product");
-  }
-  return Object.freeze({
-    ...input,
-    domain: textureDomain("internal-full", input.domain.width, input.domain.height, input.domain.scale),
-  });
 }
 
 export function preExposureContract(input: PreExposureContract): PreExposureContract {
