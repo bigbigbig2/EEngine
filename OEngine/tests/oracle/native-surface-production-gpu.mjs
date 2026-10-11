@@ -744,10 +744,10 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
       "Explicit camera cut kept identity history valid",
     );
     await tick();
-    check(!renderer._temporalFacts.readValid, "Camera-cut frame consumed stale native identity");
+    check(!renderer._temporalSeed.inputHistoryValid, "Camera-cut frame consumed stale native identity");
     const cameraCut = await inspect();
     await tick();
-    check(renderer._temporalFacts.readValid, "Settled retry did not restore native Temporal identity");
+    check(renderer._temporalSeed.inputHistoryValid, "Settled retry did not restore native Temporal identity");
     check(renderer._fsr3.policy === "native-resolution", "Actual 1:1 Renderer missed Native Temporal");
     const nativePolicyGeneration = renderer._fsr3.generation;
     renderer.setResolutionScale(0.75);
@@ -761,6 +761,8 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
     check(renderer._fsr3.policy === "native-resolution", "Native policy was not restored after upscale");
     check(renderer._fsr3.generation > upscalePolicyGeneration, "Native policy return reused upscale history");
     const nativeRestored = await inspect();
+    const restoredSeedIndex = renderer._temporalSeed.readIndex;
+    const restoredSeedBytes = renderer._temporalSeed.allocatedBytes;
     const restoredReadIndex = renderer._fsr3.readIndex;
     const restoredGeneration = renderer._fsr3.generation;
     fail = true;
@@ -775,6 +777,8 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
     check(temporalAborted, "Native temporal abort was not exercised");
     check(renderer._fsr3.readIndex === restoredReadIndex && renderer._fsr3.generation === restoredGeneration,
       "Aborted native frame advanced physical history");
+    check(renderer._temporalSeed.readIndex === restoredSeedIndex && renderer._temporalSeed.allocatedBytes === restoredSeedBytes,
+      "Aborted Native Seed advanced identity or changed its physical allocation");
     await tick();
     await Promise.resolve();
     renderer.frameAdmissionProfile = "throughput";
@@ -785,6 +789,7 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
     }
     const burstAdmission = renderer.frameSubmissionEvidence();
     check(burstAdmission.inFlight === 3, "Production burst did not retain all three bounded slots");
+    const deferredSeedIndex = renderer._temporalSeed.readIndex;
     const deferredTemporalIndex = renderer._fsr3.readIndex;
     const deferredTemporalJitter = renderer._fsr3.jitterEvidence();
     renderer.render(camera, scene);
@@ -792,6 +797,7 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
     check(renderer._fsr3.readIndex === deferredTemporalIndex &&
       JSON.stringify(renderer._fsr3.jitterEvidence()) === JSON.stringify(deferredTemporalJitter),
       "Admission-deferred frame advanced native history/jitter");
+    check(renderer._temporalSeed.readIndex === deferredSeedIndex, "Admission defer advanced Seed roles");
     await device.queue.onSubmittedWorkDone();
     await Promise.resolve();
     await Promise.resolve();

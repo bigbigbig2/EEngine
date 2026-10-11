@@ -14,9 +14,9 @@ export type FrameProduct =
   | "aerial-radiance"
   | "sky-radiance"
   | "surface-radiance"
-  | "surface-reactive"
+  | "temporal-response"
   | "debug-color"
-  | "temporal-motion"
+  | "temporal-seed"
   | "temporal-mask"
   | "temporal-identity"
   | "visibility"
@@ -40,7 +40,7 @@ export type FrameProgramStage =
   | "surface"
   | "physical-sky"
   | "aerial"
-  | "temporal-facts"
+  | "temporal-classification"
   | "fsr3"
   | "radiometry"
   | "bloom"
@@ -208,40 +208,40 @@ const PRODUCT_SPEC: Readonly<
     invalid: "black background",
     version: "frame",
   },
-  "surface-reactive": {
+  "temporal-response": {
     producer: "surface",
     domain: "internal-full",
     format: "rgba8unorm",
-    value: "opaque reactive",
+    value: "native reactive, motion validity, coverage, invalid byte",
     coverage: "full internal",
-    invalid: "zero background",
+    invalid: "sky rotation validity or invalid byte16",
     version: "frame",
   },
-  "temporal-motion": {
-    producer: "temporal-facts",
+  "temporal-seed": {
+    producer: "surface",
     domain: "internal-full",
-    format: "rg32float",
-    value: "valid current-minus-previous UV including sky rotation",
+    format: "rgba32float",
+    value: "jittered current-minus-previous UV, expected previous and current positive view depth",
     coverage: "full internal",
-    invalid: "zero with validity zero",
+    invalid: "zero motion and response validity; retain view depths when known",
     version: "frame",
   },
   "temporal-mask": {
-    producer: "temporal-facts",
+    producer: "temporal-classification",
     domain: "internal-full",
     format: "rgba8unorm",
     value: "opaque reactive, motion validity, identity mismatch, local change bits",
     coverage: "full internal",
-    invalid: "reactive one, validity zero",
+    invalid: "reactive zero, validity zero, change byte bit16",
     version: "frame",
   },
   "temporal-identity": {
-    producer: "temporal-facts",
+    producer: "surface",
     domain: "internal-full",
     format: "rgba32uint",
-    value: "instance slot, geometry/LOD, material, transform revision",
+    value: "instance slot+1, geometry change signature, material change signature, material slot+1",
     coverage: "full internal",
-    invalid: "zero identity",
+    invalid: "zero unresolved identity; sky instance marker 0xffffffff",
     version: "history-role",
   },
   "local-light-work": {
@@ -351,9 +351,9 @@ const INPUT_CONTRACTS: Readonly<
     "aerial-radiance": { domain: "internal-full", value: "working-linear pre-exposed" },
     "surface-radiance": { domain: "internal-full", value: "working-linear pre-exposed" },
     depth: { domain: "internal-full", value: "reverse depth" },
-    "temporal-motion": {
+    "temporal-seed": {
       domain: "internal-full",
-      value: "valid current-minus-previous UV including sky rotation",
+      value: "jittered current-minus-previous UV, expected previous and current positive view depth",
     },
     "temporal-mask": {
       domain: "internal-full",
@@ -374,21 +374,21 @@ const INPUT_CONTRACTS: Readonly<
   "adapted-exposure": {
     "reconstructed-color": { domain: "output-full", value: "working-linear pre-exposed" },
   },
-  "surface-reactive": { visibility: { domain: "internal-full", value: "packed VisibilityKey" } },
-  "temporal-motion": {
-    "surface-reactive": { domain: "internal-full", value: "opaque reactive" },
+  "temporal-response": { visibility: { domain: "internal-full", value: "packed VisibilityKey" } },
+  "temporal-seed": {
     "meshlet-work": { domain: "gpu-work", value: "bounded GPU MeshletWork" },
     visibility: { domain: "internal-full", value: "packed VisibilityKey" },
     depth: { domain: "internal-full", value: "reverse depth" },
   },
   "temporal-mask": {
-    "temporal-motion": {
+    "temporal-response": { domain: "internal-full", value: "native reactive, motion validity, coverage, invalid byte" },
+    "temporal-seed": {
       domain: "internal-full",
-      value: "valid current-minus-previous UV including sky rotation",
+      value: "jittered current-minus-previous UV, expected previous and current positive view depth",
     },
     "temporal-identity": {
       domain: "internal-full",
-      value: "instance slot, geometry/LOD, material, transform revision",
+      value: "instance slot+1, geometry change signature, material change signature, material slot+1",
     },
   },
   "temporal-identity": {
@@ -566,20 +566,20 @@ function dependencies(product: FrameProduct, request: FrameProgramRequest): read
       return [
         request.physicalEnvironment ? "aerial-radiance" : "surface-radiance",
         "depth",
-        "temporal-motion",
+        "temporal-seed",
         "temporal-mask",
       ];
-    case "temporal-motion":
-      return ["visibility", "meshlet-work", "depth", "surface-reactive"];
+    case "temporal-seed":
+      return ["visibility", "meshlet-work", "depth"];
     case "temporal-mask":
-      return ["temporal-motion", "temporal-identity"];
+      return ["temporal-seed", "temporal-response", "temporal-identity"];
     case "temporal-identity":
       return ["visibility", "meshlet-work", "depth"];
     case "aerial-radiance":
       return ["sky-radiance", "depth"];
     case "sky-radiance":
       return ["surface-radiance", "depth"];
-    case "surface-reactive":
+    case "temporal-response":
       return ["visibility"];
     case "surface-radiance":
       return [
@@ -684,7 +684,7 @@ function createProgram(request: FrameProgramRequest, key: string): FrameProgram 
     ...(request.aoProfile === "scalar-high" ? ["xe-gtao" as const] : []),
     "surface",
     ...(request.physicalEnvironment ? ["physical-sky" as const, "aerial" as const] : []),
-    "temporal-facts",
+    "temporal-classification",
     "fsr3",
     "radiometry",
     "bloom",
@@ -735,7 +735,7 @@ function createProgram(request: FrameProgramRequest, key: string): FrameProgram 
       "swapchain",
       "fsr3-history",
       "fsr3-constants",
-      "temporal-facts-history",
+      "temporal-seed-history",
       ...(buildHzb ? ["hzb"] : []),
       ...(request.shadowProfile !== undefined &&
       request.shadowProfile !== "off" &&

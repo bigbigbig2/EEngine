@@ -278,6 +278,7 @@ export class GpuNativeMaterialScene {
         compact: true,
         productGeometry: this.productGeometry,
         reactive: true,
+        finalPixel: true,
         unlit: source.material.is_unlit,
         physicalSun: this.physicalSun && !source.material.is_unlit,
       });
@@ -471,6 +472,7 @@ export class GpuNativeMaterialScene {
           productGeometry: this.productGeometry,
           unlit: this.materialSources[index]!.material.is_unlit,
           reactive: true,
+          finalPixel: true,
           physicalSun: this.physicalSun && !this.materialSources[index]!.material.is_unlit,
           costSlice: NATIVE_COST_SLICE,
         },

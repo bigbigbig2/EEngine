@@ -127,7 +127,7 @@ test("raster cutoff and flags are instance constants and invalidate values witho
   assert.deepEqual([...new Float32Array(changed.constants.bytes).subarray(at, at + 2)], [0.75, 3]);
   assert.equal(first.entries[0].signature, changed.entries[0].signature);
   assert.notEqual(first.entries[0].valueRevision, changed.entries[0].valueRevision);
-  assert.equal(first.allocatedBytes, base.program.constants.length * 4 + 8 + 32 + 8 + 4);
+  assert.equal(first.allocatedBytes, base.program.constants.length * 4 + 8 + 32 + 16 + 4);
   assert.throws(
     () =>
       new GpuNativeMaterialPublication(f.device, f.registry, [
@@ -142,7 +142,6 @@ test("raster cutoff and flags are instance constants and invalidate values witho
   await Promise.allSettled([first.ready, changed.ready]);
   f.registry.destroy();
 });
-
 test("cancellation while compiling releases candidate resources; retry shares the in-flight program", async () => {
   const f = fixture();
   const first = new GpuNativeMaterialPublication(f.device, f.registry, [f.source()]);
@@ -188,13 +187,13 @@ test("execution bins share program and binding set; temporal versions are immuta
     [0, 0, 1]
   );
   const directory = new Uint32Array(first.directory.bytes);
-  assert.equal(directory[7], 0xffffffff);
-  assert.equal(directory[15], 1);
-  const versions = new Uint32Array(first.versions.bytes);
-  assert.deepEqual([...versions.subarray(2, 4)], [0, 0]);
-  assert.equal(versions[1], versions[5]);
-  assert.notEqual(versions[1], versions[7]);
-  assert.deepEqual(versions, new Uint32Array(retry.versions.bytes));
+  assert.equal(directory[11], 0xffffffff);
+  assert.equal(directory[27], 1);
+  assert.equal(Object.hasOwn(first, "versionBuffer"), false);
+  assert.deepEqual([...directory.subarray(12, 14)], [0, 0]);
+  assert.equal(directory[5], directory[21]);
+  assert.notEqual(directory[5], directory[29]);
+  assert.deepEqual(directory, new Uint32Array(retry.directory.bytes));
   first.abort();
   retry.abort();
   await tick();

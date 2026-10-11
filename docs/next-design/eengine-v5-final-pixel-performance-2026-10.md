@@ -8,7 +8,6 @@ verifies:
     - OEngine/src/shaders/native_surface.ts
     - OEngine/src/shaders/native_surface_lighting.ts
     - OEngine/src/shaders/lighting_brdf.ts
-    - OEngine/src/shaders/native_surface_aux.ts
     - OEngine/src/shaders/surface_geometry_completion.ts
     - OEngine/src/shaders/surface_geometry_reader.ts
     - OEngine/src/render/vsm
@@ -290,7 +289,7 @@ hard replacement当前规则：同instance slot，geometry detector变化，或�
 
 ### 7.3 Seed Cost Card
 
-DELETE：Facts full I dispatch、重复key/work/Scene instance/version读取、depth inverse-VP+previous clip恢复；native opaqueReactive→Facts staging读；单独reactive clear。ADD：Nativeprevious affine/view/clip与identity计算，directory+16B/material slot，Seed较旧motion多8B/pixel，unlit位置需求，background writer与新的输出bindings；previous identity比较只是移到Analyze，**不是删除**。
+DELETE：Facts full I dispatch、重复key/work/Scene instance/version读取、depth inverse-VP+previous clip恢复；native opaqueReactive→Facts staging读；单独reactive clear。ADD：Nativeprevious affine/view/clip与identity计算，Native directory+16B/material slot并删除旧versions8B/slot（净+8B/slot，raster16B不变），Seed较旧motion多8B/pixel，unlit位置需求，background writer与新的输出bindings；previous identity比较只是移到Analyze，**不是删除**。Phase3迁移期间classification仍是独立full I dispatch，最终native域由Analyze吸收。
 
 旧Native4B reactive + Facts28B写=32B/pixel；新Seed16+response4+identity16=36B，**多4B/pixel顺序写（7.91MiB/frame）**。收益来自重复恢复/dispatch/staging删除，不来自凭空减少输出字节。identity pair不省容量。break-even为这些删除成本大于新增NativeALU/live-set/8B Seed净产品税和background工作；0/50/100%恢复成本兑现仍需减ADD。候选不能用f16 motion或generation压缩越过这个模型。
 

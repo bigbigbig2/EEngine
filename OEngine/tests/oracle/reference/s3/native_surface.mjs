@@ -11,7 +11,7 @@ import { vsmSamplingWgsl } from "../../../../.test-dist/shaders/vsm_sampling.js"
 import { NATIVE_ENVIRONMENT_SAMPLE_WGSL } from "../../../../.test-dist/shaders/native_environment_sample.js";
 import { ENVIRONMENT_BRDF_WGSL } from "../../../../.test-dist/shaders/native_environment_brdf.js";
 import { LINEAR_REC709_TO_REC2020_WGSL } from "../../../../.test-dist/shaders/working_color.js";
-import { nativeSurfaceAuxWgsl } from "../../../../.test-dist/shaders/native_surface_aux.js";
+import { nativeSurfaceAuxWgsl } from "./native_surface_aux.mjs";
 import { VSM_SHADOW_VISIBILITY_WGSL } from "./vsm_shadow_visibility.mjs";
 import { nativeSurfacePhysicalSunLayoutEntries, nativeSurfacePhysicalSunWgsl, } from "./native_surface_lighting.mjs";
 export const NATIVE_SURFACE_SETTINGS_BYTES = 144;

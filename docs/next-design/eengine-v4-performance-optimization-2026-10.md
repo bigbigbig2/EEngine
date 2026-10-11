@@ -32,10 +32,10 @@ verifies:
     - OEngine/src/render/surface/SurfaceV4.ts
     - OEngine/src/render/program
     - OEngine/src/render/pipeline/RendererCore.ts
-    - OEngine/src/render/temporal/NativeTemporalFactsPass.ts
+    - OEngine/tests/oracle/reference/s3/native_surface_aux.mjs
     - OEngine/src/render/temporal/NativeTemporalPasses.ts
     - OEngine/src/shaders/native_temporal.ts
-    - OEngine/src/shaders/native_surface_aux.ts
+    - OEngine/tests/oracle/reference/s3/native_surface_aux.mjs
     - OEngine/src/render/TemporalFabric.ts
     - OEngine/src/render/passes/fsr3
     - OEngine/src/gpu/GeometryPageStreamingRuntime.ts

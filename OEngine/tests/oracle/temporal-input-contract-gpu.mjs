@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { NATIVE_TEMPORAL_FACTS_WGSL } from "../../.test-dist/shaders/native_surface_aux.js";
+import { NATIVE_TEMPORAL_FACTS_WGSL } from "./reference/s3/native_surface_aux.mjs";
 import { HIERARCHY_LOD_WGSL } from "../../.test-dist/shaders/hierarchy_lod.js";
 import { GPU_INSTANCE_RECORD_WGSL, packGpuInstanceRecord } from "../../.test-dist/gpu/GpuInstanceAbi.js";
 import { GPUCameraState } from "../../.test-dist/render/GPUCameraState.js";
@@ -7,7 +7,7 @@ import { GPUViewContext } from "../../.test-dist/render/ViewContext.js";
 import { PerspectiveCamera } from "../../.test-dist/camera/PerspectiveCamera.js";
 import { packHierarchyViewUniform } from "../../.test-dist/render/HierarchicalWorkGenerator.js";
 
-/** Small numeric oracle for the actual production shaders, not a second temporal path. */
+/** Frozen pre-cutover Facts reference plus current hierarchy oracle. Production Seed is validated by the complete Native integration. */
 export async function runTemporalInputContractGpuOracle(device) {
   const resources = [];
   const buffer = (data, usage = GPUBufferUsage.STORAGE) => {

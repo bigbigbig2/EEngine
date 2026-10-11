@@ -457,6 +457,15 @@ export async function createNativeSurfaceFixture(
       perspective,
       projection,
       instanceCount,
+      // Camera-motion oracles must rerun the real cached clip producer. Updating
+      // only NativeVisibility's view leaves raster depth in the old camera.
+      encodeFrameGeometry(encoder, viewProjection) {
+        if (scale.some((value) => value !== 1)) throw new Error("Camera fixture expects identity instance transforms");
+        for (let index = 0; index < instanceCount; index++) {
+          device.queue.writeBuffer(instances, index * GPU_FRAME_INSTANCE_STRIDE + GPU_FRAME_INSTANCE_OFFSETS.objectToClip, Float32Array.from(viewProjection));
+        }
+        verticesOwner.encode(encoder, prepared);
+      },
       sceneInstances,
       width: WIDTH,
       height: HEIGHT,

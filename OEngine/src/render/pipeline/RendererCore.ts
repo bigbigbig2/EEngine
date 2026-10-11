@@ -40,7 +40,7 @@ import { VisibilityCounterPass } from "../passes/VisibilityCounterPass.js";
 import { lowerFrameProgram, type FrameProgramOwners } from "../program/FrameProgramLowering.js";
 import { FrameProfiler } from "../../debug/FrameProfiler.js";
 import { TemporalFabric } from "../TemporalFabric.js";
-import { NativeTemporalFactsPass } from "../temporal/NativeTemporalFactsPass.js";
+import { NativeTemporalSeed } from "../temporal/NativeTemporalSeed.js";
 import { GpuRadiometryPass } from "../temporal/GpuRadiometryPass.js";
 import { BloomPass } from "../passes/BloomPass.js";
 import { RenderDebugViewPass } from "../passes/RenderDebugViewPass.js";
@@ -381,7 +381,7 @@ export class Renderer {
   private readonly _visibilityCounters = new VisibilityCounterPass();
   private _environmentRuntime: PhysicalEnvironmentRuntime | null = null;
   private readonly _temporal = new TemporalFabric();
-  private _temporalFacts!: NativeTemporalFactsPass;
+  private _temporalSeed!: NativeTemporalSeed;
   private _gpuRadiometry!: GpuRadiometryPass;
   private _bloom!: BloomPass;
   private _renderDebugViewPass!: RenderDebugViewPass;
@@ -616,6 +616,7 @@ export class Renderer {
       color: this._temporal.histories.state("color"),
       identity: this._temporal.histories.state("identity"),
       fsr3Generation: this._fsr3?.generation ?? 0,
+      seedAllocatedBytes: this._temporalSeed?.allocatedBytes ?? 0,
       fsr3AllocatedBytes: this._fsr3?.allocatedBytes ?? 0,
       jitter: this._fsr3?.jitterEvidence() ?? null,
       phaseIndex: Math.max(0, this._frame_count - 1) % this._temporal.jitter.jitter_sequence_size,
@@ -1769,11 +1770,11 @@ export class Renderer {
     this._xeGtaoMain = new XeGtaoMainPass(device, "high");
     this._xeGtaoDenoise = new XeGtaoDenoisePass(device, 1);
     this._present = new SurfacePresentPass(device, this._format, this._displayProfile);
-    this._surface = new SurfaceV4(device, true, this._graphics);
+    this._surface = new SurfaceV4(device, true, this._graphics, true);
     this._finalPixelLighting = new FinalPixelLightingPublication(device, this._graphics);
     this._localLightWork = new LocalLightWorkGenerator(device, this.deviceEpoch, this._graphics);
     await this._localLightWork.ready;
-    this._temporalFacts = new NativeTemporalFactsPass(device);
+    this._temporalSeed = new NativeTemporalSeed(device, this._graphics.resource_accounting);
     this._gpuRadiometry = new GpuRadiometryPass(
       device,
       config.autoExposure,
@@ -1842,7 +1843,7 @@ export class Renderer {
   private frameProgramOwners(): FrameProgramOwners {
     return {
       visibility: this._visibilityFeature,
-      temporalFacts: this._temporalFacts,
+      temporalSeed: this._temporalSeed,
       surface: this._surface,
       visibilityCounters: this._visibilityCounters,
       radiometry: this._gpuRadiometry,
@@ -2119,15 +2120,25 @@ export class Renderer {
           streaming ?? this._virtualProductScenes.get(scene)?.residency,
         );
       }
-      if (vsmGeneration.temporalInvalidate) this._temporalFacts.invalidate();
+      if (vsmGeneration.temporalInvalidate) this._temporalSeed.invalidate();
       this._gpuRadiometry.prepareFrame(timeDeltaSeconds);
-      this._temporalFacts.prepareFrame(
+      const seedCamera = view.gpu_camera_state;
+      this._temporalSeed.prepare(
         width,
         height,
-        identityHistory.readIndex,
-        identityHistory.writeIndex,
-        identityHistory.readValid,
+        width === this._output_resolution.x && height === this._output_resolution.y ? "native" : "upscale",
+        {
+          view: camera.view_matrix,
+          projection: seedCamera.projection_matrix,
+          inverseView: seedCamera.view_matrix_inverse,
+          inverseProjection: seedCamera.projection_matrix_inverse,
+          jitter: frameJitter,
+          // Seed has no radiometric history in Phase3. Physical P stays GPU-owned.
+          preExposure: preExposure.multiplier,
+        },
+        !identityHistory.readValid || cameraCut || cameraChanged,
       );
+      this._temporalSeed.attach(command);
       this._fsr3.prepareFrame(command, {
         renderWidth: width,
         renderHeight: height,
@@ -2246,7 +2257,7 @@ export class Renderer {
         runtime,
         preExposure,
         fsr3: this._fsr3,
-        temporalFacts: this._temporalFacts,
+        temporalSeed: this._temporalSeed,
         radiometry: this._gpuRadiometry,
         lightingEnvironmentRevision:
           scene.lights.environment !== undefined
@@ -2371,7 +2382,6 @@ export class Renderer {
       });
       this._profiler.measure("submit", () => this._frameCoordinator.submitFrame(frame));
       this._fsr3.commit(command.gpuDone);
-      this._temporalFacts.commit(command.gpuDone);
       this._surface.commit(command.gpuDone);
       this._gpuRadiometry.commit(command.gpuDone);
       this._temporal.commit(frameIndex);
@@ -2403,7 +2413,7 @@ export class Renderer {
       }
       activeHzb?.invalidate("explicit");
       this._fsr3.invalidate();
-      this._temporalFacts.abort();
+      this._temporalSeed.abort();
       this._surface.abort();
       if (localLightWork !== null) {
         this._localLightWork.abort(localLightWork);
@@ -2511,7 +2521,7 @@ export class Renderer {
     this._aerialPerspective?.destroy();
     this._fsr3?.destroy();
     this._present?.destroy();
-    this._temporalFacts?.destroy();
+    this._temporalSeed?.destroy();
     this._surface?.destroy();
     this._localLightWork?.destroy();
     this._gpuRadiometry?.destroy();

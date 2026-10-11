@@ -14,12 +14,11 @@ import {
   FINAL_PIXEL_LIGHTING_DIRECTORY_WGSL,
   NATIVE_TEMPORAL_SEED_VIEW_BYTES
 } from "../gpu/FinalPixelAbi.js";
-import { nativeTemporalSeedWgsl } from "./native_temporal_seed.js";
+import { nativeTemporalSeedWgsl, nativeResponseWgsl } from "./native_temporal_seed.js";
 import { vsmSamplingWgsl } from "./vsm_sampling.js";
 import { NATIVE_ENVIRONMENT_SAMPLE_WGSL } from "./native_environment_sample.js";
 import { ENVIRONMENT_BRDF_WGSL } from "./native_environment_brdf.js";
 import { LINEAR_REC709_TO_REC2020_WGSL } from "./working_color.js";
-import { nativeSurfaceAuxWgsl } from "./native_surface_aux.js";
 
 import {
   nativeSurfacePhysicalSunLayoutEntries,
@@ -36,7 +35,7 @@ export interface NativeSurfaceShaderProfile {
   readonly reactive: boolean;
   readonly physicalSun?: boolean;
   readonly costSlice?: NativeSurfaceCostSlice;
-  /** V5 target only: no production composition root selects this profile yet. */
+  /** Production Final Pixel profile; smaller profiles serve isolated fixtures. */
   readonly finalPixel?: boolean;
 }
 
@@ -290,10 +289,10 @@ export function nativeSurfaceWgsl(
   };
   const reactiveDeclaration = profile.finalPixel
     ? nativeTemporalSeedWgsl(0, 6, 8, 9)
-    : nativeSurfaceAuxWgsl(profile.reactive ? "Temporal" : "Base");
+    : nativeResponseWgsl(!!profile.reactive);
   const reactiveWrite =
     profile.reactive && !profile.finalPixel
-      ? `native_surface_aux_write(vec2i(pixel), native_surface_aux_reactive((raster_flags & 1u) != 0u));`
+      ? `native_response_write(vec2i(pixel), (raster_flags & 1u) != 0u);`
       : "";
   const productBindings = profile.productGeometry
     ? `@group(0) @binding(10) var<storage, read> product_heap: array<u32>;\n${Array.from({ length: 4 }, (_, index) => `@group(0) @binding(${11 + index}) var<storage, read> product_bank_${index}: array<u32>;`).join("\n")}`

@@ -1,26 +1,25 @@
-import type { NativeSurfaceAuxProfile } from "../render/surface/NativeSurfaceAux.js";
-import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
-import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
-import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
-import { PACKED_CAMERA_TYPE } from "./packed_camera.js";
-
+// Frozen test-only Facts/Aux at c71c6d3110c3a09a5a5d1eb983cb7c57ff6f4aec.
+import { GPU_VISIBILITY_KEY_WGSL } from "../../../../.test-dist/gpu/GpuVisibilityKeyAbi.js";
+import { GPU_MESHLET_RASTER_WORK_WGSL } from "../../../../.test-dist/gpu/GpuMeshletRasterWorkAbi.js";
+import { GPU_INSTANCE_RECORD_WGSL } from "../../../../.test-dist/gpu/GpuInstanceAbi.js";
+import { PACKED_CAMERA_TYPE } from "../../../../.test-dist/shaders/packed_camera.js";
 /** Composable Surface fragment; one winner/background write, no new dispatch. */
-export function nativeSurfaceAuxWgsl(profile: NativeSurfaceAuxProfile, group = 0, startBinding = 8): string {
-  if (!Number.isSafeInteger(group) || group < 0 || !Number.isSafeInteger(startBinding) || startBinding < 0) {
-    throw new RangeError("Invalid native Surface Aux binding coordinates");
-  }
-  if (profile === "ReflectionGI") {
-    throw new Error("ReflectionGI requires an implemented native effect consumer and precision contract");
-  }
-  if (profile === "Base") {
-    return /* wgsl */ `
+export function nativeSurfaceAuxWgsl(profile, group = 0, startBinding = 8) {
+    if (!Number.isSafeInteger(group) || group < 0 || !Number.isSafeInteger(startBinding) || startBinding < 0) {
+        throw new RangeError("Invalid native Surface Aux binding coordinates");
+    }
+    if (profile === "ReflectionGI") {
+        throw new Error("ReflectionGI requires an implemented native effect consumer and precision contract");
+    }
+    if (profile === "Base") {
+        return /* wgsl */ `
 fn native_surface_aux_write(pixel: vec2i, opaque_reactive: vec2f) {}
 `;
-  }
-  if (profile !== "Temporal") {
-    throw new RangeError("Unknown native Surface Aux profile");
-  }
-  return /* wgsl */ `
+    }
+    if (profile !== "Temporal") {
+        throw new RangeError("Unknown native Surface Aux profile");
+    }
+    return /* wgsl */ `
 @group(${group}) @binding(${startBinding}) var native_surface_opaque_reactive: texture_storage_2d<rgba8unorm, write>;
 
 // Static emission and MASK interiors can accumulate. Shading Change owns
@@ -34,7 +33,6 @@ fn native_surface_aux_write(pixel: vec2i, opaque_reactive: vec2f) {
 }
 `;
 }
-
 /**
  * Production native TemporalFacts. Resource identity is separate from raster
  * winners and LOD; local hard replacement is separate from soft reactive.

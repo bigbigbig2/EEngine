@@ -1,3 +1,4 @@
+import { NativeExecutionBins as S3Bins } from "./reference/s3/NativeExecutionBins.mjs";
 import { SurfaceV4 as S3Surface } from "./reference/s3/SurfaceV4.mjs";
 import { GpuNativeMaterialPublication as S3Publication } from "./reference/s3/GpuNativeMaterialPublication.mjs";
 import { nativeSurfacePublicationDescriptors as s3Descriptors } from "./reference/s3/native_surface.mjs";
@@ -887,7 +888,7 @@ ${loads}
         // Reference S3 uses the real standalone receiver and existing Native.
         // Reference owner preparation needs finalized local frame bindings;
         // compile/admit beforehand, then synchronous prepare using ready bins.
-        const refBins = new NativeExecutionBins(device, { width, height, bins: referencePublication.bins });
+        const refBins = new S3Bins(device, { width, height, bins: referencePublication.bins });
         let usedRefBins = false;
         await refBins.ready;
         const referenceOutput = fixture.makeTexture(

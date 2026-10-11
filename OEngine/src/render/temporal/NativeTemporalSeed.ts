@@ -6,6 +6,7 @@ import { GpuBindGroupCache } from "../../gpu/GpuBindGroupResourceCache.js";
 import { packNativeTemporalSeedView } from "../../gpu/FinalPixelAbi.js";
 import { NATIVE_TEMPORAL_SEED_CLASSIFY_WGSL } from "../../shaders/native_temporal_seed.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
+import type { ResourceAccounting, ResourceHandle } from "../../debug/profiling/ResourceAccounting.js";
 
 export interface NativeTemporalSeedCamera {
   readonly view: ArrayLike<number>;
@@ -22,6 +23,7 @@ interface SeedAllocation {
   readonly seed: GPUTexture;
   readonly response: GPUTexture;
   readonly identities: readonly [GPUTexture, GPUTexture];
+  readonly handles: readonly ResourceHandle[];
 }
 
 export interface NativeTemporalSeedFrame {
@@ -33,10 +35,17 @@ export interface NativeTemporalSeedFrame {
   readonly previousValid: boolean;
 }
 
-/** V5 Temporal owner, currently constructed only by the isolated closure.
+export type NativeTemporalSeedGraphBinder = <T extends object>(
+  name: string,
+  resolve: (runtime: NativeTemporalSeed) => T,
+) => T;
+
+/** V5 Temporal owner shared by production Native and its direct consumers.
  * Seed/response are reusable frame scratch; identity is the exact existing
  * four-lane history format. No Surface, Scene or material ownership here.
- * One command owns role/camera/jitter/P publication. Queue-ordered reuse is
+ * One command owns identity role/camera/jitter publication. Physical P remains
+ * with GPU Radiometry and FSR; this owner's CPU multiplier is not GPU exposure.
+ * Queue-ordered reuse is
  * legal with three submitted frames; resize/destroy retire at last-use fence.
  * Color/depth/moment histories join this transaction in Phase 4, not here. */
 export class NativeTemporalSeed {
@@ -57,17 +66,35 @@ export class NativeTemporalSeed {
   private destroyed = false;
   private attached: ShadeGPUCommandContext | null = null;
   private classified = false;
+  private submittedPreviousValid = false;
 
-  constructor(private readonly device: GPUDevice) {
+  /** Input validity of the prepared or most recently submitted frame. */
+  get inputHistoryValid(): boolean {
+    return this.prepared?.previousValid ?? this.submittedPreviousValid;
+  }
+
+  constructor(
+    private readonly device: GPUDevice,
+    private readonly accounting?: ResourceAccounting,
+  ) {
     if (
       device.limits.maxStorageTexturesPerShaderStage < 4 ||
       device.limits.maxSampledTexturesPerShaderStage < 4
     ) {
       throw new RangeError("Native Seed requires the complete producer/consumer texture profile");
     }
+    const layout = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "unfilterable-float" } },
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "unfilterable-float" } },
+        { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } },
+        { binding: 3, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } },
+        { binding: 4, visibility: GPUShaderStage.COMPUTE, storageTexture: { format: "rgba8unorm", access: "write-only" } },
+      ],
+    });
     this.pipeline = device.createComputePipeline({
       label: "Temporal/Seed classification",
-      layout: "auto",
+      layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
       compute: {
         module: device.createShaderModule({ code: NATIVE_TEMPORAL_SEED_CLASSIFY_WGSL }),
         entryPoint: "main",
@@ -146,6 +173,7 @@ export class NativeTemporalSeed {
 
   private allocate(width: number, height: number): SeedAllocation {
     const textures: GPUTexture[] = [];
+    const handles: ResourceHandle[] = [];
     const create = (format: GPUTextureFormat, label: string): GPUTexture => {
       const texture = this.device.createTexture({
         label: `Temporal Seed/${label}`,
@@ -158,6 +186,16 @@ export class NativeTemporalSeed {
           GPUTextureUsage.COPY_DST,
       });
       textures.push(texture);
+      const handle = this.accounting?.created({
+        kind: "texture",
+        category: "resident",
+        owner: "NativeTemporalSeed",
+        bytes: width * height * (format === "rgba8unorm" ? 4 : 16),
+        label: texture.label,
+      }, texture);
+      if (handle !== undefined) {
+        handles.push(handle);
+      }
       return texture;
     };
     try {
@@ -167,10 +205,14 @@ export class NativeTemporalSeed {
         seed: create("rgba32float", "frame"),
         response: create("rgba8unorm", "response"),
         identities: [create("rgba32uint", "identity 0"), create("rgba32uint", "identity 1")],
+        handles,
       };
     } catch (error) {
       for (const texture of textures) {
         texture.destroy();
+      }
+      for (const handle of handles) {
+        this.accounting?.destroyed(handle);
       }
       throw error;
     }
@@ -192,45 +234,61 @@ export class NativeTemporalSeed {
     command.onAborted.addOne(() => this.abort());
   }
 
-  importProducts(graph: FrameGraph): { seed: ResourceId; response: ResourceId; identity: ResourceId } {
+  get frame(): NativeTemporalSeedFrame {
+    if (!this.prepared) {
+      throw new Error("Seed frame is not prepared");
+    }
+    return this.prepared;
+  }
+
+  assertPreparedFrame(width: number, height: number): void {
+    if (this.pending?.width !== width || this.pending.height !== height) {
+      throw new Error("Seed physical products do not match the frame");
+    }
+  }
+
+  importProducts(
+    graph: FrameGraph,
+    bind: NativeTemporalSeedGraphBinder = (_name, resolve) => resolve(this),
+  ): { seed: ResourceId; response: ResourceId; identity: ResourceId } {
     if (!this.prepared) {
       throw new Error("Seed products require preparation");
     }
     const importTexture = (name: string, texture: GPUTexture): ResourceId =>
       graph.import_resource(name, { kind: "imported", domain: "internal-full" }, texture);
     return {
-      seed: importTexture("Temporal/Seed", this.prepared.seed),
-      response: importTexture("Temporal/Native response", this.prepared.response),
-      identity: importTexture("Temporal/current identity", this.prepared.identity),
+      seed: importTexture("Temporal/Seed", bind("seed", (runtime) => runtime.frame.seed)),
+      response: importTexture("Temporal/Native response", bind("response", (runtime) => runtime.frame.response)),
+      identity: importTexture("Temporal/current identity", bind("identity", (runtime) => runtime.frame.identity)),
     };
   }
 
   addClassification(
     graph: FrameGraph,
     products: { seed: ResourceId; response: ResourceId; identity: ResourceId },
+    bind: NativeTemporalSeedGraphBinder = (_name, resolve) => resolve(this),
   ): ResourceId {
     if (!this.prepared || !this.pending) {
       throw new Error("Seed classification requires a prepared transaction");
     }
-    const frame = this.prepared;
     const previous = graph.import_resource(
       "Temporal/previous identity",
       { kind: "imported", domain: "internal-full" },
-      frame.previousIdentity,
+      bind("previous-identity", (runtime) => runtime.frame.previousIdentity),
     );
     let output = -1;
     const pass = graph.add("Temporal/Seed classification", {}, (_data, resources, context) => {
       const encoder = resolveGpuEncoder(context);
-      if (!encoder || this.prepared !== frame || !this.attached || this.classified) {
+      if (!encoder || !this.pending || !this.attached || this.classified) {
         throw new Error("Seed classification requires the current producer/consumer command");
       }
       const group = this.groups.create(this.device, {
         layout: this.pipeline.getBindGroupLayout(0),
         entries: [
-          { binding: 0, resource: resolveTextureView(frame.seed) },
-          { binding: 1, resource: resolveTextureView(frame.response) },
-          { binding: 2, resource: resolveTextureView(frame.identity) },
-          { binding: 3, resource: resolveTextureView(frame.previousIdentity) },
+          { binding: 0, resource: resolveTextureView(resources.get(products.seed)) },
+          { binding: 1, resource: resolveTextureView(resources.get(products.response)) },
+          { binding: 2, resource: resolveTextureView(resources.get(products.identity)) },
+          { binding: 3, resource: resolveTextureView(resources.get(previous)) },
           { binding: 4, resource: resolveTextureView(resources.get(output)) },
         ],
       });
@@ -245,6 +303,8 @@ export class NativeTemporalSeed {
     pass.read(products.response);
     pass.read(products.identity);
     pass.read(previous);
+    // Identity publication remains a successful scene-frame fact even with AA off.
+    pass.make_side_effect();
     output = pass.create("Temporal/classified Seed mask", {
       kind: "transient_texture",
       domain: "internal-full",
@@ -264,6 +324,7 @@ export class NativeTemporalSeed {
       this.retire(this.active, this.lastFence);
     }
     this.active = this.pending;
+    this.submittedPreviousValid = this.frame.previousValid;
     this.previous = this.current;
     this.policy = this.pendingPolicy;
     this.readIndex = this.writeIndex;
@@ -310,11 +371,17 @@ export class NativeTemporalSeed {
       return;
     }
     const bytes = set.width * set.height * 52;
+    for (const handle of set.handles) {
+      this.accounting?.setRetired(handle, fence !== null);
+    }
     const release = (): void => {
       set.seed.destroy();
       set.response.destroy();
       for (const texture of set.identities) {
         texture.destroy();
+      }
+      for (const handle of set.handles) {
+        this.accounting?.destroyed(handle);
       }
       if (fence) {
         this.retiredBytes -= bytes;

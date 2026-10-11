@@ -13,7 +13,7 @@ verifies:
     - OEngine/src/render/passes/fsr3
     - OEngine/src/render/TemporalFabric.ts
     - OEngine/src/shaders/native_surface.ts
-    - OEngine/src/shaders/native_surface_aux.ts
+    - OEngine/src/shaders/native_temporal_seed.ts
     - OEngine/src/shaders/native_surface_lighting.ts
     - OEngine/src/shaders/lighting_brdf.ts
     - OEngine/tests/oracle/final-pixel-sun-response-gpu.mjs
@@ -43,7 +43,7 @@ verifies:
 
 # EEngine V5 Final Pixel Execution Authority
 
-唯一目标是[V5 Design](../next-design/eengine-v5-final-pixel-performance-2026-10.md)。本文件管理迁移单元、合同、验证、cutover与退休；候选实验进入`docs/performance/`，不追加到目标设计。source baseline `49fcaa300fafcbbe3db142df403baa3487f89956`；authority先提交为 `e2ebed8`，Phase1非生产完整闭包提交为 `9f305c4`。本次用户授权审核当前Phase、必要返工并执行下一完整Phase。当前是Phase2生产Shadow融合及候选成本返工，Temporal Seed仍等Phase3。编译、prototype或组件数值通过不能称整Renderer性能/动态画质验收。
+唯一目标是[V5 Design](../next-design/eengine-v5-final-pixel-performance-2026-10.md)。本文件管理迁移单元、合同、验证、cutover与退休；候选实验进入`docs/performance/`，不追加到目标设计。source baseline `49fcaa300fafcbbe3db142df403baa3487f89956`；authority先提交为 `e2ebed8`，Phase1非生产完整闭包提交为 `9f305c4`。本次用户授权审核当前Phase、必要返工并执行下一完整Phase。Phase2结构、数值、接线与生命周期无需进一步返工；未资格融合成本按原§5.1在Phase5/6联合收口。本轮执行Phase3生产Native Temporal Seed cutover，出口与限制见§6.1。编译、prototype或组件数值通过不能称整Renderer性能/动态画质验收。
 
 ## 1. Phase 顺序、依赖与状态
 
@@ -52,7 +52,7 @@ verifies:
 | 0 | Source truth、目标图、数据/质量/成本合同冻结 | 用户已授权实施；文档提交e2ebed8 |
 | 1 | Final Pixel publication / Native Seed非生产完整闭包，替代重复恢复链，合法binding与唯一写域 | 非生产闭包完成；§4.2绑定修正已验证，§4.3记录出口及未获生产资格项 |
 | 2 | Shadow Physical Execution cutover：full I Shadow Resolve / mask / 重复continuation退休 | 1；结构/数值/接线/生命周期闭包完成；候选净性能未资格，联合成本收口在5/6，见§5.1 |
-| 3 | Temporal Seed cutover：Native→全部Temporal consumers；Facts恢复pass / 旧Aux退休 | 1、2；未开始 |
+| 3 | Temporal Seed cutover：Native→全部Temporal consumers；Facts恢复pass / 旧Aux退休 | 1、2；结构/必要数值/接线/生命周期/输入子质量闭包完成；净性能未资格，联合成本在5/6收口，见§6.1 |
 | 4 | Native Temporal V2完整图：native scatter / Prepare / SPD / source histories退休 | 3；未开始 |
 | 5 | Final Pixel全feature/domain集成、最后旧owner与多余常驻/生命周期税退休 | 2–4；未开始 |
 | 6 | 集中quality / production ABBA / P50/P95/P99 / 4GB simultaneous peak验收 | 5；未开始 |
@@ -201,6 +201,18 @@ ADD：Phase1 Native writer接生产；Temporal service接管**同format同语义
 
 闭合：motion/currentidentity/mask同数学按原numeric；baryworld与depthworld f32差异用analytic/winner门，预计previousdepth/dolly/rigid/deformedinvalid独立；fresh build:test、真实Native→FSR/nativeinputs、role/policy/abort/3inflight/epoch/release、完整Phase子质量与一次有限ABBA。Native新增Seed/live-set成本真实记录，禁止patch benchmark。停Phase4。
 
+### 6.1 Phase3生产出口与成本限制
+
+2026-10-12，从HEAD `c71c6d3110c3a09a5a5d1eb983cb7c57ff6f4aec`原子切换：Renderer唯一完整Final Pixel profile，Native已有winner/position/instance/material事实直接写Seed16B、response4B与完整identity16B。`NativeTemporalSeed`接管同格式identity pair与实际command的成功提交/abort/camera/jitter/fence/epoch事务；cached graph late bind当前产品及角色。Native directory32B内含signature/valueRevision，raster保持16B，旧separate versions buffer退休。FSR/native T3/debug直接消费Seed.xy/classified mask；`NativeTemporalFactsPass`、`NativeSurfaceAux`与`native_surface_aux`生产文件及旧graph inputs均删除，无fallback/第二renderer。CPU数学oracle迁到`NativeTemporalMath`，冻结旧reference只在tests。
+
+返工完成的是cached graph角色捕获、GPU packed camera inverse镜像/late binding、资源accounting与fixture真实clip producer。质量fixture每帧复用真实FrameGeometryVertices生产clip，未修改Geometry Frontend算法；无效primary position/clip association候选已撤销。当前T3算法未改，仍有Prepare/scatter/SPD/source histories；Phase4才整体退休它们。
+
+Engine typecheck/build、fresh build:test、受影响31项Node、九项串行实际GPU（minimum/Seed epoch/bins/integration/resource profile/production/multi-Product/device epoch/Seed quality）通过。四组1080p×256frame的规定.25/8px motion、reverse/stop/dolly/material/exposure子矩阵：完整identity、reactive/hard replacement和独立byte/validity语义通过；motion最大差.000286102px。冻结c71 Facts、真实Native Seed和独立解析平面motion分别进入同一T3算法；每frame相对独立motion参考的normalized HDR error不差于旧超过既有2^-10底线，case峰值包络相同或更低。早期输出parity失败、错误旧clip fixture和layout失败全保留；parity诊断不冒充quality判定。独立motion参考不是8×8积分AA golden，不替代Phase4–6完整ROI/thin/拖尾/settling/Dungeon动态质量合同。详情及raw入口只读[Phase3报告](../performance/2026-10-12-final-pixel-phase3-seed-cutover.md)。
+
+成本：同时产品48→56B/pixel，1080p净+15.82MiB；Native+classifier store/clear净增`8−4α B/pixel`，α=1为7.91MiB/frame；directory/versions合计净+8B/slot。classifier仍一full-I dispatch，数量没减少；删除的是Facts额外恢复/随机读取/staging，不虚报删28B输出、history容量或compiler未读的metadata。四storage outputs、额外camera/previous affine/depth/hash及live-state必须计ADD。当前AA off仍生成分类以闭合既有identity提交，按需域税在Phase5审查。
+
+一次有限c71→Phase3 ABBA，每轮60完整GPU样本：Before whole P50 21.400/21.693ms，After 24.510/23.634ms；Native Before9.402/9.678，After10.819/10.513ms，classifier仅比Facts少约.07ms。温度88–91°C、300–1350MHz及长帧全部保留；观察回归不是收益，也不能把短窗热混杂精确量化为稳定净差。**净性能未资格**，Phase5/6联合完整B+Seed+V2成本闭包必须处理，不能忽略。按§2结构闭包与性能资格分离，后续独立scatter/SPD/history删除不因此被阻挡；完整架构证伪条件未满足，不改B/V2方向。本轮STOP于Phase4边界。
+
 ## 7. Phase 4 — Native Temporal V2 full graph
 
 目标：I=O唯一Analyze→Resolve→当前sharpen；先test-only隔离完整图/数学/产品/生命周期/质量，再原子切1:1所有consumer。
@@ -261,4 +273,4 @@ docs运行`node tools/docs-verify.mjs`与`git diff --check`；raw/source/build/�
 
 ## 12. 本次交付边界
 
-Phase1审核结论：无需返工或延期；最低设备binding闭包、非生产Native Seed及事务仍有效。Phase2完成单invocation live-scope/BRDF有限性返工和unit闭包检查；继续候选成本调优延期到Phase5/6联合收口，净性能未资格。当前生产Sun直接消费VSM合同，旧Shadow/fullscreen mask/continuation已退休；NativeTemporalFacts和旧Aux仍是Phase3真实删除对象。本次返工停在Phase3边界，未开始新的production Seed cutover；状态与未完成项只读§5.1和performance报告，不宣称60FPS、稳定收益或B架构被否定。
+Phase2不需要推迟或重做架构；其未资格成本必须在Phase5/6联合收口，不能以局部候选失败阻挡独立重复工作删除。本轮执行Phase3：Native Seed接管生产及全部直接consumer，旧Facts/Aux/separate versions退休；cached graph角色捕获与质量fixture的旧clip producer接线已返工。Phase3必需出口与成本只读§6.1和performance报告；停止在Phase4边界，不自动跨入Native Temporal V2，也不宣称稳定60FPS或整图性能已资格。

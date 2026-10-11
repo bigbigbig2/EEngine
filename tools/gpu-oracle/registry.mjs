@@ -11,6 +11,16 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "final-pixel-seed-quality",
+    file: "OEngine/tests/oracle/native-surface-integration-gpu.mjs",
+    url: "/OEngine/tests/oracle/native-surface-integration-gpu.mjs",
+    entry: "runFinalPixelSeedQualityGpuOracle",
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    requiredFeatures: ["texture-compression-bc", "texture-formats-tier1"],
+    description: "Phase3 actual Native Seed vs frozen Facts and current T3, four 1080p dynamic 256-frame sequences.",
+    timeoutMs: 600000,
+  }),
+  Object.freeze({
     name: "final-pixel-sun-response",
     file: "OEngine/tests/oracle/final-pixel-sun-response-gpu.mjs",
     url: "/OEngine/tests/oracle/final-pixel-sun-response-gpu.mjs",

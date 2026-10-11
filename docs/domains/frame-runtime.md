@@ -24,13 +24,13 @@ verifies:
 
 核对日期：2026-10-11，当前生产工作树。这里记录当前 owner 与主链注册；实际验证结果及阶段状态只在模块执行计划。
 
-[RendererCore](../../OEngine/src/render/pipeline/RendererCore.ts) 创建 FrameCoordinator、SurfaceV4、LocalLightWorkGenerator、NativeTemporalFactsPass 等长期 owners。[FrameProgramLowering](../../OEngine/src/render/program/FrameProgramLowering.ts) 将场景产品逐帧绑定到缓存 FrameGraph，连接最终 winner/depth→LocalLightWork→native Surface→Temporal/FSR3。
+[RendererCore](../../OEngine/src/render/pipeline/RendererCore.ts) 创建 FrameCoordinator、SurfaceV4、LocalLightWorkGenerator、NativeTemporalSeed 等长期 owners。[FrameProgramLowering](../../OEngine/src/render/program/FrameProgramLowering.ts) 将场景产品逐帧绑定到缓存 FrameGraph，连接最终 winner/depth→LocalLightWork→native Surface→Temporal/FSR3。
 
 [FrameCoordinator](../../OEngine/src/render/FrameCoordinator.ts) 持有当前 command context，通过 submitFrame 的 command.finish 收口提交，并依据 gpuDone 退役 inFlight。canBeginFrame 限制未完成帧数量；这是 GPU completion 背压，不是读取本帧 visibility/work 后由 CPU 决策。
 
 Geometry、native Material publication、LocalLightWork、Surface、VSM 与后处理注册同一个 graph。各 pass 消费显式产品，不拥有独立 frame submit。LightDatabase 仍归 Scene environment，generator 只拥有自己的 frame allocation；提交后按真实 gpuDone fence 复用或销毁，abort 不推进产品历史，device loss 退休旧 epoch。
 
-Final Pixel Shadow 主链由 VSM post-content publication 直接写 FinalPixelLighting container 的descriptor区间，PhysicalEnvironment发布原half Solar LUT，LocalLightWork直接写lookup区间；Native只读最后resource version。物理container由独立 `FinalPixelLightingPublication` 负责3个有界 frame allocation、abort/fence/epoch和显存记账，三种逻辑producer各自保留owner。Native单次几何恢复后完成原point-PCF与Sun；独立Shadow Resolve、ShadowVisibility、Sun continuation和第二HDR已删除。当前Temporal仍读NativeTemporalFacts，Seed production cutover与Native V2不在此项实现事实内。
+Final Pixel Shadow 主链由 VSM post-content publication 直接写 FinalPixelLighting container 的descriptor区间，PhysicalEnvironment发布原half Solar LUT，LocalLightWork直接写lookup区间；Native只读最后resource version。物理container由独立 `FinalPixelLightingPublication` 负责3个有界 frame allocation、abort/fence/epoch和显存记账，三种逻辑producer各自保留owner。Native单次几何恢复后完成原point-PCF与Sun；独立Shadow Resolve、ShadowVisibility、Sun continuation和第二HDR已删除。Native 在已有 winner/position/instance/material facts 时写 Seed rgba32float、response rgba8unorm 与完整 identity rgba32uint；NativeTemporalSeed 管理 identity pair、camera/jitter、commit/abort/fence/epoch。轻量 classification 只读三个产品和 previous identity，FSR/当前 native T3/debug 直接消费 Seed.xy 与 mask；旧 Facts/Aux 和单独 material versions buffer 已删除。Native V2 尚未切换，1:1 当前仍有 FSR Prepare/scatter/SPD/history；阶段资格只读 V5 执行 authority。
 
 `GpuRadiometryPass` 独立持有曝光双槽和有效性：颜色/TAA reset、resize、Sun/Sky edit、camera cut 不重置曝光，commit 换槽，abort 保留，device epoch 初始化与 `resetExposure()` 显式重置。主链保留 P(n−1) render→去预曝光 HDR histogram→percentile/highlight/log adaptation→E(n)，FSR 先读旧两槽，Presentation 再使用 E/P。常规帧没有 CPU 读回；`readExposureDiagnostics()` 是调用者主动请求的单次 32B readback，不能驱动 frame work。
 

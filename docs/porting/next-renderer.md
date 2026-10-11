@@ -20,7 +20,7 @@ verifies:
     - OEngine/tests/oracle/final-pixel-solar-gpu.mjs
     - OEngine/src/gpu/NativeMaterialBindings.ts
     - OEngine/src/gpu/NativeMaterialProducts.ts
-    - OEngine/src/render/temporal/NativeTemporalFactsPass.ts
+    - OEngine/src/render/temporal/NativeTemporalSeed.ts
     - OEngine/src/render/temporal/NativeTemporalPasses.ts
     - OEngine/src/shaders/native_temporal.ts
     - OEngine/src/render/passes/fsr3/Fsr3UpscalerRuntime.ts
@@ -1559,3 +1559,7 @@ VSM atlas/residency、receiver aggregation、compact descriptor、local invalida
 旧S3从`9f305c4128b0355614ececbe2be890582d6e8f2d`编译JS冻结到`OEngine/tests/oracle/reference/s3/`，只作numeric/quality reference，production不import或设置selector。Geometry completion独立冻结，避免新Native generator污染旧reference；Solar CPU/filtered oracle、receiver解析plane和实际production GPU结果见[V5 Phase2报告](../performance/2026-10-12-final-pixel-phase2-cutover.md)。这些是Local接线与组件验证，成本未资格，不提升source adoption或Performance Improved。
 
 2026-10-12 live-scope返工沿用已固定Filament Apache-2.0 `41f996de8fcc2d6b60b73159aa1bc44a05a40700` 的 `surface_shading_model_standard.fs::surfaceShading/isotropicLobe/clearCoatLobe`；本轮复读本机固定源，数学仍是本地原`lighting_brdf.ts::re_direct_physical`。Original：将原数学拆成invocation-private `prepare_direct_physical/apply_direct_physical`，Native结束material/local/IBL后采PCF，visibility先作用irradiance再走原combined finite guard；不是新BRDF、Filament框架移植或跨pass lighting packet。冻结本地8db2c82b旧公式与2880组GPU exact/overflow负对照、真实consumer和有限ABBA见[返工报告](../performance/2026-10-12-final-pixel-phase2-live-scope-rework.md)。候选净性能未资格，不提升adoption；上段PCF后算interpolation是此前early候选的记录，当前late次序只在execution记录事实。
+
+## V5 Phase3 Native Temporal Seed 物理切换（2026-10-12）
+
+Local：c71c6d31生产Facts的jittered motion、四字段identity/signature、hard/soft replacement及MASK边界语义，迁到`native_temporal_seed.ts`与`NativeTemporalMath.ts`；directory32B直接承载publication版本，raster16B保持。Adapt：Native已有position/instance/material时写最小Seed，Temporal-owned identity提交事务与轻量跨像素classification；删Facts/Aux/separate versions。未移植新外部算法，T3/FSR来源状态不变。test-only `reference/s3/native_surface_aux.mjs`冻结旧Facts源码；1080p子矩阵另用独立解析平面/相机motion核对数值放大，不将它冒称8×8积分AA golden或整Renderer质量。

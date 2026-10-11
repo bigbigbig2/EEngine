@@ -494,7 +494,7 @@ fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
   if textureLoad(temporal_mask, coordinate, 0).g < 0.5 {
     return vec4f(1.0, 0.1, 0.05, 1.0);
   }
-  // Production NativeTemporalFacts is already current-minus-previous UV.
+  // Production Native Seed is already current-minus-previous UV.
   let velocity = textureLoad(source, coordinate, 0).rg;
   let magnitude = clamp(length(velocity) * 100.0, 0.0, 1.0);
   let hue = (atan2(velocity.y, velocity.x) + PI) / (2.0 * PI);

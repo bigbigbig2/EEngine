@@ -1,4 +1,4 @@
-/** V5 target ABI. Internal, not selected by the production frame program yet. */
+/** Internal V5 ABI used by the production Final Pixel frame program. */
 export const FINAL_PIXEL_DIRECTORY_WORDS = 8;
 export const FINAL_PIXEL_SOLAR_WIDTH = 256;
 export const FINAL_PIXEL_SOLAR_HEIGHT = 64;

@@ -81,7 +81,7 @@ test("Frame Program closes the current scene product demand with a structural ke
     "meshlet-work",
     "local-light-work",
     "surface-radiance",
-    "temporal-motion",
+    "temporal-seed",
     "sky-radiance",
     "aerial-radiance",
     "reconstructed-color",
@@ -97,13 +97,13 @@ test("Frame Program closes the current scene product demand with a structural ke
   assert.ok(!noEnvironment.products.includes("aerial-radiance"));
   const unlit = buildFrameProgram({ ...scene, hasLit: false });
   assert.ok(!unlit.products.includes("local-light-work"));
-  assert.deepEqual(first.facts.find((fact) => fact.product === "temporal-motion").consumers, [
-    "temporal-facts",
+  assert.deepEqual(first.facts.find((fact) => fact.product === "temporal-seed").consumers, [
+    "temporal-classification",
     "fsr3",
   ]);
   assert.ok(!first.products.includes("shading-work"));
   assert.deepEqual(first.facts.find((fact) => fact.product === "visibility").extent, [640, 360]);
-  assert.equal(first.facts.find((fact) => fact.product === "temporal-motion").format, "rg32float");
+  assert.equal(first.facts.find((fact) => fact.product === "temporal-seed").format, "rgba32float");
 });
 
 test("local-light occupancy depends on raw winner/depth and cannot force Geometry HZB", () => {
@@ -203,7 +203,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
   };
   const plan = buildFrameProgram(request);
   const resource = {};
-  let surfaceInstances, temporalInstances, producedFrameInstances;
+  let surfaceInstances, producedFrameInstances;
   const runtime = {
     virtualGeometry: null,
     activeShadingSummary: {
@@ -211,7 +211,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
       standardSetRefCounts: new Uint32Array([1]),
       coatedSetRefCounts: new Uint32Array([0]),
     },
-    nativeMaterials: { hasLit: false, publication: { versions: resource, materialSlotCount: 16 } },
+    nativeMaterials: { hasLit: false, publication: { materialSlotCount: 16 } },
     materialResources: {
       materialRecords: resource,
       textureRouteRecords: resource,
@@ -291,48 +291,22 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
     history: resource,
   };
   const camera = {};
-  const temporalFacts = {
+  const temporalSeed = {
+    frame: { seed: resource, response: resource, identity: resource, previousIdentity: resource },
     assertPreparedFrame() {},
-    addToGraph(graph, input) {
-      temporalInstances = input.instances;
-      const pass = graph.add("test/Temporal Facts", {}, () => {});
-      for (const value of [
-        input.visibility,
-        input.depth,
-        input.opaqueReactive,
-        input.materialVersions,
-        input.meshletWork,
-        input.instances,
-        input.currentCamera,
-        input.previousCamera,
-      ])
-        pass.read(value);
-      return {
-        motion: pass.create("test/temporal-motion", {
-          kind: "transient_texture",
-          width: 640,
-          height: 360,
-          format: "rg32float",
-          domain: "internal-full",
-          usage: 7,
-        }),
-        mask: pass.create("test/temporal-mask", {
-          kind: "transient_texture",
-          width: 640,
-          height: 360,
-          format: "rgba8unorm",
-          domain: "internal-full",
-          usage: 7,
-        }),
-        identity: pass.create("test/temporal-identity", {
-          kind: "transient_texture",
-          width: 640,
-          height: 360,
-          format: "rgba32uint",
-          domain: "internal-full",
-          usage: 7,
-        }),
-      };
+    importProducts(graph, bind) {
+      const imported = (name) => graph.import_resource(`test/${name}`, { kind: "imported", domain: "internal-full" }, bind(name, (owner) => owner.frame[name]));
+      return { seed: imported("seed"), response: imported("response"), identity: imported("identity") };
+    },
+    addClassification(graph, products, bind) {
+      const previous = graph.import_resource("test/previous identity", { kind: "imported", domain: "internal-full" }, bind("previous-identity", (owner) => owner.frame.previousIdentity));
+      const pass = graph.add("test/Seed classification", {}, () => {});
+      for (const id of [...Object.values(products), previous]) pass.read(id);
+      pass.make_side_effect();
+      return pass.create("test/temporal-mask", {
+        kind: "transient_texture", width: 640, height: 360,
+        format: "rgba8unorm", domain: "internal-full", usage: 7,
+      });
     },
   };
   const bindings = {
@@ -358,7 +332,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
     finalPixelLighting: null,
     localLightCounters: resource,
     fsr3,
-    temporalFacts,
+    temporalSeed,
     vsm: null,
     vsmFrame: null,
     vsmGeneration: { deviceEpoch: 7, generation: 1 },
@@ -456,7 +430,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
         return swapchain;
       },
     },
-    temporalFacts,
+    temporalSeed,
     sky: null,
     aerial: null,
     localLightWork: null,
@@ -543,7 +517,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
     [
       "test/Visibility",
       "SurfaceV4/native opaque",
-      "test/Temporal Facts",
+      "test/Seed classification",
       "test/FSR3",
       "test/Radiometry",
       "test/Bloom",
@@ -552,11 +526,12 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
   );
   const pass = (name) => dump.passes.find((entry) => entry.name === name);
   assert.ok(pass("SurfaceV4/native opaque").reads.includes(producedFrameInstances));
-  assert.notEqual(producedFrameInstances, temporalInstances);
+  assert.ok(!dump.resources.some((entry) => /material-versions|previous-camera|geometry-metadata/.test(entry.name)));
+  assert.ok(!pass("test/Seed classification").reads.includes(producedFrameInstances));
   for (const [producer, consumer] of [
     ["test/Visibility", "SurfaceV4/native opaque"],
-    ["SurfaceV4/native opaque", "test/Temporal Facts"],
-    ["test/Temporal Facts", "test/FSR3"],
+    ["SurfaceV4/native opaque", "test/Seed classification"],
+    ["test/Seed classification", "test/FSR3"],
     ["test/FSR3", "test/Radiometry"],
     ["test/Bloom", "test/Present"],
   ]) {
@@ -620,7 +595,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
     [
       "test/Visibility",
       "SurfaceV4/native opaque",
-      "test/Temporal Facts",
+      "test/Seed classification",
       "test/Sky",
       "test/Aerial",
       "test/FSR3",

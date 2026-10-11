@@ -7,7 +7,7 @@ import { GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS } from "../../../../.test-dist/gp
 import { NATIVE_SURFACE_SETTINGS_BYTES, FINAL_PIXEL_SURFACE_SETTINGS_BYTES, } from "./native_surface.mjs";
 import { NATIVE_TEMPORAL_SEED_VIEW_BYTES } from "../../../../.test-dist/gpu/FinalPixelAbi.js";
 import { NATIVE_TEMPORAL_BACKGROUND_WGSL } from "../../../../.test-dist/shaders/native_temporal_seed.js";
-import { NativeExecutionBins } from "../../../../.test-dist/render/surface/NativeExecutionBins.js";
+import { NativeExecutionBins } from "./NativeExecutionBins.mjs";
 /**
  * Native opaque production owner. It borrows
  * Geometry/material/Lighting resources, owns HDR/execution scratch and submits

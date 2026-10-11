@@ -6,7 +6,7 @@ import type { HierarchicalZBuffer } from "../HierarchicalZBuffer.js";
 import type { GPUViewContext } from "../ViewContext.js";
 import type { PackedVisibilityJob } from "../features/VisibilityFeature.js";
 import type { Fsr3UpscalerRuntime } from "../passes/fsr3/Fsr3UpscalerRuntime.js";
-import type { NativeTemporalFactsPass } from "../temporal/NativeTemporalFactsPass.js";
+import type { NativeTemporalSeed } from "../temporal/NativeTemporalSeed.js";
 import type { GpuRadiometryPass } from "../temporal/GpuRadiometryPass.js";
 import type { PhysicalEnvironmentRuntime } from "../environment/PhysicalEnvironmentRuntime.js";
 import type { PreExposureContract } from "../RadiometryContract.js";
@@ -32,7 +32,7 @@ export type SceneFrameBindings = Readonly<{
   runtime: GpuRenderWorldRuntime;
   preExposure: PreExposureContract;
   fsr3: Fsr3UpscalerRuntime;
-  temporalFacts: NativeTemporalFactsPass;
+  temporalSeed: NativeTemporalSeed;
   radiometry: GpuRadiometryPass;
   lightingEnvironmentRevision: number;
   /** GPU light collection publication revision; independent from sky/IBL revision. */
@@ -260,5 +260,5 @@ export function assertFrameProgramBindings(plan: FrameProgram, bindings: FramePr
     request.outputWidth,
     request.outputHeight,
   );
-  bindings.temporalFacts.assertPreparedFrame(request.internalWidth, request.internalHeight);
+  bindings.temporalSeed.assertPreparedFrame(request.internalWidth, request.internalHeight);
 }

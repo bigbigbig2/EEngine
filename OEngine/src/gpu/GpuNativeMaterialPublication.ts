@@ -4,7 +4,7 @@ import { nativeMaterialParameters } from "../shaders/native_material.js";
 import { AppearanceProgramRegistry } from "./AppearanceProgramRegistry.js";
 import type { AppearanceProgramDescriptor, AppearanceProgramLease } from "./AppearanceProgramRegistry.js";
 import { nativeMaterialRevision } from "./NativeMaterialBindings.js";
-import { FINAL_PIXEL_DIRECTORY_WORDS } from "./FinalPixelAbi.js";
+import { FINAL_PIXEL_DIRECTORY_WORDS, FINAL_PIXEL_DIRECTORY_WGSL } from "./FinalPixelAbi.js";
 
 export interface NativeMaterialPublicationSource {
   readonly materialSlot: number;
@@ -69,20 +69,14 @@ struct NativeRasterDirectoryEntry {
 }
 `;
 
-/** Slot-indexed native material lookup. Invalid slots have programIndex = 0xffffffff. */
-export const NATIVE_MATERIAL_DIRECTORY_WORDS = 4;
+/** Slot-indexed 32B Native directory. Revisions are publication-owned fields. */
+export const NATIVE_MATERIAL_DIRECTORY_WORDS = FINAL_PIXEL_DIRECTORY_WORDS;
+export const NATIVE_RASTER_DIRECTORY_WORDS = 4;
 export const NATIVE_MATERIAL_RASTER_CONSTANT_WORDS = 2;
-export const NATIVE_MATERIAL_DIRECTORY_WGSL = /* wgsl */ `
-struct NativeMaterialDirectoryEntry {
-  constant_base: u32,
-  program_index: u32,
-  binding_set: u32,
-  execution_bin: u32,
-}
-`;
+export const NATIVE_MATERIAL_DIRECTORY_WGSL = FINAL_PIXEL_DIRECTORY_WGSL;
 
 /**
- * S1 isolated native publication: immutable candidate buffers and asynchronous
+ * Native publication: immutable candidate buffers and asynchronous
  * program leases. No dependency on GpuAppearancePublication, Tape or Surface.
  * The caller owns the active pointer and frame fence. Creation/abort do not
  * change an active snapshot; commit only admits a completely ready candidate.
@@ -93,15 +87,6 @@ export class GpuNativeMaterialPublication {
   readonly bins: readonly NativeMaterialExecutionBin[];
   readonly constants: GPUBuffer;
   readonly directory: GPUBuffer;
-  /** Slot-indexed vec2u(signature, value_revision); unpublished slots are zero. */
-  private readonly versionBuffer: GPUBuffer | null;
-
-  get versions(): GPUBuffer {
-    if (this.versionBuffer === null) {
-      throw new Error("Final Pixel versions are owned by the Native directory");
-    }
-    return this.versionBuffer;
-  }
   readonly rasterClasses: readonly NativeRasterClass[];
   readonly rasterConstants: GPUBuffer;
   readonly rasterDirectory: GPUBuffer;
@@ -121,8 +106,6 @@ export class GpuNativeMaterialPublication {
     registry: AppearanceProgramRegistry,
     sources: readonly NativeMaterialPublicationSource[],
     private readonly accounting?: ResourceAccounting,
-    /** V5 nonproduction closure; the frame composition root does not select it yet. */
-    finalPixel = false,
   ) {
     const values: number[] = [];
     const entries: NativeMaterialPublishedEntry[] = [];
@@ -290,10 +273,9 @@ export class GpuNativeMaterialPublication {
       }
     }
     const constantBytes = Math.max(values.length * 4, 4);
-    const directoryWords = finalPixel ? FINAL_PIXEL_DIRECTORY_WORDS : NATIVE_MATERIAL_DIRECTORY_WORDS;
+    const directoryWords = NATIVE_MATERIAL_DIRECTORY_WORDS;
     const directoryBytes = directoryCount * directoryWords * 4;
-    const rasterDirectoryBytes = directoryCount * NATIVE_MATERIAL_DIRECTORY_WORDS * 4;
-    const versionBytes = finalPixel ? 0 : directoryCount * 8;
+    const rasterDirectoryBytes = directoryCount * NATIVE_RASTER_DIRECTORY_WORDS * 4;
     const rasterConstantBytes = Math.max(rasterValues.length * 4, 4);
     const maximum = Math.min(
       Number(device.limits.maxBufferSize),
@@ -302,13 +284,12 @@ export class GpuNativeMaterialPublication {
     if (
       constantBytes > maximum ||
       directoryBytes > maximum ||
-      versionBytes > maximum ||
       rasterConstantBytes > maximum
     ) {
       throw new RangeError("Native material publication exceeds negotiated buffer limits");
     }
     this.physicalBytes =
-      constantBytes + directoryBytes + rasterDirectoryBytes + versionBytes + rasterConstantBytes;
+      constantBytes + directoryBytes + rasterDirectoryBytes + rasterConstantBytes;
     this.materialSlotCount = directoryCount;
     const buffers: GPUBuffer[] = [];
     try {
@@ -396,27 +377,9 @@ export class GpuNativeMaterialPublication {
           [entry.constantBase, entry.programIndex, entry.bindingSet, entry.executionBin],
           entry.materialSlot * directoryWords,
         );
-        if (finalPixel) {
-          directory.set([entry.signature, entry.valueRevision], entry.materialSlot * directoryWords + 4);
-        }
+        directory.set([entry.signature, entry.valueRevision], entry.materialSlot * directoryWords + 4);
       }
       this.directory.unmap();
-      this.versionBuffer = finalPixel
-        ? null
-        : device.createBuffer({
-            label: "SurfaceV4/material versions",
-            size: versionBytes,
-            usage: GPUBufferUsage.STORAGE,
-            mappedAtCreation: true,
-          });
-      if (this.versionBuffer !== null) {
-        buffers.push(this.versionBuffer);
-        const versions = new Uint32Array(this.versionBuffer.getMappedRange());
-        for (const entry of entries) {
-          versions.set([entry.signature, entry.valueRevision], entry.materialSlot * 2);
-        }
-        this.versionBuffer.unmap();
-      }
       for (const buffer of buffers) {
         const handle = accounting?.created(
           {
@@ -509,7 +472,6 @@ export class GpuNativeMaterialPublication {
     this.stopListening = null;
     this.constants.destroy();
     this.directory.destroy();
-    this.versionBuffer?.destroy();
     this.rasterConstants.destroy();
     this.rasterDirectory.destroy();
     this.accountingHandles.forEach((handle) => this.accounting?.destroyed(handle));

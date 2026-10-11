@@ -19,7 +19,7 @@ verifies:
 
 ## 当前源码接线
 
-核对日期：2026-10-10，当前工作树生产源码。Surface 和 LocalLightWork 使用唯一生产入口；最新 Lighting 阶段、验收结果与性能限制只读 [M3 执行计划](../next-execution/eengine-v4-lighting-execution-2026-10.md)。
+核对日期：2026-10-12，当前工作树生产源码。Surface 和 LocalLightWork 使用唯一生产入口；最新 Lighting 阶段、验收结果与性能限制只读 [M3 执行计划](../next-execution/eengine-v4-lighting-execution-2026-10.md)。
 
 [GpuNativeMaterialScene](../../OEngine/src/gpu/GpuNativeMaterialScene.ts) 从 scene material slots、GraphCompiler、TextureResidency 和 cooked Products 建立 immutable native publication。参数及 dynamic inputs 是实例数据；完整物理资源集合决定 BindingSet，Program 由 shader/layout 结构决定。async PSO 未就绪时延迟整 tick；成功提交才切 active，abort 保留 candidate 供 retry，旧 publication 按实际 fence 退休。
 
@@ -35,11 +35,11 @@ verifies:
 
 旧 LightClusterPass、cluster-centric kernels、16B metadata/CAS/private256、legacy lighting_direct 和不可达的 PackedTransparentOitPass/wrapper 已删除；透明并非当前 production producer。GpuFrameCounters schema29 封存旧 local-light 槽位，追加 finalized header 的按需采样复制，不能把这些字段解释为 BRDF evaluations 或真实 DRAM traffic。
 
-全 sampled-resource profile 超过协商 limit 时使用有限 native sun continuation，读独立 HDR texture、写新 HDR 版本；不使用 read-write rgba16float storage 或 six-signal store。FrameGraph 管宏依赖及借给 Surface 的最终 HDR；Surface 只拥有执行 scratch 和必要 continuation intermediate，不 submit。
+生产 Native 使用完整 Final Pixel profile，单 invocation 共用 primary position 完成 Sun 与 Temporal Seed；不保留 Sun continuation/第二 HDR。完整资源 profile 在创建前按协商 limits 校验；超限明确拒绝，不恢复旧路径。FrameGraph 管宏依赖及借给 Surface 的最终 HDR；Surface 只拥有执行 scratch，不 submit。
 
 ## 直接消费者与边界
 
-NativeVisibilityPass 和 VSM native alpha caster 消费同一 native material publication。NativeTemporalFactsPass 从 winner、authoritative scene instances 与 native material versions 生成 motion、identity/reactive；motion 为 rg32float，身份历史保留完整 pair。FSR 消费 Temporal 的真实产品。background、Sky/Aerial、Radiometry/Post/Present 保持各自 owner。
+NativeVisibilityPass 和 VSM native alpha caster 消费同一 native material publication。Native 在一次 winner/geometry 恢复后直接写 Seed rgba32float（xy motion、zw previous/current view depth）、response rgba8unorm、完整 identity rgba32uint。NativeTemporalSeed 拥有 identity pair 与成功提交事务，cached graph late bind 当前角色；classification 不读 Visibility/Depth/Geometry/Instances，产生旧 T3/upscale mask。FSR 和 debug 消费 Seed.xy/mask；旧 Facts/Aux 已删除，native-resolution V2 仍待后续单元切换。background、Sky/Aerial、Radiometry/Post/Present 保持各自 owner。
 
 旧 SurfaceWorkRuntime、GPU Tape/ExactDag interpreter、Closure Cache、coherence、field/signal heap、global Signal History 和 generic opaque Reconstruct 已从本工作树删除；不保留 adapter 或第二条生产路径。资产 cook、Graph 数学/CPU oracle、Geometry、providers、FrameGraph 与 Registry 生命周期继续由真实 owner 持有。历史 B2 数值失败没有被追认为修复；存活语义由 native update/publication/abort-retry/HDR 测试承担。
 

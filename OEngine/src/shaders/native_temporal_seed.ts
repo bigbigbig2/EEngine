@@ -134,3 +134,13 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     select(0.0, 1.0, hard), f32(bits) / 255.0));
 }
 `;
+
+/** Local response output for isolated Surface fixtures without a Seed consumer. */
+export function nativeResponseWgsl(enabled: boolean): string {
+  return enabled ? `
+@group(0) @binding(8) var native_response: texture_storage_2d<rgba8unorm, write>;
+fn native_response_write(pixel: vec2i, alpha_mask: bool) {
+  textureStore(native_response, pixel, vec4f(0.0, select(0.0, 1.0, alpha_mask), 0.0, 0.0));
+}
+` : "";
+}

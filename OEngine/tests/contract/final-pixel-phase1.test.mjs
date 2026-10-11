@@ -97,6 +97,8 @@ function fixture() {
       maxSampledTexturesPerShaderStage: 4,
     },
     lost: loss.promise,
+    createBindGroupLayout: (value) => value,
+    createPipelineLayout: (value) => value,
     createShaderModule: (value) => value,
     createComputePipeline: () => ({ getBindGroupLayout: () => ({}) }),
     createBindGroup: (value) => value,
@@ -167,6 +169,7 @@ function fixture() {
           callbacks.push(callback);
           return {
             read() {},
+            make_side_effect() {},
             create(_name, descriptor) {
               const id = next++;
               resources.set(
@@ -191,7 +194,7 @@ function fixture() {
     }
     return { command, fence };
   };
-  return { owner, camera, textures, encode };
+  return { owner, camera, textures, encode, device };
 }
 
 test("successful submit advances identity/camera together; abort and deferred resize preserve them", async () => {
@@ -256,4 +259,60 @@ test("incomplete Seed consumer prevents commit and malformed camera/extent alloc
   f.owner.abort();
   f.owner.destroy();
   assert.equal(f.owner.allocatedBytes, 0);
+});
+
+
+test("cached Seed graph resolves current roles on every execute and abort preserves submitted camera", () => {
+  const { owner, camera, device } = fixture();
+  owner.prepare(19, 13, "native", camera(-2));
+  const imported = new Map(), callbacks = [];
+  let next = 0, groups = [];
+  device.createBindGroup = (descriptor) => { groups.push(descriptor); return descriptor; };
+  const graph = {
+    import_resource(_name, _descriptor, binding) { const id = next++; imported.set(id, binding); return id; },
+    add(_name, _data, callback) {
+      callbacks.push(callback);
+      return {
+        read() {}, make_side_effect() {},
+        create(_name, descriptor) { const id = next++; imported.set(id, device.createTexture({size: [descriptor.width, descriptor.height], format: descriptor.format})); return id; },
+      };
+    },
+  };
+  const bind = (_name, resolve) => ({ resolve });
+  const products = owner.importProducts(graph, bind);
+  owner.addClassification(graph, products, bind);
+  const execute = (abort = false) => {
+    const before = [], finished = [], aborted = [];
+    const encoder = { beginComputePass: () => ({ setPipeline() {}, setBindGroup() {}, dispatchWorkgroups() {}, end() {} }) };
+    const command = {
+      device, closed: false, gpu_encoder: encoder, gpuDone: Promise.resolve(),
+      onBeforeFinish: {addOne: (fn) => before.push(fn)},
+      onFinished: {addOne: (fn) => finished.push(fn)},
+      onAborted: {addOne: (fn) => aborted.push(fn)},
+      abort() { this.closed = true; aborted.forEach((fn) => fn()); },
+    };
+    owner.attach(command);
+    for (const callback of callbacks) callback({}, { get: (id) => {
+      const value = imported.get(id); return value.resolve ? value.resolve(owner) : value;
+    } }, { encoder: command });
+    if (abort) command.abort();
+    else { before.forEach((fn) => fn()); command.closed = true; finished.forEach((fn) => fn()); }
+  };
+  const first = owner.frame;
+  execute();
+  const second = owner.prepare(19, 13, "native", camera(-3));
+  assert.equal(second.previousIdentity, first.identity);
+  execute(true);
+  const retry = owner.prepare(19, 13, "native", camera(-4));
+  assert.equal(retry.identity, second.identity);
+  assert.equal(new Float32Array(retry.view.buffer)[46], -2);
+  execute();
+  const third = owner.prepare(19, 13, "native", camera(-5));
+  execute();
+  assert.equal(groups[0].entries[2].resource.texture, first.identity);
+  assert.equal(groups[1].entries[2].resource.texture, second.identity);
+  assert.equal(groups[2].entries[3].resource.texture, first.identity);
+  assert.equal(groups[3].entries[3].resource.texture, retry.identity);
+  assert.notEqual(third.identity, retry.identity);
+  owner.destroy();
 });

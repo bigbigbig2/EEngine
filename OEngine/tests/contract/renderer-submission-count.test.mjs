@@ -103,7 +103,7 @@ test("production scene encoding abort does not count a submitted frame", () => {
     promotedTextureRuntimes: new WeakSet(),
     _surface: { canPrepareFrame: () => true, abort() {} },
     _fsr3: { invalidate() {} },
-    _temporalFacts: { abort() {} },
+    _temporalSeed: { abort() {} },
     _gpuRadiometry: { abort() {} },
     _graphics: {
       render_world_if_created: { runtime: () => runtime },

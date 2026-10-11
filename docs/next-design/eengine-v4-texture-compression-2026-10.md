@@ -30,7 +30,7 @@ verifies:
     - OEngine/src/render/pipeline/RendererCore.ts
     - OEngine/src/render/surface
     - OEngine/src/render/vsm
-    - OEngine/src/render/temporal/NativeTemporalFactsPass.ts
+    - OEngine/src/render/temporal/NativeTemporalSeed.ts
     - validation/workloads/lighting-acceptance-v1.yaml
 ---
 

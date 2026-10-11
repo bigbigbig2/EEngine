@@ -43,7 +43,7 @@ verifies:
     - OEngine/tests/oracle/fixtures/fsr3-luma-reference.mjs
     - OEngine/tests/oracle/native-raster-triangle-count-gpu.mjs
     - OEngine/src/render/vsm
-    - OEngine/src/render/temporal/NativeTemporalFactsPass.ts
+    - OEngine/src/render/temporal/NativeTemporalSeed.ts
     - OEngine/tests/unit/asset-codec-service.test.mjs
     - OEngine/tests/unit/runtime-asset-v2.test.mjs
     - OEngine/tests/unit/pc-texture-product.test.mjs

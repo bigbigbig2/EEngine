@@ -65,7 +65,7 @@ export interface NativeSurfaceFrame {
   readonly routes: readonly NativeSurfaceRoute[];
   /** Demanded Temporal input. Owned by the Aux owner, not by SurfaceV4. */
   readonly reactive?: GPUTexture;
-  /** V5 target only. Temporal owns outputs and the successful-submit view roles. */
+  /** Temporal owns production Seed outputs and successful-submit view roles. */
   readonly temporal?: {
     readonly seed: GPUTexture;
     readonly identity: GPUTexture;

@@ -11,7 +11,7 @@ import type { SurfaceV4 } from "../surface/SurfaceV4.js";
 import type { RenderDebugViewPass } from "../passes/RenderDebugViewPass.js";
 import type { RenderDebugViewResources } from "../passes/RenderDebugViewPass.js";
 import { RenderDebugView as RenderDebugViewValue } from "../../debug/RenderDebugView.js";
-import type { NativeTemporalFactsPass } from "../temporal/NativeTemporalFactsPass.js";
+import type { NativeTemporalSeed } from "../temporal/NativeTemporalSeed.js";
 import type { GpuRadiometryPass } from "../temporal/GpuRadiometryPass.js";
 import type { BloomPass } from "../passes/BloomPass.js";
 import type { LocalLightWorkGenerator } from "../lighting/LocalLightWorkGenerator.js";
@@ -35,7 +35,7 @@ import { counterByteOffset } from "../../debug/GpuFrameCounters.js";
 export type FrameProgramOwners = Readonly<{
   visibility: VisibilityFeature;
   visibilityCounters: VisibilityCounterPass;
-  temporalFacts: NativeTemporalFactsPass;
+  temporalSeed: NativeTemporalSeed;
   surface: SurfaceV4;
   radiometry: GpuRadiometryPass;
   bloom: BloomPass;
@@ -243,11 +243,6 @@ function compileSceneGraph(
     bind("material-records", (bindings) => bindings.runtime.materialResources.materialRecords),
   );
   const needsDirectLight = plan.stages.includes("local-light-work");
-  const geometryMetadata = graph.import_resource(
-    "geometry-metadata",
-    { kind: "imported", label: "geometry metadata" },
-    bind("geometry-metadata", (bindings) => bindings.job.assets.sparseShading.assetMetadataHeap),
-  );
   const vertexPayload = graph.import_resource(
     "vertex-payload",
     { kind: "imported", label: "geometry vertex payload" },
@@ -599,19 +594,14 @@ function compileSceneGraph(
   ) {
     throw new Error("Native Surface requires LocalLightWork and IBL providers");
   }
-  const previousCamera = graph.import_resource(
-    "previous-camera",
-    { kind: "imported" },
-    bind("previous-camera", (bindings) => bindings.view.gpu_previous_camera_state.buffer),
-  );
-  const nativeVersions = graph.import_resource(
-    "native-material-versions",
-    { kind: "imported" },
-    bind("native-material-versions", (bindings) => bindings.runtime.nativeMaterials!.publication.versions),
-  );
+  const bindSeed = <T extends object>(name: string, resolve: (runtime: NativeTemporalSeed) => T): T =>
+    bind(`native-temporal/${name}`, (bindings) => resolve(bindings.temporalSeed));
+  const seedProducts = owners.temporalSeed.importProducts(graph, bindSeed);
   const nativeFrame = bind("native-surface-frame", (bindings) => ({ bindings }));
   let nativeHdr = -1;
   let reactive = -1;
+  let seed = -1;
+  let identity = -1;
   const native = graph.add("SurfaceV4/native opaque", nativeFrame, (data, resources, context) => {
     const frame = data.bindings;
     const material = frame.runtime.nativeMaterials!;
@@ -678,6 +668,11 @@ function compileSceneGraph(
       visibility: texture(result.frame.visibilityKey),
       depth: frame.depth.gpu_texture,
       reactive: texture(reactive),
+      temporal: {
+        seed: texture(seed),
+        identity: texture(identity),
+        view: frame.temporalSeed.frame.view,
+      },
       geometry: nativeWinnerGeometry(
         frame.job.assets,
         frame.job.prepared.workSet.frameVertices,
@@ -734,34 +729,13 @@ function compileSceneGraph(
       GPUTextureUsage.COPY_SRC |
       GPUTextureUsage.COPY_DST,
   });
-  reactive = native.create("SurfaceV4/reactive", {
-    kind: "transient_texture",
-    width: plan.request.internalWidth,
-    height: plan.request.internalHeight,
-    format: "rgba8unorm",
-    domain: "internal-full",
-    usage:
-      GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT,
-  });
-  const facts = owners.temporalFacts.addToGraph(
+  reactive = native.write(seedProducts.response);
+  seed = native.write(seedProducts.seed);
+  identity = native.write(seedProducts.identity);
+  const temporalMask = owners.temporalSeed.addClassification(
     graph,
-    {
-      width: result.frame.domain.width,
-      height: result.frame.domain.height,
-      visibility: result.frame.visibilityKey,
-      depth: result.frame.depth,
-      opaqueReactive: reactive,
-      meshletWork: result.frame.meshletWork.records,
-      instances,
-      materialVersions: nativeVersions,
-      materialSlotCount: initial.runtime.nativeMaterials!.publication.materialSlotCount,
-      currentCamera: cameraBuffer,
-      previousCamera,
-      assetMetadata: geometryMetadata,
-      vertexPayload,
-      sourceBindings: bind("native-temporal-source", (bindings) => bindings.job.assets.sparseShading),
-    },
-    (name, resolve) => bind(`native-temporal/${name}`, (bindings) => resolve(bindings.temporalFacts)),
+    { seed, response: reactive, identity },
+    bindSeed,
   );
   const skyRadiance = !plan.stages.includes("physical-sky")
     ? undefined
@@ -822,9 +796,9 @@ function compileSceneGraph(
     {
       color: aerialRadiance,
       depth: result.frame.depth,
-      motion: facts.motion,
-      reactiveMask: facts.mask,
-      validityMask: facts.mask,
+      motion: seed,
+      reactiveMask: temporalMask,
+      validityMask: temporalMask,
       preExposure: gpuPreviousExposure,
       priorExposure: gpuPriorExposure,
       width: result.frame.domain.width,
@@ -867,13 +841,13 @@ function compileSceneGraph(
             visibilityKey: result.frame.visibilityKey,
             packedVisibility: result.debugResolve,
             depth: result.frame.depth,
-            velocity: facts.motion,
+            velocity: seed,
             gPbr: null,
             gNormal: null,
             gAlbedo: null,
             gEmissive: null,
             surfaceFlags: null,
-            temporalMask: facts.mask,
+            temporalMask: temporalMask,
             indirectDiffuse: null,
             indirectSpecular: null,
             linearHdr: reconstructedRadiance,

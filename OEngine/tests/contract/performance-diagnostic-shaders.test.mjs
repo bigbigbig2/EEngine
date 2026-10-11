@@ -31,7 +31,7 @@ test("Native diagnostic specializations retain winner predicates and G is the so
     assert.match(body, /entry.execution_bin != route.x/);
     assert.match(body, /WINNER_VALUE_VALID/);
     assert.match(body, /textureStore\(hdr/);
-    assert.match(body, /native_surface_aux_write/);
+    assert.match(body, /native_response_write/);
   }
   assert.doesNotMatch(main(generated.A), /native_material_evaluate\(/);
   assert.match(main(generated.A), /corners.position.p0/);

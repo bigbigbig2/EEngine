@@ -17,7 +17,7 @@ verifies:
     - OEngine/src/gpu/NativeMaterialProducts.ts
     - OEngine/src/shaders/native_surface.ts
     - OEngine/src/render/surface/SurfaceV4.ts
-    - OEngine/src/render/temporal/NativeTemporalFactsPass.ts
+    - OEngine/src/render/temporal/NativeTemporalSeed.ts
     - OEngine/src/gpu/GpuRenderWorld.ts
     - OEngine/src/gpu/GraphicsContext.ts
     - OEngine/src/gpu/TextureResidency.ts

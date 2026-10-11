@@ -17,6 +17,16 @@ export class GPUCameraState {
   private readonly viewportOffset = new Float32Array(2);
   private readonly viewProjection = new Float32Array(16);
   private readonly currentProjection = new Float32Array(16);
+  private readonly currentInverseProjection = new Float32Array(16);
+  private readonly currentInverseView = new Float32Array(16);
+
+  get projection_matrix_inverse(): Float32Array {
+    return this.currentInverseProjection;
+  }
+
+  get view_matrix_inverse(): Float32Array {
+    return this.currentInverseView;
+  }
 
   constructor(
     private readonly device: GPUDevice,
@@ -68,6 +78,8 @@ export class GPUCameraState {
     const transformInverse = invertMat4(camera.transform.matrix);
     const viewInverse = invertMat4(camera.view_matrix);
     const projectionInverse = invertMat4(projection);
+    this.currentInverseProjection.set(projectionInverse);
+    this.currentInverseView.set(viewInverse);
     const viewProjectionInverse = invertMat4(viewProjection);
     const frustum = new Array<Float32Array>(6);
     for (let index = 0; index < 6; index++) {
@@ -112,6 +124,8 @@ export class GPUCameraState {
     this.viewportOffset.set(source.viewportOffset);
     this.viewProjection.set(source.viewProjection);
     this.currentProjection.set(source.currentProjection);
+    this.currentInverseProjection.set(source.currentInverseProjection);
+    this.currentInverseView.set(source.currentInverseView);
   }
 
   destroy(): void {

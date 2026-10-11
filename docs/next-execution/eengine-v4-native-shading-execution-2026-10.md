@@ -22,8 +22,8 @@ verifies:
     - OEngine/src/render/surface/NativeExecutionBins.ts
     - OEngine/src/render/surface/NativeRasterWorkPartitions.ts
     - OEngine/src/render/surface/NativeVisibilityPass.ts
-    - OEngine/src/render/surface/NativeSurfaceAux.ts
-    - OEngine/src/render/temporal/NativeTemporalFactsPass.ts
+    - OEngine/src/render/temporal/NativeTemporalSeed.ts
+    - OEngine/src/render/temporal/NativeTemporalSeed.ts
     - OEngine/src/shaders/native_surface.ts
     - OEngine/src/shaders/native_material_products.ts
     - OEngine/src/render/MeshletBucketRaster.ts

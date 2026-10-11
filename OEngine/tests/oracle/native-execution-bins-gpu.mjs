@@ -83,13 +83,13 @@ export async function runNativeExecutionBinsGpuOracle(device) {
       const instances = new Uint32Array(GPU_FRAME_INSTANCE_STRIDE / 4);
       instances[GPU_FRAME_INSTANCE_OFFSETS.generation / 4] = generation;
       instances[1] = 0; // source material is intentionally unrelated to most winners.
-      const directory = new Uint32Array(slots * 4);
+      const directory = new Uint32Array(slots * 8);
       for (let slot = 0; slot < slots; slot++) {
         const bin = slot % binCount;
-        directory.set([slot * 4, bins[bin].programIndex, bins[bin].bindingSet, bin], slot * 4);
+        directory.set([slot * 4, bins[bin].programIndex, bins[bin].bindingSet, bin], slot * 8);
       }
       if (fixture.malformed) {
-        directory[(slots - 2) * 4 + 3] = 0xffffffff;
+        directory[(slots - 2) * 8 + 3] = 0xffffffff;
         work[
           GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE / 4 +
             ((slots - 1) * GPU_MESHLET_RASTER_WORK_RECORD_STRIDE) / 4 +
