@@ -29,9 +29,10 @@ verifies:
     - OEngine/tests/oracle/native-material-gpu.mjs
     - OEngine/tests/oracle/native-surface-integration-gpu.mjs
     - OEngine/tests/oracle/vsm-shadow-resolve-gpu.mjs
-    - OEngine/tests/oracle/fixtures/vsm-shadow-resolve-v2.mjs
-    - OEngine/tests/oracle/fixtures/vsm-shadow-resolve-v2-wgsl.mjs
-    - OEngine/tests/oracle/fixtures/vsm-shadow-visibility-v2-wgsl.mjs
+    - OEngine/src/render/vsm/VsmShadowResolvePass.ts
+    - OEngine/src/shaders/vsm_shadow_resolve.ts
+    - OEngine/src/shaders/vsm_shadow_visibility.ts
+    - OEngine/tests/oracle/vsm-shadow-receiver-gpu.mjs
     - OEngine/tests/oracle/native-surface-production-gpu.mjs
     - OEngine/src/gpu/VirtualGeometryResidency.ts
     - OEngine/src/gpu/GeometryPageDemandAbiV1.ts
@@ -1502,7 +1503,11 @@ Appearance 切片之后已接通独立六路 signal history：`SurfaceWorkRuntim
 
 ## 性能模块研究映射（2026-10-11）
 
-S2 Shadow Projection 实验来源（未生产采纳）：实际读取 WickedEngine MIT pin `7f776d02094571dd2c8166c7e5879d5e93d2b642` 的 `screenspaceshadowCS.hlsl`、`wiRenderer.cpp::Postprocess_ScreenSpaceShadow` 和 `lightingHF.hlsli` mask consumer，只参考独立产品/lighting消费者的架构。其half-resolution、upsample、wave/RT假设不移植。原创精确receiver reconstruction、fine descriptor leader broadcast、原16点PCF、packed count mask与owner冻结于 `tests/oracle/fixtures/vsm-shadow-*-v2*.mjs`；候选曾临时接入完整Renderer并通过numeric/lifecycle，整帧A/B不支持采纳，现无production import。未移植donor算法，也不声明source adoption或性能收益；Cost Card、原失败/热状态与拒绝见[性能执行§3.7](../next-execution/eengine-v4-performance-optimization-execution-2026-10.md#37-s2出口独立-projection-完整实验未采纳生产)。
+S2 Shadow Projection 实验来源（当时未生产采纳）：实际读取 WickedEngine MIT pin `7f776d02094571dd2c8166c7e5879d5e93d2b642` 的 `screenspaceshadowCS.hlsl`、`wiRenderer.cpp::Postprocess_ScreenSpaceShadow` 和 `lightingHF.hlsli` mask consumer，只参考独立产品/lighting消费者的架构。其half-resolution、upsample、wave/RT假设不移植。原创精确receiver reconstruction、fine descriptor leader broadcast、原16点PCF、packed count mask与owner曾冻结于 `tests/oracle/fixtures/vsm-shadow-*-v2*.mjs`（Git `7b6e6db1`可追溯）；候选曾临时接入完整Renderer并通过numeric/lifecycle，整帧A/B不支持采纳，该提交未切生产。S3已将测试转向真实生产owner，删除无人使用的三份v2 fixture，冻结旧sampling oracle仍保留。未移植donor算法，也不声明source adoption或性能收益；Cost Card、原失败/热状态与拒绝见[性能执行§3.7](../next-execution/eengine-v4-performance-optimization-execution-2026-10.md#37-s2出口独立-projection-完整实验未采纳生产)。
+
+S3实际Local/Reference映射（2026-10-11）：同一WickedEngine MIT pin的 `normalsfromdepthCS.hlsl::main` 已核读完整hot path：共享Depth halo、三点world normal与按depth discontinuity选邻居，以及边界风险。本地 `vsm_shadow_resolve.ts::shadow_receiver` 只参考Depth反投影求几何面法线的执行方向，改为完整VisibilityKey一致的两轴邻居，退化/数值风险/单pixel/缓存miss全部走现有immutable geometry；不复制halo、normal compression或近似跨surface邻居。Shadow bias有意改为camera-facing几何面，BRDF法线不改，不宣称与旧mapped bias逐bit等价。
+
+实际读取Filament Apache-2.0 pin `764fe6cac9bdb4ba24d3d852344dfa04a5f70f75` 的 `shaders/src/surface_shadowing.fs::ShadowSample_PCF_Low` 和LICENSE，其Gaussian/comparison filtering不等于当前point box，拒绝直接移植。原创 `vsm_sampling.ts::vsm_sample_page` 从原四轴f32 offset/floor/clamp计数推导整数重复权重；二幂atlas采用 [WGSL textureGather](https://gpuweb.github.io/gpuweb/wgsl/#texturegather) 返回raw depth并重排，保留原clear0/负reference比较，非二幂或其它tap/radius在同一helper保留完整支持域。没有硬件compare、Gaussian、half-res、history或新submit。实际producer/consumer/数值/生命周期与性能资格分别记录于性能执行§3.8；这些是本地原创实现，不声明donor算法port、occupancy收益或净性能已达标。
 
 对应[性能设计](../next-design/eengine-v4-performance-optimization-2026-10.md)与[执行计划](../next-execution/eengine-v4-performance-optimization-execution-2026-10.md)。本节为源码研究与拟议Local/Adapt映射，**不是新方案已移植、已采用或已有GPU收益的声明**。已有native DFG与receiver聚合的来源/验证继续由原实施记录负责；不把本节候选追认为已有adoption。
 

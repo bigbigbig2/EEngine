@@ -133,6 +133,7 @@ import { VSM_DEFAULT_SETTINGS, resolveVsmSettings, type VsmSettings } from "../v
 import { VsmAllocatePagesPass } from "../vsm/VsmAllocatePagesPass.js";
 import { VsmCasterRecordPass } from "../vsm/VsmCasterRecordPass.js";
 import { VsmAtlasRasterPass } from "../vsm/VsmAtlasRasterPass.js";
+import { VsmShadowResolvePass } from "../vsm/VsmShadowResolvePass.js";
 import { VsmInvalidationPass } from "../vsm/VsmInvalidationPass.js";
 import { GPU_INSTANCE_FLAGS } from "../../gpu/GpuInstanceAbi.js";
 import { DEFAULT_INSTANCE_SHADOW_FLAGS } from "../../core/InstanceShadowSemantics.js";
@@ -490,6 +491,7 @@ export class Renderer {
   private _vsmAllocatePages!: VsmAllocatePagesPass;
   private _vsmCasterRecords!: VsmCasterRecordPass;
   private _vsmAtlasRaster!: VsmAtlasRasterPass;
+  private _vsmShadowResolve!: VsmShadowResolvePass;
   private _vsmInvalidation!: VsmInvalidationPass;
   private readonly _vsmGeneration = new VsmGeneration();
   private _vsmSettings: Readonly<VsmSettings> = VSM_DEFAULT_SETTINGS;
@@ -1727,6 +1729,7 @@ export class Renderer {
       this._vsmAllocatePages = new VsmAllocatePagesPass(device);
       this._vsmCasterRecords = new VsmCasterRecordPass(device);
       this._vsmAtlasRaster = new VsmAtlasRasterPass(this._graphics);
+      this._vsmShadowResolve = new VsmShadowResolvePass(device);
       this._vsmInvalidation = new VsmInvalidationPass(device);
     }
     this._frameCoordinator = new FrameCoordinator(this._graphics);
@@ -1852,6 +1855,7 @@ export class Renderer {
       vsmAllocatePages: this._vsmAllocatePages,
       vsmCasterRecords: this._vsmCasterRecords,
       vsmAtlasRaster: this._vsmAtlasRaster,
+      vsmShadowResolve: this._vsmShadowResolve,
       vsmInvalidation: this._vsmInvalidation,
     };
   }
@@ -2499,6 +2503,7 @@ export class Renderer {
     this._vsmAllocatePages?.destroy();
     this._vsmCasterRecords?.destroy();
     this._vsmAtlasRaster?.destroy();
+    this._vsmShadowResolve?.destroy();
     this._views?.destroy();
     this._cameraStates?.destroy();
     this._environments?.destroy();

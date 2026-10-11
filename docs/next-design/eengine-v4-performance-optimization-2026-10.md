@@ -24,9 +24,10 @@ verifies:
     - OEngine/src/render/environment
     - OEngine/src/gpu/GpuAuthoredEnvironment.ts
     - OEngine/src/render/vsm
-    - OEngine/tests/oracle/fixtures/vsm-shadow-resolve-v2.mjs
-    - OEngine/tests/oracle/fixtures/vsm-shadow-resolve-v2-wgsl.mjs
-    - OEngine/tests/oracle/fixtures/vsm-shadow-visibility-v2-wgsl.mjs
+    - OEngine/src/render/vsm/VsmShadowResolvePass.ts
+    - OEngine/src/shaders/vsm_shadow_resolve.ts
+    - OEngine/src/shaders/vsm_shadow_visibility.ts
+    - OEngine/tests/oracle/vsm-shadow-receiver-gpu.mjs
     - OEngine/tests/oracle/vsm-shadow-resolve-gpu.mjs
     - OEngine/src/render/surface/SurfaceV4.ts
     - OEngine/src/render/program
@@ -118,9 +119,9 @@ CPU交互/Geometry canonical decode/数字 operation map 和receiver聚合已经
 
 ### 3.0 Shadow Projection 独立产品（2026-10-11 新授权）
 
-**实施判定：候选已完整构建、曾临时切入真实 Renderer 并测量，未通过净性能门，拒绝生产采纳。当前源码仍为 Q-exact descriptor→Native embedded PCF，不称“已经剥离”。** 下述是本次候选合同/Cost Card；可复现 shader/owner 只留在 `tests/oracle/fixtures/vsm-shadow-*-v2*.mjs`，无生产 import 或运行时 A/B 开关。详细结果与拒绝见执行§3.7。用户的生产剥离目标尚未达成，不能以候选通过 numeric 代替性能验收。
+**当前实施合同：S3生产源码已切入独立Projection→packed visibility→Native Sun，Native不再执行query/PCF；净性能验收仍未通过。** 用户已明确选择“架构剥离优先：保留生产重构，标明性能验收未通过”。S2首次搬移16点PCF的拒绝出口仍保留在执行§3.7/Git `7b6e6db1`，不能追认为性能成功；S3的Depth receiver/geometry-face bias、exact point重数/raw gather、Cost Card与数值门见下文，真实结果见执行§3.8。无人使用的v2 prototype fixtures退休，冻结旧sampling只作数值oracle，常规生产唯一owner，无运行时A/B。
 
-用户新任务覆盖原 S 的「先完成材质再 resolve」限制：从 Visibility winner 精确重建世界位置与几何插值法线，VSM post-commit descriptors/atlas → 独立 8×8 Resolve → Directional Shadow Visibility → Native Sun。不是 GBuffer，没有 material graph、tangent、UV 或历史。BRDF/coat 继续使用材质法线；**shadow bias 有意改为几何插值法线**，双面朝向/退化 fallback 与 Native 相同。必须独立检查 normal-map 极端斜面 acne/peter-panning，不能称与旧 mapped-normal bias 逐 bit 相同。
+以下先保留 S2 初版历史合同：用户新任务覆盖原 S 的「先完成材质再 resolve」限制，从 Visibility winner 精确重建世界位置与几何插值法线，VSM post-commit descriptors/atlas → 独立 8×8 Resolve → Directional Shadow Visibility → Native Sun。不是 GBuffer，没有 material graph、tangent、UV 或历史。S2 的 shadow bias 候选为几何插值法线；当前 S3 改为下文的 camera-facing geometry-face，BRDF/coat 继续使用材质法线。必须独立检查 normal-map 极端斜面 acne/peter-panning，不能称与旧 mapped-normal bias 逐 bit 相同。
 
 第一版保留 clip、fine/coarse fallback、reverse-Z、gutter、4×4 PCF 和 radius。采用 core `r32uint` 四个水平像素/texel：每 byte 的低 5 bit 保存可见 tap 数，高 2 bit 保存 `tapsPerAxis-1`，消费为 `count/taps²`。物理宽度 `ceil(internalWidth/4)`，逻辑域仍是 internal-full。默认 4×4 的 k/16 **无量化误差**；1/2/3 taps 同样保留原计数/除法。R8Unorm 的 k/16 不能精确表示且 storage capability 不应凭格式名假设；本版不引入该混杂变量。debug 在同一产品编码类别，16B mode uniform 决定 palette，关闭诊断时不建额外 full-screen 产品。
 
@@ -128,7 +129,7 @@ CPU交互/Geometry canonical decode/数字 operation map 和receiver聚合已经
 
 来源：WickedEngine MIT `7f776d02094571dd2c8166c7e5879d5e93d2b642` 的 `screenspaceshadowCS.hlsl` → `wiRenderer.cpp::Postprocess_ScreenSpaceShadow` → `lightingHF.hlsli` shadow-mask consumer，作为产品分离的架构参考。其 half-resolution、upsample、多光源打包、WaveActiveBitOr/RT API 不适合本任务，不移植；本地 precise geometry、descriptor broadcast、PCF 与 byte packing 为自主实现。该来源不证明 GTX/WebGPU 净收益。
 
-实施前 Cost Card：
+S2 实施前历史 Cost Card（144B settings 属于 S2；当前 S3 为64B settings+16B mode，见下文）：
 
 | 项目 | Before → After |
 |---|---|
@@ -149,11 +150,27 @@ S2 同单元重建税修订（实施前，2026-10-11）：实际 K 产品记录�
 
 静态 A/B 额外固定 geometry settled：pending/inflight/verified/retiring为0，resident/upload/evict/reload签名持续3秒且≥60 submitted frames不变。fullQuality不等于geometry settled。full profiler的120-sampled-frame预算在settled后重新开始，严格验证240-frame窗口60个full samples；早期混合full/coarse窗口保留为测量失败，不能选择性当稳态Before/After。
 
-上述 triangle broadcast 数值通过但成本不支持采用，已从候选移除：该轮 Resolve P50 4.706ms、Native+Resolve同帧P50 10.019ms，新增shared/barrier/liveness未因81.03%匹配而自动赚钱；热频未配对，不能宣称精确退步百分比。最终候选只有 fine descriptor broadcast，288B shared/2 barriers，16点PCF保留。两轮 settled 整帧 A/B 同样未证明净收益，生产恢复唯一原路径。后续若重新立项，必须首先说明可以实际删除哪一类主工作，而非仅把成本搬桶；此处不授权更换PCF、history、resolution或Temporal。
+S2 历史出口：上述 triangle broadcast 数值通过但成本不支持采用，已从候选移除：该轮 Resolve P50 4.706ms、Native+Resolve同帧P50 10.019ms，新增shared/barrier/liveness未因81.03%匹配而自动赚钱；热频未配对，不能宣称精确退步百分比。S2最终候选只有 fine descriptor broadcast，288B shared/2 barriers，16点PCF保留。两轮 settled 整帧 A/B 同样未证明净收益，S2当时恢复embedded生产。当前S3按再次授权保留独立生产，不能把该历史出口当作当前ownership。新单元必须说明实际删除的主工作，而非仅搬桶；S3仅重排等价point-PCF执行，不授权history、resolution或Temporal改动。
 
 ### 3.1 先明确可分离的数学
 
-当前visibility依赖position、Sun direction、**材质mapped normal**、page完成状态、depth range和PCF；`receiver_cosine=max(dot(mappedNormal,Sun),1e-3)`决定normal/slope bias。附件提出的“Depth/Visibility→shadowMask→Native textureLoad”缺少mapped normal，直接用几何normal将改变阴影，尤其normal-map和grazing angle。
+2026-10-11 再授权单元 S3（实施前冻结）：S2 已证实单纯搬移16次读取不足，不重跑该方案。独立 Resolve 保留原三角形精确位置/插值几何法线、全域 packed mask、fine broadcast 和全部生命周期；本次允许调整 **PCF物理执行方式**，不调整PCF数学。默认4×4/radius0.75的每轴offset为 `[-.375,-.125,.125,.375]*radius`，原 `floor(localUV*pageSize+offset+.5)` 再按gutter clamp，仅有至多两个不同整数坐标。由原四个坐标逐项计算低/高坐标出现次数，二维权重为两轴次数乘积；读取至多四个不同深度后按原 `stored>0 && stored>reference+bias` 比较并加权，仍得到原16次point比较的精确k/16。不得以线性comparison过滤/新Gaussian/近似权重替代。其它合法taps/radius仍在同一个sampler内执行完整原支持域，并对默认路径检查实际端点跨度，不靠范围假设丢样本。
+
+S3 Cost Card：删除默认receiver重复的12次逻辑depth reads（16→4）、重复地址生成与相同值比较；新增8个精确轴floor/clamp、低坐标计数、四个整数乘积权重。64B→16B逻辑depth载荷不等于DRAM节省，cache原可能已命中。Resolve仍付重复geometry重建、1.98MiB产品写/Native mask读、1dispatch、288B shared/2barriers，无新sampler/资源/history/atomics/submit。best为重复取样/texture instruction主导；expected未知；worst为原cache/编译器已去重，新增计数与register live范围亏损。0%采样节省仍承担S2的整套新增税；50/100%只对可删除texture指令成本做敏感性，不承诺整帧比例。break-even仍是旧embedded Native减新mask Native大于Resolve和全部新增税，必须全帧A/B证明。上一版Resolve4.2–4.8ms仅作这一完整pass上界，不把12/16当速度比例。
+
+S3 receiver重构（第一轮后、下一轮实施前冻结）：精确PCF压缩本身的近景同帧Native+Resolve P50仍约9.63ms，不能关闭单元。接下来用已完成的reverse-depth和当前inverse-VP重建receiver position；水平/垂直各选择一个**完整VisibilityKey与center一致**的邻居，用同三角形的三个反投影点计算几何面法线并朝向相机。不同winner/背景/屏幕边界不参与求法线；任一轴无同winner邻居、非有限反投影或退化cross，仍从现有Geometry arena/immutable source精确求当前三角形面法线和位置，不能漏掉细线/单pixel三角形。有效depth0且key有效不被当背景。唯一shadow bias语义定为camera-facing几何面法线，替代旧mapped/interpolated normal；BRDF/coat继续原材质法线，不把新receiver position或bias称为与旧算法逐bit一致。
+
+Receiver Cost Card：可支持像素删除3-corner immutable position/normal loads、解包、object→world/normal变换、winner系数及插值；新增center/最多四邻居key、最多三depth读、三次inverse-VP和cross/normalize。边界完整geometry分支也删除无consumer的vertex normal数据，只读position/几何面。新增camera624B借用uniform和depth借用view，无新全屏产品/history/atomic/pass/barrier，mask/sampling成本沿前述。best大三角形连续覆盖；0%支持时额外key/depth判定+完整geometry净亏，50/100%只代入实际可支持receiver比例；worst细碎几何和斜面depth量化造成数值风险，非有限/退化回完整source，不能近似漏work。break-even为删重建省时超过key/depth/inverse-VP/分支税；不因“用了depth”承诺收益。复核WickedEngine MIT原pin `normalsfromdepthCS.hlsl::main` 的3-point世界面法线和不连续失败经验；本地以相同winner限定邻居，不照搬最近深度猜表面、shared halo或normal压缩。
+
+新增receiver验收：独立analytic平面/斜面、perspective、边界/单pixel及fallback的面法线朝向；normal-map不参与receiver而保留BRDF；双面/负缩放、near clip、细线和遮挡边界不能跨winner构造normal。沿用PCF逐bit合同（同position/normal输入）；depth反投影的量化差异与旧mapped bias属于单独质量比较，不能放宽material/HDR/LOD/motion容差来掩盖。未通过此质量门不能称AAA画质验收完成。
+
+Receiver独立oracle在运行前定义：解析平面、斜面、perspective/mirror与强制geometry-source路径逐component法线误差≤2e-4（f32反投影/相邻差分允许量，不适用于放宽材质numeric）；depth路径只有在两axis长度>1000×world f32 ulp量级且非近平行时可用，否则完整source。该guard是执行条件，不删除receiver。普通与强制source的有效receiver一致，背景保持无效，必须实际出现depth与source两类结果，不能只用全neutral mask通过。量化风险/normal-map改变另留质量记录。
+
+S3 raw-gather候选Cost Card（在最终A/B前冻结）：默认point地址合并后四个depth textureLoad进一步替换为一个raw depth textureGather；WGSL规定返回顺序是左下、右下、右上、左上，本地重排为原四点权重顺序，不用comparison sampler/双线性结果。协商atlas2048/4096均为二幂；`(lowTexel+1)/dimension`是精确f32坐标，位于2×2 footprint中心。非二幂保持四次load，其它radius/taps仍原完整循环，同一sampler函数无第二生产owner。删除3条取样指令不等于减少四个底层texel或DRAM；新增坐标换算、固定nonfiltering nearest/clamp sampler/一个绑定，无新增texture/pass/dispatch/shared/barrier/history。best取样指令吞吐主导；expected未知；worst gather执行更慢或额外零权重邻居消耗cache。0%指令收益承担坐标/绑定税，50/100%仅可删除指令成本的敏感性；break-even必须以Native+Resolve和Total同帧窗口判断。32,053点×24配置与冻结旧WGSL须逐bit一致，不能改比较/容差。
+
+新增numeric门在After前固定：各tap轴1..4、radius0/.75/1/1.5/8、slot/gutter/page边界及相邻f32值、正/零/负reference和clear深度，与冻结原16tap shader逐bit相同；所有query状态、mask完整写域/尾部、abort/retry、generation/loss沿用。几何法线bias是S2已明确的有意语义变化，极端normal-map/掠射场景另验，不称与旧材质法线逐bit相同。来源重读Filament Apache-2.0 `764fe6cac9bdb4ba24d3d852344dfa04a5f70f75` `surface_shadowing.fs::ShadowSample_PCF_Low`：其四次comparison取样是Gaussian，拒绝直接移植；本地整数重数/原point box是自主推导。当前单元不改Temporal、receiver、allocator或resolution。
+
+**以下Q/S是原设计的资格推导，保留作历史对照，不再是当前实施入口。S3方向已按新授权冻结；其质量/净性能限制仍必须如实报告。** 原embedded visibility依赖position、Sun direction、**材质mapped normal**、page完成状态、depth range和PCF；`receiver_cosine=max(dot(mappedNormal,Sun),1e-3)`决定normal/slope bias。附件提出的“Depth/Visibility→shadowMask→Native textureLoad”缺少mapped normal，直接用几何normal会改变阴影，尤其normal-map和grazing angle；S3已明确承认并设计为camera-facing几何面bias，而非声称旧normal数值不变。
 
 【源码事实】`lighting_brdf.ts::re_direct_physical`的Standard/coat表达式对incident.color线性，在正常有限计算域可推导 `L_sun(V*irradiance)=V*L_sun(irradiance)`；这允许研究把**unshadowed Sun radiance**交给专用resolve，而非发布整套材质GBuffer。**但函数还有non-finite contribution提前return，不能把整个f32函数宣称无条件线性**：unshadowed计算溢出时先拒绝、再乘visibility，与原来先遮挡后求BRDF并不等价。S必须证明可支持数值域，或把BRDF系数/incident乘法与finite guard完整搬到正确的resolve阶段并重算成本；不准静默忽略极端输入或改guard来过测。无法闭合则拒绝S。所有现有lobe、色域/pre-exposure/alpha/diagnostic_mode必须验证，不扩展到未存在的transmission。浮点乘加顺序变化仍需既有numeric容差验证；线性实数推导不等于f32 bit-exact。
 
@@ -219,7 +236,7 @@ Q/S都可以研究screen-tile query共享，但先统计**完整query key/result
 
 ### 3.4 Hardware PCF与动态page系统
 
-Filament四次comparison fetch的Gaussian3×3与当前4×4 point box不同。reverse-depth clear0、负reference、自定义bias、gutter、boundary与comparison sampler过滤支持也要独立证明。**同质量精确路径保持当前box语义；PCF V2算法替换作为条件单元，质量可能变好也可能改变轮廓，不能默认“≥旧质量”。** 允许研究等效权重的硬件compare，但原point-tap重复权重与fractionalbilinear权重不是自动一致。失败整数去重已撤回，不重启。
+Filament四次comparison fetch的Gaussian3×3与当前4×4 point box不同。reverse-depth clear0、负reference、自定义bias、gutter、boundary与comparison sampler过滤支持也要独立证明。**同质量精确路径保持当前box语义；PCF V2算法替换作为条件单元，质量可能变好也可能改变轮廓，不能默认“≥旧质量”。** 允许研究等效权重的硬件compare，但原point-tap重复权重与fractionalbilinear权重不是自动一致。旧失败整数去重记录保留；再次授权的S3是从原四轴point地址计算重复次数的向量实现与raw gather，不追认旧失败，也不采用Gaussian。
 
 `VsmAllocatePagesPass`约10段dispatch与slot扫描是真实实现成本，但代表稳态其它VSM仅≈0.258ms，不能因为图复杂就先persistent free/eviction queues。若运动/压力样本证明management大，才设计free queue、可回收candidate与dirty append；需完整coarse保护、slot唯一owner、ABA/epoch、overflow、取消/重新提交，不新增current-frameCPU控制。
 

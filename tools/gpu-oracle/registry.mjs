@@ -11,12 +11,20 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "vsm-shadow-receiver",
+    file: "OEngine/tests/oracle/vsm-shadow-receiver-gpu.mjs",
+    url: "/OEngine/tests/oracle/vsm-shadow-receiver-gpu.mjs",
+    entry: "runVsmShadowReceiverGpuOracle",
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    description: "Production depth/geometry receiver against analytic flat/sloped/perspective/mirrored planes and isolated winners.",
+  }),
+  Object.freeze({
     name: "vsm-shadow-resolve",
     file: "OEngine/tests/oracle/vsm-shadow-resolve-gpu.mjs",
     url: "/OEngine/tests/oracle/vsm-shadow-resolve-gpu.mjs",
     entry: "runVsmShadowResolveGpuOracle",
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
-    description: "Rejected test-only packed Shadow Resolve/decoder against analytic receiver and per-pixel PCF; partial/neutral/stale/abort/resize.",
+    description: "Production packed Shadow Resolve/decoder against analytic receiver and per-pixel PCF; partial/neutral/stale/abort/resize.",
   }),
   Object.freeze({
     name: "vsm-v4-r1",

@@ -1,12 +1,12 @@
-// Rejected Shadow Projection V2 candidate, frozen 2026-10-11.
-// Test-only: no production import, runtime switch, or adoption claim.
 import {
   GPU_INSTANCE_FLAGS,
   GPU_INSTANCE_SHADING_BIN_SHIFT,
   GPU_INSTANCE_SHADING_BIN_MASK,
-} from "../../../.test-dist/gpu/GpuInstanceAbi.js";
-import { surfaceGeometryCompletionWgsl } from "../../../.test-dist/shaders/surface_geometry_completion.js";
-import { VSM_SAMPLING_WGSL } from "../../../.test-dist/shaders/vsm_sampling.js";
+} from "../gpu/GpuInstanceAbi.js";
+import { surfaceGeometryCompletionWgsl } from "./surface_geometry_completion.js";
+import { VSM_SAMPLING_WGSL } from "./vsm_sampling.js";
+import { PACKED_CAMERA_TYPE } from "./packed_camera.js";
+
 /** One fine descriptor broadcast, not a shared coarse-result cache. Frame-wide
  * generation/epoch/namespace are already checked by post-commit publication.
  * Full signed page coordinates and selected clip must match before reuse. */
@@ -73,9 +73,11 @@ fn shadow_sample_query(light: vec3f, normal: vec3f, sun: vec3f, query: VsmPageQu
     reference, (vsm_constants.filter_params.y + slope_bias + normal_bias) * depth_per_texel);
 }
 `;
-export function vsmShadowResolveWgsl(productGeometry, diagnosticKeys = false) {
+
+export function vsmShadowResolveWgsl(productGeometry: boolean, diagnosticKeys = false): string {
   return /* wgsl */ `
 ${surfaceGeometryCompletionWgsl(productGeometry, true, false)}
+${PACKED_CAMERA_TYPE.wgsl_declaration}
 struct GpuPrimitiveTypeTable { direction: vec3f, color: vec3f, }
 ${VSM_SAMPLING_WGSL}
 ${VSM_FINE_BROADCAST_WGSL}
@@ -84,8 +86,6 @@ struct ShadowReceiverSettings {
   source_payload: vec4u,
   dimensions: vec4u,
   camera_position_exposure: vec4f,
-  view_matrix: mat4x4f,
-  background: vec4f,
 }
 struct ShadowSun { direction: vec3f, world_to_unit: f32, }
 @group(0) @binding(0) var<uniform> settings: ShadowReceiverSettings;
@@ -94,7 +94,9 @@ struct ShadowSun { direction: vec3f, world_to_unit: f32, }
 @group(0) @binding(3) var<storage, read> vertex_payload: array<u32>;
 @group(0) @binding(4) var<storage, read> frame_instances: array<OEngineFrameInstanceRecord>;
 @group(0) @binding(5) var visibility: texture_2d<u32>;
+@group(0) @binding(6) var receiver_depth: texture_depth_2d;
 @group(0) @binding(7) var shadow_output: texture_storage_2d<r32uint, write>;
+@group(0) @binding(8) var<uniform> shadow_camera: CommandEncoder;
 ${diagnosticKeys ? "@group(0) @binding(15) var shadow_query_keys: texture_storage_2d_array<rgba32uint, write>;" : ""}
 ${
   productGeometry
@@ -106,13 +108,47 @@ ${Array.from({ length: 4 }, (_, i) => `@group(0) @binding(${11 + i}) var<storage
 @group(1) @binding(1) var<storage, read> vsm_sampling_descriptors: array<VsmSamplingDescriptor>;
 @group(1) @binding(2) var vsm_atlas_depth: texture_depth_2d;
 @group(1) @binding(3) var<uniform> shadow_sun: ShadowSun;
-const geometry_needs: u32 = ${(1 << 5) | (1 << 7)}u;
+@group(1) @binding(4) var vsm_atlas_sampler: sampler;
+const geometry_needs: u32 = ${1 << 7}u;
 var<workgroup> shadow_bytes: array<u32, 64>;
-struct ShadowReceiver { position: vec3f, normal: vec3f, valid: bool, }
+struct ShadowReceiver { position: vec3f, normal: vec3f, valid: bool, depth_derived: bool, }
 fn shadow_safe_normal(value: vec3f, fallback: vec3f) -> vec3f {
   let length2 = dot(value, value);
   if (length2 > 1e-20) { return value * inverseSqrt(length2); }
   return fallback;
+}
+struct ShadowDepthPosition { position: vec3f, valid: bool, }
+fn shadow_depth_position(pixel: vec2i) -> ShadowDepthPosition {
+  var result: ShadowDepthPosition;
+  if (any(pixel < vec2i(0)) || any(vec2u(pixel) >= settings.dimensions.xy)) {
+    return result;
+  }
+  let depth = textureLoad(receiver_depth, pixel, 0);
+  // A valid winner at reverse-depth zero is not background. Visibility owns
+  // coverage; malformed/non-finite depth uses the complete geometry branch.
+  if (!(depth >= 0.0 && depth <= 1.0)) { return result; }
+  let ndc = (vec2f(pixel) + vec2f(0.5)) / vec2f(settings.dimensions.xy) *
+    vec2f(2.0, -2.0) + vec2f(-1.0, 1.0);
+  let projected = shadow_camera.view_projection_matrix_inverse * vec4f(ndc, depth, 1.0);
+  if (projected.w == 0.0) { return result; }
+  result.position = projected.xyz / projected.w;
+  result.valid = winner_finite3(result.position);
+  return result;
+}
+fn shadow_same_winner_neighbour(pixel: vec2i, key: u32, axis: vec2i) -> vec2i {
+  let forward = pixel + axis;
+  if (all(forward >= vec2i(0)) && all(vec2u(forward) < settings.dimensions.xy)) {
+    if (textureLoad(visibility, forward, 0).r == key) { return forward; }
+  }
+  let backward = pixel - axis;
+  if (all(backward >= vec2i(0)) && all(vec2u(backward) < settings.dimensions.xy)) {
+    if (textureLoad(visibility, backward, 0).r == key) { return backward; }
+  }
+  return vec2i(-1);
+}
+fn shadow_face_normal(normal: vec3f, position: vec3f) -> vec3f {
+  return select(normal, -normal,
+    dot(normal, settings.camera_position_exposure.xyz - position) < 0.0);
 }
 fn shadow_receiver(pixel: vec2u) -> ShadowReceiver {
   var result: ShadowReceiver;
@@ -134,17 +170,44 @@ fn shadow_receiver(pixel: vec2u) -> ShadowReceiver {
     ((instance.source.flags & ${GPU_INSTANCE_SHADING_BIN_MASK}u) >> ${GPU_INSTANCE_SHADING_BIN_SHIFT}u) < 4u) {
     return result;
   }
+  // The committed frame directory validates the primitive and generation.
+  // Capacity misses still consume immutable geometry, including tiny winners.
+  let cached = surface_frame_geometry(decoded.meshlet_work_slot, decoded.local_primitive);
+  if (cached.valid) {
+    let center = shadow_depth_position(vec2i(pixel));
+    let horizontal_pixel = shadow_same_winner_neighbour(vec2i(pixel), key, vec2i(1, 0));
+    let vertical_pixel = shadow_same_winner_neighbour(vec2i(pixel), key, vec2i(0, 1));
+    let horizontal = shadow_depth_position(horizontal_pixel);
+    let vertical = shadow_depth_position(vertical_pixel);
+    if (center.valid && horizontal.valid && vertical.valid) {
+      let dx = horizontal.position - center.position;
+      let dy = vertical.position - center.position;
+      let dx2 = dot(dx, dx);
+      let dy2 = dot(dy, dy);
+      // Do not derive a face from nearly parallel or quantization-sized world
+      // differences. Large translated worlds and tiny triangles retain the
+      // immutable-geometry normal instead of amplifying f32 cancellation.
+      let ulp_bound = max(1.0, winner_max_abs(center.position)) * 1.1920929e-7;
+      let minimum_delta2 = ulp_bound * ulp_bound * 1e6;
+      let raw = cross(dx, dy);
+      let length2 = dot(raw, raw);
+      if (dx2 > minimum_delta2 && dy2 > minimum_delta2 &&
+          length2 > max(1e-20, dx2 * dy2 * 1e-6) && winner_finite3(raw)) {
+        result.position = center.position;
+        result.normal = shadow_face_normal(raw * inverseSqrt(length2), center.position);
+        result.valid = true;
+        result.depth_derived = true;
+        return result;
+      }
+    }
+  }
   let corners = geometry_complete_resolved(decoded, work, instance);
   let interpolation = winner_interpolate(corners.coefficients, vec2f(pixel) + vec2f(0.5), vec2f(settings.dimensions.xy));
   if ((interpolation.flags & WINNER_VALUE_VALID) == 0u) { return result; }
   let weights = interpolation.weights;
   result.position = (corners.position.p0 * weights.x + corners.position.p1 * weights.y + corners.position.p2 * weights.z).xyz;
   let geometric = shadow_safe_normal(corners.world_plane.xyz, vec3f(0.0, 0.0, 1.0));
-  let raw = corners.normal.p0 * weights.x + corners.normal.p1 * weights.y + corners.normal.p2 * weights.z;
-  let unflipped = shadow_safe_normal(raw.xyz, geometric);
-  let flip = (corners.flags & ${GPU_INSTANCE_FLAGS.DoubleSided}u) != 0u &&
-    dot(unflipped, settings.camera_position_exposure.xyz - result.position) < 0.0;
-  result.normal = select(unflipped, -unflipped, flip);
+  result.normal = shadow_face_normal(geometric, result.position);
   result.valid = true;
   return result;
 }
@@ -199,7 +262,7 @@ fn main(@builtin(global_invocation_id) id: vec3u, @builtin(local_invocation_inde
     textureStore(shadow_query_keys, vec2i(id.xy), 0, diagnostic_fine);
     textureStore(shadow_query_keys, vec2i(id.xy), 1, diagnostic_resolved);
     textureStore(shadow_query_keys, vec2i(id.xy), 2, vec4u(textureLoad(visibility, vec2i(id.xy), 0).r,
-      u32(receiver_enabled), meshlet_work.header.generation, 0u));
+      u32(receiver_enabled), meshlet_work.header.generation, u32(receiver.depth_derived)));
   }`
       : ""
   }

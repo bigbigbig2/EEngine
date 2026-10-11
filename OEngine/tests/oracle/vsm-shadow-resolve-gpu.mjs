@@ -1,7 +1,7 @@
 import { createNativeSurfaceFixture } from "./native-surface-fixture.mjs";
 import { VSM_SAMPLING_WGSL } from "../../.test-dist/shaders/vsm_sampling.js";
-import { VSM_SHADOW_VISIBILITY_WGSL } from "./fixtures/vsm-shadow-visibility-v2-wgsl.mjs";
-import { VsmShadowResolvePass } from "./fixtures/vsm-shadow-resolve-v2.mjs";
+import { VSM_SHADOW_VISIBILITY_WGSL } from "../../.test-dist/shaders/vsm_shadow_visibility.js";
+import { VsmShadowResolvePass } from "../../.test-dist/render/vsm/VsmShadowResolvePass.js";
 import { ShadeGPUCommandContext } from "../../.test-dist/framegraph/ShadeGPUCommandContext.js";
 import { FrameProfiler } from "../../.test-dist/debug/FrameProfiler.js";
 import { GPUBufferAllocator } from "../../.test-dist/gpu/GPUBufferAllocator.js";
@@ -12,12 +12,13 @@ import {
   GPU_FRAME_INSTANCE_OFFSETS,
 } from "../../.test-dist/gpu/GpuFrameInstanceAbi.js";
 import { GPU_INSTANCE_FLAGS, GPU_INSTANCE_RECORD_OFFSETS } from "../../.test-dist/gpu/GpuInstanceAbi.js";
+import { PACKED_CAMERA_TYPE } from "../../.test-dist/shaders/packed_camera.js";
 
 const check = (ok, message) => {
   if (!ok) throw new Error(message);
 };
 
-/** Rejected packed producer and candidate Native decoder vs an analytic plane and
+/** Production packed producer and Native decoder vs an analytic plane and
  * the original per-pixel sampler. The sampler itself is separately compared
  * with frozen pre-publication WGSL by vsm-sampling-publication. No tolerances
  * are added: tap bytes and decoded floats must agree exactly. */
@@ -61,6 +62,13 @@ export async function runVsmShadowResolveGpuOracle(device) {
     constants.set([1.7, 0.6, 2.2, 0.75], 48);
     const words = new Uint32Array(constants.buffer);
     const sun = fixture.uniform(new Float32Array([0.999, 0, 0.02, 1]), "Shadow oracle/grazing Sun");
+    const cameraWords = new Float32Array(PACKED_CAMERA_TYPE.size / 4);
+    for (const field of PACKED_CAMERA_TYPE.fields) {
+      if (field.type.size === 64) {
+        cameraWords.set([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1], field.offset / 4);
+      }
+    }
+    const camera = fixture.uniform(cameraWords, "Shadow oracle/analytic inverse VP");
     const inputs = fixture.uniform(new Uint32Array(4), "Shadow oracle/domain");
     const referenceModule = device.createShaderModule({
       code: /* wgsl */ `
@@ -72,6 +80,7 @@ ${VSM_SAMPLING_WGSL}
 @group(0) @binding(3) var<uniform> sun: vec4f;
 @group(0) @binding(4) var<uniform> domain: vec4u;
 @group(0) @binding(5) var<storage, read_write> output: array<vec2u>;
+@group(0) @binding(6) var vsm_atlas_sampler: sampler;
 ${VSM_SHADOW_VISIBILITY_WGSL}
 @compute @workgroup_size(8,8)
 fn main(@builtin(global_invocation_id) id: vec3u) {
@@ -117,6 +126,13 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       [1, 1],
     ]) {
       const packedWidth = Math.ceil(width / 4);
+      const depth = fixture.makeTexture(width, height, "depth32float",
+        GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING);
+      const initializeDepth = device.createCommandEncoder();
+      initializeDepth.beginRenderPass({ colorAttachments: [], depthStencilAttachment: {
+        view: depth.createView(), depthLoadOp: "clear", depthClearValue: .5, depthStoreOp: "store"
+      } }).end();
+      device.queue.submit([initializeDepth.finish()]);
       const visibility = fixture.makeTexture(
         width,
         height,
@@ -159,6 +175,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
           cameraPosition: [0, 0, 3],
           geometry: fixture.geometry,
           visibility,
+          depth,
+          camera,
           constants: fixture.vsm.constants,
           descriptors: fixture.vsm.descriptors,
           atlas: fixture.vsm.atlas.createView(),
@@ -210,6 +228,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
                   { binding: 3, resource: { buffer: sun } },
                   { binding: 4, resource: { buffer: inputs } },
                   { binding: 5, resource: { buffer: expectedAndDecoded } },
+                  { binding: 6, resource: device.createSampler() },
                 ],
               }),
             );

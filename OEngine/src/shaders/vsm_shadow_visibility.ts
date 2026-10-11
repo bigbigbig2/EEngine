@@ -1,5 +1,3 @@
-// Rejected Shadow Projection V2 candidate, frozen 2026-10-11.
-// Test-only: no production import, runtime switch, or adoption claim.
 /** Four horizontal receiver bytes in one core r32uint texel. Low five bits
  * count visible taps; bits 5..6 store axis-1. Neutral is one tap, one visible.
  * This is an exact count product, not quantized unorm visibility. */

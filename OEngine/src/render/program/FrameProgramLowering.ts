@@ -25,14 +25,10 @@ import type { VsmReceiverDemandPass } from "../vsm/VsmReceiverDemandPass.js";
 import type { VsmAllocatePagesPass } from "../vsm/VsmAllocatePagesPass.js";
 import type { VsmCasterRecordPass } from "../vsm/VsmCasterRecordPass.js";
 import type { VsmAtlasRasterPass } from "../vsm/VsmAtlasRasterPass.js";
+import type { VsmShadowResolvePass } from "../vsm/VsmShadowResolvePass.js";
 import type { VsmInvalidationPass } from "../vsm/VsmInvalidationPass.js";
 import type { VsmAllocationFrame } from "../vsm/VsmResidency.js";
-import { shadowVisibilityFrame, type ShadowVisibilityFrame } from "../pipeline/FrameProducts.js";
-import {
-  SHADOW_DEPTH_BIAS,
-  SHADOW_DEPTH_SLOPE_SCALE,
-  SHADOW_NORMAL_OFFSET_SCALE,
-} from "../../gpu/ShadowContract.js";
+import { shadowVisibilityFrame, textureDomain } from "../pipeline/FrameProducts.js";
 import type { EmptyFrameBindings, FrameProgramBindings, SceneFrameBindings } from "./FrameProgramBindings.js";
 import type { FrameProgram, FrameProduct } from "./FrameProgram.js";
 import { counterByteOffset } from "../../debug/GpuFrameCounters.js";
@@ -57,6 +53,7 @@ export type FrameProgramOwners = Readonly<{
   vsmAllocatePages: VsmAllocatePagesPass;
   vsmCasterRecords: VsmCasterRecordPass;
   vsmAtlasRaster: VsmAtlasRasterPass;
+  vsmShadowResolve: VsmShadowResolvePass;
   vsmInvalidation: VsmInvalidationPass;
 }>;
 
@@ -155,7 +152,6 @@ function compileSceneGraph(
   let vsmSamplingConstants: ResourceId | null = null;
   let vsmDepthRange: ResourceId | null = null;
   let vsmContentVersion: ResourceId | null = null;
-  let shadowContract: ShadowVisibilityFrame | null = null;
   if (plan.products.includes("shadow-demand")) {
     if (initial.vsm === null || initial.vsmFrame === null) {
       throw new Error("Frame Program VSM demand requires persistent resources and clipmap constants");
@@ -187,7 +183,7 @@ function compileSceneGraph(
         instances,
         instanceBegin: bindings.runtime.instanceBegin,
         instanceCount: bindings.runtime.instanceCount,
-        contentVersion
+        contentVersion,
       })),
     );
     const depthRange = casterInvalidation.depthRange;
@@ -404,26 +400,6 @@ function compileSceneGraph(
       throw new Error("Frame Program VSM sampling constants are unavailable");
     }
     if (vsmSamplingConstants === null) throw new Error("VSM sampling constants have no producer");
-    shadowContract = shadowVisibilityFrame({
-      profile: vsmOwnerBinding.profile,
-      virtualPageTable: atlas.pageTable,
-      physicalAtlasDepth: vsmAtlasDepth,
-      pageMeta: atlas.metaTable,
-      lightProjection: vsmSamplingConstants,
-      overflowMask: null,
-      generation: vsmFrameBinding.generation,
-      fallbackPolicy: "coarse-resident",
-      enabled: true,
-      clipLevels: vsmOwnerBinding.capabilities.clipLevels,
-      pageSize: vsmOwnerBinding.capabilities.pageSize,
-      border: vsmOwnerBinding.capabilities.border,
-      pcfTapCount: vsmOwnerBinding.capabilities.pcfTapCount,
-      normalOffsetScale: SHADOW_NORMAL_OFFSET_SCALE,
-      depthBias: SHADOW_DEPTH_BIAS,
-      slopeScale: SHADOW_DEPTH_SLOPE_SCALE,
-      atlasWidth: vsmOwnerBinding.capabilities.atlasDimension,
-      atlasHeight: vsmOwnerBinding.capabilities.atlasDimension,
-    });
   }
   const lightRecords = needsDirectLight
     ? graph.import_resource(
@@ -449,6 +425,102 @@ function compileSceneGraph(
           (bindings) => bindings.environment!.luts.views.transmittance,
         ),
       );
+  let directionalShadowVisibility: ResourceId | null = null;
+  let directionalShadowMode: ResourceId | null = null;
+  const shadowWidth = plan.request.internalWidth;
+  const shadowHeight = plan.request.internalHeight;
+  if (plan.products.includes("shadow-visibility")) {
+    if (
+      vsmSamplingConstants === null ||
+      vsmSamplingDescriptors === null ||
+      vsmAtlasDepth === null ||
+      vsmContentVersion === null ||
+      physicalEnvironmentSun === undefined
+    ) {
+      throw new Error("Directional Shadow Resolve requires committed VSM content and Physical Sun");
+    }
+    const constants = vsmSamplingConstants;
+    const descriptors = vsmSamplingDescriptors;
+    const atlas = vsmAtlasDepth;
+    const sun = physicalEnvironmentSun;
+    const mode = graph.import_resource(
+      "VSM/Shadow Visibility mode",
+      { kind: "imported" },
+      owners.vsmShadowResolve.mode,
+    );
+    const frame = bind("vsm-shadow-resolve-frame", (bindings) => ({ bindings }));
+    let mask = -1;
+    const resolve = graph.add("VSM/Directional Shadow Resolve", frame, (data, resources, context) => {
+      const binding = data.bindings;
+      const texture = (id: ResourceId): GPUTexture => {
+        const value = resources.get(id) as GPUTexture & { gpu_texture?: GPUTexture };
+        return value.gpu_texture ?? value;
+      };
+      owners.vsmShadowResolve.encode(context.encoder as ShadeGPUCommandContext, {
+        width: shadowWidth,
+        height: shadowHeight,
+        cameraPosition: [
+          binding.camera.transform.matrix[12]!,
+          binding.camera.transform.matrix[13]!,
+          binding.camera.transform.matrix[14]!,
+        ],
+        geometry: nativeWinnerGeometry(
+          binding.job.assets,
+          binding.job.prepared.workSet.frameVertices,
+          resources.get(result.frame.meshletWork.records) as GPUBuffer,
+          resources.get(result.frame.frameInstances) as GPUBuffer,
+          binding.runtime,
+        ),
+        visibility: texture(result.frame.visibilityKey),
+        depth: texture(result.frame.depth),
+        camera: resources.get(cameraBuffer) as GPUBuffer,
+        constants: resources.get(constants) as GPUBuffer,
+        descriptors: resources.get(descriptors) as GPUBuffer,
+        atlas: resolveTextureView(resources.get(atlas)),
+        sun: resources.get(sun) as GPUBuffer,
+        output: texture(mask),
+      });
+    });
+    for (const id of [
+      result.frame.visibilityKey,
+      result.frame.depth,
+      cameraBuffer,
+      result.frame.meshletWork.records,
+      result.frame.frameInstances,
+      result.frame.frameGeometry,
+      geometryMetadata,
+      vertexPayload,
+      constants,
+      descriptors,
+      atlas,
+      sun,
+      vsmContentVersion,
+      virtualMetadata,
+      ...(virtualBanks ?? []),
+    ]) {
+      if (id !== null && id !== undefined) {
+        resolve.read(id);
+      }
+    }
+    mask = resolve.create("VSM/Directional Shadow Visibility", {
+      kind: "transient_texture",
+      width: Math.ceil(plan.request.internalWidth / 4),
+      height: plan.request.internalHeight,
+      format: "r32uint",
+      domain: "internal-full",
+      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
+    });
+    const product = shadowVisibilityFrame({
+      visibility: mask,
+      mode: resolve.write(mode),
+      packing: "four-horizontal-count-bytes",
+      biasNormal: "geometry-face",
+      domain: textureDomain("internal-full", shadowWidth, shadowHeight, 1),
+    });
+    directionalShadowVisibility = product.visibility;
+    directionalShadowMode = product.mode;
+    assertTextureProduct(plan, graph, "shadow-visibility", mask);
+  }
   const clusters =
     lightRecords === undefined
       ? undefined
@@ -620,17 +692,11 @@ function compileSceneGraph(
             : frame.environment!.ibl.sampler,
         },
         ...owners.surface.neutralLightingEntries.map((entry) => {
-          if (entry.binding === 8 && vsmSamplingConstants !== null) {
-            return { binding: 8, resource: { buffer: resources.get(vsmSamplingConstants) as GPUBuffer } };
+          if (entry.binding === 8 && directionalShadowMode !== null) {
+            return { binding: 8, resource: { buffer: resources.get(directionalShadowMode) as GPUBuffer } };
           }
-          if (entry.binding === 9 && vsmSamplingDescriptors !== null) {
-            return {
-              binding: 9,
-              resource: { buffer: resources.get(vsmSamplingDescriptors) as GPUBuffer },
-            };
-          }
-          if (entry.binding === 10 && vsmAtlasDepth !== null) {
-            return { binding: 10, resource: resolveTextureView(resources.get(vsmAtlasDepth)) };
+          if (entry.binding === 10 && directionalShadowVisibility !== null) {
+            return { binding: 10, resource: resolveTextureView(resources.get(directionalShadowVisibility)) };
           }
           if (entry.binding === 11 && scalarAo !== undefined) {
             return { binding: 11, resource: resolveTextureView(resources.get(scalarAo)) };
@@ -694,10 +760,8 @@ function compileSceneGraph(
     surfaceEnvironment?.specular,
     surfaceEnvironment?.dfg,
     scalarAo,
-    vsmAtlasDepth,
-    vsmSamplingConstants,
-    vsmSamplingDescriptors,
-    vsmContentVersion,
+    directionalShadowVisibility,
+    directionalShadowMode,
     physicalEnvironmentSun,
     atmosphereEnvironment,
     virtualMetadata,

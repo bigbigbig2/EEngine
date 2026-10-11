@@ -5,6 +5,7 @@ import { AppearanceGraphBuilder } from "../../.test-dist/material/AppearanceGrap
 import { compileAppearanceGraph } from "../../.test-dist/material/AppearanceGraphCompiler.js";
 import { lowerNativeMaterial } from "../../.test-dist/shaders/native_material.js";
 import { nativeSurfaceWgsl } from "../../.test-dist/shaders/native_surface.js";
+import { vsmShadowResolveWgsl } from "../../.test-dist/shaders/vsm_shadow_resolve.js";
 import {
   VSM_RECEIVER_DEMAND_WGSL,
   vsmReceiverDemandDiagnosticWgsl,
@@ -16,7 +17,7 @@ test("Native diagnostic specializations retain winner predicates and G is the so
   const program = lowerNativeMaterial(compileAppearanceGraph(graph.build()));
   const profile = { compact: true, productGeometry: true, unlit: false, reactive: true, physicalSun: true };
   const generated = Object.fromEntries(
-    ["A", "B0", "B", "C", "D", "E", "F", "G", "Q0", "K"].map((costSlice) => [
+    ["A", "B0", "B", "C", "D", "E", "F", "G", "K"].map((costSlice) => [
       costSlice,
       nativeSurfaceWgsl(program, { ...profile, costSlice }),
     ]),
@@ -51,17 +52,15 @@ test("Native diagnostic specializations retain winner predicates and G is the so
     );
   assert.match(sun(generated.F), /atmosphere_sun_irradiance/);
   assert.doesNotMatch(sun(generated.F), /vsm_sample_directional\(/);
-  assert.match(sun(generated.G), /vsm_sample_directional\(/);
-  assert.match(sun(generated.Q0), /native_vsm_query_diagnostic\(/);
-  const diagnostic = generated.Q0.slice(
-    generated.Q0.indexOf("fn native_vsm_query_diagnostic"),
-    generated.Q0.indexOf("@group(1) @binding(12)"),
-  );
-  assert.match(diagnostic, /vsm_query_directional/);
-  assert.doesNotMatch(diagnostic, /textureLoad|vsm_sample_page/);
+  assert.match(sun(generated.G), /directional_shadow_visibility_at\(pixel\)/);
+  assert.throws(() => nativeSurfaceWgsl(program, { ...profile, costSlice: "Q0" }), /retired/);
   assert.doesNotMatch(generated.G, /native_query_keys|native_vsm_query_diagnostic/);
-  assert.match(main(generated.K), /bitcast<vec2u>\(fine_world\)/);
-  assert.match(main(generated.K), /frame_instances\[work.instance_slot\].source.flags/);
+  assert.doesNotMatch(generated.K, /vsm_query_directional|native_query_keys/);
+  const diagnostic = vsmShadowResolveWgsl(true, true);
+  assert.match(diagnostic, /bitcast<vec2u>\(fine_world\)/);
+  assert.match(diagnostic, /textureStore\(shadow_query_keys/);
+  assert.match(diagnostic, /meshlet_work.header.generation/);
+  assert.doesNotMatch(vsmShadowResolveWgsl(true), /shadow_query_keys/);
   assert.throws(() => nativeSurfaceWgsl(program, { ...profile, costSlice: "unknown" }), /A through G/);
   assert.throws(() => nativeSurfaceWgsl(program, { ...profile, costSlice: "A", additiveSun: true }), /fused/);
 });

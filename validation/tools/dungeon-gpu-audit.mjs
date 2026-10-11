@@ -6,6 +6,7 @@ export function installDungeonGpuAudit() {
     views = new WeakMap();
   let device,
     latestVisibility,
+    depthReceiverDiagnostics = false,
     peakBytes = 0,
     bytes = 0;
   const calls = [],
@@ -147,6 +148,9 @@ export function installDungeonGpuAudit() {
     const original = GPUDevice.prototype[method];
     GPUDevice.prototype[method] = function (desc) {
       if (method === "createShaderModule") {
+        if (desc.label === "VSM/Directional Shadow Resolve" && desc.code.includes("depth_derived")) {
+          depthReceiverDiagnostics = true;
+        }
         const slice = /Native cost slice: (Q0|B0|[A-GK])\b/.exec(desc.code)?.[1];
         if (slice) nativeCostSlices.add(slice);
       }
@@ -256,6 +260,7 @@ export function installDungeonGpuAudit() {
           sumSelectedClips = 0,
           sumPhysicalSlots = 0,
           sumWinnerKeys = 0,
+          depthDerivedReceivers = 0,
           winnerLeaderMatches = 0;
         for (let gy = 0; gy < texture.height; gy += 8) {
           for (let gx = 0; gx < texture.width; gx += 8) {
@@ -287,6 +292,7 @@ export function installDungeonGpuAudit() {
                   const winner = words[winnerPlane + i];
                   winnerKeys.add(winner);
                   if (winner === leaderKey) winnerLeaderMatches++;
+                  if (depthReceiverDiagnostics && words[winnerPlane + i + 3] !== 0) depthDerivedReceivers++;
                 }
                 if (status === 0 || status === 1) {
                   physicalSlots.add(`${words[r + 2]}:${words[r + 3]}`);
@@ -322,6 +328,8 @@ export function installDungeonGpuAudit() {
           sumSelectedClips,
           sumPhysicalSlots,
           sumWinnerKeys: layers >= 3 ? sumWinnerKeys : null,
+          depthDerivedReceivers: layers >= 3 && depthReceiverDiagnostics ? depthDerivedReceivers : null,
+          depthDerivedRatio: layers >= 3 && depthReceiverDiagnostics && receivers ? depthDerivedReceivers / receivers : null,
           winnerLeaderMatches: layers >= 3 ? winnerLeaderMatches : null,
           winnerLeaderMatchRatio: layers >= 3 && receivers ? winnerLeaderMatches / receivers : null,
           globalFine: globalFine.size,

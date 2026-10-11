@@ -264,8 +264,8 @@ const PRODUCT_SPEC: Readonly<
   },
   "shadow-visibility": {
     producer: "vsm",
-    domain: "gpu-work",
-    format: "structured-buffer",
+    domain: "internal-full",
+    format: "r32uint",
     value: "directional VSM visibility with page fallback",
     coverage: "lit opaque surface",
     invalid: "neutral visibility one",
@@ -409,7 +409,7 @@ const INPUT_CONTRACTS: Readonly<
     "meshlet-work": { domain: "gpu-work", value: "bounded GPU MeshletWork" },
     "local-light-work": { domain: "gpu-work", value: "finalized bounded local-light work" },
     "indirect-visibility": { domain: "internal-full", value: "unexposed indirect visibility [0,1]" },
-    "shadow-visibility": { domain: "gpu-work", value: "directional VSM visibility with page fallback" },
+    "shadow-visibility": { domain: "internal-full", value: "directional VSM visibility with page fallback" },
     depth: { domain: "internal-full", value: "reverse depth" },
   },
   "indirect-visibility": {
@@ -585,8 +585,9 @@ function dependencies(product: FrameProduct, request: FrameProgramRequest): read
         "meshlet-work",
         "depth",
         ...(request.hasLit ? ["local-light-work" as const] : []),
-        ...(request.shadowProfile === "vsm-directional-high" ||
-        request.shadowProfile === "vsm-directional-bounded"
+        ...(request.physicalEnvironment &&
+        (request.shadowProfile === "vsm-directional-high" ||
+          request.shadowProfile === "vsm-directional-bounded")
           ? ["shadow-visibility" as const]
           : []),
         ...(request.aoProfile === "scalar-high" ? ["indirect-visibility" as const] : []),
@@ -667,6 +668,7 @@ function createProgram(request: FrameProgramRequest, key: string): FrameProgram 
   ) {
     requireProduct("shadow-demand");
     requireProduct("shadow-allocation");
+    requireProduct("shadow-geometry-work");
   }
   const stages: FrameProgramStage[] = [
     "visibility",
@@ -707,7 +709,12 @@ function createProgram(request: FrameProgramRequest, key: string): FrameProgram 
           ? [request.outputWidth, request.outputHeight]
           : spec.domain === "internal-half"
             ? [Math.max(1, request.internalWidth >>> 1), Math.max(1, request.internalHeight >>> 1)]
-            : [request.internalWidth, request.internalHeight];
+            : [
+                product === "shadow-visibility"
+                  ? Math.ceil(request.internalWidth / 4)
+                  : request.internalWidth,
+                request.internalHeight,
+              ];
     return Object.freeze({
       ...spec,
       product,

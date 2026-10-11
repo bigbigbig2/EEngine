@@ -1,7 +1,7 @@
 import { VSM_SAMPLING_WGSL } from "../../.test-dist/shaders/vsm_sampling.js";
 import { VSM_SAMPLING_PUBLICATION_WGSL } from "../../.test-dist/shaders/vsm_sampling_publication.js";
 import { REFERENCE_VSM_SAMPLING_WGSL } from "./fixtures/vsm-sampling-v1.mjs";
-import { VSM_FINE_BROADCAST_WGSL, vsmShadowResolveWgsl } from "./fixtures/vsm-shadow-resolve-v2-wgsl.mjs";
+import { VSM_FINE_BROADCAST_WGSL, vsmShadowResolveWgsl } from "../../.test-dist/shaders/vsm_shadow_resolve.js";
 
 const check = (value, message) => { if (!value) throw new Error(message); };
 
@@ -67,6 +67,19 @@ export async function runVsmSamplingPublicationGpuOracle(device) {
   }
   append(1e6, 1e6); append(-1e6, -1e6);
   append(-1e-38, 1e-38); append(-1e-40, -1e-40);
+  // Dense independent subtexel probes around each original default tap's
+  // rounding transition. Direct PCF below does not depend on page readiness.
+  for (let texel = 0; texel <= 128; texel++) {
+    for (const fraction of [0, .21875, .40625, .5, .59375, .78125, 1]) {
+      const uv = Math.fround((texel + fraction) / 128);
+      for (const delta of [-1, 0, 1]) {
+        const coordinate = delta === 0 ? uv : nextFloat(uv, delta);
+        for (const depth of [-.25, 0, .25, .75, 1.25]) {
+          append(coordinate, Math.fround((texel * 17 % 129 + fraction) / 128), depth);
+        }
+      }
+    }
+  }
   const positions = new Float32Array(pointValues), count = positions.length / 4;
   const points = make(positions.byteLength, GPUBufferUsage.STORAGE, positions);
   const outputs = [0, 1, 2].map(() => make(count * 32, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC));
@@ -78,7 +91,7 @@ export async function runVsmSamplingPublicationGpuOracle(device) {
   return vec4f(p[i], 0.0, 1.0);
 }
 @fragment fn fs(@builtin(position) p: vec4f) -> @builtin(frag_depth) f32 {
-  let cell = (u32(p.x) / 7u + u32(p.y) / 11u) % 3u;
+  let cell = ((u32(p.x) * 1664525u) ^ (u32(p.y) * 1013904223u)) % 3u;
   return select(select(0.25, 0.75, cell == 1u), 0.0, cell == 2u);
 }` });
   const raster = await device.createRenderPipelineAsync({ layout: "auto", vertex: { module: depthModule, entryPoint: "vs" }, fragment: { module: depthModule, entryPoint: "fs", targets: [] }, depthStencil: { format: "depth32float", depthWriteEnabled: true, depthCompare: "always" } });
@@ -99,6 +112,7 @@ ${source}
 @group(0) @binding(2) var vsm_atlas_depth: texture_depth_2d;
 @group(0) @binding(3) var<storage, read> points: array<vec4f>;
 @group(0) @binding(4) var<storage, read_write> output: array<vec4u>;
+${index === 0 ? "" : "@group(0) @binding(5) var vsm_atlas_sampler: sampler;"}
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u, @builtin(local_invocation_index) lane: u32) {
   ${index === 2 ? `if (lane == 0u) { shadow_publish_fine(points[id.x].xy, id.x < arrayLength(&points)); }
@@ -108,7 +122,10 @@ fn main(@builtin(global_invocation_id) id: vec3u, @builtin(local_invocation_inde
   let v = ${index === 2 ? "shadow_sample_query(points[id.x].xyz, normalize(vec3f(0.7, 0.01, 0.3)), vec3f(0.0, 1.0, 0.0), q)" : "vsm_sample_directional(points[id.x].xyz, normalize(vec3f(0.7, 0.01, 0.3)), GpuPrimitiveTypeTable(vec3f(0.0, 1.0, 0.0), vec3f(1.0)))"};
   output[id.x * 2u] = vec4u(q.status, q.target_status, q.level, bitcast<u32>(v));
   let valid = q.status == VSM_QUERY_FINE || q.status == VSM_QUERY_COARSE;
-  output[id.x * 2u + 1u] = select(vec4u(0u), vec4u(q.entry.slot_x, q.entry.slot_y, q.entry.mip, 1u), valid);
+  let metadata = select(vec3u(0u), vec3u(q.entry.slot_x, q.entry.slot_y, q.entry.mip), valid);
+  let entry = VsmPageEntry(29u, 29u, 0u, 0u, 0u, 0u, 0u, 0u, 0, 0, 0u, 0u);
+  let direct = vsm_sample_page(entry, points[id.x].xy, points[id.x].z, 0.003);
+  output[id.x * 2u + 1u] = vec4u(metadata, bitcast<u32>(direct));
 }`);
     pipelines.push(pipeline);
     groups.push(device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: [
@@ -116,13 +133,20 @@ fn main(@builtin(global_invocation_id) id: vec3u, @builtin(local_invocation_inde
       { binding: 1, resource: { buffer: index === 0 ? table : descriptors } },
       { binding: 2, resource: atlas.createView() },
       { binding: 3, resource: { buffer: points } },
-      { binding: 4, resource: { buffer: outputs[index] } }
+      { binding: 4, resource: { buffer: outputs[index] } },
+      ...(index === 0 ? [] : [{ binding: 5, resource: device.createSampler() }])
     ] }));
   }
   const cases = [], statuses = new Set();
   device.pushErrorScope("validation");
   try {
-    for (const mode of [0, 1, 2, 3]) {
+    const configurations = [0, 1, 2, 3].map(mode => ({ mode, taps: 4, radius: 1.5 }));
+    for (let taps = 1; taps <= 4; taps++) {
+      for (const radius of [0, .75, 1, 1.5, 8]) configurations.push({ mode: 0, taps, radius });
+    }
+    for (const { mode, taps, radius } of configurations) {
+      words[46] = taps;
+      constants[51] = radius;
       const entries = new Uint32Array(perManagement * levels * 12);
       for (let level = 0; level < levels; level++) {
         const extent = Math.fround(166.4 * 2 ** level);
@@ -165,12 +189,12 @@ fn main(@builtin(global_invocation_id) id: vec3u, @builtin(local_invocation_inde
       await staging.mapAsync(GPUMapMode.READ);
       const actual = new Uint32Array(staging.getMappedRange()), split = count * 8;
       for (let i = 0; i < split; i++) {
-        check(actual[i] === actual[split + i], `mode=${mode}, point=${Math.floor(i / 8)}, word=${i % 8}: reference ${actual[i]} vs compact ${actual[split + i]}`);
-        check(actual[i] === actual[2 * split + i], `mode=${mode}, point=${Math.floor(i / 8)}, word=${i % 8}: reference ${actual[i]} vs broadcast ${actual[2 * split + i]}`);
+        check(actual[i] === actual[split + i], `mode=${mode}, taps=${taps}, radius=${radius}, point=${Math.floor(i / 8)}, word=${i % 8}: reference ${actual[i]} vs compact ${actual[split + i]}`);
+        check(actual[i] === actual[2 * split + i], `mode=${mode}, taps=${taps}, radius=${radius}, point=${Math.floor(i / 8)}, word=${i % 8}: reference ${actual[i]} vs broadcast ${actual[2 * split + i]}`);
         if (i % 8 === 0) statuses.add(actual[i]);
       }
       staging.unmap();
-      cases.push({ mode, comparisons: count, exact: true });
+      cases.push({ mode, taps, radius, comparisons: count, exact: true });
     }
     check(statuses.size === 6, `Missing query status coverage: ${[...statuses]}`);
     const error = await device.popErrorScope();

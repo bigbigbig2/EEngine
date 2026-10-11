@@ -130,6 +130,48 @@ fn vsm_atlas_texel(entry: VsmPageEntry, local_uv: vec2f, offset: vec2f) -> vec2i
 fn vsm_sample_page(entry: VsmPageEntry, local_uv: vec2f,
   reference_depth: f32, bias: f32) -> f32 {
   let taps = max(1u, min(4u, vsm_constants.control.z));
+  // This is the same sixteen point comparisons, not a different filter.
+  // Keep the original f32 offset/floor/clamp order before counting repeats.
+  // Radius <= 1 gives at most two integer texels per axis; the actual span
+  // check also protects that condition at floating-point/gutter boundaries.
+  let radius = vsm_constants.filter_params.w;
+  if (taps == 4u && radius >= 0.0 && radius <= 1.0) {
+    let page_size = max(1u, vsm_constants.dimensions.y);
+    let border = vsm_constants.dimensions.z;
+    let stride = page_size + border * 2u;
+    let offsets = (vec4f(0.5, 1.5, 2.5, 3.5) / 4.0 - vec4f(0.5)) * radius;
+    let lower = vec4f(-f32(border));
+    let upper = vec4f(f32(page_size + border) - 1.0);
+    let xs = vec4i(clamp(floor(vec4f(local_uv.x * f32(page_size)) + offsets + vec4f(0.5)), lower, upper));
+    let ys = vec4i(clamp(floor(vec4f(local_uv.y * f32(page_size)) + offsets + vec4f(0.5)), lower, upper));
+    if (xs.w - xs.x <= 1 && ys.w - ys.x <= 1) {
+      let x_matches = select(vec4u(0u), vec4u(1u), xs == vec4i(xs.x));
+      let y_matches = select(vec4u(0u), vec4u(1u), ys == vec4i(ys.x));
+      let nx = x_matches.x + x_matches.y + x_matches.z + x_matches.w;
+      let ny = y_matches.x + y_matches.y + y_matches.z + y_matches.w;
+      let base = vec2i(i32(entry.slot_x * stride + border), i32(entry.slot_y * stride + border));
+      var depths: vec4f;
+      let atlas_size = textureDimensions(vsm_atlas_depth);
+      // Negotiated atlases are powers of two. Integer/size coordinates are
+      // then exact f32 values; +1 selects the middle of this 2x2 footprint.
+      // Raw gather preserves zero/negative-reference semantics (no compare
+      // sampler and no interpolation). Zero-weight neighbours are ignored.
+      if (all((atlas_size & (atlas_size - vec2u(1u))) == vec2u(0u))) {
+        let uv = (vec2f(base + vec2i(xs.x, ys.x)) + vec2f(1.0)) / vec2f(atlas_size);
+        depths = textureGather(vsm_atlas_depth, vsm_atlas_sampler, uv).wzxy;
+      } else {
+        depths = vec4f(
+          textureLoad(vsm_atlas_depth, base + vec2i(xs.x, ys.x), 0),
+          textureLoad(vsm_atlas_depth, base + vec2i(xs.w, ys.x), 0),
+          textureLoad(vsm_atlas_depth, base + vec2i(xs.x, ys.w), 0),
+          textureLoad(vsm_atlas_depth, base + vec2i(xs.w, ys.w), 0));
+      }
+      let weights = vec4u(nx * ny, (4u - nx) * ny, nx * (4u - ny), (4u - nx) * (4u - ny));
+      let shadowed = select(vec4u(0u), weights, depths > vec4f(reference_depth + bias));
+      let visible = weights - select(vec4u(0u), shadowed, depths > vec4f(0.0));
+      return f32(visible.x + visible.y + visible.z + visible.w) / 16.0;
+    }
+  }
   var visible = 0.0;
   var total = 0.0;
   for (var y = 0u; y < 4u; y++) {

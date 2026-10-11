@@ -80,3 +80,18 @@ test("native physical sun binds the actual atmosphere provider without storage o
   assert.equal(layout[1].texture.sampleType, "float");
   assert.equal(layout[2].sampler.type, "filtering");
 });
+
+test("Physical Sun consumes only the resolved shadow product and retains material normals for BRDF", () => {
+  const graph = new AppearanceGraphBuilder();
+  graph.output("baseColor", graph.constant([0.2, 0.3, 0.4]));
+  graph.output("normalTS", graph.constant([0.7, 0.1, 0.7]));
+  const program = lowerNativeMaterial(compileAppearanceGraph(graph.build()));
+  const descriptor = nativeSurfaceDescriptor(program, [], {
+    compact: true, productGeometry: true, unlit: false, reactive: true, physicalSun: true,
+  });
+  assert.doesNotMatch(descriptor.source, /vsm_query_directional|vsm_sample_directional|vsm_sampling_descriptors|texture_depth_2d/);
+  assert.match(descriptor.source, /incident.color \*= directional_shadow_visibility_at\(pixel\)/);
+  assert.match(descriptor.source, /SurfaceGeometry\(mapped_normal/);
+  assert.equal(descriptor.groups[1].some(entry => entry.binding === 9), false);
+  assert.equal(descriptor.groups[1].find(entry => entry.binding === 10).texture.sampleType, "uint");
+});

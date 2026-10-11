@@ -121,7 +121,8 @@ export class VsmResources {
       16,
       GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
     );
-    this.createBuffer("pageConstants", 256, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
+    this.createBuffer("pageConstants", 256,
+      GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
     for (const key of ["requestedPages", "missingPages"] as const) {
       this.createBuffer(
         key,

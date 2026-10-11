@@ -32,7 +32,9 @@ verifies:
 
 ## 1. 状态、实施入口与停止边界
 
-2026-10-11 用户改为启动 **Shadow Projection 独立产品单元 S2**，Temporal T3 非生产探索已暂停并保留在 `.local`，未切生产。本次范围/Cost Card/质量门见设计§3.0，优先于旧 S-after-material 候选约束。S2 实验已关闭为 rejected：真实接线/numeric/lifecycle通过，净性能未证明，生产恢复原 Q-exact。**生产剥离目标未完成**，不把这个拒绝出口或旧 P1 状态改名为成功实现。
+2026-10-11 S3 独立 Projection + exact point-PCF执行压缩 + 同winner Depth receiver 的生产架构切换和本单元targeted正确性已完成，净性能资格未通过、完整动态画质仍未验收。实施前合同/Cost Card/numeric门见设计§3.1，实际出口见§3.8。S2 rejected记录不删、不追认为成功。用户明确选择“架构剥离优先：保留生产重构，标明性能验收未通过”，因此不因未证净收益恢复embedded路径，也不能以Native桶下降宣称收益。P2-T3仍暂停，本轮不跨Temporal/Geometry/VSM allocator。
+
+S2 历史记录：2026-10-11 用户改为启动 **Shadow Projection 独立产品单元 S2**，Temporal T3 非生产探索已暂停并保留在 `.local`，未切生产。S2范围/Cost Card/质量门见设计§3.0，优先于旧 S-after-material 候选约束。S2 实验已关闭为 rejected：真实接线/numeric/lifecycle通过，净性能未证明，当时生产恢复原 Q-exact。**S2生产剥离目标未完成**，不把这个拒绝出口或旧 P1 状态改名为成功实现；当前生产已由S3切换。
 
 Previous Gate：HEAD `9ca9ae1f`，原工作树仅 `.vscode/`。fresh build:test 后 Geometry canonical replay/Orbit/publication CPU 9/9；Temporal/Facts/Fabric 15/15。真实 GPU publication passed、receiver aggregation passed、P5 local invalidation 5184 assertions passed。403 为 oracle host 静态资源 console 记录，原件保留，GPU结果不吞错误。未发现需要独立 closure 的前阶段生产遗漏。
 
@@ -45,6 +47,7 @@ Previous Gate：HEAD `9ca9ae1f`，原工作树仅 `.vscode/`。fresh build:test 
 | P0 源码、已有证据与设计 | complete（文档出口） | `f495f04b`源码/报告、成本边界、来源与失败分析；不等于新代码gate通过 |
 | P1 VSM Sampling/Projection V2 | complete（Q-exact局部出口，热状态限制见§3.6） | post-commit compact publication→Native/debug/continuation唯一consumer；numeric通过，局部净P50改善，全帧/P95不承诺 |
 | S2 独立 Shadow Projection（本次新授权） | rejected（实验关闭；生产剥离未完成） | packed exact visibility、fine broadcast、真实完整接线/正确性已实验；两轮Total未支持收益，恢复唯一Q-exact生产，见§3.7 |
+| S3 独立 Shadow Projection（再次授权） | 架构切换/targeted正确性complete；净性能未通过，完整动态画质未验收 | full-rate packed mask→全部Native Sun consumers；exact point-PCF压缩/raw gather、同winner depth face与完整source；独立源码复审无阻断问题，按用户选择保留生产，见§3.8 |
 | P2 Native Temporal V2 | in-progress（T1 complete；T2 rejected；T3 deferred） | T1/T2结果见§4.2/4.4；新算法尚未实施，整体未完成 |
 | P3 IBL hardware-friendly publication | complete（exact radiance addressing + filtered DFG） | hardware radiance候选精度失败，改为原四点权重/有界寻址；完整生产接线、原支持域、numeric/lifecycle与限定成本见§5.3 |
 | P4 4GB资源预算与容量策略 | complete（Dungeon显式容量单元） | 全显式API审计/同时峰值、512MiB默认、当前payload/碎片、运动与释放验证见§6.1；全局预算强制/growable/variable-page未实施 |
@@ -176,6 +179,45 @@ A1/B1/A2/B2 sensor窗口均89–91°C附近且SW thermal Active；graphics MHz�
 原件：`.local/validation/shadow-v2-2026-10-11/{embedded-settled-1,resolve-published-1,embedded-settled-2,resolve-published-2}/`，每轮raw frames、sensors、fingerprint、API inventory、截图和errors保存。初版 `resolve-settled-1` 因settled等待消耗120采样预算，窗口32 full+28 coarse；归类测量失败，runner现重新configure并严格拒绝mixed window，原件不删。最终旧生产恢复后的fresh build:test/候选oracle复现与docs verify结果在提交正文说明，不再重跑整套baseline。
 
 【判断/待验证】本次主要把PCF成本搬到新桶，fine descriptor coherence不是PCF省采样证明，geometry重复/写读/同步税尚未被净抵消。用户以极致性能为优先，保留稳定生产路径；没有收到允许牺牲净性能只为切架构的不同偏好。后续需另冻结能真正删除主工作且通过画质门的方案，不能自动开history、hardware/少tap PCF、半分辨率或Temporal。本次止于明确拒绝，不把生产剥离或60FPS状态标complete。
+
+### 3.8 S3：生产独立 Projection，净性能资格未通过
+
+【授权/范围】用户在S2拒绝后重新要求真正生产剥离，随后明确“架构剥离优先：保留生产重构，标明性能验收未通过”。本节取代§3.7中关于当前生产ownership的描述，但不删除或追认S2失败。架构实现、已运行正确性、净性能和完整动态画质分别报告；不是整性能模块/60FPS完成。
+
+【源码事实】`RendererCore`持有`VsmShadowResolvePass`；`FrameProgramLowering`从主Visibility/Depth/完整几何身份、当前camera、Physical Sun及post-content-commit descriptor/atlas产生唯一internal-full ShadowVisibility产品，再由全部ordinary/Product/compact/有限资源Sun continuation的Native lighting bindings8/10消费。Native不再组合`VSM_SAMPLING_WGSL`，没有page table/atlas/完整query/PCF；不可达authored directional shadow分支随producer拒绝合同删除。debug同样读mask，VSM OFF用中性count mask；无真正Sun consumer不分配Resolve产品。原receiver word aggregation、compact descriptor publication、P5局部dirty、Geometry canonical/interaction/512MiB预算均未改。
+
+真实数据流：`Visibility+Depth → 原VSM demand/allocation/caster/raster/commit → compact publication → Shadow Resolve → packed visibility → Native Sun incident×visibility → 原BRDF/HDR/Temporal`。Resolve完整read dependency包含content version、frame geometry/instances/work、source/全部Product banks和当前camera。mode/queue generation通过同一frame encoder copy，settings用现有staging；abort丢弃encoder不发布frame-local产品，不交换任何history。FrameGraph原pool管理resize/in-flight/释放；owner buffer/K diagnostic fenced retirement、device loss和destroy幂等。0新增frame submit/GPU→CPU→GPU控制。
+
+【成本/语义】8×8组只有完整fine-key leader broadcast，不引入hash table、coarse猜测或跨帧cache。288B shared、2个uniform barriers，partial/background lanes也完整经过。r32uint每物理texel编码四横receiver count bytes，1080p1.98MiB单产品；1..4 taps-axis的k/taps²逐值精确，不用R8Unorm量化或RGBA16F。Native每pixel新增uint mask read/unpack/divide，Resolve一个pass/dispatch与全域写。owner64B settings+16Bmode，一个cold nearest/clamp raw-gather sampler；无new history/atomic。
+
+默认4×4/radius≤1从原四轴offset/floor/clamp逐项计算重复次数，16个逻辑point比较按四depth整数重数执行；二幂atlas一次raw gather，非二幂四load，其它合法radius/taps原完整循环。不是减少PCF权重/换comparison/Gaussian，也不宣称16→1代表DRAM或16倍加速。receiver能用可靠同winner depth时避免三corner geometry重建；任一轴无完整同winner邻居、cache miss、非法/退化/quantization风险均走完整source。**bias有意切换camera-facing几何面normal**，旧mapped/interpolated normal与新Depth position并非逐bit等价；BRDF/coat/material/derivatives/LOD/HDR/pre-exposure不改。Cost Card及前置质量数值门见设计§3.1，不能用结构切换冒充已证明AAA同画质。
+
+【实测正确性】fresh build:test/typecheck/engine build与33项受影响CPU contracts通过。sampling publication：32,053点×24配置，production compact/broadcast与冻结旧query+16-point sampler逐u32一致；包含六种状态、rolling/f32边界、gutter、radius0/.75/1/1.5/8、taps1..4、clear/正负reference，direct sample不能由missing query中性输出遮掩。真实packed Resolve/decoder600,168断言通过，full/tail/1×1/stale/neutral/abort/retry。独立解析平面/斜面/perspective/mirror/孤立winner和真实cache版本miss的76,692项receiver断言通过，最大normal component误差6.28936e-6，使用事先冻结2e-4门，未放宽材质numeric。
+
+真实Product Renderer/recovery、ordinary Renderer的motion/resize/abort/admission/cut/device recovery、off-camera caster/MASK/shadow retry、local-light integration含有限资源Sun continuation、actual FSR/motion/normal/coat、P5 local invalidation5,184断言、VSM R2需求/页重用/fine-coarse/失败非ready均通过。gather引入后动态shadow oracle失败于旧test shader缺sampler声明：完整追踪到R2/R3直接拼接consumer，补声明/实际绑定后重跑通过，不改生产算法/断言。最初receiver fixture少COPY_DST、high-bit selector未真的强制cache miss，分别修fixture usage和真实arena version miss；保留全部原失败。删除无人使用的v2三份prototype fixture，冻结旧sampling仍只作测试oracle，production唯一实现。
+
+【诊断事实，非性能窗口】K采样2,073,600 receivers/32,400组，sum fine/resolved/physical-slot keys均38,970，sum selected clips32,400，global pages324，全部FINE；组内fine-key重复98.12066%。winner unique sum57,578，leader winner匹配约81.02%。实际Depth receiver2,047,619（98.74706%），其余完整geometry。K独立3-plane统计无常规production开销；静态fine一致性不证明运动/coarse entropy，也不把receiver bitset-word统计当Shadow query证明。
+
+【整帧A/B】同原fixed near、1920×1080/DPR1/scale1、VSM high4096/6clips/4×4/radius.75、FSR ON、GTAO/Bloom OFF、原材质/Sun、geometry512MiB、performanceCapture throughput。GPU作业串行，settled后每窗口240CPU/60完整full GPU samples。旧production为隔离worktree9ca9（与7b提交生产相同），测量runner对齐；没有生产A/B分支。表中线性分位统一`(n−1)*p`，Native+Resolve先同帧求和，不加不同桶分位。capture实时console只是尚未结束窗口的部分样本，最终raw完整窗口才是统计依据。
+
+| 窗口 | Total P50/P95 ms | Native P50/P95 | Resolve P50/P95 | 同帧Native+Resolve P50/P95 | Temporal+Facts P50/P95 | VSM管理/raster P50/P95 | 同步CPU P50/P95 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Embedded A1 | 26.594/28.223 | 10.755/11.601 | — | 10.755/11.601 | 8.095/9.138 | 1.698/2.133 | 3.362/5.619 |
+| S3 B1 | 21.267/53.031 | 5.444/13.979 | 2.876/7.287 | 8.303/20.981 | 6.689/15.498 | 1.421/3.973 | 2.573/4.210 |
+| Embedded A2 | 22.460/46.780 | 9.090/18.353 | — | 9.090/18.353 | 6.903/16.785 | 1.437/3.397 | 2.565/4.153 |
+| S3 B2 | 27.564/29.792 | 7.190/8.358 | 3.647/4.461 | 10.940/12.347 | 8.437/9.281 | 1.788/2.627 | 2.645/4.282 |
+| Embedded A3 | 23.618/102.368 | 9.452/53.578 | — | 9.452/53.578 | 7.258/38.787 | 1.533/8.183 | 2.475/3.925 |
+| S3 B3 | 26.542/27.923 | 6.803/7.445 | 3.510/4.135 | 10.379/11.371 | 8.164/8.938 | 1.704/2.114 | 2.568/3.856 |
+
+实际运行次序B1/A1/A2/B2/A3/B3，不是锁频ABBA。均89–91°C、SW thermal Active，窗口sensor中位MHz：A1/A2/A3为780/300/810，B1/B2/B3为975/720/765；稀疏sensor的300读数不能逐frame归一。Total max A1/A2/A3为30.105/127.455/151.478ms，B1/B2/B3为135.627/140.489/104.042ms，全保留。**净性能资格未通过：未取得同热稳定Total收益，也不能宣称稳定P95或60FPS。** B1局部方向有利但不足；B2/B3与频率一起变，Temporal未改也明显波动。不能从Native桶约少一半得出全帧约少一半。
+
+前置16→4 load-only/完整三corner receiver窗口Total23.702、Native+Resolve9.632ms；Depth receiver+四load窗口21.518/8.294ms；gather B1为21.267/8.303ms。热态未配对，不宣称gather自身有稳定加速。第一次漏`--near`的far capture（Total16.564ms）保存为invalid task profile，**不是1080p近景收益**。原件：`.local/validation/shadow-v3-2026-10-11/{resolve-1,resolve-near-1,depth-resolve-near-1,depth-query,gather-near-1,gather-near-2,gather-near-3}/`；旧对照在`.local/shadow-v2-before-worktree/.local/validation/shadow-v3-2026-10-11/embedded-paired-{1,2,3}/`，含raw/fingerprint/sensors/errors/screenshots/strict-analysis，失败/outlier不剔除。
+
+【容量/覆盖】三轮model coverage90.657–90.688%、invalid keys0、meshlet605，resident1207/pinned381、evict/reload/failed0、streaming error null、demandOverflow/malformed0。main/shadow readback ring drops分别各24/14/19，保留completeness保护，不把ring overflow当GPU demand溢出。API live1,362,969,653B、peak1,441,733,717B，较旧live1,358,822,565B增加4,147,088B，主要为两在途packed mask；单mask1.98MiB，当前owner80B。每轮release后API bytes/undestroyedCollectedBytes均0、unknown formats[]；这些不是Windows dedicated VRAM/RAM或有效payload。截图人工比较无明显异常，不代替完整normal-map质量门。独立shadedPixels诊断未另采，不把未接线计数0当无工作；覆盖读回完整2,073,600winner域。
+
+【headed烟测】最终源码的`motion → no-vsm → no-fsr`各120成功帧，VSM/FSR默认开启的motion、camera移动→停止、disable VSM中性consumer、disable FSR domain均运行，errors[]、release API0。motion打开counters及500ms residency snapshots，只检查接线/运动/释放，不作为无税GPU性能窗口；关闭功能的两窗口不计同质量收益。第一次motion窗口只有46/120个full samples，严格拒绝且raw保留：record模式每帧采样，120样本budget已被warmup/CDP间隔消耗。runner现在在同一个browser turn重新configure full并读取targetStart，保留原motion counters/interval、不增加budget，再严格检查完整窗口；三scenario重跑通过。静态A/B原始240/60完整full窗口不受此问题影响。原件`headed-motion`（failed）与`headed-motion-retry`（passed）都保留；人工鼠标连续pan/dolly矩阵未另跑，不冒称全部交互验收。
+
+【范围边界】架构剥离按用户选择保留生产，性能验收仍不通过；完整动态VSM R4/极端normal-map掠射长期画质、跨驱动/register/spill/occupancy/cache/DRAM、锁频配对和Presented FPS仍缺。不重新跑旧整套baseline，不改Temporal/Geometry/allocator，不因此把P2-T3/P6/P7变complete。后续工作须针对实际Resolve/Native+Resolve净成本设计，不能重新把工作嵌回材质或用half-res/少tap/history冒充本单元完成。
 
 ## 4. P2：Native Temporal V2完整单元
 

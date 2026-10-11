@@ -1,47 +1,72 @@
-// Rejected Shadow Projection V2 candidate, frozen 2026-10-11.
-// Test-only: no production import, runtime switch, or adoption claim.
-import { GpuBindGroupCache } from "../../../.test-dist/gpu/GpuBindGroupResourceCache.js";
-import { GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS } from "../../../.test-dist/gpu/GpuMeshletRasterWorkAbi.js";
-import { vsmShadowResolveWgsl } from "./vsm-shadow-resolve-v2-wgsl.mjs";
-import { createNativeTextureView } from "../../../.test-dist/gpu/GPUTextureDescriptors.js";
-import { VSM_IDENTITY_BYTE_OFFSET } from "../../../.test-dist/render/vsm/VsmProjection.js";
+import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
+import { GpuBindGroupCache } from "../../gpu/GpuBindGroupResourceCache.js";
+import { GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS } from "../../gpu/GpuMeshletRasterWorkAbi.js";
+import { vsmShadowResolveWgsl } from "../../shaders/vsm_shadow_resolve.js";
+import type { NativeSurfaceGeometry } from "../surface/SurfaceV4.js";
+import { createNativeTextureView } from "../../gpu/GPUTextureDescriptors.js";
+import { VSM_IDENTITY_BYTE_OFFSET } from "./VsmProjection.js";
+import { PACKED_CAMERA_TYPE } from "../../shaders/packed_camera.js";
+
+export interface VsmShadowResolveFrame {
+  readonly width: number;
+  readonly height: number;
+  readonly cameraPosition: readonly [number, number, number];
+  readonly geometry: NativeSurfaceGeometry;
+  readonly visibility: GPUTexture;
+  readonly depth: GPUTexture;
+  readonly camera: GPUBuffer;
+  readonly constants: GPUBuffer;
+  readonly descriptors: GPUBuffer;
+  readonly atlas: GPUTextureView;
+  readonly sun: GPUBuffer;
+  readonly output: GPUTexture;
+}
+
+type ResolvePipeline = {
+  readonly pipeline: GPUComputePipeline;
+  readonly layouts: readonly [GPUBindGroupLayout, GPUBindGroupLayout];
+};
+
+declare const __EENGINE_PERFORMANCE_DIAGNOSTICS__: boolean;
 const QUERY_KEYS =
   typeof __EENGINE_PERFORMANCE_DIAGNOSTICS__ !== "undefined" &&
   __EENGINE_PERFORMANCE_DIAGNOSTICS__ &&
   new URLSearchParams(globalThis.location.search).get("nativeCostSlice") === "K";
+
 /** Frame-local projection owner. No history or CPU publication advances on
  * encode/abort: the FrameGraph pool owns/fences the fully rewritten mask.
  * The two geometry capability PSOs are immutable; no per-material specialization.
  * All buffer uploads and generation/mode copies use the existing frame encoder. */
 export class VsmShadowResolvePass {
-  device;
-  mode;
-  settings;
-  settingWords = new Uint32Array(36);
-  settingFloats = new Float32Array(this.settingWords.buffer);
-  pipelines = new Map();
-  groups = new GpuBindGroupCache();
-  queryKeys = null;
-  queryKeysView = null;
-  destroyed = false;
-  constructor(device) {
-    this.device = device;
+  readonly mode: GPUBuffer;
+  private readonly settings: GPUBuffer;
+  private readonly settingWords = new Uint32Array(16);
+  private readonly settingFloats = new Float32Array(this.settingWords.buffer);
+  private readonly pipelines = new Map<boolean, ResolvePipeline>();
+  private readonly groups = new GpuBindGroupCache();
+  private readonly atlasSampler: GPUSampler;
+  private queryKeys: GPUTexture | null = null;
+  private queryKeysView: GPUTextureView | null = null;
+  private destroyed = false;
+
+  constructor(private readonly device: GPUDevice) {
     if (
       device.limits.maxComputeInvocationsPerWorkgroup < 64 ||
       device.limits.maxComputeWorkgroupSizeX < 8 ||
       device.limits.maxComputeWorkgroupSizeY < 8 ||
       device.limits.maxComputeWorkgroupStorageSize < 288 ||
       device.limits.maxStorageBuffersPerShaderStage < 10 ||
-      device.limits.maxSampledTexturesPerShaderStage < 2 ||
+      device.limits.maxSampledTexturesPerShaderStage < 3 ||
+      device.limits.maxSamplersPerShaderStage < 1 ||
       device.limits.maxStorageTexturesPerShaderStage < (QUERY_KEYS ? 2 : 1) ||
-      device.limits.maxUniformBuffersPerShaderStage < 3 ||
+      device.limits.maxUniformBuffersPerShaderStage < 4 ||
       device.limits.maxBindGroups < 2
     ) {
       throw new RangeError("VSM Shadow Resolve exceeds negotiated shader limits");
     }
     this.settings = device.createBuffer({
       label: "VSM/Shadow Resolve settings",
-      size: 144,
+      size: 64,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     try {
@@ -54,29 +79,44 @@ export class VsmShadowResolvePass {
       this.settings.destroy();
       throw error;
     }
+    this.atlasSampler = device.createSampler({
+      label: "VSM/Exact point footprint gather",
+      minFilter: "nearest",
+      magFilter: "nearest",
+      mipmapFilter: "nearest",
+      addressModeU: "clamp-to-edge",
+      addressModeV: "clamp-to-edge",
+    });
     void device.lost.then(() => this.destroy());
   }
-  pipeline(product) {
+
+  private pipeline(product: boolean): ResolvePipeline {
     const existing = this.pipelines.get(product);
     if (existing !== undefined) {
       return existing;
     }
-    const read = (binding) => ({
+    const read = (binding: number): GPUBindGroupLayoutEntry => ({
       binding,
       visibility: GPUShaderStage.COMPUTE,
       buffer: { type: "read-only-storage" },
     });
-    const geometry = [
-      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 144 } },
+    const geometry: GPUBindGroupLayoutEntry[] = [
+      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 64 } },
       read(1),
       read(2),
       read(3),
       read(4),
       { binding: 5, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } },
+      { binding: 6, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "depth" } },
       {
         binding: 7,
         visibility: GPUShaderStage.COMPUTE,
         storageTexture: { format: "r32uint", access: "write-only" },
+      },
+      {
+        binding: 8,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: { type: "uniform", minBindingSize: PACKED_CAMERA_TYPE.size },
       },
     ];
     if (product) {
@@ -103,9 +143,10 @@ export class VsmShadowResolvePass {
           read(1),
           { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "depth" } },
           { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 16 } },
+          { binding: 4, visibility: GPUShaderStage.COMPUTE, sampler: { type: "non-filtering" } },
         ],
       }),
-    ];
+    ] as const;
     const result = {
       layouts,
       pipeline: this.device.createComputePipeline({
@@ -123,7 +164,8 @@ export class VsmShadowResolvePass {
     this.pipelines.set(product, result);
     return result;
   }
-  encode(command, frame) {
+
+  encode(command: ShadeGPUCommandContext, frame: VsmShadowResolveFrame): void {
     if (this.destroyed) {
       throw new Error("VSM Shadow Resolve has been destroyed");
     }
@@ -142,6 +184,10 @@ export class VsmShadowResolvePass {
       frame.visibility.width !== frame.width ||
       frame.visibility.height !== frame.height ||
       frame.visibility.format !== "r32uint" ||
+      frame.depth.width !== frame.width ||
+      frame.depth.height !== frame.height ||
+      frame.depth.format !== "depth32float" ||
+      frame.camera.size < PACKED_CAMERA_TYPE.size ||
       !frame.cameraPosition.every(Number.isFinite)
     ) {
       throw new RangeError("VSM Shadow Resolve requires its complete packed internal-resolution domain");
@@ -188,18 +234,20 @@ export class VsmShadowResolvePass {
         );
       }
     }
-    const geometryEntries = [
+    const geometryEntries: GPUBindGroupEntry[] = [
       { binding: 0, resource: { buffer: this.settings } },
       { binding: 1, resource: { buffer: geometry.meshletWork } },
       { binding: 2, resource: { buffer: geometry.arena } },
       { binding: 3, resource: { buffer: geometry.vertexPayload } },
       { binding: 4, resource: { buffer: geometry.instances } },
       { binding: 5, resource: createNativeTextureView(frame.visibility) },
+      { binding: 6, resource: createNativeTextureView(frame.depth) },
       { binding: 7, resource: createNativeTextureView(frame.output) },
+      { binding: 8, resource: { buffer: frame.camera } },
     ];
     if (geometry.productHeap !== undefined) {
       geometryEntries.push({ binding: 10, resource: { buffer: geometry.productHeap } });
-      geometry.productBanks.forEach((buffer, index) =>
+      geometry.productBanks!.forEach((buffer, index) =>
         geometryEntries.push({ binding: 11 + index, resource: { buffer } }),
       );
     }
@@ -215,6 +263,7 @@ export class VsmShadowResolvePass {
           { binding: 1, resource: { buffer: frame.descriptors } },
           { binding: 2, resource: frame.atlas },
           { binding: 3, resource: { buffer: frame.sun } },
+          { binding: 4, resource: this.atlasSampler },
         ],
       }),
     ];
@@ -224,14 +273,15 @@ export class VsmShadowResolvePass {
     pass.dispatchWorkgroups(Math.ceil(frame.width / 8), Math.ceil(frame.height / 8));
     pass.end();
   }
-  destroy() {
+
+  destroy(): void {
     if (this.destroyed) {
       return;
     }
     this.destroyed = true;
     this.groups.clear();
     this.pipelines.clear();
-    const resources = [this.settings, this.mode];
+    const resources: (GPUBuffer | GPUTexture)[] = [this.settings, this.mode];
     if (this.queryKeys !== null) {
       resources.push(this.queryKeys);
     }

@@ -89,7 +89,8 @@ export function nativeFixtureExpectedPixel(
     coat: family === 1 ? [0.5, 0.3] : [0, 1],
   };
   const shadow = (Math.floor((position[0] + 1) * 8) + Math.floor((position[1] + 1) * 8)) % 2 === 1 ? 0 : 1;
-  let color = directReference(surface, position, [0, 0, 1], [0.8 * shadow, 0.6 * shadow, 0.4 * shadow]);
+  // Authored directional lights do not own the Physical Sun VSM namespace.
+  let color = directReference(surface, position, [0, 0, 1], [0.8, 0.6, 0.4]);
   if (sunTransmission) {
     const incident = sunTransmission.map(
       (t, k) => t * [98242.786222, 69954.398112, 66475.012354][k] * 0.000013207021769386792 * shadow,

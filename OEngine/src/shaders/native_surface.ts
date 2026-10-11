@@ -12,6 +12,7 @@ import { NATIVE_ENVIRONMENT_SAMPLE_WGSL } from "./native_environment_sample.js";
 import { ENVIRONMENT_BRDF_WGSL } from "./native_environment_brdf.js";
 import { LINEAR_REC709_TO_REC2020_WGSL } from "./working_color.js";
 import { nativeSurfaceAuxWgsl } from "./native_surface_aux.js";
+import { VSM_SHADOW_VISIBILITY_WGSL } from "./vsm_shadow_visibility.js";
 import {
   nativeSurfacePhysicalSunLayoutEntries,
   nativeSurfacePhysicalSunWgsl
@@ -137,13 +138,6 @@ export function nativeSurfaceBindingGroups(
       storageTexture: { format: "rgba8unorm", access: "write-only" }
     });
   }
-  if (profile.costSlice === "K") {
-    geometry.push({
-      binding: 15,
-      visibility: COMPUTE,
-      storageTexture: { format: "rgba32uint", access: "write-only", viewDimension: "2d-array" },
-    });
-  }
   if (profile.productGeometry) {
     for (let binding = 10; binding < 15; binding++) {
       geometry.push(read(binding));
@@ -161,8 +155,7 @@ export function nativeSurfaceBindingGroups(
         texture(6, "unfilterable-float"),
         texture(7, "float"),
         uniform(8),
-        read(9),
-        texture(10, "depth"),
+        texture(10, "uint"),
         texture(11, "float")
       ];
   if (!profile.unlit) {
@@ -180,7 +173,7 @@ export function nativeSurfaceBindingGroups(
   return [
     geometry,
     profile.additiveSun
-      ? lighting.filter((entry) => [0, 8, 9, 10, 12, 13, 14].includes(entry.binding))
+      ? lighting.filter((entry) => [0, 8, 10, 12, 13, 14].includes(entry.binding))
       : lighting,
     material,
     materialLayout
@@ -240,8 +233,11 @@ export function nativeSurfaceWgsl(
   profile: NativeSurfaceShaderProfile
 ): string {
   const costSlice = profile.costSlice ?? "G";
+  if (costSlice === "Q0") {
+    throw new RangeError("Q0 embedded VSM query slice is retired; time the Directional Shadow Resolve pass");
+  }
   if (!/^(?:[A-G]|B0|Q0|K)$/.test(costSlice)) {
-    throw new RangeError("Native cost slice must be A through G, B0, Q0 (query without PCF) or K (full query keys)");
+    throw new RangeError("Native cost slice must be A through G, B0 or K (Resolve query keys)");
   }
   if (costSlice !== "G" && profile.additiveSun) {
     throw new Error("Native cost slicing requires the fused resource profile");
@@ -305,7 +301,8 @@ export function nativeSurfaceWgsl(
     ? ""
     : /* wgsl */ `
 ${NATIVE_LOCAL_LIGHTING.source}
-${profile.physicalSun ? nativeSurfacePhysicalSunWgsl(costSlice === "G" || costSlice === "K" || costSlice === "Q0", costSlice === "Q0") : ""}
+${VSM_SHADOW_VISIBILITY_WGSL}
+${profile.physicalSun ? nativeSurfacePhysicalSunWgsl(costSlice === "G" || costSlice === "K") : ""}
 ${NATIVE_ENVIRONMENT_SAMPLE_WGSL}
 ${ENVIRONMENT_BRDF_WGSL}
 struct NativeShadingView {
@@ -321,9 +318,6 @@ ${NATIVE_LOCAL_LIGHTING.declarations}
 @group(1) @binding(6) var environment_specular: texture_2d<f32>;
 @group(1) @binding(7) var environment_dfg: texture_2d<f32>;
 @group(1) @binding(15) var environment_sampler: sampler;
-@group(1) @binding(8) var<uniform> vsm_constants: VsmSamplingConstants;
-@group(1) @binding(9) var<storage, read> vsm_sampling_descriptors: array<VsmSamplingDescriptor>;
-@group(1) @binding(10) var vsm_atlas_depth: texture_depth_2d;
 @group(1) @binding(11) var ambient_occlusion: texture_2d<f32>;
 fn native_environment(material: StandardMaterial, normal: vec3f, direction: vec3f, pixel: vec2u) -> vec3f {
   ${
@@ -363,7 +357,7 @@ fn native_environment(material: StandardMaterial, normal: vec3f, direction: vec3
 }
 `;
   const sunLighting =
-    "native_surface_physical_sun(material, geometry, frame_instances[work.instance_slot].source.flags)";
+    "native_surface_physical_sun(material, geometry, frame_instances[work.instance_slot].source.flags, pixel)";
   const directLighting =
     "shade_standard_material_direct(material, geometry, vec2f(pixel) + vec2f(0.5), view_depth)" +
     (profile.physicalSun ? " + " + sunLighting : "");
@@ -424,42 +418,13 @@ fn native_environment(material: StandardMaterial, normal: vec3f, direction: vec3
   let view_depth = max(-(settings.view_matrix * vec4f(position, 1.0)).z, 1e-4);
 ${materialLighting}
 `;
-  // Cost card: unchanged 256B VSM uniform/bindings, 8x8 workgroup and frame passes.
-  // Normal mode adds one uniform branch, no samples/atomics/barriers/allocations.
-  // Debug adds page-table queries and (mask only) <=16 depth loads per lit pixel;
-  // its benefit is inspection only. Disable it for cost/quality measurements.
+  // Projection/debug is already resolved by the VSM owner. Native consumes
+  // one packed byte and a 16B mode, never management descriptors or atlas taps.
   const vsmDebug =
     costSlice === "G" && profile.physicalSun && !profile.unlit
       ? /* wgsl */ `
-  if (vsm_constants.identity.z != 0u) {
-    let receives_shadow = (frame_instances[work.instance_slot].source.flags & ${GPU_INSTANCE_FLAGS.ReceivesShadow}u) != 0u;
-    output_radiance = oengine_linear_rec709_to_rec2020(vsm_debug_color(position, mapped_normal,
-      normalize(native_physical_sun.sun_direction_world), receives_shadow));
-  }
-`
-      : "";
-  // K is a statistics run, never a timing run. Full u32 world identity is
-  // retained; only bounded status/clip/mip enums share one word. Epoch,
-  // namespace and generation come from the same captured frame constants.
-  const queryKeys =
-    costSlice === "K" && !profile.unlit
-      ? /* wgsl */ `
-  if ((frame_instances[work.instance_slot].source.flags & ${GPU_INSTANCE_FLAGS.ReceivesShadow}u) != 0u && vsm_constants.depth_range.w != 0.0) {
-    let light_xy = (vsm_constants.light_view * vec4f(position, 1.0)).xy;
-    let selected = vsm_clip_level(light_xy);
-    var fine_world = vec2i(0);
-    if (selected != VSM_INVALID_SLOT) {
-      fine_world = vsm_world_page(light_xy, vsm_constants.clip_origin_extent[selected], 0u, vsm_constants.dimensions.x);
-    }
-    let query = vsm_query_directional(light_xy);
-    var resolved_world = vec2i(0);
-    if (query.status == VSM_QUERY_FINE || query.status == VSM_QUERY_COARSE) {
-      resolved_world = vsm_world_page(light_xy, vsm_constants.clip_origin_extent[query.level], query.entry.mip, vsm_constants.dimensions.x);
-    }
-    let enums = 0x80000000u | query.status | (query.target_status << 4u) |
-      (query.level << 8u) | (query.entry.mip << 12u);
-    textureStore(native_query_keys, vec2i(pixel), 0, vec4u(selected, bitcast<vec2u>(fine_world), enums));
-    textureStore(native_query_keys, vec2i(pixel), 1, vec4u(bitcast<vec2u>(resolved_world), query.entry.slot_x, query.entry.slot_y));
+  if (shadow_visibility_mode.x != 0u) {
+    output_radiance = oengine_linear_rec709_to_rec2020(directional_shadow_debug_at(pixel));
   }
 `
       : "";
@@ -554,7 +519,6 @@ struct NativeSurfaceSettings {
 @group(0) @binding(4) var<storage, read> frame_instances: array<OEngineFrameInstanceRecord>;
 @group(0) @binding(5) var visibility: texture_2d<u32>;
 @group(0) @binding(7) var hdr: texture_storage_2d<rgba16float, write>;
-${costSlice === "K" ? "@group(0) @binding(15) var native_query_keys: texture_storage_2d_array<rgba32uint, write>;" : ""}
 ${profile.additiveSun ? "@group(0) @binding(9) var prior_native_hdr: texture_2d<f32>;" : ""}
 ${reactiveDeclaration}
 ${productBindings}
@@ -640,7 +604,6 @@ ${pixelSelection}
     return;
   }
 ${evaluation}
-${queryKeys}
   // P is the positive GPU exposure published by radiometry. An artistic lower
   // floor here would disagree with Sky/Aerial and HDR metering above L=1800.
   let contribution = oengine_linear_rec709_to_rec2020(color) * settings.camera_position_exposure.w;

@@ -483,6 +483,26 @@ export async function runNativeSurfaceIntegrationGpuOracle(
       for (const id of dependencies) winner.read(id);
       const winnerVis = winner.write(vis),
         winnerDepth = winner.write(depth);
+      let shadowProduct = null;
+      if (physicalSun) {
+        const target = imported("directional visibility", fixture.vsm.shadowVisibility);
+        const resolve = graph.add("VSM/Directional Shadow Resolve", {}, () => {
+          fixture.vsm.shadowResolve.encode(command, {
+            width, height, cameraPosition: [0, 0, 3],
+            geometry: fallback ? { ...geometry(), sourcePayload: [0, 0, 0, (fixture.geometry.sourcePayload[3] | 0x80000000) >>> 0] } : geometry(),
+            visibility: fixture.visibility,
+            depth: fixture.depth,
+            camera,
+            constants: fixture.vsm.constants, descriptors: fixture.vsm.descriptors,
+            atlas: fixture.vsm.atlas.createView(), sun: sunParameters,
+            output: fixture.vsm.shadowVisibility,
+          });
+        });
+        resolve.read(winnerVis);
+        resolve.read(winnerDepth);
+        for (const id of dependencies) resolve.read(id);
+        shadowProduct = resolve.write(target);
+      }
       const localProducts = localFrame
         ? localOwner.addToGraph(graph, { frame: localFrame }, localFrame, {
             visibility: winnerVis,
@@ -499,6 +519,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
           exposure,
           background,
           ...dependencies,
+          ...(shadowProduct !== null ? [shadowProduct] : []),
           ...(localProducts ? [localProducts.data, localProducts.lookup] : []),
         ],
         reactiveResource,

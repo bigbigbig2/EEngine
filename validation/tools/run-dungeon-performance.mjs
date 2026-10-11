@@ -28,8 +28,8 @@ const geometrySettled = args.includes("--geometry-settled");
 const vsmDemandDiagnostics = args.includes("--vsm-demand-diagnostics");
 const gpuSampleInterval = Number(option("gpu-sample-interval", "4"));
 const movementAudit = args.includes("--movement-audit");
-if (nativeCostSlice !== null && !/^(?:[A-G]|B0|Q0|K)$/.test(nativeCostSlice))
-  throw new Error("--native-slice must be A through G, B0, Q0 (query without PCF) or K (full query keys)");
+if (nativeCostSlice !== null && !/^(?:[A-G]|B0|K)$/.test(nativeCostSlice))
+  throw new Error("--native-slice must be A through G, B0 or K (Resolve query keys); embedded Q0 is retired");
 if (vsmDemandDiagnostics && nativeCostSlice !== null && nativeCostSlice !== "G")
   throw new Error("VSM statistics require full native shading");
 const scenarios = args.includes("--load-only")
@@ -585,19 +585,18 @@ try {
         return performance.now() - previous.at >= 3000 && report.renderState.frame - previous.frame >= 60;
       }, undefined, { polling: 500, timeout: 180000 });
     }
-    // Full mode has a bounded 120-sampled-frame capture budget. Settling can
-    // consume it before the measurement starts. Rearm the same mode here;
-    // never combine the automatic coarse tail with full-pass timing.
-    if (geometrySettled) {
-      await run.page.evaluate(([mode, counters, interval]) =>
-        window.dungeonPerformance.configure(mode, mode === "full", counters, interval),
-      [mode, name === "counters", gpuSampleInterval]);
-    }
     const start = Date.now(),
       before = await metrics(),
       pageStart = await run.page.evaluate(() => performance.now());
     scenario = name;
-    const targetStart = await run.page.evaluate(() => window.dungeonDemo.report().renderState.frame);
+    // Full mode has a bounded 120-sampled-frame budget. Warmup/settling and
+    // intervening CDP calls can consume it, especially record/counters mode
+    // (every frame). Rearm and read the start index in the same browser turn;
+    // preserve the requested counters, and still reject any mixed window.
+    const targetStart = await run.page.evaluate(([mode, counters, interval]) => {
+      if (mode === "full") window.dungeonPerformance.configure(mode, true, counters, interval);
+      return window.dungeonDemo.report().renderState.frame;
+    }, [mode, name === "counters" || (name === "motion" && movementAudit), gpuSampleInterval]);
     await run.page.waitForFunction(
       (n) => window.dungeonDemo.report().failure || window.dungeonDemo.report().renderState.frame >= n,
       targetStart + frames,

@@ -421,6 +421,7 @@ ${VSM_SAMPLING_WGSL}
 @group(0) @binding(2) var vsm_atlas_depth: texture_depth_2d;
 @group(0) @binding(3) var<storage, read> positions: array<vec4f>;
 @group(0) @binding(4) var<storage, read_write> results: array<vec4u>;
+@group(0) @binding(5) var vsm_atlas_sampler: sampler;
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
   if (id.x >= arrayLength(&positions)) { return; }
@@ -442,6 +443,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         { binding: 2, resource: resources.atlasDepthView },
         { binding: 3, resource: { buffer: positions } },
         { binding: 4, resource: { buffer: output } },
+        { binding: 5, resource: device.createSampler() },
       ],
     });
     const encoder = device.createCommandEncoder();

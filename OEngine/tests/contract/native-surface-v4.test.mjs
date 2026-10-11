@@ -334,45 +334,16 @@ test("SurfaceV4 resize abort keeps committed extent and resize commit retires on
   f.registry.destroy();
 });
 
-test("diagnostic query keys clear both layers and share extent abort/fence/device-loss ownership", async () => {
-  const f = fixture({ costSlice: "K" }),
-    surface = new SurfaceV4(f.device);
+test("Native K no longer owns shadow queries or a diagnostic full-screen allocation", async () => {
+  const f = fixture({ costSlice: "K" }), surface = new SurfaceV4(f.device);
   await f.publication.ready;
   f.publication.commit();
-  const fence = deferred();
   await surface.prepareFrame(f.frame);
-  const keys = surface.preparedState.allocation.queryKeys;
-  assert.equal(keys.format, "rgba32uint");
-  assert.equal(keys.depthOrArrayLayers, 2);
+  assert.equal(surface.preparedState.allocation.queryKeys, undefined);
   surface.encode(f.encoder);
-  const clears = f.calls.filter(
-    ([kind, descriptor]) =>
-      kind === "renderPass" &&
-      descriptor.colorAttachments?.some((attachment) => attachment.view.texture === keys),
-  );
-  assert.equal(clears.length, 2, "sparse winners must not leave previous/background keys");
-  assert.ok(clears.every(([, descriptor]) => descriptor.colorAttachments[0].loadOp === "clear"));
-  surface.commit(fence.promise);
-  const resized = { ...f.frame, width: 32, height: 16, ...f.images(32, 16) };
-  await surface.prepareFrame(resized);
-  const aborted = surface.preparedState.allocation.queryKeys;
+  assert.equal(f.calls.filter(([kind, descriptor]) => kind === "renderPass" &&
+    descriptor.label === "Diagnostic/Native VSM query initialization").length, 0);
   surface.abort();
-  assert.equal(aborted.destroyed, true);
-  assert.equal(keys.destroyed, false);
-  await surface.prepareFrame(resized);
-  const current = surface.preparedState.allocation.queryKeys;
-  surface.encode(f.encoder);
-  surface.commit(Promise.resolve());
-  assert.equal(keys.destroyed, false);
-  fence.resolve();
-  await fence.promise;
-  await Promise.resolve();
-  assert.equal(keys.destroyed, true);
-  f.loss.resolve({ reason: "unknown", message: "diagnostic loss" });
-  await Promise.resolve();
-  await Promise.resolve();
-  assert.equal(current.destroyed, true);
-  await assert.rejects(surface.prepareFrame(f.frame), /stopped/);
   surface.destroy();
   f.registry.destroy();
 });

@@ -1,5 +1,6 @@
 import { FrameGeometryArena } from "../../.test-dist/render/FrameGeometryArena.js";
 import { VSM_SAMPLING_PUBLICATION_WGSL } from "../../.test-dist/shaders/vsm_sampling_publication.js";
+import { VsmShadowResolvePass } from "../../.test-dist/render/vsm/VsmShadowResolvePass.js";
 import { FrameGeometryVertices } from "../../.test-dist/render/FrameGeometryVertices.js";
 import {
   GPU_GEOMETRY_RECORD_SCHEMA,
@@ -51,11 +52,13 @@ export async function createNativeSurfaceFixture(
     instanceCount = 8,
     perspective = 0,
     highCoverage = false,
+    planeSlopes = [0, 0],
   } = {},
 ) {
   const WIDTH = width,
     HEIGHT = height;
   const retained = [];
+  const shadowResolve = new VsmShadowResolvePass(device);
   const makeBuffer = (dataOrSize, usage, label) => {
     const buffer = device.createBuffer({
       size: typeof dataOrSize === "number" ? dataOrSize : dataOrSize.byteLength,
@@ -91,7 +94,7 @@ export async function createNativeSurfaceFixture(
         geometryGeneration: 3,
         instanceSetGeneration: 7,
         materialHandle: 0,
-        flags: GPU_INSTANCE_FLAGS.Active | GPU_INSTANCE_FLAGS.CastsShadow | GPU_INSTANCE_FLAGS.ReceivesShadow,
+        flags: GPU_INSTANCE_FLAGS.Active | GPU_INSTANCE_FLAGS.CastsShadow | GPU_INSTANCE_FLAGS.ReceivesShadow | (4 << 8),
         debugId: 0,
         boundsSphere: [0, 0, 0, 2],
         boundsMin: [-1, -1, 0, 0],
@@ -158,7 +161,7 @@ export async function createNativeSurfaceFixture(
         const x = (((tileX + (corner & 1)) * CELL) / WIDTH) * 2 - 1;
         const y = 1 - (((tileY + (corner >> 1)) * CELL) / HEIGHT) * 2;
         payloadFloats.set(
-          [0, 0, 1, 1, 1, 0, 0, 1, (x + 1) * 0.5, (y + 1) * 0.5, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, x, y, 0.5, 1],
+          [0, 0, 1, 1, 1, 0, 0, 1, (x + 1) * 0.5, (y + 1) * 0.5, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, x, y, 0.5 + planeSlopes[0] * x + planeSlopes[1] * y, 1],
           attributeWordBase + (slot * 4 + corner) * 24,
         );
       }
@@ -250,7 +253,8 @@ export async function createNativeSurfaceFixture(
     };
     writeLightPage(POINT_LIGHT_DESCRIPTOR, POINT_LIGHT_RECORD_TYPE, 8000, pointLights);
     writeLightPage(DIRECTIONAL_LIGHT_DESCRIPTOR, DIRECTIONAL_LIGHT_RECORD_TYPE, 12000, [
-      { direction: [0, 0, -1], color: [0.8, 0.6, 0.4], flags: 1 },
+      // Authored shadow references are rejected by the real LightDatabase.
+      { direction: [0, 0, -1], color: [0.8, 0.6, 0.4], flags: 0 },
     ]);
     const lights = storage(lightWords, "S1/real light database ABI");
     // Complete DIRECT fixture uses the same frame-local ABI as production.
@@ -373,7 +377,7 @@ export async function createNativeSurfaceFixture(
       WIDTH,
       HEIGHT,
       "r32uint",
-      GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
+      GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST,
     );
     const depth = makeTexture(
       WIDTH,
@@ -403,6 +407,11 @@ export async function createNativeSurfaceFixture(
     );
     const view = uniform(new Uint32Array([WIDTH, HEIGHT, 0, 0]), "S1/light view");
     const exposure = storage(new Float32Array([1.25, 0, 0, 0]), "S1/GPU exposure");
+    const shadowVisibility = makeTexture(Math.ceil(WIDTH / 4), HEIGHT, "r32uint",
+      GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC);
+    device.queue.writeTexture({ texture: shadowVisibility },
+      new Uint32Array(Math.ceil(WIDTH / 4) * HEIGHT).fill(0x01010101),
+      { bytesPerRow: Math.ceil(WIDTH / 4) * 4 }, [Math.ceil(WIDTH / 4), HEIGHT]);
     const lightingEntries = [
       { binding: 0, resource: { buffer: lights } },
       { binding: 1, resource: { buffer: localParameters } },
@@ -413,9 +422,8 @@ export async function createNativeSurfaceFixture(
       { binding: 6, resource: specularEnvironment.createView() },
       { binding: 7, resource: dfg.createView() },
         { binding: 15, resource: device.createSampler({ minFilter: "linear", magFilter: "linear" }) },
-      { binding: 8, resource: { buffer: vsmConstants } },
-      { binding: 9, resource: { buffer: samplingDescriptors } },
-      { binding: 10, resource: atlas.createView() },
+      { binding: 8, resource: { buffer: shadowResolve.mode } },
+      { binding: 10, resource: shadowVisibility.createView() },
       { binding: 11, resource: ao.createView() },
     ];
     const projection = [...identity];
@@ -435,9 +443,6 @@ export async function createNativeSurfaceFixture(
       background,
       exposure,
       lightingEntries,
-      // Provider exposure for the isolated rejected projection experiment.
-      // Existing Native bindings and fixture semantics remain unchanged.
-      vsm: { constants: vsmConstants, descriptors: samplingDescriptors, atlas },
       geometry: {
         meshletWork: work,
         arena: arena.buffer,
@@ -446,6 +451,7 @@ export async function createNativeSurfaceFixture(
         source: [0, geometryWords, 0, triangleWordBase],
         sourcePayload: [0, 0, 0, arena.layout.header.offset / 4],
       },
+      vsm: { constants: vsmConstants, descriptors: samplingDescriptors, atlas, shadowVisibility, shadowResolve },
       sparseShading: {
         assetMetadataHeap: sourceMetadata,
         vertexPayloadHeap: vertexPayload,
@@ -460,12 +466,14 @@ export async function createNativeSurfaceFixture(
       makeTexture,
       setLightCount,
       destroy() {
+        shadowResolve.destroy();
         verticesOwner.destroy();
         arenaOwner.destroy();
         for (const resource of retained) resource.destroy();
       },
     };
   } catch (error) {
+    shadowResolve.destroy();
     verticesOwner.destroy();
     arenaOwner.destroy();
     for (const resource of retained) resource.destroy();

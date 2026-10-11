@@ -1,7 +1,6 @@
 import { LIGHT_DATABASE_READ_CHUNK, DIRECTIONAL_LIGHT_DESCRIPTOR } from "../gpu/LightDatabase.js";
 import { LOCAL_LIGHT_TYPES_WGSL } from "../gpu/GpuLocalLightWorkAbi.js";
 import { LIGHTING_BRDF_MATH_WGSL, LIGHTING_BRDF_TYPES_WGSL } from "./lighting_brdf.js";
-import { VSM_SAMPLING_WGSL } from "./vsm_sampling.js";
 
 /** New local-light consumer. Reads only finalized products; never owns work generation. */
 export const NATIVE_LOCAL_LIGHTING = {
@@ -21,7 +20,6 @@ fn saturate(value: f32) -> f32 {
 ${LIGHT_DATABASE_READ_CHUNK.compile().text}
 ${LIGHTING_BRDF_TYPES_WGSL}
 ${LIGHTING_BRDF_MATH_WGSL}
-${VSM_SAMPLING_WGSL}
 fn native_local_accumulate(tuple: u32, geometry: SurfaceGeometry, material: StandardMaterial, reflected: ptr<function, ReflectedLight>) {
   let slot = tuple & 0xffffffu;
   var incident: GpuPrimitiveTypeTable;
@@ -42,9 +40,8 @@ fn shade_standard_material_direct(material: StandardMaterial, geometry: SurfaceG
     directional_mask &= ~(1u << slot);
     let source = ${DIRECTIONAL_LIGHT_DESCRIPTOR.marshalling_method_read}(&node, slot);
     var incident = get_directional_light_info(source);
-    if (source.flags & 1u) != 0u {
-      incident.color *= select(0.0, vsm_sample_directional(geometry.position, geometry.shading_normal, incident), dot(incident.direction, geometry.shading_normal) >= 0.0);
-    }
+    // LightDatabase rejects authored shadow references before publication.
+    // Directional VSM belongs exclusively to Physical Sun's mask consumer.
     re_direct_physical(incident, geometry, material, &reflected);
   }
   // Poison stale output for the HDR numeric gate; rgba16float may clamp the sentinel.

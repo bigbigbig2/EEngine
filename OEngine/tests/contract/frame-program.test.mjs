@@ -159,6 +159,22 @@ test("directional shadows demand independent Geometry only for an enabled lit co
   assert.ok(!unlit.products.includes("shadow-geometry-work"));
 });
 
+test("Shadow visibility is a packed full receiver domain with a real Physical Sun consumer", () => {
+  const plan = buildFrameProgram({ ...scene, internalWidth: 641, shadowProfile: "vsm-directional-high" });
+  const mask = plan.facts.find((fact) => fact.product === "shadow-visibility");
+  assert.equal(mask.domain, "internal-full");
+  assert.equal(mask.format, "r32uint");
+  assert.deepEqual(mask.extent, [161, 360]);
+  assert.deepEqual(mask.consumers, ["surface"]);
+  const noSun = buildFrameProgram({ ...scene, physicalEnvironment: false, shadowProfile: "vsm-directional-high" });
+  assert.ok(!noSun.products.includes("shadow-visibility"));
+  assert.throws(
+    () => buildFrameProgram({ ...scene, hasLit: false, shadowProfile: "vsm-directional-high" }),
+    /VSM requires a lit Surface consumer/,
+  );
+  assert.ok(noSun.products.includes("shadow-geometry-work"));
+});
+
 test("Program cache reuses the finite set shape and evicts by LRU", () => {
   const cache = new FrameProgramCache(2);
   const first = cache.getOrCreate(scene);

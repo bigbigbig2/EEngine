@@ -1,5 +1,4 @@
 import type { FrameGraphResourceDomain, ResourceId } from "../../framegraph/ResourceHandle.js";
-import type { VsmProfile } from "../vsm/VsmCapabilities.js";
 
 export type ResolutionDomain = FrameGraphResourceDomain;
 
@@ -202,26 +201,14 @@ export interface LocalLightWorkProduct {
   readonly depthSlices: number;
 }
 
-/** VSM producer output consumed by the single opaque direct-light consumer. */
+/** Committed VSM projection consumed by Native Physical Sun; page management
+ * resources remain private to VSM. Extent describes logical receiver pixels. */
 export interface ShadowVisibilityFrame {
-  readonly profile: VsmProfile;
-  readonly virtualPageTable: ResourceId | null;
-  readonly physicalAtlasDepth: ResourceId | null;
-  readonly pageMeta: ResourceId | null;
-  readonly lightProjection: ResourceId | null;
-  readonly overflowMask: ResourceId | null;
-  readonly generation: number;
-  readonly fallbackPolicy: "coarse-resident" | "neutral-visibility" | "shadow-disabled";
-  readonly enabled: boolean;
-  readonly clipLevels: number;
-  readonly pageSize: number;
-  readonly border: number;
-  readonly pcfTapCount: number;
-  readonly normalOffsetScale: number;
-  readonly depthBias: number;
-  readonly slopeScale: number;
-  readonly atlasWidth: number;
-  readonly atlasHeight: number;
+  readonly visibility: ResourceId;
+  readonly mode: ResourceId;
+  readonly packing: "four-horizontal-count-bytes";
+  readonly biasNormal: "geometry-face";
+  readonly domain: TextureDomain<"internal-full">;
 }
 
 /** SSR/Local Probe 输出的镜面结果，供 correction consumer 使用。 */
@@ -314,73 +301,23 @@ export function localLightWorkProduct(input: LocalLightWorkProduct): LocalLightW
   return Object.freeze({ ...input });
 }
 
-/** Freeze and validate the Stage 2B shadow producer/consumer ABI. */
+/** Freeze the actual packed projection producer/consumer contract. */
 export function shadowVisibilityFrame(input: ShadowVisibilityFrame): ShadowVisibilityFrame {
-  for (const [name, value] of [
-    ["virtualPageTable", input.virtualPageTable],
-    ["physicalAtlasDepth", input.physicalAtlasDepth],
-    ["pageMeta", input.pageMeta],
-    ["lightProjection", input.lightProjection],
-    ["overflowMask", input.overflowMask],
-  ] as const)
-    requireResourceId(value, `ShadowVisibilityFrame.${name}`);
-  if (!Number.isSafeInteger(input.generation) || input.generation < 0) {
-    throw new RangeError("ShadowVisibilityFrame generation must be a non-negative integer");
-  }
+  requireResourceId(input.visibility, "ShadowVisibilityFrame.visibility");
+  requireResourceId(input.mode, "ShadowVisibilityFrame.mode");
   if (
-    !Number.isInteger(input.clipLevels) ||
-    input.clipLevels < 0 ||
-    input.clipLevels > 16 ||
-    !Number.isInteger(input.pageSize) ||
-    input.pageSize < 0 ||
-    !Number.isInteger(input.border) ||
-    input.border < 0
+    input.visibility === null ||
+    input.mode === null ||
+    input.packing !== "four-horizontal-count-bytes" ||
+    input.biasNormal !== "geometry-face" ||
+    input.domain.domain !== "internal-full"
   ) {
-    throw new RangeError("ShadowVisibilityFrame page layout is invalid");
+    throw new Error("ShadowVisibilityFrame requires the exact full-rate packed receiver product");
   }
-  if (
-    input.enabled !== (input.profile !== "shadow-disabled") ||
-    (!input.enabled &&
-      (input.virtualPageTable !== null ||
-        input.physicalAtlasDepth !== null ||
-        input.pageMeta !== null ||
-        input.lightProjection !== null))
-  ) {
-    throw new Error("ShadowVisibilityFrame disabled profile must expose neutral resources");
-  }
-  if (
-    input.enabled &&
-    (input.virtualPageTable === null ||
-      input.physicalAtlasDepth === null ||
-      input.pageMeta === null ||
-      input.lightProjection === null)
-  ) {
-    throw new Error("ShadowVisibilityFrame enabled profile is missing a VSM resource");
-  }
-  if (!input.enabled && input.fallbackPolicy !== "shadow-disabled") {
-    throw new Error("ShadowVisibilityFrame disabled profile requires shadow-disabled fallback");
-  }
-  if (!Number.isInteger(input.pcfTapCount) || input.pcfTapCount <= 0) {
-    throw new RangeError("ShadowVisibilityFrame pcfTapCount must be a positive integer");
-  }
-  for (const [name, value] of [
-    ["normalOffsetScale", input.normalOffsetScale],
-    ["depthBias", input.depthBias],
-    ["slopeScale", input.slopeScale],
-  ] as const) {
-    if (!Number.isFinite(value) || value < 0) {
-      throw new RangeError(`ShadowVisibilityFrame ${name} must be finite and non-negative`);
-    }
-  }
-  if (
-    !Number.isInteger(input.atlasWidth) ||
-    input.atlasWidth <= 0 ||
-    !Number.isInteger(input.atlasHeight) ||
-    input.atlasHeight <= 0
-  ) {
-    throw new RangeError("ShadowVisibilityFrame atlas dimensions must be positive integers");
-  }
-  return Object.freeze({ ...input });
+  return Object.freeze({
+    ...input,
+    domain: textureDomain("internal-full", input.domain.width, input.domain.height, input.domain.scale),
+  });
 }
 
 export function preExposureContract(input: PreExposureContract): PreExposureContract {
