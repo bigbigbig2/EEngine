@@ -27,6 +27,8 @@ verifies:
     - OEngine/src/shaders/native_execution_bins.ts
     - OEngine/src/shaders/native_material_products.ts
     - OEngine/src/shaders/native_surface.ts
+    - OEngine/src/shaders/lighting_brdf.ts
+    - OEngine/tests/oracle/final-pixel-sun-response-gpu.mjs
     - OEngine/src/shaders/native_environment_brdf.ts
     - OEngine/src/render/temporal/GpuRadiometryPass.ts
     - OEngine/src/render/temporal/ExposureSettings.ts
@@ -1555,3 +1557,5 @@ VSM atlas/residency、receiver aggregation、compact descriptor、local invalida
 `native_resolved_position.ts`是本地原创齐次triangle-plane与jittered inverse-VP求交，不移植WickedEngine depth-neighbor normal。face来自同一次Geometry completion；原point tap、bias/radius/footprint语义保留。原homogeneous interpolation和有限一像素导数保持，计算移到PCF后缩短存活范围，没有重构Geometry frontend。
 
 旧S3从`9f305c4128b0355614ececbe2be890582d6e8f2d`编译JS冻结到`OEngine/tests/oracle/reference/s3/`，只作numeric/quality reference，production不import或设置selector。Geometry completion独立冻结，避免新Native generator污染旧reference；Solar CPU/filtered oracle、receiver解析plane和实际production GPU结果见[V5 Phase2报告](../performance/2026-10-12-final-pixel-phase2-cutover.md)。这些是Local接线与组件验证，成本未资格，不提升source adoption或Performance Improved。
+
+2026-10-12 live-scope返工沿用已固定Filament Apache-2.0 `41f996de8fcc2d6b60b73159aa1bc44a05a40700` 的 `surface_shading_model_standard.fs::surfaceShading/isotropicLobe/clearCoatLobe`；本轮复读本机固定源，数学仍是本地原`lighting_brdf.ts::re_direct_physical`。Original：将原数学拆成invocation-private `prepare_direct_physical/apply_direct_physical`，Native结束material/local/IBL后采PCF，visibility先作用irradiance再走原combined finite guard；不是新BRDF、Filament框架移植或跨pass lighting packet。冻结本地8db2c82b旧公式与2880组GPU exact/overflow负对照、真实consumer和有限ABBA见[返工报告](../performance/2026-10-12-final-pixel-phase2-live-scope-rework.md)。候选净性能未资格，不提升adoption；上段PCF后算interpolation是此前early候选的记录，当前late次序只在execution记录事实。

@@ -15,6 +15,8 @@ verifies:
     - OEngine/src/shaders/native_surface.ts
     - OEngine/src/shaders/native_surface_aux.ts
     - OEngine/src/shaders/native_surface_lighting.ts
+    - OEngine/src/shaders/lighting_brdf.ts
+    - OEngine/tests/oracle/final-pixel-sun-response-gpu.mjs
     - OEngine/src/render/lighting/FinalPixelLightingPublication.ts
     - OEngine/src/shaders/native_resolved_position.ts
     - OEngine/tests/oracle/final-pixel-shadow-quality-gpu.mjs
@@ -49,7 +51,7 @@ verifies:
 |---|---|---|
 | 0 | Source truth、目标图、数据/质量/成本合同冻结 | 用户已授权实施；文档提交e2ebed8 |
 | 1 | Final Pixel publication / Native Seed非生产完整闭包，替代重复恢复链，合法binding与唯一写域 | 非生产闭包完成；§4.2绑定修正已验证，§4.3记录出口及未获生产资格项 |
-| 2 | Shadow Physical Execution cutover：full I Shadow Resolve / mask / 重复continuation退休 | 1；生产唯一链已切，receiver数值返工通过；成本未资格，仍在本Phase，见§5.1 |
+| 2 | Shadow Physical Execution cutover：full I Shadow Resolve / mask / 重复continuation退休 | 1；结构/数值/接线/生命周期闭包完成；候选净性能未资格，联合成本收口在5/6，见§5.1 |
 | 3 | Temporal Seed cutover：Native→全部Temporal consumers；Facts恢复pass / 旧Aux退休 | 1、2；未开始 |
 | 4 | Native Temporal V2完整图：native scatter / Prepare / SPD / source histories退休 | 3；未开始 |
 | 5 | Final Pixel全feature/domain集成、最后旧owner与多余常驻/生命周期税退休 | 2–4；未开始 |
@@ -65,6 +67,8 @@ verifies:
 **Architecture → Candidate implementations**。Phase内可换branch/tile/shared-private/static tap/point去重/short live scope、detector/filter权重；质量门不变。单candidate失败不改为另一个production架构。新增/删除仍符合Design的products/owner/domain。
 
 成本入场：先完整Cost Card（DELETE/ADD、bytes/ALU/samples、random/sequential、atomics/barriers、dispatch/layout、working set、ideal/expected/worst、0/50/100%兑现与break-even）。只有预期DELETE>ADD、理想有正收益且确实能删除目标工作才进入unit；未测live-state不能写0。新增上界已确定超过可删收益上限，才构成fundamental cost证据。
+
+**Phase依赖区分结构闭包和性能资格。** 每unit必需完成真实成本检查并保留失败，不把未测或负收益写成通过；但有限候选ABBA未得break-even不是后续独立工作删除的阻断门。producer/全部consumer、旧依赖退休、能力、数值、unit必要质量和生命周期闭包是下一cutover的硬前置；最终整图动态quality、联合成本调优和正式净性能资格分别在Phase5/6收口。不是将必需正确性或成本观测后移。若已有源码证明fundamental cost/capability不可能，仍按§2暂停；所有architecture falsification条件不变，负收益不豁免最终预算。
 
 不允许改变Phase Architecture的普通触发：helper慢、shared候选失败、小quality失败、一次Dungeon热机长帧、旧representation test红。只有Design§11三类证据允许修订：fundamental correctness/capability impossible；完整源码闭包推翻cost model；核心架构完整/重复工作已删/全部consumer闭合/quality和lifecycle通过/旧链退休后，同条件production正式benchmark仍无break-even。缺任何条件只能写**Candidate X rejected**。architecture修订同时更新两authority并给用户审核，不静默改方向。
 
@@ -171,15 +175,17 @@ ADD：Native scope VSM query/原pointPCF/bias/scalar visibility；physical looku
 
 原子边界：raster→commit→publication→全部Native routes→Sun/HDR→下游同时切，构造完整pipeline/publication再切，旧mask消费者立即删。初始candidate directdescriptor query+短live scope+原PCF；compression只用原资格域；后续代码组织是unit内candidate，不改fusion。
 
-Cost gate：删除receiver恢复/产品，ADD per-pixeldescriptor重复lookup和Nativeworking set；PCF共同项不算删除。source证明无continuation/第二geometry，全部layout合法。闭合后fresh build:test、sampling/receiver/alpha/off-camera/local-invalidation/实际Native GPU、Shadow quality子矩阵、所有组合/abort/retry/epoch；再一次有限同条件DungeonABBA，统计**Native+VSM全部工作与whole span**。单candidate慢先调本unit；不能自动留S3/改C。完整证伪门满足才提amendment。报告进performance，本执行文只记出口/链接。
+Cost检查：删除receiver恢复/产品，ADD per-pixeldescriptor重复lookup和Nativeworking set；PCF共同项不算删除。source证明无continuation/第二geometry，全部layout合法。闭合后fresh build:test、sampling/receiver/alpha/off-camera/local-invalidation/实际Native GPU、Shadow quality子矩阵、所有组合/abort/retry/epoch；再一次有限同条件DungeonABBA，统计**whole span与first receiver→last Native envelope**，Native/allVSM sum仅辅助。未获break-even必须保留为未资格candidate，不自动留S3/改C，也不无限循环局部scope→Dungeon阻止Phase3/4工作删除。依§2结构闭包进入下一cutover，联合成本在Phase5集中调整、Phase6正式资格。完整证伪门满足才提architecture amendment。报告进performance，本执行文只记出口/链接。
 
 ### 5.1 当前实施出口与返工判定
 
-Phase1无需返工或推迟：四输出Seed完整闭包已证明16/16最低binding和事务，仍是Phase3入口。Phase2不能直接照搬prototype位置候选：1080p独立plane/page checker揭示重心position的f32页误判，原失败保留；改为同一次resolved triangle plane与jittered camera齐次求交。一个matrix-vector、两个dot、clip-Z求解及投影除法；不读Depth/邻居、不重建winner/instance/geometry；奇异/非有限结果复用该triangle原重心数学。原attributes/有限一像素梯度完全保持，计算移到PCF后缩短live scope；非生产完整profile的Seed仍在同一Native invocation有效性检查后写。
+Phase1无需返工或推迟：四输出Seed完整闭包已证明16/16最低binding和事务，仍是Phase3入口。Phase2不能直接照搬prototype位置候选：1080p独立plane/page checker揭示重心position的f32页误判，原失败保留；改为同一次resolved triangle plane与jittered camera齐次求交。一个matrix-vector、两个dot、clip-Z求解及投影除法；不读Depth/邻居、不重建winner/instance/geometry；奇异/非有限结果复用该triangle原重心数学。原attributes/有限一像素梯度数学保持，先前early候选将其推迟到PCF后，本次late候选先结束材质scope；非生产完整profile的Seed仍在同一Native invocation有效性检查后写。
 
 生产已完成logical VSM→descriptor/atlas/constants→Native Sun的唯一cutover；独立lighting scratch owner提供descriptor/Solar/local lookup各自直接写区间，三fence上限、abort/resize/deviceepoch与显存记账；Solar固定128KiB同encodercopy，无容量级descriptor/lookup拷贝。普通/Product/compact/unlit/中立、maximum material profile、真实Renderer事务已运行。旧pass/shader/mask/decoder、Sun continuation及第二HDR立即删除；冻结S3只在test-only reference中，无production selector。NativeTemporalFacts、旧Aux/versions/16B directory未提前迁移。
 
-语义与接线验证、原失败与成本数据见[Phase2报告](../performance/2026-10-12-final-pixel-phase2-cutover.md)。**成本出口尚未取得资格，Phase2未关闭。** 已有完整ABBA候选未得到稳定whole span与VSM→Native净收益；不把Native桶转移称收益，也不将热态/clock变化归一化成成功。单candidate慢不能改变B、切packet或停止Native Temporal V2。后续先完成本Phase候选成本出口及剩余质量项；正式Phase6长窗口、完整动态矩阵与4GB simultaneous peak未运行。Phase3未开始。
+语义与接线验证、原失败与成本数据见[Phase2报告](../performance/2026-10-12-final-pixel-phase2-cutover.md)。2026-10-12重新审查当前Phase后，完成late-PCF候选的单Native闭包返工：attributes/material/local/IBL先结束，只携带私有Sun response与receiver facts；不加pass/product/binding、不重载geometry，原radiance/coat/combined finite guard及加法分组保持。冻结旧BRDF独立GPU对照、最低16/16/4完整Seed、production profiles/Renderer事务和1080p Shadow子矩阵通过；完整有限ABBA仍未得稳定whole span与VSM→Native净收益。原失败与本次Cost Card/验证/ABBA见[返工报告](../performance/2026-10-12-final-pixel-phase2-live-scope-rework.md)。
+
+**结构/数值/接线/生命周期闭包完成，候选净性能仍未资格；这两个状态不能混用。** 返工原执行gate：不再把有限候选净性能资格设为Phase3前置；继续局部调优延期到Phase5的Sun+Seed+Temporal完整图联合收口，Phase6正式验收预算与净收益。这响应本次用户对返工/延期的授权，纠正局部候选性能阻止完整重构的问题，不修改B/V2 architecture、质量域、性能预算或证伪条件。热态/clock不归一化成成功。完整动态HDR矩阵、formal长窗口、hardware spill与4GB simultaneous peak仍未完成，不宣称质量总验收、稳定收益或60FPS。Phase3尚未开始，下一unit是§6的原子Seed cutover；本轮停在该边界。
 
 ## 6. Phase 3 — Temporal Seed cutover / retire NativeTemporalFacts
 
@@ -221,6 +227,8 @@ ADD：全组合接线、单Temporal事务、精确retirement/accounting/release�
 
 覆盖VSMon/off/high/bounded、无physicalSun/unlit、中立、AO/Bloomon/off、ordinary/Product/multiProduct/MASK/coat/localLights、native/nonintegerupscale、partial/resize/pause/step/defer/cut、motion/shadow/identitydebug按需求；graphcache/generation/epoch。publicationatomicity与普通motion无错误globalreset。fresh build:test、serialGPU、完整dynamicquality、全部owner simultaneouspeak/release0，现有retiredguard适配，无legacy桥。最后Phase6。
 
+必须联合收口Phase2尚未资格的融合成本：使用已实际写Seed的最终Native和V2 Temporal，重新计算完整DELETE/ADD、private live-state/binding/working set及receiver→Native envelope，不沿用Phase2微窗口为收益证据。此处只允许冻结B/V2内的实现candidate调整；不能以“性能稍后验收”忽略已观察回归。闭包后一次集中有限ABBA、动态quality，Phase6再完成正式长窗口；最终无break-even必须按完整证伪合同处理，不能称模块完成。
+
 ## 9. Phase 6 — Performance / quality acceptance
 
 DELETE：无根据的60FPS/稳定收益/局部bucketclaim；本Phase本身不删shader。ADD：可比production数据与验收报告，normalhotpath无计数税。需修代码回对应unitcandidate再新鲜闭包，不临时改架构。
@@ -253,4 +261,4 @@ docs运行`node tools/docs-verify.mjs`与`git diff --check`；raw/source/build/�
 
 ## 12. 本次交付边界
 
-Phase1审核结论：无需返工或延期；最低设备binding闭包、非生产Native Seed及事务仍有效。Phase2实际暴露receiver页边界误差与融合增税，需要在本Phase返工，不能将其包装为Phase3问题或回到S3。当前生产Sun直接消费VSM合同，旧Shadow/fullscreen mask/continuation已退休；NativeTemporalFacts和旧Aux仍是Phase3真实删除对象。本Phase成本资格及剩余验证只读§5.1和performance报告；未通过必需出口前不进入Phase3，不宣称60FPS、稳定收益或B架构被否定。
+Phase1审核结论：无需返工或延期；最低设备binding闭包、非生产Native Seed及事务仍有效。Phase2完成单invocation live-scope/BRDF有限性返工和unit闭包检查；继续候选成本调优延期到Phase5/6联合收口，净性能未资格。当前生产Sun直接消费VSM合同，旧Shadow/fullscreen mask/continuation已退休；NativeTemporalFacts和旧Aux仍是Phase3真实删除对象。本次返工停在Phase3边界，未开始新的production Seed cutover；状态与未完成项只读§5.1和performance报告，不宣称60FPS、稳定收益或B架构被否定。

@@ -11,6 +11,14 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "final-pixel-sun-response",
+    file: "OEngine/tests/oracle/final-pixel-sun-response-gpu.mjs",
+    url: "/OEngine/tests/oracle/final-pixel-sun-response-gpu.mjs",
+    entry: "runFinalPixelSunResponseGpuOracle",
+    timeoutMs: 120000,
+    description: "Invocation-private Sun BRDF response against frozen math, exact HDR/coat/visibility and overflow finite guards.",
+  }),
+  Object.freeze({
     name: "final-pixel-shadow-quality",
     file: "OEngine/tests/oracle/final-pixel-shadow-quality-gpu.mjs",
     url: "/OEngine/tests/oracle/final-pixel-shadow-quality-gpu.mjs",

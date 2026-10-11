@@ -52,7 +52,7 @@ test("Native diagnostic specializations retain winner predicates and G is the so
     );
   assert.match(sun(generated.F), /atmosphere_sun_irradiance/);
   assert.doesNotMatch(sun(generated.F), /vsm_sample_directional\(/);
-  assert.match(sun(generated.G), /incident.color \*= sun_visibility/);
+  assert.match(sun(generated.G), /incident_color \*= sun_visibility/);
   assert.throws(() => nativeSurfaceWgsl(program, { ...profile, costSlice: "Q0" }), /retired/);
   assert.doesNotMatch(generated.G, /native_query_keys|native_vsm_query_diagnostic/);
   assert.match(generated.K, /vsm_sample_directional\(resolved_position/);

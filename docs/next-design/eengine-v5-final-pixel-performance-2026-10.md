@@ -7,6 +7,7 @@ verifies:
     - OEngine/src/render/surface
     - OEngine/src/shaders/native_surface.ts
     - OEngine/src/shaders/native_surface_lighting.ts
+    - OEngine/src/shaders/lighting_brdf.ts
     - OEngine/src/shaders/native_surface_aux.ts
     - OEngine/src/shaders/surface_geometry_completion.ts
     - OEngine/src/shaders/surface_geometry_reader.ts
@@ -204,23 +205,27 @@ flowchart LR
 | 方案 | 删除 / 新增 / live-set | 产品成本、消费者与结论 |
 |---|---|---|
 | A Current S3 | 保留独立full I receiver+PCF、288B shared/2barriers、mask；Native live-set较小 | mask N B store、每shaded pixel4B uint read；只有Native Sun是生产lighting消费者，debug是诊断；净Total资格未过。**不选** |
-| **B Fused Shadow V2** | 删Shadow dispatch、position/normal recovery、mask store/read与边；在已有Native position/face normal/flags处query compact descriptor+原point-PCF | atlas/descriptor仍有owner；只保留scalar visibility跨material代码段；binding/live-set与页lookup重复风险见下。**选定** |
+| **B Fused Shadow V2** | 删Shadow dispatch、position/normal recovery、mask store/read与边；在已有Native position/face normal/flags处query compact descriptor+原point-PCF | atlas/descriptor仍有owner；只保留invocation-private状态，PCF与材质执行先后是实现候选；binding/live-set与页lookup重复风险见下。**选定** |
 | C Minimal Lighting Packet | Native产world pos/face normal/已含material BRDF及transmittance的unshadowed Sun RGB/flags，独立Sun乘visibility并加HDR；不在Sun重算material | exact f32最小word-buffer为10u32=40B/pixel，单consumer；40B写+40B读+HDR读写16B=96B/pixel，1080p189.84MiB逻辑流量，产品79.10MiB；WGSL以scalar words避vec3 padding，常规vec4布局会48B。**不选**，尚无证据live-set收益覆盖此税；不是备用production path |
 
 ### 6.1 采样合同与life scope
 
+C表的96B/pixel是名义RGB packet的流量下限，不证明其覆盖原HDR finite-guard语义；仅发布unshadowed RGB不能保留遮挡后恢复有限贡献的情况。若携带更多数学因子，必须重算bytes/consumer成本，不能将40B误作已证明安全的完整packet预算。C仍不选，不作为production fallback。
+
 保留receiver WG aggregation、compact descriptor、local damage、atlas/residency、完整fine/coarse/missing/stale/dirty处理、point box权重、gutter/rolling world-page身份、reverse-depth clear0/负reference语义。保留精确footprint compression的完整资格predicate；默认1.5 width仍16 point loads。新的默认宽度去重仅是Phase内candidate，必须完整数值闭包，不能改变shadow架构或point支持域。
 
-Native恢复corners/position后，在 material C/X/Y、大量纹理结果和BRDF临时值形成前，用camera-facing geometry face normal计算bias→VSM visibility；结束query作用域，只保留一个f32 visibility。然后material/IBL/local/Sun按原数学消费。shared fine-key广播不能直接搬到有inactive/early-return lanes的sparse bins；初始candidate直接descriptor query，无新增WG barrier。没有subgroup能力也必须正确。页lookup增加次数和Native register/occupancy是ADD，不因少pass自动采纳。
+Native使用同一次resolved triangle的position和camera-facing geometry face normal计算bias→VSM visibility。**冻结的是一次geometry reconstruction、Native内PCF和零跨pass shadow产品，不冻结PCF相对material的先后。** early-PCF候选跨采样保留后续attributes所需的几何系数/地址；采样结束只保留scalar visibility。late-PCF候选先结束attributes/C/X/Y/material/local/IBL，只携带local与IBL两个RGB、receiver facts和小型Sun BRDF response，随后采样并应用irradiance。response是函数私有数学因子，不是lighting packet、buffer、history或新owner。shader源变量数量不等于硬件register，候选必须实测整链。
+
+Sun response必须保留diffuse/specular、NoL、base attenuation、coat NoL/BRDF/分支；visibility先缩放irradiance，再执行原radiance/coat运算和combined finite guard，最终保持`(local + Sun) + IBL`。禁止把unshadowed RGB简单乘visibility：unshadowed overflow被拒后，partial visibility本可恢复的有限贡献会丢失。shared fine-key广播不能直接搬到有inactive/early-return lanes的sparse bins；直接descriptor query不加WG barrier，没有subgroup能力也必须正确。页lookup、Native register/occupancy以及全阴影下预先计算BRDF的成本均是ADD，不因少pass自动采纳。
 
 | Native invocation段 | 必须存活 / 应结束的private state | 工作集风险与实施责任 |
 |---|---|---|
 | winner/geometry | resolved ownership/source地址、interpolation系数、current worldposition/face normal | 三corner及全部UV/normal/tangent不能因函数返回整个大struct而必然跨PCF存活；generator应延迟解码material所需attributes，复用已校验地址/系数，不再做第二次visibility→geometry解析 |
 | Temporal Seed | previous transform/view/clip、directory两versions、motion/depth/identity编码 | 写Seed/currentidentity后结束临时值；不读previousidentity，不保留previousmatrix到lighting |
-| VSM采样 | 已有position/face、projection/query/descriptor、point循环accumulator | 默认16tap按行/点流式，compression资格域坐标/重数临时值计ADD；结束后只留scalar visibility，不让descriptor/PCF数组和material C/X/Y数组重叠 |
-| material / IBL / Sun | attributes/gradients、material与mapped basis、provider结果 | 尽量流式消费；visibility是额外1个f32，不能由源码变量数声称只多1个硬件register；compiler实际live-range/occupancy另验 |
+| VSM采样 | 已有position/face、projection/query/descriptor、point循环accumulator | 默认16tap按行/点流式，compression资格域坐标/重数临时值计ADD；不让descriptor/PCF数组和material C/X/Y数组重叠 |
+| material / IBL / Sun | attributes/gradients、material与mapped basis、provider结果；late候选结束后只有私有response与RGB | 尽量流式消费，分别测early几何carry和late response carry；保持原运算顺序/finite guard；compiler实际live-range/occupancy另验 |
 
-最小跨PCF状态仍包含几何系数、地址与position/face，不是零成本融合；原`geometry_complete_resolved`一次完成所有attributes的代码形状需要在Phase内调整。延迟读取attributes是同一次resolved geometry上下文的完成，不增加Surface产品、不重新校验/定位几何。若compiler仍把大量corners或material临时量跨PCF保活，拒绝该codegen candidate并改scope/加载时点；不能仅由这个candidate慢就采纳packet C。无硬件register/spill数据时只报告source live-set与测得帧时，不把推测spill当事实。
+跨PCF状态是early的几何系数/地址或late的Sun response/RGB，再加receiver facts，不是零成本融合。`geometry_complete_resolved`只建立一次上下文，`geometry_complete_attributes`完成attributes；延迟读取attributes不增加Surface产品、不重新校验/定位几何。若compiler仍把大量corners或material临时量跨PCF保活，拒绝该codegen candidate并改scope/加载时点；不能仅由这个candidate慢就采纳packet C。无硬件register/spill数据时只报告source live-set与测得帧时，不把推测spill当事实。
 
 S3 depth-derived position/normal与Native三corner interpolation存在f32差异；目标明确采用**Native已有几何面的camera-facing bias**。保留PCF数学oracle不等于receiver逐bit等价；page/tap边界、镜像/掠射、normal map、孤立triangle、薄面、alpha与off-camera caster须通过独立几何/动态质量合同。禁止回退到最早raw-page-table embedded VSM；B是post-commit compact合同消费，不复活旧owner。
 

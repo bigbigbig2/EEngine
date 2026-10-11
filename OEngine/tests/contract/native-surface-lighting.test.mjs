@@ -77,7 +77,7 @@ test("Physical Sun consumes VSM within Native and retains material normals for B
     compact: true, productGeometry: true, unlit: false, reactive: true, physicalSun: true,
   });
   assert.match(descriptor.source, /vsm_sample_directional\(resolved_position/);
-  assert.match(descriptor.source, /incident.color \*= sun_visibility/);
+  assert.match(descriptor.source, /incident_color \*= sun_visibility/);
   assert.match(descriptor.source, /SurfaceGeometry\(mapped_normal/);
   assert.equal(descriptor.groups[1].some(entry => entry.binding === 9), true);
   assert.equal(descriptor.groups[1].find(entry => entry.binding === 10).texture.sampleType, "depth");

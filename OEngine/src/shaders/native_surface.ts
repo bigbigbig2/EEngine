@@ -2,7 +2,7 @@ import type { NativeMaterialProgram } from "./native_material.js";
 import { GPU_INSTANCE_FLAGS } from "../gpu/GpuInstanceAbi.js";
 import {
   selectAppearanceProductProgram,
-  type CompiledAppearanceGraph,
+  type CompiledAppearanceGraph
 } from "../material/AppearanceGraphCompiler.js";
 import type { AppearanceProgramDescriptor } from "../gpu/AppearanceProgramRegistry.js";
 import { NATIVE_MATERIAL_DIRECTORY_WGSL } from "../gpu/GpuNativeMaterialPublication.js";
@@ -12,7 +12,7 @@ import { nativeLocalLighting } from "./native_local_lighting.js";
 import {
   FINAL_PIXEL_DIRECTORY_WGSL,
   FINAL_PIXEL_LIGHTING_DIRECTORY_WGSL,
-  NATIVE_TEMPORAL_SEED_VIEW_BYTES,
+  NATIVE_TEMPORAL_SEED_VIEW_BYTES
 } from "../gpu/FinalPixelAbi.js";
 import { nativeTemporalSeedWgsl } from "./native_temporal_seed.js";
 import { vsmSamplingWgsl } from "./vsm_sampling.js";
@@ -23,7 +23,7 @@ import { nativeSurfaceAuxWgsl } from "./native_surface_aux.js";
 
 import {
   nativeSurfacePhysicalSunLayoutEntries,
-  nativeSurfacePhysicalSunWgsl,
+  nativeSurfacePhysicalSunWgsl
 } from "./native_surface_lighting.js";
 
 /** Diagnostic shader specialization only; G is byte-for-byte the normal source. */
@@ -49,7 +49,7 @@ const SURFACE_GRAPHS = new WeakMap<CompiledAppearanceGraph, Map<boolean, Compile
  * coverage raster program; retaining it here would issue samples with no consumer. */
 export function nativeSurfaceMaterialGraph(
   graph: CompiledAppearanceGraph,
-  unlit: boolean,
+  unlit: boolean
 ): CompiledAppearanceGraph {
   let variants = SURFACE_GRAPHS.get(graph);
   const cached = variants?.get(unlit);
@@ -71,12 +71,12 @@ export function nativeSurfaceMaterialGraph(
           "coatNormalTS",
           "coatNormalTSValidity",
           "normalTS",
-          "normalTSValidity",
-        ],
+          "normalTSValidity"
+        ]
   );
   const selected = selectAppearanceProductProgram(
     graph,
-    Object.fromEntries(Object.entries(graph.outputs).filter(([name]) => consumed.has(name))),
+    Object.fromEntries(Object.entries(graph.outputs).filter(([name]) => consumed.has(name)))
   );
   if (!variants) {
     variants = new Map();
@@ -90,37 +90,37 @@ const COMPUTE = 4;
 const read = (binding: number): GPUBindGroupLayoutEntry => ({
   binding,
   visibility: COMPUTE,
-  buffer: { type: "read-only-storage" },
+  buffer: { type: "read-only-storage" }
 });
 const uniform = (binding: number): GPUBindGroupLayoutEntry => ({
   binding,
   visibility: COMPUTE,
-  buffer: { type: "uniform" },
+  buffer: { type: "uniform" }
 });
 const texture = (binding: number, sampleType: GPUTextureSampleType): GPUBindGroupLayoutEntry => ({
   binding,
   visibility: COMPUTE,
-  texture: { sampleType },
+  texture: { sampleType }
 });
 
 /** Full physical profile, including providers. No auto layout or material-count specialization. */
 export function nativeSurfaceDescriptor(
   program: NativeMaterialProgram,
   materialLayout: readonly GPUBindGroupLayoutEntry[],
-  profile: NativeSurfaceShaderProfile,
+  profile: NativeSurfaceShaderProfile
 ): AppearanceProgramDescriptor {
   return {
     source: nativeSurfaceWgsl(program, profile),
     entryPoint: "main",
     workgroupSize: 64,
-    groups: nativeSurfaceBindingGroups(materialLayout, profile),
+    groups: nativeSurfaceBindingGroups(materialLayout, profile)
   };
 }
 
 /** Layout planning never generates the large shader. */
 export function nativeSurfaceBindingGroups(
   materialLayout: readonly GPUBindGroupLayoutEntry[],
-  profile: NativeSurfaceShaderProfile,
+  profile: NativeSurfaceShaderProfile
 ): readonly (readonly GPUBindGroupLayoutEntry[])[] {
   const fusedSun = true;
   if (profile.finalPixel && !profile.reactive) {
@@ -136,20 +136,20 @@ export function nativeSurfaceBindingGroups(
     {
       binding: 7,
       visibility: COMPUTE,
-      storageTexture: { format: "rgba16float", access: "write-only" },
-    },
+      storageTexture: { format: "rgba16float", access: "write-only" }
+    }
   ];
   if (profile.reactive) {
     geometry.push({
       binding: 8,
       visibility: COMPUTE,
-      storageTexture: { format: "rgba8unorm", access: "write-only" },
+      storageTexture: { format: "rgba8unorm", access: "write-only" }
     });
   }
   if (profile.finalPixel) {
     geometry.push(
       { binding: 6, visibility: COMPUTE, storageTexture: { format: "rgba32float", access: "write-only" } },
-      { binding: 9, visibility: COMPUTE, storageTexture: { format: "rgba32uint", access: "write-only" } },
+      { binding: 9, visibility: COMPUTE, storageTexture: { format: "rgba32uint", access: "write-only" } }
     );
   }
   if (profile.productGeometry) {
@@ -170,7 +170,7 @@ export function nativeSurfaceBindingGroups(
         texture(7, "float"),
         uniform(8),
         texture(10, "depth"),
-        texture(11, "float"),
+        texture(11, "float")
       ];
   if (!profile.unlit) {
     // Both IBL owners publish linear rgba16float. Only DFG uses hardware
@@ -195,12 +195,12 @@ export function nativeSurfacePublicationDescriptors(
   program: NativeMaterialProgram,
   materialLayout: readonly GPUBindGroupLayoutEntry[],
   profile: NativeSurfaceShaderProfile,
-  limits: Pick<GPUSupportedLimits, "maxSampledTexturesPerShaderStage">,
+  limits: Pick<GPUSupportedLimits, "maxSampledTexturesPerShaderStage">
 ): { descriptor: AppearanceProgramDescriptor } {
   const descriptor = nativeSurfaceDescriptor(program, materialLayout, profile);
   const sampled = descriptor.groups.reduce(
     (sum, group) => sum + group.filter((entry) => entry.texture !== undefined).length,
-    0,
+    0
   );
   if (sampled > limits.maxSampledTexturesPerShaderStage) {
     throw new RangeError("Complete Final Pixel sampled footprint exceeds the negotiated limit");
@@ -222,16 +222,18 @@ const GEOMETRY_INPUTS: Readonly<Record<string, number>> = Object.freeze({
   worldNormal: 11,
   worldTangent: 12,
   viewPosition: 13,
-  viewNormal: 14,
+  viewNormal: 14
 });
 
 /** Native straight-line material + real winner recovery and provider math, invocation-private. */
 export function nativeSurfaceWgsl(
   program: NativeMaterialProgram,
-  profile: NativeSurfaceShaderProfile,
+  profile: NativeSurfaceShaderProfile
 ): string {
   const costSlice = profile.costSlice ?? "G";
   const fusedSun = true;
+  const lateSun =
+    profile.physicalSun && !profile.unlit && (costSlice === "F" || costSlice === "G" || costSlice === "K");
   if (costSlice === "Q0") {
     throw new RangeError("Q0 embedded VSM query slice is retired; use the Native Sun consumer timing");
   }
@@ -247,7 +249,7 @@ export function nativeSurfaceWgsl(
         ? `vec4f(${Array.from(
             { length: 4 },
             (_, channel) =>
-              `native_material_constant(entry.constant_base, ${program.constants.length + 2 + index * 4 + channel}u)`,
+              `native_material_constant(entry.constant_base, ${program.constants.length + 2 + index * 4 + channel}u)`
           ).join(", ")})`
         : `native_frame_inputs[${index}u]`;
     } else {
@@ -261,10 +263,10 @@ export function nativeSurfaceWgsl(
     for (const [point, weights] of [
       ["center", "interpolation.weights"],
       ["x", "interpolation.weights + interpolation.dx"],
-      ["y", "interpolation.weights + interpolation.dy"],
+      ["y", "interpolation.weights + interpolation.dy"]
     ]) {
       inputs.push(
-        `  inputs.${point}[${index}u] = ${expression.replace("corners, weights", `corners, ${weights}`)};`,
+        `  inputs.${point}[${index}u] = ${expression.replace("corners, weights", `corners, ${weights}`)};`
       );
     }
   });
@@ -364,7 +366,8 @@ fn native_environment(material: StandardMaterial, normal: vec3f, direction: vec3
   return (diffuse + specular) * base_attenuation + coat_radiance;
 }
 `;
-  const sunLighting = `native_surface_physical_sun(material, geometry, frame_instances[work.instance_slot].source.flags, pixel${fusedSun ? ", sun_visibility" : ""})`;
+  const sunLighting =
+    "native_surface_physical_sun(prepare_direct_physical(normalize(native_physical_sun.sun_direction_world), geometry, material), resolved_position, resolved.flags, sun_visibility)";
   const directLighting =
     "shade_standard_material_direct(material, geometry, vec2f(pixel) + vec2f(0.5), view_depth)" +
     (profile.physicalSun ? " + " + sunLighting : "");
@@ -376,6 +379,15 @@ fn native_environment(material: StandardMaterial, normal: vec3f, direction: vec3
     direct = ${directLighting};
   }
   let color = direct + native_environment(material, mapped_normal, direction, pixel);`;
+  if (lateSun) {
+    // End attributes/material/local/IBL before PCF. Only separate local/IBL
+    // RGB and the BRDF response survive; preserve (local + Sun) + environment.
+    materialLighting = `  if (${directEnabled}) {
+    local_color = shade_standard_material_direct(material, geometry, vec2f(pixel) + vec2f(0.5), view_depth);
+    sun_response = prepare_direct_physical(normalize(native_physical_sun.sun_direction_world), geometry, material);
+  }
+  environment_color = native_environment(material, mapped_normal, direction, pixel);`;
+  }
   if ((costSlice === "D" || costSlice === "E") && !profile.unlit) {
     // One real shared BRDF evaluation under unit irradiance. F replaces this
     // incident with the actual atmosphere Sun; it does not add a second BRDF.
@@ -425,7 +437,7 @@ ${materialLighting}
     costSlice === "G" && profile.physicalSun && !profile.unlit
       ? /* wgsl */ `
   if (vsm_constants.identity.z != 0u) {
-    output_radiance = oengine_linear_rec709_to_rec2020(vsm_debug_color(position, native_face_normal(corners.world_plane.xyz, position), native_physical_sun.sun_direction_world, (corners.flags & ${GPU_INSTANCE_FLAGS.ReceivesShadow}u) != 0u));
+    output_radiance = oengine_linear_rec709_to_rec2020(vsm_debug_color(resolved_position, native_face_normal(resolved.world_plane.xyz, resolved_position), native_physical_sun.sun_direction_world, (resolved.flags & ${GPU_INSTANCE_FLAGS.ReceivesShadow}u) != 0u));
   }
 `
       : "";
@@ -460,11 +472,11 @@ ${material}
     // liveness: A/B/C are diagnostic bounds, not standalone production costs.
     const fields = ["position", "normal", "tangent", "uv", "uv2", "color"];
     const cornerTerms = fields.flatMap((field) =>
-      [0, 1, 2].map((corner) => `dot(corners.${field}.p${corner}, vec4f(0.13, 0.19, 0.23, 0.29))`),
+      [0, 1, 2].map((corner) => `dot(corners.${field}.p${corner}, vec4f(0.13, 0.19, 0.23, 0.29))`)
     );
     cornerTerms.push(
       "dot(corners.world_plane, vec4f(0.31, 0.37, 0.41, 0.43))",
-      "dot(interpolation.weights, vec3f(0.47, 0.53, 0.59))",
+      "dot(interpolation.weights, vec3f(0.47, 0.53, 0.59))"
     );
     evaluation = `${rasterFlags}\n  var diagnostic_anchor = ${cornerTerms.join(" +\n    ")};\n`;
     if (costSlice !== "A") {
@@ -477,7 +489,7 @@ ${material}
         for (const [point, factor] of [
           ["center", "1.17"],
           ["x", "1.93"],
-          ["y", "2.71"],
+          ["y", "2.71"]
         ]) {
           if (costSlice === "B0" && point !== "center") {
             continue;
@@ -631,19 +643,14 @@ ${
   fusedSun
     ? `${rasterFlags}
   let resolved_position = native_resolved_position(resolved, pixel);
-  var sun_visibility = 1.0;
   ${
-    (costSlice === "G" || costSlice === "K") && profile.physicalSun && !profile.unlit
-      ? `if ((resolved.flags & ${GPU_INSTANCE_FLAGS.ReceivesShadow}u) != 0u) {
-    let face = native_face_normal(resolved.world_plane.xyz, resolved_position);
-    var incident: GpuPrimitiveTypeTable;
-    incident.direction = normalize(native_physical_sun.sun_direction_world);
-    incident.color = vec3f(1.0);
-    sun_visibility = vsm_sample_directional(resolved_position, face, incident);
-  }`
-      : ""
+    lateSun
+      ? `var local_color = vec3f(0.0);
+  var environment_color = vec3f(0.0);
+  var sun_response: DirectPhysicalResponse;
+  {`
+      : "var sun_visibility = 1.0;"
   }
-  // Keep weights and finite one-pixel gradients out of the PCF live scope.
   let interpolation = winner_interpolate(resolved.coefficients, vec2f(pixel) + vec2f(0.5), vec2f(settings.dimensions.xy));
   if (interpolation.flags & WINNER_VALUE_VALID) == 0u {
     ${profile.finalPixel ? "seed_unassigned(pixel, false);" : ""}
@@ -659,6 +666,29 @@ ${
     : ""
 }
 ${evaluation}
+${
+  lateSun
+    ? `  }
+  // The resolved receiver is reused; no second geometry or material load.
+  var sun_visibility = 1.0;
+  ${
+    costSlice === "G" || costSlice === "K"
+      ? `if ((resolved.flags & ${GPU_INSTANCE_FLAGS.ReceivesShadow}u) != 0u) {
+    let face = native_face_normal(resolved.world_plane.xyz, resolved_position);
+    var incident: GpuPrimitiveTypeTable;
+    incident.direction = normalize(native_physical_sun.sun_direction_world);
+    incident.color = vec3f(1.0);
+    sun_visibility = vsm_sample_directional(resolved_position, face, incident);
+  }`
+      : ""
+  }
+  var sun_color = vec3f(0.0);
+  if (${directEnabled}) {
+    sun_color = native_surface_physical_sun(sun_response, resolved_position, resolved.flags, sun_visibility);
+  }
+  let color = (local_color + sun_color) + environment_color;`
+    : ""
+}
   // P is the positive GPU exposure published by radiometry. An artistic lower
   // floor here would disagree with Sky/Aerial and HDR metering above L=1800.
   let contribution = oengine_linear_rec709_to_rec2020(color) * settings.camera_position_exposure.w;

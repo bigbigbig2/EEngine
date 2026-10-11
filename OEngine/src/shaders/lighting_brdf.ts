@@ -26,6 +26,19 @@ struct ReflectedLight {
   specular: vec3f,
 }
 
+// Invocation-private BRDF response, never a buffer or cross-pass product.
+// Retain separate factors so visibility scales irradiance before the original
+// radiance arithmetic and combined finite guard, including overflow cases.
+struct DirectPhysicalResponse {
+  diffuse: vec3f,
+  specular: vec3f,
+  no_l: f32,
+  base_attenuation: f32,
+  coat_no_l: f32,
+  coat_brdf: f32,
+  has_coat: bool,
+}
+
 `;
 
 export const LIGHTING_BRDF_MATH_WGSL = /* wgsl */ `
@@ -68,14 +81,13 @@ fn finite_f32(value: f32) -> bool {
   return value == value && abs(value) <= 3.402823e38;
 }
 
-fn re_direct_physical(
-  incident: GpuPrimitiveTypeTable,
+fn prepare_direct_physical(
+  light_direction: vec3f,
   geometry: SurfaceGeometry,
-  material: StandardMaterial,
-  reflected: ptr<function, ReflectedLight>
-) {
+  material: StandardMaterial
+) -> DirectPhysicalResponse {
   let n = geometry.shading_normal;
-  let l = incident.direction;
+  let l = light_direction;
   let v = geometry.view_direction;
   let h = normalize(l + v);
   let no_l = saturate(dot(n, l));
@@ -83,7 +95,6 @@ fn re_direct_physical(
   let vo_h = saturate(dot(v, h));
   let no_h = saturate(dot(n, h));
   let alpha = max(material.roughness * material.roughness, 0.002);
-  let radiance = no_l * incident.color;
   let specular = BRDF_GGX(
     no_l,
     no_v,
@@ -96,17 +107,34 @@ fn re_direct_physical(
   // Filament Standard profile uses Lambert for the direct diffuse lobe.
   let diffuse = material.diffuse;
   var base_attenuation = 1.0;
-  var coat_radiance = vec3f(0.0);
+  var coat_no_l = 0.0;
+  var coat_brdf = 0.0;
   if material.coatFactor > 0.0 {
     // Filament clearCoatLobe: GGX D, Kelemen V and fixed 1.5-IOR F0.
     let coat_no_h = saturate(dot(material.coatNormal, h));
-    let coat_no_l = saturate(dot(material.coatNormal, l));
+    coat_no_l = saturate(dot(material.coatNormal, l));
     let coat_alpha = max(material.coatRoughness * material.coatRoughness, 0.002);
     let coat_fresnel = (0.04 + 0.96 * pow(1.0 - vo_h, 5.0)) * material.coatFactor;
-    let coat_brdf = D_GGX(coat_alpha * coat_alpha, coat_no_h * coat_no_h) *
+    coat_brdf = D_GGX(coat_alpha * coat_alpha, coat_no_h * coat_no_h) *
       (0.25 / max(vo_h * vo_h, 0.0000039)) * coat_fresnel;
     base_attenuation = 1.0 - coat_fresnel;
-    coat_radiance = incident.color * coat_no_l * coat_brdf;
+  }
+  return DirectPhysicalResponse(diffuse, specular, no_l, base_attenuation,
+    coat_no_l, coat_brdf, material.coatFactor > 0.0);
+}
+
+fn apply_direct_physical(
+  incident_color: vec3f,
+  response: DirectPhysicalResponse,
+  reflected: ptr<function, ReflectedLight>
+) {
+  let radiance = response.no_l * incident_color;
+  let specular = response.specular;
+  let diffuse = response.diffuse;
+  let base_attenuation = response.base_attenuation;
+  var coat_radiance = vec3f(0.0);
+  if response.has_coat {
+    coat_radiance = incident_color * response.coat_no_l * response.coat_brdf;
   }
   let contribution = radiance * (specular + diffuse * RECIPROCAL_PI) *
     base_attenuation + coat_radiance;
@@ -117,6 +145,16 @@ fn re_direct_physical(
   }
   (*reflected).specular += radiance * specular * base_attenuation + coat_radiance;
   (*reflected).diffuse += radiance * diffuse * RECIPROCAL_PI * base_attenuation;
+}
+
+fn re_direct_physical(
+  incident: GpuPrimitiveTypeTable,
+  geometry: SurfaceGeometry,
+  material: StandardMaterial,
+  reflected: ptr<function, ReflectedLight>
+) {
+  let response = prepare_direct_physical(incident.direction, geometry, material);
+  apply_direct_physical(incident.color, response, reflected);
 }
 
 `;

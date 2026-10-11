@@ -66,6 +66,7 @@ architectureRules:
   - Expensive Surface Facts Once; repeated Visibility-to-Surface reconstruction requires proof that recomputation is cheaper than the first resolve publishing the minimal demanded product.
   - Logical effect ownership does not require an independent GPU pass; physical fusion may reuse invocation-private Native facts without a Universal SurfaceRecord.
   - Architecture is frozen above implementation candidates; local candidate failures do not reject or redirect a complete phase architecture.
+  - Complete unit correctness, ownership and real cost checks before the next cutover; retain negative candidate results and qualify the complete Final Pixel graph at integration, without blocking independent work deletion on a local candidate timing gate.
   - Management must be clearly cheaper than the useful work it enables; optional optimization requires analytical and measured break-even.
   - Preserve correct foundations; construct replacement owners completely before switching every direct consumer atomically, including bindings and abort/retry.
   - Cutover and destructive retirement are one unit; no old/new Surface intermediate dependencies, bridges or restored old contracts to pass tests.
