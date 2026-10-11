@@ -333,6 +333,10 @@ export function installDungeonGpuAudit() {
         ["dirtyHeader", diagnostics.dirtyPages.buffer, 0, 16],
         ["casterHeader", diagnostics.casterRecords.buffer, 0, 32]
       ];
+      const casterDamages = live()
+        .find((r) => r.label === "VSM/caster damages")
+        ?.ref.deref();
+      if (casterDamages) copies.push(["casterDamage", casterDamages, 0, 16]);
       const receiverGroups = live()
         .find((r) => r.label === "Diagnostic/VSM receiver workgroups")
         ?.ref.deref();

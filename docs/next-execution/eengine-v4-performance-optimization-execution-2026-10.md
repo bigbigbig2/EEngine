@@ -39,7 +39,7 @@ verifies:
 | P2 Native Temporal V2 | in-progress（T1 complete；T2 rejected；T3 deferred） | T1/T2结果见§4.2/4.4；新算法尚未实施，整体未完成 |
 | P3 IBL hardware-friendly publication | complete（exact radiance addressing + filtered DFG） | hardware radiance候选精度失败，改为原四点权重/有界寻址；完整生产接线、原支持域、numeric/lifecycle与限定成本见§5.3 |
 | P4 4GB资源预算与容量策略 | complete（Dungeon显式容量单元） | 全显式API审计/同时峰值、512MiB默认、当前payload/碎片、运动与释放验证见§6.1；全局预算强制/growable/variable-page未实施 |
-| P5 动态VSM局部失效 | conditional / not-started | 突发因果→old/new caster delta→稳定depth域/局部dirty→全部consumer与压力出口 |
+| P5 动态VSM局部失效 | complete（本单元出口，见§6.2） | 完整old/new caster、asset publication stamps、稳定depth域、局部dirty→原生产consumer；更新突发收益/热状态与压力边界保留 |
 | P6 PCF算法与后续upscaler/residency研究 | conditional / not-started | 只有前述数据支持且质量合同明确才制定实现；无自动扩展 |
 | P7 性能模块验收 | not-started | 目标硬件1080p同质量/coverage、动态/压力/热状态、CPU与资源峰值，列出剩余gap与VSM R4未闭合项 |
 
@@ -340,11 +340,55 @@ Cost Card：删除1,073,741,824B bank nominal capacity与cold创建责任；不�
 
 engine build/typecheck、Dungeon typecheck/diagnostic build、fresh build:test通过；此前43项相关contracts/units、最终22项budget/payload/lifecycle/canonical replay/staging/owner测试通过。真实`geometry-budgeted-residency`将过期fixture迁移到当前meshletRecords/ShadowMeshletBounds allocation/command编码合同后通过，原main/shadow缺页、pressure/eviction/coarse coverage、abort/retry/loss/fenced retirement断言保留，原3次fixture失败不删。P3 gate GPU与最终Renderer恢复GPU通过。未运行完整旧baseline、raw重场景、更大/编辑场景驻留压力、锁频/逐资源OS residency、P5/P7；未实现全局budget enforcement、growable、variable-page、metadata收缩。本P4容量单元关闭后停止。
 
-### 6.2 后续条件单元
+### 6.2 P5：完整 caster 损伤与稳定深度域
+
+【源码事实】旧`VsmGeneration.prepare`将source/caster revision与scene classification revision同时作为projection全失效；每个几何上传/撤回可撤销所有页并重建深度。P4加载窗口高raster与source churn一致，但末帧header不能证明逐帧因果；本轮先补frame-local CPU reason/source/caster facts取得限定窗口关联，不重复完整baseline。
+
+【实施前冻结、粒度闭合】VSM owner保存上一次成功GPU提交的完整instance facts及Product slot对应的完整u32 generation、asset reference/stamp。仅内容变化帧扫描全部authored instance（不取visible list），生成紧凑old/new light-space AABB损伤；affine支持shear/负缩放。几何upload/retire通过冷构造page→asset CSR保守损伤所有相关asset的完整实例bounds，不推断仅当前resident/可见meshlet，也不把整个Dungeon Product无条件损伤。共享page更新全部相关asset，重复upload/fence完成不重复推进stamp。未知MASK coverage/value/texture publication、view-dependent coverage保守损伤所有MASK caster；材料替换、active/cast flag及bounds/transform变化由快照比较覆盖。scene/runtime替换、device、Sun、clip extent与显式reset仍全失效。旧快照在同一frame command中更新，abort不执行，不建立CPU visible/work控制。
+
+Depth归约继续使用全部caster。内容变化时若新padded范围仍被旧域包含则保持编码不动；越界时只扩不缩、GPU撤销所有缓存内容ready后重绘，保留世界格点/projection identity，不冒称可复用旧depth。content version由现有post-raster commit推进，与投影身份分开；dirty未请求页保持不可采样，后续请求按原allocation重绘。所有clip/mip含coarse以原caster pairing同样gutter作AABB交测试，无receiver/PCF/质量改变。容量不足/非法bounds损伤不能截断，GPU整内容失效并保留失败fact，原caster failure链仍拒绝无效绘制。
+
+Cost Card：删除每次小内容变化的全页撤销、slot重新分配与无关页caster/raster；不删除receiver、16次PCF samples或全部caster源。变更帧读取176N B当前记录（原bounds已有）、新增192N B快照及source随机索引，写192N B快照、至多48N B damage；source CPU→GPU上传16P+4A B（P为slot header跨度，A为active asset数，scratch增长后可保留更大容量），原16ceil(N/64) B归约partial保留。新增AABB affine/identity比较ALU、一次damage atomic ticket/changed caster、每dirty slot一统计atomic；保留原64-lane归约barriers，slot交测试不新增workgroup barrier。新增一次仅变更帧slot-domain compute，已有两阶段bounds扩展，最坏O(residentSlots×changedCasters)，无新texture/samples/独立submit。GPU工作集192N+48N+16ceil(N/64)+16P+4A B及16B header/96+256B constants；CPU持久CSR为4(Q+1)+4R+4A B，Q为源page数，R为去重page/asset关联数，冷构造临时array/Set随后可GC；只有变化帧构造source header、uniform与bind groups。稳定帧无新增delta GPU dispatch，仅观察已有revision；直接GPU Scene提交也触发扫描，render内patch提交后版本可引起下一帧一次noop扫描，不隐藏这个税。best局部少量损伤；通常依asset bounds重叠与更新频率，未知MASK可能无空间收益；worst全域变化增加快照/交测试税；域扩大直接全内容dirty，不逐page循环damage。0/50/100%是可避免无关raster的敏感性变量，非预测；break-even为省下的allocation/pair/raster超过delta/depth/dirty税。旧raster实测突发只作局部上界。
+
+来源仅architecture reference：Blender `aed2b5972fc25ca8448ceaf8d98957e0065deb2a`，GPL-2.0-or-later，`eevee_shadow.cc::sync_object/end_sync`与`eevee_shadow_tag_update.bsl.hh::tag_update_vert/frag/tag_propagate`的past/current bounds tagging。自主WGSL完整instance快照、Product stamps、slot交测试及稳定域扩展；不复制GPL源码，不移植resource id截位、mesh/bindless、私有submit或上游overflow漏shadow行为。
+
+【P4 Gate】复读`6eb77e8d`实际diff、预算/生命周期生产链及已保存After；fresh build:test、20项预算/释放/canonical replay检查通过。512MiB Dungeon banks与128MiB metadata、payload/固定slot碎片、API同时峰值及释放数据与提交一致，没有发现需独立closure commit的缺项；这仍不是全局自适应allocator。
+
+【实测因果窗口】原报告为总Before，本轮仅在旧失效逻辑上加4个CPU frame facts（reason/full/source/caster），固定近景1080p/DPR1/scale1/high4×4/FSR ON/GTAO Bloom OFF/performanceCapture，240 CPU frames、60 timestamp样本。31 source变化帧均reason32/full=1/caster=0，raster P50/P95 `15.715904/23.715616`ms；29 steady帧raster P50 `.008736`ms，所有raster>2ms均与source全失效同帧。Total `31.284576/45.561342`、Native `7.771872/10.632392`、Temporal `5.765968/7.325656`、VSM同帧先求和stage `16.436928/25.024109`ms。支持流送publication与全重绘的因果机制，不把末header当整窗。
+
+【源码切换】`VirtualGeometryResidency` page→asset stamps/withdrawal→streaming source revision；`RendererCore`还消费GPU Scene bindings的完整提交revision，覆盖公开`patchInstances`及直接GPU Scene patch/release，普通render-world patch同帧由caster revision触发。`VsmGeneration`区分projection全失效与content变化；`VsmDepthBoundsPass/vsm_depth_bounds`输出192B snapshot、48B compact old/new damage和稳定depth，`vsm_caster_invalidation`每物理slot唯一writer保留allocation/identity、清ready置dirty；`FrameProgramLowering`将写后contentVersion交allocation，再由原shadow work/pair/native raster/commit/sampling消费。instanceCount变化强制重建快照/全内容dirty；capacity创建前检查，快照增长abort回滚、成功后旧buffer fenced retirement；无production dual path。
+
+【After三轮】优化单元完成后一次限定组，每轮240 CPU/60 GPU samples；阶段数先同帧相加再统计，各pass分位不可相加。三轮均无GPU统计instrumentation：
+
+| 窗口 | Total P50/P95 | Native P50/P95 | Temporal P50/P95 | VSM stages P50/P95 | 同步render CPU P50/P95 |
+|---|---|---|---|---|---|
+| full-1 | 19.143312/37.793941 | 7.950720/16.153998 | 5.845008/9.501184 | 1.796032/9.378509 | 2.5625/4.06325 |
+| full-2 | 19.586736/28.629854 | 8.360480/12.238331 | 6.144640/8.763602 | 1.872240/3.303890 | 2.125/3.401 |
+| full-3 | 19.679296/47.993739 | 8.415488/20.202883 | 6.179184/16.197562 | 1.878960/3.092069 | 2.2175/3.351 |
+
+full-1有15/60 source变化帧，fullInvalidate=0，raster P50/P95 `6.432928/12.150419`、mean7.475533、worst22.296544ms；45 steady帧P50 `.01024`ms。变更帧bounds+publish+dirty P50 `.037088`ms（旧bounds+publish `.016288`ms）。full-2/3 source变化0、steady raster `.010368/.010624`ms，无delta dispatch。终点generation/projection均2（旧终点261）；最后变更batch header `[1,0,0,12]`仅说明该批1caster/invalid0/all-dirty0/dirty12slots，**不是末帧或整窗统计**。
+
+热状态Before89–91°C、After88–91°C，thermal slowdown均Active，稀疏graphics分别375–1350/300–1290MHz；source变化样本31→15，加载进度/调度不同，不能把15.72→6.43ms称严格配对速度比例。P4后两轮Total本来约19.64/19.79ms，P5主要改善更新突发，不是稳态Native/Temporal优化。full-3最大Total134.017312/Native59.839776ms完整保留，尾帧和60FPS仍未解决。
+
+CPU cause-window同步render `2.5975/4.091`ms；CDP TaskDuration为2.983226s/7.089s墙钟，After三轮2.265494/6.098、1.382558/6.064、1.336770/6.054s。窗口包括额外host/callback/UI/采样工作及超出240帧的等待；不等于同步render、也不是GC/分配配对profile，不能全部归因P5。GC allocation未独立采样，heap两端不能推出分配次数。
+
+coverage三轮90.664/90.703/90.673%，model pixels独立计数、invalid0；末meshlet605，winner完整域2,073,600（coverage model+other读回，**没有独立保存shadedPixels counter，不能称为该计数实测**）。resident1207/pinned381、slots1224=320,864,256B、payload30,377,856B，无evict/reload/failed、packet overflow/malformed0、streaming error空；counter窗口main/shadow ring dropped slots各累计29，与packet demand overflow不同，原incomplete shadow保护保留。API live1,358,822,565B、同时peak1,437,619,397B；相对P4观测live差209,160B，包括842instance snapshot161,664、damage40,432、source3,260B及constants/池差额，不把整项差额都归因新buffer，更非Windows实驻显存。
+
+【验证与限制】engine build/typecheck、Dungeon typecheck/diagnostic build、fresh build:test、最终28项CPU tests通过（包含独立/共享page→asset stamps、canonical replay、budget/withdrawal/late IO、generation事务、settings与release）。实际生产`vsm-local-invalidation` 5,184 assertions覆盖全部6clip/6mip/coarse、signed world、高位identity、source withdrawal、old/new、shear/负缩放、明确gutter-only邻居、MASK coverage/材质、depth expansion、abort/resize/capacity增长retry。R1八角独立depth、R2 allocation/commit压力、R3真实Geometry bounds/pairs/partition及overflow通过；R3本身不证明MASK raster，真实`native-authored-ibl-production`补直接公开patch→GPU快照验证，并覆盖真实Native/VSM/MASK、scene/abort/resize与受控device recovery，通过。原失败（未注册metric、WGSL保留字、fixture API误用、fresh-build mismatch与格式comma错误）均留原件并修因，不删outlier/不放宽断言。
+
+三轮组先于最终直接GPU Scene revision补齐；补齐不改变Dungeon queued-patch路径和shader数学，仍另做最终源码短固定/运动/释放复验，下述记录只对各自build生效。没有跑完整旧baseline、锁频配对、大型编辑场景/长期source churn压力、真实driver fault、完整VSM R4或P6/T3。资源少量增长换掉全失效仍须未来动态场景复测，不能将单元出口提升为整个VSM验收。
+
+【最终源码复验】补齐direct revision后`--near --audit --movement-audit --scenarios full-1,motion --frames 480 --gpu-sample-interval 4`串行运行，固定窗口保存479/480 CPU records（一个未保存，未补造）、100 full+20 coarse GPU samples；不能冒称120个full timing。100 full samples的Total `19.768032/42.708862`、Native `7.709568/17.667698`、Temporal `6.081200/10.710610`、VSM stages `1.881680/10.986427`ms，21 source变化样本、fullInvalidate0，source raster `6.469888/9.539552`ms；max Total126.97696ms保留。仍支持局部更新方向，无精确配对比例。
+
+受控sinusoidal orbit（±.06rad、普通camera motion）窗口480 CPU records、36 full与444 coarse GPU records，开counter/500ms movement snapshots；仅正确性/动态接线，**不当无诊断税性能数据**。29 snapshots frame829→1440全部resident1207/source271，evict/reload/failed0，末main/shadow complete true、安全frame1396、各累计drop23；fullInvalidate0，最后GPU header仍为最后变更批。固定coverage90.657%，运动末90.242%、invalid0；motion meshlet601来自姿态改变，不要求与固定605相同。Before/After截图无明显变化，GPU/validation/timestamp错误0；shader/oracle数值证据优先。运动源已全驻留，不证明大型持续流送/编辑场景；caster motion由真实Renderer patch及GPU损伤oracle验证，不以camera运动替代caster变化。
+
+最终释放API bytes0、unknownFormats[]、undestroyedCollectedBytes0，新snapshot/damage/source均显式destroy；不证明Windows立即归零。运动live1,358,891,429B、同时peak1,437,652,165B；采样88–91°C、390–1350MHz、software thermal Active。固定/运动CDP TaskDuration分别4.034242s/12.171s、2.913001s/11.241s墙钟，不作CPU优化归因。原件与failures在`.local/validation/p5-vsm-2026-10-11/`（reason-before-retry、after、after-reviewed-motion及各oracle/build日志），不提交原始采样。复验后补新增CPU语句显式braces及`coverageChanged`独立触发rebuild的owner合同（Renderer原路径已同时推进caster revision，所以不改变该测量场景）；没有改变GPU数学/工作域，提交前fresh build:test/CPU事务及受影响GPU oracle再次确认。
+
+### 6.3 后续条件单元
 
 growablebank单独定layout/copy/newpublication/oldfence退役/峰值，不能假设4bank地址自然可扩。variablepage推迟；容量导致质量/overflow/lifetime失败不得隐藏。
 
-**P5动态VSM**：先关联高raster与publicationreason，只有因果支持才实现old/new完整boundsdelta与局部dirty。depthdomain稳定与contentepoch分开；全caster源包括离屏/非residentbounds。transform/shear/nonuniform/negative、MASKcoverage、remove/replace/castflag、geometryretire/lateupload、Sun/device/scene/resize/abort必须进入损伤/安全fullinvalidate。验证requested/dirty/ready/overflow、fine/coarse、allcasters与gutter一致。一个变量是失效范围，PCF/receiver/residency同时不动；静态和运动分开报告。不能只比末帧raster。
+P5本地单元已关闭；更大可编辑场景、长期source churn/高重叠与真实driverfault的动态成本/压力仍属后续验收，不凭本场景末帧推广。未启动新VSM allocator/queue或算法。
 
 **P6算法研究**：comparisonPCF必须先写box↔Gaussian/权重/反深度/gutter数学与quality合同，再做oracle/真实不同运动；未经接受不默认换核或taps。TemporalV2成功后才考虑upscale域算法；pmndrs是reference不是可直接拼入引擎的librarysubmit。persistentfree/evictqueue只在management实测占主导才设计，必须保留全identity/ABA/overflow/coarseprotection/retire，不按dispatch数自动启动。
 
@@ -380,4 +424,4 @@ P7必须同时回答：GTX1650Ti4GB/1080p高质量/≥80%覆盖是否达到稳�
 
 未达到目标时保留真实分布/剩余gap，重新排名最多一个下个单元；不能恢复advanced-effects开发或改scale/taps包装性能成功。硬件计数/热状态/OSresidency缺项如实列出；其它GPU型号结果不转写为目标平台已通过。
 
-当前出口：P0完成设计，P1完成Q-exact唯一生产切换；P2完成T1，T2实验拒绝生产采用，T3延期；P3完成精确radiance寻址/DFG过滤与§5.3的限定正确性/成本；P4完成§6.1显式Dungeon容量/审计单元，growable/variable-page/全局预算强制延期，P5–P7未实施。T1稳定帧时改善未证实，P3热状态/尾帧限制保留，P4只确认容量下降，不宣称完整Native Temporal V2、稳定60FPS或VSM R4验收。
+当前出口：P0完成设计，P1完成Q-exact唯一生产切换；P2完成T1，T2实验拒绝生产采用，T3延期；P3完成精确radiance寻址/DFG过滤与§5.3的限定正确性/成本；P4完成§6.1显式Dungeon容量/审计单元，growable/variable-page/全局预算强制延期；P5完成§6.2局部内容失效，P6/P7未实施。本次提交后停止。T1稳定帧时改善未证实，P3/P5热状态/尾帧限制保留，P4只确认容量下降，不宣称完整Native Temporal V2、稳定60FPS或VSM R4验收。

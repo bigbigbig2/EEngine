@@ -9,6 +9,9 @@ verifies:
     - OEngine/src/shaders/vsm_page_table.ts
     - OEngine/src/shaders/vsm_sampling.ts
     - OEngine/src/shaders/vsm_sampling_publication.ts
+    - OEngine/src/shaders/vsm_depth_bounds.ts
+    - OEngine/src/shaders/vsm_caster_invalidation.ts
+    - OEngine/src/gpu/VirtualGeometryResidency.ts
     - OEngine/src/gpu/GpuVisibilityKeyAbi.ts
     - OEngine/src/render/passes/PackedVisibilityPass.ts
     - OEngine/src/render/MeshletBucketRaster.ts
@@ -35,6 +38,8 @@ verifies:
 # Visibility
 
 ## 当前源码边界
+
+VSM内容变化与projection身份分开。`VsmGeneration`观察caster/source、GPU Scene提交与scene shading revisions；变更帧`VsmDepthBoundsPass`比较完整提交快照和asset source stamps，生成old/new affine AABB损伤，全部clip/mip/coarse按原pairing gutter交测试撤销局部ready，保留allocation及完整身份。Geometry upload/retire更新全部相关asset stamp，不依赖主视图可见性；MASK未知coverage保守损伤全部MASK。稳定帧不新增delta dispatch。完整caster depth域只扩不缩，扩大先撤销全部内容ready，不能复用旧reverse-depth编码。Sun/scene/device/extent/reset仍全失效；数量变化重建快照/all-dirty，abort不提交快照，旧buffer成功提交后fenced退休。局部正确性/成本出口见性能执行§6.2，不等于完整VSM R4验收。
 
 核对日期：2026-10-08，G2.3 工作树。PackedVisibility 保留 GPU hierarchy/work generation、instance/vertex preparation、FrameGeometryArena 与 HZB 产品；MeshletBucketRaster 使用 NativeVisibilityPass 消费完整 native material publication，执行真实 alpha 并写唯一 winner。
 

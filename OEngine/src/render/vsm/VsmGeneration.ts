@@ -14,7 +14,10 @@ export interface VsmGenerationInput {
   readonly scene: object;
   readonly sceneRevision: number;
   readonly casterRevision: number;
+  /** GPU Scene publications, including direct instance patch/release callers. */
+  readonly instanceRevision?: number;
   readonly sourceRevision?: number;
+  readonly coverageChanged?: boolean;
   readonly sunDirection: readonly [number, number, number];
   readonly cameraCut: boolean;
   readonly clipOriginExtent: readonly (readonly [number, number, number, number])[];
@@ -35,6 +38,7 @@ export interface VsmGenerationState {
   readonly pageQuantumChanged: boolean;
   readonly resized: boolean;
   readonly rebuildDepth: boolean;
+  readonly invalidateMask: boolean;
 }
 const REASONS: VsmInvalidationReason[] = [
   "initial",
@@ -84,6 +88,7 @@ export class VsmGeneration {
       input.deviceEpoch,
       input.sceneRevision,
       input.casterRevision,
+      input.instanceRevision ?? 0,
       input.sourceRevision ?? 0
     ]) {
       if (!Number.isSafeInteger(value) || value < 0 || value > 0xffffffff) {
@@ -99,14 +104,17 @@ export class VsmGeneration {
     }
     const previous = this.previous;
     const deviceChanged = previous !== null && previous.deviceEpoch !== input.deviceEpoch;
-    const sceneChanged =
-      previous !== null && (previous.scene !== input.scene || previous.sceneRevision !== input.sceneRevision);
+    const sceneChanged = previous !== null && previous.scene !== input.scene;
     const sunChanged =
       previous !== null &&
       input.sunDirection.some((value, i) => Math.fround(value) !== Math.fround(previous.sunDirection[i]!));
     const casterChanged =
-      previous !== null &&
-      (previous.casterRevision !== input.casterRevision || previous.sourceRevision !== input.sourceRevision);
+      input.coverageChanged === true ||
+      (previous !== null &&
+        (previous.casterRevision !== input.casterRevision ||
+          previous.instanceRevision !== input.instanceRevision ||
+          previous.sourceRevision !== input.sourceRevision ||
+          previous.sceneRevision !== input.sceneRevision));
     const profileChanged =
       previous !== null &&
       (previous.clipOriginExtent.length !== input.clipOriginExtent.length ||
@@ -119,13 +127,7 @@ export class VsmGeneration {
       );
     const resized = previous !== null && (previous.width !== input.width || previous.height !== input.height);
     const fullInvalidate =
-      this.forced ||
-      previous === null ||
-      deviceChanged ||
-      sceneChanged ||
-      sunChanged ||
-      casterChanged ||
-      profileChanged;
+      this.forced || previous === null || deviceChanged || sceneChanged || sunChanged || profileChanged;
     const reason: VsmInvalidationReason =
       this.forced || previous === null
         ? "initial"
@@ -154,7 +156,8 @@ export class VsmGeneration {
       reason,
       reasonMask: vsmInvalidationReasonMask(reason),
       fullInvalidate,
-      rebuildDepth: fullInvalidate,
+      rebuildDepth: fullInvalidate || casterChanged,
+      invalidateMask: input.coverageChanged === true,
       temporalInvalidate: fullInvalidate || input.cameraCut || resized,
       pageQuantumChanged,
       resized,

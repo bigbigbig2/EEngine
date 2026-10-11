@@ -19,6 +19,8 @@ verifies:
     - OEngine/src/shaders/native_environment_sample.ts
     - OEngine/src/shaders/vsm_sampling.ts
     - OEngine/src/shaders/vsm_page_table.ts
+    - OEngine/src/shaders/vsm_depth_bounds.ts
+    - OEngine/src/shaders/vsm_caster_invalidation.ts
     - OEngine/src/render/environment
     - OEngine/src/gpu/GpuAuthoredEnvironment.ts
     - OEngine/src/render/vsm
@@ -182,7 +184,9 @@ Filament四次comparison fetch的Gaussian3×3与当前4×4 point box不同。rev
 
 `VsmAllocatePagesPass`约10段dispatch与slot扫描是真实实现成本，但代表稳态其它VSM仅≈0.258ms，不能因为图复杂就先persistent free/eviction queues。若运动/压力样本证明management大，才设计free queue、可回收candidate与dirty append；需完整coarse保护、slot唯一owner、ABA/epoch、overflow、取消/重新提交，不新增current-frameCPU控制。
 
-动态高值另设完整单元：`RendererCore` caster/source revision→`VsmGeneration` fullInvalidate→DepthBounds→raster。局部内容失效需要old+new完整caster bounds delta（包括离屏caster、geometry上传/retire、MASK coverage/material替换、cast flags/removal），投影depth domain稳定，XY损伤域包含gutter/PCF。当前没有可直接假设存在的delta产品。全局min/max改变会改变已缓存reverse-depth编码；不能只更新depth range而复用旧atlas。unknown旧bounds、Sun/scene/device变化仍走同owner安全full invalidate，不是恢复旧renderer。
+【源码事实，P5】`RendererCore` caster/source及GPU Scene提交revision→`VsmGeneration.rebuildDepth`→完整caster快照/old+new损伤→局部slot dirty→原allocation/pair/raster/commit。内容变化不再推进projection epoch；page→asset CSR将实际upload/retire映射到全部相关asset实例，包含离屏caster，保留完整slot/generation。MASK未知coverage/纹理publication保守损伤全部MASK；material替换、cast flags/removal、affine/shear/负缩放均比较旧新记录。普通运动不reset temporal，Sun/scene/device/extent/reset仍全失效。数量变化重建快照并全内容dirty，不能读取未初始化历史。
+
+Depth归约仍包括全部caster。新padded域被旧域包含时保持reverse-depth编码逐位不变；域扩大只能先撤销全部内容ready再重绘，保持世界projection身份。全部clip/mip/coarse按原pairing gutter交测试；无CPU可见/work控制、无额外frame submit。GPU非法bounds/损伤overflow保守all-dirty并保留failure，原caster failure链拒绝错误ready。实测支持减少流送更新突发，不证明稳态60FPS；Cost Card、source帧数量/热状态差异、正确性与原始结果见执行§6.2。
 
 ## 4. Temporal V2：针对1:1重新设计执行与算法
 

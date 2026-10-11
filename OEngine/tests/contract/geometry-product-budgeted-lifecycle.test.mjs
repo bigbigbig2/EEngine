@@ -60,6 +60,38 @@ const demand = (slot, generation, pageId, priority = 0) => ({
   shadow: false
 });
 
+test("page content stamps cover all referencing assets without dirtying unrelated asset ranges", async () => {
+  for (const shared of [false, true]) {
+    const fixture = await streamingProductFixture(3);
+    const records = new Uint8Array(256);
+    records.set(fixture.descriptor.assetRecords, 0);
+    records.set(fixture.descriptor.assetRecords, 128);
+    if (!shared) {
+      const view = new DataView(records.buffer);
+      // The second asset owns only the bootstrap group on page 0.
+      for (const offset of [76, 84, 92, 104, 108, 112]) view.setUint32(128 + offset, 1, true);
+    }
+    fixture.descriptor.assetRecords = records;
+    const runtime = new GeometryProductMultiRuntimeV1(device(), {
+      metadataBytes: 64 * 1024,
+      residency: { configuredCapacityBytes: 2 * MiB }
+    });
+    try {
+      const { residency } = await runtime.load(fixture.source);
+      const initial = [...residency.assetContentRevisions];
+      assert.equal(residency.tryUploadPage(await fixture.source.readPage(1)), true);
+      assert.ok(residency.assetContentRevisions[0] > initial[0]);
+      assert.equal(residency.assetContentRevisions[1] > initial[1], shared);
+      const uploaded = [...residency.assetContentRevisions];
+      residency.beginRetirePage(1);
+      assert.ok(residency.assetContentRevisions[0] > uploaded[0]);
+      assert.equal(residency.assetContentRevisions[1] > uploaded[1], shared);
+    } finally {
+      runtime.destroy();
+    }
+  }
+});
+
 test("payload accounting follows publication, retirement, reload and release rather than cumulative uploads", async () => {
   const gpu = device();
   const writes = [];
@@ -67,7 +99,8 @@ test("payload accounting follows publication, retirement, reload and release rat
     if (buffer.label.includes(" bank ")) writes.push(data.byteLength);
   };
   const runtime = new GeometryProductMultiRuntimeV1(gpu, {
-    metadataBytes: 64 * 1024, residency: { configuredCapacityBytes: 2 * MiB },
+    metadataBytes: 64 * 1024,
+    residency: { configuredCapacityBytes: 2 * MiB }
   });
   const fixture = await streamingProductFixture(3);
   const { residency } = await runtime.load(fixture.source);
@@ -75,26 +108,48 @@ test("payload accounting follows publication, retirement, reload and release rat
   assert.equal(initial.totalPages, 3);
   assert.equal(initial.residentPayloadBytes, writes.reduce((a, b) => a + b, 0));
   const page = await fixture.source.readPage(1);
+  const stampBefore = residency.assetContentRevisions[0];
   assert.equal(residency.tryUploadPage(page), true);
+  assert.ok(residency.assetContentRevisions[0] > stampBefore);
+  assert.equal(residency.assetContentRevisions[0], residency.contentRevision);
+  const uploadedStamp = residency.assetContentRevisions[0];
+  assert.equal(residency.tryUploadPage(page), true);
+  assert.equal(
+    residency.assetContentRevisions[0],
+    uploadedStamp,
+    "duplicate upload cannot create caster churn"
+  );
   const uploaded = residency.evidence();
   const payload = uploaded.residentPayloadBytes - initial.residentPayloadBytes;
   assert.equal(uploaded.residentPayloadBytes, writes.reduce((a, b) => a + b, 0));
   assert.equal(uploaded.residentInternalSlackBytes, uploaded.residentBytes - uploaded.residentPayloadBytes);
   residency.beginRetirePage(1);
+  assert.ok(residency.assetContentRevisions[0] > uploadedStamp);
+  const retiredStamp = residency.assetContentRevisions[0];
   const pending = residency.evidence();
   assert.equal(pending.residentPayloadBytes, initial.residentPayloadBytes);
   assert.equal(pending.retiringPayloadBytes, payload);
   assert.ok(pending.retiringBytes >= payload);
   residency.completeRetirePage(1);
+  assert.equal(residency.assetContentRevisions[0], retiredStamp, "fence only frees already-revoked bytes");
   assert.equal(residency.evidence().retiringPayloadBytes, 0);
   assert.equal(residency.tryUploadPage(page), true);
+  assert.ok(residency.assetContentRevisions[0] > retiredStamp);
+  const streamer = new GeometryPageStreamingRuntimeV1(gpu, residency);
+  const activeRevision = streamer.contentRevision;
+  residency.deactivatePublication();
+  assert.ok(streamer.contentRevision > activeRevision, "withdrawal must wake source invalidation");
+  const inactiveRevision = streamer.contentRevision;
+  residency.activatePublication();
+  assert.ok(streamer.contentRevision > inactiveRevision, "restoration must wake source invalidation");
+  streamer.destroy();
   assert.equal(residency.evidence().residentPayloadBytes, uploaded.residentPayloadBytes);
   assert.ok(residency.evidence().uploadedBytes > residency.evidence().residentPayloadBytes);
   const sections = runtime.evidence().metadataSections;
   assert.equal(sections.page.usedRecords, 3);
   assert.equal(sections.page.usedBytes, 48);
   await runtime.release(0, residency.productGeneration);
-  assert.ok(Object.values(runtime.evidence().metadataSections).every(s => s.usedRecords === 0));
+  assert.ok(Object.values(runtime.evidence().metadataSections).every((s) => s.usedRecords === 0));
   assert.equal(residency.evidence().residentPayloadBytes, 0);
   assert.equal(residency.evidence().retiringPayloadBytes, 0);
   runtime.destroy();
@@ -130,7 +185,8 @@ test("page tail directory and decoded attributes never overwrite authored geomet
     buffer.bytes.set(bytes, offset);
   };
   const runtime = new GeometryProductMultiRuntimeV1(gpu, {
-    metadataBytes: 64 * 1024, residency: { configuredCapacityBytes: 2 * MiB },
+    metadataBytes: 64 * 1024,
+    residency: { configuredCapacityBytes: 2 * MiB }
   });
   const fixture = await streamingProductFixture(2);
   const handle = await runtime.load(fixture.source);
@@ -153,7 +209,10 @@ test("page tail directory and decoded attributes never overwrite authored geomet
       const address = view.getUint32(directory + descriptorWord * 4, true);
       const values = new DataView(residency.bank(address >>> 30).bytes.buffer);
       const attributeOffset = (address & 0x3fffffff) * 4;
-      assert.deepEqual([0, 1, 2].map(axis => values.getFloat32(attributeOffset + 80 + axis * 4, true)), [-0.5, -0.5, 0]);
+      assert.deepEqual(
+        [0, 1, 2].map((axis) => values.getFloat32(attributeOffset + 80 + axis * 4, true)),
+        [-0.5, -0.5, 0]
+      );
     }
   } finally {
     runtime.destroy();

@@ -133,6 +133,10 @@ export interface FrameGpuTimingInput {
 export type FrameProfileListener = (snapshot: FrameProfileSnapshot) => void;
 
 const KNOWN_RUNTIME_METRIC_IDS = Object.freeze([
+  "vsm.invalidation.reasonMask",
+  "vsm.invalidation.full",
+  "vsm.invalidation.sourceRevision",
+  "vsm.invalidation.casterRevision",
   "gpu.timing.queries",
   "gpu.timing.markerPasses",
   "gpu.timing.resolveCommands",

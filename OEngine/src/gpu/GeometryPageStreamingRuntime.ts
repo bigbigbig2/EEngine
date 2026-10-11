@@ -83,17 +83,25 @@ export class GeometryPageStreamingRuntimeV1 {
   #destroyed = false;
   #contentRevision = 0;
   readonly #observedContentRevisions = new Map<VirtualGeometryResidency, number>();
+  readonly #observedPublicationStates = new Map<VirtualGeometryResidency, boolean>();
   /** Observe actual owners, including public upload/retire calls outside the scheduler.
    * No demand readback advances this identity; steady reads allocate nothing. */
   get contentRevision(): number {
     const includesPrimary = this.#residencies.has(this.#residency.productGeneration);
     const count = this.#residencies.size + (includesPrimary ? 0 : 1);
     let changed = this.#observedContentRevisions.size !== count;
-    if (!includesPrimary && this.#observedContentRevisions.get(this.#residency) !== this.#residency.contentRevision) {
+    if (
+      !includesPrimary &&
+      (this.#observedContentRevisions.get(this.#residency) !== this.#residency.contentRevision ||
+        this.#observedPublicationStates.get(this.#residency) !== this.#residency.publicationActive)
+    ) {
       changed = true;
     }
     for (const residency of this.#residencies.values()) {
-      if (this.#observedContentRevisions.get(residency) !== residency.contentRevision) {
+      if (
+        this.#observedContentRevisions.get(residency) !== residency.contentRevision ||
+        this.#observedPublicationStates.get(residency) !== residency.publicationActive
+      ) {
         changed = true;
       }
     }
@@ -103,11 +111,14 @@ export class GeometryPageStreamingRuntimeV1 {
       }
       this.#contentRevision++;
       this.#observedContentRevisions.clear();
+      this.#observedPublicationStates.clear();
       if (!includesPrimary) {
         this.#observedContentRevisions.set(this.#residency, this.#residency.contentRevision);
+        this.#observedPublicationStates.set(this.#residency, this.#residency.publicationActive);
       }
       for (const residency of this.#residencies.values()) {
         this.#observedContentRevisions.set(residency, residency.contentRevision);
+        this.#observedPublicationStates.set(residency, residency.publicationActive);
       }
     }
     return this.#contentRevision;
@@ -140,6 +151,16 @@ export class GeometryPageStreamingRuntimeV1 {
 
   get scheduler(): GeometryPageSchedulerV1 {
     return this.#scheduler;
+  }
+  /** Source publications only, never a CPU visible/work list. Includes the standalone primary. */
+  forEachResidency(visit: (residency: VirtualGeometryResidency) => void): void {
+    this.assertAlive();
+    if (!this.#residencies.has(this.#residency.productGeneration)) {
+      visit(this.#residency);
+    }
+    for (const residency of this.#residencies.values()) {
+      visit(residency);
+    }
   }
 
   /** Applies delayed camera/IO/GPU/frame pressure without changing Product identity. */
@@ -525,6 +546,8 @@ export class GeometryPageStreamingRuntimeV1 {
     }
     this.#publicationSubscriptions.clear();
     this.#residencies.clear();
+    this.#observedContentRevisions.clear();
+    this.#observedPublicationStates.clear();
     this.#readback.destroy();
     this.#shadowReadback?.destroy();
   }

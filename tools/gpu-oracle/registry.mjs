@@ -11,6 +11,22 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "vsm-v4-r1",
+    file: "OEngine/tests/oracle/vsm-v4-r1-gpu.mjs",
+    url: "/OEngine/tests/oracle/vsm-v4-r1-gpu.mjs",
+    entry: "runVsmR1GpuOracle",
+    description:
+      "Complete affine caster depth against eight corners, invalid/empty domain, signed world-window retention."
+  }),
+  Object.freeze({
+    name: "vsm-local-invalidation",
+    file: "OEngine/tests/oracle/vsm-local-invalidation-gpu.mjs",
+    url: "/OEngine/tests/oracle/vsm-local-invalidation-gpu.mjs",
+    entry: "runVsmLocalInvalidationGpuOracle",
+    description:
+      "Production complete caster old/new damage, stable/expanded depth, full identities, all clips/mips/gutters, MASK and abort/growth retry."
+  }),
+  Object.freeze({
     name: "native-authored-ibl-production",
     file: "OEngine/tests/oracle/native-surface-production-gpu.mjs",
     url: "/OEngine/tests/oracle/native-surface-production-gpu.mjs",

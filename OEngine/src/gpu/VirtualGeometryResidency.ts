@@ -121,6 +121,7 @@ export interface GeometryProductGpuBindingsV1 {
 /** Optional scene-level metadata owner used by the multi-Product renderer. */
 export interface GeometryProductPageLocationSinkV1 {
   bindings(): GeometryProductGpuBindingsV1;
+  assetReferenceBegin(productTableSlot: number, productGeneration: number): number;
   publishPageLocation(
     productTableSlot: number,
     productGeneration: number,
@@ -160,8 +161,18 @@ const EVICTION_THRASH_WINDOW_FRAMES = 60;
 /** Product-owned bootstrap admission and decoded-page heap. Later demand/eviction extends this owner. */
 export class VirtualGeometryResidency {
   #contentRevision = 0;
+  readonly #assetContentRevisions: Uint32Array;
+  readonly #pageAssetOffsets: Uint32Array;
+  readonly #pageAssetIndices: Uint32Array;
   get contentRevision(): number {
     return this.#contentRevision;
+  }
+  /** Complete authored asset identity; content stamps change only on actual page publication/revocation. */
+  get assetContentRevisions(): Readonly<Uint32Array> {
+    return this.#assetContentRevisions;
+  }
+  get assetReferenceBegin(): number {
+    return this.#pageLocationSink?.assetReferenceBegin(this.#productTableSlot, this.#productGeneration) ?? 0;
   }
   /** CPU source registration follows publication; GPU retirement remains fenced. */
   readonly publicationChanged = new Signal<"active" | "inactive" | "destroyed">();
@@ -218,6 +229,38 @@ export class VirtualGeometryResidency {
     this.#signal = signal;
     this.#indexHierarchyImportance();
     const assetCount = source.descriptor.assetRecords.byteLength / 128;
+    this.#assetContentRevisions = new Uint32Array(assetCount);
+    const pageCount = source.descriptor.pageRecords.byteLength / 32;
+    const pageAssets: number[][] = Array.from({ length: pageCount }, () => []);
+    const assets = new DataView(
+      source.descriptor.assetRecords.buffer,
+      source.descriptor.assetRecords.byteOffset,
+      source.descriptor.assetRecords.byteLength
+    );
+    const groups = new DataView(
+      source.descriptor.groupDirectory.buffer,
+      source.descriptor.groupDirectory.byteOffset,
+      source.descriptor.groupDirectory.byteLength
+    );
+    for (let asset = 0; asset < assetCount; asset++) {
+      const begin = assets.getUint32(asset * 128 + 88, true);
+      const count = assets.getUint32(asset * 128 + 92, true);
+      const pages = new Set<number>();
+      for (let group = begin; group < begin + count; group++) {
+        pages.add(groups.getUint32(group * 16, true));
+      }
+      for (const page of pages) {
+        pageAssets[page]!.push(asset);
+      }
+    }
+    this.#pageAssetOffsets = new Uint32Array(pageCount + 1);
+    for (let page = 0; page < pageCount; page++) {
+      this.#pageAssetOffsets[page + 1] = this.#pageAssetOffsets[page]! + pageAssets[page]!.length;
+    }
+    this.#pageAssetIndices = new Uint32Array(this.#pageAssetOffsets[pageCount]!);
+    for (let page = 0; page < pageCount; page++) {
+      this.#pageAssetIndices.set(pageAssets[page]!, this.#pageAssetOffsets[page]!);
+    }
     this.#metadataLayout = metadataLayout(source.descriptor, productTableSlot);
     this.#pageLocationSink = directory;
     if (directory !== undefined) {
@@ -423,20 +466,28 @@ export class VirtualGeometryResidency {
   }
   activatePublication(): void {
     if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed");
+    if (!this.#activePublication && this.#contentRevision >= 0xfffffffe) {
+      throw new RangeError("Geometry content revision exhausted");
+    }
     this.#writeProductRecord(GEOMETRY_PRODUCT_TABLE_FLAG_ACTIVE_V1);
     const wasActive = this.#activePublication;
     this.#activePublication = true;
     if (!wasActive) {
+      this.#contentRevision++;
       this.publicationChanged.emit("active");
     }
   }
   /** Withdraws the Product record while retaining source and resident pages for a dormant shard. */
   deactivatePublication(): void {
     if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed");
+    if (this.#activePublication && this.#contentRevision >= 0xfffffffe) {
+      throw new RangeError("Geometry content revision exhausted");
+    }
     this.#writeProductRecord(0);
     const wasActive = this.#activePublication;
     this.#activePublication = false;
     if (wasActive) {
+      this.#contentRevision++;
       this.publicationChanged.emit("inactive");
     }
   }
@@ -637,6 +688,7 @@ export class VirtualGeometryResidency {
     this.#publishPageLocation(page.pageId, location);
     this.#publishGroupsForPage(page.pageId, location);
     this.#contentRevision++;
+    this.#markPageAssets(page.pageId);
   }
   beginRetirePage(pageId: number): void {
     this.#assertPageId(pageId);
@@ -644,6 +696,7 @@ export class VirtualGeometryResidency {
     if (!location || (location.flags & GEOMETRY_PAGE_LOCATION_PINNED) !== 0) return;
     if (this.#contentRevision >= 0xfffffffe) throw new RangeError("Geometry content revision exhausted");
     this.#contentRevision++;
+    this.#markPageAssets(pageId);
     this.#pageLocations.delete(pageId);
     this.#retiringLocations.set(pageId, location);
     this.#pageLastUsed.delete(pageId);
@@ -667,6 +720,11 @@ export class VirtualGeometryResidency {
     history.lastEvicted = this.#frameClock;
     history.rerequestNoted = false;
     this.#evictedPages++;
+  }
+  #markPageAssets(pageId: number): void {
+    for (let index = this.#pageAssetOffsets[pageId]!; index < this.#pageAssetOffsets[pageId + 1]!; index++) {
+      this.#assetContentRevisions[this.#pageAssetIndices[index]!] = this.#contentRevision;
+    }
   }
   writePageLocation(
     location: GeometryPageLocationV1,

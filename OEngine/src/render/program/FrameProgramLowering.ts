@@ -175,7 +175,10 @@ function compileSceneGraph(
       state: bind("vsm-generation-state", (bindings) => bindings.vsmGeneration),
       frame: vsmFrame,
     });
-    const depthRange = owners.vsmDepthBounds.addToGraph(
+    if (contentVersion === null) {
+      throw new Error("Enabled VSM requires invalidation publication");
+    }
+    const casterInvalidation = owners.vsmDepthBounds.addToGraph(
       graph,
       bind("vsm-depth-range-job", (bindings) => ({
         resources: vsmOwner,
@@ -184,8 +187,10 @@ function compileSceneGraph(
         instances,
         instanceBegin: bindings.runtime.instanceBegin,
         instanceCount: bindings.runtime.instanceCount,
+        contentVersion
       })),
     );
+    const depthRange = casterInvalidation.depthRange;
     vsmDepthRange = depthRange;
     const demand = owners.vsmReceiverDemand.addToGraph(
       graph,
@@ -214,7 +219,7 @@ function compileSceneGraph(
           demand: demand.demand,
           resources: vsmOwner,
           generation: bindings.vsmFrame!.generation,
-          contentVersion,
+          contentVersion: casterInvalidation.contentVersion,
           frameSerial: bindings.vsmGeneration.frameSerial,
           frame: vsmFrame,
         })),

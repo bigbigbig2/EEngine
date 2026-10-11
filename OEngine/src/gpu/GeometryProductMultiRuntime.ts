@@ -601,6 +601,13 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
     this.assertSlot(productTableSlot);
     return this.#records[productTableSlot];
   }
+  assetReferenceBegin(productTableSlot: number, productGeneration: number): number {
+    const record = this.tableRecord(productTableSlot);
+    if (record?.productGeneration !== productGeneration) {
+      throw new Error("Geometry asset range no longer belongs to the requested Product generation");
+    }
+    return record.assetBegin;
+  }
 
   evidence(): GeometryProductMultiRuntimeEvidenceV1 {
     let active = 0,

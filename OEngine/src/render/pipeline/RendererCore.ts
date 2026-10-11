@@ -2080,13 +2080,17 @@ export class Renderer {
             this._vsmSettings,
           )
         : null;
+      const vsmSourceRevision =
+        streaming?.contentRevision ?? this._virtualProductScenes.get(scene)?.residency.contentRevision ?? 0;
+      const bindings = this._graphics.render_world.bindings();
       const vsmGeneration = this._vsmGeneration.prepare({
         deviceEpoch: this.deviceEpoch,
         scene: runtime,
         sceneRevision: runtime.shadingPublication.revision,
         casterRevision: this._vsmCasterPublicationRevision,
-        sourceRevision:
-          streaming?.contentRevision ?? this._virtualProductScenes.get(scene)?.residency.contentRevision ?? 0,
+        instanceRevision: bindings.scene.contentRevision,
+        coverageChanged: coverageChanged || materialPublication.viewDependentCoverage,
+        sourceRevision: vsmSourceRevision,
         sunDirection,
         cameraCut: cameraCut || cameraChanged,
         clipOriginExtent: vsmPreview?.clipOriginExtent ?? [],
@@ -2095,7 +2099,18 @@ export class Renderer {
       });
       command.onFinished.addOne(() => this._vsmGeneration.commit(vsmGeneration));
       command.onAborted.addOne(() => this._vsmGeneration.abort());
-      if (vsmEnabled) this._vsmDepthBounds.prepareFrame(runtime.instanceCount, command);
+      this._profiler.recordCounter("vsm.invalidation.reasonMask", vsmGeneration.reasonMask);
+      this._profiler.recordCounter("vsm.invalidation.full", Number(vsmGeneration.fullInvalidate));
+      this._profiler.recordCounter("vsm.invalidation.sourceRevision", vsmSourceRevision);
+      this._profiler.recordCounter("vsm.invalidation.casterRevision", this._vsmCasterPublicationRevision);
+      if (vsmEnabled) {
+        this._vsmDepthBounds.prepareFrame(
+          runtime.instanceCount,
+          command,
+          vsmGeneration,
+          streaming ?? this._virtualProductScenes.get(scene)?.residency
+        );
+      }
       if (vsmGeneration.temporalInvalidate) this._temporalFacts.invalidate();
       this._gpuRadiometry.prepareFrame(timeDeltaSeconds);
       this._temporalFacts.prepareFrame(
@@ -2125,7 +2140,6 @@ export class Renderer {
           Number(this.packed_visibility_hzb_enabled) |
           (Number(this.packed_visibility_current_hzb_late_recheck_enabled) << 1),
       });
-      const bindings = this._graphics.render_world.bindings();
       const prepareJob = {
         shadowFrame: vsmPreview,
         runtime,

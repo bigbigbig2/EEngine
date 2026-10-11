@@ -8,6 +8,7 @@ import {
   mergeVirtualGeometryProductSceneSourcesV1,
 } from "../../.test-dist/assets/geometry-product/VirtualGeometrySceneSourceV1.js";
 import { Renderer } from "../../.test-dist/render/pipeline/RendererCore.js";
+import { ShadeGPUCommandContext } from "../../.test-dist/framegraph/ShadeGPUCommandContext.js";
 import { Scene } from "../../.test-dist/scene/Scene.js";
 import { Mesh } from "../../.test-dist/scene/Mesh.js";
 import { BoxGeometry, buildBoxSourceGeometry } from "../../.test-dist/geometry/BoxGeometry.js";
@@ -23,7 +24,7 @@ import { fixtureTexture } from "./texture-fixture.mjs";
 import { PerspectiveCamera } from "../../.test-dist/camera/PerspectiveCamera.js";
 import { decodeFloat16 } from "../../.test-dist/core/Float16.js";
 import { GPU_VISIBILITY_KEY_MESHLET_WORK_SLOT_MASK } from "../../.test-dist/gpu/GpuVisibilityKeyAbi.js";
-import { GPU_INSTANCE_FLAGS } from "../../.test-dist/gpu/GpuInstanceAbi.js";
+import { GPU_INSTANCE_FLAGS, GPU_INSTANCE_RECORD_OFFSETS } from "../../.test-dist/gpu/GpuInstanceAbi.js";
 import { createPackedSceneSourceFromScene } from "../../.test-dist/gpu/GpuSceneAdapter.js";
 import { cookSceneGeometryProductV1 } from "../../.test-dist/assets/geometry-product/SceneGeometryCanonicalizerV1.js";
 import { createDefaultWebGeometryCookerModule } from "../../.test-dist/assets/web-cook/wasm/WebGeometryCookerAbi.js";
@@ -633,6 +634,59 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
           transforms: { indices: new Uint32Array([0]), transforms: originalTransform },
         });
       }
+      await tick();
+      await inspect();
+      // Exercise the direct public GPU Scene patch seam, outside render-world's
+      // queued patch accounting. VSM must observe its committed publication.
+      const runtime = renderer.graphics.render_world.runtime(scene);
+      const generation = renderer._vsmGeneration.currentGeneration;
+      const snapshot = renderer._vsmDepthBounds.snapshots;
+      const directOriginal = Float32Array.from(meshes[0].transform_global.matrix);
+      const moved = directOriginal.slice();
+      moved[12] += 0.02;
+      const patch = ShadeGPUCommandContext.create(renderer.graphics, "oracle/direct instance patch");
+      renderer.patchInstances(
+        runtime.instanceHandle,
+        {
+          frameId: renderer.frame_count,
+          transforms: { indices: new Uint32Array([0]), transforms: moved }
+        },
+        patch
+      );
+      patch.finish();
+      await patch.gpuDone;
+      await tick();
+      await inspect();
+      check(
+        renderer._vsmGeneration.currentGeneration === generation,
+        "direct patch must retain projection epoch"
+      );
+      const copy = device.createBuffer({
+        size: snapshot.size,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+      });
+      buffers.push(copy);
+      const read = device.createCommandEncoder();
+      read.copyBufferToBuffer(snapshot, 0, copy, 0, copy.size);
+      device.queue.submit([read.finish()]);
+      await copy.mapAsync(GPUMapMode.READ);
+      const translationWord = (GPU_INSTANCE_RECORD_OFFSETS.current_affine + 12) / 4;
+      check(
+        new Float32Array(copy.getMappedRange())[translationWord] === moved[12],
+        "direct patch did not update VSM caster snapshot"
+      );
+      copy.unmap();
+      const restore = ShadeGPUCommandContext.create(renderer.graphics, "oracle/direct patch restore");
+      renderer.patchInstances(
+        runtime.instanceHandle,
+        {
+          frameId: renderer.frame_count,
+          transforms: { indices: new Uint32Array([0]), transforms: directOriginal }
+        },
+        restore
+      );
+      restore.finish();
+      await restore.gpuDone;
       await tick();
       await inspect();
     }

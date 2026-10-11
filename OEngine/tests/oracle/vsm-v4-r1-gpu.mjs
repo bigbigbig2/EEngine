@@ -61,6 +61,9 @@ export async function runVsmR1GpuOracle(device) {
         { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
         { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
         { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+        { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+        { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }
       ],
     });
     const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [layout] });
@@ -89,21 +92,27 @@ export async function runVsmR1GpuOracle(device) {
     }));
     const bytes = packGpuInstanceRecords(records);
     const instances = buffer(bytes.byteLength, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, bytes);
-    const constantsBytes = new ArrayBuffer(80);
+    const constantsBytes = new ArrayBuffer(96);
     new Float32Array(constantsBytes).set([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
     new Uint32Array(constantsBytes).set([0, 130, 3, 1], 16);
-    const constants = buffer(80, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST, constantsBytes);
+    const constants = buffer(96, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST, constantsBytes);
     const scratch = buffer(48, GPUBufferUsage.STORAGE);
     const product = buffer(16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
+    const snapshots = buffer(130 * 192, GPUBufferUsage.STORAGE);
+    const sources = buffer(16, GPUBufferUsage.STORAGE);
+    const damages = buffer(16 + 130 * 48, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
     const group = device.createBindGroup({
       layout,
-      entries: [constants, instances, scratch, product].map((buffer, binding) => ({
+      entries: [constants, instances, scratch, product, snapshots, sources, damages].map(
+        (buffer, binding) => ({
         binding,
         resource: { buffer },
-      })),
+        })
+      )
     });
     const reduce = async () => {
       const encoder = device.createCommandEncoder();
+      encoder.clearBuffer(damages, 0, 16);
       for (const [pipeline, count] of [
         [first, 3],
         [final, 1],
