@@ -17,6 +17,9 @@ verifies:
     - OEngine/src/gpu/NativeMaterialBindings.ts
     - OEngine/src/gpu/NativeMaterialProducts.ts
     - OEngine/src/render/temporal/NativeTemporalFactsPass.ts
+    - OEngine/src/render/temporal/NativeTemporalPasses.ts
+    - OEngine/src/shaders/native_temporal.ts
+    - OEngine/src/render/passes/fsr3/Fsr3UpscalerRuntime.ts
     - OEngine/src/shaders/native_execution_bins.ts
     - OEngine/src/shaders/native_material_products.ts
     - OEngine/src/shaders/native_surface.ts
@@ -1529,6 +1532,8 @@ P1实际Local映射（2026-10-11）：重新核对上述Blender固定revision的
 P2-T1实际映射（2026-10-11）：重新读取上述SDK固定revision的`accumulate.h::Accumulate`（内部color/lock始终写入、额外output受sharpen permutation控制）和host的`RCAS_INPUT = upscaledColorUavResourceIndex`。本地只采用同帧history作为RCAS产品的接线，原有WGSL数学不变，删除第二store/texture/binding。真实生产pass与冻结本地旧shader的16组全history RGBA/输出RGB/RCAS RGBA逐位一致；Native integration和双device epoch重建通过。限定Dungeon成本见性能执行§4.2，未证明稳定帧时改善；不提升T2/T3或完整FSR算法adoption声明。
 
 P2-T2实验映射（2026-10-11）：实际核读上述WickedEngine MIT固定revision的`temporalaaCS.hlsl::main` cooperative halo → GroupMemoryBarrierWithGroupSync → current邻域，只参考执行方式。原创f32 10×10候选未复制packed half/Gather或算法；209,440 words逐位一致但1080p配对计时P50更慢，拒绝生产采用、撤回生产改动，test-only snapshot保留拒绝复现。结果见性能执行§4.4，T3仍未实施。
+
+P2-T3实际Local/Adapt映射（2026-10-11）：重新核读上述AMD MIT pin的`ffx_fsr3upscaler_prepare_reactivity.h / luma_instability.h / accumulate.h`及现有EEngine WGSL。新`native_temporal.ts`保留SDK confidence、四帧亮度响应、thin lock、current/history filtering、rectification、pre-exposure与RCAS合同；本地原创1:1 execution特化（classification→融合resolve、每帧96B权重、静态tap、历史流式累计与精确整数支持删除）由`NativeTemporalPasses`接入同一history事务。完整Facts身份不再压缩，原ShadingSPD保留真实质量consumer。pmndrs整体TAA/local detector与shared候选质量/成本失败，未采用其aging/block-history/压缩history，也不移植three框架；其来源只作研究，不伪称port。独立analytic/冻结旧runtime GPU oracle16序列及真实Renderer生命周期通过，两次局部完整链有正收益，Dungeon整帧热状态/尾帧资格仍未通过，见执行§4.5；不晋级完整FSR/pmndrs算法adoption或稳定60FPS声明。
 
 P3实际Local/Reference映射（2026-10-11）：重新核读上述Filament Apache-2.0 pin的完整`surface_light_indirect.fs`，`PrefilteredDFG_LUT`为hardware textureLod，`prefilteredRadiance`为cubemap filtered fetch，`specularDFG/evaluateClearCoatIBL`保留Fc/totalvisibility与coat attenuation语义。不能把cubemap无缝过滤直接套到oct。原padded atlas容量不能闭合；本地interior hardware候选在NPOT HDR失败，原失败保留。原创`native_environment_sample.ts`采用有界neighbor fold、原f32四点权重与整数mip blend；`native_environment_brdf.ts`只将DFG改hardware clamp，physical/authored稳定sampler由同FrameProgram绑定。42,705个GPU对照含radiance逐bit、真实发布与Native/Renderer/device recovery证据和成本见性能执行§5；没有移植Filament框架或声明完整IBL算法adoption。
 

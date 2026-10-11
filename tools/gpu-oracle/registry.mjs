@@ -11,6 +11,24 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "native-temporal-v2",
+    file: "OEngine/tests/oracle/native-temporal-v2-gpu.mjs",
+    url: "/OEngine/tests/oracle/native-temporal-v2-gpu.mjs",
+    entry: "runNativeTemporalV2GpuOracle",
+    requiredFeatures: ["texture-formats-tier1"],
+    timeoutMs: 300000,
+    description: "Native-resolution chain versus frozen FSR and analytic HDR/motion sequences, per-frame ROI response and partial domains.",
+  }),
+  Object.freeze({
+    name: "native-temporal-v2-cost",
+    file: "OEngine/tests/oracle/native-temporal-v2-cost-gpu.mjs",
+    url: "/OEngine/tests/oracle/native-temporal-v2-cost-gpu.mjs",
+    entry: "runNativeTemporalV2CostGpuOracle",
+    requiredFeatures: ["texture-formats-tier1", "timestamp-query"],
+    timeoutMs: 300000,
+    description: "ABBA complete native-resolution temporal chains at 1080p against frozen before; raw timestamps, not a gain assertion.",
+  }),
+  Object.freeze({
     name: "vsm-shadow-receiver",
     file: "OEngine/tests/oracle/vsm-shadow-receiver-gpu.mjs",
     url: "/OEngine/tests/oracle/vsm-shadow-receiver-gpu.mjs",

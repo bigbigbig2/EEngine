@@ -13,12 +13,14 @@ verifies:
   - OEngine/src/render/passes/fsr3/Fsr3AccumulateShader.ts
   - OEngine/src/render/passes/fsr3/Fsr3RcasPass.ts
   - OEngine/src/render/passes/fsr3/Fsr3UpscalerRuntime.ts
+  - OEngine/src/render/temporal/NativeTemporalPasses.ts
+  - OEngine/src/shaders/native_temporal.ts
 ---
 # Frame Runtime
 
 ## 当前源码接线
 
-核对日期：2026-10-10，当前生产工作树。这里记录当前 owner 与主链注册；实际验证结果及阶段状态只在模块执行计划。
+核对日期：2026-10-11，当前生产工作树。这里记录当前 owner 与主链注册；实际验证结果及阶段状态只在模块执行计划。
 
 [RendererCore](../../OEngine/src/render/pipeline/RendererCore.ts) 创建 FrameCoordinator、SurfaceV4、LocalLightWorkGenerator、NativeTemporalFactsPass 等长期 owners。[FrameProgramLowering](../../OEngine/src/render/program/FrameProgramLowering.ts) 将场景产品逐帧绑定到缓存 FrameGraph，连接最终 winner/depth→LocalLightWork→native Surface→Temporal/FSR3。
 
@@ -28,7 +30,9 @@ Geometry、native Material publication、LocalLightWork、Surface、VSM 与后�
 
 `GpuRadiometryPass` 独立持有曝光双槽和有效性：颜色/TAA reset、resize、Sun/Sky edit、camera cut 不重置曝光，commit 换槽，abort 保留，device epoch 初始化与 `resetExposure()` 显式重置。主链保留 P(n−1) render→去预曝光 HDR histogram→percentile/highlight/log adaptation→E(n)，FSR 先读旧两槽，Presentation 再使用 E/P。常规帧没有 CPU 读回；`readExposureDiagnostics()` 是调用者主动请求的单次 32B readback，不能驱动 frame work。
 
-FSR Accumulate只写本帧RGBA16F color history（RGB与alpha lock）。RCAS读取该`builder.write(currentHistory)`的写版本，仅使用RGB并输出alpha1；不再声明或写出重复的upscaled color临时纹理。仍由`Fsr3UpscalerRuntime`管理双槽history与prepare/commit/abort/resize/fence，只有成功submit后commit换槽，FrameGraph声明同帧Accumulate→RCAS依赖。此产品删除适用于native及upscale域，没有替换FSR算法。
+`Fsr3UpscalerRuntime`按两轴实际internal/output尺寸选择服务域：1:1采用`NativeTemporalPasses`的Depth Classification→Native Resolve；真实upscale继续FSR Prepare Reactivity→Luma Instability→Accumulate。两域共享原Prepare Inputs、Luma/Shading SPD、Shading Change与RCAS质量功能，1:1不再注册旧三个compute和独立new-lock/instability产品。Native Resolve融合四帧亮度响应、thin lock与重建，96B当前滤波权重由classification完整写入并经下一dispatch依赖读取；没有额外history或frame submit。
+
+两域都只写本帧RGBA16F color history（RGB与SDK alpha lock），RCAS读取`builder.write(currentHistory)`的写版本，仅使用RGB并输出alpha1，不声明重复upscaled color临时纹理。仍由同一runtime管理color/luma/luma-history/confidence/frame-info双槽与prepare/commit/abort/resize/fence；只有成功submit后commit换槽。policy切换重置history并推进generation，abort恢复原policy/index/generation/jitter。普通camera motion不reset，defer不推进history；源码切换不证明整帧性能已验收。
 
 ## 原则与验证边界
 

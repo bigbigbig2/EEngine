@@ -12,6 +12,7 @@ import { Fsr3AccumulatePass } from "./Fsr3AccumulatePass.js";
 import { Fsr3RcasPass, packFsr3RcasConstants } from "./Fsr3RcasPass.js";
 import { FSR3_UPSCALER_CONSTANTS_BYTES, packFsr3UpscalerConstants } from "./Fsr3UpscalerConstants.js";
 import { fsr3JitterPhaseCount } from "../../TemporalJitterController.js";
+import { NativeTemporalPasses } from "../../temporal/NativeTemporalPasses.js";
 
 // P_t and P_(t-1) remain on the GPU. The SDK constant is updated before any
 // FSR stage reads it, in the same frame command encoder.
@@ -31,12 +32,14 @@ fn main() {
 `;
 
 interface Fsr3HistoryTextures {
+  readonly policy: "native-resolution" | "upscale";
   readonly color: [GPUTexture, GPUTexture];
   readonly luma: [GPUTexture, GPUTexture];
   readonly lumaHistory: [GPUTexture, GPUTexture];
   readonly accumulation: [GPUTexture, GPUTexture];
   readonly frameInfo: [GPUTexture, GPUTexture];
 }
+type TemporalHistoryName = Exclude<keyof Fsr3HistoryTextures, "policy">;
 
 export interface Fsr3FrameInput {
   readonly renderWidth: number;
@@ -60,10 +63,12 @@ export type Fsr3GraphResourceBinder = <T extends object>(
   resolve: (runtime: Fsr3UpscalerRuntime) => T,
 ) => T;
 
-/** One FSR3 Upscaler owner and one graph chain inside the Renderer frame submit. */
+/** One temporal history transaction; native-resolution resolve and real upscale
+ * select their own graph by physical domain inside the same Renderer submit. */
 export class Fsr3UpscalerRuntime {
   private readonly bindGroups = new GpuBindGroupCache();
   private readonly prepareInputs: Fsr3PrepareInputsPass;
+  private readonly nativeTemporal: NativeTemporalPasses;
   private readonly lumaPyramid: Fsr3LumaPyramidPass;
   private readonly shadingPyramid: Fsr3ShadingChangePyramidPass;
   private readonly shadingChange: Fsr3ShadingChangePass;
@@ -111,6 +116,7 @@ export class Fsr3UpscalerRuntime {
 
   constructor(private readonly device: GPUDevice) {
     this.prepareInputs = new Fsr3PrepareInputsPass(device);
+    this.nativeTemporal = new NativeTemporalPasses(device);
     this.lumaPyramid = new Fsr3LumaPyramidPass(device);
     this.shadingPyramid = new Fsr3ShadingChangePyramidPass(device);
     this.shadingChange = new Fsr3ShadingChangePass(device);
@@ -157,6 +163,9 @@ export class Fsr3UpscalerRuntime {
   get generation(): number {
     return this.generationValue;
   }
+  get policy(): Fsr3HistoryTextures["policy"] | null {
+    return this.histories?.policy ?? null;
+  }
   /** Physical history ownership, including unsubmitted resize candidates and
    * fence-retired sets. FrameGraph transients belong to its texture allocator. */
   get allocatedBytes(): number {
@@ -172,6 +181,7 @@ export class Fsr3UpscalerRuntime {
     if (!histories) return 0;
     let bytes = 0;
     for (const [name, textures] of Object.entries(histories)) {
+      if (name === "policy") continue;
       const stride = name === "frameInfo" ? 16 : name === "luma" ? 2 : name === "accumulation" ? 1 : 8;
       for (const texture of textures) bytes += texture.width * texture.height * stride;
     }
@@ -192,6 +202,8 @@ export class Fsr3UpscalerRuntime {
   ): boolean {
     return (
       this.histories !== null &&
+      this.histories.policy ===
+        (renderWidth === outputWidth && renderHeight === outputHeight ? "native-resolution" : "upscale") &&
       renderWidth <= this.internalCapacity[0] &&
       renderHeight <= this.internalCapacity[1] &&
       outputWidth === this.size[2] &&
@@ -220,6 +232,7 @@ export class Fsr3UpscalerRuntime {
       keyof Fsr3HistoryTextures,
       [GPUTexture, GPUTexture],
     ][]) {
+      if (name === "policy") continue;
       if (pair[0] === pair[1]) throw new Error(`FSR3 ${name} read/write history aliases`);
       const width = name === "color" ? outputWidth : name === "frameInfo" ? 1 : this.internalCapacity[0];
       const height = name === "color" ? outputHeight : name === "frameInfo" ? 1 : this.internalCapacity[1];
@@ -290,12 +303,19 @@ export class Fsr3UpscalerRuntime {
     const capacityExceeded =
       frame.renderWidth > this.internalCapacity[0] || frame.renderHeight > this.internalCapacity[1];
     const outputChanged = frame.outputWidth !== previousSize[2] || frame.outputHeight !== previousSize[3];
-    if (capacityExceeded || outputChanged || frame.reset || this.histories === null) this.allocate(size);
+    const policyChanged =
+      this.policy !==
+      (frame.renderWidth === frame.outputWidth && frame.renderHeight === frame.outputHeight
+        ? "native-resolution"
+        : "upscale");
+    if (capacityExceeded || outputChanged || policyChanged || frame.reset || this.histories === null)
+      this.allocate(size);
     else this.size = size;
     if (frame.historyReadIndex !== undefined) {
       if (
         !capacityExceeded &&
         !outputChanged &&
+        !policyChanged &&
         !frame.reset &&
         this.frameIndex >= 0 &&
         this.index !== frame.historyReadIndex
@@ -456,26 +476,6 @@ export class Fsr3UpscalerRuntime {
       (runtime) => runtime.graphHistory("luma", "write"),
       "internal-full",
     );
-    const previousLumaHistory = imported(
-      "FSR3/previous luma history",
-      (runtime) => runtime.graphHistory("lumaHistory", "read"),
-      "internal-full",
-    );
-    const currentLumaHistory = imported(
-      "FSR3/current luma history",
-      (runtime) => runtime.graphHistory("lumaHistory", "write"),
-      "internal-full",
-    );
-    const previousAccumulation = imported(
-      "FSR3/previous accumulation",
-      (runtime) => runtime.graphHistory("accumulation", "read"),
-      "internal-full",
-    );
-    const currentAccumulation = imported(
-      "FSR3/current accumulation",
-      (runtime) => runtime.graphHistory("accumulation", "write"),
-      "internal-full",
-    );
     const previousFrameInfo = imported("FSR3/previous frame info", (runtime) =>
       runtime.graphHistory("frameInfo", "read"),
     );
@@ -501,6 +501,91 @@ export class Fsr3UpscalerRuntime {
       width: input.width,
       height: input.height,
     });
+    if (this.policy === "native-resolution") {
+      const nativeSpd = this.shadingPyramid.addToGraph(graph, {
+        dilatedMotion: prepared.dilatedMotion,
+        currentLuma: prepared.currentLuma,
+        previousLuma,
+        exposure: luma.frameInfo,
+        constants,
+        width: input.width,
+        height: input.height,
+      });
+      const nativeShading = this.shadingChange.addToGraph(graph, {
+        spdMips: nativeSpd,
+        constants,
+        width: input.width,
+        height: input.height,
+      });
+      const previousAccumulation = imported(
+        "Native Temporal/previous confidence",
+        (runtime) => runtime.graphHistory("accumulation", "read"),
+        "internal-full",
+      );
+      const currentAccumulation = imported(
+        "Native Temporal/current confidence",
+        (runtime) => runtime.graphHistory("accumulation", "write"),
+        "internal-full",
+      );
+      const previousLumaHistory = imported(
+        "Native Temporal/previous luma history",
+        (runtime) => runtime.graphHistory("lumaHistory", "read"),
+        "internal-full",
+      );
+      const currentLumaHistory = imported(
+        "Native Temporal/current luma history",
+        (runtime) => runtime.graphHistory("lumaHistory", "write"),
+        "internal-full",
+      );
+      const resolved = this.nativeTemporal.addToGraph(graph, {
+        color: input.color,
+        motion: prepared.dilatedMotion,
+        depth: prepared.dilatedDepth,
+        reconstructedDepth: prepared.reconstructedDepth,
+        facts: input.validityMask,
+        reactive: input.reactiveMask,
+        currentLuma: prepared.currentLuma,
+        previousColor,
+        currentColor,
+        previousAccumulation,
+        currentAccumulation,
+        previousLumaHistory,
+        currentLumaHistory,
+        farthestDepthMip1: luma.farthestDepthMip1,
+        shadingResponse: nativeShading,
+        exposure: luma.frameInfo,
+        constants,
+        width: input.width,
+        height: input.height,
+      });
+      return this.rcas.addToGraph(graph, {
+        color: resolved,
+        exposure: luma.frameInfo,
+        constants: rcasConstants,
+        width: input.outputWidth,
+        height: input.outputHeight,
+      });
+    }
+    const previousLumaHistory = imported(
+      "FSR3/previous luma history",
+      (runtime) => runtime.graphHistory("lumaHistory", "read"),
+      "internal-full",
+    );
+    const currentLumaHistory = imported(
+      "FSR3/current luma history",
+      (runtime) => runtime.graphHistory("lumaHistory", "write"),
+      "internal-full",
+    );
+    const previousAccumulation = imported(
+      "FSR3/previous accumulation",
+      (runtime) => runtime.graphHistory("accumulation", "read"),
+      "internal-full",
+    );
+    const currentAccumulation = imported(
+      "FSR3/current accumulation",
+      (runtime) => runtime.graphHistory("accumulation", "write"),
+      "internal-full",
+    );
     const spdMips = this.shadingPyramid.addToGraph(graph, {
       dilatedMotion: prepared.dilatedMotion,
       currentLuma: prepared.currentLuma,
@@ -607,7 +692,7 @@ export class Fsr3UpscalerRuntime {
     this.pending = null;
   }
 
-  private graphHistory(name: keyof Fsr3HistoryTextures, role: "read" | "write"): GPUTexture {
+  private graphHistory(name: TemporalHistoryName, role: "read" | "write"): GPUTexture {
     if (!this.pending || !this.histories)
       throw new Error("FSR3 history binding requires an active prepared frame");
     return this.histories[name][role === "read" ? this.readIndex : this.writeIndex];
@@ -615,6 +700,7 @@ export class Fsr3UpscalerRuntime {
 
   destroy(): void {
     this.bindGroups.clear();
+    this.nativeTemporal.destroy();
     if (this.destroyed) return;
     this.destroyed = true;
     this.abort();
@@ -657,7 +743,9 @@ export class Fsr3UpscalerRuntime {
         return texture;
       }) as [GPUTexture, GPUTexture];
     try {
+      const native = width === outputWidth && height === outputHeight;
       this.histories = {
+        policy: native ? "native-resolution" : "upscale",
         color: pair("color", "rgba16float", outputWidth, outputHeight),
         luma: pair("luma", "r16float", width, height),
         lumaHistory: pair("luma history", "rgba16float", width, height),
@@ -696,7 +784,10 @@ export class Fsr3UpscalerRuntime {
     const bytes = this.historyBytes(histories);
     if (gpuDone) this.retiredBytes += bytes;
     const destroy = (): void => {
-      for (const pair of Object.values(histories)) for (const texture of pair) texture.destroy();
+      for (const pair of Object.values(histories)) {
+        if (typeof pair === "string") continue;
+        for (const texture of pair) texture.destroy();
+      }
       if (gpuDone) this.retiredBytes -= bytes;
     };
     if (gpuDone) void gpuDone.then(destroy, destroy);

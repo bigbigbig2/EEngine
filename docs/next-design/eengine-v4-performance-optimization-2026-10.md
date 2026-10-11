@@ -33,6 +33,8 @@ verifies:
     - OEngine/src/render/program
     - OEngine/src/render/pipeline/RendererCore.ts
     - OEngine/src/render/temporal/NativeTemporalFactsPass.ts
+    - OEngine/src/render/temporal/NativeTemporalPasses.ts
+    - OEngine/src/shaders/native_temporal.ts
     - OEngine/src/shaders/native_surface_aux.ts
     - OEngine/src/render/TemporalFabric.ts
     - OEngine/src/render/passes/fsr3
@@ -248,7 +250,7 @@ Depth归约仍包括全部caster。新padded域被旧域包含时保持reverse-d
 
 这是第二主攻架构单元，不把目标限制为FSR源代码逐行parity。**按真实服务域选择policy**：internal=output采用Native Temporal Resolve；实际upscale仍由upscaler能力负责。唯一Temporal owner、同一commit/abort事务与FrameGraph；不永久保留“旧FSR benchmark renderer/new production renderer”。迁移期间reference仅oracle/离线fixture，切换后旧Native-AA执行图删除；有真实缩放consumer的FSR保留作为另一服务域，不是测试fallback。
 
-【源码事实】1:1完整链当前仍运行。代表full-2 pass P50/P95（ms）：Facts .747/1.090；Prepare .683/.707；Reactivity 1.077/1.358；ShadingSPD .832/.870；LumaSPD .197/.211；ShadingChange .059/.062；LumaInstability .475/.496；Accumulate 2.579/2.955；RCAS .278/.291；preExposure .0084/.0106。不能相加重建stage。clear locks timestamp0不证明无成本；SPD声明多mip也不证明未消费mip都逃过FrameGraph culling而被执行。
+【初始Before，不是最新执行图】1:1原完整链代表full-2 pass P50/P95（ms）：Facts .747/1.090；Prepare .683/.707；Reactivity 1.077/1.358；ShadingSPD .832/.870；LumaSPD .197/.211；ShadingChange .059/.062；LumaInstability .475/.496；Accumulate 2.579/2.955；RCAS .278/.291；preExposure .0084/.0106。不能相加重建stage。clear locks timestamp0不证明无成本；SPD声明多mip也不证明未消费mip都逃过FrameGraph culling而被执行。T3最新生产图与验收边界见执行§4.5。
 
 ### 4.1 先做同算法执行闭包，作为V2可退守的成果
 
@@ -275,6 +277,8 @@ Shading-change替换SPD为workgroup-local多尺度block均值有潜力；跨tile
 RCAS维持当前质量入口。若新resolve要代替锐化，需证明同质量/无HDRovershoot，不默认禁用或便宜近似。算法改变允许与当前不同，但须有可接受的质量结论；用户要求大胆设计不等于已接受细线、运动或HDR退化。
 
 ### 4.3 Cost Card：Temporal V2
+
+**T3实施后的设计修正（2026-10-11）**：重新设计的完整TAA/局部shading detector在冻结HDR、thin/运动/light-step门失败，拒绝采用；没有为了删除SPD改阈值。当前选择1:1专用执行重构：原Prepare/两种SPD保留质量消费者，Depth Classification→融合instability/thin-lock/当前重建的Native Resolve→原RCAS。删独立new-lock R8/instability R16产品、一个compute与locks clear；persistent history不缩。1:1固定滤波权重每帧计算一次，经96B产品传递；固定9tap静态寻址与16tap历史流式累计避免已实测的dynamic indexing/live-array税。仅精确整数texel中心时删除零支持历史tap，分数位置保留全部16点；浮点与数学等价分开验收。shared confidence和更宽motion intermediate成本候选亦撤回。局部完整链两轮正收益支持这个有界执行候选，但整帧Total/P95净收益和完整动态质量未通过，不能称原定全部算法重构或60FPS完成。以下原表仍为研究候选，不代表全部已采用；实际Cost Card与失败/After见执行§4.5。
 
 | 删除目标 | 新增工作 / 限制 |
 |---|---|

@@ -748,6 +748,34 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
     const cameraCut = await inspect();
     await tick();
     check(renderer._temporalFacts.readValid, "Settled retry did not restore native Temporal identity");
+    check(renderer._fsr3.policy === "native-resolution", "Actual 1:1 Renderer missed Native Temporal");
+    const nativePolicyGeneration = renderer._fsr3.generation;
+    renderer.setResolutionScale(0.75);
+    await tick();
+    check(renderer._fsr3.policy === "upscale", "Actual upscale frame used the native-only filter");
+    check(renderer._fsr3.generation > nativePolicyGeneration, "Policy transition retained incompatible history");
+    const upscalePolicyGeneration = renderer._fsr3.generation;
+    const upscaled = await inspect();
+    renderer.setResolutionScale(1);
+    await tick();
+    check(renderer._fsr3.policy === "native-resolution", "Native policy was not restored after upscale");
+    check(renderer._fsr3.generation > upscalePolicyGeneration, "Native policy return reused upscale history");
+    const nativeRestored = await inspect();
+    const restoredReadIndex = renderer._fsr3.readIndex;
+    const restoredGeneration = renderer._fsr3.generation;
+    fail = true;
+    let temporalAborted = false;
+    try {
+      renderer.render(camera, scene);
+    } catch (error) {
+      check(error.message.includes("injected native production abort"), `Unexpected native abort: ${error.message}`);
+      temporalAborted = true;
+    }
+    fail = false;
+    check(temporalAborted, "Native temporal abort was not exercised");
+    check(renderer._fsr3.readIndex === restoredReadIndex && renderer._fsr3.generation === restoredGeneration,
+      "Aborted native frame advanced physical history");
+    await tick();
     await Promise.resolve();
     renderer.frameAdmissionProfile = "throughput";
     const burstBegin = renderer.frame_count;
@@ -757,8 +785,13 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
     }
     const burstAdmission = renderer.frameSubmissionEvidence();
     check(burstAdmission.inFlight === 3, "Production burst did not retain all three bounded slots");
+    const deferredTemporalIndex = renderer._fsr3.readIndex;
+    const deferredTemporalJitter = renderer._fsr3.jitterEvidence();
     renderer.render(camera, scene);
     check(renderer.frame_count === burstBegin + 3, "Fourth production frame bypassed bounded admission");
+    check(renderer._fsr3.readIndex === deferredTemporalIndex &&
+      JSON.stringify(renderer._fsr3.jitterEvidence()) === JSON.stringify(deferredTemporalJitter),
+      "Admission-deferred frame advanced native history/jitter");
     await device.queue.onSubmittedWorkDone();
     await Promise.resolve();
     await Promise.resolve();
@@ -977,6 +1010,7 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
       resized,
       moved,
       cameraCut,
+      temporalPolicyTransitions: { upscaled, nativeRestored, abortRestored: true, deferRetained: true },
       burstAdmission: {
         capacity: burstAdmission.frameContextCapacity,
         inFlight: burstAdmission.inFlight,
