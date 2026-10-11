@@ -50,7 +50,10 @@ fn vsm_sampling_index(level: u32, mip: u32, world: vec2i, pages: u32) -> u32 {
 }
 `;
 
-export const VSM_SAMPLING_WGSL = /* wgsl */ `
+export function vsmSamplingWgsl(finalPixel = false): string {
+  const count = finalPixel ? "final_pixel_vsm_descriptor_count()" : "arrayLength(&vsm_sampling_descriptors)";
+  const descriptor = finalPixel ? "final_pixel_vsm_descriptor(index)" : "vsm_sampling_descriptors[index]";
+  return /* wgsl */ `
 ${VSM_SAMPLING_TYPES_WGSL}
 
 struct VsmPageQuery {
@@ -78,10 +81,10 @@ fn vsm_lookup(level: u32, light_xy: vec2f, mip: u32) -> VsmPageQuery {
     return VsmPageQuery(vsm_zero_entry(), level, VSM_QUERY_OUTSIDE, VSM_QUERY_OUTSIDE);
   }
   let index = vsm_sampling_index(level, mip, world, pages);
-  if (index >= arrayLength(&vsm_sampling_descriptors)) {
+  if (index >= ${count}) {
     return VsmPageQuery(vsm_zero_entry(), level, VSM_QUERY_MISSING, VSM_QUERY_MISSING);
   }
-  let descriptor = vsm_sampling_descriptors[index];
+  let descriptor = ${descriptor};
   // Keep the invocation-private query shape for unchanged PCF/debug consumers.
   // No unused management fields are fetched or kept live in Native.
   let entry = VsmPageEntry(descriptor.slot_x, descriptor.slot_y, mip, 0u,
@@ -250,3 +253,6 @@ fn vsm_debug_color(position_ws: vec3f, normal_ws: vec3f, sun_direction: vec3f,
   return vec3f(vsm_sample_directional(position_ws, normal_ws, incident));
 }
 `;
+}
+
+export const VSM_SAMPLING_WGSL = vsmSamplingWgsl();

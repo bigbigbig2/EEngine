@@ -7,7 +7,12 @@ import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import { resolveGpuEncoder } from "../../framegraph/FrameGraph.js";
 import type { GpuNativeMaterialPublication } from "../../gpu/GpuNativeMaterialPublication.js";
 import { GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS } from "../../gpu/GpuMeshletRasterWorkAbi.js";
-import { NATIVE_SURFACE_SETTINGS_BYTES } from "../../shaders/native_surface.js";
+import {
+  NATIVE_SURFACE_SETTINGS_BYTES,
+  FINAL_PIXEL_SURFACE_SETTINGS_BYTES,
+} from "../../shaders/native_surface.js";
+import { NATIVE_TEMPORAL_SEED_VIEW_BYTES } from "../../gpu/FinalPixelAbi.js";
+import { NATIVE_TEMPORAL_BACKGROUND_WGSL } from "../../shaders/native_temporal_seed.js";
 import { NativeExecutionBins, type NativeExecutionBinsBindings } from "./NativeExecutionBins.js";
 
 export interface NativeSurfaceGeometry {
@@ -57,12 +62,20 @@ export interface NativeSurfaceFrame {
   readonly routes: readonly NativeSurfaceRoute[];
   /** Demanded Temporal input. Owned by the Aux owner, not by SurfaceV4. */
   readonly reactive?: GPUTexture;
+  /** V5 target only. Temporal owns outputs and the successful-submit view roles. */
+  readonly temporal?: {
+    readonly seed: GPUTexture;
+    readonly identity: GPUTexture;
+    readonly view: Uint8Array<ArrayBuffer>;
+  };
 }
 
 export interface NativeSurfaceGraphProducts {
   readonly hdr: ResourceId;
   /** Written resource version, suitable for the subsequent Temporal read. */
   readonly reactive?: ResourceId;
+  readonly seed?: ResourceId;
+  readonly identity?: ResourceId;
 }
 
 interface RouteState {
@@ -92,6 +105,7 @@ interface ExtentState {
   readonly background: GPUTexture | undefined;
   readonly reactive: GPUTexture | undefined;
   readonly binBindings: NativeExecutionBinsBindings | null;
+  readonly backgroundSeedGroup?: GPUBindGroup;
 }
 
 /** Storage depends on extent/code, while frame products are late-bound. References
@@ -108,6 +122,7 @@ interface ExtentAllocation {
   readonly routeBuffers: ReadonlyArray<Readonly<{ constants: GPUBuffer; inputs: GPUBuffer }>>;
   readonly ownedHdr: GPUTexture | null;
   readonly initialHdr: GPUTexture | null;
+  readonly temporalView?: GPUBuffer;
   binSettings?: GPUBuffer;
   references: number;
 }
@@ -138,12 +153,28 @@ export class SurfaceV4 {
   // Attachment changes replace bind groups, not the ordered GPU scratch queue.
   // References include submitted retired states until their exact fences settle.
   private readonly accountingHandles = new Map<GPUBuffer | GPUTexture, ResourceHandle>();
+  private readonly backgroundSeedPipeline?: GPUComputePipeline;
 
   constructor(
     private readonly device: GPUDevice,
     private readonly reactive = false,
     private readonly graphics?: GraphicsContext,
+    /** Nonproduction V5 closure until an explicit FrameProgram cutover. */
+    private readonly finalPixel = false,
   ) {
+    if (finalPixel) {
+      if (!reactive || device.limits.maxStorageTexturesPerShaderStage < 4) {
+        throw new RangeError("Final Pixel requires HDR and all three Temporal products");
+      }
+      this.backgroundSeedPipeline = device.createComputePipeline({
+        label: "Final Pixel/empty scene Seed",
+        layout: "auto",
+        compute: {
+          module: device.createShaderModule({ code: NATIVE_TEMPORAL_BACKGROUND_WGSL }),
+          entryPoint: "main",
+        },
+      });
+    }
     this.ready = Promise.resolve();
     void device.lost.then(() => this.destroy());
   }
@@ -179,7 +210,10 @@ export class SurfaceV4 {
       [1, 1],
     );
     this.device.queue.writeTexture(
-      { texture: shadowVisibility }, new Uint32Array([0x01010101]), { bytesPerRow: 4 }, [1, 1],
+      { texture: shadowVisibility },
+      new Uint32Array([0x01010101]),
+      { bytesPerRow: 4 },
+      [1, 1],
     );
     this.neutralBuffers = [shadowConstants];
     this.neutralBuffers.forEach((buffer) => this.track(buffer, "buffer", buffer.size));
@@ -254,6 +288,7 @@ export class SurfaceV4 {
           width: frame.width,
           height: frame.height,
           bins: frame.publication.bins,
+          finalPixel: this.finalPixel,
         });
         await bins.ready;
       }
@@ -301,6 +336,8 @@ export class SurfaceV4 {
         frame.depth,
         frame.background,
         frame.reactive,
+        frame.temporal?.seed,
+        frame.temporal?.identity,
         frame.preExposure,
         frame.generationSource,
         ...Object.values(frame.geometry).flat(),
@@ -326,7 +363,9 @@ export class SurfaceV4 {
         }
       }
       const state = candidate ?? this.state!;
-      const data = new ArrayBuffer(NATIVE_SURFACE_SETTINGS_BYTES);
+      const data = new ArrayBuffer(
+        this.finalPixel ? FINAL_PIXEL_SURFACE_SETTINGS_BYTES : NATIVE_SURFACE_SETTINGS_BYTES,
+      );
       const words = new Uint32Array(data);
       const floats = new Float32Array(data);
       words.set(frame.geometry.source, 0);
@@ -335,6 +374,10 @@ export class SurfaceV4 {
       floats.set([...frame.cameraPosition, 1], 12);
       for (let index = 0; index < 16; index++) {
         floats[16 + index] = frame.viewMatrix[index]!;
+      }
+      if (frame.temporal) {
+        new Uint8Array(data).set(frame.temporal.view, NATIVE_SURFACE_SETTINGS_BYTES);
+        this.device.queue.writeBuffer(state.allocation.temporalView!, 0, frame.temporal.view);
       }
       this.device.queue.writeBuffer(state.settings, 0, data);
       this.device.queue.writeBuffer(
@@ -384,6 +427,35 @@ export class SurfaceV4 {
     }
     if (this.reactive !== (frame.reactive !== undefined)) {
       throw new Error("SurfaceV4 demanded reactive profile must match its physical outputs");
+    }
+    if (this.finalPixel !== (frame.temporal !== undefined)) {
+      throw new Error("Surface physical Seed profile must match its outputs");
+    }
+    if (frame.temporal) {
+      const temporalWords = new Uint32Array(frame.temporal.view.buffer, frame.temporal.view.byteOffset);
+      if (
+        frame.temporal.view.byteLength !== NATIVE_TEMPORAL_SEED_VIEW_BYTES ||
+        frame.temporal.seed.format !== "rgba32float" ||
+        frame.temporal.identity.format !== "rgba32uint" ||
+        temporalWords[64] !== frame.width ||
+        temporalWords[65] !== frame.height ||
+        temporalWords[66]! > 1 ||
+        !new Float32Array(frame.temporal.view.buffer, frame.temporal.view.byteOffset, 64).every(
+          Number.isFinite,
+        )
+      ) {
+        throw new RangeError("Final Pixel Seed violates its frozen ABI");
+      }
+      for (const texture of [frame.temporal.seed, frame.temporal.identity]) {
+        if (
+          texture.width !== frame.width ||
+          texture.height !== frame.height ||
+          texture.depthOrArrayLayers !== 1 ||
+          (texture.usage & GPUTextureUsage.STORAGE_BINDING) === 0
+        ) {
+          throw new RangeError("Final Pixel Seed requires complete writable extent");
+        }
+      }
     }
     for (const dimension of [frame.width, frame.height]) {
       if (
@@ -445,8 +517,9 @@ export class SurfaceV4 {
     }
     if (
       frame.reactive !== undefined &&
-      (frame.reactive.usage & (GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT)) !==
-        (GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT)
+      (frame.reactive.usage &
+        (GPUTextureUsage.STORAGE_BINDING | (this.finalPixel ? 0 : GPUTextureUsage.RENDER_ATTACHMENT))) !==
+        (GPUTextureUsage.STORAGE_BINDING | (this.finalPixel ? 0 : GPUTextureUsage.RENDER_ATTACHMENT))
     ) {
       throw new RangeError("SurfaceV4 reactive product requires STORAGE_BINDING and RENDER_ATTACHMENT usage");
     }
@@ -504,9 +577,12 @@ export class SurfaceV4 {
   private validateProfiles(frame: NativeSurfaceFrame): void {
     const compact = frame.publication.bins.length > 1;
     const product = frame.geometry.productHeap !== undefined;
+    const settingsBytes = this.finalPixel
+      ? FINAL_PIXEL_SURFACE_SETTINGS_BYTES
+      : NATIVE_SURFACE_SETTINGS_BYTES;
     if (
-      NATIVE_SURFACE_SETTINGS_BYTES > this.device.limits.maxUniformBufferBindingSize ||
-      NATIVE_SURFACE_SETTINGS_BYTES > Number(this.device.limits.maxBufferSize)
+      settingsBytes > this.device.limits.maxUniformBufferBindingSize ||
+      settingsBytes > Number(this.device.limits.maxBufferSize)
     ) {
       throw new RangeError("SurfaceV4 frame settings exceed negotiated uniform limits");
     }
@@ -531,9 +607,13 @@ export class SurfaceV4 {
         5,
         7,
         ...(this.reactive ? [8] : []),
+        ...(this.finalPixel ? [6, 9] : []),
         ...(product ? [10, 11, 12, 13, 14] : []),
         ...(geometry.some((entry) => entry.binding === 15) ? [15] : []),
       ];
+      if (this.finalPixel && frame.publication.continuation(route.programIndex) !== null) {
+        throw new Error("Final Pixel cannot admit a duplicate Surface continuation");
+      }
       const materialBindings = [0, 1, 3, 4, ...(compact ? [2] : [])];
       if (
         geometry.length !== geometryBindings.length ||
@@ -565,6 +645,9 @@ export class SurfaceV4 {
         geometry.find((entry) => entry.binding === 7)?.storageTexture?.format !== "rgba16float" ||
         (this.reactive &&
           geometry.find((entry) => entry.binding === 8)?.storageTexture?.format !== "rgba8unorm") ||
+        (this.finalPixel &&
+          (geometry.find((entry) => entry.binding === 6)?.storageTexture?.format !== "rgba32float" ||
+            geometry.find((entry) => entry.binding === 9)?.storageTexture?.format !== "rgba32uint")) ||
         (geometry.some((entry) => entry.binding === 15) &&
           (geometry.find((entry) => entry.binding === 15)?.storageTexture?.format !== "rgba32uint" ||
             geometry.find((entry) => entry.binding === 15)?.storageTexture?.viewDimension !== "2d-array" ||
@@ -737,6 +820,7 @@ export class SurfaceV4 {
         width: frame.width,
         height: frame.height,
         bins: frame.publication.bins,
+        finalPixel: this.finalPixel,
       });
     const resources: GPUBuffer[] = previous?.resources ?? [];
     let allocation: ExtentAllocation | null = previous;
@@ -762,7 +846,12 @@ export class SurfaceV4 {
       if (previous === null && preparedBins === undefined && this.graphics === undefined) {
         throw new Error("Synchronous SurfaceV4 construction requires the admitted graphics pipeline cache");
       }
-      const settings = previous?.settings ?? buffer(NATIVE_SURFACE_SETTINGS_BYTES);
+      const settings =
+        previous?.settings ??
+        buffer(this.finalPixel ? FINAL_PIXEL_SURFACE_SETTINGS_BYTES : NATIVE_SURFACE_SETTINGS_BYTES);
+      const temporalView = this.finalPixel
+        ? (previous?.temporalView ?? buffer(NATIVE_TEMPORAL_SEED_VIEW_BYTES))
+        : undefined;
       const shadingView = previous?.shadingView ?? buffer(16);
       const continuation = frame.routes.some(
         (route) => frame.publication.continuation(route.programIndex) !== null,
@@ -813,6 +902,12 @@ export class SurfaceV4 {
       ];
       if (frame.reactive !== undefined) {
         geometryEntries.push({ binding: 8, resource: createNativeTextureView(frame.reactive) });
+      }
+      if (frame.temporal) {
+        geometryEntries.push(
+          { binding: 6, resource: createNativeTextureView(frame.temporal.seed) },
+          { binding: 9, resource: createNativeTextureView(frame.temporal.identity) },
+        );
       }
       if (frame.geometry.productHeap !== undefined) {
         if (frame.geometry.productBanks === undefined) {
@@ -910,6 +1005,16 @@ export class SurfaceV4 {
                 frameInstances: frame.geometry.instances,
                 materialDirectory: frame.publication.directory,
                 generation: frame.generation,
+                ...(frame.temporal
+                  ? {
+                      temporal: {
+                        view: temporalView!,
+                        seed: createNativeTextureView(frame.temporal.seed),
+                        response: createNativeTextureView(frame.reactive!),
+                        identity: createNativeTextureView(frame.temporal.identity),
+                      },
+                    }
+                  : {}),
               },
               previous?.binSettings,
             )
@@ -926,6 +1031,7 @@ export class SurfaceV4 {
         routeBuffers: routes.map(({ constants, inputs }) => ({ constants, inputs })),
         ownedHdr: frame.output === undefined ? (finalHdr ?? hdr) : null,
         initialHdr: finalHdr === null ? null : hdr,
+        temporalView,
         binSettings: binBindings?.settings,
         references: 0,
       };
@@ -949,6 +1055,20 @@ export class SurfaceV4 {
         background: frame.background,
         reactive: frame.reactive,
         binBindings,
+        ...(this.finalPixel && bins.plan.mode === "empty"
+          ? {
+              backgroundSeedGroup: this.device.createBindGroup({
+                layout: this.backgroundSeedPipeline!.getBindGroupLayout(0),
+                entries: [
+                  { binding: 0, resource: { buffer: temporalView! } },
+                  { binding: 1, resource: createNativeTextureView(frame.temporal!.seed) },
+                  { binding: 2, resource: createNativeTextureView(frame.reactive!) },
+                  { binding: 3, resource: createNativeTextureView(frame.temporal!.identity) },
+                  { binding: 4, resource: createNativeTextureView(frame.visibility) },
+                ],
+              }),
+            }
+          : {}),
       };
     } catch (error) {
       if (binBindings !== null) {
@@ -1015,13 +1135,20 @@ export class SurfaceV4 {
         clearValue: { r: 0, g: 0, b: 0, a: 1 },
       });
     }
-    if (state.reactive !== undefined) {
+    if (state.reactive !== undefined && !this.finalPixel) {
       attachments.push({
         view: createNativeTextureView(state.reactive),
         loadOp: "clear",
         storeOp: "store",
         clearValue: { r: 0, g: 0, b: 0, a: 0 },
       });
+    }
+    if (state.backgroundSeedGroup) {
+      const background = encoder.beginComputePass({ label: "Final Pixel/empty scene Seed" });
+      background.setPipeline(this.backgroundSeedPipeline!);
+      background.setBindGroup(0, state.backgroundSeedGroup);
+      background.dispatchWorkgroups(Math.ceil(state.width / 8), Math.ceil(state.height / 8));
+      background.end();
     }
     if (attachments.length !== 0) {
       const initialize = encoder.beginRenderPass({
@@ -1070,12 +1197,16 @@ export class SurfaceV4 {
     graph: FrameGraph,
     dependencies: readonly ResourceId[],
     reactive?: ResourceId,
+    temporal?: { seed: ResourceId; identity: ResourceId },
   ): NativeSurfaceGraphProducts {
     if (!this.prepared) {
       throw new Error("SurfaceV4 frame must be prepared before graph construction");
     }
     if (this.reactive !== (reactive !== undefined)) {
       throw new Error("SurfaceV4 graph must declare every demanded reactive output");
+    }
+    if (this.finalPixel !== (temporal !== undefined)) {
+      throw new Error("Surface graph must declare both Seed and identity writers");
     }
     const state = this.preparedState;
     const hdr = graph.import_resource(
@@ -1096,7 +1227,12 @@ export class SurfaceV4 {
     dependencies.forEach((resource) => pass.read(resource));
     const output = pass.write(hdr);
     const reactiveOutput = reactive === undefined ? undefined : pass.write(reactive);
-    return Object.freeze({ hdr: output, reactive: reactiveOutput });
+    return Object.freeze({
+      hdr: output,
+      reactive: reactiveOutput,
+      seed: temporal ? pass.write(temporal.seed) : undefined,
+      identity: temporal ? pass.write(temporal.identity) : undefined,
+    });
   }
 
   commit(completion: Promise<void>): void {

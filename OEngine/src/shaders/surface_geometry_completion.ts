@@ -14,25 +14,9 @@ export function surfaceGeometryCompletionWgsl(
   product: boolean,
   rasterCache = false,
   diagnostics = true,
+  staged = false,
 ): string {
-  const corners = [0, 1, 2]
-    .map(
-      (corner) => /* wgsl */ `
-  var vertex_${corner}: u32;
-  ${rasterCache ? `if cached.valid { vertex_${corner} = surface_frame_corner(cached, decoded.local_primitive, ${corner}u); } else {` : ""}
-    vertex_${corner} = surface_source_triangle_corner(decoded.local_primitive, ${corner}u);
-  ${rasterCache ? "}" : ""}
-  if vertex_${corner} >= count.x { return result; }
-  var position_${corner}: vec3f;
-  if world_needed ${rasterCache ? "|| !cached.valid" : "|| true"} {
-    position_${corner} = surface_source_vertex_position(vertex_${corner});
-  }
-  if world_needed { result.position.p${corner} = transform * vec4f(position_${corner}, 1.0); }
-  var clip_${corner}: vec4f;
-  ${rasterCache ? `if cached.valid { clip_${corner} = surface_frame_clip(cached, vertex_${corner}); } else {` : ""}
-    clip_${corner} = instance.object_to_clip * vec4f(position_${corner}, 1.0);
-  ${rasterCache ? "}" : ""}
-  {
+  const attributes = (corner: number): string => /* wgsl */ `
     if (geometry_needs & ((1u << 5u) | (1u << 11u) | (1u << 14u))) != 0u {
       let normal = surface_source_vertex_normal(vertex_${corner});
       result.normal.p${corner} = vec4f(normals * normal.xyz, normal.w);
@@ -51,6 +35,27 @@ export function surfaceGeometryCompletionWgsl(
       result.uv2.p${corner} = vec4f(surface_source_vertex_uv(vertex_${corner}, 2u), 0.0, 0.0);
     }
     if (geometry_needs & (1u << 4u)) != 0u { result.color.p${corner} = surface_source_vertex_color(vertex_${corner}); }
+`;
+  const corners = [0, 1, 2]
+    .map(
+      (corner) => /* wgsl */ `
+  var vertex_${corner}: u32;
+  ${rasterCache ? `if cached.valid { vertex_${corner} = surface_frame_corner(cached, decoded.local_primitive, ${corner}u); } else {` : ""}
+    vertex_${corner} = surface_source_triangle_corner(decoded.local_primitive, ${corner}u);
+  ${rasterCache ? "}" : ""}
+  if vertex_${corner} >= count.x { return result; }
+  ${staged ? `result.vertices[${corner}] = vertex_${corner};` : ""}
+  var position_${corner}: vec3f;
+  if world_needed ${rasterCache ? "|| !cached.valid" : "|| true"} {
+    position_${corner} = surface_source_vertex_position(vertex_${corner});
+  }
+  if world_needed { result.position.p${corner} = transform * vec4f(position_${corner}, 1.0); }
+  var clip_${corner}: vec4f;
+  ${rasterCache ? `if cached.valid { clip_${corner} = surface_frame_clip(cached, vertex_${corner}); } else {` : ""}
+    clip_${corner} = instance.object_to_clip * vec4f(position_${corner}, 1.0);
+  ${rasterCache ? "}" : ""}
+  {
+    ${staged ? "" : attributes(corner)}
   }
 `,
     )
@@ -75,9 +80,33 @@ struct GeometryCompletion {
   position: GeometryCorners,
   world_plane: vec4f,
 }
-fn geometry_build_completion(key: u32) -> GeometryCompletion {
-  ${diagnostics ? "if settings.diagnostics != 0u { atomicAdd(&work_control[244u], 1u); }" : ""}
+${
+  staged
+    ? `struct GeometryResolved {
+  flags: u32,
+  vertices: vec3u,
+  coefficients: WinnerCoefficients,
+  position: GeometryCorners,
+  world_plane: vec4f,
+}
+// Uses invocation-private source addresses established by the one resolve.
+// No key decode, source_load, triangle lookup or position recovery here.
+fn geometry_complete_attributes(resolved: GeometryResolved, instance: OEngineFrameInstanceRecord) -> GeometryCompletion {
   var result: GeometryCompletion;
+  result.flags = resolved.flags;
+  result.position = resolved.position;
+  result.world_plane = resolved.world_plane;
+  result.coefficients = resolved.coefficients;
+  let transform = oengine_instance_current_object_to_world(instance.source);
+  let normals = mat3x3f(instance.normal_x.xyz, instance.normal_y, instance.normal_z.xyz) * sign(instance.normal_x.w);
+  ${[0, 1, 2].map((corner) => `{\nlet vertex_${corner} = resolved.vertices[${corner}];\n${attributes(corner)}\n}`).join("\n")}
+  return result;
+}`
+    : ""
+}
+fn geometry_build_completion(key: u32) -> ${staged ? "GeometryResolved" : "GeometryCompletion"} {
+  ${diagnostics ? "if settings.diagnostics != 0u { atomicAdd(&work_control[244u], 1u); }" : ""}
+  var result: ${staged ? "GeometryResolved" : "GeometryCompletion"};
   let decoded = oengine_visibility_key_resolve(key, meshlet_work.header.generation, meshlet_work.header.written_count);
   if decoded.valid == 0u { return result; }
   let work = meshlet_work.elements[decoded.meshlet_work_slot];
@@ -85,8 +114,8 @@ fn geometry_build_completion(key: u32) -> GeometryCompletion {
   return geometry_complete_resolved(decoded, work, instance);
 }
 fn geometry_complete_resolved(decoded: OEngineVisibilityKeyResolveResult,
-  work: OEngineMeshletRasterWork, instance: OEngineFrameInstanceRecord) -> GeometryCompletion {
-  var result: GeometryCompletion;
+  work: OEngineMeshletRasterWork, instance: OEngineFrameInstanceRecord) -> ${staged ? "GeometryResolved" : "GeometryCompletion"} {
+  var result: ${staged ? "GeometryResolved" : "GeometryCompletion"};
   ${rasterCache ? "let cached = surface_frame_geometry(decoded.meshlet_work_slot, decoded.local_primitive);" : ""}
   var count: vec2u;
   ${

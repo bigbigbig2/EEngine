@@ -3,14 +3,21 @@ import { LOCAL_LIGHT_TYPES_WGSL } from "../gpu/GpuLocalLightWorkAbi.js";
 import { LIGHTING_BRDF_MATH_WGSL, LIGHTING_BRDF_TYPES_WGSL } from "./lighting_brdf.js";
 
 /** New local-light consumer. Reads only finalized products; never owns work generation. */
-export const NATIVE_LOCAL_LIGHTING = {
-  declarations: /* wgsl */ `
+export function nativeLocalLighting(finalPixel = false): { declarations: string; source: string } {
+  const lookupDeclaration = finalPixel
+    ? ""
+    : "@group(1) @binding(2) var<storage, read> local_lookup: array<LocalLightLookup>;";
+  const lookup = finalPixel
+    ? "final_pixel_local_lookup(local_light_cluster(vec2u(pixel), view_depth, local_parameters))"
+    : "local_lookup[local_light_cluster(vec2u(pixel), view_depth, local_parameters)]";
+  return {
+    declarations: /* wgsl */ `
 ${LOCAL_LIGHT_TYPES_WGSL}
 @group(1) @binding(1) var<uniform> local_parameters: LocalLightParameters;
-@group(1) @binding(2) var<storage, read> local_lookup: array<LocalLightLookup>;
+${lookupDeclaration}
 @group(1) @binding(3) var<storage, read> local_data: LocalLightData;
 `,
-  source: /* wgsl */ `
+    source: /* wgsl */ `
 const PI: f32 = 3.1415926535897932384626433832795;
 const RECIPROCAL_PI: f32 = 0.318309886183790671537767526745028724;
 const EPSILON: f32 = 1e-6;
@@ -53,7 +60,7 @@ fn shade_standard_material_direct(material: StandardMaterial, geometry: SurfaceG
       native_local_accumulate(local_data.ids[local_data.all_offset + i], geometry, material, &reflected);
     }
   } else if local_data.mode == 2u {
-    let range = local_lookup[local_light_cluster(vec2u(pixel), view_depth, local_parameters)];
+    let range = ${lookup};
     for (var i = 0u; i < range.count; i++) {
       native_local_accumulate(local_data.ids[local_data.indices_offset + range.offset + i], geometry, material, &reflected);
     }
@@ -63,5 +70,8 @@ fn shade_standard_material_direct(material: StandardMaterial, geometry: SurfaceG
   }
   return reflected.diffuse + reflected.specular + material.emissive;
 }
-`
-};
+`,
+  };
+}
+
+export const NATIVE_LOCAL_LIGHTING = nativeLocalLighting();

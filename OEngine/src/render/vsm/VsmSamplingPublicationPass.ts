@@ -57,6 +57,8 @@ export class VsmSamplingPublicationPass {
       constants: ResourceId;
       pageTable: ResourceId;
       contentVersion: ResourceId;
+      /** Final frame-directory version, written only in this bounded segment. */
+      target?: { readonly resource: ResourceId; readonly offset: number; readonly size: number };
     },
   ): ResourceId {
     const count = vsmSamplingDescriptorCount(input.pages, input.levels);
@@ -73,17 +75,35 @@ export class VsmSamplingPublicationPass {
     ) {
       throw new RangeError("VSM sampling publication exceeds negotiated capacity");
     }
+    if (
+      input.target &&
+      (input.target.size !== bytes ||
+        input.target.offset < 0 ||
+        !Number.isSafeInteger(input.target.offset) ||
+        input.target.offset % this.device.limits.minStorageBufferOffsetAlignment !== 0)
+    ) {
+      throw new RangeError("VSM publication target must cover the complete aligned descriptor domain");
+    }
     let output = -1;
     const publish = graph.add("VSM/sampling descriptor publication", input, (data, resources, context) => {
       if (this.destroyed) {
         throw new Error("VSM sampling publication was destroyed before encoding");
+      }
+      if (data.target && (resources.get(output) as GPUBuffer).size < data.target.offset + data.target.size) {
+        throw new RangeError("VSM publication container omits part of the descriptor domain");
       }
       const group = this.groups.create(this.device, {
         layout: this.layout,
         entries: [
           { binding: 0, resource: { buffer: resources.get(data.constants) as GPUBuffer } },
           { binding: 1, resource: { buffer: resources.get(data.pageTable) as GPUBuffer } },
-          { binding: 2, resource: { buffer: resources.get(output) as GPUBuffer } },
+          {
+            binding: 2,
+            resource: {
+              buffer: resources.get(output) as GPUBuffer,
+              ...(data.target ? { offset: data.target.offset, size: data.target.size } : {}),
+            },
+          },
         ],
       });
       const pass = (context.encoder as ShadeGPUCommandContext).beginComputePass({
@@ -98,11 +118,13 @@ export class VsmSamplingPublicationPass {
     publish.read(input.pageTable);
     // The version is an ordering product: never use allocation as content-ready.
     publish.read(input.contentVersion);
-    output = publish.create("VSM/sampling descriptors", {
-      kind: "transient_buffer",
-      size: bytes,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
-    });
+    output = input.target
+      ? publish.write(input.target.resource)
+      : publish.create("VSM/sampling descriptors", {
+          kind: "transient_buffer",
+          size: bytes,
+          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+        });
     return output;
   }
 

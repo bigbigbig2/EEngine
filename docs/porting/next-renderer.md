@@ -14,6 +14,10 @@ verifies:
     - OEngine/src/shaders/surface_geometry_completion.ts
     - OEngine/src/shaders/native_material.ts
     - OEngine/src/gpu/GpuNativeMaterialPublication.ts
+    - OEngine/src/gpu/FinalPixelAbi.ts
+    - OEngine/src/shaders/atmosphere/runtime.ts
+    - OEngine/src/render/environment/FinalPixelSolarPublication.ts
+    - OEngine/tests/oracle/final-pixel-solar-gpu.mjs
     - OEngine/src/gpu/NativeMaterialBindings.ts
     - OEngine/src/gpu/NativeMaterialProducts.ts
     - OEngine/src/render/temporal/NativeTemporalFactsPass.ts
@@ -255,6 +259,10 @@ Adopt：保两球包含判断/最小合并中心及refine descendant conservativ
 | Original | 具名本地`NativeMaterialStraightLineCxy`、CompactPixelBins、finite raster count/prefix/scatter及immutable native publication；cooked half exact packed物理表示/显式原field采样；binding-limit所需的有限sun continuation（重算native inputs+HDR版本）；effect-owned Aux/Temporal生命周期与独立GPU/CPU oracles。没有合适的完整portable donor覆盖这些组合合同，因此本地适配设计，未伪称MaterialX/Wicked/Forge整套移植 |
 
 早期条目的Product/资源接线/真实device测试缺口是当时快照，不改写为首轮已通过。最终独立GPU authored graph与CPU cooked-field/HDR测试覆盖见execution；CPU ideal SampleGrad偏差、真实VG streaming/driver-fault恢复和production性能限制继续保留。开源参考不证明本地更快，native bins与资源限制拆分的全成本仍由本项目测量。
+
+### 2026-10-11：V5 Phase1非生产Final Pixel闭包
+
+Local复用上述Geometry/VSM/BRDF/IBL/Scene数学和原Temporal identity语义。Adapt仅把既有Takram `b012ad06d858fc035d88aacfd73f092f93c994e4` 的本地 `atmosphere_sun_irradiance` Sun LUT读取改为固定half-buffer normalized linear/clamp：`atmosphere/runtime.ts::atmosphereRuntimeWgsl(true)` → `FinalPixelAbi::final_pixel_solar_transmittance`，坐标/地平线/photometry仍共用原函数，MIT/Bruneton BSD及既有notices不变。本次未复制新的donor源码。Original是当帧分区publication、invocation内Sun/Seed与effect-owned submit事务；不伪称donor移植或native Temporal V2算法已实现。独立CPU插值/真实GPU filtered LUT、Native producer/Seed classifier和两个deviceepochs证据见[V5 Phase1报告](../performance/2026-10-11-final-pixel-phase1-closure.md)，仅非生产闭包，无性能/adoption提升。
 
 ### 2026-10-08：S2原子生产切换与来源证据边界
 

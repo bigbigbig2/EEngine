@@ -11,6 +11,52 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "final-pixel-seed-epoch",
+    file: "OEngine/tests/oracle/final-pixel-phase1-gpu.mjs",
+    url: "/OEngine/tests/oracle/final-pixel-phase1-gpu.mjs",
+    entry: "runFinalPixelSeedEpochGpuOracle",
+    description: "Real Seed producer/consumer and pending resize released on controlled device destruction, fresh invalid histories on two epochs.",
+    timeoutMs: 120000,
+  }),
+  Object.freeze({
+    name: "final-pixel-solar",
+    file: "OEngine/tests/oracle/final-pixel-solar-gpu.mjs",
+    url: "/OEngine/tests/oracle/final-pixel-solar-gpu.mjs",
+    entry: "runFinalPixelSolarGpuOracle",
+    description: "Unchanged half LUT publication and linear clamp samples against independent numeric and filtered provider references.",
+    timeoutMs: 120000,
+  }),
+  Object.freeze({
+    name: "final-pixel-phase1-minimum",
+    file: "OEngine/tests/oracle/final-pixel-phase1-gpu.mjs",
+    url: "/OEngine/tests/oracle/final-pixel-phase1-gpu.mjs",
+    entry: "runFinalPixelPhase1GpuOracle",
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    requiredFeatures: ["texture-formats-tier1", "texture-compression-bc"],
+    timeoutMs: 300000,
+    description: "Complete nonproduction V5 closure on 16 sampled / 16 storage binding limits, including real maximum material consumers.",
+  }),
+  Object.freeze({
+    name: "final-pixel-phase1",
+    file: "OEngine/tests/oracle/final-pixel-phase1-gpu.mjs",
+    url: "/OEngine/tests/oracle/final-pixel-phase1-gpu.mjs",
+    entry: "runFinalPixelPhase1GpuOracle",
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16, maxSampledTexturesPerShaderStage: 19 },
+    requiredFeatures: ["texture-formats-tier1", "texture-compression-bc"],
+    timeoutMs: 300000,
+    description:
+      "Nonproduction V5 single reconstruction/Sun/Seed to real Temporal consumer; full writer domains, direct directory producers and submit lifecycle.",
+  }),
+  Object.freeze({
+    name: "final-pixel-binding-boundary",
+    file: "OEngine/tests/oracle/final-pixel-phase1-gpu.mjs",
+    url: "/OEngine/tests/oracle/final-pixel-phase1-gpu.mjs",
+    entry: "runFinalPixelBindingBoundaryGpuOracle",
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    description: "The old sampled-limit counterexample compiles with fused Sun at the negotiated minimum limit, without continuation.",
+    timeoutMs: 120000,
+  }),
+  Object.freeze({
     name: "native-temporal-v2",
     file: "OEngine/tests/oracle/native-temporal-v2-gpu.mjs",
     url: "/OEngine/tests/oracle/native-temporal-v2-gpu.mjs",

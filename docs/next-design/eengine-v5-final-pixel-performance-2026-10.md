@@ -21,6 +21,10 @@ verifies:
     - OEngine/src/gpu/GpuInstanceAbi.ts
     - OEngine/src/gpu/GpuFrameInstanceAbi.ts
     - OEngine/src/gpu/GpuNativeMaterialPublication.ts
+    - OEngine/src/gpu/FinalPixelAbi.ts
+    - OEngine/src/render/environment/FinalPixelSolarPublication.ts
+    - OEngine/src/shaders/atmosphere/runtime.ts
+    - OEngine/src/shaders/native_temporal_seed.ts
     - OEngine/src/gpu/GpuNativeMaterialScene.ts
     - OEngine/src/gpu/GpuShadingPublication.ts
     - OEngine/src/gpu/GeometryProductAdmission.ts
@@ -33,7 +37,7 @@ verifies:
 
 本文件冻结下一阶段的**目标架构**：Logical VSM Separation + Physical Sun Fusion；Native Surface 单次昂贵重建并生成 Temporal Seed；1:1 Temporal 使用 previous-depth pull 的 Analyze → Resolve → sharpen 图。只选这一主架构。V5 是 Final Pixel 模块版本，继续遵守 [V4 Native Shading 母稿](eengine-v4-native-shading-2026-10.md)的全局不变量，不重建 Geometry Frontend。
 
-迁移与单元出口由[唯一执行 authority](../next-execution/eengine-v5-final-pixel-performance-execution-2026-10.md)管理。旧 V4 performance 两文保留历史证据，不再约束新目标。本文不追加候选实验日志；以后实验进入 `docs/performance/`，执行文只链接结果。本次交付不修改 production runtime/shader，也不授权自动实施。
+迁移与单元出口由[唯一执行 authority](../next-execution/eengine-v5-final-pixel-performance-execution-2026-10.md)管理。旧 V4 performance 两文保留历史证据，不再约束新目标。本文不追加候选实验日志；实验进入 `docs/performance/`，执行文只链接结果。最初架构冻结仅交付文档；后续用户授权Phase1非生产实施，当前范围与完成状态只读执行authority，不自动跨Phase。
 
 ## 1. Current source truth
 
@@ -227,6 +231,12 @@ atlas替换mask sampled slot（不多一个sampled texture），VSM constants替
 
 `GpuNativeMaterialScene::snapshot`已经按真实provider占用给physical banks留容量；atlas替mask不缩材质纹理预算。仍须覆盖手动Native publication、Product reads、MASK、compact/unlit、AO on/off和minimum-device profile。**不保留会重建Surface的additiveSun continuation**；它与HDR copy/第二HDR在同一cutover退休。若受支持的完整域经co-location仍确实不能合法绑定，属于fundamental capability证据，停止该cutover并正式修订authority；不得静默丢texture、缩支持域、增GBuffer或留下第二production架构。这项证明是Phase 1必须交付的实现前闭包，不假称文档已让所有shader合法。
 
+Final Pixel 的最终 provider 表示：固定256×64 RGBA16F Sun transmittance 以原始 half 字节占 lighting container 中紧随 descriptor 的128KiB区间。PhysicalEnvironment仍拥有并更新源LUT；同一个frame encoder在源LUT写版本之后、Native之前执行一次固定 `copyTextureToBuffer`。local lookup/VSM descriptor仍直接写最终区间，禁止容量级中转copy。无额外storage binding、screen product或history；Sun uniform保留，删除其texture/sampler binding，sampled变为 **6+M+P**，保持旧主shader的完整材质域且无continuation。descriptor区间先放、Solar随后、lookup对齐；padding与16B范围uniform合计≤256B，Solar128KiB另列成本，不能掩盖在padding预算中。
+
+Sun采样用原始half解码与normalized linear/clamp bilinear；world/altitude/finite solar disk/horizon/photometry保持同一函数。ADD是每帧128KiB写、原四texel逻辑读取转为四组buffer读取（32B/shaded Sun pixel）、half decode/插值ALU和Native live-state；这32B替代原硬件filter的texel读取，不可宣称免费或新增整屏copy。原LUT与buffer片段均128KiB working set；同frame只保留完整有效版本，无CPU读回或额外submit。相对删除独立receiver reconstruction、mask与continuation，理想成本仍有正删除项；预期break-even要求删除耗时超过provider copy/manual interpolation/live-state税，最终Phase2/6实测。0/50/100%删除兑现统一扣除新增成本，0%情形拒绝cutover。
+
+这一表示修订由旧合法layout的能力反例触发（16 sampled limit、M=10：原目标17，旧primary16/continuation14），用户随后明确“继续”。它只改变Phase1内provider传输candidate，B的geometry-once/physical fusion目标及支持域不变。[执行§4.2](../next-execution/eengine-v5-final-pixel-performance-execution-2026-10.md#42-binding-contract-amendment)冻结迁移合同，实验及raw索引在performance report。不得保留旧17-slot目标作为第二production path。
+
 ### 6.3 Shadow Cost Card
 
 DELETE：一full I dispatch、全部重复receiver recovery、mask容量1.98MiB、N B顺序写与4V B逻辑读、2barriers/288B shared、dependency边；有限continuation的第二geometry/material/HDRcopy。ADD：Native descriptor access/PCF live scopes、至多1sampler、极小directory header/alignment；初始per-pixel lookup失去S3组内广播，新增cold layout/pipeline。PCF自身、atlas、descriptor publication、VSM管理**未删除**。
@@ -395,4 +405,4 @@ Geometry Frontend（Scene、VG、Hierarchy、LOD、HZB、MeshletWork、Visibilit
 | [Filament 764fe6cac9bdb4ba24d3d852344dfa04a5f70f75 surface_shadowing](https://github.com/google/filament/blob/764fe6cac9bdb4ba24d3d852344dfa04a5f70f75/shaders/src/surface_shadowing.fs)，Apache-2.0 | 完整shadow源码中`ShadowSample_PCF_Low`为comparison/Gaussian；拒绝当当前point box替代。保留本地精确point footprint推导；reference only |
 | [WGSL editor draft](https://gpuweb.github.io/gpuweb/wgsl/#texturegather)，检查日2026-10-11 | textureGather、storage format、uniform barrier约束据规范与实际device limits核对；图级dispatch边不能由workgroupBarrier代替。规范无保证fusion性能或Native必须scatter的条款 |
 
-Local：当前geometry、VSM residency/descriptors、native compiler、Temporal事务。Reference：上表与[既有porting source map](../porting/next-renderer.md)。Adapt：effect ownership保留、WebGPU boundedbindings、single submit。Original：本V5 fusion/Seed/pull图和cost选择。仅研究/设计，未移植新代码、未运行donor、未取得新GPU数据，不提升adoption或performance claim。后续实际复制源码时在原porting账本补具体函数/notice与GPU映射，不新增重复authority。
+Local：当前geometry、VSM residency/descriptors、native compiler、Temporal事务。Reference：上表与[既有porting source map](../porting/next-renderer.md)。Adapt：effect ownership保留、WebGPU boundedbindings、single submit。Original：本V5 fusion/Seed/pull图和cost选择。最初冻结仅研究/设计；后续非生产Phase1的本地复用/传输适配与GPU证据由porting/执行/报告分别记录，均不提升整算法adoption或performance claim。实际复制源码须在原porting账本补具体函数/notice与GPU映射，不新增重复authority。

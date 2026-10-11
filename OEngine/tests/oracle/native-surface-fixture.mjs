@@ -438,6 +438,8 @@ export async function createNativeSurfaceFixture(
       height: HEIGHT,
       generation: GENERATION,
       workCount,
+      frameGeometryLayout: arena.layout,
+      residentPayloadBase: attributeWordBase,
       visibility,
       depth,
       background,
@@ -451,7 +453,7 @@ export async function createNativeSurfaceFixture(
         source: [0, geometryWords, 0, triangleWordBase],
         sourcePayload: [0, 0, 0, arena.layout.header.offset / 4],
       },
-      vsm: { constants: vsmConstants, descriptors: samplingDescriptors, atlas, shadowVisibility, shadowResolve },
+      vsm: { constants: vsmConstants, descriptors: samplingDescriptors, pageTable, atlas, shadowVisibility, shadowResolve },
       sparseShading: {
         assetMetadataHeap: sourceMetadata,
         vertexPayloadHeap: vertexPayload,

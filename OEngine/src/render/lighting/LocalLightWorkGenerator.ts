@@ -63,6 +63,9 @@ export interface LocalLightView {
 }
 
 export interface LocalLightWorkRequest {
+  /** Optional final frame-directory segment; caller owns its completion fence.
+   * The producer writes it directly. No private lookup allocation or copy. */
+  readonly lookupTarget?: GPUBufferBinding;
   readonly publication: LocalLightPublication;
   readonly view: LocalLightView;
   readonly frameIndex: number;
@@ -85,6 +88,8 @@ interface Allocation {
   readonly parameters: GPUBuffer;
   readonly settings: GPUBuffer;
   readonly lookup: GPUBuffer;
+  readonly lookupBinding: GPUBufferBinding;
+  readonly ownsLookup: boolean;
   readonly data: GPUBuffer;
   readonly scratch: GPUBuffer;
   readonly indirect: GPUBuffer;
@@ -100,6 +105,7 @@ interface Allocation {
 export interface LocalLightWorkFrame {
   readonly parameters: GPUBuffer;
   readonly lookup: GPUBuffer;
+  readonly lookupBinding: GPUBufferBinding;
   readonly data: GPUBuffer;
   readonly lightingEntries: readonly GPUBindGroupEntry[];
   readonly request: LocalLightWorkRequest;
@@ -123,6 +129,8 @@ export class LocalLightWorkGenerator {
     }
   >();
   private disposed = false;
+  private readonly targetIds = new WeakMap<GPUBuffer, number>();
+  private nextTargetId = 1;
   readonly ready: Promise<void>;
 
   constructor(
@@ -302,7 +310,20 @@ export class LocalLightWorkGenerator {
     // A WGSL runtime array requires one element even when the logical payload is empty.
     const dataBytes = (LOCAL_LIGHT_HEADER_WORDS + Math.max(1, 2 * n + capacity)) * 4;
     const sizes = [128, 32, clusters * 8, dataBytes, Math.max(4, scratchWords * 4), 16];
-    const bytes = sizes.reduce((sum, size) => sum + size, 0) + scanStages.length * 16;
+    const target = request.lookupTarget;
+    if (
+      target &&
+      ((target.buffer.usage & (GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST)) !==
+        (GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST) ||
+        (target.offset ?? 0) % this.device.limits.minStorageBufferOffsetAlignment !== 0 ||
+        (target.size ?? target.buffer.size - (target.offset ?? 0)) !== sizes[2] ||
+        (target.offset ?? 0) < 0 ||
+        (target.offset ?? 0) + sizes[2]! > target.buffer.size)
+    ) {
+      throw new RangeError("LocalLightWork target must be the complete aligned lookup segment");
+    }
+    const bytes =
+      sizes.reduce((sum, size) => sum + size, 0) + scanStages.length * 16 - (target ? sizes[2]! : 0);
     if (bytes > LOCAL_LIGHT_FRAME_BUDGET) {
       throw new RangeError("LocalLightWork view exceeds the negotiated 6MiB frame profile");
     }
@@ -311,7 +332,12 @@ export class LocalLightWorkGenerator {
         throw new RangeError("LocalLightWork exceeds device buffer limits");
       }
     }
-    const key = `${width}/${height}/${n}/${capacity}/${sparse}`;
+    let targetId = 0;
+    if (target) {
+      targetId = this.targetIds.get(target.buffer) ?? this.nextTargetId++;
+      this.targetIds.set(target.buffer, targetId);
+    }
+    const key = `${width}/${height}/${n}/${capacity}/${sparse}/${targetId}/${target?.offset ?? 0}`;
     let allocation = this.allocations.find((value) => value.key === key && value.state === "free");
     if (!allocation) {
       for (const previous of [...this.allocations]) {
@@ -350,10 +376,13 @@ export class LocalLightWorkGenerator {
         }
         return buffer;
       };
+      const lookup = target?.buffer ?? create("lookup", sizes[2]!, GPUBufferUsage.STORAGE);
       allocation = {
         parameters: create("parameters", sizes[0]!, GPUBufferUsage.UNIFORM),
         settings: create("settings", sizes[1]!, GPUBufferUsage.UNIFORM),
-        lookup: create("lookup", sizes[2]!, GPUBufferUsage.STORAGE),
+        lookup,
+        lookupBinding: target ? { ...target } : { buffer: lookup },
+        ownsLookup: target === undefined,
         data: create("data", sizes[3]!, GPUBufferUsage.STORAGE),
         scratch: create("scratch", sizes[4]!, GPUBufferUsage.STORAGE),
         indirect: create("indirect", sizes[5]!, GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT),
@@ -437,20 +466,21 @@ export class LocalLightWorkGenerator {
         { binding: 2, resource: { buffer: request.publication.buffer } },
         { binding: 3, resource: { buffer: allocation.data } },
         { binding: 4, resource: { buffer: allocation.scratch } },
-        { binding: 5, resource: { buffer: allocation.lookup } },
+        { binding: 5, resource: allocation.lookupBinding },
       ],
     });
     allocation.state = "prepared";
     const frame: LocalLightWorkFrame = {
       parameters: allocation.parameters,
       lookup: allocation.lookup,
+      lookupBinding: allocation.lookupBinding,
       data: allocation.data,
       request,
       reservedBytes: bytes,
       lightingEntries: [
         { binding: 0, resource: { buffer: request.publication.buffer } },
         { binding: 1, resource: { buffer: allocation.parameters } },
-        { binding: 2, resource: { buffer: allocation.lookup } },
+        { binding: 2, resource: allocation.lookupBinding },
         { binding: 3, resource: { buffer: allocation.data } },
       ],
     };
@@ -507,7 +537,11 @@ export class LocalLightWorkGenerator {
     const encoder = command.gpu_encoder;
     encoder.clearBuffer(allocation.scratch);
     encoder.clearBuffer(allocation.indirect);
-    encoder.clearBuffer(allocation.lookup);
+    encoder.clearBuffer(
+      allocation.lookup,
+      allocation.lookupBinding.offset ?? 0,
+      allocation.lookupBinding.size ?? allocation.lookup.size,
+    );
     if (frame.request.mode !== 2 || frame.request.publication.ids.length === 0) {
       return;
     }
@@ -524,7 +558,7 @@ export class LocalLightWorkGenerator {
         { binding: 2, resource: { buffer: frame.request.publication.buffer } },
         { binding: 3, resource: { buffer: allocation.data } },
         { binding: 4, resource: { buffer: allocation.scratch } },
-        { binding: 5, resource: { buffer: allocation.lookup } },
+        { binding: 5, resource: allocation.lookupBinding },
         { binding: 6, resource: { buffer: allocation.indirect } },
         { binding: 7, resource: visibility },
         { binding: 8, resource: depth },
@@ -700,7 +734,7 @@ export class LocalLightWorkGenerator {
     for (const buffer of [
       allocation.parameters,
       allocation.settings,
-      allocation.lookup,
+      ...(allocation.ownsLookup ? [allocation.lookup] : []),
       allocation.data,
       allocation.scratch,
       allocation.indirect,

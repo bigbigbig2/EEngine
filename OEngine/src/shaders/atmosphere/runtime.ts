@@ -1,7 +1,9 @@
 /** Runtime Bruneton/Takram sampling for the pinned Earth LUT profile. */
 import { ATMOSPHERE_WORLD_COORDINATES_WGSL } from "./coordinates.js";
 
-export const ATMOSPHERE_RUNTIME_WGSL = /* wgsl */ `
+/** Buffer transport changes only the Sun LUT load; default production is unchanged. */
+export function atmosphereRuntimeWgsl(bufferSolar = false): string {
+  return /* wgsl */ `
 ${ATMOSPHERE_WORLD_COORDINATES_WGSL}
 const ATMOSPHERE_BOTTOM_RADIUS: f32 = 6360.0;
 const ATMOSPHERE_TOP_RADIUS: f32 = 6420.0;
@@ -37,15 +39,14 @@ fn atmosphere_transmittance_uv(r: f32, mu: f32) -> vec2f {
 // Takram common.getTransmittanceToSun / AtmosphereLightNode.setupDirect,
 // b012ad06d858fc035d88aacfd73f092f93c994e4. Preserve finite solar disk at horizon.
 // Copyright/conditions: tools/atmosphere-port/upstream/atmosphere/LICENSE (MIT/BSD).
-fn atmosphere_sun_irradiance(world: vec3f, environment: PhysicalEnvironmentParameters,
-  trans: texture_2d<f32>, s: sampler) -> vec3f {
+fn atmosphere_sun_irradiance(world: vec3f, environment: PhysicalEnvironmentParameters${bufferSolar ? "" : ",\n  trans: texture_2d<f32>, s: sampler"}) -> vec3f {
   let point=atmosphere_world_to_planet(world,environment.world_to_unit);
   let radius=atmosphere_clamp_radius(length(point));
   let cosine=clamp(dot(normalize(point),normalize(environment.sun_direction_world)),-1.0,1.0);
   let sin_horizon=ATMOSPHERE_BOTTOM_RADIUS/radius;
   let cos_horizon=-sqrt(max(1.0-sin_horizon*sin_horizon,0.0));
   let horizon=smoothstep(-sin_horizon*0.004675,sin_horizon*0.004675,cosine-cos_horizon);
-  let transmission=textureSampleLevel(trans,s,atmosphere_transmittance_uv(radius,cosine),0.0).rgb*horizon;
+  let transmission=${bufferSolar ? "final_pixel_solar_transmittance(atmosphere_transmittance_uv(radius,cosine))" : "textureSampleLevel(trans,s,atmosphere_transmittance_uv(radius,cosine),0.0).rgb"}*horizon;
   return environment.sun_irradiance*transmission*
     vec3f(98242.786222,69954.398112,66475.012354)*ATMOSPHERE_LUMINANCE_SCALE;
 }
@@ -116,3 +117,6 @@ fn atmosphere_to_point(camera: vec3f, point: vec3f, sun: vec3f, trans: texture_2
   return AtmosphereTransport(t, radiance);
 }
 `;
+}
+
+export const ATMOSPHERE_RUNTIME_WGSL = atmosphereRuntimeWgsl();

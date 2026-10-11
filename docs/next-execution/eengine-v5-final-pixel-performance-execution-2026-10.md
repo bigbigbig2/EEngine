@@ -20,6 +20,14 @@ verifies:
     - OEngine/src/gpu/GpuNativeMaterialPublication.ts
     - OEngine/src/gpu/GpuNativeMaterialScene.ts
     - OEngine/src/gpu/GpuInstanceAbi.ts
+    - OEngine/src/gpu/FinalPixelAbi.ts
+    - OEngine/src/render/environment/FinalPixelSolarPublication.ts
+    - OEngine/src/render/temporal/NativeTemporalSeed.ts
+    - OEngine/src/shaders/native_temporal_seed.ts
+    - OEngine/src/shaders/atmosphere/runtime.ts
+    - OEngine/tests/oracle/final-pixel-phase1-gpu.mjs
+    - OEngine/tests/oracle/final-pixel-solar-gpu.mjs
+    - OEngine/tests/contract/final-pixel-phase1.test.mjs
     - OEngine/src/framegraph/FrameGraph.ts
     - OEngine/tests/oracle/native-temporal-v2-gpu.mjs
     - tools/gpu-oracle/registry.mjs
@@ -29,14 +37,14 @@ verifies:
 
 # EEngine V5 Final Pixel Execution Authority
 
-唯一目标是[V5 Design](../next-design/eengine-v5-final-pixel-performance-2026-10.md)。本文件管理迁移单元、合同、验证、cutover与退休；候选实验进入`docs/performance/`，不追加到目标设计。source baseline `49fcaa300fafcbbe3db142df403baa3487f89956`。**本次只交付设计/计划与workstream导航；实施尚未开始，等待用户审核后另行授权。** 不自动编码、提交或启动GPU benchmark。
+唯一目标是[V5 Design](../next-design/eengine-v5-final-pixel-performance-2026-10.md)。本文件管理迁移单元、合同、验证、cutover与退休；候选实验进入`docs/performance/`，不追加到目标设计。source baseline `49fcaa300fafcbbe3db142df403baa3487f89956`。用户已授权“提交代码并开始phase1”，随后明确“继续”；authority先提交为 `e2ebed8`。当前范围是Phase1非生产完整替代闭包，生产接线须等后续Phase2/3，不能把prototype验证称生产性能/动态画质验收。
 
 ## 1. Phase 顺序、依赖与状态
 
 | Phase | 大架构单元 / 必须删除的工作 | 依赖 / 当前状态 |
 |---|---|---|
-| 0 | Source truth、目标图、数据/质量/成本合同冻结 | 本次文档交付；等待审核，无新GPU验证 |
-| 1 | Final Pixel publication / Native Seed非生产完整闭包，替代重复恢复链，合法binding与唯一写域 | 0审核；未开始 |
+| 0 | Source truth、目标图、数据/质量/成本合同冻结 | 用户已授权实施；文档提交e2ebed8 |
+| 1 | Final Pixel publication / Native Seed非生产完整闭包，替代重复恢复链，合法binding与唯一写域 | 非生产闭包完成；§4.2绑定修正已验证，§4.3记录出口及未获生产资格项 |
 | 2 | Shadow Physical Execution cutover：full I Shadow Resolve / mask / 重复continuation退休 | 1；未开始 |
 | 3 | Temporal Seed cutover：Native→全部Temporal consumers；Facts恢复pass / 旧Aux退休 | 1、2；未开始 |
 | 4 | Native Temporal V2完整图：native scatter / Prepare / SPD / source histories退休 | 3；未开始 |
@@ -123,6 +131,32 @@ Cost gate：替代图无Shadow/Facts昂贵恢复，Seed写36B高于旧32B、unli
 
 开发：typecheck、生成WGSLcompile、小motion/depth/identity/PCF/partial oracle、必要事务。闭合：architecture review→fresh build:test→实际prototype GPU producer/consumer与3inflight lifecycle。**不每helper跑Dungeon，不用prototype帧时否定B/V2**。出口停Phase2。
 
+### 4.1 非生产闭包与cutover seam
+
+实际替代链：原GPU visibility/coverage与bins→local直接写lookup区间→VSM post-content descriptor直接写descriptor区间→Solar原始LUT发布→Native staged winner/position一次恢复→Seed写→原VSM point-PCF→attributes/material/local/IBL/Sun→HDR；Seed classifier读Seed/response/current及previous identity，产旧Temporal mask语义。classifier不绑定Visibility/Depth/Scene/geometry。非生产测试引用独立S3 reference；RendererCore/FrameProgramLowering均未选择新profile，无第二runtime renderer或selector。
+
+Native32B directory携带原signature/valueRevision，raster专用directory仍16B；目标publication不分配无consumer的separate versions。`finalPixel`选择完整Sun+Seed四输出；`fusedSun`是Phase2原子cutover seam，只选择同一Sun实现并保留旧16B directory/opaqueReactive语义，两输出且无Seed资源。Phase3才一次切到32B directory/Temporal owner/全部Seed消费者，删Facts与separateversions；这两个是迁移阶段配置，不能作为长期双production路径。
+
+写域：dense Native写所有合法extent像素；compact classifier只写未分配像素，Native负责所有已分配像素包括completion failure；empty-domain专用sky/invalid writer。测试先poison三输出，不能靠clear掩盖遗漏。Seed16B、response4B、identity16B；identitypair32B、scratch20B，owner共52B/pixel（1080p102.83MiB），classifier另4B transient mask（7.91MiB）。current/previous camera/jitter/P和identity角色只在成功submit一起推进；abort/defer/domain/resize回滚，旧资源按最后consumer fence退休，三inflight复用由队列顺序保证，deviceepoch重建无历史沿用。
+
+DELETE（prototype替代链）：Shadow receiver二次position/normal恢复及mask、Facts昂贵geometry-dependent恢复、Sun continuation的再次geometry/material和HDR中转；local私有lookup与独立descriptor consumer binding、separateversions目标副本。ADD：Native motion/predicted-depth/identity与unlit position、36B Native产品写、4B classifier写、lookup/descriptor范围uniform≤16B与padding≤240B、Solar128KiB/frame、staged Native live-state。旧producer写opaque4+Facts28=32B；目标Native36+classifier4=40B，临时增加8B/pixel写（1080p15.82MiB），不得只报告Seed额外4B；最终native Analyze将吸收classifier。完整Cost Card继承Design§5/§6/§8，编译成功不证明DELETE>ADD已实测。
+
+### 4.2 Binding contract amendment
+
+原Solar sampled候选C0的反例：Product+compact、Bm=1、16 storage/16 sampled device、M=10材质布局。旧S3 primary16 sampled/continuation14合法且真实GPU编译；原融合候选17，不能保留continuation、缩材质域或抬oracle device limit。**C0 rejected，B architecture不被否定。** 用户“继续”后在Phase1内采用C1 provider-buffer candidate，质量/支持域不变。
+
+C1合同：container布局descriptor16B/item→Solar256×64×8B→aligned local lookup8B/item；四u32范围uniform仍16B，Solaroffset由descriptor区间末端精确推导。Solar源texture原有COPY_SRC，写版本之后在同encoder copy固定131072B；只改变Sun direct consumer transport，sourceAtmosphere/IBL/Sky消费者不改。总storage仍15+Bm，总sampled6+M+P，输出4storage；无Sun texture/sampler binding，增加VSM nonfiltering sampler。GPU必须实测16/16/4和16/19/4、真实M10/M13纹理读取+Bm1+Product+compact，旧reference合法continuation只在test内。
+
+Cost Card补项：ADD128KiB frame-container片段与128KiB copy、一次图级copy边、four-half-texel bufferloads/unpack/linear clamp ALU；无atomics、shared、WGbarrier、compute dispatch或额外submit。原LUT128KiB仍在PhysicalEnvironment，共256KiB provider working set，替代原filtered four-texel逻辑32B读取的访存类型；expected短scope降低live-set，worstbuffer/ALU/occupancy税覆盖删除收益。不能由最少pass声称收益。Solar CPUoracle误差≤2^-20，旧filtered-provider比较沿用.003，不改全Renderer动态quality门。旧receiver depth-world和新bary-world在恰好page边界的f32差异单列，不豁免Phase2 quality子矩阵。
+
+### 4.3 Phase1出口与剩余边界
+
+2026-10-11 architecture review按原单元合同核对：完整Native profile无第二geometry-resolve、旧Shadow product或目标continuation；local/VSM/Solar实际生产者→最终container→Native、Native三产品→classifier→inspect全部闭合；目录/rasterABI、完整writer域、preflight/capacity、submit/abort/defer/resize/domain/三inflight/fence及两真实deviceepoch通过。生产FrameProgram/RendererCore未切换，新owner仅由test-only graph构建；没有legacy bridge或第二production选择器。
+
+Engine build/typecheck、fresh build:test、受影响41项Node、16/16/4与16/19/4 device完整GPU闭包、Solar独立numeric、controlled epoch及原VSM/native profile/bins/local GPU回归通过。原失败、设备、source/outputSHA、范围及raw入口集中在[Phase1报告](../performance/2026-10-11-final-pixel-phase1-closure.md)。全量Node额外检查有未修复范围外失败及未退出worker，**不宣称全套通过**；未修改Geometry Frontend或删除断言。
+
+没有production性能/quality资格：页边界receiver arithmetic差异未获完整动态shadow质量资格；1080p动态矩阵、productionGPU、DungeonABBA、P50/P95/P99、4GB simultaneous peak与register/spill/occupancy仍由Phase2/6核验。Phase1完成只表示非生产替代链、绑定可行性与生命周期闭包，不表示Phase2/3或TemporalV2已完成，也不构成Architecture falsification。出口停Phase2，后续需用户授权该完整单元。
+
 ## 5. Phase 2 — Shadow Physical Execution cutover
 
 目标：唯一production Native Sun直接消费post-content-commit VSM合同、geometry once，ordinary/Product/compact/unlit中立/resource profiles/debug全闭合。
@@ -207,6 +241,4 @@ docs运行`node tools/docs-verify.mjs`与`git diff --check`；raw/source/build/�
 
 ## 12. 本次交付边界
 
-已交付architecture与可执行合同；V5 runtime实施、WGSLcompile、build:test、GPUoracle、动态quality、Dungeon与register/spill/cache/DRAM检查均**本次未运行**。历史数据不当V5After；docs/diff验证在回复报告。
-
-可以直接开工表示：sourcebaseline、真正重复、唯一目标、产品/bytes/bindings/writer域、全部consumercutover/lifecycle、DELETE/ADD、quality门/节奏/证伪明确；不承诺未生成shader已更快/画质已过。下一行动仅用户审核后Phase1，本次STOP。
+已提交V5 authority并在用户授权范围内完成Phase1非生产闭包：source-derived contracts已有实际shader/profile、producer/consumer与生命周期验证。结果与范围外失败见§4.3及报告。尚未生产cutover，没有整体动态quality/正式performance/寄存器验收，不把compile/oracle称性能收益。后续第一单元为Phase2 Shadow physical cutover，保持既定geometry-once/fusion方向及quality门；本轮在该边界STOP。

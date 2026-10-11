@@ -3,6 +3,8 @@ import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { GPU_FRAME_INSTANCE_WGSL } from "../gpu/GpuFrameInstanceAbi.js";
 import { NATIVE_MATERIAL_DIRECTORY_WGSL } from "../gpu/GpuNativeMaterialPublication.js";
+import { FINAL_PIXEL_DIRECTORY_WGSL } from "../gpu/FinalPixelAbi.js";
+import { nativeTemporalSeedWgsl } from "./native_temporal_seed.js";
 
 /** One 12B tile record with an exact 64-bit coverage mask. Bin metadata
  * retains the 32B indirect ABI; counts/dispatches now count tiles, not pixels. */
@@ -12,12 +14,20 @@ export const NATIVE_EXECUTION_TILE_WORDS = 3;
 export const NATIVE_EXECUTION_WORKGROUP_SIZE = 64;
 export const NATIVE_EXECUTION_SHARED_BYTES = 2064;
 
-export const NATIVE_EXECUTION_CLASSIFY_WGSL = /* wgsl */ `
+export function nativeExecutionClassifyWgsl(finalPixel = false): string {
+  return /* wgsl */ `
 ${GPU_MESHLET_RASTER_WORK_WGSL}
 ${GPU_VISIBILITY_KEY_WGSL}
 ${GPU_INSTANCE_RECORD_WGSL}
 ${GPU_FRAME_INSTANCE_WGSL}
-${NATIVE_MATERIAL_DIRECTORY_WGSL}
+${finalPixel ? FINAL_PIXEL_DIRECTORY_WGSL : NATIVE_MATERIAL_DIRECTORY_WGSL}
+${
+  finalPixel
+    ? `${nativeTemporalSeedWgsl(0, 9, 10, 11)}
+@group(0) @binding(8) var<uniform> temporal_view: NativeTemporalSeedView;
+fn seed_view() -> NativeTemporalSeedView { return temporal_view; }`
+    : ""
+}
 struct BinSettings {
   width: u32, height: u32, bins: u32, tile_capacity: u32,
   generation: u32, tiles_x: u32, metadata_words: u32, reserved: u32,
@@ -95,6 +105,13 @@ fn classify(@builtin(workgroup_id) group: vec3u, @builtin(num_workgroups) groups
     key = textureLoad(visibility, vec2i(pixel), 0).x;
   }
   let result = winner_bin(pixel, key);
+  ${
+    finalPixel
+      ? `if (result.x == 0xffffffffu && pixel.x < settings.width && pixel.y < settings.height) {
+    seed_unassigned(pixel, key == OENGINE_VISIBILITY_KEY_EMPTY);
+  }`
+      : ""
+  }
   tile_keys[lane] = result.x;
   var primitive = 0xffffffffu;
   if result.x != 0xffffffffu { primitive = key; }
@@ -148,6 +165,9 @@ fn classify(@builtin(workgroup_id) group: vec3u, @builtin(num_workgroups) groups
   }
 }
 `;
+}
+
+export const NATIVE_EXECUTION_CLASSIFY_WGSL = nativeExecutionClassifyWgsl();
 
 export const NATIVE_EXECUTION_FINALIZE_WGSL = /* wgsl */ `
 struct FinalizeSettings { bins: u32, tile_capacity: u32, metadata_words: u32, max_groups: u32, }

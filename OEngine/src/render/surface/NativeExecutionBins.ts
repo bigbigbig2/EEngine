@@ -4,12 +4,13 @@ import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import {
   NATIVE_EXECUTION_BIN_STRIDE,
   NATIVE_EXECUTION_BIN_WORDS,
-  NATIVE_EXECUTION_CLASSIFY_WGSL,
+  nativeExecutionClassifyWgsl,
   NATIVE_EXECUTION_FINALIZE_WGSL,
   NATIVE_EXECUTION_TILE_WORDS,
   NATIVE_EXECUTION_SHARED_BYTES,
   NATIVE_EXECUTION_WORKGROUP_SIZE,
 } from "../../shaders/native_execution_bins.js";
+import { NATIVE_TEMPORAL_SEED_VIEW_BYTES } from "../../gpu/FinalPixelAbi.js";
 
 export interface NativeExecutionBin {
   readonly programIndex: number;
@@ -24,6 +25,8 @@ export interface NativeExecutionBinsOptions {
   readonly bins: readonly NativeExecutionBin[];
   /** May reduce the dispatch dimension for isolated 2D-dispatch tests. */
   readonly maxWorkgroupsPerDimension?: number;
+  /** V5 prototype: classify writes only pixels not assigned to a native bin. */
+  readonly finalPixel?: boolean;
 }
 
 export interface NativeExecutionBinsInputs {
@@ -32,6 +35,12 @@ export interface NativeExecutionBinsInputs {
   readonly frameInstances: GPUBuffer;
   readonly materialDirectory: GPUBuffer;
   readonly generation: number;
+  readonly temporal?: {
+    readonly view: GPUBuffer;
+    readonly seed: GPUTextureView;
+    readonly response: GPUTextureView;
+    readonly identity: GPUTextureView;
+  };
 }
 
 export interface NativeExecutionBinsPlan {
@@ -182,12 +191,14 @@ export class NativeExecutionBins {
   private readonly width: number;
   private readonly height: number;
   private readonly generationWord = new Uint32Array(1);
+  private readonly finalPixel: boolean;
 
   constructor(
     private readonly device: GPUDevice,
     options: NativeExecutionBinsOptions,
   ) {
     this.plan = planNativeExecutionBins(device.limits, options);
+    this.finalPixel = options.finalPixel ?? false;
     this.accounting = options.graphics?.resource_accounting;
     this.width = options.width;
     this.height = options.height;
@@ -223,6 +234,34 @@ export class NativeExecutionBins {
           })),
         ],
       };
+      if (this.finalPixel) {
+        if (device.limits.maxStorageTexturesPerShaderStage < 3) {
+          throw new RangeError("Final Pixel bin writer exceeds negotiated storage texture count");
+        }
+        classifyDescriptor.entries = [
+          ...classifyDescriptor.entries,
+          {
+            binding: 8,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: { type: "uniform", minBindingSize: NATIVE_TEMPORAL_SEED_VIEW_BYTES },
+          },
+          {
+            binding: 9,
+            visibility: GPUShaderStage.COMPUTE,
+            storageTexture: { access: "write-only", format: "rgba32float" },
+          },
+          {
+            binding: 10,
+            visibility: GPUShaderStage.COMPUTE,
+            storageTexture: { access: "write-only", format: "rgba8unorm" },
+          },
+          {
+            binding: 11,
+            visibility: GPUShaderStage.COMPUTE,
+            storageTexture: { access: "write-only", format: "rgba32uint" },
+          },
+        ];
+      }
       this.classifyLayout = device.createBindGroupLayout(classifyDescriptor);
       const finalizeDescriptor: GPUBindGroupLayoutDescriptor = {
         entries: [
@@ -255,7 +294,7 @@ export class NativeExecutionBins {
       });
       const classify = device.createShaderModule({
         label: "SurfaceV4/bins classify",
-        code: NATIVE_EXECUTION_CLASSIFY_WGSL,
+        code: nativeExecutionClassifyWgsl(this.finalPixel),
       });
       const finalize = device.createShaderModule({
         label: "SurfaceV4/bins finalize",
@@ -273,7 +312,11 @@ export class NativeExecutionBins {
             layout: { bindGroupLayouts: [layout] },
             compute: { module: { code }, entryPoint },
           });
-        this.countPipeline = pipeline(NATIVE_EXECUTION_CLASSIFY_WGSL, "classify", classifyDescriptor);
+        this.countPipeline = pipeline(
+          nativeExecutionClassifyWgsl(this.finalPixel),
+          "classify",
+          classifyDescriptor,
+        );
         this.finalizePipeline = pipeline(NATIVE_EXECUTION_FINALIZE_WGSL, "finalize", finalizeDescriptor);
         this.state = "ready";
         this.ready = Promise.resolve();
@@ -360,6 +403,9 @@ export class NativeExecutionBins {
       throw new Error("Only ready compact native bins have classification bindings");
     }
     this.validateGeneration(inputs.generation);
+    if (this.finalPixel !== (inputs.temporal !== undefined)) {
+      throw new Error("Native bins Seed resources must match the immutable physical profile");
+    }
     if (reusedSettings !== undefined && !this.bindingSettings.has(reusedSettings)) {
       throw new Error("Native bins cannot reuse settings from a released or different owner");
     }
@@ -397,6 +443,14 @@ export class NativeExecutionBins {
           { binding: 5, resource: { buffer: this.knownBins! } },
           { binding: 6, resource: { buffer: this.scratch! } },
           { binding: 7, resource: { buffer: this.queue! } },
+          ...(inputs.temporal
+            ? [
+                { binding: 8, resource: { buffer: inputs.temporal.view } },
+                { binding: 9, resource: inputs.temporal.seed },
+                { binding: 10, resource: inputs.temporal.response },
+                { binding: 11, resource: inputs.temporal.identity },
+              ]
+            : []),
         ],
       });
       const bindings = Object.freeze({ settings, group });
