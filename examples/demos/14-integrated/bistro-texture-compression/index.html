@@ -67,9 +67,9 @@
           </nav>
         </div>
         <div class="quick-stats">
-          <div><span>FPS</span><strong id="quick-fps">--</strong></div>
-          <div><span>CPU P50</span><strong id="quick-cpu">--</strong></div>
-          <div><span>GPU P50</span><strong id="quick-gpu">--</strong></div>
+          <div><span>Submitted FPS</span><strong id="quick-fps">--</strong></div>
+          <div><span>Render CPU P50</span><strong id="quick-cpu">--</strong></div>
+          <div><span>GPU span P50</span><strong id="quick-gpu">--</strong></div>
         </div>
         <div class="diagnostic-controls">
           <details class="section" open>
@@ -95,9 +95,28 @@
           <section class="effect section">
             <label class="effect-heading" for="vsm"
               ><span>VSM <small>Directional shadows</small></span
-              ><input id="vsm" class="switch" type="checkbox" role="switch" aria-controls="vsm-parameters"
+              ><input id="vsm" class="switch" type="checkbox" role="switch" aria-controls="vsm-parameters" checked
             /></label>
-            <div id="vsm-parameters" class="effect-parameters" hidden><dl id="vsm-state"></dl></div>
+            <div id="vsm-parameters" class="effect-parameters" hidden>
+              <label class="control">Debug view<select id="vsm-debug-view">
+                <option value="none">Final shaded</option>
+                <option value="visibility">Shadow visibility</option>
+                <option value="clip-level">Clip levels</option>
+                <option value="page-state">Page state</option>
+              </select></label>
+              <p class="note" id="vsm-debug-note">Shadow visibility：白=受光，黑=遮挡，紫=无有效页。调试视图不用于画质或性能测量。</p>
+              <label class="control">PCF samples<output id="vsm-taps-value">4 × 4 (16)</output><input id="vsm-taps" type="range" min="1" max="4" step="1" value="4" /></label>
+              <label class="control">Filter radius (texels)<output id="vsm-radius-value">0.75</output><input id="vsm-radius" type="range" min="0" max="3" step="0.05" value="0.75" /></label>
+              <p class="note">采样数影响 GPU 成本；半径改变边缘滤波宽度，不是物理光源大小。1×1 为单次采样。</p>
+              <label class="control">Depth bias (texels)<output id="vsm-depth-bias-value">2.00</output><input id="vsm-depth-bias" type="range" min="0" max="8" step="0.05" value="2" /></label>
+              <label class="control">Normal bias (texels)<output id="vsm-normal-bias-value">0.50</output><input id="vsm-normal-bias" type="range" min="0" max="4" step="0.05" value="0.5" /></label>
+              <label class="control">Slope bias (texels)<output id="vsm-slope-bias-value">1.50</output><input id="vsm-slope-bias" type="range" min="0" max="8" step="0.05" value="1.5" /></label>
+              <p class="note">增大 bias 可减轻自阴影条纹，过大会让阴影脱离物体。Normal / slope 项按表面朝向调节深度偏移。</p>
+              <label class="control">Coverage scale<output id="vsm-coverage-value">1.00 ×</output><input id="vsm-coverage" type="range" min="0.25" max="4" step="0.05" value="1" /></label>
+              <p class="note">缩小覆盖提高近处精度；扩大覆盖降低精度。松开滑块后应用，覆盖改变会重建页面。</p>
+              <div class="vsm-actions"><button id="vsm-rebuild" class="text-button">Rebuild pages</button><button id="vsm-reset" class="text-button">Reset VSM</button></div>
+              <dl id="vsm-state"></dl>
+            </div>
           </section>
           <section class="effect section">
             <label class="effect-heading" for="gtao"
@@ -191,15 +210,16 @@
                   type="checkbox"
                   role="switch"
                   aria-controls="sun-calendar-parameters"
+                  checked
               /></label>
               <div id="sun-calendar-parameters" hidden>
                 <label class="control"
-                  >Day of year<output id="sun-day-value">21 Jun · 172/365</output
-                  ><input id="sun-day" type="range" min="1" max="365" step="1" value="172"
+                  >Day of year<output id="sun-day-value">13 Feb · 44/365</output
+                  ><input id="sun-day" type="range" min="1" max="365" step="1" value="44"
                 /></label>
                 <label class="control"
-                  >Time of day<output id="sun-time-value">10:00</output
-                  ><input id="sun-time" type="range" min="0" max="24" step="0.1" value="10"
+                  >Time of day<output id="sun-time-value">13:00</output
+                  ><input id="sun-time" type="range" min="0" max="24" step="0.1" value="13"
                 /></label>
                 <label class="control"
                   >Latitude (°)<input
@@ -229,12 +249,12 @@
                 </dl>
               </div>
               <label class="control"
-                >Direct sun intensity<output id="sun-value">1.00</output
-                ><input id="sun" type="range" min="0" max="4" step="0.05" value="1"
+                >Direct sun intensity<output id="sun-value">2.20</output
+                ><input id="sun" type="range" min="0" max="4" step="0.05" value="2.2"
               /></label>
               <label class="control"
-                >Sky energy<output id="sky-value">1.00</output
-                ><input id="sky" type="range" min="0" max="4" step="0.05" value="1"
+                >Sky energy<output id="sky-value">3.00</output
+                ><input id="sky" type="range" min="0" max="4" step="0.05" value="3"
               /></label>
               <p class="note">Sky energy scales the background, environment lighting and aerial scattering. Direct sun is independent.</p>
               <label class="control">Lighting view<select id="lighting-contribution">
@@ -255,14 +275,14 @@
               <label class="control"
                 >Mode<select id="exposure-mode">
                   <option value="auto">Auto</option>
-                  <option value="fixed">Fixed</option>
+                  <option value="fixed" selected>Fixed</option>
                 </select></label
               >
               <label class="control" id="fixed-exposure-control" hidden
                 >Fixed exposure<input
                   id="fixed-exposure"
                   type="number"
-                  value="1"
+                  value="5"
                   min="0.01"
                   max="64"
                   step="0.01"

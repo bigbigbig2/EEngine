@@ -34,6 +34,7 @@ import {
 } from "lucide";
 import "./style.css";
 import { loadCookedScene } from "./cooked-scene.ts";
+import { setupVsmControls } from "./vsm-controls.ts";
 import { calendarSunDirection, formatSunDay, formatSunTime, SUN_CALENDAR_YEAR } from "./sun-calendar.ts";
 
 const MiB = 1024 ** 2;
@@ -45,12 +46,12 @@ const geometryCapacityBytes =
   Number.isSafeInteger(requestedGeometryMiB) && requestedGeometryMiB >= 128 && requestedGeometryMiB <= 2048
     ? requestedGeometryMiB * MiB
     : (fixture ? 128 : 1536) * MiB;
-const autoExposure = query.get("exposure") !== "fixed";
-const requestedExposure = Number(query.get("fixedExposure") ?? 1);
+const autoExposure = query.get("exposure") === "auto";
+const requestedExposure = Number(query.get("fixedExposure") ?? 5);
 const fixedExposure =
   Number.isFinite(requestedExposure) && requestedExposure > 0 && requestedExposure <= 64
     ? requestedExposure
-    : 1;
+    : 5;
 const exposureSettings = {
   lowPercentile: Number(query.get("exposureLow") ?? 0.6),
   highPercentile: Number(query.get("exposureHigh") ?? 0.95),
@@ -367,6 +368,7 @@ function snapshot() {
       paused,
       view: renderer?.render_debug_view ?? "none",
       vsm: renderer?.shadowVisibilityEnabled ?? false,
+      vsmSettings: renderer?.vsmSettings ?? null,
       gtao: renderer?.xe_gtao_enabled ?? false,
       fsr3: renderer?.fsr3_enabled ?? false,
       bloom: renderer?.bloom_enabled ?? false,
@@ -685,10 +687,12 @@ async function start(): Promise<void> {
   });
   await renderer.initialize({ context });
   if (closing) return;
-  // VSM stays available for the live switch; its frame work starts disabled.
+  vsmControls.sync();
+  // Apply the initial effect switches; VSM starts enabled in this demo.
   for (const [id, set] of effectSwitches) set(renderer, element<HTMLInputElement>(id).checked);
   renderer.profiler.configure({ enabled: false });
   applySunControls();
+  scene.physical_environment.setSkyLuminanceScale(Number(element<HTMLInputElement>("sky").value));
   setPhase("Reading / parsing GLB range catalog");
   refreshId = window.setInterval(refresh, 500);
   if (cookedMode) {
@@ -981,7 +985,7 @@ for (const [key, label] of [
   ["clips", "Clip levels"],
   ["page", "Page size"],
   ["slots", "Resident slot capacity"],
-  ["taps", "PCF taps"],
+  ["taps", "PCF ceiling / axis"],
 ]) {
   const dt = document.createElement("dt"),
     dd = document.createElement("dd");
@@ -990,6 +994,7 @@ for (const [key, label] of [
   vsmCells.set(key!, dd);
   element("vsm-state").append(dt, dd);
 }
+const vsmControls = setupVsmControls(() => renderer, resetFrameSamples);
 function diagnosticControlsDisabled(disabled: boolean): void {
   for (const control of document.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>(
     ".diagnostic-controls input, .diagnostic-controls select, .diagnostic-controls button",
