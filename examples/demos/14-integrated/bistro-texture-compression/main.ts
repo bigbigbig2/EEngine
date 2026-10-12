@@ -574,7 +574,7 @@ function refresh(): void {
     clips: String(vsm?.clipLevels ?? 0),
     page: vsm ? `${vsm.pageSize} px + ${vsm.border} px border` : "--",
     slots: String(vsm?.residentSlots ?? 0),
-    taps: String(vsm?.pcfTapCount ?? 0),
+    filter: renderer.vsmSettings.filterMode,
   }))
     vsmCells.get(key)!.textContent = value;
   const renderValues: Record<string, string> = {
@@ -985,7 +985,7 @@ for (const [key, label] of [
   ["clips", "Clip levels"],
   ["page", "Page size"],
   ["slots", "Resident slot capacity"],
-  ["taps", "PCF ceiling / axis"],
+  ["filter", "Shadow filter"],
 ]) {
   const dt = document.createElement("dt"),
     dd = document.createElement("dd");

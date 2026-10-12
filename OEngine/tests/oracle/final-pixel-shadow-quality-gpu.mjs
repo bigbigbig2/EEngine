@@ -5,7 +5,9 @@ import { compileAppearanceGraph } from "../../.test-dist/material/AppearanceGrap
 import { lowerNativeMaterial } from "../../.test-dist/shaders/native_material.js";
 import { PACKED_CAMERA_TYPE } from "../../.test-dist/shaders/packed_camera.js";
 
-const check = (value, message) => { if (!value) throw new Error(message); };
+const check = (value, message) => {
+  if (!value) throw new Error(message);
+};
 
 /** Adversarial, independently specified page-discontinuous depth atlas. Full
  * 1080p domain and every page boundary remain in the metric; no boundary
@@ -15,7 +17,9 @@ const check = (value, message) => { if (!value) throw new Error(message); };
  * Constant slot depth means all point taps including gutters have the same
  * comparison; separate sampling oracles cover nonconstant tap multiplicity. */
 export async function runFinalPixelShadowQualityGpuOracle(device) {
-  const width = 1920, height = 1080, frames = 256;
+  const width = 1920,
+    height = 1080,
+    frames = 256;
   const cases = [
     { name: "flat-page-boundary", slopes: [0, 0], perspective: 0, scale: [1, 1, 1] },
     { name: "slope-moving-sun", slopes: [0.18, -0.11], perspective: 0, scale: [1, 1, 1] },
@@ -24,22 +28,33 @@ export async function runFinalPixelShadowQualityGpuOracle(device) {
   ];
   const results = [];
   for (const spec of cases) {
-    const fixture = await createNativeSurfaceFixture(device, { width, height, planeSlopes: spec.slopes,
-      perspective: spec.perspective, scale: spec.scale });
+    const fixture = await createNativeSurfaceFixture(device, {
+      width,
+      height,
+      planeSlopes: spec.slopes,
+      perspective: spec.perspective,
+      scale: spec.scale,
+      filterMode: "disk4",
+    });
     const retained = [];
     try {
-      const settings = new Uint32Array(52), floats = new Float32Array(settings.buffer);
-      settings.set(fixture.geometry.source); settings.set(fixture.geometry.sourcePayload, 4);
+      const settings = new Uint32Array(52),
+        floats = new Float32Array(settings.buffer);
+      settings.set(fixture.geometry.source);
+      settings.set(fixture.geometry.sourcePayload, 4);
       settings.set([width, height, 0, fixture.generation], 8);
-      floats.set([0, 0, 3, 1], 12); floats.set(identity, 16);
-      const inverse = [...identity]; inverse[3] = -spec.perspective;
+      floats.set([0, 0, 3, 1], 12);
+      floats.set(identity, 16);
+      const inverse = [...identity];
+      inverse[3] = -spec.perspective;
       floats.set(inverse, 36);
       const view = fixture.uniform(settings, "Shadow quality/Native settings");
       const cameraWords = new Float32Array(PACKED_CAMERA_TYPE.size / 4);
       for (const field of PACKED_CAMERA_TYPE.fields) {
         if (field.type.size !== 64) continue;
         const matrix = [...identity];
-        if (field.name.includes("projection")) matrix[3] = field.name.includes("inverse") ? -spec.perspective : spec.perspective;
+        if (field.name.includes("projection"))
+          matrix[3] = field.name.includes("inverse") ? -spec.perspective : spec.perspective;
         cameraWords.set(matrix, field.offset / 4);
       }
       const camera = fixture.uniform(cameraWords, "Shadow quality/S3 camera");
@@ -49,21 +64,37 @@ export async function runFinalPixelShadowQualityGpuOracle(device) {
       const vsmWords = new Float32Array(64);
       vsmWords.set(identity);
       vsmWords.set([-1, -1, 2, 0], 16);
-      new Uint32Array(vsmWords.buffer).set([16, 128, 2, 16, 1, fixture.generation, 4, 2112], 40);
-      vsmWords.set([0.3, 0.5, 0.1, 1], 48);
+      new Uint32Array(vsmWords.buffer).set([16, 128, 2, 16, 1, fixture.generation, 2, 0], 40);
+      vsmWords.set([0.4, 0.5, 0, 1], 48);
       vsmWords.set([-8, 8, 1 / 16, 1], 52);
-      new Uint32Array(vsmWords.buffer).set([fixture.generation, 1, 0, 0], 56);
+      new Uint32Array(vsmWords.buffer).set(
+        [fixture.generation, 1, 0, fixture.lightingPlan.filterNoiseOffset / 4],
+        56,
+      );
       const builder = new AppearanceGraphBuilder();
       builder.output("baseColor", builder.constant([1, 1, 1]));
       const program = lowerNativeMaterial(compileAppearanceGraph(builder.build()));
-      const columns = Math.ceil(width / 8), rows = Math.ceil(height / 8), tiles = columns * rows;
+      const columns = Math.ceil(width / 8),
+        rows = Math.ceil(height / 8),
+        tiles = columns * rows;
       const output = fixture.storage(tiles * 64, "Shadow quality/full-domain metrics");
-      const readback = device.createBuffer({ label: "Shadow quality/metrics readback", size: output.size,
-        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+      const readback = device.createBuffer({
+        label: "Shadow quality/metrics readback",
+        size: output.size,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+      });
       retained.push(readback);
-      const module = device.createShaderModule({ label: "Shadow quality/actual Native receiver",
-        code: nativeSurfaceWgsl(program, { compact: false, productGeometry: false, unlit: false,
-          reactive: false, physicalSun: true }) + `
+      const module = device.createShaderModule({
+        label: "Shadow quality/actual Native receiver",
+        code:
+          nativeSurfaceWgsl(program, {
+            compact: false,
+            productGeometry: false,
+            unlit: false,
+            reactive: false,
+            physicalSun: true,
+          }) +
+          `
 @group(0) @binding(20) var s3_shadow: texture_2d<u32>;
 @group(0) @binding(21) var<storage, read_write> metrics: array<vec4f>;
 var<workgroup> errors: array<vec4f, 64>;
@@ -88,7 +119,7 @@ fn quality(@builtin(global_invocation_id) id: vec3u, @builtin(workgroup_id) grou
       let face = native_face_normal(resolved.world_plane.xyz, position);
       var incident: GpuPrimitiveTypeTable;
       incident.direction = normalize(native_physical_sun.sun_direction_world); incident.color = vec3f(1.0);
-      let actual = vsm_sample_directional(position, face, incident);
+      let actual = vsm_sample_directional(position, face, incident, pixel);
       let packed = textureLoad(s3_shadow, vec2i(vec2u(pixel.x / 4u, pixel.y)), 0).r;
       let byte = (packed >> ((pixel.x % 4u) * 8u)) & 255u;
       let axis = 1u + ((byte >> 5u) & 3u);
@@ -110,7 +141,7 @@ fn quality(@builtin(global_invocation_id) id: vec3u, @builtin(workgroup_id) grou
         boundary_errors[lane] = errors[lane];
       }
       energy[lane] = vec4f(actual, reference, golden, 1.0);
-      let golden_face = normalize(vec3f(${-spec.slopes[0] * spec.scale[2] / spec.scale[0]}, ${-spec.slopes[1] * spec.scale[2] / spec.scale[1]}, 1.0));
+      let golden_face = normalize(vec3f(${(-spec.slopes[0] * spec.scale[2]) / spec.scale[0]}, ${(-spec.slopes[1] * spec.scale[2]) / spec.scale[1]}, 1.0));
       maxima[lane] = vec4f(abs(difference), max(max(abs(position.x - golden_position.x), abs(position.y - golden_position.y)), abs(position.z - golden_position.z)),
         max(max(abs(face.x - golden_face.x), abs(face.y - golden_face.y)), abs(face.z - golden_face.z)));
     }
@@ -128,33 +159,60 @@ fn quality(@builtin(global_invocation_id) id: vec3u, @builtin(workgroup_id) grou
     metrics[at] = errors[0]; metrics[at + 1u] = boundary_errors[0];
     metrics[at + 2u] = energy[0]; metrics[at + 3u] = maxima[0];
   }
-}` });
+}`,
+      });
       const compilation = await module.getCompilationInfo();
-      check(!compilation.messages.some(m => m.type === "error"), JSON.stringify(compilation.messages));
-      const pipeline = await device.createComputePipelineAsync({ label: "Shadow quality/probe", layout: "auto",
-        compute: { module, entryPoint: "quality" } });
-      const groups = [device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: [
-        { binding: 0, resource: { buffer: view } },
-        ...[fixture.geometry.meshletWork, fixture.geometry.arena, fixture.geometry.vertexPayload, fixture.geometry.instances]
-          .map((buffer, i) => ({ binding: i + 1, resource: { buffer } })),
-        { binding: 5, resource: fixture.visibility.createView() },
-        { binding: 20, resource: fixture.vsm.shadowVisibility.createView() },
-        { binding: 21, resource: { buffer: output } },
-      ] }), device.createBindGroup({ layout: pipeline.getBindGroupLayout(1), entries: [
-        ...fixture.lightingEntries.filter(entry => [2, 8, 9, 10, 16].includes(entry.binding)),
-        { binding: 12, resource: { buffer: sun } },
-      ] })];
+      check(!compilation.messages.some((m) => m.type === "error"), JSON.stringify(compilation.messages));
+      const pipeline = await device.createComputePipelineAsync({
+        label: "Shadow quality/probe",
+        layout: "auto",
+        compute: { module, entryPoint: "quality" },
+      });
+      const groups = [
+        device.createBindGroup({
+          layout: pipeline.getBindGroupLayout(0),
+          entries: [
+            { binding: 0, resource: { buffer: view } },
+            ...[
+              fixture.geometry.meshletWork,
+              fixture.geometry.arena,
+              fixture.geometry.vertexPayload,
+              fixture.geometry.instances,
+            ].map((buffer, i) => ({ binding: i + 1, resource: { buffer } })),
+            { binding: 5, resource: fixture.visibility.createView() },
+            { binding: 20, resource: fixture.vsm.shadowVisibility.createView() },
+            { binding: 21, resource: { buffer: output } },
+          ],
+        }),
+        device.createBindGroup({
+          layout: pipeline.getBindGroupLayout(1),
+          entries: [
+            ...fixture.lightingEntries.filter((entry) => [2, 8, 9, 10, 16].includes(entry.binding)),
+            { binding: 12, resource: { buffer: sun } },
+          ],
+        }),
+      ];
       const keys = new Uint32Array(width * height).fill(0xffffffff);
-      for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
-        const ndcX = (x + 0.5) / width * 2 - 1, ndcY = 1 - (y + 0.5) / height * 2;
-        const denominator = 1 - spec.perspective * ndcX;
-        const ox = ndcX / denominator / spec.scale[0], oy = ndcY / denominator / spec.scale[1];
-        if (Math.abs(ox) >= 1 || Math.abs(oy) >= 1) continue;
-        const gx = (ox + 1) * width / 2, gy = (1 - oy) * height / 2;
-        keys[y * width + x] = (Math.floor(gx / 8) + Math.floor(gy / 8) * (width / 8)) | ((gx % 8 + gy % 8 > 8 ? 1 : 0) << 24);
-      }
-      device.queue.writeTexture({ texture: fixture.visibility }, keys, { bytesPerRow: width * 4 }, [width, height]);
-      const depthModule = device.createShaderModule({ code: `
+      for (let y = 0; y < height; y++)
+        for (let x = 0; x < width; x++) {
+          const ndcX = ((x + 0.5) / width) * 2 - 1,
+            ndcY = 1 - ((y + 0.5) / height) * 2;
+          const denominator = 1 - spec.perspective * ndcX;
+          const ox = ndcX / denominator / spec.scale[0],
+            oy = ndcY / denominator / spec.scale[1];
+          if (Math.abs(ox) >= 1 || Math.abs(oy) >= 1) continue;
+          const gx = ((ox + 1) * width) / 2,
+            gy = ((1 - oy) * height) / 2;
+          keys[y * width + x] =
+            (Math.floor(gx / 8) + Math.floor(gy / 8) * (width / 8)) |
+            (((gx % 8) + (gy % 8) > 8 ? 1 : 0) << 24);
+        }
+      device.queue.writeTexture({ texture: fixture.visibility }, keys, { bytesPerRow: width * 4 }, [
+        width,
+        height,
+      ]);
+      const depthModule = device.createShaderModule({
+        code: `
 @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
   let p = array<vec2f,3>(vec2f(-1,-1),vec2f(3,-1),vec2f(-1,3)); return vec4f(p[i],0,1);
 }
@@ -164,20 +222,38 @@ fn quality(@builtin(global_invocation_id) id: vec3u, @builtin(workgroup_id) grou
   let world = ndc / denominator;
   let z = (0.5 + ${spec.slopes[0]} * world.x / ${spec.scale[0]}.0 + ${spec.slopes[1]} * world.y / ${spec.scale[1]}.0) * ${spec.scale[2]}.0;
   return clamp(z * denominator, 0.0, 1.0);
-}` });
-      const depthPipeline = await device.createRenderPipelineAsync({ layout: "auto", vertex: { module: depthModule, entryPoint: "vs" },
+}`,
+      });
+      const depthPipeline = await device.createRenderPipelineAsync({
+        layout: "auto",
+        vertex: { module: depthModule, entryPoint: "vs" },
         fragment: { module: depthModule, entryPoint: "fs", targets: [] },
-        depthStencil: { format: "depth32float", depthWriteEnabled: true, depthCompare: "always" } });
+        depthStencil: { format: "depth32float", depthWriteEnabled: true, depthCompare: "always" },
+      });
       const depthEncoder = device.createCommandEncoder();
-      const raster = depthEncoder.beginRenderPass({ colorAttachments: [], depthStencilAttachment: {
-        view: fixture.depth.createView(), depthLoadOp: "clear", depthClearValue: 0, depthStoreOp: "store" } });
-      raster.setPipeline(depthPipeline); raster.draw(3); raster.end(); device.queue.submit([depthEncoder.finish()]);
+      const raster = depthEncoder.beginRenderPass({
+        colorAttachments: [],
+        depthStencilAttachment: {
+          view: fixture.depth.createView(),
+          depthLoadOp: "clear",
+          depthClearValue: 0,
+          depthStoreOp: "store",
+        },
+      });
+      raster.setPipeline(depthPipeline);
+      raster.draw(3);
+      raster.end();
+      device.queue.submit([depthEncoder.finish()]);
       const frameRows = [];
       for (let frame = 0; frame < frames; frame++) {
         const motion = frame < 64 ? 0 : Math.min(frame - 64, 127);
-        vsmWords[12] = motion * 0.25 * 2 / width;
-        vsmWords[13] = motion * 0.125 * 2 / height;
+        vsmWords[12] = (motion * 0.25 * 2) / width;
+        vsmWords[13] = (motion * 0.125 * 2) / height;
         sunWords[0] = motion * 0.002;
+        const filterWords = new Uint32Array(vsmWords.buffer);
+        filterWords[46] = frame < 192 ? 2 : 1;
+        filterWords[47] = frame % 64;
+        vsmWords[51] = frame < 64 ? 1.5 : 3;
         device.queue.writeBuffer(fixture.vsm.constants, 0, vsmWords);
         device.queue.writeBuffer(sun, 0, sunWords);
         const encoder = device.createCommandEncoder({ label: `Shadow quality/${spec.name}/${frame}` });
@@ -186,40 +262,86 @@ fn quality(@builtin(global_invocation_id) id: vec3u, @builtin(workgroup_id) grou
           copyBufferToBuffer: (...args) => encoder.copyBufferToBuffer(...args),
           beginComputePass: (...args) => encoder.beginComputePass(...args),
         };
-        fixture.vsm.shadowResolve.encode(referenceCommand, { width, height, cameraPosition: [0, 0, 3], geometry: fixture.geometry,
-          visibility: fixture.visibility, depth: fixture.depth, camera, constants: fixture.vsm.constants,
-          descriptors: fixture.vsm.descriptors, atlas: fixture.vsm.atlas.createView(), sun, output: fixture.vsm.shadowVisibility });
-        const pass = encoder.beginComputePass(); pass.setPipeline(pipeline);
+        fixture.vsm.shadowResolve.encode(referenceCommand, {
+          width,
+          height,
+          cameraPosition: [0, 0, 3],
+          geometry: fixture.geometry,
+          visibility: fixture.visibility,
+          depth: fixture.depth,
+          camera,
+          constants: fixture.vsm.constants,
+          descriptors: fixture.vsm.descriptors,
+          atlas: fixture.vsm.atlas.createView(),
+          sun,
+          output: fixture.vsm.shadowVisibility,
+        });
+        const pass = encoder.beginComputePass();
+        pass.setPipeline(pipeline);
         groups.forEach((group, i) => pass.setBindGroup(i, group));
-        pass.dispatchWorkgroups(columns, rows); pass.end();
+        pass.dispatchWorkgroups(columns, rows);
+        pass.end();
         encoder.copyBufferToBuffer(output, 0, readback, 0, output.size);
-        device.queue.submit([encoder.finish()]); await readback.mapAsync(GPUMapMode.READ);
+        device.queue.submit([encoder.finish()]);
+        await readback.mapAsync(GPUMapMode.READ);
         const values = new Float32Array(readback.getMappedRange());
-        const sums = new Float64Array(12), maximum = new Float64Array(4);
+        const sums = new Float64Array(12),
+          maximum = new Float64Array(4);
         for (let tile = 0; tile < tiles; tile++) {
           for (let lane = 0; lane < 12; lane++) sums[lane] += values[tile * 16 + lane];
-          for (let lane = 0; lane < 4; lane++) maximum[lane] = Math.max(maximum[lane], values[tile * 16 + 12 + lane]);
+          for (let lane = 0; lane < 4; lane++)
+            maximum[lane] = Math.max(maximum[lane], values[tile * 16 + 12 + lane]);
         }
         readback.unmap();
-        const row = { frame, validPixels: sums[2], boundaryPixels: sums[6],
-          rmse: Math.sqrt(sums[0] / Math.max(sums[3], 1e-20)), referenceRmse: Math.sqrt(sums[1] / Math.max(sums[3], 1e-20)),
-          boundaryRmse: Math.sqrt(sums[4] / Math.max(sums[7], 1e-20)), referenceBoundaryRmse: Math.sqrt(sums[5] / Math.max(sums[7], 1e-20)),
-          energyError: Math.abs(sums[8] - sums[10]), referenceEnergyError: Math.abs(sums[9] - sums[10]),
-          peak: maximum[0], referencePeak: maximum[1], positionError: maximum[2], normalError: maximum[3] };
+        const row = {
+          frame,
+          validPixels: sums[2],
+          boundaryPixels: sums[6],
+          rmse: Math.sqrt(sums[0] / Math.max(sums[3], 1e-20)),
+          referenceRmse: Math.sqrt(sums[1] / Math.max(sums[3], 1e-20)),
+          boundaryRmse: Math.sqrt(sums[4] / Math.max(sums[7], 1e-20)),
+          referenceBoundaryRmse: Math.sqrt(sums[5] / Math.max(sums[7], 1e-20)),
+          energyError: Math.abs(sums[8] - sums[10]),
+          referenceEnergyError: Math.abs(sums[9] - sums[10]),
+          peak: maximum[0],
+          referencePeak: maximum[1],
+          positionError: maximum[2],
+          normalError: maximum[3],
+        };
         frameRows.push(row);
         check(row.validPixels > width * height * 0.8, `${spec.name}/${frame}: incomplete full domain`);
-        check(row.positionError <= 2e-4 && row.normalError <= 2e-4, `${spec.name}/${frame}: receiver arithmetic ${JSON.stringify(row)}`);
-        check(row.rmse <= row.referenceRmse + 2 ** -10 && row.boundaryRmse <= row.referenceBoundaryRmse + 2 ** -10,
-          `${spec.name}/${frame}: shadow quality ${JSON.stringify(row)}`);
-        check(row.peak <= row.referencePeak && row.energyError <= row.referenceEnergyError,
-          `${spec.name}/${frame}: peak/energy ${JSON.stringify(row)}`);
+        check(
+          row.positionError <= 2e-4 && row.normalError <= 2e-4,
+          `${spec.name}/${frame}: receiver arithmetic ${JSON.stringify(row)}`,
+        );
+        check(
+          row.rmse <= row.referenceRmse + 2 ** -10 &&
+            row.boundaryRmse <= row.referenceBoundaryRmse + 2 ** -10,
+          `${spec.name}/${frame}: shadow quality ${JSON.stringify(row)}`,
+        );
+        check(
+          row.peak <= row.referencePeak && row.energyError <= row.referenceEnergyError,
+          `${spec.name}/${frame}: peak/energy ${JSON.stringify(row)}`,
+        );
       }
       results.push({ ...spec, frameRows });
     } finally {
       await device.queue.onSubmittedWorkDone();
-      retained.forEach(resource => resource.destroy()); fixture.destroy();
+      retained.forEach((resource) => resource.destroy());
+      fixture.destroy();
     }
   }
-  return { width, height, frames, warmup: 64, movement: [64, 191], stop: [192, 255], results,
-    limitations: ["Receiver/Sun visibility submatrix with adversarial analytic page discontinuities; full material HDR and MASK are separate production/integration oracles", "No full Renderer visual acceptance or performance claim"] };
+  return {
+    width,
+    height,
+    frames,
+    warmup: 64,
+    movement: [64, 191],
+    stop: [192, 255],
+    results,
+    limitations: [
+      "Receiver/Sun visibility submatrix with adversarial analytic page discontinuities; full material HDR and MASK are separate production/integration oracles",
+      "No full Renderer visual acceptance or performance claim",
+    ],
+  };
 }

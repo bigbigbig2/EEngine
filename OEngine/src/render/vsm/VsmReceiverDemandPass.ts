@@ -4,7 +4,7 @@ import {
   VSM_DEPTH_RANGE_BYTE_OFFSET,
   VSM_DEPTH_RANGE_BYTES,
   VSM_IDENTITY_BYTE_OFFSET,
-  type VsmDirectionalFrameConstants
+  type VsmDirectionalFrameConstants,
 } from "./VsmProjection.js";
 export { buildVsmDirectionalFrameConstants, type VsmDirectionalFrameConstants } from "./VsmProjection.js";
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
@@ -14,9 +14,10 @@ import { resolveTextureView } from "../RenderTargetViews.js";
 import { VsmResources } from "./VsmResources.js";
 import {
   VSM_RECEIVER_DEMAND_WGSL,
-  vsmReceiverDemandDiagnosticWgsl
+  vsmReceiverDemandDiagnosticWgsl,
 } from "../../shaders/vsm_receiver_demand.js";
-import { VSM_DEFAULT_SETTINGS, VSM_DEBUG_VIEWS } from "./VsmSettings.js";
+import { VSM_DEFAULT_SETTINGS, VSM_DEBUG_VIEWS, effectiveVsmFilterMode } from "./VsmSettings.js";
+import { VSM_FILTER_MODES, VSM_FILTER_NOISE_PHASES } from "../../gpu/GpuVsmFilterAbi.js";
 
 export interface VsmReceiverDemandInputs {
   readonly width: number;
@@ -30,6 +31,8 @@ export interface VsmReceiverDemandInputs {
   readonly visibilityKey: ResourceId;
   readonly resources: VsmResources;
   readonly generation: number;
+  readonly filterNoiseWordOffset?: number;
+  readonly filterPhase?: number;
 }
 
 export interface VsmDemandFrame {
@@ -42,7 +45,8 @@ export interface VsmDemandFrame {
 const CONSTANT_BYTES = VSM_PROJECTION_CONSTANT_BYTES;
 declare const __EENGINE_PERFORMANCE_DIAGNOSTICS__: boolean;
 const DEMAND_DIAGNOSTICS =
-  typeof __EENGINE_PERFORMANCE_DIAGNOSTICS__ !== "undefined" && __EENGINE_PERFORMANCE_DIAGNOSTICS__ &&
+  typeof __EENGINE_PERFORMANCE_DIAGNOSTICS__ !== "undefined" &&
+  __EENGINE_PERFORMANCE_DIAGNOSTICS__ &&
   new URLSearchParams(globalThis.location.search).get("vsmDemandDiagnostics") === "1";
 
 export function vsmReceiverDispatch(width: number, height: number): readonly [number, number] {
@@ -64,11 +68,11 @@ function packConstants(input: VsmReceiverDemandInputs, resources: VsmResources):
   const uints = new Uint32Array(data);
   uints.set(
     [input.width, input.height, resources.capabilities.pageSize, resources.capabilities.virtualPagesPerAxis],
-    40
+    40,
   );
   uints.set(
     [resources.capabilities.clipLevels, input.generation >>> 0, resources.capabilities.demandCapacity, 0],
-    44
+    44,
   );
   floats.set([1 / input.width, 1 / input.height, 1, 0], 48);
   return data;
@@ -83,18 +87,24 @@ export function packVsmSamplingConstants(input: VsmReceiverDemandInputs): ArrayB
   const profile = input.resources.capabilities;
   uints.set([profile.virtualPagesPerAxis, profile.pageSize, profile.border, profile.atlasPagesPerAxis], 40);
   const settings = input.frame.settings ?? VSM_DEFAULT_SETTINGS;
-  const taps = Math.min(profile.pcfTapCount, settings.pcfTapsPerAxis);
-  uints.set([profile.clipLevels, input.generation, taps, profile.atlasDimension], 44);
-  floats.set(
-    [
-      settings.normalBiasTexels,
-      settings.depthBiasTexels,
-      settings.slopeBiasTexels,
-      settings.filterRadiusTexels * 2
-    ],
-    48
-  );
+  const filterMode = effectiveVsmFilterMode(settings);
+  const phase = input.filterPhase ?? 0;
+  const noiseOffset = input.filterNoiseWordOffset ?? 0;
+  if (
+    !Number.isSafeInteger(phase) ||
+    phase < 0 ||
+    phase >= VSM_FILTER_NOISE_PHASES ||
+    !Number.isSafeInteger(noiseOffset) ||
+    noiseOffset < 0 ||
+    noiseOffset > 0xffffffff ||
+    (filterMode === "disk4" && input.filterNoiseWordOffset === undefined)
+  ) {
+    throw new RangeError("VSM disk filtering requires a complete noise publication and valid phase");
+  }
+  uints.set([profile.clipLevels, input.generation, VSM_FILTER_MODES[filterMode], phase], 44);
+  floats.set([settings.angularBiasTexels, settings.depthBiasTexels, 0, settings.filterRadiusTexels], 48);
   uints[VSM_IDENTITY_BYTE_OFFSET / 4 + 2] = VSM_DEBUG_VIEWS[settings.debugView];
+  uints[VSM_IDENTITY_BYTE_OFFSET / 4 + 3] = noiseOffset;
   return data;
 }
 
@@ -111,7 +121,7 @@ export class VsmReceiverDemandPass {
       label: "VSM/receiver demand constants",
       size: CONSTANT_BYTES,
       usage:
-        GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST | (DEMAND_DIAGNOSTICS ? GPUBufferUsage.COPY_SRC : 0)
+        GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST | (DEMAND_DIAGNOSTICS ? GPUBufferUsage.COPY_SRC : 0),
     });
     this.layout = device.createBindGroupLayout({
       entries: [
@@ -124,26 +134,26 @@ export class VsmReceiverDemandPass {
         { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
         ...(DEMAND_DIAGNOSTICS
           ? [{ binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" as const } }]
-          : [])
-      ]
+          : []),
+      ],
     });
     this.pipeline = device.createComputePipeline({
       label: "VSM/receiver demand",
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }),
       compute: {
         module: device.createShaderModule({
-          code: DEMAND_DIAGNOSTICS ? vsmReceiverDemandDiagnosticWgsl() : VSM_RECEIVER_DEMAND_WGSL
+          code: DEMAND_DIAGNOSTICS ? vsmReceiverDemandDiagnosticWgsl() : VSM_RECEIVER_DEMAND_WGSL,
         }),
-        entryPoint: "main"
-      }
+        entryPoint: "main",
+      },
     });
     this.coarsePipeline = device.createComputePipeline({
       label: "VSM/complete coarse coverage",
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }),
       compute: {
         module: device.createShaderModule({ code: VSM_RECEIVER_DEMAND_WGSL }),
-        entryPoint: "mark_coarse"
-      }
+        entryPoint: "mark_coarse",
+      },
     });
   }
 
@@ -177,30 +187,30 @@ export class VsmReceiverDemandPass {
         this.diagnosticWorkgroups = this.device.createBuffer({
           label: "Diagnostic/VSM receiver workgroups",
           size,
-          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
+          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
         });
       }
       diagnostic = graph.import_resource(
         "Diagnostic/VSM receiver workgroups",
         { kind: "imported" },
-        this.diagnosticWorkgroups
+        this.diagnosticWorkgroups,
       );
     }
     const constants = graph.import_resource(
       "VSM/receiver demand constants",
       { kind: "imported", label: "VSM receiver demand constants" },
-      this.constants
+      this.constants,
     );
     const demand = graph.import_resource(
       "VSM/demand",
       { kind: "imported", label: "VSM demand buffer" },
-      demandBuffer
+      demandBuffer,
     );
     if (!input.resources.pageConstants) throw new Error("VSM sampling constants are unavailable");
     const sampling = graph.import_resource(
       "VSM/sampling constants",
       { kind: "imported" },
-      input.resources.pageConstants
+      input.resources.pageConstants,
     );
     const update = graph.add("VSM/update receiver demand constants", input, (data, _resources, context) => {
       (context.encoder as ShadeGPUCommandContext).writeBuffer(
@@ -208,28 +218,28 @@ export class VsmReceiverDemandPass {
         0,
         packConstants(data, input.resources),
         0,
-        CONSTANT_BYTES
+        CONSTANT_BYTES,
       );
       (context.encoder as ShadeGPUCommandContext).writeBuffer(
         data.resources.pageConstants!,
         0,
         packVsmSamplingConstants(data),
         0,
-        CONSTANT_BYTES
+        CONSTANT_BYTES,
       );
       (context.encoder as ShadeGPUCommandContext).copyBufferToBuffer(
         _resources.get(data.depthRange) as GPUBuffer,
         0,
         data.resources.pageConstants!,
         VSM_DEPTH_RANGE_BYTE_OFFSET,
-        VSM_DEPTH_RANGE_BYTES
+        VSM_DEPTH_RANGE_BYTES,
       );
       (context.encoder as ShadeGPUCommandContext).copyBufferToBuffer(
         _resources.get(data.depthRange) as GPUBuffer,
         0,
         this.constants,
         VSM_DEPTH_RANGE_BYTE_OFFSET,
-        VSM_DEPTH_RANGE_BYTES
+        VSM_DEPTH_RANGE_BYTES,
       );
     });
     update.read(input.depthRange);
@@ -251,8 +261,8 @@ export class VsmReceiverDemandPass {
           { binding: 6, resource: { buffer: resources.get(input.instances) as GPUBuffer } },
           ...(diagnostic === undefined
             ? []
-            : [{ binding: 7, resource: { buffer: resources.get(diagnostic) as GPUBuffer } }])
-        ]
+            : [{ binding: 7, resource: { buffer: resources.get(diagnostic) as GPUBuffer } }]),
+        ],
       });
       const pass = command.beginComputePass({ label: "VSM/receiver demand" });
       pass.setPipeline(this.pipeline);
@@ -277,7 +287,7 @@ export class VsmReceiverDemandPass {
       demand: producedDemand,
       samplingConstants,
       generation: input.generation,
-      capacity: profile.demandCapacity
+      capacity: profile.demandCapacity,
     };
   }
 

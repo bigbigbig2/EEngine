@@ -15,7 +15,8 @@ export async function runFinalPixelSunResponseGpuOracle(device) {
       [0, 0, 1],
       [0.8, 0, 0.6],
       [1, 0, 0],
-      [0, 0, -0.8]
+      [0, 1, 0],
+      [0, 0, -0.8],
     ]) {
       for (const coat of [0, 0.25, 1]) {
         for (const hdr of [0, 0.5, 128, 8192, 1e20, 1e38]) {
@@ -51,7 +52,7 @@ export async function runFinalPixelSunResponseGpuOracle(device) {
                 1,
                 1,
                 1,
-                0
+                0,
               );
             }
           }
@@ -67,7 +68,7 @@ export async function runFinalPixelSunResponseGpuOracle(device) {
       label: "Sun response numeric",
       size,
       usage,
-      mappedAtCreation: initial !== undefined
+      mappedAtCreation: initial !== undefined,
     });
     resources.push(result);
     if (initial !== undefined) {
@@ -82,7 +83,7 @@ export async function runFinalPixelSunResponseGpuOracle(device) {
     const readback = buffer(output.size, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
     const frozen = FROZEN_BRDF.replace(
       /\b(D_GGX|V_GGX_SmithCorrelated|F_Schlick|BRDF_GGX|finite_f32|re_direct_physical)\b/g,
-      (name) => `frozen_${name}`
+      (name) => `frozen_${name}`,
     );
     const module = device.createShaderModule({
       label: "Sun response vs frozen BRDF",
@@ -116,34 +117,36 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let irradiance = cases[base + 6u].xyz;
   let response = prepare_direct_physical(direction, geometry, material);
   var actual: ReflectedLight;
-  apply_direct_physical(irradiance * visibility, response, &actual);
+  if (direct_physical_can_contribute(response)) {
+    apply_direct_physical(irradiance * visibility, response, &actual);
+  }
   var reference: ReflectedLight;
   frozen_re_direct_physical(GpuPrimitiveTypeTable(direction, irradiance * visibility), geometry, material, &reference);
   var unshadowed: ReflectedLight;
   frozen_re_direct_physical(GpuPrimitiveTypeTable(direction, irradiance), geometry, material, &unshadowed);
-  output[id.x * 7u] = vec4f(actual.diffuse + actual.specular, 0.0);
+  output[id.x * 7u] = vec4f(actual.diffuse + actual.specular, select(0.0, 1.0, direct_physical_can_contribute(response)));
   output[id.x * 7u + 1u] = vec4f(reference.diffuse + reference.specular, 0.0);
   output[id.x * 7u + 2u] = vec4f(unshadowed.diffuse + unshadowed.specular, 0.0);
   output[id.x * 7u + 3u] = vec4f(actual.diffuse, 0.0);
   output[id.x * 7u + 4u] = vec4f(reference.diffuse, 0.0);
   output[id.x * 7u + 5u] = vec4f(actual.specular, 0.0);
   output[id.x * 7u + 6u] = vec4f(reference.specular, 0.0);
-}`
+}`,
     });
     const errors = (await module.getCompilationInfo()).messages.filter((message) => message.type === "error");
     check(errors.length === 0, errors.map((message) => message.message).join("\n"));
     const pipeline = await device.createComputePipelineAsync({
       label: "Sun response numeric",
       layout: "auto",
-      compute: { module, entryPoint: "main" }
+      compute: { module, entryPoint: "main" },
     });
     const bindings = device.createBindGroup({
       label: "Sun response numeric",
       layout: pipeline.getBindGroupLayout(0),
       entries: [
         { binding: 0, resource: { buffer: source } },
-        { binding: 1, resource: { buffer: output } }
-      ]
+        { binding: 1, resource: { buffer: output } },
+      ],
     });
     const encoder = device.createCommandEncoder({ label: "Sun response numeric" });
     const pass = encoder.beginComputePass({ label: "Sun response numeric" });
@@ -156,8 +159,15 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     await readback.mapAsync(GPUMapMode.READ);
     const values = new Float32Array(readback.getMappedRange());
     let overflowWitnesses = 0,
-      nonfiniteReferenceChannels = 0;
+      nonfiniteReferenceChannels = 0,
+      skippedCases = 0,
+      coatOnlyCases = 0;
     for (let index = 0; index < count; index++) {
+      if (values[index * 28 + 3] === 0) skippedCases++;
+      if (input[index * 32 + 10] === 0 && input[index * 32 + 9] > 0 && input[index * 32 + 7] > 0) {
+        check(values[index * 28 + 3] === 1, "Coat-only direct lighting was incorrectly culled");
+        coatOnlyCases++;
+      }
       for (let channel = 0; channel < 3; channel++) {
         // The original sums can themselves overflow outside the finite guard.
         // Preserve that classification rather than tightening its input domain.
@@ -166,7 +176,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
             expected = values[index * 28 + offset + 4 + channel];
           check(
             actual === expected || (Number.isNaN(actual) && Number.isNaN(expected)),
-            `Sun response differs at case ${index}/${offset}/${channel}: ${actual} vs ${expected}`
+            `Sun response differs at case ${index}/${offset}/${channel}: ${actual} vs ${expected}`,
           );
         }
         const expected = values[index * 28 + 4 + channel];
@@ -176,13 +186,16 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       }
     }
     check(overflowWitnesses > 0, "HDR guard negative control did not exercise restored finite lighting");
+    check(skippedCases > 0 && coatOnlyCases > 0, "Missing zero-contribution/coat-only coverage");
     readback.unmap();
     return {
       cases: count,
+      skippedCases,
+      coatOnlyCases,
       exact: true,
       overflowWitnesses,
       nonfiniteReferenceChannels,
-      reference: "8db2c82b frozen direct BRDF"
+      reference: "8db2c82b frozen direct BRDF",
     };
   } finally {
     for (const resource of resources) resource.destroy();

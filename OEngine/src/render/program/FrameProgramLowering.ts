@@ -1,4 +1,5 @@
 import { addFinalPixelSolarPublication } from "../environment/FinalPixelSolarPublication.js";
+import { VSM_FILTER_NOISE_PHASES } from "../../gpu/GpuVsmFilterAbi.js";
 import { nativeWinnerGeometry } from "../MeshletBucketRaster.js";
 import { nativeSurfacePhysicalSunEntries } from "../../shaders/native_surface_lighting.js";
 import { FrameGraph, FrameGraphBindingLayout, type CompiledFrameGraph } from "../../framegraph/FrameGraph.js";
@@ -122,6 +123,7 @@ function compileSceneGraph(
   owners: FrameProgramOwners,
 ): CompiledFrameGraph {
   if (plan.request.kind !== "scene") throw new Error("Scene graph requires a scene Frame Program");
+  const temporalFilterEnabled = frameTemporalPolicy(plan.request) !== "bypass";
   for (const stage of ["visibility", "surface", "present"] as const) {
     if (!plan.stages.includes(stage)) throw new Error(`Scene Frame Program is missing ${stage}`);
   }
@@ -217,6 +219,8 @@ function compileSceneGraph(
         frame: vsmFrame,
         resources: vsmOwner,
         generation: bindings.vsmFrame!.generation,
+        filterNoiseWordOffset: bindings.finalPixelLighting!.plan.filterNoiseOffset / 4,
+        filterPhase: temporalFilterEnabled ? bindings.frameIndex % VSM_FILTER_NOISE_PHASES : 0,
       })),
     );
     vsmSamplingConstants = demand.samplingConstants;
@@ -588,10 +592,7 @@ function compileSceneGraph(
             bind("lighting-dfg", (bindings) => bindings.environment!.ibl.views.dfg),
           ),
         };
-  if (
-    plan.request.hasLit &&
-    (lightRecords === undefined || clusters === undefined)
-  ) {
+  if (plan.request.hasLit && (lightRecords === undefined || clusters === undefined)) {
     throw new Error("Native Surface requires LocalLightWork providers");
   }
   const bindSeed = <T extends object>(name: string, resolve: (runtime: NativeTemporalSeed) => T): T =>
@@ -620,17 +621,19 @@ function compileSceneGraph(
         { binding: 2, resource: { buffer: resources.get(clusters!.lookup) as GPUBuffer } },
         { binding: 9, resource: { buffer: resources.get(lightingRanges!) as GPUBuffer } },
         { binding: 3, resource: { buffer: resources.get(clusters!.data) as GPUBuffer } },
-        ...(surfaceEnvironment === undefined ? owners.surface.absentEnvironmentEntries : [
-          { binding: 5, resource: resolveTextureView(resources.get(surfaceEnvironment.diffuse)) },
-          { binding: 6, resource: resolveTextureView(resources.get(surfaceEnvironment.specular)) },
-          { binding: 7, resource: resolveTextureView(resources.get(surfaceEnvironment.dfg)) },
-          {
-            binding: 15,
-            resource: plan.request.authoredEnvironment
-              ? frame.view.environment.lights.authoredIbl.sampler
-              : frame.environment!.ibl.sampler,
-          },
-        ]),
+        ...(surfaceEnvironment === undefined
+          ? owners.surface.absentEnvironmentEntries
+          : [
+              { binding: 5, resource: resolveTextureView(resources.get(surfaceEnvironment.diffuse)) },
+              { binding: 6, resource: resolveTextureView(resources.get(surfaceEnvironment.specular)) },
+              { binding: 7, resource: resolveTextureView(resources.get(surfaceEnvironment.dfg)) },
+              {
+                binding: 15,
+                resource: plan.request.authoredEnvironment
+                  ? frame.view.environment.lights.authoredIbl.sampler
+                  : frame.environment!.ibl.sampler,
+              },
+            ]),
         ...owners.surface.neutralLightingEntries.map((entry) => {
           if (entry.binding === 8 && vsmSamplingConstants !== null) {
             return { binding: 8, resource: { buffer: resources.get(vsmSamplingConstants) as GPUBuffer } };

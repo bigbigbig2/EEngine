@@ -123,6 +123,13 @@ fn prepare_direct_physical(
     coat_no_l, coat_brdf, material.coatFactor > 0.0);
 }
 
+fn direct_physical_can_contribute(response: DirectPhysicalResponse) -> bool {
+  // Use the prepared shading/coat response, never geometric-normal NdotL.
+  // NaN compares unequal to zero, so uncertain arithmetic is not culled.
+  return response.no_l != 0.0 || (response.has_coat &&
+    response.coat_no_l != 0.0 && response.coat_brdf != 0.0);
+}
+
 fn apply_direct_physical(
   incident_color: vec3f,
   response: DirectPhysicalResponse,

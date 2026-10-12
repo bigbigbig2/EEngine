@@ -1,3 +1,4 @@
+import { VSM_FILTER_DATA_BYTES } from "./GpuVsmFilterAbi.js";
 /** Internal V5 ABI used by the production Final Pixel frame program. */
 export const FINAL_PIXEL_DIRECTORY_WORDS = 8;
 export const FINAL_PIXEL_SOLAR_WIDTH = 256;
@@ -66,6 +67,8 @@ export interface FinalPixelLightingDirectoryPlan {
   readonly descriptorBytes: number;
   readonly solarOffset: number;
   readonly solarBytes: number;
+  readonly filterNoiseOffset: number;
+  readonly filterNoiseBytes: number;
   readonly bytes: number;
   readonly words: Uint32Array<ArrayBuffer>;
 }
@@ -81,6 +84,7 @@ export function planFinalPixelLightingDirectory(
   >,
   lookupCount: number,
   descriptorCount: number,
+  filterNoiseBytes = 0,
 ): FinalPixelLightingDirectoryPlan {
   for (const count of [lookupCount, descriptorCount]) {
     if (!Number.isSafeInteger(count) || count < 1 || count > 0xffffffff) {
@@ -99,7 +103,11 @@ export function planFinalPixelLightingDirectory(
   const solarOffset = descriptorBytes;
   const solarBytes = FINAL_PIXEL_SOLAR_BYTES;
   const lookupOffset = Math.ceil((solarOffset + solarBytes) / alignment) * alignment;
-  const bytes = lookupOffset + lookupBytes;
+  if (filterNoiseBytes !== 0 && filterNoiseBytes !== VSM_FILTER_DATA_BYTES) {
+    throw new RangeError("Final Pixel requires a complete VSM noise sequence and rotation table");
+  }
+  const filterNoiseOffset = lookupOffset + lookupBytes;
+  const bytes = filterNoiseOffset + filterNoiseBytes;
   if (
     !Number.isSafeInteger(bytes) ||
     bytes / 4 > 0xffffffff ||
@@ -116,6 +124,8 @@ export function planFinalPixelLightingDirectory(
     descriptorBytes,
     solarOffset,
     solarBytes,
+    filterNoiseOffset,
+    filterNoiseBytes,
     bytes,
     words: new Uint32Array([lookupOffset / 4, lookupCount, descriptorOffset / 4, descriptorCount]),
   });

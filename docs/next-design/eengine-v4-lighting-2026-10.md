@@ -23,7 +23,7 @@ verifies:
     - OEngine/src/shaders/native_surface.ts
     - OEngine/src/shaders/native_surface_lighting.ts
     - OEngine/src/render/vsm
-    - OEngine/src/gpu/ShadowContract.ts
+    - OEngine/src/render/vsm/VsmSettings.ts
     - OEngine/src/gpu/GpuAuthoredEnvironment.ts
     - OEngine/src/render/environment/PhysicalEnvironmentRuntime.ts
     - OEngine/src/render/ao

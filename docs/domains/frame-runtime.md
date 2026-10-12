@@ -9,6 +9,8 @@ verifies:
     - OEngine/src/render/pipeline/RendererCore.ts
     - OEngine/src/render/program/FrameProgramLowering.ts
     - OEngine/src/render/lighting/FinalPixelLightingPublication.ts
+    - OEngine/src/gpu/GpuVsmFilterAbi.ts
+    - OEngine/src/render/vsm/VsmFilterNoise.ts
     - OEngine/src/shaders/native_resolved_position.ts
     - OEngine/src/render/temporal/GpuRadiometryPass.ts
     - OEngine/src/render/temporal/ExposureSettings.ts
@@ -27,6 +29,8 @@ verifies:
 # Frame Runtime
 
 ## 当前源码接线
+
+2026-10-13：VSM圆盘滤波的完整64相位STBN及256-entry旋转表存于FinalPixelLighting buffer的不可变tail，复用现有binding；每个fenced allocation创建时上传一次，稳定帧不复制该段。Native采样constants发布当前tail word offset与提交frame相位；AA-off固定相位零。point/gather/零半径/无VSM不分配噪声GPU段；最多3份1,050,624B段，prepare/abort/retry/模式切换/resize/empty/device loss/最后consumer fence退休由共享物理owner闭合。Loader只保留CPU资产，不持有GPU对象。
 
 核对日期：2026-10-12，当前生产工作树。这里记录当前 owner 与主链注册；实际验证结果及阶段状态只在模块执行计划。
 

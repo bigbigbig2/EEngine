@@ -131,11 +131,17 @@ import { RadiometryRuntime, type PreExposureContract } from "../RadiometryContra
 import { negotiateVsmCapabilities } from "../vsm/VsmCapabilities.js";
 import { VsmResources, type VsmDiagnostics } from "../vsm/VsmResources.js";
 import { buildVsmDirectionalFrameConstants, VsmReceiverDemandPass } from "../vsm/VsmReceiverDemandPass.js";
-import { VSM_DEFAULT_SETTINGS, resolveVsmSettings, type VsmSettings } from "../vsm/VsmSettings.js";
+import {
+  VSM_DEFAULT_SETTINGS,
+  resolveVsmSettings,
+  effectiveVsmFilterMode,
+  type VsmSettings,
+} from "../vsm/VsmSettings.js";
 import { VsmAllocatePagesPass } from "../vsm/VsmAllocatePagesPass.js";
 import { VsmCasterRecordPass } from "../vsm/VsmCasterRecordPass.js";
 import { VsmAtlasRasterPass } from "../vsm/VsmAtlasRasterPass.js";
 import { FinalPixelLightingPublication } from "../lighting/FinalPixelLightingPublication.js";
+import { loadVsmFilterData } from "../vsm/VsmFilterNoise.js";
 import { vsmSamplingDescriptorCount } from "../vsm/VsmSamplingPublicationPass.js";
 import { VsmInvalidationPass } from "../vsm/VsmInvalidationPass.js";
 import { GPU_INSTANCE_FLAGS } from "../../gpu/GpuInstanceAbi.js";
@@ -497,6 +503,7 @@ export class Renderer {
   private _vsmCasterRecords!: VsmCasterRecordPass;
   private _vsmAtlasRaster!: VsmAtlasRasterPass;
   private _finalPixelLighting!: FinalPixelLightingPublication;
+  private _vsmFilterData: Uint8Array<ArrayBuffer> | undefined;
   private _vsmInvalidation!: VsmInvalidationPass;
   private readonly _vsmGeneration = new VsmGeneration();
   private _vsmSettings: Readonly<VsmSettings> = VSM_DEFAULT_SETTINGS;
@@ -1742,7 +1749,14 @@ export class Renderer {
     // earlier would dereference an undefined device owner.
     // Directional VSM has one consumer: the Physical Sun in Native Surface.
     if (config.enableVsm !== false && config.enablePhysicalEnvironment !== false) {
-      this._vsm = VsmResources.create(device, negotiateVsmCapabilities(device));
+      const vsmCapabilities = negotiateVsmCapabilities(device);
+      if (vsmCapabilities.profile !== "shadow-disabled") {
+        this._vsmFilterData = await loadVsmFilterData();
+        if (this._destroyed || this._deviceLost || this.device !== device) {
+          throw new Error("Renderer initialization ended while loading VSM filter data");
+        }
+      }
+      this._vsm = VsmResources.create(device, vsmCapabilities);
       this._vsmDepthBounds = new VsmDepthBoundsPass(device);
       this._vsmReceiverDemand = new VsmReceiverDemandPass(device);
       this._vsmAllocatePages = new VsmAllocatePagesPass(device);
@@ -2255,7 +2269,17 @@ export class Renderer {
               this._vsm!.capabilities.clipLevels,
             )
           : 1;
-        finalPixelLighting = this._finalPixelLighting.prepare(lookupCount, descriptorCount, command);
+        const diskFilter = vsmEnabled && effectiveVsmFilterMode(this._vsmSettings) === "disk4";
+        const filterData = diskFilter ? this._vsmFilterData : undefined;
+        if (diskFilter && !filterData) {
+          throw new Error("Disk VSM requires its complete blue-noise asset");
+        }
+        finalPixelLighting = this._finalPixelLighting.prepare(
+          lookupCount,
+          descriptorCount,
+          command,
+          filterData,
+        );
         localLightWork = this._localLightWork.prepare({
           publication,
           lookupTarget: {

@@ -16,6 +16,12 @@ verifies:
     - validation/tools/run-dungeon-camera-motion.mjs
     - OEngine/src/render/surface
     - OEngine/src/render/vsm
+    - OEngine/src/gpu/GpuVsmFilterAbi.ts
+    - OEngine/src/shaders/vsm_sampling.ts
+    - OEngine/tests/contract/vsm-filter-publication.test.mjs
+    - OEngine/tests/oracle/vsm-filter-gpu.mjs
+    - OEngine/tests/oracle/vsm-filter-cost-gpu.mjs
+    - OEngine/tests/oracle/vsm-bias-gpu.mjs
     - OEngine/src/render/temporal
     - OEngine/src/render/passes/fsr3
     - OEngine/src/render/TemporalFabric.ts
@@ -46,6 +52,7 @@ verifies:
     - OEngine/tests/oracle/native-temporal-observation-boundary-gpu.mjs
     - OEngine/tests/oracle/native-temporal-observation-replay-gpu.mjs
     - OEngine/tests/oracle/native-temporal-observation-cost-gpu.mjs
+    - OEngine/src/shaders/vsm_sampling.ts
     - OEngine/src/gpu/GpuNativeMaterialPublication.ts
     - OEngine/src/gpu/GpuNativeMaterialScene.ts
     - OEngine/src/gpu/GpuInstanceAbi.ts
@@ -331,6 +338,16 @@ Phase6必须完成同条件长窗口≥3 ABBA块/每path每块1000完整samples�
 用户要求分析并优化两种比例下旋转/平移/缩放的间歇卡顿。局部实施为 PhysicalSkyIblResources 的完整参数/LUT身份、4组不可变输出/LRU/提交/abort/fence退休，以及 Dungeon interactive 对延期 RAF 的完成后重试。首次新探针仍完整生成；不改 FSR/Native Temporal 数学、Geometry Frontend、VSM质量或相机阻尼，不增加在途上限/独立submit。默认比例按另一次明确授权由1改为0.667，面板同步。
 
 **该局部正确性、生命周期及重复生成成本出口关闭；普通交互整体FPS净收益未资格，全部卡顿根因未闭合；正式Phase6仍未开始。** Typecheck/build、fresh build:test、Dungeon build/typecheck、20项Node、3个串行实际GPU通过。完整IBL返回读回3,293,136B一致，命中0生成dispatch，对比旧17dispatch约2.08ms。普通宿主两种比例×静止/旋转/平移/缩放完成，释放后天空纹理0；热状态89–91°C和300–1350MHz混杂且部分GPU span缺项，不用局部工作删除或混杂FPS冒称整体性能改善。原失败、Cost Card、完整8窗口正负数据及附件见[相机交互报告](../performance/2026-10-12-camera-motion-stutter-optimization.md)。停止在该用户追加单元边界，不自动实施VSM/HZB/FSR新算法或跨Phase6。
+
+### 8.3 VSM采样与Bias优化（2026-10-13）
+
+用户明确授权滤波质量取舍后，本局部采样单元完成 production 切换、退休和必要正确性/生命周期/成本检查；整 Renderer / 稳定60FPS资格仍未获得。默认从16点网格/.75半径切为4点旋转Vogel/1.5半径；稳定raw gather及point属于同一采样owner的显式模式。零半径在CPU折叠为point，未创建旧算法桥。
+
+Native先检查prepared BRDF的base/coat零贡献，再查询页和采样；保留无效页中性返回及空反向深度/负reference。现有几何平面给出逐texel中心深度修正，Depth/Angular默认1/1；退掉重复Normal/Slope、per-axis配置/ceiling、4×4循环和死`ShadowContract`。噪声全64相位及rotation table共1,050,624B，在现有lighting binding的不可变tail一次初始化，最多3份fenced allocation，最坏新增约3.01MiB；无额外texture/binding/pass/history/submit。AA-off固定相位，abort/retry/reset/resize/模式切换/设备恢复/退休保持完整。
+
+集中验证：engine typecheck/build/declarations、fresh build:test、Dungeon/Bistro typecheck/build、31 targeted Node；新filter独立595,968点、新bias解析receiver/contact 442,368点、3600 Sun/coat/HDR例、完整query/identity、1080p四类×256动态shadow序列、实际ordinary/Product/无Sun/bounded/最小binding/模式与零半径/AA-off/abort/defer/recovery/release GPU通过，无GPU/scoped errors。普通例程原浏览器失败保存并修复，最终交互与immutable上传/释放检查见实施记录。稀疏两点半影猜测及深度/寻址f16按设计拒绝，没有未接线placeholder。
+
+最终独立核old16/old4/disk/gather/point P50=.937696/.363280/.262896/.159616/.146368ms，全部raw及Cost Card见[实施记录](../performance/2026-10-13-vsm-filter-optimization.md)。有限96-frame ABBA中Native P50 A1/B1/B2/A2=4.207312/3.799760/3.819184/4.229968ms，两侧减少约.41ms；whole=17.171840/16.397280/16.534752/16.475424ms，VSM管理波动约.45ms，whole分差方向不一致。只称局部采样/Native收益，不称完整VSM或整帧改善。原热混杂、失败和全部raw保留；没有geometry-settled/formal三块1000-frame资格。接收平面与滤波源码切换事实、来源边界和仍需验证范围见实施记录。单元结束后仍停在Phase6，未越界重做VSM管理/raster。
 
 ## 9. Phase 6 — Performance / quality acceptance
 

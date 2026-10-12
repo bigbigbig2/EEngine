@@ -9,13 +9,13 @@ export interface NativeSurfacePhysicalSunProvider {
 
 export function nativeSurfacePhysicalSunLayoutEntries(): GPUBindGroupLayoutEntry[] {
   return [
-    { binding: 12, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 48 } }
+    { binding: 12, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 48 } },
   ];
 }
 
 /** Prepare-time binding glue; the atmosphere owner retains the actual resources. */
 export function nativeSurfacePhysicalSunEntries(
-  provider: NativeSurfacePhysicalSunProvider
+  provider: NativeSurfacePhysicalSunProvider,
 ): GPUBindGroupEntry[] {
   return [{ binding: 12, resource: { buffer: provider.parameters } }];
 }
@@ -43,6 +43,9 @@ ${atmosphereRuntimeWgsl(true)}
 @group(1) @binding(12) var<uniform> native_physical_sun: PhysicalEnvironmentParameters;
 
 fn native_surface_physical_sun(response: DirectPhysicalResponse, position: vec3f, instance_flags: u32, sun_visibility: f32) -> vec3f {
+  if (!direct_physical_can_contribute(response)) {
+    return vec3f(0.0);
+  }
   ${
     shadowed
       ? `if ((instance_flags & ${GPU_INSTANCE_FLAGS.ReceivesShadow}u) != 0u && sun_visibility == 0.0) {

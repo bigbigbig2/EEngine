@@ -105,13 +105,12 @@
                 <option value="page-state">Page state</option>
               </select></label>
               <p class="note" id="vsm-debug-note">Shadow visibility：白=受光，黑=遮挡，紫=无有效页。调试视图不用于画质或性能测量。</p>
-              <label class="control">PCF samples<output id="vsm-taps-value">4 × 4 (16)</output><input id="vsm-taps" type="range" min="1" max="4" step="1" value="4" /></label>
-              <label class="control">Filter radius (texels)<output id="vsm-radius-value">0.75</output><input id="vsm-radius" type="range" min="0" max="3" step="0.05" value="0.75" /></label>
-              <p class="note">采样数影响 GPU 成本；半径改变边缘滤波宽度，不是物理光源大小。1×1 为单次采样。</p>
-              <label class="control">Depth bias (texels)<output id="vsm-depth-bias-value">2.00</output><input id="vsm-depth-bias" type="range" min="0" max="8" step="0.05" value="2" /></label>
-              <label class="control">Normal bias (texels)<output id="vsm-normal-bias-value">0.50</output><input id="vsm-normal-bias" type="range" min="0" max="4" step="0.05" value="0.5" /></label>
-              <label class="control">Slope bias (texels)<output id="vsm-slope-bias-value">1.50</output><input id="vsm-slope-bias" type="range" min="0" max="8" step="0.05" value="1.5" /></label>
-              <p class="note">增大 bias 可减轻自阴影条纹，过大会让阴影脱离物体。Normal / slope 项按表面朝向调节深度偏移。</p>
+              <label class="control">Shadow filter<select id="vsm-filter"><option value="disk4">Vogel disk: 4 samples</option><option value="gather2x2">Stable 2x2: 1 gather</option><option value="point">Hard shadow: 1 sample</option></select></label>
+              <label class="control">Filter radius (texels)<output id="vsm-radius-value">1.50</output><input id="vsm-radius" type="range" min="0" max="3" step="0.05" value="1.5" /></label>
+              <p class="note">圆盘模式使用 4 点滤波，半径控制柔化范围。稳定 2×2 适合减少噪点，单点模式保留硬阴影。</p>
+              <label class="control">Depth bias (texels)<output id="vsm-depth-bias-value">1.00</output><input id="vsm-depth-bias" type="range" min="0" max="8" step="0.05" value="1" /></label>
+              <label class="control">Angular depth bias (texels)<output id="vsm-angular-bias-value">1.00</output><input id="vsm-angular-bias" type="range" min="0" max="8" step="0.05" value="1" /></label>
+              <p class="note">Depth bias 为基础偏移，Angular bias 随表面朝向增加。过大的值会让阴影脱离物体。</p>
               <label class="control">Coverage scale<output id="vsm-coverage-value">1.00 ×</output><input id="vsm-coverage" type="range" min="0.25" max="4" step="0.05" value="1" /></label>
               <p class="note">缩小覆盖提高近处精度；扩大覆盖降低精度。松开滑块后应用，覆盖改变会重建页面。</p>
               <div class="vsm-actions"><button id="vsm-rebuild" class="text-button">Rebuild pages</button><button id="vsm-reset" class="text-button">Reset VSM</button></div>

@@ -1,18 +1,25 @@
 import { VSM_SAMPLING_WGSL } from "../../.test-dist/shaders/vsm_sampling.js";
 import { VSM_SAMPLING_PUBLICATION_WGSL } from "../../.test-dist/shaders/vsm_sampling_publication.js";
 import { REFERENCE_VSM_SAMPLING_WGSL } from "./fixtures/vsm-sampling-v1.mjs";
+import { VSM_SAMPLING_WGSL as FROZEN_S3_SAMPLING_WGSL } from "./fixtures/vsm-sampling-s3.mjs";
 import { VSM_FINE_BROADCAST_WGSL, vsmShadowResolveWgsl } from "./reference/s3/vsm_shadow_resolve.mjs";
 
-const check = (value, message) => { if (!value) throw new Error(message); };
+const check = (value, message) => {
+  if (!value) throw new Error(message);
+};
 
 /** Frozen original GPU query/PCF is the migration oracle, not a production path.
- * Numeric comparison includes every query status and exact visibility bits. */
+ * All status/identity words are checked exactly against the frozen original
+ * query. Deliberately replaced filter mathematics is checked separately by
+ * the independent vsm-filter CPU/GPU oracle, not by the retired PCF kernel. */
 export async function runVsmSamplingPublicationGpuOracle(device) {
   const retained = [];
   const make = (bytes, usage, initial) => {
     const buffer = device.createBuffer({ size: bytes, usage, mappedAtCreation: initial !== undefined });
     if (initial !== undefined) {
-      new Uint8Array(buffer.getMappedRange()).set(new Uint8Array(initial.buffer, initial.byteOffset, initial.byteLength));
+      new Uint8Array(buffer.getMappedRange()).set(
+        new Uint8Array(initial.buffer, initial.byteOffset, initial.byteLength),
+      );
       buffer.unmap();
     }
     retained.push(buffer);
@@ -24,28 +31,41 @@ export async function runVsmSamplingPublicationGpuOracle(device) {
     check(!info.messages.some((m) => m.type === "error"), JSON.stringify(info.messages));
     return device.createComputePipelineAsync({ layout: "auto", compute: { module, entryPoint } });
   };
-  const pages = 128, levels = 6, perManagement = 21888, perSampling = 16448;
-  const generation = 0xfedcba98, epoch = 0xffffffee, namespace = 0xda001122;
-  const constants = new Float32Array(64), words = new Uint32Array(constants.buffer);
+  const pages = 128,
+    levels = 6,
+    perManagement = 21888,
+    perSampling = 16448;
+  const generation = 0xfedcba98,
+    epoch = 0xffffffee,
+    namespace = 0xda001122;
+  const constants = new Float32Array(64),
+    words = new Uint32Array(constants.buffer);
   constants.set([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
   words.set([pages, 128, 4, 30, levels, generation, 4, 4096], 40);
-  constants.set([.1, .003, .002, 1.5], 48);
-  constants.set([-3, 7, .1, 1], 52);
+  constants.set([0.1, 0.003, 0.002, 1.5], 48);
+  constants.set([-3, 7, 0.1, 1], 52);
   words.set([epoch, namespace, 0, 0], 56);
   const uniform = make(256, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST, constants);
   const table = make(perManagement * levels * 48, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
-  const descriptors = make(perSampling * levels * 16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST);
+  const descriptors = make(
+    perSampling * levels * 16,
+    GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+  );
   const publish = await compile(VSM_SAMPLING_PUBLICATION_WGSL);
-  const pubGroup = device.createBindGroup({ layout: publish.getBindGroupLayout(0), entries: [
-    { binding: 0, resource: { buffer: uniform } },
-    { binding: 1, resource: { buffer: table } },
-    { binding: 2, resource: { buffer: descriptors } }
-  ] });
+  const pubGroup = device.createBindGroup({
+    layout: publish.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: uniform } },
+      { binding: 1, resource: { buffer: table } },
+      { binding: 2, resource: { buffer: descriptors } },
+    ],
+  });
   const pointValues = [];
   const nextFloat = (x, delta) => {
-    const f = new Float32Array([x]), u = new Uint32Array(f.buffer);
+    const f = new Float32Array([x]),
+      u = new Uint32Array(f.buffer);
     if (x === 0) return delta < 0 ? -1.401298464324817e-45 : 1.401298464324817e-45;
-    u[0] += (x > 0 ? delta : -delta);
+    u[0] += x > 0 ? delta : -delta;
     return f[0];
   };
   const append = (x, y, z = 0) => pointValues.push(x, y, z, 1);
@@ -59,33 +79,41 @@ export async function runVsmSamplingPublicationGpuOracle(device) {
         const boundary = Math.fround(k * step);
         for (const delta of [-1, 0, 1]) {
           const x = delta ? nextFloat(boundary, delta) : boundary;
-          append(x, -.125 * step);
-          append(.25 * step, x, delta * 4);
+          append(x, -0.125 * step);
+          append(0.25 * step, x, delta * 4);
         }
       }
     }
   }
-  append(1e6, 1e6); append(-1e6, -1e6);
-  append(-1e-38, 1e-38); append(-1e-40, -1e-40);
+  append(1e6, 1e6);
+  append(-1e6, -1e6);
+  append(-1e-38, 1e-38);
+  append(-1e-40, -1e-40);
   // Dense independent subtexel probes around each original default tap's
   // rounding transition. Direct PCF below does not depend on page readiness.
   for (let texel = 0; texel <= 128; texel++) {
-    for (const fraction of [0, .21875, .40625, .5, .59375, .78125, 1]) {
+    for (const fraction of [0, 0.21875, 0.40625, 0.5, 0.59375, 0.78125, 1]) {
       const uv = Math.fround((texel + fraction) / 128);
       for (const delta of [-1, 0, 1]) {
         const coordinate = delta === 0 ? uv : nextFloat(uv, delta);
-        for (const depth of [-.25, 0, .25, .75, 1.25]) {
-          append(coordinate, Math.fround((texel * 17 % 129 + fraction) / 128), depth);
+        for (const depth of [-0.25, 0, 0.25, 0.75, 1.25]) {
+          append(coordinate, Math.fround((((texel * 17) % 129) + fraction) / 128), depth);
         }
       }
     }
   }
-  const positions = new Float32Array(pointValues), count = positions.length / 4;
+  const positions = new Float32Array(pointValues),
+    count = positions.length / 4;
   const points = make(positions.byteLength, GPUBufferUsage.STORAGE, positions);
   const outputs = [0, 1, 2].map(() => make(count * 32, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC));
   const staging = make(count * 96, GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ);
-  const atlas = device.createTexture({ size: [4096, 4096], format: "depth32float", usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
-  const depthModule = device.createShaderModule({ code: `
+  const atlas = device.createTexture({
+    size: [4096, 4096],
+    format: "depth32float",
+    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+  });
+  const depthModule = device.createShaderModule({
+    code: `
 @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
   let p = array<vec2f, 3>(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0));
   return vec4f(p[i], 0.0, 1.0);
@@ -93,17 +121,33 @@ export async function runVsmSamplingPublicationGpuOracle(device) {
 @fragment fn fs(@builtin(position) p: vec4f) -> @builtin(frag_depth) f32 {
   let cell = ((u32(p.x) * 1664525u) ^ (u32(p.y) * 1013904223u)) % 3u;
   return select(select(0.25, 0.75, cell == 1u), 0.0, cell == 2u);
-}` });
-  const raster = await device.createRenderPipelineAsync({ layout: "auto", vertex: { module: depthModule, entryPoint: "vs" }, fragment: { module: depthModule, entryPoint: "fs", targets: [] }, depthStencil: { format: "depth32float", depthWriteEnabled: true, depthCompare: "always" } });
-  const pipelines = [], groups = [];
+}`,
+  });
+  const raster = await device.createRenderPipelineAsync({
+    layout: "auto",
+    vertex: { module: depthModule, entryPoint: "vs" },
+    fragment: { module: depthModule, entryPoint: "fs", targets: [] },
+    depthStencil: { format: "depth32float", depthWriteEnabled: true, depthCompare: "always" },
+  });
+  const pipelines = [],
+    groups = [];
   for (const product of [false, true]) {
     for (const diagnostic of [false, true]) {
-      const info = await device.createShaderModule({ code: vsmShadowResolveWgsl(product, diagnostic) }).getCompilationInfo();
-      check(!info.messages.some(m => m.type === "error"), JSON.stringify(info.messages));
+      const info = await device
+        .createShaderModule({ code: vsmShadowResolveWgsl(product, diagnostic) })
+        .getCompilationInfo();
+      check(!info.messages.some((m) => m.type === "error"), JSON.stringify(info.messages));
     }
   }
-  for (const [index, source] of [REFERENCE_VSM_SAMPLING_WGSL, VSM_SAMPLING_WGSL, VSM_SAMPLING_WGSL + VSM_FINE_BROADCAST_WGSL].entries()) {
-    const declaration = index === 0 ? "vsm_page_table: array<VsmPageEntry>" : "vsm_sampling_descriptors: array<VsmSamplingDescriptor>";
+  for (const [index, source] of [
+    REFERENCE_VSM_SAMPLING_WGSL,
+    VSM_SAMPLING_WGSL,
+    FROZEN_S3_SAMPLING_WGSL + VSM_FINE_BROADCAST_WGSL,
+  ].entries()) {
+    const declaration =
+      index === 0
+        ? "vsm_page_table: array<VsmPageEntry>"
+        : "vsm_sampling_descriptors: array<VsmSamplingDescriptor>";
     const pipeline = await compile(`
 struct GpuPrimitiveTypeTable { direction: vec3f, color: vec3f, }
 ${source}
@@ -115,34 +159,39 @@ ${source}
 ${index === 0 ? "" : "@group(0) @binding(5) var vsm_atlas_sampler: sampler;"}
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u, @builtin(local_invocation_index) lane: u32) {
-  ${index === 2 ? `if (lane == 0u) { shadow_publish_fine(points[id.x].xy, id.x < arrayLength(&points)); }
-  workgroupBarrier();` : ""}
+  ${
+    index === 2
+      ? `if (lane == 0u) { shadow_publish_fine(points[id.x].xy, id.x < arrayLength(&points)); }
+  workgroupBarrier();`
+      : ""
+  }
   if (id.x >= arrayLength(&points)) { return; }
   let q = ${index === 2 ? "shadow_query_directional" : "vsm_query_directional"}(points[id.x].xy);
-  let v = ${index === 2 ? "shadow_sample_query(points[id.x].xyz, normalize(vec3f(0.7, 0.01, 0.3)), vec3f(0.0, 1.0, 0.0), q)" : "vsm_sample_directional(points[id.x].xyz, normalize(vec3f(0.7, 0.01, 0.3)), GpuPrimitiveTypeTable(vec3f(0.0, 1.0, 0.0), vec3f(1.0)))"};
-  output[id.x * 2u] = vec4u(q.status, q.target_status, q.level, bitcast<u32>(v));
+  output[id.x * 2u] = vec4u(q.status, q.target_status, q.level, 0u);
   let valid = q.status == VSM_QUERY_FINE || q.status == VSM_QUERY_COARSE;
   let metadata = select(vec3u(0u), vec3u(q.entry.slot_x, q.entry.slot_y, q.entry.mip), valid);
-  let entry = VsmPageEntry(29u, 29u, 0u, 0u, 0u, 0u, 0u, 0u, 0, 0, 0u, 0u);
-  let direct = vsm_sample_page(entry, points[id.x].xy, points[id.x].z, 0.003);
-  output[id.x * 2u + 1u] = vec4u(metadata, bitcast<u32>(direct));
+  output[id.x * 2u + 1u] = vec4u(metadata, 0u);
 }`);
     pipelines.push(pipeline);
-    groups.push(device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: [
-      { binding: 0, resource: { buffer: uniform } },
-      { binding: 1, resource: { buffer: index === 0 ? table : descriptors } },
-      { binding: 2, resource: atlas.createView() },
-      { binding: 3, resource: { buffer: points } },
-      { binding: 4, resource: { buffer: outputs[index] } },
-      ...(index === 0 ? [] : [{ binding: 5, resource: device.createSampler() }])
-    ] }));
+    groups.push(
+      device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: uniform } },
+          { binding: 1, resource: { buffer: index === 0 ? table : descriptors } },
+          { binding: 3, resource: { buffer: points } },
+          { binding: 4, resource: { buffer: outputs[index] } },
+        ],
+      }),
+    );
   }
-  const cases = [], statuses = new Set();
+  const cases = [],
+    statuses = new Set();
   device.pushErrorScope("validation");
   try {
-    const configurations = [0, 1, 2, 3].map(mode => ({ mode, taps: 4, radius: 1.5 }));
+    const configurations = [0, 1, 2, 3].map((mode) => ({ mode, taps: 4, radius: 1.5 }));
     for (let taps = 1; taps <= 4; taps++) {
-      for (const radius of [0, .75, 1, 1.5, 8]) configurations.push({ mode: 0, taps, radius });
+      for (const radius of [0, 0.75, 1, 1.5, 8]) configurations.push({ mode: 0, taps, radius });
     }
     for (const { mode, taps, radius } of configurations) {
       words[46] = taps;
@@ -150,23 +199,45 @@ fn main(@builtin(global_invocation_id) id: vec3u, @builtin(local_invocation_inde
       const entries = new Uint32Array(perManagement * levels * 12);
       for (let level = 0; level < levels; level++) {
         const extent = Math.fround(166.4 * 2 ** level);
-        const step = Math.fround(extent / pages), shift = mode === 1 ? 37 : 0;
+        const step = Math.fround(extent / pages),
+          shift = mode === 1 ? 37 : 0;
         const origin = [Math.fround(-extent / 2 + shift * step), Math.fround(-extent / 2 - shift * step)];
         constants.set([...origin, extent, 0], 16 + level * 4);
-        const center = origin.map(x => Math.fround(x + Math.fround(extent * .5)));
-        const fineMin = center.map(x => Math.floor(Math.fround(x / step)) - 64);
+        const center = origin.map((x) => Math.fround(x + Math.fround(extent * 0.5)));
+        const fineMin = center.map((x) => Math.floor(Math.fround(x / step)) - 64);
         for (const mip of [0, 5]) {
-          const axis = mip === 0 ? 128 : 8, size = mip === 0 ? 128 : 5;
-          const min = mip === 0 ? fineMin : fineMin.map(x => Math.floor(x / 32));
-          for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
-            const world = [min[0] + x, min[1] + y], wrap = n => ((n % axis) + axis) % axis;
-            const index = level * perManagement + (mip === 5 ? perManagement - 64 : 0) + wrap(world[1]) * axis + wrap(world[0]);
-            const code = mode === 2 ? 0 : mode === 3 ? 2 : (index + level) % 8;
-            const flags = code === 0 ? 0 : code === 2 ? 11 : code === 3 ? 13 : 9;
-            entries.set([x % 30, y % 30, code === 4 ? (mip + 1) % 6 : mip, flags,
-              code === 5 ? generation - 1 : generation, 5, 0, code === 6 ? epoch - 1 : epoch,
-              world[0] >>> 0, world[1] >>> 0, code === 7 ? namespace - 1 : namespace, 0], index * 12);
-          }
+          const axis = mip === 0 ? 128 : 8,
+            size = mip === 0 ? 128 : 5;
+          const min = mip === 0 ? fineMin : fineMin.map((x) => Math.floor(x / 32));
+          for (let y = 0; y < size; y++)
+            for (let x = 0; x < size; x++) {
+              const world = [min[0] + x, min[1] + y],
+                wrap = (n) => ((n % axis) + axis) % axis;
+              const index =
+                level * perManagement +
+                (mip === 5 ? perManagement - 64 : 0) +
+                wrap(world[1]) * axis +
+                wrap(world[0]);
+              const code = mode === 2 ? 0 : mode === 3 ? 2 : (index + level) % 8;
+              const flags = code === 0 ? 0 : code === 2 ? 11 : code === 3 ? 13 : 9;
+              entries.set(
+                [
+                  x % 30,
+                  y % 30,
+                  code === 4 ? (mip + 1) % 6 : mip,
+                  flags,
+                  code === 5 ? generation - 1 : generation,
+                  5,
+                  0,
+                  code === 6 ? epoch - 1 : epoch,
+                  world[0] >>> 0,
+                  world[1] >>> 0,
+                  code === 7 ? namespace - 1 : namespace,
+                  0,
+                ],
+                index * 12,
+              );
+            }
         }
       }
       device.queue.writeBuffer(uniform, 0, constants);
@@ -176,33 +247,75 @@ fn main(@builtin(global_invocation_id) id: vec3u, @builtin(local_invocation_inde
       // missing/dirty/outside after rolling windows and retired allocations.
       const poison = new Uint32Array(perSampling * levels * 4).fill(0xffffffff);
       device.queue.writeBuffer(descriptors, 0, poison);
-      const depth = encoder.beginRenderPass({ colorAttachments: [], depthStencilAttachment: { view: atlas.createView(), depthLoadOp: "clear", depthClearValue: 0, depthStoreOp: "store" } });
-      depth.setPipeline(raster); depth.draw(3); depth.end();
+      const depth = encoder.beginRenderPass({
+        colorAttachments: [],
+        depthStencilAttachment: {
+          view: atlas.createView(),
+          depthLoadOp: "clear",
+          depthClearValue: 0,
+          depthStoreOp: "store",
+        },
+      });
+      depth.setPipeline(raster);
+      depth.draw(3);
+      depth.end();
       const publication = encoder.beginComputePass();
-      publication.setPipeline(publish); publication.setBindGroup(0, pubGroup); publication.dispatchWorkgroups(Math.ceil(perSampling * levels / 64)); publication.end();
+      publication.setPipeline(publish);
+      publication.setBindGroup(0, pubGroup);
+      publication.dispatchWorkgroups(Math.ceil((perSampling * levels) / 64));
+      publication.end();
       for (let index = 0; index < 3; index++) {
         const pass = encoder.beginComputePass();
-        pass.setPipeline(pipelines[index]); pass.setBindGroup(0, groups[index]); pass.dispatchWorkgroups(Math.ceil(count / 64)); pass.end();
+        pass.setPipeline(pipelines[index]);
+        pass.setBindGroup(0, groups[index]);
+        pass.dispatchWorkgroups(Math.ceil(count / 64));
+        pass.end();
         encoder.copyBufferToBuffer(outputs[index], 0, staging, index * count * 32, count * 32);
       }
       device.queue.submit([encoder.finish()]);
       await staging.mapAsync(GPUMapMode.READ);
-      const actual = new Uint32Array(staging.getMappedRange()), split = count * 8;
+      const actual = new Uint32Array(staging.getMappedRange()),
+        split = count * 8;
       for (let i = 0; i < split; i++) {
-        check(actual[i] === actual[split + i], `mode=${mode}, taps=${taps}, radius=${radius}, point=${Math.floor(i / 8)}, word=${i % 8}: reference ${actual[i]} vs compact ${actual[split + i]}`);
-        check(actual[i] === actual[2 * split + i], `mode=${mode}, taps=${taps}, radius=${radius}, point=${Math.floor(i / 8)}, word=${i % 8}: reference ${actual[i]} vs broadcast ${actual[2 * split + i]}`);
+        check(
+          actual[i] === actual[split + i],
+          `mode=${mode}, taps=${taps}, radius=${radius}, point=${Math.floor(i / 8)}, word=${i % 8}: reference ${actual[i]} vs compact ${actual[split + i]}`,
+        );
+        check(
+          actual[i] === actual[2 * split + i],
+          `mode=${mode}, taps=${taps}, radius=${radius}, point=${Math.floor(i / 8)}, word=${i % 8}: reference ${actual[i]} vs broadcast ${actual[2 * split + i]}`,
+        );
         if (i % 8 === 0) statuses.add(actual[i]);
       }
       staging.unmap();
-      cases.push({ mode, taps, radius, comparisons: count, exact: true });
+      cases.push({
+        mode,
+        taps,
+        radius,
+        comparisons: count,
+        exactQueryAndIdentity: true,
+        newFilterNumericOracle: "vsm-filter",
+      });
     }
     check(statuses.size === 6, `Missing query status coverage: ${[...statuses]}`);
     const error = await device.popErrorScope();
     check(error === null, error?.message);
   } finally {
     await device.queue.onSubmittedWorkDone();
-    atlas.destroy(); retained.forEach(buffer => buffer.destroy());
+    atlas.destroy();
+    retained.forEach((buffer) => buffer.destroy());
   }
-  return { passed: true, cases, statuses: [...statuses].sort(), fullIdentity: { generation, epoch, namespace },
-    covers: ["fine/coarse/missing/stale/dirty/outside", "f32 nextafter signed boundaries/subnormals", "window roll", "all missing/all dirty", "gutter/PCF positive and zero depth", "negative receiver depth", "poison/full write reset"] };
+  return {
+    passed: true,
+    cases,
+    statuses: [...statuses].sort(),
+    fullIdentity: { generation, epoch, namespace },
+    covers: [
+      "fine/coarse/missing/stale/dirty/outside",
+      "f32 nextafter signed boundaries/subnormals",
+      "window roll",
+      "all missing/all dirty",
+      "poison/full write reset",
+    ],
+  };
 }

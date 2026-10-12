@@ -1,3 +1,10 @@
+import {
+  VSM_FILTER_MODES,
+  VSM_FILTER_NOISE_BYTES,
+  VSM_FILTER_NOISE_WIDTH,
+  VSM_FILTER_NOISE_HEIGHT,
+  VSM_VOGEL_POINTS,
+} from "../gpu/GpuVsmFilterAbi.js";
 import { VSM_PAGE_TABLE_WGSL } from "./vsm_page_table.js";
 
 /**
@@ -15,10 +22,10 @@ struct VsmSamplingConstants {
   light_view: mat4x4f,
   clip_origin_extent: array<vec4f, 6>,
   dimensions: vec4u, // virtual pages/axis, page size, border, atlas pages/axis
-  control: vec4u,    // clip levels, generation, taps per axis, atlas dimension
-  filter_params: vec4f, // normal/depth/slope bias, PCF width in actual shadow texels
+  control: vec4u,    // clip levels, generation, filter mode, noise phase
+  filter_params: vec4f, // angular/depth bias, reserved, disk radius in actual shadow texels
   depth_range: vec4f, // GPU caster min/max Z, inverse range, validity
-  identity: vec4u, // projection epoch, owner namespace, debug view, reserved
+  identity: vec4u, // projection epoch, owner namespace, debug view, filter data word offset
 };
 
 const VSM_QUERY_FINE: u32 = 0u;
@@ -118,86 +125,85 @@ fn vsm_page_local_uv(light_xy: vec2f, level: u32, mip: u32) -> vec2f {
   return fract(light_xy / page_world);
 }
 
-fn vsm_atlas_texel(entry: VsmPageEntry, local_uv: vec2f, offset: vec2f) -> vec2i {
-  let page_size = max(1u, vsm_constants.dimensions.y);
+fn vsm_local_texel(receiver: vec2f, offset: vec2f) -> vec2i {
+  let size = vsm_constants.dimensions.y;
   let border = vsm_constants.dimensions.z;
-  let stride = page_size + border * 2u;
-  let base = vec2f(f32(entry.slot_x * stride + border),
-    f32(entry.slot_y * stride + border));
-  let texel = floor(local_uv * f32(page_size) + offset + vec2f(0.5));
-  // PCF reads the rasterized gutter. The clamp only protects the physical slot.
-  let in_slot = clamp(texel, vec2f(-f32(border)), vec2f(f32(page_size + border) - 1.0));
-  return vec2i(base + in_slot);
+  // Raster projects page UV to texel boundaries; a stored texel is sampled at
+  // integer+.5. floor(receiver+offset) selects the nearest stored centre.
+  return vec2i(clamp(floor(receiver + offset), vec2f(-f32(border)),
+    vec2f(f32(size + border) - 1.0)));
+}
+
+fn vsm_receiver_plane_gradient(normal_ws: vec3f, depth_per_texel: f32) -> vec2f {
+  // For n.x*dx+n.y*dy+n.z*dz=0 and reverse depth (maxZ-z)/range,
+  // dDepth/dTexel = n.xy/n.z * worldTexel/range. Native already owns n.
+  // No fragment derivatives, extra geometry reconstruction or output product.
+  let light_normal = (vsm_constants.light_view * vec4f(normal_ws, 0.0)).xyz;
+  if (!(abs(light_normal.z) >= 1e-4)) {
+    // An almost edge-on plane has no bounded z(x,y) representation. Retain the
+    // ordinary finite comparison bias for that singular case.
+    return vec2f(0.0);
+  }
+  return light_normal.xy / light_normal.z * depth_per_texel;
+}
+
+fn vsm_depth_visibility(stored: f32, reference: f32) -> f32 {
+  // Preserve reverse-Z zero/empty and negative receiver-reference semantics.
+  return select(1.0, 0.0, stored > 0.0 && stored > reference);
 }
 
 fn vsm_sample_page(entry: VsmPageEntry, local_uv: vec2f,
-  reference_depth: f32, bias: f32) -> f32 {
-  let taps = max(1u, min(4u, vsm_constants.control.z));
-  // This is the same sixteen point comparisons, not a different filter.
-  // Keep the original f32 offset/floor/clamp order before counting repeats.
-  // Radius <= 1 gives at most two integer texels per axis; the actual span
-  // check also protects that condition at floating-point/gutter boundaries.
+  reference_depth: f32, bias: f32, rotation: vec2f, plane_gradient: vec2f) -> f32 {
+  let reference = reference_depth + bias;
+  let mode = vsm_constants.control.z;
+  let size = vsm_constants.dimensions.y;
+  let border = vsm_constants.dimensions.z;
+  let stride = size + border * 2u;
+  let base = vec2i(vec2u(entry.slot_x * stride + border, entry.slot_y * stride + border));
+  let receiver = local_uv * f32(size);
+  if (mode == ${VSM_FILTER_MODES.point}u) {
+    let texel = vsm_local_texel(receiver, vec2f(0.0));
+    let sample_reference = reference + dot(vec2f(texel) + vec2f(0.5) - receiver, plane_gradient);
+    return vsm_depth_visibility(textureLoad(vsm_atlas_depth, base + texel, 0), sample_reference);
+  }
+  if (mode == ${VSM_FILTER_MODES["gather2x2"]}u) {
+    // Compare each raw depth before interpolation. One sampling instruction,
+    // four depth texels; a stable 2x2 kernel with no temporal noise.
+    let point = clamp(receiver - vec2f(0.5), vec2f(-f32(border)),
+      vec2f(f32(size + border) - 2.0));
+    let lower = floor(point);
+    let fraction = fract(point);
+    let uv = (vec2f(base) + lower + vec2f(1.0)) / vec2f(textureDimensions(vsm_atlas_depth));
+    let depths = textureGather(vsm_atlas_depth, vsm_atlas_sampler, uv).wzxy;
+    let lower_reference = reference + dot(lower + vec2f(0.5) - receiver, plane_gradient);
+    let references = lower_reference + vec4f(0.0, plane_gradient.x, plane_gradient.y,
+      plane_gradient.x + plane_gradient.y);
+    let visible = vec4f(vsm_depth_visibility(depths.x, references.x),
+      vsm_depth_visibility(depths.y, references.y),
+      vsm_depth_visibility(depths.z, references.z),
+      vsm_depth_visibility(depths.w, references.w));
+    return mix(mix(visible.x, visible.y, fraction.x),
+      mix(visible.z, visible.w, fraction.x), fraction.y);
+  }
+  let kernel = array<vec2f, 4>(
+    ${VSM_VOGEL_POINTS.map((point) => `vec2f(${point[0]}, ${point[1]})`).join(",\n    ")});
   let radius = vsm_constants.filter_params.w;
-  if (taps == 4u && radius >= 0.0 && radius <= 1.0) {
-    let page_size = max(1u, vsm_constants.dimensions.y);
-    let border = vsm_constants.dimensions.z;
-    let stride = page_size + border * 2u;
-    let offsets = (vec4f(0.5, 1.5, 2.5, 3.5) / 4.0 - vec4f(0.5)) * radius;
-    let lower = vec4f(-f32(border));
-    let upper = vec4f(f32(page_size + border) - 1.0);
-    let xs = vec4i(clamp(floor(vec4f(local_uv.x * f32(page_size)) + offsets + vec4f(0.5)), lower, upper));
-    let ys = vec4i(clamp(floor(vec4f(local_uv.y * f32(page_size)) + offsets + vec4f(0.5)), lower, upper));
-    if (xs.w - xs.x <= 1 && ys.w - ys.x <= 1) {
-      let x_matches = select(vec4u(0u), vec4u(1u), xs == vec4i(xs.x));
-      let y_matches = select(vec4u(0u), vec4u(1u), ys == vec4i(ys.x));
-      let nx = x_matches.x + x_matches.y + x_matches.z + x_matches.w;
-      let ny = y_matches.x + y_matches.y + y_matches.z + y_matches.w;
-      let base = vec2i(i32(entry.slot_x * stride + border), i32(entry.slot_y * stride + border));
-      var depths: vec4f;
-      let atlas_size = textureDimensions(vsm_atlas_depth);
-      // Negotiated atlases are powers of two. Integer/size coordinates are
-      // then exact f32 values; +1 selects the middle of this 2x2 footprint.
-      // Raw gather preserves zero/negative-reference semantics (no compare
-      // sampler and no interpolation). Zero-weight neighbours are ignored.
-      if (all((atlas_size & (atlas_size - vec2u(1u))) == vec2u(0u))) {
-        let uv = (vec2f(base + vec2i(xs.x, ys.x)) + vec2f(1.0)) / vec2f(atlas_size);
-        depths = textureGather(vsm_atlas_depth, vsm_atlas_sampler, uv).wzxy;
-      } else {
-        depths = vec4f(
-          textureLoad(vsm_atlas_depth, base + vec2i(xs.x, ys.x), 0),
-          textureLoad(vsm_atlas_depth, base + vec2i(xs.w, ys.x), 0),
-          textureLoad(vsm_atlas_depth, base + vec2i(xs.x, ys.w), 0),
-          textureLoad(vsm_atlas_depth, base + vec2i(xs.w, ys.w), 0));
-      }
-      let weights = vec4u(nx * ny, (4u - nx) * ny, nx * (4u - ny), (4u - nx) * (4u - ny));
-      let shadowed = select(vec4u(0u), weights, depths > vec4f(reference_depth + bias));
-      let visible = weights - select(vec4u(0u), shadowed, depths > vec4f(0.0));
-      return f32(visible.x + visible.y + visible.z + visible.w) / 16.0;
-    }
-  }
   var visible = 0.0;
-  var total = 0.0;
-  for (var y = 0u; y < 4u; y++) {
-    for (var x = 0u; x < 4u; x++) {
-      if (x >= taps || y >= taps) {
-        continue;
-      }
-      let center = (vec2f(f32(x) + 0.5, f32(y) + 0.5) /
-        f32(taps) - vec2f(0.5)) * vsm_constants.filter_params.w;
-      let stored = textureLoad(vsm_atlas_depth,
-        vsm_atlas_texel(entry, local_uv, center), 0);
-      // Reverse depth zero is the clear/empty value. Caster bounds include
-      // padding, so every rasterized caster has positive depth. Receivers can
-      // lie beyond the caster-only far bound and have negative reference depth.
-      visible += select(1.0, 0.0, stored > 0.0 && stored > reference_depth + bias);
-      total += 1.0;
-    }
+  // Exactly four loads. Rotation and receiver/page setup are shared by all taps.
+  for (var i = 0u; i < 4u; i++) {
+    let p = kernel[i];
+    let offset = vec2f(rotation.x * p.x - rotation.y * p.y,
+      rotation.y * p.x + rotation.x * p.y) * radius;
+    let texel = vsm_local_texel(receiver, offset);
+    let stored = textureLoad(vsm_atlas_depth, base + texel, 0);
+    let sample_reference = reference + dot(vec2f(texel) + vec2f(0.5) - receiver, plane_gradient);
+    visible += vsm_depth_visibility(stored, sample_reference);
   }
-  return visible / max(total, 1.0);
+  return visible * 0.25;
 }
 
 fn vsm_sample_directional(position_ws: vec3f, normal_ws: vec3f,
-  incident: GpuPrimitiveTypeTable) -> f32 {
+  incident: GpuPrimitiveTypeTable, receiver: ${finalPixel ? "vec2u" : "vec2f"}) -> f32 {
   if (vsm_constants.depth_range.w == 0.0) {
     return 1.0;
   }
@@ -206,9 +212,8 @@ fn vsm_sample_directional(position_ws: vec3f, normal_ws: vec3f,
   if (query.status != VSM_QUERY_FINE && query.status != VSM_QUERY_COARSE) {
     return 1.0;
   }
-  let receiver_cosine = max(dot(normal_ws, incident.direction), 1e-3);
-  let normal_bias = vsm_constants.filter_params.x * (1.0 - receiver_cosine);
-  let slope_bias = vsm_constants.filter_params.z * (1.0 - receiver_cosine);
+  let receiver_cosine = clamp(dot(normal_ws, incident.direction), 1e-3, 1.0);
+  let angular_bias = vsm_constants.filter_params.x * (1.0 - receiver_cosine);
   let entry = query.entry;
   let local_uv = vsm_page_local_uv(light.xy, query.level, entry.mip);
   let extent = vsm_constants.clip_origin_extent[query.level].z;
@@ -216,12 +221,14 @@ fn vsm_sample_directional(position_ws: vec3f, normal_ws: vec3f,
   let depth_per_texel = extent / f32(vsm_constants.dimensions.x * vsm_constants.dimensions.y) *
     exp2(f32(entry.mip)) * vsm_constants.depth_range.z;
   return vsm_sample_page(entry, local_uv, reference_depth,
-    (vsm_constants.filter_params.y + slope_bias + normal_bias) * depth_per_texel);
+    (vsm_constants.filter_params.y + angular_bias) * depth_per_texel,
+    ${finalPixel ? "vsm_filter_rotation(receiver)" : "receiver"},
+    vsm_receiver_plane_gradient(normal_ws, depth_per_texel));
 }
 
 // Debug-only queries. No per-pixel atomic counter or additional frame product.
 fn vsm_debug_color(position_ws: vec3f, normal_ws: vec3f, sun_direction: vec3f,
-  receives_shadow: bool) -> vec3f {
+  receives_shadow: bool, receiver: ${finalPixel ? "vec2u" : "vec2f"}) -> vec3f {
   if (!receives_shadow || vsm_constants.depth_range.w == 0.0) {
     return vec3f(0.0, 0.6, 0.6);
   }
@@ -250,9 +257,25 @@ fn vsm_debug_color(position_ws: vec3f, normal_ws: vec3f, sun_direction: vec3f,
   var incident: GpuPrimitiveTypeTable;
   incident.direction = sun_direction;
   incident.color = vec3f(1.0);
-  return vec3f(vsm_sample_directional(position_ws, normal_ws, incident));
+  return vec3f(vsm_sample_directional(position_ws, normal_ws, incident, receiver));
 }
 `;
 }
+
+export const VSM_FILTER_NOISE_WGSL = /* wgsl */ `
+fn vsm_filter_rotation(pixel: vec2u) -> vec2f {
+  if (vsm_constants.control.z != ${VSM_FILTER_MODES.disk4}u) {
+    return vec2f(1.0, 0.0);
+  }
+  let phase = vsm_constants.control.w;
+  let index = (pixel.x % ${VSM_FILTER_NOISE_WIDTH}u) +
+    (pixel.y % ${VSM_FILTER_NOISE_HEIGHT}u) * ${VSM_FILTER_NOISE_WIDTH}u +
+    phase * ${VSM_FILTER_NOISE_WIDTH * VSM_FILTER_NOISE_HEIGHT}u;
+  let packed = lighting_directory[vsm_constants.identity.w + index / 4u];
+  let noise = (packed >> ((index % 4u) * 8u)) & 255u;
+  let at = vsm_constants.identity.w + ${VSM_FILTER_NOISE_BYTES / 4}u + noise * 2u;
+  return bitcast<vec2f>(vec2u(lighting_directory[at], lighting_directory[at + 1u]));
+}
+`;
 
 export const VSM_SAMPLING_WGSL = vsmSamplingWgsl();

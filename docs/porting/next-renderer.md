@@ -15,6 +15,9 @@ verifies:
     - OEngine/src/shaders/native_material.ts
     - OEngine/src/gpu/GpuNativeMaterialPublication.ts
     - OEngine/src/gpu/FinalPixelAbi.ts
+    - OEngine/src/gpu/GpuVsmFilterAbi.ts
+    - OEngine/src/shaders/vsm_sampling.ts
+    - OEngine/src/render/vsm/VsmFilterNoise.ts
     - OEngine/src/shaders/atmosphere/runtime.ts
     - OEngine/src/render/environment/FinalPixelSolarPublication.ts
     - OEngine/tests/oracle/final-pixel-solar-gpu.mjs
@@ -1596,3 +1599,9 @@ Reference仍为AMD SDK1.1.4 MIT pin `c6efa6bf7f2027b3ec94f28578bb5965eabb9e55`�
 用户已明确批准foreground color receiver消费。Unity只研究（Companion License，不复制），Wicked只作MIT行为交叉参考；不在AMD profile中拼接它们的clamp/aging算法。旧T3被冻结在tests/oracle/reference/phase4；production NativeTemporalPasses/native_temporal已删除，FSR3UpscalerRuntime只拥有true upscale。新增全分辨率产品仅receiver4B，Shading三个缩率产品合计1.3125B/pixel、真实Analyze consumer；不发布SurfaceRecord/GBuffer，不重载Geometry。
 
 完整Resolve独立GPU差分、actual Seed/Analyze/Native writer、生命周期、17小动态序列、1080p六类×256帧×8ROI矩阵、最终ordinary/Product真实Renderer主链与有限整Temporal成本检查已通过，build身份、范围及保留失败见Phase4 performance report。数值检查保留参考格式/硬件采样边界；Native depth资格为明确本地数据域适配。生产消费已验证，但不称完整SDK bit-exact移植；合成unit break-even不晋级whole-renderer quality/performance claim，正式资格留Phase5/6。
+
+## 2026-10-13 VSM 滤波局部替换
+
+Local：`GpuVsmFilterAbi`、`VsmFilterNoise`/Settings、`FinalPixelLightingPublication` 与 `vsm_sampling`/Native 完成 producer→不可变噪声段→采样、Bias、提交/abort/fence/退休。四点 Vogel 使用明确等面积公式，复用完整既有 STBN 字节；没有新的完整 donor 移植或资产来源 adoption 声明。
+
+Reference：Bevy `fd98063564218bd210308675602a3e9643014c31`（MIT/Apache-2.0，`crates/bevy_pbr/src/render/shadow_sampling.wesl` 的 PCF/旋转）；Wicked `7f776d02094571dd2c8166c7e5879d5e93d2b642`（MIT，`WickedEngine/shaders/shadowHF.hlsli` 的 disk/dither、保留 f32 compare）；MJP Shadows `a83ce99377c7b46f2faecfbd7769726004f4db81`（MIT，`Shadows/Mesh.hlsl::ComputeReceiverPlaneDepthBias/SampleShadowMapRandomDiscPCF/SampleShadowMapGridPCF`）。本地 Adapt 是 compute 中从已有几何平面求梯度并在实际 texel 中心修正反向深度；raw gather 分别比较四个深度，保留空零/负 reference，不照搬硬件单 reference 的 PCF 或 fragment 导数。Original 是四点 host 常量、256-entry rotation table、lighting tail 与相位/容量/退休接线。实际独立 CPU/GPU、主链接线与局部成本结果见[实施记录](../performance/2026-10-13-vsm-filter-optimization.md)，不能提升为完整 VSM/Renderer 性能资格。

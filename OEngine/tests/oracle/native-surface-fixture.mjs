@@ -1,6 +1,8 @@
 import { FrameGeometryArena } from "../../.test-dist/render/FrameGeometryArena.js";
 import { VSM_SAMPLING_PUBLICATION_WGSL } from "../../.test-dist/shaders/vsm_sampling_publication.js";
 import { planFinalPixelLightingDirectory } from "../../.test-dist/gpu/FinalPixelAbi.js";
+import { VSM_FILTER_MODES } from "../../.test-dist/gpu/GpuVsmFilterAbi.js";
+import { loadVsmFilterData } from "../../.test-dist/render/vsm/VsmFilterNoise.js";
 import { VsmShadowResolvePass } from "./reference/s3/VsmShadowResolvePass.mjs";
 import { FrameGeometryVertices } from "../../.test-dist/render/FrameGeometryVertices.js";
 import {
@@ -54,6 +56,7 @@ export async function createNativeSurfaceFixture(
     perspective = 0,
     highCoverage = false,
     planeSlopes = [0, 0],
+    filterMode = "point",
   } = {},
 ) {
   const WIDTH = width,
@@ -72,7 +75,8 @@ export async function createNativeSurfaceFixture(
   };
   const storage = (data, label) =>
     makeBuffer(data, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC, label);
-  const uniform = (data, label) => makeBuffer(data, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC, label);
+  const uniform = (data, label) =>
+    makeBuffer(data, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC, label);
   const makeTexture = (width, height, format, usage, layers = 1, mipLevelCount = 1) => {
     const texture = device.createTexture({ size: [width, height, layers], format, usage, mipLevelCount });
     retained.push(texture);
@@ -95,7 +99,11 @@ export async function createNativeSurfaceFixture(
         geometryGeneration: 3,
         instanceSetGeneration: 7,
         materialHandle: 0,
-        flags: GPU_INSTANCE_FLAGS.Active | GPU_INSTANCE_FLAGS.CastsShadow | GPU_INSTANCE_FLAGS.ReceivesShadow | (4 << 8),
+        flags:
+          GPU_INSTANCE_FLAGS.Active |
+          GPU_INSTANCE_FLAGS.CastsShadow |
+          GPU_INSTANCE_FLAGS.ReceivesShadow |
+          (4 << 8),
         debugId: 0,
         boundsSphere: [0, 0, 0, 2],
         boundsMin: [-1, -1, 0, 0],
@@ -162,7 +170,32 @@ export async function createNativeSurfaceFixture(
         const x = (((tileX + (corner & 1)) * CELL) / WIDTH) * 2 - 1;
         const y = 1 - (((tileY + (corner >> 1)) * CELL) / HEIGHT) * 2;
         payloadFloats.set(
-          [0, 0, 1, 1, 1, 0, 0, 1, (x + 1) * 0.5, (y + 1) * 0.5, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, x, y, 0.5 + planeSlopes[0] * x + planeSlopes[1] * y, 1],
+          [
+            0,
+            0,
+            1,
+            1,
+            1,
+            0,
+            0,
+            1,
+            (x + 1) * 0.5,
+            (y + 1) * 0.5,
+            0,
+            0,
+            1,
+            1,
+            1,
+            1,
+            0,
+            0,
+            0,
+            0,
+            x,
+            y,
+            0.5 + planeSlopes[0] * x + planeSlopes[1] * y,
+            1,
+          ],
           attributeWordBase + (slot * 4 + corner) * 24,
         );
       }
@@ -309,13 +342,22 @@ export async function createNativeSurfaceFixture(
     const vsmValues = new Float32Array(64);
     vsmValues.set(identity);
     vsmValues.set([-1, -1, 2, 0], 16);
-    new Uint32Array(vsmValues.buffer).set([16, 128, 2, 16, 1, GENERATION, 2, 2112], 40);
+    new Uint32Array(vsmValues.buffer).set([16, 128, 2, 16, 1, GENERATION, 0, 0], 40);
     vsmValues.set([-8, 8, 1 / 16, 1], 52);
     new Uint32Array(vsmValues.buffer).set([GENERATION, 1, 0, 0], 56);
-    const vsmConstants = uniform(vsmValues, "S1/VSM constants");
+    const filterData = filterMode === "disk4" ? await loadVsmFilterData() : undefined;
     const samplingDescriptors = storage(new Uint32Array((16 * 16 + 4) * 4), "S1/VSM sampling descriptors");
-    const lightingPlan = planFinalPixelLightingDirectory(device.limits, 1, 16 * 16 + 4);
+    const lightingPlan = planFinalPixelLightingDirectory(
+      device.limits,
+      1,
+      16 * 16 + 4,
+      filterData?.length ?? 0,
+    );
     const lightingDirectory = storage(lightingPlan.bytes, "V5/fixture lighting directory");
+    new Uint32Array(vsmValues.buffer)[46] = VSM_FILTER_MODES[filterMode];
+    new Uint32Array(vsmValues.buffer)[59] = lightingPlan.filterNoiseOffset / 4;
+    const vsmConstants = uniform(vsmValues, "S1/VSM constants");
+    if (filterData) device.queue.writeBuffer(lightingDirectory, lightingPlan.filterNoiseOffset, filterData);
     const lightingRanges = uniform(lightingPlan.words, "V5/fixture lighting ranges");
     const samplingPipeline = await device.createComputePipelineAsync({
       layout: "auto",
@@ -375,14 +417,24 @@ export async function createNativeSurfaceFixture(
     publishSampling.end();
     const finalSampling = atlasEncoder.beginComputePass();
     finalSampling.setPipeline(samplingPipeline);
-    finalSampling.setBindGroup(0, device.createBindGroup({
-      layout: samplingPipeline.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: vsmConstants } },
-        { binding: 1, resource: { buffer: pageTable } },
-        { binding: 2, resource: { buffer: lightingDirectory, offset: lightingPlan.descriptorOffset, size: lightingPlan.descriptorBytes } },
-      ],
-    }));
+    finalSampling.setBindGroup(
+      0,
+      device.createBindGroup({
+        layout: samplingPipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: vsmConstants } },
+          { binding: 1, resource: { buffer: pageTable } },
+          {
+            binding: 2,
+            resource: {
+              buffer: lightingDirectory,
+              offset: lightingPlan.descriptorOffset,
+              size: lightingPlan.descriptorBytes,
+            },
+          },
+        ],
+      }),
+    );
     finalSampling.dispatchWorkgroups(Math.ceil((16 * 16 + 4) / 64));
     finalSampling.end();
     device.queue.submit([atlasEncoder.finish()]);
@@ -393,7 +445,10 @@ export async function createNativeSurfaceFixture(
       WIDTH,
       HEIGHT,
       "r32uint",
-      GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST,
+      GPUTextureUsage.RENDER_ATTACHMENT |
+        GPUTextureUsage.TEXTURE_BINDING |
+        GPUTextureUsage.COPY_SRC |
+        GPUTextureUsage.COPY_DST,
     );
     const depth = makeTexture(
       WIDTH,
@@ -423,11 +478,21 @@ export async function createNativeSurfaceFixture(
     );
     const view = uniform(new Uint32Array([WIDTH, HEIGHT, 0, 0]), "S1/light view");
     const exposure = storage(new Float32Array([1.25, 0, 0, 0]), "S1/GPU exposure");
-    const shadowVisibility = makeTexture(Math.ceil(WIDTH / 4), HEIGHT, "r32uint",
-      GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC);
-    device.queue.writeTexture({ texture: shadowVisibility },
+    const shadowVisibility = makeTexture(
+      Math.ceil(WIDTH / 4),
+      HEIGHT,
+      "r32uint",
+      GPUTextureUsage.STORAGE_BINDING |
+        GPUTextureUsage.TEXTURE_BINDING |
+        GPUTextureUsage.COPY_DST |
+        GPUTextureUsage.COPY_SRC,
+    );
+    device.queue.writeTexture(
+      { texture: shadowVisibility },
       new Uint32Array(Math.ceil(WIDTH / 4) * HEIGHT).fill(0x01010101),
-      { bytesPerRow: Math.ceil(WIDTH / 4) * 4 }, [Math.ceil(WIDTH / 4), HEIGHT]);
+      { bytesPerRow: Math.ceil(WIDTH / 4) * 4 },
+      [Math.ceil(WIDTH / 4), HEIGHT],
+    );
     const legacyLightingEntries = [
       { binding: 0, resource: { buffer: lights } },
       { binding: 1, resource: { buffer: localParameters } },
@@ -437,7 +502,7 @@ export async function createNativeSurfaceFixture(
       { binding: 5, resource: diffuseEnvironment.createView() },
       { binding: 6, resource: specularEnvironment.createView() },
       { binding: 7, resource: dfg.createView() },
-        { binding: 15, resource: device.createSampler({ minFilter: "linear", magFilter: "linear" }) },
+      { binding: 15, resource: device.createSampler({ minFilter: "linear", magFilter: "linear" }) },
       { binding: 8, resource: { buffer: shadowResolve.mode } },
       { binding: 10, resource: shadowVisibility.createView() },
       { binding: 11, resource: ao.createView() },
@@ -460,9 +525,14 @@ export async function createNativeSurfaceFixture(
       // Camera-motion oracles must rerun the real cached clip producer. Updating
       // only NativeVisibility's view leaves raster depth in the old camera.
       encodeFrameGeometry(encoder, viewProjection) {
-        if (scale.some((value) => value !== 1)) throw new Error("Camera fixture expects identity instance transforms");
+        if (scale.some((value) => value !== 1))
+          throw new Error("Camera fixture expects identity instance transforms");
         for (let index = 0; index < instanceCount; index++) {
-          device.queue.writeBuffer(instances, index * GPU_FRAME_INSTANCE_STRIDE + GPU_FRAME_INSTANCE_OFFSETS.objectToClip, Float32Array.from(viewProjection));
+          device.queue.writeBuffer(
+            instances,
+            index * GPU_FRAME_INSTANCE_STRIDE + GPU_FRAME_INSTANCE_OFFSETS.objectToClip,
+            Float32Array.from(viewProjection),
+          );
         }
         verticesOwner.encode(encoder, prepared);
       },
@@ -489,7 +559,14 @@ export async function createNativeSurfaceFixture(
         source: [0, geometryWords, 0, triangleWordBase],
         sourcePayload: [0, 0, 0, arena.layout.header.offset / 4],
       },
-      vsm: { constants: vsmConstants, descriptors: samplingDescriptors, pageTable, atlas, shadowVisibility, shadowResolve },
+      vsm: {
+        constants: vsmConstants,
+        descriptors: samplingDescriptors,
+        pageTable,
+        atlas,
+        shadowVisibility,
+        shadowResolve,
+      },
       sparseShading: {
         assetMetadataHeap: sourceMetadata,
         vertexPayloadHeap: vertexPayload,

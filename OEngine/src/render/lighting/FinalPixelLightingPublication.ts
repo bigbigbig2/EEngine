@@ -15,6 +15,7 @@ export interface FinalPixelLightingFrame {
 interface Allocation extends FinalPixelLightingFrame {
   state: "free" | "prepared" | "submitted" | "destroyed";
   readonly handles: readonly ResourceHandle[];
+  readonly filterData?: Uint8Array<ArrayBuffer>;
   retired?: boolean;
   command?: ShadeGPUCommandContext;
 }
@@ -38,16 +39,23 @@ export class FinalPixelLightingPublication {
     lookupCount: number,
     descriptorCount: number,
     command: ShadeGPUCommandContext,
+    filterData?: Uint8Array<ArrayBuffer>,
   ): FinalPixelLightingFrame {
     if (this.destroyed || command.closed || command.device !== this.device) {
       throw new Error("Final lighting publication requires a live frame command on its device");
     }
-    const plan = planFinalPixelLightingDirectory(this.device.limits, lookupCount, descriptorCount);
+    const plan = planFinalPixelLightingDirectory(
+      this.device.limits,
+      lookupCount,
+      descriptorCount,
+      filterData?.byteLength ?? 0,
+    );
     let allocation = this.allocations.find(
       (value) =>
         value.state === "free" &&
         value.plan.lookupCount === lookupCount &&
-        value.plan.descriptorCount === descriptorCount,
+        value.plan.descriptorCount === descriptorCount &&
+        value.filterData === filterData,
     );
     if (!allocation) {
       for (const previous of [...this.allocations]) {
@@ -74,8 +82,18 @@ export class FinalPixelLightingPublication {
         buffer.destroy();
         throw error;
       }
-      this.device.queue.writeBuffer(ranges, 0, plan.words);
       const handles: ResourceHandle[] = [];
+      try {
+        this.device.queue.writeBuffer(ranges, 0, plan.words);
+        if (filterData) {
+          // Immutable VSM segment; no command-dependent data and no per-frame copy.
+          this.device.queue.writeBuffer(buffer, plan.filterNoiseOffset, filterData);
+        }
+      } catch (error) {
+        ranges.destroy();
+        buffer.destroy();
+        throw error;
+      }
       for (const resource of [buffer, ranges]) {
         const handle = this.graphics?.resource_accounting.created(
           {
@@ -91,7 +109,7 @@ export class FinalPixelLightingPublication {
           handles.push(handle);
         }
       }
-      allocation = { plan, buffer, ranges, handles, state: "free" };
+      allocation = { plan, buffer, ranges, handles, filterData, state: "free" };
       this.allocations.push(allocation);
     }
     const current = allocation;

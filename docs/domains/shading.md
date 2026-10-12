@@ -4,16 +4,21 @@ kind: domain
 owner: shading
 state: current
 verifies:
-  - OEngine/src/render/surface/SurfaceV4.ts
-  - OEngine/src/gpu/GpuNativeMaterialScene.ts
-  - OEngine/src/shaders/native_material.ts
-  - OEngine/src/shaders/native_surface.ts
-  - OEngine/src/render/environment/PhysicalEnvironmentRuntime.ts
-  - OEngine/src/shaders/native_environment_brdf.ts
-  - OEngine/src/shaders/native_environment_sample.ts
-  - OEngine/src/render/environment/PhysicalSkyIblResources.ts
-  - OEngine/src/gpu/GpuAuthoredEnvironment.ts
-  - OEngine/src/render/program/FrameProgramLowering.ts
+  files:
+    - OEngine/src/render/surface/SurfaceV4.ts
+    - OEngine/src/gpu/GpuNativeMaterialScene.ts
+    - OEngine/src/shaders/native_material.ts
+    - OEngine/src/shaders/native_surface.ts
+    - OEngine/src/render/environment/PhysicalEnvironmentRuntime.ts
+    - OEngine/src/shaders/native_environment_brdf.ts
+    - OEngine/src/shaders/native_environment_sample.ts
+    - OEngine/src/render/environment/PhysicalSkyIblResources.ts
+    - OEngine/src/gpu/GpuAuthoredEnvironment.ts
+    - OEngine/src/render/program/FrameProgramLowering.ts
+    - OEngine/src/shaders/vsm_sampling.ts
+    - OEngine/src/gpu/GpuVsmFilterAbi.ts
+    - OEngine/src/render/vsm/VsmSettings.ts
+    - OEngine/src/render/vsm/VsmFilterNoise.ts
 ---
 
 # Shading
@@ -39,6 +44,8 @@ verifies:
 生产 Native 使用完整 Final Pixel profile，单 invocation 共用 primary position 完成 Sun 与 Temporal Seed；不保留 Sun continuation/第二 HDR。完整资源 profile 在创建前按协商 limits 校验；超限明确拒绝，不恢复旧路径。FrameGraph 管宏依赖及借给 Surface 的最终 HDR；Surface 只拥有执行 scratch，不 submit。
 
 ## 直接消费者与边界
+
+2026-10-13：Native 的 VSM 默认为4点旋转Vogel、1.5 shadow texel半径；可选择稳定raw gather 2×2或单点，零半径圆盘在CPU折叠成单点。每个receiver只调用一次含fine/coarse回退的页查询，所有tap复用结果；无效页及反向深度空零继续返回中性可见度。已有base/coat BRDF响应都为零时在查询前退出；Bias使用已有几何平面按实际读取texel中心修正，Depth/Angular默认1/1，重复Normal/Slope与per-axis配置、旧16点核、死`ShadowContract`已删除。深度/坐标保持f32，没有稀疏两点猜测、专用shadow history或新增GPU pass。成本与画质边界只读[V5执行§8.3](../next-execution/eengine-v5-final-pixel-performance-execution-2026-10.md#83-vsm采样与bias优化2026-10-13)。
 
 NativeVisibilityPass 和 VSM native alpha caster 消费同一 native material publication。Native 在一次 winner/geometry 恢复后直接写 Seed rgba32float（xy motion、zw previous/current view depth）、response rgba8unorm、完整 identity rgba32uint。NativeTemporalSeed 拥有 identity pair 与成功提交事务，cached graph late bind 当前角色；classification 不读 Visibility/Depth/Geometry/Instances，产生 upscale/debug mask。Native V2直接消费Seed/response/完整identity，按AMD参考仅为颜色历史选择前景receiver；不改变Seed本身的逐pixel事实。classifier仅为true upscale和Temporal debug产生mask；AA-off由完整Native writer证明identity提交，不执行无人消费的classifier。FSR只拥有true upscale；旧Facts/Aux及旧NativeTemporalPasses已删除。background、Sky/Aerial、Radiometry/Post/Present 保持各自 owner。
 

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFile, readdir, writeFile, rm, cp } from "node:fs/promises";
+import { readFile, readdir, writeFile, rm, cp, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { resolve, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -78,11 +78,17 @@ export async function buildTests(root = REPO_ROOT) {
   if (existsSync(codecVendor)) {
     await cp(codecVendor, resolve(output, "assets/codec/vendor"), { recursive: true });
   }
+  const filterAssets = resolve(output, "render/assets/textures");
+  await mkdir(filterAssets, { recursive: true });
+  await cp(
+    resolve(engine, "src/render/assets/textures/stbn_vec1.bin"),
+    resolve(filterAssets, "stbn_vec1.bin"),
+  );
   if (before !== (await sourceIdentity(root)))
     throw new Error("source changed during test compilation; rebuild");
   const manifest = {
     schemaVersion: 1,
-    recipe: "tsc -p tsconfig.test.json + pinned codec vendor copy",
+    recipe: "tsc -p tsconfig.test.json + pinned codec vendor + exact VSM STBN asset copy",
     node: process.version,
     dependencyScope: "conservative: engine src, configs, lock and compiler identity",
     sourceSha256: before,

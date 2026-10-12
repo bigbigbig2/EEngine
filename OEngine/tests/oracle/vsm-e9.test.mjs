@@ -187,11 +187,18 @@ test("directional clipmap keeps a world-fixed basis and camera-centered window",
       assert.ok(
         view.frustumPlanes.every(([x, y, z, w]) => x * center[0] + y * center[1] + z * center[2] + w >= 0),
       );
-      const packed = packVsmSamplingConstants({ resources, frame, width: 1920, height: 1080, ...frame });
+      const packed = packVsmSamplingConstants({
+        resources,
+        frame,
+        width: 1920,
+        height: 1080,
+        ...frame,
+        filterNoiseWordOffset: 2048,
+      });
       const uints = new Uint32Array(packed),
         floats = new Float32Array(packed);
       assert.equal(uints[45], 71, "sampling uses the current publication generation");
-      assert.deepEqual([...floats.slice(48, 51)], [0.5, 2, 1.5]);
+      assert.deepEqual([...floats.slice(48, 51)], [1, 1, 0]);
     }
     assert.throws(() => shadowGeometryView({ lightView: [NaN], clipOriginExtent: [[0, 0, 1, 1]] }), /finite/);
     assert.throws(

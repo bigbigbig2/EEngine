@@ -1,5 +1,5 @@
 import { createNativeSurfaceFixture } from "./native-surface-fixture.mjs";
-import { VSM_SAMPLING_WGSL } from "../../.test-dist/shaders/vsm_sampling.js";
+import { VSM_SAMPLING_WGSL } from "./fixtures/vsm-sampling-s3.mjs";
 import { VSM_SHADOW_VISIBILITY_WGSL } from "./reference/s3/vsm_shadow_visibility.mjs";
 import { VsmShadowResolvePass } from "./reference/s3/VsmShadowResolvePass.mjs";
 import { ShadeGPUCommandContext } from "../../.test-dist/framegraph/ShadeGPUCommandContext.js";
@@ -65,7 +65,7 @@ export async function runVsmShadowResolveGpuOracle(device) {
     const cameraWords = new Float32Array(PACKED_CAMERA_TYPE.size / 4);
     for (const field of PACKED_CAMERA_TYPE.fields) {
       if (field.type.size === 64) {
-        cameraWords.set([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1], field.offset / 4);
+        cameraWords.set([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1], field.offset / 4);
       }
     }
     const camera = fixture.uniform(cameraWords, "Shadow oracle/analytic inverse VP");
@@ -126,12 +126,24 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       [1, 1],
     ]) {
       const packedWidth = Math.ceil(width / 4);
-      const depth = fixture.makeTexture(width, height, "depth32float",
-        GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING);
+      const depth = fixture.makeTexture(
+        width,
+        height,
+        "depth32float",
+        GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+      );
       const initializeDepth = device.createCommandEncoder();
-      initializeDepth.beginRenderPass({ colorAttachments: [], depthStencilAttachment: {
-        view: depth.createView(), depthLoadOp: "clear", depthClearValue: .5, depthStoreOp: "store"
-      } }).end();
+      initializeDepth
+        .beginRenderPass({
+          colorAttachments: [],
+          depthStencilAttachment: {
+            view: depth.createView(),
+            depthLoadOp: "clear",
+            depthClearValue: 0.5,
+            depthStoreOp: "store",
+          },
+        })
+        .end();
       device.queue.submit([initializeDepth.finish()]);
       const visibility = fixture.makeTexture(
         width,

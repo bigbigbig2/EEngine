@@ -387,7 +387,13 @@ export async function runVsmR2GpuOracle(device) {
     author(points[3], 0, 9, 6);
     author(points[4], 0, 11);
     const table = make(authored.byteLength, GPUBufferUsage.STORAGE, authored);
-    const packed = packVsmSamplingConstants({ resources, frame, width: 256, height: 128, generation: 7 });
+    const packed = packVsmSamplingConstants({
+      resources,
+      frame: { ...frame, settings: { ...frame.settings, filterMode: "point" } },
+      width: 256,
+      height: 128,
+      generation: 7,
+    });
     new Float32Array(packed).set([-1, 1, 0.5, 1], 52);
     const constants = make(256, GPUBufferUsage.UNIFORM, packed);
     const descriptors = make(6 * 16448 * 16, GPUBufferUsage.STORAGE);
@@ -427,7 +433,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   if (id.x >= arrayLength(&positions)) { return; }
   let query = vsm_query_directional(positions[id.x].xy);
   let visibility = vsm_sample_directional(positions[id.x].xyz, vec3f(0.0, 1.0, 0.0),
-    GpuPrimitiveTypeTable(vec3f(0.0, 1.0, 0.0), vec3f(1.0)));
+    GpuPrimitiveTypeTable(vec3f(0.0, 1.0, 0.0), vec3f(1.0)), vec2f(1.0, 0.0));
   results[id.x] = vec4u(query.status, query.target_status, query.level, bitcast<u32>(visibility));
 }`,
     });

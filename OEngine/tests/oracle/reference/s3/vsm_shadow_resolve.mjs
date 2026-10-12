@@ -2,7 +2,7 @@
 // Test only; preserve numeric and quality reference independently of production cutover.
 import { GPU_INSTANCE_FLAGS, GPU_INSTANCE_SHADING_BIN_SHIFT, GPU_INSTANCE_SHADING_BIN_MASK, } from "../../../../.test-dist/gpu/GpuInstanceAbi.js";
 import { surfaceGeometryCompletionWgsl } from "../../../../.test-dist/shaders/surface_geometry_completion.js";
-import { VSM_SAMPLING_WGSL } from "../../../../.test-dist/shaders/vsm_sampling.js";
+import { VSM_SAMPLING_WGSL } from "../../fixtures/vsm-sampling-s3.mjs";
 import { PACKED_CAMERA_TYPE } from "../../../../.test-dist/shaders/packed_camera.js";
 /** One fine descriptor broadcast, not a shared coarse-result cache. Frame-wide
  * generation/epoch/namespace are already checked by post-commit publication.

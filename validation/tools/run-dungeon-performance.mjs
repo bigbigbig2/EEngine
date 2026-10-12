@@ -34,12 +34,22 @@ if (observerMode !== "periodic" && observerMode !== "low-tax") {
 }
 const temperatureOption = option("pre-window-temperature", null);
 const preWindowTemperature = temperatureOption === null ? null : Number(temperatureOption);
-if (preWindowTemperature !== null && (!Number.isFinite(preWindowTemperature) ||
-    preWindowTemperature < 40 || preWindowTemperature > 90 || observerMode !== "low-tax")) {
-  throw new Error("--pre-window-temperature requires low-tax observers and a temperature from 40 through 90 Celsius");
+if (
+  preWindowTemperature !== null &&
+  (!Number.isFinite(preWindowTemperature) ||
+    preWindowTemperature < 40 ||
+    preWindowTemperature > 90 ||
+    observerMode !== "low-tax")
+) {
+  throw new Error(
+    "--pre-window-temperature requires low-tax observers and a temperature from 40 through 90 Celsius",
+  );
 }
-if ((args.includes("--temporal-capture") || args.includes("--shader-capture")) &&
-    !args.includes("--near") && !args.includes("--audit")) {
+if (
+  (args.includes("--temporal-capture") || args.includes("--shader-capture")) &&
+  !args.includes("--near") &&
+  !args.includes("--audit")
+) {
   throw new Error("Temporal/shader capture requires --near or --audit to install the diagnostic observer");
 }
 if (nativeCostSlice !== null && !/^(?:[A-G]|B0|K)$/.test(nativeCostSlice))
@@ -50,7 +60,7 @@ const scenarios = args.includes("--load-only")
   ? []
   : option(
       "scenarios",
-      "normal-1,normal-2,normal-3,coarse,full,no-vsm,pcf-1,no-fsr,scale-75,scale-50,ao-on,bloom-on,baseline-repeat"
+      "normal-1,normal-2,normal-3,coarse,full,no-vsm,pcf-1,no-fsr,scale-75,scale-50,ao-on,bloom-on,baseline-repeat",
     )
       .split(",")
       .filter(Boolean);
@@ -70,13 +80,13 @@ const buildProvenance = explicitDist
   : null;
 await writeFile(
   resolve(out, "source-fingerprint.json"),
-  JSON.stringify(buildProvenance?.sources ?? fingerprint, null, 2)
+  JSON.stringify(buildProvenance?.sources ?? fingerprint, null, 2),
 );
 const manifest = JSON.parse(
-  await readFile(resolve(root, demo, "assets/playground-cooked/scene.materials.json"), "utf8")
+  await readFile(resolve(root, demo, "assets/playground-cooked/scene.materials.json"), "utf8"),
 );
 const modelManifest = JSON.parse(
-  await readFile(resolve(root, demo, "assets/cooked/scene.materials.json"), "utf8")
+  await readFile(resolve(root, demo, "assets/cooked/scene.materials.json"), "utf8"),
 );
 function modelBounds(glb) {
   const { mat4, vec3 } = createRequire(resolve(root, "OEngine/package.json"))("gl-matrix");
@@ -91,7 +101,7 @@ function modelBounds(glb) {
           mat4.create(),
           n.rotation ?? [0, 0, 0, 1],
           n.translation ?? [0, 0, 0],
-          n.scale ?? [1, 1, 1]
+          n.scale ?? [1, 1, 1],
         ),
       world = mat4.multiply(mat4.create(), parent, local);
     for (const p of source.meshes[n.mesh]?.primitives ?? []) {
@@ -100,7 +110,7 @@ function modelBounds(glb) {
         const v = vec3.transformMat4(
           vec3.create(),
           [0, 1, 2].map((a) => (corner & (1 << a) ? b.max : b.min)[a]),
-          world
+          world,
         );
         for (let a = 0; a < 3; a++) {
           min[a] = Math.min(min[a], v[a]);
@@ -115,7 +125,7 @@ function modelBounds(glb) {
     min,
     max,
     center: min.map((v, a) => (v + max[a]) / 2),
-    radius: Math.hypot(...max.map((v, a) => (v - min[a]) / 2))
+    radius: Math.hypot(...max.map((v, a) => (v - min[a]) / 2)),
   };
 }
 const report = {
@@ -143,7 +153,7 @@ const report = {
   osSamples: [],
   processSamples: [],
   coolingWindows: [],
-  network: []
+  network: [],
 };
 // Built example, HTTP Range and isolation headers match the development host.
 const dist = resolve(root, explicitDist ?? `${demo}/dist`);
@@ -183,8 +193,8 @@ const server = createServer(async (req, res) => {
         ".js": "text/javascript",
         ".css": "text/css",
         ".json": "application/json",
-        ".wasm": "application/wasm"
-      }[extname(path)] ?? "application/octet-stream"
+        ".wasm": "application/wasm",
+      }[extname(path)] ?? "application/octet-stream",
     );
     let start = 0,
       end = info.size - 1,
@@ -214,8 +224,26 @@ await new Promise((resolve, reject) => {
 });
 const origin = `http://127.0.0.1:${server.address().port}`;
 let run, browserCdp, pageCdp, sensorTimer, osTimer, processTimer, sensorProcess, sensorStopped;
-const sensorQuery = "uuid,name,driver_version,temperature.gpu,utilization.gpu,utilization.memory,clocks.current.graphics,clocks.current.memory,power.draw,pstate,clocks_event_reasons.sw_thermal_slowdown,clocks_event_reasons.hw_thermal_slowdown,clocks_event_reasons.hw_power_brake_slowdown,clocks_event_reasons.sw_power_cap,memory.used,memory.total";
-const sensorFields = ["uuid", "name", "driver", "temperatureC", "gpuUtilPercent", "memoryUtilPercent", "graphicsMHz", "memoryMHz", "powerW", "pstate", "swThermal", "hwThermal", "powerBrake", "powerCap", "memoryUsedMiB", "memoryTotalMiB"];
+const sensorQuery =
+  "uuid,name,driver_version,temperature.gpu,utilization.gpu,utilization.memory,clocks.current.graphics,clocks.current.memory,power.draw,pstate,clocks_event_reasons.sw_thermal_slowdown,clocks_event_reasons.hw_thermal_slowdown,clocks_event_reasons.hw_power_brake_slowdown,clocks_event_reasons.sw_power_cap,memory.used,memory.total";
+const sensorFields = [
+  "uuid",
+  "name",
+  "driver",
+  "temperatureC",
+  "gpuUtilPercent",
+  "memoryUtilPercent",
+  "graphicsMHz",
+  "memoryMHz",
+  "powerW",
+  "pstate",
+  "swThermal",
+  "hwThermal",
+  "powerBrake",
+  "powerCap",
+  "memoryUsedMiB",
+  "memoryTotalMiB",
+];
 let scenario = "before-browser",
   sensorBusy = false,
   osBusy = false,
@@ -229,11 +257,8 @@ async function sensor() {
   try {
     const { stdout } = await runFile(
       "nvidia-smi",
-      [
-        `--query-gpu=${sensorQuery}`,
-        "--format=csv,noheader,nounits"
-      ],
-      { windowsHide: true, timeout: 6000 }
+      [`--query-gpu=${sensorQuery}`, "--format=csv,noheader,nounits"],
+      { windowsHide: true, timeout: 6000 },
     );
     const values = stdout
       .trim()
@@ -244,8 +269,8 @@ async function sensor() {
       end: Date.now(),
       scenario: phase,
       ...Object.fromEntries(
-        sensorFields.map((k, i) => [k, /^[\d.]+$/.test(values[i]) ? Number(values[i]) : values[i]])
-      )
+        sensorFields.map((k, i) => [k, /^[\d.]+$/.test(values[i]) ? Number(values[i]) : values[i]]),
+      ),
     });
   } catch (e) {
     report.sensors.push({ at, scenario: phase, error: String(e) });
@@ -256,13 +281,19 @@ async function sensor() {
 function startContinuousSensors() {
   // One diagnostic observer process, rather than launching driver/OS helpers
   // during every target window. Raw samples stay on the host clock domain.
-  sensorProcess = spawn("nvidia-smi", [
-    `--query-gpu=timestamp,${sensorQuery}`, "--format=csv,noheader,nounits", "--loop-ms=250",
-  ], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+  sensorProcess = spawn(
+    "nvidia-smi",
+    [`--query-gpu=timestamp,${sensorQuery}`, "--format=csv,noheader,nounits", "--loop-ms=250"],
+    { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] },
+  );
   let pending = "";
   sensorStopped = new Promise((resolveStopped) => sensorProcess.once("close", resolveStopped));
-  sensorProcess.on("error", (error) => report.errors.push({ observer: "continuous-gpu-sensor", error: String(error) }));
-  sensorProcess.stderr.on("data", (chunk) => report.errors.push({ observer: "continuous-gpu-sensor", error: String(chunk) }));
+  sensorProcess.on("error", (error) =>
+    report.errors.push({ observer: "continuous-gpu-sensor", error: String(error) }),
+  );
+  sensorProcess.stderr.on("data", (chunk) =>
+    report.errors.push({ observer: "continuous-gpu-sensor", error: String(chunk) }),
+  );
   sensorProcess.stdout.on("data", (chunk) => {
     pending += chunk.toString();
     let end;
@@ -276,11 +307,16 @@ function startContinuousSensors() {
         continue;
       }
       report.sensors.push({
-        at: Date.now(), scenario, mode: "continuous-250ms", sampledAt: values[0],
-        ...Object.fromEntries(sensorFields.map((key, index) => {
-          const value = values[index + 1];
-          return [key, /^[\d.]+$/.test(value) ? Number(value) : value];
-        })),
+        at: Date.now(),
+        scenario,
+        mode: "continuous-250ms",
+        sampledAt: values[0],
+        ...Object.fromEntries(
+          sensorFields.map((key, index) => {
+            const value = values[index + 1];
+            return [key, /^[\d.]+$/.test(value) ? Number(value) : value];
+          }),
+        ),
       });
     }
   });
@@ -308,7 +344,7 @@ async function osMemory() {
     const { stdout } = await runFile("powershell", ["-NoProfile", "-Command", cmd], {
       windowsHide: true,
       timeout: 12000,
-      maxBuffer: 1024 ** 2
+      maxBuffer: 1024 ** 2,
     });
     report.osSamples.push({ at, end: Date.now(), scenario: phase, ...JSON.parse(stdout) });
   } catch (e) {
@@ -326,10 +362,10 @@ async function metrics() {
         ? {
             used: performance.memory.usedJSHeapSize,
             total: performance.memory.totalJSHeapSize,
-            limit: performance.memory.jsHeapSizeLimit
+            limit: performance.memory.jsHeapSizeLimit,
           }
-        : null
-    )
+        : null,
+    ),
   };
 }
 async function control(id, value, checkbox = false) {
@@ -339,7 +375,7 @@ async function control(id, value, checkbox = false) {
       else el.value = String(v);
       el.dispatchEvent(new Event("change", { bubbles: true }));
     },
-    [value, checkbox]
+    [value, checkbox],
   );
 }
 try {
@@ -354,8 +390,8 @@ try {
       "--disable-background-timer-throttling",
       "--disable-renderer-backgrounding",
       "--js-flags=--expose-gc",
-      "--enable-precise-memory-info"
-    ]
+      "--enable-precise-memory-info",
+    ],
   });
   report.chromeVersion = run.chromeVersion;
   report.transport = run.transport;
@@ -372,8 +408,8 @@ try {
       at: Date.now(),
       id: e.requestId,
       url: e.request.url,
-      timestamp: e.timestamp
-    })
+      timestamp: e.timestamp,
+    }),
   );
   pageCdp.on("Network.responseReceived", (e) =>
     report.network.push({
@@ -384,8 +420,8 @@ try {
       timing: e.response.timing,
       timestamp: e.timestamp,
       encodedDataLength: e.response.encodedDataLength,
-      fromDiskCache: e.response.fromDiskCache
-    })
+      fromDiskCache: e.response.fromDiskCache,
+    }),
   );
   pageCdp.on("Network.loadingFinished", (e) =>
     report.network.push({
@@ -393,8 +429,8 @@ try {
       at: Date.now(),
       id: e.requestId,
       timestamp: e.timestamp,
-      encodedDataLength: e.encodedDataLength
-    })
+      encodedDataLength: e.encodedDataLength,
+    }),
   );
   run.page.on("pageerror", (e) => report.errors.push({ scenario, type: "page", message: String(e) }));
   run.page.on("console", (m) => {
@@ -425,9 +461,10 @@ try {
   scenario = "cold-load";
   const loadStart = Date.now();
   const urlObject = new URL(
-    `${origin}/demos/14-integrated/dungeon-warkarma-texture-compression/index.html?performanceCapture=1`
+    `${origin}/demos/14-integrated/dungeon-warkarma-texture-compression/index.html?performanceCapture=1`,
   );
-  if (report.options.geometryMiB !== null) urlObject.searchParams.set("geometryMiB", report.options.geometryMiB);
+  if (report.options.geometryMiB !== null)
+    urlObject.searchParams.set("geometryMiB", report.options.geometryMiB);
   if (nativeCostSlice !== null) urlObject.searchParams.set("nativeCostSlice", nativeCostSlice);
   if (vsmDemandDiagnostics) urlObject.searchParams.set("vsmDemandDiagnostics", "1");
   if (args.includes("--near") && !args.includes("--camera-search")) {
@@ -448,7 +485,7 @@ try {
   await run.page.waitForFunction(
     () => window.dungeonDemo?.report().failure || window.dungeonDemo?.report().load.fullQualityMs != null,
     null,
-    { timeout: 240000, polling: 1000 }
+    { timeout: 240000, polling: 1000 },
   );
   if (args.includes("--load-profile")) {
     const { profile } = await pageCdp.send("Profiler.stop");
@@ -462,9 +499,9 @@ try {
     longTasks: await run.page.evaluate(() => window.__longTasks),
     resources: await run.page.evaluate(() => performance.getEntriesByType("resource").map((e) => e.toJSON())),
     navigation: await run.page.evaluate(() =>
-      performance.getEntriesByType("navigation").map((e) => e.toJSON())
+      performance.getEntriesByType("navigation").map((e) => e.toJSON()),
     ),
-    gpuAudit: await run.page.evaluate(() => window.dungeonGpuAudit?.snapshot())
+    gpuAudit: await run.page.evaluate(() => window.dungeonGpuAudit?.snapshot()),
   };
   if (report.load.report.failure) throw new Error(JSON.stringify(report.load.report.failure));
   report.options.nativeCostSlice = nativeCostSlice;
@@ -473,7 +510,7 @@ try {
   report.options.gpuSampleInterval = gpuSampleInterval;
   if (nativeCostSlice !== null && !report.load.gpuAudit?.nativeCostSlices?.includes(nativeCostSlice)) {
     throw new Error(
-      "Requested Native cost slice was not compiled; use EENGINE_PERFORMANCE_DIAGNOSTICS=1 build"
+      "Requested Native cost slice was not compiled; use EENGINE_PERFORMANCE_DIAGNOSTICS=1 build",
     );
   }
   console.log(
@@ -482,8 +519,8 @@ try {
       first: report.load.report.load.firstUsefulMs,
       full: report.load.report.load.fullQualityMs,
       adapter: report.load.report.adapter,
-      resolution: report.load.report.renderState.resolution
-    })
+      resolution: report.load.report.renderState.resolution,
+    }),
   );
   if (args.includes("--near")) {
     scenario = "near-camera-selection";
@@ -498,14 +535,14 @@ try {
           { factor: 0.15, offset: [7, -2, -7], direction: [0.6, 0.65, 0.466] },
           { factor: 0.2, offset: [-7, -2, 7], direction: [0.6, 0.65, 0.466] },
           { factor: 0.15, offset: [-7, -2, 7], direction: [0.6, 0.65, 0.466] },
-          { factor: 0.15, offset: [0, -2, 0], direction: [0, 1, 0.25] }
+          { factor: 0.15, offset: [0, -2, 0], direction: [0, 1, 0.25] },
         ]
       : [
           {
             factor: Number(option("cameraFactor", ".15")),
             offset: option("cameraOffset", "-7,-2,-7").split(",").map(Number),
-            direction: [0.6, 0.65, 0.466]
-          }
+            direction: [0.6, 0.65, 0.466],
+          },
         ];
     for (const { factor, offset, direction } of candidates) {
       const distance = bounds.radius * 2.24 * factor,
@@ -515,13 +552,13 @@ try {
       const frame = await run.page.evaluate(() => window.dungeonDemo.report().renderState.frame);
       await run.page.waitForFunction((n) => window.dungeonDemo.report().renderState.frame > n + 60, frame, {
         polling: 1000,
-        timeout: 120000
+        timeout: 120000,
       });
       await control("pause", true, true);
       const instanceBegin = await run.page.evaluate(() => window.dungeonPerformance.samples().instanceBegin);
       const coverage = await run.page.evaluate(
         ([begin, count]) => window.dungeonGpuAudit.coverage(begin, count),
-        [instanceBegin, modelManifest.instanceMaterials.length]
+        [instanceBegin, modelManifest.instanceMaterials.length],
       );
       report.cameraSelection.attempts.push({ factor, offset, position, target, instanceBegin, coverage });
       await run.page.screenshot({ path: resolve(out, `camera-${factor}.png`) });
@@ -532,8 +569,8 @@ try {
           factor,
           ratio: coverage.ratio,
           invalid: coverage.invalid,
-          queue: coverage.queueHeader
-        })
+          queue: coverage.queueHeader,
+        }),
       );
       if (coverage.ratio >= 0.8 && coverage.invalid === 0) {
         report.cameraSelection.selected = report.cameraSelection.attempts.at(-1);
@@ -552,7 +589,9 @@ try {
     await control("render-scale", 1);
     await run.page.locator("#vsm-reset").dispatchEvent("click");
     if (name === "no-vsm") await control("vsm", false, true);
-    if (name.startsWith("pcf-1")) await control("vsm-taps", 1);
+    if (name.startsWith("pcf-1")) await control("vsm-filter", "point");
+    if (name.startsWith("gather-")) await control("vsm-filter", "gather2x2");
+    if (name.startsWith("disk-")) await control("vsm-filter", "disk4");
     if (name === "no-fsr") await control("fsr3", false, true);
     if (name === "scale-75") await control("render-scale", 0.75);
     if (name === "scale-50") await control("render-scale", 0.5);
@@ -571,15 +610,15 @@ try {
               [
                 t[0] + dx * Math.cos(angle) + dz * Math.sin(angle),
                 p[1],
-                t[2] - dx * Math.sin(angle) + dz * Math.cos(angle)
+                t[2] - dx * Math.sin(angle) + dz * Math.cos(angle),
               ],
               t,
-              false
+              false,
             );
           }, 16);
           window.__dungeonBudgetSamples = [];
         },
-        [position, target]
+        [position, target],
       );
       if (movementAudit) {
         await run.page.evaluate(() => {
@@ -608,37 +647,48 @@ try {
     const startFrame = await run.page.evaluate(
       ([mode, counters, interval]) =>
         window.dungeonPerformance.configure(mode, mode === "full", counters, interval),
-      [mode, name === "counters" || (name === "motion" && movementAudit), gpuSampleInterval]
+      [mode, name === "counters" || (name === "motion" && movementAudit), gpuSampleInterval],
     );
     await run.page.waitForFunction(
       (n) => window.dungeonDemo.report().renderState.frame >= n + 60,
       startFrame,
-      { polling: 1000, timeout: 120000 }
+      { polling: 1000, timeout: 120000 },
     );
     if (geometrySettled && name !== "motion") {
       // Measurement gate only. fullQuality is texture quality, not the end of
       // geometry IO/publication. Do not include source-damage/raster catch-up in
       // a claimed steady-state A/B or change GPU work to make it settle.
-      await run.page.evaluate(() => { window.__geometrySettledProbe = null; });
-      await run.page.waitForFunction(() => {
-        const report = window.dungeonDemo.report();
-        if (report.failure) throw new Error(report.failure);
-        const scheduler = report.streaming?.scheduler;
-        const pages = report.geometryPages;
-        if (!scheduler || !pages) throw new Error("Geometry settled facts unavailable");
-        if (scheduler.lastError || scheduler.failed || pages.failed) throw new Error("Geometry settled gate saw a streaming failure");
-        const signature = `${pages.resident}:${pages.uploadedBytes}:${pages.evicted}:${pages.reloads}`;
-        if (scheduler.pending || scheduler.inFlightBytes || scheduler.verifiedBytes || pages.retiring) {
-          window.__geometrySettledProbe = null;
-          return false;
-        }
-        const previous = window.__geometrySettledProbe;
-        if (!previous || previous.signature !== signature) {
-          window.__geometrySettledProbe = { signature, at: performance.now(), frame: report.renderState.frame };
-          return false;
-        }
-        return performance.now() - previous.at >= 3000 && report.renderState.frame - previous.frame >= 60;
-      }, undefined, { polling: 500, timeout: 180000 });
+      await run.page.evaluate(() => {
+        window.__geometrySettledProbe = null;
+      });
+      await run.page.waitForFunction(
+        () => {
+          const report = window.dungeonDemo.report();
+          if (report.failure) throw new Error(report.failure);
+          const scheduler = report.streaming?.scheduler;
+          const pages = report.geometryPages;
+          if (!scheduler || !pages) throw new Error("Geometry settled facts unavailable");
+          if (scheduler.lastError || scheduler.failed || pages.failed)
+            throw new Error("Geometry settled gate saw a streaming failure");
+          const signature = `${pages.resident}:${pages.uploadedBytes}:${pages.evicted}:${pages.reloads}`;
+          if (scheduler.pending || scheduler.inFlightBytes || scheduler.verifiedBytes || pages.retiring) {
+            window.__geometrySettledProbe = null;
+            return false;
+          }
+          const previous = window.__geometrySettledProbe;
+          if (!previous || previous.signature !== signature) {
+            window.__geometrySettledProbe = {
+              signature,
+              at: performance.now(),
+              frame: report.renderState.frame,
+            };
+            return false;
+          }
+          return performance.now() - previous.at >= 3000 && report.renderState.frame - previous.frame >= 60;
+        },
+        undefined,
+        { polling: 500, timeout: 180000 },
+      );
     }
     if (preWindowTemperature !== null && name !== "motion") {
       await control("pause", true, true);
@@ -650,16 +700,27 @@ try {
       let sample;
       while (Date.now() - coolingStart < 120000) {
         sample = report.sensors.at(-1);
-        if (sample?.mode === "continuous-250ms" && Date.now() - sample.at < 1000 &&
-            sample.temperatureC <= preWindowTemperature) break;
+        if (
+          sample?.mode === "continuous-250ms" &&
+          Date.now() - sample.at < 1000 &&
+          sample.temperatureC <= preWindowTemperature
+        )
+          break;
         await new Promise((resume) => setTimeout(resume, 500));
       }
       const afterCooling = await run.page.evaluate(() => ({
         frame: window.dungeonDemo.report().renderState.frame,
         history: window.dungeonPerformance.historyEvidence(),
       }));
-      const gate = { name, start: coolingStart, end: Date.now(), targetTemperatureC: preWindowTemperature,
-        sample, before: beforeCooling, after: afterCooling };
+      const gate = {
+        name,
+        start: coolingStart,
+        end: Date.now(),
+        targetTemperatureC: preWindowTemperature,
+        sample,
+        before: beforeCooling,
+        after: afterCooling,
+      };
       report.coolingWindows.push(gate);
       if (JSON.stringify(beforeCooling) !== JSON.stringify(afterCooling)) {
         throw new Error("Paused cooling changed submitted frame/history roles; evidence retained");
@@ -667,8 +728,16 @@ try {
       if (!sample || Date.now() - sample.at >= 1000 || sample.temperatureC > preWindowTemperature) {
         throw new Error("Pre-window thermal entry condition did not become available within 120 seconds");
       }
-      console.log(JSON.stringify({ phase: "thermal-entry", name, temperatureC: sample.temperatureC,
-        graphicsMHz: sample.graphicsMHz, pausedMs: gate.end - gate.start, frame: afterCooling.frame }));
+      console.log(
+        JSON.stringify({
+          phase: "thermal-entry",
+          name,
+          temperatureC: sample.temperatureC,
+          graphicsMHz: sample.graphicsMHz,
+          pausedMs: gate.end - gate.start,
+          frame: afterCooling.frame,
+        }),
+      );
     }
     const start = Date.now(),
       before = await metrics(),
@@ -678,15 +747,18 @@ try {
     // intervening CDP calls can consume it, especially record/counters mode
     // (every frame). Rearm and read the start index in the same browser turn;
     // preserve the requested counters, and still reject any mixed window.
-    const targetStart = await run.page.evaluate(([mode, counters, interval]) => {
-      if (mode === "full") window.dungeonPerformance.configure(mode, true, counters, interval);
-      return window.dungeonDemo.report().renderState.frame;
-    }, [mode, name === "counters" || (name === "motion" && movementAudit), gpuSampleInterval]);
+    const targetStart = await run.page.evaluate(
+      ([mode, counters, interval]) => {
+        if (mode === "full") window.dungeonPerformance.configure(mode, true, counters, interval);
+        return window.dungeonDemo.report().renderState.frame;
+      },
+      [mode, name === "counters" || (name === "motion" && movementAudit), gpuSampleInterval],
+    );
     if (preWindowTemperature !== null && name !== "motion") await control("pause", false, true);
     await run.page.waitForFunction(
       (n) => window.dungeonDemo.report().failure || window.dungeonDemo.report().renderState.frame >= n,
       targetStart + frames,
-      { polling: 1000, timeout: 180000 }
+      { polling: 1000, timeout: 180000 },
     );
     const end = Date.now(),
       after = await metrics(),
@@ -704,7 +776,7 @@ try {
       after,
       report: await run.page.evaluate(() => window.dungeonDemo.report()),
       raw: await run.page.evaluate(() => window.dungeonPerformance.samples()),
-      longTasks: await run.page.evaluate(() => window.__longTasks)
+      longTasks: await run.page.evaluate(() => window.__longTasks),
     };
     if (name === "motion" && movementAudit) {
       await run.page.evaluate(() => clearInterval(window.__dungeonBudgetSampler));
@@ -712,27 +784,44 @@ try {
     }
     if (args.includes("--temporal-capture") && name === "full") {
       await run.page.evaluate(() => window.dungeonGpuAudit.armTemporalCapture());
-      await run.page.waitForFunction(() => window.dungeonGpuAudit.temporalCaptureStatus().ready, null, { timeout: 30000 });
+      await run.page.waitForFunction(() => window.dungeonGpuAudit.temporalCaptureStatus().ready, null, {
+        timeout: 30000,
+      });
       await control("pause", true, true);
       const products = await run.page.evaluate(() => window.dungeonGpuAudit.temporalCaptureStatus().products);
       await mkdir(resolve(out, "temporal-inputs"), { recursive: true });
       for (const product of products) {
-        const encoded = await run.page.evaluate((name) => window.dungeonGpuAudit.readTemporalCapture(name), product.name);
+        const encoded = await run.page.evaluate(
+          (name) => window.dungeonGpuAudit.readTemporalCapture(name),
+          product.name,
+        );
         const bytes = Buffer.from(encoded, "base64");
-        if (bytes.byteLength !== product.bytes) throw new Error(`Temporal capture byte count differs for ${product.name}`);
+        if (bytes.byteLength !== product.bytes)
+          throw new Error(`Temporal capture byte count differs for ${product.name}`);
         product.sha256 = createHash("sha256").update(bytes).digest("hex");
         await writeFile(resolve(out, "temporal-inputs", `${product.name}.bin`), bytes);
       }
-      await writeFile(resolve(out, "temporal-inputs/manifest.json"), JSON.stringify({ provenance: "single actual frame, copies immediately after each owning pass, outside timing target", products }, null, 2));
+      await writeFile(
+        resolve(out, "temporal-inputs/manifest.json"),
+        JSON.stringify(
+          {
+            provenance:
+              "single actual frame, copies immediately after each owning pass, outside timing target",
+            products,
+          },
+          null,
+          2,
+        ),
+      );
     }
     if (args.includes("--near") || args.includes("--audit")) {
       await control("pause", true, true);
       capture.coverage = await run.page.evaluate(
         ([begin, count]) => window.dungeonGpuAudit.coverage(begin, count),
-        [capture.raw.instanceBegin, modelManifest.instanceMaterials.length]
+        [capture.raw.instanceBegin, modelManifest.instanceMaterials.length],
       );
       capture.vsmHeaders = await run.page.evaluate(() =>
-        window.dungeonGpuAudit.vsmHeaders(window.dungeonPerformance.vsmDiagnostics())
+        window.dungeonGpuAudit.vsmHeaders(window.dungeonPerformance.vsmDiagnostics()),
       );
       if (vsmDemandDiagnostics) {
         if (!capture.vsmHeaders?.receiverWorkgroups)
@@ -751,12 +840,18 @@ try {
           await writeFile(resolve(out, "shaders", `${sha256}.wgsl`), code);
           capture.shaderSources.push({ label, sha256, bytes: Buffer.byteLength(code) });
         }
-        await writeFile(resolve(out, "shaders/manifest.json"), JSON.stringify(capture.shaderSources, null, 2));
+        await writeFile(
+          resolve(out, "shaders/manifest.json"),
+          JSON.stringify(capture.shaderSources, null, 2),
+        );
       }
       const owners = Object.values(capture.gpuResources.capacityOwners);
-      if (owners.reduce((sum, owner) => sum + owner.bytes, 0) !== capture.gpuResources.bytes ||
-          Object.values(capture.gpuResources.ownersAtPeak).reduce((sum, bytes) => sum + bytes, 0) !== capture.gpuResources.peakBytes ||
-          capture.gpuResources.unknownFormats.length) {
+      if (
+        owners.reduce((sum, owner) => sum + owner.bytes, 0) !== capture.gpuResources.bytes ||
+        Object.values(capture.gpuResources.ownersAtPeak).reduce((sum, bytes) => sum + bytes, 0) !==
+          capture.gpuResources.peakBytes ||
+        capture.gpuResources.unknownFormats.length
+      ) {
         await writeFile(resolve(out, `${name}.json`), JSON.stringify(capture));
         throw new Error("API capacity inventory is incomplete or does not reconcile; raw capture saved");
       }
@@ -769,7 +864,9 @@ try {
         apiPeakBytes: capture.gpuResources.peakBytes,
         peakEnvelopeHeadroomBytes: budget.apiEnvelopeBytes - capture.gpuResources.peakBytes,
         negotiatedGeometryBytes: capture.report.geometry.allocatedBytes,
-        unusedBankBytes: capture.report.geometry.allocatedBytes - products.reduce((sum, p) => sum + p.residentBytes + p.retiringBytes, 0),
+        unusedBankBytes:
+          capture.report.geometry.allocatedBytes -
+          products.reduce((sum, p) => sum + p.residentBytes + p.retiringBytes, 0),
         residentPayloadBytes: products.reduce((sum, p) => sum + p.residentPayloadBytes, 0),
         residentInternalSlackBytes: products.reduce((sum, p) => sum + p.residentInternalSlackBytes, 0),
       };
@@ -779,7 +876,7 @@ try {
       }
       if (nativeCostSlice === "K") {
         capture.nativeQueryStatistics = await run.page.evaluate(() =>
-          window.dungeonGpuAudit.nativeQueryStatistics()
+          window.dungeonGpuAudit.nativeQueryStatistics(),
         );
       }
       await control("pause", false, true);
@@ -796,39 +893,56 @@ try {
       targetEnd: capture.targetEnd,
       file: `${name}.json`,
       stable: capture.report.stable,
-      failure: capture.report.failure
+      failure: capture.report.failure,
     });
     await run.page.screenshot({ path: resolve(out, `${name}.png`) });
     await writeFile(resolve(out, "suite.json"), JSON.stringify(report, null, 2));
     if (report.cameraSelection?.selected && name !== "motion") {
       const selected = report.cameraSelection.selected;
       const camera = capture.report.renderState.camera;
-      if (["position", "target"].some((field) =>
-        camera[field].some((value, axis) => Math.abs(value - selected[field][axis]) > 1e-6))) {
+      if (
+        ["position", "target"].some((field) =>
+          camera[field].some((value, axis) => Math.abs(value - selected[field][axis]) > 1e-6),
+        )
+      ) {
         throw new Error(`Fixed camera changed during ${name}; raw capture saved`);
       }
     }
     if (mode === "full") {
       const windowFrames = capture.raw.frames.filter(
-        (frame) => frame.frameIndex >= capture.targetStart && frame.frameIndex < capture.targetEnd
+        (frame) => frame.frameIndex >= capture.targetStart && frame.frameIndex < capture.targetEnd,
       );
       const interval = capture.raw.gpuSampleInterval;
       const committed = capture.raw.callbacks.filter(
-        (callback) => callback.submitted && callback.frameIndex >= capture.targetStart && callback.frameIndex < capture.targetEnd
+        (callback) =>
+          callback.submitted &&
+          callback.frameIndex >= capture.targetStart &&
+          callback.frameIndex < capture.targetEnd,
       );
       const indices = new Set(committed.map((callback) => callback.frameIndex));
-      if (indices.size !== frames || committed.length !== frames || committed.some((callback) => !callback.temporal)) {
-        throw new Error(`Incomplete committed Temporal observation: ${indices.size}/${frames} frames; raw capture saved`);
+      if (
+        indices.size !== frames ||
+        committed.length !== frames ||
+        committed.some((callback) => !callback.temporal)
+      ) {
+        throw new Error(
+          `Incomplete committed Temporal observation: ${indices.size}/${frames} frames; raw capture saved`,
+        );
       }
       const expected = windowFrames.filter((frame) => frame.frameIndex % interval === 0).length;
       const complete = windowFrames.filter(
-        (frame) => frame.gpu.sampled && frame.gpu.mode === "full" && !frame.gpu.pending &&
+        (frame) =>
+          frame.gpu.sampled &&
+          frame.gpu.mode === "full" &&
+          !frame.gpu.pending &&
           !frame.counters["gpu.timing.truncated"] &&
-          frame.gpu.segments.some((segment) => segment.label.includes("native winner shading"))
+          frame.gpu.segments.some((segment) => segment.label.includes("native winner shading")),
       ).length;
       if (windowFrames.length !== frames || !expected || complete !== expected) {
-        throw new Error(`Full timing window (${nativeCostSlice ?? "production"}) incomplete: ` +
-          `${complete}/${expected} GPU samples, ${windowFrames.length}/${frames} frames; raw capture saved`);
+        throw new Error(
+          `Full timing window (${nativeCostSlice ?? "production"}) incomplete: ` +
+            `${complete}/${expected} GPU samples, ${windowFrames.length}/${frames} frames; raw capture saved`,
+        );
       }
     }
     console.log(
@@ -839,8 +953,8 @@ try {
         cpu: capture.report.stable[mode === "production" ? "normal" : "profiled"].cpuFrameMs,
         fps: capture.report.stable.submissions.framesPerSecond,
         gpu: capture.report.stable.profiled.gpuCommandSpanMs,
-        errors: report.errors.length
-      })
+        errors: report.errors.length,
+      }),
     );
     if (capture.report.failure) throw new Error(JSON.stringify(capture.report.failure));
     if (name === "motion") {
@@ -858,7 +972,7 @@ try {
     const frame = await run.page.evaluate(() => window.dungeonDemo.report().renderState.frame);
     await run.page.waitForFunction((n) => window.dungeonDemo.report().renderState.frame >= n + 240, frame, {
       polling: 1000,
-      timeout: 180000
+      timeout: 180000,
     });
     const { profile } = await pageCdp.send("Profiler.stop");
     await writeFile(resolve(out, "cpu.cpuprofile"), JSON.stringify(profile));

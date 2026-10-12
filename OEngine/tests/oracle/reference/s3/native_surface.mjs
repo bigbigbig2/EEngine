@@ -7,7 +7,7 @@ import { surfaceGeometryCompletionWgsl } from "./surface_geometry_completion.mjs
 import { nativeLocalLighting } from "../../../../.test-dist/shaders/native_local_lighting.js";
 import { FINAL_PIXEL_DIRECTORY_WGSL, FINAL_PIXEL_LIGHTING_DIRECTORY_WGSL, NATIVE_TEMPORAL_SEED_VIEW_BYTES, } from "../../../../.test-dist/gpu/FinalPixelAbi.js";
 import { nativeTemporalSeedWgsl } from "../../../../.test-dist/shaders/native_temporal_seed.js";
-import { vsmSamplingWgsl } from "../../../../.test-dist/shaders/vsm_sampling.js";
+import { vsmSamplingWgsl } from "../../fixtures/vsm-sampling-s3.mjs";
 import { NATIVE_ENVIRONMENT_SAMPLE_WGSL } from "../../../../.test-dist/shaders/native_environment_sample.js";
 import { ENVIRONMENT_BRDF_WGSL } from "../../../../.test-dist/shaders/native_environment_brdf.js";
 import { LINEAR_REC709_TO_REC2020_WGSL } from "../../../../.test-dist/shaders/working_color.js";

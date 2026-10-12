@@ -8,6 +8,8 @@ import {
   mergeVirtualGeometryProductSceneSourcesV1,
 } from "../../.test-dist/assets/geometry-product/VirtualGeometrySceneSourceV1.js";
 import { Renderer } from "../../.test-dist/render/pipeline/RendererCore.js";
+import { VSM_FILTER_DATA_BYTES, VSM_FILTER_MODES } from "../../.test-dist/gpu/GpuVsmFilterAbi.js";
+import { VSM_DEFAULT_SETTINGS } from "../../.test-dist/render/vsm/VsmSettings.js";
 import { ShadeGPUCommandContext } from "../../.test-dist/framegraph/ShadeGPUCommandContext.js";
 import { Scene } from "../../.test-dist/scene/Scene.js";
 import { Mesh } from "../../.test-dist/scene/Mesh.js";
@@ -53,9 +55,17 @@ export async function runFinalPixelFeatureDemandGpuOracle() {
     { physicalSun: false, authoredIbl: true },
     { physicalSun: true, authoredIbl: false },
   ]) {
-    const adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance", featureLevel: "core" });
+    const adapter = await navigator.gpu.requestAdapter({
+      powerPreference: "high-performance",
+      featureLevel: "core",
+    });
     check(adapter, "Feature demand oracle requires a hardware adapter");
-    const features = ["core-features-and-limits", "indirect-first-instance", "texture-formats-tier1", "texture-compression-bc"];
+    const features = [
+      "core-features-and-limits",
+      "indirect-first-instance",
+      "texture-formats-tier1",
+      "texture-compression-bc",
+    ];
     for (const optional of ["primitive-index", "subgroups", "timestamp-query"]) {
       if (adapter.features.has(optional)) features.push(optional);
     }
@@ -70,31 +80,43 @@ export async function runFinalPixelFeatureDemandGpuOracle() {
         return key === "maxTextureDimension2D" ? 2048 : Reflect.get(target, key, target);
       },
     });
-    const device = physicalSun ? new Proxy(actualDevice, {
-      get(target, key) {
-        if (key === "limits") return boundedLimits;
-        const value = Reflect.get(target, key, target);
-        return typeof value === "function" ? value.bind(target) : value;
-      },
-    }) : actualDevice;
+    const device = physicalSun
+      ? new Proxy(actualDevice, {
+          get(target, key) {
+            if (key === "limits") return boundedLimits;
+            const value = Reflect.get(target, key, target);
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        })
+      : actualDevice;
     const renderer = new Renderer({ autoExposure: false, fixedExposure: 1 });
     const actualContext = new OffscreenCanvas(192, 128).getContext("webgpu");
     // WebIDL requires the real device at the canvas boundary. All allocation
     // and encoding methods above likewise bind directly to the real device.
-    const context = physicalSun ? new Proxy(actualContext, {
-      get(target, key) {
-        if (key === "configure") return (options) => target.configure({ ...options, device: actualDevice });
-        const value = Reflect.get(target, key, target);
-        return typeof value === "function" ? value.bind(target) : value;
-      },
-    }) : actualContext;
+    const context = physicalSun
+      ? new Proxy(actualContext, {
+          get(target, key) {
+            if (key === "configure")
+              return (options) => target.configure({ ...options, device: actualDevice });
+            const value = Reflect.get(target, key, target);
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        })
+      : actualContext;
     let readback = null;
     let frame = null;
     try {
-      await renderer.initialize({ device, adapter, context, config: { enablePhysicalEnvironment: physicalSun } });
+      await renderer.initialize({
+        device,
+        adapter,
+        context,
+        config: { enablePhysicalEnvironment: physicalSun },
+      });
       renderer.resize(192, 128);
-      check(physicalSun ? renderer._vsm?.profile === "vsm-directional-bounded" : renderer._vsm === null,
-        "VSM allocation did not follow Physical Sun/profile demand");
+      check(
+        physicalSun ? renderer._vsm?.profile === "vsm-directional-bounded" : renderer._vsm === null,
+        "VSM allocation did not follow Physical Sun/profile demand",
+      );
       const scene = new Scene();
       if (authoredIbl) {
         const image = new ShadeImage();
@@ -135,7 +157,11 @@ export async function runFinalPixelFeatureDemandGpuOracle() {
       renderer._surface.encode = (encoder) => {
         encode(encoder);
         if (readback) {
-          encoder.copyTextureToBuffer({ texture: frame.output }, { buffer: readback, bytesPerRow: 1536 }, [192, 128]);
+          encoder.copyTextureToBuffer(
+            { texture: frame.output },
+            { buffer: readback, bytesPerRow: 1536 },
+            [192, 128],
+          );
         }
       };
       const tick = async () => {
@@ -146,7 +172,10 @@ export async function runFinalPixelFeatureDemandGpuOracle() {
           await actualDevice.queue.onSubmittedWorkDone();
           if (renderer.frame_count === start) await new Promise((resolve) => setTimeout(resolve, 5));
         }
-        check(renderer.frame_count !== start, `Feature demand frame deferred: ${renderer._lastFrameDeferral}`);
+        check(
+          renderer.frame_count !== start,
+          `Feature demand frame deferred: ${renderer._lastFrameDeferral}`,
+        );
       };
       const domains = [];
       for (const scale of [1, 0.73, 1]) {
@@ -165,12 +194,23 @@ export async function runFinalPixelFeatureDemandGpuOracle() {
       const pausedColor = renderer._nativeTemporal.readIndex;
       await actualDevice.queue.onSubmittedWorkDone();
       await new Promise((resolve) => setTimeout(resolve, 20));
-      check(renderer.frame_count === pausedCount && renderer._temporalSeed.readIndex === pausedSeed &&
-        renderer._nativeTemporal.readIndex === pausedColor, "Paused caller advanced Temporal ownership");
+      check(
+        renderer.frame_count === pausedCount &&
+          renderer._temporalSeed.readIndex === pausedSeed &&
+          renderer._nativeTemporal.readIndex === pausedColor,
+        "Paused caller advanced Temporal ownership",
+      );
       await tick();
-      check(renderer.frame_count === pausedCount + 1 && renderer._temporalSeed.readIndex !== pausedSeed &&
-        renderer._nativeTemporal.readIndex !== pausedColor, "Single-step did not publish exactly one Temporal frame");
-      readback = actualDevice.createBuffer({ size: 1536 * 128, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+      check(
+        renderer.frame_count === pausedCount + 1 &&
+          renderer._temporalSeed.readIndex !== pausedSeed &&
+          renderer._nativeTemporal.readIndex !== pausedColor,
+        "Single-step did not publish exactly one Temporal frame",
+      );
+      readback = actualDevice.createBuffer({
+        size: 1536 * 128,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+      });
       await tick();
       await readback.mapAsync(GPUMapMode.READ);
       const values = new Uint16Array(readback.getMappedRange());
@@ -182,7 +222,10 @@ export async function runFinalPixelFeatureDemandGpuOracle() {
           if (value > 0) positive++;
         }
       }
-      check(positive > 0, `Lights produced no radiance: physicalSun=${physicalSun}, authoredIbl=${authoredIbl}`);
+      check(
+        positive > 0,
+        `Lights produced no radiance: physicalSun=${physicalSun}, authoredIbl=${authoredIbl}`,
+      );
       readback.unmap();
       readback.destroy();
       readback = null;
@@ -191,9 +234,20 @@ export async function runFinalPixelFeatureDemandGpuOracle() {
       check(!renderer._lastFrameGraph.program.stages.includes("vsm"), "All-unlit retained VSM work");
       material.is_unlit = false;
       await tick();
-      check(renderer._lastFrameGraph.program.stages.includes("vsm") === physicalSun, "Lit return lost VSM demand");
+      check(
+        renderer._lastFrameGraph.program.stages.includes("vsm") === physicalSun,
+        "Lit return lost VSM demand",
+      );
       check(errors.length === 0, `Feature demand validation errors: ${errors}`);
-      cases.push({ physicalSun, authoredIbl, profile: renderer._vsm?.profile ?? "absent", domains, positive, callerPauseStep: true, errors });
+      cases.push({
+        physicalSun,
+        authoredIbl,
+        profile: renderer._vsm?.profile ?? "absent",
+        domains,
+        positive,
+        callerPauseStep: true,
+        errors,
+      });
     } finally {
       readback?.destroy();
       renderer.destroy();
@@ -202,8 +256,15 @@ export async function runFinalPixelFeatureDemandGpuOracle() {
     }
   }
   const audit = window.dungeonGpuAudit.snapshot();
-  check(audit.bytes === 0 && audit.unknownFormats.length === 0, `Feature demand leaked ${audit.bytes} API bytes`);
-  return { cases, releaseBytes: audit.bytes, scope: "Real no-Sun Renderer and capability-projected bounded Renderer; no adapter negotiation claim" };
+  check(
+    audit.bytes === 0 && audit.unknownFormats.length === 0,
+    `Feature demand leaked ${audit.bytes} API bytes`,
+  );
+  return {
+    cases,
+    releaseBytes: audit.bytes,
+    scope: "Real no-Sun Renderer and capability-projected bounded Renderer; no adapter negotiation claim",
+  };
 }
 
 export async function authoredTexture(semantic, texel, extent = 16) {
@@ -657,7 +718,7 @@ export async function runNativeSurfaceProductionGpuOracle(
     );
     check(
       renderer._localLightWork.allocatedBytes === 0 && renderer._finalPixelLighting.allocatedBytes === 0,
-      "All-unlit replacement retained unused lighting frame pools"
+      "All-unlit replacement retained unused lighting frame pools",
     );
     await inspect();
     materials[4].is_unlit = false;
@@ -1039,7 +1100,7 @@ export async function runNativeSurfaceProductionGpuOracle(
         renderer._surface.state === null &&
         renderer._localLightWork.allocatedBytes === 0 &&
         renderer._finalPixelLighting.allocatedBytes === 0,
-      "Empty replacement retained scene-dependent Final Pixel products"
+      "Empty replacement retained scene-dependent Final Pixel products",
     );
     await tick();
     check(!renderer._temporalSeed.inputHistoryValid, "Scene return reused pre-empty identity history");
@@ -1106,7 +1167,7 @@ export async function runNativeSurfaceProductionGpuOracle(
       [false, false, false, 1],
       [true, true, true, 1],
       [false, true, false, 0.73],
-      [true, false, true, 0.73]
+      [true, false, true, 0.73],
     ]) {
       renderer.shadowVisibilityEnabled = shadow;
       renderer.xe_gtao_enabled = ao;
@@ -1120,12 +1181,12 @@ export async function runNativeSurfaceProductionGpuOracle(
       check(dump.passes.some((p) => /Bloom\//.test(p.name)) === bloom, "Feature graph ignored Bloom demand");
       check(
         renderer._temporalPolicy === (scale === 1 ? "native" : "upscale"),
-        "Noninteger domain used wrong Temporal owner"
+        "Noninteger domain used wrong Temporal owner",
       );
       check(
         renderer._temporalSeed.readIndex ===
           (scale === 1 ? renderer._nativeTemporal.readIndex : renderer._fsr3.readIndex),
-        "Feature combination published divergent Temporal roles"
+        "Feature combination published divergent Temporal roles",
       );
       featureCombinations.push({ shadow, ao, bloom, scale, passes: dump.passes.map((p) => p.name) });
     }
@@ -1139,7 +1200,7 @@ export async function runNativeSurfaceProductionGpuOracle(
       check(
         renderer._lastFrameGraph.program.stages.includes("temporal-classification") ===
           (debugView === RenderDebugView.HistoryValidity),
-        "Identity debug added an unused classifier or lost validity"
+        "Identity debug added an unused classifier or lost validity",
       );
     }
     renderer.render_debug_view = RenderDebugView.None;
@@ -1148,8 +1209,64 @@ export async function runNativeSurfaceProductionGpuOracle(
       await tick();
       check(
         !renderer._lastFrameGraph.compiled.dump().passes.some((p) => /Shadow Resolve/.test(p.name)),
-        "Shadow debug restored standalone receiver reconstruction"
+        "Shadow debug restored standalone receiver reconstruction",
       );
+    }
+    const filterTransitions = [];
+    const filterReadback = device.createBuffer({
+      size: 256,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    });
+    buffers.push(filterReadback);
+    for (const [filterMode, temporal, radius] of [
+      ["disk4", true, 1.5],
+      ["gather2x2", true, 1.5],
+      ["point", true, 1.5],
+      ["disk4", true, 0],
+      ["disk4", false, 1.5],
+      ["disk4", true, 1.5],
+    ]) {
+      renderer.setVsmSettings({ ...VSM_DEFAULT_SETTINGS, filterMode, filterRadiusTexels: radius });
+      renderer.fsr3_enabled = temporal;
+      await tick();
+      const encoder = device.createCommandEncoder({ label: "oracle/VSM filter publication" });
+      encoder.copyBufferToBuffer(renderer._vsm.pageConstants, 0, filterReadback, 0, 256);
+      device.queue.submit([encoder.finish()]);
+      await filterReadback.mapAsync(GPUMapMode.READ);
+      const words = new Uint32Array(filterReadback.getMappedRange()),
+        floats = new Float32Array(words.buffer);
+      const effectiveMode = filterMode === "disk4" && radius === 0 ? "point" : filterMode;
+      check(words[46] === VSM_FILTER_MODES[effectiveMode], "Cached graph retained the old VSM filter mode");
+      check(
+        floats[48] === 1 && floats[49] === 1 && floats[51] === radius,
+        "Actual filter publication lost default bias/radius",
+      );
+      check(
+        words[47] === (temporal ? (renderer.frame_count - 1) % 64 : 0),
+        "VSM noise phase did not follow submitted frame/AA-off policy",
+      );
+      const directory = actualFrame.lightingEntries.find((entry) => entry.binding === 2).resource.buffer;
+      const allocation = renderer._finalPixelLighting.allocations.find((value) => value.buffer === directory);
+      check(allocation, "Actual Native did not consume the current lighting container");
+      check(
+        allocation.plan.filterNoiseBytes === (effectiveMode === "disk4" ? VSM_FILTER_DATA_BYTES : 0),
+        "Noiseless kernel allocated an unused STBN segment",
+      );
+      if (effectiveMode === "disk4") {
+        check(
+          words[59] * 4 === allocation.plan.filterNoiseOffset,
+          "Noise base disagrees with actual Native binding",
+        );
+      }
+      filterTransitions.push({
+        filterMode,
+        effectiveMode,
+        radius,
+        temporal,
+        phase: words[47],
+        noiseBytes: allocation.plan.filterNoiseBytes,
+      });
+      filterReadback.unmap();
     }
     // Small diagnostic cost sample, not the large-scene acceptance matrix.
     renderer.profiler.setMode("record");
@@ -1301,12 +1418,12 @@ export async function runNativeSurfaceProductionGpuOracle(
     for (const [name, owner] of [
       ["NativeTemporalSeed", renderer._temporalSeed],
       ["NativeTemporalV2", renderer._nativeTemporal],
-      ["Fsr3UpscalerRuntime", renderer._fsr3]
+      ["Fsr3UpscalerRuntime", renderer._fsr3],
     ]) {
       const bytes = beforeDestroy.owners[name];
       check(
         (bytes?.texture ?? 0) + (bytes?.buffer ?? 0) === owner.allocatedBytes,
-        `${name} omitted physical active/candidate/retiring allocations`
+        `${name} omitted physical active/candidate/retiring allocations`,
       );
     }
     check(!renderer._vsmShadowResolve, "Retired standalone Shadow owner survived production cutover");
@@ -1373,7 +1490,7 @@ export async function runNativeSurfaceProductionGpuOracle(
     const audit = window.dungeonGpuAudit.snapshot();
     check(
       audit.unknownFormats.length === 0 && audit.bytes === 0,
-      `Explicit GPU API allocations leaked after release: ${audit.bytes}; ${JSON.stringify(audit.resources.filter((r) => !r.destroyed && r.bytes > 0))}`
+      `Explicit GPU API allocations leaked after release: ${audit.bytes}; ${JSON.stringify(audit.resources.filter((r) => !r.destroyed && r.bytes > 0))}`,
     );
     return {
       verdict: "passed",
@@ -1397,11 +1514,12 @@ export async function runNativeSurfaceProductionGpuOracle(
       cameraCut,
       temporalPolicyTransitions: { upscaled, nativeRestored, abortRestored: true, deferRetained: true },
       featureCombinations,
+      filterTransitions,
       physicalMemory: {
         peakBytes: audit.peakBytes,
         ownersAtPeak: audit.ownersAtPeak,
         releaseBytes: audit.bytes,
-        scope: audit.scope
+        scope: audit.scope,
       },
       burstAdmission: {
         capacity: burstAdmission.frameContextCapacity,

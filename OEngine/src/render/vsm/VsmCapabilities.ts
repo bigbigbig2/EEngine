@@ -25,7 +25,6 @@ export interface VsmCapabilities {
   readonly residentSlots: number;
   readonly demandCapacity: number;
   readonly casterRecordCapacity: number;
-  readonly pcfTapCount: number;
   readonly pageTableBytes: number;
   readonly metaTableBytes: number;
   readonly demandBytes: number;
@@ -100,7 +99,6 @@ function makeCapabilities(
     residentSlots,
     demandCapacity,
     casterRecordCapacity,
-    pcfTapCount: profile === "vsm-directional-high" ? 4 : profile === "vsm-directional-bounded" ? 2 : 1,
     pageTableBytes,
     metaTableBytes,
     demandBytes,

@@ -117,6 +117,40 @@ try {
       skyTextures: 0,
       liveSkyTextures: 0,
       longTasks: [],
+      lightingBuffers: 0,
+      liveLightingBuffers: 0,
+      noiseUploads: 0,
+      duplicateNoiseUploads: 0,
+    };
+    const lighting = new WeakMap();
+    const createBuffer = GPUDevice.prototype.createBuffer;
+    GPUDevice.prototype.createBuffer = function (descriptor) {
+      const buffer = createBuffer.call(this, descriptor);
+      if (descriptor.label === "Final Pixel/lighting directory") {
+        const entry = { uploads: 0, destroyed: false };
+        lighting.set(buffer, entry);
+        window.__cameraMotionAudit.lightingBuffers++;
+        window.__cameraMotionAudit.liveLightingBuffers++;
+        const destroy = buffer.destroy.bind(buffer);
+        buffer.destroy = () => {
+          if (!entry.destroyed) {
+            entry.destroyed = true;
+            window.__cameraMotionAudit.liveLightingBuffers--;
+          }
+          destroy();
+        };
+      }
+      return buffer;
+    };
+    const writeBuffer = GPUQueue.prototype.writeBuffer;
+    GPUQueue.prototype.writeBuffer = function (buffer, offset, data, ...rest) {
+      const entry = lighting.get(buffer);
+      if (entry && data.byteLength === 1050624) {
+        entry.uploads++;
+        window.__cameraMotionAudit.noiseUploads++;
+        if (entry.uploads > 1) window.__cameraMotionAudit.duplicateNoiseUploads++;
+      }
+      return writeBuffer.call(this, buffer, offset, data, ...rest);
     };
     const begin = GPUCommandEncoder.prototype.beginComputePass;
     GPUCommandEncoder.prototype.beginComputePass = function (descriptor = {}) {
@@ -258,10 +292,45 @@ try {
       await run.page.waitForTimeout(1200);
     }
   }
+  if (args.includes("--review-vsm")) {
+    report.filterReview = [];
+    for (const [mode, radius] of [
+      ["disk4", 1.5],
+      ["gather2x2", 1.5],
+      ["point", 1.5],
+      ["disk4", 0],
+      ["disk4", 1.5],
+    ]) {
+      await run.page.locator("#vsm-filter").evaluate((input, value) => {
+        input.value = value;
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      }, mode);
+      if (mode === "disk4")
+        await run.page.locator("#vsm-radius").evaluate((input, value) => {
+          input.value = String(value);
+          input.dispatchEvent(new Event("change", { bubbles: true }));
+        }, radius);
+      const at = await run.page.evaluate(() => window.dungeonDemo.report().renderState.frame);
+      await run.page.waitForFunction((at) => window.dungeonDemo.report().renderState.frame >= at + 64, at);
+      const sample = await run.page.evaluate(() => ({
+        settings: window.dungeonDemo.report().renderState.vsmSettings,
+        radiusDisabled: document.querySelector("#vsm-radius").disabled,
+        audit: structuredClone(window.__cameraMotionAudit),
+      }));
+      if (sample.settings.filterMode !== mode || sample.radiusDisabled !== (mode !== "disk4"))
+        throw new Error("VSM controls disagree with the Renderer");
+      report.filterReview.push({ mode, radius, ...sample });
+      await run.page.screenshot({ path: resolve(out, `filter-${mode}-${radius}.png`) });
+    }
+  }
   await run.page.evaluate(() => window.dungeonDemo.release());
   await run.page.waitForTimeout(300);
   report.teardown = await run.page.evaluate(() => window.__cameraMotionAudit);
   if (report.teardown.liveSkyTextures !== 0) throw new Error("Sky textures leaked after Renderer release");
+  if (report.teardown.liveLightingBuffers !== 0 || report.teardown.duplicateNoiseUploads !== 0)
+    throw new Error("VSM lighting/noise allocation leaked or reuploaded immutable bytes");
+  if (args.includes("--review-vsm") && report.teardown.noiseUploads === 0)
+    throw new Error("Actual VSM never initialized its blue-noise segment");
   if (report.errors.length) throw new Error("Browser reported errors; raw errors retained");
   report.status = "passed";
 } catch (error) {

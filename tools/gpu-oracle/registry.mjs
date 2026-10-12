@@ -11,6 +11,36 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "vsm-bias",
+    file: "OEngine/tests/oracle/vsm-bias-gpu.mjs",
+    url: "/OEngine/tests/oracle/vsm-bias-gpu.mjs",
+    entry: "runVsmBiasGpuOracle",
+    description:
+      "Actual rasterized inclined receiver/contact caster, plane correction and independent bias sweep with negative controls.",
+    timeoutMs: 180000,
+  }),
+  Object.freeze({
+    name: "vsm-filter-cost",
+    file: "OEngine/tests/oracle/vsm-filter-cost-gpu.mjs",
+    url: "/OEngine/tests/oracle/vsm-filter-cost-gpu.mjs",
+    entry: "runVsmFilterCostGpuOracle",
+    requiredFeatures: ["timestamp-query"],
+    allowPrefixes: ["OEngine/src/render/assets/textures/"],
+    description:
+      "1080p old16 vs disk4/gather/point isolated GPU sampling cost including real blue-noise loads.",
+    timeoutMs: 180000,
+  }),
+  Object.freeze({
+    name: "vsm-filter",
+    file: "OEngine/tests/oracle/vsm-filter-gpu.mjs",
+    url: "/OEngine/tests/oracle/vsm-filter-gpu.mjs",
+    entry: "runVsmFilterGpuOracle",
+    allowPrefixes: ["OEngine/src/render/assets/textures/", "OEngine/.test-dist/render/assets/textures/"],
+    description:
+      "Independent CPU/GPU point/gather/disk filtering, complete STBN sequence, reverse-Z and slot gutters.",
+    timeoutMs: 180000,
+  }),
+  Object.freeze({
     name: "final-pixel-seed-quality",
     file: "OEngine/tests/oracle/native-surface-integration-gpu.mjs",
     url: "/OEngine/tests/oracle/native-surface-integration-gpu.mjs",
@@ -35,6 +65,7 @@ export const oracles = Object.freeze([
     file: "OEngine/tests/oracle/final-pixel-shadow-quality-gpu.mjs",
     url: "/OEngine/tests/oracle/final-pixel-shadow-quality-gpu.mjs",
     entry: "runFinalPixelShadowQualityGpuOracle",
+    allowPrefixes: ["OEngine/src/render/assets/textures/"],
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     timeoutMs: 600000,
     description:
@@ -158,7 +189,8 @@ export const oracles = Object.freeze([
     entry: "runNativeTemporalObservationQualityGpuOracle",
     requiredFeatures: ["texture-formats-tier1"],
     timeoutMs: 300000,
-    description: "Production Native observation owner against unchanged independent analytic quality contracts.",
+    description:
+      "Production Native observation owner against unchanged independent analytic quality contracts.",
   }),
   Object.freeze({
     name: "native-temporal-observation-matrix",
@@ -176,7 +208,8 @@ export const oracles = Object.freeze([
     entry: "runNativeTemporalObservationCostGpuOracle",
     requiredFeatures: ["texture-formats-tier1", "timestamp-query"],
     timeoutMs: 300000,
-    description: "Frozen pre-rework Native chain versus production observation graph, all eight jitter phases; synthetic cost only.",
+    description:
+      "Frozen pre-rework Native chain versus production observation graph, all eight jitter phases; synthetic cost only.",
   }),
   Object.freeze({
     name: "native-temporal-observation-replay",
@@ -186,7 +219,8 @@ export const oracles = Object.freeze([
     requiredFeatures: ["texture-formats-tier1", "timestamp-query"],
     allowPrefixes: [".local/native-temporal-observation-20261012/A1-v2/temporal-inputs/"],
     timeoutMs: 300000,
-    description: "Same captured actual Dungeon color/Seed/identity/previous histories, complete Native chain ABBA with pass timestamps.",
+    description:
+      "Same captured actual Dungeon color/Seed/identity/previous histories, complete Native chain ABBA with pass timestamps.",
   }),
   Object.freeze({
     name: "native-temporal-observation-boundary",
@@ -195,7 +229,8 @@ export const oracles = Object.freeze([
     entry: "runNativeTemporalObservationBoundaryGpuOracle",
     requiredFeatures: ["texture-formats-tier1"],
     timeoutMs: 120000,
-    description: "Actual R8 stores and filtered RG16 producer versus pinned SDK, all eight phases, odd/tiny/full domains.",
+    description:
+      "Actual R8 stores and filtered RG16 producer versus pinned SDK, all eight phases, odd/tiny/full domains.",
   }),
   Object.freeze({
     name: "native-temporal-observation-measure",
@@ -204,7 +239,8 @@ export const oracles = Object.freeze([
     entry: "runNativeTemporalObservationMeasureGpuOracle",
     requiredFeatures: ["texture-formats-tier1"],
     timeoutMs: 300000,
-    description: "Exact Measure/Exposure products against frozen original, tiny/odd/tile seams/1080p/full 4096 limit.",
+    description:
+      "Exact Measure/Exposure products against frozen original, tiny/odd/tile seams/1080p/full 4096 limit.",
   }),
   Object.freeze({
     name: "native-temporal-v2-cost",
@@ -612,7 +648,11 @@ export const oracles = Object.freeze([
     file: "OEngine/tests/oracle/native-surface-production-gpu.mjs",
     url: "/OEngine/tests/oracle/native-surface-production-gpu.mjs",
     entry: "runNativeSurfaceMultiProductProductionGpuOracle",
-    allowPrefixes: ["OEngine/src/render/assets/", "OEngine/src/assets/web-cook/wasm/vendor/", "validation/tools/dungeon-gpu-audit.mjs"],
+    allowPrefixes: [
+      "OEngine/src/render/assets/",
+      "OEngine/src/assets/web-cook/wasm/vendor/",
+      "validation/tools/dungeon-gpu-audit.mjs",
+    ],
     requiredFeatures: ["texture-formats-tier1"],
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     description:
@@ -636,7 +676,11 @@ export const oracles = Object.freeze([
     file: "OEngine/tests/oracle/native-surface-production-gpu.mjs",
     url: "/OEngine/tests/oracle/native-surface-production-gpu.mjs",
     entry: "runNativeSurfaceProductProductionGpuOracle",
-    allowPrefixes: ["OEngine/src/render/assets/", "OEngine/src/assets/web-cook/wasm/vendor/", "validation/tools/dungeon-gpu-audit.mjs"],
+    allowPrefixes: [
+      "OEngine/src/render/assets/",
+      "OEngine/src/assets/web-cook/wasm/vendor/",
+      "validation/tools/dungeon-gpu-audit.mjs",
+    ],
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     requiredFeatures: ["texture-formats-tier1"],
     description:
@@ -662,7 +706,8 @@ export const oracles = Object.freeze([
     url: "/OEngine/tests/oracle/native-surface-production-gpu.mjs",
     entry: "runFinalPixelFeatureDemandGpuOracle",
     allowPrefixes: ["OEngine/src/render/assets/", "validation/tools/dungeon-gpu-audit.mjs"],
-    description: "Actual no-Physical-Sun and capability-projected bounded Renderer demand/domain/retirement closure.",
+    description:
+      "Actual no-Physical-Sun and capability-projected bounded Renderer demand/domain/retirement closure.",
     timeoutMs: 180000,
   }),
   Object.freeze({
