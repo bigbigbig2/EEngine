@@ -4,21 +4,24 @@ kind: domain
 owner: frame-runtime
 state: current
 verifies:
-  - OEngine/src/render/FrameCoordinator.ts
-  - OEngine/src/render/pipeline/RendererCore.ts
-  - OEngine/src/render/program/FrameProgramLowering.ts
-  - OEngine/src/render/lighting/FinalPixelLightingPublication.ts
-  - OEngine/src/shaders/native_resolved_position.ts
-  - OEngine/src/render/temporal/GpuRadiometryPass.ts
-  - OEngine/src/render/temporal/ExposureSettings.ts
-  - OEngine/src/render/passes/fsr3/Fsr3AccumulatePass.ts
-  - OEngine/src/render/passes/fsr3/Fsr3AccumulateShader.ts
-  - OEngine/src/render/passes/fsr3/Fsr3RcasPass.ts
-  - OEngine/src/render/temporal/NativeTemporalV2.ts
-  - OEngine/src/render/temporal/NativeTemporalSeed.ts
-  - OEngine/src/render/lighting/LocalLightWorkGenerator.ts
-  - OEngine/src/shaders/native_temporal_amd.ts
-  - OEngine/src/render/passes/fsr3/Fsr3UpscalerRuntime.ts
+  files:
+    - OEngine/src/render/FrameCoordinator.ts
+    - OEngine/src/render/pipeline/RendererCore.ts
+    - OEngine/src/render/program/FrameProgramLowering.ts
+    - OEngine/src/render/lighting/FinalPixelLightingPublication.ts
+    - OEngine/src/shaders/native_resolved_position.ts
+    - OEngine/src/render/temporal/GpuRadiometryPass.ts
+    - OEngine/src/render/temporal/ExposureSettings.ts
+    - OEngine/src/render/passes/fsr3/Fsr3AccumulatePass.ts
+    - OEngine/src/render/passes/fsr3/Fsr3AccumulateShader.ts
+    - OEngine/src/render/passes/fsr3/Fsr3RcasPass.ts
+    - OEngine/src/render/temporal/NativeTemporalV2.ts
+    - OEngine/src/render/temporal/NativeTemporalSeed.ts
+    - OEngine/src/render/lighting/LocalLightWorkGenerator.ts
+    - OEngine/src/shaders/native_temporal_amd.ts
+    - OEngine/src/render/passes/fsr3/Fsr3UpscalerRuntime.ts
+    - OEngine/src/render/environment/PhysicalSkyIblResources.ts
+    - examples/demos/14-integrated/dungeon-warkarma-texture-compression/frame-pacing.ts
 ---
 
 # Frame Runtime
@@ -46,6 +49,8 @@ Final Pixel Shadow 主链由 VSM post-content publication 直接写 FinalPixelLi
 成功 empty submit 退休 Surface scene working set、Seed、两个颜色后端及 lighting frame pools；成功 all-unlit submit 退休 local-light 与 final-lighting frame pools。提交失败不释放旧场景；已提交资源等最后使用 fence，返回场景重新生成 Seed validity。Surface neutral bindings、owner/pipeline 与 VSM residency 保留各自寿命。Native V2、FSR 和 Seed 的 actual/candidate/retiring bytes 进入 GraphicsContext 共用资源账本；资源 destroy 后撤账，API 全 owner 同时峰值由验证观察器另核，常规生产无该观察器。
 
 ## 原则与验证边界
+
+`PhysicalSkyIblResources`保留最近4组不可变天空IBL，身份来自完整producer f32 uniform位、LUT view和sampler；新探针仍执行完整原卷积，返回命中只暂存同资源。commit推进active/LRU，abort保留旧角色，淘汰按覆盖旧使用的提交fence销毁。Dungeon宿主interactive只对已延期的RAF在GPU ready时重试已更新相机状态，成功后重复ready不再提交；输入仍只在RAF消费，FrameCoordinator在途上限不变。实际质量/成本和追加单元状态只读V5执行§8.2。
 
 唯一生产路径、禁止本帧 GPU→CPU→GPU work control、producer 与直接 consumer 同单元切换，继续由根规则和[当前设计](../next-design/eengine-v4-native-shading-2026-10.md)约束。
 

@@ -327,6 +327,15 @@ export const oracles = Object.freeze([
       "Production pre-exposure, HDR percentile/highlight metering, elapsed-time EV adaptation and exposure-owned abort/retry.",
   }),
   Object.freeze({
+    name: "physical-sky-motion",
+    file: "OEngine/tests/oracle/physical-sky-motion-gpu.mjs",
+    url: "/OEngine/tests/oracle/physical-sky-motion-gpu.mjs",
+    entry: "runPhysicalSkyMotionGpuOracle",
+    requiredFeatures: ["timestamp-query"],
+    timeoutMs: 120000,
+    description: "Actual moving sky probes: complete mip/diffuse revisit equality and producer GPU cost.",
+  }),
+  Object.freeze({
     name: "sky-ibl-dfg",
     file: "OEngine/tests/oracle/sky-ibl-dfg-gpu.mjs",
     url: "/OEngine/tests/oracle/sky-ibl-dfg-gpu.mjs",

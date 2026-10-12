@@ -681,7 +681,7 @@ async function start(): Promise<void> {
     autoExposure,
     fixedExposure,
     exposure: exposureSettings,
-    renderScale: 1,
+    renderScale: 0.667,
   });
   await renderer.initialize({ context });
   if (closing) return;
@@ -1170,7 +1170,7 @@ element<HTMLInputElement>("damping").addEventListener("change", (event) => {
 for (const [id, format, apply] of [
   [
     "render-scale",
-    (v: number) => `${Math.round(v * 100)}%`,
+    (v: number) => `${Math.round(v * 1000) / 10}%`,
     (v: number) => {
       if (renderer?.fsr3_enabled) {
         renderer.internal_resolution_scale = v;

@@ -39,18 +39,13 @@ for (const mode of ["interactive", "max-throughput"]) {
     h.admit(true);
     h.pacing.ready(20);
     assert.equal(h.interactions.length, 2);
-    if (mode === "interactive") {
-      assert.equal(h.attempts.length, 2);
-      h.pacing.raf(32);
-      assert.equal(h.attempts.at(-1).delta, 0.032);
-    } else {
-      assert.equal(h.attempts.at(-1).camera, 2);
-      assert.equal(h.attempts.at(-1).delta, 0.02);
-      h.pacing.raf(32);
-      assert.equal(h.attempts.at(-1).delta, 0.012);
-    }
+    assert.equal(h.attempts.at(-1).camera, 2);
+    assert.equal(h.attempts.at(-1).source, "ready");
+    assert.equal(h.attempts.at(-1).delta, 0.02);
+    h.pacing.raf(32);
+    assert.equal(h.attempts.at(-1).delta, 0.012);
     assert.equal(h.pacing.interactionTicks, 3);
-    assert.equal(h.pacing.submittedFrames, 3 - Number(mode === "interactive"));
+    assert.equal(h.pacing.submittedFrames, 3);
     h.pacing.dispose();
   });
 
@@ -91,6 +86,29 @@ for (const mode of ["interactive", "max-throughput"]) {
     assert.equal(h.attempts.length, count);
   });
 }
+
+test("interactive completion only retries a deferred RAF; repeated or stale wakeups cannot submit", () => {
+  const h = harness("interactive");
+  h.pacing.ready(0);
+  h.pacing.raf(1);
+  h.pacing.ready(2);
+  assert.equal(h.attempts.length, 1);
+  h.admit(false);
+  h.pacing.raf(17);
+  h.pacing.setVisible(false);
+  h.admit(true);
+  h.pacing.ready(18);
+  h.pacing.setVisible(true);
+  h.pacing.ready(19);
+  assert.equal(h.attempts.length, 2);
+  h.pacing.raf(33);
+  assert.equal(h.attempts.at(-1).delta, 1 / 60);
+  h.pacing.ready(34);
+  h.pacing.ready(35);
+  assert.equal(h.attempts.length, 3);
+  assert.equal(h.pacing.interactionTicks, 3);
+  h.pacing.dispose();
+});
 
 test("quality reads immutable published samples once, invalidates on publication and release", () => {
   let reads = 0;

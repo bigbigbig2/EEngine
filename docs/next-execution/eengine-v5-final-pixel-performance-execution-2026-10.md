@@ -8,6 +8,12 @@ verifies:
     - OEngine/src/render/program/FrameProgramLowering.ts
     - OEngine/src/render/program/FrameProgram.ts
     - OEngine/src/render/pipeline/RendererCore.ts
+    - OEngine/src/render/environment/PhysicalSkyIblResources.ts
+    - OEngine/tests/contract/physical-sky-cache.test.mjs
+    - OEngine/tests/oracle/physical-sky-motion-gpu.mjs
+    - examples/demos/14-integrated/dungeon-warkarma-texture-compression/frame-pacing.ts
+    - examples/tests/dungeon-frame-pacing.test.mjs
+    - validation/tools/run-dungeon-camera-motion.mjs
     - OEngine/src/render/surface
     - OEngine/src/render/vsm
     - OEngine/src/render/temporal
@@ -40,7 +46,6 @@ verifies:
     - OEngine/tests/oracle/native-temporal-observation-boundary-gpu.mjs
     - OEngine/tests/oracle/native-temporal-observation-replay-gpu.mjs
     - OEngine/tests/oracle/native-temporal-observation-cost-gpu.mjs
-    - OEngine/src/shaders/vsm_sampling.ts
     - OEngine/src/gpu/GpuNativeMaterialPublication.ts
     - OEngine/src/gpu/GpuNativeMaterialScene.ts
     - OEngine/src/gpu/GpuInstanceAbi.ts
@@ -320,6 +325,12 @@ Engine typecheck/build/declarations、fresh build:test、64项targeted Node通�
 联合ABBA使用fresh `49fcaa3` Before与Phase5 After、同场景/renderer设置，每轮60完整target GPU样本。A1/B1/B2/A2 whole P50为18.958/22.324/25.542/25.654ms；P95为42.098/58.104/27.724/28.377ms。receiver→Native envelope P50为9.959/12.306/13.946/13.467ms；删除ShadowResolve/Facts已实际验证，但Native与Temporal scene cost仍高，**没有稳定净收益/预算资格**。88–91°C、thermal Active且clock不重叠，不归一化为收益，不以短窗证伪架构。API窗口peak下降140.27MiB不等于persistent history savings；identity+color profile仍78对旧70B/pixel。最终无Sun条件接线/中立provider晚于ABBA；原benchmark fingerprint不冒充最终提交，默认PhysicalSun图与shader数学未变。
 
 Phase6必须完成同条件长窗口≥3 ABBA块/每path每块1000完整samples、tail/thermal、实际authored Dungeon动态质量及4GB/OS驻留验收；若需改shader组织，返回对应unit的完整candidate验证，再集中测量。不能把后续验收当必然收益或隐去此前回归。
+
+### 8.2 用户追加的相机交互尖峰单元（2026-10-12）
+
+用户要求分析并优化两种比例下旋转/平移/缩放的间歇卡顿。局部实施为 PhysicalSkyIblResources 的完整参数/LUT身份、4组不可变输出/LRU/提交/abort/fence退休，以及 Dungeon interactive 对延期 RAF 的完成后重试。首次新探针仍完整生成；不改 FSR/Native Temporal 数学、Geometry Frontend、VSM质量或相机阻尼，不增加在途上限/独立submit。默认比例按另一次明确授权由1改为0.667，面板同步。
+
+**该局部正确性、生命周期及重复生成成本出口关闭；普通交互整体FPS净收益未资格，全部卡顿根因未闭合；正式Phase6仍未开始。** Typecheck/build、fresh build:test、Dungeon build/typecheck、20项Node、3个串行实际GPU通过。完整IBL返回读回3,293,136B一致，命中0生成dispatch，对比旧17dispatch约2.08ms。普通宿主两种比例×静止/旋转/平移/缩放完成，释放后天空纹理0；热状态89–91°C和300–1350MHz混杂且部分GPU span缺项，不用局部工作删除或混杂FPS冒称整体性能改善。原失败、Cost Card、完整8窗口正负数据及附件见[相机交互报告](../performance/2026-10-12-camera-motion-stutter-optimization.md)。停止在该用户追加单元边界，不自动实施VSM/HZB/FSR新算法或跨Phase6。
 
 ## 9. Phase 6 — Performance / quality acceptance
 

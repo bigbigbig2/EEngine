@@ -7,6 +7,7 @@ export class DungeonFramePacing {
   private stepPending = false;
   private visible = true;
   private stopped = false;
+  private renderDeferred = false;
   interactionTicks = 0;
   readyWakeups = 0;
   submittedFrames = 0;
@@ -44,15 +45,22 @@ export class DungeonFramePacing {
       return;
     }
     this.readyWakeups++;
-    if (this.mode === "max-throughput" && this.interactionAt !== null && (!this.paused || this.stepPending)) {
+    if (
+      (this.mode === "max-throughput" || this.renderDeferred) &&
+      this.interactionAt !== null &&
+      (!this.paused || this.stepPending)
+    ) {
       this.attempt(now, "ready");
     }
-    // Interactive waits for the next display RAF. No timers or CPU spin.
+    // Interactive retries only a missed submission, using the last RAF's
+    // finalized camera. Completion never consumes input or adds a regular tick.
   }
 
   private attempt(now: number, source: "raf" | "ready"): void {
     const delta = this.paused ? 1 / 60 : this.delta(now, this.submittedAt);
-    if (this.render(now, delta, source)) {
+    const submitted = this.render(now, delta, source);
+    this.renderDeferred = !submitted;
+    if (submitted) {
       this.submittedAt = now;
       this.submittedFrames++;
       if (this.paused) {
@@ -87,6 +95,7 @@ export class DungeonFramePacing {
   private resetClocks(): void {
     this.interactionAt = null;
     this.submittedAt = null;
+    this.renderDeferred = false;
   }
 
   dispose(): void {
