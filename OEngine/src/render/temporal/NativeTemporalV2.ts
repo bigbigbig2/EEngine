@@ -6,16 +6,21 @@ import type { NativeTemporalSeed } from "./NativeTemporalSeed.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
 import { Fsr3RcasPass, packFsr3RcasConstants } from "../passes/fsr3/Fsr3RcasPass.js";
 import {
+  NATIVE_TEMPORAL_V2_MEASURE_WGSL,
+  NATIVE_TEMPORAL_V2_EXPOSURE_WGSL,
   NATIVE_TEMPORAL_V2_ANALYZE_WGSL,
   NATIVE_TEMPORAL_V2_RESOLVE_WGSL,
-} from "../../shaders/native_temporal_v2.js";
+} from "../../shaders/native_temporal_amd.js";
 
 interface NativeHistories {
   readonly width: number;
   readonly height: number;
   readonly color: readonly [GPUTexture, GPUTexture];
   readonly depth: readonly [GPUTexture, GPUTexture];
-  readonly state: readonly [GPUTexture, GPUTexture];
+  readonly luma: readonly [GPUTexture, GPUTexture];
+  readonly lumaHistory: readonly [GPUTexture, GPUTexture];
+  readonly confidence: readonly [GPUTexture, GPUTexture];
+  readonly frameInfo: readonly [GPUTexture, GPUTexture];
 }
 
 export interface NativeTemporalV2Frame {
@@ -23,6 +28,9 @@ export interface NativeTemporalV2Frame {
   readonly height: number;
   readonly jitter: readonly [number, number];
   readonly reset: boolean;
+  readonly frameTimeMs?: number;
+  readonly cameraFar?: number;
+  readonly cameraInfiniteFar?: boolean;
   readonly historyReadIndex?: 0 | 1;
 }
 
@@ -44,19 +52,23 @@ interface Pipeline {
   readonly layout: GPUBindGroupLayout;
 }
 
-/** Isolated complete V5 candidate; production selection waits for the Phase4
- * quality gate. Color/depth/state move together only after successful submit.
+/** Isolated AMD SDK 1.1.4-based V5 candidate; production waits for the Phase4 quality
+ * gate. Color, luma, confidence, exposure and raw depth move together only after successful submit.
  * Identity and camera are provided by Seed on that same command transaction.
  * Queue-ordered ping-pong supports three in-flight submissions; the last-use
  * fence owns resize/abort/destroy retirement. */
 export class NativeTemporalV2 {
   private readonly groups = new GpuBindGroupCache();
+  private readonly measure: Pipeline;
+  private readonly exposure: Pipeline;
   private readonly analyze: Pipeline;
   private readonly resolve: Pipeline;
   private readonly rcas: Fsr3RcasPass;
   private readonly constants: GPUBuffer;
+  private readonly weights: GPUBuffer;
   private readonly rcasConstants: GPUBuffer;
   private readonly rcasExposure: GPUTexture;
+  private readonly sampler: GPUSampler;
   private active: NativeHistories | null = null;
   private candidate: NativeHistories | null = null;
   private pending: NativeTemporalV2Frame | null = null;
@@ -66,6 +78,8 @@ export class NativeTemporalV2 {
   private valid = false;
   private generationValue = 0;
   private encoded = false;
+  private measured = false;
+  private exposed = false;
   private analyzed = false;
   private attached: ShadeGPUCommandContext | null = null;
   private seedOwner: NativeTemporalSeed | null = null;
@@ -75,10 +89,16 @@ export class NativeTemporalV2 {
   private permanentLive = true;
 
   constructor(private readonly device: GPUDevice) {
+    if (!device.features.has("texture-formats-tier1")) {
+      throw new RangeError("Native Temporal V2 requires the negotiated AMD R16Float/R8Unorm profile");
+    }
     if (
-      device.limits.maxSampledTexturesPerShaderStage < 7 ||
-      device.limits.maxStorageTexturesPerShaderStage < 3 ||
-      device.limits.maxComputeWorkgroupStorageSize < 7232
+      device.limits.maxSampledTexturesPerShaderStage < 10 ||
+      device.limits.maxStorageTexturesPerShaderStage < 4 ||
+      device.limits.maxComputeWorkgroupStorageSize < 16384 ||
+      device.limits.maxComputeInvocationsPerWorkgroup < 256 ||
+      device.limits.maxComputeWorkgroupSizeX < 256 ||
+      device.limits.maxComputeWorkgroupSizeY < 16
     ) {
       throw new RangeError("Native Temporal V2 requires its complete Analyze/Resolve profile");
     }
@@ -91,15 +111,16 @@ export class NativeTemporalV2 {
       visibility: GPUShaderStage.COMPUTE,
       storageTexture: { format, access: "write-only" },
     });
-    const shared: GPUBindGroupLayoutEntry[] = [
-      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-      texture(1),
-      texture(2),
-      texture(3, "float"),
-      texture(4),
-      { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-      { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-    ];
+    const uniform: GPUBindGroupLayoutEntry = {
+      binding: 0,
+      visibility: GPUShaderStage.COMPUTE,
+      buffer: { type: "uniform" },
+    };
+    const buffer = (binding: number): GPUBindGroupLayoutEntry => ({
+      binding,
+      visibility: GPUShaderStage.COMPUTE,
+      buffer: { type: "read-only-storage" },
+    });
     const pipeline = (label: string, code: string, entries: GPUBindGroupLayoutEntry[]): Pipeline => {
       const layout = device.createBindGroupLayout({ label, entries });
       return {
@@ -111,28 +132,76 @@ export class NativeTemporalV2 {
         }),
       };
     };
+    this.measure = pipeline("Native Temporal V2/Measure", NATIVE_TEMPORAL_V2_MEASURE_WGSL, [
+      uniform,
+      texture(1),
+      storage(2, "r16float"),
+      storage(3, "r32float"),
+      texture(4),
+      storage(5, "r16float"),
+      { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+    ]);
+    this.exposure = pipeline("Native Temporal V2/Exposure", NATIVE_TEMPORAL_V2_EXPOSURE_WGSL, [
+      uniform,
+      texture(1),
+      texture(2),
+      storage(3, "rgba32float"),
+    ]);
+    const filtered = (binding: number): GPUBindGroupLayoutEntry => texture(binding, "float");
+    const sampler: GPUBindGroupLayoutEntry = {
+      binding: 17,
+      visibility: GPUShaderStage.COMPUTE,
+      sampler: { type: "filtering" },
+    };
+    this.sampler = device.createSampler({ minFilter: "linear", magFilter: "linear" });
     this.analyze = pipeline("Native Temporal V2/Analyze", NATIVE_TEMPORAL_V2_ANALYZE_WGSL, [
-      ...shared.filter(({ binding }) => binding !== 3 && binding !== 6),
+      uniform,
+      texture(1),
+      texture(2),
+      texture(3),
+      texture(4),
+      buffer(5),
+      buffer(6),
       texture(7),
       texture(8, "uint"),
       texture(9, "uint"),
       texture(10),
-      storage(11, "rgba16float"),
+      storage(11, "rgba8unorm"),
       storage(12, "r32float"),
+      filtered(13),
       storage(14, "r32float"),
+      storage(15, "r8unorm"),
+      sampler,
     ]);
     this.resolve = pipeline("Native Temporal V2/Resolve", NATIVE_TEMPORAL_V2_RESOLVE_WGSL, [
-      ...shared,
-      texture(7),
-      storage(8, "rgba16float"),
-      storage(9, "rg32float"),
+      uniform,
+      texture(1),
+      texture(2),
+      filtered(3),
+      texture(4),
+      buffer(5),
+      storage(6, "rgba16float"),
+      buffer(8),
+      texture(9),
+      filtered(10),
+      filtered(11),
+      storage(13, "rgba16float"),
+      filtered(14),
+      sampler,
+      { binding: 15, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
     ]);
     this.rcas = new Fsr3RcasPass(device);
     const created: Array<GPUBuffer | GPUTexture> = [];
     try {
+      this.weights = device.createBuffer({
+        label: "Native Temporal V2/filter weights",
+        size: 96,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.STORAGE,
+      });
+      created.push(this.weights);
       this.constants = device.createBuffer({
         label: "Native Temporal V2/frame",
-        size: 32,
+        size: 48,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
       created.push(this.constants);
@@ -171,7 +240,7 @@ export class NativeTemporalV2 {
   get allocatedBytes(): number {
     return (
       this.retiredBytes +
-      (this.permanentLive ? 52 : 0) +
+      (this.permanentLive ? 164 : 0) +
       this.bytes(this.active) +
       (this.candidate !== this.active ? this.bytes(this.candidate) : 0)
     );
@@ -185,7 +254,7 @@ export class NativeTemporalV2 {
       if (
         !Number.isSafeInteger(extent) ||
         extent < 1 ||
-        extent > this.device.limits.maxTextureDimension2D ||
+        extent > Math.min(4096, this.device.limits.maxTextureDimension2D) ||
         Math.ceil(extent / 8) > this.device.limits.maxComputeWorkgroupsPerDimension
       ) {
         throw new RangeError("Native Temporal V2 extent exceeds negotiated limits");
@@ -205,9 +274,17 @@ export class NativeTemporalV2 {
     }
     const candidate = reusable ? this.active! : this.allocate(frame.width, frame.height);
     const readIndex = frame.historyReadIndex ?? this.index;
-    const bytes = new ArrayBuffer(32);
+    const bytes = new ArrayBuffer(48);
     new Uint32Array(bytes).set([frame.width, frame.height, Number(valid), 0]);
     new Float32Array(bytes).set([...frame.jitter, ...(valid ? this.previousJitter : frame.jitter)], 4);
+    const deltaTime = (frame.frameTimeMs ?? 1000 / 60) / 1000;
+    const skyDepth = frame.cameraInfiniteFar ? 65504 : Math.min(frame.cameraFar ?? 1000, 65504);
+    if (!Number.isFinite(deltaTime) || deltaTime < 0 || !Number.isFinite(skyDepth) || skyDepth <= 0) {
+      if (candidate !== this.active) this.retire(candidate, null);
+      throw new RangeError("Native Temporal V2 requires finite nonnegative time and a positive sky depth");
+    }
+    new Float32Array(bytes)[8] = Math.min(1, deltaTime);
+    new Float32Array(bytes)[9] = skyDepth;
     try {
       command.writeBuffer(this.constants, 0, bytes, 0, bytes.byteLength);
     } catch (error) {
@@ -224,11 +301,16 @@ export class NativeTemporalV2 {
 
   private allocate(width: number, height: number): NativeHistories {
     const created: GPUTexture[] = [];
-    const pair = (label: string, format: GPUTextureFormat): readonly [GPUTexture, GPUTexture] => {
+    const pair = (
+      label: string,
+      format: GPUTextureFormat,
+      pairWidth = width,
+      pairHeight = height,
+    ): readonly [GPUTexture, GPUTexture] => {
       const create = (index: number): GPUTexture => {
         const texture = this.device.createTexture({
           label: `Native Temporal V2/${label}/${index}`,
-          size: [width, height],
+          size: [pairWidth, pairHeight],
           format,
           usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_SRC,
         });
@@ -243,7 +325,10 @@ export class NativeTemporalV2 {
         height,
         color: pair("color", "rgba16float"),
         depth: pair("depth", "r32float"),
-        state: pair("state", "rg32float"),
+        luma: pair("luma", "r16float"),
+        lumaHistory: pair("luma history", "rgba16float"),
+        confidence: pair("confidence", "r8unorm"),
+        frameInfo: pair("frame info", "rgba32float", 1, 1),
       };
     } catch (error) {
       for (const texture of created) {
@@ -253,14 +338,17 @@ export class NativeTemporalV2 {
     }
   }
 
-  private history(name: "color" | "depth" | "state", role: "read" | "write"): GPUTexture {
+  private history(
+    name: "color" | "depth" | "luma" | "lumaHistory" | "confidence" | "frameInfo",
+    role: "read" | "write",
+  ): GPUTexture {
     if (!this.candidate || !this.pending) {
       throw new Error("Native Temporal V2 has no prepared histories");
     }
     return this.candidate[name][role === "read" ? this.readIndex : this.writeIndex];
   }
 
-  /** Bind Seed identity/camera and V2 color/depth/state to one real submission.
+  /** Bind Seed identity/camera and V2 complete histories to one real submission.
    * This replaces the Seed classifier proof only in the isolated V2 closure;
    * the production composition root has not selected this graph yet. */
   attach(command: ShadeGPUCommandContext, seedOwner: NativeTemporalSeed): void {
@@ -299,94 +387,217 @@ export class NativeTemporalV2 {
     ): ResourceId =>
       graph.import_resource(`Native Temporal V2/${name}`, { kind: "imported" }, bind(name, resolve));
     const constants = imported("frame", (owner) => owner.constants);
+    const filterWeights = imported("filter weights", (owner) => owner.weights);
     const previousColor = imported("previous color", (owner) => owner.history("color", "read"));
-    const previousState = imported("previous state", (owner) => owner.history("state", "read"));
     const previousDepth = imported("previous depth", (owner) => owner.history("depth", "read"));
+    const previousLuma = imported("previous luma", (owner) => owner.history("luma", "read"));
+    const previousLumaHistory = imported("previous luma history", (owner) =>
+      owner.history("lumaHistory", "read"),
+    );
+    const previousConfidence = imported("previous confidence", (owner) =>
+      owner.history("confidence", "read"),
+    );
+    const previousInfo = imported("previous frame info", (owner) => owner.history("frameInfo", "read"));
     const currentColor = imported("current color", (owner) => owner.history("color", "write"));
-    const currentState = imported("current state", (owner) => owner.history("state", "write"));
     const currentDepth = imported("current depth", (owner) => owner.history("depth", "write"));
-    const shared = [
-      constants,
-      input.color,
-      input.seed,
-      previousColor,
-      previousState,
-      input.preExposure,
-      input.priorExposure,
-    ];
+    const currentLuma = imported("current luma", (owner) => owner.history("luma", "write"));
+    const currentLumaHistory = imported("current luma history", (owner) =>
+      owner.history("lumaHistory", "write"),
+    );
+    const currentConfidence = imported("current confidence", (owner) => owner.history("confidence", "write"));
+    const currentInfo = imported("current frame info", (owner) => owner.history("frameInfo", "write"));
+    const sharpenExposure = imported("sharpen exposure", (owner) => owner.rcasExposure);
+    type Binding = readonly [number, ResourceId, "buffer" | "texture"];
     const entries = (
-      ids: readonly number[],
+      bindings: readonly Binding[],
       resources: { get(id: number): unknown },
-      excluded: readonly number[] = [],
     ): GPUBindGroupEntry[] => {
       const result: GPUBindGroupEntry[] = [];
-      for (let binding = 0; binding < ids.length; binding++) {
-        if (excluded.includes(binding)) {
-          continue;
-        }
-        const resource = resources.get(ids[binding]!);
+      for (const [binding, id, kind] of bindings) {
+        const resource = resources.get(id);
         result.push({
           binding,
-          resource:
-            binding === 0 || binding === 5 || binding === 6
-              ? { buffer: resource as GPUBuffer }
-              : resolveTextureView(resource),
+          resource: kind === "buffer" ? { buffer: resource as GPUBuffer } : resolveTextureView(resource),
         });
       }
       return result;
     };
-    const exposure = imported("sharpen exposure", (owner) => owner.rcasExposure);
-    let exposureWritten = -1;
-    let analysis = -1;
-    let depth = -1;
-    const analyzeIds = [...shared, input.response, input.identity, input.previousIdentity, previousDepth];
-    const analyze = graph.add("Native Temporal V2/Analyze", {}, (_data, resources, context) => {
-      if (this.analyzed || (this.attached && context.encoder !== this.attached)) {
-        throw new Error("Native Temporal V2 Analyze requires its current single command");
+    const reads = (pass: ReturnType<FrameGraph["add"]>, bindings: readonly Binding[]): void => {
+      for (const [, id] of bindings) {
+        pass.read(id);
+      }
+    };
+    const transient = (
+      pass: ReturnType<FrameGraph["add"]>,
+      name: string,
+      format: GPUTextureFormat,
+      width = input.width,
+      height = input.height,
+    ): ResourceId =>
+      pass.create(`Native Temporal V2/${name}`, {
+        kind: "transient_texture",
+        width,
+        height,
+        format,
+        domain: "internal-full",
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING,
+      });
+    const commandFor = (context: { encoder: unknown }): ShadeGPUCommandContext => {
+      this.assertPreparedFrame(input.width, input.height);
+      if (this.attached && context.encoder !== this.attached) {
+        throw new Error("Native Temporal V2 requires its current single command");
+      }
+      return context.encoder as ShadeGPUCommandContext;
+    };
+    const measureBindings: Binding[] = [
+      [0, constants, "buffer"],
+      [1, input.color, "texture"],
+      [4, input.seed, "texture"],
+    ];
+    let weightProduct = -1;
+    let luma = -1,
+      logTiles = -1,
+      farthest = -1;
+    const measure = graph.add("Native Temporal V2/Measure", {}, (_data, resources, context) => {
+      const command = commandFor(context);
+      if (this.measured) {
+        throw new Error("Native Temporal V2 Measure requires a single writer");
       }
       this.dispatch(
-        context.encoder as ShadeGPUCommandContext,
+        command,
+        this.measure,
+        entries(
+          [
+            ...measureBindings,
+            [2, luma, "texture"],
+            [3, logTiles, "texture"],
+            [5, farthest, "texture"],
+            [6, weightProduct, "buffer"],
+          ],
+          resources,
+        ),
+        input.width,
+        input.height,
+        64,
+      );
+      this.measured = true;
+    });
+    reads(measure, measureBindings);
+    weightProduct = measure.write(filterWeights);
+    luma = measure.write(currentLuma);
+    logTiles = transient(
+      measure,
+      "log tiles",
+      "r32float",
+      Math.ceil(input.width / 64),
+      Math.ceil(input.height / 64),
+    );
+    farthest = transient(
+      measure,
+      "farthest box metric",
+      "r16float",
+      Math.ceil(input.width / 2),
+      Math.ceil(input.height / 2),
+    );
+    const exposureBindings: Binding[] = [
+      [0, constants, "buffer"],
+      [1, logTiles, "texture"],
+      [2, previousInfo, "texture"],
+    ];
+    let info = -1;
+    const exposure = graph.add("Native Temporal V2/Exposure", {}, (_data, resources, context) => {
+      const command = commandFor(context);
+      if (!this.measured || this.exposed) {
+        throw new Error("Native Temporal V2 exposure requires complete Measure");
+      }
+      this.dispatch(
+        command,
+        this.exposure,
+        entries([...exposureBindings, [3, info, "texture"]], resources),
+        1,
+        1,
+        1,
+      );
+      this.exposed = true;
+    });
+    reads(exposure, exposureBindings);
+    info = exposure.write(currentInfo);
+    const analyzeBindings: Binding[] = [
+      [0, constants, "buffer"],
+      [1, luma, "texture"],
+      [2, input.seed, "texture"],
+      [3, previousLuma, "texture"],
+      [4, info, "texture"],
+      [5, input.preExposure, "buffer"],
+      [6, input.priorExposure, "buffer"],
+      [7, input.response, "texture"],
+      [8, input.identity, "texture"],
+      [9, input.previousIdentity, "texture"],
+      [10, previousDepth, "texture"],
+      [13, previousConfidence, "texture"],
+    ];
+    let analysis = -1,
+      depth = -1,
+      confidence = -1,
+      sharpenInfo = -1;
+    const analyze = graph.add("Native Temporal V2/Analyze", {}, (_data, resources, context) => {
+      const command = commandFor(context);
+      if (!this.exposed || this.analyzed) {
+        throw new Error("Native Temporal V2 Analyze requires complete exposure");
+      }
+      this.dispatch(
+        command,
         this.analyze,
         [
-          ...entries(analyzeIds, resources, [3, 6]),
-          { binding: 11, resource: resolveTextureView(resources.get(analysis)) },
-          { binding: 12, resource: resolveTextureView(resources.get(depth)) },
-          { binding: 14, resource: resolveTextureView(resources.get(exposureWritten)) },
+          ...entries(
+            [
+              ...analyzeBindings,
+              [11, analysis, "texture"],
+              [12, depth, "texture"],
+              [14, sharpenInfo, "texture"],
+              [15, confidence, "texture"],
+            ],
+            resources,
+          ),
+          { binding: 17, resource: this.sampler },
         ],
         input.width,
         input.height,
       );
       this.analyzed = true;
     });
-    for (let binding = 0; binding < analyzeIds.length; binding++) {
-      if (binding !== 3 && binding !== 6) {
-        analyze.read(analyzeIds[binding]!);
-      }
-    }
-    analysis = analyze.create("Native Temporal V2/analysis", {
-      kind: "transient_texture",
-      width: input.width,
-      height: input.height,
-      format: "rgba16float",
-      domain: "internal-full",
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING,
-    });
+    reads(analyze, analyzeBindings);
+    analysis = transient(analyze, "analysis", "rgba8unorm");
     depth = analyze.write(currentDepth);
-    exposureWritten = analyze.write(exposure);
-    let color = -1;
-    let state = -1;
-    const resolveIds = [...shared, analysis];
+    confidence = analyze.write(currentConfidence);
+    sharpenInfo = analyze.write(sharpenExposure);
+    const resolveBindings: Binding[] = [
+      [0, constants, "buffer"],
+      [1, input.color, "texture"],
+      [2, input.seed, "texture"],
+      [3, analysis, "texture"],
+      [4, previousColor, "texture"],
+      [5, input.preExposure, "buffer"],
+      [8, input.priorExposure, "buffer"],
+      [9, info, "texture"],
+      [10, luma, "texture"],
+      [11, previousLumaHistory, "texture"],
+      [14, farthest, "texture"],
+      [15, weightProduct, "buffer"],
+    ];
+    let color = -1,
+      lumaHistory = -1;
     const resolve = graph.add("Native Temporal V2/Resolve", {}, (_data, resources, context) => {
-      if (!this.analyzed || this.encoded || (this.attached && context.encoder !== this.attached)) {
-        throw new Error("Native Temporal V2 Resolve requires its complete Analyze command");
+      const command = commandFor(context);
+      if (!this.analyzed || this.encoded) {
+        throw new Error("Native Temporal V2 Resolve requires complete Analyze");
       }
       this.dispatch(
-        context.encoder as ShadeGPUCommandContext,
+        command,
         this.resolve,
         [
-          ...entries(resolveIds, resources),
-          { binding: 8, resource: resolveTextureView(resources.get(color)) },
-          { binding: 9, resource: resolveTextureView(resources.get(state)) },
+          ...entries([...resolveBindings, [6, color, "texture"], [13, lumaHistory, "texture"]], resources),
+          { binding: 17, resource: this.sampler },
         ],
         input.width,
         input.height,
@@ -401,27 +612,24 @@ export class NativeTemporalV2 {
       }
       this.encoded = true;
     });
-    for (const id of resolveIds) {
-      resolve.read(id);
-    }
+    reads(resolve, resolveBindings);
+    // Confidence has no same-frame shader consumer, but is part of the
+    // complete successful-submission transaction and must remain live.
+    resolve.read(confidence);
     if (this.seedOwner) {
-      // CPU submission proof inspects these already-produced imported roles;
-      // no additional shader bindings, sampling or physical pass is added.
       resolve.read(input.response);
       resolve.read(input.identity);
       resolve.read(input.previousIdentity);
     }
-    // The analysis read retains its producer and all depth writes on that pass.
     color = resolve.write(currentColor);
-    state = resolve.write(currentState);
-    const sharpen = this.rcas.addToGraph(graph, {
+    lumaHistory = resolve.write(currentLumaHistory);
+    return this.rcas.addToGraph(graph, {
       color,
-      exposure: exposureWritten,
+      exposure: sharpenInfo,
       constants: imported("RCAS constants", (owner) => owner.rcasConstants),
       width: input.width,
       height: input.height,
     });
-    return sharpen;
   }
 
   private assertPreparedFrame(width: number, height: number): void {
@@ -436,12 +644,15 @@ export class NativeTemporalV2 {
     entries: GPUBindGroupEntry[],
     width: number,
     height: number,
+    divisor = 8,
   ): void {
-    this.assertPreparedFrame(width, height);
+    if (!this.pending) {
+      throw new Error("Native Temporal V2 has no pending frame");
+    }
     const pass = command.beginComputePass({ label: owner.pipeline.label });
     pass.setPipeline(owner.pipeline);
     pass.setBindGroup(0, this.groups.create(this.device, { layout: owner.layout, entries }));
-    pass.dispatchWorkgroups(Math.ceil(width / 8), Math.ceil(height / 8));
+    pass.dispatchWorkgroups(Math.ceil(width / divisor), Math.ceil(height / divisor));
     pass.end();
   }
 
@@ -484,12 +695,14 @@ export class NativeTemporalV2 {
     this.candidate = null;
     this.pending = null;
     this.encoded = false;
+    this.measured = false;
+    this.exposed = false;
     this.analyzed = false;
     this.attached = null;
     this.seedOwner = null;
   }
   private bytes(set: NativeHistories | null): number {
-    return set ? set.width * set.height * 40 : 0;
+    return set ? set.width * set.height * 46 + 32 : 0;
   }
   private retire(set: NativeHistories | null, fence: Promise<void> | null): void {
     if (!set) {
@@ -497,7 +710,7 @@ export class NativeTemporalV2 {
     }
     const bytes = this.bytes(set);
     const release = (): void => {
-      for (const pair of [set.color, set.depth, set.state]) {
+      for (const pair of [set.color, set.depth, set.luma, set.lumaHistory, set.confidence, set.frameInfo]) {
         for (const texture of pair) {
           texture.destroy();
         }
@@ -524,6 +737,7 @@ export class NativeTemporalV2 {
     this.groups.clear();
     const release = (): void => {
       this.constants.destroy();
+      this.weights.destroy();
       this.rcasConstants.destroy();
       this.rcasExposure.destroy();
       this.permanentLive = false;

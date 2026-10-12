@@ -18,7 +18,7 @@ verifies:
     - OEngine/src/shaders/vsm_receiver_demand.ts
     - OEngine/src/render/temporal
     - OEngine/src/shaders/native_temporal.ts
-    - OEngine/src/shaders/native_temporal_v2.ts
+    - OEngine/src/shaders/native_temporal_amd.ts
     - OEngine/src/render/passes/fsr3
     - OEngine/src/render/TemporalFabric.ts
     - OEngine/src/gpu/GpuInstanceAbi.ts
@@ -38,7 +38,7 @@ verifies:
 
 # EEngine V5 Final Pixel Performance Architecture
 
-本文件冻结下一阶段的**目标架构**：Logical VSM Separation + Physical Sun Fusion；Native Surface 单次昂贵重建并生成 Temporal Seed；1:1 Temporal 使用 previous-depth pull 的 Analyze → Resolve → sharpen 图。只选这一主架构。V5 是 Final Pixel 模块版本，继续遵守 [V4 Native Shading 母稿](eengine-v4-native-shading-2026-10.md)的全局不变量，不重建 Geometry Frontend。
+本文件冻结下一阶段的**目标架构**：Logical VSM Separation + Physical Sun Fusion；Native Surface 单次昂贵重建并生成 Temporal Seed；1:1 Temporal 使用 previous-depth pull 与成熟 AMD 参考 profile 的 Measure → Exposure → Analyze → Resolve → sharpen 图。只选这一主架构。V5 是 Final Pixel 模块版本，继续遵守 [V4 Native Shading 母稿](eengine-v4-native-shading-2026-10.md)的全局不变量，不重建 Geometry Frontend。
 
 迁移与单元出口由[唯一执行 authority](../next-execution/eengine-v5-final-pixel-performance-execution-2026-10.md)管理。旧 V4 performance 两文保留历史证据，不再约束新目标。本文不追加候选实验日志；实验进入 `docs/performance/`，执行文只链接结果。最初架构冻结仅交付文档；后续用户授权Phase1非生产实施，当前范围与完成状态只读执行authority，不自动跨Phase。
 
@@ -296,35 +296,31 @@ DELETE：Facts full I dispatch、重复key/work/Scene instance/version读取、d
 
 ## 8. Native-resolution Temporal V2：需求推导与最终图
 
-从1:1 AA需求推导：motion、当前及previous depth、disocclusion、reactive、history validity、local color statistics、reprojection/filtering/clipping、accumulation、既有sharpener。1:1没有放大重建需求，不因此删除抗锯齿/细线/光照响应。目标**Analyze → Resolve → sharpen**：前两为核心compute，默认锐化沿用当前RCAS开关/参数；关闭锐化不计同质量收益。ratio/pre-exposure小GPU准备仍可存在，不能包装成只有两个GPU dispatch。
+从1:1 AA需求推导：motion、current/previous depth、disocclusion、reactive、history validity、局部颜色统计、reprojection/filtering/clipping、accumulation与当前sharpener。算法冻结为 **AMD FidelityFX SDK 1.1.4 完整重建/历史响应 profile 的 Native 执行适配**，pin `c6efa6bf7f2027b3ec94f28578bb5965eabb9e55`（MIT）。复杂算法先移植成熟参考，禁止另建illumination gain / innovation variance / observation-mass estimator，不混搭不同donor的局部规则。该选择经用户授权修订；原自主模型仅是历史失败候选，不再约束实施。
 
-### 8.1 Analyze / I
+最终物理图：**Native Seed → Measure → Exposure → Analyze → Resolve → optional RCAS**。Measure、Analyze、Resolve三个全分辨率核心阶段；Exposure是单workgroup全局标量归约。三个核心pass由数据依赖与工作集决定，不要求人为凑两pass。参考算法必要信息由Native owner管理；删除旧owner与物理中间链，不把保留必要算法信息误称为兼容层。
 
-输入：Seed、response、current/previous identity、previous linear depth、final HDR（Sky/Aerial之后）、previous observation/state、frame validity/pre-exposure；禁止Visibility/work/Instances/geometry。写analysis RGBA16Float8B/pixel与current depth history R32Float4B/pixel。analysis四lane冻结为：x=geometry eligibility×depth support，y=reactive，z=shading-change rejection，w=相邻两帧观测支持的log2 illumination gain；thin/采样不稳定性由innovation variance与有限confidence提供，不另占产品。**积累后的color history不作为前一帧观测参与gain拟合**，否则历史滞后与滤波误差会进入亮度反馈。硬拒绝体现为x=0，不存Universal Record。sky→sky用rotation motion和双方depth0 sentinel接受历史；sky↔geometry按遮挡/有效性拒绝，不能把所有sky自动判为invalid，也不能用depth0代替全部surface覆盖判定。
+### 8.1 Measure / Exposure / Analyze
 
-previousUV=currentUV−Seed.xy（两帧jitter都已经包含）；逐point读取2×2 previousdepth支持域，和Seed.z同一previous view空间比较；不要先hardware-linear混合前后景depth。沿用nearest previous identity完整四lane comparison；不同tap的跨边界支持由depth/coverage保守判定，必要4身份读取仅是更保守candidate，须算最多新增48B/pixel logical读，不能隐藏成“免费exact”。越界、invalid motion、cut、domain reset、hard replacement拒绝；current-depth-history写域始终全I，包括sky sentinel。
+**Measure**读取final HDR与Seed：写R16Float raw luma、ceil-half R16Float depth box metric、64×64域R32Float log tiles与96B滤波权重。raw luma是真实观测，不由积累color代替。参考PrepareInputs/GetCurrentFrameLuma、LumaPyramid及原Native权重producer；保数学与必要格式边界，不做9-depth search、motion dilation、scatter/clear。所选inverted-depth permutation的farthest从center起，仅在sample>nearest时取min，恒为center，直接使用Seed.w即可删搜索。sky box metric使用有限far或infinite65504，Seed仍depth0 sentinel。
 
-冻结算法责任：深度判断按float roundoff + 对应reprojection footprint内的局部同surface坡度容限，不能用当前相机depth与previousdepth直接比较；前后景mixed-footprint降低/拒绝history，不能通过膨胀motion把别的物体速度复制成自己的速度。epsilon、局部统计权重可在candidate内调，但每次质量门不变，禁止删除pull或重新引入scatter救一个candidate。
+**Exposure**单组合作归约log tiles，读previous frameInfo并写current。保SDK log平均、adaptation、exposure公式及reset初值 `[-1,1,0,0]`（固定host ffx_fsr3upscaler.cpp）。mip5 half边界仅在不是final时量化。全局依赖必须独立dispatch，不用workgroupBarrier伪造全设备同步或改固定曝光；失败提交不推进状态。
 
-shading-change不能省成“一个亮度差”。Analyze融合current局部/多尺度亮度统计、重投影的**前一帧观测**与previous innovation variance、遮挡/alpha/reactive分类。拟合一个受几何与跨尺度形状支持的变化假设：支持的gain运输历史幅度，剩余shape change降低历史资格，运输后的innovation更新采样噪声。不能把新光照造成的差直接记成永久noise，再用该noise阻止光照响应；不能叠加互相覆盖的放行分支。8×8 WG、局部halo和3×3/4×4/8×8归约是候选调度，不是硬性shared要求；全部lane初始化/统一barrier后处理partial extent，不同时保留9/16项color或luma private live数组。失败可换private/cache-friendly实现及统计支持域，不能重建全屏SPD产品及多dispatch依赖。
+**Analyze**读current/previous raw luma、exposure、Seed/response、current/previous identity、previous raw linear depth和previous confidence；禁止Visibility/work/Instances/Geometry。保SDK五样本signed shading difference/sorting、三个2×2归约尺度、shading-change、motion divergence、reactivity与accumulation confidence。局部协作产生尺度统计，不存全屏SPD或shading-change层。写analysis **RGBA8Unorm4B**：x=geometry history eligibility，y=reactive，z=shading change，w=参考算法confidence；写current depth R32Float与current confidence R8Unorm。1/3增量是SDK confidence，不是radiance observation mass，不强制等于.74/16辐射核权重。
+
+geometry资格是明确的本地适配：previousUV=current raw UV−Seed.xy，point读旧depth footprint，和Seed.z在同一previous-view空间比较；完整identity/hard replacement、motion-valid/cut/reset/越界限制资格。raw depth全I写包括sky0；sky→sky用rotation接受历史，sky↔surface拒绝。禁止邻居motion替代自己、depth支持率当颜色面积、恢复scatter。适配必须过独立遮挡/dolly/own-motion语义与不变质量门。
+
+工作集candidate：Measure16×16 lane覆盖64×64，shared16KiB；Exposure256 lane，最多64×64 tiles，shared16KiB；Analyze8×8 output/local32×32差异tile及16/8/4归约，shared10880B。每output重算16次source difference，每次10luma samples和sorting，是显著ADD，可在完整算法/不变门下改tile与调度。4096extent、256lane、4storage outputs、实际纹理数与texture-formats-tier1创建前协商；shared不是免费收益。
 
 ### 8.2 Resolve / I
 
-**Temporal 信号域合同。** 输入 HDR 是抖动网格上的点样本，不是已经积分的像素面积。定义本帧输出域观测 `C_t(p)=R_j(HDR_t,p)`，积累后的输出估计为 `H_t(p)`；两者不得混作同一份前一帧数据。`R_j`必须保常量、保局部线性信号；任何声称二次面积积分的实现必须给出反导数证明及适用域，不能把该证明推广成轮廓覆盖面积证明。Analyze current luma、Resolve current color和state中保存的last observation取同一个`C_t`，历史变化比较`C_t`与重投影的`C_{t-1}`，不比较当前观测与已有滞后的`H_{t-1}`来推导gain。
+保同一参考profile的完整链：径向Lanczos当前重建、Gaussian YCoCg统计、16-point fractional Lanczos history与center-range clamp、thin-feature detection/lock lifetime、四帧luma instability、elliptic history rectification、lock/instability保护、tone-domain blend及原RCAS参数。整数特化只利用Lanczos整数支撑，不缩fractional footprint。格式边界、base/fraction关系、reset/exposure属于算法合同；平台适配不能删必要步骤。质量目标≥旧生产，不要求AMD bit-exact；移植函数必须有完整数值对照。
 
-**观测噪声与估计方差分责。** raw点样本统计可以合法描述空间/采样分布，不能未经推导称为积累估计`H_t`的方差。Resolve允许从有明确offset/jitter/权重的raw邻域统计构建rectification支持；无需先为所有统计生成一整块重建颜色tile。当前空间样本分布和时间innovation variance表达本帧的不确定性，只有在geometry/reactive/change接受时才可放宽对已观测history的裁剪，不直接抬亮history或搬运邻居颜色。本合同要求观测/估计/噪声的数学责任与域映射明确，不要求所有统计共用一个重建核。
+输出p关联原始点q=clamp(p+round(jitter))，自己的Seed(q)提供motion。geometry qualification在抖动点域，color history输出坐标 `h=p−[Seed(q).xy×size−(jitter−previousJitter)]`；四帧luma按参考raw-domain reprojection。不存在前景颜色搬运、面积猜测、临时抬亮、gain或创新方差反馈。
 
-几何域与辐射域分别处理：当前输出 `p` 的关联原始点为 `q=clamp(p+round(jitter_t))`。几何 depth/identity pull 使用 `q` 的 Seed 和原始抖动坐标；raw current-depth history 仍写原始完整输入域，不改成滤波深度。辐射/状态的上一输出坐标为 `h=p−[Seed(q).xy×size−(jitter_t−jitter_previous)]`。不能把 raw jittered UV 直接当 output history UV；不能把邻居 motion 当 `q` 的 motion。深度支持率只表示几何一致性，不是颜色面积。Analyze用manual正权bilinear拉取last observation/variance；Resolve使用保留的高质量fractional color filter，不宣称两个核完全相同。方差单独正权插值，不把不同像素的均值差变成时间噪声。
+Resolve读HDR/Seed/analysis、previous color/四帧luma history、current raw luma/exposure、half depth box metric与weights；写color **RGBA16Float8B**（alpha=source lock lifetime）和luma history **RGBA16Float8B**。RCAS输出alpha=1。color/depth/raw luma/四帧luma/confidence/frameInfo与Seed identity/camera仅在同一实际command成功submit共同推进；encode/abort不推进，三inflight/最后fence退休闭合。
 
-这个合同不新增pass、Surface产品或history字节数；effect-private state的两字段语义如下。当前重建可以在两个消费者内从廉价HDR邻域分别计算；是否物化一个仅Resolve消费的重建颜色产品，必须比较写读、格式量化、工作集与被删除的重算，不能默认加全屏产品。shared/private调度仍是候选，不是硬不变量。history rectification只限制已重投影的历史贡献；illumination transport必须来自两帧实际观测的受支持拟合，不能用积累误差作gain，也不能创造独立的前景辐射贡献。geometry rejection、reactive与真实shape change必须限制支持。
-
-读final current HDR、analysis、Seed、previous color/state、pre-exposure。current3×3 color统计/variance clamp在此计算，不跨pass存RGB/min/max；这种廉价邻域重复允许，禁止回去重建Surface。history filter初始candidate保持当前高质量fractional支持域（16texel及center范围）与精确整数位置特化，流式累计；filter/clamp/lock可重新设计，但须通过同质量门。无SDK bit-exact要求。
-
-写current color RGBA16Float8B（RGB线性预曝光，alpha为有限effective observation mass，非SDK锁ABI）、current state **RG32Float8B**：x=last observation的scene-linear luminance，y=centered innovation variance。state不保存积累color的均值；variance不是未经校正的`E[L²]−E[L]²`。在L=8192时f32会把`L²+1`舍入成`L²`，原second-moment编码无法保留variance=1；直接保存居中方差避免此消去，真实GPU必须验证HDR小方差与零方差边界。
-
-受支持的illumination gain `g`运输last observation与variance（分别乘g、g²），再用`C_t−g×C_{t-1}`更新innovation variance；变化/rejection限制噪声更新。两帧共同归一化到scene-linear/P，不把exposure change当lighting。confidence的增量必须与真正加入的观测权重一致，不能加入.046的radiance mass却无依据增加1/3 maturity；motion/遮挡/shape change衰减的是同一份有效历史mass。invalid/reset只接受当前观测并初始化variance；不新增age/lock纹理。RCAS/Present维持最终opacity合同。此状态模型与旧四帧luma/lock不等价，只有完整质量矩阵通过才可切生产；字段数学证明不代替质量资格。
-
-这冻结执行拓扑、产品与算法职责，未把尚未实现的权重参数伪装成已验证数学。质量失败在此完整unit内调整detector/filter/置信度candidate；不能因为上次pmndrs整体/local detector失败就否定本目标。
+参考算法决定必要信息，Native owner决定最小产品与执行边界。尚未资格仅oracle消费，不提升production adoption/性能claim；函数映射与证据见[porting](../porting/next-renderer.md)。
 
 ### 8.3 Scatter 与 pull 的取舍：明确选pull
 
@@ -339,9 +335,9 @@ shading-change不能省成“一个亮度差”。Analyze融合current局部/多
 
 ### 8.4 FSR/upscale policy
 
-真实尺寸两轴相等选Native V2；任一轴不同选既有FSR upscale。一个服务负责policy/lifecycle，但每个domain只有一套production图；FSR重建算法只在有upscale需求时运行。Native不分配FSR luma/frameInfo/accumulation histories，FSR不分配Native depth/state；跨policy prepare完整candidate、成功submit切generation/history/jitter，abort保留旧owner，旧域资源按最后fence退休。不能保持两套active history常驻或以隐藏reference fallback保证旧tests。
+真实尺寸两轴相等选Native V2；任一轴不同选既有FSR upscale。一个服务负责policy/lifecycle，但每个domain只有一套production图；FSR重建算法只在有upscale需求时运行。Native只分配自己必要的参考profile histories，FSR不分配Native previous-depth histories；跨policy prepare完整candidate、成功submit切generation/history/jitter，abort保留旧owner，旧域资源按最后fence退休。不能保持两套active history常驻或以隐藏reference fallback保证旧tests。
 
-Native V2退休source Prepare Inputs、Luma/SPD/Shading/SPD/change、native classification/resolve旧T3和source luma/history/confidence；true upscale继续其必要scatter/SPDs/Reactivity/Accumulate/RCAS，并从新Seed获取合法inputs。RCAS有限算法可共用代码，不意味着共用history图。FSR provenance/adoption状态不因V2设计自动升级。
+Native V2退休旧source Prepare Inputs、全局Luma/Shading SPD产品链及旧T3 owner/classification/resolve；必要raw luma/四帧luma/confidence/exposure由新Native owner持有，不删其算法含义；true upscale继续其必要scatter/SPDs/Reactivity/Accumulate/RCAS，并从新Seed获取合法inputs。RCAS有限算法可共用代码，不意味着共用history图。FSR provenance/adoption状态不因V2设计自动升级。
 
 ## 9. Memory products、流量与成本模型
 
@@ -349,26 +345,29 @@ Native V2退休source Prepare Inputs、Luma/SPD/Shading/SPD/change、native clas
 
 | 产品 | 当前1:1 | 目标1:1 | 1080p说明 |
 |---|---:|---:|---|
-| identity persistent pair | 32B/pixel | 32 | 66,355,200B /63.28MiB，不压缩 |
-| color pair | 16 | 16 | 33,177,600B /31.64MiB |
-| FSR luma pair + lumaHistory pair + accumulation pair | 4+16+2=22 | 0 | 原45,619,200B；不再以SDKhistory决定Native图 |
-| Native depth pair | 0 | 8 | 新16,588,800B /15.82MiB |
-| Native observation/noise state pair | 0 | 16 | 新33,177,600B /31.64MiB，f32 last observation+centered variance |
-| persistent合计 | **70** | **72** | 当前138.43MiB，目标142.38MiB，**增加3.96MiB**；不能声称history显存大降 |
-| motion / Seed transient | 8 | 16 | +15.82MiB；response/mask各4B，identity写入持久槽 |
-| ShadowVisibility | 1 | 0 | −1.98MiB/单产品，实际pool/in-flight另计 |
-| reconstructed depth + prepared motion/depth/farthest/current luma | 4+4+4+2+2 | 0 | 删33,177,600B逻辑产品；current luma属于旧history，上面persistent已计，勿重复加容量 |
-| classified masks/confidence | 4+1 | 0 | 旧confidence是persistent当前角色，上面已计 |
-| Analyze | 0 | 8 | 新15.82MiB transient；当前depth写入新persistent角色 |
-| SPD / farthest mip / shading scratch | 多尺寸多format | 0 | 只按compiled graph实际live产品计算，不能把声明但cull的层计收益 |
+| identity pair |32B/pixel|32|63.28MiB，不压缩 |
+| color pair |16|16|31.64MiB，alpha=source lock |
+| raw luma pair |4|4|7.91MiB |
+| four-frame luma pair |16|16|31.64MiB |
+| confidence pair |2|2|3.96MiB |
+| Native depth pair |0|8|15.82MiB新增 |
+| frameInfo pair |32B/frame|32B/frame|global exposure角色 |
+| persistent合计含identity |**70**|**78**|138.43→154.25MiB，增加15.82MiB |
+| motion / Seed transient |8|16|Phase3已加15.82MiB，不重复计 |
+| ShadowVisibility |1|0|Phase2已删1.98MiB |
+| reconstructed depth / prepared motion-depth |4+4+4|0|删23.73MiB与clear/scatter |
+| farthest full / half box metric |2+约.5|约.5|保真正Resolve consumer |
+| classified masks |4|4|Native analysis，无RGB/min/max |
+| global SPD / shading products |多尺度|0|local归约保算法信息 |
+| log tiles |旧SPD内|4×ceil(W/64)×ceil(H/64)B|1080p2040B transient |
 
-当前FSR纹理pair实际78,796,832B（38N+32B frameInfo），加constants/default mask为78,797,009B，另有Factsidentity pair32N。V2通过减少history类型/consumer/pass减少traffic，未承诺persistent总容量下降；选择f32state是为了保留HDR统计精度，不凭VRAM目标先用lossy格式。
+旧history含identity为70N+32B；目标Native runtime46N+32B、加identity32N为78N+32B。permanent frame/weights/RCAS constants/1×1 exposure164B，runtime allocatedBytes=46N+196B（不含Seed及retiring）。不声称persistent容量下降；inflight/candidate/旧域退休峰值另计。
 
-**已知全域store/clear下限**（排除相同HDR与RCAS、SPD/mips额外写、原子RMW）：旧Native reactive4 + Facts28 + Prepare12 + scatter clear4 + classification masks4/confidence1 + resolve color8/lumaHistory8 = **69B/pixel**；目标Native seed/response/identity36 + Analyze8/depth4 + Resolve color8/state8 = **64B/pixel**。确定下限删除5N=10,368,000B /9.89MiB/frame，加上SPD写和scatter RMW删除；不是巨额带宽保证。
+全域store/clear下限（不含共同HDR/RCAS、SPD额外写与atomic RMW）：旧Native4+Facts28+Prepare12+clear4+classification4/confidence1+Resolve8/lumaHistory8=**69B/pixel**；目标Native36+Measure luma2/half box约.5+Analyze4/depth4/confidence1+Resolve8/lumaHistory8=**63.5B/pixel**，另加logs/info/weights。删5.5N≈10.88MiB/frame，不是DRAM实测；奇数extent按ceil-half实际数计。
 
-读取模型：Prepare的9depth search至少36B logical/current pixel与最多4 scatter操作退休；新pull通常4×4B previousdepth，与currentSeed16B/previousstate/history读取新增。current3×3与fractional16history支持仍存在；旧9 thin-luma loads、四帧luma response与SPD输入/产品链退休，新多尺度统计、state采样/曝光转换增加。nearest identity比较移位无删除；保守4identity candidate最多另48B/pixel。cache reuse下实际外存比例按0/50/100%敏感性列明，不能将logical取样差等比换ms。
+读取/ALU：删9-depth search至少36B logical/pixel、最多4atomic scatter、clear与global SPD中间交通/边界；新增4point previous-depth pull、Seed读取、depth history、local signed difference重算/sorting、16KiB/10880B shared与Exposure边。9tap current、thin luma、四帧luma、16tap history、confidence/RCAS保留，不虚报删除。格式/硬件过滤边界须验证，不能为了字节数改变算法。
 
-Temporal break-even：`T(Facts重复恢复 + native Prepare/search/scatter/clear + live SPDs +旧history访问/阶段边) > T(Seed额外写/Native live-state + pull depth/history + fused statistics/moments + Analysis traffic)`；Resolve/RCAS共同项两侧抵消。理想结构有正删除项（fullpass/atomic/SPD），expected候选以短live scope、顺序写和既有cached邻域实现；worst为拉取/统计/historyfilter/寄存器税超过删除工作。0/50/100%删除兑现都减同一新增成本；理想都不盈利的candidate不得进入生产。DELETE>ADD是成本入场条件，**不是本文件已经测得新shader性能的claim**。
+break-even：`T(Facts重复恢复 + Prepare/search/scatter/clear + global SPD产品/边界) > T(Seed新增 + previous-depth读写 + Measure/Exposure适配 + local差异重算/shared税)`。0/50/100%旧工作兑现均减同一ADD，cache外存比例单列。ideal有pass/atomic/随机读删除；expected依赖完整工作集；worst local重算/occupancy超删除收益。DELETE>ADD是入场条件，不是已测收益；完整闭包后才整图benchmark。
 
 ## 10. Performance budget / quality contract
 
@@ -382,8 +381,9 @@ Temporal break-even：`T(Facts重复恢复 + native Prepare/search/scatter/clear
 | Native bins / 背景初始化 | .55 |
 | Native geometry/material/local+IBL/**fused Sun+Seed**（PCF只计这里） | 7.45 |
 | Sky / Aerial | .80 |
-| Temporal Analyze | .55 |
-| Temporal Resolve | 1.00 |
+| Temporal Measure / Exposure | .30 |
+| Temporal Analyze | .40 |
+| Temporal Resolve | .85 |
 | Sharpen | .25 |
 | Radiometry / Present、当前profile后处理 | .65 |
 | 主要命令区间间隙 | .30 |
@@ -398,7 +398,7 @@ Temporal break-even：`T(Facts重复恢复 + native Prepare/search/scatter/clear
 
 现有production HEAD为quality reference，冻结在test-only fixture，不作production第二路径。对几何/PCF/material等相同数学仍使用既有独立numeric oracle与原容差；V2不同算法按质量指标验收，不要求AMD bit-exact。
 
-事前冻结每序列linear-HDR/display ROI、积分golden、采样范围与metrics；至少静止收敛、slow/fast orbit/pan/dolly/stop、前后景独立反向motion/disocclusion、thin/Siemens/高频MASK、normal/specular/coat、高HDR点/plateau、moving caster/Sun/光强step+ramp、exposure/pre-exposure step、geometry/material replacement。沿用当前T3已用的normalized HDR RMSE及same-phase静止残差“不差于旧超过2^-10量化比较底线”、uniform HDR/exposure normalized error≤.003；细线能量、拖尾、峰值firefly、ROI逐frame误差/settling time也分别不得退化，不能用平均RMSE掩盖局部失败。新增矩阵的具体ROI与golden在Phase0合同附件于本执行文冻结，不能After看失败再放宽。完整动态1080p矩阵不能被64×48 oracle或8bit截图代替。
+事前冻结每序列linear-HDR/display ROI、积分golden、采样范围与metrics；至少静止收敛、slow/fast orbit/pan/dolly/stop、前后景独立反向motion/disocclusion、thin/Siemens/高频MASK、normal/specular/coat、高HDR点/plateau、moving caster/Sun/光强step+ramp、exposure/pre-exposure step、geometry/material replacement。用户于2026-10-12授权适度放宽过紧的质量比较；算法画质不以逐数值相等验收。序列及各ROI的normalized HDR/display RMSE上限为`reference + max(2^-10, .01 × reference)`，各ROI逐frame RMSE为`reference + max(2^-10, .03 × reference)`；1%/3%是统一工程容差，不是感知不可见性的证明，也不是1%/3%的像素颜色误差许可。旧floor-only结果继续保留为诊断；场景、ROI、golden、warmup不变，不按candidate失败数调门。same-phase静止残差与thin-energy保留原2^-10比较底线，拖尾、峰值firefly、settling time保留原独立门；uniform HDR/exposure normalized error≤.003及其他numeric/identity/motion/lifecycle容差不变。整体均值不能覆盖ROI或拖影失败，人工动态画质检查仍为完整出口。完整动态1080p矩阵不能被64×48 oracle或8bit截图代替。
 
 binding/capacity、普通Scene与Product、MASK/unlit/lit/compact、AOon/off、正负reference、rolling页/coarse/missing/stale、generation exhaustion、abort/retry、admission defer、pause/step/cut、resize、native↔upscale、three-inflight retirement、controlled device epoch/release均必需。deformation无previous合法数据时明确reject history，不能冒称已实现previous deformation。
 
@@ -420,7 +420,7 @@ Geometry Frontend（Scene、VG、Hierarchy、LOD、HZB、MeshletWork、Visibilit
 
 | 固定primary source / license | 本次源码研究与映射 / 非采用声明 |
 |---|---|
-| [AMD FidelityFX SDK c6efa6bf7f2027b3ec94f28578bb5965eabb9e55](https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/tree/c6efa6bf7f2027b3ec94f28578bb5965eabb9e55/sdk/include/FidelityFX/gpu/fsr3upscaler)，MIT | 本地固定`tools/fsr3-port/upstream`的prepare_inputs/reproject/accumulate及当前WGSL：depth extents→dilate→4point scatter→跨stage读取；作为旧quality/oracle与true upscale依据，不作为V2必须保留阶段的理由 |
+| [AMD FidelityFX SDK c6efa6bf7f2027b3ec94f28578bb5965eabb9e55](https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/tree/c6efa6bf7f2027b3ec94f28578bb5965eabb9e55/sdk/include/FidelityFX/gpu/fsr3upscaler)，MIT | 本地固定`tools/fsr3-port/upstream`的prepare_inputs/reproject/accumulate及当前WGSL：depth extents→dilate→4point scatter→跨stage读取；作为V2完整重建/历史响应profile、旧quality oracle与true upscale依据；原物理stage不自动保留 |
 | [Wicked Engine 7f776d02094571dd2c8166c7e5879d5e93d2b642 temporalaaCS](https://github.com/turanszkij/WickedEngine/blob/7f776d02094571dd2c8166c7e5879d5e93d2b642/WickedEngine/shaders/temporalaaCS.hlsl)，MIT | 完整`main`：halo/barrier、邻域、depth-history pull、clamp/blend；参考物理协作与pull存在性。其current-vs-old depth阈值/简单blend不作为本项目同质量算法，bindless/half/Gather不照搬 |
 | [Filament 764fe6cac9bdb4ba24d3d852344dfa04a5f70f75 surface_shadowing](https://github.com/google/filament/blob/764fe6cac9bdb4ba24d3d852344dfa04a5f70f75/shaders/src/surface_shadowing.fs)，Apache-2.0 | 完整shadow源码中`ShadowSample_PCF_Low`为comparison/Gaussian；拒绝当当前point box替代。保留本地精确point footprint推导；reference only |
 | [WGSL editor draft](https://gpuweb.github.io/gpuweb/wgsl/#texturegather)，检查日2026-10-11 | textureGather、storage format、uniform barrier约束据规范与实际device limits核对；图级dispatch边不能由workgroupBarrier代替。规范无保证fusion性能或Native必须scatter的条款 |

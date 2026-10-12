@@ -22,12 +22,16 @@ function fixture() {
   const groups = [];
   const writes = [];
   const device = {
+    features: new Set(["texture-formats-tier1"]),
     limits: {
       maxTextureDimension2D: 4096,
       maxComputeWorkgroupsPerDimension: 65535,
       maxStorageTexturesPerShaderStage: 4,
       maxSampledTexturesPerShaderStage: 16,
       maxComputeWorkgroupStorageSize: 16384,
+      maxComputeInvocationsPerWorkgroup: 256,
+      maxComputeWorkgroupSizeX: 256,
+      maxComputeWorkgroupSizeY: 256,
     },
     lost: loss.promise,
     queue: { writeBuffer() {} },
@@ -162,7 +166,7 @@ test("unencoded commit is rejected; resize abort retains submitted histories, ro
   assert.ok(active.every((t) => !t.destroyed));
   f.prepare(19, 13, false, [0.5, 0.25]);
   assert.equal(new Uint32Array(f.writes.at(-1))[2], 1);
-  assert.deepEqual([...new Float32Array(f.writes.at(-1)).slice(6)], [0, 0]);
+  assert.deepEqual([...new Float32Array(f.writes.at(-1)).slice(6, 8)], [0, 0]);
   f.owner.abort();
   f.owner.destroy();
   assert.ok(
@@ -188,16 +192,16 @@ test("cached graph late binds both roles during three in-flight frames; cut pres
     }
     f.encode();
     const resolve = f.groups.findLast((g) =>
-      g.entries.some((e) => e.binding === 9 && e.resource.texture?.format === "rg32float"),
+      g.entries.some((e) => e.binding === 6 && e.resource.texture?.format === "rgba16float"),
     );
-    roleTextures.push(resolve.entries.find((e) => e.binding === 8).resource.texture);
+    roleTextures.push(resolve.entries.find((e) => e.binding === 6).resource.texture);
     const fence = deferred();
     fences.push(fence);
     f.owner.commit(fence.promise);
   }
   assert.equal(new Set(roleTextures).size, 2);
   assert.equal(f.owner.generation, 1);
-  assert.equal(f.owner.allocatedBytes, 19 * 13 * 40 + 52);
+  assert.equal(f.owner.allocatedBytes, 19 * 13 * 46 + 196);
   f.owner.destroy();
   assert.ok(roleTextures.every((t) => !t.destroyed));
   for (const fence of fences) {
@@ -267,7 +271,8 @@ test("device loss retires active and pending histories after their last-use fenc
   const fence = deferred();
   f.owner.commit(fence.promise);
   f.prepare(31, 17);
-  const ownsHistory = (t) => /^Native Temporal V2\/(color|depth|state)\//.test(t.label);
+  const ownsHistory = (t) =>
+    /^Native Temporal V2\/(color|depth|luma|luma history|confidence|frame info)\//.test(t.label);
   const pending = f.textures.filter((t) => ownsHistory(t) && t.width === 31);
   const active = f.textures.filter((t) => ownsHistory(t) && t.width === 19);
   f.loss.resolve();
@@ -292,7 +297,7 @@ test("constructor upload failure releases every allocated permanent buffer", () 
     throw new Error("initial upload rejected");
   };
   assert.throws(() => new NativeTemporalV2(f.device), /initial upload rejected/);
-  assert.equal(f.buffers.length - count, 2);
+  assert.equal(f.buffers.length - count, 3);
   assert.ok(f.buffers.slice(count).every((buffer) => buffer.destroyed));
 });
 

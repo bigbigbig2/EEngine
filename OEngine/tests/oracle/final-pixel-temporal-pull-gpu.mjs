@@ -3,15 +3,23 @@ import { FrameGraph, FrameGraphContext } from "../../.test-dist/framegraph/Frame
 import { NativeTemporalV2 } from "../../.test-dist/render/temporal/NativeTemporalV2.js";
 import { Fsr3UpscalerRuntime as BeforeRuntime } from "./reference/phase4/Fsr3UpscalerRuntime.mjs";
 import {
+  NATIVE_TEMPORAL_V2_MEASURE_WGSL,
+  NATIVE_TEMPORAL_V2_EXPOSURE_WGSL,
   NATIVE_TEMPORAL_V2_ANALYZE_WGSL,
   NATIVE_TEMPORAL_V2_RESOLVE_WGSL,
-} from "../../.test-dist/shaders/native_temporal_v2.js";
+} from "../../.test-dist/shaders/native_temporal_amd.js";
+import { NATIVE_TEMPORAL_RESOLVE_WGSL as BEFORE_RESOLVE } from "./reference/phase4/native_temporal.mjs";
 import { floatToHalf } from "../../.test-dist/loaders/float16.js";
 
 // One actual chain per encoder. The reference is test-only; inputs are analytic
 // in unjittered screen space and independent of either temporal implementation.
 export async function runFinalPixelTemporalPullGpuOracle(device) {
-  for (const code of [NATIVE_TEMPORAL_V2_ANALYZE_WGSL, NATIVE_TEMPORAL_V2_RESOLVE_WGSL]) {
+  for (const code of [
+    NATIVE_TEMPORAL_V2_MEASURE_WGSL,
+    NATIVE_TEMPORAL_V2_EXPOSURE_WGSL,
+    NATIVE_TEMPORAL_V2_ANALYZE_WGSL,
+    NATIVE_TEMPORAL_V2_RESOLVE_WGSL,
+  ]) {
     const info = await device.createShaderModule({ code }).getCompilationInfo();
     assert.deepEqual(
       info.messages.filter((message) => message.type === "error"),
@@ -59,42 +67,88 @@ export async function runFinalPixelTemporalPullGpuOracle(device) {
   });
   const cases = [];
   const gateFailures = [];
+  const strictGateFailures = [];
   const HALF_COMPARISON_FLOOR = 2 ** -10;
+  // User-authorized engineering margins, not a claim of perceptual equivalence.
+  // Energy and static stability retain the original floor-only comparison.
+  const qualityPolicy = {
+    comparisonFloor: HALF_COMPARISON_FLOOR,
+    aggregateRmseRelativeMargin: 0.01,
+    frameRmseRelativeMargin: 0.03,
+    energyAndPhaseRelativeMargin: 0,
+  };
+  function compareQuality(label, actual, reference, relativeMargin = 0) {
+    const strictLimit = reference + HALF_COMPARISON_FLOOR;
+    const limit = reference + Math.max(HALF_COMPARISON_FLOOR, reference * relativeMargin);
+    if (actual > strictLimit) {
+      strictGateFailures.push(`${label}: ${actual} > ${reference}`);
+    }
+    if (!Number.isFinite(actual) || !Number.isFinite(reference) || actual > limit) {
+      gateFailures.push(`${label}: ${actual} > ${reference} (limit ${limit})`);
+    }
+  }
   const traceCode = NATIVE_TEMPORAL_V2_RESOLVE_WGSL.replace(
-    "@group(0) @binding(8) var output_color: texture_storage_2d<rgba16float, write>;",
-    "@group(0) @binding(10) var<storage, read_write> trace: array<vec4f>;",
+    "@group(0) @binding(6) var current_history: texture_storage_2d<rgba16float, write>;",
+    "@group(0) @binding(16) var<storage, read_write> trace: array<vec4f>;",
   )
-    .replace("@group(0) @binding(9) var output_state: texture_storage_2d<rg32float, write>;", "")
+    .replace("@group(0) @binding(13) var output_luma_history: texture_storage_2d<rgba16float, write>;", "")
+    .replace("textureStore(output_luma_history, pixel, data.history);", "")
     .replace(
-      "textureStore(output_color, p, vec4f(result * current_p(), confidence));",
+      "textureStore(current_history, pixel, vec4f(result, lock));",
       `
   let index = (id.y * frame.size.x + id.x) * 5u;
-  trace[index] = vec4f(to_rgb(current), value);
-  trace[index + 1u] = vec4f(to_rgb(history), history_weight);
-  trace[index + 2u] = old;
-  trace[index + 3u] = vec4f(prior_moments, temporal_sigma, 0.0);
-  trace[index + 4u] = vec4f(alpha, confidence, 1.0, change);`,
-    )
-    .replace("textureStore(output_state, p, vec4f(moments, 0.0, 0.0));", "");
+  trace[index] = vec4f(ycocg_to_rgb(sampled.color) / exposure(), thin);
+  trace[index + 1u] = vec4f(result, lock);
+  trace[index + 2u] = vec4f(sampled.box.center, motion.x);
+  trace[index + 3u] = vec4f(sampled.box.variance, instability);
+  trace[index + 4u] = qualified;`,
+    );
+  assert.ok(traceCode.includes("trace[index]"));
   const traceLayout = device.createBindGroupLayout({
     entries: [
       { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-      ...[1, 2, 3, 4, 7].map((binding) => ({
+      ...[1, 2, 3, 4, 9, 10, 11, 14].map((binding) => ({
         binding,
         visibility: GPUShaderStage.COMPUTE,
-        texture: { sampleType: binding === 3 ? "float" : "unfilterable-float" },
+        texture: { sampleType: [3, 10, 11, 14].includes(binding) ? "float" : "unfilterable-float" },
       })),
-      ...[5, 6].map((binding) => ({
+      ...[5, 8].map((binding) => ({
         binding,
         visibility: GPUShaderStage.COMPUTE,
         buffer: { type: "read-only-storage" },
       })),
-      { binding: 10, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 16, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 17, visibility: GPUShaderStage.COMPUTE, sampler: { type: "filtering" } },
+      { binding: 15, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
     ],
   });
+  const traceSampler = device.createSampler({ minFilter: "linear", magFilter: "linear" });
   const tracer = await device.createComputePipelineAsync({
     layout: device.createPipelineLayout({ bindGroupLayouts: [traceLayout] }),
     compute: { module: device.createShaderModule({ code: traceCode }), entryPoint: "main" },
+  });
+  const beforeTraceCode = BEFORE_RESOLVE.replace(
+    "@group(0) @binding(6) var current_history: texture_storage_2d<rgba16float, write>;",
+    "@group(0) @binding(16) var<storage, read_write> trace: array<vec4f>;",
+  )
+    .replace("@group(0) @binding(13) var output_luma_history: texture_storage_2d<rgba16float, write>;", "")
+    .replace("textureStore(output_luma_history, pixel, data.history);", "")
+    .replace(
+      "textureStore(current_history, pixel, vec4f(result, lock));",
+      `
+  let index = (id.y * u32(constants.render_size.x) + id.x) * 5u;
+  trace[index] = vec4f(ycocg_to_rgb(sampled.color) / exposure(), thin);
+  trace[index + 1u] = vec4f(result, lock);
+  trace[index + 2u] = vec4f(sampled.box.center, motion.x);
+  trace[index + 3u] = vec4f(sampled.box.variance, instability);
+  trace[index + 4u] = masks;`,
+    );
+  const beforeTracer = await device.createComputePipelineAsync({
+    layout: "auto",
+    compute: {
+      module: device.createShaderModule({ code: beforeTraceCode }),
+      entryPoint: "main",
+    },
   });
   async function sequence(name, width, height, frames, evaluate, controls = () => ({}), integrate = null) {
     const owned = [];
@@ -132,10 +186,15 @@ export async function runFinalPixelTemporalPullGpuOracle(device) {
     const target = buf(width * height * 16, GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ);
     const analyzeTarget =
       width <= 65 || width === 1920
-        ? buf(width * height * 16, GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ)
+        ? buf(width * height * 48 + 16, GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ)
         : null;
     const diagnosticAnalysis = [];
+    const beforeAnalysis = [];
+    const sourceLumas = [[], []];
+    const sourceColors = [[], []];
+    const exposureDiagnostics = [[], []];
     const diagnosticTrace = [];
+    const beforeTrace = [];
     const traceValues =
       width <= 65 ? buf(width * height * 80, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC) : null;
     const traceTarget = traceValues
@@ -314,14 +373,37 @@ export async function runFinalPixelTemporalPullGpuOracle(device) {
           });
           consume.read(output);
           consume.make_side_effect();
-          if (r === 1 && analyzeTarget) {
+          if (analyzeTarget) {
             let analysisId = -1;
             for (let i = 0; i < graph.resourceNodeCount; i++) {
-              if (graph.getResourceNode(i).name === "Native Temporal V2/analysis") {
+              if (
+                graph.getResourceNode(i).name ===
+                (r === 1 ? "Native Temporal V2/analysis" : "Native Temporal/classified masks")
+              ) {
                 analysisId = i;
               }
             }
             assert.ok(analysisId >= 0);
+            let infoId = -1;
+            for (let i = 0; i < graph.resourceNodeCount; i++) {
+              const n = graph.getResourceNode(i);
+              if (
+                n.name === (r === 1 ? "Native Temporal V2/current frame info" : "FSR3/current frame info") &&
+                n.version > 0
+              )
+                infoId = i;
+            }
+            assert.ok(infoId >= 0);
+            const findProduct = (name) => {
+              for (let i = graph.resourceNodeCount - 1; i >= 0; i--) {
+                const n = graph.getResourceNode(i);
+                if (n.name === name && n.version > 0) return i;
+              }
+              throw new Error(`Diagnostic lost ${name}`);
+            };
+            const lumaId = findProduct(r === 1 ? "Native Temporal V2/current luma" : "FSR3/current luma");
+            const colorId = findProduct(r === 1 ? "Native Temporal V2/current color" : "FSR3/current color");
+
             const inspect = graph.add("test-only analysis readback", {}, (_data, resources, context) => {
               const pass = context.encoder.beginComputePass();
               pass.setPipeline(reader);
@@ -338,17 +420,113 @@ export async function runFinalPixelTemporalPullGpuOracle(device) {
               pass.dispatchWorkgroups(Math.ceil((width * height) / 64));
               pass.end();
               context.encoder.copyBufferToBuffer(values, 0, analyzeTarget, 0, width * height * 16);
+              const infoPass = context.encoder.beginComputePass();
+              infoPass.setPipeline(reader);
+              infoPass.setBindGroup(
+                0,
+                device.createBindGroup({
+                  layout: reader.getBindGroupLayout(0),
+                  entries: [
+                    { binding: 0, resource: resources.get(infoId).createView() },
+                    { binding: 1, resource: { buffer: values } },
+                  ],
+                }),
+              );
+              infoPass.dispatchWorkgroups(1);
+              infoPass.end();
+              context.encoder.copyBufferToBuffer(values, 0, analyzeTarget, width * height * 16, 16);
+              for (const [product, offset] of [
+                [lumaId, width * height * 16 + 16],
+                [colorId, width * height * 32 + 16],
+              ]) {
+                const samplePass = context.encoder.beginComputePass();
+                samplePass.setPipeline(reader);
+                samplePass.setBindGroup(
+                  0,
+                  device.createBindGroup({
+                    layout: reader.getBindGroupLayout(0),
+                    entries: [
+                      { binding: 0, resource: resources.get(product).createView() },
+                      { binding: 1, resource: { buffer: values } },
+                    ],
+                  }),
+                );
+                samplePass.dispatchWorkgroups(Math.ceil((width * height) / 64));
+                samplePass.end();
+                context.encoder.copyBufferToBuffer(values, 0, analyzeTarget, offset, width * height * 16);
+              }
             });
             inspect.read(output);
             inspect.read(analysisId);
+            inspect.read(infoId);
+            inspect.read(lumaId);
+            inspect.read(colorId);
             inspect.make_side_effect();
             if (traceValues) {
               const tracePass = graph.add("test-only Resolve trace", {}, (_data, resources, context) => {
+                const find = (name) => {
+                  for (let i = 0; i < graph.resourceNodeCount; i++) {
+                    const n = graph.getResourceNode(i);
+                    if (
+                      n.name === `Native Temporal V2/${name}` &&
+                      (n.version > 0 || graph.getDescriptor(i)?.kind === "transient_texture")
+                    )
+                      return resources.get(i);
+                  }
+                  throw new Error(`Trace lost ${name}`);
+                };
+                if (r === 0) {
+                  const findBefore = (name) => {
+                    for (let i = graph.resourceNodeCount - 1; i >= 0; i--) {
+                      if (graph.getResourceNode(i).name === name) return resources.get(i);
+                    }
+                    throw new Error(`Before trace lost ${name}`);
+                  };
+                  const textures = [
+                    [1, color],
+                    [2, findBefore("FSR3/dilated motion")],
+                    [3, resources.get(analysisId)],
+                    [4, candidateResources.get("FSR3/previous color")],
+                    [9, resources.get(infoId)],
+                    [10, resources.get(lumaId)],
+                    [11, candidateResources.get("Native Temporal/previous luma history")],
+                    [14, findBefore("FSR3/farthest depth mip1")],
+                  ];
+                  const pass = context.encoder.beginComputePass();
+                  pass.setPipeline(beforeTracer);
+                  pass.setBindGroup(
+                    0,
+                    device.createBindGroup({
+                      layout: beforeTracer.getBindGroupLayout(0),
+                      entries: [
+                        { binding: 0, resource: { buffer: candidateResources.get("constants") } },
+                        ...textures.map(([binding, texture]) => ({
+                          binding,
+                          resource: texture.createView(),
+                        })),
+                        { binding: 5, resource: traceSampler },
+                        {
+                          binding: 15,
+                          resource: { buffer: findBefore("Native Temporal/current filter weights") },
+                        },
+                        { binding: 16, resource: { buffer: traceValues } },
+                      ],
+                    }),
+                  );
+                  pass.dispatchWorkgroups(Math.ceil(width / 8), Math.ceil(height / 8));
+                  pass.end();
+                  context.encoder.copyBufferToBuffer(traceValues, 0, traceTarget, 0, width * height * 80);
+                  return;
+                }
                 const textures = [
-                  color,
-                  temporalSeed,
-                  candidateResources.get("previous color"),
-                  candidateResources.get("previous state"),
+                  [1, color],
+                  [2, temporalSeed],
+                  [3, resources.get(analysisId)],
+                  [4, candidateResources.get("previous color")],
+                  [9, find("current frame info")],
+                  [10, find("current luma")],
+                  [11, candidateResources.get("previous luma history")],
+                  [14, find("farthest box metric")],
                 ];
                 const pass = context.encoder.beginComputePass();
                 pass.setPipeline(tracer);
@@ -358,14 +536,12 @@ export async function runFinalPixelTemporalPullGpuOracle(device) {
                     layout: traceLayout,
                     entries: [
                       { binding: 0, resource: { buffer: candidateResources.get("frame") } },
-                      ...textures.map((texture, binding) => ({
-                        binding: binding + 1,
-                        resource: texture.createView(),
-                      })),
+                      ...textures.map(([binding, texture]) => ({ binding, resource: texture.createView() })),
                       { binding: 5, resource: { buffer: exposure } },
-                      { binding: 6, resource: { buffer: priorExposure } },
-                      { binding: 7, resource: resources.get(analysisId).createView() },
-                      { binding: 10, resource: { buffer: traceValues } },
+                      { binding: 8, resource: { buffer: priorExposure } },
+                      { binding: 16, resource: { buffer: traceValues } },
+                      { binding: 17, resource: traceSampler },
+                      { binding: 15, resource: { buffer: candidateResources.get("filter weights") } },
                     ],
                   }),
                 );
@@ -375,6 +551,33 @@ export async function runFinalPixelTemporalPullGpuOracle(device) {
               });
               tracePass.read(output);
               tracePass.read(analysisId);
+              tracePass.read(infoId);
+              tracePass.read(lumaId);
+              for (let i = 0; i < graph.resourceNodeCount; i++) {
+                if (
+                  [
+                    "Native Temporal V2/filter weights",
+                    "Native Temporal V2/current luma",
+                    "Native Temporal V2/current frame info",
+                    "Native Temporal V2/farthest box metric",
+                  ].includes(graph.getResourceNode(i).name) &&
+                  (graph.getResourceNode(i).version > 0 ||
+                    graph.getDescriptor(i)?.kind === "transient_texture")
+                )
+                  tracePass.read(i);
+              }
+              if (r === 0) {
+                for (let i = 0; i < graph.resourceNodeCount; i++) {
+                  if (
+                    [
+                      "FSR3/dilated motion",
+                      "FSR3/farthest depth mip1",
+                      "Native Temporal/current filter weights",
+                    ].includes(graph.getResourceNode(i).name)
+                  )
+                    tracePass.read(i);
+                }
+              }
               tracePass.make_side_effect();
             }
           }
@@ -419,14 +622,22 @@ export async function runFinalPixelTemporalPullGpuOracle(device) {
           await target.mapAsync(GPUMapMode.READ);
           const result = new Float32Array(target.getMappedRange()).slice();
           target.unmap();
-          if (r === 1 && analyzeTarget) {
+          if (analyzeTarget) {
             await analyzeTarget.mapAsync(GPUMapMode.READ);
-            diagnosticAnalysis.push(new Float32Array(analyzeTarget.getMappedRange()).slice());
+            const snapshot = new Float32Array(analyzeTarget.getMappedRange()).slice();
+            (r === 1 ? diagnosticAnalysis : beforeAnalysis).push(snapshot.subarray(0, width * height * 4));
+            exposureDiagnostics[r].push(
+              Array.from(snapshot.subarray(width * height * 4, width * height * 4 + 4)),
+            );
+            sourceLumas[r].push(snapshot.slice(width * height * 4 + 4, width * height * 8 + 4));
+            sourceColors[r].push(snapshot.slice(width * height * 8 + 4));
             analyzeTarget.unmap();
           }
-          if (r === 1 && traceTarget) {
+          if (traceTarget) {
             await traceTarget.mapAsync(GPUMapMode.READ);
-            diagnosticTrace.push(new Float32Array(traceTarget.getMappedRange()).slice());
+            (r === 0 ? beforeTrace : diagnosticTrace).push(
+              new Float32Array(traceTarget.getMappedRange()).slice(),
+            );
             traceTarget.unmap();
           }
           compiled.destroy();
@@ -478,7 +689,7 @@ export async function runFinalPixelTemporalPullGpuOracle(device) {
         return Math.sqrt(sq / Math.max(energy, 1e-20));
       });
       const worstPixels = [];
-      for (let f = start; f < frames; f++) {
+      for (let f = 0; f < frames; f++) {
         const peaks = [];
         for (let y = 2; y < height - 2; y++)
           for (let x = 2; x < width - 2; x++) {
@@ -495,9 +706,25 @@ export async function runFinalPixelTemporalPullGpuOracle(device) {
               native,
               expected,
               regression,
+              beforeAnalysis: beforeAnalysis[f]
+                ? Array.from(beforeAnalysis[f].subarray(i * 4, i * 4 + 4))
+                : null,
+              exposures: [exposureDiagnostics[0][f], exposureDiagnostics[1][f]],
+              sourceLocks: sourceColors[0][f]
+                ? [sourceColors[0][f][i * 4 + 3], sourceColors[1][f][i * 4 + 3]]
+                : null,
+              sourceLumas: sourceLumas[0][f]
+                ? [-1, 0, 1].flatMap((dy) =>
+                    [-1, 0, 1].map((dx) => {
+                      const at = ((y + dy) * width + x + dx) * 4;
+                      return [sourceLumas[0][f][at], sourceLumas[1][f][at]];
+                    }),
+                  )
+                : null,
               analysis: diagnosticAnalysis[f]
                 ? Array.from(diagnosticAnalysis[f].subarray(i * 4, i * 4 + 4))
                 : null,
+              beforeTrace: beforeTrace[f] ? Array.from(beforeTrace[f].subarray(i * 20, i * 20 + 20)) : null,
               trace: diagnosticTrace[f] ? Array.from(diagnosticTrace[f].subarray(i * 20, i * 20 + 20)) : null,
             });
             peaks.sort((a, b) => b.regression - a.regression);
@@ -563,10 +790,10 @@ export async function runFinalPixelTemporalPullGpuOracle(device) {
               }))
             : [],
       });
-      if (nativeRmse > beforeRmse + HALF_COMPARISON_FLOOR)
-        gateFailures.push(`${name}: HDR RMSE ${nativeRmse} > ${beforeRmse}`);
-      if (name.startsWith("static") && samePhase[1] > samePhase[0] + HALF_COMPARISON_FLOOR)
-        gateFailures.push(`${name}: static phase residual ${samePhase[1]} > ${samePhase[0]}`);
+      compareQuality(`${name}: HDR RMSE`, nativeRmse, beforeRmse, qualityPolicy.aggregateRmseRelativeMargin);
+      if (name.startsWith("static")) {
+        compareQuality(`${name}: static phase residual`, samePhase[1], samePhase[0]);
+      }
       const rois =
         width === 1920
           ? [
@@ -634,8 +861,11 @@ export async function runFinalPixelTemporalPullGpuOracle(device) {
         });
         roiMetrics.push({ roi, before: metrics[0], native: metrics[1], signedEnergyErrors });
         for (const metric of Object.keys(metrics[0])) {
-          if (metrics[1][metric] > metrics[0][metric] + HALF_COMPARISON_FLOOR)
-            gateFailures.push(`${name}/${roi}/${metric}: ${metrics[1][metric]} > ${metrics[0][metric]}`);
+          const relativeMargin =
+            metric === "hdrRmse" || metric === "displayRmse"
+              ? qualityPolicy.aggregateRmseRelativeMargin
+              : qualityPolicy.energyAndPhaseRelativeMargin;
+          compareQuality(`${name}/${roi}/${metric}`, metrics[1][metric], metrics[0][metric], relativeMargin);
         }
         // An average cannot hide a single-frame ghost or delayed light response.
         const response = [];
@@ -655,8 +885,12 @@ export async function runFinalPixelTemporalPullGpuOracle(device) {
             return Math.sqrt(sq / Math.max(energy, 1e-20));
           });
           response.push({ frame: f, before: perFrame[0], native: perFrame[1] });
-          if (perFrame[1] > perFrame[0] + HALF_COMPARISON_FLOOR)
-            gateFailures.push(`${name}/${roi}/frame-${f}: ${perFrame[1]} > ${perFrame[0]}`);
+          compareQuality(
+            `${name}/${roi}/frame-${f}`,
+            perFrame[1],
+            perFrame[0],
+            qualityPolicy.frameRmseRelativeMargin,
+          );
         }
         roiMetrics.at(-1).response = response;
       }
@@ -872,11 +1106,17 @@ export async function runFinalPixelTemporalPullGpuOracle(device) {
     (f) => ({ jitter: jitter(f), preExposure: f >= 2 ? 0.25 : 1 }),
     () => [8192, 2048, 5734.4],
   );
-  assert.equal(gateFailures.length, 0, JSON.stringify({ gateFailures, cases }));
+  assert.equal(
+    gateFailures.length,
+    0,
+    JSON.stringify({ gateFailures, strictGateFailures, qualityPolicy, cases }),
+  );
   return {
     status: "passed",
     cases,
+    strictGateFailures,
+    qualityPolicy,
     qualityGate:
-      "Analytic 8x8 pixel reference; per-sequence HDR RMSE and static same-phase residual, old + 2^-10 half comparison floor.",
+      "Analytic 8x8 pixel reference; aggregate/ROI RMSE +1%, frame ROI RMSE +3%, each with max(2^-10, relative margin); energy/static phase remain floor-only. Strict comparisons retained as diagnostics.",
   };
 }

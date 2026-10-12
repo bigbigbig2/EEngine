@@ -8,326 +8,10 @@ import { NativeTemporalV2 } from "../../.test-dist/render/temporal/NativeTempora
 import {
   NATIVE_TEMPORAL_V2_ANALYZE_WGSL,
   NATIVE_TEMPORAL_V2_RESOLVE_WGSL,
-} from "../../.test-dist/shaders/native_temporal_v2.js";
+} from "../../.test-dist/shaders/native_temporal_amd.js";
 import { floatToHalf } from "../../.test-dist/loaders/float16.js";
+import { verifyAmdResolvePort } from "./reference/phase4/amd-resolve-port-gpu.mjs";
 
-async function verifyOutputPixelDomain(device, buffer, texture) {
-  const width = 23,
-    height = 13,
-    count = width * height;
-  const constants = buffer(32, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
-  const exposure = buffer(16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
-  const color = texture(width, height, "rgba32float");
-  const seed = texture(width, height, "rgba32float");
-  const previousColor = texture(width, height, "rgba16float");
-  const previousState = texture(width, height, "rg32float");
-  const response = texture(width, height, "rgba8unorm");
-  const identity = texture(width, height, "rgba32uint");
-  const previousDepth = texture(width, height, "r32float");
-  const analysis = texture(width, height, "rgba16float", GPUTextureUsage.STORAGE_BINDING);
-  const currentDepth = texture(width, height, "r32float", GPUTextureUsage.STORAGE_BINDING);
-  const sharpenExposure = texture(1, 1, "r32float", GPUTextureUsage.STORAGE_BINDING);
-  const outputColor = texture(width, height, "rgba16float", GPUTextureUsage.STORAGE_BINDING);
-  const outputState = texture(width, height, "rg32float", GPUTextureUsage.STORAGE_BINDING);
-  const analyzed = buffer(count * 16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
-  const resolved = buffer(count * 16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
-  const readback = buffer(count * 32, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
-  // Instrument actual entry points after reconstruction. No test version of
-  // the shared reconstruction, tile indexing or domain conversion is used.
-  const analyzeCode = NATIVE_TEMPORAL_V2_ANALYZE_WGSL.replace(
-    "@group(0) @binding(14) var sharpen_exposure: texture_storage_2d<r32float, write>;",
-    "@group(0) @binding(14) var sharpen_exposure: texture_storage_2d<r32float, write>;\n@group(0) @binding(15) var<storage, read_write> domain: array<vec4f>;",
-  ).replace(
-    "textureStore(current_depth, p, vec4f(textureLoad(seed, p, 0).w, 0.0, 0.0, 0.0));",
-    "textureStore(current_depth, p, vec4f(textureLoad(seed, p, 0).w, 0.0, 0.0, 0.0));\n  domain[id.y * frame.size.x + id.x] = vec4f(luminance[tile_index(at)], change, illumination, gain_trust);",
-  );
-  const resolveCode = NATIVE_TEMPORAL_V2_RESOLVE_WGSL.replace(
-    "@group(0) @binding(9) var output_state: texture_storage_2d<rg32float, write>;",
-    "@group(0) @binding(9) var output_state: texture_storage_2d<rg32float, write>;\n@group(0) @binding(10) var<storage, read_write> domain: array<vec4f>;",
-  ).replace(
-    "textureStore(output_state, p, vec4f(moments, 0.0, 0.0));",
-    "textureStore(output_state, p, vec4f(moments, 0.0, 0.0));\n  domain[id.y * frame.size.x + id.x] = vec4f(current_rgb, moments.x);",
-  );
-  const makePipeline = (code) =>
-    device.createComputePipelineAsync({
-      layout: "auto",
-      compute: { module: device.createShaderModule({ code }), entryPoint: "main" },
-    });
-  const analyzePipeline = await makePipeline(analyzeCode);
-  const resolvePipeline = await makePipeline(resolveCode);
-  const common = [constants, color, seed, previousColor, previousState, exposure, exposure];
-  const entries = (resources) =>
-    resources.map((resource, binding) => ({
-      binding,
-      resource: [0, 5, 6].includes(binding) ? { buffer: resource } : resource.createView(),
-    }));
-  const analyzeGroup = device.createBindGroup({
-    layout: analyzePipeline.getBindGroupLayout(0),
-    entries: [
-      ...entries([...common, response, identity, identity, previousDepth]).filter(
-        ({ binding }) => binding !== 3 && binding !== 6,
-      ),
-      { binding: 11, resource: analysis.createView() },
-      { binding: 12, resource: currentDepth.createView() },
-      { binding: 14, resource: sharpenExposure.createView() },
-      { binding: 15, resource: { buffer: analyzed } },
-    ],
-  });
-  const resolveGroup = device.createBindGroup({
-    layout: resolvePipeline.getBindGroupLayout(0),
-    entries: [
-      ...entries([...common, analysis]),
-      { binding: 8, resource: outputColor.createView() },
-      { binding: 9, resource: outputState.createView() },
-      { binding: 10, resource: { buffer: resolved } },
-    ],
-  });
-  let curvature = 0;
-  const radiance = (x, y) => 0.4 + 0.006 * x + 0.004 * y + curvature * (0.0002 * x * x + 0.0001 * y * y);
-  const phases = [
-    [0, 0],
-    [0.49, -0.49],
-    [-0.49, 0.49],
-    [2.7, -1.2],
-    [-1.3, 2.4],
-  ];
-  for (let phase = 0; phase < phases.length * 2; phase++) {
-    curvature = phase < phases.length ? 0 : 1;
-    const jitter = phases[phase % phases.length],
-      preExposure = [1, 0.25, 4, 1, 0.25][phase % phases.length];
-    const frame = new ArrayBuffer(32);
-    new Uint32Array(frame).set([width, height, 0, 0]);
-    new Float32Array(frame).set([...jitter, ...jitter], 4);
-    device.queue.writeBuffer(constants, 0, frame);
-    device.queue.writeBuffer(exposure, 0, new Float32Array([preExposure, 0, 0, 0]));
-    const source = new Float32Array(count * 4);
-    let quantizationError = 0,
-      maximum = 0;
-    for (let y = 0; y < height; y++)
-      for (let x = 0; x < width; x++) {
-        const value = radiance(x + 0.5 - jitter[0], y + 0.5 - jitter[1]);
-        for (let channel = 0; channel < 3; channel++) {
-          const exact = value * [1, 0.8, 0.3][channel];
-          const encoded = Math.fround(exact * preExposure);
-          source[(y * width + x) * 4 + channel] = encoded;
-          quantizationError = Math.max(quantizationError, Math.abs(encoded / preExposure - exact));
-          maximum = Math.max(maximum, exact);
-        }
-      }
-    device.queue.writeTexture({ texture: color }, source, { bytesPerRow: width * 16 }, [width, height]);
-    const encoder = device.createCommandEncoder();
-    for (const [pipeline, group] of [
-      [analyzePipeline, analyzeGroup],
-      [resolvePipeline, resolveGroup],
-    ]) {
-      const pass = encoder.beginComputePass();
-      pass.setPipeline(pipeline);
-      pass.setBindGroup(0, group);
-      pass.dispatchWorkgroups(Math.ceil(width / 8), Math.ceil(height / 8));
-      pass.end();
-    }
-    encoder.copyBufferToBuffer(analyzed, 0, readback, 0, count * 16);
-    encoder.copyBufferToBuffer(resolved, 0, readback, count * 16, count * 16);
-    device.queue.submit([encoder.finish()]);
-    await readback.mapAsync(GPUMapMode.READ);
-    const values = new Float32Array(readback.getMappedRange());
-    // Independent antiderivatives give the affine center value and quadratic
-    // curvature / 12, independent of jitter. A coefficient-norm bound covers f32 input and
-    // accumulation rounding; no runtime weights are used by this reference.
-    const tolerance = quantizationError * 16 + maximum * 64 * 2 ** -23;
-    for (let y = 4; y < height - 4; y++)
-      for (let x = 4; x < width - 4; x++) {
-        const i = y * width + x,
-          at = (count + i) * 4;
-        const expected = radiance(x + 0.5, y + 0.5) + (curvature * 0.0003) / 12;
-        let luma = 0;
-        for (let channel = 0; channel < 3; channel++) {
-          assert.ok(
-            Math.abs(values[at + channel] - expected * [1, 0.8, 0.3][channel]) <= tolerance,
-            `output-domain integral phase ${phase}, pixel ${x},${y}, channel ${channel}`,
-          );
-          luma += values[at + channel] * [0.2126, 0.7152, 0.0722][channel];
-        }
-        assert.ok(
-          Math.abs(values[i * 4] - luma) <= maximum * 4 * 2 ** -23,
-          `Analyze/Resolve output-domain agreement phase ${phase}, pixel ${x},${y}`,
-        );
-        assert.ok(
-          Math.abs(values[at + 3] - luma) <= maximum * 4 * 2 ** -23,
-          `last reconstructed observation phase ${phase}, pixel ${x},${y}`,
-        );
-      }
-    readback.unmap();
-  }
-  const resultCode = resolveCode.replace(
-    "domain[id.y * frame.size.x + id.x] = vec4f(current_rgb, moments.x);",
-    "domain[id.y * frame.size.x + id.x] = vec4f(result, moments.x);",
-  );
-  const resultPipeline = await makePipeline(resultCode);
-  const missingVariancePipeline = await makePipeline(
-    resultCode.replace(
-      "temporal_sigma * temporal_sigma * temporal_support",
-      "temporal_sigma * temporal_sigma * 0.0",
-    ),
-  );
-  const resultEntries = [
-    ...entries([...common, analysis]),
-    { binding: 8, resource: outputColor.createView() },
-    { binding: 9, resource: outputState.createView() },
-    { binding: 10, resource: { buffer: resolved } },
-  ];
-  const resultGroups = [resultPipeline, missingVariancePipeline].map((pipeline) =>
-    device.createBindGroup({
-      layout: pipeline.getBindGroupLayout(0),
-      entries: resultEntries,
-    }),
-  );
-  const upload = (target, components, words, bytesPerElement) => {
-    const values = new words.constructor(count * components);
-    for (let i = 0; i < count; i++) values.set(words, i * components);
-    device.queue.writeTexture(
-      { texture: target },
-      values,
-      { bytesPerRow: width * components * bytesPerElement },
-      [width, height],
-    );
-  };
-  const validFrame = new ArrayBuffer(32);
-  new Uint32Array(validFrame).set([width, height, 1, 0]);
-  device.queue.writeBuffer(constants, 0, validFrame);
-  device.queue.writeBuffer(exposure, 0, new Float32Array([1, 0, 0, 0]));
-  upload(color, 4, new Float32Array([0.125, 0.125, 0.125, 1]), 4);
-  upload(previousColor, 4, Uint16Array.from([2, 2, 2, 1], floatToHalf), 2);
-  const rectificationCases = [
-    { name: "observed temporal variation", variance: 4, coverage: 1, change: 0, pipeline: 0, retain: true },
-    { name: "zero variation rejects stale color", variance: 0, coverage: 1, change: 0, pipeline: 0 },
-    { name: "geometry rejection removes temporal support", variance: 4, coverage: 0, change: 0, pipeline: 0 },
-    { name: "reactive rejection removes temporal support", variance: 4, coverage: 1, change: 1, pipeline: 0 },
-    { name: "negative control: missing temporal support", variance: 4, coverage: 1, change: 0, pipeline: 1 },
-  ];
-  for (const test of rectificationCases) {
-    upload(previousState, 2, new Float32Array([1, test.variance]), 4);
-    upload(analysis, 4, Uint16Array.from([test.coverage, test.change, 0, 0], floatToHalf), 2);
-    const encoder = device.createCommandEncoder();
-    const pass = encoder.beginComputePass();
-    pass.setPipeline([resultPipeline, missingVariancePipeline][test.pipeline]);
-    pass.setBindGroup(0, resultGroups[test.pipeline]);
-    pass.dispatchWorkgroups(Math.ceil(width / 8), Math.ceil(height / 8));
-    pass.end();
-    encoder.copyBufferToBuffer(resolved, 0, readback, 0, count * 16);
-    device.queue.submit([encoder.finish()]);
-    await readback.mapAsync(GPUMapMode.READ);
-    const values = new Float32Array(readback.getMappedRange());
-    for (let i = 0; i < count; i++) {
-      for (let channel = 0; channel < 3; channel++) {
-        const value = values[i * 4 + channel];
-        assert.ok(
-          value >= 0.125 - 2 ** -20 && value <= 2 + 2 ** -20,
-          `${test.name}: rectification/accumulation cannot invent radiance`,
-        );
-        if (test.retain) assert.ok(value > 1, `${test.name}: observed history was erased`);
-        else
-          assert.ok(Math.abs(value - 0.125) < 2 ** -20, `${test.name}: unsupported stale history survives`);
-      }
-    }
-    readback.unmap();
-  }
-  // The history estimator must use the mass of real observations, rather than
-  // becoming mature after a fixed number of frames unrelated to its weights.
-  // Isolate accumulation with broad observed variance and no geometry rejection.
-  const massPipeline = await makePipeline(
-    resultCode.replace(
-      "domain[id.y * frame.size.x + id.x] = vec4f(result, moments.x);",
-      "domain[id.y * frame.size.x + id.x] = vec4f(result, confidence);",
-    ),
-  );
-  const massGroup = device.createBindGroup({
-    layout: massPipeline.getBindGroupLayout(0),
-    entries: resultEntries,
-  });
-  const observations = [0.5, 0.75, 0.25, 1, 0.5, 0.25, 0.75, 1];
-  let priorColor = 0;
-  let priorMass = 0;
-  let observationSum = 0;
-  for (let observation = 0; observation < observations.length; observation++) {
-    const current = observations[observation];
-    upload(color, 4, new Float32Array([current, current, current, 1]), 4);
-    upload(
-      previousColor,
-      4,
-      Uint16Array.from([priorColor, priorColor, priorColor, priorMass], floatToHalf),
-      2,
-    );
-    upload(previousState, 2, new Float32Array([0.5, 16]), 4);
-    upload(analysis, 4, Uint16Array.from([1, 0, 0, 0], floatToHalf), 2);
-    const encoder = device.createCommandEncoder();
-    const pass = encoder.beginComputePass();
-    pass.setPipeline(massPipeline);
-    pass.setBindGroup(0, massGroup);
-    pass.dispatchWorkgroups(Math.ceil(width / 8), Math.ceil(height / 8));
-    pass.end();
-    encoder.copyBufferToBuffer(resolved, 0, readback, 0, count * 16);
-    device.queue.submit([encoder.finish()]);
-    await readback.mapAsync(GPUMapMode.READ);
-    const values = new Float32Array(readback.getMappedRange());
-    observationSum += current;
-    for (let i = 0; i < count; i++) {
-      assert.ok(
-        Math.abs(values[i * 4] - observationSum / (observation + 1)) < 0.001,
-        `equal stationary observations must have equal mass: frame ${observation}`,
-      );
-      assert.ok(
-        Math.abs(values[i * 4 + 3] - ((observation + 1) * 0.74) / 16) < 0.001,
-        `confidence must represent accumulated observation mass: frame ${observation}`,
-      );
-    }
-    priorColor = values[0];
-    priorMass = values[3];
-    readback.unmap();
-  }
-  // Illumination comes from two consecutive observations. A deliberately stale
-  // color estimate must not turn the real 2x transition into a 4x feedback gain.
-  upload(color, 4, new Float32Array([1, 1, 1, 1]), 4);
-  upload(previousColor, 4, Uint16Array.from([0.25, 0.25, 0.25, 1], floatToHalf), 2);
-  upload(seed, 4, new Float32Array([0, 0, 1, 1]), 4);
-  upload(response, 4, new Uint8Array([0, 255, 0, 0]), 1);
-  upload(identity, 4, new Uint32Array([1, 1, 1, 1]), 4);
-  upload(previousDepth, 1, new Float32Array([1]), 4);
-  const observedGains = [];
-  for (const priorObservation of [0.5, 1, 2]) {
-    upload(previousState, 2, new Float32Array([priorObservation, 0]), 4);
-    const encoder = device.createCommandEncoder();
-    const pass = encoder.beginComputePass();
-    pass.setPipeline(analyzePipeline);
-    pass.setBindGroup(0, analyzeGroup);
-    pass.dispatchWorkgroups(Math.ceil(width / 8), Math.ceil(height / 8));
-    pass.end();
-    encoder.copyBufferToBuffer(analyzed, 0, readback, 0, count * 16);
-    device.queue.submit([encoder.finish()]);
-    await readback.mapAsync(GPUMapMode.READ);
-    const values = new Float32Array(readback.getMappedRange());
-    for (let i = 0; i < count; i++) {
-      assert.ok(
-        Math.abs(values[i * 4 + 2] - Math.log2(1 / priorObservation)) < 2e-6,
-        `illumination must use the previous observation ${priorObservation}, not accumulated color`,
-      );
-    }
-    observedGains.push(values[2]);
-    readback.unmap();
-  }
-  return {
-    phases: phases.length,
-    extent: [width, height],
-    preExposure: [1, 0.25, 4],
-    rectification: rectificationCases.map((test) => test.name),
-    accumulationMass: observations.length,
-    integralProfiles: ["affine", "separable quadratic"],
-    observedLogGains: observedGains,
-  };
-}
-
-// Independent semantic checks for the actual candidate helper and cached graph.
-// Synthetic Seed inputs do not establish Native Surface writer integration.
 export async function runFinalPixelTemporalPullSemanticsGpuOracle(device) {
   const owned = [];
   const buffer = (size, usage) => {
@@ -351,166 +35,31 @@ export async function runFinalPixelTemporalPullSemanticsGpuOracle(device) {
     releaseRetirement = resolve;
   });
   try {
-    const outputDomain = await verifyOutputPixelDomain(device, buffer, texture);
-    // Execute the original state_at helper, not a test reimplementation.
-    const prefix = NATIVE_TEMPORAL_V2_ANALYZE_WGSL.slice(
-      0,
-      NATIVE_TEMPORAL_V2_ANALYZE_WGSL.indexOf("// One output-pixel estimand"),
-    );
-    const momentsPipeline = await device.createComputePipelineAsync({
-      layout: "auto",
-      compute: {
-        entryPoint: "test_moments",
-        module: device.createShaderModule({
-          code:
-            prefix +
-            `
-@group(0) @binding(7) var<storage, read_write> result: array<vec2f>;
-@compute @workgroup_size(1) fn test_moments() {
-  result[0] = state_at(vec2f(0.5));
-  result[1] = state_at(vec2f(0.25));
-}`,
-        }),
-      },
-    });
-    const frame = buffer(32, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
-    const state = texture(2, 2, "rg32float");
-    const momentOutput = buffer(16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
-    const momentReadback = buffer(16, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
-    device.queue.writeBuffer(frame, 0, new Uint32Array([2, 2, 1, 0, 0, 0, 0, 0]));
-    const runMoments = async (words) => {
-      device.queue.writeTexture({ texture: state }, new Float32Array(words), { bytesPerRow: 16 }, [2, 2]);
-      const encoder = device.createCommandEncoder();
-      const pass = encoder.beginComputePass();
-      pass.setPipeline(momentsPipeline);
-      pass.setBindGroup(
-        0,
-        device.createBindGroup({
-          layout: momentsPipeline.getBindGroupLayout(0),
-          entries: [
-            { binding: 0, resource: { buffer: frame } },
-            { binding: 4, resource: state.createView() },
-            { binding: 7, resource: { buffer: momentOutput } },
-          ],
-        }),
-      );
-      pass.dispatchWorkgroups(1);
-      pass.end();
-      encoder.copyBufferToBuffer(momentOutput, 0, momentReadback, 0, 16);
-      device.queue.submit([encoder.finish()]);
-      await momentReadback.mapAsync(GPUMapMode.READ);
-      const values = new Float32Array(momentReadback.getMappedRange()).slice();
-      momentReadback.unmap();
-      return [...values];
-    };
-    // Four static signals with different means have zero temporal variance.
-    assert.deepEqual(await runMoments([0, 0, 8192, 0, 0, 0, 8192, 0]), [4096, 0, 0, 0]);
-    // Known temporal variances [4, 16, 36, 64] average to 30, while means
-    // [2, 4, 6, 8] average to 5. Spatial mixture variance must not be added.
-    assert.deepEqual(await runMoments([2, 4, 4, 16, 6, 36, 8, 64]), [5, 30, 2, 4]);
-    // Centered variance preserves uncertainty smaller than the f32 ulp of L^2.
-    // The retired raw-second encoding would round 8192^2 + 1 to 8192^2.
-    assert.equal(Math.fround(8192 ** 2 + 1), Math.fround(8192 ** 2));
-    assert.deepEqual(await runMoments([8192, 1, 8192, 1, 8192, 1, 8192, 1]), [8192, 1, 8192, 1]);
-
-    // Independent pixel-domain history probe at the far corner of 1080p.
-    // The integer sample must read exactly its texel; the fractional sample
-    // is checked against a CPU sinc integral, without running the resolver.
-    const historyHelper = NATIVE_TEMPORAL_V2_RESOLVE_WGSL.match(/fn history_at\([\s\S]*?\n}/)?.[0];
-    const lanczosHelper = NATIVE_TEMPORAL_V2_RESOLVE_WGSL.match(/fn lanczos\([\s\S]*?\n}/)?.[0];
-    assert.ok(historyHelper && lanczosHelper);
-    const historyPipeline = await device.createComputePipelineAsync({
-      layout: "auto",
-      compute: {
-        entryPoint: "test_history",
-        module: device.createShaderModule({
-          code:
-            prefix +
-            lanczosHelper +
-            historyHelper +
-            `
-@group(0) @binding(7) var<storage, read_write> result: array<vec4f>;
-@compute @workgroup_size(1) fn test_history() {
-  result[0] = history_at(vec2f(1900.0, 1060.0));
-  result[1] = history_at(vec2f(1899.75, 1060.0));
-}`,
-        }),
-      },
-    });
-    const history = texture(1920, 1080, "rgba16float");
-    const historyOutput = buffer(32, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
-    const historyReadback = buffer(32, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
-    device.queue.writeBuffer(frame, 0, new Uint32Array([1920, 1080, 1, 0, 0, 0, 0, 0]));
-    const signal = [8192, 2048, 5736, 1];
-    device.queue.writeTexture(
-      { texture: history, origin: [1900, 1060] },
-      Uint16Array.from(signal, floatToHalf),
-      { bytesPerRow: 8 },
-      [1, 1],
-    );
-    const historyEncoder = device.createCommandEncoder();
-    const historyPass = historyEncoder.beginComputePass();
-    historyPass.setPipeline(historyPipeline);
-    historyPass.setBindGroup(
-      0,
-      device.createBindGroup({
-        layout: historyPipeline.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: { buffer: frame } },
-          { binding: 3, resource: history.createView() },
-          { binding: 7, resource: { buffer: historyOutput } },
-        ],
-      }),
-    );
-    historyPass.dispatchWorkgroups(1);
-    historyPass.end();
-    historyEncoder.copyBufferToBuffer(historyOutput, 0, historyReadback, 0, 32);
-    device.queue.submit([historyEncoder.finish()]);
-    await historyReadback.mapAsync(GPUMapMode.READ);
-    const historyValues = new Float32Array(historyReadback.getMappedRange()).slice();
-    historyReadback.unmap();
-    assert.deepEqual([...historyValues.slice(0, 4)], signal);
-    const sinc = (x) => (x === 0 ? 1 : Math.sin(Math.PI * x) / (Math.PI * x));
-    const kernel = (x) => (Math.abs(x) >= 2 ? 0 : sinc(x) * sinc(x / 2));
-    const normalization = [-1, 0, 1, 2].reduce((sum, x) => sum + kernel(x - 0.75), 0);
-    for (let channel = 0; channel < 4; channel++) {
-      const expected = (signal[channel] * kernel(0.25)) / normalization;
-      assert.ok(
-        Math.abs(historyValues[4 + channel] - expected) <= 2 ** -18 * Math.max(1, expected),
-        `fractional 1080p history channel ${channel}`,
-      );
-    }
-
+    const sourcePort = await verifyAmdResolvePort(device, buffer, texture);
     const width = 19;
     const height = 13;
     const count = width * height;
     // Instrument the actual Resolve entry point; only its stores change. This
     // observes its primary reprojection rather than duplicating its math.
-    const projectionCode = NATIVE_TEMPORAL_V2_RESOLVE_WGSL.replace(
-      "@group(0) @binding(8) var output_color: texture_storage_2d<rgba16float, write>;",
-      "@group(0) @binding(10) var<storage, read_write> projection: array<vec4f>;",
-    )
-      .replace("@group(0) @binding(9) var output_state: texture_storage_2d<rg32float, write>;", "")
-      .replace(
-        "textureStore(output_color, p, vec4f(result * current_p(), confidence));",
-        "projection[id.y * frame.size.x + id.x] = vec4f(history_pixel, pixel_motion);",
-      )
-      .replace("textureStore(output_state, p, vec4f(moments, 0.0, 0.0));", "");
-    assert.ok(projectionCode.includes("projection[id.y"));
+    let projectionCode = NATIVE_TEMPORAL_V2_RESOLVE_WGSL.replace(
+      "@group(0) @binding(6) var current_history: texture_storage_2d<rgba16float, write>;",
+      "@group(0) @binding(16) var<storage, read_write> projection: array<vec4f>;",
+    );
+    const bodyEnd = projectionCode.indexOf(
+      "  let existing = inside(reprojected_uv);",
+      projectionCode.indexOf("fn main("),
+    );
+    assert.ok(bodyEnd > 0);
+    projectionCode =
+      projectionCode.slice(0, bodyEnd) +
+      `
+  projection[id.y * frame.size.x + id.x] = vec4f(reprojected_uv * vec2f(frame.size) - 0.5, -motion * vec2f(frame.size));
+}`;
     const projectionLayout = device.createBindGroupLayout({
       entries: [
         { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-        ...[1, 2, 3, 4, 7].map((binding) => ({
-          binding,
-          visibility: GPUShaderStage.COMPUTE,
-          texture: { sampleType: binding === 3 ? "float" : "unfilterable-float" },
-        })),
-        ...[5, 6].map((binding) => ({
-          binding,
-          visibility: GPUShaderStage.COMPUTE,
-          buffer: { type: "read-only-storage" },
-        })),
-        { binding: 10, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+        { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "unfilterable-float" } },
+        { binding: 16, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
       ],
     });
     const projectionPipeline = await device.createComputePipelineAsync({
@@ -591,16 +140,7 @@ export async function runFinalPixelTemporalPullSemanticsGpuOracle(device) {
       if (node.name === "Native Temporal V2/current depth" && node.version > 0) depthId = i;
     }
     assert.ok(analysisId >= 0 && depthId >= 0);
-    const projectionIds = [
-      "Native Temporal V2/frame",
-      "color",
-      "seed",
-      "Native Temporal V2/previous color",
-      "Native Temporal V2/previous state",
-      "P",
-      "previous P",
-      "Native Temporal V2/analysis",
-    ].map((name) => {
+    const projectionIds = ["Native Temporal V2/frame", "seed"].map((name) => {
       for (let i = 0; i < graph.resourceNodeCount; i++) {
         const node = graph.getResourceNode(i);
         if (node.name === name && node.version === 0) return i;
@@ -658,13 +198,9 @@ export async function runFinalPixelTemporalPullSemanticsGpuOracle(device) {
         device.createBindGroup({
           layout: projectionLayout,
           entries: [
-            ...projectionIds.map((id, binding) => ({
-              binding,
-              resource: [0, 5, 6].includes(binding)
-                ? { buffer: resources.get(id) }
-                : resources.get(id).createView(),
-            })),
-            { binding: 10, resource: { buffer: projections } },
+            { binding: 0, resource: { buffer: resources.get(projectionIds[0]) } },
+            { binding: 2, resource: resources.get(projectionIds[1]).createView() },
+            { binding: 16, resource: { buffer: projections } },
           ],
         }),
       );
@@ -679,7 +215,7 @@ export async function runFinalPixelTemporalPullSemanticsGpuOracle(device) {
       );
     });
     for (const id of [output, analysisId, depthId]) inspect.read(id);
-    for (const id of projectionIds) inspect.read(id);
+    for (const id of projectionIds) if (id >= 0) inspect.read(id);
     writtenReadback = inspect.write(readbackId);
     inspect.make_side_effect();
     compiled = graph.compile();
@@ -689,6 +225,8 @@ export async function runFinalPixelTemporalPullSemanticsGpuOracle(device) {
         .passes.filter((pass) => !pass.culled)
         .map((pass) => pass.name),
       [
+        "Native Temporal V2/Measure",
+        "Native Temporal V2/Exposure",
         "Native Temporal V2/Analyze",
         "Native Temporal V2/Resolve",
         "FSR3/RCAS",
@@ -696,10 +234,15 @@ export async function runFinalPixelTemporalPullSemanticsGpuOracle(device) {
       ],
     );
     const submitted = [];
+    // Source separation law: with previous depth 1 and d = 2*Ksep*halfViewport*z,
+    // the four equal samples yield confidence 1/2. Exercise the real Analyze
+    // writer's soft response, not just its saturated accept/reject endpoints.
+    const separationScale = 1.37e-5 * Math.hypot(width * 0.5, height * 0.5);
     const cases = [
       { expectedPrevious: 2, current: 2, coverage: 0 },
       { expectedPrevious: 2, current: 3, coverage: 1 },
       { expectedPrevious: 3, current: 1, coverage: 1 },
+      { expectedPrevious: 1 / (1 - 2 * separationScale), current: 1, coverage: 0.5 },
       { expectedPrevious: 1, current: 4, coverage: 1 },
       { expectedPrevious: 8, current: 8, coverage: 0 },
       { expectedPrevious: 8, current: 10, coverage: 1, neighbor: true },
@@ -760,11 +303,15 @@ export async function runFinalPixelTemporalPullSemanticsGpuOracle(device) {
             `frame ${f}, pixel ${i} own-pixel motion`,
           );
         }
-        assert.equal(
-          Math.abs(values[i * 4]),
-          neighbor ? 0 : cases[f].coverage,
-          `frame ${f}, pixel ${i} pull coverage`,
-        );
+        const expectedConfidence = neighbor ? 0 : cases[f].coverage;
+        if (expectedConfidence === 0 || expectedConfidence === 1) {
+          assert.equal(Math.abs(values[i * 4]), expectedConfidence, `frame ${f}, pixel ${i} pull confidence`);
+        } else {
+          assert.ok(
+            Math.abs(values[i * 4] - expectedConfidence) <= 1 / 255,
+            `frame ${f}, pixel ${i} source separation confidence, including RGBA8 quantization`,
+          );
+        }
         assert.equal(
           values[i * 4 + 1],
           neighbor ? 4 : cases[f].current,
@@ -773,7 +320,7 @@ export async function runFinalPixelTemporalPullSemanticsGpuOracle(device) {
       }
     }
     owner.destroy();
-    assert.equal(owner.allocatedBytes, count * 40 + 52, "last consumer fence still owns histories");
+    assert.equal(owner.allocatedBytes, count * 46 + 196, "last consumer fence still owns histories");
     releaseRetirement();
     await retirement;
     await Promise.resolve();
@@ -781,11 +328,9 @@ export async function runFinalPixelTemporalPullSemanticsGpuOracle(device) {
     assert.equal(owner.allocatedBytes, 0);
     return {
       status: "passed",
-      moments: ["zero-variance HDR edge", "known within-pixel variances"],
-      outputDomain,
-      reconstruction:
-        "actual Analyze/Resolve entry points preserve affine pixel integrals across five jitter/P phases",
-      historyFilter: "exact integer and fractional Lanczos at 1080p far corner",
+      sourcePort,
+      historyFilter:
+        "Complete AMD source-profile Resolve versus manual point filtering and CPU radial weights",
       primaryProjection:
         "actual Resolve entry point uses each pixel's own Seed with a nearer independently moving neighbor",
       cachedGraphSubmissions: cases.length,
@@ -794,6 +339,7 @@ export async function runFinalPixelTemporalPullSemanticsGpuOracle(device) {
         "expected previous-view z",
         "raw current depth",
         "nearer prior occluder",
+        "source depth separation soft confidence at one half",
         "nearby foreground motion cannot replace the current pixel's Seed",
         "abort preserves role",
         "three queue-ordered submissions",

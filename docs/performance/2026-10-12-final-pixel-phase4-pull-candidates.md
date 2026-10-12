@@ -7,7 +7,7 @@ state: history
 
 起始生产HEAD `015548a7d5707975701a844c3b06df3ba8a28303`。本记录是候选事实，不是新设计/执行authority。Phase3已完成的结构、语义与提交闭包未发现新返工或延期依据；Phase2/3已有成本回归仍保留，依执行计划在Phase5/6联合收口。没有使用子agent。
 
-**Phase4未完成。** 当前返工边界见文末“观测、估计与噪声责任返工”；C59及统一信号域domain候选均为历史检查点，不能作为当前代码的质量/成本状态。尚未切生产、尚未删除生产native scatter/SPD/histories，不进入Phase5。生产保持Seed classifier→FSR Prepare/scatter/clear/SPDs→旧T3→RCAS。候选失败不满足architecture falsification条件。
+**Phase4未完成。** 最新边界见文末“参考profile迁移与质量比较校准”；C59、domain及自主估计器候选均为历史检查点，不能作为当前代码的质量/成本状态。尚未切生产、尚未删除生产native scatter/SPD/histories，不进入Phase5。生产保持Seed classifier→FSR Prepare/scatter/clear/SPDs→旧T3→RCAS。候选失败不满足architecture falsification条件。
 
 ## C59候选物理图与Cost Card（历史）
 
@@ -149,7 +149,7 @@ ADD：Analyze18×18 RGBA f32 raw halo5184B+两块16×16 f32统计2048B，共7232
 | estimator-v1 | 有适用域的积分观测、同域统计、真实observation mass | 119 |
 | observation-v1 | raw空间分布与color估计分责、撤掉reconstructed tile；把变化混进历史noise仍导致光照迟滞 | 152 |
 | ordered-v1 | last observation/centered variance、相邻观测gain；对gain值乘confidence仍引入幅度偏差 | 140 |
-| ordered-final（当前隔离代码） | gain与confidence分责；同一质量矩阵 | **126，质量资格拒绝** |
+| ordered-final（历史隔离代码，已删除） | gain与confidence分责；同一质量矩阵 | **126，质量资格拒绝** |
 
 原件 `.local/phase4-pull-{innovation-v1,estimator-v1,observation-v1,ordered-v1,ordered-final}.json`（UTF-16），解析同名`.quality.json`；source快照在`.local/native_temporal_v2-{domain-v3,innovation-v1,estimator-v1,observation-v1}.ts`及最终Git修改。失败数减少不构成采纳条件，当前不能切生产。没有放宽2^-10/ROI/逐frame/energy门、尺寸/帧号/场景特判或Dungeon局部benchmark。
 
@@ -172,4 +172,42 @@ Analyze仍7232B shared/2barriers，Resolve现在**1600B/1barrier**。完整WG cu
 
 保留中间失败：`phase4-pull-semantics-estimator-v1.json`为oracle自动layout漏删unused binding，v1b修正后过；`phase4-pull-semantics-ordered-v1.json`为module-not-loaded宿主失败，v1b实际执行暴露FrameGraph binder先取undeclared previous color，修正先排除真实unused binding后v1c过。都不是质量通过/架构不可能证据，没有吞异常。actual writer保原HDR reference/有限值/alpha/角色检查，其upscale帧仍不退休V2，故不作整Renderer按域退休证明。
 
-**本轮完成的是可审查的数据责任、事务与数学检查返工，Phase4整体仍未完成。** remaining small质量、1080p×256动态、Renderer policy/按域资源退休、原子production cutover与完整Phase成本均未交付。下一步应在同一完整估计器内处理上表四类反例，不能继续单case补偿、推进Phase5或宣称architecture falsified。
+**该历史轮完成的是数据责任、事务与数学检查返工，未完成Phase4。** 自主估计器方向随后按用户要求退休，以完整成熟参考profile替代，见下节；上述数值与失败不追认为修复。
+
+## 参考profile迁移与质量比较校准（2026-10-12）
+
+源码基准HEAD `e26b922b83e244437f7676e13723fb1eece51d6c`。隔离候选改用AMD SDK 1.1.4 `c6efa6bf7f2027b3ec94f28578bb5965eabb9e55`的完整重建/历史响应profile，MIT与函数映射见porting记录；删除renderer的自主`native_temporal_v2.ts`，新增`native_temporal_amd.ts`。Donut完整候选因质量拒绝，仅保留test-only参考。当前隔离物理图为Seed→Measure→Exposure→Analyze→Resolve→RCAS，生产仍旧T3。这是候选移植与物理适配，未达到production adoption。
+
+AMD候选保留径向Lanczos/Gaussian统计、fractional16-point history、thin locks、四帧luma instability、源confidence/elliptic clipping/tone-domain blend与曝光适配。Analyze的previous-depth pull仍有本地对称depth/slope判定，尚未完成AMD `ComputeDisocclusions`语义适配；不能声明其完整来源adoption。曝光reset已定位并修正；格式边界和UV算术次序的对照还需要当前build复验，不能把减少失败数当来源/质量通过。
+
+成本修订：V2 history46B/pixel，加完整Seed identity pair32B，共78B/pixel（旧70B），固定资源196B；transient analysis4B、half-depth约.5B/pixel及64tile日志。store下限约63.5对旧69B/pixel，未计共同HDR/RCAS/SPD/RMW，不是实测DRAM收益。Measure/Exposure各16KiB shared，Analyze10880B；Analyze每output16个source difference、每个10次luma取样与sort是显著ADD。旧native scatter/clear/SPD等DELETE尚未在生产兑现，无净性能资格。
+
+保留GPU结果：`phase4-pull-semantics-amd-v12.json`在原.003容差下通过8场景2392pixel/19136lane及共同事务等检查，仅证明当时build；v13改变instability半精度边界失败，已撤回；v14 probe错误假定pack必与store不同，后改独立CPU nearest负对照，修正尚待复跑。`phase4-pull-amd-v14.json`/`.quality.json`仍为**55条原质量门失败**。后续源UV次序修改尚未在该结果中验证；不得写成当前shader已通过。
+
+用户随后问质量检查是否过严并授权适度放宽。原所有normalized RMSE均用固定`reference+2^-10`，缺乏将不同算法的小指标差异视为可接受的空间；该floor也不等于所有格式误差的严格传播上界。统一改为：序列/ROI HDR及display RMSE允许`max(2^-10,1%×reference)`增量，逐frame ROI RMSE允许`max(2^-10,3%×reference)`；energy/phase、独立拖尾/峰值/settling和numeric/identity/motion/lifecycle不放宽。1%/3%是用户授权的工程取舍，不是感知证明；场景/ROI/golden/warmup不变，保留旧严格诊断与实际policy。
+
+对已保存v14数据的离线重评（`.local/phase4-quality-policy-v1.json`）：55→**19条仍失败**，其中foreground15、fast reverse2、external-jitter Siemens2。它不是新GPU执行，也不追认原55条为通过。
+
+| v14真实观测 | Native / Before | 含义 |
+| --- | --- | --- |
+| static thin全图HDR RMSE | .328598 / .328419 | +.0545%，允许统一小差异 |
+| fast reverse全图HDR RMSE | .338434 / .337321 | +.3300%，但逐帧仍有失败 |
+| light step/ramp全图HDR RMSE | .107944 / .107490 | +.4230%，不必追逐数值相同 |
+| foreground ROI HDR RMSE | .096610 / .078529 | +23.0%，实质退化，不能调门掩盖 |
+| foreground frame22 ROI RMSE | .225964 / .123999 | +82.2%，必须查遮挡与history资格 |
+
+本次只校准测试比较和同步authority，未改production shader/runtime、未重跑GPU或Dungeon。下一步仍是同一AMD profile内完成previous-depth disocclusion适配与整链验证，随后补完整动态矩阵、真实writer、policy/生命周期、原子cutover和成本；Phase4仍未完成，不推进Phase5。
+
+## AMD深度分离移植与轮廓motion输入定位
+
+后续用户授权继续完成Phase4。`depth_history_confidence`移植AMD `ComputeDisocclusions`的四点加权、`Ksep=1.37e-5`/半viewport长度与单侧分离规则，删除原对称depth/slope/min-depth混合规则。actual previous-depth pull不使用source scatter的小motion snapping；sky独立处理。保自己的Seed读取，未切生产。jitter消除统一像素域再转UV，避免独立Resolve fixture中静止motion出现微小非零并进入不同历史分支。
+
+原失败保留：`phase4-pull-semantics-amd-depth-v1.json`是完整Resolve differential失败，pixel0绿色.02504对.03235；源UV取消次序导致微小motion、历史分支不同。修正后`phase4-pull-semantics-amd-depth-v2.json` passed：原.003容差，8场景19136lane最大relative .0019193858；R16实测16样本，与独立CPU toward-zero一致，10项不同于CPU nearest，但同shader probe的pack与store未不同，不推断pack在所有shader上下文恒为某舍入方式。
+
+`phase4-pull-semantics-amd-depth-v3.json` passed：实际Analyze writer新增分离公式半置信度刺激（参考`z=1/(1−2*Ksep*halfViewport)`，前depth1，包含RGBA8量化），7个cached共同提交、自己的motion/预计previous-view z/raw depth、abort/3inflight/fence仍通过。`phase4-native-writer-amd-depth-v2.json` passed：真实Native→候选完整AMD图；不冒称Renderer按域policy/cutover或动态质量验收。typecheck及14/14 Node通过，fresh build:test源SHA256 `3632e286487c3c38cb1e21a0ea76a38a06d220ae2baf9d75398141de2a032165`、output SHA256 `5e11494c3367e79755358194e0b50c840e825939b5eaeb7e38b220187b0aad8d`；完整identity与每次oracle哈希保留于raw。
+
+`phase4-pull-amd-depth-v2.json`真实GPU小矩阵仍**19条新质量门失败**（旧严格55）：fast reverse2、foreground15、external-jitter Siemens2。foreground全图HDR RMSE .096498对.075784，前景ROI .106233对.078529；单侧规则移植没有解决整链质量，不能宣称通过或完整architecture falsification。
+
+最严重frame17/pixel(27,9)的trace：current reconstruction相同约.250681；旧路径motion.x=−.0234375（−1.5pixel），新路径motion.x=0；旧输出.934082、新.118652，golden1.057436。旧source的nearest前景motion覆盖边缘的颜色AA footprint，新图使用中心背景的motion，颜色历史来自不同表面。它是参考profile输入合同差异，不是PCF/Geometry重建或全局曝光错误。AMD、Wicked、Unity的相关真实源码与许可证边界见porting记录；单侧depth移植不自动修复颜色footprint关联，Siemens/fast剩余数值问题也尚未解决。
+
+已向用户提出具体合同修订请求，尚待答复：**Seed保持每pixel自己的motion/depth/identity；Temporal颜色历史消费可在已有3×3 Seed中按AMD选择前景receiver。** 拟新增9个Seed读取/比较、可能的短private live-state，不新增full-screen Prepare产品/dispatch，不恢复scatter/clear或Geometry恢复。这会撤销当前禁止邻居motion消费及必删9depth search的部分承诺，因此当前未擅自实施、未改目标authority，也没有第二production path。选定后需同时完成Analyze/Resolve的receiver关联与独立资格、全部消费者/事务及重算Cost Card，不是仅替换一个textureLoad。

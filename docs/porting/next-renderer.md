@@ -23,7 +23,7 @@ verifies:
     - OEngine/src/render/temporal/NativeTemporalSeed.ts
     - OEngine/src/render/temporal/NativeTemporalPasses.ts
     - OEngine/src/shaders/native_temporal.ts
-    - OEngine/src/shaders/native_temporal_v2.ts
+    - OEngine/src/shaders/native_temporal_amd.ts
     - OEngine/src/render/temporal/NativeTemporalV2.ts
     - OEngine/tests/oracle/final-pixel-temporal-pull-gpu.mjs
     - OEngine/tests/oracle/final-pixel-temporal-pull-semantics-gpu.mjs
@@ -1570,12 +1570,23 @@ Local：c71c6d31生产Facts的jittered motion、四字段identity/signature、ha
 
 ## V5 Phase4 previous-depth pull 非生产候选（2026-10-12）
 
-Reference：AMD MIT `c6efa6bf7f2027b3ec94f28578bb5965eabb9e55`完整`ffx_fsr3upscaler_prepare_inputs.h::PrepareInputs`、`ffx_fsr3upscaler_reproject.h`及`ffx_fsr3upscaler_accumulate.h::Accumulate`，连同HEAD `015548a7`真实T3图作为quality reference。Wicked MIT `7f776d02094571dd2c8166c7e5879d5e93d2b642`完整`temporalaaCS.hlsl::main`仅参考halo/pull物理结构；未复制其框架、简单current/previous-depth阈值或half/Gather实现。
+选定Reference/Adapt：AMD FidelityFX SDK1.1.4，MIT，revision `c6efa6bf7f2027b3ec94f28578bb5965eabb9e55`，固定源码 `tools/fsr3-port/upstream/sdk/include/FidelityFX/gpu/fsr3upscaler/` 与 `sdk/src/components/fsr3upscaler/ffx_fsr3upscaler.cpp`。本轮核读完整prepare_inputs、luma_pyramid、shading_change_pyramid、shading_change、prepare_reactivity、luma_instability、upsample、sample、reproject、accumulate及host reset；原Native T3 test fixture也是明确的本地参考，而非伪称未改写AMD源码。
 
-Adapt：`native_temporal_v2.ts::history_at/lanczos`手动point形式的16-point fractional history支持、center-range clamp与Gaussian统计数学，保留AMD MIT notice；不宣称完整FSR算法移植或Source Parity。Local：Native Seed的expected previous-view z与raw depth pull、完整identity比较、coverage/多尺度response、先插值within-pixel variance、scene-linear moments、解析三点二次像素积分，以及`NativeTemporalV2`单提交/abort/retirement事务。像素积分由反导数独立验证，不伪称AMD/Wicked函数。
+| 来源函数 / 必要行为 | 本地当前映射 |
+|---|---|
+| PrepareInputs/GetCurrentFrameLuma、FindDepthExtents所选inverted permutation | native_temporal_amd::Measure，raw luma/恒等center farthest；删search/dilation/scatter |
+| LumaPyramid/SPD reduction、host reset[-1,1,0,0] | Measure64tile log归约→Exposure全局合作归约与adaptation，保必要half层边界，无SPD全图 |
+| ShadingChangePyramid五样本差异/sort/三个尺度、ShadingChange | Analyze local32tile及16/8/4归约；无全屏shading products |
+| PrepareReactivity/UpdateAccumulation/MotionDivergence | Analyze参考confidence1/3及reactivity；关联Seed替dilated field |
+| PrepareReactivity/ComputeDisocclusions | Analyze::depth_history_confidence，四point权重与Ksep/halfViewport单侧分离置信度；Seed.z与actual previous-view depth比较，删本地对称slope规则；不使用属于same-frame scatter的small-motion snapping，sky0按独立资格处理 |
+| ComputeThinFeatureConfidence、LumaInstability | Resolve保thin detection/lock与四帧luma response |
+| UpsampleLanczos、Gaussian box、Sample/Reproject/Accumulate/RectifyHistory | Resolve保current radial reconstruction、16point history/base clamp/center range、elliptic clip/lock/instability、tone-domain blend |
+| RCAS | 共用未变Fsr3RcasPass，原参数/alpha合同 |
 
-HEAD runtime/Native passes/shader冻结为test-only `tests/oracle/reference/phase4/`；shared FSR helpers/RCAS/constants仍取未改动test build，改变它们时必须保持Before冻结边界。候选仅oracle引用，无production selector。moments/pixel integral/深度pull/cached graph的GPU语义通过范围与失败fixture、尚未通过的small质量、缺失的真实Native→V2及1080p动态/成本出口见[Phase4候选报告](../performance/2026-10-12-final-pixel-phase4-pull-candidates.md)。没有production adoption、完整Runtime Validated或performance晋级。
+Local physical integration：NativeTemporalV2 histories/Measure→Exposure→Analyze→Resolve→RCAS graph、Seed current/previous identity与expected previous-view z pull、自己的motion、单command成功提交/abort/3inflight/fence。**geometry eligibility是改变参考scatter/dilation关联的本地适配，不宣称它已达到质量。** 不移植D3D/Vulkan框架、bindless/wave假设，不用固定曝光删全局依赖，不把SDK confidence称radiance mass。保AMD MIT notice。
 
-Phase4信号域返工补充：Adapt为上述AMD pin的`ffx_fsr3upscaler_upsample.h::GetUpsampleLanczosWeight`与现有T3的径向Lanczos2ApproxSq支持；Local为截断质心的仿射校正、统一输出域重建/统计/moments、同域时间不确定性支持及Seed/V2共同真实command提交闭包。原三点二次积分实现已从当前候选退休，其历史证明不证明新径向核精确积分二次或轮廓面积。真实Native writer测试已有隔离闭包，Renderer policy/退休及质量门仍未通过；最新范围与拒绝只读同一候选报告，不提升adoption。
+NVIDIA Donut revision `e50042f4bbd762971cc90431261e967404855b81`（MIT），`shaders/passes/taa_cs.hlsl::main`完整single-sample/Catmull-Rom/PQ feedback profile已移出renderer，位于test-only `tests/oracle/reference/donut/`，数值通过但质量不合格，不能作为production第二path。之前自主gain/innovation/mass estimator源码退休，其数学/失败记录只留[Phase4报告](../performance/2026-10-12-final-pixel-phase4-pull-candidates.md)；旧证明不能证明当前算法。
 
-Phase4观测/估计分责补充：上一段是domain-v3的历史候选，当前积分核改为Local可分离三点二次反导数，实际Analyze/Resolve entry独立验证适用域，不声称轮廓面积。重新核读同一AMD MIT pin的完整`ffx_fsr3upscaler_accumulate.h::Accumulate/RectifyHistory/ComputeBaseAccumulationWeight`、`ffx_fsr3upscaler_luma_instability.h::ComputeLumaInstabilityFactor/LumaInstability`与`ffx_fsr3upscaler_shading_change.h::ShadingChange`，以及固定Wicked完整TAA；只保原history filter/Gaussian Adapt，未移植四帧luma/lock、HDR tone blend、motion dilation或框架。Local为last observation/centered innovation variance、两帧观测gain与历史mass分责、raw空间分布与估计器分责、own motion及Seed/V2共同提交。真实writer/数学GPU已过有限范围，small质量126条失败，生产及Renderer policy未切换；不提升adoption、Runtime Validated或performance claim。
+Frozen `tests/oracle/reference/phase4/`为旧production质量reference；必要shared FSR helpers/RCAS/constants仍来自未改动test build，改它们时必须维持Before冻结。8场景complete Resolve differential及提交生命周期通过；完整Measure/Analyze数值与small质量、1080p动态、real writer、Renderer policy/cutover和成本尚未全闭合。候选只由oracle消费，**不声明完整SDK移植adoption、production Runtime Validated或performance改善**。
+
+2026-10-12后续来源核对：AMD `prepare_inputs.h::FindDepthExtents`、已有Wicked MIT pin的`temporalaaCS.hlsl::main`均为颜色历史选择邻近前景motion。Unity Graphics [`6c031c7fd8cdc77b5879da5e823a159cda8c6f64::TemporalAntialiasing.hlsl`](https://github.com/Unity-Technologies/Graphics/blob/6c031c7fd8cdc77b5879da5e823a159cda8c6f64/Packages/com.unity.render-pipelines.high-definition/Runtime/PostProcessing/Shaders/TemporalAntialiasing.hlsl)的`GetClosestFragmentOffset/GetMotionVector`同样采用前景/最大motion；该仓库为Unity Companion License，仅研究算法边界，**不复制其源码到EEngine**。这些源码不证明必须恢复独立Prepare pass/scatter，也不证明own-motion方案数学上不可能；它们证明当前AMD profile的输入合同包含轮廓motion选择。该消费合同修订已请求用户确认，当前尚未实施。

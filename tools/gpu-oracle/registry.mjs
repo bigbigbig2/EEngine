@@ -17,7 +17,8 @@ export const oracles = Object.freeze([
     entry: "runFinalPixelSeedQualityGpuOracle",
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     requiredFeatures: ["texture-compression-bc", "texture-formats-tier1"],
-    description: "Phase3 actual Native Seed vs frozen Facts and current T3, four 1080p dynamic 256-frame sequences.",
+    description:
+      "Phase3 actual Native Seed vs frozen Facts and current T3, four 1080p dynamic 256-frame sequences.",
     timeoutMs: 600000,
   }),
   Object.freeze({
@@ -26,7 +27,8 @@ export const oracles = Object.freeze([
     url: "/OEngine/tests/oracle/final-pixel-sun-response-gpu.mjs",
     entry: "runFinalPixelSunResponseGpuOracle",
     timeoutMs: 120000,
-    description: "Invocation-private Sun BRDF response against frozen math, exact HDR/coat/visibility and overflow finite guards.",
+    description:
+      "Invocation-private Sun BRDF response against frozen math, exact HDR/coat/visibility and overflow finite guards.",
   }),
   Object.freeze({
     name: "final-pixel-shadow-quality",
@@ -35,14 +37,16 @@ export const oracles = Object.freeze([
     entry: "runFinalPixelShadowQualityGpuOracle",
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     timeoutMs: 600000,
-    description: "Full 1080p 256-frame Native receiver/Sun visibility against analytic planes, all page boundaries and frozen S3 quality envelope.",
+    description:
+      "Full 1080p 256-frame Native receiver/Sun visibility against analytic planes, all page boundaries and frozen S3 quality envelope.",
   }),
   Object.freeze({
     name: "final-pixel-seed-epoch",
     file: "OEngine/tests/oracle/final-pixel-phase1-gpu.mjs",
     url: "/OEngine/tests/oracle/final-pixel-phase1-gpu.mjs",
     entry: "runFinalPixelSeedEpochGpuOracle",
-    description: "Real Seed producer/consumer and pending resize released on controlled device destruction, fresh invalid histories on two epochs.",
+    description:
+      "Real Seed producer/consumer and pending resize released on controlled device destruction, fresh invalid histories on two epochs.",
     timeoutMs: 120000,
   }),
   Object.freeze({
@@ -50,7 +54,8 @@ export const oracles = Object.freeze([
     file: "OEngine/tests/oracle/final-pixel-solar-gpu.mjs",
     url: "/OEngine/tests/oracle/final-pixel-solar-gpu.mjs",
     entry: "runFinalPixelSolarGpuOracle",
-    description: "Unchanged half LUT publication and linear clamp samples against independent numeric and filtered provider references.",
+    description:
+      "Unchanged half LUT publication and linear clamp samples against independent numeric and filtered provider references.",
     timeoutMs: 120000,
   }),
   Object.freeze({
@@ -61,7 +66,8 @@ export const oracles = Object.freeze([
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     requiredFeatures: ["texture-formats-tier1", "texture-compression-bc"],
     timeoutMs: 300000,
-    description: "Complete nonproduction V5 closure on 16 sampled / 16 storage binding limits, including real maximum material consumers.",
+    description:
+      "Complete nonproduction V5 closure on 16 sampled / 16 storage binding limits, including real maximum material consumers.",
   }),
   Object.freeze({
     name: "final-pixel-phase1",
@@ -80,7 +86,8 @@ export const oracles = Object.freeze([
     url: "/OEngine/tests/oracle/final-pixel-phase1-gpu.mjs",
     entry: "runFinalPixelBindingBoundaryGpuOracle",
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
-    description: "The old sampled-limit counterexample compiles with fused Sun at the negotiated minimum limit, without continuation.",
+    description:
+      "The old sampled-limit counterexample compiles with fused Sun at the negotiated minimum limit, without continuation.",
     timeoutMs: 120000,
   }),
   Object.freeze({
@@ -90,15 +97,18 @@ export const oracles = Object.freeze([
     entry: "runFinalPixelTemporalPullGpuOracle",
     requiredFeatures: ["texture-formats-tier1"],
     timeoutMs: 300000,
-    description: "Isolated complete V5 pull candidate versus production 015548 and independent 8x8 goldens; no production selector.",
+    description:
+      "Isolated complete V5 pull candidate versus production 015548 and independent 8x8 goldens; no production selector.",
   }),
   Object.freeze({
     name: "final-pixel-temporal-pull-semantics",
     file: "OEngine/tests/oracle/final-pixel-temporal-pull-semantics-gpu.mjs",
     url: "/OEngine/tests/oracle/final-pixel-temporal-pull-semantics-gpu.mjs",
     entry: "runFinalPixelTemporalPullSemanticsGpuOracle",
+    requiredFeatures: ["texture-formats-tier1"],
     timeoutMs: 120000,
-    description: "Actual V5 observation/noise state, integral estimator, mass, illumination and cached pull transaction checks.",
+    description:
+      "Complete AMD Resolve profile differential, own Seed reprojection, previous-depth pull and cached submission lifecycle.",
   }),
   Object.freeze({
     name: "final-pixel-temporal-writer",
@@ -106,7 +116,7 @@ export const oracles = Object.freeze([
     url: "/OEngine/tests/oracle/final-pixel-phase1-gpu.mjs",
     entry: "runFinalPixelTemporalWriterGpuOracle",
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
-    requiredFeatures: ["texture-compression-bc"],
+    requiredFeatures: ["texture-compression-bc", "texture-formats-tier1"],
     timeoutMs: 180000,
     description:
       "Actual Native Surface Seed -> V2 graph with joint ShadeGPUCommandContext submission, abort and fence retirement.",
@@ -119,7 +129,8 @@ export const oracles = Object.freeze([
     entry: "runNativeTemporalV2GpuOracle",
     requiredFeatures: ["texture-formats-tier1"],
     timeoutMs: 300000,
-    description: "Native-resolution chain versus frozen FSR and analytic HDR/motion sequences, per-frame ROI response and partial domains.",
+    description:
+      "Native-resolution chain versus frozen FSR and analytic HDR/motion sequences, per-frame ROI response and partial domains.",
   }),
   Object.freeze({
     name: "native-temporal-v2-cost",
@@ -128,7 +139,8 @@ export const oracles = Object.freeze([
     entry: "runNativeTemporalV2CostGpuOracle",
     requiredFeatures: ["texture-formats-tier1", "timestamp-query"],
     timeoutMs: 300000,
-    description: "ABBA complete native-resolution temporal chains at 1080p against frozen before; raw timestamps, not a gain assertion.",
+    description:
+      "ABBA complete native-resolution temporal chains at 1080p against frozen before; raw timestamps, not a gain assertion.",
   }),
   Object.freeze({
     name: "vsm-shadow-receiver",
@@ -136,7 +148,8 @@ export const oracles = Object.freeze([
     url: "/OEngine/tests/oracle/vsm-shadow-receiver-gpu.mjs",
     entry: "runVsmShadowReceiverGpuOracle",
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
-    description: "Production depth/geometry receiver against analytic flat/sloped/perspective/mirrored planes and isolated winners.",
+    description:
+      "Production depth/geometry receiver against analytic flat/sloped/perspective/mirrored planes and isolated winners.",
   }),
   Object.freeze({
     name: "vsm-shadow-resolve",
@@ -144,7 +157,8 @@ export const oracles = Object.freeze([
     url: "/OEngine/tests/oracle/vsm-shadow-resolve-gpu.mjs",
     entry: "runVsmShadowResolveGpuOracle",
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
-    description: "Production packed Shadow Resolve/decoder against analytic receiver and per-pixel PCF; partial/neutral/stale/abort/resize.",
+    description:
+      "Production packed Shadow Resolve/decoder against analytic receiver and per-pixel PCF; partial/neutral/stale/abort/resize.",
   }),
   Object.freeze({
     name: "vsm-v4-r1",
@@ -152,7 +166,7 @@ export const oracles = Object.freeze([
     url: "/OEngine/tests/oracle/vsm-v4-r1-gpu.mjs",
     entry: "runVsmR1GpuOracle",
     description:
-      "Complete affine caster depth against eight corners, invalid/empty domain, signed world-window retention."
+      "Complete affine caster depth against eight corners, invalid/empty domain, signed world-window retention.",
   }),
   Object.freeze({
     name: "vsm-local-invalidation",
@@ -160,7 +174,7 @@ export const oracles = Object.freeze([
     url: "/OEngine/tests/oracle/vsm-local-invalidation-gpu.mjs",
     entry: "runVsmLocalInvalidationGpuOracle",
     description:
-      "Production complete caster old/new damage, stable/expanded depth, full identities, all clips/mips/gutters, MASK and abort/growth retry."
+      "Production complete caster old/new damage, stable/expanded depth, full identities, all clips/mips/gutters, MASK and abort/growth retry.",
   }),
   Object.freeze({
     name: "native-authored-ibl-production",
@@ -170,21 +184,24 @@ export const oracles = Object.freeze([
     allowPrefixes: ["OEngine/src/render/assets/"],
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     requiredFeatures: ["texture-formats-tier1"],
-    description: "Real Renderer NPOT authored environment to lit Native winner, resize/abort/scene switch and controlled device recovery.",
+    description:
+      "Real Renderer NPOT authored environment to lit Native winner, resize/abort/scene switch and controlled device recovery.",
   }),
   Object.freeze({
     name: "ibl-publication",
     file: "OEngine/tests/oracle/ibl-publication-gpu.mjs",
     url: "/OEngine/tests/oracle/ibl-publication-gpu.mjs",
     entry: "runIblPublicationGpuOracle",
-    description: "Actual physical/authored IBL publication to Native sampling: NPOT/four formats, abort retry, scratch fence, probe/Sun updates and destroy.",
+    description:
+      "Actual physical/authored IBL publication to Native sampling: NPOT/four formats, abort retry, scratch fence, probe/Sun updates and destroy.",
   }),
   Object.freeze({
     name: "ibl-filtering",
     file: "OEngine/tests/oracle/ibl-filtering-gpu.mjs",
     url: "/OEngine/tests/oracle/ibl-filtering-gpu.mjs",
     entry: "runIblFilteringGpuOracle",
-    description: "Native oct filtering vs frozen manual math: seams, NPOT, integer mips, HDR and DFG; unchanged tolerance.",
+    description:
+      "Native oct filtering vs frozen manual math: seams, NPOT, integer mips, HDR and DFG; unchanged tolerance.",
   }),
   Object.freeze({
     name: "fsr3-accumulate-cost",
@@ -192,21 +209,24 @@ export const oracles = Object.freeze([
     url: "/OEngine/tests/oracle/fsr3-accumulate-cost-gpu.mjs",
     entry: "runFsr3AccumulateCostGpuOracle",
     requiredFeatures: ["timestamp-query"],
-    description: "ABBA same-input 1080p current tile versus general Accumulate execution; raw timestamps, no quality claim.",
+    description:
+      "ABBA same-input 1080p current tile versus general Accumulate execution; raw timestamps, no quality claim.",
   }),
   Object.freeze({
     name: "fsr3-accumulate-products",
     file: "OEngine/tests/oracle/fsr3-accumulate-products-gpu.mjs",
     url: "/OEngine/tests/oracle/fsr3-accumulate-products-gpu.mjs",
     entry: "runFsr3AccumulateProductsGpuOracle",
-    description: "Production history-write to RCAS against frozen duplicate-output math: full RGB, lock alpha, HDR, jitter, motion, partial extents and upscale ratios.",
+    description:
+      "Production history-write to RCAS against frozen duplicate-output math: full RGB, lock alpha, HDR, jitter, motion, partial extents and upscale ratios.",
   }),
   Object.freeze({
     name: "vsm-sampling-publication",
     file: "OEngine/tests/oracle/vsm-sampling-publication-gpu.mjs",
     url: "/OEngine/tests/oracle/vsm-sampling-publication-gpu.mjs",
     entry: "runVsmSamplingPublicationGpuOracle",
-    description: "Compact post-commit queries vs frozen original WGSL: full identity, rolling windows, f32 boundaries, all states and exact box PCF."
+    description:
+      "Compact post-commit queries vs frozen original WGSL: full identity, rolling windows, f32 boundaries, all states and exact box PCF.",
   }),
   Object.freeze({
     name: "vsm-receiver-aggregation",
@@ -221,7 +241,8 @@ export const oracles = Object.freeze([
     file: "OEngine/tests/oracle/performance-diagnostic-gpu.mjs",
     url: "/OEngine/tests/oracle/performance-diagnostic-gpu.mjs",
     entry: "runPerformanceDiagnosticGpuOracle",
-    description: "VSM diagnostic reduction against independent CPU sets, partial/empty groups and dispatch reset.",
+    description:
+      "VSM diagnostic reduction against independent CPU sets, partial/empty groups and dispatch reset.",
   }),
   Object.freeze({
     name: "sky-radiometry",

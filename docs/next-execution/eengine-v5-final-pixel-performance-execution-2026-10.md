@@ -22,7 +22,7 @@ verifies:
     - OEngine/tests/oracle/final-pixel-shadow-quality-gpu.mjs
     - OEngine/tests/contract/final-pixel-shadow-cutover.test.mjs
     - OEngine/src/shaders/native_temporal.ts
-    - OEngine/src/shaders/native_temporal_v2.ts
+    - OEngine/src/shaders/native_temporal_amd.ts
     - OEngine/src/render/temporal/NativeTemporalV2.ts
     - OEngine/tests/contract/native-temporal-pull.test.mjs
     - OEngine/tests/oracle/final-pixel-temporal-pull-gpu.mjs
@@ -96,7 +96,7 @@ Geometry Frontend、receiver算法第一阶段冻结；local-light lookup/VSM de
 
 Reference为**本次HEAD真实生产S3+T3**，只放test-only fixture；AMD SDK是另外的source/numeric参考。隔离oracle可双图独立histories，不加production selector。
 
-复用`native-temporal-v2-gpu.mjs`的独立8×8 subpixel积分golden/16序列。normalized HDR error = `sqrt(sum((actual/P−golden)^2)/max(sum(golden^2),1e-20))`；same-phase比较f与f−8，保留warmup。新图不得超过旧production+2^-10比较底线；uniform/exposure error<.003，其他numeric原容差不变。不能把已拒pmndrs候选或c6旧图冒称当前HEAD reference。
+复用`native-temporal-v2-gpu.mjs`的独立8×8 subpixel积分golden/16序列。normalized HDR error = `sqrt(sum((actual/P−golden)^2)/max(sum(golden^2),1e-20))`；same-phase比较f与f−8，保留warmup。按用户2026-10-12授权，序列及各ROI HDR/display RMSE采用`reference + max(2^-10, .01 × reference)`；逐frame ROI RMSE采用`reference + max(2^-10, .03 × reference)`。统一1%/3%工程容差允许不同算法的微小指标差异，不证明不可见；不按场景/candidate特调。same-phase/energy保留floor-only门，原floor-only失败同时输出`strictGateFailures`诊断，raw附带`qualityPolicy`。uniform/exposure error<.003，其他numeric原容差不变。不能把已拒pmndrs候选或c6旧图冒称当前HEAD reference。
 
 完整动态1080p fixture：每case256成功提交frame、dt=1/60，前64静止warmup，64–191运动/变化，192–255停止/收敛。合成golden逐frame积分；真实Dungeon冻结camera并成对比较current生产/关键ROI人工判读。scene/golden/camera fingerprint在实现前保存，不After挑ROI。48frame/16warmup的小oracle不替代1080p矩阵。
 
@@ -109,7 +109,7 @@ Reference为**本次HEAD真实生产S3+T3**，只放test-only fixture；AMD SDK�
 | HDR / normal / coat / specular | scene-linear .5/128/8192 uniform、4096孤立点/plateau、掠射normal/coat；高亮/反射边bbox扩8px；远角ROI x1850..1918,y1050..1078 |
 | exposure / validity | frame96 P×4、128 P/4保持scene radiance；invalid motion/sky、cut/partial/offscreen reproject；全域与affected ROI |
 
-每frame/每ROI记录HDR normalized RMSE、peak绝对误差、thin信号积分能量、disocclusion拖尾能量、静止8phase残差、light/exposure响应曲线与返回旧误差包络的settling帧数。整体平均不能覆盖ROI失败。除既有half比较底线外，thin-energy/拖尾/peak/settling均不得差于reference；可用同format quantization oracle确定单项表示误差，不新增任意百分比容差。display ROI另作人工检查，不能用tone-map/8bit掩盖HDR failure。
+每frame/每ROI记录HDR normalized RMSE、peak绝对误差、thin信号积分能量、disocclusion拖尾能量、静止8phase残差、light/exposure响应曲线与返回旧误差包络的settling帧数。整体平均不能覆盖ROI失败。RMSE仅使用上述统一容差，thin-energy/拖尾/peak/settling保持原独立门；可用同format quantization oracle确定单项表示误差，不能继续放宽到candidate过关。display ROI另作人工检查，不能用tone-map/8bit掩盖HDR failure。已有small oracle的`energyError`是ROI总积分误差，不能冒称独立的拖尾/峰值/settling检测已经实现；缺项在完整矩阵中补齐。
 
 Shadow保持point multiplicity/count、gutter/clear/负reference/fine/coarse/lifetime numeric；receiver arithmetic变化用analytic plane/perspective/mirror/degenerate/isolated winner/deep-depth与moving-shadow/normal-map质量合同评价。失败分类fixture/source/ABI/算法/lifecycle/能力/成本，保存原件、修根因、重跑受影响项；不吞异常、跳断言、缩scene、放宽门。
 
@@ -221,33 +221,33 @@ Engine typecheck/build、fresh build:test、受影响31项Node、九项串行实
 
 ## 7. Phase 4 — Native Temporal V2 full graph
 
-目标：I=O唯一Analyze→Resolve→当前sharpen；先test-only隔离完整图/数学/产品/生命周期/质量，再原子切1:1所有consumer。
+目标：I=O唯一 **Measure → Exposure → Analyze → Resolve →当前sharpen**，完整参考profile先在隔离图验证，再原子切全部1:1 consumer。复杂算法按用户要求优先参考移植，不继续研发自主Temporal估计器。
 
-DELETE：native Prepare Inputs、reconstructeddepthbuffer/clear/up-to4atomicMax、9depthsearch/dilatedmotion/depth/farthest+mip、实际live Luma/ShadingSPD/change、source luma/lumaHistory/accumulation/frameInfo histories、旧T3classification/resolve/96B权重、native scatter→read边。true upscale必要算法保留，共同RCAS/radiometry不删除。
+DELETE：native旧Prepare Inputs、reconstructed-depth buffer/clear/up-to4atomicMax、9depth search/dilated motion-depth/full farthest、global Luma/Shading SPD/change产品链、旧T3 classification/resolve owner及native scatter→read边；当前autonomous gain/innovation/mass shader。true upscale保必要参考图，RCAS/radiometry共同项不算删除。
 
-ADD：Analyze8B、depthR32pair8B/pixel、stateRG32pair16B/pixel、pull/local-multiscale统计/confidence/last-observation与innovation variance、完整policy事务；Seed税已Phase3算，不重复计。persistent含identity为72B/pixel，比旧70多2B，不称大降容量。
+ADD：AMD SDK1.1.4 pin `c6efa6bf7f2027b3ec94f28578bb5965eabb9e55`完整重建/历史响应profile的Native物理适配：Measure raw luma与half box metric、log tile及96B weights；单组Exposure；Analyze previous-depth pull/local尺度差异/reactivity/source confidence；Resolve Lanczos/Gaussian/16point history/thin lock/四帧luma/rectification/tone blend。必要luma/confidence/exposure由新owner持有，不能为删除旧owner删算法信息。永久histories含identity78B/pixel，旧70，增加8B；store/clear下限69→63.5B/pixel，不称大降容量或已测收益。
 
-完整实现：Analyze读finalSky/AerialHDR/Seed/response/identity/previousdepth-color-state，预计previousz pull、edge/coverage/disocclusion/replacement并全域写analysis/currentdepth；Resolve currentstatistics/clipping、原高质量fractional支持域起步、thin/静止/光照response、P转换与f32 observation/noise state/有限confidence；Sharpen按当前默认，读**写后color history版本**，不另造同色output，最终alpha与HDR全consumer正确。
+完整producer/consumer：Native Seed事实只做一次，final Sky/Aerial HDR→Measure→Exposure→Analyze→Resolve→RCAS；Analyze无Geometry/Visibility绑定，raw depth全域写，自己的关联Seed用于previous-view z及输出域motion；不借邻居motion，不把depth支持率当颜色面积。current/previous color/depth/raw luma/四帧luma/confidence/frameInfo与Seed identity/camera在同一实际command成功submit后一起推进。Sharpen读写后color版本，不另造同色output；alpha最终1。
 
-只为active域分配对应histories，native↔upscale整组transaction、graphreuselatebind；RG32Float以textureLoad/manual权重，不隐含float32-filterable可选能力。先16序列smallgolden，失败换detector/filter/working-setcandidate，不能恢复native scatter/SPD。共享tile不是硬要求；跨函数9/16项长live数组不默认采用。
+创建前协商texture-formats-tier1、实际sampled/storage数量、16KiB shared、256lane/extent；格式量化与硬件filtered采样按参考保持。只有active域分配对应owner histories，native↔upscale整组事务/cached graph late binding/fence退休；不能双production path或legacy bridge。三核心pass及小Exposure依据数据依赖，不硬压两pass。完整源码映射与平台适配见porting。
 
-Cost gate：实际compilednativegraph没有reconstructedbuffer/clear/atomic/SPD；69→64B/pixel store下限对齐共同项，并完整计算pull/state/statistics新增；不以constant/emptyfixture消掉真HDR/history工作。native仍常驻FSRhistories则未闭合。预期DELETE>ADD和quality通过才productioncutover。
+Cost gate：compiled候选无reconstructed/clear/atomic/global SPD，统计完整local差异重算、shared/occupancy、weights/exposure边和history新增；不能只按store下限宣称DELETE>ADD。先完整数学/语义和不变small质量，再1080p×256动态；全部通过才atomic cutover。开发不跑Dungeon局部性能gate。
 
-出口：architecture review→fresh build:test→独立golden+当前HEAD reference完整1080p质量→实际ordinary/Product/motion/policy/cut/resize/abort/epoch/3inflight/release→一次完整PhaseDungeonABBA。unit完成不等于16.67验收；旧productionnative图立即退休，无fallback。单candidate失败不会否定V2。
+出口：architecture review→fresh build:test→独立golden+HEAD reference完整1080p质量→actual ordinary/Product/motion/policy/cut/resize/abort/epoch/3inflight/release→原子退休旧native图→一次完整Phase成本ABBA。Phase4关闭不代表16.67ms最终验收，下一边界Phase5。
 
 ### 7.1 Phase4当前实施边界
 
-2026-10-12重新审查：**Phase3保留，Phase4需要返工且不能推迟到Phase5。** Phase3的Native producer→Seed→native/upscale consumers没有新的结构性错误；Phase4负责删除native scatter/SPD/source histories，其完整质量与生命周期是原子cutover前置。当前production仍为Seed classifier→FSR Prepare/scatter/clear/SPDs→T3→RCAS；`NativeTemporalV2`只由隔离oracle消费，不能把候选图删除当成生产退休。
+2026-10-12从HEAD `e26b922b83e244437f7676e13723fb1eece51d6c`返工：**Phase3保留，Phase4仍未闭合，不能推迟质量到Phase5。** 用户授权修订自主算法约束，选择完整成熟参考移植并大胆删除旧图，不是授权放宽质量/漏工作。production仍Seed classifier→FSR Prepare/scatter/clear/SPDs→T3→RCAS；新NativeTemporalV2仅oracle消费，无production selector。
 
-返工按Design§8闭合一个完整估计器，不继续C60–C73的单case补偿。已证明的责任修正：自己关联的Seed/motion负责重投影；Seed identity/camera与V2 color/depth/state在同一实际command成功submit后一起推进；cached graph核对真实四个Seed角色、extent/jitter/reset，encode或abort不推进，缺consumer/提前commit/foreign command/stale role拒绝。原production classification作为尚未切换的唯一消费者保持原行为，不新增生产V2 selector/bridge。
+现隔离图切为AMD完整profile与Native previous-depth/Seed物理适配；原innovation/gain/observation-mass shader从当前源码删除。NVIDIA Donut完整profile仅test-only数值/失败证据，不留renderer shader或第二production路径。参考数学/profile与本地geometry eligibility清楚分责，禁止单case补偿。每个candidate的原失败、source/build/raw和qualification状态只读[Phase4报告](../performance/2026-10-12-final-pixel-phase4-pull-candidates.md)。
 
-DELETE：最近receiver/motion替代、前景颜色搬运、depth支持率猜颜色面积、临时抬亮/tone、把积累color当previous observation的gain反馈；删除Resolve整块reconstructed tile及第二barrier；删除Analyze的previous color/P读取及filtering sampler。ADD：明确`C_t`观测与`H_t`估计分责、last observation/centered innovation variance、两帧观测的受支持illumination transport、真实observation mass、完整Native writer→Seed→Analyze→Resolve→RCAS提交证明。只改effect-private RG32Float两字段语义，格式/字节/pass/Surface产品不增加，不改变身份、motion、raw depth、质量门或Geometry Frontend。
+已通过范围：完整Resolve differential（8场景2392像素19136lane，原.003容差）、own motion/预计previous-view z/遮挡、cached graph共同提交/abort/三inflight/fence。该数值证明不代替Measure/Analyze全部数学、dynamic质量、真实Native writer或Renderer按域退休。remaining small质量差异必须在同一完整profile内追到实际源码/坐标/格式边界；不以失败数下降采纳。
 
-必须验证的数学合同：current reconstruction适用域/常量与仿射保持；声称二次积分时用独立反导数；raw空间统计只是观测分布而非积累估计方差；HDR小方差直接保存，避免`L²+variance`舍入消去；变化拟合只读两帧观测，不用滞后color作gain；gain置信度衰减历史mass，不改变拟合出的物理gain；geometry/reactive/change拒绝清除噪声支持；相等静止观测具有相等有效mass。先通过实际shader entry的小numeric/负对照与提交生命周期，再做完整候选质量矩阵。失败按观测/滤波支持/遮挡/变化/生命周期分类，不以失败条数采纳候选。
+用户随后授权适度放宽过紧的质量比较，统一门见§2.2。保存的AMD v14结果按新门离线重评为19条失败（原严格55）；随后真实GPU `phase4-pull-amd-depth-v2.json`仍19条失败，主要foreground15、fast reverse2、Siemens2。Analyze已用参考`ComputeDisocclusions`的单侧四点分离置信度替换本地对称depth/slope判定；实际writer/独立软置信度/Resolve数值/共同事务通过，不能继续调容差掩盖整链退化。
 
-当前独立GPU覆盖actual Analyze/Resolve、普通/大jitter与P、partial extent、自己的motion、centered HDR variance/零方差空间边界、高质量16-point fractional history、previous-view z/raw depth区别、共同提交/abort/三inflight/fence。真实Native writer fixture覆盖原ordinary/Product/compact/unlit/MASK/coat/sky及提交；有限值/alpha与HDR原reference检查不等于V2质量证明，也不等于Renderer policy/按域退休。具体build/raw、原失败、当前质量缺项只读[Phase4报告](../performance/2026-10-12-final-pixel-phase4-pull-candidates.md)。
+最新根因与待确认边界：轮廓处旧AMD profile使用nearest前景motion，新图使用中心自己的motion，导致颜色历史关联不同；frame17实际trace见Phase4报告。已请求用户确认仅修订Temporal颜色历史receiver合同（在已有Seed邻域按参考选择，Seed自身与geometry身份不改、scatter/重建/独立Prepare不恢复）。该修订会改变当前禁止邻居motion消费及必删9depth search的承诺，**尚未获答复、尚未实施**；这是待确认的具体参考输入合同，不是architecture已证伪或Phase延期。确认前保留当前隔离图和生产旧T3，不切production、不推进Phase5。
 
-余下出口保持：small全部质量硬门→1080p×256完整动态矩阵→Renderer/TemporalFabric native↔upscale、AA-off/debug/bypass/cut/resize/abort/epoch共同policy与按域history退休→原子cutover并删除旧native图→完整Phase集中正确性/真实成本窗口。**Phase4未完成，不进入Phase5，不声称architecture被证伪。** 候选质量未通过时不跑Dungeon局部性能gate、不恢复scatter/SPD，也不通过更宽容门切生产。
+未完成出口：small全部硬门→1080p×256完整动态矩阵→真实Native writer闭包→Renderer/TemporalFabric native↔upscale、AA-off/debug/bypass/cut/resize/abort/epoch共同policy与按域history退休→atomic cutover并删旧native图→完整Phase集中正确性/成本窗口。**不进入Phase5，不声称architecture falsified或production adoption。** 不恢复scatter；质量门按§2.2用户授权的统一工程容差，原严格失败留诊断，不能靠继续调门掩盖遮挡退化。
 
 ## 8. Phase 5 — Integration / final retirement
 
@@ -269,7 +269,7 @@ GTX1650Ti4GB，记录actualadapter/driver/browser；1920×1080/DPR1/scale1、固
 
 先核pending/verified/inFlight/retiring、source/caster revisions、payload/drop/coverage；`fullQuality`不等于settled。预热≥240成功帧并满足settled事实稳定；动态流送独立，不删首轮burst。每ABBA块每path≥1000完整GPUframes、至少3块、GPU串行；降低sampleinterval税就延长窗口，样本仍够。correctness窗口开counters、timing全部统计关闭；不完整采样明确incomplete，不补造/混coarse。
 
-逐frame保存wholecommandspan、互斥stage、Native含PCF+Seed、VSM管理（不再含PCF）、Temporal含Analyze/Resolve/sharpen、CPUrender/admission、overlap/gaps、sensor与source/buildfingerprint。先同frame求和后`(n−1)*p`分位，不加/平均P95。P50/P95/P99/max、bootstrap区间、paired块差与raw长帧全留；thermal/clock/prewarm/CPU-IO混杂记录，不频率归一化代替实测。热状态不重叠的块不能证明精确净益。
+逐frame保存wholecommandspan、互斥stage、Native含PCF+Seed、VSM管理（不再含PCF）、Temporal含Measure/Exposure/Analyze/Resolve/sharpen、CPUrender/admission、overlap/gaps、sensor与source/buildfingerprint。先同frame求和后`(n−1)*p`分位，不加/平均P95。P50/P95/P99/max、bootstrap区间、paired块差与raw长帧全留；thermal/clock/prewarm/CPU-IO混杂记录，不频率归一化代替实测。热状态不重叠的块不能证明精确净益。
 
 通过：Design预算15.50ms+1.17headroom；**whole span P50≤16.67、settledP95≤16.67/P99≤20**、dynamicP95≤20/P99≤25且相对旧同条件不退化；quality≥当前、lifecycle/overflow/workcoverage通过；APIcandidate/active/retiring simultaneouspeak与OS驻留在4GB可稳定。尾帧未过不称稳定60FPS，compile/numeric不代替性能。
 
