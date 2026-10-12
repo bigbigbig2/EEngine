@@ -237,6 +237,7 @@ export async function runFinalPixelTemporalPullSemanticsGpuOracle(device) {
         "Native Temporal V2/Measure",
         "Native Temporal V2/Exposure",
         "Native Temporal V2/Shading Pyramid",
+        "Native Temporal V2/Shading Change",
         "Native Temporal V2/Analyze",
         "Native Temporal V2/Resolve",
         "FSR3/RCAS",

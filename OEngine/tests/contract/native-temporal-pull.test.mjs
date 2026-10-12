@@ -91,8 +91,8 @@ function fixture() {
       imported.set(id, resource);
       return id;
     },
-    add(_name, data, callback) {
-      callbacks.push({ data, callback });
+    add(name, data, callback) {
+      callbacks.push({ name, data, callback });
       return {
         read() {},
         write(id) {
@@ -130,8 +130,9 @@ function fixture() {
     }
     owner.addToGraph(graph, input, (_name, resolve) => ({ resolve }));
   };
-  const encode = (currentCommand = command) => {
-    for (const { data, callback } of callbacks) {
+  const encode = (currentCommand = command, omitPass = null) => {
+    for (const { name, data, callback } of callbacks) {
+      if (name === omitPass) continue;
       callback(
         data,
         {
@@ -219,6 +220,26 @@ test("unencoded commit is rejected; resize abort retains submitted histories, ro
   await Promise.resolve();
   assert.ok(active.every((t) => t.destroyed));
   assert.equal(f.owner.allocatedBytes, 0);
+});
+
+test("missing shading producer rejects the common history transaction; retry completes the same roles", () => {
+  for (const omitPass of ["Native Temporal V2/Shading Pyramid", "Native Temporal V2/Shading Change"]) {
+    const f = fixture();
+    f.prepare();
+    f.build();
+    assert.throws(() => f.encode(f.command, omitPass), /complete pyramid|complete shading change/);
+    assert.throws(() => f.owner.assertCompleteFrame(), /complete graph/);
+    const role = f.owner.readIndex;
+    const generation = f.owner.generation;
+    f.owner.abort();
+    assert.equal(f.owner.readIndex, role);
+    assert.equal(f.owner.generation, generation);
+    f.prepare();
+    f.encode();
+    f.owner.assertCompleteFrame();
+    f.owner.abort();
+    f.owner.destroy();
+  }
 });
 
 test("cached graph late binds both roles during three in-flight frames; cut preserves allocation", async () => {

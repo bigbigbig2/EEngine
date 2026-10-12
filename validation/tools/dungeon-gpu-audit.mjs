@@ -1,6 +1,13 @@
 // Called through Playwright addInitScript. Only the explicitly enabled
 // diagnostic example receives these observers. No render algorithm is changed.
-export function installDungeonGpuAudit() {
+export function installDungeonGpuAudit(options = {}) {
+  const temporalCaptureEnabled = options.temporalCapture === true;
+  const shaderSources = [];
+  const temporalGroups = new WeakMap();
+  const temporalPasses = new WeakMap();
+  const temporalCopies = new Map();
+  let temporalArmed = false;
+  let temporalReady = false;
   const records = [],
     byObject = new WeakMap(),
     views = new WeakMap();
@@ -128,10 +135,17 @@ export function installDungeonGpuAudit() {
     GPUDevice.prototype[method] = function (desc) {
       device = this;
       // Diagnostic-only readback of query identity and invalidation facts.
-      const observedDesc =
+      let observedDesc =
         method === "createBuffer" && /(?:\/pageConstants$|^VSM\/[^/]+\/generation$)/.test(desc.label ?? "")
           ? { ...desc, usage: desc.usage | GPUBufferUsage.COPY_SRC }
           : desc;
+      if (temporalCaptureEnabled) {
+        if (method === "createTexture") {
+          observedDesc = { ...observedDesc, usage: observedDesc.usage | GPUTextureUsage.COPY_SRC };
+        } else if (!(observedDesc.usage & (GPUBufferUsage.MAP_READ | GPUBufferUsage.MAP_WRITE))) {
+          observedDesc = { ...observedDesc, usage: observedDesc.usage | GPUBufferUsage.COPY_SRC };
+        }
+      }
       const value = original.call(this, observedDesc);
       add(value, kind, desc);
       return value;
@@ -148,6 +162,7 @@ export function installDungeonGpuAudit() {
     const original = GPUDevice.prototype[method];
     GPUDevice.prototype[method] = function (desc) {
       if (method === "createShaderModule") {
+        if (options.shaderCapture === true) shaderSources.push({ label: desc.label ?? "", code: desc.code });
         if (desc.label === "VSM/Directional Shadow Resolve" && desc.code.includes("depth_derived")) {
           depthReceiverDiagnostics = true;
         }
@@ -156,6 +171,7 @@ export function installDungeonGpuAudit() {
       }
       const at = performance.now();
       const value = original.call(this, desc);
+      if (temporalCaptureEnabled && method === "createBindGroup") temporalGroups.set(value, desc.entries);
       const record = { method, label: desc.label ?? "", at, hostMs: performance.now() - at };
       calls.push(record);
       if (method.endsWith("Async"))
@@ -190,6 +206,62 @@ export function installDungeonGpuAudit() {
     views.set(view, this);
     return view;
   };
+  if (temporalCaptureEnabled) {
+    const begin = GPUCommandEncoder.prototype.beginComputePass;
+    GPUCommandEncoder.prototype.beginComputePass = function (desc = {}) {
+      const pass = begin.call(this, desc);
+      temporalPasses.set(pass, { encoder: this, label: desc.label, entries: null });
+      return pass;
+    };
+    const bind = GPUComputePassEncoder.prototype.setBindGroup;
+    GPUComputePassEncoder.prototype.setBindGroup = function (...args) {
+      const record = temporalPasses.get(this);
+      if (record && args[0] === 0) record.entries = temporalGroups.get(args[1]);
+      return bind.apply(this, args);
+    };
+    const end = GPUComputePassEncoder.prototype.end;
+    GPUComputePassEncoder.prototype.end = function () {
+      end.call(this);
+      const pass = temporalPasses.get(this);
+      if (!temporalArmed || !pass?.entries) return;
+      const fields = {
+        "Native Temporal V2/Measure": [[0, "frame"], [1, "color"], [4, "seed"], [6, "weights"]],
+        "Native Temporal V2/Exposure": [[2, "previousFrameInfo"]],
+        "Native Temporal V2/Shading Pyramid": [[3, "previousLuma"], [5, "preExposure"], [6, "priorExposure"], [7, "response"]],
+        "Native Temporal V2/Analyze": [[8, "identity"], [9, "previousIdentity"], [10, "previousDepth"], [13, "previousConfidence"]],
+        "Native Temporal V2/Resolve": [[4, "previousColor"], [11, "previousLumaHistory"]],
+      }[pass.label];
+      if (!fields) return;
+      for (const [binding, name] of fields) {
+        if (temporalCopies.has(name)) continue;
+        const entry = pass.entries.find((entry) => entry.binding === binding);
+        if (!entry) throw new Error(`Temporal capture omits ${name}`);
+        const sourceTexture = views.get(entry.resource);
+        let metadata;
+        if (sourceTexture) {
+          const stride = { r8unorm: 1, r16float: 2, r32float: 4, rgba8unorm: 4, rgba16float: 8, rgba32float: 16, rgba32uint: 16 }[sourceTexture.format];
+          if (!stride) throw new Error(`Temporal capture cannot encode ${sourceTexture.format}`);
+          const bytesPerRow = Math.ceil(sourceTexture.width * stride / 256) * 256;
+          metadata = { name, format: sourceTexture.format, width: sourceTexture.width, height: sourceTexture.height, stride, bytesPerRow, bytes: bytesPerRow * sourceTexture.height };
+        } else {
+          const sourceBuffer = entry.resource.buffer;
+          const bytes = entry.resource.size ?? sourceBuffer.size - (entry.resource.offset ?? 0);
+          metadata = { name, bytes, offset: entry.resource.offset ?? 0 };
+        }
+        const destination = device.createBuffer({ label: `Diagnostic/Temporal capture ${name}`, size: metadata.bytes, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+        if (sourceTexture) {
+          pass.encoder.copyTextureToBuffer({ texture: sourceTexture }, { buffer: destination, bytesPerRow: metadata.bytesPerRow }, [metadata.width, metadata.height]);
+        } else {
+          pass.encoder.copyBufferToBuffer(entry.resource.buffer, metadata.offset, destination, 0, metadata.bytes);
+        }
+        temporalCopies.set(name, { destination, metadata });
+      }
+      if (pass.label === "Native Temporal V2/Resolve") {
+        temporalArmed = false;
+        temporalReady = true;
+      }
+    };
+  }
   const originalPass = GPUCommandEncoder.prototype.beginRenderPass;
   GPUCommandEncoder.prototype.beginRenderPass = function (desc) {
     for (const a of desc.colorAttachments ?? []) {
@@ -202,6 +274,24 @@ export function installDungeonGpuAudit() {
     return records.filter((r) => !r.destroyed && r.ref.deref());
   }
   window.dungeonGpuAudit = {
+    shaderSources: () => shaderSources,
+    armTemporalCapture() {
+      if (!temporalCaptureEnabled || temporalArmed || temporalCopies.size) throw new Error("Temporal capture is unavailable or already used");
+      temporalArmed = true;
+    },
+    temporalCaptureStatus: () => ({ ready: temporalReady, products: [...temporalCopies.values()].map((entry) => entry.metadata) }),
+    async readTemporalCapture(name) {
+      if (!temporalReady) throw new Error("Temporal capture is incomplete");
+      const entry = temporalCopies.get(name);
+      if (!entry) throw new Error(`Temporal capture omits ${name}`);
+      await entry.destination.mapAsync(GPUMapMode.READ);
+      const data = new Uint8Array(entry.destination.getMappedRange());
+      let encoded = "";
+      for (let start = 0; start < data.length; start += 0x6000) encoded += btoa(String.fromCharCode(...data.subarray(start, start + 0x6000)));
+      entry.destination.unmap();
+      entry.destination.destroy();
+      return encoded;
+    },
     async nativeQueryStatistics() {
       const texture = live()
         .find((r) => r.label === "Diagnostic/Native VSM query keys")

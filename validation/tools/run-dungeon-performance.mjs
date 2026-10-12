@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 import { readFile, writeFile, mkdir, stat, readdir, copyFile } from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import { resolve, extname, relative } from "node:path";
-import { execFile, execFileSync } from "node:child_process";
+import { execFile, execFileSync, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
@@ -28,6 +28,20 @@ const geometrySettled = args.includes("--geometry-settled");
 const vsmDemandDiagnostics = args.includes("--vsm-demand-diagnostics");
 const gpuSampleInterval = Number(option("gpu-sample-interval", "4"));
 const movementAudit = args.includes("--movement-audit");
+const observerMode = option("observer-mode", "periodic");
+if (observerMode !== "periodic" && observerMode !== "low-tax") {
+  throw new Error("--observer-mode must be periodic or low-tax");
+}
+const temperatureOption = option("pre-window-temperature", null);
+const preWindowTemperature = temperatureOption === null ? null : Number(temperatureOption);
+if (preWindowTemperature !== null && (!Number.isFinite(preWindowTemperature) ||
+    preWindowTemperature < 40 || preWindowTemperature > 90 || observerMode !== "low-tax")) {
+  throw new Error("--pre-window-temperature requires low-tax observers and a temperature from 40 through 90 Celsius");
+}
+if ((args.includes("--temporal-capture") || args.includes("--shader-capture")) &&
+    !args.includes("--near") && !args.includes("--audit")) {
+  throw new Error("Temporal/shader capture requires --near or --audit to install the diagnostic observer");
+}
 if (nativeCostSlice !== null && !/^(?:[A-G]|B0|K)$/.test(nativeCostSlice))
   throw new Error("--native-slice must be A through G, B0 or K (Resolve query keys); embedded Q0 is retired");
 if (vsmDemandDiagnostics && nativeCostSlice !== null && nativeCostSlice !== "G")
@@ -50,7 +64,14 @@ for (const p of sourceFiles)
   fingerprint[p.replaceAll("\\", "/")] = createHash("sha256")
     .update(await readFile(resolve(root, p)))
     .digest("hex");
-await writeFile(resolve(out, "source-fingerprint.json"), JSON.stringify(fingerprint, null, 2));
+const explicitDist = option("dist", null);
+const buildProvenance = explicitDist
+  ? JSON.parse(await readFile(resolve(root, explicitDist, "build-provenance.json"), "utf8"))
+  : null;
+await writeFile(
+  resolve(out, "source-fingerprint.json"),
+  JSON.stringify(buildProvenance?.sources ?? fingerprint, null, 2)
+);
 const manifest = JSON.parse(
   await readFile(resolve(root, demo, "assets/playground-cooked/scene.materials.json"), "utf8")
 );
@@ -103,6 +124,7 @@ const report = {
   startedAt: new Date().toISOString(),
   revision: execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim(),
   dirtyPaths: execFileSync("git", ["status", "--short"], { cwd: root, encoding: "utf8" }).trim(),
+  buildProvenance,
   options: {
     frames,
     scenarios,
@@ -111,6 +133,8 @@ const report = {
     headless: !args.includes("--headed"),
     geometryMiB: option("geometryMiB", null),
     movementAudit,
+    observerMode,
+    preWindowTemperature,
   },
   manifest,
   captures: [],
@@ -118,10 +142,11 @@ const report = {
   sensors: [],
   osSamples: [],
   processSamples: [],
+  coolingWindows: [],
   network: []
 };
 // Built example, HTTP Range and isolation headers match the development host.
-const dist = resolve(root, demo, "dist");
+const dist = resolve(root, explicitDist ?? `${demo}/dist`);
 await mkdir(resolve(out, "maps"), { recursive: true });
 const buildFingerprint = {};
 for (const name of await readdir(resolve(dist, "assets"))) {
@@ -132,6 +157,9 @@ for (const name of await readdir(resolve(dist, "assets"))) {
   if (name.endsWith(".map")) await copyFile(resolve(dist, "assets", name), resolve(out, "maps", name));
 }
 await writeFile(resolve(out, "build-fingerprint.json"), JSON.stringify(buildFingerprint, null, 2));
+if (buildProvenance && JSON.stringify(buildFingerprint) !== JSON.stringify(buildProvenance.outputs)) {
+  throw new Error("Explicit diagnostic build changed after its provenance was recorded");
+}
 const server = createServer(async (req, res) => {
   try {
     const path = resolve(dist, "." + decodeURIComponent(new URL(req.url, "http://localhost").pathname));
@@ -185,7 +213,9 @@ await new Promise((resolve, reject) => {
   server.listen(0, "127.0.0.1", resolve);
 });
 const origin = `http://127.0.0.1:${server.address().port}`;
-let run, browserCdp, pageCdp, sensorTimer, osTimer, processTimer;
+let run, browserCdp, pageCdp, sensorTimer, osTimer, processTimer, sensorProcess, sensorStopped;
+const sensorQuery = "uuid,name,driver_version,temperature.gpu,utilization.gpu,utilization.memory,clocks.current.graphics,clocks.current.memory,power.draw,pstate,clocks_event_reasons.sw_thermal_slowdown,clocks_event_reasons.hw_thermal_slowdown,clocks_event_reasons.hw_power_brake_slowdown,clocks_event_reasons.sw_power_cap,memory.used,memory.total";
+const sensorFields = ["uuid", "name", "driver", "temperatureC", "gpuUtilPercent", "memoryUtilPercent", "graphicsMHz", "memoryMHz", "powerW", "pstate", "swThermal", "hwThermal", "powerBrake", "powerCap", "memoryUsedMiB", "memoryTotalMiB"];
 let scenario = "before-browser",
   sensorBusy = false,
   osBusy = false,
@@ -200,29 +230,11 @@ async function sensor() {
     const { stdout } = await runFile(
       "nvidia-smi",
       [
-        "--query-gpu=uuid,name,driver_version,temperature.gpu,utilization.gpu,utilization.memory,clocks.current.graphics,clocks.current.memory,power.draw,pstate,clocks_event_reasons.sw_thermal_slowdown,clocks_event_reasons.hw_thermal_slowdown,clocks_event_reasons.hw_power_brake_slowdown,clocks_event_reasons.sw_power_cap,memory.used,memory.total",
+        `--query-gpu=${sensorQuery}`,
         "--format=csv,noheader,nounits"
       ],
       { windowsHide: true, timeout: 6000 }
     );
-    const fields = [
-      "uuid",
-      "name",
-      "driver",
-      "temperatureC",
-      "gpuUtilPercent",
-      "memoryUtilPercent",
-      "graphicsMHz",
-      "memoryMHz",
-      "powerW",
-      "pstate",
-      "swThermal",
-      "hwThermal",
-      "powerBrake",
-      "powerCap",
-      "memoryUsedMiB",
-      "memoryTotalMiB"
-    ];
     const values = stdout
       .trim()
       .split(",")
@@ -232,7 +244,7 @@ async function sensor() {
       end: Date.now(),
       scenario: phase,
       ...Object.fromEntries(
-        fields.map((k, i) => [k, /^[\d.]+$/.test(values[i]) ? Number(values[i]) : values[i]])
+        sensorFields.map((k, i) => [k, /^[\d.]+$/.test(values[i]) ? Number(values[i]) : values[i]])
       )
     });
   } catch (e) {
@@ -240,6 +252,38 @@ async function sensor() {
   } finally {
     sensorBusy = false;
   }
+}
+function startContinuousSensors() {
+  // One diagnostic observer process, rather than launching driver/OS helpers
+  // during every target window. Raw samples stay on the host clock domain.
+  sensorProcess = spawn("nvidia-smi", [
+    `--query-gpu=timestamp,${sensorQuery}`, "--format=csv,noheader,nounits", "--loop-ms=250",
+  ], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+  let pending = "";
+  sensorStopped = new Promise((resolveStopped) => sensorProcess.once("close", resolveStopped));
+  sensorProcess.on("error", (error) => report.errors.push({ observer: "continuous-gpu-sensor", error: String(error) }));
+  sensorProcess.stderr.on("data", (chunk) => report.errors.push({ observer: "continuous-gpu-sensor", error: String(chunk) }));
+  sensorProcess.stdout.on("data", (chunk) => {
+    pending += chunk.toString();
+    let end;
+    while ((end = pending.indexOf("\n")) >= 0) {
+      const line = pending.slice(0, end).trim();
+      pending = pending.slice(end + 1);
+      if (!line) continue;
+      const values = line.split(",").map((value) => value.trim());
+      if (values.length !== sensorFields.length + 1) {
+        report.errors.push({ observer: "continuous-gpu-sensor", error: `Unexpected sensor record: ${line}` });
+        continue;
+      }
+      report.sensors.push({
+        at: Date.now(), scenario, mode: "continuous-250ms", sampledAt: values[0],
+        ...Object.fromEntries(sensorFields.map((key, index) => {
+          const value = values[index + 1];
+          return [key, /^[\d.]+$/.test(value) ? Number(value) : value];
+        })),
+      });
+    }
+  });
 }
 async function processes() {
   if (!browserCdp || procBusy) return;
@@ -365,12 +409,19 @@ try {
     }).observe({ type: "longtask", buffered: true });
   });
   if (args.includes("--near") || args.includes("--audit"))
-    await run.page.addInitScript(installDungeonGpuAudit);
+    await run.page.addInitScript(installDungeonGpuAudit, {
+      temporalCapture: args.includes("--temporal-capture"),
+      shaderCapture: args.includes("--shader-capture"),
+    });
   await processes();
   await osMemory();
-  sensorTimer = setInterval(sensor, 1500);
-  processTimer = setInterval(processes, 2000);
-  osTimer = setInterval(osMemory, 6000);
+  if (observerMode === "low-tax") {
+    startContinuousSensors();
+  } else {
+    sensorTimer = setInterval(sensor, 1500);
+    processTimer = setInterval(processes, 2000);
+    osTimer = setInterval(osMemory, 6000);
+  }
   scenario = "cold-load";
   const loadStart = Date.now();
   const urlObject = new URL(
@@ -589,6 +640,36 @@ try {
         return performance.now() - previous.at >= 3000 && report.renderState.frame - previous.frame >= 60;
       }, undefined, { polling: 500, timeout: 180000 });
     }
+    if (preWindowTemperature !== null && name !== "motion") {
+      await control("pause", true, true);
+      const beforeCooling = await run.page.evaluate(() => ({
+        frame: window.dungeonDemo.report().renderState.frame,
+        history: window.dungeonPerformance.historyEvidence(),
+      }));
+      const coolingStart = Date.now();
+      let sample;
+      while (Date.now() - coolingStart < 120000) {
+        sample = report.sensors.at(-1);
+        if (sample?.mode === "continuous-250ms" && Date.now() - sample.at < 1000 &&
+            sample.temperatureC <= preWindowTemperature) break;
+        await new Promise((resume) => setTimeout(resume, 500));
+      }
+      const afterCooling = await run.page.evaluate(() => ({
+        frame: window.dungeonDemo.report().renderState.frame,
+        history: window.dungeonPerformance.historyEvidence(),
+      }));
+      const gate = { name, start: coolingStart, end: Date.now(), targetTemperatureC: preWindowTemperature,
+        sample, before: beforeCooling, after: afterCooling };
+      report.coolingWindows.push(gate);
+      if (JSON.stringify(beforeCooling) !== JSON.stringify(afterCooling)) {
+        throw new Error("Paused cooling changed submitted frame/history roles; evidence retained");
+      }
+      if (!sample || Date.now() - sample.at >= 1000 || sample.temperatureC > preWindowTemperature) {
+        throw new Error("Pre-window thermal entry condition did not become available within 120 seconds");
+      }
+      console.log(JSON.stringify({ phase: "thermal-entry", name, temperatureC: sample.temperatureC,
+        graphicsMHz: sample.graphicsMHz, pausedMs: gate.end - gate.start, frame: afterCooling.frame }));
+    }
     const start = Date.now(),
       before = await metrics(),
       pageStart = await run.page.evaluate(() => performance.now());
@@ -601,6 +682,7 @@ try {
       if (mode === "full") window.dungeonPerformance.configure(mode, true, counters, interval);
       return window.dungeonDemo.report().renderState.frame;
     }, [mode, name === "counters" || (name === "motion" && movementAudit), gpuSampleInterval]);
+    if (preWindowTemperature !== null && name !== "motion") await control("pause", false, true);
     await run.page.waitForFunction(
       (n) => window.dungeonDemo.report().failure || window.dungeonDemo.report().renderState.frame >= n,
       targetStart + frames,
@@ -628,6 +710,21 @@ try {
       await run.page.evaluate(() => clearInterval(window.__dungeonBudgetSampler));
       capture.movementSamples = await run.page.evaluate(() => window.__dungeonBudgetSamples);
     }
+    if (args.includes("--temporal-capture") && name === "full") {
+      await run.page.evaluate(() => window.dungeonGpuAudit.armTemporalCapture());
+      await run.page.waitForFunction(() => window.dungeonGpuAudit.temporalCaptureStatus().ready, null, { timeout: 30000 });
+      await control("pause", true, true);
+      const products = await run.page.evaluate(() => window.dungeonGpuAudit.temporalCaptureStatus().products);
+      await mkdir(resolve(out, "temporal-inputs"), { recursive: true });
+      for (const product of products) {
+        const encoded = await run.page.evaluate((name) => window.dungeonGpuAudit.readTemporalCapture(name), product.name);
+        const bytes = Buffer.from(encoded, "base64");
+        if (bytes.byteLength !== product.bytes) throw new Error(`Temporal capture byte count differs for ${product.name}`);
+        product.sha256 = createHash("sha256").update(bytes).digest("hex");
+        await writeFile(resolve(out, "temporal-inputs", `${product.name}.bin`), bytes);
+      }
+      await writeFile(resolve(out, "temporal-inputs/manifest.json"), JSON.stringify({ provenance: "single actual frame, copies immediately after each owning pass, outside timing target", products }, null, 2));
+    }
     if (args.includes("--near") || args.includes("--audit")) {
       await control("pause", true, true);
       capture.coverage = await run.page.evaluate(
@@ -645,6 +742,17 @@ try {
         throw new Error("Instrumentation is active during a timing run");
       }
       capture.gpuResources = await run.page.evaluate(() => window.dungeonGpuAudit.snapshot());
+      if (args.includes("--shader-capture")) {
+        const sources = await run.page.evaluate(() => window.dungeonGpuAudit.shaderSources());
+        await mkdir(resolve(out, "shaders"), { recursive: true });
+        capture.shaderSources = [];
+        for (const { label, code } of sources) {
+          const sha256 = createHash("sha256").update(code).digest("hex");
+          await writeFile(resolve(out, "shaders", `${sha256}.wgsl`), code);
+          capture.shaderSources.push({ label, sha256, bytes: Buffer.byteLength(code) });
+        }
+        await writeFile(resolve(out, "shaders/manifest.json"), JSON.stringify(capture.shaderSources, null, 2));
+      }
       const owners = Object.values(capture.gpuResources.capacityOwners);
       if (owners.reduce((sum, owner) => sum + owner.bytes, 0) !== capture.gpuResources.bytes ||
           Object.values(capture.gpuResources.ownersAtPeak).reduce((sum, bytes) => sum + bytes, 0) !== capture.gpuResources.peakBytes ||
@@ -705,6 +813,13 @@ try {
         (frame) => frame.frameIndex >= capture.targetStart && frame.frameIndex < capture.targetEnd
       );
       const interval = capture.raw.gpuSampleInterval;
+      const committed = capture.raw.callbacks.filter(
+        (callback) => callback.submitted && callback.frameIndex >= capture.targetStart && callback.frameIndex < capture.targetEnd
+      );
+      const indices = new Set(committed.map((callback) => callback.frameIndex));
+      if (indices.size !== frames || committed.length !== frames || committed.some((callback) => !callback.temporal)) {
+        throw new Error(`Incomplete committed Temporal observation: ${indices.size}/${frames} frames; raw capture saved`);
+      }
       const expected = windowFrames.filter((frame) => frame.frameIndex % interval === 0).length;
       const complete = windowFrames.filter(
         (frame) => frame.gpu.sampled && frame.gpu.mode === "full" && !frame.gpu.pending &&
@@ -770,6 +885,10 @@ try {
   clearInterval(sensorTimer);
   clearInterval(processTimer);
   clearInterval(osTimer);
+  if (sensorProcess) {
+    sensorProcess.kill();
+    await sensorStopped;
+  }
   while (sensorBusy || osBusy || procBusy) await new Promise((r) => setTimeout(r, 100));
   await writeFile(resolve(out, "suite.json"), JSON.stringify(report, null, 2));
   await run?.close();

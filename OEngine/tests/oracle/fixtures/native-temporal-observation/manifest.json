@@ -1,0 +1,16 @@
+{
+  "role": "Frozen test-only complete owner/WGSL; no production selector",
+  "baselineRevision": "1c41fb77e3f0fc3b82b242a148516d92b3dc38d3",
+  "referenceProfile": {
+    "revision": "c6efa6bf7f2027b3ec94f28578bb5965eabb9e55",
+    "license": "MIT",
+    "localSource": "OEngine/src/shaders/native_temporal_amd.ts"
+  },
+  "candidate": "v2: 32x32 Measure/128 lanes/34x34 depth halo, ordered Exposure merge, half-domain R8 shading-change",
+  "files": {
+    "before.mjs": "d7b2cbb82488a2a598a87ef459dc13b1dd1eaea6dad4d9abb0ce218b735d616f",
+    "before-shaders.mjs": "f457c2dd5ce18c8123c80a0343a74639d4b872c9966a980210e61863da6be55f",
+    "candidate.mjs": "04520ef240ef9e3c6c8a872f790e1cd2c86c83c6788631c658d86883784c0783",
+    "candidate-shaders.mjs": "2147f378fe33b34bc31282d4e6dbcd78c620cc08e129b8584f9fcf2ddcc242d5"
+  }
+}

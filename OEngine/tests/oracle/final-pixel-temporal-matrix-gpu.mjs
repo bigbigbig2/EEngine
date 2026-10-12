@@ -206,7 +206,7 @@ const CAPTURE =
 }
 `;
 
-export async function runFinalPixelTemporalMatrixGpuOracle(device, diagnostic = false) {
+export async function runFinalPixelTemporalMatrixGpuOracle(device, diagnostic = false, NativeRuntime = NativeTemporalV2) {
   const width = 1920,
     height = 1080,
     frames = diagnostic ? 80 : 256;
@@ -405,7 +405,7 @@ export async function runFinalPixelTemporalMatrixGpuOracle(device, diagnostic = 
   let runtimes = [];
   try {
     for (let family = 0; family < (diagnostic ? 1 : families.length); family++) {
-      runtimes = [new Reference(device), new NativeTemporalV2(device)];
+      runtimes = [new Reference(device), new NativeRuntime(device)];
       const series = [[], []];
       let previousJitter = [0, 0],
         previousExposure = 1;

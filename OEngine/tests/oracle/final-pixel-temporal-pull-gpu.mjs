@@ -13,7 +13,7 @@ import { floatToHalf } from "../../.test-dist/loaders/float16.js";
 
 // One actual chain per encoder. The reference is test-only; inputs are analytic
 // in unjittered screen space and independent of either temporal implementation.
-export async function runFinalPixelTemporalPullGpuOracle(device) {
+export async function runFinalPixelTemporalPullGpuOracle(device, NativeRuntime = NativeTemporalV2) {
   for (const code of [
     NATIVE_TEMPORAL_V2_MEASURE_WGSL,
     NATIVE_TEMPORAL_V2_EXPOSURE_WGSL,
@@ -206,7 +206,7 @@ export async function runFinalPixelTemporalPullGpuOracle(device) {
       layout: depthPipeline.getBindGroupLayout(0),
       entries: [{ binding: 0, resource: sourceDepth.createView() }],
     });
-    const runtimes = [new BeforeRuntime(device), new NativeTemporalV2(device)];
+    const runtimes = [new BeforeRuntime(device), new NativeRuntime(device)];
     const errors = [[], []],
       outputs = [[], []],
       frameSummaries = [],

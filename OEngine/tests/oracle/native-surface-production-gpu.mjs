@@ -952,6 +952,10 @@ export async function runNativeSurfaceProductionGpuOracle(
       "Native graph lacks its shading producer",
     );
     check(
+      nativeGraph.passes.some((p) => p.name === "Native Temporal V2/Shading Change" && !p.culled),
+      "Native graph lacks its half-domain shading-change producer",
+    );
+    check(
       !nativeGraph.passes.some((p) =>
         /FSR3\/(Prepare Inputs|Clear reconstructed|Luma Pyramid|Shading Change)|Temporal\/Seed classification|Native Temporal\/(Resolve|Depth Classification)/.test(
           p.name,

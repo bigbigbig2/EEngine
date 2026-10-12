@@ -132,15 +132,17 @@ export const NATIVE_TEMPORAL_V2_MEASURE_WGSL =
 // SDK FindDepthExtents/DilateMotionVector's sample order and strict nearest
 // comparison, expressed in linear view-space depth (sky is the zero sentinel).
 // This effect-local index never changes the Seed producer's own facts.
-fn nearest_color_receiver(pixel: vec2i) -> vec2i {
+fn nearest_color_receiver(pixel: vec2i, local: vec2u) -> vec2i {
   let offsets = array<vec2i, 8>(vec2i(1, 0), vec2i(0, 1), vec2i(0, -1), vec2i(-1, 0),
     vec2i(-1, 1), vec2i(1, 1), vec2i(-1, -1), vec2i(1, -1));
-  var nearest = textureLoad(seed, pixel, 0).w;
+  let center = (local.y + 1u) * 34u + local.x + 1u;
+  var nearest = depths[center];
   var receiver = pixel;
   for (var i = 0u; i < 8u; i++) {
     let candidate = pixel + offsets[i];
     if (any(candidate < vec2i(0)) || any(candidate >= vec2i(frame.size))) { continue; }
-    let depth = textureLoad(seed, candidate, 0).w;
+    let source = vec2i(local) + offsets[i] + vec2i(1);
+    let depth = depths[u32(source.y) * 34u + u32(source.x)];
     if (depth > 0.0 && (nearest == 0.0 || depth < nearest)) {
       nearest = depth;
       receiver = candidate;
@@ -148,10 +150,11 @@ fn nearest_color_receiver(pixel: vec2i) -> vec2i {
   }
   return receiver;
 }
-// SDK SPD's 64x64 domain and ordered 2x2 reduction, including the mip5
-// half boundary. Only the exposure scalar survives across workgroups.
-var<workgroup> logs: array<f32, 4096>;
-@compute @workgroup_size(16, 16)
+// Keep the reference ordered 2x2 tree, split physically at 32x32. Exposure
+// completes each 64x64 scalar before its mip-5 half boundary.
+var<workgroup> depths: array<f32, 1156>;
+var<workgroup> logs: array<f32, 1024>;
+@compute @workgroup_size(16, 8)
 fn main(@builtin(workgroup_id) group: vec3u, @builtin(local_invocation_index) lane: u32) {
   if (all(group.xy == vec2u(0u)) && lane < 9u) {
     let offset = vec2f(vec2i(i32(lane % 3u) - 1, i32(lane / 3u) - 1)) - frame.jitter;
@@ -162,21 +165,31 @@ fn main(@builtin(workgroup_id) group: vec3u, @builtin(local_invocation_index) la
     let b = 0.25 * distance - 1.0;
     filter_weights.reconstruction[lane / 4u][lane % 4u] = (1.5625 * a * a - 0.5625) * (b * b);
   }
-  for (var i = lane; i < 4096u; i += 256u) {
-    let local = vec2u(i % 64u, i / 64u);
-    let p = group.xy * 64u + local;
+  // Cooperative halo reads: every Seed depth is reused by foreground and
+  // box-metric consumers within this 32x32 physical tile. No motion/identity
+  // or Geometry reconstruction is cached here. All lanes reach the barrier.
+  for (var i = lane; i < 1156u; i += 128u) {
+    let local = vec2i(i32(i % 34u), i32(i / 34u)) - vec2i(1);
+    let p = point(vec2i(group.xy * 32u) + local);
+    depths[i] = textureLoad(seed, p, 0).w;
+  }
+  workgroupBarrier();
+  for (var i = lane; i < 1024u; i += 128u) {
+    let local = vec2u(i % 32u, i / 32u);
+    let p = group.xy * 32u + local;
     let rgb = max(textureLoad(input_color, point(vec2i(p)), 0).rgb, vec3f(0.0));
     let luma = dot(rgb, vec3f(0.2126, 0.7152, 0.0722));
     logs[i] = max(0.000061, log(half_value(luma)));
     if (all(p < frame.size)) {
-      let receiver = nearest_color_receiver(vec2i(p));
+      let receiver = nearest_color_receiver(vec2i(p), local);
       textureStore(color_receivers, vec2i(p), vec4u(u32(receiver.y) * frame.size.x + u32(receiver.x), 0u, 0u, 0u));
       textureStore(output_luma, vec2i(p), vec4f(half_value(luma), 0.0, 0.0, 0.0));
       if (all((p & vec2u(1u)) == vec2u(0u))) {
         var sum = 0.0;
         for (var y = 0; y < 2; y++) {
           for (var x = 0; x < 2; x++) {
-            let z = textureLoad(seed, point(vec2i(p) + vec2i(x, y)), 0).w;
+            let source = vec2u(local) + vec2u(u32(x + 1), u32(y + 1));
+            let z = depths[source.y * 34u + source.x];
             sum += half_value(select(min(z, 65504.0), frame.sky_depth, z == 0.0));
           }
         }
@@ -188,12 +201,12 @@ fn main(@builtin(workgroup_id) group: vec3u, @builtin(local_invocation_index) la
     }
   }
   workgroupBarrier();
-  var side = 64u;
+  var side = 32u;
   var scale = 1u;
   loop {
     let next_side = side / 2u;
-    var values: array<f32, 4>;
-    for (var i = lane; i < next_side * next_side; i += 256u) {
+    var values: array<f32, 2>;
+    for (var i = lane; i < next_side * next_side; i += 128u) {
       let p = vec2u(i % next_side, i / next_side);
       let active_size = (frame.size + vec2u(scale - 1u)) / scale;
       let limit = min(vec2u(side), active_size - group.xy * side) - 1u;
@@ -201,15 +214,15 @@ fn main(@builtin(workgroup_id) group: vec3u, @builtin(local_invocation_index) la
       let b = min(p * 2u + 1u, limit);
       // Each phase stores in a disjoint four-point block's first slot.
       // All reads precede writes; keep compact destination in private state.
-      let value = (logs[a.y * 64u + a.x] + logs[b.y * 64u + a.x] +
-                   logs[a.y * 64u + b.x] + logs[b.y * 64u + b.x]) * 0.25;
+      let value = (logs[a.y * 32u + a.x] + logs[b.y * 32u + a.x] +
+                   logs[a.y * 32u + b.x] + logs[b.y * 32u + b.x]) * 0.25;
       // Destination uses the original stride. Compacting needs a second
-      // uniform barrier, so the 256 lanes each hold up to four results.
-      values[i / 256u] = value;
+      // uniform barrier, so the 128 lanes each hold up to two results.
+      values[i / 128u] = value;
     }
     workgroupBarrier();
-    for (var i = lane; i < next_side * next_side; i += 256u) {
-      logs[(i / next_side) * 64u + i % next_side] = values[i / 256u];
+    for (var i = lane; i < next_side * next_side; i += 128u) {
+      logs[(i / next_side) * 32u + i % next_side] = values[i / 128u];
     }
     workgroupBarrier();
     side = next_side;
@@ -217,7 +230,9 @@ fn main(@builtin(workgroup_id) group: vec3u, @builtin(local_invocation_index) la
     if (side == 1u) { break; }
   }
   if (lane == 0u) {
-    let value = select(logs[0], half_value(logs[0]), max(frame.size.x, frame.size.y) > 64u);
+    // R32 subtile aggregate. Exposure completes the ordered 64x64 level
+    // before applying the reference mip-5 half storage boundary.
+    let value = logs[0];
     textureStore(log_tiles, vec2i(group.xy), vec4f(value, 0.0, 0.0, 0.0));
   }
 }
@@ -228,15 +243,22 @@ export const NATIVE_TEMPORAL_V2_EXPOSURE_WGSL =
 @group(0) @binding(1) var log_tiles: texture_2d<f32>;
 @group(0) @binding(2) var previous_info: texture_2d<f32>;
 @group(0) @binding(3) var current_info: texture_storage_2d<rgba32float, write>;
-// At the negotiated maximum 4096x4096 this is 64x64 scalar tiles,
-// not a pixel-sized history or reconstructed-depth buffer.
+// At the negotiated maximum 4096x4096, merge 128x128 physical subtiles
+// into the original 64x64 scalar domain before its global reduction.
 var<workgroup> logs: array<f32, 4096>;
 @compute @workgroup_size(256)
 fn main(@builtin(local_invocation_index) lane: u32) {
-  let size = textureDimensions(log_tiles);
+  let source_size = textureDimensions(log_tiles);
+  let size = (source_size + 1u) / 2u;
   for (var i = lane; i < size.x * size.y; i += 256u) {
-    logs[(i / size.x) * 64u + i % size.x] =
-      textureLoad(log_tiles, vec2i(vec2u(i % size.x, i / size.x)), 0).x;
+    let p = vec2u(i % size.x, i / size.x);
+    let a = min(p * 2u, source_size - 1u);
+    let b = min(p * 2u + 1u, source_size - 1u);
+    let value = (textureLoad(log_tiles, vec2i(a), 0).x +
+      textureLoad(log_tiles, vec2i(vec2u(a.x, b.y)), 0).x +
+      textureLoad(log_tiles, vec2i(vec2u(b.x, a.y)), 0).x +
+      textureLoad(log_tiles, vec2i(b), 0).x) * 0.25;
+    logs[p.y * 64u + p.x] = select(value, half_value(value), max(frame.size.x, frame.size.y) > 64u);
   }
   workgroupBarrier();
   var active_size = size;
@@ -377,6 +399,34 @@ fn main(@builtin(workgroup_id) group: vec3u, @builtin(local_invocation_id) lane:
   }
 }
 `;
+export const NATIVE_TEMPORAL_V2_SHADING_CHANGE_WGSL =
+  FRAME +
+  /* wgsl */ `
+// AMD ShadingChange: one three-scale observation per half-domain pixel.
+@group(0) @binding(1) var mip2: texture_2d<f32>;
+@group(0) @binding(2) var mip4: texture_2d<f32>;
+@group(0) @binding(3) var mip8: texture_2d<f32>;
+@group(0) @binding(4) var linear_clamp: sampler;
+@group(0) @binding(5) var shading_change: texture_storage_2d<r8unorm, write>;
+
+@compute @workgroup_size(8, 8)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let size = max(vec2u(1u), frame.size / 2u);
+  if (any(id.xy >= size)) {
+    return;
+  }
+  let uv = (vec2f(id.xy) + 0.5) / vec2f(size) + frame.jitter / vec2f(frame.size);
+  let mip_uv = clamp(uv * vec2f(size), vec2f(0.5), vec2f(size) - 0.5) /
+    vec2f(textureDimensions(mip2));
+  let a = textureSampleLevel(mip2, linear_clamp, mip_uv, 0.0).xy;
+  let b = textureSampleLevel(mip4, linear_clamp, mip_uv, 0.0).xy;
+  let c = textureSampleLevel(mip8, linear_clamp, mip_uv, 0.0).xy;
+  let change = max(max(abs(a.x * a.y), abs(b.x * b.y)), abs(c.x * c.y));
+  // Preserve the reference's actual R8 store exactly once. Do not round
+  // before the UNORM conversion; Analyze consumes the filtered R8 product.
+  textureStore(shading_change, vec2i(id.xy), vec4f(clamp(change, 0.0, 1.0), 0.0, 0.0, 0.0));
+}
+`;
 export const NATIVE_TEMPORAL_V2_ANALYZE_WGSL =
   FRAME +
   /* wgsl */ `
@@ -450,40 +500,13 @@ fn source_motion_divergence(p: vec2i, motion: vec2f, depth: f32) -> f32 {
   let distance_factor = select(0.0, min(depth, other.w) / max(maximum_depth, 1e-8), maximum_depth > 0.0);
   return (1.0 - clamp(other_velocity / velocity, 0.0, 1.0)) * distance_factor * clamp(velocity / 10.0, 0.0, 1.0);
 }
-@group(0) @binding(19) var shading_mip2: texture_2d<f32>;
-@group(0) @binding(20) var shading_mip4: texture_2d<f32>;
-@group(0) @binding(21) var shading_mip8: texture_2d<f32>;
-fn mip_sample(uv: vec2f, level: i32) -> vec2f {
-  // Preserve the SDK's filtered RG16 sampling boundary. Manual f32 bilinear
-  // interpolation changes confidence around thin features on real hardware.
-  if (level == 0) { return textureSampleLevel(shading_mip2, linear_clamp, uv, 0.0).xy; }
-  if (level == 1) { return textureSampleLevel(shading_mip4, linear_clamp, uv, 0.0).xy; }
-  return textureSampleLevel(shading_mip8, linear_clamp, uv, 0.0).xy;
-}
-fn low_change(p_in: vec2i) -> f32 {
-  let size = max(vec2i(1), vec2i(frame.size) / 2);
-  let p = clamp(p_in, vec2i(0), size - 1);
-  let uv = (vec2f(p) + 0.5) / vec2f(size) + frame.jitter / vec2f(frame.size);
-  let mip0_size = (vec2i(frame.size) + 1) / 2;
-  let mip_uv = clamp(uv * vec2f(size), vec2f(0.5), vec2f(size) - 0.5) / vec2f(mip0_size);
-  var change = 0.0;
-  for (var i = 0; i < 3; i++) {
-    let pair = mip_sample(mip_uv, i);
-    change = max(change, abs(pair.x * pair.y));
-  }
-  // The removed R8 UAV store rounds half-way values toward the lower byte
-  // on the qualified source profile; WGSL round() chooses another tie.
-  // Keep that boundary without materializing a shading-change image.
-  return max(0.0, ceil(clamp(change, 0.0, 1.0) * 255.0 - 0.5)) / 255.0;
-}
+@group(0) @binding(19) var shading_change_image: texture_2d<f32>;
 fn shading_change(p: vec2i) -> f32 {
   let size = max(vec2i(1), vec2i(frame.size) / 2);
   let uv = (vec2f(p) + 0.5 - frame.jitter) / vec2f(frame.size);
-  let position = clamp(uv * vec2f(size), vec2f(0.5), vec2f(size) - 0.5) - 0.5;
-  let base = vec2i(floor(position));
-  let f = fract(position);
-  return mix(mix(low_change(base), low_change(base + vec2i(1, 0)), f.x),
-    mix(low_change(base + vec2i(0, 1)), low_change(base + vec2i(1, 1)), f.x), f.y);
+  let sample_uv = clamp(uv * vec2f(size), vec2f(0.5), vec2f(size) - 0.5) /
+    vec2f(textureDimensions(shading_change_image));
+  return textureSampleLevel(shading_change_image, linear_clamp, sample_uv, 0.0).x;
 }
 @compute @workgroup_size(8, 8)
 fn main(@builtin(global_invocation_id) id3: vec3u) {

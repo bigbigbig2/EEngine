@@ -34,6 +34,12 @@ verifies:
     - OEngine/tests/oracle/final-pixel-temporal-pull-gpu.mjs
     - OEngine/tests/oracle/final-pixel-temporal-pull-semantics-gpu.mjs
     - OEngine/tests/oracle/reference/phase4
+    - OEngine/tests/oracle/fixtures/native-temporal-observation
+    - OEngine/tests/oracle/native-temporal-observation-gpu.mjs
+    - OEngine/tests/oracle/native-temporal-observation-measure-gpu.mjs
+    - OEngine/tests/oracle/native-temporal-observation-boundary-gpu.mjs
+    - OEngine/tests/oracle/native-temporal-observation-replay-gpu.mjs
+    - OEngine/tests/oracle/native-temporal-observation-cost-gpu.mjs
     - OEngine/src/shaders/vsm_sampling.ts
     - OEngine/src/gpu/GpuNativeMaterialPublication.ts
     - OEngine/src/gpu/GpuNativeMaterialScene.ts
@@ -50,6 +56,8 @@ verifies:
     - OEngine/tests/oracle/native-temporal-v2-gpu.mjs
     - tools/gpu-oracle/registry.mjs
     - validation/tools/run-dungeon-performance.mjs
+    - validation/tools/dungeon-gpu-audit.mjs
+    - examples/demos/14-integrated/dungeon-warkarma-texture-compression/main.ts
     - docs/VALIDATION.md
 ---
 
@@ -65,7 +73,7 @@ verifies:
 | 1 | Final Pixel publication / Native Seed非生产完整闭包，替代重复恢复链，合法binding与唯一写域 | 非生产闭包完成；§4.2绑定修正已验证，§4.3记录出口及未获生产资格项 |
 | 2 | Shadow Physical Execution cutover：full I Shadow Resolve / mask / 重复continuation退休 | 1；结构/数值/接线/生命周期闭包完成；候选净性能未资格，联合成本收口在5/6，见§5.1 |
 | 3 | Temporal Seed cutover：Native→全部Temporal consumers；Facts恢复pass / 旧Aux退休 | 1、2；结构/必要数值/接线/生命周期/输入子质量闭包完成；净性能未资格，联合成本在5/6收口，见§6.1 |
-| 4 | Native Temporal V2完整图：native scatter / Prepare / SPD / 旧owner退休 | 3；结构/数值/unit质量/接线/生命周期闭包完成，有限整链成本已测；正式整Renderer资格在5/6，见§7.1 |
+| 4 | Native Temporal V2完整图：native scatter / Prepare / SPD / 旧owner退休 | 3；原出口及追加Native观测物理返工均关闭；后者已切生产并通过有限whole成本，见§7.1/§7.3；正式整Renderer资格在6 |
 | 5 | Final Pixel全feature/domain集成、最后旧owner与多余常驻/生命周期税退休 | 2–4；结构/必要正确性/生命周期集成关闭；联合成本已测但净性能未资格，见§8.1 |
 | 6 | 集中quality / production ABBA / P50/P95/P99 / 4GB simultaneous peak验收 | 5；未开始 |
 | 7 | 只有剩余gap需要：Receiver Demand V2，删除pixel projection扫描 | 6诊断；deferred，不自动实施 |
@@ -256,6 +264,36 @@ Native全histories与Seed identity/camera/jitter同command成功submit推进；p
 完整1920×1080矩阵通过：六类各256帧、每类8ROI，共1536帧，failures=[]；HDR/display逐frame与aggregate、peak、phase、energy、trailing/settling保持既定门。原tight失败保留，根因为格式/采样边界；恢复参考hardware RG16 filtering、删真实UNORM store前重复round并保被删R8边界，没有继续放宽门。synthetic矩阵不覆盖实际材质normal/coat求值，writer/Renderer另查；settling null不证明绝对收敛。后续CPU事务/绑定变化及纯格式整理不改shader数学，由最终实际Renderer/writer验证覆盖。
 
 一次最终整Temporal合成1080p ABBA，16warmup、12样本/path/scenario：fractional Before/Native P50 **11.257248/9.655264ms**，stationary **10.007360/8.681472ms**，含pass间隙，观察到unit break-even。adapter仅报告NVIDIA/Turing硬件，不能推断精确型号/锁频。此结果不资格Dungeon whole-frame/P95/P99、GTX1650Ti16.67ms或Phase2/3联合回归；最终全feature/manual动态显示、simultaneous peak与整Renderer净性能按Phase5/6收口。不能忽略原Phase2/3负成本，也不能把局部收益称大模块完成。
+
+### 7.2 用户授权的完整 Native 1:1 物理返工（2026-10-12）
+
+本节保留首次非生产候选实验与当时停止决定；用户要求继续后，生产切换和当前单元最新出口见§7.3。不得将本节旧“未切生产”状态覆盖最新出口。
+
+用户依据[源码诊断](../performance/2026-10-12-final-pixel-source-diagnosis.md)授权逐项执行。当前仅返工本单元，不自动进入 Native/Sun、Geometry 或 Phase6 正式长窗口。生产仍为§7.1图，替换 owner/WGSL 先在 test-only 完整闭包验证；没有 runtime candidate selector。
+
+范围：Measure→Exposure→Shading Pyramid→半域 R8 shading-change→Analyze→Resolve/RCAS，包含全部绑定、写域、能力、缓存图、提交/abort/retry/reset/resize/device loss/fence retirement。Seed own-pixel motion/depth/identity、3×3严格前景 receiver、完整 AMD 重建/历史响应与 true upscale/bypass 合同保持。
+
+Cost Card：R8物化删除12N filtered尺度查询与4N重复量化；增加.75N尺度查询、N次R8 filtered消费、.25N transient store/capacity（1080p 518,400B）、一dispatch/dependency，无history/atomic/clear。单独候选已通过既有动态质量，但短合成与同真实输入整链收益很小，短整帧未证可靠收益，不切生产。原失败与构建指纹保留。
+
+Measure物理候选：以32×32 tile、128lane代替64×64/256lane；34×34 halo只缓存本dispatch的Seed.w，完整保持邻域顺序/严格nearest和half box。原1080p logical Seed depth loads约20,718,004（search+box）→2,358,240，不等于DRAM减少；log/luma/weights数学与完整覆盖保留。shared由16,384→8,720B，五轮2×2与halo/初始barrier共12次；private reduction最多2值。dispatch数不增，组510→2040，空边界lane、更多组及shared读取是ADD；log tiles2040→8160B。Exposure同一既有dispatch先按原顺序合并四个32tile，再在原64tile位置做mip5 half边界和全局树，增加至多四倍tile loads，保16KiB shared/既有依赖。无subgroup、全设备counter或新算法。
+
+理想上限小于当前Measure完整桶（还有必要log/nearest数学）；预计ms未知，最坏shared/调度/Exposure新税抵消全部DELETE。以D=删除的实际读取/执行税、A=halo共享访问/组调度/Exposure合并与R8产品税，0/50/100%兑现为−A/.5D−A/D−A，break-even D>A且完整Temporal/whole和尾部不退。独立原Measure/Exposure数值差分、原质量门、真实同输入整链与短matched Dungeon可推翻候选；失败不恢复scatter/Prepare、不放宽门。完整单位出口未关闭，不提升净收益、60FPS或4GB资格。
+
+本次继续完成该**非生产候选的正确性与有限成本实验**；生产返工出口仍未关闭。v2修复Exposure的WGSL显式类型转换并保持原加法顺序；12组尺寸含4096×4096的Measure/Exposure产品352,882,000字节完全一致，独立R8边界、小动态17序列、1080p六类1536帧矩阵与11项候选生命周期通过，未放宽门。冻结真实Dungeon输入完整链短回放与合成ABBA观察到局部下降，但真实Renderer四轮各96完整样本仍热混杂（89–91°C、thermal Active、300–1230MHz采样漂移），whole/尾部未获可靠matched净收益。保留test-only完整候选，**不切生产、不判架构证伪、不进入Phase6或Native/Sun返工**；后续必须先得到可比成本窗口。实际GPU产品、失败、source/build/完整shader与成本范围见[返工实验报告](../performance/2026-10-12-native-temporal-observation-rework.md)。实测资源池同时保留两份新增R8与log tiles，API容量增量1,049,040B，不能只报单逻辑产品518,400B或把API容量当DRAM/4GB资格。
+
+### 7.3 Native观测物理返工生产出口（2026-10-12）
+
+**本完整物理单元已关闭并切production；有限同条件whole/Temporal break-even成立，正式整Renderer/60FPS/4GB资格仍未获得。** 用户要求继续后，改善观测条件并完成实际切换；不以首次热混杂为停止所有后续工作的理由。保留原失败/负成本，不跨入Native/Sun、Geometry或Phase6正式长窗口。
+
+生产唯一图为Measure32×32/128lane+34×34 Seed depth halo→Exposure原序合并64域/half边界→Shading Pyramid→floor-half R8 Shading Change→Analyze→Resolve/RCAS。所有消费者、cached bindings、complete-writer proof与abort/retry/reset/resize/epoch/fence同单元切换；删旧64tile Measure组织及Analyze内联low-change四邻域/三尺度查询。没有runtime候选开关、scatter/clear、额外history/submit；before与候选快照仅留test-only。新R8由FrameGraph transient pool管理，Analyze唯一consumer；geometry/identity/raw-depth/AMD完整profile保持。
+
+观测工具新增显式low-tax模式：单个常驻250ms nvidia-smi采温度/频率，OS/CIM仅窗口前后；原periodic模式和原raw保留。每窗前固定场景暂停至82°C，断言提交frame与完整history evidence不变，再恢复原设置采96帧，不删恢复后首帧或长帧。三轮窗口sensor全1350MHz，A2首次sensor有1665MHz boost其余1350；温度轨迹重叠84/85–90°C。未锁功耗/风扇/频率，稀疏sensor不当逐frame时钟证明。
+
+短ABBA A1/B1/B2/A2 whole P50=17.684400/16.845024/16.910624/17.645568ms，P95=18.191160/17.467048/17.416704/18.112072ms，P99=18.790605/17.923573/18.045152/20.056771ms；全部raw96帧、八相位各12帧。完整Temporal envelope P50=5.375184/4.626016/4.638720/5.396096ms；Native桶P50维持7.438–7.455ms。两侧有限whole差.839376/.734944ms，P95/P99没有观察到退化；不是Phase2–5相对49fc整模块正式净资格。最终实际production build另测96帧whole P50/P95/P99=16.934352/17.649912/18.728448ms，Temporal P50=4.638656ms，API release=0；不能以本微窗口称稳定60FPS。
+
+集中出口通过：项目architecture review、engine typecheck/build/declarations、fresh build:test、Dungeon typecheck、33 targeted Node（新增missing Shading Pyramid/Shading Change拒绝提交与retry门；原生产失败保存）、actual production Measure/Exposure352,882,000字节一致、独立R8边界、完整Resolve/pull/cached事务、真实Native writer、actual Renderer ordinary/Product/multiProduct/normal/coat/MASK/local lights/环境与AO/Bloom/domain/debug/abort/retry/cut/resize/controlled epoch、bounded feature demand、17小序列、1080p六类×256帧×8ROI矩阵1536帧。八个实际production GPU oracle顶层passed且无GPU/scoped errors；最终构建再验真实Dungeon默认图与teardown。未放宽门、未吞必需失败、未借旧production路径。
+
+新增逻辑R8 store .25N、log tile store增6120B/frame；相对§7.1 store下限68.8125→69.0625B/pixel（另加logs/info/weights），不能声称总store下降。实测API池容量增量1,049,040B、persistent profile仍78B/pixel，不称DRAM/OS资格。实际数据、指纹、原失败、来源与剩余验收范围只在[返工报告§6](../performance/2026-10-12-native-temporal-observation-rework.md#6-继续实施与生产出口)维护。当前单元关闭后停在Phase6正式验收边界。
 
 ## 8. Phase 5 — Integration / final retirement
 

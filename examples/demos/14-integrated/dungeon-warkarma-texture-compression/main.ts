@@ -88,7 +88,14 @@ const publications: WebCookProductPublicationTiming[] = [];
 const cpu = { normal: [] as number[], profiled: [] as number[] };
 const intervals: number[] = [];
 const interactionCpu: number[] = [];
-const callbacks: Array<{ atMs: number; submitted: boolean; source: "raf" | "ready"; frameIndex: number; cpuMs: number }> = [];
+const callbacks: Array<{
+  atMs: number;
+  submitted: boolean;
+  source: "raf" | "ready";
+  frameIndex: number;
+  cpuMs: number;
+  temporal?: ReturnType<Renderer["temporalHistoryEvidence"]>;
+}> = [];
 let resumeFrame: (() => void) | undefined;
 let lastSubmittedAt: number | null = null;
 let renderer: Renderer | undefined;
@@ -785,9 +792,21 @@ async function start(): Promise<void> {
       const submitted = renderer.frame_count > beforeFrame;
       const duration = performance.now() - begin;
       if (submitted && fullQualityMs !== null) stableFrames++;
-      if (!paused && fullQualityMs !== null && stableFrames > 60 && document.visibilityState === "visible") {
-        callbacks.push({ atMs: now, submitted, source, frameIndex: renderer.frame_count - 1, cpuMs: duration });
+      const canSample = !paused && fullQualityMs !== null && document.visibilityState === "visible";
+      if (canSample && (performanceCapture || stableFrames > 60)) {
+        callbacks.push({
+          atMs: now,
+          submitted,
+          source,
+          frameIndex: renderer.frame_count - 1,
+          cpuMs: duration,
+          ...(performanceCapture && profiled && submitted
+            ? { temporal: renderer.temporalHistoryEvidence() }
+            : {}),
+        });
         if (callbacks.length > (performanceCapture ? 8000 : 600)) callbacks.shift();
+      }
+      if (canSample && stableFrames > 60) {
         if (submitted) {
           append(cpu[profiled ? "profiled" : "normal"], duration);
           if (lastSubmittedAt !== null) append(intervals, now - lastSubmittedAt);
@@ -1385,6 +1404,7 @@ if (performanceCapture) {
         return renderer.frame_count;
       },
       vsmDiagnostics: () => renderer?.vsmDiagnostics() ?? null,
+      historyEvidence: () => renderer?.temporalHistoryEvidence() ?? null,
       samples: () => ({
         cpu,
         intervals,
