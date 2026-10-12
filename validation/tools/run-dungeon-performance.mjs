@@ -180,7 +180,11 @@ const server = createServer(async (req, res) => {
     res.writeHead(404).end(String(error));
   }
 });
-await new Promise((r) => server.listen(5186, "127.0.0.1", r));
+await new Promise((resolve, reject) => {
+  server.once("error", reject);
+  server.listen(0, "127.0.0.1", resolve);
+});
+const origin = `http://127.0.0.1:${server.address().port}`;
 let run, browserCdp, pageCdp, sensorTimer, osTimer, processTimer;
 let scenario = "before-browser",
   sensorBusy = false,
@@ -370,7 +374,7 @@ try {
   scenario = "cold-load";
   const loadStart = Date.now();
   const urlObject = new URL(
-    "http://127.0.0.1:5186/demos/14-integrated/dungeon-warkarma-texture-compression/index.html?performanceCapture=1"
+    `${origin}/demos/14-integrated/dungeon-warkarma-texture-compression/index.html?performanceCapture=1`
   );
   if (report.options.geometryMiB !== null) urlObject.searchParams.set("geometryMiB", report.options.geometryMiB);
   if (nativeCostSlice !== null) urlObject.searchParams.set("nativeCostSlice", nativeCostSlice);

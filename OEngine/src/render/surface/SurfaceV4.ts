@@ -140,6 +140,8 @@ export class SurfaceV4 {
   private readonly bindGroups = new GpuBindGroupCache();
   readonly ready: Promise<void>;
   private neutralEntries: readonly GPUBindGroupEntry[] | null = null;
+  private neutralEnvironmentEntries: readonly GPUBindGroupEntry[] | null = null;
+  private neutralEnvironmentTexture: GPUTexture | null = null;
   private neutralBuffers: readonly GPUBuffer[] = [];
   private neutralTextures: readonly GPUTexture[] = [];
   private state: ExtentState | null = null;
@@ -225,6 +227,40 @@ export class SurfaceV4 {
     return this.neutralEntries;
   }
 
+  /** Absent environment radiance contributes exactly zero to every IBL lobe.
+   * The same zero texel supplies diffuse/specular/DFG; no convolution is needed. */
+  get absentEnvironmentEntries(): readonly GPUBindGroupEntry[] {
+    if (this.destroyed) {
+      throw new Error("SurfaceV4 cannot allocate provider defaults after teardown");
+    }
+    if (this.neutralEnvironmentEntries !== null) {
+      return this.neutralEnvironmentEntries;
+    }
+    const texture = this.device.createTexture({
+      label: "SurfaceV4/absent environment radiance",
+      size: [1, 1],
+      format: "rgba16float",
+      usage: GPUTextureUsage.TEXTURE_BINDING,
+    });
+    this.neutralEnvironmentTexture = texture;
+    this.track(texture, "texture", 8);
+    const view = createNativeTextureView(texture);
+    const sampler = this.device.createSampler({
+      label: "SurfaceV4/absent environment sampler",
+      minFilter: "linear",
+      magFilter: "linear",
+      addressModeU: "clamp-to-edge",
+      addressModeV: "clamp-to-edge",
+    });
+    this.neutralEnvironmentEntries = [
+      { binding: 5, resource: view },
+      { binding: 6, resource: view },
+      { binding: 7, resource: view },
+      { binding: 15, resource: sampler },
+    ];
+    return this.neutralEnvironmentEntries;
+  }
+
   get hdr(): GPUTexture {
     if (!this.prepared || this.preparedState === null) {
       throw new Error("SurfaceV4 has no prepared HDR product");
@@ -252,7 +288,8 @@ export class SurfaceV4 {
     }
     let total =
       this.neutralBuffers.reduce((total, buffer) => total + buffer.size, 0) +
-      (this.neutralEntries === null ? 0 : 8);
+      (this.neutralEntries === null ? 0 : 8) +
+      (this.neutralEnvironmentTexture === null ? 0 : 8);
     for (const allocation of allocations) {
       total += allocation.width * allocation.height * Number(allocation.ownedHdr !== null) * 8;
       total += allocation.bins.allocatedBytes;
@@ -1167,6 +1204,20 @@ export class SurfaceV4 {
     // No Surface history/cache exists. Temporal/effect owners invalidate their own products.
   }
 
+  /** Retire the unused scene working set after an empty replacement submits.
+   * Pipelines remain reusable; prior snapshots retain bindings until last use. */
+  releaseFrameResources(): void {
+    if (this.prepared || this.preparing || this.destroyed) {
+      throw new Error("SurfaceV4 release requires a live frame boundary");
+    }
+    this.bindGroups.clear();
+    if (this.state !== null) {
+      const state = this.state;
+      this.state = null;
+      this.retire(state);
+    }
+  }
+
   private track(resource: GPUBuffer | GPUTexture, kind: "buffer" | "texture", bytes: number): void {
     const handle = this.graphics?.resource_accounting.created(
       { kind, category: "transient", owner: "SurfaceV4", bytes, label: resource.label },
@@ -1233,6 +1284,11 @@ export class SurfaceV4 {
       this.neutralBuffers = [];
       this.neutralTextures = [];
       this.neutralEntries = null;
+      if (this.neutralEnvironmentTexture !== null) {
+        this.releaseResource(this.neutralEnvironmentTexture);
+        this.neutralEnvironmentTexture = null;
+      }
+      this.neutralEnvironmentEntries = null;
     };
     void this.lastCompletion.then(releaseNeutral, releaseNeutral);
     ++this.prepareEpoch;

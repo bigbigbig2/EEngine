@@ -97,6 +97,7 @@ interface Allocation {
   readonly bytes: number;
   readonly key: string;
   state: "free" | "prepared" | "encoded" | "submitted" | "destroyed";
+  retired?: boolean;
   command?: ShadeGPUCommandContext;
   frame?: LocalLightWorkFrame;
 }
@@ -518,7 +519,7 @@ export class LocalLightWorkGenerator {
       if (allocation.state === "encoded") {
         allocation.state = "free";
         allocation.command = undefined;
-        if (this.disposed) {
+        if (this.disposed || allocation.retired) {
           this.release(allocation);
         }
       }
@@ -528,7 +529,7 @@ export class LocalLightWorkGenerator {
       const completed = (): void => {
         allocation.state = "free";
         allocation.command = undefined;
-        if (this.disposed) {
+        if (this.disposed || allocation.retired) {
           this.release(allocation);
         }
       };
@@ -710,6 +711,34 @@ export class LocalLightWorkGenerator {
     }
   }
 
+  /** No new consumer in the successfully submitted replacement frame. */
+  releaseFrameResources(): void {
+    if (this.allocations.some((value) => value.state === "prepared" || value.state === "encoded")) {
+      throw new Error("LocalLightWork release requires a frame boundary");
+    }
+    this.bindGroups.clear();
+    for (const allocation of [...this.allocations]) {
+      allocation.retired = true;
+      for (const buffer of [
+        allocation.parameters,
+        allocation.settings,
+        allocation.data,
+        allocation.scratch,
+        allocation.indirect,
+        ...allocation.scans,
+        ...(allocation.ownsLookup ? [allocation.lookup] : [])
+      ]) {
+        const handle = this.accountingHandles.get(buffer);
+        if (handle) {
+          this.graphics?.resource_accounting.setRetired(handle, true);
+        }
+      }
+      if (allocation.state === "free") {
+        this.release(allocation);
+      }
+    }
+  }
+
   destroy(): void {
     this.bindGroups.clear();
     if (this.disposed) {
@@ -731,6 +760,11 @@ export class LocalLightWorkGenerator {
       return;
     }
     allocation.state = "destroyed";
+    if (allocation.frame) {
+      this.frames.delete(allocation.frame);
+      allocation.frame = undefined;
+    }
+    allocation.command = undefined;
     for (const buffer of [
       allocation.parameters,
       allocation.settings,

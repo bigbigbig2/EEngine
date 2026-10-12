@@ -15,6 +15,7 @@ export interface FinalPixelLightingFrame {
 interface Allocation extends FinalPixelLightingFrame {
   state: "free" | "prepared" | "submitted" | "destroyed";
   readonly handles: readonly ResourceHandle[];
+  retired?: boolean;
   command?: ShadeGPUCommandContext;
 }
 
@@ -100,7 +101,7 @@ export class FinalPixelLightingPublication {
       if (current.state === "prepared") {
         current.state = "free";
         current.command = undefined;
-        if (this.destroyed) {
+        if (this.destroyed || current.retired) {
           this.release(current);
         }
       }
@@ -110,7 +111,7 @@ export class FinalPixelLightingPublication {
       current.command = undefined;
       const completed = (): void => {
         current.state = "free";
-        if (this.destroyed) {
+        if (this.destroyed || current.retired) {
           this.release(current);
         }
       };
@@ -121,6 +122,22 @@ export class FinalPixelLightingPublication {
 
   get allocatedBytes(): number {
     return this.allocations.reduce((bytes, value) => bytes + value.plan.bytes + 16, 0);
+  }
+
+  /** Called only after an empty/unlit replacement successfully submits. */
+  releaseFrameResources(): void {
+    if (this.allocations.some((value) => value.state === "prepared")) {
+      throw new Error("Final lighting release requires a frame boundary");
+    }
+    for (const allocation of [...this.allocations]) {
+      allocation.retired = true;
+      for (const handle of allocation.handles) {
+        this.graphics?.resource_accounting.setRetired(handle, true);
+      }
+      if (allocation.state === "free") {
+        this.release(allocation);
+      }
+    }
   }
 
   private release(allocation: Allocation): void {

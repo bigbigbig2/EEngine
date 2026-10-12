@@ -134,6 +134,10 @@ test("lit scalar AO closes a same-frame producer while off and unlit omit it", (
 
 test("directional shadows demand independent Geometry only for an enabled lit consumer", () => {
   for (const shadowProfile of ["vsm-directional-high", "vsm-directional-bounded"]) {
+    assert.throws(
+      () => buildFrameProgram({ ...scene, physicalEnvironment: false, shadowProfile }),
+      /Physical Sun consumer/,
+    );
     const plan = buildFrameProgram({ ...scene, shadowProfile });
     assert.ok(plan.stages.includes("vsm"));
     assert.deepEqual(plan.facts.find((fact) => fact.product === "shadow-geometry-work").consumers, ["vsm"]);
@@ -152,6 +156,9 @@ test("directional shadows demand independent Geometry only for an enabled lit co
   );
   const unlit = buildFrameProgram({ ...scene, hasLit: false, shadowProfile: "off" });
   assert.ok(!unlit.products.includes("shadow-geometry-work"));
+  const noSun = buildFrameProgram({ ...scene, physicalEnvironment: false, shadowProfile: "shadow-disabled" });
+  assert.ok(!noSun.stages.includes("vsm"));
+  assert.ok(!noSun.products.includes("shadow-sampling"));
 });
 
 test("Shadow sampling is a committed work-domain product with a real Physical Sun consumer", () => {
@@ -164,14 +171,14 @@ test("Shadow sampling is a committed work-domain product with a real Physical Su
   const noSun = buildFrameProgram({
     ...scene,
     physicalEnvironment: false,
-    shadowProfile: "vsm-directional-high",
+    shadowProfile: "shadow-disabled",
   });
   assert.ok(!noSun.products.includes("shadow-sampling"));
   assert.throws(
     () => buildFrameProgram({ ...scene, hasLit: false, shadowProfile: "vsm-directional-high" }),
     /VSM requires a lit Surface consumer/,
   );
-  assert.ok(noSun.products.includes("shadow-geometry-work"));
+  assert.ok(!noSun.products.includes("shadow-geometry-work"));
 });
 
 test("Program cache reuses the finite set shape and evicts by LRU", () => {

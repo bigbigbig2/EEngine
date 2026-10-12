@@ -200,7 +200,7 @@ export const oracles = Object.freeze([
     file: "OEngine/tests/oracle/native-surface-production-gpu.mjs",
     url: "/OEngine/tests/oracle/native-surface-production-gpu.mjs",
     entry: "runNativeSurfaceAuthoredIblProductionGpuOracle",
-    allowPrefixes: ["OEngine/src/render/assets/"],
+    allowPrefixes: ["OEngine/src/render/assets/", "validation/tools/dungeon-gpu-audit.mjs"],
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     requiredFeatures: ["texture-formats-tier1"],
     description:
@@ -548,7 +548,7 @@ export const oracles = Object.freeze([
     file: "OEngine/tests/oracle/native-surface-production-gpu.mjs",
     url: "/OEngine/tests/oracle/native-surface-production-gpu.mjs",
     entry: "runNativeSurfaceMultiProductProductionGpuOracle",
-    allowPrefixes: ["OEngine/src/render/assets/", "OEngine/src/assets/web-cook/wasm/vendor/"],
+    allowPrefixes: ["OEngine/src/render/assets/", "OEngine/src/assets/web-cook/wasm/vendor/", "validation/tools/dungeon-gpu-audit.mjs"],
     requiredFeatures: ["texture-formats-tier1"],
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     description:
@@ -572,7 +572,7 @@ export const oracles = Object.freeze([
     file: "OEngine/tests/oracle/native-surface-production-gpu.mjs",
     url: "/OEngine/tests/oracle/native-surface-production-gpu.mjs",
     entry: "runNativeSurfaceProductProductionGpuOracle",
-    allowPrefixes: ["OEngine/src/render/assets/", "OEngine/src/assets/web-cook/wasm/vendor/"],
+    allowPrefixes: ["OEngine/src/render/assets/", "OEngine/src/assets/web-cook/wasm/vendor/", "validation/tools/dungeon-gpu-audit.mjs"],
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     requiredFeatures: ["texture-formats-tier1"],
     description:
@@ -584,12 +584,21 @@ export const oracles = Object.freeze([
     file: "OEngine/tests/oracle/native-surface-production-gpu.mjs",
     url: "/OEngine/tests/oracle/native-surface-production-gpu.mjs",
     entry: "runNativeSurfaceProductionGpuOracle",
-    allowPrefixes: ["OEngine/src/render/assets/"],
+    allowPrefixes: ["OEngine/src/render/assets/", "validation/tools/dungeon-gpu-audit.mjs"],
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     requiredFeatures: ["texture-formats-tier1"],
     description:
       "S2 actual Renderer ownership, native instance publication, winner/HDR/Temporal/FSR, update/abort/retry/resize.",
     note: "Renderer negotiates its own device; oracle captures errors on that real production device. This is a correctness closure, not S3 performance acceptance.",
+    timeoutMs: 180000,
+  }),
+  Object.freeze({
+    name: "final-pixel-feature-demand",
+    file: "OEngine/tests/oracle/native-surface-production-gpu.mjs",
+    url: "/OEngine/tests/oracle/native-surface-production-gpu.mjs",
+    entry: "runFinalPixelFeatureDemandGpuOracle",
+    allowPrefixes: ["OEngine/src/render/assets/", "validation/tools/dungeon-gpu-audit.mjs"],
+    description: "Actual no-Physical-Sun and capability-projected bounded Renderer demand/domain/retirement closure.",
     timeoutMs: 180000,
   }),
   Object.freeze({

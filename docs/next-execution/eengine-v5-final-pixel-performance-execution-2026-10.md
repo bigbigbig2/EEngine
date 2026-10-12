@@ -6,6 +6,7 @@ verifies:
     - docs/next-design/eengine-v5-final-pixel-performance-2026-10.md
     - project/workstreams/active/eengine-next-clean-rebuild.yaml
     - OEngine/src/render/program/FrameProgramLowering.ts
+    - OEngine/src/render/program/FrameProgram.ts
     - OEngine/src/render/pipeline/RendererCore.ts
     - OEngine/src/render/surface
     - OEngine/src/render/vsm
@@ -18,6 +19,12 @@ verifies:
     - OEngine/src/shaders/lighting_brdf.ts
     - OEngine/tests/oracle/final-pixel-sun-response-gpu.mjs
     - OEngine/src/render/lighting/FinalPixelLightingPublication.ts
+    - OEngine/src/render/lighting/LocalLightWorkGenerator.ts
+    - OEngine/tests/contract/local-light-work.test.mjs
+    - OEngine/tests/contract/frame-program.test.mjs
+    - OEngine/tests/oracle/native-surface-production-gpu.mjs
+    - OEngine/tests/oracle/native-surface-integration-gpu.mjs
+    - OEngine/tests/oracle/native-surface-acceptance-gpu.mjs
     - OEngine/src/shaders/native_resolved_position.ts
     - OEngine/tests/oracle/final-pixel-shadow-quality-gpu.mjs
     - OEngine/tests/contract/final-pixel-shadow-cutover.test.mjs
@@ -48,7 +55,7 @@ verifies:
 
 # EEngine V5 Final Pixel Execution Authority
 
-唯一目标是[V5 Design](../next-design/eengine-v5-final-pixel-performance-2026-10.md)。本文件管理迁移单元、合同、验证、cutover与退休；候选实验进入`docs/performance/`，不追加到目标设计。source baseline `49fcaa300fafcbbe3db142df403baa3487f89956`；authority先提交为 `e2ebed8`，Phase1非生产完整闭包提交为 `9f305c4`。本次用户授权审核当前Phase、必要返工并执行下一完整Phase。Phase2/3已完成的结构、数值、接线与生命周期未发现新返工依据；未资格融合及Seed成本按§5.1/§6.1在Phase5/6联合收口。从HEAD `015548a7d5707975701a844c3b06df3ba8a28303`开始Phase4隔离V2候选；当前已原子切换production并关闭Phase4单元出口，见§7.1；本轮停在Phase5边界。编译、prototype或组件数值通过不能称整Renderer性能/动态画质验收。
+唯一目标是[V5 Design](../next-design/eengine-v5-final-pixel-performance-2026-10.md)。本文件管理迁移单元、合同、验证、cutover与退休；候选实验进入`docs/performance/`，不追加到目标设计。source baseline `49fcaa300fafcbbe3db142df403baa3487f89956`；authority先提交为 `e2ebed8`，Phase1非生产完整闭包提交为 `9f305c4`。Phase4已原子切换production并关闭单元出口，见§7.1。本次用户明确授权“进入 Phase 5，继续完整集成”，从HEAD `acecfab2495a4b5c6d5420efc9f1d2083abe6bb0`实施。Phase5产品、需求、生命周期与必要正确性集成关闭，联合成本实际检查仍未获净性能资格，见§8.1；本轮停在Phase6边界。Phase2/3/4未资格成本不得在集成后换名为通过，编译或组件质量通过不能称整Renderer/60FPS验收。
 
 ## 1. Phase 顺序、依赖与状态
 
@@ -59,7 +66,7 @@ verifies:
 | 2 | Shadow Physical Execution cutover：full I Shadow Resolve / mask / 重复continuation退休 | 1；结构/数值/接线/生命周期闭包完成；候选净性能未资格，联合成本收口在5/6，见§5.1 |
 | 3 | Temporal Seed cutover：Native→全部Temporal consumers；Facts恢复pass / 旧Aux退休 | 1、2；结构/必要数值/接线/生命周期/输入子质量闭包完成；净性能未资格，联合成本在5/6收口，见§6.1 |
 | 4 | Native Temporal V2完整图：native scatter / Prepare / SPD / 旧owner退休 | 3；结构/数值/unit质量/接线/生命周期闭包完成，有限整链成本已测；正式整Renderer资格在5/6，见§7.1 |
-| 5 | Final Pixel全feature/domain集成、最后旧owner与多余常驻/生命周期税退休 | 2–4；未开始 |
+| 5 | Final Pixel全feature/domain集成、最后旧owner与多余常驻/生命周期税退休 | 2–4；结构/必要正确性/生命周期集成关闭；联合成本已测但净性能未资格，见§8.1 |
 | 6 | 集中quality / production ABBA / P50/P95/P99 / 4GB simultaneous peak验收 | 5；未开始 |
 | 7 | 只有剩余gap需要：Receiver Demand V2，删除pixel projection扫描 | 6诊断；deferred，不自动实施 |
 
@@ -262,6 +269,20 @@ ADD：全组合接线、单Temporal事务、精确retirement/accounting/release�
 
 必须联合收口Phase2尚未资格的融合成本：使用已实际写Seed的最终Native和V2 Temporal，重新计算完整DELETE/ADD、private live-state/binding/working set及receiver→Native envelope，不沿用Phase2微窗口为收益证据。此处只允许冻结B/V2内的实现candidate调整；不能以“性能稍后验收”忽略已观察回归。闭包后一次集中有限ABBA、动态quality，Phase6再完成正式长窗口；最终无break-even必须按完整证伪合同处理，不能称模块完成。
 
+### 8.1 Phase5集成出口（2026-10-12）
+
+**结构、产品、需求、必要正确性与生命周期集成关闭；联合净性能仍未资格；停在Phase6。** 本轮不改production shader数学、AMD完整profile、foreground receiver合同或Geometry Frontend，不增加fullscreen pass/history/submit，也没有第二Native路径。
+
+DELETE：成功empty replacement后无消费者的Surface execution storage/Seed/color histories/local-light与lighting frame pools；all-unlit后的lighting frame pools；关闭PhysicalEnvironment epoch中的全部VSM allocation/pass owners与无消费者shadow Geometry demand；验证链残留native1:1 FSR生产入口和旧两输出对照Surface；销毁后的frame references。ADD：可复用owner的last-use fence retirement、NativeV2/FSR candidate/active/retiring物理账本与allocation rollback、无环境时按需8B共享零辐射IBL绑定、完整组合验证。提交失败不提前释放，返回场景Seed/camera validity重新建立，VSM active residency不当frame scratch清除。idle回收不冒称正常scene帧率收益。
+
+实际Renderer覆盖ordinary/Product/multiProduct/authored IBL、MASK/normal/ORM/coat/local lights、high/on/off、AO/Bloom、native/noninteger upscale/bypass、按需debug、cut/resize/abort/retry/defer/three-inflight/cache/受控epoch与empty失败/成功/返回。新增无Sun+中立/无Sun+authored IBL真实Renderer及bounded能力投影Renderer，覆盖domain/unlit返回/调用方pause-step，API teardown bytes=0。bounded是在真实GPU上投影2048能力上限运行实际production图，**不是适配器真实协商到低limit的证明**；core WebGPU对低于默认limit请求会钳制，不以伪造request成功声称硬件覆盖。非法partial写域仍由原capacity/extent语义断言拒绝。
+
+Engine typecheck/build/declarations、fresh build:test、64项targeted Node通过；完整1080p六类×256帧×8ROI动态Temporal矩阵1536帧、Shadow/Sun/pull语义、1080p五场景实际Surface acceptance通过，门和算法不变。实际Renderer全API（含诊断读回）归零；simultaneous peak保留真实overlap。受影响oracle已迁到当前Seed/V2或明确冻结的test-only历史reference。原失败、fixture修正、最终build identity、成本与范围只在[Phase5报告](../performance/2026-10-12-final-pixel-phase5-integration.md)。
+
+联合ABBA使用fresh `49fcaa3` Before与Phase5 After、同场景/renderer设置，每轮60完整target GPU样本。A1/B1/B2/A2 whole P50为18.958/22.324/25.542/25.654ms；P95为42.098/58.104/27.724/28.377ms。receiver→Native envelope P50为9.959/12.306/13.946/13.467ms；删除ShadowResolve/Facts已实际验证，但Native与Temporal scene cost仍高，**没有稳定净收益/预算资格**。88–91°C、thermal Active且clock不重叠，不归一化为收益，不以短窗证伪架构。API窗口peak下降140.27MiB不等于persistent history savings；identity+color profile仍78对旧70B/pixel。最终无Sun条件接线/中立provider晚于ABBA；原benchmark fingerprint不冒充最终提交，默认PhysicalSun图与shader数学未变。
+
+Phase6必须完成同条件长窗口≥3 ABBA块/每path每块1000完整samples、tail/thermal、实际authored Dungeon动态质量及4GB/OS驻留验收；若需改shader组织，返回对应unit的完整candidate验证，再集中测量。不能把后续验收当必然收益或隐去此前回归。
+
 ## 9. Phase 6 — Performance / quality acceptance
 
 DELETE：无根据的60FPS/稳定收益/局部bucketclaim；本Phase本身不删shader。ADD：可比production数据与验收报告，normalhotpath无计数税。需修代码回对应unitcandidate再新鲜闭包，不临时改架构。
@@ -294,4 +315,4 @@ docs运行`node tools/docs-verify.mjs`与`git diff --check`；raw/source/build/�
 
 ## 12. 本次交付边界
 
-本轮Phase4已关闭并停止，不跨入Phase5。生产Native已原子切新参考profile与Seed/pull完整图并退休旧native依赖；单元是否关闭、实际验证范围与剩余资格只读§7.1。完整质量/实际producer-consumer/生命周期/成本检查缺项或失败时如实未完成，不能把source研究、编译、宽ROI通过或局部break-even晋升为整Renderer质量/60FPS资格。
+本轮Phase5集成出口已关闭并停止，不跨入Phase6。生产Native维持唯一参考profile与Seed/pull完整图；新增需求删除、retirement/accounting及全部直接consumer闭包见§8.1。联合成本已检查但净性能未资格，正式整Renderer动态质量、长窗口/尾延迟和4GB驻留资格仍未完成。不能把集成关闭、source研究、编译、局部quality或break-even晋升为整Renderer质量/60FPS资格。

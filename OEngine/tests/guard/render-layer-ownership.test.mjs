@@ -54,3 +54,22 @@ test("one production Renderer delegates topology to Frame Program and owns submi
     assert.equal(existsSync(path.join(sourceRoot, ...relative)), false, relative.join("/"));
   }
 });
+
+test("Final Pixel production has one Native reconstruction/Temporal owner and no retired fullscreen owners", () => {
+  const lowering = read("render", "program", "FrameProgramLowering.ts");
+  const core = read("render", "pipeline", "RendererCore.ts");
+  for (const source of [lowering, core]) {
+    assert.doesNotMatch(source, /VsmShadowResolvePass|NativeTemporalFactsPass|NativeTemporalPasses|shadowVisibilityProduct/u);
+  }
+  for (const relative of [
+    ["render", "vsm", "VsmShadowResolvePass.ts"],
+    ["render", "temporal", "NativeTemporalFactsPass.ts"],
+    ["render", "temporal", "NativeTemporalPasses.ts"],
+    ["shaders", "native_temporal.ts"],
+  ]) {
+    assert.equal(existsSync(path.join(sourceRoot, ...relative)), false, relative.join("/"));
+  }
+  assert.match(lowering, /initial\.nativeTemporal\.addToGraph/u);
+  const native = read("render", "temporal", "NativeTemporalV2.ts");
+  assert.doesNotMatch(native, /Fsr3PrepareInputsPass|reconstructedDepth|clearBuffer|NativeTemporalFacts/u);
+});

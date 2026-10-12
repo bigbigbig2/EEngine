@@ -42,7 +42,7 @@ test("public entry is Product-first and has no V2 production symbols", async () 
   }
 });
 
-test("source and compiled consumer topology has no legacy V2 call sites", async () => {
+test("authored consumer topology has no legacy V2 call sites", async () => {
   // validation/ 在迁移后把 case、lab 与共享 harness 分到三个目录；只扫 validation/src
   // 会让这条 topology 审计静默少查大部分验证代码。
   const roots = [
@@ -56,7 +56,10 @@ test("source and compiled consumer topology has no legacy V2 call sites", async 
   async function visit(directory) {
     for (const name of await readdir(directory, { withFileTypes: true })) {
       const path = join(directory, name.name);
-      if (name.isDirectory()) await visit(path);
+      // Bundles embed Renderer method definitions and its ordinary-scene
+      // recovery calls. They are not authored Product consumer call sites;
+      // compiled public exports are checked separately above.
+      if (name.isDirectory() && !["dist", "node_modules", ".test-dist"].includes(name.name)) await visit(path);
       else if (/\.(?:ts|tsx|mjs|js)$/.test(name.name)) files.push(path);
     }
   }

@@ -1740,7 +1740,8 @@ export class Renderer {
     // publish demand and residency work through the same Frame Program submit.
     // The raster pass needs the initialized GraphicsContext; constructing it
     // earlier would dereference an undefined device owner.
-    if (config.enableVsm !== false) {
+    // Directional VSM has one consumer: the Physical Sun in Native Surface.
+    if (config.enableVsm !== false && config.enablePhysicalEnvironment !== false) {
       this._vsm = VsmResources.create(device, negotiateVsmCapabilities(device));
       this._vsmDepthBounds = new VsmDepthBoundsPass(device);
       this._vsmReceiverDemand = new VsmReceiverDemandPass(device);
@@ -1795,8 +1796,8 @@ export class Renderer {
     );
     this._bloom = new BloomPass(device);
     this._renderDebugViewPass = new RenderDebugViewPass(this._graphics);
-    this._fsr3 = new Fsr3UpscalerRuntime(device);
-    this._nativeTemporal = new NativeTemporalV2(device);
+    this._fsr3 = new Fsr3UpscalerRuntime(device, this._graphics.resource_accounting);
+    this._nativeTemporal = new NativeTemporalV2(device, this._graphics.resource_accounting);
     // The pinned Takram LUT profile is device-local and recorded into the
     // first frame submission; consumers can bind its immutable views by
     // generation without owning the LUT lifetime.
@@ -2099,6 +2100,7 @@ export class Renderer {
       const sunDirection = scene.physical_environment.snapshot().sunDirectionWorld;
       const vsmEnabled =
         hasLit &&
+        this._environmentRuntime !== null &&
         this._shadowVisibilityEnabled &&
         this._vsm !== null &&
         this._vsm.profile !== "shadow-disabled";
@@ -2444,6 +2446,10 @@ export class Renderer {
       }
       this._temporalPolicy = temporalPolicy;
       this._surface.commit(command.gpuDone);
+      if (!hasLit) {
+        this._localLightWork.releaseFrameResources();
+        this._finalPixelLighting.releaseFrameResources();
+      }
       this._gpuRadiometry.commit(command.gpuDone);
       this._temporal.commit(frameIndex);
       temporalActive = false;
@@ -2549,6 +2555,10 @@ export class Renderer {
       }
       this._fsr3.releaseHistory();
       this._nativeTemporal.releaseHistory();
+      this._surface.releaseFrameResources();
+      this._temporalSeed.releaseHistory();
+      this._localLightWork.releaseFrameResources();
+      this._finalPixelLighting.releaseFrameResources();
       this._temporalPolicy = null;
       this._frame_count++;
       this.onFrameFinished.send1(this._frame_count);

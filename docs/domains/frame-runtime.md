@@ -15,6 +15,8 @@ verifies:
   - OEngine/src/render/passes/fsr3/Fsr3AccumulateShader.ts
   - OEngine/src/render/passes/fsr3/Fsr3RcasPass.ts
   - OEngine/src/render/temporal/NativeTemporalV2.ts
+  - OEngine/src/render/temporal/NativeTemporalSeed.ts
+  - OEngine/src/render/lighting/LocalLightWorkGenerator.ts
   - OEngine/src/shaders/native_temporal_amd.ts
   - OEngine/src/render/passes/fsr3/Fsr3UpscalerRuntime.ts
 ---
@@ -23,9 +25,11 @@ verifies:
 
 ## 当前源码接线
 
-核对日期：2026-10-11，当前生产工作树。这里记录当前 owner 与主链注册；实际验证结果及阶段状态只在模块执行计划。
+核对日期：2026-10-12，当前生产工作树。这里记录当前 owner 与主链注册；实际验证结果及阶段状态只在模块执行计划。
 
 [RendererCore](../../OEngine/src/render/pipeline/RendererCore.ts) 创建 FrameCoordinator、SurfaceV4、LocalLightWorkGenerator、NativeTemporalSeed 等长期 owners。[FrameProgramLowering](../../OEngine/src/render/program/FrameProgramLowering.ts) 将场景产品逐帧绑定到缓存 FrameGraph，连接最终 winner/depth→LocalLightWork→native Surface→Temporal/FSR3。
+
+Directional VSM 只服务 Physical Sun；初始化关闭 PhysicalEnvironment 时不创建 VSM 资源或 pass owners，无 Physical Sun 的 enabled shadow Frame Program 被拒绝。无 authored/physical IBL 时，Surface 按需提供共享 1×1 RGBA16F 零辐射绑定，authored directional/local lights 仍执行完整 lit 路径。
 
 [FrameCoordinator](../../OEngine/src/render/FrameCoordinator.ts) 持有当前 command context，通过 submitFrame 的 command.finish 收口提交，并依据 gpuDone 退役 inFlight。canBeginFrame 限制未完成帧数量；这是 GPU completion 背压，不是读取本帧 visibility/work 后由 CPU 决策。
 
@@ -38,6 +42,8 @@ Final Pixel Shadow 主链由 VSM post-content publication 直接写 FinalPixelLi
 `RendererCore`按两轴实际尺寸选择唯一颜色 writer：Native 1:1为 Measure→Exposure→Shading Pyramid→Analyze→Resolve→RCAS；true upscale为原 FSR3 graph；bypass不写color history。Native previous-depth pull不分配reconstructed-depth buffer、不clear/scatter，不重建Geometry。Shading Pyramid一次计算源差异并归约2/4/8尺度；必要统计由新owner持有。inactive domain在replacement成功submit后按最后fence退休，abort恢复上一提交角色/validity/jitter；不是同时运行两套Native路径。
 
 两域都只写本帧RGBA16F color history（RGB与SDK alpha lock），RCAS读取`builder.write(currentHistory)`的写版本，仅使用RGB并输出alpha1，不声明重复upscaled color临时纹理。两域各自owner管理color/luma/luma-history/confidence/frame-info双槽与prepare/commit/abort/resize/fence，Native额外拥有raw depth pair；TemporalFabric协调同一提交事务；只有成功submit后commit换槽。policy切换重置history并推进generation，abort恢复原policy/index/generation/jitter。普通camera motion不reset，defer不推进history；源码切换不证明整帧性能已验收。
+
+成功 empty submit 退休 Surface scene working set、Seed、两个颜色后端及 lighting frame pools；成功 all-unlit submit 退休 local-light 与 final-lighting frame pools。提交失败不释放旧场景；已提交资源等最后使用 fence，返回场景重新生成 Seed validity。Surface neutral bindings、owner/pipeline 与 VSM residency 保留各自寿命。Native V2、FSR 和 Seed 的 actual/candidate/retiring bytes 进入 GraphicsContext 共用资源账本；资源 destroy 后撤账，API 全 owner 同时峰值由验证观察器另核，常规生产无该观察器。
 
 ## 原则与验证边界
 

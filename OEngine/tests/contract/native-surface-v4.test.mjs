@@ -335,6 +335,32 @@ test("SurfaceV4 resize abort keeps committed extent and resize commit retires on
   f.registry.destroy();
 });
 
+test("empty replacement retires Surface working set at its last fence and returning scene rebuilds it", async () => {
+  const f = fixture();
+  const surface = new SurfaceV4(f.device);
+  await f.publication.ready;
+  f.publication.commit();
+  await surface.prepareFrame(f.frame);
+  assert.throws(() => surface.releaseFrameResources(), /frame boundary/);
+  const hdr = surface.hdr;
+  surface.encode(f.encoder);
+  const fence = deferred();
+  surface.commit(fence.promise);
+  surface.releaseFrameResources();
+  surface.releaseFrameResources();
+  assert.equal(hdr.destroyed, false);
+  await surface.prepareFrame(f.frame);
+  assert.notEqual(surface.hdr, hdr);
+  surface.abort();
+  fence.resolve();
+  await fence.promise;
+  await Promise.resolve();
+  assert.equal(hdr.destroyed, true);
+  surface.destroy();
+  await f.publication.retire(Promise.resolve());
+  f.registry.destroy();
+});
+
 test("Native K no longer owns shadow queries or a diagnostic full-screen allocation", async () => {
   const f = fixture({ costSlice: "K" }), surface = new SurfaceV4(f.device);
   await f.publication.ready;

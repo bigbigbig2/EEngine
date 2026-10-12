@@ -8,7 +8,8 @@ import { createNativeSurfaceFixture, identity } from "./native-surface-fixture.m
 import { createNativeMaterialBindingFixture } from "./native-material-bindings-gpu.mjs";
 import { SurfaceV4 } from "../../.test-dist/render/surface/SurfaceV4.js";
 import { NativeTemporalSeed } from "../../.test-dist/render/temporal/NativeTemporalSeed.js";
-import { Fsr3UpscalerRuntime } from "../../.test-dist/render/passes/fsr3/Fsr3UpscalerRuntime.js";
+import { Fsr3UpscalerRuntime as FrozenPhase3Temporal } from "./reference/phase4/Fsr3UpscalerRuntime.mjs";
+import { NativeTemporalV2 } from "../../.test-dist/render/temporal/NativeTemporalV2.js";
 import { nativeSurfacePublicationDescriptors } from "../../.test-dist/shaders/native_surface.js";
 import { NativeVisibilityPass } from "../../.test-dist/render/surface/NativeVisibilityPass.js";
 import { nativeSurfacePhysicalSunEntries } from "../../.test-dist/shaders/native_surface_lighting.js";
@@ -86,7 +87,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
   await localOwner.ready;
   const surface = new SurfaceV4(device, true, undefined, true);
   const temporal = new NativeTemporalSeed(device),
-    fsr = new Fsr3UpscalerRuntime(device);
+    fsr = phase3Matrix ? new FrozenPhase3Temporal(device) : new NativeTemporalV2(device);
   const resources = [],
     publications = [],
     materialFixtures = [],
@@ -417,7 +418,9 @@ export async function runNativeSurfaceIntegrationGpuOracle(
         inverseView: seedInverseView, inverseProjection: seedInverseProjection,
         jitter: [0, 0], preExposure: 1,
       }, reset);
-      temporal.attach(command);
+      if (phase3Matrix) {
+        temporal.attach(command);
+      }
       const finalLighting = lightingOwner.prepare(1, fixture.lightingPlan.descriptorCount, command);
       const localFrame = localOwner.prepare({
         lookupTarget: { buffer: finalLighting.buffer, offset: finalLighting.plan.lookupOffset, size: finalLighting.plan.lookupBytes },
@@ -487,7 +490,13 @@ export async function runNativeSurfaceIntegrationGpuOracle(
         reset: phase3Matrix ? !seedFrame.previousValid : reset,
         historyReadIndex: index % 2,
       };
-      fsr.prepareFrame(command, temporalSettings);
+      fsr.prepareFrame(command, phase3Matrix ? temporalSettings : {
+        width, height, jitter: frameJitter, cameraFar: 100, cameraInfiniteFar: false,
+        frameTimeMs: 16.7, reset, historyReadIndex: seedFrame.historyReadIndex,
+      });
+      if (!phase3Matrix) {
+        fsr.attach(command, temporal);
+      }
       seedReference?.prepare(command, temporalSettings, publication, qualityState ? {
         x: qualityCamera.transform.matrix[12], distance: qualityCamera.transform.matrix[14] - 0.5,
         scaleX: qualityState.projection_matrix[0], jitterX: qualityState.projection_matrix[8], jitterY: qualityState.projection_matrix[9],
@@ -573,6 +582,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
           })
         : null;
       const seedProducts = temporal.importProducts(graph);
+      const previousIdentity = imported("Temporal/previous identity", seedFrame.previousIdentity, "internal-full");
       const products = surface.addToGraph(
         graph,
         [
@@ -591,11 +601,12 @@ export async function runNativeSurfaceIntegrationGpuOracle(
         identity: products.identity,
         mask: temporal.addClassification(graph, {
           seed: products.seed, response: products.reactive, identity: products.identity,
-        }),
+          previousIdentity,
+        }, undefined, !phase3Matrix),
       };
       const fsrOutput = fsr.addToGraph(
         graph,
-        {
+        phase3Matrix ? {
           color: products.hdr,
           depth: winnerDepth,
           motion: facts.motion, reactiveMask: facts.mask, validityMask: facts.mask,
@@ -605,6 +616,10 @@ export async function runNativeSurfaceIntegrationGpuOracle(
           height,
           outputWidth: width,
           outputHeight: height,
+        } : {
+          color: products.hdr, seed: products.seed, response: products.reactive,
+          identity: products.identity, previousIdentity,
+          preExposure: exposure, priorExposure: prior, width, height,
         },
         (_name, resolve) => resolve(fsr),
       );
@@ -650,7 +665,9 @@ export async function runNativeSurfaceIntegrationGpuOracle(
       }
       command.finish();
       surface.commit(command.gpuDone);
-      fsr.commit(command.gpuDone);
+      if (phase3Matrix) {
+        fsr.commit(command.gpuDone);
+      }
       await command.gpuDone;
       if (timingReady) await timingReady;
       if (exposureUpdate) exposureValue = exposureTarget;

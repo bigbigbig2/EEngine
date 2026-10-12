@@ -459,6 +459,21 @@ export class NativeTemporalSeed {
     return this.retiredBytes + bytes(this.active) + (this.pending !== this.active ? bytes(this.pending) : 0);
   }
 
+  /** A successfully submitted empty frame has no Seed consumer. Keep the
+   * owner reusable, but retire its last scene allocation at that scene's fence. */
+  releaseHistory(): void {
+    if (this.pending || this.destroyed) {
+      throw new Error("Seed release requires a live frame boundary");
+    }
+    this.retire(this.active, this.lastFence);
+    this.active = null;
+    this.previous = null;
+    this.policy = null;
+    this.invalid = true;
+    this.submittedPreviousValid = false;
+    this.groups.clear();
+  }
+
   private retire(set: SeedAllocation | null, fence: Promise<void> | null): void {
     if (!set) {
       return;

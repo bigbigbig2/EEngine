@@ -1,4 +1,5 @@
 import { GpuBindGroupCache } from "../../../gpu/GpuBindGroupResourceCache.js";
+import type { ResourceAccounting, ResourceHandle } from "../../../debug/profiling/ResourceAccounting.js";
 import type { FrameGraph } from "../../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../../framegraph/ShadeGPUCommandContext.js";
@@ -112,7 +113,12 @@ export class Fsr3UpscalerRuntime {
     jitter: readonly [number, number];
   } | null = null;
 
-  constructor(private readonly device: GPUDevice) {
+  private readonly accountingHandles = new Map<GPUBuffer | GPUTexture, ResourceHandle>();
+
+  constructor(
+    private readonly device: GPUDevice,
+    private readonly accounting?: ResourceAccounting
+  ) {
     this.prepareInputs = new Fsr3PrepareInputsPass(device);
     this.lumaPyramid = new Fsr3LumaPyramidPass(device);
     this.shadingPyramid = new Fsr3ShadingChangePyramidPass(device);
@@ -121,39 +127,53 @@ export class Fsr3UpscalerRuntime {
     this.lumaInstability = new Fsr3LumaInstabilityPass(device);
     this.accumulate = new Fsr3AccumulatePass(device);
     this.rcas = new Fsr3RcasPass(device);
-    this.constants = device.createBuffer({
-      label: "FSR3 Upscaler constants",
-      size: FSR3_UPSCALER_CONSTANTS_BYTES,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
-    this.ratioLayout = device.createBindGroupLayout({
-      entries: [
-        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-        { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-        { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-      ],
-    });
-    this.ratioPipeline = device.createComputePipeline({
-      label: "FSR3/GPU pre-exposure ratio",
-      layout: device.createPipelineLayout({ bindGroupLayouts: [this.ratioLayout] }),
-      compute: {
-        module: device.createShaderModule({ code: FSR3_PRE_EXPOSURE_RATIO_WGSL }),
-        entryPoint: "main",
-      },
-    });
-    this.rcasConstants = device.createBuffer({
-      label: "FSR3 RCAS constants",
-      size: 16,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-    this.defaultMask = device.createTexture({
-      label: "FSR3 default zero mask",
-      size: [1, 1],
-      format: "r8unorm",
-      usage: GPUTextureUsage.TEXTURE_BINDING,
-    });
-    device.queue.writeBuffer(this.rcasConstants, 0, packFsr3RcasConstants(0.2));
+    const created: Array<GPUBuffer | GPUTexture> = [];
+    try {
+      this.constants = device.createBuffer({
+        label: "FSR3 Upscaler constants",
+        size: FSR3_UPSCALER_CONSTANTS_BYTES,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+      });
+      created.push(this.constants);
+      this.ratioLayout = device.createBindGroupLayout({
+        entries: [
+          { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+          { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+          { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+          { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } }
+        ]
+      });
+      this.ratioPipeline = device.createComputePipeline({
+        label: "FSR3/GPU pre-exposure ratio",
+        layout: device.createPipelineLayout({ bindGroupLayouts: [this.ratioLayout] }),
+        compute: {
+          module: device.createShaderModule({ code: FSR3_PRE_EXPOSURE_RATIO_WGSL }),
+          entryPoint: "main"
+        }
+      });
+      this.rcasConstants = device.createBuffer({
+        label: "FSR3 RCAS constants",
+        size: 16,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+      });
+      created.push(this.rcasConstants);
+      this.defaultMask = device.createTexture({
+        label: "FSR3 default zero mask",
+        size: [1, 1],
+        format: "r8unorm",
+        usage: GPUTextureUsage.TEXTURE_BINDING
+      });
+      created.push(this.defaultMask);
+      device.queue.writeBuffer(this.rcasConstants, 0, packFsr3RcasConstants(0.2));
+      this.track(this.constants, "buffer", FSR3_UPSCALER_CONSTANTS_BYTES);
+      this.track(this.rcasConstants, "buffer", 16);
+      this.track(this.defaultMask, "texture", 1);
+    } catch (error) {
+      for (const resource of created) {
+        this.releaseResource(resource);
+      }
+      throw error;
+    }
     void device.lost.then(() => this.destroy());
   }
 
@@ -183,6 +203,25 @@ export class Fsr3UpscalerRuntime {
       for (const texture of textures) bytes += texture.width * texture.height * stride;
     }
     return bytes;
+  }
+
+  private track(resource: GPUBuffer | GPUTexture, kind: "buffer" | "texture", bytes: number): void {
+    const handle = this.accounting?.created(
+      { kind, bytes, owner: "Fsr3UpscalerRuntime", category: "history", label: resource.label },
+      resource
+    );
+    if (handle) {
+      this.accountingHandles.set(resource, handle);
+    }
+  }
+
+  private releaseResource(resource: GPUBuffer | GPUTexture): void {
+    resource.destroy();
+    const handle = this.accountingHandles.get(resource);
+    if (handle) {
+      this.accounting!.destroyed(handle);
+      this.accountingHandles.delete(resource);
+    }
   }
   get readIndex(): 0 | 1 {
     return this.index;
@@ -628,10 +667,16 @@ export class Fsr3UpscalerRuntime {
     this.destroyed = true;
     this.abort();
     this.destroyHistories();
+    for (const resource of [this.constants, this.rcasConstants, this.defaultMask]) {
+      const handle = this.accountingHandles.get(resource);
+      if (handle) {
+        this.accounting!.setRetired(handle, this.lastSubmittedGpuDone !== null);
+      }
+    }
     const release = () => {
-      this.constants.destroy();
-      this.rcasConstants.destroy();
-      this.defaultMask.destroy();
+      this.releaseResource(this.constants);
+      this.releaseResource(this.rcasConstants);
+      this.releaseResource(this.defaultMask);
       this.permanentBuffersLive = false;
     };
     if (this.lastSubmittedGpuDone) void this.lastSubmittedGpuDone.then(release, release);
@@ -663,10 +708,13 @@ export class Fsr3UpscalerRuntime {
             (label === "frame info" ? GPUTextureUsage.COPY_DST : 0),
         });
         candidates.push(texture);
+        const stride =
+          format === "rgba32float" ? 16 : format === "rgba16float" ? 8 : format === "r16float" ? 2 : 1;
+        this.track(texture, "texture", w * h * stride);
         return texture;
       }) as [GPUTexture, GPUTexture];
     try {
-      this.histories = {
+      const histories: Fsr3HistoryTextures = {
         policy: "upscale",
         color: pair("color", "rgba16float", outputWidth, outputHeight),
         luma: pair("luma", "r16float", width, height),
@@ -674,7 +722,7 @@ export class Fsr3UpscalerRuntime {
         accumulation: pair("accumulation", "r8unorm", width, height),
         frameInfo: pair("frame info", "rgba32float", 1, 1),
       };
-      for (const texture of this.histories.frameInfo) {
+      for (const texture of histories.frameInfo) {
         this.device.queue.writeTexture(
           { texture },
           new Float32Array([-1, 1, 0, 0]),
@@ -682,6 +730,7 @@ export class Fsr3UpscalerRuntime {
           [1, 1],
         );
       }
+      this.histories = histories;
       this.size = size;
       this.internalCapacity = [width, height];
       this.index = 0;
@@ -689,7 +738,7 @@ export class Fsr3UpscalerRuntime {
       this.previousJitter = [0, 0];
       this.generationValue++;
     } catch (error) {
-      for (const texture of candidates) texture.destroy();
+      for (const texture of candidates) this.releaseResource(texture);
       throw error;
     }
   }
@@ -714,11 +763,18 @@ export class Fsr3UpscalerRuntime {
   private retireHistories(histories: Fsr3HistoryTextures | null, gpuDone: Promise<void> | null): void {
     if (histories === null) return;
     const bytes = this.historyBytes(histories);
+    for (const pair of Object.values(histories)) {
+      if (typeof pair === "string") continue;
+      for (const texture of pair) {
+        const handle = this.accountingHandles.get(texture);
+        if (handle) this.accounting!.setRetired(handle, gpuDone !== null);
+      }
+    }
     if (gpuDone) this.retiredBytes += bytes;
     const destroy = (): void => {
       for (const pair of Object.values(histories)) {
         if (typeof pair === "string") continue;
-        for (const texture of pair) texture.destroy();
+        for (const texture of pair) this.releaseResource(texture);
       }
       if (gpuDone) this.retiredBytes -= bytes;
     };

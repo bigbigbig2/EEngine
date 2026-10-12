@@ -73,6 +73,14 @@ test("final lighting frame pool retains three fences, rolls back abort and relea
   const reused = owner.prepare(24, 260, aborted);
   assert.equal(reused.buffer, frames[0].buffer);
   aborted.abort();
+  owner.releaseFrameResources();
+  assert.equal(frames[0].buffer.destroyed, true);
+  assert.ok(frames.slice(1).every((frame) => !frame.buffer.destroyed), "Inactive submitted frames still own their fences");
+  commands[1].done();
+  await commands[1].gpuDone;
+  await Promise.resolve();
+  assert.equal(frames[1].buffer.destroyed, true);
+  assert.equal(frames[2].buffer.destroyed, false);
   const pending = makeCommand();
   const resized = owner.prepare(48, 260, pending);
   assert.notEqual(resized.buffer, frames[0].buffer);
@@ -81,7 +89,7 @@ test("final lighting frame pool retains three fences, rolls back abort and relea
   await Promise.resolve();
   assert.equal(pending.closed, true);
   assert.equal(resized.buffer.destroyed, true);
-  assert.ok(frames.slice(1).every((frame) => !frame.buffer.destroyed));
+  assert.equal(frames[2].buffer.destroyed, false);
   for (const command of commands.slice(1)) command.done();
   await Promise.all(commands.map((command) => command.gpuDone));
   await Promise.resolve();

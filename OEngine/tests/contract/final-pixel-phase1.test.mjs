@@ -242,6 +242,27 @@ test("successful submit advances identity/camera together; abort and deferred re
   f.owner.destroy();
 });
 
+test("empty replacement releases Seed after last consumer and returning scene has no prior identity", async () => {
+  const f = fixture();
+  const frame = f.owner.prepare(19, 13, "native", f.camera(-2));
+  assert.throws(() => f.owner.releaseHistory(), /frame boundary/);
+  const submitted = f.encode(frame);
+  submitted.command.finish();
+  f.owner.releaseHistory();
+  f.owner.releaseHistory();
+  assert.equal(frame.seed.destroyed, false);
+  const next = f.owner.prepare(19, 13, "native", f.camera(-3));
+  assert.equal(next.previousValid, false);
+  assert.notEqual(next.seed, frame.seed);
+  f.owner.abort();
+  submitted.fence.resolve();
+  await submitted.fence.promise;
+  await Promise.resolve();
+  assert.equal(frame.seed.destroyed, true);
+  assert.equal(f.owner.allocatedBytes, 0);
+  f.owner.destroy();
+});
+
 test("incomplete Seed consumer prevents commit and malformed camera/extent allocates nothing", () => {
   const f = fixture();
   assert.throws(() => f.owner.prepare(0, 13, "native", f.camera(-2)));

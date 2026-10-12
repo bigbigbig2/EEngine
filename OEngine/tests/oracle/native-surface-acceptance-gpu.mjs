@@ -116,7 +116,7 @@ export async function runCase({
   const device = renderer.device;
   // Untimed counterfactual uses the actual native shader and same-frame providers.
   // Only the local-list payload is empty. It never owns a production frame/submit.
-  const referenceSurface = lighting ? new SurfaceV4(device, true, renderer.graphics) : null;
+  const referenceSurface = lighting ? new SurfaceV4(device, true, renderer.graphics, true) : null;
   const referenceLookup = lighting
     ? device.createBuffer({
         label: "L3.0 zero-local lookup",
@@ -154,6 +154,16 @@ export async function runCase({
         usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
       })
     : null;
+  // The counterfactual uses the same final-pixel publication, with private
+  // Seed/identity outputs. It cannot overwrite production Temporal facts.
+  const referenceSeed = lighting ? device.createTexture({
+    label: "L3.0 reference Seed", size: [width, height], format: "rgba32float",
+    usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
+  }) : null;
+  const referenceIdentity = lighting ? device.createTexture({
+    label: "L3.0 reference identity", size: [width, height], format: "rgba32uint",
+    usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
+  }) : null;
   await referenceSurface?.ready;
   const clusterInspection = lighting ? await createLightingInspection(device, 60 * 34 * 24) : null;
   const errors = [];
@@ -324,6 +334,7 @@ export async function runCase({
         ...frame,
         output: referenceHdr,
         reactive: frame.reactive ? referenceReactive : undefined,
+        temporal: { ...frame.temporal, seed: referenceSeed, identity: referenceIdentity },
         lightingEntries: frame.lightingEntries.map((entry) =>
           entry.binding === 1
             ? { binding: 1, resource: { buffer: referenceParameters } }
@@ -367,9 +378,7 @@ export async function runCase({
     // Exact cross-light coverage comparison requires the same production jitter.
     // Extra alignment frames are outside the measured 120-frame window.
     const jitterPeriod = renderer._temporal.jitter.jitter_sequence_size;
-    if (lighting) {
-      while (renderer.frame_count % jitterPeriod !== 0) await tick();
-    }
+    while (renderer.frame_count % jitterPeriod !== 0) await tick();
     const inspectionFrame = renderer.frame_count;
     inspectNext = true;
     await tick();
@@ -865,6 +874,8 @@ fn inspect(@builtin(local_invocation_index) index: u32) {
     referenceData?.destroy();
     referenceHdr?.destroy();
     referenceReactive?.destroy();
+    referenceSeed?.destroy();
+    referenceIdentity?.destroy();
     device.destroy();
   }
 }

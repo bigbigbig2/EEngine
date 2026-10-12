@@ -1,5 +1,5 @@
 import { NATIVE_TEMPORAL_FACTS_WGSL } from "./reference/s3/native_surface_aux.mjs";
-import { Fsr3UpscalerRuntime } from "../../.test-dist/render/passes/fsr3/Fsr3UpscalerRuntime.js";
+import { Fsr3UpscalerRuntime } from "./reference/phase4/Fsr3UpscalerRuntime.mjs";
 import { PACKED_CAMERA_TYPE } from "../../.test-dist/shaders/packed_camera.js";
 
 // Independent analytic motion for this fixture's z=.5 plane and translating,

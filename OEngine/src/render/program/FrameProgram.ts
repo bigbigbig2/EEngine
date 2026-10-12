@@ -511,6 +511,12 @@ function normalizeRequest(request: FrameProgramRequest): FrameProgramRequest {
   if (shadowProfile !== "off" && !request.hasLit) {
     throw new RangeError("VSM requires a lit Surface consumer");
   }
+  if (
+    (shadowProfile === "vsm-directional-high" || shadowProfile === "vsm-directional-bounded") &&
+    !request.physicalEnvironment
+  ) {
+    throw new RangeError("Directional VSM requires a Physical Sun consumer");
+  }
   const debugView = request.debugView ?? RenderDebugViewValue.None;
   if (!isRenderableRenderDebugView(debugView) && debugView !== RenderDebugViewValue.None) {
     throw new RangeError(`Unsupported Frame Program debug view '${debugView}'`);

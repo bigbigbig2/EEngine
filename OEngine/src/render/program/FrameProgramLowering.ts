@@ -590,9 +590,9 @@ function compileSceneGraph(
         };
   if (
     plan.request.hasLit &&
-    (lightRecords === undefined || clusters === undefined || surfaceEnvironment === undefined)
+    (lightRecords === undefined || clusters === undefined)
   ) {
-    throw new Error("Native Surface requires LocalLightWork and IBL providers");
+    throw new Error("Native Surface requires LocalLightWork providers");
   }
   const bindSeed = <T extends object>(name: string, resolve: (runtime: NativeTemporalSeed) => T): T =>
     bind(`native-temporal/${name}`, (bindings) => resolve(bindings.temporalSeed));
@@ -620,15 +620,17 @@ function compileSceneGraph(
         { binding: 2, resource: { buffer: resources.get(clusters!.lookup) as GPUBuffer } },
         { binding: 9, resource: { buffer: resources.get(lightingRanges!) as GPUBuffer } },
         { binding: 3, resource: { buffer: resources.get(clusters!.data) as GPUBuffer } },
-        { binding: 5, resource: resolveTextureView(resources.get(surfaceEnvironment!.diffuse)) },
-        { binding: 6, resource: resolveTextureView(resources.get(surfaceEnvironment!.specular)) },
-        { binding: 7, resource: resolveTextureView(resources.get(surfaceEnvironment!.dfg)) },
-        {
-          binding: 15,
-          resource: plan.request.authoredEnvironment
-            ? frame.view.environment.lights.authoredIbl.sampler
-            : frame.environment!.ibl.sampler,
-        },
+        ...(surfaceEnvironment === undefined ? owners.surface.absentEnvironmentEntries : [
+          { binding: 5, resource: resolveTextureView(resources.get(surfaceEnvironment.diffuse)) },
+          { binding: 6, resource: resolveTextureView(resources.get(surfaceEnvironment.specular)) },
+          { binding: 7, resource: resolveTextureView(resources.get(surfaceEnvironment.dfg)) },
+          {
+            binding: 15,
+            resource: plan.request.authoredEnvironment
+              ? frame.view.environment.lights.authoredIbl.sampler
+              : frame.environment!.ibl.sampler,
+          },
+        ]),
         ...owners.surface.neutralLightingEntries.map((entry) => {
           if (entry.binding === 8 && vsmSamplingConstants !== null) {
             return { binding: 8, resource: { buffer: resources.get(vsmSamplingConstants) as GPUBuffer } };

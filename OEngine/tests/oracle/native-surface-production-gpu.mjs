@@ -41,6 +41,171 @@ const convert = ([r, g, b]) => [
   0.0163916 * r + 0.0880132 * g + 0.895595 * b,
 ];
 
+/** Real Renderer demand closure. The bounded case projects a 2048 capability
+ * ceiling onto a real device: core WebGPU clamps requests below its default,
+ * so this tests the bounded production graph, not adapter limit negotiation. */
+export async function runFinalPixelFeatureDemandGpuOracle() {
+  const { installDungeonGpuAudit } = await import("../../../validation/tools/dungeon-gpu-audit.mjs");
+  installDungeonGpuAudit();
+  const cases = [];
+  for (const { physicalSun, authoredIbl } of [
+    { physicalSun: false, authoredIbl: false },
+    { physicalSun: false, authoredIbl: true },
+    { physicalSun: true, authoredIbl: false },
+  ]) {
+    const adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance", featureLevel: "core" });
+    check(adapter, "Feature demand oracle requires a hardware adapter");
+    const features = ["core-features-and-limits", "indirect-first-instance", "texture-formats-tier1", "texture-compression-bc"];
+    for (const optional of ["primitive-index", "subgroups", "timestamp-query"]) {
+      if (adapter.features.has(optional)) features.push(optional);
+    }
+    const actualDevice = await adapter.requestDevice({
+      requiredFeatures: features,
+      requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    });
+    const errors = [];
+    actualDevice.addEventListener("uncapturederror", (event) => errors.push(event.error.message));
+    const boundedLimits = new Proxy(actualDevice.limits, {
+      get(target, key) {
+        return key === "maxTextureDimension2D" ? 2048 : Reflect.get(target, key, target);
+      },
+    });
+    const device = physicalSun ? new Proxy(actualDevice, {
+      get(target, key) {
+        if (key === "limits") return boundedLimits;
+        const value = Reflect.get(target, key, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    }) : actualDevice;
+    const renderer = new Renderer({ autoExposure: false, fixedExposure: 1 });
+    const actualContext = new OffscreenCanvas(192, 128).getContext("webgpu");
+    // WebIDL requires the real device at the canvas boundary. All allocation
+    // and encoding methods above likewise bind directly to the real device.
+    const context = physicalSun ? new Proxy(actualContext, {
+      get(target, key) {
+        if (key === "configure") return (options) => target.configure({ ...options, device: actualDevice });
+        const value = Reflect.get(target, key, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    }) : actualContext;
+    let readback = null;
+    let frame = null;
+    try {
+      await renderer.initialize({ device, adapter, context, config: { enablePhysicalEnvironment: physicalSun } });
+      renderer.resize(192, 128);
+      check(physicalSun ? renderer._vsm?.profile === "vsm-directional-bounded" : renderer._vsm === null,
+        "VSM allocation did not follow Physical Sun/profile demand");
+      const scene = new Scene();
+      if (authoredIbl) {
+        const image = new ShadeImage();
+        image.width = image.height = 7;
+        image.depth = 1;
+        image.data_type = "float32";
+        image.color_space = 2;
+        image.source = new Float32Array(7 * 7 * 4).fill(0.25).buffer;
+        scene.lights.environment = ShadeTexture.from(image);
+      }
+      const geometry = new BoxGeometry();
+      const material = new StandardShadeMaterial();
+      scene.add(Mesh.from(geometry, material));
+      const sun = new DirectionalLight();
+      sun.intensity = 2;
+      sun.forward = [0.3, -1, -0.4];
+      scene.add(sun);
+      const point = new PointLight();
+      point.intensity = 2;
+      point.distance = 15;
+      point.position.set(0, 1, 3);
+      scene.add(point);
+      const cooked = await cookGeometryAssetPackage(buildBoxSourceGeometry(), createGeometryCookRecipe());
+      const adapted = createPackedSceneSourceFromScene(scene, [{ geometry, asset: cooked.asset }]);
+      adapted.source.flags.fill(GPU_INSTANCE_FLAGS.CastsShadow | GPU_INSTANCE_FLAGS.ReceivesShadow);
+      await renderer.uploadPackedScene(scene, adapted.source);
+      const camera = new PerspectiveCamera();
+      camera.aspect = 192 / 128;
+      camera.transform.position.set(0, 0, 4);
+      camera.transform.lookAt({ x: 0, y: 0, z: 0 });
+      camera.update();
+      const prepare = renderer._surface.prepareFrameNow.bind(renderer._surface);
+      renderer._surface.prepareFrameNow = (input, ...rest) => {
+        frame = input;
+        return prepare(input, ...rest);
+      };
+      const encode = renderer._surface.encode.bind(renderer._surface);
+      renderer._surface.encode = (encoder) => {
+        encode(encoder);
+        if (readback) {
+          encoder.copyTextureToBuffer({ texture: frame.output }, { buffer: readback, bytesPerRow: 1536 }, [192, 128]);
+        }
+      };
+      const tick = async () => {
+        const start = renderer.frame_count;
+        const deadline = performance.now() + 60_000;
+        while (renderer.frame_count === start && performance.now() < deadline) {
+          renderer.render(camera, scene);
+          await actualDevice.queue.onSubmittedWorkDone();
+          if (renderer.frame_count === start) await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+        check(renderer.frame_count !== start, `Feature demand frame deferred: ${renderer._lastFrameDeferral}`);
+      };
+      const domains = [];
+      for (const scale of [1, 0.73, 1]) {
+        renderer.setResolutionScale(scale);
+        await tick();
+        const program = renderer._lastFrameGraph.program;
+        check(program.stages.includes("vsm") === physicalSun, "VSM stage has no Physical Sun consumer");
+        check(program.products.includes("shadow-sampling") === physicalSun, "Shadow product demand mismatch");
+        check(program.stages.includes(scale === 1 ? "native-temporal" : "fsr3"), "Temporal domain mismatch");
+        domains.push({ scale, stages: program.stages });
+      }
+      // Pause/step belongs to the caller's render loop: no render call must
+      // advance histories, and one resumed successful call advances once.
+      const pausedCount = renderer.frame_count;
+      const pausedSeed = renderer._temporalSeed.readIndex;
+      const pausedColor = renderer._nativeTemporal.readIndex;
+      await actualDevice.queue.onSubmittedWorkDone();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      check(renderer.frame_count === pausedCount && renderer._temporalSeed.readIndex === pausedSeed &&
+        renderer._nativeTemporal.readIndex === pausedColor, "Paused caller advanced Temporal ownership");
+      await tick();
+      check(renderer.frame_count === pausedCount + 1 && renderer._temporalSeed.readIndex !== pausedSeed &&
+        renderer._nativeTemporal.readIndex !== pausedColor, "Single-step did not publish exactly one Temporal frame");
+      readback = actualDevice.createBuffer({ size: 1536 * 128, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+      await tick();
+      await readback.mapAsync(GPUMapMode.READ);
+      const values = new Uint16Array(readback.getMappedRange());
+      let positive = 0;
+      for (let i = 0; i < values.length; i += 4) {
+        for (let channel = 0; channel < 3; channel++) {
+          const value = decodeFloat16(values[i + channel]);
+          check(Number.isFinite(value), "Feature demand produced nonfinite HDR");
+          if (value > 0) positive++;
+        }
+      }
+      check(positive > 0, `Lights produced no radiance: physicalSun=${physicalSun}, authoredIbl=${authoredIbl}`);
+      readback.unmap();
+      readback.destroy();
+      readback = null;
+      material.is_unlit = true;
+      await tick();
+      check(!renderer._lastFrameGraph.program.stages.includes("vsm"), "All-unlit retained VSM work");
+      material.is_unlit = false;
+      await tick();
+      check(renderer._lastFrameGraph.program.stages.includes("vsm") === physicalSun, "Lit return lost VSM demand");
+      check(errors.length === 0, `Feature demand validation errors: ${errors}`);
+      cases.push({ physicalSun, authoredIbl, profile: renderer._vsm?.profile ?? "absent", domains, positive, callerPauseStep: true, errors });
+    } finally {
+      readback?.destroy();
+      renderer.destroy();
+      await actualDevice.queue.onSubmittedWorkDone();
+      actualDevice.destroy();
+    }
+  }
+  const audit = window.dungeonGpuAudit.snapshot();
+  check(audit.bytes === 0 && audit.unknownFormats.length === 0, `Feature demand leaked ${audit.bytes} API bytes`);
+  return { cases, releaseBytes: audit.bytes, scope: "Real no-Sun Renderer and capability-projected bounded Renderer; no adapter negotiation claim" };
+}
+
 export async function authoredTexture(semantic, texel, extent = 16) {
   const mips = Array.from({ length: Math.log2(extent) + 1 }, (_, level) => {
     const size = extent >> level;
@@ -72,6 +237,8 @@ export async function runNativeSurfaceProductionGpuOracle(
   productGeometry = false,
   authoredEnvironment = false,
 ) {
+  const { installDungeonGpuAudit } = await import("../../../validation/tools/dungeon-gpu-audit.mjs");
+  installDungeonGpuAudit();
   let renderer = new Renderer({ autoExposure: false, fixedExposure: 1 });
   const canvas = new OffscreenCanvas(384, 224);
   const context = canvas.getContext("webgpu");
@@ -488,6 +655,10 @@ export async function runNativeSurfaceProductionGpuOracle(
       !renderer._lastFrameGraph.program.products.includes("local-light-work"),
       "All-unlit frame generated local-light work from stale Scene classification",
     );
+    check(
+      renderer._localLightWork.allocatedBytes === 0 && renderer._finalPixelLighting.allocatedBytes === 0,
+      "All-unlit replacement retained unused lighting frame pools"
+    );
     await inspect();
     materials[4].is_unlit = false;
     materials[0].diffuse_color.r = 0.7;
@@ -859,6 +1030,13 @@ export async function runNativeSurfaceProductionGpuOracle(
         renderer._fsr3.policy === null,
       "Empty scene retained active Temporal color domains",
     );
+    check(
+      renderer._temporalSeed.allocatedBytes === 0 &&
+        renderer._surface.state === null &&
+        renderer._localLightWork.allocatedBytes === 0 &&
+        renderer._finalPixelLighting.allocatedBytes === 0,
+      "Empty replacement retained scene-dependent Final Pixel products"
+    );
     await tick();
     check(!renderer._temporalSeed.inputHistoryValid, "Scene return reused pre-empty identity history");
     await tick();
@@ -919,6 +1097,56 @@ export async function runNativeSurfaceProductionGpuOracle(
     );
     const burst = await inspect();
     renderer.frameAdmissionProfile = "latency";
+    const featureCombinations = [];
+    for (const [shadow, ao, bloom, scale] of [
+      [false, false, false, 1],
+      [true, true, true, 1],
+      [false, true, false, 0.73],
+      [true, false, true, 0.73]
+    ]) {
+      renderer.shadowVisibilityEnabled = shadow;
+      renderer.xe_gtao_enabled = ao;
+      renderer.bloom_enabled = bloom;
+      renderer.setResolutionScale(scale);
+      await tick();
+      const dump = renderer._lastFrameGraph.compiled.dump();
+      const stages = renderer._lastFrameGraph.program.stages;
+      check(stages.includes("vsm") === shadow, "Feature graph ignored VSM demand");
+      check(stages.includes("xe-gtao") === ao, "Feature graph ignored AO demand");
+      check(dump.passes.some((p) => /Bloom\//.test(p.name)) === bloom, "Feature graph ignored Bloom demand");
+      check(
+        renderer._temporalPolicy === (scale === 1 ? "native" : "upscale"),
+        "Noninteger domain used wrong Temporal owner"
+      );
+      check(
+        renderer._temporalSeed.readIndex ===
+          (scale === 1 ? renderer._nativeTemporal.readIndex : renderer._fsr3.readIndex),
+        "Feature combination published divergent Temporal roles"
+      );
+      featureCombinations.push({ shadow, ao, bloom, scale, passes: dump.passes.map((p) => p.name) });
+    }
+    renderer.shadowVisibilityEnabled = true;
+    renderer.xe_gtao_enabled = true;
+    renderer.bloom_enabled = true;
+    renderer.setResolutionScale(1);
+    for (const debugView of [RenderDebugView.HistoryValidity, RenderDebugView.MaterialId]) {
+      renderer.render_debug_view = debugView;
+      await tick();
+      check(
+        renderer._lastFrameGraph.program.stages.includes("temporal-classification") ===
+          (debugView === RenderDebugView.HistoryValidity),
+        "Identity debug added an unused classifier or lost validity"
+      );
+    }
+    renderer.render_debug_view = RenderDebugView.None;
+    for (const debugView of ["visibility", "clip-level", "page-state", "none"]) {
+      renderer.setVsmSettings({ debugView });
+      await tick();
+      check(
+        !renderer._lastFrameGraph.compiled.dump().passes.some((p) => /Shadow Resolve/.test(p.name)),
+        "Shadow debug restored standalone receiver reconstruction"
+      );
+    }
     // Small diagnostic cost sample, not the large-scene acceptance matrix.
     renderer.profiler.setMode("record");
     renderer.profiler.configure({
@@ -1059,12 +1287,24 @@ export async function runNativeSurfaceProductionGpuOracle(
       "LocalLightWork",
       "FinalPixelLighting",
     ];
+    const temporalOwners = ["NativeTemporalSeed", "NativeTemporalV2", "Fsr3UpscalerRuntime"];
     const beforeDestroy = ledger.snapshot();
     check(
       nativeOwners.every((owner) => (beforeDestroy.owners[owner]?.buffer ?? 0) > 0),
       "Native resources are missing from physical accounting",
     );
     const memory = renderer.graphics.memoryEvidence();
+    for (const [name, owner] of [
+      ["NativeTemporalSeed", renderer._temporalSeed],
+      ["NativeTemporalV2", renderer._nativeTemporal],
+      ["Fsr3UpscalerRuntime", renderer._fsr3]
+    ]) {
+      const bytes = beforeDestroy.owners[name];
+      check(
+        (bytes?.texture ?? 0) + (bytes?.buffer ?? 0) === owner.allocatedBytes,
+        `${name} omitted physical active/candidate/retiring allocations`
+      );
+    }
     check(!renderer._vsmShadowResolve, "Retired standalone Shadow owner survived production cutover");
     check(!("continuation" in actualFrame.publication), "Retired Sun continuation publication survived");
     const finalLightingBytes = renderer._finalPixelLighting.allocatedBytes;
@@ -1122,8 +1362,14 @@ export async function runNativeSurfaceProductionGpuOracle(
     await Promise.resolve();
     const afterDestroy = ledger.snapshot();
     check(
-      nativeOwners.every((owner) => afterDestroy.owners[owner] === undefined),
+      [...nativeOwners, ...temporalOwners].every((owner) => afterDestroy.owners[owner] === undefined),
       "Native resource ledger leaked after fenced teardown",
+    );
+    for (const buffer of buffers) buffer.destroy();
+    const audit = window.dungeonGpuAudit.snapshot();
+    check(
+      audit.unknownFormats.length === 0 && audit.bytes === 0,
+      `Explicit GPU API allocations leaked after release: ${audit.bytes}; ${JSON.stringify(audit.resources.filter((r) => !r.destroyed && r.bytes > 0))}`
     );
     return {
       verdict: "passed",
@@ -1146,6 +1392,13 @@ export async function runNativeSurfaceProductionGpuOracle(
       moved,
       cameraCut,
       temporalPolicyTransitions: { upscaled, nativeRestored, abortRestored: true, deferRetained: true },
+      featureCombinations,
+      physicalMemory: {
+        peakBytes: audit.peakBytes,
+        ownersAtPeak: audit.ownersAtPeak,
+        releaseBytes: audit.bytes,
+        scope: audit.scope
+      },
       burstAdmission: {
         capacity: burstAdmission.frameContextCapacity,
         inFlight: burstAdmission.inFlight,

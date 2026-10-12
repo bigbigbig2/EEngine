@@ -4,6 +4,8 @@ state: current
 verifies:
   files:
     - OEngine/src/render/program/FrameProgramLowering.ts
+    - OEngine/src/render/program/FrameProgram.ts
+    - OEngine/src/render/pipeline/RendererCore.ts
     - OEngine/src/render/surface
     - OEngine/src/shaders/native_surface.ts
     - OEngine/src/shaders/native_surface_lighting.ts
@@ -335,6 +337,12 @@ Resolve读HDR/Seed/analysis、previous color/四帧luma history、current raw lu
 ### 8.4 FSR/upscale policy
 
 真实尺寸两轴相等选Native V2；任一轴不同选既有FSR upscale。一个服务负责policy/lifecycle，但每个domain只有一套production图；FSR重建算法只在有upscale需求时运行。Native只分配自己必要的参考profile histories，FSR不分配Native previous-depth histories；跨policy prepare完整candidate、成功submit切generation/history/jitter，abort保留旧owner，旧域资源按最后fence退休。不能保持两套active history常驻或以隐藏reference fallback保证旧tests。
+
+无消费者的成功 replacement 也是 retirement 边界：empty frame 退休 Surface scene working set、Seed 与颜色 histories、local-light/lighting frame pools；all-unlit frame 退休 lighting frame pools。提交失败保留上一提交的完整 ownership；已提交 allocation 等自己的最后 consumer fence，不能在 setter、encode 或 empty prepare 时提前销毁。返回场景重新创建完整产品，Seed 不得复用 empty 之前的 identity/camera validity。owner/pipeline 可复用；VSM residency/content cache 不因此变成 frame scratch。
+
+Directional VSM 的唯一消费者是 Physical Sun。关闭物理环境的 device epoch 不创建 VSM 资源或 passes，Frame Program 拒绝无 Physical Sun 的 enabled shadow profile。没有 authored/physical 环境时，lit Surface 使用按需创建的 1×1 零辐射 IBL provider（一个共享 RGBA16F texel，8B）；authored directional/local lighting 仍完整执行，不为补齐绑定恢复物理环境或全屏工作。
+
+Native/FSR histories 的 active、resize candidate、checkpoint 与 retiring physical allocations 必须纳入同一资源账本，释放与实际 destroy 同步。全部 owner 的同时峰值另用 API allocation audit 核对，不能相加各模块独立峰值，也不能把诊断 readback、canvas/driver 驻留混同为产品容量。
 
 Native V2退休旧source Prepare Inputs、全局Luma/Shading SPD产品链及旧T3 owner/classification/resolve；必要raw luma/四帧luma/confidence/exposure由新Native owner持有，不删其算法含义；true upscale继续其必要scatter/SPDs/Reactivity/Accumulate/RCAS，并从新Seed获取合法inputs。RCAS有限算法可共用代码，不意味着共用history图。FSR provenance/adoption状态不因V2设计自动升级。
 

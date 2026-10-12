@@ -3,6 +3,7 @@ import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import type { NativeTemporalSeed } from "./NativeTemporalSeed.js";
+import type { ResourceAccounting, ResourceHandle } from "../../debug/profiling/ResourceAccounting.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
 import { Fsr3RcasPass, packFsr3RcasConstants } from "../passes/fsr3/Fsr3RcasPass.js";
 import {
@@ -88,8 +89,12 @@ export class NativeTemporalV2 {
   private retiredBytes = 0;
   private destroyed = false;
   private permanentLive = true;
+  private readonly accountingHandles = new Map<GPUBuffer | GPUTexture, ResourceHandle>();
 
-  constructor(private readonly device: GPUDevice) {
+  constructor(
+    private readonly device: GPUDevice,
+    private readonly accounting?: ResourceAccounting
+  ) {
     if (!device.features.has("texture-formats-tier1")) {
       throw new RangeError("Native Temporal V2 requires the negotiated AMD R16Float/R8Unorm profile");
     }
@@ -241,9 +246,13 @@ export class NativeTemporalV2 {
         usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING,
       });
       created.push(this.rcasExposure);
+      this.track(this.weights, "buffer", 96);
+      this.track(this.constants, "buffer", 48);
+      this.track(this.rcasConstants, "buffer", 16);
+      this.track(this.rcasExposure, "texture", 4);
     } catch (error) {
       for (const resource of created) {
-        resource.destroy();
+        this.releaseResource(resource);
       }
       throw error;
     }
@@ -337,6 +346,17 @@ export class NativeTemporalV2 {
           usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_SRC,
         });
         created.push(texture);
+        const stride =
+          format === "rgba32float"
+            ? 16
+            : format === "rgba16float"
+              ? 8
+              : format === "r32float"
+                ? 4
+                : format === "r16float"
+                  ? 2
+                  : 1;
+        this.track(texture, "texture", pairWidth * pairHeight * stride);
         return texture;
       };
       return [create(0), create(1)];
@@ -354,7 +374,7 @@ export class NativeTemporalV2 {
       };
     } catch (error) {
       for (const texture of created) {
-        texture.destroy();
+        this.releaseResource(texture);
       }
       throw error;
     }
@@ -796,15 +816,40 @@ export class NativeTemporalV2 {
   private bytes(set: NativeHistories | null): number {
     return set ? set.width * set.height * 46 + 32 : 0;
   }
+  private track(resource: GPUBuffer | GPUTexture, kind: "buffer" | "texture", bytes: number): void {
+    const handle = this.accounting?.created(
+      { kind, bytes, owner: "NativeTemporalV2", category: "history", label: resource.label },
+      resource
+    );
+    if (handle) {
+      this.accountingHandles.set(resource, handle);
+    }
+  }
+  private releaseResource(resource: GPUBuffer | GPUTexture): void {
+    resource.destroy();
+    const handle = this.accountingHandles.get(resource);
+    if (handle) {
+      this.accounting!.destroyed(handle);
+      this.accountingHandles.delete(resource);
+    }
+  }
   private retire(set: NativeHistories | null, fence: Promise<void> | null): void {
     if (!set) {
       return;
     }
     const bytes = this.bytes(set);
+    for (const pair of [set.color, set.depth, set.luma, set.lumaHistory, set.confidence, set.frameInfo]) {
+      for (const texture of pair) {
+        const handle = this.accountingHandles.get(texture);
+        if (handle) {
+          this.accounting!.setRetired(handle, fence !== null);
+        }
+      }
+    }
     const release = (): void => {
       for (const pair of [set.color, set.depth, set.luma, set.lumaHistory, set.confidence, set.frameInfo]) {
         for (const texture of pair) {
-          texture.destroy();
+          this.releaseResource(texture);
         }
       }
       if (fence) {
@@ -827,11 +872,17 @@ export class NativeTemporalV2 {
     this.retire(this.active, this.lastFence);
     this.active = null;
     this.groups.clear();
+    for (const resource of [this.constants, this.weights, this.rcasConstants, this.rcasExposure]) {
+      const handle = this.accountingHandles.get(resource);
+      if (handle) {
+        this.accounting!.setRetired(handle, this.lastFence !== null);
+      }
+    }
     const release = (): void => {
-      this.constants.destroy();
-      this.weights.destroy();
-      this.rcasConstants.destroy();
-      this.rcasExposure.destroy();
+      this.releaseResource(this.constants);
+      this.releaseResource(this.weights);
+      this.releaseResource(this.rcasConstants);
+      this.releaseResource(this.rcasExposure);
       this.permanentLive = false;
     };
     if (this.lastFence) {

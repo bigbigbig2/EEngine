@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Fsr3UpscalerRuntime } from "../../.test-dist/render/passes/fsr3/Fsr3UpscalerRuntime.js";
 import { FrameGraph } from "../../.test-dist/framegraph/FrameGraph.js";
+import { ResourceAccounting } from "../../.test-dist/debug/profiling/ResourceAccounting.js";
 
 globalThis.GPUShaderStage = { COMPUTE: 1 };
 globalThis.GPUBufferUsage = { UNIFORM: 1, COPY_DST: 2, STORAGE: 4 };
@@ -56,6 +57,39 @@ const frame = {
   frameTimeMs: 16.67,
   reset: true,
 };
+
+test("upscale allocation upload failure rolls back physical ledger; last-use fence owns domain release", async () => {
+  const h = harness();
+  const accounting = new ResourceAccounting();
+  const runtime = new Fsr3UpscalerRuntime(h.device, accounting);
+  const permanent = runtime.allocatedBytes;
+  h.device.queue.writeTexture = () => {
+    throw new Error("history upload rejected");
+  };
+  assert.throws(() => runtime.prepareFrame(h.command, frame), /history upload rejected/);
+  runtime.abort();
+  assert.equal(accounting.snapshot().totalBytes, permanent);
+  h.device.queue.writeTexture = () => {};
+  runtime.prepareFrame(h.command, frame);
+  let complete;
+  const fence = new Promise((resolve) => {
+    complete = resolve;
+  });
+  runtime.commit(fence);
+  const total = runtime.allocatedBytes;
+  assert.equal(accounting.snapshot().totalBytes, total);
+  runtime.releaseHistory();
+  assert.equal(accounting.snapshot().retiredBytes, total - permanent);
+  runtime.prepareFrame(h.command, frame);
+  assert.equal(accounting.snapshot().totalBytes, 2 * total - permanent);
+  runtime.abort();
+  runtime.destroy();
+  assert.equal(accounting.snapshot().totalBytes, total);
+  complete();
+  await fence;
+  await Promise.resolve();
+  assert.equal(accounting.snapshot().totalBytes, 0);
+});
 
 test("FSR3 rejects native 1:1 before histories; only upscale survives ordinary frames", () => {
   const h = harness();

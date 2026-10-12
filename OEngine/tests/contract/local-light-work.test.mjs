@@ -309,6 +309,37 @@ test("retirement retains submitted allocations until their exact fence, not repl
   assert.ok(buffers.every((buffer) => buffer.destroyed));
 });
 
+test("idle replacement retires each submitted allocation at its own fence and permits return", async () => {
+  const { device, buffers } = fakeDevice();
+  const owner = new LocalLightWorkGenerator(device, 3);
+  await owner.ready;
+  const first = owner.prepare(requestFor());
+  assert.throws(() => owner.releaseFrameResources(), /frame boundary/);
+  const a = commandFor(device);
+  owner.encode(a.command, first);
+  assert.throws(() => owner.releaseFrameResources(), /frame boundary/);
+  a.command.finish();
+  owner.releaseFrameResources();
+  assert.equal(first.data.destroyed, false);
+  const returned = owner.prepare(requestFor());
+  assert.notEqual(returned.data, first.data);
+  const b = commandFor(device);
+  owner.encode(b.command, returned);
+  b.command.finish();
+  b.fence.resolve();
+  await Promise.resolve();
+  assert.equal(first.data.destroyed, false);
+  assert.equal(returned.data.destroyed, false);
+  a.fence.resolve();
+  await Promise.resolve();
+  assert.equal(first.data.destroyed, true);
+  assert.throws(() => owner.encode(commandFor(device).command, first), /stale/);
+  owner.releaseFrameResources();
+  assert.equal(owner.allocatedBytes, 0);
+  assert.ok(buffers.every((buffer) => buffer.destroyed));
+  owner.destroy();
+});
+
 test("device loss cancels prepared work and rejects the old epoch", async () => {
   const { device, loss } = fakeDevice();
   const owner = new LocalLightWorkGenerator(device, 3);

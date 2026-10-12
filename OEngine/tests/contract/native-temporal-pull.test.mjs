@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { NativeTemporalV2 } from "../../.test-dist/render/temporal/NativeTemporalV2.js";
 import { NativeTemporalSeed } from "../../.test-dist/render/temporal/NativeTemporalSeed.js";
+import { ResourceAccounting } from "../../.test-dist/debug/profiling/ResourceAccounting.js";
 
 globalThis.GPUBufferUsage = { COPY_SRC: 4, COPY_DST: 8, UNIFORM: 64, STORAGE: 128 };
 globalThis.GPUTextureUsage = { COPY_SRC: 1, COPY_DST: 2, TEXTURE_BINDING: 4, STORAGE_BINDING: 8 };
@@ -73,7 +74,8 @@ function fixture() {
       return t;
     },
   };
-  const owner = new NativeTemporalV2(device);
+  const accounting = new ResourceAccounting();
+  const owner = new NativeTemporalV2(device, accounting);
   const command = {
     writeBuffer(_buffer, _offset, bytes) {
       writes.push(bytes.slice(0));
@@ -144,8 +146,46 @@ function fixture() {
   };
   const prepare = (width = 19, height = 13, reset = false, jitter = [0, 0]) =>
     owner.prepareFrame(command, { width, height, reset, jitter });
-  return { owner, prepare, build, encode, textures, buffers, groups, writes, loss, command, device };
+  return {
+    owner,
+    prepare,
+    build,
+    encode,
+    textures,
+    buffers,
+    groups,
+    writes,
+    loss,
+    command,
+    device,
+    accounting
+  };
 }
+
+test("inactive Native histories remain accounted until their fence; returning domain allocates invalid history", async () => {
+  const f = fixture();
+  f.prepare();
+  f.build();
+  f.encode();
+  const fence = deferred();
+  f.owner.commit(fence.promise);
+  const historyBytes = 19 * 13 * 46 + 32;
+  assert.equal(f.accounting.snapshot().totalBytes, f.owner.allocatedBytes);
+  f.owner.releaseHistory();
+  assert.equal(f.accounting.snapshot().retiredBytes, historyBytes);
+  assert.equal(f.owner.allocatedBytes, historyBytes + 164);
+  f.prepare();
+  assert.equal(new Uint32Array(f.writes.at(-1))[2], 0);
+  assert.equal(f.accounting.snapshot().totalBytes, 2 * historyBytes + 164);
+  f.owner.abort();
+  fence.resolve();
+  await fence.promise;
+  await Promise.resolve();
+  assert.equal(f.accounting.snapshot().totalBytes, 164);
+  f.owner.destroy();
+  await Promise.resolve();
+  assert.equal(f.accounting.snapshot().totalBytes, 0);
+});
 
 test("unencoded commit is rejected; resize abort retains submitted histories, roles and jitter", async () => {
   const f = fixture();
