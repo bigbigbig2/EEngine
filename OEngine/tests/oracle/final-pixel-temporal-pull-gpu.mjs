@@ -69,11 +69,11 @@ export async function runFinalPixelTemporalPullGpuOracle(device) {
       "textureStore(output_color, p, vec4f(result * current_p(), confidence));",
       `
   let index = (id.y * frame.size.x + id.x) * 5u;
-  trace[index] = vec4f(to_rgb(current), point_luma);
+  trace[index] = vec4f(to_rgb(current), value);
   trace[index + 1u] = vec4f(to_rgb(history), history_weight);
   trace[index + 2u] = old;
-  trace[index + 3u] = vec4f(prior_moments, temporal_sigma, intermittent);
-  trace[index + 4u] = vec4f(alpha, confidence, reconstruction_sum, change);`,
+  trace[index + 3u] = vec4f(prior_moments, temporal_sigma, 0.0);
+  trace[index + 4u] = vec4f(alpha, confidence, 1.0, change);`,
     )
     .replace("textureStore(output_state, p, vec4f(moments, 0.0, 0.0));", "");
   const traceLayout = device.createBindGroupLayout({

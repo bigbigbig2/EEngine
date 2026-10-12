@@ -18,6 +18,7 @@ verifies:
     - OEngine/src/shaders/vsm_receiver_demand.ts
     - OEngine/src/render/temporal
     - OEngine/src/shaders/native_temporal.ts
+    - OEngine/src/shaders/native_temporal_v2.ts
     - OEngine/src/render/passes/fsr3
     - OEngine/src/render/TemporalFabric.ts
     - OEngine/src/gpu/GpuInstanceAbi.ts
@@ -299,19 +300,29 @@ DELETE：Facts full I dispatch、重复key/work/Scene instance/version读取、d
 
 ### 8.1 Analyze / I
 
-输入：Seed、response、current/previous identity、previous linear depth、final HDR（Sky/Aerial之后）、previouscolor/state、frame validity/pre-exposure；禁止Visibility/work/Instances/geometry。写analysis RGBA16Float8B/pixel与current depth history R32Float4B/pixel。analysis四lane是history eligibility/confidence、reactive、shading-change response、thin/coverage confidence；硬拒绝体现为eligibility=0，不存Universal Record。sky→sky用rotation motion和双方depth0 sentinel接受历史；sky↔geometry按遮挡/有效性拒绝，不能把所有sky自动判为invalid，也不能用depth0代替全部surface覆盖判定。
+输入：Seed、response、current/previous identity、previous linear depth、final HDR（Sky/Aerial之后）、previous observation/state、frame validity/pre-exposure；禁止Visibility/work/Instances/geometry。写analysis RGBA16Float8B/pixel与current depth history R32Float4B/pixel。analysis四lane冻结为：x=geometry eligibility×depth support，y=reactive，z=shading-change rejection，w=相邻两帧观测支持的log2 illumination gain；thin/采样不稳定性由innovation variance与有限confidence提供，不另占产品。**积累后的color history不作为前一帧观测参与gain拟合**，否则历史滞后与滤波误差会进入亮度反馈。硬拒绝体现为x=0，不存Universal Record。sky→sky用rotation motion和双方depth0 sentinel接受历史；sky↔geometry按遮挡/有效性拒绝，不能把所有sky自动判为invalid，也不能用depth0代替全部surface覆盖判定。
 
 previousUV=currentUV−Seed.xy（两帧jitter都已经包含）；逐point读取2×2 previousdepth支持域，和Seed.z同一previous view空间比较；不要先hardware-linear混合前后景depth。沿用nearest previous identity完整四lane comparison；不同tap的跨边界支持由depth/coverage保守判定，必要4身份读取仅是更保守candidate，须算最多新增48B/pixel logical读，不能隐藏成“免费exact”。越界、invalid motion、cut、domain reset、hard replacement拒绝；current-depth-history写域始终全I，包括sky sentinel。
 
 冻结算法责任：深度判断按float roundoff + 对应reprojection footprint内的局部同surface坡度容限，不能用当前相机depth与previousdepth直接比较；前后景mixed-footprint降低/拒绝history，不能通过膨胀motion把别的物体速度复制成自己的速度。epsilon、局部统计权重可在candidate内调，但每次质量门不变，禁止删除pull或重新引入scatter救一个candidate。
 
-shading-change不能省成“一个亮度差”。Analyze融合current局部/多尺度亮度统计、reprojected color差与previousmoment状态、遮挡/alpha/reactive分类。初始candidate 8×8 WG、16×16 halo f32 luminance tile（1KiB），3×3/4×4/8×8支持域流式归约，全部lane先初始化/统一barrier再处理partial extent；不同时保留9/16项color或luma live数组。这是candidate调度，不是硬性shared要求；失败可换private/cache-friendly实现及统计支持域。未重新建全屏SPD产品及多dispatch依赖。
+shading-change不能省成“一个亮度差”。Analyze融合current局部/多尺度亮度统计、重投影的**前一帧观测**与previous innovation variance、遮挡/alpha/reactive分类。拟合一个受几何与跨尺度形状支持的变化假设：支持的gain运输历史幅度，剩余shape change降低历史资格，运输后的innovation更新采样噪声。不能把新光照造成的差直接记成永久noise，再用该noise阻止光照响应；不能叠加互相覆盖的放行分支。8×8 WG、局部halo和3×3/4×4/8×8归约是候选调度，不是硬性shared要求；全部lane初始化/统一barrier后处理partial extent，不同时保留9/16项color或luma private live数组。失败可换private/cache-friendly实现及统计支持域，不能重建全屏SPD产品及多dispatch依赖。
 
 ### 8.2 Resolve / I
 
+**Temporal 信号域合同。** 输入 HDR 是抖动网格上的点样本，不是已经积分的像素面积。定义本帧输出域观测 `C_t(p)=R_j(HDR_t,p)`，积累后的输出估计为 `H_t(p)`；两者不得混作同一份前一帧数据。`R_j`必须保常量、保局部线性信号；任何声称二次面积积分的实现必须给出反导数证明及适用域，不能把该证明推广成轮廓覆盖面积证明。Analyze current luma、Resolve current color和state中保存的last observation取同一个`C_t`，历史变化比较`C_t`与重投影的`C_{t-1}`，不比较当前观测与已有滞后的`H_{t-1}`来推导gain。
+
+**观测噪声与估计方差分责。** raw点样本统计可以合法描述空间/采样分布，不能未经推导称为积累估计`H_t`的方差。Resolve允许从有明确offset/jitter/权重的raw邻域统计构建rectification支持；无需先为所有统计生成一整块重建颜色tile。当前空间样本分布和时间innovation variance表达本帧的不确定性，只有在geometry/reactive/change接受时才可放宽对已观测history的裁剪，不直接抬亮history或搬运邻居颜色。本合同要求观测/估计/噪声的数学责任与域映射明确，不要求所有统计共用一个重建核。
+
+几何域与辐射域分别处理：当前输出 `p` 的关联原始点为 `q=clamp(p+round(jitter_t))`。几何 depth/identity pull 使用 `q` 的 Seed 和原始抖动坐标；raw current-depth history 仍写原始完整输入域，不改成滤波深度。辐射/状态的上一输出坐标为 `h=p−[Seed(q).xy×size−(jitter_t−jitter_previous)]`。不能把 raw jittered UV 直接当 output history UV；不能把邻居 motion 当 `q` 的 motion。深度支持率只表示几何一致性，不是颜色面积。Analyze用manual正权bilinear拉取last observation/variance；Resolve使用保留的高质量fractional color filter，不宣称两个核完全相同。方差单独正权插值，不把不同像素的均值差变成时间噪声。
+
+这个合同不新增pass、Surface产品或history字节数；effect-private state的两字段语义如下。当前重建可以在两个消费者内从廉价HDR邻域分别计算；是否物化一个仅Resolve消费的重建颜色产品，必须比较写读、格式量化、工作集与被删除的重算，不能默认加全屏产品。shared/private调度仍是候选，不是硬不变量。history rectification只限制已重投影的历史贡献；illumination transport必须来自两帧实际观测的受支持拟合，不能用积累误差作gain，也不能创造独立的前景辐射贡献。geometry rejection、reactive与真实shape change必须限制支持。
+
 读final current HDR、analysis、Seed、previous color/state、pre-exposure。current3×3 color统计/variance clamp在此计算，不跨pass存RGB/min/max；这种廉价邻域重复允许，禁止回去重建Surface。history filter初始candidate保持当前高质量fractional支持域（16texel及center范围）与精确整数位置特化，流式累计；filter/clamp/lock可重新设计，但须通过同质量门。无SDK bit-exact要求。
 
-写current color RGBA16Float8B（RGB线性预曝光，alpha为有限confidence，非SDK锁ABI）、current state **RG32Float8B**（归一化亮度的mean/second moment）；state单位/曝光转换和bounded稳定性规则由Temporal owner统一，算术f32，不能把四帧luma变成不检HDR的单一aging混合。confidence兼顾thin支持、静止收敛、motion/遮挡、light step响应；age可由confidence表示，不新增age texture。history读RGB先乘GPU P_current/P_previous；statistics在明确归一化亮度域比较，moment做对应尺度变换，避免exposure step误判shading。analysis response限制历史权重；invalid/reset直接current、初始化moments。output alpha由sharpen/Present维持原最终opacity合同。
+写current color RGBA16Float8B（RGB线性预曝光，alpha为有限effective observation mass，非SDK锁ABI）、current state **RG32Float8B**：x=last observation的scene-linear luminance，y=centered innovation variance。state不保存积累color的均值；variance不是未经校正的`E[L²]−E[L]²`。在L=8192时f32会把`L²+1`舍入成`L²`，原second-moment编码无法保留variance=1；直接保存居中方差避免此消去，真实GPU必须验证HDR小方差与零方差边界。
+
+受支持的illumination gain `g`运输last observation与variance（分别乘g、g²），再用`C_t−g×C_{t-1}`更新innovation variance；变化/rejection限制噪声更新。两帧共同归一化到scene-linear/P，不把exposure change当lighting。confidence的增量必须与真正加入的观测权重一致，不能加入.046的radiance mass却无依据增加1/3 maturity；motion/遮挡/shape change衰减的是同一份有效历史mass。invalid/reset只接受当前观测并初始化variance；不新增age/lock纹理。RCAS/Present维持最终opacity合同。此状态模型与旧四帧luma/lock不等价，只有完整质量矩阵通过才可切生产；字段数学证明不代替质量资格。
 
 这冻结执行拓扑、产品与算法职责，未把尚未实现的权重参数伪装成已验证数学。质量失败在此完整unit内调整detector/filter/置信度candidate；不能因为上次pmndrs整体/local detector失败就否定本目标。
 
@@ -342,7 +353,7 @@ Native V2退休source Prepare Inputs、Luma/SPD/Shading/SPD/change、native clas
 | color pair | 16 | 16 | 33,177,600B /31.64MiB |
 | FSR luma pair + lumaHistory pair + accumulation pair | 4+16+2=22 | 0 | 原45,619,200B；不再以SDKhistory决定Native图 |
 | Native depth pair | 0 | 8 | 新16,588,800B /15.82MiB |
-| Native moment state pair | 0 | 16 | 新33,177,600B /31.64MiB，f32两moment |
+| Native observation/noise state pair | 0 | 16 | 新33,177,600B /31.64MiB，f32 last observation+centered variance |
 | persistent合计 | **70** | **72** | 当前138.43MiB，目标142.38MiB，**增加3.96MiB**；不能声称history显存大降 |
 | motion / Seed transient | 8 | 16 | +15.82MiB；response/mask各4B，identity写入持久槽 |
 | ShadowVisibility | 1 | 0 | −1.98MiB/单产品，实际pool/in-flight另计 |

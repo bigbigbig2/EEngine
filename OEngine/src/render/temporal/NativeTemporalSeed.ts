@@ -33,6 +33,8 @@ export interface NativeTemporalSeedFrame {
   readonly previousIdentity: GPUTexture;
   readonly view: Uint8Array<ArrayBuffer>;
   readonly previousValid: boolean;
+  readonly historyReadIndex: 0 | 1;
+  readonly jitter: readonly [number, number];
 }
 
 export type NativeTemporalSeedGraphBinder = <T extends object>(
@@ -66,6 +68,7 @@ export class NativeTemporalSeed {
   private destroyed = false;
   private attached: ShadeGPUCommandContext | null = null;
   private classified = false;
+  private consumer: "classification" | "native-resolve" = "classification";
   private submittedPreviousValid = false;
 
   /** Input validity of the prepared or most recently submitted frame. */
@@ -89,7 +92,11 @@ export class NativeTemporalSeed {
         { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "unfilterable-float" } },
         { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } },
         { binding: 3, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } },
-        { binding: 4, visibility: GPUShaderStage.COMPUTE, storageTexture: { format: "rgba8unorm", access: "write-only" } },
+        {
+          binding: 4,
+          visibility: GPUShaderStage.COMPUTE,
+          storageTexture: { format: "rgba8unorm", access: "write-only" },
+        },
       ],
     });
     this.pipeline = device.createComputePipeline({
@@ -167,6 +174,8 @@ export class NativeTemporalSeed {
         previous.projection,
       ]),
       previousValid,
+      historyReadIndex: this.readIndex,
+      jitter: current.jitter,
     });
     return this.prepared;
   }
@@ -186,13 +195,16 @@ export class NativeTemporalSeed {
           GPUTextureUsage.COPY_DST,
       });
       textures.push(texture);
-      const handle = this.accounting?.created({
-        kind: "texture",
-        category: "resident",
-        owner: "NativeTemporalSeed",
-        bytes: width * height * (format === "rgba8unorm" ? 4 : 16),
-        label: texture.label,
-      }, texture);
+      const handle = this.accounting?.created(
+        {
+          kind: "texture",
+          category: "resident",
+          owner: "NativeTemporalSeed",
+          bytes: width * height * (format === "rgba8unorm" ? 4 : 16),
+          label: texture.label,
+        },
+        texture,
+      );
       if (handle !== undefined) {
         handles.push(handle);
       }
@@ -220,11 +232,18 @@ export class NativeTemporalSeed {
 
   /** Binding this transaction to the actual shared command prevents callers
    * from advancing roles on encoding, abort or a deferred frame. */
-  attach(command: ShadeGPUCommandContext): void {
+  attach(
+    command: ShadeGPUCommandContext,
+    consumer: "classification" | "native-resolve" = "classification",
+  ): void {
     if (!this.prepared || this.attached || command.closed || command.device !== this.device) {
       throw new Error("Seed transaction requires one open command on its device");
     }
+    if (consumer === "native-resolve" && this.pendingPolicy !== "native") {
+      throw new Error("Native Resolve cannot consume an upscale Seed transaction");
+    }
     this.attached = command;
+    this.consumer = consumer;
     command.onBeforeFinish.addOne(() => {
       if (!this.classified) {
         throw new Error("Seed producer/consumer transaction is incomplete");
@@ -232,6 +251,30 @@ export class NativeTemporalSeed {
     });
     command.onFinished.addOne(() => this.commit(command.gpuDone));
     command.onAborted.addOne(() => this.abort());
+  }
+
+  /** Native V2 consumes exact Seed roles on this command instead of a separate
+   * classification dispatch. Encoding alone never advances the history role.
+   * Production still selects classification until the complete V2 cutover. */
+  acceptNativeResolve(
+    command: ShadeGPUCommandContext,
+    products: Pick<NativeTemporalSeedFrame, "seed" | "response" | "identity" | "previousIdentity">,
+  ): void {
+    if (
+      !this.prepared ||
+      this.attached !== command ||
+      command.closed ||
+      this.consumer !== "native-resolve" ||
+      this.classified
+    ) {
+      throw new Error("Native Resolve requires the current complete Seed command");
+    }
+    for (const name of ["seed", "response", "identity", "previousIdentity"] as const) {
+      if (products[name] !== this.prepared[name]) {
+        throw new Error("Native Resolve consumed a stale or mismatched Seed role");
+      }
+    }
+    this.classified = true;
   }
 
   get frame(): NativeTemporalSeedFrame {
@@ -257,9 +300,18 @@ export class NativeTemporalSeed {
     const importTexture = (name: string, texture: GPUTexture): ResourceId =>
       graph.import_resource(name, { kind: "imported", domain: "internal-full" }, texture);
     return {
-      seed: importTexture("Temporal/Seed", bind("seed", (runtime) => runtime.frame.seed)),
-      response: importTexture("Temporal/Native response", bind("response", (runtime) => runtime.frame.response)),
-      identity: importTexture("Temporal/current identity", bind("identity", (runtime) => runtime.frame.identity)),
+      seed: importTexture(
+        "Temporal/Seed",
+        bind("seed", (runtime) => runtime.frame.seed),
+      ),
+      response: importTexture(
+        "Temporal/Native response",
+        bind("response", (runtime) => runtime.frame.response),
+      ),
+      identity: importTexture(
+        "Temporal/current identity",
+        bind("identity", (runtime) => runtime.frame.identity),
+      ),
     };
   }
 
@@ -279,7 +331,13 @@ export class NativeTemporalSeed {
     let output = -1;
     const pass = graph.add("Temporal/Seed classification", {}, (_data, resources, context) => {
       const encoder = resolveGpuEncoder(context);
-      if (!encoder || !this.pending || !this.attached || this.classified) {
+      if (
+        !encoder ||
+        !this.pending ||
+        !this.attached ||
+        this.classified ||
+        this.consumer !== "classification"
+      ) {
         throw new Error("Seed classification requires the current producer/consumer command");
       }
       const group = this.groups.create(this.device, {

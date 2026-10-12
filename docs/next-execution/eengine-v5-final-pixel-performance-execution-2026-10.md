@@ -225,9 +225,9 @@ Engine typecheck/build、fresh build:test、受影响31项Node、九项串行实
 
 DELETE：native Prepare Inputs、reconstructeddepthbuffer/clear/up-to4atomicMax、9depthsearch/dilatedmotion/depth/farthest+mip、实际live Luma/ShadingSPD/change、source luma/lumaHistory/accumulation/frameInfo histories、旧T3classification/resolve/96B权重、native scatter→read边。true upscale必要算法保留，共同RCAS/radiometry不删除。
 
-ADD：Analyze8B、depthR32pair8B/pixel、stateRG32pair16B/pixel、pull/local-multiscale统计/confidence/moments、完整policy事务；Seed税已Phase3算，不重复计。persistent含identity为72B/pixel，比旧70多2B，不称大降容量。
+ADD：Analyze8B、depthR32pair8B/pixel、stateRG32pair16B/pixel、pull/local-multiscale统计/confidence/last-observation与innovation variance、完整policy事务；Seed税已Phase3算，不重复计。persistent含identity为72B/pixel，比旧70多2B，不称大降容量。
 
-完整实现：Analyze读finalSky/AerialHDR/Seed/response/identity/previousdepth-color-state，预计previousz pull、edge/coverage/disocclusion/replacement并全域写analysis/currentdepth；Resolve currentstatistics/clipping、原高质量fractional支持域起步、thin/静止/光照response、P转换与f32moment/有限confidence；Sharpen按当前默认，读**写后color history版本**，不另造同色output，最终alpha与HDR全consumer正确。
+完整实现：Analyze读finalSky/AerialHDR/Seed/response/identity/previousdepth-color-state，预计previousz pull、edge/coverage/disocclusion/replacement并全域写analysis/currentdepth；Resolve currentstatistics/clipping、原高质量fractional支持域起步、thin/静止/光照response、P转换与f32 observation/noise state/有限confidence；Sharpen按当前默认，读**写后color history版本**，不另造同色output，最终alpha与HDR全consumer正确。
 
 只为active域分配对应histories，native↔upscale整组transaction、graphreuselatebind；RG32Float以textureLoad/manual权重，不隐含float32-filterable可选能力。先16序列smallgolden，失败换detector/filter/working-setcandidate，不能恢复native scatter/SPD。共享tile不是硬要求；跨函数9/16项长live数组不默认采用。
 
@@ -237,11 +237,17 @@ Cost gate：实际compilednativegraph没有reconstructedbuffer/clear/atomic/SPD�
 
 ### 7.1 Phase4当前实施边界
 
-2026-10-12重新审查：Phase3现有producer→Seed→native/upscale consumers与提交事务没有新的结构性返工证据。Phase4不可推迟到Phase5：它负责删除native scatter/SPD/source histories，且自己的质量与生命周期是原子cutover的前置；局部质量失败只要求本Phase换实现候选，不恢复scatter、不改变Analyze→Resolve→当前sharpen目标。
+2026-10-12重新审查：**Phase3保留，Phase4需要返工且不能推迟到Phase5。** Phase3的Native producer→Seed→native/upscale consumers没有新的结构性错误；Phase4负责删除native scatter/SPD/source histories，其完整质量与生命周期是原子cutover前置。当前production仍为Seed classifier→FSR Prepare/scatter/clear/SPDs→T3→RCAS；`NativeTemporalV2`只由隔离oracle消费，不能把候选图删除当成生产退休。
 
-`NativeTemporalV2`与`native_temporal_v2`目前只由oracle消费，production没有import或selector。完整候选为Analyze（最小effect-private analysis、raw current depth、1/P锐化曝光）→Resolve（color/state当前角色）→既有RCAS读取写后color版本；已删除候选原有独立1×1曝光dispatch。candidate/active/retiring、显式late binder、尺寸/role预检、提交/中止/reset/resize/fence/device-loss owner已实现；Node检查与真实cached graph/previous-depth语义检查的覆盖范围及限制只读[Phase4候选报告](../performance/2026-10-12-final-pixel-phase4-pull-candidates.md)。这些不等于Renderer整组policy或真实Native writer闭包已经完成。
+返工按Design§8闭合一个完整估计器，不继续C60–C73的单case补偿。已证明的责任修正：自己关联的Seed/motion负责重投影；Seed identity/camera与V2 color/depth/state在同一实际command成功submit后一起推进；cached graph核对真实四个Seed角色、extent/jitter/reset，encode或abort不推进，缺consumer/提前commit/foreign command/stale role拒绝。原production classification作为尚未切换的唯一消费者保持原行为，不新增生产V2 selector/bridge。
 
-C59收口的typecheck/fresh build:test、7项Node与独立GPU moments/pixel integral/pixel-domain history/cached-depth-pull语义均通过，但small完整质量矩阵仍有10条硬门失败，生产仍为Seed classifier→source Prepare/scatter/clear/SPDs→旧native T3→RCAS；旧native生产结构和资源未退休。纠正了1080p jittered HDR fixture错误的单点golden，保留原失败，改用独立8×8积分且增加无空间信号的uniform大坐标数值case；质量门未放宽。完整1080p×256动态矩阵、真实Native Seed→V2、policy/AA-off/debug/bypass事务、原子cutover及完整Phase成本窗口均未完成。不能进入Phase5、宣称Phase4完成或称architecture被证伪。
+DELETE：最近receiver/motion替代、前景颜色搬运、depth支持率猜颜色面积、临时抬亮/tone、把积累color当previous observation的gain反馈；删除Resolve整块reconstructed tile及第二barrier；删除Analyze的previous color/P读取及filtering sampler。ADD：明确`C_t`观测与`H_t`估计分责、last observation/centered innovation variance、两帧观测的受支持illumination transport、真实observation mass、完整Native writer→Seed→Analyze→Resolve→RCAS提交证明。只改effect-private RG32Float两字段语义，格式/字节/pass/Surface产品不增加，不改变身份、motion、raw depth、质量门或Geometry Frontend。
+
+必须验证的数学合同：current reconstruction适用域/常量与仿射保持；声称二次积分时用独立反导数；raw空间统计只是观测分布而非积累估计方差；HDR小方差直接保存，避免`L²+variance`舍入消去；变化拟合只读两帧观测，不用滞后color作gain；gain置信度衰减历史mass，不改变拟合出的物理gain；geometry/reactive/change拒绝清除噪声支持；相等静止观测具有相等有效mass。先通过实际shader entry的小numeric/负对照与提交生命周期，再做完整候选质量矩阵。失败按观测/滤波支持/遮挡/变化/生命周期分类，不以失败条数采纳候选。
+
+当前独立GPU覆盖actual Analyze/Resolve、普通/大jitter与P、partial extent、自己的motion、centered HDR variance/零方差空间边界、高质量16-point fractional history、previous-view z/raw depth区别、共同提交/abort/三inflight/fence。真实Native writer fixture覆盖原ordinary/Product/compact/unlit/MASK/coat/sky及提交；有限值/alpha与HDR原reference检查不等于V2质量证明，也不等于Renderer policy/按域退休。具体build/raw、原失败、当前质量缺项只读[Phase4报告](../performance/2026-10-12-final-pixel-phase4-pull-candidates.md)。
+
+余下出口保持：small全部质量硬门→1080p×256完整动态矩阵→Renderer/TemporalFabric native↔upscale、AA-off/debug/bypass/cut/resize/abort/epoch共同policy与按域history退休→原子cutover并删除旧native图→完整Phase集中正确性/真实成本窗口。**Phase4未完成，不进入Phase5，不声称architecture被证伪。** 候选质量未通过时不跑Dungeon局部性能gate、不恢复scatter/SPD，也不通过更宽容门切生产。
 
 ## 8. Phase 5 — Integration / final retirement
 

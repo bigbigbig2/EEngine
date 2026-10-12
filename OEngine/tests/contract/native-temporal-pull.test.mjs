@@ -2,6 +2,7 @@ import "../webgpu-test-globals.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { NativeTemporalV2 } from "../../.test-dist/render/temporal/NativeTemporalV2.js";
+import { NativeTemporalSeed } from "../../.test-dist/render/temporal/NativeTemporalSeed.js";
 
 globalThis.GPUBufferUsage = { COPY_SRC: 4, COPY_DST: 8, UNIFORM: 64, STORAGE: 128 };
 globalThis.GPUTextureUsage = { COPY_SRC: 1, COPY_DST: 2, TEXTURE_BINDING: 4, STORAGE_BINDING: 8 };
@@ -102,7 +103,7 @@ function fixture() {
       };
     },
   };
-  const build = (width = 19, height = 13) => {
+  const build = (width = 19, height = 13, seedOwner = null) => {
     const input = { width, height };
     for (const name of [
       "color",
@@ -116,12 +117,14 @@ function fixture() {
       input[name] = graph.import_resource(
         name,
         {},
-        device.createTexture({ label: name, size: [width, height] }),
+        seedOwner && ["seed", "response", "identity", "previousIdentity"].includes(name)
+          ? { resolve: () => seedOwner.frame[name] }
+          : device.createTexture({ label: name, size: [width, height] }),
       );
     }
     owner.addToGraph(graph, input, (_name, resolve) => ({ resolve }));
   };
-  const encode = () => {
+  const encode = (currentCommand = command) => {
     for (const { data, callback } of callbacks) {
       callback(
         data,
@@ -131,7 +134,7 @@ function fixture() {
             return binding?.resolve ? binding.resolve(owner) : binding;
           },
         },
-        { encoder: command },
+        { encoder: currentCommand },
       );
     }
   };
@@ -302,4 +305,128 @@ test("negotiated storage limit is checked before any resource allocation", () =>
   assert.throws(() => new NativeTemporalV2(f.device), /complete Analyze\/Resolve profile/);
   assert.equal(f.buffers.length, bufferCount);
   assert.equal(f.textures.length, textureCount);
+});
+
+const identityMatrix = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+function jointCommand(f) {
+  const before = [],
+    finished = [],
+    aborted = [];
+  const fence = deferred();
+  return {
+    ...f.command,
+    device: f.device,
+    closed: false,
+    wasSubmitted: false,
+    gpuDone: fence.promise,
+    fence,
+    onBeforeFinish: { addOne: (fn) => before.push(fn) },
+    onFinished: { addOne: (fn) => finished.push(fn) },
+    onAborted: { addOne: (fn) => aborted.push(fn) },
+    finish() {
+      try {
+        before.forEach((fn) => fn());
+      } catch (error) {
+        this.abort();
+        throw error;
+      }
+      this.wasSubmitted = true;
+      this.closed = true;
+      finished.forEach((fn) => fn());
+    },
+    abort() {
+      this.closed = true;
+      aborted.forEach((fn) => fn());
+    },
+  };
+}
+
+test("Seed and V2 submit and abort their exact history roles together on one cached command graph", async () => {
+  const f = fixture();
+  const seed = new NativeTemporalSeed(f.device);
+  const camera = {
+    view: identityMatrix,
+    projection: identityMatrix,
+    inverseView: identityMatrix,
+    inverseProjection: identityMatrix,
+    jitter: [0, 0],
+    preExposure: 1,
+  };
+  const fences = [];
+  let previousIdentity;
+  for (let frame = 0; frame < 4; frame++) {
+    const facts = seed.prepare(19, 13, "native", camera);
+    if (previousIdentity) assert.equal(facts.previousIdentity, previousIdentity);
+    const command = jointCommand(f);
+    f.owner.prepareFrame(command, {
+      width: 19,
+      height: 13,
+      reset: !facts.previousValid,
+      jitter: facts.jitter,
+      historyReadIndex: facts.historyReadIndex,
+    });
+    f.owner.attach(command, seed);
+    if (!frame) f.build(19, 13, seed);
+    f.encode(command);
+    assert.throws(() => f.owner.commit(command.gpuDone), /successful submission/);
+    if (frame === 1) {
+      const role = f.owner.readIndex;
+      command.abort();
+      assert.equal(f.owner.readIndex, role);
+    } else {
+      command.finish();
+      previousIdentity = facts.identity;
+      assert.equal(f.owner.readIndex, 1 - facts.historyReadIndex);
+      fences.push(command.fence);
+    }
+  }
+  f.owner.destroy();
+  seed.destroy();
+  assert.ok(f.owner.allocatedBytes > 0);
+  assert.ok(seed.allocatedBytes > 0);
+  fences.forEach((fence) => fence.resolve());
+  await Promise.all(fences.map((fence) => fence.promise));
+  await Promise.resolve();
+  assert.equal(f.owner.allocatedBytes, 0);
+  assert.equal(seed.allocatedBytes, 0);
+});
+
+test("joint Seed/V2 rejects incomplete, foreign-command, stale-role and mismatched-frame publication", () => {
+  const f = fixture();
+  const seed = new NativeTemporalSeed(f.device);
+  const camera = {
+    view: identityMatrix,
+    projection: identityMatrix,
+    inverseView: identityMatrix,
+    inverseProjection: identityMatrix,
+    jitter: [0.25, 0],
+    preExposure: 1,
+  };
+  seed.prepare(19, 13, "native", camera);
+  let command = jointCommand(f);
+  f.owner.prepareFrame(command, { width: 19, height: 13, reset: true, jitter: [0, 0] });
+  assert.throws(() => f.owner.attach(command, seed), /same role, jitter and reset/);
+  f.owner.abort();
+  f.owner.prepareFrame(command, { width: 19, height: 13, reset: true, jitter: camera.jitter });
+  f.owner.attach(command, seed);
+  f.build(19, 13, seed);
+  assert.throws(() => f.encode(jointCommand(f)), /current single command/);
+  assert.throws(
+    () => seed.acceptNativeResolve(command, { ...seed.frame, identity: seed.frame.previousIdentity }),
+    /stale or mismatched/,
+  );
+  assert.throws(() => command.finish(), /incomplete/);
+  assert.equal(command.wasSubmitted, false);
+  assert.equal(f.owner.readIndex, 0);
+  const retry = seed.prepare(19, 13, "native", camera);
+  assert.equal(retry.previousValid, false);
+  command = jointCommand(f);
+  f.owner.prepareFrame(command, { width: 19, height: 13, reset: true, jitter: camera.jitter });
+  f.owner.attach(command, seed);
+  f.encode(command);
+  command.abort();
+  f.owner.destroy();
+  seed.destroy();
+  assert.equal(f.owner.allocatedBytes, 0);
+  assert.equal(seed.allocatedBytes, 0);
 });

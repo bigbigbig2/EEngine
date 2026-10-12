@@ -2,6 +2,7 @@ import { GpuBindGroupCache } from "../../gpu/GpuBindGroupResourceCache.js";
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
+import type { NativeTemporalSeed } from "./NativeTemporalSeed.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
 import { Fsr3RcasPass, packFsr3RcasConstants } from "../passes/fsr3/Fsr3RcasPass.js";
 import {
@@ -53,7 +54,6 @@ export class NativeTemporalV2 {
   private readonly analyze: Pipeline;
   private readonly resolve: Pipeline;
   private readonly rcas: Fsr3RcasPass;
-  private readonly sampler: GPUSampler;
   private readonly constants: GPUBuffer;
   private readonly rcasConstants: GPUBuffer;
   private readonly rcasExposure: GPUTexture;
@@ -66,6 +66,9 @@ export class NativeTemporalV2 {
   private valid = false;
   private generationValue = 0;
   private encoded = false;
+  private analyzed = false;
+  private attached: ShadeGPUCommandContext | null = null;
+  private seedOwner: NativeTemporalSeed | null = null;
   private lastFence: Promise<void> | null = null;
   private retiredBytes = 0;
   private destroyed = false;
@@ -73,9 +76,9 @@ export class NativeTemporalV2 {
 
   constructor(private readonly device: GPUDevice) {
     if (
-      device.limits.maxSampledTexturesPerShaderStage < 8 ||
+      device.limits.maxSampledTexturesPerShaderStage < 7 ||
       device.limits.maxStorageTexturesPerShaderStage < 3 ||
-      device.limits.maxComputeWorkgroupStorageSize < 2048
+      device.limits.maxComputeWorkgroupStorageSize < 7232
     ) {
       throw new RangeError("Native Temporal V2 requires its complete Analyze/Resolve profile");
     }
@@ -109,14 +112,13 @@ export class NativeTemporalV2 {
       };
     };
     this.analyze = pipeline("Native Temporal V2/Analyze", NATIVE_TEMPORAL_V2_ANALYZE_WGSL, [
-      ...shared,
+      ...shared.filter(({ binding }) => binding !== 3 && binding !== 6),
       texture(7),
       texture(8, "uint"),
       texture(9, "uint"),
       texture(10),
       storage(11, "rgba16float"),
       storage(12, "r32float"),
-      { binding: 13, visibility: GPUShaderStage.COMPUTE, sampler: { type: "filtering" } },
       storage(14, "r32float"),
     ]);
     this.resolve = pipeline("Native Temporal V2/Resolve", NATIVE_TEMPORAL_V2_RESOLVE_WGSL, [
@@ -126,7 +128,6 @@ export class NativeTemporalV2 {
       storage(9, "rg32float"),
     ]);
     this.rcas = new Fsr3RcasPass(device);
-    this.sampler = device.createSampler({ minFilter: "linear", magFilter: "linear" });
     const created: Array<GPUBuffer | GPUTexture> = [];
     try {
       this.constants = device.createBuffer({
@@ -259,6 +260,34 @@ export class NativeTemporalV2 {
     return this.candidate[name][role === "read" ? this.readIndex : this.writeIndex];
   }
 
+  /** Bind Seed identity/camera and V2 color/depth/state to one real submission.
+   * This replaces the Seed classifier proof only in the isolated V2 closure;
+   * the production composition root has not selected this graph yet. */
+  attach(command: ShadeGPUCommandContext, seedOwner: NativeTemporalSeed): void {
+    if (!this.pending || this.attached || command.closed || command.device !== this.device) {
+      throw new Error("Native Temporal V2 requires one prepared command on its device");
+    }
+    seedOwner.assertPreparedFrame(this.pending.width, this.pending.height);
+    const seed = seedOwner.frame;
+    if (
+      seed.historyReadIndex !== this.readIndex ||
+      seed.jitter.some((value, axis) => value !== this.pending!.jitter[axis]) ||
+      (!seed.previousValid && !this.pending.reset)
+    ) {
+      throw new Error("Native Temporal V2 and Seed require the same role, jitter and reset transaction");
+    }
+    seedOwner.attach(command, "native-resolve");
+    this.attached = command;
+    this.seedOwner = seedOwner;
+    command.onBeforeFinish.addOne(() => {
+      if (!this.encoded) {
+        throw new Error("Native Temporal V2 submission lacks the complete graph");
+      }
+    });
+    command.onFinished.addOne(() => this.commit(command.gpuDone));
+    command.onAborted.addOne(() => this.abort());
+  }
+
   addToGraph(graph: FrameGraph, input: NativeTemporalV2Input, bind: Binder): ResourceId {
     if (typeof bind !== "function") {
       throw new TypeError("Native Temporal V2 requires an explicit frame resource binder");
@@ -285,36 +314,54 @@ export class NativeTemporalV2 {
       input.preExposure,
       input.priorExposure,
     ];
-    const entries = (ids: readonly number[], resources: { get(id: number): unknown }): GPUBindGroupEntry[] =>
-      ids.map((id, binding) => ({
-        binding,
-        resource:
-          binding === 0 || binding === 5 || binding === 6
-            ? { buffer: resources.get(id) as GPUBuffer }
-            : resolveTextureView(resources.get(id)),
-      }));
+    const entries = (
+      ids: readonly number[],
+      resources: { get(id: number): unknown },
+      excluded: readonly number[] = [],
+    ): GPUBindGroupEntry[] => {
+      const result: GPUBindGroupEntry[] = [];
+      for (let binding = 0; binding < ids.length; binding++) {
+        if (excluded.includes(binding)) {
+          continue;
+        }
+        const resource = resources.get(ids[binding]!);
+        result.push({
+          binding,
+          resource:
+            binding === 0 || binding === 5 || binding === 6
+              ? { buffer: resource as GPUBuffer }
+              : resolveTextureView(resource),
+        });
+      }
+      return result;
+    };
     const exposure = imported("sharpen exposure", (owner) => owner.rcasExposure);
     let exposureWritten = -1;
     let analysis = -1;
     let depth = -1;
     const analyzeIds = [...shared, input.response, input.identity, input.previousIdentity, previousDepth];
     const analyze = graph.add("Native Temporal V2/Analyze", {}, (_data, resources, context) => {
+      if (this.analyzed || (this.attached && context.encoder !== this.attached)) {
+        throw new Error("Native Temporal V2 Analyze requires its current single command");
+      }
       this.dispatch(
         context.encoder as ShadeGPUCommandContext,
         this.analyze,
         [
-          ...entries(analyzeIds, resources),
+          ...entries(analyzeIds, resources, [3, 6]),
           { binding: 11, resource: resolveTextureView(resources.get(analysis)) },
           { binding: 12, resource: resolveTextureView(resources.get(depth)) },
-          { binding: 13, resource: this.sampler },
           { binding: 14, resource: resolveTextureView(resources.get(exposureWritten)) },
         ],
         input.width,
         input.height,
       );
+      this.analyzed = true;
     });
-    for (const id of analyzeIds) {
-      analyze.read(id);
+    for (let binding = 0; binding < analyzeIds.length; binding++) {
+      if (binding !== 3 && binding !== 6) {
+        analyze.read(analyzeIds[binding]!);
+      }
     }
     analysis = analyze.create("Native Temporal V2/analysis", {
       kind: "transient_texture",
@@ -330,6 +377,9 @@ export class NativeTemporalV2 {
     let state = -1;
     const resolveIds = [...shared, analysis];
     const resolve = graph.add("Native Temporal V2/Resolve", {}, (_data, resources, context) => {
+      if (!this.analyzed || this.encoded || (this.attached && context.encoder !== this.attached)) {
+        throw new Error("Native Temporal V2 Resolve requires its complete Analyze command");
+      }
       this.dispatch(
         context.encoder as ShadeGPUCommandContext,
         this.resolve,
@@ -341,10 +391,25 @@ export class NativeTemporalV2 {
         input.width,
         input.height,
       );
+      if (this.seedOwner) {
+        this.seedOwner.acceptNativeResolve(this.attached!, {
+          seed: resources.get(input.seed) as GPUTexture,
+          response: resources.get(input.response) as GPUTexture,
+          identity: resources.get(input.identity) as GPUTexture,
+          previousIdentity: resources.get(input.previousIdentity) as GPUTexture,
+        });
+      }
       this.encoded = true;
     });
     for (const id of resolveIds) {
       resolve.read(id);
+    }
+    if (this.seedOwner) {
+      // CPU submission proof inspects these already-produced imported roles;
+      // no additional shader bindings, sampling or physical pass is added.
+      resolve.read(input.response);
+      resolve.read(input.identity);
+      resolve.read(input.previousIdentity);
     }
     // The analysis read retains its producer and all depth writes on that pass.
     color = resolve.write(currentColor);
@@ -381,6 +446,9 @@ export class NativeTemporalV2 {
   }
 
   commit(fence: Promise<void>): void {
+    if (this.attached && !this.attached.wasSubmitted) {
+      throw new Error("Native Temporal V2 attached histories require successful submission");
+    }
     if (!this.pending || !this.candidate || !this.encoded) {
       throw new Error("Native Temporal V2 commit requires the complete encoded graph");
     }
@@ -397,6 +465,10 @@ export class NativeTemporalV2 {
   }
 
   abort(): void {
+    if (this.attached && !this.attached.closed) {
+      this.attached.abort(new Error("Native Temporal V2 transaction aborted"));
+      return;
+    }
     if (this.candidate !== this.active) {
       this.retire(this.candidate, null);
     }
@@ -412,6 +484,9 @@ export class NativeTemporalV2 {
     this.candidate = null;
     this.pending = null;
     this.encoded = false;
+    this.analyzed = false;
+    this.attached = null;
+    this.seedOwner = null;
   }
   private bytes(set: NativeHistories | null): number {
     return set ? set.width * set.height * 40 : 0;

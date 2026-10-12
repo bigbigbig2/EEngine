@@ -98,7 +98,19 @@ export const oracles = Object.freeze([
     url: "/OEngine/tests/oracle/final-pixel-temporal-pull-semantics-gpu.mjs",
     entry: "runFinalPixelTemporalPullSemanticsGpuOracle",
     timeoutMs: 120000,
-    description: "Actual V5 moment interpolation and cached pull graph: previous-view z, abort, queue-ordered roles and last-use retirement.",
+    description: "Actual V5 observation/noise state, integral estimator, mass, illumination and cached pull transaction checks.",
+  }),
+  Object.freeze({
+    name: "final-pixel-temporal-writer",
+    file: "OEngine/tests/oracle/final-pixel-phase1-gpu.mjs",
+    url: "/OEngine/tests/oracle/final-pixel-phase1-gpu.mjs",
+    entry: "runFinalPixelTemporalWriterGpuOracle",
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    requiredFeatures: ["texture-compression-bc"],
+    timeoutMs: 180000,
+    description:
+      "Actual Native Surface Seed -> V2 graph with joint ShadeGPUCommandContext submission, abort and fence retirement.",
+    note: "Nonproduction component closure; existing upscale classification fixtures remain, not a Renderer policy/quality acceptance.",
   }),
   Object.freeze({
     name: "native-temporal-v2",

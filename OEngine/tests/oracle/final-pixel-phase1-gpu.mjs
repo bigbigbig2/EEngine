@@ -15,6 +15,7 @@ import { SurfaceV4 } from "../../.test-dist/render/surface/SurfaceV4.js";
 import { NativeExecutionBins } from "../../.test-dist/render/surface/NativeExecutionBins.js";
 import { NativeVisibilityPass } from "../../.test-dist/render/surface/NativeVisibilityPass.js";
 import { NativeTemporalSeed } from "../../.test-dist/render/temporal/NativeTemporalSeed.js";
+import { NativeTemporalV2 } from "../../.test-dist/render/temporal/NativeTemporalV2.js";
 import { NATIVE_TEMPORAL_BACKGROUND_WGSL } from "../../.test-dist/shaders/native_temporal_seed.js";
 import { LocalLightWorkGenerator } from "../../.test-dist/render/lighting/LocalLightWorkGenerator.js";
 import { VsmSamplingPublicationPass } from "../../.test-dist/render/vsm/VsmSamplingPublicationPass.js";
@@ -218,7 +219,11 @@ export async function runFinalPixelBindingBoundaryGpuOracle(device) {
 /** Test-only double graph is a quality reference, never a production selector.
  * Uses actual visibility, bins, material publication, direct local/VSM directory
  * producers, Native shader and Temporal consumer. No renderer route is changed. */
-export async function runFinalPixelPhase1GpuOracle(device) {
+export async function runFinalPixelTemporalWriterGpuOracle(device) {
+  return runFinalPixelPhase1GpuOracle(device, true);
+}
+
+export async function runFinalPixelPhase1GpuOracle(device, temporalV2 = false) {
   const graphics = {
     device,
     profiler: new FrameProfiler({ enabled: false }),
@@ -543,6 +548,8 @@ ${loads}
       const surface = new SurfaceV4(device, true, undefined, true);
       const referenceSurface = new S3Surface(device, true);
       const temporal = new NativeTemporalSeed(device);
+      const reconstruction = temporalV2 ? new NativeTemporalV2(device) : null;
+      if (reconstruction) owners.push(reconstruction);
       const localOwner = new LocalLightWorkGenerator(device, 51);
       const vsmOwner = new VsmSamplingPublicationPass(device);
       owners.push(surface, referenceSurface, temporal, localOwner, vsmOwner);
@@ -587,10 +594,11 @@ ${loads}
 @group(0) @binding(5) var winner: texture_2d<u32>;
 @group(0) @binding(6) var reference: texture_2d<f32>;
 @group(0) @binding(7) var<storage, read_write> output: array<vec4u>;
+${temporalV2 ? "@group(0) @binding(8) var resolved_color: texture_2d<f32>;" : ""}
 @compute @workgroup_size(8,8) fn main(@builtin(global_invocation_id) id: vec3u) {
   let size = textureDimensions(seed);
   if (any(id.xy >= size)) { return; }
-  let pixel = vec2i(id.xy); let at = (id.y * size.x + id.x) * 7u;
+  let pixel = vec2i(id.xy); let at = (id.y * size.x + id.x) * ${temporalV2 ? 8 : 7}u;
   output[at] = bitcast<vec4u>(textureLoad(hdr, pixel, 0));
   output[at + 1u] = bitcast<vec4u>(textureLoad(seed, pixel, 0));
   output[at + 2u] = bitcast<vec4u>(textureLoad(response, pixel, 0));
@@ -598,6 +606,7 @@ ${loads}
   output[at + 4u] = bitcast<vec4u>(textureLoad(mask, pixel, 0));
   output[at + 5u] = vec4u(textureLoad(winner, pixel, 0).r, 0u, 0u, 0u);
   output[at + 6u] = bitcast<vec4u>(textureLoad(reference, pixel, 0));
+${temporalV2 ? "  output[at + 7u] = bitcast<vec4u>(textureLoad(resolved_color, pixel, 0));" : ""}
 }`,
           }),
         },
@@ -724,7 +733,21 @@ ${loads}
           new Float32Array([1, 0, 0, rigid, 0, 1, 0, 0, 0, 0, 1, 0]),
         );
         const command = ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame");
-        temporal.attach(command);
+        const usesV2 = reconstruction !== null && policy === "native";
+        if (usesV2) {
+          reconstruction.prepareFrame(command, {
+            width,
+            height,
+            jitter: seedFrame.jitter,
+            historyReadIndex: seedFrame.historyReadIndex,
+            reset: !seedFrame.previousValid,
+          });
+          reconstruction.attach(command, temporal);
+        } else {
+          // This fixture retains the existing Seed classification checks for
+          // upscale; it does not claim a completed Renderer policy cutover.
+          temporal.attach(command);
+        }
         command.onFinished.addOne(() => surface.commit(command.gpuDone));
         command.onAborted.addOne(() => surface.abort());
         const graph = new FrameGraph("V5 Final Pixel nonproduction closure");
@@ -946,7 +969,9 @@ ${loads}
                   ]
                 : [
                     ...localFrame.lightingEntries,
-                    ...fixture.legacyLightingEntries.filter((entry) => entry.binding > 3 && entry.binding !== 10),
+                    ...fixture.legacyLightingEntries.filter(
+                      (entry) => entry.binding > 3 && entry.binding !== 10,
+                    ),
                     { binding: 10, resource: referenceShadow.createView() },
                     ...sunEntries,
                   ],
@@ -962,8 +987,30 @@ ${loads}
         refPass.read(lightingId);
         refPass.read(localDataId);
         referenceId = refPass.write(referenceId);
-        const mask = temporal.addClassification(graph, products);
-        const output = storage(pixels * 7 * 16, "Final Pixel/diagnostic outputs"),
+        let mask;
+        let resolvedColor = hdrId;
+        if (usesV2) {
+          resolvedColor = reconstruction.addToGraph(
+            graph,
+            {
+              ...products,
+              previousIdentity: imported("V2 previous identity", seedFrame.previousIdentity),
+              color: hdrId,
+              preExposure: imported("V2 P", fixture.exposure),
+              priorExposure: imported("V2 previous P", fixture.exposure),
+              width,
+              height,
+            },
+            (_name, resolve) => resolve(reconstruction),
+          );
+          for (let i = 0; i < graph.resourceNodeCount; i++) {
+            if (graph.getResourceNode(i).name === "Native Temporal V2/analysis") mask = i;
+          }
+          check(Number.isInteger(mask), "Native writer graph lost V2 analysis");
+        } else {
+          mask = temporal.addClassification(graph, products);
+        }
+        const output = storage(pixels * (temporalV2 ? 8 : 7) * 16, "Final Pixel/diagnostic outputs"),
           staging = readback(output.size);
         const inspectPass = graph.add("All Final Pixel direct consumers", {}, (_data, resolved) => {
           const group = device.createBindGroup({
@@ -973,6 +1020,7 @@ ${loads}
                 (id, binding) => ({ binding, resource: viewOf(resolved.get(id)) }),
               ),
               { binding: 7, resource: { buffer: output } },
+              ...(temporalV2 ? [{ binding: 8, resource: viewOf(resolved.get(resolvedColor)) }] : []),
             ],
           });
           const pass = command.beginComputePass();
@@ -992,6 +1040,7 @@ ${loads}
           referenceId,
         ])
           inspectPass.read(id);
+        if (temporalV2) inspectPass.read(resolvedColor);
         inspectPass.make_side_effect();
         command.encodeGraph(graph);
         if (abort) {
@@ -1022,13 +1071,25 @@ ${loads}
           let boundaryDifferences = 0,
             maxInteriorHdrError = 0;
           for (let p = 0; p < pixels; p++) {
-            const at = p * 28,
+            const at = p * (temporalV2 ? 32 : 28),
               key = words[at + 20],
               id = words.slice(at + 12, at + 16);
             for (const lane of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 16, 17, 18, 19])
               check(Number.isFinite(floats[at + lane]), `${spec.name}/${index}/${p} nonfinite ${lane}`);
             check(floats[at + 3] === 1, "HDR incomplete alpha write");
-            hard += floats[at + 18] > 0.5;
+            hard += usesV2
+              ? generation !== 7 && seedFrame.previousValid && key < 0xfffffffe && floats[at + 16] === 0
+                ? 1
+                : 0
+              : floats[at + 18] > 0.5
+                ? 1
+                : 0;
+            if (temporalV2) {
+              for (let lane = 28; lane < 32; lane++) {
+                check(Number.isFinite(floats[at + lane]), `${spec.name}/${index}/${p} V2 output nonfinite`);
+              }
+              check(floats[at + 31] === 1, "V2 sharpen lost present alpha");
+            }
             if (key === 0xffffffff) {
               sky++;
               check(
@@ -1155,6 +1216,7 @@ ${loads}
             maxInteriorHdrError,
             boundaryDifferences,
             maxMotionError,
+            ...(usesV2 ? { temporalGraph: "Native writer -> Analyze -> Resolve -> RCAS" } : {}),
           };
           frameReports.push(row);
           return row;
@@ -1238,6 +1300,7 @@ ${loads}
       await frame(17);
       await frame(18, { completionFail: true });
       temporal.destroy();
+      reconstruction?.destroy();
       surface.destroy();
       referenceSurface.destroy();
       await device.queue.onSubmittedWorkDone();
@@ -1248,6 +1311,7 @@ ${loads}
           referenceSurface.allocatedBytes === 0,
         "Fence retirement leaked Final Pixel resources",
       );
+      check(!reconstruction || reconstruction.allocatedBytes === 0, "V2 writer transaction leaked histories");
       reports.push({
         ...spec,
         directoryBytes: plan.bytes,
@@ -1257,7 +1321,9 @@ ${loads}
       });
     }
     return {
-      profile: "V5 Phase1 nonproduction closure",
+      profile: temporalV2
+        ? "V5 Phase4 actual Native writer and joint submit; nonproduction"
+        : "V5 Phase1 nonproduction closure",
       adapterLimits: {
         storageBuffers: device.limits.maxStorageBuffersPerShaderStage,
         sampledTextures: device.limits.maxSampledTexturesPerShaderStage,
