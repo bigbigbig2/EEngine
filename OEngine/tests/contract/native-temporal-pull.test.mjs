@@ -151,6 +151,7 @@ test("unencoded commit is rejected; resize abort retains submitted histories, ro
   const f = fixture();
   f.prepare();
   assert.throws(() => f.owner.commit(Promise.resolve()), /complete encoded/);
+  assert.throws(() => f.owner.assertCompleteFrame(), /complete graph/);
   f.build();
   f.encode();
   const fence = deferred();
@@ -434,4 +435,41 @@ test("joint Seed/V2 rejects incomplete, foreign-command, stale-role and mismatch
   seed.destroy();
   assert.equal(f.owner.allocatedBytes, 0);
   assert.equal(seed.allocatedBytes, 0);
+});
+
+test("AA-off Surface proof rejects stale roles and abort never publishes identity", () => {
+  const f = fixture();
+  const seed = new NativeTemporalSeed(f.device);
+  const camera = {
+    view: identityMatrix,
+    projection: identityMatrix,
+    inverseView: identityMatrix,
+    inverseProjection: identityMatrix,
+    jitter: [0, 0],
+    preExposure: 1,
+  };
+  const first = seed.prepare(19, 13, "native", camera);
+  let command = jointCommand(f);
+  seed.attach(command, "surface-writer");
+  assert.throws(() => seed.assertCompleteFrame(), /incomplete/);
+  assert.throws(
+    () => seed.acceptSurfaceWrite(command, { ...first, identity: first.previousIdentity }),
+    /stale or mismatched/,
+  );
+  seed.acceptSurfaceWrite(command, first);
+  assert.throws(() => seed.acceptSurfaceWrite(command, first), /complete command/);
+  command.abort();
+  const retry = seed.prepare(19, 13, "native", camera);
+  assert.equal(retry.previousValid, false);
+  command = jointCommand(f);
+  seed.attach(command, "surface-writer");
+  seed.acceptSurfaceWrite(command, retry);
+  seed.assertCompleteFrame();
+  command.finish();
+  const next = seed.prepare(19, 13, "native", camera);
+  assert.equal(next.previousIdentity, retry.identity);
+  assert.equal(next.previousValid, true);
+  seed.abort();
+  seed.destroy();
+  f.owner.destroy();
 });

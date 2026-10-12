@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { FrameGraph, FrameGraphContext } from "../../.test-dist/framegraph/FrameGraph.js";
-import { Fsr3UpscalerRuntime } from "../../.test-dist/render/passes/fsr3/Fsr3UpscalerRuntime.js";
+import { Fsr3UpscalerRuntime } from "./reference/phase4/Fsr3UpscalerRuntime.mjs";
 import { Fsr3UpscalerRuntime as BeforeRuntime } from "./fixtures/native-temporal-before-c6e8d31d.mjs";
 import { floatToHalf } from "../../.test-dist/loaders/float16.js";
 

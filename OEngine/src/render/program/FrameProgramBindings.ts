@@ -10,7 +10,8 @@ import type { NativeTemporalSeed } from "../temporal/NativeTemporalSeed.js";
 import type { GpuRadiometryPass } from "../temporal/GpuRadiometryPass.js";
 import type { PhysicalEnvironmentRuntime } from "../environment/PhysicalEnvironmentRuntime.js";
 import type { PreExposureContract } from "../RadiometryContract.js";
-import type { FrameProgram } from "./FrameProgram.js";
+import { frameTemporalPolicy, type FrameProgram } from "./FrameProgram.js";
+import type { NativeTemporalV2 } from "../temporal/NativeTemporalV2.js";
 import type { LocalLightWorkFrame } from "../lighting/LocalLightWorkGenerator.js";
 import type { VsmResources } from "../vsm/VsmResources.js";
 import type { VsmDirectionalFrameConstants } from "../vsm/VsmReceiverDemandPass.js";
@@ -32,6 +33,7 @@ export type SceneFrameBindings = Readonly<{
   runtime: GpuRenderWorldRuntime;
   preExposure: PreExposureContract;
   fsr3: Fsr3UpscalerRuntime;
+  nativeTemporal: NativeTemporalV2;
   temporalSeed: NativeTemporalSeed;
   radiometry: GpuRadiometryPass;
   lightingEnvironmentRevision: number;
@@ -254,11 +256,16 @@ export function assertFrameProgramBindings(plan: FrameProgram, bindings: FramePr
       throw new Error("Frame Program environment LUT publication is incomplete");
     }
   }
-  bindings.fsr3.assertPreparedFrame(
-    request.internalWidth,
-    request.internalHeight,
-    request.outputWidth,
-    request.outputHeight,
-  );
+  const temporalPolicy = frameTemporalPolicy(request);
+  if (temporalPolicy === "native") {
+    bindings.nativeTemporal.assertPreparedFrame(request.internalWidth, request.internalHeight);
+  } else if (temporalPolicy === "upscale") {
+    bindings.fsr3.assertPreparedFrame(
+      request.internalWidth,
+      request.internalHeight,
+      request.outputWidth,
+      request.outputHeight,
+    );
+  }
   bindings.temporalSeed.assertPreparedFrame(request.internalWidth, request.internalHeight);
 }

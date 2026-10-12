@@ -7,7 +7,7 @@ state: history
 
 起始生产HEAD `015548a7d5707975701a844c3b06df3ba8a28303`。本记录是候选事实，不是新设计/执行authority。Phase3已完成的结构、语义与提交闭包未发现新返工或延期依据；Phase2/3已有成本回归仍保留，依执行计划在Phase5/6联合收口。没有使用子agent。
 
-**Phase4未完成。** 最新边界见文末“参考profile迁移与质量比较校准”；C59、domain及自主估计器候选均为历史检查点，不能作为当前代码的质量/成本状态。尚未切生产、尚未删除生产native scatter/SPD/histories，不进入Phase5。生产保持Seed classifier→FSR Prepare/scatter/clear/SPDs→旧T3→RCAS。候选失败不满足architecture falsification条件。
+**当前生产已切换Native V2，完整单元验证结果见文末；Phase状态只读执行authority。** C59、domain及自主估计器候选均为历史检查点，不能作为当前实现状态。原失败全部保留；当前范围以文末接线与最终验证记录为准，阶段状态只读执行authority。
 
 ## C59候选物理图与Cost Card（历史）
 
@@ -104,7 +104,7 @@ Reference：AMD SDK MIT `c6efa6bf7f2027b3ec94f28578bb5965eabb9e55`完整PrepareI
 **模型边界**：current reconstruction、Analyze current luma/difference、Resolve local color statistics与写入moments的观测统一到输出像素域；几何验证仍在原始抖动点域，raw current-depth全域写保持。输出历史坐标不再夹带当前点采样的fractional jitter。删除前景颜色搬运、depth support→颜色面积猜测、历史抬亮和临时tone。时间方差只扩展同域统计裁剪支持，不直接替换或抬高历史RGB；geometry/reactive/shading rejection限制支持。**这种数据合同一致性不证明滤波/拒绝模型已经达到生产质量。**
 
 | 完整模型候选 | 数学 / GPU语义 | small质量结果 |
-|---|---|---|
+| --- | --- | --- |
 | domain-v1 | shared二次当前重建；Analyze/Resolve同域，但未使用时间方差支持裁剪 | 253条失败；缺采样相位抹除细线，不能采纳 |
 | domain-v2 | 同域时空不确定性裁剪、跨尺度noise/shading判定 | 163条失败；平均HDR改善不能覆盖ROI/逐frame/局部光照/轮廓失败，不能采纳 |
 | domain-v3（历史隔离代码） | 同域AMD径向支持+本地截断质心校正，局部/宽域统计；只证明常量/仿射保持，不再声称二次面积积分 | 233条失败；局部gain/拒绝模型仍未闭合，不能采纳生产 |
@@ -132,7 +132,7 @@ ADD：Analyze18×18 RGBA f32 raw halo5184B+两块16×16 f32统计2048B，共7232
 用户再次指出局部补丁循环后，从完整数据合同重新审查。domain-v1/v2/v3的数学一致性检查不证明它们达到质量目标；“raw point moments本身非法”也不是已经证明的根因。raw观测可以作为潜在pixel-area估计的带噪输入，必须区分观测方差与估计方差。以下是本轮确定的源码/数值问题，而不是按case追加的补偿条件：
 
 | 责任 | 问题与修改 | 独立证据 / 限制 |
-|---|---|---|
+| --- | --- | --- |
 | illumination | 原来拟合current与积累color，再把gain乘回同一color，滞后会进入反馈；改为两帧实际观测拟合，confidence只影响历史mass，不衰减物理gain | 故意令previous color=.25、previous observation=.5、current=1，实际Analyze必须输出2x而非4x；另验1x/.5x |
 | confidence | 加入.74/16 radiance mass却每帧增加1/3 confidence；改为同一有效mass控制RGB混合与下一帧confidence | 8个相等权重、不同值的静止观测，actual Resolve输出算术平均与对应mass；只隔离积累责任，不证明全TAA质量 |
 | state | 原mean/second moment把变化与采样分布混合，HDR还存在消去；改为last observation与centered innovation variance，仍RG32Float8B | `f32(8192²+1)==f32(8192²)`；真实GPU新state保留L=8192/variance=1，零方差空间边与已知within-pixel方差不混合 |
@@ -154,7 +154,7 @@ ADD：Analyze18×18 RGBA f32 raw halo5184B+两块16×16 f32统计2048B，共7232
 原件 `.local/phase4-pull-{innovation-v1,estimator-v1,observation-v1,ordered-v1,ordered-final}.json`（UTF-16），解析同名`.quality.json`；source快照在`.local/native_temporal_v2-{domain-v3,innovation-v1,estimator-v1,observation-v1}.ts`及最终Git修改。失败数减少不构成采纳条件，当前不能切生产。没有放宽2^-10/ROI/逐frame/energy门、尺寸/帧号/场景特判或Dungeon局部benchmark。
 
 | 当前remaining counterexample | Native / Before | 分类 |
-|---|---|---|
+| --- | --- | --- |
 | static wire display RMSE | .297120 / .193130；frame16等亦失败 | 局部积分适用域之外的薄线采样/估计支持，不能用全图HDR平均掩盖 |
 | fast reverse frame29 | .209166 / .126723 | 高位移的history/reconstruction支持；own motion和16-point数值正确不保证动态质量 |
 | local light patch total HDR | .096349 / .071915；patch ROI .241715 / .163147 | 多尺度变化模型在mixed footprint边界仍不够，不能再以gain/抬亮特判救边界 |
@@ -211,3 +211,51 @@ AMD候选保留径向Lanczos/Gaussian统计、fractional16-point history、thin 
 最严重frame17/pixel(27,9)的trace：current reconstruction相同约.250681；旧路径motion.x=−.0234375（−1.5pixel），新路径motion.x=0；旧输出.934082、新.118652，golden1.057436。旧source的nearest前景motion覆盖边缘的颜色AA footprint，新图使用中心背景的motion，颜色历史来自不同表面。它是参考profile输入合同差异，不是PCF/Geometry重建或全局曝光错误。AMD、Wicked、Unity的相关真实源码与许可证边界见porting记录；单侧depth移植不自动修复颜色footprint关联，Siemens/fast剩余数值问题也尚未解决。
 
 已向用户提出具体合同修订请求，尚待答复：**Seed保持每pixel自己的motion/depth/identity；Temporal颜色历史消费可在已有3×3 Seed中按AMD选择前景receiver。** 拟新增9个Seed读取/比较、可能的短private live-state，不新增full-screen Prepare产品/dispatch，不恢复scatter/clear或Geometry恢复。这会撤销当前禁止邻居motion消费及必删9depth search的部分承诺，因此当前未擅自实施、未改目标authority，也没有第二production path。选定后需同时完成Analyze/Resolve的receiver关联与独立资格、全部消费者/事务及重算Cost Card，不是仅替换一个textureLoad。
+
+## 已批准receiver合同与完整producer调整（2026-10-12）
+
+用户明确批准“允许按参考修订颜色历史合同”。Measure在既有3×3 Seed上按AMD顺序选nearest receiver，写R32Uint索引供Shading Pyramid、Analyze、Resolve；原Seed/identity/raw depth仍逐pixel保存自身事实，不恢复Geometry、独立Prepare、scatter/clear。颜色输出域决定history是否在屏幕内；raw depth UV按参考clamp，不能用大jitter的raw域越界拒绝有效输出域。previous raw depth的四点中，背景safe tap不能抵消前景occlusion：取必要nearest贡献者的Ksep confidence，而非把source scatter的any-safe规则直接用于raw history。它是显式physical/data-domain adaptation，不宣称AMD depth bit parity。
+
+原失败保留：receiver-v1语义probe误将新增helper一起截取，缺少output_motion，属test extraction；修正后receiver-v2语义通过。receiver-v2质量仍27条失败，具体foreground frame18/pixel(13,9)旧输出.12183、新1.05469、golden.12314，新coverage=1错误保留前景历史；external jitter raw域错误拒绝则使confidence反复停在1/3。修正后 `.local/phase4-pull-semantics-amd-receiver-v3.json` 与 `.local/phase4-pull-amd-receiver-v3.json` passed，17序列/既定1%/3%门，foreground HDR RMSE .07581对.07578。场景/golden/ROI/阈值未为候选修改。
+
+首个整链1080p成本 `.local/phase4-native-v2-cost-receiver-v1.json`：fractional motion reference/native P50 10.754/41.916ms，stationary 9.407/21.412ms。该local-halo候选明确拒绝，不否定Seed+pull/reference架构。Analyze每输出16次source_difference排序与luma读取是根因。完整producer调整为Shading Pyramid：每source pixel一次signed difference，8×8合作归约2/4/8，写3个RG16Float尺度给Analyze。保参考算法和量化边界，不混搭donor。新增一个dispatch、1.3125B/pixel尺度store/容量（1080p2.60MiB），删除15/16差异重复计算及Analyze 10880B shared；新pyramid672B shared。Measure/Exposure仍各16KiB。store下限68.8125对旧69B/pixel，不称大规模history节省；history仍78对旧70B/pixel。
+
+`.local/phase4-semantics-pyramid-v3.json`：完整Resolve differential/实际Analyze/raw depth/前景颜色receiver/7 cached submit/abort/3inflight/fence通过。前两版失败分别是新增shader helper遗漏及旧pass-list断言未迁移，原件保留；未改数值容差。`.local/phase4-quality-pyramid-v1.json`17序列passed。`.local/phase4-native-v2-cost-pyramid-v1.json`同一ABBA：fractional reference/native P50 10.884/10.231ms，stationary9.508/8.888ms；每path12样本，16帧warmup，完整链envelope含pass间隙。只是合成局部cost，有break-even但不是Dungeon整帧、正式尾部或60FPS资格。
+
+生产cutover：FrameProgram根据实际两轴选择native/upscale/bypass，Native由新owner运行，FSR只接受真实upscale；删除旧NativeTemporalPasses与native_temporal production shader。Seed和Native全histories同command成功submit推进；inactive domain只在replacement提交后按last-use fence退休。bypass不造color writer，identity仍真实写；重新开启时invalid color role与Seed对齐。Temporal registry新增prepare checkpoint，abort恢复上一成功revision/roles/validity，不能保留失败policy/resize的状态。37项targeted Node通过。
+
+`.local/phase4-renderer-cutover-v2.json`真实Renderer通过：native↔upscale↔bypass、实际graph无旧native Prepare/scatter/SPD/T3、camera cut/resize/abort/retry、3inflight/defer、controlled epoch、真实material/winner/HDR事务；首版有Lowering仍强制fsr3 stage的接线错误，已删除该旧假设，原失败保留。此结果在Shading Pyramid调整前；最终producer图仍需重新运行真实Renderer。完整动态256帧矩阵另行执行，不能由17个小序列替代。
+
+## Phase4最终出口：输入语义校准与紧ROI补查
+
+全1080p×256六类矩阵首轮replacement失败，不是原算法质量退化的结论。v2 fixture将同一owner的revision只改部分像素，v3仍将Native原始response.z的coverage语义误用成旧classified mask.z的hard replacement。修正为同一owner全域revision与真正NATIVE_TEMPORAL_SEED_CLASSIFY_WGSL输出mask供Before；Native保持raw response。`.local/phase4-matrix-v1/v2/v3/v4.json`保留全部原件，v4六类1536帧、四固定ROI通过；没有改变阈值或帧数。
+
+为补齐线/MASK/运动/replacement/light/HDR紧bbox的局部检查，新增独立analytic stimulus决定的四类tight ROI，连同原四ROI每family共8ROI。`.local/phase4-matrix-tight-v1.json`六类全部执行，发现仅static thin的vertical/horizontal ROI共4条均值HDR/能量失败：HDR .195190对.193121、.067586对.066000；energy .113698对.112531、.038827对.037387。不能用前一轮宽ROI通过覆盖此失败。
+
+源码对照发现Analyze以手工f32 bilinear代替AMD ShadingChange对RG16尺度的hardware linear采样。改为同参考textureSampleLevel与filtered布局，恢复真实格式/采样边界，不调权重、不引入第二算法。`.local/phase4-semantics-final-v1.json`独立complete Resolve differential与实际receiver/raw depth/生命周期通过；紧ROI矩阵按原条件重跑。
+
+按需闭包：AA-off用已完成Native Surface writer验证Seed/response/identity角色，只在真正提交时发布identity，不执行无人消费classifier；debug仍需求classifier。Analyze移除已由Shading Pyramid消费的current/previous luma与exposure-buffer旧绑定，sampled峰值13→11，Resolve10。空场景提交后退休两种inactive color backend，abort不提前释放。新增stale-role/duplicate-proof/abort测试后38项targeted Node passed。最终Renderer必须再实际覆盖Shading Pyramid、AA-off/debug/empty/native↔upscale，不由这些单测代替。
+
+恢复参考hardware scale filtering后 `.local/phase4-matrix-tight-filtered-v1.json`仍有同4条thin ROI失败（HDR .195216/.067479，energy .113705/.038780），故不能把该表示修正当作根因已修复。下一步使用80-frame固定thin scene的8个intermediate probe读取analysis/frameInfo/color/raw luma/luma history；这是数值定位，不是质量资格或性能benchmark。
+
+薄线定位进一步结果：`.local/phase4-thin-probe-v1/v2/v3.json`分别读取8点的analysis/frameInfo/color/raw luma/luma history及三个尺度。除reset外raw luma、frameInfo.xy与所采尺度一致；frame7 vertical point的change/confidence为旧0/1、新1/255与254/255，造成逐帧lock/history细小偏差。独立256值R8实际UAV store/load显示half-way处理与WGSL round不同；真实storage product上的预先round构成重复量化。删除Analyze/confidence真实store前预量化，消除已删除ShadingChange R8边界的tie差异；不改变算法权重/质量门。`.local/phase4-thin-probe-unorm-v1.json`80frame局部诊断：64–79 vertical HDR .183225对.181804，energy .106455对.105647；horizontal HDR .062577对.061652，energy .037151对.036350，落入原统一门。80帧不代替完整256帧验收。
+
+`.local/phase4-thin-probe-fraction-v1.json`另测R8硬件linear权重，观察8bit fraction及16bit UNORM结果表示；未把这一硬件近似写成production插值算法，不以追求source bit parity改变架构。全部诊断只在test-only matrix probe入口，无production selector。
+## 最终闭包与成本结果（2026-10-12）
+
+`.local/phase4-matrix-final-unorm-v1.json` **passed，failures=[]**：1920×1080，六类各256帧、每类8个ROI，共1536帧。完整HDR/display逐frame与aggregate、peak、phase、energy、positive trailing error及settling保持原门；有测得settling的两路径帧号一致，null仅表示两路径在窗口内均未返回pre-change envelope，不证明绝对收敛。synthetic color/Seed矩阵不模拟完整normal/coat/material求值，真实writer和Renderer另查；人工动态显示、Dungeon及全feature整帧资格留Phase5/6。
+
+矩阵build源SHA256 `3fb44f36cb0cd847f183a47b60126f3f1c3d6178fbfce5bf206f3ceaf90616be`、输出 `fc778a7cab2f1fde1e58ae7927500df038d3989d9198292be7bb0af8aae9d2b3`。之后仅增加CPU事务/完整writer校验、按需debug/empty接线和格式整理，shader数学未改；这些变动由下列新鲜build上的真实GPU检查覆盖，不借旧矩阵证明新事务。
+
+- `.local/phase4-semantics-final-v2.json`、格式整理后最终`.local/phase4-semantics-final-v3.json` passed：完整Resolve 8场景19136lane差分最大relative=0；actual Analyze receiver/raw depth、Ksep半confidence、cached七提交、abort/3inflight/fence通过。
+- `.local/phase4-quality-final-v2.json` passed：17个小动态/数值序列，补充partial、external jitter、dolly与reset语义；不替代完整矩阵。
+- `.local/phase4-writer-final-v2.json` passed：真实Native writer进入当前Measure/Exposure/Shading Pyramid/Analyze/Resolve/RCAS，ordinary/Product写域、motion/identity与共同提交通过。
+- `.local/phase4-renderer-final-v1.json` failed：Native Velocity debug使classifier与V2分别导入previous identity，FrameGraph binding重名。已改为Lowering一次导入、两个直接consumer共享同一exact history产品；不增加pass、不改算法、不掩盖失败。
+- `.local/phase4-renderer-final-v2.json`、`.local/phase4-product-final-v1.json` passed：最终ordinary/Product真实Renderer、Shading Pyramid、native/upscale/bypass、AA-off无多余classifier、按需debug、空场景failed submit保留历史/成功submit退休、cut/resize/abort/retry/三inflight/defer/controlled epoch与实际winner/material/HDR闭包。
+- 完整性校验发现ChangeSignal会捕获observer异常，故新增Renderer直接调用Seed/V2 `assertCompleteFrame`；原生命周期通知保留。39项targeted Node passed，无跳断言或容差放宽。
+
+Renderer/Product/成本build源SHA256 `eb18c731f694d96758b985dee4a8ee7e2f5aca7692a3f5bda9c94ed5a385025b`、输出 `d33022993fd659a0772903080904a371b0a3475a5153d9f55f934bc4b0969c51`。随后只有等价格式整理与writer报告补齐完整pass名；最后fresh build:test、production build（包含typecheck/declarations）通过。最终writer/semantics源SHA256 `93010fdbfd1c5665bd2eb1acf21eca2bd34cb121be887239b27888d220cbc90e`、输出 `92fff3d19f00c770dd0be176217ce9142de3771fe509a69588c8d73e32a7c8c2`。真实adapter只报告NVIDIA/Turing硬件，device/description为空，Chrome154.0.8037.98；不能把它当精确GTX1650Ti型号验证或锁频/热稳条件。
+
+`.local/phase4-cost-final-v1.json` passed：1080p完整Temporal envelope包含pass间隙，两种motion各16warmup、每path12样本ABBA，按`floor((n−1)×.5)`取P50。fractional Before/Native **11.257248/9.655264ms**，stationary **10.007360/8.681472ms**；本窗口观察到unit break-even。raw范围分别9.859040–12.564480/8.887392–12.343232ms、9.384384–11.341760/8.220672–10.575552ms，样本少且未锁clock，不把差值称稳定production净收益。不是Dungeon whole-frame、P95/P99、60FPS或Phase2/3回归已解决的证据。
+
+生产Native已删除旧Prepare/reconstructed clear/atomic scatter/global SPD/T3 owner；必要参考luma/confidence/exposure语义归新owner。完整identity未缩；persistent仍78对旧70B/pixel，store/clear下限68.8125对69。没有大降history容量、整Renderer性能改善或完整SDK bit-exact adoption claim。本轮停在Phase5边界。

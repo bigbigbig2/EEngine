@@ -123,6 +123,11 @@ export class TemporalHistoryRegistry {
     });
   }
 
+  private checkpoint: {
+    revision: TemporalHistoryRevision | null;
+    histories: Map<string, MutableHistoryState>;
+  } | null = null;
+
   beginFrame(
     frameIndex: number,
     revision: TemporalHistoryRevision,
@@ -143,6 +148,10 @@ export class TemporalHistoryRegistry {
       if (!this.histories.has(name)) throw new Error(`Unknown temporal history '${name}'`);
     }
 
+    this.checkpoint = {
+      revision: this.previousRevision,
+      histories: new Map([...this.histories].map(([name, state]) => [name, { ...state }])),
+    };
     const firstFrame = this.previousRevision === null;
     const globalReason = invalidationReason(this.previousRevision, revision);
     if (globalReason !== null) this.invalidateForReason(globalReason);
@@ -195,16 +204,35 @@ export class TemporalHistoryRegistry {
     }
     this.activeFrame = null;
     this.activePreExposure = null;
+    this.checkpoint = null;
     return committed;
   }
 
   abortFrame(frameIndex: number): void {
     this.assertActiveFrame(frameIndex);
-    for (const state of this.histories.values()) {
-      if (state.active) invalidateState(state, "abort");
+    if (!this.checkpoint) {
+      throw new Error("Temporal history abort lacks its prepared checkpoint");
     }
+    this.previousRevision = this.checkpoint.revision;
+    for (const [name, state] of this.checkpoint.histories) {
+      Object.assign(this.require(name), state);
+    }
+    this.checkpoint = null;
     this.activeFrame = null;
     this.activePreExposure = null;
+  }
+
+  /** Align an invalid color slot with the actual Seed writer after a bypass.
+   * A live history may never silently change its physical role. */
+  alignReadIndex(name: string, index: 0 | 1): void {
+    if (this.activeFrame === null || (index !== 0 && index !== 1)) {
+      throw new Error("Temporal role alignment requires a prepared frame and exact role");
+    }
+    const state = this.require(name);
+    if (state.lastReadValid && state.committedIndex !== index) {
+      throw new Error("Valid temporal histories cannot change their committed role");
+    }
+    state.committedIndex = index;
   }
 
   invalidate(reason: TemporalHistoryInvalidationReason = "explicit"): void {

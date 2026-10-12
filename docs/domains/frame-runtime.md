@@ -14,10 +14,11 @@ verifies:
   - OEngine/src/render/passes/fsr3/Fsr3AccumulatePass.ts
   - OEngine/src/render/passes/fsr3/Fsr3AccumulateShader.ts
   - OEngine/src/render/passes/fsr3/Fsr3RcasPass.ts
+  - OEngine/src/render/temporal/NativeTemporalV2.ts
+  - OEngine/src/shaders/native_temporal_amd.ts
   - OEngine/src/render/passes/fsr3/Fsr3UpscalerRuntime.ts
-  - OEngine/src/render/temporal/NativeTemporalPasses.ts
-  - OEngine/src/shaders/native_temporal.ts
 ---
+
 # Frame Runtime
 
 ## 当前源码接线
@@ -30,13 +31,13 @@ verifies:
 
 Geometry、native Material publication、LocalLightWork、Surface、VSM 与后处理注册同一个 graph。各 pass 消费显式产品，不拥有独立 frame submit。LightDatabase 仍归 Scene environment，generator 只拥有自己的 frame allocation；提交后按真实 gpuDone fence 复用或销毁，abort 不推进产品历史，device loss 退休旧 epoch。
 
-Final Pixel Shadow 主链由 VSM post-content publication 直接写 FinalPixelLighting container 的descriptor区间，PhysicalEnvironment发布原half Solar LUT，LocalLightWork直接写lookup区间；Native只读最后resource version。物理container由独立 `FinalPixelLightingPublication` 负责3个有界 frame allocation、abort/fence/epoch和显存记账，三种逻辑producer各自保留owner。Native单次几何恢复后完成原point-PCF与Sun；独立Shadow Resolve、ShadowVisibility、Sun continuation和第二HDR已删除。Native 在已有 winner/position/instance/material facts 时写 Seed rgba32float、response rgba8unorm 与完整 identity rgba32uint；NativeTemporalSeed 管理 identity pair、camera/jitter、commit/abort/fence/epoch。轻量 classification 只读三个产品和 previous identity，FSR/当前 native T3/debug 直接消费 Seed.xy 与 mask；旧 Facts/Aux 和单独 material versions buffer 已删除。Native V2 尚未切换，1:1 当前仍有 FSR Prepare/scatter/SPD/history；阶段资格只读 V5 执行 authority。
+Final Pixel Shadow 主链由 VSM post-content publication 直接写 FinalPixelLighting container 的descriptor区间，PhysicalEnvironment发布原half Solar LUT，LocalLightWork直接写lookup区间；Native只读最后resource version。物理container由独立 `FinalPixelLightingPublication` 负责3个有界 frame allocation、abort/fence/epoch和显存记账，三种逻辑producer各自保留owner。Native单次几何恢复后完成原point-PCF与Sun；独立Shadow Resolve、ShadowVisibility、Sun continuation和第二HDR已删除。Native 在已有 winner/position/instance/material facts 时写 Seed rgba32float、response rgba8unorm 与完整 identity rgba32uint；NativeTemporalSeed 管理 identity pair、camera/jitter、commit/abort/fence/epoch。Native 1:1由 NativeTemporalV2 直接消费 Seed/response/exact identity，并管理 color/depth/luma/confidence/exposure histories；正常 Native 图没有独立 Seed classification。classification仅服务 upscale 和必要 debug；AA-off由完整Surface writer证明identity提交，不执行无consumer分类；空场景成功提交后，两种color backend按最后consumer fence退休；旧 Facts/Aux、material versions、旧 T3 owner 已删除。质量和成本资格只读 V5 execution authority。
 
 `GpuRadiometryPass` 独立持有曝光双槽和有效性：颜色/TAA reset、resize、Sun/Sky edit、camera cut 不重置曝光，commit 换槽，abort 保留，device epoch 初始化与 `resetExposure()` 显式重置。主链保留 P(n−1) render→去预曝光 HDR histogram→percentile/highlight/log adaptation→E(n)，FSR 先读旧两槽，Presentation 再使用 E/P。常规帧没有 CPU 读回；`readExposureDiagnostics()` 是调用者主动请求的单次 32B readback，不能驱动 frame work。
 
-`Fsr3UpscalerRuntime`按两轴实际internal/output尺寸选择服务域：1:1采用`NativeTemporalPasses`的Depth Classification→Native Resolve；真实upscale继续FSR Prepare Reactivity→Luma Instability→Accumulate。两域共享原Prepare Inputs、Luma/Shading SPD、Shading Change与RCAS质量功能，1:1不再注册旧三个compute和独立new-lock/instability产品。Native Resolve融合四帧亮度响应、thin lock与重建，96B当前滤波权重由classification完整写入并经下一dispatch依赖读取；没有额外history或frame submit。
+`RendererCore`按两轴实际尺寸选择唯一颜色 writer：Native 1:1为 Measure→Exposure→Shading Pyramid→Analyze→Resolve→RCAS；true upscale为原 FSR3 graph；bypass不写color history。Native previous-depth pull不分配reconstructed-depth buffer、不clear/scatter，不重建Geometry。Shading Pyramid一次计算源差异并归约2/4/8尺度；必要统计由新owner持有。inactive domain在replacement成功submit后按最后fence退休，abort恢复上一提交角色/validity/jitter；不是同时运行两套Native路径。
 
-两域都只写本帧RGBA16F color history（RGB与SDK alpha lock），RCAS读取`builder.write(currentHistory)`的写版本，仅使用RGB并输出alpha1，不声明重复upscaled color临时纹理。仍由同一runtime管理color/luma/luma-history/confidence/frame-info双槽与prepare/commit/abort/resize/fence；只有成功submit后commit换槽。policy切换重置history并推进generation，abort恢复原policy/index/generation/jitter。普通camera motion不reset，defer不推进history；源码切换不证明整帧性能已验收。
+两域都只写本帧RGBA16F color history（RGB与SDK alpha lock），RCAS读取`builder.write(currentHistory)`的写版本，仅使用RGB并输出alpha1，不声明重复upscaled color临时纹理。两域各自owner管理color/luma/luma-history/confidence/frame-info双槽与prepare/commit/abort/resize/fence，Native额外拥有raw depth pair；TemporalFabric协调同一提交事务；只有成功submit后commit换槽。policy切换重置history并推进generation，abort恢复原policy/index/generation/jitter。普通camera motion不reset，defer不推进history；源码切换不证明整帧性能已验收。
 
 ## 原则与验证边界
 

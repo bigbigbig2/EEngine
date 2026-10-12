@@ -39,6 +39,8 @@ import {
 import { VisibilityCounterPass } from "../passes/VisibilityCounterPass.js";
 import { lowerFrameProgram, type FrameProgramOwners } from "../program/FrameProgramLowering.js";
 import { FrameProfiler } from "../../debug/FrameProfiler.js";
+import { NativeTemporalV2 } from "../temporal/NativeTemporalV2.js";
+import { frameTemporalPolicy } from "../program/FrameProgram.js";
 import { TemporalFabric } from "../TemporalFabric.js";
 import { NativeTemporalSeed } from "../temporal/NativeTemporalSeed.js";
 import { GpuRadiometryPass } from "../temporal/GpuRadiometryPass.js";
@@ -386,6 +388,8 @@ export class Renderer {
   private _bloom!: BloomPass;
   private _renderDebugViewPass!: RenderDebugViewPass;
   private _fsr3!: Fsr3UpscalerRuntime;
+  private _nativeTemporal!: NativeTemporalV2;
+  private _temporalPolicy: "native" | "upscale" | "bypass" | null = null;
   private _historyRuntime: GpuRenderWorldRuntime | null = null;
   private _sceneHistoryEpoch = 0;
   private readonly _radiometry = new RadiometryRuntime();
@@ -600,6 +604,7 @@ export class Renderer {
     this._temporalResetPending = true;
     this._temporal.invalidate();
     this._fsr3.invalidate();
+    this._nativeTemporal.invalidate();
     this._surface.invalidate();
   }
   /** Explicit exposure reset. Color/TAA invalidation does not reset metering. */
@@ -618,7 +623,13 @@ export class Renderer {
       fsr3Generation: this._fsr3?.generation ?? 0,
       seedAllocatedBytes: this._temporalSeed?.allocatedBytes ?? 0,
       fsr3AllocatedBytes: this._fsr3?.allocatedBytes ?? 0,
-      jitter: this._fsr3?.jitterEvidence() ?? null,
+      nativeTemporalAllocatedBytes: this._nativeTemporal?.allocatedBytes ?? 0,
+      nativeTemporalGeneration: this._nativeTemporal?.generation ?? 0,
+      temporalPolicy: this._temporalPolicy,
+      jitter:
+        this._temporalPolicy === "native"
+          ? (this._nativeTemporal?.jitterEvidence() ?? null)
+          : (this._fsr3?.jitterEvidence() ?? null),
       phaseIndex: Math.max(0, this._frame_count - 1) % this._temporal.jitter.jitter_sequence_size,
     });
   }
@@ -670,6 +681,7 @@ export class Renderer {
     this._programCache.clear();
     this._temporal.invalidate();
     this._fsr3?.invalidate();
+    this._nativeTemporal?.invalidate();
     this._surface.invalidate();
   }
   get views(): ViewManager {
@@ -1784,6 +1796,7 @@ export class Renderer {
     this._bloom = new BloomPass(device);
     this._renderDebugViewPass = new RenderDebugViewPass(this._graphics);
     this._fsr3 = new Fsr3UpscalerRuntime(device);
+    this._nativeTemporal = new NativeTemporalV2(device);
     // The pinned Takram LUT profile is device-local and recorded into the
     // first frame submission; consumers can bind its immutable views by
     // generation without owning the LUT lifetime.
@@ -1965,6 +1978,13 @@ export class Renderer {
     let temporalActive = false;
     let activeHzb: HierarchicalZBuffer | null = null;
     let environmentGeneration: number | null | undefined;
+    const temporalPolicy = frameTemporalPolicy({
+      internalWidth: this._render_resolution.x,
+      internalHeight: this._render_resolution.y,
+      outputWidth: this._output_resolution.x,
+      outputHeight: this._output_resolution.y,
+      fsr3Enabled: this.fsr3_enabled,
+    });
     const cameraCut = this._temporalResetPending;
     let cameraChanged = false;
     let localLightWork: LocalLightWorkFrame | null = null;
@@ -1976,16 +1996,17 @@ export class Renderer {
         command.onFinished.addOne(() => this.promotedTextureRuntimes.add(runtime));
       }
       const finishScenePrepare = this._profiler.beginCpuSection("scene-prepare");
-      if (
-        this._fsr3.canRetainHistory(
-          this._render_resolution.x,
-          this._render_resolution.y,
-          this._output_resolution.x,
-          this._output_resolution.y,
-        ) === false
-      ) {
-        this._temporal.histories.invalidateNames(["color"], "internal-resize");
-      }
+      const canRetainColor =
+        temporalPolicy === this._temporalPolicy &&
+        (temporalPolicy === "native"
+          ? this._nativeTemporal.canRetainHistory(this._render_resolution.x, this._render_resolution.y)
+          : temporalPolicy === "upscale" &&
+            this._fsr3.canRetainHistory(
+              this._render_resolution.x,
+              this._render_resolution.y,
+              this._output_resolution.x,
+              this._output_resolution.y,
+            ));
       const preExposure: PreExposureContract = this._radiometry.beginFrame(
         this._environmentRuntime === null ? 0 : scene.physical_environment.revision + 1,
       );
@@ -2010,11 +2031,14 @@ export class Renderer {
         formatRevision: 1,
         deviceRevision: this.deviceEpoch,
         preExposure,
-        temporalEnabled: true,
+        temporalEnabled: temporalPolicy !== "bypass",
         nssEnabled: false,
         taaJitter: this.temporalJitterActive ? undefined : [0, 0],
       });
       temporalActive = true;
+      if (!canRetainColor) {
+        this._temporal.histories.invalidateNames(["color"], "internal-resize");
+      }
       this._graphics.encodeFrameMaintenance(command);
       this._renderTargets.setFrameIndex(frameIndex);
       environmentGeneration = this._environmentRuntime?.record(
@@ -2138,21 +2162,40 @@ export class Renderer {
         },
         !identityHistory.readValid || cameraCut || cameraChanged,
       );
-      this._temporalSeed.attach(command);
-      this._fsr3.prepareFrame(command, {
-        renderWidth: width,
-        renderHeight: height,
-        outputWidth: this._output_resolution.x,
-        outputHeight: this._output_resolution.y,
-        jitter: frameJitter,
-        cameraNear: camera.near,
-        cameraFar: camera.far,
-        cameraFovY: camera.fov,
-        cameraInfiniteFar: camera.isInfiniteFar,
-        frameTimeMs: Math.max(0, timeDeltaSeconds * 1000),
-        reset: !this._temporal.histories.state("color").readValid,
-        historyReadIndex: this._temporal.histories.state("color").readIndex,
-      });
+      if (temporalPolicy !== "bypass") {
+        this._temporal.histories.alignReadIndex("color", this._temporalSeed.frame.historyReadIndex);
+      }
+      if (temporalPolicy === "native") {
+        this._nativeTemporal.prepareFrame(command, {
+          width,
+          height,
+          jitter: frameJitter,
+          cameraFar: camera.far,
+          cameraInfiniteFar: camera.isInfiniteFar,
+          frameTimeMs: Math.max(0, timeDeltaSeconds * 1000),
+          reset: !colorHistory.readValid || !this._temporalSeed.frame.previousValid,
+          historyReadIndex: this._temporalSeed.frame.historyReadIndex,
+        });
+        this._nativeTemporal.attach(command, this._temporalSeed);
+      } else {
+        this._temporalSeed.attach(command, temporalPolicy === "bypass" ? "surface-writer" : "classification");
+        if (temporalPolicy === "upscale") {
+          this._fsr3.prepareFrame(command, {
+            renderWidth: width,
+            renderHeight: height,
+            outputWidth: this._output_resolution.x,
+            outputHeight: this._output_resolution.y,
+            jitter: frameJitter,
+            cameraNear: camera.near,
+            cameraFar: camera.far,
+            cameraFovY: camera.fov,
+            cameraInfiniteFar: camera.isInfiniteFar,
+            frameTimeMs: Math.max(0, timeDeltaSeconds * 1000),
+            reset: !this._temporal.histories.state("color").readValid,
+            historyReadIndex: this._temporalSeed.frame.historyReadIndex,
+          });
+        }
+      }
       hzb.beginFrame(frameIndex, {
         renderScale: Math.round(this.resolutionScale * 1_000_000),
         feature:
@@ -2257,6 +2300,7 @@ export class Renderer {
         runtime,
         preExposure,
         fsr3: this._fsr3,
+        nativeTemporal: this._nativeTemporal,
         temporalSeed: this._temporalSeed,
         radiometry: this._gpuRadiometry,
         lightingEnvironmentRevision:
@@ -2374,14 +2418,31 @@ export class Renderer {
         ]);
         this._profiler.encodeGpuCounterReadback(command);
       }
-      this._temporal.markProduced("color");
+      this._temporalSeed.assertCompleteFrame();
+      if (temporalPolicy === "native") {
+        this._nativeTemporal.assertCompleteFrame();
+      }
+      if (temporalPolicy !== "bypass") {
+        this._temporal.markProduced("color");
+      }
       this._temporal.markProduced("identity");
       view.finish_frame(command, frameIndex);
       command.onFinished.addOne(() => {
         this._temporalResetPending = false;
       });
       this._profiler.measure("submit", () => this._frameCoordinator.submitFrame(frame));
-      this._fsr3.commit(command.gpuDone);
+      if (temporalPolicy === "upscale") {
+        this._fsr3.commit(command.gpuDone);
+      }
+      // Domain retirement happens only after the replacement command submits.
+      // Abort leaves the previous domain and its exact committed role intact.
+      if (temporalPolicy !== "upscale") {
+        this._fsr3.releaseHistory();
+      }
+      if (temporalPolicy !== "native") {
+        this._nativeTemporal.releaseHistory();
+      }
+      this._temporalPolicy = temporalPolicy;
       this._surface.commit(command.gpuDone);
       this._gpuRadiometry.commit(command.gpuDone);
       this._temporal.commit(frameIndex);
@@ -2412,7 +2473,8 @@ export class Renderer {
         }
       }
       activeHzb?.invalidate("explicit");
-      this._fsr3.invalidate();
+      this._fsr3.abort();
+      this._nativeTemporal.abort();
       this._temporalSeed.abort();
       this._surface.abort();
       if (localLightWork !== null) {
@@ -2439,13 +2501,8 @@ export class Renderer {
   }
 
   private renderEmptyScene(): boolean {
-    // The empty Frame Program does not write FSR3 or identity histories.
-    // Returning to a scene must not consume a slot from before this gap.
-    if (this._historyRuntime !== null) {
-      this._historyRuntime = null;
-      this._temporal.invalidate();
-      this._fsr3.invalidate();
-    }
+    // Empty frames do not write Temporal histories. Invalidate and retire
+    // only after their replacement submit succeeds; abort retains the scene.
     const frameIndex = this._frame_count;
     this._profiler.beginFrame(frameIndex);
     const frame = this._frameCoordinator.beginFrame(frameIndex, "Renderer/visibility-frame");
@@ -2485,6 +2542,14 @@ export class Renderer {
       });
       command.encodeCompiledGraph(compiled, bindings);
       this._frameCoordinator.submitFrame(frame);
+      if (this._historyRuntime !== null) {
+        this._historyRuntime = null;
+        this._temporal.invalidate();
+        this._temporalSeed.invalidate();
+      }
+      this._fsr3.releaseHistory();
+      this._nativeTemporal.releaseHistory();
+      this._temporalPolicy = null;
       this._frame_count++;
       this.onFrameFinished.send1(this._frame_count);
       return true;
@@ -2520,6 +2585,7 @@ export class Renderer {
     this._physicalSky?.destroy();
     this._aerialPerspective?.destroy();
     this._fsr3?.destroy();
+    this._nativeTemporal?.destroy();
     this._present?.destroy();
     this._temporalSeed?.destroy();
     this._surface?.destroy();

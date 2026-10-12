@@ -21,7 +21,6 @@ verifies:
     - OEngine/src/shaders/native_resolved_position.ts
     - OEngine/tests/oracle/final-pixel-shadow-quality-gpu.mjs
     - OEngine/tests/contract/final-pixel-shadow-cutover.test.mjs
-    - OEngine/src/shaders/native_temporal.ts
     - OEngine/src/shaders/native_temporal_amd.ts
     - OEngine/src/render/temporal/NativeTemporalV2.ts
     - OEngine/tests/contract/native-temporal-pull.test.mjs
@@ -49,7 +48,7 @@ verifies:
 
 # EEngine V5 Final Pixel Execution Authority
 
-唯一目标是[V5 Design](../next-design/eengine-v5-final-pixel-performance-2026-10.md)。本文件管理迁移单元、合同、验证、cutover与退休；候选实验进入`docs/performance/`，不追加到目标设计。source baseline `49fcaa300fafcbbe3db142df403baa3487f89956`；authority先提交为 `e2ebed8`，Phase1非生产完整闭包提交为 `9f305c4`。本次用户授权审核当前Phase、必要返工并执行下一完整Phase。Phase2/3已完成的结构、数值、接线与生命周期未发现新返工依据；未资格融合及Seed成本按§5.1/§6.1在Phase5/6联合收口。从HEAD `015548a7d5707975701a844c3b06df3ba8a28303`开始Phase4隔离V2候选；当前质量未通过、尚未production cutover，见§7.1。编译、prototype或组件数值通过不能称整Renderer性能/动态画质验收。
+唯一目标是[V5 Design](../next-design/eengine-v5-final-pixel-performance-2026-10.md)。本文件管理迁移单元、合同、验证、cutover与退休；候选实验进入`docs/performance/`，不追加到目标设计。source baseline `49fcaa300fafcbbe3db142df403baa3487f89956`；authority先提交为 `e2ebed8`，Phase1非生产完整闭包提交为 `9f305c4`。本次用户授权审核当前Phase、必要返工并执行下一完整Phase。Phase2/3已完成的结构、数值、接线与生命周期未发现新返工依据；未资格融合及Seed成本按§5.1/§6.1在Phase5/6联合收口。从HEAD `015548a7d5707975701a844c3b06df3ba8a28303`开始Phase4隔离V2候选；当前已原子切换production并关闭Phase4单元出口，见§7.1；本轮停在Phase5边界。编译、prototype或组件数值通过不能称整Renderer性能/动态画质验收。
 
 ## 1. Phase 顺序、依赖与状态
 
@@ -59,7 +58,7 @@ verifies:
 | 1 | Final Pixel publication / Native Seed非生产完整闭包，替代重复恢复链，合法binding与唯一写域 | 非生产闭包完成；§4.2绑定修正已验证，§4.3记录出口及未获生产资格项 |
 | 2 | Shadow Physical Execution cutover：full I Shadow Resolve / mask / 重复continuation退休 | 1；结构/数值/接线/生命周期闭包完成；候选净性能未资格，联合成本收口在5/6，见§5.1 |
 | 3 | Temporal Seed cutover：Native→全部Temporal consumers；Facts恢复pass / 旧Aux退休 | 1、2；结构/必要数值/接线/生命周期/输入子质量闭包完成；净性能未资格，联合成本在5/6收口，见§6.1 |
-| 4 | Native Temporal V2完整图：native scatter / Prepare / SPD / source histories退休 | 3；隔离候选返工中，质量未通过；生产旧图尚未退休，见§7.1 |
+| 4 | Native Temporal V2完整图：native scatter / Prepare / SPD / 旧owner退休 | 3；结构/数值/unit质量/接线/生命周期闭包完成，有限整链成本已测；正式整Renderer资格在5/6，见§7.1 |
 | 5 | Final Pixel全feature/domain集成、最后旧owner与多余常驻/生命周期税退休 | 2–4；未开始 |
 | 6 | 集中quality / production ABBA / P50/P95/P99 / 4GB simultaneous peak验收 | 5；未开始 |
 | 7 | 只有剩余gap需要：Receiver Demand V2，删除pixel projection扫描 | 6诊断；deferred，不自动实施 |
@@ -221,33 +220,35 @@ Engine typecheck/build、fresh build:test、受影响31项Node、九项串行实
 
 ## 7. Phase 4 — Native Temporal V2 full graph
 
-目标：I=O唯一 **Measure → Exposure → Analyze → Resolve →当前sharpen**，完整参考profile先在隔离图验证，再原子切全部1:1 consumer。复杂算法按用户要求优先参考移植，不继续研发自主Temporal估计器。
+目标：I=O唯一 **Measure → Exposure → Shading Pyramid → Analyze → Resolve →当前sharpen**，完整参考profile先在隔离图验证，再原子切全部1:1 consumer。复杂算法按用户要求优先参考移植，不继续研发自主Temporal估计器。
 
-DELETE：native旧Prepare Inputs、reconstructed-depth buffer/clear/up-to4atomicMax、9depth search/dilated motion-depth/full farthest、global Luma/Shading SPD/change产品链、旧T3 classification/resolve owner及native scatter→read边；当前autonomous gain/innovation/mass shader。true upscale保必要参考图，RCAS/radiometry共同项不算删除。
+DELETE：native旧Prepare Inputs dispatch、reconstructed-depth buffer/clear/up-to4atomicMax、dilated motion-depth/full farthest纹理、global Luma/Shading SPD/change产品链、旧T3 classification/resolve owner及native scatter→read边；当前autonomous gain/innovation/mass shader。nearest search按用户授权移到既有Measure，不再计删除。true upscale保必要参考图，RCAS/radiometry共同项不算删除。
 
-ADD：AMD SDK1.1.4 pin `c6efa6bf7f2027b3ec94f28578bb5965eabb9e55`完整重建/历史响应profile的Native物理适配：Measure raw luma与half box metric、log tile及96B weights；单组Exposure；Analyze previous-depth pull/local尺度差异/reactivity/source confidence；Resolve Lanczos/Gaussian/16point history/thin lock/四帧luma/rectification/tone blend。必要luma/confidence/exposure由新owner持有，不能为删除旧owner删算法信息。永久histories含identity78B/pixel，旧70，增加8B；store/clear下限69→63.5B/pixel，不称大降容量或已测收益。
+ADD：AMD SDK1.1.4 pin `c6efa6bf7f2027b3ec94f28578bb5965eabb9e55`完整重建/历史响应profile的Native物理适配：Measure raw luma与half box metric、log tile及96B weights；单组Exposure；Analyze previous-depth pull/local尺度差异/reactivity/source confidence；Resolve Lanczos/Gaussian/16point history/thin lock/四帧luma/rectification/tone blend。必要luma/confidence/exposure由新owner持有，不能为删除旧owner删算法信息。永久histories含identity78B/pixel，旧70，增加8B；store/clear下限69→68.8125B/pixel，不称大降容量或已测收益。
 
-完整producer/consumer：Native Seed事实只做一次，final Sky/Aerial HDR→Measure→Exposure→Analyze→Resolve→RCAS；Analyze无Geometry/Visibility绑定，raw depth全域写，自己的关联Seed用于previous-view z及输出域motion；不借邻居motion，不把depth支持率当颜色面积。current/previous color/depth/raw luma/四帧luma/confidence/frameInfo与Seed identity/camera在同一实际command成功submit后一起推进。Sharpen读写后color版本，不另造同色output；alpha最终1。
+完整producer/consumer：Native Seed事实只做一次，final Sky/Aerial HDR→Measure→Exposure→Shading Pyramid→Analyze→Resolve→RCAS；Analyze无Geometry/Visibility绑定，raw depth全域写自己的Seed(p).w。用户已授权颜色历史按AMD参考选前景receiver，Measure写R32Uint4B索引给Shading Pyramid/Analyze/Resolve；后者读所选Seed(q)的motion/expected previous-view z/资格，保RG16 motion量化，Seed生产者和raw identity/depth不改。不把depth支持率当颜色面积。current/previous color/depth/raw luma/四帧luma/confidence/frameInfo与Seed identity/camera在同一实际command成功submit后一起推进。Sharpen读写后color版本，不另造同色output；alpha最终1。新增receiver4B使store下限为68.8125对旧69B/pixel（含receiver4B、三个尺度1.3125B），不能继续引用63.5或必删search承诺。
 
-创建前协商texture-formats-tier1、实际sampled/storage数量、16KiB shared、256lane/extent；格式量化与硬件filtered采样按参考保持。只有active域分配对应owner histories，native↔upscale整组事务/cached graph late binding/fence退休；不能双production path或legacy bridge。三核心pass及小Exposure依据数据依赖，不硬压两pass。完整源码映射与平台适配见porting。
+创建前协商texture-formats-tier1、实际sampled/storage数量、16KiB shared、256lane/extent；格式量化与硬件filtered采样按参考保持。只有active域分配对应owner histories，native↔upscale整组事务/cached graph late binding/fence退休；不能双production path或legacy bridge。四核心阶段及小Exposure依据数据依赖，不硬压两pass。完整源码映射与平台适配见porting。
 
 Cost gate：compiled候选无reconstructed/clear/atomic/global SPD，统计完整local差异重算、shared/occupancy、weights/exposure边和history新增；不能只按store下限宣称DELETE>ADD。先完整数学/语义和不变small质量，再1080p×256动态；全部通过才atomic cutover。开发不跑Dungeon局部性能gate。
 
 出口：architecture review→fresh build:test→独立golden+HEAD reference完整1080p质量→actual ordinary/Product/motion/policy/cut/resize/abort/epoch/3inflight/release→原子退休旧native图→一次完整Phase成本ABBA。Phase4关闭不代表16.67ms最终验收，下一边界Phase5。
 
-### 7.1 Phase4当前实施边界
+### 7.1 Phase4关闭边界（2026-10-12）
 
-2026-10-12从HEAD `e26b922b83e244437f7676e13723fb1eece51d6c`返工：**Phase3保留，Phase4仍未闭合，不能推迟质量到Phase5。** 用户授权修订自主算法约束，选择完整成熟参考移植并大胆删除旧图，不是授权放宽质量/漏工作。production仍Seed classifier→FSR Prepare/scatter/clear/SPDs→T3→RCAS；新NativeTemporalV2仅oracle消费，无production selector。
+从HEAD `1ad294b0d62a76e5ea438973b31fa4c07bef1e19`完成本单元。**Phase4结构、必要数值/unit质量、真实接线与生命周期出口关闭；停在Phase5边界。** 用户已批准完整成熟参考profile及“允许按参考修订颜色历史合同”。Phase2/3保持；自主innovation/gain/mass和Donut仅保留历史失败，不是production fallback。
 
-现隔离图切为AMD完整profile与Native previous-depth/Seed物理适配；原innovation/gain/observation-mass shader从当前源码删除。NVIDIA Donut完整profile仅test-only数值/失败证据，不留renderer shader或第二production路径。参考数学/profile与本地geometry eligibility清楚分责，禁止单case补偿。每个candidate的原失败、source/build/raw和qualification状态只读[Phase4报告](../performance/2026-10-12-final-pixel-phase4-pull-candidates.md)。
+Production按实际两轴尺寸与AA选择唯一writer：1:1为NativeTemporalV2，true upscale为原FSR，AA-off为radiance bypass。Native完整图：final Sky/Aerial HDR + Seed → Measure → Exposure → Shading Pyramid → Analyze → Resolve → RCAS。旧NativeTemporalPasses/native_temporal、native Prepare/scatter/clear/global SPD/T3已删除；旧T3只在test-only reference。必要raw luma/四帧luma/confidence/exposure由新owner持有。
 
-已通过范围：完整Resolve differential（8场景2392像素19136lane，原.003容差）、own motion/预计previous-view z/遮挡、cached graph共同提交/abort/三inflight/fence。该数值证明不代替Measure/Analyze全部数学、dynamic质量、真实Native writer或Renderer按域退休。remaining small质量差异必须在同一完整profile内追到实际源码/坐标/格式边界；不以失败数下降采纳。
+Measure一次3×3已有Seed选择前景receiver并写4B索引，三个直接consumer共享；raw Seed/identity/depth仍是pixel自身事实。Shading Pyramid每source一次差异/排序，合作归约2/4/8产品共1.3125B/pixel、672B shared，删除Analyze16倍重算和10880B shared。Analyze不绑定Visibility/Geometry/Instances；previous-depth pull无scatter/clear。未压identity；persistent78对旧70B/pixel、store/clear下限68.8125对69，不能称history大减。算法与成本合同见Design§8/9，来源映射见porting。
 
-用户随后授权适度放宽过紧的质量比较，统一门见§2.2。保存的AMD v14结果按新门离线重评为19条失败（原严格55）；随后真实GPU `phase4-pull-amd-depth-v2.json`仍19条失败，主要foreground15、fast reverse2、Siemens2。Analyze已用参考`ComputeDisocclusions`的单侧四点分离置信度替换本地对称depth/slope判定；实际writer/独立软置信度/Resolve数值/共同事务通过，不能继续调容差掩盖整链退化。
+Native全histories与Seed identity/camera/jitter同command成功submit推进；prepare checkpoint使abort恢复上次revision/roles/validity。inactive backend仅replacement提交后按last-use fence退休。AA-off由真实Surface完整writer证明identity，不执行无consumer classifier；必要debug才分类，classifier/V2共享一个previous identity导入。空场景failed submit不提前释放历史，成功submit退休。ChangeSignal的observer异常不传播，故Renderer直接调用Seed/V2完整性检查；不依赖被吞的observer错误。
 
-最新根因与待确认边界：轮廓处旧AMD profile使用nearest前景motion，新图使用中心自己的motion，导致颜色历史关联不同；frame17实际trace见Phase4报告。已请求用户确认仅修订Temporal颜色历史receiver合同（在已有Seed邻域按参考选择，Seed自身与geometry身份不改、scatter/重建/独立Prepare不恢复）。该修订会改变当前禁止邻居motion消费及必删9depth search的承诺，**尚未获答复、尚未实施**；这是待确认的具体参考输入合同，不是architecture已证伪或Phase延期。确认前保留当前隔离图和生产旧T3，不切production、不推进Phase5。
+集中验证通过：production build/typecheck/declarations、fresh build:test、39项targeted Node；最终串行actual Native writer、完整Resolve八场景19136lane差分（最大relative=0）、receiver/raw depth/previous-view z/Ksep、cached共同提交/abort/3inflight/fence；17个小动态序列；ordinary与Product真实Renderer的最终图、native↔upscale↔bypass、按需debug、empty失败/成功、cut/resize/abort/retry/defer/controlled epoch。全部失败、raw/build identity与范围只在[Phase4报告](../performance/2026-10-12-final-pixel-phase4-pull-candidates.md)维护。
 
-未完成出口：small全部硬门→1080p×256完整动态矩阵→真实Native writer闭包→Renderer/TemporalFabric native↔upscale、AA-off/debug/bypass/cut/resize/abort/epoch共同policy与按域history退休→atomic cutover并删旧native图→完整Phase集中正确性/成本窗口。**不进入Phase5，不声称architecture falsified或production adoption。** 不恢复scatter；质量门按§2.2用户授权的统一工程容差，原严格失败留诊断，不能靠继续调门掩盖遮挡退化。
+完整1920×1080矩阵通过：六类各256帧、每类8ROI，共1536帧，failures=[]；HDR/display逐frame与aggregate、peak、phase、energy、trailing/settling保持既定门。原tight失败保留，根因为格式/采样边界；恢复参考hardware RG16 filtering、删真实UNORM store前重复round并保被删R8边界，没有继续放宽门。synthetic矩阵不覆盖实际材质normal/coat求值，writer/Renderer另查；settling null不证明绝对收敛。后续CPU事务/绑定变化及纯格式整理不改shader数学，由最终实际Renderer/writer验证覆盖。
+
+一次最终整Temporal合成1080p ABBA，16warmup、12样本/path/scenario：fractional Before/Native P50 **11.257248/9.655264ms**，stationary **10.007360/8.681472ms**，含pass间隙，观察到unit break-even。adapter仅报告NVIDIA/Turing硬件，不能推断精确型号/锁频。此结果不资格Dungeon whole-frame/P95/P99、GTX1650Ti16.67ms或Phase2/3联合回归；最终全feature/manual动态显示、simultaneous peak与整Renderer净性能按Phase5/6收口。不能忽略原Phase2/3负成本，也不能把局部收益称大模块完成。
 
 ## 8. Phase 5 — Integration / final retirement
 
@@ -293,4 +294,4 @@ docs运行`node tools/docs-verify.mjs`与`git diff --check`；raw/source/build/�
 
 ## 12. 本次交付边界
 
-Phase2/3不需要推迟或重做架构；其未资格成本必须在Phase5/6联合收口，不能以局部候选失败阻挡独立重复工作删除。本轮进入Phase4并返工隔离V2候选；质量失败保留在performance报告，实际边界只读§7.1。Phase4尚未闭合，不跳Phase5；继续完成本Phase的detector/filter、真实producer与全部consumer/事务、必需质量和成本检查，再原子退休native旧图。不得把尚未执行的cutover、完整矩阵或benchmark记为完成。
+本轮Phase4已关闭并停止，不跨入Phase5。生产Native已原子切新参考profile与Seed/pull完整图并退休旧native依赖；单元是否关闭、实际验证范围与剩余资格只读§7.1。完整质量/实际producer-consumer/生命周期/成本检查缺项或失败时如实未完成，不能把source研究、编译、宽ROI通过或局部break-even晋升为整Renderer质量/60FPS资格。

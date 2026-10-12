@@ -29,7 +29,7 @@ import type { VsmAtlasRasterPass } from "../vsm/VsmAtlasRasterPass.js";
 import type { VsmInvalidationPass } from "../vsm/VsmInvalidationPass.js";
 import type { VsmAllocationFrame } from "../vsm/VsmResidency.js";
 import type { EmptyFrameBindings, FrameProgramBindings, SceneFrameBindings } from "./FrameProgramBindings.js";
-import type { FrameProgram, FrameProduct } from "./FrameProgram.js";
+import { frameTemporalPolicy, type FrameProgram, type FrameProduct } from "./FrameProgram.js";
 import { counterByteOffset } from "../../debug/GpuFrameCounters.js";
 
 export type FrameProgramOwners = Readonly<{
@@ -122,7 +122,7 @@ function compileSceneGraph(
   owners: FrameProgramOwners,
 ): CompiledFrameGraph {
   if (plan.request.kind !== "scene") throw new Error("Scene graph requires a scene Frame Program");
-  for (const stage of ["visibility", "surface", "fsr3", "present"] as const) {
+  for (const stage of ["visibility", "surface", "present"] as const) {
     if (!plan.stages.includes(stage)) throw new Error(`Scene Frame Program is missing ${stage}`);
   }
   if (plan.request.physicalEnvironment && (owners.sky === null || owners.aerial === null)) {
@@ -684,7 +684,15 @@ function compileSceneGraph(
       routes: material.routes,
       lightingEntries: entries,
     });
-    owners.surface.encode((context.encoder as ShadeGPUCommandContext).gpu_encoder);
+    const command = context.encoder as ShadeGPUCommandContext;
+    owners.surface.encode(command.gpu_encoder);
+    if (frameTemporalPolicy(plan.request) === "bypass") {
+      frame.temporalSeed.acceptSurfaceWrite(command, {
+        seed: texture(seed),
+        response: texture(reactive),
+        identity: texture(identity),
+      });
+    }
   });
   for (const id of [
     cameraBuffer,
@@ -732,11 +740,30 @@ function compileSceneGraph(
   reactive = native.write(seedProducts.response);
   seed = native.write(seedProducts.seed);
   identity = native.write(seedProducts.identity);
-  const temporalMask = owners.temporalSeed.addClassification(
-    graph,
-    { seed, response: reactive, identity },
-    bindSeed,
-  );
+  const temporalPolicy = frameTemporalPolicy(plan.request);
+  const temporalDebug =
+    plan.request.debugView === RenderDebugViewValue.Velocity ||
+    plan.request.debugView === RenderDebugViewValue.HistoryValidity ||
+    plan.request.debugView === RenderDebugViewValue.Reactive;
+  // Color resolve and demanded debug classification share one exact history
+  // import and late-bound role instead of publishing duplicate products.
+  const previousIdentity =
+    temporalPolicy !== "bypass" || temporalDebug
+      ? graph.import_resource(
+          "Temporal/previous identity",
+          { kind: "imported", domain: "internal-full" },
+          bindSeed("previous-identity", (owner) => owner.frame.previousIdentity),
+        )
+      : undefined;
+  const temporalMask =
+    temporalPolicy === "upscale" || temporalDebug
+      ? owners.temporalSeed.addClassification(
+          graph,
+          { seed, response: reactive, identity, previousIdentity },
+          bindSeed,
+          temporalPolicy !== "upscale",
+        )
+      : null;
   const skyRadiance = !plan.stages.includes("physical-sky")
     ? undefined
     : graph.import_resource(
@@ -791,24 +818,42 @@ function compileSceneGraph(
           width: result.frame.domain.width,
           height: result.frame.domain.height,
         });
-  const reconstructedRadiance = initial.fsr3.addToGraph(
-    graph,
-    {
-      color: aerialRadiance,
-      depth: result.frame.depth,
-      motion: seed,
-      reactiveMask: temporalMask,
-      validityMask: temporalMask,
-      preExposure: gpuPreviousExposure,
-      priorExposure: gpuPriorExposure,
-      width: result.frame.domain.width,
-      height: result.frame.domain.height,
-      outputWidth: plan.request.outputWidth,
-      outputHeight: plan.request.outputHeight,
-      enabled: plan.request.fsr3Enabled,
-    },
-    (name, resolve) => bind(`fsr3/${name}`, (bindings) => resolve(bindings.fsr3)),
-  );
+  let reconstructedRadiance = aerialRadiance;
+  if (temporalPolicy === "native") {
+    reconstructedRadiance = initial.nativeTemporal.addToGraph(
+      graph,
+      {
+        color: aerialRadiance,
+        seed,
+        response: reactive,
+        identity,
+        previousIdentity: previousIdentity!,
+        preExposure: gpuPreviousExposure,
+        priorExposure: gpuPriorExposure,
+        width: result.frame.domain.width,
+        height: result.frame.domain.height,
+      },
+      (name, resolve) => bind(`native-temporal/${name}`, (bindings) => resolve(bindings.nativeTemporal)),
+    );
+  } else if (temporalPolicy === "upscale") {
+    reconstructedRadiance = initial.fsr3.addToGraph(
+      graph,
+      {
+        color: aerialRadiance,
+        depth: result.frame.depth,
+        motion: seed,
+        reactiveMask: temporalMask!,
+        validityMask: temporalMask!,
+        preExposure: gpuPreviousExposure,
+        priorExposure: gpuPriorExposure,
+        width: result.frame.domain.width,
+        height: result.frame.domain.height,
+        outputWidth: plan.request.outputWidth,
+        outputHeight: plan.request.outputHeight,
+      },
+      (name, resolve) => bind(`fsr3/${name}`, (bindings) => resolve(bindings.fsr3)),
+    );
+  }
   const radiometry = owners.radiometry.addToGraph(
     graph,
     {

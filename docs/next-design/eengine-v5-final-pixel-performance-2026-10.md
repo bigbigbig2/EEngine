@@ -17,7 +17,6 @@ verifies:
     - OEngine/src/render/lighting/FinalPixelLightingPublication.ts
     - OEngine/src/shaders/vsm_receiver_demand.ts
     - OEngine/src/render/temporal
-    - OEngine/src/shaders/native_temporal.ts
     - OEngine/src/shaders/native_temporal_amd.ts
     - OEngine/src/render/passes/fsr3
     - OEngine/src/render/TemporalFabric.ts
@@ -38,7 +37,7 @@ verifies:
 
 # EEngine V5 Final Pixel Performance Architecture
 
-本文件冻结下一阶段的**目标架构**：Logical VSM Separation + Physical Sun Fusion；Native Surface 单次昂贵重建并生成 Temporal Seed；1:1 Temporal 使用 previous-depth pull 与成熟 AMD 参考 profile 的 Measure → Exposure → Analyze → Resolve → sharpen 图。只选这一主架构。V5 是 Final Pixel 模块版本，继续遵守 [V4 Native Shading 母稿](eengine-v4-native-shading-2026-10.md)的全局不变量，不重建 Geometry Frontend。
+本文件冻结下一阶段的**目标架构**：Logical VSM Separation + Physical Sun Fusion；Native Surface 单次昂贵重建并生成 Temporal Seed；1:1 Temporal 使用 previous-depth pull 与成熟 AMD 参考 profile 的 Measure → Exposure → Shading Pyramid → Analyze → Resolve → sharpen 图。只选这一主架构。V5 是 Final Pixel 模块版本，继续遵守 [V4 Native Shading 母稿](eengine-v4-native-shading-2026-10.md)的全局不变量，不重建 Geometry Frontend。
 
 迁移与单元出口由[唯一执行 authority](../next-execution/eengine-v5-final-pixel-performance-execution-2026-10.md)管理。旧 V4 performance 两文保留历史证据，不再约束新目标。本文不追加候选实验日志；实验进入 `docs/performance/`，执行文只链接结果。最初架构冻结仅交付文档；后续用户授权Phase1非生产实施，当前范围与完成状态只读执行authority，不自动跨Phase。
 
@@ -117,7 +116,7 @@ flowchart TD
 
 FrameGraph 在 compile 时按实际 read/version/side-effect 裁剪节点，版本依赖还包含旧读者完成后才能覆盖。SPD 创建了 mip 不代表所有 reduction node 都执行；当前 Shading Change 的直接消费是前3层，不能把已裁掉高 mip 当删除收益。`SurfaceV4/native opaque` 一个 graph node 内包含多个 GPU passes；pass 个数以编码正文和 compiled graph 为准。
 
-当前1080p、AA开启的native分支进一步展开如下，不能把`NativeTemporalPasses`这个类名当最终物理图：
+冻结时的1080p、AA开启native基准分支展开如下（旧T3已在Phase4退休，当前执行见frame-runtime domain），不能把`NativeTemporalPasses`这个类名当最终物理图：
 
 ```text
 Native Facts：I full（motion / mask / identity）
@@ -298,29 +297,29 @@ DELETE：Facts full I dispatch、重复key/work/Scene instance/version读取、d
 
 从1:1 AA需求推导：motion、current/previous depth、disocclusion、reactive、history validity、局部颜色统计、reprojection/filtering/clipping、accumulation与当前sharpener。算法冻结为 **AMD FidelityFX SDK 1.1.4 完整重建/历史响应 profile 的 Native 执行适配**，pin `c6efa6bf7f2027b3ec94f28578bb5965eabb9e55`（MIT）。复杂算法先移植成熟参考，禁止另建illumination gain / innovation variance / observation-mass estimator，不混搭不同donor的局部规则。该选择经用户授权修订；原自主模型仅是历史失败候选，不再约束实施。
 
-最终物理图：**Native Seed → Measure → Exposure → Analyze → Resolve → optional RCAS**。Measure、Analyze、Resolve三个全分辨率核心阶段；Exposure是单workgroup全局标量归约。三个核心pass由数据依赖与工作集决定，不要求人为凑两pass。参考算法必要信息由Native owner管理；删除旧owner与物理中间链，不把保留必要算法信息误称为兼容层。
+最终物理图：**Native Seed → Measure → Exposure → Shading Pyramid → Analyze → Resolve → optional RCAS**。Measure、Shading Pyramid、Analyze、Resolve四个核心阶段（Pyramid写缩率域）；Exposure是单workgroup全局标量归约。核心pass由数据依赖与工作集决定，不要求人为凑两pass。参考算法必要信息由Native owner管理；删除旧owner与物理中间链，不把保留必要算法信息误称为兼容层。
 
-### 8.1 Measure / Exposure / Analyze
+### 8.1 Measure / Exposure / Shading Pyramid / Analyze
 
-**Measure**读取final HDR与Seed：写R16Float raw luma、ceil-half R16Float depth box metric、64×64域R32Float log tiles与96B滤波权重。raw luma是真实观测，不由积累color代替。参考PrepareInputs/GetCurrentFrameLuma、LumaPyramid及原Native权重producer；保数学与必要格式边界，不做9-depth search、motion dilation、scatter/clear。所选inverted-depth permutation的farthest从center起，仅在sample>nearest时取min，恒为center，直接使用Seed.w即可删搜索。sky box metric使用有限far或infinite65504，Seed仍depth0 sentinel。
+**Measure**读取final HDR与Seed：写R16Float raw luma、ceil-half R16Float depth box metric、64×64域R32Float log tiles、96B滤波权重和R32Uint4B/pixel的Temporal color receiver索引。用户2026-10-12授权按参考修订颜色历史合同：按AMD FindDepthExtents的sample顺序/严格nearest比较，从已有3×3 Seed.w选择前景q；sky0作far sentinel，linear positive depth取min。只选效果consumer的receiver，不改Native每pixel自己的Seed/motion/identity/depth producer。一次搜索的index由Shading Pyramid、Analyze和Resolve消费，避免局部差异tile中重复搜索；不发布dilated motion/depth纹理，不新增Prepare pass、Geometry恢复或scatter/clear。raw luma仍是真实观测。所选inverted-depth farthest恒为center，box metric直接用Seed.w，不借receiver替换它。sky box metric使用有限far或infinite65504。
 
 **Exposure**单组合作归约log tiles，读previous frameInfo并写current。保SDK log平均、adaptation、exposure公式及reset初值 `[-1,1,0,0]`（固定host ffx_fsr3upscaler.cpp）。mip5 half边界仅在不是final时量化。全局依赖必须独立dispatch，不用workgroupBarrier伪造全设备同步或改固定曝光；失败提交不推进状态。
 
-**Analyze**读current/previous raw luma、exposure、Seed/response、current/previous identity、previous raw linear depth和previous confidence；禁止Visibility/work/Instances/Geometry。保SDK五样本signed shading difference/sorting、三个2×2归约尺度、shading-change、motion divergence、reactivity与accumulation confidence。局部协作产生尺度统计，不存全屏SPD或shading-change层。写analysis **RGBA8Unorm4B**：x=geometry history eligibility，y=reactive，z=shading change，w=参考算法confidence；写current depth R32Float与current confidence R8Unorm。1/3增量是SDK confidence，不是radiance observation mass，不强制等于.74/16辐射核权重。
+**Shading Pyramid**读current/previous raw luma、exposure与receiver，写三个尺度。**Analyze**读尺度统计、exposure、Seed/response、current/previous identity、previous raw linear depth和previous confidence；禁止Visibility/work/Instances/Geometry。保SDK五样本signed shading difference/sorting、三个2×2归约尺度、shading-change、motion divergence、reactivity与accumulation confidence。Shading Pyramid一次计算每个源pixel的五样本signed difference/sorting，再协作归约2/4/8三个尺度，写RG16Float纹理供Analyze读取；不重复halo source差异计算，不保留全局SPD counter/tail。三个尺度合计1.3125B/pixel，1080p约2.60MiB，一个直接Analyze consumer。Analyze只读取尺度统计，必要独立producer消除原16倍重复排序/读取。写analysis **RGBA8Unorm4B**：x=geometry history eligibility，y=reactive，z=shading change，w=参考算法confidence；写current depth R32Float与current confidence R8Unorm。1/3增量是SDK confidence，不是radiance observation mass，不强制等于.74/16辐射核权重。
 
-geometry资格是明确的本地适配：previousUV=current raw UV−Seed.xy，point读旧depth footprint，和Seed.z在同一previous-view空间比较；完整identity/hard replacement、motion-valid/cut/reset/越界限制资格。raw depth全I写包括sky0；sky→sky用rotation接受历史，sky↔surface拒绝。禁止邻居motion替代自己、depth支持率当颜色面积、恢复scatter。适配必须过独立遮挡/dolly/own-motion语义与不变质量门。
+geometry资格是明确的本地适配：输出pixel p关联参考receiver q，颜色footprint的previous raw UV=p raw UV−Seed(q).xy，point读旧depth footprint并和Seed(q).z在同一previous-view空间比较。q的identity/hard replacement在q自己的投影处验证，motion-valid/cut/reset/颜色域越界限制资格；raw depth UV按参考clamp，不能用raw jitter边界错误拒绝有效颜色历史；raw depth history始终全I写Seed(p).w，包括sky0。geometry identity和Seed不以邻居覆盖，只有Temporal颜色历史消费按参考选择前景。保AMD单侧四点深度分离/Ksep软置信度，不使用属于scatter的小motion snapping；sky→sky用rotation，sky↔surface拒绝。禁止depth支持率当颜色面积、恢复scatter。独立motion/receiver/遮挡/dolly语义与统一质量门均必需。
 
-工作集candidate：Measure16×16 lane覆盖64×64，shared16KiB；Exposure256 lane，最多64×64 tiles，shared16KiB；Analyze8×8 output/local32×32差异tile及16/8/4归约，shared10880B。每output重算16次source difference，每次10luma samples和sorting，是显著ADD，可在完整算法/不变门下改tile与调度。4096extent、256lane、4storage outputs、实际纹理数与texture-formats-tier1创建前协商；shared不是免费收益。
+工作集：Measure16×16 lane覆盖64×64，shared16KiB；Exposure256 lane，最多64×64 tiles，shared16KiB；Shading Pyramid8×8 lane一次计算每source的10luma samples/sorting，再写2/4/8尺度，shared672B；Analyze无shared tile或重复source差异计算。4096extent、256lane、4storage outputs、Analyze 11 sampled / Resolve 10 sampled与texture-formats-tier1创建前协商；shared不是免费收益。
 
 ### 8.2 Resolve / I
 
 保同一参考profile的完整链：径向Lanczos当前重建、Gaussian YCoCg统计、16-point fractional Lanczos history与center-range clamp、thin-feature detection/lock lifetime、四帧luma instability、elliptic history rectification、lock/instability保护、tone-domain blend及原RCAS参数。整数特化只利用Lanczos整数支撑，不缩fractional footprint。格式边界、base/fraction关系、reset/exposure属于算法合同；平台适配不能删必要步骤。质量目标≥旧生产，不要求AMD bit-exact；移植函数必须有完整数值对照。
 
-输出p关联原始点q=clamp(p+round(jitter))，自己的Seed(q)提供motion。geometry qualification在抖动点域，color history输出坐标 `h=p−[Seed(q).xy×size−(jitter−previousJitter)]`；四帧luma按参考raw-domain reprojection。不存在前景颜色搬运、面积猜测、临时抬亮、gain或创新方差反馈。
+输出p关联Measure在p的3×3里选出的q；Seed(q)提供参考motion，消除jitter后保原RG16量化边界。color history输出坐标 `h=p−[Seed(q).xy×size−(jitter−previousJitter)]`，不额外加q−p偏移；四帧luma按参考raw-domain reprojection。Analyze各局部source difference同样读取该索引，不能只有Resolve改变receiver。没有前景颜色搬运、面积猜测、临时抬亮、gain或创新方差反馈；颜色仍由参考current reconstruction和单次history sample混合。
 
 Resolve读HDR/Seed/analysis、previous color/四帧luma history、current raw luma/exposure、half depth box metric与weights；写color **RGBA16Float8B**（alpha=source lock lifetime）和luma history **RGBA16Float8B**。RCAS输出alpha=1。color/depth/raw luma/四帧luma/confidence/frameInfo与Seed identity/camera仅在同一实际command成功submit共同推进；encode/abort不推进，三inflight/最后fence退休闭合。
 
-参考算法决定必要信息，Native owner决定最小产品与执行边界。尚未资格仅oracle消费，不提升production adoption/性能claim；函数映射与证据见[porting](../porting/next-renderer.md)。
+参考算法决定必要信息，Native owner决定最小产品与执行边界。生产采用和资格范围由执行authority记录，不能由本目标文提升性能claim；函数映射与证据见[porting](../porting/next-renderer.md)。
 
 ### 8.3 Scatter 与 pull 的取舍：明确选pull
 
@@ -358,14 +357,16 @@ Native V2退休旧source Prepare Inputs、全局Luma/Shading SPD产品链及旧T
 | reconstructed depth / prepared motion-depth |4+4+4|0|删23.73MiB与clear/scatter |
 | farthest full / half box metric |2+约.5|约.5|保真正Resolve consumer |
 | classified masks |4|4|Native analysis，无RGB/min/max |
-| global SPD / shading products |多尺度|0|local归约保算法信息 |
+| Temporal color receiver index               |         0 |                        4 | R32Uint transient，7.91MiB，Measure→Shading Pyramid/Analyze/Resolve；不压缩Geometry身份 |
+| global SPD / shading products |多尺度|0|global counter/tail链退休 |
+| local shading scales |0|1.3125B/pixel|2/4/8 RG16Float产品，1080p2.60MiB，Analyze直接消费 |
 | log tiles |旧SPD内|4×ceil(W/64)×ceil(H/64)B|1080p2040B transient |
 
 旧history含identity为70N+32B；目标Native runtime46N+32B、加identity32N为78N+32B。permanent frame/weights/RCAS constants/1×1 exposure164B，runtime allocatedBytes=46N+196B（不含Seed及retiring）。不声称persistent容量下降；inflight/candidate/旧域退休峰值另计。
 
-全域store/clear下限（不含共同HDR/RCAS、SPD额外写与atomic RMW）：旧Native4+Facts28+Prepare12+clear4+classification4/confidence1+Resolve8/lumaHistory8=**69B/pixel**；目标Native36+Measure luma2/half box约.5+Analyze4/depth4/confidence1+Resolve8/lumaHistory8=**63.5B/pixel**，另加logs/info/weights。删5.5N≈10.88MiB/frame，不是DRAM实测；奇数extent按ceil-half实际数计。
+全域store/clear下限（不含共同HDR/RCAS、SPD额外写与atomic RMW）：旧Native4+Facts28+Prepare12+clear4+classification4/confidence1+Resolve8/lumaHistory8=**69B/pixel**；目标Native36+Measure luma2/half box约.5/receiver4+Shading scales1.3125+Analyze4/depth4/confidence1+Resolve8/lumaHistory8=**68.8125B/pixel**，另加logs/info/weights。删.1875N≈.37MiB/frame，不是DRAM实测；奇数extent按ceil-half实际数计。
 
-读取/ALU：删9-depth search至少36B logical/pixel、最多4atomic scatter、clear与global SPD中间交通/边界；新增4point previous-depth pull、Seed读取、depth history、local signed difference重算/sorting、16KiB/10880B shared与Exposure边。9tap current、thin luma、四帧luma、16tap history、confidence/RCAS保留，不虚报删除。格式/硬件过滤边界须验证，不能为了字节数改变算法。
+读取/ALU：删最多4atomic scatter、clear与global SPD中间交通/边界；nearest search不再计删除，Measure恢复9次已有Seed读取/比较（logical最多144B/pixel，cache另测）。receiver索引写4B、Shading Pyramid/Analyze/Resolve至少3次读取（运动divergence另一次），12–16B/pixel；相较每consumer重新9tap选receiver，避免重复logical读取，但不是外存实测收益。新增4point previous-depth pull、depth history、每source一次signed difference/sorting、16KiB/672B shared与Exposure边。9tap current、thin luma、四帧luma、16tap history、confidence/RCAS保留，不虚报删除。格式/硬件过滤边界须验证，不能为了字节数改变算法。
 
 break-even：`T(Facts重复恢复 + Prepare/search/scatter/clear + global SPD产品/边界) > T(Seed新增 + previous-depth读写 + Measure/Exposure适配 + local差异重算/shared税)`。0/50/100%旧工作兑现均减同一ADD，cache外存比例单列。ideal有pass/atomic/随机读删除；expected依赖完整工作集；worst local重算/occupancy超删除收益。DELETE>ADD是入场条件，不是已测收益；完整闭包后才整图benchmark。
 
@@ -382,7 +383,7 @@ break-even：`T(Facts重复恢复 + Prepare/search/scatter/clear + global SPD产
 | Native geometry/material/local+IBL/**fused Sun+Seed**（PCF只计这里） | 7.45 |
 | Sky / Aerial | .80 |
 | Temporal Measure / Exposure | .30 |
-| Temporal Analyze | .40 |
+| Temporal Shading Pyramid / Analyze | .40 |
 | Temporal Resolve | .85 |
 | Sharpen | .25 |
 | Radiometry / Present、当前profile后处理 | .65 |

@@ -89,7 +89,7 @@ export async function runFinalPixelTemporalPullGpuOracle(device) {
   }
   const traceCode = NATIVE_TEMPORAL_V2_RESOLVE_WGSL.replace(
     "@group(0) @binding(6) var current_history: texture_storage_2d<rgba16float, write>;",
-    "@group(0) @binding(16) var<storage, read_write> trace: array<vec4f>;",
+    "@group(0) @binding(19) var<storage, read_write> trace: array<vec4f>;",
   )
     .replace("@group(0) @binding(13) var output_luma_history: texture_storage_2d<rgba16float, write>;", "")
     .replace("textureStore(output_luma_history, pixel, data.history);", "")
@@ -117,7 +117,9 @@ export async function runFinalPixelTemporalPullGpuOracle(device) {
         visibility: GPUShaderStage.COMPUTE,
         buffer: { type: "read-only-storage" },
       })),
-      { binding: 16, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 16, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } },
+      { binding: 18, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "unfilterable-float" } },
+      { binding: 19, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
       { binding: 17, visibility: GPUShaderStage.COMPUTE, sampler: { type: "filtering" } },
       { binding: 15, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
     ],
@@ -527,6 +529,8 @@ export async function runFinalPixelTemporalPullGpuOracle(device) {
                   [10, find("current luma")],
                   [11, candidateResources.get("previous luma history")],
                   [14, find("farthest box metric")],
+                  [16, find("color receivers")],
+                  [18, nativeResponse],
                 ];
                 const pass = context.encoder.beginComputePass();
                 pass.setPipeline(tracer);
@@ -539,7 +543,7 @@ export async function runFinalPixelTemporalPullGpuOracle(device) {
                       ...textures.map(([binding, texture]) => ({ binding, resource: texture.createView() })),
                       { binding: 5, resource: { buffer: exposure } },
                       { binding: 8, resource: { buffer: priorExposure } },
-                      { binding: 16, resource: { buffer: traceValues } },
+                      { binding: 19, resource: { buffer: traceValues } },
                       { binding: 17, resource: traceSampler },
                       { binding: 15, resource: { buffer: candidateResources.get("filter weights") } },
                     ],
@@ -560,6 +564,7 @@ export async function runFinalPixelTemporalPullGpuOracle(device) {
                     "Native Temporal V2/current luma",
                     "Native Temporal V2/current frame info",
                     "Native Temporal V2/farthest box metric",
+                    "Native Temporal V2/color receivers",
                   ].includes(graph.getResourceNode(i).name) &&
                   (graph.getResourceNode(i).version > 0 ||
                     graph.getDescriptor(i)?.kind === "transient_texture")

@@ -18,6 +18,17 @@ export async function verifyAmdResolvePort(device, buffer, texture) {
   const previousP = buffer(16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
   const color = texture(width, height, "rgba16float");
   const seed = texture(width, height, "rgba32float");
+  const receivers = texture(width, height, "r32uint");
+  const response = texture(width, height, "rgba8unorm");
+  device.queue.writeTexture(
+    { texture: receivers },
+    Uint32Array.from({ length: count }, (_, i) => i),
+    { bytesPerRow: width * 4 },
+    [width, height],
+  );
+  const flags = new Uint8Array(count * 4);
+  for (let i = 0; i < count; i++) flags[i * 4 + 1] = 255;
+  device.queue.writeTexture({ texture: response }, flags, { bytesPerRow: width * 4 }, [width, height]);
   const motion = texture(width, height, "rg32float");
   const previous = texture(width, height, "rgba16float");
   const rawLuma = texture(width, height, "rgba16float");
@@ -38,7 +49,7 @@ export async function verifyAmdResolvePort(device, buffer, texture) {
       .replace("  let transformed =", "  let original_history_color = history_color;\n  let transformed =")
       .replace(
         "@compute @workgroup_size(8, 8, 1)",
-        "@group(0) @binding(18) var<storage, read_write> trace: array<vec4f>;\n@compute @workgroup_size(8, 8, 1)",
+        "@group(0) @binding(19) var<storage, read_write> trace: array<vec4f>;\n@compute @workgroup_size(8, 8, 1)",
       )
       .replace(
         "textureStore(current_history, pixel, vec4f(result, lock));",
@@ -81,7 +92,7 @@ export async function verifyAmdResolvePort(device, buffer, texture) {
         tex(13, lumaOutputs[0]),
         tex(14, farthest),
         buf(15, weights),
-        buf(18, trace[0]),
+        buf(19, trace[0]),
       ],
     }),
     device.createBindGroup({
@@ -101,7 +112,9 @@ export async function verifyAmdResolvePort(device, buffer, texture) {
         tex(13, lumaOutputs[1]),
         tex(14, farthest),
         { binding: 17, resource: sampler },
-        buf(18, trace[1]),
+        tex(16, receivers),
+        tex(18, response),
+        buf(19, trace[1]),
         buf(15, weights),
       ],
     }),
@@ -236,7 +249,15 @@ export async function verifyAmdResolvePort(device, buffer, texture) {
           ],
           i * 4,
         );
-        motions.set([test.motion[0] / width, test.motion[1] / height], i * 2);
+        // Independent CPU oracle for the SDK's RG16 motion product boundary.
+        motions.set(
+          [test.motion[0] / width, test.motion[1] / height].map((v) => {
+            let bits = floatToHalf(v);
+            if (Math.abs(halfToFloat(bits)) > Math.abs(v)) bits--;
+            return halfToFloat(bits);
+          }),
+          i * 2,
+        );
         masks.set(lanes, i * 4);
         qualifications.set([255 - lanes[1], lanes[0], lanes[2], lanes[3]], i * 4);
       }
@@ -316,7 +337,10 @@ async function verifyFormatBoundary(device, buffer, texture) {
   const stored = texture(inputs.length, 1, "r16float", GPUTextureUsage.STORAGE_BINDING);
   const output = buffer(inputs.length * 16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
   const target = buffer(inputs.length * 16, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
-  const helper = CANDIDATE.slice(CANDIDATE.indexOf("fn half_value("), CANDIDATE.indexOf("fn bilinear("));
+  const helper = CANDIDATE.slice(
+    CANDIDATE.indexOf("fn half_value("),
+    CANDIDATE.indexOf("fn history_motion("),
+  );
   const producer = await device.createComputePipelineAsync({
     layout: "auto",
     compute: {

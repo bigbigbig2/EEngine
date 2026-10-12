@@ -3,7 +3,11 @@ import {
   type TemporalHistoryDescriptor,
   type TemporalHistoryRevision,
 } from "./TemporalHistoryRegistry.js";
-import { TemporalJitterController, resolveFrameJitter, fsr3JitterPhaseCount } from "./TemporalJitterController.js";
+import {
+  TemporalJitterController,
+  resolveFrameJitter,
+  fsr3JitterPhaseCount,
+} from "./TemporalJitterController.js";
 import type { PreExposureContract } from "./RadiometryContract.js";
 
 export interface TemporalFabricFrame {
@@ -36,7 +40,7 @@ export class TemporalFabric {
     descriptors: readonly TemporalHistoryDescriptor[] = [
       {
         name: "color",
-        semantic: "fsr3-upscaled-radiance",
+        semantic: "reconstructed-radiance",
         resolutionDomain: "output-full",
         format: "rgba16float",
         bufferCount: 2,
@@ -82,7 +86,7 @@ export class TemporalFabric {
     };
     // Only physically persistent writers are registered. Surface depth/motion
     // are same-frame transient facts, not phantom ping-pong histories.
-    const activeNames = frame.temporalEnabled ? ["color", "identity"] : [];
+    const activeNames = frame.temporalEnabled ? ["color", "identity"] : ["identity"];
     this.histories.beginFrame(frame.frameIndex, revision, activeNames, frame.preExposure);
     this.activeFrame = frame.frameIndex;
     return resolveFrameJitter(

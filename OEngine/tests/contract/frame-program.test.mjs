@@ -142,12 +142,7 @@ test("directional shadows demand independent Geometry only for an enabled lit co
   for (const shadowProfile of ["off", "shadow-disabled"]) {
     const plan = buildFrameProgram({ ...scene, shadowProfile });
     assert.ok(!plan.stages.includes("vsm"));
-    for (const product of [
-      "shadow-geometry-work",
-      "shadow-sampling",
-      "shadow-demand",
-      "shadow-allocation",
-    ]) {
+    for (const product of ["shadow-geometry-work", "shadow-sampling", "shadow-demand", "shadow-allocation"]) {
       assert.ok(!plan.products.includes(product), product);
     }
   }
@@ -166,7 +161,11 @@ test("Shadow sampling is a committed work-domain product with a real Physical Su
   assert.equal(mask.format, "structured-buffer");
   assert.equal(mask.extent, null);
   assert.deepEqual(mask.consumers, ["surface"]);
-  const noSun = buildFrameProgram({ ...scene, physicalEnvironment: false, shadowProfile: "vsm-directional-high" });
+  const noSun = buildFrameProgram({
+    ...scene,
+    physicalEnvironment: false,
+    shadowProfile: "vsm-directional-high",
+  });
   assert.ok(!noSun.products.includes("shadow-sampling"));
   assert.throws(
     () => buildFrameProgram({ ...scene, hasLit: false, shadowProfile: "vsm-directional-high" }),
@@ -295,17 +294,32 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
     frame: { seed: resource, response: resource, identity: resource, previousIdentity: resource },
     assertPreparedFrame() {},
     importProducts(graph, bind) {
-      const imported = (name) => graph.import_resource(`test/${name}`, { kind: "imported", domain: "internal-full" }, bind(name, (owner) => owner.frame[name]));
+      const imported = (name) =>
+        graph.import_resource(
+          `test/${name}`,
+          { kind: "imported", domain: "internal-full" },
+          bind(name, (owner) => owner.frame[name]),
+        );
       return { seed: imported("seed"), response: imported("response"), identity: imported("identity") };
     },
     addClassification(graph, products, bind) {
-      const previous = graph.import_resource("test/previous identity", { kind: "imported", domain: "internal-full" }, bind("previous-identity", (owner) => owner.frame.previousIdentity));
+      const previous =
+        products.previousIdentity ??
+        graph.import_resource(
+          "test/previous identity",
+          { kind: "imported", domain: "internal-full" },
+          bind("previous-identity", (owner) => owner.frame.previousIdentity),
+        );
       const pass = graph.add("test/Seed classification", {}, () => {});
       for (const id of [...Object.values(products), previous]) pass.read(id);
       pass.make_side_effect();
       return pass.create("test/temporal-mask", {
-        kind: "transient_texture", width: 640, height: 360,
-        format: "rgba8unorm", domain: "internal-full", usage: 7,
+        kind: "transient_texture",
+        width: 640,
+        height: 360,
+        format: "rgba8unorm",
+        domain: "internal-full",
+        usage: 7,
       });
     },
   };
@@ -526,7 +540,9 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
   );
   const pass = (name) => dump.passes.find((entry) => entry.name === name);
   assert.ok(pass("SurfaceV4/native opaque").reads.includes(producedFrameInstances));
-  assert.ok(!dump.resources.some((entry) => /material-versions|previous-camera|geometry-metadata/.test(entry.name)));
+  assert.ok(
+    !dump.resources.some((entry) => /material-versions|previous-camera|geometry-metadata/.test(entry.name)),
+  );
   assert.ok(!pass("test/Seed classification").reads.includes(producedFrameInstances));
   for (const [producer, consumer] of [
     ["test/Visibility", "SurfaceV4/native opaque"],
@@ -686,4 +702,18 @@ test("HZB history publishes only a built submitted frame and invalidates on abor
   assert.equal(history.lastInvalidationReason, "camera-cut");
   const recovered = new HzbHistoryState();
   assert.equal(recovered.valid, false);
+});
+
+test("Temporal policy publishes one demanded Native/upscale/bypass graph", () => {
+  const nativeRequest = { ...scene, internalWidth: 1280, internalHeight: 720 };
+  const native = buildFrameProgram(nativeRequest);
+  assert.ok(native.stages.includes("native-temporal"));
+  assert.ok(!native.stages.includes("fsr3"));
+  assert.ok(!native.products.includes("temporal-mask"));
+  const bypass = buildFrameProgram({ ...nativeRequest, fsr3Enabled: false });
+  assert.ok(bypass.stages.includes("temporal-bypass"));
+  assert.ok(!bypass.products.includes("temporal-mask"));
+  assert.ok(!bypass.stages.includes("temporal-classification"));
+  assert.ok(bypass.products.includes("temporal-identity"));
+  assert.throws(() => buildFrameProgram({ ...scene, fsr3Enabled: false }), /equal internal and output/);
 });

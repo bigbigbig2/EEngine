@@ -42,6 +42,8 @@ export type FrameProgramStage =
   | "aerial"
   | "temporal-classification"
   | "fsr3"
+  | "native-temporal"
+  | "temporal-bypass"
   | "radiometry"
   | "bloom"
   | "debug-view"
@@ -359,6 +361,14 @@ const INPUT_CONTRACTS: Readonly<
       domain: "internal-full",
       value: "opaque reactive, motion validity, identity mismatch, local change bits",
     },
+    "temporal-response": {
+      domain: "internal-full",
+      value: "native reactive, motion validity, coverage, invalid byte",
+    },
+    "temporal-identity": {
+      domain: "internal-full",
+      value: "instance slot+1, geometry change signature, material change signature, material slot+1",
+    },
   },
   "display-color": {
     "bloom-hdr": { domain: "output-full", value: "scene HDR plus Filament-profile bloom" },
@@ -381,7 +391,10 @@ const INPUT_CONTRACTS: Readonly<
     depth: { domain: "internal-full", value: "reverse depth" },
   },
   "temporal-mask": {
-    "temporal-response": { domain: "internal-full", value: "native reactive, motion validity, coverage, invalid byte" },
+    "temporal-response": {
+      domain: "internal-full",
+      value: "native reactive, motion validity, coverage, invalid byte",
+    },
     "temporal-seed": {
       domain: "internal-full",
       value: "jittered current-minus-previous UV, expected previous and current positive view depth",
@@ -562,13 +575,16 @@ function dependencies(product: FrameProduct, request: FrameProgramRequest): read
       return ["visibility", "depth", "meshlet-work"];
     case "adapted-exposure":
       return ["reconstructed-color"];
-    case "reconstructed-color":
-      return [
-        request.physicalEnvironment ? "aerial-radiance" : "surface-radiance",
-        "depth",
-        "temporal-seed",
-        "temporal-mask",
-      ];
+    case "reconstructed-color": {
+      const radiance: FrameProduct = request.physicalEnvironment ? "aerial-radiance" : "surface-radiance";
+      const policy = frameTemporalPolicy(request);
+      if (policy === "bypass") {
+        return [radiance];
+      }
+      return policy === "native"
+        ? [radiance, "temporal-seed", "temporal-response", "temporal-identity"]
+        : [radiance, "depth", "temporal-seed", "temporal-mask"];
+    }
     case "temporal-seed":
       return ["visibility", "meshlet-work", "depth"];
     case "temporal-mask":
@@ -613,6 +629,36 @@ function dependencies(product: FrameProduct, request: FrameProgramRequest): read
     case "shadow-geometry-work":
       return [];
   }
+}
+
+/** Physical reconstruction policy; a domain has exactly one color writer. */
+export function frameTemporalPolicy(request: {
+  internalWidth: number;
+  internalHeight: number;
+  outputWidth: number;
+  outputHeight: number;
+  fsr3Enabled?: boolean;
+}): "native" | "upscale" | "bypass" {
+  const native =
+    request.internalWidth === request.outputWidth && request.internalHeight === request.outputHeight;
+  if (request.fsr3Enabled === false) {
+    if (!native) {
+      throw new Error("Temporal bypass requires equal internal and output extents");
+    }
+    return "bypass";
+  }
+  return native ? "native" : "upscale";
+}
+
+function productSpec(product: FrameProduct, request: Extract<FrameProgramRequest, { kind: "scene" }>) {
+  const spec = PRODUCT_SPEC[product];
+  if (product !== "reconstructed-color") {
+    return spec;
+  }
+  const policy = frameTemporalPolicy(request);
+  const producer: FrameProgramStage =
+    policy === "native" ? "native-temporal" : policy === "upscale" ? "fsr3" : "temporal-bypass";
+  return { ...spec, producer, version: policy === "bypass" ? ("frame" as const) : ("history-role" as const) };
 }
 
 function createProgram(request: FrameProgramRequest, key: string): FrameProgram {
@@ -662,6 +708,17 @@ function createProgram(request: FrameProgramRequest, key: string): FrameProgram 
     ordered.push(product);
   };
   requireProduct("swapchain");
+  // Native Surface publishes exact identity even when color AA is bypassed.
+  requireProduct("temporal-seed");
+  requireProduct("temporal-response");
+  requireProduct("temporal-identity");
+  const temporalDebug =
+    request.debugView === RenderDebugViewValue.Velocity ||
+    request.debugView === RenderDebugViewValue.HistoryValidity ||
+    request.debugView === RenderDebugViewValue.Reactive;
+  if (frameTemporalPolicy(request) === "upscale" || temporalDebug) {
+    requireProduct("temporal-mask");
+  }
   if (buildHzb) requireProduct("hzb");
   if (
     request.shadowProfile !== undefined &&
@@ -684,8 +741,14 @@ function createProgram(request: FrameProgramRequest, key: string): FrameProgram 
     ...(request.aoProfile === "scalar-high" ? ["xe-gtao" as const] : []),
     "surface",
     ...(request.physicalEnvironment ? ["physical-sky" as const, "aerial" as const] : []),
-    "temporal-classification",
-    "fsr3",
+    ...(frameTemporalPolicy(request) === "upscale" || temporalDebug
+      ? ["temporal-classification" as const]
+      : []),
+    frameTemporalPolicy(request) === "native"
+      ? "native-temporal"
+      : frameTemporalPolicy(request) === "upscale"
+        ? "fsr3"
+        : "temporal-bypass",
     "radiometry",
     "bloom",
     ...(request.debugView !== undefined && request.debugView !== RenderDebugViewValue.None
@@ -694,12 +757,12 @@ function createProgram(request: FrameProgramRequest, key: string): FrameProgram 
     "present",
   ];
   const facts = ordered.map((product): FrameProductFact => {
-    const spec = PRODUCT_SPEC[product];
+    const spec = productSpec(product, request);
     if (!stages.includes(spec.producer))
       throw new Error(`Frame Program lacks producer ${spec.producer} for ${product}`);
     const consumers: (FrameProgramStage | "canvas")[] = ordered
       .filter((candidate) => dependencies(candidate, request).includes(product))
-      .map((candidate) => PRODUCT_SPEC[candidate].producer);
+      .map((candidate) => productSpec(candidate, request).producer);
     if (product === "swapchain") consumers.push("canvas");
     if (product === "hzb") {
       if (request.previousHzb || request.currentHzbLateRecheck) consumers.push("visibility");
@@ -733,8 +796,11 @@ function createProgram(request: FrameProgramRequest, key: string): FrameProgram 
       ...(directLighting ? ["local-light-work"] : []),
       "depth",
       "swapchain",
-      "fsr3-history",
-      "fsr3-constants",
+      ...(frameTemporalPolicy(request) === "native"
+        ? ["native-temporal-history", "native-temporal-constants"]
+        : frameTemporalPolicy(request) === "upscale"
+          ? ["fsr3-history", "fsr3-constants"]
+          : []),
       "temporal-seed-history",
       ...(buildHzb ? ["hzb"] : []),
       ...(request.shadowProfile !== undefined &&

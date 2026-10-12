@@ -1216,7 +1216,12 @@ ${temporalV2 ? "  output[at + 7u] = bitcast<vec4u>(textureLoad(resolved_color, p
             maxInteriorHdrError,
             boundaryDifferences,
             maxMotionError,
-            ...(usesV2 ? { temporalGraph: "Native writer -> Analyze -> Resolve -> RCAS" } : {}),
+            ...(usesV2
+              ? {
+                  temporalGraph:
+                    "Native writer -> Measure -> Exposure -> Shading Pyramid -> Analyze -> Resolve -> RCAS",
+                }
+              : {}),
           };
           frameReports.push(row);
           return row;

@@ -91,6 +91,25 @@ export const oracles = Object.freeze([
     timeoutMs: 120000,
   }),
   Object.freeze({
+    name: "final-pixel-temporal-probe",
+    file: "OEngine/tests/oracle/final-pixel-temporal-matrix-gpu.mjs",
+    url: "/OEngine/tests/oracle/final-pixel-temporal-matrix-gpu.mjs",
+    entry: "runFinalPixelTemporalProbeGpuOracle",
+    requiredFeatures: ["texture-formats-tier1"],
+    timeoutMs: 300000,
+    description: "Diagnostic 80-frame thin-feature intermediate probes; no quality qualification.",
+  }),
+  Object.freeze({
+    name: "final-pixel-temporal-matrix",
+    file: "OEngine/tests/oracle/final-pixel-temporal-matrix-gpu.mjs",
+    url: "/OEngine/tests/oracle/final-pixel-temporal-matrix-gpu.mjs",
+    entry: "runFinalPixelTemporalMatrixGpuOracle",
+    requiredFeatures: ["texture-formats-tier1"],
+    timeoutMs: 1800000,
+    description:
+      "Six frozen 1080p 256-frame dynamic families, bounded GPU metrics and 8phase history, HDR/display/peak/energy/trail/settling.",
+  }),
+  Object.freeze({
     name: "final-pixel-temporal-pull",
     file: "OEngine/tests/oracle/final-pixel-temporal-pull-gpu.mjs",
     url: "/OEngine/tests/oracle/final-pixel-temporal-pull-gpu.mjs",

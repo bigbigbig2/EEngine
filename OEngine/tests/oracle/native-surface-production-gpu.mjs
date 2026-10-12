@@ -22,6 +22,7 @@ import { ShadeTexture, ShadeImage } from "../../.test-dist/texture/ShadeTexture.
 import { ShadeTransparencyMode, ShadeDrawSide } from "../../.test-dist/material/enums.js";
 import { fixtureTexture } from "./texture-fixture.mjs";
 import { PerspectiveCamera } from "../../.test-dist/camera/PerspectiveCamera.js";
+import { RenderDebugView } from "../../.test-dist/debug/RenderDebugView.js";
 import { decodeFloat16 } from "../../.test-dist/core/Float16.js";
 import { GPU_VISIBILITY_KEY_MESHLET_WORK_SLOT_MASK } from "../../.test-dist/gpu/GpuVisibilityKeyAbi.js";
 import { GPU_INSTANCE_FLAGS, GPU_INSTANCE_RECORD_OFFSETS } from "../../.test-dist/gpu/GpuInstanceAbi.js";
@@ -66,7 +67,11 @@ export async function authoredTexture(semantic, texel, extent = 16) {
  * The renderer negotiates its own device because its complete capability profile
  * is larger than the component-oracle host's profile. Its errors are checked here.
  */
-export async function runNativeSurfaceProductionGpuOracle(_device, productGeometry = false, authoredEnvironment = false) {
+export async function runNativeSurfaceProductionGpuOracle(
+  _device,
+  productGeometry = false,
+  authoredEnvironment = false,
+) {
   let renderer = new Renderer({ autoExposure: false, fixedExposure: 1 });
   const canvas = new OffscreenCanvas(384, 224);
   const context = canvas.getContext("webgpu");
@@ -649,9 +654,9 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
         runtime.instanceHandle,
         {
           frameId: renderer.frame_count,
-          transforms: { indices: new Uint32Array([0]), transforms: moved }
+          transforms: { indices: new Uint32Array([0]), transforms: moved },
         },
-        patch
+        patch,
       );
       patch.finish();
       await patch.gpuDone;
@@ -659,11 +664,11 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
       await inspect();
       check(
         renderer._vsmGeneration.currentGeneration === generation,
-        "direct patch must retain projection epoch"
+        "direct patch must retain projection epoch",
       );
       const copy = device.createBuffer({
         size: snapshot.size,
-        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
       });
       buffers.push(copy);
       const read = device.createCommandEncoder();
@@ -673,17 +678,20 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
       const translationWord = (GPU_INSTANCE_RECORD_OFFSETS.current_affine + 12) / 4;
       check(
         new Float32Array(copy.getMappedRange())[translationWord] === moved[12],
-        "direct patch did not update VSM caster snapshot"
+        "direct patch did not update VSM caster snapshot",
       );
       copy.unmap();
-      const restore = ShadeGPUCommandContext.create(renderer.graphics, "GraphicsContext/one-shot-maintenance");
+      const restore = ShadeGPUCommandContext.create(
+        renderer.graphics,
+        "GraphicsContext/one-shot-maintenance",
+      );
       renderer.patchInstances(
         runtime.instanceHandle,
         {
           frameId: renderer.frame_count,
-          transforms: { indices: new Uint32Array([0]), transforms: directOriginal }
+          transforms: { indices: new Uint32Array([0]), transforms: directOriginal },
         },
-        restore
+        restore,
       );
       restore.finish();
       await restore.gpuDone;
@@ -748,37 +756,139 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
     const cameraCut = await inspect();
     await tick();
     check(renderer._temporalSeed.inputHistoryValid, "Settled retry did not restore native Temporal identity");
-    check(renderer._fsr3.policy === "native-resolution", "Actual 1:1 Renderer missed Native Temporal");
-    const nativePolicyGeneration = renderer._fsr3.generation;
+    check(renderer._temporalPolicy === "native", "Actual 1:1 Renderer missed Native Temporal");
+    const nativePolicyGeneration = renderer._nativeTemporal.generation;
     renderer.setResolutionScale(0.75);
     await tick();
     check(renderer._fsr3.policy === "upscale", "Actual upscale frame used the native-only filter");
-    check(renderer._fsr3.generation > nativePolicyGeneration, "Policy transition retained incompatible history");
+    check(renderer._nativeTemporal.active === null, "Upscale retained active Native histories");
     const upscalePolicyGeneration = renderer._fsr3.generation;
     const upscaled = await inspect();
     renderer.setResolutionScale(1);
     await tick();
-    check(renderer._fsr3.policy === "native-resolution", "Native policy was not restored after upscale");
-    check(renderer._fsr3.generation > upscalePolicyGeneration, "Native policy return reused upscale history");
+    check(renderer._temporalPolicy === "native", "Native policy was not restored after upscale");
+    check(
+      renderer._nativeTemporal.generation > nativePolicyGeneration && renderer._fsr3.policy === null,
+      "Native return reused inactive upscale histories",
+    );
+    const nativeGraph = renderer._lastFrameGraph.compiled.dump();
+    check(
+      nativeGraph.passes.some((p) => p.name === "Native Temporal V2/Analyze"),
+      "Native graph lacks Analyze",
+    );
+    check(
+      nativeGraph.passes.some((p) => p.name === "Native Temporal V2/Shading Pyramid"),
+      "Native graph lacks its shading producer",
+    );
+    check(
+      !nativeGraph.passes.some((p) =>
+        /FSR3\/(Prepare Inputs|Clear reconstructed|Luma Pyramid|Shading Change)|Temporal\/Seed classification|Native Temporal\/(Resolve|Depth Classification)/.test(
+          p.name,
+        ),
+      ),
+      "Retired native work remains in production",
+    );
+    renderer.fsr3_enabled = false;
+    await tick();
+    check(
+      renderer._temporalPolicy === "bypass" && !renderer._temporal.histories.state("color").valid,
+      "Bypass published phantom color history",
+    );
+    check(
+      renderer._nativeTemporal.active === null && renderer._fsr3.policy === null,
+      "Bypass retained active color domains",
+    );
+    check(
+      !renderer._lastFrameGraph.compiled.dump().passes.some((p) => p.name === "Temporal/Seed classification"),
+      "Bypass generated an unused classifier",
+    );
+    renderer.render_debug_view = RenderDebugView.Reactive;
+    await tick();
+    check(
+      renderer._lastFrameGraph.compiled.dump().passes.some((p) => p.name === "Temporal/Seed classification"),
+      "Bypass debug lost its demanded classification",
+    );
+    renderer.render_debug_view = RenderDebugView.None;
+    renderer.fsr3_enabled = true;
+    await tick();
+    check(
+      renderer._temporalPolicy === "native" &&
+        renderer._nativeTemporal.readIndex === renderer._temporalSeed.readIndex,
+      "AA return misaligned Seed/color roles",
+    );
     const nativeRestored = await inspect();
+    renderer.render_debug_view = RenderDebugView.Velocity;
+    await tick();
+    check(
+      renderer._lastFrameGraph.compiled.dump().passes.some((p) => p.name === "Temporal/Seed classification"),
+      "Native debug lost its demanded classification",
+    );
+    renderer.render_debug_view = RenderDebugView.None;
+    const sceneRuntimeBeforeEmpty = renderer._historyRuntime;
+    const nativeBeforeEmpty = renderer._nativeTemporal.active;
+    const roleBeforeEmpty = renderer._nativeTemporal.readIndex;
+    const submitBeforeEmpty = renderer._frameCoordinator.submitFrame;
+    renderer._frameCoordinator.submitFrame = () => {
+      throw new Error("injected empty replacement abort");
+    };
+    try {
+      let rejected = false;
+      try {
+        renderer.render(camera, new Scene());
+      } catch (error) {
+        check(
+          error.message.includes("injected empty replacement abort"),
+          `Unexpected empty abort: ${error.message}`,
+        );
+        rejected = true;
+      }
+      check(rejected, "Empty replacement abort was not exercised");
+    } finally {
+      renderer._frameCoordinator.submitFrame = submitBeforeEmpty;
+    }
+    check(
+      renderer._historyRuntime === sceneRuntimeBeforeEmpty &&
+        renderer._nativeTemporal.active === nativeBeforeEmpty &&
+        renderer._nativeTemporal.readIndex === roleBeforeEmpty,
+      "Failed empty replacement retired the committed scene",
+    );
+    await tick(new Scene());
+    check(
+      renderer._temporalPolicy === null &&
+        renderer._nativeTemporal.active === null &&
+        renderer._fsr3.policy === null,
+      "Empty scene retained active Temporal color domains",
+    );
+    await tick();
+    check(!renderer._temporalSeed.inputHistoryValid, "Scene return reused pre-empty identity history");
+    await tick();
     const restoredSeedIndex = renderer._temporalSeed.readIndex;
     const restoredSeedBytes = renderer._temporalSeed.allocatedBytes;
-    const restoredReadIndex = renderer._fsr3.readIndex;
-    const restoredGeneration = renderer._fsr3.generation;
+    const restoredReadIndex = renderer._nativeTemporal.readIndex;
+    const restoredGeneration = renderer._nativeTemporal.generation;
     fail = true;
     let temporalAborted = false;
     try {
       renderer.render(camera, scene);
     } catch (error) {
-      check(error.message.includes("injected native production abort"), `Unexpected native abort: ${error.message}`);
+      check(
+        error.message.includes("injected native production abort"),
+        `Unexpected native abort: ${error.message}`,
+      );
       temporalAborted = true;
     }
     fail = false;
     check(temporalAborted, "Native temporal abort was not exercised");
-    check(renderer._fsr3.readIndex === restoredReadIndex && renderer._fsr3.generation === restoredGeneration,
-      "Aborted native frame advanced physical history");
-    check(renderer._temporalSeed.readIndex === restoredSeedIndex && renderer._temporalSeed.allocatedBytes === restoredSeedBytes,
-      "Aborted Native Seed advanced identity or changed its physical allocation");
+    check(
+      renderer._nativeTemporal.readIndex === restoredReadIndex &&
+        renderer._nativeTemporal.generation === restoredGeneration,
+      "Aborted native frame advanced physical history",
+    );
+    check(
+      renderer._temporalSeed.readIndex === restoredSeedIndex &&
+        renderer._temporalSeed.allocatedBytes === restoredSeedBytes,
+      "Aborted Native Seed advanced identity or changed its physical allocation",
+    );
     await tick();
     await Promise.resolve();
     renderer.frameAdmissionProfile = "throughput";
@@ -790,13 +900,15 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
     const burstAdmission = renderer.frameSubmissionEvidence();
     check(burstAdmission.inFlight === 3, "Production burst did not retain all three bounded slots");
     const deferredSeedIndex = renderer._temporalSeed.readIndex;
-    const deferredTemporalIndex = renderer._fsr3.readIndex;
-    const deferredTemporalJitter = renderer._fsr3.jitterEvidence();
+    const deferredTemporalIndex = renderer._nativeTemporal.readIndex;
+    const deferredTemporalJitter = renderer._nativeTemporal.jitterEvidence();
     renderer.render(camera, scene);
     check(renderer.frame_count === burstBegin + 3, "Fourth production frame bypassed bounded admission");
-    check(renderer._fsr3.readIndex === deferredTemporalIndex &&
-      JSON.stringify(renderer._fsr3.jitterEvidence()) === JSON.stringify(deferredTemporalJitter),
-      "Admission-deferred frame advanced native history/jitter");
+    check(
+      renderer._nativeTemporal.readIndex === deferredTemporalIndex &&
+        JSON.stringify(renderer._nativeTemporal.jitterEvidence()) === JSON.stringify(deferredTemporalJitter),
+      "Admission-deferred frame advanced native history/jitter",
+    );
     check(renderer._temporalSeed.readIndex === deferredSeedIndex, "Admission defer advanced Seed roles");
     await device.queue.onSubmittedWorkDone();
     await Promise.resolve();
@@ -916,10 +1028,15 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
       const owner = renderer._environments.get(scene).lights.authoredIbl;
       const entries = actualFrame.lightingEntries;
       for (const [binding, resource] of [
-        [5, owner.views.diffuse], [6, owner.views.specular], [7, owner.views.dfg], [15, owner.sampler],
+        [5, owner.views.diffuse],
+        [6, owner.views.specular],
+        [7, owner.views.dfg],
+        [15, owner.sampler],
       ]) {
-        check(entries.find(entry => entry.binding === binding)?.resource === resource,
-          `Actual Native binding ${binding} did not consume the recovered authored IBL publication`);
+        check(
+          entries.find((entry) => entry.binding === binding)?.resource === resource,
+          `Actual Native binding ${binding} did not consume the recovered authored IBL publication`,
+        );
       }
     }
     if (productGeometry === "multi") {
@@ -951,10 +1068,14 @@ export async function runNativeSurfaceProductionGpuOracle(_device, productGeomet
     check(!renderer._vsmShadowResolve, "Retired standalone Shadow owner survived production cutover");
     check(!("continuation" in actualFrame.publication), "Retired Sun continuation publication survived");
     const finalLightingBytes = renderer._finalPixelLighting.allocatedBytes;
-    check(finalLightingBytes > 0 && memory.owners.finalPixelLighting.allocatedBytes === finalLightingBytes,
-      "Final lighting container missing from physical memory evidence");
-    check(actualFrame.lightingEntries.some(entry => entry.binding === 9),
-      "Production Native omitted final lighting range contract");
+    check(
+      finalLightingBytes > 0 && memory.owners.finalPixelLighting.allocatedBytes === finalLightingBytes,
+      "Final lighting container missing from physical memory evidence",
+    );
+    check(
+      actualFrame.lightingEntries.some((entry) => entry.binding === 9),
+      "Production Native omitted final lighting range contract",
+    );
     const scratchBytes = nativeOwners
       .slice(0, 4)
       .reduce(

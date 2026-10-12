@@ -33,8 +33,8 @@ verifies:
     - OEngine/src/render/program
     - OEngine/src/render/pipeline/RendererCore.ts
     - OEngine/tests/oracle/reference/s3/native_surface_aux.mjs
-    - OEngine/src/render/temporal/NativeTemporalPasses.ts
-    - OEngine/src/shaders/native_temporal.ts
+    - OEngine/tests/oracle/reference/phase4/NativeTemporalPasses.mjs
+    - OEngine/tests/oracle/reference/phase4/native_temporal.mjs
     - OEngine/tests/oracle/reference/s3/native_surface_aux.mjs
     - OEngine/src/render/TemporalFabric.ts
     - OEngine/src/render/passes/fsr3
@@ -56,7 +56,7 @@ verifies:
 
 这是此前分析与用户提供的大胆方案的择优合并：VSM/Temporal提升为主攻架构单元；此前的IBL硬件采样、稳定depth域/局部失效和4GB预算保留为完整备选单元。不是逐项照抄附件，也不是把方案退回只有几个load/ALU的小修。方案选择优先消除百万pixel重复的管理工作、过大的shader live set和不必要的跨pass产品；支持“数毫秒量级热点值得完整重设”，不支持“新架构必定省几毫秒”的未测承诺。
 
-初始源码审查锚点为 `f495f04bca30f6238fdb595f73bd83748534ba65`，原始方案中的“当前”指该版本；后续实现前必须复查源码。后续P1–P4采用/拒绝的设计修正明确标在对应章节，实际代码与验证出口以执行计划为准；其它新产品、shader、policy不因本文件 `state: current` 而视为已实现。
+初始源码审查锚点为 `f495f04bca30f6238fdb595f73bd83748534ba65`，原始方案中的“当前”指该版本；后续实现前必须复查源码。后续P1–P4采用/拒绝的设计修正明确标在对应章节，实际代码与验证出口以执行计划为准；其它新产品、shader、policy不因本文件 `state: history` 而视为已实现。
 
 ## 1. 目标、证据与成本边界
 

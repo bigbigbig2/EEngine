@@ -49,7 +49,7 @@ export type NativeTemporalSeedGraphBinder = <T extends object>(
  * with GPU Radiometry and FSR; this owner's CPU multiplier is not GPU exposure.
  * Queue-ordered reuse is
  * legal with three submitted frames; resize/destroy retire at last-use fence.
- * Color/depth/moment histories join this transaction in Phase 4, not here. */
+ * Native V2 joins its color/depth histories to the same command transaction. */
 export class NativeTemporalSeed {
   private readonly pipeline: GPUComputePipeline;
   private readonly groups = new GpuBindGroupCache();
@@ -68,7 +68,7 @@ export class NativeTemporalSeed {
   private destroyed = false;
   private attached: ShadeGPUCommandContext | null = null;
   private classified = false;
-  private consumer: "classification" | "native-resolve" = "classification";
+  private consumer: "classification" | "native-resolve" | "surface-writer" = "classification";
   private submittedPreviousValid = false;
 
   /** Input validity of the prepared or most recently submitted frame. */
@@ -234,7 +234,7 @@ export class NativeTemporalSeed {
    * from advancing roles on encoding, abort or a deferred frame. */
   attach(
     command: ShadeGPUCommandContext,
-    consumer: "classification" | "native-resolve" = "classification",
+    consumer: "classification" | "native-resolve" | "surface-writer" = "classification",
   ): void {
     if (!this.prepared || this.attached || command.closed || command.device !== this.device) {
       throw new Error("Seed transaction requires one open command on its device");
@@ -244,35 +244,59 @@ export class NativeTemporalSeed {
     }
     this.attached = command;
     this.consumer = consumer;
-    command.onBeforeFinish.addOne(() => {
-      if (!this.classified) {
-        throw new Error("Seed producer/consumer transaction is incomplete");
-      }
-    });
+    command.onBeforeFinish.addOne(() => this.assertCompleteFrame());
     command.onFinished.addOne(() => this.commit(command.gpuDone));
     command.onAborted.addOne(() => this.abort());
   }
 
+  /** Renderer calls this directly before submit: signal observers alone do
+   * not propagate validation errors through the command submission API. */
+  assertCompleteFrame(): void {
+    if (!this.prepared || !this.classified) {
+      throw new Error("Seed producer/consumer transaction is incomplete");
+    }
+  }
+
   /** Native V2 consumes exact Seed roles on this command instead of a separate
-   * classification dispatch. Encoding alone never advances the history role.
-   * Production still selects classification until the complete V2 cutover. */
+   * classification dispatch. Encoding alone never advances the history role. */
   acceptNativeResolve(
     command: ShadeGPUCommandContext,
     products: Pick<NativeTemporalSeedFrame, "seed" | "response" | "identity" | "previousIdentity">,
+  ): void {
+    this.acceptProducts(command, products, "native-resolve");
+  }
+
+  /** With AA disabled, the complete Surface writer proves identity publication.
+   * No unused full-screen classification or color history is needed. */
+  acceptSurfaceWrite(
+    command: ShadeGPUCommandContext,
+    products: Pick<NativeTemporalSeedFrame, "seed" | "response" | "identity">,
+  ): void {
+    this.acceptProducts(command, products, "surface-writer");
+  }
+
+  private acceptProducts(
+    command: ShadeGPUCommandContext,
+    products: Pick<NativeTemporalSeedFrame, "seed" | "response" | "identity"> &
+      Partial<Pick<NativeTemporalSeedFrame, "previousIdentity">>,
+    consumer: "native-resolve" | "surface-writer",
   ): void {
     if (
       !this.prepared ||
       this.attached !== command ||
       command.closed ||
-      this.consumer !== "native-resolve" ||
+      this.consumer !== consumer ||
       this.classified
     ) {
-      throw new Error("Native Resolve requires the current complete Seed command");
+      throw new Error("Seed publication requires the current complete command");
     }
-    for (const name of ["seed", "response", "identity", "previousIdentity"] as const) {
+    for (const name of ["seed", "response", "identity"] as const) {
       if (products[name] !== this.prepared[name]) {
-        throw new Error("Native Resolve consumed a stale or mismatched Seed role");
+        throw new Error("Seed publication consumed a stale or mismatched role");
       }
+    }
+    if (consumer === "native-resolve" && products.previousIdentity !== this.prepared.previousIdentity) {
+      throw new Error("Native Resolve consumed a stale or mismatched Seed role");
     }
     this.classified = true;
   }
@@ -317,17 +341,25 @@ export class NativeTemporalSeed {
 
   addClassification(
     graph: FrameGraph,
-    products: { seed: ResourceId; response: ResourceId; identity: ResourceId },
+    products: {
+      seed: ResourceId;
+      response: ResourceId;
+      identity: ResourceId;
+      previousIdentity?: ResourceId;
+    },
     bind: NativeTemporalSeedGraphBinder = (_name, resolve) => resolve(this),
+    debugOnly = false,
   ): ResourceId {
     if (!this.prepared || !this.pending) {
       throw new Error("Seed classification requires a prepared transaction");
     }
-    const previous = graph.import_resource(
-      "Temporal/previous identity",
-      { kind: "imported", domain: "internal-full" },
-      bind("previous-identity", (runtime) => runtime.frame.previousIdentity),
-    );
+    const previous =
+      products.previousIdentity ??
+      graph.import_resource(
+        "Temporal/previous identity",
+        { kind: "imported", domain: "internal-full" },
+        bind("previous-identity", (runtime) => runtime.frame.previousIdentity),
+      );
     let output = -1;
     const pass = graph.add("Temporal/Seed classification", {}, (_data, resources, context) => {
       const encoder = resolveGpuEncoder(context);
@@ -335,8 +367,7 @@ export class NativeTemporalSeed {
         !encoder ||
         !this.pending ||
         !this.attached ||
-        this.classified ||
-        this.consumer !== "classification"
+        (!debugOnly && (this.classified || this.consumer !== "classification"))
       ) {
         throw new Error("Seed classification requires the current producer/consumer command");
       }
@@ -355,14 +386,18 @@ export class NativeTemporalSeed {
       compute.setBindGroup(0, group);
       compute.dispatchWorkgroups(Math.ceil(this.pending!.width / 8), Math.ceil(this.pending!.height / 8));
       compute.end();
-      this.classified = true;
+      if (!debugOnly) {
+        this.classified = true;
+      }
     });
     pass.read(products.seed);
     pass.read(products.response);
     pass.read(products.identity);
     pass.read(previous);
     // Identity publication remains a successful scene-frame fact even with AA off.
-    pass.make_side_effect();
+    if (!debugOnly) {
+      pass.make_side_effect();
+    }
     output = pass.create("Temporal/classified Seed mask", {
       kind: "transient_texture",
       domain: "internal-full",

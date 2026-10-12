@@ -60,6 +60,15 @@ fn half_value(v: f32) -> f32 {
   if (abs(nearest) > abs(v)) { bits -= 1u; }
   return unpack2x16float(bits).x;
 }
+fn history_motion(raw_motion: vec2f, valid: bool) -> vec2f {
+  let motion = output_motion(raw_motion);
+  // Preserve the SDK's removed RG16 dilated-motion storage boundary.
+  return select(vec2f(0.0), vec2f(half_value(motion.x), half_value(motion.y)), valid);
+}
+fn receiver_pixel(receivers: texture_2d<u32>, pixel: vec2i) -> vec2i {
+  let index = textureLoad(receivers, point(pixel), 0).x;
+  return vec2i(vec2u(index % frame.size.x, index / frame.size.x));
+}
 fn bilinear(image: texture_2d<f32>, uv: vec2f) -> vec4f {
   let size = vec2i(textureDimensions(image));
   let position = uv * vec2f(size) - 0.5;
@@ -119,6 +128,26 @@ export const NATIVE_TEMPORAL_V2_MEASURE_WGSL =
 @group(0) @binding(4) var seed: texture_2d<f32>;
 @group(0) @binding(5) var farthest_mip: texture_storage_2d<r16float, write>;
 @group(0) @binding(6) var<storage, read_write> filter_weights: NativeFilterWeights;
+@group(0) @binding(7) var color_receivers: texture_storage_2d<r32uint, write>;
+// SDK FindDepthExtents/DilateMotionVector's sample order and strict nearest
+// comparison, expressed in linear view-space depth (sky is the zero sentinel).
+// This effect-local index never changes the Seed producer's own facts.
+fn nearest_color_receiver(pixel: vec2i) -> vec2i {
+  let offsets = array<vec2i, 8>(vec2i(1, 0), vec2i(0, 1), vec2i(0, -1), vec2i(-1, 0),
+    vec2i(-1, 1), vec2i(1, 1), vec2i(-1, -1), vec2i(1, -1));
+  var nearest = textureLoad(seed, pixel, 0).w;
+  var receiver = pixel;
+  for (var i = 0u; i < 8u; i++) {
+    let candidate = pixel + offsets[i];
+    if (any(candidate < vec2i(0)) || any(candidate >= vec2i(frame.size))) { continue; }
+    let depth = textureLoad(seed, candidate, 0).w;
+    if (depth > 0.0 && (nearest == 0.0 || depth < nearest)) {
+      nearest = depth;
+      receiver = candidate;
+    }
+  }
+  return receiver;
+}
 // SDK SPD's 64x64 domain and ordered 2x2 reduction, including the mip5
 // half boundary. Only the exposure scalar survives across workgroups.
 var<workgroup> logs: array<f32, 4096>;
@@ -140,6 +169,8 @@ fn main(@builtin(workgroup_id) group: vec3u, @builtin(local_invocation_index) la
     let luma = dot(rgb, vec3f(0.2126, 0.7152, 0.0722));
     logs[i] = max(0.000061, log(half_value(luma)));
     if (all(p < frame.size)) {
+      let receiver = nearest_color_receiver(vec2i(p));
+      textureStore(color_receivers, vec2i(p), vec4u(u32(receiver.y) * frame.size.x + u32(receiver.x), 0u, 0u, 0u));
       textureStore(output_luma, vec2i(p), vec4f(half_value(luma), 0.0, 0.0, 0.0));
       if (all((p & vec2u(1u)) == vec2u(0u))) {
         var sum = 0.0;
@@ -237,9 +268,10 @@ fn main(@builtin(local_invocation_index) lane: u32) {
   }
 }
 `;
-export const NATIVE_TEMPORAL_V2_ANALYZE_WGSL =
+export const NATIVE_TEMPORAL_V2_SHADING_PYRAMID_WGSL =
   FRAME +
-  /* wgsl */ `
+  `
+
 @group(0) @binding(1) var current_luma: texture_2d<f32>;
 @group(0) @binding(2) var seed: texture_2d<f32>;
 @group(0) @binding(3) var previous_luma: texture_2d<f32>;
@@ -247,54 +279,12 @@ export const NATIVE_TEMPORAL_V2_ANALYZE_WGSL =
 @group(0) @binding(5) var<storage, read> current_exposure: array<f32>;
 @group(0) @binding(6) var<storage, read> prior_exposure: array<f32>;
 @group(0) @binding(7) var response: texture_2d<f32>;
-@group(0) @binding(8) var identity: texture_2d<u32>;
-@group(0) @binding(9) var previous_identity: texture_2d<u32>;
-@group(0) @binding(10) var previous_depth: texture_2d<f32>;
-@group(0) @binding(11) var analysis: texture_storage_2d<rgba8unorm, write>;
-@group(0) @binding(12) var current_depth: texture_storage_2d<r32float, write>;
-@group(0) @binding(13) var previous_confidence: texture_2d<f32>;
-@group(0) @binding(14) var sharpen_exposure: texture_storage_2d<r32float, write>;
-@group(0) @binding(17) var linear_clamp: sampler;
-@group(0) @binding(15) var current_confidence: texture_storage_2d<r8unorm, write>;
-fn inside(uv: vec2f) -> bool {
-  return all(uv >= vec2f(0.0)) && all(uv < vec2f(1.0));
-}
-// SDK PrepareReactivity::ComputeDisocclusions, consuming actual previous
-// view-space depth instead of this frame's scattered reconstructed depth.
-// Seed.z is already the current receiver in previous-view coordinates.
-// The source's small-motion snapping belongs to scatter construction; an
-// actual depth history must be pulled at the receiver's unsnapped own UV.
-fn depth_history_confidence(uv: vec2f, expected_depth: f32, sky: bool) -> f32 {
-  let position = uv * vec2f(frame.size) - 0.5;
-  let base = vec2i(floor(position));
-  let fraction = fract(position);
-  var confidence = 0.0;
-  var weight_sum = 0.0;
-  var potential_disocclusion = true;
-  for (var y = 0; y < 2; y++) {
-    for (var x = 0; x < 2; x++) {
-      let weight = select(1.0 - fraction.x, fraction.x, x == 1) *
-        select(1.0 - fraction.y, fraction.y, y == 1);
-      if (weight <= 0.00061) { continue; }
-      let previous = textureLoad(previous_depth, point(base + vec2i(x, y)), 0).x;
-      if (sky) {
-        confidence += weight * select(0.0, 1.0, previous == 0.0);
-        weight_sum += weight;
-      } else if (previous > 0.0) {
-        let difference = expected_depth - previous;
-        potential_disocclusion = potential_disocclusion && difference > 1.175494351e-38;
-        if (difference > 1.175494351e-38) {
-          let separation = 1.37e-05 * length(vec2f(frame.size) * 0.5) * max(expected_depth, previous);
-          confidence += clamp(separation / difference, 0.0, 1.0) * weight;
-        }
-        weight_sum += weight;
-      }
-    }
-  }
-  if (weight_sum == 0.0) { return 0.0; }
-  if (sky) { return clamp(confidence / weight_sum, 0.0, 1.0); }
-  return select(1.0, clamp(confidence / weight_sum, 0.0, 1.0), potential_disocclusion);
-}
+@group(0) @binding(16) var color_receivers: texture_2d<u32>;
+@group(0) @binding(8) var mip2: texture_storage_2d<rg16float, write>;
+@group(0) @binding(9) var mip4: texture_storage_2d<rg16float, write>;
+@group(0) @binding(10) var mip8: texture_storage_2d<rg16float, write>;
+fn inside(uv: vec2f) -> bool { return all(uv >= vec2f(0.0)) && all(uv < vec2f(1.0)); }
+
 fn compare_swap(values: ptr<function, array<f32, 5>>, i: i32, j: i32) {
   let low = min((*values)[i], (*values)[j]);
   (*values)[j] = max((*values)[i], (*values)[j]);
@@ -331,8 +321,8 @@ fn difference(current_in: array<f32, 5>, previous_in: array<f32, 5>) -> f32 {
 }
 fn source_difference(pixel_in: vec2i) -> vec2f {
   let p = point(pixel_in);
-  let receiver = point(p + vec2i(round(frame.jitter)));
-  let motion = output_motion(textureLoad(seed, receiver, 0).xy);
+  let receiver = receiver_pixel(color_receivers, p);
+  let motion = history_motion(textureLoad(seed, receiver, 0).xy, textureLoad(response, receiver, 0).y > 0.5);
   let uv = (vec2f(p) + 0.5) / vec2f(frame.size);
   let previous_uv = uv + frame.previous_jitter / vec2f(frame.size) + motion;
   var diff = 0.0;
@@ -352,6 +342,98 @@ fn source_difference(pixel_in: vec2i) -> vec2f {
   }
   return vec2f(diff, sign(diff));
 }
+// AMD SPD's first three box levels, no device-wide counter or global tail.
+// Exactly one source_difference per source pixel; partial blocks clamp before
+// every reduction just as the source ClampLoad domain does.
+var<workgroup> source_tile: array<vec2f, 64>;
+var<workgroup> box2: array<vec2f, 16>;
+var<workgroup> box4: array<vec2f, 4>;
+@compute @workgroup_size(8, 8)
+fn main(@builtin(workgroup_id) group: vec3u, @builtin(local_invocation_id) lane: vec3u,
+        @builtin(local_invocation_index) index: u32) {
+  let origin = vec2i(group.xy * 8u);
+  source_tile[index] = source_difference(origin + vec2i(lane.xy));
+  workgroupBarrier();
+  if (index < 16u) {
+    let local = vec2i(i32(index % 4u), i32(index / 4u));
+    let pixel = origin / 2 + local;
+    let base = clamp(pixel, vec2i(0), (vec2i(frame.size) + 1) / 2 - 1) * 2 - origin;
+    let offset = u32(base.y * 8 + base.x);
+    box2[index] = (source_tile[offset] + source_tile[offset + 1u] + source_tile[offset + 8u] + source_tile[offset + 9u]) * 0.25;
+    if (all(pixel < vec2i(textureDimensions(mip2)))) { textureStore(mip2, pixel, vec4f(box2[index], 0.0, 0.0)); }
+  }
+  workgroupBarrier();
+  if (index < 4u) {
+    let local = vec2i(i32(index % 2u), i32(index / 2u));
+    let pixel = origin / 4 + local;
+    let base = clamp(pixel, vec2i(0), (vec2i(frame.size) + 3) / 4 - 1) * 2 - origin / 2;
+    let offset = u32(base.y * 4 + base.x);
+    box4[index] = (box2[offset] + box2[offset + 1u] + box2[offset + 4u] + box2[offset + 5u]) * 0.25;
+    if (all(pixel < vec2i(textureDimensions(mip4)))) { textureStore(mip4, pixel, vec4f(box4[index], 0.0, 0.0)); }
+  }
+  workgroupBarrier();
+  if (index == 0u) {
+    textureStore(mip8, origin / 8, vec4f((box4[0] + box4[1] + box4[2] + box4[3]) * 0.25, 0.0, 0.0));
+  }
+}
+`;
+export const NATIVE_TEMPORAL_V2_ANALYZE_WGSL =
+  FRAME +
+  /* wgsl */ `
+@group(0) @binding(2) var seed: texture_2d<f32>;
+@group(0) @binding(4) var input_exposure: texture_2d<f32>;
+@group(0) @binding(7) var response: texture_2d<f32>;
+@group(0) @binding(8) var identity: texture_2d<u32>;
+@group(0) @binding(9) var previous_identity: texture_2d<u32>;
+@group(0) @binding(10) var previous_depth: texture_2d<f32>;
+@group(0) @binding(11) var analysis: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(12) var current_depth: texture_storage_2d<r32float, write>;
+@group(0) @binding(13) var previous_confidence: texture_2d<f32>;
+@group(0) @binding(14) var sharpen_exposure: texture_storage_2d<r32float, write>;
+@group(0) @binding(17) var linear_clamp: sampler;
+@group(0) @binding(15) var current_confidence: texture_storage_2d<r8unorm, write>;
+@group(0) @binding(16) var color_receivers: texture_2d<u32>;
+fn inside(uv: vec2f) -> bool {
+  return all(uv >= vec2f(0.0)) && all(uv < vec2f(1.0));
+}
+// SDK PrepareReactivity::ComputeDisocclusions, consuming actual previous
+// view-space depth instead of this frame's scattered reconstructed depth.
+// Seed.z is already the current receiver in previous-view coordinates.
+// The source's small-motion snapping belongs to scatter construction; an
+// actual depth history must be pulled at the receiver's unsnapped own UV.
+fn depth_history_confidence(uv: vec2f, expected_depth: f32, sky: bool) -> f32 {
+  let position = uv * vec2f(frame.size) - 0.5;
+  let base = vec2i(floor(position));
+  let fraction = fract(position);
+  var confidence = 0.0;
+  var weight_sum = 0.0;
+  var nearest_confidence = 1.0;
+  for (var y = 0; y < 2; y++) {
+    for (var x = 0; x < 2; x++) {
+      let weight = select(1.0 - fraction.x, fraction.x, x == 1) *
+        select(1.0 - fraction.y, fraction.y, y == 1);
+      if (weight <= 0.00061) { continue; }
+      let previous = textureLoad(previous_depth, point(base + vec2i(x, y)), 0).x;
+      if (sky) {
+        confidence += weight * select(0.0, 1.0, previous == 0.0);
+        weight_sum += weight;
+      } else if (previous > 0.0) {
+        let difference = expected_depth - previous;
+        if (difference > 1.175494351e-38) {
+          let separation = 1.37e-05 * length(vec2f(frame.size) * 0.5) * max(expected_depth, previous);
+          nearest_confidence = min(nearest_confidence, clamp(separation / difference, 0.0, 1.0));
+        }
+        weight_sum += weight;
+      }
+    }
+  }
+  if (weight_sum == 0.0) { return 0.0; }
+  if (sky) { return clamp(confidence / weight_sum, 0.0, 1.0); }
+  // Scatter contains nearest receiver depths. Raw previous-depth pull must
+  // test the nearest contributor itself; a background tap cannot qualify an
+  // overlapping foreground color history. Preserve the source Ksep response.
+  return nearest_confidence;
+}
 // SDK PrepareReactivity's motion-divergence term. The motion/depth field is
 // the associated Native Seed, rather than a nearest-neighbor dilated field.
 fn source_motion_divergence(p: vec2i, motion: vec2f, depth: f32) -> f32 {
@@ -360,39 +442,25 @@ fn source_motion_divergence(p: vec2i, motion: vec2f, depth: f32) -> f32 {
   let uv = (vec2f(p) + 0.5) / vec2f(frame.size);
   let other_pixel = vec2i((uv + motion) * vec2f(frame.size));
   if (any(other_pixel < vec2i(0)) || any(other_pixel >= vec2i(frame.size))) { return 0.0; }
-  let other = textureLoad(seed, point(other_pixel + vec2i(round(frame.jitter))), 0);
-  let other_motion = output_motion(other.xy);
+  let other_receiver = receiver_pixel(color_receivers, other_pixel);
+  let other = textureLoad(seed, other_receiver, 0);
+  let other_motion = history_motion(other.xy, textureLoad(response, other_receiver, 0).y > 0.5);
   let other_velocity = length(other_motion * vec2f(3840.0, 2160.0));
   let maximum_depth = max(depth, other.w);
   let distance_factor = select(0.0, min(depth, other.w) / max(maximum_depth, 1e-8), maximum_depth > 0.0);
   return (1.0 - clamp(other_velocity / velocity, 0.0, 1.0)) * distance_factor * clamp(velocity / 10.0, 0.0, 1.0);
 }
-var<workgroup> tile: array<vec2f, 1024>;
-var<workgroup> level2: array<vec2f, 256>;
-var<workgroup> level4: array<vec2f, 64>;
-var<workgroup> level8: array<vec2f, 16>;
-fn local_index(p: vec2i, origin: vec2i, scale: i32, side: i32) -> u32 {
-  let size = (vec2i(frame.size) + scale - 1) / scale;
-  let local = clamp(p, vec2i(0), size - 1) - origin / scale;
-  return u32(local.y * side + local.x);
+@group(0) @binding(19) var shading_mip2: texture_2d<f32>;
+@group(0) @binding(20) var shading_mip4: texture_2d<f32>;
+@group(0) @binding(21) var shading_mip8: texture_2d<f32>;
+fn mip_sample(uv: vec2f, level: i32) -> vec2f {
+  // Preserve the SDK's filtered RG16 sampling boundary. Manual f32 bilinear
+  // interpolation changes confidence around thin features on real hardware.
+  if (level == 0) { return textureSampleLevel(shading_mip2, linear_clamp, uv, 0.0).xy; }
+  if (level == 1) { return textureSampleLevel(shading_mip4, linear_clamp, uv, 0.0).xy; }
+  return textureSampleLevel(shading_mip8, linear_clamp, uv, 0.0).xy;
 }
-fn mip_load(p: vec2i, origin: vec2i, level: i32) -> vec2f {
-  var value: vec2f;
-  if (level == 0) { value = level2[local_index(p, origin, 2, 16)]; }
-  if (level == 1) { value = level4[local_index(p, origin, 4, 8)]; }
-  if (level == 2) { value = level8[local_index(p, origin, 8, 4)]; }
-  return vec2f(half_value(value.x), half_value(value.y));
-}
-fn mip_sample(uv: vec2f, origin: vec2i, level: i32) -> vec2f {
-  let scale = 2i << u32(level);
-  let size = (vec2i(frame.size) + scale - 1) / scale;
-  let s = uv * vec2f(size) - 0.5;
-  let p = vec2i(floor(s));
-  let f = fract(s);
-  return mix(mix(mip_load(p, origin, level), mip_load(p + vec2i(1, 0), origin, level), f.x),
-    mix(mip_load(p + vec2i(0, 1), origin, level), mip_load(p + vec2i(1, 1), origin, level), f.x), f.y);
-}
-fn low_change(p_in: vec2i, origin: vec2i) -> f32 {
+fn low_change(p_in: vec2i) -> f32 {
   let size = max(vec2i(1), vec2i(frame.size) / 2);
   let p = clamp(p_in, vec2i(0), size - 1);
   let uv = (vec2f(p) + 0.5) / vec2f(size) + frame.jitter / vec2f(frame.size);
@@ -400,65 +468,40 @@ fn low_change(p_in: vec2i, origin: vec2i) -> f32 {
   let mip_uv = clamp(uv * vec2f(size), vec2f(0.5), vec2f(size) - 0.5) / vec2f(mip0_size);
   var change = 0.0;
   for (var i = 0; i < 3; i++) {
-    let pair = mip_sample(mip_uv, origin, i);
+    let pair = mip_sample(mip_uv, i);
     change = max(change, abs(pair.x * pair.y));
   }
-  return round(clamp(change, 0.0, 1.0) * 255.0) / 255.0;
+  // The removed R8 UAV store rounds half-way values toward the lower byte
+  // on the qualified source profile; WGSL round() chooses another tie.
+  // Keep that boundary without materializing a shading-change image.
+  return max(0.0, ceil(clamp(change, 0.0, 1.0) * 255.0 - 0.5)) / 255.0;
 }
-fn shading_change(p: vec2i, origin: vec2i) -> f32 {
+fn shading_change(p: vec2i) -> f32 {
   let size = max(vec2i(1), vec2i(frame.size) / 2);
   let uv = (vec2f(p) + 0.5 - frame.jitter) / vec2f(frame.size);
   let position = clamp(uv * vec2f(size), vec2f(0.5), vec2f(size) - 0.5) - 0.5;
   let base = vec2i(floor(position));
   let f = fract(position);
-  return mix(mix(low_change(base, origin), low_change(base + vec2i(1, 0), origin), f.x),
-    mix(low_change(base + vec2i(0, 1), origin), low_change(base + vec2i(1, 1), origin), f.x), f.y);
+  return mix(mix(low_change(base), low_change(base + vec2i(1, 0)), f.x),
+    mix(low_change(base + vec2i(0, 1)), low_change(base + vec2i(1, 1)), f.x), f.y);
 }
 @compute @workgroup_size(8, 8)
-fn main(@builtin(workgroup_id) group: vec3u, @builtin(local_invocation_id) lane: vec3u,
-        @builtin(local_invocation_index) index: u32) {
-  let origin = vec2i(group.xy * 8u) - 8;
-  for (var i = index; i < 1024u; i += 64u) {
-    tile[i] = source_difference(origin + vec2i(i32(i % 32u), i32(i / 32u)));
-  }
-  workgroupBarrier();
-  for (var i = index; i < 256u; i += 64u) {
-  let p2 = origin / 2 + vec2i(i32(i % 16u), i32(i / 16u));
-  let base2 = clamp(p2, vec2i(0), (vec2i(frame.size) + 1) / 2 - 1) * 2;
-  level2[i] = (tile[local_index(base2, origin, 1, 32)] +
-    tile[local_index(base2 + vec2i(0, 1), origin, 1, 32)] +
-    tile[local_index(base2 + vec2i(1, 0), origin, 1, 32)] +
-    tile[local_index(base2 + vec2i(1, 1), origin, 1, 32)]) * 0.25;
-  }
-  workgroupBarrier();
-  if (index < 64u) {
-    let p4 = origin / 4 + vec2i(i32(index % 8u), i32(index / 8u));
-    let base4 = clamp(p4, vec2i(0), (vec2i(frame.size) + 3) / 4 - 1) * 2;
-    level4[index] = (level2[local_index(base4, origin, 2, 16)] +
-      level2[local_index(base4 + vec2i(0, 1), origin, 2, 16)] +
-      level2[local_index(base4 + vec2i(1, 0), origin, 2, 16)] +
-      level2[local_index(base4 + vec2i(1, 1), origin, 2, 16)]) * 0.25;
-  }
-  workgroupBarrier();
-  if (index < 16u) {
-    let p8 = origin / 8 + vec2i(i32(index % 4u), i32(index / 4u));
-    let base8 = clamp(p8, vec2i(0), (vec2i(frame.size) + 7) / 8 - 1) * 2;
-    level8[index] = (level4[local_index(base8, origin, 4, 8)] +
-      level4[local_index(base8 + vec2i(0, 1), origin, 4, 8)] +
-      level4[local_index(base8 + vec2i(1, 0), origin, 4, 8)] +
-      level4[local_index(base8 + vec2i(1, 1), origin, 4, 8)]) * 0.25;
-  }
-  workgroupBarrier();
-  let id = group.xy * 8u + lane.xy;
+fn main(@builtin(global_invocation_id) id3: vec3u) {
+  let id = id3.xy;
   if (any(id >= frame.size)) { return; }
   let p = vec2i(id);
-  let receiver = point(p + vec2i(round(frame.jitter)));
+  let receiver = receiver_pixel(color_receivers, p);
   let facts = textureLoad(seed, receiver, 0);
   let native = textureLoad(response, receiver, 0);
   let current = textureLoad(identity, receiver, 0);
-  let uv = (vec2f(receiver) + 0.5) / vec2f(frame.size) - facts.xy;
-  var eligible = frame.valid != 0u && native.y > 0.5 && inside(uv);
-  let prior = textureLoad(previous_identity, point(vec2i(uv * vec2f(frame.size))), 0);
+  // The color footprint is anchored at p; q only supplies the front receiver's
+  // motion/previous-view depth. Previous identity validates q's own lifetime.
+  let identity_uv = (vec2f(receiver) + 0.5) / vec2f(frame.size) - facts.xy;
+  let uv = (vec2f(p) + 0.5) / vec2f(frame.size) - facts.xy;
+  let motion = history_motion(facts.xy, native.y > 0.5);
+  let output_uv = (vec2f(p) + 0.5) / vec2f(frame.size);
+  var eligible = frame.valid != 0u && native.y > 0.5 && inside(output_uv + motion);
+  let prior = textureLoad(previous_identity, point(vec2i(identity_uv * vec2f(frame.size))), 0);
   let hard = prior.x == current.x && (prior.y != current.y || (prior.w == current.w && prior.z != current.z));
   eligible = eligible && !hard;
   var reactive = native.x;
@@ -469,22 +512,20 @@ fn main(@builtin(workgroup_id) group: vec3u, @builtin(local_invocation_id) lane:
   }
   let sky = current.x == 0xffffffffu;
   let coverage = select(0.0, depth_history_confidence(uv, facts.z, sky), eligible);
-  let motion = output_motion(facts.xy);
-  let output_uv = (vec2f(p) + 0.5) / vec2f(frame.size);
   reactive = max(reactive, source_motion_divergence(p, motion, facts.w));
-  var change = shading_change(p, origin);
+  var change = shading_change(p);
   for (var y = -1; y <= 1; y++) {
-    for (var x = -1; x <= 1; x++) { change = max(change, textureLoad(response, point(receiver + vec2i(x, y)), 0).x); }
+    for (var x = -1; x <= 1; x++) { change = max(change, textureLoad(response, point(p + vec2i(x, y)), 0).x); }
   }
   var confidence = 0.0;
   if (frame.valid != 0u && inside(output_uv + motion)) { confidence = textureSampleLevel(previous_confidence, linear_clamp, output_uv + motion, 0.0).x; }
   confidence = mix(confidence, 0.0, change);
   confidence = mix(confidence, min(-1.0 / 3.0, confidence), 1.0 - coverage);
   confidence *= select(0.0, 1.0, round(confidence * 100.0) > 1.0);
-  let stored = round(clamp(confidence + 1.0 / 3.0, 0.0, 1.0) * 255.0) / 255.0;
+  let stored = clamp(confidence + 1.0 / 3.0, 0.0, 1.0);
   textureStore(current_confidence, p, vec4f(stored, 0.0, 0.0, 0.0));
-  textureStore(analysis, p, vec4f(coverage, round(clamp(reactive, 0.0, 1.0) * 255.0) / 255.0,
-    round(clamp(change, 0.0, 1.0) * 255.0) / 255.0, round(clamp(confidence, 0.0, 1.0) * 255.0) / 255.0));
+  // These products retain their real UNORM stores; quantize exactly once.
+  textureStore(analysis, p, vec4f(coverage, reactive, change, confidence));
   textureStore(current_depth, p, vec4f(textureLoad(seed, p, 0).w, 0.0, 0.0, 0.0));
   if (all(id == vec2u(0u))) {
     textureStore(sharpen_exposure, vec2i(0), vec4f(textureLoad(input_exposure, vec2i(0), 0).x, 0.0, 0.0, 0.0));
@@ -509,6 +550,8 @@ export const NATIVE_TEMPORAL_V2_RESOLVE_WGSL =
 @group(0) @binding(17) var linear_clamp: sampler;
 @group(0) @binding(15) var<uniform> filter_weights: NativeFilterWeights;
 @group(0) @binding(14) var farthest_depth_mip1: texture_2d<f32>;
+@group(0) @binding(16) var color_receivers: texture_2d<u32>;
+@group(0) @binding(18) var native_response: texture_2d<f32>;
 
 fn source_farthest(uv: vec2f) -> f32 {
   let active_size = max(vec2i(1), vec2i(frame.size) / 2);
@@ -745,8 +788,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   if (any(pixel >= vec2i(frame.size))) { return; }
   let uv = (vec2f(pixel) + vec2f(0.5)) / vec2f(vec2i(frame.size));
   let jittered_uv = uv + frame.jitter / vec2f(vec2i(frame.size));
-  let receiver = point(pixel + vec2i(round(frame.jitter)));
-  let motion = output_motion(textureLoad(dilated_motion, receiver, 0).xy);
+  let receiver = receiver_pixel(color_receivers, pixel);
+  let motion = history_motion(textureLoad(dilated_motion, receiver, 0).xy, textureLoad(native_response, receiver, 0).y > 0.5);
   let reprojected_uv = uv + motion;
   let existing = inside(reprojected_uv);
   let new_sample = !existing || f32(frame.valid) == 0.0;

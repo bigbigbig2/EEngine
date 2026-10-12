@@ -57,3 +57,28 @@ test("internal resize retains output color but invalidates internal identity", (
   assert.equal(fabric.histories.state("identity").readValid, false);
   fabric.abort(1);
 });
+
+test("bypass has only identity writer; failed policy changes preserve committed roles and validity", () => {
+  const fabric = new TemporalFabric();
+  fabric.begin(frame(0));
+  fabric.markProduced("identity");
+  fabric.markProduced("color");
+  fabric.commit(0);
+  const color = fabric.histories.state("color");
+  fabric.begin(frame(1, { temporalEnabled: false }));
+  assert.throws(() => fabric.markProduced("color"), /not active/);
+  fabric.markProduced("identity");
+  fabric.abort(1);
+  assert.equal(fabric.histories.state("color").valid, true);
+  assert.equal(fabric.histories.state("color").readIndex, color.readIndex);
+  fabric.begin(frame(1, { temporalEnabled: false }));
+  fabric.markProduced("identity");
+  fabric.commit(1);
+  fabric.begin(frame(2));
+  assert.equal(fabric.histories.state("color").readValid, false);
+  fabric.histories.alignReadIndex("color", fabric.histories.state("identity").readIndex);
+  fabric.markProduced("identity");
+  fabric.markProduced("color");
+  fabric.commit(2);
+  assert.equal(fabric.histories.state("color").readIndex, fabric.histories.state("identity").readIndex);
+});

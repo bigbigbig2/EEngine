@@ -43,7 +43,7 @@ export async function runFinalPixelTemporalPullSemanticsGpuOracle(device) {
     // observes its primary reprojection rather than duplicating its math.
     let projectionCode = NATIVE_TEMPORAL_V2_RESOLVE_WGSL.replace(
       "@group(0) @binding(6) var current_history: texture_storage_2d<rgba16float, write>;",
-      "@group(0) @binding(16) var<storage, read_write> projection: array<vec4f>;",
+      "@group(0) @binding(19) var<storage, read_write> projection: array<vec4f>;",
     );
     const bodyEnd = projectionCode.indexOf(
       "  let existing = inside(reprojected_uv);",
@@ -59,7 +59,9 @@ export async function runFinalPixelTemporalPullSemanticsGpuOracle(device) {
       entries: [
         { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
         { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "unfilterable-float" } },
-        { binding: 16, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+        { binding: 16, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } },
+        { binding: 18, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "unfilterable-float" } },
+        { binding: 19, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
       ],
     });
     const projectionPipeline = await device.createComputePipelineAsync({
@@ -98,11 +100,10 @@ export async function runFinalPixelTemporalPullSemanticsGpuOracle(device) {
         flags.set([0, valid ? 255 : 0, 0, 0], i * 4);
       }
       if (neighbor) {
-        // A nearer contributor has different motion and unavailable history.
-        // The adjacent background must retain its own valid depth/identity
-        // reprojection, rather than inherit this contributor's motion/flags.
-        words.set([24 / width, 0, 4, 4], neighborPixel * 4);
-        flags.set([0, 0, 0, 0], neighborPixel * 4);
+        // The effect chooses this contributor for color history. The Seed and
+        // raw depth history at adjacent pixels must retain their own facts.
+        // Exact normalized 1/16 motion avoids a rounding-dependent golden.
+        words.set([0.25 / width + 1 / 16, 0.25 / height, 4, 4], neighborPixel * 4);
       }
       device.queue.writeTexture({ texture: seed }, words, { bytesPerRow: width * 16 }, [width, height]);
       device.queue.writeTexture({ texture: response }, flags, { bytesPerRow: width * 4 }, [width, height]);
@@ -140,6 +141,11 @@ export async function runFinalPixelTemporalPullSemanticsGpuOracle(device) {
       if (node.name === "Native Temporal V2/current depth" && node.version > 0) depthId = i;
     }
     assert.ok(analysisId >= 0 && depthId >= 0);
+    let receiverId = -1;
+    for (let i = 0; i < graph.resourceNodeCount; i++) {
+      if (graph.getResourceNode(i).name === "Native Temporal V2/color receivers") receiverId = i;
+    }
+    assert.ok(receiverId >= 0);
     const projectionIds = ["Native Temporal V2/frame", "seed"].map((name) => {
       for (let i = 0; i < graph.resourceNodeCount; i++) {
         const node = graph.getResourceNode(i);
@@ -200,7 +206,9 @@ export async function runFinalPixelTemporalPullSemanticsGpuOracle(device) {
           entries: [
             { binding: 0, resource: { buffer: resources.get(projectionIds[0]) } },
             { binding: 2, resource: resources.get(projectionIds[1]).createView() },
-            { binding: 16, resource: { buffer: projections } },
+            { binding: 16, resource: resources.get(receiverId).createView() },
+            { binding: 18, resource: response.createView() },
+            { binding: 19, resource: { buffer: projections } },
           ],
         }),
       );
@@ -216,6 +224,7 @@ export async function runFinalPixelTemporalPullSemanticsGpuOracle(device) {
     });
     for (const id of [output, analysisId, depthId]) inspect.read(id);
     for (const id of projectionIds) if (id >= 0) inspect.read(id);
+    inspect.read(receiverId);
     writtenReadback = inspect.write(readbackId);
     inspect.make_side_effect();
     compiled = graph.compile();
@@ -227,6 +236,7 @@ export async function runFinalPixelTemporalPullSemanticsGpuOracle(device) {
       [
         "Native Temporal V2/Measure",
         "Native Temporal V2/Exposure",
+        "Native Temporal V2/Shading Pyramid",
         "Native Temporal V2/Analyze",
         "Native Temporal V2/Resolve",
         "FSR3/RCAS",
@@ -291,19 +301,21 @@ export async function runFinalPixelTemporalPullSemanticsGpuOracle(device) {
       for (let i = 0; i < count; i++) {
         const neighbor = cases[f].neighbor && i === neighborPixel;
         const pixel = [i % width, Math.floor(i / width)];
-        const motion = neighbor ? [23.75, -0.25] : [0, 0];
+        const nearFootprint =
+          cases[f].neighbor && Math.abs(pixel[0] - 10) <= 1 && Math.abs(pixel[1] - 6) <= 1;
+        const motion = nearFootprint ? [width / 16, 0] : [0, 0];
         const projection = values.subarray(count * 4 + i * 4, count * 4 + i * 4 + 4);
         for (let axis = 0; axis < 2; axis++) {
           assert.ok(
             Math.abs(projection[axis] - (pixel[axis] - motion[axis])) <= 2 ** -18,
-            `frame ${f}, pixel ${i} own-pixel history coordinate`,
+            `frame ${f}, pixel ${i} source-selected color history coordinate`,
           );
           assert.ok(
             Math.abs(projection[2 + axis] - motion[axis]) <= 2 ** -18,
-            `frame ${f}, pixel ${i} own-pixel motion`,
+            `frame ${f}, pixel ${i} source-selected color history motion`,
           );
         }
-        const expectedConfidence = neighbor ? 0 : cases[f].coverage;
+        const expectedConfidence = cases[f].coverage;
         if (expectedConfidence === 0 || expectedConfidence === 1) {
           assert.equal(Math.abs(values[i * 4]), expectedConfidence, `frame ${f}, pixel ${i} pull confidence`);
         } else {
@@ -332,7 +344,7 @@ export async function runFinalPixelTemporalPullSemanticsGpuOracle(device) {
       historyFilter:
         "Complete AMD source-profile Resolve versus manual point filtering and CPU radial weights",
       primaryProjection:
-        "actual Resolve entry point uses each pixel's own Seed with a nearer independently moving neighbor",
+        "actual Resolve selects the source front receiver while raw Seed/depth facts remain per-pixel",
       cachedGraphSubmissions: cases.length,
       extent: [width, height],
       semantics: [
@@ -340,7 +352,7 @@ export async function runFinalPixelTemporalPullSemanticsGpuOracle(device) {
         "raw current depth",
         "nearer prior occluder",
         "source depth separation soft confidence at one half",
-        "nearby foreground motion cannot replace the current pixel's Seed",
+        "front receiver only changes color-history consumption, not raw Seed/depth ownership",
         "abort preserves role",
         "three queue-ordered submissions",
         "fence retirement",

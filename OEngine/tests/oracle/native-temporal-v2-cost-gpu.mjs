@@ -1,6 +1,6 @@
 import { FrameGraph, FrameGraphContext } from "../../.test-dist/framegraph/FrameGraph.js";
-import { Fsr3UpscalerRuntime } from "../../.test-dist/render/passes/fsr3/Fsr3UpscalerRuntime.js";
-import { Fsr3UpscalerRuntime as BeforeRuntime } from "./fixtures/native-temporal-before-c6e8d31d.mjs";
+import { NativeTemporalV2 } from "../../.test-dist/render/temporal/NativeTemporalV2.js";
+import { Fsr3UpscalerRuntime as BeforeRuntime } from "./reference/phase4/Fsr3UpscalerRuntime.mjs";
 import { floatToHalf } from "../../.test-dist/loaders/float16.js";
 
 // Same complete temporal chain and input, ABBA order. Test reference only;
@@ -22,7 +22,9 @@ export async function runNativeTemporalV2CostGpuOracle(device) {
       ? new Uint16Array(width * height * channels)
       : bytes
         ? new Uint8Array(width * height * channels)
-        : new Float32Array(width * height * channels);
+        : format === "rgba32uint"
+          ? new Uint32Array(width * height * channels)
+          : new Float32Array(width * height * channels);
     for (let i = 0; i < width * height; i++)
       for (let k = 0; k < channels; k++) {
         const value = fill(i, k);
@@ -41,10 +43,14 @@ export async function runNativeTemporalV2CostGpuOracle(device) {
     owned.push(resource);
     return resource;
   };
-  const runtimes = [new BeforeRuntime(device), new Fsr3UpscalerRuntime(device)];
+  const runtimes = [new BeforeRuntime(device), new NativeTemporalV2(device)];
   try {
     const color = texture("rgba16float", 4, (i, k) => (k === 3 ? 1 : 0.2 + (i % 31) / 19));
     const motion = texture("rg32float", 2, (_i, k) => (k === 0 ? -0.7 / width : 0.6 / height));
+    const seed = texture("rgba32float", 4, (_i, k) =>
+      k === 0 ? -0.7 / width : k === 1 ? 0.6 / height : 0.2,
+    );
+    const identity = texture("rgba32uint", 4, () => 1);
     const facts = texture("rgba8unorm", 4, (_i, k) => (k === 1 || k === 3 ? 255 : 0));
     const depth = device.createTexture({
       size: [width, height],
@@ -66,6 +72,8 @@ export async function runNativeTemporalV2CostGpuOracle(device) {
       runtime.prepareFrame(
         { writeBuffer: (...args) => device.queue.writeBuffer(...args) },
         {
+          width,
+          height,
           renderWidth: width,
           renderHeight: height,
           outputWidth: width,
@@ -85,6 +93,10 @@ export async function runNativeTemporalV2CostGpuOracle(device) {
         graph,
         {
           color: imported("color", color),
+          seed: imported("seed", seed),
+          response: imported("response", facts),
+          identity: imported("identity", identity),
+          previousIdentity: imported("previous identity", identity),
           depth: imported("depth", depth),
           motion: imported("motion", motion),
           reactiveMask: imported("facts", facts),
@@ -172,6 +184,15 @@ export async function runNativeTemporalV2CostGpuOracle(device) {
       { bytesPerRow: width * 8 },
       [width, height],
     );
+    const stationarySeed = new Float32Array(width * height * 4);
+    for (let i = 0; i < width * height; i++) {
+      stationarySeed[i * 4 + 2] = 0.2;
+      stationarySeed[i * 4 + 3] = 0.2;
+    }
+    device.queue.writeTexture({ texture: seed }, stationarySeed, { bytesPerRow: width * 16 }, [
+      width,
+      height,
+    ]);
     counters.fill(0);
     for (let f = 0; f < 16; f++) {
       await encode(0);

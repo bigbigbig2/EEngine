@@ -57,86 +57,32 @@ const frame = {
   reset: true,
 };
 
-test("Native-resolution Temporal preserves quality histories and resets on actual two-axis policy changes", () => {
+test("FSR3 rejects native 1:1 before histories; only upscale survives ordinary frames", () => {
   const h = harness();
   const runtime = new Fsr3UpscalerRuntime(h.device);
-  const native = { ...frame, outputWidth: frame.renderWidth, outputHeight: frame.renderHeight };
-  runtime.prepareFrame(h.command, native);
-  assert.equal(runtime.policy, "native-resolution");
-  runtime.assertPreparedFrame(640, 360, 640, 360);
-  assert.equal(h.textures.filter((t) => t.label.includes("luma history")).length, 2);
-  assert.equal(h.textures.filter((t) => t.label.includes("accumulation")).length, 2);
-  assert.equal(runtime.allocatedBytes, 640 * 360 * (8 + 2 + 8 + 1) * 2 + 32 + 177);
-  runtime.commit(Promise.resolve());
-  assert.equal(runtime.canRetainHistory(320, 360, 640, 360), false);
-  runtime.prepareFrame(h.command, { ...native, renderWidth: 320, reset: false });
-  assert.equal(runtime.policy, "upscale");
-  assert.equal(h.writes.at(-1).getFloat32(124, true), 0);
-  runtime.abort();
-  assert.equal(runtime.policy, "native-resolution");
-  assert.equal(runtime.generation, 1);
-  assert.equal(runtime.readIndex, 1);
-  runtime.prepareFrame(h.command, { ...native, jitter: [-0.5, 0.25], reset: false });
-  assert.equal(h.writes.at(-1).getFloat32(124, true), 1);
-  runtime.commit(Promise.resolve());
-  runtime.destroy();
-});
-
-test("Native-resolution graph retains quality analysis and removes standalone instability/new-lock consumers", () => {
-  const h = harness();
-  const runtime = new Fsr3UpscalerRuntime(h.device);
-  runtime.prepareFrame(h.command, { ...frame, outputWidth: 640, outputHeight: 360 });
-  const graph = new FrameGraph("native-temporal-owner");
-  const imported = (name) => graph.import_resource(name, { kind: "imported", label: name }, {});
-  const resolvers = new Map();
-  const output = runtime.addToGraph(
-    graph,
-    {
-      color: imported("color"),
-      depth: imported("depth"),
-      motion: imported("motion"),
-      reactiveMask: imported("reactive"),
-      validityMask: imported("facts"),
-      preExposure: imported("pre-exposure"),
-      priorExposure: imported("prior-exposure"),
-      width: 640,
-      height: 360,
-      outputWidth: 640,
-      outputHeight: 360,
-    },
-    (name, resolve) => {
-      resolvers.set(name, resolve);
-      return resolve(runtime);
-    },
+  const count = h.textures.length;
+  assert.throws(
+    () =>
+      runtime.prepareFrame(h.command, {
+        ...frame,
+        outputWidth: frame.renderWidth,
+        outputHeight: frame.renderHeight,
+      }),
+    /true upscale domain/,
   );
-  const sink = graph.add("consume", {}, () => {});
-  sink.read(output);
-  sink.make_side_effect();
-  const dump = graph.compile().dump();
-  const names = dump.executablePassOrder.map((id) => dump.passes[id].name);
-  for (const name of [
-    "FSR3/Prepare Inputs",
-    "Native Temporal/Depth Classification",
-    "Native Temporal/Resolve",
-    "FSR3/RCAS",
-  ]) {
-    assert.equal(names.filter((n) => n === name).length, 1, name);
-  }
-  for (const name of ["Prepare Reactivity", "Luma Instability", "Accumulate", "Local Shading"]) {
-    assert.equal(
-      names.some((n) => n.includes(name)),
-      false,
-      name,
-    );
-  }
-  const priorColor = resolvers.get("FSR3/previous color")(runtime);
-  const priorLocks = resolvers.get("Native Temporal/previous confidence")(runtime);
-  runtime.abort();
-  assert.throws(() => resolvers.get("Native Temporal/previous confidence")(runtime), /prepared frame/);
-  runtime.prepareFrame(h.command, { ...frame, outputWidth: 640, outputHeight: 360 });
-  assert.notEqual(resolvers.get("FSR3/previous color")(runtime), priorColor);
-  assert.notEqual(resolvers.get("Native Temporal/previous confidence")(runtime), priorLocks);
+  assert.equal(h.textures.length, count);
+  assert.equal(runtime.policy, null);
+  runtime.prepareFrame(h.command, frame);
   runtime.commit(Promise.resolve());
+  const role = runtime.readIndex;
+  const generation = runtime.generation;
+  runtime.prepareFrame(h.command, { ...frame, renderWidth: 320, reset: false });
+  runtime.abort();
+  assert.equal(runtime.readIndex, role);
+  assert.equal(runtime.generation, generation);
+  runtime.releaseHistory();
+  assert.equal(runtime.policy, null);
+  assert.equal(runtime.canRetainHistory(640, 360, 1280, 720), false);
   runtime.destroy();
 });
 

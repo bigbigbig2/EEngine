@@ -15,6 +15,7 @@ verifies:
   - OEngine/src/gpu/GpuAuthoredEnvironment.ts
   - OEngine/src/render/program/FrameProgramLowering.ts
 ---
+
 # Shading
 
 ## 当前源码接线
@@ -39,7 +40,7 @@ verifies:
 
 ## 直接消费者与边界
 
-NativeVisibilityPass 和 VSM native alpha caster 消费同一 native material publication。Native 在一次 winner/geometry 恢复后直接写 Seed rgba32float（xy motion、zw previous/current view depth）、response rgba8unorm、完整 identity rgba32uint。NativeTemporalSeed 拥有 identity pair 与成功提交事务，cached graph late bind 当前角色；classification 不读 Visibility/Depth/Geometry/Instances，产生旧 T3/upscale mask。FSR 和 debug 消费 Seed.xy/mask；旧 Facts/Aux 已删除，native-resolution V2 仍待后续单元切换。background、Sky/Aerial、Radiometry/Post/Present 保持各自 owner。
+NativeVisibilityPass 和 VSM native alpha caster 消费同一 native material publication。Native 在一次 winner/geometry 恢复后直接写 Seed rgba32float（xy motion、zw previous/current view depth）、response rgba8unorm、完整 identity rgba32uint。NativeTemporalSeed 拥有 identity pair 与成功提交事务，cached graph late bind 当前角色；classification 不读 Visibility/Depth/Geometry/Instances，产生 upscale/debug mask。Native V2直接消费Seed/response/完整identity，按AMD参考仅为颜色历史选择前景receiver；不改变Seed本身的逐pixel事实。classifier仅为true upscale和Temporal debug产生mask；AA-off由完整Native writer证明identity提交，不执行无人消费的classifier。FSR只拥有true upscale；旧Facts/Aux及旧NativeTemporalPasses已删除。background、Sky/Aerial、Radiometry/Post/Present 保持各自 owner。
 
 旧 SurfaceWorkRuntime、GPU Tape/ExactDag interpreter、Closure Cache、coherence、field/signal heap、global Signal History 和 generic opaque Reconstruct 已从本工作树删除；不保留 adapter 或第二条生产路径。资产 cook、Graph 数学/CPU oracle、Geometry、providers、FrameGraph 与 Registry 生命周期继续由真实 owner 持有。历史 B2 数值失败没有被追认为修复；存活语义由 native update/publication/abort-retry/HDR 测试承担。
 

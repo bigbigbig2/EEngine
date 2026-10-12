@@ -21,8 +21,6 @@ verifies:
     - OEngine/src/gpu/NativeMaterialBindings.ts
     - OEngine/src/gpu/NativeMaterialProducts.ts
     - OEngine/src/render/temporal/NativeTemporalSeed.ts
-    - OEngine/src/render/temporal/NativeTemporalPasses.ts
-    - OEngine/src/shaders/native_temporal.ts
     - OEngine/src/shaders/native_temporal_amd.ts
     - OEngine/src/render/temporal/NativeTemporalV2.ts
     - OEngine/tests/oracle/final-pixel-temporal-pull-gpu.mjs
@@ -1568,7 +1566,7 @@ VSM atlas/residency、receiver aggregation、compact descriptor、local invalida
 
 Local：c71c6d31生产Facts的jittered motion、四字段identity/signature、hard/soft replacement及MASK边界语义，迁到`native_temporal_seed.ts`与`NativeTemporalMath.ts`；directory32B直接承载publication版本，raster16B保持。Adapt：Native已有position/instance/material时写最小Seed，Temporal-owned identity提交事务与轻量跨像素classification；删Facts/Aux/separate versions。未移植新外部算法，T3/FSR来源状态不变。test-only `reference/s3/native_surface_aux.mjs`冻结旧Facts源码；1080p子矩阵另用独立解析平面/相机motion核对数值放大，不将它冒称8×8积分AA golden或整Renderer质量。
 
-## V5 Phase4 previous-depth pull 非生产候选（2026-10-12）
+## V5 Phase4 previous-depth pull 原候选映射（2026-10-12，历史检查点）
 
 选定Reference/Adapt：AMD FidelityFX SDK1.1.4，MIT，revision `c6efa6bf7f2027b3ec94f28578bb5965eabb9e55`，固定源码 `tools/fsr3-port/upstream/sdk/include/FidelityFX/gpu/fsr3upscaler/` 与 `sdk/src/components/fsr3upscaler/ffx_fsr3upscaler.cpp`。本轮核读完整prepare_inputs、luma_pyramid、shading_change_pyramid、shading_change、prepare_reactivity、luma_instability、upsample、sample、reproject、accumulate及host reset；原Native T3 test fixture也是明确的本地参考，而非伪称未改写AMD源码。
 
@@ -1589,4 +1587,12 @@ NVIDIA Donut revision `e50042f4bbd762971cc90431261e967404855b81`（MIT），`sha
 
 Frozen `tests/oracle/reference/phase4/`为旧production质量reference；必要shared FSR helpers/RCAS/constants仍来自未改动test build，改它们时必须维持Before冻结。8场景complete Resolve differential及提交生命周期通过；完整Measure/Analyze数值与small质量、1080p动态、real writer、Renderer policy/cutover和成本尚未全闭合。候选只由oracle消费，**不声明完整SDK移植adoption、production Runtime Validated或performance改善**。
 
-2026-10-12后续来源核对：AMD `prepare_inputs.h::FindDepthExtents`、已有Wicked MIT pin的`temporalaaCS.hlsl::main`均为颜色历史选择邻近前景motion。Unity Graphics [`6c031c7fd8cdc77b5879da5e823a159cda8c6f64::TemporalAntialiasing.hlsl`](https://github.com/Unity-Technologies/Graphics/blob/6c031c7fd8cdc77b5879da5e823a159cda8c6f64/Packages/com.unity.render-pipelines.high-definition/Runtime/PostProcessing/Shaders/TemporalAntialiasing.hlsl)的`GetClosestFragmentOffset/GetMotionVector`同样采用前景/最大motion；该仓库为Unity Companion License，仅研究算法边界，**不复制其源码到EEngine**。这些源码不证明必须恢复独立Prepare pass/scatter，也不证明own-motion方案数学上不可能；它们证明当前AMD profile的输入合同包含轮廓motion选择。该消费合同修订已请求用户确认，当前尚未实施。
+2026-10-12后续来源核对：AMD `prepare_inputs.h::FindDepthExtents`、已有Wicked MIT pin的`temporalaaCS.hlsl::main`均为颜色历史选择邻近前景motion。Unity Graphics [`6c031c7fd8cdc77b5879da5e823a159cda8c6f64::TemporalAntialiasing.hlsl`](https://github.com/Unity-Technologies/Graphics/blob/6c031c7fd8cdc77b5879da5e823a159cda8c6f64/Packages/com.unity.render-pipelines.high-definition/Runtime/PostProcessing/Shaders/TemporalAntialiasing.hlsl)的`GetClosestFragmentOffset/GetMotionVector`同样采用前景/最大motion；该仓库为Unity Companion License，仅研究算法边界，**不复制其源码到EEngine**。这些源码不证明必须恢复独立Prepare pass/scatter，也不证明own-motion方案数学上不可能；它们证明当前AMD profile的输入合同包含轮廓motion选择。该历史检查点请求的消费合同已获用户明确批准，当前映射见下节。
+
+### V5 Phase4 receiver / Native生产cutover映射（2026-10-12）
+
+Reference仍为AMD SDK1.1.4 MIT pin `c6efa6bf7f2027b3ec94f28578bb5965eabb9e55`。`prepare_inputs.h::FindDepthExtents/DilateMotionVector`→Measure receiver index与显式RG16 motion边界；`shading_change_pyramid.h::ComputeMinimumDifference/SpdLoadSourceImage`→Native Shading Pyramid的五样本排序/source difference与2/4/8合作box；`prepare_reactivity.h::ComputeDisocclusions`→Analyze的Ksep响应，Adapt为previous raw depth pull、颜色域资格与nearest footprint贡献者；`accumulate.h / reproject.h / luma_instability.h`→Resolve完整profile；host reset与Exposure→Native owner。没有D3D/Vulkan/wave/global SPD tail/scatter实现进入Native hot path。数据域适配改变depth资格，不称bit-exact源算法。
+
+用户已明确批准foreground color receiver消费。Unity只研究（Companion License，不复制），Wicked只作MIT行为交叉参考；不在AMD profile中拼接它们的clamp/aging算法。旧T3被冻结在tests/oracle/reference/phase4；production NativeTemporalPasses/native_temporal已删除，FSR3UpscalerRuntime只拥有true upscale。新增全分辨率产品仅receiver4B，Shading三个缩率产品合计1.3125B/pixel、真实Analyze consumer；不发布SurfaceRecord/GBuffer，不重载Geometry。
+
+完整Resolve独立GPU差分、actual Seed/Analyze/Native writer、生命周期、17小动态序列、1080p六类×256帧×8ROI矩阵、最终ordinary/Product真实Renderer主链与有限整Temporal成本检查已通过，build身份、范围及保留失败见Phase4 performance report。数值检查保留参考格式/硬件采样边界；Native depth资格为明确本地数据域适配。生产消费已验证，但不称完整SDK bit-exact移植；合成unit break-even不晋级whole-renderer quality/performance claim，正式资格留Phase5/6。
