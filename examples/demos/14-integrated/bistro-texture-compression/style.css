@@ -399,3 +399,9 @@ dd {
 #error:empty {
   display: none;
 }
+.vsm-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 10px 0;
+}
