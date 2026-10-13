@@ -6,6 +6,11 @@ export const GPU_MESHLET_RASTER_WORK_RECORD_STRIDE = 24;
 export const GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE = 32;
 export const GPU_MESHLET_WORK_INVALID_GENERATION = 0;
 export const GPU_MESHLET_WORK_QUEUE_CLASS = "CorrectnessCritical" as const;
+/** Product candidate's 16 B settings word 0; remaining words keep their layout. */
+export const GPU_PRODUCT_MESHLET_WORK_SETTINGS_FLAGS = Object.freeze({
+  Counters: 1 << 0,
+  StickyFailure: 1 << 1,
+});
 export const GPU_MESHLET_BUCKET_TRIANGLE_CAPACITIES = Object.freeze([32, 64, 96, 128] as const);
 export const GPU_MESHLET_BUCKET_DECODE_PROFILE_COUNT = 2;
 export const GPU_MESHLET_BUCKET_RASTER_PIPELINE_COUNT = 2;

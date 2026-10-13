@@ -142,6 +142,7 @@ export class ShadowGeometryWork {
         counterBuffer: job.runtime.counterSink,
         countersEnabled: false,
         scene: job.scene,
+        stickyFailure: job.runtime.hierarchyRasterWorkCapacity > main.key.meshletWorkCandidateCapacity,
       };
       work = job.virtualGeometry
         ? this.product.prepare({
@@ -221,6 +222,12 @@ export class ShadowGeometryWork {
     }
     if (prepared.work.productMode) {
       this.product.encode(command, prepared.work);
+      if (job.runtime.hierarchyRasterWorkCapacity > prepared.work.capacity) {
+        if (!job.streamingRuntime || job.demandFrameIndex === undefined) {
+          throw new Error("Bounded shadow Product work requires its streaming status owner");
+        }
+        job.streamingRuntime.encodeWorkStatusReadback(command, prepared.work.queue, job.demandFrameIndex, true);
+      }
     } else {
       this.ordinary.encode(command, prepared.work);
     }

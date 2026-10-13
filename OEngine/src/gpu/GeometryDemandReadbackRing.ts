@@ -256,13 +256,14 @@ export class GpuGeometryDemandReadbackRingV1 {
   }
 
   /** Encodes a bounded queue copy and never maps or waits for the GPU. */
-  encode(encoder: GPUCommandEncoder, source: GPUBuffer, frameIndex: number): number | undefined {
+  encode(encoder: GPUCommandEncoder, source: GPUBuffer, frameIndex: number, byteLength = source.size): number | undefined {
     this.assertAlive();
-    if (!Number.isInteger(source.size) || source.size <= 0 || source.size > this.#bytesPerSlot) {
+    if (!Number.isInteger(byteLength) || byteLength <= 0 || byteLength % 4 !== 0 ||
+        byteLength > source.size || byteLength > this.#bytesPerSlot) {
       throw new RangeError("GPU demand source exceeds the readback slot capacity");
     }
     return this.#ring.reserve(frameIndex, (slot) => {
-      encoder.copyBufferToBuffer(source, 0, this.#buffers[slot.index]!, 0, source.size);
+      encoder.copyBufferToBuffer(source, 0, this.#buffers[slot.index]!, 0, byteLength);
     });
   }
 

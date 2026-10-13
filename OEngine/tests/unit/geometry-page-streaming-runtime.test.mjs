@@ -6,15 +6,12 @@ import { Signal } from "../../.test-dist/core/Signal.js";
 globalThis.GPUBufferUsage ??= Object.freeze({ MAP_READ: 1, COPY_DST: 2 });
 globalThis.GPUMapMode ??= Object.freeze({ READ: 1 });
 
-const { GpuGeometryDemandReadbackRingV1 } = await import(
-  "../../.test-dist/gpu/GeometryDemandReadbackRing.js"
-);
-const { GeometryPageStreamingRuntimeV1 } = await import(
-  "../../.test-dist/gpu/GeometryPageStreamingRuntime.js"
-);
-const { packGeometryPageDemandHeaderV1, packGeometryPageDemandV1 } = await import(
-  "../../.test-dist/gpu/GeometryPageDemandAbiV1.js"
-);
+const { GpuGeometryDemandReadbackRingV1 } =
+  await import("../../.test-dist/gpu/GeometryDemandReadbackRing.js");
+const { GeometryPageStreamingRuntimeV1 } =
+  await import("../../.test-dist/gpu/GeometryPageStreamingRuntime.js");
+const { packGeometryPageDemandHeaderV1, packGeometryPageDemandV1 } =
+  await import("../../.test-dist/gpu/GeometryPageDemandAbiV1.js");
 
 class FakeBuffer {
   constructor(descriptor) {
@@ -76,21 +73,37 @@ test("shadow content identity observes every resident owner and explicit retirem
     productTableSlot: generation - 1,
     publicationActive: true,
     publicationChanged: new Signal(),
-    descriptor: { productId: new Uint8Array(32), revision: 0, decodedPageBytes: 262144, pageRecords: new Uint8Array(64) },
+    descriptor: {
+      productId: new Uint8Array(32),
+      revision: 0,
+      decodedPageBytes: 262144,
+      pageRecords: new Uint8Array(64)
+    },
     pageLocation: () => ({ flags: 0 }),
-    beginRetirePage() { this.contentRevision++; },
+    beginRetirePage() {
+      this.contentRevision++;
+    },
     completeRetirePage() {},
-    evidence() { return {}; },
+    evidence() {
+      return {};
+    }
   });
-  const first = makeResidency(1), second = makeResidency(2);
+  const first = makeResidency(1),
+    second = makeResidency(2);
   const runtime = new GeometryPageStreamingRuntimeV1(device(), first, {
     readback: { slotCount: 2, bytesPerSlot: 64 }
   });
-  const register = (residency) => runtime.registerProduct({
-    descriptor: residency.descriptor,
-    readPage() { throw new Error("Content observation must not read a page"); },
-    release() {}
-  }, residency);
+  const register = (residency) =>
+    runtime.registerProduct(
+      {
+        descriptor: residency.descriptor,
+        readPage() {
+          throw new Error("Content observation must not read a page");
+        },
+        release() {}
+      },
+      residency
+    );
   register(first);
   const initial = runtime.contentRevision;
   assert.equal(runtime.contentRevision, initial);
@@ -115,7 +128,9 @@ test("resident feedback protects hot pages without IO and bounds shared-pool evi
   const events = [];
   const { GeometryPageSchedulerV1 } = await import("../../.test-dist/gpu/GeometryPageScheduler.js");
   const scheduler = new GeometryPageSchedulerV1({
-    maxConcurrentReads: 1, maxInFlightBytes: 262144, maxUploadBytesPerFrame: 262144,
+    maxConcurrentReads: 1,
+    maxInFlightBytes: 262144,
+    maxUploadBytesPerFrame: 262144
   });
   // Exercise feedback/retirement under pressure independently of page decoding.
   scheduler.drainUploadBudget = () => 0;
@@ -124,55 +139,102 @@ test("resident feedback protects hot pages without IO and bounds shared-pool evi
   const makeResidency = (generation) => {
     const used = new Map();
     return {
-      publicationActive: true, publicationChanged: new Signal(),
-      productGeneration: generation, productTableSlot: generation - 1,
-      descriptor: { productId: new Uint8Array(32), revision: 0, decodedPageBytes: 262144, pageRecords: new Uint8Array(64) },
-      touchPage(page, frame) { used.set(page, frame); },
-      recordDemand() { throw new Error("Usage must not be recorded as a miss"); },
+      publicationActive: true,
+      publicationChanged: new Signal(),
+      productGeneration: generation,
+      productTableSlot: generation - 1,
+      descriptor: {
+        productId: new Uint8Array(32),
+        revision: 0,
+        decodedPageBytes: 262144,
+        pageRecords: new Uint8Array(64)
+      },
+      touchPage(page, frame) {
+        used.set(page, frame);
+      },
+      recordDemand() {
+        throw new Error("Usage must not be recorded as a miss");
+      },
       selectEvictionCandidates(frame, bytes, age) {
         events.push({ generation, frame, bytes });
         return bytes >= 262144 && frame - (used.get(0) ?? -100) >= age ? [0] : [];
       },
-      residentPagePhysicalBytes() { return 262144; },
-      beginRetirePage(page) { events.push(`begin:${generation}:${page}`); },
-      completeRetirePage(page) { events.push(`end:${generation}:${page}`); },
-      evidence() { return {}; },
+      residentPagePhysicalBytes() {
+        return 262144;
+      },
+      beginRetirePage(page) {
+        events.push(`begin:${generation}:${page}`);
+      },
+      completeRetirePage(page) {
+        events.push(`end:${generation}:${page}`);
+      },
+      evidence() {
+        return {};
+      }
     };
   };
-  const first = makeResidency(1), second = makeResidency(2), third = makeResidency(3);
+  const first = makeResidency(1),
+    second = makeResidency(2),
+    third = makeResidency(3);
   const runtime = new GeometryPageStreamingRuntimeV1(device(), first, {
-    scheduler, readback: { slotCount: 2, bytesPerSlot: 64 },
+    scheduler,
+    readback: { slotCount: 2, bytesPerSlot: 64 }
   });
   for (const residency of [first, second, third]) {
-    runtime.registerProduct({
-      descriptor: residency.descriptor,
-      readPage() { throw new Error("Resident usage must never read a page"); }, release() {},
-    }, residency);
+    runtime.registerProduct(
+      {
+        descriptor: residency.descriptor,
+        readPage() {
+          throw new Error("Resident usage must never read a page");
+        },
+        release() {}
+      },
+      residency
+    );
   }
   const buffer = new FakeBuffer({ size: 32, usage: 0 });
-  buffer.bytes.set(packGeometryPageDemandHeaderV1({ attempted: 1, capacity: 1, overflow: 0, frameRevisionLow: 10 }));
-  buffer.bytes.set(packGeometryPageDemandV1({
-    productTableSlot: 0, productGeneration: 1, pageId: 0, priority: 0,
-    currentViewMissing: false, shadow: false, predictive: false, residentUsage: true,
-  }), 16);
+  buffer.bytes.set(
+    packGeometryPageDemandHeaderV1({ attempted: 1, capacity: 1, overflow: 0, frameRevisionLow: 10 })
+  );
+  buffer.bytes.set(
+    packGeometryPageDemandV1({
+      productTableSlot: 0,
+      productGeneration: 1,
+      pageId: 0,
+      priority: 0,
+      currentViewMissing: false,
+      shadow: false,
+      predictive: false,
+      residentUsage: true
+    }),
+    16
+  );
   runtime.encodeDemandReadback(command(), buffer, 10);
   await runtime.consumeCompleted(100); // completion clock must not age the hot page
   assert.deepEqual(events, [
     { generation: 1, frame: 10, bytes: 262144 },
-    { generation: 2, frame: 10, bytes: 262144 }, "begin:2:0", "end:2:0",
+    { generation: 2, frame: 10, bytes: 262144 },
+    "begin:2:0",
+    "end:2:0"
   ]);
   assert.equal(scheduler.evidence().requested, 0);
   assert.equal(scheduler.evidence().inFlightBytes, 0);
   assert.equal(scheduler.evidence().verifiedBytes, 0);
   events.length = 0;
-  buffer.bytes.set(packGeometryPageDemandHeaderV1({ attempted: 2, capacity: 1, overflow: 1, frameRevisionLow: 101 }));
+  buffer.bytes.set(
+    packGeometryPageDemandHeaderV1({ attempted: 2, capacity: 1, overflow: 1, frameRevisionLow: 101 })
+  );
   runtime.encodeDemandReadback(command(), buffer, 101);
   await runtime.consumeCompleted(102);
   assert.deepEqual(events, []); // incomplete usage cannot authorize eviction
   // A complete main snapshot cannot override incomplete active-shadow usage.
-  buffer.bytes.set(packGeometryPageDemandHeaderV1({ attempted: 1, capacity: 1, overflow: 0, frameRevisionLow: 103 }));
+  buffer.bytes.set(
+    packGeometryPageDemandHeaderV1({ attempted: 1, capacity: 1, overflow: 0, frameRevisionLow: 103 })
+  );
   runtime.encodeDemandReadback(command(), buffer, 103);
-  buffer.bytes.set(packGeometryPageDemandHeaderV1({ attempted: 2, capacity: 1, overflow: 1, frameRevisionLow: 103 }));
+  buffer.bytes.set(
+    packGeometryPageDemandHeaderV1({ attempted: 2, capacity: 1, overflow: 1, frameRevisionLow: 103 })
+  );
   runtime.encodeShadowDemandReadback(command(), buffer, 103);
   await runtime.consumeCompleted(104);
   assert.deepEqual(events, []);
@@ -181,7 +243,9 @@ test("resident feedback protects hot pages without IO and bounds shared-pool evi
   for (const frame of [104, 105, 106, 107]) {
     runtime.encodeShadowDemandReadback(command(), buffer, frame);
   }
-  buffer.bytes.set(packGeometryPageDemandHeaderV1({ attempted: 1, capacity: 1, overflow: 0, frameRevisionLow: 107 }));
+  buffer.bytes.set(
+    packGeometryPageDemandHeaderV1({ attempted: 1, capacity: 1, overflow: 0, frameRevisionLow: 107 })
+  );
   runtime.encodeDemandReadback(command(), buffer, 107);
   await runtime.consumeCompleted(108);
   assert.deepEqual(events, []);
@@ -209,9 +273,65 @@ test("GPU demand ring copies in-frame and maps only after a later completion", a
 
 function deferred() {
   let resolve, reject;
-  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+  const promise = new Promise((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
   return { promise, resolve, reject };
 }
+
+test("bounded work status reports a whole-cut failure even with optional counters disabled", async () => {
+  const runtime = new GeometryPageStreamingRuntimeV1(
+    device(),
+    { evidence: () => ({}) },
+    {
+      readback: { slotCount: 2, bytesPerSlot: 64 }
+    }
+  );
+  const source = new FakeBuffer({ size: 128, usage: 0 });
+  // Finalize clears a rejected cut, while the reservation counters remain diagnostics.
+  source.bytes.set(new Uint8Array(new Uint32Array([2, 0, 0, 1, 1, 7, 0, 0]).buffer));
+  runtime.encodeWorkStatusReadback(command(), source, 10);
+  assert.equal(runtime.evidence().workStatus, undefined);
+  await runtime.consumeCompleted(10);
+  assert.equal(runtime.evidence().workStatus, undefined);
+  await assert.rejects(
+    runtime.consumeCompleted(11),
+    /Main MeshletWork frame 10 rejected.*attempted=2.*capacity=1.*overflow=1/
+  );
+  assert.equal(runtime.evidence().workStatus.header.writtenCount, 0);
+  assert.equal(runtime.evidence().workStatus.header.overflowCount, 1);
+  assert.match(runtime.evidence().lastError, /rejected/);
+  runtime.destroy();
+});
+
+test("bounded work header copy obeys abort/retry and independent main/shadow frame identities", async () => {
+  const runtime = new GeometryPageStreamingRuntimeV1(
+    device(),
+    { evidence: () => ({}) },
+    {
+      readback: { slotCount: 2, bytesPerSlot: 64 }
+    }
+  );
+  const source = new FakeBuffer({ size: 128, usage: 0 });
+  source.bytes.set(new Uint8Array(new Uint32Array([1, 1, 0, 4, 0, 3, 0, 0]).buffer));
+  const aborted = [];
+  runtime.encodeWorkStatusReadback(
+    { gpu_encoder: encoder(), onFinished: { addOne() {} }, onAborted: { addOne: (c) => aborted.push(c) } },
+    source,
+    3
+  );
+  aborted.forEach((c) => c());
+  await runtime.consumeCompleted(4);
+  assert.equal(runtime.evidence().workStatus, undefined);
+  runtime.encodeWorkStatusReadback(command(), source, 3);
+  runtime.encodeWorkStatusReadback(command(), source, 3, true);
+  await runtime.consumeCompleted(4);
+  assert.equal(runtime.evidence().workStatus.shadow, true);
+  assert.equal(runtime.evidence().workStatus.header.writtenCount, 1);
+  assert.equal(runtime.evidence().lastError, null);
+  runtime.destroy();
+});
 
 for (const shadow of [false, true]) {
   test(`loss cancels pending ${shadow ? "shadow" : "main"} mapping and queued pumps`, async () => {
@@ -223,7 +343,10 @@ for (const shadow of [false, true]) {
       lost: lost.promise,
       createBuffer(descriptor) {
         const buffer = new FakeBuffer(descriptor);
-        buffer.mapAsync = () => { started.resolve(); return mapping.promise; };
+        buffer.mapAsync = () => {
+          started.resolve();
+          return mapping.promise;
+        };
         buffers.push(buffer);
         return buffer;
       }
@@ -257,12 +380,18 @@ test("live-device mapping failures remain observable", async () => {
   const gpu = device();
   gpu.createBuffer = (descriptor) => {
     const buffer = new FakeBuffer(descriptor);
-    buffer.mapAsync = async () => { throw new Error("real live mapping failure"); };
+    buffer.mapAsync = async () => {
+      throw new Error("real live mapping failure");
+    };
     return buffer;
   };
-  const runtime = new GeometryPageStreamingRuntimeV1(gpu, { evidence: () => ({}) }, {
-    readback: { slotCount: 2, bytesPerSlot: 64 }
-  });
+  const runtime = new GeometryPageStreamingRuntimeV1(
+    gpu,
+    { evidence: () => ({}) },
+    {
+      readback: { slotCount: 2, bytesPerSlot: 64 }
+    }
+  );
   runtime.encodeDemandReadback(command(), new FakeBuffer({ size: 32, usage: 0 }), 1);
   await assert.rejects(runtime.consumeAfterCompletion(1, Promise.resolve()), (error) => {
     assert.match(error.message, /Geometry demand mapping failed/);
@@ -273,7 +402,12 @@ test("live-device mapping failures remain observable", async () => {
   runtime.destroy();
 });
 
-for (const [shadow, rangeInvalidated] of [[false, false], [true, false], [false, true], [true, true]]) {
+for (const [shadow, rangeInvalidated] of [
+  [false, false],
+  [true, false],
+  [false, true],
+  [true, true]
+]) {
   test(`${rangeInvalidated ? "mapped range invalidation" : "map abort"} before loss notification cancels ${shadow ? "shadow" : "main"} pump`, async () => {
     const lost = deferred();
     const started = deferred();
@@ -284,17 +418,26 @@ for (const [shadow, rangeInvalidated] of [[false, false], [true, false], [false,
       queue: { onSubmittedWorkDone: async () => {} },
       createBuffer(descriptor) {
         const buffer = new FakeBuffer(descriptor);
-        buffer.mapAsync = () => { started.resolve(); return mapping.promise; };
+        buffer.mapAsync = () => {
+          started.resolve();
+          return mapping.promise;
+        };
         if (rangeInvalidated) {
-          buffer.getMappedRange = () => { throw new DOMException("Lost mapped range", "OperationError"); };
+          buffer.getMappedRange = () => {
+            throw new DOMException("Lost mapped range", "OperationError");
+          };
         }
         buffers.push(buffer);
         return buffer;
       }
     };
-    const runtime = new GeometryPageStreamingRuntimeV1(gpu, { evidence: () => ({}) }, {
-      readback: { slotCount: 2, bytesPerSlot: 64 }
-    });
+    const runtime = new GeometryPageStreamingRuntimeV1(
+      gpu,
+      { evidence: () => ({}) },
+      {
+        readback: { slotCount: 2, bytesPerSlot: 64 }
+      }
+    );
     const source = new FakeBuffer({ size: 32, usage: 0 });
     if (shadow) runtime.encodeShadowDemandReadback(command(), source, 1);
     else runtime.encodeDemandReadback(command(), source, 1);
@@ -319,12 +462,18 @@ test("live-device AbortError is not classified as loss", async () => {
   gpu.queue = { onSubmittedWorkDone: async () => {} };
   gpu.createBuffer = (descriptor) => {
     const buffer = new FakeBuffer(descriptor);
-    buffer.mapAsync = async () => { throw new DOMException("live map abort", "AbortError"); };
+    buffer.mapAsync = async () => {
+      throw new DOMException("live map abort", "AbortError");
+    };
     return buffer;
   };
-  const runtime = new GeometryPageStreamingRuntimeV1(gpu, { evidence: () => ({}) }, {
-    readback: { slotCount: 2, bytesPerSlot: 64 }
-  });
+  const runtime = new GeometryPageStreamingRuntimeV1(
+    gpu,
+    { evidence: () => ({}) },
+    {
+      readback: { slotCount: 2, bytesPerSlot: 64 }
+    }
+  );
   runtime.encodeDemandReadback(command(), new FakeBuffer({ size: 32, usage: 0 }), 1);
   await assert.rejects(runtime.consumeAfterCompletion(1, Promise.resolve()), (error) => {
     assert.match(error.message, /Geometry demand mapping failed/);
@@ -337,7 +486,10 @@ test("live-device AbortError is not classified as loss", async () => {
 
 test("destroyed runtime cancels rejected completion; live rejection remains an error", async () => {
   const runtime = new GeometryPageStreamingRuntimeV1(device(), { evidence: () => ({}) });
-  await assert.rejects(runtime.consumeAfterCompletion(1, Promise.reject(new Error("live fence"))), /live fence/);
+  await assert.rejects(
+    runtime.consumeAfterCompletion(1, Promise.reject(new Error("live fence"))),
+    /live fence/
+  );
   const completion = deferred();
   const pump = runtime.consumeAfterCompletion(2, completion.promise);
   runtime.destroy();
@@ -655,9 +807,8 @@ test("runtime destruction unregisters the Product and aborts pending page reads"
 });
 
 test("canonical residency feedback preserves raw multiplicity, order and full generation/slot rejection", async () => {
-  const { GeometryPageStreamingRuntimeV1 } = await import(
-    "../../.test-dist/gpu/GeometryPageStreamingRuntime.js"
-  );
+  const { GeometryPageStreamingRuntimeV1 } =
+    await import("../../.test-dist/gpu/GeometryPageStreamingRuntime.js");
   const abi = await import("../../.test-dist/gpu/GeometryPageDemandAbiV1.js");
   const { GeometryPageSchedulerV1 } = await import("../../.test-dist/gpu/GeometryPageScheduler.js");
   const events = [];

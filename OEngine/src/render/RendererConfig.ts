@@ -1,4 +1,8 @@
 import { resolveExposureSettings, type ExposureSettings } from "./temporal/ExposureSettings.js";
+import {
+  DEFAULT_FRAME_GEOMETRY_ARENA_MAX_BYTES,
+  DEFAULT_FRAME_GEOMETRY_OWNER_MAX_BYTES
+} from "../gpu/GpuFrameGeometryArenaAbi.js";
 
 /** Immutable Renderer capability and execution configuration. */
 export interface RendererConfig {
@@ -21,6 +25,13 @@ export interface RendererConfig {
     readonly maxUploadBytes?: number;
     readonly maxResidentBytes?: number;
   }>;
+  /** Immutable frame geometry ceilings. Allocates only admitted work; oversize
+   * work or device limits reject before buffer creation. Owner includes all
+   * live views and fence-retired worksets. Defaults: 512 MiB/view, 1 GiB/owner. */
+  readonly frameGeometry?: Readonly<{
+    readonly maxBytes?: number;
+    readonly ownerMaxBytes?: number;
+  }>;
   readonly requiredFeatures?: readonly GPUFeatureName[];
   readonly requiredLimits?: Readonly<{
     maxStorageBuffersPerShaderStage?: number;
@@ -38,6 +49,7 @@ export function mergeRendererConfig(base: RendererConfig, override?: RendererCon
     requiredFeatures: Object.freeze([...(base.requiredFeatures ?? []), ...(override.requiredFeatures ?? [])]),
     requiredLimits: Object.freeze({ ...base.requiredLimits, ...override.requiredLimits }),
     geometryResidency: Object.freeze({ ...base.geometryResidency, ...override.geometryResidency }),
+    frameGeometry: Object.freeze({ ...base.frameGeometry, ...override.frameGeometry })
   });
 }
 
@@ -59,6 +71,17 @@ export function validateRendererConfig(config: RendererConfig): void {
     if (!Number.isSafeInteger(value) || value <= 0 || value % 4 !== 0) {
       throw new RangeError(`geometryResidency.${name} must be a positive 4-byte-aligned integer`);
     }
+  }
+  for (const [name, value] of Object.entries(config.frameGeometry ?? {})) {
+    if (!Number.isSafeInteger(value) || value <= 0 || value % 4 !== 0) {
+      throw new RangeError(`frameGeometry.${name} must be a positive 4-byte-aligned integer`);
+    }
+  }
+  if (
+    (config.frameGeometry?.maxBytes ?? DEFAULT_FRAME_GEOMETRY_ARENA_MAX_BYTES) >
+    (config.frameGeometry?.ownerMaxBytes ?? DEFAULT_FRAME_GEOMETRY_OWNER_MAX_BYTES)
+  ) {
+    throw new RangeError("frameGeometry.maxBytes exceeds ownerMaxBytes");
   }
   for (const feature of config.requiredFeatures ?? []) {
     if (!feature) throw new Error("Required WebGPU feature must not be empty");

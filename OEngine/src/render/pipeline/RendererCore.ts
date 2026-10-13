@@ -1735,7 +1735,12 @@ export class Renderer {
         if (info.reason !== "destroyed") console.error("GPUDevice lost", info);
       }
     });
-    this._graphics = new GraphicsContext(device, this._profiler, config.geometryResidency);
+    this._graphics = new GraphicsContext(
+      device,
+      this._profiler,
+      config.geometryResidency,
+      config.frameGeometry?.ownerMaxBytes,
+    );
     await this._graphics.initialize();
     const canvas = context.canvas as HTMLCanvasElement;
     this._width = Math.max(1, canvas.clientWidth || canvas.width);
@@ -2230,6 +2235,9 @@ export class Renderer {
         virtualGeometry: runtime.virtualGeometry ?? undefined,
         sseThreshold: this.packed_visibility_sse_threshold,
         geometryWorkBudget: this.packed_geometry_work_budget,
+        frameGeometryBudget: this._initializationConfig?.frameGeometry?.maxBytes === undefined
+          ? undefined
+          : { maxBytes: this._initializationConfig.frameGeometry.maxBytes },
         coneEnabled: this.packed_visibility_cone_enabled,
         meshletWorkCandidateCapacity: this.packed_meshlet_work_candidate_capacity,
         meshletWorkCompactionPath: this.packed_meshlet_work_compaction,

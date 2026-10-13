@@ -36,7 +36,25 @@ export interface GeometryProductSceneWorkload {
   readonly hierarchyMaxDepth: number;
   readonly hierarchyTraversalCapacity: number;
   readonly hierarchyVisibleClusterCapacity: number;
+  /** Full-refinement logical bound, not a frame-local VisibilityKey slot count. */
   readonly hierarchyRasterWorkCapacity: number;
+}
+
+/** Physical frame-local work ceiling. It is independent of scene instance
+ * multiplicity; overflow invalidates the whole GPU cut, never a partial draw. */
+export const DEFAULT_PRODUCT_MESHLET_WORK_CAPACITY = 4 * 1024 * 1024;
+
+export function geometryProductMeshletWorkCapacity(
+  logicalBound: number,
+  requestedCapacity = DEFAULT_PRODUCT_MESHLET_WORK_CAPACITY,
+): number {
+  requestedCapacity = requestedCapacity === 0 ? DEFAULT_PRODUCT_MESHLET_WORK_CAPACITY : requestedCapacity;
+  if (!Number.isSafeInteger(logicalBound) || logicalBound <= 0 || logicalBound > 0xffffffff ||
+      !Number.isSafeInteger(requestedCapacity) || requestedCapacity <= 0 ||
+      requestedCapacity > GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_CAPACITY) {
+    throw new RangeError("Product physical MeshletWork capacity is outside its namespace");
+  }
+  return Math.min(logicalBound, requestedCapacity);
 }
 
 // Product descriptors are immutable publications. This analysis is performed
@@ -140,9 +158,6 @@ export function geometryProductSceneWorkload(
     visible = checkedGeometryWorkCount(visible + asset.visibleGroups, "Product visible capacity");
     raster = checkedGeometryWorkCount(raster + asset.meshlets, "Product MeshletWork capacity");
   }
-  if (raster > GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_CAPACITY) {
-    throw new RangeError("Product MeshletWork exceeds the r32 VisibilityKey namespace");
-  }
   return Object.freeze({
     hierarchyMaxDepth,
     hierarchyTraversalCapacity: Math.max(1, traversal),
@@ -185,7 +200,7 @@ export function validateGeometryProductSceneWorkLimits(
     ],
     [
       "MeshletWork",
-      work.hierarchyRasterWorkCapacity,
+      geometryProductMeshletWorkCapacity(work.hierarchyRasterWorkCapacity),
       GPU_MESHLET_RASTER_WORK_RECORD_STRIDE,
       GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE,
     ],
@@ -193,9 +208,6 @@ export function validateGeometryProductSceneWorkLimits(
     if (header + capacity * stride > maximum) {
       throw new RangeError(`Product ${name} capacity exceeds negotiated storage-buffer limits`);
     }
-  }
-  if (work.hierarchyRasterWorkCapacity > GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_CAPACITY) {
-    throw new RangeError("Product MeshletWork exceeds the r32 VisibilityKey namespace");
   }
   const dimension = limits.maxComputeWorkgroupsPerDimension;
   if (

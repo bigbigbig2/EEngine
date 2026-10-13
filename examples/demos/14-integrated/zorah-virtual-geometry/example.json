@@ -1,0 +1,7 @@
+{
+  "id": "zorah-virtual-geometry",
+  "category": "14-integrated",
+  "title": "Zorah · Virtual Geometry Stress Lab",
+  "description": "Local offline Zorah OEGPACK stress lab with explicit scene ranges, residency diagnostics, GPU timings and geometry debug views.",
+  "tags": ["integrated", "offline-cook", "virtual-geometry", "stress-test"]
+}

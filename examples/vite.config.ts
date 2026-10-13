@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import { bistroLocalModel } from "./demos/14-integrated/bistro-texture-compression/local-model";
 import { dungeonLocalModel } from "./demos/14-integrated/dungeon-warkarma-texture-compression/local-model";
+import { zorahLocalModel } from "./demos/14-integrated/zorah-virtual-geometry/local-model";
 
 const examplesRoot = fileURLToPath(new URL(".", import.meta.url));
 const demosRoot = resolve(examplesRoot, "demos");
@@ -36,7 +37,7 @@ function collectExamplePages(directory: string): Record<string, string> {
 
 export default defineConfig({
   root: examplesRoot,
-  plugins: [bistroLocalModel(examplesRoot), dungeonLocalModel(examplesRoot), {
+  plugins: [bistroLocalModel(examplesRoot), dungeonLocalModel(examplesRoot), zorahLocalModel(examplesRoot), {
     name: "large-basic-offline-source",
     configureServer(server) {
       server.middlewares.use(async (request, response, next) => {

@@ -11,6 +11,7 @@ import type { GpuRenderWorldRuntime } from "../../gpu/GpuRenderWorld.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import type { GeometryProductGpuBindingsV1 } from "../../gpu/VirtualGeometryResidency.js";
 import type { GeometryPageStreamingRuntimeV1 } from "../../gpu/GeometryPageStreamingRuntime.js";
+import { geometryProductMeshletWorkCapacity } from "../../assets/geometry-product/GeometryProductWorkload.js";
 import {
   DEFAULT_GEOMETRY_WORK_BUDGET,
   normalizeGeometryWorkBudget,
@@ -74,7 +75,7 @@ export interface PackedVisibilityPrepareJob {
   readonly sseThreshold: number;
   readonly geometryWorkBudget?: GeometryWorkBudget;
   /** Optional preparation overrides; the default is bounded by admitted work. */
-  readonly frameGeometryBudget?: Omit<FrameGeometryArenaBudget, "workCapacity" | "filteredWorkCapacity">;
+  readonly frameGeometryBudget?: Partial<Omit<FrameGeometryArenaBudget, "workCapacity" | "filteredWorkCapacity">>;
   readonly coneEnabled: boolean;
   /** Positive test pressure override; omitted uses the proven triangle capacity upper bound. */
   readonly meshletWorkCandidateCapacity?: number;
@@ -447,6 +448,12 @@ export class PackedVisibilityPass {
     const meshletWork = requireMeshletWork(workSet);
     if (meshletWork.productMode) {
       this.virtualMeshletCandidate.encode(command, meshletWork);
+      if (job.streamingRuntime && job.runtime.hierarchyRasterWorkCapacity > meshletWork.capacity) {
+        if (job.demandFrameIndex === undefined) {
+          throw new Error("Bounded Product work requires a completed-frame status identity");
+        }
+        job.streamingRuntime.encodeWorkStatusReadback(command, meshletWork.queue, job.demandFrameIndex);
+      }
     } else {
       this.meshletCandidate.encode(command, meshletWork);
     }
@@ -505,23 +512,25 @@ export class PackedVisibilityPass {
     camera: GPUBuffer,
     command: ShadeGPUCommandContext,
   ): PreparedPackedVisibility {
-    this.lastPreparation = validatePackedVisibilityPreparation(job.runtime.hierarchyRasterWorkCapacity, {
-      maxBufferSize: Number(this.graphics.device.limits.maxBufferSize),
-      maxStorageBufferBindingSize: Number(this.graphics.device.limits.maxStorageBufferBindingSize),
-    });
     const geometryWorkBudget = normalizeGeometryWorkBudget(
       job.geometryWorkBudget ?? DEFAULT_GEOMETRY_WORK_BUDGET,
     );
     // Step 4 promotes MeshletWork + bucket raster to the normal producer.
     const meshletWorkCandidateCapacity = Math.min(
-      normalizeMeshletCandidateCapacity(
-        job.meshletWorkCandidateCapacity,
-        job.runtime.hierarchyRasterWorkCapacity,
-      ),
+      job.virtualGeometry === undefined
+        ? normalizeMeshletCandidateCapacity(job.meshletWorkCandidateCapacity, job.runtime.hierarchyRasterWorkCapacity)
+        : geometryProductMeshletWorkCapacity(job.runtime.hierarchyRasterWorkCapacity, job.meshletWorkCandidateCapacity),
       geometryWorkBudget.maxMeshletWork,
     );
     if (meshletWorkCandidateCapacity === 0) {
       throw new RangeError("GeometryWorkBudget leaves no MeshletWork capacity");
+    }
+    this.lastPreparation = validatePackedVisibilityPreparation(meshletWorkCandidateCapacity, {
+      maxBufferSize: Number(this.graphics.device.limits.maxBufferSize),
+      maxStorageBufferBindingSize: Number(this.graphics.device.limits.maxStorageBufferBindingSize),
+    });
+    if (job.virtualGeometry && meshletWorkCandidateCapacity < job.runtime.hierarchyRasterWorkCapacity && !job.streamingRuntime) {
+      throw new Error("Bounded Product work requires its streaming status owner");
     }
     const traversalCapacity = Math.min(
       job.runtime.hierarchyTraversalCapacity,
@@ -620,6 +629,7 @@ export class PackedVisibilityPass {
           capacity: key.meshletWorkCandidateCapacity,
           counterBuffer: counters,
           countersEnabled: job.countersEnabled,
+          stickyFailure: job.runtime.hierarchyRasterWorkCapacity > key.meshletWorkCandidateCapacity,
           scene: job.scene,
         });
       } else {

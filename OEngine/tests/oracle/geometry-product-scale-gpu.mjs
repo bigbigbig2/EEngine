@@ -183,6 +183,7 @@ export async function runGeometryProductScaleGpuOracle(device) {
       ["internal-overflow", [[1, 1]], "traversal"],
       ["selected-overflow", [[1, 2]], "selected"],
       ["work-overflow", [[1, 2]], "work"],
+      ["sticky-work-overflow", [[1, 2]], "sticky"],
       ["stale-generation", [[0, 2]], "generation"],
       ["discard-then-retry", [[1, 3]], "abort"],
       ["empty-view", [[0, 65]], "empty"],
@@ -281,7 +282,8 @@ export async function runGeometryProductScaleGpuOracle(device) {
         viewUniform: h.generated.viewUniform,
       lodAnchors: h.generated.lodAnchors,
         visibleClusterCapacity: h.generated.visibleClusterCapacity,
-        capacity: fault === "work" ? 1 : meshlets,
+        capacity: fault === "work" || fault === "sticky" ? 1 : meshlets,
+        stickyFailure: fault === "sticky",
         counterBuffer: counters,
         countersEnabled: true,
         scene,
@@ -333,6 +335,21 @@ export async function runGeometryProductScaleGpuOracle(device) {
         const words = new Uint32Array(read.getMappedRange().slice(0));
         read.unmap();
         const failed = fault !== null && !["abort", "empty", "half"].includes(fault);
+        if (fault === "sticky") {
+          const failedOverflow = words[4];
+          assert.ok(failedOverflow > 0, "first bounded cut really overflows");
+          candidate.rebind(w, { counterBuffer: counters, countersEnabled: false });
+          const retry = device.createCommandEncoder();
+          hierarchy.encode(retry, h, { ...view, frustumPlanes: [[1, 0, 0, -100], ...view.frustumPlanes.slice(1)] }, { coneEnabled: false });
+          candidate.encode({ gpu_encoder: retry }, w);
+          retry.copyBufferToBuffer(w.queue, 0, read, 0, 32);
+          device.queue.submit([retry.finish()]);
+          await read.mapAsync(GPUMapMode.READ);
+          const sticky = new Uint32Array(read.getMappedRange(0, 32).slice(0));
+          read.unmap();
+          assert.equal(sticky[1], 0, "failed cut never becomes a partial successful queue");
+          assert.equal(sticky[4], failedOverflow, "empty next view and counter rebinding retain failure until cold recreation");
+        }
         const count = failed || fault === "empty" ? 0 : expected.length;
         assert.equal(words[1], count, `${name}: complete MeshletWork count`);
         assert.equal(words[w.queue.size / 4 + 1], count, `${name}: same indirect count`);

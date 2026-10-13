@@ -2,6 +2,7 @@ import type { ResourceAccounting, ResourceHandle } from "../debug/profiling/Reso
 import {
   frameGeometryArenaHeader,
   frameGeometryArenaLayout,
+  DEFAULT_FRAME_GEOMETRY_OWNER_MAX_BYTES,
   type FrameGeometryArenaBudget,
   type FrameGeometryArenaLayout,
   type FrameGeometryArenaRegion,
@@ -33,7 +34,7 @@ export class FrameGeometryArena {
   constructor(
     private readonly device: GPUDevice,
     private readonly accounting?: ResourceAccounting,
-    private readonly maxBytes = 256 * 1024 * 1024,
+    private readonly maxBytes = DEFAULT_FRAME_GEOMETRY_OWNER_MAX_BYTES,
   ) {
     if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0)
       throw new RangeError("Invalid frame geometry owner budget");

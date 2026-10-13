@@ -6,6 +6,9 @@ import { GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_CAPACITY } from "./GpuVisibilityKey
  * physical arena offset is a persistent Appearance identity. */
 export const FRAME_GEOMETRY_ARENA_VERSION = 7;
 export const FRAME_GEOMETRY_ARENA_HEADER_SIZE = 64;
+/** Application ceilings, not preallocated bytes. Actual work sizes every arena. */
+export const DEFAULT_FRAME_GEOMETRY_ARENA_MAX_BYTES = 512 * 1024 * 1024;
+export const DEFAULT_FRAME_GEOMETRY_OWNER_MAX_BYTES = 1024 * 1024 * 1024;
 export const FRAME_GEOMETRY_ARENA_HEADER_WORDS = Object.freeze({
   version: 0,
   workCapacity: 1,
@@ -51,7 +54,7 @@ export function frameGeometryArenaBudgetForWork(
     filteredWorkCapacity,
     vertexCapacity: capacity,
     triangleCapacity: capacity,
-    maxBytes: 128 * 1024 * 1024,
+    maxBytes: DEFAULT_FRAME_GEOMETRY_ARENA_MAX_BYTES,
   });
 }
 export interface FrameGeometryArenaRegion {

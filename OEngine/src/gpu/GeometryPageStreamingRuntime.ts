@@ -1,5 +1,6 @@
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import type { GeometryProductRevisionSourceV1 } from "../assets/geometry-product/GeometryProductV1.js";
+import { GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE, GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS, unpackGpuMeshletWorkQueueHeader, type GpuMeshletWorkQueueHeaderCpu } from "./GpuMeshletRasterWorkAbi.js";
 import {
   GpuGeometryDemandReadbackRingV1,
   type GpuGeometryDemandReadbackRingOptionsV1,
@@ -46,6 +47,7 @@ export interface GeometryPageStreamingRuntimeEvidenceV1 {
   readonly residency: VirtualGeometryResidencyEvidenceV1;
   readonly lastPoll: GeometryPageStreamingPollEvidenceV1 | null;
   readonly lastError: string | null;
+  readonly workStatus?: Readonly<{ frameIndex: number; shadow: boolean; header: Readonly<GpuMeshletWorkQueueHeaderCpu> }>;
   readonly products: readonly VirtualGeometryResidencyEvidenceV1[];
   /** Last revision observed by production consumers; sampling evidence must
    * not itself advance the source-publication identity. */
@@ -68,6 +70,9 @@ export class GeometryPageStreamingRuntimeV1 {
   readonly #device: GPUDevice;
   readonly #readback: GpuGeometryDemandReadbackRingV1;
   #shadowReadback: GpuGeometryDemandReadbackRingV1 | null = null;
+  #workReadback: GpuGeometryDemandReadbackRingV1 | null = null;
+  #shadowWorkReadback: GpuGeometryDemandReadbackRingV1 | null = null;
+  #workStatus: GeometryPageStreamingRuntimeEvidenceV1["workStatus"];
   readonly #scheduler: GeometryPageSchedulerV1;
   readonly #residency: VirtualGeometryResidency;
   readonly #residencies = new Map<number, VirtualGeometryResidency>();
@@ -268,6 +273,28 @@ export class GeometryPageStreamingRuntimeV1 {
     return slot;
   }
 
+  /** Bounded work needs mandatory failure feedback, independent of optional counters.
+   * Copies only the finalized header in the existing submit; never controls current work. */
+  encodeWorkStatusReadback(
+    command: ShadeGPUCommandContext,
+    work: GPUBuffer,
+    frameIndex: number,
+    shadow = false,
+  ): void {
+    this.assertAlive();
+    if (shadow) {
+      this.#shadowWorkReadback ??= new GpuGeometryDemandReadbackRingV1({ device: this.#device, bytesPerSlot: GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE });
+    } else {
+      this.#workReadback ??= new GpuGeometryDemandReadbackRingV1({ device: this.#device, bytesPerSlot: GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE });
+    }
+    const ring = (shadow ? this.#shadowWorkReadback : this.#workReadback)!;
+    const slot = ring.encode(command.gpu_encoder, work, frameIndex, GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE);
+    if (slot !== undefined) {
+      command.onFinished.addOne(() => ring.commit(slot));
+      command.onAborted.addOne(() => ring.cancel(slot));
+    }
+  }
+
   /** Encodes one directional/Product shadow demand queue into a separate delayed ring. */
   encodeShadowDemandReadback(
     command: ShadeGPUCommandContext,
@@ -300,6 +327,15 @@ export class GeometryPageStreamingRuntimeV1 {
     // A frame completion is also the scheduler clock. This advances delayed
     // retries even when the GPU produced no new demand this frame.
     this.#scheduler.tick(nowMs);
+    if (this.#workReadback) {
+      await this.consumeWorkStatus(this.#workReadback, completedFrame, false);
+    }
+    if (this.#shadowWorkReadback && !this.#destroyed) {
+      await this.consumeWorkStatus(this.#shadowWorkReadback, completedFrame, true);
+    }
+    if (this.#destroyed) {
+      return this.cancelledPoll(completedFrame);
+    }
     const results = await this.#readback.poll(completedFrame);
     if (this.#destroyed) {
       return this.cancelledPoll(completedFrame);
@@ -433,6 +469,39 @@ export class GeometryPageStreamingRuntimeV1 {
     return this.#mainFeedbackFrame;
   }
 
+  private async consumeWorkStatus(ring: GpuGeometryDemandReadbackRingV1, completedFrame: number, shadow: boolean): Promise<void> {
+    const statuses = await ring.poll(completedFrame);
+    if (this.#destroyed) {
+      return;
+    }
+    let failure: Error | undefined;
+    for (const status of statuses) {
+      try {
+        const view = new DataView(status.bytes);
+        const failed = view.getUint32(GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS.overflowCount, true) !== 0 ||
+          view.getUint32(GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS.invalidCount, true) !== 0;
+        // Finalize zeros written_count on a rejected whole cut. Reservation
+        // counters then describe failure, not the live-queue count relation.
+        const header = failed
+          ? Object.freeze(Object.fromEntries(Object.entries(GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS)
+              .map(([name, offset]) => [name, view.getUint32(offset, true)]))) as Readonly<GpuMeshletWorkQueueHeaderCpu>
+          : unpackGpuMeshletWorkQueueHeader(new Uint8Array(status.bytes));
+        this.#workStatus = Object.freeze({ frameIndex: status.frameIndex, shadow, header });
+        if (failed) {
+          failure ??= new Error(`${shadow ? "Shadow" : "Main"} MeshletWork frame ${status.frameIndex} rejected: attempted=${header.attemptedCount}, capacity=${header.capacity}, overflow=${header.overflowCount}, invalid=${header.invalidCount}`);
+        }
+      } catch (error) {
+        failure ??= error instanceof Error ? error : new Error(String(error));
+      } finally {
+        ring.release(status.slotIndex);
+      }
+    }
+    if (failure) {
+      this.#lastError = failure.message;
+      throw failure;
+    }
+  }
+
   private recordResidencyFeedback(batch: GeometryPageDemandBatchV1, frameIndex: number): boolean {
     const header = batch.header!;
     const words = batch.words;
@@ -520,6 +589,7 @@ export class GeometryPageStreamingRuntimeV1 {
       residency: this.#residency.evidence(),
       lastPoll: this.#lastPoll,
       lastError: this.#lastError,
+      ...(this.#workStatus === undefined ? {} : { workStatus: this.#workStatus }),
       products: Object.freeze([...this.#residencies.values()].map((residency) => residency.evidence())),
       contentRevision: this.#contentRevision,
       feedback: Object.freeze({
@@ -550,6 +620,8 @@ export class GeometryPageStreamingRuntimeV1 {
     this.#observedPublicationStates.clear();
     this.#readback.destroy();
     this.#shadowReadback?.destroy();
+    this.#workReadback?.destroy();
+    this.#shadowWorkReadback?.destroy();
   }
 
   private assertAlive(): void {

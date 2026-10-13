@@ -13,6 +13,7 @@ import {
   GPU_MESHLET_DRAW_COUNT,
   GPU_MESHLET_RASTER_WORK_RECORD_STRIDE,
   GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE,
+  GPU_PRODUCT_MESHLET_WORK_SETTINGS_FLAGS,
   gpuMeshletWorkQueueByteLength,
   packGpuMeshletWorkQueueHeader,
 } from "../gpu/GpuMeshletRasterWorkAbi.js";
@@ -819,6 +820,8 @@ export class VirtualGeometryMeshletWorkCandidate {
     readonly capacity: number;
     readonly counterBuffer: GPUBuffer;
     readonly countersEnabled: boolean;
+    /** A bounded physical queue keeps failure sticky until cold workset recreation. */
+    readonly stickyFailure?: boolean;
     readonly scene: GpuSceneBindings;
   }): PreparedMeshletWorkCandidate {
     this.assertAlive();
@@ -905,7 +908,8 @@ export class VirtualGeometryMeshletWorkCandidate {
         settings,
         0,
         new Uint32Array([
-          input.countersEnabled ? 1 : 0,
+          (input.countersEnabled ? GPU_PRODUCT_MESHLET_WORK_SETTINGS_FLAGS.Counters : 0) |
+            (input.stickyFailure ? GPU_PRODUCT_MESHLET_WORK_SETTINGS_FLAGS.StickyFailure : 0),
           input.virtualGeometry.productGeneration,
           input.visibleClusterCapacity,
           Number(this.device.limits.maxComputeWorkgroupsPerDimension)
@@ -952,6 +956,7 @@ export class VirtualGeometryMeshletWorkCandidate {
         entries,
         counterBuffer: input.counterBuffer,
         countersEnabled: input.countersEnabled,
+        stickyFailure: input.stickyFailure ?? false,
         ownedBankBegin: input.virtualGeometry.banks.length,
         banks: Object.freeze(banks),
         visibleClusterCapacity: input.visibleClusterCapacity,
@@ -974,7 +979,10 @@ export class VirtualGeometryMeshletWorkCandidate {
   ): void {
     const state = this.requireState(prepared);
     if (state.countersEnabled !== input.countersEnabled) {
-      this.device.queue.writeBuffer(state.settings, 0, new Uint32Array([input.countersEnabled ? 1 : 0]));
+      this.device.queue.writeBuffer(state.settings, 0, new Uint32Array([
+        (input.countersEnabled ? GPU_PRODUCT_MESHLET_WORK_SETTINGS_FLAGS.Counters : 0) |
+          (state.stickyFailure ? GPU_PRODUCT_MESHLET_WORK_SETTINGS_FLAGS.StickyFailure : 0),
+      ]));
       state.countersEnabled = input.countersEnabled;
     }
     if (state.counterBuffer !== input.counterBuffer) {
@@ -1051,6 +1059,7 @@ interface ProductCandidateState {
   readonly entries: GPUBindGroupEntry[];
   counterBuffer: GPUBuffer;
   countersEnabled: boolean;
+  readonly stickyFailure: boolean;
   readonly ownedBankBegin: number;
   readonly banks: readonly GPUBuffer[];
   readonly visibleClusterCapacity: number;

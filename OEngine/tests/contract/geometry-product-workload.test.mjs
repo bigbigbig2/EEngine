@@ -4,11 +4,12 @@ import { triangleProductFixture, deepProductFixture } from "../helpers/geometry-
 import {
   geometryProductWorkload,
   geometryProductSceneWorkload,
-  validateGeometryProductSceneWorkLimits,
+  geometryProductMeshletWorkCapacity,
+  validateGeometryProductSceneWorkLimits
 } from "../../.test-dist/assets/geometry-product/GeometryProductWorkload.js";
 import {
   buildVirtualGeometrySceneSourceV1,
-  mergeVirtualGeometryProductSceneSourcesV1,
+  mergeVirtualGeometryProductSceneSourcesV1
 } from "../../.test-dist/assets/geometry-product/VirtualGeometrySceneSourceV1.js";
 import { prepareProductResidentAttributes } from "../../.test-dist/gpu/GeometryProductResidentAttributes.js";
 
@@ -16,7 +17,7 @@ const identity = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 
 const limits = {
   maxBufferSize: 268435456,
   maxStorageBufferBindingSize: 134217728,
-  maxComputeWorkgroupsPerDimension: 65535,
+  maxComputeWorkgroupsPerDimension: 65535
 };
 
 test("Product workload bounds actual forest depth, widest frontier and accumulated groups", () => {
@@ -35,7 +36,7 @@ test("one asset with many instances has per-instance capacity, not assetCount ti
   const instances = Array.from({ length: 10000 }, () => ({
     assetIndex: 0,
     materialIndex: 0,
-    transform: identity,
+    transform: identity
   }));
   const { source } = buildVirtualGeometrySceneSourceV1(descriptor, [{}], instances, [{}]);
   assert.equal(source.hierarchyMaxDepth, 0);
@@ -52,15 +53,15 @@ test("each Product keeps its own depth and merged capacities never clamp overflo
       descriptor,
       [{}],
       [{ assetIndex: 0, materialIndex: 0, transform: identity }],
-      [{}],
+      [{}]
     ).source;
   const parts = [one(triangleProductFixture().descriptor), one(deepProductFixture(7).descriptor)].map(
     (source, index) => ({
       source,
       productTableSlot: index,
       productGeneration: index + 1,
-      assetReferenceBegin: index,
-    }),
+      assetReferenceBegin: index
+    })
   );
   const merged = mergeVirtualGeometryProductSceneSourcesV1(parts);
   assert.equal(merged.hierarchyMaxDepth, 7);
@@ -83,12 +84,18 @@ test("negotiated binding and dispatch limits reject unsupported scenes without t
       }),
     /dispatch grid/
   );
-  const max = Math.floor((limits.maxStorageBufferBindingSize - 32) / 24);
-  validateGeometryProductSceneWorkLimits({ ...base, hierarchyRasterWorkCapacity: max }, 1, limits);
+  validateGeometryProductSceneWorkLimits(
+    { ...base, hierarchyRasterWorkCapacity: 444_363_334 },
+    19144,
+    limits
+  );
   assert.throws(
     () =>
-      validateGeometryProductSceneWorkLimits({ ...base, hierarchyRasterWorkCapacity: max + 1 }, 1, limits),
-    /storage-buffer limits/,
+      validateGeometryProductSceneWorkLimits({ ...base, hierarchyRasterWorkCapacity: 444_363_334 }, 19144, {
+        ...limits,
+        maxStorageBufferBindingSize: 64 * 1024 ** 2
+      }),
+    /storage-buffer limits/
   );
 });
 
@@ -107,4 +114,17 @@ test("resident page validates the hierarchy count before trusting its exact work
   const cycle = { ...descriptor, hierarchyNodes: descriptor.hierarchyNodes.slice() };
   new DataView(cycle.hierarchyNodes.buffer).setUint32(44, 1 << 28, true);
   assert.throws(() => geometryProductWorkload(cycle), /cycle/);
+});
+
+test("logical complete scene bounds remain exact beyond the frame-local key namespace", () => {
+  const descriptor = deepProductFixture(64).descriptor;
+  const instances = new Array(260000).fill({ assetIndex: 0 });
+  const work = geometryProductSceneWorkload(descriptor, instances);
+  assert.equal(work.hierarchyRasterWorkCapacity, 16_900_000);
+  assert.equal(work.hierarchyVisibleClusterCapacity, 16_900_000);
+  assert.equal(geometryProductMeshletWorkCapacity(work.hierarchyRasterWorkCapacity), 4_194_304);
+  assert.equal(geometryProductMeshletWorkCapacity(work.hierarchyRasterWorkCapacity, 8_388_608), 8_388_608);
+  assert.equal(geometryProductMeshletWorkCapacity(2), 2);
+  assert.throws(() => geometryProductMeshletWorkCapacity(0), /namespace/);
+  assert.throws(() => geometryProductMeshletWorkCapacity(100, 16_777_217), /namespace/);
 });

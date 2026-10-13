@@ -1,7 +1,7 @@
 import { counterByteOffset } from "../debug/GpuFrameCounters.js";
 import { HIERARCHY_LOD_WGSL } from "./hierarchy_lod.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
-import { GPU_MESHLET_RASTER_WORK_WGSL, GPU_MESHLET_DECODE_PROFILE } from "../gpu/GpuMeshletRasterWorkAbi.js";
+import { GPU_MESHLET_RASTER_WORK_WGSL, GPU_MESHLET_DECODE_PROFILE, GPU_PRODUCT_MESHLET_WORK_SETTINGS_FLAGS } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import { GPU_VISIBLE_CLUSTER_RECORD_SCHEMA, GPU_WORK_GENERATION_WGSL } from "../gpu/GpuWorkGenerationAbi.js";
 import { VIRTUAL_GEOMETRY_PRODUCT_WGSL } from "./virtual_geometry_product.js";
 
@@ -41,7 +41,7 @@ struct OEngineVisibleClusterQueueRead {
   elements: array<OEngineVisibleClusterRecord>,
 };
 struct OEngineVirtualCandidateSettings {
-  counters_enabled: u32,
+  flags: u32,
   product_generation: u32,
   visible_capacity: u32,
   max_dimension: u32,
@@ -104,6 +104,17 @@ fn product_reserve(count: u32) -> u32 {
 
 @compute @workgroup_size(1)
 fn prepare_virtual_geometry_work() {
+  // A failed bounded cut remains rejected until this workset is recreated.
+  // Delayed status-ring pressure must never erase an unobserved failure.
+  if ((product_settings.flags & ${GPU_PRODUCT_MESHLET_WORK_SETTINGS_FLAGS.StickyFailure}u) != 0u &&
+      (atomicLoad(&product_work.header.overflow_count) != 0u ||
+       atomicLoad(&product_work.header.invalid_count) != 0u)) {
+    atomicStore(&product_draw.instance_count, 0u);
+    product_dispatch[0] = 0u;
+    product_dispatch[1] = 1u;
+    product_dispatch[2] = 1u;
+    return;
+  }
   atomicStore(&product_work.header.attempted_count, 0u);
   atomicStore(&product_work.header.written_count, 0u);
   atomicStore(&product_work.header.consumed_count, 0u);
@@ -251,7 +262,7 @@ fn finalize_virtual_geometry_work() {
   } else {
     atomicStore(&product_draw.instance_count, written);
   }
-  if (product_settings.counters_enabled != 0u) {
+  if ((product_settings.flags & ${GPU_PRODUCT_MESHLET_WORK_SETTINGS_FLAGS.Counters}u) != 0u) {
     atomicAdd(&product_counters[${COUNTER_MESHLET_WORKS}u], written);
     atomicAdd(&product_counters[${COUNTER_QUEUE_BYTES}u], written * 24u);
     atomicAdd(&product_counters[${COUNTER_INVALID}u], invalid);

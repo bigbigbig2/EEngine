@@ -102,6 +102,7 @@ export class GraphicsContext {
     device: GPUDevice,
     profiler = new FrameProfiler(),
     assetStoreOptions: Readonly<GpuAssetStoreOptions> = {},
+    private readonly frameGeometryOwnerMaxBytes?: number,
   ) {
     this.device = device;
     this.profiler = profiler;
@@ -270,7 +271,11 @@ export class GraphicsContext {
   }
 
   get frame_geometry_arena(): FrameGeometryArena {
-    this.frameGeometryArenaValue ??= new FrameGeometryArena(this.device, this.resource_accounting);
+    this.frameGeometryArenaValue ??= new FrameGeometryArena(
+      this.device,
+      this.resource_accounting,
+      this.frameGeometryOwnerMaxBytes,
+    );
     return this.frameGeometryArenaValue;
   }
 
