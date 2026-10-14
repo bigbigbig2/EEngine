@@ -33,3 +33,11 @@ OEngine/tools/oengine-web-geometry-cooker/build-wasm-threads/
 # always writable in this environment.
 .npm-cache/
 .pnpm-store/
+
+# 3D 资产与大型烘焙贴图（保持本地使用，不上传 Git 远程）
+*.glb
+*.gltf
+*.fbx
+*.obj
+*.textureproduct
+!validation/public/assets/oengine/glb-web-product-v1.glb
