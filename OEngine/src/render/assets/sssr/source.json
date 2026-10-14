@@ -1,0 +1,85 @@
+{
+  "revision": "c6efa6bf7f2027b3ec94f28578bb5965eabb9e55",
+  "upstream": "https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK",
+  "license": "MIT + Playdead MIT for ClipAABB",
+  "files": [
+    {
+      "path": "sdk/src/components/sssr/samplerBlueNoiseErrorDistribution_128x128_OptimizedFor_2d2d2d2d_1spp.cpp",
+      "sha256": "0fd62a8f00e6e59b8c9aa8c2b4236eb361fdd2deda6f3ddf4be74c5de59623bc"
+    },
+    {
+      "path": "sdk/include/FidelityFX/gpu/sssr/ffx_sssr_classify_tiles.h",
+      "sha256": "f49754876ec010c391a49d0c3965d48cc34e0546134fced3052faf459a4b2f20"
+    },
+    {
+      "path": "sdk/include/FidelityFX/gpu/sssr/ffx_sssr_intersect.h",
+      "sha256": "9f4a5324ac0ff9de74cafdbdd35f4c69ed4749ec611e3382c00855c745484256"
+    },
+    {
+      "path": "sdk/include/FidelityFX/gpu/sssr/ffx_sssr_common.h",
+      "sha256": "838cf86d37a4c890e8d538e59d10eef2dababf85fa6fe5951d24bfd11ff23ba5"
+    },
+    {
+      "path": "sdk/include/FidelityFX/gpu/sssr/ffx_sssr_depth_downsample.h",
+      "sha256": "645dcfa613b53c310f524a04f8351d0d42e1f9418ecb74e639d8e5d0433c7a5b"
+    },
+    {
+      "path": "sdk/include/FidelityFX/gpu/sssr/ffx_sssr_prepare_blue_noise_texture.h",
+      "sha256": "85193541d1228febcfc988a99d338627d50023c57598847d9b9756cf7808510b"
+    },
+    {
+      "path": "sdk/include/FidelityFX/gpu/sssr/ffx_sssr_prepare_indirect_args.h",
+      "sha256": "2ee07cda1f820dd6ececb994cec77ebbe30538581f7759e710f6670f6ca89d7e"
+    },
+    {
+      "path": "sdk/include/FidelityFX/gpu/sssr/ffx_sssr_callbacks_hlsl.h",
+      "sha256": "7005825b18b5546f7856ef573d09c0853d0e94aed7996b2f3e1502b110930e74"
+    },
+    {
+      "path": "sdk/include/FidelityFX/gpu/sssr/ffx_sssr_callbacks_glsl.h",
+      "sha256": "2fc928d775bf4dd1abcb26f2566850e676ffae7af86a4ebabdfcbfe5615dddeb"
+    },
+    {
+      "path": "sdk/include/FidelityFX/gpu/denoiser/ffx_denoiser_reflections_reproject.h",
+      "sha256": "d24d53c17202099b4439e22a5175b9838207d769d2ca6974bba8c12b2a0359e5"
+    },
+    {
+      "path": "sdk/include/FidelityFX/gpu/denoiser/ffx_denoiser_reflections_prefilter.h",
+      "sha256": "27c805bd8482338c55d6357647dc15e53508c4dff49499a7f65fbc809ccd5165"
+    },
+    {
+      "path": "sdk/include/FidelityFX/gpu/denoiser/ffx_denoiser_reflections_resolve_temporal.h",
+      "sha256": "35336435b591a2319abdb1783cca40c2d278674e9941f57454ad3cc8fb41f206"
+    },
+    {
+      "path": "sdk/include/FidelityFX/gpu/denoiser/ffx_denoiser_reflections_common.h",
+      "sha256": "af9a3bd5aa440acf5f533e4a724c1f20335f828fe0e07435aad13be5afecdc2a"
+    },
+    {
+      "path": "sdk/include/FidelityFX/gpu/denoiser/ffx_denoiser_reflections_config.h",
+      "sha256": "a6e5c2d41ee43cad3ade28910a08c4be7d3bbb8a022dfb2f310147ce7c253523"
+    },
+    {
+      "path": "sdk/include/FidelityFX/gpu/denoiser/ffx_denoiser_reflections_callbacks_hlsl.h",
+      "sha256": "02a187ccd9e58919061b720aac0e3f777c30a50b802de242b01bdcfa2ef79000"
+    },
+    {
+      "path": "sdk/include/FidelityFX/gpu/denoiser/ffx_denoiser_reflections_callbacks_glsl.h",
+      "sha256": "ac4840649fbb858b89d2e50aff933cbfe40f12e81701dbe13899c554129e6c01"
+    },
+    {
+      "path": "sdk/src/components/sssr/ffx_sssr.cpp",
+      "sha256": "4990744d5aa51dc26adff68d5312d40381f9241c8b17f5e29ffc7ba5f01ab6ad"
+    },
+    {
+      "path": "sdk/src/components/denoiser/ffx_denoiser.cpp",
+      "sha256": "327cb07747b4bd894746fc113c6fe24d95986913bd8b0c5d8723250bce9443d8"
+    }
+  ],
+  "noise": {
+    "file": "blue-noise.bin",
+    "sha256": "11b613c467f85e4ad558dc7d3e5b046f0fc3207c607dbb289623fdff922cf612",
+    "encoding": "little-endian u32: 65536 Sobol values followed by 131072 scrambling values; ranking is unused in the selected 1spp profile"
+  },
+  "profile": "SSSR 1.5 and Reflections Denoiser 1.3 FP32 algorithm with documented WebGPU storage/execution adaptations"
+}

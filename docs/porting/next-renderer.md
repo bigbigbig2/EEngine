@@ -50,6 +50,16 @@ verifies:
     - OEngine/tests/oracle/native-surface-production-gpu.mjs
     - OEngine/src/render/ao
     - OEngine/tests/oracle/ao-functionality-gpu.mjs
+    - OEngine/src/render/reflections
+    - OEngine/src/render/assets/sssr
+    - OEngine/src/shaders/sssr_common.ts
+    - OEngine/src/shaders/sssr_prepare.ts
+    - OEngine/src/shaders/sssr_classify.ts
+    - OEngine/src/shaders/sssr_intersect.ts
+    - OEngine/src/shaders/sssr_reproject.ts
+    - OEngine/src/shaders/sssr_prefilter.ts
+    - OEngine/src/shaders/sssr_resolve_temporal.ts
+    - OEngine/tests/oracle/sssr-algorithm-gpu.mjs
     - OEngine/src/gpu/VirtualGeometryResidency.ts
     - OEngine/src/gpu/GeometryPageDemandAbiV1.ts
     - OEngine/src/gpu/GeometryPageScheduler.ts
@@ -847,22 +857,28 @@ R02 的当前边界：[Surface Kernel Binding V1](../specs/surface-kernel-bindin
 - **Local validation**：高/低粗糙度、屏幕边界、薄遮挡、揭露/运动下的分类和 hit/temporal 对照；看 ray count、denoiser count 与总成本，不仅 trace 耗时。
 - **备用来源**：[旧独立 FidelityFX-SSSR](https://github.com/GPUOpen-Effects/FidelityFX-SSSR/tree/34dcacd1feefcfab2855b82e76c7d711f2020a75)，`34dcacd1feefcfab2855b82e76c7d711f2020a75`，MIT，已读 license/classify/intersect；不作为默认与 SDK 混合拼接。
 
-#### SSSR 模块设计 Source Map（2026-10-15，尚未实施）
+#### SSSR 模块 Source Map（2026-10-15）
 
 为[本模块设计](../next-design/eengine-sssr-2026-10.md)重取同一SDK commit，连读SSSR/Denoiser GPU主体、FP32分支及half packing、HLSL/GLSL callbacks、两组件host资源创建/派发排序、sample的IBL抑制与最终apply。选择SSSR1.5+Reflections Denoiser1.3 FP32 profile；未构建上游D3D工程。源根LICENSE.txt为MIT，`ffx_denoiser_reflections_common.h::ClipAABB`另含Playdead MIT notice，后续复制须一并保留。原件位于忽略的`.local/sssr-reference`，正式移植时保存实际引入文件与noise资产的来源/hash，不依赖此临时目录作为构建输入。
 
-| 固定源入口（相对SDK根） | 拟本地映射 / 必要保留与差异 |
+| 固定源入口（相对SDK根） | 本地映射合同 / 必要保留与差异 |
 |---|---|
 | `gpu/sssr/ffx_sssr_depth_downsample.h`、`src/components/sssr/ffx_sssr.cpp`（GPU路径均在`sdk/include/FidelityFX/`下，host路径在`sdk/`下） | SSR私有R32F全尺寸mip0..6；nearest reverse-Z max不变，SPD换逐mip dispatch，NPOT按实际mip网格保守覆盖；不使用几何RG16F min/max |
-| `gpu/sssr/ffx_sssr_classify_tiles.h::ClassifyTiles`、core `ffxRemapForWaveReduction` | 保roughness/variance/mirror、sample/copy、ray和tile需求；portable64lane prefix与逻辑quad，8B完整linear pixel ray记录；统一half α替代classify float/trace R8不一致；non-glossy环境分支由Native原IBL承接 |
+| `gpu/sssr/ffx_sssr_classify_tiles.h::ClassifyTiles`、core `ffxRemapForWaveReduction` | 保roughness/variance/mirror、sample/copy、ray和tile需求；portable64lane prefix与逻辑quad，8B完整linear pixel ray记录；统一half α替代classify float/trace R8不一致；非选lobe最终由Native原IBL保留，但non-glossy环境仍完整写raw给denoiser halo，按本地oct环境LOD映射；指定base无效时提升无人覆盖的eligible像素 |
 | `gpu/sssr/ffx_sssr_prepare_blue_noise_texture.h`、`src/components/sssr/samplerBlueNoiseErrorDistribution_128x128_OptimizedFor_2d2d2d2d_1spp.cpp` | 原Sobol/scrambling与golden-ratio相位，128²RG8输出；不上传该profile未读取的ranking表，不hash替代 |
 | `gpu/sssr/ffx_sssr_prepare_indirect_args.h`、`ffx_sssr_intersect.h::{SampleGGXVNDF,FFX_SSSR_HierarchicalRaymarch,FFX_SSSR_ValidateHit,Intersect}` | 保完整VNDF/层次/validation/环境混合/copy；2D indirect与完整capacity，minTraversalOccupancy=0，预算退出不假造hit；source输出A为world ray length，本地分离R32F以保大场景单位范围，invalid miss为finite0 |
-| `gpu/denoiser/ffx_denoiser_reflections_reproject.h` | 保surface+virtual-hit、9×9统计、候选选择/disocclusion、3×3搜索/2×2修复、样本/variance和tile average；适配Seed motion、成对投影、SSR自己历史及GPU曝光 |
+| `gpu/denoiser/ffx_denoiser_reflections_reproject.h` | 保surface+virtual-hit、9×9统计、候选选择/disocclusion、3×3搜索/2×2修复、样本/variance和tile average；实际Seed候选为uv-Seed.xy、前后帧各自inverse projection、SSR自己历史及GPU曝光；不完整候选进入per-tap repair，共享halo复用前统一barrier |
 | `gpu/denoiser/ffx_denoiser_reflections_{prefilter,resolve_temporal}.h` | 保中心+15 Halton邻域与全部权重，完整temporal统计/clip/outlier/样本数/variance/dark；FP32计算，共享内存由源half pack改F32以保HDR中间累加范围，明确增加shared工作集；非简单blur+mix |
-| `gpu/denoiser/ffx_denoiser_reflections_{common,config,callbacks_hlsl,callbacks_glsl}.h`、`src/components/denoiser/ffx_denoiser.cpp` | 明确quantization/filter/resource roles；RG16F合并variance/samplecount，RGBA16F average替源R11G11B10；radiance纹理工作域Rec2020 half、load/store callback转709 F32供原统计/clip，避免709 half缩窄HDR范围；GPU P与场景线性brightness阈值适配。inactive初始化/alias-after-read clear，R32F bilinear手动4tap，不增float32-filterable依赖 |
+| `gpu/denoiser/ffx_denoiser_reflections_{common,config,callbacks_hlsl,callbacks_glsl}.h`、`src/components/denoiser/ffx_denoiser.cpp` | 明确quantization/filter/resource roles；RG16F合并variance/samplecount且dark仍保samplecount，RGBA16F average替源R11G11B10；radiance纹理工作域Rec2020 half、load/store callback转709 F32供原统计/clip，避免709 half缩窄HDR范围；GPU P与场景线性brightness阈值适配。inactive初始化/alias-after-history-read copy当前raw保halo，R32F bilinear手动4tap，不增float32-filterable依赖；prefilter depth sigma按metersPerWorldUnit换算 |
 | `samples/sssr/shaders/sssr_apply_reflections.hlsl`、`samples/sssr/sssrrendermodule.cpp` | 参考incident radiance乘材质响应与关闭重复IBL的边界；本地用已有Native两lobe真实W/B作replacement，Rec709乘响应后转工作色域，不照抄sample的材质/IBL禁用方式 |
 
-Local / Original：Native唯一winner/material求值、GPU radiometry、Seed、FrameGraph及队列事务是现有本地事实。32B条件sidecar、base/coat顺序工作与独立历史、baseline修正、有限物理profile发布及预算由EEngine定义，不冒称AMD提供。Adopt：本轮没有代码移植/数值/GPU生产证据，R06保持not adopted；未来只对真实完成的profile记录验证与范围，不因细设计通过或出图晋升。
+Local / Original：Native唯一winner/material求值、GPU radiometry、Seed、FrameGraph及队列事务是现有本地事实。32B条件sidecar、base/coat顺序工作与独立历史、baseline修正、有限物理profile发布及预算由EEngine定义，不冒称AMD提供。设计轮没有代码移植/数值/GPU生产证据；后续SSR-1记录如下，生产adoption仍须SSR-2真实消费者证据。
+
+SSR-1实施映射：`sssr_prepare`对应depth/noise/args，`sssr_classify`对应ClassifyTiles/remap/prefix，`sssr_intersect`对应VNDF/HierarchicalRaymarch/ValidateHit/Intersect，`sssr_reproject`、`sssr_prefilter`、`sssr_resolve_temporal`对应完整三阶段，`sssr_denoiser_common`保Gaussian、luminance/variance、Playdead ClipAABB，`sssr_common`适配颜色/曝光/receiver callback。共享statistics在本lobe未派发tile没有writer，prefilter对非eligible halo邻居按源语义用variance0，避免串入另一lobe/旧帧scratch；其颜色/几何仍保留。`SssrRuntime`是本地队列/资源/历史owner；`SssrAbi`与`sssr_composite`定义本地32B record和两lobe响应替换。未移植D3D/Vulkan框架、SPD跨组锁、wave occupancy或源15/14bit坐标packing，改为完整有界WebGPU执行，不删必要算法分支。
+
+正式source manifest位于`render/assets/sssr/source.json`，记录同一revision的具体文件/完整SHA256。固定noise为小端u32 Sobol65536项+scrambling131072项，786432B，SHA256 `11b613c467f85e4ad558dc7d3e5b046f0fc3207c607dbb289623fdff922cf612`；源CPP SHA256 `0fd62a8f00e6e59b8c9aa8c2b4236eb361fdd2deda6f3ddf4be74c5de59623bc`。AMD LICENSE与Playdead NOTICE入库，完整许可也保在生成WGSL字符串内。临时donor目录不参与build。
+
+Adapt验证：一个`sssr-algorithm`真实GPU非生产闭包与独立CPU算法期望，覆盖VNDF/NPOT/hit validation、三阶段数值/历史修复、双lobe/HDR/曝光、二维容量及submit/abort/退休；实际报告和原失败分类只读[执行记录](../next-execution/eengine-sssr-execution-2026-10.md#4-ssr-1-实施与逐项复核2026-10-15)。这些证明选定profile的本地算法闭包，不证明Native/FrameProgram生产adoption或GTX1650Ti性能。R06保持not adopted；SSR-2才接实际production consumer。
 
 ## 4. Virtual Shadow 与世界 GI
 

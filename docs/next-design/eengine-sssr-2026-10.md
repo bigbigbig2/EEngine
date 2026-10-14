@@ -18,6 +18,17 @@ verifies:
     - OEngine/src/shaders/working_color.ts
     - OEngine/src/debug/RenderDebugView.ts
     - OEngine/src/render/passes/RenderDebugViewPass.ts
+    - OEngine/src/render/reflections
+    - OEngine/src/render/assets/sssr
+    - OEngine/src/shaders/sssr_classify.ts
+    - OEngine/src/shaders/sssr_common.ts
+    - OEngine/src/shaders/sssr_prepare.ts
+    - OEngine/src/shaders/sssr_intersect.ts
+    - OEngine/src/shaders/sssr_denoiser_common.ts
+    - OEngine/src/shaders/sssr_reproject.ts
+    - OEngine/src/shaders/sssr_prefilter.ts
+    - OEngine/src/shaders/sssr_resolve_temporal.ts
+    - OEngine/src/shaders/sssr_composite.ts
     - OEngine/src/shaders/render_debug_view.ts
     - docs/porting/next-renderer.md
 ---
@@ -26,7 +37,7 @@ verifies:
 
 ## 1. 决定与范围
 
-以 `1d1a67fc` 为源码起点，2026-10-15 完成细设计。唯一实施与结果入口为[执行计划](../next-execution/eengine-sssr-execution-2026-10.md)，总体方向见[功能粗路线](eengine-feature-expansion-roadmap-2026-10.md)。本文规定目标，**尚未实现**；不把来源阅读或旧 shader 的存在算作生产能力。
+以 `1d1a67fc` 为源码起点，2026-10-15 完成细设计。唯一实施与结果入口为[执行计划](../next-execution/eengine-sssr-execution-2026-10.md)，总体方向见[功能粗路线](eengine-feature-expansion-roadmap-2026-10.md)。本文规定完整模块合同，实施时依据源码修正输入/调度假设，详细单元状态只读执行文；不把来源阅读、非生产闭包或旧shader的存在算作生产能力。
 
 选择 FidelityFX SDK v1.1.4 中 **SSSR 1.5 + Reflections Denoiser 1.3 的 FP32 profile**，完整移植分类、蓝噪声、GGX VNDF、层次追踪、命中验证、环境补缺及三阶段反射去噪。采用当前内部渲染分辨率，分别处理 base specular 与 clearcoat；两者保留独立法线、粗糙度、响应和历史。支持当前 opaque/MASK winner、ordinary/Product geometry、Native/FSR/关闭颜色AA，不增加第二套材质求值。
 
@@ -120,7 +131,7 @@ RGB乘法在Rec709完成；不能把W直接逐通道乘Rec2020颜色。不能再
 | Prefilter | 中心+源15个Halton邻域，normal/depth/radiance/variance全部权重，mirror的源条件跳过；不改成简单3×3 blur |
 | Resolve temporal | 完整9×9统计、tile average引导、AABB history clip、低sample count恢复、当前outlier clip、样本数驱动混合、normalized variance和dark分支；不能用一次mix历史代替 |
 
-classify的实际tile计数包含glossy mirror，不能根据“镜面不denoise”的注释删掉整tile；只按各源阶段自己的mirror条件处理。超阈值的non-glossy环境分支由Native原有prefiltered IBL承接，不再在SSR重复采一份；这是明确的本地合成适配，不能把全SDK所有分支宣称为逐bit照搬。
+classify的实际tile计数包含glossy mirror，不能根据“镜面不denoise”的注释删掉整tile；只按各源阶段自己的mirror条件处理。非选中像素的最终IBL仍由Native保留，**但其环境辐射仍须写入当前raw，供glossy邻域统计/滤波消费**；不能因W/B为0删除源non-glossy环境分支。环境prefilter LOD沿当前Native octahedral产品的perceptual映射，不照抄源cubemap层级约定。quad指定基础像素无效时将无人覆盖的eligible邻居提升为自己的ray，不留下零值洞；列表仍最多P条。
 
 源 `valid_hit=(iteration<=budget)` 不足以区分所有退出原因，本地明确只有达到精细有效surface才能命中；超步数、退屏、无效方向走环境，不夹边界假造hit。零confidence的无效hit输出finite ray-length0并使用surface history候选，不能把退屏的无效投影长度送入virtual-hit；有效hit保留真实world length。最后用full-res Depth验证，NPOT层级/终止行为是有独立预期的正确性适配。
 
@@ -130,9 +141,11 @@ VNDF理论核对 [Heitz 2018](https://jcgt.org/published/0007/04/01/paper.pdf)�
 
 SSR owner保存两lobe各自的radiance双槽RGBA16F、variance+samplecount双槽RG16F、average双槽RGBA16F/8×8tile；几何历史为两层RGBA16F normal+α与一张R32F depth。复用公开previous Seed identity，不复制全局closure history。shared scratch只在两lobe **严格顺序** 工作时重用，base全部完成再coat；Graph要有真实依赖，不能凭pass插入顺序赌资源不重叠。
 
-每lobe调度：Classify完整初始化当前trace radiance、ray length、next statistics及当前tile-average（4个storage texture）；Reproject读取旧history后，旧radiance槽以render clear清零，再作为Prefilter输出；Resolve写trace槽为最终Q并写next statistics。这样既沿源复用radiance双槽，又不让inactive tile的旧值污染9×9 halo。shared reproject RGB、reproject statistics及prefilter variance有独立资源；不能把一次pass的sampled输入同时绑成storage输出。奇数边界的halo按源clamp规则加载、所有valid输出唯一写；未执行tile以已清的中性值存在。
+每lobe调度：Classify完整初始化当前trace radiance、ray length、next statistics及当前tile-average（4个storage texture）；Reproject读取旧history后，将当前raw完整copy到旧radiance槽，再作为Prefilter输出；Resolve写trace槽为最终Q并写next statistics。不能只clear旧槽为0：未派发tile仍需当前non-glossy环境颜色供9×9 halo使用。shared reproject RGB、reproject statistics及prefilter variance有独立资源；不能把一次pass的sampled输入同时绑成storage输出。奇数边界的halo按源clamp规则加载、所有valid输出唯一写；未执行tile以当前raw的环境/背景值存在。组合RG16F统计时，源dark branch只置零radiance/variance，不能连带清掉Reproject已写的samplecount。
 
-两lobe历史读取都完成后，用一个snapshot dispatch把当前normal+α及Depth写入几何历史；无有效receiver的lobe写invalid α=-1。history callback逐tap检查invalid，不能先把-1与有效α插值再当roughness用；不完整候选进入源per-tap repair，不让inactive历史参与平均。当前与历史用各自的inverse projection，source motion按EEngine `previous_uv-current_uv`、Y向下映射；当前/上一帧实际jittered矩阵成对保存，不再额外叠jitter。R32F depth的bilinear callback手动四tap，不要求float32-filterable。
+shared reprojection statistics仅active tile有本lobe writer。Prefilter的halo对本lobe非eligible/background邻居使用源语义的variance0，不能读取scratch中另一lobe/旧帧留下的值；eligible邻居必属于已派发tile，其方差有真实writer。raw的non-glossy颜色/几何仍参与正常邻域权重，不以删halo或增加常驻清零面规避写域。
+
+两lobe历史读取都完成后，用一个snapshot dispatch把当前normal+α及Depth写入几何历史；无有效receiver的lobe写invalid α=-1。history callback逐tap检查invalid，不能先把-1与有效α插值再当roughness用；不完整候选进入源per-tap repair，不让inactive历史参与平均。当前与历史用各自的inverse projection，EEngine Seed实际为 `current_uv-previous_uv`，source候选用 `uv-Seed.xy`，Y向下；当前/上一帧实际jittered矩阵成对保存，不再额外叠jitter。R32F depth的bilinear callback手动四tap，不要求float32-filterable。最后repurpose共享halo前增加统一barrier，不能假设64lane属于一个wave。
 
 Seed的previous-valid/response与完整identity tuple用于surface候选的失效检查；virtual-hit仍执行源normal/depth/roughness与局部radiance检查，不把它当真实reflected-object motion，也不盲目用virtual UV处receiver identity相等来替掉源选择。快速移动亮物体/动态遮挡是必须实际观察的局限；若出现持续旧反射，修本模块可靠性，不能用“颜色AA会修”关闭。
 
@@ -140,7 +153,7 @@ P来自`GpuRadiometryPass`的GPU current/prior multiplier，不能使用当前CP
 
 CPU只在成功frame submit后提交SSR帧序号、noise phase、history角色、设置签名和前帧矩阵；defer/abort不推进，未提交的clear/snapshot随encoder丢弃。前后帧GPU排在同一队列顺序上，不增加frame submit。buffer/texture/PSO lease保持到最后consumer fence；resize/recovery先有完整candidate，预算允许才创建。cached graph只保稳定device期owner，当前workset/views从帧bindings获取，不捕获已退休history；关闭/empty/all-unlit成功切换后退休旧资源，不能因cached graph还保留无consumer全尺寸history。
 
-启停、质量/阈值/厚度/尺度/stability、尺寸域变化与真实cut重置SSR累计和必要颜色历史；仅strength正值间变化保SSR累计、只reset颜色。保geometry/HZB/VSM/曝光身份；普通运动不全清。off中的无关编辑不反复reset；defer/abort保pending变更，recovery checkpoint保存desired设置及内存配置。
+启停、质量/阈值/厚度/尺度/stability、尺寸域变化与真实cut重置SSR累计和必要颜色历史；仅strength正值间变化保SSR累计、只reset颜色。metersPerWorldUnit同时用于source prefilter depth sigma的米制距离，不能仅换算hit thickness；其变化也进入SSR history key。保geometry/HZB/VSM/曝光身份；普通运动不全清。off中的无关编辑不反复reset；defer/abort保pending变更，recovery checkpoint保存desired设置及内存配置。
 
 ## 7. 容量与能力边界
 
@@ -171,7 +184,9 @@ P为内部像素数，T为8×8tile数；以下是同时支持两lobe的逻辑资
 
 不计alignment合计≤142P+36T+819,200B；为极窄viewport保留正确mip上界，预留常量/对齐的规划上界 **143P+40T+1MiB**，1080p约285.02MiB。实现必须用真实descriptor核对该上界，不从pool账本猜独占显存；confidence debug另加4P，仍须通过同一预算。退休代和并存其他owner另计。这个ADD在功能优先阶段可接受为明确代价，尚无GTX1650Ti实际帧时/4GB同时峰值结论。
 
-每有效帧公共depth最多7 dispatch、noise1、geometry snapshot1、composite1；每lobe classify/args/intersect/reproject/prefilter/resolve共6 dispatch，另一次radiance render clear；计数reset用encoder clearBuffer，背景receiver clear与全域初始化明确计入。两lobe上界22 compute dispatch+2个render clear（不含既有Surface/调试），同一frame encoder。空ray/tile由GPU args令昂贵间接work为0；CPU不读活跃数。理想无receiver但功能有效仍有O(P)分类/产品成本，关闭则没有这些工作。
+实际owner的`allocatedBytes`只累计自身buffer/texture descriptor，`reservedBytes`是包含借用Native record及常量headroom的保守准入账；二者不能混称显存。诊断buffer由真实debug consumer的transient寿命分配/持有，输入须含STORAGE与COPY_DST并留至消费fence；默认只绑定4B未访问占位，不常驻4P诊断面。固定LUT上传也保留初始化fence；无场景提交的初始化失败/销毁不能提前退休其GPU写入。prepare的uniform上传在成功scene submit后由同一fence覆盖；未提交候选或active帧中止后，退休还须覆盖这些queue writes，只在退休时捕获其完成fence，不增加每帧等待或submit。
+
+每有效帧公共depth最多7 dispatch、noise1、geometry snapshot1、composite1；每lobe classify/args/intersect/reproject/prefilter/resolve共6 dispatch，另一次8P radiance copy（读8P+写8P）；计数reset用encoder clearBuffer，背景receiver clear与全域初始化明确计入。两lobe上界22 compute dispatch+2个texture copy（不含既有Surface/调试），同一frame encoder。空ray/tile由GPU args令昂贵间接work为0；CPU不读活跃数。理想无receiver但功能有效仍有O(P)分类/产品成本，关闭则没有这些工作。2D args用近方形排布限制padding，dummy尾组仍统一执行barrier但不写输出；ceil count与ray-index在乘法前检查，不能因u32加法/padding溢出重派早期射线。
 
 追踪上界两lobe共2P ray×128 hierarchy iterations；每步深度random load，hit color/normal、环境插值另计。去噪每个active tile有16×16halo协作加载、9×9统计、15邻域filter与多次history sampling；ALU、random texture access和shared barriers是实际必要税。Rec2020存储callback增3×3颜色矩阵ALU，线性过滤后只做一次转换，不能在9×9 inner loop反复转色域。F32 shared按vec4 radiance、vec4 normal、vec2 depth/variance规划，prefilter约10KiB、其余≤约4KiB，核实静态总量后须低于实际device的workgroup storage limit；精度适配相对源pack-half增加shared工作集，不能当作免费。Native新增≤32P sequential store与baseline/response pack，另有32P逻辑buffer clear，不重复material samples/BRDF；不能只报一次sidecar写入而漏初始化。最坏variance提升让balanced接近high，不填写虚构expected毫秒；在真实目标场景记录active ray/tile、资源和粗成本。
 

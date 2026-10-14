@@ -34,8 +34,9 @@ currentSlice:
     source algorithm and denoiser while adapting Native base/coat response,
     radiometry, bounded WebGPU work and transactional histories. Keep verification
     focused without deleting algorithm stages or weakening valid assertions.
-    This design round does not start implementation. Stop at the module boundary
-    before Local Reflection Probes; no automatic next-module design or coding.
+    Execute only the units covered by the user's current authorization and stop
+    at the requested unit boundary. Stop at the module boundary before Local
+    Reflection Probes; no automatic next-module design or coding.
 
 pausedModules:
   - id: final-pixel-performance-v5

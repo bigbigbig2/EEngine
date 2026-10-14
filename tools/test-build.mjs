@@ -79,6 +79,7 @@ export async function buildTests(root = REPO_ROOT) {
     await cp(codecVendor, resolve(output, "assets/codec/vendor"), { recursive: true });
   }
   const filterAssets = resolve(output, "render/assets/textures");
+  await cp(resolve(engine, "src/render/assets/sssr"), resolve(output, "render/assets/sssr"), { recursive: true });
   await mkdir(filterAssets, { recursive: true });
   await cp(
     resolve(engine, "src/render/assets/textures/stbn_vec1.bin"),
@@ -88,7 +89,7 @@ export async function buildTests(root = REPO_ROOT) {
     throw new Error("source changed during test compilation; rebuild");
   const manifest = {
     schemaVersion: 1,
-    recipe: "tsc -p tsconfig.test.json + pinned codec vendor + exact VSM STBN asset copy",
+    recipe: "tsc -p tsconfig.test.json + pinned codec vendor + exact VSM STBN and SSSR noise assets",
     node: process.version,
     dependencyScope: "conservative: engine src, configs, lock and compiler identity",
     sourceSha256: before,
