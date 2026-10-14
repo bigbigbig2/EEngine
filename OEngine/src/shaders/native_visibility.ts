@@ -17,6 +17,7 @@ import {
 } from "../gpu/GpuFrameGeometryArenaAbi.js";
 
 export const NATIVE_VISIBILITY_VIEW_BYTES = 192;
+export const SOFT_VISIBILITY_MAX_FOOTPRINT_PIXELS = 16;
 
 export interface NativeVisibilityShader {
   readonly source: string;
@@ -114,8 +115,9 @@ export function nativeVisibilityShader(
     vsmAtlas?: boolean;
   }> = {},
 ): NativeVisibilityShader {
-  if (program === null && materialLayout.length !== 0)
+  if (program === null && materialLayout.length !== 0) {
     throw new RangeError("OPAQUE visibility cannot bind material textures");
+  }
   if (
     program !== null &&
     (program.outputs.alpha?.length !== 1 || Object.keys(program.outputs).length !== 1)
@@ -154,7 +156,9 @@ export function nativeVisibilityShader(
     viewNormal: "view.view_matrix * vec4f(normal, 0.0)",
   };
   for (const [index, name] of ["uv0", "uv1", "uv2"].entries()) {
-    if (!dependencies.has(name)) continue;
+    if (!dependencies.has(name)) {
+      continue;
+    }
     fields.push(`@location(${3 + index}) ${name}: vec2f,`);
     vertexInputs.push(`output.${name} = surface_source_vertex_uv(local_vertex, ${index}u);`);
     expressions[name] = `vec4f(fragment.${name}, 0.0, 0.0)`;
@@ -164,7 +168,9 @@ export function nativeVisibilityShader(
     vertexInputs.push("output.color = surface_source_vertex_color(local_vertex);");
     expressions.vertexColor = "fragment.color";
   }
-  if (needsPosition) fields.push("@location(7) world_position: vec4f,");
+  if (needsPosition) {
+    fields.push("@location(7) world_position: vec4f,");
+  }
   if (needsNormal) {
     fields.push("@location(8) normal: vec4f,", "@location(10) @interpolate(flat) flags: u32,");
     vertexInputs.push(`let authored_normal = surface_source_vertex_normal(local_vertex);
@@ -190,8 +196,9 @@ export function nativeVisibilityShader(
             ).join(", ")})`
           : `native_frame_inputs[${slot}u]`;
         const expression = uniform ? uniformValue : expressions[input.name];
-        if (expression === undefined)
+        if (expression === undefined) {
           throw new RangeError(`Native coverage input '${input.name}' requires a geometry semantic`);
+        }
         return `let input_${slot} = ${expression};
     inputs.center[${slot}u] = input_${slot};
     inputs.x[${slot}u] = input_${slot}${uniform ? "" : ` + dpdx(input_${slot})`};
@@ -317,8 +324,8 @@ fn native_visibility_vertex(@builtin(vertex_index) vertex: u32, @builtin(instanc
     caster = meshlet_work.elements[work_index];
   }
   let page = valid_page(caster);
-  if (page.flags & 11u) != 11u || caster.status != 1u || caster.work_slot >= meshlet_work.header.source_count ||
-     caster.work_slot >= arrayLength(&shadow_work.elements) || caster.work_slot >= shadow_bounds.header.count { return output; }
+  if ((page.flags & 11u) != 11u || caster.status != 1u || caster.work_slot >= meshlet_work.header.source_count ||
+     caster.work_slot >= arrayLength(&shadow_work.elements) || caster.work_slot >= shadow_bounds.header.count) { return output; }
   let bound = shadow_bounds.elements[caster.work_slot];
   if bound.valid == 0u || !vsm_pair_overlaps(bound.light_xy, page, caster.virtual_page) { return output; }
   let work = shadow_work.elements[caster.work_slot];`
@@ -344,6 +351,10 @@ fn native_visibility_vertex(@builtin(vertex_index) vertex: u32, @builtin(instanc
   if cached {
     if primitive >= arena[at + 3u] { return output; }
     let packed = arena[arena[header + ${H.triangles}u] + arena[at + 1u] + primitive];
+    let v0 = packed & 255u;
+    let v1 = (packed >> 8u) & 255u;
+    let v2 = (packed >> 16u) & 255u;
+    if v0 == v1 || v1 == v2 || v0 == v2 { return output; }
     local_vertex = (packed >> (corner * 8u)) & 255u;
     if local_vertex >= arena[at + 2u] { return output; }
     output.position = native_visibility_vec4(arena[header + ${H.clips}u] + (arena[at] + local_vertex) * 4u);
@@ -455,4 +466,222 @@ fn native_visibility_fragment(fragment: NativeVisibilityVertex) -> @location(0) 
     vertexEntryPoint: "native_visibility_vertex",
     fragmentEntryPoint: "native_visibility_fragment",
   });
+}
+
+/** Nanite-style compute software rasterizer for sub-pixel and micro-polygon OPAQUE
+ * triangles (bounding footprint <= 4x4 pixels). Uses order-preserving positive Reverse-Z
+ * IEEE-754 float bitcast<u32> atomicMax on soft_depth followed by deterministic winner
+ * key publication to eliminate hardware 2x2 quad overdraw on dense meshlets. */
+export function nativeSoftVisibilityWgsl(productGeometry = false): string {
+  const productDecls = productGeometry
+    ? [
+        "@group(0) @binding(8) var<storage, read> product_heap: array<u32>;",
+        ...Array.from(
+          { length: 4 },
+          (_, index) => `@group(0) @binding(${index + 9}) var<storage, read> product_bank_${index}: array<u32>;`,
+        ),
+      ].join("\n")
+    : "";
+  return /* wgsl */ `
+${GPU_INSTANCE_RECORD_WGSL}
+${GPU_FRAME_INSTANCE_WGSL}
+${GPU_MESHLET_RASTER_WORK_WGSL}
+${GPU_VISIBILITY_KEY_WGSL}
+${NATIVE_RASTER_DIRECTORY_WGSL}
+struct NativeVisibilityView {
+  clip_from_world: mat4x4f, view_matrix: mat4x4f, camera_position: vec4f,
+  arena: vec4u, source: vec4u, source_payload: vec4u,
+}
+struct SoftRasterSettings {
+  width: u32,
+  height: u32,
+  max_footprint: u32,
+  cull_back: u32,
+}
+@group(0) @binding(0) var<storage, read> meshlet_work: OEngineMeshletWorkQueueRead;
+@group(0) @binding(1) var<storage, read> arena: array<u32>;
+@group(0) @binding(2) var<storage, read> frame_instances: array<OEngineFrameInstanceRecord>;
+@group(0) @binding(3) var<uniform> view: NativeVisibilityView;
+@group(0) @binding(4) var<storage, read> vertex_payload: array<u32>;
+@group(0) @binding(5) var<storage, read> native_raster_indices: array<u32>;
+@group(0) @binding(6) var<storage, read> native_raster_states: array<vec4u>;
+@group(0) @binding(7) var<uniform> native_raster_partition: vec4u;
+${productDecls}
+@group(1) @binding(0) var<uniform> soft_settings: SoftRasterSettings;
+@group(1) @binding(1) var<storage, read_write> soft_depth: array<atomic<u32>>;
+@group(1) @binding(2) var<storage, read_write> soft_keys: array<atomic<u32>>;
+@group(1) @binding(3) var visibility_out: texture_storage_2d<r32uint, write>;
+@group(2) @binding(1) var<storage, read> native_directory: array<NativeRasterDirectoryEntry>;
+@group(2) @binding(3) var<uniform> route: vec4u;
+${surfaceGeometryDecodeWgsl(productGeometry, "arena").replaceAll("settings.source", "view.source")}
+
+fn soft_visibility_vec4(at: u32) -> vec4f {
+  return bitcast<vec4f>(vec4u(arena[at], arena[at + 1u], arena[at + 2u], arena[at + 3u]));
+}
+
+fn soft_edge_function(a: vec2f, b: vec2f, p: vec2f) -> f32 {
+  return (p.x - a.x) * (b.y - a.y) - (p.y - a.y) * (b.x - a.x);
+}
+
+fn soft_evaluate_triangle(
+  work_index: u32,
+  primitive: u32,
+  cached: bool,
+  at: u32,
+  header: u32,
+  work: OEngineMeshletRasterWork,
+  instance: OEngineFrameInstanceRecord,
+  commit_winner: bool,
+) {
+  let encoded_key = oengine_visibility_key_try_encode(work_index, primitive);
+  if (encoded_key.valid == 0u) {
+    return;
+  }
+  let reflect_winding = instance.normal_x.w < 0.0;
+  var c0: vec4f;
+  var c1: vec4f;
+  var c2: vec4f;
+  if (cached) {
+    if (primitive >= arena[at + 3u]) {
+      return;
+    }
+    let packed = arena[arena[header + ${H.triangles}u] + arena[at + 1u] + primitive];
+    let i0 = packed & 255u;
+    let i1 = select((packed >> 8u) & 255u, (packed >> 16u) & 255u, reflect_winding);
+    let i2 = select((packed >> 16u) & 255u, (packed >> 8u) & 255u, reflect_winding);
+    let vertex_count = arena[at + 2u];
+    if (i0 == i1 || i1 == i2 || i0 == i2 || i0 >= vertex_count || i1 >= vertex_count || i2 >= vertex_count) {
+      return;
+    }
+    let clip_base = arena[header + ${H.clips}u];
+    let vertex_base = arena[at];
+    c0 = soft_visibility_vec4(clip_base + (vertex_base + i0) * 4u);
+    c1 = soft_visibility_vec4(clip_base + (vertex_base + i1) * 4u);
+    c2 = soft_visibility_vec4(clip_base + (vertex_base + i2) * 4u);
+  } else {
+    let count = surface_source_load(work);
+    if (primitive >= count.y) {
+      return;
+    }
+    let i0 = surface_source_triangle_corner(primitive, 0u);
+    let i1 = surface_source_triangle_corner(primitive, select(1u, 2u, reflect_winding));
+    let i2 = surface_source_triangle_corner(primitive, select(2u, 1u, reflect_winding));
+    if (i0 == i1 || i1 == i2 || i0 == i2 || i0 >= count.x || i1 >= count.x || i2 >= count.x) {
+      return;
+    }
+    c0 = instance.object_to_clip * vec4f(surface_source_vertex_position(i0), 1.0);
+    c1 = instance.object_to_clip * vec4f(surface_source_vertex_position(i1), 1.0);
+    c2 = instance.object_to_clip * vec4f(surface_source_vertex_position(i2), 1.0);
+  }
+  if (c0.w <= 0.0 || c1.w <= 0.0 || c2.w <= 0.0) {
+    return;
+  }
+  let inv_w0 = 1.0 / c0.w;
+  let inv_w1 = 1.0 / c1.w;
+  let inv_w2 = 1.0 / c2.w;
+  let ndc0 = c0.xyz * inv_w0;
+  let ndc1 = c1.xyz * inv_w1;
+  let ndc2 = c2.xyz * inv_w2;
+  let viewport = vec2f(f32(soft_settings.width), f32(soft_settings.height));
+  let s0 = vec2f(ndc0.x * 0.5 + 0.5, 0.5 - ndc0.y * 0.5) * viewport;
+  let s1 = vec2f(ndc1.x * 0.5 + 0.5, 0.5 - ndc1.y * 0.5) * viewport;
+  let s2 = vec2f(ndc2.x * 0.5 + 0.5, 0.5 - ndc2.y * 0.5) * viewport;
+  // Screen-space Y is top-down while NDC Y is bottom-up, so CCW in NDC has negative 2D cross in screen Y-down.
+  let area = soft_edge_function(s0, s1, s2);
+  if (abs(area) <= 1e-8 || (soft_settings.cull_back != 0u && area >= 0.0)) {
+    return;
+  }
+  let bbox_min = vec2i(ceil(min(s0, min(s1, s2)) - vec2f(0.5)));
+  let bbox_max = vec2i(floor(max(s0, max(s1, s2)) - vec2f(0.5)));
+  let min_px = clamp(bbox_min, vec2i(0), vec2i(i32(soft_settings.width) - 1, i32(soft_settings.height) - 1));
+  let max_px = clamp(bbox_max, vec2i(0), vec2i(i32(soft_settings.width) - 1, i32(soft_settings.height) - 1));
+  if (min_px.x > max_px.x || min_px.y > max_px.y) {
+    return;
+  }
+  let span_x = u32(max_px.x - min_px.x + 1);
+  let span_y = u32(max_px.y - min_px.y + 1);
+  if (span_x * span_y > soft_settings.max_footprint) {
+    return;
+  }
+  let inv_area = 1.0 / area;
+  for (var py = min_px.y; py <= max_px.y; py++) {
+    for (var px = min_px.x; px <= max_px.x; px++) {
+      let sample_pt = vec2f(f32(px) + 0.5, f32(py) + 0.5);
+      let w0 = soft_edge_function(s1, s2, sample_pt) * inv_area;
+      let w1 = soft_edge_function(s2, s0, sample_pt) * inv_area;
+      let w2 = 1.0 - w0 - w1;
+      if (w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0) {
+        let z = w0 * ndc0.z + w1 * ndc1.z + w2 * ndc2.z;
+        if (z > 0.0 && z <= 1.0) {
+          let depth_bits = bitcast<u32>(z);
+          let pixel_index = u32(py) * soft_settings.width + u32(px);
+          if (!commit_winner) {
+            atomicMax(&soft_depth[pixel_index], depth_bits);
+          } else if (atomicLoad(&soft_depth[pixel_index]) == depth_bits) {
+            atomicMax(&soft_keys[pixel_index], encoded_key.key);
+          }
+        }
+      }
+    }
+  }
+}
+
+fn soft_dispatch_meshlet(group: vec3u, lane: u32, commit_winner: bool) {
+  let partition_state = native_raster_states[native_raster_partition.x];
+  let instance_index = group.x + group.y * 65535u;
+  if (instance_index >= partition_state.x) {
+    return;
+  }
+  let work_index = native_raster_indices[partition_state.y + instance_index];
+  let generation = view.arena.z;
+  if (meshlet_work.header.generation != generation ||
+      work_index >= min(meshlet_work.header.written_count, min(meshlet_work.header.capacity, arrayLength(&meshlet_work.elements)))) {
+    return;
+  }
+  let work = meshlet_work.elements[work_index];
+  if (work.instance_slot >= arrayLength(&frame_instances) || work.material_slot_or_range >= arrayLength(&native_directory)) {
+    return;
+  }
+  let instance = frame_instances[work.instance_slot];
+  let material = native_directory[work.material_slot_or_range];
+  if (instance.generation != generation || (instance.source.flags & 64u) != 0u ||
+      material.raster_class != route.x || material.valid == 0u) {
+    return;
+  }
+  let header = view.arena.x;
+  if (arena[header + ${H.version}u] != ${FRAME_GEOMETRY_ARENA_VERSION}u) {
+    return;
+  }
+  let directory = arena[header + select(${H.sourceDirectory}u, ${H.filteredDirectory}u, view.arena.y != 0u)];
+  let at = directory + 4u + work_index * ${FRAME_GEOMETRY_MESHLET_STRIDE / 4}u;
+  let cached = arena[directory + 1u] == generation && work_index < arena[directory] && arena[at + 2u] != 0u;
+  soft_evaluate_triangle(work_index, lane, cached, at, header, work, instance, commit_winner);
+  soft_evaluate_triangle(work_index, lane + 64u, cached, at, header, work, instance, commit_winner);
+}
+
+@compute @workgroup_size(64)
+fn rasterize_depth(@builtin(workgroup_id) group: vec3u, @builtin(local_invocation_index) lane: u32) {
+  soft_dispatch_meshlet(group, lane, false);
+}
+
+@compute @workgroup_size(64)
+fn rasterize_key(@builtin(workgroup_id) group: vec3u, @builtin(local_invocation_index) lane: u32) {
+  soft_dispatch_meshlet(group, lane, true);
+}
+
+@compute @workgroup_size(8, 8)
+fn resolve_soft_visibility(@builtin(global_invocation_id) id: vec3u) {
+  if (id.x >= soft_settings.width || id.y >= soft_settings.height) {
+    return;
+  }
+  let pixel_index = id.y * soft_settings.width + id.x;
+  let depth_bits = atomicLoad(&soft_depth[pixel_index]);
+  if (depth_bits != 0u) {
+    let key = atomicLoad(&soft_keys[pixel_index]);
+    if (key != 0u && key != OENGINE_VISIBILITY_KEY_EMPTY) {
+      textureStore(visibility_out, vec2i(id.xy), vec4u(key, 0u, 0u, 1u));
+    }
+  }
+}
+`;
 }

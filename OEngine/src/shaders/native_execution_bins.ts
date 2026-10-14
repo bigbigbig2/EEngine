@@ -160,7 +160,23 @@ fn classify(@builtin(workgroup_id) group: vec3u, @builtin(num_workgroups) groups
   for (var at = lane; at < 128u; at += 64u) {
     let bin = atomicLoad(&local_keys[at]);
     if bin != 0xffffffffu {
-      publish_tile(bin, tile, atomicLoad(&local_low[at]), atomicLoad(&local_high[at]), false);
+      let low = atomicLoad(&local_low[at]);
+      let high = atomicLoad(&local_high[at]);
+      let first_bit = select(32u + firstTrailingBit(high), firstTrailingBit(low), low != 0u);
+      let ref_prim = primitive_keys[first_bit];
+      var bin_uniform_primitive = (low | high) != 0u && ref_prim != 0xffffffffu;
+      var rem_low = low;
+      while (rem_low != 0u && bin_uniform_primitive) {
+        bin_uniform_primitive = primitive_keys[firstTrailingBit(rem_low)] == ref_prim;
+        rem_low &= rem_low - 1u;
+      }
+      var rem_high = high;
+      while (rem_high != 0u && bin_uniform_primitive) {
+        bin_uniform_primitive = primitive_keys[32u + firstTrailingBit(rem_high)] == ref_prim;
+        rem_high &= rem_high - 1u;
+      }
+      publish_tile(bin, tile, low, high, bin_uniform_primitive);
+      if bin_uniform_primitive { atomicAdd(&scratch[3u], 1u); }
     }
   }
 }
@@ -179,17 +195,17 @@ struct FinalizeSettings { bins: u32, tile_capacity: u32, metadata_words: u32, ma
 fn finalize(@builtin(global_invocation_id) id: vec3u, @builtin(num_workgroups) groups: vec3u) {
   let bin = id.x + id.y * groups.x * 64u;
   if bin >= settings.bins { return; }
-  let count = scratch[4u + bin];
+  let count = min(scratch[4u + bin], settings.tile_capacity);
   let x = min(count, settings.max_groups);
-  let y = select(0u, (count + settings.max_groups - 1u) / settings.max_groups, count != 0u);
-  let record = bin * ${NATIVE_EXECUTION_BIN_WORDS}u;
-  queue[record] = settings.metadata_words + bin * settings.tile_capacity * ${NATIVE_EXECUTION_TILE_WORDS}u;
-  queue[record + 1u] = count;
-  queue[record + 2u] = x;
-  queue[record + 3u] = y;
-  queue[record + 4u] = 1u;
-  queue[record + 5u] = known_bins[bin].x;
-  queue[record + 6u] = known_bins[bin].y;
-  queue[record + 7u] = 0u;
+  let y = select(0u, (count + max(x, 1u) - 1u) / max(x, 1u), count != 0u);
+  let base = bin * ${NATIVE_EXECUTION_BIN_WORDS}u;
+  queue[base] = settings.metadata_words + bin * settings.tile_capacity * ${NATIVE_EXECUTION_TILE_WORDS}u;
+  queue[base + 1u] = count;
+  queue[base + 2u] = x;
+  queue[base + 3u] = y;
+  queue[base + 4u] = select(0u, 1u, count != 0u);
+  queue[base + 5u] = known_bins[bin].x;
+  queue[base + 6u] = known_bins[bin].y;
+  queue[base + 7u] = scratch[0u] | (scratch[1u] << 16u);
 }
 `;

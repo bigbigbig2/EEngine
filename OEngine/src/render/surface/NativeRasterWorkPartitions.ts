@@ -341,12 +341,10 @@ export class NativeRasterWorkPartitions {
     if (this.destroyed || this.retiring || this.pipelines === null) {
       throw new Error("Native raster partitions are not ready");
     }
+    const pass = encoder.beginComputePass({ label: "Native raster/partitions" });
+    pass.setBindGroup(0, recovery ? this.recoveryGroup : this.group);
     for (let stage = 0; stage < 4; stage++) {
-      const pass = encoder.beginComputePass({
-        label: `Native raster/${["begin", "count", "prefix", "scatter"][stage]}`,
-      });
       pass.setPipeline(this.pipelines[stage]!);
-      pass.setBindGroup(0, recovery ? this.recoveryGroup : this.group);
       if (stage === 0) {
         pass.setBindGroup(1, this.dispatchGroup);
         pass.dispatchWorkgroups(Math.ceil(this.count / 64));
@@ -355,8 +353,8 @@ export class NativeRasterWorkPartitions {
       } else {
         pass.dispatchWorkgroupsIndirect(this.dispatch, 0);
       }
-      pass.end();
     }
+    pass.end();
   }
 
   retire(completion: Promise<void>): Promise<void> {

@@ -10,6 +10,7 @@ export { buildVsmDirectionalFrameConstants, type VsmDirectionalFrameConstants } 
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
+import { GpuBindGroupCache } from "../../gpu/GpuBindGroupResourceCache.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
 import { VsmResources } from "./VsmResources.js";
 import {
@@ -82,8 +83,8 @@ function packConstants(input: VsmReceiverDemandInputs, resources: VsmResources):
  * sampler scales by the actual level/mip world texel and stable inverse Z range. */
 export function packVsmSamplingConstants(input: VsmReceiverDemandInputs): ArrayBuffer {
   const data = packConstants(input, input.resources);
-  const floats = new Float32Array(data),
-    uints = new Uint32Array(data);
+  const floats = new Float32Array(data);
+  const uints = new Uint32Array(data);
   const profile = input.resources.capabilities;
   uints.set([profile.virtualPagesPerAxis, profile.pageSize, profile.border, profile.atlasPagesPerAxis], 40);
   const settings = input.frame.settings ?? VSM_DEFAULT_SETTINGS;
@@ -114,6 +115,7 @@ export class VsmReceiverDemandPass {
   private readonly layout: GPUBindGroupLayout;
   private readonly pipeline: GPUComputePipeline;
   private readonly coarsePipeline: GPUComputePipeline;
+  private readonly bindGroups = new GpuBindGroupCache(8);
   private diagnosticWorkgroups: GPUBuffer | null = null;
 
   constructor(private readonly device: GPUDevice) {
@@ -159,8 +161,9 @@ export class VsmReceiverDemandPass {
 
   addToGraph(graph: FrameGraph, input: VsmReceiverDemandInputs): VsmDemandFrame {
     const profile = input.resources.capabilities;
-    if (input.resources.profile === "shadow-disabled")
+    if (input.resources.profile === "shadow-disabled") {
       throw new Error("VSM receiver demand requires an enabled profile");
+    }
     if (
       !Number.isInteger(input.width) ||
       input.width < 1 ||
@@ -171,10 +174,13 @@ export class VsmReceiverDemandPass {
     ) {
       throw new RangeError("VSM receiver demand extent exceeds device limits");
     }
-    if (!Number.isSafeInteger(input.generation) || input.generation < 0)
+    if (!Number.isSafeInteger(input.generation) || input.generation < 0) {
       throw new RangeError("VSM generation is invalid");
+    }
     const demandBuffer = input.resources.requestedPages;
-    if (!demandBuffer) throw new Error("VSM demand buffer is unavailable");
+    if (!demandBuffer) {
+      throw new Error("VSM demand buffer is unavailable");
+    }
     let diagnostic: ResourceId | undefined;
     if (DEMAND_DIAGNOSTICS) {
       const [groupsX, groupsY] = vsmReceiverDispatch(input.width, input.height);
@@ -206,7 +212,9 @@ export class VsmReceiverDemandPass {
       { kind: "imported", label: "VSM demand buffer" },
       demandBuffer,
     );
-    if (!input.resources.pageConstants) throw new Error("VSM sampling constants are unavailable");
+    if (!input.resources.pageConstants) {
+      throw new Error("VSM sampling constants are unavailable");
+    }
     const sampling = graph.import_resource(
       "VSM/sampling constants",
       { kind: "imported" },
@@ -249,7 +257,7 @@ export class VsmReceiverDemandPass {
       const command = context.encoder as ShadeGPUCommandContext;
       const demandBuffer = resources.get(demand) as GPUBuffer;
       command.clearBuffer(demandBuffer);
-      const group = this.device.createBindGroup({
+      const group = this.bindGroups.create(this.device, {
         layout: this.layout,
         entries: [
           { binding: 0, resource: { buffer: resources.get(input.camera) as GPUBuffer } },
@@ -292,6 +300,7 @@ export class VsmReceiverDemandPass {
   }
 
   destroy(): void {
+    this.bindGroups.clear();
     this.constants.destroy();
     this.diagnosticWorkgroups?.destroy();
   }

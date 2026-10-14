@@ -8,19 +8,29 @@ import {
   nativeCoverageEvaluationWgsl,
   nativeVisibilityShader,
   nativeVisibilityView,
-  NATIVE_VISIBILITY_VIEW_BYTES
+  nativeSoftVisibilityWgsl,
+  NATIVE_VISIBILITY_VIEW_BYTES,
 } from "../../.test-dist/shaders/native_visibility.js";
 
 const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 test("universal OPAQUE emits only clip and visibility identity, with no material machinery", () => {
   const shader = nativeVisibilityShader(null, [], { partitioned: true, productGeometry: true });
-  const outputs = shader.source.slice(shader.source.indexOf("struct NativeVisibilityVertex"), shader.source.indexOf("fn native_visibility_vec4"));
+  const outputs = shader.source.slice(
+    shader.source.indexOf("struct NativeVisibilityVertex"),
+    shader.source.indexOf("fn native_visibility_vec4"),
+  );
   assert.doesNotMatch(outputs, /uv|normal|tangent|color|world_position|material|flags/);
-  assert.doesNotMatch(shader.source, /native_material_evaluate|NativeMaterialInputs|native_constants|native_frame_inputs|textureSample/);
+  assert.doesNotMatch(
+    shader.source,
+    /native_material_evaluate|NativeMaterialInputs|native_constants|native_frame_inputs|textureSample/,
+  );
   const fragment = shader.source.slice(shader.source.indexOf("fn native_visibility_fragment"));
   assert.doesNotMatch(fragment, /dpdx|dpdy|native_directory/);
   assert.equal(shader.groups[3].length, 0);
-  assert.deepEqual(shader.groups[2].map(binding => binding.binding), [1, 3]);
+  assert.deepEqual(
+    shader.groups[2].map((binding) => binding.binding),
+    [1, 3],
+  );
 });
 function program() {
   const graph = new AppearanceGraphBuilder();
@@ -28,11 +38,7 @@ function program() {
   graph.output("baseColor", graph.constant([0.2, 0.3, 0.4]));
   graph.output(
     "alpha",
-    graph.operation(
-      "multiply",
-      graph.swizzle(uv, [0]),
-      graph.input("time", 1, "dynamic", { low: 0, high: 2 })
-    )
+    graph.operation("multiply", graph.swizzle(uv, [0]), graph.input("time", 1, "dynamic", { low: 0, high: 2 })),
   );
   return lowerNativeMaterial(nativeMaterialCoverageProgram(compileAppearanceGraph(graph.build())));
 }
@@ -44,7 +50,7 @@ test("main and shadow share coverage-program alpha offsets and raster suffix", (
   const coverage = nativeCoverageEvaluationWgsl(p);
   assert.match(
     coverage,
-    new RegExp(`native_material_evaluate\\(material_base, inputs\\)\\[${p.outputs.alpha[0]}u\\]`)
+    new RegExp(`native_material_evaluate\\(material_base, inputs\\)\\[${p.outputs.alpha[0]}u\\]`),
   );
   assert.match(coverage, new RegExp(`material_base, ${p.constants.length}u`));
   assert.match(coverage, new RegExp(`material_base, ${p.constants.length + 1}u`));
@@ -60,7 +66,7 @@ test("main and shadow share coverage-program alpha offsets and raster suffix", (
 test("raster CXY precedes alpha discard, uniform inputs have no screen derivatives, and resources match stages", () => {
   const p = program();
   const materialLayout = [
-    { binding: 0, visibility: 4, texture: { sampleType: "float", viewDimension: "2d-array" } }
+    { binding: 0, visibility: 4, texture: { sampleType: "float", viewDimension: "2d-array" } },
   ];
   const shader = nativeVisibilityShader(p, materialLayout);
   const body = shader.source.slice(shader.source.indexOf("fn native_visibility_fragment"));
@@ -70,7 +76,7 @@ test("raster CXY precedes alpha discard, uniform inputs have no screen derivativ
   assert.match(body, new RegExp(`inputs.x\\[${dynamic}u\\] = input_${dynamic};`));
   assert.equal(
     shader.groups[0].find((entry) => entry.binding === 3).buffer.minBindingSize,
-    NATIVE_VISIBILITY_VIEW_BYTES
+    NATIVE_VISIBILITY_VIEW_BYTES,
   );
   assert.equal(shader.groups[2].find((entry) => entry.binding === 0).visibility, 2);
   assert.equal(shader.groups[2].find((entry) => entry.binding === 1).visibility, 3);
@@ -84,7 +90,7 @@ test("raster CXY precedes alpha discard, uniform inputs have no screen derivativ
 test("raster snapshots exact arena/source addressing and allows exact fallback for raster capacity misses", () => {
   const prepared = {
     budget: { vertexCapacity: 128, filteredWorkCapacity: 4 },
-    layout: { header: { offset: 1024 } }
+    layout: { header: { offset: 1024 } },
   };
   const view = {
     clipFromWorld: identity,
@@ -92,16 +98,15 @@ test("raster snapshots exact arena/source addressing and allows exact fallback f
     cameraPosition: [1, 2, 3],
     filtered: true,
     source: [0, 100, 200, 300],
-    sourcePayload: [0, 0, 0, 256]
+    sourcePayload: [0, 0, 0, 256],
   };
   const bytes = nativeVisibilityView(prepared, 17, view);
   assert.equal(bytes.byteLength, 192);
   assert.deepEqual([...new Uint32Array(bytes.buffer).subarray(36, 40)], [256, 1, 17, 0]);
   assert.deepEqual([...new Float32Array(bytes.buffer).subarray(32, 35)], [1, 2, 3]);
   assert.equal(
-    nativeVisibilityView({ ...prepared, layout: { ...prepared.layout } }, 17, view)
-      .byteLength,
-    192
+    nativeVisibilityView({ ...prepared, layout: { ...prepared.layout } }, 17, view).byteLength,
+    192,
   );
   const partitioned = nativeVisibilityShader(program(), [], { partitioned: true, productGeometry: true });
   assert.match(partitioned.source, /native_raster_indices\[partition_state.y/);
@@ -110,6 +115,15 @@ test("raster snapshots exact arena/source addressing and allows exact fallback f
   assert.throws(() => nativeVisibilityView(prepared, 0, view), /generation/);
   assert.throws(
     () => nativeVisibilityView(prepared, 17, { ...view, cameraPosition: [Infinity, 0, 0] }),
-    /finite/
+    /finite/,
   );
+});
+
+test("compute software visibility rasterizer culls degenerate/sub-pixel triangles and resolves atomicMax depth winners", () => {
+  const softWgsl = nativeSoftVisibilityWgsl(true);
+  assert.match(softWgsl, /atomicMax\(&soft_depth\[pixel_index\], depth_bits\)/);
+  assert.match(softWgsl, /atomicMax\(&soft_keys\[pixel_index\], encoded_key\.key\)/);
+  assert.match(softWgsl, /span_x \* span_y > soft_settings\.max_footprint/);
+  assert.match(softWgsl, /fn resolve_soft_visibility/);
+  assert.match(softWgsl, /product_bank_3/);
 });

@@ -206,8 +206,8 @@ export class VsmAllocatePagesPass {
         command.clearBuffer(owner.missingPages!);
         command.clearBuffer(owner.overflowCounters!, 0, 16);
         const wordGroups = Math.ceil(Math.ceil(owner.capabilities.virtualEntryCount / 32) / 64);
+        const pass = command.beginComputePass({ label: "VSM/complete demand and ordered residency" });
         const encode = (stage: Stage, misses: boolean, indirect = false) => {
-          const pass = command.beginComputePass({ label: `VSM/${stage}/${misses ? "misses" : "requests"}` });
           pass.setPipeline(this.pipelines.get(stage)!);
           pass.setBindGroup(0, this.group(stage, owner, misses));
           if (indirect) {
@@ -215,7 +215,6 @@ export class VsmAllocatePagesPass {
           } else {
             pass.dispatchWorkgroups(stage === "count_words" || stage === "scatter" ? wordGroups : 1);
           }
-          pass.end();
         };
         encode("count_words", false);
         encode("prefix_requests", false);
@@ -229,6 +228,7 @@ export class VsmAllocatePagesPass {
         encode("scatter", true);
         encode("allocate", true, true);
         encode("publish_dirty", false);
+        pass.end();
       },
     );
     produce.read(input.demand);

@@ -5,6 +5,7 @@ import { AppearanceGraphBuilder } from "../../.test-dist/material/AppearanceGrap
 import { compileAppearanceGraph } from "../../.test-dist/material/AppearanceGraphCompiler.js";
 import { lowerNativeMaterial } from "../../.test-dist/shaders/native_material.js";
 import { nativeSurfaceWgsl } from "../../.test-dist/shaders/native_surface.js";
+import { nativeExecutionClassifyWgsl } from "../../.test-dist/shaders/native_execution_bins.js";
 import { vsmShadowResolveWgsl } from "../oracle/reference/s3/vsm_shadow_resolve.mjs";
 import {
   VSM_RECEIVER_DEMAND_WGSL,
@@ -32,13 +33,19 @@ test("Native diagnostic specializations retain winner predicates and G is the so
     assert.match(body, /WINNER_VALUE_VALID/);
     assert.match(body, /textureStore\(hdr/);
     assert.match(body, /native_response_write/);
+    assert.match(body, /workgroupUniformLoad\(&wg_tile_broadcast\)/);
+    assert.match(body, /corners = wg_shared_corners;/);
   }
+  const denseSource = nativeSurfaceWgsl(program, { ...profile, compact: false });
+  assert.match(main(denseSource), /workgroupUniformLoad\(&wg_tile_broadcast\)/);
+  assert.match(nativeExecutionClassifyWgsl(true), /bin_uniform_primitive/);
   assert.doesNotMatch(main(generated.A), /native_material_evaluate\(/);
   assert.match(main(generated.A), /corners.position.p0/);
   assert.match(main(generated.B0), /inputs.center\[/);
   assert.doesNotMatch(main(generated.B0), /inputs\.[xy]\[|interpolation\.(dx|dy)|native_material_evaluate\(/);
-  for (const point of ["center", "x", "y"])
+  for (const point of ["center", "x", "y"]) {
     assert.match(main(generated.B), new RegExp(`inputs\\.${point}\\[`));
+  }
   assert.match(main(generated.B), /interpolation.dx/);
   assert.doesNotMatch(main(generated.B), /native_material_evaluate\(/);
   assert.match(main(generated.C), /native_material_evaluate\(/);
@@ -78,4 +85,6 @@ test("VSM aggregation keeps barriers uniform and diagnostics count actual public
   assert.equal(source.match(/atomicAdd\(&diagnostic_totals\[3\]/g).length, 2);
   assert.match(VSM_RECEIVER_DEMAND_WGSL, /attempt < 64u/);
   assert.match(VSM_RECEIVER_DEMAND_WGSL, /if \(!merged\)/);
+  assert.match(VSM_RECEIVER_DEMAND_WGSL, /wg_tile_corner_pages/);
+  assert.match(VSM_RECEIVER_DEMAND_WGSL, /instances\[instance_slot\]\.flags/);
 });

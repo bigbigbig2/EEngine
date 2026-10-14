@@ -52,7 +52,9 @@ export function nativeSurfaceMaterialGraph(
 ): CompiledAppearanceGraph {
   let variants = SURFACE_GRAPHS.get(graph);
   const cached = variants?.get(unlit);
-  if (cached) return cached;
+  if (cached) {
+    return cached;
+  }
   const consumed = new Set(
     unlit
       ? ["baseColor"]
@@ -445,15 +447,88 @@ ${materialLighting}
     ? /* wgsl */ `
   let record = route.x * 8u;
   let work_index = group.y * groups.x + group.x;
-  if work_index >= native_tiles[record + 1u] { return; }
-  let address = native_tiles[record] + work_index * 3u;
-  let mask = native_tiles[address + 1u + lane / 32u];
-  if (mask & (1u << (lane % 32u))) == 0u { return; }
+  let valid_group = work_index < native_tiles[record + 1u];
+  let address = select(0u, native_tiles[record] + work_index * 3u, valid_group);
+  let raw_tile = select(0u, native_tiles[address], valid_group);
+  let low_mask = select(0u, native_tiles[address + 1u], valid_group);
+  let high_mask = select(0u, native_tiles[address + 2u], valid_group);
   let tile = native_tiles[address] & 0x7fffffffu;
   let tiles_x = (settings.dimensions.x + 7u) / 8u;
+  if lane == 0u {
+    wg_tile_broadcast = 0u;
+    if valid_group && (raw_tile & 0x80000000u) != 0u && (low_mask | high_mask) != 0u &&
+        meshlet_work.header.generation == settings.dimensions.w {
+      let rep_lane = select(32u + firstTrailingBit(high_mask), firstTrailingBit(low_mask), low_mask != 0u);
+      let rep_pixel = vec2u((tile % tiles_x) * 8u + rep_lane % 8u, (tile / tiles_x) * 8u + rep_lane / 8u);
+      if all(rep_pixel < settings.dimensions.xy) {
+        let rep_key = textureLoad(visibility, vec2i(rep_pixel), 0).r;
+        let rep_decoded = oengine_visibility_key_resolve(rep_key, meshlet_work.header.generation, meshlet_work.header.written_count);
+        if rep_decoded.valid != 0u &&
+            rep_decoded.meshlet_work_slot < min(meshlet_work.header.capacity, arrayLength(&meshlet_work.elements)) {
+          let rep_work = meshlet_work.elements[rep_decoded.meshlet_work_slot];
+          if rep_work.instance_slot < arrayLength(&frame_instances) &&
+              frame_instances[rep_work.instance_slot].generation == settings.dimensions.w &&
+              rep_work.material_slot_or_range < arrayLength(&native_directory) {
+            let rep_entry = native_directory[rep_work.material_slot_or_range];
+            if rep_entry.execution_bin == route.x${profile.finalPixel ? " && rep_entry.program_index != 0xffffffffu" : ""} {
+              let rep_instance = frame_instances[rep_work.instance_slot];
+              let rep_resolved = geometry_complete_resolved(rep_decoded, rep_work, rep_instance);
+              wg_shared_work = rep_work;
+              wg_shared_entry = rep_entry;
+              wg_shared_instance_source = rep_instance.source;
+              wg_shared_resolved = rep_resolved;
+              wg_shared_corners = geometry_complete_attributes(rep_resolved, rep_instance);
+              wg_tile_broadcast = 1u;
+            }
+          }
+        }
+      }
+    }
+  }
+  let tile_broadcast = workgroupUniformLoad(&wg_tile_broadcast) != 0u;
+  if work_index >= native_tiles[record + 1u] { return; }
+  let mask = native_tiles[address + 1u + lane / 32u];
+  if (mask & (1u << (lane % 32u))) == 0u { return; }
   let pixel = vec2u((tile % tiles_x) * 8u + lane % 8u, (tile / tiles_x) * 8u + lane / 8u);
 `
-    : "  let pixel = id.xy;";
+    : /* wgsl */ `
+  let pixel = id.xy;
+  let in_bounds = all(pixel < settings.dimensions.xy);
+  let dense_key = select(OENGINE_VISIBILITY_KEY_EMPTY, textureLoad(visibility, vec2i(pixel), 0).r, in_bounds);
+  wg_dense_keys[lane] = dense_key;
+  if lane == 0u {
+    wg_tile_broadcast = 0u;
+    atomicStore(&wg_dense_mixed, 0u);
+  }
+  workgroupBarrier();
+  if !in_bounds || dense_key == OENGINE_VISIBILITY_KEY_EMPTY || dense_key != wg_dense_keys[0] {
+    atomicOr(&wg_dense_mixed, 1u);
+  }
+  workgroupBarrier();
+  if lane == 0u && atomicLoad(&wg_dense_mixed) == 0u && meshlet_work.header.generation == settings.dimensions.w {
+    let rep_decoded = oengine_visibility_key_resolve(dense_key, meshlet_work.header.generation, meshlet_work.header.written_count);
+    if rep_decoded.valid != 0u &&
+        rep_decoded.meshlet_work_slot < min(meshlet_work.header.capacity, arrayLength(&meshlet_work.elements)) {
+      let rep_work = meshlet_work.elements[rep_decoded.meshlet_work_slot];
+      if rep_work.instance_slot < arrayLength(&frame_instances) &&
+          frame_instances[rep_work.instance_slot].generation == settings.dimensions.w &&
+          rep_work.material_slot_or_range < arrayLength(&native_directory) {
+        let rep_entry = native_directory[rep_work.material_slot_or_range];
+        if rep_entry.execution_bin == route.x${profile.finalPixel ? " && rep_entry.program_index != 0xffffffffu" : ""} {
+          let rep_instance = frame_instances[rep_work.instance_slot];
+          let rep_resolved = geometry_complete_resolved(rep_decoded, rep_work, rep_instance);
+          wg_shared_work = rep_work;
+          wg_shared_entry = rep_entry;
+          wg_shared_instance_source = rep_instance.source;
+          wg_shared_resolved = rep_resolved;
+          wg_shared_corners = geometry_complete_attributes(rep_resolved, rep_instance);
+          wg_tile_broadcast = 1u;
+        }
+      }
+    }
+  }
+  let tile_broadcast = workgroupUniformLoad(&wg_tile_broadcast) != 0u;
+`;
   const rasterFlags = `  let raster_flags = u32(native_material_constant(entry.constant_base, ${program.constants.length + 1}u));`;
   let evaluation = /* wgsl */ `
   var inputs: NativeMaterialInputs;
@@ -511,6 +586,16 @@ ${material}
     }
     evaluation += "  let color = vec3f(0.2) + vec3f(diagnostic_anchor * 0.0001);\n";
   }
+  const seedSurfaceBlock = profile.finalPixel
+    ? /* wgsl */ `var seed_instance_source: OEngineInstanceRecord;
+  if (tile_broadcast) {
+    seed_instance_source = wg_shared_instance_source;
+  } else {
+    seed_instance_source = frame_instances[work.instance_slot].source;
+  }
+  seed_surface(pixel, resolved_position, settings.view_matrix, seed_instance_source,
+    work, entry, (raster_flags & 1u) != 0u);`
+    : "";
   return /* wgsl */ `
 // Native cost slice: ${costSlice}
 ${surfaceGeometryCompletionWgsl(profile.productGeometry, true, false, fusedSun)}
@@ -590,6 +675,18 @@ fn native_geometry_input(corners: GeometryCompletion, weights: vec3f, kind: u32)
     default: { return vec4f(0.0); }
   }
 }
+var<workgroup> wg_tile_broadcast: u32;
+var<workgroup> wg_shared_work: OEngineMeshletRasterWork;
+var<workgroup> wg_shared_entry: NativeMaterialDirectoryEntry;
+var<workgroup> wg_shared_instance_source: OEngineInstanceRecord;
+var<workgroup> wg_shared_resolved: GeometryResolved;
+var<workgroup> wg_shared_corners: GeometryCompletion;
+${
+  profile.compact
+    ? ""
+    : `var<workgroup> wg_dense_keys: array<u32, 64>;
+var<workgroup> wg_dense_mixed: atomic<u32>;`
+}
 @compute @workgroup_size(${profile.compact ? "64" : "8, 8"})
 fn main(@builtin(global_invocation_id) id: vec3u, @builtin(workgroup_id) group: vec3u,
   @builtin(num_workgroups) groups: vec3u, @builtin(local_invocation_index) lane: u32) {
@@ -597,48 +694,57 @@ ${pixelSelection}
   if any(pixel >= settings.dimensions.xy) {
     return;
   }
-  let key = textureLoad(visibility, vec2i(pixel), 0).r;
-  ${
-    profile.finalPixel
-      ? `if (key == OENGINE_VISIBILITY_KEY_EMPTY) {
-    seed_unassigned(pixel, true);
-    return;
-  }`
-      : ""
+  var work: OEngineMeshletRasterWork;
+  var entry: NativeMaterialDirectoryEntry;
+  var resolved: GeometryResolved;
+  if (tile_broadcast) {
+    work = wg_shared_work;
+    entry = wg_shared_entry;
+    resolved = wg_shared_resolved;
+  } else {
+    let key = ${profile.compact ? "textureLoad(visibility, vec2i(pixel), 0).r" : "dense_key"};
+    ${
+      profile.finalPixel
+        ? `if (key == OENGINE_VISIBILITY_KEY_EMPTY) {
+      seed_unassigned(pixel, true);
+      return;
+    }`
+        : ""
+    }
+    if (meshlet_work.header.generation != settings.dimensions.w) {
+      ${profile.finalPixel ? "seed_unassigned(pixel, false);" : ""}
+      return;
+    }
+    let decoded = oengine_visibility_key_resolve(key, meshlet_work.header.generation, meshlet_work.header.written_count);
+    if (decoded.valid == 0u) {
+      ${profile.finalPixel ? "seed_unassigned(pixel, key == OENGINE_VISIBILITY_KEY_EMPTY);" : ""}
+      return;
+    }
+    if (decoded.meshlet_work_slot >= min(meshlet_work.header.capacity, arrayLength(&meshlet_work.elements))) {
+      ${profile.finalPixel ? "seed_unassigned(pixel, false);" : ""}
+      return;
+    }
+    work = meshlet_work.elements[decoded.meshlet_work_slot];
+    if (work.instance_slot >= arrayLength(&frame_instances)) {
+      ${profile.finalPixel ? "seed_unassigned(pixel, false);" : ""}
+      return;
+    }
+    if (frame_instances[work.instance_slot].generation != settings.dimensions.w) {
+      ${profile.finalPixel ? "seed_unassigned(pixel, false);" : ""}
+      return;
+    }
+    let slot = work.material_slot_or_range;
+    if (slot >= arrayLength(&native_directory)) {
+      ${profile.finalPixel ? "seed_unassigned(pixel, false);" : ""}
+      return;
+    }
+    entry = native_directory[slot];
+    if (entry.execution_bin != route.x${profile.finalPixel ? " || entry.program_index == 0xffffffffu" : ""}) {
+      ${profile.finalPixel ? "seed_unassigned(pixel, false);" : ""}
+      return;
+    }
+    resolved = geometry_complete_resolved(decoded, work, frame_instances[work.instance_slot]);
   }
-  if meshlet_work.header.generation != settings.dimensions.w {
-    ${profile.finalPixel ? "seed_unassigned(pixel, false);" : ""}
-    return;
-  }
-  let decoded = oengine_visibility_key_resolve(key, meshlet_work.header.generation, meshlet_work.header.written_count);
-  if decoded.valid == 0u {
-    ${profile.finalPixel ? "seed_unassigned(pixel, key == OENGINE_VISIBILITY_KEY_EMPTY);" : ""}
-    return;
-  }
-  if decoded.meshlet_work_slot >= min(meshlet_work.header.capacity, arrayLength(&meshlet_work.elements)) {
-    ${profile.finalPixel ? "seed_unassigned(pixel, false);" : ""}
-    return;
-  }
-  let work = meshlet_work.elements[decoded.meshlet_work_slot];
-  if work.instance_slot >= arrayLength(&frame_instances) {
-    ${profile.finalPixel ? "seed_unassigned(pixel, false);" : ""}
-    return;
-  }
-  if frame_instances[work.instance_slot].generation != settings.dimensions.w {
-    ${profile.finalPixel ? "seed_unassigned(pixel, false);" : ""}
-    return;
-  }
-  let slot = work.material_slot_or_range;
-  if slot >= arrayLength(&native_directory) {
-    ${profile.finalPixel ? "seed_unassigned(pixel, false);" : ""}
-    return;
-  }
-  let entry = native_directory[slot];
-  if entry.execution_bin != route.x${profile.finalPixel ? " || entry.program_index == 0xffffffffu" : ""} {
-    ${profile.finalPixel ? "seed_unassigned(pixel, false);" : ""}
-    return;
-  }
-  let resolved = geometry_complete_resolved(decoded, work, frame_instances[work.instance_slot]);
 ${
   fusedSun
     ? `${rasterFlags}
@@ -652,17 +758,17 @@ ${
       : "var sun_visibility = 1.0;"
   }
   let interpolation = winner_interpolate(resolved.coefficients, vec2f(pixel) + vec2f(0.5), vec2f(settings.dimensions.xy));
-  if (interpolation.flags & WINNER_VALUE_VALID) == 0u {
+  if ((interpolation.flags & WINNER_VALUE_VALID) == 0u) {
     ${profile.finalPixel ? "seed_unassigned(pixel, false);" : ""}
     return;
   }
-  ${
-    profile.finalPixel
-      ? `seed_surface(pixel, resolved_position, settings.view_matrix, frame_instances[work.instance_slot].source,
-    work, entry, (raster_flags & 1u) != 0u);`
-      : ""
-  }
-  let corners = geometry_complete_attributes(resolved, frame_instances[work.instance_slot]);`
+  ${seedSurfaceBlock}
+  var corners: GeometryCompletion;
+  if (tile_broadcast) {
+    corners = wg_shared_corners;
+  } else {
+    corners = geometry_complete_attributes(resolved, frame_instances[work.instance_slot]);
+  }`
     : ""
 }
 ${evaluation}
