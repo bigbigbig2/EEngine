@@ -58,6 +58,8 @@ export interface RuntimeAssetSectionView {
   readonly checksum: number;
   /** Read-only by contract; mutating package bytes invalidates the package. */
   readonly bytes: Uint8Array;
+  /** Cached hex digest when section hashes were verified during package open. */
+  readonly sha256Hex?: string;
 }
 
 export interface RuntimeAssetPackage {
@@ -70,6 +72,8 @@ export interface RuntimeAssetPackage {
 export interface RuntimeAssetPackageOpenOptions {
   /** Every required section type understood by the calling consumer. */
   readonly supportedSectionTypes: ReadonlySet<number>;
+  /** When false, skips full-section SHA-256 and package contentHash recomputation. Defaults to true. */
+  readonly verifyHashes?: boolean;
 }
 
 export interface RuntimeAssetSectionInput {
@@ -270,6 +274,7 @@ async function parseAndValidate(
   buffer: ArrayBuffer,
   options: RuntimeAssetPackageOpenOptions,
 ): Promise<ParsedPackage> {
+  const verifyHashes = options.verifyHashes !== false;
   const issues: RuntimeAssetValidationIssue[] = [];
   const error = (code: string, message: string, sectionType?: number): void => {
     issues.push({ severity: "error", code, message, sectionType });
@@ -302,7 +307,7 @@ async function parseAndValidate(
   const directoryByteLength = view.getUint32(32, true);
   const headerReserved = view.getUint32(36, true);
   const totalByteLengthBig = view.getBigUint64(40, true);
-  const storedContentHash = bytes.slice(CONTENT_HASH_OFFSET, CONTENT_HASH_OFFSET + CONTENT_HASH_BYTES);
+  const storedContentHash = bytes.subarray(CONTENT_HASH_OFFSET, CONTENT_HASH_OFFSET + CONTENT_HASH_BYTES);
   if (formatVersion !== RUNTIME_ASSET_FORMAT_VERSION && formatVersion !== RUNTIME_ASSET_FORMAT_VERSION_V2) {
     error("unsupported-format-version", `Unsupported package format version ${formatVersion}`);
   }
@@ -422,20 +427,24 @@ async function parseAndValidate(
       descriptor.byteLength <= buffer.byteLength - descriptor.byteOffset;
     if (!rangeValid) {
       error("section-range-out-of-bounds", "Section byte range is out of package bounds", descriptor.type);
-      digests.push(new Uint8Array(CONTENT_HASH_BYTES));
+      if (verifyHashes) digests.push(new Uint8Array(CONTENT_HASH_BYTES));
     } else {
       if (!paddingIsZero(bytes, paddingBegin, canonicalCursor)) {
         error("nonzero-section-padding", "Section alignment padding must be zero", descriptor.type);
       }
       const sectionBytes = new Uint8Array(buffer, descriptor.byteOffset, descriptor.byteLength);
-      const digest = await sha256(sectionBytes);
-      digests.push(digest);
-      if (digestU32(digest) !== descriptor.checksum) {
-        error(
-          "section-checksum-mismatch",
-          `Section ${descriptor.type} checksum does not match payload`,
-          descriptor.type,
-        );
+      let sectionSha256Hex: string | undefined;
+      if (verifyHashes) {
+        const digest = await sha256(sectionBytes);
+        digests.push(digest);
+        sectionSha256Hex = toHex(digest);
+        if (digestU32(digest) !== descriptor.checksum) {
+          error(
+            "section-checksum-mismatch",
+            `Section ${descriptor.type} checksum does not match payload`,
+            descriptor.type,
+          );
+        }
       }
       sectionViews.push(
         Object.freeze({
@@ -449,6 +458,7 @@ async function parseAndValidate(
           compression: descriptor.compression,
           checksum: descriptor.checksum,
           bytes: sectionBytes,
+          ...(sectionSha256Hex === undefined ? {} : { sha256Hex: sectionSha256Hex }),
         }),
       );
     }
@@ -484,7 +494,7 @@ async function parseAndValidate(
     );
   }
 
-  if (digests.length === descriptors.length) {
+  if (verifyHashes && digests.length === descriptors.length) {
     const calculatedContentHash = await calculateContentHash(
       formatVersion,
       schemaHash,

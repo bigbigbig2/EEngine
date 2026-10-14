@@ -1,5 +1,5 @@
 import { OEGPACK_V3_PAGE_BYTES } from "../GeometryAbiV3.js";
-import { openOegPackV3, type OegPackV3 } from "../OegPackV3.js";
+import { openOegPackV3, type OegPackDecodedPageV3, type OegPackV3 } from "../OegPackV3.js";
 import {
   assertGeometryProductDescriptorV1,
   encodeAssetRecordsV3,
@@ -7,6 +7,7 @@ import {
   encodeGroupDirectoryV3,
   encodeVertexFormatsV3,
   GEOMETRY_PRODUCT_RUNTIME_PROFILE,
+  markPageIntegrityPreverifiedV1,
   type GeometryProductDescriptorV1,
   type GeometryProductProviderV1,
   type GeometryProductRevisionSourceV1,
@@ -78,29 +79,65 @@ export class OegPackProductRevisionSource implements GeometryProductRevisionSour
     readonly pack: OegPackV3,
     readonly descriptor: GeometryProductDescriptorV1,
   ) {}
+  #toPageProduct(pageId: number, page: OegPackDecodedPageV3): GeometryPageProductV1 {
+    const recordOffset = pageId * 32;
+    const expectedHash = this.descriptor.pageRecords.slice(recordOffset, recordOffset + 16);
+    const decoded = page.bytes;
+    if (decoded.byteLength !== OEGPACK_V3_PAGE_BYTES)
+      throw new Error("OEGPACK adapter returned a non-256 KiB page");
+    const bytes =
+      decoded.byteOffset === 0 && decoded.byteLength === decoded.buffer.byteLength
+        ? (decoded.buffer as ArrayBuffer)
+        : decoded.slice().buffer;
+    return markPageIntegrityPreverifiedV1(
+      Object.freeze({
+        productId: this.descriptor.productId.slice(),
+        revision: this.descriptor.revision,
+        pageId,
+        decodedHash128: expectedHash,
+        decodedPageHash128: fromHexBytes(page.decodedPageHash128.slice(0, 32), 16),
+        bytes,
+      }),
+    );
+  }
   async readPage(pageId: number, signal?: AbortSignal): Promise<GeometryPageProductV1> {
     throwIfAborted(signal);
     if (this.#released) throw new Error("OEGPACK Product revision has been released");
     const recordOffset = pageId * 32;
     if (!Number.isInteger(pageId) || pageId < 0 || recordOffset + 32 > this.descriptor.pageRecords.byteLength)
       throw new RangeError("Geometry Product pageId is out of range");
-    const expectedHash = this.descriptor.pageRecords.slice(recordOffset, recordOffset + 16);
     const page = await this.pack.readPage(pageId);
     throwIfAborted(signal);
-    const decoded = page.bytes;
-    if (decoded.byteLength !== OEGPACK_V3_PAGE_BYTES)
-      throw new Error("OEGPACK adapter returned a non-256 KiB page");
-    const bytes = decoded.slice().buffer;
-    return Object.freeze({
-      productId: this.descriptor.productId.slice(),
-      revision: this.descriptor.revision,
-      pageId,
-      decodedHash128: expectedHash,
-      decodedPageHash128: Uint8Array.from(page.decodedPageHash128.slice(0, 32).match(/../gu)!, (value) =>
-        Number.parseInt(value, 16),
-      ),
-      bytes,
-    });
+    return this.#toPageProduct(pageId, page);
+  }
+  async readPages(
+    pageIds: ArrayLike<number>,
+    signal?: AbortSignal,
+  ): Promise<readonly GeometryPageProductV1[]> {
+    throwIfAborted(signal);
+    if (this.#released) throw new Error("OEGPACK Product revision has been released");
+    for (let i = 0; i < pageIds.length; i++) {
+      const pageId = pageIds[i]!;
+      const recordOffset = pageId * 32;
+      if (
+        !Number.isInteger(pageId) ||
+        pageId < 0 ||
+        recordOffset + 32 > this.descriptor.pageRecords.byteLength
+      )
+        throw new RangeError("Geometry Product pageId is out of range");
+    }
+    if (this.pack.readPages) {
+      const decodedPages = await this.pack.readPages(pageIds, signal);
+      throwIfAborted(signal);
+      return Object.freeze(
+        decodedPages.map((page, index) => this.#toPageProduct(pageIds[index]!, page)),
+      );
+    }
+    const results: GeometryPageProductV1[] = [];
+    for (let i = 0; i < pageIds.length; i++) {
+      results.push(await this.readPage(pageIds[i]!, signal));
+    }
+    return Object.freeze(results);
   }
   release(): void {
     this.#released = true;

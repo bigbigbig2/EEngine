@@ -30,6 +30,8 @@ import type { GltfMaterial } from "../../../../OEngine/src/loaders/gltf/GltfLoad
 import { ShadeImage } from "../../../../OEngine/src/texture/ShadeImage.ts";
 import { ShadeTexture } from "../../../../OEngine/src/texture/ShadeTexture.ts";
 
+const COOKED_TEXTURE_FETCH_CONCURRENCY = 16;
+
 type Property = (typeof MATERIAL_TEXTURE_PROPERTIES)[number];
 interface CookedManifest {
   schema: "oengine-offline-scene-materials-v1";
@@ -94,13 +96,24 @@ export async function loadCookedScene(
   const entries = new Map(manifest.products.map((product) => [product.uri, product.identity]));
   const products = new Map<string, Awaited<ReturnType<typeof openTextureProduct>>>();
   phase("Reading validated BC Texture Products (no codec)");
-  for (const entry of manifest.products) {
-    signal.throwIfAborted();
-    const product = await openTextureProduct(await fetchBytes(entry.uri));
-    if (product.identity !== entry.identity)
-      throw new Error(`Cooked Product identity mismatch: ${entry.uri}`);
-    products.set(entry.uri, product);
-  }
+  let productCursor = 0;
+  const workerCount = Math.min(COOKED_TEXTURE_FETCH_CONCURRENCY, Math.max(1, manifest.products.length));
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (true) {
+        const index = productCursor++;
+        if (index >= manifest.products.length) return;
+        signal.throwIfAborted();
+        const entry = manifest.products[index]!;
+        const product = await openTextureProduct(await fetchBytes(entry.uri), {
+          verifyHashes: false
+        });
+        if (product.identity !== entry.identity)
+          throw new Error(`Cooked Product identity mismatch: ${entry.uri}`);
+        products.set(entry.uri, product);
+      }
+    })
+  );
   for (const [index, material] of materials.entries()) {
     const bindings = manifest.bindings[index]!;
     for (const property of MATERIAL_TEXTURE_PROPERTIES) {
@@ -148,13 +161,18 @@ export async function loadCookedScene(
     });
     const parts: VirtualGeometryProductScenePartV1[] = [];
     let first: GeometryProductShardHandleV1 | undefined;
+    const openedAssets = await Promise.all(
+      geometryManifest.packs.map((pack) =>
+        load_oegpack_product(
+          { kind: "http-range", url: new URL(pack.uri, base).href },
+          { signal, manifest: sceneBytes, verifyPageSha256: false }
+        )
+      )
+    );
+    assets.push(...openedAssets);
     for (const [packIndex, pack] of geometryManifest.packs.entries()) {
       signal.throwIfAborted();
-      const asset = await load_oegpack_product(
-        { kind: "http-range", url: new URL(pack.uri, base).href },
-        { signal, manifest: sceneBytes }
-      );
-      assets.push(asset);
+      const asset = openedAssets[packIndex]!;
       if (
         Array.from(asset.descriptor.productId, (b) => b.toString(16).padStart(2, "0")).join("") !==
         pack.packId

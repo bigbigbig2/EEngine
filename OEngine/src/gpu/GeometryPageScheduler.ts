@@ -7,6 +7,7 @@ import {
 import {
   GEOMETRY_PRODUCT_PAGE_RECORD_STRIDE,
   decodeGeometryProductPageRecordV1,
+  isPageIntegrityPreverifiedV1,
   type GeometryProductRevisionSourceV1,
   type GeometryPageProductV1,
 } from "../assets/geometry-product/GeometryProductV1.js";
@@ -647,9 +648,11 @@ export class GeometryPageSchedulerV1 {
         !sameBytes(page.decodedHash128, expected.decodedHash128)
       )
         throw new Error("page key/size/identity mismatch");
-      const digest = new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", page.bytes));
-      if (!sameBytes(digest.subarray(0, 16), page.decodedPageHash128))
-        throw new Error("page integrity hash mismatch");
+      if (!isPageIntegrityPreverifiedV1(page)) {
+        const digest = new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", page.bytes));
+        if (!sameBytes(digest.subarray(0, 16), page.decodedPageHash128))
+          throw new Error("page integrity hash mismatch");
+      }
       if (
         this.#products.get(operation.product.generation) !== operation.product ||
         operation.controller?.signal.aborted

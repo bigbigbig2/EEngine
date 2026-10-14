@@ -90,6 +90,11 @@ export interface RuntimeAssetPackageV2 {
   readonly metadataBytes: Uint8Array;
 }
 
+export interface RuntimeAssetPackageV2OpenOptions {
+  /** When false, skips full-chunk SHA-256 recomputation while validating all layout/manifest contracts. Defaults to true. */
+  readonly verifyHashes?: boolean;
+}
+
 export class RuntimeAssetManifestV2Error extends Error {
   readonly issues: readonly RuntimeAssetValidationIssue[];
 
@@ -221,9 +226,14 @@ function packageSectionOffsets(
   return result;
 }
 
-export async function openRuntimeAssetPackageV2(bytes: ArrayBuffer): Promise<RuntimeAssetPackageV2> {
+export async function openRuntimeAssetPackageV2(
+  bytes: ArrayBuffer,
+  options: RuntimeAssetPackageV2OpenOptions = {},
+): Promise<RuntimeAssetPackageV2> {
+  const verifyHashes = options.verifyHashes !== false;
   const pkg = await openRuntimeAssetPackage(bytes, {
     supportedSectionTypes: new Set([RUNTIME_ASSET_MANIFEST_V2_SECTION]),
+    verifyHashes,
   });
   if (pkg.manifest.formatVersion !== RUNTIME_ASSET_FORMAT_VERSION_V2) {
     throw manifestError(
@@ -271,13 +281,15 @@ export async function openRuntimeAssetPackageV2(bytes: ArrayBuffer): Promise<Run
         chunk.sectionType,
       );
     }
-    const checksum = await sha256Hex(payload.bytes);
-    if (checksum !== chunk.checksum) {
-      throw manifestError(
-        "chunk-checksum",
-        `Manifest chunk '${chunk.id}' checksum does not match`,
-        chunk.sectionType,
-      );
+    if (verifyHashes) {
+      const checksum = payload.sha256Hex ?? (await sha256Hex(payload.bytes));
+      if (checksum !== chunk.checksum) {
+        throw manifestError(
+          "chunk-checksum",
+          `Manifest chunk '${chunk.id}' checksum does not match`,
+          chunk.sectionType,
+        );
+      }
     }
     chunks.set(chunk.id, payload.bytes);
   }
@@ -521,7 +533,7 @@ function canonicalJson(value: unknown): string {
 }
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes.slice().buffer));
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes as Uint8Array<ArrayBuffer>));
   return [...digest].map((value) => value.toString(16).padStart(2, "0")).join("");
 }
 

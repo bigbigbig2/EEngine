@@ -40,6 +40,7 @@ export function prepareProductResidentAttributes(
   pageId: number,
   bytes: ArrayBuffer,
   decode = true,
+  validatedPlan?: ProductResidentPage,
 ): ProductResidentPage {
   const page = new DataView(bytes);
   const directory = new DataView(
@@ -52,33 +53,36 @@ export function prepareProductResidentAttributes(
     descriptor.vertexFormats.byteOffset,
     descriptor.vertexFormats.byteLength,
   );
+  const skipStructuralValidation = validatedPlan !== undefined;
   const groups: { offset: number; descriptorBase: number; meshletCount: number }[] = [];
   const meshlets: ProductResidentMeshlet[] = [];
   let mapWords = 0,
     descriptorWords = 0,
     rawPayloadBytes = 0;
   const pageRecord = decodeGeometryProductPageRecordV1(descriptor, pageId);
-  const workload = geometryProductWorkload(descriptor);
+  const workload = skipStructuralValidation ? undefined : geometryProductWorkload(descriptor);
   for (let group = pageRecord.firstGroup; group < pageRecord.firstGroup + pageRecord.groupCount; group++) {
     const offset = directory.getUint32(group * 16 + 4, true);
     const payload = directory.getUint32(group * 16 + 8, true);
     rawPayloadBytes = Math.max(rawPayloadBytes, offset + payload);
     const header = decodeGroupHeaderV3(page, offset);
-    if (
-      header.payloadBytes !== payload ||
-      header.meshletCount < 1 ||
-      header.meshletCount > 128 ||
-      header.meshletHeaderOffset < 64 ||
-      header.meshletHeaderOffset + header.meshletCount * OEGPACK_V3_MESHLET_HEADER_BYTES >
-        header.triangleDataOffset ||
-      header.triangleDataOffset > header.vertexDataOffset ||
-      header.vertexDataOffset > payload ||
-      header.vertexFormatId * 16 + 16 > formats.byteLength
-    ) {
-      throw new RangeError("Product resident group layout is invalid");
-    }
-    if (header.meshletCount !== workload.groupMeshletCounts[group]) {
-      throw new RangeError("Product page meshlet count disagrees with its hierarchy work bound");
+    if (!skipStructuralValidation) {
+      if (
+        header.payloadBytes !== payload ||
+        header.meshletCount < 1 ||
+        header.meshletCount > 128 ||
+        header.meshletHeaderOffset < 64 ||
+        header.meshletHeaderOffset + header.meshletCount * OEGPACK_V3_MESHLET_HEADER_BYTES >
+          header.triangleDataOffset ||
+        header.triangleDataOffset > header.vertexDataOffset ||
+        header.vertexDataOffset > payload ||
+        header.vertexFormatId * 16 + 16 > formats.byteLength
+      ) {
+        throw new RangeError("Product resident group layout is invalid");
+      }
+      if (header.meshletCount !== workload!.groupMeshletCounts[group]) {
+        throw new RangeError("Product page meshlet count disagrees with its hierarchy work bound");
+      }
     }
     const format = header.vertexFormatId * 16;
     const stride = formats.getUint16(format, true),
@@ -89,16 +93,23 @@ export function prepareProductResidentAttributes(
       uv0 = formats.getUint8(format + 7),
       uv1 = formats.getUint8(format + 8),
       color = formats.getUint8(format + 9);
-    const checkField = (field: number, size: number, active: boolean): void => {
-      if (active && (field === 255 || field + size > stride))
-        throw new RangeError("Product resident vertex field exceeds its stride");
-    };
-    checkField(position, 12, true);
-    checkField(normal, 4, (mask & 2) !== 0);
-    checkField(tangent, 6, (mask & 4) !== 0);
-    checkField(uv0, 4, (mask & 8) !== 0);
-    checkField(uv1, 4, (mask & 16) !== 0);
-    checkField(color, 3, (mask & 32) !== 0);
+    const hasNormal = (mask & 2) !== 0;
+    const hasTangent = (mask & 4) !== 0;
+    const hasUv0 = (mask & 8) !== 0;
+    const hasUv1 = (mask & 16) !== 0;
+    const hasColor = (mask & 32) !== 0;
+    if (!skipStructuralValidation) {
+      const checkField = (field: number, size: number, active: boolean): void => {
+        if (active && (field === 255 || field + size > stride))
+          throw new RangeError("Product resident vertex field exceeds its stride");
+      };
+      checkField(position, 12, true);
+      checkField(normal, 4, hasNormal);
+      checkField(tangent, 6, hasTangent);
+      checkField(uv0, 4, hasUv0);
+      checkField(uv1, 4, hasUv1);
+      checkField(color, 3, hasColor);
+    }
     groups.push({ offset, descriptorBase: descriptorWords, meshletCount: header.meshletCount });
     mapWords = Math.max(mapWords, offset / 16 + 1);
     descriptorWords += header.meshletCount;
@@ -107,56 +118,86 @@ export function prepareProductResidentAttributes(
         page,
         offset + header.meshletHeaderOffset + local * OEGPACK_V3_MESHLET_HEADER_BYTES,
       );
-      if (
-        meshlet.vertexCount < 1 ||
-        meshlet.vertexCount > 128 ||
-        meshlet.triangleCount < 1 ||
-        meshlet.triangleCount > 128 ||
-        meshlet.vertexByteOffset < header.vertexDataOffset ||
-        meshlet.vertexByteOffset + meshlet.vertexCount * stride > payload ||
-        meshlet.triangleByteOffset < header.triangleDataOffset ||
-        meshlet.triangleByteOffset + meshlet.triangleCount * 3 > header.vertexDataOffset
-      ) {
-        throw new RangeError("Product resident meshlet layout is invalid");
-      }
-      for (let corner = 0; corner < meshlet.triangleCount * 3; corner++) {
-        if (page.getUint8(offset + meshlet.triangleByteOffset + corner) >= meshlet.vertexCount) {
-          throw new RangeError("Product triangle references a missing resident vertex");
+      if (!skipStructuralValidation) {
+        if (
+          meshlet.vertexCount < 1 ||
+          meshlet.vertexCount > 128 ||
+          meshlet.triangleCount < 1 ||
+          meshlet.triangleCount > 128 ||
+          meshlet.vertexByteOffset < header.vertexDataOffset ||
+          meshlet.vertexByteOffset + meshlet.vertexCount * stride > payload ||
+          meshlet.triangleByteOffset < header.triangleDataOffset ||
+          meshlet.triangleByteOffset + meshlet.triangleCount * 3 > header.vertexDataOffset
+        ) {
+          throw new RangeError("Product resident meshlet layout is invalid");
+        }
+        const triStart = offset + meshlet.triangleByteOffset;
+        const triEnd = triStart + meshlet.triangleCount * 3;
+        const vCount = meshlet.vertexCount;
+        for (let corner = triStart; corner < triEnd; corner++) {
+          if (page.getUint8(corner) >= vCount) {
+            throw new RangeError("Product triangle references a missing resident vertex");
+          }
         }
       }
       const byteLength = meshlet.vertexCount * GPU_FRAME_ATTRIBUTE_STRIDE;
       const values = new Float32Array(decode ? byteLength / 4 : 0);
-      for (let vertex = 0; decode && vertex < meshlet.vertexCount; vertex++) {
-        const at = offset + meshlet.vertexByteOffset + vertex * stride;
-        const target = (vertex * GPU_FRAME_ATTRIBUTE_STRIDE) / 4;
-        values.set((mask & 2) !== 0 ? octNormal(page, at + normal) : [0, 0, 1], target);
-        values.set((mask & 4) !== 0 ? octNormal(page, at + tangent) : [1, 0, 0], target + 4);
-        values[target + 7] = (mask & 4) !== 0 && page.getUint16(at + tangent + 4, true) >= 32768 ? -1 : 1;
-        if ((mask & 8) !== 0) values.set(halfUv(page, at + uv0), target + 8);
-        if ((mask & 16) !== 0) values.set(halfUv(page, at + uv1), target + 10);
-        values.set(
-          (mask & 32) !== 0
-            ? [
-                page.getUint8(at + color) / 255,
-                page.getUint8(at + color + 1) / 255,
-                page.getUint8(at + color + 2) / 255,
-                1,
-              ]
-            : [1, 1, 1, 1],
-          target + 12,
-        );
-        values.set(
-          [
-            page.getFloat32(at + position, true),
-            page.getFloat32(at + position + 4, true),
-            page.getFloat32(at + position + 8, true),
-            1,
-          ],
-          target + 20,
-        );
+      if (decode) {
+        const vertexBase = offset + meshlet.vertexByteOffset;
+        for (let vertex = 0; vertex < meshlet.vertexCount; vertex++) {
+          const at = vertexBase + vertex * stride;
+          const target = vertex * (GPU_FRAME_ATTRIBUTE_STRIDE / 4);
+          if (hasNormal) {
+            writeOctNormal(page, at + normal, values, target);
+          } else {
+            values[target] = 0;
+            values[target + 1] = 0;
+            values[target + 2] = 1;
+          }
+          if (hasTangent) {
+            writeOctNormal(page, at + tangent, values, target + 4);
+            values[target + 7] = page.getUint16(at + tangent + 4, true) >= 32768 ? -1 : 1;
+          } else {
+            values[target + 4] = 1;
+            values[target + 5] = 0;
+            values[target + 6] = 0;
+            values[target + 7] = 1;
+          }
+          if (hasUv0) {
+            values[target + 8] = decodeFloat16(page.getUint16(at + uv0, true));
+            values[target + 9] = decodeFloat16(page.getUint16(at + uv0 + 2, true));
+          }
+          if (hasUv1) {
+            values[target + 10] = decodeFloat16(page.getUint16(at + uv1, true));
+            values[target + 11] = decodeFloat16(page.getUint16(at + uv1 + 2, true));
+          }
+          if (hasColor) {
+            const cAt = at + color;
+            values[target + 12] = page.getUint8(cAt) * (1 / 255);
+            values[target + 13] = page.getUint8(cAt + 1) * (1 / 255);
+            values[target + 14] = page.getUint8(cAt + 2) * (1 / 255);
+            values[target + 15] = 1;
+          } else {
+            values[target + 12] = 1;
+            values[target + 13] = 1;
+            values[target + 14] = 1;
+            values[target + 15] = 1;
+          }
+          const pAt = at + position;
+          const px = page.getFloat32(pAt, true);
+          const py = page.getFloat32(pAt + 4, true);
+          const pz = page.getFloat32(pAt + 8, true);
+          values[target + 20] = px;
+          values[target + 21] = py;
+          values[target + 22] = pz;
+          values[target + 23] = 1;
+        }
+        for (let i = 0; i < values.length; i++) {
+          if (!Number.isFinite(values[i]!)) {
+            throw new RangeError("Product resident attributes contain nonfinite values");
+          }
+        }
       }
-      if (values.some((value) => !Number.isFinite(value)))
-        throw new RangeError("Product resident attributes contain nonfinite values");
       meshlets.push(Object.freeze({ groupOffset: offset, localMeshlet: local, values, byteLength }));
     }
   }
@@ -191,12 +232,9 @@ export function prepareProductResidentAttributes(
   });
 }
 
-function halfUv(page: DataView, at: number): readonly number[] {
-  return [decodeFloat16(page.getUint16(at, true)), decodeFloat16(page.getUint16(at + 2, true))];
-}
-function octNormal(page: DataView, at: number): readonly number[] {
-  const x = Math.max(-1, page.getInt16(at, true) / 32767),
-    y = Math.max(-1, page.getInt16(at + 2, true) / 32767);
+function writeOctNormal(page: DataView, at: number, out: Float32Array, target: number): void {
+  const x = Math.max(-1, page.getInt16(at, true) * (1 / 32767)),
+    y = Math.max(-1, page.getInt16(at + 2, true) * (1 / 32767));
   let nx = x,
     ny = y;
   const nz = 1 - Math.abs(x) - Math.abs(y);
@@ -205,5 +243,7 @@ function octNormal(page: DataView, at: number): readonly number[] {
     ny = (1 - Math.abs(x)) * (y >= 0 ? 1 : -1);
   }
   const inverse = 1 / Math.hypot(nx, ny, nz);
-  return [nx * inverse, ny * inverse, nz * inverse];
+  out[target] = nx * inverse;
+  out[target + 1] = ny * inverse;
+  out[target + 2] = nz * inverse;
 }

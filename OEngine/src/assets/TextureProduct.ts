@@ -1,4 +1,8 @@
-import { openRuntimeAssetPackageV2, writeRuntimeAssetPackageV2 } from "./RuntimeAssetManifestV2.js";
+import {
+  openRuntimeAssetPackageV2,
+  writeRuntimeAssetPackageV2,
+  type RuntimeAssetPackageV2OpenOptions,
+} from "./RuntimeAssetManifestV2.js";
 import { encodedTextureMipByteLength, physicalTextureExtent } from "./codec/TextureFormatLayout.js";
 export type TextureSemanticV2 =
   | "base-color-srgb"
@@ -67,6 +71,16 @@ export interface TextureProduct {
     runtimeMipPasses: 0;
   }>;
 }
+export interface TextureProductValidateOptions {
+  /** When false, skips per-mip SHA-256 payload digest recomputation. Defaults to true. */
+  readonly verifyHashes?: boolean;
+  /** Optional map of chunkId -> verified SHA-256 hex digest from the outer container/manifest. */
+  readonly preverifiedChunkHashes?: ReadonlyMap<string, string>;
+  /** When true, metadata is already a fresh private object and does not need JSON round-trip cloning. */
+  readonly trustedMetadataOwnership?: boolean;
+}
+export type TextureProductOpenOptions = RuntimeAssetPackageV2OpenOptions;
+
 const validatedProducts = new WeakSet<TextureProduct>();
 export function assertValidatedTextureProduct(product: TextureProduct): void {
   if (!validatedProducts.has(product))
@@ -120,7 +134,10 @@ export async function validateTextureProduct(
   metadata: TextureProductMetadata,
   chunks: ReadonlyMap<string, Uint8Array>,
   packageBytes = 0,
+  options: TextureProductValidateOptions = {},
 ): Promise<TextureProduct> {
+  const verifyHashes = options.verifyHashes !== false;
+  const preverifiedChunkHashes = options.preverifiedChunkHashes;
   if (metadata.schemaVersion !== 3) {
     throw new Error("Texture metadata requires schema3; recook schema2 asset");
   }
@@ -254,12 +271,18 @@ export async function validateTextureProduct(
       seen.add(mip.chunkId);
       hash(mip.hash);
       const payload = chunks.get(mip.chunkId);
-      if (
-        !payload ||
-        payload.byteLength !== expectedBytes ||
-        (await textureProductHash(payload)) !== mip.hash
-      ) {
+      if (!payload || payload.byteLength !== expectedBytes) {
         throw new Error("Texture chunk checksum/length invalid");
+      }
+      const preverifiedHash = preverifiedChunkHashes?.get(mip.chunkId);
+      if (preverifiedHash !== undefined) {
+        if (preverifiedHash !== mip.hash) {
+          throw new Error("Texture chunk checksum/length invalid");
+        }
+      } else if (verifyHashes) {
+        if ((await textureProductHash(payload)) !== mip.hash) {
+          throw new Error("Texture chunk checksum/length invalid");
+        }
       }
       bytes += expectedBytes;
       if (plane.role === "coverage") {
@@ -293,7 +316,9 @@ export async function validateTextureProduct(
     ),
   );
   // Normalize through a private metadata copy; payloads are ownership hand-offs.
-  const ownedMetadata = JSON.parse(JSON.stringify(metadata)) as TextureProductMetadata;
+  const ownedMetadata = options.trustedMetadataOwnership
+    ? metadata
+    : (JSON.parse(JSON.stringify(metadata)) as TextureProductMetadata);
   deepFreeze(ownedMetadata);
   const product: TextureProduct = Object.freeze({
     metadata: ownedMetadata,
@@ -368,8 +393,11 @@ export async function saveTextureProduct(product: TextureProduct): Promise<Array
   });
 }
 
-export async function openTextureProduct(bytes: ArrayBuffer): Promise<TextureProduct> {
-  const runtime = await openRuntimeAssetPackageV2(bytes);
+export async function openTextureProduct(
+  bytes: ArrayBuffer,
+  options: TextureProductOpenOptions = {},
+): Promise<TextureProduct> {
+  const runtime = await openRuntimeAssetPackageV2(bytes, options);
   const manifest = runtime.manifest;
   if (manifest.assetSchemaVersion !== 3 || manifest.assetType !== "texture-2d") {
     throw new Error("Texture metadata requires schema3; recook schema2 asset");
@@ -383,7 +411,13 @@ export async function openTextureProduct(bytes: ArrayBuffer): Promise<TexturePro
   ) as TextureProductMetadata;
   const chunks = new Map(runtime.chunks);
   chunks.delete("texture-metadata");
-  const product = await validateTextureProduct(metadata, chunks, bytes.byteLength);
+  const chunkById = new Map(manifest.chunks.map((c) => [c.id, c]));
+  const preverifiedChunkHashes = new Map(manifest.chunks.map((c) => [c.id, c.checksum]));
+  const product = await validateTextureProduct(metadata, chunks, bytes.byteLength, {
+    verifyHashes: options.verifyHashes,
+    preverifiedChunkHashes,
+    trustedMetadataOwnership: true,
+  });
   const v = manifest.variants;
   if (
     manifest.assetId !== product.identity ||
@@ -405,7 +439,7 @@ export async function openTextureProduct(bytes: ArrayBuffer): Promise<TexturePro
   }
   for (const plane of metadata.planes) {
     for (const mip of plane.mips) {
-      const c = manifest.chunks.find((c) => c.id === mip.chunkId)!;
+      const c = chunkById.get(mip.chunkId)!;
       if (
         c.compression !== plane.format ||
         c.semantic !== plane.role ||

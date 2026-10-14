@@ -67,8 +67,52 @@ export interface CanonicalMaterial {
   readonly coatNormalScale: number;
 }
 
+interface CachedCanonicalMaterialEntry {
+  readonly hash: number;
+  readonly definition: unknown;
+  readonly textureRefs: readonly (ShadeTexture | undefined)[];
+  readonly textureContentVersions: readonly (string | undefined)[];
+  readonly canonical: CanonicalMaterial;
+}
+
+const canonicalMaterialCache = new WeakMap<StandardShadeMaterial, CachedCanonicalMaterialEntry>();
+
+function snapshotMaterialTextures(material: StandardShadeMaterial): readonly (ShadeTexture | undefined)[] {
+  return [
+    material.texture_albedo,
+    material.texture_normal,
+    material.texture_orm,
+    material.texture_emissive,
+    material.texture_occlusion,
+    material.texture_specular,
+    material.texture_specular_color,
+    material.texture_clearcoat,
+    material.texture_clearcoat_roughness,
+    material.texture_clearcoat_normal,
+  ];
+}
+
 /** Publication-time lowering of the fixed Standard/Coated material graph. */
 export function compileCanonicalMaterial(material: StandardShadeMaterial): CanonicalMaterial {
+  const textureRefs = snapshotMaterialTextures(material);
+  const canCache = typeof material.hash === "function";
+  const materialHash = canCache ? material.hash() : 0;
+  if (canCache) {
+    const cached = canonicalMaterialCache.get(material);
+    if (
+      cached !== undefined &&
+      cached.hash === materialHash &&
+      cached.definition === material.appearance_definition &&
+      cached.textureRefs.length === textureRefs.length &&
+      cached.textureRefs.every(
+        (tex, idx) =>
+          tex === textureRefs[idx] &&
+          tex?.appearance_content_version === cached.textureContentVersions[idx],
+      )
+    ) {
+      return cached.canonical;
+    }
+  }
   const bounded = (value: number, label: string, min: number, max: number): number => {
     if (!Number.isFinite(value) || value < min || value > max) {
       throw new RangeError(`Material '${material.name}' ${label} must be in [${min}, ${max}]`);
@@ -300,7 +344,7 @@ export function compileCanonicalMaterial(material: StandardShadeMaterial): Canon
   }
   const appearanceResolution = resolveAppearanceMaterialProducts(source, definition?.products ?? []);
   const appearance = appearanceResolution.program;
-  return Object.freeze({
+  const canonical = Object.freeze({
     family,
     coverage,
     featureMask,
@@ -314,4 +358,14 @@ export function compileCanonicalMaterial(material: StandardShadeMaterial): Canon
     coatRoughness,
     coatNormalScale,
   });
+  if (canCache) {
+    canonicalMaterialCache.set(material, {
+      hash: materialHash,
+      definition: material.appearance_definition,
+      textureRefs,
+      textureContentVersions: textureRefs.map((tex) => tex?.appearance_content_version),
+      canonical,
+    });
+  }
+  return canonical;
 }

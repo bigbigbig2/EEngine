@@ -25,6 +25,21 @@ import {
 } from "./GeometryAbiV3.js";
 
 const MAGIC = new Uint8Array([79, 69, 71, 80, 65, 67, 75, 0]);
+const DEFAULT_COALESCED_MAX_BLOCK_BYTES = 16 * 1024 * 1024;
+const DEFAULT_COALESCED_MAX_GAP_BYTES = 64n * 1024n;
+const DEFAULT_COALESCED_CONCURRENCY = 4;
+
+const CRC32_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let index = 0; index < 256; index++) {
+    let crc = index;
+    for (let bit = 0; bit < 8; bit++) {
+      crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+    }
+    table[index] = crc >>> 0;
+  }
+  return table;
+})();
 
 export class OegPackV3Error extends Error {
   constructor(message: string) {
@@ -106,6 +121,14 @@ export interface OegPackHeaderV3 {
   readonly packContentHash: string;
 }
 
+export interface OegPackOpenOptionsV3 {
+  /**
+   * When false, skips redundant whole-page SHA-256 digest computation after
+   * compressed CRC32 and 256 KiB structural validation succeed. Defaults to true.
+   */
+  readonly verifyPageSha256?: boolean;
+}
+
 export interface OegPackV3 {
   readonly source: RangeReadablePackV3;
   readonly header: OegPackHeaderV3;
@@ -118,6 +141,7 @@ export interface OegPackV3 {
   readonly vertexFormats: readonly VertexFormatRecordV3[];
   readonly bootstrapPageIds: Uint32Array;
   readPage(pageId: number): Promise<OegPackDecodedPageV3>;
+  readPages?(pageIds: ArrayLike<number>, signal?: AbortSignal): Promise<readonly OegPackDecodedPageV3[]>;
 }
 
 /** Decoded page plus the whole-page digest. The digest is an integrity probe for this transport,
@@ -127,7 +151,11 @@ export interface OegPackDecodedPageV3 {
   readonly decodedPageHash128: string;
 }
 
-export async function openOegPackV3(source: RangeReadablePackV3): Promise<OegPackV3> {
+export async function openOegPackV3(
+  source: RangeReadablePackV3,
+  options: OegPackOpenOptionsV3 = {},
+): Promise<OegPackV3> {
+  const verifyPageSha256 = options.verifyPageSha256 !== false;
   const headerBytes = new Uint8Array(await source.read(0n, OEGPACK_V3_HEADER_BYTES));
   const header = parseHeader(headerBytes);
   const metadataBytesLength = safeNumber(header.pageBlobOffset, "metadata byte length");
@@ -188,6 +216,27 @@ export async function openOegPackV3(source: RangeReadablePackV3): Promise<OegPac
     vertexFormats,
     bootstrapPageIds,
   );
+
+  const decodeAndValidateEncodedPage = async (
+    pageId: number,
+    encoded: Uint8Array,
+  ): Promise<OegPackDecodedPageV3> => {
+    const page = pages[pageId]!;
+    if (crc32(encoded) !== page.compressedChecksum)
+      throw new OegPackV3Error(`page ${pageId} compressed checksum mismatch`);
+    const decoded = page.codec === 0 ? encoded.slice() : decodeLz4Block(encoded, page.decodedBytes);
+    if (decoded.byteLength !== OEGPACK_V3_PAGE_BYTES)
+      throw new OegPackV3Error(`page ${pageId} did not decode to 256 KiB`);
+    validateDecodedPage(pageId, decoded, page, groups, vertexFormats, verifyPageSha256);
+    // The page directory carries the page *identity* (rolled up from Group payloads), not a
+    // digest of the whole page bytes. Whole-page digest is returned alongside so consumers that
+    // want an integrity probe can compare it against a value they recorded at production time.
+    const decodedPageHash128 = verifyPageSha256
+      ? await sha256Hex(decoded)
+      : page.decodedContentHash128.padEnd(64, "0");
+    return { bytes: decoded, decodedPageHash128 };
+  };
+
   return Object.freeze({
     source,
     header,
@@ -203,16 +252,93 @@ export async function openOegPackV3(source: RangeReadablePackV3): Promise<OegPac
       assertIndex(pageId, pages.length, "pageId");
       const page = pages[pageId]!;
       const encoded = new Uint8Array(await source.read(page.compressedFileOffset, page.compressedBytes));
-      if (crc32(encoded) !== page.compressedChecksum)
-        throw new OegPackV3Error(`page ${pageId} compressed checksum mismatch`);
-      const decoded = page.codec === 0 ? encoded.slice() : decodeLz4Block(encoded, page.decodedBytes);
-      if (decoded.byteLength !== OEGPACK_V3_PAGE_BYTES)
-        throw new OegPackV3Error(`page ${pageId} did not decode to 256 KiB`);
-      validateDecodedPage(pageId, decoded, groups, vertexFormats);
-      // The page directory carries the page *identity* (rolled up from Group payloads), not a
-      // digest of the whole page bytes. Whole-page digest is returned alongside so consumers that
-      // want an integrity probe can compare it against a value they recorded at production time.
-      return { bytes: decoded, decodedPageHash128: await sha256Hex(decoded) };
+      return decodeAndValidateEncodedPage(pageId, encoded);
+    },
+    async readPages(
+      pageIds: ArrayLike<number>,
+      signal?: AbortSignal,
+    ): Promise<readonly OegPackDecodedPageV3[]> {
+      if (signal?.aborted) throw signal.reason ?? new Error("OEGPACK batch page read was aborted");
+      const count = pageIds.length;
+      if (count === 0) return Object.freeze([]);
+      const uniqueIds: number[] = [];
+      const seen = new Set<number>();
+      for (let i = 0; i < count; i++) {
+        const pageId = pageIds[i]!;
+        assertIndex(pageId, pages.length, "pageId");
+        if (!seen.has(pageId)) {
+          seen.add(pageId);
+          uniqueIds.push(pageId);
+        }
+      }
+      uniqueIds.sort((a, b) => {
+        const left = pages[a]!.compressedFileOffset;
+        const right = pages[b]!.compressedFileOffset;
+        return left < right ? -1 : left > right ? 1 : a - b;
+      });
+      interface CoalescedSpan {
+        readonly startOffset: bigint;
+        readonly byteLength: number;
+        readonly pageIds: number[];
+        bytes?: Uint8Array;
+      }
+      const spans: CoalescedSpan[] = [];
+      for (const pageId of uniqueIds) {
+        const entry = pages[pageId]!;
+        const start = entry.compressedFileOffset;
+        const end = start + BigInt(entry.compressedBytes);
+        const last = spans[spans.length - 1];
+        if (last !== undefined) {
+          const lastEnd = last.startOffset + BigInt(last.byteLength);
+          const mergedBytes = Number(end - last.startOffset);
+          if (
+            start >= last.startOffset &&
+            start <= lastEnd + DEFAULT_COALESCED_MAX_GAP_BYTES &&
+            mergedBytes <= DEFAULT_COALESCED_MAX_BLOCK_BYTES
+          ) {
+            spans[spans.length - 1] = {
+              startOffset: last.startOffset,
+              byteLength: Math.max(last.byteLength, mergedBytes),
+              pageIds: [...last.pageIds, pageId],
+            };
+            continue;
+          }
+        }
+        spans.push({
+          startOffset: start,
+          byteLength: entry.compressedBytes,
+          pageIds: [pageId],
+        });
+      }
+      let spanCursor = 0;
+      const workerCount = Math.max(1, Math.min(DEFAULT_COALESCED_CONCURRENCY, spans.length));
+      await Promise.all(
+        Array.from({ length: workerCount }, async () => {
+          while (true) {
+            const index = spanCursor++;
+            if (index >= spans.length) return;
+            if (signal?.aborted) throw signal.reason ?? new Error("OEGPACK batch page read was aborted");
+            const span = spans[index]!;
+            span.bytes = new Uint8Array(await source.read(span.startOffset, span.byteLength));
+          }
+        }),
+      );
+      const decodedByPageId = new Map<number, OegPackDecodedPageV3>();
+      for (const span of spans) {
+        if (signal?.aborted) throw signal.reason ?? new Error("OEGPACK batch page read was aborted");
+        const block = span.bytes!;
+        for (const pageId of span.pageIds) {
+          const entry = pages[pageId]!;
+          const localOffset = Number(entry.compressedFileOffset - span.startOffset);
+          const encoded = block.subarray(localOffset, localOffset + entry.compressedBytes);
+          decodedByPageId.set(pageId, await decodeAndValidateEncodedPage(pageId, encoded));
+        }
+      }
+      const results = new Array<OegPackDecodedPageV3>(count);
+      for (let i = 0; i < count; i++) {
+        results[i] = decodedByPageId.get(pageIds[i]!)!;
+      }
+      return Object.freeze(results);
     },
   });
 }
@@ -456,7 +582,8 @@ function validateMetadata(
   const pageMinimumGroups = new Uint32Array(pages.length);
   pageMinimumGroups.fill(OEGPACK_V3_INVALID_ID);
   const pageHasBootstrap = new Uint8Array(pages.length);
-  for (const group of groups) {
+  for (let groupId = 0; groupId < groups.length; groupId++) {
+    const group = groups[groupId]!;
     assertIndex(group.pageId, pages.length, "group page");
     if (
       group.offsetInDecodedPage & 15 ||
@@ -468,7 +595,6 @@ function validateMetadata(
     if ((group.flags & 0xc0) !== 0)
       throw new OegPackV3Error("Retired continuity payload requires recook with lean v7");
     pageCounts[group.pageId] = pageCounts[group.pageId]! + 1;
-    const groupId = groups.indexOf(group);
     pageMinimumGroups[group.pageId] = Math.min(pageMinimumGroups[group.pageId]!, groupId);
     if (group.flags & 1) pageHasBootstrap[group.pageId] = 1;
     if (group.flags & 1 && !bootstrapSet.has(group.pageId))
@@ -522,11 +648,15 @@ function validateMetadata(
 function validateDecodedPage(
   pageId: number,
   decoded: Uint8Array,
+  page: GeometryPageDirectoryV3,
   groups: readonly GeometryGroupDirectoryV3[],
   formats: readonly VertexFormatRecordV3[],
+  verifyTriangleBytes = true,
 ): void {
   const view = new DataView(decoded.buffer, decoded.byteOffset, decoded.byteLength);
-  for (let groupId = 0; groupId < groups.length; groupId++) {
+  const firstGroup = page.firstGroup;
+  const groupEnd = firstGroup + page.groupCount;
+  for (let groupId = firstGroup; groupId < groupEnd; groupId++) {
     const directory = groups[groupId]!;
     if (directory.pageId !== pageId) continue;
     if (directory.payloadBytes < OEGPACK_V3_GROUP_HEADER_BYTES)
@@ -575,9 +705,11 @@ function validateDecodedPage(
         vertexEnd > group.payloadBytes
       )
         throw new OegPackV3Error(`group ${groupId} meshlet ${meshletIndex} data range is invalid`);
-      for (let byte = meshlet.triangleByteOffset; byte < triangleEnd; byte++)
-        if (decoded[base + byte]! >= meshlet.vertexCount)
-          throw new OegPackV3Error(`group ${groupId} meshlet ${meshletIndex} has an invalid local index`);
+      if (verifyTriangleBytes) {
+        for (let byte = meshlet.triangleByteOffset; byte < triangleEnd; byte++)
+          if (decoded[base + byte]! >= meshlet.vertexCount)
+            throw new OegPackV3Error(`group ${groupId} meshlet ${meshletIndex} has an invalid local index`);
+      }
     }
   }
 }
@@ -625,7 +757,11 @@ function decodeLz4Block(source: Uint8Array, decodedBytes: number): Uint8Array {
     }
     matchLength += 4;
     if (target + matchLength > output.length) throw new OegPackV3Error("LZ4 match exceeds decoded page");
-    for (let i = 0; i < matchLength; i++) output[target + i] = output[target - matchOffset + i]!;
+    if (matchOffset >= matchLength) {
+      output.copyWithin(target, target - matchOffset, target - matchOffset + matchLength);
+    } else {
+      for (let i = 0; i < matchLength; i++) output[target + i] = output[target - matchOffset + i]!;
+    }
     target += matchLength;
   }
   if (target !== output.length)
@@ -635,9 +771,8 @@ function decodeLz4Block(source: Uint8Array, decodedBytes: number): Uint8Array {
 
 function crc32(bytes: Uint8Array): number {
   let crc = 0xffffffff;
-  for (const byte of bytes) {
-    crc ^= byte;
-    for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+  for (let i = 0; i < bytes.byteLength; i++) {
+    crc = (crc >>> 8) ^ CRC32_TABLE[(crc ^ bytes[i]!) & 0xff]!;
   }
   return ~crc >>> 0;
 }

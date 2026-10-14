@@ -78,11 +78,24 @@ export interface GeometryPageProductV1 {
   readonly bytes: ArrayBuffer;
 }
 
+const preverifiedIntegrityPages = new WeakSet<GeometryPageProductV1>();
+
+export function markPageIntegrityPreverifiedV1(page: GeometryPageProductV1): GeometryPageProductV1 {
+  preverifiedIntegrityPages.add(page);
+  return page;
+}
+
+export function isPageIntegrityPreverifiedV1(page: GeometryPageProductV1): boolean {
+  return preverifiedIntegrityPages.has(page);
+}
+
 export interface GeometryProductRevisionSourceV1 {
   readonly descriptor: GeometryProductDescriptorV1;
   /** Optional source-scene asset mapping for bounded shard Products. */
   readonly sceneAssetIndices?: readonly number[];
   readPage(pageId: number, signal?: AbortSignal): Promise<GeometryPageProductV1>;
+  /** Optional coalesced batch page reader for bootstrap/multi-page admission. */
+  readPages?(pageIds: ArrayLike<number>, signal?: AbortSignal): Promise<readonly GeometryPageProductV1[]>;
   release(): void;
 }
 

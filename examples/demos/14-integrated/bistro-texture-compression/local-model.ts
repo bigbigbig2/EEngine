@@ -15,6 +15,7 @@ export function bistroLocalModel(examplesRoot: string): Plugin {
       resolve(examplesRoot, "../validation/public/assets/oengine/glb-web-product-v1.glb")
     ]
   ]);
+  const sizeCache = new Map<string, number>();
   return {
     name: "bistro-local-model",
     apply: "serve",
@@ -43,7 +44,11 @@ export function bistroLocalModel(examplesRoot: string): Plugin {
           return;
         }
         try {
-          const size = (await stat(source)).size;
+          let size = sizeCache.get(source);
+          if (size === undefined) {
+            size = (await stat(source)).size;
+            sizeCache.set(source, size);
+          }
           const range = request.headers.range;
           const match = range?.match(/^bytes=(\d+)-(\d*)$/u);
           const start = match ? Number(match[1]) : 0;
@@ -71,11 +76,12 @@ export function bistroLocalModel(examplesRoot: string): Plugin {
             response.end();
             return;
           }
-          const stream = createReadStream(source, { start, end, highWaterMark: 256 * 1024 });
+          const stream = createReadStream(source, { start, end, highWaterMark: 4 * 1024 * 1024 });
           response.on("close", () => stream.destroy());
           stream.on("error", (error) => response.destroy(error));
           stream.pipe(response);
         } catch (error) {
+          sizeCache.delete(source);
           if (response.headersSent) {
             response.destroy(error instanceof Error ? error : new Error(String(error)));
           } else {

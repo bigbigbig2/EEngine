@@ -27,6 +27,8 @@ export interface OegPackProductAssetOptions {
   /** Explicit `scene.oescene` payload, overriding any selection-provided source. */
   readonly manifest?: string | ArrayBuffer | Uint8Array;
   readonly signal?: AbortSignal;
+  /** When false, skips redundant whole-page SHA-256 after compressed CRC32 validation. Defaults to true. */
+  readonly verifyPageSha256?: boolean;
 }
 
 export interface OegPackProductAssetEvidenceV1 {
@@ -86,7 +88,7 @@ export class OegPackProductAsset implements GeometryProductProviderV1 {
     const { source, selectionKind, defaultManifestUrl } = createSelectionSource(selection);
     let manifest: OegPackSceneManifestV3 | undefined;
     try {
-      const pack = await openOegPackV3(source);
+      const pack = await openOegPackV3(source, { verifyPageSha256: options.verifyPageSha256 });
       throwIfAborted(options.signal);
       const descriptor = descriptorFromOegPack(pack);
       const payload = options.manifest ?? ("manifest" in selection ? selection.manifest : undefined);
@@ -198,41 +200,31 @@ function createSelectionSource(selection: OegPackProductSourceSelectionV3): {
       defaultManifestUrl: manifestUrl,
     };
   }
-  throw new OegPackV3Error(
-    `OEGPACK Product source selection kind '${String((selection as { kind?: unknown }).kind)}' is not supported`,
-  );
-}
-
-async function fetchManifest(url: string, signal?: AbortSignal): Promise<string> {
-  const response = await fetch(url, { signal, headers: { "Accept-Encoding": "identity" } });
-  if (!response.ok) throw new OegPackV3Error(`scene manifest request failed (${response.status})`);
-  const encoding = response.headers.get("content-encoding");
-  if (encoding && encoding !== "identity")
-    throw new OegPackV3Error(`scene manifest used forbidden Content-Encoding '${encoding}'`);
-  return await response.text();
+  throw new OegPackV3Error("unsupported OEGPACK Product source selection");
 }
 
 class InstrumentedRangeSource implements RangeReadablePackV3 {
-  #reads = 0;
-  #readBytes = 0;
-  constructor(private readonly inner: RangeReadablePackV3) {}
-  get reads(): number {
-    return this.#reads;
-  }
-  get readBytes(): number {
-    return this.#readBytes;
-  }
+  reads = 0;
+  readBytes = 0;
+  constructor(readonly inner: RangeReadablePackV3) {}
   async read(byteOffset: bigint, byteLength: number): Promise<ArrayBuffer> {
     const bytes = await this.inner.read(byteOffset, byteLength);
-    this.#reads++;
-    this.#readBytes += bytes.byteLength;
+    this.reads++;
+    this.readBytes += bytes.byteLength;
     return bytes;
   }
+}
+
+async function fetchManifest(url: string, signal?: AbortSignal): Promise<ArrayBuffer> {
+  const response = await fetch(url, { signal, headers: { "Accept-Encoding": "identity" } });
+  if (!response.ok) throw new OegPackV3Error(`failed to fetch scene.oescene (${response.status})`);
+  return response.arrayBuffer();
 }
 
 function hex(bytes: Uint8Array): string {
   return Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
 }
+
 function throwIfAborted(signal?: AbortSignal): void {
   if (signal?.aborted)
     throw signal.reason instanceof Error
