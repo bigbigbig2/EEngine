@@ -42,105 +42,182 @@ verifies:
     - OEngine/src/debug/RenderDebugView.ts
     - examples/demos/14-integrated/dungeon-warkarma-texture-compression/resource-budget.ts
     - tools/gpu-oracle/registry.mjs
+    - OEngine/src/render/program/FrameProgramBindings.ts
+    - OEngine/src/render/HierarchicalZBuffer.ts
+    - OEngine/src/shaders/hzb_reduce.ts
+    - OEngine/src/render/passes/SharedColorPyramidPass.ts
+    - OEngine/src/render/passes/ColorGradingPass.ts
+    - OEngine/src/render/passes/MotionBlurPass.ts
+    - OEngine/src/render/surface/SurfacePresentPass.ts
+    - OEngine/src/render/surface/DisplayColorGrading.ts
+    - OEngine/src/gpu/LightProbeRecord.ts
+    - OEngine/src/gpu/LightProbeAtlas.ts
+    - OEngine/src/gpu/GPULightProbeVolume.ts
 ---
 
-# EEngine 功能扩展总体路线
+# EEngine Renderer Feature Completion：功能扩展粗路线
 
-## 1. 本轮决策与范围
+## 1. 目标与本轮边界
 
-2026-10-14，用户明确将近期重心改为**先完善功能效果，再对完整组合集中优化性能**，并要求从实际代码重新分析、调整文档方向。本路线以生产源码 `2caf5fe2` 为输入；它是粗计划，不是 AO、VT、GI 等算法的详细设计，也不表示这些功能已实施。
+用户在 2026-10-14 明确选择：**先完善渲染能力和画面效果，再对完整组合集中优化性能**。长期目标仍为 GPU-Driven、WebGPU Native、AAA 画面方向、GTX 1650 Ti 4GB / 1080p 与可持续扩展，不提前承诺全效果原生 60FPS。
 
-当前模块设计以本文为准，详细单元状态仅在[执行计划](../next-execution/eengine-feature-expansion-execution-2026-10.md)维护；[workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)只负责导航。沿用 [V4 母稿](eengine-v4-native-shading-2026-10.md)的单一 Renderer、Native 材质、真实 owner 与 GPU 数据流不变量。已完成/暂停的旧计划转为 history，原实施、失败和来源保留，旧阶段指令不继续生效。V5 已切换的实现保留，剩余正式验收延期；V5 Phase6 通过不再是开发新效果的前置。
+推进方式为：**粗路线记录目标和次序 → 用户启动一个模块的细设计 → 建立该模块唯一设计/执行一对文档 → 按该轮授权实施与验证 → 模块闭合后停在边界，回到粗路线选择下一模块**。本轮只完善这套文档/导航机制，评审并融合讨论方案，不实现基础设施，不创建未来模块详案、空类、固定 GPU ABI 或占位资源。
 
-目标仍包括 GPU-Driven、WebGPU Native、AAA 画面方向与 GTX1650Ti 4GB/1080p 约束。新增效果允许增加必要的 GPU 工作和内存；本轮不要求每个新效果相对“关闭该效果”更快，也不预先承诺全效果1080p原生60FPS。正确性、能力协商、容量、资源生命周期和必要成本边界仍随模块闭合，最终质量/性能资格集中取得。
+本文与[粗执行总计划](../next-execution/eengine-feature-expansion-execution-2026-10.md)记录总体方向和模块入口；[workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)的 `roadmap` 始终指向这一对，`authority` 只指向当前正在设计/实施的那一对。当前仍是粗规划 slice；未来启动 SSR 等细设计时才切换 authority。它们有不同层次，不能成为两份竞争的施工指令。
 
-本轮不改生产 TS/WGSL，不重写已完成底座，不提前固定所有未来算法、页尺寸、history 格式或性能阈值，不新建通用 SurfaceRecord、全局 effect history/cache 系统或万能虚拟资源管理器。
+全局不变量沿用 [V4 母稿](eengine-v4-native-shading-2026-10.md)，生产事实以源码和直接消费者为准。已落地 Native/VG/Lighting/Texture/Temporal 底座保留；旧计划继续为 history，V5 等正式性能资格保持未完成，不成为新效果统一启动前置。
 
-## 2. 从代码获得的设计输入
+## 2. 代码提供的事实与约束
 
-下表是本次代码核对快照，含生产调用和直接消费者，供路线决策；它不是持续进度表。文件存在、public export、旧注释、debug 枚举和历史测试都不能单独证明功能已接入。
+本轮在 `aa04fd65` 再查生产调用；其生产代码与前次 `2caf5fe2` 相同。类、旧 shader、注释、debug 名称和历史测试均不能单独证明功能接入。
 
-| 能力 | 实际调用与产品 | 对后续的影响 |
+| 领域 | 当前源码事实 | 对粗路线的影响 |
 |---|---|---|
-| 主帧 | `RendererCore` 创建 owners，`FrameProgram` 选择有限产品，`FrameProgramLowering` 连到缓存 FrameGraph，`FrameCoordinator` 提交 | 扩展现有主图与真实 owner；不另造 feature scheduler。`RenderFeatureRegistry` 类没有进入这条生产选择链 |
-| Geometry/VG | `VisibilityFeature.prepare` 准备主视图及独立 `ShadowGeometryWork`；Product 分页驻留、HZB、MeshletWork、Visibility/Depth 进入 Native | 保留工作身份、紧凑 Page 和独立 shadow 来源；新效果按需消费深度/HZB，不重写 VG |
-| 纹理资产 | `TextureProduct` metadata3 每个 plane/mip 指向 chunk，`PcMaterialTextures` 冷准备 BC7/BC4/exact R8 | 已有压缩和资产身份基础；没有 tile directory，不能把现有整 mip 包直接称为 VT Page Product |
-| 纹理驻留 | `TextureResidency.stage` 按完整尺寸、完整 mip 链创建 array segments；tail-first 上传、`promote` 改 minMip，最后一个 layer 释放后回收 segment | 渐进上传不减少该 texture 已分配容量。缺少按 tile 的 GPU page table、反馈、页读取和淘汰链 |
-| 材质采样 | `NativeMaterialBindings` 生成有限 bank selector 与显式梯度采样，Main/MASK/VSM 使用对应 native publication；`NativeMaterialPhysicalBanks` 只规划完整资源并集 | VT 必须进入真实材质采样与 coverage consumers，保留 sampler、UV/C/X/Y、decode、最小驻留精度与 publication 语义 |
-| AO | `FrameProgramLowering` 调用 preparation→main→denoise，Native 读取 scalarTexture；packed AO 没有实际 consumer 时可被 graph 裁掉 | 已有完整 scalar XeGTAO 链。当前主图固定 radiusMeters=1、metersPerWorldUnit=1、noiseIndex=0，只选择 scalar-high |
-| AO 质量边界 | 深度生成的私有法线、五级加权深度、Main medium/high 源码、0..3 denoise 参数已存在；Native 只把 AO/material occlusion 乘入 diffuse IBL | 先补设置、调校与观测入口；AO 私有深度法线不等于材质法线。无 AO 专属时序积累、bent normal 或完整镜面遮蔽产品 |
-| Lighting/VSM | LocalLightWork 的 NONE/SPARSE 与完整 DIRECT overflow；方向光 VSM 的需求、分配、caster、atlas、ready 产品进入 Native Sun | 保留当前直接光与阴影。点/聚光照明数据不表示对应阴影完成；新增阴影能力另定模块 |
-| 环境/曝光 | PhysicalEnvironment 的 LUT/Sky/Aerial/IBL，以及 authored IBL、GpuRadiometry/Bloom/Present 已有真实 consumers | 保留现有 HDR/预曝光基础；Aerial 不等于局部参与介质/体积灯光 |
-| SSR | 当前 `FrameProduct`/stage 没有 SSR；lowering 给 SSR debug 输入 null。旧 trace/resolve/denoise 依赖旧 packed PBR/normal、color pyramid 和旧 history 输入 | 旧文件只能逐项核对后复用数学；必须设计当前 Native 数据出口和正确的 IBL composition，不能直接恢复旧 effect owner |
-| GI/探针/体积 | `GPUSceneEnvironmentContext` 可惰性创建 probe/Brick4/volumetrics 数据，但当前 Native/FrameProgram 没有相应 GI/介质消费链 | 有数据接口不等于有画面能力；未来选择实际辐射来源、更新方式和独立 effect history |
-| 透明/透射 | CPU/GPU 有 transparent 分类；当前主图没有透明合成阶段；`CanonicalMaterial` 对 transmission>0 明确拒绝，MomentOitReference 只有参考计算 | 普通 BLEND、折射/透射、水面和 OIT 是需分别定范围的功能，不能以分类或参考函数当作完成 |
-| Temporal/DRS | Native 1:1→V2，true upscale→FSR3，bypass 明确；Seed/identity/颜色 history 按成功提交推进。DRS 类没有接入 Renderer 控制链 | 保留两个各有实际分辨率域的重建 owner；新增效果管理自身 history。固定 renderScale 不算自适应 DRS |
+| 主帧与配置 | `RendererCore` 创建 owner；`FrameProgram`/Lowering 形成唯一生产图；`RendererConfig` 主要是不可变能力/执行配置，尚无完整 AO/SSR/GI/VT 设置；`RenderFeatureRegistry` 不在生产选择链 | 扩展已有设置→需求→图/PSO→绑定链，不先加 EffectsManager 或第二个 feature scheduler |
+| AO | scalar XeGTAO preparation→main→denoise 实际进入 Native diffuse IBL；主图固定 radius=1、world scale=1、noise=0，仅选 scalar-high | 完善参数、质量、诊断与生命周期；不重新发明 AO，不自动加入 bent normal/专属 temporal |
+| HZB | `HierarchicalZBuffer`/`hzb_reduce` 为反向深度 RG16F 保守 min/max，首级从内部尺寸的一半开始，有 current/previous；FrameProgram 目前仅由几何 HZB 需求触发构建，late recheck 后可再构建 final HZB | 可作为 tracing 的候选粗层；SSR 需核对最终可见性版本与精度，裁决是否结合全分辨率 Depth 精细验证或新增必要层级。已有纹理不等于任意效果都拿到了正确版本/精度 |
+| 深度/法线 | XeGTAO 有私有五级 weighted view-depth 和深度重建法线；Native invocation 内有真实材质 normal/roughness/coat | AO weighted depth 与遮挡 HZB 数学不同，不能强行合一；深度法线也不等于 normal-map/coat 法线 |
+| Native 间接光 | `native_surface.native_environment` 已计算 diffuse IBL×AO/material occlusion、DFG-weighted specular IBL、coat 与底层衰减；输出转工作色域并预曝光 | 新 GI/SSR 需要明确替换/补充的光照分量及颜色域，不能直接 HDR 加法；baseline 不自动提供新反射的材质响应 |
+| 颜色金字塔/SSR | `SharedColorPyramidPass` 与旧 SSR shader 存在，当前 FrameProgram/Renderer 无生产调度；旧 opaque pyramid 的 stage 名只是原合同 | 核对数学后复用；新的颜色版本/读写顺序从当前 consumer 设计，不恢复旧 owner 或照抄旧 stage |
+| 纹理 | metadata3 为 plane/mip chunks；`TextureResidency` 创建完整尺寸/mip array segments，支持 tail-first 上传与 promote，并不随细 mip 缺失而释放对应分配 | 已有压缩产品和渐进上传基础，尚无 tiled Product、页表、feedback、逐 tile 淘汰；当前体系不能叫完整 VT |
+| Coverage | exact R8 plane 已独立；`nativeMaterialCoverageProgram` 从任意 graph 提取 alpha 子图，Main/VSM 共用语义 | alpha 可能依赖 RGB/其他 sample，VT v1 排除 coverage 时要保护整个依赖闭包，不能只保护标为 alpha-mask 的贴图 |
+| Probes/GI | 旧 `GPULightProbeVolume`/atlas 是可选惰性数据，record 含低阶系数；没有当前局部镜面反射或 world GI 的生产消费链 | 旧 diffuse probe 数据不等于预滤波 specular probe；不能直接宣布 box-projected reflections 已具备，也不能据此选定 GI |
+| 阴影/透明/介质 | LocalLightWork 有点/聚光照明与完整 overflow；当前 VSM 服务 Physical Sun；无透明/局部体积主图 stage，transmission>0 仍拒绝 | 局部阴影是独立能力；BLEND、透射、水面和参与介质分别定范围，不只取消拒绝或接一个旧类 |
+| Temporal/显示 | Native 1:1、FSR3 upscale、bypass 各有实际路径；Present 已消费静态 SDR/HDR LUT 与 GT7/曝光，独立 ColorGradingPass 未调度；MotionBlurPass 和 DRS 类不在实际控制链 | 保留现行 AA/FSR/显示；后续完善公开调色控制、DRS、运动模糊等，不把“独立 pass 未调度”误判为“没有色彩分级” |
 
-核对入口：[主图](../../OEngine/src/render/program/FrameProgramLowering.ts)、[AO](../../OEngine/src/render/ao/XeGtaoPreparationPass.ts)、[纹理驻留](../../OEngine/src/gpu/TextureResidency.ts)、[采样生成](../../OEngine/src/gpu/NativeMaterialBindings.ts)、[场景可选数据](../../OEngine/src/gpu/GPUSceneEnvironmentContext.ts)。现有 domain 页记录生产事实；本路线不从历史设计快照推断当前调用。
+主要核对入口：[主图](../../OEngine/src/render/program/FrameProgramLowering.ts)、[HZB](../../OEngine/src/render/HierarchicalZBuffer.ts)、[Native 光照](../../OEngine/src/shaders/native_surface.ts)、[纹理](../../OEngine/src/gpu/TextureResidency.ts)、[coverage](../../OEngine/src/gpu/NativeMaterialBindings.ts)、[Present](../../OEngine/src/render/surface/SurfacePresentPass.ts)。这张表是决策快照，持续生产事实由 domains 随真实代码更新。
 
-## 3. 粗粒度推进顺序
+## 3. 对讨论方案的裁决
 
-默认顺序为 **AO 功能完善 → VT → Reflection → Indirect Lighting → Transparency → Media → 重建/显示策略完善 → 完整组合与性能优化**。这是产品推进顺序：AO 不依赖 VT，SSR 也不以 VT 为数学前置；若真实场景需求要求提前透明等模块，在模块边界调整。每次完成一个连贯模块，依据当时源码再设计下一个，不预先批量冻结后续实现。
+| 讨论中的建议 | 本轮结论与修正 |
+|---|---|
+| Feature Completion 优先、复用已有 AO | 采纳；新效果允许必要有界 ADD，完整图性能集中优化 |
+| 先独立建设 Screen-Space Effect Foundation | 调整为随 SSR 的真实消费建立有限基础；AO 只补自身需要。首个 consumer 完整闭合后，SSGI 再复用已成立合同，算法确实不同则保留局部实现，不强迫所有效果共用一个 kernel |
+| 一张 normal+roughness sidecar 就够 | 仅为候选。它不能完整表达 F0/coat/BRDF response、语义身份与重投影；也可能无需全屏物化。字段、格式、全/半分辨率和重算取舍留细设计裁决 |
+| Surface 顺手固定输出 indirect baseline | 防双计能量的思路采纳，固定全屏 baseline 输出不采纳。SSR/GI 细设计比较发布必要 response/baseline、调整原生合成边界或有限重算，选择合法且成本有界的产品 |
+| 直接选 FidelityFX SSSR 全套 | 列为优先研究参考，未选定完整移植 profile；其 wave/占用率退出、depth hierarchy、环境采样和 denoiser 假设需适配 WebGPU 与目标 GPU。不能删关键阶段后声称完整 SSSR |
+| SSR 顺手完成 Local Probes | 分成相邻完整模块；SSR 可先用现有 Global IBL 合法补缺，随后补局部反射。Probe 的数据来源/预滤波/空间选择和更新成本不能被“顺手”省略 |
+| Streaming VT v1 暂不虚拟化 coverage | 采纳保守范围，但明确为 shading VT profile。所有影响 alpha 的样本/坐标依赖保持完整可用，含 custom graph；无法安全分离时保留该依赖为 resident，或显式拒绝不支持输入，不能默改 coverage |
+| SSGI 后直接固定 Cascaded SDF+Probe | 只采纳“近场 screen diffuse→独立 world-space GI”的推进层次。SDF+Probe 是优先候选，尚无足够的动态几何、薄墙、alpha、hit radiance 和 4GB 成本依据作为最终选择 |
+| 先建通用 SceneTraceProvider，未来只换硬件 RT | 延期。screen depth、SDF、occupancy、triangle query 的可见域/命中信息/误差不同；occupancy 也不能直接作为可 sphere-trace 的 SDF。先让实际算法闭合，再按真实公共合同抽取，硬件 RT 不作为当前底座 |
+| 固定一条未来 frame topology | 只保留职责方向；SSGI/SSR 的 radiance 版本、world 更新与主视图的关系、Sky/透明/介质的物理合成、Native/FSR 分辨率域必须在相应模块明确，不能将概念图当可执行无环图 |
 
-### 3.1 AO：把已有算法完善成可用功能
+**间接光合成的必要条件：** `H' = H + w × (S − B)` 只在 `B` 是 H 中实际已有的对应光照贡献、`S` 是同一 lobe、颜色域、预曝光和材质响应下的新贡献时成立。`S` 不能直接是 trace 得到的未加权 incident radiance。base/coat、粗糙度积分/采样 PDF、AO 与材质 occlusion、置信权重及 fp16 减法误差均要在细设计核对；不重复乘 AO，不以 clamp 遮盖数值错误。这个等式表达语义，不规定存储三张全屏纹理。
 
-先沿当前 scalar XeGTAO 增加设备无关的设置入口，明确世界尺度、半径、强度/曲线、现有质量与去噪选项，以及开关、AO-only/必要诊断视图。设置要真实进入 frame bindings、图/PSO 选择与 producer constants，不能只有面板变量。当前 finalValuePower 是曲线参数，不能直接改名声称是独立线性强度。
+## 4. 粗粒度推进顺序
 
-验证不同尺度场景、接触/薄物体/轮廓、相机运动、关闭与重开、resize/abort/retry；保留 Main/MASK/VSM 原语义。现有固定噪声与空间去噪的局限如实展示，不为“看起来更稳定”直接改变 noiseIndex。AO 专属 temporal、bent normal、镜面遮蔽是否进入下一单元，按画面需求和成熟来源另行研究；它们不是开放已有设置的必选前置。
+默认顺序调整为 **AO → SSR → Local Reflection Probes → Streaming VT → Screen-Space Diffuse → Local Shadows → World GI → Transparency/Refraction → Media → 重建/显示/后处理 → 集中组合与性能优化**。Decals/RVT 等保留为明确候选扩展。
 
-### 3.2 VT：完整虚拟纹理能力
+这是画面收益和工程风险的默认排序，不是硬依赖链。SSR 不需要先完成 VT；SSGI 不强依赖 VT 或局部镜面 probe；VT 在 World GI 前可降低未来采样体系重复改造风险，但不能替 GI 解决场景表示/命中着色。当前只有 Sun 阴影，故将局部阴影置于复杂 World GI 之前，先补常用直接光遮挡和可信的场景光照基线；不宣称所有 GI 都必须消费 local shadow maps。透明或局部阴影若是目标场景主要缺口，可在模块边界进一步提前；不让庞大 World GI 成为它们的统一门禁。每次只细设计和实施一个大模块。
 
-完整链为：CPU 压缩分页产品/页索引→有界页 provider→GPU 物理页与页表→Native 采样/coverage→有界反馈→延迟读取/上传→publication 与 fence 淘汰。先确定 TextureProduct 的继承/版本边界和 CPU 数据所有权，再确定物理 atlas、寻址、驻留与反馈。不得照用256KiB几何页 ABI，或把 GeometryPageScheduler 扩成所有资源的通用控制面；可借鉴其延迟反馈、取消与预算纪律，物理 owner 保持独立。
+### 4.1 AO：完善已有 scalar 功能
 
-模块设计必须处理：BC block 对齐与 border、跨页/跨 mip 过滤、显式梯度与采样 footprint、repeat/mirror/clamp、normal/ORM/独立 exact alpha、粗 mip 完整覆盖、请求去重/溢出、上传/读取上限、内存与网络压力。Main Visibility、Native 材质、Shadow MASK、自定义 graph 等真实 consumers 必须同单元闭合。缺 alpha 页不能简单当作不透明而抢走后方 winner。
+设置/世界尺度、真实半径与强度/曲线语义、现有质量与去噪、启停/调节/诊断进入真实 bindings/图/PSO。finalValuePower 不能直接冒称线性强度；固定 noise 的改变也要对应稳定性设计。按场景薄物体、轮廓、运动与生命周期核对。专属 temporal、bent normal、specular occlusion 按需要另定，不打包为设置开放的前置。
 
-纹理内容身份、驻留状态与物理地址变化分开；不能每次 tile 上传都重新编译材质或全局清空 Temporal。资源创建/切换、abort/retry、replacement、device loss 重放和退休要完整。细页缺失的合法降级必须属于 VT 算法本身，不能长期缺细节却声称 full-quality。页大小、反馈频率、cache 策略与具体 donor 留到该模块详细设计裁决。
+### 4.2 SSR：以第一个效果建立需要的屏幕空间合同
 
-### 3.3 Reflection：接入当前 Native 的完整反射
+目标为当前 Native 材质可用、运动稳定且边界诚实的屏幕反射，退屏/遮挡缺信息时使用已有环境补缺。优先研究 SSSR 的分类、层次遍历、命中验证和反射去噪，但不在粗路线选择 ray 数、固定半分辨率、wave 策略或最终格式。
 
-先定义真实反射输入：Depth/HZB、材质法线/roughness、需要的 BRDF response、可采样辐射、motion/identity。当前 AO 私有法线和 Temporal Seed 不替代这些材质数据；已有 HZB 也要核对格式/深度数学及在新 demand 下是否真正生成。
+细设计须裁决真实法线/roughness/响应、最终 Depth/HZB、可采样辐射及最小产品、主/coat lobe、trace/resolve/denoise/history/composition 和调试。receiver motion/identity 不能自动解决反射命中物体的运动和遮挡失效；SSR 自己管理可靠性与历史，不借用 Native AA 的内部 history 冒充反射 history。首个消费者所需的配置、需求声明、资源关闭/退休随本模块闭合，不另造基础设施大项目。
 
-以实际 consumer 反推有限产品与物理边界，允许必要的 compact Aux/lighting composition，不建立预分配的通用 GBuffer。当前 Native 已含 specular IBL，反射命中/未命中/置信混合必须避免重复添加能量，并覆盖 clearcoat、HDR/预曝光和退屏情况。trace、resolve、去噪、history、composition、debug、开关与退休作为完整模块；旧 shader 的来源/数学逐项复核，不恢复旧运行时 owner。
+### 4.3 Local Reflection Probes：补齐屏幕外反射来源
 
-### 3.4 Indirect Lighting：先选一种能完整工作的方案
+独立设计 authored/baked 或 runtime capture 的实际数据来源、预滤波镜面 mips、影响体/空间选择/混合、视差校正、atlas/容量/更新/退休。box projection、octahedral atlas 是候选，既有 diffuse probe coefficient 不能替代镜面数据。
 
-从目标场景选择第一种间接光能力，再研究成熟实现和真实生产入口。screen-space、probe/world-space、baked/radiance 数据是待比较方案，不在粗计划里宣称已经选定、实现或可以直接互换。确定可见域/退屏缺失、动态更新、材质响应、与 diffuse IBL 的替换/混合及 history 身份。
+SSR 高置信结果与 local/global environment 形成明确的混合或替换关系；其补缺方向是 SSR→local probe→global IBL/sky，选择/混合应在实际 GPU 工作中完成，不强制成为三个串行全屏 pass。静态 probe 不宣称覆盖全部动态反射。若选 runtime capture，需计入多视图 VG/VT 驻留、阴影/材质可用性与捕获成本，不能依赖主相机可见域充当完整场景。
 
-已有 probe/Brick4 数据只提供审查起点，不自动恢复旧 provider 链。ReSTIR 单独按目标照明需求判断，其 reservoir、候选、归一化和可见性不是泛用 GI 的默认前置；不为了功能名把所有间接算法一起加入生产。
+### 4.4 Streaming VT：先做 shading 纹理分页
 
-### 3.5 Transparency / Media：按真实场景补齐表达能力
+目标为离线/冷准备压缩 tiled Product→有界 provider→物理页/页表→Native 采样→有界延迟 feedback→读页/上传/淘汰的完整链。沿 TextureProduct/WebCook 的身份、压缩和资产责任扩展；RVT 属运行时场景结果缓存，是另一能力。不得照用256KiB几何页 ABI 或造万能 VirtualResourceOS。
 
-透明先确定完整 BLEND 的生产范围、工作生成、排序/混合、depth 与 opaque/sky/reflection 的合成顺序、motion/reactive；透射/折射、吸收和水面在明确需求后扩展。MomentOitReference 不构成 OIT 选型。不能把透明塞进 opaque winner，也不能仅取消 transmission 拒绝而没有正确 consumer。
+v1 范围为可与 coverage 安全分离的 baseColor RGB、normal、ORM、emissive 等 shading samples；完整 alpha 依赖闭包继续 resident。这个范围必须如实计账，可能限制 foliage/coverage 很重场景的节省。一个纹理同时服务 shading/coverage 时，路由、重复存储和 identity 由细设计明确，不能在 residency 改变时悄悄换 alpha 数值；Main/VSM/MASK/custom graph 全部直接消费者仍须闭合。这是同一 Native 体系的合法资源类型，不是新旧 Renderer 兼容桥。
 
-Media 依据实际局部雾、参与介质和体积灯光需求，定义密度、光照/阴影、积分、透射率、history 与 HDR 合成。复用已存在的 Sky/Aerial、灯光与场景数据时明确各自物理意义，避免重复 extinction/scattering；GPUVolumetrics 表的存在不作为效果完成证据。
+细设计裁决 BC block/border、跨页/跨 mip/各向异性与地址模式、粗 mip 完整覆盖、overflow、网络/CPU/GPU 预算及 device loss。内容身份、物理页位置和 residency revision 分开，不能每 tile 上传重编材质或全局重置 Temporal；必要局部质量变化要有真实消费者处理。页尺寸/反馈频率/cache 策略不在本轮冻结。
 
-### 3.6 重建与显示策略、完整组合
+### 4.5 Screen-Space Diffuse：有限近场间接光
 
-当前 Native/FSR 的实际域和事务保留；新效果的 motion/reactivity、pre-exposure、disocclusion 在各自模块同步接入，不能推迟到最后才补正确性。后续专门完善 DRS 的实际反馈控制、配置与 resize/history 生命周期；AI Upscaling、DOF、motion blur 等按真实需求另选，不因旧类或 shader 存在自动列为已完成或必做。
+先明确选 SSIL 式补充照明还是更完整的 SSGI profile，二者不能仅凭名称视为等价。目标是近场动态色溢出/屏幕内发光反馈，承认可见域与方向信息局限；研究取样、响应、radiance 来源、可靠性、去噪/history、上采样及与 AO/diffuse IBL 的关系。半分辨率是待比较配置，不是预定正确性捷径。
 
-功能组合稳定后集中进行整帧归因、共同资源/绑定压力、上传/驻留/retiring 同时峰值、冷启动和交互长尾、动态画质及4GB/1080p验收，再决定具体性能优化。优化按真实最大成本推进，不从文档预选 receiver、Temporal 或 cache 必须再优化。
+复用 SSR 已成立的深度/投影/颜色域/资源合同，不强制共用不适合 diffuse 的 traversal 或历史。若未来同时存在 world indirect，screen 项作为替换或补充的哪一部分须说明，避免 AO、IBL 和 GI 重复计能量。
 
-## 4. 各模块共享的边界
+### 4.6 Local Shadows：补齐常用直接光遮挡
 
-- 新消费者才产生新产品；说明 producer、全部直接 consumers、格式/域/完整写域、唯一 writer、容量/溢出、提交/中止/重试和退休。输出何处进入最终 HDR 必须可追踪。
-- Material Graph 继续编译为 Native GPU code；采样后端可以扩展，不引入通用 shader VM。FrameProgram/FrameGraph 管真实宏依赖，算法微调度留在效果 owner。
-- Effect history/cache 归对应效果。TemporalFabric 协调已有提交事务，不吸收 AO/SSR/GI/Media 的全部物理历史。普通相机运动不被新功能随意改成全局 reset。
-- 一帧一个生产 submit；延迟 feedback 影响后续帧，不引入本帧 GPU→CPU→GPU 工作控制。Loader 不拥有长期 GPU 页缓存。
-- 当前 Renderer 是桌面 BC/tier1/indirect 等协商能力 profile，资源创建前明确 features/limits；不把 WebGPU 名称当所有设备均支持的保证，也不为扩功能偷偷增加第二套 Renderer。
-- 应用预算和 owner 容量保持有界；Dungeon 现有4GB应用预算及demo不同 renderScale/geometry 配置是源码事实，不是 OS VRAM 或全效果性能资格。新增必要预算必须公开记录，不能截断身份、漏工作或永久粗糙采样。
+独立补点/聚光的真实 caster、空间/容量、过滤、更新和采样链。LocalLightWork 分区不等于阴影空间索引已经可直接复用；与 world GI 的查询/辐射更新是否共享真实产品，在对应模块按实际消费者判断。基本直接光遮挡缺口不留给后续 GI 掩盖。
 
-## 5. 验证、成本与延期工作
+### 4.7 World GI：先选完整可落地的场景表示
 
-日常开发按需编译/targeted oracle；完整模块连通后集中检查真实 GPU 接线、数学/画质语义、开关/组合与生命周期、资源上界和粗粒度成本。新增效果的 Cost Card 记录必要 ADD、可选 DELETE、主要 bytes/samples/ALU、访问、同步与最坏工作量，明确成本假设；不要求相对未实现功能有净提速。
+优先比较 cascaded SDF/occupancy + radiance/irradiance probes 与其他满足目标的方案，按静态场景、移动刚体/变形、薄墙/alpha、动态灯光/发光源、距离/漏光、加载与4GB同时工作集裁决。SDF/occupancy 只解决部分空间查询，仍缺命中处辐射来源、材质/VT采样与照明更新；不能用“cook 少量属性”代替完整光照语义，也不预先修改 GeometryProduct schema。
 
-为节省工作而增加的 cache、压缩、低频执行等优化候选，仍需单独证明质量语义及 break-even。已观察到的错误、失控容量或不可运行性能必须修复，不能以“最后优化”吞掉；正式全 Renderer 长窗口、同条件 P50/P95/P99 与4GB OS驻留集中完成。小 fixture、静态代码审查和预算有界都不提升这些资格。
+是否离线生成、运行时体素化、clip/cascade 数量、probe 表示与更新预算，在该模块细设计。明确 screen/world/environment 的合成与可见域，不把它们伪装为一个无差别 miss 链。成熟实现的静态/动态限制必须转成本项目的显式范围；ReSTIR、Lumen Surface Cache、硬件 ray query 均非本阶段预选地基。
 
-V5 Phase6/条件Phase7、VSM R4、Minimal GPU Work 未获资格项和 Texture Compression 的开放限制保持未完成，见执行计划的延期表；不自动恢复旧 A–F，不重写旧失败为通过。未来模块必需的相关正确性/组合问题随当前 producer→consumer 单元解决，其余历史资格不成为所有新功能的统一启动门。
+### 4.8 透明与介质
 
-## 6. 文档如何服务后续开发
+Transparency 先明确 BLEND、排序/混合、Depth、opaque/sky/reflection 输入与 motion/reactive，再扩展透射/折射、吸收和水面。MomentOitReference 不代表选定 OIT，也不因文件存在而恢复旧 owner。
 
-先读目标源码、公开入口与直接 consumers，再用 domain 页辅助理解事实；当前路线/详细模块入口从 workstream 的 authority 获取。本文是当前粗路线，执行文是唯一状态与详细模块设计的链接入口；模块开工时才补对应的设计/执行详案并在导航切换，原路线保留总体方向。
+Media 明确局部密度/参与介质、灯光/阴影、积分/透射、history 和 HDR 合成；与已存在 Sky/Aerial 的散射/消光不重复。具体前后顺序服从物理积分与所采样辐射版本，不照抄概念 topology。透明与介质分别拥有各自细设计/执行，不能一次跨模块全部启动。
 
-`docs/domains/`只记已实现行为；`next-design/`说明目标/取舍；`next-execution/`维护详细单元状态及延期项；稳定跨 owner 合同再写 contracts/specs；来源仅记录真实研究/移植边界。入口不复制状态，不为每一步新增 progress/status/claim 或组件技能。
+### 4.9 重建、显示和候选扩展
 
-本轮只核对本地源码、调用、资源合同和既有测试入口，没有选择新的复杂算法 donor、没有完成新算法源码移植或进行新 GPU/性能实验。各复杂模块在详细设计时按根规则研究完整成熟来源，再确定 Adopt/Adapt/Original 与必要证据。
+保留 Native/FSR 的实际分辨率域、曝光和提交事务。新增效果的 motion/reactivity、pre-exposure、disocclusion 随该效果闭合；后续再专门完善 DRS、Motion Blur、公开调色/显示控制及场景需要的后处理，不额外叠加已有的 LUT/GT7。每次选一个连贯模块，不能把“后处理”作为一次实现所有效果的授权。
+
+Decals 保留为场景表达扩展，需考虑对 Native 材质/法线及 SSR/GI 产品的影响，不能只后加 HDR 色块。RVT 是否值得作为独立能力根据 terrain/场景材质缓存需求决定，Streaming VT 完成不自动代表 RVT 已完成或必做。ReSTIR、高级 world specular、AI Upscaling 为后续研究候选，不创建占位 provider。
+
+### 4.10 完整组合与性能收口
+
+功能集合稳定后冻结真实 quality/feature/profile，集中查动态画质、完整 consumer、GPU/CPU 归因、加载/交互长尾、同时 live/retiring 峰值、4GB OS 驻留与同条件帧时。优先解决实际最大成本，届时再决定压 Surface、VSM、Temporal、feedback、GI 更新或其他项；不从这张粗路线预选 cache/低频/megakernel 作为必需优化。
+
+## 5. 公共基础的设计方向
+
+**配置与需求分层。** 设备能力/创建期预算、可调效果设置、shader/图结构与逐帧常量分开；开关或输出结构进入必要 topology/program identity，纯数值调节不导致无意义 PSO 重编。沿 RendererConfig/公开设置→FrameProgram request/product→bindings→owner 接线，保留缓存图的真实资源身份和关闭后退休，不先创建所有未来 feature 的配置空壳。
+
+**共享合同，按 consumer 物化。** Depth/HZB、材质辅助信息、radiance pyramid 由实际需求声明 producer/consumer、坐标/颜色/分辨率、版本、写域、容量和寿命。现有 culling HZB 能满足精度时复用；不满足时允许有依据的效果专属层级/精细验证，不能为了“只有一份”损失语义。AO weighted depth 保留自己的数学。`surface-effect-data`、`opaque-color-pyramid`、`indirect-specular/diffuse` 仅是语义示例，不是本轮新增 enum、固定格式或统一 SurfaceRecord。
+
+**颜色依赖必须无环。** SSGI/SSR 读取的当前帧 radiance 版本不得包含自身尚在求解的结果。可以选择明确的 opaque baseline、先 diffuse 后 specular 的有限版本，或有曝光/身份/拒绝合同的历史来源，具体在模块细设计裁决。共享 pyramid 只在来源版本/过滤语义相同且收益成立时共享；不能既要求 SSR 看见新 GI，又让 GI 读同一份 SSR 最终输出，或把回灌当作免费多跳。Sky/透明/Media 是否进入被采样的来源也必须明确。
+
+**公共基础也要计账。** 1080p 一张8B/pixel目标约15.82MiB；normal/roughness 加 baseline 两张约31.64MiB，尚未包含读写、mips、去噪/历史、同时退休资源。sidecar 不天然便宜，preallocate 不因叫 Foundation 而免费。按真实模块记录必要 ADD 与上界，候选之间比较工作/质量/能力；不以相对关闭效果的净提速为验收条件。history/cache 留各效果；不扩 Surface/TemporalFabric 为统一效果操作系统。
+
+## 6. 粗计划如何进入细设计和实施
+
+```mermaid
+flowchart LR
+  R[粗路线选一个模块] --> C[核对当时源码与成熟来源]
+  C --> D[形成模块设计与执行文档一对]
+  D --> I[按该轮授权实施完整单元]
+  I --> V[集中验证与记录实际结果]
+  V --> B[模块闭合并停在边界]
+  B -->|用户启动下一模块| R
+```
+
+| 文档/导航 | 唯一职责 |
+|---|---|
+| 本文 | 目标、优先级理由、能力边界、待决问题和横向约束；不写未来模块具体实现阶段 |
+| 粗执行总计划 | 模块级状态与已存在的细设计/执行入口、延期责任；不复制细执行单元表或测试结果 |
+| 模块设计 | 真实源码/消费者、场景与质量范围、成熟来源、方案比较与决定、产品/owner/生命周期、必要成本和旧依赖退休边界 |
+| 模块执行 | 设计对应的完整 architecture units、必要验证、原失败与分类、实际结果/限制和停止点；唯一细单元状态 |
+| workstream | `roadmap` 导航粗记录，`authority` 导航当前一对，`currentSlice` 导航当前大模块；不复制模块内状态 |
+| domains / contracts / porting | 分别记已经实现的事实、实际稳定的合同、真实研究/采用；本轮不把未来目标写成实现 |
+
+用户以后提出“细设计 SSR”时，先重新读代码和来源，只创建/完善 SSR 的一对文档，设计文回链本文的该模块，粗执行表只加实际文件链接，workstream 切换该模块 authority。文件名/版本沿既有 next-design/next-execution 规则选择，不预建所有模块空文件。此时规划好的 shared data 仍属于 SSR 的真实 consumer 闭包，不另立并行 Foundation authority。
+
+仅授权设计不自动编码；已有执行授权则按既定范围连续完成，不额外重复索要许可。细设计形成后按其设计/执行闭合 producer→产品→全部直接 consumers、绑定/reset/capacity、提交/中止/重试与退休。若实际源码推翻原假设，先更新同一对文档的决定/受影响单元，不暗开第二条计划或重复 progress/status。
+
+模块结束将实际验证与未完成项记在细执行文，粗执行表只记录模块结论和链接；已实现事实再更新 domains。细文档不因模块关闭立即全变 history：仍定义生产合同者继续按明确 scope 维护，已被替代的迁移/优化方案退出 current。当前模块关完停在边界；下个模块由用户启动，届时依据源码再设计。
+
+## 7. 验证、延期与来源范围
+
+通用合同统一读 [VALIDATION](../VALIDATION.md)。日常按需编译/targeted；模块连通后集中核对真实 GPU、独立数值/画质、启停/组合、完整容量/overflow、resize/cut/普通motion、abort/retry/replacement/device loss 与 fence 退休，以及资源上界和必要成本。新增效果允许有界工作；性能候选另算 break-even，失控容量、漏像素、错误或实际无法运行不能留到最终阶段。
+
+V5 Phase6/条件Phase7、VSM R4、Minimal GPU Work 未获资格项和 Texture Compression 开放限制仍保持原结论，延期路由见粗执行文。没有新代码/GPU 结果，不提升 adoption、Feature Complete 或性能资格。
+
+本轮对外只做粗路线层面的事实核对，未选择完整 donor/profile、未移植算法；模块细设计时再固定完整源码与来源映射。访问日期为2026-10-14，参考入口和范围如下：
+
+| 来源 | 本轮使用范围 |
+|---|---|
+| [AMD SSSR 技术说明](https://gpuopen.com/manuals/fidelityfx_sdk/techniques/stochastic-screen-space-reflections/)与[项目说明](https://gpuopen.com/fidelityfx-sssr/) | 支持 inverted depth、完整 tracing/validation/denoise 及平台假设的研究入口；不证明本地 HZB 可直接替代上游 hierarchy，亦不证明在 GTX1650Ti 上更快 |
+| [SSSR 源码](https://github.com/GPUOpen-Effects/FidelityFX-SSSR/blob/34dcacd1feefcfab2855b82e76c7d711f2020a75/ffx-sssr/ffx_sssr.h) | MIT，revision `34dcacd1feefcfab2855b82e76c7d711f2020a75`；仅核读 HierarchicalRaymarch/ValidateHit 及 wave occupancy 相关路径，未研究完整 SDK1.5 profile，未采用 |
+| [Epic Streaming VT](https://dev.epicgames.com/documentation/en-us/unreal-engine/streaming-virtual-texturing-in-unreal-engine) | tiled streaming 与过滤/border/反馈代价的参考，不等于本项目已支持 SVT 或 RVT |
+| [Godot SSIL](https://docs.godotengine.org/en/stable/tutorials/3d/environment_and_post_processing.html#screen-space-indirect-lighting-ssil)与[SDFGI](https://docs.godotengine.org/en/stable/tutorials/3d/global_illumination/using_sdfgi.html) | SSIL 是间接照明补充；SDFGI 的动态灯光不代表动态遮挡/发光体支持，因此不能直接承诺全部动态 World GI |
+| [Lumen 技术说明](https://dev.epicgames.com/documentation/en-us/unreal-engine/lumen-technical-details-in-unreal-engine)与[ReSTIR GI](https://research.nvidia.com/publication/2021-06_restir-gi-path-resampling-real-time-path-tracing) | 分层场景查询、path resampling 的候选研究入口，不直接采用其 Surface Cache、预算或 ray-query 假设 |
+| [WebGPU GPUFeatureName](https://www.w3.org/TR/webgpu/#enumdef-gpufeaturename)与[wgpu 原生实验能力](https://wgpu.rs/doc/wgpu/struct.FeaturesWGPU.html#associatedconstant.EXPERIMENTAL_RAY_QUERY) | 当前浏览器核心能力不以硬件 RT 为基线，wgpu experimental/native-only 不当作本项目 browser 能力；未来加入 RT 仍需重新协商和设计 |
+
+完整来源 adoption 继续只按实际来源核对、独立 oracle 和生产 GPU 消费证据提升；研究方向、文档链接或成熟引擎的功能名单都不代替本项目实现。

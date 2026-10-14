@@ -12,7 +12,7 @@ EEngine 的目标是极致性能、现代 GPU-Driven、WebGPU Native、AAA Rende
 ## 从这里开始
 
 1. 先读目标源码、公开设置、真实主图及直接消费者；用 `node tools/vibe.mjs context <path>` 定位 owner。类、shader、旧注释或 debug 名称的存在不证明生产功能完整。
-2. [workstream.authority / currentSlice](../project/workstreams/active/eengine-next-clean-rebuild.yaml)：唯一当前路线和模块入口。本页不复制模块状态，不能根据旧执行计划的 STOP 自动否决用户新的功能方向。
+2. [workstream.roadmap / authority / currentSlice](../project/workstreams/active/eengine-next-clean-rebuild.yaml)：roadmap 定位总体粗记录，authority/currentSlice 定位当前模块唯一设计/执行一对及大模块。本页不复制状态，旧执行计划的 STOP 不否决用户启动新的模块。
 3. [V4 Native Shading 架构母稿](./next-design/eengine-v4-native-shading-2026-10.md)：精简后的全局架构不变量；旧源码快照、预算推演和 M1/M2 迁移顺序已经移入历史记录。
 4. [源码与 owner 总结](./domains/README.md)：已实现数据流和缺口，辅助读代码，不替代真实调用核对。
 5. [检查与测试说明](./VALIDATION.md)：功能模块的必要检查与最终整图性能验收分开。
@@ -21,7 +21,9 @@ Texture Compression 的现行产品边界按需查 [Texture Design](./next-desig
 
 旧文档/测试工具重构方案已转为历史实施记录；工具当前行为与通用验证纪律统一读 [VALIDATION](./VALIDATION.md)，不再从旧方案启动另一轮治理任务。
 
-使用 `node tools/vibe.mjs context <path>` 查询 owner。导航不是编码许可，也不是实现验证；当前设计/执行链接读取 workstream 的 authority，两种 context 共用路由。
+使用 `node tools/vibe.mjs context <path>` 查询 owner。导航不是编码许可，也不是实现验证；当前设计/执行链接读取 workstream 的 authority，两种 context 共用路由。当前 CLI 仍展示这一对，稳定粗入口读取 workstream.roadmap；本轮只调整文档/导航数据，没有新增 CLI 行为。
+
+后续按“粗路线选模块→核对当时源码/来源→只为该模块建立设计与执行文档一对→按该轮授权实施→集中验证并停在边界”推进，详细分工见[粗路线的文档机制](./next-design/eengine-feature-expansion-roadmap-2026-10.md#6-粗计划如何进入细设计和实施)。当前模块的细单元和结果只在细执行文维护，粗执行表只记模块结论和文件入口；不开第二个 workstream、Foundation authority 或 progress/status。
 
 ## 文档职责
 

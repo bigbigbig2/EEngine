@@ -1,11 +1,16 @@
 schemaVersion: 2
 id: eengine-next-clean-rebuild
-title: EEngine feature expansion / Native renderer foundations
+title: EEngine Renderer Feature Completion
 domain: frame-runtime
 state: active
 owner: frame-runtime
 # Foundational single-path ownership decision only; renderer direction is authority below.
 decision: ADR-0020
+roadmap:
+  design: docs/next-design/eengine-feature-expansion-roadmap-2026-10.md
+  execution: docs/next-execution/eengine-feature-expansion-execution-2026-10.md
+# This planning slice uses the coarse pair. A future module replaces authority
+# with its own existing design/execution pair; roadmap remains the stable index.
 authority:
   design: docs/next-design/eengine-feature-expansion-roadmap-2026-10.md
   execution: docs/next-execution/eengine-feature-expansion-execution-2026-10.md
@@ -21,19 +26,19 @@ goal: >-
   historical measurements retain their original device and thermal-state identity.
 
 currentSlice:
-  id: feature-expansion-planning
-  title: Source-backed feature roadmap and module design entry
+  id: feature-completion-planning
+  title: Coarse feature roadmap, proposal review and module documentation workflow
   status: closed
   goal: >-
-    The user authorized careful source analysis and adjustment of the documentation
-    direction and coarse plan. Preserve the working Native/VG/Lighting/Texture/Temporal
-    foundations and plan AO functionality, VT, reflection, indirect lighting,
-    transparency/media and reconstruction policy from actual production consumers.
-    Documentation delivery is closed; this slice implements none of those effects.
-    Stop before the AO detailed-design/implementation unit. Design one detailed module from
-    current source when that module is started; do not prefreeze all algorithms.
-    Unit states live only in the execution authority. V5 formal performance
-    qualification is deferred, not passed and not a prerequisite for new effects.
+    Review the user's external discussion against actual production source and
+    primary references, correct unsupported decisions and merge a coarse roadmap.
+    Establish roadmap-to-module design/execution navigation only; this slice
+    implements no infrastructure or effect and creates no future module details.
+    Stop before the AO detailed-design/implementation unit. Later modules each
+    receive one source-backed design/execution pair when the user starts them;
+    only that pair owns detailed unit state. Preserve working foundations and
+    original failures. V5 formal performance qualification is deferred, not passed
+    and not a prerequisite for new effects.
 
 pausedModules:
   - id: final-pixel-performance-v5
@@ -52,22 +57,32 @@ pausedModules:
 nextModules:
   - id: ao-functionality
     title: Existing XeGTAO settings, scene scale, quality and observability
-  - id: virtual-resources-v4
-    title: Virtual Texture / compressed page products, residency, sampling and streaming
   - id: reflection
-    title: Reflection with current Native inputs and correct IBL composition
-  - id: indirect-v4
-    title: First complete indirect-lighting capability
-  - id: transparency-media-v4
-    title: Transparency and participating media
+    title: SSR with consumer-driven screen-space contracts and correct IBL composition
+  - id: local-reflection-probes
+    title: Local specular radiance sources and screen-space miss coverage
+  - id: virtual-resources-v4
+    title: Streaming shading VT with the complete coverage dependency kept resident
+  - id: screen-space-diffuse
+    title: First bounded screen-space diffuse indirect-lighting capability
+  - id: local-shadows
+    title: Point and spot shadow capability
+  - id: world-indirect
+    title: World GI representation and radiance chosen from scene needs
+  - id: transparency-v4
+    title: Transparency and refraction
+  - id: media-v4
+    title: Local participating media
   - id: temporal-v4
-    title: Reconstruction and presentation policy on existing Native and FSR owners
+    title: Selected reconstruction, display or post feature on existing owners
   - id: integrated-performance
     title: Feature combinations and concentrated whole-renderer optimization
 
 navigationRules:
   - Global architecture invariants live in the V4 mother document; general validation rules live in docs/VALIDATION.md.
   - This file routes modules only; unit states and deferred validation responsibilities live in the execution authority.
+  - Roadmap is the stable coarse index; authority is the sole current design/execution pair. They are not competing implementation plans.
+  - Consumer-driven infrastructure closes with its first real effect; do not prebuild a separate effects framework or future module files.
   - Paused modules are historical references, never additional current authorities or automatic resume instructions.
   - Future module algorithms are designed from current source and mature references when that module starts.
 

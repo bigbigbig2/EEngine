@@ -10,7 +10,7 @@ OEngine 是面向桌面浏览器 WebGPU、中大型高几何密度场景的 GPU-
 
 - 协作和开发节奏：[AGENTS.md](AGENTS.md)。
 - 全局架构：[V4 Native Shading 架构母稿](./docs/next-design/eengine-v4-native-shading-2026-10.md)。
-- 总体路线与模块设计/执行：读取 [workstream.authority](project/workstreams/active/eengine-next-clean-rebuild.yaml)；详细状态只在对应执行计划维护。
+- 总体粗路线读取 [workstream.roadmap](project/workstreams/active/eengine-next-clean-rebuild.yaml)，当前模块唯一设计/执行读取其中的 authority；模块启动时才建立细文档，细单元状态只在对应执行计划维护。
 - 当前阶段：读取 [workstream 的 currentSlice](project/workstreams/active/eengine-next-clean-rebuild.yaml)；本页不复制状态。
 - 整体边界、源码现状、来源和验收：[docs/README.md](docs/README.md)。
 - 路径导航：`node tools/vibe.mjs context <path>`；先读目标源码、公开入口与直接消费者，再读设计，不能从文件名、旧注释或历史效果名称判断已接入。

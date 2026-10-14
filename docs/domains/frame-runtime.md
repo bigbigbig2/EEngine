@@ -28,6 +28,11 @@ verifies:
     - OEngine/src/render/RendererConfig.ts
     - OEngine/src/render/DynamicResolutionScaling.ts
     - OEngine/src/render/RenderFeatureRegistry.ts
+    - OEngine/src/render/surface/SurfacePresentPass.ts
+    - OEngine/src/render/surface/DisplayColorGrading.ts
+    - OEngine/src/render/passes/SharedColorPyramidPass.ts
+    - OEngine/src/render/passes/ColorGradingPass.ts
+    - OEngine/src/render/passes/MotionBlurPass.ts
 ---
 
 # Frame Runtime
@@ -41,6 +46,8 @@ verifies:
 [RendererCore](../../OEngine/src/render/pipeline/RendererCore.ts) 创建 FrameCoordinator、SurfaceV4、LocalLightWorkGenerator、NativeTemporalSeed 等长期 owners。[FrameProgramLowering](../../OEngine/src/render/program/FrameProgramLowering.ts) 将场景产品逐帧绑定到缓存 FrameGraph，连接最终 winner/depth→LocalLightWork→native Surface→Temporal/FSR3。
 
 FrameProgram的实际stage/product及lowering决定当前功能依赖；独立RenderFeatureRegistry类没有进入这条生产选择链。Renderer以显式renderScale改变内部尺寸并选择Native/FSR域，DynamicResolutionScaling类未接入实际反馈控制。SSR/GI/透明/局部体积效果没有当前生产stage；仅存在数据owner、reference或debug名字不算接入。
+
+`SurfacePresentPass` 已在当前主图消费 DisplayColorGrading 生成的 SDR/HDR LUT、GT7 与曝光/去预曝光比例；内部 setGrade 可重建 LUT，但 RendererConfig 未提供对应完整公开调色设置。旧独立 ColorGradingPass、MotionBlurPass 与 SharedColorPyramidPass 没有当前生产调度；不能从独立 ColorGradingPass 未调度推断现行显示没有调色/色调映射，也不能从旧 color pyramid 存在推断 SSR/SSGI 已有可直接消费的颜色版本。
 
 Directional VSM 只服务 Physical Sun；初始化关闭 PhysicalEnvironment 时不创建 VSM 资源或 pass owners，无 Physical Sun 的 enabled shadow Frame Program 被拒绝。无 authored/physical IBL 时，Surface 按需提供共享 1×1 RGBA16F 零辐射绑定，authored directional/local lights 仍执行完整 lit 路径。
 

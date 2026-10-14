@@ -25,25 +25,32 @@ verifies:
     - tools/docs-verify.mjs
 ---
 
-# EEngine 功能扩展执行总计划
+# EEngine 功能扩展粗执行总计划
 
-唯一总体设计为[功能扩展路线](../next-design/eengine-feature-expansion-roadmap-2026-10.md)。用户本轮授权仔细读取代码、调整文档系统方向与粗计划；没有在本轮启动 AO/VT/SSR 等渲染实现。本文件维护粗粒度模块状态和详细设计入口，入口页/workstream不复制本表。
+唯一总体粗设计为[功能扩展路线](../next-design/eengine-feature-expansion-roadmap-2026-10.md)。本文件只维护模块级状态、已有细设计/执行入口与延期责任；细单元状态及实际结果只在对应模块执行文维护，入口页/workstream不复制。当前只做粗计划融合与文档/导航，没有启动 AO/SSR/VT/GI 的细设计或实现。
 
 ## 1. 推进单元与边界
 
-| 单元 | 当前状态 | 完整交付范围 / 下一入口 |
+| 粗模块 | 模块级状态 / 已有细文档入口 | 能力目标与细设计入口 |
 |---|---|---|
-| F0 源码核对与文档方向调整 | 已完成；全库既有文档 finding 单列于 §4 | 核对真实生产链与功能缺口，切换当前 authority，清理旧并行入口并保留既有实现/失败/延期义务；不改生产源码 |
-| F1 AO 功能完善 | 未开始 | 先细化已有 scalar XeGTAO 的 settings/quality/debug/场景尺度与验证单元；不重写现有算法，不默认捆绑 temporal/bent normal |
-| F2 Virtual Texture | 未开始 | 先研究并设计压缩分页 Product→provider→页表/物理页→Native+MASK/VSM采样→反馈/流送/淘汰全链；不直接套用几何页ABI |
-| F3 Reflection | 未开始 | 当前 Native 的真实输入/有限产品、反射来源、去噪/history、IBL composition、HDR/clearcoat、开关与退休 |
-| F4 Indirect Lighting | 未开始 | 根据目标场景研究并选择首个完整间接光方案；probe/Brick4/SSGI/ReSTIR不预先宣称已选择或采用 |
-| F5 Transparency | 未开始 | 独立透明工作与正确合成，先明确 BLEND 范围，再按需求扩展折射/透射/水面；不恢复 retired owner |
-| F6 Media | 未开始 | 在已有 Sky/Aerial 之上按需求设计局部参与介质/体积灯光，闭合密度、阴影、积分/透射率与history |
-| F7 重建与显示策略 | 未开始 | 在已有 Native/FSR 基础上接入真实 DRS 等所需策略；各前序效果的motion/reactivity正确性不后移 |
-| F8 完整组合、性能与最终验收 | 延期到功能组合稳定 | 统一功能/质量profile，集中整帧归因与优化、长窗口/尾延迟、冷启动与同时峰值、4GB OS驻留和最终画质 |
+| F0 粗计划与文档推进机制 | 已完成本轮融合；检查与既有 finding 见 §5 | 核对真实源码并评审讨论方案，维护粗→细设计/执行一对→实施→收口的唯一导航；不改生产源码 |
+| F1 AO 功能完善 | 待细设计；尚无细文档 | 先细化已有 scalar XeGTAO 的 settings/quality/debug/场景尺度与验证单元；不重写现有算法，不默认捆绑 temporal/bent normal |
+| F2 SSR | 待细设计；尚无细文档 | 当前 Native 的完整反射及环境补缺，随真实 consumer 建立必要 settings/Depth/HZB/response/radiance 合同；优先研究 SSSR，不预定移植或常驻 sidecar |
+| F3 Local Reflection Probes | 待细设计；尚无细文档 | 独立完成实际数据来源、预滤波/空间选择/混合/视差校正、容量/生命周期，与 SSR 和 global IBL 正确合成 |
+| F4 Streaming VT | 待细设计；尚无细文档 | 先 shading tile paging 全链，完整 coverage 依赖保持 resident；产品/provider/采样/feedback/IO/淘汰，闭合 Main/VSM/custom graph 合同；RVT 不混入 |
+| F5 Screen-Space Diffuse | 待细设计；尚无细文档 | 选 SSIL/SSGI 的实际能力范围，明确近场 radiance、AO/IBL/world 间接光关系，复用已成立合同而不强制统一算法 |
+| F6 Local Shadows | 待细设计；尚无细文档 | 点/聚光的实际 caster、容量/过滤/更新、Native 消费与 lifecycle；先补直接光遮挡，不把 LocalLightWork 或方向光 VSM 当作已实现 |
+| F7 World GI | 待细设计；尚无细文档 | 比较 SDF/occupancy+probe 等完整候选，先确定动态场景/薄墙/alpha/命中辐射和4GB成本，再选场景表示、生成/更新与合成 |
+| F8 Transparency / Refraction | 待细设计；尚无细文档 | 先明确完整 BLEND，再按场景扩展透射/折射/水面；独立工作与正确合成，不恢复 retired owner |
+| F9 Media | 待细设计；尚无细文档 | 与现有 Sky/Aerial 协调的局部参与介质/体积灯光，覆盖密度、阴影、积分/透射率与history |
+| F10 重建、显示与后处理完善 | 待选择具体模块；尚无细文档 | 在现有 Native/FSR/曝光/LUT 显示上按需补 DRS、Motion Blur、公开调色等；每次只选一个连贯模块，各前序效果的时序正确性不后移 |
+| F11 完整组合、性能与最终验收 | 延期到功能组合稳定 | 统一功能/质量profile，集中整帧归因与优化、长窗口/尾延迟、冷启动与同时峰值、4GB OS驻留和最终画质 |
 
-顺序表达当前功能优先级，不伪造模块间硬依赖。每个大模块结束停在边界，用当时源码决定下一模块详细设计；若场景要求提前透明等模块，先更新本表的顺序与范围，不自动跨模块编码。开工时只为当前模块建立一对详细设计/执行并更新 workstream；未来模块本轮不制造详案或占位实现。
+顺序表达当前默认优先级，不伪造硬依赖；World GI 不成为透明/局部阴影的统一启动门禁。Decals、RVT、ReSTIR、高级 world specular、AI 等作为粗设计中的候选能力，未选当前模块，不预建详案或占位实现。以后按场景选择它们时增加实际模块入口，不藏在 F10 中一次全部实施。
+
+模块状态只记录待细设计、细设计中、待实施、实施中或模块闭合及其限制；文档链接只在文件实际创建后填写。每个大模块结束停在边界，用当时源码决定下一模块。旧 F0 记录按当时模块编号理解，不据重排追改原结果。
+
+用户启动一个模块的细设计时，从粗设计对应段落重新读代码与成熟来源，形成唯一模块设计/执行一对；更新本表的模块入口和 workstream.authority/currentSlice，workstream.roadmap 保留本粗记录。模块实施和细单元状态只由那一对负责；设计授权不自动变成实现授权，已有执行授权不重复询问。完成后本表只记模块结论与链接，不复制细执行结果。
 
 ## 2. 单模块完成口径
 
@@ -51,7 +58,7 @@ verifies:
 2. 改变数学/格式前有独立预期和成熟来源核对；既有语义测试保留，旧表示测试可按真实退休迁移。源码存在/编译通过不能代替运行。
 3. settings、quality、资源和history身份进入真实 publication/图缓存生命周期；覆盖 resize、cut、普通motion、abort/retry、replacement、device loss与最后consumer fence退休。
 4. 模块连通后集中 typecheck/build、新鲜build:test、必要Node/串行真实GPU、场景画质与开关/组合检查；资源容量/溢出及粗粒度成本须可说明。未完成的必需检查如实保留，不能靠漏像素/永久缺页或放宽断言结束。
-5. 正式全Renderer同条件性能资格留F8；开发新效果不以V5净收益/60FPS先通过为门。错误、失控内存或实际无法运行不在此延期之列。
+5. 正式全Renderer同条件性能资格留最终整合模块；开发新效果不以V5净收益/60FPS先通过为门。错误、失控内存或实际无法运行不在此延期之列。
 
 ## 3. 已有工作与延期资格
 
@@ -59,12 +66,12 @@ verifies:
 |---|---|---|
 | [V4 M1/M2](eengine-v4-native-shading-execution-2026-10.md)、[M3 Lighting](eengine-v4-lighting-execution-2026-10.md) | 已切换的Native/Geometry/Lighting及各自实际验证范围 | 保留生产底座，不重新执行旧迁移；实际缺口由新模块真实消费者决定 |
 | [Texture Compression](eengine-v4-texture-compression-execution-2026-10.md) | 已闭合的BC/exact-alpha生产链及限定workload验收 | 作为VT输入；raw cook/包IO、driver/crossGPU等开放项不改成通过；既有excluded资产约束保留 |
-| [V5 Final Pixel](eengine-v5-final-pixel-performance-execution-2026-10.md) | Phase1–5及追加局部单元的实际实现和证据 | Phase6正式qualification、条件Phase7延期；不作为启动新效果的统一前置，F8重核完整图 |
+| [V5 Final Pixel](eengine-v5-final-pixel-performance-execution-2026-10.md) | Phase1–5及追加局部单元的实际实现和证据 | Phase6正式qualification、条件Phase7延期；不作为启动新效果的统一前置，最终整合重核完整图 |
 | [VSM V4](eengine-v4-vsm-execution-2026-10.md) | R1–R3已实现链及后来采样/正确性修复 | R4完整场景/动态压力/画质/成本资格仍未完成；与新效果相交的正确性不得延期 |
 | [Minimal GPU Work](eengine-v4-minimal-gpu-work-execution-2026-10.md) | 已落地A–F工作与原始负成本/P95结果 | 保持暂停，不从A重做；相关性能问题留集中归因 |
 | 历史B2数值失败 | 没有被本轮修复或追认 | 继续沿workstream deferredValidation与原记录追溯；存活语义由当前真实owner承担 |
 
-这些行是延期责任路由，不复制旧模块逐单元状态。新的效果组合改变需求后，F8重新冻结真实quality/feature/profile及reference，不将旧V5的采样默认、历史热机数字或不同renderScale数据冒充最终基线。
+这些行是延期责任路由，不复制旧模块逐单元状态。新的效果组合改变需求后，最终整合重新冻结真实quality/feature/profile及reference，不将旧V5的采样默认、历史热机数字或不同renderScale数据冒充最终基线。
 
 ## 4. F0 源码审查与文档实施记录（2026-10-14）
 
@@ -84,3 +91,15 @@ verifies:
 全库 docs-verify 仍报告 **1 个既有 finding**：Git 忽略的 `docs/status.generated.md` 缺 frontmatter；另有 81 条原有历史断链 warnings。本轮修改/新增文档无新增 finding，也未增加历史 warnings。该遗留本地生成文件问题未修复，不能宣称全库检查通过；不修改 checker 或删除原件掩盖它。未运行引擎 build、browser、GPU 或 benchmark，因为本轮没有生产源码/资产变化，文档检查不证明未来效果正确性或性能。
 
 F0 在文档交付边界结束；F1 的详细设计与实现尚未启动，不自动跨入 AO 编码。
+
+## 5. 讨论方案融合与推进机制（2026-10-14）
+
+本轮从 `aa04fd65` 再核对 RendererConfig、FrameProgram/Bindings/Lowering、HZB/reduction、Native environment/输出、coverage 子图、TextureResidency、旧 color pyramid/probe/post 与现行 Present。重新评审用户提供的讨论，保留 Feature Completion 与分层推进，撤下预建通用框架、固定 sidecar/baseline 和提前定案 SDF GI 等未经消费者与成本支持的选择，具体裁决只见粗设计，不另增评审/状态文。
+
+默认顺序将 SSR 前置于 VT，局部镜面 probe 独立成模块，screen diffuse/world GI 分开，并补局部阴影、候选 Decals/RVT 与已有显示链的真实边界。现有 HZB 不是现成 SSR 精细层级，AO weighted depth 不强行合并；间接光替换要求同 lobe/响应/预曝光，颜色产品依赖必须无环；VT v1 保护完整 coverage 依赖，而不只是 alpha 标签。相关来源只是粗评审入口，未选择完整 donor/profile，未实施或提升 adoption。
+
+文档导航增加稳定 roadmap 层并保留唯一当前 authority；粗执行表只维护模块入口，细设计/执行文件等用户启动对应模块时再创建。当前 CLI 的 context 仍展示当前 authority，roadmap 从 workstream 数据读取，本轮没有新增工具执行行为。
+
+集中检查：document-system 7/7 通过；vibe doctor 无 errors/warnings、registry 字节一致；roadmap 两个入口均存在且为 current，AO/HZB/TextureResidency/RendererCore 的 context 均只返回一对当前 authority；git diff --check 通过。全库 docs-verify 仍因既有 Git 忽略的 docs/status.generated.md 缺 frontmatter 返回 exit1、1 个 finding，另有81条原历史断链 warnings；没有新增 finding/warning，不宣称全库通过。
+
+本轮未创建模块详案、生产基础设施、资产/ABI、依赖或测试阈值。未运行 engine build、browser、GPU 或 benchmark，原因是只修改文档/导航，没有生产代码或资产变动。本轮粗记录完成，停在任何功能细设计/实现之前。
