@@ -1,6 +1,7 @@
 ---
 id: eengine-v4-vsm-execution-2026-10
-state: current
+state: history
+supersededBy: eengine-feature-expansion-execution-2026-10.md
 verifies:
   files:
     - docs/next-design/eengine-v4-vsm-2026-10.md
@@ -23,7 +24,11 @@ verifies:
 
 # VSM V4 执行计划
 
-唯一模块设计见[VSM V4 design](../next-design/eengine-v4-vsm-2026-10.md)，全局规则继承[V4 母稿](../next-design/eengine-v4-native-shading-2026-10.md)。旧Module E只提供追溯，不定义V4实施或状态。用户已授权R0、R1，完成R1补验并提交dbc1002e后，又授权实施R2；R2提交2a0bd0df后，用户授权提交并实施R3。当前workstream切到[性能优化执行](./eengine-v4-performance-optimization-execution-2026-10.md)，新功能扩展暂停，Minimal GPU Work仍暂停；R3结束停在R4入口，其未完成验收义务不因性能模块启用而关闭，不自动启动R4或VT。
+> 历史记录（2026-10-14 收口）：保留原设计、实施结果、未关闭失败与测量条件；本文不再是当前模块 authority，也不继续原施工顺序。当前路线与模块入口只读 [workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)。下文状态与指令均按各自记录日期理解。
+
+唯一模块设计见[VSM V4 design](../next-design/eengine-v4-vsm-2026-10.md)，全局规则继承[V4 母稿](../next-design/eengine-v4-native-shading-2026-10.md)。旧Module E只提供追溯，不定义V4实施或状态。用户已授权R0、R1，完成R1补验并提交dbc1002e后，又授权实施R2；R2提交2a0bd0df后，用户授权提交并实施R3。
+
+2026-10-14：当前workstream与[功能扩展总计划](eengine-feature-expansion-execution-2026-10.md)决定后续方向，先补功能效果、再集中整图性能；Minimal GPU Work仍暂停。R3后的R4完整场景资格保持未完成，不作为全部新功能的统一前置；新增功能涉及VSM的真实正确性/组合问题仍随当前单元闭合，不自动启动R4或VT实现。
 
 ## 1. 状态与停止点
 

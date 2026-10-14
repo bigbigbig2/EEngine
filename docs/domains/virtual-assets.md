@@ -20,16 +20,21 @@ verifies:
     - OEngine/src/assets/geometry-product/GeometryProductWorkload.ts
     - OEngine/src/assets/geometry-product/VirtualGeometrySceneSourceV1.ts
     - OEngine/src/gpu/GeometryProductResidentAttributes.ts
+    - OEngine/src/shaders/geometry_source_decode.ts
+    - OEngine/src/assets/geometry-product/GeometryProductV1.ts
+    - OEngine/src/assets/geometry-product/OegPackProductProvider.ts
 ---
 # Virtual Assets
 
 ## 当前 owner 与生产连接
 
+2026-10-14以`2caf5fe2`核对：Product驻留保留原始紧凑Page，每页一个256KiB物理槽，不展开96B/vertex属性。准入扫描布局/索引、层次work bound和position/half-UV有限值；GPU直接解码并恢复完整format状态。未预验证source在异步digest前取得自有字节/身份快照，校验和上传消费同一快照；可信adapter明确区分真实SHA digest和CRC-only策略。几何页ABI/调度不等于未来纹理VT页，不能因两者都有“页”而合并owner。
+
 已核对入口为 [GeometryProductAdmission](../../OEngine/src/gpu/GeometryProductAdmission.ts)、[GeometryProductMultiRuntime](../../OEngine/src/gpu/GeometryProductMultiRuntime.ts)、VirtualGeometrySceneSourceV1、FrameProgramLowering 和当前 Product GPU ABI。
 
 Loader/Cooker 提供 Product descriptor/pages；admission 负责验证/激活，multi-runtime 管理 Product/shard slots 与 replacement/release，residency 发布当前页位置。FrameProgramLowering 将 virtual metadata/banks 与选中 frame geometry 传给唯一 SurfaceV4；GPU hierarchy/work/raster 消费当前产品，不由 Loader 长期持有 GPU owner。
 
-当前 GeometryProductGpuAbiV1 的数值 ABI version 为3；16B page-location 的 raw/resident 地址使用1024-slot namespace，64B heap header word12发布实际物理 slotsPerBank，GPU heap lookup 在 bank read 前校验实际范围。API 名称中的 V1 是 Product 合同名，不是当前 GPU 数值版本。M1 全 Node suite 的既有失败不追改；本轮 codec/profile/streaming fixtures 已迁移，实际结果与未运行范围见执行计划 G2.1。
+当前 GeometryProductGpuAbiV1 的数值 ABI version 为5；16B page-location 的 raw/resident 地址使用每 bank 2048-slot namespace ceiling，64B heap header word12发布实际物理 slotsPerBank，GPU heap lookup 在 bank read 前校验实际范围。目录地址恢复到紧凑原始 Page 内，不再指向常驻 CPU 展开属性。API 名称中的 V1 是 Product 合同名，不是当前 GPU 数值版本；namespace ceiling 也不是实际已分配容量。历史 M1/G2.1 失败与验证保留原快照，不能当作最新 ABI 的验证结果。
 
 Web/Offline/procedural Scene mapper 读取完整 immutable descriptor，按真实 asset forest 与 instance multiplicity 发布 depth/队列上界，合并不再 clamp；RenderWorld 在创建 Scene 资源前检查协商 buffer/binding/dispatch 与 Visibility work namespace。Resident decoder 核实实际 group header 的 meshlet count 与 descriptor 一致，防止页内容突破已声明 work 上界。空 instance list 明确拒绝。合法 page fixtures 已覆盖当前 admission/residency/multi-runtime 的 targeted 合同；原失败记录和仍未关闭的缺口保留在执行计划，不能视为完整 streaming 规模验收。
 
@@ -51,4 +56,4 @@ Scene卸载区分caller admission与Renderer创建/recovery replay的Product责�
 
 真实 GPU handoff/culling 的检查覆盖所选 producer/consumer 与输入；cook、替换、取消、device recovery、全几何容量和大型场景需要各自生产验证。已存在 virtual 输入绑定不等于未来完整 Virtual Geometry 工作域或完整 VT/Virtual Shadow。
 
-目标和退出要求见[当前设计](../next-design/eengine-v4-native-shading-2026-10.md)及[执行计划](../next-execution/eengine-v4-native-shading-execution-2026-10.md)。paused 工作保留其历史/待做范围，不成为活跃 currentSlice 或源码完成证明。
+当前目标和退出要求由 [workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml) 导航；已完成 Geometry 单元的结果按日期回看历史执行记录。paused 工作保留其历史/待做范围，不成为活跃 currentSlice 或源码完成证明。

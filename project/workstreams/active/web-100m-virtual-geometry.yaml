@@ -1,119 +1,22 @@
-﻿schemaVersion: 2
+schemaVersion: 2
 id: web-100m-virtual-geometry
-title: Web authored-large Virtual Geometry validation
+title: Web authored-large Virtual Geometry historical navigation
 domain: virtual-assets
 state: paused
 owner: virtual-assets
 decision: ADR-0018
 sourceReview: docs/reviews/ADR-0018_Web_100M_Virtual_Geometry_Architecture.md
-goal: Stabilize the user's large.glb through work-bounded Web cook, complete catalog coverage, progressive publication, Multi-Product rendering, streaming, and disposal.
-
-currentSlice:
-  id: K4
-  title: K4 legacy sparse shading publication deferred by ADR-0020
-  target: authored-large-sparse-publication
-  status: paused
-  finding: Clean revision b35aad2 accepted authored large.glb K0/K1/K2 through public load_gltf with 66 Products and all 1,920 primitives. K2 measured 7.94 s first meaningful frame, 58.40 s total cook, 165.60 s settled time, 16.42 ms GPU frame p95, and 1.55 GB GPU allocation peak. Scene publication took 129.56 s, including 119.75 s in sparse shading preparation and 5.28 s in GPU Scene staging; Scene mapping took 12.16 s, including 9.62 s image decode. The slowest Product task took 2.10 s.
-nextTasks: []
-
-contracts:
-  - geometry-product-v1
-  - virtual-geometry-runtime-v1
-  - web-geometry-cooker-abi-v1
-  - web-geometry-page-artifact-v1
-  - web-geometry-spatial-shard-v1
-  - web-geometry-residency-profile-v1
-  - web-cook-session-protocol-v1
-  - web-geometry-multi-product-runtime-v1
-  - web-geometry-authored-large-gate-v1
-  - web-geometry-product-work-budget-v1
-  - web-geometry-product-task-trace-v1
-  - web-geometry-formal-perf-freeze-v1
-
-completedMilestones:
-  - range: A-E
-    result: Baseline attribution, bounded canonical windows, spatial shards, cook/spill artifacts, and Multi-Product runtime contracts are established.
-    links:
-      - docs/specs/web-geometry-page-artifact-v1.md
-      - docs/specs/web-geometry-spatial-shard-v1.md
-      - docs/specs/web-geometry-multi-product-runtime-v1.md
-  - range: F-J
-    result: Visible-first scheduling, bounded GPU demand compaction, adaptive residency, current-HZB recheck, and adaptive page scheduling are implemented with contract or oracle coverage.
-    links:
-      - docs/specs/web-geometry-residency-profile-v1.md
-      - docs/specs/web-geometry-dynamic-page-scheduler-v1.md
-  - range: K0a-K0c
-    result: Product work budgets, phase traces, and independent session spill accounting are implemented; they bound the failing K0 diagnostic to one Product and phase.
-    links:
-      - docs/specs/web-geometry-product-work-budget-v1.md
-      - docs/specs/web-geometry-product-task-trace-v1.md
-      - docs/specs/web-geometry-authored-large-gate-v1.md
-
-tasks:
-  - id: authored-large-production-gate
-    phase: K0
-    priority: P0
-    title: Complete authored-large cook with full catalog coverage and bounded task evidence
-    state: done
-    dependsOn: []
-    exitCriteria:
-      - The Product sceneAssetIndices union covers all 1920 catalog primitives.
-      - Receipts record first Product, total cook, slowest Product and WASM plan, owner peaks, spill, settled state, and disposal.
-      - Every failure names an exact Product, shard, and phase.
-  - id: production-performance-debt
-    phase: K1
-    priority: P1
-    title: Close producer and publication debt through an authored runtime smoke
-    state: done
-    dependsOn: [authored-large-production-gate]
-    exitCriteria:
-      - Runtime smoke reaches first frame, camera movement, demand, fallback, recovery, settled state, and disposal without GPU errors.
-      - Activation-first and incremental publication avoid rebuilding the full Scene for every appended Product.
-      - Capacity and telemetry derive from the catalog and negotiated limits.
-  - id: authored-large-formal-perf
-    phase: K2
-    priority: P1
-    title: Capture clean formal authored-large runtime and performance evidence
-    state: done
-    dependsOn: [production-performance-debt]
-    exitCriteria:
-      - Three clean independent runs freeze revision, browser, adapter, display, camera, features, source, and workload.
-      - Receipts include TTFMF, CPU/GPU P50/P95, task timing, owner peaks, demand, churn, overflow, and recovery.
-  - id: authored-large-performance-followup
-    phase: K3
-    priority: P1
-    title: Profile large.glb production validation
-    state: done
-    dependsOn: [authored-large-formal-perf]
-    exitCriteria:
-      - Current clean revision has accepted authored K0, K1, and K2 receipts.
-      - Material, texture, and Scene publication costs are attributed before selecting an optimization.
-  - id: authored-large-sparse-publication
-    phase: K4
-    priority: P1
-    title: Reduce sparse shading preparation cost on Product append
-    state: blocked
-    dependsOn: [authored-large-performance-followup]
-    exitCriteria:
-      - Appended Products reuse stable shader pipelines and resources without changing publication identity or GPU consumer closure.
-      - Accepted authored K1/K2 receipts confirm complete rendering, release, and lower Scene publication latency under the same frozen workload.
-
-exitChecks:
-  - model
-  - registry
-  - changed-coverage
-  - engine-suites
-requiredEvidence:
-  - Accepted authored-large K0 receipt with complete catalog coverage and Product task, owner, spill, settlement, and disposal evidence.
-  - Contract and oracle evidence for work bounds, identity, shard boundaries, determinism, failure atomicity, and release.
-  - Clean browser evidence that visible Products reach the production GPU consumer before total cook completion.
-  - Authored runtime evidence for activation-first publication, incremental Scene publication, automatic capacity, and source/decode/upload telemetry.
-  - Formal authored-large performance evidence on the current clean revision.
-openGates:
-  - K4 is a historical target of the retired Sparse Shading owner; do not resume that task or repair its deleted publication path.
-  - SurfaceV4 is now the production consumer. Rebaseline the complete large.glb catalog, publication, residency and scale in V4 execution M2; this paused stream retains b35aad2 K0-K3 history and is not a second current implementation plan.
-
+goal: Preserve the original authored-large validation scope and evidence without resuming retired Sparse Shading work.
+historicalReferences:
+  originalRevision: b35aad2
+  priorNavigation: '2caf5fe2:project/workstreams/active/web-100m-virtual-geometry.yaml'
+  execution: docs/next-execution/eengine-v4-native-shading-execution-2026-10.md
 links:
   decision: docs/adr/0018-web-100m-virtual-geometry.md
   implementationAudit: docs/reviews/2026-09-22-adr-0018-current-implementation-audit-and-refactor-plan.md
   validationPlan: docs/reviews/2026-09-22-web-100m-authored-first-validation-plan.md
+  currentRoute: project/workstreams/active/eengine-next-clean-rebuild.yaml
+notes:
+  - Original K0-K3 results keep their workload and revision; they do not qualify the current Native renderer.
+  - K4 belongs to the retired Sparse Shading owner and must not resume. Surviving requirements are reassessed in the current module, not a parallel K task list.
+  - The user's excluded 400-plus-MB model remains excluded; this navigation cleanup authorizes no new run.

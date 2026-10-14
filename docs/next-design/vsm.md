@@ -1,10 +1,13 @@
 ---
 id: next-design/vsm
-state: current
+state: history
+supersededBy: eengine-feature-expansion-roadmap-2026-10.md
 verifies:
   - OEngine/src
 ---
 # Module E：Virtual Shadow Maps 与 Shadow Visibility
+
+> 历史记录（2026-10-14 收口）：保留原设计、实施结果、未关闭失败与测量条件；本文不再是当前模块 authority，也不继续原施工顺序。当前路线与模块入口只读 [workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)。下文状态与指令均按各自记录日期理解。
 
 > 范围说明：本模块的来源、数学与既有 owner 合同继续供核对；涉及旧 Surface 执行/产品的段落是迁移背景，不定义 V4 核心或独立实施顺序。未来接线服从 [V4 母稿](./eengine-v4-native-shading-2026-10.md) 与活跃 workstream；生产事实查源码/domain。
 

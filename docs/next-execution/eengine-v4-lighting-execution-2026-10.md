@@ -1,6 +1,7 @@
 ---
 id: eengine-v4-lighting-execution-2026-10
-state: current
+state: history
+supersededBy: eengine-feature-expansion-execution-2026-10.md
 verifies:
   files:
     - docs/next-design/eengine-v4-lighting-2026-10.md
@@ -40,6 +41,8 @@ verifies:
 ---
 
 # M3 Lighting V4 执行计划
+
+> 历史记录（2026-10-14 收口）：保留原设计、实施结果、未关闭失败与测量条件；本文不再是当前模块 authority，也不继续原施工顺序。当前路线与模块入口只读 [workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)。下文状态与指令均按各自记录日期理解。
 
 M3 的唯一设计依据是 [Lighting Design](../next-design/eengine-v4-lighting-2026-10.md)，全局不变量继续遵守 [V4 母稿](../next-design/eengine-v4-native-shading-2026-10.md)。本文件唯一维护 M3 详细状态；[workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)只导航模块。M1/M2/CPU 结果保留在[原执行记录](./eengine-v4-native-shading-execution-2026-10.md)，不复制或重开。
 

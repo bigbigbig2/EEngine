@@ -1,6 +1,7 @@
 ---
 id: eengine-v4-vsm-2026-10
-state: current
+state: history
+supersededBy: eengine-feature-expansion-roadmap-2026-10.md
 verifies:
   files:
     - OEngine/tools/oengine-asset-core/src/import/GltfImporter.cpp
@@ -36,6 +37,8 @@ verifies:
 ---
 
 # VSM V4：完整太阳阴影、稳定页面与有界工作
+
+> 历史记录（2026-10-14 收口）：保留原设计、实施结果、未关闭失败与测量条件；本文不再是当前模块 authority，也不继续原施工顺序。当前路线与模块入口只读 [workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)。下文状态与指令均按各自记录日期理解。
 
 本文件是 **VSM V4 模块设计依据**，实施顺序、实际切换与阶段状态仅在[执行计划](../next-execution/eengine-v4-vsm-execution-2026-10.md)。全局约束继承[V4 母稿](./eengine-v4-native-shading-2026-10.md)。当前 workstream 已切到[性能优化](./eengine-v4-performance-optimization-2026-10.md)，暂停新功能扩展，Minimal GPU Work 继续暂停；VSM 未完成的模块验收义务仍保留。R0建立源码/来源设计与当时设备基线，用户随后授权实施R1、R2与R3。下文明确标注实际ABI与责任切换；真实验证及剩余模块验收范围只读执行计划。
 

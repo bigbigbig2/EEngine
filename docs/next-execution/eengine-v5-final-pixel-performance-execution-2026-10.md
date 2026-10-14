@@ -1,6 +1,7 @@
 ---
 id: eengine-v5-final-pixel-performance-execution-2026-10
-state: current
+state: history
+supersededBy: eengine-feature-expansion-execution-2026-10.md
 verifies:
   files:
     - docs/next-design/eengine-v5-final-pixel-performance-2026-10.md
@@ -104,6 +105,10 @@ verifies:
 
 # EEngine V5 Final Pixel Execution Authority
 
+> 历史记录（2026-10-14 收口）：保留原设计、实施结果、未关闭失败与测量条件；本文不再是当前模块 authority，也不继续原施工顺序。当前路线与模块入口只读 [workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)。下文状态与指令均按各自记录日期理解。
+
+2026-10-14用户方向调整：当前转入[功能扩展总计划](eengine-feature-expansion-execution-2026-10.md)，先完善功能效果，再集中优化完整组合。本文件保留V5实施和原始结果；Phase6正式qualification与条件Phase7延期，未关闭/未通过，不作为AO/VT等新功能的统一启动前置。当前模块入口由workstream.authority决定，以下旧停止点不撤销用户新授权。
+
 唯一目标是[V5 Design](../next-design/eengine-v5-final-pixel-performance-2026-10.md)。本文件管理迁移单元、合同、验证、cutover与退休；候选实验进入`docs/performance/`，不追加到目标设计。source baseline `49fcaa300fafcbbe3db142df403baa3487f89956`；authority先提交为 `e2ebed8`，Phase1非生产完整闭包提交为 `9f305c4`。Phase4已原子切换production并关闭单元出口，见§7.1。本次用户明确授权“进入 Phase 5，继续完整集成”，从HEAD `acecfab2495a4b5c6d5420efc9f1d2083abe6bb0`实施。Phase5产品、需求、生命周期与必要正确性集成关闭，联合成本实际检查仍未获净性能资格，见§8.1；本轮停在Phase6边界。Phase2/3/4未资格成本不得在集成后换名为通过，编译或组件质量通过不能称整Renderer/60FPS验收。
 
 ## 1. Phase 顺序、依赖与状态
@@ -116,7 +121,7 @@ verifies:
 | 3 | Temporal Seed cutover：Native→全部Temporal consumers；Facts恢复pass / 旧Aux退休 | 1、2；结构/必要数值/接线/生命周期/输入子质量闭包完成；净性能未资格，联合成本在5/6收口，见§6.1 |
 | 4 | Native Temporal V2完整图：native scatter / Prepare / SPD / 旧owner退休 | 3；原出口及追加Native观测物理返工均关闭；后者已切生产并通过有限whole成本，见§7.1/§7.3；正式整Renderer资格在6 |
 | 5 | Final Pixel全feature/domain集成、最后旧owner与多余常驻/生命周期税退休 | 2–4；结构/必要正确性/生命周期集成关闭；联合成本已测但净性能未资格，见§8.1 |
-| 6 | 集中quality / production ABBA / P50/P95/P99 / 4GB simultaneous peak验收 | 5；未开始 |
+| 6 | 集中quality / production ABBA / P50/P95/P99 / 4GB simultaneous peak验收 | 用户转向功能扩展后延期；未开始/未取得资格 |
 | 7 | 只有剩余gap需要：Receiver Demand V2，删除pixel projection扫描 | 6诊断；deferred，不自动实施 |
 
 先证明Native能合法绑定和写全域，避免Shadow切完才发现Seed超限；Shadow是Native前置，可独立完整删除；Seed对native/upscale均有真实consumer，先闭合共同输入再替换1:1算法；最后检查domain切换只保一套active histories。Phase1是完整替代链的非生产构建，不是一个helper实验。阶段内可断链；每稳定边界每服务域只有一套production图，不建legacy adapter/A/B bridge。
@@ -412,6 +417,8 @@ Canonical cache 使用实际 scalar、UV、texture/sampler/content、不可变 g
 本追加单元实现、受影响正确性/生命周期与有界成本检查完成；未开展正式全Renderer长窗口/最终动态质量矩阵/4GB OS驻留资格，未获得整体加载时间、整帧FPS收益或稳定60FPS结论。仍停在既有Phase6边界。
 
 ## 9. Phase 6 — Performance / quality acceptance
+
+本节保留V5原验收合同。重启时须依据届时完整功能与源码重新冻结实际profile/reference；例如§8.3已授权将旧16点/.75改为disk4/1.5，不能将下列历史配置默认为最新生产。正式采集工具已包含P99、geometry-settled与资源审计，长窗口组织、有效样本数和分位数口径仍需对齐；不因旧文字而重复建设已有工具。
 
 DELETE：无根据的60FPS/稳定收益/局部bucketclaim；本Phase本身不删shader。ADD：可比production数据与验收报告，normalhotpath无计数税。需修代码回对应unitcandidate再新鲜闭包，不临时改架构。
 

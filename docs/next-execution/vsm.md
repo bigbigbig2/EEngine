@@ -1,10 +1,13 @@
 ---
 id: next-execution/vsm
-state: current
+state: history
+supersededBy: eengine-feature-expansion-execution-2026-10.md
 verifies:
   - OEngine/src
 ---
 # Module E 执行：VSM / Shadow Visibility
+
+> 历史记录（2026-10-14 收口）：保留原设计、实施结果、未关闭失败与测量条件；本文不再是当前模块 authority，也不继续原施工顺序。当前路线与模块入口只读 [workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)。下文状态与指令均按各自记录日期理解。
 
 > 本文是模块 E 的连续实施顺序。设计语义见 [VSM design](../next-design/vsm.md)。
 > E0-E9 已接入单一生产主链；E9 的 typecheck/build、focused CPU/WGSL/epoch 检查于 2026-09-28 完成。R07 adoption、完整场景覆盖和正式浏览器/画质/性能矩阵仍后置。

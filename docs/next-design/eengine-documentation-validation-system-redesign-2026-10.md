@@ -2,7 +2,8 @@
 id: eengine-documentation-validation-system-redesign-2026-10
 kind: design
 status: accepted
-state: current
+state: history
+supersededBy: ../VALIDATION.md
 verifies:
   files:
     - tools/docs-verify.mjs
@@ -15,6 +16,8 @@ verifies:
     - validation/src/runner/run-case.mjs
 ---
 # EEngine 文档与测试体系轻量收口方案
+
+> 历史记录（2026-10-14 收口）：保留原设计、实施结果、未关闭失败与测量条件；本文不再是当前模块 authority，也不继续原施工顺序。当前路线与模块入口只读 [workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)。下文状态与指令均按各自记录日期理解。
 
 日期：2026-10-05。用户已要求按本方案实施。本文保留轻量约束，并将评审发现与收口核对合并在本文件；不另建审计/进度文档。工具重构已实施，Renderer 目标架构不因此完成。
 

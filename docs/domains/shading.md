@@ -19,17 +19,23 @@ verifies:
     - OEngine/src/gpu/GpuVsmFilterAbi.ts
     - OEngine/src/render/vsm/VsmSettings.ts
     - OEngine/src/render/vsm/VsmFilterNoise.ts
+    - OEngine/src/render/ao
+    - OEngine/src/render/program/FrameProgram.ts
+    - OEngine/src/material/CanonicalMaterial.ts
+    - OEngine/src/material/NativeMaterialMutation.ts
+    - OEngine/src/debug/RenderDebugView.ts
+    - OEngine/src/gpu/GPUSceneEnvironmentContext.ts
 ---
 
 # Shading
 
 ## 当前源码接线
 
-核对日期：2026-10-12，当前工作树生产源码。Surface 和 LocalLightWork 使用唯一生产入口；最新 Lighting 阶段、验收结果与性能限制只读 [M3 执行计划](../next-execution/eengine-v4-lighting-execution-2026-10.md)。
+核对日期：2026-10-14，源码基线`2caf5fe2`。Surface 和 LocalLightWork 使用唯一生产入口；Lighting阶段结果与原验收范围只读 [M3 执行计划](../next-execution/eengine-v4-lighting-execution-2026-10.md)。未来功能方向从workstream读取，本页不把目标能力写成生产事实。
 
 [GpuNativeMaterialScene](../../OEngine/src/gpu/GpuNativeMaterialScene.ts) 从 scene material slots、GraphCompiler、TextureResidency 和 cooked Products 建立 immutable native publication。参数及 dynamic inputs 是实例数据；完整物理资源集合决定 BindingSet，Program 由 shader/layout 结构决定。async PSO 未就绪时延迟整 tick；成功提交才切 active，abort 保留 candidate 供 retry，旧 publication 按实际 fence 退休。
 
-每个 authored material source 只保留一份当前 CPU code/binding snapshot。复用依据是 immutable compiled graph/Product、物理 bank view、set generation、texture route、mip 与 live publication 的精确身份和值；资源改变重新建立绑定，Scene resync/device loss 仍由原 owner 处理。每帧继续读取并验证 Standard 参数与 dynamic inputs，保留直接字段修改和 candidate/active/abort/retry 语义；稳定帧先比较绑定、Unlit 与数值，变化时才重建完整物理资源分组。该 CPU snapshot 不拥有 GPU 资源或 shading result。
+每个 authored material source 只保留一份当前 CPU code/binding snapshot。复用依据是 immutable compiled graph/Product、物理 bank view、set generation、texture route、mip 与 live publication 的精确身份和值；资源改变重新建立绑定，Scene resync/device loss 仍由原 owner 处理。材质字段/分量和RuntimeInputs变更事件、TextureResidency publication通知标记dirty；`canPrepareFrame()`稳定路径只检查已选snapshot的ready，dirty时才重新构造/验证数值与物理资源快照，保留candidate/active/abort/retry语义。Canonical编译缓存按scalar/UV/texture/sampler/content等实际依赖精确比较，不以32位hash等于内容相等。该CPU快照不拥有GPU资源或shading结果。
 
 [SurfaceV4](../../OEngine/src/render/surface/SurfaceV4.ts) 消费 r32 Visibility、MeshletWork、FrameGeometryArena/vertex sources、frame instances、native publication 与真实 LocalLightWork/VSM/IBL/AO/environment providers。Dense one-route 无 pixel queue；multi-route 在 GPU 构造 compact pixel bins 并 indirect native dispatch。winner geometry、C/X/Y、material、BRDF、lighting 默认在同一 shader 内求值，直接写 pre-exposed working-color HDR 和 demanded reactive。
 
@@ -44,6 +50,10 @@ verifies:
 生产 Native 使用完整 Final Pixel profile，单 invocation 共用 primary position 完成 Sun 与 Temporal Seed；不保留 Sun continuation/第二 HDR。完整资源 profile 在创建前按协商 limits 校验；超限明确拒绝，不恢复旧路径。FrameGraph 管宏依赖及借给 Surface 的最终 HDR；Surface 只拥有执行 scratch，不 submit。
 
 ## 直接消费者与边界
+
+XeGTAO已由FrameProgramLowering真正调用preparation→Main→denoise，Native读取最终scalar AO texture，乘入diffuse IBL与material occlusion；没有consumer的packed副本可被图裁掉。当前主图只选scalar-high，固定radiusMeters=1、metersPerWorldUnit=1、noiseIndex=0；底层存在medium/high、去噪及曲线等参数，Renderer尚无完整设置入口。AO法线来自深度，不是材质normal产品；现行AO没有专属时序积累、bent normal或完整specular occlusion。这些是生产能力边界，不因旧类注释仍写C4未激活而否认实际调用。
+
+当前FrameProgram没有SSR、GI、透明合成或局部体积光阶段；对应SSR/indirect debug输入为null。GPUSceneEnvironmentContext的probe/Brick4/volumetrics惰性数据、旧SSR shader、MomentOitReference及debug枚举不能证明新效果已接入。非零transmission仍被CanonicalMaterial明确拒绝，不能仅取消拒绝而宣称折射/透射可用。
 
 2026-10-13：Native 的 VSM 默认为4点旋转Vogel、1.5 shadow texel半径；可选择稳定raw gather 2×2或单点，零半径圆盘在CPU折叠成单点。每个receiver只调用一次含fine/coarse回退的页查询，所有tap复用结果；无效页及反向深度空零继续返回中性可见度。已有base/coat BRDF响应都为零时在查询前退出；Bias使用已有几何平面按实际读取texel中心修正，Depth/Angular默认1/1，重复Normal/Slope与per-axis配置、旧16点核、死`ShadowContract`已删除。深度/坐标保持f32，没有稀疏两点猜测、专用shadow history或新增GPU pass。成本与画质边界只读[V5执行§8.3](../next-execution/eengine-v5-final-pixel-performance-execution-2026-10.md#83-vsm采样与bias优化2026-10-13)。
 

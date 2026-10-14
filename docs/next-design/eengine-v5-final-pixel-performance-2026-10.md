@@ -1,6 +1,7 @@
 ---
 id: eengine-v5-final-pixel-performance-2026-10
-state: current
+state: history
+supersededBy: eengine-feature-expansion-roadmap-2026-10.md
 verifies:
   files:
     - OEngine/src/render/program/FrameProgramLowering.ts
@@ -38,6 +39,10 @@ verifies:
 ---
 
 # EEngine V5 Final Pixel Performance Architecture
+
+> 历史记录（2026-10-14 收口）：保留原设计、实施结果、未关闭失败与测量条件；本文不再是当前模块 authority，也不继续原施工顺序。当前路线与模块入口只读 [workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)。下文状态与指令均按各自记录日期理解。
+
+2026-10-14：用户将近期方向切为[功能扩展](eengine-feature-expansion-roadmap-2026-10.md)。本模块已切换的Native/Sun/Seed/Temporal实现保留；剩余正式性能资格及条件receiver优化延期，未记通过，也不作为新功能的启动前置。下文冻结目标和历史输入继续供本模块追溯；当前唯一路线从workstream读取。
 
 本文件冻结下一阶段的**目标架构**：Logical VSM Separation + Physical Sun Fusion；Native Surface 单次昂贵重建并生成 Temporal Seed；1:1 Temporal 使用 previous-depth pull 与成熟 AMD 参考 profile 的 Measure → Exposure → Shading Pyramid → Analyze → Resolve → sharpen 图。只选这一主架构。V5 是 Final Pixel 模块版本，继续遵守 [V4 Native Shading 母稿](eengine-v4-native-shading-2026-10.md)的全局不变量，不重建 Geometry Frontend。
 

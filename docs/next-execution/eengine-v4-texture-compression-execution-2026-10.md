@@ -122,7 +122,7 @@ Bistro使用用户请求的实际约1.035GB原场景，132材质/405图像、完
 
 docs-verify 0 findings/66 historical warnings，37个源码/测试文件格式检查与diff whitespace通过。诊断场景已fenced release，临时尺寸覆盖撤销，基线服务退出，未改用户5173服务。当前仍未达到60FPS，Surface与FSR3其他阶段仍占主要时间；未降低材质/纹理/分辨率/effect质量。同频配对、正式1080p P50/P95、RTX2060、register/spill/bandwidth、driver VRAM、全Renderer画质仍OPEN/NOT-RUN。五项授权修复到此停止，不跨入VT/下一大模块。
 
-本文件是Texture Compression slice的唯一单元状态/执行authority；架构与Source Map见[Design](../next-design/eengine-v4-texture-compression-2026-10.md)。全局不变量、失败分类沿用[V4 execution](./eengine-v4-native-shading-execution-2026-10.md#validation-failure-contract)和[VALIDATION](../VALIDATION.md)。**T4.0–T4.3与Texture Compression slice均closed**，最终authored/质量/成本/生命周期结果与OPEN限制见§12；不代表整帧性能已改善或整个Renderer验收结束。用户明确排除400多MB模型，后续场景测试均不再运行它；改变的是验收workload范围，不是缩小同一个场景后声称等价。STOP，不自动开始VT。
+本文件保留已完成 Texture Compression slice 的唯一单元结果与开放限制；架构与 Source Map 见 [Design](../next-design/eengine-v4-texture-compression-2026-10.md)。它不是当前并行施工入口，后续模块统一读 [workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)，通用失败分类统一读 [VALIDATION](../VALIDATION.md#validation-failure-contract)。**T4.0–T4.3与Texture Compression slice均closed**，最终authored/质量/成本/生命周期结果与OPEN限制见§12；不代表整帧性能已改善或整个Renderer验收结束。用户明确排除400多MB模型，后续场景测试均不再运行它；改变的是验收workload范围，不是缩小同一个场景后声称等价。STOP，不自动开始VT。
 
 ## 1. 单元与停止边界
 

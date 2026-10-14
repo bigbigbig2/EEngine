@@ -1,10 +1,13 @@
 ---
 id: next-execution/eengine-next-dungeon-performance-2026-09
-state: current
+state: history
+supersededBy: eengine-feature-expansion-execution-2026-10.md
 verifies:
   - OEngine/src
 ---
 # EEngine Next Dungeon 性能基线（2026-09-29）
+
+> 历史记录（2026-10-14 收口）：保留原设计、实施结果、未关闭失败与测量条件；本文不再是当前模块 authority，也不继续原施工顺序。当前路线与模块入口只读 [workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)。下文状态与指令均按各自记录日期理解。
 
 ## 测量条件
 

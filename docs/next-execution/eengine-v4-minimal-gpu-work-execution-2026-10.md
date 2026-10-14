@@ -1,6 +1,7 @@
 ---
 id: eengine-v4-minimal-gpu-work-execution-2026-10
-state: current
+state: history
+supersededBy: eengine-feature-expansion-execution-2026-10.md
 verifies:
   files:
     - OEngine/src/gpu/GpuNativeMaterialPublication.ts
@@ -26,6 +27,10 @@ verifies:
 ---
 
 # V4 Minimal GPU Work：执行
+
+> 历史记录（2026-10-14 收口）：保留原设计、实施结果、未关闭失败与测量条件；本文不再是当前模块 authority，也不继续原施工顺序。当前路线与模块入口只读 [workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)。下文状态与指令均按各自记录日期理解。
+
+2026-10-14：本模块保持暂停。用户当前选择[先完善功能效果](eengine-feature-expansion-execution-2026-10.md)，已落地A–F实现与原始负成本/P95结果保留；其剩余性能资格不作为所有新功能的启动前置。下文原授权/运行记录不表示自动恢复A–F。
 
 [设计](../next-design/eengine-v4-minimal-gpu-work-2026-10.md)为本轮模块唯一选择依据；源码为实现事实。用户明确授权 A→F，不采用旧 agent 的性能结论。
 

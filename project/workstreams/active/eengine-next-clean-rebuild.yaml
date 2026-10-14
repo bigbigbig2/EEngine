@@ -1,80 +1,75 @@
 schemaVersion: 2
 id: eengine-next-clean-rebuild
-title: EEngine V5 Final Pixel performance / V4 renderer foundations
+title: EEngine feature expansion / Native renderer foundations
 domain: frame-runtime
 state: active
 owner: frame-runtime
 # Foundational single-path ownership decision only; renderer direction is authority below.
 decision: ADR-0020
 authority:
-  design: docs/next-design/eengine-v5-final-pixel-performance-2026-10.md
-  execution: docs/next-execution/eengine-v5-final-pixel-performance-execution-2026-10.md
+  design: docs/next-design/eengine-feature-expansion-roadmap-2026-10.md
+  execution: docs/next-execution/eengine-feature-expansion-execution-2026-10.md
 goal: >-
   Build an extreme-performance GPU-driven WebGPU-native AAA renderer for
   GTX 1650 Ti 4GB at 1080p and scalable newer GPUs. Follow global V4 invariants
   and the current module authority through complete producer/product/direct-consumer
   cutovers. Preserve completed foundations and design later modules from actual inputs.
-  Prioritize same-quality final-pixel performance and bounded resource ownership
-  before adding advanced effects. Record the actual validation device for each run;
+  Follow the user's feature-first direction: complete useful rendering capabilities
+  before concentrated whole-renderer performance optimization. Keep correctness,
+  bounded resources, real GPU wiring and lifecycle checks within each module.
+  Record the actual validation device for each run;
   historical measurements retain their original device and thermal-state identity.
 
 currentSlice:
-  id: final-pixel-performance-v5
-  title: Final Pixel architecture freeze and complete execution cutovers
-  status: active
+  id: feature-expansion-planning
+  title: Source-backed feature roadmap and module design entry
+  status: closed
   goal: >-
-    Freeze the source-backed Final Pixel target and execution contracts for
-    logical VSM ownership with physical Native Sun fusion, Native Temporal Seed,
-    and a native-resolution previous-depth-pull Temporal graph. Complex Temporal
-    algorithms use a complete pinned mature reference profile; do not develop an
-    autonomous estimator or retain a production compatibility path. The user authorized
-    committing the authority, Phase 1's nonproduction replacement closure,
-    and reviewing and executing the next complete phase with necessary candidate rework.
-    Keep Geometry frontend fixed, preserve historical evidence,
-    and complete each architecture unit before concentrated validation. Unit states
-    live only in the execution authority; advanced effects remain deferred.
+    The user authorized careful source analysis and adjustment of the documentation
+    direction and coarse plan. Preserve the working Native/VG/Lighting/Texture/Temporal
+    foundations and plan AO functionality, VT, reflection, indirect lighting,
+    transparency/media and reconstruction policy from actual production consumers.
+    Documentation delivery is closed; this slice implements none of those effects.
+    Stop before the AO detailed-design/implementation unit. Design one detailed module from
+    current source when that module is started; do not prefreeze all algorithms.
+    Unit states live only in the execution authority. V5 formal performance
+    qualification is deferred, not passed and not a prerequisite for new effects.
 
 pausedModules:
+  - id: final-pixel-performance-v5
+    design: docs/next-design/eengine-v5-final-pixel-performance-2026-10.md
+    execution: docs/next-execution/eengine-v5-final-pixel-performance-execution-2026-10.md
+    reason: User chose feature expansion first; keep implemented cutovers and original failures, defer formal qualification and conditional receiver optimization.
   - id: minimal-gpu-work-v4
     design: docs/next-design/eengine-v4-minimal-gpu-work-2026-10.md
     execution: docs/next-execution/eengine-v4-minimal-gpu-work-execution-2026-10.md
-    reason: User requested pause; activating performance optimization does not resume its A-F sequence.
+    reason: Keep the user's pause and implemented A-F results; feature expansion does not resume the old optimization sequence.
   - id: vsm-v4
     design: docs/next-design/eengine-v4-vsm-2026-10.md
     execution: docs/next-execution/eengine-v4-vsm-execution-2026-10.md
-    reason: Functional expansion is paused for the performance phase; outstanding module acceptance obligations remain unresolved in its execution plan.
+    reason: Preserve the implemented directional shadow chain and unresolved R4 qualification; new effect correctness involving VSM remains the responsibility of its current unit.
 
 nextModules:
+  - id: ao-functionality
+    title: Existing XeGTAO settings, scene scale, quality and observability
   - id: virtual-resources-v4
-    title: Virtual Texture / compressed texture page residency after compression acceptance
-    reason: Deferred until performance-module acceptance and a new user decision.
+    title: Virtual Texture / compressed page products, residency, sampling and streaming
+  - id: reflection
+    title: Reflection with current Native inputs and correct IBL composition
   - id: indirect-v4
-    title: GI, reflection and ReSTIR
-    reason: Deferred until performance-module acceptance and a new user decision.
-  - id: temporal-v4
-    title: Temporal, upscaling and presentation
-    reason: Existing Temporal performance belongs to the active module; additional features remain deferred.
+    title: First complete indirect-lighting capability
   - id: transparency-media-v4
-    title: Transparency, media and final integration
-    reason: Deferred until performance-module acceptance and a new user decision.
+    title: Transparency and participating media
+  - id: temporal-v4
+    title: Reconstruction and presentation policy on existing Native and FSR owners
+  - id: integrated-performance
+    title: Feature combinations and concentrated whole-renderer optimization
 
-architectureRules:
-  - One production renderer, one authority per product, one frame submit; no current-frame GPU-to-CPU-to-GPU work control.
-  - Visibility is the opaque winner contract, including alpha-tested coverage and complete lifetime context.
-  - Material graphs compile to native GPU code; no material interpreter in the normal production hot path.
-  - Full-rate native shading is the correctness baseline; command count may follow unique execution bins, never material-instance count proportionally.
-  - No global Surface proof/cache/history operating system and no mandatory six-signal intermediate representation.
-  - Cross-pass products exist only for actual consumers; effect-specific history and cache belong to that effect.
-  - Expensive Surface Facts Once; repeated Visibility-to-Surface reconstruction requires proof that recomputation is cheaper than the first resolve publishing the minimal demanded product.
-  - Logical effect ownership does not require an independent GPU pass; physical fusion may reuse invocation-private Native facts without a Universal SurfaceRecord.
-  - Architecture is frozen above implementation candidates; local candidate failures do not reject or redirect a complete phase architecture.
-  - Complete unit correctness, ownership and real cost checks before the next cutover; retain negative candidate results and qualify the complete Final Pixel graph at integration, without blocking independent work deletion on a local candidate timing gate.
-  - Management must be clearly cheaper than the useful work it enables; optional optimization requires analytical and measured break-even.
-  - Preserve correct foundations; construct replacement owners completely before switching every direct consumer atomically, including bindings and abort/retry.
-  - Cutover and destructive retirement are one unit; no old/new Surface intermediate dependencies, bridges or restored old contracts to pass tests.
-  - Complete one architectural unit before concentrated validation; preserve valid numeric and lifecycle semantics when retiring representation tests.
-  - Capability, capacity and overflow are explicit before allocation; do not truncate identities or lose work for a budget target.
-  - Source facts, target design and validated adoption remain separate; unit state lives in the execution plan and module navigation in currentSlice.
+navigationRules:
+  - Global architecture invariants live in the V4 mother document; general validation rules live in docs/VALIDATION.md.
+  - This file routes modules only; unit states and deferred validation responsibilities live in the execution authority.
+  - Paused modules are historical references, never additional current authorities or automatic resume instructions.
+  - Future module algorithms are designed from current source and mature references when that module starts.
 
 deferredValidation:
   legacyRetiringPathDefects:

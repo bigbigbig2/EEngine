@@ -1,7 +1,7 @@
 id: frame-runtime
 title: Frame runtime and lifecycle
 primaryOwner: frame-runtime
-owner: OEngine/src/core, OEngine/src/framegraph, OEngine/src/render/Renderer.ts, OEngine/src/gpu/GpuRenderWorld.ts
+owner: OEngine/src/core, OEngine/src/framegraph, OEngine/src/render/pipeline/RendererCore.ts, OEngine/src/gpu/GpuRenderWorld.ts
 intent: Make device, frame, resize, feature-off, replacement, and recovery lifecycles explicit and observable.
 paths:
   - OEngine/src/render/DynamicResolutionScaling.ts
@@ -43,6 +43,8 @@ paths:
   - validation/cases/virtual-product-replacement/**
   - docs/domains/frame-runtime.md
   - docs/VALIDATION.md
+  - docs/next-design/eengine-feature-expansion-roadmap-2026-10.md
+  - docs/next-execution/eengine-feature-expansion-execution-2026-10.md
 currentDocs:
   - docs/domains/frame-runtime.md
 contracts:

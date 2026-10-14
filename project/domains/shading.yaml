@@ -22,8 +22,6 @@ paths:
   - docs/porting/shading.md
 currentDocs:
   - docs/domains/shading.md
-  - docs/next-design/eengine-v4-native-shading-2026-10.md
-  - docs/next-execution/eengine-v4-native-shading-execution-2026-10.md
 contracts: []
 decisions:
   - ADR-0020

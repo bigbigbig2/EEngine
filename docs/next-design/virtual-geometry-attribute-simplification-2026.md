@@ -1,10 +1,13 @@
 ---
 id: next-design/virtual-geometry-attribute-simplification-2026
-state: current
+state: history
+supersededBy: eengine-feature-expansion-roadmap-2026-10.md
 verifies:
   - OEngine/src
 ---
 # Virtual Geometry：性能优先的几何与材质属性联合简化
+
+> 历史记录（2026-10-14 收口）：保留原设计、实施结果、未关闭失败与测量条件；本文不再是当前模块 authority，也不继续原施工顺序。当前路线与模块入口只读 [workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)。下文状态与指令均按各自记录日期理解。
 
 状态：**设计提案，尚未替换生产算法；v3.3 为未完成实验。** 研究日期：2026-09-30（本机 Asia/Hong_Kong）。适用当前 static PBR Geometry Product；动态变形与位移另行定义。
 

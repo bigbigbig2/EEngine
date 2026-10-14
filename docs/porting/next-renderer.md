@@ -173,7 +173,7 @@ Local：审查 `a66667e04222481ca130c4c6d878118bf649bb9f` 的 Product cook/admis
 
 本次从本地 `D:/Nyx-main` 核读所列函数/相关分支与许可，`validate-nyx-function-map` 核对固定map的7个文件hash；vendored meshoptimizer `source.json` 的22个文件SHA256全部匹配。核对范围不是完整Nyx engine audit，未读函数不列为新来源采用。既有来源账本/NOTICE不变；G2.2 Nyx differential的3/6 groups失败尚未判定，必须以完整coverage/error/attribute语义说明偏差，不能因“参考成熟”跳过。
 
-Original：较小但固定四bank、authoritative multi metadata可回收ranges、exactslot/gen streaming、同精度96B frameattributes、合法actual-depth/count组织、Geometry-owned shadowcoverage都是拟本地适配设计；对应 [M2母稿 §11](../next-design/eengine-v4-native-shading-2026-10.md#11-m2--geometry--virtual-geometry-alignment--scale-optimization) 与 [执行 §8](../next-execution/eengine-v4-native-shading-execution-2026-10.md#m2-execution)。不存在合适portable donor完整替代这些WebGPU ownership约束，故保原基础并局部设计，不模仿nativeAPI框架。实施时重新核对真正修改的完整上游阶段及许可，补实际映射与独立oracle/production GPU证据；本轮不提升adoption或性能claim。
+Original：较小但固定四bank、authoritative multi metadata可回收ranges、exactslot/gen streaming、同精度96B frameattributes、合法actual-depth/count组织、Geometry-owned shadowcoverage都是拟本地适配设计；对应 [M2母稿 §11](../archive/eengine-v4-native-shading-design-record-2026-10.md#11-m2--geometry--virtual-geometry-alignment--scale-optimization) 与 [执行 §8](../next-execution/eengine-v4-native-shading-execution-2026-10.md#m2-execution)。不存在合适portable donor完整替代这些WebGPU ownership约束，故保原基础并局部设计，不模仿nativeAPI框架。实施时重新核对真正修改的完整上游阶段及许可，补实际映射与独立oracle/production GPU证据；本轮不提升adoption或性能claim。
 
 ## 2026-10-08：G2.0 本地规模合同实现（不新增来源采用）
 

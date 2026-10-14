@@ -4,14 +4,16 @@ OEngine 是面向桌面浏览器 WebGPU、中大型高几何密度场景的 GPU-
 
 当前目标是极致性能、GPU-Driven、WebGPU Native、AAA Rendering 与可持续扩展，由[V4 Native Shading 架构母稿](./docs/next-design/eengine-v4-native-shading-2026-10.md)统一。目标采纳不表示实现或性能验收完成。
 
+近期按用户方向先完善功能效果，再集中优化完整组合的性能。已有 Native/VG/Lighting/Texture/Temporal 底座保留；能力范围、路线和实际状态从下面的源码与当前导航核对，不把旧性能验收当成所有新功能的启动前置。
+
 ## 从这里开始
 
 - 协作和开发节奏：[AGENTS.md](AGENTS.md)。
 - 全局架构：[V4 Native Shading 架构母稿](./docs/next-design/eengine-v4-native-shading-2026-10.md)。
-- 模块设计/执行：读取 [workstream.authority](project/workstreams/active/eengine-next-clean-rebuild.yaml)；[原 V4 执行记录](./docs/next-execution/eengine-v4-native-shading-execution-2026-10.md)保留 M1/M2/CPU 结果与通用验证纪律。
+- 总体路线与模块设计/执行：读取 [workstream.authority](project/workstreams/active/eengine-next-clean-rebuild.yaml)；详细状态只在对应执行计划维护。
 - 当前阶段：读取 [workstream 的 currentSlice](project/workstreams/active/eengine-next-clean-rebuild.yaml)；本页不复制状态。
 - 整体边界、源码现状、来源和验收：[docs/README.md](docs/README.md)。
-- 路径导航：`node tools/vibe.mjs context <path>`。
+- 路径导航：`node tools/vibe.mjs context <path>`；先读目标源码、公开入口与直接消费者，再读设计，不能从文件名、旧注释或历史效果名称判断已接入。
 - 浏览器示例：[examples/README.md](examples/README.md)。
 - 引擎包约束：[OEngine/AGENTS.md](OEngine/AGENTS.md)。
 

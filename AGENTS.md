@@ -4,22 +4,24 @@
 
 源码是当前实现事实的最高依据；文档采纳不证明代码切换、性能、claim 或来源 adoption。R3/R4 的 Surface C、General VM、六 signal、全局 closure cache/history、proof/store/reference 规则已退为历史，不再约束未来生产架构。旧数值失败不被追认为修复；存活语义按当前模块执行计划迁移新 owner。
 
+当前按用户2026-10-14的方向先完善功能效果，再对完整组合集中优化性能。总体路线与执行入口由 workstream.authority 导航；V5 已完成实现保留，未完成的正式性能资格延期，不作为 AO、VT 等新功能的统一启动前置。每个模块仍需完成真实正确性、能力/容量、生命周期与必要成本检查；新增效果允许增加有界的必要工作，不因缺少相对“关闭效果”的净提速而拒绝功能开发。
+
 ## 开发节奏
 
 1. 用 `node tools/vibe.mjs context <path>` 查询 owner/文档入口，阅读当前源码、直接消费者和近目录约束。导航不是许可或验证门禁。
-2. 按当前 architecture unit 连续完成 producer→产品→全部直接 consumer、绑定/reset/capacity、提交/中止/重试与退休。Surface V4 先在非生产环境完整构建并验证内部闭包，再于一个原子单元切换全部 production ownership 并立即删除旧依赖；不逐步迁移 production consumers。阶段内允许暂时不可运行，稳定边界仅一套 Surface 架构；Git 用于追溯，不建 A/B bridge、adapter 或 fallback VM。
+2. 按当前 architecture unit 连续完成 producer→产品→全部直接 consumer、绑定/reset/capacity、提交/中止/重试与退休。替换已有架构时先完整构建并验证新闭包，再于一个原子单元切换全部 production ownership 并立即删除旧依赖；不逐步迁移 production consumers。阶段内允许暂时不可运行，稳定边界仅一套生产 ownership；Git 用于追溯，不建 A/B bridge、adapter 或 fallback VM。
 3. 开发中按需要 typecheck、shader compile、build 或极小 targeted/oracle；不每 patch 跑全套、browser、benchmark、evidence、claims、clean revision 或文档门禁。阶段内可临时断链，单元结束修复真实编译失败并闭合实际产品。
-4. 单元闭合后 architecture review，再集中 typecheck/build、新鲜 build:test、必要独立语义/生命周期与真实 GPU 接线/成本检查，GPU 作业串行。保存原失败、分类定位根因、局部修复并重跑受影响验证；未运行/缺项/必需失败如实未完成。
+4. 单元闭合后 architecture review，再集中 typecheck/build、新鲜 build:test、必要独立语义/生命周期与真实 GPU 接线/画面/资源上界和粗粒度成本检查，GPU 作业串行。功能模块不要求先通过整 Renderer FPS/净收益验收。保存原失败、分类定位根因、局部修复并重跑受影响验证；未运行/缺项/必需失败如实未完成。
 5. 单元关闭后停在下一单元边界。大模块完成后暂停，依据实际代码重新设计下一模块；不能自动跨多个大模块。正式全 Renderer browser/画质/同条件 P50/P95、evidence/claims 留最终集成；当前单元必需正确性与成本不因此后移。
 
-详细验证和失败分类见 [执行计划](docs/next-execution/eengine-v4-native-shading-execution-2026-10.md#validation-failure-contract) 与 [VALIDATION](docs/VALIDATION.md)。旧 ABI 退休可删/迁移表示测试；material numeric、导数/LOD、normal、HDR、motion、publication atomicity、abort/retry、device loss、唯一 writer 等语义必须留给新 owner。禁止吞异常、跳必需断言、放宽容差、缩最终场景、漏工作、测试专用 production fallback；预期改变须有数学/来源依据，质量或功能范围改变按用户授权处理。
+详细验证和失败分类见 [VALIDATION](docs/VALIDATION.md#validation-failure-contract)。旧 ABI 退休可删/迁移表示测试；material numeric、导数/LOD、normal、HDR、motion、publication atomicity、abort/retry、device loss、唯一 writer 等语义必须留给新 owner。禁止吞异常、跳必需断言、放宽容差、缩最终场景、漏工作、测试专用 production fallback；预期改变须有数学/来源依据，质量或功能范围改变按用户授权处理。
 
 ## 架构与成本纪律
 
 - Full-rate native 是正常正确路径；Material Graph 编译为 native GPU code，不为减少 shader 数引入高成本 VM。命令可随 unique Program/ExecutionBin 增长，不与材质实例数同比增长。
 - 默认 fused opaque；实际跨 pass consumer/limits/成本才支持有限 compact deferred。无 consumer 不声明产品、不分配资源，不造 Universal SurfaceRecord。
 - Surface 不统一管理 effect history/cache/proof/identity；VT、VSM、SSR、GI、ReSTIR、Temporal 各有真实 owner。
-- 重要机制先有 Cost Card：新增/删除 bytes、ALU、samples、random/sequential access、atomics/barriers、dispatch/pipeline、working set、ideal/expected/worst 与 0/50/100%收益和 break-even。理想条件都不赚钱则拒绝，零收益高税不得常规 hot path。
+- 重要机制先有 Cost Card：新增/删除 bytes、ALU、samples、random/sequential access、atomics/barriers、dispatch/pipeline、working set 与 ideal/expected/worst。新增功能记录达到画面/能力目标所需的 ADD、上界与取舍，不要求比未开启功能更快。为节省工作引入的优化候选另算0/50/100%收益和 break-even；理想条件都不赚钱则拒绝该优化，零收益高税不得常规 hot path。
 - 测试失败先分类，不恢复旧架构；性能慢先定位，不立即加 cache/proof/history；dispatch 多不立即造 megakernel；单元未闭合不陷入 patch→benchmark→改架构循环。
 
 ## 红线与来源

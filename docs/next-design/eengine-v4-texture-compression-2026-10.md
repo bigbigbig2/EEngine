@@ -36,7 +36,7 @@ verifies:
 
 # PC-First GPU Native Texture Compression
 
-这是 virtual-resources-v4 的 Texture Compression slice 设计 authority；阶段状态、施工入口和实测结果只在[执行计划](../next-execution/eengine-v4-texture-compression-execution-2026-10.md)。[V4 母稿](./eengine-v4-native-shading-2026-10.md)仍是全局 authority。本文区分当前生产源码、冻结目标与验收；production cutover 的证据只读 Execution，不能由文档设计推断整个 slice 已验收。
+本文保留为已完成 Texture Compression 的现行产品/压缩边界设计依据；阶段结果与开放限制只在[执行记录](../next-execution/eengine-v4-texture-compression-execution-2026-10.md)。它不是并行待执行路线，也不因保留 current 而要求重跑 T4 或自动启动 VT。当前模块入口统一读 [workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)，全局不变量读 [V4 母稿](./eengine-v4-native-shading-2026-10.md)。本文区分源码事实、冻结目标与验收；不能由文档设计推断未运行项已通过。
 
 历史设计起点与 T4.0/T4.1 源码身份保留在 Execution。当前源码事实按 T4.2 cutover 与 T4.3 必需接线更新，实施与验证身份见 Execution §11–12 和机器 artifact；不将旧 baseline 数字追认为新路径收益。
 

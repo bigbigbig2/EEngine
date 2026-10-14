@@ -24,6 +24,10 @@ verifies:
     - OEngine/src/render/passes/fsr3/Fsr3UpscalerRuntime.ts
     - OEngine/src/render/environment/PhysicalSkyIblResources.ts
     - examples/demos/14-integrated/dungeon-warkarma-texture-compression/frame-pacing.ts
+    - OEngine/src/render/program/FrameProgram.ts
+    - OEngine/src/render/RendererConfig.ts
+    - OEngine/src/render/DynamicResolutionScaling.ts
+    - OEngine/src/render/RenderFeatureRegistry.ts
 ---
 
 # Frame Runtime
@@ -32,9 +36,11 @@ verifies:
 
 2026-10-13：VSM圆盘滤波的完整64相位STBN及256-entry旋转表存于FinalPixelLighting buffer的不可变tail，复用现有binding；每个fenced allocation创建时上传一次，稳定帧不复制该段。Native采样constants发布当前tail word offset与提交frame相位；AA-off固定相位零。point/gather/零半径/无VSM不分配噪声GPU段；最多3份1,050,624B段，prepare/abort/retry/模式切换/resize/empty/device loss/最后consumer fence退休由共享物理owner闭合。Loader只保留CPU资产，不持有GPU对象。
 
-核对日期：2026-10-12，当前生产工作树。这里记录当前 owner 与主链注册；实际验证结果及阶段状态只在模块执行计划。
+核对日期：2026-10-14，源码基线`2caf5fe2`。这里记录当前owner与主链注册；实际验证结果及阶段状态只在对应模块执行计划。
 
 [RendererCore](../../OEngine/src/render/pipeline/RendererCore.ts) 创建 FrameCoordinator、SurfaceV4、LocalLightWorkGenerator、NativeTemporalSeed 等长期 owners。[FrameProgramLowering](../../OEngine/src/render/program/FrameProgramLowering.ts) 将场景产品逐帧绑定到缓存 FrameGraph，连接最终 winner/depth→LocalLightWork→native Surface→Temporal/FSR3。
+
+FrameProgram的实际stage/product及lowering决定当前功能依赖；独立RenderFeatureRegistry类没有进入这条生产选择链。Renderer以显式renderScale改变内部尺寸并选择Native/FSR域，DynamicResolutionScaling类未接入实际反馈控制。SSR/GI/透明/局部体积效果没有当前生产stage；仅存在数据owner、reference或debug名字不算接入。
 
 Directional VSM 只服务 Physical Sun；初始化关闭 PhysicalEnvironment 时不创建 VSM 资源或 pass owners，无 Physical Sun 的 enabled shadow Frame Program 被拒绝。无 authored/physical IBL 时，Surface 按需提供共享 1×1 RGBA16F 零辐射绑定，authored directional/local lights 仍执行完整 lit 路径。
 
@@ -60,6 +66,6 @@ Final Pixel Shadow 主链由 VSM post-content publication 直接写 FinalPixelLi
 
 camera cut/resize/abort/device loss、history 提交、publication 和资源生命周期必须用当前生产入口验证；仅观察这些 owner 存在不能判所有场景通过。Temporal/FSR3 的接线不表示未来 AI Upscaling 已实现。
 
-旧 Phase0–6 不做中间检查的文字已失效。按[当前执行计划](../next-execution/eengine-v4-native-shading-execution-2026-10.md)集中核对单元编译、接线、正确性与成本；完整 browser/质量/性能矩阵在整个 Renderer/providers 完成后进行。
+当前总体/模块计划从workstream导航。单元集中核对编译、接线、正确性、实际画面、资源边界与必要成本；完整browser/质量/性能矩阵在功能组合稳定后集中进行。旧V5正式性能资格保留未完成，不是所有新效果的统一启动前置。
 
 旧阶段与旧状态说明已收回，Git 保留历史。本页只维护已核实 owner/数据流；阶段和每次运行结果不在这里复制。

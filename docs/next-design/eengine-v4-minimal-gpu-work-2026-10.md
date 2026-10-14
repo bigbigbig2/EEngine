@@ -1,6 +1,7 @@
 ---
 id: eengine-v4-minimal-gpu-work-2026-10
-state: current
+state: history
+supersededBy: eengine-feature-expansion-roadmap-2026-10.md
 verifies:
   files:
     - OEngine/src/gpu/GpuNativeMaterialPublication.ts
@@ -34,6 +35,8 @@ verifies:
 ---
 
 # V4：Minimal GPU Work 收敛
+
+> 历史记录（2026-10-14 收口）：保留原设计、实施结果、未关闭失败与测量条件；本文不再是当前模块 authority，也不继续原施工顺序。当前路线与模块入口只读 [workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)。下文状态与指令均按各自记录日期理解。
 
 本轮依据用户授权按 A→F 连续完成；当前源码和实际 GPU 消费高于历史结论。全局约束仍为 Native Shading 母稿。模块实施结果只记录在[执行计划](../next-execution/eengine-v4-minimal-gpu-work-execution-2026-10.md)。本设计描述选择和目标，不证明尚未完成的代码、画质或性能。
 

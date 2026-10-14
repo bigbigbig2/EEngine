@@ -1,10 +1,13 @@
 ---
 id: next-execution/temporal-radiometry-presentation
-state: current
+state: history
+supersededBy: eengine-feature-expansion-execution-2026-10.md
 verifies:
   - OEngine/src
 ---
 # Module D 执行：Temporal Facts、Radiometry 与 Presentation
+
+> 历史记录（2026-10-14 收口）：保留原设计、实施结果、未关闭失败与测量条件；本文不再是当前模块 authority，也不继续原施工顺序。当前路线与模块入口只读 [workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)。下文状态与指令均按各自记录日期理解。
 
 > 收口状态：D0-D6 已完成生产链实现与一次模块级集中检查。已通过 `npm run typecheck`、`npm run build:test`、Frame Program 定向契约测试和 Radiometry/Bloom/Present WGSL Naga 解析。未运行 browser matrix、真实 GPU 画质比较、P50/P95 benchmark、正式 evidence 或 claims；这些继续留在 Next Renderer 总体验收。
 

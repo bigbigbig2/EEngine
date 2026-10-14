@@ -1,6 +1,7 @@
 ---
 id: eengine-v4-lighting-2026-10
-state: current
+state: history
+supersededBy: eengine-feature-expansion-roadmap-2026-10.md
 verifies:
   files:
     - project/workstreams/active/eengine-next-clean-rebuild.yaml
@@ -34,6 +35,8 @@ verifies:
 ---
 
 # M3 Lighting V4：局部灯光工作生成
+
+> 历史记录（2026-10-14 收口）：保留原设计、实施结果、未关闭失败与测量条件；本文不再是当前模块 authority，也不继续原施工顺序。当前路线与模块入口只读 [workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)。下文状态与指令均按各自记录日期理解。
 
 本文是 M3 的设计 authority；阶段、状态与实施结果只在 [M3 执行计划](../next-execution/eengine-v4-lighting-execution-2026-10.md)。[全局 V4 母稿](./eengine-v4-native-shading-2026-10.md)继续约束单一 Renderer、native Material、产品责任、成本与原子切换。下文源码审查是设计起点快照；L3.2 已将 LocalLightWork 接入唯一生产链并删除旧 cluster owner，当前接线见 [Shading](../domains/shading.md)，验证范围与未运行项以执行计划为准。
 

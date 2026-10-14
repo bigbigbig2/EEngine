@@ -1,6 +1,7 @@
 ---
 id: eengine-v4-native-shading-execution-2026-10
-state: current
+state: history
+supersededBy: eengine-feature-expansion-execution-2026-10.md
 verifies:
   files:
     - project/workstreams/active/eengine-next-clean-rebuild.yaml
@@ -56,6 +57,8 @@ verifies:
 ---
 
 # EEngine V4 执行计划：完整责任闭包与规模优化
+
+> 历史记录（2026-10-14 收口）：保留原设计、实施结果、未关闭失败与测量条件；本文不再是当前模块 authority，也不继续原施工顺序。当前路线与模块入口只读 [workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)。下文状态与指令均按各自记录日期理解。
 
 全局架构不变量依据 [V4 母稿](../next-design/eengine-v4-native-shading-2026-10.md)，本文保留 **M1/M2/CPU 实施记录和通用验证纪律**。M3 的唯一模块执行 authority 已转入 [Lighting Execution](./eengine-v4-lighting-execution-2026-10.md)，设计见 [Lighting Design](../next-design/eengine-v4-lighting-2026-10.md)；[workstream.authority/currentSlice](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)导航当前模块，详细阶段状态只在对应执行计划。旧 R3/R4 为 history，不继续 Surface C，也不把旧阶段映射成 V4 已完成。
 
@@ -652,7 +655,7 @@ frequency extraction也要计update/persistent uniform/边界读取成本，不�
 
 ### 8.1 当前边界与单元顺序
 
-**M2=closed，G2.0–G2.4 全部关闭；STOP，不激活下一模块。** 规划时 2026-10-08 fetch 后 HEAD/origin/master=`a66667e04222481ca130c4c6d878118bf649bb9f`，起始工作区干净；规划已提交为 `d44823e2c11415fe7c24364c4c41a661bb181a8e`，随后按用户授权实施全部五个单元。M1结果、28个既有失败及未运行项不被追改。真实数据流、KEEP矩阵、Q1–Q7、成本卡、WebGPU limits与参考比较见[母稿 §11](../next-design/eengine-v4-native-shading-2026-10.md#11-m2--geometry--virtual-geometry-alignment--scale-optimization)；本节保存执行边界和实际状态，结果见 §8.2.1/§8.3.1/§8.4.1/§8.5.1/§8.6.1。
+**M2=closed，G2.0–G2.4 全部关闭；STOP，不激活下一模块。** 规划时 2026-10-08 fetch 后 HEAD/origin/master=`a66667e04222481ca130c4c6d878118bf649bb9f`，起始工作区干净；规划已提交为 `d44823e2c11415fe7c24364c4c41a661bb181a8e`，随后按用户授权实施全部五个单元。M1结果、28个既有失败及未运行项不被追改。真实数据流、KEEP矩阵、Q1–Q7、成本卡、WebGPU limits与参考比较见[母稿 §11](../archive/eengine-v4-native-shading-design-record-2026-10.md#11-m2--geometry--virtual-geometry-alignment--scale-optimization)；本节保存执行边界和实际状态，结果见 §8.2.1/§8.3.1/§8.4.1/§8.5.1/§8.6.1。
 
 ```mermaid
 flowchart TD
