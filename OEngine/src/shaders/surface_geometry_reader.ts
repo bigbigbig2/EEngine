@@ -64,7 +64,7 @@ fn frame_vertex_uv(vertex:u32,uvSet:u32)->vec2f {
 }`,
   );
   let productSource = product
-    ? frameGeometrySourceWgsl(true, true)
+    ? frameGeometrySourceWgsl(true, perInvocation)
         .replace(/^@group\(0\) @binding\((8|9|10|11|12)\).*\n/gm, "")
         .replaceAll("frame_vertex", "product_frame_vertex")
         .replaceAll("frame_source", "product_frame_source")

@@ -235,3 +235,172 @@ test("compileCanonicalMaterial caches unchanged materials and invalidates on mut
   assert.notEqual(third, first, "mutated StandardShadeMaterial must invalidate cache");
   assert.equal(third.coatFactor, 0.5);
 });
+
+test("Direction A: dense multi-meshlet page occupies strictly 1 physical slot with zero CPU 96B attribute expansion and direct GPU WGSL decode", async () => {
+  const { frameGeometrySourceWgsl } = await import("../../.test-dist/shaders/geometry_source_decode.js");
+  const { frameGeometryVerticesWgsl } = await import("../../.test-dist/shaders/frame_geometry_vertices.js");
+  const { surfaceGeometryCompletionWgsl } = await import("../../.test-dist/shaders/surface_geometry_completion.js");
+
+  const decodeWgsl = frameGeometrySourceWgsl(true);
+  assert.match(decodeWgsl, /source_format_word = asset\.vertex_format_word_offset \+ header\.vertex_format_id \* 4u;/u);
+  assert.match(decodeWgsl, /fn frame_vertex_u32\(bank: u32, byte: u32\) -> u32/u);
+  assert.doesNotMatch(decodeWgsl, /frame_vertex_resident\(/u);
+
+  const verticesWgsl = frameGeometryVerticesWgsl(true);
+  assert.match(verticesWgsl, /vertex_indices = product_source_format_word;/u);
+
+  const surfaceWgsl = surfaceGeometryCompletionWgsl(true, true);
+  assert.match(surfaceWgsl, /product_source_format_word = cached\.vertex_indices;/u);
+
+  // Build a dense 64-meshlet page (64 meshlets * 64 vertices = 4,096 vertices).
+  // Previously, 4,096 * 96B = 393,216 bytes of expanded CPU attributes required 3 physical bank slots!
+  // Now it occupies strictly 1 physical slot (256 KiB) with 1 bank writeBuffer call.
+  const meshletCount = 64;
+  const vertexCount = 64;
+  const triangleCount = 32;
+  const strideBytes = 16;
+  const headerBytes = 64;
+  const meshletHeadersBytes = meshletCount * 48;
+  const triangleBytesPerMeshlet = triangleCount * 3;
+  const vertexBytesPerMeshlet = vertexCount * strideBytes;
+  const totalTriangleBytes = ((meshletCount * triangleBytesPerMeshlet + 3) & ~3);
+  const triangleDataOffset = headerBytes + meshletHeadersBytes;
+  const vertexDataOffset = triangleDataOffset + totalTriangleBytes;
+  const payloadBytes = ((vertexDataOffset + meshletCount * vertexBytesPerMeshlet + 15) & ~15);
+
+  const pageBytes = new Uint8Array(262144);
+  const pv = new DataView(pageBytes.buffer);
+  // Group header
+  pv.setFloat32(12, 10, true); // sphere radius
+  pv.setFloat32(40, 0, true); // parentError
+  pv.setUint16(44, meshletCount, true);
+  pv.setUint8(46, 0); // lodLevel
+  pv.setUint8(47, 0); // vertexFormatId
+  pv.setUint32(48, headerBytes, true);
+  pv.setUint32(52, triangleDataOffset, true);
+  pv.setUint32(56, vertexDataOffset, true);
+  pv.setUint32(60, payloadBytes, true);
+
+  for (let m = 0; m < meshletCount; m++) {
+    const mh = headerBytes + m * 48;
+    pv.setUint16(mh, vertexCount, true);
+    pv.setUint16(mh + 2, triangleCount, true);
+    const vOff = vertexDataOffset + m * vertexBytesPerMeshlet;
+    const tOff = triangleDataOffset + m * triangleBytesPerMeshlet;
+    pv.setUint32(mh + 4, vOff, true);
+    pv.setUint32(mh + 8, tOff, true);
+    pv.setUint32(mh + 12, 0xffffffff, true); // refineGroupId
+    pv.setFloat32(mh + 36, 1, true); // boundsMax.x
+    pv.setFloat32(mh + 40, 1, true); // boundsMax.y
+    pv.setFloat32(mh + 44, 1, true); // boundsMax.z
+    for (let t = 0; t < triangleCount; t++) {
+      pageBytes[tOff + t * 3] = 0;
+      pageBytes[tOff + t * 3 + 1] = 1;
+      pageBytes[tOff + t * 3 + 2] = 2;
+    }
+    for (let v = 0; v < vertexCount; v++) {
+      const va = vOff + v * strideBytes;
+      pv.setFloat32(va, v * 0.25, true);
+      pv.setFloat32(va + 4, m * 0.5, true);
+      pv.setFloat32(va + 8, 1.0, true);
+      pv.setInt16(va + 12, 0, true);
+      pv.setInt16(va + 14, 0, true);
+    }
+  }
+
+  const hash = createHash("sha256").update(pageBytes).digest();
+  const assetRecords = new Uint8Array(128);
+  const av = new DataView(assetRecords.buffer);
+  assetRecords.fill(1, 0, 32);
+  av.setFloat32(44, 10, true);
+  av.setUint32(76, 1, true);
+  av.setUint32(84, 1, true);
+  av.setUint32(92, 1, true);
+  av.setUint32(100, 1, true);
+  av.setUint32(104, meshletCount * triangleCount, true);
+  av.setUint32(108, meshletCount, true);
+  av.setUint32(112, meshletCount, true);
+
+  const hierarchyNodes = new Uint8Array(48);
+  const hv = new DataView(hierarchyNodes.buffer);
+  hv.setFloat32(12, 10, true);
+  hv.setUint32(44, ((meshletCount - 1) << 25) | 1, true);
+
+  const groupDirectory = new Uint8Array(16);
+  const gv = new DataView(groupDirectory.buffer);
+  gv.setUint32(0, 0, true);
+  gv.setUint32(4, 0, true);
+  gv.setUint32(8, payloadBytes, true);
+  gv.setUint32(12, 1, true);
+
+  const pageRecords = new Uint8Array(32);
+  pageRecords.set(hash.subarray(0, 16), 0);
+  new DataView(pageRecords.buffer).setUint32(20, 1, true);
+
+  const vertexFormats = new Uint8Array(16);
+  const fv = new DataView(vertexFormats.buffer);
+  fv.setUint16(0, strideBytes, true);
+  fv.setUint16(2, 3, true);
+  fv.setUint8(4, 0);
+  fv.setUint8(5, 12);
+  fv.setUint8(10, 1);
+
+  const descriptor = {
+    schemaVersion: 1,
+    productId: new Uint8Array(32).fill(9),
+    revision: 0,
+    producerKind: "offline-native",
+    producerId: "dir-a-test",
+    producerVersion: "1",
+    sourceIdentityKind: "session",
+    sourceIdentityHash: new Uint8Array(32).fill(3),
+    recipeHash: new Uint8Array(32).fill(4),
+    runtimeProfile: "oengine-vg-v1-v3-decoded",
+    decodedPageBytes: 262144,
+    assetRecords,
+    rootNodeIds: new Uint32Array([0]),
+    hierarchyNodes,
+    groupDirectory,
+    pageRecords,
+    bootstrapPageIds: new Uint32Array([0]),
+    vertexFormats,
+    activationPageIds: new Uint32Array([0]),
+  };
+
+  const bankWrites = [];
+  const device = {
+    limits: { maxBufferSize: 256 * 1024 * 1024, maxStorageBufferBindingSize: 128 * 1024 * 1024 },
+    createBuffer(d) {
+      return { d, label: d.label, destroy() {} };
+    },
+    queue: {
+      writeBuffer(buffer, offset, data) {
+        if (String(buffer.label).includes(" bank ")) {
+          bankWrites.push({ offset, bytes: data.byteLength });
+        }
+      },
+    },
+  };
+
+  const source = {
+    descriptor,
+    async readPage(pageId) {
+      return {
+        productId: descriptor.productId.slice(),
+        revision: 0,
+        pageId,
+        decodedHash128: hash.subarray(0, 16),
+        decodedPageHash128: hash.subarray(0, 16),
+        bytes: pageBytes.slice().buffer,
+      };
+    },
+    release() {},
+  };
+
+  const residency = await VirtualGeometryResidency.create(device, source, 1);
+  assert.equal(residency.evidence().residentPages, 1);
+  assert.equal(residency.evidence().residentBytes, 262144, "dense 4096-vertex page occupies strictly 1 physical 256 KiB slot");
+  assert.equal(residency.evidence().uploadedBytes, payloadBytes, "only raw page payload bytes are uploaded");
+  assert.equal(bankWrites.length, 1, "exactly 1 writeBuffer call per page");
+  residency.destroy();
+});

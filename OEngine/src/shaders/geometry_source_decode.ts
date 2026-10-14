@@ -7,11 +7,10 @@ import {
 } from "../gpu/GpuGeometryAbi.js";
 import { VIRTUAL_GEOMETRY_PRODUCT_WGSL } from "./virtual_geometry_product.js";
 import { GEOMETRY_VERTEX_DATA_TYPE_CODE as T } from "../assets/GeometryAssetPackage.js";
-import { GPU_FRAME_ATTRIBUTE_VECTORS } from "../gpu/GpuFrameGeometryAttributesAbi.js";
 
 /** Selected meshlet-local vertices once per frame; ordinary decode is the
- * published Geometry ABI; Product attributes are decoded once at residency
- * fulfillment and read here through the same bounded four-bank page owner. */
+ * published Geometry ABI; Product attributes are decoded directly on the GPU
+ * from the raw 256 KiB page slot in the shared four-bank page owner. */
 export function frameGeometrySourceWgsl(product: boolean, perInvocation = false): string {
   const sources = product
     ? /* wgsl */ `
@@ -21,6 +20,23 @@ ${Array.from({ length: 4 }, (_, i) => `@group(0) @binding(${i + 9}) var<storage,
 fn frame_vertex_word(bank: u32, word: u32) -> u32 {
 ${Array.from({ length: 4 }, (_, i) => `  if bank == ${i}u { return product_bank_${i}[word]; }`).join("\n")}
   return 0u;
+}
+fn frame_vertex_u8(bank: u32, byte: u32) -> u32 {
+  return (frame_vertex_word(bank, byte >> 2u) >> ((byte & 3u) * 8u)) & 0xffu;
+}
+fn frame_vertex_u16(bank: u32, byte: u32) -> u32 {
+  let shift = (byte & 3u) * 8u;
+  let w0 = frame_vertex_word(bank, byte >> 2u);
+  if shift <= 16u { return (w0 >> shift) & 0xffffu; }
+  let w1 = frame_vertex_word(bank, (byte >> 2u) + 1u);
+  return ((w0 >> 24u) | (w1 << 8u)) & 0xffffu;
+}
+fn frame_vertex_u32(bank: u32, byte: u32) -> u32 {
+  let shift = (byte & 3u) * 8u;
+  let w0 = frame_vertex_word(bank, byte >> 2u);
+  if shift == 0u { return w0; }
+  let w1 = frame_vertex_word(bank, (byte >> 2u) + 1u);
+  return (w0 >> shift) | (w1 << (32u - shift));
 }
 fn frame_vertex_group_header(location: OEngineGeometryPageLookupV1, group: OEngineVirtualGroupV1) -> OEngineVirtualGroupHeaderV1 {
 ${Array.from({ length: 4 }, (_, i) => `  if location.bank_index == ${i}u { return oengine_virtual_group_header_v1(&product_bank_${i}, location, group); }`).join("\n")}
@@ -34,6 +50,7 @@ ${Array.from({ length: 4 }, (_, i) => `  if location.bank_index == ${i}u { retur
 var<workgroup> source_bank: u32;
 var<workgroup> source_triangle_byte: u32;
 var<workgroup> source_resident_address: u32;
+var<workgroup> source_format_word: u32;
 fn frame_vertex_load_source(work: OEngineMeshletRasterWork) -> vec2u {
   let asset = oengine_geometry_product_resolve_asset_v1(&product_heap, work.geometry_slot,
     oengine_instance_geometry_generation(frame_instances[work.instance_slot].source));
@@ -45,32 +62,69 @@ fn frame_vertex_load_source(work: OEngineMeshletRasterWork) -> vec2u {
   if !header.valid || !meshlet.valid || header.vertex_format_id >= asset.vertex_format_count { return vec2u(0u); }
   source_bank = location.bank_index;
   source_triangle_byte = location.byte_offset + group.offset_in_page + meshlet.triangle_byte_offset;
-  let resident_directory = frame_vertex_word(location.resident_bank, location.resident_word + group.offset_in_page / 16u);
-  source_resident_address = frame_vertex_word(location.resident_bank, location.resident_word + resident_directory + (work.meshlet_slot & 127u));
+  source_resident_address = (location.bank_index << 30u) | (location.byte_offset + group.offset_in_page + meshlet.vertex_byte_offset);
+  source_format_word = asset.vertex_format_word_offset + header.vertex_format_id * 4u;
   return vec2u(meshlet.vertex_count, meshlet.triangle_count);
 }
-fn frame_vertex_resident(vertex: u32, field: u32) -> vec4f {
-  let bank = source_resident_address >> 30u;
-  let at = (source_resident_address & 0x3fffffffu) + (vertex * ${GPU_FRAME_ATTRIBUTE_VECTORS}u + field) * 4u;
-  return bitcast<vec4f>(vec4u(frame_vertex_word(bank, at), frame_vertex_word(bank, at + 1u),
-    frame_vertex_word(bank, at + 2u), frame_vertex_word(bank, at + 3u)));
-}
 fn frame_vertex_position(vertex: u32) -> vec3f {
-  return frame_vertex_resident(vertex, 5u).xyz;
+  let stride = product_heap[source_format_word] & 0xffffu;
+  let pos_offset = product_heap[source_format_word + 1u] & 0xffu;
+  let bank = source_resident_address >> 30u;
+  let at = (source_resident_address & 0x3fffffffu) + vertex * stride + pos_offset;
+  return vec3f(
+    bitcast<f32>(frame_vertex_u32(bank, at)),
+    bitcast<f32>(frame_vertex_u32(bank, at + 4u)),
+    bitcast<f32>(frame_vertex_u32(bank, at + 8u))
+  );
 }
 fn frame_vertex_normal(vertex: u32) -> vec4f {
-  return frame_vertex_resident(vertex, 0u);
+  let format0 = product_heap[source_format_word];
+  if (format0 & 0x20000u) == 0u { return vec4f(0.0, 0.0, 1.0, 0.0); }
+  let stride = format0 & 0xffffu;
+  let norm_offset = (product_heap[source_format_word + 1u] >> 8u) & 0xffu;
+  let bank = source_resident_address >> 30u;
+  let at = (source_resident_address & 0x3fffffffu) + vertex * stride + norm_offset;
+  return vec4f(frame_oct_decode(frame_vertex_u32(bank, at)), 0.0);
 }
 fn frame_vertex_tangent(vertex: u32) -> vec4f {
-  return frame_vertex_resident(vertex, 1u);
+  let format0 = product_heap[source_format_word];
+  if (format0 & 0x40000u) == 0u { return vec4f(1.0, 0.0, 0.0, 1.0); }
+  let stride = format0 & 0xffffu;
+  let tan_offset = (product_heap[source_format_word + 1u] >> 16u) & 0xffu;
+  let bank = source_resident_address >> 30u;
+  let at = (source_resident_address & 0x3fffffffu) + vertex * stride + tan_offset;
+  let xyz = frame_oct_decode(frame_vertex_u32(bank, at));
+  let w = select(1.0, -1.0, frame_vertex_u16(bank, at + 4u) >= 32768u);
+  return vec4f(xyz, w);
 }
 fn frame_vertex_uv(vertex: u32, uvSet: u32) -> vec2f {
-  if uvSet == 2u { return frame_vertex_resident(vertex, 4u).xy; }
-  let uv = frame_vertex_resident(vertex, 2u);
-  return select(uv.xy, uv.zw, uvSet == 1u);
+  let format0 = product_heap[source_format_word];
+  let stride = format0 & 0xffffu;
+  let bank = source_resident_address >> 30u;
+  let vbase = (source_resident_address & 0x3fffffffu) + vertex * stride;
+  if uvSet == 0u && (format0 & 0x80000u) != 0u {
+    let uv0_offset = (product_heap[source_format_word + 1u] >> 24u) & 0xffu;
+    return unpack2x16float(frame_vertex_u32(bank, vbase + uv0_offset));
+  }
+  if uvSet == 1u && (format0 & 0x100000u) != 0u {
+    let uv1_offset = product_heap[source_format_word + 2u] & 0xffu;
+    return unpack2x16float(frame_vertex_u32(bank, vbase + uv1_offset));
+  }
+  return vec2f(0.0);
 }
 fn frame_vertex_color(vertex: u32) -> vec4f {
-  return frame_vertex_resident(vertex, 3u);
+  let format0 = product_heap[source_format_word];
+  if (format0 & 0x200000u) == 0u { return vec4f(1.0); }
+  let stride = format0 & 0xffffu;
+  let color_offset = (product_heap[source_format_word + 2u] >> 8u) & 0xffu;
+  let bank = source_resident_address >> 30u;
+  let at = (source_resident_address & 0x3fffffffu) + vertex * stride + color_offset;
+  return vec4f(
+    f32(frame_vertex_u8(bank, at)) * (1.0 / 255.0),
+    f32(frame_vertex_u8(bank, at + 1u)) * (1.0 / 255.0),
+    f32(frame_vertex_u8(bank, at + 2u)) * (1.0 / 255.0),
+    1.0
+  );
 }
 fn frame_triangle_corner(triangle: u32, corner: u32) -> u32 {
   let byte = source_triangle_byte + triangle * 3u + corner;

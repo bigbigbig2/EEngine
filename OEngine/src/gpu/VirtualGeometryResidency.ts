@@ -72,8 +72,7 @@ export interface VirtualGeometryResidencyEvidenceV1 {
   readonly pinnedPages: number;
   readonly residentBytes: number;
   readonly retiringBytes: number;
-  /** Current authored bytes + resident directory + expanded attributes; not
-   * cumulative upload traffic, page padding, or OS residency. */
+  /** Current authored bytes; not cumulative upload traffic, page padding, or OS residency. */
   readonly residentPayloadBytes: number;
   readonly retiringPayloadBytes: number;
   readonly residentInternalSlackBytes: number;
@@ -665,7 +664,7 @@ export class VirtualGeometryResidency {
     return this.#prepareResidentPage(page).uploadBytes;
   }
   /** Capacity pressure leaves a verified completion queued; it never publishes
-   * only the raw page or silently loses the associated attribute demand. */
+   * only a partial page. */
   tryUploadPage(page: GeometryPageProductV1): boolean {
     if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed");
     if (this.#pageLocations.has(page.pageId)) return true;
@@ -823,118 +822,33 @@ export class VirtualGeometryResidency {
     }
     return value;
   }
-  /** Build all resident references before publishing the raw page location.
-   * Extra slots share the original bounded pool and the original page lifetime;
-   * failure returns every extra reservation and leaves raw-slot rollback to its
-   * caller. There is no independently visible attribute allocation. */
+  /** Validate and upload the raw decoded 256 KiB page directly into its single
+   * physical bank slot. GPU shaders decode compact vertex attributes directly
+   * from the raw page, requiring zero extra attribute slots or CPU expansion. */
   #writeResidentPage(
     page: GeometryPageProductV1,
     raw: { bankIndex: number; slotIndex: number },
     flags: number
   ): GeometryPageLocationV1 {
-    const cachedPlan = this.#preparedPages.get(page);
-    let prepared: ProductResidentPage;
-    if (cachedPlan !== undefined) {
-      if (this.#slotPool!.availableSlots < cachedPlan.slotCount - 1)
-        throw new RangeError("Product resident attribute reservation exceeds the remaining physical heap");
-      prepared = prepareProductResidentAttributes(this.#descriptor, page.pageId, page.bytes, true, cachedPlan);
-    } else if (this.#slotPool!.availableSlots >= 8) {
-      prepared = prepareProductResidentAttributes(this.#descriptor, page.pageId, page.bytes, true);
-      if (this.#slotPool!.availableSlots < prepared.slotCount - 1)
-        throw new RangeError("Product resident attribute reservation exceeds the remaining physical heap");
-    } else {
-      const plan = this.#prepareResidentPage(page);
-      if (this.#slotPool!.availableSlots < plan.slotCount - 1)
-        throw new RangeError("Product resident attribute reservation exceeds the remaining physical heap");
-      prepared = prepareProductResidentAttributes(this.#descriptor, page.pageId, page.bytes, true, plan);
-    }
-    const extras: { bankIndex: number; slotIndex: number }[] = [];
-    const allocate = () => {
-      const slot = this.#slotPool!.allocate();
-      if (!slot) throw new RangeError("Product resident attributes exceed the shared physical heap budget");
-      extras.push(slot);
-      return slot;
-    };
-    try {
-      const root = prepared.directoryByteOffset > 0 ? raw : allocate();
-      const directory = new Uint32Array(prepared.directoryWords);
-      for (const group of prepared.groups) directory[group.offset / 16] = group.descriptorBase;
-      const groupDescriptors = new Map(prepared.groups.map((group) => [group.offset, group.descriptorBase]));
-      let current = root;
-      let cursor = prepared.directoryByteOffset + Math.ceil(directory.byteLength / 16) * 16;
-      // Only authored payload is needed. Upload it before writing into padding.
-      this.device.queue.writeBuffer(
-        this.#banks[raw.bankIndex]!,
-        raw.slotIndex * OEGPACK_V3_PAGE_BYTES,
-        new Uint8Array(page.bytes, 0, prepared.rawPayloadBytes)
-      );
-      let batchSlot = current;
-      let batchStartCursor = cursor;
-      let batchMeshlets: Float32Array<ArrayBuffer>[] = [];
-      let batchFloats = 0;
-      const flushSlotBatch = (): void => {
-        if (batchMeshlets.length === 0) return;
-        const targetOffset = batchSlot.slotIndex * OEGPACK_V3_PAGE_BYTES + batchStartCursor;
-        if (batchMeshlets.length === 1) {
-          this.device.queue.writeBuffer(this.#banks[batchSlot.bankIndex]!, targetOffset, batchMeshlets[0]!);
-        } else {
-          const coalesced = new Float32Array(batchFloats);
-          let floatOffset = 0;
-          for (const slice of batchMeshlets) {
-            coalesced.set(slice, floatOffset);
-            floatOffset += slice.length;
-          }
-          this.device.queue.writeBuffer(this.#banks[batchSlot.bankIndex]!, targetOffset, coalesced);
-        }
-        batchMeshlets = [];
-        batchFloats = 0;
-      };
-      for (const meshlet of prepared.meshlets) {
-        if (cursor + meshlet.values.byteLength > OEGPACK_V3_PAGE_BYTES) {
-          flushSlotBatch();
-          current = allocate();
-          cursor = 0;
-          batchSlot = current;
-          batchStartCursor = 0;
-        }
-        const slot = current;
-        const word = (slot.slotIndex * OEGPACK_V3_PAGE_BYTES + cursor) / 4;
-        directory[groupDescriptors.get(meshlet.groupOffset)! + meshlet.localMeshlet] =
-          ((slot.bankIndex << 30) | word) >>> 0;
-        if (batchMeshlets.length === 0) {
-          batchSlot = slot;
-          batchStartCursor = cursor;
-        }
-        batchMeshlets.push(meshlet.values);
-        batchFloats += meshlet.values.length;
-        cursor += meshlet.values.byteLength;
-      }
-      flushSlotBatch();
-      this.device.queue.writeBuffer(
-        this.#banks[root.bankIndex]!,
-        root.slotIndex * OEGPACK_V3_PAGE_BYTES + prepared.directoryByteOffset,
-        directory
-      );
-      const slots = Object.freeze([raw, ...extras]);
-      this.#pageSlots.set(page.pageId, slots);
-      this.#pagePayloadBytes.set(page.pageId, prepared.uploadBytes);
-      for (const slot of slots) this.#slotOwners.set(slotKey(slot.bankIndex, slot.slotIndex), page.pageId);
-      this.#uploadedBytes +=
-        prepared.rawPayloadBytes +
-        directory.byteLength +
-        prepared.meshlets.reduce((sum, meshlet) => sum + meshlet.values.byteLength, 0);
-      return Object.freeze({
-        ...raw,
-        residentBankIndex: root.bankIndex,
-        residentSlotIndex: root.slotIndex,
-        residentByteOffset: prepared.directoryByteOffset,
-        productGeneration: this.#productGeneration,
-        flags
-      });
-    } catch (error) {
-      for (const slot of extras) this.#slotPool!.release(slot.bankIndex, slot.slotIndex);
-      throw error;
-    }
+    const prepared = this.#prepareResidentPage(page);
+    this.device.queue.writeBuffer(
+      this.#banks[raw.bankIndex]!,
+      raw.slotIndex * OEGPACK_V3_PAGE_BYTES,
+      new Uint8Array(page.bytes, 0, prepared.rawPayloadBytes)
+    );
+    const slots = Object.freeze([raw]);
+    this.#pageSlots.set(page.pageId, slots);
+    this.#pagePayloadBytes.set(page.pageId, prepared.rawPayloadBytes);
+    this.#slotOwners.set(slotKey(raw.bankIndex, raw.slotIndex), page.pageId);
+    this.#uploadedBytes += prepared.rawPayloadBytes;
+    return Object.freeze({
+      ...raw,
+      residentBankIndex: raw.bankIndex,
+      residentSlotIndex: raw.slotIndex,
+      residentByteOffset: prepared.directoryByteOffset,
+      productGeneration: this.#productGeneration,
+      flags
+    });
   }
   #history(pageId: number): PageEvictionHistory {
     let history = this.#pageHistory.get(pageId);

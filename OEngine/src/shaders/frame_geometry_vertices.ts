@@ -91,7 +91,7 @@ fn frame_vertices_setup(slot: u32) {
         product
           ? `if surface_source_product {
         resident_address = product_source_resident_address;
-        vertex_indices = 0xffffffffu;
+        vertex_indices = product_source_format_word;
       }`
           : ""
       }

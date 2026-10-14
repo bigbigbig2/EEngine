@@ -203,14 +203,11 @@ test("page tail directory and decoded attributes never overwrite authored geomet
       const buffer = residency.bank(location.bankIndex);
       const base = location.slotIndex * 262144;
       assert.deepEqual(buffer.bytes.slice(base, base + 176), new Uint8Array(original.bytes, 0, 176));
-      const view = new DataView(buffer.bytes.buffer);
-      const directory = base + location.residentByteOffset;
-      const descriptorWord = view.getUint32(directory, true);
-      const address = view.getUint32(directory + descriptorWord * 4, true);
-      const values = new DataView(residency.bank(address >>> 30).bytes.buffer);
-      const attributeOffset = (address & 0x3fffffff) * 4;
+      assert.deepEqual(buffer.bytes.slice(base + 176, base + 262144), new Uint8Array(262144 - 176));
+      const view = new DataView(buffer.bytes.buffer, base, 176);
+      const vertexDataOffset = view.getUint32(56, true);
       assert.deepEqual(
-        [0, 1, 2].map((axis) => values.getFloat32(attributeOffset + 80 + axis * 4, true)),
+        [0, 1, 2].map((axis) => view.getFloat32(vertexDataOffset + axis * 4, true)),
         [-0.5, -0.5, 0]
       );
     }

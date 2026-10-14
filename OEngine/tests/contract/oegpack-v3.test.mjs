@@ -318,7 +318,8 @@ test("A8 bootstrap owner uploads fixed slots, resolves groups, and destroys ever
   const metadataBuffer = buffers[0];
   const pageLocationByteOffset =
     unpackGeometryProductMetadataHeapHeaderV1(metadataHeapWrites[0]).pageLocationWordOffset * 4;
-  const pageWrites = writes.filter((write) => write.bytes === 262144);
+  const banks = residency.bindings().banks;
+  const pageWrites = writes.filter((write) => banks.includes(write.buffer));
   const pageLocationWrites = writes.filter(
     (write) => write.buffer === metadataBuffer && write.offset === pageLocationByteOffset,
   );
@@ -333,10 +334,10 @@ test("A8 bootstrap owner uploads fixed slots, resolves groups, and destroys ever
     const expected = new Set(opened.bootstrapPageIds).has(opened.groups[groupId].pageId);
     assert.equal(residency.groupAddress(groupId) !== undefined, expected);
   }
-  const banks = residency.bindings().banks;
   const physicalUploads = writes.filter((write) => banks.includes(write.buffer));
   assert.equal(residency.evidence().uploadedBytes, physicalUploads.reduce((sum, write) => sum + write.bytes, 0));
-  assert.ok(residency.evidence().uploadedBytes > pageWrites.length * 262144, "expanded attributes are real uploads");
+  assert.equal(residency.evidence().residentBytes, pageWrites.length * 262144, "each page occupies strictly one 256 KiB slot with zero extra attribute slots");
+  assert.ok(residency.evidence().uploadedBytes <= pageWrites.length * 262144, "only raw page payload bytes are uploaded");
   residency.destroy();
   assert.ok(buffers.every((buffer) => buffer.destroyed));
 });

@@ -34,12 +34,14 @@ export interface ProductResidentPage {
 
 /** Immutable page fulfillment, using the existing decoded V3 format. Source
  * bounds/offsets are checked here, once, before publishing resident references.
- * No hash identity or cross-LOD correspondence is inferred from vertex values. */
+ * GPU shaders decode compact vertex attributes directly from the raw 256 KiB page
+ * slot, so residency occupies strictly 1 physical slot per page with zero CPU
+ * 96B attribute expansion unless `decode = true` is explicitly requested by a test. */
 export function prepareProductResidentAttributes(
   descriptor: GeometryProductDescriptorV1,
   pageId: number,
   bytes: ArrayBuffer,
-  decode = true,
+  decode = false,
   validatedPlan?: ProductResidentPage,
 ): ProductResidentPage {
   const page = new DataView(bytes);
@@ -184,12 +186,9 @@ export function prepareProductResidentAttributes(
             values[target + 15] = 1;
           }
           const pAt = at + position;
-          const px = page.getFloat32(pAt, true);
-          const py = page.getFloat32(pAt + 4, true);
-          const pz = page.getFloat32(pAt + 8, true);
-          values[target + 20] = px;
-          values[target + 21] = py;
-          values[target + 22] = pz;
+          values[target + 20] = page.getFloat32(pAt, true);
+          values[target + 21] = page.getFloat32(pAt + 4, true);
+          values[target + 22] = page.getFloat32(pAt + 8, true);
           values[target + 23] = 1;
         }
         for (let i = 0; i < values.length; i++) {
@@ -210,25 +209,14 @@ export function prepareProductResidentAttributes(
   const tailOffset = Math.ceil(rawPayloadBytes / 16) * 16;
   const useRawTail = tailOffset + Math.ceil(directoryBytes / 16) * 16 <= OEGPACK_V3_PAGE_BYTES;
   const directoryByteOffset = useRawTail ? tailOffset : 0;
-  let slotCount = useRawTail ? 1 : 2,
-    cursor = directoryByteOffset + Math.ceil(directoryBytes / 16) * 16;
-  let uploadBytes = rawPayloadBytes + directoryBytes;
-  for (const meshlet of meshlets) {
-    if (cursor + meshlet.byteLength > OEGPACK_V3_PAGE_BYTES) {
-      slotCount++;
-      cursor = 0;
-    }
-    cursor += meshlet.byteLength;
-    uploadBytes += meshlet.byteLength;
-  }
   return Object.freeze({
     directoryByteOffset,
     rawPayloadBytes,
     directoryWords: mapWords + descriptorWords,
     groups: Object.freeze(groups),
     meshlets: Object.freeze(meshlets),
-    slotCount,
-    uploadBytes,
+    slotCount: 1,
+    uploadBytes: rawPayloadBytes,
   });
 }
 
