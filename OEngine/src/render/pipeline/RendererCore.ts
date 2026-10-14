@@ -123,6 +123,12 @@ import {
   validateRendererConfig,
   type RendererConfig,
 } from "../RendererConfig.js";
+import {
+  AMBIENT_OCCLUSION_DEFAULT_SETTINGS,
+  ambientOcclusionContentKey,
+  resolveAmbientOcclusionSettings,
+  type AmbientOcclusionSettings,
+} from "../ao/AmbientOcclusionSettings.js";
 import { prepareMaterialTextureProducts } from "../../assets/PcMaterialTextures.js";
 import type { GraphicsMemoryEvidence, GraphicsOwnerCreationEvidence } from "../../gpu/GraphicsContext.js";
 import { PhysicalEnvironmentRuntime } from "../environment/PhysicalEnvironmentRuntime.js";
@@ -420,6 +426,9 @@ export class Renderer {
   private _temporalResetPending = false;
   private readonly _rendererConfig: RendererConfig;
   private _initializationConfig: RendererConfig | null = null;
+  private _ambientOcclusionSettings = AMBIENT_OCCLUSION_DEFAULT_SETTINGS;
+  private _ambientOcclusionKey = ambientOcclusionContentKey(AMBIENT_OCCLUSION_DEFAULT_SETTINGS);
+  private _committedAmbientOcclusionKey: string | null = null;
   private _capabilities: RendererCapabilities | null = null;
   private _adapterInfo: BenchmarkAdapterIdentity | null = null;
   private _frame_count = 0;
@@ -534,7 +543,6 @@ export class Renderer {
   packed_geometry_work_budget: GeometryWorkBudget = DEFAULT_GEOMETRY_WORK_BUDGET;
   packed_visibility_cone_enabled = true;
   packed_visibility_hzb_enabled = true;
-  xe_gtao_enabled = true;
   /** Perf-host diagnostic profile; production keeps both post stages enabled. */
   fsr3_enabled = true;
   bloom_enabled = true;
@@ -549,6 +557,7 @@ export class Renderer {
   constructor(config: RendererConfig = {}) {
     this._rendererConfig = mergeRendererConfig(DEFAULT_RENDERER_CONFIG, config);
     validateRendererConfig(this._rendererConfig);
+    this.setAmbientOcclusionSettings(this._rendererConfig.ambientOcclusion ?? {});
   }
   get graphics(): GraphicsContext {
     return this._graphics;
@@ -574,6 +583,19 @@ export class Renderer {
   }
   get vsmCapabilities() {
     return this._vsm?.capabilities ?? null;
+  }
+  get ambientOcclusionSettings(): Readonly<AmbientOcclusionSettings> {
+    return this._ambientOcclusionSettings;
+  }
+  /** Updates desired state atomically. GPU work and color reset belong to the
+   * next frame transaction, so edits before initialization/while deferred are safe. */
+  setAmbientOcclusionSettings(patch: Partial<AmbientOcclusionSettings>): void {
+    const next = resolveAmbientOcclusionSettings(this._ambientOcclusionSettings, patch);
+    if (next === this._ambientOcclusionSettings) {
+      return;
+    }
+    this._ambientOcclusionSettings = next;
+    this._ambientOcclusionKey = ambientOcclusionContentKey(next);
   }
   /** Immutable tuning snapshot. Invalid values throw before changing live state. */
   get vsmSettings(): Readonly<VsmSettings> {
@@ -1647,6 +1669,7 @@ export class Renderer {
     if (!gpu) throw new Error("WebGPU is unavailable");
     const config = mergeRendererConfig(this._rendererConfig, options.config);
     validateRendererConfig(config);
+    this.setAmbientOcclusionSettings(options.config?.ambientOcclusion ?? {});
     this._initializationConfig = config;
     this.resolutionScale = config.renderScale ?? 1;
     let context = options.context;
@@ -1799,8 +1822,8 @@ export class Renderer {
       }
     }
     this._xeGtaoPreparation = new XeGtaoPreparationPass(device);
-    this._xeGtaoMain = new XeGtaoMainPass(device, "high");
-    this._xeGtaoDenoise = new XeGtaoDenoisePass(device, 1);
+    this._xeGtaoMain = new XeGtaoMainPass(device);
+    this._xeGtaoDenoise = new XeGtaoDenoisePass(device);
     this._present = new SurfacePresentPass(device, this._format, this._displayProfile);
     this._surface = new SurfaceV4(device, true, this._graphics, true);
     this._finalPixelLighting = new FinalPixelLightingPublication(device, this._graphics);
@@ -2006,9 +2029,16 @@ export class Renderer {
       fsr3Enabled: this.fsr3_enabled,
     });
     const cameraCut = this._temporalResetPending;
+    const ambientOcclusion = this._ambientOcclusionSettings;
+    const ambientOcclusionKey = runtime.nativeMaterials!.hasLit ? this._ambientOcclusionKey : null;
     let cameraChanged = false;
     let localLightWork: LocalLightWorkFrame | null = null;
     try {
+      if (ambientOcclusionKey !== this._committedAmbientOcclusionKey) {
+        this._temporal.histories.invalidateNames(["color"], "explicit");
+        this._nativeTemporal.invalidate();
+        this._fsr3.invalidate();
+      }
       // Tail-first upload is already committed. Promote once in the ordinary
       // frame transaction; abort retains the coarse publication for retry.
       if (!this.promotedTextureRuntimes.has(runtime)) {
@@ -2321,6 +2351,7 @@ export class Renderer {
       }
       const graphBindings: SceneFrameBindings = {
         kind: "scene",
+        ambientOcclusion,
         deviceEpoch: this.deviceEpoch,
         frameIndex,
         cameraRevision: this._cameraRevision,
@@ -2377,7 +2408,11 @@ export class Renderer {
         activeSets,
         textureBankMask,
         hasLit,
-        aoProfile: this.xe_gtao_enabled && hasLit && activeSets.length > 0 ? "scalar-high" : "off",
+        aoProfile:
+          ambientOcclusion.enabled && ambientOcclusion.strength > 0 && hasLit && activeSets.length > 0
+            ? `scalar-${ambientOcclusion.quality}`
+            : "off",
+        aoDenoisePasses: ambientOcclusion.denoisePasses,
         shadowProfile: vsmEnabled ? this._vsm!.profile : hasLit ? "shadow-disabled" : "off",
         physicalEnvironment: this._environmentRuntime !== null,
         authoredEnvironment: hasLit && scene.lights.environment !== undefined,
@@ -2463,6 +2498,7 @@ export class Renderer {
       view.finish_frame(command, frameIndex);
       command.onFinished.addOne(() => {
         this._temporalResetPending = false;
+        this._committedAmbientOcclusionKey = ambientOcclusionKey;
       });
       this._profiler.measure("submit", () => this._frameCoordinator.submitFrame(frame));
       if (temporalPolicy === "upscale") {
@@ -2579,6 +2615,9 @@ export class Renderer {
         },
       });
       command.encodeCompiledGraph(compiled, bindings);
+      command.onFinished.addOne(() => {
+        this._committedAmbientOcclusionKey = null;
+      });
       this._frameCoordinator.submitFrame(frame);
       if (this._historyRuntime !== null) {
         this._historyRuntime = null;
@@ -2695,6 +2734,7 @@ export class Renderer {
       });
       try {
         await replacement.initialize({ context: checkpoint.context, config: checkpoint.config });
+        replacement.setAmbientOcclusionSettings(checkpoint.ambientOcclusion);
         replacement.pixel_ratio = checkpoint.pixelRatio;
         replacement.resize(checkpoint.width, checkpoint.height);
         replacement.setResolutionScale(checkpoint.resolutionScale);
@@ -2826,6 +2866,7 @@ export class Renderer {
     return {
       context: this.context,
       config: this._initializationConfig!,
+      ambientOcclusion: this._ambientOcclusionSettings,
       width: this._width,
       height: this._height,
       resolutionScale: this.resolutionScale,

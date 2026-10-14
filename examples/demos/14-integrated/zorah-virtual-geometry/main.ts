@@ -484,7 +484,7 @@ function applyControls(): void {
   renderer.packed_visibility_hzb_enabled = input("hzb").checked;
   renderer.packed_visibility_cone_enabled = input("cone").checked;
   renderer.fsr3_enabled = input("taa").checked || Number(select("scale").value) < 1;
-  renderer.xe_gtao_enabled = input("ao").checked;
+  renderer.setAmbientOcclusionSettings({ enabled: input("ao").checked });
   renderer.bloom_enabled = input("bloom").checked;
   renderer.internal_resolution_scale = Number(select("scale").value);
   camera.fov_degrees = Number(input("fov").value);

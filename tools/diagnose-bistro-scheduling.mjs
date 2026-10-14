@@ -83,7 +83,7 @@ try {
    probeMotion=false;camera.transform.position.set(...probeOrigin);camera.transform.lookAt(controls.target);controls.update();
    renderer.maxFramesInFlight=limit;renderer.packed_visibility_hzb_enabled=hzb;renderer.packed_visibility_current_hzb_late_recheck_enabled=late;
    renderer.onFrameAvailable.silent=!wake;
-   renderer.fsr3_enabled=effects!=="off";renderer.temporal_jitter_enabled=effects!=="off";renderer.vsm_enabled=false;renderer.xe_gtao_enabled=false;renderer.bloom_enabled=false;
+   renderer.fsr3_enabled=effects!=="off";renderer.temporal_jitter_enabled=effects!=="off";renderer.vsm_enabled=false;renderer.setAmbientOcclusionSettings({enabled:false});renderer.bloom_enabled=false;
    profiled=profile;renderer.perf_gpu_counters_enabled=profile;
    if(profile)renderer.profiler.setMode("record");
    renderer.profiler.configure({enabled:profile,gpuTimingMode:profile?"full":"production",gpuSampleInterval:1,gpuCounterSampleInterval:4,historyCapacity:1024,warmupFrames:0,cpuPassTimings:profile});

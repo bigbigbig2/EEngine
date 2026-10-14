@@ -410,6 +410,11 @@ export {
   validateRendererConfig
 } from "./render/RendererConfig.js";
 export type { RendererConfig } from "./render/RendererConfig.js";
+export {
+  AMBIENT_OCCLUSION_DEFAULT_SETTINGS,
+  resolveAmbientOcclusionSettings,
+  type AmbientOcclusionSettings,
+} from "./render/ao/AmbientOcclusionSettings.js";
 export { DEFAULT_EXPOSURE_SETTINGS } from "./render/temporal/ExposureSettings.js";
 export type { ExposureSettings, ExposureDiagnostics } from "./render/temporal/ExposureSettings.js";
 export type { RendererDebugConfig, ResolvedRendererDebugConfig } from "./addons/debug/RendererDebugConfig.js";

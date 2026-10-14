@@ -49,8 +49,8 @@ export type FrameProgramStage =
   | "debug-view"
   | "present";
 
-/** Finite physical AO profiles; only off is requested by production until C4–C6. */
-export type FrameAoProfile = "off" | "scalar-high";
+/** Finite physical AO profiles; numeric tuning stays in frame bindings. */
+export type FrameAoProfile = "off" | "scalar-medium" | "scalar-high";
 export type FrameVsmProfile = "off" | "vsm-directional-high" | "vsm-directional-bounded" | "shadow-disabled";
 
 export type FrameProductFact = Readonly<{
@@ -92,6 +92,7 @@ export type FrameProgramRequest = FrameProgramBase &
         textureBankMask?: number;
         hasLit: boolean;
         aoProfile?: FrameAoProfile;
+        aoDenoisePasses?: 0 | 1 | 2 | 3;
         shadowProfile?: FrameVsmProfile;
         physicalEnvironment: boolean;
         authoredEnvironment?: boolean;
@@ -379,6 +380,7 @@ const INPUT_CONTRACTS: Readonly<
     visibility: { domain: "internal-full", value: "packed VisibilityKey" },
     depth: { domain: "internal-full", value: "reverse depth" },
     "meshlet-work": { domain: "gpu-work", value: "bounded GPU MeshletWork" },
+    "indirect-visibility": { domain: "internal-full", value: "unexposed indirect visibility [0,1]" },
   },
   "bloom-hdr": { "reconstructed-color": { domain: "output-full", value: "working-linear pre-exposed" } },
   "adapted-exposure": {
@@ -493,11 +495,16 @@ function normalizeRequest(request: FrameProgramRequest): FrameProgramRequest {
   ) {
     throw new RangeError("Frame Program texture bank mask is invalid");
   }
-  if (request.aoProfile !== undefined && request.aoProfile !== "off" && request.aoProfile !== "scalar-high") {
+  const aoProfile = request.aoProfile ?? "off";
+  if (aoProfile !== "off" && aoProfile !== "scalar-medium" && aoProfile !== "scalar-high") {
     throw new RangeError("Frame Program AO profile is invalid");
   }
-  if (request.aoProfile === "scalar-high" && (!request.hasLit || activeSets.length === 0)) {
+  if (aoProfile !== "off" && (!request.hasLit || activeSets.length === 0)) {
     throw new RangeError("XeGTAO requires a lit Surface consumer");
+  }
+  const aoDenoisePasses = request.aoDenoisePasses ?? 1;
+  if (!Number.isInteger(aoDenoisePasses) || aoDenoisePasses < 0 || aoDenoisePasses > 3) {
+    throw new RangeError("Frame Program AO denoise count is invalid");
   }
   const shadowProfile = request.shadowProfile ?? "off";
   if (
@@ -525,6 +532,8 @@ function normalizeRequest(request: FrameProgramRequest): FrameProgramRequest {
     ...request,
     activeSets: Object.freeze(activeSets),
     textureBankMask: request.textureBankMask ?? 0xffff,
+    aoProfile,
+    aoDenoisePasses: aoProfile === "off" ? 0 : aoDenoisePasses,
     shadowProfile,
     fsr3Enabled: request.fsr3Enabled !== false,
     bloomEnabled: request.bloomEnabled !== false,
@@ -557,6 +566,7 @@ function structuralKey(request: FrameProgramRequest): string {
     request.textureBankMask ?? 0xffff,
     request.hasLit,
     request.aoProfile ?? "off",
+    request.aoDenoisePasses ?? 0,
     request.shadowProfile ?? "off",
     request.physicalEnvironment,
     request.authoredEnvironment === true,
@@ -578,7 +588,14 @@ function dependencies(product: FrameProduct, request: FrameProgramRequest): read
     case "bloom-hdr":
       return ["reconstructed-color"];
     case "debug-color":
-      return ["visibility", "depth", "meshlet-work"];
+      return [
+        "visibility",
+        "depth",
+        "meshlet-work",
+        ...(request.debugView === RenderDebugViewValue.AmbientOcclusion && request.aoProfile !== "off"
+          ? ["indirect-visibility" as const]
+          : []),
+      ];
     case "adapted-exposure":
       return ["reconstructed-color"];
     case "reconstructed-color": {
@@ -614,7 +631,7 @@ function dependencies(product: FrameProduct, request: FrameProgramRequest): read
           request.shadowProfile === "vsm-directional-bounded")
           ? ["shadow-sampling" as const]
           : []),
-        ...(request.aoProfile === "scalar-high" ? ["indirect-visibility" as const] : []),
+        ...(request.aoProfile !== "off" ? ["indirect-visibility" as const] : []),
       ];
     case "indirect-visibility":
       return ["visibility", "depth"];
@@ -744,7 +761,7 @@ function createProgram(request: FrameProgramRequest, key: string): FrameProgram 
     request.shadowProfile !== "shadow-disabled"
       ? ["vsm" as const]
       : []),
-    ...(request.aoProfile === "scalar-high" ? ["xe-gtao" as const] : []),
+    ...(request.aoProfile !== "off" ? ["xe-gtao" as const] : []),
     "surface",
     ...(request.physicalEnvironment ? ["physical-sky" as const, "aerial" as const] : []),
     ...(frameTemporalPolicy(request) === "upscale" || temporalDebug

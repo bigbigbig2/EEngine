@@ -57,7 +57,7 @@ async function start(): Promise<void> {
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 }
   });
   renderer.shadowVisibilityEnabled = false;
-  renderer.xe_gtao_enabled = ao;
+  renderer.setAmbientOcclusionSettings({ enabled: ao });
   renderer.packed_visibility_hzb_enabled = false;
   renderer.packed_visibility_cone_enabled = false;
   renderer.packed_meshlet_work_compaction = "portable";

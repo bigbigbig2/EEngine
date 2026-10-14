@@ -66,7 +66,10 @@ fn denoise(@builtin(global_invocation_id) id: vec3u) {
       xe_ao_at(bottom + vec2i(1, 0))));
   // XeGTAO_Output quantizes after filtering, not before the final 1.5 scale.
   let result = floor(clamp(sum / sum_weight * XE_FINAL_SCALE, 0.0, 1.0) * 255.0 + 0.5) / 255.0;
-  textureStore(output_ao, p, vec4f(result, 0.0, 0.0, 0.0));
+  ${finalApply ? `// Artistic strength follows the complete quantized donor output.
+  let effective = 1.0 - xe.output_control.x * (1.0 - result);
+  let output_value = floor(clamp(effective, 0.0, 1.0) * 255.0 + 0.5) / 255.0;` : "let output_value = result;"}
+  textureStore(output_ao, p, vec4f(output_value, 0.0, 0.0, 0.0));
 }
 `;
 }

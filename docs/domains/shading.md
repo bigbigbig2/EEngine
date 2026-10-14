@@ -20,6 +20,9 @@ verifies:
     - OEngine/src/render/vsm/VsmSettings.ts
     - OEngine/src/render/vsm/VsmFilterNoise.ts
     - OEngine/src/render/ao
+    - OEngine/src/render/pipeline/RendererCore.ts
+    - OEngine/src/render/RendererConfig.ts
+    - OEngine/src/shaders/xegtao_denoise.ts
     - OEngine/src/render/program/FrameProgram.ts
     - OEngine/src/material/CanonicalMaterial.ts
     - OEngine/src/material/NativeMaterialMutation.ts
@@ -31,7 +34,7 @@ verifies:
 
 ## 当前源码接线
 
-核对日期：2026-10-14，源码基线`2caf5fe2`。Surface 和 LocalLightWork 使用唯一生产入口；Lighting阶段结果与原验收范围只读 [M3 执行计划](../next-execution/eengine-v4-lighting-execution-2026-10.md)。未来功能方向从workstream读取，本页不把目标能力写成生产事实。
+核对日期：2026-10-14，底座复查基线`2caf5fe2`，本日AO增量以本文直接消费者段及模块执行记录为准。Surface 和 LocalLightWork 使用唯一生产入口；Lighting阶段结果与原验收范围只读 [M3 执行计划](../next-execution/eengine-v4-lighting-execution-2026-10.md)。未来功能方向从workstream读取，本页不把目标能力写成生产事实。
 
 [GpuNativeMaterialScene](../../OEngine/src/gpu/GpuNativeMaterialScene.ts) 从 scene material slots、GraphCompiler、TextureResidency 和 cooked Products 建立 immutable native publication。参数及 dynamic inputs 是实例数据；完整物理资源集合决定 BindingSet，Program 由 shader/layout 结构决定。async PSO 未就绪时延迟整 tick；成功提交才切 active，abort 保留 candidate 供 retry，旧 publication 按实际 fence 退休。
 
@@ -51,7 +54,7 @@ verifies:
 
 ## 直接消费者与边界
 
-XeGTAO已由FrameProgramLowering真正调用preparation→Main→denoise，Native读取最终scalar AO texture，乘入diffuse IBL与material occlusion；没有consumer的packed副本可被图裁掉。当前主图只选scalar-high，固定radiusMeters=1、metersPerWorldUnit=1、noiseIndex=0；底层存在medium/high、去噪及曲线等参数，Renderer尚无完整设置入口。AO法线来自深度，不是材质normal产品；现行AO没有专属时序积累、bent normal或完整specular occlusion。这些是生产能力边界，不因旧类注释仍写C4未激活而否认实际调用。
+2026-10-14 AO参数化：RendererConfig.ambientOcclusion提供七项初值，Renderer的ambientOcclusionSettings/setAmbientOcclusionSettings提供不可变快照/原子patch；旧xe_gtao_enabled已删除。FrameProgram按off/scalar-medium/scalar-high与0..3去噪遍数选择有限图，半径/世界尺度/power/strength从逐帧bindings晚绑定，不改变材质Program身份。三个稳定owner保留同一Hilbert LUT，完整preparation→Main→denoise仍发布最终scalar供Native binding11乘入diffuse IBL与material occlusion；没有consumer的packed副本继续裁掉。strength只在末遍完整恢复/量化后混合，不影响直接光/镜面IBL，不重复乘材质occlusion；0遍仍有一次final恢复。默认High/1遍、1m/每单位1m、power2.2与noise0保持。独立AmbientOcclusion debug读取实际有效scalar，背景/off/unlit为白，区别于材质Occlusion；空Scene仍走clear-present。AO法线来自深度，没有专属时序积累、bent normal或完整specular occlusion。结果与验证限制见[AO执行](../next-execution/eengine-ao-functionality-execution-2026-10.md#5-ao-1-实施与核对2026-10-14)。
 
 当前FrameProgram没有SSR、GI、透明合成或局部体积光阶段；对应SSR/indirect debug输入为null。GPUSceneEnvironmentContext的probe/Brick4/volumetrics惰性数据、旧SSR shader、MomentOitReference及debug枚举不能证明新效果已接入。非零transmission仍被CanonicalMaterial明确拒绝，不能仅取消拒绝而宣称折射/透射可用。
 

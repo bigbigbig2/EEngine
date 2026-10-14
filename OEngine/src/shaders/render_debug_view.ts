@@ -62,6 +62,26 @@ import { GBUFFER_ENCODE_WGSL } from "./gbuffer_encode.js";
 
 export const RENDER_DEBUG_VIEW_FORMAT = GPU_HDR_FORMAT;
 
+/** Reads the final scalar product, with no lighting, exposure or material AO. */
+export function ambientOcclusionDebugWgsl(active: boolean): string {
+  return /* wgsl */ `
+${SSR_FULLSCREEN_VERTEX_WGSL}
+${active ? "@group(0) @binding(0) var visibility: texture_2d<f32>;" : ""}
+@group(0) @binding(${active ? 1 : 0}) var depth: texture_depth_2d;
+@group(0) @binding(${active ? 2 : 1}) var<uniform> settings: vec4u;
+@fragment fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
+  let size = textureDimensions(depth);
+  let coordinate = vec2i(min(
+    vec2u(position.xy) * size / max(settings.xy, vec2u(1u)), size - vec2u(1u)));
+  var value = 1.0;
+  ${active ? `if (textureLoad(depth, coordinate, 0) > 0.0) {
+    value = textureLoad(visibility, coordinate, 0).r;
+  }` : ""}
+  return vec4f(vec3f(value), 1.0);
+}
+`;
+}
+
 const DEBUG_VIEW_SETTINGS_WGSL = /* wgsl */ `
 struct DebugViewSettings {
   output_size: vec2u,

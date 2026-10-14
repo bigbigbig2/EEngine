@@ -506,7 +506,7 @@ function compileSceneGraph(
     observed.make_side_effect();
   }
   const scalarAo =
-    plan.request.aoProfile === "scalar-high"
+    plan.request.aoProfile !== "off"
       ? (() => {
           if (!plan.stages.includes("xe-gtao") || !plan.products.includes("indirect-visibility")) {
             throw new Error("Frame Program omitted the requested XeGTAO producer");
@@ -517,15 +517,22 @@ function compileSceneGraph(
             depth: result.frame.depth,
             frame: bind("xe-gtao-frame", (bindings) => ({
               camera: bindings.view.gpu_camera_state,
-              // The production scene scale is one metre per world unit. A scene-scale
-              // contract can replace this pair without changing the donor math.
-              radiusMeters: 1,
-              metersPerWorldUnit: 1,
+              radiusMeters: bindings.ambientOcclusion.radiusMeters,
+              metersPerWorldUnit: bindings.ambientOcclusion.metersPerWorldUnit,
+              strength: bindings.ambientOcclusion.strength,
+              tuning: { finalValuePower: bindings.ambientOcclusion.finalValuePower },
               noiseIndex: 0,
             })),
           });
-          const main = owners.xeGtaoMain.addToGraph(graph, { prepared });
-          const visibility = owners.xeGtaoDenoise.addToGraph(graph, { prepared, main });
+          const main = owners.xeGtaoMain.addToGraph(graph, {
+            prepared,
+            quality: plan.request.aoProfile === "scalar-medium" ? "medium" : "high",
+          });
+          const visibility = owners.xeGtaoDenoise.addToGraph(graph, {
+            prepared,
+            main,
+            denoisePasses: plan.request.aoDenoisePasses,
+          });
           const descriptor = graph.getDescriptor(visibility.packed);
           if (
             descriptor?.kind !== "transient_buffer" ||
@@ -891,6 +898,7 @@ function compileSceneGraph(
             visibilityKey: result.frame.visibilityKey,
             packedVisibility: result.debugResolve,
             depth: result.frame.depth,
+            ambientOcclusion: scalarAo ?? null,
             velocity: seed,
             gPbr: null,
             gNormal: null,

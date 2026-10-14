@@ -69,12 +69,12 @@ verifies:
 
 ## 2. 代码提供的事实与约束
 
-本轮在 `aa04fd65` 再查生产调用；其生产代码与前次 `2caf5fe2` 相同。类、旧 shader、注释、debug 名称和历史测试均不能单独证明功能接入。
+初次在 `aa04fd65` 再查生产调用，其生产代码与前次 `2caf5fe2` 相同；下表AO/配置两行随首个模块实际切换更新，结果只回链模块执行文。类、旧 shader、注释、debug 名称和历史测试均不能单独证明功能接入。
 
 | 领域 | 当前源码事实 | 对粗路线的影响 |
 |---|---|---|
-| 主帧与配置 | `RendererCore` 创建 owner；`FrameProgram`/Lowering 形成唯一生产图；`RendererConfig` 主要是不可变能力/执行配置，尚无完整 AO/SSR/GI/VT 设置；`RenderFeatureRegistry` 不在生产选择链 | 扩展已有设置→需求→图/PSO→绑定链，不先加 EffectsManager 或第二个 feature scheduler |
-| AO | 已有公开 xe_gtao_enabled 开关；scalar XeGTAO preparation→main→denoise 实际进入 Native diffuse IBL，主图固定 radius=1、world scale=1、noise=0，仅选 scalar-high | 完善参数、质量、诊断与生命周期，整理已有开关；不重新发明 AO，不自动加入 bent normal/专属 temporal |
+| 主帧与配置 | `RendererCore` 创建 owner；`FrameProgram`/Lowering 形成唯一生产图；`RendererConfig` 已有AO初值与运行期独立快照，尚无SSR/GI/VT设置；`RenderFeatureRegistry` 不在生产选择链 | 继续扩展真实设置→需求→图/PSO→绑定链，不先加 EffectsManager 或第二个 feature scheduler |
+| AO | scalar XeGTAO完整链实际进入Native diffuse IBL；七项设置、Medium/High/0..3去噪和独立AO debug已接通，noise仍固定0，原开关已退休；结果只读模块执行文 | 后续按真实画面需求决定专属temporal/bent normal/specular occlusion，不重新发明或再实施一套AO |
 | HZB | `HierarchicalZBuffer`/`hzb_reduce` 为反向深度 RG16F 保守 min/max，首级从内部尺寸的一半开始，有 current/previous；FrameProgram 目前仅由几何 HZB 需求触发构建，late recheck 后可再构建 final HZB | 可作为 tracing 的候选粗层；SSR 需核对最终可见性版本与精度，裁决是否结合全分辨率 Depth 精细验证或新增必要层级。已有纹理不等于任意效果都拿到了正确版本/精度 |
 | 深度/法线 | XeGTAO 有私有五级 weighted view-depth 和深度重建法线；Native invocation 内有真实材质 normal/roughness/coat | AO weighted depth 与遮挡 HZB 数学不同，不能强行合一；深度法线也不等于 normal-map/coat 法线 |
 | Native 间接光 | `native_surface.native_environment` 已计算 diffuse IBL×AO/material occlusion、DFG-weighted specular IBL、coat 与底层衰减；输出转工作色域并预曝光 | 新 GI/SSR 需要明确替换/补充的光照分量及颜色域，不能直接 HDR 加法；baseline 不自动提供新反射的材质响应 |

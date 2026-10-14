@@ -9,6 +9,7 @@ import type { XeGtaoMainProducts } from "./XeGtaoMainPass.js";
 export interface XeGtaoDenoiseInputs {
   readonly prepared: XeGtaoPreparedFields;
   readonly main: XeGtaoMainProducts;
+  readonly denoisePasses?: 0 | 1 | 2 | 3;
 }
 
 export interface XeGtaoScalarVisibility {
@@ -25,18 +26,13 @@ export interface XeGtaoScalarVisibility {
 /** Donor edge-aware filtering followed by a single-writer GPU pack. */
 export class XeGtaoDenoisePass {
   private readonly denoiseLayout: GPUBindGroupLayout;
-  private readonly intermediatePipeline: GPUComputePipeline | null;
+  private readonly intermediatePipeline: GPUComputePipeline;
   private readonly finalPipeline: GPUComputePipeline;
+  private readonly disabledPipeline: GPUComputePipeline;
   private readonly packLayout: GPUBindGroupLayout;
   private readonly packPipeline: GPUComputePipeline;
 
-  constructor(
-    private readonly device: GPUDevice,
-    readonly denoisePasses = 1
-  ) {
-    if (!Number.isInteger(denoisePasses) || denoisePasses < 0 || denoisePasses > 3) {
-      throw new RangeError("XeGTAO DenoisePasses must be 0..3");
-    }
+  constructor(private readonly device: GPUDevice) {
     if (!device.features.has("texture-formats-tier1")) {
       throw new Error("XeGTAO r8unorm denoise output requires texture-formats-tier1");
     }
@@ -62,19 +58,20 @@ export class XeGtaoDenoisePass {
       ]
     });
     const denoiseLayout = device.createPipelineLayout({ bindGroupLayouts: [this.denoiseLayout] });
-    const pipeline = (finalApply: boolean): GPUComputePipeline =>
+    const pipeline = (finalApply: boolean, beta: number): GPUComputePipeline =>
       device.createComputePipeline({
         label: `XeGTAO/Denoise ${finalApply ? "final" : "intermediate"}`,
         layout: denoiseLayout,
         compute: {
           module: device.createShaderModule({
-            code: xeGtaoDenoiseWgsl(finalApply, denoisePasses === 0 ? 1e4 : 1.2)
+            code: xeGtaoDenoiseWgsl(finalApply, beta)
           }),
           entryPoint: "denoise"
         }
       });
-    this.intermediatePipeline = denoisePasses > 1 ? pipeline(false) : null;
-    this.finalPipeline = pipeline(true);
+    this.intermediatePipeline = pipeline(false, 1.2);
+    this.finalPipeline = pipeline(true, 1.2);
+    this.disabledPipeline = pipeline(true, 1e4);
     this.packLayout = device.createBindGroupLayout({
       entries: [
         { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
@@ -90,6 +87,10 @@ export class XeGtaoDenoisePass {
   }
 
   addToGraph(graph: FrameGraph, input: XeGtaoDenoiseInputs): XeGtaoScalarVisibility {
+    const denoisePasses = input.denoisePasses ?? 1;
+    if (!Number.isInteger(denoisePasses) || denoisePasses < 0 || denoisePasses > 3) {
+      throw new RangeError("XeGTAO DenoisePasses must be 0..3");
+    }
     const { width, height, constants } = input.prepared;
     const pixels = width * height;
     const words = Math.ceil(pixels / 4);
@@ -112,10 +113,14 @@ export class XeGtaoDenoisePass {
       throw new RangeError("XeGTAO pack dispatch exceeds device limits");
     }
     let source = input.main.rawAo;
-    for (let index = 0; index < Math.max(1, this.denoisePasses); index++) {
-      const final = index === Math.max(1, this.denoisePasses) - 1;
+    for (let index = 0; index < Math.max(1, denoisePasses); index++) {
+      const final = index === Math.max(1, denoisePasses) - 1;
       const sourceId = source;
-      const pipeline = final ? this.finalPipeline : this.intermediatePipeline!;
+      const pipeline = final
+        ? denoisePasses === 0
+          ? this.disabledPipeline
+          : this.finalPipeline
+        : this.intermediatePipeline;
       const denoise = graph.add(
         `XeGTAO/denoise ${index + 1}${final ? " final" : ""}`,
         {},

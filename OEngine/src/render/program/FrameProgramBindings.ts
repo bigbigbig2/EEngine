@@ -16,6 +16,7 @@ import type { LocalLightWorkFrame } from "../lighting/LocalLightWorkGenerator.js
 import type { VsmResources } from "../vsm/VsmResources.js";
 import type { VsmDirectionalFrameConstants } from "../vsm/VsmReceiverDemandPass.js";
 import type { VsmGenerationState } from "../vsm/VsmGeneration.js";
+import type { AmbientOcclusionSettings } from "../ao/AmbientOcclusionSettings.js";
 
 /** Only physical, frame-local objects belong here; none enter the topology key. */
 export type SceneFrameBindings = Readonly<{
@@ -32,6 +33,7 @@ export type SceneFrameBindings = Readonly<{
   swapchain: GPUTextureView;
   runtime: GpuRenderWorldRuntime;
   preExposure: PreExposureContract;
+  ambientOcclusion: Readonly<AmbientOcclusionSettings>;
   fsr3: Fsr3UpscalerRuntime;
   nativeTemporal: NativeTemporalV2;
   temporalSeed: NativeTemporalSeed;
@@ -71,6 +73,17 @@ export function assertFrameProgramBindings(plan: FrameProgram, bindings: FramePr
   }
   if (request.kind === "empty" || bindings.kind === "empty") {
     return;
+  }
+  const ao = bindings.ambientOcclusion;
+  const aoProfile =
+    ao.enabled && ao.strength > 0 && request.hasLit && request.activeSets.length > 0
+      ? `scalar-${ao.quality}`
+      : "off";
+  if (
+    request.aoProfile !== aoProfile ||
+    request.aoDenoisePasses !== (aoProfile === "off" ? 0 : ao.denoisePasses)
+  ) {
+    throw new Error("Frame Program AO settings no longer match its structural profile");
   }
   if (request.hasLit !== (bindings.localLightWork !== null)) {
     throw new Error("Frame Program LocalLightWork publication is missing or unexpected");

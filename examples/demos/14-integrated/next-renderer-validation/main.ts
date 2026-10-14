@@ -114,7 +114,7 @@ async function start(): Promise<void> {
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
   });
   renderer.shadowVisibilityEnabled = false;
-  renderer.xe_gtao_enabled = !disableGtao;
+  renderer.setAmbientOcclusionSettings({ enabled: !disableGtao });
   renderer.fsr3_enabled = !bypassFsr3;
   renderer.bloom_enabled = !disableBloom;
   renderer.perf_gpu_counters_enabled = perfMode;

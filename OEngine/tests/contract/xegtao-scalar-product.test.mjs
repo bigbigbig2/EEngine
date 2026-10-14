@@ -6,7 +6,7 @@ import { XeGtaoDenoisePass } from "../../.test-dist/render/ao/XeGtaoDenoisePass.
 
 globalThis.GPUBufferUsage ??= { STORAGE: 128 };
 
-function build(consumer) {
+function build(consumer, denoisePasses = 1) {
   const device = {
     features: new Set(["texture-formats-tier1"]),
     limits: {
@@ -24,8 +24,9 @@ function build(consumer) {
   };
   const graph = new FrameGraph("XeGTAO scalar consumer contract");
   const imported = (name) => graph.import_resource(name, { kind: "imported" }, {});
-  const owner = new XeGtaoDenoisePass(device, 1);
+  const owner = new XeGtaoDenoisePass(device);
   const result = owner.addToGraph(graph, {
+    denoisePasses,
     prepared: { width: 3, height: 5, constants: imported("constants") },
     main: { rawAo: imported("raw AO"), edges: imported("edges") }
   });
@@ -56,6 +57,19 @@ test("XeGTAO exposes its existing final scalar texture while the packed ABI rema
     graph.listExecutablePasses().find((pass) => pass.name === "XeGTAO/pack indirect visibility").culled,
     false
   );
+});
+
+test("all finite denoise counts retain one final restore and cull unused packing", () => {
+  for (const count of [0, 1, 2, 3]) {
+    const { graph } = build("scalarTexture", count);
+    graph.compile();
+    const live = graph.listExecutablePasses().filter((pass) => !pass.culled);
+    const denoise = live.filter((pass) => pass.name.startsWith("XeGTAO/denoise"));
+    assert.equal(denoise.length, Math.max(1, count));
+    assert.equal(denoise.filter((pass) => pass.name.endsWith("final")).length, 1);
+    assert.equal(live.some((pass) => pass.name.includes("pack indirect")), false);
+  }
+  assert.throws(() => build("scalarTexture", 4), /DenoisePasses/);
 });
 
 test("texture-only native consumer retains denoise and culls the unused packed pass", () => {

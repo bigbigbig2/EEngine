@@ -173,7 +173,7 @@ const capture = new BenchmarkCapture({
     camera!.update();
     renderer!.setResolutionScale(1);
     renderer!.resize(request.width, request.height);
-    renderer!.xe_gtao_enabled = request.profile !== "no-ao";
+    renderer!.setAmbientOcclusionSettings({ enabled: request.profile !== "no-ao" });
     renderer!.fsr3_enabled = request.profile !== "no-fsr3";
     renderer!.bloom_enabled = request.profile !== "no-bloom";
     renderer!.shadowVisibilityEnabled = request.vsm;
@@ -200,7 +200,7 @@ const capture = new BenchmarkCapture({
         fov: camera!.fov,
       },
       features: {
-        gtao: renderer!.xe_gtao_enabled,
+        gtao: renderer!.ambientOcclusionSettings.enabled,
         fsr3: renderer!.fsr3_enabled,
         bloom: renderer!.bloom_enabled,
         vsm: diagnosticVsm && renderer!.shadowVisibilityEnabled,
@@ -298,7 +298,7 @@ const capture = new BenchmarkCapture({
       gpuCounterSampleInterval: 8,
       historyCapacity: 180,
     });
-    renderer!.xe_gtao_enabled = settings.gtao;
+    renderer!.setAmbientOcclusionSettings({ enabled: settings.gtao });
     renderer!.fsr3_enabled = settings.fsr3;
     renderer!.bloom_enabled = settings.bloom;
     renderer!.shadowVisibilityEnabled = false;
@@ -539,7 +539,7 @@ function applySettings(): void {
   element<HTMLOutputElement>("sse-value").value = settings.sse.toFixed(1);
   applySun();
   if (!renderer) return;
-  renderer.xe_gtao_enabled = settings.gtao;
+  renderer.setAmbientOcclusionSettings({ enabled: settings.gtao });
   renderer.fsr3_enabled = settings.fsr3;
   renderer.bloom_enabled = settings.bloom;
   renderer.packed_visibility_hzb_enabled = settings.hzb;
@@ -582,7 +582,7 @@ async function start(): Promise<void> {
   });
   renderer.shadowVisibilityEnabled = false;
   renderer.temporal_jitter_enabled = false;
-  renderer.xe_gtao_enabled = settings.gtao;
+  renderer.setAmbientOcclusionSettings({ enabled: settings.gtao });
   renderer.fsr3_enabled = settings.fsr3;
   renderer.bloom_enabled = settings.bloom;
   renderer.packed_visibility_hzb_enabled = settings.hzb;

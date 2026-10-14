@@ -15,6 +15,8 @@ verifies:
     - OEngine/src/render/passes/RenderDebugViewPass.ts
     - OEngine/tests/contract/frame-program.test.mjs
     - OEngine/tests/contract/xegtao-scalar-product.test.mjs
+    - OEngine/tests/contract/ambient-occlusion-settings.test.mjs
+    - OEngine/tests/oracle/ao-functionality-gpu.mjs
     - OEngine/tests/oracle/native-surface-production-gpu.mjs
     - examples/demos/14-integrated/dungeon-warkarma-texture-compression/main.ts
     - tools/gpu-oracle/registry.mjs
@@ -22,15 +24,15 @@ verifies:
 
 # AO 功能完善执行计划
 
-唯一模块设计：[AO功能完善](../next-design/eengine-ao-functionality-2026-10.md)。粗路线/其他模块由workstream.roadmap导航，本文件只维护AO单元状态与实际结果。本轮授权是复查与细设计；没有实施生产代码，也没有授权自动进入SSR。
+唯一模块设计：[AO功能完善](../next-design/eengine-ao-functionality-2026-10.md)。粗路线/其他模块由workstream.roadmap导航，本文件只维护AO单元状态与实际结果。设计于`8f84be4d`先提交，随后用户明确授权按本计划实施、验证并核对文档；不自动进入SSR。
 
 ## 1. 一个完整实现单元
 
 | 单元 | 状态 | 完整交付 |
 |---|---|---|
-| AO-1 参数化、生产消费与诊断闭包 | 待实施 | 七项设置→配置/运行期快照→FrameProgram结构/绑定→完整XeGTAO→Native diffuse IBL/AO debug→示例调校；同时闭合缓存、颜色reset、abort/retry/recovery、旧开关退休与集中验证 |
+| AO-1 参数化、生产消费与诊断闭包 | 已完成（本单元范围） | 七项设置→配置/运行期快照→FrameProgram结构/绑定→完整XeGTAO→Native diffuse IBL/AO debug→示例调校；同时闭合缓存、颜色reset、abort/retry/recovery、旧开关退休与集中验证 |
 
-设计已形成；AO-1尚未开始，不把文档完成算功能完成。以下是同一单元的工作清单，不设每项状态或逐项验证门禁，可连续实现后一起验收：
+以下是本单元的实施清单，实际完成结论与验证范围见§5；不设每项状态或逐项验证门禁：
 
 - 公共settings/type/default/原子解析、RendererConfig初值和Renderer运行期API；取帧快照，区分desired与成功提交签名，恢复checkpoint携带设置。
 - 结构key只增加effective quality与denoise；数值通过SceneFrameBindings晚绑定。稳定三个owner提供有限PSO，Main同一Hilbert LUT支持Medium/High，denoise保完整0..3调度，ABI80→96一次更新全部reader/writer。
@@ -74,3 +76,33 @@ verifies:
 全库docs-verify仍返回既有1个finding：Git忽略的docs/status.generated.md缺frontmatter；另有81条原历史断链warnings，本轮没有新增finding/warning，不宣称全库通过。引擎build、Node模块用例、GPU和benchmark未运行，原因是本轮只有文档/导航变化，不能将这次文档检查当功能证明。
 
 AO-1关闭后在此记录实际改动、所运行检查/缺项、必要成本和限制；粗执行表只回链模块结论。停止在SSR细设计边界，后续由用户启动。
+
+## 5. AO-1 实施与核对（2026-10-14）
+
+从设计提交`8f84be4d`连续实施同一单元。`AmbientOcclusionSettings`为唯一七项状态，公开配置初值与原子运行期API，非法patch保旧快照；半径/派生falloff同时拒绝非normal/溢出f32，避免GPU flush-zero后除零。旧公开字段及真实调用方全部迁移，没有兼容别名。Dungeon加入七项调校、独立AO视图和设置快照，strength0与关闭有明确中性说明。
+
+三个owner设备期稳定：Main两档固定PSO/同一LUT，Denoise三个滤波PSO及既有pack；96B共享ABI保前80B，强度只在最终完整量化输出之后应用。Main积分、normal、weighted-depth、edges/对角/leak、1.5恢复、noise0及2/4 storage split未删步骤。FrameProgram只以有效quality/denoise区分结构；数值晚绑定。Native继续只为diffuse IBL消费有效scalar，AO debug读同一最终产品；关闭/unlit不造AO工作，empty仍clear-present。
+
+颜色内容签名只在成功submit提交，数值/结构变化在下一个实际内容变化帧仅reset颜色后端；普通motion与等效半径、off中的无关参数编辑保留历史。abort/defer保旧签名，retry继续reset；checkpoint携带desired设置，device recovery在首次准备前恢复。没有AO history、新frame submit、通用效果框架或SSR资源。
+
+### 验证与限制
+
+最终集中检查通过：`npm --prefix OEngine run build`、新鲜`build:test`、三个合同文件19/19、Dungeon/Bistro/Zorah的targeted typecheck，以及`node tools/gpu-oracle.mjs ao-functionality --json`。真实GPU用例运行约6秒（宿主oracleMs，含CPU/初始化/等待，并非GPU计时）；source SHA `2e62fe2f4ad1a7d4316cb6214953a11854e7a9fa8cf09b0b741fcce649a86094`、output SHA `31f786e5af9ec54ef39eeab9184ad8dc60ae43f28f80a2666f37678e708a3e14`、oracle SHA `f797232796b1f9aad936df8436d30dd3b1285a7f9de6a774bbc2dac9414ddb3a`。真实错误聚合为零；结果是本单元范围通过：
+
+| 观察 | 实际范围 / 结论 |
+|---|---|
+| 数值与真实消费 | 192×128三块几何接触场景、非零authored diffuse IBL；读真实scalar/debug/Surface HDR。strength0/0.5/1有效，中间值与独立R8公式最大误差0字节，HDR变亮且保持有限；不同半径/power在缓存命中图中真实生效 |
+| 单位与默认 | 几何/相机/near/far整体16倍、metersPerWorldUnit=1/16，scalar最大差0字节；设置恢复默认后逐字节回到本轮默认快照。未保存改动前同fixture golden，不能把本次回放当跨版本画质矩阵；未改变Main/weighted-depth/滤波数学 |
+| 质量/去噪 | Medium/High实际执行，0/1/2/3均保max(1,D)及唯一末遍；0遍对原working byte的1.5恢复符合独立预期（含原滤波允许的1字节边界），多遍强度混合仅发生在末遍；无consumer pack裁掉，owner/LUT/PSO不重建 |
+| 历史/事务 | Native与FSR暖帧保color；AO编辑只resetcolor且Seed previous-valid保留、曝光epoch不变，下一成功帧不重复reset；普通motion、off/on、off中编辑、defer、注入abort→retry、193×129及0.73 renderScale域切换、device loss恢复非默认七项设置、unlit/empty通过 |
+| 1080p必要成本 | 默认实际5次AO dispatch，未执行pack；由实际live descriptor求和25,645,440B（约24.46MiB），与设计Cost Card一致。没有新全屏纹理/history；D3比D1逻辑多2P，约28.41MiB。共享allocator/退休账同时采样，包含其他owner/尺寸，不能充当AO专属物理峰值或driver驻留 |
+
+最终报告保存在Git忽略的`.local/ao-functionality-final.json`，原失败/中间报告保留`.local/ao-functionality-run*.json`；宿主记录Chrome155、NVIDIA Turing硬件adapter与fresh身份，未获取具体device型号，不能将历史GTX型号自动补到本次记录。1080p观察时共用账本current/peak为286,639,745/289,080,483B、retired为0，共享transient pool为83,076,332B；含整个fixture、其他owner、不同尺寸的可复用缓存，不是AO独占/driver显存或完整4GB资格。单个1080p冷帧CPU+queue等待146.7ms包含编译/整Renderer/debug/观察器接线，不是AO GPU计时；不由该值宣称提速或退化，也不与历史GPU帧时拼接。GPU测试中的HDR离线读回可单独submit复制，生产渲染仍只有原frame submit，没有GPU→CPU→GPU工作控制。
+
+保留失败分类：首轮真实GPU在编码前发现AO debug新增依赖漏登记INPUT_CONTRACTS，补回归先复现再修合同；后一次用例在submit后读取已结束的Seed帧，被owner正确拒绝，观察点已移到prepare。新增CPU用例初次缺GPUBufferUsage测试全局，已修fixture；没有跳断言/放宽容差。Dungeon原typecheck因本机缺少锁定的Node/undici类型包失败，按examples/yarn.lock的版本与SHA512补回本地node_modules后通过；没有改依赖清单或锁文件。
+
+本单元不运行全部GPU oracle、上游D3D工程、完整Main/normal/weighted-depth对上游逐阶段GPU数值差分、长窗口/全资产Dungeon与Bistro画质矩阵、ABBA/FPS/P95或driver 4GB同时峰值。2-storage分支和原完整生产大矩阵未本轮重跑；既有算法/容量检查保留，新增路径已由小型production fixture验证。旧C阶段来源adoption与V5/VSM正式资格不晋升。
+
+架构与文档逐项核对：API→快照→key/late binding→96B reader/writer→最后滤波→Native/debug→submit/abort/recovery→全部旧调用方；domain页更新已实现事实，粗路线只维护模块入口/边界，来源账本区分Local strength与既有Reference/Adapt。完成后停在SSR细设计前。
+
+文档系统测试7/7、`vibe doctor`无错误/警告且registry字节一致；新AO源码context只返回当前AO设计/执行一对，`git diff --check`通过。全库`docs-verify`仍是原有1个finding：Git忽略的`docs/status.generated.md`缺frontmatter，另81条historical warnings，本单元未新增；该外部既有文档问题保留，不宣称全库文档检查绿色。引擎build仅保留既有codec的node:module externalization提示。

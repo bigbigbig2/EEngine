@@ -1,11 +1,18 @@
 import { resolveExposureSettings, type ExposureSettings } from "./temporal/ExposureSettings.js";
 import {
+  AMBIENT_OCCLUSION_DEFAULT_SETTINGS,
+  resolveAmbientOcclusionSettings,
+  type AmbientOcclusionSettings,
+} from "./ao/AmbientOcclusionSettings.js";
+import {
   DEFAULT_FRAME_GEOMETRY_ARENA_MAX_BYTES,
   DEFAULT_FRAME_GEOMETRY_OWNER_MAX_BYTES
 } from "../gpu/GpuFrameGeometryArenaAbi.js";
 
 /** Immutable Renderer capability and execution configuration. */
 export interface RendererConfig {
+  /** Initial AO controls; runtime edits use Renderer.setAmbientOcclusionSettings. */
+  readonly ambientOcclusion?: Partial<AmbientOcclusionSettings>;
   /** Opt in to extended Display-P3 when canvas and display report support. */
   readonly displayProfile?: "sdr" | "hdr-auto";
   /** Create the VSM resource and pass owners. Disabled for A-D validation runs. */
@@ -46,6 +53,7 @@ export function mergeRendererConfig(base: RendererConfig, override?: RendererCon
   return Object.freeze({
     ...base,
     ...override,
+    ambientOcclusion: Object.freeze({ ...base.ambientOcclusion, ...override.ambientOcclusion }),
     requiredFeatures: Object.freeze([...(base.requiredFeatures ?? []), ...(override.requiredFeatures ?? [])]),
     requiredLimits: Object.freeze({ ...base.requiredLimits, ...override.requiredLimits }),
     geometryResidency: Object.freeze({ ...base.geometryResidency, ...override.geometryResidency }),
@@ -54,6 +62,7 @@ export function mergeRendererConfig(base: RendererConfig, override?: RendererCon
 }
 
 export function validateRendererConfig(config: RendererConfig): void {
+  resolveAmbientOcclusionSettings(AMBIENT_OCCLUSION_DEFAULT_SETTINGS, config.ambientOcclusion ?? {});
   resolveExposureSettings(config.exposure);
   if (
     config.renderScale !== undefined &&

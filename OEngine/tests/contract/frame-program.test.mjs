@@ -10,6 +10,7 @@ import {
   FrameGraphContext,
 } from "../../.test-dist/framegraph/FrameGraph.js";
 import { BloomPass } from "../../.test-dist/render/passes/BloomPass.js";
+import { AMBIENT_OCCLUSION_DEFAULT_SETTINGS } from "../../.test-dist/render/ao/AmbientOcclusionSettings.js";
 
 const scene = {
   kind: "scene",
@@ -130,6 +131,27 @@ test("lit scalar AO closes a same-frame producer while off and unlit omit it", (
   );
   const unlit = buildFrameProgram({ ...scene, hasLit: false, aoProfile: "off" });
   assert.ok(!unlit.stages.includes("xe-gtao"));
+});
+
+test("AO quality and denoise are structural while disabled AO canonicalizes its unused shape", () => {
+  const medium = buildFrameProgram({ ...scene, aoProfile: "scalar-medium", aoDenoisePasses: 0 });
+  const soft = buildFrameProgram({ ...scene, aoProfile: "scalar-medium", aoDenoisePasses: 3 });
+  assert.ok(medium.stages.includes("xe-gtao"));
+  assert.notEqual(medium.key, soft.key);
+  assert.equal(medium.request.aoDenoisePasses, 0);
+  assert.equal(
+    buildFrameProgram({ ...scene, aoProfile: "off", aoDenoisePasses: 3 }).key,
+    buildFrameProgram({ ...scene, aoProfile: "off", aoDenoisePasses: 0 }).key,
+  );
+  assert.throws(() => buildFrameProgram({ ...scene, aoProfile: "scalar-high", aoDenoisePasses: 4 }), /denoise/i);
+});
+
+test("AO debug declares its actual scalar consumer and disabled debug stays neutral", () => {
+  const enabled = buildFrameProgram({ ...scene, aoProfile: "scalar-high", debugView: "ambient-occlusion" });
+  assert.ok(enabled.facts.find((fact) => fact.product === "indirect-visibility").consumers.includes("debug-view"));
+  const disabled = buildFrameProgram({ ...scene, aoProfile: "off", debugView: "ambient-occlusion" });
+  assert.ok(disabled.stages.includes("debug-view"));
+  assert.ok(!disabled.products.includes("indirect-visibility"));
 });
 
 test("directional shadows demand independent Geometry only for an enabled lit consumer", () => {
@@ -349,6 +371,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
     },
     swapchain: resource,
     preExposure: { multiplier: 1 },
+    ambientOcclusion: { ...AMBIENT_OCCLUSION_DEFAULT_SETTINGS, enabled: false },
     localLightWork: null,
     finalPixelLighting: null,
     localLightCounters: resource,

@@ -11,6 +11,17 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "ao-functionality",
+    file: "OEngine/tests/oracle/ao-functionality-gpu.mjs",
+    url: "/OEngine/tests/oracle/ao-functionality-gpu.mjs",
+    entry: "runAoFunctionalityGpuOracle",
+    requiredFeatures: ["texture-compression-bc", "texture-formats-tier1"],
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    allowPrefixes: ["OEngine/src/render/assets/textures/"],
+    timeoutMs: 180000,
+    description: "Small real Renderer AO tuning, final scalar/debug/HDR and abort/resize/recovery closure.",
+  }),
+  Object.freeze({
     name: "product-attribute-decode",
     file: "OEngine/tests/oracle/product-attribute-decode-gpu.mjs",
     url: "/OEngine/tests/oracle/product-attribute-decode-gpu.mjs",

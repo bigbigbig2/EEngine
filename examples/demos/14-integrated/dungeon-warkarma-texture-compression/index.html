@@ -82,6 +82,7 @@
                   <option value="meshlet-id">Meshlet ID</option>
                   <option value="material-id">Material ID</option>
                   <option value="depth">Reverse-Z depth</option>
+                  <option value="ambient-occlusion">Screen AO (white = unoccluded)</option>
                   <option value="velocity">Temporal motion (UV)</option>
                   <option value="history-validity">Temporal validity / hard replacement</option>
                   <option value="reactive">Soft reactive</option>
@@ -123,17 +124,14 @@
               ><input id="gtao" class="switch" type="checkbox" role="switch" aria-controls="gtao-parameters"
             /></label>
             <div id="gtao-parameters" class="effect-parameters" hidden>
-              <dl>
-                <dt>Quality</dt>
-                <dd>Scalar high</dd>
-                <dt>Radius (fixed)</dt>
-                <dd>1 m</dd>
-                <dt>Final power (fixed)</dt>
-                <dd>2.2</dd>
-                <dt>World scale</dt>
-                <dd>1 m / unit</dd>
-              </dl>
+              <label class="control">Quality<select id="ao-quality"><option value="medium">Medium (8 taps)</option><option value="high" selected>High (18 taps)</option></select></label>
+              <label class="control">Radius (m)<input id="ao-radius" type="number" min="0.01" max="1000000" step="any" value="1" required /></label>
+              <label class="control">Metres / world unit<input id="ao-world-scale" type="number" min="0.000001" max="1000000" step="any" value="1" required /></label>
+              <label class="control">Strength<input id="ao-strength" type="number" min="0" max="1" step="0.05" value="1" required /></label>
+              <label class="control">Final power<input id="ao-power" type="number" min="0.5" max="5" step="0.1" value="2.2" required /></label>
+              <label class="control">Denoise passes<select id="ao-denoise"><option value="0">0 (final restore only)</option><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option></select></label>
             </div>
+            <p id="ao-state">Screen AO off · visibility 1. No lit consumer means no AO work.</p>
           </section>
           <section class="effect section">
             <label class="effect-heading" for="bloom"

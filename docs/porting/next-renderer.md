@@ -48,6 +48,8 @@ verifies:
     - OEngine/src/render/lighting/FinalPixelLightingPublication.ts
     - OEngine/tests/oracle/vsm-shadow-receiver-gpu.mjs
     - OEngine/tests/oracle/native-surface-production-gpu.mjs
+    - OEngine/src/render/ao
+    - OEngine/tests/oracle/ao-functionality-gpu.mjs
     - OEngine/src/gpu/VirtualGeometryResidency.ts
     - OEngine/src/gpu/GeometryPageDemandAbiV1.ts
     - OEngine/src/gpu/GeometryPageScheduler.ts
@@ -806,7 +808,7 @@ R02 的当前边界：[Surface Kernel Binding V1](../specs/surface-kernel-bindin
 
 ### R05 · XeGTAO：首选 AO 来源
 
-2026-10-14 参数化细设计续记：重新核读相同固定revision的settings/constants、Medium/High、noise、prefilter及host denoise调度。当前生产消费为Native scalar texture；下述C阶段packed/旧Surface措辞保留原记录身份。新增设置、输出强度与不简化边界见[AO设计](../next-design/eengine-ao-functionality-2026-10.md#7-来源与不简化边界)；本轮未实施、未新增GPU证据，不提升原adoption。
+2026-10-14 AO参数化续记：设计重核相同固定revision的settings/constants、Medium/High、noise、prefilter及host denoise调度后，已扩展现有三个owner的有限变体、96B常量与逐帧设置。Reference/Adapt继续是下述原scalar算法；Local是末遍量化后的艺术strength混合、设置/图/颜色reset/debug/recovery接线。当前生产Native读取最终scalar，未消费pack裁掉；下述C阶段packed/旧Surface措辞保留原记录身份。新增小型真实Renderer GPU用例已验证当前设置/输出/生命周期，范围见[AO执行](../next-execution/eengine-ao-functionality-execution-2026-10.md#5-ao-1-实施与核对2026-10-14)；不是完整Main/normal/weighted-depth对上游逐阶段数值差分，不把旧缺项追认为修复，不提升完整port adoption。
 
 - **Upstream / Revision**：[GameTechDev/XeGTAO](https://github.com/GameTechDev/XeGTAO/tree/a5b1686c7ea37788eeb3576b5be47f7c03db532c)，`a5b1686c7ea37788eeb3576b5be47f7c03db532c`；项目已 archived，不能假设上游继续维护。
 - **Source / host entry**：[XeGTAO.hlsli](https://github.com/GameTechDev/XeGTAO/blob/a5b1686c7ea37788eeb3576b5be47f7c03db532c/Source/Rendering/Shaders/XeGTAO.hlsli)、[`XeGTAO.h`](https://github.com/GameTechDev/XeGTAO/blob/a5b1686c7ea37788eeb3576b5be47f7c03db532c/Source/Rendering/Shaders/XeGTAO.h)、[`vaGTAO.hlsl`](https://github.com/GameTechDev/XeGTAO/blob/a5b1686c7ea37788eeb3576b5be47f7c03db532c/Source/Rendering/Shaders/vaGTAO.hlsl)、[`vaGTAO.cpp`](https://github.com/GameTechDev/XeGTAO/blob/a5b1686c7ea37788eeb3576b5be47f7c03db532c/Source/Rendering/Effects/vaGTAO.cpp) 和该 revision 的 README。已核对三个核心 compute 阶段、可选 depth-normal 生成、格式与 host 顺序；尚未运行上游工程。

@@ -369,7 +369,7 @@ function snapshot() {
       view: renderer?.render_debug_view ?? "none",
       vsm: renderer?.shadowVisibilityEnabled ?? false,
       vsmSettings: renderer?.vsmSettings ?? null,
-      gtao: renderer?.xe_gtao_enabled ?? false,
+      gtao: renderer?.ambientOcclusionSettings.enabled ?? false,
       fsr3: renderer?.fsr3_enabled ?? false,
       bloom: renderer?.bloom_enabled ?? false,
       jitter: renderer?.temporalJitterActive ?? false,
@@ -1084,7 +1084,7 @@ const effectSwitches = [
   [
     "gtao",
     (r: Renderer, v: boolean) => {
-      r.xe_gtao_enabled = v;
+      r.setAmbientOcclusionSettings({ enabled: v });
     },
   ],
   [

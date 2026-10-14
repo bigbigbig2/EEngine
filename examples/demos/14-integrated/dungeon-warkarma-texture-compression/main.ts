@@ -359,7 +359,8 @@ function snapshot() {
       view: renderer?.render_debug_view ?? "none",
       vsm: renderer?.shadowVisibilityEnabled ?? false,
       vsmSettings: renderer?.vsmSettings ?? null,
-      gtao: renderer?.xe_gtao_enabled ?? false,
+      gtao: renderer?.ambientOcclusionSettings.enabled ?? false,
+      ambientOcclusionSettings: renderer?.ambientOcclusionSettings ?? null,
       fsr3: renderer?.fsr3_enabled ?? false,
       bloom: renderer?.bloom_enabled ?? false,
       jitter: renderer?.temporalJitterActive ?? false,
@@ -573,10 +574,14 @@ function refresh(): void {
     filter: renderer.vsmSettings.filterMode,
   }))
     vsmCells.get(key)!.textContent = value;
+  const ao = renderer.ambientOcclusionSettings;
+  element("ao-state").textContent = ao.enabled && ao.strength > 0
+    ? `${ao.quality} · ${ao.radiusMeters} m · strength ${ao.strength}. Runs only for lit surfaces.`
+    : "Screen AO off · visibility 1. No lit consumer means no AO work.";
   const renderValues: Record<string, string> = {
     effects: [
       state.vsm && "VSM",
-      state.gtao && "GTAO",
+      state.gtao && (state.ambientOcclusionSettings?.strength ?? 0) > 0 && "GTAO",
       state.fsr3 && "FSR3",
       state.bloom && "Bloom",
       state.jitter && "Jitter",
@@ -688,6 +693,7 @@ async function start(): Promise<void> {
   vsmControls.sync();
   // Apply the initial effect switches; VSM starts enabled in this demo.
   for (const [id, set] of effectSwitches) set(renderer, element<HTMLInputElement>(id).checked);
+  applyAmbientOcclusionControls();
   renderer.profiler.configure({ enabled: false });
   applySunControls();
   scene.physical_environment.setSkyLuminanceScale(Number(element<HTMLInputElement>("sky").value));
@@ -1105,7 +1111,7 @@ const effectSwitches = [
   [
     "gtao",
     (r: Renderer, v: boolean) => {
-      r.xe_gtao_enabled = v;
+      r.setAmbientOcclusionSettings({ enabled: v });
     },
   ],
   [
@@ -1139,6 +1145,27 @@ const effectSwitches = [
     },
   ],
 ] as const;
+const aoControlIds = ["ao-radius", "ao-world-scale", "ao-strength", "ao-power", "ao-quality", "ao-denoise"] as const;
+function applyAmbientOcclusionControls(): void {
+  if (!renderer) return;
+  for (const id of aoControlIds) {
+    if (!element<HTMLInputElement | HTMLSelectElement>(id).reportValidity()) return;
+  }
+  renderer.setAmbientOcclusionSettings({
+    radiusMeters: Number(element<HTMLInputElement>("ao-radius").value),
+    metersPerWorldUnit: Number(element<HTMLInputElement>("ao-world-scale").value),
+    strength: Number(element<HTMLInputElement>("ao-strength").value),
+    finalValuePower: Number(element<HTMLInputElement>("ao-power").value),
+    quality: element<HTMLSelectElement>("ao-quality").value as "medium" | "high",
+    denoisePasses: Number(element<HTMLSelectElement>("ao-denoise").value) as 0 | 1 | 2 | 3,
+  });
+}
+for (const id of aoControlIds) {
+  element(id).addEventListener("change", () => {
+    applyAmbientOcclusionControls();
+    resetFrameSamples();
+  });
+}
 function syncEffectParameters(id: string): void {
   const input = element<HTMLInputElement>(id);
   const parameters = input.getAttribute("aria-controls");
@@ -1159,7 +1186,7 @@ for (const [id, set] of effectSwitches) {
       renderer.temporal_jitter_enabled = false;
     }
     set(renderer, enabled);
-    renderer.invalidateTemporalHistory();
+    if (id !== "gtao") renderer.invalidateTemporalHistory();
     resetFrameSamples();
   });
 }

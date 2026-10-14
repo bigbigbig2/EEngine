@@ -22,6 +22,7 @@ export const RenderDebugView = {
   Roughness: "roughness",
   Metallic: "metallic",
   Occlusion: "occlusion",
+  AmbientOcclusion: "ambient-occlusion",
   ScreenSpaceReflectionHitMiss: "screen-space-reflection-hit-miss",
   ScreenSpaceReflectionResolve: "screen-space-reflection-resolve",
   ScreenSpaceReflectionTemporal: "screen-space-reflection-temporal",
@@ -101,6 +102,7 @@ export const RENDER_DEBUG_VIEW_OPTIONS: readonly RenderDebugViewStatus[] = [
   descriptor(RenderDebugView.Roughness, "Roughness", "supported", "显示 perceptual roughness"),
   descriptor(RenderDebugView.Metallic, "Metallic", "supported", "显示 metallic"),
   descriptor(RenderDebugView.Occlusion, "Occlusion", "supported", "显示材质 AO"),
+  descriptor(RenderDebugView.AmbientOcclusion, "Screen AO", "supported", "最终屏幕空间可见性；白色表示无遮挡/关闭，独立于材质 AO"),
   descriptor(RenderDebugView.Emissive, "Emissive", "supported", "显示解码后的 emissive"),
   descriptor(
     RenderDebugView.ScreenSpaceReflectionHitMiss,

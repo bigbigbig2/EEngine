@@ -29,9 +29,8 @@ currentSlice:
   title: Existing XeGTAO settings, quality, debug and lifecycle
   status: active
   goal: >-
-    The user started the AO detailed design from the coarse roadmap. This turn
-    establishes the module pair without implementation; later execution follows
-    that pair's single complete unit. Preserve full selected XeGTAO source math,
+    Follow the selected AO module pair through its single complete unit; its
+    execution document alone records detailed status and results. Preserve full selected XeGTAO source math,
     default appearance and stable owner boundaries while adding usable settings,
     diagnostics and recovery. Keep verification focused and lightweight without
     deleting required algorithm stages or weakening valid assertions. Stop at

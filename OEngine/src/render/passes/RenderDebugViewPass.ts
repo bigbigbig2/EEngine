@@ -16,6 +16,7 @@ import { GPU_VISIBILITY_DEBUG_SETTINGS_SIZE } from "../../gpu/GpuVisibilityDebug
 import type { PackedVisibilityDebugSource } from "./PackedVisibilityPass.js";
 import {
   DEPTH_DEBUG_WGSL,
+  ambientOcclusionDebugWgsl,
   MESHLET_ID_DEBUG_WGSL,
   PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL,
   RENDER_DEBUG_VIEW_FORMAT,
@@ -38,6 +39,7 @@ export type RenderDebugViewResources = {
   visibilityKey: ResourceId;
   packedVisibility: PackedVisibilityDebugSource | null;
   depth: ResourceId;
+  ambientOcclusion: ResourceId | null;
   velocity: ResourceId | null;
   gPbr: ResourceId | null;
   gNormal: ResourceId | null;
@@ -58,6 +60,7 @@ export class RenderDebugViewPass {
   private readonly pipelines: ReadonlyMap<RenderDebugView, CachedRenderPipelineDescriptor>;
   private readonly packedVisibilityPipeline: CachedRenderPipelineDescriptor;
   private readonly meshletIdPipeline: CachedRenderPipelineDescriptor;
+  private readonly inactiveAmbientOcclusionPipeline: CachedRenderPipelineDescriptor;
 
   constructor(
     graphics: GraphicsContext,
@@ -67,6 +70,14 @@ export class RenderDebugViewPass {
       throw new Error("RenderDebugViewPass: GraphicsContext has no device");
     }
     this.pipelines = new Map([
+      [
+        RenderDebugViewValue.AmbientOcclusion,
+        createPipeline("Render debug/Screen AO", ambientOcclusionDebugWgsl(true), [
+          floatTextureEntry(0),
+          depthTextureEntry(1),
+          uniformEntry(2),
+        ]),
+      ],
       [
         RenderDebugViewValue.VisibilityKey,
         createPipeline(
@@ -254,6 +265,11 @@ export class RenderDebugViewPass {
       [uintTextureEntry(0), storageBufferEntry(1), uniformEntry(2, 16)],
       surfaceProfile,
     );
+    this.inactiveAmbientOcclusionPipeline = createPipeline(
+      "Render debug/Screen AO inactive",
+      ambientOcclusionDebugWgsl(false),
+      [depthTextureEntry(0), uniformEntry(1)],
+    );
   }
 
   addToGraph(
@@ -274,11 +290,13 @@ export class RenderDebugViewPass {
       throw new Error("Meshlet ID debug view requires Packed Visibility work");
     }
     const pipeline =
-      view === RenderDebugViewValue.MeshletId && packedVisibility !== null
-        ? this.meshletIdPipeline
-        : packedVisibility === null
-          ? this.pipelines.get(view)
-          : this.packedVisibilityPipeline;
+      view === RenderDebugViewValue.AmbientOcclusion && resources.ambientOcclusion === null
+        ? this.inactiveAmbientOcclusionPipeline
+        : view === RenderDebugViewValue.MeshletId && packedVisibility !== null
+          ? this.meshletIdPipeline
+          : packedVisibility === null
+            ? this.pipelines.get(view)
+            : this.packedVisibilityPipeline;
     if (pipeline === undefined) {
       throw new Error(`RenderDebugViewPass cannot render '${view}'`);
     }
@@ -382,6 +400,10 @@ function inputResourceIds(
       return packedVisibility ? [resources.visibilityKey] : [resources.visibilityKey, resources.depth];
     case RenderDebugViewValue.Depth:
       return [resources.depth];
+    case RenderDebugViewValue.AmbientOcclusion:
+      return resources.ambientOcclusion === null
+        ? [resources.depth]
+        : [resources.ambientOcclusion, resources.depth];
     case RenderDebugViewValue.Velocity:
       if (resources.velocity === null) {
         throw new Error("RenderDebugViewPass requires a velocity resource");

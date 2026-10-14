@@ -1170,7 +1170,7 @@ export async function runNativeSurfaceProductionGpuOracle(
       [true, false, true, 0.73],
     ]) {
       renderer.shadowVisibilityEnabled = shadow;
-      renderer.xe_gtao_enabled = ao;
+      renderer.setAmbientOcclusionSettings({ enabled: ao });
       renderer.bloom_enabled = bloom;
       renderer.setResolutionScale(scale);
       await tick();
@@ -1191,7 +1191,7 @@ export async function runNativeSurfaceProductionGpuOracle(
       featureCombinations.push({ shadow, ao, bloom, scale, passes: dump.passes.map((p) => p.name) });
     }
     renderer.shadowVisibilityEnabled = true;
-    renderer.xe_gtao_enabled = true;
+    renderer.setAmbientOcclusionSettings({ enabled: true });
     renderer.bloom_enabled = true;
     renderer.setResolutionScale(1);
     for (const debugView of [RenderDebugView.HistoryValidity, RenderDebugView.MaterialId]) {

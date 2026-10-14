@@ -17,6 +17,7 @@ export interface XeGtaoPreparationFrame {
   readonly metersPerWorldUnit: number;
   readonly tuning?: XeGtaoTuning;
   readonly noiseIndex?: number;
+  readonly strength?: number;
 }
 
 export interface XeGtaoPreparationInputs {
@@ -41,11 +42,7 @@ export interface XeGtaoPreparedFields {
   readonly viewDepth: readonly [ResourceId, ResourceId, ResourceId, ResourceId, ResourceId];
 }
 
-/**
- * C2/C3 source port: depth normals and weighted depth mips. The class is
- * callable by the AO owner, but production does not activate it until C4–C6
- * provide the real MainPass, denoise and Surface visibility consumer.
- */
+/** Production depth normals and complete source-equivalent weighted depth mips. */
 export class XeGtaoPreparationPass {
   private readonly constants: GPUBuffer;
   private readonly normalLayout: GPUBindGroupLayout;
@@ -161,6 +158,7 @@ export class XeGtaoPreparationPass {
           metersPerWorldUnit: frame.metersPerWorldUnit,
           tuning: frame.tuning,
           noiseIndex: frame.noiseIndex,
+          strength: frame.strength,
         });
         command.writeBuffer(this.constants, 0, values, 0, XE_GTAO_PREP_BYTES);
       },

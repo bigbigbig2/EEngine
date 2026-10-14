@@ -25,6 +25,8 @@ verifies:
     - OEngine/src/framegraph/FrameGraph.ts
     - OEngine/tests/contract/frame-program.test.mjs
     - OEngine/tests/contract/xegtao-scalar-product.test.mjs
+    - OEngine/tests/contract/ambient-occlusion-settings.test.mjs
+    - OEngine/tests/oracle/ao-functionality-gpu.mjs
     - OEngine/tests/oracle/native-surface-production-gpu.mjs
     - examples/demos/14-integrated/dungeon-warkarma-texture-compression/main.ts
     - tools/gpu-oracle/registry.mjs
@@ -34,7 +36,7 @@ verifies:
 
 ## 1. 决定与范围
 
-这是[功能粗路线](eengine-feature-expansion-roadmap-2026-10.md)的首个细设计模块，按 `efd62c3f` 的生产代码复查。实际单元状态与结果只读[执行文档](../next-execution/eengine-ao-functionality-execution-2026-10.md)，全局约束沿 [V4 母稿](eengine-v4-native-shading-2026-10.md)。本轮只设计，尚未实现。
+这是[功能粗路线](eengine-feature-expansion-roadmap-2026-10.md)的首个细设计模块，以 `efd62c3f` 的生产代码为起点形成设计，设计提交为 `8f84be4d`；随后按用户授权实施。实际单元状态与结果只读[执行文档](../next-execution/eengine-ao-functionality-execution-2026-10.md)，全局约束沿 [V4 母稿](eengine-v4-native-shading-2026-10.md)。下表保留实施起点，后文规定本模块合同。
 
 继续使用当前完整 scalar XeGTAO：Depth→私有 normal/五级 weighted view-depth→Medium/High Main→edge-aware denoise/最终恢复→R8 visibility→Native diffuse IBL。补齐七项公开设置、AO-only 视图、示例调校和状态恢复；默认保持当前 High/1遍、1m半径/每单位1m、power2.2、固定 noise0 的画面。
 
@@ -42,7 +44,7 @@ verifies:
 
 ## 2. 实际接线与需要修改的边界
 
-| 当前事实 | 本模块决定 |
+| 实施起点事实 | 本模块决定 |
 |---|---|
 | Renderer 已有公开 `xe_gtao_enabled=true`，FrameProgram 仅 off/scalar-high；半径/尺度/noise 在 Lowering 写死 | 替换为唯一 settings owner，迁移全部实际调用方；保留 noise0，补 Medium 和 denoise 结构需求 |
 | 三个 XeGtao pass owner 在 device 初始化创建；Main 的 quality、Denoise 的遍数固定在构造时 | 同一 device 的稳定 owner 保存有限 PSO 变体，图按结构选择，不每次切换 new owner |
@@ -67,7 +69,7 @@ verifies:
 | quality | high | medium/high，对应现有8/18 horizon深度采样；不声称 Low/Ultra 已支持 |
 | denoisePasses | 1 | 整数0..3，沿 donor Disabled/Sharp/Medium/Soft 语义 |
 
-未知字段、非法枚举/数字和不能安全表示为 f32 的实际半径/必要派生值，在提交新快照前拒绝；保留旧设置。沿既有 reverse-Z perspective projection/尺度验证，不默默 clamp、不改相机类型。相同 patch 不重复失效；设置允许在 initialize 前保存，不立即触发 GPU API、submit/readback 或新资源。
+未知字段、非法枚举/数字和不能安全表示为 f32 的实际半径/必要派生值，在提交新快照前拒绝；保留旧设置。实际半径、乘 radiusMultiplier 后半径及 falloff range 均要求有限 normal f32，拒绝可能被 flush 为0的极小值，避免Main除零；依据 [WGSL 浮点执行规则](https://www.w3.org/TR/WGSL/#floating-point-evaluation)，不是缩小效果采样范围。沿既有 reverse-Z perspective projection/尺度验证，不默默 clamp、不改相机类型。相同 patch 不重复失效；设置允许在 initialize 前保存，不立即触发 GPU API、submit/readback 或新资源。
 
 默认不公开内部 radius multiplier、falloff、sample distribution、thin compensation、mip sampling offset 或 noise phase；它们保留固定 donor 调优值。GUI 可用有限操作范围，但不能悄悄改变 API 值或全场景单位。
 

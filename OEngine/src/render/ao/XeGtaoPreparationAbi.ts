@@ -3,7 +3,7 @@
  * Shared constants for GenerateNormals, PrefilterDepths16x16 and scalar MainPass.
  * This is the one CPU/WGSL layout source.
  */
-export const XE_GTAO_PREP_BYTES = 80;
+export const XE_GTAO_PREP_BYTES = 96;
 export const XE_GTAO_DEFAULT_RADIUS_MULTIPLIER = 1.457;
 export const XE_GTAO_DEFAULT_FALLOFF_RANGE = 0.615;
 export const XE_GTAO_DEFAULT_SAMPLE_DISTRIBUTION_POWER = 2;
@@ -11,6 +11,20 @@ export const XE_GTAO_DEFAULT_THIN_OCCLUDER_COMPENSATION = 0;
 export const XE_GTAO_DEFAULT_FINAL_VALUE_POWER = 2.2;
 export const XE_GTAO_DEFAULT_DEPTH_MIP_SAMPLING_OFFSET = 3.3;
 export const XE_GTAO_OCCLUSION_TERM_SCALE = 1.5;
+
+/** WGSL may flush subnormal operands/results to zero. Main divides by the
+ * falloff range, so every radius stage must be a finite normal f32. */
+export function xeGtaoRadiusIsRepresentable(radius: number, multiplier: number, falloff: number): boolean {
+  const minNormal = 1.1754943508222875e-38;
+  const world = Math.fround(radius);
+  const scaled = Math.fround(world * Math.fround(multiplier));
+  const range = Math.fround(scaled * Math.fround(falloff));
+  return (
+    Number.isFinite(world) && world >= minNormal &&
+    Number.isFinite(scaled) && scaled >= minNormal &&
+    Number.isFinite(range) && range >= minNormal
+  );
+}
 
 export interface XeGtaoTuning {
   readonly radiusMultiplier?: number;
@@ -28,6 +42,7 @@ struct XeGtaoPrep {
   ndc_to_view: vec4f,    // mul.xy, add.xy (includes jitter)
   effect: vec4f,         // world-unit radius, falloff, radius multiplier, noise index
   main: vec4f,           // sample distribution, thin compensation, final power, mip offset
+  output_control: vec4f, // EEngine strength, zero padding; donor prefix unchanged
 };
 @group(0) @binding(0) var<uniform> xe: XeGtaoPrep;
 
@@ -60,6 +75,7 @@ export interface XeGtaoPreparationValues {
   readonly tuning?: XeGtaoTuning;
   /** 0 until a temporal owner guarantees matching accumulation/history. */
   readonly noiseIndex?: number;
+  readonly strength?: number;
 }
 
 /** Matches XeGTAO.h::GTAOUpdateConstants, adjusted for EEngine reverse-Z. */
@@ -95,8 +111,12 @@ export function packXeGtaoPreparation(input: XeGtaoPreparationValues): ArrayBuff
   const finalPower = tuning?.finalValuePower ?? XE_GTAO_DEFAULT_FINAL_VALUE_POWER;
   const mipOffset = tuning?.depthMipSamplingOffset ?? XE_GTAO_DEFAULT_DEPTH_MIP_SAMPLING_OFFSET;
   const noiseIndex = input.noiseIndex ?? 0;
+  const strength = input.strength ?? 1;
   if (
-    !Number.isFinite(radius) ||
+    !xeGtaoRadiusIsRepresentable(radius, radiusMultiplier, falloffRange) ||
+    !Number.isFinite(strength) ||
+    strength < 0 ||
+    strength > 1 ||
     !Number.isFinite(radiusMultiplier) ||
     radiusMultiplier < 0.3 ||
     radiusMultiplier > 3 ||
@@ -127,6 +147,7 @@ export function packXeGtaoPreparation(input: XeGtaoPreparationValues): ArrayBuff
   packed.set([2 / p00, -2 / p11, (p08 - 1) / p00, (p09 + 1) / p11], 8);
   packed.set([radius, falloffRange, radiusMultiplier, noiseIndex], 12);
   packed.set([distribution, thinCompensation, finalPower, mipOffset], 16);
+  packed.set([strength, 0, 0, 0], 20);
   return packed.buffer;
 }
 

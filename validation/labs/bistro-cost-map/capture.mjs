@@ -140,7 +140,7 @@ export async function install() {
       callbacks, submitted: cpu.length, admissionBefore: beforeAdmission, admissionAfter: renderer.frameSubmissionEvidence(),
       conditions: { adapter: renderer.adapter_info, userAgent: navigator.userAgent, resolution: renderer.resolutionEvidence(),
         sse: renderer.packed_visibility_sse_threshold, camera: { start: [20, 5, -45], target: [20, 5, 5], motion, radiansPerFrame: motion === "slow" ? 0.002 : motion === "fast" ? 0.012 : 0 },
-        effects: { fsr3: renderer.fsr3_enabled, bloom: renderer.bloom_enabled, gtao: renderer.xe_gtao_enabled,
+        effects: { fsr3: renderer.fsr3_enabled, bloom: renderer.bloom_enabled, gtao: renderer.ambientOcclusionSettings.enabled,
           vsm: renderer.shadowVisibilityEnabled, previousHzb: renderer.packed_visibility_hzb_enabled,
           hzbRecovery, admissionProfile },
         asset: report.asset, quality: report.quality }, entropy, diagnostics: renderer.profiler.diagnostics,
