@@ -67,6 +67,35 @@ verifies:
     - OEngine/src/framegraph/FrameGraph.ts
     - OEngine/tests/oracle/native-temporal-v2-gpu.mjs
     - tools/gpu-oracle/registry.mjs
+    - OEngine/src/assets/AssetLoadBatch.ts
+    - OEngine/src/assets/OegPackV3.ts
+    - OEngine/src/assets/geometry-product
+    - OEngine/src/assets/web-cook/WebCookCoordinator.ts
+    - OEngine/src/gpu/GeometryPageScheduler.ts
+    - OEngine/src/gpu/GeometryProductResidentAttributes.ts
+    - OEngine/src/gpu/VirtualGeometryResidency.ts
+    - OEngine/src/material/CanonicalMaterial.ts
+    - OEngine/src/shaders/geometry_source_decode.ts
+    - OEngine/src/shaders/surface_geometry_completion.ts
+    - OEngine/src/shaders/vsm_receiver_demand.ts
+    - OEngine/src/shaders/vsm_caster_records.ts
+    - OEngine/tests/unit/asset-load-batch.test.mjs
+    - OEngine/tests/unit/cooked-cold-start-fastpath.test.mjs
+    - OEngine/tests/unit/geometry-page-scheduler.test.mjs
+    - OEngine/tests/unit/direction-a-pipeline-squeeze.test.mjs
+    - OEngine/tests/contract/geometry-product-workload.test.mjs
+    - OEngine/tests/contract/geometry-product-budgeted-lifecycle.test.mjs
+    - OEngine/tests/contract/virtual-geometry-product.test.mjs
+    - OEngine/tests/contract/material-closure-v2.test.mjs
+    - OEngine/tests/oracle/vsm-receiver-exact-gpu.mjs
+    - OEngine/tests/oracle/vsm-caster-cost-gpu.mjs
+    - OEngine/tests/oracle/vsm-v4-r2-gpu.mjs
+    - OEngine/tests/oracle/vsm-v4-r3-gpu.mjs
+    - OEngine/tests/oracle/native-temporal-identity-gpu.mjs
+    - OEngine/tests/oracle/product-attribute-decode-gpu.mjs
+    - OEngine/tests/oracle/surface-workgroup-cost-gpu.mjs
+    - OEngine/tests/oracle/fixtures/surface-eight-slot-cache.mjs
+    - examples/demos/14-integrated/bistro-texture-compression/cooked-scene.ts
     - validation/tools/run-dungeon-performance.mjs
     - validation/tools/dungeon-gpu-audit.mjs
     - examples/demos/14-integrated/dungeon-warkarma-texture-compression/main.ts
@@ -348,6 +377,39 @@ Native先检查prepared BRDF的base/coat零贡献，再查询页和采样；保�
 集中验证：engine typecheck/build/declarations、fresh build:test、Dungeon/Bistro typecheck/build、31 targeted Node；新filter独立595,968点、新bias解析receiver/contact 442,368点、3600 Sun/coat/HDR例、完整query/identity、1080p四类×256动态shadow序列、实际ordinary/Product/无Sun/bounded/最小binding/模式与零半径/AA-off/abort/defer/recovery/release GPU通过，无GPU/scoped errors。普通例程原浏览器失败保存并修复，最终交互与immutable上传/释放检查见实施记录。稀疏两点半影猜测及深度/寻址f16按设计拒绝，没有未接线placeholder。
 
 最终独立核old16/old4/disk/gather/point P50=.937696/.363280/.262896/.159616/.146368ms，全部raw及Cost Card见[实施记录](../performance/2026-10-13-vsm-filter-optimization.md)。有限96-frame ABBA中Native P50 A1/B1/B2/A2=4.207312/3.799760/3.819184/4.229968ms，两侧减少约.41ms；whole=17.171840/16.397280/16.534752/16.475424ms，VSM管理波动约.45ms，whole分差方向不一致。只称局部采样/Native收益，不称完整VSM或整帧改善。原热混杂、失败和全部raw保留；没有geometry-settled/formal三块1000-frame资格。接收平面与滤波源码切换事实、来源边界和仍需验证范围见实施记录。单元结束后仍停在Phase6，未越界重做VSM管理/raster。
+
+### 8.4 用户追加的近期提交优化闭包（2026-10-14）
+
+用户在审评 `bfc7d96f`、`b4ded252`、`b9acf2e6`、`f933660a`、`9557f63d` 后明确授权按设计顺序实施；本单元从 `9557f63d` 开始，依次闭合 VSM 正确性、Temporal 完整身份、紧凑 Page/加载合同与局部成本选择。环境惰性创建、Compute Pass 合并、不可变资源绑定缓存及紧凑 Page 单槽方向保留；没有恢复 CPU 96B 常驻展开、额外 submit、GPU→CPU→GPU 工作控制或第二套生产架构。软光栅候选仍未进入生产调用，不声称其有生产收益。
+
+**生产实现与 owner。** Receiver 删除角点同页/双簇推断，逐有效像素做真实 clip/page 投影，再使用已有 word/mask 聚合写请求。旋转 tile 的四角全部落粗 clip、内部落细 clip 是该推断的反例，补 barrier 不能解决；保守簇算法及其 overrequest/raster 成本未证明前，不恢复此捷径。Caster 保留 `9557f63d` 的 uniform dirty-count 广播；小于64个脏页直接执行原精确相交，64及以上保留现有层次归约，63/64/65/128边界、溢出、失败和 abort/retry 使用同一页/配对语义。
+
+Temporal writer、FrameProgram、Native binding、Seed 双缓冲、分类器及 AMD Analyze 全部使用 `rgba32uint` 的4个完整身份字，退休12/8/6/6位截断及格式猜测；保留 eligible 后才读 prior、高 reactive 时不读邻域的工作删除。身份归 Temporal owner，恢复其真实 accounting/retirement，不以截断实例、材质或 revision 换显存。
+
+Product 准入只扫描实际紧凑 payload：验证层次 work bound、布局、索引、位置 finite-f32 与 UV finite-half，不生成展开数组；每页仍一个256KiB槽。GPU 每次 source/缓存地址恢复同时装载3个 format word，属性函数复用这些字；per-invocation 状态继续 private。未预验证的 source 在异步 digest 前一次性取得自有字节和身份快照，校验/上传消费同一快照；包括 Node Buffer 在内的 Uint8Array 输入使用显式复制。可信 OEGPACK adapter 复制公共 decoded view 后移交所有权，preverified 标记绑定实际 ArrayBuffer。CRC-only 明示 `encoded-crc32` 且没有 decoded digest；SHA 路径保留真实 digest，不能把 Page identity 填充为摘要。WebCook 的 PageReady 仍要求16B真实 digest；结构/三角索引检查不随 SHA 选项跳过。
+
+Canonical cache 使用实际 scalar、UV、texture/sampler/content、不可变 graph 定义的精确快照与 `Object.is` 比较，删除32位 hash 作为相等判据；只在 publication 编译入口使用，不增加逐帧材质扫描。Bistro Texture Product 恢复默认完整容器 hash 校验并复用容器结果；纹理并发16但受256MiB transport 字节 credit 限制，credit 覆盖拼接副本和解析，未知/压缩传输长度保守预留。Geometry open 并发4、首失败取消同批请求并等待所有 worker，清理早/晚完成的 asset；range signal 传到真实 fetch。Bootstrap 每批最多64页，逐批上传后继续；合并读取每 span 解码后释放 encoded block。已完成 Product、浏览器网络缓存、JS GC 和 OS 内存不属于该 transport 逻辑上限。
+
+**Cost Card（相对本单元 HEAD，声明字节不冒称 DRAM）。**
+
+| 机制 | DELETE / ADD 与访问、同步 | ideal / expected / worst、break-even 与选择 |
+|---|---|---|
+| Receiver 精确请求 | 删92B/WG预测状态、16角点投影、z/簇归约及其 barrier；保留512B/WG word 聚合与一处 barrier；增加原捷径命中时被省略的逐像素投影 | correctness 修复：有效像素0/50/100%分别0/最多32/最多64次投影，不能以少请求证明节省。无保守证明便拒绝角点预测；非数值性能资格 |
+| Temporal 完整身份 | 每像素当前 store 4→16B，每次身份 load 4→16B；两张身份 allocation 合计+24B/pixel，1080p +47.46MiB；Seed allocation 28→52B/pixel | 0/50/100%历史可用均保留完整身份，eligible 的 prior load 依需求发生；没有以错误身份匹配换内存的 break-even。实际 allocator/retirement 按52B记账 |
+| 紧凑 Page | 无新增96B/vertex数组、无新增dispatch或GPU binding；准入 O(vertices+triangle corners) 读与 finite 检查；GPU 每次 source增加/复用3个format word状态 | 一个物理页固定一个槽；无/部分/全部属性分别只解码 consumer 所需字段。边界校验是准入成本，不称 CPU O(1)；GPU实际属性对照与真实Product消费通过 |
+| 八槽 Surface 候选 | 删混合图元 hash/probe/填充及同步；仅留精确单图元广播。声明的4组缓存数组+keys/valid共4864→600B/WG，减少4264B/WG | 无/部分/充分复用用1/4/8px footprint局部ABBA检查；每pixel直接解码在混合tile可能增ALU/随机读，单图元仍广播。八槽未证明稳定净益，退出生产，仅冻结test-only参考 |
+| Caster 小列表 | D<64省每batch四处层次同步/归约，但最多 W×D 次页读取与精确相交；大列表沿用层次。无新增pass/submit，原shared声明不因branch消失 | 0/50/100%脏页、63/64/65/128及配对压力检查；阈值对应64lane页设置的完整批，不宣称测得最优阈值或速度。层次收益依空间拒绝率，局部成本未获稳定净资格 |
+| 加载与缓存 | 删重复编译/重复digest、全bootstrap encoded块常驻及无限制geometry Promise.all；新增精确快照比较、准入扫描、共享credit/取消/清理 | 材质0/50/100%命中仍需快照比较，miss正常完整编译；break-even为省下编译大于比较，不称整体加载百分比。bootstrap decoded批最多16MiB；span≤16MiB、并发4；transport峰值逻辑边界256MiB，单响应decoded≤128MiB |
+
+**局部成本证据及其限制。** `surface-workgroup-cost-final.json` 为同一实际 Native+Temporal fixture 的256²局部ABBA，cell=4时Native shading的 eight/direct/direct/eight P50=.892928/.856064/.849184/.894304ms；cell=8为1.876800/1.943424/1.961440/2.004992ms，收益方向不稳定。cell=1跨窗口所有GPU阶段明显变化，不能从该热/时钟混杂得出精确净增益。Caster 0/50/100%及边界 ABBA 同样出现公共阶段变慢，保留全部样本，不归一化、不冒称整帧收益。冻结八槽参考只进入测试文件，生产没有候选开关。此单元没有修改算法来源/adoption声明，不把局部物理组织调整称为移植。
+
+**集中验证与失败分类。** Engine typecheck/build/declarations、fresh build:test、Bistro typecheck/build，以及受影响材质、Page、调度/流送、WebCook、Temporal、FrameProgram Node 检查；原失败及各次重跑均保存在 `.local/commit-optimization/`。旧 residentByteOffset=176 断言迁为原始页偏移0；旧“零 coat 删除纹理”断言与现行 live numeric parameter 合同冲突，迁为 CPU 独立求值验证0→.25及保留纹理依赖，不删除语义门。异步 digest 注入测试保留并修复 Buffer.slice alias 失败。R2缺噪声、R3退休texel helper/4页fixture、Temporal oracle重复getMappedRange及stale build分别按fixture/API/构建分类修复，未放宽像素/数值门。原1024/2048/4096 PC encoder完整套件启动后因非本单元codec算法范围而停止，未声称跑完。
+
+串行真实 NVIDIA Turing / Chrome155 GPU 覆盖精确receiver反例、VSM R2/R3真实分配/配对/提交、完整Temporal身份（实例4096、材质65及高位signature）、Native Temporal V2、实际Renderer WASM Product接线与abort/retry/resize/recovery/teardown、budgeted residency与device loss。独立 `product-attribute-decode` 覆盖1024顶点/20480分量、全部32属性mask组合、4bank、35B奇数stride/跨word读取及format恢复，最大绝对误差5.960464477539063e-8。该寻址压力集包括比当前准入更宽的非对齐布局，不冒称这些布局已纳入Product ABI。
+
+最终受影响28个Node文件共175项通过，含全部九个sampler字段及异步校验时修改provider字节/身份的回归。`git diff --check`通过。`node tools/docs-verify.mjs`仍有1个既有finding/81个historical warnings：仅Git忽略且本轮未修改的旧`docs/status.generated.md`缺frontmatter，本轮执行文档没有新增finding，全库文档检查不记通过。
+
+本追加单元实现、受影响正确性/生命周期与有界成本检查完成；未开展正式全Renderer长窗口/最终动态质量矩阵/4GB OS驻留资格，未获得整体加载时间、整帧FPS收益或稳定60FPS结论。仍停在既有Phase6边界。
 
 ## 9. Phase 6 — Performance / quality acceptance
 

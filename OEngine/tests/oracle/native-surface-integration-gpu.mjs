@@ -2,7 +2,7 @@ import { FinalPixelSeedReference } from "./final-pixel-seed-reference.mjs";
 import { GPUCameraState } from "../../.test-dist/render/GPUCameraState.js";
 import { GPUViewContext } from "../../.test-dist/render/ViewContext.js";
 import { PerspectiveCamera } from "../../.test-dist/camera/PerspectiveCamera.js";
-﻿import { runNativeVsmCoverageGpuOracle } from "./native-vsm-coverage-gpu.mjs";
+import { runNativeVsmCoverageGpuOracle } from "./native-vsm-coverage-gpu.mjs";
 import { nativeFixtureExpectedPixel } from "./native-surface-reference.mjs";
 import { createNativeSurfaceFixture, identity } from "./native-surface-fixture.mjs";
 import { createNativeMaterialBindingFixture } from "./native-material-bindings-gpu.mjs";
@@ -62,6 +62,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
     physicalSun = false,
     controlledLoss = false,
     productGeometry = false,
+    cellPixels = 8,
   } = {},
 ) {
   const graphics = {
@@ -93,7 +94,8 @@ export async function runNativeSurfaceIntegrationGpuOracle(
     materialFixtures = [],
     coverageOwners = [],
     geometryFixtures = [];
-  let fixture, seedReference = null;
+  let fixture,
+    seedReference = null;
   try {
     for (let variant = 0; variant < 2; variant++)
       materialFixtures.push(
@@ -150,6 +152,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
       materialCount: 8,
       perspective,
       highCoverage: cost,
+      cellPixels,
     });
     geometryFixtures.push(fixture);
     let width = fixture.width,
@@ -260,7 +263,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
     qualityCamera.near = 0.1;
     qualityCamera.fov = 1;
     qualityCamera.transform.position.set(0, 0, 2);
-    qualityCamera.transform.lookAt({x: 0, y: 0, z: 0.5});
+    qualityCamera.transform.lookAt({ x: 0, y: 0, z: 0.5 });
     const qualityState = phase3Matrix ? new GPUCameraState(device, qualityCamera) : null;
     if (qualityState) resources.push(qualityState);
     const camera = qualityState?.buffer ?? fixture.uniform(cameraWords, "S1/current and previous camera");
@@ -384,7 +387,9 @@ export async function runNativeSurfaceIntegrationGpuOracle(
             ),
           )
         : null;
-      const seedView = [...identity], seedProjection = [...identity], seedInverseProjection = [...identity];
+      const seedView = [...identity],
+        seedProjection = [...identity],
+        seedInverseProjection = [...identity];
       seedView[14] = -2;
       seedProjection[3] = perspective;
       seedProjection[14] = 2;
@@ -395,35 +400,68 @@ export async function runNativeSurfaceIntegrationGpuOracle(
       seedInverseView[14] = 2;
       let frameJitter = [0, 0];
       if (qualityState) {
-        const phase = index < 64 ? 0 : index < 192 ? (index - 64) : 128;
+        const phase = index < 64 ? 0 : index < 192 ? index - 64 : 128;
         // Author screen-space speeds, not unexplained world-space increments.
-        const worldPerPixel = 3 * Math.tan(qualityCamera.fov / 2) / height;
-        const offset = phase3Matrix === "fast-reverse-stop"
-          ? (phase < 64 ? phase : 128 - phase) * 8 * worldPerPixel
-          : phase * 0.25 * worldPerPixel;
-        qualityCamera.transform.position.set(offset, 0, 2 + (phase3Matrix === "dolly-depth" ? phase * 0.001 : 0));
-        qualityCamera.transform.lookAt({x: offset, y: 0, z: 0.5});
-        frameJitter = [[-.375,-.375],[.125,.375],[.375,-.125],[-.125,.125],[.125,-.375],[-.375,.125],[-.125,-.125],[.375,.375]][index % 8];
-        GPUViewContext.prototype.setJitter.call({camera:qualityState,jitter:new Float32Array(2),width,height},...frameJitter);
+        const worldPerPixel = (3 * Math.tan(qualityCamera.fov / 2)) / height;
+        const offset =
+          phase3Matrix === "fast-reverse-stop"
+            ? (phase < 64 ? phase : 128 - phase) * 8 * worldPerPixel
+            : phase * 0.25 * worldPerPixel;
+        qualityCamera.transform.position.set(
+          offset,
+          0,
+          2 + (phase3Matrix === "dolly-depth" ? phase * 0.001 : 0),
+        );
+        qualityCamera.transform.lookAt({ x: offset, y: 0, z: 0.5 });
+        frameJitter = [
+          [-0.375, -0.375],
+          [0.125, 0.375],
+          [0.375, -0.125],
+          [-0.125, 0.125],
+          [0.125, -0.375],
+          [-0.375, 0.125],
+          [-0.125, -0.125],
+          [0.375, 0.375],
+        ][index % 8];
+        GPUViewContext.prototype.setJitter.call(
+          { camera: qualityState, jitter: new Float32Array(2), width, height },
+          ...frameJitter,
+        );
         qualityState.update(command);
       }
-      const seedFrame = temporal.prepare(width, height, "native", qualityState ? {
-        view: qualityCamera.view_matrix,
-        projection: qualityState.projection_matrix,
-        inverseView: qualityState.view_matrix_inverse,
-        inverseProjection: qualityState.projection_matrix_inverse,
-        jitter: frameJitter, preExposure: 1,
-      } : {
-        view: seedView, projection: seedProjection,
-        inverseView: seedInverseView, inverseProjection: seedInverseProjection,
-        jitter: [0, 0], preExposure: 1,
-      }, reset);
+      const seedFrame = temporal.prepare(
+        width,
+        height,
+        "native",
+        qualityState
+          ? {
+              view: qualityCamera.view_matrix,
+              projection: qualityState.projection_matrix,
+              inverseView: qualityState.view_matrix_inverse,
+              inverseProjection: qualityState.projection_matrix_inverse,
+              jitter: frameJitter,
+              preExposure: 1,
+            }
+          : {
+              view: seedView,
+              projection: seedProjection,
+              inverseView: seedInverseView,
+              inverseProjection: seedInverseProjection,
+              jitter: [0, 0],
+              preExposure: 1,
+            },
+        reset,
+      );
       if (phase3Matrix) {
         temporal.attach(command);
       }
       const finalLighting = lightingOwner.prepare(1, fixture.lightingPlan.descriptorCount, command);
       const localFrame = localOwner.prepare({
-        lookupTarget: { buffer: finalLighting.buffer, offset: finalLighting.plan.lookupOffset, size: finalLighting.plan.lookupBytes },
+        lookupTarget: {
+          buffer: finalLighting.buffer,
+          offset: finalLighting.plan.lookupOffset,
+          size: finalLighting.plan.lookupBytes,
+        },
         publication: {
           buffer: fixture.lightingEntries[0].resource.buffer,
           revision: 1,
@@ -457,7 +495,13 @@ export async function runNativeSurfaceIntegrationGpuOracle(
         height,
         generation: fixture.generation,
         frameIndex: index,
-        cameraPosition: phase3Matrix ? [qualityCamera.transform.matrix[12],qualityCamera.transform.matrix[13],qualityCamera.transform.matrix[14]] : [0, 0, 3],
+        cameraPosition: phase3Matrix
+          ? [
+              qualityCamera.transform.matrix[12],
+              qualityCamera.transform.matrix[13],
+              qualityCamera.transform.matrix[14],
+            ]
+          : [0, 0, 3],
         preExposure: fixture.exposure,
         viewMatrix: phase3Matrix ? qualityCamera.view_matrix : seedView,
         camera,
@@ -490,17 +534,38 @@ export async function runNativeSurfaceIntegrationGpuOracle(
         reset: phase3Matrix ? !seedFrame.previousValid : reset,
         historyReadIndex: index % 2,
       };
-      fsr.prepareFrame(command, phase3Matrix ? temporalSettings : {
-        width, height, jitter: frameJitter, cameraFar: 100, cameraInfiniteFar: false,
-        frameTimeMs: 16.7, reset, historyReadIndex: seedFrame.historyReadIndex,
-      });
+      fsr.prepareFrame(
+        command,
+        phase3Matrix
+          ? temporalSettings
+          : {
+              width,
+              height,
+              jitter: frameJitter,
+              cameraFar: 100,
+              cameraInfiniteFar: false,
+              frameTimeMs: 16.7,
+              reset,
+              historyReadIndex: seedFrame.historyReadIndex,
+            },
+      );
       if (!phase3Matrix) {
         fsr.attach(command, temporal);
       }
-      seedReference?.prepare(command, temporalSettings, publication, qualityState ? {
-        x: qualityCamera.transform.matrix[12], distance: qualityCamera.transform.matrix[14] - 0.5,
-        scaleX: qualityState.projection_matrix[0], jitterX: qualityState.projection_matrix[8], jitterY: qualityState.projection_matrix[9],
-      } : null);
+      seedReference?.prepare(
+        command,
+        temporalSettings,
+        publication,
+        qualityState
+          ? {
+              x: qualityCamera.transform.matrix[12],
+              distance: qualityCamera.transform.matrix[14] - 0.5,
+              scaleX: qualityState.projection_matrix[0],
+              jitterX: qualityState.projection_matrix[8],
+              jitterY: qualityState.projection_matrix[9],
+            }
+          : null,
+      );
       const cpuPrepareMs = performance.now() - prepareStart;
       const graph = new FrameGraph("SurfaceV4 isolated integration");
       const imported = (name, value, domain) =>
@@ -516,7 +581,8 @@ export async function runNativeSurfaceIntegrationGpuOracle(
       if (qualityState) {
         const arenaIndex = foundation.indexOf(fixture.geometry.arena);
         const currentGeometry = graph.add("Seed quality/real FrameGeometryVertices", {}, () =>
-          fixture.encodeFrameGeometry(command.gpu_encoder, qualityState.view_projection_matrix));
+          fixture.encodeFrameGeometry(command.gpu_encoder, qualityState.view_projection_matrix),
+        );
         for (const id of dependencies) currentGeometry.read(id);
         dependencies[arenaIndex] = currentGeometry.write(dependencies[arenaIndex]);
       }
@@ -560,17 +626,22 @@ export async function runNativeSurfaceIntegrationGpuOracle(
       const winnerVis = winner.write(vis),
         winnerDepth = winner.write(depth);
       let lightingProduct = samplingOwner.addToGraph(graph, {
-        pages: 16, levels: 1,
+        pages: 16,
+        levels: 1,
         constants: imported("VSM constants", fixture.vsm.constants),
         pageTable: imported("VSM committed page table", fixture.vsm.pageTable),
         contentVersion: imported("VSM committed atlas", fixture.vsm.atlas),
-        target: { resource: imported("final lighting container", finalLighting.buffer),
-          offset: finalLighting.plan.descriptorOffset, size: finalLighting.plan.descriptorBytes },
+        target: {
+          resource: imported("final lighting container", finalLighting.buffer),
+          offset: finalLighting.plan.descriptorOffset,
+          size: finalLighting.plan.descriptorBytes,
+        },
       });
       if (physicalSun) {
         lightingProduct = addFinalPixelSolarPublication(graph, {
           transmittance: imported("Sun transmittance provider", sunTexture),
-          target: lightingProduct, plan: finalLighting.plan,
+          target: lightingProduct,
+          plan: finalLighting.plan,
         });
       }
       const localProducts = localFrame
@@ -582,7 +653,11 @@ export async function runNativeSurfaceIntegrationGpuOracle(
           })
         : null;
       const seedProducts = temporal.importProducts(graph);
-      const previousIdentity = imported("Temporal/previous identity", seedFrame.previousIdentity, "internal-full");
+      const previousIdentity = imported(
+        "Temporal/previous identity",
+        seedFrame.previousIdentity,
+        "internal-full",
+      );
       const products = surface.addToGraph(
         graph,
         [
@@ -599,59 +674,87 @@ export async function runNativeSurfaceIntegrationGpuOracle(
       const facts = {
         motion: products.seed,
         identity: products.identity,
-        mask: temporal.addClassification(graph, {
-          seed: products.seed, response: products.reactive, identity: products.identity,
-          previousIdentity,
-        }, undefined, !phase3Matrix),
+        mask: temporal.addClassification(
+          graph,
+          {
+            seed: products.seed,
+            response: products.reactive,
+            identity: products.identity,
+            previousIdentity,
+          },
+          undefined,
+          !phase3Matrix,
+        ),
       };
       const fsrOutput = fsr.addToGraph(
         graph,
-        phase3Matrix ? {
-          color: products.hdr,
-          depth: winnerDepth,
-          motion: facts.motion, reactiveMask: facts.mask, validityMask: facts.mask,
-          preExposure: exposure,
-          priorExposure: prior,
-          width,
-          height,
-          outputWidth: width,
-          outputHeight: height,
-        } : {
-          color: products.hdr, seed: products.seed, response: products.reactive,
-          identity: products.identity, previousIdentity,
-          preExposure: exposure, priorExposure: prior, width, height,
-        },
+        phase3Matrix
+          ? {
+              color: products.hdr,
+              depth: winnerDepth,
+              motion: facts.motion,
+              reactiveMask: facts.mask,
+              validityMask: facts.mask,
+              preExposure: exposure,
+              priorExposure: prior,
+              width,
+              height,
+              outputWidth: width,
+              outputHeight: height,
+            }
+          : {
+              color: products.hdr,
+              seed: products.seed,
+              response: products.reactive,
+              identity: products.identity,
+              previousIdentity,
+              preExposure: exposure,
+              priorExposure: prior,
+              width,
+              height,
+            },
         (_name, resolve) => resolve(fsr),
       );
       if (seedReference) {
         const referenceProducts = seedReference.addToGraph(graph, command, {
-          color: products.hdr, response: products.reactive, visibility: winnerVis, depth: winnerDepth,
-          camera, work: fixture.geometry.meshletWork, instances: fixture.sceneInstances,
-          preExposure: exposure, priorExposure: prior,
+          color: products.hdr,
+          response: products.reactive,
+          visibility: winnerVis,
+          depth: winnerDepth,
+          camera,
+          work: fixture.geometry.meshletWork,
+          instances: fixture.sceneInstances,
+          preExposure: exposure,
+          priorExposure: prior,
         });
-        seedReference.compare(graph, command, {color:fsrOutput,seed:products.seed,identity:products.identity,mask:facts.mask},referenceProducts);
+        seedReference.compare(
+          graph,
+          command,
+          { color: fsrOutput, seed: products.seed, identity: products.identity, mask: facts.mask },
+          referenceProducts,
+        );
       } else {
-      const node = graph.add("S1/read all native consumers", {}, (_data, resources) => {
-        if (!verifyOutputs) return;
-        const group = device.createBindGroup({
-          layout: inspect.getBindGroupLayout(0),
-          entries: [
-            ...[products.hdr, facts.motion, facts.mask, fsrOutput, winnerVis].map((id, binding) => ({
-              binding,
-              resource: viewOf(resources.get(id)),
-            })),
-            { binding: 5, resource: { buffer: output } },
-          ],
+        const node = graph.add("S1/read all native consumers", {}, (_data, resources) => {
+          if (!verifyOutputs) return;
+          const group = device.createBindGroup({
+            layout: inspect.getBindGroupLayout(0),
+            entries: [
+              ...[products.hdr, facts.motion, facts.mask, fsrOutput, winnerVis].map((id, binding) => ({
+                binding,
+                resource: viewOf(resources.get(id)),
+              })),
+              { binding: 5, resource: { buffer: output } },
+            ],
+          });
+          const pass = command.beginComputePass({ label: "S1/inspect" });
+          pass.setPipeline(inspect);
+          pass.setBindGroup(0, group);
+          pass.dispatchWorkgroups(Math.ceil(width / 8), Math.ceil(height / 8));
+          pass.end();
+          command.gpu_encoder.copyBufferToBuffer(output, 0, readback, 0, probeSize);
         });
-        const pass = command.beginComputePass({ label: "S1/inspect" });
-        pass.setPipeline(inspect);
-        pass.setBindGroup(0, group);
-        pass.dispatchWorkgroups(Math.ceil(width / 8), Math.ceil(height / 8));
-        pass.end();
-        command.gpu_encoder.copyBufferToBuffer(output, 0, readback, 0, probeSize);
-      });
-      for (const id of [products.hdr, facts.motion, facts.mask, fsrOutput, winnerVis]) node.read(id);
-      node.make_side_effect();
+        for (const id of [products.hdr, facts.motion, facts.mask, fsrOutput, winnerVis]) node.read(id);
+        node.make_side_effect();
       }
       const encodeStart = performance.now();
       command.encodeGraph(graph);
@@ -673,13 +776,20 @@ export async function runNativeSurfaceIntegrationGpuOracle(
       if (exposureUpdate) exposureValue = exposureTarget;
       if (seedReference) {
         const metrics = await seedReference.measure();
-        rows.push({index,...metrics});
+        rows.push({ index, ...metrics });
         // Evaluate every frame before failing the suite, so late replacements,
         // exposure changes and settling retain evidence even after an early fail.
         rows[rows.length - 1].failures = [
           ...(metrics.nonfinite === 0 ? [] : ["nonfinite"]),
           ...(metrics.motionPixelError < 0.1 ? [] : ["motion"]),
-          ...(metrics.maskChannels[0] === 0 && metrics.maskChannels[2] === 0 && metrics.identityMismatches === 0 && metrics.unexplainedByte === 0 && metrics.unexplainedValidity === 0 && metrics.wrongHard === 0 ? [] : ["identity/mask"]),
+          ...(metrics.maskChannels[0] === 0 &&
+          metrics.maskChannels[2] === 0 &&
+          metrics.identityMismatches === 0 &&
+          metrics.unexplainedByte === 0 &&
+          metrics.unexplainedValidity === 0 &&
+          metrics.wrongHard === 0
+            ? []
+            : ["identity/mask"]),
           ...(metrics.actualAnalyticRmse <= metrics.referenceAnalyticRmse + 2 ** -10 ? [] : ["HDR"]),
         ];
         // Output parity is retained as a diagnostic, not mistaken for quality:
@@ -822,24 +932,34 @@ export async function runNativeSurfaceIntegrationGpuOracle(
       return values;
     };
     if (phase3Matrix) {
-      await frame(0, {reset:true});
-      for (let index=1;index<256;index++) {
-        if (phase3Matrix === "replacement-exposure" && [96,128,160].includes(index)) {
-          const oldPublication=publication, oldCoverage=coverage;
-          publication=await publish({gain:[index===128 ? 0.8 : 0.4]});
-          coverage=await createCoverage(publication);
+      await frame(0, { reset: true });
+      for (let index = 1; index < 256; index++) {
+        if (phase3Matrix === "replacement-exposure" && [96, 128, 160].includes(index)) {
+          const oldPublication = publication,
+            oldCoverage = coverage;
+          publication = await publish({ gain: [index === 128 ? 0.8 : 0.4] });
+          coverage = await createCoverage(publication);
           await oldCoverage.retire(Promise.resolve());
           await oldPublication.retire(Promise.resolve());
-          publications.splice(publications.indexOf(oldPublication),1);
+          publications.splice(publications.indexOf(oldPublication), 1);
         }
-        await frame(index,{exposureUpdate:phase3Matrix==="replacement-exposure"&&[96,128].includes(index),
-          exposureTarget:index===96 ? 5 : 0.3125});
+        await frame(index, {
+          exposureUpdate: phase3Matrix === "replacement-exposure" && [96, 128].includes(index),
+          exposureTarget: index === 96 ? 5 : 0.3125,
+        });
       }
-      return {case:phase3Matrix,width,height,frames:256,warmup:64,rows,
-        reference:"c71c6d31 Facts + unchanged production T3; same actual Native HDR",
-        peakMotionPixelError:Math.max(...rows.map((row)=>row.motionPixelError)),
-        peakNormalizedHdrError:Math.max(...rows.map((row)=>row.normalizedHdrError)),
-        peakHalfSteps:Math.max(...rows.map((row)=>row.peakHalfSteps))};
+      return {
+        case: phase3Matrix,
+        width,
+        height,
+        frames: 256,
+        warmup: 64,
+        rows,
+        reference: "c71c6d31 Facts + unchanged production T3; same actual Native HDR",
+        peakMotionPixelError: Math.max(...rows.map((row) => row.motionPixelError)),
+        peakNormalizedHdrError: Math.max(...rows.map((row) => row.normalizedHdrError)),
+        peakHalfSteps: Math.max(...rows.map((row) => row.peakHalfSteps)),
+      };
     }
     const first = await frame(0, { reset: true });
     const stable = await frame(1);
@@ -1169,22 +1289,35 @@ export async function runLocalLightEpochGpuOracle() {
   return { scope: "L3.1 complete reconstruction on two independently destroyed epochs", epochs };
 }
 
-
-
 export async function runFinalPixelSeedQualityGpuOracle(device) {
-  const cases=[];
-  for(const phase3Matrix of ["jitter-slow-pan","fast-reverse-stop","dolly-depth","replacement-exposure"]) {
-    cases.push(await runNativeSurfaceIntegrationGpuOracle(device,{width:1920,height:1080,phase3Matrix}));
+  const cases = [];
+  for (const phase3Matrix of [
+    "jitter-slow-pan",
+    "fast-reverse-stop",
+    "dolly-depth",
+    "replacement-exposure",
+  ]) {
+    cases.push(
+      await runNativeSurfaceIntegrationGpuOracle(device, { width: 1920, height: 1080, phase3Matrix }),
+    );
   }
-  check(cases.every((item) => item.rows.every((row) => row.failures.length === 0)),
-    `Phase3 complete matrix failures: ${JSON.stringify(cases)}`);
+  check(
+    cases.every((item) => item.rows.every((row) => row.failures.length === 0)),
+    `Phase3 complete matrix failures: ${JSON.stringify(cases)}`,
+  );
   for (const item of cases) {
     item.analyticPeakEnvelope = {
       native: Math.max(...item.rows.map((row) => row.actualAnalyticPeak)),
       reference: Math.max(...item.rows.map((row) => row.referenceAnalyticPeak)),
     };
-    check(item.analyticPeakEnvelope.native <= item.analyticPeakEnvelope.reference + 2 ** -10,
-      `Phase3 ${item.case}: analytic peak envelope ${JSON.stringify(item.analyticPeakEnvelope)}`);
+    check(
+      item.analyticPeakEnvelope.native <= item.analyticPeakEnvelope.reference + 2 ** -10,
+      `Phase3 ${item.case}: analytic peak envelope ${JSON.stringify(item.analyticPeakEnvelope)}`,
+    );
   }
-  return {cases,passed:true,scope:"Phase3 full-domain dynamic facts/HDR regression; final architecture matrix remains Phase5/6"};
+  return {
+    cases,
+    passed: true,
+    scope: "Phase3 full-domain dynamic facts/HDR regression; final architecture matrix remains Phase5/6",
+  };
 }

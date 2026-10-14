@@ -143,7 +143,12 @@ export async function runCase({
         label: "L3.0 same-frame reference",
         size: [width, height],
         format: "rgba16float",
-        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC | GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_DST,
+        usage:
+          GPUTextureUsage.STORAGE_BINDING |
+          GPUTextureUsage.TEXTURE_BINDING |
+          GPUTextureUsage.COPY_SRC |
+          GPUTextureUsage.RENDER_ATTACHMENT |
+          GPUTextureUsage.COPY_DST,
       })
     : null;
   const referenceReactive = lighting
@@ -156,14 +161,22 @@ export async function runCase({
     : null;
   // The counterfactual uses the same final-pixel publication, with private
   // Seed/identity outputs. It cannot overwrite production Temporal facts.
-  const referenceSeed = lighting ? device.createTexture({
-    label: "L3.0 reference Seed", size: [width, height], format: "rgba32float",
-    usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
-  }) : null;
-  const referenceIdentity = lighting ? device.createTexture({
-    label: "L3.0 reference identity", size: [width, height], format: "r32uint",
-    usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
-  }) : null;
+  const referenceSeed = lighting
+    ? device.createTexture({
+        label: "L3.0 reference Seed",
+        size: [width, height],
+        format: "rgba32float",
+        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
+      })
+    : null;
+  const referenceIdentity = lighting
+    ? device.createTexture({
+        label: "L3.0 reference identity",
+        size: [width, height],
+        format: "rgba32uint",
+        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
+      })
+    : null;
   await referenceSurface?.ready;
   const clusterInspection = lighting ? await createLightingInspection(device, 60 * 34 * 24) : null;
   const errors = [];
@@ -339,8 +352,8 @@ export async function runCase({
           entry.binding === 1
             ? { binding: 1, resource: { buffer: referenceParameters } }
             : entry.binding === 3
-                ? { binding: 3, resource: { buffer: referenceData } }
-                : entry,
+              ? { binding: 3, resource: { buffer: referenceData } }
+              : entry,
         ),
       });
       referenceSurface.encode(encoder);

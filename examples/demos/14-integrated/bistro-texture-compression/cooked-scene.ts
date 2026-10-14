@@ -1,22 +1,23 @@
+import { AssetReadBudget, loadAssetBatch } from "../../../../OEngine/src/assets/AssetLoadBatch.ts";
 import type { Renderer, Scene } from "../../../../OEngine/src/index.ts";
 import {
   load_oegpack_product,
-  type OegPackProductAsset
+  type OegPackProductAsset,
 } from "../../../../OEngine/src/assets/geometry-product/OegPackProductAsset.ts";
 import { parseOegPackSceneManifestV3 } from "../../../../OEngine/src/assets/geometry-product/OegPackSceneManifestV3.ts";
 import {
   buildVirtualGeometrySceneSourceV1,
   mergeVirtualGeometryProductSceneSourcesV1,
-  type VirtualGeometryProductScenePartV1
+  type VirtualGeometryProductScenePartV1,
 } from "../../../../OEngine/src/assets/geometry-product/VirtualGeometrySceneSourceV1.ts";
 import {
   GeometryProductMultiRuntimeV1,
-  type GeometryProductShardHandleV1
+  type GeometryProductShardHandleV1,
 } from "../../../../OEngine/src/gpu/GeometryProductMultiRuntime.ts";
 import { GeometryPageStreamingRuntimeV1 } from "../../../../OEngine/src/gpu/GeometryPageStreamingRuntime.ts";
 import type {
   VirtualGeometryGeometryProfile,
-  VirtualGeometrySceneSource
+  VirtualGeometrySceneSource,
 } from "../../../../OEngine/src/gpu/GpuRenderWorld.ts";
 import { MATERIAL_TEXTURE_PROPERTIES } from "../../../../OEngine/src/assets/PcMaterialTextures.ts";
 import { openTextureProduct, textureProductHash } from "../../../../OEngine/src/assets/TextureProduct.ts";
@@ -24,7 +25,7 @@ import { parseGltfMaterial } from "../../../../OEngine/src/loaders/gltf/gltfMate
 import {
   textureFromGltf,
   type GltfTextureDef,
-  type GltfSamplerDef
+  type GltfSamplerDef,
 } from "../../../../OEngine/src/loaders/gltf/gltfTextures.ts";
 import type { GltfMaterial } from "../../../../OEngine/src/loaders/gltf/GltfLoader.ts";
 import { ShadeImage } from "../../../../OEngine/src/texture/ShadeImage.ts";
@@ -62,7 +63,7 @@ export async function loadCookedScene(
   base: string,
   signal: AbortSignal,
   phase: (value: string) => void,
-  geometryCapacityBytes = 1024 * 1024 ** 2
+  geometryCapacityBytes = 1024 * 1024 ** 2,
 ) {
   const fetchBytes = async (uri: string) => {
     const response = await fetch(new URL(uri, base), { signal });
@@ -71,7 +72,7 @@ export async function loadCookedScene(
   };
   phase("Reading offline scene/material catalog");
   const manifest = JSON.parse(
-    new TextDecoder().decode(await fetchBytes("scene.materials.json"))
+    new TextDecoder().decode(await fetchBytes("scene.materials.json")),
   ) as CookedManifest;
   if (manifest.schema !== "oengine-offline-scene-materials-v1")
     throw new Error("Offline material schema mismatch");
@@ -89,31 +90,31 @@ export async function loadCookedScene(
 
   // Importer-only image identities. No pixel payload is decoded or published.
   const images = Array.from({ length: manifest.source.images }, () =>
-    ShadeImage.fromEncodedImage(new ArrayBuffer(0), "image/png")
+    ShadeImage.fromEncodedImage(new ArrayBuffer(0), "image/png"),
   );
   const textures = manifest.gltf.textures.map((t) => textureFromGltf(t, images, manifest.gltf.samplers));
   const materials = manifest.gltf.materials.map((m) => parseGltfMaterial(m, textures));
   const entries = new Map(manifest.products.map((product) => [product.uri, product.identity]));
   const products = new Map<string, Awaited<ReturnType<typeof openTextureProduct>>>();
   phase("Reading validated BC Texture Products (no codec)");
-  let productCursor = 0;
-  const workerCount = Math.min(COOKED_TEXTURE_FETCH_CONCURRENCY, Math.max(1, manifest.products.length));
-  await Promise.all(
-    Array.from({ length: workerCount }, async () => {
-      while (true) {
-        const index = productCursor++;
-        if (index >= manifest.products.length) return;
-        signal.throwIfAborted();
-        const entry = manifest.products[index]!;
-        const product = await openTextureProduct(await fetchBytes(entry.uri), {
-          verifyHashes: false
-        });
+  const readBudget = new AssetReadBudget();
+  const loadedTextures = await loadAssetBatch(
+    manifest.products,
+    COOKED_TEXTURE_FETCH_CONCURRENCY,
+    signal,
+    async (entry, _index, batchSignal) => {
+      const response = await fetch(new URL(entry.uri, base), { signal: batchSignal });
+      if (!response.ok) throw new Error(`Cooked asset ${entry.uri}: HTTP ${response.status}`);
+      return readBudget.read(response, batchSignal, async (bytes) => {
+        // The container verifies each payload once; TextureProduct reuses it.
+        const product = await openTextureProduct(bytes);
         if (product.identity !== entry.identity)
           throw new Error(`Cooked Product identity mismatch: ${entry.uri}`);
-        products.set(entry.uri, product);
-      }
-    })
+        return product;
+      });
+    },
   );
+  loadedTextures.forEach((product, index) => products.set(manifest.products[index]!.uri, product));
   for (const [index, material] of materials.entries()) {
     const bindings = manifest.bindings[index]!;
     for (const property of MATERIAL_TEXTURE_PROPERTIES) {
@@ -135,7 +136,7 @@ export async function loadCookedScene(
         "wrapS",
         "wrapT",
         "wrapR",
-        "dimensions"
+        "dimensions",
       ] as const) {
         texture[name] = sampler[name];
       }
@@ -155,19 +156,22 @@ export async function loadCookedScene(
       residency: {
         requestedProfile: "HighEnd",
         configuredCapacityBytes: geometryCapacityBytes,
-        configuredBankBytes: geometryCapacityBytes / 4
+        configuredBankBytes: geometryCapacityBytes / 4,
       },
-      metadataBytes: 128 * 1024 ** 2
+      metadataBytes: 128 * 1024 ** 2,
     });
     const parts: VirtualGeometryProductScenePartV1[] = [];
     let first: GeometryProductShardHandleV1 | undefined;
-    const openedAssets = await Promise.all(
-      geometryManifest.packs.map((pack) =>
+    const openedAssets = await loadAssetBatch(
+      geometryManifest.packs,
+      4,
+      signal,
+      (pack, _index, batchSignal) =>
         load_oegpack_product(
           { kind: "http-range", url: new URL(pack.uri, base).href },
-          { signal, manifest: sceneBytes, verifyPageSha256: false }
-        )
-      )
+          { signal: batchSignal, manifest: sceneBytes, verifyPageSha256: false },
+        ),
+      (asset) => asset.release(),
     );
     assets.push(...openedAssets);
     for (const [packIndex, pack] of geometryManifest.packs.entries()) {
@@ -180,7 +184,7 @@ export async function loadCookedScene(
         throw new Error("Offline pack does not match scene manifest");
       }
       const profiles: VirtualGeometryGeometryProfile[] = new Array(
-        asset.descriptor.assetRecords.length / 128
+        asset.descriptor.assetRecords.length / 128,
       );
       const instances = geometryManifest.instances.flatMap((instance, index) => {
         const reference = geometryManifest.assets[instance.asset]!;
@@ -191,8 +195,8 @@ export async function loadCookedScene(
             assetIndex: reference.assetRecordIndex,
             materialIndex: manifest.instanceMaterials[index]!,
             transform: instance.transform,
-            flags: instance.flags
-          }
+            flags: instance.flags,
+          },
         ];
       });
       if (profiles.some((profile) => !profile) || profiles.filter(Boolean).length !== profiles.length) {
@@ -209,7 +213,7 @@ export async function loadCookedScene(
           source: mapped.source,
           productTableSlot: shard.productTableSlot,
           productGeneration: shard.productGeneration,
-          assetReferenceBegin: shard.assetReferenceBegin
+          assetReferenceBegin: shard.assetReferenceBegin,
         });
       }
     }
@@ -227,8 +231,8 @@ export async function loadCookedScene(
         assetCount: combined.assetCount,
         registerStreaming: false,
         multiRuntime: runtime,
-        releaseWithScene: true
-      }
+        releaseWithScene: true,
+      },
     );
     published = true;
     return {
@@ -237,7 +241,7 @@ export async function loadCookedScene(
       framing: sceneFraming(combined),
       dispose,
       settled: async () => {},
-      runtime
+      runtime,
     };
   } catch (error) {
     if (published) await renderer.releaseScene(scene);
@@ -255,7 +259,7 @@ function sceneFraming(source: VirtualGeometrySceneSource) {
     const m = source.currentTransforms.subarray(instance * 16, instance * 16 + 16);
     for (let corner = 0; corner < 8; corner++) {
       const v = [0, 1, 2].map(
-        (axis) => (corner & (1 << axis) ? source.boundsMax! : source.boundsMin!)[instance * 3 + axis]!
+        (axis) => (corner & (1 << axis) ? source.boundsMax! : source.boundsMin!)[instance * 3 + axis]!,
       );
       for (let axis = 0; axis < 3; axis++) {
         const value = m[axis]! * v[0]! + m[4 + axis]! * v[1]! + m[8 + axis]! * v[2]! + m[12 + axis]!;

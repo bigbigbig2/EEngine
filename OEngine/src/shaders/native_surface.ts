@@ -150,7 +150,7 @@ export function nativeSurfaceBindingGroups(
   if (profile.finalPixel) {
     geometry.push(
       { binding: 6, visibility: COMPUTE, storageTexture: { format: "rgba32float", access: "write-only" } },
-      { binding: 9, visibility: COMPUTE, storageTexture: { format: "r32uint", access: "write-only" } },
+      { binding: 9, visibility: COMPUTE, storageTexture: { format: "rgba32uint", access: "write-only" } },
     );
   }
   if (profile.productGeometry) {
@@ -443,57 +443,7 @@ ${materialLighting}
   }
 `
       : "";
-  const sharedCachePopulate = /* wgsl */ `
-  var cache_slot = select(0xffffffffu, 0u, tile_broadcast);
-  if (!tile_broadcast) {
-    if (lane_active && lane_key != OENGINE_VISIBILITY_KEY_EMPTY) {
-      let h = (lane_key * 2654435761u) >> 29u;
-      for (var probe = 0u; probe < 8u; probe++) {
-        let idx = (h + probe) & 7u;
-        let cur = atomicLoad(&wg_cache_keys[idx]);
-        if (cur == lane_key) {
-          cache_slot = idx;
-          break;
-        }
-        if (cur == OENGINE_VISIBILITY_KEY_EMPTY) {
-          let res = atomicCompareExchangeWeak(&wg_cache_keys[idx], OENGINE_VISIBILITY_KEY_EMPTY, lane_key);
-          if (res.exchanged || res.old_value == lane_key) {
-            cache_slot = idx;
-            break;
-          }
-        }
-      }
-    }
-    workgroupBarrier();
-    if (lane < 8u) {
-      let slot_key = atomicLoad(&wg_cache_keys[lane]);
-      if (slot_key != OENGINE_VISIBILITY_KEY_EMPTY && meshlet_work.header.generation == settings.dimensions.w) {
-        let slot_decoded = oengine_visibility_key_resolve(slot_key, meshlet_work.header.generation, meshlet_work.header.written_count);
-        if (slot_decoded.valid != 0u &&
-            slot_decoded.meshlet_work_slot < min(meshlet_work.header.capacity, arrayLength(&meshlet_work.elements))) {
-          let slot_work = meshlet_work.elements[slot_decoded.meshlet_work_slot];
-          if (slot_work.instance_slot < arrayLength(&frame_instances) &&
-              frame_instances[slot_work.instance_slot].generation == settings.dimensions.w &&
-              slot_work.material_slot_or_range < arrayLength(&native_directory)) {
-            let slot_entry = native_directory[slot_work.material_slot_or_range];
-            if (slot_entry.execution_bin == route.x${profile.finalPixel ? " && slot_entry.program_index != 0xffffffffu" : ""}) {
-              let slot_instance = frame_instances[slot_work.instance_slot];
-              let slot_resolved = geometry_complete_resolved(slot_decoded, slot_work, slot_instance);
-              wg_cache_work[lane] = slot_work;
-              wg_cache_entry[lane] = slot_entry;
-              wg_cache_instance_source[lane] = slot_instance.source;
-              wg_cache_corners[lane] = geometry_complete_attributes(slot_resolved, slot_instance);
-              wg_cache_valid[lane] = 1u;
-            }
-          }
-        }
-      }
-    }
-    workgroupBarrier();
-    if (cache_slot < 8u && wg_cache_valid[cache_slot] == 0u) {
-      cache_slot = 0xffffffffu;
-    }
-  }`;
+  const sharedCachePopulate = "  let cache_slot = select(0xffffffffu, 0u, tile_broadcast);";
   const pixelSelection = profile.compact
     ? /* wgsl */ `
   let record = route.x * 8u;
@@ -505,10 +455,7 @@ ${materialLighting}
   let high_mask = select(0u, native_tiles[address + 2u], valid_group);
   let tile = native_tiles[address] & 0x7fffffffu;
   let tiles_x = (settings.dimensions.x + 7u) / 8u;
-  if lane < 8u {
-    atomicStore(&wg_cache_keys[lane], OENGINE_VISIBILITY_KEY_EMPTY);
-    wg_cache_valid[lane] = 0u;
-  }
+
   if lane == 0u {
     wg_tile_broadcast = 0u;
     if valid_group && (raw_tile & 0x80000000u) != 0u && (low_mask | high_mask) != 0u &&
@@ -555,10 +502,7 @@ ${sharedCachePopulate}
   let in_bounds = all(pixel < settings.dimensions.xy);
   let dense_key = select(OENGINE_VISIBILITY_KEY_EMPTY, textureLoad(visibility, vec2i(pixel), 0).r, in_bounds);
   wg_dense_keys[lane] = dense_key;
-  if lane < 8u {
-    atomicStore(&wg_cache_keys[lane], OENGINE_VISIBILITY_KEY_EMPTY);
-    wg_cache_valid[lane] = 0u;
-  }
+
   if lane == 0u {
     wg_tile_broadcast = 0u;
     atomicStore(&wg_dense_mixed, 0u);
@@ -742,12 +686,10 @@ fn native_geometry_input(corners: GeometryCompletion, weights: vec3f, kind: u32)
   }
 }
 var<workgroup> wg_tile_broadcast: u32;
-var<workgroup> wg_cache_keys: array<atomic<u32>, 8>;
-var<workgroup> wg_cache_valid: array<u32, 8>;
-var<workgroup> wg_cache_work: array<OEngineMeshletRasterWork, 8>;
-var<workgroup> wg_cache_entry: array<NativeMaterialDirectoryEntry, 8>;
-var<workgroup> wg_cache_instance_source: array<OEngineInstanceRecord, 8>;
-var<workgroup> wg_cache_corners: array<GeometryCompletion, 8>;
+var<workgroup> wg_cache_work: array<OEngineMeshletRasterWork, 1>;
+var<workgroup> wg_cache_entry: array<NativeMaterialDirectoryEntry, 1>;
+var<workgroup> wg_cache_instance_source: array<OEngineInstanceRecord, 1>;
+var<workgroup> wg_cache_corners: array<GeometryCompletion, 1>;
 ${
   profile.compact
     ? ""
@@ -758,7 +700,7 @@ var<workgroup> wg_dense_mixed: atomic<u32>;`
 fn main(@builtin(global_invocation_id) id: vec3u, @builtin(workgroup_id) group: vec3u,
   @builtin(num_workgroups) groups: vec3u, @builtin(local_invocation_index) lane: u32) {
 ${pixelSelection}
-  let cache_hit = cache_slot < 8u;
+  let cache_hit = cache_slot == 0u;
   var work: OEngineMeshletRasterWork;
   var entry: NativeMaterialDirectoryEntry;
   var resolved: GeometryResolved;

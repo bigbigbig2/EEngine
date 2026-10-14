@@ -3,8 +3,9 @@ import { SHADOW_BOUNDS_WGSL, VSM_PAIR_WRITE_WGSL } from "../gpu/GpuVsmPairAbi.js
 import { VSM_PAGE_TABLE_WGSL } from "./vsm_page_table.js";
 import { VSM_PAIR_PAGE_WGSL } from "./vsm_pair_page.js";
 
-/** One actual Geometry work lane scans the bounded dirty list. At most one
- * global ticket/overlap; no CAS, locks, barriers, copied source or partial draw.
+/** Actual Geometry work scans the bounded dirty list. Small lists use direct
+ * intersections; full batches share page setup and conservative coarse bounds.
+ * At most one global ticket/overlap; no copied geometry or partial draw.
  * Preflight guarantees W × D fits u32, including attempted count. */
 export const VSM_CASTER_RECORDS_WGSL = /* wgsl */ `
 ${VSM_PAGE_TABLE_WGSL}
@@ -77,6 +78,25 @@ var<workgroup> wg_group_rects: array<vec4f, 8>;
 var<workgroup> wg_batch_rect: vec4f;
 var<workgroup> wg_dirty_count: u32;
 
+fn record_direct_pair(slot: u32, bound: ShadowMeshletBounds, page_index: u32) {
+  let page = allocation.records[page_index];
+  if (page.slot >= constants.control.w || page.virtual_page >= arrayLength(&page_table.entries)) {
+    atomicOr(&pairs.header.failure, 1u);
+    return;
+  }
+  let entry = page_table.entries[page.virtual_page];
+  if (!vsm_pair_page_valid(page, entry)) {
+    atomicOr(&pairs.header.failure, 1u);
+    return;
+  }
+  if (vsm_pair_overlaps(bound.light_xy, entry, page.virtual_page)) {
+    let ticket = atomicAdd(&pairs.header.attempted, 1u);
+    if (ticket < constants.control.z) {
+      pairs.elements[ticket] = VsmPair(slot, page.slot, page.virtual_page, 1u);
+    }
+  }
+}
+
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u, @builtin(local_invocation_index) lane: u32) {
   if (lane == 0u) {
@@ -93,6 +113,16 @@ fn main(@builtin(global_invocation_id) id: vec3u, @builtin(local_invocation_inde
     }
   }
   let caster_valid = has_caster && bound.valid != 0u;
+  // A partial batch cannot fill the 64 page-setup lanes. Avoid all four
+  // hierarchical barriers for small lists, keeping exact page intersections.
+  if (dirty_count < 64u) {
+    if (caster_valid) {
+      for (var page = 0u; page < dirty_count; page++) {
+        record_direct_pair(slot, bound, page);
+      }
+    }
+    return;
+  }
   let has_any_caster = pairs.header.source_count > 0u;
   for (var batch = 0u; batch < dirty_count; batch += 64u) {
     let page_index = batch + lane;

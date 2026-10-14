@@ -5,11 +5,11 @@ import {
   geometryProductWorkload,
   geometryProductSceneWorkload,
   geometryProductMeshletWorkCapacity,
-  validateGeometryProductSceneWorkLimits
+  validateGeometryProductSceneWorkLimits,
 } from "../../.test-dist/assets/geometry-product/GeometryProductWorkload.js";
 import {
   buildVirtualGeometrySceneSourceV1,
-  mergeVirtualGeometryProductSceneSourcesV1
+  mergeVirtualGeometryProductSceneSourcesV1,
 } from "../../.test-dist/assets/geometry-product/VirtualGeometrySceneSourceV1.js";
 import { prepareProductResidentAttributes } from "../../.test-dist/gpu/GeometryProductResidentAttributes.js";
 
@@ -17,7 +17,7 @@ const identity = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 
 const limits = {
   maxBufferSize: 268435456,
   maxStorageBufferBindingSize: 134217728,
-  maxComputeWorkgroupsPerDimension: 65535
+  maxComputeWorkgroupsPerDimension: 65535,
 };
 
 test("Product workload bounds actual forest depth, widest frontier and accumulated groups", () => {
@@ -36,7 +36,7 @@ test("one asset with many instances has per-instance capacity, not assetCount ti
   const instances = Array.from({ length: 10000 }, () => ({
     assetIndex: 0,
     materialIndex: 0,
-    transform: identity
+    transform: identity,
   }));
   const { source } = buildVirtualGeometrySceneSourceV1(descriptor, [{}], instances, [{}]);
   assert.equal(source.hierarchyMaxDepth, 0);
@@ -53,15 +53,15 @@ test("each Product keeps its own depth and merged capacities never clamp overflo
       descriptor,
       [{}],
       [{ assetIndex: 0, materialIndex: 0, transform: identity }],
-      [{}]
+      [{}],
     ).source;
   const parts = [one(triangleProductFixture().descriptor), one(deepProductFixture(7).descriptor)].map(
     (source, index) => ({
       source,
       productTableSlot: index,
       productGeneration: index + 1,
-      assetReferenceBegin: index
-    })
+      assetReferenceBegin: index,
+    }),
   );
   const merged = mergeVirtualGeometryProductSceneSourcesV1(parts);
   assert.equal(merged.hierarchyMaxDepth, 7);
@@ -80,36 +80,49 @@ test("negotiated binding and dispatch limits reject unsupported scenes without t
     () =>
       validateGeometryProductSceneWorkLimits({ ...base, hierarchyVisibleClusterCapacity: 5 }, 1, {
         ...limits,
-        maxComputeWorkgroupsPerDimension: 2
+        maxComputeWorkgroupsPerDimension: 2,
       }),
-    /dispatch grid/
+    /dispatch grid/,
   );
   validateGeometryProductSceneWorkLimits(
     { ...base, hierarchyRasterWorkCapacity: 444_363_334 },
     19144,
-    limits
+    limits,
   );
   assert.throws(
     () =>
       validateGeometryProductSceneWorkLimits({ ...base, hierarchyRasterWorkCapacity: 444_363_334 }, 19144, {
         ...limits,
-        maxStorageBufferBindingSize: 64 * 1024 ** 2
+        maxStorageBufferBindingSize: 64 * 1024 ** 2,
       }),
-    /storage-buffer limits/
+    /storage-buffer limits/,
   );
 });
 
 test("resident page validates the hierarchy count before trusting its exact work bound", () => {
   const { descriptor, page } = triangleProductFixture();
   const result = prepareProductResidentAttributes(descriptor, 0, page.buffer);
-  assert.equal(result.meshlets.length, 1);
   assert.equal(result.slotCount, 1);
-  assert.equal(result.directoryByteOffset, 176);
   assert.equal(result.rawPayloadBytes, 176);
   assert.equal(result.uploadBytes, 176);
-  assert.equal(result.meshlets[0].values.length, 0);
-  const decoded = prepareProductResidentAttributes(descriptor, 0, page.buffer, true);
-  assert.deepEqual([...decoded.meshlets[0].values.slice(20, 23)], [-0.5, -0.5, 0]);
+  const invalid = page.slice();
+  new DataView(invalid.buffer).setFloat32(116, NaN, true);
+  assert.throws(() => prepareProductResidentAttributes(descriptor, 0, invalid.buffer), /nonfinite position/);
+  const uvDescriptor = { ...descriptor, vertexFormats: descriptor.vertexFormats.slice() };
+  const format = new DataView(uvDescriptor.vertexFormats.buffer);
+  format.setUint16(0, 20, true);
+  format.setUint16(2, 11, true);
+  format.setUint8(7, 16);
+  const uvPage = page.slice();
+  const uvView = new DataView(uvPage.buffer);
+  for (let vertex = 0; vertex < 3; vertex++) {
+    for (let axis = 0; axis < 3; axis++) uvView.setFloat32(116 + vertex * 20 + axis * 4, 0, true);
+    uvView.setUint16(116 + vertex * 20 + 16, 0x3c00, true);
+    uvView.setUint16(116 + vertex * 20 + 18, 0x3c00, true);
+  }
+  assert.equal(prepareProductResidentAttributes(uvDescriptor, 0, uvPage.buffer).slotCount, 1);
+  uvView.setUint16(132, 0x7c00, true);
+  assert.throws(() => prepareProductResidentAttributes(uvDescriptor, 0, uvPage.buffer), /nonfinite UV/);
   const bad = { ...descriptor, hierarchyNodes: descriptor.hierarchyNodes.slice() };
   new DataView(bad.hierarchyNodes.buffer).setUint32(44, (1 << 25) | 1, true);
   assert.throws(() => prepareProductResidentAttributes(bad, 0, page.buffer), /hierarchy work bound/);

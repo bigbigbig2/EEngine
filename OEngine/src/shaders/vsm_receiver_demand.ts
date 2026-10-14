@@ -96,14 +96,6 @@ struct Constants {
 @group(0) @binding(5) var<storage, read> meshlet_work: OEngineMeshletWorkQueueRead;
 @group(0) @binding(6) var<storage, read> instances: array<OEngineInstanceRecord>;
 
-var<workgroup> wg_tile_z_min: atomic<u32>;
-var<workgroup> wg_tile_z_max: atomic<u32>;
-var<workgroup> wg_tile_c0_max: atomic<u32>;
-var<workgroup> wg_tile_c1_min: atomic<u32>;
-var<workgroup> wg_tile_corner_pages: array<u32, 16>;
-var<workgroup> wg_tile_uniform_page: atomic<u32>;
-var<workgroup> wg_tile_cluster_pages: vec2u;
-
 fn world_from_depth(pixel: vec2u, depth: f32) -> vec3f {
   let uv = (vec2f(pixel) + vec2f(0.5)) * constants.viewport.xy;
   let ndc = vec2f(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
@@ -125,106 +117,33 @@ fn project_pixel_depth_to_page(pixel: vec2u, depth: f32) -> u32 {
   return virtual_page;
 }
 
+// Clip selection is discontinuous across nested clip windows. Equal corner
+// indices do not prove that an interior pixel selects the same finer level.
+// Only exact per-receiver requests are merged by the word aggregation below.
 fn receiver_page(id: vec3u) -> u32 {
-  let lane = (id.y & 7u) * 8u + (id.x & 7u);
-  if (lane == 0u) {
-    atomicStore(&wg_tile_z_min, 0xffffffffu);
-    atomicStore(&wg_tile_z_max, 0u);
-    atomicStore(&wg_tile_c0_max, 0u);
-    atomicStore(&wg_tile_c1_min, 0xffffffffu);
-    atomicStore(&wg_tile_uniform_page, VSM_INVALID_SLOT);
-    wg_tile_cluster_pages = vec2u(VSM_INVALID_SLOT);
-  }
-  let out_of_bounds = id.x >= constants.dimensions.x || id.y >= constants.dimensions.y;
-  let pixel = id.xy;
-  var depth = 0.0;
-  var valid_receiver = false;
-  if (!out_of_bounds) {
-    depth = textureLoad(receiver_depth, vec2i(pixel), 0);
-    if (depth > 0.0001) {
-      let key = textureLoad(visibility_key, vec2i(pixel), 0).x;
-      if (key != 0xffffffffu && key != 0xfffffffeu) {
-        let decoded = oengine_visibility_key_resolve(key, meshlet_work.header.generation, meshlet_work.header.written_count);
-        if (decoded.valid != 0u && decoded.meshlet_work_slot < min(meshlet_work.header.capacity, arrayLength(&meshlet_work.elements))) {
-          let instance_slot = meshlet_work.elements[decoded.meshlet_work_slot].instance_slot;
-          if (instance_slot < arrayLength(&instances)) {
-            let instance_flags = instances[instance_slot].flags;
-            if ((instance_flags & ${GPU_INSTANCE_FLAGS.Active | GPU_INSTANCE_FLAGS.ReceivesShadow}u) == ${GPU_INSTANCE_FLAGS.Active | GPU_INSTANCE_FLAGS.ReceivesShadow}u &&
-                (instance_flags & ${GPU_INSTANCE_FLAGS.Transparent}u) == 0u && oengine_instance_shading_bin_id(instance_flags) >= 4u) {
-              valid_receiver = true;
-            }
-          }
-        }
-      }
-    }
-  }
-  let depth_bits = bitcast<u32>(depth);
-  if (valid_receiver) {
-    atomicMin(&wg_tile_z_min, depth_bits);
-    atomicMax(&wg_tile_z_max, depth_bits);
-  }
-  let z_min_bits = atomicLoad(&wg_tile_z_min);
-  let z_max_bits = atomicLoad(&wg_tile_z_max);
-  if (z_min_bits == 0xffffffffu) {
+  if (id.x >= constants.dimensions.x || id.y >= constants.dimensions.y) {
     return VSM_INVALID_SLOT;
   }
-  let z_split = 0.5 * (bitcast<f32>(z_min_bits) + bitcast<f32>(z_max_bits));
-  if (valid_receiver) {
-    if (depth <= z_split) {
-      atomicMax(&wg_tile_c0_max, depth_bits);
-    } else {
-      atomicMin(&wg_tile_c1_min, depth_bits);
-    }
-  }
-  if (lane < 16u) {
-    let tile_base = id.xy & vec2u(~7u);
-    let tile_max = min(tile_base + vec2u(7u), constants.dimensions.xy - vec2u(1u));
-    let corner_px = vec2u(
-      select(tile_base.x, tile_max.x, (lane & 1u) != 0u),
-      select(tile_base.y, tile_max.y, (lane & 2u) != 0u),
-    );
-    let c0_max_bits = max(z_min_bits, atomicLoad(&wg_tile_c0_max));
-    let c1_min_bits = min(z_max_bits, atomicLoad(&wg_tile_c1_min));
-    let z_lo = select(z_min_bits, c1_min_bits, (lane & 8u) != 0u);
-    let z_hi = select(c0_max_bits, z_max_bits, (lane & 8u) != 0u);
-    let corner_depth = bitcast<f32>(select(z_lo, z_hi, (lane & 4u) != 0u));
-    wg_tile_corner_pages[lane] = project_pixel_depth_to_page(corner_px, corner_depth);
-  }
-  if (lane == 0u) {
-    let p0 = wg_tile_corner_pages[0];
-    let c0_uniform = p0 != VSM_INVALID_SLOT &&
-      wg_tile_corner_pages[1] == p0 && wg_tile_corner_pages[2] == p0 &&
-      wg_tile_corner_pages[3] == p0 && wg_tile_corner_pages[4] == p0 &&
-      wg_tile_corner_pages[5] == p0 && wg_tile_corner_pages[6] == p0 &&
-      wg_tile_corner_pages[7] == p0;
-    let p1 = wg_tile_corner_pages[8];
-    let c1_empty = atomicLoad(&wg_tile_c1_min) == 0xffffffffu;
-    let c1_uniform = !c1_empty && p1 != VSM_INVALID_SLOT &&
-      wg_tile_corner_pages[9] == p1 && wg_tile_corner_pages[10] == p1 &&
-      wg_tile_corner_pages[11] == p1 && wg_tile_corner_pages[12] == p1 &&
-      wg_tile_corner_pages[13] == p1 && wg_tile_corner_pages[14] == p1 &&
-      wg_tile_corner_pages[15] == p1;
-    wg_tile_cluster_pages = vec2u(
-      select(VSM_INVALID_SLOT, p0, c0_uniform),
-      select(VSM_INVALID_SLOT, p1, c1_uniform),
-    );
-    if (c0_uniform && (c1_empty || (c1_uniform && p1 == p0))) {
-      atomicStore(&wg_tile_uniform_page, p0);
-    }
-  }
-  let uniform_page = atomicLoad(&wg_tile_uniform_page);
-  let cluster_pages = wg_tile_cluster_pages;
-  if (!valid_receiver) {
+  let pixel = vec2i(id.xy);
+  let depth = textureLoad(receiver_depth, pixel, 0);
+  if (!(depth > 0.0001 && depth <= 1.0)) {
     return VSM_INVALID_SLOT;
   }
-  if (uniform_page != VSM_INVALID_SLOT) {
-    return uniform_page;
+  let key = textureLoad(visibility_key, pixel, 0).x;
+  let decoded = oengine_visibility_key_resolve(key, meshlet_work.header.generation, meshlet_work.header.written_count);
+  if (decoded.valid == 0u || decoded.meshlet_work_slot >= min(meshlet_work.header.capacity, arrayLength(&meshlet_work.elements))) {
+    return VSM_INVALID_SLOT;
   }
-  let cluster_page = select(cluster_pages.y, cluster_pages.x, depth <= z_split);
-  if (cluster_page != VSM_INVALID_SLOT) {
-    return cluster_page;
+  let instance_slot = meshlet_work.elements[decoded.meshlet_work_slot].instance_slot;
+  if (instance_slot >= arrayLength(&instances)) {
+    return VSM_INVALID_SLOT;
   }
-  return project_pixel_depth_to_page(pixel, depth);
+  let flags = instances[instance_slot].flags;
+  if ((flags & ${GPU_INSTANCE_FLAGS.Active | GPU_INSTANCE_FLAGS.ReceivesShadow}u) != ${GPU_INSTANCE_FLAGS.Active | GPU_INSTANCE_FLAGS.ReceivesShadow}u ||
+      (flags & ${GPU_INSTANCE_FLAGS.Transparent}u) != 0u || oengine_instance_shading_bin_id(flags) < 4u) {
+    return VSM_INVALID_SLOT;
+  }
+  return project_pixel_depth_to_page(id.xy, depth);
 }
 
 ${VSM_RECEIVER_WORD_AGGREGATION_WGSL}

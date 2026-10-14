@@ -181,6 +181,58 @@ test("page scheduler verifies identity/hash, retries transient source errors, an
   assert.equal(calls, 2);
 });
 
+test("page scheduler hashes and uploads one owned snapshot across asynchronous verification", async (t) => {
+  const { descriptor, page, hash, integrity } = fixture();
+  const returned = {
+    productId: descriptor.productId.slice(),
+    revision: 0,
+    pageId: 0,
+    decodedHash128: hash.slice(),
+    decodedPageHash128: integrity.slice(),
+    bytes: page.buffer,
+  };
+  const digest = globalThis.crypto.subtle.digest.bind(globalThis.crypto.subtle);
+  let entered;
+  let resume;
+  const started = new Promise((resolve) => {
+    entered = resolve;
+  });
+  const gate = new Promise((resolve) => {
+    resume = resolve;
+  });
+  t.mock.method(globalThis.crypto.subtle, "digest", async (algorithm, bytes) => {
+    entered();
+    await gate;
+    return digest(algorithm, bytes);
+  });
+  const scheduler = new GeometryPageSchedulerV1({ maxConcurrentReads: 1, maxInFlightBytes: 262144 });
+  scheduler.registerProduct(3, 9, {
+    descriptor,
+    async readPage() {
+      return returned;
+    },
+    release() {},
+  });
+  scheduler.ingestDemands([demand()]);
+  await started;
+  page.fill(7);
+  returned.productId.fill(7);
+  returned.decodedHash128.fill(7);
+  returned.decodedPageHash128.fill(7);
+  resume();
+  await scheduler.drainReads();
+  assert.equal(scheduler.state(9, 0), "upload-queued");
+  const uploaded = [];
+  scheduler.drainUploadBudget({
+    uploadPage(value) {
+      uploaded.push(value);
+    },
+  });
+  assert.equal(uploaded.length, 1);
+  assert.ok(new Uint8Array(uploaded[0].bytes).every((value) => value === 0));
+  assert.deepEqual(uploaded[0].productId, descriptor.productId);
+});
+
 test("page scheduler rejects deterministic hash corruption and stale generations", async () => {
   const { descriptor, page, hash, integrity } = fixture();
   const source = {

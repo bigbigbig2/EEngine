@@ -258,7 +258,7 @@ export class NativeExecutionBins {
           {
             binding: 11,
             visibility: GPUShaderStage.COMPUTE,
-            storageTexture: { access: "write-only", format: "r32uint" },
+            storageTexture: { access: "write-only", format: "rgba32uint" },
           },
         ];
       }

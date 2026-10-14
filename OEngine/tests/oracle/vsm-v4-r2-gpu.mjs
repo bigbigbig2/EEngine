@@ -17,6 +17,7 @@ import { GraphicsContext } from "../../.test-dist/gpu/GraphicsContext.js";
 import { FrameGraph } from "../../.test-dist/framegraph/FrameGraph.js";
 import { ShadeGPUCommandContext } from "../../.test-dist/framegraph/ShadeGPUCommandContext.js";
 import { packVsmProjection } from "../../.test-dist/render/vsm/VsmProjection.js";
+import { VSM_DEFAULT_SETTINGS } from "../../.test-dist/render/vsm/VsmSettings.js";
 
 const check = (condition, message) => {
   if (!condition) throw new Error(message);
@@ -67,6 +68,8 @@ export async function runVsmR2GpuOracle(device) {
     return words;
   };
   const frame = {
+    // This residency/query oracle authors point samples, not a disk noise product.
+    settings: { ...VSM_DEFAULT_SETTINGS, filterMode: "point" },
     generation: 7,
     projectionEpoch: 7,
     namespace: resources.namespace,

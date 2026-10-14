@@ -11,6 +11,14 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "product-attribute-decode",
+    file: "OEngine/tests/oracle/product-attribute-decode-gpu.mjs",
+    url: "/OEngine/tests/oracle/product-attribute-decode-gpu.mjs",
+    entry: "runProductAttributeDecodeGpuOracle",
+    description:
+      "Production compact Page attributes vs independent CPU scalar math, all masks, banks and cross-word reads.",
+  }),
+  Object.freeze({
     name: "vsm-bias",
     file: "OEngine/tests/oracle/vsm-bias-gpu.mjs",
     url: "/OEngine/tests/oracle/vsm-bias-gpu.mjs",
@@ -171,6 +179,15 @@ export const oracles = Object.freeze([
     description:
       "Actual Native Surface Seed -> V2 graph with joint ShadeGPUCommandContext submission, abort and fence retirement.",
     note: "Nonproduction component closure; existing upscale classification fixtures remain, not a Renderer policy/quality acceptance.",
+  }),
+  Object.freeze({
+    name: "native-temporal-identity",
+    file: "OEngine/tests/oracle/native-temporal-identity-gpu.mjs",
+    url: "/OEngine/tests/oracle/native-temporal-identity-gpu.mjs",
+    entry: "runNativeTemporalIdentityGpuOracle",
+    description:
+      "Full four-word production Seed identity and classifier, large instances/material slots and changed signatures.",
+    timeoutMs: 60000,
   }),
   Object.freeze({
     name: "native-temporal-v2",
@@ -339,6 +356,15 @@ export const oracles = Object.freeze([
       "Compact post-commit queries vs frozen original WGSL: full identity, rolling windows, f32 boundaries, all states and exact box PCF.",
   }),
   Object.freeze({
+    name: "vsm-receiver-exact",
+    file: "OEngine/tests/oracle/vsm-receiver-exact-gpu.mjs",
+    url: "/OEngine/tests/oracle/vsm-receiver-exact-gpu.mjs",
+    entry: "runVsmReceiverExactGpuOracle",
+    description:
+      "Exact production receiver requests across nested clip boundaries, including a rotated tile with coarse corners and fine interior.",
+    timeoutMs: 60000,
+  }),
+  Object.freeze({
     name: "vsm-receiver-aggregation",
     file: "OEngine/tests/oracle/vsm-receiver-aggregation-gpu.mjs",
     url: "/OEngine/tests/oracle/vsm-receiver-aggregation-gpu.mjs",
@@ -378,6 +404,17 @@ export const oracles = Object.freeze([
     entry: "runSkyIblDfgGpuOracle",
     description:
       "Production Fc/Total LUT and environment consumer against independent Schlick/Smith BRDF integration.",
+  }),
+  Object.freeze({
+    name: "vsm-caster-cost",
+    file: "OEngine/tests/oracle/vsm-caster-cost-gpu.mjs",
+    url: "/OEngine/tests/oracle/vsm-caster-cost-gpu.mjs",
+    entry: "runVsmCasterCostGpuOracle",
+    requiredLimits: { maxStorageBuffersPerShaderStage: 8 },
+    requiredFeatures: ["timestamp-query"],
+    description:
+      "Exact small/full caster batches, overflow/abort semantics and local hierarchy-versus-direct ABBA.",
+    timeoutMs: 180000,
   }),
   Object.freeze({
     name: "vsm-v4-r3",
@@ -729,6 +766,18 @@ export const oracles = Object.freeze([
     description:
       "S1 controlled device destruction and native subsystem reconstruction on two independent device epochs.",
     timeoutMs: 120000,
+  }),
+  Object.freeze({
+    name: "surface-workgroup-cost",
+    file: "OEngine/tests/oracle/surface-workgroup-cost-gpu.mjs",
+    url: "/OEngine/tests/oracle/surface-workgroup-cost-gpu.mjs",
+    entry: "runSurfaceWorkgroupCostGpuOracle",
+    allowPrefixes: ["OEngine/src/render/assets/"],
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    requiredFeatures: ["texture-compression-bc", "texture-formats-tier1", "timestamp-query"],
+    description:
+      "Local exact native-chain ABBA for no/intermediate/high triangle reuse; no final-scene performance claim.",
+    timeoutMs: 300000,
   }),
   Object.freeze({
     name: "native-surface-cost",

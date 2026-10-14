@@ -4,16 +4,17 @@ import {
   hierarchyNodeChildCountV3,
   hierarchyNodeChildStartV3,
   hierarchyNodeGroupIdV3,
-  hierarchyNodeIsGroupV3
+  hierarchyNodeIsGroupV3,
 } from "../assets/GeometryAbiV3.js";
 import {
   assertGeometryProductDescriptorV1,
   decodeGeometryProductPageRecordV1,
   GEOMETRY_PRODUCT_PAGE_RECORD_STRIDE,
   isPageIntegrityPreverifiedV1,
+  snapshotUnverifiedGeometryPageV1,
   type GeometryProductDescriptorV1,
   type GeometryPageProductV1,
-  type GeometryProductRevisionSourceV1
+  type GeometryProductRevisionSourceV1,
 } from "../assets/geometry-product/GeometryProductV1.js";
 import {
   GEOMETRY_PAGE_LOCATION_NON_RESIDENT,
@@ -25,27 +26,27 @@ import {
   packGeometryProductAssetReferenceV1,
   packGeometryProductMetadataHeapHeaderV1,
   packGeometryProductTableRecordV1,
-  encodeGeometryProductGpuLocationV1
+  encodeGeometryProductGpuLocationV1,
 } from "./GeometryProductGpuAbiV1.js";
 import {
   prepareProductResidentAttributes,
-  type ProductResidentPage
+  type ProductResidentPage,
 } from "./GeometryProductResidentAttributes.js";
 import {
   geometryProductGpuBudgetEvidence,
-  reserveGeometryProductMetadataBytes
+  reserveGeometryProductMetadataBytes,
 } from "./GeometryProductGpuBudget.js";
 import { GeometryProductSlotPool } from "./GeometryProductSlotPool.js";
 import {
   selectGeometryProductResidencyProfileV1,
   type GeometryProductResidencyProfileOptionsV1,
-  type GeometryProductResidencyProfilePlanV1
+  type GeometryProductResidencyProfilePlanV1,
 } from "./GeometryProductResidencyProfile.js";
 export {
   GEOMETRY_PAGE_LOCATION_NON_RESIDENT,
   GEOMETRY_PAGE_LOCATION_PINNED,
   GEOMETRY_PAGE_LOCATION_RESIDENT,
-  GEOMETRY_PAGE_LOCATION_STRIDE
+  GEOMETRY_PAGE_LOCATION_STRIDE,
 } from "./GeometryProductGpuAbiV1.js";
 
 export interface GeometryPageLocationV1 {
@@ -126,7 +127,7 @@ export interface GeometryProductPageLocationSinkV1 {
     productTableSlot: number,
     productGeneration: number,
     pageId: number,
-    location: GeometryPageLocationV1 | undefined
+    location: GeometryPageLocationV1 | undefined,
   ): void;
 }
 
@@ -219,7 +220,7 @@ export class VirtualGeometryResidency {
     productTableSlot: number,
     profile: GeometryProductResidencyProfilePlanV1,
     signal?: AbortSignal,
-    directory?: GeometryProductPageLocationSinkV1
+    directory?: GeometryProductPageLocationSinkV1,
   ) {
     this.#source = source;
     this.#descriptor = source.descriptor;
@@ -235,12 +236,12 @@ export class VirtualGeometryResidency {
     const assets = new DataView(
       source.descriptor.assetRecords.buffer,
       source.descriptor.assetRecords.byteOffset,
-      source.descriptor.assetRecords.byteLength
+      source.descriptor.assetRecords.byteLength,
     );
     const groups = new DataView(
       source.descriptor.groupDirectory.buffer,
       source.descriptor.groupDirectory.byteOffset,
-      source.descriptor.groupDirectory.byteLength
+      source.descriptor.groupDirectory.byteLength,
     );
     for (let asset = 0; asset < assetCount; asset++) {
       const begin = assets.getUint32(asset * 128 + 88, true);
@@ -287,7 +288,7 @@ export class VirtualGeometryResidency {
         productGeneration,
         productTableSlot,
         assetCount,
-        profile.slotsPerBank
+        profile.slotsPerBank,
       );
       device.queue.writeBuffer(this.#metadata, 0, initial);
     } catch (error) {
@@ -303,7 +304,7 @@ export class VirtualGeometryResidency {
     productGeneration = 1,
     productTableSlot = 0,
     signal?: AbortSignal,
-    options: VirtualGeometryResidencyOptionsV1 = {}
+    options: VirtualGeometryResidencyOptionsV1 = {},
   ): Promise<VirtualGeometryResidency> {
     let owner: VirtualGeometryResidency | undefined;
     try {
@@ -317,9 +318,9 @@ export class VirtualGeometryResidency {
         {
           maxBufferSize: Number(device.limits.maxBufferSize),
           maxStorageBufferBindingSize: Number(device.limits.maxStorageBufferBindingSize),
-          maxStorageBuffersPerShaderStage: Number(device.limits.maxStorageBuffersPerShaderStage ?? 16)
+          maxStorageBuffersPerShaderStage: Number(device.limits.maxStorageBuffersPerShaderStage ?? 16),
         },
-        options
+        options,
       );
       if (!profile.enabled)
         throw new RangeError(`Geometry Product residency is unavailable: ${profile.reason}`);
@@ -330,7 +331,7 @@ export class VirtualGeometryResidency {
         productTableSlot,
         profile,
         signal,
-        options.directory
+        options.directory,
       );
       await owner.#fillActivationCut();
       return owner;
@@ -350,15 +351,19 @@ export class VirtualGeometryResidency {
     if (pages.length > this.#slotPool.availableSlots)
       throw new RangeError("Geometry Product activation cut exceeds shared GPU slot capacity");
     let prefetchedPages: readonly GeometryPageProductV1[] | undefined;
-    if (pages.length > 1 && this.#source.readPages !== undefined) {
-      try {
-        prefetchedPages = await this.#source.readPages(pages, this.#signal);
-      } catch (error) {
-        this.#failedPages++;
-        throw error;
-      }
-    }
+    const bootstrapBatchPages = 64;
     for (let index = 0; index < pages.length; index++) {
+      if (this.#source.readPages !== undefined && index % bootstrapBatchPages === 0) {
+        try {
+          prefetchedPages = await this.#source.readPages(
+            pages.slice(index, index + bootstrapBatchPages),
+            this.#signal,
+          );
+        } catch (error) {
+          this.#failedPages++;
+          throw error;
+        }
+      }
       if (this.#signal?.aborted)
         throw this.#signal.reason ?? new Error("Geometry Product admission was cancelled");
       const pageId = pages[index]!;
@@ -366,10 +371,11 @@ export class VirtualGeometryResidency {
       if (!slot) throw new RangeError("Geometry Product activation cut has no shared GPU slot");
       const { bankIndex, slotIndex } = slot;
       try {
-        const page =
+        const page = snapshotUnverifiedGeometryPageV1(
           prefetchedPages !== undefined
-            ? prefetchedPages[index]!
-            : await this.#source.readPage(pageId, this.#signal);
+            ? prefetchedPages[index % bootstrapBatchPages]!
+            : await this.#source.readPage(pageId, this.#signal),
+        );
         if (this.#signal?.aborted)
           throw this.#signal.reason ?? new Error("Geometry Product admission was cancelled");
         const expected = decodeGeometryProductPageRecordV1(this.#descriptor, pageId);
@@ -383,14 +389,17 @@ export class VirtualGeometryResidency {
         )
           throw new Error(`page ${pageId} returned an invalid Product key, identity or size`);
         if (!isPageIntegrityPreverifiedV1(page)) {
-          const digest = new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", page.bytes.slice(0)));
+          if (page.decodedPageHash128?.byteLength !== 16) {
+            throw new Error(`page ${pageId} integrity digest is missing`);
+          }
+          const digest = new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", page.bytes));
           if (!sameBytes(digest.subarray(0, 16), page.decodedPageHash128))
             throw new Error(`page ${pageId} integrity hash mismatch`);
         }
         const location = this.#writeResidentPage(
           page,
           slot,
-          GEOMETRY_PAGE_LOCATION_RESIDENT | GEOMETRY_PAGE_LOCATION_PINNED
+          GEOMETRY_PAGE_LOCATION_RESIDENT | GEOMETRY_PAGE_LOCATION_PINNED,
         );
         this.#pageLocations.set(pageId, location);
         this.#pageLastUsed.set(pageId, 0);
@@ -405,7 +414,7 @@ export class VirtualGeometryResidency {
     const groupView = new DataView(
       this.#descriptor.groupDirectory.buffer,
       this.#descriptor.groupDirectory.byteOffset,
-      this.#descriptor.groupDirectory.byteLength
+      this.#descriptor.groupDirectory.byteLength,
     );
     for (let groupId = 0; groupId < this.#descriptor.groupDirectory.byteLength / 16; groupId++) {
       const pageId = groupView.getUint32(groupId * 16, true),
@@ -416,8 +425,8 @@ export class VirtualGeometryResidency {
           Object.freeze({
             ...location,
             byteOffset:
-              location.slotIndex * OEGPACK_V3_PAGE_BYTES + groupView.getUint32(groupId * 16 + 4, true)
-          })
+              location.slotIndex * OEGPACK_V3_PAGE_BYTES + groupView.getUint32(groupId * 16 + 4, true),
+          }),
         );
     }
     for (const pageId of this.#descriptor.activationPageIds)
@@ -425,7 +434,7 @@ export class VirtualGeometryResidency {
     if (this.#signal?.aborted)
       throw this.#signal.reason ?? new Error("Geometry Product admission was cancelled");
     const locations = new Uint8Array(
-      Math.max(GEOMETRY_PAGE_LOCATION_STRIDE, this.#descriptor.pageRecords.byteLength / 2)
+      Math.max(GEOMETRY_PAGE_LOCATION_STRIDE, this.#descriptor.pageRecords.byteLength / 2),
     );
     const locationView = new DataView(locations.buffer);
     for (let pageId = 0; pageId < this.#descriptor.pageRecords.byteLength / 32; pageId++) {
@@ -458,9 +467,9 @@ export class VirtualGeometryResidency {
         ? {}
         : {
             readPages: (pageIds: ArrayLike<number>, signal?: AbortSignal) =>
-              this.#source.readPages!(pageIds, signal)
+              this.#source.readPages!(pageIds, signal),
           }),
-      release: () => undefined
+      release: () => undefined,
     });
   }
   get productGeneration(): number {
@@ -481,7 +490,7 @@ export class VirtualGeometryResidency {
         this.#productTableSlot,
         this.#productGeneration,
         pageId,
-        this.#pageLocations.get(pageId)
+        this.#pageLocations.get(pageId),
       );
   }
   activatePublication(): void {
@@ -528,7 +537,7 @@ export class VirtualGeometryResidency {
       productTableByteOffset: this.#metadataLayout.productRecord,
       pageLocationByteOffset: this.#metadataLayout.pageLocations,
       productTable: this.#metadata!,
-      banks: Object.freeze([...this.#banks])
+      banks: Object.freeze([...this.#banks]),
     });
   }
   pageLocationTable(): GPUBuffer {
@@ -578,7 +587,7 @@ export class VirtualGeometryResidency {
     frameIndex: number,
     visible: boolean,
     predictive: boolean,
-    refetchCost = 1
+    refetchCost = 1,
   ): void {
     this.#assertPageId(pageId);
     if (
@@ -638,7 +647,8 @@ export class VirtualGeometryResidency {
       })
       .sort(
         (a, b) =>
-          this.#evictionKeepScore(a[0], frameIndex) - this.#evictionKeepScore(b[0], frameIndex) || a[0] - b[0]
+          this.#evictionKeepScore(a[0], frameIndex) - this.#evictionKeepScore(b[0], frameIndex) ||
+          a[0] - b[0],
       );
     const selected: number[] = [];
     let bytes = 0;
@@ -748,14 +758,14 @@ export class VirtualGeometryResidency {
   }
   writePageLocation(
     location: GeometryPageLocationV1,
-    target = new ArrayBuffer(GEOMETRY_PAGE_LOCATION_STRIDE)
+    target = new ArrayBuffer(GEOMETRY_PAGE_LOCATION_STRIDE),
   ): ArrayBuffer {
     new Uint8Array(target).set(encodeGeometryProductGpuLocationV1(location));
     return target;
   }
   evidence(): VirtualGeometryResidencyEvidenceV1 {
     const pinnedPages = [...this.#pageLocations.values()].filter(
-      (location) => (location.flags & GEOMETRY_PAGE_LOCATION_PINNED) !== 0
+      (location) => (location.flags & GEOMETRY_PAGE_LOCATION_PINNED) !== 0,
     ).length;
     const global = geometryProductGpuBudgetEvidence(this.device);
     const residentBytes = this.#pagePhysicalBytes(this.#pageLocations);
@@ -799,7 +809,7 @@ export class VirtualGeometryResidency {
       shortTermRerequests: this.#shortTermRerequests,
       thrashBytes: this.#thrashBytes,
       invalidGeneration: 0,
-      failedPages: this.#failedPages
+      failedPages: this.#failedPages,
     });
   }
   #pagePhysicalBytes(pages: ReadonlyMap<number, GeometryPageLocationV1>): number {
@@ -817,7 +827,7 @@ export class VirtualGeometryResidency {
   #prepareResidentPage(page: GeometryPageProductV1): ProductResidentPage {
     let value = this.#preparedPages.get(page);
     if (!value) {
-      value = prepareProductResidentAttributes(this.#descriptor, page.pageId, page.bytes, false);
+      value = prepareProductResidentAttributes(this.#descriptor, page.pageId, page.bytes);
       this.#preparedPages.set(page, value);
     }
     return value;
@@ -828,13 +838,13 @@ export class VirtualGeometryResidency {
   #writeResidentPage(
     page: GeometryPageProductV1,
     raw: { bankIndex: number; slotIndex: number },
-    flags: number
+    flags: number,
   ): GeometryPageLocationV1 {
     const prepared = this.#prepareResidentPage(page);
     this.device.queue.writeBuffer(
       this.#banks[raw.bankIndex]!,
       raw.slotIndex * OEGPACK_V3_PAGE_BYTES,
-      new Uint8Array(page.bytes, 0, prepared.rawPayloadBytes)
+      new Uint8Array(page.bytes, 0, prepared.rawPayloadBytes),
     );
     const slots = Object.freeze([raw]);
     this.#pageSlots.set(page.pageId, slots);
@@ -845,9 +855,9 @@ export class VirtualGeometryResidency {
       ...raw,
       residentBankIndex: raw.bankIndex,
       residentSlotIndex: raw.slotIndex,
-      residentByteOffset: prepared.directoryByteOffset,
+      residentByteOffset: 0,
       productGeneration: this.#productGeneration,
-      flags
+      flags,
     });
   }
   #history(pageId: number): PageEvictionHistory {
@@ -863,7 +873,7 @@ export class VirtualGeometryResidency {
         refetchCost: 1,
         lastEvicted: -1,
         rerequestNoted: false,
-        reloads: 0
+        reloads: 0,
       };
       this.#pageHistory.set(pageId, history);
     }
@@ -897,12 +907,12 @@ export class VirtualGeometryResidency {
     const nodes = new DataView(
       this.#descriptor.hierarchyNodes.buffer,
       this.#descriptor.hierarchyNodes.byteOffset,
-      this.#descriptor.hierarchyNodes.byteLength
+      this.#descriptor.hierarchyNodes.byteLength,
     );
     const groups = new DataView(
       this.#descriptor.groupDirectory.buffer,
       this.#descriptor.groupDirectory.byteOffset,
-      this.#descriptor.groupDirectory.byteLength
+      this.#descriptor.groupDirectory.byteLength,
     );
     const visited = new Set<number>();
     const walk = (nodeId: number, depth: number): void => {
@@ -938,21 +948,21 @@ export class VirtualGeometryResidency {
       this.device.queue.writeBuffer(
         this.#metadata,
         this.#metadataLayout.pageLocations + pageId * GEOMETRY_PAGE_LOCATION_STRIDE,
-        new Uint8Array(bytes)
+        new Uint8Array(bytes),
       );
     }
     this.#pageLocationSink?.publishPageLocation(
       this.#productTableSlot,
       this.#productGeneration,
       pageId,
-      location
+      location,
     );
   }
   #publishGroupsForPage(pageId: number, location: GeometryPageLocationV1): void {
     const groupView = new DataView(
       this.#descriptor.groupDirectory.buffer,
       this.#descriptor.groupDirectory.byteOffset,
-      this.#descriptor.groupDirectory.byteLength
+      this.#descriptor.groupDirectory.byteLength,
     );
     for (let groupId = 0; groupId < this.#descriptor.groupDirectory.byteLength / 16; groupId++)
       if (groupView.getUint32(groupId * 16, true) === pageId)
@@ -961,8 +971,8 @@ export class VirtualGeometryResidency {
           Object.freeze({
             ...location,
             byteOffset:
-              location.slotIndex * OEGPACK_V3_PAGE_BYTES + groupView.getUint32(groupId * 16 + 4, true)
-          })
+              location.slotIndex * OEGPACK_V3_PAGE_BYTES + groupView.getUint32(groupId * 16 + 4, true),
+          }),
         );
   }
   #writeProductRecord(flags: number): void {
@@ -981,7 +991,7 @@ export class VirtualGeometryResidency {
       pageBegin: 0,
       pageCount: descriptor.pageRecords.byteLength / 32,
       vertexFormatBegin: 0,
-      vertexFormatCount: descriptor.vertexFormats.byteLength / 16
+      vertexFormatCount: descriptor.vertexFormats.byteLength / 16,
     });
     if (this.#metadata !== undefined) {
       this.device.queue.writeBuffer(this.#metadata, this.#metadataLayout.productRecord, record);
@@ -1091,7 +1101,7 @@ function metadataLayout(descriptor: GeometryProductDescriptorV1, productTableSlo
     hierarchyNodes,
     groupDirectory,
     pageLocations,
-    vertexFormats
+    vertexFormats,
   });
 }
 function buildMetadataHeap(
@@ -1100,7 +1110,7 @@ function buildMetadataHeap(
   productGeneration: number,
   productTableSlot: number,
   assetCount: number,
-  slotsPerBank: number
+  slotsPerBank: number,
 ): Uint8Array<ArrayBuffer> {
   const bytes = new Uint8Array(layout.byteLength);
   const header = packGeometryProductMetadataHeapHeaderV1({
@@ -1115,7 +1125,7 @@ function buildMetadataHeap(
     hierarchyWordOffset: layout.hierarchyNodes / 4,
     groupDirectoryWordOffset: layout.groupDirectory / 4,
     pageLocationWordOffset: layout.pageLocations / 4,
-    vertexFormatWordOffset: layout.vertexFormats / 4
+    vertexFormatWordOffset: layout.vertexFormats / 4,
   });
   bytes.set(header, 0);
   bytes.set(
@@ -1133,9 +1143,9 @@ function buildMetadataHeap(
       pageBegin: 0,
       pageCount: descriptor.pageRecords.byteLength / 32,
       vertexFormatBegin: 0,
-      vertexFormatCount: descriptor.vertexFormats.byteLength / 16
+      vertexFormatCount: descriptor.vertexFormats.byteLength / 16,
     }),
-    layout.productRecord
+    layout.productRecord,
   );
   for (let asset = 0; asset < assetCount; asset++)
     bytes.set(
@@ -1143,9 +1153,9 @@ function buildMetadataHeap(
         productTableSlot,
         productGeneration,
         assetRecordIndex: asset,
-        flags: 0
+        flags: 0,
       }),
-      layout.assetReferences + asset * 16
+      layout.assetReferences + asset * 16,
     );
   bytes.set(descriptor.assetRecords, layout.assetRecords);
   bytes.set(u32LittleEndian(descriptor.rootNodeIds), layout.rootNodeIds);

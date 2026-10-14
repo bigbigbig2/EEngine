@@ -74,19 +74,46 @@ export interface GeometryPageProductV1 {
    * storage corruption. It is not page identity and is deliberately absent from
    * the descriptor, because it can only be computed once the payload exists.
    */
-  readonly decodedPageHash128: Uint8Array;
+  readonly decodedPageHash128?: Uint8Array;
+  readonly integrity?: "decoded-sha256" | "encoded-crc32";
+  /** Ownership hand-off: providers must not retain mutable aliases after return. */
   readonly bytes: ArrayBuffer;
 }
 
-const preverifiedIntegrityPages = new WeakSet<GeometryPageProductV1>();
+const preverifiedIntegrityPages = new WeakMap<GeometryPageProductV1, ArrayBuffer>();
 
 export function markPageIntegrityPreverifiedV1(page: GeometryPageProductV1): GeometryPageProductV1 {
-  preverifiedIntegrityPages.add(page);
+  if (
+    page.integrity === "encoded-crc32"
+      ? page.decodedPageHash128 !== undefined
+      : page.decodedPageHash128?.byteLength !== 16
+  ) {
+    throw new Error("Geometry page verification policy and digest disagree");
+  }
+  // The adapter hands off exclusively owned decoded bytes. CRC-only sources
+  // leave decodedPageHash128 absent instead of fabricating a digest.
+  preverifiedIntegrityPages.set(page, page.bytes);
   return page;
 }
 
 export function isPageIntegrityPreverifiedV1(page: GeometryPageProductV1): boolean {
-  return preverifiedIntegrityPages.has(page);
+  return preverifiedIntegrityPages.get(page) === page.bytes;
+}
+
+/** Copy unverified provider data before awaiting a digest, so later provider
+ * writes cannot change the bytes that admission validates and uploads. */
+export function snapshotUnverifiedGeometryPageV1(page: GeometryPageProductV1): GeometryPageProductV1 {
+  if (isPageIntegrityPreverifiedV1(page)) {
+    return page;
+  }
+  return Object.freeze({
+    ...page,
+    productId: new Uint8Array(page.productId),
+    decodedHash128: new Uint8Array(page.decodedHash128),
+    decodedPageHash128:
+      page.decodedPageHash128 === undefined ? undefined : new Uint8Array(page.decodedPageHash128),
+    bytes: page.bytes.slice(0),
+  });
 }
 
 export interface GeometryProductRevisionSourceV1 {
@@ -238,7 +265,12 @@ export function validateGeometryProductDescriptorV1(
     if ((flags & ~0xff) !== 0)
       issue("flags", `group ${group} contains unknown flags`, "groupDirectory", group);
     if ((flags & 0xc0) !== 0)
-      issue("surface-version", `group ${group} contains retired continuity payload; recook lean v7`, "groupDirectory", group);
+      issue(
+        "surface-version",
+        `group ${group} contains retired continuity payload; recook lean v7`,
+        "groupDirectory",
+        group,
+      );
     const list = pageGroups.get(page) ?? [];
     list.push(group);
     pageGroups.set(page, list);

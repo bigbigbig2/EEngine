@@ -33,7 +33,6 @@ import {
 import { lightSphereDistanceAttenuation } from "../../.test-dist/render/DirectLightingReference.js";
 import { decodeFloat16, encodeFloat16 } from "../../.test-dist/core/Float16.js";
 
-const CELL = 8;
 const GENERATION = 11;
 export const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 const pointLights = Array.from({ length: 8 }, (_, i) => ({
@@ -57,8 +56,10 @@ export async function createNativeSurfaceFixture(
     highCoverage = false,
     planeSlopes = [0, 0],
     filterMode = "point",
+    cellPixels = 8,
   } = {},
 ) {
+  const CELL = cellPixels;
   const WIDTH = width,
     HEIGHT = height;
   const retained = [];

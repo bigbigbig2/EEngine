@@ -126,7 +126,7 @@ fn geometry_complete_resolved(decoded: OEngineVisibilityKeyResolveResult,
       product
         ? `if surface_source_product {
       product_source_resident_address = cached.resident_address;
-      product_source_format_word = cached.vertex_indices;
+      product_frame_vertex_load_format(cached.vertex_indices);
     } else {`
         : ""
     }

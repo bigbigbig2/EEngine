@@ -240,7 +240,7 @@ const PRODUCT_SPEC: Readonly<
   "temporal-identity": {
     producer: "surface",
     domain: "internal-full",
-    format: "r32uint",
+    format: "rgba32uint",
     value: "instance slot+1, geometry change signature, material change signature, material slot+1",
     coverage: "full internal",
     invalid: "zero unresolved identity; sky instance marker 0xffffffff",

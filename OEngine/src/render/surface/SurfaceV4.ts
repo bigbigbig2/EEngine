@@ -467,7 +467,7 @@ export class SurfaceV4 {
       if (
         frame.temporal.view.byteLength !== NATIVE_TEMPORAL_SEED_VIEW_BYTES ||
         frame.temporal.seed.format !== "rgba32float" ||
-        frame.temporal.identity.format !== "r32uint" ||
+        frame.temporal.identity.format !== "rgba32uint" ||
         temporalWords[64] !== frame.width ||
         temporalWords[65] !== frame.height ||
         temporalWords[66]! > 1 ||
@@ -677,7 +677,7 @@ export class SurfaceV4 {
           geometry.find((entry) => entry.binding === 8)?.storageTexture?.format !== "rgba8unorm") ||
         (this.finalPixel &&
           (geometry.find((entry) => entry.binding === 6)?.storageTexture?.format !== "rgba32float" ||
-            geometry.find((entry) => entry.binding === 9)?.storageTexture?.format !== "r32uint")) ||
+            geometry.find((entry) => entry.binding === 9)?.storageTexture?.format !== "rgba32uint")) ||
         (geometry.some((entry) => entry.binding === 15) &&
           (geometry.find((entry) => entry.binding === 15)?.storageTexture?.format !== "rgba32uint" ||
             geometry.find((entry) => entry.binding === 15)?.storageTexture?.viewDimension !== "2d-array" ||

@@ -1,21 +1,16 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
-import {
-  openTextureProduct,
-  saveTextureProduct,
-} from "../../.test-dist/assets/TextureProduct.js";
+import { openTextureProduct, saveTextureProduct } from "../../.test-dist/assets/TextureProduct.js";
 import { textureProduct } from "../fixtures/texture-product.mjs";
-import {
-  MemoryRangeReadablePackV3,
-  openOegPackV3,
-} from "../../.test-dist/assets/OegPackV3.js";
+import { MemoryRangeReadablePackV3, openOegPackV3 } from "../../.test-dist/assets/OegPackV3.js";
 import {
   descriptorFromOegPack,
   OegPackProductRevisionSource,
 } from "../../.test-dist/assets/geometry-product/OegPackProductProvider.js";
 import { VirtualGeometryResidency } from "../../.test-dist/gpu/VirtualGeometryResidency.js";
 import { StandardShadeMaterial } from "../../.test-dist/material/StandardShadeMaterial.js";
+import { ShadeTexture } from "../../.test-dist/texture/ShadeTexture.js";
 import { compileCanonicalMaterial } from "../../.test-dist/material/CanonicalMaterial.js";
 import {
   writeTriangleProductPage,
@@ -236,13 +231,75 @@ test("compileCanonicalMaterial caches unchanged materials and invalidates on mut
   assert.equal(third.coatFactor, 0.5);
 });
 
+test("canonical cache distinguishes legal hash collisions and validates nonfinite edits", () => {
+  const material = new StandardShadeMaterial();
+  material.roughness_factor = 0;
+  material.metallic_factor = 0;
+  const hash = material.hash();
+  const first = compileCanonicalMaterial(material);
+  material.roughness_factor = 1;
+  material.metallic_factor = (4294967295 - 30) / 4294967295;
+  assert.equal(material.hash(), hash, "regression requires an actual legal-value hash collision");
+  assert.notEqual(compileCanonicalMaterial(material), first);
+  material.roughness_factor = 0;
+  compileCanonicalMaterial(material);
+  material.roughness_factor = NaN;
+  assert.throws(() => compileCanonicalMaterial(material), /finite/);
+});
+
+test("canonical cache observes every sampler field captured by the appearance compiler", () => {
+  const material = new StandardShadeMaterial();
+  const texture = new ShadeTexture();
+  material.texture_albedo = texture;
+  const fields = [
+    "flags",
+    "minFilter",
+    "magFilter",
+    "mipmapFilter",
+    "wrapS",
+    "wrapT",
+    "wrapR",
+    "dimensions",
+    "mipmapGenerationFilter",
+  ];
+  for (const [index, field] of fields.entries()) {
+    const before = compileCanonicalMaterial(material);
+    texture[field]++;
+    const after = compileCanonicalMaterial(material);
+    assert.notEqual(after, before, `${field} must invalidate the snapshot`);
+    assert.equal(after.appearance.samples[0].binding.sampler[index], texture[field]);
+    assert.equal(compileCanonicalMaterial(material), after);
+  }
+});
+
+test("CRC-only pages declare their verification policy without inventing a decoded digest", async () => {
+  const bytes = await buildTwoPageOegPackV3();
+  const pack = await openOegPackV3(new MemoryRangeReadablePackV3(bytes), { verifyPageSha256: false });
+  const decoded = await pack.readPage(0);
+  assert.equal(decoded.integrity, "encoded-crc32");
+  assert.equal(decoded.decodedPageHash128, undefined);
+  const source = new OegPackProductRevisionSource(
+    { ...pack, readPage: async () => decoded },
+    descriptorFromOegPack(pack),
+  );
+  const page = await source.readPage(0);
+  assert.equal(page.integrity, "encoded-crc32");
+  assert.equal(page.decodedPageHash128, undefined);
+  decoded.bytes.fill(255);
+  assert.notEqual(new Uint8Array(page.bytes)[0], 255, "published page must not alias public pack views");
+});
+
 test("Direction A: dense multi-meshlet page occupies strictly 1 physical slot with zero CPU 96B attribute expansion and direct GPU WGSL decode", async () => {
   const { frameGeometrySourceWgsl } = await import("../../.test-dist/shaders/geometry_source_decode.js");
   const { frameGeometryVerticesWgsl } = await import("../../.test-dist/shaders/frame_geometry_vertices.js");
-  const { surfaceGeometryCompletionWgsl } = await import("../../.test-dist/shaders/surface_geometry_completion.js");
+  const { surfaceGeometryCompletionWgsl } =
+    await import("../../.test-dist/shaders/surface_geometry_completion.js");
 
   const decodeWgsl = frameGeometrySourceWgsl(true);
-  assert.match(decodeWgsl, /source_format_word = asset\.vertex_format_word_offset \+ header\.vertex_format_id \* 4u;/u);
+  assert.match(
+    decodeWgsl,
+    /frame_vertex_load_format\(asset\.vertex_format_word_offset \+ header\.vertex_format_id \* 4u\)/u,
+  );
   assert.match(decodeWgsl, /fn frame_vertex_u32\(bank: u32, byte: u32\) -> u32/u);
   assert.doesNotMatch(decodeWgsl, /frame_vertex_resident\(/u);
 
@@ -250,7 +307,7 @@ test("Direction A: dense multi-meshlet page occupies strictly 1 physical slot wi
   assert.match(verticesWgsl, /vertex_indices = product_source_format_word;/u);
 
   const surfaceWgsl = surfaceGeometryCompletionWgsl(true, true);
-  assert.match(surfaceWgsl, /product_source_format_word = cached\.vertex_indices;/u);
+  assert.match(surfaceWgsl, /product_frame_vertex_load_format\(cached\.vertex_indices\)/u);
 
   // Build a dense 64-meshlet page (64 meshlets * 64 vertices = 4,096 vertices).
   // Previously, 4,096 * 96B = 393,216 bytes of expanded CPU attributes required 3 physical bank slots!
@@ -263,10 +320,10 @@ test("Direction A: dense multi-meshlet page occupies strictly 1 physical slot wi
   const meshletHeadersBytes = meshletCount * 48;
   const triangleBytesPerMeshlet = triangleCount * 3;
   const vertexBytesPerMeshlet = vertexCount * strideBytes;
-  const totalTriangleBytes = ((meshletCount * triangleBytesPerMeshlet + 3) & ~3);
+  const totalTriangleBytes = (meshletCount * triangleBytesPerMeshlet + 3) & ~3;
   const triangleDataOffset = headerBytes + meshletHeadersBytes;
   const vertexDataOffset = triangleDataOffset + totalTriangleBytes;
-  const payloadBytes = ((vertexDataOffset + meshletCount * vertexBytesPerMeshlet + 15) & ~15);
+  const payloadBytes = (vertexDataOffset + meshletCount * vertexBytesPerMeshlet + 15) & ~15;
 
   const pageBytes = new Uint8Array(262144);
   const pv = new DataView(pageBytes.buffer);
@@ -399,7 +456,11 @@ test("Direction A: dense multi-meshlet page occupies strictly 1 physical slot wi
 
   const residency = await VirtualGeometryResidency.create(device, source, 1);
   assert.equal(residency.evidence().residentPages, 1);
-  assert.equal(residency.evidence().residentBytes, 262144, "dense 4096-vertex page occupies strictly 1 physical 256 KiB slot");
+  assert.equal(
+    residency.evidence().residentBytes,
+    262144,
+    "dense 4096-vertex page occupies strictly 1 physical 256 KiB slot",
+  );
   assert.equal(residency.evidence().uploadedBytes, payloadBytes, "only raw page payload bytes are uploaded");
   assert.equal(bankWrites.length, 1, "exactly 1 writeBuffer call per page");
   residency.destroy();

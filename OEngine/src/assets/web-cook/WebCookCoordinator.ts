@@ -278,7 +278,7 @@ export class WebCookCoordinator {
               nodeIndex: instance.nodeIndex,
               meshIndex: instance.meshIndex,
               worldMatrix: Array.from(instance.worldMatrix),
-              flags: instance.flags
+              flags: instance.flags,
             })),
             primitives: this.#catalog.primitives.map((primitive, index) => ({
               assetKey: primitiveKey(primitive),
@@ -1090,6 +1090,9 @@ export class WebCookCoordinator {
     if (this.#abort.signal.aborted) throw this.#abort.signal.reason ?? new Error("Web Cook was cancelled");
     const readStartedAt = Date.now();
     const page = await revision.readPage(pageId);
+    if (page.decodedPageHash128?.byteLength !== 16) {
+      throw new Error("Web Cook producer requires a complete decoded-page digest");
+    }
     this.#activationReadMs += Date.now() - readStartedAt;
     if (page.pageId !== pageId || page.bytes.byteLength !== WEB_COOK_PAGE_BYTES)
       throw new Error(

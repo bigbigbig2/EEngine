@@ -8,6 +8,7 @@ import {
   GEOMETRY_PRODUCT_PAGE_RECORD_STRIDE,
   decodeGeometryProductPageRecordV1,
   isPageIntegrityPreverifiedV1,
+  snapshotUnverifiedGeometryPageV1,
   type GeometryProductRevisionSourceV1,
   type GeometryPageProductV1,
 } from "../assets/geometry-product/GeometryProductV1.js";
@@ -354,7 +355,7 @@ export class GeometryPageSchedulerV1 {
   private ingestDemandBatch(
     batch: GeometryPageDemandBatchV1,
     nowMs: number,
-    records?: readonly GeometryPageDemandV1[]
+    records?: readonly GeometryPageDemandV1[],
   ): void {
     this.#requested += batch.requested;
     this.#deduplicated += batch.count - batch.uniqueCount;
@@ -634,9 +635,8 @@ export class GeometryPageSchedulerV1 {
   private async produce(operation: Operation, nowMs: number): Promise<void> {
     const startedAt = performance.now();
     try {
-      const page = await operation.product.source.readPage(
-        operation.demand.pageId,
-        operation.controller?.signal,
+      const page = snapshotUnverifiedGeometryPageV1(
+        await operation.product.source.readPage(operation.demand.pageId, operation.controller?.signal),
       );
       const descriptor = operation.product.source.descriptor;
       const expected = decodeGeometryProductPageRecordV1(descriptor, operation.demand.pageId);
@@ -649,6 +649,9 @@ export class GeometryPageSchedulerV1 {
       )
         throw new Error("page key/size/identity mismatch");
       if (!isPageIntegrityPreverifiedV1(page)) {
+        if (page.decodedPageHash128?.byteLength !== 16) {
+          throw new Error("page integrity digest is missing");
+        }
         const digest = new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", page.bytes));
         if (!sameBytes(digest.subarray(0, 16), page.decodedPageHash128))
           throw new Error("page integrity hash mismatch");
@@ -662,13 +665,7 @@ export class GeometryPageSchedulerV1 {
         this.#failed++;
         return;
       }
-      operation.page = Object.freeze({
-        ...page,
-        productId: page.productId.slice(),
-        decodedHash128: page.decodedHash128.slice(),
-        decodedPageHash128: page.decodedPageHash128.slice(),
-        bytes: page.bytes.slice(0),
-      });
+      operation.page = page;
       this.#verifiedBytes += operation.page.bytes.byteLength;
       operation.state = "verified";
       operation.state = "upload-queued";

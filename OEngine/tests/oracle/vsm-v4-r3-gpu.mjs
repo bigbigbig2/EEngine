@@ -79,9 +79,17 @@ export async function runVsmR3GpuOracle(device) {
   const pairOwner = new VsmCasterRecordPass(device);
   owners.push(pairOwner);
   const pairs = make(32 + C * 16, storage);
-  const allocation = make(16 + 4 * 32, storage);
+  const dirtyCapacity = 128;
+  const worldPages = [
+    0,
+    1,
+    50,
+    51,
+    ...Array.from({ length: 128 }, (_, i) => i).filter((i) => ![0, 1, 50, 51].includes(i)),
+  ];
+  const allocation = make(16 + dirtyCapacity * 32, storage);
   const pages = make(128 * 48, storage);
-  const metas = make(4 * 32, storage);
+  const metas = make(dirtyCapacity * 32, storage);
   const telemetry = make(32, storage);
   const indirect = make(48, storage | GPUBufferUsage.INDIRECT);
   const depth = make(16, storage, new Float32Array([-1, 1, 0.5, 1]));
@@ -94,7 +102,7 @@ export async function runVsmR3GpuOracle(device) {
     capacity: W,
     meshletWordBase: 0,
     generation,
-    caster: { source: work, bounds: bounds.records, sourceCapacity: W, pairCapacity: C, dirtyCapacity: 4 },
+    caster: { source: work, bounds: bounds.records, sourceCapacity: W, pairCapacity: C, dirtyCapacity },
   });
   owners.push(partition);
   await partition.ready;
@@ -114,22 +122,22 @@ export async function runVsmR3GpuOracle(device) {
       virtualPagesPerAxis: 128,
       pageSize: 128,
       border: 4,
-      atlasDimension: 272,
+      atlasDimension: 2176,
       casterRecordCapacity: C,
-      residentSlots: 4,
+      residentSlots: dirtyCapacity,
       limits: device.limits,
     },
   };
   const authorPages = (count) => {
     const pageWords = new Uint32Array(128 * 12),
-      metaWords = new Uint32Array(4 * 8),
-      dirtyWords = new Uint32Array(4 + 4 * 8);
+      metaWords = new Uint32Array(dirtyCapacity * 8),
+      dirtyWords = new Uint32Array(4 + dirtyCapacity * 8);
     dirtyWords.set([count, count, 0, generation]);
     for (let slot = 0; slot < count; slot++) {
-      const wx = [0, 1, 50, 51][slot],
+      const wx = worldPages[slot],
         virtualPage = wx;
       pageWords.set(
-        [slot % 2, Math.floor(slot / 2), 0, 11, generation, 0, 0, generation, wx, 0, namespace, 0],
+        [slot % 16, Math.floor(slot / 16), 0, 11, generation, 0, 0, generation, wx, 0, namespace, 0],
         virtualPage * 12,
       );
       metaWords.set([virtualPage, 0, 0, 11, generation, slot, 0, 0], slot * 8);
@@ -143,7 +151,7 @@ export async function runVsmR3GpuOracle(device) {
   const commitConstants = make(
     16,
     GPUBufferUsage.UNIFORM,
-    new Uint32Array([generation, generation, namespace, 2]),
+    new Uint32Array([generation, generation, namespace, 16]),
   );
   const commitModule = device.createShaderModule({ code: VSM_PAGE_COMMIT_WGSL });
   const commitPipeline = await device.createComputePipelineAsync({
@@ -214,7 +222,7 @@ export async function runVsmR3GpuOracle(device) {
     const commit = command.beginComputePass({ label: "R3/per-page commit" });
     commit.setPipeline(commitPipeline);
     commit.setBindGroup(0, commitGroup);
-    commit.dispatchWorkgroups(1);
+    commit.dispatchWorkgroups(Math.ceil(Math.max(dirty, 1) / 64));
     commit.end();
     if (querySet) {
       command.gpu_encoder.resolveQuerySet(querySet, 0, queryCount, timestamps, 0);
@@ -251,6 +259,10 @@ export async function runVsmR3GpuOracle(device) {
       ["C+1-single-page", C + 1, 1, 1, false],
       ["multi-page", 1, 2, 0, false],
       ["multi-page-over-C", 33, 2, 1, false],
+      ["partial-batch-63", 2, 63, 0, false],
+      ["full-batch-64", 2, 64, 0, false],
+      ["second-batch-65", 2, 65, 0, false],
+      ["two-full-batches", 2, 128, 0, false],
       ["empty-pages", 0, 4, 0, false],
       ["no-dirty", W, 0, 0, false],
     ]) {
@@ -285,7 +297,7 @@ export async function runVsmR3GpuOracle(device) {
       }
       const published = await read(pages);
       for (let slot = 0; slot < dirty; slot++) {
-        const page = [0, 1, 50, 51][slot] * 12;
+        const page = worldPages[slot] * 12;
         check((published[page + 3] & 11) === 9 && published[page + 6] === 1, `${name}: page completion`);
       }
       cases.push({
@@ -372,8 +384,10 @@ export async function runVsmR3GpuOracle(device) {
 @group(1) @binding(0) var<storage, read_write> output: array<vec2i>;
 @compute @workgroup_size(1) fn check_gutter() {
   let page = VsmPageEntry(1u, 1u, 0u, 9u, 19u, 0u, 1u, 19u, 0, 0, 5u, 0u);
-  output[0] = vsm_atlas_texel(page, vec2f(0.0), vec2f(-0.5625));
-  output[1] = vsm_atlas_texel(page, vec2f(0.999), vec2f(0.5625));
+  let pitch = vsm_constants.dimensions.y + 2u * vsm_constants.dimensions.z;
+  let base = vec2i(vec2u(page.slot_x, page.slot_y) * pitch + vec2u(vsm_constants.dimensions.z));
+  output[0] = base + vsm_local_texel(vec2f(0.0), vec2f(-0.5625));
+  output[1] = base + vsm_local_texel(vec2f(0.999) * f32(vsm_constants.dimensions.y), vec2f(0.5625));
 }`;
     const sampleModule = device.createShaderModule({ code: samplingCode });
     const info = await sampleModule.getCompilationInfo();
@@ -414,6 +428,8 @@ export async function runVsmR3GpuOracle(device) {
       ["100%", 32, 4],
       ["rare-implicit", 33, 2],
       ["worst-implicit", W, 4],
+      ["batch-64", 32, 64],
+      ["batch-128", 32, 128],
     ]) {
       const samples = [];
       for (let i = 0; i < 12; i++) {

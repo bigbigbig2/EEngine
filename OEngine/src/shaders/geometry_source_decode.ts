@@ -51,6 +51,15 @@ var<workgroup> source_bank: u32;
 var<workgroup> source_triangle_byte: u32;
 var<workgroup> source_resident_address: u32;
 var<workgroup> source_format_word: u32;
+var<workgroup> source_format0: u32;
+var<workgroup> source_format1: u32;
+var<workgroup> source_format2: u32;
+fn frame_vertex_load_format(word: u32) {
+  source_format_word = word;
+  source_format0 = product_heap[word];
+  source_format1 = product_heap[word + 1u];
+  source_format2 = product_heap[word + 2u];
+}
 fn frame_vertex_load_source(work: OEngineMeshletRasterWork) -> vec2u {
   let asset = oengine_geometry_product_resolve_asset_v1(&product_heap, work.geometry_slot,
     oengine_instance_geometry_generation(frame_instances[work.instance_slot].source));
@@ -63,12 +72,12 @@ fn frame_vertex_load_source(work: OEngineMeshletRasterWork) -> vec2u {
   source_bank = location.bank_index;
   source_triangle_byte = location.byte_offset + group.offset_in_page + meshlet.triangle_byte_offset;
   source_resident_address = (location.bank_index << 30u) | (location.byte_offset + group.offset_in_page + meshlet.vertex_byte_offset);
-  source_format_word = asset.vertex_format_word_offset + header.vertex_format_id * 4u;
+  frame_vertex_load_format(asset.vertex_format_word_offset + header.vertex_format_id * 4u);
   return vec2u(meshlet.vertex_count, meshlet.triangle_count);
 }
 fn frame_vertex_position(vertex: u32) -> vec3f {
-  let stride = product_heap[source_format_word] & 0xffffu;
-  let pos_offset = product_heap[source_format_word + 1u] & 0xffu;
+  let stride = source_format0 & 0xffffu;
+  let pos_offset = source_format1 & 0xffu;
   let bank = source_resident_address >> 30u;
   let at = (source_resident_address & 0x3fffffffu) + vertex * stride + pos_offset;
   return vec3f(
@@ -78,19 +87,19 @@ fn frame_vertex_position(vertex: u32) -> vec3f {
   );
 }
 fn frame_vertex_normal(vertex: u32) -> vec4f {
-  let format0 = product_heap[source_format_word];
+  let format0 = source_format0;
   if (format0 & 0x20000u) == 0u { return vec4f(0.0, 0.0, 1.0, 0.0); }
   let stride = format0 & 0xffffu;
-  let norm_offset = (product_heap[source_format_word + 1u] >> 8u) & 0xffu;
+  let norm_offset = (source_format1 >> 8u) & 0xffu;
   let bank = source_resident_address >> 30u;
   let at = (source_resident_address & 0x3fffffffu) + vertex * stride + norm_offset;
   return vec4f(frame_oct_decode(frame_vertex_u32(bank, at)), 0.0);
 }
 fn frame_vertex_tangent(vertex: u32) -> vec4f {
-  let format0 = product_heap[source_format_word];
+  let format0 = source_format0;
   if (format0 & 0x40000u) == 0u { return vec4f(1.0, 0.0, 0.0, 1.0); }
   let stride = format0 & 0xffffu;
-  let tan_offset = (product_heap[source_format_word + 1u] >> 16u) & 0xffu;
+  let tan_offset = (source_format1 >> 16u) & 0xffu;
   let bank = source_resident_address >> 30u;
   let at = (source_resident_address & 0x3fffffffu) + vertex * stride + tan_offset;
   let xyz = frame_oct_decode(frame_vertex_u32(bank, at));
@@ -98,25 +107,25 @@ fn frame_vertex_tangent(vertex: u32) -> vec4f {
   return vec4f(xyz, w);
 }
 fn frame_vertex_uv(vertex: u32, uvSet: u32) -> vec2f {
-  let format0 = product_heap[source_format_word];
+  let format0 = source_format0;
   let stride = format0 & 0xffffu;
   let bank = source_resident_address >> 30u;
   let vbase = (source_resident_address & 0x3fffffffu) + vertex * stride;
   if uvSet == 0u && (format0 & 0x80000u) != 0u {
-    let uv0_offset = (product_heap[source_format_word + 1u] >> 24u) & 0xffu;
+    let uv0_offset = (source_format1 >> 24u) & 0xffu;
     return unpack2x16float(frame_vertex_u32(bank, vbase + uv0_offset));
   }
   if uvSet == 1u && (format0 & 0x100000u) != 0u {
-    let uv1_offset = product_heap[source_format_word + 2u] & 0xffu;
+    let uv1_offset = source_format2 & 0xffu;
     return unpack2x16float(frame_vertex_u32(bank, vbase + uv1_offset));
   }
   return vec2f(0.0);
 }
 fn frame_vertex_color(vertex: u32) -> vec4f {
-  let format0 = product_heap[source_format_word];
+  let format0 = source_format0;
   if (format0 & 0x200000u) == 0u { return vec4f(1.0); }
   let stride = format0 & 0xffffu;
-  let color_offset = (product_heap[source_format_word + 2u] >> 8u) & 0xffu;
+  let color_offset = (source_format2 >> 8u) & 0xffu;
   let bank = source_resident_address >> 30u;
   let at = (source_resident_address & 0x3fffffffu) + vertex * stride + color_offset;
   return vec4f(

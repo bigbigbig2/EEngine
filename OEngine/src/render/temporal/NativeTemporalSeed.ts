@@ -3,7 +3,7 @@ import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import { resolveGpuEncoder } from "../../framegraph/FrameGraph.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import { GpuBindGroupCache } from "../../gpu/GpuBindGroupResourceCache.js";
-import { packNativeTemporalSeedView } from "../../gpu/FinalPixelAbi.js";
+import { packNativeTemporalSeedView, NATIVE_TEMPORAL_ALLOCATION_BYTES } from "../../gpu/FinalPixelAbi.js";
 import { NATIVE_TEMPORAL_SEED_CLASSIFY_WGSL } from "../../shaders/native_temporal_seed.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
 import type { ResourceAccounting, ResourceHandle } from "../../debug/profiling/ResourceAccounting.js";
@@ -200,7 +200,7 @@ export class NativeTemporalSeed {
           kind: "texture",
           category: "resident",
           owner: "NativeTemporalSeed",
-          bytes: width * height * (format === "rgba8unorm" || format === "r32uint" ? 4 : 16),
+          bytes: width * height * (format === "rgba8unorm" ? 4 : 16),
           label: texture.label,
         },
         texture,
@@ -216,7 +216,7 @@ export class NativeTemporalSeed {
         height,
         seed: create("rgba32float", "frame"),
         response: create("rgba8unorm", "response"),
-        identities: [create("r32uint", "identity 0"), create("r32uint", "identity 1")],
+        identities: [create("rgba32uint", "identity 0"), create("rgba32uint", "identity 1")],
         handles,
       };
     } catch (error) {
@@ -455,7 +455,8 @@ export class NativeTemporalSeed {
   }
 
   get allocatedBytes(): number {
-    const bytes = (set: SeedAllocation | null): number => (set ? set.width * set.height * 28 : 0);
+    const bytes = (set: SeedAllocation | null): number =>
+      set ? set.width * set.height * NATIVE_TEMPORAL_ALLOCATION_BYTES : 0;
     return this.retiredBytes + bytes(this.active) + (this.pending !== this.active ? bytes(this.pending) : 0);
   }
 
@@ -478,7 +479,7 @@ export class NativeTemporalSeed {
     if (!set) {
       return;
     }
-    const bytes = set.width * set.height * 28;
+    const bytes = set.width * set.height * NATIVE_TEMPORAL_ALLOCATION_BYTES;
     for (const handle of set.handles) {
       this.accounting?.setRetired(handle, fence !== null);
     }

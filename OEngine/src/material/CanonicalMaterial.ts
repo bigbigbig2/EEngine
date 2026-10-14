@@ -68,50 +68,90 @@ export interface CanonicalMaterial {
 }
 
 interface CachedCanonicalMaterialEntry {
-  readonly hash: number;
-  readonly definition: unknown;
-  readonly textureRefs: readonly (ShadeTexture | undefined)[];
-  readonly textureContentVersions: readonly (string | undefined)[];
+  readonly inputs: readonly unknown[];
   readonly canonical: CanonicalMaterial;
 }
 
 const canonicalMaterialCache = new WeakMap<StandardShadeMaterial, CachedCanonicalMaterialEntry>();
+const TEXTURE_INPUTS = [
+  ["texture_albedo", "base_color"],
+  ["texture_normal", "normal"],
+  ["texture_orm", "orm"],
+  ["texture_emissive", "emissive"],
+  ["texture_occlusion", "occlusion"],
+  ["texture_specular", "specular"],
+  ["texture_specular_color", "specular_color"],
+  ["texture_clearcoat", "clearcoat"],
+  ["texture_clearcoat_roughness", "clearcoat_roughness"],
+  ["texture_clearcoat_normal", "clearcoat_normal"],
+] as const;
 
-function snapshotMaterialTextures(material: StandardShadeMaterial): readonly (ShadeTexture | undefined)[] {
-  return [
-    material.texture_albedo,
-    material.texture_normal,
-    material.texture_orm,
-    material.texture_emissive,
-    material.texture_occlusion,
-    material.texture_specular,
-    material.texture_specular_color,
-    material.texture_clearcoat,
-    material.texture_clearcoat_roughness,
-    material.texture_clearcoat_normal,
+/** Publication-time snapshot of every mutable compiler dependency. A 32-bit
+ * hash is not equality: legal parameter edits and NaNs can collide. */
+function snapshotMaterialInputs(material: StandardShadeMaterial): readonly unknown[] {
+  const inputs: unknown[] = [
+    material.appearance_definition,
+    material.is_unlit,
+    material.transparency_mode,
+    material.ior_factor,
+    material.transmission_factor,
+    material.specular_factor,
+    material.specular_color_factor.r,
+    material.specular_color_factor.g,
+    material.specular_color_factor.b,
+    material.clearcoat_factor,
+    material.clearcoat_roughness_factor,
+    material.clearcoat_normal_scale,
+    material.roughness_factor,
+    material.metallic_factor,
+    material.normal_scale,
+    material.alpha_cutoff,
+    material.diffuse_color.r,
+    material.diffuse_color.g,
+    material.diffuse_color.b,
+    material.diffuse_color.a,
+    material.emissive_factor.r,
+    material.emissive_factor.g,
+    material.emissive_factor.b,
+    material.ambient_factors.a,
   ];
+  for (const [property, uv] of TEXTURE_INPUTS) {
+    const texture = material[property];
+    inputs.push(
+      texture,
+      texture?.image,
+      texture?.texture_product,
+      texture?.appearance_content_version,
+      texture?.flags,
+      texture?.minFilter,
+      texture?.magFilter,
+      texture?.mipmapFilter,
+      texture?.wrapS,
+      texture?.wrapT,
+      texture?.wrapR,
+      texture?.dimensions,
+      texture?.mipmapGenerationFilter,
+      material[`${uv}_uv_set`],
+      material[`${uv}_uv_offset`][0],
+      material[`${uv}_uv_offset`][1],
+      material[`${uv}_uv_scale`][0],
+      material[`${uv}_uv_scale`][1],
+      material[`${uv}_uv_rotation`],
+    );
+  }
+  return inputs;
 }
 
 /** Publication-time lowering of the fixed Standard/Coated material graph. */
 export function compileCanonicalMaterial(material: StandardShadeMaterial): CanonicalMaterial {
-  const textureRefs = snapshotMaterialTextures(material);
-  const canCache = typeof material.hash === "function";
-  const materialHash = canCache ? material.hash() : 0;
-  if (canCache) {
-    const cached = canonicalMaterialCache.get(material);
-    if (
-      cached !== undefined &&
-      cached.hash === materialHash &&
-      cached.definition === material.appearance_definition &&
-      cached.textureRefs.length === textureRefs.length &&
-      cached.textureRefs.every(
-        (tex, idx) =>
-          tex === textureRefs[idx] &&
-          tex?.appearance_content_version === cached.textureContentVersions[idx],
-      )
-    ) {
-      return cached.canonical;
-    }
+  const inputs = snapshotMaterialInputs(material);
+  const cached = canonicalMaterialCache.get(material);
+  if (
+    cached !== undefined &&
+    cached.inputs.length === inputs.length &&
+    cached.inputs.every((value, index) => Object.is(value, inputs[index]))
+  ) {
+    return cached.canonical;
   }
   const bounded = (value: number, label: string, min: number, max: number): number => {
     if (!Number.isFinite(value) || value < min || value > max) {
@@ -159,8 +199,8 @@ export function compileCanonicalMaterial(material: StandardShadeMaterial): Canon
       : material.transparency_mode === ShadeTransparencyMode.Transparent
         ? "transparent"
         : "opaque";
-  // The graph is a finite set of typed texture leaves and factor nodes. Constant
-  // zero coat removes its leaves; unlit removes all lighting-only leaves.
+  // A zero live coat parameter retains its texture dependencies for later
+  // numeric edits. Unlit removes lighting-only leaves.
   const leaves: readonly [
     MaterialTextureRole,
     ShadeTexture | undefined,
@@ -358,14 +398,6 @@ export function compileCanonicalMaterial(material: StandardShadeMaterial): Canon
     coatRoughness,
     coatNormalScale,
   });
-  if (canCache) {
-    canonicalMaterialCache.set(material, {
-      hash: materialHash,
-      definition: material.appearance_definition,
-      textureRefs,
-      textureContentVersions: textureRefs.map((tex) => tex?.appearance_content_version),
-      canonical,
-    });
-  }
+  canonicalMaterialCache.set(material, { inputs, canonical });
   return canonical;
 }

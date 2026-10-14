@@ -10,7 +10,7 @@ import {
 import { selectGeometryProductResidencyProfileV1 } from "../../.test-dist/gpu/GeometryProductResidencyProfile.js";
 import {
   encodeGeometryProductGpuLocationV1,
-  validateGeometryProductGpuLocationV1
+  validateGeometryProductGpuLocationV1,
 } from "../../.test-dist/gpu/GeometryProductGpuAbiV1.js";
 import { GeometryDemandReadbackRingV1 } from "../../.test-dist/gpu/GeometryDemandReadbackRing.js";
 import { GeometryPageSchedulerV1 } from "../../.test-dist/gpu/GeometryPageScheduler.js";
@@ -30,14 +30,14 @@ function device() {
     limits: {
       maxBufferSize: 256 * MiB,
       maxStorageBufferBindingSize: 256 * MiB,
-      maxStorageBuffersPerShaderStage: 16
+      maxStorageBuffersPerShaderStage: 16,
     },
     createBuffer(descriptor) {
       const buffer = {
         ...descriptor,
         destroy() {
           this.destroyed = true;
-        }
+        },
       };
       buffers.push(buffer);
       return buffer;
@@ -46,8 +46,8 @@ function device() {
       writeBuffer() {},
       async onSubmittedWorkDone() {
         fences++;
-      }
-    }
+      },
+    },
   };
 }
 const demand = (slot, generation, pageId, priority = 0) => ({
@@ -57,7 +57,7 @@ const demand = (slot, generation, pageId, priority = 0) => ({
   priority,
   currentViewMissing: true,
   predictive: false,
-  shadow: false
+  shadow: false,
 });
 
 test("page content stamps cover all referencing assets without dirtying unrelated asset ranges", async () => {
@@ -74,7 +74,7 @@ test("page content stamps cover all referencing assets without dirtying unrelate
     fixture.descriptor.assetRecords = records;
     const runtime = new GeometryProductMultiRuntimeV1(device(), {
       metadataBytes: 64 * 1024,
-      residency: { configuredCapacityBytes: 2 * MiB }
+      residency: { configuredCapacityBytes: 2 * MiB },
     });
     try {
       const { residency } = await runtime.load(fixture.source);
@@ -100,13 +100,16 @@ test("payload accounting follows publication, retirement, reload and release rat
   };
   const runtime = new GeometryProductMultiRuntimeV1(gpu, {
     metadataBytes: 64 * 1024,
-    residency: { configuredCapacityBytes: 2 * MiB }
+    residency: { configuredCapacityBytes: 2 * MiB },
   });
   const fixture = await streamingProductFixture(3);
   const { residency } = await runtime.load(fixture.source);
   const initial = residency.evidence();
   assert.equal(initial.totalPages, 3);
-  assert.equal(initial.residentPayloadBytes, writes.reduce((a, b) => a + b, 0));
+  assert.equal(
+    initial.residentPayloadBytes,
+    writes.reduce((a, b) => a + b, 0),
+  );
   const page = await fixture.source.readPage(1);
   const stampBefore = residency.assetContentRevisions[0];
   assert.equal(residency.tryUploadPage(page), true);
@@ -117,11 +120,14 @@ test("payload accounting follows publication, retirement, reload and release rat
   assert.equal(
     residency.assetContentRevisions[0],
     uploadedStamp,
-    "duplicate upload cannot create caster churn"
+    "duplicate upload cannot create caster churn",
   );
   const uploaded = residency.evidence();
   const payload = uploaded.residentPayloadBytes - initial.residentPayloadBytes;
-  assert.equal(uploaded.residentPayloadBytes, writes.reduce((a, b) => a + b, 0));
+  assert.equal(
+    uploaded.residentPayloadBytes,
+    writes.reduce((a, b) => a + b, 0),
+  );
   assert.equal(uploaded.residentInternalSlackBytes, uploaded.residentBytes - uploaded.residentPayloadBytes);
   residency.beginRetirePage(1);
   assert.ok(residency.assetContentRevisions[0] > uploadedStamp);
@@ -186,7 +192,7 @@ test("page tail directory and decoded attributes never overwrite authored geomet
   };
   const runtime = new GeometryProductMultiRuntimeV1(gpu, {
     metadataBytes: 64 * 1024,
-    residency: { configuredCapacityBytes: 2 * MiB }
+    residency: { configuredCapacityBytes: 2 * MiB },
   });
   const fixture = await streamingProductFixture(2);
   const handle = await runtime.load(fixture.source);
@@ -199,7 +205,7 @@ test("page tail directory and decoded attributes never overwrite authored geomet
       const location = residency.pageLocation(pageId);
       assert.equal(location.residentBankIndex, location.bankIndex);
       assert.equal(location.residentSlotIndex, location.slotIndex);
-      assert.equal(location.residentByteOffset, 176);
+      assert.equal(location.residentByteOffset, 0);
       const buffer = residency.bank(location.bankIndex);
       const base = location.slotIndex * 262144;
       assert.deepEqual(buffer.bytes.slice(base, base + 176), new Uint8Array(original.bytes, 0, 176));
@@ -208,7 +214,7 @@ test("page tail directory and decoded attributes never overwrite authored geomet
       const vertexDataOffset = view.getUint32(56, true);
       assert.deepEqual(
         [0, 1, 2].map((axis) => view.getFloat32(vertexDataOffset + axis * 4, true)),
-        [-0.5, -0.5, 0]
+        [-0.5, -0.5, 0],
       );
     }
   } finally {
@@ -223,7 +229,7 @@ test("budget/profile final slots round trip with an explicit physical capacity",
     ["auto", 128 * MiB, 127],
     ["Portable", 512 * MiB, 511],
     ["Balanced", 768 * MiB, 767],
-    ["HighEnd", 1024 * MiB, 1023]
+    ["HighEnd", 1024 * MiB, 1023],
   ]) {
     const plan = selectGeometryProductResidencyProfileV1(limits, { requestedProfile: profile });
     assert.equal(plan.capacityBytes, bytes);
@@ -234,7 +240,7 @@ test("budget/profile final slots round trip with an explicit physical capacity",
         residentBankIndex: 2,
         residentSlotIndex: slot,
         productGeneration: 19,
-        flags: 1
+        flags: 1,
       });
       assert.equal(validateGeometryProductGpuLocationV1(encoded, 19, plan.slotsPerBank).valid, true);
       assert.equal(new DataView(encoded.buffer).getUint32(4, true) >>> 16, 2 * 2048 + slot + 1);
@@ -247,7 +253,7 @@ test("budget/profile final slots round trip with an explicit physical capacity",
     residentBankIndex: 1,
     residentSlotIndex: 128,
     productGeneration: 1,
-    flags: 1
+    flags: 1,
   });
   assert.equal(validateGeometryProductGpuLocationV1(aboveSmallPool, 1, 128).valid, false);
 });
@@ -256,7 +262,7 @@ test("metadata reuse exceeds cumulative capacity; one GPU directory and fenced s
   const gpu = device();
   const runtime = new GeometryProductMultiRuntimeV1(gpu, {
     metadataBytes: 64 * 1024,
-    residency: { configuredCapacityBytes: 4 * MiB }
+    residency: { configuredCapacityBytes: 4 * MiB },
   });
   const fixture = await streamingProductFixture(3);
   let handle = await runtime.load(fixture.source);
@@ -269,13 +275,13 @@ test("metadata reuse exceeds cumulative capacity; one GPU directory and fenced s
   const retiring = runtime.release(handle.productTableSlot, handle.productGeneration, fence);
   await assert.rejects(
     runtime.load(fixture.source, { productTableSlot: handle.productTableSlot }),
-    /occupied/
+    /occupied/,
   );
   finish();
   await retiring;
   for (let cycle = 0; cycle < 100; cycle++) {
     const next = await runtime.load((await streamingProductFixture(3, cycle)).source, {
-      productTableSlot: 0
+      productTableSlot: 0,
     });
     assert.equal(next.assetReferenceBegin, 0);
     const replacement = await runtime.replace(0, (await streamingProductFixture(3, cycle + 1)).source);
@@ -298,7 +304,7 @@ test("1/8/64/66 Products replay every source, slot, generation and published ass
     const gpu = device();
     const runtime = new GeometryProductMultiRuntimeV1(gpu, {
       slotCapacity: 66,
-      residency: { configuredCapacityBytes: 64 * MiB }
+      residency: { configuredCapacityBytes: 64 * MiB },
     });
     const fixtures = [];
     const originals = [];
@@ -331,7 +337,7 @@ test("demand encode abort/retry, mapping failure siblings and device-loss reset"
     async mapCompletedSlot(slot) {
       if (fail && slot.index === 1) throw new Error("map failure");
       return slot.storage;
-    }
+    },
   });
   const first = ring.reserve(1, () => {});
   assert.deepEqual(await ring.poll(2), []);
@@ -358,7 +364,7 @@ test("reset after mapping settlement cannot release or report the replacement ep
     async mapCompletedSlot(slot) {
       if (fail && slot.index === 1) throw new Error("revoked mapping");
       return slot.storage;
-    }
+    },
   });
   ring.submit(1, () => {});
   ring.submit(2, () => {});
@@ -380,7 +386,7 @@ test("verified bytes remain bounded and both IO/upload service make progress acr
     maxConcurrentReads: 4,
     maxInFlightBytes: 8 * 262144,
     maxUploadBytesPerFrame: 262144,
-    adaptive: false
+    adaptive: false,
   });
   const fixtures = [];
   for (let slot = 0; slot < 66; slot++) {
@@ -398,7 +404,7 @@ test("verified bytes remain bounded and both IO/upload service make progress acr
   const sink = {
     uploadPage(_page, identity) {
       uploaded.push(identity);
-    }
+    },
   };
   for (let tick = 0; tick < 180 && uploaded.length < demands.length; tick++) {
     await scheduler.drainReads();
@@ -416,19 +422,19 @@ test("verified bytes remain bounded and both IO/upload service make progress acr
 test("rejected consumer fence retains slots/ranges until a successful retirement", async () => {
   const runtime = new GeometryProductMultiRuntimeV1(device(), {
     metadataBytes: 64 * 1024,
-    residency: { configuredCapacityBytes: 2 * MiB }
+    residency: { configuredCapacityBytes: 2 * MiB },
   });
   const fixture = await streamingProductFixture(2);
   const handle = await runtime.load(fixture.source);
   await assert.rejects(
     runtime.release(0, handle.productGeneration, Promise.reject(new Error("consumer failed"))),
-    /consumer failed/
+    /consumer failed/,
   );
   assert.equal(runtime.evidence().retiring, 1);
   assert.equal(fixture.releases, 0);
   await assert.rejects(
     runtime.load((await streamingProductFixture(2)).source, { productTableSlot: 0 }),
-    /occupied/
+    /occupied/,
   );
   await runtime.retire(0, handle.productGeneration);
   assert.equal(fixture.releases, 1);
@@ -438,7 +444,7 @@ test("rejected consumer fence retains slots/ranges until a successful retirement
 test("Product withdrawal cancels verified/late IO before fenced retirement and dormancy can resume", async () => {
   const gpu = device();
   const runtime = new GeometryProductMultiRuntimeV1(gpu, {
-    residency: { configuredCapacityBytes: 4 * MiB }
+    residency: { configuredCapacityBytes: 4 * MiB },
   });
   const fixture = await streamingProductFixture(3);
   let lateRead;
@@ -451,12 +457,12 @@ test("Product withdrawal cancels verified/late IO before fenced retirement and d
       return new Promise((resolve) => {
         lateRead = async () => resolve(await fixture.source.readPage(pageId));
       });
-    }
+    },
   };
   const first = await runtime.load(source);
   const streaming = new GeometryPageStreamingRuntimeV1(gpu, first.residency, {
     schedulerOptions: { maxConcurrentReads: 1, maxInFlightBytes: 262144 },
-    readback: { bytesPerSlot: 64 }
+    readback: { bytesPerSlot: 64 },
   });
   streaming.registerProduct(source);
   streaming.scheduler.ingestDemands([demand(0, first.productGeneration, 1)]);
@@ -489,7 +495,7 @@ test("Product withdrawal cancels verified/late IO before fenced retirement and d
 test("late cancelled activation and failed replacement cannot republish into a reused slot", async () => {
   const runtime = new GeometryProductMultiRuntimeV1(device(), {
     metadataBytes: 64 * 1024,
-    residency: { configuredCapacityBytes: 4 * MiB }
+    residency: { configuredCapacityBytes: 4 * MiB },
   });
   const fixture = await streamingProductFixture(2);
   let finishRead;
@@ -498,7 +504,7 @@ test("late cancelled activation and failed replacement cannot republish into a r
     readPage: (pageId) =>
       new Promise((resolve) => {
         finishRead = async () => resolve(await fixture.source.readPage(pageId));
-      })
+      }),
   };
   const pending = runtime.load(source, { productTableSlot: 0 });
   const failure = assert.rejects(pending, /released|cancelled|destroyed/);
@@ -515,9 +521,9 @@ test("late cancelled activation and failed replacement cannot republish into a r
       ...failed.source,
       readPage: async () => {
         throw new Error("IO failed");
-      }
+      },
     }),
-    /IO failed/
+    /IO failed/,
   );
   assert.equal(runtime.shard(0).productGeneration, active.productGeneration);
   assert.equal(failed.releases, 1);

@@ -49,7 +49,7 @@ export interface WasmGeometryProductRevisionV1 {
   readonly sceneAssetIndices?: readonly number[];
   /** True while at least one declared page payload has not been produced yet. */
   readonly hasPendingPages: boolean;
-  readPage(pageId: number): Promise<GeometryPageProductV1>;
+  readPage(pageId: number): Promise<GeometryPageProductV1 & { readonly decodedPageHash128: Uint8Array }>;
   /** Spill every Product-local page and release its WASM group payload. */
   spillAllPages(): Promise<void>;
   release(): void;
@@ -477,7 +477,9 @@ class WasmGeometryProductRevision implements WasmGeometryProductRevisionV1 {
     return this.#source?.hasPendingPages ?? false;
   }
 
-  async readPage(pageId: number): Promise<GeometryPageProductV1> {
+  async readPage(
+    pageId: number,
+  ): Promise<GeometryPageProductV1 & { readonly decodedPageHash128: Uint8Array }> {
     const source = this.#source;
     if (!source) throw new Error("WASM Geometry Product revision has been released");
     const expected = decodeGeometryProductPageRecordV1(this.product, pageId);

@@ -19,6 +19,8 @@ struct NativeMaterialDirectoryEntry {
 export const NATIVE_TEMPORAL_SEED_BYTES = 16;
 export const NATIVE_TEMPORAL_RESPONSE_BYTES = 4;
 export const NATIVE_TEMPORAL_IDENTITY_BYTES = 16;
+export const NATIVE_TEMPORAL_ALLOCATION_BYTES =
+  NATIVE_TEMPORAL_SEED_BYTES + NATIVE_TEMPORAL_RESPONSE_BYTES + 2 * NATIVE_TEMPORAL_IDENTITY_BYTES;
 export const NATIVE_TEMPORAL_SEED_VIEW_BYTES = 272;
 export function packNativeTemporalSeedView(
   width: number,

@@ -12,6 +12,7 @@ import {
 import { ShadeTexture } from "../../.test-dist/texture/ShadeTexture.js";
 import { ShadeImage } from "../../.test-dist/texture/ShadeImage.js";
 import { Sampler2D } from "../../.test-dist/texture/Sampler2D.js";
+import { evaluateCompiledAppearance } from "../../.test-dist/material/AppearanceGraphEvaluation.js";
 
 function texture() {
   return ShadeTexture.from(
@@ -66,7 +67,7 @@ test("glTF specular, IOR and clearcoat retain factors, channels and independent 
   assert.ok(Math.abs(view.getFloat32(16 + 12, true) - 0.7) < 1e-6);
 });
 
-test("zero coat is Standard and nonzero transmission requires its own provider", () => {
+test("zero coat preserves live texture dependencies and nonzero transmission requires its own provider", () => {
   const material = parseGltfMaterial(
     {
       extensions: {
@@ -77,7 +78,17 @@ test("zero coat is Standard and nonzero transmission requires its own provider",
   );
   const canonical = compileCanonicalMaterial(material);
   assert.equal(canonical.family, MATERIAL_CLOSURE_FAMILY.Standard);
-  assert.ok(!canonical.samples.some((sample) => sample.role.startsWith("coat")));
+  assert.ok(canonical.samples.some((sample) => sample.role === "coat"));
+  const context = {
+    inputs: { vertexColor: [1, 1, 1], uv0: [0, 0] },
+    sample: () => [0.5, 0.5, 1, 1],
+  };
+  assert.equal(evaluateCompiledAppearance(canonical.appearance, context).coatWeight[0], 0);
+  material.clearcoat_factor = 0.5;
+  const changed = compileCanonicalMaterial(material);
+  assert.equal(changed.family, MATERIAL_CLOSURE_FAMILY.Coated);
+  assert.equal(evaluateCompiledAppearance(changed.appearance, context).coatWeight[0], 0.25);
+  assert.deepEqual(changed.appearance.samples, canonical.appearance.samples);
   material.transmission_factor = 0.5;
   assert.throws(() => compileCanonicalMaterial(material), /transmission provider/);
   assert.throws(

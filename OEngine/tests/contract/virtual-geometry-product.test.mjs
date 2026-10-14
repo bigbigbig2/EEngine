@@ -1,17 +1,19 @@
-import { writeTriangleProductPage, addTriangleProductPages, TRIANGLE_PRODUCT_PAYLOAD_BYTES } from "../helpers/geometry-product-fixture.mjs";
+import {
+  writeTriangleProductPage,
+  addTriangleProductPages,
+  TRIANGLE_PRODUCT_PAYLOAD_BYTES,
+} from "../helpers/geometry-product-fixture.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 
 globalThis.GPUBufferUsage ??= Object.freeze({ COPY_DST: 8, STORAGE: 128 });
 
-const { assertGeometryProductDescriptorV1, validateGeometryProductDescriptorV1 } = await import(
-  "../../.test-dist/assets/geometry-product/GeometryProductV1.js"
-);
+const { assertGeometryProductDescriptorV1, validateGeometryProductDescriptorV1 } =
+  await import("../../.test-dist/assets/geometry-product/GeometryProductV1.js");
 const { VirtualGeometryResidency } = await import("../../.test-dist/gpu/VirtualGeometryResidency.js");
-const { GEOMETRY_PRODUCT_SHARED_SLOTS_PER_BANK } = await import(
-  "../../.test-dist/gpu/GeometryProductSlotPool.js"
-);
+const { GEOMETRY_PRODUCT_SHARED_SLOTS_PER_BANK } =
+  await import("../../.test-dist/gpu/GeometryProductSlotPool.js");
 
 function fixture() {
   const page = writeTriangleProductPage(new Uint8Array(262144));
@@ -153,7 +155,15 @@ test("Product-aware residency uploads activation pages with generation-tagged lo
   assert.equal(writes.find((write) => write.bytes === TRIANGLE_PRODUCT_PAYLOAD_BYTES).offset, 0);
   assert.equal(writes.filter((write) => write.bytes === 262144).length, 0);
   assert.equal(residency.residentPagePhysicalBytes(0), 262144);
-  assert.deepEqual(residency.pageLocation(0), { bankIndex: 0, slotIndex: 0, residentBankIndex: 0, residentSlotIndex: 0, residentByteOffset: 176, productGeneration: 7, flags: 3 });
+  assert.deepEqual(residency.pageLocation(0), {
+    bankIndex: 0,
+    slotIndex: 0,
+    residentBankIndex: 0,
+    residentSlotIndex: 0,
+    residentByteOffset: 0,
+    productGeneration: 7,
+    flags: 3,
+  });
   assert.equal(residency.groupAddress(0).byteOffset, 0);
   assert.equal(new DataView(residency.writePageLocation(residency.pageLocation(0))).getUint32(8, true), 7);
   assert.equal(residency.evidence().residentPages, 1);
@@ -173,7 +183,10 @@ test("Product-aware residency delays reuse of a retiring slot", async () => {
   const pv = new DataView(pageRecords.buffer);
   pv.setUint32(52, 0, true);
   pv.setUint32(56, 0, true);
-  const product = addTriangleProductPages({ ...descriptor, assetRecords: descriptor.assetRecords.slice(), pageRecords }, 2);
+  const product = addTriangleProductPages(
+    { ...descriptor, assetRecords: descriptor.assetRecords.slice(), pageRecords },
+    2,
+  );
   const device = {
     limits: { maxBufferSize: 256 * 1024 * 1024, maxStorageBufferBindingSize: 128 * 1024 * 1024 },
     createBuffer(d) {
@@ -233,7 +246,10 @@ test("Product-aware residency selects only aged, non-pinned pages for eviction",
   const pv = new DataView(pageRecords.buffer);
   pv.setUint32(52, 0, true);
   pv.setUint32(56, 0, true);
-  const product = addTriangleProductPages({ ...descriptor, assetRecords: descriptor.assetRecords.slice(), pageRecords }, 2);
+  const product = addTriangleProductPages(
+    { ...descriptor, assetRecords: descriptor.assetRecords.slice(), pageRecords },
+    2,
+  );
   const device = {
     limits: { maxBufferSize: 256 * 1024 * 1024, maxStorageBufferBindingSize: 128 * 1024 * 1024 },
     createBuffer(d) {
@@ -327,7 +343,10 @@ test("eviction weighs GPU request/visibility, prediction and refetch cost; recor
     recordView.setUint32(at + 16, 0, true);
     recordView.setUint32(at + 20, 0, true);
   }
-  const product = addTriangleProductPages({ ...descriptor, assetRecords: descriptor.assetRecords.slice(), pageRecords: records }, 3);
+  const product = addTriangleProductPages(
+    { ...descriptor, assetRecords: descriptor.assetRecords.slice(), pageRecords: records },
+    3,
+  );
   const device = {
     limits: { maxBufferSize: 256 * 1024 * 1024, maxStorageBufferBindingSize: 128 * 1024 * 1024 },
     createBuffer(d) {

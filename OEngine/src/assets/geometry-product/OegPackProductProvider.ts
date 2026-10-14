@@ -85,17 +85,19 @@ export class OegPackProductRevisionSource implements GeometryProductRevisionSour
     const decoded = page.bytes;
     if (decoded.byteLength !== OEGPACK_V3_PAGE_BYTES)
       throw new Error("OEGPACK adapter returned a non-256 KiB page");
-    const bytes =
-      decoded.byteOffset === 0 && decoded.byteLength === decoded.buffer.byteLength
-        ? (decoded.buffer as ArrayBuffer)
-        : decoded.slice().buffer;
+    // The pack's public decoded view must not alias a published Product page.
+    const bytes = decoded.slice().buffer;
     return markPageIntegrityPreverifiedV1(
       Object.freeze({
         productId: this.descriptor.productId.slice(),
         revision: this.descriptor.revision,
         pageId,
+        integrity: page.integrity,
         decodedHash128: expectedHash,
-        decodedPageHash128: fromHexBytes(page.decodedPageHash128.slice(0, 32), 16),
+        decodedPageHash128:
+          page.decodedPageHash128 === undefined
+            ? undefined
+            : fromHexBytes(page.decodedPageHash128.slice(0, 32), 16),
         bytes,
       }),
     );
@@ -106,7 +108,7 @@ export class OegPackProductRevisionSource implements GeometryProductRevisionSour
     const recordOffset = pageId * 32;
     if (!Number.isInteger(pageId) || pageId < 0 || recordOffset + 32 > this.descriptor.pageRecords.byteLength)
       throw new RangeError("Geometry Product pageId is out of range");
-    const page = await this.pack.readPage(pageId);
+    const page = await this.pack.readPage(pageId, signal);
     throwIfAborted(signal);
     return this.#toPageProduct(pageId, page);
   }
@@ -129,9 +131,7 @@ export class OegPackProductRevisionSource implements GeometryProductRevisionSour
     if (this.pack.readPages) {
       const decodedPages = await this.pack.readPages(pageIds, signal);
       throwIfAborted(signal);
-      return Object.freeze(
-        decodedPages.map((page, index) => this.#toPageProduct(pageIds[index]!, page)),
-      );
+      return Object.freeze(decodedPages.map((page, index) => this.#toPageProduct(pageIds[index]!, page)));
     }
     const results: GeometryPageProductV1[] = [];
     for (let i = 0; i < pageIds.length; i++) {

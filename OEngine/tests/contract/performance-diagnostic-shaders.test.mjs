@@ -85,6 +85,6 @@ test("VSM aggregation keeps barriers uniform and diagnostics count actual public
   assert.equal(source.match(/atomicAdd\(&diagnostic_totals\[3\]/g).length, 2);
   assert.match(VSM_RECEIVER_DEMAND_WGSL, /attempt < 64u/);
   assert.match(VSM_RECEIVER_DEMAND_WGSL, /if \(!merged\)/);
-  assert.match(VSM_RECEIVER_DEMAND_WGSL, /wg_tile_corner_pages/);
+  assert.doesNotMatch(VSM_RECEIVER_DEMAND_WGSL, /wg_tile_corner_pages/);
   assert.match(VSM_RECEIVER_DEMAND_WGSL, /instances\[instance_slot\]\.flags/);
 });

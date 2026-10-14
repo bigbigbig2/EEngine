@@ -88,7 +88,10 @@ export class OegPackProductAsset implements GeometryProductProviderV1 {
     const { source, selectionKind, defaultManifestUrl } = createSelectionSource(selection);
     let manifest: OegPackSceneManifestV3 | undefined;
     try {
-      const pack = await openOegPackV3(source, { verifyPageSha256: options.verifyPageSha256 });
+      const pack = await openOegPackV3(source, {
+        verifyPageSha256: options.verifyPageSha256,
+        signal: options.signal,
+      });
       throwIfAborted(options.signal);
       const descriptor = descriptorFromOegPack(pack);
       const payload = options.manifest ?? ("manifest" in selection ? selection.manifest : undefined);
@@ -207,8 +210,8 @@ class InstrumentedRangeSource implements RangeReadablePackV3 {
   reads = 0;
   readBytes = 0;
   constructor(readonly inner: RangeReadablePackV3) {}
-  async read(byteOffset: bigint, byteLength: number): Promise<ArrayBuffer> {
-    const bytes = await this.inner.read(byteOffset, byteLength);
+  async read(byteOffset: bigint, byteLength: number, signal?: AbortSignal): Promise<ArrayBuffer> {
+    const bytes = await this.inner.read(byteOffset, byteLength, signal);
     this.reads++;
     this.readBytes += bytes.byteLength;
     return bytes;
