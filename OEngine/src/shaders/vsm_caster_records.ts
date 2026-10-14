@@ -70,35 +70,103 @@ fn prepare_pairs() {
   indirect[0] = vec4u(min(groups, dimension), (groups + dimension - 1u) / dimension, 1u, 0u);
   indirect[2] = vec4u(6u, select(allocation.written, 0u, invalid != 0u), 0u, 0u);
 }
+var<workgroup> wg_page_rects: array<vec4f, 64>;
+var<workgroup> wg_page_slots: array<vec2u, 64>;
+var<workgroup> wg_page_valid: array<u32, 64>;
+var<workgroup> wg_group_rects: array<vec4f, 8>;
+var<workgroup> wg_batch_rect: vec4f;
+
 @compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) id: vec3u) {
+fn main(@builtin(global_invocation_id) id: vec3u, @builtin(local_invocation_index) lane: u32) {
   let slot = id.x + id.y * constants.identity.w * 64u;
-  if slot >= pairs.header.source_count {
-    return;
-  }
-  let bound = bounds.elements[slot];
-  if bound.valid == 0u {
-    atomicOr(&pairs.header.failure, 1u);
-    return;
-  }
-  for (var page_index = 0u; page_index < pairs.header.dirty_count; page_index++) {
-    let page = allocation.records[page_index];
-    if page.slot >= constants.control.w || page.virtual_page >= arrayLength(&page_table.entries) {
+  let has_caster = slot < pairs.header.source_count;
+  var bound = ShadowMeshletBounds(vec4f(0.0), 0u, 0u, vec2u(0u));
+  if (has_caster) {
+    bound = bounds.elements[slot];
+    if (bound.valid == 0u) {
       atomicOr(&pairs.header.failure, 1u);
-      continue;
     }
-    let entry = page_table.entries[page.virtual_page];
-    if !vsm_pair_page_valid(page, entry) {
-      atomicOr(&pairs.header.failure, 1u);
-      continue;
+  }
+  let caster_valid = has_caster && bound.valid != 0u;
+  let dirty_count = pairs.header.dirty_count;
+  let has_any_caster = pairs.header.source_count > 0u;
+  for (var batch = 0u; batch < dirty_count; batch += 64u) {
+    let page_index = batch + lane;
+    var valid_page = 0u;
+    var rect = vec4f(1e30, 1e30, -1e30, -1e30);
+    var page_meta = vec2u(0u);
+    if (page_index < dirty_count) {
+      let page = allocation.records[page_index];
+      if (page.slot >= constants.control.w || page.virtual_page >= arrayLength(&page_table.entries)) {
+        if (has_any_caster) {
+          atomicOr(&pairs.header.failure, 1u);
+        }
+      } else {
+        let entry = page_table.entries[page.virtual_page];
+        if (!vsm_pair_page_valid(page, entry)) {
+          if (has_any_caster) {
+            atomicOr(&pairs.header.failure, 1u);
+          }
+        } else {
+          let level = vsm_page_entry_coordinates(page.virtual_page, constants.dimensions.x).x;
+          let page_world = constants.clip_origin_extent[min(level, 5u)].z /
+            f32(max(1u, constants.dimensions.x >> min(entry.mip, 5u)));
+          let gutter = page_world * f32(constants.dimensions.z) / f32(constants.dimensions.y);
+          let low = vec2f(f32(entry.world_x), f32(entry.world_y)) * page_world;
+          let high = low + vec2f(page_world);
+          rect = vec4f(low - vec2f(gutter), high + vec2f(gutter));
+          page_meta = vec2u(page.slot, page.virtual_page);
+          valid_page = 1u;
+        }
+      }
     }
-    if !vsm_pair_overlaps(bound.light_xy, entry, page.virtual_page) {
-      continue;
+    wg_page_rects[lane] = rect;
+    wg_page_slots[lane] = page_meta;
+    wg_page_valid[lane] = valid_page;
+    workgroupBarrier();
+    if (lane < 8u) {
+      var grect = vec4f(1e30, 1e30, -1e30, -1e30);
+      let base = lane * 8u;
+      for (var k = 0u; k < 8u; k++) {
+        let prect = wg_page_rects[base + k];
+        grect = vec4f(min(grect.xy, prect.xy), max(grect.zw, prect.zw));
+      }
+      wg_group_rects[lane] = grect;
     }
-    let ticket = atomicAdd(&pairs.header.attempted, 1u);
-    if ticket < constants.control.z {
-      pairs.elements[ticket] = VsmPair(slot, page.slot, page.virtual_page, 1u);
+    workgroupBarrier();
+    if (lane == 0u) {
+      var brect = vec4f(1e30, 1e30, -1e30, -1e30);
+      for (var g = 0u; g < 8u; g++) {
+        let grect = wg_group_rects[g];
+        brect = vec4f(min(brect.xy, grect.xy), max(brect.zw, grect.zw));
+      }
+      wg_batch_rect = brect;
     }
+    let batch_rect = workgroupUniformLoad(&wg_batch_rect);
+    if (caster_valid && all(bound.light_xy.zw >= batch_rect.xy) && all(bound.light_xy.xy <= batch_rect.zw)) {
+      let batch_len = min(64u, dirty_count - batch);
+      let group_count = (batch_len + 7u) / 8u;
+      for (var g = 0u; g < group_count; g++) {
+        let grect = wg_group_rects[g];
+        if (all(bound.light_xy.zw >= grect.xy) && all(bound.light_xy.xy <= grect.zw)) {
+          let k_end = min(8u, batch_len - g * 8u);
+          for (var k = 0u; k < k_end; k++) {
+            let idx = g * 8u + k;
+            if (wg_page_valid[idx] != 0u) {
+              let prect = wg_page_rects[idx];
+              if (all(bound.light_xy.zw >= prect.xy) && all(bound.light_xy.xy <= prect.zw)) {
+                let ticket = atomicAdd(&pairs.header.attempted, 1u);
+                if (ticket < constants.control.z) {
+                  let pmeta = wg_page_slots[idx];
+                  pairs.elements[ticket] = VsmPair(slot, pmeta.x, pmeta.y, 1u);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    workgroupBarrier();
   }
 }
 @compute @workgroup_size(1)

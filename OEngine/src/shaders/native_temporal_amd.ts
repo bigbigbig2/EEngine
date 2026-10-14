@@ -508,6 +508,12 @@ fn shading_change(p: vec2i) -> f32 {
     vec2f(textureDimensions(shading_change_image));
   return textureSampleLevel(shading_change_image, linear_clamp, sample_uv, 0.0).x;
 }
+fn unpack_identity(raw: vec4u) -> vec4u {
+  if (raw.y != 0u || raw.z != 0u) { return raw; }
+  if (raw.x == 0u) { return vec4u(0u); }
+  if (raw.x == 0xffffffffu) { return vec4u(0xffffffffu, 0u, 0u, 0u); }
+  return vec4u(raw.x & 0xfffu, (raw.x >> 12u) & 0xffu, (raw.x >> 20u) & 0x3fu, (raw.x >> 26u) & 0x3fu);
+}
 @compute @workgroup_size(8, 8)
 fn main(@builtin(global_invocation_id) id3: vec3u) {
   let id = id3.xy;
@@ -516,7 +522,7 @@ fn main(@builtin(global_invocation_id) id3: vec3u) {
   let receiver = receiver_pixel(color_receivers, p);
   let facts = textureLoad(seed, receiver, 0);
   let native = textureLoad(response, receiver, 0);
-  let current = textureLoad(identity, receiver, 0);
+  let current = unpack_identity(textureLoad(identity, receiver, 0));
   // The color footprint is anchored at p; q only supplies the front receiver's
   // motion/previous-view depth. Previous identity validates q's own lifetime.
   let identity_uv = (vec2f(receiver) + 0.5) / vec2f(frame.size) - facts.xy;
@@ -524,14 +530,21 @@ fn main(@builtin(global_invocation_id) id3: vec3u) {
   let motion = history_motion(facts.xy, native.y > 0.5);
   let output_uv = (vec2f(p) + 0.5) / vec2f(frame.size);
   var eligible = frame.valid != 0u && native.y > 0.5 && inside(output_uv + motion);
-  let prior = textureLoad(previous_identity, point(vec2i(identity_uv * vec2f(frame.size))), 0);
-  let hard = prior.x == current.x && (prior.y != current.y || (prior.w == current.w && prior.z != current.z));
-  eligible = eligible && !hard;
+  if (eligible) {
+    let prior = unpack_identity(textureLoad(previous_identity, point(vec2i(identity_uv * vec2f(frame.size))), 0));
+    let hard = prior.x == current.x && (prior.y != current.y || (prior.w == current.w && prior.z != current.z));
+    eligible = !hard;
+  }
   var reactive = native.x;
-  let offsets = array<vec2i, 4>(vec2i(-1, 0), vec2i(1, 0), vec2i(0, -1), vec2i(0, 1));
-  for (var i = 0u; i < 4u; i++) {
-    let neighbor = textureLoad(identity, point(receiver + offsets[i]), 0);
-    if (native.z > 0.5 && neighbor.x != current.x) { reactive = max(reactive, 0.1); }
+  if (native.z > 0.5 && reactive < 0.1) {
+    let offsets = array<vec2i, 4>(vec2i(-1, 0), vec2i(1, 0), vec2i(0, -1), vec2i(0, 1));
+    for (var i = 0u; i < 4u; i++) {
+      let neighbor = unpack_identity(textureLoad(identity, point(receiver + offsets[i]), 0));
+      if (neighbor.x != current.x) {
+        reactive = 0.1;
+        break;
+      }
+    }
   }
   let sky = current.x == 0xffffffffu;
   let coverage = select(0.0, depth_history_confidence(uv, facts.z, sky), eligible);

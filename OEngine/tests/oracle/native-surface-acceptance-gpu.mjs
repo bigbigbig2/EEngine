@@ -161,7 +161,7 @@ export async function runCase({
     usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
   }) : null;
   const referenceIdentity = lighting ? device.createTexture({
-    label: "L3.0 reference identity", size: [width, height], format: "rgba32uint",
+    label: "L3.0 reference identity", size: [width, height], format: "r32uint",
     usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
   }) : null;
   await referenceSurface?.ready;

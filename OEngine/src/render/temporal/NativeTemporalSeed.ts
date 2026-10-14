@@ -200,7 +200,7 @@ export class NativeTemporalSeed {
           kind: "texture",
           category: "resident",
           owner: "NativeTemporalSeed",
-          bytes: width * height * (format === "rgba8unorm" ? 4 : 16),
+          bytes: width * height * (format === "rgba8unorm" || format === "r32uint" ? 4 : 16),
           label: texture.label,
         },
         texture,
@@ -216,7 +216,7 @@ export class NativeTemporalSeed {
         height,
         seed: create("rgba32float", "frame"),
         response: create("rgba8unorm", "response"),
-        identities: [create("rgba32uint", "identity 0"), create("rgba32uint", "identity 1")],
+        identities: [create("r32uint", "identity 0"), create("r32uint", "identity 1")],
         handles,
       };
     } catch (error) {
@@ -455,7 +455,7 @@ export class NativeTemporalSeed {
   }
 
   get allocatedBytes(): number {
-    const bytes = (set: SeedAllocation | null): number => (set ? set.width * set.height * 52 : 0);
+    const bytes = (set: SeedAllocation | null): number => (set ? set.width * set.height * 28 : 0);
     return this.retiredBytes + bytes(this.active) + (this.pending !== this.active ? bytes(this.pending) : 0);
   }
 
@@ -478,7 +478,7 @@ export class NativeTemporalSeed {
     if (!set) {
       return;
     }
-    const bytes = set.width * set.height * 52;
+    const bytes = set.width * set.height * 28;
     for (const handle of set.handles) {
       this.accounting?.setRetired(handle, fence !== null);
     }

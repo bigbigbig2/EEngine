@@ -72,8 +72,11 @@ fn count_words(@builtin(global_invocation_id) id: vec3u,
   @builtin(local_invocation_index) lane: u32, @builtin(workgroup_id) group: vec3u) {
   var value = vec2u(0u);
   if (id.x < word_count()) {
-    let mask = coarse_mask(id.x);
-    value = vec2u(countOneBits(bits[id.x] & mask), countOneBits(bits[id.x] & ~mask));
+    let marked = bits[id.x];
+    if (marked != 0u) {
+      let mask = coarse_mask(id.x);
+      value = vec2u(countOneBits(marked & mask), countOneBits(marked & ~mask));
+    }
   }
   let local_prefix = scan_lanes(lane, value);
   if (id.x < word_count()) {
@@ -124,16 +127,18 @@ fn scatter(@builtin(global_invocation_id) id: vec3u) {
   if (id.x >= word_count()) {
     return;
   }
+  var marked = bits[id.x];
+  if (marked == 0u) {
+    return;
+  }
   let groups = group_count();
   let total = scan[word_count() + groups * 2u];
   var at = scan[id.x] + scan[word_count() + groups + id.x / 64u];
-  var marked = bits[id.x];
   let coarse = coarse_mask(id.x);
-  for (var bit = 0u; bit < 32u; bit++) {
+  while (marked != 0u) {
+    let bit = firstTrailingBit(marked);
     let mask = 1u << bit;
-    if ((marked & mask) == 0u) {
-      continue;
-    }
+    marked &= marked - 1u;
     let page = id.x * 32u + bit;
     let coordinate = vsm_page_entry_coordinates(page, constants.dimensions.x);
     let clip = constants.clips[coordinate.x];

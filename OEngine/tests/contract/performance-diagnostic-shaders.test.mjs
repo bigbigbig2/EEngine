@@ -34,7 +34,7 @@ test("Native diagnostic specializations retain winner predicates and G is the so
     assert.match(body, /textureStore\(hdr/);
     assert.match(body, /native_response_write/);
     assert.match(body, /workgroupUniformLoad\(&wg_tile_broadcast\)/);
-    assert.match(body, /corners = wg_shared_corners;/);
+    assert.match(body, /corners = (wg_shared_corners|wg_cache_corners\[cache_slot\]);/);
   }
   const denseSource = nativeSurfaceWgsl(program, { ...profile, compact: false });
   assert.match(main(denseSource), /workgroupUniformLoad\(&wg_tile_broadcast\)/);

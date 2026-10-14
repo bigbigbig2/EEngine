@@ -13,9 +13,18 @@ export function nativeTemporalSeedWgsl(
 ${NATIVE_TEMPORAL_SEED_VIEW_WGSL}
 @group(${group}) @binding(${seed}) var temporal_seed: texture_storage_2d<rgba32float, write>;
 @group(${group}) @binding(${response}) var temporal_response: texture_storage_2d<rgba8unorm, write>;
-@group(${group}) @binding(${identity}) var temporal_identity: texture_storage_2d<rgba32uint, write>;
+@group(${group}) @binding(${identity}) var temporal_identity: texture_storage_2d<r32uint, write>;
 fn seed_hash(value: u32, word: u32) -> u32 {
   return (value ^ word) * 16777619u;
+}
+fn seed_pack_identity(identity: vec4u) -> u32 {
+  if (identity.x == 0u) { return 0u; }
+  if (identity.x == 0xffffffffu) { return 0xffffffffu; }
+  let inst = 1u + ((identity.x - 1u) % 4094u);
+  let geom = (identity.y ^ (identity.y >> 8u) ^ (identity.y >> 16u) ^ (identity.y >> 24u)) & 0xffu;
+  let mat_sig = (identity.z ^ (identity.z >> 6u) ^ (identity.z >> 12u) ^ (identity.z >> 18u) ^ (identity.z >> 24u)) & 0x3fu;
+  let mat_slot = 1u + ((identity.w - 1u) % 63u);
+  return inst | (geom << 12u) | (mat_sig << 20u) | (mat_slot << 26u);
 }
 fn seed_inside(uv: vec2f) -> bool {
   return all(uv >= vec2f(0.0)) && all(uv < vec2f(1.0));
@@ -35,7 +44,7 @@ fn seed_store(pixel: vec2u, clip: vec4f, expected_depth: f32, current_depth: f32
     vec4f(select(vec2f(0.0), motion, valid), expected_depth, current_depth));
   textureStore(temporal_response, vec2i(pixel), vec4f(clamp(reactive, 0.0, 1.0),
     select(0.0, 1.0, valid), select(0.0, 1.0, alpha_mask), select(16.0 / 255.0, 0.0, valid)));
-  textureStore(temporal_identity, vec2i(pixel), identity);
+  textureStore(temporal_identity, vec2i(pixel), vec4u(seed_pack_identity(identity), 0u, 0u, 0u));
 }
 fn seed_unassigned(pixel: vec2u, sky: bool) {
   if (!sky) {
@@ -101,6 +110,12 @@ export const NATIVE_TEMPORAL_SEED_CLASSIFY_WGSL = /* wgsl */ `
 @group(0) @binding(2) var identity: texture_2d<u32>;
 @group(0) @binding(3) var previous_identity: texture_2d<u32>;
 @group(0) @binding(4) var mask: texture_storage_2d<rgba8unorm, write>;
+fn seed_unpack_identity(raw: vec4u) -> vec4u {
+  if (raw.y != 0u || raw.z != 0u) { return raw; }
+  if (raw.x == 0u) { return vec4u(0u); }
+  if (raw.x == 0xffffffffu) { return vec4u(0xffffffffu, 0u, 0u, 0u); }
+  return vec4u(raw.x & 0xfffu, (raw.x >> 12u) & 0xffu, (raw.x >> 20u) & 0x3fu, (raw.x >> 26u) & 0x3fu);
+}
 @compute @workgroup_size(8, 8)
 fn main(@builtin(global_invocation_id) id: vec3u) {
   let size = textureDimensions(seed);
@@ -108,14 +123,14 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let pixel = vec2i(id.xy);
   let facts = textureLoad(seed, pixel, 0);
   let current_response = textureLoad(response, pixel, 0);
-  let current = textureLoad(identity, pixel, 0);
+  let current = seed_unpack_identity(textureLoad(identity, pixel, 0));
   let valid = current_response.y > 0.5;
   var reactive = current_response.x;
   var bits = u32(round(current_response.w * 255.0));
   var hard = false;
   if (valid) {
     let uv = (vec2f(id.xy) + vec2f(0.5)) / vec2f(size) - facts.xy;
-    let previous = textureLoad(previous_identity, clamp(vec2i(uv * vec2f(size)), vec2i(0), vec2i(size) - 1), 0);
+    let previous = seed_unpack_identity(textureLoad(previous_identity, clamp(vec2i(uv * vec2f(size)), vec2i(0), vec2i(size) - 1), 0));
     hard = previous.x == current.x && (previous.y != current.y ||
       (previous.w == current.w && previous.z != current.z));
     if (previous.x != current.x) { bits |= 1u; }
@@ -126,7 +141,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   if (current_response.z > 0.5) {
     let offsets = array<vec2i, 4>(vec2i(-1, 0), vec2i(1, 0), vec2i(0, -1), vec2i(0, 1));
     for (var i = 0u; i < 4u; i++) {
-      let neighbor = textureLoad(identity, clamp(pixel + offsets[i], vec2i(0), vec2i(size) - 1), 0);
+      let neighbor = seed_unpack_identity(textureLoad(identity, clamp(pixel + offsets[i], vec2i(0), vec2i(size) - 1), 0));
       if (neighbor.x != current.x) { reactive = max(reactive, 0.1); }
     }
   }

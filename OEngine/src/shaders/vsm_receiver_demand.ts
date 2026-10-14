@@ -98,8 +98,11 @@ struct Constants {
 
 var<workgroup> wg_tile_z_min: atomic<u32>;
 var<workgroup> wg_tile_z_max: atomic<u32>;
-var<workgroup> wg_tile_corner_pages: array<u32, 8>;
+var<workgroup> wg_tile_c0_max: atomic<u32>;
+var<workgroup> wg_tile_c1_min: atomic<u32>;
+var<workgroup> wg_tile_corner_pages: array<u32, 16>;
 var<workgroup> wg_tile_uniform_page: atomic<u32>;
+var<workgroup> wg_tile_cluster_pages: vec2u;
 
 fn world_from_depth(pixel: vec2u, depth: f32) -> vec3f {
   let uv = (vec2f(pixel) + vec2f(0.5)) * constants.viewport.xy;
@@ -127,7 +130,10 @@ fn receiver_page(id: vec3u) -> u32 {
   if (lane == 0u) {
     atomicStore(&wg_tile_z_min, 0xffffffffu);
     atomicStore(&wg_tile_z_max, 0u);
+    atomicStore(&wg_tile_c0_max, 0u);
+    atomicStore(&wg_tile_c1_min, 0xffffffffu);
     atomicStore(&wg_tile_uniform_page, VSM_INVALID_SLOT);
+    wg_tile_cluster_pages = vec2u(VSM_INVALID_SLOT);
   }
   let out_of_bounds = id.x >= constants.dimensions.x || id.y >= constants.dimensions.y;
   let pixel = id.xy;
@@ -152,8 +158,8 @@ fn receiver_page(id: vec3u) -> u32 {
       }
     }
   }
+  let depth_bits = bitcast<u32>(depth);
   if (valid_receiver) {
-    let depth_bits = bitcast<u32>(depth);
     atomicMin(&wg_tile_z_min, depth_bits);
     atomicMax(&wg_tile_z_max, depth_bits);
   }
@@ -162,35 +168,61 @@ fn receiver_page(id: vec3u) -> u32 {
   if (z_min_bits == 0xffffffffu) {
     return VSM_INVALID_SLOT;
   }
-  if (lane < 8u) {
+  let z_split = 0.5 * (bitcast<f32>(z_min_bits) + bitcast<f32>(z_max_bits));
+  if (valid_receiver) {
+    if (depth <= z_split) {
+      atomicMax(&wg_tile_c0_max, depth_bits);
+    } else {
+      atomicMin(&wg_tile_c1_min, depth_bits);
+    }
+  }
+  if (lane < 16u) {
     let tile_base = id.xy & vec2u(~7u);
     let tile_max = min(tile_base + vec2u(7u), constants.dimensions.xy - vec2u(1u));
     let corner_px = vec2u(
       select(tile_base.x, tile_max.x, (lane & 1u) != 0u),
       select(tile_base.y, tile_max.y, (lane & 2u) != 0u),
     );
-    let corner_depth = bitcast<f32>(select(z_min_bits, z_max_bits, (lane & 4u) != 0u));
+    let c0_max_bits = max(z_min_bits, atomicLoad(&wg_tile_c0_max));
+    let c1_min_bits = min(z_max_bits, atomicLoad(&wg_tile_c1_min));
+    let z_lo = select(z_min_bits, c1_min_bits, (lane & 8u) != 0u);
+    let z_hi = select(c0_max_bits, z_max_bits, (lane & 8u) != 0u);
+    let corner_depth = bitcast<f32>(select(z_lo, z_hi, (lane & 4u) != 0u));
     wg_tile_corner_pages[lane] = project_pixel_depth_to_page(corner_px, corner_depth);
   }
   if (lane == 0u) {
     let p0 = wg_tile_corner_pages[0];
-    if (p0 != VSM_INVALID_SLOT &&
-        wg_tile_corner_pages[1] == p0 &&
-        wg_tile_corner_pages[2] == p0 &&
-        wg_tile_corner_pages[3] == p0 &&
-        wg_tile_corner_pages[4] == p0 &&
-        wg_tile_corner_pages[5] == p0 &&
-        wg_tile_corner_pages[6] == p0 &&
-        wg_tile_corner_pages[7] == p0) {
+    let c0_uniform = p0 != VSM_INVALID_SLOT &&
+      wg_tile_corner_pages[1] == p0 && wg_tile_corner_pages[2] == p0 &&
+      wg_tile_corner_pages[3] == p0 && wg_tile_corner_pages[4] == p0 &&
+      wg_tile_corner_pages[5] == p0 && wg_tile_corner_pages[6] == p0 &&
+      wg_tile_corner_pages[7] == p0;
+    let p1 = wg_tile_corner_pages[8];
+    let c1_empty = atomicLoad(&wg_tile_c1_min) == 0xffffffffu;
+    let c1_uniform = !c1_empty && p1 != VSM_INVALID_SLOT &&
+      wg_tile_corner_pages[9] == p1 && wg_tile_corner_pages[10] == p1 &&
+      wg_tile_corner_pages[11] == p1 && wg_tile_corner_pages[12] == p1 &&
+      wg_tile_corner_pages[13] == p1 && wg_tile_corner_pages[14] == p1 &&
+      wg_tile_corner_pages[15] == p1;
+    wg_tile_cluster_pages = vec2u(
+      select(VSM_INVALID_SLOT, p0, c0_uniform),
+      select(VSM_INVALID_SLOT, p1, c1_uniform),
+    );
+    if (c0_uniform && (c1_empty || (c1_uniform && p1 == p0))) {
       atomicStore(&wg_tile_uniform_page, p0);
     }
   }
   let uniform_page = atomicLoad(&wg_tile_uniform_page);
+  let cluster_pages = wg_tile_cluster_pages;
   if (!valid_receiver) {
     return VSM_INVALID_SLOT;
   }
   if (uniform_page != VSM_INVALID_SLOT) {
     return uniform_page;
+  }
+  let cluster_page = select(cluster_pages.y, cluster_pages.x, depth <= z_split);
+  if (cluster_page != VSM_INVALID_SLOT) {
+    return cluster_page;
   }
   return project_pixel_depth_to_page(pixel, depth);
 }
