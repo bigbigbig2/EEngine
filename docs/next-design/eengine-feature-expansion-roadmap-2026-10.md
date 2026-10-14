@@ -116,7 +116,7 @@ verifies:
 
 ### 4.2 SSR：以第一个效果建立需要的屏幕空间合同
 
-目标为当前 Native 材质可用、运动稳定且边界诚实的屏幕反射，退屏/遮挡缺信息时使用已有环境补缺。优先研究 SSSR 的分类、层次遍历、命中验证和反射去噪，但不在粗路线选择 ray 数、固定半分辨率、wave 策略或最终格式。
+目标为当前 Native 材质可用、运动稳定且边界诚实的屏幕反射，退屏/遮挡缺信息时使用已有环境补缺。已从当前源码与固定SDK形成[SSSR细设计](eengine-sssr-2026-10.md)和[执行计划](../next-execution/eengine-sssr-execution-2026-10.md)，算法/profile、产品与预算只由该对文档裁决；本粗路线不复制实施细节或状态。
 
 细设计须裁决真实法线/roughness/响应、最终 Depth/HZB、可采样辐射及最小产品、主/coat lobe、trace/resolve/denoise/history/composition 和调试。receiver motion/identity 不能自动解决反射命中物体的运动和遮挡失效；SSR 自己管理可靠性与历史，不借用 Native AA 的内部 history 冒充反射 history。首个消费者所需的配置、需求声明、资源关闭/退休随本模块闭合，不另造基础设施大项目。
 

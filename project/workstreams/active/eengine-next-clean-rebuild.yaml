@@ -11,8 +11,8 @@ roadmap:
   execution: docs/next-execution/eengine-feature-expansion-execution-2026-10.md
 # Only the selected module pair is the current authority; roadmap remains stable.
 authority:
-  design: docs/next-design/eengine-ao-functionality-2026-10.md
-  execution: docs/next-execution/eengine-ao-functionality-execution-2026-10.md
+  design: docs/next-design/eengine-sssr-2026-10.md
+  execution: docs/next-execution/eengine-sssr-execution-2026-10.md
 goal: >-
   Build an extreme-performance GPU-driven WebGPU-native AAA renderer for
   GTX 1650 Ti 4GB at 1080p and scalable newer GPUs. Follow global V4 invariants
@@ -25,16 +25,17 @@ goal: >-
   historical measurements retain their original device and thermal-state identity.
 
 currentSlice:
-  id: ao-functionality
-  title: Existing XeGTAO settings, quality, debug and lifecycle
+  id: stochastic-screen-space-reflections
+  title: Complete SSSR and reflection denoising for Native Surface
   status: active
   goal: >-
-    Follow the selected AO module pair through its single complete unit; its
-    execution document alone records detailed status and results. Preserve full selected XeGTAO source math,
-    default appearance and stable owner boundaries while adding usable settings,
-    diagnostics and recovery. Keep verification focused and lightweight without
-    deleting required algorithm stages or weakening valid assertions. Stop at
-    the module boundary before SSR; no automatic next-module design or coding.
+    Follow the selected SSSR design/execution pair; its execution document alone
+    records detailed unit states and results. Preserve the complete selected
+    source algorithm and denoiser while adapting Native base/coat response,
+    radiometry, bounded WebGPU work and transactional histories. Keep verification
+    focused without deleting algorithm stages or weakening valid assertions.
+    This design round does not start implementation. Stop at the module boundary
+    before Local Reflection Probes; no automatic next-module design or coding.
 
 pausedModules:
   - id: final-pixel-performance-v5
@@ -51,8 +52,6 @@ pausedModules:
     reason: Preserve the implemented directional shadow chain and unresolved R4 qualification; new effect correctness involving VSM remains the responsibility of its current unit.
 
 nextModules:
-  - id: reflection
-    title: SSR with consumer-driven screen-space contracts and correct IBL composition
   - id: local-reflection-probes
     title: Local specular radiance sources and screen-space miss coverage
   - id: virtual-resources-v4
