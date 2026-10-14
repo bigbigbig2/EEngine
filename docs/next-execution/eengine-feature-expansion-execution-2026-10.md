@@ -27,14 +27,14 @@ verifies:
 
 # EEngine 功能扩展粗执行总计划
 
-唯一总体粗设计为[功能扩展路线](../next-design/eengine-feature-expansion-roadmap-2026-10.md)。本文件只维护模块级状态、已有细设计/执行入口与延期责任；细单元状态及实际结果只在对应模块执行文维护，入口页/workstream不复制。当前只做粗计划融合与文档/导航，没有启动 AO/SSR/VT/GI 的细设计或实现。
+唯一总体粗设计为[功能扩展路线](../next-design/eengine-feature-expansion-roadmap-2026-10.md)。本文件只维护模块级状态、已有细设计/执行入口与延期责任；细单元状态及实际结果只在对应模块执行文维护，入口页/workstream不复制。当前模块设计/执行从workstream.authority读取，粗记录完成不自动代表各效果已实施。
 
 ## 1. 推进单元与边界
 
 | 粗模块 | 模块级状态 / 已有细文档入口 | 能力目标与细设计入口 |
 |---|---|---|
 | F0 粗计划与文档推进机制 | 已完成本轮融合；检查与既有 finding 见 §5 | 核对真实源码并评审讨论方案，维护粗→细设计/执行一对→实施→收口的唯一导航；不改生产源码 |
-| F1 AO 功能完善 | 待细设计；尚无细文档 | 先细化已有 scalar XeGTAO 的 settings/quality/debug/场景尺度与验证单元；不重写现有算法，不默认捆绑 temporal/bent normal |
+| F1 AO 功能完善 | 细设计已形成，待实施：[设计](../next-design/eengine-ao-functionality-2026-10.md) / [执行](eengine-ao-functionality-execution-2026-10.md) | 已有scalar XeGTAO的settings/quality/debug/场景尺度与恢复；一个实现单元，测试聚焦必要合同及小型真实GPU，不重写原算法或捆绑temporal/bent normal |
 | F2 SSR | 待细设计；尚无细文档 | 当前 Native 的完整反射及环境补缺，随真实 consumer 建立必要 settings/Depth/HZB/response/radiance 合同；优先研究 SSSR，不预定移植或常驻 sidecar |
 | F3 Local Reflection Probes | 待细设计；尚无细文档 | 独立完成实际数据来源、预滤波/空间选择/混合/视差校正、容量/生命周期，与 SSR 和 global IBL 正确合成 |
 | F4 Streaming VT | 待细设计；尚无细文档 | 先 shading tile paging 全链，完整 coverage 依赖保持 resident；产品/provider/采样/feedback/IO/淘汰，闭合 Main/VSM/custom graph 合同；RVT 不混入 |

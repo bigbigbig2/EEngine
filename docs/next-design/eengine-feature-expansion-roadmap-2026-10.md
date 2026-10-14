@@ -61,9 +61,9 @@ verifies:
 
 用户在 2026-10-14 明确选择：**先完善渲染能力和画面效果，再对完整组合集中优化性能**。长期目标仍为 GPU-Driven、WebGPU Native、AAA 画面方向、GTX 1650 Ti 4GB / 1080p 与可持续扩展，不提前承诺全效果原生 60FPS。
 
-推进方式为：**粗路线记录目标和次序 → 用户启动一个模块的细设计 → 建立该模块唯一设计/执行一对文档 → 按该轮授权实施与验证 → 模块闭合后停在边界，回到粗路线选择下一模块**。本轮只完善这套文档/导航机制，评审并融合讨论方案，不实现基础设施，不创建未来模块详案、空类、固定 GPU ABI 或占位资源。
+推进方式为：**粗路线记录目标和次序 → 用户启动一个模块的细设计 → 建立该模块唯一设计/执行一对文档 → 按该轮授权实施与验证 → 模块闭合后停在边界，回到粗路线选择下一模块**。粗路线建立时只完善文档/导航机制，不实现基础设施，也不预建未来模块详案、空类、固定 GPU ABI 或占位资源；用户之后启动的模块按此流程单独细设计。
 
-本文与[粗执行总计划](../next-execution/eengine-feature-expansion-execution-2026-10.md)记录总体方向和模块入口；[workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)的 `roadmap` 始终指向这一对，`authority` 只指向当前正在设计/实施的那一对。当前仍是粗规划 slice；未来启动 SSR 等细设计时才切换 authority。它们有不同层次，不能成为两份竞争的施工指令。
+本文与[粗执行总计划](../next-execution/eengine-feature-expansion-execution-2026-10.md)记录总体方向和模块入口；[workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)的 `roadmap` 始终指向这一对，`authority` 只指向当前正在设计/实施的那一对。用户启动模块细设计后才切换 authority，已有细文档入口只在粗执行表维护。它们有不同层次，不能成为两份竞争的施工指令。
 
 全局不变量沿用 [V4 母稿](eengine-v4-native-shading-2026-10.md)，生产事实以源码和直接消费者为准。已落地 Native/VG/Lighting/Texture/Temporal 底座保留；旧计划继续为 history，V5 等正式性能资格保持未完成，不成为新效果统一启动前置。
 
@@ -74,7 +74,7 @@ verifies:
 | 领域 | 当前源码事实 | 对粗路线的影响 |
 |---|---|---|
 | 主帧与配置 | `RendererCore` 创建 owner；`FrameProgram`/Lowering 形成唯一生产图；`RendererConfig` 主要是不可变能力/执行配置，尚无完整 AO/SSR/GI/VT 设置；`RenderFeatureRegistry` 不在生产选择链 | 扩展已有设置→需求→图/PSO→绑定链，不先加 EffectsManager 或第二个 feature scheduler |
-| AO | scalar XeGTAO preparation→main→denoise 实际进入 Native diffuse IBL；主图固定 radius=1、world scale=1、noise=0，仅选 scalar-high | 完善参数、质量、诊断与生命周期；不重新发明 AO，不自动加入 bent normal/专属 temporal |
+| AO | 已有公开 xe_gtao_enabled 开关；scalar XeGTAO preparation→main→denoise 实际进入 Native diffuse IBL，主图固定 radius=1、world scale=1、noise=0，仅选 scalar-high | 完善参数、质量、诊断与生命周期，整理已有开关；不重新发明 AO，不自动加入 bent normal/专属 temporal |
 | HZB | `HierarchicalZBuffer`/`hzb_reduce` 为反向深度 RG16F 保守 min/max，首级从内部尺寸的一半开始，有 current/previous；FrameProgram 目前仅由几何 HZB 需求触发构建，late recheck 后可再构建 final HZB | 可作为 tracing 的候选粗层；SSR 需核对最终可见性版本与精度，裁决是否结合全分辨率 Depth 精细验证或新增必要层级。已有纹理不等于任意效果都拿到了正确版本/精度 |
 | 深度/法线 | XeGTAO 有私有五级 weighted view-depth 和深度重建法线；Native invocation 内有真实材质 normal/roughness/coat | AO weighted depth 与遮挡 HZB 数学不同，不能强行合一；深度法线也不等于 normal-map/coat 法线 |
 | Native 间接光 | `native_surface.native_environment` 已计算 diffuse IBL×AO/material occlusion、DFG-weighted specular IBL、coat 与底层衰减；输出转工作色域并预曝光 | 新 GI/SSR 需要明确替换/补充的光照分量及颜色域，不能直接 HDR 加法；baseline 不自动提供新反射的材质响应 |

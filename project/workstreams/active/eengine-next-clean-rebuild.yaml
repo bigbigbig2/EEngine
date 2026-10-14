@@ -9,11 +9,10 @@ decision: ADR-0020
 roadmap:
   design: docs/next-design/eengine-feature-expansion-roadmap-2026-10.md
   execution: docs/next-execution/eengine-feature-expansion-execution-2026-10.md
-# This planning slice uses the coarse pair. A future module replaces authority
-# with its own existing design/execution pair; roadmap remains the stable index.
+# Only the selected module pair is the current authority; roadmap remains stable.
 authority:
-  design: docs/next-design/eengine-feature-expansion-roadmap-2026-10.md
-  execution: docs/next-execution/eengine-feature-expansion-execution-2026-10.md
+  design: docs/next-design/eengine-ao-functionality-2026-10.md
+  execution: docs/next-execution/eengine-ao-functionality-execution-2026-10.md
 goal: >-
   Build an extreme-performance GPU-driven WebGPU-native AAA renderer for
   GTX 1650 Ti 4GB at 1080p and scalable newer GPUs. Follow global V4 invariants
@@ -26,19 +25,17 @@ goal: >-
   historical measurements retain their original device and thermal-state identity.
 
 currentSlice:
-  id: feature-completion-planning
-  title: Coarse feature roadmap, proposal review and module documentation workflow
-  status: closed
+  id: ao-functionality
+  title: Existing XeGTAO settings, quality, debug and lifecycle
+  status: active
   goal: >-
-    Review the user's external discussion against actual production source and
-    primary references, correct unsupported decisions and merge a coarse roadmap.
-    Establish roadmap-to-module design/execution navigation only; this slice
-    implements no infrastructure or effect and creates no future module details.
-    Stop before the AO detailed-design/implementation unit. Later modules each
-    receive one source-backed design/execution pair when the user starts them;
-    only that pair owns detailed unit state. Preserve working foundations and
-    original failures. V5 formal performance qualification is deferred, not passed
-    and not a prerequisite for new effects.
+    The user started the AO detailed design from the coarse roadmap. This turn
+    establishes the module pair without implementation; later execution follows
+    that pair's single complete unit. Preserve full selected XeGTAO source math,
+    default appearance and stable owner boundaries while adding usable settings,
+    diagnostics and recovery. Keep verification focused and lightweight without
+    deleting required algorithm stages or weakening valid assertions. Stop at
+    the module boundary before SSR; no automatic next-module design or coding.
 
 pausedModules:
   - id: final-pixel-performance-v5
@@ -55,8 +52,6 @@ pausedModules:
     reason: Preserve the implemented directional shadow chain and unresolved R4 qualification; new effect correctness involving VSM remains the responsibility of its current unit.
 
 nextModules:
-  - id: ao-functionality
-    title: Existing XeGTAO settings, scene scale, quality and observability
   - id: reflection
     title: SSR with consumer-driven screen-space contracts and correct IBL composition
   - id: local-reflection-probes

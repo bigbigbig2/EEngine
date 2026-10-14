@@ -19,6 +19,8 @@ paths:
   - OEngine/src/shaders/**
   - validation/cases/shading-*/**
   - docs/domains/shading.md
+  - docs/next-design/eengine-ao-functionality-2026-10.md
+  - docs/next-execution/eengine-ao-functionality-execution-2026-10.md
   - docs/porting/shading.md
 currentDocs:
   - docs/domains/shading.md

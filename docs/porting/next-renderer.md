@@ -806,6 +806,8 @@ R02 的当前边界：[Surface Kernel Binding V1](../specs/surface-kernel-bindin
 
 ### R05 · XeGTAO：首选 AO 来源
 
+2026-10-14 参数化细设计续记：重新核读相同固定revision的settings/constants、Medium/High、noise、prefilter及host denoise调度。当前生产消费为Native scalar texture；下述C阶段packed/旧Surface措辞保留原记录身份。新增设置、输出强度与不简化边界见[AO设计](../next-design/eengine-ao-functionality-2026-10.md#7-来源与不简化边界)；本轮未实施、未新增GPU证据，不提升原adoption。
+
 - **Upstream / Revision**：[GameTechDev/XeGTAO](https://github.com/GameTechDev/XeGTAO/tree/a5b1686c7ea37788eeb3576b5be47f7c03db532c)，`a5b1686c7ea37788eeb3576b5be47f7c03db532c`；项目已 archived，不能假设上游继续维护。
 - **Source / host entry**：[XeGTAO.hlsli](https://github.com/GameTechDev/XeGTAO/blob/a5b1686c7ea37788eeb3576b5be47f7c03db532c/Source/Rendering/Shaders/XeGTAO.hlsli)、[`XeGTAO.h`](https://github.com/GameTechDev/XeGTAO/blob/a5b1686c7ea37788eeb3576b5be47f7c03db532c/Source/Rendering/Shaders/XeGTAO.h)、[`vaGTAO.hlsl`](https://github.com/GameTechDev/XeGTAO/blob/a5b1686c7ea37788eeb3576b5be47f7c03db532c/Source/Rendering/Shaders/vaGTAO.hlsl)、[`vaGTAO.cpp`](https://github.com/GameTechDev/XeGTAO/blob/a5b1686c7ea37788eeb3576b5be47f7c03db532c/Source/Rendering/Effects/vaGTAO.cpp) 和该 revision 的 README。已核对三个核心 compute 阶段、可选 depth-normal 生成、格式与 host 顺序；尚未运行上游工程。
 - **License**：固定仓库根 `LICENSE` 为 MIT，已读；移植时保留 copyright/license 文本与所复制片段的 notice。
