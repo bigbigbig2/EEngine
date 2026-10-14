@@ -75,9 +75,14 @@ var<workgroup> wg_page_slots: array<vec2u, 64>;
 var<workgroup> wg_page_valid: array<u32, 64>;
 var<workgroup> wg_group_rects: array<vec4f, 8>;
 var<workgroup> wg_batch_rect: vec4f;
+var<workgroup> wg_dirty_count: u32;
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u, @builtin(local_invocation_index) lane: u32) {
+  if (lane == 0u) {
+    wg_dirty_count = pairs.header.dirty_count;
+  }
+  let dirty_count = workgroupUniformLoad(&wg_dirty_count);
   let slot = id.x + id.y * constants.identity.w * 64u;
   let has_caster = slot < pairs.header.source_count;
   var bound = ShadowMeshletBounds(vec4f(0.0), 0u, 0u, vec2u(0u));
@@ -88,7 +93,6 @@ fn main(@builtin(global_invocation_id) id: vec3u, @builtin(local_invocation_inde
     }
   }
   let caster_valid = has_caster && bound.valid != 0u;
-  let dirty_count = pairs.header.dirty_count;
   let has_any_caster = pairs.header.source_count > 0u;
   for (var batch = 0u; batch < dirty_count; batch += 64u) {
     let page_index = batch + lane;
