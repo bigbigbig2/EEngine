@@ -405,3 +405,9 @@ dd {
   flex-wrap: wrap;
   margin: 10px 0;
 }
+.note {
+  margin: 10px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #737b84;
+}

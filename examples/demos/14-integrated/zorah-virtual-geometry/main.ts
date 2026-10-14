@@ -11,12 +11,38 @@ import type { FrameProfileSnapshot } from "../../../../OEngine/src/debug/FramePr
 import { summarizeGpuTimingCost } from "../../../../OEngine/src/debug/GpuTimingCost.ts";
 import { geometryProductGpuBudgetEvidence } from "../../../../OEngine/src/gpu/GeometryProductGpuBudget.ts";
 import { loadZorahScene, type LoadOptions, type LoadProgress } from "./cooked-scene.ts";
+import {
+  createIcons,
+  ChevronRight,
+  Download,
+  PanelRightClose,
+  PanelRightOpen,
+  RotateCw,
+  Scan,
+  Square,
+  StepForward
+} from "lucide";
 import "./style.css";
 
 const element = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const input = (id: string) => element<HTMLInputElement>(id);
 const select = (id: string) => element<HTMLSelectElement>(id);
 const canvas = element<HTMLCanvasElement>("viewport");
+function initIcons(): void {
+  createIcons({
+    icons: {
+      ChevronRight,
+      Download,
+      PanelRightClose,
+      PanelRightOpen,
+      RotateCw,
+      Scan,
+      Square,
+      StepForward
+    }
+  });
+}
+initIcons();
 const query = new URLSearchParams(location.search);
 const defaults: LoadOptions = {
   packStart: 0,
@@ -39,14 +65,20 @@ for (const key of Object.keys(defaults) as (keyof LoadOptions)[]) {
     input(key).value = String(defaults[key]);
   }
 }
-for (const id of ["sse", "fov", "speed", "moveSpeed"] as const) {
+for (const id of ["sse", "fov", "speed", "moveSpeed", "sun-intensity", "fill-intensity", "ambient-intensity"] as const) {
   if (query.has(id)) {
     input(id).value = query.get(id)!;
     if (!input(id).checkValidity()) {
-      input(id).value = id === "sse" ? "4" : id === "fov" ? "60" : id === "moveSpeed" ? "1.5" : "2";
+      input(id).value = id === "sse" ? "4" : id === "fov" ? "60" : id === "moveSpeed" ? "1.5" : id === "sun-intensity" ? "3.5" : id === "fill-intensity" ? "1.2" : id === "ambient-intensity" ? "0.6" : "2";
     }
   } else if (id === "moveSpeed") {
     input("moveSpeed").value = "1.5";
+  } else if (id === "sun-intensity") {
+    input("sun-intensity").value = "3.5";
+  } else if (id === "fill-intensity") {
+    input("fill-intensity").value = "1.2";
+  } else if (id === "ambient-intensity") {
+    input("ambient-intensity").value = "0.6";
   }
 }
 for (const id of ["hzb", "cone", "taa", "ao", "bloom", "orbit"] as const) {
@@ -85,6 +117,9 @@ let renderer: Renderer | undefined;
 let cooked: Awaited<ReturnType<typeof loadZorahScene>> | undefined;
 let orbitControls: OrbitControls | undefined;
 let fpsControls: FirstPersonControls | undefined;
+let mainSun: DirectionalLight | undefined;
+let skyFill: DirectionalLight | undefined;
+let ambientBounce: DirectionalLight[] = [];
 let loading: Promise<Awaited<ReturnType<typeof loadZorahScene>>> | undefined;
 let initialization: Promise<void> | undefined;
 let resizeObserver: ResizeObserver | undefined;
@@ -246,11 +281,20 @@ function paint(): void {
   const s = snapshot();
   element("phase").textContent = progress.phase;
   element("error").textContent = failure ?? "";
-  const bar = element<HTMLProgressElement>("progress");
-  bar.max = Math.max(1, progress.total * 2);
-  bar.value = progress.opened + progress.admitted;
-  element("scope").textContent =
-    `包 [${options.packStart}, ${options.packStart + progress.total}) / ${progress.totalPacks || "…"} · ${progress.selectedInstances.toLocaleString()} / ${progress.totalInstances.toLocaleString()} 实例 · ${s.conditions.scope.fullScene ? "全量场景" : "明确选择的部分场景"}`;
+  const elapsed = document.getElementById("elapsed");
+  if (elapsed) {
+    elapsed.textContent = `${(s.elapsedMs / 1000).toFixed(1)} s`;
+  }
+  const modeName = document.getElementById("mode-name");
+  if (modeName) {
+    modeName.textContent = `${progress.selectedInstances.toLocaleString()} 实例`;
+  }
+  const scopeEl = document.getElementById("scope");
+  if (scopeEl) {
+    scopeEl.textContent = s.conditions.scope.fullScene
+      ? "全量场景"
+      : `包 [${options.packStart}, ${options.packStart + progress.total})`;
+  }
   const cards = [
     ["CPU Render P50", s.stats.cpu],
     ["GPU Command Span P50", s.stats.gpu],
@@ -259,7 +303,7 @@ function paint(): void {
   element("cards").innerHTML = cards
     .map(
       ([label, stat]) =>
-        `<div class="card"><small>${label}</small><strong>${stat ? stat.p50.toFixed(2) : "—"}<small>ms · P95 ${stat ? stat.p95.toFixed(2) : "—"} · N ${stat?.count ?? 0}</small></strong></div>`
+        `<div><span>${label}</span><strong>${stat ? stat.p50.toFixed(2) + " ms" : "—"}</strong><span class="sub-note">P95 ${stat ? stat.p95.toFixed(2) + " ms" : "—"}</span></div>`
     )
     .join("");
   const products = s.streaming?.products ?? [];
@@ -393,6 +437,44 @@ function configureProfiler(): void {
   });
   renderer.profiler.setMode(mode === "counters" || mode === "heavy" || mode === "full" ? "record" : "live");
 }
+function updateLightingFromUI(): void {
+  const sunVal = Number(input("sun-intensity")?.value ?? 3.5);
+  const fillVal = Number(input("fill-intensity")?.value ?? 1.2);
+  const ambVal = Number(input("ambient-intensity")?.value ?? 0.6);
+
+  const sunOut = element("sun-intensity-val");
+  if (sunOut) sunOut.textContent = sunVal.toFixed(1);
+  const fillOut = element("fill-intensity-val");
+  if (fillOut) fillOut.textContent = fillVal.toFixed(1);
+  const ambOut = element("ambient-intensity-val");
+  if (ambOut) ambOut.textContent = ambVal.toFixed(1);
+
+  if (mainSun) {
+    mainSun.intensity = sunVal;
+    mainSun.onTransformChanged.send1(mainSun);
+  }
+  if (skyFill) {
+    skyFill.intensity = fillVal;
+    skyFill.onTransformChanged.send1(skyFill);
+  }
+  if (ambientBounce.length >= 4) {
+    ambientBounce[0].intensity = ambVal;
+    ambientBounce[0].onTransformChanged.send1(ambientBounce[0]);
+
+    ambientBounce[1].intensity = ambVal * 0.9;
+    ambientBounce[1].onTransformChanged.send1(ambientBounce[1]);
+
+    ambientBounce[2].intensity = ambVal;
+    ambientBounce[2].onTransformChanged.send1(ambientBounce[2]);
+
+    ambientBounce[3].intensity = ambVal * 0.8;
+    ambientBounce[3].onTransformChanged.send1(ambientBounce[3]);
+  }
+  renderer?.invalidateTemporalHistory();
+  if (paused) {
+    stepPending = true;
+  }
+}
 function applyControls(): void {
   if (!renderer) {
     return;
@@ -406,6 +488,7 @@ function applyControls(): void {
   renderer.bloom_enabled = input("bloom").checked;
   renderer.internal_resolution_scale = Number(select("scale").value);
   camera.fov_degrees = Number(input("fov").value);
+  updateLightingFromUI();
   const mode = select("controlsMode").value as "fps" | "orbit";
   const cruise = input("orbit").checked;
   const cruiseSpeed = Number(input("speed").value);
@@ -495,7 +578,7 @@ async function start(): Promise<void> {
     enableVsm: false,
     enablePhysicalEnvironment: false,
     autoExposure: false,
-    fixedExposure: 1,
+    fixedExposure: 1.0,
     frameGeometry: {
       maxBytes: options.frameMiB * 1024 ** 2,
       ownerMaxBytes: options.frameOwnerMiB * 1024 ** 2
@@ -542,13 +625,56 @@ async function start(): Promise<void> {
   );
   cooked = await loading;
   abort.signal.throwIfAborted();
-  const sun = new DirectionalLight();
-  sun.intensity = 2.5;
-  sun.color.r = 1.0;
-  sun.color.g = 0.98;
-  sun.color.b = 0.92;
-  sun.forward = [0.35, -0.85, -0.4];
-  scene.add(sun);
+  mainSun = new DirectionalLight();
+  mainSun.intensity = Number(input("sun-intensity")?.value ?? 3.5);
+  mainSun.color.r = 1.0;
+  mainSun.color.g = 0.97;
+  mainSun.color.b = 0.92;
+  mainSun.forward = [0.38, -0.82, -0.42];
+  scene.add(mainSun);
+
+  skyFill = new DirectionalLight();
+  skyFill.intensity = Number(input("fill-intensity")?.value ?? 1.2);
+  skyFill.color.r = 0.82;
+  skyFill.color.g = 0.91;
+  skyFill.color.b = 1.0;
+  skyFill.forward = [-0.25, -0.9, 0.25];
+  scene.add(skyFill);
+
+  const backFill = new DirectionalLight();
+  backFill.intensity = Number(input("ambient-intensity")?.value ?? 0.6);
+  backFill.color.r = 0.86;
+  backFill.color.g = 0.90;
+  backFill.color.b = 0.98;
+  backFill.forward = [-0.45, -0.4, 0.75];
+  scene.add(backFill);
+
+  const oppositeFill = new DirectionalLight();
+  oppositeFill.intensity = Number(input("ambient-intensity")?.value ?? 0.6) * 0.9;
+  oppositeFill.color.r = 0.92;
+  oppositeFill.color.g = 0.92;
+  oppositeFill.color.b = 0.92;
+  oppositeFill.forward = [-0.75, -0.3, -0.55];
+  scene.add(oppositeFill);
+
+  const groundBounce = new DirectionalLight();
+  groundBounce.intensity = Number(input("ambient-intensity")?.value ?? 0.6);
+  groundBounce.color.r = 0.95;
+  groundBounce.color.g = 0.88;
+  groundBounce.color.b = 0.80;
+  groundBounce.forward = [0.08, 0.96, 0.08];
+  scene.add(groundBounce);
+
+  const interiorFill = new DirectionalLight();
+  interiorFill.intensity = Number(input("ambient-intensity")?.value ?? 0.6) * 0.8;
+  interiorFill.color.r = 1.0;
+  interiorFill.color.g = 0.94;
+  interiorFill.color.b = 0.86;
+  interiorFill.forward = [0.6, -0.35, -0.25];
+  scene.add(interiorFill);
+
+  ambientBounce = [backFill, oppositeFill, groundBounce, interiorFill];
+  updateLightingFromUI();
   orbitControls = new OrbitControls(camera, canvas);
   orbitControls.minDistance = 0.1;
   orbitControls.maxDistance = 50000;
@@ -578,6 +704,7 @@ async function start(): Promise<void> {
   });
   resizeObserver.observe(canvas);
   event(`已发布 ${cooked.source.count} 实例 / ${progress.total} 包`);
+  initIcons();
   previousTime = performance.now();
   frameId = requestAnimationFrame(frame);
   paint();
@@ -736,11 +863,14 @@ element("step").addEventListener("click", () => {
 element("release").addEventListener("click", () => {
   void release();
 });
-element("toggle").addEventListener("click", () => {
-  const panel = element("panel");
-  panel.hidden = !panel.hidden;
-  document.body.classList.toggle("panel-hidden", panel.hidden);
-  element("toggle").setAttribute("aria-expanded", String(!panel.hidden));
+const debugPanel = element("debug-panel");
+const toggleBtn = element("panel-toggle");
+toggleBtn.addEventListener("click", () => {
+  const collapsed = debugPanel.classList.toggle("collapsed");
+  toggleBtn.setAttribute("aria-expanded", String(!collapsed));
+  toggleBtn.setAttribute("title", collapsed ? "展开面板" : "收起面板");
+  toggleBtn.innerHTML = `<i data-lucide="${collapsed ? "panel-right-open" : "panel-right-close"}"></i>`;
+  createIcons({ icons: { PanelRightClose, PanelRightOpen } });
 });
 for (const id of [
   "sse",
@@ -778,6 +908,16 @@ for (const id of [
       paint();
     }
   });
+}
+for (const id of ["sun-intensity", "fill-intensity", "ambient-intensity"] as const) {
+  const el = input(id);
+  if (el) {
+    el.addEventListener("input", updateLightingFromUI);
+    el.addEventListener("change", () => {
+      updateLightingFromUI();
+      interruptRecord(`${id} 灯光调节`);
+    });
+  }
 }
 canvas.addEventListener("pointerdown", () => interruptRecord("手动操作相机"));
 canvas.addEventListener("wheel", () => interruptRecord("手动操作相机"), { passive: true });
@@ -841,7 +981,7 @@ window.addEventListener("keydown", (event) => {
     event.preventDefault();
     togglePause();
   } else if (event.code === "KeyH") {
-    element("toggle").click();
+    element("panel-toggle").click();
   }
 });
 window.addEventListener(

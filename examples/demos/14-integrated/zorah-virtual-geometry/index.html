@@ -3,262 +3,197 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Zorah · Virtual Geometry Stress Lab</title>
+    <title>Zorah Geometry Lab | EEngine</title>
     <link rel="icon" href="data:," />
   </head>
   <body>
-    <main>
+    <main class="viewport">
       <canvas id="viewport" aria-label="Zorah 虚拟几何场景"></canvas>
-      <header class="identity">
-        <small>EENGINE / OFFLINE OEGPACK</small>
-        <h1>Zorah <span>Geometry Lab</span></h1>
-        <p id="scope">读取本地 cooked 模型…</p>
-      </header>
-      <div class="hud">
-        <span id="phase" role="status">初始化</span><progress id="progress" max="1" value="0"></progress>
-        <p id="error" role="alert"></p>
-        <div id="cards"></div>
+      <div id="loading" role="status">
+        <span class="status-dot"></span><strong id="phase">初始化 WebGPU</strong><span id="elapsed">0 s</span>
       </div>
-      <footer>【漫游】WASD / 方向键移动 · 鼠标拖拽环顾 · Shift 冲刺 · Space/R 升 · F 降 · 滚轮调速 · P 暂停 · H 面板</footer>
     </main>
-    <button id="toggle" aria-expanded="true" aria-controls="panel">调试面板</button>
-    <aside id="panel">
-      <div class="panel-heading">
-        <h2>压测与诊断</h2>
-        <span>LOCAL ASSET</span>
-      </div>
-      <p class="note">当前 Cook 无纹理；默认加载全量场景和全部实例。容量不足直接报告失败。</p>
-      <details open>
-        <summary>场景范围 / 容量（重新加载生效）</summary>
-        <form id="load-form">
-          <label
-            >帧队列容量（× 1,048,576 槽）<input
-              id="workMi"
-              name="workMi"
-              type="number"
-              min="0.0625"
-              max="16"
-              step="0.0625"
-              value="4"
-              required
-          /></label>
-          <label
-            >包起点
-            <input
-              id="packStart"
-              name="packStart"
-              type="number"
-              min="0"
-              max="2149"
-              step="1"
-              value="0"
-              required
-          /></label>
-          <label
-            >包数量 · 0 = 从起点到末尾
-            <input
-              id="packCount"
-              name="packCount"
-              type="number"
-              min="0"
-              max="2150"
-              step="1"
-              value="0"
-              required
-          /></label>
-          <label
-            >几何容量 MiB
-            <input
-              id="geometryMiB"
-              name="geometryMiB"
-              type="number"
-              min="128"
-              max="2048"
-              step="4"
-              value="2048"
-              required
-          /></label>
-          <label
-            >元数据 MiB
-            <input
-              id="metadataMiB"
-              name="metadataMiB"
-              type="number"
-              min="16"
-              max="256"
-              step="1"
-              value="192"
-              required
-          /></label>
-          <label
-            >单视图 Frame arena MiB
-            <input
-              id="frameMiB"
-              name="frameMiB"
-              type="number"
-              min="128"
-              max="2048"
-              step="1"
-              value="512"
-              required
-          /></label>
-          <label
-            >Frame owner 总上限 MiB
-            <input
-              id="frameOwnerMiB"
-              name="frameOwnerMiB"
-              type="number"
-              min="128"
-              max="4096"
-              step="1"
-              value="1024"
-              required
-          /></label>
-          <label
-            >并发 Range 读取
-            <input id="reads" name="reads" type="number" min="1" max="32" step="1" value="8" required
-          /></label>
-          <label
-            >在途读取 MiB
-            <input
-              id="inFlightMiB"
-              name="inFlightMiB"
-              type="number"
-              min="1"
-              max="256"
-              step="1"
-              value="32"
-              required
-          /></label>
-          <label
-            >每帧上传上限 MiB
-            <input
-              id="uploadMiB"
-              name="uploadMiB"
-              type="number"
-              min="1"
-              max="128"
-              step="1"
-              value="16"
-              required
-          /></label>
-          <div class="buttons">
-            <button type="submit">加载此范围</button><button type="button" id="full">全量尝试</button
-            ><button type="button" id="probe">重模型单包</button>
+    <aside id="debug-panel" aria-label="Render controls">
+      <header class="panel-header">
+        <div>
+          <h1>Zorah Geometry Lab</h1>
+          <span>Virtual Geometry / V4 Native Shading</span>
+        </div>
+        <button
+          id="panel-toggle"
+          class="icon-button"
+          title="收起面板"
+          aria-label="收起面板"
+          aria-expanded="true"
+          aria-controls="panel-body"
+        >
+          <i data-lucide="panel-right-close"></i>
+        </button>
+      </header>
+      <div id="panel-body">
+        <div class="panel-overview">
+          <div class="mode">
+            <strong id="mode-name">19,144 实例</strong><span id="scope">全量场景</span>
           </div>
-        </form>
-        <p class="note">
-          重模型预设为包 2096（meshes/02018），约 3,205 万源三角形。所选包的全部实例均保留。单视图 / owner
-          上限仅限制容量，不预分配到上限；设备限制仍需满足。
-        </p>
-      </details>
-      <details open>
-        <summary>虚拟几何 / 画面</summary>
-        <label
-          >调试视图
-          <select id="view">
-            <option value="meshlet-id">Meshlet ID</option>
-            <option value="none">PBR 画面（光照渲染）</option>
-            <option value="visibility-key">Visibility Key</option>
-            <option value="material-id">Material ID</option>
-            <option value="depth">Depth</option>
-            <option value="base-color" disabled>Base Color（仅延迟 G-Buffer）</option>
-            <option value="shading-normal" disabled>Normal（仅延迟 G-Buffer）</option>
-            <option value="roughness" disabled>Roughness（仅延迟 G-Buffer）</option>
-          </select></label
-        >
-        <label
-          >LOD SSE · 像素误差 <input id="sse" type="number" min="0.25" max="64" step="0.25" value="4"
-        /></label>
-        <label><span>HZB 遮挡剔除</span><input id="hzb" type="checkbox" checked /></label>
-        <label><span>Cone 剔除</span><input id="cone" type="checkbox" checked /></label>
-        <label
-          >输出分辨率
-          <select id="extent">
-            <option value="1080">1920 × 1080</option>
-            <option value="720">1280 × 720</option>
-            <option value="1440">2560 × 1440</option>
-            <option value="window">跟随窗口 · DPR 1</option>
-          </select></label
-        >
-        <label
-          >内部渲染比例
-          <select id="scale">
-            <option value="1">100%</option>
-            <option value="0.75">75%</option>
-            <option value="0.5">50%</option>
-          </select></label
-        >
-        <label><span>Temporal AA</span><input id="taa" type="checkbox" /></label>
-        <label><span>GTAO</span><input id="ao" type="checkbox" /></label>
-        <label><span>Bloom</span><input id="bloom" type="checkbox" /></label>
-        <p class="note">当前为 Visibility Buffer Native Shading 管线；PBR 画面需光源；G-Buffer 属性需延迟渲染支持。</p>
-      </details>
-      <details open>
-        <summary>相机 / 执行</summary>
-        <div class="buttons">
-          <button id="courtyard" type="button">庭院 (默认)</button><button id="interior" type="button">王座殿室内</button><button id="overview" type="button">全景远眺</button><button id="pause" type="button">暂停</button
-          ><button id="step" type="button">单帧</button><button id="release" type="button">中止 / 释放</button>
+          <nav aria-label="Scene actions">
+            <button id="courtyard" class="icon-button" title="庭院视角 (默认)">
+              <i data-lucide="scan"></i>
+            </button>
+            <button id="interior" class="icon-button" title="王座殿室内">
+              <i data-lucide="step-forward"></i>
+            </button>
+            <button id="overview" class="icon-button" title="全景远眺">
+              <i data-lucide="rotate-cw"></i>
+            </button>
+            <button id="pause" class="icon-button" title="暂停 / 继续">
+              <i data-lucide="square"></i>
+            </button>
+            <button id="export" class="icon-button" title="导出诊断数据">
+              <i data-lucide="download"></i>
+            </button>
+          </nav>
         </div>
-        <label
-          >控制器模式
-          <select id="controlsMode">
-            <option value="fps" selected>第一人称自由漫游 (FPS WASD)</option>
-            <option value="orbit">轨道环绕 (Orbit)</option>
-          </select></label
-        >
-        <label id="moveSpeedRow"
-          >漫游速度
-          <input id="moveSpeed" type="number" min="0.1" max="50" step="0.1" value="1.5" autocomplete="off"
-        /></label>
-        <label><span>自动巡航</span><input id="orbit" type="checkbox" /></label>
-        <label>巡航速度 <input id="speed" type="number" min="0.1" max="20" step="0.1" value="2" /></label>
-        <label>FOV（度）<input id="fov" type="number" min="20" max="100" step="1" value="60" /></label>
-      </details>
-      <details open>
-        <summary>采样 / 导出</summary>
-        <label
-          >采集模式
-          <select id="profile">
-            <option value="off">关闭 GPU 采集</option>
-            <option value="timing" selected>Command Span（每 8 帧）</option>
-            <option value="counters">阶段时间 + Counters（每 16 帧）</option>
-            <option value="heavy">每帧阶段 + Counters（高开销）</option>
-            <option value="full">逐 Pass · 120 个采样帧</option>
-          </select></label
-        >
-        <label>预热秒数 <input id="warmup" type="number" min="0" max="60" step="1" value="2" /></label>
-        <label>记录秒数 <input id="duration" type="number" min="1" max="60" step="1" value="10" /></label>
-        <div class="buttons">
-          <button id="record">定时采样</button><button id="clear">清空窗口</button
-          ><button id="export">导出 JSON</button>
+        <div class="quick-stats" id="cards"></div>
+        <p id="error" role="alert"></p>
+        <div class="diagnostic-controls">
+          <details class="section" open>
+            <summary>虚拟几何 / 画面<i data-lucide="chevron-right"></i></summary>
+            <div class="section-body">
+              <label class="control">调试视图
+                <select id="view">
+                  <option value="none" selected>PBR 画面（光照渲染）</option>
+                  <option value="meshlet-id">Meshlet ID</option>
+                  <option value="visibility-key">Visibility Key</option>
+                  <option value="material-id">Material ID</option>
+                  <option value="depth">Depth</option>
+                  <option value="base-color" disabled>Base Color（仅延迟 G-Buffer）</option>
+                  <option value="shading-normal" disabled>Normal（仅延迟 G-Buffer）</option>
+                  <option value="roughness" disabled>Roughness（仅延迟 G-Buffer）</option>
+                </select>
+              </label>
+              <label class="control">LOD SSE 误差<input id="sse" type="number" min="0.25" max="64" step="0.25" value="4" /></label>
+              <label class="toggle-row">HZB 遮挡剔除<input id="hzb" class="switch" type="checkbox" role="switch" checked /></label>
+              <label class="toggle-row">Cone 锥体剔除<input id="cone" class="switch" type="checkbox" role="switch" checked /></label>
+              <label class="control">输出分辨率
+                <select id="extent">
+                  <option value="1080">1920 × 1080</option>
+                  <option value="720">1280 × 720</option>
+                  <option value="1440">2560 × 1440</option>
+                  <option value="window">跟随窗口 · DPR 1</option>
+                </select>
+              </label>
+              <label class="control">内部渲染比例
+                <select id="scale">
+                  <option value="1">100%</option>
+                  <option value="0.75">75%</option>
+                  <option value="0.5">50%</option>
+                </select>
+              </label>
+              <label class="toggle-row">Temporal AA<input id="taa" class="switch" type="checkbox" role="switch" /></label>
+              <label class="toggle-row">GTAO 环境光遮蔽<input id="ao" class="switch" type="checkbox" role="switch" /></label>
+              <label class="toggle-row">Bloom 辉光<input id="bloom" class="switch" type="checkbox" role="switch" /></label>
+              <label class="control">主直射阳光<output id="sun-intensity-val">3.5</output><input id="sun-intensity" type="range" min="0" max="10" step="0.1" value="3.5" /></label>
+              <label class="control">天光漫射亮度<output id="fill-intensity-val">1.2</output><input id="fill-intensity" type="range" min="0" max="5" step="0.1" value="1.2" /></label>
+              <label class="control">环境补光 / 反弹<output id="ambient-intensity-val">0.6</output><input id="ambient-intensity" type="range" min="0" max="3" step="0.1" value="0.6" /></label>
+              <p class="note">全方位复合光照系统（主阳光 + 天空漫射 + 环境补光 + 地面反弹），支持实时无级调光。</p>
+            </div>
+          </details>
+          <details class="section" open>
+            <summary>相机与漫游控制器<i data-lucide="chevron-right"></i></summary>
+            <div class="section-body">
+              <label class="control">控制器模式
+                <select id="controlsMode">
+                  <option value="fps" selected>第一人称自由漫游 (FPS WASD)</option>
+                  <option value="orbit">轨道环绕 (Orbit)</option>
+                </select>
+              </label>
+              <label class="control" id="moveSpeedRow">漫游速度<input id="moveSpeed" type="number" min="0.1" max="50" step="0.1" value="1.5" autocomplete="off" /></label>
+              <label class="toggle-row">自动巡航<input id="orbit" class="switch" type="checkbox" role="switch" /></label>
+              <label class="control">巡航速度<input id="speed" type="number" min="0.1" max="20" step="0.1" value="2" /></label>
+              <label class="control">FOV（度）<input id="fov" type="number" min="20" max="100" step="1" value="60" /></label>
+              <div class="buttons">
+                <button id="step" type="button">单帧步进</button>
+                <button id="release" type="button">中止 / 释放</button>
+              </div>
+              <p class="note">【漫游操作】WASD / 方向键移动 · 鼠标拖拽环顾 · Shift 冲刺 · Space 升高 · F 下降 · 滚轮调速 · P 暂停 · H 显隐面板</p>
+            </div>
+          </details>
+          <details class="section">
+            <summary>场景范围 / 容量配置<i data-lucide="chevron-right"></i></summary>
+            <div class="section-body">
+              <form id="load-form">
+                <label class="control">帧队列容量 (×1M)<input id="workMi" name="workMi" type="number" min="0.0625" max="16" step="0.0625" value="4" required /></label>
+                <label class="control">包起点<input id="packStart" name="packStart" type="number" min="0" max="2149" step="1" value="0" required /></label>
+                <label class="control">包数量 (0=全量)<input id="packCount" name="packCount" type="number" min="0" max="2150" step="1" value="0" required /></label>
+                <label class="control">几何容量 MiB<input id="geometryMiB" name="geometryMiB" type="number" min="128" max="2048" step="4" value="2048" required /></label>
+                <label class="control">元数据 MiB<input id="metadataMiB" name="metadataMiB" type="number" min="16" max="256" step="1" value="192" required /></label>
+                <label class="control">单视图 Frame arena MiB<input id="frameMiB" name="frameMiB" type="number" min="128" max="2048" step="1" value="512" required /></label>
+                <label class="control">Frame owner 上限 MiB<input id="frameOwnerMiB" name="frameOwnerMiB" type="number" min="128" max="4096" step="1" value="1024" required /></label>
+                <label class="control">并发 Range 读取<input id="reads" name="reads" type="number" min="1" max="32" step="1" value="8" required /></label>
+                <label class="control">在途读取 MiB<input id="inFlightMiB" name="inFlightMiB" type="number" min="1" max="256" step="1" value="32" required /></label>
+                <label class="control">每帧上传上限 MiB<input id="uploadMiB" name="uploadMiB" type="number" min="1" max="128" step="1" value="16" required /></label>
+                <div class="buttons">
+                  <button type="submit">加载此范围</button>
+                  <button type="button" id="full">全量尝试</button>
+                  <button type="button" id="probe">重模型单包</button>
+                </div>
+              </form>
+              <p class="note">重模型预设为包 2096（约 3,205 万源三角形）。修改参数后点击加载此范围生效。</p>
+            </div>
+          </details>
+          <details class="section">
+            <summary>采样与性能分析<i data-lucide="chevron-right"></i></summary>
+            <div class="section-body">
+              <label class="control">采集模式
+                <select id="profile">
+                  <option value="off">关闭 GPU 采集</option>
+                  <option value="timing" selected>Command Span（每 8 帧）</option>
+                  <option value="counters">阶段时间 + Counters（每 16 帧）</option>
+                  <option value="heavy">每帧阶段 + Counters（高开销）</option>
+                  <option value="full">逐 Pass · 120 个采样帧</option>
+                </select>
+              </label>
+              <label class="control">预热秒数<input id="warmup" type="number" min="0" max="60" step="1" value="2" /></label>
+              <label class="control">记录秒数<input id="duration" type="number" min="1" max="60" step="1" value="10" /></label>
+              <div class="buttons">
+                <button id="record" type="button">定时采样</button>
+                <button id="clear" type="button">清空窗口</button>
+              </div>
+              <p id="record-status" class="note">最近 360 帧滚动统计；晚到 GPU 结果按原 frameIndex 更新。</p>
+            </div>
+          </details>
+          <details class="section" open>
+            <summary>加载与驻留状态<i data-lucide="chevron-right"></i></summary>
+            <div class="section-body">
+              <dl id="status"></dl>
+            </div>
+          </details>
+          <details class="section" open>
+            <summary>GPU Pass 耗时 (P50 / P95)<i data-lucide="chevron-right"></i></summary>
+            <div class="section-body">
+              <div id="passes"></div>
+            </div>
+          </details>
+          <details class="section">
+            <summary>GPU Counters<i data-lucide="chevron-right"></i></summary>
+            <div class="section-body">
+              <pre id="counters"></pre>
+            </div>
+          </details>
+          <details class="section">
+            <summary>流送 / 容量 / 元数据证据<i data-lucide="chevron-right"></i></summary>
+            <div class="section-body">
+              <pre id="evidence"></pre>
+            </div>
+          </details>
+          <details class="section">
+            <summary>事件日志<i data-lucide="chevron-right"></i></summary>
+            <div class="section-body">
+              <pre id="events"></pre>
+            </div>
+          </details>
         </div>
-        <p id="record-status" class="note">最近 360 帧滚动统计；晚到 GPU 结果按原 frameIndex 更新。</p>
-        <p class="note">
-          GPU Command Span 为已提交编码范围的时间，包含 copy/clear/间隙及采集开销；不是显示延迟。逐 Pass
-          模式记录 120 个采样帧后自动转 coarse，状态显示实际模式。内存为 owner 账本，非驱动显存占用。
-        </p>
-      </details>
-      <details open>
-        <summary>加载与驻留状态</summary>
-        <dl id="status"></dl>
-      </details>
-      <details open>
-        <summary>GPU Span / 阶段 / Pass · P50 / P95 ms</summary>
-        <div id="passes"></div>
-      </details>
-      <details>
-        <summary>GPU Counters</summary>
-        <pre id="counters"></pre>
-      </details>
-      <details>
-        <summary>流送 / 容量 / 元数据 / FrameGraph</summary>
-        <pre id="evidence"></pre>
-      </details>
-      <details>
-        <summary>事件与失败</summary>
-        <pre id="events"></pre>
-      </details>
+      </div>
     </aside>
     <script type="module" src="./main.ts"></script>
   </body>

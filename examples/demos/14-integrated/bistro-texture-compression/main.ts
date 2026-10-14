@@ -1,7 +1,7 @@
 import {
   createDefaultWebCookWorker,
   load_gltf,
-  OrbitControls,
+  FirstPersonControls,
   PerspectiveCamera,
   Renderer,
   RenderDebugView,
@@ -99,7 +99,7 @@ let asset: WebCookRuntimeAsset | undefined;
 let handles: Pick<MultiProductSceneHandles, "settled"> | undefined;
 let loading: Promise<Pick<MultiProductSceneHandles, "settled">> | undefined;
 let cooked: Awaited<ReturnType<typeof loadCookedScene>> | undefined;
-let controls: OrbitControls | undefined;
+let controls: FirstPersonControls | undefined;
 let framing: Pick<ReturnType<typeof webCookCatalogSceneFraming>, "center" | "radius"> | undefined;
 let catalog: WebCookSceneCatalogSnapshot | undefined;
 let resizeObserver: ResizeObserver | undefined;
@@ -379,9 +379,10 @@ function snapshot() {
       renderScale: renderer?.internal_resolution_scale ?? null,
       controls: controls
         ? {
-            damping: controls.enableDamping,
+            movementSpeed: controls.movementSpeed,
             dampingFactor: controls.dampingFactor,
-            rotateSpeed: controls.rotateSpeed,
+            lookSpeed: controls.lookSpeed,
+            autoForward: controls.autoForward,
           }
         : null,
       temporal: renderer?.temporalHistoryEvidence() ?? null,
@@ -408,7 +409,7 @@ function snapshot() {
         near: camera.near,
         far: camera.far,
         fov: camera.fov_degrees,
-        target: controls ? [controls.target.x, controls.target.y, controls.target.z] : null,
+        forward: [camera.transform.forward.x, camera.transform.forward.y, camera.transform.forward.z],
       },
       geometryActivity,
       geometryDelta,
@@ -763,8 +764,25 @@ async function start(): Promise<void> {
   }
   handles = await loading;
   if (closing) return;
-  controls = new OrbitControls(camera, canvas);
-  controls.enableDamping = true;
+  controls = new FirstPersonControls(camera, canvas);
+  controls.movementSpeed = Number(element<HTMLInputElement>("move-speed")?.value ?? 3.0);
+  controls.lookSpeed = Number(element<HTMLInputElement>("look-speed")?.value ?? 0.15);
+  controls.dampingFactor = Number(element<HTMLInputElement>("damping-factor")?.value ?? 0.35);
+  controls.autoForward = element<HTMLInputElement>("auto-forward")?.checked ?? false;
+  controls.enableSpeedWheel = true;
+  controls.addEventListener("change", () => {
+    if (controls) {
+      const speedInput = element<HTMLInputElement>("move-speed");
+      const speedVal = element("move-speed-value");
+      if (speedInput && speedVal) {
+        const currentSpeed = Math.round(controls.movementSpeed * 10) / 10;
+        if (speedInput.value !== String(currentSpeed)) {
+          speedInput.value = String(currentSpeed);
+          speedVal.textContent = `${currentSpeed} u/s`;
+        }
+      }
+    }
+  });
   diagnosticControlsDisabled(false);
   resizeObserver = new ResizeObserver(resize);
   resizeObserver.observe(canvas.parentElement!);
@@ -875,10 +893,8 @@ function frameScene(): void {
     c[2] + distance * Math.sqrt(0.39),
   );
   camera.transform.lookAt({ x: c[0], y: c[1], z: c[2] });
-  controls.target.set(c[0], c[1], c[2]);
-  controls.minDistance = r / 1000;
-  controls.maxDistance = r * 15;
-  controls.reset();
+  controls.setOrientation();
+  controls.saveState();
   camera.update();
   renderer.invalidateTemporalHistory();
 }
@@ -951,6 +967,8 @@ async function release(): Promise<void> {
     if (!zero) throw new Error("TextureResidency did not reach zero after release fence");
     element("phase").textContent = "Released";
   } finally {
+    controls?.dispose();
+    controls = undefined;
     cooked?.dispose();
     cooked = undefined;
     handles = undefined;
@@ -1003,8 +1021,11 @@ function diagnosticControlsDisabled(disabled: boolean): void {
   }
 }
 diagnosticControlsDisabled(true);
-// OrbitControls listens above the canvas; focused sidebar inputs own their keys.
-document.querySelector("aside")!.addEventListener("keydown", (event) => event.stopPropagation());
+// FirstPersonControls listens globally; focused sidebar inputs own their keys.
+const aside = document.querySelector("aside")!;
+aside.addEventListener("keydown", (event) => event.stopPropagation());
+aside.addEventListener("keyup", (event) => event.stopPropagation());
+aside.addEventListener("wheel", (event) => event.stopPropagation());
 element<HTMLSelectElement>("exposure-mode").value = autoExposure ? "auto" : "fixed";
 element<HTMLInputElement>("fixed-exposure").value = String(fixedExposure);
 element<HTMLInputElement>("exposure-low").value = String(exposureSettings.lowPercentile * 100);
@@ -1121,9 +1142,8 @@ for (const [id, set] of effectSwitches) {
     resetFrameSamples();
   });
 }
-element<HTMLInputElement>("damping").addEventListener("change", (event) => {
-  syncEffectParameters("damping");
-  if (controls) controls.enableDamping = (event.target as HTMLInputElement).checked;
+element<HTMLInputElement>("auto-forward").addEventListener("change", (event) => {
+  if (controls) controls.autoForward = (event.target as HTMLInputElement).checked;
 });
 for (const [id, format, apply] of [
   [
@@ -1138,17 +1158,24 @@ for (const [id, format, apply] of [
     },
   ],
   [
+    "move-speed",
+    (v: number) => `${v.toFixed(1)} u/s`,
+    (v: number) => {
+      if (controls) controls.movementSpeed = v;
+    },
+  ],
+  [
+    "look-speed",
+    (v: number) => v.toFixed(2),
+    (v: number) => {
+      if (controls) controls.lookSpeed = v;
+    },
+  ],
+  [
     "damping-factor",
     (v: number) => v.toFixed(2),
     (v: number) => {
       if (controls) controls.dampingFactor = v;
-    },
-  ],
-  [
-    "orbit-speed",
-    (v: number) => v.toFixed(2),
-    (v: number) => {
-      if (controls) controls.rotateSpeed = v;
     },
   ],
   [
