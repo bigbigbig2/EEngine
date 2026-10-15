@@ -1449,9 +1449,12 @@ export async function runNativeSurfaceProductionGpuOracle(
       "Memory evidence omitted or double-counted native scratch",
     );
     if (productGeometry) {
+      const productBytes = geometryProductGpuBudgetEvidence(device).totalBytes;
       check(
-        geometryProductGpuBudgetEvidence(device).totalBytes > 0,
-        "Recovered Product allocations were not accounted",
+        productBytes > 0 &&
+          memory.owners.geometryProducts.allocatedBytes === productBytes &&
+          memory.allocatedBytes >= productBytes + scratchBytes,
+        "Recovered Product allocations were omitted from Graphics memory",
       );
       await renderer.releaseScene(scene);
       const released = geometryProductGpuBudgetEvidence(device);
@@ -1474,7 +1477,11 @@ export async function runNativeSurfaceProductionGpuOracle(
       textureEvidence.resizeDispatchCount === 0 &&
         textureEvidence.runtimeMipGenerationCount === 0 &&
         textureEvidence.uncompressedFallbackCount === 0 &&
-        textureEvidence.copyBytes === 0,
+        textureEvidence.cookedRuntimeMipGenerationCount === 0 &&
+        textureEvidence.workerTranscodeCount === 0 &&
+        textureEvidence.transcodeBytes === 0 &&
+        textureEvidence.copyBytes === textureEvidence.uploadBytes &&
+        textureEvidence.physicalCopyBytes >= textureEvidence.committedUploadBytes,
       "Cooked Renderer used a retired raw material route",
     );
     renderer.destroy();

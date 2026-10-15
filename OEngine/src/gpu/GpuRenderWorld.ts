@@ -66,6 +66,8 @@ export interface VirtualMaterialPreparation {
   readonly stage: GpuMaterialStage;
   readonly native: GpuNativeMaterialScene;
   readonly ready: Promise<void>;
+  readonly programsReady: Promise<void>;
+  readonly texturesReady: Promise<void>;
 }
 
 declare const GPU_RENDER_WORLD_HANDLE_BRAND: unique symbol;
@@ -337,13 +339,14 @@ export class GpuRenderWorld {
     );
     this.nativeMaterialss.add(native);
     native.onDestroyed(() => this.nativeMaterialss.delete(native));
-    const ready = Promise.all([
-      this.graphics.texture_residency.uploadTiled(materials, command),
+    const texturesReady = this.graphics.texture_residency.uploadTiled(materials, command);
+    const programsReady = Promise.all([
       native.ready,
       this.graphics.frame_instances.ready,
       this.graphics.frame_vertices.ready,
       this.graphics.current_hzb_recheck.ready
     ]).then(() => undefined);
+    const ready = Promise.all([texturesReady, programsReady]).then(() => undefined);
     void ready.catch(() => undefined);
     return {
       command,
@@ -353,6 +356,8 @@ export class GpuRenderWorld {
       association,
       stage,
       native,
+      programsReady,
+      texturesReady,
       ready
     };
   }

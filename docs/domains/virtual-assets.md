@@ -10,6 +10,11 @@ verifies:
     - OEngine/src/gpu/GeometryProductGpuAbiV1.ts
     - OEngine/src/render/program/FrameProgramLowering.ts
     - OEngine/src/gpu/GeometryPageStreamingRuntime.ts
+    - OEngine/src/gpu/GraphicsContext.ts
+    - OEngine/src/render/SceneRefinement.ts
+    - OEngine/src/render/vsm/VsmCasterRecordPass.ts
+    - OEngine/src/shaders/vsm_caster_records.ts
+    - OEngine/src/shaders/vsm_allocate_pages.ts
     - OEngine/src/gpu/GeometryPageScheduler.ts
     - OEngine/src/gpu/GeometryDemandReadbackRing.ts
     - OEngine/src/gpu/GeometryProductResidencyProfile.ts
@@ -27,6 +32,8 @@ verifies:
 # Virtual Assets
 
 ## 当前 owner 与生产连接
+
+2026-10-16 VT复审后的实际接线：VSM候选脏页经`VsmCasterRecordPass`先计数实际保守pair，再选择总量可容纳的完整页，per-page prefix/cursor生成记录；FrameProgram把同一筛选allocation交给clear/raster/commit。未选页继续dirty，最老页先行；单页超过pair容量仍保留完整implicit。VSM回收在原四类内先冷槽、后近期槽，使用已有last_visited的8帧间隔，不永久pin历史需求；当前帧请求仍全部保护。没有CPU同帧控制、额外submit或改变shadow geometry需求。既有72B延迟publication receipt拆出allocation/coarse misses、evictions、pairMode/failure/pending；caster不再擦掉allocator pending。limited不等于已收敛，`SceneRefinement`进入limited会撤销旧settled时间。Graphics device geometry ledger按共享bank+metadata只计一次，固定256KiB单页单槽的slack没有因此消失。具体检查与剩余边界见当前VT执行§9。
 
 2026-10-15初始化调度切换：HTTP Cooked Product的bootstrap与持续流送共用`CookedAssetPreparation`批读取；`AssetWorkerPool`中的Dedicated Worker执行Range、CRC/LZ4/布局、可选decoded SHA和resident position/UV数值扫描。`GeometryProductResidentAttributes`已迁到CPU assets层；主线程按实际任务receipt重建品牌、检查完整身份/返回域，复用prepared bounds/refine数据，不再次逐顶点扫描。memory/custom provider保留独立的未预验证snapshot/digest边界。完整256KiB逻辑页仍跨线程transfer，GPU只上传已验证payload prefix；没有新的页物理ABI。默认4批×16页候选、全局256MiB临时/32MiB编码/64MiB ready信用，ready直到上传、丢弃或source释放才回收。Worker完成仍不能直接发布位置表，唯一普通帧事务和退休fence继续归residency/runtime。每个revision source独占CPU会话，device loss取消旧runtime读取而保留可重放source；范围计数包含Worker真实IO。
 

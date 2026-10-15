@@ -5,7 +5,8 @@ import { VSM_PAIR_PAGE_WGSL } from "./vsm_pair_page.js";
 
 /** Actual Geometry work scans the bounded dirty list. Small lists use direct
  * intersections; full batches share page setup and conservative coarse bounds.
- * At most one global ticket/overlap; no copied geometry or partial draw.
+ * Count exact intersections, select complete pages, then write per-page ranges.
+ * No copied geometry or partially published page.
  * Preflight guarantees W × D fits u32, including attempted count. */
 export const VSM_CASTER_RECORDS_WGSL = /* wgsl */ `
 ${VSM_PAGE_TABLE_WGSL}
@@ -41,13 +42,16 @@ struct VsmPageTableBuffer {
   entries: array<VsmPageEntry>,
 }
 @group(0) @binding(0) var<uniform> constants: Constants;
-@group(0) @binding(1) var<storage, read> allocation: VsmAllocationBuffer;
+@group(0) @binding(1) var<storage, read_write> allocation: VsmAllocationBuffer;
 @group(0) @binding(2) var<storage, read> page_table: VsmPageTableBuffer;
 @group(0) @binding(3) var<storage, read> meshlet_work: OEngineMeshletWorkQueueRead;
 @group(0) @binding(4) var<storage, read> bounds: ShadowBoundsQueue;
 @group(0) @binding(5) var<storage, read_write> pairs: VsmPairQueue;
 @group(0) @binding(6) var<storage, read_write> telemetry: array<u32>;
 @group(0) @binding(7) var<storage, read_write> indirect: array<vec4u>;
+// Per physical slot: count, exclusive base, write cursor, selected.
+@group(0) @binding(8) var<storage, read_write> page_counts: array<atomic<u32>>;
+override count_only: bool = false;
 ${VSM_PAIR_PAGE_WGSL}
 @compute @workgroup_size(1)
 fn prepare_pairs() {
@@ -57,7 +61,8 @@ fn prepare_pairs() {
       bounds.header.generation != meshlet_work.header.generation || bounds.header.count != meshlet_work.header.written_count ||
       bounds.header.count > arrayLength(&bounds.elements) || allocation.written > constants.control.w ||
       allocation.written > arrayLength(&allocation.records) || allocation.overflow != 0u ||
-      allocation.generation != constants.control.x || constants.control.z > arrayLength(&pairs.elements));
+      allocation.generation != constants.control.x || constants.control.z > arrayLength(&pairs.elements) ||
+      constants.control.w > arrayLength(&page_counts) / 4u);
   atomicStore(&pairs.header.attempted, 0u);
   atomicStore(&pairs.header.failure, invalid);
   pairs.header.written_count = 0u;
@@ -78,6 +83,21 @@ var<workgroup> wg_group_rects: array<vec4f, 8>;
 var<workgroup> wg_batch_rect: vec4f;
 var<workgroup> wg_dirty_count: u32;
 
+fn record_pair(slot: u32, page_slot: u32, virtual_page: u32) {
+  let at = page_slot * 4u;
+  if count_only {
+    atomicAdd(&page_counts[at], 1u);
+  } else {
+    let local = atomicAdd(&page_counts[at + 2u], 1u);
+    let count = atomicLoad(&page_counts[at]);
+    let base = atomicLoad(&page_counts[at + 1u]);
+    if local >= count || base + local >= constants.control.z || atomicLoad(&page_counts[at + 3u]) == 0u {
+      atomicOr(&pairs.header.failure, 1u);
+      return;
+    }
+    pairs.elements[base + local] = VsmPair(slot, page_slot, virtual_page, 1u);
+  }
+}
 fn record_direct_pair(slot: u32, bound: ShadowMeshletBounds, page_index: u32) {
   let page = allocation.records[page_index];
   if (page.slot >= constants.control.w || page.virtual_page >= arrayLength(&page_table.entries)) {
@@ -90,10 +110,7 @@ fn record_direct_pair(slot: u32, bound: ShadowMeshletBounds, page_index: u32) {
     return;
   }
   if (vsm_pair_overlaps(bound.light_xy, entry, page.virtual_page)) {
-    let ticket = atomicAdd(&pairs.header.attempted, 1u);
-    if (ticket < constants.control.z) {
-      pairs.elements[ticket] = VsmPair(slot, page.slot, page.virtual_page, 1u);
-    }
+    record_pair(slot, page.slot, page.virtual_page);
   }
 }
 
@@ -189,11 +206,8 @@ fn main(@builtin(global_invocation_id) id: vec3u, @builtin(local_invocation_inde
             if (wg_page_valid[idx] != 0u) {
               let prect = wg_page_rects[idx];
               if (all(bound.light_xy.zw >= prect.xy) && all(bound.light_xy.xy <= prect.zw)) {
-                let ticket = atomicAdd(&pairs.header.attempted, 1u);
-                if (ticket < constants.control.z) {
-                  let pmeta = wg_page_slots[idx];
-                  pairs.elements[ticket] = VsmPair(slot, pmeta.x, pmeta.y, 1u);
-                }
+                let pmeta = wg_page_slots[idx];
+                record_pair(slot, pmeta.x, pmeta.y);
               }
             }
           }
@@ -204,8 +218,48 @@ fn main(@builtin(global_invocation_id) id: vec3u, @builtin(local_invocation_inde
   }
 }
 @compute @workgroup_size(1)
+fn select_complete_pages() {
+  var selected = 0u;
+  var total = 0u;
+  let original_count = allocation.written;
+  if atomicLoad(&pairs.header.failure) == 0u {
+    for (var index = 0u; index < original_count; index++) {
+      let page = allocation.records[index];
+      let at = page.slot * 4u;
+      let count = atomicLoad(&page_counts[at]);
+      // The allocator puts the oldest candidate first. One indivisible page
+      // above capacity gets the complete implicit domain alone.
+      if selected > 0u && count > constants.control.z - total { continue; }
+      atomicStore(&page_counts[at + 1u], total);
+      atomicStore(&page_counts[at + 3u], 1u);
+      allocation.records[selected] = page;
+      total += count;
+      selected++;
+      if total > constants.control.z { break; }
+    }
+  }
+  allocation.written = selected;
+  telemetry[7] += original_count - selected;
+  pairs.header.dirty_count = selected;
+  atomicStore(&pairs.header.attempted, total);
+  let fits_pairs = total <= constants.control.z;
+  let groups = select(0u, (pairs.header.source_count + 63u) / 64u,
+    fits_pairs && selected != 0u && atomicLoad(&pairs.header.failure) == 0u);
+  let dimension = constants.identity.w;
+  indirect[0] = vec4u(min(groups, dimension), (groups + dimension - 1u) / dimension, 1u, 0u);
+  indirect[2] = vec4u(6u, selected, 0u, 0u);
+}
+@compute @workgroup_size(1)
 fn finalize_indirect() {
   let attempted = atomicLoad(&pairs.header.attempted);
+  if attempted <= constants.control.z {
+    for (var index = 0u; index < allocation.written; index++) {
+      let at = allocation.records[index].slot * 4u;
+      if atomicLoad(&page_counts[at]) != atomicLoad(&page_counts[at + 2u]) {
+        atomicOr(&pairs.header.failure, 1u);
+      }
+    }
+  }
   let failure = atomicLoad(&pairs.header.failure);
   pairs.header.mode = select(select(0u, 1u, attempted > constants.control.z), 2u, failure != 0u);
   // Every partial explicit record is unreachable in implicit/failed mode.

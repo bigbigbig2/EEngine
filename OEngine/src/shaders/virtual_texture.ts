@@ -1,4 +1,10 @@
-import { VT_ATLAS_SIZE, VT_TABLE_WIDTH, VT_MIP_WORDS } from "../gpu/VirtualTextureAbi.js";
+import {
+  VT_ATLAS_SIZE,
+  VT_TABLE_WIDTH,
+  VT_MIP_WORDS,
+  VT_FEEDBACK_MAILBOX_WORDS,
+  VT_PAGE_CAPACITY,
+} from "../gpu/VirtualTextureAbi.js";
 
 /** LibVT 464397d9 (MIT), renderVT.frag::mipmapLevel and non-fallback-entry
  * lookup/physical gradients; Wicked 54518f2c (MIT), ShaderTextureSlot::SampleVirtual
@@ -96,12 +102,26 @@ fn native_vt_sample(table: texture_2d_array<u32>, atlas: texture_2d_array<f32>, 
 
 export const VIRTUAL_TEXTURE_FEEDBACK_WGSL = /* wgsl */ `
 @group(2) @binding(1) var<storage, read_write> native_vt_feedback: array<atomic<u32>>;
+// Direct-mapped workgroup mailbox, zero-initialized by WebGPU. Every occupied
+// key owns a global record operation in this dispatch. Collisions only replace
+// keys and cause extra records; they can never suppress a different page/kind.
+// No barrier: callers may be divergent or return early from Surface.
+var<workgroup> native_vt_mailbox: array<atomic<u32>, ${VT_FEEDBACK_MAILBOX_WORDS}>;
 fn native_vt_record(page: u32, kind: u32) {
+  // Reject out-of-domain IDs before forming a nonzero, nonwrapping key.
+  if page >= ${VT_PAGE_CAPACITY}u { return; }
+  let key = page * 2u + select(1u, 2u, kind == 2u);
+  let bucket = (page ^ (page >> 8u) ^ (page >> 16u)) & 127u;
+  let cell = bucket * 2u + select(0u, 1u, kind == 2u);
+  if atomicExchange(&native_vt_mailbox[cell], key) == key { return; }
   if atomicLoad(&native_vt_feedback[0u]) == 0u || page >= atomicLoad(&native_vt_feedback[1u]) { return; }
   let word = page >> 5u;
   let mask = 1u << (page & 31u);
   let bits = atomicLoad(&native_vt_feedback[select(6u, 7u, kind == 2u)]);
-  atomicOr(&native_vt_feedback[bits + word], mask);
+  // Bits only grow until all Surface readers complete. A repeated texel can
+  // skip the contended RMW; racing first writers still merge without loss.
+  if (atomicLoad(&native_vt_feedback[bits + word]) & mask) != 0u { return; }
+  if (atomicOr(&native_vt_feedback[bits + word], mask) & mask) != 0u { return; }
   let union_offset = atomicLoad(&native_vt_feedback[8u]);
   if (atomicOr(&native_vt_feedback[union_offset + word], mask) & mask) != 0u { return; }
   let at = atomicAdd(&native_vt_feedback[4u], 1u);

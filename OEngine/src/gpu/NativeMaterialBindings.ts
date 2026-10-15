@@ -6,6 +6,7 @@ import type { AppearanceStaticLease } from "./AppearanceStaticResidency.js";
 import type { NativeMaterialProducts } from "./NativeMaterialProducts.js";
 import { NATIVE_PACKED_PRODUCT_WGSL } from "../shaders/native_material_products.js";
 import { VIRTUAL_TEXTURE_SAMPLE_WGSL } from "../shaders/virtual_texture.js";
+import { VT_MAX_MIP_LEVELS } from "./VirtualTextureAbi.js";
 import type { TextureBindingSet } from "./TextureResidency.js";
 import type { TextureSurfacePublication } from "./TextureSurfacePublication.js";
 import { encodeSamplerClass, GPU_MATERIAL_VISIBILITY_SAMPLER as S } from "./GpuMaterialVisibilityAbi.js";
@@ -289,7 +290,13 @@ ${bankTextures.map((texture, slot) => `    case ${slot}u: { return oengine_sampl
         "sampler"
       );
       const offset = constants.length;
-      for (const mip of virtual.mips) {
+      const levels = constant(virtual.mips.length);
+      const tail = constant(virtual.tailFirst);
+      // Texture dimensions are instance data, not program topology. Fixed-size
+      // routes keep later sample constant offsets identical across 1..16K
+      // textures, so equal material graphs share their actual GPU program.
+      for (let level = 0; level < VT_MAX_MIP_LEVELS; level++) {
+        const mip = virtual.mips[Math.min(level, virtual.mips.length - 1)]!;
         for (const value of [
           mip.width,
           mip.height,
@@ -303,7 +310,7 @@ ${bankTextures.map((texture, slot) => `    case ${slot}u: { return oengine_sampl
         }
       }
       primarySample = `native_vt_sample(${table}, ${atlas}, ${atlasSampler}, material_base,
-        ${offset}u, ${virtual.mips.length}u, ${virtual.tailFirst}u, ${address}u,
+        ${offset + 2}u, u32(${levels}), u32(${tail}), ${address}u,
         ${filter === "linear"}, uv, dx, dy)`;
     }
     let valueExpression = "oengine_texture_ref_apply_routing(reference, value)";

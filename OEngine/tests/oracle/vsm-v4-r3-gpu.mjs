@@ -146,6 +146,7 @@ export async function runVsmR3GpuOracle(device) {
     device.queue.writeBuffer(pages, 0, pageWords);
     device.queue.writeBuffer(metas, 0, metaWords);
     device.queue.writeBuffer(allocation, 0, dirtyWords);
+    device.queue.writeBuffer(telemetry, 28, new Uint32Array([5]));
   };
   const content = make(16, storage);
   const commitConstants = make(
@@ -174,12 +175,13 @@ export async function runVsmR3GpuOracle(device) {
     invalidMaterial = false,
     abort = false,
     measure = false,
+    author = true,
   }) => {
     workWords.set([count, count, 0, sourceCapacity, overflow, 11, invalid, 0]);
     for (let slot = 0; slot < W; slot++) workWords[8 + slot * 6] = instance;
     device.queue.writeBuffer(work, 0, workWords);
     device.queue.writeBuffer(directory, 12, new Uint32Array([invalidMaterial ? 0 : 1]));
-    authorPages(dirty);
+    if (author) authorPages(dirty);
     const command = ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame");
     let timestamps,
       querySet,
@@ -258,7 +260,7 @@ export async function runVsmR3GpuOracle(device) {
       ["C", C, 1, 0, false],
       ["C+1-single-page", C + 1, 1, 1, false],
       ["multi-page", 1, 2, 0, false],
-      ["multi-page-over-C", 33, 2, 1, false],
+      ["multi-page-over-C", 33, 2, 0, false],
       ["partial-batch-63", 2, 63, 0, false],
       ["full-batch-64", 2, 64, 0, false],
       ["second-batch-65", 2, 65, 0, false],
@@ -267,8 +269,13 @@ export async function runVsmR3GpuOracle(device) {
       ["no-dirty", W, 0, 0, false],
     ]) {
       const result = await encode({ count, dirty });
+      const selectedDirty = name === "multi-page-over-C" ? 1 : dirty;
       check(
-        result.header[0] === count * Math.min(dirty, 2) &&
+        (await read(telemetry))[7] === 5 + dirty - selectedDirty,
+        `${name}: caster selection erased the allocator pending backlog`,
+      );
+      check(
+        result.header[0] === count * Math.min(selectedDirty, 2) &&
           result.header[4] === expectedMode &&
           result.header[2] === 0,
         `${name}: incomplete pair mode/count ${result.header}`,
@@ -282,14 +289,16 @@ export async function runVsmR3GpuOracle(device) {
       const expectedCounts = new Uint32Array(24);
       for (let slot = 0; slot < count; slot++) {
         const bucket = Math.floor((triangleCounts[slot % 8] - 1) / 32);
-        expectedCounts[(slot % 3) * 8 + bucket * 2 + (slot % 2)] += expectedMode ? 1 : Math.min(dirty, 2);
+        expectedCounts[(slot % 3) * 8 + bucket * 2 + (slot % 2)] += expectedMode
+          ? 1
+          : Math.min(selectedDirty, 2);
       }
       let drawInstances = 0;
       for (let key = 0; key < 24; key++) {
         check(
           states[key * 4] === expectedCounts[key] &&
             draws[key * 4] === (Math.floor((key % 8) / 2) + 1) * 96 &&
-            draws[key * 4 + 1] === expectedCounts[key] * (expectedMode ? dirty : 1) &&
+            draws[key * 4 + 1] === expectedCounts[key] * (expectedMode ? selectedDirty : 1) &&
             draws[key * 4 + 3] === 0,
           `${name}: native bucket/side/count or implicit multiplication mismatch`,
         );
@@ -298,7 +307,30 @@ export async function runVsmR3GpuOracle(device) {
       const published = await read(pages);
       for (let slot = 0; slot < dirty; slot++) {
         const page = worldPages[slot] * 12;
-        check((published[page + 3] & 11) === 9 && published[page + 6] === 1, `${name}: page completion`);
+        check(
+          slot < selectedDirty
+            ? (published[page + 3] & 11) === 9 && published[page + 6] === 1
+            : (published[page + 3] & 2) !== 0 && published[page + 6] === 0,
+          `${name}: only complete selected pages publish; deferred pages stay dirty`,
+        );
+      }
+      if (expectedMode === 0) {
+        const records = await read(pairs);
+        const actual = [];
+        for (let index = 0; index < result.header[1]; index++) {
+          const at = 8 + index * 4;
+          actual.push(`${records[at]}:${records[at + 1]}:${records[at + 2]}:${records[at + 3]}`);
+        }
+        const expected = [];
+        for (let slot = 0; slot < count; slot++) {
+          for (let page = 0; page < Math.min(selectedDirty, 2); page++) {
+            expected.push(`${slot}:${page}:${worldPages[page]}:1`);
+          }
+        }
+        check(
+          JSON.stringify(actual.sort()) === JSON.stringify(expected.sort()),
+          `${name}: complete per-page pairs match independent intersections`,
+        );
       }
       cases.push({
         name,
@@ -307,6 +339,33 @@ export async function runVsmR3GpuOracle(device) {
         nonemptyDraws: expectedCounts.filter((value) => value !== 0).length,
       });
     }
+    await encode({ count: 33, dirty: 2 });
+    const deferred = new Uint32Array([
+      2,
+      1,
+      0,
+      generation,
+      worldPages[1],
+      1,
+      0,
+      generation,
+      11,
+      0,
+      worldPages[1],
+      0,
+    ]);
+    device.queue.writeBuffer(allocation, 0, deferred);
+    const retry = await encode({ count: 33, dirty: 1, author: false });
+    const completed = await read(pages);
+    check(
+      retry.header[0] === 33 &&
+        retry.header[4] === 0 &&
+        [0, 1].every(
+          (index) =>
+            (completed[worldPages[index] * 12 + 3] & 11) === 9 && completed[worldPages[index] * 12 + 6] === 1,
+        ),
+      "deferred complete page progresses next frame without rewriting its ready predecessor",
+    );
     for (const [name, options] of [
       ["geometry-invalid", { invalid: 1 }],
       ["geometry-overflow", { overflow: 1 }],

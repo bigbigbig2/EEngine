@@ -67,6 +67,21 @@ test("publication, invalid VSM, cancellation and terminal failures never resolve
   await assert.rejects(failed, /bad receipt/);
 });
 
+test("capacity pressure revokes a settled timestamp within the same view epoch", () => {
+  const state = new SceneRefinement();
+  state.begin("view", "quality", 0);
+  state.completed(sample(0), 10);
+  state.completed(sample(1), 20);
+  assert.equal(state.evidence().settledAtMs, 20);
+  state.completed(sample(2, { limited: true, texturesFull: false }), 30);
+  assert.equal(state.evidence().phase, "limited");
+  assert.equal(state.evidence().settledAtMs, null);
+  state.completed(sample(3), 40);
+  assert.equal(state.evidence().phase, "refining");
+  state.completed(sample(4), 50);
+  assert.equal(state.evidence().settledAtMs, 50);
+});
+
 test("catalog aliases share one read and critical priority, conflicting URI is rejected", () => {
   const a = "a".repeat(64),
     b = "b".repeat(64);

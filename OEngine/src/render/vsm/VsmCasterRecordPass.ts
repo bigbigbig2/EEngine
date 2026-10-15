@@ -7,6 +7,7 @@ import type { VsmDirectionalFrameConstants } from "./VsmReceiverDemandPass.js";
 import type { VsmResources } from "./VsmResources.js";
 import type { VsmAllocationFrame } from "./VsmResidency.js";
 import { vsmImplicitDomain } from "../../gpu/GpuVsmPairAbi.js";
+import { VSM_MAX_RESIDENT_SLOTS } from "./VsmCapabilities.js";
 
 export interface VsmCasterRecordInputs {
   readonly allocation: VsmAllocationFrame;
@@ -20,6 +21,8 @@ export interface VsmCasterRecordInputs {
 }
 
 export interface VsmCasterRecordFrame {
+  /** Same complete-page list consumed by clear, raster and content commit. */
+  readonly allocation: ResourceId;
   readonly casterRecords: ResourceId;
   readonly rasterIndirect: ResourceId;
   readonly generation: number;
@@ -71,6 +74,9 @@ export class VsmCasterRecordPass {
   private readonly mainLayout: GPUBindGroupLayout;
   private readonly preparePipeline: GPUComputePipeline;
   private readonly casterPipeline: GPUComputePipeline;
+  private readonly countPipeline: GPUComputePipeline;
+  private readonly selectPipeline: GPUComputePipeline;
+  private readonly pageCounts: GPUBuffer;
   private readonly finalizePipeline: GPUComputePipeline;
   private bindings: Readonly<{
     buffers: readonly GPUBuffer[];
@@ -79,6 +85,15 @@ export class VsmCasterRecordPass {
   }> | null = null;
 
   constructor(private readonly device: GPUDevice) {
+    const countBytes = VSM_MAX_RESIDENT_SLOTS * 16;
+    if (countBytes > Math.min(device.limits.maxBufferSize, device.limits.maxStorageBufferBindingSize)) {
+      throw new RangeError("VSM complete page counts exceed negotiated buffer capacity");
+    }
+    this.pageCounts = device.createBuffer({
+      label: "VSM/complete page pair counts",
+      size: countBytes,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
     this.constants = device.createBuffer({
       label: "VSM/caster constants",
       size: CONSTANT_BYTES,
@@ -88,24 +103,25 @@ export class VsmCasterRecordPass {
       label: "VSM/caster records layout",
       entries: [
         { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
         { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
         { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
         { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
         { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
         { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
         { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+        { binding: 8, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
       ],
     });
     this.mainLayout = device.createBindGroupLayout({
       entries: [
         { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-        ...[1, 2, 3, 4].map((binding) => ({
+        ...[2, 3, 4].map((binding) => ({
           binding,
           visibility: GPUShaderStage.COMPUTE,
           buffer: { type: "read-only-storage" as const },
         })),
-        ...[5, 6].map((binding) => ({
+        ...[1, 5, 6, 8].map((binding) => ({
           binding,
           visibility: GPUShaderStage.COMPUTE,
           buffer: { type: "storage" as const },
@@ -120,6 +136,16 @@ export class VsmCasterRecordPass {
       label: "VSM/caster records",
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.mainLayout] }),
       compute: { module, entryPoint: "main" },
+    });
+    this.countPipeline = device.createComputePipeline({
+      label: "VSM/count complete page pairs",
+      layout: device.createPipelineLayout({ bindGroupLayouts: [this.mainLayout] }),
+      compute: { module, entryPoint: "main", constants: { count_only: 1 } },
+    });
+    this.selectPipeline = device.createComputePipeline({
+      label: "VSM/select complete page pairs",
+      layout: device.createPipelineLayout({ bindGroupLayouts: [this.casterLayout] }),
+      compute: { module, entryPoint: "select_complete_pages" },
     });
     this.preparePipeline = device.createComputePipeline({
       label: "VSM/prepare actual pair dispatch",
@@ -149,7 +175,7 @@ export class VsmCasterRecordPass {
       main: this.device.createBindGroup({
         label: "VSM/pair append bindings",
         layout: this.mainLayout,
-        entries: entries.slice(0, 7),
+        entries: [...entries.slice(0, 7), entries[8]!],
       }),
     };
     return this.bindings;
@@ -157,6 +183,9 @@ export class VsmCasterRecordPass {
 
   addToGraph(graph: FrameGraph, input: VsmCasterRecordInputs): VsmCasterRecordFrame {
     const dimension = this.device.limits.maxComputeWorkgroupsPerDimension;
+    if (input.resources.capabilities.residentSlots > VSM_MAX_RESIDENT_SLOTS) {
+      throw new RangeError("VSM complete page selection exceeds the negotiated profile");
+    }
     vsmCasterDispatch(input.workCapacity, dimension);
     vsmImplicitDomain(input.workCapacity, input.resources.capabilities.residentSlots);
     if (input.resources.profile === "shadow-disabled")
@@ -192,6 +221,11 @@ export class VsmCasterRecordPass {
       { kind: "imported", label: "VSM overflow telemetry" },
       telemetryBuffer,
     );
+    const pageCounts = graph.import_resource(
+      "VSM/complete page counts",
+      { kind: "imported" },
+      this.pageCounts,
+    );
     const update = graph.add("VSM/update caster constants", input, (data, _resources, context) => {
       (context.encoder as ShadeGPUCommandContext).writeBuffer(
         this.constants,
@@ -214,9 +248,11 @@ export class VsmCasterRecordPass {
       const command = context.encoder as ShadeGPUCommandContext;
       const casterGpu = resolved.get(caster) as GPUBuffer;
       const telemetryGpu = resolved.get(telemetry) as GPUBuffer;
-      // The first 16 bytes are E5 allocation telemetry; E6 uses the next
-      // 16-byte lane for caster/raster overflow counters.
-      command.clearBuffer(telemetryGpu, 16, 16);
+      // Allocation owns words 0..3 and the pending backlog in word 7.
+      // Reset only caster excess/failure/mode; selection adds deferred pages
+      // to the existing backlog rather than erasing the allocator's remainder.
+      command.clearBuffer(telemetryGpu, 16, 12);
+      command.clearBuffer(this.pageCounts);
       const groups = this.bindingGroups([
         resolved.get(currentConstants) as GPUBuffer,
         resolved.get(allocation) as GPUBuffer,
@@ -226,12 +262,23 @@ export class VsmCasterRecordPass {
         casterGpu,
         telemetryGpu,
         resolved.get(indirect) as GPUBuffer,
+        this.pageCounts,
       ]);
       const prepare = command.beginComputePass({ label: "VSM/prepare actual pair dispatch" });
       prepare.setPipeline(this.preparePipeline);
       prepare.setBindGroup(0, groups.full);
       prepare.dispatchWorkgroups(1);
       prepare.end();
+      const count = command.beginComputePass({ label: "VSM/count complete page pairs" });
+      count.setPipeline(this.countPipeline);
+      count.setBindGroup(0, groups.main);
+      count.dispatchWorkgroupsIndirect(resolved.get(indirect) as GPUBuffer, 0);
+      count.end();
+      const select = command.beginComputePass({ label: "VSM/select complete page pairs" });
+      select.setPipeline(this.selectPipeline);
+      select.setBindGroup(0, groups.full);
+      select.dispatchWorkgroups(1);
+      select.end();
       const pass = command.beginComputePass({ label: "VSM/compact pairs" });
       pass.setPipeline(this.casterPipeline);
       pass.setBindGroup(0, groups.main);
@@ -247,17 +294,20 @@ export class VsmCasterRecordPass {
     const producedTelemetry = produce.write(telemetry);
     const preparedIndirect = produce.write(indirect);
     produce.make_side_effect();
+    const selectedAllocation = produce.write(allocation);
+    const countedPages = produce.write(pageCounts);
     const finalize = graph.add("VSM/finalize raster indirect", {}, (_data, resolved, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
       const groups = this.bindingGroups([
         resolved.get(currentConstants) as GPUBuffer,
-        resolved.get(allocation) as GPUBuffer,
+        resolved.get(selectedAllocation) as GPUBuffer,
         resolved.get(pageTable) as GPUBuffer,
         resolved.get(work) as GPUBuffer,
         resolved.get(bounds) as GPUBuffer,
         resolved.get(producedCaster) as GPUBuffer,
         resolved.get(producedTelemetry) as GPUBuffer,
         resolved.get(preparedIndirect) as GPUBuffer,
+        this.pageCounts,
       ]);
       const pass = command.beginComputePass({ label: "VSM/finalize raster indirect" });
       pass.setPipeline(this.finalizePipeline);
@@ -266,17 +316,19 @@ export class VsmCasterRecordPass {
       pass.end();
     });
     finalize.read(currentConstants);
-    finalize.read(allocation);
+    finalize.read(selectedAllocation);
     finalize.read(producedCaster);
     finalize.read(preparedIndirect);
     finalize.read(pageTable);
     finalize.read(work);
     finalize.read(bounds);
+    finalize.read(countedPages);
     const completeCaster = finalize.write(producedCaster);
     finalize.write(producedTelemetry);
     const producedIndirect = finalize.write(preparedIndirect);
     finalize.make_side_effect();
     return {
+      allocation: selectedAllocation,
       casterRecords: completeCaster,
       rasterIndirect: producedIndirect,
       generation: input.generation,
@@ -292,5 +344,6 @@ export class VsmCasterRecordPass {
   destroy(): void {
     this.bindings = null;
     this.constants.destroy();
+    this.pageCounts.destroy();
   }
 }

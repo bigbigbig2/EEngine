@@ -28,6 +28,7 @@ import { textureBindingSetPolicy } from "./TextureBindingSetPolicy.js";
 import { encodeSamplerClass, GPU_MATERIAL_VISIBILITY_SAMPLER } from "./GpuMaterialVisibilityAbi.js";
 import { selectAppearanceProductProgram } from "../material/AppearanceGraphCompiler.js";
 import { ShadeTransparencyMode } from "../material/enums.js";
+import { loadAssetBatch } from "../assets/AssetLoadBatch.js";
 
 export const TEXTURE_RESIDENCY_MAX_SIZE = 16384;
 export const TEXTURE_RESIDENCY_BUDGET_BYTES = 2 * 1024 * 1024 * 1024;
@@ -251,8 +252,11 @@ export class TextureResidency {
   ): Promise<void> {
     const entries = new Set(materials.flatMap((material) => this.materials.get(material)?.entries ?? []));
     const tasks: Promise<void>[] = [];
-    // Serial entries bound provider leases and staging construction. Pipeline
-    // preparation can still proceed concurrently with this one IO chain.
+    const pending: { entry: Entry; bootstrap: NonNullable<Entry["bootstrap"]> }[] = [];
+    const abort = new AbortController();
+    command.onAborted.addOne(() => abort.abort());
+    // Four entry jobs share the existing provider's IO/byte/Worker admission.
+    // GPU staging retains the same aggregate limit and scene transaction.
     for (const entry of entries) {
       const source = entry.product.tiled;
       if (!source || !entry.staging) {
@@ -265,8 +269,6 @@ export class TextureResidency {
         tasks.push(entry.bootstrap.ready);
         continue;
       }
-      const abort = new AbortController();
-      command.onAborted.addOne(() => abort.abort());
       const bootstrap = { command, complete: false, ready: Promise.resolve() };
       entry.bootstrap = bootstrap;
       command.onBeforeFinish.addOne(() => {
@@ -274,82 +276,86 @@ export class TextureResidency {
           throw new Error("Scene cannot publish before mandatory texture/tail upload completes");
         }
       });
-      const previous = tasks.at(-1) ?? Promise.resolve();
-      bootstrap.ready = previous.then(async () => {
-        if (entry.virtual) {
-          await this.virtualValue!.bootstrap(source, command);
-        }
-        for (const [index, plane] of entry.product.metadata.planes.entries()) {
-          const sourcePlane = source.metadata.planes.indexOf(plane);
-          const profile = source.directory.metadata.planes.find(
-            (value) => value.mode === "resident" && value.sourcePlane === sourcePlane
-          )!;
-          for (const mip of plane.mips) {
-            const rowBytes = textureRowBytes(plane, mip);
-            const pitch = Math.ceil(rowBytes / 256) * 256;
-            const totalRows = mip.byteLength / rowBytes;
-            let row = 0;
-            let column = 0;
-            let slab: ReturnType<TextureResidency["residentSlab"]> | undefined;
-            for (const payload of profile.mips[mip.level]!.payloads) {
-              const lease = await source.read([payload], abort.signal, 0);
-              try {
-                if (command.closed || this.destroyed) {
-                  throw new Error("Mandatory texture bootstrap was cancelled");
-                }
-                const bytes = new Uint8Array(lease.payloads[0]!.bytes);
-                let offset = 0;
-                while (offset < bytes.length) {
-                  slab ??= this.residentSlab(
-                    command,
-                    Math.min(totalRows - row, Math.floor(TEXTURE_COPY_BYTES / pitch)),
-                    pitch
-                  );
-                  const count = Math.min(rowBytes - column, bytes.length - offset);
-                  slab.mapped.set(bytes.subarray(offset, offset + count), slab.row * pitch + column);
-                  offset += count;
-                  column += count;
-                  if (column === rowBytes) {
-                    column = 0;
-                    slab.row++;
-                    row++;
-                    if (slab.row === slab.rows) {
-                      const block = plane.format === "r8unorm" ? 1 : 4;
-                      slab.buffer.unmap();
-                      command.copyBufferToTexture(
-                        { buffer: slab.buffer, bytesPerRow: pitch, rowsPerImage: slab.rows },
-                        {
-                          texture: entry.planes[index]!.segment.texture!,
-                          mipLevel: mip.level,
-                          origin: [0, (row - slab.rows) * block, entry.planes[index]!.layer]
-                        },
-                        [mip.physicalWidth, slab.rows * block, 1]
-                      );
-                      const size = slab.rows * rowBytes;
-                      this.uploadBytes += size;
-                      this.physicalCopyBytes += slab.rows * pitch;
-                      this.copyOperations++;
-                      command.onFinished.addOne(() => {
-                        this.committedUploadBytes += size;
-                      });
-                      slab = undefined;
-                    }
+      pending.push({ entry, bootstrap });
+    }
+    const ready = loadAssetBatch(pending, 4, abort.signal, async ({ entry, bootstrap }, _index, signal) => {
+      const source = entry.product.tiled!;
+      if (entry.virtual) {
+        await this.virtualValue!.bootstrap(source, command, signal);
+      }
+      for (const [index, plane] of entry.product.metadata.planes.entries()) {
+        const sourcePlane = source.metadata.planes.indexOf(plane);
+        const profile = source.directory.metadata.planes.find(
+          (value) => value.mode === "resident" && value.sourcePlane === sourcePlane
+        )!;
+        for (const mip of plane.mips) {
+          const rowBytes = textureRowBytes(plane, mip);
+          const pitch = Math.ceil(rowBytes / 256) * 256;
+          const totalRows = mip.byteLength / rowBytes;
+          let row = 0;
+          let column = 0;
+          let slab: ReturnType<TextureResidency["residentSlab"]> | undefined;
+          for (const payload of profile.mips[mip.level]!.payloads) {
+            const lease = await source.read([payload], signal, 0);
+            try {
+              if (command.closed || this.destroyed) {
+                throw new Error("Mandatory texture bootstrap was cancelled");
+              }
+              const bytes = new Uint8Array(lease.payloads[0]!.bytes);
+              let offset = 0;
+              while (offset < bytes.length) {
+                slab ??= this.residentSlab(
+                  command,
+                  Math.min(totalRows - row, Math.floor(TEXTURE_COPY_BYTES / pitch)),
+                  pitch
+                );
+                const count = Math.min(rowBytes - column, bytes.length - offset);
+                slab.mapped.set(bytes.subarray(offset, offset + count), slab.row * pitch + column);
+                offset += count;
+                column += count;
+                if (column === rowBytes) {
+                  column = 0;
+                  slab.row++;
+                  row++;
+                  if (slab.row === slab.rows) {
+                    const block = plane.format === "r8unorm" ? 1 : 4;
+                    slab.buffer.unmap();
+                    command.copyBufferToTexture(
+                      { buffer: slab.buffer, bytesPerRow: pitch, rowsPerImage: slab.rows },
+                      {
+                        texture: entry.planes[index]!.segment.texture!,
+                        mipLevel: mip.level,
+                        origin: [0, (row - slab.rows) * block, entry.planes[index]!.layer]
+                      },
+                      [mip.physicalWidth, slab.rows * block, 1]
+                    );
+                    const size = slab.rows * rowBytes;
+                    this.uploadBytes += size;
+                    this.physicalCopyBytes += slab.rows * pitch;
+                    this.copyOperations++;
+                    command.onFinished.addOne(() => {
+                      this.committedUploadBytes += size;
+                    });
+                    slab = undefined;
                   }
                 }
-              } finally {
-                lease.release();
               }
+            } finally {
+              lease.release();
             }
-            if (row !== totalRows || column !== 0 || slab) {
-              throw new Error("Mandatory fragments do not cover the complete mip");
-            }
-            this.mipUploads++;
           }
+          if (row !== totalRows || column !== 0 || slab) {
+            throw new Error("Mandatory fragments do not cover the complete mip");
+          }
+          this.mipUploads++;
         }
-        bootstrap.complete = true;
-      });
-      tasks.push(bootstrap.ready);
+      }
+      bootstrap.complete = true;
+    }).then(() => undefined);
+    for (const { bootstrap } of pending) {
+      bootstrap.ready = ready;
     }
+    tasks.push(ready);
     await Promise.all(tasks);
   }
 

@@ -32,16 +32,16 @@ test("unique native programs publish atomically and retire every code/resource l
   const b = {
     ...a,
     materialSlot: 1,
-    descriptor: { ...a.descriptor, source: `${a.descriptor.source}\n// second program` }
+    descriptor: { ...a.descriptor, source: `${a.descriptor.source}\n// second program` },
   };
   const publication = new GpuNativeMaterialPublication(f.device, f.registry, [
     a,
     b,
-    { ...a, materialSlot: 2 }
+    { ...a, materialSlot: 2 },
   ]);
   assert.deepEqual(
     publication.entries.map((entry) => entry.programIndex),
-    [0, 1, 0]
+    [0, 1, 0],
   );
   await tick();
   assert.equal(f.compiles.length, 2);
@@ -70,6 +70,7 @@ function fixture() {
     limits: {
       maxComputeWorkgroupSizeX: 256,
       maxComputeInvocationsPerWorkgroup: 256,
+      maxComputeWorkgroupStorageSize: 16384,
       maxBindGroups: 4,
       maxBindingsPerBindGroup: 1000,
       maxBufferSize: 1e6,
@@ -79,7 +80,7 @@ function fixture() {
       maxUniformBuffersPerShaderStage: 12,
       maxSampledTexturesPerShaderStage: 16,
       maxSamplersPerShaderStage: 16,
-      maxStorageTexturesPerShaderStage: 4
+      maxStorageTexturesPerShaderStage: 4,
     },
     lost: loss.promise,
     pushErrorScope() {},
@@ -102,11 +103,11 @@ function fixture() {
         unmap() {},
         destroy() {
           this.destroyed = true;
-        }
+        },
       };
       buffers.push(buffer);
       return buffer;
-    }
+    },
   };
   const registry = new AppearanceProgramRegistry(device);
   const program = graph();
@@ -116,7 +117,7 @@ function fixture() {
     bindingSet: 7,
     program,
     descriptor,
-    parameters: { gain: [gain] }
+    parameters: { gain: [gain] },
   });
   return { loss, compiles, buffers, device, registry, source };
 }
@@ -142,8 +143,8 @@ test("raster cutoff and flags are instance constants and invalidate values witho
     {
       ...base,
       coverage: { program: base.program, layoutEntries: [], materialEntries: [] },
-      raster: { alphaCutoff: 0.75, alphaMask: true, hasEmissiveTexture: true }
-    }
+      raster: { alphaCutoff: 0.75, alphaMask: true, hasEmissiveTexture: true },
+    },
   ]);
   const at = base.program.constants.length;
   assert.deepEqual([...publicationConstants(first).subarray(at, at + 2)], [0.5, 0]);
@@ -154,9 +155,9 @@ test("raster cutoff and flags are instance constants and invalidate values witho
   assert.throws(
     () =>
       new GpuNativeMaterialPublication(f.device, f.registry, [
-        { ...base, raster: { alphaCutoff: NaN, alphaMask: false } }
+        { ...base, raster: { alphaCutoff: NaN, alphaMask: false } },
       ]),
-    /finite cutoff/
+    /finite cutoff/,
   );
   first.abort();
   changed.abort();
@@ -203,11 +204,11 @@ test("execution bins share program and binding set; temporal versions are immuta
   assert.equal(first.materialSlotCount, 4);
   assert.deepEqual(first.bins, [
     { programIndex: 0, bindingSet: 7 },
-    { programIndex: 0, bindingSet: 8 }
+    { programIndex: 0, bindingSet: 8 },
   ]);
   assert.deepEqual(
     first.entries.map((entry) => entry.executionBin),
-    [0, 0, 1]
+    [0, 0, 1],
   );
   const directory = publicationDirectory(first);
   assert.equal(directory[11], 0xffffffff);
@@ -224,7 +225,7 @@ test("execution bins share program and binding set; temporal versions are immuta
   await Promise.allSettled([first.ready, retry.ready]);
   assert.throws(
     () => new GpuNativeMaterialPublication(f.device, f.registry, [{ ...f.source(), valueRevision: 0 }]),
-    /nonzero/
+    /nonzero/,
   );
   f.registry.destroy();
 });
@@ -251,14 +252,29 @@ test("duplicate slots, invalid parameter and sparse directory overflow are rejec
   const f = fixture();
   assert.throws(
     () => new GpuNativeMaterialPublication(f.device, f.registry, [f.source(), f.source()]),
-    /unique/
+    /unique/,
   );
   assert.throws(() => new GpuNativeMaterialPublication(f.device, f.registry, [f.source(1.5)]), /range/);
   assert.throws(
     () => new GpuNativeMaterialPublication(f.device, f.registry, [f.source(0.3, 100000)]),
-    /limits/
+    /limits/,
   );
   assert.equal(f.buffers.length, 0);
   assert.equal(f.registry.evidence().programs, 0);
+  f.registry.destroy();
+});
+
+test("Appearance rejects oversized shared storage before creating any program resources", () => {
+  const f = fixture();
+  const descriptor = {
+    source: "@compute @workgroup_size(1) fn main() {}",
+    entryPoint: "main",
+    workgroupSize: 1,
+    workgroupStorageBytes: 16385,
+    groups: [],
+  };
+  assert.throws(() => f.registry.acquire(descriptor), /workgroup storage/);
+  assert.equal(f.registry.evidence().programs, 0);
+  assert.equal(f.compiles.length, 0);
   f.registry.destroy();
 });

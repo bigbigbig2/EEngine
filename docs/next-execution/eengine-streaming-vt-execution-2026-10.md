@@ -14,6 +14,10 @@ verifies:
     - OEngine/src/render/program
     - OEngine/src/render/surface
     - OEngine/src/render/SceneRefinement.ts
+    - OEngine/src/render/vsm
+    - OEngine/src/shaders/virtual_texture.ts
+    - OEngine/src/shaders/vsm_caster_records.ts
+    - OEngine/src/shaders/vsm_allocate_pages.ts
     - OEngine/tools/cook-offline-scene.mjs
     - OEngine/tests
     - examples/demos/14-integrated
@@ -239,3 +243,48 @@ verifies:
 完整Bistro同样1080p/AO/SSSR/Native的额外受限池验证：只用每BC7格式一个256slot层（color/linear各5,308,416B，scalar预算2,654,208B但场景未创建scalar池），VT总分配21,758,436B。224tail全程保留，近景512resident、约997wanted/681missing，实际回退mip2–5，明确`limited`/`complete=false`且`settledAtMs=null`。移动/回访实际26evictions/2reloads，未扩大池/降质量目标/截断身份来假报收敛，最后release纹理/几何owner归零；无GPU validation/uncaptured/loss错误。记录`.local/vt-3-bistro-combined-close-pressure-scene.json`。失败任务含过期view取消，成功receipt字节统计不包含失败途中传输；没有把它写成无失败网络总量。最终Graphics memory已独立列VT owner，mandatory逻辑resident不再为0；全Renderer其他未注册资源仍由前述账目限制约束。
 
 最终检查：内存计数改动后额外重跑原resident `texture-residency`集合9/9通过；`docs-verify`为0 findings/81历史warnings，`document-system`7/7通过，`git diff --check`通过。没有为既有历史warnings修改无关文档。当前模块结束停在Local Reflection Probes细设计边界；没有自动实施Probes/GI，不宣称Runtime Validated/全Renderer Performance Improved或4GB设备资格。
+
+
+## 9. VT 后虚拟资产与初始化复审（2026-10-16）
+
+用户追加授权，VT-3结束记录保留为检查点；当前继续本模块复审，不进入Probes。基线为2f6b66fd。
+
+### 9.1 发现、闭包和结果
+
+基线`.local/vt-review-baseline.json`没有GPU/page错误；同一次运行反馈开关true/false/true对应Surface中位38.33/10.87/38.64ms，仅用于归因，关闭反馈不是生产优化。初始目录4.54s，合并preparation ready16.90s，roots5.81s、publication16.92s。此前necessaryPipelinesReady是包含bootstrap的合并屏障，不能用它推断纯shader编译12秒。几何精化期间仍连续publication、VSM raster可达50–140ms，需分开收敛后再量稳态。
+
+| 问题 | 实际修复与保留合同 |
+|---|---|
+| Surface高共享反馈竞争 | 1KiB workgroup full-key mailbox先去重，再用全局单调位load/首写Or，union append/overflow不变；碰撞只多工作、不漏需求。先检查page容量防止key溢出。独立百万线程高共享/刻意collision/非法高位ID及65537 overflow/ring gap检查 |
+| tiled bootstrap串行、稳态重复扫描 | 先注册全部事务回滚，再共用现有provider/credits最多4entry并发，失败取消等待全部settlement；ready空退出，满池才找victim，pump变化时执行且batch满不扫描 |
+| mip尺寸成为shader topology | 每query固定15mip route、真实levels/tail/extent为实例常量；同graph/resource profile共享PSO，完整材质与8×过滤保留。Appearance预检workgroup storage，默认async compile16、128family/512KiB source硬限不变 |
+| 多页pair总量触发巨大隐式域 | GPU exact count→完整页选择→per-page prefix/cursor写域；raster/clear/commit同一筛选allocation。最老候选保证推进，第一页本身超C仍完整implicit。新增最多14,400B scratch和2dispatch，相同相交/gutter算法两次，无CPU控制或额外submit |
+| VSM近期边界页优先于冷页被回收 | 原四类候选内按last_visited>8帧分冷/近期，第二个64lane prefix保持唯一输出域；近期仍是可回收候选，本帧请求完整保护。旧pending backlog不被caster清零，selection只追加新延期页 |
+| 压力下重复读取不可发布页 | 同级resident/in-flight稳定优先；IO计入free/reclaimable slot并扣所有活跃lease，实际used fallback继续受保护。没有物理backing不发请求，limited保留原目标。压力回访仍需真实evict/reload证明 |
+| 初始化和内存诊断误导 | 拆programsReady/texturesReady实际屏障；Graphics汇总shared geometry banks+metadata一次；既有72B延迟VSM receipt公开miss/eviction/coarse/failure/pending。limited撤销同epoch旧settled时间 |
+
+这些是本地原有算法的工程扩展，mailbox、PSO拓扑和VSM完整页选择不伪称上游移植；原LibVT/Wicked/Intel采用边界不变。
+
+### 9.2 实际成本与初始化归因
+
+RTX2060/Turing、Windows、Chrome155、完整场景；fresh browser、no-store loopback、暖OS磁盘/driver cache状态非严格固定。下列是诊断样本，未晋级正式整Renderer性能claim。
+
+- Surface相同近景反馈true/false/true：仅全局load首写仍约29.6/10.95/29.5ms；mailbox后约**7.431/6.590/7.411ms**，对应command span15.20/14.02/15.21ms，各64样本。shader重编译也降低关闭反馈基线，不能把全部差值都归为删RMW；实际生产保留反馈。`.local/vt-review-mailbox.json`。
+- 冷编译4/8/16上限分别首completed18.95/15.45/13.35s、程序ready17.44/13.89/11.80s；目录4.38/4.48/4.75s。真实9个resource/graph family，每个异步PSO约3–4.6s。JS longtask诊断8次合927ms、最大430ms；119次shader module API调用累计13.4ms，不能据此把driver后台等待归因主线程cook。`.local/vt-review-compile-{4,8,16}.json`、`vt-review-cold-profile.json`。多线程资产Worker已经在读/解码/验证，runtime没有重新BC cook；新增Worker消不掉驱动PSO编译。
+- VSM旧producer诊断注入保持同一新VT/材质和完整Bistro，旧多页implicit **171个sample raster P95 87.79ms/max175.64ms**；新完整页预算226sample **P95 26.11ms/max27.83ms**，VSM全部pass P95 88.06→26.83ms。旧首completed12.67s/view-settled29.45s，新17.61s/24.99s，driver初始等待不同，不能直接宣称首屏或总加载净减多少秒。旧注入仅本地对照，production没有A/B分支。`.local/vt-review-vsm-control.json`、`vt-review-vsm-initialization.json`。
+- 最终完整Bistro **1080p/AO+balanced SSSR/Native**：目录4.24s、mandatory9.03s、program14.52s，首completed25.04s；demo firstUseful24.39s是不同口径。近景target0–5约997unique wanted全部到位，1219resident；移动/回访1434resident、29,735,424B有效payload，VT239,403,492B容量。近景/回访profile128个span中位**15.33ms**/P9516.01ms，完整Surface pass样本16个中位7.87ms。无validation/uncaptured/loss，纹理与几何release实际归零。`.local/vt-review-bistro-final.json/png`。对比§8近景46ms长帧说明反馈长尾已消除，不作为严格同条件AB。
+- Dungeon全场景AO+SSSR→1080p近景第一次复审首completed10.15s、约1477wanted全部命中，但VSM持续limited；receipt为allocationMisses0/coarseMisses0/rasterFailure0/pending0、每帧1–5evictions。定位为物理槽顺序优先回收刚被TAA遗漏的近期页，改同类冷槽优先；默认效果独立复测零脏页/淘汰、约3s内恢复稳定。完整AO+SSSR最终复测首completed8.61s（非正式冷启动AB），1647resident/34,152,192Bpayload、VT106,693,092B，近景epoch4在52.95s收敛（切近景约52s），连续约20s保持texturesFull/geometryTarget/vsmValid，无GPU错误，移动回访及纹理/几何release归零。原失败`.local/vt-review-dungeon-final.json`保留，修复后`.local/vt-review-dungeon-cold-slots-final.json`；没有扩大atlas或降低shadow质量。
+- Bistro压力池仍为21,758,436B、224tail/512resident，约997wanted/681missing且实际fallback mip2–5；容量不足明确limited。原压力近景receipt约11.53→27.29MB增长、有效上传约11.05MB不动；仅同级排序复测仍增长。加入物理slot/lease admission后四次近景观察receipt恒定**6,676,992B**、上传11,052,288B；运动/回访后23evictions/1reload，receipt6,718,464B、上传11,093,760B，释放实际归零且无GPU错误。`.local/vt-review-pressure-final.json`、`vt-review-pressure-stable-before-admission.json`保留失败，最终`vt-review-pressure-admission-final.json`。receipt包含Worker cache transfer，不能把上述差值写成等量网络节省。
+
+### 9.3 集中验证
+
+- 生产build（tsc+Vite+声明）、新鲜build:test通过；受影响CPU集合**77/77**，含VT压力/取消/abort/失败重试/route topology/完整resident及geometry scheduler/runtime/SceneRefinement。已有全库三项baseline失败见§8，未为此重复运行4096²重型codec或全库。
+- 串行真实GPU：`streaming-vt`（含AO/SSSR/FSR/controlled epoch/release）、`streaming-vt-feedback`（百万高共享+collision/invalid IDs/overflow/ring）、`streaming-vt-filter`（固定2/255容差）、`vsm-v4-r3`、`vsm-v4-r2`、`geometry-shadow-view`、`vsm-local-invalidation`、`native-surface-integration`、`native-surface-production`、`native-surface-product-production`均通过。VSM R2新增真实高slot冷页先于低slot近期页回收；R3独立完整pair集合、C±1、延期页进展、abort、allocation pending=5保留并累加；coverage oracle单页implicit逐像素相同，多页263pair预算分218+45两批完整图最终逐像素相同，256gutter seam/16384coarse像素不放宽。
+- 最终记录为`.local/vt-review-*-closed.json`或`*-final.json`；局部诊断位于忽略目录，不冒充可分发evidence。主要最终GPU build source SHA `fdcf098558f63b587160b9741e393a8f7c38aa4a62dc58bd02c37c8ab0239a39`。未在GTX1650/4GB上验证。
+- 保留失败：早期VSM新增shader使用WGSL保留字，修正后重跑；旧Native production断言copyBytes==0与既有copyBytes=uploadBytes事实冲突，改为无codec/resize/runtime mip且payload copy账自洽，另新增真实Product共享总账核对并重跑。压力resident断言最初忽略新增coarse依赖，按既有粗层优先合同精确修正；新增“全部fallback仍used且无可回收槽则零新IO”检查。没有放宽材质/过滤/深度容差或吞production错误。
+
+### 9.4 几何、预算与后续边界
+
+Graphics现在包含原本漏记的Bistro **1,610,612,736B raw bank +134,217,728B metadata**，回访总账约2,415,310,935B；不等于driver实际VRAM。当前每逻辑256KiB页仍独占slot，约242MB有效payload占用1.5GiB容量；Dungeon约5.71MB payload占311MB slot，分配512MB banks。INIT设计§10已明确保留ABI，VT设计§9排除同时重构几何物理页。本轮只修共享总账，没有声称解决几何slack；下一步应按独立完整unit设计跨资产冷页填充/紧凑寻址和metadata容量，而不是继续扩大池、加Worker或改主视图SSE丢shadow caster。
+
+完整首屏仍有driver编译/首FrameGraph准备等待，Bistro组合场景首completed约25s，不能称“初始化已经完全解决”。VSM单页超过C仍有完整implicit成本；真正超atlas工作集继续limited。当前复审修复闭合，停在下一独立架构单元边界；不自动进入Probes，不恢复旧owner或制造第二套资产系统。优先另行细设计紧凑几何页与metadata布局，连同首次FrameGraph/管线准备处理剩余启动成本；本段不是已经实施的新ABI。

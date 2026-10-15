@@ -3,6 +3,8 @@ export interface AppearanceProgramDescriptor {
   readonly source: string;
   readonly entryPoint: string;
   readonly workgroupSize: number;
+  /** WGSL workgroup allocation, including padding; negotiated before resources. */
+  readonly workgroupStorageBytes?: number;
   readonly groups: readonly (readonly GPUBindGroupLayoutEntry[])[];
 }
 
@@ -56,7 +58,10 @@ export class AppearanceProgramRegistry {
     private readonly device: GPUDevice,
     budget: AppearanceProgramBudget = {
       maxPrograms: 128,
-      maxConcurrentCompiles: 4,
+      // Native families compile asynchronously in the driver. A four-job
+      // frontend queue serialized Bistro's nine real families into three waves.
+      // Keep admission finite (at most 8 MiB source), without extra GPU owners.
+      maxConcurrentCompiles: 16,
       maxSourceBytes: 512 * 1024,
     },
   ) {
@@ -300,6 +305,9 @@ function snapshotDescriptor(value: AppearanceProgramDescriptor): AppearanceProgr
     source: value.source,
     entryPoint: value.entryPoint,
     workgroupSize: value.workgroupSize,
+    ...(value.workgroupStorageBytes === undefined
+      ? {}
+      : { workgroupStorageBytes: value.workgroupStorageBytes }),
     groups: Object.freeze(groups),
   });
 }
@@ -322,6 +330,14 @@ function validateProfile(
   }
   if (value.groups.length > limits.maxBindGroups)
     throw new RangeError("Appearance bind group limit exceeded");
+  const workgroupBytes = value.workgroupStorageBytes ?? 0;
+  if (
+    !Number.isSafeInteger(workgroupBytes) ||
+    workgroupBytes < 0 ||
+    (workgroupBytes > 0 && !(workgroupBytes <= limits.maxComputeWorkgroupStorageSize))
+  ) {
+    throw new RangeError("Appearance workgroup storage exceeds negotiated device limit");
+  }
   let storage = 0,
     uniform = 0,
     textures = 0,

@@ -51,6 +51,7 @@ export const VSM_BORDER = 4;
 export const VSM_VIRTUAL_PAGES_PER_AXIS = 128;
 const HIGH_ATLAS = 4096;
 const BOUNDED_ATLAS = 2048;
+export const VSM_MAX_RESIDENT_SLOTS = Math.floor(HIGH_ATLAS / (VSM_PAGE_SIZE + VSM_BORDER * 2)) ** 2;
 
 function limitsOf(device: GPUDevice): VsmCapabilities["limits"] {
   return Object.freeze({

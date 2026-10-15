@@ -33,6 +33,8 @@ verifies:
 
 ## 当前 owner 与产品
 
+VT复审（2026-10-16）：实际Surface反馈先经1KiB workgroup full-key mailbox，再以全局单调wanted/used位首写去重；保留全部C/X/Y查询、union overflow恢复和三slot延迟。tiled bootstrap最多4entry共用现有provider信用与scene事务，取消等待全部job释放；同graph不同mip extent采用固定15层实例route，不产生尺寸专用shader。压力下同级resident/in-flight需求优先且读取必须有free/reclaimable物理slot，活跃lease计入槽额度；仍保护实际used fallback，不降低目标或假报complete。结果和成本见当前VT执行§9。
+
 2026-10-16 Streaming VT生产路径：`TiledTextureProduct/TiledTextureSource`发布独立认证目录和有界provider，冷cook为128 interior+8 gutter、144物理页、≤64起直到1×1的单槽tail。`VirtualTextureResidency`是页池/整数页表/逻辑与物理generation、protected tail、当前需求/粗层闭包、pending/eviction/rescue、上传/事务/退休的唯一owner；`VirtualTextureFeedback`拥有三slot延迟readback、wanted/used/union bitsets和overflow恢复。Native实际C/X/Y/custom graph查询反馈，LibVT显式梯度/LOD与Wicked双mip组合适配，无第二套材质系统。页上传只改residency，不改content/Temporal/VSM identity。
 
 选中tiled shading planes不读完整Product、不建立完整extent、不promote、不保留整套细页replay。R8和真实alpha/UV依赖保持完整resident；不能安全虚拟化的RGB alpha依赖明确要求resident产品。`cooked-scene`按manifest选择tiled目录+tail+mandatory后发布，细页沿正常帧upload→mapping→Surface→feedback推进，无私有submit。旧完整Product仍服务raw输入、未提供tiled的资产和真正resident planes，验证语义不变。

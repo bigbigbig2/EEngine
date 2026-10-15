@@ -1686,3 +1686,5 @@ Reference：Bevy `fd98063564218bd210308675602a3e9643014c31`（MIT/Apache-2.0，`
 Local：metadata认证、128+8冷布局、range/shards/hash/credit、page generation、GPU三bitset首次union append/overflow恢复、Native publication合并、coverage提取、FrameGraph/SceneRefinement接线。不是移植Intel硬件feedback格式，也没有移植其C++线程框架。完整resident BC编码器及resampler沿原pin；冷升级复用认证BC块，边界只编码必要条带；小样本完整tile和mip replay逐byte核对。
 
 本轮GPU过滤参考从不可变冷payload独立重建完整mip与实际压缩gutter，不读production atlas/page table，验证routing/filter/fallback；它不单独证明冷BC encoder质量。跨不同texture extent/mip-view的driver anisotropic kernel及重新编码边界块可产生差异，原失败保留在VT执行记录。来源adoption范围与验收结论只读当前VT执行，不能由这些映射直接推导初始化或GPU净提速。
+
+2026-10-16后续复审的Original/Local扩展：`virtual_texture::native_vt_record`完整键workgroup mailbox+全局单调首写；`NativeMaterialBindings`固定mip route与Appearance有界异步编译；`VirtualTextureResidency`按可回收物理槽和活跃lease实施IO背压；`VsmCasterRecordPass/vsm_caster_records`沿既有保守相交执行count→完整页选择→per-page prefix/write；`vsm_allocate_pages::collect_slots`在既有候选分类内按已有last_visited优先回收冷槽。同一精确相交/gutter与单页完整implicit保留，没有新增donor或改变LibVT/Wicked/Intel来源范围。GPU oracle独立对照完整pair集合、预算多帧深度/MASK逐像素、单页implicit、冷槽回收、碰撞/overflow、真实生产/生命周期；成本与剩余约束只读VT执行§9。

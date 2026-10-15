@@ -248,7 +248,8 @@ export async function runNativeVsmCoverageGpuOracle(
     // Two fine pages and an overlapping coarse page share one resident source.
     // Compare both gutter directions and every coarse pixel to the independent
     // main-view coverage oracle above. Tight bounds deliberately reject many
-    // Cartesian candidates, so implicit execution must include degenerate work.
+    // Cartesian candidates. Budgeted batches must preserve whole pages; the
+    // indivisible single-page overflow still executes the full implicit domain.
     const virtualPages = [0, 1, 4, 2],
       worldPages = [
         [0, 0],
@@ -282,7 +283,10 @@ export async function runNativeVsmCoverageGpuOracle(
       );
     }
     const seamTable = make(seamPages, GPUBufferUsage.STORAGE);
-    const seamAllocation = make(dirtyWords, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
+    const seamAllocation = make(
+      dirtyWords,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+    );
     const maxPairs = fixture.workCount * 4;
     const seamPairs = make(
       new Uint32Array(8 + maxPairs * 4),
@@ -340,6 +344,10 @@ export async function runNativeVsmCoverageGpuOracle(
     const seamOutput = make(new Float32Array(264 * 264), GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
     const seamRead = make(new Float32Array(264 * 264), GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ);
     const headerRead = make(new Uint32Array(8), GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ);
+    const allocationRead = make(
+      new Uint32Array(dirtyWords.length),
+      GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    );
     const seamReadPipeline = await device.createComputePipelineAsync({
       layout: "auto",
       compute: {
@@ -369,8 +377,13 @@ export async function runNativeVsmCoverageGpuOracle(
       lightView: [...seamConstants.slice(0, 16)],
       clipOriginExtent: Array.from({ length: 6 }, () => [0, 0, 2, 1 / 128]),
     };
-    const runSeam = async (dirty, capacity, measure = false) => {
-      device.queue.writeBuffer(seamAllocation, 0, new Uint32Array([dirty, dirty, 0, fixture.generation]));
+    const runSeam = async (dirty, capacity, measure = false, preserve = false) => {
+      const slots = Array.isArray(dirty) ? dirty : Array.from({ length: dirty }, (_, slot) => slot);
+      const allocationWords = new Uint32Array(dirtyWords.length);
+      allocationWords.set([slots.length, slots.length, 0, fixture.generation]);
+      for (const [index, slot] of slots.entries())
+        allocationWords.set(dirtyWords.subarray(4 + slot * 8, 12 + slot * 8), 4 + index * 8);
+      device.queue.writeBuffer(seamAllocation, 0, allocationWords);
       const command = ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame");
       let query,
         timestamps,
@@ -429,7 +442,7 @@ export async function runNativeVsmCoverageGpuOracle(
         depthStencilAttachment: {
           view: seamAtlas.createView(),
           depthClearValue: 0,
-          depthLoadOp: "clear",
+          depthLoadOp: preserve ? "load" : "clear",
           depthStoreOp: "store",
         },
       });
@@ -440,6 +453,7 @@ export async function runNativeVsmCoverageGpuOracle(
       pass.end();
       command.gpu_encoder.copyBufferToBuffer(seamOutput, 0, seamRead, 0, seamOutput.size);
       command.gpu_encoder.copyBufferToBuffer(seamPairs, 0, headerRead, 0, 32);
+      command.gpu_encoder.copyBufferToBuffer(seamAllocation, 0, allocationRead, 0, allocationRead.size);
       if (query) {
         command.gpu_encoder.resolveQuerySet(query, 0, queryCount, timestamps, 0);
         command.gpu_encoder.copyBufferToBuffer(timestamps, 0, timestampRead, 0, queryCount * 8);
@@ -452,6 +466,10 @@ export async function runNativeVsmCoverageGpuOracle(
       await headerRead.mapAsync(GPUMapMode.READ);
       const header = [...new Uint32Array(headerRead.getMappedRange())];
       headerRead.unmap();
+      await allocationRead.mapAsync(GPUMapMode.READ);
+      const selectedWords = new Uint32Array(allocationRead.getMappedRange());
+      const selected = Array.from({ length: selectedWords[1] }, (_, index) => selectedWords[5 + index * 8]);
+      allocationRead.unmap();
       let cost = null;
       if (query) {
         await timestampRead.mapAsync(GPUMapMode.READ);
@@ -463,27 +481,57 @@ export async function runNativeVsmCoverageGpuOracle(
         timestampRead.unmap();
         query.destroy();
       }
-      return { pixels, header, cost };
+      return { pixels, header, cost, selected };
     };
     const explicit = await runSeam(4, maxPairs);
     if (explicit.header[4] !== 0 || explicit.header[2] !== 0)
       throw new Error("Seam explicit producer failed");
-    const implicit = await runSeam(4, explicit.header[0] - 1);
+    const singlePage = await runSeam([0], maxPairs);
+    const implicit = await runSeam([0], singlePage.header[0] - 1);
     if (
       implicit.header[4] !== 1 ||
       implicit.header[1] !== 0 ||
-      implicit.pixels.some((value, index) => value !== explicit.pixels[index])
+      implicit.pixels.some((value, index) => value !== singlePage.pixels[index])
     )
       throw new Error(
-        `Multi-page implicit depth/MASK differs or consumed partial pairs: ${JSON.stringify({
-          explicit: explicit.header,
+        `Single-page implicit depth/MASK differs or consumed partial pairs: ${JSON.stringify({
+          explicit: singlePage.header,
           implicit: implicit.header,
           differences: Array.from(implicit.pixels.entries())
-            .filter(([index, value]) => value !== explicit.pixels[index])
+            .filter(([index, value]) => value !== singlePage.pixels[index])
             .slice(0, 12)
-            .map(([index, value]) => [index, value, explicit.pixels[index]]),
+            .map(([index, value]) => [index, value, singlePage.pixels[index]]),
         })}`,
       );
+    const batches = [];
+    let remaining = [0, 1, 2, 3];
+    let accumulated;
+    while (remaining.length) {
+      const result = await runSeam(remaining, explicit.header[0] - 1, false, batches.length > 0);
+      if (
+        result.header[4] !== 0 ||
+        result.header[2] !== 0 ||
+        !result.selected.length ||
+        result.selected[0] !== remaining[0] ||
+        result.selected.some((slot) => !remaining.includes(slot))
+      )
+        throw new Error(
+          `Complete-page budget failed or starved oldest page: ${JSON.stringify(result.header)}`,
+        );
+      for (const slot of result.selected) {
+        for (let y = Math.floor(slot / 2) * 132; y < (Math.floor(slot / 2) + 1) * 132; y++)
+          for (let x = (slot % 2) * 132; x < ((slot % 2) + 1) * 132; x++) {
+            const index = x + y * 264;
+            if (result.pixels[index] !== explicit.pixels[index])
+              throw new Error(`Budgeted page ${slot} changed depth/MASK at ${x},${y}`);
+          }
+      }
+      remaining = remaining.filter((slot) => !result.selected.includes(slot));
+      batches.push({ header: result.header, selected: result.selected });
+      accumulated = result.pixels;
+    }
+    if (batches.length < 2 || accumulated.some((value, index) => value !== explicit.pixels[index]))
+      throw new Error("Deferred complete-page atlas differs from unbudgeted depth/MASK");
     let seamPixels = 0;
     for (let y = 2; y < 130; y++) {
       if (
@@ -505,8 +553,8 @@ export async function runNativeVsmCoverageGpuOracle(
       ["0%", 0, maxPairs],
       ["50%", 2, maxPairs],
       ["100%", 4, maxPairs],
-      ["rare-implicit", 2, 1],
-      ["worst-implicit", 4, 1],
+      ["single-page-implicit", 1, 1],
+      ["multi-page-budget", 4, 1],
     ]) {
       const samples = [];
       for (let sample = 0; sample < 12; sample++) {
@@ -540,7 +588,9 @@ export async function runNativeVsmCoverageGpuOracle(
       implicitDepthMatchesExplicit: true,
       multiPage: {
         explicit: explicit.header,
-        implicit: implicit.header,
+        singlePageImplicit: implicit.header,
+        completePageBatches: batches,
+        accumulatedDepthMatchesExplicit: true,
         seamPixels,
         coarseComparedPixels: 16384,
       },

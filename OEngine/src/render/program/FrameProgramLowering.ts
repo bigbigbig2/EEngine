@@ -398,7 +398,7 @@ function compileSceneGraph(
         frame: bindings.vsmFrame!,
         generation: bindings.vsmFrame!.generation,
         pageTable: vsmAllocation!.pageTable,
-        allocation: vsmAllocation!.allocation,
+        allocation: caster.allocation,
         metaTable: vsmAllocation!.metaTable,
         contentVersion: vsmAllocation!.contentVersion,
         samplingConstants: vsmSamplingConstants!,

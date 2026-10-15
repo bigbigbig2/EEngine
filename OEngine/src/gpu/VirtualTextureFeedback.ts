@@ -291,8 +291,10 @@ export class VirtualTextureFeedback<T> {
   }
   evidence() {
     let oldestFrame = this.lastFrame;
+    let outstanding = 0;
     for (const slot of this.slots) {
       if (slot.state !== "free") {
+        outstanding++;
         oldestFrame = Math.min(oldestFrame, slot.frame);
       }
     }
@@ -301,7 +303,7 @@ export class VirtualTextureFeedback<T> {
       overflows: this.overflows,
       recoveries: this.recoveries,
       lastGapFrame: this.lastGapFrame,
-      outstanding: this.slots.filter((slot) => slot.state !== "free").length,
+      outstanding,
       oldestOutstandingAgeFrames: this.lastFrame - oldestFrame,
       allocatedBytes:
         this.disabled.size +

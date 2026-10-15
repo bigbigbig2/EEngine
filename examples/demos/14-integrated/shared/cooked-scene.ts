@@ -80,6 +80,7 @@ export async function loadCookedScene(
     textureProductsReadyAtMs: null as number | null,
     materialPreparationStartedAtMs: null as number | null,
     necessaryPipelinesReadyAtMs: null as number | null,
+    mandatoryTexturesReadyAtMs: null as number | null,
     rootsReadyAtMs: null as number | null,
     bootstrapReadyAtMs: null as number | null,
     textureAliases: 0,
@@ -223,9 +224,15 @@ export async function loadCookedScene(
       manifest.instanceProfiles,
       signal
     );
-    void prepared.ready.then(
+    void prepared.programsReady.then(
       () => {
         initialization.necessaryPipelinesReadyAtMs = performance.now();
+      },
+      () => undefined
+    );
+    void prepared.texturesReady.then(
+      () => {
+        initialization.mandatoryTexturesReadyAtMs = performance.now();
       },
       () => undefined
     );

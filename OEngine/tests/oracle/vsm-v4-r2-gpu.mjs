@@ -660,7 +660,10 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     const [oldPage, old] = candidates[candidates.length - 1];
     check(old.slot > young.slot, "Fairness fixture requires distinct physical slots");
     markExpected(new Set(candidates.map(([page]) => page)));
-    for (const [page, entry, age] of [[youngPage, young, serial], [oldPage, old, serial - 10]]) {
+    for (const [page, entry, age] of [
+      [youngPage, young, serial],
+      [oldPage, old, serial - 10],
+    ]) {
       device.queue.writeBuffer(resources.pageTable, page * 48 + 12, new Uint32Array([entry.flags | 2]));
       device.queue.writeBuffer(resources.metaTable, entry.slot * 32 + 12, new Uint32Array([entry.flags | 2]));
       device.queue.writeBuffer(resources.metaTable, entry.slot * 32 + 28, new Uint32Array([age]));
@@ -685,6 +688,27 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       [...(await readState()).map.values()].every((entry) => (entry.flags & 2) === 0),
       "Bounded updates failed to converge to the complete reference",
     );
+    // Cold reclaim must beat a lower physical slot recently missed by TAA.
+    // Keep every other fine page requested, leaving exactly these two victims.
+    const coldState = await readState();
+    const coldMetas = coldState.metas.slice();
+    coldMetas[young.slot * 8 + 2] = serial - 1;
+    coldMetas[old.slot * 8 + 2] = serial - 10;
+    device.queue.writeBuffer(resources.metaTable, 0, coldMetas);
+    const coldDemand = new Set(candidates.map(([page]) => page));
+    coldDemand.delete(youngPage);
+    coldDemand.delete(oldPage);
+    const newPage = Array.from({ length: 16384 }, (_, page) => page).find((page) => !coldState.map.has(page));
+    check(newPage !== undefined, "Cold reclaim fixture needs one unmapped page");
+    coldDemand.add(newPage);
+    markExpected(coldDemand);
+    await encodeResidency(serial++);
+    const coldReclaimed = await readState();
+    check(
+      coldReclaimed.map.get(newPage)?.slot === old.slot &&
+        coldReclaimed.map.get(youngPage)?.slot === young.slot,
+      "Recently missed low slot displaced before a genuinely cold high slot",
+    );
     const validation = await device.popErrorScope();
     check(validation === null, validation?.message ?? "GPU validation error");
     return {
@@ -697,6 +721,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       fineMisses: 15634,
       recycled: 749,
       touchedPageRetained: true,
+      coldSlotBeforeRecentBoundary: true,
       emptyPagesReady: true,
       failureNeverReady: true,
       stableDirty: 0,

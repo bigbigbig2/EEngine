@@ -170,6 +170,9 @@ import { VsmGeneration } from "../vsm/VsmGeneration.js";
  * original Renderer consumes it once. ready does not publish scene resources. */
 export interface PreparedSceneMaterials {
   readonly ready: Promise<void>;
+  /** Exact program and mandatory upload barriers, for cold-path timing only. */
+  readonly programsReady: Promise<void>;
+  readonly texturesReady: Promise<void>;
   cancel(): void;
 }
 
@@ -958,7 +961,12 @@ export class Renderer {
         command,
         this._environmentRuntime !== null
       );
-      token = { ready: prepared.ready, cancel };
+      token = {
+        ready: prepared.ready,
+        programsReady: prepared.programsReady,
+        texturesReady: prepared.texturesReady,
+        cancel
+      };
       this._preparedMaterials.set(token, prepared);
       signal?.addEventListener("abort", cancel, { once: true });
       command.onFinished.addOne(() => signal?.removeEventListener("abort", cancel));

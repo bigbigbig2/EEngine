@@ -36,6 +36,7 @@ import { FrameGeometryVertices } from "../render/FrameGeometryVertices.js";
 import { FrameGeometryArena } from "../render/FrameGeometryArena.js";
 import { TemporalOcclusionWork } from "../render/TemporalOcclusionWork.js";
 import { TextureResidency } from "./TextureResidency.js";
+import { geometryProductGpuBudgetEvidence } from "./GeometryProductGpuBudget.js";
 import type { VirtualTextureSettings } from "./VirtualTextureAbi.js";
 import { GPU_MATERIAL_VISIBILITY_RECORD_STRIDE } from "./GpuMaterialVisibilityAbi.js";
 import {
@@ -333,6 +334,7 @@ export class GraphicsContext {
 
   get gpu_memory_usage(): number {
     return (
+      geometryProductGpuBudgetEvidence(this.device).totalBytes +
       (this.assetStoreValue?.evidence().allocatedBytes ?? 0) +
       (this.gpuSceneValue?.evidence().allocatedBytes ?? 0) +
       (this.renderWorldValue?.evidence().flatWorkBytes ?? 0) +
@@ -388,6 +390,7 @@ export class GraphicsContext {
     const staticAppearance = this.appearanceStaticValue?.evidence();
     const textureResidency = this.textureResidencyValue?.evidence();
     const virtualTextures = textureResidency?.virtual;
+    const geometryProducts = geometryProductGpuBudgetEvidence(this.device);
     const buffers = this.buffer_allocator_main.evidence();
     const textures = this.allocator_textures.evidence();
     const residentMaterialBytes =
@@ -451,6 +454,11 @@ export class GraphicsContext {
       reclaimableBytes,
       fragmentationBytes,
       owners: Object.freeze({
+        geometryProducts: Object.freeze({
+          allocatedBytes: geometryProducts.totalBytes,
+          pageCapacityBytes: geometryProducts.allocatedBytes,
+          metadataCapacityBytes: geometryProducts.metadataBytes
+        }),
         nativeSurfaceScratch: Object.freeze({ allocatedBytes: this.nativeSurfaceAllocatedBytes() }),
         localLightWork: Object.freeze({ allocatedBytes: this.localLightAllocatedBytes() }),
         finalPixelLighting: Object.freeze({ allocatedBytes: this.finalPixelLightingAllocatedBytes() }),
@@ -496,7 +504,8 @@ export class GraphicsContext {
         "allocatedBytes sums registered owners and allocators, including raw native Surface scratch once; it is not driver VRAM residency",
         "fragmentationBytes covers capacity slack in asset, scene and material tables",
         "transientPoolBytes reports shared allocator allocation after graph execution",
-        "non-table persistent textures are included in allocatedBytes but not residentLogicalBytes"
+        "non-table persistent textures are included in allocatedBytes but not residentLogicalBytes",
+        "geometryProducts counts shared device heaps once; its capacity is not authored resident payload or table fragmentation"
       ])
     });
   }

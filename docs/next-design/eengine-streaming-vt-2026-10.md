@@ -15,11 +15,20 @@ verifies:
     - OEngine/src/gpu/GpuNativeMaterialPublication.ts
     - OEngine/src/gpu/GpuNativeMaterialScene.ts
     - OEngine/src/gpu/NativeMaterialBindings.ts
+    - OEngine/src/gpu/AppearanceProgramRegistry.ts
+    - OEngine/src/gpu/GraphicsContext.ts
+    - OEngine/src/gpu/GeometryPageStreamingRuntime.ts
+    - OEngine/src/gpu/VirtualTextureResidency.ts
+    - OEngine/src/gpu/VirtualTextureFeedback.ts
     - OEngine/src/gpu/NativeMaterialPhysicalBanks.ts
     - OEngine/src/gpu/GeometryPageDemandAbiV1.ts
     - OEngine/src/gpu/GeometryDemandReadbackRing.ts
     - OEngine/src/shaders/native_material.ts
     - OEngine/src/shaders/native_surface.ts
+    - OEngine/src/shaders/virtual_texture.ts
+    - OEngine/src/shaders/vsm_caster_records.ts
+    - OEngine/src/shaders/vsm_allocate_pages.ts
+    - OEngine/src/render/vsm
     - OEngine/src/shaders/native_execution_bins.ts
     - OEngine/src/render/surface
     - OEngine/src/render/program
@@ -231,3 +240,34 @@ VT-1 只建完整 CPU 产品/提供者闭包。VT-2 将 GPU owner、Native publi
 不写成移植即正确：源算法、WGSL和真实Native调用三者必须对上。已有 Product normal 数值失败在 INIT 中独立复现于 `419d7a28`，继续保留原失败身份；本轮 VT normal/导数/LOD 仍有独立必需检查，不能继承一个“全部豁免”。未跑、必需失败、容量不足或未完成的生产consumer如实未完成。
 
 正式多设备全Renderer P50/P95、完整最终画质/claims与4GB OS驻留资格留 F11；本模块必须具备实际可用的VT、正确coverage/过滤/生命周期、有界同时峰值、完整场景启动与采样成本记录。闭合后停在 Local Reflection Probes 边界，用当时源码重新细设计。
+
+
+## 12. VT 后虚拟资产与初始化复审（2026-10-16）
+
+用户在VT-3后授权继续修复效果、性能和架构问题，连同几何流送/VSM/首帧链一起检查；不自动进入Probes。以2f6b66fd为本轮起点，实际结果只写执行计划§9。保持既有产品、完整过滤与单提交合同，不以丢feedback、降质量或缩场景取得提速。
+
+完整Bistro近景、相同shader/页表/采样的反馈诊断开关true→false→true，Surface中位约38.33→10.87→38.64ms。几何此时仍在精化并引发VSM重画，整帧数字不能用于净收益。生产不能关闭反馈。方案是对**帧内只增不减的wanted/used位**先atomicLoad，已置位即返回，未置位才atomicOr竞争首写；首写继续union去重、append和overflow恢复。没有采样子集、跨帧缓存或新GPU资源。
+
+| 机制 Cost Card | 工作、上界与取舍 |
+|---|---|
+| 单调反馈首写 | 重复query删除kind和union两次全局RMW及union头读取；增加一次kind bit atomicLoad。0%重复多一次load，原RMW保留；50%重复约一半免RMW；100%重复除首写外全部免RMW。原完整位域/queue不变，无barrier或新能力要求，需真实GPU复测 |
+| bootstrap有界并行 | entry串行改为最多4entry并行，共用现有Worker/IO/byte credits；单entry顺序处理完整tail/mandatory。无新Worker/submit，最多4个在途lease，仍受ready64MiB、encoded32MiB、temporary256MiB与既有GPU staging总额约束。无稳态税 |
+| 稳态调度 | 无ready时不扫描/排序全部resident；仅满池需要淘汰时构建该pool候选。pump仅在需求/IO/lease变化时扫描，4batch已满时不生成待发列表。无新GPU工作，保留粗层优先/完整NPOT父级/救回/失败重试/回滚 |
+
+初始化指标分catalog、directory、bootstrap上传、Surface/raster program ready、geometry roots、首次FrameGraph准备、首completed；不能把一个Promise.all命名成纯pipeline耗时。几何/VSM保留按damage精确失效方向；不能为减少重画漏caster，不能以主视图SSE代替shadow质量。需要修改时先补owner和成本，整体切换生产路径。
+
+
+本轮进一步定位：全局atomicLoad仍需约29.5ms Surface。采用1KiB（256×u32）workgroup direct-mapped mailbox，每个page/kind存完整非零键，atomicExchange相同键才免全局反馈。冲突只额外记录，不丢需求；首写者在同dispatch结束前完成全局记录，finalize在下一pass消费。没有barrier，兼容Surface所有提前return。0%重复增加一次共享原子与1KiB shared/初始化；50%重复减少一半全局header/bit访问；100%重复每workgroup每键只一次全局记录，跨workgroup继续monotonic位去重。baseline不依赖subgroups，不改LOD/纹理样本数，新增shared必须在完整Surface pipeline真实编译和高竞争/碰撞oracle检查。
+
+管线拓扑修正：原VT callback把mip数量/tail写成WGSL字面量，并按可变mip数追加常量，导致相同graph不同贴图尺寸衍生不同shader/后续slot偏移。改为每query固定15层route（16384最大extent→15层）及levels/tail实例常量。新增每query至多400B常量（相对1mip的28B，固定route加levels/tail共428B），完整常量域与预算照常preflight；实际查询只读真实选中层，不扫描padding。删除仅因extent/mip不同的pipeline编译，不合并不同材质图或资源类型/采样器拓扑。不加runtime VM，不二次求材质。代价是少量冷metadata与动态levels/tail读取，需完整场景检验编译数/墙钟和GPU。
+
+VSM复审采用完整页工作额度，而非扩大pair缓存：已有allocation先给出coarse/request/age排序候选；相同保守相交算法先按physical slot统计每页pair数量，GPU顺序选择总pair不超过已有容量的完整页，再以每页prefix+cursor写入精确pair域。未选页保留dirty/content无效，已有最老页置首保证公平；第一不可分割页超过容量时只让这一页走完整implicit。第二次相交严格复用同一函数/矩形与gutter，不能只保留前C个pair。Shadow需求/usage遍历不缩减，raster/clear/commit均消费筛选后的同一allocation版本。
+Cost Card：最多residentSlots×16B scratch（高档14,400B），多一次相交遍历、一次有界候选prefix、每overlap一次slot counter；换掉多页溢出时source×dirty×bucketVertices域。0%溢出增加计数遍历成本，50/100%溢出收益依实际draw域，不能预先称净快；单页仍可昂贵。不新增submit/readback/CPU可见工作控制，abort不改变active页内容；须独立比较完整每页pair集合、跨容量公平性/abort和Bistro实际成本。
+
+Native compile admission：冷启动实际9个不同resource/graph family并非132材质实例各编译；单job异步PSO约3–4.6s，原4job队列形成三波。诊断4/8/16上限的首completed分别18.95/15.45/13.35s，目录时刻4.38/4.48/4.75s。默认改16，并保留128family/512KiB source硬限，最多8MiB在编source，driver内部内存另计；不随硬件线程数无限扩展，不换VM或删材质算法。getCompilationInfo/失败/device loss/lease仍完整。Worker不能消除driver异步编译等待，原资产Worker继续负责IO/认证。
+
+受限池的IO admission必须和物理可发布容量相连：先满足粗层，同级保留仍有需求的resident/in-flight页；扣除所有活跃batch持有的ready/pending lease，只对free或满足既有usage cooldown的reclaimable slot发起新读取。没有slot时等待后续新鲜反馈，不反复从Worker cache取得随后被丢弃的tile；观察used仍保护实际fallback，目标缺页继续limited。只在存在missing候选时统计slot，不给完整稳态添加resident扫描。Cost Card：压力下增加有界pool扫描与batch计数，删除不能发布的IO/transfer/认证receipt churn；无新增GPU资源或shader工作。used消失或lease归还后恢复原pump，不锁死取消/重试。
+
+Graphics总账按device共享geometry ledger只计一次原始bank和metadata；容量、实际payload与slack分别解释。沿INIT已批准边界保留256KiB逻辑页单槽ABI，本轮不半迁移几何寻址；跨资产Cooker紧凑打包或变长GPU分配须成为独立完整单元，不能靠扩大池或缩影子工作量替代。复审中细视图VSM曾因TAA边界持续evict而limited，下述冷槽优先处理；真正容量不足仍可limited，诊断使用现有延迟72B receipt拆出miss/eviction/coarse/failure/pending，不增加同步。不把未收敛晋级为view-settled，进入limited必须撤销之前同epoch的settledAtMs。
+
+VSM回收顺序沿现有free/reclaimable×coarse/fine四类保持合同，每类内先选超过8个submitted-frame未访问的冷槽，再选近期槽；后者仍可在容量不足时被回收，不丢本帧请求、不把历史需求永久pin。使用已有last_visited，不增加history资源；Cost Card为每slot一次年龄比较、第二次64lane prefix和一个vec4计数，删除边界页优先于真正冷槽被来回替换的重画。单元需重跑有界容量/年龄公平/scroll和Dungeon近景，不能只靠减少evictions认定画面正确。

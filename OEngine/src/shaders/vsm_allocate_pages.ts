@@ -119,14 +119,25 @@ fn collect_slots(@builtin(local_invocation_index) lane: u32) {
   let begin = lane * span;
   let end = min(begin + span, constants.control.z);
   var counts = vec4u(0u);
+  var cold_counts = vec4u(0u);
   for (var slot = begin; slot < end; slot++) {
     let category = slot_class(slot);
     if (category < 4u) {
       counts[category]++;
+      if (constants.dimensions.w - metas[slot].last_visited > 8u) {
+        cold_counts[category]++;
+      }
     }
   }
-  var base = scan_lanes(lane, counts);
-  let total = prefix[63];
+  let base = scan_lanes(lane, counts);
+  // Synchronize every reader before the second scan reuses prefix storage.
+  let total = workgroupUniformLoad(&prefix[63]);
+  // Reclaim genuinely cold slots before pages that only disappeared at a TAA
+  // boundary. All current requests remain protected; recent candidates still
+  // participate when capacity requires them. No historical-demand pinning.
+  var cold_base = scan_lanes(lane, cold_counts);
+  let cold_total = prefix[63];
+  var warm_base = base - cold_base + cold_total;
   if (lane == 63u) {
     candidates.coarse_count = total.x + total.y;
     candidates.fine_count = total.z + total.w;
@@ -136,7 +147,8 @@ fn collect_slots(@builtin(local_invocation_index) lane: u32) {
     if (category >= 4u) {
       continue;
     }
-    var index = base[category];
+    let cold = constants.dimensions.w - metas[slot].last_visited > 8u;
+    var index = select(warm_base[category], cold_base[category], cold);
     if (category == 1u) {
       index += total.x;
     }
@@ -147,7 +159,11 @@ fn collect_slots(@builtin(local_invocation_index) lane: u32) {
       }
     }
     candidates.indices[index] = slot;
-    base[category]++;
+    if (cold) {
+      cold_base[category]++;
+    } else {
+      warm_base[category]++;
+    }
   }
 }
 @compute @workgroup_size(64)
