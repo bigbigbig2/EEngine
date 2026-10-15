@@ -73,7 +73,7 @@ verifies:
     - OEngine/src/assets/geometry-product
     - OEngine/src/assets/web-cook/WebCookCoordinator.ts
     - OEngine/src/gpu/GeometryPageScheduler.ts
-    - OEngine/src/gpu/GeometryProductResidentAttributes.ts
+    - OEngine/src/assets/geometry-product/GeometryProductResidentAttributes.ts
     - OEngine/src/gpu/VirtualGeometryResidency.ts
     - OEngine/src/material/CanonicalMaterial.ts
     - OEngine/src/shaders/geometry_source_decode.ts

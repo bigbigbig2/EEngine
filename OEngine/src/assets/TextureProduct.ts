@@ -4,6 +4,7 @@ import {
   type RuntimeAssetPackageV2OpenOptions,
 } from "./RuntimeAssetManifestV2.js";
 import { encodedTextureMipByteLength, physicalTextureExtent } from "./codec/TextureFormatLayout.js";
+import { assertAssetWorkerResult } from "./codec/AssetWorkerPool.js";
 export type TextureSemanticV2 =
   | "base-color-srgb"
   | "normal-linear"
@@ -82,6 +83,34 @@ export interface TextureProductValidateOptions {
 export type TextureProductOpenOptions = RuntimeAssetPackageV2OpenOptions;
 
 const validatedProducts = new WeakSet<TextureProduct>();
+
+/** Realm-local import of an actual internal Worker result. Payload hashing was
+ * completed there; the small metadata/identity/layout closure is checked here. */
+export async function importCookedTextureReceipt(
+  receipt: unknown,
+  expectedIdentity: string
+): Promise<TextureProduct> {
+  assertAssetWorkerResult(receipt);
+  const result = receipt as { product?: TextureProduct; kind?: string; ok?: boolean };
+  if (!result.ok || result.kind !== "texture" || result.product?.identity !== expectedIdentity) {
+    throw new Error("Cooked texture receipt identity mismatch");
+  }
+  const product = result.product;
+  const hashes = new Map<string, string>();
+  for (const plane of product.metadata.planes) {
+    for (const mip of plane.mips) hashes.set(mip.chunkId, mip.hash);
+  }
+  const imported = await validateTextureProduct(
+    product.metadata,
+    product.chunks,
+    product.evidence.packageBytes,
+    { preverifiedChunkHashes: hashes, trustedMetadataOwnership: true }
+  );
+  if (imported.identity !== expectedIdentity || imported.recipeHash !== product.recipeHash) {
+    throw new Error("Cooked texture receipt metadata identity mismatch");
+  }
+  return imported;
+}
 export function assertValidatedTextureProduct(product: TextureProduct): void {
   if (!validatedProducts.has(product))
     throw new Error("Texture Product must be created by the schema3 validator");

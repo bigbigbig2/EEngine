@@ -12,6 +12,7 @@ import {
   type GeometryProductRevisionSourceV1,
   type GeometryPageProductV1
 } from "../assets/geometry-product/GeometryProductV1.js";
+import { releasePreparedPage } from "../assets/geometry-product/GeometryProductResidentAttributes.js";
 
 export type GeometryPageOperationStateV1 =
   | "absent"
@@ -86,6 +87,8 @@ export interface GeometryPageSchedulerOptionsV1 {
   readonly minInFlightBytes?: number;
   readonly minUploadBytesPerFrame?: number;
   readonly targetIoThroughputBytesPerSecond?: number;
+  /** Pages selected in one urgency class before the source coalesces offsets. */
+  readonly maxReadBatchPages?: number;
 }
 
 export interface GeometryPageSchedulerAdaptiveEvidenceV1 {
@@ -117,6 +120,8 @@ export interface GeometryPageSchedulerEvidenceV1 {
   readonly blockedUploads: number;
   readonly pending: number;
   readonly lastError: string | null;
+  /** Historical transient failure retained separately from terminal failure. */
+  readonly lastRetryError: string | null;
   readonly readLatencyP50Ms: number;
   readonly readLatencyP95Ms: number;
   readonly inFlightBytes: number;
@@ -170,6 +175,7 @@ export class GeometryPageSchedulerV1 {
     minInFlightBytes: number;
     minUploadBytesPerFrame: number;
     targetIoThroughputBytesPerSecond: number;
+    maxReadBatchPages: number;
   };
   readonly #products = new Map<number, RegisteredProduct>();
   // Preserve global insertion order for stable scheduling ties across Products.
@@ -191,6 +197,7 @@ export class GeometryPageSchedulerV1 {
   #blockedUploads = 0;
   #peakBufferedBytes = 0;
   #lastError: string | null = null;
+  #lastRetryError: string | null = null;
   readonly #readLatencies: number[] = [];
   #peakInFlightBytes = 0;
   #retries = 0;
@@ -203,6 +210,8 @@ export class GeometryPageSchedulerV1 {
   #budgetChanges = 0;
   #cameraCutBursts = 0;
   #throttledFrames = 0;
+  #readScale = 1;
+  #uploadScale = 1;
   #lastPressure: GeometryPageSchedulerAdaptiveEvidenceV1["lastPressure"] = Object.freeze({
     cameraState: "moving",
     gpuPressure: 0,
@@ -219,6 +228,7 @@ export class GeometryPageSchedulerV1 {
     const minInFlightBytes = options.minInFlightBytes ?? 0;
     const minUploadBytesPerFrame = options.minUploadBytesPerFrame ?? 0;
     const targetIoThroughputBytesPerSecond = options.targetIoThroughputBytesPerSecond ?? 64 * 1024 * 1024;
+    const maxReadBatchPages = options.maxReadBatchPages ?? 16;
     if (
       !Number.isInteger(options.maxConcurrentReads) ||
       options.maxConcurrentReads <= 0 ||
@@ -240,7 +250,10 @@ export class GeometryPageSchedulerV1 {
       minUploadBytesPerFrame < 0 ||
       minUploadBytesPerFrame > maxUploadBytesPerFrame ||
       !Number.isFinite(targetIoThroughputBytesPerSecond) ||
-      targetIoThroughputBytesPerSecond <= 0
+      targetIoThroughputBytesPerSecond <= 0 ||
+      !Number.isSafeInteger(maxReadBatchPages) ||
+      maxReadBatchPages < 1 ||
+      maxReadBatchPages > 64
     ) {
       throw new RangeError("Geometry page scheduler budgets/retry options are invalid");
     }
@@ -254,7 +267,8 @@ export class GeometryPageSchedulerV1 {
       minConcurrentReads,
       minInFlightBytes,
       minUploadBytesPerFrame,
-      targetIoThroughputBytesPerSecond
+      targetIoThroughputBytesPerSecond,
+      maxReadBatchPages
     });
     this.#budget = this.#makeBudget(1);
   }
@@ -302,7 +316,7 @@ export class GeometryPageSchedulerV1 {
       uploadsServed: 0
     });
     this.#minimumPageBytes = Math.max(this.#minimumPageBytes, pageBytes);
-    this.#budget = this.#makeBudget(this.#currentScale());
+    this.#budget = this.#makeBudget(this.#readScale, this.#uploadScale);
   }
 
   unregisterProduct(generation: number): void {
@@ -322,7 +336,7 @@ export class GeometryPageSchedulerV1 {
       (max, candidate) => Math.max(max, candidate.source.descriptor.decodedPageBytes),
       0
     );
-    this.#budget = this.#makeBudget(this.#currentScale());
+    this.#budget = this.#makeBudget(this.#readScale, this.#uploadScale);
     if (product.ownsSource) product.source.release();
   }
 
@@ -346,12 +360,26 @@ export class GeometryPageSchedulerV1 {
     const ioPressure =
       throughput === undefined ? 0 : clamp01(1 - throughput / this.#options.targetIoThroughputBytesPerSecond);
     const load = Math.max(gpuPressure, framePressure, ioPressure);
-    const scale = cameraState === "cut" ? 1 : (cameraState === "stable" ? 0.7 : 0.9) * (1 - 0.55 * load);
+    // Network pressure controls preparation; delayed GPU/encoding pressure
+    // controls uploads. Ready bytes provide the cross-stage backpressure.
+    // Fast reduction, slow recovery and a deadband avoid one noisy sample
+    // changing every capacity at once.
+    const smooth = (previous: number, target: number): number => {
+      if (cameraState === "cut" || !this.#options.adaptive) {
+        return 1;
+      }
+      if (Math.abs(target - previous) < 0.05) {
+        return target === 1 ? 1 : previous;
+      }
+      return target < previous ? target : Math.min(target, previous + 0.02);
+    };
+    this.#readScale = smooth(this.#readScale, 1 - 0.55 * ioPressure);
+    this.#uploadScale = smooth(this.#uploadScale, 1 - 0.55 * Math.max(gpuPressure, framePressure));
     this.#lastPressure = Object.freeze({ cameraState, gpuPressure, framePressure, ioPressure });
     this.#pressureSamples++;
     if (cameraState === "cut") this.#cameraCutBursts++;
     if (load > 0.35 && cameraState !== "cut") this.#throttledFrames++;
-    const next = this.#options.adaptive ? this.#makeBudget(scale) : this.#makeBudget(1);
+    const next = this.#makeBudget(this.#readScale, this.#uploadScale);
     if (!sameBudget(next, this.#budget)) this.#budgetChanges++;
     this.#budget = next;
     this.pump(0);
@@ -456,19 +484,43 @@ export class GeometryPageSchedulerV1 {
         }
       }
       if (!operation) break;
-      operation.state = "producing-or-reading";
-      operation.controller = new AbortController();
-      const bytes = this.#readReservationBytes(operation);
+      const batch = [operation];
+      const pageBytes = this.#readReservationBytes(operation);
+      let bytes = pageBytes;
+      if (operation.product.source.readPages) {
+        const candidates = [...operation.product.operations.values()].filter(
+          (candidate) =>
+            candidate !== operation &&
+            candidate.state === "queued" &&
+            candidate.nextRetryAt <= nowMs &&
+            candidate.demand.currentViewMissing === operation!.demand.currentViewMissing &&
+            candidate.demand.shadow === operation!.demand.shadow &&
+            candidate.demand.predictive === operation!.demand.predictive
+        );
+        candidates.sort((a, b) => priority(b.demand) + b.age - priority(a.demand) - a.age);
+        for (const candidate of candidates) {
+          if (
+            batch.length >= this.#options.maxReadBatchPages ||
+            this.#inFlightBytes + this.#verifiedBytes + bytes + pageBytes > this.#budget.maxInFlightBytes
+          ) {
+            break;
+          }
+          batch.push(candidate);
+          bytes += pageBytes;
+        }
+      }
       if (this.#inFlightBytes + this.#verifiedBytes + bytes > this.#budget.maxInFlightBytes) {
-        operation.state = "queued";
-        operation.controller = undefined;
         break;
       }
-      operation.product.readsServed++;
+      for (const member of batch) {
+        member.state = "producing-or-reading";
+        member.controller = new AbortController();
+      }
+      operation.product.readsServed += batch.length;
       this.#inFlightBytes += bytes;
       this.#peakBufferedBytes = Math.max(this.#peakBufferedBytes, this.#inFlightBytes + this.#verifiedBytes);
       this.#peakInFlightBytes = Math.max(this.#peakInFlightBytes, this.#inFlightBytes);
-      const task = this.produce(operation, nowMs);
+      const task = this.produceBatch(batch, nowMs);
       this.#inFlight.add(task);
       void task.then(
         () => {
@@ -487,7 +539,9 @@ export class GeometryPageSchedulerV1 {
   }
 
   async drainReads(): Promise<void> {
-    await Promise.all([...this.#inFlight]);
+    while (this.#inFlight.size > 0) {
+      await Promise.all([...this.#inFlight]);
+    }
   }
 
   drainStageBudget(sink: GeometryPageUploadSinkV1, availableBytes?: number): number {
@@ -762,6 +816,7 @@ export class GeometryPageSchedulerV1 {
       peakBufferedBytes: this.#peakBufferedBytes,
       pending,
       lastError: this.#lastError,
+      lastRetryError: this.#lastRetryError,
       readLatencyP50Ms: percentile(this.#readLatencies, 0.5),
       readLatencyP95Ms: percentile(this.#readLatencies, 0.95),
       inFlightBytes: this.#inFlightBytes,
@@ -788,22 +843,12 @@ export class GeometryPageSchedulerV1 {
     return operation.product.source.descriptor.decodedPageBytes;
   }
 
-  #currentScale(): number {
-    if (this.#pressureSamples === 0) return 1;
-    const load = Math.max(
-      this.#lastPressure.gpuPressure,
-      this.#lastPressure.framePressure,
-      this.#lastPressure.ioPressure
-    );
-    if (this.#lastPressure.cameraState === "cut") return 1;
-    return (this.#lastPressure.cameraState === "stable" ? 0.7 : 0.9) * (1 - 0.55 * load);
-  }
-
-  #makeBudget(scale: number): GeometryPageSchedulerBudgetV1 {
+  #makeBudget(scale: number, uploadScale = scale): GeometryPageSchedulerBudgetV1 {
     const bounded = Math.max(0.25, Math.min(1, scale));
+    const boundedUpload = Math.max(0.25, Math.min(1, uploadScale));
     const maxConcurrentReads = Math.max(
       this.#options.minConcurrentReads,
-      Math.min(this.#options.maxConcurrentReads, Math.floor(this.#options.maxConcurrentReads * bounded))
+      Math.min(this.#options.maxConcurrentReads, Math.ceil(this.#options.maxConcurrentReads * bounded))
     );
     const maxInFlightBytes = Math.max(
       this.#minimumPageBytes,
@@ -815,7 +860,7 @@ export class GeometryPageSchedulerV1 {
       this.#options.minUploadBytesPerFrame,
       Math.min(
         this.#options.maxUploadBytesPerFrame,
-        Math.floor(this.#options.maxUploadBytesPerFrame * bounded)
+        Math.floor(this.#options.maxUploadBytesPerFrame * boundedUpload)
       )
     );
     return Object.freeze({ maxConcurrentReads, maxInFlightBytes, maxUploadBytesPerFrame });
@@ -824,16 +869,72 @@ export class GeometryPageSchedulerV1 {
   private dropVerified(operation: Operation): void {
     if (operation.page !== undefined) {
       this.#verifiedBytes -= operation.page.bytes.byteLength;
+      releasePreparedPage(operation.page);
       operation.page = undefined;
     }
   }
 
-  private async produce(operation: Operation, nowMs: number): Promise<void> {
+  private async produceBatch(batch: readonly Operation[], nowMs: number): Promise<void> {
+    const first = batch[0]!;
     const startedAt = performance.now();
+    let pages: readonly GeometryPageProductV1[] = [];
+    let failure: unknown;
+    const controller = new AbortController();
+    const cancel = () => {
+      if (batch.every((operation) => operation.controller?.signal.aborted)) {
+        controller.abort();
+      }
+    };
+    for (const operation of batch) {
+      operation.controller!.signal.addEventListener("abort", cancel, { once: true });
+    }
     try {
-      const page = snapshotUnverifiedGeometryPageV1(
-        await operation.product.source.readPage(operation.demand.pageId, operation.controller?.signal)
-      );
+      const source = first.product.source;
+      pages = source.readPages
+        ? await source.readPages(
+            batch.map((operation) => operation.demand.pageId),
+            controller.signal,
+            first.demand.currentViewMissing ? 0 : first.demand.predictive ? 2 : 1
+          )
+        : [await source.readPage(first.demand.pageId, controller.signal)];
+      if (pages.length !== batch.length) {
+        throw new Error("Geometry batch returned a mismatched page domain");
+      }
+    } catch (error) {
+      failure = error;
+    } finally {
+      for (const operation of batch) {
+        operation.controller!.signal.removeEventListener("abort", cancel);
+      }
+    }
+    for (let index = 0; index < batch.length; index++) {
+      await this.produce(batch[index]!, nowMs, pages[index], failure);
+    }
+    for (const page of pages) {
+      if (!batch.some((operation) => operation.page === page)) {
+        releasePreparedPage(page);
+      }
+    }
+    this.#readLatencies.push(performance.now() - startedAt);
+    if (this.#readLatencies.length > 64) {
+      this.#readLatencies.shift();
+    }
+  }
+
+  private async produce(
+    operation: Operation,
+    nowMs: number,
+    suppliedPage?: GeometryPageProductV1,
+    failure?: unknown
+  ): Promise<void> {
+    try {
+      if (failure !== undefined) {
+        throw failure;
+      }
+      if (!suppliedPage) {
+        throw new Error("Geometry batch is missing a page");
+      }
+      const page = snapshotUnverifiedGeometryPageV1(suppliedPage);
       const descriptor = operation.product.source.descriptor;
       const expected = decodeGeometryProductPageRecordV1(descriptor, operation.demand.pageId);
       if (
@@ -858,7 +959,6 @@ export class GeometryPageSchedulerV1 {
       ) {
         this.#lateResults++;
         operation.state = "failed";
-        this.#failed++;
         return;
       }
       operation.page = page;
@@ -866,7 +966,7 @@ export class GeometryPageSchedulerV1 {
       operation.state = "verified";
       operation.state = "upload-queued";
     } catch (error) {
-      this.#lastError = error instanceof Error ? error.message : String(error);
+      const message = error instanceof Error ? error.message : String(error);
       if (
         this.#products.get(operation.product.generation) !== operation.product ||
         operation.controller?.signal.aborted
@@ -876,20 +976,20 @@ export class GeometryPageSchedulerV1 {
         return;
       }
       operation.attempts++;
-      const deterministic = /hash|size|key|profile|corrupt|unsupported|identity|integrity/i.test(
-        error instanceof Error ? error.message : String(error)
-      );
+      const deterministic =
+        /hash|size|key|profile|corrupt|unsupported|identity|integrity|checksum|crc|layout|non.?finite|domain|invalid|section|offset|header|decode|descriptor|protocol/i.test(
+          error instanceof Error ? error.message : String(error)
+        );
       if (!deterministic && operation.attempts <= this.#options.maxRetries) {
+        this.#lastRetryError = message;
         operation.state = "queued";
         operation.nextRetryAt = nowMs + this.#options.retryBaseDelayMs * 2 ** (operation.attempts - 1);
         this.#retries++;
       } else {
+        this.#lastError = message;
         operation.state = "failed";
         this.#failed++;
       }
-    } finally {
-      this.#readLatencies.push(performance.now() - startedAt);
-      if (this.#readLatencies.length > 64) this.#readLatencies.shift();
     }
   }
 }

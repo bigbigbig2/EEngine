@@ -121,8 +121,10 @@ export interface GeometryProductRevisionSourceV1 {
   /** Optional source-scene asset mapping for bounded shard Products. */
   readonly sceneAssetIndices?: readonly number[];
   readPage(pageId: number, signal?: AbortSignal): Promise<GeometryPageProductV1>;
-  /** Optional coalesced batch page reader for bootstrap/multi-page admission. */
-  readPages?(pageIds: ArrayLike<number>, signal?: AbortSignal): Promise<readonly GeometryPageProductV1[]>;
+  /** Shared bootstrap/streaming batch reader. Priority 0 is activation/current,
+   * 1 shadow/background, 2 predictive; default is 0. */
+  readPages?(pageIds: ArrayLike<number>, signal?: AbortSignal,
+    priority?: 0 | 1 | 2): Promise<readonly GeometryPageProductV1[]>;
   release(): void;
 }
 

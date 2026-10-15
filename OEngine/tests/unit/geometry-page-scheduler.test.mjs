@@ -94,6 +94,44 @@ function demand(flags = {}) {
   };
 }
 
+test("stable scheduler batches one urgency class before offset coalescing", async () => {
+  const original = fixture();
+  const descriptor = { ...original.descriptor, pageRecords: new Uint8Array(4 * 32) };
+  for (let id = 0; id < 4; id++) descriptor.pageRecords.set(original.descriptor.pageRecords, id * 32);
+  const calls = [];
+  let resume;
+  const scheduler = new GeometryPageSchedulerV1({
+    maxConcurrentReads: 4, maxInFlightBytes: 4 * 262144,
+  });
+  scheduler.registerProduct(3, 9, {
+    descriptor,
+    readPage() { throw Error("streaming must use the batch reader"); },
+    async readPages(ids, signal) {
+      calls.push({ ids: [...ids], signal });
+      if (calls.length === 1) await new Promise(resolve => { resume = resolve; });
+      return ids.map(pageId => ({ productId: descriptor.productId, revision: 0, pageId,
+        decodedHash128: original.hash, decodedPageHash128: original.integrity,
+        bytes: original.page.slice().buffer }));
+    },
+    release() {},
+  });
+  const budget = scheduler.setPressure({ cameraState: "stable" });
+  assert.equal(budget.maxConcurrentReads, 4, "no fixed stable-camera tax");
+  scheduler.ingestDemands([
+    demand({ pageId: 0, currentViewMissing: true }),
+    demand({ pageId: 1, currentViewMissing: true }),
+    demand({ pageId: 2, predictive: true }),
+    demand({ pageId: 3, predictive: true }),
+  ]);
+  assert.deepEqual(calls.map(call => call.ids), [[0, 1], [2, 3]],
+    "an urgency gap never drags predictive data into a current-view span");
+  resume();
+  await scheduler.drainReads();
+  assert.equal(scheduler.state(9, 1), "upload-queued");
+  assert.equal(scheduler.state(9, 3), "upload-queued");
+  scheduler.unregisterProduct(9);
+});
+
 test("publication groups overlapping damage, admits a heavy oldest page and expires lower priority work", async () => {
   const original = fixture();
   const records = new Uint8Array(96);
@@ -220,6 +258,8 @@ test("page scheduler verifies identity/hash, retries transient source errors, an
   const evidence = scheduler.evidence();
   assert.equal(evidence.deduplicated, 1);
   assert.equal(evidence.retries, 1);
+  assert.equal(evidence.lastError, null, "a recovered transient failure must not poison the live streaming state");
+  assert.ok(evidence.lastRetryError, "the original failure remains available for diagnosis");
   assert.equal(evidence.uploadedBytes, 262144);
   assert.equal(calls, 2);
 });

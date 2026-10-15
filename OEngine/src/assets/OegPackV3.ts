@@ -82,18 +82,55 @@ export class HttpRangeReadablePackV3 implements RangeReadablePackV3 {
       signal: signal ?? this.init.signal,
       headers: { Range: `bytes=${byteOffset}-${end}`, "Accept-Encoding": "identity" },
     });
-    if (response.status !== 206)
+    if (response.status !== 206) {
+      await response.body?.cancel();
       throw new OegPackV3Error(`server did not honor byte range (${response.status})`);
+    }
     const contentRange = response.headers.get("content-range");
     const expectedRange = `bytes ${byteOffset}-${end}/`;
-    if (!contentRange?.startsWith(expectedRange) || !/^bytes \d+-\d+\/(?:\d+|\*)$/u.test(contentRange))
+    if (!contentRange?.startsWith(expectedRange) || !/^bytes \d+-\d+\/(?:\d+|\*)$/u.test(contentRange)) {
+      await response.body?.cancel();
       throw new OegPackV3Error("HTTP Content-Range does not match the requested byte interval");
+    }
     const encoding = response.headers.get("content-encoding");
-    if (encoding && encoding !== "identity")
+    if (encoding && encoding !== "identity") {
+      await response.body?.cancel();
       throw new OegPackV3Error(`oegpack range used forbidden Content-Encoding '${encoding}'`);
-    const bytes = await response.arrayBuffer();
-    if (bytes.byteLength !== byteLength) throw new OegPackV3Error("HTTP range response length mismatch");
-    return bytes;
+    }
+    const declared = response.headers.get("content-length");
+    if (declared !== null && Number(declared) !== byteLength) {
+      await response.body?.cancel();
+      throw new OegPackV3Error("HTTP range response length mismatch");
+    }
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new OegPackV3Error("HTTP range response has no body");
+    }
+    const bytes = new Uint8Array(byteLength);
+    let size = 0;
+    try {
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) {
+          break;
+        }
+        if (size + chunk.value.byteLength > byteLength) {
+          throw new OegPackV3Error("HTTP range response exceeded its reserved byte domain");
+        }
+        bytes.set(chunk.value, size);
+        size += chunk.value.byteLength;
+      }
+      if (size !== byteLength) {
+        throw new OegPackV3Error("HTTP range response length mismatch");
+      }
+      return bytes.buffer;
+    } finally {
+      try {
+        await reader.cancel();
+      } finally {
+        reader.releaseLock();
+      }
+    }
   }
 }
 
@@ -227,22 +264,7 @@ export async function openOegPackV3(
     pageId: number,
     encoded: Uint8Array,
   ): Promise<OegPackDecodedPageV3> => {
-    const page = pages[pageId]!;
-    if (crc32(encoded) !== page.compressedChecksum)
-      throw new OegPackV3Error(`page ${pageId} compressed checksum mismatch`);
-    const decoded = page.codec === 0 ? encoded.slice() : decodeLz4Block(encoded, page.decodedBytes);
-    if (decoded.byteLength !== OEGPACK_V3_PAGE_BYTES)
-      throw new OegPackV3Error(`page ${pageId} did not decode to 256 KiB`);
-    validateDecodedPage(pageId, decoded, page, groups, vertexFormats);
-    // The page directory carries the page *identity* (rolled up from Group payloads), not a
-    // digest of the whole page bytes. Whole-page digest is returned alongside so consumers that
-    // want an integrity probe can compare it against a value they recorded at production time.
-    const decodedPageHash128 = verifyPageSha256 ? await sha256Hex(decoded) : undefined;
-    return {
-      bytes: decoded,
-      decodedPageHash128,
-      integrity: verifyPageSha256 ? "decoded-sha256" : "encoded-crc32",
-    };
+    return decodeOegPackPageV3(pageId, encoded, pages[pageId]!, groups, vertexFormats, verifyPageSha256);
   };
 
   return Object.freeze({
@@ -344,6 +366,30 @@ export async function openOegPackV3(
       return Object.freeze(results);
     },
   });
+}
+
+/** Shared CPU kernel for custom sources and Dedicated Worker cooked preparation. */
+export async function decodeOegPackPageV3(
+  pageId: number,
+  encoded: Uint8Array,
+  page: GeometryPageDirectoryV3,
+  groups: readonly GeometryGroupDirectoryV3[],
+  formats: readonly VertexFormatRecordV3[],
+  verifyPageSha256: boolean,
+): Promise<OegPackDecodedPageV3> {
+  if (encoded.byteLength !== page.compressedBytes || crc32(encoded) !== page.compressedChecksum) {
+    throw new OegPackV3Error(`page ${pageId} compressed checksum mismatch`);
+  }
+  const decoded = page.codec === 0 ? encoded.slice() : decodeLz4Block(encoded, page.decodedBytes);
+  if (decoded.byteLength !== OEGPACK_V3_PAGE_BYTES) {
+    throw new OegPackV3Error(`page ${pageId} did not decode to 256 KiB`);
+  }
+  validateDecodedPage(pageId, decoded, page, groups, formats);
+  return {
+    bytes: decoded,
+    decodedPageHash128: verifyPageSha256 ? await sha256Hex(decoded) : undefined,
+    integrity: verifyPageSha256 ? "decoded-sha256" : "encoded-crc32",
+  };
 }
 
 function parseHeader(bytes: Uint8Array): OegPackHeaderV3 {

@@ -1,4 +1,12 @@
 type AssetCodecPriority = 0 | 1 | 2;
+const successfulResults = new WeakSet<object>();
+
+/** Internal receipt provenance: only a result delivered by an assigned pool Worker. */
+export function assertAssetWorkerResult(value: unknown): asserts value is object {
+  if (typeof value !== "object" || value === null || !successfulResults.has(value)) {
+    throw new Error("Cooked receipt did not originate from an assigned asset Worker task");
+  }
+}
 
 export interface AssetWorkerPoolOptions {
   readonly maxWorkers: number;
@@ -14,6 +22,8 @@ export interface AssetWorkerTask<TRequest> {
   readonly estimatedPeakBytes: number;
   readonly priority: AssetCodecPriority;
   readonly signal?: AbortSignal;
+  /** Immutable session metadata is cloned once per actual Worker, including replacements. */
+  readonly registration?: { readonly key: string; readonly value: unknown };
 }
 
 export interface AssetWorkerPoolEvidence {
@@ -36,13 +46,14 @@ interface WorkerSlot {
   readonly worker: Worker;
   busy: boolean;
   entry: QueueEntry<any, any> | null;
+  readonly registrations: Set<string>;
 }
 
 export class AssetWorkerPool {
   private readonly queues: [QueueEntry<any, any>[], QueueEntry<any, any>[], QueueEntry<any, any>[]] = [
     [],
     [],
-    [],
+    []
   ];
   private readonly workers: WorkerSlot[] = [];
   private creatingWorkers = 0;
@@ -67,8 +78,8 @@ export class AssetWorkerPool {
     if (task.estimatedPeakBytes > this.options.maxInFlightEstimatedBytes) {
       return Promise.reject(
         new RangeError(
-          `Asset worker task requires ${task.estimatedPeakBytes} estimated bytes, budget is ${this.options.maxInFlightEstimatedBytes}`,
-        ),
+          `Asset worker task requires ${task.estimatedPeakBytes} estimated bytes, budget is ${this.options.maxInFlightEstimatedBytes}`
+        )
       );
     }
     if (task.priority !== 0 && task.priority !== 1 && task.priority !== 2) {
@@ -83,7 +94,7 @@ export class AssetWorkerPool {
         task,
         resolve,
         reject,
-        abort: () => this.cancelEntry(entry),
+        abort: () => this.cancelEntry(entry)
       };
       task.signal?.addEventListener("abort", entry.abort, { once: true });
       this.queues[task.priority].push(entry);
@@ -98,8 +109,14 @@ export class AssetWorkerPool {
       inFlightEstimatedBytes: this.inFlightEstimatedBytes,
       peakInFlightEstimatedBytes: this.peakInFlightEstimatedBytes,
       queuedTasks: this.queuedCount(),
-      workerFailures: this.workerFailures,
+      workerFailures: this.workerFailures
     });
+  }
+
+  forgetRegistration(key: string): void {
+    for (const slot of this.workers) {
+      if (slot.registrations.delete(key)) slot.worker.postMessage({ forget: key });
+    }
   }
 
   dispose(): void {
@@ -134,38 +151,40 @@ export class AssetWorkerPool {
       this.creatingWorkers < this.queuedCount()
     ) {
       this.creatingWorkers++;
-      void Promise.resolve(this.options.createWorker()).then(
-        (worker) => {
-          this.creatingWorkers--;
-          if (this.disposed) {
-            worker.terminate();
-            return;
-          }
-          const slot: WorkerSlot = { worker, busy: false, entry: null };
-          worker.onmessage = (event: MessageEvent<unknown>) => this.finish(slot, event.data);
-          worker.onerror = (event: ErrorEvent) => {
-            event.preventDefault?.();
-            this.failWorker(slot, new Error(event.message || "Asset codec Worker failed"));
-          };
-          worker.onmessageerror = () =>
-            this.failWorker(slot, new Error("Asset codec Worker message deserialization failed"));
-          this.workers.push(slot);
-          this.assign(slot);
-          this.pump();
-        },
-        (error: unknown) => {
-          this.creatingWorkers--;
-          this.workerFailures++;
-          this.consecutiveWorkerFailures++;
-          if (this.consecutiveWorkerFailures >= (this.options.maxConsecutiveWorkerFailures ?? 3)) {
-            this.rejectAll(
-              new Error(`Asset codec Worker initialization failed repeatedly: ${errorMessage(error)}`),
-            );
-          } else {
+      void Promise.resolve()
+        .then(() => this.options.createWorker())
+        .then(
+          (worker) => {
+            this.creatingWorkers--;
+            if (this.disposed) {
+              worker.terminate();
+              return;
+            }
+            const slot: WorkerSlot = { worker, busy: false, entry: null, registrations: new Set() };
+            worker.onmessage = (event: MessageEvent<unknown>) => this.finish(slot, event.data);
+            worker.onerror = (event: ErrorEvent) => {
+              event.preventDefault?.();
+              this.failWorker(slot, new Error(event.message || "Asset codec Worker failed"));
+            };
+            worker.onmessageerror = () =>
+              this.failWorker(slot, new Error("Asset codec Worker message deserialization failed"));
+            this.workers.push(slot);
+            this.assign(slot);
             this.pump();
+          },
+          (error: unknown) => {
+            this.creatingWorkers--;
+            this.workerFailures++;
+            this.consecutiveWorkerFailures++;
+            if (this.consecutiveWorkerFailures >= (this.options.maxConsecutiveWorkerFailures ?? 3)) {
+              this.rejectAll(
+                new Error(`Asset codec Worker initialization failed repeatedly: ${errorMessage(error)}`)
+              );
+            } else {
+              this.pump();
+            }
           }
-        },
-      );
+        );
     }
   }
 
@@ -180,7 +199,13 @@ export class AssetWorkerPool {
     this.inFlightEstimatedBytes += entry.task.estimatedPeakBytes;
     this.peakInFlightEstimatedBytes = Math.max(this.peakInFlightEstimatedBytes, this.inFlightEstimatedBytes);
     try {
-      slot.worker.postMessage(entry.task.request, [...entry.task.transfer]);
+      const registration = entry.task.registration;
+      const register = registration !== undefined && !slot.registrations.has(registration.key);
+      const request = register
+        ? { ...entry.task.request, registration: registration.value }
+        : entry.task.request;
+      slot.worker.postMessage(request, [...entry.task.transfer]);
+      if (register) slot.registrations.add(registration.key);
     } catch (error) {
       this.release(slot);
       entry.reject(error);
@@ -194,6 +219,7 @@ export class AssetWorkerPool {
     if (entry === null) return;
     this.release(slot);
     this.consecutiveWorkerFailures = 0;
+    if (typeof result === "object" && result !== null) successfulResults.add(result);
     entry.resolve(result);
     this.pump();
   }

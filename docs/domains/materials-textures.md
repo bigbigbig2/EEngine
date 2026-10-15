@@ -29,6 +29,8 @@ verifies:
 
 ## 当前 owner 与产品
 
+2026-10-15 Cooked加载事实：Bistro和Dungeon的完整BC Texture容器由共享`CookedAssetPreparation` Dedicated Worker读取并执行container/section/Product完整SHA与布局验证，主线程只从实际任务receipt重建本realm immutable品牌；不再在demo主线程哈希大payload。已知MASK albedo/coverage按任务优先级先读，仍等待所有完整Product，尚未实施目录identity去重或INIT-3首屏依赖调整。128MiB输入上限保留，HEAD确定长度后预留输入与hash峰值，GET不允许超额或非identity编码；CPU不可变replay payload另计长期存储。Worker不执行BC重新编码，也不拥有texture GPU资源；`ShadeTexture.fromProduct`之后的唯一驻留/采样链不变。
+
 2026-10-14以`2caf5fe2`核对生产资产→驻留→Native采样；以下为实现事实，不表示VT或整体加载性能已经验收。
 
 production material 只走 BC-required、RuntimeAsset container2 / texture metadata3。GLTF/WebCook 保留 PNG/JPEG/WebP/KTX2 encoded source；KHR_texture_basisu 接通。Renderer 在 GPU scene publication 前 await PcMaterialTextures 完整批次，raw 用 bounded Basis WASM cold cook，KTX 用 pinned libktx parse/extract/transcode；fixed cooked ShadeTexture.fromProduct 直接上传，不启动 codec Worker。

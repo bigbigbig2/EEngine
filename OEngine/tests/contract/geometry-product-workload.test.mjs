@@ -11,7 +11,7 @@ import {
   buildVirtualGeometrySceneSourceV1,
   mergeVirtualGeometryProductSceneSourcesV1,
 } from "../../.test-dist/assets/geometry-product/VirtualGeometrySceneSourceV1.js";
-import { prepareProductResidentAttributes } from "../../.test-dist/gpu/GeometryProductResidentAttributes.js";
+import { prepareProductResidentAttributes } from "../../.test-dist/assets/geometry-product/GeometryProductResidentAttributes.js";
 
 const identity = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 const limits = {

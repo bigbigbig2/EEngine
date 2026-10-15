@@ -7,6 +7,7 @@ import type {
 } from "./GeometryProductV1.js";
 import { descriptorFromOegPack, OegPackProductProvider } from "./OegPackProductProvider.js";
 import { parseOegPackSceneManifestV3, type OegPackSceneManifestV3 } from "./OegPackSceneManifestV3.js";
+import { cookedAssetPreparation } from "../codec/CookedAssetPreparation.js";
 
 /**
  * Offline second-route source selection.
@@ -64,6 +65,7 @@ export class OegPackProductAsset implements GeometryProductProviderV1 {
   readonly #manifest: OegPackSceneManifestV3 | undefined;
   #state: "open" | "released" | "failed" = "open";
   #revisionsOffered = 0;
+  #workerEvidence: () => { ranges?: number; encodedBytes?: number } = () => ({});
 
   private constructor(
     pack: OegPackV3,
@@ -71,10 +73,67 @@ export class OegPackProductAsset implements GeometryProductProviderV1 {
     source: InstrumentedRangeSource,
     selectionKind: "http-range" | "memory",
     manifest: OegPackSceneManifestV3 | undefined,
+    selection: OegPackProductSourceSelectionV3,
+    verifyPageSha256: boolean
   ) {
     this.#pack = pack;
     this.#descriptor = descriptor;
-    this.#provider = new OegPackProductProvider(pack);
+    if (selection.kind === "http-range") {
+      const preparation = cookedAssetPreparation();
+      const { signal: sourceSignal, ...init } = selection.init ?? {};
+      const registration = {
+        descriptor,
+        pages: pack.pages,
+        groups: pack.groups,
+        formats: pack.vertexFormats,
+        url: new URL(selection.url, globalThis.location?.href).href,
+        init,
+        verifyPageSha256
+      };
+      const sessions = new Map<string, () => void>();
+      let completedRanges = 0;
+      let completedBytes = 0;
+      this.#workerEvidence = () => {
+        let ranges = completedRanges;
+        let encodedBytes = completedBytes;
+        for (const session of sessions.keys()) {
+          const metrics = preparation.sessionEvidence(session);
+          ranges += metrics.ranges ?? 0;
+          encodedBytes += metrics.encodedBytes ?? 0;
+        }
+        return { ranges, encodedBytes };
+      };
+      this.#provider = new OegPackProductProvider(pack, {
+        open: () => {
+          const session = preparation.openSession();
+          const release = () => {
+            if (!sessions.delete(session)) {
+              return;
+            }
+            const metrics = preparation.sessionEvidence(session);
+            completedRanges += metrics.ranges ?? 0;
+            completedBytes += metrics.encodedBytes ?? 0;
+            preparation.closeSession(session);
+          };
+          sessions.set(session, release);
+          return {
+            readPages: (ids, signal, priority) => {
+              const combined =
+                sourceSignal && signal ? AbortSignal.any([sourceSignal, signal]) : (sourceSignal ?? signal);
+              return preparation.readGeometry(session, registration, ids, combined, priority);
+            },
+            release
+          };
+        },
+        release: () => {
+          for (const release of sessions.values()) {
+            release();
+          }
+        }
+      });
+    } else {
+      this.#provider = new OegPackProductProvider(pack);
+    }
     this.#source = source;
     this.#selectionKind = selectionKind;
     this.#manifest = manifest;
@@ -82,7 +141,7 @@ export class OegPackProductAsset implements GeometryProductProviderV1 {
 
   static async open(
     selection: OegPackProductSourceSelectionV3,
-    options: OegPackProductAssetOptions = {},
+    options: OegPackProductAssetOptions = {}
   ): Promise<OegPackProductAsset> {
     throwIfAborted(options.signal);
     const { source, selectionKind, defaultManifestUrl } = createSelectionSource(selection);
@@ -90,7 +149,7 @@ export class OegPackProductAsset implements GeometryProductProviderV1 {
     try {
       const pack = await openOegPackV3(source, {
         verifyPageSha256: options.verifyPageSha256,
-        signal: options.signal,
+        signal: options.signal
       });
       throwIfAborted(options.signal);
       const descriptor = descriptorFromOegPack(pack);
@@ -98,12 +157,20 @@ export class OegPackProductAsset implements GeometryProductProviderV1 {
       if (payload !== undefined) manifest = parseOegPackSceneManifestV3(payload);
       else if (defaultManifestUrl !== undefined)
         manifest = parseOegPackSceneManifestV3(await fetchManifest(defaultManifestUrl, options.signal));
-      return new OegPackProductAsset(pack, descriptor, source, selectionKind, manifest);
+      return new OegPackProductAsset(
+        pack,
+        descriptor,
+        source,
+        selectionKind,
+        manifest,
+        selection,
+        options.verifyPageSha256 !== false
+      );
     } catch (error) {
       throw error instanceof OegPackV3Error
         ? error
         : new OegPackV3Error(
-            `OEGPACK Offline Product source failed: ${error instanceof Error ? error.message : String(error)}`,
+            `OEGPACK Offline Product source failed: ${error instanceof Error ? error.message : String(error)}`
           );
     }
   }
@@ -133,9 +200,9 @@ export class OegPackProductAsset implements GeometryProductProviderV1 {
             const result = await iterator.next();
             if (!result.done) asset.#revisionsOffered++;
             return result;
-          },
+          }
         };
-      },
+      }
     };
   }
 
@@ -149,10 +216,10 @@ export class OegPackProductAsset implements GeometryProductProviderV1 {
       bootstrapPageCount: this.#pack.header.bootstrapPageCount,
       activationPageCount: this.#descriptor.activationPageIds.length,
       fileBytes: Number(this.#pack.header.fileBytes),
-      rangeReads: this.#source.reads,
-      rangeReadBytes: this.#source.readBytes,
+      rangeReads: this.#source.reads + (this.#workerEvidence().ranges ?? 0),
+      rangeReadBytes: this.#source.readBytes + (this.#workerEvidence().encodedBytes ?? 0),
       revisionsOffered: this.#revisionsOffered,
-      manifestReady: this.#manifest !== undefined,
+      manifestReady: this.#manifest !== undefined
     });
   }
 

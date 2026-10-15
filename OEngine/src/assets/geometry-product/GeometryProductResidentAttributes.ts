@@ -2,13 +2,50 @@ import {
   decodeGroupHeaderV3,
   decodeMeshletHeaderV3,
   OEGPACK_V3_PAGE_BYTES,
-  OEGPACK_V3_MESHLET_HEADER_BYTES,
-} from "../assets/GeometryAbiV3.js";
-import {
-  decodeGeometryProductPageRecordV1,
-  type GeometryProductDescriptorV1,
-} from "../assets/geometry-product/GeometryProductV1.js";
-import { geometryProductWorkload } from "../assets/geometry-product/GeometryProductWorkload.js";
+  OEGPACK_V3_MESHLET_HEADER_BYTES
+} from "../GeometryAbiV3.js";
+import { decodeGeometryProductPageRecordV1, type GeometryProductDescriptorV1 } from "./GeometryProductV1.js";
+import { geometryProductWorkload } from "./GeometryProductWorkload.js";
+import type { GeometryPageProductV1 } from "./GeometryProductV1.js";
+import { assertAssetWorkerResult } from "../codec/AssetWorkerPool.js";
+
+const preparedPages = new WeakMap<GeometryPageProductV1, ProductResidentPage>();
+const pageCredits = new WeakMap<GeometryPageProductV1, () => void>();
+
+/** Internal ready ownership ends after staging, bootstrap upload, or discard. */
+export function releasePreparedPage(page: GeometryPageProductV1): void {
+  pageCredits.get(page)?.();
+  pageCredits.delete(page);
+}
+
+export function importPreparedResidentPage(
+  receipt: unknown,
+  page: GeometryPageProductV1,
+  prepared: ProductResidentPage,
+  release?: () => void
+): void {
+  assertAssetWorkerResult(receipt);
+  if (
+    page.bytes.byteLength !== OEGPACK_V3_PAGE_BYTES ||
+    prepared.groupBounds.length !== prepared.groupCount * 6 ||
+    prepared.rawPayloadBytes < 1 ||
+    prepared.rawPayloadBytes > page.bytes.byteLength ||
+    prepared.uploadBytes !== prepared.rawPayloadBytes ||
+    prepared.slotCount !== 1 ||
+    prepared.refineEdges.length % 2 !== 0 ||
+    !Number.isSafeInteger(prepared.triangleCount)
+  ) {
+    throw new Error("Cooked resident page receipt extent is invalid");
+  }
+  preparedPages.set(page, Object.freeze(prepared));
+  if (release) {
+    pageCredits.set(page, release);
+  }
+}
+
+export function preparedResidentPage(page: GeometryPageProductV1): ProductResidentPage | undefined {
+  return preparedPages.get(page);
+}
 
 export interface ProductResidentPage {
   readonly rawPayloadBytes: number;
@@ -31,18 +68,18 @@ export interface ProductResidentPage {
 export function prepareProductResidentAttributes(
   descriptor: GeometryProductDescriptorV1,
   pageId: number,
-  bytes: ArrayBuffer,
+  bytes: ArrayBuffer
 ): ProductResidentPage {
   const page = new DataView(bytes);
   const directory = new DataView(
     descriptor.groupDirectory.buffer,
     descriptor.groupDirectory.byteOffset,
-    descriptor.groupDirectory.byteLength,
+    descriptor.groupDirectory.byteLength
   );
   const formats = new DataView(
     descriptor.vertexFormats.buffer,
     descriptor.vertexFormats.byteOffset,
-    descriptor.vertexFormats.byteLength,
+    descriptor.vertexFormats.byteLength
   );
   if (bytes.byteLength !== OEGPACK_V3_PAGE_BYTES) {
     throw new RangeError("Product resident page must be 256 KiB");
@@ -112,7 +149,7 @@ export function prepareProductResidentAttributes(
     for (let local = 0; local < header.meshletCount; local++) {
       const meshlet = decodeMeshletHeaderV3(
         page,
-        offset + header.meshletHeaderOffset + local * OEGPACK_V3_MESHLET_HEADER_BYTES,
+        offset + header.meshletHeaderOffset + local * OEGPACK_V3_MESHLET_HEADER_BYTES
       );
       if (
         meshlet.vertexCount < 1 ||
@@ -177,6 +214,6 @@ export function prepareProductResidentAttributes(
     groupBegin: pageRecord.firstGroup,
     groupCount: pageRecord.groupCount,
     groupBounds,
-    refineEdges: Uint32Array.from(refineEdges),
+    refineEdges: Uint32Array.from(refineEdges)
   });
 }

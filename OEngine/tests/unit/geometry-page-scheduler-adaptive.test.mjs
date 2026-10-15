@@ -54,3 +54,21 @@ test("pressure validation rejects invalid values", () => {
   assert.throws(() => scheduler.setPressure({ frameTimeMs: -1 }), /frame time/);
   assert.throws(() => scheduler.setPressure({ cameraState: "invalid" }), /camera state/);
 });
+
+test("IO and GPU credits react independently and recover slowly", () => {
+  const options = { maxConcurrentReads: 4, maxInFlightBytes: 8 * 1024 * 1024,
+    maxUploadBytesPerFrame: 4 * 1024 * 1024 };
+  const scheduler = new GeometryPageSchedulerV1(options);
+  const cap = scheduler.budget();
+  const gpu = scheduler.setPressure({ gpuPressure: 1 });
+  assert.equal(gpu.maxConcurrentReads, cap.maxConcurrentReads);
+  assert.equal(gpu.maxInFlightBytes, cap.maxInFlightBytes);
+  assert.ok(gpu.maxUploadBytesPerFrame < cap.maxUploadBytesPerFrame);
+  const recovering = scheduler.setPressure({});
+  assert.ok(recovering.maxUploadBytesPerFrame > gpu.maxUploadBytesPerFrame);
+  assert.ok(recovering.maxUploadBytesPerFrame < cap.maxUploadBytesPerFrame);
+  const other = new GeometryPageSchedulerV1(options);
+  const io = other.setPressure({ ioThroughputBytesPerSecond: 0 });
+  assert.equal(io.maxUploadBytesPerFrame, cap.maxUploadBytesPerFrame);
+  assert.ok(io.maxConcurrentReads > 1 && io.maxConcurrentReads < cap.maxConcurrentReads);
+});

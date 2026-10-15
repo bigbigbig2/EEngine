@@ -40,7 +40,7 @@ verifies:
     - OEngine/src/gpu/GeometryDemandReadbackRing.ts
     - OEngine/src/assets/geometry-product/VirtualGeometrySceneSourceV1.ts
     - OEngine/src/assets/geometry-product/GeometryProductWorkload.ts
-    - OEngine/src/gpu/GeometryProductResidentAttributes.ts
+    - OEngine/src/assets/geometry-product/GeometryProductResidentAttributes.ts
     - OEngine/src/shaders/hierarchical_work_generation.ts
     - OEngine/src/shaders/virtual_geometry_work.ts
     - OEngine/tools/oengine-asset-core/src/geometry/GeometryCooker.cpp

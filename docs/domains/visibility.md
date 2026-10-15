@@ -35,7 +35,7 @@ verifies:
     - OEngine/src/shaders/native_visibility.ts
     - OEngine/src/shaders/surface_geometry_completion.ts
     - OEngine/src/gpu/GpuWinnerInterpolationAbi.ts
-    - OEngine/src/gpu/GeometryProductResidentAttributes.ts
+    - OEngine/src/assets/geometry-product/GeometryProductResidentAttributes.ts
     - OEngine/src/shaders/geometry_source_decode.ts
     - OEngine/src/shaders/vsm_receiver_demand.ts
     - OEngine/src/shaders/vsm_caster_records.ts

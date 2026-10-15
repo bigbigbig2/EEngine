@@ -19,7 +19,7 @@ verifies:
     - OEngine/src/render/pipeline/RendererCore.ts
     - OEngine/src/assets/geometry-product/GeometryProductWorkload.ts
     - OEngine/src/assets/geometry-product/VirtualGeometrySceneSourceV1.ts
-    - OEngine/src/gpu/GeometryProductResidentAttributes.ts
+    - OEngine/src/assets/geometry-product/GeometryProductResidentAttributes.ts
     - OEngine/src/shaders/geometry_source_decode.ts
     - OEngine/src/assets/geometry-product/GeometryProductV1.ts
     - OEngine/src/assets/geometry-product/OegPackProductProvider.ts
@@ -27,6 +27,8 @@ verifies:
 # Virtual Assets
 
 ## 当前 owner 与生产连接
+
+2026-10-15初始化调度切换：HTTP Cooked Product的bootstrap与持续流送共用`CookedAssetPreparation`批读取；`AssetWorkerPool`中的Dedicated Worker执行Range、CRC/LZ4/布局、可选decoded SHA和resident position/UV数值扫描。`GeometryProductResidentAttributes`已迁到CPU assets层；主线程按实际任务receipt重建品牌、检查完整身份/返回域，复用prepared bounds/refine数据，不再次逐顶点扫描。memory/custom provider保留独立的未预验证snapshot/digest边界。完整256KiB逻辑页仍跨线程transfer，GPU只上传已验证payload prefix；没有新的页物理ABI。默认4批×16页候选、全局256MiB临时/32MiB编码/64MiB ready信用，ready直到上传、丢弃或source释放才回收。Worker完成仍不能直接发布位置表，唯一普通帧事务和退休fence继续归residency/runtime。每个revision source独占CPU会话，device loss取消旧runtime读取而保留可重放source；范围计数包含Worker真实IO。
 
 2026-10-14以`2caf5fe2`核对：Product驻留保留原始紧凑Page，每页一个256KiB物理槽，不展开96B/vertex属性。准入扫描布局/索引、层次work bound和position/half-UV有限值；GPU直接解码并恢复完整format状态。未预验证source在异步digest前取得自有字节/身份快照，校验和上传消费同一快照；可信adapter明确区分真实SHA digest和CRC-only策略。几何页ABI/调度不等于未来纹理VT页，不能因两者都有“页”而合并owner。
 

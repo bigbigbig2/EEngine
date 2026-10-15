@@ -66,7 +66,7 @@ verifies:
     - OEngine/src/gpu/GeometryPageScheduler.ts
     - OEngine/src/gpu/GeometryPageStreamingRuntime.ts
     - OEngine/src/gpu/GeometryProductGpuAbiV1.ts
-    - OEngine/src/gpu/GeometryProductResidentAttributes.ts
+    - OEngine/src/assets/geometry-product/GeometryProductResidentAttributes.ts
     - OEngine/src/shaders/hierarchical_work_generation.ts
     - OEngine/src/gpu/GeometryProductMultiRuntime.ts
     - OEngine/src/render/HierarchicalWorkGenerator.ts
@@ -370,7 +370,7 @@ Wicked、Intel CPS、Forge、OSS的所列本地冻结源码与固定revision网�
 
 ## 初始化调度研究（2026-10-15）
 
-对应[初始化调度设计](../next-design/eengine-initialization-scheduling-2026-10.md) / [执行](../next-execution/eengine-initialization-scheduling-execution-2026-10.md)。研究起点`30292e0e`，仅参考与本地方案设计，未移植、未验证新生产消费、无adoption/性能claim提升。
+对应[初始化调度设计](../next-design/eengine-initialization-scheduling-2026-10.md) / [执行](../next-execution/eengine-initialization-scheduling-execution-2026-10.md)。研究起点`30292e0e`；下表维持Reference级。INIT-1/INIT-2使用本地实现，不声称移植three.js/The-Forge或提升donor adoption/正式性能claim。`CookedAssetPreparation`/`CookedAssetProtocol`/`cooked-asset-worker`落实session/task/epoch、每Worker descriptor注册、唯一buffer transfer、信用和主线程receipt；`GeometryProductResidentAttributes`迁到assets复用原验证数学，`TextureProduct`沿用原完整容器校验。实现与实测限制只读执行文档。
 
 | 固定来源 | 实际阅读入口 | 参考与本地目标 | 不采用的执行假设 |
 |---|---|---|---|

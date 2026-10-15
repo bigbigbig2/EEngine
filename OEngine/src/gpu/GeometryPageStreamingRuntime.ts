@@ -189,8 +189,8 @@ export class GeometryPageStreamingRuntimeV1 {
       options.scheduler ??
       new GeometryPageSchedulerV1(
         options.schedulerOptions ?? {
-          maxConcurrentReads: 2,
-          maxInFlightBytes: 4 * 1024 * 1024
+          maxConcurrentReads: 4,
+          maxInFlightBytes: 64 * 1024 * 1024
         }
       );
     this.#readback = new GpuGeometryDemandReadbackRingV1({

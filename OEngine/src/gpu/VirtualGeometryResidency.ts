@@ -30,8 +30,10 @@ import {
 } from "./GeometryProductGpuAbiV1.js";
 import {
   prepareProductResidentAttributes,
+  preparedResidentPage,
+  releasePreparedPage,
   type ProductResidentPage
-} from "./GeometryProductResidentAttributes.js";
+} from "../assets/geometry-product/GeometryProductResidentAttributes.js";
 import {
   geometryProductGpuBudgetEvidence,
   reserveGeometryProductMetadataBytes
@@ -439,65 +441,76 @@ export class VirtualGeometryResidency {
     this.#banks.push(...this.#slotPool.banks);
     if (pages.length > this.#slotPool.availableSlots)
       throw new RangeError("Geometry Product activation cut exceeds shared GPU slot capacity");
-    let prefetchedPages: readonly GeometryPageProductV1[] | undefined;
+    let prefetchedPages: (GeometryPageProductV1 | undefined)[] | undefined;
     const bootstrapBatchPages = 64;
-    for (let index = 0; index < pages.length; index++) {
-      if (this.#source.readPages !== undefined && index % bootstrapBatchPages === 0) {
+    try {
+      for (let index = 0; index < pages.length; index++) {
+        if (this.#source.readPages !== undefined && index % bootstrapBatchPages === 0) {
+          try {
+            prefetchedPages = [
+              ...(await this.#source.readPages(pages.slice(index, index + bootstrapBatchPages), this.#signal))
+            ];
+          } catch (error) {
+            this.#failedPages++;
+            throw error;
+          }
+        }
+        if (this.#signal?.aborted)
+          throw this.#signal.reason ?? new Error("Geometry Product admission was cancelled");
+        const pageId = pages[index]!;
+        const slot = this.#slotPool.allocate();
+        if (!slot) throw new RangeError("Geometry Product activation cut has no shared GPU slot");
+        const { bankIndex, slotIndex } = slot;
         try {
-          prefetchedPages = await this.#source.readPages(
-            pages.slice(index, index + bootstrapBatchPages),
-            this.#signal
+          const page = snapshotUnverifiedGeometryPageV1(
+            prefetchedPages !== undefined
+              ? prefetchedPages[index % bootstrapBatchPages]!
+              : await this.#source.readPage(pageId, this.#signal)
           );
+          if (this.#signal?.aborted)
+            throw this.#signal.reason ?? new Error("Geometry Product admission was cancelled");
+          const expected = decodeGeometryProductPageRecordV1(this.#descriptor, pageId);
+          if (
+            page.productId.length !== 32 ||
+            !sameBytes(page.productId, this.#descriptor.productId) ||
+            page.revision !== this.#descriptor.revision ||
+            page.pageId !== pageId ||
+            page.bytes.byteLength !== OEGPACK_V3_PAGE_BYTES ||
+            !sameBytes(page.decodedHash128, expected.decodedHash128)
+          )
+            throw new Error(`page ${pageId} returned an invalid Product key, identity or size`);
+          if (!isPageIntegrityPreverifiedV1(page)) {
+            if (page.decodedPageHash128?.byteLength !== 16) {
+              throw new Error(`page ${pageId} integrity digest is missing`);
+            }
+            const digest = new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", page.bytes));
+            if (!sameBytes(digest.subarray(0, 16), page.decodedPageHash128))
+              throw new Error(`page ${pageId} integrity hash mismatch`);
+          }
+          const location = this.#writeResidentPage(
+            page,
+            slot,
+            GEOMETRY_PAGE_LOCATION_RESIDENT | GEOMETRY_PAGE_LOCATION_PINNED
+          );
+          this.#pageLocations.set(pageId, location);
+          this.#pageLastUsed.set(pageId, 0);
+          this.#onResident(pageId);
+          releasePreparedPage(page);
+          if (prefetchedPages) {
+            prefetchedPages[index % bootstrapBatchPages] = undefined;
+          }
         } catch (error) {
+          if (!this.#slotOwners.has(slotKey(bankIndex, slotIndex)))
+            this.#slotPool.release(bankIndex, slotIndex);
           this.#failedPages++;
           throw error;
         }
       }
-      if (this.#signal?.aborted)
-        throw this.#signal.reason ?? new Error("Geometry Product admission was cancelled");
-      const pageId = pages[index]!;
-      const slot = this.#slotPool.allocate();
-      if (!slot) throw new RangeError("Geometry Product activation cut has no shared GPU slot");
-      const { bankIndex, slotIndex } = slot;
-      try {
-        const page = snapshotUnverifiedGeometryPageV1(
-          prefetchedPages !== undefined
-            ? prefetchedPages[index % bootstrapBatchPages]!
-            : await this.#source.readPage(pageId, this.#signal)
-        );
-        if (this.#signal?.aborted)
-          throw this.#signal.reason ?? new Error("Geometry Product admission was cancelled");
-        const expected = decodeGeometryProductPageRecordV1(this.#descriptor, pageId);
-        if (
-          page.productId.length !== 32 ||
-          !sameBytes(page.productId, this.#descriptor.productId) ||
-          page.revision !== this.#descriptor.revision ||
-          page.pageId !== pageId ||
-          page.bytes.byteLength !== OEGPACK_V3_PAGE_BYTES ||
-          !sameBytes(page.decodedHash128, expected.decodedHash128)
-        )
-          throw new Error(`page ${pageId} returned an invalid Product key, identity or size`);
-        if (!isPageIntegrityPreverifiedV1(page)) {
-          if (page.decodedPageHash128?.byteLength !== 16) {
-            throw new Error(`page ${pageId} integrity digest is missing`);
-          }
-          const digest = new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", page.bytes));
-          if (!sameBytes(digest.subarray(0, 16), page.decodedPageHash128))
-            throw new Error(`page ${pageId} integrity hash mismatch`);
+    } finally {
+      for (const page of prefetchedPages ?? []) {
+        if (page) {
+          releasePreparedPage(page);
         }
-        const location = this.#writeResidentPage(
-          page,
-          slot,
-          GEOMETRY_PAGE_LOCATION_RESIDENT | GEOMETRY_PAGE_LOCATION_PINNED
-        );
-        this.#pageLocations.set(pageId, location);
-        this.#pageLastUsed.set(pageId, 0);
-        this.#onResident(pageId);
-      } catch (error) {
-        if (!this.#slotOwners.has(slotKey(bankIndex, slotIndex)))
-          this.#slotPool.release(bankIndex, slotIndex);
-        this.#failedPages++;
-        throw error;
       }
     }
     const groupView = new DataView(
@@ -1114,7 +1127,9 @@ export class VirtualGeometryResidency {
   #prepareResidentPage(page: GeometryPageProductV1): ProductResidentPage {
     let value = this.#preparedPages.get(page);
     if (!value) {
-      value = prepareProductResidentAttributes(this.#descriptor, page.pageId, page.bytes);
+      value =
+        preparedResidentPage(page) ??
+        prepareProductResidentAttributes(this.#descriptor, page.pageId, page.bytes);
       this.#preparedPages.set(page, value);
       // Edge registration is monotonic: only ever-resident coarse parents can
       // have contributed cached shadow content, and those were validated here.

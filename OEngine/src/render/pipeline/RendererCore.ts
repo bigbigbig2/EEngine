@@ -2100,14 +2100,8 @@ export class Renderer {
       if (previous)
         for (let i = 0; i < 16; i++) delta = Math.max(delta, Math.abs(current[i]! - previous[i]!));
       this._streamingCameraMatrices.set(scene, current);
-      const frameTimeMs = Math.max(0, timeDeltaSeconds * 1000);
-      const lastPoll = streaming.lastPoll;
       streaming.updatePressure({
         cameraState: delta > 0.25 ? "cut" : delta > 1e-5 ? "moving" : "stable",
-        ioThroughputBytesPerSecond:
-          lastPoll === null || frameTimeMs === 0 ? undefined : (lastPoll.uploadedBytes * 1000) / frameTimeMs,
-        frameTimeMs,
-        targetFrameTimeMs: 16.67,
       });
     }
     this._profiler.beginFrame(frameIndex);

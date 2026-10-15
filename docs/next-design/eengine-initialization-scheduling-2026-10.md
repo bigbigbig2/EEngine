@@ -10,12 +10,15 @@ verifies:
     - OEngine/src/assets/RuntimeAssetPackage.ts
     - OEngine/src/assets/RuntimeAssetManifestV2.ts
     - OEngine/src/assets/codec/AssetWorkerPool.ts
+    - OEngine/src/assets/codec/CookedAssetPreparation.ts
+    - OEngine/src/assets/codec/CookedAssetCredit.ts
+    - OEngine/src/assets/codec/workers/cooked-asset-worker.ts
     - OEngine/src/assets/geometry-product/GeometryProductV1.ts
     - OEngine/src/assets/geometry-product/OegPackProductProvider.ts
     - OEngine/src/gpu/GeometryPageScheduler.ts
     - OEngine/src/gpu/GeometryPageStreamingRuntime.ts
     - OEngine/src/gpu/VirtualGeometryResidency.ts
-    - OEngine/src/gpu/GeometryProductResidentAttributes.ts
+    - OEngine/src/assets/geometry-product/GeometryProductResidentAttributes.ts
     - OEngine/src/gpu/GeometryProductMultiRuntime.ts
     - OEngine/src/gpu/TextureResidency.ts
     - OEngine/src/render/ShadowGeometryWork.ts

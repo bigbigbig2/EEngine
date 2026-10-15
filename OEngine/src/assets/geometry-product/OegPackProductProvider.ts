@@ -14,11 +14,28 @@ import {
   type GeometryPageProductV1,
 } from "./GeometryProductV1.js";
 
+export interface OegPackPreparedReader {
+  readPages(
+    pageIds: ArrayLike<number>,
+    signal?: AbortSignal,
+    priority?: 0 | 1 | 2
+  ): Promise<readonly GeometryPageProductV1[]>;
+  release(): void;
+}
+
+export interface OegPackPreparation {
+  open(): OegPackPreparedReader;
+  release(): void;
+}
+
 export class OegPackProductProvider implements GeometryProductProviderV1 {
   readonly #packPromise: Promise<OegPackV3>;
   #released = false;
 
-  constructor(pack: OegPackV3 | Promise<OegPackV3>) {
+  constructor(
+    pack: OegPackV3 | Promise<OegPackV3>,
+    readonly preparation?: OegPackPreparation
+  ) {
     this.#packPromise = Promise.resolve(pack);
   }
 
@@ -30,11 +47,12 @@ export class OegPackProductProvider implements GeometryProductProviderV1 {
     if (this.#released) return;
     const descriptor = descriptorFromOegPack(pack);
     assertGeometryProductDescriptorV1(descriptor);
-    yield new OegPackProductRevisionSource(pack, descriptor);
+    yield new OegPackProductRevisionSource(pack, descriptor, this.preparation?.open());
   }
 
   release(): void {
     this.#released = true;
+    this.preparation?.release();
   }
 }
 
@@ -78,6 +96,7 @@ export class OegPackProductRevisionSource implements GeometryProductRevisionSour
   constructor(
     readonly pack: OegPackV3,
     readonly descriptor: GeometryProductDescriptorV1,
+    readonly prepared?: OegPackPreparedReader,
   ) {}
   #toPageProduct(pageId: number, page: OegPackDecodedPageV3): GeometryPageProductV1 {
     const recordOffset = pageId * 32;
@@ -108,6 +127,7 @@ export class OegPackProductRevisionSource implements GeometryProductRevisionSour
     const recordOffset = pageId * 32;
     if (!Number.isInteger(pageId) || pageId < 0 || recordOffset + 32 > this.descriptor.pageRecords.byteLength)
       throw new RangeError("Geometry Product pageId is out of range");
+    if (this.prepared) return (await this.prepared.readPages([pageId], signal))[0]!;
     const page = await this.pack.readPage(pageId, signal);
     throwIfAborted(signal);
     return this.#toPageProduct(pageId, page);
@@ -115,6 +135,7 @@ export class OegPackProductRevisionSource implements GeometryProductRevisionSour
   async readPages(
     pageIds: ArrayLike<number>,
     signal?: AbortSignal,
+    priority: 0 | 1 | 2 = 0,
   ): Promise<readonly GeometryPageProductV1[]> {
     throwIfAborted(signal);
     if (this.#released) throw new Error("OEGPACK Product revision has been released");
@@ -128,6 +149,7 @@ export class OegPackProductRevisionSource implements GeometryProductRevisionSour
       )
         throw new RangeError("Geometry Product pageId is out of range");
     }
+    if (this.prepared) return this.prepared.readPages(pageIds, signal, priority);
     if (this.pack.readPages) {
       const decodedPages = await this.pack.readPages(pageIds, signal);
       throwIfAborted(signal);
@@ -141,6 +163,7 @@ export class OegPackProductRevisionSource implements GeometryProductRevisionSour
   }
   release(): void {
     this.#released = true;
+    this.prepared?.release();
   }
 }
 

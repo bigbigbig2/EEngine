@@ -1,4 +1,5 @@
-import { AssetReadBudget, loadAssetBatch } from "../../../../OEngine/src/assets/AssetLoadBatch.ts";
+import { loadAssetBatch } from "../../../../OEngine/src/assets/AssetLoadBatch.ts";
+import { cookedAssetPreparation } from "../../../../OEngine/src/assets/codec/CookedAssetPreparation.ts";
 import type { Renderer, Scene } from "../../../../OEngine/src/index.ts";
 import {
   load_oegpack_product,
@@ -96,25 +97,33 @@ export async function loadCookedScene(
   const materials = manifest.gltf.materials.map((m) => parseGltfMaterial(m, textures));
   const entries = new Map(manifest.products.map((product) => [product.uri, product.identity]));
   const products = new Map<string, Awaited<ReturnType<typeof openTextureProduct>>>();
+  const coverageUris = new Set<string>();
+  manifest.gltf.materials.forEach((material, index) => {
+    const albedo = manifest.bindings[index]?.texture_albedo;
+    if (material.alphaMode === "MASK" && albedo) {
+      coverageUris.add(albedo.uri);
+    }
+  });
+  const textureEntries = [...manifest.products].sort((a, b) =>
+    Number(coverageUris.has(b.uri)) - Number(coverageUris.has(a.uri)));
   phase("Reading validated BC Texture Products (no codec)");
-  const readBudget = new AssetReadBudget();
-  const loadedTextures = await loadAssetBatch(
-    manifest.products,
+  const preparation = cookedAssetPreparation();
+  const textureSession = preparation.openSession();
+  let loadedTextures;
+  try {
+    loadedTextures = await loadAssetBatch(
+    textureEntries,
     COOKED_TEXTURE_FETCH_CONCURRENCY,
     signal,
     async (entry, _index, batchSignal) => {
-      const response = await fetch(new URL(entry.uri, base), { signal: batchSignal });
-      if (!response.ok) throw new Error(`Cooked asset ${entry.uri}: HTTP ${response.status}`);
-      return readBudget.read(response, batchSignal, async (bytes) => {
-        // The container verifies each payload once; TextureProduct reuses it.
-        const product = await openTextureProduct(bytes);
-        if (product.identity !== entry.identity)
-          throw new Error(`Cooked Product identity mismatch: ${entry.uri}`);
-        return product;
-      });
+      return preparation.readTexture(textureSession, new URL(entry.uri, base).href, entry.identity, batchSignal,
+        coverageUris.has(entry.uri) ? 0 : 2);
     },
   );
-  loadedTextures.forEach((product, index) => products.set(manifest.products[index]!.uri, product));
+  } finally {
+    preparation.closeSession(textureSession);
+  }
+  loadedTextures.forEach((product, index) => products.set(textureEntries[index]!.uri, product));
   for (const [index, material] of materials.entries()) {
     const bindings = manifest.bindings[index]!;
     for (const property of MATERIAL_TEXTURE_PROPERTIES) {

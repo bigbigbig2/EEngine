@@ -20,6 +20,8 @@ import type {
 } from "../../../../OEngine/src/gpu/GpuRenderWorld.ts";
 import { MATERIAL_TEXTURE_PROPERTIES } from "../../../../OEngine/src/assets/PcMaterialTextures.ts";
 import { openTextureProduct, textureProductHash } from "../../../../OEngine/src/assets/TextureProduct.ts";
+import { cookedAssetPreparation } from "../../../../OEngine/src/assets/codec/CookedAssetPreparation.ts";
+import { loadAssetBatch } from "../../../../OEngine/src/assets/AssetLoadBatch.ts";
 import { parseGltfMaterial } from "../../../../OEngine/src/loaders/gltf/gltfMaterials.ts";
 import {
   textureFromGltf,
@@ -96,13 +98,25 @@ export async function loadCookedScene(
   const materials = manifest.gltf.materials.map((m) => parseGltfMaterial(m, textures));
   const entries = new Map(manifest.products.map((product) => [product.uri, product.identity]));
   const products = new Map<string, Awaited<ReturnType<typeof openTextureProduct>>>();
+  const coverageUris = new Set<string>();
+  manifest.gltf.materials.forEach((material, index) => {
+    const albedo = manifest.bindings[index]?.texture_albedo;
+    if (material.alphaMode === "MASK" && albedo) {
+      coverageUris.add(albedo.uri);
+    }
+  });
+  const textureEntries = [...manifest.products].sort((a, b) =>
+    Number(coverageUris.has(b.uri)) - Number(coverageUris.has(a.uri)));
   phase("Reading validated BC Texture Products (no codec)");
-  for (const entry of manifest.products) {
-    signal.throwIfAborted();
-    const product = await openTextureProduct(await fetchBytes(entry.uri));
-    if (product.identity !== entry.identity)
-      throw new Error(`Cooked Product identity mismatch: ${entry.uri}`);
-    products.set(entry.uri, product);
+  const preparation = cookedAssetPreparation();
+  const session = preparation.openSession();
+  try {
+    const loaded = await loadAssetBatch(textureEntries, 4, signal, (entry, _index, batchSignal) =>
+      preparation.readTexture(session, new URL(entry.uri, base).href, entry.identity, batchSignal,
+        coverageUris.has(entry.uri) ? 0 : 2));
+    loaded.forEach((product, index) => products.set(textureEntries[index]!.uri, product));
+  } finally {
+    preparation.closeSession(session);
   }
   for (const [index, material] of materials.entries()) {
     const bindings = manifest.bindings[index]!;

@@ -31,7 +31,7 @@ INIT-1开工前置（本轮实际第一步）：现有诊断机制已存在但�
 | 单元 | 状态 | 闭合边界 |
 |---|---|---|
 | INIT-1 几何帧事务与VSM更新闭包 | 已实现并完成相关正确性验证；性能结果有限，不宣称消除初始化长尾 | 事务发布/退休、变化union、公平完整页、空间时间合批、requested/selected双域及真实Bistro观察闭合；首屏和Worker仍由后续单元处理 |
-| INIT-2 Worker批量资产准备 | 待实施 | 复用pool建立Cooked几何/texture任务，Range批量、验证receipt/transfer、输入与ready背压、可靠独立压力与生命周期；bootstrap与持续流送共用同机制 |
+| INIT-2 Worker批量资产准备 | 已实施并复核；相关验证通过，既有Native Cooker golden失败单列保留 | 复用pool建立Cooked几何/texture任务，Range批量、验证receipt/transfer、输入与ready背压、可靠独立压力与生命周期；bootstrap与持续流送共用同机制 |
 | INIT-3 并行首屏、渐进纹理与真实收敛 | 待实施 | 目录去重、并行必要PSO/资源、首屏critical集合、事务mip区间与预算、view epoch阶段和Bistro真实验证/文档复核；删除旧入口，停回Local Probes边界 |
 
 不按文件、每个shader或每条测试拆阶段。用户授权实施后按顺序连续闭合本轮明确范围；阶段内允许暂时不编译，稳定边界唯一生产ownership。不创建A/B renderer、旧发布adapter或测试专用fallback。现有SSR/AO代码与质量合同保留。
@@ -75,6 +75,27 @@ INIT-1开工前置（本轮实际第一步）：现有诊断机制已存在但�
 - `GeometryPageScheduler`按priority选择后调用batch reader，coalesce相同Product邻近Range；编码/解码/结果全部credit预留，worker和HTTP并发独立；修正floor导致稳定单并发和伪throughput/GPU压力。保留公平、aging、generation完整身份与有界网络重试。
 - bootstrap和持续流送统一batch preparation；ready→hidden stage→INIT-1 candidate，GPU work不由worker完成消息直接决定。trim prefix仅在验证完整页后内部消费，外部256KiB Product合同保留；若首版仍传完整页明确记成本，不伪称zero-copy prefix已完成。
 - Worker crash/取消/epoch替换/descriptor重注册、detached buffer、late结果、scene release和device replay全闭合；1个worker是同路径capacity profile，不添加同步Cooked主线程后端。
+
+#### INIT-2实施记录（2026-10-15）
+
+- **CPU准备唯一入口**：`CookedAssetPreparation`复用`AssetWorkerPool`，默认`max(1,min(4,hardwareConcurrency-2))`个Dedicated Module Worker。HTTP OEGPACK revision source的bootstrap和运行流送都调用同一batch reader；Worker执行Range、原CRC/LZ4/布局、可选decoded SHA和原resident numeric kernel。kernel从gpu迁到`assets/geometry-product/GeometryProductResidentAttributes`，主线程只消费receipt中的payload extent、bounds和refine边，不重复逐顶点扫描。memory/custom provider继续使用原snapshot/digest及同一numeric数学。Worker不可创建明确失败，没有同步Cooked后端。
+- **receipt与会话**：version1、UUID session、单会话epoch1和单调task id一起核对；新source/replacement使用新session，descriptor只在每个实际Worker首次执行该会话时注册，取消/崩溃重建后重注册。内部receipt必须来自实际pool结果，检查task/session/epoch、返回页顺序、完整身份、字节域、integrity策略和group域后重建本realm品牌。纹理Worker完整执行原container/section/Product校验，receiver只重复小metadata/身份/结构接线，不再hash大payload。transfer list按唯一backing buffer去重，发送方失去ownership；普通`verified:true`无效。
+- **读取与背压**：scheduler先按Product公平性、priority与age选至多16页，只在同一current/shadow/predictive urgency域内合批，然后由source按offset合并。gap沿用64KiB，Worker span核定8MiB；默认4个批读取，HTTP admission独立默认4、可配置1..8，HEAD也占IO名额。Worker任务fetch期间仍占一个Worker，因此1个Worker profile不承诺同时4个GET。读前原子预留整批返回域，避免两批各持部分ready而互等；全局临时256MiB、编码32MiB、ready64MiB共同约束，不能把三者相加当新总额。几何按`2×encoded + 3×decoded`保守预留，返回后保留`2×decoded`（完整页加metadata余量），消费/丢弃/关闭source才释放；实际decoded ready因此至多约32MiB。texture输入上限128MiB，预留输入+digest峰值，HEAD/GET长度与identity encoding一致，响应流越界直接停止。
+- **压力与可靠性**：删除Renderer用GPU上传bytes/RAF推算IO及RAF delta压所有预算的接线；稳定无压力恢复4并发，取整改ceil。显式IO压力只影响准备，延迟GPU/编码压力只影响上传，快减/每样本最多0.02恢复/0.05死区；跨阶段通过真实ready信用背压。实际encoded bytes、每任务IO elapsed、Worker busy、IO/Worker/信用高水位保留为独立观测，累计并行IO时间不冒充wall time。瞬态失败单列`lastRetryError`，成功重试不毒化terminal `lastError`；确定性CRC、布局、nonfinite、身份等损坏不走网络重试。late generation/session不发布。
+- **释放与replay**：每个revision source独占Worker会话，释放其中一个不关闭同asset其他source；provider/asset释放关闭剩余会话。会话关闭abort活跃任务、终止相关Worker并丢弃descriptor注册，回收未消费ready；重建Worker再注册。residency bootstrap逐页消费后清理旧批引用，失败清理剩余ready。runtime loss取消旧读取和mapping；checkpoint保留CPU source，replacement device沿同一Worker入口重新读取，CPU验证不依赖GPU device epoch。没有新增frame submit或GPU→CPU→GPU工作控制。
+- **直接consumer**：Bistro和Dungeon都改用共享Cooked texture准备入口，已知MASK albedo/coverage先排队；仍读取全部manifest条目并等待完整Product，未实施identity目录去重、并行首屏PSO或渐进mip区间。INIT-3仍未启动。
+
+Cost Card：不新增GPU buffer、binding、shader、dispatch或submit；删除主线程页CRC/LZ4/数值扫描和完整texture payload SHA工作，转到有界Worker。增加每Worker/session descriptor clone、小receipt/metadata核对、texture HEAD及transfer。v1明确仍传完整256KiB页：Bistro6085页约1521MiB累计decoded transport，对应有效payload约242MiB，尚未实现独占prefix slab；transfer避免额外结构化克隆大拷贝，不等于GPU上传零拷贝。几何ready metadata用保守余量计入总信用；descriptor副本、JS/浏览器网络实现开销和不可变texture replay payload另列，不把逻辑256MiB信用声称为浏览器RSS上界或约1GiB texture存储总上界。低需求0/50/100%时本地pool惰性执行，不因空队列派GPU工作；饱和最坏由各信用与普通帧publication/slot上限背压，至少保留一页进展。未用无限延期发布换FPS。
+
+初轮完整Bistro观察（暖编译/缓存，1920×1080、原场景/默认相机、VSM开启、AO/SSSR原默认关闭、1536MiB几何槽）：首屏约13.36s，最后几何发布约41.50s，5s采样于46.38s确认6085页，暖帧约59.7FPS；INIT-1暖缓存记录14.01s首屏、82.26s最后发布（另一次71.27s）。本次4个真实浏览器Worker，累计857个资产GET（405个texture，452个geometry span），临时信用峰值约160.3MiB、encoded约10.2MiB、ready信用64MiB，最终信用/活跃Worker/queue均归零；无GPU validation、uncaptured或device loss错误，无evict/reload。并行任务IO累计约8.67s、busy约6.82s，不能相加当启动wall time。流送时仍有约5–12FPS窗口；全程RAF最大间隔约1.9s、主线程longtask最大409ms，不能宣称已消除所有卡顿。缓存/温度未做ABBA，首次观察和最终复核分开保留，非正式稳定净提速claim。
+
+验证与失败分类：相关Worker/生命周期/调度检查在本地`.local/init-2-review/`保留。真实isolated Worker执行原production entry（Node仅适配浏览器事件名），覆盖相邻Range合并、urgency gap不混批、CRC/布局/position numeric和texture hash损坏、唯一buffer transfer后detach、本地品牌拒绝伪造、取消/崩溃后的重建重注册、ready消费/关闭释放、Worker不可创建显式失败及source跨device checkpoint/replay；浏览器Bistro另外验证真实Dedicated Module Worker与新生产GPU消费。首次扩大CPU检查错误工作目录导致Native Cooker路径不存在，改用OEngine目录后消除。进一步运行`oegpack-v3`发现一个原生整pack golden不一致：当前/重新编译Cooker都生成`ffabb8ee…`，旧断言为`9b37730e…`；失败发生于TS open前，Native源和该golden断言本轮未改，线程1/4产物一致检查先通过。额外提取独立`419d7a28`基线的原fixture/golden，用重新编译且本轮未改源的Cooker复现相同不一致，保留`baseline-golden.json`。本轮保留断言和失败，不把旧golden更新为“INIT-2修复”，不宣称全套通过。
+
+最终复核：engine production build（含tsc/Vite/declaration）、新鲜build:test、Bistro与Dungeon targeted typecheck通过；10个相关CPU文件78/78通过，包含错误session epoch拒绝及恢复后不残留terminal error。串行真实NVIDIA Turing GPU `geometry-budgeted-residency`、`geometry-shadow-view`、`vsm-v4-r2`通过。扩大Native suite为83/84通过，唯一golden失败与上文相同。没有放宽容差、关闭必要断言或添加production测试fallback。docs-verify为0 findings、81条既有historical warnings。
+
+最终源码完整Bistro复跑：13.20s首屏，40.43s最后几何发布，41.29s采样确认6085页，短暖帧约60.0FPS；另次复核17.41s首屏/46.51s最后发布，说明首屏缓存/编译差异仍明显。最终实际pool观测452个geometry span、405个texture GET、4个Worker和4个IO名额峰值，临时信用约213.6MiB、encoded约10.2MiB、ready信用64MiB，完成后全部used/queue为0；scene release后session为0，geometry/texture GPU owner账归零。相机平移25世界单位后恢复，均保持6085页，无失败/evict/reload/GPU validation错误；截图目视核对正常场景/阴影，但不是pixel oracle。全程最大RAF间隔约1.62s、主线程longtask最大416ms，仍不能宣称无卡顿。
+
+观测失败保留：中间一次探针从无Vite时间戳的URL另import了CPU owner，误读出一个新空pool；该次启动/画面/geometry结果保留，但空pool数字不作资源证据。最终探针从实际`cooked-scene`已绑定的import读取owner，正确验证上述峰值和release。逻辑信用不包含浏览器/驱动RSS；未提供GTX1650Ti，仍无4GB真机证明。现有demo的`fullGeometrySettled`/`Full texture mips ready`不是本轮新view-settled证明，真实收敛UI和首屏critical/并行PSO/纹理区间promotion留INIT-3。单元到此停止。
 
 ### INIT-3：把首屏关键路径和“完成”定义接对
 
