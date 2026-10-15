@@ -354,6 +354,11 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
             });
             aborts.push(() => staging.destroy());
           },
+          uploadRegions(regions) {
+            for (const r of regions) {
+              this.writeBuffer(r.destination, r.destinationOffset, r.bytes.buffer, r.bytes.byteOffset, r.bytes.byteLength);
+            }
+          },
           onFinished: {
             addOne(callback) {
               callbacks.push(callback);
@@ -365,6 +370,7 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
             }
           }
         };
+        streaming.preparePublication(command);
         hierarchy.encode(encoder, h, view, { coneEnabled: false, demandFrameRevisionLow: frame });
         candidate.encode(command, work);
         streaming.encodeDemandReadback(command, h.generated.pageDemand, frame);

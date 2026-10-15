@@ -1,3 +1,4 @@
+import type { FrameProfiler } from "../../debug/FrameProfiler.js";
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
@@ -5,7 +6,8 @@ import {
   VSM_DEPTH_BOUNDS_WGSL,
   VSM_CASTER_SNAPSHOT_BYTES,
   VSM_CASTER_DAMAGE_RECORD_BYTES,
-  VSM_CASTER_DAMAGE_HEADER_BYTES
+  VSM_CASTER_DAMAGE_HEADER_BYTES,
+  VSM_RESIDENCY_INFLUENCE_WORDS
 } from "../../shaders/vsm_depth_bounds.js";
 import { VSM_CASTER_INVALIDATION_WGSL } from "../../shaders/vsm_caster_invalidation.js";
 import { GeometryPageStreamingRuntimeV1 } from "../../gpu/GeometryPageStreamingRuntime.js";
@@ -14,13 +16,23 @@ import type { VsmResources } from "./VsmResources.js";
 import { packVsmProjection, type VsmDirectionalFrameConstants } from "./VsmProjection.js";
 import type { VsmGenerationState } from "./VsmGeneration.js";
 
+/** Exact float32 bit pattern, allocation-free on the per-frame upload path. */
+const bitcastScratch = new Float32Array(1);
+const bitcastWords = new Uint32Array(bitcastScratch.buffer);
+function f32Bits(value: number): number {
+  bitcastScratch[0] = value;
+  return bitcastWords[0]!;
+}
+
 export class VsmDepthBoundsPass {
   private readonly constants: GPUBuffer;
   private scratch: GPUBuffer;
   private snapshots: GPUBuffer;
   private sources: GPUBuffer;
+  private influences: GPUBuffer;
   private damages: GPUBuffer;
   private sourceWords = new Uint32Array(4);
+  private influenceWords = new Uint32Array(VSM_RESIDENCY_INFLUENCE_WORDS);
   private sourceHeaderCount = 0;
   private submittedInstanceCount = -1;
   private readonly dirtyConstants: GPUBuffer;
@@ -29,7 +41,12 @@ export class VsmDepthBoundsPass {
   private readonly layout: GPUBindGroupLayout;
   private readonly boundsPipeline: GPUComputePipeline;
   private readonly publishPipeline: GPUComputePipeline;
-  constructor(private readonly device: GPUDevice) {
+  constructor(
+    private readonly device: GPUDevice,
+    /** Optional sampled GPU-counter owner. Without it this pass still produces
+     * damage, but publication amplification is not observable. */
+    private readonly profiler?: FrameProfiler
+  ) {
     this.constants = device.createBuffer({
       label: "VSM/depth bounds constants",
       size: 96,
@@ -42,6 +59,10 @@ export class VsmDepthBoundsPass {
     });
     this.snapshots = this.createStorage("VSM/caster snapshot", VSM_CASTER_SNAPSHOT_BYTES);
     this.sources = this.createStorage("VSM/caster source stamps", 16);
+    this.influences = this.createStorage(
+      "VSM/residency influences",
+      VSM_RESIDENCY_INFLUENCE_WORDS * Uint32Array.BYTES_PER_ELEMENT
+    );
     this.damages = this.createStorage(
       "VSM/caster damages",
       VSM_CASTER_DAMAGE_HEADER_BYTES + VSM_CASTER_DAMAGE_RECORD_BYTES
@@ -59,7 +80,8 @@ export class VsmDepthBoundsPass {
         { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
         { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
         { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-        { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }
+        { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+        { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } }
       ]
     });
     const module = device.createShaderModule({
@@ -184,8 +206,17 @@ export class VsmDepthBoundsPass {
         this.sources = next;
         this.sourceWords = new Uint32Array(words);
       }
+      const influenceWordCount = words * VSM_RESIDENCY_INFLUENCE_WORDS;
+      if (influenceWordCount * 4 > this.influences.size) {
+        const next = this.createStorage("VSM/residency influences", influenceWordCount * 4);
+        command.destroyAfterGpuDone(this.influences);
+        this.influences = next;
+        this.influenceWords = new Uint32Array(influenceWordCount);
+      }
       this.sourceWords.fill(0);
+      this.influenceWords.fill(0);
       let offset = headers * 4;
+      let influencesWritten = 0;
       visit((residency) => {
         if (!residency.publicationActive) {
           return;
@@ -196,9 +227,29 @@ export class VsmDepthBoundsPass {
           residency.productTableSlot * 4
         );
         this.sourceWords.set(revisions, offset);
+        // Tightened residency changes are drained into the frame that carries
+        // their content revision; anything unproven stays absent and the shader
+        // keeps conservative whole-instance damage for that asset.
+        for (const change of residency.drainResidencyInfluences?.() ?? []) {
+          const index = offset + change.assetIndex;
+          if ((index + 1) * VSM_RESIDENCY_INFLUENCE_WORDS > this.influenceWords.length) continue;
+          const base = index * VSM_RESIDENCY_INFLUENCE_WORDS;
+          this.influenceWords[base] = f32Bits(change.min[0]);
+          this.influenceWords[base + 1] = f32Bits(change.min[1]);
+          this.influenceWords[base + 2] = f32Bits(change.min[2]);
+          this.influenceWords[base + 3] = change.revision;
+          this.influenceWords[base + 4] = f32Bits(change.max[0]);
+          this.influenceWords[base + 5] = f32Bits(change.max[1]);
+          this.influenceWords[base + 6] = f32Bits(change.max[2]);
+          this.influenceWords[base + 7] = residency.productGeneration;
+          influencesWritten++;
+        }
         offset += revisions.length;
       });
       this.sourceHeaderCount = headers;
+      if (influencesWritten > 0) {
+        command.writeBuffer(this.influences, 0, this.influenceWords.buffer, 0, this.influenceWords.byteLength);
+      }
     }
     command.onFinished.addOne(() => {
       this.submittedInstanceCount = instanceCount;
@@ -261,7 +312,8 @@ export class VsmDepthBoundsPass {
           { binding: 3, resource: { buffer: resolved.get(product) as GPUBuffer } },
           { binding: 4, resource: { buffer: this.snapshots } },
           { binding: 5, resource: { buffer: this.sources } },
-          { binding: 6, resource: { buffer: this.damages } }
+          { binding: 6, resource: { buffer: this.damages } },
+          { binding: 7, resource: { buffer: this.influences } }
         ]
       });
       const bounds = command.beginComputePass({ label: "VSM/complete caster bounds" });
@@ -299,6 +351,9 @@ export class VsmDepthBoundsPass {
       );
       dirty.dispatchWorkgroups(Math.ceil(caps.residentSlots / 64));
       dirty.end();
+      // Publication amplification numerator: pages invalidated by caster damage.
+      // Caster invalidation writes word 3 of the damage header in this pass.
+      this.profiler?.copyGpuCounter(command, "vsmDirtyPagesInvalidated", this.damages, 12);
     });
     produce.read(input.instances);
     produce.write(pages);
@@ -311,6 +366,7 @@ export class VsmDepthBoundsPass {
     this.scratch.destroy();
     this.snapshots.destroy();
     this.sources.destroy();
+    this.influences.destroy();
     this.damages.destroy();
     this.dirtyConstants.destroy();
   }

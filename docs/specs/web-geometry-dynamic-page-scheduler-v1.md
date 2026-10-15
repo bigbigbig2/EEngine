@@ -34,8 +34,11 @@ never below the configured minimums or the decoded page size.
 
 The scheduler still consumes delayed GPU demand only on the CPU scheduling
 side; it never rebuilds a visible list or waits for the current GPU submission.
-Priority, generation checks, retries, cancellation, hash verification, and
-upload sink ownership are unchanged.
+Priority, generation checks, retries, cancellation, and hash verification are
+unchanged. `drainStageBudget()` moves verified pages to `submitted` without
+publishing address mappings; bounded candidates are selected per frame via
+`selectPublicationCandidates()` and committed on submission success via
+`commitPublication()`.
 
 ## Capacity and overflow
 

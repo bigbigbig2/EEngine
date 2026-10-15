@@ -14,6 +14,15 @@ export interface ProductResidentPage {
   readonly rawPayloadBytes: number;
   readonly slotCount: 1;
   readonly uploadBytes: number;
+  /** Group id covered first by this page. Page groups are a contiguous range. */
+  readonly groupBegin: number;
+  readonly groupCount: number;
+  /** Object-space AABB per page-local group: 6 floats (min xyz, max xyz). */
+  readonly groupBounds: Float32Array;
+  /** Product-local refine edges as (fineRefineGroupId, coarseGroupId) pairs. A
+   * coarse meshlet's refineGroupId names the *finer* group it simplifies, so the
+   * pair reads "coarse group is a parent of fine group". */
+  readonly refineEdges: Uint32Array;
 }
 
 /** Validate compact geometry before publication, without expanding attributes.
@@ -40,6 +49,8 @@ export function prepareProductResidentAttributes(
   let rawPayloadBytes = 0;
   const pageRecord = decodeGeometryProductPageRecordV1(descriptor, pageId);
   const workload = geometryProductWorkload(descriptor);
+  const groupBounds = new Float32Array(pageRecord.groupCount * 6);
+  const refineEdges: number[] = [];
   for (let group = pageRecord.firstGroup; group < pageRecord.firstGroup + pageRecord.groupCount; group++) {
     const offset = directory.getUint32(group * 16 + 4, true);
     const payload = directory.getUint32(group * 16 + 8, true);
@@ -63,6 +74,13 @@ export function prepareProductResidentAttributes(
     }
     if (header.meshletCount !== workload.groupMeshletCounts[group]) {
       throw new RangeError("Product page meshlet count disagrees with its hierarchy work bound");
+    }
+    const localGroup = group - pageRecord.firstGroup;
+    const bounds = header.bboxMin;
+    const boundsMax = header.bboxMax;
+    for (let axis = 0; axis < 3; axis++) {
+      groupBounds[localGroup * 6 + axis] = bounds[axis]!;
+      groupBounds[localGroup * 6 + 3 + axis] = boundsMax[axis]!;
     }
     const format = header.vertexFormatId * 16;
     const stride = formats.getUint16(format, true),
@@ -106,6 +124,11 @@ export function prepareProductResidentAttributes(
       ) {
         throw new RangeError("Product resident meshlet layout is invalid");
       }
+      // The refine id names the finer group this coarse meshlet simplifies, so
+      // the pair is (fine group, this coarse group). Roots carry no refine id.
+      if (meshlet.refineGroupId !== 0xffffffff) {
+        refineEdges.push(meshlet.refineGroupId, group);
+      }
       const triStart = offset + meshlet.triangleByteOffset;
       const triEnd = triStart + meshlet.triangleCount * 3;
       const vCount = meshlet.vertexCount;
@@ -143,5 +166,13 @@ export function prepareProductResidentAttributes(
     throw new RangeError("Product resident page has no groups");
   }
   rawPayloadBytes = Math.ceil(rawPayloadBytes / 4) * 4;
-  return Object.freeze({ rawPayloadBytes, slotCount: 1, uploadBytes: rawPayloadBytes });
+  return Object.freeze({
+    rawPayloadBytes,
+    slotCount: 1 as const,
+    uploadBytes: rawPayloadBytes,
+    groupBegin: pageRecord.firstGroup,
+    groupCount: pageRecord.groupCount,
+    groupBounds,
+    refineEdges: Uint32Array.from(refineEdges),
+  });
 }

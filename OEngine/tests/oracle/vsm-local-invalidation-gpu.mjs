@@ -55,12 +55,20 @@ export async function runVsmLocalInvalidationGpuOracle(device) {
     caster(6.5, 1),
     { ...caster(30.5, 2), boundsMin: [-1, -1, -10], boundsMax: [1, 1, 10] }
   ];
+  /** Proven per-asset changed regions for the residency-influence path. The
+   * oracle drains them exactly like the production damage owner. */
+  let pendingInfluences = [];
   const source = {
     publicationActive: true,
     productTableSlot: 3,
     productGeneration: 0xfedcba98,
     assetReferenceBegin: 40,
-    assetContentRevisions: new Uint32Array([7, 8, 9])
+    assetContentRevisions: new Uint32Array([7, 8, 9]),
+    drainResidencyInfluences() {
+      const drained = pendingInfluences;
+      pendingInfluences = [];
+      return drained;
+    }
   };
   const scene = {};
   let revision = 0;
@@ -310,6 +318,38 @@ export async function runVsmLocalInvalidationGpuOracle(device) {
     check(!currentState.fullInvalidate && currentState.resized, "resize changed projection content identity");
     await submit({ reset: true });
     check(currentState.fullInvalidate, "explicit reset cannot use local damage");
+
+    // A proven residency influence tightens damage to the changed region.
+    // Unproven / fallback relations keep conservative whole-instance damage.
+    const wide = { ...caster(0.5), boundsMin: [-3, -3, -1], boundsMax: [3, 3, 1] };
+    records = [wide];
+    await submit();
+    const tightenSeed = seed();
+    source.assetContentRevisions[0]++;
+    pendingInfluences = [
+      {
+        assetIndex: 0,
+        min: [-0.4, -0.4, -1],
+        max: [0.4, 0.4, 1],
+        revision: source.assetContentRevisions[0]
+      }
+    ];
+    await submit();
+    const tightenedPages = new Uint32Array(await inspect(resources.pageTable));
+    const tightInside = tightenSeed.find((c) => c.level === 0 && c.mip === 0 && c.x === 0 && c.y === 0);
+    check((tightenedPages[tightInside.index * 12 + 3] & 2) !== 0, "page inside the proven influence must be dirty");
+    const tightOutside = tightenSeed.find((c) => c.level === 0 && c.mip === 0 && c.x === 6 && c.y === 0);
+    check((tightenedPages[tightOutside.index * 12 + 3] & 2) === 0, "page outside the proven influence must stay ready");
+
+    // Unproven influence (empty) falls back to whole-instance damage.
+    seed();
+    source.assetContentRevisions[0]++;
+    pendingInfluences = [];
+    await submit();
+    const fallbackPages = new Uint32Array(await inspect(resources.pageTable));
+    check((fallbackPages[tightInside.index * 12 + 3] & 2) !== 0, "fallback damage marks inside page dirty");
+    assertions += 3;
+
     return {
       assertions,
       clips: caps.clipLevels,
@@ -319,7 +359,8 @@ export async function runVsmLocalInvalidationGpuOracle(device) {
       oldNew: "passed",
       productAssetStamps: "passed",
       mask: "passed",
-      abortResizeRetry: "passed"
+      abortResizeRetry: "passed",
+      tightenedInfluence: "passed"
     };
   } finally {
     await device.queue.onSubmittedWorkDone();

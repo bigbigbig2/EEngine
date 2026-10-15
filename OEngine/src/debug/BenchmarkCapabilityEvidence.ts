@@ -258,12 +258,19 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
   iblMip6: unsupported("V4-S3", "Retired Surface reducer; no native counter producer"),
   iblMip7: unsupported("V4-S3", "Retired Surface reducer; no native counter producer"),
   iblMip8: unsupported("V4-S3", "Retired Surface reducer; no native counter producer"),
-  shadowCascade0RasterWork: supported("PackedCsmShadowPass/cascade-0 queue reducer"),
-  shadowCascade1RasterWork: supported("PackedCsmShadowPass/cascade-1 queue reducer"),
-  shadowCascade2RasterWork: supported("PackedCsmShadowPass/cascade-2 queue reducer"),
-  shadowAtlasPixelsUpdated: supported("PackedCsmShadowPass/atlas update reducer"),
-  shadowAlphaRasterWork: supported("PackedCsmShadowPass/alpha flag reducer"),
-  shadowQueueOverflowMask: supported("PackedCsmShadowPass/per-cascade overflow reducer"),
+  // The declared PackedCsmShadowPass producers were deleted when VSM replaced
+  // packed CSM. These indices stay in the ABI, but nothing writes them until the
+  // VSM path publishes real page/caster/raster volumes under INIT-1.
+  shadowCascade0RasterWork: unsupported("INIT-1", "Packed CSM producer deleted; no VSM counter producer"),
+  shadowCascade1RasterWork: unsupported("INIT-1", "Packed CSM producer deleted; no VSM counter producer"),
+  shadowCascade2RasterWork: unsupported("INIT-1", "Packed CSM producer deleted; no VSM counter producer"),
+  shadowAtlasPixelsUpdated: unsupported("INIT-1", "Packed CSM producer deleted; no VSM counter producer"),
+  shadowAlphaRasterWork: unsupported("INIT-1", "Packed CSM producer deleted; no VSM counter producer"),
+  shadowQueueOverflowMask: unsupported("INIT-1", "Packed CSM producer deleted; no VSM counter producer"),
+  vsmDirtyPagesDirty: supported("VsmAllocatePagesPass/publish_dirty allocation header word 0"),
+  vsmDirtyPagesSelected: supported("VsmAllocatePagesPass/publish_dirty allocation header word 1"),
+  vsmDirtyPagesInvalidated: supported("VsmDepthBoundsPass/caster invalidation dirty-slot reducer"),
+  vsmDirtyPagesPending: supported("VsmAllocatePagesPass/publish_dirty telemetry word 7"),
   transparentRasterWork: unsupported(
     "L3.2",
     "Unreachable legacy transparent owner retired; no production counter producer"

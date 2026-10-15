@@ -79,7 +79,13 @@ test("page content stamps cover all referencing assets without dirtying unrelate
     try {
       const { residency } = await runtime.load(fixture.source);
       const initial = [...residency.assetContentRevisions];
-      assert.equal(residency.tryUploadPage(await fixture.source.readPage(1)), true);
+      assert.equal(residency.tryStagePage(await fixture.source.readPage(1)), true);
+      assert.deepEqual(
+        [...residency.assetContentRevisions],
+        initial,
+        "staging a hidden slot must not churn caster stamps before the frame commits",
+      );
+      residency.commitStagedPages([1]);
       assert.ok(residency.assetContentRevisions[0] > initial[0]);
       assert.equal(residency.assetContentRevisions[1] > initial[1], shared);
       const uploaded = [...residency.assetContentRevisions];
@@ -112,11 +118,13 @@ test("payload accounting follows publication, retirement, reload and release rat
   );
   const page = await fixture.source.readPage(1);
   const stampBefore = residency.assetContentRevisions[0];
-  assert.equal(residency.tryUploadPage(page), true);
+  assert.equal(residency.tryStagePage(page), true);
+  residency.commitStagedPages([page.pageId]);
   assert.ok(residency.assetContentRevisions[0] > stampBefore);
   assert.equal(residency.assetContentRevisions[0], residency.contentRevision);
   const uploadedStamp = residency.assetContentRevisions[0];
-  assert.equal(residency.tryUploadPage(page), true);
+  assert.equal(residency.tryStagePage(page), true);
+  residency.commitStagedPages([page.pageId]);
   assert.equal(
     residency.assetContentRevisions[0],
     uploadedStamp,
@@ -139,7 +147,8 @@ test("payload accounting follows publication, retirement, reload and release rat
   residency.completeRetirePage(1);
   assert.equal(residency.assetContentRevisions[0], retiredStamp, "fence only frees already-revoked bytes");
   assert.equal(residency.evidence().retiringPayloadBytes, 0);
-  assert.equal(residency.tryUploadPage(page), true);
+  assert.equal(residency.tryStagePage(page), true);
+  residency.commitStagedPages([page.pageId]);
   assert.ok(residency.assetContentRevisions[0] > retiredStamp);
   const streamer = new GeometryPageStreamingRuntimeV1(gpu, residency);
   const activeRevision = streamer.contentRevision;
@@ -198,7 +207,8 @@ test("page tail directory and decoded attributes never overwrite authored geomet
   const handle = await runtime.load(fixture.source);
   try {
     const residency = handle.residency;
-    assert.equal(residency.tryUploadPage(await fixture.source.readPage(1)), true);
+    assert.equal(residency.tryStagePage(await fixture.source.readPage(1)), true);
+    residency.commitStagedPages([1]);
     assert.equal(residency.evidence().residentBytes, 2 * 262144);
     for (const pageId of [0, 1]) {
       const original = await fixture.source.readPage(pageId);
@@ -402,14 +412,14 @@ test("verified bytes remain bounded and both IO/upload service make progress acr
   scheduler.ingestDemands(demands);
   const uploaded = [];
   const sink = {
-    uploadPage(_page, identity) {
+    stagePage(_page, identity) {
       uploaded.push(identity);
     },
   };
   for (let tick = 0; tick < 180 && uploaded.length < demands.length; tick++) {
     await scheduler.drainReads();
     assert.ok(scheduler.evidence().inFlightBytes + scheduler.evidence().verifiedBytes <= 8 * 262144);
-    scheduler.drainUploadBudget(sink);
+    scheduler.drainStageBudget(sink);
     scheduler.tick(tick);
   }
   assert.equal(uploaded.length, demands.length);
@@ -528,5 +538,75 @@ test("late cancelled activation and failed replacement cannot republish into a r
   assert.equal(runtime.shard(0).productGeneration, active.productGeneration);
   assert.equal(failed.releases, 1);
   assert.ok(active.residency.pageLocation(0));
+  runtime.destroy();
+});
+
+test("page mapping publication is a frame transaction: staged pages stay invisible until commit", async () => {
+  const gpu = device();
+  const runtime = new GeometryProductMultiRuntimeV1(gpu, {
+    metadataBytes: 64 * 1024,
+    residency: { configuredCapacityBytes: 2 * MiB },
+  });
+  const fixture = await streamingProductFixture(3);
+  const handle = await runtime.load(fixture.source);
+  const residency = handle.residency;
+  const pageId = 1;
+  const page = await fixture.source.readPage(pageId);
+  const command = {
+    regions: [],
+    uploadRegions(regions) {
+      this.regions.push(...regions);
+    },
+    onFinished: { addOne() {} },
+  };
+
+  assert.equal(residency.tryStagePage(page), true);
+  assert.equal(residency.pageLocation(pageId), undefined, "a staged page has no published mapping");
+  assert.equal(residency.evidence().stagedPages, 1);
+  assert.equal(residency.assetContentRevisions.length > 0, true);
+
+  const encoded = residency.preparePublication(command, [pageId]);
+  assert.deepEqual([...encoded], [pageId]);
+  assert.equal(command.regions.length, 1);
+  const address = runtime.pageLocationAddress(
+    handle.productTableSlot,
+    handle.productGeneration,
+    pageId,
+  );
+  assert.equal(command.regions[0].destination, address.buffer);
+  assert.equal(command.regions[0].destinationOffset, address.byteOffset);
+  assert.equal(command.regions[0].bytes.byteLength, 16);
+  // The encoded record is a genuine resident mapping for this generation even
+  // though CPU residency still reports the page as unpublished.
+  const validation = validateGeometryProductGpuLocationV1(
+    command.regions[0].bytes,
+    handle.productGeneration,
+  );
+  assert.equal(validation.valid, true);
+  assert.equal(validation.resident, true);
+  assert.equal(validation.productGeneration, handle.productGeneration);
+
+  // No commit: an aborted frame must leave the page staged and retryable.
+  assert.equal(residency.pageLocation(pageId), undefined);
+  const retry = { regions: [], uploadRegions: command.uploadRegions, onFinished: { addOne() {} } };
+  assert.deepEqual([...residency.preparePublication(retry, [pageId])], [pageId]);
+  assert.equal(retry.regions.length, 1);
+  assert.deepEqual([...retry.regions[0].bytes], [...command.regions[0].bytes]);
+
+  residency.commitStagedPages([pageId]);
+  assert.ok(residency.pageLocation(pageId), "a committed publication becomes addressable");
+  assert.equal(residency.evidence().stagedPages, 0);
+  assert.deepEqual(
+    [...encodeGeometryProductGpuLocationV1(residency.pageLocation(pageId))],
+    [...command.regions[0].bytes],
+    "published CPU state must be exactly the mapping the frame encoded",
+  );
+
+  // A page retired while still staged is discarded, never published.
+  assert.equal(residency.tryStagePage(await fixture.source.readPage(2)), true);
+  assert.equal(residency.evidence().stagedPages, 1);
+  residency.beginRetirePage(2);
+  assert.equal(residency.evidence().stagedPages, 0);
+  assert.equal(residency.pageLocation(2), undefined);
   runtime.destroy();
 });

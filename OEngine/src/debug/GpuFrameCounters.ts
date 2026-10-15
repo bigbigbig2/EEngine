@@ -4,8 +4,8 @@ import type {
   ResourceHandle as AccountingResourceHandle
 } from "./profiling/ResourceAccounting.js";
 
-export const GPU_COUNTER_SCHEMA_VERSION = 29;
-export const GPU_COUNTER_BYTE_SIZE = 832;
+export const GPU_COUNTER_SCHEMA_VERSION = 30;
+export const GPU_COUNTER_BYTE_SIZE = 848;
 
 /** Stable schema holes; indices are never silently reused across ABI revisions. */
 export const GPU_COUNTER_RESERVED_INDICES = Object.freeze([
@@ -487,6 +487,31 @@ export const GPU_COUNTER_FIELDS = [
     name: "localLightTaskBudget",
     index: 207,
     semantic: "finalized LocalLightWork header word 15; sampled copy, not BRDF evaluations"
+  },
+  // Initialization-scheduling amplification. The three words come from buffers
+  // that already exist and are already written in the same frame, so these are
+  // sampled copies with no extra dispatch. Publication amplification is
+  // invalidated/selected per published geometry page; the remaining dirty
+  // backlog is dirty - selected.
+  {
+    name: "vsmDirtyPagesDirty",
+    index: 208,
+    semantic: "sampled VSM dirty page candidates before the bounded selection"
+  },
+  {
+    name: "vsmDirtyPagesSelected",
+    index: 209,
+    semantic: "sampled VSM complete pages selected for raster work this frame"
+  },
+  {
+    name: "vsmDirtyPagesInvalidated",
+    index: 210,
+    semantic: "sampled VSM pages whose content was invalidated by caster damage"
+  },
+  {
+    name: "vsmDirtyPagesPending",
+    index: 211,
+    semantic: "sampled VSM dirty pages unselected this frame and carried in the backlog"
   }
 ] as const;
 

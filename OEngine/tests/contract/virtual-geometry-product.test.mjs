@@ -225,12 +225,14 @@ test("Product-aware residency delays reuse of a retiring slot", async () => {
     decodedPageHash128: product.pageRecords.slice(32, 48),
     bytes: page.slice().buffer,
   };
-  residency.uploadPage(demanded);
+  residency.stagePage(demanded);
+  residency.commitStagedPages([1]);
   residency.beginRetirePage(1);
   assert.equal(residency.evidence().retiringPages, 1);
-  assert.throws(() => residency.uploadPage(demanded), /retiring/);
+  assert.throws(() => residency.stagePage(demanded), /retiring/);
   residency.completeRetirePage(1);
-  residency.uploadPage(demanded);
+  residency.stagePage(demanded);
+  residency.commitStagedPages([1]);
   assert.equal(residency.pageLocation(1).flags, 1);
   assert.equal(residency.evidence().pinnedPages, 1);
   assert.equal(residency.evidence().retiringPages, 0);
@@ -282,7 +284,8 @@ test("Product-aware residency selects only aged, non-pinned pages for eviction",
     decodedPageHash128: product.pageRecords.slice(32, 48),
     bytes: page.slice().buffer,
   };
-  residency.uploadPage(demanded);
+  residency.stagePage(demanded);
+  residency.commitStagedPages([1]);
   assert.deepEqual(residency.selectEvictionCandidates(1, 524288, 2), []);
   residency.touchPage(1, 1);
   assert.deepEqual(residency.selectEvictionCandidates(2, 524288, 2), []);
@@ -369,8 +372,8 @@ test("eviction weighs GPU request/visibility, prediction and refetch cost; recor
     release() {},
   };
   const residency = await VirtualGeometryResidency.create(device, source);
-  const upload = (pageId) =>
-    residency.uploadPage({
+  const upload = (pageId) => {
+    residency.stagePage({
       productId: product.productId.slice(),
       revision: 0,
       pageId,
@@ -378,6 +381,8 @@ test("eviction weighs GPU request/visibility, prediction and refetch cost; recor
       decodedPageHash128: records.slice(pageId * 32, pageId * 32 + 16),
       bytes: page.slice().buffer,
     });
+    residency.commitStagedPages([pageId]);
+  };
   upload(1);
   upload(2);
   residency.recordDemand(2, 10, true, false, 4);

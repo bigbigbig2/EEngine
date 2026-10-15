@@ -37,6 +37,8 @@ import {
   reserveGeometryProductMetadataBytes,
 } from "./GeometryProductGpuBudget.js";
 import { GeometryProductSlotPool } from "./GeometryProductSlotPool.js";
+import { GeometryRefineInfluenceV1, GEOMETRY_REFINE_INFLUENCE_FLOATS } from "../assets/geometry-product/GeometryRefineInfluenceV1.js";
+import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import {
   selectGeometryProductResidencyProfileV1,
   type GeometryProductResidencyProfileOptionsV1,
@@ -59,6 +61,15 @@ export interface GeometryPageLocationV1 {
   readonly residentByteOffset?: number;
 }
 
+/** One asset's conservative changed object-space region for the frame that
+ * carries `revision`. Produced when a page publishes or retires. */
+export interface GeometryResidencyInfluenceV1 {
+  readonly assetIndex: number;
+  readonly min: readonly [number, number, number];
+  readonly max: readonly [number, number, number];
+  readonly revision: number;
+}
+
 export interface VirtualGeometryResidencyEvidenceV1 {
   readonly residencyProfile: GeometryProductResidencyProfilePlanV1["profile"];
   readonly profileBankBytes: number;
@@ -70,6 +81,9 @@ export interface VirtualGeometryResidencyEvidenceV1 {
   readonly failedRevisions: number;
   readonly requestedPages: number;
   readonly residentPages: number;
+  /** Hidden payload slots: reserved and filled, not yet addressable by consumers. */
+  readonly stagedPages: number;
+  readonly stagedBytes: number;
   readonly pinnedPages: number;
   readonly residentBytes: number;
   readonly retiringBytes: number;
@@ -77,6 +91,13 @@ export interface VirtualGeometryResidencyEvidenceV1 {
   readonly residentPayloadBytes: number;
   readonly retiringPayloadBytes: number;
   readonly residentInternalSlackBytes: number;
+  /** Asset residency changes whose changed region could be tightened. */
+  readonly influenceAssets: number;
+  /** Asset residency changes that had to keep conservative whole-instance
+   * damage because the refine relation could not be proven. */
+  readonly influenceFallbacks: number;
+  readonly refineInfluenceGroups: number;
+  readonly refineInfluenceOverflowed: boolean;
   readonly totalPages: number;
   readonly evictedPages: number;
   readonly uploadedBytes: number;
@@ -123,6 +144,14 @@ export interface GeometryProductGpuBindingsV1 {
 export interface GeometryProductPageLocationSinkV1 {
   bindings(): GeometryProductGpuBindingsV1;
   assetReferenceBegin(productTableSlot: number, productGeneration: number): number;
+  /** Frame-ordered directory address for one page location. Undefined when the
+   * slot/generation is no longer current, in which case the page stays staged. */
+  pageLocationAddress(
+    productTableSlot: number,
+    productGeneration: number,
+    pageId: number,
+  ): { readonly buffer: GPUBuffer; readonly byteOffset: number } | undefined;
+  /** Immediate publication used only by the Product admission transaction. */
   publishPageLocation(
     productTableSlot: number,
     productGeneration: number,
@@ -162,15 +191,21 @@ const EVICTION_THRASH_WINDOW_FRAMES = 60;
 /** Product-owned bootstrap admission and decoded-page heap. Later demand/eviction extends this owner. */
 export class VirtualGeometryResidency {
   #contentRevision = 0;
+  #candidateState?: {
+    readonly pageIds: readonly number[];
+    readonly nextRevision: number;
+    readonly candidateAssetRevisions: Uint32Array;
+    candidateInfluences: readonly GeometryResidencyInfluenceV1[];
+  };
   readonly #assetContentRevisions: Uint32Array;
   readonly #pageAssetOffsets: Uint32Array;
   readonly #pageAssetIndices: Uint32Array;
   get contentRevision(): number {
-    return this.#contentRevision;
+    return this.#candidateState?.nextRevision ?? this.#contentRevision;
   }
   /** Complete authored asset identity; content stamps change only on actual page publication/revocation. */
   get assetContentRevisions(): Readonly<Uint32Array> {
-    return this.#assetContentRevisions;
+    return this.#candidateState?.candidateAssetRevisions ?? this.#assetContentRevisions;
   }
   get assetReferenceBegin(): number {
     return this.#pageLocationSink?.assetReferenceBegin(this.#productTableSlot, this.#productGeneration) ?? 0;
@@ -181,6 +216,15 @@ export class VirtualGeometryResidency {
   #slotPool: GeometryProductSlotPool | undefined;
   readonly #releaseReservations: Array<() => void> = [];
   readonly #pageLocations = new Map<number, GeometryPageLocationV1>();
+  /** Reserved, payload-complete, still unreachable: the address table is only
+   * advanced by a committed frame publication. */
+  readonly #stagedPages = new Map<
+    number,
+    {
+      readonly page: GeometryPageProductV1;
+      readonly location: GeometryPageLocationV1;
+    }
+  >();
   readonly #retiringLocations = new Map<number, GeometryPageLocationV1>();
   readonly #slotOwners = new Map<string, number>();
   readonly #pageSlots = new Map<
@@ -193,6 +237,24 @@ export class VirtualGeometryResidency {
   readonly #pageHistory = new Map<number, PageEvictionHistory>();
   readonly #pageImportance = new Map<number, number>();
   readonly #groupLocations = new Map<number, GeometryPageLocationV1 & { readonly byteOffset: number }>();
+  /** group id -> owning asset, built once from the descriptor asset ranges. */
+  readonly #groupAsset: Uint32Array;
+  /** Reverse refine index: per fine group, the union AABB of its coarse parents. */
+  readonly #refineInfluence: GeometryRefineInfluenceV1;
+  /** Per-page influence data kept from staging until the page is committed or
+   * retired, so the change set is known without re-decoding the page. */
+  readonly #pageInfluence = new Map<
+    number,
+    {
+      readonly bounds: ReadonlyMap<number, Float32Array>;
+      readonly fallbackAssets: ReadonlySet<number>;
+    }
+  >();
+  /** Asset changes whose tighten bounds are waiting for the frame that carries
+   * their content revision. Drained by the VSM damage owner. */
+  readonly #pendingInfluences = new Map<number, { readonly bounds: Float32Array; revision: number }>();
+  #influenceAssets = 0;
+  #influenceFallbacks = 0;
   readonly #descriptor: GeometryProductDescriptorV1;
   readonly #source: GeometryProductRevisionSourceV1;
   readonly #productGeneration: number;
@@ -230,7 +292,13 @@ export class VirtualGeometryResidency {
     this.#signal = signal;
     this.#indexHierarchyImportance();
     const assetCount = source.descriptor.assetRecords.byteLength / 128;
+    const groupCount = source.descriptor.groupDirectory.byteLength / 16;
     this.#assetContentRevisions = new Uint32Array(assetCount);
+    /** group id -> owning asset; refine damage must be reported per asset. */
+    this.#groupAsset = new Uint32Array(groupCount);
+    this.#refineInfluence = new GeometryRefineInfluenceV1(
+      Math.min(1 << 20, Math.max(1024, groupCount)),
+    );
     const pageCount = source.descriptor.pageRecords.byteLength / 32;
     const pageAssets: number[][] = Array.from({ length: pageCount }, () => []);
     const assets = new DataView(
@@ -249,6 +317,7 @@ export class VirtualGeometryResidency {
       const pages = new Set<number>();
       for (let group = begin; group < begin + count; group++) {
         pages.add(groups.getUint32(group * 16, true));
+        if (group < this.#groupAsset.length) this.#groupAsset[group] = asset;
       }
       for (const page of pages) {
         pageAssets[page]!.push(asset);
@@ -668,25 +737,26 @@ export class VirtualGeometryResidency {
     if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed");
     return this.#groupLocations.get(groupId);
   }
-  /** Scheduler upload sink. The page was hash-verified before this synchronous publication. */
+  /** Scheduler staging sink. The page was hash-verified before this synchronous
+   * payload write into a hidden slot; no address becomes visible here. */
   uploadCost(page: GeometryPageProductV1): number {
-    if (this.#pageLocations.has(page.pageId)) return 0;
+    if (this.#pageLocations.has(page.pageId) || this.#stagedPages.has(page.pageId)) return 0;
     return this.#prepareResidentPage(page).uploadBytes;
   }
-  /** Capacity pressure leaves a verified completion queued; it never publishes
+  /** Capacity pressure leaves a verified completion queued; it never stages
    * only a partial page. */
-  tryUploadPage(page: GeometryPageProductV1): boolean {
+  tryStagePage(page: GeometryPageProductV1): boolean {
     if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed");
-    if (this.#pageLocations.has(page.pageId)) return true;
+    if (this.#pageLocations.has(page.pageId) || this.#stagedPages.has(page.pageId)) return true;
     if (
       this.#retiringLocations.has(page.pageId) ||
       this.#slotPool!.availableSlots < this.#prepareResidentPage(page).slotCount
     )
       return false;
-    this.uploadPage(page);
+    this.stagePage(page);
     return true;
   }
-  uploadPage(page: GeometryPageProductV1): void {
+  stagePage(page: GeometryPageProductV1): void {
     if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed");
     this.#assertPageId(page.pageId);
     if (
@@ -698,9 +768,9 @@ export class VirtualGeometryResidency {
     const expected = decodeGeometryProductPageRecordV1(this.#descriptor, page.pageId);
     if (!sameBytes(page.decodedHash128, expected.decodedHash128))
       throw new Error("Geometry Product page identity is invalid");
-    if (this.#pageLocations.has(page.pageId)) return;
+    if (this.#pageLocations.has(page.pageId) || this.#stagedPages.has(page.pageId)) return;
     if (this.#retiringLocations.has(page.pageId))
-      throw new Error("Geometry Product page is retiring and cannot be re-uploaded yet");
+      throw new Error("Geometry Product page is retiring and cannot be re-staged yet");
     if (this.#contentRevision >= 0xfffffffe) throw new RangeError("Geometry content revision exhausted");
     const slot = this.#acquireSlot();
     if (!slot) throw new Error("Geometry Product shared resident heap is full; page must remain queued");
@@ -711,22 +781,152 @@ export class VirtualGeometryResidency {
       this.#slotPool!.release(slot.bankIndex, slot.slotIndex);
       throw error;
     }
-    this.#pageLocations.set(page.pageId, location);
-    this.#preparedPages.delete(page);
-    this.#pageLastUsed.set(page.pageId, 0);
-    this.#onResident(page.pageId);
-    this.#publishPageLocation(page.pageId, location);
-    this.#publishGroupsForPage(page.pageId, location);
-    this.#contentRevision++;
-    this.#markPageAssets(page.pageId);
+    this.#stagedPages.set(page.pageId, Object.freeze({ page, location }));
+    this.#pageInfluence.set(page.pageId, this.#computePageInfluence(this.#prepareResidentPage(page)));
+  }
+  /** Encodes pending mapping publications into the caller's frame encoder and
+   * returns exactly the page ids whose copies were encoded. Staged pages without
+   * a current directory address stay staged and are retried by a later frame. */
+  preparePublication(command: ShadeGPUCommandContext, pageIds: readonly number[]): readonly number[] {
+    if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed");
+    if (pageIds.length === 0) return Object.freeze([]);
+    const encoded: number[] = [];
+    const regions: Array<{
+      readonly destination: GPUBuffer;
+      readonly destinationOffset: number;
+      readonly bytes: Uint8Array;
+    }> = [];
+    for (const pageId of pageIds) {
+      const staged = this.#stagedPages.get(pageId);
+      if (staged === undefined) continue;
+      const address = this.#pageLocationAddress(pageId);
+      if (address === undefined) continue;
+      regions.push({
+        destination: address.buffer,
+        destinationOffset: address.byteOffset,
+        bytes: encodeGeometryProductGpuLocationV1(staged.location),
+      });
+      encoded.push(pageId);
+    }
+    if (encoded.length === 0) return Object.freeze([]);
+    command.uploadRegions(regions);
+    const nextRevision = this.#contentRevision + 1;
+    const candidateAssetRevisions = new Uint32Array(this.#assetContentRevisions);
+    const candidateInfluences: GeometryResidencyInfluenceV1[] = [];
+    for (const pageId of encoded) {
+      for (let index = this.#pageAssetOffsets[pageId]!; index < this.#pageAssetOffsets[pageId + 1]!; index++) {
+        candidateAssetRevisions[this.#pageAssetIndices[index]!] = nextRevision;
+      }
+      const influence = this.#pageInfluence.get(pageId);
+      if (influence !== undefined) {
+        for (const asset of influence.fallbackAssets) {
+          this.#influenceFallbacks++;
+        }
+        for (const [asset, bounds] of influence.bounds) {
+          this.#influenceAssets++;
+          candidateInfluences.push(
+            Object.freeze({
+              assetIndex: asset,
+              min: Object.freeze([bounds[0]!, bounds[1]!, bounds[2]!] as const),
+              max: Object.freeze([bounds[3]!, bounds[4]!, bounds[5]!] as const),
+              revision: nextRevision,
+            }),
+          );
+        }
+      }
+    }
+    this.#candidateState = {
+      pageIds: encoded,
+      nextRevision,
+      candidateAssetRevisions,
+      candidateInfluences,
+    };
+    return Object.freeze(encoded);
+  }
+  /** Advances CPU residency for pages whose frame publication was submitted.
+   * Must only run from the submission that carried their encoded copies. */
+  commitStagedPages(pageIds: readonly number[]): void {
+    if (this.#destroyed) return;
+    const candidate = this.#candidateState;
+    if (candidate !== undefined) {
+      this.#contentRevision = candidate.nextRevision;
+      this.#assetContentRevisions.set(candidate.candidateAssetRevisions);
+      this.#candidateState = undefined;
+    }
+    for (const pageId of pageIds) {
+      const staged = this.#stagedPages.get(pageId);
+      if (staged === undefined) continue;
+      this.#stagedPages.delete(pageId);
+      this.#pageLocations.set(pageId, staged.location);
+      this.#preparedPages.delete(staged.page);
+      this.#pageLastUsed.set(pageId, 0);
+      this.#onResident(pageId);
+      this.#publishGroupsForPage(pageId, staged.location);
+      if (candidate === undefined) {
+        if (this.#contentRevision >= 0xfffffffe) throw new RangeError("Geometry content revision exhausted");
+        this.#contentRevision++;
+        this.#markPageAssets(pageId);
+        this.#applyPageInfluence(pageId);
+      }
+    }
+  }
+  /** Clears candidate publication state if the frame was aborted before submit. */
+  abortCandidatePublication(): void {
+    this.#candidateState = undefined;
+  }
+  /** Drops staged pages without publishing them: cancel, generation replacement,
+   * retirement or device loss. Their slots return to the shared pool. */
+  releaseStagedPages(pageIds: readonly number[]): void {
+    for (const pageId of pageIds) {
+      if (this.#stagedPages.delete(pageId)) {
+        this.#pageInfluence.delete(pageId);
+        this.#releaseStagedSlot(pageId);
+      }
+    }
+  }
+  get stagedPageIds(): readonly number[] {
+    return Object.freeze([...this.#stagedPages.keys()]);
+  }
+  #releaseStagedSlot(pageId: number): void {
+    const slots = this.#pageSlots.get(pageId);
+    if (slots === undefined) return;
+    for (const slot of slots) {
+      this.#slotOwners.delete(slotKey(slot.bankIndex, slot.slotIndex));
+      this.#slotPool?.release(slot.bankIndex, slot.slotIndex);
+    }
+    this.#pageSlots.delete(pageId);
+    this.#pagePayloadBytes.delete(pageId);
+  }
+  #pageLocationAddress(pageId: number): { readonly buffer: GPUBuffer; readonly byteOffset: number } | undefined {
+    const sinkAddress = this.#pageLocationSink?.pageLocationAddress(
+      this.#productTableSlot,
+      this.#productGeneration,
+      pageId,
+    );
+    if (sinkAddress !== undefined) return sinkAddress;
+    if (this.#pageLocationSink !== undefined || this.#metadata === undefined) return undefined;
+    return Object.freeze({
+      buffer: this.#metadata,
+      byteOffset: this.#metadataLayout.pageLocations + pageId * GEOMETRY_PAGE_LOCATION_STRIDE,
+    });
   }
   beginRetirePage(pageId: number): void {
     this.#assertPageId(pageId);
+    if (this.#stagedPages.has(pageId)) {
+      this.#stagedPages.delete(pageId);
+      this.#pageInfluence.delete(pageId);
+      this.#releaseStagedSlot(pageId);
+      return;
+    }
     const location = this.#pageLocations.get(pageId);
     if (!location || (location.flags & GEOMETRY_PAGE_LOCATION_PINNED) !== 0) return;
     if (this.#contentRevision >= 0xfffffffe) throw new RangeError("Geometry content revision exhausted");
     this.#contentRevision++;
     this.#markPageAssets(pageId);
+    // Retirement changes the rendered content back to the coarse parent over the
+    // same region, so it publishes the same conservative influence.
+    this.#applyPageInfluence(pageId);
+    this.#pageInfluence.delete(pageId);
     this.#pageLocations.delete(pageId);
     this.#retiringLocations.set(pageId, location);
     this.#pageLastUsed.delete(pageId);
@@ -781,6 +981,8 @@ export class VirtualGeometryResidency {
       failedRevisions: this.#failedPages ? 1 : 0,
       requestedPages: this.#descriptor.activationPageIds.length,
       residentPages: this.#pageLocations.size,
+      stagedPages: this.#stagedPages.size,
+      stagedBytes: this.#stagedPageBytes(),
       pinnedPages,
       retiringPages: this.#retiringLocations.size,
       residentBytes,
@@ -788,6 +990,10 @@ export class VirtualGeometryResidency {
       residentPayloadBytes,
       retiringPayloadBytes: this.#payloadBytes(this.#retiringLocations),
       residentInternalSlackBytes: residentBytes - residentPayloadBytes,
+      influenceAssets: this.#influenceAssets,
+      influenceFallbacks: this.#influenceFallbacks,
+      refineInfluenceGroups: this.#refineInfluence.indexedGroups,
+      refineInfluenceOverflowed: this.#refineInfluence.overflowed,
       totalPages: this.#descriptor.pageRecords.byteLength / GEOMETRY_PRODUCT_PAGE_RECORD_STRIDE,
       evictedPages: this.#evictedPages,
       uploadedBytes: this.#uploadedBytes,
@@ -824,13 +1030,113 @@ export class VirtualGeometryResidency {
     }
     return bytes;
   }
+  #stagedPageBytes(): number {
+    let bytes = 0;
+    for (const pageId of this.#stagedPages.keys()) bytes += this.#pagePayloadBytes.get(pageId) ?? 0;
+    return bytes;
+  }
   #prepareResidentPage(page: GeometryPageProductV1): ProductResidentPage {
     let value = this.#preparedPages.get(page);
     if (!value) {
       value = prepareProductResidentAttributes(this.#descriptor, page.pageId, page.bytes);
       this.#preparedPages.set(page, value);
+      // Edge registration is monotonic: only ever-resident coarse parents can
+      // have contributed cached shadow content, and those were validated here.
+      this.#refineInfluence.registerPage(
+        page.pageId,
+        value.refineEdges,
+        value.groupBounds,
+        value.groupBegin,
+      );
     }
     return value;
+  }
+  /** Conservative object-space influence of one prepared page, per asset. An
+   * asset falls back to whole-instance damage when any of its groups cannot be
+   * proven, and the fallback is counted. */
+  #computePageInfluence(prepared: ProductResidentPage): {
+    readonly bounds: Map<number, Float32Array>;
+    readonly fallbackAssets: Set<number>;
+  } {
+    const bounds = new Map<number, Float32Array>();
+    const fallbackAssets = new Set<number>();
+    const scratch = new Float32Array(GEOMETRY_REFINE_INFLUENCE_FLOATS);
+    for (let local = 0; local < prepared.groupCount; local++) {
+      const groupId = prepared.groupBegin + local;
+      const asset = this.#groupAsset[groupId];
+      if (asset === undefined || fallbackAssets.has(asset)) continue;
+      if (
+        !this.#refineInfluence.influence(groupId, prepared.groupBounds, prepared.groupBegin, scratch)
+      ) {
+        fallbackAssets.add(asset);
+        bounds.delete(asset);
+        continue;
+      }
+      const existing = bounds.get(asset);
+      if (existing === undefined) {
+        bounds.set(asset, Float32Array.from(scratch));
+        continue;
+      }
+      for (let axis = 0; axis < 3; axis++) {
+        existing[axis] = Math.min(existing[axis]!, scratch[axis]!);
+        existing[axis + 3] = Math.max(existing[axis + 3]!, scratch[axis + 3]!);
+      }
+    }
+    return { bounds, fallbackAssets };
+  }
+  /** Queues one asset's changed region against the revision the next frame's
+   * source stamp will carry. Multiple changes in a frame union together. */
+  #recordInfluence(asset: number, bounds: Float32Array): void {
+    const revision = this.#assetContentRevisions[asset];
+    if (revision === undefined) return;
+    const existing = this.#pendingInfluences.get(asset);
+    if (existing === undefined) {
+      this.#pendingInfluences.set(asset, { bounds: Float32Array.from(bounds.subarray(0, 6)), revision });
+      this.#influenceAssets++;
+      return;
+    }
+    for (let axis = 0; axis < 3; axis++) {
+      existing.bounds[axis] = Math.min(existing.bounds[axis]!, bounds[axis]!);
+      existing.bounds[axis + 3] = Math.max(existing.bounds[axis + 3]!, bounds[axis + 3]!);
+    }
+    existing.revision = revision;
+    this.#influenceAssets++;
+  }
+  /** Applies a page's precomputed influence after its content revision moved. */
+  #applyPageInfluence(pageId: number): void {
+    const influence = this.#pageInfluence.get(pageId);
+    if (influence === undefined) return;
+    for (const asset of influence.fallbackAssets) this.#influenceFallbacks++;
+    for (const [asset, bounds] of influence.bounds) this.#recordInfluence(asset, bounds);
+  }
+  /** Tightened per-asset residency change set for the frame that carries these
+   * revisions. Drains both candidate publication changes and pending retirement
+   * changes. Drain-once: each entry is consumed by a single frame. */
+  drainResidencyInfluences(): readonly GeometryResidencyInfluenceV1[] {
+    const candidate = this.#candidateState?.candidateInfluences ?? [];
+    if (this.#candidateState !== undefined) {
+      this.#candidateState.candidateInfluences = [];
+    }
+    if (this.#pendingInfluences.size === 0 && candidate.length === 0) return Object.freeze([]);
+    const drained: GeometryResidencyInfluenceV1[] = [...candidate];
+    for (const [asset, entry] of this.#pendingInfluences) {
+      drained.push(
+        Object.freeze({
+          assetIndex: asset,
+          min: Object.freeze([entry.bounds[0]!, entry.bounds[1]!, entry.bounds[2]!] as const),
+          max: Object.freeze([entry.bounds[3]!, entry.bounds[4]!, entry.bounds[5]!] as const),
+          revision: entry.revision,
+        }),
+      );
+    }
+    this.#pendingInfluences.clear();
+    return Object.freeze(drained);
+  }
+  get refineInfluenceOverflowed(): boolean {
+    return this.#refineInfluence.overflowed;
+  }
+  get refineInfluenceGroups(): number {
+    return this.#refineInfluence.indexedGroups;
   }
   /** Validate and upload the raw decoded 256 KiB page directly into its single
    * physical bank slot. GPU shaders decode compact vertex attributes directly
@@ -1017,6 +1323,11 @@ export class VirtualGeometryResidency {
     for (const release of this.#releaseReservations.splice(0)) release();
     this.#banks.length = 0;
     this.#pageLocations.clear();
+    this.#stagedPages.clear();
+    this.#candidateState = undefined;
+    this.#pageInfluence.clear();
+    this.#pendingInfluences.clear();
+    this.#refineInfluence.clear();
     this.#retiringLocations.clear();
     this.#groupLocations.clear();
     this.#slotOwners.clear();

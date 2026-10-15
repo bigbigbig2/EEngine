@@ -119,13 +119,13 @@ export async function runCpuHostMeasurement(
       "pump",
       "ingestDemandReadback",
       "ingestDemands",
-      "drainUploadBudget",
+      "drainStageBudget",
       "evidence",
     ]);
     wrap(VirtualGeometryResidency.prototype, "residency", [
       "evidence",
       "uploadCost",
-      "tryUploadPage",
+      "tryStagePage",
       "selectEvictionCandidates",
     ]);
     wrap(GeometryProductMultiRuntimeV1.prototype, "multi-product", [

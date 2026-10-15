@@ -186,42 +186,101 @@ fn allocate(@builtin(global_invocation_id) id: vec3u) {
     flags, constants.control.x, slot, 0u, 0u);
   atomicStore(&content[1], 1u);
 }
-fn dirty_slot(slot: u32) -> bool {
+fn dirty_tier(slot: u32) -> u32 {
   let slot_meta = metas[slot];
-  if (slot_meta.virtual_page >= constants.dimensions.z || !is_requested(slot_meta.virtual_page)) {
-    return false;
+  if (slot_meta.virtual_page >= constants.dimensions.z) {
+    return 3u;
   }
   let entry = pages[slot_meta.virtual_page];
-  return (entry.flags & 11u) == 11u && entry.generation == constants.control.x &&
+  let is_dirty = (entry.flags & 11u) == 11u && entry.generation == constants.control.x &&
     entry.projection_epoch == constants.identity.x && entry.content_namespace == constants.identity.y &&
     entry.slot_y * constants.dimensions.y + entry.slot_x == slot && slot_meta.generation == constants.control.x &&
     (slot_meta.flags & 11u) == 11u && slot_meta.owner == slot && slot_meta.mip == entry.mip;
+  if (!is_dirty) {
+    return 3u;
+  }
+  // Tier 0: actively demanded in this frame
+  if (slot_meta.last_visited == constants.dimensions.w) {
+    return 0u;
+  }
+  // Tier 1: historically demanded in requestedPages bitset
+  if (is_requested(slot_meta.virtual_page)) {
+    return 1u;
+  }
+  // Tier 2: unrequested dirty (backlog draining)
+  return 2u;
 }
 @compute @workgroup_size(64)
 fn publish_dirty(@builtin(local_invocation_index) lane: u32) {
   let span = (constants.control.z + 63u) / 64u;
   let begin = lane * span;
   let end = min(begin + span, constants.control.z);
-  var count = 0u;
+
+  var counts = vec4u(0u);
   for (var slot = begin; slot < end; slot++) {
-    count += select(0u, 1u, dirty_slot(slot));
+    let tier = dirty_tier(slot);
+    if (tier < 3u) {
+      counts[tier]++;
+    }
   }
-  var at = scan_lanes(lane, vec4u(count, 0u, 0u, 0u)).x;
+
+  let base = scan_lanes(lane, counts);
+  let total = prefix[63];
+  let total_dirty = total.x + total.y + total.z;
+
+  let budget = min(select(constants.identity.w, constants.control.z, constants.identity.w == 0u), constants.control.z);
+  let take0 = min(total.x, budget);
+  let take1 = min(total.y, budget - take0);
+  let take2 = min(total.z, budget - take0 - take1);
+  let total_selected = take0 + take1 + take2;
+
   if (lane == 63u) {
-    allocation.attempted = prefix[63].x;
-    allocation.written = prefix[63].x;
+    allocation.attempted = total_dirty;
+    allocation.written = total_selected;
     allocation.overflow = 0u;
     allocation.generation = constants.control.x;
+    atomicStore(&telemetry[7], total_dirty - total_selected);
   }
+
+  var at0 = base.x;
+  var at1 = take0 + base.y;
+  var at2 = take0 + take1 + base.z;
+
   for (var slot = begin; slot < end; slot++) {
-    if (!dirty_slot(slot)) {
+    let tier = dirty_tier(slot);
+    let slot_meta = metas[slot];
+    var entry = pages[slot_meta.virtual_page];
+    if (tier >= 3u) {
+      if ((slot_meta.flags & 4u) != 0u) {
+        metas[slot].flags = slot_meta.flags & ~4u;
+      }
       continue;
     }
-    let slot_meta = metas[slot];
-    let entry = pages[slot_meta.virtual_page];
-    allocation.records[at] = PageWork(slot_meta.virtual_page, slot, 0u, constants.control.x,
-      entry.flags, 5u, vec2i(entry.world_x, entry.world_y));
-    at++;
+    var selected = false;
+    var at = 0u;
+    if (tier == 0u && at0 < take0) {
+      at = at0;
+      at0++;
+      selected = true;
+    } else if (tier == 1u && at1 < take0 + take1) {
+      at = at1;
+      at1++;
+      selected = true;
+    } else if (tier == 2u && at2 < total_selected) {
+      at = at2;
+      at2++;
+      selected = true;
+    }
+
+    if (selected) {
+      pages[slot_meta.virtual_page].flags = entry.flags | 4u;
+      metas[slot].flags = slot_meta.flags | 4u;
+      allocation.records[at] = PageWork(slot_meta.virtual_page, slot, tier, constants.control.x,
+        entry.flags | 4u, 5u, vec2i(entry.world_x, entry.world_y));
+    } else {
+      pages[slot_meta.virtual_page].flags = entry.flags & ~4u;
+      metas[slot].flags = slot_meta.flags & ~4u;
+    }
   }
 }
 `;

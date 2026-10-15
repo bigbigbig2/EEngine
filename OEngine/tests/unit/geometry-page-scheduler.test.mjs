@@ -165,15 +165,19 @@ test("page scheduler verifies identity/hash, retries transient source errors, an
   assert.equal(scheduler.state(9, 0), "upload-queued");
   const uploaded = [];
   assert.equal(
-    scheduler.drainUploadBudget({
-      uploadPage(value) {
+    scheduler.drainStageBudget({
+      stagePage(value) {
         uploaded.push(value);
       },
     }),
     262144,
   );
   assert.equal(uploaded.length, 1);
-  assert.equal(scheduler.state(9, 0), "resident");
+  assert.equal(
+    scheduler.state(9, 0),
+    "submitted",
+    "staging reserves a hidden slot without publishing a mapping",
+  );
   const evidence = scheduler.evidence();
   assert.equal(evidence.deduplicated, 1);
   assert.equal(evidence.retries, 1);
@@ -223,8 +227,8 @@ test("page scheduler hashes and uploads one owned snapshot across asynchronous v
   await scheduler.drainReads();
   assert.equal(scheduler.state(9, 0), "upload-queued");
   const uploaded = [];
-  scheduler.drainUploadBudget({
-    uploadPage(value) {
+  scheduler.drainStageBudget({
+    stagePage(value) {
       uploaded.push(value);
     },
   });

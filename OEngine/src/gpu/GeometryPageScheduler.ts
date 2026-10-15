@@ -28,8 +28,15 @@ export type GeometryPageSchedulerCameraStateV1 = "stable" | "moving" | "cut";
 export interface GeometryPageUploadSinkV1 {
   /** Includes any resident expansion recorded by this upload, beyond transport bytes. */
   uploadCost?(page: GeometryPageProductV1, identity: GeometryPageDemandV1): number;
-  /** False means bounded physical capacity is busy; keep the verified page queued. */
-  uploadPage(page: GeometryPageProductV1, identity: GeometryPageDemandV1): boolean | void;
+  /** False means bounded physical capacity is busy; keep the verified page queued.
+   * Staging reserves a hidden slot and writes its payload; it publishes no address. */
+  stagePage(page: GeometryPageProductV1, identity: GeometryPageDemandV1): boolean | void;
+}
+
+/** One frame's bounded mapping publication, grouped by owning Product. */
+export interface GeometryPagePublicationBatchV1 {
+  readonly productGeneration: number;
+  readonly pageIds: readonly number[];
 }
 
 export interface GeometryPageSchedulerPressureV1 {
@@ -83,6 +90,8 @@ export interface GeometryPageSchedulerEvidenceV1 {
   readonly stale: number;
   readonly failed: number;
   readonly resident: number;
+  /** Staged pages whose mapping publication is still pending a frame commit. */
+  readonly staged: number;
   readonly uploadedBytes: number;
   readonly verifiedBytes: number;
   readonly peakBufferedBytes: number;
@@ -155,6 +164,7 @@ export class GeometryPageSchedulerV1 {
   #stale = 0;
   #failed = 0;
   #resident = 0;
+  #staged = 0;
   #uploadedBytes = 0;
   #inFlightBytes = 0;
   #verifiedBytes = 0;
@@ -281,6 +291,7 @@ export class GeometryPageSchedulerV1 {
     for (const operation of product.operations.values()) {
       operation.controller?.abort();
       this.dropVerified(operation);
+      if (operation.state === "submitted") this.#staged--;
       operation.state = "failed";
       this.#operations.delete(operation);
       this.#cancelled++;
@@ -459,7 +470,7 @@ export class GeometryPageSchedulerV1 {
     await Promise.all([...this.#inFlight]);
   }
 
-  drainUploadBudget(sink: GeometryPageUploadSinkV1, availableBytes?: number): number {
+  drainStageBudget(sink: GeometryPageUploadSinkV1, availableBytes?: number): number {
     this.#blockedUploads = 0;
     let remaining = availableBytes ?? this.#budget.maxUploadBytesPerFrame,
       uploaded = 0;
@@ -489,15 +500,17 @@ export class GeometryPageSchedulerV1 {
         this.#uploadBudgetExhausted++;
         continue;
       }
-      if (sink.uploadPage(page, operation.demand) === false) {
+      if (sink.stagePage(page, operation.demand) === false) {
         this.#blockedUploads++;
         this.#uploadBudgetExhausted++;
         continue;
       }
-      operation.state = "resident";
+      // Staged, not resident: the address table only advances through a committed
+      // frame publication, so the payload stays hidden until then.
+      operation.state = "submitted";
       this.dropVerified(operation);
       operation.product.uploadsServed++;
-      this.#resident++;
+      this.#staged++;
       this.#uploadedBytes += cost;
       uploaded += cost;
       remaining -= cost;
@@ -506,9 +519,92 @@ export class GeometryPageSchedulerV1 {
     return uploaded;
   }
 
+  /** Bounded publication candidates in the order the frame should commit them.
+   * Unselected staged pages keep their state and are offered again next frame. */
+  selectPublicationCandidates(maxPages: number): readonly GeometryPagePublicationBatchV1[] {
+    if (!Number.isInteger(maxPages) || maxPages < 1) {
+      throw new RangeError("Geometry page publication budget must be a positive integer");
+    }
+    const ranked: Operation[] = [];
+    for (const operation of this.#operations) {
+      if (operation.state === "submitted") ranked.push(operation);
+    }
+    ranked.sort(
+      (a, b) =>
+        priority(b.demand) + b.age - priority(a.demand) - a.age ||
+        a.product.generation - b.product.generation,
+    );
+    const grouped = new Map<number, number[]>();
+    for (const operation of ranked.slice(0, maxPages)) {
+      const pages = grouped.get(operation.product.generation) ?? [];
+      pages.push(operation.demand.pageId);
+      grouped.set(operation.product.generation, pages);
+    }
+    const batches: GeometryPagePublicationBatchV1[] = [];
+    for (const [productGeneration, pageIds] of grouped) {
+      batches.push(Object.freeze({ productGeneration, pageIds: Object.freeze(pageIds) }));
+    }
+    return Object.freeze(batches);
+  }
+
+  /** Marks staged pages resident. Runs only from the submission that carried
+   * their encoded mapping copies. */
+  commitPublication(productGeneration: number, pageIds: readonly number[]): void {
+    const product = this.#products.get(productGeneration);
+    if (product === undefined) return;
+    for (const pageId of pageIds) {
+      const operation = product.operations.get(pageId);
+      if (operation?.state !== "submitted") continue;
+      operation.state = "resident";
+      this.#staged--;
+      this.#resident++;
+    }
+  }
+
+  /** Drops staged pages without publishing them: cancel, generation replacement
+   * or device loss. The residency releases the hidden slots. */
+  releaseStaged(productGeneration: number, pageIds: readonly number[]): void {
+    const product = this.#products.get(productGeneration);
+    if (product === undefined) return;
+    for (const pageId of pageIds) {
+      const operation = product.operations.get(pageId);
+      if (operation?.state !== "submitted") continue;
+      operation.state = "absent";
+      operation.page = undefined;
+      product.operations.delete(pageId);
+      this.#operations.delete(operation);
+      this.#staged--;
+      this.#cancelled++;
+    }
+  }
+
+  /** All currently staged page ids, for owners that must release hidden slots. */
+  stagedPageIds(productGeneration: number): readonly number[] {
+    const product = this.#products.get(productGeneration);
+    if (product === undefined) return Object.freeze([]);
+    const staged: number[] = [];
+    for (const operation of product.operations.values()) {
+      if (operation.state === "submitted") staged.push(operation.demand.pageId);
+    }
+    return Object.freeze(staged);
+  }
+
   markRetiring(productGeneration: number, pageId: number): void {
-    const operation = this.#products.get(productGeneration)?.operations.get(pageId);
-    if (operation?.state === "resident") operation.state = "retiring";
+    const product = this.#products.get(productGeneration);
+    const operation = product?.operations.get(pageId);
+    if (operation?.state === "resident") {
+      operation.state = "retiring";
+      return;
+    }
+    // The residency discards a staged page instead of publishing it, so the
+    // operation must not stay submitted against a released hidden slot.
+    if (operation?.state === "submitted") {
+      operation.state = "absent";
+      operation.page = undefined;
+      product!.operations.delete(pageId);
+      this.#operations.delete(operation);
+      this.#staged--;
+    }
   }
   markRetired(productGeneration: number, pageId: number): void {
     const product = this.#products.get(productGeneration);
@@ -528,6 +624,7 @@ export class GeometryPageSchedulerV1 {
       if (operation.state !== "resident") {
         operation.controller?.abort();
         this.dropVerified(operation);
+        if (operation.state === "submitted") this.#staged--;
         operation.state = "failed";
         product.operations.delete(pageId);
         this.#operations.delete(operation);
@@ -549,6 +646,7 @@ export class GeometryPageSchedulerV1 {
       if (
         operation.state === "queued" ||
         operation.state === "upload-queued" ||
+        operation.state === "submitted" ||
         operation.state === "producing-or-reading"
       ) {
         pending++;
@@ -560,6 +658,7 @@ export class GeometryPageSchedulerV1 {
       stale: this.#stale,
       failed: this.#failed,
       resident: this.#resident,
+      staged: this.#staged,
       uploadedBytes: this.#uploadedBytes,
       blockedUploads: this.#blockedUploads,
       verifiedBytes: this.#verifiedBytes,

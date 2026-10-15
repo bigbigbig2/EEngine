@@ -522,7 +522,11 @@ export class Renderer {
   private _recoveryAttempts = 0;
   private _geometryStreamingError: string | null = null;
   private _recoveryCheckpoint: ReturnType<Renderer["checkpointRecovery"]> | null = null;
-  private _streamingGpuFrameTimeMs = 0;
+  /** Last completed streaming frame whose publication volume was recorded, so
+   * persistent `lastPoll` evidence is not re-counted on every render frame. No GPU
+   * frame-time source is wired into streaming pressure today; do not present an
+   * always-zero value as live GPU pressure. */
+  private _streamingPublishPollFrame = -1;
   private _vsm: VsmResources | null = null;
   private _vsmDepthBounds!: VsmDepthBoundsPass;
   private _vsmReceiverDemand!: VsmReceiverDemandPass;
@@ -1822,7 +1826,7 @@ export class Renderer {
         }
       }
       this._vsm = VsmResources.create(device, vsmCapabilities);
-      this._vsmDepthBounds = new VsmDepthBoundsPass(device);
+      this._vsmDepthBounds = new VsmDepthBoundsPass(device, this._profiler);
       this._vsmReceiverDemand = new VsmReceiverDemandPass(device);
       this._vsmAllocatePages = new VsmAllocatePagesPass(device);
       this._vsmCasterRecords = new VsmCasterRecordPass(device);
@@ -2103,7 +2107,6 @@ export class Renderer {
         cameraState: delta > 0.25 ? "cut" : delta > 1e-5 ? "moving" : "stable",
         ioThroughputBytesPerSecond:
           lastPoll === null || frameTimeMs === 0 ? undefined : (lastPoll.uploadedBytes * 1000) / frameTimeMs,
-        gpuPressure: Math.max(0, Math.min(1, this._streamingGpuFrameTimeMs / 16.67 - 1)),
         frameTimeMs,
         targetFrameTimeMs: 16.67,
       });
@@ -2111,6 +2114,10 @@ export class Renderer {
     this._profiler.beginFrame(frameIndex);
     const frame = this._frameCoordinator.beginFrame(frameIndex, "Renderer/visibility-frame");
     const command = frame.command;
+    // Transactional geometry mapping publication is encoded before every
+    // consumer of the shared Product directory; an aborted frame leaves the
+    // staged pages unpublished and they are retried by a later frame.
+    streaming?.preparePublication(command);
     const sampleGeometryCounters = this.perf_gpu_counters_enabled && this._profiler.shouldSampleGpuCounters();
     if (sampleGeometryCounters) this._profiler.encodeGpuCounterClear(command);
     let temporalActive = false;
@@ -2289,6 +2296,14 @@ export class Renderer {
       command.onAborted.addOne(() => this._vsmGeneration.abort());
       this._profiler.recordCounter("vsm.invalidation.reasonMask", vsmGeneration.reasonMask);
       this._profiler.recordCounter("vsm.invalidation.full", Number(vsmGeneration.fullInvalidate));
+      // Amplification pair: pages published in the last completed streaming frame
+      // against whether this frame rebuilt every instance's caster depth bounds.
+      const publishPoll = streaming?.lastPoll ?? null;
+      if (publishPoll !== null && publishPoll.completedFrame !== this._streamingPublishPollFrame) {
+        this._streamingPublishPollFrame = publishPoll.completedFrame;
+        this._profiler.recordCounter("geometry.streaming.pagesPublished", publishPoll.uploadedPages);
+      }
+      this._profiler.recordCounter("vsm.invalidation.rebuildDepth", Number(vsmGeneration.rebuildDepth));
       this._profiler.recordCounter("vsm.invalidation.sourceRevision", vsmSourceRevision);
       this._profiler.recordCounter("vsm.invalidation.casterRevision", this._vsmCasterPublicationRevision);
       if (vsmEnabled) {

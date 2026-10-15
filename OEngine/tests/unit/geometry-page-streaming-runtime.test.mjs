@@ -133,7 +133,7 @@ test("resident feedback protects hot pages without IO and bounds shared-pool evi
     maxUploadBytesPerFrame: 262144
   });
   // Exercise feedback/retirement under pressure independently of page decoding.
-  scheduler.drainUploadBudget = () => 0;
+  scheduler.drainStageBudget = () => 0;
   // The runtime consumes the live pressure getter, not the diagnostic snapshot.
   Object.defineProperty(scheduler, "blockedUploads", { get: () => 1 });
   const makeResidency = (generation) => {
@@ -530,7 +530,7 @@ test("streaming runtime consumes delayed demand and uploads through residency", 
       return value.bytes.byteLength;
     },
     recordDemand() {},
-    tryUploadPage(value) {
+    tryStagePage(value) {
       uploaded.push(value);
     },
     evidence() {
@@ -566,7 +566,8 @@ test("streaming runtime consumes delayed demand and uploads through residency", 
   await runtime.scheduler.drainReads();
   await runtime.consumeCompleted(12);
   assert.equal(uploaded.length, 1);
-  assert.equal(runtime.evidence().scheduler.resident, 1);
+  assert.equal(runtime.evidence().scheduler.staged, 1);
+  assert.equal(runtime.evidence().scheduler.resident, 0, "staging alone must not publish a mapping");
   runtime.destroy();
 });
 
@@ -604,7 +605,7 @@ test("one streaming runtime routes Product-local pages to multiple shard residen
         return value.bytes.byteLength;
       },
       recordDemand() {},
-      tryUploadPage(value) {
+      tryStagePage(value) {
         uploaded.push(value);
       },
       recordDemand() {},
@@ -657,7 +658,8 @@ test("one streaming runtime routes Product-local pages to multiple shard residen
   await runtime.consumeCompleted(22);
   assert.equal(first.uploaded.length, 1);
   assert.equal(second.uploaded.length, 1);
-  assert.equal(runtime.evidence().scheduler.resident, 2);
+  assert.equal(runtime.evidence().scheduler.staged, 2);
+  assert.equal(runtime.evidence().scheduler.resident, 0, "staged shard pages stay unpublished");
   runtime.destroy();
 });
 
@@ -690,7 +692,7 @@ test("streaming runtime revokes pages before the settled submission boundary", a
     productGeneration: 12,
     productTableSlot: 1,
     descriptor,
-    uploadPage() {},
+    stagePage() {},
     pageLocation(pageId) {
       return pageId === 4 ? { flags: 1 } : undefined;
     },
@@ -777,7 +779,7 @@ test("runtime destruction unregisters the Product and aborts pending page reads"
     productGeneration: 21,
     productTableSlot: 5,
     descriptor,
-    uploadPage() {},
+    stagePage() {},
     evidence() {
       return { productGeneration: 21, residentPages: 0 };
     }

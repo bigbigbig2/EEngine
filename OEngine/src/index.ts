@@ -273,7 +273,7 @@ export {
 export type {
   GeometryProductInstanceIdentityV1,
   GeometryProductMultiRuntimeEvidenceV1,
-  GeometryProductPageCompletionResultV1,
+  GeometryProductPageStageResultV1,
   GeometryProductPageIdentityV1,
   GeometryProductShardHandleV1,
   GeometryProductShardStateV1

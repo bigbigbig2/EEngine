@@ -7,6 +7,8 @@ import {
 export const VSM_CASTER_SNAPSHOT_BYTES = GPU_INSTANCE_RECORD_STRIDE + 16;
 export const VSM_CASTER_DAMAGE_RECORD_BYTES = 48;
 export const VSM_CASTER_DAMAGE_HEADER_BYTES = 16;
+/** Per asset-reference influence record: min xyz, revision, max xyz, flags. */
+export const VSM_RESIDENCY_INFLUENCE_WORDS = 8;
 
 // One damage per changed instance. Full identities live in the snapshot,
 // independently of motion history and main-view visibility.
@@ -52,12 +54,14 @@ struct LightBounds {
 @group(0) @binding(4) var<storage, read_write> snapshots: array<CasterSnapshot>;
 @group(0) @binding(5) var<storage, read> sources: array<u32>;
 @group(0) @binding(6) var<storage, read_write> damages: CasterDamages;
+@group(0) @binding(7) var<storage, read> influences: array<u32>;
 var<workgroup> partial: array<vec4f, 64>;
 
-fn source_stamp(instance: OEngineInstanceRecord) -> vec4u {
-  if (!oengine_instance_virtual_geometry(instance)) { return vec4u(0u); }
+/** Global asset-reference index this instance's source stamp lives at. */
+fn source_index(instance: OEngineInstanceRecord) -> u32 {
+  if (!oengine_instance_virtual_geometry(instance)) { return 0xffffffffu; }
   let slot = instance.product_table_slot;
-  if (slot >= constants.control.y || slot * 4u + 3u >= arrayLength(&sources)) { return vec4u(0u); }
+  if (slot >= constants.control.y || slot * 4u + 3u >= arrayLength(&sources)) { return 0xffffffffu; }
   let at = slot * 4u;
   let generation = sources[at];
   let begin = sources[at + 1u];
@@ -65,20 +69,21 @@ fn source_stamp(instance: OEngineInstanceRecord) -> vec4u {
   let count = sources[at + 3u];
   let asset = instance.geometry_record_index;
   if (generation != oengine_instance_geometry_generation(instance) || asset < begin || asset - begin >= count) {
-    return vec4u(0u);
+    return 0xffffffffu;
   }
   let index = offset + asset - begin;
-  if (index >= arrayLength(&sources)) { return vec4u(0u); }
-  return vec4u(generation, sources[index], slot, asset);
+  if (index >= arrayLength(&sources)) { return 0xffffffffu; }
+  return index;
 }
-fn light_bounds(instance: OEngineInstanceRecord) -> LightBounds {
+fn source_stamp(instance: OEngineInstanceRecord) -> vec4u {
+  let index = source_index(instance);
+  if (index == 0xffffffffu) { return vec4u(0u); }
+  return vec4u(sources[instance.product_table_slot * 4u], sources[index],
+    instance.product_table_slot, instance.geometry_record_index);
+}
+fn light_bounds_of(instance: OEngineInstanceRecord, minimum: vec3f, maximum: vec3f) -> LightBounds {
   var bound = LightBounds(vec4f(0.0), vec2f(0.0), 1u, 0u);
-  if (!oengine_instance_active(instance) || (instance.flags & ${GPU_INSTANCE_FLAGS.CastsShadow}u) == 0u ||
-      (instance.flags & ${GPU_INSTANCE_FLAGS.Transparent}u) != 0u) { return bound; }
-  bound.caster_enabled = 1u;
   let transform = constants.light_view * oengine_instance_current_object_to_world(instance);
-  let minimum = instance.bounds_min.xyz;
-  let maximum = instance.bounds_max.xyz;
   let center = (minimum + maximum) * 0.5;
   let half_extent = (maximum - minimum) * 0.5;
   let light_center = (transform * vec4f(center, 1.0)).xyz;
@@ -93,6 +98,32 @@ fn light_bounds(instance: OEngineInstanceRecord) -> LightBounds {
   bound.xy = vec4f(light_center.xy - radius.xy, light_center.xy + radius.xy);
   bound.z = vec2f(light_center.z - radius.z, light_center.z + radius.z);
   return bound;
+}
+fn light_bounds(instance: OEngineInstanceRecord) -> LightBounds {
+  if (!oengine_instance_active(instance) || (instance.flags & ${GPU_INSTANCE_FLAGS.CastsShadow}u) == 0u ||
+      (instance.flags & ${GPU_INSTANCE_FLAGS.Transparent}u) != 0u) {
+    return LightBounds(vec4f(0.0), vec2f(0.0), 1u, 0u);
+  }
+  var bound = light_bounds_of(instance, instance.bounds_min.xyz, instance.bounds_max.xyz);
+  bound.caster_enabled = 1u;
+  return bound;
+}
+/** Proven changed light-space XY for a residency change, or a zero/empty span
+ * when the refine relation could not be proven and whole-instance damage must
+ * stay in force. Word 7 stores the Product generation, so an influence can only
+ * match the same Product generation and content revision as the source stamp. */
+fn residency_influence_xy(instance: OEngineInstanceRecord, index: u32, stamp: vec4u) -> vec4f {
+  if (index == 0xffffffffu) { return vec4f(0.0); }
+  let base = index * ${VSM_RESIDENCY_INFLUENCE_WORDS}u;
+  if (base + ${VSM_RESIDENCY_INFLUENCE_WORDS}u > arrayLength(&influences)) { return vec4f(0.0); }
+  if (influences[base + 7u] != stamp.x || influences[base + 3u] != stamp.y) { return vec4f(0.0); }
+  let minimum = vec3f(bitcast<f32>(influences[base]), bitcast<f32>(influences[base + 1u]),
+    bitcast<f32>(influences[base + 2u]));
+  let maximum = vec3f(bitcast<f32>(influences[base + 4u]), bitcast<f32>(influences[base + 5u]),
+    bitcast<f32>(influences[base + 6u]));
+  let bound = light_bounds_of(instance, minimum, maximum);
+  if (bound.valid == 0u) { return vec4f(0.0); }
+  return bound.xy;
 }
 fn caster_changed(a: OEngineInstanceRecord, b: OEngineInstanceRecord) -> bool {
   let mask = ${GPU_INSTANCE_FLAGS.Active | GPU_INSTANCE_FLAGS.CastsShadow | GPU_INSTANCE_FLAGS.AlphaTested | GPU_INSTANCE_FLAGS.DoubleSided | GPU_INSTANCE_FLAGS.Transparent | GPU_INSTANCE_FLAGS.VirtualGeometry}u;
@@ -140,11 +171,25 @@ fn instance_bounds(@builtin(global_invocation_id) id: vec3u,
         let prior = snapshots[id.x];
         let old = light_bounds(prior.instance);
         if (old.valid == 0u) { atomicOr(&damages.invalid, 1u); }
-        if ((current.caster_enabled | old.caster_enabled) != 0u &&
-            (caster_changed(prior.instance, instance) || any(prior.source != stamp))) {
+        let changed = caster_changed(prior.instance, instance);
+        let stampChanged = any(prior.source != stamp);
+        if ((current.caster_enabled | old.caster_enabled) != 0u && (changed || stampChanged)) {
+          var damage_old = old.xy;
+          var damage_new = current.xy;
+          if (!changed && stampChanged) {
+            // Pure residency or content-version change: the rendered geometry
+            // changes only where the newly available group and its coarse parents
+            // live, not across the whole instance bounds. Without a proven
+            // relation the conservative whole-instance damage stays in force.
+            let tight = residency_influence_xy(instance, source_index(instance), stamp);
+            if (tight.z > tight.x && tight.w > tight.y) {
+              damage_old = tight;
+              damage_new = tight;
+            }
+          }
           let ticket = atomicAdd(&damages.count, 1u);
           if (ticket < arrayLength(&damages.records)) {
-            damages.records[ticket] = CasterDamage(old.xy, current.xy, vec4u(old.caster_enabled, current.caster_enabled, 0u, 0u));
+            damages.records[ticket] = CasterDamage(damage_old, damage_new, vec4u(old.caster_enabled, current.caster_enabled, 0u, 0u));
           } else { atomicOr(&damages.invalid, 2u); }
         }
       }

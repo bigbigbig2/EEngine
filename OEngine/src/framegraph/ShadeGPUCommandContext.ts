@@ -477,6 +477,55 @@ export class ShadeGPUCommandContext {
     this.copyBufferToBuffer(staging, 0, buffer, buffer_offset, size);
   }
 
+  /**
+   * One pooled upload buffer for many small destinations, then one ordered copy
+   * per region inside this frame's encoder. Used by transactional address
+   * publication: nothing becomes visible before the submission that carries it,
+   * and an aborted command drops every copy with its encoder.
+   */
+  uploadRegions(
+    regions: readonly {
+      readonly destination: GPUBuffer;
+      readonly destinationOffset: number;
+      readonly bytes: Uint8Array;
+    }[],
+  ): void {
+    if (regions.length === 0) {
+      return;
+    }
+    let total = 0;
+    for (const region of regions) {
+      if (region.bytes.byteLength === 0 || region.bytes.byteLength % 4 !== 0) {
+        throw new RangeError("uploadRegions requires non-empty 4-byte-aligned regions");
+      }
+      if (region.destinationOffset % 4 !== 0) {
+        throw new RangeError("uploadRegions requires 4-byte-aligned destination offsets");
+      }
+      total += region.bytes.byteLength;
+    }
+    const staging = this.#graphics.buffer_allocator_staging.get(total);
+    const packed = new Uint8Array(total);
+    let offset = 0;
+    for (const region of regions) {
+      packed.set(region.bytes, offset);
+      offset += region.bytes.byteLength;
+    }
+    this.device.queue.writeBuffer(staging, 0, packed);
+    this.#stagingBuffers.push(staging);
+    this.#graphics.profiler.recordUpload("staging-copy", total);
+    let source = 0;
+    for (const region of regions) {
+      this.copyBufferToBuffer(
+        staging,
+        source,
+        region.destination,
+        region.destinationOffset,
+        region.bytes.byteLength,
+      );
+      source += region.bytes.byteLength;
+    }
+  }
+
   /** One pooled upload buffer, then direct buffer-to-texture copy; no intermediate buffer copy. */
   allocateTextureUploadBuffer(data: ArrayBuffer): GPUBuffer {
     const staging = this.#graphics.buffer_allocator_staging.get(data.byteLength);

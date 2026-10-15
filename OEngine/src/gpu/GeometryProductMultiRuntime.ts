@@ -94,7 +94,7 @@ export interface GeometryProductMultiRuntimeEvidenceV1 {
   readonly lastError: string | null;
 }
 
-export type GeometryProductPageCompletionResultV1 = "uploaded" | "stale" | "rejected";
+export type GeometryProductPageStageResultV1 = "staged" | "stale" | "rejected";
 
 interface ProductEntry {
   readonly slot: number;
@@ -318,6 +318,26 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
       pageLocationByteOffset: this.#metadataLayout.pageLocations,
       productTable: this.#metadata,
       banks: Object.freeze([...banks])
+    });
+  }
+
+  pageLocationAddress(
+    productTableSlot: number,
+    productGeneration: number,
+    pageId: number
+  ): { readonly buffer: GPUBuffer; readonly byteOffset: number } | undefined {
+    this.assertAlive();
+    const entry =
+      this.currentEntry(productTableSlot, productGeneration) ?? this.#candidates.get(productTableSlot);
+    if (entry?.generation !== productGeneration) {
+      return undefined;
+    }
+    const allocation = entry?.allocation;
+    if (!entry || !allocation || pageId < 0 || pageId >= allocation.pageCount) return undefined;
+    return Object.freeze({
+      buffer: this.#metadata,
+      byteOffset:
+        this.#metadataLayout.pageLocations + (allocation.pageBegin + pageId) * GEOMETRY_PAGE_LOCATION_STRIDE
     });
   }
 
@@ -551,13 +571,14 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
   }
 
   /**
-   * Publishes a completed page only when the exact current generation owns it.
-   * No stale completion may consume a physical slot.
+   * Stages a verified page into a hidden slot only when the exact current
+   * generation owns the identity. The address is published by the next frame
+   * transaction, so a stale completion never consumes a visible mapping.
    */
-  completePage(
+  stagePage(
     identity: GeometryProductPageIdentityV1,
     page: GeometryPageProductV1
-  ): GeometryProductPageCompletionResultV1 {
+  ): GeometryProductPageStageResultV1 {
     this.assertAlive();
     const entry = this.currentEntry(identity.productTableSlot, identity.productGeneration);
     if (
@@ -570,14 +591,14 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
       return "stale";
     }
     try {
-      entry.residency!.uploadPage(page);
+      entry.residency!.stagePage(page);
     } catch (error) {
       this.#lastError = String(error);
       this.#rejectedCompletions++;
       return "rejected";
     }
     this.#acceptedCompletions++;
-    return "uploaded";
+    return "staged";
   }
 
   /** Product-local instance identity used by the GPU instance publication. */

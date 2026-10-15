@@ -87,7 +87,7 @@ absent -> queued -> producing-or-reading -> verified -> upload-queued
        -> submitted -> resident -> retiring -> absent
 ```
 
-`queued` 到 `submitted` 可因 cancel/failure 回到 `absent` 或进入带 retry deadline 的 `failed`。只有 page 长度、descriptor hash、payload bounds 和 product generation 全部有效后才进入 `verified`。`resident` 只能由已提交的 upload 和同批 mapping publication 建立；CPU 拷贝完成不代表 resident。
+`queued` 到 `submitted` 可因 cancel/failure 回到 `absent` 或进入带 retry deadline 的 `failed`。只有 page 长度、descriptor hash、payload bounds 和 product generation 全部有效后才进入 `verified`。`submitted` 表示 payload 已入驻隐藏槽且位置表编码已纳入当前帧 Command，但尚未提交到 GPU；`resident` 只能由已提交的 upload 和同批 mapping publication 建立，只有包含该拷贝的提交在 `onFinished` 成功后才转为 `resident`；CPU 拷贝完成不代表 resident。帧中止（abort）清除候选并保持 `submitted` 供下帧重试，禁止直接 `queue.writeBuffer` 修改公开位置表再声称 abort 可回滚。
 
 迟到 page、旧 source session、旧 product generation、已 resident page 和已取消 revision 必须在占用 upload credit 前丢弃。重复 demand 合并到同一 page operation，并提升优先级而不是复制工作。
 
@@ -151,7 +151,7 @@ GPU-visible `GeometryPageLocationV1` 是 16-byte little-endian record：
 
 flags bit 0 为 resident，bit 1 为 pinned；bits 2..15 编码 `residentByteOffset / 16`，bits 16..31 必须为 0。resident directory 起点必须 16-byte aligned 且在 256 KiB 页内。raw/resident 地址都需验证实际 physical capacity。高16为0则 resident directory 无效；减1后用2048除/模取bank/slot。`byteOffset = slotIndex << 18`。Shader 先验证 ABI/header、resident bit、预期 generation 和范围，再读取 raw page/expanded directory；失败视为 non-resident。地址表容量至少等于 descriptor page count，越界 PageID fail closed 并计数。
 
-映射撤销必须先将 record 写为 non-resident，并确保未来 frame 不再产生旧 work；slot 只有在引用旧 mapping 的所有提交完成后才能复用。不得在帧循环中 await `queue.onSubmittedWorkDone()`；retire owner 使用提交序号/fence 批次异步回收。
+映射撤销必须先将 record 写为 non-resident，并确保未来 frame 不再产生旧 work；slot 只有在引用旧 mapping 的所有提交完成后才能复用。不得在帧循环或退休续延中 await `queue.onSubmittedWorkDone()`；retire owner 使用本 owner 发出提交的 submission fence 批次异步回收，避免无条件等待全设备队列。
 
 Eviction 候选不能只按 `lastUsed` 排序，至少必须排除 pinned/bootstrap，满足最小驻留时间，并结合近期 demand/visible 频率、ancestor/fallback importance、预测保护、refetch cost、memory pressure 与 retiring bytes。策略必须有 hysteresis/cooldown，并记录平均 Page lifetime、reload、eviction 后短期 rerequest 和 thrash bytes。
 

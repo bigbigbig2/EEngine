@@ -319,6 +319,15 @@ export class VsmAtlasRasterPass {
       pass.setBindGroup(0, group);
       pass.dispatchWorkgroups(Math.ceil(data.resources.capabilities.residentSlots / 64));
       pass.end();
+      // Publication amplification denominator inputs, read after the residency
+      // pass wrote this frame's selection: word 0 is the dirty candidate count,
+      // word 1 the bounded complete-page selection.
+      const allocationBuffer = resolved.get(data.allocation) as GPUBuffer;
+      this.graphics.profiler.copyGpuCounter(command, "vsmDirtyPagesDirty", allocationBuffer, 0);
+      this.graphics.profiler.copyGpuCounter(command, "vsmDirtyPagesSelected", allocationBuffer, 4);
+      if (data.resources.overflowCounters) {
+        this.graphics.profiler.copyGpuCounter(command, "vsmDirtyPagesPending", data.resources.overflowCounters, 28);
+      }
     });
     commit.read(caster);
     commit.read(rasteredAtlas);

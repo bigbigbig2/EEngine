@@ -182,10 +182,11 @@ test("Phase E multi-Product runtime keeps 64 independent shards and rejects stal
     false,
   );
   assert.equal(runtime.acceptDemand({ ...firstPage, pageId: 99 }), false);
-  assert.equal(runtime.completePage(firstPage, await fixtures[0].source.readPage(1)), "uploaded");
+  assert.equal(runtime.stagePage(firstPage, await fixtures[0].source.readPage(1)), "staged");
   const corruptPage = await fixtures[0].source.readPage(1);
   corruptPage.decodedHash128 = new Uint8Array(16);
-  assert.equal(runtime.completePage(firstPage, corruptPage), "rejected");
+  assert.equal(runtime.stagePage(firstPage, corruptPage), "rejected");
+  first.residency.commitStagedPages([1]);
   assert.equal(await runtime.evictPage({ ...firstPage, pageId: 0 }), false);
   assert.equal(await runtime.evictPage(firstPage), true);
   assert.equal(first.residency.pageLocation(1), undefined);
@@ -200,7 +201,7 @@ test("Phase E multi-Product runtime keeps 64 independent shards and rejects stal
   const replacement = await runtime.replace(first.productTableSlot, replacementFixture.source);
   assert.notEqual(replacement.productGeneration, first.productGeneration);
   assert.equal(runtime.acceptDemand(firstPage), false);
-  assert.equal(runtime.completePage(firstPage, await fixtures[0].source.readPage(1)), "stale");
+  assert.equal(runtime.stagePage(firstPage, await fixtures[0].source.readPage(1)), "stale");
   assert.equal(await runtime.retire(first.productTableSlot, first.productGeneration), true);
   assert.deepEqual(runtime.instanceIdentity(replacement.productTableSlot, replacement.productGeneration, 0), {
     productTableSlot: replacement.productTableSlot,

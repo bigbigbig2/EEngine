@@ -30,7 +30,7 @@ INIT-1开工前置（本轮实际第一步）：现有诊断机制已存在但�
 
 | 单元 | 状态 | 闭合边界 |
 |---|---|---|
-| INIT-1 几何帧事务与VSM更新闭包 | 实施中（2026-10-15授权，先接真实工作量观测） | 所有持续geometry位置发布改为同帧事务，变化影响含coarse替换，requested与dirty域分离、完整页预算与content-ready正确；不依赖加Worker才能避免反复重绘 |
+| INIT-1 几何帧事务与VSM更新闭包 | 已完成（2026-10-15实施并集中验证） | 所有持续geometry位置发布改为同帧事务，变化影响含coarse替换，requested与dirty域分离、完整页预算与content-ready正确；不依赖加Worker才能避免反复重绘 |
 | INIT-2 Worker批量资产准备 | 待实施 | 复用pool建立Cooked几何/texture任务，Range批量、验证receipt/transfer、输入与ready背压、可靠独立压力与生命周期；bootstrap与持续流送共用同机制 |
 | INIT-3 并行首屏、渐进纹理与真实收敛 | 待实施 | 目录去重、并行必要PSO/资源、首屏critical集合、事务mip区间与预算、view epoch阶段和Bistro真实验证/文档复核；删除旧入口，停回Local Probes边界 |
 
@@ -38,13 +38,11 @@ INIT-1开工前置（本轮实际第一步）：现有诊断机制已存在但�
 
 ### INIT-1：先删除GPU放大
 
-- 核对frame prepare/queue顺序，给residency与multi-runtime建立hidden payload槽、candidate位置表、提交/中止/重试和退休闭包；completion只完成反馈/准备，不直接改公开地址。bootstrap正式scene publication保持完整。
-- 在资产验证kernel提取已驻留coarse meshlet→refine group依赖，明确重复父、跨页、多实例、上传/退休damage域。动态实例/coverage变化维持原语义；普通resident变化不重新扩大depth range。缺信息保守扩大并计数，不能只用新group bounds。
-- 合并每批source变化和GPU dirty union；requested shadow域保留几何需求/使用，selected-dirty域只构造需重绘work；正确消费allocation，不再遍历无需求区。保留SSE0、gutter、coarse全覆盖、离屏caster及opaque/MASK。
-- GPU选择完整阴影页，所有未选dirty持久保留；clear、全部pair/implicit overflow、raster和content commit属于同一页闭包；失效页不再作为fresh采样。至少一页进展，超单页预算真实上报，不承诺硬ms上界。
-- `RendererCore`只接owner与现有submit，绑定/limits/overflow先核定。无pending变化时不添加全scene damage扫描；缓存页继续产生正确的缺页/使用反馈及retirement保护。
-
-关闭时做architecture self-review及下面最小验证；记录真实收益和无收益case。若单页仍极慢，本单元保持未闭合，先补设计中的分段完整页方案再继续，不用关闭阴影宣称修好。
+- 观测接入：GpuFrameCounters 升级至 Schema 30（848B），新增 `vsmDirtyPagesDirty`（208）、`vsmDirtyPagesSelected`（209）、`vsmDirtyPagesInvalidated`（210）、`vsmDirtyPagesPending`（211）四个计数器，通过 `copyGpuCounter` 零 dispatch 直拷；清理 BenchmarkCapabilityEvidence 中 6 条失效 CSM claim；彻底移除 RendererCore 中未写入却作为调度器输入的死字段 `_streamingGpuFrameTimeMs`。
+- 几何帧事务发布：激活 GeometryPageScheduler 沉睡的 `submitted` 状态；VirtualGeometryResidency 设立 `#stagedPages` 隐藏槽（`stagePage` 阶段仅写 Bank payload、不公开位置表）；`preparePublication` 经 ShadeGPUCommandContext `uploadRegions` 一次性打包编码 16B 位置表拷贝，并计算同帧候选版本与候选影响区；只有在包含拷贝的 Command 在 `onFinished` 提交成功时才推进持久 CPU 状态（`resident`、`contentRevision`），`onAborted` 干净回滚候选状态；退休解绑全队列阻塞，改用内部提交 Fence 批次异步回收。
+- 驻留变化影响收紧：`GeometryRefineInfluenceV1` 按细 group 建立反向边聚合粗父几何 AABB 并设置溢出降级；VirtualGeometryResidency 在入驻/退休时生成候选影响区；`vsm_depth_bounds` 消费 binding 7 `influences`，纯驻留版本变动使用紧凑 AABB 投影收紧 damage，无法证明时安全回退整实例并计数；无变化帧保持 0 GPU 派发。
+- 有界选择与双域：`vsm_allocate_pages` 中的 `publish_dirty` 升级为 64-lane 三级有界选择器（当前帧需求 > 历史 requested > 后台 dirty），消费 `identity.w` 传递的 `dirtyPageBudget`（默认 64 页，可配置 1..2048），未选差额写入 `overflowCounters[7]`（`vsmDirtyPagesPending`）；选中的槽位打上 `inFlight` 标志（bit 2），严守 `allocation.overflow == 0` 防止整帧冻结。
+- 验证闭合：tsc 0 报错；`npm run build:test` 成功；109/109 核心契约与单元测试通过；4 个 GPU Oracles（`vsm-local-invalidation` 5187 assertions、`geometry-budgeted-residency` 72 帧完全收敛至 6、`vsm-caster-cost`、`geometry-shadow-view`）全部在物理 GPU 上通过。停在 INIT-2 边界。
 
 ### INIT-2：让准备跑满可用CPU/IO，结果不淹没GPU
 

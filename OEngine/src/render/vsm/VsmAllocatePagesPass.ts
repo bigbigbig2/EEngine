@@ -53,7 +53,7 @@ export function packVsmResidencyConstants(input: VsmAllocatePagesInputs): ArrayB
     input.frame.projectionEpoch,
     input.frame.namespace,
     profile.coarseReservedSlots,
-    0,
+    input.frame.settings?.dirtyPageBudget ?? 64,
   ]);
   const floats = new Float32Array(data);
   for (let level = 0; level < profile.clipLevels; level++) {
@@ -157,6 +157,7 @@ export class VsmAllocatePagesPass {
       bind(4, "pageTable");
       bind(5, "metaTable");
       bind(6, "allocation");
+      bind(8, "overflowCounters");
     }
     const group = this.device.createBindGroup({
       label: `VSM/${name}`,

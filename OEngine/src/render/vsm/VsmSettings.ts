@@ -16,6 +16,9 @@ export interface VsmSettings {
   readonly filterRadiusTexels: number;
   readonly clipExtentScale: number;
   readonly debugView: VsmDebugView;
+  /** Bounded complete shadow pages selected for raster work per frame.
+   * Prevents unbounded GPU rebuild storms while streaming geometry. */
+  readonly dirtyPageBudget: number;
 }
 
 export const VSM_DEFAULT_SETTINGS: Readonly<VsmSettings> = Object.freeze({
@@ -25,6 +28,7 @@ export const VSM_DEFAULT_SETTINGS: Readonly<VsmSettings> = Object.freeze({
   filterRadiusTexels: 1.5,
   clipExtentScale: 1,
   debugView: "none",
+  dirtyPageBudget: 64,
 });
 
 /** A zero-radius disk has exactly the point kernel's result. Fold on the CPU
@@ -61,6 +65,9 @@ export function resolveVsmSettings(current: VsmSettings, patch: Partial<VsmSetti
   }
   if (!Object.prototype.hasOwnProperty.call(VSM_DEBUG_VIEWS, next.debugView)) {
     throw new RangeError("Unknown VSM debug view");
+  }
+  if (!Number.isInteger(next.dirtyPageBudget) || next.dirtyPageBudget < 1 || next.dirtyPageBudget > 2048) {
+    throw new RangeError("VSM dirtyPageBudget must be an integer in [1, 2048]");
   }
   return Object.freeze(next);
 }

@@ -67,12 +67,19 @@ test("numeric operations preserve global insertion ties and dynamic Product read
   await settle(scheduler);
   const expected = [[first, 1], [second, 1], [2, 0], [first, 0], [second, 0]];
   assert.deepEqual(reads, expected);
-  scheduler.drainUploadBudget({
-    uploadPage(_page, identity) { uploaded.push([identity.productGeneration, identity.pageId]); },
+  scheduler.drainStageBudget({
+    stagePage(_page, identity) { uploaded.push([identity.productGeneration, identity.pageId]); },
   });
   // After the first upload, the stable fairness re-sort moves first/0 behind
   // second/0. That relative order survives when their served counts tie again.
   assert.deepEqual(uploaded, [[first, 1], [second, 1], [2, 0], [second, 0], [first, 0]]);
+  assert.equal(scheduler.evidence().staged, uploaded.length, "staging reserves every accepted page");
+  for (const [generation, pageId] of uploaded) {
+    assert.equal(scheduler.state(generation, pageId), "submitted");
+    scheduler.commitPublication(generation, [pageId]);
+    assert.equal(scheduler.state(generation, pageId), "resident");
+  }
+  assert.equal(scheduler.evidence().staged, 0);
   assert.equal(scheduler.evidence().pending, 0);
   scheduler.markRetiring(first, 0);
   scheduler.markRetired(first, 0);
@@ -94,8 +101,9 @@ test("generation cancellation drops verified/retiring operations but retains res
   scheduler.registerProduct(3, 9, source([], 9, { release() { released++; } }));
   scheduler.ingestDemands([demand(9, 3, 0), demand(9, 3, 1), demand(9, 3, 2)]);
   await settle(scheduler);
-  scheduler.drainUploadBudget({ uploadPage() {} }, 32);
+  scheduler.drainStageBudget({ stagePage() {} }, 32);
   assert.equal(scheduler.state(9, 2), "upload-queued");
+  scheduler.commitPublication(9, [0, 1]);
   scheduler.markRetiring(9, 0);
   scheduler.cancelGeneration(9);
   assert.equal(scheduler.state(9, 0), "absent");
@@ -132,7 +140,7 @@ test("late cancelled IO cannot overwrite an operation with the same generation/p
   assert.equal(scheduler.evidence().verifiedBytes, 16);
   assert.equal(scheduler.evidence().lateResults, 1);
   const uploaded = [];
-  scheduler.drainUploadBudget({ uploadPage(_page, identity) { uploaded.push(identity.productTableSlot); } });
+  scheduler.drainStageBudget({ stagePage(_page, identity) { uploaded.push(identity.productTableSlot); } });
   assert.deepEqual(uploaded, [4]);
   scheduler.unregisterProduct(9);
 });
