@@ -22,13 +22,15 @@ verifies:
 
 # 初始化调度执行计划
 
-唯一细设计为[初始化调度设计](../next-design/eengine-initialization-scheduling-2026-10.md)。源码起点`30292e0e`；2026-10-15用户只授权分析和设计，本轮没有production实施授权。以下三个architecture units都待实施，不能把Worker研究、诊断脚本或文档检查当作完成。
+唯一细设计为[初始化调度设计](../next-design/eengine-initialization-scheduling-2026-10.md)。源码起点`30292e0e`；设计轮于`f7a6c4cf`收口，2026-10-15用户随后授权**仅INIT-1**的production实施。INIT-2、INIT-3仍未授权，不能把Worker研究、诊断脚本或文档检查当作完成。
+
+INIT-1开工前置（本轮实际第一步）：现有诊断机制已存在但无生产者——`addGpuListCounterPass`/`GpuListCounterAccumulator`零调用者，`VsmResources.diagnostics()`已给出dirty页/配对/atlas的计数偏移，而`BenchmarkCapabilityEvidence`有6条`PackedCsmShadowPass/*`声明指向已从production删除的旧pass。故先在INIT-1内把这些观测接成真实的VSM工作量计数并撤销失效claim，再决定发布批次预算。
 
 ## 1. 三个完整单元
 
 | 单元 | 状态 | 闭合边界 |
 |---|---|---|
-| INIT-1 几何帧事务与VSM更新闭包 | 待实施 | 所有持续geometry位置发布改为同帧事务，变化影响含coarse替换，requested与dirty域分离、完整页预算与content-ready正确；不依赖加Worker才能避免反复重绘 |
+| INIT-1 几何帧事务与VSM更新闭包 | 实施中（2026-10-15授权，先接真实工作量观测） | 所有持续geometry位置发布改为同帧事务，变化影响含coarse替换，requested与dirty域分离、完整页预算与content-ready正确；不依赖加Worker才能避免反复重绘 |
 | INIT-2 Worker批量资产准备 | 待实施 | 复用pool建立Cooked几何/texture任务，Range批量、验证receipt/transfer、输入与ready背压、可靠独立压力与生命周期；bootstrap与持续流送共用同机制 |
 | INIT-3 并行首屏、渐进纹理与真实收敛 | 待实施 | 目录去重、并行必要PSO/资源、首屏critical集合、事务mip区间与预算、view epoch阶段和Bistro真实验证/文档复核；删除旧入口，停回Local Probes边界 |
 
