@@ -20,6 +20,7 @@ verifies:
     - OEngine/src/render/vsm/VsmSettings.ts
     - OEngine/src/render/vsm/VsmFilterNoise.ts
     - OEngine/src/render/ao
+    - OEngine/src/render/reflections
     - OEngine/src/render/pipeline/RendererCore.ts
     - OEngine/src/render/RendererConfig.ts
     - OEngine/src/shaders/xegtao_denoise.ts
@@ -34,7 +35,7 @@ verifies:
 
 ## 当前源码接线
 
-核对日期：2026-10-14，底座复查基线`2caf5fe2`，本日AO增量以本文直接消费者段及模块执行记录为准。Surface 和 LocalLightWork 使用唯一生产入口；Lighting阶段结果与原验收范围只读 [M3 执行计划](../next-execution/eengine-v4-lighting-execution-2026-10.md)。未来功能方向从workstream读取，本页不把目标能力写成生产事实。
+核对日期：2026-10-15，底座复查基线`2caf5fe2`，后续AO/SSSR增量以本文直接消费者段及模块执行记录为准。Surface 和 LocalLightWork 使用唯一生产入口；Lighting阶段结果与原验收范围只读 [M3 执行计划](../next-execution/eengine-v4-lighting-execution-2026-10.md)。未来功能方向从workstream读取，本页不把目标能力写成生产事实。
 
 [GpuNativeMaterialScene](../../OEngine/src/gpu/GpuNativeMaterialScene.ts) 从 scene material slots、GraphCompiler、TextureResidency 和 cooked Products 建立 immutable native publication。参数及 dynamic inputs 是实例数据；完整物理资源集合决定 BindingSet，Program 由 shader/layout 结构决定。async PSO 未就绪时延迟整 tick；成功提交才切 active，abort 保留 candidate 供 retry，旧 publication 按实际 fence 退休。
 
@@ -56,7 +57,9 @@ verifies:
 
 2026-10-14 AO参数化：RendererConfig.ambientOcclusion提供七项初值，Renderer的ambientOcclusionSettings/setAmbientOcclusionSettings提供不可变快照/原子patch；旧xe_gtao_enabled已删除。FrameProgram按off/scalar-medium/scalar-high与0..3去噪遍数选择有限图，半径/世界尺度/power/strength从逐帧bindings晚绑定，不改变材质Program身份。三个稳定owner保留同一Hilbert LUT，完整preparation→Main→denoise仍发布最终scalar供Native binding11乘入diffuse IBL与material occlusion；没有consumer的packed副本继续裁掉。strength只在末遍完整恢复/量化后混合，不影响直接光/镜面IBL，不重复乘材质occlusion；0遍仍有一次final恢复。默认High/1遍、1m/每单位1m、power2.2与noise0保持。独立AmbientOcclusion debug读取实际有效scalar，背景/off/unlit为白，区别于材质Occlusion；空Scene仍走clear-present。AO法线来自深度，没有专属时序积累、bent normal或完整specular occlusion。结果与验证限制见[AO执行](../next-execution/eengine-ao-functionality-execution-2026-10.md#5-ao-1-实施与核对2026-10-14)。
 
-当前FrameProgram没有SSR、GI、透明合成或局部体积光阶段；对应SSR/indirect debug输入为null。GPUSceneEnvironmentContext的probe/Brick4/volumetrics惰性数据、旧SSR shader、MomentOitReference及debug枚举不能证明新效果已接入。非零transmission仍被CanonicalMaterial明确拒绝，不能仅取消拒绝而宣称折射/透射可用。
+2026-10-15 SSSR：Native publication按有效需求选择off/sssr-base-coat有限物理profile。Surface在完整winner域发布32B receiver，复用原IBL/DFG/coat计算的真实两套normal/α、响应W和baseline B；背景无效，unlit不作为receiver。SssrRuntime独立管理私有R32F depth、完整SSSR追踪及Reproject→Prefilter→Resolve、base/coat两套history和共享scratch；现有authored/physical specular texture提供屏外补缺。FrameProgram在Sky/Aerial前发布corrected opaque，以同lobe/颜色域的baseline replacement避免重复IBL，随后沿原颜色链显示；不创建opaque color pyramid或第二套材质求值。四个SSR debug读取真实阶段和所选lobe，旧SSR shader/null输入已删除。设置、验证及资源边界只读[SSSR执行§5](../next-execution/eengine-sssr-execution-2026-10.md#5-ssr-2-生产接入与逐项复核2026-10-15)。
+
+当前FrameProgram仍没有GI、局部镜面probe、透明合成或局部体积光阶段，indirect diffuse/specular通用debug输入仍为null。GPUSceneEnvironmentContext的probe/Brick4/volumetrics惰性数据及MomentOitReference不能证明这些效果已接入。非零transmission仍被CanonicalMaterial明确拒绝，不能仅取消拒绝而宣称折射/透射可用。
 
 2026-10-13：Native 的 VSM 默认为4点旋转Vogel、1.5 shadow texel半径；可选择稳定raw gather 2×2或单点，零半径圆盘在CPU折叠成单点。每个receiver只调用一次含fine/coarse回退的页查询，所有tap复用结果；无效页及反向深度空零继续返回中性可见度。已有base/coat BRDF响应都为零时在查询前退出；Bias使用已有几何平面按实际读取texel中心修正，Depth/Angular默认1/1，重复Normal/Slope与per-axis配置、旧16点核、死`ShadowContract`已删除。深度/坐标保持f32，没有稀疏两点猜测、专用shadow history或新增GPU pass。成本与画质边界只读[V5执行§8.3](../next-execution/eengine-v5-final-pixel-performance-execution-2026-10.md#83-vsm采样与bias优化2026-10-13)。
 

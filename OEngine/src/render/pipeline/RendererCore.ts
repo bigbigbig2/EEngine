@@ -1,3 +1,12 @@
+import { SssrRuntime } from "../reflections/SssrRuntime.js";
+import { SssrDebug } from "../reflections/SssrDebug.js";
+import { planSssrCapacity } from "../reflections/SssrAbi.js";
+import {
+  SCREEN_SPACE_REFLECTIONS_DEFAULT_SETTINGS,
+  resolveScreenSpaceReflectionsSettings,
+  screenSpaceReflectionsHistoryKey,
+  type ScreenSpaceReflectionsSettings
+} from "../reflections/ScreenSpaceReflectionsSettings.js";
 import { VsmDepthBoundsPass } from "../vsm/VsmDepthBoundsPass.js";
 import { ChangeSignal } from "../../core/Signal.js";
 import { Vec2 } from "../../core/math/Vec2.js";
@@ -392,6 +401,15 @@ export class Renderer {
   private _aerialPerspective: AerialPerspectivePass | null = null;
   private _present!: SurfacePresentPass;
   private _surface!: SurfaceV4;
+  private _reflections: SssrRuntime | null = null;
+  private _reflectionReady: Promise<void> | null = null;
+  private _reflectionInitialization = 0;
+  private _reflectionRetirement: Promise<void> | null = null;
+  private _reflectionError: unknown;
+  private _sssrDebug!: SssrDebug;
+  private _screenSpaceReflectionsSettings = SCREEN_SPACE_REFLECTIONS_DEFAULT_SETTINGS;
+  private _committedReflectionColorKey: string | null = null;
+  private _reflectionDebugLobe: 0 | 1 = 0;
   private readonly _visibilityCounters = new VisibilityCounterPass();
   private _environmentRuntime: PhysicalEnvironmentRuntime | null = null;
   private readonly _temporal = new TemporalFabric();
@@ -558,6 +576,7 @@ export class Renderer {
     this._rendererConfig = mergeRendererConfig(DEFAULT_RENDERER_CONFIG, config);
     validateRendererConfig(this._rendererConfig);
     this.setAmbientOcclusionSettings(this._rendererConfig.ambientOcclusion ?? {});
+    this.setScreenSpaceReflectionsSettings(this._rendererConfig.screenSpaceReflections ?? {});
   }
   get graphics(): GraphicsContext {
     return this._graphics;
@@ -583,6 +602,23 @@ export class Renderer {
   }
   get vsmCapabilities() {
     return this._vsm?.capabilities ?? null;
+  }
+  get screenSpaceReflectionsSettings(): Readonly<ScreenSpaceReflectionsSettings> {
+    return this._screenSpaceReflectionsSettings;
+  }
+  /** Atomic desired settings; the next admitted frame owns reset and publication. */
+  setScreenSpaceReflectionsSettings(patch: Partial<ScreenSpaceReflectionsSettings>): void {
+    this._screenSpaceReflectionsSettings = resolveScreenSpaceReflectionsSettings(
+      this._screenSpaceReflectionsSettings,
+      patch
+    );
+  }
+  get screenSpaceReflectionDebugLobe(): 0 | 1 {
+    return this._reflectionDebugLobe;
+  }
+  set screenSpaceReflectionDebugLobe(value: 0 | 1) {
+    if (value !== 0 && value !== 1) throw new RangeError("Reflection debug lobe must be base(0) or coat(1)");
+    this._reflectionDebugLobe = value;
   }
   get ambientOcclusionSettings(): Readonly<AmbientOcclusionSettings> {
     return this._ambientOcclusionSettings;
@@ -894,7 +930,7 @@ export class Renderer {
       throw new Error(
         `Virtual Geometry Product consumer requires maxStorageBuffersPerShaderStage >= ` +
           `${VIRTUAL_GEOMETRY_PRODUCT_REQUIRED_STORAGE_BUFFERS_PER_SHADER_STAGE}; ` +
-          `initialize Renderer with requiredLimits.maxStorageBuffersPerShaderStage before admission (device permits ${storageBufferLimit})`,
+          `initialize Renderer with requiredLimits.maxStorageBuffersPerShaderStage before admission (device permits ${storageBufferLimit})`
       );
     }
     if (publication.assetCount !== source.assetCount) {
@@ -1670,6 +1706,7 @@ export class Renderer {
     const config = mergeRendererConfig(this._rendererConfig, options.config);
     validateRendererConfig(config);
     this.setAmbientOcclusionSettings(options.config?.ambientOcclusion ?? {});
+    this.setScreenSpaceReflectionsSettings(options.config?.screenSpaceReflections ?? {});
     this._initializationConfig = config;
     this.resolutionScale = config.renderScale ?? 1;
     let context = options.context;
@@ -1826,6 +1863,7 @@ export class Renderer {
     this._xeGtaoDenoise = new XeGtaoDenoisePass(device);
     this._present = new SurfacePresentPass(device, this._format, this._displayProfile);
     this._surface = new SurfaceV4(device, true, this._graphics, true);
+    this._sssrDebug = new SssrDebug(device);
     this._finalPixelLighting = new FinalPixelLightingPublication(device, this._graphics);
     this._localLightWork = new LocalLightWorkGenerator(device, this.deviceEpoch, this._graphics);
     await this._localLightWork.ready;
@@ -1901,6 +1939,7 @@ export class Renderer {
       visibility: this._visibilityFeature,
       temporalSeed: this._temporalSeed,
       surface: this._surface,
+      sssrDebug: this._sssrDebug,
       visibilityCounters: this._visibilityCounters,
       radiometry: this._gpuRadiometry,
       bloom: this._bloom,
@@ -1984,6 +2023,62 @@ export class Renderer {
       if (scene.instance_count !== 0) throw new Error("Scene has no GPU Render World publication");
       return this.renderEmptyScene();
     }
+    // Resolve pending material edits before deciding whether any lit receiver
+    // still exists. The second readiness check includes the resulting profile.
+    if (!runtime.nativeMaterials!.canPrepareFrame()) {
+      this._lastFrameDeferral = "publication-ready";
+      return true;
+    }
+    const reflectionSettings = this._screenSpaceReflectionsSettings;
+    const reflectionEnabled =
+      reflectionSettings.enabled &&
+      reflectionSettings.strength > 0 &&
+      runtime.nativeMaterials!.hasLit &&
+      runtime.instanceCount > 0;
+    runtime.nativeMaterials!.setReflectionProfile(reflectionEnabled ? "sssr-base-coat" : "off");
+    if (reflectionEnabled) {
+      // Off/on must not create a new owner outside the old owner's retirement
+      // budget. Retire its last consumer before admitting the replacement.
+      if (this._reflectionRetirement !== null) {
+        this._lastFrameDeferral = "gpu-completion";
+        this._frameCoordinator.deferFrame();
+        return true;
+      }
+      planSssrCapacity(
+        this._render_resolution.x,
+        this._render_resolution.y,
+        this.device.limits,
+        this._initializationConfig?.screenSpaceReflectionsMemory
+      );
+      if (this._reflectionError !== undefined) throw this._reflectionError;
+      if (this._reflections === null) {
+        if (this._reflectionReady === null) {
+          const initialization = ++this._reflectionInitialization;
+          this._reflectionReady = SssrRuntime.create(
+            this.device,
+            this._initializationConfig?.screenSpaceReflectionsMemory
+          ).then(
+            (owner) => {
+              if (this._destroyed || initialization !== this._reflectionInitialization) owner.destroy();
+              else this._reflections = owner;
+            },
+            (error: unknown) => {
+              if (initialization === this._reflectionInitialization) this._reflectionError = error;
+            }
+          );
+        }
+        this._lastFrameDeferral = "publication-ready";
+        return true;
+      }
+      const diagnostic =
+        this._render_debug_view === RenderDebugViewValue.ScreenSpaceReflectionHitMiss ||
+        this._render_debug_view === RenderDebugViewValue.ScreenSpaceReflectionHistoryConfidence;
+      if (!this._reflections.canAdmit(this._render_resolution.x, this._render_resolution.y, diagnostic)) {
+        this._lastFrameDeferral = "gpu-completion";
+        this._frameCoordinator.deferFrame();
+        return true;
+      }
+    }
     if (!this._surface.canPrepareFrame() || !runtime.nativeMaterials!.canPrepareFrame()) {
       this._lastFrameDeferral = "publication-ready";
       this._publicationDeferredTicks++;
@@ -2031,10 +2126,19 @@ export class Renderer {
     const cameraCut = this._temporalResetPending;
     const ambientOcclusion = this._ambientOcclusionSettings;
     const ambientOcclusionKey = runtime.nativeMaterials!.hasLit ? this._ambientOcclusionKey : null;
+    const reflectionColorKey = reflectionEnabled
+      ? JSON.stringify([
+          screenSpaceReflectionsHistoryKey(reflectionSettings),
+          Math.fround(reflectionSettings.strength)
+        ])
+      : null;
     let cameraChanged = false;
     let localLightWork: LocalLightWorkFrame | null = null;
     try {
-      if (ambientOcclusionKey !== this._committedAmbientOcclusionKey) {
+      if (
+        ambientOcclusionKey !== this._committedAmbientOcclusionKey ||
+        reflectionColorKey !== this._committedReflectionColorKey
+      ) {
         this._temporal.histories.invalidateNames(["color"], "explicit");
         this._nativeTemporal.invalidate();
         this._fsr3.invalidate();
@@ -2295,8 +2399,7 @@ export class Renderer {
         ),
       };
       let finalPixelLighting:
-        | import("../lighting/FinalPixelLightingPublication.js").FinalPixelLightingFrame
-        | null = null;
+        import("../lighting/FinalPixelLightingPublication.js").FinalPixelLightingFrame | null = null;
       if (hasLit) {
         const publication = localLightPublication(environment.lights);
         const lookupCount =
@@ -2352,6 +2455,10 @@ export class Renderer {
       const graphBindings: SceneFrameBindings = {
         kind: "scene",
         ambientOcclusion,
+        screenSpaceReflections: reflectionSettings,
+        reflections: this._reflections,
+        reflectionReset: cameraCut || cameraChanged || !this._temporalSeed.frame.previousValid,
+        reflectionDebugLobe: this._reflectionDebugLobe,
         deviceEpoch: this.deviceEpoch,
         frameIndex,
         cameraRevision: this._cameraRevision,
@@ -2408,6 +2515,7 @@ export class Renderer {
         activeSets,
         textureBankMask,
         hasLit,
+        reflectionProfile: reflectionEnabled ? "sssr-base-coat" : "off",
         aoProfile:
           ambientOcclusion.enabled && ambientOcclusion.strength > 0 && hasLit && activeSets.length > 0
             ? `scalar-${ambientOcclusion.quality}`
@@ -2499,6 +2607,7 @@ export class Renderer {
       command.onFinished.addOne(() => {
         this._temporalResetPending = false;
         this._committedAmbientOcclusionKey = ambientOcclusionKey;
+        this._committedReflectionColorKey = reflectionColorKey;
       });
       this._profiler.measure("submit", () => this._frameCoordinator.submitFrame(frame));
       if (temporalPolicy === "upscale") {
@@ -2514,6 +2623,12 @@ export class Renderer {
       }
       this._temporalPolicy = temporalPolicy;
       this._surface.commit(command.gpuDone);
+      if (!reflectionEnabled) {
+        this.retireReflections(command.gpuDone);
+        this._reflectionReady = null;
+        this._reflectionInitialization++;
+        this._sssrDebug.releaseBindings();
+      }
       if (!hasLit) {
         this._localLightWork.releaseFrameResources();
         this._finalPixelLighting.releaseFrameResources();
@@ -2627,6 +2742,11 @@ export class Renderer {
       this._fsr3.releaseHistory();
       this._nativeTemporal.releaseHistory();
       this._surface.releaseFrameResources();
+      this.retireReflections(command.gpuDone);
+      this._reflectionReady = null;
+      this._reflectionInitialization++;
+      this._sssrDebug.releaseBindings();
+      this._committedReflectionColorKey = null;
       this._temporalSeed.releaseHistory();
       this._localLightWork.releaseFrameResources();
       this._finalPixelLighting.releaseFrameResources();
@@ -2644,6 +2764,17 @@ export class Renderer {
     } finally {
       this._profiler.endFrame();
     }
+  }
+
+  private retireReflections(fence: Promise<void>): void {
+    if (this._reflections === null) return;
+    this._reflections.destroy();
+    this._reflections = null;
+    const release = (): void => {
+      if (this._reflectionRetirement === retirement) this._reflectionRetirement = null;
+    };
+    const retirement = fence.then(release, release);
+    this._reflectionRetirement = retirement;
   }
 
   destroy(): void {
@@ -2670,6 +2801,9 @@ export class Renderer {
     this._present?.destroy();
     this._temporalSeed?.destroy();
     this._surface?.destroy();
+    this._reflections?.destroy();
+    this._reflections = null;
+    this._sssrDebug?.releaseBindings();
     this._localLightWork?.destroy();
     this._gpuRadiometry?.destroy();
     this._bloom?.destroy();
@@ -2735,6 +2869,8 @@ export class Renderer {
       try {
         await replacement.initialize({ context: checkpoint.context, config: checkpoint.config });
         replacement.setAmbientOcclusionSettings(checkpoint.ambientOcclusion);
+        replacement.setScreenSpaceReflectionsSettings(checkpoint.screenSpaceReflections);
+        replacement.screenSpaceReflectionDebugLobe = checkpoint.reflectionDebugLobe;
         replacement.pixel_ratio = checkpoint.pixelRatio;
         replacement.resize(checkpoint.width, checkpoint.height);
         replacement.setResolutionScale(checkpoint.resolutionScale);
@@ -2867,6 +3003,8 @@ export class Renderer {
       context: this.context,
       config: this._initializationConfig!,
       ambientOcclusion: this._ambientOcclusionSettings,
+      screenSpaceReflections: this._screenSpaceReflectionsSettings,
+      reflectionDebugLobe: this._reflectionDebugLobe,
       width: this._width,
       height: this._height,
       resolutionScale: this.resolutionScale,

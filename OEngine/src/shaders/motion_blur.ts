@@ -2,13 +2,13 @@
  * motion_blur：定义对应渲染阶段使用的 WGSL 着色器代码。
  */
 
-import { SSR_FULLSCREEN_VERTEX_WGSL, SSR_MATH_WGSL } from "./ssr_common.js";
+import { FULLSCREEN_PASS_VERTEX_WGSL } from "./fullscreen_triangle.js";
 
 export const MOTION_BLUR_TILE_FORMAT = "rg16float" as const;
 export const MOTION_BLUR_FORMAT = "rgba16float" as const;
 
 export const MOTION_BLUR_TILE_MAX_WGSL = /* wgsl */ `
-${SSR_FULLSCREEN_VERTEX_WGSL}
+${FULLSCREEN_PASS_VERTEX_WGSL}
 @group(0) @binding(0) var header: texture_2d<f32>;
 const TILE_SIZE: u32 = 16u;
 
@@ -36,7 +36,7 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec2f {
 `;
 
 export const MOTION_BLUR_NEIGHBOR_MAX_WGSL = /* wgsl */ `
-${SSR_FULLSCREEN_VERTEX_WGSL}
+${FULLSCREEN_PASS_VERTEX_WGSL}
 @group(0) @binding(0) var path: texture_2d<f32>;
 
 @fragment
@@ -62,8 +62,8 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec2f {
 `;
 
 export const MOTION_BLUR_RESOLVE_WGSL = /* wgsl */ `
-${SSR_FULLSCREEN_VERTEX_WGSL}
-${SSR_MATH_WGSL}
+${FULLSCREEN_PASS_VERTEX_WGSL}
+fn saturate(value: f32) -> f32 { return clamp(value, 0.0, 1.0); }
 struct MotionBlurStrength { value: f32 };
 @group(0) @binding(0) var tv_y: texture_2d<f32>;
 @group(0) @binding(1) var header: texture_2d<f32>;

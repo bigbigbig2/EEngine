@@ -656,3 +656,9 @@ export {
   type VsmDebugView,
   type VsmFilterMode
 } from "./render/vsm/VsmSettings.js";
+
+export {
+  SCREEN_SPACE_REFLECTIONS_DEFAULT_SETTINGS,
+  type ScreenSpaceReflectionsSettings
+} from "./render/reflections/ScreenSpaceReflectionsSettings.js";
+export type { SssrMemorySettings } from "./render/reflections/SssrAbi.js";

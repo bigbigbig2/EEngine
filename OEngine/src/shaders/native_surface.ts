@@ -1,4 +1,5 @@
 import type { NativeMaterialProgram } from "./native_material.js";
+import { SSSR_RECEIVER_WRITE_WGSL } from "../render/reflections/SssrAbi.js";
 import { GPU_INSTANCE_FLAGS } from "../gpu/GpuInstanceAbi.js";
 import {
   selectAppearanceProductProgram,
@@ -29,6 +30,7 @@ import {
 export type NativeSurfaceCostSlice = "A" | "B0" | "B" | "C" | "D" | "E" | "F" | "G" | "Q0" | "K";
 
 export interface NativeSurfaceShaderProfile {
+  readonly reflections?: "off" | "sssr-base-coat";
   readonly compact: boolean;
   readonly productGeometry: boolean;
   readonly unlit: boolean;
@@ -158,6 +160,9 @@ export function nativeSurfaceBindingGroups(
       geometry.push(read(binding));
     }
   }
+  if (profile.reflections === "sssr-base-coat") {
+    geometry.push({ binding: 15, visibility: COMPUTE, buffer: { type: "storage" } });
+  }
   const lighting: GPUBindGroupLayoutEntry[] = profile.unlit
     ? []
     : [
@@ -250,7 +255,7 @@ export function nativeSurfaceWgsl(
         ? `vec4f(${Array.from(
             { length: 4 },
             (_, channel) =>
-              `native_material_constant(entry.constant_base, ${program.constants.length + 2 + index * 4 + channel}u)`,
+              `native_material_constant(entry.constant_base, ${program.constants.length + 2 + index * 4 + channel}u)`
           ).join(", ")})`
         : `native_frame_inputs[${index}u]`;
     } else {
@@ -289,6 +294,7 @@ export function nativeSurfaceWgsl(
           .map((slot) => `values[${slot}u]`)
           .join(", ")})`;
   };
+  const reflections = profile.reflections === "sssr-base-coat";
   const reactiveDeclaration = profile.finalPixel
     ? nativeTemporalSeedWgsl(0, 6, 8, 9)
     : nativeResponseWgsl(!!profile.reactive);
@@ -346,15 +352,37 @@ fn native_environment(material: StandardMaterial, normal: vec3f, direction: vec3
   let dfg = sample_environment_dfg(environment_dfg, environment_sampler, saturate(dot(normal, direction)), material.roughness);
   var base_attenuation = 1.0;
   var coat_radiance = vec3f(0.0);
+  var coat_response = 0.0;
   if material.coatFactor > 0.0 {
     let coat_fresnel = environment_clearcoat_fresnel(dot(material.coatNormal, direction), material.coatFactor);
     base_attenuation = 1.0 - coat_fresnel;
+    coat_response = coat_fresnel;
     coat_radiance = sample_native_environment(environment_specular,
       reflect(-direction, material.coatNormal), material.coatRoughness) * coat_fresnel;
   }
   let ao = textureLoad(ambient_occlusion, vec2i(min(pixel, textureDimensions(ambient_occlusion) - vec2u(1u))), 0).r * material.occlusion;
   let diffuse = irradiance * material.diffuse * RECIPROCAL_PI * ao;
   let specular = radiance * environment_dfg_single_scatter(dfg, material.specularF0);
+  ${
+    reflections
+      ? `let alpha = unpack2x16float(pack2x16float(vec2f(material.roughness * material.roughness, material.coatRoughness * material.coatRoughness)));
+  let selected_base = alpha.x < bitcast<f32>(route.w);
+  let selected_coat = alpha.y < bitcast<f32>(route.w) && material.coatFactor > 0.0;
+  let base_response = environment_dfg_single_scatter(dfg, material.specularF0) * base_attenuation;
+  reflection_response = vec4f(select(vec3f(0.0), base_response, selected_base), select(0.0, coat_response, selected_coat));
+  reflection_baseline = select(vec3f(0.0), radiance * base_response, selected_base) + select(vec3f(0.0), coat_radiance, selected_coat);
+  reflection_flags = 1u | select(0u, 2u, selected_base) | select(0u, 4u, selected_coat);
+  ${
+    profile.physicalSun
+      ? `if (lighting_mode == 2u) {
+    reflection_response = vec4f(0.0);
+    reflection_baseline = vec3f(0.0);
+    reflection_flags = 1u;
+  }`
+      : ""
+  }`
+      : ""
+  }
   ${
     profile.physicalSun
       ? `if (lighting_mode == 2u) {
@@ -410,6 +438,12 @@ fn native_environment(material: StandardMaterial, normal: vec3f, direction: vec3
   const material = profile.unlit
     ? /* wgsl */ `
   let color = ${vector("baseColor", "vec3f(0.0)")};
+  ${
+    reflections
+      ? `let reflection_face = native_face_normal(resolved.world_plane.xyz, resolved_position);
+  sssr_write_receiver(pixel.y * settings.dimensions.x + pixel.x, vec4f(reflection_face, 1.0), vec4f(reflection_face, 1.0), vec4f(0.0), vec4f(0.0, 0.0, 0.0, 1.0));`
+      : ""
+  }
 `
     : /* wgsl */ `
   let base = max(${vector("baseColor", "vec3f(1.0)")}, vec3f(0.0));
@@ -433,6 +467,14 @@ fn native_environment(material: StandardMaterial, normal: vec3f, direction: vec3
   let geometry = SurfaceGeometry(mapped_normal, native_safe_normal(corners.world_plane.xyz, normal), position, direction);
   let view_depth = max(-(settings.view_matrix * vec4f(position, 1.0)).z, 1e-4);
 ${materialLighting}
+  ${
+    reflections
+      ? `let reflection_alpha = unpack2x16float(pack2x16float(vec2f(material.roughness * material.roughness, material.coatRoughness * material.coatRoughness)));
+  sssr_write_receiver(pixel.y * settings.dimensions.x + pixel.x,
+    vec4f(mapped_normal, reflection_alpha.x), vec4f(material.coatNormal, reflection_alpha.y), reflection_response,
+    vec4f(oengine_linear_rec709_to_rec2020(reflection_baseline) * settings.camera_position_exposure.w, f32(reflection_flags)));`
+      : ""
+  }
 `;
   // Debug sampling uses the existing invocation facts; no cross-pass mask.
   const vsmDebug =
@@ -557,7 +599,7 @@ ${material}
     // liveness: A/B/C are diagnostic bounds, not standalone production costs.
     const fields = ["position", "normal", "tangent", "uv", "uv2", "color"];
     const cornerTerms = fields.flatMap((field) =>
-      [0, 1, 2].map((corner) => `dot(corners.${field}.p${corner}, vec4f(0.13, 0.19, 0.23, 0.29))`),
+      [0, 1, 2].map((corner) => `dot(corners.${field}.p${corner}, vec4f(0.13, 0.19, 0.23, 0.29))`)
     );
     cornerTerms.push(
       "dot(corners.world_plane, vec4f(0.31, 0.37, 0.41, 0.43))",
@@ -630,6 +672,15 @@ struct NativeSurfaceSettings {
 @group(0) @binding(4) var<storage, read> frame_instances: array<OEngineFrameInstanceRecord>;
 @group(0) @binding(5) var visibility: texture_2d<u32>;
 @group(0) @binding(7) var hdr: texture_storage_2d<rgba16float, write>;
+${
+  reflections
+    ? `@group(0) @binding(15) var<storage, read_write> reflection_receivers: array<u32>;
+${SSSR_RECEIVER_WRITE_WGSL}
+var<private> reflection_response: vec4f;
+var<private> reflection_baseline: vec3f;
+var<private> reflection_flags: u32 = 1u;`
+    : ""
+}
 
 ${reactiveDeclaration}
 ${profile.finalPixel ? "fn seed_view() -> NativeTemporalSeedView { return settings.temporal; }" : ""}

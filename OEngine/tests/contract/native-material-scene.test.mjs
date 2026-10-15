@@ -51,9 +51,32 @@ test("Surface has no alpha evaluator while coverage-only edits remain atomic and
   await scene.ready;
   upload.onBeforeFinish.send1(upload);
   upload.onFinished.send1(upload);
-  const active = scene.active;
+  let active = scene.active;
   assert.equal(scene.hasLit, true);
   const bound = scene.bindings[0];
+  scene.setReflectionProfile("sssr-base-coat");
+  assert.equal(scene.canPrepareFrame(), false);
+  await tick();
+  assert.equal(scene.canPrepareFrame(), true);
+  const reflectionCandidate = scene.candidate;
+  assert.equal(scene.reflectionProfile, "sssr-base-coat");
+  assert.equal(reflectionCandidate.bindings[0], bound);
+  assert.equal(reflectionCandidate.publication.entries[0].signature, active.publication.entries[0].signature);
+  assert.equal(
+    reflectionCandidate.publication.entries[0].valueRevision,
+    active.publication.entries[0].valueRevision
+  );
+  const reflectionAbort = f.command();
+  assert.equal(scene.prepareFrame(reflectionAbort), false, "profile alone cannot invalidate MASK/VSM");
+  reflectionAbort.onAborted.send1(reflectionAbort);
+  assert.equal(scene.active, active);
+  scene.setReflectionProfile("off");
+  scene.canPrepareFrame();
+  await tick();
+  const reflectionOff = f.command();
+  scene.prepareFrame(reflectionOff);
+  reflectionOff.onFinished.send1(reflectionOff);
+  active = scene.active;
   assert.equal(bound.program.outputs.alpha, undefined);
   assert.equal(
     bound.program.inputs.some((input) => input.name === "opacity"),

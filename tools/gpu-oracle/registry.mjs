@@ -11,6 +11,21 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "sssr-production",
+    file: "OEngine/tests/oracle/sssr-production-gpu.mjs",
+    url: "/OEngine/tests/oracle/sssr-production-gpu.mjs",
+    entry: "runSssrProductionGpuOracle",
+    requiredFeatures: ["texture-compression-bc", "texture-formats-tier1"],
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    allowPrefixes: [
+      "OEngine/src/render/assets/textures/",
+      "OEngine/src/render/assets/sssr/",
+      "OEngine/src/assets/web-cook/wasm/vendor/"
+    ],
+    timeoutMs: 180000,
+    description: "Native SSSR production profile, complete FrameProgram and bounded lifecycle."
+  }),
+  Object.freeze({
     name: "sssr-algorithm",
     file: "OEngine/tests/oracle/sssr-algorithm-gpu.mjs",
     url: "/OEngine/tests/oracle/sssr-algorithm-gpu.mjs",

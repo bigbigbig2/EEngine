@@ -10,6 +10,7 @@ import {
   FrameGraphContext,
 } from "../../.test-dist/framegraph/FrameGraph.js";
 import { BloomPass } from "../../.test-dist/render/passes/BloomPass.js";
+import { SCREEN_SPACE_REFLECTIONS_DEFAULT_SETTINGS } from "../../.test-dist/render/reflections/ScreenSpaceReflectionsSettings.js";
 import { AMBIENT_OCCLUSION_DEFAULT_SETTINGS } from "../../.test-dist/render/ao/AmbientOcclusionSettings.js";
 
 const scene = {
@@ -57,7 +58,7 @@ test("Bloom upsamples each mip at its high input extent", () => {
     new BloomPass(device).addToGraph(graph, { scene: sceneColor, preExposure, width: 640, height: 360 });
     for (let level = 0; level < 4; level++) {
       const node = Array.from({ length: graph.resourceNodeCount }, (_, id) => graph.getResourceNode(id)).find(
-        (node) => node.name === `Bloom/up${level}`,
+        (node) => node.name === `Bloom/up${level}`
       );
       assert.ok(node);
       const descriptor = graph.getDescriptor(node.id);
@@ -141,9 +142,12 @@ test("AO quality and denoise are structural while disabled AO canonicalizes its 
   assert.equal(medium.request.aoDenoisePasses, 0);
   assert.equal(
     buildFrameProgram({ ...scene, aoProfile: "off", aoDenoisePasses: 3 }).key,
-    buildFrameProgram({ ...scene, aoProfile: "off", aoDenoisePasses: 0 }).key,
+    buildFrameProgram({ ...scene, aoProfile: "off", aoDenoisePasses: 0 }).key
   );
-  assert.throws(() => buildFrameProgram({ ...scene, aoProfile: "scalar-high", aoDenoisePasses: 4 }), /denoise/i);
+  assert.throws(
+    () => buildFrameProgram({ ...scene, aoProfile: "scalar-high", aoDenoisePasses: 4 }),
+    /denoise/i
+  );
 });
 
 test("AO debug declares its actual scalar consumer and disabled debug stays neutral", () => {
@@ -239,7 +243,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
       standardSetRefCounts: new Uint32Array([1]),
       coatedSetRefCounts: new Uint32Array([0]),
     },
-    nativeMaterials: { hasLit: false, publication: { materialSlotCount: 16 } },
+    nativeMaterials: { reflectionProfile: "off", hasLit: false, publication: { materialSlotCount: 16 } },
     materialResources: {
       materialRecords: resource,
       textureRouteRecords: resource,
@@ -372,6 +376,10 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
     swapchain: resource,
     preExposure: { multiplier: 1 },
     ambientOcclusion: { ...AMBIENT_OCCLUSION_DEFAULT_SETTINGS, enabled: false },
+    screenSpaceReflections: SCREEN_SPACE_REFLECTIONS_DEFAULT_SETTINGS,
+    reflections: null,
+    reflectionReset: false,
+    reflectionDebugLobe: 0,
     localLightWork: null,
     finalPixelLighting: null,
     localLightCounters: resource,
@@ -596,7 +604,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
   const environment = {
     parameters: { size: 64 },
     luts: { views: lut },
-    ibl: { views: { diffuse: {}, specular: {}, dfg: {} } },
+    ibl: { specularTexture: {}, views: { diffuse: {}, specular: {}, dfg: {} } }
   };
   const environmentPlan = buildFrameProgram({ ...request, physicalEnvironment: true });
   const environmentOwners = {
@@ -746,4 +754,33 @@ test("Temporal policy publishes one demanded Native/upscale/bypass graph", () =>
   assert.ok(!bypass.stages.includes("temporal-classification"));
   assert.ok(bypass.products.includes("temporal-identity"));
   assert.throws(() => buildFrameProgram({ ...scene, fsr3Enabled: false }), /equal internal and output/);
+});
+
+test("SSSR declares finite opaque correction and selected debug dependencies", () => {
+  const off = buildFrameProgram(scene);
+  const on = buildFrameProgram({ ...scene, reflectionProfile: "sssr-base-coat" });
+  assert.notEqual(on.key, off.key);
+  for (const product of [
+    "reflection-surface",
+    "reflection-depth",
+    "indirect-specular",
+    "opaque-reflected-radiance"
+  ]) {
+    assert.ok(on.products.includes(product));
+    assert.ok(!off.products.includes(product));
+  }
+  assert.ok(on.stages.indexOf("surface") < on.stages.indexOf("sssr"));
+  assert.ok(on.stages.indexOf("sssr") < on.stages.indexOf("physical-sky"));
+  const debug = buildFrameProgram({
+    ...scene,
+    reflectionProfile: "sssr-base-coat",
+    debugView: "screen-space-reflection-temporal"
+  });
+  assert.ok(debug.facts.find((f) => f.product === "indirect-specular").consumers.includes("debug-view"));
+  const inactive = buildFrameProgram({ ...scene, debugView: "screen-space-reflection-temporal" });
+  assert.ok(!inactive.stages.includes("sssr"));
+  assert.throws(
+    () => buildFrameProgram({ ...scene, hasLit: false, reflectionProfile: "sssr-base-coat" }),
+    /lit Native/
+  );
 });

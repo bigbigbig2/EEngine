@@ -391,7 +391,7 @@ function snapshot() {
       },
       authoredLights: 0,
       authoredHdr: false,
-      ssr: "NOT WIRED IN CURRENT FRAME PROGRAM",
+      ssr: renderer?.screenSpaceReflectionsSettings ?? null,
       screenSpaceGi: "NOT WIRED IN CURRENT FRAME PROGRAM",
       stages: renderer?.mainFrameGraphEvidence()?.program.stages ?? [],
       camera: {
@@ -575,9 +575,10 @@ function refresh(): void {
   }))
     vsmCells.get(key)!.textContent = value;
   const ao = renderer.ambientOcclusionSettings;
-  element("ao-state").textContent = ao.enabled && ao.strength > 0
-    ? `${ao.quality} · ${ao.radiusMeters} m · strength ${ao.strength}. Runs only for lit surfaces.`
-    : "Screen AO off · visibility 1. No lit consumer means no AO work.";
+  element("ao-state").textContent =
+    ao.enabled && ao.strength > 0
+      ? `${ao.quality} · ${ao.radiusMeters} m · strength ${ao.strength}. Runs only for lit surfaces.`
+      : "Screen AO off · visibility 1. No lit consumer means no AO work.";
   const renderValues: Record<string, string> = {
     effects: [
       state.vsm && "VSM",
@@ -694,6 +695,7 @@ async function start(): Promise<void> {
   // Apply the initial effect switches; VSM starts enabled in this demo.
   for (const [id, set] of effectSwitches) set(renderer, element<HTMLInputElement>(id).checked);
   applyAmbientOcclusionControls();
+  applyReflectionControls();
   renderer.profiler.configure({ enabled: false });
   applySunControls();
   scene.physical_environment.setSkyLuminanceScale(Number(element<HTMLInputElement>("sky").value));
@@ -1102,6 +1104,7 @@ element("debug-view").addEventListener("change", (event) => {
   resetFrameSamples();
 });
 const effectSwitches = [
+  ["ssr", (r: Renderer, v: boolean) => r.setScreenSpaceReflectionsSettings({ enabled: v })],
   [
     "vsm",
     (r: Renderer, v: boolean) => {
@@ -1142,10 +1145,45 @@ const effectSwitches = [
     "cone",
     (r: Renderer, v: boolean) => {
       r.packed_visibility_cone_enabled = v;
-    },
-  ],
+    }
+  ]
 ] as const;
-const aoControlIds = ["ao-radius", "ao-world-scale", "ao-strength", "ao-power", "ao-quality", "ao-denoise"] as const;
+const reflectionControlIds = [
+  "ssr-quality",
+  "ssr-roughness",
+  "ssr-thickness",
+  "ssr-world-scale",
+  "ssr-stability",
+  "ssr-strength",
+  "ssr-lobe"
+] as const;
+function applyReflectionControls(): void {
+  if (!renderer) return;
+  for (const id of reflectionControlIds)
+    if (!element<HTMLInputElement | HTMLSelectElement>(id).reportValidity()) return;
+  renderer.setScreenSpaceReflectionsSettings({
+    quality: element<HTMLSelectElement>("ssr-quality").value as "balanced" | "high",
+    maxRoughness: Number(element<HTMLInputElement>("ssr-roughness").value),
+    thicknessMeters: Number(element<HTMLInputElement>("ssr-thickness").value),
+    metersPerWorldUnit: Number(element<HTMLInputElement>("ssr-world-scale").value),
+    temporalStability: Number(element<HTMLInputElement>("ssr-stability").value),
+    strength: Number(element<HTMLInputElement>("ssr-strength").value)
+  });
+  renderer.screenSpaceReflectionDebugLobe = Number(element<HTMLSelectElement>("ssr-lobe").value) as 0 | 1;
+}
+for (const id of reflectionControlIds)
+  element(id).addEventListener("change", () => {
+    applyReflectionControls();
+    resetFrameSamples();
+  });
+const aoControlIds = [
+  "ao-radius",
+  "ao-world-scale",
+  "ao-strength",
+  "ao-power",
+  "ao-quality",
+  "ao-denoise"
+] as const;
 function applyAmbientOcclusionControls(): void {
   if (!renderer) return;
   for (const id of aoControlIds) {
@@ -1186,7 +1224,7 @@ for (const [id, set] of effectSwitches) {
       renderer.temporal_jitter_enabled = false;
     }
     set(renderer, enabled);
-    if (id !== "gtao") renderer.invalidateTemporalHistory();
+    if (id !== "gtao" && id !== "ssr") renderer.invalidateTemporalHistory();
     resetFrameSamples();
   });
 }
@@ -1444,7 +1482,14 @@ if (performanceCapture) {
         gpuSampleInterval: renderer?.profiler.gpuSampleInterval ?? null,
         instanceBegin: renderer?.graphics?.render_world.runtime(scene)?.instanceBegin ?? null,
         instanceCount: renderer?.graphics?.render_world.runtime(scene)?.instanceCount ?? null,
-        deviceLimits: renderer ? Object.fromEntries(Object.keys(GPUSupportedLimits.prototype).map(key => [key, renderer!.device.limits[key as keyof GPUSupportedLimits]])) : {},
+        deviceLimits: renderer
+          ? Object.fromEntries(
+              Object.keys(GPUSupportedLimits.prototype).map((key) => [
+                key,
+                renderer!.device.limits[key as keyof GPUSupportedLimits]
+              ])
+            )
+          : {}
       }),
       setCamera(position: readonly [number, number, number], target: readonly [number, number, number], cut = true) {
         camera.transform.position.set(...position);

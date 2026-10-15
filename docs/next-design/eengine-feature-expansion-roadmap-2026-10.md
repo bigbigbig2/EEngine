@@ -28,9 +28,9 @@ verifies:
     - OEngine/src/render/environment/PhysicalEnvironmentRuntime.ts
     - OEngine/src/gpu/GpuAuthoredEnvironment.ts
     - OEngine/src/gpu/GPUSceneEnvironmentContext.ts
-    - OEngine/src/shaders/ssr_trace.ts
-    - OEngine/src/shaders/ssr_resolve.ts
-    - OEngine/src/shaders/ssr_denoise.ts
+    - OEngine/src/render/reflections
+    - OEngine/src/shaders/sssr_intersect.ts
+    - OEngine/src/shaders/sssr_reproject.ts
     - OEngine/src/material/CanonicalMaterial.ts
     - OEngine/src/render/MomentOitReference.ts
     - OEngine/src/gpu/GPUVolumetrics.ts
@@ -69,16 +69,16 @@ verifies:
 
 ## 2. 代码提供的事实与约束
 
-初次在 `aa04fd65` 再查生产调用，其生产代码与前次 `2caf5fe2` 相同；下表AO/配置两行随首个模块实际切换更新，结果只回链模块执行文。类、旧 shader、注释、debug 名称和历史测试均不能单独证明功能接入。
+初次在 `aa04fd65` 再查生产调用，其生产代码与前次 `2caf5fe2` 相同；下表AO/SSSR相关事实随实际切换更新，结果只回链模块执行文。类、旧 shader、注释、debug 名称和历史测试均不能单独证明功能接入。
 
 | 领域 | 当前源码事实 | 对粗路线的影响 |
 |---|---|---|
-| 主帧与配置 | `RendererCore` 创建 owner；`FrameProgram`/Lowering 形成唯一生产图；`RendererConfig` 已有AO初值与运行期独立快照，尚无SSR/GI/VT设置；`RenderFeatureRegistry` 不在生产选择链 | 继续扩展真实设置→需求→图/PSO→绑定链，不先加 EffectsManager 或第二个 feature scheduler |
+| 主帧与配置 | `RendererCore` 创建 owner；`FrameProgram`/Lowering 形成唯一生产图；`RendererConfig` 已有AO/SSSR初值与运行期独立快照，尚无GI/VT设置；`RenderFeatureRegistry` 不在生产选择链 | 继续扩展真实设置→需求→图/PSO→绑定链，不先加 EffectsManager 或第二个 feature scheduler |
 | AO | scalar XeGTAO完整链实际进入Native diffuse IBL；七项设置、Medium/High/0..3去噪和独立AO debug已接通，noise仍固定0，原开关已退休；结果只读模块执行文 | 后续按真实画面需求决定专属temporal/bent normal/specular occlusion，不重新发明或再实施一套AO |
 | HZB | `HierarchicalZBuffer`/`hzb_reduce` 为反向深度 RG16F 保守 min/max，首级从内部尺寸的一半开始，有 current/previous；FrameProgram 目前仅由几何 HZB 需求触发构建，late recheck 后可再构建 final HZB | 可作为 tracing 的候选粗层；SSR 需核对最终可见性版本与精度，裁决是否结合全分辨率 Depth 精细验证或新增必要层级。已有纹理不等于任意效果都拿到了正确版本/精度 |
 | 深度/法线 | XeGTAO 有私有五级 weighted view-depth 和深度重建法线；Native invocation 内有真实材质 normal/roughness/coat | AO weighted depth 与遮挡 HZB 数学不同，不能强行合一；深度法线也不等于 normal-map/coat 法线 |
 | Native 间接光 | `native_surface.native_environment` 已计算 diffuse IBL×AO/material occlusion、DFG-weighted specular IBL、coat 与底层衰减；输出转工作色域并预曝光 | 新 GI/SSR 需要明确替换/补充的光照分量及颜色域，不能直接 HDR 加法；baseline 不自动提供新反射的材质响应 |
-| 颜色金字塔/SSR | `SharedColorPyramidPass` 与旧 SSR shader 存在，当前 FrameProgram/Renderer 无生产调度；旧 opaque pyramid 的 stage 名只是原合同 | 核对数学后复用；新的颜色版本/读写顺序从当前 consumer 设计，不恢复旧 owner 或照抄旧 stage |
+| 颜色金字塔/SSR | SSSR已沿Native base/coat receiver→完整追踪/去噪→baseline replacement接入生产；不需要opaque color pyramid，旧SSR shader已删除。`SharedColorPyramidPass`仍未调度；结果只读[SSSR执行](../next-execution/eengine-sssr-execution-2026-10.md) | 后续SSGI按实际采样需要裁决颜色版本/过滤，不恢复旧owner或把SSSR无金字塔的选择强加给新算法 |
 | 纹理 | metadata3 为 plane/mip chunks；`TextureResidency` 创建完整尺寸/mip array segments，支持 tail-first 上传与 promote，并不随细 mip 缺失而释放对应分配 | 已有压缩产品和渐进上传基础，尚无 tiled Product、页表、feedback、逐 tile 淘汰；当前体系不能叫完整 VT |
 | Coverage | exact R8 plane 已独立；`nativeMaterialCoverageProgram` 从任意 graph 提取 alpha 子图，Main/VSM 共用语义 | alpha 可能依赖 RGB/其他 sample，VT v1 排除 coverage 时要保护整个依赖闭包，不能只保护标为 alpha-mask 的贴图 |
 | Probes/GI | 旧 `GPULightProbeVolume`/atlas 是可选惰性数据，record 含低阶系数；没有当前局部镜面反射或 world GI 的生产消费链 | 旧 diffuse probe 数据不等于预滤波 specular probe；不能直接宣布 box-projected reflections 已具备，也不能据此选定 GI |
@@ -95,7 +95,7 @@ verifies:
 | 先独立建设 Screen-Space Effect Foundation | 调整为随 SSR 的真实消费建立有限基础；AO 只补自身需要。首个 consumer 完整闭合后，SSGI 再复用已成立合同，算法确实不同则保留局部实现，不强迫所有效果共用一个 kernel |
 | 一张 normal+roughness sidecar 就够 | 仅为候选。它不能完整表达 F0/coat/BRDF response、语义身份与重投影；也可能无需全屏物化。字段、格式、全/半分辨率和重算取舍留细设计裁决 |
 | Surface 顺手固定输出 indirect baseline | 防双计能量的思路采纳，固定全屏 baseline 输出不采纳。SSR/GI 细设计比较发布必要 response/baseline、调整原生合成边界或有限重算，选择合法且成本有界的产品 |
-| 直接选 FidelityFX SSSR 全套 | 列为优先研究参考，未选定完整移植 profile；其 wave/占用率退出、depth hierarchy、环境采样和 denoiser 假设需适配 WebGPU 与目标 GPU。不能删关键阶段后声称完整 SSSR |
+| 直接选 FidelityFX SSSR 全套 | 粗设计时列为优先参考；后续细模块已选择并适配固定SDK的完整FP32算法profile，来源/差异/结果只读细文档。wave/占用率退出、depth hierarchy、环境采样和denoiser仍须明确平台适配，不能删关键阶段后声称完整SSSR |
 | SSR 顺手完成 Local Probes | 分成相邻完整模块；SSR 可先用现有 Global IBL 合法补缺，随后补局部反射。Probe 的数据来源/预滤波/空间选择和更新成本不能被“顺手”省略 |
 | Streaming VT v1 暂不虚拟化 coverage | 采纳保守范围，但明确为 shading VT profile。所有影响 alpha 的样本/坐标依赖保持完整可用，含 custom graph；无法安全分离时保留该依赖为 resident，或显式拒绝不支持输入，不能默改 coverage |
 | SSGI 后直接固定 Cascaded SDF+Probe | 只采纳“近场 screen diffuse→独立 world-space GI”的推进层次。SDF+Probe 是优先候选，尚无足够的动态几何、薄墙、alpha、hit radiance 和 4GB 成本依据作为最终选择 |

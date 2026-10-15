@@ -7,12 +7,12 @@
  * and every final-color mip use the same bounded 2x2 linear reduction.
  */
 
-import { SSR_FULLSCREEN_VERTEX_WGSL, SSR_MATH_WGSL } from "./ssr_common.js";
+import { FULLSCREEN_PASS_VERTEX_WGSL } from "./fullscreen_triangle.js";
 
 export const SHARED_COLOR_PYRAMID_FORMAT = "rgba16float" as const;
 
 export const SHARED_COLOR_PYRAMID_COPY_WGSL = /* wgsl */ `
-${SSR_FULLSCREEN_VERTEX_WGSL}
+${FULLSCREEN_PASS_VERTEX_WGSL}
 @group(0) @binding(0) var source_color: texture_2d<f32>;
 @group(0) @binding(1) var linear_clamp: sampler;
 
@@ -23,8 +23,9 @@ fn fs_main(@location(0) uv: vec2f) -> @location(0) vec4f {
 `;
 
 export const SHARED_OPAQUE_PYRAMID_DEPTH_AWARE_WGSL = /* wgsl */ `
-${SSR_FULLSCREEN_VERTEX_WGSL}
-${SSR_MATH_WGSL}
+${FULLSCREEN_PASS_VERTEX_WGSL}
+fn uv_to_texel_coordinate(uv: vec2f, resolution: vec2u) -> vec2f { return fma(uv, vec2f(resolution), vec2f(-0.5)); }
+fn rgb_to_luminance(color: vec3f) -> f32 { return dot(color, vec3f(0.212639005871510, 0.715168678767756, 0.072192315360734)); }
 @group(0) @binding(0) var source_color: texture_2d<f32>;
 @group(0) @binding(1) var source_depth: texture_depth_2d;
 
@@ -60,7 +61,7 @@ fn fs_main(
 `;
 
 export const SHARED_COLOR_PYRAMID_DOWNSAMPLE_WGSL = /* wgsl */ `
-${SSR_FULLSCREEN_VERTEX_WGSL}
+${FULLSCREEN_PASS_VERTEX_WGSL}
 @group(0) @binding(0) var source_mip: texture_2d<f32>;
 @group(0) @binding(1) var linear_clamp: sampler;
 

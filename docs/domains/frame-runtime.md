@@ -27,6 +27,7 @@ verifies:
     - OEngine/src/render/program/FrameProgram.ts
     - OEngine/src/render/RendererConfig.ts
     - OEngine/src/render/ao/AmbientOcclusionSettings.ts
+    - OEngine/src/render/reflections
     - OEngine/src/render/DynamicResolutionScaling.ts
     - OEngine/src/render/RenderFeatureRegistry.ts
     - OEngine/src/render/surface/SurfacePresentPass.ts
@@ -42,11 +43,13 @@ verifies:
 
 2026-10-13：VSM圆盘滤波的完整64相位STBN及256-entry旋转表存于FinalPixelLighting buffer的不可变tail，复用现有binding；每个fenced allocation创建时上传一次，稳定帧不复制该段。Native采样constants发布当前tail word offset与提交frame相位；AA-off固定相位零。point/gather/零半径/无VSM不分配噪声GPU段；最多3份1,050,624B段，prepare/abort/retry/模式切换/resize/empty/device loss/最后consumer fence退休由共享物理owner闭合。Loader只保留CPU资产，不持有GPU对象。
 
-核对日期：2026-10-14，底座复查基线`2caf5fe2`，本日AO增量见下文。这里记录当前owner与主链注册；实际验证结果及阶段状态只在对应模块执行计划。
+核对日期：2026-10-15，底座复查基线`2caf5fe2`，后续AO/SSSR增量见下文。这里记录当前owner与主链注册；实际验证结果及阶段状态只在对应模块执行计划。
 
 [RendererCore](../../OEngine/src/render/pipeline/RendererCore.ts) 创建 FrameCoordinator、SurfaceV4、LocalLightWorkGenerator、NativeTemporalSeed 等长期 owners。[FrameProgramLowering](../../OEngine/src/render/program/FrameProgramLowering.ts) 将场景产品逐帧绑定到缓存 FrameGraph，连接最终 winner/depth→LocalLightWork→native Surface→Temporal/FSR3。
 
-FrameProgram的实际stage/product及lowering决定当前功能依赖；独立RenderFeatureRegistry类没有进入这条生产选择链。Renderer以显式renderScale改变内部尺寸并选择Native/FSR域，DynamicResolutionScaling类未接入实际反馈控制。SSR/GI/透明/局部体积效果没有当前生产stage；仅存在数据owner、reference或debug名字不算接入。
+FrameProgram的实际stage/product及lowering决定当前功能依赖；独立RenderFeatureRegistry类没有进入这条生产选择链。Renderer以显式renderScale改变内部尺寸并选择Native/FSR域，DynamicResolutionScaling类未接入实际反馈控制。SSSR已有生产stage；GI/透明/局部体积效果仍无生产stage，仅存在数据owner、reference或debug名字不算接入。
+
+2026-10-15：Renderer按有效lit/非空/正strength需求惰性创建SssrRuntime，等待整Native物理profile和算法PSO就绪再admit帧。FrameProgram将最终Depth、Native receiver/H、Seed/response/完整identity及GPU曝光连接到同一encoder中的SSSR宏，宏版本化其真实私有depth/history owner；corrected opaque由FrameGraph持有并借给SSR，进入Sky/Aerial及Native/FSR/bypass后续链。数值设置晚绑定，strength正值编辑仅reset颜色、保SSR累计，其他反射参数/cut/extent变化重置相应历史；成功submit才提交SSR phase、矩阵与配置签名。off/empty/all-unlit成功切换后退休资源并释放debug绑定，abort/retry不前移角色，恢复保desired设置。实际验证及成本只读[SSSR执行§5](../next-execution/eengine-sssr-execution-2026-10.md#5-ssr-2-生产接入与逐项复核2026-10-15)。
 
 2026-10-14：AO设置是Renderer设备无关desired快照，普通帧捕获后通过SceneFrameBindings晚绑定；图key仅增加有效quality/denoise，off归一化。实际AO内容签名与最后成功submit的签名分开，变化只失效color/当前颜色后端，不标camera cut、不动Seed identity/HZB/VSM/曝光；abort/defer不提交新签名，retry仍处理颜色reset。empty成功提交清空AO签名，unlit不要求AO工作；device recovery checkpoint保存运行期七项设置，replacement首次准备前恢复。无新history、owner容器或独立submit。具体验证范围只读[AO执行](../next-execution/eengine-ao-functionality-execution-2026-10.md#5-ao-1-实施与核对2026-10-14)。
 

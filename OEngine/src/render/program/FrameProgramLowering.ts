@@ -1,3 +1,5 @@
+import { SSSR_RECEIVER_BYTES } from "../reflections/SssrAbi.js";
+import { isSssrDebug, type SssrDebug } from "../reflections/SssrDebug.js";
 import { addFinalPixelSolarPublication } from "../environment/FinalPixelSolarPublication.js";
 import { VSM_FILTER_NOISE_PHASES } from "../../gpu/GpuVsmFilterAbi.js";
 import { nativeWinnerGeometry } from "../MeshletBucketRaster.js";
@@ -34,6 +36,7 @@ import { frameTemporalPolicy, type FrameProgram, type FrameProduct } from "./Fra
 import { counterByteOffset } from "../../debug/GpuFrameCounters.js";
 
 export type FrameProgramOwners = Readonly<{
+  sssrDebug: SssrDebug;
   visibility: VisibilityFeature;
   visibilityCounters: VisibilityCounterPass;
   temporalSeed: NativeTemporalSeed;
@@ -552,7 +555,7 @@ function compileSceneGraph(
     graph.import_resource(
       `radiometry/${name}`,
       { kind: "imported", label: `Radiometry ${name}` },
-      bind(`radiometry/${name}`, (bindings) => resolve(bindings.radiometry)),
+      bind(`radiometry/${name}`, (bindings) => resolve(bindings.radiometry))
     );
   const gpuPreviousExposure = owners.radiometry.importPreviousExposure(graph, bindRadiometry);
   const gpuPriorExposure = owners.radiometry.importPriorExposure(graph, bindRadiometry);
@@ -606,6 +609,7 @@ function compileSceneGraph(
     bind(`native-temporal/${name}`, (bindings) => resolve(bindings.temporalSeed));
   const seedProducts = owners.temporalSeed.importProducts(graph, bindSeed);
   const nativeFrame = bind("native-surface-frame", (bindings) => ({ bindings }));
+  let reflectionSurface = -1;
   let nativeHdr = -1;
   let reactive = -1;
   let seed = -1;
@@ -677,6 +681,13 @@ function compileSceneGraph(
       viewMatrix: frame.camera.view_matrix,
       camera: frame.view.gpu_camera_state.buffer,
       output: texture(nativeHdr),
+      reflections:
+        reflectionSurface < 0
+          ? undefined
+          : {
+              receivers: resources.get(reflectionSurface) as GPUBuffer,
+              maxAlpha: frame.screenSpaceReflections.maxRoughness ** 2
+            },
       visibility: texture(result.frame.visibilityKey),
       depth: frame.depth.gpu_texture,
       reactive: texture(reactive),
@@ -749,6 +760,13 @@ function compileSceneGraph(
       GPUTextureUsage.COPY_SRC |
       GPUTextureUsage.COPY_DST,
   });
+  if (plan.request.reflectionProfile === "sssr-base-coat") {
+    reflectionSurface = native.create("SSSR/Native receiver", {
+      kind: "transient_buffer",
+      size: plan.request.internalWidth * plan.request.internalHeight * SSSR_RECEIVER_BYTES,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
+    });
+  }
   reactive = native.write(seedProducts.response);
   seed = native.write(seedProducts.seed);
   identity = native.write(seedProducts.identity);
@@ -760,7 +778,7 @@ function compileSceneGraph(
   // Color resolve and demanded debug classification share one exact history
   // import and late-bound role instead of publishing duplicate products.
   const previousIdentity =
-    temporalPolicy !== "bypass" || temporalDebug
+    temporalPolicy !== "bypass" || temporalDebug || reflectionSurface >= 0
       ? graph.import_resource(
           "Temporal/previous identity",
           { kind: "imported", domain: "internal-full" },
@@ -776,6 +794,128 @@ function compileSceneGraph(
           temporalPolicy !== "upscale",
         )
       : null;
+  let reflectedHdr = nativeHdr;
+  let reflectionDiagnostic = -1;
+  let reflectionState = -1;
+  if (reflectionSurface >= 0) {
+    const reflectionEnvironment = graph.import_resource(
+      "SSSR/environment radiance",
+      { kind: "imported" },
+      bind("sssr-environment", (bindings) =>
+        plan.request.kind === "scene" && plan.request.authoredEnvironment
+          ? bindings.view.environment.lights.authoredIbl.specularTexture
+          : plan.request.kind === "scene" && plan.request.physicalEnvironment
+            ? bindings.environment!.ibl.specularTexture
+            : owners.surface.absentEnvironmentSpecular
+      )
+    );
+    // One macro owns depth, both lobe histories and shared scratch. Version its
+    // actual owner together; debug must read the completed state, never infer
+    // ordering from pass insertion or capture an old workset in a cached graph.
+    reflectionState = graph.import_resource(
+      "SSSR/depth and two-lobe history",
+      { kind: "imported" },
+      bind("sssr-owner-history", (bindings) => bindings.reflections!)
+    );
+    let corrected = -1;
+    const reflectionPass = graph.add(
+      "SSSR/complete two-lobe reflection",
+      bind("sssr-frame", (bindings) => ({ bindings })),
+      (data, resources, context) => {
+        const frame = data.bindings;
+        const owner = frame.reflections!;
+        const texture = (id: ResourceId): GPUTexture => {
+          const value = resources.get(id) as GPUTexture & { gpu_texture?: GPUTexture };
+          return value.gpu_texture ?? value;
+        };
+        const camera = frame.view.gpu_camera_state;
+        const diagnostic =
+          reflectionDiagnostic < 0
+            ? undefined
+            : {
+                mode:
+                  plan.request.kind === "scene" &&
+                  plan.request.debugView === RenderDebugViewValue.ScreenSpaceReflectionHitMiss
+                    ? ("hit-confidence" as const)
+                    : ("history-acceptance" as const),
+                lobe: frame.reflectionDebugLobe,
+                buffer: resources.get(reflectionDiagnostic) as GPUBuffer
+              };
+        if (
+          !owner.prepare({
+            width: frame.view.width,
+            height: frame.view.height,
+            output: texture(corrected),
+            receivers: resources.get(reflectionSurface) as GPUBuffer,
+            depth: texture(result.frame.depth),
+            opaqueRadiance: texture(nativeHdr),
+            environment: texture(reflectionEnvironment),
+            seed: texture(seed),
+            response: texture(reactive),
+            identity: texture(identity),
+            previousIdentity: texture(previousIdentity!),
+            currentExposure: resources.get(gpuPreviousExposure) as GPUBuffer,
+            previousExposure: resources.get(gpuPriorExposure) as GPUBuffer,
+            camera: {
+              projection: camera.projection_matrix,
+              inverseProjection: camera.projection_matrix_inverse,
+              view: frame.camera.view_matrix,
+              inverseView: camera.view_matrix_inverse,
+              viewProjection: camera.view_projection_matrix,
+              inverseViewProjection: camera.view_projection_matrix_inverse
+            },
+            settings: frame.screenSpaceReflections,
+            reset: frame.reflectionReset,
+            diagnostic
+          })
+        ) {
+          throw new Error("SSSR extent admission changed after frame preflight");
+        }
+        const command = context.encoder as ShadeGPUCommandContext;
+        owner.attach(command);
+        owner.encode(command.gpu_encoder);
+      }
+    );
+    for (const id of [
+      reflectionSurface,
+      nativeHdr,
+      result.frame.depth,
+      seed,
+      reactive,
+      identity,
+      previousIdentity!,
+      gpuPreviousExposure,
+      gpuPriorExposure,
+      reflectionEnvironment
+    ]) {
+      reflectionPass.read(id);
+    }
+    reflectionPass.read(reflectionState);
+    reflectionState = reflectionPass.write(reflectionState);
+    corrected = reflectionPass.create("SSSR/corrected opaque", {
+      kind: "transient_texture",
+      width: plan.request.internalWidth,
+      height: plan.request.internalHeight,
+      format: "rgba16float",
+      domain: "internal-full",
+      usage:
+        GPUTextureUsage.TEXTURE_BINDING |
+        GPUTextureUsage.STORAGE_BINDING |
+        GPUTextureUsage.COPY_SRC |
+        GPUTextureUsage.RENDER_ATTACHMENT
+    });
+    if (
+      plan.request.debugView === RenderDebugViewValue.ScreenSpaceReflectionHitMiss ||
+      plan.request.debugView === RenderDebugViewValue.ScreenSpaceReflectionHistoryConfidence
+    ) {
+      reflectionDiagnostic = reflectionPass.create("SSSR/selected diagnostic", {
+        kind: "transient_buffer",
+        size: plan.request.internalWidth * plan.request.internalHeight * 4,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+      });
+    }
+    reflectedHdr = corrected;
+  }
   const skyRadiance = !plan.stages.includes("physical-sky")
     ? undefined
     : graph.import_resource(
@@ -799,9 +939,9 @@ function compileSceneGraph(
     skyRadiance === undefined ||
     higherOrderScattering === undefined ||
     owners.sky === null
-      ? nativeHdr
+      ? reflectedHdr
       : owners.sky.addToGraph(graph, {
-          hdr: nativeHdr,
+          hdr: reflectedHdr,
           depth: result.frame.depth,
           camera: cameraBuffer,
           transmittance: atmosphereEnvironment,
@@ -845,7 +985,7 @@ function compileSceneGraph(
         width: result.frame.domain.width,
         height: result.frame.domain.height,
       },
-      (name, resolve) => bind(`native-temporal/${name}`, (bindings) => resolve(bindings.nativeTemporal)),
+      (name, resolve) => bind(`native-temporal/${name}`, (bindings) => resolve(bindings.nativeTemporal))
     );
   } else if (temporalPolicy === "upscale") {
     reconstructedRadiance = initial.fsr3.addToGraph(
@@ -863,7 +1003,7 @@ function compileSceneGraph(
         outputWidth: plan.request.outputWidth,
         outputHeight: plan.request.outputHeight,
       },
-      (name, resolve) => bind(`fsr3/${name}`, (bindings) => resolve(bindings.fsr3)),
+      (name, resolve) => bind(`fsr3/${name}`, (bindings) => resolve(bindings.fsr3))
     );
   }
   const radiometry = owners.radiometry.addToGraph(
@@ -889,8 +1029,37 @@ function compileSceneGraph(
     { kind: "imported", label: "swapchain" },
     bind("swapchain", (bindings) => bindings.swapchain),
   );
+  let reflectionDebugColor: ResourceId | null = null;
+  if (isSssrDebug(plan.request.debugView)) {
+    let output = -1;
+    const debug = graph.add(
+      "SSSR/selected lobe debug",
+      bind("sssr-debug-frame", (bindings) => ({ bindings })),
+      (data, resources, context) =>
+        owners.sssrDebug.encode(
+          context.encoder as ShadeGPUCommandContext,
+          resources.get(output),
+          plan.request.kind === "scene" ? plan.request.debugView! : "",
+          data.bindings.reflectionDebugLobe,
+          reflectionSurface < 0 ? null : data.bindings.reflections,
+          reflectionDiagnostic < 0 ? undefined : (resources.get(reflectionDiagnostic) as GPUBuffer)
+        )
+    );
+    debug.read(reflectedHdr);
+    if (reflectionState >= 0) debug.read(reflectionState);
+    if (reflectionDiagnostic >= 0) debug.read(reflectionDiagnostic);
+    output = debug.create("SSSR/debug color", {
+      kind: "transient_texture",
+      width: plan.request.outputWidth,
+      height: plan.request.outputHeight,
+      format: "rgba16float",
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC
+    });
+    reflectionDebugColor = output;
+  }
   const debugColor =
-    plan.request.debugView !== undefined && plan.request.debugView !== RenderDebugViewValue.None
+    reflectionDebugColor ??
+    (plan.request.debugView !== undefined && plan.request.debugView !== RenderDebugViewValue.None
       ? owners.debug.addToGraph(
           graph,
           plan.request.debugView,
@@ -908,16 +1077,12 @@ function compileSceneGraph(
             temporalMask: temporalMask,
             indirectDiffuse: null,
             indirectSpecular: null,
-            linearHdr: reconstructedRadiance,
-            screenSpaceReflectionHitMiss: null,
-            screenSpaceReflectionResolve: null,
-            screenSpaceReflectionTemporal: null,
-            screenSpaceReflectionHistoryConfidence: null,
+            linearHdr: reconstructedRadiance
           } satisfies RenderDebugViewResources,
           plan.request.outputWidth,
           plan.request.outputHeight,
         )
-      : null;
+      : null);
   owners.present.addToGraph(
     graph,
     debugColor ?? bloom,

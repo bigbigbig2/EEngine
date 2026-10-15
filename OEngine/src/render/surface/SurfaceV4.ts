@@ -1,4 +1,5 @@
 import { createNativeTextureView } from "../../gpu/GPUTextureDescriptors.js";
+import { SSSR_RECEIVER_BYTES } from "../reflections/SssrAbi.js";
 import { GpuBindGroupCache } from "../../gpu/GpuBindGroupResourceCache.js";
 import type { ResourceHandle } from "../../debug/profiling/ResourceAccounting.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
@@ -39,6 +40,7 @@ export interface NativeSurfaceRoute {
 }
 
 export interface NativeSurfaceFrame {
+  readonly reflections?: { readonly receivers: GPUBuffer; readonly maxAlpha: number };
   readonly width: number;
   readonly height: number;
   readonly generation: number;
@@ -108,6 +110,7 @@ interface ExtentState {
   readonly reactive: GPUTexture | undefined;
   readonly binBindings: NativeExecutionBinsBindings | null;
   readonly backgroundSeedGroup?: GPUBindGroup;
+  readonly reflectionReceivers?: GPUBuffer;
 }
 
 /** Storage depends on extent/code, while frame products are late-bound. References
@@ -229,6 +232,10 @@ export class SurfaceV4 {
 
   /** Absent environment radiance contributes exactly zero to every IBL lobe.
    * The same zero texel supplies diffuse/specular/DFG; no convolution is needed. */
+  get absentEnvironmentSpecular(): GPUTexture {
+    void this.absentEnvironmentEntries;
+    return this.neutralEnvironmentTexture!;
+  }
   get absentEnvironmentEntries(): readonly GPUBindGroupEntry[] {
     if (this.destroyed) {
       throw new Error("SurfaceV4 cannot allocate provider defaults after teardown");
@@ -361,6 +368,7 @@ export class SurfaceV4 {
         frame.width,
         frame.height,
         frame.output,
+        frame.reflections?.receivers,
         frame.publication,
         frame.visibility,
         frame.depth,
@@ -420,6 +428,9 @@ export class SurfaceV4 {
         state.bins.updateGeneration(state.binBindings, frame.generation);
       }
       state.routes.forEach((route, index) => {
+        if (frame.reflections) {
+          this.device.queue.writeBuffer(route.constants, 12, new Float32Array([frame.reflections.maxAlpha]));
+        }
         const values = frame.routes[index]!.frameInputs;
         this.device.queue.writeBuffer(route.inputs, 0, values);
       });
@@ -608,6 +619,18 @@ export class SurfaceV4 {
 
   /** Verify the compiled physical profile before allocating an extent candidate. */
   private validateProfiles(frame: NativeSurfaceFrame): void {
+    if (
+      frame.reflections &&
+      (!Number.isFinite(frame.reflections.maxAlpha) ||
+        frame.reflections.maxAlpha <= 0 ||
+        frame.reflections.maxAlpha > 1 ||
+        frame.reflections.receivers.size < frame.width * frame.height * SSSR_RECEIVER_BYTES ||
+        frame.width * frame.height * SSSR_RECEIVER_BYTES > this.device.limits.maxStorageBufferBindingSize ||
+        (frame.reflections.receivers.usage & (GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST)) !==
+          (GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST))
+    ) {
+      throw new RangeError("Native reflection receiver requires the complete writable viewport");
+    }
     const compact = frame.publication.bins.length > 1;
     const product = frame.geometry.productHeap !== undefined;
     const settingsBytes = this.finalPixel
@@ -642,7 +665,7 @@ export class SurfaceV4 {
         ...(this.reactive ? [8] : []),
         ...(this.finalPixel ? [6, 9] : []),
         ...(product ? [10, 11, 12, 13, 14] : []),
-        ...(geometry.some((entry) => entry.binding === 15) ? [15] : []),
+        ...(frame.reflections ? [15] : [])
       ];
       const materialBindings = [0, 1, 3, 4, ...(compact ? [2] : [])];
       if (
@@ -661,6 +684,7 @@ export class SurfaceV4 {
       for (const [group, bindings, type] of [
         [geometry, [0], "uniform"],
         [geometry, [1, 2, 3, 4, ...(product ? [10, 11, 12, 13, 14] : [])], "read-only-storage"],
+        [geometry, frame.reflections ? [15] : [], "storage"],
         [material, [0, 1, ...(compact ? [2] : [])], "read-only-storage"],
         [material, [3, 4], "uniform"],
       ] as const) {
@@ -677,11 +701,7 @@ export class SurfaceV4 {
           geometry.find((entry) => entry.binding === 8)?.storageTexture?.format !== "rgba8unorm") ||
         (this.finalPixel &&
           (geometry.find((entry) => entry.binding === 6)?.storageTexture?.format !== "rgba32float" ||
-            geometry.find((entry) => entry.binding === 9)?.storageTexture?.format !== "rgba32uint")) ||
-        (geometry.some((entry) => entry.binding === 15) &&
-          (geometry.find((entry) => entry.binding === 15)?.storageTexture?.format !== "rgba32uint" ||
-            geometry.find((entry) => entry.binding === 15)?.storageTexture?.viewDimension !== "2d-array" ||
-            geometry.find((entry) => entry.binding === 15)?.storageTexture?.access !== "write-only"))
+            geometry.find((entry) => entry.binding === 9)?.storageTexture?.format !== "rgba32uint"))
       ) {
         throw new Error("SurfaceV4 native image bindings do not match winner/HDR/reactive formats");
       }
@@ -903,6 +923,9 @@ export class SurfaceV4 {
           geometryEntries.push({ binding: 11 + index, resource: { buffer: bank } }),
         );
       }
+      if (frame.reflections) {
+        geometryEntries.push({ binding: 15, resource: { buffer: frame.reflections.receivers } });
+      }
       const lightingEntries = [
         ...frame.lightingEntries.filter((entry) => entry.binding !== 4),
         { binding: 4, resource: { buffer: shadingView } },
@@ -1003,6 +1026,7 @@ export class SurfaceV4 {
         routes,
         identity,
         background: frame.background,
+        reflectionReceivers: frame.reflections?.receivers,
         reactive: frame.reactive,
         binBindings,
         ...(this.finalPixel && bins.plan.mode === "empty"
@@ -1043,6 +1067,9 @@ export class SurfaceV4 {
       throw new Error("SurfaceV4 requires one encoding of a prepared frame");
     }
     const state = this.preparedState;
+    if (state.reflectionReceivers) {
+      encoder.clearBuffer(state.reflectionReceivers, 0, state.width * state.height * SSSR_RECEIVER_BYTES);
+    }
     encoder.copyBufferToBuffer(state.preExposure, 0, state.settings, 60, 4);
     encoder.copyBufferToBuffer(
       state.camera,

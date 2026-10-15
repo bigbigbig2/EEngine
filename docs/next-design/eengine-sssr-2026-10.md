@@ -184,7 +184,7 @@ P为内部像素数，T为8×8tile数；以下是同时支持两lobe的逻辑资
 
 不计alignment合计≤142P+36T+819,200B；为极窄viewport保留正确mip上界，预留常量/对齐的规划上界 **143P+40T+1MiB**，1080p约285.02MiB。实现必须用真实descriptor核对该上界，不从pool账本猜独占显存；confidence debug另加4P，仍须通过同一预算。退休代和并存其他owner另计。这个ADD在功能优先阶段可接受为明确代价，尚无GTX1650Ti实际帧时/4GB同时峰值结论。
 
-实际owner的`allocatedBytes`只累计自身buffer/texture descriptor，`reservedBytes`是包含借用Native record及常量headroom的保守准入账；二者不能混称显存。诊断buffer由真实debug consumer的transient寿命分配/持有，输入须含STORAGE与COPY_DST并留至消费fence；默认只绑定4B未访问占位，不常驻4P诊断面。固定LUT上传也保留初始化fence；无场景提交的初始化失败/销毁不能提前退休其GPU写入。prepare的uniform上传在成功scene submit后由同一fence覆盖；未提交候选或active帧中止后，退休还须覆盖这些queue writes，只在退休时捕获其完成fence，不增加每帧等待或submit。
+生产corrected opaque由FrameGraph分配并借给SSR，不在owner内重复分配8P；usage同时支持SSR storage写、后续采样和Sky原位render写。FrameGraph版本化实际SSR宏owner的私有depth/history状态，宏内部严格串行调度。实际owner的`allocatedBytes`只累计自身buffer/texture descriptor，`reservedBytes`是包含借用Native record、corrected输出及常量headroom的保守准入账；二者不能混称显存。诊断buffer由真实debug consumer的transient寿命分配/持有，输入须含STORAGE与COPY_DST并留至消费fence；默认只绑定4B未访问占位，不常驻4P诊断面。固定LUT上传也保留初始化fence；无场景提交的初始化失败/销毁不能提前退休其GPU写入。prepare的uniform上传在成功scene submit后由同一fence覆盖；未提交候选或active帧中止后，退休还须覆盖这些queue writes，只在退休时捕获其完成fence，不增加每帧等待或submit。
 
 每有效帧公共depth最多7 dispatch、noise1、geometry snapshot1、composite1；每lobe classify/args/intersect/reproject/prefilter/resolve共6 dispatch，另一次8P radiance copy（读8P+写8P）；计数reset用encoder clearBuffer，背景receiver clear与全域初始化明确计入。两lobe上界22 compute dispatch+2个texture copy（不含既有Surface/调试），同一frame encoder。空ray/tile由GPU args令昂贵间接work为0；CPU不读活跃数。理想无receiver但功能有效仍有O(P)分类/产品成本，关闭则没有这些工作。2D args用近方形排布限制padding，dummy尾组仍统一执行barrier但不写输出；ceil count与ray-index在乘法前检查，不能因u32加法/padding溢出重派早期射线。
 

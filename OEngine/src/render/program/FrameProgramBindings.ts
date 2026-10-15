@@ -1,3 +1,5 @@
+import type { ScreenSpaceReflectionsSettings } from "../reflections/ScreenSpaceReflectionsSettings.js";
+import type { SssrRuntime } from "../reflections/SssrRuntime.js";
 import type { FinalPixelLightingFrame } from "../lighting/FinalPixelLightingPublication.js";
 import type { PerspectiveCamera } from "../../camera/PerspectiveCamera.js";
 import type { GPUTextureContext } from "../../gpu/GPUTextureContext.js";
@@ -34,6 +36,10 @@ export type SceneFrameBindings = Readonly<{
   runtime: GpuRenderWorldRuntime;
   preExposure: PreExposureContract;
   ambientOcclusion: Readonly<AmbientOcclusionSettings>;
+  screenSpaceReflections: Readonly<ScreenSpaceReflectionsSettings>;
+  reflections: SssrRuntime | null;
+  reflectionReset: boolean;
+  reflectionDebugLobe: 0 | 1;
   fsr3: Fsr3UpscalerRuntime;
   nativeTemporal: NativeTemporalV2;
   temporalSeed: NativeTemporalSeed;
@@ -73,6 +79,18 @@ export function assertFrameProgramBindings(plan: FrameProgram, bindings: FramePr
   }
   if (request.kind === "empty" || bindings.kind === "empty") {
     return;
+  }
+  const reflections = bindings.screenSpaceReflections;
+  const reflectionProfile =
+    reflections.enabled && reflections.strength > 0 && request.hasLit && request.activeSets.length > 0
+      ? "sssr-base-coat"
+      : "off";
+  if (
+    request.reflectionProfile !== reflectionProfile ||
+    bindings.runtime.nativeMaterials?.reflectionProfile !== reflectionProfile ||
+    (reflectionProfile !== "off" && bindings.reflections === null)
+  ) {
+    throw new Error("Frame Program reflection profile is not atomically ready");
   }
   const ao = bindings.ambientOcclusion;
   const aoProfile =

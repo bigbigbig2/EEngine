@@ -13,6 +13,10 @@ export type FrameProduct =
   | "adapted-exposure"
   | "aerial-radiance"
   | "sky-radiance"
+  | "reflection-surface"
+  | "reflection-depth"
+  | "indirect-specular"
+  | "opaque-reflected-radiance"
   | "surface-radiance"
   | "temporal-response"
   | "debug-color"
@@ -37,6 +41,7 @@ export type FrameProgramStage =
   | "local-light-work"
   | "xe-gtao"
   | "vsm"
+  | "sssr"
   | "surface"
   | "physical-sky"
   | "aerial"
@@ -91,6 +96,7 @@ export type FrameProgramRequest = FrameProgramBase &
         /** Union of the texture banks referenced by the active resident sets. */
         textureBankMask?: number;
         hasLit: boolean;
+        reflectionProfile?: "off" | "sssr-base-coat";
         aoProfile?: FrameAoProfile;
         aoDenoisePasses?: 0 | 1 | 2 | 3;
         shadowProfile?: FrameVsmProfile;
@@ -191,7 +197,43 @@ const PRODUCT_SPEC: Readonly<
     value: "working-linear pre-exposed",
     coverage: "background plus surface",
     invalid: "surface fallback",
-    version: "frame",
+    version: "frame"
+  },
+  "reflection-surface": {
+    producer: "surface",
+    domain: "internal-full",
+    format: "structured-buffer",
+    value: "packed Native base/coat receiver and baseline",
+    coverage: "full internal",
+    invalid: "zero invalid record",
+    version: "frame"
+  },
+  "reflection-depth": {
+    producer: "sssr",
+    domain: "internal-full",
+    format: "r32float",
+    value: "full precision nearest reverse depth pyramid",
+    coverage: "all depth mips",
+    invalid: "zero reverse depth",
+    version: "frame"
+  },
+  "indirect-specular": {
+    producer: "sssr",
+    domain: "internal-full",
+    format: "rgba16float",
+    value: "two lobe incident radiance in pre-exposed working color",
+    coverage: "full internal",
+    invalid: "environment miss",
+    version: "history-role"
+  },
+  "opaque-reflected-radiance": {
+    producer: "sssr",
+    domain: "internal-full",
+    format: "rgba16float",
+    value: "working-linear pre-exposed",
+    coverage: "full internal",
+    invalid: "Native baseline",
+    version: "frame"
   },
   "surface-radiance": {
     producer: "surface",
@@ -347,10 +389,39 @@ const INPUT_CONTRACTS: Readonly<
     Readonly<Partial<Record<FrameProduct, Readonly<Pick<FrameProductFact, "domain" | "value">>>>>
   >
 > = {
+  "reflection-surface": {
+    "surface-radiance": { domain: "internal-full", value: "working-linear pre-exposed" }
+  },
+  "reflection-depth": { depth: { domain: "internal-full", value: "reverse depth" } },
+  "indirect-specular": {
+    "reflection-surface": { domain: "internal-full", value: "packed Native base/coat receiver and baseline" },
+    "reflection-depth": { domain: "internal-full", value: "full precision nearest reverse depth pyramid" },
+    "surface-radiance": { domain: "internal-full", value: "working-linear pre-exposed" },
+    "temporal-seed": {
+      domain: "internal-full",
+      value: "jittered current-minus-previous UV, expected previous and current positive view depth"
+    },
+    "temporal-response": {
+      domain: "internal-full",
+      value: "native reactive, motion validity, coverage, invalid byte"
+    },
+    "temporal-identity": {
+      domain: "internal-full",
+      value: "instance slot+1, geometry change signature, material change signature, material slot+1"
+    }
+  },
+  "opaque-reflected-radiance": {
+    "indirect-specular": {
+      domain: "internal-full",
+      value: "two lobe incident radiance in pre-exposed working color"
+    },
+    "surface-radiance": { domain: "internal-full", value: "working-linear pre-exposed" }
+  },
   swapchain: {
     "display-color": { domain: "output-full", value: "tone-mapped display color" },
   },
   "reconstructed-color": {
+    "opaque-reflected-radiance": { domain: "internal-full", value: "working-linear pre-exposed" },
     "aerial-radiance": { domain: "internal-full", value: "working-linear pre-exposed" },
     "surface-radiance": { domain: "internal-full", value: "working-linear pre-exposed" },
     depth: { domain: "internal-full", value: "reverse depth" },
@@ -377,6 +448,10 @@ const INPUT_CONTRACTS: Readonly<
     "adapted-exposure": { domain: "gpu-work", value: "GPU adapted exposure E_t" },
   },
   "debug-color": {
+    "indirect-specular": {
+      domain: "internal-full",
+      value: "two lobe incident radiance in pre-exposed working color"
+    },
     visibility: { domain: "internal-full", value: "packed VisibilityKey" },
     depth: { domain: "internal-full", value: "reverse depth" },
     "meshlet-work": { domain: "gpu-work", value: "bounded GPU MeshletWork" },
@@ -416,6 +491,7 @@ const INPUT_CONTRACTS: Readonly<
     depth: { domain: "internal-full", value: "reverse depth" },
   },
   "sky-radiance": {
+    "opaque-reflected-radiance": { domain: "internal-full", value: "working-linear pre-exposed" },
     "surface-radiance": { domain: "internal-full", value: "working-linear pre-exposed" },
     depth: { domain: "internal-full", value: "reverse depth" },
   },
@@ -495,6 +571,13 @@ function normalizeRequest(request: FrameProgramRequest): FrameProgramRequest {
   ) {
     throw new RangeError("Frame Program texture bank mask is invalid");
   }
+  const reflectionProfile = request.reflectionProfile ?? "off";
+  if (
+    reflectionProfile !== "off" &&
+    (reflectionProfile !== "sssr-base-coat" || !request.hasLit || activeSets.length === 0)
+  ) {
+    throw new RangeError("SSSR requires a lit Native consumer and a supported output profile");
+  }
   const aoProfile = request.aoProfile ?? "off";
   if (aoProfile !== "off" && aoProfile !== "scalar-medium" && aoProfile !== "scalar-high") {
     throw new RangeError("Frame Program AO profile is invalid");
@@ -532,6 +615,7 @@ function normalizeRequest(request: FrameProgramRequest): FrameProgramRequest {
     ...request,
     activeSets: Object.freeze(activeSets),
     textureBankMask: request.textureBankMask ?? 0xffff,
+    reflectionProfile,
     aoProfile,
     aoDenoisePasses: aoProfile === "off" ? 0 : aoDenoisePasses,
     shadowProfile,
@@ -565,6 +649,7 @@ function structuralKey(request: FrameProgramRequest): string {
     request.activeSets,
     request.textureBankMask ?? 0xffff,
     request.hasLit,
+    request.reflectionProfile ?? "off",
     request.aoProfile ?? "off",
     request.aoDenoisePasses ?? 0,
     request.shadowProfile ?? "off",
@@ -579,6 +664,21 @@ function structuralKey(request: FrameProgramRequest): string {
 function dependencies(product: FrameProduct, request: FrameProgramRequest): readonly FrameProduct[] {
   if (request.kind === "empty") return [];
   switch (product) {
+    case "reflection-surface":
+      return ["surface-radiance"];
+    case "reflection-depth":
+      return ["depth"];
+    case "indirect-specular":
+      return [
+        "reflection-surface",
+        "reflection-depth",
+        "surface-radiance",
+        "temporal-seed",
+        "temporal-response",
+        "temporal-identity"
+      ];
+    case "opaque-reflected-radiance":
+      return ["indirect-specular", "surface-radiance"];
     case "swapchain":
       return ["display-color"];
     case "display-color":
@@ -595,11 +695,19 @@ function dependencies(product: FrameProduct, request: FrameProgramRequest): read
         ...(request.debugView === RenderDebugViewValue.AmbientOcclusion && request.aoProfile !== "off"
           ? ["indirect-visibility" as const]
           : []),
+        ...(request.reflectionProfile === "sssr-base-coat" &&
+        request.debugView?.startsWith("screen-space-reflection-")
+          ? ["indirect-specular" as const]
+          : [])
       ];
     case "adapted-exposure":
       return ["reconstructed-color"];
     case "reconstructed-color": {
-      const radiance: FrameProduct = request.physicalEnvironment ? "aerial-radiance" : "surface-radiance";
+      const radiance: FrameProduct = request.physicalEnvironment
+        ? "aerial-radiance"
+        : request.reflectionProfile === "sssr-base-coat"
+          ? "opaque-reflected-radiance"
+          : "surface-radiance";
       const policy = frameTemporalPolicy(request);
       if (policy === "bypass") {
         return [radiance];
@@ -617,7 +725,10 @@ function dependencies(product: FrameProduct, request: FrameProgramRequest): read
     case "aerial-radiance":
       return ["sky-radiance", "depth"];
     case "sky-radiance":
-      return ["surface-radiance", "depth"];
+      return [
+        request.reflectionProfile === "sssr-base-coat" ? "opaque-reflected-radiance" : "surface-radiance",
+        "depth"
+      ];
     case "temporal-response":
       return ["visibility"];
     case "surface-radiance":
@@ -763,6 +874,7 @@ function createProgram(request: FrameProgramRequest, key: string): FrameProgram 
       : []),
     ...(request.aoProfile !== "off" ? ["xe-gtao" as const] : []),
     "surface",
+    ...(request.reflectionProfile === "sssr-base-coat" ? ["sssr" as const] : []),
     ...(request.physicalEnvironment ? ["physical-sky" as const, "aerial" as const] : []),
     ...(frameTemporalPolicy(request) === "upscale" || temporalDebug
       ? ["temporal-classification" as const]
@@ -825,6 +937,7 @@ function createProgram(request: FrameProgramRequest, key: string): FrameProgram 
           ? ["fsr3-history", "fsr3-constants"]
           : []),
       "temporal-seed-history",
+      ...(request.reflectionProfile === "sssr-base-coat" ? ["sssr-owner-history", "sssr-settings"] : []),
       ...(buildHzb ? ["hzb"] : []),
       ...(request.shadowProfile !== undefined &&
       request.shadowProfile !== "off" &&

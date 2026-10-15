@@ -105,6 +105,11 @@ export class PhysicalSkyIblResources {
     if (selected === null) throw new Error("Physical sky IBL has no recorded generation");
     return Object.freeze({ specular: selected.specular, diffuse: selected.diffuse, dfg: this.dfgView });
   }
+  get specularTexture(): GPUTexture {
+    const selected = this.pending ?? this.active;
+    if (!selected) throw new Error("Physical sky IBL has no recorded generation");
+    return selected.filtered;
+  }
 
   record(
     encoder: GPUCommandEncoder,

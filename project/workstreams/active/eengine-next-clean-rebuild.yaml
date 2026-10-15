@@ -27,7 +27,7 @@ goal: >-
 currentSlice:
   id: stochastic-screen-space-reflections
   title: Complete SSSR and reflection denoising for Native Surface
-  status: active
+  status: completed
   goal: >-
     Follow the selected SSSR design/execution pair; its execution document alone
     records detailed unit states and results. Preserve the complete selected

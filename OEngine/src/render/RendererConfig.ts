@@ -1,3 +1,9 @@
+import {
+  SCREEN_SPACE_REFLECTIONS_DEFAULT_SETTINGS,
+  resolveScreenSpaceReflectionsSettings,
+  type ScreenSpaceReflectionsSettings
+} from "./reflections/ScreenSpaceReflectionsSettings.js";
+import { resolveSssrMemorySettings, type SssrMemorySettings } from "./reflections/SssrAbi.js";
 import { resolveExposureSettings, type ExposureSettings } from "./temporal/ExposureSettings.js";
 import {
   AMBIENT_OCCLUSION_DEFAULT_SETTINGS,
@@ -11,6 +17,10 @@ import {
 
 /** Immutable Renderer capability and execution configuration. */
 export interface RendererConfig {
+  /** Initial reflection controls; runtime edits use the atomic Renderer setter. */
+  readonly screenSpaceReflections?: Partial<ScreenSpaceReflectionsSettings>;
+  /** Immutable per-view / active+candidate+retired admission ceilings in bytes. */
+  readonly screenSpaceReflectionsMemory?: SssrMemorySettings;
   /** Initial AO controls; runtime edits use Renderer.setAmbientOcclusionSettings. */
   readonly ambientOcclusion?: Partial<AmbientOcclusionSettings>;
   /** Opt in to extended Display-P3 when canvas and display report support. */
@@ -53,6 +63,14 @@ export function mergeRendererConfig(base: RendererConfig, override?: RendererCon
   return Object.freeze({
     ...base,
     ...override,
+    screenSpaceReflections: Object.freeze({
+      ...base.screenSpaceReflections,
+      ...override.screenSpaceReflections
+    }),
+    screenSpaceReflectionsMemory: Object.freeze({
+      ...base.screenSpaceReflectionsMemory,
+      ...override.screenSpaceReflectionsMemory
+    }),
     ambientOcclusion: Object.freeze({ ...base.ambientOcclusion, ...override.ambientOcclusion }),
     requiredFeatures: Object.freeze([...(base.requiredFeatures ?? []), ...(override.requiredFeatures ?? [])]),
     requiredLimits: Object.freeze({ ...base.requiredLimits, ...override.requiredLimits }),
@@ -62,6 +80,11 @@ export function mergeRendererConfig(base: RendererConfig, override?: RendererCon
 }
 
 export function validateRendererConfig(config: RendererConfig): void {
+  resolveScreenSpaceReflectionsSettings(
+    SCREEN_SPACE_REFLECTIONS_DEFAULT_SETTINGS,
+    config.screenSpaceReflections ?? {}
+  );
+  resolveSssrMemorySettings(config.screenSpaceReflectionsMemory);
   resolveAmbientOcclusionSettings(AMBIENT_OCCLUSION_DEFAULT_SETTINGS, config.ambientOcclusion ?? {});
   resolveExposureSettings(config.exposure);
   if (

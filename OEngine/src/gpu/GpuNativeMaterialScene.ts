@@ -43,10 +43,11 @@ import {
 // Undefined outside an explicitly enabled diagnostic bundle. Evaluated once at
 // module initialization; the resulting shader has no diagnostic runtime branch.
 declare const __EENGINE_PERFORMANCE_DIAGNOSTICS__: boolean;
-const NATIVE_COST_SLICE = typeof __EENGINE_PERFORMANCE_DIAGNOSTICS__ !== "undefined" &&
-  __EENGINE_PERFORMANCE_DIAGNOSTICS__
-  ? (new URLSearchParams(globalThis.location.search).get("nativeCostSlice") ?? "G") as NativeSurfaceCostSlice
-  : undefined;
+const NATIVE_COST_SLICE =
+  typeof __EENGINE_PERFORMANCE_DIAGNOSTICS__ !== "undefined" && __EENGINE_PERFORMANCE_DIAGNOSTICS__
+    ? ((new URLSearchParams(globalThis.location.search).get("nativeCostSlice") ??
+        "G") as NativeSurfaceCostSlice)
+    : undefined;
 
 export interface NativeSceneMaterialSource {
   readonly materialSlot: number;
@@ -57,6 +58,7 @@ export interface NativeSceneMaterialSource {
 }
 
 interface Snapshot {
+  readonly reflections: "off" | "sssr-base-coat";
   readonly revision: number;
   readonly publication: GpuNativeMaterialPublication;
   readonly sources: readonly NativeMaterialPublicationSource[];
@@ -98,6 +100,7 @@ export class GpuNativeMaterialScene {
   private readonly materialBindings: (MaterialBindingSnapshot | undefined)[] = [];
   private nextRevision = 1;
   private dirty = true;
+  private reflections: "off" | "sssr-base-coat" = "off";
   private readonly detachMutations: (() => void)[] = [];
 
   constructor(
@@ -203,6 +206,20 @@ export class GpuNativeMaterialScene {
     return snapshot.routes;
   }
 
+  setReflectionProfile(profile: "off" | "sssr-base-coat"): void {
+    if (this.prepared !== null) {
+      throw new Error("Native output profile changes require a frame boundary");
+    }
+    if (this.reflections !== profile) {
+      this.reflections = profile;
+      this.dirty = true;
+    }
+  }
+
+  get reflectionProfile(): "off" | "sssr-base-coat" {
+    return (this.prepared ?? this.candidate ?? this.active)?.reflections ?? "off";
+  }
+
   /** No GPU work/control readback. A not-yet-ready candidate defers the entire tick. */
   canPrepareFrame(): boolean {
     if (this.error !== undefined) {
@@ -261,7 +278,17 @@ export class GpuNativeMaterialScene {
     command.onAborted.addOne(() => {
       this.prepared = null;
     });
-    return changed && selected.hasMask;
+    return (
+      changed &&
+      selected.hasMask &&
+      (this.active === null ||
+        selected.bindings.some((binding, index) => binding !== this.active!.bindings[index]) ||
+        selected.values.some(
+          (value, index) =>
+            value.length !== this.active!.values[index]?.length ||
+            value.some((word, offset) => !Object.is(word, this.active!.values[index]![offset]))
+        ))
+    );
   }
 
   private snapshot(previous?: Snapshot): Snapshot {
@@ -423,6 +450,7 @@ export class GpuNativeMaterialScene {
     }
     if (
       previous !== undefined &&
+      previous.reflections === this.reflections &&
       previous.bindings.length === bindings.length &&
       // obtainMaterialBindings preserves identity only after exact resource and
       // route checks. Stable frames need neither physical-set deduplication nor
@@ -459,8 +487,8 @@ export class GpuNativeMaterialScene {
     const binKeys = new Set(
       routedSources.map(
         (source, index) =>
-          `${source.program.key}/${source.bindingSet}/${this.materialSources[index]!.material.is_unlit}`,
-      ),
+          `${source.program.key}/${source.bindingSet}/${this.materialSources[index]!.material.is_unlit}`
+      )
     );
     const complete = routedSources.map((source, index) => ({
       ...source,
@@ -469,6 +497,7 @@ export class GpuNativeMaterialScene {
         bindings[index]!.layoutEntries,
         {
           compact: binKeys.size > 1,
+          reflections: this.reflections,
           productGeometry: this.productGeometry,
           unlit: this.materialSources[index]!.material.is_unlit,
           reactive: true,
@@ -496,6 +525,7 @@ export class GpuNativeMaterialScene {
     });
     return {
       revision: this.nextRevision++,
+      reflections: this.reflections,
       publication,
       sources: complete,
       bindings,
@@ -594,16 +624,16 @@ export class GpuNativeMaterialScene {
               program: Object.freeze({
                 ...coverage.program,
                 instanceInputs: true,
-                key: `${coverage.program.key}/instance-inputs`,
-              }),
-            }),
+                key: `${coverage.program.key}/instance-inputs`
+              })
+            })
           }
         : {}),
       program: Object.freeze({
         ...bound.program,
         instanceInputs: true,
-        key: `${bound.program.key}/instance-inputs`,
-      }),
+        key: `${bound.program.key}/instance-inputs`
+      })
     });
     this.materialBindings[index] = { identity, bindings };
     return bindings;

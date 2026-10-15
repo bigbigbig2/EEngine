@@ -108,25 +108,25 @@ export const RENDER_DEBUG_VIEW_OPTIONS: readonly RenderDebugViewStatus[] = [
     RenderDebugView.ScreenSpaceReflectionHitMiss,
     "SSR hit / miss",
     "supported",
-    "FX-08 SSR trace hit confidence",
+    "SSSR selected base/coat trace hit confidence; inactive when disabled"
   ),
   descriptor(
     RenderDebugView.ScreenSpaceReflectionResolve,
     "SSR resolve",
     "supported",
-    "FX-08 SSR spatial resolve before temporal accumulation",
+    "SSSR selected base/coat prefilter radiance"
   ),
   descriptor(
     RenderDebugView.ScreenSpaceReflectionTemporal,
     "SSR temporal",
     "supported",
-    "FX-08 SSR temporal accumulation before final spatial filters",
+    "SSSR selected base/coat final temporal radiance"
   ),
   descriptor(
     RenderDebugView.ScreenSpaceReflectionHistoryConfidence,
     "SSR history confidence",
     "supported",
-    "FX-08 temporal history confidence",
+    "SSSR selected base/coat reprojection acceptance"
   ),
   descriptor(RenderDebugView.Velocity, "Velocity", "supported", "方向映射为色相，屏幕空间速度映射为亮度"),
   descriptor(

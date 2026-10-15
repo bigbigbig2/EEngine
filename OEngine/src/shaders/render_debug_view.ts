@@ -16,10 +16,10 @@ import {
 } from "../gpu/GpuVisibilityDebugResolve.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
 import { VIS_MESH_CLEAR_SENTINEL } from "../render/VisibilityBufferContract.js";
-import { SSR_FULLSCREEN_VERTEX_WGSL } from "./ssr_common.js";
+import { FULLSCREEN_PASS_VERTEX_WGSL } from "./fullscreen_triangle.js";
 
 export const LINEAR_HDR_DEBUG_WGSL = /* wgsl */ `
-${SSR_FULLSCREEN_VERTEX_WGSL}
+${FULLSCREEN_PASS_VERTEX_WGSL}
 @group(0) @binding(0) var source: texture_2d<f32>;
 @group(0) @binding(1) var<uniform> settings: vec4u;
 @fragment fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
@@ -31,33 +31,6 @@ ${SSR_FULLSCREEN_VERTEX_WGSL}
 }
 `;
 
-export const SSR_HIT_MISS_DEBUG_WGSL = /* wgsl */ `
-${SSR_FULLSCREEN_VERTEX_WGSL}
-@group(0) @binding(0) var source: texture_2d<u32>;
-@group(0) @binding(1) var<uniform> settings: vec4u;
-@fragment fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
-  let dimensions = textureDimensions(source);
-  let output_size = max(settings.xy, vec2u(1u));
-  let uv = position.xy / vec2f(output_size);
-  let coordinate = min(vec2i(uv * vec2f(dimensions)), vec2i(dimensions) - vec2i(1));
-  let confidence = f32(textureLoad(source, coordinate, 0).y & 0xffu) / 255.0;
-  return vec4f(1.0 - confidence, confidence, 0.0, 1.0);
-}
-`;
-
-export const SSR_HISTORY_CONFIDENCE_DEBUG_WGSL = /* wgsl */ `
-${SSR_FULLSCREEN_VERTEX_WGSL}
-@group(0) @binding(0) var source: texture_2d<f32>;
-@group(0) @binding(1) var<uniform> settings: vec4u;
-@fragment fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
-  let dimensions = textureDimensions(source);
-  let output_size = max(settings.xy, vec2u(1u));
-  let uv = position.xy / vec2f(output_size);
-  let coordinate = min(vec2i(uv * vec2f(dimensions)), vec2i(dimensions) - vec2i(1));
-  let confidence = clamp(textureLoad(source, coordinate, 0).a, 0.0, 1.0);
-  return vec4f(confidence, confidence, confidence, 1.0);
-}
-`;
 import { GBUFFER_ENCODE_WGSL } from "./gbuffer_encode.js";
 
 export const RENDER_DEBUG_VIEW_FORMAT = GPU_HDR_FORMAT;
@@ -65,7 +38,7 @@ export const RENDER_DEBUG_VIEW_FORMAT = GPU_HDR_FORMAT;
 /** Reads the final scalar product, with no lighting, exposure or material AO. */
 export function ambientOcclusionDebugWgsl(active: boolean): string {
   return /* wgsl */ `
-${SSR_FULLSCREEN_VERTEX_WGSL}
+${FULLSCREEN_PASS_VERTEX_WGSL}
 ${active ? "@group(0) @binding(0) var visibility: texture_2d<f32>;" : ""}
 @group(0) @binding(${active ? 1 : 0}) var depth: texture_depth_2d;
 @group(0) @binding(${active ? 2 : 1}) var<uniform> settings: vec4u;
@@ -76,7 +49,9 @@ ${active ? "@group(0) @binding(0) var visibility: texture_2d<f32>;" : ""}
   var value = 1.0;
   ${active ? `if (textureLoad(depth, coordinate, 0) > 0.0) {
     value = textureLoad(visibility, coordinate, 0).r;
-  }` : ""}
+  }`
+      : ""
+  }
   return vec4f(vec3f(value), 1.0);
 }
 `;
@@ -114,7 +89,7 @@ fn source_coordinate(position: vec2f, source_size: vec2u) -> vec2i {
 `;
 
 export const VISIBILITY_KEY_DEBUG_WGSL = /* wgsl */ `
-${SSR_FULLSCREEN_VERTEX_WGSL}
+${FULLSCREEN_PASS_VERTEX_WGSL}
 
 ${DEBUG_VIEW_SETTINGS_WGSL}
 
@@ -146,7 +121,7 @@ fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
 
 /** Fullscreen read-only VisibilityKey/MeshletWork view; no atomics or extra GPU capability. */
 export const MESHLET_ID_DEBUG_WGSL = /* wgsl */ `
-${SSR_FULLSCREEN_VERTEX_WGSL}
+${FULLSCREEN_PASS_VERTEX_WGSL}
 ${DEBUG_VIEW_SETTINGS_WGSL}
 ${GPU_VISIBILITY_KEY_WGSL}
 ${GPU_MESHLET_RASTER_WORK_WGSL}
@@ -186,7 +161,7 @@ fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
 `;
 
 const SURFACE_DEBUG_COMMON_WGSL = /* wgsl */ `
-${SSR_FULLSCREEN_VERTEX_WGSL}
+${FULLSCREEN_PASS_VERTEX_WGSL}
 ${DEBUG_VIEW_SETTINGS_WGSL}
 ${DEBUG_VIEW_COORDINATE_WGSL}
 ${GPU_SHADING_SURFACE_LITE_WGSL}
@@ -343,7 +318,7 @@ struct SurfaceDebugMode { value: vec4u, }
 `;
 
 export const PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL = /* wgsl */ `
-${SSR_FULLSCREEN_VERTEX_WGSL}
+${FULLSCREEN_PASS_VERTEX_WGSL}
 
 ${GPU_VISIBILITY_KEY_WGSL}
 ${GPU_MESHLET_RASTER_WORK_WGSL}
@@ -467,7 +442,7 @@ fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
 `;
 
 export const DEPTH_DEBUG_WGSL = /* wgsl */ `
-${SSR_FULLSCREEN_VERTEX_WGSL}
+${FULLSCREEN_PASS_VERTEX_WGSL}
 
 ${DEBUG_VIEW_SETTINGS_WGSL}
 
@@ -486,7 +461,7 @@ fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
 `;
 
 export const VELOCITY_DEBUG_WGSL = /* wgsl */ `
-${SSR_FULLSCREEN_VERTEX_WGSL}
+${FULLSCREEN_PASS_VERTEX_WGSL}
 
 const PI: f32 = 3.141592653589793;
 
@@ -525,7 +500,7 @@ fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
 `;
 
 export const NATIVE_TEMPORAL_MASK_DEBUG_WGSL = /* wgsl */ `
-${SSR_FULLSCREEN_VERTEX_WGSL}
+${FULLSCREEN_PASS_VERTEX_WGSL}
 ${DEBUG_VIEW_SETTINGS_WGSL}
 ${DEBUG_VIEW_COORDINATE_WGSL}
 struct NativeTemporalDebugMode {

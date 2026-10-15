@@ -132,6 +132,80 @@
               <label class="control">Denoise passes<select id="ao-denoise"><option value="0">0 (final restore only)</option><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option></select></label>
             </div>
             <p id="ao-state">Screen AO off · visibility 1. No lit consumer means no AO work.</p>
+            <label class="effect-heading" for="ssr"
+              >SSSR<input
+                id="ssr"
+                class="switch"
+                type="checkbox"
+                role="switch"
+                aria-controls="ssr-parameters"
+            /></label>
+            <div id="ssr-parameters" class="effect-parameters" hidden>
+              <label class="control"
+                >Quality<select id="ssr-quality">
+                  <option value="balanced">Balanced</option>
+                  <option value="high">High</option>
+                </select></label
+              >
+              <label class="control"
+                >Max roughness<input
+                  id="ssr-roughness"
+                  type="number"
+                  min="0.001"
+                  max="1"
+                  step="any"
+                  value="0.4472135954999579"
+                  required
+              /></label>
+              <label class="control"
+                >Thickness (m)<input
+                  id="ssr-thickness"
+                  type="number"
+                  min="0.000001"
+                  step="any"
+                  value="0.015"
+                  required
+              /></label>
+              <label class="control"
+                >Metres / world unit<input
+                  id="ssr-world-scale"
+                  type="number"
+                  min="0.000001"
+                  step="any"
+                  value="1"
+                  required
+              /></label>
+              <label class="control"
+                >Temporal stability<input
+                  id="ssr-stability"
+                  type="number"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value="0.7"
+                  required
+              /></label>
+              <label class="control"
+                >Strength<input
+                  id="ssr-strength"
+                  type="number"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value="1"
+                  required
+              /></label>
+              <label class="control"
+                >Debug lobe<select id="ssr-lobe">
+                  <option value="0">Base</option>
+                  <option value="1">Coat</option>
+                </select></label
+              >
+              <p>
+                Debug: trace confidence / prefilter / temporal / reprojection acceptance. Disabled SSSR
+                displays no signal.
+              </p>
+            </div>
           </section>
           <section class="effect section">
             <label class="effect-heading" for="bloom"

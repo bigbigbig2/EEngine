@@ -71,6 +71,7 @@ type AuthoredIblAllocation = {
   readonly bytes: number;
 };
 type AuthoredIblSet = {
+  readonly specularTexture: GPUTexture;
   readonly source: ShadeTexture;
   readonly allocations: Set<AuthoredIblAllocation>;
   readonly scratch: readonly AuthoredIblAllocation[];
@@ -108,6 +109,11 @@ export class GpuAuthoredEnvironment {
   }
   get publicationRevision(): number {
     return this.revision;
+  }
+  get specularTexture(): GPUTexture {
+    const selected = this.pending ?? this.active;
+    if (!selected) throw new Error("Authored IBL has no recorded generation");
+    return selected.specularTexture;
   }
   get allocatedBytes(): number {
     const bytes = (set: AuthoredIblSet | null) =>
@@ -292,6 +298,7 @@ export class GpuAuthoredEnvironment {
       );
       dispatch(dfg, [dfgTexture.createView()], 64);
       const candidate: AuthoredIblSet = {
+        specularTexture: filtered,
         source,
         allocations,
         scratch,

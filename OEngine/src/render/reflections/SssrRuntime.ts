@@ -41,6 +41,7 @@ export interface SssrCamera {
  * environment is the existing linear Rec709 octahedral specular texture.
  * Seed.xy is current_uv-previous_uv. No CPU exposure surrogate is accepted. */
 export interface SssrFrameInput {
+  readonly output?: GPUTexture;
   readonly width: number;
   readonly height: number;
   readonly receivers: GPUBuffer;
@@ -85,6 +86,7 @@ interface LobeResources {
 }
 
 interface Workset {
+  readonly borrowedOutput: boolean;
   readonly capacity: SssrCapacity;
   readonly charge: number;
   readonly gpuBytes: number;
@@ -104,7 +106,7 @@ interface Workset {
   readonly tiles: GPUBuffer;
   readonly counts: GPUBuffer;
   readonly args: GPUBuffer;
-  readonly output: GPUTexture;
+  readonly output: GPUTexture | undefined;
   unsubmittedUploads: boolean;
 }
 
@@ -348,6 +350,23 @@ export class SssrRuntime {
 
   /** False means only fence-retired work prevents admission. A real capacity or
    * input error throws; no resolution/quality fallback hides it. */
+  canAdmit(width: number, height: number, diagnostic = false): boolean {
+    this.assertLive();
+    const capacity = planSssrCapacity(width, height, this.device.limits, this.memory, diagnostic);
+    const active = this.active;
+    const replacement = !active || active.capacity.width !== width || active.capacity.height !== height;
+    const charge = capacity.activeBytes - SSSR_NOISE_BYTES - (diagnostic ? capacity.pixels * 4 : 0);
+    const required =
+      SSSR_NOISE_BYTES +
+      (active?.charge ?? 0) +
+      (replacement ? charge : 0) +
+      (diagnostic ? capacity.pixels * 4 : 0);
+    if (required > this.memory.ownerMaxBytes) {
+      throw new RangeError("SSSR owner cannot hold the complete active/candidate extent");
+    }
+    return required + this.retiredBytes <= this.memory.ownerMaxBytes;
+  }
+
   prepare(input: SssrFrameInput): boolean {
     this.assertLive();
     if (this.pending) {
@@ -367,7 +386,12 @@ export class SssrRuntime {
     this.validateInputs(input, capacity);
     const historyKey = screenSpaceReflectionsHistoryKey(settings);
     let set = this.active;
-    if (!set || set.capacity.width !== input.width || set.capacity.height !== input.height) {
+    if (
+      !set ||
+      set.capacity.width !== input.width ||
+      set.capacity.height !== input.height ||
+      set.borrowedOutput !== (input.output !== undefined)
+    ) {
       const charge = capacity.activeBytes - SSSR_NOISE_BYTES - (input.diagnostic ? capacity.pixels * 4 : 0);
       const withoutRetired =
         SSSR_NOISE_BYTES + (this.active?.charge ?? 0) + charge + (input.diagnostic ? capacity.pixels * 4 : 0);
@@ -377,7 +401,7 @@ export class SssrRuntime {
       if (withoutRetired + this.retiredBytes > this.memory.ownerMaxBytes) {
         return false;
       }
-      set = this.allocate(capacity);
+      set = this.allocate(capacity, input.output);
     } else if (
       this.reservedBytes + (input.diagnostic ? capacity.pixels * 4 : 0) >
       this.memory.ownerMaxBytes
@@ -411,7 +435,8 @@ export class SssrRuntime {
   }
 
   private validateInputs(input: SssrFrameInput, capacity: SssrCapacity): void {
-    const textures: readonly [GPUTexture, GPUTextureFormat][] = [
+    const textures: readonly (readonly [GPUTexture, GPUTextureFormat])[] = [
+      ...(input.output ? [[input.output, "rgba16float"] as const] : []),
       [input.depth, "depth32float"],
       [input.opaqueRadiance, "rgba16float"],
       [input.seed, "rgba32float"],
@@ -430,6 +455,12 @@ export class SssrRuntime {
       ) {
         throw new RangeError(`SSSR input ${format} does not match the complete viewport/usage`);
       }
+    }
+    if (
+      input.output &&
+      (input.output === input.opaqueRadiance || (input.output.usage & GPUTextureUsage.STORAGE_BINDING) === 0)
+    ) {
+      throw new RangeError("SSSR correction requires a distinct writable HDR output");
     }
     if (
       input.environment.format !== "rgba16float" ||
@@ -532,7 +563,7 @@ export class SssrRuntime {
     set.unsubmittedUploads = true;
   }
 
-  private allocate(capacity: SssrCapacity): Workset {
+  private allocate(capacity: SssrCapacity, borrowedOutput?: GPUTexture): Workset {
     const textures: GPUTexture[] = [];
     const buffers: GPUBuffer[] = [];
     const texture = (
@@ -590,10 +621,15 @@ export class SssrRuntime {
       );
       return {
         capacity,
+        borrowedOutput: borrowedOutput !== undefined,
         unsubmittedUploads: false,
         charge: capacity.ownedBytes + capacity.receiverBytes - SSSR_NOISE_BYTES,
         gpuBytes:
-          102 * capacity.pixels + capacity.depthBytes + 36 * capacity.tiles + SSSR_UNIFORM_BYTES * 2 + 32,
+          (borrowedOutput ? 94 : 102) * capacity.pixels +
+          capacity.depthBytes +
+          36 * capacity.tiles +
+          SSSR_UNIFORM_BYTES * 2 +
+          32,
         textures,
         buffers,
         lobes,
@@ -635,7 +671,7 @@ export class SssrRuntime {
           24,
           GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_SRC
         ),
-        output: texture("corrected opaque", "rgba16float")
+        output: borrowedOutput ? undefined : texture("corrected opaque", "rgba16float")
       };
     } catch (error) {
       for (const resource of [...textures, ...buffers]) {
@@ -832,7 +868,7 @@ export class SssrRuntime {
         [0, this.view(input.opaqueRadiance)],
         [1, this.view(set.lobes[0].radiance[write])],
         [2, this.view(set.lobes[1].radiance[write])],
-        [3, this.view(set.output)]
+        [3, this.view(input.output ?? set.output!)]
       ],
       Math.ceil(input.width / 8),
       Math.ceil(input.height / 8)
@@ -849,7 +885,7 @@ export class SssrRuntime {
       Math.ceil(input.height / 8)
     );
     pending.encoded = true;
-    return set.output;
+    return input.output ?? set.output!;
   }
 
   private commonGroup(set: Workset, input: SssrFrameInput, lobe: number): GPUBindGroup {
@@ -1014,6 +1050,8 @@ export class SssrRuntime {
     readonly output: GPUTexture;
     readonly base: GPUTexture;
     readonly coat: GPUTexture;
+    readonly basePrefilter: GPUTexture;
+    readonly coatPrefilter: GPUTexture;
     readonly baseStatistics: GPUTexture;
     readonly coatStatistics: GPUTexture;
     readonly depth: GPUTexture;
@@ -1026,9 +1064,11 @@ export class SssrRuntime {
     const pending = this.requirePending();
     const { set, write } = pending;
     return {
-      output: set.output,
+      output: pending.input.output ?? set.output!,
       base: set.lobes[0].radiance[write],
       coat: set.lobes[1].radiance[write],
+      basePrefilter: set.lobes[0].radiance[this.readIndex],
+      coatPrefilter: set.lobes[1].radiance[this.readIndex],
       baseStatistics: set.lobes[0].statistics[write],
       coatStatistics: set.lobes[1].statistics[write],
       depth: set.depth,

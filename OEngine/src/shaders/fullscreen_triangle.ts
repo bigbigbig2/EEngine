@@ -19,3 +19,6 @@ fn main(@builtin(vertex_index) vertex_index: u32) -> FullscreenTriangleVertexOut
   return output;
 }
 `;
+
+/** Fullscreen entry point used by render-pass consumers. */
+export const FULLSCREEN_PASS_VERTEX_WGSL = FULLSCREEN_TRIANGLE_VERTEX_WGSL.replace("fn main(", "fn vs_main(");

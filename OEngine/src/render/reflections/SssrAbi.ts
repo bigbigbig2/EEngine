@@ -175,3 +175,18 @@ fn sssr_receiver(index: u32) -> SssrReceiver {
     sssr_unpack4(receivers[offset + 6u], receivers[offset + 7u]));
 }
 `;
+
+/** Shared Native writer for the four packed vec4 blocks consumed above. */
+export const SSSR_RECEIVER_WRITE_WGSL = /* wgsl */ `
+fn sssr_write_receiver(index: u32, base: vec4f, coat: vec4f, response: vec4f, baseline: vec4f) {
+  let offset = index * 8u;
+  reflection_receivers[offset] = pack2x16float(base.xy);
+  reflection_receivers[offset + 1u] = pack2x16float(base.zw);
+  reflection_receivers[offset + 2u] = pack2x16float(coat.xy);
+  reflection_receivers[offset + 3u] = pack2x16float(coat.zw);
+  reflection_receivers[offset + 4u] = pack2x16float(response.xy);
+  reflection_receivers[offset + 5u] = pack2x16float(response.zw);
+  reflection_receivers[offset + 6u] = pack2x16float(baseline.xy);
+  reflection_receivers[offset + 7u] = pack2x16float(baseline.zw);
+}
+`;

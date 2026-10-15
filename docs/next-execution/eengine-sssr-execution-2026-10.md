@@ -29,14 +29,14 @@ verifies:
 
 # SSSR 执行计划
 
-唯一细设计为[SSSR设计](../next-design/eengine-sssr-2026-10.md)，粗路线由workstream.roadmap导航。设计提交为`93fe6822`；用户随后授权完成SSR-1并对照文档返工，SSR-2仍在下一单元边界。详细状态与实际结果只在这里维护；不预建Local Probes/SSGI细计划。
+唯一细设计为[SSSR设计](../next-design/eengine-sssr-2026-10.md)，粗路线由workstream.roadmap导航。设计提交为`93fe6822`，SSR-1提交为`cfe39af5`；用户继续授权SSR-2，现已完成生产闭包和本模块集中验证。详细状态与实际结果只在这里维护；停在Local Probes模块边界，不预建Local Probes/SSGI细计划。
 
 ## 1. 两个完整单元
 
 | 单元 | 状态 | 关闭边界 |
 |---|---|---|
 | SSR-1 完整算法与资源闭包 | 已完成（非生产闭包） | 所选SDK完整FP32 SSSR+三阶段denoiser在非生产fixture中连通；两lobe、容量/写域、radiometry、历史和提交事务完整，尚不切换生产 |
-| SSR-2 Native生产原子接入与收口 | 待实施 | 全物理route/产品/consumer同时切换；settings/debug/demo/recovery与退役闭合，真实Renderer验证并逐项核对文档；停在下一模块边界 |
+| SSR-2 Native生产原子接入与收口 | 已完成 | 全物理route/产品/consumer同时切换；settings/debug/demo/recovery与退役闭合，真实Renderer验证及逐项复核见§5；停在Local Probes模块边界 |
 
 两个单元对应算法闭包与生产ownership切换，不按shader文件、API、每条测试拆小阶段。实施时可临时不编译；单元闭合后集中检查。SSR-1关闭停在SSR-2边界；继续授权已覆盖的单元不重复索要确认。实施发现关键假设不成立时直接修本对文档及Cost Card，不另造一套plan或旧新A/B桥。
 
@@ -112,3 +112,32 @@ verifies:
 architecture self-review已逐核producer/consumer、四storage纹理与最多10KiB shared、有效/OOB/barrier、alias角色、二维间接容量、队列写入和device-loss guard；使用webgpu-review检查真实布局及同步，没有发现剩余SSR-1必需项。受控device loss/recovery、全Native route发布、settings/debug/Dungeon、普通运动/移动亮物体画面、1080p真实资源峰值/粗GPU成本均属于SSR-2；本轮没有运行或宣称完成。没有构建上游D3D样例，没有整Renderer FPS/ABBA/4GB验收，没有提升R06生产adoption。现在停止在SSR-2边界。
 
 实施文档检查：`document-system.test.mjs` 7/7、`vibe doctor`无errors/warnings且registry未改，新增runtime/shader context均归shading并指向唯一SSSR authority；`git diff --check`通过。`docs-verify`仍为原有1个finding（忽略的`docs/status.generated.md`缺frontmatter）及81条historical warnings，没有新增finding。
+
+## 5. SSR-2 生产接入与逐项复核（2026-10-15）
+
+在SSR-1完整算法上原子接入Native生产路径，没有裁掉VNDF、层次遍历、hit validation或三阶段denoiser。默认关闭；Renderer公开七项初值/只读快照/原子setter和base/coat debug选择，内存预算保留为设备初始化配置。Dungeon提供相同控制。
+
+| 设计合同 | 实际闭包与检查 |
+|---|---|
+| 全Native物理profile | `GpuNativeMaterialScene`规划off/sssr-base-coat descriptor、整publication异步ready、提交/中止/重试；profile切换保留材质signature/valueRevision，不误触发MASK/VSM内容更新。dense/compact、ordinary/Product及混合unlit均用同一profile；Surface先clear完整32P，winner写32B，背景/early-return保持invalid，unlit保真实法线但W/B为0 |
+| 响应、baseline和唯一材质求值 | Native复用当前DFG/IBL/coat衰减及真实两套normal/roughness；同一canonical half α用于选择与后续读取，不增加材质纹理采样/环境重算。独立数值核对`H+strength*(M(Wbase*Qbase+Wcoat*Qcoat)-B)`，非选lobe保持原IBL，亮unlit可被反射但不作为receiver |
+| FrameProgram完整生产消费 | 最终Depth、opaque H、receiver、Seed/response/完整identity、GPU P/prior P和既有specular texture接SSR宏；版本化实际SSR owner表达其私有depth/history依赖，内部严格base→coat。corrected opaque为图所有的8P借用纹理，包含Sky原位写入所需RENDER_ATTACHMENT；随后Sky→Aerial→Native/FSR/bypass→显示。无颜色循环、额外frame submit或同帧readback控制 |
+| 配置和历史事务 | graph key只记录有效物理profile，数值逐帧晚绑定；正strength编辑只reset颜色、保SSR累计，质量/阈值/厚度/尺度/stability重置SSR及颜色，普通相机运动保历史。defer/编码后abort不推进phase/提交签名；retry保pending reset。resize候选在分配前核device limits和预算，fence退休；off/strength0/empty/all-unlit成功提交后释放owner并清debug绑定；快速重开须等待上一owner退休fence，避免两代绕过同一owner预算，fixture用延迟fence验证整帧defer。checkpoint/recovery保desired设置和lobe |
+| 四种真实debug与旧代码退役 | trace hit-confidence、prefilter、最终temporal、reproject接受度逐项核对实际信号；confidence/接受度仅对应debug额外4P buffer，未开启SSR时黑色且不自动开启效果。删除旧ssr_trace/resolve/denoise/stochastic_sample/common及旧null输入，fullscreen移到已有中立helper，motion blur/shared pyramid保留其存活数学，不接入其他效果 |
+| 能力、工作与资源界 | 最宽实际16 storage buffers/4 storage textures。1080p真实分配和执行，完整ray/tile容量，不裁边界；22 compute pass及两次radiance copy仍在一个scene encoder。下面记录实际descriptor而非driver驻留，不从预算上界推断整Renderer显存 |
+
+集中验证：最终`npm --prefix OEngine run build`、新鲜`npm --prefix OEngine run build:test`、四个受影响CPU文件（sssr、frame-program、native-surface-v4、native-material-scene，33/33）及`npm --prefix examples run typecheck:dungeon`通过。沿用`sssr-algorithm`的26项独立数值/生命周期检查再次通过；只新增第二个entry `sssr-production`，两项GPU串行运行，scoped/uncaptured errors均为0。
+
+production fixture使用真实Renderer/材质/几何/IBL生产者：65×49混合场景含1752 base、1752 coat、156 unlit与1277背景像素，独立coat normal及roughness，authored常量环境用于独立预期；另跑短physical IBL/Sky/Aerial链。覆盖ordinary dense/compact、Product dense和MASK compact，MASK透明度变化真实移除/恢复receiver；暖帧、普通运动、移动亮物体/退屏、一次奇数resize、Native/FSR/bypass、四debug、positive strength/numeric编辑、publication defer、编码后abort→retry、empty/all-unlit、受控device loss/recovery。
+
+最终HDR相对独立公式最大误差0.00192509；baseline最大误差0.000384741。比较包含实际half record/输出量化及F32颜色矩阵：baseline按half响应、辐射及合成的相对0.004界（另有暗值绝对项），最终输出按half格式界核对，没有为通过提高精度容差。读回仅在oracle中使用，不参与production帧控制。导出左右baseline/corrected工作RGB诊断PNG并目视确认反射出现；不是最终显示色度/完整资产画质验收。亮物体移出屏幕六帧后，eligible base最大Rec709通道约0.400077，回到该环境最高通道0.4附近，未观察到该序列持续旧亮反射；不能外推为全部动态遮挡问题已消除。
+
+1080p同次实测：owner独占descriptor为207,963,092B（约198.33MiB）；reserved为290,910,096B（约277.43MiB，含借用receiver/corrected输出与保守headroom）；receiver为66,355,200B。coat实际1,089,200 rays、17,177 tiles，分别不超过P=2,073,600、T=32,400。小尺寸→1080p转换采到owner峰值208,305,634B、reserved291,392,326B；该峰值只对应这次转换，不是任意多帧/全Renderer峰值。冷帧CPU准备+queue等待488.9ms，**不是GPU帧时、稳定帧成本或提速证明**。测试为NVIDIA Turing硬件、Chrome155，adapter未暴露具体型号；没有GTX1650Ti 4GB、整场景FPS/P95、跨GPU/浏览器或长窗口画质资格。
+
+最终报告保留在忽略目录`.local/sssr2-production-final.json`、`.local/sssr2-algorithm-final.json`；生产source SHA256 `3b69b0a83a179e57369a80c1b378c18b2cc96015f2cfc05fda27f068e34f78d1`、test output SHA256 `d0f970119a29245b0c183296186df3bcdf330de03daf90059895dc9da36da640`、production oracle SHA256 `39d3f403a087e8d69b023fa35ded9b1a8e15375d2fa7d5a4d1a3c92e3cdaba0e`。它们不是正式evidence/claims发布。
+
+原开发失败保留`.local/sssr2-production-run*.json`：旧binding15 validation仍按已退休storage texture检查、environment误传view、corrected HDR缺Sky render usage属于生产缺陷，分别修为SSBO合同、现有texture getter和正确usage；不新增第二份环境或fallback。其余失败包括fixture未申请primitive capability、静态模块allowlist/cook预算、重复注册Scene、读错transform/资源wrapper、重用Renderer已销毁的owned device及过期test build，分类为宿主/fixture问题后修正同一断言重跑。浏览器favicon 403仍在console，非shader/资产请求失败，pageErrors/failedRequests/runFailure为空。
+
+architecture self-review按webgpu-review核对实际binding、完整写域、graph版本/借用纹理、queue顺序、history commit/abort、异步初始化epoch guard和fence退休；与本设计§4–9及SSR-2条目逐项对照完成。R06仅提升为所选FP32 profile的生产Adapt，不宣称上游整框架移植或性能adoption。后续模块为Local Reflection Probes，本轮不设计或实施；SSSR缺失屏外信息时仍使用现有global IBL。
+
+SSR-2文档收口：`document-system.test.mjs` 7/7、`vibe doctor`无errors/warnings且registry字节一致、`git diff --check`通过；全库`docs-verify`仍只有原有`docs/status.generated.md`缺frontmatter的1个finding及81条historical warnings，没有新增finding。更新domain、来源映射和粗模块入口，authority仍保留本对文档，未启动下一模块。
