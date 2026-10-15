@@ -4,6 +4,9 @@ state: current
 verifies:
   files:
     - project/workstreams/active/eengine-next-clean-rebuild.yaml
+    - OEngine/src/assets/CookedTextureCatalog.ts
+    - OEngine/src/render/SceneRefinement.ts
+    - OEngine/src/gpu/GpuNativeMaterialScene.ts
     - OEngine/src/assets/AssetLoadBatch.ts
     - OEngine/src/assets/OegPackV3.ts
     - OEngine/src/assets/TextureProduct.ts
@@ -29,7 +32,7 @@ verifies:
     - OEngine/src/shaders/virtual_geometry_work.ts
     - OEngine/src/shaders/vsm_depth_bounds.ts
     - OEngine/src/shaders/vsm_caster_invalidation.ts
-    - examples/demos/14-integrated/bistro-texture-compression/cooked-scene.ts
+    - examples/demos/14-integrated/shared/cooked-scene.ts
     - examples/demos/14-integrated/bistro-texture-compression/main.ts
 ---
 
@@ -37,7 +40,7 @@ verifies:
 
 ## 1. 本轮决定
 
-源码起点为 `30292e0e`。用户本轮只授权设计，实施与详细状态唯一入口为[执行计划](../next-execution/eengine-initialization-scheduling-execution-2026-10.md)。这是功能路线中插入的一次真实可用性修复，不启动延期的全 Renderer 性能资格，也不启动 Local Probes、VT 或其他效果。
+源码起点为 `30292e0e`。设计形成后，用户于2026-10-15依次授权INIT-1、INIT-2和INIT-3实施；实施与详细状态唯一入口为[执行计划](../next-execution/eengine-initialization-scheduling-execution-2026-10.md)。这是功能路线中插入的一次真实可用性修复，不启动延期的全 Renderer 性能资格，也不启动 Local Probes、VT 或其他效果。
 
 选择重新组织整个 Cooked 启动关键路径，而不是给现有逐页循环增加线程数：**并行准备与 GPU 发布脱耦；几何只在正式帧事务中成批发布；VSM 消费实际驻留变化影响，合并失效并按完整阴影页分批重建；纹理与 Pipeline 准备和几何并行，细 mip 不再挤进首个可见帧。** 初始化和运行时流送共用同一套机制，首屏前后只改变优先级与额度，不保留另一条加载路径。
 
@@ -193,11 +196,15 @@ GPU持久dirty bitset记录全部失效。每帧按coarse可用性、receiver需
 
 第一帧只运行此集合和其正常阴影链。shading mip按空间需求/材料优先级渐进补齐，无现成需求时先用有界公平队列；本轮不新造texture feedback系统或VT。每次只上传新增区间`[newMinMip, oldMinMip)`，完整mip不可拆语义但可分块物理拷贝，全部块齐全并提交后才降低resident minMip。sampler clamp、MASK/Main/VSM binding都在同一publication提交，不能读未上传mip。texture初始/更新统一走staging+copy事务，首帧不再执行全材质无预算`promote()`。
 
+实施核定：初始tail和完整coverage使用同一scene publication command，staging硬上限256MiB且不超过device.maxBufferSize，超额在copy前明确失败。后续每普通帧最多4MiB、128个copy region，单块最多256KiB，活跃refinement staging共16MiB；每个mip的所有plane/block提交完成后才降低minMip，partial cursor随事务推进。Mapped-at-creation COPY_SRC buffer按该command的GPU fence销毁；无独立submit。所有shading texel总量不因分批减少，首屏critical staging与GPU完整分配仍单列。
+
 完整container验证仍可能是早期主要等待。已有`TextureProduct`要求全部chunks且为replay保留，本轮先去重、Worker和重叠，不伪称已实现按mip网络流送。真正tail-only HTTP/chunk source虽然现有manifest已有offset/hash，仍需新的partial Product、受校验metadata、按需读取与replay合同；留给后续选定模块，不以不完整chunks冒充合法Product。完整GPU纹理分配也不因渐进上传减少。
 
 ## 8. 收敛、取消和内存上界
 
 公开阶段为`catalog-ready / bootstrap-ready / first-presented / refining / view-settled / failed / cancelled`。`first-presented`以实际GPU完成/呈现定义的证据记录，不能把CPU提交叫present；无法证明scanout时明确称first-completed。纹理full-mip和几何target分开。
+
+实现中的`SceneRefinement`只观察完成帧，不决定work。VSM allocation/pair/失败摘要在refining时每8帧读72B（原40B加32B），收敛后停止追加摘要，移动后恢复；Main/Shadow既有需求反馈仍维持。首个GPU完成时间独立于最新quality反馈，不因连续publication被推迟。
 
 `view-settled(epoch)`要求：该view/light/content epoch的最新完整Main/Shadow需求反馈已被处理、必需IO/ready/staged/publication归零、该需求的几何达到当前quality、当前requested shadow页有效或显式容量受限、coverage完整；至少跨一次后续完成帧确认没有新target需求。容量受限记录`limited`而非settled成功；有物理预算不能达到整个target时保留合法coarse并报告限制，不永远Promise挂起。相机移动、sun/scene变化使旧epoch失效并重新refining，`settled()`不得承诺永远全场景加载完成。
 

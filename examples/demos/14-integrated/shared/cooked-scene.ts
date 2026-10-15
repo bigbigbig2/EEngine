@@ -1,4 +1,5 @@
 import { loadAssetBatch } from "../../../../OEngine/src/assets/AssetLoadBatch.ts";
+import { uniqueCookedTextures } from "../../../../OEngine/src/assets/CookedTextureCatalog.ts";
 import { cookedAssetPreparation } from "../../../../OEngine/src/assets/codec/CookedAssetPreparation.ts";
 import type { Renderer, Scene } from "../../../../OEngine/src/index.ts";
 import {
@@ -32,7 +33,7 @@ import type { GltfMaterial } from "../../../../OEngine/src/loaders/gltf/GltfLoad
 import { ShadeImage } from "../../../../OEngine/src/texture/ShadeImage.ts";
 import { ShadeTexture } from "../../../../OEngine/src/texture/ShadeTexture.ts";
 
-const COOKED_TEXTURE_FETCH_CONCURRENCY = 16;
+const COOKED_TEXTURE_FETCH_CONCURRENCY = 8;
 
 type Property = (typeof MATERIAL_TEXTURE_PROPERTIES)[number];
 interface CookedManifest {
@@ -56,6 +57,8 @@ interface CookedManifest {
   instanceProfiles: VirtualGeometryGeometryProfile[];
   products: { uri: string; identity: string }[];
   evidence: Record<string, number | string>;
+  framing?: { center: [number, number, number]; radius: number };
+  playground?: { counts: Record<string, number>; groundSize: number; floor: number; seed: string };
 }
 
 export async function loadCookedScene(
@@ -66,6 +69,17 @@ export async function loadCookedScene(
   phase: (value: string) => void,
   geometryCapacityBytes = 1024 * 1024 ** 2,
 ) {
+  const initialization = {
+    catalogStartedAtMs: performance.now(),
+    catalogReadyAtMs: null as number | null,
+    textureProductsReadyAtMs: null as number | null,
+    materialPreparationStartedAtMs: null as number | null,
+    necessaryPipelinesReadyAtMs: null as number | null,
+    rootsReadyAtMs: null as number | null,
+    bootstrapReadyAtMs: null as number | null,
+    textureAliases: 0,
+    uniqueTextureProducts: 0,
+  };
   const fetchBytes = async (uri: string) => {
     const response = await fetch(new URL(uri, base), { signal });
     if (!response.ok) throw new Error(`Cooked asset ${uri}: HTTP ${response.status}`);
@@ -95,63 +109,103 @@ export async function loadCookedScene(
   );
   const textures = manifest.gltf.textures.map((t) => textureFromGltf(t, images, manifest.gltf.samplers));
   const materials = manifest.gltf.materials.map((m) => parseGltfMaterial(m, textures));
-  const entries = new Map(manifest.products.map((product) => [product.uri, product.identity]));
-  const products = new Map<string, Awaited<ReturnType<typeof openTextureProduct>>>();
-  const coverageUris = new Set<string>();
-  manifest.gltf.materials.forEach((material, index) => {
-    const albedo = manifest.bindings[index]?.texture_albedo;
-    if (material.alphaMode === "MASK" && albedo) {
-      coverageUris.add(albedo.uri);
-    }
-  });
-  const textureEntries = [...manifest.products].sort((a, b) =>
-    Number(coverageUris.has(b.uri)) - Number(coverageUris.has(a.uri)));
-  phase("Reading validated BC Texture Products (no codec)");
-  const preparation = cookedAssetPreparation();
-  const textureSession = preparation.openSession();
-  let loadedTextures;
-  try {
-    loadedTextures = await loadAssetBatch(
-    textureEntries,
-    COOKED_TEXTURE_FETCH_CONCURRENCY,
+  initialization.catalogReadyAtMs = performance.now();
+  const localAbort = new AbortController();
+  signal = AbortSignal.any([signal, localAbort.signal]);
+  // Start metadata IO before texture IO; the shared Worker/HTTP credits bound both.
+  const geometryAssets = loadAssetBatch(
+    geometryManifest.packs,
+    4,
     signal,
-    async (entry, _index, batchSignal) => {
-      return preparation.readTexture(textureSession, new URL(entry.uri, base).href, entry.identity, batchSignal,
-        coverageUris.has(entry.uri) ? 0 : 2);
-    },
+    (pack, _index, batchSignal) =>
+      load_oegpack_product(
+        { kind: "http-range", url: new URL(pack.uri, base).href },
+        { signal: batchSignal, manifest: sceneBytes, verifyPageSha256: false },
+      ),
+    (asset) => asset.release(),
   );
-  } finally {
-    preparation.closeSession(textureSession);
-  }
-  loadedTextures.forEach((product, index) => products.set(textureEntries[index]!.uri, product));
-  for (const [index, material] of materials.entries()) {
-    const bindings = manifest.bindings[index]!;
-    for (const property of MATERIAL_TEXTURE_PROPERTIES) {
-      const binding = bindings[property];
-      if (!binding) {
-        if (material[property]) throw new Error(`Offline material ${index} missing ${property}`);
-        continue;
+  void geometryAssets.catch(() => undefined);
+  const textureReady = (async () => {
+    const products = new Map<string, Awaited<ReturnType<typeof openTextureProduct>>>();
+    const coverageUris = new Set<string>();
+    manifest.gltf.materials.forEach((material, index) => {
+      const albedo = manifest.bindings[index]?.texture_albedo;
+      if (material.alphaMode === "MASK" && albedo) {
+        coverageUris.add(albedo.uri);
       }
-      const product = products.get(binding.uri);
-      const sampler = textures[binding.textureIndex];
-      if (!product || !sampler || !entries.has(binding.uri) || material[property] !== sampler) {
-        throw new Error(`Offline material ${index} invalid ${property} binding`);
-      }
-      const texture = ShadeTexture.fromProduct(product);
-      for (const name of [
-        "minFilter",
-        "magFilter",
-        "mipmapFilter",
-        "wrapS",
-        "wrapT",
-        "wrapR",
-        "dimensions",
-      ] as const) {
-        texture[name] = sampler[name];
-      }
-      material[property] = texture;
+    });
+    const { aliases: entries, reads: textureEntries } = uniqueCookedTextures(manifest.products, coverageUris);
+    initialization.textureAliases = entries.size;
+    initialization.uniqueTextureProducts = textureEntries.length;
+    phase("Reading validated BC Texture Products (no codec)");
+    const preparation = cookedAssetPreparation();
+    const textureSession = preparation.openSession();
+    let loadedTextures;
+    try {
+      loadedTextures = await loadAssetBatch(
+        textureEntries,
+        COOKED_TEXTURE_FETCH_CONCURRENCY,
+        signal,
+        async (entry, _index, batchSignal) => {
+          return preparation.readTexture(
+            textureSession,
+            new URL(entry.uri, base).href,
+            entry.identity,
+            batchSignal,
+            entry.critical ? 0 : 2,
+          );
+        },
+      );
+    } finally {
+      preparation.closeSession(textureSession);
     }
-  }
+    loadedTextures.forEach((product) => products.set(product.identity, product));
+    for (const [index, material] of materials.entries()) {
+      const bindings = manifest.bindings[index]!;
+      for (const property of MATERIAL_TEXTURE_PROPERTIES) {
+        const binding = bindings[property];
+        if (!binding) {
+          if (material[property]) throw new Error(`Offline material ${index} missing ${property}`);
+          continue;
+        }
+        const product = products.get(entries.get(binding.uri)!);
+        const sampler = textures[binding.textureIndex];
+        if (!product || !sampler || !entries.has(binding.uri) || material[property] !== sampler) {
+          throw new Error(`Offline material ${index} invalid ${property} binding`);
+        }
+        const texture = ShadeTexture.fromProduct(product);
+        for (const name of [
+          "minFilter",
+          "magFilter",
+          "mipmapFilter",
+          "wrapS",
+          "wrapT",
+          "wrapR",
+          "dimensions",
+        ] as const) {
+          texture[name] = sampler[name];
+        }
+        material[property] = texture;
+      }
+    }
+
+    initialization.textureProductsReadyAtMs = performance.now();
+    signal.throwIfAborted();
+    initialization.materialPreparationStartedAtMs = performance.now();
+    const prepared = await renderer.prepareVirtualGeometryMaterials(
+      materials,
+      manifest.instanceProfiles,
+      signal,
+    );
+    void prepared.ready.then(
+      () => {
+        initialization.necessaryPipelinesReadyAtMs = performance.now();
+      },
+      () => undefined,
+    );
+    return prepared;
+  })();
+  void textureReady.catch((error) => localAbort.abort(error));
   const assets: OegPackProductAsset[] = [];
   let runtime: GeometryProductMultiRuntimeV1 | undefined;
   let streaming: GeometryPageStreamingRuntimeV1 | null = null;
@@ -171,17 +225,7 @@ export async function loadCookedScene(
     });
     const parts: VirtualGeometryProductScenePartV1[] = [];
     let first: GeometryProductShardHandleV1 | undefined;
-    const openedAssets = await loadAssetBatch(
-      geometryManifest.packs,
-      4,
-      signal,
-      (pack, _index, batchSignal) =>
-        load_oegpack_product(
-          { kind: "http-range", url: new URL(pack.uri, base).href },
-          { signal: batchSignal, manifest: sceneBytes, verifyPageSha256: false },
-        ),
-      (asset) => asset.release(),
-    );
+    const openedAssets = await geometryAssets;
     assets.push(...openedAssets);
     for (const [packIndex, pack] of geometryManifest.packs.entries()) {
       signal.throwIfAborted();
@@ -226,9 +270,12 @@ export async function loadCookedScene(
         });
       }
     }
+    initialization.rootsReadyAtMs = performance.now();
     const combined = mergeVirtualGeometryProductSceneSourcesV1(parts);
     if (!first) throw new Error("Offline scene has no admitted geometry");
-    phase("Publishing GPU Render World / tail residency");
+    const preparedMaterials = await textureReady;
+    await preparedMaterials.ready;
+    phase("Publishing GPU Render World / critical texture residency");
     await renderer.uploadVirtualGeometryScene(
       scene,
       combined,
@@ -241,18 +288,29 @@ export async function loadCookedScene(
         registerStreaming: false,
         multiRuntime: runtime,
         releaseWithScene: true,
+        materials: preparedMaterials,
       },
     );
     published = true;
+    initialization.bootstrapReadyAtMs = performance.now();
     return {
       manifest,
       source: combined,
-      framing: sceneFraming(combined),
+      framing: manifest.framing ?? sceneFraming(combined),
       dispose,
-      settled: async () => {},
+      settled: () => renderer.whenSceneSettled(scene, signal),
       runtime,
+      initialization: Object.freeze(initialization),
     };
   } catch (error) {
+    localAbort.abort(error);
+    const results = await Promise.allSettled([geometryAssets, textureReady]);
+    if (results[0].status === "fulfilled") {
+      for (const asset of results[0].value) {
+        if (!assets.includes(asset)) asset.release();
+      }
+    }
+    if (results[1].status === "fulfilled") results[1].value.cancel();
     if (published) await renderer.releaseScene(scene);
     streaming?.destroy();
     runtime?.destroy();

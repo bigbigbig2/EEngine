@@ -11,6 +11,9 @@ verifies:
     - OEngine/src/gpu/GeometryPageStreamingRuntime.ts
     - OEngine/src/gpu/VirtualGeometryResidency.ts
     - OEngine/src/gpu/TextureResidency.ts
+    - OEngine/src/render/SceneRefinement.ts
+    - OEngine/src/gpu/GpuNativeMaterialScene.ts
+    - examples/demos/14-integrated/shared/cooked-scene.ts
     - OEngine/src/render/ShadowGeometryWork.ts
     - OEngine/src/render/vsm
     - OEngine/src/render/pipeline/RendererCore.ts
@@ -22,7 +25,7 @@ verifies:
 
 # 初始化调度执行计划
 
-唯一细设计为[初始化调度设计](../next-design/eengine-initialization-scheduling-2026-10.md)。源码起点`30292e0e`；设计轮于`f7a6c4cf`收口，2026-10-15用户先授权INIT-1，随后授权完成复审修正并提交，再实施INIT-2并复核。INIT-3仍未授权，不能把Worker研究、诊断脚本或文档检查当作完成。
+唯一细设计为[初始化调度设计](../next-design/eengine-initialization-scheduling-2026-10.md)。源码起点`30292e0e`；设计轮于`f7a6c4cf`收口，2026-10-15用户先授权INIT-1，随后授权完成复审修正并提交，再实施INIT-2并复核。随后授权提交INIT-2并实施、复核INIT-3。研究、诊断脚本或文档检查本身不算实施结果。
 
 INIT-1开工前置（本轮实际第一步）：现有诊断机制已存在但无生产者——`addGpuListCounterPass`/`GpuListCounterAccumulator`零调用者，`VsmResources.diagnostics()`已给出dirty页/配对/atlas的计数偏移，而`BenchmarkCapabilityEvidence`有6条`PackedCsmShadowPass/*`声明指向已从production删除的旧pass。故先在INIT-1内把这些观测接成真实的VSM工作量计数并撤销失效claim，再决定发布批次预算。
 
@@ -32,7 +35,7 @@ INIT-1开工前置（本轮实际第一步）：现有诊断机制已存在但�
 |---|---|---|
 | INIT-1 几何帧事务与VSM更新闭包 | 已实现并完成相关正确性验证；性能结果有限，不宣称消除初始化长尾 | 事务发布/退休、变化union、公平完整页、空间时间合批、requested/selected双域及真实Bistro观察闭合；首屏和Worker仍由后续单元处理 |
 | INIT-2 Worker批量资产准备 | 已实施并复核；相关验证通过，既有Native Cooker golden失败单列保留 | 复用pool建立Cooked几何/texture任务，Range批量、验证receipt/transfer、输入与ready背压、可靠独立压力与生命周期；bootstrap与持续流送共用同机制 |
-| INIT-3 并行首屏、渐进纹理与真实收敛 | 待实施 | 目录去重、并行必要PSO/资源、首屏critical集合、事务mip区间与预算、view epoch阶段和Bistro真实验证/文档复核；删除旧入口，停回Local Probes边界 |
+| INIT-3 并行首屏、渐进纹理与真实收敛 | 已实施并复核；调度/生命周期闭合，启动性能限制及独立基线失败见下文 | 目录去重、并行必要PSO/资源、首屏critical集合、事务mip区间与预算、view epoch阶段和Bistro真实验证/文档复核；删除旧入口，停回Local Probes边界 |
 
 不按文件、每个shader或每条测试拆阶段。用户授权实施后按顺序连续闭合本轮明确范围；阶段内允许暂时不编译，稳定边界唯一生产ownership。不创建A/B renderer、旧发布adapter或测试专用fallback。现有SSR/AO代码与质量合同保留。
 
@@ -83,7 +86,7 @@ INIT-1开工前置（本轮实际第一步）：现有诊断机制已存在但�
 - **读取与背压**：scheduler先按Product公平性、priority与age选至多16页，只在同一current/shadow/predictive urgency域内合批，然后由source按offset合并。gap沿用64KiB，Worker span核定8MiB；默认4个批读取，HTTP admission独立默认4、可配置1..8，HEAD也占IO名额。Worker任务fetch期间仍占一个Worker，因此1个Worker profile不承诺同时4个GET。读前原子预留整批返回域，避免两批各持部分ready而互等；全局临时256MiB、编码32MiB、ready64MiB共同约束，不能把三者相加当新总额。几何按`2×encoded + 3×decoded`保守预留，返回后保留`2×decoded`（完整页加metadata余量），消费/丢弃/关闭source才释放；实际decoded ready因此至多约32MiB。texture输入上限128MiB，预留输入+digest峰值，HEAD/GET长度与identity encoding一致，响应流越界直接停止。
 - **压力与可靠性**：删除Renderer用GPU上传bytes/RAF推算IO及RAF delta压所有预算的接线；稳定无压力恢复4并发，取整改ceil。显式IO压力只影响准备，延迟GPU/编码压力只影响上传，快减/每样本最多0.02恢复/0.05死区；跨阶段通过真实ready信用背压。实际encoded bytes、每任务IO elapsed、Worker busy、IO/Worker/信用高水位保留为独立观测，累计并行IO时间不冒充wall time。瞬态失败单列`lastRetryError`，成功重试不毒化terminal `lastError`；确定性CRC、布局、nonfinite、身份等损坏不走网络重试。late generation/session不发布。
 - **释放与replay**：每个revision source独占Worker会话，释放其中一个不关闭同asset其他source；provider/asset释放关闭剩余会话。会话关闭abort活跃任务、终止相关Worker并丢弃descriptor注册，回收未消费ready；重建Worker再注册。residency bootstrap逐页消费后清理旧批引用，失败清理剩余ready。runtime loss取消旧读取和mapping；checkpoint保留CPU source，replacement device沿同一Worker入口重新读取，CPU验证不依赖GPU device epoch。没有新增frame submit或GPU→CPU→GPU工作控制。
-- **直接consumer**：Bistro和Dungeon都改用共享Cooked texture准备入口，已知MASK albedo/coverage先排队；仍读取全部manifest条目并等待完整Product，未实施identity目录去重、并行首屏PSO或渐进mip区间。INIT-3仍未启动。
+- **直接consumer**：Bistro和Dungeon都改用共享Cooked texture准备入口，已知MASK albedo/coverage先排队；仍读取全部manifest条目并等待完整Product，未实施identity目录去重、并行首屏PSO或渐进mip区间。当时INIT-3尚未启动；后续结果见INIT-3实施记录。
 
 Cost Card：不新增GPU buffer、binding、shader、dispatch或submit；删除主线程页CRC/LZ4/数值扫描和完整texture payload SHA工作，转到有界Worker。增加每Worker/session descriptor clone、小receipt/metadata核对、texture HEAD及transfer。v1明确仍传完整256KiB页：Bistro6085页约1521MiB累计decoded transport，对应有效payload约242MiB，尚未实现独占prefix slab；transfer避免额外结构化克隆大拷贝，不等于GPU上传零拷贝。几何ready metadata用保守余量计入总信用；descriptor副本、JS/浏览器网络实现开销和不可变texture replay payload另列，不把逻辑256MiB信用声称为浏览器RSS上界或约1GiB texture存储总上界。低需求0/50/100%时本地pool惰性执行，不因空队列派GPU工作；饱和最坏由各信用与普通帧publication/slot上限背压，至少保留一页进展。未用无限延期发布换FPS。
 
@@ -105,6 +108,25 @@ Cost Card：不新增GPU buffer、binding、shader、dispatch或submit；删除�
 - 删除旧逐页stream调用、completion直接发布、asset-version全实例流送damage、首帧无预算promote、伪压力与空settled的生产依赖；外部provider信任验证与已完成effects不退役。必要时同步其他直接Cooked consumer，不能只修demo特例。
 - 集中验证后按设计逐段对：依赖→读取/worker→receipt→隐藏槽→帧发布→coarse handoff→damage→dirty页完整commit→Surface/MASK→mip/replay→收敛；只更新已发生的domain事实和粗模块结论。
 
+#### INIT-3实施记录（2026-10-15）
+
+- **唯一Cooked入口与并行首屏**：Bistro/Dungeon原两份loader删除，合并到shared/cooked-scene。CookedTextureCatalog以期望SHA256 identity合并读取与完整验证，URI alias独立保留sampler和材质UV；同URI冲突拒绝。几何metadata读取与unique textures同时启动，root admission与真实Texture银行/Material association/Native程序准备重叠；必要PSO基于最终图和物理layout，不编占位程序。同一未提交scene transaction提前准备材质，最终publication消费一次；失败/取消/late资产/device loss/shutdown中止候选，仍由现有scene upload submit发布。PhysicalEnvironment已有资源/Pipeline准备保留；真正LUT/IBL GPU计算使用首个普通frame的真实相机，不用占位相机预计算后重做。仍读完整容器、保留hash和replay，没有partial Product、mip HTTP或VT。
+- **事务mip与容量**：TextureResidency删除queue.writeTexture路径，初始tail及完整MASK alpha依赖都用mapped-at-creation COPY_SRC staging，在scene command内copy。首屏critical不是只看albedo：独立lower alpha图的全部texture依赖均full。初始staging最多256MiB且受maxBufferSize限制；refinement每普通帧4MiB、最多128 regions、单块256KiB，活跃staging总16MiB，fair round-robin避免大mip饥饿。只传尚未驻留区间，物理row cursor可跨帧，某mip所有plane/block成功submit后才降低minMip/发布revision；abort保留旧clamp和cursor，retry重做未提交块。buffer在abort或所属GPU fence后销毁。复用一个已coarse的texture作为新场景coverage时，scene事务补足余下完整依赖，失败不提前修改旧场景采样。full GPU allocation和CPU replay payload不因分块而变少。
+- **Native/VSM直接消费者**：纯shading mip变化原会令Native snapshot把所有binding/value差异当coverage变化，本轮首轮完整场景暴露重复VSM失效后返工。现在独立比较alpha图程序/资源、常量/输入和cutoff；移除MASK也失效，color/normal/ORM的无关promotion不再全域失效。Native Program结构key不随minMip变化。完整Bistro从准备后到全部精化始终3个Native Programs，queued/compiling归零后不再新增。Surface、Main MASK、VSM使用同一真实publication，没有第二套material或fallback。
+- **真实完成定义**：SceneRefinement只观察，不选择GPU工作。first-completed直接来自实际command.gpuDone，与delayed readback处理分开；首次完成帧不会因连续quality publication被丢弃。view/light/content epoch变化或geometry/texture/Native quality publication要求fresh完整Main/Shadow反馈、pending/staged=0、full纹理及有效VSM，再跨后续完整观察确认。refining时原publication摘要40B扩至72B，每8帧追加32B失败状态；settled停止额外摘要，移动/太阳变化后恢复，既有需求/usage反馈不停止。capacity-limited明确返回limited，release/loss/终端失败拒绝等待；没有streaming观察源的低层scene不创建永远等待的observer。demo分别显示texture full和view-settled，稳定采样以真实settled开始，不再用空Promise/provider complete冒充完成。
+
+Cost Card：不增加shader ALU、samples、atomics、barriers、全屏pass或frame submit。增加有界staging写入、copy命令及row padding、CPU候选cursor和Native参数publication；Bistro最终逻辑上传1,034,645,106B，物理copy 1,035,655,680B（约0.96MiB padding），其中初始tail/coverage112,078,482B、refinement922,566,624B。无abort的完整运行committed bytes与逻辑payload一致，没有重复tail；初始staging峰值113,037,312B（107.8MiB），refinement在4MiB/帧与16MiB在途界内。纹理完整分配约1002.7MiB、geometry bank+metadata1664MiB仍保留；与约1GiB CPU immutable replay分开记账，非浏览器RSS/驱动峰值。0%重复时identity只有目录映射开销；Bistro405 aliases→202 unique，删除203次完整texture读取/校验；纹理分批不声称减少最终texel工作或自动提速。空refinement队列O(1)退出，0%新增纹理工作不派copy/submit。单页VSM软预算与单256KiB geometry槽限制沿INIT-1保留。
+
+**完整Bistro验证与限制**：原完整模型/默认视角、1920×1080、VSM开启、AO/SSSR默认关闭、1536MiB几何槽，NVIDIA Turing硬件，GPU串行。最终复跑demo first-completed约13.05s、full纹理约45.29s；以navigation performance.now记root完成5.56s、texture Products6.24s、必要PSO11.62s、bootstrap11.64s、最后几何publication53.31s、真实settled53.82s（demo相对起点约53.06s）。另一修正版首屏13.16s、最后publication53.81s、settled54.96s。所有6085页、全部mip、有效VSM最终闭合，无evict/reload或validation/device loss；短暖帧约60FPS，Render CPU P50约1.94ms/P95约2.53ms。相机平移25世界单位→恢复和太阳方向改变→恢复均重新refining并完成新epoch，释放后geometry bank/metadata、texture owner和Worker sessions/credits均为0。截图目视核对完整场景/阴影；不当作pixel oracle。
+
+最终真实pool为452个geometry span、202个texture GET、4个Worker/IO峰值，临时信用峰值229,818,028B（约219.2MiB）、encoded约10.2MiB、ready信用64MiB；IO累计约8.20s、Worker busy累计约7.98s，不相加当wall time。texture读取和PSO都真实重叠，但几何精化仍有约4–12FPS窗口，最大RAF间隔约1.87s、主线程longtask约351ms；另一轮462ms。INIT-2同配置暖跑最后publication约40.43s（另46.51s），本轮约53–54s没有显示总收敛稳定净提速；约880MiB首帧无预算promotion被移除不等于所有卡顿解决。保留原始数据，未做ABBA/冷缓存强制对照，不提升Performance Improved claim。VSM GPU时间分位沿用INIT-1同完整caster链的120样本记录；本轮没有新timestamp分布，工作量/粗成本实际观测不能冒充GPU ms。未提供GTX1650Ti，无4GB真机性能证明。
+
+**集中检查与失败分类**：engine typecheck/production build、新鲜build:test、Bistro和Dungeon targeted typecheck通过；7个相关CPU文件53/53通过，覆盖独立已提交row计数、partial mip abort/retry、alias sampler/UV、真实alpha lowering与cutoff/MASK移除、fresh feedback/limited/取消、唯一submit及几何生命周期。串行真实GPU pc-texture-residency通过76采样（maxError=6.1035e-5，原容差1e-4）、NPOT/BC4/exact alpha/Native真实profile/abort/retry/fenced zero；vsm-v4-r2及geometry-budgeted-residency通过。device loss/replay复用该geometry检查和INIT-2已闭合source协议，本轮不宣称新完整Bistro device-loss压力验收。build仅有既有codec vendor node:module externalization提示。
+
+失败原样保留于本地忽略的.local/init-3-review：首轮完整场景的first-completed过晚和shading导致coverage失效已修正并复跑；旧submission测试fake缺当前owner/onFinished方法，迁移fake后保留原assertion通过。额外native-material umbrella先在已退休versions buffer统计处失败，改用publication.allocatedBytes后走到Product normal独立硬件reference数值断言失败；独立419d7a28源码副本新build:test也复现同断言（仅修该统计接线，production未改），该基线缺陷未修复，不改容差、不宣称全suite通过。第一次太阳探针用了非单位方向，被正确拒绝；保留失败，改探针归一化后完整重复验证通过。一次baseline命令工作目录错误、一次缺Playwright依赖属宿主错误，补正确本地依赖后才采用基线数值复现。
+
+**逐段文档复核**：依赖/读取与Worker→receipt→隐藏几何槽→正式帧发布→coarse handoff→damage union→dirty完整页commit，保留INIT-1/2唯一owner；Surface/MASK→事务mip→replay→fresh收敛接到INIT-3真实consumer。没有本帧GPU→CPU→GPU控制、额外frame submit、完整coverage简化、阴影SSE/分辨率降低、跳hash、漏实例或无限推迟精化。两个旧demo loader、首帧无预算全量promote及空settled均删除。模块实现边界至此闭合；启动低帧率/总收敛与4GB资格仍明确有限，停回Local Probes边界，不自动实施下一模块或Page ABI/VT。最终docs-verify为0 findings、81条既有historical warnings；vibe context仍返回本轮唯一authority，vibe doctor无errors/warnings且registry一致，git diff --check通过。
+
 ## 2. 轻量必要验证
 
 开发按需typecheck/小测试；单元末集中执行受影响contract、必要build和GPU。只添加少量语义case，不写逐行镜像测试、源码字符串检查或新重型evidence机制。GPU作业串行，不每patch跑整个Bistro。
@@ -116,7 +138,7 @@ Cost Card：不新增GPU buffer、binding、shader、dispatch或submit；删除�
 | VSM小GPU语义fixture | 页到达替换coarse且新group bounds更小；离屏caster；两个细页同batch union；一页budget跨帧保dirty；fine/coarse同时失效不采stale；pair显式溢出仍完整或明确失败；普通transform/MASK变化仍失效。与一次完整无budget结果在最终收敛后核对depth/visibility，不只看计数 |
 | Texture/首屏 | 代表性opaque+完整coverage材质；粗到细区间只传一次，abort重试不提前暴露mip；首帧必要PSO未ready保loading，内容更新不重复PSO编译；两alias同payload不同sampler/UV保持。一次release/device恢复路径可复用相关fixture |
 | 真实Bistro | 同原模型、视角、尺寸、最终quality，AO/SSSR保持原默认；正常完整启动到真实view-settled后短暖帧，加一次移动/恢复。记录首帧、交互回调间隔/提交帧间隔、需求收敛、IO span/worker busy、GPU VSM分位与资源峰值；UI可信度与画面要核对，不能只测partial roots |
-| 必要编译 | 单元末受影响typecheck；production闭合一次engine build、新鲜build:test和相关contracts；demo只跑targeted Bistro typecheck。文档改动跑docs-verify。本轮设计不运行生产build/GPU |
+| 必要编译 | 单元末受影响typecheck；production闭合一次engine build、新鲜build:test和相关contracts；demo只跑targeted Bistro typecheck。文档改动跑docs-verify。设计轮未运行生产build/GPU，实施结果见各单元记录 |
 
 Bistro至少保留一次原配置基线与一次新配置完整运行，条件相同、串行GPU；冷/热缓存标记，不以一个短窗口保证二分钟长尾消失。已有诊断可用于选择case，但错误`vsm_enabled`off窗口不能当证据。未提供GTX1650Ti测试设备就如实没有4GB真机证明；同设备做descriptor上界/峰值检查不冒充4GB性能。
 
@@ -126,6 +148,6 @@ Bistro至少保留一次原配置基线与一次新配置完整运行，条件�
 
 2026-10-15已核读实际Cooked加载、OEGPACK批读取/校验、Product品牌、worker池/取消、residency上传/地址发布、frame事务、shadow全域SSE0、receiver粗覆盖、VSM损坏/失效/光栅和texture完整Product/minMip消费。成熟参考及规范已固定在设计与porting短映射；没有新shader/Worker实现、没有修改production行为。
 
-文档验证结果在完成后追加本节，不把文档通过写成算法或性能完成。下一步只有用户授权实施后才开始INIT-1；不自动跨到Local Probes、VT或页面物理ABI重构。
+以下保留设计轮当时检查；后续实施结果只读各INIT记录。当前INIT-1～3实现与相关验证已收口，停在Local Probes边界；不自动跨到VT或页面物理ABI重构，不把文档通过当成性能资格。
 
 设计轮已执行：`node --test tools/tests/document-system.test.mjs` 7/7通过，`git diff --check`通过；`vibe context`对geometry streaming返回本轮唯一authority一对，`vibe doctor`无errors/warnings且registry一致。全库及changed `docs-verify`均仍有既有1个finding：Git忽略的`docs/status.generated.md`缺frontmatter，以及81条historical warnings；本轮没有新增finding，未修改生成状态文件来掩盖该结果。仅文档/导航改动，未运行production build、GPU或新性能测试；前述启动与对照数字保留原诊断条件，不当作新方案收益。

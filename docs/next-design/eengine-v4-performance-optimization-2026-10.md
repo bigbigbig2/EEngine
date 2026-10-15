@@ -5,7 +5,7 @@ verifies:
   files:
     - examples/demos/14-integrated/dungeon-warkarma-texture-compression/main.ts
     - examples/demos/14-integrated/dungeon-warkarma-texture-compression/resource-budget.ts
-    - examples/demos/14-integrated/dungeon-warkarma-texture-compression/cooked-scene.ts
+    - examples/demos/14-integrated/shared/cooked-scene.ts
     - OEngine/src/gpu/GeometryProductGpuBudget.ts
     - OEngine/src/gpu/GeometryProductMultiRuntime.ts
     - validation/tools/dungeon-gpu-audit.mjs

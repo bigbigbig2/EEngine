@@ -27,15 +27,15 @@ goal: >-
 currentSlice:
   id: initialization-scheduling
   title: Cooked initialization, geometry publication and bounded VSM updates
-  status: implementing
+  status: completed
   goal: >-
     Follow the selected initialization design/execution pair; detailed unit states
     and results live only in its execution document. Couple transactional geometry
     publication with correct bounded VSM updates, then parallel cooked preparation
     and the real bootstrap/convergence path. Preserve final quality and completed
-    AO/SSSR behavior. The user authorized closing and committing INIT-1 review fixes,
-    then implementing INIT-2 and checking it against the authority documents on
-    2026-10-15. INIT-3 remains unauthorized. Detailed results live in the execution document,
+    AO/SSSR behavior. The user authorized the ordered INIT-1, INIT-2 and INIT-3 implementation and
+    review on 2026-10-15. The implementation is closed with measured performance
+    limitations; detailed results live only in the execution document. Stop
     before Local Reflection Probes; no automatic VT, physical Page ABI or
     whole-renderer qualification work.
 

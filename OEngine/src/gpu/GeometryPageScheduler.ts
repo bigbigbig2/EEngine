@@ -839,6 +839,18 @@ export class GeometryPageSchedulerV1 {
     });
   }
 
+  /** Small convergence observation without residency ledgers or latency sorts. */
+  refinementState() {
+    let pending = 0;
+    for (const operation of this.#operations) {
+      if (operation.state === "queued" || operation.state === "producing-or-reading" ||
+        operation.state === "upload-queued" || operation.state === "submitted" || operation.state === "verified") {
+        pending++;
+      }
+    }
+    return { pending, staged: this.#staged, blockedUploads: this.#blockedUploads, error: this.#lastError };
+  }
+
   #readReservationBytes(operation: Operation): number {
     return operation.product.source.descriptor.decodedPageBytes;
   }

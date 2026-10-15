@@ -7,8 +7,17 @@ import { StandardShadeMaterial } from "../../.test-dist/material/StandardShadeMa
 import { ResourceAccounting } from "../../.test-dist/debug/profiling/ResourceAccounting.js";
 import { ShadeTransparencyMode } from "../../.test-dist/material/enums.js";
 import { prepareMaterialTextureProducts } from "../../.test-dist/assets/PcMaterialTextures.js";
+import { compileCanonicalMaterial } from "../../.test-dist/material/CanonicalMaterial.js";
+import {
+  nativeMaterialCoverageProgram,
+  createNativeMaterialBindings,
+} from "../../.test-dist/gpu/NativeMaterialBindings.js";
+import { lowerNativeMaterial } from "../../.test-dist/shaders/native_material.js";
 
 globalThis.GPUTextureUsage ??= { COPY_SRC: 1, COPY_DST: 2, TEXTURE_BINDING: 4 };
+globalThis.GPUBufferUsage ??= { COPY_SRC: 1 };
+globalThis.GPUShaderStage ??= { VERTEX: 1, FRAGMENT: 2, COMPUTE: 4 };
+const { nativeCoverageChanged } = await import("../../.test-dist/gpu/GpuNativeMaterialScene.js");
 const tick = async () => {
   await Promise.resolve();
   await Promise.resolve();
@@ -37,6 +46,15 @@ function fixture(sampled = 19) {
         maxSamplersPerShaderStage: 16,
         maxTextureDimension2D: 8192,
         maxTextureArrayLayers: 256,
+        maxBufferSize: 256 * 1024 ** 2,
+      },
+      createBuffer(descriptor) {
+        const bytes = new ArrayBuffer(descriptor.size);
+        return { size: descriptor.size, getMappedRange: () => bytes, unmap() {}, destroy() {} };
+      },
+      copy(...args) {
+        if (writes.length === writeFailAt) throw new Error("upload fault");
+        writes.push(args);
       },
       createTexture(d) {
         if (textures.length === failAt) throw new Error("allocation fault");
@@ -96,6 +114,9 @@ function command(device) {
     device,
     closed: false,
     gpuDone: fence.promise,
+    copyBufferToTexture(...args) {
+      device.copy(...args);
+    },
     onFinished: {
       addOne(fn) {
         finished.push(fn);
@@ -195,6 +216,114 @@ test("shared content, aborted revival, late fence and handle generation preserve
   assert.throws(() => r.release([a], release), /underflow/);
   release.abort();
   assert.equal(r.evidence().residentTextureCount, 1);
+  r.destroy();
+});
+
+test("bounded partial mip copies never repeat the resident tail; abort retries the same hidden rows", async () => {
+  const f = fixture(),
+    r = new TextureResidency(f.graphics),
+    m = await material(512);
+  const initial = command(f.graphics.device);
+  const stage = r.stage([m], initial);
+  initial.finish();
+  initial.complete();
+  await tick();
+  const publication = stage.surfacePublications.get(m.texture_albedo);
+  const rows = new Set();
+  // Record committed physical rows independently of the owner's byte counters.
+  const record = (copies) => {
+    for (const [source, target, extent] of copies) {
+      const block = target.texture.format === "r8unorm" ? 1 : 4;
+      for (let row = target.origin[1] / block; row < (target.origin[1] + extent.height) / block; row++) {
+        const key = `${target.mipLevel}/${row}`;
+        assert.equal(rows.has(key), false, `repeated committed mip row ${key}`);
+        rows.add(key);
+      }
+      assert.equal(source.bytesPerRow % 256, 0);
+    }
+  };
+  record(f.writes.splice(0));
+  let sawPartial = false;
+  for (let frame = 0; frame < 100 && publication.currentMinimumMip > 0; frame++) {
+    const next = command(f.graphics.device);
+    const prior = publication.currentMinimumMip;
+    r.promote([m], next, 0, 65536);
+    const copies = f.writes.splice(0);
+    const physical = copies.reduce(
+      (sum, [source, , extent]) => sum + (source.bytesPerRow * extent.height) / 4,
+      0,
+    );
+    assert.ok(physical <= 65536);
+    assert.equal(publication.currentMinimumMip, prior, "encoding must not publish");
+    if (!sawPartial && copies.some(([, target, extent]) => target.mipLevel === 0 && extent.height < 512)) {
+      sawPartial = true;
+      next.abort();
+      assert.equal(publication.currentMinimumMip, prior);
+      continue;
+    }
+    next.finish();
+    record(copies);
+    next.complete();
+    await tick();
+  }
+  assert.equal(sawPartial, true);
+  assert.equal(publication.currentMinimumMip, 0);
+  const expected = m.texture_albedo.texture_product.metadata.planes[0].mips.reduce(
+    (sum, mip) => sum + mip.physicalHeight / 4,
+    0,
+  );
+  assert.equal(rows.size, expected);
+  assert.equal(r.evidence().stagingBytes, 0);
+  r.destroy();
+});
+
+test("alias sampler/UV remain independent; shading-only promotion does not invalidate coverage", async () => {
+  const f = fixture(),
+    r = new TextureResidency(f.graphics);
+  const a = await material(128, 7, true),
+    b = new StandardShadeMaterial();
+  b.texture_albedo = ShadeTexture.fromProduct(a.texture_albedo.texture_product);
+  b.texture_albedo.wrapS = b.texture_albedo.wrapT = 0;
+  b.base_color_uv_scale = [2, 3];
+  a.texture_normal = ShadeTexture.fromProduct(await textureProduct(128, 128, "normal-linear"));
+  const upload = command(f.graphics.device);
+  const stage = r.stage([a, b], upload);
+  upload.finish();
+  upload.complete();
+  await tick();
+  assert.equal(r.evidence().residentTextureCount, 2);
+  assert.notEqual(a.texture_albedo, b.texture_albedo);
+  const ga = compileCanonicalMaterial(a).appearance;
+  const gb = compileCanonicalMaterial(b).appearance;
+  assert.notDeepEqual(ga.samples[0].binding.sampler, gb.samples[0].binding.sampler);
+  assert.deepEqual(b.base_color_uv_scale, [2, 3]);
+  const graph = nativeMaterialCoverageProgram(ga);
+  const bind = () =>
+    createNativeMaterialBindings({
+      graph,
+      program: lowerNativeMaterial(graph),
+      bindingSet: stage.bindings.bindingSets.find((set) => set.id === stage.materialBindingSetIds.get(a)),
+      textureRoutingRefs: stage.materialTextureRoutingRefs.get(a),
+      textureMipRanges: stage.textureMipRanges,
+      texturePublications: stage.surfacePublications,
+      obtainSampler: () => sampler,
+    });
+  const sampler = {};
+  const old = bind();
+  const promote = command(f.graphics.device);
+  r.promote([a, b], promote);
+  promote.finish();
+  const next = bind();
+  assert.equal(old.program.key, next.program.key);
+  const source = (binding) => ({
+    raster: { alphaMask: true, alphaCutoff: 0.5 },
+    coverage: { program: binding.program, materialEntries: binding.entries, parameters: {} },
+  });
+  assert.equal(nativeCoverageChanged(source(old), source(next)), false);
+  const changedCutoff = source(next);
+  changedCutoff.raster.alphaCutoff = 0.6;
+  assert.equal(nativeCoverageChanged(source(old), changedCutoff), true);
+  assert.equal(nativeCoverageChanged(source(old), { raster: { alphaMask: false } }), true);
   r.destroy();
 });
 test("allocation failure and queue-written abort quarantine resources; rejected fence never frees", async () => {
@@ -309,13 +438,14 @@ test("cooked prepare has zero Worker; wrong semantic and detached chunks fail be
   r.destroy();
 });
 
-test("accepted mip writes remain counted when a later upload fails", async () => {
+test("encoded mip copies remain counted when a later encoding fails; abort publishes none", async () => {
   const f = fixture(),
     r = new TextureResidency(f.graphics),
     m = await material(8, 1, true);
   f.failWrite(1);
   assert.throws(() => r.stage([m], command(f.graphics.device)), /upload fault/);
-  assert.equal(r.evidence().uploadBytes, f.writes[0][1].byteLength);
+  assert.ok(r.evidence().uploadBytes > 0);
+  assert.equal(f.writes.length, 1);
   assert.equal(r.evidence().residentTextureCount, 0);
   assert.equal(r.evidence().quarantinedTextureCount, 1);
   await f.drain();

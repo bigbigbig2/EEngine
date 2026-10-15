@@ -5,6 +5,7 @@ owner: frame-runtime
 state: current
 verifies:
   files:
+    - OEngine/src/render/SceneRefinement.ts
     - OEngine/src/render/FrameCoordinator.ts
     - OEngine/src/render/pipeline/RendererCore.ts
     - OEngine/src/render/program/FrameProgramLowering.ts
@@ -70,6 +71,10 @@ Final Pixel Shadow 主链由 VSM post-content publication 直接写 FinalPixelLi
 两域都只写本帧RGBA16F color history（RGB与SDK alpha lock），RCAS读取`builder.write(currentHistory)`的写版本，仅使用RGB并输出alpha1，不声明重复upscaled color临时纹理。两域各自owner管理color/luma/luma-history/confidence/frame-info双槽与prepare/commit/abort/resize/fence，Native额外拥有raw depth pair；TemporalFabric协调同一提交事务；只有成功submit后commit换槽。policy切换重置history并推进generation，abort恢复原policy/index/generation/jitter。普通camera motion不reset，defer不推进history；源码切换不证明整帧性能已验收。
 
 成功 empty submit 退休 Surface scene working set、Seed、两个颜色后端及 lighting frame pools；成功 all-unlit submit 退休 local-light 与 final-lighting frame pools。提交失败不释放旧场景；已提交资源等最后使用 fence，返回场景重新生成 Seed validity。Surface neutral bindings、owner/pipeline 与 VSM residency 保留各自寿命。Native V2、FSR 和 Seed 的 actual/candidate/retiring bytes 进入 GraphicsContext 共用资源账本；资源 destroy 后撤账，API 全 owner 同时峰值由验证观察器另核，常规生产无该观察器。
+
+Cooked scene的cold material preparation持有同一未提交scene事务，真实Texture银行、Material association和Native程序准备完成后由scene publication一次消费；取消、初始化失败、device loss及shutdown中止未提交候选。Renderer不把GPU对象移交Worker。
+
+Product streaming scene以SceneRefinement观察真实frame completion、最新完整Main/Shadow需求、pending/staged、full-mip和VSM有效性。view/light/content epoch或quality publication变化后重新refining，需要后续两份完整反馈确认；容量不足为limited，release/loss/失败拒绝等待。该观察不选择本帧GPU工作，不以provider完成代替几何/阴影收敛。Bistro/Dungeon共享该入口，纹理full与view-settled分别显示。
 
 ## 原则与验证边界
 

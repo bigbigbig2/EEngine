@@ -516,6 +516,7 @@ fn reference_main(@builtin(global_invocation_id) id: vec3u) {
         initial.entries[0].programIndex === initial.entries[1].programIndex,
         "Instance data incorrectly created unique programs"
       );
+      const publicationBytes = initial.allocatedBytes;
       await initial.retire(device.queue.onSubmittedWorkDone());
       await retry.retire(device.queue.onSubmittedWorkDone());
       results.push({
@@ -527,7 +528,7 @@ fn reference_main(@builtin(global_invocation_id) id: vec3u) {
         nativePrograms: 1,
         physicalBindingSets: 2,
         textureQueries: program.textureQueries,
-        publicationBytes: initial.constants.size + initial.directory.size + initial.versions.size,
+        publicationBytes,
         verified: ir.samples.length
           ? "native graph, C/X/Y, SampleGrad, two physical texture sets, stable/abort/retry/update/fence"
           : "all scalar operations against independent CPU and GPU, stable/abort/retry/update/fence",

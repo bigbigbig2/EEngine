@@ -278,16 +278,13 @@ export class GpuNativeMaterialScene {
     command.onAborted.addOne(() => {
       this.prepared = null;
     });
+    // Shading mip changes are not coverage changes. Compare the independently
+    // lowered alpha dependency, including its resources, values and inputs.
+    // Removing MASK also invalidates old shadow coverage.
     return (
       changed &&
-      selected.hasMask &&
       (this.active === null ||
-        selected.bindings.some((binding, index) => binding !== this.active!.bindings[index]) ||
-        selected.values.some(
-          (value, index) =>
-            value.length !== this.active!.values[index]?.length ||
-            value.some((word, offset) => !Object.is(word, this.active!.values[index]![offset]))
-        ))
+        selected.sources.some((source, index) => nativeCoverageChanged(this.active!.sources[index], source)))
     );
   }
 
@@ -487,8 +484,8 @@ export class GpuNativeMaterialScene {
     const binKeys = new Set(
       routedSources.map(
         (source, index) =>
-          `${source.program.key}/${source.bindingSet}/${this.materialSources[index]!.material.is_unlit}`
-      )
+          `${source.program.key}/${source.bindingSet}/${this.materialSources[index]!.material.is_unlit}`,
+      ),
     );
     const complete = routedSources.map((source, index) => ({
       ...source,
@@ -624,16 +621,16 @@ export class GpuNativeMaterialScene {
               program: Object.freeze({
                 ...coverage.program,
                 instanceInputs: true,
-                key: `${coverage.program.key}/instance-inputs`
-              })
-            })
+                key: `${coverage.program.key}/instance-inputs`,
+              }),
+            }),
           }
         : {}),
       program: Object.freeze({
         ...bound.program,
         instanceInputs: true,
-        key: `${bound.program.key}/instance-inputs`
-      })
+        key: `${bound.program.key}/instance-inputs`,
+      }),
     });
     this.materialBindings[index] = { identity, bindings };
     return bindings;
@@ -715,4 +712,43 @@ export class GpuNativeMaterialScene {
     this.listeners.forEach((callback) => callback());
     this.listeners.clear();
   }
+}
+
+export function nativeCoverageChanged(
+  previous: NativeMaterialPublicationSource | undefined,
+  next: NativeMaterialPublicationSource,
+): boolean {
+  if (previous?.raster?.alphaMask !== next.raster?.alphaMask) {
+    return true;
+  }
+  if (!next.raster?.alphaMask) {
+    return false;
+  }
+  const a = previous?.coverage;
+  const b = next.coverage;
+  if (
+    !a ||
+    !b ||
+    previous?.raster?.alphaCutoff !== next.raster.alphaCutoff ||
+    a.program.key !== b.program.key ||
+    a.program.resourceRevision !== b.program.resourceRevision ||
+    a.materialEntries.length !== b.materialEntries.length ||
+    a.materialEntries.some(
+      (entry, index) =>
+        entry.binding !== b.materialEntries[index]!.binding ||
+        entry.resource !== b.materialEntries[index]!.resource,
+    )
+  ) {
+    return true;
+  }
+  const oldValues = nativeMaterialParameters(a.program, a.parameters);
+  const newValues = nativeMaterialParameters(b.program, b.parameters);
+  const oldInputs = a.inputs;
+  const newInputs = b.inputs;
+  return (
+    oldValues.length !== newValues.length ||
+    oldValues.some((value, index) => !Object.is(value, newValues[index])) ||
+    oldInputs?.length !== newInputs?.length ||
+    (oldInputs?.some((value, index) => !Object.is(value, newInputs![index])) ?? false)
+  );
 }

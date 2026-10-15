@@ -75,6 +75,8 @@ export interface GeometryPageStreamingRuntimeEvidenceV1 {
     dirtyPages: number;
     selectedPages: number;
     casterPairs: number;
+    shadowValid: boolean;
+    shadowLimited: boolean;
   }>;
   readonly feedback: Readonly<{
     mainFrame: number;
@@ -120,6 +122,27 @@ export class GeometryPageStreamingRuntimeV1 {
   #dirtyPages = 0;
   #selectedPages = 0;
   #casterPairs = 0;
+  #shadowValid = false;
+  #shadowLimited = false;
+  #observeConvergence = true;
+
+  observeConvergence(enabled: boolean): void {
+    this.#observeConvergence = enabled;
+  }
+  refinementState() {
+    const scheduler = this.#scheduler.refinementState();
+    return {
+      ...scheduler,
+      error: this.#lastError ?? scheduler.error,
+      mainFrame: this.#mainFeedbackFrame,
+      mainComplete: this.#mainFeedbackComplete,
+      shadowFrame: this.#shadowFeedbackFrame,
+      shadowComplete: this.#shadowFeedbackComplete,
+      vsmFrame: this.#costFrame,
+      vsmValid: this.#shadowValid,
+      vsmLimited: this.#shadowLimited,
+    };
+  }
   #contentRevision = 0;
   readonly #observedContentRevisions = new Map<VirtualGeometryResidency, number>();
   readonly #observedPublicationStates = new Map<VirtualGeometryResidency, boolean>();
@@ -459,17 +482,19 @@ export class GeometryPageStreamingRuntimeV1 {
     command: ShadeGPUCommandContext,
     allocation: GPUBuffer,
     casterPairs: GPUBuffer,
-    frameIndex: number
+    frameIndex: number,
+    failures?: GPUBuffer,
   ): void {
-    if (frameIndex % 8 !== 0 || !this.#scheduler.preparingPages) return;
+    if (frameIndex % 8 !== 0 || (!this.#scheduler.preparingPages && !this.#observeConvergence)) return;
     this.#costReadback ??= new GpuGeometryDemandReadbackRingV1({
       device: this.#device,
-      bytesPerSlot: 40
+      bytesPerSlot: 72
     });
     const ring = this.#costReadback;
     const slot = ring.encodeRegions(command.gpu_encoder, frameIndex, [
       { source: allocation, sourceOffset: 0, byteLength: 8 },
-      { source: casterPairs, sourceOffset: 0, byteLength: 32 }
+      { source: casterPairs, sourceOffset: 0, byteLength: 32 },
+      ...(failures ? [{ source: failures, sourceOffset: 0, byteLength: 32 }] : []),
     ]);
     if (slot !== undefined) {
       command.onFinished.addOne(() => ring.commit(slot));
@@ -492,6 +517,11 @@ export class GeometryPageStreamingRuntimeV1 {
           this.#dirtyPages = words[0]!;
           this.#selectedPages = words[1]!;
           this.#casterPairs = words[2]!;
+          // Fine/coarse allocation failures, eviction churn, or raster failure
+          // cannot be called fully valid. Explicit pair mode is not a failure.
+          this.#shadowLimited = words[10] !== 0 || words[11] !== 0 || words[13] !== 0;
+          this.#shadowValid = words[0] === 0 && words[1] === 0 &&
+            !this.#shadowLimited && words[15] === 0;
           const selected = Math.max(1, this.#selectedPages);
           const load = Math.max(1, this.#dirtyPages / selected, this.#casterPairs / (selected * 4096));
           const target = Math.max(0.125, 1 / Math.sqrt(load));
@@ -770,7 +800,9 @@ export class GeometryPageStreamingRuntimeV1 {
         costFrame: this.#costFrame,
         dirtyPages: this.#dirtyPages,
         selectedPages: this.#selectedPages,
-        casterPairs: this.#casterPairs
+        casterPairs: this.#casterPairs,
+        shadowValid: this.#shadowValid,
+        shadowLimited: this.#shadowLimited,
       }),
       feedback: Object.freeze({
         mainFrame: this.#mainFeedbackFrame,

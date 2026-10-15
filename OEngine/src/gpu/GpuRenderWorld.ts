@@ -53,6 +53,20 @@ import { GpuNativeMaterialScene, type NativeSceneMaterialSource } from "./GpuNat
 import type { CompiledAppearanceGraph } from "../material/AppearanceGraphCompiler.js";
 import type { TextureSurfacePublication } from "./TextureSurfacePublication.js";
 import type { ShadeTexture } from "../texture/ShadeTexture.js";
+import type { TextureResidencyStage } from "./TextureResidency.js";
+import type { GpuMaterialStage } from "./GpuMaterialStore.js";
+
+/** Borrowed by the scene upload, all resources belong to one open transaction. */
+export interface VirtualMaterialPreparation {
+  readonly command: ShadeGPUCommandContext;
+  readonly materials: readonly StandardShadeMaterial[];
+  readonly profiles: readonly Readonly<VirtualGeometryGeometryProfile>[];
+  readonly textures: TextureResidencyStage;
+  readonly association: PackedSceneMaterialAssociationPlan;
+  readonly stage: GpuMaterialStage;
+  readonly native: GpuNativeMaterialScene;
+  readonly ready: Promise<void>;
+}
 
 declare const GPU_RENDER_WORLD_HANDLE_BRAND: unique symbol;
 
@@ -284,6 +298,44 @@ export class GpuRenderWorld {
 
   constructor(private readonly graphics: GraphicsContext) {}
 
+  /** Prepare actual layouts and programs while geometry roots are in flight.
+   * No placeholder banks, extra texture retain, or speculative shader profile. */
+  prepareVirtualMaterials(
+    materials: readonly StandardShadeMaterial[],
+    profiles: readonly Readonly<VirtualGeometryGeometryProfile>[],
+    command: ShadeGPUCommandContext,
+    physicalSun: boolean,
+  ): VirtualMaterialPreparation {
+    const textures = this.graphics.texture_residency.stage(materials, command);
+    const association = createPackedSceneMaterialAssociationPlan(
+      materials, profiles, materials.map((material) => textures.materialBindingSetIds.get(material)!),
+    );
+    const stage = this.graphics.material_store.stage(
+      association.sources, textures.materialTextureRoutingRefs, command,
+      textures.textureMipRanges, textures.surfacePublications,
+    );
+    const native = new GpuNativeMaterialScene(
+      this.graphics,
+      association.sources.map((source, index) => ({
+        materialSlot: stage.associationSlots[index]!,
+        material: source.material,
+        textureBindingSetId: source.textureBindingSetId,
+        graph: stage.appearancePrograms[index]!,
+        textureRefs: textures.materialTextureRoutingRefs.get(source.material)!,
+      })),
+      () => textures.bindings.bindingSets,
+      textures.textureMipRanges, textures.surfacePublications, command, true, physicalSun,
+    );
+    this.nativeMaterialss.add(native);
+    native.onDestroyed(() => this.nativeMaterialss.delete(native));
+    const ready = Promise.all([
+      native.ready, this.graphics.frame_instances.ready, this.graphics.frame_vertices.ready,
+      this.graphics.current_hzb_recheck.ready,
+    ]).then(() => undefined);
+    void ready.catch(() => undefined);
+    return { command, materials: [...materials], profiles: [...profiles], textures, association, stage, native, ready };
+  }
+
   stage(
     scene: Scene,
     manifest: SceneResidencyManifest,
@@ -316,6 +368,7 @@ export class GpuRenderWorld {
       readonly hierarchyRasterWorkCapacity: number;
     }>,
     appendFrom?: Readonly<{ runtime: GpuRenderWorldRuntime; previousCount: number }>,
+    prepared?: VirtualMaterialPreparation,
   ): GpuRenderWorldHandle {
     if (
       this.byScene.has(scene) &&
@@ -346,18 +399,29 @@ export class GpuRenderWorld {
             visibleClusterCapacity: virtualProduct.hierarchyVisibleClusterCapacity,
             rasterWorkCapacity: virtualProduct.hierarchyRasterWorkCapacity,
           };
-    const textureStage = this.graphics.texture_residency.stage(source.materials, command);
+    if (prepared && (
+      prepared.command !== command || command.closed ||
+      prepared.materials.length !== source.materials.length ||
+      prepared.materials.some((material, index) => material !== source.materials[index]) ||
+      virtualProduct === undefined ||
+      virtualProduct.geometryProfiles.some((profile) => !prepared.profiles.some(
+        (prior) => shadingGeometryProfileKey(prior) === shadingGeometryProfileKey(profile),
+      ))
+    )) {
+      throw new Error("Prepared material structure does not match the actual scene");
+    }
+    const textureStage = prepared?.textures ?? this.graphics.texture_residency.stage(source.materials, command);
     const classification = createPackedSceneClassificationState(
       source,
       source.materials.map((material) => textureStage.materialBindingSetIds.get(material)!),
       virtualProduct?.geometryProfiles,
     );
-    const associationPlan = createPackedSceneMaterialAssociationPlan(
+    const associationPlan = prepared?.association ?? createPackedSceneMaterialAssociationPlan(
       source.materials,
       classification.geometryProfiles,
       classification.materialBindingSetIds,
     );
-    const materialStage = this.graphics.material_store.stage(
+    const materialStage = prepared?.stage ?? this.graphics.material_store.stage(
       associationPlan.sources,
       textureStage.materialTextureRoutingRefs,
       command,
@@ -483,8 +547,8 @@ export class GpuRenderWorld {
       ),
       mipRanges: textureStage.textureMipRanges,
       texturePublications: textureStage.surfacePublications,
-      publication: null as GpuNativeMaterialScene | null,
-      ready: null as Promise<void> | null,
+      publication: prepared?.native ?? null as GpuNativeMaterialScene | null,
+      ready: prepared?.ready ?? null as Promise<void> | null,
     };
     this.nativePreparation.set(handle, appearance);
     const runtime: GpuRenderWorldRuntime = Object.freeze({
@@ -563,6 +627,7 @@ export class GpuRenderWorld {
     bindings: GeometryProductGpuBindingsV1,
     command: ShadeGPUCommandContext,
     replacing = false,
+    prepared?: VirtualMaterialPreparation,
   ): GpuRenderWorldHandle {
     if (this.byScene.has(scene) && (!replacing || this.releasingCommands.get(scene) !== command)) {
       throw new Error("Scene already has a GPU Render World registration");
@@ -602,6 +667,8 @@ export class GpuRenderWorld {
         hierarchyVisibleClusterCapacity: source.hierarchyVisibleClusterCapacity,
         hierarchyRasterWorkCapacity: source.hierarchyRasterWorkCapacity,
       },
+      undefined,
+      prepared,
     );
   }
 

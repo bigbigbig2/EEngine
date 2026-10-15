@@ -1,4 +1,7 @@
 import { SssrRuntime } from "../reflections/SssrRuntime.js";
+import { SceneRefinement } from "../SceneRefinement.js";
+import type { VirtualMaterialPreparation, VirtualGeometryGeometryProfile } from "../../gpu/GpuRenderWorld.js";
+
 import { SssrDebug } from "../reflections/SssrDebug.js";
 import { planSssrCapacity } from "../reflections/SssrAbi.js";
 import {
@@ -162,6 +165,13 @@ import { VsmInvalidationPass } from "../vsm/VsmInvalidationPass.js";
 import { GPU_INSTANCE_FLAGS } from "../../gpu/GpuInstanceAbi.js";
 import { DEFAULT_INSTANCE_SHADOW_FLAGS } from "../../core/InstanceShadowSemantics.js";
 import { VsmGeneration } from "../vsm/VsmGeneration.js";
+
+/** One scene's cold preparation. Cancel aborts its unsubmitted upload; the
+ * original Renderer consumes it once. ready does not publish scene resources. */
+export interface PreparedSceneMaterials {
+  readonly ready: Promise<void>;
+  cancel(): void;
+}
 
 export interface RendererInitializeOptions {
   context?: GPUCanvasContext;
@@ -439,6 +449,8 @@ export class Renderer {
     }
   >();
   private readonly _streamingCameraMatrices = new Map<Scene, Float32Array>();
+  private readonly _preparedMaterials = new Map<PreparedSceneMaterials, VirtualMaterialPreparation>();
+  private readonly _sceneRefinement = new Map<Scene, SceneRefinement>();
   private _activeCamera: PerspectiveCamera | null = null;
   private _cameraRevision = 0;
   private _temporalResetPending = false;
@@ -665,6 +677,17 @@ export class Renderer {
   /** GPU-driven geometry residency evidence for a published Scene. */
   geometryStreamingEvidence(scene: Scene): ReturnType<GeometryPageStreamingRuntimeV1["evidence"]> | null {
     return this._virtualProductScenes.get(scene)?.streamingRuntime?.evidence() ?? null;
+  }
+  /** Completed-frame progress, not a claim of display scanout or all-asset loading. */
+  sceneRefinementEvidence(scene: Scene): ReturnType<SceneRefinement["evidence"]> | null {
+    return this._sceneRefinement.get(scene)?.evidence() ?? null;
+  }
+  whenSceneSettled(scene: Scene, signal?: AbortSignal): ReturnType<SceneRefinement["wait"]> {
+    const progress = this._sceneRefinement.get(scene);
+    if (!progress) {
+      return Promise.reject(new Error("Scene has no active refinement observation"));
+    }
+    return progress.wait(signal);
   }
   /** Drops color/identity temporal history after a diagnostic change or same-camera
    * teleport/cut. Ordinary camera motion is reprojected and must retain history. */
@@ -904,6 +927,45 @@ export class Renderer {
     return this.uploadProductScene(scene, cooked.provider, sourceMapper, { signal: options.signal });
   }
 
+  /** Starts bounded texture staging and asynchronous actual-layout programs.
+   * The caller must consume the token with uploadVirtualGeometryScene or cancel
+   * it. Preparation/ready failures and device loss abort the unsubmitted cut. */
+  async prepareVirtualGeometryMaterials(
+    materials: readonly StandardShadeMaterial[],
+    profiles: readonly Readonly<VirtualGeometryGeometryProfile>[],
+    signal?: AbortSignal,
+  ): Promise<PreparedSceneMaterials> {
+    await this.prepareTextureProducts(materials, signal);
+    const command = ShadeGPUCommandContext.create(
+      this._graphics, "Renderer/GpuRenderWorld/residency-transaction",
+    );
+    let token: PreparedSceneMaterials | undefined;
+    const cancel = () => {
+      if (!command.closed) {
+        command.abort(new Error("Scene material preparation cancelled"));
+      }
+      if (token) {
+        this._preparedMaterials.delete(token);
+      }
+      signal?.removeEventListener("abort", cancel);
+    };
+    try {
+      signal?.throwIfAborted();
+      const prepared = this._graphics.render_world.prepareVirtualMaterials(
+        materials, profiles, command, this._environmentRuntime !== null,
+      );
+      token = { ready: prepared.ready, cancel };
+      this._preparedMaterials.set(token, prepared);
+      signal?.addEventListener("abort", cancel, { once: true });
+      command.onFinished.addOne(() => signal?.removeEventListener("abort", cancel));
+      void prepared.ready.catch(cancel);
+      return token;
+    } catch (error) {
+      cancel();
+      throw error;
+    }
+  }
+
   /**
    * Publishes a Product-backed virtual geometry scene through the same
    * GpuRenderWorld, hierarchy and VisibilityKey pipeline.
@@ -923,6 +985,7 @@ export class Renderer {
       readonly multiRuntime?: GeometryProductMultiRuntimeV1;
       /** Transfers Scene-unload responsibility; low-level admission stays caller-owned by default. */
       readonly releaseWithScene?: boolean;
+      readonly materials?: PreparedSceneMaterials;
     }> = { bindings: residency.bindings(), assetCount: residency.descriptor.assetRecords.byteLength / 128 },
   ): Promise<GpuRenderWorldHandle> {
     const storageBufferLimit = Number(this.device.limits.maxStorageBuffersPerShaderStage);
@@ -943,7 +1006,14 @@ export class Renderer {
     if (streamingRuntime !== null && publication.registerStreaming !== false) {
       streamingRuntime.registerProduct(residency.sourceForStreaming());
     }
-    const command = ShadeGPUCommandContext.create(
+    const prepared = publication.materials ? this._preparedMaterials.get(publication.materials) : undefined;
+    if (publication.materials && !prepared) {
+      throw new Error("Scene materials were cancelled, consumed or belong to another Renderer");
+    }
+    if (publication.materials) {
+      this._preparedMaterials.delete(publication.materials);
+    }
+    const command = prepared?.command ?? ShadeGPUCommandContext.create(
       this._graphics,
       "Renderer/GpuRenderWorld/residency-transaction",
     );
@@ -953,6 +1023,8 @@ export class Renderer {
         source,
         publication.bindings,
         command,
+        false,
+        prepared,
       );
       await this._graphics.render_world.prepareNativeMaterials(
         handle,
@@ -977,6 +1049,11 @@ export class Renderer {
           ...(publication.multiRuntime === undefined ? {} : { multiRuntime: publication.multiRuntime }),
         }),
       );
+      this._sceneRefinement.get(scene)?.cancel();
+      this._sceneRefinement.delete(scene);
+      if (streamingRuntime !== null) {
+        this._sceneRefinement.set(scene, new SceneRefinement());
+      }
       return handle;
     } catch (error) {
       if (!command.closed) command.abort(error);
@@ -1607,6 +1684,8 @@ export class Renderer {
     if (this._destroyed) {
       return;
     }
+    this._sceneRefinement.get(scene)?.cancel();
+    this._sceneRefinement.delete(scene);
     const product = this._virtualProductScenes.get(scene);
     const runtime = this._graphics.render_world.runtime(scene);
     if (runtime === null) {
@@ -1791,6 +1870,12 @@ export class Renderer {
     device.lost.then((info) => {
       if (!this._destroyed) {
         this._deviceLost = true;
+        for (const token of this._preparedMaterials.keys()) {
+          token.cancel();
+        }
+        for (const progress of this._sceneRefinement.values()) {
+          progress.cancel();
+        }
         this.texturePreparationAbort.abort(new Error("Device lost during texture preparation"));
         for (const state of this._virtualProductScenes.values()) {
           state.streamingRuntime?.destroy();
@@ -1963,7 +2048,6 @@ export class Renderer {
     };
   }
 
-  private readonly promotedTextureRuntimes = new WeakSet<GpuRenderWorldRuntime>();
   private readonly shadingFacts = new WeakMap<
     GpuRenderWorldRuntime,
     {
@@ -2142,12 +2226,9 @@ export class Renderer {
         this._nativeTemporal.invalidate();
         this._fsr3.invalidate();
       }
-      // Tail-first upload is already committed. Promote once in the ordinary
-      // frame transaction; abort retains the coarse publication for retry.
-      if (!this.promotedTextureRuntimes.has(runtime)) {
-        this._graphics.texture_residency.promote(runtime.materials, command);
-        command.onFinished.addOne(() => this.promotedTextureRuntimes.add(runtime));
-      }
+      // Fair bounded copies, including partial physical levels. Only complete
+      // levels advance the next Native publication's sampling clamp.
+      this._graphics.texture_residency.promote(runtime.materials, command);
       const finishScenePrepare = this._profiler.beginCpuSection("scene-prepare");
       const canRetainColor =
         temporalPolicy === this._temporalPolicy &&
@@ -2256,6 +2337,20 @@ export class Renderer {
         this._shadowVisibilityEnabled &&
         this._vsm !== null &&
         this._vsm.profile !== "shadow-disabled";
+      const refinement = this._sceneRefinement.get(scene);
+      if (refinement && streaming) {
+        refinement.begin(
+          JSON.stringify([
+            ...camera.view_projection_matrix,
+            scene.change_revision, scene.lights.version, scene.physical_environment.revision,
+            runtime.shadingPublication.revision, this._vsmGeneration.currentGeneration,
+            this._vsmSettings, vsmEnabled, width, height,
+          ]),
+          `${streaming.contentRevision}/${this._graphics.texture_residency.publicationRevision}/${materialPublication.revision}`,
+          frameIndex,
+        );
+        streaming.observeConvergence(refinement.evidence().phase !== "view-settled");
+      }
       const vsmPreview = vsmEnabled
         ? buildVsmDirectionalFrameConstants(
             sunDirection,
@@ -2556,6 +2651,7 @@ export class Renderer {
       if (streaming && vsmEnabled) {
         streaming.encodePublicationCostReadback(
           command, this._vsm!.allocation!, this._vsm!.casterRecords!, frameIndex,
+          this._vsm!.overflowCounters!,
         );
       }
       if (sampleGeometryCounters) {
@@ -2647,9 +2743,35 @@ export class Renderer {
         this._environmentRuntime?.luts.retireCompleted(command.gpuDone);
       }
       if (streaming) {
-        void streaming.consumeAfterCompletion(frameIndex, command.gpuDone, Date.now()).catch((error) => {
+        void command.gpuDone.then(() => {
+          if (refinement && this._sceneRefinement.get(scene) === refinement) {
+            refinement.frameCompleted(performance.now());
+          }
+        }, () => undefined);
+        void streaming.consumeAfterCompletion(frameIndex, command.gpuDone, Date.now()).then(() => {
+          if (!refinement || this._sceneRefinement.get(scene) !== refinement) {
+            return;
+          }
+          const observed = streaming.refinementState();
+          refinement.completed({
+            frame: frameIndex,
+            mainFrame: observed.mainFrame,
+            shadowFrame: observed.shadowFrame,
+            mainComplete: observed.mainComplete,
+            shadowComplete: observed.shadowComplete,
+            shadowRequired: vsmEnabled,
+            vsmFrame: observed.vsmFrame,
+            vsmValid: observed.vsmValid,
+            texturesFull: this._graphics.texture_residency.fullyResident(runtime.materials),
+            pendingGeometry: observed.pending,
+            stagedGeometry: observed.staged,
+            limited: observed.blockedUploads > 0 || (vsmEnabled && observed.vsmLimited),
+            error: observed.error,
+          }, performance.now());
+        }).catch((error) => {
           if (!this._deviceLost && !this._destroyed) {
             this._geometryStreamingError = error instanceof Error ? error.message : String(error);
+            refinement?.fail(error);
             console.error("Geometry streaming failed", error);
           }
         });
@@ -2794,6 +2916,13 @@ export class Renderer {
   private shutdown(): void {
     if (this._destroyed) return;
     this._destroyed = true;
+    for (const token of this._preparedMaterials.keys()) {
+      token.cancel();
+    }
+    for (const progress of this._sceneRefinement.values()) {
+      progress.cancel();
+    }
+    this._sceneRefinement.clear();
     this.texturePreparationAbort.abort(new Error("Renderer destroyed during texture preparation"));
     this._deviceLost = true;
     this._visibilityFeature?.destroy();

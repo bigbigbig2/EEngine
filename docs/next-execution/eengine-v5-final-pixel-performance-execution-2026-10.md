@@ -96,7 +96,7 @@ verifies:
     - OEngine/tests/oracle/product-attribute-decode-gpu.mjs
     - OEngine/tests/oracle/surface-workgroup-cost-gpu.mjs
     - OEngine/tests/oracle/fixtures/surface-eight-slot-cache.mjs
-    - examples/demos/14-integrated/bistro-texture-compression/cooked-scene.ts
+    - examples/demos/14-integrated/shared/cooked-scene.ts
     - validation/tools/run-dungeon-performance.mjs
     - validation/tools/dungeon-gpu-audit.mjs
     - examples/demos/14-integrated/dungeon-warkarma-texture-compression/main.ts

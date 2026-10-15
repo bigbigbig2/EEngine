@@ -9,7 +9,7 @@ globalThis.GPUTextureUsage = {
   COPY_DST: 2,
   TEXTURE_BINDING: 4,
   STORAGE_BINDING: 8,
-  RENDER_ATTACHMENT: 16
+  RENDER_ATTACHMENT: 16,
 };
 globalThis.GPUBufferUsage = {
   MAP_READ: 1,
@@ -21,7 +21,7 @@ globalThis.GPUBufferUsage = {
   UNIFORM: 64,
   STORAGE: 128,
   INDIRECT: 256,
-  QUERY_RESOLVE: 512
+  QUERY_RESOLVE: 512,
 };
 const { Renderer } = await import("../../.test-dist/render/pipeline/RendererCore.js");
 
@@ -30,9 +30,10 @@ function harness(failure) {
   const command = {
     closed: false,
     wasSubmitted: false,
+    onFinished: new ChangeSignal(),
     encodeCompiledGraph() {
       if (failure === "encode") throw error;
-    }
+    },
   };
   const renderer = Object.create(Renderer.prototype);
   Object.assign(renderer, {
@@ -40,12 +41,20 @@ function harness(failure) {
     _historyRuntime: null,
     deviceEpoch: 1,
     _output_resolution: { x: 1920, y: 1080 },
+    _render_resolution: { x: 1920, y: 1080 },
     _format: "bgra8unorm",
     _graphics: { encodeFrameMaintenance() {} },
     context: { getCurrentTexture: () => ({ createView: () => ({}) }) },
     _programCache: new FrameProgramCache(),
     _graphCache: { getOrCreate: () => ({}) },
-    _profiler: { beginFrame() {}, endFrame() {} },
+    _profiler: {
+      beginFrame() {},
+      endFrame() {},
+      measure(_label, callback) {
+        return callback();
+      },
+      recordCounter() {},
+    },
     _frameCoordinator: {
       beginFrame: () => ({ command }),
       abortFrame() {
@@ -55,10 +64,22 @@ function harness(failure) {
         if (failure === "submit-before") throw error;
         command.wasSubmitted = true;
         command.closed = true;
+        command.onFinished.send1(command);
         if (failure === "submit-after") throw error;
-      }
+      },
     },
-    onFrameFinished: new ChangeSignal()
+    onFrameFinished: new ChangeSignal(),
+    _screenSpaceReflectionsSettings: { enabled: false },
+    _ambientOcclusionSettings: { enabled: false },
+    _temporal: { invalidate() {}, histories: { invalidateNames() {} } },
+    _fsr3: { invalidate() {}, releaseHistory() {} },
+    _nativeTemporal: { invalidate() {}, releaseHistory() {} },
+    _temporalSeed: { invalidate() {}, releaseHistory() {} },
+    _surface: { invalidate() {}, releaseFrameResources() {} },
+    _reflections: null,
+    _sssrDebug: { releaseBindings() {} },
+    _localLightWork: { releaseFrameResources() {} },
+    _finalPixelLighting: { releaseFrameResources() {} },
   });
   return { renderer, error };
 }
@@ -72,7 +93,7 @@ test("Renderer counts actual empty-frame submission, not failed encoding/admissi
     else
       assert.throws(
         () => renderer.renderEmptyScene(),
-        (cause) => cause === error
+        (cause) => cause === error,
       );
     const submitted = failure === "none" || failure === "submit-after";
     assert.equal(renderer.frame_count, Number(submitted));
@@ -86,7 +107,7 @@ test("post-submit failure after counter update does not double-count a frame", (
   renderer.onFrameFinished = {
     send1() {
       throw new Error("observer");
-    }
+    },
   };
   assert.throws(() => renderer.renderEmptyScene(), /observer/);
   assert.equal(renderer.frame_count, 1);
@@ -94,15 +115,15 @@ test("post-submit failure after counter update does not double-count a frame", (
 
 test("production scene encoding abort does not count a submitted frame", () => {
   const { renderer } = harness("none");
-  const runtime = { nativeMaterials: { canPrepareFrame: () => true } };
+  const runtime = { nativeMaterials: { canPrepareFrame: () => true, setReflectionProfile() {} } };
   Object.assign(renderer, {
     pixelRatioOverride: 1,
     appliedPixelRatio: 1,
     _historyRuntime: runtime,
     _virtualProductScenes: new Map(),
-    promotedTextureRuntimes: new WeakSet(),
     _surface: { canPrepareFrame: () => true, abort() {} },
-    _fsr3: { invalidate() {} },
+    _fsr3: { invalidate() {}, abort() {} },
+    _nativeTemporal: { abort() {}, invalidate() {} },
     _temporalSeed: { abort() {} },
     _gpuRadiometry: { abort() {} },
     _graphics: {
@@ -110,9 +131,9 @@ test("production scene encoding abort does not count a submitted frame", () => {
       texture_residency: {
         promote() {
           throw new Error("encode failure");
-        }
-      }
-    }
+        },
+      },
+    },
   });
   renderer._frameCoordinator.canBeginFrame = true;
   assert.throws(() => renderer.render({}, {}, 0.02), /encode failure/);

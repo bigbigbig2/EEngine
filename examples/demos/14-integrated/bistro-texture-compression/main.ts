@@ -33,7 +33,7 @@ import {
   StepForward,
 } from "lucide";
 import "./style.css";
-import { loadCookedScene } from "./cooked-scene.ts";
+import { loadCookedScene } from "../shared/cooked-scene.ts";
 import { setupVsmControls } from "./vsm-controls.ts";
 import { setupAoControls } from "./ao-controls.ts";
 import { setupSsrControls } from "./ssr-controls.ts";
@@ -98,8 +98,8 @@ let resumeFrame: (() => void) | undefined;
 let lastSubmittedAt: number | null = null;
 let renderer: Renderer | undefined;
 let asset: WebCookRuntimeAsset | undefined;
-let handles: Pick<MultiProductSceneHandles, "settled"> | undefined;
-let loading: Promise<Pick<MultiProductSceneHandles, "settled">> | undefined;
+let handles: { settled: () => Promise<unknown> } | undefined;
+let loading: Promise<{ settled: () => Promise<unknown> }> | undefined;
 let cooked: Awaited<ReturnType<typeof loadCookedScene>> | undefined;
 let controls: FirstPersonControls | undefined;
 let framing: Pick<ReturnType<typeof webCookCatalogSceneFraming>, "center" | "radius"> | undefined;
@@ -319,7 +319,10 @@ function snapshot() {
     load: {
       firstUsefulMs,
       fullQualityMs,
-      fullGeometrySettled: settled,
+      providerComplete: settled,
+      initialization: cooked?.initialization ?? null,
+      fullGeometrySettled: renderer?.sceneRefinementEvidence(scene)?.phase === "view-settled",
+      refinement: renderer?.sceneRefinementEvidence(scene) ?? null,
       glbReadMs: null,
       gltfParseMs: null,
       note: cookedMode
@@ -454,7 +457,7 @@ const rows: Array<[string, string]> = [
   ["Promotion bytes", "promotion"],
   ["Load / frame", ""],
   ["Raw preparation", "preparation"],
-  ["First useful", "first"],
+  ["First completed", "first"],
   ["Full texture mips", "full"],
   ["Submitted FPS / interval P50", "fps"],
   ["RAF / ready / deferred", "callbacks"],
@@ -614,7 +617,15 @@ function refresh(): void {
   for (const [key, value] of Object.entries(renderValues)) renderCells.get(key)!.textContent = value;
   if (p?.activeBatches) setPhase(`Preparing BC Texture Products (${p.cookedTasks} cooked)`);
   else if (!settled && publications.length) setPhase("Mapping / publishing GPU Render World");
-  else if (settled && fullQualityMs === null) setPhase("Full mip promotion");
+  else if (renderer?.sceneRefinementEvidence(scene)) {
+    const state = renderer.sceneRefinementEvidence(scene)!;
+    setPhase(
+      state.phase === "view-settled" ? `View settled (epoch ${state.epoch})` :
+      state.phase === "limited" ? `Capacity limited (epoch ${state.epoch})` :
+      state.firstCompletedAtMs === null ? "Bootstrap ready / waiting for first completed frame" :
+      "Refining geometry / texture mips / valid shadows",
+    );
+  }
   const raf = s.stable.submittedIntervalMs;
   const values: Record<string, string> = {
     adapter:
@@ -809,8 +820,10 @@ async function start(): Promise<void> {
       const submitted = renderer.frame_count > beforeFrame;
       if (paused && submitted) stepFrames--;
       const duration = performance.now() - begin;
-      if (submitted && fullQualityMs !== null) stableFrames++;
-      if (!paused && fullQualityMs !== null && stableFrames > 60 && document.visibilityState === "visible") {
+      const stableView = !cookedMode || renderer.sceneRefinementEvidence(scene)?.phase === "view-settled";
+      if (!stableView) stableFrames = 0;
+      if (submitted && fullQualityMs !== null && stableView) stableFrames++;
+      if (!paused && stableView && fullQualityMs !== null && stableFrames > 60 && document.visibilityState === "visible") {
         callbacks.push({ atMs: now, submitted, source });
         if (callbacks.length > 600) callbacks.shift();
         if (submitted) {
@@ -824,7 +837,7 @@ async function start(): Promise<void> {
       if (
         submitted &&
         !completionPending &&
-        (firstUsefulMs === null || (settled && fullQualityMs === null))
+        (firstUsefulMs === null || fullQualityMs === null)
       ) {
         completionPending = true;
         void renderer.device.queue
@@ -833,18 +846,17 @@ async function start(): Promise<void> {
             if (closing) return;
             if (firstUsefulMs === null) {
               firstUsefulMs = performance.now() - started;
-              setPhase("First useful frame");
+              setPhase("First completed frame / refining");
             }
             const evidence = renderer!.graphics.texture_residency_if_created?.evidence();
             if (
-              settled &&
               evidence &&
               evidence.maximumResidentMinimumMip === 0 &&
               !evidence.pendingPromotionTextureCount
             ) {
               fullQualityMs = performance.now() - started;
               fullFrame = renderer!.frame_count;
-              setPhase("Full texture mips ready / geometry streaming active");
+              setPhase("Full texture mips ready / geometry and shadows refining");
             }
             completionPending = false;
           })
@@ -867,7 +879,10 @@ async function start(): Promise<void> {
   await handles.settled();
   settled = true;
   if (!closing) {
-    setPhase("Full mip promotion");
+    setPhase(renderer?.sceneRefinementEvidence(scene)?.phase === "limited"
+      ? "Capacity limited / valid coarse retained" :
+      renderer?.sceneRefinementEvidence(scene)?.phase === "view-settled" ? "Current view settled" :
+      "Source preparation complete / refinement active");
     refresh();
   }
 }
@@ -937,7 +952,7 @@ async function release(): Promise<void> {
   element("phase").textContent = "Releasing";
   const owner = renderer?.graphics?.texture_residency_if_created;
   try {
-    if (settled && renderer) {
+    if (handles && renderer) {
       await renderer.releaseScene(scene);
       await renderer.device.queue.onSubmittedWorkDone();
       await Promise.resolve();

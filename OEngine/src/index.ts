@@ -397,6 +397,7 @@ export type {
   MultiProductSceneHandles,
   MultiProductSceneState,
   OegPackSceneOptions,
+  PreparedSceneMaterials,
   ProductSceneHandles,
   ProductSceneOptions,
   ProductSceneSourceMapper,
