@@ -3,7 +3,7 @@ import type { GeometryHierarchyView } from "../geometry/GeometryHierarchy.js";
 import { GPU_INSTANCE_FLAGS, GPU_INSTANCE_RECORD_STRIDE } from "../gpu/GpuInstanceAbi.js";
 import {
   GEOMETRY_PAGE_DEMAND_MAX_PRIORITY,
-  GEOMETRY_PAGE_DEMAND_FLAG_SHADOW,
+  GEOMETRY_PAGE_DEMAND_FLAG_SHADOW
 } from "../gpu/GeometryPageDemandAbiV1.js";
 import type { GpuRenderWorldRuntime } from "../gpu/GpuRenderWorld.js";
 import type { GraphicsContext } from "../gpu/GraphicsContext.js";
@@ -12,13 +12,14 @@ import { HierarchicalWorkGenerator, type PreparedHierarchyWork } from "./Hierarc
 import {
   MeshletWorkCandidate,
   VirtualGeometryMeshletWorkCandidate,
-  type PreparedMeshletWorkCandidate,
+  type PreparedMeshletWorkCandidate
 } from "./MeshletWorkCandidate.js";
 import type { PreparedFrameInstances } from "./FrameInstanceTransforms.js";
 import type { PackedVisibilityPrepareJob } from "./passes/PackedVisibilityPass.js";
 import type { VisibilityWorkSet } from "./VisibilityWorkSet.js";
 import type { VsmDirectionalFrameConstants } from "./vsm/VsmReceiverDemandPass.js";
 import { ShadowMeshletBounds } from "./ShadowMeshletBounds.js";
+import { ShadowTileDomain } from "./ShadowTileDomain.js";
 
 /** Union of clipmap XY coverage, extruded along the directional light.
  * No camera occlusion/cone test or camera SSE is valid for this caster view. */
@@ -55,8 +56,8 @@ export function shadowGeometryView(frame: VsmDirectionalFrameConstants): Geometr
       [matrix[1]!, matrix[5]!, matrix[9]!, matrix[13]! - minY],
       [-matrix[1]!, -matrix[5]!, -matrix[9]!, maxY - matrix[13]!],
       [0, 0, 0, 1],
-      [0, 0, 0, 1],
-    ],
+      [0, 0, 0, 1]
+    ]
   };
 }
 
@@ -66,6 +67,7 @@ export interface PreparedShadowGeometry {
   readonly work: PreparedMeshletWorkCandidate;
   readonly instances: PreparedFrameInstances;
   readonly bounds: ShadowMeshletBounds;
+  readonly tiles: ShadowTileDomain;
 }
 
 /** Geometry-owned shadow selection. Shares scene/residency, never main selected work. */
@@ -81,7 +83,7 @@ export class ShadowGeometryWork {
     this.hierarchy = new HierarchicalWorkGenerator(
       graphics.device,
       graphics.resource_accounting,
-      "ShadowGeometryWork",
+      "ShadowGeometryWork"
     );
     this.ordinary = new MeshletWorkCandidate(graphics.device, graphics.resource_accounting);
     this.product = new VirtualGeometryMeshletWorkCandidate(graphics.device, graphics.resource_accounting);
@@ -91,7 +93,7 @@ export class ShadowGeometryWork {
     job: PackedVisibilityPrepareJob,
     main: VisibilityWorkSet,
     camera: GPUBuffer,
-    command: ShadeGPUCommandContext,
+    command: ShadeGPUCommandContext
   ): PreparedShadowGeometry | null {
     if (!job.shadowFrame) {
       this.release(job.runtime, command);
@@ -105,7 +107,7 @@ export class ShadowGeometryWork {
         this.ordinary.rebind(existing.work, {
           camera,
           counterBuffer: job.runtime.counterSink,
-          countersEnabled: false,
+          countersEnabled: false
         });
       }
       return existing;
@@ -121,19 +123,20 @@ export class ShadowGeometryWork {
         visibleClusterCapacity: job.runtime.hierarchyVisibleClusterCapacity,
         rasterWorkCapacity: job.runtime.hierarchyRasterWorkCapacity,
         counterBuffer: job.runtime.counterSink,
-        virtualGeometry: job.virtualGeometry,
+        virtualGeometry: job.virtualGeometry
       },
       {
         sseThreshold: 0,
         countersEnabled: false,
         diagnosticsEnabled: false,
         rasterExpansionEnabled: false,
-        traversalWorkCapacity: main.key.traversalCapacity,
-      },
+        traversalWorkCapacity: main.key.traversalCapacity
+      }
     );
     let work: PreparedMeshletWorkCandidate | null = null;
     let instances: PreparedFrameInstances | null = null;
     let bounds: ShadowMeshletBounds | null = null;
+    let tiles: ShadowTileDomain | null = null;
     try {
       const common = {
         visibleClusters: hierarchy.generated.visibleClusters,
@@ -142,37 +145,39 @@ export class ShadowGeometryWork {
         counterBuffer: job.runtime.counterSink,
         countersEnabled: false,
         scene: job.scene,
-        stickyFailure: job.runtime.hierarchyRasterWorkCapacity > main.key.meshletWorkCandidateCapacity,
+        stickyFailure: job.runtime.hierarchyRasterWorkCapacity > main.key.meshletWorkCandidateCapacity
       };
       work = job.virtualGeometry
         ? this.product.prepare({
             ...common,
             virtualGeometry: job.virtualGeometry,
             viewUniform: hierarchy.generated.viewUniform,
-            lodAnchors: hierarchy.generated.lodAnchors!,
+            lodAnchors: hierarchy.generated.lodAnchors!
           })
         : this.ordinary.prepare({
             ...common,
             camera,
             assets: job.assets,
-            compactionPath: main.key.meshletWorkCompactionPath,
+            compactionPath: main.key.meshletWorkCompactionPath
           });
       instances = this.graphics.frame_instances.prepare({
         camera,
         source: job.scene.instances,
         work: work.queue,
         workCapacity: work.capacity,
-        instanceCapacity: Math.floor(job.scene.instances.size / GPU_INSTANCE_RECORD_STRIDE),
+        instanceCapacity: Math.floor(job.scene.instances.size / GPU_INSTANCE_RECORD_STRIDE)
       });
       bounds = new ShadowMeshletBounds(
         this.graphics.device,
         work,
         job.scene.instances,
         job.assets.meshletRecords,
-        this.graphics.resource_accounting,
+        this.graphics.resource_accounting
       );
+      tiles = new ShadowTileDomain(this.graphics.device, this.graphics.resource_accounting);
     } catch (error) {
       bounds?.destroy();
+      tiles?.destroy();
       if (instances) {
         this.graphics.frame_instances.release(instances);
       }
@@ -182,7 +187,7 @@ export class ShadowGeometryWork {
       this.hierarchy.release(hierarchy);
       throw error;
     }
-    const next = Object.freeze({ mainResources: main, hierarchy, work, instances, bounds });
+    const next = Object.freeze({ mainResources: main, hierarchy, work, instances, bounds, tiles });
     this.allocations.add(next);
     this.states.set(job.runtime, next);
     if (existing) {
@@ -197,10 +202,12 @@ export class ShadowGeometryWork {
     prepared: PreparedShadowGeometry,
     command: ShadeGPUCommandContext,
     allocation: GPUBuffer,
+    requested: GPUBuffer
   ): void {
     if (!job.shadowFrame) {
       throw new Error("Shadow Geometry is missing its light view");
     }
+    prepared.tiles.encode(command, job.shadowFrame, requested, allocation);
     const generated = this.hierarchy.encode(
       command.gpu_encoder,
       prepared.hierarchy,
@@ -212,7 +219,8 @@ export class ShadowGeometryWork {
         excludedInstanceFlags: GPU_INSTANCE_FLAGS.Transparent,
         demandFrameRevisionLow: job.demandFrameRevisionLow,
         pageDemandFlags: GEOMETRY_PAGE_DEMAND_MAX_PRIORITY | GEOMETRY_PAGE_DEMAND_FLAG_SHADOW,
-      },
+        shadowTiles: prepared.tiles.buffer
+      }
     );
     if (job.streamingRuntime) {
       if (!generated.pageDemand || job.demandFrameIndex === undefined) {
@@ -226,7 +234,12 @@ export class ShadowGeometryWork {
         if (!job.streamingRuntime || job.demandFrameIndex === undefined) {
           throw new Error("Bounded shadow Product work requires its streaming status owner");
         }
-        job.streamingRuntime.encodeWorkStatusReadback(command, prepared.work.queue, job.demandFrameIndex, true);
+        job.streamingRuntime.encodeWorkStatusReadback(
+          command,
+          prepared.work.queue,
+          job.demandFrameIndex,
+          true
+        );
       }
     } else {
       this.ordinary.encode(command, prepared.work);
@@ -271,6 +284,7 @@ export class ShadowGeometryWork {
     if (!this.allocations.delete(state)) {
       return;
     }
+    state.tiles.destroy();
     this.graphics.frame_instances.release(state.instances);
     state.bounds.destroy();
     this.releaseWork(state.work);

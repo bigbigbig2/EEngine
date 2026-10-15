@@ -7,7 +7,7 @@ ${VSM_PAGE_TABLE_WGSL}
 struct Constants {
   control: vec4u, // generation, request capacity, slots, clips
   dimensions: vec4u, // pages, atlas axis, entries, submitted frame serial
-  identity: vec4u, // projection epoch, namespace, coarse reserved slots
+  identity: vec4u, // projection epoch, namespace, coarse reserved slots, dirty page budget
   clips: array<vec4f, 6>,
 };
 struct Request {
@@ -56,6 +56,7 @@ struct Candidates {
 @group(0) @binding(9) var<storage, read_write> content: array<atomic<u32>>;
 @group(0) @binding(10) var<storage, read> scan: array<vec2u>;
 var<workgroup> prefix: array<vec4u, 64>;
+var<workgroup> oldest_slot: u32;
 
 fn scan_lanes(lane: u32, value: vec4u) -> vec4u {
   prefix[lane] = value;
@@ -183,7 +184,7 @@ fn allocate(@builtin(global_invocation_id) id: vec3u) {
     slot / constants.dimensions.y, coordinate.y, flags, constants.control.x,
     5u, 0u, constants.identity.x, request.world.x, request.world.y, constants.identity.y, 0u);
   metas[slot] = VsmMetaEntry(request.virtual_page, coordinate.y, constants.dimensions.w,
-    flags, constants.control.x, slot, 0u, 0u);
+    flags, constants.control.x, slot, 0u, constants.dimensions.w);
   atomicStore(&content[1], 1u);
 }
 fn dirty_tier(slot: u32) -> u32 {
@@ -199,11 +200,11 @@ fn dirty_tier(slot: u32) -> u32 {
   if (!is_dirty) {
     return 3u;
   }
-  // Tier 0: actively demanded in this frame
-  if (slot_meta.last_visited == constants.dimensions.w) {
+  // Restore valid coarse fallback first. Remaining requested fine pages have
+  // equal priority; requested is rebuilt every frame, not historical demand.
+  if (slot < constants.identity.z) {
     return 0u;
   }
-  // Tier 1: historically demanded in requestedPages bitset
   if (is_requested(slot_meta.virtual_page)) {
     return 1u;
   }
@@ -216,23 +217,55 @@ fn publish_dirty(@builtin(local_invocation_index) lane: u32) {
   let begin = lane * span;
   let end = min(begin + span, constants.control.z);
 
+  // One oldest dirty page is guaranteed service independently of current
+  // demand. Continuous re-invalidation of low slots cannot starve the backlog.
+  // dirty_since is dirty-since frame serial, set on the clean -> dirty edge.
+  var oldest = vec2u(0xffffffffu);
+  for (var slot = begin; slot < end; slot++) {
+    if (dirty_tier(slot) >= 3u) {
+      continue;
+    }
+    let age = metas[slot].dirty_since;
+    if (age < oldest.x || (age == oldest.x && slot < oldest.y)) {
+      oldest = vec2u(age, slot);
+    }
+  }
+  prefix[lane] = vec4u(oldest, 0u, 0u);
+  workgroupBarrier();
+  for (var stride = 32u; stride > 0u; stride /= 2u) {
+    if (lane < stride) {
+      let other = prefix[lane + stride].xy;
+      let current = prefix[lane].xy;
+      if (other.x < current.x || (other.x == current.x && other.y < current.y)) {
+        prefix[lane] = vec4u(other, 0u, 0u);
+      }
+    }
+    workgroupBarrier();
+  }
+  if (lane == 0u) {
+    oldest_slot = prefix[0].y;
+  }
+  let oldest_selected = workgroupUniformLoad(&oldest_slot);
+  let reserved = select(0u, 1u, oldest_selected != 0xffffffffu);
+
   var counts = vec4u(0u);
   for (var slot = begin; slot < end; slot++) {
     let tier = dirty_tier(slot);
-    if (tier < 3u) {
+    if (tier < 3u && slot != oldest_selected) {
       counts[tier]++;
     }
   }
 
   let base = scan_lanes(lane, counts);
   let total = prefix[63];
-  let total_dirty = total.x + total.y + total.z;
+  let total_dirty = total.x + total.y + total.z + reserved;
 
   let budget = min(select(constants.identity.w, constants.control.z, constants.identity.w == 0u), constants.control.z);
-  let take0 = min(total.x, budget);
-  let take1 = min(total.y, budget - take0);
-  let take2 = min(total.z, budget - take0 - take1);
-  let total_selected = take0 + take1 + take2;
+  let remaining = budget - reserved;
+  let take0 = min(total.x, remaining);
+  let take1 = min(total.y, remaining - take0);
+  let take2 = min(total.z, remaining - take0 - take1);
+  let total_selected = reserved + take0 + take1 + take2;
 
   if (lane == 63u) {
     allocation.attempted = total_dirty;
@@ -242,34 +275,37 @@ fn publish_dirty(@builtin(local_invocation_index) lane: u32) {
     atomicStore(&telemetry[7], total_dirty - total_selected);
   }
 
-  var at0 = base.x;
-  var at1 = take0 + base.y;
-  var at2 = take0 + take1 + base.z;
+  var at0 = reserved + base.x;
+  var at1 = reserved + take0 + base.y;
+  var at2 = reserved + take0 + take1 + base.z;
 
   for (var slot = begin; slot < end; slot++) {
     let tier = dirty_tier(slot);
     let slot_meta = metas[slot];
-    var entry = pages[slot_meta.virtual_page];
     if (tier >= 3u) {
       if ((slot_meta.flags & 4u) != 0u) {
         metas[slot].flags = slot_meta.flags & ~4u;
       }
       continue;
     }
-    var selected = false;
+    var entry = pages[slot_meta.virtual_page];
+    var selected = slot == oldest_selected;
     var at = 0u;
-    if (tier == 0u && at0 < take0) {
+    if (!selected && tier == 0u && at0 < reserved + take0) {
       at = at0;
       at0++;
       selected = true;
-    } else if (tier == 1u && at1 < take0 + take1) {
+    } else if (!selected && tier == 1u && at1 < reserved + take0 + take1) {
       at = at1;
       at1++;
       selected = true;
-    } else if (tier == 2u && at2 < total_selected) {
+    } else if (!selected && tier == 2u && at2 < total_selected) {
       at = at2;
       at2++;
       selected = true;
+    }
+    if (slot_meta.dirty_since == 0u) {
+      metas[slot].dirty_since = constants.dimensions.w;
     }
 
     if (selected) {

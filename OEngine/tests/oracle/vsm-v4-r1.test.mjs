@@ -92,6 +92,7 @@ test("prepare abort retry, window roll, Sun intensity and deferred invalidation 
   owner.commit(steady);
   const directPatch = owner.prepare({ ...input, instanceRevision: 0xfedcba98 });
   assert.equal(directPatch.rebuildDepth, true, "direct GPU Scene publication must scan caster snapshots");
+  assert.equal(directPatch.rebuildDepthRange, true, "transforms may expand authored caster bounds");
   assert.equal(directPatch.fullInvalidate, false);
   assert.equal(directPatch.temporalInvalidate, false);
   owner.abort();
@@ -103,6 +104,7 @@ test("prepare abort retry, window roll, Sun intensity and deferred invalidation 
   owner.abort();
   const coverage = owner.prepare({ ...input, instanceRevision: 0xfedcba98, coverageChanged: true });
   assert.equal(coverage.rebuildDepth, true, "coverage invalidation is meaningful without another revision change");
+  assert.equal(coverage.rebuildDepthRange, false);
   assert.equal(coverage.invalidateMask, true);
   assert.equal(coverage.fullInvalidate, false);
   owner.abort();
@@ -111,8 +113,9 @@ test("prepare abort retry, window roll, Sun intensity and deferred invalidation 
   assert.equal(rolled.projectionEpoch, retry.projectionEpoch);
   assert.equal(rolled.fullInvalidate, false);
   owner.abort();
-  const source = owner.prepare({ ...input, sourceRevision: 1 });
+  const source = owner.prepare({ ...input, instanceRevision: 0xfedcba98, sourceRevision: 1 });
   assert.equal(source.rebuildDepth, true);
+  assert.equal(source.rebuildDepthRange, false, "residency cannot expand authored caster bounds");
   assert.equal(source.fullInvalidate, false);
   assert.equal(source.temporalInvalidate, false);
   assert.equal(source.generation, retry.generation);

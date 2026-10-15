@@ -94,6 +94,45 @@ function demand(flags = {}) {
   };
 }
 
+test("publication groups overlapping damage, admits a heavy oldest page and expires lower priority work", async () => {
+  const original = fixture();
+  const records = new Uint8Array(96);
+  for (let pageId = 0; pageId < 3; pageId++) records.set(original.descriptor.pageRecords, pageId * 32);
+  const descriptor = { ...original.descriptor, pageRecords: records };
+  const scheduler = new GeometryPageSchedulerV1({
+    maxConcurrentReads: 3, maxInFlightBytes: 3 * 262144, adaptive: false,
+  });
+  scheduler.registerProduct(3, 9, {
+    descriptor,
+    async readPage(pageId) {
+      return { productId: descriptor.productId, revision: 0, pageId,
+        decodedHash128: original.hash, decodedPageHash128: original.integrity,
+        bytes: original.page.slice().buffer };
+    },
+    release() {},
+  });
+  scheduler.ingestDemands([0, 1, 2].map((pageId) => demand({ pageId, priority: 30 - pageId })));
+  await scheduler.drainReads();
+  scheduler.drainStageBudget({ stagePage() {} });
+  const started = performance.now();
+  const selection = {
+    nowMs: started,
+    maxWaitMs: 100,
+    maxDamageUnits: 4,
+    maxTriangleWork: 1000,
+    hint(_generation, pageId) {
+      return { regions: [{ assetIndex: 0, min: [pageId === 1 ? 10 : 0, 0, 0],
+        max: [pageId === 1 ? 11 : 1, 1, 1] }], triangleCount: 1, damageUnits: 4 };
+    },
+  };
+  assert.deepEqual(scheduler.selectPublicationCandidates(3, selection)[0].pageIds, [0, 2]);
+  scheduler.commitPublication(9, [0, 2]);
+  assert.equal(scheduler.publicationUrgent(started + 101, 100), true);
+  assert.deepEqual(scheduler.selectPublicationCandidates(3, {
+    ...selection, nowMs: started + 101, maxDamageUnits: 0, maxTriangleWork: 0,
+  })[0].pageIds, [1], "An indivisible expired page must make progress beyond a soft cost target");
+});
+
 test("page scheduler rejects unbounded retry and upload budgets", () => {
   assert.throws(
     () =>

@@ -526,7 +526,6 @@ export class Renderer {
    * persistent `lastPoll` evidence is not re-counted on every render frame. No GPU
    * frame-time source is wired into streaming pressure today; do not present an
    * always-zero value as live GPU pressure. */
-  private _streamingPublishPollFrame = -1;
   private _vsm: VsmResources | null = null;
   private _vsmDepthBounds!: VsmDepthBoundsPass;
   private _vsmReceiverDemand!: VsmReceiverDemandPass;
@@ -2114,10 +2113,6 @@ export class Renderer {
     this._profiler.beginFrame(frameIndex);
     const frame = this._frameCoordinator.beginFrame(frameIndex, "Renderer/visibility-frame");
     const command = frame.command;
-    // Transactional geometry mapping publication is encoded before every
-    // consumer of the shared Product directory; an aborted frame leaves the
-    // staged pages unpublished and they are retried by a later frame.
-    streaming?.preparePublication(command);
     const sampleGeometryCounters = this.perf_gpu_counters_enabled && this._profiler.shouldSampleGpuCounters();
     if (sampleGeometryCounters) this._profiler.encodeGpuCounterClear(command);
     let temporalActive = false;
@@ -2142,6 +2137,9 @@ export class Renderer {
     let cameraChanged = false;
     let localLightWork: LocalLightWorkFrame | null = null;
     try {
+      // Include publication failures in the same frame abort boundary.
+      const publishedGeometryPages = streaming?.preparePublication(command) ?? 0;
+      this._profiler.recordCounter("geometry.streaming.pagesPublished", publishedGeometryPages);
       if (
         ambientOcclusionKey !== this._committedAmbientOcclusionKey ||
         reflectionColorKey !== this._committedReflectionColorKey
@@ -2296,13 +2294,6 @@ export class Renderer {
       command.onAborted.addOne(() => this._vsmGeneration.abort());
       this._profiler.recordCounter("vsm.invalidation.reasonMask", vsmGeneration.reasonMask);
       this._profiler.recordCounter("vsm.invalidation.full", Number(vsmGeneration.fullInvalidate));
-      // Amplification pair: pages published in the last completed streaming frame
-      // against whether this frame rebuilt every instance's caster depth bounds.
-      const publishPoll = streaming?.lastPoll ?? null;
-      if (publishPoll !== null && publishPoll.completedFrame !== this._streamingPublishPollFrame) {
-        this._streamingPublishPollFrame = publishPoll.completedFrame;
-        this._profiler.recordCounter("geometry.streaming.pagesPublished", publishPoll.uploadedPages);
-      }
       this._profiler.recordCounter("vsm.invalidation.rebuildDepth", Number(vsmGeneration.rebuildDepth));
       this._profiler.recordCounter("vsm.invalidation.sourceRevision", vsmSourceRevision);
       this._profiler.recordCounter("vsm.invalidation.casterRevision", this._vsmCasterPublicationRevision);
@@ -2568,6 +2559,11 @@ export class Renderer {
         },
       });
       command.encodeCompiledGraph(compiled, graphBindings);
+      if (streaming && vsmEnabled) {
+        streaming.encodePublicationCostReadback(
+          command, this._vsm!.allocation!, this._vsm!.casterRecords!, frameIndex,
+        );
+      }
       if (sampleGeometryCounters) {
         if (localLightWork !== null) {
           this._profiler.registerGpuCounterFields([

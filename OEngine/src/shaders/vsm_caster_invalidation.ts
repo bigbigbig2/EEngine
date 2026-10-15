@@ -54,6 +54,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     }
   }
   if (dirty) {
+    if ((slot_meta.flags & 2u) == 0u) {
+      metas[id.x].dirty_since = constants.control.z;
+    }
     pages[slot_meta.virtual_page].flags = (entry.flags | 2u) & ~4u;
     metas[id.x].flags = (slot_meta.flags | 2u) & ~4u;
     atomicStore(&content[1], 1u);

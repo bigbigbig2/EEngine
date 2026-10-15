@@ -216,7 +216,6 @@ export class VsmDepthBoundsPass {
       this.sourceWords.fill(0);
       this.influenceWords.fill(0);
       let offset = headers * 4;
-      let influencesWritten = 0;
       visit((residency) => {
         if (!residency.publicationActive) {
           return;
@@ -227,29 +226,39 @@ export class VsmDepthBoundsPass {
           residency.productTableSlot * 4
         );
         this.sourceWords.set(revisions, offset);
-        // Tightened residency changes are drained into the frame that carries
-        // their content revision; anything unproven stays absent and the shader
-        // keeps conservative whole-instance damage for that asset.
-        for (const change of residency.drainResidencyInfluences?.() ?? []) {
+        const changes = residency.residencyInfluences();
+        command.onFinished.addOne(() => residency.acknowledgeResidencyInfluences(changes));
+        const fallback = new Set<number>();
+        const written = new Set<number>();
+        for (const change of changes) {
           const index = offset + change.assetIndex;
-          if ((index + 1) * VSM_RESIDENCY_INFLUENCE_WORDS > this.influenceWords.length) continue;
+          if (change.assetIndex < 0 || change.assetIndex >= revisions.length) {
+            throw new RangeError("VSM residency influence exceeds its asset domain");
+          }
           const base = index * VSM_RESIDENCY_INFLUENCE_WORDS;
-          this.influenceWords[base] = f32Bits(change.min[0]);
-          this.influenceWords[base + 1] = f32Bits(change.min[1]);
-          this.influenceWords[base + 2] = f32Bits(change.min[2]);
+          if (change.fullAsset || change.revision !== revisions[change.assetIndex]) {
+            fallback.add(index);
+            this.influenceWords.fill(0, base, base + VSM_RESIDENCY_INFLUENCE_WORDS);
+          }
+          if (fallback.has(index)) continue;
+          const prior = new Float32Array(this.influenceWords.buffer, base * 4, VSM_RESIDENCY_INFLUENCE_WORDS);
+          const hasPrior = written.has(index);
+          for (let axis = 0; axis < 3; axis++) {
+            this.influenceWords[base + axis] = f32Bits(
+              hasPrior ? Math.min(prior[axis]!, change.min[axis]!) : change.min[axis]!,
+            );
+            this.influenceWords[base + 4 + axis] = f32Bits(
+              hasPrior ? Math.max(prior[4 + axis]!, change.max[axis]!) : change.max[axis]!,
+            );
+          }
           this.influenceWords[base + 3] = change.revision;
-          this.influenceWords[base + 4] = f32Bits(change.max[0]);
-          this.influenceWords[base + 5] = f32Bits(change.max[1]);
-          this.influenceWords[base + 6] = f32Bits(change.max[2]);
           this.influenceWords[base + 7] = residency.productGeneration;
-          influencesWritten++;
+          written.add(index);
         }
         offset += revisions.length;
       });
       this.sourceHeaderCount = headers;
-      if (influencesWritten > 0) {
-        command.writeBuffer(this.influences, 0, this.influenceWords.buffer, 0, this.influenceWords.byteLength);
-      }
+      command.writeBuffer(this.influences, 0, this.influenceWords.buffer, 0, this.influenceWords.byteLength);
     }
     command.onFinished.addOne(() => {
       this.submittedInstanceCount = instanceCount;
@@ -299,7 +308,11 @@ export class VsmDepthBoundsPass {
         ],
         16
       );
-      new Uint32Array(packed).set([Number(data.state.invalidateMask), this.sourceHeaderCount, 0, 0], 20);
+      const rebuildRange = data.state.rebuildDepthRange ||
+        data.instanceCount !== this.submittedInstanceCount;
+      new Uint32Array(packed).set(
+        [Number(data.state.invalidateMask), this.sourceHeaderCount, Number(rebuildRange), 0], 20,
+      );
       command.writeBuffer(this.constants, 0, packed, 0, 96);
       command.writeBuffer(this.sources, 0, this.sourceWords.buffer, 0, this.sourceWords.byteLength);
       command.clearBuffer(this.damages, 0, VSM_CASTER_DAMAGE_HEADER_BYTES);
@@ -321,18 +334,20 @@ export class VsmDepthBoundsPass {
       bounds.setBindGroup(0, group);
       bounds.dispatchWorkgroups(groups);
       bounds.end();
-      const publish = command.beginComputePass({ label: "VSM/publish stable depth" });
-      publish.setPipeline(this.publishPipeline);
-      publish.setBindGroup(0, group);
-      publish.dispatchWorkgroups(1);
-      publish.end();
+      if (rebuildRange) {
+        const publish = command.beginComputePass({ label: "VSM/publish stable depth" });
+        publish.setPipeline(this.publishPipeline);
+        publish.setBindGroup(0, group);
+        publish.dispatchWorkgroups(1);
+        publish.end();
+      }
       const projection = packVsmProjection(data.frame);
       const caps = data.resources.capabilities;
       new Uint32Array(projection).set(
         [caps.virtualPagesPerAxis, caps.atlasPagesPerAxis, caps.pageSize, caps.border],
         40
       );
-      new Uint32Array(projection).set([data.frame.generation, caps.residentSlots, 0, 0], 44);
+      new Uint32Array(projection).set([data.frame.generation, caps.residentSlots, data.state.frameSerial, 0], 44);
       command.writeBuffer(this.dirtyConstants, 0, projection, 0, projection.byteLength);
       const dirty = command.beginComputePass({ label: "VSM/dirty changed caster slots" });
       dirty.setPipeline(this.dirtyPipeline);

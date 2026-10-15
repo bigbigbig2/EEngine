@@ -1,3 +1,4 @@
+import { SHADOW_TILE_QUERY_WGSL } from "./shadow_tile_domain.js";
 import { HZB_FOOTPRINT_WGSL } from "./hzb_footprint.js";
 import { HIERARCHY_LOD_WGSL } from "./hierarchy_lod.js";
 import {
@@ -152,7 +153,7 @@ fn hierarchy_leaf_hzb_occluded(
  * subgroup, 64-bit atomics and native command features are intentionally
  * absent from this R3-B shader.
  */
-function createHierarchicalWorkGenerationWgsl(hzbEnabled: boolean, virtualGeometryEnabled = false): string {
+export function createHierarchicalWorkGenerationWgsl(hzbEnabled: boolean, virtualGeometryEnabled = false, shadowTiles = false): string {
   return /* wgsl */ `
 ${GPU_INSTANCE_RECORD_WGSL}
 ${GPU_GEOMETRY_RECORD_WGSL}
@@ -349,6 +350,10 @@ fn hierarchy_cluster_cone_backfacing(
   return view_length > 1e-12 && dot(view, axis) >= cutoff * view_length;
 }
 
+${shadowTiles ? SHADOW_TILE_QUERY_WGSL : `
+fn hierarchy_shadow_requested(sphere: OEngineWorldSphere) -> bool { return true; }
+fn hierarchy_shadow_selected(sphere: OEngineWorldSphere) -> bool { return true; }
+`}
 ${hzbEnabled ? HIERARCHICAL_HZB_ENABLED_WGSL : HIERARCHICAL_HZB_DISABLED_WGSL}
 ${
   virtualGeometryEnabled
@@ -533,7 +538,7 @@ ${
       selected_cluster = geometry.cluster_root;
       selected_material = instance.material_handle;
       selected_raster_flags = instance.flags;
-      if hierarchy_sphere_in_frustum(sphere, &hierarchy_view) {
+      if hierarchy_shadow_requested(sphere) && hierarchy_sphere_in_frustum(sphere, &hierarchy_view) {
         if (hierarchy_view.hzb.w & R3_FEATURE_CONE) != 0u &&
           hierarchy_cluster_cone_backfacing(
             cluster, instance, hierarchy_view.camera_position.xyz
@@ -549,7 +554,7 @@ ${
           if cluster.child_count == 0u ||
             !hierarchy_refinement_allowed(geometry, cluster) ||
             projected_error <= hierarchy_view.sse.x {
-            selected = true;
+            selected = hierarchy_shadow_selected(sphere);
           } else {
             expand = true;
             child_begin = cluster.child_begin;
@@ -803,7 +808,7 @@ ${
           node.max_parent_error, sphere, scale,
           traversal_lod_anchors[work.instance_record_index - traversal_view.scene.x], &traversal_view
         );
-        if hierarchy_sphere_in_frustum(sphere, &traversal_view) &&
+        if hierarchy_shadow_requested(sphere) && hierarchy_sphere_in_frustum(sphere, &traversal_view) &&
           projected_error > traversal_view.sse.x {
           if (traversal_view.hzb.w & R3_FEATURE_HZB) != 0u &&
             hierarchy_virtual_traversal_hzb_occluded(node, instance) {
@@ -825,7 +830,7 @@ ${
                     (traversal_view.limits.z & ${GEOMETRY_PAGE_DEMAND_FLAG_SHADOW}u),
                   traversal_view.limits.w
                 );
-                selected = true;
+                selected = hierarchy_shadow_selected(sphere);
                 selected_cluster = group_id;
               } else {
                 hierarchy_emit_page_demand_v1(
@@ -877,7 +882,7 @@ ${
     selected_cluster = work.cluster_record_index;
     selected_material = instance.material_handle;
     selected_raster_flags = instance.flags;
-    if hierarchy_sphere_in_frustum(sphere, &traversal_view) {
+    if hierarchy_shadow_requested(sphere) && hierarchy_sphere_in_frustum(sphere, &traversal_view) {
       if (traversal_view.hzb.w & R3_FEATURE_CONE) != 0u &&
         hierarchy_cluster_cone_backfacing(
           cluster, instance, traversal_view.camera_position.xyz
@@ -893,7 +898,7 @@ ${
         if cluster.child_count == 0u ||
           !hierarchy_refinement_allowed(geometry, cluster) ||
           projected_error <= traversal_view.sse.x {
-          selected = true;
+          selected = hierarchy_shadow_selected(sphere);
         } else {
           expand = true;
           child_begin = cluster.child_begin;
@@ -1120,7 +1125,7 @@ fn r3_fused_leaf_work(
         cluster.bounds_sphere,
         oengine_instance_current_object_to_world(instance)
       );
-      if hierarchy_sphere_in_frustum(sphere, &leaf_view) {
+      if hierarchy_shadow_requested(sphere) && hierarchy_sphere_in_frustum(sphere, &leaf_view) {
         if (leaf_view.hzb.w & R3_FEATURE_CONE) != 0u &&
           hierarchy_cluster_cone_backfacing(
             cluster, instance, leaf_view.camera_position.xyz
@@ -1130,7 +1135,7 @@ fn r3_fused_leaf_work(
           hierarchy_leaf_hzb_occluded(cluster, instance) {
           atomicAdd(&hierarchy_wg_rejected_hzb, 1u);
         } else if cluster.child_count == 0u {
-          selected = true;
+          selected = hierarchy_shadow_selected(sphere);
           selected_instance = instance_record_index;
           selected_geometry = instance.geometry_record_index;
           selected_cluster = geometry.cluster_root;

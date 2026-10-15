@@ -38,6 +38,8 @@ export interface VsmGenerationState {
   readonly pageQuantumChanged: boolean;
   readonly resized: boolean;
   readonly rebuildDepth: boolean;
+  /** Residency changes affect local content, not the authored caster extent. */
+  readonly rebuildDepthRange: boolean;
   readonly invalidateMask: boolean;
 }
 const REASONS: VsmInvalidationReason[] = [
@@ -157,6 +159,10 @@ export class VsmGeneration {
       reasonMask: vsmInvalidationReasonMask(reason),
       fullInvalidate,
       rebuildDepth: fullInvalidate || casterChanged,
+      rebuildDepthRange: fullInvalidate || (previous !== null &&
+        (previous.casterRevision !== input.casterRevision ||
+          previous.instanceRevision !== input.instanceRevision ||
+          previous.sceneRevision !== input.sceneRevision)),
       invalidateMask: input.coverageChanged === true,
       temporalInvalidate: fullInvalidate || input.cameraCut || resized,
       pageQuantumChanged,

@@ -1,3 +1,4 @@
+import { publishGeometryPages, geometryPublicationCommand } from "../helpers/geometry-publication.mjs";
 import { writeTriangleProductPage, addTriangleProductPages, TRIANGLE_PRODUCT_PAYLOAD_BYTES } from "../helpers/geometry-product-fixture.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -186,9 +187,11 @@ test("Phase E multi-Product runtime keeps 64 independent shards and rejects stal
   const corruptPage = await fixtures[0].source.readPage(1);
   corruptPage.decodedHash128 = new Uint8Array(16);
   assert.equal(runtime.stagePage(firstPage, corruptPage), "rejected");
-  first.residency.commitStagedPages([1]);
-  assert.equal(await runtime.evictPage({ ...firstPage, pageId: 0 }), false);
-  assert.equal(await runtime.evictPage(firstPage), true);
+  publishGeometryPages(first.residency, [1]);
+  assert.equal(runtime.evictPage({ ...firstPage, pageId: 0 }), false);
+  assert.equal(runtime.evictPage(firstPage), true);
+  assert.ok(first.residency.pageLocation(1), "requesting retirement does not change the live cut");
+  publishGeometryPages(first.residency);
   assert.equal(first.residency.pageLocation(1), undefined);
 
   runtime.setDormant(first.productTableSlot, first.productGeneration, true);

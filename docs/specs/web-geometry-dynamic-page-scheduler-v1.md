@@ -40,6 +40,15 @@ publishing address mappings; bounded candidates are selected per frame via
 `selectPublicationCandidates()` and committed on submission success via
 `commitPublication()`.
 
+Residency owns the exact frame candidate and commits its mappings and revisions
+before the streaming runtime advances scheduler states. Retirement is request-only
+until the ordinary frame encodes revocation and matching VSM damage; only that
+frame's successful fence releases physical slots. Rejected fences retain retiring
+state and report an error. Completion polling reports `stagedPages`; actual frame
+mapping copies feed `geometry.streaming.pagesPublished`. Scheduled and direct
+staging share one global publication page cap. Spatial/time grouping and
+damage-cost feedback in the initialization design are still pending.
+
 ## Capacity and overflow
 
 Read concurrency, source bytes in flight, and upload bytes per frame are each

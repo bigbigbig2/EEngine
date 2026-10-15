@@ -486,10 +486,10 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
   }
 
   /**
-   * Revokes and completes page eviction for one shard. The completion token is
-   * supplied by the renderer; the runtime never waits for the GPU itself.
+   * Requests a page eviction. Its residency encodes the revocation in the next
+   * ordinary frame and retains the slot through that command's successful fence.
    */
-  async evictPage(identity: GeometryProductPageIdentityV1, completion?: PromiseLike<void>): Promise<boolean> {
+  evictPage(identity: GeometryProductPageIdentityV1): boolean {
     this.assertAlive();
     const entry = this.currentEntry(identity.productTableSlot, identity.productGeneration);
     if (!entry || entry.state !== "active") {
@@ -499,9 +499,6 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
     const location = entry.residency!.pageLocation(identity.pageId);
     if (!location || (location.flags & GEOMETRY_PAGE_LOCATION_PINNED) !== 0) return false;
     entry.residency!.beginRetirePage(identity.pageId);
-    if (entry.residency!.pageLocation(identity.pageId) !== undefined) return false;
-    await (completion ?? this.#device.queue.onSubmittedWorkDone());
-    entry.residency!.completeRetirePage(identity.pageId);
     this.#evictions++;
     return true;
   }

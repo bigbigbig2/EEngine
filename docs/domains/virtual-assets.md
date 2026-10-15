@@ -46,6 +46,8 @@ Renderer device loss checkpoint/replay全部active/dormant owned sources及slot/
 
 Residency publication事件同步管理streaming source注册：dormant/retiring撤销注册并取消IO/verified队列，active恢复，destroy/device loss解除订阅；CPU取消不替代末读GPU fence。单Product退休不会继续向已释放source/owner上传迟到页。
 
+持续页stage只写隐藏payload槽。普通帧由residency统一编码新增/退休地址、候选版本和保守影响，submit后推进CPU状态，abort保留旧映射及可重试stage；退休槽只由撤映射帧的成功fence释放，失败可观测。影响在发布时按最新coarse反向索引计算，跨页/待消费批次按asset union，共享group覆盖全部引用asset，whole-asset fallback优先；VSM提交才ack。实际published计数与completion staged计数分开。初始化设计的空间/时间合批和阴影层级双工作域尚未完成，状态只读当前执行计划。
+
 Scene卸载区分caller admission与Renderer创建/recovery replay的Product责任：后者由`releaseScene`撤publication、取消streaming，末读GPU fence成功后释放Product/source并移除登记；前者默认保留caller释放责任。失败fence保登记可重试，重复卸载不提交空命令，迟到卸载不删新Product登记。Device loss取消main/shadow mapping与IO，source仍由checkpoint保留供replay/retry。GPU ring在真实loss通知reset；map abort/range失效先于通知时，仅失败冷路径等queue完成或loss并允许通知交付，只有观察到loss/destroy才取消，存活device的真实mapping/fence失败仍可观察。完整authored Runner已验证恢复旧epoch与Scene释放后的Product banks/metadata/allocations归零；实际验收范围与OPEN见执行计划G2.4。
 
 ## 边界与验证

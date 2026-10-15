@@ -73,6 +73,8 @@ test("shadow content identity observes every resident owner and explicit retirem
     productTableSlot: generation - 1,
     publicationActive: true,
     publicationChanged: new Signal(),
+    releaseStagedPages() {},
+    stagedPageIds: [],
     descriptor: {
       productId: new Uint8Array(32),
       revision: 0,
@@ -80,10 +82,7 @@ test("shadow content identity observes every resident owner and explicit retirem
       pageRecords: new Uint8Array(64)
     },
     pageLocation: () => ({ flags: 0 }),
-    beginRetirePage() {
-      this.contentRevision++;
-    },
-    completeRetirePage() {},
+    beginRetirePage() {},
     evidence() {
       return {};
     }
@@ -113,12 +112,11 @@ test("shadow content identity observes every resident owner and explicit retirem
   second.contentRevision++; // Direct public-owner upload, bypassing streaming's upload sink.
   const uploaded = runtime.contentRevision;
   assert.ok(uploaded > appended);
-  const fence = deferred();
-  const retirement = runtime.retirePages([1], fence.promise, second);
+  runtime.retirePages([1], second);
+  assert.equal(runtime.contentRevision, uploaded, "a request cannot invalidate the committed cut");
+  second.contentRevision++; // Model the residency's successful revocation-frame submission.
   const revoked = runtime.contentRevision;
   assert.ok(revoked > uploaded, "revoked cut must invalidate before physical retirement completes");
-  fence.resolve();
-  await retirement;
   assert.equal(runtime.contentRevision, revoked, "slot release does not change already-revoked content");
   assert.equal(runtime.evidence().readback.submitted, 0);
   runtime.destroy();
@@ -141,6 +139,8 @@ test("resident feedback protects hot pages without IO and bounds shared-pool evi
     return {
       publicationActive: true,
       publicationChanged: new Signal(),
+      releaseStagedPages() {},
+      stagedPageIds: [],
       productGeneration: generation,
       productTableSlot: generation - 1,
       descriptor: {
@@ -159,14 +159,12 @@ test("resident feedback protects hot pages without IO and bounds shared-pool evi
         events.push({ generation, frame, bytes });
         return bytes >= 262144 && frame - (used.get(0) ?? -100) >= age ? [0] : [];
       },
+      pageLocation() { return { flags: 0 }; },
       residentPagePhysicalBytes() {
         return 262144;
       },
       beginRetirePage(page) {
         events.push(`begin:${generation}:${page}`);
-      },
-      completeRetirePage(page) {
-        events.push(`end:${generation}:${page}`);
       },
       evidence() {
         return {};
@@ -214,8 +212,7 @@ test("resident feedback protects hot pages without IO and bounds shared-pool evi
   assert.deepEqual(events, [
     { generation: 1, frame: 10, bytes: 262144 },
     { generation: 2, frame: 10, bytes: 262144 },
-    "begin:2:0",
-    "end:2:0"
+    "begin:2:0"
   ]);
   assert.equal(scheduler.evidence().requested, 0);
   assert.equal(scheduler.evidence().inFlightBytes, 0);
@@ -523,6 +520,8 @@ test("streaming runtime consumes delayed demand and uploads through residency", 
   const residency = {
     publicationActive: true,
     publicationChanged: new Signal(),
+    releaseStagedPages() {},
+    stagedPageIds: [],
     productGeneration: 9,
     productTableSlot: 3,
     descriptor,
@@ -598,6 +597,8 @@ test("one streaming runtime routes Product-local pages to multiple shard residen
     const residency = {
       publicationActive: true,
       publicationChanged: new Signal(),
+    releaseStagedPages() {},
+    stagedPageIds: [],
       productGeneration: generation,
       productTableSlot: slot,
       descriptor,
@@ -663,7 +664,7 @@ test("one streaming runtime routes Product-local pages to multiple shard residen
   runtime.destroy();
 });
 
-test("streaming runtime revokes pages before the settled submission boundary", async () => {
+test("streaming runtime only requests retirement before frame publication", async () => {
   const descriptor = {
     pageRecords: new Uint8Array(160),
     decodedPageBytes: 262144,
@@ -689,6 +690,8 @@ test("streaming runtime revokes pages before the settled submission boundary", a
   const residency = {
     publicationActive: true,
     publicationChanged: new Signal(),
+    releaseStagedPages() {},
+    stagedPageIds: [],
     productGeneration: 12,
     productTableSlot: 1,
     descriptor,
@@ -698,9 +701,6 @@ test("streaming runtime revokes pages before the settled submission boundary", a
     },
     beginRetirePage(pageId) {
       events.push(`begin:${pageId}`);
-    },
-    completeRetirePage(pageId) {
-      events.push(`complete:${pageId}`);
     },
     selectEvictionCandidates() {
       return [];
@@ -721,11 +721,11 @@ test("streaming runtime revokes pages before the settled submission boundary", a
       resolve();
     }, 0)
   );
-  const retirement = runtime.retirePages([4], completion);
+  runtime.retirePages([4]);
   assert.deepEqual(events, ["begin:4"]);
-  await retirement;
+  await completion;
   assert.equal(settled, true);
-  assert.deepEqual(events, ["begin:4", "complete:4"]);
+  assert.deepEqual(events, ["begin:4"], "a caller fence cannot complete an unencoded retirement");
   runtime.destroy();
 });
 
@@ -776,6 +776,8 @@ test("runtime destruction unregisters the Product and aborts pending page reads"
   const residency = {
     publicationActive: true,
     publicationChanged: new Signal(),
+    releaseStagedPages() {},
+    stagedPageIds: [],
     productGeneration: 21,
     productTableSlot: 5,
     descriptor,
@@ -819,6 +821,8 @@ test("canonical residency feedback preserves raw multiplicity, order and full ge
     productTableSlot: 0xfffffffe,
     publicationActive: true,
     publicationChanged: new Signal(),
+    releaseStagedPages() {},
+    stagedPageIds: [],
     descriptor: {
       productId: new Uint8Array(32),
       revision: 0,

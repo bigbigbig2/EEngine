@@ -69,7 +69,9 @@ export async function runVsmR2GpuOracle(device) {
   };
   const frame = {
     // This residency/query oracle authors point samples, not a disk noise product.
-    settings: { ...VSM_DEFAULT_SETTINGS, filterMode: "point" },
+    // The full-domain reference completes every dirty page in one submission.
+    // A separate one-page profile below verifies bounded production scheduling.
+    settings: { ...VSM_DEFAULT_SETTINGS, filterMode: "point", dirtyPageBudget: profile.residentSlots },
     generation: 7,
     projectionEpoch: 7,
     namespace: resources.namespace,
@@ -649,6 +651,40 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       const stages = await encodeResidency(serial++, { producer: true, measure: true });
       if (stages) receiverCosts.push(stages);
     }
+    await publishEmpty();
+    const complete = await readState();
+    const candidates = [...complete.map.entries()]
+      .filter(([page]) => page < 16384)
+      .sort((a, b) => a[1].slot - b[1].slot);
+    const [youngPage, young] = candidates[0];
+    const [oldPage, old] = candidates[candidates.length - 1];
+    check(old.slot > young.slot, "Fairness fixture requires distinct physical slots");
+    markExpected(new Set(candidates.map(([page]) => page)));
+    for (const [page, entry, age] of [[youngPage, young, serial], [oldPage, old, serial - 10]]) {
+      device.queue.writeBuffer(resources.pageTable, page * 48 + 12, new Uint32Array([entry.flags | 2]));
+      device.queue.writeBuffer(resources.metaTable, entry.slot * 32 + 12, new Uint32Array([entry.flags | 2]));
+      device.queue.writeBuffer(resources.metaTable, entry.slot * 32 + 28, new Uint32Array([age]));
+    }
+    frame.settings = { ...frame.settings, dirtyPageBudget: 1 };
+    await encodeResidency(serial++);
+    const bounded = await readState();
+    check(
+      bounded.allocation[0] === 2 && bounded.allocation[1] === 1 && bounded.allocation[2] === 0,
+      "One-page budget must retain demand without declaring overflow",
+    );
+    check(bounded.allocation[4] === oldPage, "Old dirty page starved behind a lower physical slot");
+    check(bounded.telemetry[7] === 1, "Unselected dirty backlog was lost");
+    await publishEmpty();
+    const partial = await readState();
+    check((partial.map.get(oldPage).flags & 2) === 0, "Selected page did not complete");
+    check((partial.map.get(youngPage).flags & 2) !== 0, "Unselected page became content-ready");
+    await encodeResidency(serial++);
+    check((await readState()).allocation[4] === youngPage, "Remaining dirty page did not converge");
+    await publishEmpty();
+    check(
+      [...(await readState()).map.values()].every((entry) => (entry.flags & 2) === 0),
+      "Bounded updates failed to converge to the complete reference",
+    );
     const validation = await device.popErrorScope();
     check(validation === null, validation?.message ?? "GPU validation error");
     return {
@@ -665,6 +701,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       failureNeverReady: true,
       stableDirty: 0,
       abortRetry: true,
+      boundedDirtyFairness: true,
       queries,
       costs,
       profile,

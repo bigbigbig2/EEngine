@@ -64,14 +64,16 @@ export async function runVsmLocalInvalidationGpuOracle(device) {
     productGeneration: 0xfedcba98,
     assetReferenceBegin: 40,
     assetContentRevisions: new Uint32Array([7, 8, 9]),
-    drainResidencyInfluences() {
-      const drained = pendingInfluences;
-      pendingInfluences = [];
-      return drained;
+    residencyInfluences() {
+      return pendingInfluences;
+    },
+    acknowledgeResidencyInfluences(changes) {
+      if (changes === pendingInfluences) pendingInfluences = [];
     }
   };
   const scene = {};
   let revision = 0;
+  let sourceRevision = 0;
   let width = 32;
   let currentState;
   const clips = Array.from({ length: resources.capabilities.clipLevels }, (_, i) => [
@@ -87,15 +89,15 @@ export async function runVsmLocalInvalidationGpuOracle(device) {
     projectionEpoch: currentState.projectionEpoch,
     namespace: resources.namespace
   });
-  const submit = async ({ abort = false, coverage = false, reset = false } = {}) => {
+  const submit = async ({ abort = false, coverage = false, reset = false, residencyOnly = false } = {}) => {
     if (reset) generations.invalidate();
     device.queue.writeBuffer(instances, 0, packGpuInstanceRecords(records));
     const input = {
       deviceEpoch: 1,
       scene,
       sceneRevision: 1,
-      casterRevision: ++revision,
-      sourceRevision: revision,
+      casterRevision: residencyOnly ? revision : ++revision,
+      sourceRevision: ++sourceRevision,
       coverageChanged: coverage,
       sunDirection: [0, 0, 1],
       cameraCut: false,
@@ -321,7 +323,7 @@ export async function runVsmLocalInvalidationGpuOracle(device) {
 
     // A proven residency influence tightens damage to the changed region.
     // Unproven / fallback relations keep conservative whole-instance damage.
-    const wide = { ...caster(0.5), boundsMin: [-3, -3, -1], boundsMax: [3, 3, 1] };
+    const wide = { ...caster(0.5), boundsMin: [-8, -3, -1], boundsMax: [8, 3, 1] };
     records = [wide];
     await submit();
     const tightenSeed = seed();
@@ -350,6 +352,39 @@ export async function runVsmLocalInvalidationGpuOracle(device) {
     check((fallbackPages[tightInside.index * 12 + 3] & 2) !== 0, "fallback damage marks inside page dirty");
     assertions += 3;
 
+    const contribution = (min, max, fullAsset = false) => ({
+      assetIndex: 0, min, max, fullAsset, revision: source.assetContentRevisions[0],
+    });
+    seed();
+    source.assetContentRevisions[0]++;
+    pendingInfluences = [
+      contribution([-0.4, -0.4, -1], [0.4, 0.4, 1]),
+      contribution([5.5, -0.4, -1], [6.5, 0.4, 1]),
+    ];
+    const beforeResidencyDepth = await inspect(resources.depthRange);
+    await submit({ abort: true, residencyOnly: true });
+    check(pendingInfluences.length === 2, "abort consumed unpublished influence records");
+    await submit({ residencyOnly: true });
+    check(!currentState.rebuildDepthRange, "pure residency rebuilt the authored depth range");
+    check(
+      [...new Uint32Array(await inspect(resources.depthRange))].every(
+        (value, index) => value === new Uint32Array(beforeResidencyDepth)[index],
+      ),
+      "pure residency changed depth encoding",
+    );
+    const unionPages = new Uint32Array(await inspect(resources.pageTable));
+    check((unionPages[tightInside.index * 12 + 3] & 2) !== 0, "first page influence was overwritten");
+    check((unionPages[tightOutside.index * 12 + 3] & 2) !== 0, "second page influence was omitted");
+    seed();
+    source.assetContentRevisions[0]++;
+    pendingInfluences = [
+      contribution([0, 0, 0], [0, 0, 0], true),
+      contribution([-0.4, -0.4, -1], [0.4, 0.4, 1]),
+    ];
+    await submit({ residencyOnly: true });
+    const mixedPages = new Uint32Array(await inspect(resources.pageTable));
+    check((mixedPages[tightOutside.index * 12 + 3] & 2) !== 0, "tight subset hid a whole-asset fallback");
+    assertions += 6;
     return {
       assertions,
       clips: caps.clipLevels,

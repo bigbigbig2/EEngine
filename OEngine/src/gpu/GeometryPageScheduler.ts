@@ -2,7 +2,7 @@ import {
   GeometryPageDemandBatchV1,
   GEOMETRY_PAGE_DEMAND_FLAG_RESIDENT_USAGE,
   unpackGeometryPageDemandHeaderV1,
-  type GeometryPageDemandV1,
+  type GeometryPageDemandV1
 } from "./GeometryPageDemandAbiV1.js";
 import {
   GEOMETRY_PRODUCT_PAGE_RECORD_STRIDE,
@@ -10,7 +10,7 @@ import {
   isPageIntegrityPreverifiedV1,
   snapshotUnverifiedGeometryPageV1,
   type GeometryProductRevisionSourceV1,
-  type GeometryPageProductV1,
+  type GeometryPageProductV1
 } from "../assets/geometry-product/GeometryProductV1.js";
 
 export type GeometryPageOperationStateV1 =
@@ -37,6 +37,25 @@ export interface GeometryPageUploadSinkV1 {
 export interface GeometryPagePublicationBatchV1 {
   readonly productGeneration: number;
   readonly pageIds: readonly number[];
+}
+
+export interface GeometryPagePublicationHintV1 {
+  readonly regions: readonly {
+    readonly assetIndex: number;
+    readonly min: ArrayLike<number>;
+    readonly max: ArrayLike<number>;
+    readonly fullAsset?: boolean;
+  }[];
+  readonly triangleCount: number;
+  readonly damageUnits: number;
+}
+
+export interface GeometryPublicationSelectionV1 {
+  readonly nowMs: number;
+  readonly maxWaitMs: number;
+  readonly maxDamageUnits: number;
+  readonly maxTriangleWork: number;
+  readonly hint: (generation: number, pageId: number) => GeometryPagePublicationHintV1;
 }
 
 export interface GeometryPageSchedulerPressureV1 {
@@ -134,6 +153,7 @@ interface Operation {
   attempts: number;
   nextRetryAt: number;
   age: number;
+  stagedAt?: number;
   controller?: AbortController;
 }
 
@@ -187,7 +207,7 @@ export class GeometryPageSchedulerV1 {
     cameraState: "moving",
     gpuPressure: 0,
     framePressure: 0,
-    ioPressure: 0,
+    ioPressure: 0
   });
 
   constructor(options: GeometryPageSchedulerOptionsV1) {
@@ -234,7 +254,7 @@ export class GeometryPageSchedulerV1 {
       minConcurrentReads,
       minInFlightBytes,
       minUploadBytesPerFrame,
-      targetIoThroughputBytesPerSecond,
+      targetIoThroughputBytesPerSecond
     });
     this.#budget = this.#makeBudget(1);
   }
@@ -243,7 +263,7 @@ export class GeometryPageSchedulerV1 {
     productTableSlot: number,
     generation: number,
     source: GeometryProductRevisionSourceV1,
-    options: GeometryPageRegistrationOptionsV1 = {},
+    options: GeometryPageRegistrationOptionsV1 = {}
   ): void {
     const pageCount = source.descriptor.pageRecords.byteLength / GEOMETRY_PRODUCT_PAGE_RECORD_STRIDE;
     const pageBytes = source.descriptor.decodedPageBytes;
@@ -279,7 +299,7 @@ export class GeometryPageSchedulerV1 {
       ownsSource: options.sourceOwnership !== "external",
       operations: new Map(),
       readsServed: 0,
-      uploadsServed: 0,
+      uploadsServed: 0
     });
     this.#minimumPageBytes = Math.max(this.#minimumPageBytes, pageBytes);
     this.#budget = this.#makeBudget(this.#currentScale());
@@ -300,7 +320,7 @@ export class GeometryPageSchedulerV1 {
     this.#products.delete(generation);
     this.#minimumPageBytes = [...this.#products.values()].reduce(
       (max, candidate) => Math.max(max, candidate.source.descriptor.decodedPageBytes),
-      0,
+      0
     );
     this.#budget = this.#makeBudget(this.#currentScale());
     if (product.ownsSource) product.source.release();
@@ -366,7 +386,7 @@ export class GeometryPageSchedulerV1 {
   private ingestDemandBatch(
     batch: GeometryPageDemandBatchV1,
     nowMs: number,
-    records?: readonly GeometryPageDemandV1[],
+    records?: readonly GeometryPageDemandV1[]
   ): void {
     this.#requested += batch.requested;
     this.#deduplicated += batch.count - batch.uniqueCount;
@@ -398,7 +418,7 @@ export class GeometryPageSchedulerV1 {
         state: "queued",
         attempts: 0,
         nextRetryAt: nowMs,
-        age: 0,
+        age: 0
       };
       product.operations.set(pageId, operation);
       this.#operations.add(operation);
@@ -461,7 +481,7 @@ export class GeometryPageSchedulerV1 {
           this.#inFlight.delete(task);
           this.#inFlightBytes -= bytes;
           this.pump(nowMs);
-        },
+        }
       );
     }
   }
@@ -486,7 +506,7 @@ export class GeometryPageSchedulerV1 {
       ready.sort(
         (a, b) =>
           a.product.uploadsServed - b.product.uploadsServed ||
-          priority(b.demand) + b.age - priority(a.demand) - a.age,
+          priority(b.demand) + b.age - priority(a.demand) - a.age
       );
       const operation = ready.shift()!;
       const page = operation.page!;
@@ -508,6 +528,7 @@ export class GeometryPageSchedulerV1 {
       // Staged, not resident: the address table only advances through a committed
       // frame publication, so the payload stays hidden until then.
       operation.state = "submitted";
+      operation.stagedAt = performance.now();
       this.dropVerified(operation);
       operation.product.uploadsServed++;
       this.#staged++;
@@ -521,7 +542,10 @@ export class GeometryPageSchedulerV1 {
 
   /** Bounded publication candidates in the order the frame should commit them.
    * Unselected staged pages keep their state and are offered again next frame. */
-  selectPublicationCandidates(maxPages: number): readonly GeometryPagePublicationBatchV1[] {
+  selectPublicationCandidates(
+    maxPages: number,
+    selection?: GeometryPublicationSelectionV1
+  ): readonly GeometryPagePublicationBatchV1[] {
     if (!Number.isInteger(maxPages) || maxPages < 1) {
       throw new RangeError("Geometry page publication budget must be a positive integer");
     }
@@ -529,22 +553,95 @@ export class GeometryPageSchedulerV1 {
     for (const operation of this.#operations) {
       if (operation.state === "submitted") ranked.push(operation);
     }
+    const expired = (operation: Operation): boolean =>
+      selection !== undefined &&
+      selection.nowMs - (operation.stagedAt ?? selection.nowMs) >= selection.maxWaitMs;
     ranked.sort(
       (a, b) =>
+        Number(expired(b)) - Number(expired(a)) ||
+        (expired(a) ? (a.stagedAt ?? 0) - (b.stagedAt ?? 0) : 0) ||
         priority(b.demand) + b.age - priority(a.demand) - a.age ||
-        a.product.generation - b.product.generation,
+        a.product.generation - b.product.generation
     );
+    const hints = new Map<Operation, GeometryPagePublicationHintV1>();
+    const hint = (operation: Operation): GeometryPagePublicationHintV1 => {
+      let value = hints.get(operation);
+      if (value === undefined) {
+        value = selection!.hint(operation.product.generation, operation.demand.pageId);
+        hints.set(operation, value);
+      }
+      return value;
+    };
+    const seed = ranked[0];
+    if (selection !== undefined && seed !== undefined) {
+      const seedHint = hint(seed);
+      ranked.sort((a, b) => {
+        if (a === seed) return -1;
+        if (b === seed) return 1;
+        if (expired(a) || expired(b)) {
+          return Number(expired(b)) - Number(expired(a)) || (a.stagedAt ?? 0) - (b.stagedAt ?? 0);
+        }
+        // Urgent camera work keeps precedence over shadow/predictive reads.
+        return (
+          Number(b.demand.currentViewMissing) - Number(a.demand.currentViewMissing) ||
+          Number(b.product === seed.product && publicationRegionsOverlap(seedHint, hint(b))) -
+            Number(a.product === seed.product && publicationRegionsOverlap(seedHint, hint(a))) ||
+          priority(b.demand) + b.age - priority(a.demand) - a.age
+        );
+      });
+    }
     const grouped = new Map<number, number[]>();
-    for (const operation of ranked.slice(0, maxPages)) {
+    let count = 0;
+    let damage = 0;
+    let triangleWork = 0;
+    const selectedHints: { generation: number; hint: GeometryPagePublicationHintV1 }[] = [];
+    for (const operation of ranked) {
+      if (count >= maxPages) break;
+      if (selection !== undefined) {
+        const next = hint(operation);
+        const overlaps = selectedHints.some(
+          (selected) =>
+            selected.generation === operation.product.generation &&
+            publicationRegionsOverlap(selected.hint, next)
+        );
+        const extraDamage = overlaps ? 0 : next.damageUnits;
+        const nextTriangles = next.triangleCount * Math.max(1, next.damageUnits);
+        // At least one indivisible page progresses, including an over-budget page.
+        if (
+          count > 0 &&
+          (damage + extraDamage > selection.maxDamageUnits ||
+            triangleWork + nextTriangles > selection.maxTriangleWork)
+        )
+          continue;
+        damage += extraDamage;
+        triangleWork += nextTriangles;
+        selectedHints.push({ generation: operation.product.generation, hint: next });
+      }
       const pages = grouped.get(operation.product.generation) ?? [];
       pages.push(operation.demand.pageId);
       grouped.set(operation.product.generation, pages);
+      count++;
     }
     const batches: GeometryPagePublicationBatchV1[] = [];
     for (const [productGeneration, pageIds] of grouped) {
       batches.push(Object.freeze({ productGeneration, pageIds: Object.freeze(pageIds) }));
     }
     return Object.freeze(batches);
+  }
+
+  publicationUrgent(nowMs: number, maxWaitMs: number): boolean {
+    for (const operation of this.#operations) {
+      if (
+        operation.state === "submitted" &&
+        (operation.demand.currentViewMissing || nowMs - (operation.stagedAt ?? nowMs) >= maxWaitMs)
+      )
+        return true;
+    }
+    return this.#lastPressure.cameraState === "cut";
+  }
+
+  get preparingPages(): boolean {
+    return this.#staged > 0 || this.#inFlight.size > 0 || this.#verifiedBytes > 0;
   }
 
   /** Marks staged pages resident. Runs only from the submission that carried
@@ -682,8 +779,8 @@ export class GeometryPageSchedulerV1 {
         cameraCutBursts: this.#cameraCutBursts,
         throttledFrames: this.#throttledFrames,
         lastPressure: this.#lastPressure,
-        budget: this.#budget,
-      }),
+        budget: this.#budget
+      })
     });
   }
 
@@ -696,7 +793,7 @@ export class GeometryPageSchedulerV1 {
     const load = Math.max(
       this.#lastPressure.gpuPressure,
       this.#lastPressure.framePressure,
-      this.#lastPressure.ioPressure,
+      this.#lastPressure.ioPressure
     );
     if (this.#lastPressure.cameraState === "cut") return 1;
     return (this.#lastPressure.cameraState === "stable" ? 0.7 : 0.9) * (1 - 0.55 * load);
@@ -706,20 +803,20 @@ export class GeometryPageSchedulerV1 {
     const bounded = Math.max(0.25, Math.min(1, scale));
     const maxConcurrentReads = Math.max(
       this.#options.minConcurrentReads,
-      Math.min(this.#options.maxConcurrentReads, Math.floor(this.#options.maxConcurrentReads * bounded)),
+      Math.min(this.#options.maxConcurrentReads, Math.floor(this.#options.maxConcurrentReads * bounded))
     );
     const maxInFlightBytes = Math.max(
       this.#minimumPageBytes,
       this.#options.minInFlightBytes,
-      Math.min(this.#options.maxInFlightBytes, Math.floor(this.#options.maxInFlightBytes * bounded)),
+      Math.min(this.#options.maxInFlightBytes, Math.floor(this.#options.maxInFlightBytes * bounded))
     );
     const maxUploadBytesPerFrame = Math.max(
       this.#minimumPageBytes,
       this.#options.minUploadBytesPerFrame,
       Math.min(
         this.#options.maxUploadBytesPerFrame,
-        Math.floor(this.#options.maxUploadBytesPerFrame * bounded),
-      ),
+        Math.floor(this.#options.maxUploadBytesPerFrame * bounded)
+      )
     );
     return Object.freeze({ maxConcurrentReads, maxInFlightBytes, maxUploadBytesPerFrame });
   }
@@ -735,7 +832,7 @@ export class GeometryPageSchedulerV1 {
     const startedAt = performance.now();
     try {
       const page = snapshotUnverifiedGeometryPageV1(
-        await operation.product.source.readPage(operation.demand.pageId, operation.controller?.signal),
+        await operation.product.source.readPage(operation.demand.pageId, operation.controller?.signal)
       );
       const descriptor = operation.product.source.descriptor;
       const expected = decodeGeometryProductPageRecordV1(descriptor, operation.demand.pageId);
@@ -780,7 +877,7 @@ export class GeometryPageSchedulerV1 {
       }
       operation.attempts++;
       const deterministic = /hash|size|key|profile|corrupt|unsupported|identity|integrity/i.test(
-        error instanceof Error ? error.message : String(error),
+        error instanceof Error ? error.message : String(error)
       );
       if (!deterministic && operation.attempts <= this.#options.maxRetries) {
         operation.state = "queued";
@@ -804,6 +901,29 @@ function priority(demand: GeometryPageDemandV1): number {
     (demand.shadow ? 0x800000 : 0) +
     (demand.predictive ? 0x400000 : 0)
   );
+}
+
+function publicationRegionsOverlap(
+  a: GeometryPagePublicationHintV1,
+  b: GeometryPagePublicationHintV1
+): boolean {
+  for (const left of a.regions) {
+    for (const right of b.regions) {
+      if (left.assetIndex !== right.assetIndex) continue;
+      if (
+        left.fullAsset ||
+        right.fullAsset ||
+        (left.min[0]! <= right.max[0]! &&
+          right.min[0]! <= left.max[0]! &&
+          left.min[1]! <= right.max[1]! &&
+          right.min[1]! <= left.max[1]! &&
+          left.min[2]! <= right.max[2]! &&
+          right.min[2]! <= left.max[2]!)
+      )
+        return true;
+    }
+  }
+  return false;
 }
 function sameBudget(a: GeometryPageSchedulerBudgetV1, b: GeometryPageSchedulerBudgetV1): boolean {
   return (

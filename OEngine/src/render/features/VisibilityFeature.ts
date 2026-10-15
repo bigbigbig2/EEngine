@@ -89,6 +89,7 @@ export class VisibilityFeature {
       frameInstances: ResourceId;
       meshletBounds: ResourceId;
       allocation: ResourceId;
+      requested: ResourceId;
       productHeap?: ResourceId;
       productBanks?: readonly ResourceId[];
       geometrySources: readonly ResourceId[];
@@ -107,11 +108,13 @@ export class VisibilityFeature {
         data.prepared.shadowGeometry,
         context.encoder as ShadeGPUCommandContext,
         resources.get(inputs.allocation) as GPUBuffer,
+        resources.get(inputs.requested) as GPUBuffer,
       );
     });
     pass.read(inputs.camera);
     pass.read(inputs.instances);
     pass.read(inputs.allocation);
+    pass.read(inputs.requested);
     for (const source of inputs.geometrySources) {
       pass.read(source);
     }

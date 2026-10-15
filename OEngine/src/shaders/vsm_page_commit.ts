@@ -69,6 +69,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   entry.flags &= ~6u;
   slot_meta.flags &= ~6u;
   slot_meta.reserved_0 = entry.reserved_0;
+  slot_meta.dirty_since = 0u;
   pages[work.virtual_page] = entry;
   metas[work.slot] = slot_meta;
   atomicStore(&content[1], 1u);

@@ -167,7 +167,7 @@ fn main() {
       { ...scene, counterBuffer: shadowCounters },
       { ...config, countersEnabled: true, diagnosticsEnabled: true }
     );
-  shadowOwner.encode = (job, prepared, command, allocation) => {
+  shadowOwner.encode = (job, prepared, command, allocation, requested) => {
     const start = performance.now();
     command.gpu_encoder.clearBuffer(shadowCounters);
     // Oracle-only pass labels distinguish views without modifying production shaders.
@@ -193,7 +193,7 @@ fn main() {
     });
     const clips = clipOverride ?? (broad ? [[-10000, -10000, 20000, 1]] : null);
     const shadowJob = clips ? { ...job, shadowFrame: { ...job.shadowFrame, clipOriginExtent: clips } } : job;
-    encodeShadow(shadowJob, prepared, scopedCommand, allocation);
+    encodeShadow(shadowJob, prepared, scopedCommand, allocation, requested);
     if (baseline) {
       const main = actualJob.prepared.workSet;
       command.gpu_encoder.copyBufferToBuffer(
@@ -553,7 +553,7 @@ fn main() {
       const empty = mode.startsWith("empty");
       assert.equal(
         selected.shadowInstances.length,
-        empty ? 0 : broad ? 129 : 1,
+        empty || mode === "clean-clipmap" ? 0 : broad ? 129 : 1,
         `${mode}: the counterfactual must actually change selected work`
       );
       assert.deepEqual(
@@ -599,7 +599,7 @@ fn main() {
       0,
       `Caster must be camera-occluded; conservative main work may survive: ${JSON.stringify(cameraOccluded)}`
     );
-    assert.deepEqual(cameraOccluded.shadowInstances, [casterIndex]);
+    assert.deepEqual(cameraOccluded.shadowInstances, [], "Clean pages need no caster redraw");
     scene.physical_environment.setSun([0, 2 / Math.hypot(2, 3), 3 / Math.hypot(2, 3)], [8, 8, 8]);
     renderer.shadowVisibilityEnabled = false;
     renderer.shadowVisibilityEnabled = true;
@@ -619,10 +619,14 @@ fn main() {
     // Geometry-only light-prism edge controls: retain intersecting bounds,
     // reject only when the complete caster lies beyond the prism.
     clipOverride = [[lightX + 0.49, lightY - 0.5, 1, 1]];
+    renderer.shadowVisibilityEnabled = false;
+    renderer.shadowVisibilityEnabled = true;
     await tick();
     const clipEdge = await inspect("light-clip-edge");
     assert.deepEqual(clipEdge.shadowInstances, [casterIndex]);
     clipOverride = [[lightX + 3, lightY - 0.5, 1, 1]];
+    renderer.shadowVisibilityEnabled = false;
+    renderer.shadowVisibilityEnabled = true;
     await tick();
     const clipOutside = await inspect("light-clip-outside");
     assert.deepEqual(clipOutside.shadowInstances, []);

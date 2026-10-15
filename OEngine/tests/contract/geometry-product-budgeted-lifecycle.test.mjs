@@ -1,3 +1,4 @@
+import { publishGeometryPages, geometryPublicationCommand } from "../helpers/geometry-publication.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { streamingProductFixture } from "../helpers/geometry-product-fixture.mjs";
@@ -85,11 +86,17 @@ test("page content stamps cover all referencing assets without dirtying unrelate
         initial,
         "staging a hidden slot must not churn caster stamps before the frame commits",
       );
-      residency.commitStagedPages([1]);
+      publishGeometryPages(residency, [1]);
       assert.ok(residency.assetContentRevisions[0] > initial[0]);
       assert.equal(residency.assetContentRevisions[1] > initial[1], shared);
+      assert.deepEqual(
+        residency.residencyInfluences().map((change) => change.assetIndex).sort(),
+        shared ? [0, 1] : [0],
+        "shared groups must invalidate every referencing asset",
+      );
       const uploaded = [...residency.assetContentRevisions];
       residency.beginRetirePage(1);
+      publishGeometryPages(residency);
       assert.ok(residency.assetContentRevisions[0] > uploaded[0]);
       assert.equal(residency.assetContentRevisions[1] > uploaded[1], shared);
     } finally {
@@ -119,12 +126,12 @@ test("payload accounting follows publication, retirement, reload and release rat
   const page = await fixture.source.readPage(1);
   const stampBefore = residency.assetContentRevisions[0];
   assert.equal(residency.tryStagePage(page), true);
-  residency.commitStagedPages([page.pageId]);
+  publishGeometryPages(residency, [page.pageId]);
   assert.ok(residency.assetContentRevisions[0] > stampBefore);
   assert.equal(residency.assetContentRevisions[0], residency.contentRevision);
   const uploadedStamp = residency.assetContentRevisions[0];
   assert.equal(residency.tryStagePage(page), true);
-  residency.commitStagedPages([page.pageId]);
+  publishGeometryPages(residency, [page.pageId]);
   assert.equal(
     residency.assetContentRevisions[0],
     uploadedStamp,
@@ -138,17 +145,18 @@ test("payload accounting follows publication, retirement, reload and release rat
   );
   assert.equal(uploaded.residentInternalSlackBytes, uploaded.residentBytes - uploaded.residentPayloadBytes);
   residency.beginRetirePage(1);
+  publishGeometryPages(residency);
   assert.ok(residency.assetContentRevisions[0] > uploadedStamp);
   const retiredStamp = residency.assetContentRevisions[0];
   const pending = residency.evidence();
   assert.equal(pending.residentPayloadBytes, initial.residentPayloadBytes);
   assert.equal(pending.retiringPayloadBytes, payload);
   assert.ok(pending.retiringBytes >= payload);
-  residency.completeRetirePage(1);
+  await Promise.resolve();
   assert.equal(residency.assetContentRevisions[0], retiredStamp, "fence only frees already-revoked bytes");
   assert.equal(residency.evidence().retiringPayloadBytes, 0);
   assert.equal(residency.tryStagePage(page), true);
-  residency.commitStagedPages([page.pageId]);
+  publishGeometryPages(residency, [page.pageId]);
   assert.ok(residency.assetContentRevisions[0] > retiredStamp);
   const streamer = new GeometryPageStreamingRuntimeV1(gpu, residency);
   const activeRevision = streamer.contentRevision;
@@ -208,7 +216,7 @@ test("page tail directory and decoded attributes never overwrite authored geomet
   try {
     const residency = handle.residency;
     assert.equal(residency.tryStagePage(await fixture.source.readPage(1)), true);
-    residency.commitStagedPages([1]);
+    publishGeometryPages(residency, [1]);
     assert.equal(residency.evidence().residentBytes, 2 * 262144);
     for (const pageId of [0, 1]) {
       const original = await fixture.source.readPage(pageId);
@@ -552,13 +560,7 @@ test("page mapping publication is a frame transaction: staged pages stay invisib
   const residency = handle.residency;
   const pageId = 1;
   const page = await fixture.source.readPage(pageId);
-  const command = {
-    regions: [],
-    uploadRegions(regions) {
-      this.regions.push(...regions);
-    },
-    onFinished: { addOne() {} },
-  };
+  const command = geometryPublicationCommand();
 
   assert.equal(residency.tryStagePage(page), true);
   assert.equal(residency.pageLocation(pageId), undefined, "a staged page has no published mapping");
@@ -587,13 +589,14 @@ test("page mapping publication is a frame transaction: staged pages stay invisib
   assert.equal(validation.productGeneration, handle.productGeneration);
 
   // No commit: an aborted frame must leave the page staged and retryable.
+  command.abort();
   assert.equal(residency.pageLocation(pageId), undefined);
-  const retry = { regions: [], uploadRegions: command.uploadRegions, onFinished: { addOne() {} } };
+  const retry = geometryPublicationCommand();
   assert.deepEqual([...residency.preparePublication(retry, [pageId])], [pageId]);
   assert.equal(retry.regions.length, 1);
   assert.deepEqual([...retry.regions[0].bytes], [...command.regions[0].bytes]);
 
-  residency.commitStagedPages([pageId]);
+  retry.submit();
   assert.ok(residency.pageLocation(pageId), "a committed publication becomes addressable");
   assert.equal(residency.evidence().stagedPages, 0);
   assert.deepEqual(
@@ -605,8 +608,145 @@ test("page mapping publication is a frame transaction: staged pages stay invisib
   // A page retired while still staged is discarded, never published.
   assert.equal(residency.tryStagePage(await fixture.source.readPage(2)), true);
   assert.equal(residency.evidence().stagedPages, 1);
+  const withdrawn = geometryPublicationCommand();
+  residency.preparePublication(withdrawn, [2]);
   residency.beginRetirePage(2);
+  assert.throws(() => withdrawn.submit(), /already closed/, "withdrawal aborts the encoded frame first");
   assert.equal(residency.evidence().stagedPages, 0);
   assert.equal(residency.pageLocation(2), undefined);
   runtime.destroy();
+});
+
+async function spatialInfluenceFixture(parents = [0xffffffff, 0xffffffff, 0xffffffff]) {
+  const fixture = await streamingProductFixture(3);
+  const pages = [];
+  for (let pageId = 0; pageId < 3; pageId++) {
+    const page = await fixture.source.readPage(pageId);
+    const view = new DataView(page.bytes);
+    const low = pageId === 1 ? -4 : 1;
+    const high = pageId === 1 ? -3 : 2;
+    for (let axis = 0; axis < 3; axis++) {
+      view.setFloat32(16 + axis * 4, low, true);
+      view.setFloat32(28 + axis * 4, high, true);
+    }
+    view.setUint32(76, parents[pageId], true);
+    const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", page.bytes)).slice(0, 16);
+    fixture.descriptor.pageRecords.set(hash, pageId * 32);
+    pages.push({ ...page, decodedHash128: hash, decodedPageHash128: hash });
+  }
+  return { ...fixture, source: { ...fixture.source, async readPage(id) { return pages[id]; } } };
+}
+
+test("direct staging across Products shares the frame cap and teardown aborts its candidate", async () => {
+  const gpu = device();
+  const runtime = new GeometryProductMultiRuntimeV1(gpu, {
+    metadataBytes: 64 * 1024,
+    residency: { configuredCapacityBytes: 2 * MiB },
+  });
+  let streaming;
+  try {
+    const first = await streamingProductFixture(3);
+    const second = await streamingProductFixture(3);
+    const a = await runtime.load(first.source);
+    const b = await runtime.load(second.source);
+    streaming = new GeometryPageStreamingRuntimeV1(gpu, a.residency, {
+      publicationBatchPages: 1,
+      readback: { bytesPerSlot: 64 },
+    });
+    streaming.registerProduct(first.source, a.residency);
+    streaming.registerProduct(second.source, b.residency);
+    a.residency.stagePage(await first.source.readPage(1));
+    b.residency.stagePage(await second.source.readPage(1));
+    for (let frame = 0; frame < 2; frame++) {
+      const command = geometryPublicationCommand();
+      assert.equal(streaming.preparePublication(command, frame * 50), 1);
+      assert.equal(command.regions.length, 1, "the publication cap spans all Products");
+      command.submit();
+      const tooSoon = geometryPublicationCommand();
+      assert.equal(streaming.preparePublication(tooSoon, frame * 50 + 25), 0,
+        "The publication opportunity must coalesce arriving direct stages");
+      tooSoon.submit();
+    }
+    assert.ok(a.residency.pageLocation(1));
+    assert.ok(b.residency.pageLocation(1));
+    a.residency.stagePage(await first.source.readPage(2));
+    const pending = geometryPublicationCommand();
+    assert.equal(streaming.preparePublication(pending, 100), 1);
+    a.residency.abandonForDeviceLoss();
+    assert.throws(() => pending.submit(), /already closed/);
+  } finally {
+    streaming?.destroy();
+    runtime.destroy();
+  }
+});
+
+test("one publication unions every page of an asset and preserves damage through abort/retry", async () => {
+  const fixture = await spatialInfluenceFixture();
+  const runtime = new GeometryProductMultiRuntimeV1(device(), {
+    metadataBytes: 64 * 1024, residency: { configuredCapacityBytes: 2 * MiB },
+  });
+  try {
+    const { residency } = await runtime.load(fixture.source);
+    for (const page of [1, 2]) residency.stagePage(await fixture.source.readPage(page));
+    const before = [...residency.assetContentRevisions];
+    const command = geometryPublicationCommand();
+    residency.preparePublication(command, [1, 2]);
+    const changes = residency.residencyInfluences();
+    assert.equal(changes.length, 1);
+    assert.deepEqual(changes[0].min, [-4, -4, -4]);
+    assert.deepEqual(changes[0].max, [2, 2, 2]);
+    command.abort();
+    assert.deepEqual([...residency.assetContentRevisions], before);
+    assert.equal(residency.residencyInfluences().length, 0, "aborted candidate is unpublished");
+    publishGeometryPages(residency, [1, 2]);
+    const committed = residency.residencyInfluences();
+    assert.deepEqual(committed, changes);
+    const consumerAbort = geometryPublicationCommand();
+    consumerAbort.onFinished.addOne(() => residency.acknowledgeResidencyInfluences(committed));
+    consumerAbort.abort();
+    assert.deepEqual(residency.residencyInfluences(), committed, "aborted VSM cannot drain damage");
+    const consumerRetry = geometryPublicationCommand();
+    consumerRetry.onFinished.addOne(() => residency.acknowledgeResidencyInfluences(committed));
+    consumerRetry.submit();
+    assert.deepEqual(residency.residencyInfluences(), []);
+  } finally {
+    runtime.destroy();
+  }
+});
+
+test("fine retirement uses later coarse dependencies and only its successful frame fence frees slots", async () => {
+  const fixture = await spatialInfluenceFixture([0xffffffff, 2, 0xffffffff]);
+  const runtime = new GeometryProductMultiRuntimeV1(device(), {
+    metadataBytes: 64 * 1024, residency: { configuredCapacityBytes: 2 * MiB },
+  });
+  try {
+    const { residency } = await runtime.load(fixture.source);
+    residency.stagePage(await fixture.source.readPage(2)); // Fine prepared first.
+    residency.stagePage(await fixture.source.readPage(1)); // Wider coarse parent arrives later.
+    publishGeometryPages(residency, [1, 2]);
+    residency.acknowledgeResidencyInfluences(residency.residencyInfluences());
+    const location = residency.pageLocation(2);
+    const revision = residency.contentRevision;
+    residency.beginRetirePage(2);
+    assert.equal(residency.pageLocation(2), location, "retirement request keeps the committed cut");
+    assert.equal(residency.contentRevision, revision);
+    const aborted = geometryPublicationCommand();
+    residency.preparePublication(aborted, []);
+    assert.deepEqual(residency.residencyInfluences()[0].min, [-4, -4, -4]);
+    aborted.abort();
+    assert.equal(residency.pageLocation(2), location);
+    let reject;
+    const fence = new Promise((_resolve, fail) => { reject = fail; });
+    const retry = geometryPublicationCommand(fence);
+    residency.preparePublication(retry, []);
+    retry.submit();
+    assert.equal(residency.pageLocation(2), undefined);
+    assert.equal(residency.evidence().retiringPages, 1);
+    reject(new Error("live completion rejected"));
+    await Promise.resolve();
+    assert.equal(residency.evidence().retiringPages, 1, "a rejected fence cannot release slots");
+    assert.match(residency.evidence().retirementError, /live completion rejected/);
+  } finally {
+    runtime.destroy();
+  }
 });

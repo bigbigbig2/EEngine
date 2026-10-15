@@ -22,7 +22,7 @@ verifies:
 
 # 初始化调度执行计划
 
-唯一细设计为[初始化调度设计](../next-design/eengine-initialization-scheduling-2026-10.md)。源码起点`30292e0e`；设计轮于`f7a6c4cf`收口，2026-10-15用户随后授权**仅INIT-1**的production实施。INIT-2、INIT-3仍未授权，不能把Worker研究、诊断脚本或文档检查当作完成。
+唯一细设计为[初始化调度设计](../next-design/eengine-initialization-scheduling-2026-10.md)。源码起点`30292e0e`；设计轮于`f7a6c4cf`收口，2026-10-15用户先授权INIT-1，随后授权完成复审修正并提交，再实施INIT-2并复核。INIT-3仍未授权，不能把Worker研究、诊断脚本或文档检查当作完成。
 
 INIT-1开工前置（本轮实际第一步）：现有诊断机制已存在但无生产者——`addGpuListCounterPass`/`GpuListCounterAccumulator`零调用者，`VsmResources.diagnostics()`已给出dirty页/配对/atlas的计数偏移，而`BenchmarkCapabilityEvidence`有6条`PackedCsmShadowPass/*`声明指向已从production删除的旧pass。故先在INIT-1内把这些观测接成真实的VSM工作量计数并撤销失效claim，再决定发布批次预算。
 
@@ -30,7 +30,7 @@ INIT-1开工前置（本轮实际第一步）：现有诊断机制已存在但�
 
 | 单元 | 状态 | 闭合边界 |
 |---|---|---|
-| INIT-1 几何帧事务与VSM更新闭包 | 已完成（2026-10-15实施并集中验证） | 所有持续geometry位置发布改为同帧事务，变化影响含coarse替换，requested与dirty域分离、完整页预算与content-ready正确；不依赖加Worker才能避免反复重绘 |
+| INIT-1 几何帧事务与VSM更新闭包 | 已实现并完成相关正确性验证；性能结果有限，不宣称消除初始化长尾 | 事务发布/退休、变化union、公平完整页、空间时间合批、requested/selected双域及真实Bistro观察闭合；首屏和Worker仍由后续单元处理 |
 | INIT-2 Worker批量资产准备 | 待实施 | 复用pool建立Cooked几何/texture任务，Range批量、验证receipt/transfer、输入与ready背压、可靠独立压力与生命周期；bootstrap与持续流送共用同机制 |
 | INIT-3 并行首屏、渐进纹理与真实收敛 | 待实施 | 目录去重、并行必要PSO/资源、首屏critical集合、事务mip区间与预算、view epoch阶段和Bistro真实验证/文档复核；删除旧入口，停回Local Probes边界 |
 
@@ -39,10 +39,35 @@ INIT-1开工前置（本轮实际第一步）：现有诊断机制已存在但�
 ### INIT-1：先删除GPU放大
 
 - 观测接入：GpuFrameCounters 升级至 Schema 30（848B），新增 `vsmDirtyPagesDirty`（208）、`vsmDirtyPagesSelected`（209）、`vsmDirtyPagesInvalidated`（210）、`vsmDirtyPagesPending`（211）四个计数器，通过 `copyGpuCounter` 零 dispatch 直拷；清理 BenchmarkCapabilityEvidence 中 6 条失效 CSM claim；彻底移除 RendererCore 中未写入却作为调度器输入的死字段 `_streamingGpuFrameTimeMs`。
-- 几何帧事务发布：激活 GeometryPageScheduler 沉睡的 `submitted` 状态；VirtualGeometryResidency 设立 `#stagedPages` 隐藏槽（`stagePage` 阶段仅写 Bank payload、不公开位置表）；`preparePublication` 经 ShadeGPUCommandContext `uploadRegions` 一次性打包编码 16B 位置表拷贝，并计算同帧候选版本与候选影响区；只有在包含拷贝的 Command 在 `onFinished` 提交成功时才推进持久 CPU 状态（`resident`、`contentRevision`），`onAborted` 干净回滚候选状态；退休解绑全队列阻塞，改用内部提交 Fence 批次异步回收。
+- 几何帧事务发布：激活 GeometryPageScheduler 沉睡的 `submitted` 状态；VirtualGeometryResidency 设立 `#stagedPages` 隐藏槽（`stagePage` 阶段仅写 Bank payload、不公开位置表）；`preparePublication` 经 ShadeGPUCommandContext `uploadRegions` 一次性打包编码 16B 位置表拷贝，并计算同帧候选版本与候选影响区；只有在包含拷贝的 Command 在 `onFinished` 提交成功时才推进持久 CPU 状态（`resident`、`contentRevision`），`onAborted` 干净回滚候选状态。原提交的退休仍直接撤映射，已在复审中改为同一帧事务，见下文。
 - 驻留变化影响收紧：`GeometryRefineInfluenceV1` 按细 group 建立反向边聚合粗父几何 AABB 并设置溢出降级；VirtualGeometryResidency 在入驻/退休时生成候选影响区；`vsm_depth_bounds` 消费 binding 7 `influences`，纯驻留版本变动使用紧凑 AABB 投影收紧 damage，无法证明时安全回退整实例并计数；无变化帧保持 0 GPU 派发。
-- 有界选择与双域：`vsm_allocate_pages` 中的 `publish_dirty` 升级为 64-lane 三级有界选择器（当前帧需求 > 历史 requested > 后台 dirty），消费 `identity.w` 传递的 `dirtyPageBudget`（默认 64 页，可配置 1..2048），未选差额写入 `overflowCounters[7]`（`vsmDirtyPagesPending`）；选中的槽位打上 `inFlight` 标志（bit 2），严守 `allocation.overflow == 0` 防止整帧冻结。
-- 验证闭合：tsc 0 报错；`npm run build:test` 成功；109/109 核心契约与单元测试通过；4 个 GPU Oracles（`vsm-local-invalidation` 5187 assertions、`geometry-budgeted-residency` 72 帧完全收敛至 6、`vsm-caster-cost`、`geometry-shadow-view`）全部在物理 GPU 上通过。停在 INIT-2 边界。
+- 有界选择：`vsm_allocate_pages` 中的 `publish_dirty` 为64-lane有界选择器，消费 `identity.w` 的 `dirtyPageBudget`（默认64页，可配置1..2048）。未选差额写入 `overflowCounters[7]`；选中槽设 `inFlight`（bit2），预算延期不置allocation overflow。原文“历史requested”不成立：requested每帧清理重建。复审后顺序为最老dirty页保底一个名额，再coarse、当前requested fine、后台dirty；未完成requested/selected-dirty层级双域。
+- 原提交报告：tsc、build:test、109个CPU tests及4个GPU oracles通过。这些检查没有覆盖同资产多页影响union、退休帧abort/失败fence、一页预算和长期公平性，不能证明本单元完整完成；原报告的数字保留为历史实施记录，不作为复审后新源码的证据。
+
+#### 2026-10-15复审与修正
+
+复审对象为`76e14f7e`（实施授权/观测前置）和`419d7a28`（INIT-1实现）。总体owner方向正确，但原“已完成”结论撤回。本轮经用户授权直接修正已确认的问题，没有启动INIT-2/INIT-3。
+
+- **发布/退休唯一事务owner**：`beginRetirePage`/multi-runtime `evictPage`只登记请求；residency在普通帧编码non-resident位置和对应候选版本/damage，只有该帧提交后才撤CPU映射。该帧fence成功后释放slot；失败保留retiring及错误，不吞失败授权复用。删除公开的独立commit/retire完成入口。候选在编码copy前安装abort钩子；Renderer在try/abort保护内prepare。撤销已编码隐藏槽或销毁residency时先abort其所属普通帧，再释放槽，不能释放后仍允许提交。
+- **变化范围完整性**：在publication时从当前反向refine索引重新求影响，避免fine先stage、coarse后stage造成过时范围；同资产多页及未消费的跨批次变化做union，任何full-asset fallback支配紧范围。共享group向全部引用asset发布影响。VSM先snapshot、提交后ack，中止不丢damage；无变化记录时也清零旧receipt，避免旧紧范围缩小新失效。
+- **公平性与不必要工作**：meta末word命名`dirty_since`，在clean→dirty记录frame serial，重复失效不刷新，完整页commit才清零。选择器保底最老页，再服务coarse/current/background。纯residency只更新snapshot/damage，跳过无关的全caster深度归约/发布；普通transform/scene/caster变化保留完整归约。
+- **观测语义**：completion统计改名`stagedPages`，`geometry.streaming.pagesPublished`来自本帧实际编码的地址数量。所有Product和直接staging共享publication页数上界，退休请求不依赖是否有新上传。
+
+修正成本：不新增GPU buffer或dispatch；`dirty_since`复用32B meta内既有word。最老页选择增加一次resident-slot扫描和64-lane归约，0/50/100% dirty均付出有界扫描（high profile900 slots），用于避免无限等待，未宣称净提速。CPU保留每个驻留/隐藏页的group范围和bounds，并按asset数量合并未消费damage；共享group的多owner索引仅在实际共享时存在。纯驻留帧删除depth partial写入与publish-depth dispatch，但instance snapshot/damage扫描仍存在。
+
+本轮修正后验证：`OEngine` production `npm run build`（含tsc/Vite/declaration）与新鲜`npm run build:test`通过；6个相关CPU测试文件59/59通过。串行真实硬件GPU运行`vsm-local-invalidation`（5193 assertions，含同asset多页union、fallback支配和abort保留）、`vsm-v4-r1`、`vsm-v4-r2`（完整域reference另设全页预算，并额外验证1页预算/最老页/未选页保dirty/最终收敛）、`geometry-budgeted-residency`（72帧压力与main/shadow coarse覆盖/设备丢失）、`geometry-shadow-view`均通过，无GPU validation错误。运行宿主为NVIDIA Turing硬件adapter；该次R2未启用timestamp-query，不能引用空的timing样本为成本证据。完整JSON保留在本地忽略目录`.local/init-1-review/`，不晋级正式claim。构建仍有既有codec vendor的`node:module`浏览器externalization提示。
+
+失败保留与分类：压力oracle首次运行因旧手写command没有`gpuDone`而失败，换真实`ShadeGPUCommandContext`后又因非登记submit label被拒，改用正式frame label后通过；未给production添加测试fallback。新增CPU断言首次失败因fixture同时回退了已提交instanceRevision，把它误标成纯residency；保持instanceRevision后核对，并保留transform必须rebuildDepthRange的反向断言。小GPU fixture不证明Bistro启动时间改善。
+
+**复审时未闭合项及本轮处理：**
+
+1. 发布默认50ms机会、100ms到期优先服务，cut/current missing可提前；最大32页是硬上限，按同Product/asset的保守bounds重叠聚合，damage单位和三角形估计限制软额度，至少进展一个不可分页。直接stage和scheduler共用页数/时间上限，abort不推进发布时钟。当前damage单位是CPU保守启发式，不冒充实际投影页数；每8帧在有准备任务时用普通submit拷40B allocation/pair摘要，延迟校准后续额度，慢增快减。没有timestamp时不声称毫秒硬预算。CPU空间聚合尚不做跨Product世界实例投影，因此不会消除所有重复damage。
+2. `ShadowTileDomain`在同一帧建立每clip requested/selected两个32×32保守环绕bit网格（共1792B，另176B uniform）。一轮64-lane构建dispatch，用atomicOr合并含gutter的页域；hierarchy同一次遍历仅拒绝不相交requested节点，保留所有缺页/usage反馈，只把selected相交group送入raster queue。backlog selected也并入requested，不能遗漏完整caster。环绕只允许假阳性，方向光不沿Z剪裁；完整coarse/SSE0仍要求6085页。新增一storage绑定、root/traversal专用pipeline各一，创建前核limits，资源跟随shadow prepared owner退休。clean帧测试现明确要求0重绘但仍有需求/usage。
+3. 完整Bistro（1920×1080、原模型/默认相机、同AO/SSSR默认关闭、VSM开启、1536MiB几何槽、最终6085页）串行对照：独立`419d7a28`原提交约17.64s首屏、89.996s采样确认全页；新源码首次约35.02s首屏、110.709s确认全页，热编译复跑14.01s首屏、84.977s确认全页，另一次约72.705s确认全页。5s采样有上取整，编译缓存/温度差异未做ABBA控制，不能据此宣称稳定净提速；首次回退保留。最后发布时刻分别108.255/82.264/71.268s，所有页无失败/evict/reload，暖帧约56.7FPS。启动长尾仍存在，不能宣称已解决。
+
+成本复核：Bistro全页后强制VSM失效并设置1页预算，在完整timestamp模式保留120个样本，页raster P50约0.0061ms/P95约2.724ms/最大5.868ms，VSM pass合计最大6.096ms。这是已采页的最大值，不是全900槽穷举最坏界；默认64页仍可积累明显单帧成本，软预算不承诺严格2ms。当前样本无需立即引入跨帧私有页分段。Bistro几何bank+metadata约1664MiB，纹理约1010MiB，其他注册GPU owner约1162MiB（其中纹理已包含，不能再重复相加）；仍有未注册/驱动分配，非4GB真机证明。有效payload约242MiB，256KiB单槽填充率问题保留。截图已目视核对场景及VSM显示；小GPU fixture核对遮挡/alpha/abort/coarse，未把截图当像素等价oracle。
+
+本轮补充验证：production build与新鲜build:test通过；相关CPU测试包含空间合批、超时重页进展、50ms机会、clean-shadow仍发反馈。真实GPU `geometry-budgeted-residency`、`geometry-shadow-view`、`vsm-v4-r2`通过；最终受影响集与文档检查结果随提交记录。首个shadow oracle失败来自旧fixture把clean帧也当有重绘；修改语义断言为clean=0，同时新增独立usage断言，没有放宽画面/完整caster断言。原WGSL sphere类型接线错误已修复并重新真实编译。完整JSON/截图及同条件原提交副本保留本地`.local/init-1-review/`，不提升正式claim。
 
 ### INIT-2：让准备跑满可用CPU/IO，结果不淹没GPU
 

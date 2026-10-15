@@ -63,7 +63,8 @@ export async function runVsmR1GpuOracle(device) {
         { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
         { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
         { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-        { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }
+        { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+        { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } }
       ],
     });
     const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [layout] });
@@ -95,15 +96,17 @@ export async function runVsmR1GpuOracle(device) {
     const constantsBytes = new ArrayBuffer(96);
     new Float32Array(constantsBytes).set([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
     new Uint32Array(constantsBytes).set([0, 130, 3, 1], 16);
+    new Uint32Array(constantsBytes)[22] = 1;
     const constants = buffer(96, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST, constantsBytes);
     const scratch = buffer(48, GPUBufferUsage.STORAGE);
     const product = buffer(16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
     const snapshots = buffer(130 * 192, GPUBufferUsage.STORAGE);
     const sources = buffer(16, GPUBufferUsage.STORAGE);
     const damages = buffer(16 + 130 * 48, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
+    const influences = buffer(32, GPUBufferUsage.STORAGE);
     const group = device.createBindGroup({
       layout,
-      entries: [constants, instances, scratch, product, snapshots, sources, damages].map(
+      entries: [constants, instances, scratch, product, snapshots, sources, damages, influences].map(
         (buffer, binding) => ({
         binding,
         resource: { buffer },

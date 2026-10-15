@@ -256,14 +256,62 @@ export class GpuGeometryDemandReadbackRingV1 {
   }
 
   /** Encodes a bounded queue copy and never maps or waits for the GPU. */
-  encode(encoder: GPUCommandEncoder, source: GPUBuffer, frameIndex: number, byteLength = source.size): number | undefined {
+  encode(
+    encoder: GPUCommandEncoder,
+    source: GPUBuffer,
+    frameIndex: number,
+    byteLength = source.size
+  ): number | undefined {
     this.assertAlive();
-    if (!Number.isInteger(byteLength) || byteLength <= 0 || byteLength % 4 !== 0 ||
-        byteLength > source.size || byteLength > this.#bytesPerSlot) {
+    if (
+      !Number.isInteger(byteLength) ||
+      byteLength <= 0 ||
+      byteLength % 4 !== 0 ||
+      byteLength > source.size ||
+      byteLength > this.#bytesPerSlot
+    ) {
       throw new RangeError("GPU demand source exceeds the readback slot capacity");
     }
     return this.#ring.reserve(frameIndex, (slot) => {
       encoder.copyBufferToBuffer(source, 0, this.#buffers[slot.index]!, 0, byteLength);
+    });
+  }
+
+  /** Gather small existing GPU summaries into the same delayed ownership ring. */
+  encodeRegions(
+    encoder: GPUCommandEncoder,
+    frameIndex: number,
+    regions: readonly { source: GPUBuffer; sourceOffset: number; byteLength: number }[]
+  ): number | undefined {
+    this.assertAlive();
+    let bytes = 0;
+    for (const region of regions) {
+      if (
+        ![region.sourceOffset, region.byteLength].every(Number.isSafeInteger) ||
+        region.sourceOffset < 0 ||
+        region.byteLength <= 0 ||
+        (region.sourceOffset | region.byteLength) % 4 !== 0 ||
+        region.sourceOffset + region.byteLength > region.source.size
+      ) {
+        throw new RangeError("GPU summary region is invalid");
+      }
+      bytes += region.byteLength;
+    }
+    if (bytes !== this.#bytesPerSlot) {
+      throw new RangeError("GPU summary must completely write its readback slot");
+    }
+    return this.#ring.reserve(frameIndex, (slot) => {
+      let offset = 0;
+      for (const region of regions) {
+        encoder.copyBufferToBuffer(
+          region.source,
+          region.sourceOffset,
+          this.#buffers[slot.index]!,
+          offset,
+          region.byteLength
+        );
+        offset += region.byteLength;
+      }
     });
   }
 

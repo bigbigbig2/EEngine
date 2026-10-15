@@ -1,3 +1,4 @@
+import { publishGeometryPages, geometryPublicationCommand } from "../helpers/geometry-publication.mjs";
 import {
   writeTriangleProductPage,
   addTriangleProductPages,
@@ -226,13 +227,14 @@ test("Product-aware residency delays reuse of a retiring slot", async () => {
     bytes: page.slice().buffer,
   };
   residency.stagePage(demanded);
-  residency.commitStagedPages([1]);
+  publishGeometryPages(residency, [1]);
   residency.beginRetirePage(1);
+  publishGeometryPages(residency);
   assert.equal(residency.evidence().retiringPages, 1);
   assert.throws(() => residency.stagePage(demanded), /retiring/);
-  residency.completeRetirePage(1);
+  await Promise.resolve();
   residency.stagePage(demanded);
-  residency.commitStagedPages([1]);
+  publishGeometryPages(residency, [1]);
   assert.equal(residency.pageLocation(1).flags, 1);
   assert.equal(residency.evidence().pinnedPages, 1);
   assert.equal(residency.evidence().retiringPages, 0);
@@ -285,7 +287,7 @@ test("Product-aware residency selects only aged, non-pinned pages for eviction",
     bytes: page.slice().buffer,
   };
   residency.stagePage(demanded);
-  residency.commitStagedPages([1]);
+  publishGeometryPages(residency, [1]);
   assert.deepEqual(residency.selectEvictionCandidates(1, 524288, 2), []);
   residency.touchPage(1, 1);
   assert.deepEqual(residency.selectEvictionCandidates(2, 524288, 2), []);
@@ -381,7 +383,7 @@ test("eviction weighs GPU request/visibility, prediction and refetch cost; recor
       decodedPageHash128: records.slice(pageId * 32, pageId * 32 + 16),
       bytes: page.slice().buffer,
     });
-    residency.commitStagedPages([pageId]);
+    publishGeometryPages(residency, [pageId]);
   };
   upload(1);
   upload(2);
@@ -392,7 +394,8 @@ test("eviction weighs GPU request/visibility, prediction and refetch cost; recor
   assert.deepEqual(residency.selectEvictionCandidates(15, 262144, 0), [2]);
   assert.deepEqual(residency.selectEvictionCandidates(22, 262144, 0), [1]);
   residency.beginRetirePage(1);
-  residency.completeRetirePage(1);
+  publishGeometryPages(residency);
+  await Promise.resolve();
   residency.recordDemand(1, 23, true, false, 1);
   upload(1);
   const evidence = residency.evidence();

@@ -33,7 +33,7 @@ struct VsmMetaEntry {
   generation: u32,
   owner: u32,
   reserved_0: u32,
-  reserved_1: u32,
+  dirty_since: u32, // first invalidation frame; cleared only after complete page publication
 };
 
 fn vsm_entries_per_clip_level(pages_per_axis: u32) -> u32 {

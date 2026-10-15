@@ -14,6 +14,7 @@ export interface ProductResidentPage {
   readonly rawPayloadBytes: number;
   readonly slotCount: 1;
   readonly uploadBytes: number;
+  readonly triangleCount: number;
   /** Group id covered first by this page. Page groups are a contiguous range. */
   readonly groupBegin: number;
   readonly groupCount: number;
@@ -47,6 +48,7 @@ export function prepareProductResidentAttributes(
     throw new RangeError("Product resident page must be 256 KiB");
   }
   let rawPayloadBytes = 0;
+  let triangleCount = 0;
   const pageRecord = decodeGeometryProductPageRecordV1(descriptor, pageId);
   const workload = geometryProductWorkload(descriptor);
   const groupBounds = new Float32Array(pageRecord.groupCount * 6);
@@ -124,6 +126,7 @@ export function prepareProductResidentAttributes(
       ) {
         throw new RangeError("Product resident meshlet layout is invalid");
       }
+      triangleCount += meshlet.triangleCount;
       // The refine id names the finer group this coarse meshlet simplifies, so
       // the pair is (fine group, this coarse group). Roots carry no refine id.
       if (meshlet.refineGroupId !== 0xffffffff) {
@@ -170,6 +173,7 @@ export function prepareProductResidentAttributes(
     rawPayloadBytes,
     slotCount: 1 as const,
     uploadBytes: rawPayloadBytes,
+    triangleCount,
     groupBegin: pageRecord.firstGroup,
     groupCount: pageRecord.groupCount,
     groupBounds,

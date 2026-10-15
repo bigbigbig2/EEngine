@@ -167,6 +167,7 @@ function compileSceneGraph(
   let vsmOwnerBinding: NonNullable<SceneFrameBindings["vsm"]> | null = null;
   let vsmFrameBinding: NonNullable<SceneFrameBindings["vsmFrame"]> | null = null;
   let vsmAllocation: VsmAllocationFrame | null = null;
+  let vsmRequested: ResourceId | null = null;
   let vsmSamplingDescriptors: ResourceId | null = null;
   let vsmAtlasDepth: ResourceId | null = null;
   let vsmSamplingConstants: ResourceId | null = null;
@@ -227,6 +228,7 @@ function compileSceneGraph(
       })),
     );
     vsmSamplingConstants = demand.samplingConstants;
+    vsmRequested = demand.demand;
     if (plan.products.includes("shadow-allocation")) {
       if (contentVersion === null) {
         throw new Error("Enabled VSM requires its content publication");
@@ -330,6 +332,7 @@ function compileSceneGraph(
         instances,
         meshletWork: shadowWork,
         allocation: vsmAllocation!.allocation,
+        requested: vsmRequested!,
         meshletBounds: graph.import_resource(
           "shadow-meshlet-bounds",
           { kind: "imported" },

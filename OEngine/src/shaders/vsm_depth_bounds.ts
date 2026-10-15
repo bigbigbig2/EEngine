@@ -35,7 +35,7 @@ ${VSM_CASTER_DAMAGE_WGSL}
 struct BoundsConstants {
   light_view: mat4x4f,
   domain: vec4u, // instance begin/count, group count, reset snapshot/depth
-  control: vec4u, // invalidate MASK, Product header count
+  control: vec4u, // invalidate MASK, Product header count, rebuild depth range
 }
 struct CasterSnapshot {
   instance: OEngineInstanceRecord,
@@ -196,10 +196,12 @@ fn instance_bounds(@builtin(global_invocation_id) id: vec3u,
       snapshots[id.x] = CasterSnapshot(instance, stamp);
     }
   }
-  partial[lane] = bounds;
-  reduce(lane);
-  if (lane == 0u) {
-    scratch[group.x] = partial[0];
+  if (constants.control.z != 0u) {
+    partial[lane] = bounds;
+    reduce(lane);
+    if (lane == 0u) {
+      scratch[group.x] = partial[0];
+    }
   }
 }
 @compute @workgroup_size(64)

@@ -1,28 +1,33 @@
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import type { GeometryProductRevisionSourceV1 } from "../assets/geometry-product/GeometryProductV1.js";
-import { GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE, GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS, unpackGpuMeshletWorkQueueHeader, type GpuMeshletWorkQueueHeaderCpu } from "./GpuMeshletRasterWorkAbi.js";
+import {
+  GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE,
+  GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS,
+  unpackGpuMeshletWorkQueueHeader,
+  type GpuMeshletWorkQueueHeaderCpu
+} from "./GpuMeshletRasterWorkAbi.js";
 import {
   GpuGeometryDemandReadbackRingV1,
-  type GpuGeometryDemandReadbackRingOptionsV1,
+  type GpuGeometryDemandReadbackRingOptionsV1
 } from "./GeometryDemandReadbackRing.js";
 import {
   GeometryPageSchedulerV1,
   type GeometryPageSchedulerEvidenceV1,
   type GeometryPageSchedulerOptionsV1,
   type GeometryPageSchedulerPressureV1,
-  type GeometryPageSchedulerBudgetV1,
+  type GeometryPageSchedulerBudgetV1
 } from "./GeometryPageScheduler.js";
 import {
   GEOMETRY_PAGE_LOCATION_PINNED,
   VirtualGeometryResidency,
-  type VirtualGeometryResidencyEvidenceV1,
+  type VirtualGeometryResidencyEvidenceV1
 } from "./VirtualGeometryResidency.js";
 import {
   GEOMETRY_PAGE_DEMAND_FLAG_CURRENT_VIEW_MISSING,
   GEOMETRY_PAGE_DEMAND_FLAG_SHADOW,
   GEOMETRY_PAGE_DEMAND_FLAG_PREDICTIVE,
   GEOMETRY_PAGE_DEMAND_FLAG_RESIDENT_USAGE,
-  type GeometryPageDemandBatchV1,
+  type GeometryPageDemandBatchV1
 } from "./GeometryPageDemandAbiV1.js";
 
 export interface GeometryPageStreamingRuntimeOptionsV1 {
@@ -32,6 +37,8 @@ export interface GeometryPageStreamingRuntimeOptionsV1 {
   /** Bounded mapping publications committed per frame. Staged pages that exceed
    * it stay staged and are offered again by the next frame. */
   readonly publicationBatchPages?: number;
+  readonly publicationIntervalMs?: number;
+  readonly maxPublicationWaitMs?: number;
 }
 
 export interface GeometryPageStreamingPollEvidenceV1 {
@@ -41,10 +48,8 @@ export interface GeometryPageStreamingPollEvidenceV1 {
   readonly consumedReadbacks: number;
   readonly malformedReadbacks: number;
   readonly uploadedBytes: number;
-  /** Pages whose resident payload actually published in this poll. This is the
-   * denominator for VSM publication amplification; bytes alone cannot express it
-   * because slot payload size varies with page fill. */
-  readonly uploadedPages: number;
+  /** Payloads staged by this poll, not mapping publications. */
+  readonly stagedPages: number;
 }
 
 export interface GeometryPageStreamingRuntimeEvidenceV1 {
@@ -54,11 +59,23 @@ export interface GeometryPageStreamingRuntimeEvidenceV1 {
   readonly residency: VirtualGeometryResidencyEvidenceV1;
   readonly lastPoll: GeometryPageStreamingPollEvidenceV1 | null;
   readonly lastError: string | null;
-  readonly workStatus?: Readonly<{ frameIndex: number; shadow: boolean; header: Readonly<GpuMeshletWorkQueueHeaderCpu> }>;
+  readonly workStatus?: Readonly<{
+    frameIndex: number;
+    shadow: boolean;
+    header: Readonly<GpuMeshletWorkQueueHeaderCpu>;
+  }>;
   readonly products: readonly VirtualGeometryResidencyEvidenceV1[];
   /** Last revision observed by production consumers; sampling evidence must
    * not itself advance the source-publication identity. */
   readonly contentRevision: number;
+  readonly publication: Readonly<{
+    lastCommittedAtMs: number | null;
+    costScale: number;
+    costFrame: number;
+    dirtyPages: number;
+    selectedPages: number;
+    casterPairs: number;
+  }>;
   readonly feedback: Readonly<{
     mainFrame: number;
     mainComplete: boolean;
@@ -93,9 +110,16 @@ export class GeometryPageStreamingRuntimeV1 {
   #shadowFeedbackComplete = false;
   #lastShadowAttemptedFrame = -1;
   #destroyed = false;
-  /** Own submission fences. Retirement waits for these, never for the device queue. */
-  readonly #submissionFences = new Set<Promise<void>>();
   #publicationBatchPages: number;
+  readonly #publicationIntervalMs: number;
+  readonly #maxPublicationWaitMs: number;
+  #lastPublicationAt = -Infinity;
+  #costReadback: GpuGeometryDemandReadbackRingV1 | null = null;
+  #costScale = 1;
+  #costFrame = -1;
+  #dirtyPages = 0;
+  #selectedPages = 0;
+  #casterPairs = 0;
   #contentRevision = 0;
   readonly #observedContentRevisions = new Map<VirtualGeometryResidency, number>();
   readonly #observedPublicationStates = new Map<VirtualGeometryResidency, boolean>();
@@ -142,26 +166,36 @@ export class GeometryPageStreamingRuntimeV1 {
   constructor(
     device: GPUDevice,
     residency: VirtualGeometryResidency,
-    options: GeometryPageStreamingRuntimeOptionsV1 = {},
+    options: GeometryPageStreamingRuntimeOptionsV1 = {}
   ) {
     this.#device = device;
     this.#residency = residency;
-    const publicationBatchPages = options.publicationBatchPages ?? 8;
+    const publicationBatchPages = options.publicationBatchPages ?? 32;
     if (!Number.isInteger(publicationBatchPages) || publicationBatchPages < 1) {
       throw new RangeError("publicationBatchPages must be a positive integer");
     }
     this.#publicationBatchPages = publicationBatchPages;
+    this.#publicationIntervalMs = options.publicationIntervalMs ?? 50;
+    this.#maxPublicationWaitMs = options.maxPublicationWaitMs ?? 100;
+    if (
+      !Number.isFinite(this.#publicationIntervalMs) ||
+      this.#publicationIntervalMs < 0 ||
+      !Number.isFinite(this.#maxPublicationWaitMs) ||
+      this.#maxPublicationWaitMs < this.#publicationIntervalMs
+    ) {
+      throw new RangeError("Geometry publication timing is invalid");
+    }
     this.#scheduler =
       options.scheduler ??
       new GeometryPageSchedulerV1(
         options.schedulerOptions ?? {
           maxConcurrentReads: 2,
-          maxInFlightBytes: 4 * 1024 * 1024,
-        },
+          maxInFlightBytes: 4 * 1024 * 1024
+        }
       );
     this.#readback = new GpuGeometryDemandReadbackRingV1({
       device,
-      ...(options.readback ?? {}),
+      ...(options.readback ?? {})
     });
     // Cancel IO and mapping ownership at loss, not later during replay. Source
     // ownership remains with Product residency/checkpoint for recovery retries.
@@ -204,7 +238,7 @@ export class GeometryPageStreamingRuntimeV1 {
     }
     const registerSource = () => {
       this.#scheduler.registerProduct(residency.productTableSlot, generation, source, {
-        sourceOwnership: "external",
+        sourceOwnership: "external"
       });
     };
     // Validate IO budgets before publication, including dormant/candidate sources.
@@ -221,13 +255,14 @@ export class GeometryPageStreamingRuntimeV1 {
           return;
         }
         // Cancel reads and drop verified bytes before a source/slot can retire.
+        residency.releaseStagedPages(this.#scheduler.stagedPageIds(generation));
         this.#scheduler.unregisterProduct(generation);
         if (state === "destroyed") {
           this.#residencies.delete(generation);
           this.#publicationSubscriptions.get(generation)?.();
           this.#publicationSubscriptions.delete(generation);
         }
-      }),
+      })
     );
   }
 
@@ -237,15 +272,10 @@ export class GeometryPageStreamingRuntimeV1 {
   }
 
   /**
-   * Revokes mappings immediately, then releases their physical slots only
-   * after the caller-provided submission boundary completes. Device loss uses
-   * explicit teardown; a rejected completion never authorizes live slot reuse.
+   * Requests eviction. The next ordinary frame owns both mapping revocation
+   * and VSM damage, then its successful GPU fence authorizes slot reuse.
    */
-  async retirePages(
-    pageIds: readonly number[],
-    completion: PromiseLike<void>,
-    residency = this.#residency,
-  ): Promise<void> {
+  retirePages(pageIds: readonly number[], residency = this.#residency): void {
     this.assertAlive();
     const unique = [...new Set(pageIds)];
     for (const pageId of unique) {
@@ -261,15 +291,6 @@ export class GeometryPageStreamingRuntimeV1 {
         throw new Error(`Geometry page ${pageId} is pinned and cannot be evicted`);
       }
       residency.beginRetirePage(pageId);
-      this.#scheduler.markRetiring(residency.productGeneration, pageId);
-    }
-    await completion;
-    if (this.#destroyed) {
-      return;
-    }
-    for (const pageId of unique) {
-      residency.completeRetirePage(pageId);
-      this.#scheduler.markRetired(residency.productGeneration, pageId);
     }
   }
 
@@ -277,7 +298,7 @@ export class GeometryPageStreamingRuntimeV1 {
   encodeDemandReadback(
     command: ShadeGPUCommandContext,
     demandBuffer: GPUBuffer,
-    frameIndex: number,
+    frameIndex: number
   ): number | undefined {
     this.assertAlive();
     const slot = this.#readback.encode(command.gpu_encoder, demandBuffer, frameIndex);
@@ -294,13 +315,19 @@ export class GeometryPageStreamingRuntimeV1 {
     command: ShadeGPUCommandContext,
     work: GPUBuffer,
     frameIndex: number,
-    shadow = false,
+    shadow = false
   ): void {
     this.assertAlive();
     if (shadow) {
-      this.#shadowWorkReadback ??= new GpuGeometryDemandReadbackRingV1({ device: this.#device, bytesPerSlot: GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE });
+      this.#shadowWorkReadback ??= new GpuGeometryDemandReadbackRingV1({
+        device: this.#device,
+        bytesPerSlot: GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE
+      });
     } else {
-      this.#workReadback ??= new GpuGeometryDemandReadbackRingV1({ device: this.#device, bytesPerSlot: GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE });
+      this.#workReadback ??= new GpuGeometryDemandReadbackRingV1({
+        device: this.#device,
+        bytesPerSlot: GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE
+      });
     }
     const ring = (shadow ? this.#shadowWorkReadback : this.#workReadback)!;
     const slot = ring.encode(command.gpu_encoder, work, frameIndex, GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE);
@@ -314,14 +341,14 @@ export class GeometryPageStreamingRuntimeV1 {
   encodeShadowDemandReadback(
     command: ShadeGPUCommandContext,
     demandBuffer: GPUBuffer,
-    frameIndex: number,
+    frameIndex: number
   ): number | undefined {
     this.assertAlive();
     // A full ring drops a snapshot, not the fact that shadows still consume
     // resident pages. Keep incomplete shadow feedback protective under pressure.
     this.#lastShadowAttemptedFrame = Math.max(this.#lastShadowAttemptedFrame, frameIndex);
     this.#shadowReadback ??= new GpuGeometryDemandReadbackRingV1({
-      device: this.#device,
+      device: this.#device
     });
     const ring = this.#shadowReadback;
     const slot = ring.encode(command.gpu_encoder, demandBuffer, frameIndex);
@@ -333,52 +360,121 @@ export class GeometryPageStreamingRuntimeV1 {
   }
 
   /**
-   * Consumes only slots older than the supplied completed frame.  The caller
-   * must establish GPU completion (for example via a submission token) before
-   * invoking this method; it never waits for the current frame.
-   */
-  /**
    * Encodes this frame's bounded mapping publication. Staged pages become
    * resident only when the submission carrying their encoded copies succeeds, so
    * an aborted frame leaves them staged for the next attempt.
    */
-  preparePublication(command: ShadeGPUCommandContext): void {
+  preparePublication(command: ShadeGPUCommandContext, nowMs = performance.now()): number {
     this.assertAlive();
-    const batches = this.#scheduler.selectPublicationCandidates(this.#publicationBatchPages);
-    if (batches.length === 0) return;
-    const committing: Array<{
-      readonly productGeneration: number;
-      readonly residency: VirtualGeometryResidency;
-      readonly pageIds: readonly number[];
-    }> = [];
+    let directExpired = false;
+    this.forEachResidency((residency) => {
+      for (const page of residency.stagedPageIds) {
+        const stagedAt = residency.stagedAtMs(page);
+        if (stagedAt !== undefined && nowMs - stagedAt >= this.#maxPublicationWaitMs) {
+          directExpired = true;
+          break;
+        }
+      }
+    });
+    const opportunity =
+      directExpired ||
+      nowMs - this.#lastPublicationAt >= this.#publicationIntervalMs ||
+      this.#scheduler.publicationUrgent(nowMs, this.#maxPublicationWaitMs);
+    const batches = opportunity
+      ? this.#scheduler.selectPublicationCandidates(this.#publicationBatchPages, {
+          nowMs,
+          maxWaitMs: this.#maxPublicationWaitMs,
+          maxDamageUnits: Math.max(1, 64 * this.#costScale),
+          maxTriangleWork: Math.max(1, 2_000_000 * this.#costScale),
+          hint: (generation, pageId) => {
+            const residency = this.#residencies.get(generation);
+            if (!residency) throw new Error("Geometry publication source disappeared");
+            return residency.publicationHint(pageId);
+          }
+        })
+      : [];
+    const selected = new Map(batches.map((batch) => [batch.productGeneration, batch.pageIds]));
+    let directRemaining = opportunity ? this.#publicationBatchPages : 0;
     for (const batch of batches) {
-      const residency = this.#residencies.get(batch.productGeneration);
-      if (residency === undefined || !residency.publicationActive) {
-        residency?.releaseStagedPages(batch.pageIds);
-        this.#scheduler.releaseStaged(batch.productGeneration, batch.pageIds);
-        continue;
-      }
-      const encoded = residency.preparePublication(command, batch.pageIds);
-      if (encoded.length > 0) {
-        committing.push({
-          productGeneration: batch.productGeneration,
-          residency,
-          pageIds: encoded,
-        });
-      }
+      directRemaining -= batch.pageIds.length;
     }
-    if (committing.length === 0) return;
-    command.onFinished.addOne(() => {
-      for (const entry of committing) {
-        entry.residency.commitStagedPages(entry.pageIds);
-        this.#scheduler.commitPublication(entry.productGeneration, entry.pageIds);
+    let publishedPages = 0;
+    this.forEachResidency((residency) => {
+      if (!residency.publicationActive) {
+        return;
       }
-    });
-    command.onAborted?.addOne(() => {
-      for (const entry of committing) {
-        entry.residency.abortCandidatePublication();
+      const generation = residency.productGeneration;
+      const pages = [...(selected.get(generation) ?? [])];
+      // Direct public staging uses the same frame path as scheduled IO.
+      for (const page of residency.stagedPageIds) {
+        if (directRemaining <= 0) {
+          break;
+        }
+        if (this.#scheduler.state(generation, page) === "absent") {
+          pages.push(page);
+          directRemaining--;
+        }
       }
+      const encoded = residency.preparePublication(command, pages);
+      publishedPages += encoded.length;
+      const retiring = residency.candidateRetiringPageIds;
+      const scheduled = pages.filter(
+        (page) => encoded.includes(page) || residency.pageLocation(page) !== undefined
+      );
+      if (scheduled.length === 0 && retiring.length === 0) {
+        return;
+      }
+      command.onFinished.addOne(() => {
+        this.#scheduler.commitPublication(generation, scheduled);
+        for (const page of retiring) {
+          this.#scheduler.markRetiring(generation, page);
+        }
+        if (retiring.length > 0) {
+          void command.gpuDone.then(
+            () => {
+              if (this.#destroyed) {
+                return;
+              }
+              for (const page of retiring) {
+                this.#scheduler.markRetired(generation, page);
+              }
+            },
+            (error: unknown) => {
+              this.#lastError = String(error);
+            }
+          );
+        }
+      });
     });
+    if (publishedPages > 0) {
+      command.onFinished.addOne(() => {
+        this.#lastPublicationAt = nowMs;
+      });
+    }
+    return publishedPages;
+  }
+
+  /** Delayed workload calibration; never selects this frame's GPU work on CPU. */
+  encodePublicationCostReadback(
+    command: ShadeGPUCommandContext,
+    allocation: GPUBuffer,
+    casterPairs: GPUBuffer,
+    frameIndex: number
+  ): void {
+    if (frameIndex % 8 !== 0 || !this.#scheduler.preparingPages) return;
+    this.#costReadback ??= new GpuGeometryDemandReadbackRingV1({
+      device: this.#device,
+      bytesPerSlot: 40
+    });
+    const ring = this.#costReadback;
+    const slot = ring.encodeRegions(command.gpu_encoder, frameIndex, [
+      { source: allocation, sourceOffset: 0, byteLength: 8 },
+      { source: casterPairs, sourceOffset: 0, byteLength: 32 }
+    ]);
+    if (slot !== undefined) {
+      command.onFinished.addOne(() => ring.commit(slot));
+      command.onAborted.addOne(() => ring.cancel(slot));
+    }
   }
 
   async consumeCompleted(completedFrame: number, nowMs = 0): Promise<GeometryPageStreamingPollEvidenceV1> {
@@ -386,6 +482,26 @@ export class GeometryPageStreamingRuntimeV1 {
     // A frame completion is also the scheduler clock. This advances delayed
     // retries even when the GPU produced no new demand this frame.
     this.#scheduler.tick(nowMs);
+    if (this.#costReadback) {
+      const results = await this.#costReadback.poll(completedFrame);
+      if (this.#destroyed) return this.cancelledPoll(completedFrame);
+      for (const result of results) {
+        try {
+          const words = new Uint32Array(result.bytes);
+          this.#costFrame = result.frameIndex;
+          this.#dirtyPages = words[0]!;
+          this.#selectedPages = words[1]!;
+          this.#casterPairs = words[2]!;
+          const selected = Math.max(1, this.#selectedPages);
+          const load = Math.max(1, this.#dirtyPages / selected, this.#casterPairs / (selected * 4096));
+          const target = Math.max(0.125, 1 / Math.sqrt(load));
+          // Fast decrease, slow recovery. Missing samples retain the CPU model.
+          this.#costScale += (target - this.#costScale) * (target < this.#costScale ? 0.5 : 0.1);
+        } finally {
+          this.#costReadback.release(result.slotIndex);
+        }
+      }
+    }
     if (this.#workReadback) {
       await this.consumeWorkStatus(this.#workReadback, completedFrame, false);
     }
@@ -446,19 +562,19 @@ export class GeometryPageStreamingRuntimeV1 {
       }
       return residency;
     };
-    let uploadedPages = 0;
+    let stagedPages = 0;
     const sink = {
       uploadCost: (
         page: import("../assets/geometry-product/GeometryProductV1.js").GeometryPageProductV1,
-        identity: import("./GeometryPageDemandAbiV1.js").GeometryPageDemandV1,
+        identity: import("./GeometryPageDemandAbiV1.js").GeometryPageDemandV1
       ) => pageResidency(identity).uploadCost(page),
       stagePage: (
         page: import("../assets/geometry-product/GeometryProductV1.js").GeometryPageProductV1,
-        identity: import("./GeometryPageDemandAbiV1.js").GeometryPageDemandV1,
+        identity: import("./GeometryPageDemandAbiV1.js").GeometryPageDemandV1
       ) => {
         const staged = pageResidency(identity).tryStagePage(page);
         if (staged) {
-          uploadedPages++;
+          stagedPages++;
         }
         return staged;
       }
@@ -467,8 +583,8 @@ export class GeometryPageStreamingRuntimeV1 {
     const feedbackFrame = this.evictionFeedbackFrame();
     if (this.#scheduler.blockedUploads > 0 && feedbackFrame >= 0) {
       // This is a frame-between pump, never a current-frame control round trip.
-      // Revocation is enqueued before the real queue fence captures ALL submitted
-      // consumers, including newer frames than this delayed feedback.
+      // The next ordinary frame revokes mappings before its consumers run.
+      // Its completion fence also covers every earlier submitted consumer.
       const candidates: Array<{ residency: VirtualGeometryResidency; pages: readonly number[] }> = [];
       let evictionBytesRemaining = this.#scheduler.budget().maxUploadBytesPerFrame;
       for (const residency of this.#residencies.values()) {
@@ -483,34 +599,8 @@ export class GeometryPageStreamingRuntimeV1 {
           }
         }
       }
-      if (candidates.length > 0) {
-        const retired = candidates.map(({ residency, pages }) => {
-          for (const page of pages) {
-            residency.beginRetirePage(page);
-            this.#scheduler.markRetiring(residency.productGeneration, page);
-          }
-          return { residency, pages };
-        });
-        // Retire owner uses its own submission fence batch, never a whole-device
-        // queue wait: slot reuse only needs every consumer submission this owner
-        // issued before the revocation to have finished.
-        await this.awaitSubmittedConsumers();
-        if (this.#destroyed) {
-          return this.cancelledPoll(completedFrame);
-        }
-        for (const { residency, pages } of retired) {
-          if (this.#residencies.get(residency.productGeneration) !== residency) {
-            continue; // Whole-Product destruction already reclaimed these pages.
-          }
-          for (const page of pages) {
-            residency.completeRetirePage(page);
-            this.#scheduler.markRetired(residency.productGeneration, page);
-          }
-        }
-        uploadedBytes += this.#scheduler.drainStageBudget(
-          sink,
-          Math.max(0, this.#scheduler.budget().maxUploadBytesPerFrame - uploadedBytes),
-        );
+      for (const { residency, pages } of candidates) {
+        this.retirePages(pages, residency);
       }
     }
     this.#lastPoll = Object.freeze({
@@ -519,7 +609,7 @@ export class GeometryPageStreamingRuntimeV1 {
       consumedReadbacks,
       malformedReadbacks,
       uploadedBytes,
-      uploadedPages,
+      stagedPages
     });
     return this.#lastPoll;
   }
@@ -537,7 +627,11 @@ export class GeometryPageStreamingRuntimeV1 {
     return this.#mainFeedbackFrame;
   }
 
-  private async consumeWorkStatus(ring: GpuGeometryDemandReadbackRingV1, completedFrame: number, shadow: boolean): Promise<void> {
+  private async consumeWorkStatus(
+    ring: GpuGeometryDemandReadbackRingV1,
+    completedFrame: number,
+    shadow: boolean
+  ): Promise<void> {
     const statuses = await ring.poll(completedFrame);
     if (this.#destroyed) {
       return;
@@ -546,17 +640,26 @@ export class GeometryPageStreamingRuntimeV1 {
     for (const status of statuses) {
       try {
         const view = new DataView(status.bytes);
-        const failed = view.getUint32(GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS.overflowCount, true) !== 0 ||
+        const failed =
+          view.getUint32(GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS.overflowCount, true) !== 0 ||
           view.getUint32(GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS.invalidCount, true) !== 0;
         // Finalize zeros written_count on a rejected whole cut. Reservation
         // counters then describe failure, not the live-queue count relation.
         const header = failed
-          ? Object.freeze(Object.fromEntries(Object.entries(GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS)
-              .map(([name, offset]) => [name, view.getUint32(offset, true)]))) as Readonly<GpuMeshletWorkQueueHeaderCpu>
+          ? (Object.freeze(
+              Object.fromEntries(
+                Object.entries(GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS).map(([name, offset]) => [
+                  name,
+                  view.getUint32(offset, true)
+                ])
+              )
+            ) as Readonly<GpuMeshletWorkQueueHeaderCpu>)
           : unpackGpuMeshletWorkQueueHeader(new Uint8Array(status.bytes));
         this.#workStatus = Object.freeze({ frameIndex: status.frameIndex, shadow, header });
         if (failed) {
-          failure ??= new Error(`${shadow ? "Shadow" : "Main"} MeshletWork frame ${status.frameIndex} rejected: attempted=${header.attemptedCount}, capacity=${header.capacity}, overflow=${header.overflowCount}, invalid=${header.invalidCount}`);
+          failure ??= new Error(
+            `${shadow ? "Shadow" : "Main"} MeshletWork frame ${status.frameIndex} rejected: attempted=${header.attemptedCount}, capacity=${header.capacity}, overflow=${header.overflowCount}, invalid=${header.invalidCount}`
+          );
         }
       } catch (error) {
         failure ??= error instanceof Error ? error : new Error(String(error));
@@ -603,12 +706,11 @@ export class GeometryPageStreamingRuntimeV1 {
   async consumeAfterCompletion(
     frameIndex: number,
     completion: PromiseLike<void>,
-    nowMs = 0,
+    nowMs = 0
   ): Promise<GeometryPageStreamingPollEvidenceV1> {
     if (!Number.isSafeInteger(frameIndex) || frameIndex < 0) {
       throw new RangeError("Geometry page streaming frame index must be non-negative");
     }
-    this.trackSubmission(completion);
     try {
       await completion;
     } catch (error) {
@@ -620,7 +722,7 @@ export class GeometryPageStreamingRuntimeV1 {
     if (this.#destroyed) return this.cancelledPoll(frameIndex + 1);
     const poll = this.#pollTail
       .then(() =>
-        this.#destroyed ? this.cancelledPoll(frameIndex + 1) : this.consumeCompleted(frameIndex + 1, nowMs),
+        this.#destroyed ? this.cancelledPoll(frameIndex + 1) : this.consumeCompleted(frameIndex + 1, nowMs)
       )
       .catch((error) => {
         if (this.#destroyed) {
@@ -634,22 +736,6 @@ export class GeometryPageStreamingRuntimeV1 {
     return poll;
   }
 
-  /** Records one of this owner's submissions so retirement can wait on exactly
-   * its own consumers instead of the whole device queue. */
-  private trackSubmission(completion: PromiseLike<void>): void {
-    const fence = Promise.resolve(completion).then(
-      () => undefined,
-      () => undefined,
-    );
-    this.#submissionFences.add(fence);
-    void fence.then(() => this.#submissionFences.delete(fence));
-  }
-
-  private async awaitSubmittedConsumers(): Promise<void> {
-    if (this.#submissionFences.size === 0) return;
-    await Promise.all([...this.#submissionFences]);
-  }
-
   private cancelledPoll(completedFrame: number): GeometryPageStreamingPollEvidenceV1 {
     return Object.freeze({
       completedFrame,
@@ -658,7 +744,7 @@ export class GeometryPageStreamingRuntimeV1 {
       consumedReadbacks: 0,
       malformedReadbacks: 0,
       uploadedBytes: 0,
-      uploadedPages: 0,
+      stagedPages: 0
     });
   }
 
@@ -678,14 +764,22 @@ export class GeometryPageStreamingRuntimeV1 {
       ...(this.#workStatus === undefined ? {} : { workStatus: this.#workStatus }),
       products: Object.freeze([...this.#residencies.values()].map((residency) => residency.evidence())),
       contentRevision: this.#contentRevision,
+      publication: Object.freeze({
+        lastCommittedAtMs: Number.isFinite(this.#lastPublicationAt) ? this.#lastPublicationAt : null,
+        costScale: this.#costScale,
+        costFrame: this.#costFrame,
+        dirtyPages: this.#dirtyPages,
+        selectedPages: this.#selectedPages,
+        casterPairs: this.#casterPairs
+      }),
       feedback: Object.freeze({
         mainFrame: this.#mainFeedbackFrame,
         mainComplete: this.#mainFeedbackComplete,
         shadowFrame: this.#shadowFeedbackFrame,
         shadowComplete: this.#shadowFeedbackComplete,
         lastShadowAttemptedFrame: this.#lastShadowAttemptedFrame,
-        evictionSafeFrame: this.evictionFeedbackFrame(),
-      }),
+        evictionSafeFrame: this.evictionFeedbackFrame()
+      })
     });
   }
 
@@ -696,7 +790,10 @@ export class GeometryPageStreamingRuntimeV1 {
     // generation before dropping the readback rings so pending reads cannot
     // publish pages against a lost/released residency, including callers that
     // supplied an external scheduler.
-    for (const generation of this.#residencies.keys()) this.#scheduler.unregisterProduct(generation);
+    for (const [generation, residency] of this.#residencies) {
+      residency.releaseStagedPages(this.#scheduler.stagedPageIds(generation));
+      this.#scheduler.unregisterProduct(generation);
+    }
     for (const unsubscribe of this.#publicationSubscriptions.values()) {
       unsubscribe();
     }
@@ -708,6 +805,7 @@ export class GeometryPageStreamingRuntimeV1 {
     this.#shadowReadback?.destroy();
     this.#workReadback?.destroy();
     this.#shadowWorkReadback?.destroy();
+    this.#costReadback?.destroy();
   }
 
   private assertAlive(): void {
