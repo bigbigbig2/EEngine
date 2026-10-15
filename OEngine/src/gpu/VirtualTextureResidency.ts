@@ -1,0 +1,934 @@
+import type { TiledTextureSource } from "../assets/TiledTextureSource.js";
+import type { TiledTexturePayloadLease } from "../assets/codec/CookedAssetPreparation.js";
+import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
+import type { GraphicsContext } from "./GraphicsContext.js";
+import {
+  MeshletRangeAllocator,
+  type MeshletRangeAllocation,
+  INVALID_MESHLET_ALLOCATION
+} from "./MeshletRangeAllocator.js";
+import {
+  virtualTextureSettings,
+  VT_ATLAS_SIZE,
+  VT_PAGE_CAPACITY,
+  VT_TABLE_WIDTH,
+  VT_MISSING,
+  type VirtualTextureSettings,
+  type VirtualTextureRoute,
+  type VirtualTextureMipRoute
+} from "./VirtualTextureAbi.js";
+import { VirtualTextureFeedback, type VirtualTextureObservation } from "./VirtualTextureFeedback.js";
+import type { ResourceHandle } from "../debug/profiling/ResourceAccounting.js";
+
+interface Pool {
+  readonly texture: GPUTexture;
+  readonly view: GPUTextureView;
+  readonly free: number[];
+  readonly generations: Uint32Array;
+  readonly owners: Map<number, Page>;
+  readonly bytes: number;
+  pinned: number;
+}
+interface Source {
+  readonly source: TiledTextureSource;
+  readonly generation: number;
+  readonly allocation: MeshletRangeAllocation;
+  readonly pages: readonly Page[];
+  readonly routes: ReadonlyMap<number, VirtualTextureRoute>;
+  readonly cpuBytes: number;
+  live: boolean;
+  bootstrap: Promise<void> | null;
+}
+interface Batch {
+  readonly controller: AbortController;
+  readonly pages: Page[];
+  lease: TiledTexturePayloadLease | null;
+  remaining: number;
+}
+interface Page {
+  readonly id: number;
+  readonly payload: number;
+  readonly source: Source;
+  readonly profile: number;
+  readonly level: number;
+  readonly x: number;
+  readonly y: number;
+  readonly pool: Pool;
+  readonly pinned: boolean;
+  readonly parents: number[];
+  refs: number;
+  slot: number;
+  generation: number;
+  lastUsed: number;
+  pending?: Batch;
+  ready?: ArrayBuffer;
+  attempts: number;
+  reserved?: { slot: number; generation: number };
+  everResident: boolean;
+}
+interface Upload {
+  readonly page: Page;
+  readonly slot: number;
+  readonly generation: number;
+  readonly victim?: Page;
+}
+
+/** Intel 714e144d (MIT), StreamingResourceBase::{SetMinMip,AddTileRef,
+ * DecTileRef,ProcessFeedback,AbandonPendingLoads,QueuePendingTileEvictions}
+ * and EvictionDelay::Rescue adapted to WebGPU's one queue and software atlas.
+ * Desired references, pending loads, physical residency and delayed eviction
+ * remain distinct. NPOT parents are exact normalized-coverage intersections.
+ * Source and notices: tests/oracle/reference/vt/. No hardware sparse mappings. */
+export class VirtualTextureResidency {
+  readonly settings: VirtualTextureSettings;
+  readonly table: GPUTexture;
+  readonly tableView: GPUTextureView;
+  readonly feedback: VirtualTextureFeedback<readonly (Page | undefined)[]>;
+  readonly ready: Promise<void>;
+  private readonly allocator = new MeshletRangeAllocator(VT_PAGE_CAPACITY, 8192);
+  private readonly sources = new Map<TiledTextureSource, Source>();
+  private readonly pools = new Map<GPUTextureFormat, Pool>();
+  private snapshot: (Page | undefined)[] = [];
+  private snapshotShared = false;
+  private routeBytes = 0;
+  private cpuBytes = 0;
+  private readonly desired = new Set<Page>();
+  private readonly admitted = new Set<Page>();
+  private readonly resident = new Set<Page>();
+  private readonly readyPages = new Set<Page>();
+  private readonly batches = new Set<Batch>();
+  private generation = 0;
+  private stopped = false;
+  private lastFrame = -1;
+  private view = 0;
+  private viewKey = "";
+  private observedFrame = -1;
+  private observedView = -1;
+  private lastPublication = -1;
+  private uploadedBytes = 0;
+  private physicalCopyBytes = 0;
+  private stagingBytes = 0;
+  private stagingPeak = 0;
+  private residencyRevision = 1;
+  private evictions = 0;
+  private reloads = 0;
+  private rescued = 0;
+  private limited = false;
+  private failure: string | null = null;
+  private feedbackBuffer: GPUBuffer;
+  private encoded: ShadeGPUCommandContext | null = null;
+  private readonly accounting: ResourceHandle[] = [];
+  private lastDemand = { wanted: 0, used: 0, missing: 0, targetMip: [-1, -1], actualMip: [-1, -1] };
+  private receiptBytes = 0;
+
+  constructor(
+    private readonly graphics: GraphicsContext,
+    settings?: Partial<VirtualTextureSettings>
+  ) {
+    this.settings = virtualTextureSettings(settings);
+    const device = graphics.device;
+    if (
+      !device.features.has("texture-compression-bc") ||
+      device.limits.maxTextureDimension2D < VT_ATLAS_SIZE ||
+      device.limits.maxStorageBuffersPerShaderStage < 16 ||
+      this.settings.metadataBytes < VT_PAGE_CAPACITY * 8
+    ) {
+      throw new RangeError("VT requires BC, a 2304px atlas, 16 storage bindings and complete page metadata");
+    }
+    this.table = device.createTexture({
+      label: "VT/integer page table",
+      size: [VT_TABLE_WIDTH, VT_PAGE_CAPACITY / VT_TABLE_WIDTH, 1],
+      format: "rg32uint",
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
+    });
+    this.tableView = this.table.createView({ dimension: "2d-array" });
+    this.account(this.table, VT_PAGE_CAPACITY * 8);
+    // New, unpublished object only. Later validity changes are encoder copies.
+    const initial = new Uint32Array(VT_PAGE_CAPACITY * 2);
+    for (let i = 0; i < VT_PAGE_CAPACITY; i++) initial[i * 2] = VT_MISSING;
+    device.queue.writeTexture(
+      { texture: this.table },
+      initial,
+      { bytesPerRow: VT_TABLE_WIDTH * 8, rowsPerImage: VT_PAGE_CAPACITY / VT_TABLE_WIDTH },
+      [VT_TABLE_WIDTH, VT_PAGE_CAPACITY / VT_TABLE_WIDTH, 1]
+    );
+    this.feedback = new VirtualTextureFeedback(
+      device,
+      (observation) => this.observe(observation),
+      (error) => this.fail(error),
+      graphics.resource_accounting
+    );
+    this.feedbackBuffer = this.feedback.disabled;
+    this.ready = this.feedback.ready;
+    void device.lost.then(() => this.destroy());
+  }
+  get sourceCount(): number {
+    return this.sources.size;
+  }
+  private account(texture: GPUTexture, bytes: number): void {
+    const handle = this.graphics.resource_accounting?.created(
+      {
+        kind: "texture",
+        category: "resident",
+        owner: "VirtualTextureResidency",
+        bytes,
+        label: texture.label
+      },
+      texture
+    );
+    if (handle) {
+      this.accounting.push(handle);
+    }
+  }
+
+  /** Cold source publication. Every profile has independent border identity;
+   * the allocator provides contiguous mip domains without truncating IDs. */
+  stage(
+    source: TiledTextureSource,
+    command: ShadeGPUCommandContext
+  ): ReadonlyMap<number, VirtualTextureRoute> {
+    const known = this.sources.get(source);
+    if (known) return known.routes;
+    const profiles = source.directory.metadata.planes;
+    const count = profiles.reduce(
+      (n, p) =>
+        n +
+        (p.mode === "virtual"
+          ? p.mips.slice(0, p.tailFirst).reduce((s, mip) => s + mip.payloads.length, 0) + 1
+          : 0),
+      0
+    );
+    const routeBytes = profiles.reduce((n, p) => n + (p.mode === "virtual" ? p.mips.length * 7 * 4 : 0), 0);
+    // Include records, parent arrays, membership sets and in-flight snapshots.
+    // Directory parsing is separately admitted by the provider.
+    const cpuBytes = profiles.reduce(
+      (bytes, profile) =>
+        bytes +
+        (profile.mode === "virtual"
+          ? profile.mips
+              .slice(0, profile.tailFirst)
+              .reduce(
+                (sum, mip) => sum + mip.payloads.length * (320 + 32 * (profile.tailFirst - mip.level)),
+                320
+              )
+          : 0),
+      routeBytes * 4
+    );
+    if (
+      this.stopped ||
+      count < 1 ||
+      this.generation >= 0xffffffff ||
+      VT_PAGE_CAPACITY * 8 + this.routeBytes + routeBytes > this.settings.metadataBytes ||
+      this.cpuBytes + cpuBytes > 128 * 1024 ** 2
+    ) {
+      throw new RangeError("VT source/metadata identity capacity exceeded");
+    }
+    const allocation = this.allocator.allocate(count);
+    if (allocation.offset === INVALID_MESHLET_ALLOCATION)
+      throw new RangeError("VT virtual page capacity exhausted");
+    const pages: Page[] = [];
+    const routes = new Map<number, VirtualTextureRoute>();
+    const record: Source = {
+      source,
+      generation: ++this.generation,
+      allocation,
+      pages,
+      routes,
+      cpuBytes,
+      live: true,
+      bootstrap: null
+    };
+    let next = allocation.offset;
+    try {
+      for (const [index, profile] of profiles.entries()) {
+        if (profile.mode !== "virtual") continue;
+        const pool = this.pool(source.metadata.planes[profile.sourcePlane]!.format);
+        const mips: VirtualTextureMipRoute[] = [];
+        let tail = -1;
+        for (const mip of profile.mips) {
+          if (mip.level >= profile.tailFirst && tail >= 0) {
+            mips.push({
+              width: mip.width,
+              height: mip.height,
+              gridWidth: 1,
+              base: tail,
+              origin: mip.tailOrigin!
+            });
+            continue;
+          }
+          const base = next;
+          const pinned = mip.level === profile.tailFirst;
+          if (pinned) tail = base;
+          for (const [tile, payload] of mip.payloads.entries()) {
+            const page: Page = {
+              id: next++,
+              payload,
+              source: record,
+              profile: index,
+              level: mip.level,
+              x: tile % mip.gridWidth,
+              y: Math.floor(tile / mip.gridWidth),
+              pool,
+              pinned,
+              parents: [],
+              refs: 0,
+              slot: VT_MISSING,
+              generation: 0,
+              lastUsed: -1,
+              attempts: 0,
+              everResident: false
+            };
+            pages.push(page);
+          }
+          mips.push({
+            width: mip.width,
+            height: mip.height,
+            gridWidth: mip.gridWidth,
+            base,
+            origin: mip.tailOrigin ?? [0, 0]
+          });
+        }
+        routes.set(
+          index,
+          Object.freeze({
+            table: this.table,
+            tableView: this.tableView,
+            atlas: pool.texture,
+            atlasView: pool.view,
+            tailFirst: profile.tailFirst,
+            mips: Object.freeze(mips)
+          })
+        );
+      }
+      for (const page of pages) {
+        if (page.pinned) continue;
+        const route = routes.get(page.profile)!;
+        const fine = route.mips[page.level]!;
+        // A fine NPOT tile can overlap several coarse tiles. Keep every
+        // intersected parent, not simply x/y >> 1.
+        for (let level = page.level + 1; level <= route.tailFirst; level++) {
+          const coarse = route.mips[level]!;
+          if (level === route.tailFirst) {
+            page.parents.push(coarse.base);
+            continue;
+          }
+          const x0 = Math.floor((((page.x * 128) / fine.width) * coarse.width) / 128);
+          const y0 = Math.floor((((page.y * 128) / fine.height) * coarse.height) / 128);
+          const x1 = Math.min(
+            coarse.gridWidth,
+            Math.ceil(((Math.min((page.x + 1) * 128, fine.width) / fine.width) * coarse.width) / 128)
+          );
+          const y1 = Math.min(
+            Math.ceil(coarse.height / 128),
+            Math.ceil(((Math.min((page.y + 1) * 128, fine.height) / fine.height) * coarse.height) / 128)
+          );
+          for (let y = y0; y < y1; y++)
+            for (let x = x0; x < x1; x++) {
+              page.parents.push(coarse.base + y * coarse.gridWidth + x);
+            }
+        }
+      }
+      // Reserve all pinned slots before initiating IO.
+      for (const page of pages) {
+        if (!page.pinned) {
+          continue;
+        }
+        const slot = page.pool.free.pop();
+        if (slot === undefined) {
+          throw new RangeError("VT protected tails exceed physical pool capacity");
+        }
+        page.reserved = { slot, generation: 0 };
+        page.reserved.generation = this.nextGeneration(page.pool, slot);
+      }
+      this.invalidateRange(allocation.offset, count, command);
+      this.sources.set(source, record);
+      this.writeSnapshot();
+      for (const page of pages) {
+        this.snapshot[page.id] = page;
+        if (page.pinned) {
+          page.pool.pinned++;
+        }
+      }
+      this.routeBytes += routeBytes;
+      this.cpuBytes += cpuBytes;
+      command.onAborted.addOne(() => this.remove(record));
+      return routes;
+    } catch (error) {
+      for (const page of pages) {
+        if (page.reserved) {
+          page.pool.free.push(page.reserved.slot);
+        }
+      }
+      this.allocator.free(allocation);
+      throw error;
+    }
+  }
+
+  private writeSnapshot(): void {
+    // Copy only when a frame has actually retained this identity domain. Cold
+    // staging of hundreds of sources must not copy the growing page array for
+    // every texture. Delayed observations keep their original page objects.
+    if (this.snapshotShared) {
+      this.snapshot = this.snapshot.slice();
+      this.snapshotShared = false;
+    }
+  }
+
+  async bootstrap(source: TiledTextureSource, command: ShadeGPUCommandContext): Promise<void> {
+    const record = this.sources.get(source);
+    if (!record) return;
+    if (record.bootstrap) return record.bootstrap;
+    record.bootstrap = (async () => {
+      await this.ready;
+      const abort = new AbortController();
+      command.onAborted.addOne(() => abort.abort());
+      for (const page of record.pages) {
+        if (!page.pinned) continue;
+        const { slot, generation } = page.reserved!;
+        const lease = await source.read([page.payload], abort.signal, 0);
+        try {
+          if (!record.live || command.closed || this.stopped) throw new Error("VT bootstrap was cancelled");
+          this.copyTile(page, slot, lease.payloads[0]!.bytes, command);
+          this.copyMapping(page.id, slot, generation, command);
+          command.onFinished.addOne(() => {
+            page.reserved = undefined;
+            this.publish({ page, slot, generation }, -1);
+          });
+        } finally {
+          lease.release();
+        }
+      }
+    })();
+    return record.bootstrap;
+  }
+
+  /** Called before graph execution. The graph imports these exact objects and
+   * encodes upload -> Surface -> feedback on its normal command transaction. */
+  prepareFrame(command: ShadeGPUCommandContext, frame: number, key: string): void {
+    if (this.failure) throw new Error(this.failure);
+    if (this.encoded || this.stopped) throw new Error("VT has an unfinished frame");
+    if (key !== this.viewKey) {
+      this.viewKey = key;
+      this.view++;
+      this.limited = false;
+    }
+    this.encoded = command;
+    this.lastFrame = frame;
+    this.snapshotShared = true;
+    this.feedbackBuffer = this.feedback.begin(command, frame, this.view, this.snapshot, this.snapshot.length);
+    command.onAborted.addOne(() => {
+      this.encoded = null;
+    });
+    command.onFinished.addOne(() => {
+      this.encoded = null;
+    });
+    this.pump();
+  }
+  get frameFeedback(): GPUBuffer {
+    return this.feedbackBuffer;
+  }
+  get resources(): readonly GPUTexture[] {
+    return [this.table, ...[...this.pools.values()].map((pool) => pool.texture)];
+  }
+
+  encodeUploads(command: ShadeGPUCommandContext): void {
+    if (this.encoded !== command) throw new Error("VT upload belongs to another frame");
+    const selected: Upload[] = [];
+    // Install rollback before reserving slots or encoding any copy. A staging
+    // allocation/copy failure midway through the loop must still be abortable.
+    command.onAborted.addOne(() => {
+      for (const upload of selected) if (!upload.victim) upload.page.pool.free.push(upload.slot);
+    });
+    const victims = new Map<Pool, Page[]>();
+    for (const pool of this.pools.values()) {
+      const candidates: Page[] = [];
+      for (const page of pool.owners.values()) {
+        if (
+          !page.pinned &&
+          !this.admitted.has(page) &&
+          page.lastUsed < this.observedFrame - 2 &&
+          this.observedView === this.view
+        ) {
+          candidates.push(page);
+        }
+      }
+      candidates.sort((a, b) => b.lastUsed - a.lastUsed);
+      victims.set(pool, candidates);
+    }
+    let bytes = 0;
+    for (const page of this.readyPages) {
+      if (!page.source.live || !this.admitted.has(page)) {
+        this.discard(page);
+        continue;
+      }
+      const rowBytes = page.pool.texture.format === "bc4-r-unorm" ? 36 * 8 : 36 * 16;
+      // Include both a possible victim invalidation and the new publication.
+      const cost = Math.ceil(rowBytes / 256) * 256 * 36 + 512;
+      if (
+        selected.length >= Math.floor(this.settings.copies / 3) ||
+        bytes + cost > this.settings.uploadBytes ||
+        this.stagingBytes + cost > 16 * 1024 ** 2
+      )
+        break;
+      let slot = page.pool.free.pop();
+      let victim: Page | undefined;
+      if (slot === undefined) {
+        // Desired pages and recent usage are protected. Queue order ensures all
+        // prior GPU readers precede invalidation/overwrite in this command.
+        victim = victims.get(page.pool)?.pop();
+        if (!victim) {
+          this.limited = true;
+          continue;
+        }
+        slot = victim.slot;
+      }
+      const upload = { page, slot, generation: 0, victim };
+      selected.push(upload);
+      const generation = this.nextGeneration(page.pool, slot);
+      upload.generation = generation;
+      bytes += cost;
+      if (victim) this.copyMapping(victim.id, VT_MISSING, 0, command);
+      this.copyTile(page, slot, page.ready!, command);
+      this.copyMapping(page.id, slot, generation, command);
+    }
+    command.onFinished.addOne(() => {
+      for (const upload of selected) {
+        if (upload.victim) {
+          upload.victim.slot = VT_MISSING;
+          upload.victim.generation = 0;
+          this.resident.delete(upload.victim);
+          this.evictions++;
+        }
+        this.publish(upload, this.lastFrame);
+        this.discard(upload.page);
+      }
+      if (selected.length) {
+        this.lastPublication = this.lastFrame;
+        this.residencyRevision++;
+      }
+      this.pump();
+    });
+  }
+  finishFeedback(command: ShadeGPUCommandContext): void {
+    this.feedback.end(command);
+  }
+
+  private publish(upload: Upload, frame: number): void {
+    const { page, slot, generation } = upload;
+    page.slot = slot;
+    page.generation = generation;
+    page.lastUsed = Math.max(page.lastUsed, frame);
+    page.pool.owners.set(slot, page);
+    this.resident.add(page);
+    if (page.everResident) {
+      this.reloads++;
+    }
+    page.everResident = true;
+    page.attempts = 0;
+  }
+  private observe(value: VirtualTextureObservation<readonly (Page | undefined)[]>): void {
+    if (this.stopped) return;
+    for (const id of value.used) {
+      const page = value.snapshot[id];
+      if (page?.source.live) page.lastUsed = Math.max(page.lastUsed, value.frame);
+    }
+    if (value.frame <= this.observedFrame || value.view !== this.view) return;
+    this.observedFrame = value.frame;
+    this.observedView = value.view;
+    const mipRange = (ids: readonly number[]) => {
+      let min = Infinity,
+        max = -1;
+      for (const id of ids) {
+        const page = value.snapshot[id];
+        if (page?.source.live) {
+          min = Math.min(min, page.level);
+          max = Math.max(max, page.level);
+        }
+      }
+      return [Number.isFinite(min) ? min : -1, max];
+    };
+    this.lastDemand = {
+      wanted: value.wanted.length,
+      used: value.used.length,
+      missing: value.wanted.reduce((n, id) => n + (value.snapshot[id]?.slot === VT_MISSING ? 1 : 0), 0),
+      targetMip: mipRange(value.wanted),
+      actualMip: mipRange(value.used)
+    };
+    const refs = new Map<Page, number>();
+    for (const id of value.wanted) {
+      const page = value.snapshot[id];
+      if (!page?.source.live || this.snapshot[id] !== page) continue;
+      refs.set(page, (refs.get(page) ?? 0) + 1);
+      for (const parentId of page.parents) {
+        const parent = value.snapshot[parentId]!;
+        refs.set(parent, (refs.get(parent) ?? 0) + 1);
+      }
+    }
+    for (const page of this.desired) {
+      if (!refs.has(page)) {
+        page.refs = 0;
+        this.desired.delete(page);
+        this.discard(page);
+      }
+    }
+    for (const [page, count] of refs) {
+      if (page.refs === 0 && page.slot !== VT_MISSING) this.rescued++;
+      page.refs = count;
+      this.desired.add(page);
+    }
+    this.admitted.clear();
+    const capacity = new Map<Pool, number>();
+    for (const pool of this.pools.values()) {
+      capacity.set(pool, pool.generations.length - pool.pinned);
+    }
+    const priority = [...this.desired]
+      .filter((page) => !page.pinned)
+      .sort((a, b) => b.level - a.level || a.id - b.id);
+    this.limited = false;
+    for (const page of priority) {
+      const left = capacity.get(page.pool)!;
+      if (left > 0) {
+        this.admitted.add(page);
+        capacity.set(page.pool, left - 1);
+      } else {
+        this.limited = true;
+        this.discard(page);
+      }
+    }
+    // Abandon only an entirely unwanted IO batch; retained pages rescue it.
+    for (const batch of this.batches) {
+      if (!batch.pages.some((page) => page.pending === batch && this.admitted.has(page) && page.source.live))
+        batch.controller.abort();
+    }
+    this.pump();
+  }
+  private pump(): void {
+    if (this.stopped || this.failure) return;
+    const pending = [...this.admitted]
+      .filter(
+        (page) => !page.pinned && page.source.live && page.slot === VT_MISSING && !page.pending && !page.ready
+      )
+      .sort((a, b) => b.level - a.level || a.id - b.id);
+    while (this.batches.size < 4 && pending.length) {
+      const first = pending.shift()!;
+      const pages = [first];
+      for (let i = 0; i < pending.length && pages.length < 32;) {
+        if (pending[i]!.source === first.source) pages.push(pending.splice(i, 1)[0]!);
+        else i++;
+      }
+      const batch: Batch = { controller: new AbortController(), pages, lease: null, remaining: pages.length };
+      this.batches.add(batch);
+      for (const page of pages) page.pending = batch;
+      void first.source.source
+        .read(
+          pages.map((page) => page.payload),
+          batch.controller.signal
+        )
+        .then((lease) => {
+          if (!this.batches.has(batch) || this.stopped || batch.controller.signal.aborted) {
+            lease.release();
+            for (const page of pages) {
+              if (page.pending === batch) {
+                this.discard(page);
+              }
+            }
+            return;
+          }
+          batch.lease = lease;
+          this.receiptBytes += lease.payloads.reduce((n, payload) => n + payload.bytes.byteLength, 0);
+          for (const [index, page] of pages.entries()) {
+            if (!page.source.live || !this.admitted.has(page) || page.pending !== batch) {
+              if (page.pending === batch) {
+                this.discard(page);
+              }
+            } else {
+              page.ready = lease.payloads[index]!.bytes;
+              this.readyPages.add(page);
+            }
+          }
+        })
+        .catch((error: unknown) => {
+          for (const page of pages) {
+            if (page.pending === batch) page.pending = undefined;
+            if (!batch.controller.signal.aborted && page.source.live && ++page.attempts >= 3)
+              this.fail(error);
+          }
+          this.batches.delete(batch);
+        });
+    }
+  }
+  private discard(page: Page): void {
+    const batch = page.pending;
+    page.ready = undefined;
+    page.pending = undefined;
+    this.readyPages.delete(page);
+    if (batch && --batch.remaining === 0) {
+      if (!batch.lease) {
+        batch.controller.abort();
+      }
+      batch.lease?.release();
+      this.batches.delete(batch);
+    }
+  }
+  async release(source: TiledTextureSource, completion: Promise<void>): Promise<void> {
+    const record = this.sources.get(source);
+    if (!record) return;
+    record.live = false;
+    for (const batch of this.batches) {
+      if (batch.pages[0]?.source === record) {
+        batch.controller.abort();
+      }
+    }
+    await completion;
+    this.remove(record);
+  }
+  /** Caller has already awaited the last consumer fence. Synchronous removal
+   * permits immediate reacquisition without returning a retiring source. */
+  releaseCompleted(source: TiledTextureSource): void {
+    const record = this.sources.get(source);
+    if (record) {
+      this.remove(record);
+    }
+  }
+  private remove(record: Source): void {
+    if (this.sources.get(record.source) !== record) return;
+    record.live = false;
+    for (const batch of this.batches) {
+      if (batch.pages[0]?.source === record) {
+        batch.controller.abort();
+      }
+    }
+    for (const page of record.pages) {
+      if (page.pinned) {
+        page.pool.pinned--;
+      }
+      this.desired.delete(page);
+      this.admitted.delete(page);
+      this.discard(page);
+      this.resident.delete(page);
+      if (page.slot !== VT_MISSING) {
+        page.pool.owners.delete(page.slot);
+        page.pool.free.push(page.slot);
+      }
+      if (page.reserved) {
+        page.pool.free.push(page.reserved.slot);
+        page.reserved = undefined;
+      }
+    }
+    this.sources.delete(record.source);
+    this.cpuBytes -= record.cpuBytes;
+    this.allocator.free(record.allocation);
+    // Keep old snapshot objects alive for delayed feedback identity checks.
+    this.routeBytes -= [...record.routes.values()].reduce(
+      (bytes, route) => bytes + route.mips.length * 7 * 4,
+      0
+    );
+    this.writeSnapshot();
+    for (const page of record.pages) this.snapshot[page.id] = undefined;
+  }
+  private pool(format: GPUTextureFormat): Pool {
+    const prior = this.pools.get(format);
+    if (prior) return prior;
+    const scalar = format === "bc4-r-unorm";
+    const bytesPerLayer = 16 * 16 * 36 * 36 * (scalar ? 8 : 16);
+    const budget = scalar
+      ? this.settings.scalarBytes
+      : format.endsWith("srgb")
+        ? this.settings.colorBytes
+        : this.settings.linearBytes;
+    const layers = Math.min(
+      Math.floor(budget / bytesPerLayer),
+      this.graphics.device.limits.maxTextureArrayLayers
+    );
+    if (layers < 1) throw new RangeError("VT physical format budget cannot hold one atlas layer");
+    const texture = this.graphics.device.createTexture({
+      label: `VT/${format} atlas`,
+      size: [VT_ATLAS_SIZE, VT_ATLAS_SIZE, layers],
+      format,
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
+    });
+    const capacity = layers * 256;
+    const pool: Pool = {
+      texture,
+      view: texture.createView({ dimension: "2d-array" }),
+      free: Array.from({ length: capacity }, (_, i) => capacity - i - 1),
+      generations: new Uint32Array(capacity),
+      owners: new Map(),
+      bytes: bytesPerLayer * layers,
+      pinned: 0
+    };
+    this.pools.set(format, pool);
+    this.account(texture, pool.bytes);
+    return pool;
+  }
+  private nextGeneration(pool: Pool, slot: number): number {
+    const value = pool.generations[slot]!;
+    if (value === 0xffffffff)
+      throw new RangeError("VT physical generation exhausted; rebuild after epoch retirement");
+    return (pool.generations[slot] = value + 1);
+  }
+  private staging(command: ShadeGPUCommandContext, size: number): GPUBuffer {
+    if (this.stagingBytes + size > 16 * 1024 ** 2 || size > 256 * 1024) {
+      throw new RangeError("VT upload staging exceeds its live/single-copy budget");
+    }
+    const buffer = this.graphics.device.createBuffer({
+      label: "VT/transaction staging",
+      size,
+      usage: GPUBufferUsage.COPY_SRC,
+      mappedAtCreation: true
+    });
+    const accounting = this.graphics.resource_accounting?.created(
+      {
+        kind: "buffer",
+        category: "transient",
+        owner: "VirtualTextureResidency/upload",
+        bytes: size,
+        label: buffer.label
+      },
+      buffer
+    );
+    this.stagingBytes += size;
+    this.stagingPeak = Math.max(this.stagingPeak, this.stagingBytes);
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      this.stagingBytes -= size;
+      buffer.destroy();
+      if (accounting) {
+        this.graphics.resource_accounting?.destroyed(accounting);
+      }
+    };
+    command.onAborted.addOne(release);
+    command.onFinished.addOne(() => {
+      void command.gpuDone.then(release, release);
+    });
+    return buffer;
+  }
+  private copyMapping(page: number, slot: number, generation: number, command: ShadeGPUCommandContext): void {
+    const buffer = this.staging(command, 256);
+    new Uint32Array(buffer.getMappedRange()).set([slot, generation]);
+    buffer.unmap();
+    command.copyBufferToTexture(
+      { buffer, bytesPerRow: 256 },
+      { texture: this.table, origin: [page % VT_TABLE_WIDTH, Math.floor(page / VT_TABLE_WIDTH), 0] },
+      [1, 1, 1]
+    );
+  }
+  private invalidateRange(first: number, count: number, command: ShadeGPUCommandContext): void {
+    let page = first;
+    const end = first + count;
+    // Full rows batch up to 256KiB. Reused IDs cannot observe an old slot;
+    // validity is cleared in the same ordered scene transaction as new tails.
+    while (page < end) {
+      const x = page % VT_TABLE_WIDTH;
+      const width = Math.min(end - page, VT_TABLE_WIDTH - x);
+      const rows =
+        x === 0 && width === VT_TABLE_WIDTH ? Math.min(32, Math.floor((end - page) / VT_TABLE_WIDTH)) : 1;
+      const pitch = Math.ceil((width * 8) / 256) * 256;
+      const buffer = this.staging(command, pitch * rows);
+      const words = new Uint32Array(buffer.getMappedRange());
+      for (let y = 0; y < rows; y++) {
+        for (let column = 0; column < width; column++) {
+          words[(y * pitch) / 4 + column * 2] = VT_MISSING;
+        }
+      }
+      buffer.unmap();
+      command.copyBufferToTexture(
+        { buffer, bytesPerRow: pitch, rowsPerImage: rows },
+        { texture: this.table, origin: [x, Math.floor(page / VT_TABLE_WIDTH), 0] },
+        [width, rows, 1]
+      );
+      page += width * rows;
+    }
+  }
+  private copyTile(page: Page, slot: number, bytes: ArrayBuffer, command: ShadeGPUCommandContext): void {
+    const row = 36 * (page.pool.texture.format === "bc4-r-unorm" ? 8 : 16);
+    const pitch = Math.ceil(row / 256) * 256;
+    if (bytes.byteLength !== row * 36) throw new RangeError("VT receipt is not one complete compressed tile");
+    const buffer = this.staging(command, pitch * 36);
+    const logicalBytes = bytes.byteLength;
+    const copyBytes = pitch * 36;
+    const target = new Uint8Array(buffer.getMappedRange());
+    const source = new Uint8Array(bytes);
+    for (let y = 0; y < 36; y++) target.set(source.subarray(y * row, (y + 1) * row), y * pitch);
+    buffer.unmap();
+    command.copyBufferToTexture(
+      { buffer, bytesPerRow: pitch, rowsPerImage: 36 },
+      {
+        texture: page.pool.texture,
+        origin: [(slot % 16) * 144, Math.floor((slot % 256) / 16) * 144, Math.floor(slot / 256)]
+      },
+      [144, 144, 1]
+    );
+    command.onFinished.addOne(() => {
+      this.uploadedBytes += logicalBytes;
+      this.physicalCopyBytes += copyBytes;
+    });
+  }
+  state() {
+    const pending = [...this.desired].filter((page) => page.slot === VT_MISSING).length;
+    return {
+      frame: this.observedFrame,
+      complete:
+        this.observedView === this.view &&
+        this.observedFrame > this.lastPublication &&
+        this.observedFrame > this.feedback.evidence().lastGapFrame &&
+        pending === 0 &&
+        !this.failure &&
+        this.feedback.evidence().overflows === this.feedback.evidence().recoveries,
+      pending,
+      limited: this.limited,
+      error: this.failure,
+      residencyRevision: this.residencyRevision
+    };
+  }
+  evidence() {
+    return {
+      ...this.state(),
+      sources: this.sources.size,
+      pages: this.snapshot.filter(Boolean).length,
+      resident: this.resident.size,
+      pinned: [...this.resident].filter((page) => page.pinned).length,
+      allocatedBytes:
+        VT_PAGE_CAPACITY * 8 +
+        [...this.pools.values()].reduce((n, p) => n + p.bytes, 0) +
+        this.feedback.evidence().allocatedBytes,
+      stagingBytes: this.stagingBytes,
+      cpuMetadataAdmissionBytes: this.cpuBytes,
+      stagingPeakBytes: this.stagingPeak,
+      uploadBytes: this.uploadedBytes,
+      physicalCopyBytes: this.physicalCopyBytes,
+      evictions: this.evictions,
+      reloads: this.reloads,
+      rescued: this.rescued,
+      demand: this.lastDemand,
+      receiptBytes: this.receiptBytes,
+      provider: this.sources.values().next().value?.source.preparation.evidence().tiled ?? null,
+      feedback: this.feedback.evidence()
+    };
+  }
+  private fail(error: unknown): void {
+    this.failure ??= error instanceof Error ? error.message : String(error);
+  }
+  destroy(): void {
+    if (this.stopped) return;
+    this.stopped = true;
+    for (const batch of this.batches) {
+      batch.controller.abort();
+      batch.lease?.release();
+    }
+    this.batches.clear();
+    this.table.destroy();
+    this.feedback.destroy();
+    for (const pool of this.pools.values()) pool.texture.destroy();
+    for (const handle of this.accounting) {
+      this.graphics.resource_accounting?.destroyed(handle);
+    }
+    this.accounting.length = 0;
+    this.sources.clear();
+    this.readyPages.clear();
+    this.resident.clear();
+    this.desired.clear();
+  }
+}

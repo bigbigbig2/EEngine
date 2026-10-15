@@ -5,6 +5,7 @@
 import { hashMix, hashOptional } from "../core/hashMix.js";
 import { hashString } from "../core/memoryUtils.js";
 import type { TextureProduct } from "../assets/TextureProduct.js";
+import type { TiledTextureSource } from "../assets/TiledTextureSource.js";
 import { ShadeTextureFlags } from "./ShadeTextureFlags.js";
 import { TextureFilterType } from "./TextureFilterType.js";
 import { ShadeImage } from "./ShadeImage.js";
@@ -41,6 +42,7 @@ export class ShadeTexture {
 
   #image: ShadeImage | undefined;
   #textureProduct: TextureProduct | undefined;
+  #tiledSource: TiledTextureSource | undefined;
 
   get isShadeTexture(): boolean {
     return true;
@@ -53,6 +55,15 @@ export class ShadeTexture {
   /** Device-independent cooked source consumed by TextureResidency. */
   get texture_product(): TextureProduct | undefined {
     return this.#textureProduct;
+  }
+
+  get tiled_source(): TiledTextureSource | undefined {
+    return this.#tiledSource;
+  }
+
+  /** Immutable source metadata, independent of complete versus paged payloads. */
+  get texture_metadata() {
+    return this.texture_product?.metadata ?? this.tiled_source?.metadata;
   }
 
   setFlag(flag: number): void {
@@ -100,18 +111,26 @@ export class ShadeTexture {
     return texture;
   }
 
+  static fromTiled(source: TiledTextureSource): ShadeTexture {
+    const texture = new ShadeTexture();
+    texture.#tiledSource = source;
+    texture.flags = 0;
+    return texture;
+  }
+
   hash(): number {
     return hashMix(
       this.appearance_content_version === undefined ? 0 : hashString(this.appearance_content_version),
       hashOptional(this.#image),
       this.#textureProduct === undefined ? 0 : hashString(this.#textureProduct.identity),
+      this.#tiledSource === undefined ? 0 : hashString(this.#tiledSource.identity),
       this.flags,
       this.minFilter,
       this.magFilter,
       this.mipmapFilter,
       this.wrapS,
       this.wrapT,
-      this.wrapR,
+      this.wrapR
     );
   }
 
@@ -120,6 +139,7 @@ export class ShadeTexture {
       this.appearance_content_version === other.appearance_content_version &&
       this.#image === other.#image &&
       this.#textureProduct === other.#textureProduct &&
+      this.#tiledSource === other.#tiledSource &&
       this.flags === other.flags &&
       this.minFilter === other.minFilter &&
       this.magFilter === other.magFilter &&

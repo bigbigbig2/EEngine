@@ -9,7 +9,7 @@ import { nativeMaterialDynamicInputs } from "../../.test-dist/shaders/native_mat
 import { GPUSamplerCache } from "../../.test-dist/gpu/GPUSamplerCache.js";
 import {
   createNativeMaterialBindings,
-  createNativeCoverageBindings,
+  createNativeCoverageBindings
 } from "../../.test-dist/gpu/NativeMaterialBindings.js";
 import { SurfaceV4 } from "../../.test-dist/render/surface/SurfaceV4.js";
 import { NativeExecutionBins } from "../../.test-dist/render/surface/NativeExecutionBins.js";
@@ -26,7 +26,7 @@ import { compileAppearanceGraph } from "../../.test-dist/material/AppearanceGrap
 import { lowerNativeMaterial } from "../../.test-dist/shaders/native_material.js";
 import {
   nativeSurfaceDescriptor,
-  nativeSurfacePublicationDescriptors,
+  nativeSurfacePublicationDescriptors
 } from "../../.test-dist/shaders/native_surface.js";
 import { GpuNativeMaterialPublication } from "../../.test-dist/gpu/GpuNativeMaterialPublication.js";
 import { AppearanceProgramRegistry } from "../../.test-dist/gpu/AppearanceProgramRegistry.js";
@@ -61,7 +61,7 @@ export async function runFinalPixelSeedEpochGpuOracle() {
       profiler: new FrameProfiler({ enabled: false }),
       buffer_allocator_main: new GPUBufferAllocator(device),
       buffer_allocator_staging: new GPUStagingBufferAllocator(device),
-      allocator_textures: new GPUTextureAllocator(device),
+      allocator_textures: new GPUTextureAllocator(device)
     };
     const errors = [];
     device.addEventListener("uncapturederror", (event) => errors.push(event.error.message));
@@ -74,14 +74,14 @@ export async function runFinalPixelSeedEpochGpuOracle() {
         inverseView: identity,
         inverseProjection: identity,
         jitter: [0, 0],
-        preExposure: 1,
+        preExposure: 1
       };
       const frame = owner.prepare(19, 13, "native", camera);
       check(!frame.previousValid, "New device epoch reused history");
       const view = device.createBuffer({
         size: frame.view.byteLength,
         usage: GPUBufferUsage.UNIFORM,
-        mappedAtCreation: true,
+        mappedAtCreation: true
       });
       new Uint8Array(view.getMappedRange()).set(frame.view);
       view.unmap();
@@ -89,21 +89,21 @@ export async function runFinalPixelSeedEpochGpuOracle() {
       const visibility = device.createTexture({
         size: [19, 13],
         format: "r32uint",
-        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
       });
       resources.push(visibility);
       device.queue.writeTexture(
         { texture: visibility },
         new Uint32Array(19 * 13).fill(0xffffffff),
         { bytesPerRow: 19 * 4 },
-        [19, 13],
+        [19, 13]
       );
       const pipeline = await device.createComputePipelineAsync({
         layout: "auto",
         compute: {
           entryPoint: "main",
-          module: device.createShaderModule({ code: NATIVE_TEMPORAL_BACKGROUND_WGSL }),
-        },
+          module: device.createShaderModule({ code: NATIVE_TEMPORAL_BACKGROUND_WGSL })
+        }
       });
       const group = device.createBindGroup({
         layout: pipeline.getBindGroupLayout(0),
@@ -111,9 +111,9 @@ export async function runFinalPixelSeedEpochGpuOracle() {
           { binding: 0, resource: { buffer: view } },
           ...[frame.seed, frame.response, frame.identity, visibility].map((texture, index) => ({
             binding: index + 1,
-            resource: texture.createView(),
-          })),
-        ],
+            resource: texture.createView()
+          }))
+        ]
       });
       const command = ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame");
       owner.attach(command);
@@ -152,7 +152,7 @@ export async function runFinalPixelSeedEpochGpuOracle() {
         retainedBeforeLoss,
         bytesAfterLoss: owner.allocatedBytes,
         controlledDestruction: true,
-        freshHistoryInvalid: true,
+        freshHistoryInvalid: true
       });
     } finally {
       owner.destroy();
@@ -175,7 +175,7 @@ export async function runFinalPixelBindingBoundaryGpuOracle(device) {
   const material = Array.from({ length: limit - 6 }, (_, binding) => ({
     binding,
     visibility: 4,
-    texture: { sampleType: "float" },
+    texture: { sampleType: "float" }
   }));
   const profile = { compact: true, productGeometry: true, unlit: false, reactive: true, physicalSun: true };
   const before = s3Descriptors(program, material, profile, device.limits);
@@ -192,7 +192,7 @@ export async function runFinalPixelBindingBoundaryGpuOracle(device) {
       program,
       material,
       { ...profile, finalPixel: true },
-      device.limits,
+      device.limits
     );
     check(!target.continuation, "Target must not retain continuation");
     const fused = registry.acquire(target.descriptor);
@@ -208,7 +208,7 @@ export async function runFinalPixelBindingBoundaryGpuOracle(device) {
       targetFootprint: count(nativeSurfaceDescriptor(program, material, { ...profile, finalPixel: true })),
       currentLayoutsGpuCompiled: true,
       targetLayoutGpuCompiled: true,
-      targetContinuation: false,
+      targetContinuation: false
     };
   } finally {
     for (const lease of leases) lease.release();
@@ -236,9 +236,9 @@ export async function runFinalPixelPhase1GpuOracle(device, temporalV2 = false) {
         flush() {},
         generateMipmap() {
           throw new Error("Fixture requires cooked mips");
-        },
-      },
-    },
+        }
+      }
+    }
   };
   const registry = new AppearanceProgramRegistry(device);
   const reports = [];
@@ -249,7 +249,7 @@ export async function runFinalPixelPhase1GpuOracle(device, temporalV2 = false) {
     const buffer = device.createBuffer({
       size: bytes,
       label,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
     });
     resources.push(buffer);
     return buffer;
@@ -257,7 +257,7 @@ export async function runFinalPixelPhase1GpuOracle(device, temporalV2 = false) {
   const readback = (bytes) => {
     const buffer = device.createBuffer({
       size: bytes,
-      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
     });
     resources.push(buffer);
     return buffer;
@@ -276,13 +276,13 @@ export async function runFinalPixelPhase1GpuOracle(device, temporalV2 = false) {
             ...Array.from({ length: device.limits.maxSampledTexturesPerShaderStage - 6 }, (_, binding) => ({
               binding,
               visibility: 4,
-              texture: { sampleType: "float" },
+              texture: { sampleType: "float" }
             })),
             {
               binding: device.limits.maxSampledTexturesPerShaderStage - 6,
               visibility: 4,
-              buffer: { type: "read-only-storage" },
-            },
+              buffer: { type: "read-only-storage" }
+            }
           ];
           const descriptor = nativeSurfaceDescriptor(program, materialLayout, {
             unlit,
@@ -290,7 +290,7 @@ export async function runFinalPixelPhase1GpuOracle(device, temporalV2 = false) {
             productGeometry,
             physicalSun: !unlit,
             reactive: true,
-            finalPixel: true,
+            finalPixel: true
           });
           const lease = registry.acquire(descriptor);
           await lease.ready;
@@ -305,7 +305,7 @@ export async function runFinalPixelPhase1GpuOracle(device, temporalV2 = false) {
         height: 13,
         count: 2,
         product: true,
-        manualTextures: true,
+        manualTextures: true
       },
       { name: "compact-partial", width: 19, height: 13, count: 2 },
       { name: "compact-product-layout", width: 19, height: 13, count: 2, product: true },
@@ -318,7 +318,7 @@ export async function runFinalPixelPhase1GpuOracle(device, temporalV2 = false) {
         height: 13,
         count: 0,
         unlit: true,
-        skyPerspective: true,
+        skyPerspective: true
       },
       {
         name: "resident-product-geometry",
@@ -326,14 +326,14 @@ export async function runFinalPixelPhase1GpuOracle(device, temporalV2 = false) {
         height: 13,
         count: 2,
         product: true,
-        residentProduct: true,
-      },
+        residentProduct: true
+      }
     ]) {
       const fixture = await createNativeSurfaceFixture(device, {
         width: 32,
         height: 24,
         materialCount: Math.max(1, spec.count),
-        instanceCount: 1,
+        instanceCount: 1
       });
       fixtures.push(fixture);
       let { width, height } = spec;
@@ -346,8 +346,8 @@ export async function runFinalPixelPhase1GpuOracle(device, temporalV2 = false) {
               fixture.geometry.vertexPayload,
               fixture.geometry.vertexPayload,
               fixture.geometry.vertexPayload,
-              fixture.geometry.vertexPayload,
-            ],
+              fixture.geometry.vertexPayload
+            ]
           }
         : fixture.geometry;
       const instanceFlags = flags | (spec.residentProduct ? GPU_INSTANCE_FLAGS.VirtualGeometry : 0);
@@ -358,14 +358,14 @@ export async function runFinalPixelPhase1GpuOracle(device, temporalV2 = false) {
         device.queue.writeBuffer(
           geometry.instances,
           GPU_INSTANCE_RECORD_OFFSETS.flags,
-          new Uint32Array([instanceFlags]),
+          new Uint32Array([instanceFlags])
         );
         for (let slot = 0; slot < fixture.workCount; slot++) {
           const at = fixture.frameGeometryLayout.sourceDirectory.offset + 16 + slot * 24 + 16;
           device.queue.writeBuffer(
             geometry.arena,
             at,
-            new Uint32Array([fixture.residentPayloadBase + slot * 4 * 24]),
+            new Uint32Array([fixture.residentPayloadBase + slot * 4 * 24])
           );
         }
       }
@@ -376,13 +376,13 @@ export async function runFinalPixelPhase1GpuOracle(device, temporalV2 = false) {
         GPUTextureUsage.TEXTURE_BINDING |
           GPUTextureUsage.RENDER_ATTACHMENT |
           GPUTextureUsage.COPY_DST |
-          GPUTextureUsage.COPY_SRC,
+          GPUTextureUsage.COPY_SRC
       );
       let depth = fixture.makeTexture(
         width,
         height,
         "depth32float",
-        GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT,
+        GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT
       );
       let hdr = fixture.makeTexture(
         width,
@@ -391,7 +391,7 @@ export async function runFinalPixelPhase1GpuOracle(device, temporalV2 = false) {
         GPUTextureUsage.STORAGE_BINDING |
           GPUTextureUsage.TEXTURE_BINDING |
           GPUTextureUsage.RENDER_ATTACHMENT |
-          GPUTextureUsage.COPY_DST,
+          GPUTextureUsage.COPY_DST
       );
       const sunValues = new Float32Array([0, 0.6, 0.8, 0.001, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0]);
       const sun = fixture.uniform(sunValues, "Final Pixel/physical Sun");
@@ -399,7 +399,7 @@ export async function runFinalPixelPhase1GpuOracle(device, temporalV2 = false) {
         256,
         64,
         "rgba16float",
-        GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC,
+        GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC
       );
       const lut = new Uint16Array(256 * 64 * 4);
       for (let i = 0; i < lut.length; i += 4) lut.set([0.8, 0.7, 0.6, 1].map(encodeFloat16), i);
@@ -407,7 +407,7 @@ export async function runFinalPixelPhase1GpuOracle(device, temporalV2 = false) {
       const sunEntries = [
         { binding: 12, resource: { buffer: sun } },
         { binding: 13, resource: transmission.createView() },
-        { binding: 14, resource: device.createSampler({ minFilter: "linear", magFilter: "linear" }) },
+        { binding: 14, resource: device.createSampler({ minFilter: "linear", magFilter: "linear" }) }
       ];
       device.queue.writeBuffer(fixture.vsm.constants, 46 * 4, new Uint32Array([4]));
       device.queue.writeBuffer(fixture.vsm.constants, 48 * 4, new Float32Array([0.2, 0.7, 0.08, 1.5]));
@@ -429,30 +429,30 @@ export async function runFinalPixelPhase1GpuOracle(device, temporalV2 = false) {
             1,
             1,
             "rgba8unorm",
-            GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+            GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
           );
           device.queue.writeTexture(
             { texture },
             new Uint8Array([20 + index, 35, 50, 255]),
             { bytesPerRow: 4 },
-            [1, 1],
+            [1, 1]
           );
           return texture;
         });
         const layoutEntries = [
           ...textures.map((_, binding) => ({ binding, visibility: 4, texture: { sampleType: "float" } })),
-          { binding: textureCount, visibility: 4, buffer: { type: "read-only-storage" } },
+          { binding: textureCount, visibility: 4, buffer: { type: "read-only-storage" } }
         ];
         const entries = [
           ...textures.map((texture, binding) => ({ binding, resource: texture.createView() })),
-          { binding: textureCount, resource: { buffer: selector } },
+          { binding: textureCount, resource: { buffer: selector } }
         ];
         materialFixture = {
           sources: materialPrograms.map((base, materialSlot) => {
             const declarations = textures
               .map(
                 (_, binding) =>
-                  `@group(3) @binding(${binding}) var test_material_${binding}: texture_2d<f32>;`,
+                  `@group(3) @binding(${binding}) var test_material_${binding}: texture_2d<f32>;`
               )
               .join("\n");
             const loads = textures
@@ -472,14 +472,14 @@ ${loads}
               materialSlot,
               bindingSet: materialSlot,
               program: { ...base, source, key: JSON.stringify([base.key, source]) },
-              bindings: { layoutEntries, entries },
+              bindings: { layoutEntries, entries }
             };
-          }),
+          })
         };
       }
       if (spec.textured) {
         materialFixture = await createNativeMaterialBindingFixture(device, graphics, {
-          packedProducts: true,
+          packedProducts: true
         });
         fixtures.push(materialFixture);
         const promote = ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame");
@@ -491,7 +491,7 @@ ${loads}
             ...materialFixture.commonFor(materialFixture.materials[slot]),
             graph: materialFixture.compiledGraphs[slot],
             program: lowerNativeMaterial(materialFixture.compiledGraphs[slot]),
-            packedProducts: materialFixture.packedOwner,
+            packedProducts: materialFixture.packedOwner
           };
           const bindings = createNativeMaterialBindings(input);
           const coverage = source.raster.alphaMask ? createNativeCoverageBindings(input) : null;
@@ -504,10 +504,10 @@ ${loads}
                   coverage: {
                     program: coverage.program,
                     layoutEntries: coverage.layoutEntries,
-                    materialEntries: coverage.entries,
-                  },
+                    materialEntries: coverage.entries
+                  }
                 }
-              : {}),
+              : {})
           };
         });
       }
@@ -528,10 +528,10 @@ ${loads}
               physicalSun: !isUnlit(materialSlot),
               reactive: true,
               finalPixel,
-              fusedSun: !!spec.sunOnlySeam && !finalPixel,
+              fusedSun: !!spec.sunOnlySeam && !finalPixel
             },
-            device.limits,
-          ),
+            device.limits
+          )
         }));
       const publication = new GpuNativeMaterialPublication(device, registry, sources(true), undefined, true);
       const referencePublication = new S3Publication(device, registry, sources(false));
@@ -540,10 +540,13 @@ ${loads}
       await referencePublication.ready;
       publication.commit();
       referencePublication.commit();
-      check(publication.directory.size === Math.max(1, spec.count) * 32, "Target directory is not 32B/slot");
+      check(
+        publication.data.size >= 16 + Math.max(1, spec.count) * 32,
+        "Combined publication must contain the header and complete 32B/slot directory"
+      );
       check(
         publication.rasterDirectory.size === Math.max(1, spec.count) * 16,
-        "Raster-specific directory ABI changed",
+        "Raster-specific directory ABI changed"
       );
       const surface = new SurfaceV4(device, true, undefined, true);
       const referenceSurface = new S3Surface(device, true);
@@ -569,13 +572,13 @@ ${loads}
         publication,
         capacity: fixture.workCount,
         generation: fixture.generation,
-        view: new Uint8Array(visibilityView),
+        view: new Uint8Array(visibilityView)
       });
       owners.push(coverage);
       await coverage.ready;
       const camera = fixture.uniform(
         new Float32Array(PACKED_CAMERA_TYPE.size / 4),
-        "Final Pixel/reference camera",
+        "Final Pixel/reference camera"
       );
       const localCount = Math.ceil(width / 32) * Math.ceil(height / 32) * 24;
       const plan = planFinalPixelLightingDirectory(device.limits, localCount, 260);
@@ -607,9 +610,9 @@ ${temporalV2 ? "@group(0) @binding(8) var resolved_color: texture_2d<f32>;" : ""
   output[at + 5u] = vec4u(textureLoad(winner, pixel, 0).r, 0u, 0u, 0u);
   output[at + 6u] = bitcast<vec4u>(textureLoad(reference, pixel, 0));
 ${temporalV2 ? "  output[at + 7u] = bitcast<vec4u>(textureLoad(resolved_color, pixel, 0));" : ""}
-}`,
-          }),
-        },
+}`
+          })
+        }
       });
       const routes = (publication) =>
         publication.bins.map((bin, index) => {
@@ -619,20 +622,20 @@ ${temporalV2 ? "  output[at + 7u] = bitcast<vec4u>(textureLoad(resolved_color, p
             ...bin,
             materialEntries: source?.bindings.entries ?? [],
             frameInputs: nativeMaterialDynamicInputs(source?.program ?? entry.program, {}),
-            unlit: isUnlit(entry.materialSlot),
+            unlit: isUnlit(entry.materialSlot)
           };
         });
       let referenceReactive = fixture.makeTexture(
         width,
         height,
         "rgba8unorm",
-        GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT,
+        GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT
       );
       let referenceShadow = fixture.makeTexture(
         Math.ceil(width / 4),
         height,
         "r32uint",
-        GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
+        GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
       );
       const frameReports = [];
       let previousTranslation = 0;
@@ -649,8 +652,8 @@ ${temporalV2 ? "  output[at + 7u] = bitcast<vec4u>(textureLoad(resolved_color, p
           completionFail = false,
           policy = "native",
           cut = false,
-          fallback = false,
-        } = {},
+          fallback = false
+        } = {}
       ) => {
         if (spec.residentProduct) fallback = false;
         const previousTranslationAtPrepare = previousTranslation;
@@ -676,7 +679,7 @@ ${temporalV2 ? "  output[at + 7u] = bitcast<vec4u>(textureLoad(resolved_color, p
           inverseView,
           inverseProjection,
           jitter: [0, 0],
-          preExposure: 1.25,
+          preExposure: 1.25
         };
         const seedFrame = temporal.prepare(width, height, policy, inputCamera, cut);
         // Poison all outputs before the producer; a missing lane cannot pass
@@ -685,19 +688,19 @@ ${temporalV2 ? "  output[at + 7u] = bitcast<vec4u>(textureLoad(resolved_color, p
           { texture: seedFrame.seed },
           new Float32Array(pixels * 4).fill(NaN),
           { bytesPerRow: width * 16 },
-          [width, height],
+          [width, height]
         );
         device.queue.writeTexture(
           { texture: seedFrame.response },
           new Uint8Array(pixels * 4).fill(211),
           { bytesPerRow: width * 4 },
-          [width, height],
+          [width, height]
         );
         device.queue.writeTexture(
           { texture: seedFrame.identity },
           new Uint32Array(pixels * 4).fill(0xdeadbeef),
           { bytesPerRow: width * 16 },
-          [width, height],
+          [width, height]
         );
         const cameraWords = new Float32Array(PACKED_CAMERA_TYPE.size / 4);
         for (const field of PACKED_CAMERA_TYPE.fields) {
@@ -720,17 +723,17 @@ ${temporalV2 ? "  output[at + 7u] = bitcast<vec4u>(textureLoad(resolved_color, p
         device.queue.writeBuffer(
           geometry.instances,
           GPU_INSTANCE_RECORD_OFFSETS.instance_set_generation,
-          new Uint32Array([generation]),
+          new Uint32Array([generation])
         );
         device.queue.writeBuffer(
           geometry.instances,
           GPU_INSTANCE_RECORD_OFFSETS.motion_flags,
-          new Uint32Array([invalidMotion ? GPU_INSTANCE_FLAGS.MotionInvalid : 0]),
+          new Uint32Array([invalidMotion ? GPU_INSTANCE_FLAGS.MotionInvalid : 0])
         );
         device.queue.writeBuffer(
           geometry.instances,
           GPU_INSTANCE_RECORD_OFFSETS.previous_from_current_affine,
-          new Float32Array([1, 0, 0, rigid, 0, 1, 0, 0, 0, 0, 1, 0]),
+          new Float32Array([1, 0, 0, rigid, 0, 1, 0, 0, 0, 0, 1, 0])
         );
         const command = ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame");
         const usesV2 = reconstruction !== null && policy === "native";
@@ -740,7 +743,7 @@ ${temporalV2 ? "  output[at + 7u] = bitcast<vec4u>(textureLoad(resolved_color, p
             height,
             jitter: seedFrame.jitter,
             historyReadIndex: seedFrame.historyReadIndex,
-            reset: !seedFrame.previousValid,
+            reset: !seedFrame.previousValid
           });
           reconstruction.attach(command, temporal);
         } else {
@@ -761,15 +764,15 @@ ${temporalV2 ? "  output[at + 7u] = bitcast<vec4u>(textureLoad(resolved_color, p
                 view: visibility.createView(),
                 clearValue: { r: 0xffffffff, g: 0, b: 0, a: 0 },
                 loadOp: "clear",
-                storeOp: "store",
-              },
+                storeOp: "store"
+              }
             ],
             depthStencilAttachment: {
               view: depth.createView(),
               depthClearValue: 0,
               depthLoadOp: "clear",
-              depthStoreOp: "store",
-            },
+              depthStoreOp: "store"
+            }
           });
           if (holes) {
             // queue texture upload before encode cannot override this raster;
@@ -784,7 +787,7 @@ ${temporalV2 ? "  output[at + 7u] = bitcast<vec4u>(textureLoad(resolved_color, p
             command.gpu_encoder.copyBufferToTexture(
               { buffer: upload, bytesPerRow: row },
               { texture: visibility },
-              [width, height],
+              [width, height]
             );
           }
           if (completionFail) {
@@ -795,7 +798,7 @@ ${temporalV2 ? "  output[at + 7u] = bitcast<vec4u>(textureLoad(resolved_color, p
             command.gpu_encoder.copyBufferToTexture(
               { buffer: upload, bytesPerRow: 256 },
               { texture: visibility },
-              [1, 1],
+              [1, 1]
             );
           }
         });
@@ -814,7 +817,7 @@ ${temporalV2 ? "  output[at + 7u] = bitcast<vec4u>(textureLoad(resolved_color, p
                 buffer: fixture.lightingEntries[0].resource.buffer,
                 revision: 1,
                 ids: new Uint32Array([0, 1, 2, 3, 4, 5, 6, 7]),
-                currentRevision: () => 1,
+                currentRevision: () => 1
               },
               view: {
                 width,
@@ -823,26 +826,26 @@ ${temporalV2 ? "  output[at + 7u] = bitcast<vec4u>(textureLoad(resolved_color, p
                 far: 100,
                 depthConversion: [0, (1.5 - translation) * 0.5],
                 projection: [1, 1, 0, 0],
-                view,
+                view
               },
               frameIndex: index,
               deviceEpoch: 51,
               mode: 2,
               indexCapacity: 4096,
-              lookupTarget: { buffer: lightingDirectory, offset: plan.lookupOffset, size: plan.lookupBytes },
+              lookupTarget: { buffer: lightingDirectory, offset: plan.lookupOffset, size: plan.lookupBytes }
             });
             localOwner.encode(command, localFrame, {
               visibility: visibility.createView(),
-              depth: depth.createView(),
+              depth: depth.createView()
             });
-          },
+          }
         );
         localPass.read(winner);
         localPass.read(depthResource);
         directoryId = localPass.create("Final Pixel lighting directory", {
           kind: "transient_buffer",
           size: plan.bytes,
-          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
         });
         localDataId = localPass.create("Local lighting readiness", { kind: "opaque" });
         const descriptorId = vsmOwner.addToGraph(graph, {
@@ -851,12 +854,12 @@ ${temporalV2 ? "  output[at + 7u] = bitcast<vec4u>(textureLoad(resolved_color, p
           constants: imported("VSM constants", fixture.vsm.constants),
           pageTable: imported("VSM page table", fixture.vsm.pageTable),
           contentVersion: imported("VSM committed content", fixture.vsm.atlas),
-          target: { resource: directoryId, offset: plan.descriptorOffset, size: plan.descriptorBytes },
+          target: { resource: directoryId, offset: plan.descriptorOffset, size: plan.descriptorBytes }
         });
         const lightingId = addFinalPixelSolarPublication(graph, {
           transmittance: imported("Physical Sun/transmittance", transmission),
           target: descriptorId,
-          plan,
+          plan
         });
         const products = temporal.importProducts(graph);
         let hdrId = imported("Native HDR", hdr);
@@ -875,7 +878,7 @@ ${temporalV2 ? "  output[at + 7u] = bitcast<vec4u>(textureLoad(resolved_color, p
             depth,
             geometry: fallback
               ? { ...geometry, sourcePayload: [0, 0, 0, (geometry.sourcePayload[3] | 0x80000000) >>> 0] }
-              : geometry,
+              : geometry
           };
           const lighting = [
             ...localFrame.lightingEntries.filter((entry) => entry.binding !== 2),
@@ -885,7 +888,7 @@ ${temporalV2 ? "  output[at + 7u] = bitcast<vec4u>(textureLoad(resolved_color, p
             { binding: 8, resource: { buffer: fixture.vsm.constants } },
             { binding: 10, resource: fixture.vsm.atlas.createView() },
             { binding: 16, resource: sampler },
-            ...sunEntries.filter((entry) => entry.binding === 12),
+            ...sunEntries.filter((entry) => entry.binding === 12)
           ];
           surface.prepareFrameNow(
             {
@@ -895,9 +898,9 @@ ${temporalV2 ? "  output[at + 7u] = bitcast<vec4u>(textureLoad(resolved_color, p
               lightingEntries: lighting,
               routes: routes(publication),
               reactive: seedFrame.response,
-              temporal: { seed: seedFrame.seed, identity: seedFrame.identity, view: seedFrame.view },
+              temporal: { seed: seedFrame.seed, identity: seedFrame.identity, view: seedFrame.view }
             },
-            bins,
+            bins
           );
           surface.encode(command.gpu_encoder);
         });
@@ -921,7 +924,7 @@ ${temporalV2 ? "  output[at + 7u] = bitcast<vec4u>(textureLoad(resolved_color, p
           GPUTextureUsage.STORAGE_BINDING |
             GPUTextureUsage.TEXTURE_BINDING |
             GPUTextureUsage.RENDER_ATTACHMENT |
-            GPUTextureUsage.COPY_DST,
+            GPUTextureUsage.COPY_DST
         );
         referenceId = imported("Reference HDR", referenceOutput);
         const refPass = graph.add("Test-only S3 Shadow and Native", {}, () => {
@@ -938,7 +941,7 @@ ${temporalV2 ? "  output[at + 7u] = bitcast<vec4u>(textureLoad(resolved_color, p
               descriptors: fixture.vsm.descriptors,
               atlas: fixture.vsm.atlas.createView(),
               sun,
-              output: referenceShadow,
+              output: referenceShadow
             });
           referenceSurface.prepareFrameNow(
             {
@@ -958,27 +961,27 @@ ${temporalV2 ? "  output[at + 7u] = bitcast<vec4u>(textureLoad(resolved_color, p
                 ? [
                     ...localFrame.lightingEntries.filter((entry) => entry.binding !== 2),
                     ...fixture.lightingEntries.filter((entry) =>
-                      [4, 5, 6, 7, 11, 15].includes(entry.binding),
+                      [4, 5, 6, 7, 11, 15].includes(entry.binding)
                     ),
                     { binding: 2, resource: { buffer: lightingDirectory } },
                     { binding: 9, resource: { buffer: ranges } },
                     { binding: 8, resource: { buffer: fixture.vsm.constants } },
                     { binding: 10, resource: fixture.vsm.atlas.createView() },
                     { binding: 16, resource: sampler },
-                    ...sunEntries.filter((entry) => entry.binding === 12),
+                    ...sunEntries.filter((entry) => entry.binding === 12)
                   ]
                 : [
                     ...localFrame.lightingEntries,
                     ...fixture.legacyLightingEntries.filter(
-                      (entry) => entry.binding > 3 && entry.binding !== 10,
+                      (entry) => entry.binding > 3 && entry.binding !== 10
                     ),
                     { binding: 10, resource: referenceShadow.createView() },
-                    ...sunEntries,
+                    ...sunEntries
                   ],
               routes: routes(referencePublication),
-              reactive: referenceReactive,
+              reactive: referenceReactive
             },
-            refBins,
+            refBins
           );
           referenceSurface.encode(command.gpu_encoder);
           usedRefBins = referenceSurface.executionBins === refBins;
@@ -999,9 +1002,9 @@ ${temporalV2 ? "  output[at + 7u] = bitcast<vec4u>(textureLoad(resolved_color, p
               preExposure: imported("V2 P", fixture.exposure),
               priorExposure: imported("V2 previous P", fixture.exposure),
               width,
-              height,
+              height
             },
-            (_name, resolve) => resolve(reconstruction),
+            (_name, resolve) => resolve(reconstruction)
           );
           for (let i = 0; i < graph.resourceNodeCount; i++) {
             if (graph.getResourceNode(i).name === "Native Temporal V2/analysis") mask = i;
@@ -1017,11 +1020,11 @@ ${temporalV2 ? "  output[at + 7u] = bitcast<vec4u>(textureLoad(resolved_color, p
             layout: inspect.getBindGroupLayout(0),
             entries: [
               ...[hdrId, products.seed, products.response, products.identity, mask, winner, referenceId].map(
-                (id, binding) => ({ binding, resource: viewOf(resolved.get(id)) }),
+                (id, binding) => ({ binding, resource: viewOf(resolved.get(id)) })
               ),
               { binding: 7, resource: { buffer: output } },
-              ...(temporalV2 ? [{ binding: 8, resource: viewOf(resolved.get(resolvedColor)) }] : []),
-            ],
+              ...(temporalV2 ? [{ binding: 8, resource: viewOf(resolved.get(resolvedColor)) }] : [])
+            ]
           });
           const pass = command.beginComputePass();
           pass.setPipeline(inspect);
@@ -1037,7 +1040,7 @@ ${temporalV2 ? "  output[at + 7u] = bitcast<vec4u>(textureLoad(resolved_color, p
           products.identity,
           mask,
           winner,
-          referenceId,
+          referenceId
         ])
           inspectPass.read(id);
         if (temporalV2) inspectPass.read(resolvedColor);
@@ -1094,7 +1097,7 @@ ${temporalV2 ? "  output[at + 7u] = bitcast<vec4u>(textureLoad(resolved_color, p
               sky++;
               check(
                 id[0] === 0xffffffff && id[1] === 0 && id[2] === 0 && id[3] === 0,
-                "Sky identity not fully written",
+                "Sky identity not fully written"
               );
               check(floats[at + 6] === 0 && floats[at + 7] === 0, "Sky depth sentinel changed");
               if (spec.skyPerspective) {
@@ -1109,16 +1112,16 @@ ${temporalV2 ? "  output[at + 7u] = bitcast<vec4u>(textureLoad(resolved_color, p
                 const valid = seedFrame.previousValid && -pz > 1e-6 && u >= 0 && v >= 0 && u < 1 && v < 1;
                 check(
                   floats[at + 9] > 0.5 === valid,
-                  "Perspective sky rotation validity disagrees with independent ray oracle",
+                  "Perspective sky rotation validity disagrees with independent ray oracle"
                 );
                 maxMotionError = Math.max(
                   maxMotionError,
                   Math.abs(floats[at + 4] - (valid ? (nx + 1) * 0.5 - u : 0)),
-                  Math.abs(floats[at + 5] - (valid ? (1 - ny) * 0.5 - v : 0)),
+                  Math.abs(floats[at + 5] - (valid ? (1 - ny) * 0.5 - v : 0))
                 );
                 check(
                   maxMotionError < 1e-5,
-                  "Sky rotation/jitter motion includes translation or wrong projection",
+                  "Sky rotation/jitter motion includes translation or wrong projection"
                 );
               }
             } else if (key === 0xfffffffe || (completionFail && p === 0)) {
@@ -1127,7 +1130,7 @@ ${temporalV2 ? "  output[at + 7u] = bitcast<vec4u>(textureLoad(resolved_color, p
                 id.every((value) => value === 0) &&
                   floats[at + 9] === 0 &&
                   Math.round(floats[at + 11] * 255) === 16,
-                `Invalid/assigned failure did not fully write facts (${spec.name}/${index}: ${[...id]}, ${floats[at + 9]})`,
+                `Invalid/assigned failure did not fully write facts (${spec.name}/${index}: ${[...id]}, ${floats[at + 9]})`
               );
             } else {
               shaded++;
@@ -1135,38 +1138,38 @@ ${temporalV2 ? "  output[at + 7u] = bitcast<vec4u>(textureLoad(resolved_color, p
               const entry = publication.entries.find((entry) => entry.materialSlot === slot);
               const signature = hash(
                 hash(hash(hash(hash(2166136261, 0), instanceFlags), slot), entry.signature),
-                entry.valueRevision,
+                entry.valueRevision
               );
               check(
                 id[0] === 1 &&
                   id[1] === geometrySignature(generation) &&
                   id[2] === signature &&
                   id[3] === slot + 1,
-                `Identity differs from original full-u32 algorithm (${spec.name}/${p})`,
+                `Identity differs from original full-u32 algorithm (${spec.name}/${p})`
               );
               check(
                 Math.abs(
                   floats[at + 6] -
-                    (1.5 - (seedFrame.previousValid ? previousTranslationAtPrepare : translation)),
+                    (1.5 - (seedFrame.previousValid ? previousTranslationAtPrepare : translation))
                 ) < 1e-5,
-                "Expected depth is not in previous view space",
+                "Expected depth is not in previous view space"
               );
               check(
                 Math.abs(floats[at + 7] - (1.5 - translation)) < 1e-5,
-                "Current positive view depth wrong",
+                "Current positive view depth wrong"
               );
               const expectedMotion = seedFrame.previousValid && !invalidMotion ? -rigid * 0.5 : 0;
               maxMotionError = Math.max(
                 maxMotionError,
                 Math.abs(floats[at + 4] - expectedMotion),
-                Math.abs(floats[at + 5]),
+                Math.abs(floats[at + 5])
               );
               if (!invalidMotion)
                 check(maxMotionError < 1e-5, "Rigid jittered UV motion sign/precision changed");
               check(
                 floats[at + 9] > 0.5 ===
                   (seedFrame.previousValid && !invalidMotion && Math.abs(rigid) < 0.01),
-                "Motion availability wrong",
+                "Motion availability wrong"
               );
             }
             for (let c = 0; c < 3; c++) {
@@ -1178,7 +1181,7 @@ ${temporalV2 ? "  output[at + 7u] = bitcast<vec4u>(textureLoad(resolved_color, p
                   c,
                   target: [...floats.slice(at, at + 4)],
                   reference: [...floats.slice(at + 24, at + 28)],
-                  key,
+                  key
                 };
               }
               // Analytic orthographic plane: reconstruct/interpolate may land on
@@ -1196,14 +1199,14 @@ ${temporalV2 ? "  output[at + 7u] = bitcast<vec4u>(textureLoad(resolved_color, p
           }
           check(
             maxInteriorHdrError < 0.003,
-            `Fused Sun/late attributes differ away from analytic page boundaries (${maxInteriorHdrError}): ${JSON.stringify(hdrWorst)}`,
+            `Fused Sun/late attributes differ away from analytic page boundaries (${maxInteriorHdrError}): ${JSON.stringify(hdrWorst)}`
           );
           if (generation !== 7 && seedFrame.previousValid && !holes)
             check(hard === shaded, "Full generation replacement must hard-reject only its owner");
           if (invalidMotion)
             check(
               hard === 0,
-              "Unavailable deformation must invalidate motion without inventing hard replacement",
+              "Unavailable deformation must invalidate motion without inventing hard replacement"
             );
           const row = {
             index,
@@ -1219,9 +1222,9 @@ ${temporalV2 ? "  output[at + 7u] = bitcast<vec4u>(textureLoad(resolved_color, p
             ...(usesV2
               ? {
                   temporalGraph:
-                    "Native writer -> Measure -> Exposure -> Shading Pyramid -> Analyze -> Resolve -> RCAS",
+                    "Native writer -> Measure -> Exposure -> Shading Pyramid -> Analyze -> Resolve -> RCAS"
                 }
-              : {}),
+              : {})
           };
           frameReports.push(row);
           return row;
@@ -1253,7 +1256,7 @@ ${temporalV2 ? "  output[at + 7u] = bitcast<vec4u>(textureLoad(resolved_color, p
         inverseView: identity,
         inverseProjection: identity,
         jitter: [0, 0],
-        preExposure: 1,
+        preExposure: 1
       });
       check(!rollback.previousValid, "Resize candidate incorrectly reads old-domain history");
       temporal.abort();
@@ -1269,13 +1272,13 @@ ${temporalV2 ? "  output[at + 7u] = bitcast<vec4u>(textureLoad(resolved_color, p
         GPUTextureUsage.TEXTURE_BINDING |
           GPUTextureUsage.RENDER_ATTACHMENT |
           GPUTextureUsage.COPY_DST |
-          GPUTextureUsage.COPY_SRC,
+          GPUTextureUsage.COPY_SRC
       );
       depth = fixture.makeTexture(
         width,
         height,
         "depth32float",
-        GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT,
+        GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT
       );
       hdr = fixture.makeTexture(
         width,
@@ -1284,19 +1287,19 @@ ${temporalV2 ? "  output[at + 7u] = bitcast<vec4u>(textureLoad(resolved_color, p
         GPUTextureUsage.STORAGE_BINDING |
           GPUTextureUsage.TEXTURE_BINDING |
           GPUTextureUsage.RENDER_ATTACHMENT |
-          GPUTextureUsage.COPY_DST,
+          GPUTextureUsage.COPY_DST
       );
       referenceReactive = fixture.makeTexture(
         width,
         height,
         "rgba8unorm",
-        GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT,
+        GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT
       );
       referenceShadow = fixture.makeTexture(
         Math.ceil(width / 4),
         height,
         "r32uint",
-        GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
+        GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
       );
       bins = new NativeExecutionBins(device, { width, height, bins: publication.bins, finalPixel: true });
       await bins.ready;
@@ -1314,7 +1317,7 @@ ${temporalV2 ? "  output[at + 7u] = bitcast<vec4u>(textureLoad(resolved_color, p
         temporal.allocatedBytes === 0 &&
           surface.allocatedBytes === 0 &&
           referenceSurface.allocatedBytes === 0,
-        "Fence retirement leaked Final Pixel resources",
+        "Fence retirement leaked Final Pixel resources"
       );
       check(!reconstruction || reconstruction.allocatedBytes === 0, "V2 writer transaction leaked histories");
       reports.push({
@@ -1322,7 +1325,7 @@ ${temporalV2 ? "  output[at + 7u] = bitcast<vec4u>(textureLoad(resolved_color, p
         directoryBytes: plan.bytes,
         directoryPadding: plan.lookupOffset - plan.descriptorBytes - plan.solarBytes,
         solarPublicationBytes: plan.solarBytes,
-        frames: frameReports,
+        frames: frameReports
       });
     }
     return {
@@ -1332,10 +1335,10 @@ ${temporalV2 ? "  output[at + 7u] = bitcast<vec4u>(textureLoad(resolved_color, p
       adapterLimits: {
         storageBuffers: device.limits.maxStorageBuffersPerShaderStage,
         sampledTextures: device.limits.maxSampledTexturesPerShaderStage,
-        storageTextures: device.limits.maxStorageTexturesPerShaderStage,
+        storageTextures: device.limits.maxStorageTexturesPerShaderStage
       },
       compiledProfiles: 8,
-      reports,
+      reports
     };
   } finally {
     await device.queue.onSubmittedWorkDone();

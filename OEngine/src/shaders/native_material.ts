@@ -7,6 +7,7 @@ import { operationWgsl } from "./appearance_operations.js";
 import { APPEARANCE_NORMAL_FILTER_WGSL } from "./appearance_normal_filter.js";
 
 export interface NativeMaterialProgram {
+  readonly virtualTextures?: boolean;
   readonly source: string;
   /** Complete structural key. Instance numbers, texture objects and content versions are data. */
   readonly key: string;

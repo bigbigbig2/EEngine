@@ -8,15 +8,19 @@ import { resolveExposureSettings, type ExposureSettings } from "./temporal/Expos
 import {
   AMBIENT_OCCLUSION_DEFAULT_SETTINGS,
   resolveAmbientOcclusionSettings,
-  type AmbientOcclusionSettings,
+  type AmbientOcclusionSettings
 } from "./ao/AmbientOcclusionSettings.js";
 import {
   DEFAULT_FRAME_GEOMETRY_ARENA_MAX_BYTES,
   DEFAULT_FRAME_GEOMETRY_OWNER_MAX_BYTES
 } from "../gpu/GpuFrameGeometryArenaAbi.js";
+import { virtualTextureSettings, type VirtualTextureSettings } from "../gpu/VirtualTextureAbi.js";
 
 /** Immutable Renderer capability and execution configuration. */
 export interface RendererConfig {
+  /** Immutable atlas/metadata/upload ceilings, admitted before VT allocation.
+   * No VT resources are created until a tiled material actually needs them. */
+  readonly virtualTextures?: Partial<VirtualTextureSettings>;
   /** Initial reflection controls; runtime edits use the atomic Renderer setter. */
   readonly screenSpaceReflections?: Partial<ScreenSpaceReflectionsSettings>;
   /** Immutable per-view / active+candidate+retired admission ceilings in bytes. */
@@ -63,6 +67,7 @@ export function mergeRendererConfig(base: RendererConfig, override?: RendererCon
   return Object.freeze({
     ...base,
     ...override,
+    virtualTextures: Object.freeze({ ...base.virtualTextures, ...override.virtualTextures }),
     screenSpaceReflections: Object.freeze({
       ...base.screenSpaceReflections,
       ...override.screenSpaceReflections
@@ -80,6 +85,7 @@ export function mergeRendererConfig(base: RendererConfig, override?: RendererCon
 }
 
 export function validateRendererConfig(config: RendererConfig): void {
+  virtualTextureSettings(config.virtualTextures);
   resolveScreenSpaceReflectionsSettings(
     SCREEN_SPACE_REFLECTIONS_DEFAULT_SETTINGS,
     config.screenSpaceReflections ?? {}

@@ -20,7 +20,7 @@ import {
   type PipelineCacheObserver,
   type CachedComputePipelineDescriptor,
   type CachedPipelineLayoutDescriptor,
-  type CachedRenderPipelineDescriptor,
+  type CachedRenderPipelineDescriptor
 } from "./GPUDescriptorCaches.js";
 import { GPUBufferWrapper } from "./GPUBufferWrapper.js";
 import { FrameProfiler } from "../debug/FrameProfiler.js";
@@ -36,10 +36,11 @@ import { FrameGeometryVertices } from "../render/FrameGeometryVertices.js";
 import { FrameGeometryArena } from "../render/FrameGeometryArena.js";
 import { TemporalOcclusionWork } from "../render/TemporalOcclusionWork.js";
 import { TextureResidency } from "./TextureResidency.js";
+import type { VirtualTextureSettings } from "./VirtualTextureAbi.js";
 import { GPU_MATERIAL_VISIBILITY_RECORD_STRIDE } from "./GpuMaterialVisibilityAbi.js";
 import {
   ResourceAccounting,
-  type ResourceAccountingSnapshot,
+  type ResourceAccountingSnapshot
 } from "../debug/profiling/ResourceAccounting.js";
 
 export interface GraphicsMemoryEvidence {
@@ -103,12 +104,13 @@ export class GraphicsContext {
     profiler = new FrameProfiler(),
     assetStoreOptions: Readonly<GpuAssetStoreOptions> = {},
     private readonly frameGeometryOwnerMaxBytes?: number,
+    private readonly virtualTextureSettings?: Partial<VirtualTextureSettings>
   ) {
     this.device = device;
     this.profiler = profiler;
     this.assetStoreOptions = assetStoreOptions;
     this.profiler.configure({
-      gpuTimestampAvailable: device.features.has("timestamp-query"),
+      gpuTimestampAvailable: device.features.has("timestamp-query")
     });
     this.profiler.attachResourceAccounting(this.resource_accounting);
     this.profiler.attachGpuDevice(device);
@@ -128,19 +130,19 @@ export class GraphicsContext {
         profiler.addCounter(`pipeline.${kind}.createCount`, 1);
         profiler.addCounter(`pipeline.${kind}.hostCallMs`, hostCallMs);
       },
-      onPipelineFirstUse: (kind) => profiler.addCounter(`pipeline.${kind}.firstUseCount`, 1),
+      onPipelineFirstUse: (kind) => profiler.addCounter(`pipeline.${kind}.firstUseCount`, 1)
     };
     this.render_pipelines = new RenderPipelineCache(
       device,
       this.pipeline_layouts,
       this.shader_modules,
-      pipelineObserver,
+      pipelineObserver
     );
     this.compute_pipelines = new ComputePipelineCache(
       device,
       this.pipeline_layouts,
       this.shader_modules,
-      pipelineObserver,
+      pipelineObserver
     );
     this.textures = new GPUTextureManager(this);
     this.samplers = new GPUSamplerCache(device);
@@ -162,7 +164,7 @@ export class GraphicsContext {
   setPipelineBindings(
     pass: GPURenderPassEncoder | GPUComputePassEncoder,
     pipeline: CachedRenderPipelineDescriptor | CachedComputePipelineDescriptor,
-    bindings: readonly (readonly GPUBindingResource[])[],
+    bindings: readonly (readonly GPUBindingResource[])[]
   ): void {
     const layouts: CachedPipelineLayoutDescriptor["bindGroupLayouts"] = pipeline.layout.bindGroupLayouts;
     for (let groupIndex = 0; groupIndex < bindings.length; groupIndex++) {
@@ -180,7 +182,7 @@ export class GraphicsContext {
       kind: "buffer",
       owner: descriptor.label?.split("/", 1)[0] || "graphics",
       bytes: descriptor.size,
-      label: descriptor.label,
+      label: descriptor.label
     });
     return GPUBufferWrapper.from(descriptor, buffer, () => {
       this.resource_accounting.destroyed(accounting);
@@ -203,8 +205,8 @@ export class GraphicsContext {
         materialStoreCreated: this.materialStoreValue !== undefined,
         textureResidencyCreated: this.textureResidencyValue !== undefined,
         baseTextureBankCreated: this.textureResidencyValue !== undefined,
-        highResolutionTextureBankCreated: textureResidency?.highResolutionArrayAllocated ?? false,
-      }),
+        highResolutionTextureBankCreated: textureResidency?.highResolutionArrayAllocated ?? false
+      })
     });
   }
 
@@ -255,7 +257,7 @@ export class GraphicsContext {
       this.device,
       this.appearance_programs,
       undefined,
-      this.resource_accounting,
+      this.resource_accounting
     );
     return this.appearanceStaticValue;
   }
@@ -274,7 +276,7 @@ export class GraphicsContext {
     this.frameGeometryArenaValue ??= new FrameGeometryArena(
       this.device,
       this.resource_accounting,
-      this.frameGeometryOwnerMaxBytes,
+      this.frameGeometryOwnerMaxBytes
     );
     return this.frameGeometryArenaValue;
   }
@@ -292,7 +294,7 @@ export class GraphicsContext {
 
   /** Lazily creates the independent texture residency owner. */
   get texture_residency(): TextureResidency {
-    this.textureResidencyValue ??= new TextureResidency(this);
+    this.textureResidencyValue ??= new TextureResidency(this, this.virtualTextureSettings);
     return this.textureResidencyValue;
   }
 
@@ -361,7 +363,7 @@ export class GraphicsContext {
       "SurfaceV4",
       "NativeExecutionBins",
       "NativeVisibilityPass",
-      "NativeRasterWorkPartitions",
+      "NativeRasterWorkPartitions"
     ]) {
       bytes += (owners[owner]?.buffer ?? 0) + (owners[owner]?.texture ?? 0);
     }
@@ -435,7 +437,7 @@ export class GraphicsContext {
         residentLogicalBytes -
         retiringBytes -
         (appearance?.stagingBytes ?? 0) -
-        (staticAppearance?.stagingBytes ?? 0),
+        (staticAppearance?.stagingBytes ?? 0)
     );
     return Object.freeze({
       schemaVersion: 1,
@@ -455,19 +457,19 @@ export class GraphicsContext {
         frameVertices: Object.freeze({ allocatedBytes: this.frameVerticesValue?.allocatedBytes ?? 0 }),
         frameGeometry: Object.freeze({ allocatedBytes: this.frameGeometryArenaValue?.allocatedBytes ?? 0 }),
         currentHzbRecheck: Object.freeze({
-          allocatedBytes: this.currentHzbRecheckValue?.allocatedBytes ?? 0,
+          allocatedBytes: this.currentHzbRecheckValue?.allocatedBytes ?? 0
         }),
         assets: Object.freeze({
           allocatedBytes: assets?.allocatedBytes ?? 0,
           residentBytes: assets?.residentBytes ?? 0,
           retiringBytes: assets?.retiringBytes ?? 0,
-          reclaimableBytes: assets?.reclaimableBytes ?? 0,
+          reclaimableBytes: assets?.reclaimableBytes ?? 0
         }),
         scene: Object.freeze({
           allocatedBytes: scene?.allocatedBytes ?? 0,
           residentBytes: scene?.residentBytes ?? 0,
           retiringBytes: scene?.retiringBytes ?? 0,
-          reclaimableBytes: scene?.reclaimableBytes ?? 0,
+          reclaimableBytes: scene?.reclaimableBytes ?? 0
         }),
         materials: Object.freeze({
           allocatedBytes: (materials?.allocatedBytes ?? 0) + (textureResidency?.physicalAllocatedBytes ?? 0),
@@ -475,17 +477,17 @@ export class GraphicsContext {
           retiringBytes: retiringMaterialBytes,
           residentTextures: textureResidency?.residentTextureCount ?? 0,
           allocatedPeakBytes: textureResidency?.allocatedPeakBytes ?? 0,
-          allocatedBankCount: textureResidency?.segmentCount ?? 0,
+          allocatedBankCount: textureResidency?.segmentCount ?? 0
         }),
         transientBuffers: Object.freeze({ ...buffers }),
-        transientTextures: Object.freeze({ ...textures }),
+        transientTextures: Object.freeze({ ...textures })
       }),
       limitations: Object.freeze([
         "allocatedBytes sums registered owners and allocators, including raw native Surface scratch once; it is not driver VRAM residency",
         "fragmentationBytes covers capacity slack in asset, scene and material tables",
         "transientPoolBytes reports shared allocator allocation after graph execution",
-        "non-table persistent textures are included in allocatedBytes but not residentLogicalBytes",
-      ]),
+        "non-table persistent textures are included in allocatedBytes but not residentLogicalBytes"
+      ])
     });
   }
 

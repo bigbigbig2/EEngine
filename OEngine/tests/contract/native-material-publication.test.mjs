@@ -17,13 +17,32 @@ const deferred = () => {
   return { promise, resolve, reject };
 };
 const tick = () => new Promise((resolve) => setImmediate(resolve));
+const publicationConstants = (p) => {
+  const w = new Uint32Array(p.data.bytes);
+  return new Float32Array(p.data.bytes, w[2] * 4, w[3]);
+};
+const publicationDirectory = (p) => {
+  const w = new Uint32Array(p.data.bytes);
+  return w.subarray(w[0], w[2]);
+};
 
 test("unique native programs publish atomically and retire every code/resource lease", async () => {
   const f = fixture();
   const a = f.source();
-  const b = { ...a, materialSlot: 1, descriptor: { ...a.descriptor, source: `${a.descriptor.source}\n// second program` } };
-  const publication = new GpuNativeMaterialPublication(f.device, f.registry, [a, b, { ...a, materialSlot: 2 }]);
-  assert.deepEqual(publication.entries.map((entry) => entry.programIndex), [0, 1, 0]);
+  const b = {
+    ...a,
+    materialSlot: 1,
+    descriptor: { ...a.descriptor, source: `${a.descriptor.source}\n// second program` }
+  };
+  const publication = new GpuNativeMaterialPublication(f.device, f.registry, [
+    a,
+    b,
+    { ...a, materialSlot: 2 }
+  ]);
+  assert.deepEqual(
+    publication.entries.map((entry) => entry.programIndex),
+    [0, 1, 0]
+  );
   await tick();
   assert.equal(f.compiles.length, 2);
   f.compiles[0].resolve({ primary: true });
@@ -120,14 +139,18 @@ test("raster cutoff and flags are instance constants and invalidate values witho
   const base = f.source();
   const first = new GpuNativeMaterialPublication(f.device, f.registry, [base]);
   const changed = new GpuNativeMaterialPublication(f.device, f.registry, [
-    { ...base, coverage: { program: base.program, layoutEntries: [], materialEntries: [] }, raster: { alphaCutoff: 0.75, alphaMask: true, hasEmissiveTexture: true } }
+    {
+      ...base,
+      coverage: { program: base.program, layoutEntries: [], materialEntries: [] },
+      raster: { alphaCutoff: 0.75, alphaMask: true, hasEmissiveTexture: true }
+    }
   ]);
   const at = base.program.constants.length;
-  assert.deepEqual([...new Float32Array(first.constants.bytes).subarray(at, at + 2)], [0.5, 0]);
-  assert.deepEqual([...new Float32Array(changed.constants.bytes).subarray(at, at + 2)], [0.75, 3]);
+  assert.deepEqual([...publicationConstants(first).subarray(at, at + 2)], [0.5, 0]);
+  assert.deepEqual([...publicationConstants(changed).subarray(at, at + 2)], [0.75, 3]);
   assert.equal(first.entries[0].signature, changed.entries[0].signature);
   assert.notEqual(first.entries[0].valueRevision, changed.entries[0].valueRevision);
-  assert.equal(first.allocatedBytes, base.program.constants.length * 4 + 8 + 32 + 16 + 4);
+  assert.equal(first.allocatedBytes, 16 + base.program.constants.length * 4 + 8 + 32 + 16 + 4);
   assert.throws(
     () =>
       new GpuNativeMaterialPublication(f.device, f.registry, [
@@ -186,14 +209,14 @@ test("execution bins share program and binding set; temporal versions are immuta
     first.entries.map((entry) => entry.executionBin),
     [0, 0, 1]
   );
-  const directory = new Uint32Array(first.directory.bytes);
+  const directory = publicationDirectory(first);
   assert.equal(directory[11], 0xffffffff);
   assert.equal(directory[27], 1);
   assert.equal(Object.hasOwn(first, "versionBuffer"), false);
   assert.deepEqual([...directory.subarray(12, 14)], [0, 0]);
   assert.equal(directory[5], directory[21]);
   assert.notEqual(directory[5], directory[29]);
-  assert.deepEqual(directory, new Uint32Array(retry.directory.bytes));
+  assert.deepEqual(directory, publicationDirectory(retry));
   first.abort();
   retry.abort();
   await tick();

@@ -34,7 +34,7 @@ export function bistroLocalModel(examplesRoot: string): Plugin {
           if (
             !path.startsWith("..") &&
             !path.includes(":") &&
-            /\.(?:oegpack|oescene|textureproduct|json)$/u.test(path)
+            /\.(?:oegpack|oescene|textureproduct|vtpack|bin|json)$/u.test(path)
           ) {
             source = candidate;
           }

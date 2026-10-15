@@ -1,3 +1,4 @@
+import { nativePublicationAccessors } from "../../.test-dist/gpu/NativePublicationAbi.js";
 import {
   AppearanceGraphBuilder,
   snapshotAppearanceTexture
@@ -349,21 +350,20 @@ fn native_material_sample_${index}(base: u32, uv: vec2f, dx: vec2f, dy: vec2f) -
         .join("\n");
       const source = /* wgsl */ `
 ${NATIVE_MATERIAL_DIRECTORY_WGSL}
-@group(0) @binding(0) var<storage, read> constants: array<f32>;
-@group(0) @binding(1) var<storage, read> directory: array<NativeMaterialDirectoryEntry>;
+@group(0) @binding(0) var<storage, read> publication_data: array<u32>;
 @group(0) @binding(2) var<storage, read> input_data: array<NativeMaterialInputs>;
 @group(0) @binding(3) var<storage, read_write> output_data: array<f32>;
 @group(0) @binding(4) var source_texture: texture_2d<f32>;
 @group(0) @binding(5) var source_sampler: sampler;
 @group(0) @binding(6) var<uniform> selected_set: vec4u;
-fn native_material_constant(base: u32, slot: u32) -> f32 { return constants[base + slot]; }
+${nativePublicationAccessors("publication_data")}
 ${callbacks}
 ${program.source}
 ${referenceWgsl(graph, ir, program)}
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
   if id.x >= ${count}u || id.x % 2u != selected_set.x { return; }
-  let material = directory[id.x % 2u];
+  let material = native_material_entry(id.x % 2u);
   let values = native_material_evaluate(material.constant_base, input_data[id.x]);
   for (var channel = 0u; channel < ${program.outputCount}u; channel++) {
     output_data[id.x * ${program.outputCount}u + channel] = values[channel];
@@ -372,7 +372,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 @compute @workgroup_size(64)
 fn reference_main(@builtin(global_invocation_id) id: vec3u) {
   if id.x >= ${count}u || id.x % 2u != selected_set.x { return; }
-  let values = reference_evaluate(directory[id.x % 2u].constant_base, input_data[id.x]);
+  let values = reference_evaluate(native_material_entry(id.x % 2u).constant_base, input_data[id.x]);
   for (var channel = 0u; channel < ${program.outputCount}u; channel++) {
     output_data[id.x * ${program.outputCount}u + channel] = values[channel];
   }
@@ -383,7 +383,7 @@ fn reference_main(@builtin(global_invocation_id) id: vec3u) {
         workgroupSize: 64,
         groups: [
           [
-            ...[0, 1, 2].map((binding) => ({
+            ...[0, 2].map((binding) => ({
               binding,
               visibility: GPUShaderStage.COMPUTE,
               buffer: { type: "read-only-storage" }
@@ -419,9 +419,11 @@ fn reference_main(@builtin(global_invocation_id) id: vec3u) {
           device.createBindGroup({
             layout: layouts[0],
             entries: [
-              ...[publication.constants, publication.directory, inputBuffer, output].map(
-                (resource, binding) => ({ binding, resource: { buffer: resource } })
-              ),
+              ...[
+                [0, publication.data],
+                [2, inputBuffer],
+                [3, output]
+              ].map(([binding, resource]) => ({ binding, resource: { buffer: resource } })),
               { binding: 4, resource: texture.createView() },
               { binding: 5, resource: sampler },
               { binding: 6, resource: { buffer: selectedSets[set] } }

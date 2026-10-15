@@ -38,15 +38,15 @@ test("Surface has no alpha evaluator while coverage-only edits remain atomic and
         material,
         graph: compileAppearanceGraph(graph.build()),
         textureBindingSetId: 0,
-        textureRefs: new Map(),
-      },
+        textureRefs: new Map()
+      }
     ],
     () => [set],
     new Map(),
     new Map(),
     upload,
     false,
-    false,
+    false
   );
   await scene.ready;
   upload.onBeforeFinish.send1(upload);
@@ -80,7 +80,7 @@ test("Surface has no alpha evaluator while coverage-only edits remain atomic and
   assert.equal(bound.program.outputs.alpha, undefined);
   assert.equal(
     bound.program.inputs.some((input) => input.name === "opacity"),
-    false,
+    false
   );
   assert.deepEqual(Object.keys(bound.coverage.program.outputs), ["alpha"]);
   material.appearance_inputs.set("opacity", [0.2]);
@@ -230,7 +230,7 @@ test("stable native Scene keeps code/bindings; numeric edits remain atomic acros
   retry.onFinished.send1(retry);
   assert.equal(scene.active, candidate);
   await tick();
-  assert.ok(active.publication.constants.destroyed);
+  assert.ok(active.publication.data.destroyed);
   assert.equal(scene.canPrepareFrame(), true);
   assert.equal(scene.candidate, null);
   material.is_unlit = true;
@@ -278,7 +278,7 @@ test("binding reuse observes route values, physical bank identity, generation an
   const uv = g.input("uv0", 2, "surface", undefined, "uv0");
   g.output(
     "baseColor",
-    g.swizzle(g.texture(snapshotAppearanceTexture(texture, "linear-rgb"), uv), [0, 1, 2]),
+    g.swizzle(g.texture(snapshotAppearanceTexture(texture, "linear-rgb"), uv), [0, 1, 2])
   );
   g.output("alpha", g.swizzle(g.texture(snapshotAppearanceTexture(texture, "linear-rgb"), uv), [3]));
   const graph = compileAppearanceGraph(g.build());

@@ -17,7 +17,7 @@ import { encodeFloat16, decodeFloat16 } from "../../.test-dist/core/Float16.js";
 import { createNativeMaterialBindings } from "../../.test-dist/gpu/NativeMaterialBindings.js";
 import {
   lowerNativeMaterial,
-  nativeMaterialDynamicInputs,
+  nativeMaterialDynamicInputs
 } from "../../.test-dist/shaders/native_material.js";
 import { GpuNativeMaterialPublication } from "../../.test-dist/gpu/GpuNativeMaterialPublication.js";
 import { AppearanceProgramRegistry } from "../../.test-dist/gpu/AppearanceProgramRegistry.js";
@@ -45,7 +45,7 @@ const srgb = (byte) => {
 const working = (c) => [
   c[0] * 0.627404 + c[1] * 0.329282 + c[2] * 0.0433136,
   c[0] * 0.069097 + c[1] * 0.91954 + c[2] * 0.0113612,
-  c[0] * 0.0163916 + c[1] * 0.0880132 + c[2] * 0.895595,
+  c[0] * 0.0163916 + c[1] * 0.0880132 + c[2] * 0.895595
 ];
 
 /** Complete isolated native consumer chain. Fixture setup may submit uploads;
@@ -62,8 +62,8 @@ export async function runNativeSurfaceIntegrationGpuOracle(
     physicalSun = false,
     controlledLoss = false,
     productGeometry = false,
-    cellPixels = 8,
-  } = {},
+    cellPixels = 8
+  } = {}
 ) {
   const graphics = {
     device,
@@ -77,9 +77,9 @@ export async function runNativeSurfaceIntegrationGpuOracle(
         flush() {},
         generateMipmap() {
           throw new Error("Expected cooked mips");
-        },
-      },
-    },
+        }
+      }
+    }
   };
   const registry = new AppearanceProgramRegistry(device);
   const localOwner = new LocalLightWorkGenerator(device, 37);
@@ -102,8 +102,8 @@ export async function runNativeSurfaceIntegrationGpuOracle(
         await createNativeMaterialBindingFixture(device, graphics, {
           variant,
           physicalBindingSetBase: variant,
-          packedProducts: productGeometry,
-        }),
+          packedProducts: productGeometry
+        })
       );
     // Both packages are genuinely different texture owners with binding-set id 0
     // locally; the test scene maps those owners to global sets 0 and 1 explicitly.
@@ -117,8 +117,8 @@ export async function runNativeSurfaceIntegrationGpuOracle(
           ...fixture.commonFor(fixture.materials[index]),
           graph,
           program: lowerNativeMaterial(graph),
-          ...(fixture.packedOwner ? { packedProducts: fixture.packedOwner } : {}),
-        }),
+          ...(fixture.packedOwner ? { packedProducts: fixture.packedOwner } : {})
+        })
       );
       if (productGeometry) {
         // Include every real segment view in the fixture tuple. The obsolete
@@ -133,7 +133,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
             layoutEntries.push({
               binding: slot,
               visibility: GPUShaderStage.COMPUTE,
-              texture: { sampleType: "float", viewDimension: "2d-array" },
+              texture: { sampleType: "float", viewDimension: "2d-array" }
             });
             entries.push({ binding: slot, resource: set.textureBanks[bank] });
           }
@@ -143,7 +143,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
       fixture.sources = fixture.sources.map((source, index) => ({
         ...source,
         bindings: fixture.bindings[index],
-        program: fixture.bindings[index].program,
+        program: fixture.bindings[index].program
       }));
     }
     fixture = await createNativeSurfaceFixture(device, {
@@ -152,7 +152,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
       materialCount: 8,
       perspective,
       highCoverage: cost,
-      cellPixels,
+      cellPixels
     });
     geometryFixtures.push(fixture);
     let width = fixture.width,
@@ -165,7 +165,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
       256,
       64,
       "rgba16float",
-      GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC,
+      GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC
     );
     const lut = new Uint16Array(256 * 64 * 4);
     for (let i = 0; i < lut.length; i += 4) lut.set([...sunTransmission, encodeFloat16(1)], i);
@@ -173,13 +173,13 @@ export async function runNativeSurfaceIntegrationGpuOracle(
     const sunEntries = nativeSurfacePhysicalSunEntries({
       parameters: sunParameters,
       transmittance: sunTexture.createView(),
-      sampler: graphics.samplers.obtain({ minFilter: "linear", magFilter: "linear" }),
+      sampler: graphics.samplers.obtain({ minFilter: "linear", magFilter: "linear" })
     });
     let exposureValue = 1.25;
     const priorExposure = fixture.storage(new Float32Array([1.25, 0, 0, 0]), "S1/prior GPU exposure");
     const exposureParameters = fixture.uniform(
       new Float32Array([2.5, ...[0.02, 0.04, 0.08].map((v) => decodeFloat16(encodeFloat16(v)))]),
-      "S1/exposure update",
+      "S1/exposure update"
     );
     const exposurePipeline = await device.createComputePipelineAsync({
       layout: "auto",
@@ -195,9 +195,9 @@ export async function runNativeSurfaceIntegrationGpuOracle(
  if(all(id.xy==vec2u(0u))){exposure[0]=desired.x;}
  // Re-expose the actual stored half background, not an ideal CPU float.
  textureStore(background,vec2i(id.xy),vec4f(desired.yzw*(desired.x/1.25),1.0));
-}`,
-        }),
-      },
+}`
+        })
+      }
     });
     const sources = materialFixtures.flatMap((material, set) =>
       material.sources.map((source, index) => ({
@@ -212,11 +212,11 @@ export async function runNativeSurfaceIntegrationGpuOracle(
             unlit: index === 2,
             reactive: true,
             finalPixel: true,
-            physicalSun: physicalSun && index !== 2,
+            physicalSun: physicalSun && index !== 2
           },
-          device.limits,
-        ),
-      })),
+          device.limits
+        )
+      }))
     );
     const publish = async (parameters = {}) => {
       const candidate = new GpuNativeMaterialPublication(
@@ -224,8 +224,8 @@ export async function runNativeSurfaceIntegrationGpuOracle(
         registry,
         sources.map((source) => ({
           ...source,
-          ...(source.materialSlot === 3 && Object.keys(parameters).length ? { parameters } : {}),
-        })),
+          ...(source.materialSlot === 3 && Object.keys(parameters).length ? { parameters } : {})
+        }))
       );
       try {
         await candidate.ready;
@@ -240,14 +240,14 @@ export async function runNativeSurfaceIntegrationGpuOracle(
     const routeResources = (publication) =>
       publication.bins.map((bin) => {
         const entry = publication.entries.find(
-          (entry) => entry.executionBin === publication.bins.indexOf(bin),
+          (entry) => entry.executionBin === publication.bins.indexOf(bin)
         );
         const source = sources.find((source) => source.materialSlot === entry.materialSlot);
         return {
           ...bin,
           materialEntries: source.bindings.entries,
           frameInputs: nativeMaterialDynamicInputs(source.program, {}),
-          unlit: entry.materialSlot % 4 === 2,
+          unlit: entry.materialSlot % 4 === 2
         };
       });
     const cameraWords = new Float32Array(PACKED_CAMERA_TYPE.size / 4);
@@ -285,8 +285,8 @@ export async function runNativeSurfaceIntegrationGpuOracle(
               fixture.geometry.vertexPayload,
               fixture.geometry.vertexPayload,
               fixture.geometry.vertexPayload,
-              fixture.geometry.vertexPayload,
-            ],
+              fixture.geometry.vertexPayload
+            ]
           }
         : fixture.geometry;
     const createCoverage = async (publication, commit = true) => {
@@ -296,7 +296,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
         capacity: fixture.workCount,
         generation: fixture.generation,
         view: new Uint8Array(visibilityView),
-        ...(phase3Matrix ? { camera } : {}),
+        ...(phase3Matrix ? { camera } : {})
       });
       coverageOwners.push(owner);
       await owner.ready;
@@ -312,24 +312,24 @@ export async function runNativeSurfaceIntegrationGpuOracle(
             view: fixture.visibility.createView(),
             clearValue: { r: 0xffffffff, g: 0, b: 0, a: 0 },
             loadOp: "clear",
-            storeOp: "store",
-          },
+            storeOp: "store"
+          }
         ],
         depthStencilAttachment: {
           view: fixture.depth.createView(),
           depthClearValue: 0,
           depthLoadOp: "clear",
-          depthStoreOp: "store",
-        },
+          depthStoreOp: "store"
+        }
       });
     let probeSize = phase3Matrix ? 16 : width * height * 16 * 4;
     let output = device.createBuffer({
       size: probeSize,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
     });
     let readback = device.createBuffer({
       size: probeSize,
-      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
     });
     resources.push(output, readback);
     const inspectLayout = device.createBindGroupLayout({
@@ -337,11 +337,11 @@ export async function runNativeSurfaceIntegrationGpuOracle(
         ...[0, 1, 2, 3].map((binding) => ({
           binding,
           visibility: GPUShaderStage.COMPUTE,
-          texture: { sampleType: "unfilterable-float" },
+          texture: { sampleType: "unfilterable-float" }
         })),
         { binding: 4, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } },
-        { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-      ],
+        { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }
+      ]
     });
     const inspect = await device.createComputePipelineAsync({
       layout: device.createPipelineLayout({ bindGroupLayouts: [inspectLayout] }),
@@ -360,14 +360,14 @@ export async function runNativeSurfaceIntegrationGpuOracle(
  let at=(id.x+id.y*size.x)*4u;let p=vec2i(id.xy);
  result[at]=bitcast<vec4u>(textureLoad(hdr,p,0));result[at+1u]=bitcast<vec4u>(textureLoad(motion,p,0));
  result[at+2u]=bitcast<vec4u>(textureLoad(mask,p,0));result[at+3u]=vec4u(bitcast<vec3u>(textureLoad(upscaled,p,0).rgb),textureLoad(winner,p,0).r);
-}`,
-        }),
-      },
+}`
+        })
+      }
     });
     const rows = [];
     const frame = async (
       index,
-      { aborted = false, fallback = false, reset = false, exposureUpdate = false, exposureTarget = 2.5 } = {},
+      { aborted = false, fallback = false, reset = false, exposureUpdate = false, exposureTarget = 2.5 } = {}
     ) => {
       const command = ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame");
       let timingResults = null;
@@ -383,8 +383,8 @@ export async function runNativeSurfaceIntegrationGpuOracle(
               },
               (error) => {
                 reject(error);
-              },
-            ),
+              }
+            )
           )
         : null;
       const seedView = [...identity],
@@ -410,7 +410,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
         qualityCamera.transform.position.set(
           offset,
           0,
-          2 + (phase3Matrix === "dolly-depth" ? phase * 0.001 : 0),
+          2 + (phase3Matrix === "dolly-depth" ? phase * 0.001 : 0)
         );
         qualityCamera.transform.lookAt({ x: offset, y: 0, z: 0.5 });
         frameJitter = [
@@ -421,11 +421,11 @@ export async function runNativeSurfaceIntegrationGpuOracle(
           [0.125, -0.375],
           [-0.375, 0.125],
           [-0.125, -0.125],
-          [0.375, 0.375],
+          [0.375, 0.375]
         ][index % 8];
         GPUViewContext.prototype.setJitter.call(
           { camera: qualityState, jitter: new Float32Array(2), width, height },
-          ...frameJitter,
+          ...frameJitter
         );
         qualityState.update(command);
       }
@@ -440,7 +440,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
               inverseView: qualityState.view_matrix_inverse,
               inverseProjection: qualityState.projection_matrix_inverse,
               jitter: frameJitter,
-              preExposure: 1,
+              preExposure: 1
             }
           : {
               view: seedView,
@@ -448,9 +448,9 @@ export async function runNativeSurfaceIntegrationGpuOracle(
               inverseView: seedInverseView,
               inverseProjection: seedInverseProjection,
               jitter: [0, 0],
-              preExposure: 1,
+              preExposure: 1
             },
-        reset,
+        reset
       );
       if (phase3Matrix) {
         temporal.attach(command);
@@ -460,13 +460,13 @@ export async function runNativeSurfaceIntegrationGpuOracle(
         lookupTarget: {
           buffer: finalLighting.buffer,
           offset: finalLighting.plan.lookupOffset,
-          size: finalLighting.plan.lookupBytes,
+          size: finalLighting.plan.lookupBytes
         },
         publication: {
           buffer: fixture.lightingEntries[0].resource.buffer,
           revision: 1,
           ids: new Uint32Array([0, 1, 2, 3, 4, 5, 6, 7]),
-          currentRevision: () => 1,
+          currentRevision: () => 1
         },
         view: {
           width,
@@ -475,20 +475,20 @@ export async function runNativeSurfaceIntegrationGpuOracle(
           far: 100,
           depthConversion: [0, 0.1],
           projection: [1, 1, 0, 0],
-          view: identity,
+          view: identity
         },
         frameIndex: index,
         deviceEpoch: 37,
         mode: 1,
         visibility: fixture.visibility.createView(),
-        depth: fixture.depth.createView(),
+        depth: fixture.depth.createView()
       });
       const lightingEntries = [
         ...localFrame.lightingEntries.filter((entry) => entry.binding !== 2),
         ...fixture.lightingEntries.filter((entry) => entry.binding > 3 && entry.binding !== 9),
         { binding: 2, resource: { buffer: finalLighting.buffer } },
         { binding: 9, resource: { buffer: finalLighting.ranges } },
-        ...(physicalSun ? sunEntries : []),
+        ...(physicalSun ? sunEntries : [])
       ];
       await surface.prepareFrame({
         width,
@@ -499,7 +499,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
           ? [
               qualityCamera.transform.matrix[12],
               qualityCamera.transform.matrix[13],
-              qualityCamera.transform.matrix[14],
+              qualityCamera.transform.matrix[14]
             ]
           : [0, 0, 3],
         preExposure: fixture.exposure,
@@ -511,14 +511,14 @@ export async function runNativeSurfaceIntegrationGpuOracle(
         geometry: fallback
           ? {
               ...geometry(),
-              sourcePayload: [0, 0, 0, (fixture.geometry.sourcePayload[3] | 0x80000000) >>> 0],
+              sourcePayload: [0, 0, 0, (fixture.geometry.sourcePayload[3] | 0x80000000) >>> 0]
             }
           : geometry(),
         publication,
         lightingEntries,
         routes: routeResources(publication),
         reactive: seedFrame.response,
-        temporal: { seed: seedFrame.seed, identity: seedFrame.identity, view: seedFrame.view },
+        temporal: { seed: seedFrame.seed, identity: seedFrame.identity, view: seedFrame.view }
       });
       const temporalSettings = {
         renderWidth: width,
@@ -532,7 +532,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
         cameraInfiniteFar: !!phase3Matrix,
         frameTimeMs: phase3Matrix ? 1000 / 60 : 16.7,
         reset: phase3Matrix ? !seedFrame.previousValid : reset,
-        historyReadIndex: index % 2,
+        historyReadIndex: index % 2
       };
       fsr.prepareFrame(
         command,
@@ -546,8 +546,8 @@ export async function runNativeSurfaceIntegrationGpuOracle(
               cameraInfiniteFar: false,
               frameTimeMs: 16.7,
               reset,
-              historyReadIndex: seedFrame.historyReadIndex,
-            },
+              historyReadIndex: seedFrame.historyReadIndex
+            }
       );
       if (!phase3Matrix) {
         fsr.attach(command, temporal);
@@ -562,9 +562,9 @@ export async function runNativeSurfaceIntegrationGpuOracle(
               distance: qualityCamera.transform.matrix[14] - 0.5,
               scaleX: qualityState.projection_matrix[0],
               jitterX: qualityState.projection_matrix[8],
-              jitterY: qualityState.projection_matrix[9],
+              jitterY: qualityState.projection_matrix[9]
             }
-          : null,
+          : null
       );
       const cpuPrepareMs = performance.now() - prepareStart;
       const graph = new FrameGraph("SurfaceV4 isolated integration");
@@ -574,14 +574,13 @@ export async function runNativeSurfaceIntegrationGpuOracle(
         depth = imported("depth", fixture.depth, "internal-full");
       const foundation = [
         ...Object.values(fixture.geometry).filter((value) => value?.size !== undefined),
-        publication.constants,
-        publication.directory,
+        publication.data
       ];
       const dependencies = foundation.map((buffer, index) => imported(`native foundation ${index}`, buffer));
       if (qualityState) {
         const arenaIndex = foundation.indexOf(fixture.geometry.arena);
         const currentGeometry = graph.add("Seed quality/real FrameGeometryVertices", {}, () =>
-          fixture.encodeFrameGeometry(command.gpu_encoder, qualityState.view_projection_matrix),
+          fixture.encodeFrameGeometry(command.gpu_encoder, qualityState.view_projection_matrix)
         );
         for (const id of dependencies) currentGeometry.read(id);
         dependencies[arenaIndex] = currentGeometry.write(dependencies[arenaIndex]);
@@ -600,8 +599,8 @@ export async function runNativeSurfaceIntegrationGpuOracle(
             entries: [
               { binding: 0, resource: { buffer: fixture.exposure } },
               { binding: 1, resource: fixture.background.createView() },
-              { binding: 2, resource: { buffer: exposureParameters } },
-            ],
+              { binding: 2, resource: { buffer: exposureParameters } }
+            ]
           });
           const pass = command.beginComputePass({ label: "S1/GPU radiometry producer" });
           pass.setPipeline(exposurePipeline);
@@ -634,14 +633,14 @@ export async function runNativeSurfaceIntegrationGpuOracle(
         target: {
           resource: imported("final lighting container", finalLighting.buffer),
           offset: finalLighting.plan.descriptorOffset,
-          size: finalLighting.plan.descriptorBytes,
-        },
+          size: finalLighting.plan.descriptorBytes
+        }
       });
       if (physicalSun) {
         lightingProduct = addFinalPixelSolarPublication(graph, {
           transmittance: imported("Sun transmittance provider", sunTexture),
           target: lightingProduct,
-          plan: finalLighting.plan,
+          plan: finalLighting.plan
         });
       }
       const localProducts = localFrame
@@ -649,14 +648,14 @@ export async function runNativeSurfaceIntegrationGpuOracle(
             visibility: winnerVis,
             depth: winnerDepth,
             database: imported("local database", localFrame.request.publication.buffer),
-            lookup: lightingProduct,
+            lookup: lightingProduct
           })
         : null;
       const seedProducts = temporal.importProducts(graph);
       const previousIdentity = imported(
         "Temporal/previous identity",
         seedFrame.previousIdentity,
-        "internal-full",
+        "internal-full"
       );
       const products = surface.addToGraph(
         graph,
@@ -666,10 +665,10 @@ export async function runNativeSurfaceIntegrationGpuOracle(
           exposure,
           background,
           ...dependencies,
-          ...(localProducts ? [localProducts.data, localProducts.lookup] : []),
+          ...(localProducts ? [localProducts.data, localProducts.lookup] : [])
         ],
         seedProducts.response,
-        { seed: seedProducts.seed, identity: seedProducts.identity },
+        { seed: seedProducts.seed, identity: seedProducts.identity }
       );
       const facts = {
         motion: products.seed,
@@ -680,11 +679,11 @@ export async function runNativeSurfaceIntegrationGpuOracle(
             seed: products.seed,
             response: products.reactive,
             identity: products.identity,
-            previousIdentity,
+            previousIdentity
           },
           undefined,
-          !phase3Matrix,
-        ),
+          !phase3Matrix
+        )
       };
       const fsrOutput = fsr.addToGraph(
         graph,
@@ -700,7 +699,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
               width,
               height,
               outputWidth: width,
-              outputHeight: height,
+              outputHeight: height
             }
           : {
               color: products.hdr,
@@ -711,9 +710,9 @@ export async function runNativeSurfaceIntegrationGpuOracle(
               preExposure: exposure,
               priorExposure: prior,
               width,
-              height,
+              height
             },
-        (_name, resolve) => resolve(fsr),
+        (_name, resolve) => resolve(fsr)
       );
       if (seedReference) {
         const referenceProducts = seedReference.addToGraph(graph, command, {
@@ -725,13 +724,13 @@ export async function runNativeSurfaceIntegrationGpuOracle(
           work: fixture.geometry.meshletWork,
           instances: fixture.sceneInstances,
           preExposure: exposure,
-          priorExposure: prior,
+          priorExposure: prior
         });
         seedReference.compare(
           graph,
           command,
           { color: fsrOutput, seed: products.seed, identity: products.identity, mask: facts.mask },
-          referenceProducts,
+          referenceProducts
         );
       } else {
         const node = graph.add("S1/read all native consumers", {}, (_data, resources) => {
@@ -741,10 +740,10 @@ export async function runNativeSurfaceIntegrationGpuOracle(
             entries: [
               ...[products.hdr, facts.motion, facts.mask, fsrOutput, winnerVis].map((id, binding) => ({
                 binding,
-                resource: viewOf(resources.get(id)),
+                resource: viewOf(resources.get(id))
               })),
-              { binding: 5, resource: { buffer: output } },
-            ],
+              { binding: 5, resource: { buffer: output } }
+            ]
           });
           const pass = command.beginComputePass({ label: "S1/inspect" });
           pass.setPipeline(inspect);
@@ -790,14 +789,14 @@ export async function runNativeSurfaceIntegrationGpuOracle(
           metrics.wrongHard === 0
             ? []
             : ["identity/mask"]),
-          ...(metrics.actualAnalyticRmse <= metrics.referenceAnalyticRmse + 2 ** -10 ? [] : ["HDR"]),
+          ...(metrics.actualAnalyticRmse <= metrics.referenceAnalyticRmse + 2 ** -10 ? [] : ["HDR"])
         ];
         // Output parity is retained as a diagnostic, not mistaken for quality:
         // two different f32 motions can amplify differently in unchanged T3.
         // Normative peak error is compared to independent analytic-motion T3.
         rows[rows.length - 1].diagnosticParityFailures = [
           ...(metrics.peakRgbComparisonUnits <= 1 ? [] : ["output peak parity"]),
-          ...(metrics.normalizedHdrError <= 2 ** -10 ? [] : ["output RMSE parity"]),
+          ...(metrics.normalizedHdrError <= 2 ** -10 ? [] : ["output RMSE parity"])
         ];
         return metrics;
       }
@@ -808,7 +807,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
           verification: "unchanged inputs, initial two full-domain outputs verified",
           cpuEncodeMs,
           cpuPrepareMs,
-          timing: timingResults.map((r) => ({ label: r.label, scope: r.scope, durationMs: r.duration_ms })),
+          timing: timingResults.map((r) => ({ label: r.label, scope: r.scope, durationMs: r.duration_ms }))
         });
         return null;
       }
@@ -864,8 +863,8 @@ export async function runNativeSurfaceIntegrationGpuOracle(
                 preExposure: exposureValue,
                 gain: material === 3 && index >= 4 ? 0.4 : 0.7,
                 customRoughness: productGeometry ? decodeFloat16(encodeFloat16(0.45)) : 0.45,
-                sunTransmission: physicalSun ? [0.7998046875, 0.7001953125, 0.60009765625] : null,
-              },
+                sunTransmission: physicalSun ? [0.7998046875, 0.7001953125, 0.60009765625] : null
+              }
             );
             pbrSamples++;
             expected.forEach((v, k) => {
@@ -873,13 +872,13 @@ export async function runNativeSurfaceIntegrationGpuOracle(
               pbrMaxError = Math.max(pbrMaxError, error);
               check(
                 error <= Math.max(0.001, v * 0.002),
-                `Independent PBR pixel${p} material${material} component${k}: ${values[at + k]} vs ${v}`,
+                `Independent PBR pixel${p} material${material} component${k}: ${values[at + k]} vs ${v}`
               );
             });
           }
           if (material % 4 === 2) {
             const expected = working([material >= 4 ? 192 : 128, material >= 4 ? 96 : 64, 32].map(srgb)).map(
-              (v) => v * exposureValue,
+              (v) => v * exposureValue
             );
             expected.forEach((v, k) => {
               unlitMaxError = Math.max(unlitMaxError, Math.abs(values[at + k] - v)); // Preserve the original budget in its 1.25 exposure domain: exposure
@@ -887,7 +886,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
               check(
                 Math.abs((values[at + k] / exposureValue) * 1.25 - (v / exposureValue) * 1.25) <=
                   0.0004 + (exposureValue < 1e-4 ? (2 ** -24 / exposureValue) * 1.25 : 0),
-                `Independent unlit HDR mismatch ${values[at + k]} vs ${v}`,
+                `Independent unlit HDR mismatch ${values[at + k]} vs ${v}`
               );
             });
           }
@@ -897,15 +896,15 @@ export async function runNativeSurfaceIntegrationGpuOracle(
             .forEach((v, k) =>
               check(
                 Math.abs(values[at + k] - v) < 0.00004,
-                `Background exposure frame${index} component${k}: ${values[at + k]} vs ${v}`,
-              ),
+                `Background exposure frame${index} component${k}: ${values[at + k]} vs ${v}`
+              )
             );
         }
       }
       if (exposureValue < 1e-4) {
         check(
           pbrMaxError / exposureValue <= 0.003 + 2 ** -24 / exposureValue,
-          "Low P native material must retain its physical radiance, with FP16 storage-conversion ULP budget",
+          "Low P native material must retain its physical radiance, with FP16 storage-conversion ULP budget"
         );
       }
       check(pbrSamples > 0, `Frame${index} had no independent PBR numeric samples`);
@@ -927,7 +926,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
         cpuEncodeMs,
         cpuPrepareMs,
         timing: timingResults?.map((r) => ({ label: r.label, scope: r.scope, durationMs: r.duration_ms })),
-        exposureValue,
+        exposureValue
       });
       return values;
     };
@@ -945,7 +944,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
         }
         await frame(index, {
           exposureUpdate: phase3Matrix === "replacement-exposure" && [96, 128].includes(index),
-          exposureTarget: index === 96 ? 5 : 0.3125,
+          exposureTarget: index === 96 ? 5 : 0.3125
         });
       }
       return {
@@ -958,7 +957,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
         reference: "c71c6d31 Facts + unchanged production T3; same actual Native HDR",
         peakMotionPixelError: Math.max(...rows.map((row) => row.motionPixelError)),
         peakNormalizedHdrError: Math.max(...rows.map((row) => row.normalizedHdrError)),
-        peakHalfSteps: Math.max(...rows.map((row) => row.peakHalfSteps)),
+        peakHalfSteps: Math.max(...rows.map((row) => row.peakHalfSteps))
       };
     }
     const first = await frame(0, { reset: true });
@@ -986,11 +985,11 @@ export async function runNativeSurfaceIntegrationGpuOracle(
         measured,
         cpuEncodeP50Ms: percentile(
           measurements.map((row) => row.cpuEncodeMs),
-          0.5,
+          0.5
         ),
         cpuPrepareP50Ms: percentile(
           measurements.map((row) => row.cpuPrepareMs),
-          0.5,
+          0.5
         ),
         surfaceBytes: surface.allocatedBytes,
         seedScratchBytes: width * height * 20,
@@ -1002,7 +1001,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
         readbackExperimentBytes: probeSize * 2,
         discardedWarmups: 3,
         samples: measurements.length,
-        rows,
+        rows
       };
     }
     const vsmCoverage =
@@ -1014,7 +1013,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
             publication,
             routeResources(publication),
             stable,
-            new Uint8Array(visibilityView),
+            new Uint8Array(visibilityView)
           )
         : null;
     check(rows[1].valid > rows[1].visible * 0.9, "Stable frame lost native identity/motion");
@@ -1024,7 +1023,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
       for (let k = 0; k < 4; k++)
         maxFallbackDifference = Math.max(
           maxFallbackDifference,
-          Math.abs(stable[p * 16 + k] - fallback[p * 16 + k]),
+          Math.abs(stable[p * 16 + k] - fallback[p * 16 + k])
         );
     check(maxFallbackDifference === 0, "Resident fallback changed HDR");
     await frame(3, { aborted: true });
@@ -1039,7 +1038,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
     publications.splice(publications.indexOf(previous), 1);
     check(
       changed.some((v, i) => i % 16 < 3 && v !== fallback[i]),
-      "Parameter update did not reach native HDR",
+      "Parameter update did not reach native HDR"
     );
     await frame(5, { reset: true });
     fixture = await createNativeSurfaceFixture(device, {
@@ -1047,7 +1046,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
       height,
       materialCount: 8,
       scale: [-1, 0.8, 1.2],
-      perspective,
+      perspective
     });
     geometryFixtures.push(fixture);
     coverage = await createCoverage(publication, false);
@@ -1071,14 +1070,14 @@ export async function runNativeSurfaceIntegrationGpuOracle(
           (value, k) =>
             (maxMotionPixelError = Math.max(
               maxMotionPixelError,
-              Math.abs(value - transformed[p * 16 + 4 + k]) * [width, height][k],
-            )),
+              Math.abs(value - transformed[p * 16 + 4 + k]) * [width, height][k]
+            ))
         );
         motionSamples++;
       }
     check(
       motionSamples > 0 && maxMotionPixelError < 0.1,
-      "Nonuniform/negative determinant motion exceeded 0.1 render pixel",
+      "Nonuniform/negative determinant motion exceeded 0.1 render pixel"
     );
     await frame(7, { exposureUpdate: true });
     await frame(8);
@@ -1088,7 +1087,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
       width: 192,
       height: 96,
       materialCount: 8,
-      perspective,
+      perspective
     });
     geometryFixtures.push(fixture);
     width = fixture.width;
@@ -1101,17 +1100,17 @@ export async function runNativeSurfaceIntegrationGpuOracle(
     probeSize = width * height * 16 * 4;
     output = device.createBuffer({
       size: probeSize,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
     });
     readback = device.createBuffer({
       size: probeSize,
-      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
     });
     resources.push(output, readback);
     await frame(9, { aborted: true, reset: true });
     check(
       surface.allocatedBytes === committedBytes && fsr.generation === committedFsrGeneration,
-      "Resize abort replaced committed native/FSR ownership",
+      "Resize abort replaced committed native/FSR ownership"
     );
     await frame(9, { reset: true });
     await frame(10);
@@ -1162,7 +1161,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
             bytesBefore,
             bytesAfter: 0,
             oldEpochRejected: true,
-            localLightEpochRejected,
+            localLightEpochRejected
           };
         })()
       : null;
@@ -1197,8 +1196,8 @@ export async function runNativeSurfaceIntegrationGpuOracle(
       maxFallbackDifference,
       limitations: [
         "Authored LightDatabase records, new DIRECT LocalLightWork and resident VSM page fixtures; not scene producer cost",
-        "No S3 performance or whole-scene visual acceptance claim",
-      ],
+        "No S3 performance or whole-scene visual acceptance claim"
+      ]
     };
   } finally {
     if (!controlledLoss) await device.queue.onSubmittedWorkDone();
@@ -1238,7 +1237,7 @@ export async function runNativeSurfaceDeviceEpochGpuOracle() {
     check(adapter !== null, "Device epoch oracle needs a hardware adapter");
     const device = await adapter.requestDevice({
       requiredFeatures: ["texture-formats-tier1", "texture-compression-bc"],
-      requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+      requiredLimits: { maxStorageBuffersPerShaderStage: 16 }
     });
     const errors = [];
     device.addEventListener("uncapturederror", (event) => errors.push(event.error.message));
@@ -1252,7 +1251,7 @@ export async function runNativeSurfaceDeviceEpochGpuOracle() {
   return {
     scope:
       "Controlled device destruction and complete independent reconstruction, not simulated driver fault recovery",
-    epochs,
+    epochs
   };
 }
 
@@ -1265,7 +1264,7 @@ export const runNativeSurfaceResourceProfileGpuOracle = (device) =>
 export const runLocalLightIntegrationGpuOracle = (device) =>
   runNativeSurfaceIntegrationGpuOracle(device, {
     productGeometry: true,
-    physicalSun: true,
+    physicalSun: true
   });
 
 export async function runLocalLightEpochGpuOracle() {
@@ -1275,7 +1274,7 @@ export async function runLocalLightEpochGpuOracle() {
     check(adapter, "Local light epochs require a hardware adapter");
     const device = await adapter.requestDevice({
       requiredFeatures: ["texture-formats-tier1"],
-      requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+      requiredLimits: { maxStorageBuffersPerShaderStage: 16 }
     });
     const errors = [];
     device.addEventListener("uncapturederror", (event) => errors.push(event.error.message));
@@ -1295,29 +1294,29 @@ export async function runFinalPixelSeedQualityGpuOracle(device) {
     "jitter-slow-pan",
     "fast-reverse-stop",
     "dolly-depth",
-    "replacement-exposure",
+    "replacement-exposure"
   ]) {
     cases.push(
-      await runNativeSurfaceIntegrationGpuOracle(device, { width: 1920, height: 1080, phase3Matrix }),
+      await runNativeSurfaceIntegrationGpuOracle(device, { width: 1920, height: 1080, phase3Matrix })
     );
   }
   check(
     cases.every((item) => item.rows.every((row) => row.failures.length === 0)),
-    `Phase3 complete matrix failures: ${JSON.stringify(cases)}`,
+    `Phase3 complete matrix failures: ${JSON.stringify(cases)}`
   );
   for (const item of cases) {
     item.analyticPeakEnvelope = {
       native: Math.max(...item.rows.map((row) => row.actualAnalyticPeak)),
-      reference: Math.max(...item.rows.map((row) => row.referenceAnalyticPeak)),
+      reference: Math.max(...item.rows.map((row) => row.referenceAnalyticPeak))
     };
     check(
       item.analyticPeakEnvelope.native <= item.analyticPeakEnvelope.reference + 2 ** -10,
-      `Phase3 ${item.case}: analytic peak envelope ${JSON.stringify(item.analyticPeakEnvelope)}`,
+      `Phase3 ${item.case}: analytic peak envelope ${JSON.stringify(item.analyticPeakEnvelope)}`
     );
   }
   return {
     cases,
     passed: true,
-    scope: "Phase3 full-domain dynamic facts/HDR regression; final architecture matrix remains Phase5/6",
+    scope: "Phase3 full-domain dynamic facts/HDR regression; final architecture matrix remains Phase5/6"
   };
 }

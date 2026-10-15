@@ -23,14 +23,14 @@ verifies:
 
 # Streaming VT 执行：产品闭包、生产切换、集中验收
 
-唯一设计为 [Streaming VT](../next-design/eengine-streaming-vt-2026-10.md)。2026-10-16 起点 `4a52d400`；用户在细设计之后授权完成**VT-1**，本轮结束停在VT-2之前。本文是唯一细单元状态和实施结果入口；粗路线/workstream只负责模块导航，不复制下表状态。
+唯一设计为 [Streaming VT](../next-design/eengine-streaming-vt-2026-10.md)。2026-10-16 起点 `4a52d400`；用户已依次授权VT-1、VT-2及VT-3，本轮执行至VT验收边界。本文是唯一细单元状态和实施结果入口；粗路线/workstream只负责模块导航，不复制下表状态。
 
 ## 1. 工程量与执行单元
 
 | 单元 | 状态 | 实际工程量与稳定边界 |
 |---|---|---|
 | VT-1 产品与异步读页闭包 | 已完成，结果见§6 | 中等：tiled格式/冷cook、目录/range/shard、Worker任务/校验/信用/取消与CPU缓存完整连通；生产仍原路径，没有假VT |
-| VT-2 GPU与全部生产consumer原子切换 | 待实施 | **最大单元**：页池/页表/尾部、完整过滤、反馈/调度/事务、Native publication合并与全部consumer、coverage、bootstrap与收敛一次接通；结束时唯一生产ownership |
+| VT-2 GPU与全部生产consumer原子切换 | 已接通，复核见§7；完整验收属于VT-3 | **最大单元**：页池/页表/尾部、完整过滤、反馈/调度/事务、Native publication合并与全部consumer、coverage、bootstrap与收敛一次接通；结束时唯一生产ownership |
 | VT-3 集中验证、修复与文档核对 | 待实施 | 运行已连通模块的完整必要检查与真实完整场景，修复局部根因、重跑受影响项，更新事实/Source Map/成本，停在下一模块边界 |
 
 三个单元是工程闭包，不是等量任务，也不是把复杂模块压成三处改动。VT-2 内部可连续实施多个文件/算法阶段、临时断链；不能为了“先完成一个小步骤”先让生产走缺反馈/缺回收/缺coverage的VT。开发中不按每个小patch重复benchmark或全场景。
@@ -145,7 +145,7 @@ verifies:
 
 ## 6. VT-1实施与逐项复核（2026-10-16）
 
-完成CPU产品与准备闭包，未创建GPU页池/页表、未改Native shader或生产场景等待条件。此边界按§2结束，VT-2/3未开始。未提交代码或推送远程。
+完成CPU产品与准备闭包，未创建GPU页池/页表、未改Native shader或生产场景等待条件。此处保留当时VT-1边界，后续VT-2见§7。VT-1提交为`a10d51fe`，未推送远程。
 
 | 要求 | 实际实现与核对 |
 |---|---|
@@ -169,3 +169,18 @@ verifies:
 架构复核确认：Loader/Worker没有GPU owner；原完整resident产品和生产路径保持；tiled输入只依赖目录/provider及有界租约；地址/gutter/NPOT不套POT索引；coverage无虚拟化；没有同帧GPU→CPU→GPU或私有submit。正常数据依赖闭合，资源页表/过滤/反馈/SceneRefinement切换仍须在VT-2整体实施，8×过滤的真实GPU证明也不能由本轮CPU检查替代。
 
 文档/导航检查：`docs-verify`为0 findings、81条historical warnings；`document-system` 7/7通过；`vibe doctor`无errors/warnings、registry与预期hash一致；`git diff --check`通过。历史warnings保持原分类，不计为本轮新增问题。
+
+## 7. VT-2生产切换与复核（2026-10-16）
+
+已接通目录/provider→保护tail与mandatory→Native publication→正常帧上传/映射→Surface实际查询→延迟feedback→后续帧精化。选中virtual plane不建立完整extent、不读取完整Product、不promote或保留全细页replay。原完整Product和真正resident planes仍由原owner负责。
+
+- publication合并为16B header、原32B entries和f32 bits的同一raw-u32 SSBO；Surface与execution bins、直接测试consumer同步切换，raster独立。VT占group2 binding1，最宽Product/compact/physicalSun/SSSR profile实际编译为16 SSBO、4 storage textures。
+- `VirtualTextureResidency`拥有格式atlas、整数页表、独立完整generation、保护tail、粗层闭包、desired/admitted/pending/resident、eviction/rescue和事务。`VirtualTextureFeedback`三slot，首union命中append、wanted/used独立bitset，overflow保留bitset在后续正常帧恢复；map只发生在提交完成后。无额外submit。
+- `virtual_texture.ts`依据固定LibVT LOD/显式梯度和Wicked双mip路径适配；真实逐mip尺寸、NPOT、三地址、标量通道及完整tail已接线。独立过滤、oblique footprint与normal数值仍须VT-3证明，当前不提升来源adoption。
+- coverage从真实alpha及UV依赖提取，不能virtual的主plane明确要求recook；R8继续resident。tile位置更新不改变材质content、Temporal或VSM coverage identity。
+- `RendererConfig.virtualTextures`初始预算进入实际owner；三格式pool合计≤256MiB，page table+route≤32MiB，运行时CPU页元数据保守admission≤128MiB；provider目录/cache另计。每帧≤4MiB/128copies，单staging≤256KiB、VT live staging≤16MiB。mandatory原resident staging仍独立允许≤256MiB，不能宣称总上传仅16MiB。immutable配置变更需要重建Renderer，尚无运行期池resize API。
+- 复核修复：上传loop前注册abort回滚；计入victim失效copy成本并去掉重复staging计数；冷注册页快照改为被反馈持有后才copy-on-write，取消逐纹理复制增长数组；缓存pinned计数；generation失败不丢slot；scene已完成fence后同步撤销source，避免微任务间取得retiring记录；Bistro dev路由支持vtpack和shards。
+
+实际轻检查：typecheck、新鲜build:test通过；publication/scene/bindings/residency与新增VT生命周期合计28/28通过。真实RTX2060/Turing Chrome155 Native主链oracle通过：tail-only bootstrap→实际Surface wanted→正常帧3个细页→新鲜需求complete；最宽16-SSBO shader通过实际pipeline编译。最终记录`.local/vt-2-gpu-closed.json`、`.local/vt-2-cpu-final.log`。首次真实shader失败为WGSL保留字`union/target`，已改名并重跑；一次随机端口6667被Chrome拒绝为harness错误，后续正常端口成功，未当算法通过。
+
+VT-3尚需独立算法/过滤、overflow/压力、完整组合及完整Bistro/Dungeon、0/50/100%需求成本与domains/porting收口。完整场景的VT冷产品正在生成；首次Dungeon在示例目录下的native scratch写入报`UNKNOWN`，原失败保存在`.local/vt-dungeon-cook.log`，改在`.local/models/dungeon-vt-cooked`重跑。以上小场景结果不替代完整场景验收，不声明初始化提速。

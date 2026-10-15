@@ -9,6 +9,7 @@ export interface SceneRefinementSample {
   readonly vsmFrame: number;
   readonly vsmValid: boolean;
   readonly texturesFull: boolean;
+  readonly textureFrame?: number;
   readonly pendingGeometry: number;
   readonly stagedGeometry: number;
   readonly limited: boolean;
@@ -35,7 +36,7 @@ export class SceneRefinement {
     texturesFull: false,
     geometryTarget: false,
     vsmValid: false,
-    error: null as string | null,
+    error: null as string | null
   };
 
   begin(key: string, quality: string, frame: number): void {
@@ -93,6 +94,7 @@ export class SceneRefinement {
     this.state.completedFrame = sample.frame;
     this.state.texturesFull = sample.texturesFull;
     const feedback =
+      (sample.textureFrame === undefined || sample.textureFrame >= this.minimumFrame) &&
       sample.mainComplete &&
       sample.mainFrame >= this.minimumFrame &&
       (!sample.shadowRequired || (sample.shadowComplete && sample.shadowFrame >= this.minimumFrame));
@@ -112,7 +114,8 @@ export class SceneRefinement {
     } else if (this.state.geometryTarget && this.state.vsmValid && sample.texturesFull) {
       const confirmedFrame = Math.min(
         sample.mainFrame,
-        sample.shadowRequired ? Math.min(sample.shadowFrame, sample.vsmFrame) : sample.mainFrame,
+        sample.textureFrame ?? sample.mainFrame,
+        sample.shadowRequired ? Math.min(sample.shadowFrame, sample.vsmFrame) : sample.mainFrame
       );
       if (this.candidateFrame >= 0 && confirmedFrame > this.candidateFrame) {
         this.state.phase = "view-settled";

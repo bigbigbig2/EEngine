@@ -6,13 +6,13 @@ import type { CompiledAppearanceGraph } from "./AppearanceGraphCompiler.js";
 import { lowerStandardAppearanceGraph } from "./StandardAppearanceGraph.js";
 import {
   resolveAppearanceMaterialProducts,
-  type AppearanceProductResolution,
+  type AppearanceProductResolution
 } from "./AppearanceMaterialDefinition.js";
 
 export const MATERIAL_CLOSURE_FAMILY = Object.freeze({
   Unlit: 0,
   Standard: 1,
-  Coated: 2,
+  Coated: 2
 } as const);
 
 export const MATERIAL_FEATURE = Object.freeze({
@@ -25,7 +25,7 @@ export const MATERIAL_FEATURE = Object.freeze({
   SpecularColorTexture: 1 << 6,
   CoatTexture: 1 << 7,
   CoatRoughnessTexture: 1 << 8,
-  CoatNormalTexture: 1 << 9,
+  CoatNormalTexture: 1 << 9
 } as const);
 
 export type MaterialTextureRole =
@@ -83,7 +83,7 @@ const TEXTURE_INPUTS = [
   ["texture_specular_color", "specular_color"],
   ["texture_clearcoat", "clearcoat"],
   ["texture_clearcoat_roughness", "clearcoat_roughness"],
-  ["texture_clearcoat_normal", "clearcoat_normal"],
+  ["texture_clearcoat_normal", "clearcoat_normal"]
 ] as const;
 
 /** Publication-time snapshot of every mutable compiler dependency. A 32-bit
@@ -113,7 +113,7 @@ function snapshotMaterialInputs(material: StandardShadeMaterial): readonly unkno
     material.emissive_factor.r,
     material.emissive_factor.g,
     material.emissive_factor.b,
-    material.ambient_factors.a,
+    material.ambient_factors.a
   ];
   for (const [property, uv] of TEXTURE_INPUTS) {
     const texture = material[property];
@@ -121,6 +121,7 @@ function snapshotMaterialInputs(material: StandardShadeMaterial): readonly unkno
       texture,
       texture?.image,
       texture?.texture_product,
+      texture?.tiled_source,
       texture?.appearance_content_version,
       texture?.flags,
       texture?.minFilter,
@@ -136,7 +137,7 @@ function snapshotMaterialInputs(material: StandardShadeMaterial): readonly unkno
       material[`${uv}_uv_offset`][1],
       material[`${uv}_uv_scale`][0],
       material[`${uv}_uv_scale`][1],
-      material[`${uv}_uv_rotation`],
+      material[`${uv}_uv_rotation`]
     );
   }
   return inputs;
@@ -168,7 +169,7 @@ export function compileCanonicalMaterial(material: StandardShadeMaterial): Canon
   const specularColor: [number, number, number] = [
     bounded(material.specular_color_factor.r, "specular red", 0, 1),
     bounded(material.specular_color_factor.g, "specular green", 0, 1),
-    bounded(material.specular_color_factor.b, "specular blue", 0, 1),
+    bounded(material.specular_color_factor.b, "specular blue", 0, 1)
   ];
   const coatFactor = bounded(material.clearcoat_factor, "clearcoat factor", 0, 1);
   const coatRoughness = bounded(material.clearcoat_roughness_factor, "clearcoat roughness", 0, 1);
@@ -176,7 +177,7 @@ export function compileCanonicalMaterial(material: StandardShadeMaterial): Canon
     material.clearcoat_normal_scale,
     "clearcoat normal scale",
     -Number.MAX_VALUE,
-    Number.MAX_VALUE,
+    Number.MAX_VALUE
   );
   if (
     material.is_unlit &&
@@ -208,7 +209,7 @@ export function compileCanonicalMaterial(material: StandardShadeMaterial): Canon
     readonly [number, number],
     readonly [number, number],
     number,
-    number,
+    number
   ][] = [
     [
       "base",
@@ -217,7 +218,7 @@ export function compileCanonicalMaterial(material: StandardShadeMaterial): Canon
       material.base_color_uv_offset,
       material.base_color_uv_scale,
       material.base_color_uv_rotation,
-      MATERIAL_FEATURE.BaseTexture,
+      MATERIAL_FEATURE.BaseTexture
     ],
     [
       "normal",
@@ -226,7 +227,7 @@ export function compileCanonicalMaterial(material: StandardShadeMaterial): Canon
       material.normal_uv_offset,
       material.normal_uv_scale,
       material.normal_uv_rotation,
-      MATERIAL_FEATURE.NormalTexture,
+      MATERIAL_FEATURE.NormalTexture
     ],
     [
       "orm",
@@ -235,7 +236,7 @@ export function compileCanonicalMaterial(material: StandardShadeMaterial): Canon
       material.orm_uv_offset,
       material.orm_uv_scale,
       material.orm_uv_rotation,
-      MATERIAL_FEATURE.OrmTexture,
+      MATERIAL_FEATURE.OrmTexture
     ],
     [
       "emissive",
@@ -244,7 +245,7 @@ export function compileCanonicalMaterial(material: StandardShadeMaterial): Canon
       material.emissive_uv_offset,
       material.emissive_uv_scale,
       material.emissive_uv_rotation,
-      MATERIAL_FEATURE.EmissiveTexture,
+      MATERIAL_FEATURE.EmissiveTexture
     ],
     [
       "occlusion",
@@ -253,7 +254,7 @@ export function compileCanonicalMaterial(material: StandardShadeMaterial): Canon
       material.occlusion_uv_offset,
       material.occlusion_uv_scale,
       material.occlusion_uv_rotation,
-      MATERIAL_FEATURE.OcclusionTexture,
+      MATERIAL_FEATURE.OcclusionTexture
     ],
     [
       "specular",
@@ -262,7 +263,7 @@ export function compileCanonicalMaterial(material: StandardShadeMaterial): Canon
       material.specular_uv_offset,
       material.specular_uv_scale,
       material.specular_uv_rotation,
-      MATERIAL_FEATURE.SpecularTexture,
+      MATERIAL_FEATURE.SpecularTexture
     ],
     [
       "specularColor",
@@ -271,7 +272,7 @@ export function compileCanonicalMaterial(material: StandardShadeMaterial): Canon
       material.specular_color_uv_offset,
       material.specular_color_uv_scale,
       material.specular_color_uv_rotation,
-      MATERIAL_FEATURE.SpecularColorTexture,
+      MATERIAL_FEATURE.SpecularColorTexture
     ],
     [
       "coat",
@@ -280,7 +281,7 @@ export function compileCanonicalMaterial(material: StandardShadeMaterial): Canon
       material.clearcoat_uv_offset,
       material.clearcoat_uv_scale,
       material.clearcoat_uv_rotation,
-      MATERIAL_FEATURE.CoatTexture,
+      MATERIAL_FEATURE.CoatTexture
     ],
     [
       "coatRoughness",
@@ -289,7 +290,7 @@ export function compileCanonicalMaterial(material: StandardShadeMaterial): Canon
       material.clearcoat_roughness_uv_offset,
       material.clearcoat_roughness_uv_scale,
       material.clearcoat_roughness_uv_rotation,
-      MATERIAL_FEATURE.CoatRoughnessTexture,
+      MATERIAL_FEATURE.CoatRoughnessTexture
     ],
     [
       "coatNormal",
@@ -298,8 +299,8 @@ export function compileCanonicalMaterial(material: StandardShadeMaterial): Canon
       material.clearcoat_normal_uv_offset,
       material.clearcoat_normal_uv_scale,
       material.clearcoat_normal_uv_rotation,
-      MATERIAL_FEATURE.CoatNormalTexture,
-    ],
+      MATERIAL_FEATURE.CoatNormalTexture
+    ]
   ];
   const samples: CanonicalTextureSample[] = [];
   let featureMask = 0;
@@ -329,7 +330,7 @@ export function compileCanonicalMaterial(material: StandardShadeMaterial): Canon
         prior.scale[0] === scale[0] &&
         prior.scale[1] === scale[1] &&
         prior.rotation === rotation &&
-        prior.colorDecode === colorDecode,
+        prior.colorDecode === colorDecode
     );
     samples.push(
       Object.freeze({
@@ -340,8 +341,8 @@ export function compileCanonicalMaterial(material: StandardShadeMaterial): Canon
         offset: Object.freeze([...offset]) as readonly [number, number],
         scale: Object.freeze([...scale]) as readonly [number, number],
         rotation,
-        equivalentSample: equal < 0 ? samples.length : samples[equal]!.equivalentSample,
-      }),
+        equivalentSample: equal < 0 ? samples.length : samples[equal]!.equivalentSample
+      })
     );
   }
   const definition = material.appearance_definition;
@@ -360,7 +361,7 @@ export function compileCanonicalMaterial(material: StandardShadeMaterial): Canon
         specularColor: 3,
         coatWeight: 1,
         coatRoughness: 1,
-        coatNormalTS: 3,
+        coatNormalTS: 3
       };
   const graph = definition?.graph ?? lowerStandardAppearanceGraph(material, samples);
   for (const [name, width] of Object.entries(expected))
@@ -369,7 +370,7 @@ export function compileCanonicalMaterial(material: StandardShadeMaterial): Canon
     }
   const source = compileAppearanceGraph(
     graph,
-    Object.fromEntries(Object.entries(expected).map(([name, width]) => [name, (1 << width) - 1])),
+    Object.fromEntries(Object.entries(expected).map(([name, width]) => [name, (1 << width) - 1]))
   );
   for (const [name, width] of Object.entries(expected))
     if (source.outputs[name]?.length !== width) {
@@ -396,7 +397,7 @@ export function compileCanonicalMaterial(material: StandardShadeMaterial): Canon
     specularColor: Object.freeze(specularColor),
     coatFactor,
     coatRoughness,
-    coatNormalScale,
+    coatNormalScale
   });
   canonicalMaterialCache.set(material, { inputs, canonical });
   return canonical;

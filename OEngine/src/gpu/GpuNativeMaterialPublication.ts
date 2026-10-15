@@ -5,6 +5,7 @@ import { AppearanceProgramRegistry } from "./AppearanceProgramRegistry.js";
 import type { AppearanceProgramDescriptor, AppearanceProgramLease } from "./AppearanceProgramRegistry.js";
 import { nativeMaterialRevision } from "./NativeMaterialBindings.js";
 import { FINAL_PIXEL_DIRECTORY_WORDS, FINAL_PIXEL_DIRECTORY_WGSL } from "./FinalPixelAbi.js";
+import { NATIVE_PUBLICATION_HEADER_WORDS } from "./NativePublicationAbi.js";
 
 export interface NativeMaterialPublicationSource {
   readonly materialSlot: number;
@@ -85,8 +86,7 @@ export const NATIVE_MATERIAL_DIRECTORY_WGSL = FINAL_PIXEL_DIRECTORY_WGSL;
 export class GpuNativeMaterialPublication {
   readonly entries: readonly NativeMaterialPublishedEntry[];
   readonly bins: readonly NativeMaterialExecutionBin[];
-  readonly constants: GPUBuffer;
-  readonly directory: GPUBuffer;
+  readonly data: GPUBuffer;
   readonly rasterClasses: readonly NativeRasterClass[];
   readonly rasterConstants: GPUBuffer;
   readonly rasterDirectory: GPUBuffer;
@@ -105,7 +105,7 @@ export class GpuNativeMaterialPublication {
     device: GPUDevice,
     registry: AppearanceProgramRegistry,
     sources: readonly NativeMaterialPublicationSource[],
-    private readonly accounting?: ResourceAccounting,
+    private readonly accounting?: ResourceAccounting
   ) {
     const values: number[] = [];
     const entries: NativeMaterialPublishedEntry[] = [];
@@ -119,8 +119,8 @@ export class GpuNativeMaterialPublication {
         program: null,
         layoutEntries: Object.freeze([]),
         materialEntries: Object.freeze([]),
-        frameInputs: new Float32Array(4),
-      }),
+        frameInputs: new Float32Array(4)
+      })
     ];
     const rasterEntries: number[][] = [];
     let directoryCount = 1;
@@ -172,7 +172,7 @@ export class GpuNativeMaterialPublication {
         throw new RangeError("Native instance input publication requires every compiled input slot");
       }
       const data = new Float32Array(
-        parameters.length + NATIVE_MATERIAL_RASTER_CONSTANT_WORDS + (instanceInputs?.length ?? 0),
+        parameters.length + NATIVE_MATERIAL_RASTER_CONSTANT_WORDS + (instanceInputs?.length ?? 0)
       );
       data.set(parameters);
       data[parameters.length] = Math.max(0, Math.min(1, alphaCutoff));
@@ -191,7 +191,7 @@ export class GpuNativeMaterialPublication {
           Object.keys(coverage.program.outputs).length !== 1
         ) {
           throw new RangeError(
-            "MASK publication requires its independent scalar coverage dependency program",
+            "MASK publication requires its independent scalar coverage dependency program"
           );
         }
         const inputs = coverage.inputs ?? new Float32Array(Math.max(1, coverage.program.inputCount) * 4);
@@ -209,10 +209,10 @@ export class GpuNativeMaterialPublication {
             candidate.materialEntries.every(
               (entry, index) =>
                 entry.binding === coverage.materialEntries[index]!.binding &&
-                entry.resource === coverage.materialEntries[index]!.resource,
+                entry.resource === coverage.materialEntries[index]!.resource
             ) &&
             (coverage.program.instanceInputs ||
-              candidate.frameInputs.every((value, index) => Object.is(value, inputs[index]))),
+              candidate.frameInputs.every((value, index) => Object.is(value, inputs[index])))
         );
         if (rasterClass < 0) {
           rasterClass = rasterClasses.length;
@@ -220,23 +220,23 @@ export class GpuNativeMaterialPublication {
             Object.freeze({
               program: coverage.program,
               layoutEntries: Object.freeze(
-                coverage.layoutEntries.map((entry) => Object.freeze(structuredClone(entry))),
+                coverage.layoutEntries.map((entry) => Object.freeze(structuredClone(entry)))
               ),
               materialEntries: Object.freeze([...coverage.materialEntries]),
-              frameInputs: inputs.slice(),
-            }),
+              frameInputs: inputs.slice()
+            })
           );
         }
         const authoredCoverage = coverage.parameters ?? source.parameters;
         const parameters = Object.fromEntries(
           Object.keys(coverage.program.parameterSlots)
             .filter((name) => authoredCoverage?.[name] !== undefined)
-            .map((name) => [name, authoredCoverage![name]!]),
+            .map((name) => [name, authoredCoverage![name]!])
         );
         rasterValues.push(
           ...nativeMaterialParameters(coverage.program, parameters),
           Math.max(0, Math.min(1, alphaCutoff)),
-          1,
+          1
         );
         if (coverage.program.instanceInputs) rasterValues.push(...inputs);
       }
@@ -254,7 +254,7 @@ export class GpuNativeMaterialPublication {
           source.coverage?.program.resourceRevision ?? 0,
           source.coverage?.program.key ?? "opaque",
           ...bits,
-          ...coverageBits,
+          ...coverageBits
         ]);
       entries.push(
         Object.freeze({
@@ -265,8 +265,8 @@ export class GpuNativeMaterialPublication {
           executionBin: 0,
           signature,
           valueRevision,
-          program: source.program,
-        }),
+          program: source.program
+        })
       );
       for (const value of data) {
         values.push(value);
@@ -279,17 +279,21 @@ export class GpuNativeMaterialPublication {
     const rasterConstantBytes = Math.max(rasterValues.length * 4, 4);
     const maximum = Math.min(
       Number(device.limits.maxBufferSize),
-      Number(device.limits.maxStorageBufferBindingSize),
+      Number(device.limits.maxStorageBufferBindingSize)
     );
     if (
-      constantBytes > maximum ||
-      directoryBytes > maximum ||
+      NATIVE_PUBLICATION_HEADER_WORDS * 4 + constantBytes + directoryBytes > maximum ||
+      rasterDirectoryBytes > maximum ||
       rasterConstantBytes > maximum
     ) {
       throw new RangeError("Native material publication exceeds negotiated buffer limits");
     }
     this.physicalBytes =
-      constantBytes + directoryBytes + rasterDirectoryBytes + rasterConstantBytes;
+      NATIVE_PUBLICATION_HEADER_WORDS * 4 +
+      constantBytes +
+      directoryBytes +
+      rasterDirectoryBytes +
+      rasterConstantBytes;
     this.materialSlotCount = directoryCount;
     const buffers: GPUBuffer[] = [];
     try {
@@ -336,7 +340,7 @@ export class GpuNativeMaterialPublication {
         label: "Visibility/coverage constants",
         size: rasterConstantBytes,
         usage: GPUBufferUsage.STORAGE,
-        mappedAtCreation: true,
+        mappedAtCreation: true
       });
       buffers.push(this.rasterConstants);
       new Float32Array(this.rasterConstants.getMappedRange()).set(rasterValues);
@@ -345,29 +349,24 @@ export class GpuNativeMaterialPublication {
         label: "Visibility/raster directory",
         size: rasterDirectoryBytes,
         usage: GPUBufferUsage.STORAGE,
-        mappedAtCreation: true,
+        mappedAtCreation: true
       });
       buffers.push(this.rasterDirectory);
       const rasterDirectory = new Uint32Array(this.rasterDirectory.getMappedRange());
       sources.forEach((source, index) => rasterDirectory.set(rasterEntries[index]!, source.materialSlot * 4));
       this.rasterDirectory.unmap();
-      this.constants = device.createBuffer({
-        label: "SurfaceV4/material constants",
-        size: constantBytes,
+      this.data = device.createBuffer({
+        label: "Native/material publication",
+        size: NATIVE_PUBLICATION_HEADER_WORDS * 4 + directoryBytes + constantBytes,
         usage: GPUBufferUsage.STORAGE,
-        mappedAtCreation: true,
+        mappedAtCreation: true
       });
-      buffers.push(this.constants);
-      new Float32Array(this.constants.getMappedRange()).set(values);
-      this.constants.unmap();
-      this.directory = device.createBuffer({
-        label: "SurfaceV4/material directory",
-        size: directoryBytes,
-        usage: GPUBufferUsage.STORAGE,
-        mappedAtCreation: true,
-      });
-      buffers.push(this.directory);
-      const directory = new Uint32Array(this.directory.getMappedRange());
+      buffers.push(this.data);
+      const words = new Uint32Array(this.data.getMappedRange());
+      const constantOffset = NATIVE_PUBLICATION_HEADER_WORDS + directoryBytes / 4;
+      words.set([NATIVE_PUBLICATION_HEADER_WORDS, directoryCount, constantOffset, values.length]);
+      words.set(new Uint32Array(Float32Array.from(values).buffer), constantOffset);
+      const directory = words.subarray(NATIVE_PUBLICATION_HEADER_WORDS, constantOffset);
       for (let slot = 0; slot < directoryCount; slot++) {
         directory[slot * directoryWords + 1] = 0xffffffff;
         directory[slot * directoryWords + 3] = 0xffffffff;
@@ -375,11 +374,11 @@ export class GpuNativeMaterialPublication {
       for (const entry of entries) {
         directory.set(
           [entry.constantBase, entry.programIndex, entry.bindingSet, entry.executionBin],
-          entry.materialSlot * directoryWords,
+          entry.materialSlot * directoryWords
         );
         directory.set([entry.signature, entry.valueRevision], entry.materialSlot * directoryWords + 4);
       }
-      this.directory.unmap();
+      this.data.unmap();
       for (const buffer of buffers) {
         const handle = accounting?.created(
           {
@@ -387,9 +386,9 @@ export class GpuNativeMaterialPublication {
             category: "resident",
             owner: "GpuNativeMaterialPublication",
             bytes: buffer.size,
-            label: buffer.label,
+            label: buffer.label
           },
-          buffer,
+          buffer
         );
         if (handle !== undefined) {
           this.accountingHandles.push(handle);
@@ -470,8 +469,7 @@ export class GpuNativeMaterialPublication {
     this.state = "destroyed";
     this.stopListening?.();
     this.stopListening = null;
-    this.constants.destroy();
-    this.directory.destroy();
+    this.data.destroy();
     this.rasterConstants.destroy();
     this.rasterDirectory.destroy();
     this.accountingHandles.forEach((handle) => this.accounting?.destroyed(handle));

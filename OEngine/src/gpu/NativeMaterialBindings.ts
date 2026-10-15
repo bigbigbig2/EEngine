@@ -5,6 +5,7 @@ import { lowerNativeMaterial, type NativeMaterialProgram } from "../shaders/nati
 import type { AppearanceStaticLease } from "./AppearanceStaticResidency.js";
 import type { NativeMaterialProducts } from "./NativeMaterialProducts.js";
 import { NATIVE_PACKED_PRODUCT_WGSL } from "../shaders/native_material_products.js";
+import { VIRTUAL_TEXTURE_SAMPLE_WGSL } from "../shaders/virtual_texture.js";
 import type { TextureBindingSet } from "./TextureResidency.js";
 import type { TextureSurfacePublication } from "./TextureSurfacePublication.js";
 import { encodeSamplerClass, GPU_MATERIAL_VISIBILITY_SAMPLER as S } from "./GpuMaterialVisibilityAbi.js";
@@ -13,12 +14,12 @@ import {
   encodeGpuTextureRef,
   GPU_TEXTURE_REF_INVALID,
   GPU_TEXTURE_REF_WGSL,
-  GPU_TEXTURE_CLAMPED_SAMPLE_WGSL,
+  GPU_TEXTURE_CLAMPED_SAMPLE_WGSL
 } from "./GpuTextureRefAbi.js";
 import {
   nativeMaterialRequiredBanks,
   planNativeMaterialPhysicalBanks,
-  type NativeMaterialPhysicalBankProfile,
+  type NativeMaterialPhysicalBankProfile
 } from "./NativeMaterialPhysicalBanks.js";
 
 export interface NativeMaterialBindingSource {
@@ -95,6 +96,7 @@ export function createNativeMaterialBindings(source: NativeMaterialBindingSource
   let bankMask = 0;
   let productTextureCount = 0;
   let packedProductHelpers = "";
+  let virtualTextures = false;
   const constant = (value: number): string => {
     if (!Number.isFinite(Math.fround(value))) {
       throw new RangeError("Native material route constants must be finite f32");
@@ -108,7 +110,7 @@ export function createNativeMaterialBindings(source: NativeMaterialBindingSource
     name: string,
     layout: Pick<GPUBindGroupLayoutEntry, "texture" | "sampler">,
     value: () => GPUBindingResource,
-    type: string,
+    type: string
   ): string => {
     let binding = resources.get(key);
     if (binding === undefined) {
@@ -117,7 +119,7 @@ export function createNativeMaterialBindings(source: NativeMaterialBindingSource
       layoutEntries.push({ binding, visibility, ...layout });
       entries.push({ binding, resource: value() });
       declarations.push(
-        `@group(${group}) @binding(${binding}) var native_material_resource_${binding}: ${type}; // ${name}`,
+        `@group(${group}) @binding(${binding}) var native_material_resource_${binding}: ${type}; // ${name}`
       );
     }
     return `native_material_resource_${binding}`;
@@ -130,10 +132,10 @@ export function createNativeMaterialBindings(source: NativeMaterialBindingSource
           graph,
           source.bindingSet,
           source.textureRoutingRefs,
-          source.texturePublications,
+          source.texturePublications
         ),
-        limit: 16,
-      },
+        limit: 16
+      }
     ])[0]!;
   const bankTextures =
     graph.samples.length === 0
@@ -144,8 +146,8 @@ export function createNativeMaterialBindings(source: NativeMaterialBindingSource
             `physical bank ${slot}`,
             { texture: { sampleType: "float", viewDimension: "2d-array" } },
             () => bank.view,
-            "texture_2d_array<f32>",
-          ),
+            "texture_2d_array<f32>"
+          )
         );
   const profileSlot = (localSlot: number): number => {
     const descriptor = source.bindingSet.bankDescriptors[localSlot];
@@ -181,9 +183,11 @@ ${bankTextures.map((texture, slot) => `    case ${slot}u: { return oengine_sampl
     const coverage = publication?.coverage;
     const needsAlpha = (sample.readMask & 8) !== 0;
     const needsColor = (sample.readMask & 7) !== 0 || (needsAlpha && coverage === undefined);
-    const reference = decoded
-      ? encodeGpuTextureRef(needsColor ? profileSlot(decoded.bankClass) : 0, decoded.layer, decoded.routing)
-      : GPU_TEXTURE_REF_INVALID;
+    const virtual = needsColor ? publication?.virtual : undefined;
+    const reference =
+      decoded && !virtual
+        ? encodeGpuTextureRef(needsColor ? profileSlot(decoded.bankClass) : 0, decoded.layer, decoded.routing)
+        : GPU_TEXTURE_REF_INVALID;
     const mipRange = source.textureMipRanges.get(binding.texture);
     const minimumMip = publication?.currentMinimumMip ?? mipRange?.[0];
     const samplerClass = encodeSamplerClass(
@@ -192,9 +196,9 @@ ${bankTextures.map((texture, slot) => `    case ${slot}u: { return oengine_sampl
         wrapT: binding.sampler[5],
         minFilter: binding.sampler[1],
         magFilter: binding.sampler[2],
-        texture_product: binding.texture.texture_product,
+        texture_product: binding.texture.texture_product
       } as ShadeTexture,
-      minimumMip === undefined ? undefined : [minimumMip, mipRange?.[1] ?? minimumMip],
+      minimumMip === undefined ? undefined : [minimumMip, mipRange?.[1] ?? minimumMip]
     );
     // Keep TextureResidency's existing finite sampler-class policy, including
     // its admitted mixed-state default class. A native binding must not silently
@@ -206,7 +210,7 @@ ${bankTextures.map((texture, slot) => `    case ${slot}u: { return oengine_sampl
       samplerClass.value,
       publication?.slot ?? 0,
       publication?.generation ?? 0,
-      publication?.currentRevision ?? publication?.revision ?? 0,
+      publication?.currentRevision ?? publication?.revision ?? 0
     );
     // Two exact u16 values avoid transporting a u32 as a lossy f32 or NaN payload.
     const low = constant(reference & 0xffff);
@@ -220,7 +224,7 @@ ${bankTextures.map((texture, slot) => `    case ${slot}u: { return oengine_sampl
     if (needsAlpha && coverage && coverageSlot < 0)
       throw new Error("Native exact coverage plane missing from material tuple");
     const alphaReference =
-      coverageSlot >= 0 && decoded
+      coverageSlot >= 0
         ? encodeGpuTextureRef(profileSlot(coverageSlot), Math.max(1, coverage!.layer))
         : GPU_TEXTURE_REF_INVALID;
     const address = samplerClass.value & S.AddressMask;
@@ -238,21 +242,77 @@ ${bankTextures.map((texture, slot) => `    case ${slot}u: { return oengine_sampl
             minFilter: filter,
             magFilter: filter,
             mipmapFilter: filter,
-            maxAnisotropy: anisotropy,
+            maxAnisotropy: anisotropy
           }),
-        "sampler",
+        "sampler"
       );
-    const sampler = obtainMaterialSampler(needsColor && filter === "linear" ? 8 : 1);
+    const sampler =
+      (!virtual && needsColor) || needsAlpha
+        ? obtainMaterialSampler(needsColor && filter === "linear" && !virtual ? 8 : 1)
+        : "";
     // Exact alpha must match Visibility/VSM sampling; only RGB gets anisotropy.
     const alphaSampler = needsAlpha ? obtainMaterialSampler(1) : sampler;
-    const product = binding.texture.texture_product;
-    const primarySample = needsColor
-      ? `${bankSample(sampler)}(reference, u32(${samplerValue}), uv, i32(oengine_texture_ref_layer(reference)), dx, dy)`
-      : "vec4f(1.0)";
+    const metadata = binding.texture.texture_metadata;
+    let primarySample =
+      needsColor && !virtual
+        ? `${bankSample(sampler)}(reference, u32(${samplerValue}), uv, i32(oengine_texture_ref_layer(reference)), dx, dy)`
+        : "vec4f(1.0)";
+    if (virtual) {
+      virtualTextures = true;
+      const table = resource(
+        virtual.table,
+        "VT integer page table",
+        { texture: { sampleType: "uint", viewDimension: "2d-array" } },
+        () => virtual.tableView,
+        "texture_2d_array<u32>"
+      );
+      const atlas = resource(
+        virtual.atlas,
+        "VT physical format atlas",
+        { texture: { sampleType: "float", viewDimension: "2d-array" } },
+        () => virtual.atlasView,
+        "texture_2d_array<f32>"
+      );
+      const atlasSampler = resource(
+        `vt-sampler/${filter}`,
+        "VT clamped physical footprint",
+        { sampler: { type: "filtering" } },
+        () =>
+          source.obtainSampler({
+            addressModeU: "clamp-to-edge",
+            addressModeV: "clamp-to-edge",
+            minFilter: filter,
+            magFilter: filter,
+            mipmapFilter: filter,
+            maxAnisotropy: filter === "linear" ? 8 : 1
+          }),
+        "sampler"
+      );
+      const offset = constants.length;
+      for (const mip of virtual.mips) {
+        for (const value of [
+          mip.width,
+          mip.height,
+          mip.gridWidth,
+          mip.base & 0xffff,
+          mip.base >>> 16,
+          mip.origin[0],
+          mip.origin[1]
+        ]) {
+          constant(value);
+        }
+      }
+      primarySample = `native_vt_sample(${table}, ${atlas}, ${atlasSampler}, material_base,
+        ${offset}u, ${virtual.mips.length}u, ${virtual.tailFirst}u, ${address}u,
+        ${filter === "linear"}, uv, dx, dy)`;
+    }
     let valueExpression = "oengine_texture_ref_apply_routing(reference, value)";
-    if (product?.metadata.semantic === "occlusion-linear") {
+    if (virtual) {
+      valueExpression = "value";
+    }
+    if (metadata?.semantic === "occlusion-linear") {
       const channels = ["0.0", "0.0", "0.0", "1.0"];
-      channels[product.metadata.channel] = "value.r";
+      channels[metadata.channel] = "value.r";
       valueExpression = `vec4f(${channels.join(", ")})`;
     }
     let alphaSample = `return ${valueExpression};`;
@@ -270,7 +330,7 @@ ${bankTextures.map((texture, slot) => `    case ${slot}u: { return oengine_sampl
     callbacks.push(/* wgsl */ `
 fn native_material_sample_${index}(material_base: u32, uv: vec2f, dx: vec2f, dy: vec2f) -> vec4f {
   let reference = u32(${low}) | (u32(${high}) << 16u);
-  if reference == OENGINE_TEXTURE_REF_INVALID {
+  if ${virtual || (!needsColor && coverage) ? "false" : "reference == OENGINE_TEXTURE_REF_INVALID"} {
     return vec4f(${fallback.join(", ")});
   }
   let value = ${primarySample};
@@ -293,7 +353,7 @@ fn native_material_sample_${index}(material_base: u32, uv: vec2f, dx: vec2f, dy:
         "exact packed cooked Products",
         { texture: { sampleType: "unfilterable-float", viewDimension: "2d-array" } },
         () => payload.view,
-        "texture_2d_array<f32>",
+        "texture_2d_array<f32>"
       );
       const metadata = constants.length;
       packed.field.mips.forEach((mip, level) => {
@@ -324,7 +384,7 @@ fn native_material_product_${index}(material_base: u32, uv: vec2f, dx: vec2f, dy
     const lease = source.products?.get(id);
     if (lease === undefined || lease.assetId !== id) {
       throw new RangeError(
-        `Native material Product '${read.field.name}' requires its static residency lease`,
+        `Native material Product '${read.field.name}' requires its static residency lease`
       );
     }
     const target = lease.destination(read.field.name);
@@ -348,7 +408,7 @@ fn native_material_product_${index}(material_base: u32, uv: vec2f, dx: vec2f, dy
       `Product ${read.field.name}`,
       { texture: { sampleType: "float", viewDimension: "2d-array" } },
       () => target.texture.createView({ dimension: "2d-array" }),
-      "texture_2d_array<f32>",
+      "texture_2d_array<f32>"
     );
     const sampler = resource(
       "product-sampler/8",
@@ -361,9 +421,9 @@ fn native_material_product_${index}(material_base: u32, uv: vec2f, dx: vec2f, dy
           minFilter: "linear",
           magFilter: "linear",
           mipmapFilter: "linear",
-          maxAnisotropy: 8,
+          maxAnisotropy: 8
         }),
-      "sampler",
+      "sampler"
     );
     const layer = constant(target.layer);
     const origin = read.asset.domainMin.map(constant);
@@ -393,13 +453,14 @@ const OENGINE_MATERIAL_SAMPLER_MIP_SHIFT: u32 = ${S.MipShift}u;
 const OENGINE_MATERIAL_SAMPLER_FULL_MIP_CODE: u32 = ${S.FullMipCode}u;
 ${GPU_TEXTURE_CLAMPED_SAMPLE_WGSL}
 `;
-  const shader = `${declarations.join("\n")}\n${sampling}\n${packedProductHelpers}\n${callbacks.join("\n")}\n${program.source}`;
+  const shader = `${declarations.join("\n")}\n${sampling}\n${virtualTextures ? VIRTUAL_TEXTURE_SAMPLE_WGSL : ""}\n${packedProductHelpers}\n${callbacks.join("\n")}\n${program.source}`;
   const boundProgram: NativeMaterialProgram = Object.freeze({
     ...program,
+    virtualTextures,
     source: shader,
     key: JSON.stringify([program.key, shader, layoutEntries]),
     constants: Object.freeze(constants),
-    resourceRevision: nativeMaterialRevision(revisions),
+    resourceRevision: nativeMaterialRevision(revisions)
   });
   return Object.freeze({
     program: boundProgram,
@@ -408,7 +469,7 @@ ${GPU_TEXTURE_CLAMPED_SAMPLE_WGSL}
     entries: Object.freeze(entries),
     bankMask,
     productTextureCount,
-    routeConstantBytes: (constants.length - program.constants.length) * 4,
+    routeConstantBytes: (constants.length - program.constants.length) * 4
   });
 }
 
@@ -425,10 +486,17 @@ export function nativeMaterialCoverageProgram(graph: CompiledAppearanceGraph): C
 export function createNativeCoverageBindings(source: NativeMaterialBindingSource): NativeMaterialBindings {
   const graph = nativeMaterialCoverageProgram(source.graph);
   for (const sample of graph.samples) {
+    const publication = source.texturePublications.get(sample.binding.texture);
+    if (
+      publication?.virtual &&
+      ((sample.readMask & 7) !== 0 || ((sample.readMask & 8) !== 0 && !publication.coverage))
+    ) {
+      throw new RangeError("Coverage graph requires resident color/UV dependency; recook residentRoles");
+    }
     if (
       (sample.readMask & 8) !== 0 &&
       sample.binding.texture.texture_product?.metadata.planes.some((plane) =>
-        plane.format.startsWith("bc"),
+        plane.format.startsWith("bc")
       ) &&
       source.texturePublications.get(sample.binding.texture)?.coverage === undefined
     ) {

@@ -6,7 +6,7 @@ import { GpuNativeMaterialPublication } from "../../.test-dist/gpu/GpuNativeMate
 import {
   createNativeMaterialBindings,
   createNativeCoverageBindings,
-  nativeMaterialCoverageProgram,
+  nativeMaterialCoverageProgram
 } from "../../.test-dist/gpu/NativeMaterialBindings.js";
 import { ShadeGPUCommandContext } from "../../.test-dist/framegraph/ShadeGPUCommandContext.js";
 import { GPUBufferAllocator } from "../../.test-dist/gpu/GPUBufferAllocator.js";
@@ -20,23 +20,23 @@ import { compileCanonicalMaterial } from "../../.test-dist/material/CanonicalMat
 import { ShadeTransparencyMode } from "../../.test-dist/material/enums.js";
 import {
   AppearanceGraphBuilder,
-  snapshotAppearanceTexture,
+  snapshotAppearanceTexture
 } from "../../.test-dist/material/AppearanceGraph.js";
 import { compileAppearanceGraph } from "../../.test-dist/material/AppearanceGraphCompiler.js";
 import { bindAppearanceProducts } from "../../.test-dist/material/AppearanceProductBinding.js";
 import {
   cookAppearanceMipProduct,
-  sampleAppearanceCookedField,
+  sampleAppearanceCookedField
 } from "../../.test-dist/material/AppearanceMipCooker.js";
 import { cookAppearanceNormalProduct } from "../../.test-dist/material/AppearanceNormalCooker.js";
 import {
   writeAppearanceAssetPackage,
-  openAppearanceAssetPackage,
+  openAppearanceAssetPackage
 } from "../../.test-dist/assets/AppearanceAssetPackage.js";
 import { fixtureTexture } from "./texture-fixture.mjs";
 import {
   lowerNativeMaterial,
-  nativeMaterialDynamicInputs,
+  nativeMaterialDynamicInputs
 } from "../../.test-dist/shaders/native_material.js";
 
 const check = (value, message) => {
@@ -50,7 +50,7 @@ const budget = 0.0001;
 export async function createNativeMaterialBindingFixture(
   device,
   graphics,
-  { variant = 0, physicalBindingSetBase = 0, packedProducts = false } = {},
+  { variant = 0, physicalBindingSetBase = 0, packedProducts = false } = {}
 ) {
   const mips = Array.from({ length: 9 }, (_, level) => {
     const size = Math.max(1, 256 >> level);
@@ -59,7 +59,7 @@ export async function createNativeMaterialBindingFixture(
       for (let x = 0; x < size; x++) {
         payload.set(
           [variant ? 192 : 128, variant ? 96 : 64, 32, level >= 6 ? 160 : x < size / 2 ? 255 : 64],
-          (y * size + x) * 4,
+          (y * size + x) * 4
         );
       }
     }
@@ -69,7 +69,7 @@ export async function createNativeMaterialBindingFixture(
       logicalHeight: size,
       physicalWidth: size,
       physicalHeight: size,
-      payload,
+      payload
     };
   });
   const texture = await fixtureTexture("base-color-srgb", mips, true);
@@ -88,7 +88,7 @@ export async function createNativeMaterialBindingFixture(
         logicalHeight: size,
         physicalWidth: size,
         physicalHeight: size,
-        payload,
+        payload
       };
     });
     return fixtureTexture(semantic, mips);
@@ -97,13 +97,13 @@ export async function createNativeMaterialBindingFixture(
     x < size / 2 ? 144 : 112,
     128,
     253,
-    255,
+    255
   ]);
   const ormTexture = await linearTexture("orm-linear", (x, _y, size) => [
     255,
     x < size / 2 ? 153 : 204,
     variant ? 102 : 51,
-    255,
+    255
   ]);
   const materials = Array.from({ length: 4 }, () => {
     const material = new StandardShadeMaterial();
@@ -131,28 +131,28 @@ export async function createNativeMaterialBindingFixture(
     const material = materials[0];
     const commonFor = (material) => ({
       bindingSet: stage.bindings.bindingSets.find(
-        (set) => set.id === stage.materialBindingSetIds.get(material),
+        (set) => set.id === stage.materialBindingSetIds.get(material)
       ),
       textureRoutingRefs: stage.materialTextureRoutingRefs.get(material),
       textureMipRanges: stage.textureMipRanges,
       texturePublications: stage.surfacePublications,
-      obtainSampler: (descriptor) => graphics.samplers.obtain(descriptor),
+      obtainSampler: (descriptor) => graphics.samplers.obtain(descriptor)
     });
     const custom = new AppearanceGraphBuilder();
     const customUv = custom.input("uv0", 2, "surface", undefined, "uv0");
     const wave = custom.operation(
       "sin",
-      custom.operation("multiply", customUv, custom.parameter("frequency", 3)),
+      custom.operation("multiply", customUv, custom.parameter("frequency", 3))
     );
     const warped = custom.operation(
       "add",
       customUv,
-      custom.operation("multiply", wave, custom.constant(0.03)),
+      custom.operation("multiply", wave, custom.constant(0.03))
     );
     const customSample = custom.texture(snapshotAppearanceTexture(texture, "srgb-rgb"), warped);
     custom.output(
       "baseColor",
-      custom.operation("multiply", custom.swizzle(customSample, [0, 1, 2]), custom.parameter("gain", 0.7)),
+      custom.operation("multiply", custom.swizzle(customSample, [0, 1, 2]), custom.parameter("gain", 0.7))
     );
     custom.output("alpha", custom.swizzle(customSample, [3]));
     custom.output("normalTS", custom.constant([0, 0, 1]));
@@ -162,9 +162,9 @@ export async function createNativeMaterialBindingFixture(
         ? custom.operation(
             "add",
             custom.constant(0.45),
-            custom.operation("multiply", custom.swizzle(customUv, [0]), custom.constant(0.00001)),
+            custom.operation("multiply", custom.swizzle(customUv, [0]), custom.constant(0.00001))
           )
-        : custom.constant(0.45),
+        : custom.constant(0.45)
     );
     custom.output("metallic", custom.constant(0.1));
     custom.output("occlusion", custom.constant(1));
@@ -175,7 +175,7 @@ export async function createNativeMaterialBindingFixture(
     const canonical = materials.map((material) => compileCanonicalMaterial(material));
     const compiledGraphs = [
       ...canonical.slice(0, 3).map((entry) => entry.appearance),
-      compileAppearanceGraph(custom.build()),
+      compileAppearanceGraph(custom.build())
     ];
     if (packedProducts) {
       const original = compiledGraphs[3];
@@ -193,18 +193,18 @@ export async function createNativeMaterialBindingFixture(
           coordinateDomain: "uv0",
           error: { absolute: 0.0001, relative: 0 },
           storagePrecision: "float16",
-          sample: () => [],
-        },
+          sample: () => []
+        }
       );
       const asset = await openAppearanceAssetPackage(
         await writeAppearanceAssetPackage(product, {
           uri: "fixture://native-surface-cooked-roughness",
           contentHash: "c".repeat(64),
-          dependencies: [],
-        }),
+          dependencies: []
+        })
       );
       compiledGraphs[3] = bindAppearanceProducts(original, [
-        { source: original, asset, roots: { roughness: original.outputs.roughness } },
+        { source: original, asset, roots: { roughness: original.outputs.roughness } }
       ]);
       const upload = ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame");
       packedOwner = new NativeMaterialProducts(device, [compiledGraphs[3]], upload);
@@ -216,12 +216,19 @@ export async function createNativeMaterialBindingFixture(
         ...commonFor(materials[index]),
         graph,
         program: lowerNativeMaterial(graph),
-        ...(packedOwner ? { packedProducts: packedOwner } : {}),
-      }),
+        ...(packedOwner ? { packedProducts: packedOwner } : {})
+      })
     );
     const coverageBindings = compiledGraphs.map((graph, index) =>
       materials[index].transparency_mode === ShadeTransparencyMode.AlphaTested
-        ? createNativeCoverageBindings({ ...commonFor(materials[index]), graph, program: lowerNativeMaterial(graph), ...(packedOwner ? { packedProducts: packedOwner } : {}) }) : null);
+        ? createNativeCoverageBindings({
+            ...commonFor(materials[index]),
+            graph,
+            program: lowerNativeMaterial(graph),
+            ...(packedOwner ? { packedProducts: packedOwner } : {})
+          })
+        : null
+    );
     const sources = bindings.map((binding, materialSlot) => ({
       materialSlot,
       material: materials[materialSlot],
@@ -231,12 +238,20 @@ export async function createNativeMaterialBindingFixture(
       compiledGraph: compiledGraphs[materialSlot],
       program: binding.program,
       bindings: binding,
-      ...(coverageBindings[materialSlot] ? { coverage: { program: coverageBindings[materialSlot].program, layoutEntries: coverageBindings[materialSlot].layoutEntries, materialEntries: coverageBindings[materialSlot].entries } } : {}),
+      ...(coverageBindings[materialSlot]
+        ? {
+            coverage: {
+              program: coverageBindings[materialSlot].program,
+              layoutEntries: coverageBindings[materialSlot].layoutEntries,
+              materialEntries: coverageBindings[materialSlot].entries
+            }
+          }
+        : {}),
       raster: {
         alphaCutoff: materials[materialSlot].alpha_cutoff,
         alphaMask: materials[materialSlot].transparency_mode === ShadeTransparencyMode.AlphaTested,
-        hasEmissiveTexture: materials[materialSlot].texture_emissive !== undefined,
-      },
+        hasEmissiveTexture: materials[materialSlot].texture_emissive !== undefined
+      }
     }));
     const builder = new AppearanceGraphBuilder();
     const uv = builder.input("uv0", 2, "surface", undefined, "uv0");
@@ -246,8 +261,8 @@ export async function createNativeMaterialBindingFixture(
       builder.operation(
         "multiply",
         builder.swizzle(sampled, [3]),
-        builder.input("gain", 1, "dynamic", { low: 0, high: 2 }),
-      ),
+        builder.input("gain", 1, "dynamic", { low: 0, high: 2 })
+      )
     );
     builder.output("color", builder.swizzle(sampled, [0, 1, 2]));
     return {
@@ -269,7 +284,7 @@ export async function createNativeMaterialBindingFixture(
       destroy: () => {
         packedOwner?.destroy();
         residency.destroy();
-      },
+      }
     };
   } catch (error) {
     packedOwner?.destroy();
@@ -294,9 +309,9 @@ export async function runNativeMaterialBindingsGpuOracle(device) {
         flush() {},
         generateMipmap() {
           throw new Error("Expected cooked mips");
-        },
-      },
-    },
+        }
+      }
+    }
   };
   const registry = new AppearanceProgramRegistry(device);
   let fixture;
@@ -307,7 +322,7 @@ export async function runNativeMaterialBindingsGpuOracle(device) {
   const makeBuffer = (data, usage) => {
     const buffer = device.createBuffer({ size: Math.max(data.byteLength, 4), usage, mappedAtCreation: true });
     new Uint8Array(buffer.getMappedRange()).set(
-      new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
+      new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
     );
     buffer.unmap();
     retained.push(buffer);
@@ -321,10 +336,10 @@ export async function runNativeMaterialBindingsGpuOracle(device) {
     const readback = device.createBuffer({ size, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
     retained.push(output, readback);
     const source = /* wgsl */ `
-@group(0) @binding(0) var<storage, read> constants: array<f32>;
+@group(0) @binding(0) var<storage, read> publication_data: array<u32>;
 @group(0) @binding(1) var<storage, read> input_data: array<NativeMaterialInputs>;
 @group(0) @binding(2) var<storage, read_write> output_data: array<f32>;
-fn native_material_constant(base: u32, slot: u32) -> f32 { return constants[base + slot]; }
+fn native_material_constant(base: u32, slot: u32) -> f32 { return bitcast<f32>(publication_data[publication_data[2u] + base + slot]); }
 ${program.source}
 ${referenceSource}
 @compute @workgroup_size(64)
@@ -340,21 +355,21 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       [0, 1, 2].map((binding) => ({
         binding,
         visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: binding === 2 ? "storage" : "read-only-storage" },
+        buffer: { type: binding === 2 ? "storage" : "read-only-storage" }
       })),
       referenceEntries.map((entry) => ({
         binding: entry.binding,
         visibility: GPUShaderStage.COMPUTE,
         ...(entry.sampler
           ? { sampler: { type: "filtering" } }
-          : { texture: { sampleType: "float", viewDimension: "2d-array" } }),
+          : { texture: { sampleType: "float", viewDimension: "2d-array" } })
       })),
       [],
-      bindings.layoutEntries,
+      bindings.layoutEntries
     ];
     const descriptor = { source, entryPoint: "main", workgroupSize: 64, groups };
     const publication = new GpuNativeMaterialPublication(device, registry, [
-      { materialSlot: 0, bindingSet: bindings.group, program, descriptor },
+      { materialSlot: 0, bindingSet: bindings.group, program, descriptor }
     ]);
     publications.push(publication);
     await publication.ready;
@@ -362,14 +377,14 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     const { pipeline, layouts } = publication.pipeline(0);
     const ownerGroup = device.createBindGroup({
       layout: layouts[0],
-      entries: [publication.constants, input, output].map((buffer, binding) => ({
+      entries: [publication.data, input, output].map((buffer, binding) => ({
         binding,
-        resource: { buffer },
-      })),
+        resource: { buffer }
+      }))
     });
     const referenceGroup = device.createBindGroup({
       layout: layouts[1],
-      entries: referenceEntries.map(({ binding, resource }) => ({ binding, resource })),
+      entries: referenceEntries.map(({ binding, resource }) => ({ binding, resource }))
     });
     const emptyGroup = device.createBindGroup({ layout: layouts[2], entries: [] });
     const textures = device.createBindGroup({ layout: layouts[3], entries: bindings.entries });
@@ -399,7 +414,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       for (let lane = 0; lane < 8; lane++) {
         const dynamic = nativeMaterialDynamicInputs(
           program,
-          program.inputs.some((input) => input.domain === "dynamic") ? { gain: [gain] } : {},
+          program.inputs.some((input) => input.domain === "dynamic") ? { gain: [gain] } : {}
         );
         for (let point = 0; point < 3; point++) {
           inputs.set(dynamic, lane * slots * 12 + point * slots * 4);
@@ -407,7 +422,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
             if (input.domain !== "dynamic") {
               inputs.set(
                 [lane % 2 ? 0.75 : 0.25, 0.5, 0, 0],
-                lane * slots * 12 + point * slots * 4 + slot * 4,
+                lane * slots * 12 + point * slots * 4 + slot * 4
               );
             }
           });
@@ -423,7 +438,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       check(
         Math.abs(tailValues[lane * native.outputCount + alphaSlot] - (lane % 2 ? 64 / 255 : 1) * 0.75) <
           budget,
-        "Native route did not respect actual minimum resident mip",
+        "Native route did not respect actual minimum resident mip"
       );
     }
     const aborted = ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame");
@@ -431,7 +446,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     aborted.abort(new Error("controlled native promotion abort"));
     check(
       stage.surfacePublications.get(fixture.normalTexture).currentMinimumMip === 6,
-      "Abort changed native route residency",
+      "Abort changed native route residency"
     );
     const promotion = ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame");
     residency.promote(fixture.materials, promotion, 0);
@@ -441,21 +456,21 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     check(tail.program.key === fine.program.key, "Mip promotion changed native topology");
     check(
       tail.program.resourceRevision === fine.program.resourceRevision,
-      "Unrelated color/normal promotion invalidated exact coverage values",
+      "Unrelated color/normal promotion invalidated exact coverage values"
     );
     const fineValues = await run(fine, makeInputs(native));
     const coverageGraph = nativeMaterialCoverageProgram(graph);
     const coverage = createNativeMaterialBindings({
       ...common,
       graph: coverageGraph,
-      program: lowerNativeMaterial(coverageGraph),
+      program: lowerNativeMaterial(coverageGraph)
     });
     const coverageValues = await run(coverage, makeInputs(coverage.program));
     for (let lane = 0; lane < 8; lane++) {
       const expected = (lane % 2 ? 64 / 255 : 1) * 0.75;
       check(
         Math.abs(fineValues[lane * native.outputCount + alphaSlot] - expected) < budget,
-        "Native fine alpha mismatch",
+        "Native fine alpha mismatch"
       );
       check(Math.abs(coverageValues[lane] - expected) < budget, "Native coverage and shading alpha disagree");
     }
@@ -468,8 +483,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       productBuilder.combine(
         productBuilder.operation("multiply", u, productBuilder.constant(0.2)),
         productBuilder.constant(0),
-        productBuilder.constant(1),
-      ),
+        productBuilder.constant(1)
+      )
     );
     productBuilder.output("roughness", productBuilder.constant(0.5));
     const original = compileAppearanceGraph(productBuilder.build());
@@ -484,7 +499,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       coordinateDomain: "uv0",
       error: { absolute: 0.001, relative: 0 },
       storagePrecision: "float16",
-      sample: () => [],
+      sample: () => []
     };
     const plainProduct = cookAppearanceMipProduct(original, { scalar: original.outputs.scalar }, options);
     const normalProduct = cookAppearanceNormalProduct(
@@ -497,24 +512,24 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
           normal: original.outputs.normalTS,
           roughness: original.outputs.roughness,
           maxAngleRadians: 0.01,
-          maxRoughnessError: 0.025,
-        },
+          maxRoughnessError: 0.025
+        }
       ],
-      options,
+      options
     );
     const pack = async (product) =>
       openAppearanceAssetPackage(
         await writeAppearanceAssetPackage(product, {
           uri: "fixture://native-product",
           contentHash: "b".repeat(64),
-          dependencies: [],
-        }),
+          dependencies: []
+        })
       );
     const plainAsset = await pack(plainProduct),
       normalAsset = await pack(normalProduct);
     const productGraph = bindAppearanceProducts(original, [
       { source: original, asset: plainAsset, roots: { scalar: original.outputs.scalar } },
-      { source: original, asset: normalAsset },
+      { source: original, asset: normalAsset }
     ]);
     const command = ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame");
     const plainLease = staticResidency.acquire(plainAsset, command),
@@ -529,8 +544,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       program: productNative,
       products: new Map([
         [plainLease.assetId, plainLease],
-        [normalLease.assetId, normalLease],
-      ]),
+        [normalLease.assetId, normalLease]
+      ])
     });
     const scalar = plainLease.destination("scalar"),
       moment = normalLease.destination("baseMoment");
@@ -570,14 +585,14 @@ fn independent_reference(inputs: NativeMaterialInputs) -> array<f32, ${productNa
           magFilter: "linear",
           mipmapFilter: "linear",
           addressModeU: "clamp-to-edge",
-          addressModeV: "clamp-to-edge",
-        }),
-      },
+          addressModeV: "clamp-to-edge"
+        })
+      }
     ]);
     const maxProductError = Math.max(...residuals.map(Math.abs));
     check(
       Number.isFinite(maxProductError) && maxProductError < budget,
-      "Native Product/normal decode differs from independent hardware reference",
+      "Native Product/normal decode differs from independent hardware reference"
     );
     // A genuinely wider legal graph: twenty differently sized cooked fields.
     // Its hardware layout exceeds the portable 16-texture stage profile. The
@@ -588,7 +603,7 @@ fn independent_reference(inputs: NativeMaterialInputs) -> array<f32, ${productNa
     for (let i = 0; i < 20; i++) {
       wideBuilder.output(
         `field${i}`,
-        wideBuilder.operation("multiply", wideU, wideBuilder.constant((i + 1) * 0.0001)),
+        wideBuilder.operation("multiply", wideU, wideBuilder.constant((i + 1) * 0.0001))
       );
     }
     const wideOriginal = compileAppearanceGraph(wideBuilder.build());
@@ -600,7 +615,7 @@ fn independent_reference(inputs: NativeMaterialInputs) -> array<f32, ${productNa
       const product = cookAppearanceMipProduct(
         wideOriginal,
         { [name]: wideOriginal.outputs[name] },
-        { ...options, width: 4 + i },
+        { ...options, width: 4 + i }
       );
       const asset = await pack(product);
       wideCooked.push(product.fields[name]);
@@ -618,11 +633,11 @@ fn independent_reference(inputs: NativeMaterialInputs) -> array<f32, ${productNa
       ...common,
       graph: wideGraph,
       program: wideNative,
-      packedProducts: packedOwner,
+      packedProducts: packedOwner
     });
     check(
       wideBinding.productTextureCount === 1 && wideBinding.layoutEntries.length === 1,
-      "Wide Products created one binding per field",
+      "Wide Products created one binding per field"
     );
     const wideInputs = makeInputs(wideNative);
     for (let lane = 0; lane < 8; lane++) {
@@ -649,7 +664,7 @@ fn independent_reference(inputs: NativeMaterialInputs) -> array<f32, ${productNa
     }
     check(
       maxPackedProductError < budget,
-      "Packed native Product sampling differs from cooked CPU field oracle",
+      "Packed native Product sampling differs from cooked CPU field oracle"
     );
     return {
       status: "passed",
@@ -667,10 +682,10 @@ fn independent_reference(inputs: NativeMaterialInputs) -> array<f32, ${productNa
         payloadBytes: packedOwner.payloadBytes,
         physicalBytes: packedOwner.physicalBytes,
         maxAbsoluteError: maxPackedProductError,
-        reference: "CPU cooked-field evaluator, actual half payload, original dimensions/mips/domain",
+        reference: "CPU cooked-field evaluator, actual half payload, original dimensions/mips/domain"
       },
       tolerance: budget,
-      scope: "native binding/publication component, fixture CXY; no winner/Surface/production adoption",
+      scope: "native binding/publication component, fixture CXY; no winner/Surface/production adoption"
     };
   } finally {
     await device.queue.onSubmittedWorkDone();

@@ -10,7 +10,7 @@ import type { GpuNativeMaterialPublication } from "../../gpu/GpuNativeMaterialPu
 import { GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS } from "../../gpu/GpuMeshletRasterWorkAbi.js";
 import {
   NATIVE_SURFACE_SETTINGS_BYTES,
-  FINAL_PIXEL_SURFACE_SETTINGS_BYTES,
+  FINAL_PIXEL_SURFACE_SETTINGS_BYTES
 } from "../../shaders/native_surface.js";
 import { NATIVE_TEMPORAL_SEED_VIEW_BYTES } from "../../gpu/FinalPixelAbi.js";
 import { NATIVE_TEMPORAL_BACKGROUND_WGSL } from "../../shaders/native_temporal_seed.js";
@@ -40,6 +40,7 @@ export interface NativeSurfaceRoute {
 }
 
 export interface NativeSurfaceFrame {
+  readonly virtualFeedback?: GPUBuffer;
   readonly reflections?: { readonly receivers: GPUBuffer; readonly maxAlpha: number };
   readonly width: number;
   readonly height: number;
@@ -88,6 +89,7 @@ interface RouteState {
   readonly groups: readonly GPUBindGroup[];
   readonly constants: GPUBuffer;
   readonly inputs: GPUBuffer;
+  readonly feedback?: { readonly layout: GPUBindGroupLayout; readonly entries: readonly GPUBindGroupEntry[] };
 }
 
 interface ExtentState {
@@ -166,7 +168,7 @@ export class SurfaceV4 {
     private readonly reactive = false,
     private readonly graphics?: GraphicsContext,
     /** Nonproduction V5 closure until an explicit FrameProgram cutover. */
-    private readonly finalPixel = false,
+    private readonly finalPixel = false
   ) {
     if (finalPixel) {
       if (!reactive || device.limits.maxStorageTexturesPerShaderStage < 4) {
@@ -177,8 +179,8 @@ export class SurfaceV4 {
         layout: "auto",
         compute: {
           module: device.createShaderModule({ code: NATIVE_TEMPORAL_BACKGROUND_WGSL }),
-          entryPoint: "main",
-        },
+          entryPoint: "main"
+        }
       });
     }
     this.ready = Promise.resolve();
@@ -195,26 +197,26 @@ export class SurfaceV4 {
     const shadowConstants = this.device.createBuffer({
       label: "SurfaceV4/disabled VSM constants",
       size: 256,
-      usage: GPUBufferUsage.UNIFORM,
+      usage: GPUBufferUsage.UNIFORM
     });
     const shadowVisibility = this.device.createTexture({
       label: "SurfaceV4/disabled VSM atlas",
       size: [1, 1],
       format: "depth32float",
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT,
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT
     });
     const sampler = this.device.createSampler({ label: "SurfaceV4/VSM point sampler" });
     const ao = this.device.createTexture({
       label: "SurfaceV4/neutral AO",
       size: [1, 1],
       format: "rgba8unorm",
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
     });
     this.device.queue.writeTexture(
       { texture: ao },
       new Uint8Array([255, 255, 255, 255]),
       { bytesPerRow: 4 },
-      [1, 1],
+      [1, 1]
     );
     this.neutralBuffers = [shadowConstants];
     this.neutralBuffers.forEach((buffer) => this.track(buffer, "buffer", buffer.size));
@@ -225,7 +227,7 @@ export class SurfaceV4 {
       { binding: 8, resource: { buffer: shadowConstants } },
       { binding: 10, resource: createNativeTextureView(shadowVisibility) },
       { binding: 11, resource: createNativeTextureView(ao) },
-      { binding: 16, resource: sampler },
+      { binding: 16, resource: sampler }
     ];
     return this.neutralEntries;
   }
@@ -247,7 +249,7 @@ export class SurfaceV4 {
       label: "SurfaceV4/absent environment radiance",
       size: [1, 1],
       format: "rgba16float",
-      usage: GPUTextureUsage.TEXTURE_BINDING,
+      usage: GPUTextureUsage.TEXTURE_BINDING
     });
     this.neutralEnvironmentTexture = texture;
     this.track(texture, "texture", 8);
@@ -257,13 +259,13 @@ export class SurfaceV4 {
       minFilter: "linear",
       magFilter: "linear",
       addressModeU: "clamp-to-edge",
-      addressModeV: "clamp-to-edge",
+      addressModeV: "clamp-to-edge"
     });
     this.neutralEnvironmentEntries = [
       { binding: 5, resource: view },
       { binding: 6, resource: view },
       { binding: 7, resource: view },
-      { binding: 15, resource: sampler },
+      { binding: 15, resource: sampler }
     ];
     return this.neutralEnvironmentEntries;
   }
@@ -325,7 +327,7 @@ export class SurfaceV4 {
           width: frame.width,
           height: frame.height,
           bins: frame.publication.bins,
-          finalPixel: this.finalPixel,
+          finalPixel: this.finalPixel
         });
         await bins.ready;
       }
@@ -385,8 +387,8 @@ export class SurfaceV4 {
           route.programIndex,
           route.bindingSet,
           route.unlit,
-          ...resourceIdentity(route.materialEntries),
-        ]),
+          ...resourceIdentity(route.materialEntries)
+        ])
       ];
       if (
         this.state === null ||
@@ -402,8 +404,19 @@ export class SurfaceV4 {
         }
       }
       const state = candidate ?? this.state!;
+      for (const route of state.routes) {
+        if (route.feedback) {
+          if (!frame.virtualFeedback) {
+            throw new Error("VT Surface requires a live feedback binding");
+          }
+          (route.groups as GPUBindGroup[])[2] = this.bindGroups.create(this.device, {
+            layout: route.feedback.layout,
+            entries: [...route.feedback.entries, { binding: 1, resource: { buffer: frame.virtualFeedback } }]
+          });
+        }
+      }
       const data = new ArrayBuffer(
-        this.finalPixel ? FINAL_PIXEL_SURFACE_SETTINGS_BYTES : NATIVE_SURFACE_SETTINGS_BYTES,
+        this.finalPixel ? FINAL_PIXEL_SURFACE_SETTINGS_BYTES : NATIVE_SURFACE_SETTINGS_BYTES
       );
       const words = new Uint32Array(data);
       const floats = new Float32Array(data);
@@ -422,7 +435,7 @@ export class SurfaceV4 {
       this.device.queue.writeBuffer(
         state.shadingView,
         0,
-        new Uint32Array([frame.width, frame.height, frame.frameIndex, 0]),
+        new Uint32Array([frame.width, frame.height, frame.frameIndex, 0])
       );
       if (state.binBindings !== null) {
         state.bins.updateGeneration(state.binBindings, frame.generation);
@@ -463,7 +476,7 @@ export class SurfaceV4 {
         frame.output === frame.background
       ) {
         throw new RangeError(
-          "SurfaceV4 HDR output requires the complete initialization/write profile and a distinct source",
+          "SurfaceV4 HDR output requires the complete initialization/write profile and a distinct source"
         );
       }
     }
@@ -483,7 +496,7 @@ export class SurfaceV4 {
         temporalWords[65] !== frame.height ||
         temporalWords[66]! > 1 ||
         !new Float32Array(frame.temporal.view.buffer, frame.temporal.view.byteOffset, 64).every(
-          Number.isFinite,
+          Number.isFinite
         )
       ) {
         throw new RangeError("Final Pixel Seed violates its frozen ABI");
@@ -528,7 +541,7 @@ export class SurfaceV4 {
       (frame.preExposure.usage & GPUBufferUsage.COPY_SRC) === 0 ||
       frame.viewMatrix.length !== 16 ||
       ![...frame.cameraPosition, ...Array.from(frame.viewMatrix)].every((value) =>
-        Number.isFinite(Math.fround(value)),
+        Number.isFinite(Math.fround(value))
       )
     ) {
       throw new RangeError("SurfaceV4 requires finite camera and a GPU pre-exposure product");
@@ -537,7 +550,7 @@ export class SurfaceV4 {
       frame.visibility,
       frame.depth,
       ...(frame.background ? [frame.background] : []),
-      ...(frame.reactive ? [frame.reactive] : []),
+      ...(frame.reactive ? [frame.reactive] : [])
     ]) {
       if (image.width !== frame.width || image.height !== frame.height || image.depthOrArrayLayers !== 1) {
         throw new RangeError("Native Surface input products must share the render extent");
@@ -579,9 +592,8 @@ export class SurfaceV4 {
       geometry.arena,
       geometry.vertexPayload,
       geometry.instances,
-      frame.publication.constants,
-      frame.publication.directory,
-      ...(geometry.productHeap === undefined ? [] : [geometry.productHeap, ...geometry.productBanks!]),
+      frame.publication.data,
+      ...(geometry.productHeap === undefined ? [] : [geometry.productHeap, ...geometry.productBanks!])
     ]) {
       if (
         buffer.size < 4 ||
@@ -605,7 +617,7 @@ export class SurfaceV4 {
       bins.some(
         (bin, index) =>
           bin.programIndex !== frame.routes[index]!.programIndex ||
-          bin.bindingSet !== frame.routes[index]!.bindingSet,
+          bin.bindingSet !== frame.routes[index]!.bindingSet
       )
     ) {
       throw new Error("SurfaceV4 routes must cover the complete publication bins in order");
@@ -667,7 +679,10 @@ export class SurfaceV4 {
         ...(product ? [10, 11, 12, 13, 14] : []),
         ...(frame.reflections ? [15] : [])
       ];
-      const materialBindings = [0, 1, 3, 4, ...(compact ? [2] : [])];
+      const usesVt = frame.publication.entries.some(
+        (entry) => entry.programIndex === route.programIndex && entry.program.virtualTextures
+      );
+      const materialBindings = [0, 3, 4, ...(usesVt ? [1] : []), ...(compact ? [2] : [])];
       if (
         geometry.length !== geometryBindings.length ||
         geometryBindings.some((binding) => !geometry.some((entry) => entry.binding === binding)) ||
@@ -675,7 +690,7 @@ export class SurfaceV4 {
         materialBindings.some((binding) => !material.some((entry) => entry.binding === binding))
       ) {
         throw new Error(
-          "SurfaceV4 dense/compact, reactive or Product shader profile is incompatible with its resources",
+          "SurfaceV4 dense/compact, reactive or Product shader profile is incompatible with its resources"
         );
       }
       if ((lighting.length === 0) !== route.unlit) {
@@ -685,8 +700,9 @@ export class SurfaceV4 {
         [geometry, [0], "uniform"],
         [geometry, [1, 2, 3, 4, ...(product ? [10, 11, 12, 13, 14] : [])], "read-only-storage"],
         [geometry, frame.reflections ? [15] : [], "storage"],
-        [material, [0, 1, ...(compact ? [2] : [])], "read-only-storage"],
-        [material, [3, 4], "uniform"],
+        [material, [0, ...(compact ? [2] : [])], "read-only-storage"],
+        [material, usesVt ? [1] : [], "storage"],
+        [material, [3, 4], "uniform"]
       ] as const) {
         for (const binding of bindings) {
           if (group.find((entry) => entry.binding === binding)?.buffer?.type !== type) {
@@ -744,7 +760,7 @@ export class SurfaceV4 {
         throw new RangeError("SurfaceV4 complete shader resources exceed negotiated limits");
       }
       const program = frame.publication.entries.find(
-        (entry) => entry.programIndex === route.programIndex,
+        (entry) => entry.programIndex === route.programIndex
       )!.program;
       const inputBytes = Math.max(16, program.inputCount * 16);
       let requiredInputs = 0;
@@ -765,8 +781,8 @@ export class SurfaceV4 {
       this.validateEntries(
         lighting.filter((entry) => entry.binding !== 4),
         frame.lightingEntries.filter(
-          (entry) => entry.binding !== 4 && lighting.some((expected) => expected.binding === entry.binding),
-        ),
+          (entry) => entry.binding !== 4 && lighting.some((expected) => expected.binding === entry.binding)
+        )
       );
       this.validateEntries(descriptor.groups[3]!, route.materialEntries);
     }
@@ -774,7 +790,7 @@ export class SurfaceV4 {
 
   private validateEntries(
     layout: readonly GPUBindGroupLayoutEntry[],
-    entries: readonly GPUBindGroupEntry[],
+    entries: readonly GPUBindGroupEntry[]
   ): void {
     if (
       entries.length !== layout.length ||
@@ -812,7 +828,7 @@ export class SurfaceV4 {
           offset + size > resource.buffer.size
         ) {
           throw new RangeError(
-            "SurfaceV4 borrowed buffer binding violates its size, access or alignment profile",
+            "SurfaceV4 borrowed buffer binding violates its size, access or alignment profile"
           );
         }
       }
@@ -836,7 +852,7 @@ export class SurfaceV4 {
   private createState(
     frame: NativeSurfaceFrame,
     identity: readonly unknown[],
-    preparedBins?: NativeExecutionBins,
+    preparedBins?: NativeExecutionBins
   ): ExtentState {
     const previous = this.reusableAllocation(frame);
     const bins =
@@ -847,7 +863,7 @@ export class SurfaceV4 {
         width: frame.width,
         height: frame.height,
         bins: frame.publication.bins,
-        finalPixel: this.finalPixel,
+        finalPixel: this.finalPixel
       });
     const resources: GPUBuffer[] = previous?.resources ?? [];
     let allocation: ExtentAllocation | null = previous;
@@ -858,7 +874,7 @@ export class SurfaceV4 {
         label: "SurfaceV4/frame uniforms",
         size,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-        mappedAtCreation: values !== undefined,
+        mappedAtCreation: values !== undefined
       });
       resources.push(result);
       this.track(result, "buffer", size);
@@ -891,7 +907,7 @@ export class SurfaceV4 {
             GPUTextureUsage.TEXTURE_BINDING |
             GPUTextureUsage.COPY_SRC |
             GPUTextureUsage.COPY_DST |
-            GPUTextureUsage.RENDER_ATTACHMENT,
+            GPUTextureUsage.RENDER_ATTACHMENT
         });
       if (previous === null && hdr !== frame.output) {
         this.track(hdr, "texture", frame.width * frame.height * 8);
@@ -903,7 +919,7 @@ export class SurfaceV4 {
         { binding: 3, resource: { buffer: frame.geometry.vertexPayload } },
         { binding: 4, resource: { buffer: frame.geometry.instances } },
         { binding: 5, resource: createNativeTextureView(frame.visibility) },
-        { binding: 7, resource: createNativeTextureView(hdr) },
+        { binding: 7, resource: createNativeTextureView(hdr) }
       ];
       if (frame.reactive !== undefined) {
         geometryEntries.push({ binding: 8, resource: createNativeTextureView(frame.reactive) });
@@ -911,7 +927,7 @@ export class SurfaceV4 {
       if (frame.temporal) {
         geometryEntries.push(
           { binding: 6, resource: createNativeTextureView(frame.temporal.seed) },
-          { binding: 9, resource: createNativeTextureView(frame.temporal.identity) },
+          { binding: 9, resource: createNativeTextureView(frame.temporal.identity) }
         );
       }
       if (frame.geometry.productHeap !== undefined) {
@@ -920,7 +936,7 @@ export class SurfaceV4 {
         }
         geometryEntries.push({ binding: 10, resource: { buffer: frame.geometry.productHeap } });
         frame.geometry.productBanks.forEach((bank, index) =>
-          geometryEntries.push({ binding: 11 + index, resource: { buffer: bank } }),
+          geometryEntries.push({ binding: 11 + index, resource: { buffer: bank } })
         );
       }
       if (frame.reflections) {
@@ -928,7 +944,7 @@ export class SurfaceV4 {
       }
       const lightingEntries = [
         ...frame.lightingEntries.filter((entry) => entry.binding !== 4),
-        { binding: 4, resource: { buffer: shadingView } },
+        { binding: 4, resource: { buffer: shadingView } }
       ];
       const routes: RouteState[] = [];
       frame.routes.forEach((route, bin) => {
@@ -937,15 +953,20 @@ export class SurfaceV4 {
         const constants =
           previous?.routeBuffers[bin]!.constants ?? buffer(16, new Uint32Array([bin, 0, 0, 0]));
         const program = frame.publication.entries.find(
-          (entry) => entry.programIndex === route.programIndex,
+          (entry) => entry.programIndex === route.programIndex
         )!.program;
         const inputs = previous?.routeBuffers[bin]!.inputs ?? buffer(Math.max(16, program.inputCount * 16));
         const entries: GPUBindGroupEntry[] = [
-          { binding: 0, resource: { buffer: frame.publication.constants } },
-          { binding: 1, resource: { buffer: frame.publication.directory } },
+          { binding: 0, resource: { buffer: frame.publication.data } },
           { binding: 3, resource: { buffer: constants } },
-          { binding: 4, resource: { buffer: inputs } },
+          { binding: 4, resource: { buffer: inputs } }
         ];
+        if (program.virtualTextures) {
+          if (!frame.virtualFeedback) {
+            throw new Error("Native VT program requires its frame feedback owner");
+          }
+          entries.push({ binding: 1, resource: { buffer: frame.virtualFeedback } });
+        }
         if (bins.queue !== null) {
           entries.push({ binding: 2, resource: { buffer: bins.queue } });
         }
@@ -954,20 +975,28 @@ export class SurfaceV4 {
           this.bindGroups.create(this.device, {
             layout: pipeline.layouts[1]!,
             entries: lightingEntries.filter((entry) =>
-              descriptor.groups[1]!.some((expected) => expected.binding === entry.binding),
-            ),
+              descriptor.groups[1]!.some((expected) => expected.binding === entry.binding)
+            )
           }),
           this.bindGroups.create(this.device, { layout: pipeline.layouts[2]!, entries }),
           this.bindGroups.create(this.device, {
             layout: pipeline.layouts[3]!,
-            entries: route.materialEntries,
-          }),
+            entries: route.materialEntries
+          })
         ];
         routes.push({
           pipeline: pipeline.pipeline,
           groups,
           constants,
           inputs,
+          ...(program.virtualTextures
+            ? {
+                feedback: {
+                  layout: pipeline.layouts[2]!,
+                  entries: entries.filter((entry) => entry.binding !== 1)
+                }
+              }
+            : {})
         });
       });
       binBindings =
@@ -977,7 +1006,7 @@ export class SurfaceV4 {
                 visibility: createNativeTextureView(frame.visibility),
                 meshletWork: frame.geometry.meshletWork,
                 frameInstances: frame.geometry.instances,
-                materialDirectory: frame.publication.directory,
+                materialDirectory: frame.publication.data,
                 generation: frame.generation,
                 ...(frame.temporal
                   ? {
@@ -985,12 +1014,12 @@ export class SurfaceV4 {
                         view: temporalView!,
                         seed: createNativeTextureView(frame.temporal.seed),
                         response: createNativeTextureView(frame.reactive!),
-                        identity: createNativeTextureView(frame.temporal.identity),
-                      },
+                        identity: createNativeTextureView(frame.temporal.identity)
+                      }
                     }
-                  : {}),
+                  : {})
               },
-              previous?.binSettings,
+              previous?.binSettings
             )
           : null;
       allocation ??= {
@@ -1006,7 +1035,7 @@ export class SurfaceV4 {
         ownedHdr: frame.output === undefined ? hdr : null,
         temporalView,
         binSettings: binBindings?.settings,
-        references: 0,
+        references: 0
       };
       allocation.references++;
       return {
@@ -1038,11 +1067,11 @@ export class SurfaceV4 {
                   { binding: 1, resource: createNativeTextureView(frame.temporal!.seed) },
                   { binding: 2, resource: createNativeTextureView(frame.reactive!) },
                   { binding: 3, resource: createNativeTextureView(frame.temporal!.identity) },
-                  { binding: 4, resource: createNativeTextureView(frame.visibility) },
-                ],
-              }),
+                  { binding: 4, resource: createNativeTextureView(frame.visibility) }
+                ]
+              })
             }
-          : {}),
+          : {})
       };
     } catch (error) {
       if (binBindings !== null) {
@@ -1076,7 +1105,7 @@ export class SurfaceV4 {
       PACKED_CAMERA_TYPE.fields.find((field) => field.name === "view_projection_matrix_inverse")!.offset,
       state.settings,
       144,
-      64,
+      64
     );
     if (state.generationSource !== undefined) {
       encoder.copyBufferToBuffer(
@@ -1084,7 +1113,7 @@ export class SurfaceV4 {
         GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS.generation,
         state.settings,
         44,
-        4,
+        4
       );
       if (state.binBindings !== null) {
         encoder.copyBufferToBuffer(
@@ -1092,7 +1121,7 @@ export class SurfaceV4 {
           GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS.generation,
           state.binBindings.settings,
           16,
-          4,
+          4
         );
       }
     }
@@ -1104,14 +1133,14 @@ export class SurfaceV4 {
     if (state.background !== undefined) {
       encoder.copyTextureToTexture({ texture: state.background }, { texture: target }, [
         state.width,
-        state.height,
+        state.height
       ]);
     } else {
       attachments.push({
         view: createNativeTextureView(target),
         loadOp: "clear",
         storeOp: "store",
-        clearValue: { r: 0, g: 0, b: 0, a: 1 },
+        clearValue: { r: 0, g: 0, b: 0, a: 1 }
       });
     }
     if (state.reactive !== undefined && !this.finalPixel) {
@@ -1119,7 +1148,7 @@ export class SurfaceV4 {
         view: createNativeTextureView(state.reactive),
         loadOp: "clear",
         storeOp: "store",
-        clearValue: { r: 0, g: 0, b: 0, a: 0 },
+        clearValue: { r: 0, g: 0, b: 0, a: 0 }
       });
     }
     if (state.backgroundSeedGroup) {
@@ -1132,7 +1161,7 @@ export class SurfaceV4 {
     if (attachments.length !== 0) {
       const initialize = encoder.beginRenderPass({
         label: "SurfaceV4/HDR and Aux initialization",
-        colorAttachments: attachments,
+        colorAttachments: attachments
       });
       initialize.end();
     }
@@ -1155,7 +1184,7 @@ export class SurfaceV4 {
     graph: FrameGraph,
     dependencies: readonly ResourceId[],
     reactive?: ResourceId,
-    temporal?: { seed: ResourceId; identity: ResourceId },
+    temporal?: { seed: ResourceId; identity: ResourceId }
   ): NativeSurfaceGraphProducts {
     if (!this.prepared) {
       throw new Error("SurfaceV4 frame must be prepared before graph construction");
@@ -1170,7 +1199,7 @@ export class SurfaceV4 {
     const hdr = graph.import_resource(
       "SurfaceV4/HDR",
       { kind: "imported", domain: "internal-full" },
-      this.hdr,
+      this.hdr
     );
     const pass = graph.add("SurfaceV4/native opaque", {}, (_data, _resources, context) => {
       const encoder = resolveGpuEncoder(context);
@@ -1189,7 +1218,7 @@ export class SurfaceV4 {
       hdr: output,
       reactive: reactiveOutput,
       seed: temporal ? pass.write(temporal.seed) : undefined,
-      identity: temporal ? pass.write(temporal.identity) : undefined,
+      identity: temporal ? pass.write(temporal.identity) : undefined
     });
   }
 
@@ -1248,7 +1277,7 @@ export class SurfaceV4 {
   private track(resource: GPUBuffer | GPUTexture, kind: "buffer" | "texture", bytes: number): void {
     const handle = this.graphics?.resource_accounting.created(
       { kind, category: "transient", owner: "SurfaceV4", bytes, label: resource.label },
-      resource,
+      resource
     );
     if (handle) {
       this.accountingHandles.set(resource, handle);
@@ -1295,7 +1324,7 @@ export class SurfaceV4 {
     }
     void this.lastCompletion.then(
       () => this.release(state),
-      () => this.release(state),
+      () => this.release(state)
     );
   }
 

@@ -20,7 +20,7 @@ export const MATERIAL_TEXTURE_PROPERTIES = [
   "texture_specular_color",
   "texture_clearcoat",
   "texture_clearcoat_roughness",
-  "texture_clearcoat_normal",
+  "texture_clearcoat_normal"
 ] as const;
 type Property = (typeof MATERIAL_TEXTURE_PROPERTIES)[number];
 const preparedImages = new WeakMap<object, Map<string, Promise<TextureProduct>>>();
@@ -48,7 +48,7 @@ export function materialTextureSemantic(property: Property): TextureSemanticV2 {
  * not consume layers. This is publication-time CPU work, never a frame scan. */
 export function materialTextureLeaves(material: StandardShadeMaterial): readonly ShadeTexture[] {
   return [
-    ...new Set(compileCanonicalMaterial(material).appearance.samples.map((sample) => sample.binding.texture)),
+    ...new Set(compileCanonicalMaterial(material).appearance.samples.map((sample) => sample.binding.texture))
   ];
 }
 
@@ -57,7 +57,7 @@ export function materialTextureLeaves(material: StandardShadeMaterial): readonly
 export async function prepareMaterialTextureProducts(
   materials: readonly StandardShadeMaterial[],
   signal?: AbortSignal,
-  onCooked?: (evidence: PcTextureCookEvidence) => void,
+  onCooked?: (evidence: PcTextureCookEvidence) => void
 ): Promise<void> {
   let cooker: PcTexturePreparation | undefined;
   const changes: Array<() => void> = [];
@@ -71,17 +71,17 @@ export async function prepareMaterialTextureProducts(
     texture: ShadeTexture,
     semantic: TextureSemanticV2,
     exactAlpha: boolean,
-    channel: 0 | 1 | 2 | 3 = 0,
+    channel: 0 | 1 | 2 | 3 = 0
   ) => {
     assertLive();
-    const existing = texture.texture_product;
+    const existing = texture.texture_product ?? texture.tiled_source;
     if (existing) {
       if (
         existing.metadata.semantic !== semantic &&
         !(semantic === "occlusion-linear" && existing.metadata.semantic === "orm-linear")
       ) {
         throw new Error(
-          `Texture Product semantic '${existing.metadata.semantic}' cannot serve '${semantic}' without recooking`,
+          `Texture Product semantic '${existing.metadata.semantic}' cannot serve '${semantic}' without recooking`
         );
       }
       if (
@@ -124,7 +124,7 @@ export async function prepareMaterialTextureProducts(
                 input,
                 image.encoded_mime_type as "image/png" | "image/jpeg" | "image/webp",
                 options,
-                signal,
+                signal
               )
         ).then((result) => {
           onCooked?.(result.evidence);
@@ -156,7 +156,7 @@ export async function prepareMaterialTextureProducts(
       "wrapS",
       "wrapT",
       "wrapR",
-      "dimensions",
+      "dimensions"
     ] as const) {
       result[name] = texture[name];
     }
@@ -200,7 +200,7 @@ export async function prepareMaterialTextureProducts(
           texture,
           semantic,
           exact,
-          property === "texture_clearcoat_roughness" ? 1 : 0,
+          property === "texture_clearcoat_roughness" ? 1 : 0
         );
         changes.push(() => {
           material[property] = result;
@@ -224,7 +224,7 @@ export async function prepareMaterialTextureProducts(
           const exactAlpha =
             material.transparency_mode !== ShadeTransparencyMode.Opaque &&
             queries.some((sample) => (sample.readMask & 8) !== 0);
-          const existing = b.texture.texture_product;
+          const existing = b.texture.texture_product ?? b.texture.tiled_source;
           if (
             existing &&
             (b.decode === "srgb-rgb") !== existing.metadata.planes[0]!.format.endsWith("-srgb")
@@ -243,14 +243,14 @@ export async function prepareMaterialTextureProducts(
               b.scale,
               b.rotation,
               b.range,
-              b.fallback,
-            ),
+              b.fallback
+            )
           });
         }
         changes.push(() => {
           material.appearance_definition = new AppearanceMaterialDefinition(
             { ...definition.graph!, nodes },
-            definition.products,
+            definition.products
           );
         });
       }

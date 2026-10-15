@@ -21,7 +21,10 @@ const codecs = {
 export async function makeTiledFixture({
   addresses = ["repeat"],
   exactAlpha = false,
-  semantic = "occlusion-linear"
+  semantic = "occlusion-linear",
+  width = 257,
+  height = 129,
+  channel = 2
 } = {}) {
   const payloads = [];
   let offset = 0;
@@ -37,23 +40,23 @@ export async function makeTiledFixture({
         return { offset: start, shard: `shards/${hash}.bin` };
       }
     },
-    2
+    channel
   );
-  const rgba = new Uint8Array(257 * 129 * 4);
-  for (let y = 0; y < 129; y++) {
-    for (let x = 0; x < 257; x++) {
-      rgba.set([x % 256, y, (x * 3 + y * 5) % 256, (x + y) % 256], (y * 257 + x) * 4);
+  const rgba = new Uint8Array(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      rgba.set([x % 256, y, (x * 3 + y * 5) % 256, (x + y) % 256], (y * width + x) * 4);
     }
   }
   const sourceMips = [];
   const result = await cookPcTextureRgba(
     codecs,
     rgba,
-    257,
-    129,
+    width,
+    height,
     {
       semantic,
-      channel: 2,
+      channel,
       exactAlpha,
       sourceUri: "fixture://tiled"
     },

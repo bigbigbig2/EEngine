@@ -1,3 +1,4 @@
+import { nativePublicationAccessors } from "../gpu/NativePublicationAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
@@ -36,7 +37,8 @@ struct BinSettings {
 @group(0) @binding(1) var visibility: texture_2d<u32>;
 @group(0) @binding(2) var<storage, read> meshlet_work: OEngineMeshletWorkQueueRead;
 @group(0) @binding(3) var<storage, read> instances: array<OEngineFrameInstanceRecord>;
-@group(0) @binding(4) var<storage, read> materials: array<NativeMaterialDirectoryEntry>;
+@group(0) @binding(4) var<storage, read> materials: array<u32>;
+${nativePublicationAccessors("materials")}
 @group(0) @binding(5) var<storage, read> known_bins: array<vec2u>;
 @group(0) @binding(6) var<storage, read_write> scratch: array<atomic<u32>>;
 @group(0) @binding(7) var<storage, read_write> queue: array<u32>;
@@ -65,14 +67,14 @@ fn winner_bin(pixel: vec2u, key: u32) -> vec2u {
   }
   let work = meshlet_work.elements[decoded.meshlet_work_slot];
   if work.instance_slot >= arrayLength(&instances) ||
-      work.material_slot_or_range >= arrayLength(&materials) {
+      work.material_slot_or_range >= native_material_count() {
     return vec2u(0xffffffffu, 1u);
   }
   if instances[work.instance_slot].generation != settings.generation {
     return vec2u(0xffffffffu, 1u);
   }
   // MeshletWork is the resolved material owner, including multi-material meshes.
-  let material = materials[work.material_slot_or_range];
+  let material = native_material_entry(work.material_slot_or_range);
   let bin = material.execution_bin;
   if material.program_index == 0xffffffffu || bin >= settings.bins {
     return vec2u(0xffffffffu, 1u);

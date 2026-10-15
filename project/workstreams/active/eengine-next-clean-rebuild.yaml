@@ -31,13 +31,13 @@ currentSlice:
   goal: >-
     Follow the selected Streaming VT design/execution pair; detailed unit states
     and results live only in its execution document. The user authorized detailed
-    design and then VT-1 implementation on 2026-10-16, placing VT before Local
+    design and VT-1 through VT-3 implementation on 2026-10-16, placing VT before Local
     Reflection Probes. Preserve complete coverage dependencies, full filtering and
     AO/SSSR behavior; close products, Worker IO, GPU residency, Native sampling,
     feedback, bootstrap and current-view convergence as one production system.
     Measure on the actual RTX 2060 8GB; legacy 4GB qualification remains separate.
-    Current authorization stops at the VT-1 boundary; do not automatically start
-    VT-2, geometry physical Page ABI changes or whole-renderer qualification.
+    Stop at the VT module acceptance boundary; do not automatically start
+    Local Probes, geometry physical Page ABI changes or whole-renderer qualification.
 
 pausedModules:
   - id: final-pixel-performance-v5

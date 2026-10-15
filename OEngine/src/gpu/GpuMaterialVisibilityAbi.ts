@@ -10,7 +10,7 @@ export const GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE = GPU_TEXTURE_REF_INVALID;
 export const GPU_MATERIAL_VISIBILITY_ALPHA_MODE = Object.freeze({
   Opaque: 0,
   Mask: 1,
-  Blend: 2,
+  Blend: 2
 });
 
 export const GPU_MATERIAL_VISIBILITY_FLAGS = Object.freeze({
@@ -23,13 +23,13 @@ export const GPU_MATERIAL_VISIBILITY_FLAGS = Object.freeze({
   HasOrmTexture: 1 << 6,
   HasEmissiveTexture: 1 << 7,
   Unlit: 1 << 8,
-  HasOcclusionTexture: 1 << 9,
+  HasOcclusionTexture: 1 << 9
 });
 
 export const GPU_MATERIAL_VISIBILITY_ADDRESS_MODE = Object.freeze({
   Clamp: 0,
   Repeat: 1,
-  MirrorRepeat: 2,
+  MirrorRepeat: 2
 });
 
 export const GPU_MATERIAL_VISIBILITY_SAMPLER = Object.freeze({
@@ -40,7 +40,7 @@ export const GPU_MATERIAL_VISIBILITY_SAMPLER = Object.freeze({
   MipShift: 5,
   MipMask: 0xe0,
   FullMipCode: 7,
-  Fallback: (1 << 4) | (1 << 2) | 1,
+  Fallback: (1 << 4) | (1 << 2) | 1
 });
 
 export const GPU_MATERIAL_VISIBILITY_OFFSETS = Object.freeze({
@@ -68,7 +68,7 @@ export const GPU_MATERIAL_VISIBILITY_OFFSETS = Object.freeze({
   occlusion_texture_ref: 228,
   occlusion_uv_set: 232,
   occlusion_uv_offset_scale: 240,
-  occlusion_uv_rotation: 256,
+  occlusion_uv_rotation: 256
 });
 
 export interface GpuMaterialVisibilityPackedSource {
@@ -190,7 +190,7 @@ export function materialVisibilitySource(
     | number,
   materialSlot: number,
   textureBindingSetId = 0,
-  textureMipRanges?: ReadonlyMap<ShadeTexture, readonly [number, number]>,
+  textureMipRanges?: ReadonlyMap<ShadeTexture, readonly [number, number]>
 ): GpuMaterialVisibilitySource {
   checkedU32(materialSlot, "resident material slot");
   checkedU32(textureBindingSetId, "texture binding set id");
@@ -210,14 +210,14 @@ export function materialVisibilitySource(
     [normalTexture, normalTextureRef],
     [ormTexture, ormTextureRef],
     [emissiveTexture, emissiveTextureRef],
-    [occlusionTexture, occlusionTextureRef],
+    [occlusionTexture, occlusionTextureRef]
   ] as const;
   const baseTextureFallback =
     texture !== null && (!isUsableTexture(texture) || textureRef === GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE);
   const textureFallback = requestedTextures.some(
     ([candidate, ref]) =>
       candidate !== undefined &&
-      (!isUsableTexture(candidate) || ref === GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE),
+      (!isUsableTexture(candidate) || ref === GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE)
   );
   const mipRange = (value: ShadeTexture | null): readonly [number, number] | undefined =>
     value === null ? undefined : textureMipRanges?.get(value);
@@ -281,7 +281,7 @@ export function materialVisibilitySource(
         material.diffuse_color.r,
         material.diffuse_color.g,
         material.diffuse_color.b,
-        material.diffuse_color.a,
+        material.diffuse_color.a
       ],
       metallicFactor: clamp01(finiteOr(material.metallic_factor, 0)),
       perceptualRoughness: clamp01(finiteOr(material.roughness_factor, 1)),
@@ -315,13 +315,13 @@ export function materialVisibilitySource(
       occlusionUvOffset: material.occlusion_uv_offset,
       occlusionUvScale: material.occlusion_uv_scale,
       occlusionRotationCos: Math.cos(occlusionRotation),
-      occlusionRotationSin: Math.sin(occlusionRotation),
+      occlusionRotationSin: Math.sin(occlusionRotation)
     }),
     texture: textureFallback ? null : texture,
     textures: Object.freeze(
       requestedTextures
         .filter((entry): entry is readonly [ShadeTexture, number] => entry[0] !== undefined)
-        .map(([candidate]) => candidate),
+        .map(([candidate]) => candidate)
     ),
     textureFallback,
     samplerFallback:
@@ -329,14 +329,14 @@ export function materialVisibilitySource(
       normalSampler.fallback ||
       ormSampler.fallback ||
       emissiveSampler.fallback ||
-      occlusionSampler.fallback,
+      occlusionSampler.fallback
   });
 }
 
 export function packGpuMaterialVisibilityRecord(
   source: GpuMaterialVisibilityPackedSource,
   target: ArrayBuffer = new ArrayBuffer(GPU_MATERIAL_VISIBILITY_RECORD_STRIDE),
-  byteOffset = 0,
+  byteOffset = 0
 ): ArrayBuffer {
   if (
     !Number.isInteger(byteOffset) ||
@@ -377,7 +377,7 @@ export function packGpuMaterialVisibilityRecord(
     source.normalUvOffset,
     source.normalUvScale,
     source.normalRotationCos,
-    source.normalRotationSin,
+    source.normalRotationSin
   );
   writeUvTransform(
     view,
@@ -385,7 +385,7 @@ export function packGpuMaterialVisibilityRecord(
     source.ormUvOffset,
     source.ormUvScale,
     source.ormRotationCos,
-    source.ormRotationSin,
+    source.ormRotationSin
   );
   writeUvTransform(
     view,
@@ -393,7 +393,7 @@ export function packGpuMaterialVisibilityRecord(
     source.emissiveUvOffset,
     source.emissiveUvScale,
     source.emissiveRotationCos,
-    source.emissiveRotationSin,
+    source.emissiveRotationSin
   );
   view.setUint32(224, checkedU32(source.textureBindingSetId, "texture binding set id"), true);
   view.setUint32(228, checkedU32(source.occlusionTextureRef, "occlusion texture ref"), true);
@@ -405,7 +405,7 @@ export function packGpuMaterialVisibilityRecord(
     source.occlusionUvOffset,
     source.occlusionUvScale,
     source.occlusionRotationCos,
-    source.occlusionRotationSin,
+    source.occlusionRotationSin
   );
   return target;
 }
@@ -415,7 +415,7 @@ function packTextureUvSets(material: StandardShadeMaterial): number {
     material.base_color_uv_set,
     material.normal_uv_set,
     material.orm_uv_set,
-    material.emissive_uv_set,
+    material.emissive_uv_set
   ];
   let packed = 0;
   for (let index = 0; index < sets.length; index++) {
@@ -429,7 +429,7 @@ function checkedUvSet(value: number, materialName: string, role: string): number
   if (!Number.isInteger(value) || value < 0 || value > 2) {
     throw new RangeError(
       `Material '${materialName}' ${role} requests TEXCOORD_${value}; ` +
-        "MaterialRecord v8 supports TEXCOORD_0, TEXCOORD_1 and TEXCOORD_2",
+        "MaterialRecord v8 supports TEXCOORD_0, TEXCOORD_1 and TEXCOORD_2"
     );
   }
   return value;
@@ -441,7 +441,7 @@ function writeUvTransform(
   offset: ArrayLike<number>,
   scale: ArrayLike<number>,
   rotationCos: number,
-  rotationSin: number,
+  rotationSin: number
 ): void {
   writeVec2(view, byteOffset, offset, [0, 0]);
   writeVec2(view, byteOffset + 8, scale, [1, 1]);
@@ -461,7 +461,7 @@ function alphaMode(mode: number): number {
 
 export function encodeSamplerClass(
   texture: ShadeTexture | null,
-  residentMipRange?: readonly [number, number],
+  residentMipRange?: readonly [number, number]
 ): {
   readonly value: number;
   readonly fallback: boolean;
@@ -483,7 +483,7 @@ export function encodeSamplerClass(
       (v << GPU_MATERIAL_VISIBILITY_SAMPLER.AddressVBits) |
       (linear ? GPU_MATERIAL_VISIBILITY_SAMPLER.LinearBit : 0) |
       (mipClampCode(texture, residentMipRange) << GPU_MATERIAL_VISIBILITY_SAMPLER.MipShift),
-    fallback: false,
+    fallback: false
   };
 }
 
@@ -511,7 +511,7 @@ function addressMode(value: number): number | null {
 }
 
 export function isUsableTexture(texture: ShadeTexture): boolean {
-  if (texture.texture_product !== undefined) return true;
+  if (texture.texture_metadata !== undefined) return true;
   const image = texture.image;
   return image !== undefined && image.width > 0 && image.height > 0 && image.depth <= 1;
 }
@@ -520,7 +520,7 @@ function writeVec2(
   view: DataView,
   byteOffset: number,
   values: ArrayLike<number>,
-  fallback: readonly [number, number],
+  fallback: readonly [number, number]
 ): void {
   view.setFloat32(byteOffset, finiteOr(values[0], fallback[0]), true);
   view.setFloat32(byteOffset + 4, finiteOr(values[1], fallback[1]), true);
@@ -530,7 +530,7 @@ function writeVec4(
   view: DataView,
   byteOffset: number,
   values: ArrayLike<number>,
-  fallback: readonly [number, number, number, number],
+  fallback: readonly [number, number, number, number]
 ): void {
   for (let index = 0; index < 4; index++) {
     view.setFloat32(byteOffset + index * 4, finiteOr(values[index], fallback[index]!), true);

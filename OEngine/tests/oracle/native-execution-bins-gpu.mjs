@@ -1,11 +1,11 @@
 import { NativeExecutionBins } from "../../.test-dist/render/surface/NativeExecutionBins.js";
 import {
   GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE,
-  GPU_MESHLET_RASTER_WORK_RECORD_STRIDE,
+  GPU_MESHLET_RASTER_WORK_RECORD_STRIDE
 } from "../../.test-dist/gpu/GpuMeshletRasterWorkAbi.js";
 import {
   GPU_FRAME_INSTANCE_STRIDE,
-  GPU_FRAME_INSTANCE_OFFSETS,
+  GPU_FRAME_INSTANCE_OFFSETS
 } from "../../.test-dist/gpu/GpuFrameInstanceAbi.js";
 
 const check = (value, message) => {
@@ -24,10 +24,10 @@ export async function runNativeExecutionBinsGpuOracle(device) {
     const resource = device.createBuffer({
       size: Math.max(4, data.byteLength),
       usage,
-      mappedAtCreation: true,
+      mappedAtCreation: true
     });
     new Uint8Array(resource.getMappedRange()).set(
-      new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
+      new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
     );
     resource.unmap();
     resources.push(resource);
@@ -36,7 +36,7 @@ export async function runNativeExecutionBinsGpuOracle(device) {
   const read = async (encoder, source) => {
     const result = device.createBuffer({
       size: source.size,
-      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
     });
     resources.push(result);
     encoder.copyBufferToBuffer(source, 0, result, 0, source.size);
@@ -54,11 +54,11 @@ export async function runNativeExecutionBinsGpuOracle(device) {
         binCount: 2,
         maxGroups: 8,
         uniform: true,
-        primitive: true,
+        primitive: true
       },
       { name: "all-empty", width: 17, height: 9, binCount: 5, maxGroups: 8, empty: true },
       { name: "malformed-winners", width: 19, height: 13, binCount: 3, maxGroups: 4, malformed: true },
-      { name: "stale-generation", width: 19, height: 13, binCount: 3, maxGroups: 4, stale: true },
+      { name: "stale-generation", width: 19, height: 13, binCount: 3, maxGroups: 4, stale: true }
     ]) {
       const { width, height, binCount } = fixture;
       const pixels = width * height;
@@ -66,18 +66,18 @@ export async function runNativeExecutionBinsGpuOracle(device) {
       // Program and resource sets are deliberately independent of material slots.
       const bins = Array.from({ length: binCount }, (_, bin) => ({
         programIndex: bin % 3,
-        bindingSet: Math.floor(bin / 3),
+        bindingSet: Math.floor(bin / 3)
       }));
       const slots = binCount * 2;
       const work = new Uint32Array(
-        (GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE + slots * GPU_MESHLET_RASTER_WORK_RECORD_STRIDE) / 4,
+        (GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE + slots * GPU_MESHLET_RASTER_WORK_RECORD_STRIDE) / 4
       );
       work.set([slots, slots, 0, slots, 0, generation, 0, 0]);
       for (let slot = 0; slot < slots; slot++) {
         // Both materials share instance 0; a classifier reading source.material_handle fails.
         work.set(
           [0, 0, 0, slot, 0, 1],
-          GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE / 4 + (slot * GPU_MESHLET_RASTER_WORK_RECORD_STRIDE) / 4,
+          GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE / 4 + (slot * GPU_MESHLET_RASTER_WORK_RECORD_STRIDE) / 4
         );
       }
       const instances = new Uint32Array(GPU_FRAME_INSTANCE_STRIDE / 4);
@@ -119,7 +119,7 @@ export async function runNativeExecutionBinsGpuOracle(device) {
       const visibility = device.createTexture({
         size: [width, height],
         format: "r32uint",
-        usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.TEXTURE_BINDING,
+        usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.TEXTURE_BINDING
       });
       resources.push(visibility);
       device.queue.writeTexture({ texture: visibility }, keys, { bytesPerRow: width * 4 }, [width, height]);
@@ -127,28 +127,31 @@ export async function runNativeExecutionBinsGpuOracle(device) {
         visibility: visibility.createView(),
         meshletWork: buffer(work, GPUBufferUsage.STORAGE),
         frameInstances: buffer(instances, GPUBufferUsage.STORAGE),
-        materialDirectory: buffer(directory, GPUBufferUsage.STORAGE),
-        generation: fixture.stale ? generation + 1 : generation,
+        materialDirectory: buffer(
+          new Uint32Array([4, slots, 4 + slots * 8, 0, ...directory]),
+          GPUBufferUsage.STORAGE
+        ),
+        generation: fixture.stale ? generation + 1 : generation
       };
       const owner = new NativeExecutionBins(device, {
         width,
         height,
         bins,
-        maxWorkgroupsPerDimension: fixture.maxGroups,
+        maxWorkgroupsPerDimension: fixture.maxGroups
       });
       owners.push(owner);
       await owner.ready;
       const bindings = owner.createBindings(inputs);
       const selected = bins.map((_, bin) =>
-        buffer(new Uint32Array([bin, width, height, 0]), GPUBufferUsage.UNIFORM),
+        buffer(new Uint32Array([bin, width, height, 0]), GPUBufferUsage.UNIFORM)
       );
       const written = buffer(
         new Uint32Array(pixels),
-        GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+        GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
       );
       const membership = buffer(
         new Uint32Array(pixels),
-        GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+        GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
       );
       const module = device.createShaderModule({
         code: /* wgsl */ `
@@ -172,20 +175,20 @@ fn main(@builtin(workgroup_id) group: vec3u, @builtin(num_workgroups) groups: ve
   let pixel = xy.y * selected.y + xy.x;
   atomicAdd(&written[pixel], 1u);
   membership[pixel] = selected.x + 1u;
-}`,
+}`
       });
       const pipeline = await device.createComputePipelineAsync({
         layout: "auto",
-        compute: { module, entryPoint: "main" },
+        compute: { module, entryPoint: "main" }
       });
       const groups = bins.map((_, bin) =>
         device.createBindGroup({
           layout: pipeline.getBindGroupLayout(0),
           entries: [owner.queue, written, membership, selected[bin]].map((resource, binding) => ({
             binding,
-            resource: { buffer: resource },
-          })),
-        }),
+            resource: { buffer: resource }
+          }))
+        })
       );
       for (const replay of [0, 1]) {
         const encoder = device.createCommandEncoder();
@@ -200,7 +203,7 @@ fn main(@builtin(workgroup_id) group: vec3u, @builtin(num_workgroups) groups: ve
         }
         pass.end();
         const readbacks = await Promise.all(
-          [written, membership, owner.queue, owner.scratch].map((source) => read(encoder, source)),
+          [written, membership, owner.queue, owner.scratch].map((source) => read(encoder, source))
         );
         device.queue.submit([encoder.finish()]);
         const values = [];
@@ -212,14 +215,14 @@ fn main(@builtin(workgroup_id) group: vec3u, @builtin(num_workgroups) groups: ve
         const [writers, actual, queue, scratch] = values;
         check(
           scratch[0] === expectedInvalid && scratch[1] === 0,
-          `${fixture.name} classification/capacity invariant failure: ${scratch[0]}/${scratch[1]} expected ${expectedInvalid}/0`,
+          `${fixture.name} classification/capacity invariant failure: ${scratch[0]}/${scratch[1]} expected ${expectedInvalid}/0`
         );
         const counts = new Uint32Array(binCount);
         for (let at = 0; at < pixels; at++) {
           const valid = expected[at] >= 0;
           check(
             writers[at] === (valid ? 1 : 0),
-            `${fixture.name} replay ${replay}: pixel ${at} has ${writers[at]} writers`,
+            `${fixture.name} replay ${replay}: pixel ${at} has ${writers[at]} writers`
           );
           check(actual[at] === expected[at] + 1, `${fixture.name} replay ${replay}: wrong bin for ${at}`);
           if (valid) counts[expected[at]]++;
@@ -230,7 +233,7 @@ fn main(@builtin(workgroup_id) group: vec3u, @builtin(num_workgroups) groups: ve
         for (let at = 0; at < pixels; at++) {
           if (expected[at] >= 0)
             expectedTiles[expected[at]].add(
-              Math.floor((at % width) / 8) + Math.floor(Math.floor(at / width) / 8) * tilesX,
+              Math.floor((at % width) / 8) + Math.floor(Math.floor(at / width) / 8) * tilesX
             );
         }
         for (let bin = 0; bin < binCount; bin++) {
@@ -238,7 +241,7 @@ fn main(@builtin(workgroup_id) group: vec3u, @builtin(num_workgroups) groups: ve
           check(queue[bin * 8] === base, `${fixture.name} incorrect tile bank at bin ${bin}`);
           check(
             queue[bin * 8 + 1] === expectedTiles[bin].size,
-            `${fixture.name} incorrect tile count at bin ${bin}`,
+            `${fixture.name} incorrect tile count at bin ${bin}`
           );
           const seen = new Set();
           for (let at = 0; at < queue[bin * 8 + 1]; at++) {
@@ -246,12 +249,12 @@ fn main(@builtin(workgroup_id) group: vec3u, @builtin(num_workgroups) groups: ve
             const tile = packed & 0x7fffffff;
             check(
               expectedTiles[bin].has(tile) && !seen.has(tile),
-              `${fixture.name} duplicate or unexpected tile`,
+              `${fixture.name} duplicate or unexpected tile`
             );
             seen.add(tile);
             let primitive;
             for (let lane = 0; lane < 64; lane++) {
-              const active = (queue[base + at * 3 + 1 + Math.floor(lane / 32)] >>> lane % 32) & 1;
+              const active = (queue[base + at * 3 + 1 + Math.floor(lane / 32)] >>> (lane % 32)) & 1;
               const x = (tile % tilesX) * 8 + (lane % 8);
               const y = Math.floor(tile / tilesX) * 8 + Math.floor(lane / 8);
               const valid = x < width && y < height && expected[y * width + x] === bin;
@@ -277,14 +280,14 @@ fn main(@builtin(workgroup_id) group: vec3u, @builtin(num_workgroups) groups: ve
         queueBytes: owner.plan.queueBytes,
         scratchBytes: owner.plan.scratchBytes,
         checked:
-          "winner/material routing, exact membership, one writer, background, exact tile masks, uniform primitive flags, empty bins, indirect, replay",
+          "winner/material routing, exact membership, one writer, background, exact tile masks, uniform primitive flags, empty bins, indirect, replay"
       });
       await owner.retire(device.queue.onSubmittedWorkDone());
     }
     return {
       status: "passed",
       scope: "tile execution-bins component, no performance claim",
-      reports,
+      reports
     };
   } finally {
     for (const owner of owners) owner.destroy();

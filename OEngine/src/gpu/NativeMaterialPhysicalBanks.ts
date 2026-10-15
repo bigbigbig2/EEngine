@@ -27,7 +27,7 @@ export function nativeMaterialRequiredBanks(
   graph: CompiledAppearanceGraph,
   set: TextureBindingSet,
   refs: ReadonlyMap<ShadeTexture, number>,
-  publications: ReadonlyMap<ShadeTexture, TextureSurfacePublication>,
+  publications: ReadonlyMap<ShadeTexture, TextureSurfacePublication>
 ): readonly NativePhysicalTextureBank[] {
   const banks = new Map<number, NativePhysicalTextureBank>();
   const add = (slot: number): void => {
@@ -40,12 +40,14 @@ export function nativeMaterialRequiredBanks(
   };
   for (const sample of graph.samples) {
     const ref = refs.get(sample.binding.texture) ?? GPU_TEXTURE_REF_INVALID;
-    if (ref === GPU_TEXTURE_REF_INVALID) continue;
     const decoded = decodeGpuTextureRef(ref);
-    if (!decoded) throw new RangeError("Native physical bank planning requires a valid source route");
-    const coverage = publications.get(sample.binding.texture)?.coverage;
+    if (!decoded && ref !== GPU_TEXTURE_REF_INVALID)
+      throw new RangeError("Native physical bank planning requires a valid source route");
+    const publication = publications.get(sample.binding.texture);
+    const coverage = publication?.coverage;
     const alpha = (sample.readMask & 8) !== 0;
-    if ((sample.readMask & 7) !== 0 || (alpha && !coverage)) add(decoded.bankClass);
+    if (decoded && !publication?.virtual && ((sample.readMask & 7) !== 0 || (alpha && !coverage)))
+      add(decoded.bankClass);
     if (alpha && coverage) {
       const slot = set.bankDescriptors.findIndex((bank) => bank.segment === coverage.segment);
       if (slot < 0) throw new RangeError("Native exact coverage bank is absent");
@@ -55,12 +57,31 @@ export function nativeMaterialRequiredBanks(
   return Object.freeze([...banks.values()].sort((a, b) => a.segment - b.segment));
 }
 
+/** Complete VT sampled union, shared by every source using a format pool. */
+export function nativeMaterialVirtualTextures(
+  graph: CompiledAppearanceGraph,
+  publications: ReadonlyMap<ShadeTexture, TextureSurfacePublication>
+): readonly GPUTexture[] {
+  const textures = new Set<GPUTexture>();
+  for (const sample of graph.samples) {
+    const publication = publications.get(sample.binding.texture);
+    if (
+      publication?.virtual &&
+      ((sample.readMask & 7) !== 0 || ((sample.readMask & 8) !== 0 && !publication.coverage))
+    ) {
+      textures.add(publication.virtual.table);
+      textures.add(publication.virtual.atlas);
+    }
+  }
+  return [...textures];
+}
+
 /** Cold publication grouping, independent of material instance identities. A
  * shared scene profile is preferred; finite limits split complete bank unions,
  * never truncate resources or generate CPU draws. Each individual requirement
  * must itself fit. All consumers still use the same native bank selector. */
 export function planNativeMaterialPhysicalBanks(
-  requirements: readonly NativeMaterialBankRequirement[],
+  requirements: readonly NativeMaterialBankRequirement[]
 ): readonly NativeMaterialPhysicalBankProfile[] {
   const groups: { banks: Map<number, NativePhysicalTextureBank>; limit: number }[] = [];
   const assignments: number[] = [];
@@ -101,7 +122,7 @@ export function planNativeMaterialPhysicalBanks(
     const banks = Object.freeze(
       [...group.banks.values()]
         .sort((a, b) => a.segment - b.segment)
-        .map((bank) => Object.freeze({ ...bank })),
+        .map((bank) => Object.freeze({ ...bank }))
     );
     return Object.freeze({ banks, slots: new Map(banks.map((bank, slot) => [bank.segment, slot])) });
   });

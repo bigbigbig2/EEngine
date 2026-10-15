@@ -15,7 +15,7 @@ export interface AppearanceRange {
 export const APPEARANCE_F32_MAX = 3.4028234663852886e38;
 export const APPEARANCE_FINITE_RANGE: AppearanceRange = Object.freeze({
   low: -APPEARANCE_F32_MAX,
-  high: APPEARANCE_F32_MAX,
+  high: APPEARANCE_F32_MAX
 });
 
 export interface AppearanceTextureBinding {
@@ -40,20 +40,22 @@ export function snapshotAppearanceTexture(
   scale: readonly [number, number] = [1, 1],
   rotation = 0,
   range: AppearanceRange = APPEARANCE_FINITE_RANGE,
-  fallback: readonly [number, number, number, number] = [1, 1, 1, 1],
+  fallback: readonly [number, number, number, number] = [1, 1, 1, 1]
 ): AppearanceTextureBinding {
   const rawVersion = texture.appearance_content_version;
   if (rawVersion !== undefined && (typeof rawVersion !== "string" || rawVersion.length === 0))
     throw new RangeError("Appearance raw content version must be nonempty");
   return Object.freeze({
     texture,
-    source: texture.texture_product ?? texture.image ?? texture,
+    source: texture.tiled_source ?? texture.texture_product ?? texture.image ?? texture,
     contentVersion:
-      texture.texture_product === undefined
-        ? rawVersion === undefined
-          ? null
-          : `raw:${rawVersion}`
-        : `asset:${texture.texture_product.identity}`,
+      texture.tiled_source !== undefined
+        ? `asset:${texture.tiled_source.identity}`
+        : texture.texture_product === undefined
+          ? rawVersion === undefined
+            ? null
+            : `raw:${rawVersion}`
+          : `asset:${texture.texture_product.identity}`,
     decode,
     sampler: Object.freeze([
       texture.flags,
@@ -64,13 +66,13 @@ export function snapshotAppearanceTexture(
       texture.wrapT,
       texture.wrapR,
       texture.dimensions,
-      texture.mipmapGenerationFilter,
+      texture.mipmapGenerationFilter
     ]),
     offset: Object.freeze([...offset]) as readonly [number, number],
     scale: Object.freeze([...scale]) as readonly [number, number],
     rotation,
     fallback: Object.freeze([...fallback]) as readonly [number, number, number, number],
-    range: Object.freeze({ ...range }),
+    range: Object.freeze({ ...range })
   });
 }
 
@@ -124,7 +126,7 @@ export class AppearanceGraphBuilder {
     return this.push({
       kind: "constant",
       width: values.length as AppearanceWidth,
-      value: Object.freeze(values),
+      value: Object.freeze(values)
     });
   }
 
@@ -132,7 +134,7 @@ export class AppearanceGraphBuilder {
   parameter(
     name: string,
     value: number | readonly number[],
-    range: AppearanceRange = APPEARANCE_FINITE_RANGE,
+    range: AppearanceRange = APPEARANCE_FINITE_RANGE
   ): AppearanceRef {
     const values = typeof value === "number" ? [value] : [...value];
     return this.push({
@@ -140,7 +142,7 @@ export class AppearanceGraphBuilder {
       name,
       width: values.length as AppearanceWidth,
       value: Object.freeze(values),
-      range: Object.freeze({ ...range }),
+      range: Object.freeze({ ...range })
     });
   }
 
@@ -149,7 +151,7 @@ export class AppearanceGraphBuilder {
     width: AppearanceWidth,
     domain: AppearanceInputDomain,
     range: AppearanceRange = APPEARANCE_FINITE_RANGE,
-    coordinateDomain?: string,
+    coordinateDomain?: string
   ): AppearanceRef {
     return this.push({
       kind: "input",
@@ -157,7 +159,7 @@ export class AppearanceGraphBuilder {
       width,
       domain,
       coordinateDomain,
-      range: Object.freeze({ ...range }),
+      range: Object.freeze({ ...range })
     });
   }
 
@@ -170,7 +172,7 @@ export class AppearanceGraphBuilder {
       kind: "swizzle",
       width: channels.length as AppearanceWidth,
       source,
-      channels: Object.freeze([...channels]),
+      channels: Object.freeze([...channels])
     });
   }
 
@@ -191,7 +193,7 @@ export class AppearanceGraphBuilder {
   build(): AppearanceGraph {
     return Object.freeze({
       nodes: Object.freeze([...this.nodes]),
-      outputs: Object.freeze({ ...this.outputs }),
+      outputs: Object.freeze({ ...this.outputs })
     });
   }
 
