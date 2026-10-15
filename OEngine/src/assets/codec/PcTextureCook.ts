@@ -44,6 +44,15 @@ export interface PcTextureCookResult {
   readonly product: TextureProduct;
   readonly evidence: PcTextureCookEvidence;
 }
+/** Cold-only observer of the exact mip producer. Buffers are borrowed until the callback returns. */
+export interface PcTextureCookMip {
+  readonly level: number;
+  readonly width: number;
+  readonly height: number;
+  readonly rgba: Uint8Array;
+  readonly plane: TextureProductPlane;
+  readonly payload: Uint8Array;
+}
 export interface PcTextureCodecs {
   readonly basis: BasisBcModule;
   readonly ktx: KtxPcModule;
@@ -123,6 +132,7 @@ export async function cookPcTextureRgba(
   height: number,
   options: PcTextureCookOptions,
   providedMips?: readonly Uint8Array[],
+  onMip?: (mip: PcTextureCookMip) => Promise<void>,
 ): Promise<PcTextureCookResult> {
   const started = performance.now();
   const exactAlpha = options.exactAlpha === true || options.semantic === "alpha-mask";
@@ -215,6 +225,7 @@ export async function cookPcTextureRgba(
       ownedCopyBytes += payload.byteLength;
       encodeMs += performance.now() - encodeStart;
       await appendMip(chunks, plane, level, mw, mh, payload);
+      await onMip?.({ level, width: mw, height: mh, rgba: source, plane, payload });
     }
   }
   const product = await validateTextureProduct(

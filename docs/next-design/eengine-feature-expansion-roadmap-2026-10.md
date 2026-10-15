@@ -106,9 +106,9 @@ verifies:
 
 ## 4. 粗粒度推进顺序
 
-默认顺序调整为 **AO → SSR → Local Reflection Probes → Streaming VT → Screen-Space Diffuse → Local Shadows → World GI → Transparency/Refraction → Media → 重建/显示/后处理 → 集中组合与性能优化**。Decals/RVT 等保留为明确候选扩展。
+默认顺序调整为 **AO → SSR → Streaming VT → Local Reflection Probes → Screen-Space Diffuse → Local Shadows → World GI → Transparency/Refraction → Media → 重建/显示/后处理 → 集中组合与性能优化**。Decals/RVT 等保留为明确候选扩展。2026-10-16用户基于初始化工作集与纹理流送需求，选择先启动VT详细设计；粗模块F3/F4编号保持以免改写历史，次序以本段及粗执行表为准。
 
-2026-10-15用户基于Bistro真实启动卡顿，在SSR完成后插入一次[初始化调度设计](eengine-initialization-scheduling-2026-10.md) / [执行计划](../next-execution/eengine-initialization-scheduling-execution-2026-10.md)：并行Cooked准备、几何帧事务发布与VSM有界更新一起收口。本轮只有设计授权；这是可交互性问题的专项，不恢复F11全Renderer性能资格，也不提前实现VT或改阴影质量。完成后回到Local Reflection Probes边界，原功能顺序不变。
+2026-10-15用户基于Bistro真实启动卡顿，在SSR完成后插入[初始化调度设计](eengine-initialization-scheduling-2026-10.md) / [执行结果](../next-execution/eengine-initialization-scheduling-execution-2026-10.md)：并行Cooked准备、几何帧事务发布与VSM有界更新已实施，实际精化低帧率和容量限制保留原记录。该专项没有恢复F11全Renderer性能资格或实现VT。其后用户在2026-10-16选择先详细设计Streaming VT，解决全量shading payload前置与纹理工作集；不是重新实施INIT，也不承诺VT能消除几何/VSM剩余瓶颈。实际测量设备为RTX2060 8GB，历史4GB目标仍需独立资格。
 
 这是画面收益和工程风险的默认排序，不是硬依赖链。SSR 不需要先完成 VT；SSGI 不强依赖 VT 或局部镜面 probe；VT 在 World GI 前可降低未来采样体系重复改造风险，但不能替 GI 解决场景表示/命中着色。当前只有 Sun 阴影，故将局部阴影置于复杂 World GI 之前，先补常用直接光遮挡和可信的场景光照基线；不宣称所有 GI 都必须消费 local shadow maps。透明或局部阴影若是目标场景主要缺口，可在模块边界进一步提前；不让庞大 World GI 成为它们的统一门禁。每次只细设计和实施一个大模块。
 
@@ -134,7 +134,7 @@ SSR 高置信结果与 local/global environment 形成明确的混合或替换�
 
 v1 范围为可与 coverage 安全分离的 baseColor RGB、normal、ORM、emissive 等 shading samples；完整 alpha 依赖闭包继续 resident。这个范围必须如实计账，可能限制 foliage/coverage 很重场景的节省。一个纹理同时服务 shading/coverage 时，路由、重复存储和 identity 由细设计明确，不能在 residency 改变时悄悄换 alpha 数值；Main/VSM/MASK/custom graph 全部直接消费者仍须闭合。这是同一 Native 体系的合法资源类型，不是新旧 Renderer 兼容桥。
 
-细设计裁决 BC block/border、跨页/跨 mip/各向异性与地址模式、粗 mip 完整覆盖、overflow、网络/CPU/GPU 预算及 device loss。内容身份、物理页位置和 residency revision 分开，不能每 tile 上传重编材质或全局重置 Temporal；必要局部质量变化要有真实消费者处理。页尺寸/反馈频率/cache 策略不在本轮冻结。
+详细选择、算法来源组合、页尺寸/过滤、overflow、预算与生命周期已进入[VT设计](eengine-streaming-vt-2026-10.md) / [执行计划](../next-execution/eengine-streaming-vt-execution-2026-10.md)，本粗记录不重复细布局。内容身份、物理页位置和residency revision分开，不能每tile上传重编材质或全局重置Temporal；设计就绪不代表已切换生产或有性能收益。
 
 ### 4.5 Screen-Space Diffuse：有限近场间接光
 

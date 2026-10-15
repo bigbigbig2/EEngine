@@ -11,8 +11,8 @@ roadmap:
   execution: docs/next-execution/eengine-feature-expansion-execution-2026-10.md
 # Only the selected module pair is the current authority; roadmap remains stable.
 authority:
-  design: docs/next-design/eengine-initialization-scheduling-2026-10.md
-  execution: docs/next-execution/eengine-initialization-scheduling-execution-2026-10.md
+  design: docs/next-design/eengine-streaming-vt-2026-10.md
+  execution: docs/next-execution/eengine-streaming-vt-execution-2026-10.md
 goal: >-
   Build an extreme-performance GPU-driven WebGPU-native AAA renderer for
   GTX 1650 Ti 4GB at 1080p and scalable newer GPUs. Follow global V4 invariants
@@ -25,19 +25,19 @@ goal: >-
   historical measurements retain their original device and thermal-state identity.
 
 currentSlice:
-  id: initialization-scheduling
-  title: Cooked initialization, geometry publication and bounded VSM updates
-  status: completed
+  id: streaming-vt
+  title: Cooked shading tile streaming and Native material sampling
+  status: in-progress
   goal: >-
-    Follow the selected initialization design/execution pair; detailed unit states
-    and results live only in its execution document. Couple transactional geometry
-    publication with correct bounded VSM updates, then parallel cooked preparation
-    and the real bootstrap/convergence path. Preserve final quality and completed
-    AO/SSSR behavior. The user authorized the ordered INIT-1, INIT-2 and INIT-3 implementation and
-    review on 2026-10-15. The implementation is closed with measured performance
-    limitations; detailed results live only in the execution document. Stop
-    before Local Reflection Probes; no automatic VT, physical Page ABI or
-    whole-renderer qualification work.
+    Follow the selected Streaming VT design/execution pair; detailed unit states
+    and results live only in its execution document. The user authorized detailed
+    design and then VT-1 implementation on 2026-10-16, placing VT before Local
+    Reflection Probes. Preserve complete coverage dependencies, full filtering and
+    AO/SSSR behavior; close products, Worker IO, GPU residency, Native sampling,
+    feedback, bootstrap and current-view convergence as one production system.
+    Measure on the actual RTX 2060 8GB; legacy 4GB qualification remains separate.
+    Current authorization stops at the VT-1 boundary; do not automatically start
+    VT-2, geometry physical Page ABI changes or whole-renderer qualification.
 
 pausedModules:
   - id: final-pixel-performance-v5
@@ -56,8 +56,6 @@ pausedModules:
 nextModules:
   - id: local-reflection-probes
     title: Local specular radiance sources and screen-space miss coverage
-  - id: virtual-resources-v4
-    title: Streaming shading VT with the complete coverage dependency kept resident
   - id: screen-space-diffuse
     title: First bounded screen-space diffuse indirect-lighting capability
   - id: local-shadows

@@ -8,6 +8,8 @@ import { createRequire } from "node:module";
 import { verifyTestBuild } from "../../tools/test-build.mjs";
 import { nativeBcCalls } from "./offline-bc-calls.mjs";
 import { cookPcTextureRgba } from "../.test-dist/assets/codec/PcTextureCook.js";
+import { TiledTextureCook } from "../.test-dist/assets/codec/TiledTextureCook.js";
+import { openTiledTextureDirectory } from "../.test-dist/assets/TiledTextureProduct.js";
 import { saveTextureProduct, openTextureProduct } from "../.test-dist/assets/TextureProduct.js";
 import {
   MATERIAL_TEXTURE_PROPERTIES,
@@ -118,8 +120,59 @@ async function textureTask(taskPath) {
       ) {
         throw new Error("Saved Product does not match source/recipe/usage");
       }
-      log({ phase: "texture", reused: true, image: task.imageIndex });
-      return;
+      const matchingTiledProfile =
+        !task.tiled ||
+        (receipt.tiled &&
+          JSON.stringify(receipt.tiled.addresses) === JSON.stringify(task.tiled.addresses) &&
+          JSON.stringify(receipt.tiled.residentRoles) === JSON.stringify(task.tiled.residentRoles));
+      if (matchingTiledProfile) {
+        if (task.tiled) {
+          const tiled = receipt.tiled;
+          const bytes = await readFile(resolve(dirname(task.output), tiled.uri));
+          const directory = await openTiledTextureDirectory(bytes, tiled.identity);
+          if (
+            directory.metadata.sourceIdentity !== product.identity ||
+            directory.directoryBytes !== tiled.byteLength
+          ) {
+            throw new Error("Saved tiled Product does not match source/profile");
+          }
+          // Reuse validates every cold payload; this cost is offline only.
+          const pack = await open(resolve(dirname(task.output), directory.metadata.pack.uri), "r");
+          try {
+            if ((await pack.stat()).size !== directory.metadata.pack.byteLength) {
+              throw new Error("Saved tiled pack length mismatch");
+            }
+            for (const p of directory.metadata.payloads) {
+              const data = await range(
+                resolve(dirname(task.output), directory.metadata.pack.uri),
+                p.offset,
+                p.byteLength
+              );
+              if (
+                hash(data) !== p.hash ||
+                hash(await readFile(resolve(dirname(task.output), p.shard))) !== p.hash
+              ) {
+                throw new Error("Saved tiled payload/shard hash mismatch");
+              }
+            }
+          } finally {
+            await pack.close();
+          }
+          if (
+            tiled.payloadBytes !== directory.metadata.pack.byteLength ||
+            tiled.payloads !== directory.metadata.payloads.length
+          ) {
+            receipt.tiled = {
+              ...tiled,
+              payloadBytes: directory.metadata.pack.byteLength,
+              payloads: directory.metadata.payloads.length
+            };
+            await writeJson(task.output + ".json", receipt);
+          }
+        }
+        log({ phase: "texture", reused: true, image: task.imageIndex });
+        return;
+      }
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
     }
@@ -139,18 +192,30 @@ async function textureTask(taskPath) {
     }
     const decodeMs = performance.now() - started;
     const scratch = dirname(taskPath);
-    const result = await cookPcTextureRgba(
-      {
-        basis: nativeBcCalls(executable, scratch),
-        basisHash: native.binaryHash,
-        ktx: { HEAPU8: new Uint8Array(0) },
-        ktxHash: ""
-      },
-      decoded.data,
-      decoded.width,
-      decoded.height,
-      { ...task.options, sourceBytes: encoded.length }
-    );
+    const codecs = {
+      basis: nativeBcCalls(executable, scratch),
+      basisHash: native.binaryHash,
+      ktx: { HEAPU8: new Uint8Array(0) },
+      ktxHash: ""
+    };
+    const tiled = task.tiled ? await openTiledSink(task, codecs) : null;
+    let result;
+    try {
+      result = await cookPcTextureRgba(
+        codecs,
+        decoded.data,
+        decoded.width,
+        decoded.height,
+        { ...task.options, sourceBytes: encoded.length },
+        undefined,
+        tiled ? (mip) => tiled.cook.appendMip(mip) : undefined
+      );
+      if (tiled) {
+        await tiled.finish(result.product);
+      }
+    } finally {
+      await tiled?.close();
+    }
     const bytes = await saveTextureProduct(result.product);
     await writeFile(task.output + ".partial", new Uint8Array(bytes));
     const receipt = {
@@ -164,6 +229,7 @@ async function textureTask(taskPath) {
       decodeMs,
       prepareMs: result.evidence.prepareMs,
       encodeMs: result.evidence.encodeMs,
+      ...(tiled ? { tiled: tiled.receipt } : {}),
       wallMs: performance.now() - started
     };
     await writeJson(task.output + ".json", receipt);
@@ -175,7 +241,80 @@ async function textureTask(taskPath) {
   }
 }
 
-async function cookScene(input, output, workers) {
+async function openTiledSink(task, codecs) {
+  const stem = task.output.replace(/\.textureproduct$/u, "");
+  const packPath = stem + ".vtpack";
+  const directoryPath = stem + ".vtdirectory";
+  const shardDir = join(dirname(task.output), "vt-shards");
+  await mkdir(shardDir, { recursive: true });
+  const file = await open(packPath + ".partial", "w");
+  let offset = 0;
+  const writtenShards = new Set();
+  const packHash = createHash("sha256");
+  const sink = {
+    receipt: null,
+    cook: new TiledTextureCook(
+      codecs,
+      {
+        packUri: relative(dirname(task.output), packPath).replaceAll("\\", "/"),
+        ...task.tiled,
+        async writePayload(bytes, digest) {
+          const start = offset;
+          let written = 0;
+          while (written < bytes.byteLength) {
+            const result = await file.write(bytes, written, bytes.byteLength - written, offset + written);
+            if (!result.bytesWritten) throw new Error("Tiled pack write made no progress");
+            written += result.bytesWritten;
+          }
+          offset += bytes.byteLength;
+          packHash.update(bytes);
+          const shard = join(shardDir, digest + ".bin");
+          if (!writtenShards.has(digest)) {
+            // Atomic content-addressed publication, including concurrent cook workers.
+            const pending = shard + "." + process.pid + ".partial";
+            await writeFile(pending, bytes);
+            await rename(pending, shard);
+            writtenShards.add(digest);
+          }
+          return { offset: start, shard: relative(dirname(task.output), shard).replaceAll("\\", "/") };
+        }
+      },
+      task.options.channel
+    ),
+    async finish(product) {
+      // Tail payloads are emitted by finish before the immutable pack name is known.
+      const provisional = await sink.cook.finish(product);
+      const packName = packHash.digest("hex") + ".vtpack";
+      const metadata = { ...provisional.directory.metadata, pack: { uri: packName, byteLength: offset } };
+      const directoryBytes = new TextEncoder().encode(JSON.stringify(metadata));
+      const directoryIdentity = hash(directoryBytes);
+      const directoryName = directoryIdentity + ".vtdirectory";
+      await openTiledTextureDirectory(directoryBytes, directoryIdentity);
+      await file.sync();
+      await file.close();
+      closed = true;
+      await rename(packPath + ".partial", join(dirname(task.output), packName));
+      await writeFile(directoryPath + ".partial", directoryBytes);
+      await rename(directoryPath + ".partial", join(dirname(task.output), directoryName));
+      sink.receipt = {
+        uri: directoryName,
+        identity: directoryIdentity,
+        byteLength: directoryBytes.byteLength,
+        payloadBytes: offset,
+        payloads: metadata.payloads.length,
+        addresses: task.tiled.addresses,
+        residentRoles: task.tiled.residentRoles
+      };
+    },
+    async close() {
+      if (!closed) await file.close();
+    }
+  };
+  let closed = false;
+  return sink;
+}
+
+async function cookScene(input, output, workers, tiled = false) {
   await verifyTestBuild(root);
   const started = performance.now();
   await mkdir(output, { recursive: true });
@@ -240,20 +379,36 @@ async function cookScene(input, output, workers) {
       };
       const key = hash(JSON.stringify([imageIndex, options]));
       const uri = `textures/${key}.textureproduct`;
-      tasks.set(key, {
-        source: input,
-        offset: binOffset + (view.byteOffset ?? 0),
-        length: view.byteLength,
-        imageIndex,
-        mimeType: image.mimeType,
-        options,
-        output: join(output, uri)
-      });
+      if (!tasks.has(key)) {
+        tasks.set(key, {
+          source: input,
+          offset: binOffset + (view.byteOffset ?? 0),
+          length: view.byteLength,
+          imageIndex,
+          mimeType: image.mimeType,
+          options,
+          output: join(output, uri),
+          ...(tiled ? { tiled: { addresses: [], residentRoles: [] } } : {})
+        });
+      }
+      if (tiled) {
+        const address = ["clamp", "repeat", "mirror"][texture.wrapS];
+        if (!address || texture.wrapS !== texture.wrapT) {
+          throw new Error("Offline VT requires the existing same-axis sampler address profile");
+        }
+        const profiles = tasks.get(key).tiled.addresses;
+        if (!profiles.includes(address)) {
+          profiles.push(address);
+          profiles.sort();
+        }
+      }
       result[property] = { textureIndex, uri };
     }
     return result;
   });
   const cookedImages = new Set([...tasks.values()].map((task) => task.imageIndex));
+  // Canonical glTF alpha uses its exact R8 plane. Custom graphs must supply their
+  // actual coverage closure to TiledTextureCook, rather than infer it from names.
   if (cookedImages.size !== document.images.length)
     throw new Error(
       `Material importer uses ${cookedImages.size}/${document.images.length} images; cannot claim complete cook`
@@ -423,7 +578,15 @@ async function cookScene(input, output, workers) {
     instanceProfiles,
     products: receipts.map((receipt, index) => ({
       uri: `textures/${list[index][0]}.textureproduct`,
-      identity: receipt.identity
+      identity: receipt.identity,
+      ...(tiled
+        ? {
+            tiled: {
+              ...receipt.tiled,
+              uri: `textures/${receipt.tiled.uri}`
+            }
+          }
+        : {})
     })),
     evidence: {
       products: receipts.length,
@@ -432,6 +595,15 @@ async function cookScene(input, output, workers) {
       r8: planeCount("r8unorm"),
       packageBytes: receipts.reduce((sum, r) => sum + r.packageBytes, 0),
       payloadBytes: receipts.reduce((sum, r) => sum + r.payloadBytes, 0),
+      ...(tiled
+        ? {
+            tiled: {
+              payloadBytes: receipts.reduce((sum, r) => sum + r.tiled.payloadBytes, 0),
+              directoryBytes: receipts.reduce((sum, r) => sum + r.tiled.byteLength, 0),
+              payloads: receipts.reduce((sum, r) => sum + r.tiled.payloads, 0)
+            }
+          }
+        : {}),
       totalEncodeMs: receipts.reduce((sum, r) => sum + r.encodeMs, 0),
       wallMs: performance.now() - started,
       pngDecoder: "pngjs 7.0.0, straight RGBA, no gamma adjustment",
@@ -461,7 +633,7 @@ try {
     const output = resolve(process.argv[3] ?? resolve(root, ".local/models/bistro-cooked"));
     const workers = Number(process.argv[4] ?? 4);
     if (!Number.isInteger(workers) || workers < 1 || workers > 8) throw new Error("Workers must be 1..8");
-    await cookScene(input, output, workers);
+    await cookScene(input, output, workers, process.argv.includes("--vt"));
   }
 } catch (error) {
   console.error(error.stack ?? error);

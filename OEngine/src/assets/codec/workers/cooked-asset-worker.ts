@@ -6,15 +6,22 @@ import type {
   CookedAssetResult,
   CookedGeometryRegistration
 } from "../CookedAssetProtocol.js";
+import {
+  fetchTiledDirectory,
+  fetchTiledSpan,
+  type TiledTextureRegistration
+} from "../TiledTextureTransport.js";
 
 const scope = self as unknown as {
   onmessage: (event: MessageEvent<CookedAssetTask | { forget: string }>) => void;
   postMessage: (value: unknown, transfer: Transferable[]) => void;
 };
 const registrations = new Map<string, CookedGeometryRegistration>();
+const tiledRegistrations = new Map<string, TiledTextureRegistration>();
 scope.onmessage = (event) => {
   if ("forget" in event.data) {
     registrations.delete(event.data.forget);
+    tiledRegistrations.delete(event.data.forget);
     return;
   }
   void prepare(event.data);
@@ -25,7 +32,7 @@ async function prepare(task: CookedAssetTask): Promise<void> {
   const transfer = new Set<ArrayBuffer>();
   let result: CookedAssetResult;
   try {
-    if (task.version !== 1) {
+    if (task.version !== 2) {
       throw new Error("Unsupported Cooked Worker protocol");
     }
     if (task.kind === "geometry") {
@@ -78,6 +85,34 @@ async function prepare(task: CookedAssetTask): Promise<void> {
         encodedBytes: encoded.byteLength,
         ioMs,
         busyMs: performance.now() - busyStart
+      };
+    } else if (task.kind === "tiled-directory") {
+      const prepared = await fetchTiledDirectory(task.url, task.expectedHash, task.byteLength);
+      result = {
+        ...header,
+        ok: true,
+        kind: "tiled-directory",
+        ...prepared,
+        encodedBytes: task.byteLength
+      };
+    } else if (task.kind === "tiled-payload") {
+      if (task.registration) {
+        tiledRegistrations.set(task.registrationKey, task.registration);
+      }
+      const registration = tiledRegistrations.get(task.registrationKey);
+      if (!registration) {
+        throw new Error("Tiled texture directory is not registered");
+      }
+      const prepared = await fetchTiledSpan(registration, task.span);
+      for (const p of prepared.payloads) {
+        transfer.add(p.bytes);
+      }
+      result = {
+        ...header,
+        ok: true,
+        kind: "tiled-payload",
+        registrationKey: task.registrationKey,
+        ...prepared
       };
     } else {
       const started = performance.now();

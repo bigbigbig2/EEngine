@@ -7,6 +7,7 @@ verifies:
   files:
     - OEngine/src/gpu/TextureResidency.ts
     - OEngine/src/assets/TextureProduct.ts
+    - OEngine/src/assets/TiledTextureProduct.ts
     - OEngine/src/assets/PcMaterialTextures.ts
     - OEngine/src/assets/codec
     - OEngine/src/assets/web-cook/WebCookSceneSource.ts
@@ -28,6 +29,8 @@ verifies:
 # Materials And Textures
 
 ## 当前 owner 与产品
+
+2026-10-16新增CPU侧tiled产品准备能力：`TiledTextureProduct`认证独立目录并检查完整mip/plane/payload/tail布局；`TiledTextureCook`通过原PcTextureCook的实际mip回调冷生成128+8 gutter的BC tiles、到1×1的packed tail及完整resident planes。offline scene工具的显式`--vt`选项发布内容寻址pack/directory/shards和manifest入口，未修改现行演示的生产资源选择。Cooked协议2沿同一Worker池打开目录、按range/shard读并校验请求tile；完整目录留主owner，每批最多64条记录、1MiB合并range，ready租约/独占transfer与128MiB有界缓存分开记账，session关闭/取消/重试可释放。这里只实现CPU/冷产物链；GPU长期owner仍是下述TextureResidency，尚无生产VT页池/页表/采样/反馈，不能据此宣称加载或GPU性能已改善。详细实现范围与检查只读[VT执行](../next-execution/eengine-streaming-vt-execution-2026-10.md#6-vt-1实施与逐项复核2026-10-16)。
 
 2026-10-15 Cooked加载事实：Bistro和Dungeon的完整BC Texture容器由共享`CookedAssetPreparation` Dedicated Worker读取并执行container/section/Product完整SHA与布局验证，主线程只从实际任务receipt重建本realm immutable品牌；不再在demo主线程哈希大payload。已知MASK albedo/coverage按任务优先级先读，共享Cooked入口按manifest中的期望Product identity只读取/验证一次，URI alias保留各自sampler与UV，仍等待所有完整Product；geometry metadata/root读取与真实Native物理layout/必要Pipeline准备重叠。128MiB输入上限保留，HEAD确定长度后预留输入与hash峰值，GET不允许超额或非identity编码；CPU不可变replay payload另计长期存储。Worker不执行BC重新编码，也不拥有texture GPU资源；`ShadeTexture.fromProduct`之后的唯一驻留/采样链不变。
 

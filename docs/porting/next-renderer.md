@@ -1651,6 +1651,22 @@ Reference仍为AMD SDK1.1.4 MIT pin `c6efa6bf7f2027b3ec94f28578bb5965eabb9e55`�
 
 完整Resolve独立GPU差分、actual Seed/Analyze/Native writer、生命周期、17小动态序列、1080p六类×256帧×8ROI矩阵、最终ordinary/Product真实Renderer主链与有限整Temporal成本检查已通过，build身份、范围及保留失败见Phase4 performance report。数值检查保留参考格式/硬件采样边界；Native depth资格为明确本地数据域适配。生产消费已验证，但不称完整SDK bit-exact移植；合成unit break-even不晋级whole-renderer quality/performance claim，正式资格留Phase5/6。
 
+## Streaming VT 2026-10-16：设计来源，尚未 Adopt
+
+当前GPU算法仍为[VT设计](../next-design/eengine-streaming-vt-2026-10.md)的来源选择，没有新增GPU移植/数值结果/生产GPU证据，不提升adoption。VT-1已实现本地冷产品/Worker准备链；下表GPU位置仍为拟实施责任位置，详细状态只读[VT执行](../next-execution/eengine-streaming-vt-execution-2026-10.md)。不得把各donor拼成未经说明的“原样完整移植”。
+
+| 来源 / revision / license | 实际源码与拟映射 | 适配边界 |
+|---|---|---|
+| [LibVT](https://github.com/core-code/LibVT/tree/464397d9e2c655f72ad59cd1166b14e29e1bad3a)，`464397d9e2c655f72ad59cd1166b14e29e1bad3a`，MIT；保留文件A. Julian Mayer2010与仓库notice | `LibVT/renderVT.frag::mipmapLevel/samplePagetableMultiple/calulateVirtualTextureCoordinates/calulateCoordinatesFromSample/sampleVirtualTexture` → 拟新增Native VT WGSL与独立reference fixture | 选择显式梯度、非fallback-entry的向粗级查找；适配矩形/NPOT、真实mip目录与完整tail，替换上游固定10次后非法坐标兜底。采样由EEngine显式dx/dy驱动，不带GL/旧兼容分支 |
+| [WickedEngine](https://github.com/turanszkij/WickedEngine/tree/54518f2ca9a4c37716f6e2fe5b96a3b276944b0a)，`54518f2ca9a4c37716f6e2fe5b96a3b276944b0a`，MIT | `WickedEngine/shaders/ShaderInterop_Renderer.h::ShaderTextureSlot::SampleVirtual`；`virtualTextureTileRequestsCS.hlsl` → 双虚拟mip/lerp、protected packed tail概念与scheduler粗层闭包 | 保留双mip和所需粗层；物理访问组合LibVT gradient以保8×RGB。不上bindless/DX sparse/runtime terrain生成，不照搬固定mip数量、8bit坐标、全容量scan或低分辨率反馈遗漏 |
+| [Intel SamplerFeedbackStreaming](https://github.com/GameTechDev/SamplerFeedbackStreaming/tree/714e144df957336fa36022acabaa19e826f9850c)，`714e144df957336fa36022acabaa19e826f9850c`，MIT | `TileUpdateManager/StreamingResourceBase.cpp::SetMinMip/AddTileRef/DecTileRef/ProcessFeedback/AbandonPendingLoads/QueuePendingTileEvictions` → VT CPU scheduler的desired/refcount/pending/resident/eviction/rescue | 移植决策与状态算法，非公共wrapper `StreamingResource.cpp`；适配软件反馈、真实NPOT覆盖、Worker和单GPUqueue，不移植DirectStorage/独立copyqueue/硬件feedback调用。README cracks/latency经验保留风险，不挪用源性能数 |
+| [Hork](https://github.com/Hork-Engine/Hork-Source/tree/7aafa023cb19ab63ef528c888a3e59bea6982da9)，`7aafa023cb19ab63ef528c888a3e59bea6982da9`，MIT，仅交叉参考 | `Hork/VirtualTexture/VirtualTexture.cpp::MakePageResident/MakePageNonResident/UpdateBranch_r/UpdateChildsBranch_r/CommitPageResidency`；`VirtualTextureFile.cpp::GetPhysAddress/ReadPage`；`Hork/Embedded/Shaders/virtualtexture.frag::VT_CalcPhysicalUV` | 不采用POT/quadtree直接祖先传播、12bit槽/4bitLOD及整dirty mip上传，也不搬GL反馈重绘/PBO/CPU全图decode；不在adoption列表伪称已移植 |
+| EEngine Local / Reuse | `GeometryPageDemandAbiV1` atomicOr去重、`GeometryDemandReadbackRingV1`延迟状态；现有BC cooker、CookedAssetPreparation、NativeMaterialBindings/Publication、FrameGraph | 独立VT owner/ABI/预算和全部消费者；Native constants+directory冷合并解决16SSBO限制。gutter/tail冷布局、目录认证、range、资源/绑定/事务是本地工程，不伪造donor |
+
+论文/文章参考：[J.M.P. van Waveren, Software Virtual Textures, 2012-02-25](https://www.mrelusive.com/publications/papers/Software-Virtual-Textures.pdf)，§3 filtering/feedback、§4.4 storage、§5 updates/eviction/async；[Albert Julian Mayer, Virtual Texturing, TU Wien, 2010](https://www.cg.tuwien.ac.at/research/publications/2010/Mayer-2010-VT/)，硕士论文§4，不冒称同行评审期刊。论文版权不是MIT代码许可。[Epic SVT](https://dev.epicgames.com/documentation/en-us/unreal-engine/streaming-virtual-texturing-in-unreal-engine)只作功能/成本参考，不复制Unreal受限源码。[WebGPU规范](https://www.w3.org/TR/webgpu/)用于创建前limits/BC/copy/storage合法性；不依赖非标准sparse、硬件sampler feedback或wave执行。
+
+VT-1已在`OEngine/tests/oracle/reference/vt/`保存上述LibVT/Wicked/Intel的原文件、MIT notices及`sources.json`逐文件SHA，测试校验文件与pin记录一致。本地`TiledTextureCook`复用现有`PcTextureCook`/Basis固定编码器与resampler生成的同一mip，不实现新压缩/过滤算法；`TiledTextureProduct`、`TiledTextureTransport`、`TiledTextureCache`及Cooked协议/租约属于Local工程。后续VT-2/3须从原文件建立可独立运行的算法reference并补实际GPU函数映射；来源核对、独立CPU/WGSL差分与新production GPU消费证据三者齐备后，仅对实际移植范围提升adoption。文件SHA通过不是算法移植或GPU正确性证明。
+
 ## 2026-10-13 VSM 滤波局部替换
 
 Local：`GpuVsmFilterAbi`、`VsmFilterNoise`/Settings、`FinalPixelLightingPublication` 与 `vsm_sampling`/Native 完成 producer→不可变噪声段→采样、Bias、提交/abort/fence/退休。四点 Vogel 使用明确等面积公式，复用完整既有 STBN 字节；没有新的完整 donor 移植或资产来源 adoption 声明。

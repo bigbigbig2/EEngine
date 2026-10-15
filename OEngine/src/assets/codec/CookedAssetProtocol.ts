@@ -6,6 +6,12 @@ import type {
   VertexFormatRecordV3
 } from "../GeometryAbiV3.js";
 import type { TextureProduct } from "../TextureProduct.js";
+import type { TiledTextureDirectory } from "../TiledTextureProduct.js";
+import type {
+  TiledTextureRegistration,
+  TiledTextureSpan,
+  TiledTexturePreparedPayload
+} from "./TiledTextureTransport.js";
 
 export interface CookedGeometryRegistration {
   readonly descriptor: GeometryProductDescriptorV1;
@@ -24,7 +30,7 @@ export interface CookedRangeSpan {
 }
 
 export interface CookedTaskHeader {
-  readonly version: 1;
+  readonly version: 2;
   readonly session: string;
   readonly epoch: number;
   readonly task: number;
@@ -43,6 +49,18 @@ export type CookedAssetTask = CookedTaskHeader &
         readonly expectedIdentity: string;
         readonly maxBytes: number;
       }
+    | {
+        readonly kind: "tiled-directory";
+        readonly url: string;
+        readonly expectedHash: string;
+        readonly byteLength: number;
+      }
+    | {
+        readonly kind: "tiled-payload";
+        readonly registrationKey: string;
+        readonly span: TiledTextureSpan;
+        readonly registration?: TiledTextureRegistration;
+      }
   );
 
 export interface CookedPreparedPage {
@@ -60,6 +78,23 @@ export type CookedAssetResult = CookedTaskHeader &
         readonly ok: true;
         readonly kind: "geometry";
         readonly pages: readonly CookedPreparedPage[];
+        readonly encodedBytes: number;
+        readonly ioMs: number;
+        readonly busyMs: number;
+      }
+    | {
+        readonly ok: true;
+        readonly kind: "tiled-directory";
+        readonly directory: TiledTextureDirectory;
+        readonly encodedBytes: number;
+        readonly ioMs: number;
+        readonly busyMs: number;
+      }
+    | {
+        readonly ok: true;
+        readonly kind: "tiled-payload";
+        readonly registrationKey: string;
+        readonly payloads: readonly TiledTexturePreparedPayload[];
         readonly encodedBytes: number;
         readonly ioMs: number;
         readonly busyMs: number;

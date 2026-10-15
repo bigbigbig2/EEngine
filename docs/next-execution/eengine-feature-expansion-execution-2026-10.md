@@ -36,9 +36,9 @@ verifies:
 | F0 粗计划与文档推进机制 | 已完成本轮融合；检查与既有 finding 见 §5 | 核对真实源码并评审讨论方案，维护粗→细设计/执行一对→实施→收口的唯一导航；不改生产源码 |
 | F1 AO 功能完善 | 已实施并完成模块集中验证：[设计](../next-design/eengine-ao-functionality-2026-10.md) / [执行及限制](eengine-ao-functionality-execution-2026-10.md#5-ao-1-实施与核对2026-10-14) | 已有scalar XeGTAO的settings/quality/debug/场景尺度与恢复；保留完整算法，不捆绑temporal/bent normal；停在SSR细设计边界 |
 | F2 SSR | 已实施并完成模块集中验证：[设计](../next-design/eengine-sssr-2026-10.md) / [执行及限制](eengine-sssr-execution-2026-10.md#5-ssr-2-生产接入与逐项复核2026-10-15) | 完整SSSR与反射去噪、Native base/coat响应及环境替换已接生产；实际资源/质量覆盖与未做的整Renderer性能资格只读细文档；停在Local Probes模块边界 |
-| 启动可用性专项 | 已实施并复核：[设计](../next-design/eengine-initialization-scheduling-2026-10.md) / [执行结果与限制](eengine-initialization-scheduling-execution-2026-10.md) | 几何帧事务/VSM更新、有界Worker批准备、并行首屏/纹理分块/真实view-settled已接入；启动精化低帧率与4GB/整帧性能资格仍有限，详见唯一执行记录。不恢复F11、不降最终质量，停回F3边界 |
+| 启动可用性专项 | 已实施并复核：[设计](../next-design/eengine-initialization-scheduling-2026-10.md) / [执行结果与限制](eengine-initialization-scheduling-execution-2026-10.md) | 几何帧事务/VSM更新、有界Worker批准备、并行首屏/纹理分块/真实view-settled已接入；启动精化低帧率与4GB/整帧性能资格仍有限，详见唯一执行记录。不恢复F11、不降最终质量；2026-10-16用户随后选择先设计F4 |
+| F4 Streaming VT | 实施中：[设计](../next-design/eengine-streaming-vt-2026-10.md) / [执行](eengine-streaming-vt-execution-2026-10.md) | 按2026-10-16选择前置于F3；shading tile产品/provider、完整Native过滤、feedback/IO/淘汰及首屏/收敛一起闭合，完整coverage依赖保持resident；RVT不混入，具体单元结果只读执行文 |
 | F3 Local Reflection Probes | 待细设计；尚无细文档 | 独立完成实际数据来源、预滤波/空间选择/混合/视差校正、容量/生命周期，与 SSR 和 global IBL 正确合成 |
-| F4 Streaming VT | 待细设计；尚无细文档 | 先 shading tile paging 全链，完整 coverage 依赖保持 resident；产品/provider/采样/feedback/IO/淘汰，闭合 Main/VSM/custom graph 合同；RVT 不混入 |
 | F5 Screen-Space Diffuse | 待细设计；尚无细文档 | 选 SSIL/SSGI 的实际能力范围，明确近场 radiance、AO/IBL/world 间接光关系，复用已成立合同而不强制统一算法 |
 | F6 Local Shadows | 待细设计；尚无细文档 | 点/聚光的实际 caster、容量/过滤/更新、Native 消费与 lifecycle；先补直接光遮挡，不把 LocalLightWork 或方向光 VSM 当作已实现 |
 | F7 World GI | 待细设计；尚无细文档 | 比较 SDF/occupancy+probe 等完整候选，先确定动态场景/薄墙/alpha/命中辐射和4GB成本，再选场景表示、生成/更新与合成 |

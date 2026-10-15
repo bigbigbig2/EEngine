@@ -1,0 +1,64 @@
+[
+  {
+    "name": "libvt",
+    "repo": "core-code/LibVT",
+    "revision": "464397d9e2c655f72ad59cd1166b14e29e1bad3a",
+    "license": "MIT",
+    "status": "reference-only; GPU adoption pending VT-2/3",
+    "files": [
+      {
+        "source": "LICENSE",
+        "local": "libvt-LICENSE",
+        "sha256": "e7aa149ad997309e2178c340045c757b048bfe45af09087ae081da8d8182eed2"
+      },
+      {
+        "source": "LibVT/renderVT.frag",
+        "local": "libvt-renderVT.frag",
+        "sha256": "faaf9503ca79013b6093adc44212150af1ca7c4ca1e87ae1fc81f6d08a7769d0"
+      }
+    ]
+  },
+  {
+    "name": "wicked",
+    "repo": "turanszkij/WickedEngine",
+    "revision": "54518f2ca9a4c37716f6e2fe5b96a3b276944b0a",
+    "license": "MIT",
+    "status": "reference-only; GPU adoption pending VT-2/3",
+    "files": [
+      {
+        "source": "LICENSE.txt",
+        "local": "wicked-LICENSE.txt",
+        "sha256": "5c48360ddec789b6333413d2e52a1f3b45174dfd9f8d8575c78dc64a6d877f9f"
+      },
+      {
+        "source": "WickedEngine/shaders/ShaderInterop_Renderer.h",
+        "local": "wicked-ShaderInterop_Renderer.h",
+        "sha256": "2d836597d593bedfaf05a9928d7824d3cddd1e625724b33f0fab5aa0d1c89ab9"
+      },
+      {
+        "source": "WickedEngine/shaders/virtualTextureTileRequestsCS.hlsl",
+        "local": "wicked-virtualTextureTileRequestsCS.hlsl",
+        "sha256": "a1a1a455e952bd92d8839fa5c62a3b10c7ff225b731bc811a98515e471c3d876"
+      }
+    ]
+  },
+  {
+    "name": "intel",
+    "repo": "GameTechDev/SamplerFeedbackStreaming",
+    "revision": "714e144df957336fa36022acabaa19e826f9850c",
+    "license": "MIT",
+    "status": "reference-only; GPU adoption pending VT-2/3",
+    "files": [
+      {
+        "source": "LICENSE",
+        "local": "intel-LICENSE",
+        "sha256": "dcd270da055406a01de38eb90f37d7837c1c7d3871367350274bdbf0d46c4523"
+      },
+      {
+        "source": "TileUpdateManager/StreamingResourceBase.cpp",
+        "local": "intel-StreamingResourceBase.cpp",
+        "sha256": "bf74aba91d83d1c71ed8dd7e9fc0d571866a6c130ede67cfc1e85453fb9cfc58"
+      }
+    ]
+  }
+]
