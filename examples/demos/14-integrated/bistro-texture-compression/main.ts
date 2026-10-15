@@ -35,6 +35,8 @@ import {
 import "./style.css";
 import { loadCookedScene } from "./cooked-scene.ts";
 import { setupVsmControls } from "./vsm-controls.ts";
+import { setupAoControls } from "./ao-controls.ts";
+import { setupSsrControls } from "./ssr-controls.ts";
 import { calendarSunDirection, formatSunDay, formatSunTime, SUN_CALENDAR_YEAR } from "./sun-calendar.ts";
 
 const MiB = 1024 ** 2;
@@ -689,6 +691,8 @@ async function start(): Promise<void> {
   await renderer.initialize({ context });
   if (closing) return;
   vsmControls.sync();
+  aoControls.sync();
+  ssrControls.sync();
   // Apply the initial effect switches; VSM starts enabled in this demo.
   for (const [id, set] of effectSwitches) set(renderer, element<HTMLInputElement>(id).checked);
   renderer.profiler.configure({ enabled: false });
@@ -1013,6 +1017,24 @@ for (const [key, label] of [
   element("vsm-state").append(dt, dd);
 }
 const vsmControls = setupVsmControls(() => renderer, resetFrameSamples);
+const aoControls = setupAoControls(
+  () => renderer,
+  resetFrameSamples,
+  (view) => {
+    element<HTMLSelectElement>("debug-view").value = view;
+    ssrControls.sync();
+    resetFrameSamples();
+  }
+);
+const ssrControls = setupSsrControls(
+  () => renderer,
+  resetFrameSamples,
+  (view) => {
+    element<HTMLSelectElement>("debug-view").value = view;
+    aoControls.sync();
+    resetFrameSamples();
+  }
+);
 function diagnosticControlsDisabled(disabled: boolean): void {
   for (const control of document.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>(
     ".diagnostic-controls input, .diagnostic-controls select, .diagnostic-controls button",
@@ -1072,6 +1094,8 @@ syncExposureControls();
 element("debug-view").addEventListener("change", (event) => {
   if (!renderer) return;
   renderer.render_debug_view = (event.target as HTMLSelectElement).value as RenderDebugViewName;
+  aoControls.sync();
+  ssrControls.sync();
   resetFrameSamples();
 });
 const effectSwitches = [
@@ -1085,6 +1109,14 @@ const effectSwitches = [
     "gtao",
     (r: Renderer, v: boolean) => {
       r.setAmbientOcclusionSettings({ enabled: v });
+      aoControls.sync();
+    },
+  ],
+  [
+    "sssr",
+    (r: Renderer, v: boolean) => {
+      r.setScreenSpaceReflectionsSettings({ enabled: v });
+      ssrControls.sync();
     },
   ],
   [

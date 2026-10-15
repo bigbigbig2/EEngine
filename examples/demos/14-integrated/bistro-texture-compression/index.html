@@ -86,8 +86,16 @@
                   <option value="history-validity">Temporal validity / hard replacement</option>
                   <option value="reactive">Soft reactive</option>
                   <option value="linear-hdr">Pre-exposed HDR</option>
+                  <optgroup label="Ambient Occlusion">
+                    <option value="ambient-occlusion">Screen AO (Visibility)</option>
+                  </optgroup>
+                  <optgroup label="Screen Space Reflections">
+                    <option value="screen-space-reflection-hit-miss">SSR: Hit / miss confidence</option>
+                    <option value="screen-space-reflection-resolve">SSR: Prefilter radiance</option>
+                    <option value="screen-space-reflection-temporal">SSR: Final temporal radiance</option>
+                    <option value="screen-space-reflection-history-confidence">SSR: History acceptance</option>
+                  </optgroup>
                   <option disabled>BaseColor / Normal / ORM: NOT WIRED</option>
-                  <option disabled>SSR / GI: NOT WIRED</option>
                 </select></label
               >
             </div>
@@ -123,16 +131,71 @@
               ><input id="gtao" class="switch" type="checkbox" role="switch" aria-controls="gtao-parameters"
             /></label>
             <div id="gtao-parameters" class="effect-parameters" hidden>
-              <dl>
-                <dt>Quality</dt>
-                <dd>Scalar high</dd>
-                <dt>Radius (fixed)</dt>
-                <dd>1 m</dd>
-                <dt>Final power (fixed)</dt>
-                <dd>2.2</dd>
-                <dt>World scale</dt>
-                <dd>1 m / unit</dd>
-              </dl>
+              <label class="control">Debug view<select id="ao-debug-view">
+                <option value="none">Final shaded</option>
+                <option value="ambient-occlusion">Screen AO (Visibility)</option>
+              </select></label>
+              <p class="note" id="ao-debug-note">最终着色画面。环境光遮蔽直接调制环境漫反射（Diffuse IBL）。</p>
+              <label class="control">Strength<output id="ao-strength-value">1.00</output><input id="ao-strength" type="range" min="0" max="1" step="0.05" value="1" /></label>
+              <p class="note">线性混合强度。0 为无遮挡，1 为全额环境遮蔽贡献。</p>
+              <label class="control">Radius (world)<output id="ao-radius-value">1.0 m</output><input id="ao-radius" type="range" min="0.1" max="5" step="0.1" value="1" /></label>
+              <p class="note">世界空间遮蔽采样半径。半径过大可能模糊局部细节，过小则仅在极紧密接缝可见。</p>
+              <label class="control">Final power<output id="ao-power-value">2.2</output><input id="ao-power" type="range" min="0.5" max="4" step="0.1" value="2.2" /></label>
+              <p class="note">遮蔽曲线对比度指数。值越高边缘阴影过渡越硬朗深邃。</p>
+              <label class="control">Quality<select id="ao-quality">
+                <option value="high">High (Full quality XeGTAO)</option>
+                <option value="medium">Medium (Balanced performance)</option>
+              </select></label>
+              <label class="control">Denoise passes<select id="ao-denoise">
+                <option value="0">0 passes (Raw samples)</option>
+                <option value="1" selected>1 pass (Standard bilateral)</option>
+                <option value="2">2 passes (Smooth)</option>
+                <option value="3">3 passes (Extra smooth)</option>
+              </select></label>
+              <p class="note">空间双边滤波迭代次数。0 适合观察原始光线走向，1 为推荐平衡档。</p>
+              <div class="ao-actions"><button id="ao-reset" class="text-button">Reset GTAO</button></div>
+            </div>
+          </section>
+          <section class="effect section">
+            <label class="effect-heading" for="sssr"
+              ><span>SSSR <small>Screen space reflections</small></span
+              ><input id="sssr" class="switch" type="checkbox" role="switch" aria-controls="sssr-parameters"
+            /></label>
+            <div id="sssr-parameters" class="effect-parameters" hidden>
+              <label class="control">Debug view<select id="sssr-debug-view">
+                <option value="none">Final shaded</option>
+                <option value="screen-space-reflection-hit-miss">Hit / miss confidence</option>
+                <option value="screen-space-reflection-resolve">Resolve (Prefilter radiance)</option>
+                <option value="screen-space-reflection-temporal">Temporal (Denoised radiance)</option>
+                <option value="screen-space-reflection-history-confidence">History acceptance</option>
+              </select></label>
+              <p class="note" id="sssr-debug-note">最终着色。SSR 反射光经降噪后按真实辐射度加权，并扣除原生被替换的 IBL 贡献。</p>
+
+              <label class="control">Debug lobe<select id="sssr-debug-lobe">
+                <option value="0">Base specular</option>
+                <option value="1">Clearcoat</option>
+              </select></label>
+              <p class="note">调试视图所观测的材质反射层（底面金属/介质 vs 清漆透明层）。</p>
+
+              <label class="control">Strength<output id="sssr-strength-value">1.00</output><input id="sssr-strength" type="range" min="0" max="1" step="0.05" value="1" /></label>
+              <p class="note">反射能量叠加比例。0 为完全关闭贡献，1 为基于物理守恒全额替换所选镜面 IBL 基线。</p>
+
+              <label class="control">Quality<select id="sssr-quality">
+                <option value="balanced" selected>Balanced (1/4 spp + variance)</option>
+                <option value="high">High (1 spp full-rate)</option>
+              </select></label>
+              <p class="note">光线发射密度。Balanced 采用 8×8 Quad 稀疏发射与方差提升，High 采用全速率发射。</p>
+
+              <label class="control">Max roughness<output id="sssr-roughness-value">0.45</output><input id="sssr-roughness" type="range" min="0.05" max="1" step="0.01" value="0.45" /></label>
+              <p class="note">超出此感知粗糙度的表面不发射屏幕光线，平滑保全环境贴图反射。</p>
+
+              <label class="control">Hit thickness<output id="sssr-thickness-value">0.015 m</output><input id="sssr-thickness" type="range" min="0.005" max="0.2" step="0.005" value="0.015" /></label>
+              <p class="note">判定有效命中的深度厚度容差（米）。太薄易穿透，太厚易在物体后方产生拉伸走样。</p>
+
+              <label class="control">Temporal stability<output id="sssr-stability-value">0.70</output><input id="sssr-stability" type="range" min="0" max="1" step="0.05" value="0.7" /></label>
+              <p class="note">时域 AABB 历史滤波裁剪系数。提高稳定性可快速消除噪点，剧烈移动时需平衡残影。</p>
+
+              <div class="sssr-actions"><button id="sssr-reset" class="text-button">Reset SSSR</button></div>
             </div>
           </section>
           <section class="effect section">

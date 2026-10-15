@@ -399,7 +399,9 @@ dd {
 #error:empty {
   display: none;
 }
-.vsm-actions {
+.vsm-actions,
+.ao-actions,
+.sssr-actions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
