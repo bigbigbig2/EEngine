@@ -11,8 +11,8 @@ roadmap:
   execution: docs/next-execution/eengine-feature-expansion-execution-2026-10.md
 # Only the selected module pair is the current authority; roadmap remains stable.
 authority:
-  design: docs/next-design/eengine-sssr-2026-10.md
-  execution: docs/next-execution/eengine-sssr-execution-2026-10.md
+  design: docs/next-design/eengine-initialization-scheduling-2026-10.md
+  execution: docs/next-execution/eengine-initialization-scheduling-execution-2026-10.md
 goal: >-
   Build an extreme-performance GPU-driven WebGPU-native AAA renderer for
   GTX 1650 Ti 4GB at 1080p and scalable newer GPUs. Follow global V4 invariants
@@ -25,18 +25,17 @@ goal: >-
   historical measurements retain their original device and thermal-state identity.
 
 currentSlice:
-  id: stochastic-screen-space-reflections
-  title: Complete SSSR and reflection denoising for Native Surface
-  status: completed
+  id: initialization-scheduling
+  title: Cooked initialization, geometry publication and bounded VSM updates
+  status: designed
   goal: >-
-    Follow the selected SSSR design/execution pair; its execution document alone
-    records detailed unit states and results. Preserve the complete selected
-    source algorithm and denoiser while adapting Native base/coat response,
-    radiometry, bounded WebGPU work and transactional histories. Keep verification
-    focused without deleting algorithm stages or weakening valid assertions.
-    Execute only the units covered by the user's current authorization and stop
-    at the requested unit boundary. Stop at the module boundary before Local
-    Reflection Probes; no automatic next-module design or coding.
+    Follow the selected initialization design/execution pair; detailed unit states
+    and results live only in its execution document. Couple transactional geometry
+    publication with correct bounded VSM updates, then parallel cooked preparation
+    and the real bootstrap/convergence path. Preserve final quality and completed
+    AO/SSSR behavior. The current authorization covers design only, not production
+    implementation. Stop at this module boundary before Local Reflection Probes;
+    no automatic VT, physical Page ABI or whole-renderer qualification work.
 
 pausedModules:
   - id: final-pixel-performance-v5

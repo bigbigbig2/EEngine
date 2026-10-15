@@ -36,6 +36,7 @@ verifies:
 | F0 粗计划与文档推进机制 | 已完成本轮融合；检查与既有 finding 见 §5 | 核对真实源码并评审讨论方案，维护粗→细设计/执行一对→实施→收口的唯一导航；不改生产源码 |
 | F1 AO 功能完善 | 已实施并完成模块集中验证：[设计](../next-design/eengine-ao-functionality-2026-10.md) / [执行及限制](eengine-ao-functionality-execution-2026-10.md#5-ao-1-实施与核对2026-10-14) | 已有scalar XeGTAO的settings/quality/debug/场景尺度与恢复；保留完整算法，不捆绑temporal/bent normal；停在SSR细设计边界 |
 | F2 SSR | 已实施并完成模块集中验证：[设计](../next-design/eengine-sssr-2026-10.md) / [执行及限制](eengine-sssr-execution-2026-10.md#5-ssr-2-生产接入与逐项复核2026-10-15) | 完整SSSR与反射去噪、Native base/coat响应及环境替换已接生产；实际资源/质量覆盖与未做的整Renderer性能资格只读细文档；停在Local Probes模块边界 |
+| 启动可用性专项 | 已形成[设计](../next-design/eengine-initialization-scheduling-2026-10.md) / [执行计划](eengine-initialization-scheduling-execution-2026-10.md)，尚未实施 | 用户基于真实Bistro卡顿插入；几何流送发布与VSM重复更新先闭合，再Worker/批量读取及首屏关键路径。只授权设计；不恢复F11、不降最终质量，完成后回F3边界 |
 | F3 Local Reflection Probes | 待细设计；尚无细文档 | 独立完成实际数据来源、预滤波/空间选择/混合/视差校正、容量/生命周期，与 SSR 和 global IBL 正确合成 |
 | F4 Streaming VT | 待细设计；尚无细文档 | 先 shading tile paging 全链，完整 coverage 依赖保持 resident；产品/provider/采样/feedback/IO/淘汰，闭合 Main/VSM/custom graph 合同；RVT 不混入 |
 | F5 Screen-Space Diffuse | 待细设计；尚无细文档 | 选 SSIL/SSGI 的实际能力范围，明确近场 radiance、AO/IBL/world 间接光关系，复用已成立合同而不强制统一算法 |

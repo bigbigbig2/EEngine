@@ -108,6 +108,8 @@ verifies:
 
 默认顺序调整为 **AO → SSR → Local Reflection Probes → Streaming VT → Screen-Space Diffuse → Local Shadows → World GI → Transparency/Refraction → Media → 重建/显示/后处理 → 集中组合与性能优化**。Decals/RVT 等保留为明确候选扩展。
 
+2026-10-15用户基于Bistro真实启动卡顿，在SSR完成后插入一次[初始化调度设计](eengine-initialization-scheduling-2026-10.md) / [执行计划](../next-execution/eengine-initialization-scheduling-execution-2026-10.md)：并行Cooked准备、几何帧事务发布与VSM有界更新一起收口。本轮只有设计授权；这是可交互性问题的专项，不恢复F11全Renderer性能资格，也不提前实现VT或改阴影质量。完成后回到Local Reflection Probes边界，原功能顺序不变。
+
 这是画面收益和工程风险的默认排序，不是硬依赖链。SSR 不需要先完成 VT；SSGI 不强依赖 VT 或局部镜面 probe；VT 在 World GI 前可降低未来采样体系重复改造风险，但不能替 GI 解决场景表示/命中着色。当前只有 Sun 阴影，故将局部阴影置于复杂 World GI 之前，先补常用直接光遮挡和可信的场景光照基线；不宣称所有 GI 都必须消费 local shadow maps。透明或局部阴影若是目标场景主要缺口，可在模块边界进一步提前；不让庞大 World GI 成为它们的统一门禁。每次只细设计和实施一个大模块。
 
 ### 4.1 AO：完善已有 scalar 功能

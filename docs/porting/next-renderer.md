@@ -368,6 +368,19 @@ Wicked、Intel CPS、Forge、OSS的所列本地冻结源码与固定revision网�
 
 ---
 
+## 初始化调度研究（2026-10-15）
+
+对应[初始化调度设计](../next-design/eengine-initialization-scheduling-2026-10.md) / [执行](../next-execution/eengine-initialization-scheduling-execution-2026-10.md)。研究起点`30292e0e`，仅参考与本地方案设计，未移植、未验证新生产消费、无adoption/性能claim提升。
+
+| 固定来源 | 实际阅读入口 | 参考与本地目标 | 不采用的执行假设 |
+|---|---|---|---|
+| three.js r180，commit `0af9729d0c143a86a1d725d6e2c3ad83301f3f34`，MIT | [DRACOLoader.js](https://github.com/mrdoob/three.js/blob/0af9729d0c143a86a1d725d6e2c3ad83301f3f34/examples/jsm/loaders/DRACOLoader.js) 全文件，`decodeGeometry`/`_getWorker`/`_releaseTask`/`DRACOWorker`；[WorkerPool.js](https://github.com/mrdoob/three.js/blob/0af9729d0c143a86a1d725d6e2c3ad83301f3f34/examples/jsm/utils/WorkerPool.js) 全文件 | Reference：按task cost选择worker、传入/返回ArrayBuffer ownership；本地复用已有`AssetWorkerPool`，Cooked协议+credit+epoch+本地验证品牌 | 不引入DRACO、THREE对象、无界queue或缺少cancel/generation的简单pool；不照搬buffer identity缓存作为asset验证 |
+| The-Forge，commit `cd5046893faba2dc7869243873bf01f02a6f0df9`，Apache-2.0 | 下载固定完整源文件[ResourceLoader.cpp](https://github.com/ConfettiFX/The-Forge/blob/cd5046893faba2dc7869243873bf01f02a6f0df9/Common_3/Resources/ResourceLoader/ResourceLoader.cpp)，研究`streamerThreadFunc`/`allocateStagingMemory`/`flushResourceUpdates`/`waitForToken`相关调用链 | Reference：准备、staging、submitted/completed token区分与有界资源set；本地映射hidden payload→frame candidate→commit/fence retirement | 不带入native copy queue/semaphore、多GPU、专用提交与阻塞wait；WebGPU使用现有单frame submit |
+| HTML Living Standard（2026-10-15读取）、WebGPU规范、Worker API文档 | [transferable objects](https://html.spec.whatwg.org/multipage/structured-data.html#transferable-objects)、[WebGPU](https://www.w3.org/TR/webgpu/)、[Worker fetch](https://developer.mozilla.org/en-US/docs/Web/API/WorkerGlobalScope/fetch) | Platform：buffer transfer会detach，品牌/WeakMap不跨realm；worker可fetch不要求让GPU owner迁移 | 不假定GPUDevice/pipeline可transfer，不要求SAB/COOP/COEP，不把transfer称为CPU到GPU零拷贝 |
+| Epic VSM文档（2026-10-15读取，无源码pin） | [Caching / Managing Cache Invalidations](https://dev.epicgames.com/documentation/en-us/unreal-engine/virtual-shadow-maps-in-unreal-engine) | Reference概念：bounds扩大失效、streaming LOD与动态变化不同、cache有效性；本地设计来自当前VSM源码 | 非源码移植，不采用experimental LOD invalidation开关或静态/动态双atlas；不据此宣称等同Unreal算法 |
+
+Local / Original：frame事务地址发布、coarse predecessor影响集合、requested与selected-dirty双域、有界完整页重建和view-settled协议由本地源码约束设计；不声称存在覆盖全链的单一donor。既有Nyx coarse/fine互补、VSM算法与材质coverage来源合同保持。实施若实际复制代码须保留对应notice并补精确本地函数映射；阅读记录不等于算法采用。
+
 
 ## 2026-10-03：Surface V3 第一版优化设计映射（待实施）
 
