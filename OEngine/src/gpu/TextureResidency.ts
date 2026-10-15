@@ -1235,7 +1235,11 @@ export class TextureResidency {
       live = entries.filter((entry) => entry.refs > 0),
       retired = entries.filter((entry) => entry.refs === 0);
     const bytes = (values: Entry[]) =>
-      values.reduce((sum, entry) => sum + entry.product.evidence.ownedPayloadBytes, 0);
+      values.reduce(
+        (sum, entry) =>
+          sum + entry.planes.reduce((total, plane) => total + planeBytes(plane.segment.plane), 0),
+        0
+      );
     const distribution = new Map<GPUTextureFormat, { residentTextureCount: number; residentBytes: number }>();
     for (const entry of live) {
       for (const plane of entry.product.metadata.planes) {

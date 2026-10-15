@@ -13,13 +13,16 @@ export function createTextureQualityReader() {
       ) ?? []
     );
     const products = new Map(
-      [...leaves].map((texture) => [texture.texture_product?.identity, texture.texture_product])
+      [...leaves].map((texture) => [
+        texture.texture_product?.identity ?? texture.tiled_source?.identity,
+        texture.texture_metadata
+      ])
     );
     let allLeavesHaveSchema3 = true;
     let allFullMips = true;
     let transferFunctions = true;
     for (const texture of leaves) {
-      const metadata = texture.texture_product?.metadata;
+      const metadata = texture.texture_metadata;
       allLeavesHaveSchema3 &&= metadata?.schemaVersion === 3;
       allFullMips &&=
         !!metadata &&

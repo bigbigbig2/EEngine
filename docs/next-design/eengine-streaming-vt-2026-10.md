@@ -194,7 +194,7 @@ submit 前失败/abort：不推进 active map/slot owner；保留或取消 ready
 
 与几何/VSM convergence 保持组合观察，各自真实未完成原因分别输出。VT 不降低 VSM 更新质量、不强制全局同步，也不把纹理反馈接成同帧 GPU→CPU→GPU visible/work control。
 
-只增加有真实消费的设置/诊断：物理/metadata/CPU缓存预算、请求与上传上限、target mip/actual mip、page/tail/miss/pressure debug、pending/overflow/readback age、range fetched/overfetch/hash失败、CPU/GPU bytes。设置经 `RendererConfig` 初始profile交到VT owner；运行期可原子调整调度额度，涉及池尺寸/绑定布局的变更按候选资源→协商→完整切换→fence退休处理，不原地破坏在途帧。tile recipe属于冷产品，不能运行期改一个参数就解释旧payload。
+只增加有真实消费的设置/诊断：物理/metadata/CPU缓存预算、请求与上传上限、target mip/actual mip、page/tail/miss/pressure计数、pending/overflow/readback age、range fetched/overfetch/失败任务、CPU/GPU bytes。VT-3当前提供owner evidence与demo/export，不声称已有逐像素VT debug overlay；失败任务包含取消/重试，不等于hash失败次数，保留错误message区分根因。fetched/hash字节目前统计成功receipt，失败请求已传输部分不在该计数内，不能称网络总流量。设置经 `RendererConfig` 初始profile交到VT owner；本轮配置不可变；运行期预算/池尺寸/绑定布局变更通过重建Renderer实施，没有未验证的热resize API。后续确有consumer需求时再设计候选资源→完整切换→fence退休，不原地破坏在途帧。tile recipe属于冷产品，不能运行期改一个参数就解释旧payload。
 
 无VT consumer时不声明页表/反馈产品，不分配页池/readback或调度任务；不增加一个关闭VT后自动读取完整大纹理的兼容开关。默认配置必须经 limits 和 mandatory 容量 admission；统计关闭时不要每像素 atomicAdd 计数。小计不能漏 resident coverage、normal、atlas rounding、旧新对象重叠和 pinned tail。
 

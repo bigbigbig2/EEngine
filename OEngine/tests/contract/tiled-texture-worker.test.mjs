@@ -139,6 +139,10 @@ test("real VT Worker opens directory only, batches authenticated tiles, owns rea
     );
     batch.payloads.forEach((p) => assert.deepEqual(new Uint8Array(p.bytes), f.payloads[p.id]));
     batch.release();
+    const io = preparation.evidence().tiled;
+    assert.ok(io.hashedPayloadBytes > 0);
+    assert.ok(io.fetchedBytes >= io.hashedPayloadBytes);
+    assert.equal(io.overfetchBytes, io.fetchedBytes - io.hashedPayloadBytes);
     assert.ok(preparation.evidence().tiled.cache.bytes <= 24 * 1024);
     assert.equal(workers[0].registrations.length, 1, "compact identity registered once per Worker");
     assert.ok(workers[0].registrationBytes[0] < 1024, "full page directory is never cloned to every Worker");
@@ -156,6 +160,7 @@ test("real VT Worker opens directory only, batches authenticated tiles, owns rea
       assert.equal(preparation.evidence().credit.used.total, 0);
     }
     mode = "no-range";
+    assert.equal(preparation.evidence().tiled.failedTasks, 3);
     const fallbackStart = requests.length;
     const shards = await preparation.readTiledPayloads(session, directory, [3]);
     assert.deepEqual(new Uint8Array(shards.payloads[0].bytes), f.payloads[3]);

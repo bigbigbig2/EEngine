@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { verifyTestBuild } from "../../tools/test-build.mjs";
 import { nativeBcCalls } from "./offline-bc-calls.mjs";
-import { cookPcTextureRgba } from "../.test-dist/assets/codec/PcTextureCook.js";
+import { cookPcTextureRgba, resamplePcTexture } from "../.test-dist/assets/codec/PcTextureCook.js";
 import { TiledTextureCook } from "../.test-dist/assets/codec/TiledTextureCook.js";
 import { openTiledTextureDirectory } from "../.test-dist/assets/TiledTextureProduct.js";
 import { saveTextureProduct, openTextureProduct } from "../.test-dist/assets/TextureProduct.js";
@@ -104,6 +104,7 @@ async function textureTask(taskPath) {
     ) {
       throw new Error("Native BC recipe mismatch");
     }
+    let reusableProduct, reusableReceipt;
     try {
       const saved = await readFile(task.output);
       const product = await openTextureProduct(
@@ -120,6 +121,8 @@ async function textureTask(taskPath) {
       ) {
         throw new Error("Saved Product does not match source/recipe/usage");
       }
+      reusableProduct = product;
+      reusableReceipt = receipt;
       const matchingTiledProfile =
         !task.tiled ||
         (receipt.tiled &&
@@ -201,6 +204,56 @@ async function textureTask(taskPath) {
     const tiled = task.tiled ? await openTiledSink(task, codecs) : null;
     let result;
     try {
+      if (reusableProduct && tiled) {
+        const product = reusableProduct;
+        const metadata = product.metadata;
+        if (metadata.recipe.filter !== "linear" && metadata.recipe.filter !== "linear-normal") {
+          throw new Error("Tiled upgrade requires the original offline mip recipe");
+        }
+        let rgba = decoded.data,
+          width = decoded.width,
+          height = decoded.height;
+        const srgb = metadata.semantic === "base-color-srgb" || metadata.semantic === "emissive-srgb";
+        for (const mip of metadata.planes[0].mips) {
+          if (width !== mip.width || height !== mip.height) {
+            rgba = resamplePcTexture(
+              codecs.basis,
+              rgba,
+              width,
+              height,
+              mip.width,
+              mip.height,
+              srgb,
+              metadata.semantic === "normal-linear"
+            );
+          }
+          width = mip.width;
+          height = mip.height;
+          for (const plane of metadata.planes) {
+            await tiled.cook.appendMip({
+              level: mip.level,
+              width,
+              height,
+              rgba,
+              plane,
+              payload: product.chunks.get(plane.mips[mip.level].chunkId)
+            });
+          }
+        }
+        await tiled.finish(product);
+        await writeJson(task.output + ".json", {
+          ...reusableReceipt,
+          tiled: tiled.receipt,
+          tiledUpgradeMs: performance.now() - started
+        });
+        log({
+          phase: "texture",
+          upgraded: true,
+          image: task.imageIndex,
+          wallMs: performance.now() - started
+        });
+        return;
+      }
       result = await cookPcTextureRgba(
         codecs,
         decoded.data,

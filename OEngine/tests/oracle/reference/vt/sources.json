@@ -4,7 +4,7 @@
     "repo": "core-code/LibVT",
     "revision": "464397d9e2c655f72ad59cd1166b14e29e1bad3a",
     "license": "MIT",
-    "status": "reference-only; GPU adoption pending VT-2/3",
+    "status": "adapted LOD/lookup/explicit-gradient profile; independent f32 and cold-payload GPU oracle plus Native consumer verified VT-3",
     "files": [
       {
         "source": "LICENSE",
@@ -23,7 +23,7 @@
     "repo": "turanszkij/WickedEngine",
     "revision": "54518f2ca9a4c37716f6e2fe5b96a3b276944b0a",
     "license": "MIT",
-    "status": "reference-only; GPU adoption pending VT-2/3",
+    "status": "adapted dual-mip sampling and coarse request closure; NPOT/gradient software-atlas integration verified VT-3",
     "files": [
       {
         "source": "LICENSE.txt",
@@ -47,7 +47,7 @@
     "repo": "GameTechDev/SamplerFeedbackStreaming",
     "revision": "714e144df957336fa36022acabaa19e826f9850c",
     "license": "MIT",
-    "status": "reference-only; GPU adoption pending VT-2/3",
+    "status": "adapted ref/pending/resident/abandon/eviction-rescue state decisions; local CPU pressure/lifecycle and Native GPU verified VT-3; no D3D12 framework port",
     "files": [
       {
         "source": "LICENSE",

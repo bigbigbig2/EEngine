@@ -1651,9 +1651,9 @@ Reference仍为AMD SDK1.1.4 MIT pin `c6efa6bf7f2027b3ec94f28578bb5965eabb9e55`�
 
 完整Resolve独立GPU差分、actual Seed/Analyze/Native writer、生命周期、17小动态序列、1080p六类×256帧×8ROI矩阵、最终ordinary/Product真实Renderer主链与有限整Temporal成本检查已通过，build身份、范围及保留失败见Phase4 performance report。数值检查保留参考格式/硬件采样边界；Native depth资格为明确本地数据域适配。生产消费已验证，但不称完整SDK bit-exact移植；合成unit break-even不晋级whole-renderer quality/performance claim，正式资格留Phase5/6。
 
-## Streaming VT 2026-10-16：设计来源，尚未 Adopt
+## Streaming VT 2026-10-16：VT-1来源选择检查点
 
-当前GPU算法仍为[VT设计](../next-design/eengine-streaming-vt-2026-10.md)的来源选择，没有新增GPU移植/数值结果/生产GPU证据，不提升adoption。VT-1已实现本地冷产品/Worker准备链；下表GPU位置仍为拟实施责任位置，详细状态只读[VT执行](../next-execution/eengine-streaming-vt-execution-2026-10.md)。不得把各donor拼成未经说明的“原样完整移植”。
+本节保留VT-1结束时的来源选择与尚未实现范围；后续实际适配见本文末尾“Streaming VT生产算法适配”，完成状态只读[VT执行](../next-execution/eengine-streaming-vt-execution-2026-10.md)。VT-1当时仅实现本地冷产品/Worker准备链，下表GPU位置为当时拟实施责任位置，不代表当前仍未接线。不得把各donor拼成未经说明的“原样完整移植”。
 
 | 来源 / revision / license | 实际源码与拟映射 | 适配边界 |
 |---|---|---|
@@ -1672,3 +1672,17 @@ VT-1已在`OEngine/tests/oracle/reference/vt/`保存上述LibVT/Wicked/Intel的�
 Local：`GpuVsmFilterAbi`、`VsmFilterNoise`/Settings、`FinalPixelLightingPublication` 与 `vsm_sampling`/Native 完成 producer→不可变噪声段→采样、Bias、提交/abort/fence/退休。四点 Vogel 使用明确等面积公式，复用完整既有 STBN 字节；没有新的完整 donor 移植或资产来源 adoption 声明。
 
 Reference：Bevy `fd98063564218bd210308675602a3e9643014c31`（MIT/Apache-2.0，`crates/bevy_pbr/src/render/shadow_sampling.wesl` 的 PCF/旋转）；Wicked `7f776d02094571dd2c8166c7e5879d5e93d2b642`（MIT，`WickedEngine/shaders/shadowHF.hlsli` 的 disk/dither、保留 f32 compare）；MJP Shadows `a83ce99377c7b46f2faecfbd7769726004f4db81`（MIT，`Shadows/Mesh.hlsl::ComputeReceiverPlaneDepthBias/SampleShadowMapRandomDiscPCF/SampleShadowMapGridPCF`）。本地 Adapt 是 compute 中从已有几何平面求梯度并在实际 texel 中心修正反向深度；raw gather 分别比较四个深度，保留空零/负 reference，不照搬硬件单 reference 的 PCF 或 fragment 导数。Original 是四点 host 常量、256-entry rotation table、lighting tail 与相位/容量/退休接线。实际独立 CPU/GPU、主链接线与局部成本结果见[实施记录](../performance/2026-10-13-vsm-filter-optimization.md)，不能提升为完整 VSM/Renderer 性能资格。
+
+## Streaming VT生产算法适配（2026-10-16）
+
+固定revision及MIT原文/notice见`OEngine/tests/oracle/reference/vt/sources.json`，保留文件SHA不改。以下仅声明实际适配范围，不声明整个donor性能或bit-exact移植。
+
+| Reference | Adapt / 本地映射 | 必要平台差异与证明范围 |
+|---|---|---|
+| LibVT `464397d9e2c655f72ad59cd1166b14e29e1bad3a`，`renderVT.frag::mipmapLevel/samplePagetableMultiple/calulateCoordinatesFromSample` | `shaders/virtual_texture.ts::native_vt_sample/native_vt_lookup/native_vt_physical` | 保留Pmax/Pmin、ceil比例与8²上限、显式物理梯度、缺页逐级查找；GL隐式导数→Native实际X/Y，POT浮点页编码→真实NPOT整数mip记录，完整tail到1×1。独立CPU f32 LOD+冷页重建GPU过滤对照；不声称与任意driver的完整resident anisotropic kernel逐bit相同 |
+| Wicked `54518f2ca9a4c37716f6e2fe5b96a3b276944b0a`，`ShaderInterop_Renderer.h::ShaderTextureSlot::SampleVirtual`，`virtualTextureTileRequestsCS.hlsl` | `native_vt_sample`双mip与`VirtualTextureResidency`粗层依赖 | 两个mip分别lookup/反馈/采样再插值；LibVT保留显式梯度，不采用donor固定SampleLevel的过滤。真实NPOT父级按归一覆盖求全部交集，不照搬右移；packed tail覆盖至1×1。无bindless或硬件sparse依赖 |
+| Intel `714e144df957336fa36022acabaa19e826f9850c`，`StreamingResourceBase::{SetMinMip,AddTileRef,DecTileRef,ProcessFeedback,AbandonPendingLoads,QueuePendingTileLoads,QueuePendingTileEvictions}`、`EvictionDelay::Rescue` | `gpu/VirtualTextureResidency.ts::observe/pump/encodeUploads/discard/publish/remove` | 保留desired refs/pending/resident分离、粗层闭包、冷页延迟淘汰、取消与rescue；D3D12 uploader多线程及sparse mapping改为Worker独占lease+普通帧单queue有序copy/mapping/Surface。CPU压力测试实际产生eviction/reload；真实GPU有abort/epoch/release和完整场景consumer |
+
+Local：metadata认证、128+8冷布局、range/shards/hash/credit、page generation、GPU三bitset首次union append/overflow恢复、Native publication合并、coverage提取、FrameGraph/SceneRefinement接线。不是移植Intel硬件feedback格式，也没有移植其C++线程框架。完整resident BC编码器及resampler沿原pin；冷升级复用认证BC块，边界只编码必要条带；小样本完整tile和mip replay逐byte核对。
+
+本轮GPU过滤参考从不可变冷payload独立重建完整mip与实际压缩gutter，不读production atlas/page table，验证routing/filter/fallback；它不单独证明冷BC encoder质量。跨不同texture extent/mip-view的driver anisotropic kernel及重新编码边界块可产生差异，原失败保留在VT执行记录。来源adoption范围与验收结论只读当前VT执行，不能由这些映射直接推导初始化或GPU净提速。

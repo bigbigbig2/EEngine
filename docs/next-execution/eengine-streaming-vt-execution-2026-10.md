@@ -30,8 +30,8 @@ verifies:
 | 单元 | 状态 | 实际工程量与稳定边界 |
 |---|---|---|
 | VT-1 产品与异步读页闭包 | 已完成，结果见§6 | 中等：tiled格式/冷cook、目录/range/shard、Worker任务/校验/信用/取消与CPU缓存完整连通；生产仍原路径，没有假VT |
-| VT-2 GPU与全部生产consumer原子切换 | 已接通，复核见§7；完整验收属于VT-3 | **最大单元**：页池/页表/尾部、完整过滤、反馈/调度/事务、Native publication合并与全部consumer、coverage、bootstrap与收敛一次接通；结束时唯一生产ownership |
-| VT-3 集中验证、修复与文档核对 | 待实施 | 运行已连通模块的完整必要检查与真实完整场景，修复局部根因、重跑受影响项，更新事实/Source Map/成本，停在下一模块边界 |
+| VT-2 GPU与全部生产consumer原子切换 | 已完成，提交`ef64adbc`，复核见§7 | **最大单元**：页池/页表/尾部、完整过滤、反馈/调度/事务、Native publication合并与全部consumer、coverage、bootstrap与收敛一次接通；结束时唯一生产ownership |
+| VT-3 集中验证、修复与文档核对 | 已完成本模块实现与必要验收，结果及限制见§8 | 集中检查独立过滤/反馈/事务、真实组合、完整Bistro/Dungeon与容量压力；旧Node失败、性能与统计限制保留，不晋级全Renderer资格 |
 
 三个单元是工程闭包，不是等量任务，也不是把复杂模块压成三处改动。VT-2 内部可连续实施多个文件/算法阶段、临时断链；不能为了“先完成一个小步骤”先让生产走缺反馈/缺回收/缺coverage的VT。开发中不按每个小patch重复benchmark或全场景。
 
@@ -183,4 +183,59 @@ verifies:
 
 实际轻检查：typecheck、新鲜build:test通过；publication/scene/bindings/residency与新增VT生命周期合计28/28通过。真实RTX2060/Turing Chrome155 Native主链oracle通过：tail-only bootstrap→实际Surface wanted→正常帧3个细页→新鲜需求complete；最宽16-SSBO shader通过实际pipeline编译。最终记录`.local/vt-2-gpu-closed.json`、`.local/vt-2-cpu-final.log`。首次真实shader失败为WGSL保留字`union/target`，已改名并重跑；一次随机端口6667被Chrome拒绝为harness错误，后续正常端口成功，未当算法通过。
 
-VT-3尚需独立算法/过滤、overflow/压力、完整组合及完整Bistro/Dungeon、0/50/100%需求成本与domains/porting收口。完整场景的VT冷产品正在生成；首次Dungeon在示例目录下的native scratch写入报`UNKNOWN`，原失败保存在`.local/vt-dungeon-cook.log`，改在`.local/models/dungeon-vt-cooked`重跑。以上小场景结果不替代完整场景验收，不声明初始化提速。
+以上为VT-2结束时检查点，后续集中结果见§8。首次Dungeon在示例目录下的native scratch写入报`UNKNOWN`，原失败保存在`.local/vt-dungeon-cook.log`，改在`.local/models/dungeon-vt-cooked`重跑。小场景结果不替代完整场景验收，不声明初始化提速。
+
+## 8. VT-3集中检查与实施结果（2026-10-16）
+
+### 8.1 架构复核与局部返工
+
+生产仍只有一条Native VT路径：认证目录/provider→protected tail/完整mandatory→单publication→正常帧copy/mapping→全部实际Native查询→延迟反馈→后续帧需求调度。VT不拥有第二套材质、私有submit或本帧CPU visible控制；不恢复旧整包shading前置。页池/表/反馈由独立owner管理；coverage继续完整resident，页精化不改material/Temporal/VSM content identity。最大组合真实编译并dispatch为16 SSBO、4 storage textures；资源完整union仍按真实bank协商。
+
+本轮修复和收口：
+
+- `VirtualTextureResidency.destroy`清除CPU snapshot/admitted/pools和provider引用；feedback清除slot snapshot与active，防止旧GPU owner仍保留大目录/来源。
+- `TiledTextureCook`只对无可复用BC块的边界条带调用同一固定quality6 encoder；repeat且尺寸block对齐时直接复制周期块。有效内块保持字节不变。离线工具可复用已认证完整Product，按原resampler顺序重放RGBA mip，仅生成新tiled边界；不重压完整Product，不改normal/sRGB recipe。独立“整144tile编码后覆盖内块”与重放mip逐byte对照通过。
+- 修复旧RenderWorld/camera fake fixtures缺失真实consumer输入；SSSR最宽非VT profile随publication合并由16降为15，VT仍16，测试同步实际ABI。
+- 演示页按`texture_metadata`覆盖tiled与完整来源，以当前视图目标需求判断ready；显示target/actual、limited、VT分配/页/pinned、payload与padded copy。原`residentTextureBytes`误把CPU持有payload当GPU大小，使tiled mandatory显示0，已按真实resident plane分配计数；`GraphicsContext`汇总补计VT owner。provider成功receipt fetched/hash/overfetch、失败任务、readback age分别导出，不将CPU cache、atlas容量、实际映射或staging混账。
+- 配置保持初始不可变profile；运行期改池预算须重建Renderer。源码没有逐像素VT debug overlay，当前公开诊断是owner evidence和demo/export；设计据实际consumer纠偏，不声称已有热resize/overlay。
+
+### 8.2 新鲜编译、CPU与真实GPU
+
+最终生产`build`（含tsc）、新鲜`build:test`通过；Bistro/Dungeon各自typecheck通过。最终test source SHA `a8d28bd7734e06d715878fedbe81408d5948b89088f306d354a6d46615d82874`，output SHA `b9b00e3ddb51fbc165ebe76a61dcf7e3a83ab207177dd26c87e4294fdbac91a1`。下列最终GPU作业串行，原始记录位于本机`.local/`，没有把忽略目录当可分发正式evidence。
+
+| 集合 | 实际结果 / 证据 |
+|---|---|
+| CPU产品/Worker/压力/生命周期及直接consumer | 最终40/40通过，`.local/vt-3-closed-targeted.log`。坏hash/range、200 bounded shards、取消/crash/retry、信用/transfer、NPOT全部父级、abort中途回滚/重试、旧generation/fence、slot复用、三次持续读失败明确failed、release/destroy均覆盖。压力确实产生淘汰/重载，而非只断言容量 |
+| 冷编码与resampler | 小集合7/7通过；完整canonical BC7/BC4 1024²、2048²、4096²、257×129已在第一次全Node运行实际通过，未因耗时削quality6。4096²项约1729s，不再重复。冷tiled独立对照包含在最终40项 |
+| 过滤与源算法 | `streaming-vt-filter`通过，`.local/vt-3-filter-closed.json`。36组×56查询：BC4、BC7 sRGB、normal；三地址、nearest/8×linear、tail-only/精化、负UV、页边/角、NPOT、零/斜/极大梯度到1×1。LibVT f32 LOD独立CPU预期；GPU从不可变冷payload独立重建mip与压缩gutter，不读production atlas/page table。固定容差2/255，最终最大误差0.0018311；不宣称任意driver resident anisotropic kernel逐bit等价，也不以此替代冷encoder验证 |
+| 反馈 | `streaming-vt-feedback`通过，`.local/vt-3-feedback-closed.json`。65537 wanted/32769 used故意overflow、重复union只append一次；不发布半结果；下一普通事务bitset恢复完整frame/view/snapshot；三slot延迟完成、第四帧gap、oldest age与释放恢复 |
+| Native完整生产组合 | `streaming-vt`通过，`.local/vt-3-production-closed.json`：ordinary/dense与实际Product/compact/MASK lit+unlit，AO+SSSR、Native/FSR0.75/bypass；C/X/Y custom graph HDR有限且非零、R8 alpha+virtual RGB；16SSBO pipeline实际编译/dispatch。controlled device.destroy→epoch2重建tail→重新消费→release全部source；Graphics memory实际包含VT分配与resident页 |
+| 既有效果回归 | SSSR production与AO小GPU通过：`.local/vt-3-sssr-production-2.json`、`.local/vt-3-ao-regression.json`。它们不替代VT组合，后者由上项和完整场景证明 |
+
+来源固定文件/notices/SHA已核对。LibVT只提升LOD/lookup/显式gradient组合、Wicked只提升双mip与粗层闭包、Intel只提升ref/pending/resident/abandon/eviction-rescue决策适配；具体函数/平台差异见porting末节与`sources.json`，不宣称完整GL/D3D12框架或bit-exact donor移植。
+
+全Node没有宣称全绿：第一次从仓库根运行731项，706通过/25失败，主要为CWD相对工具路径；正确`OEngine` cwd重跑731项727通过/4失败。其中一项是名称过滤未排除重型canonical，人工中止重复codec子进程所致，原完整canonical已通过，另小集合重跑7/7。其余三项保留为与本轮无diff的baseline：`atmosphere-lut`旧测试期待8个纹理退休，但原有有界IBL缓存保留3个；`oegpack-v3`一/四线程输出相等但golden SHA期待`9b377…`、实得`ffabb…`；`nyx-function-map`期待meshlet源含已移动的`hierarchy_projected_error_pixels`。本轮没有改golden、放宽断言或替换旧算法。日志`.local/vt-3-all-node.log`、`vt-3-node-correct-cwd.log`及CWD局部重跑保留；本轮受影响40项最终均通过。
+
+其他保留失败：过滤参考早期使用不同texture extent/mip view，驱动各向异性kernel产生约0.03差异；原始边界重新BC编码约0.021差异，不能靠扩大容差修复。现在以同2304 extent、独立冷payload和真实gutter验证routing/filter，并额外独立验证冷编码。nearest精确texel边界改为两侧0.01texel探针以排除规范允许的rounding歧义，未降低生产采样。组合harness初期漏等async pipeline、custom graph修改未显式resync、fixture mip不完整和静态allowlist问题均修正后重跑；测试改为等待真实submitted count。原失败文件保留`.local/vt-3-production-*`，旧Product normal `419d7a28`失败仍保留，未追认为VT修复。
+
+### 8.3 完整场景、资源和成本
+
+实际RTX2060/Turing、Windows、Headless Chrome155、1920×1080输出；全Bistro为2,829,226 triangles/1296 meshes/132 materials/405 textures，全Dungeon为72,137 triangles/798 meshes/25 materials/25 textures。都是完整资产，Dungeon显式`cookedBase=/assets/local-dungeon/cooked/`，不是playground。新browser/no-store loopback，OS磁盘cache暖，早期Dungeon与Bistro离线cook有CPU竞争；不是冷网络benchmark。VSM/physical sky保留，Bistro最终AO+balanced SSSR+Native Temporal、internal/output均1080p；Dungeon另覆盖AO+SSSR+FSR1280×720→1080p，不能混称内部分辨率均1080p。
+
+完整冷产物：Bistro tiled payload1,644,568,706B/目录18,003,809B/77,639 payloads，完整旧BC payload1,308,729,986B；Dungeon177,292,800B/目录1,934,476B/8550 payloads，完整旧Product140,025,000B。gutter/布局使全细页产物更大；不是存储压缩优化。Bistro中途中断过一次cook后复用已认证结果重跑405/405完成，日志`vt-bistro-cook-resume.log`，不将离线编码墙钟计入runtime。
+
+| 场景/视图 | 实际运行结果 |
+|---|---|
+| 完整Dungeon | `.local/vt-3-dungeon-scene.json`及PNG：首completed约12.46s，当前纹理需求约12.98s，初始view-settled约13.85s；244页含25tail，payload上传5,059,584B，padded copy6,746,112B，VT分配106,693,092B，staging峰1,534,720B；CPU页admission4,044,000B，provider目录8,953,904B/cache约5.12MB。移动/回访新增少量页并重新收敛，release纹理/几何owner归零 |
+| 完整Bistro默认远景→近景 | `.local/vt-3-bistro-combined-close-scene.json`及PNG：首completed29.84s，远景纹理目标30.23s；目录ready约4.60s、必要pipeline17.42s，此后首帧shader/场景准备仍有长尾。近景触发target mip0–5、约997unique wanted并全部达到，1219页含224tail；移动/回访后1434页，payload29,735,424B。VT分配239,403,492B（页表/反馈含在内），resident29.74MB/pinned4.64MB；resident mandatory另分配61,623,527B、上传56,025,218B；VT staging峰6,894,080B，mandatory staging峰56,793,856B。二者各自峰不冒充同一时刻总峰 |
+| Bistro CPU/I/O与总账 | 回访成功receipt fetched90,453,634B/hash85,905,794B/overfetch4,547,840B，provider目录保守admission83,475,844B/cache85,802,114B，运行页admission36,234,240B；这些是不同口径，不全是JS heap实测。12个失败任务含obsolete view取消/重试，最终owner无error，不能称12次hash失败。注册资源账同时峰879,146,348B；geometry另有1,610,612,736B页容量+134,217,728B metadata容量，不在该资源账内；相加仍非driver VRAM/4GB资格 |
+| Bistro GPU粗成本 | 近景AO+SSSR+Native1080p，profile最终87个full samples，command span中位约46.24ms，Surface pass和约38.55ms，VT feedback两个pass和约0.0157ms；普通提交间隔约46ms/21FPS。反馈数字不含嵌在Surface中的lookup/samples/atomics，也不含copy/clear，不能宣称VT净快。upload copy位于span的outside-pass，未独立测带宽。远景约9ms，证明视图工作量差异大 |
+| Dungeon GPU粗成本 | AO+SSSR、FSR720p→1080p的16个full samples约5.90ms command span，Surface约1.17ms，VT反馈约0.0152ms。与Bistro不同场景/内部分辨率，不能直接横比算法效率 |
+
+上述完整场景没有page/validation/uncaptured/device-loss错误，移动与回访正常收敛、release实际纹理/几何owner归零；一次Bistro ring gap被正确记录，后续新鲜反馈才complete。逐张完整authored材质质量、动态长序列与正式全Renderer净收益不由这些静态截图晋级。
+
+0/50/100%需求实验在2048²BC4、256slot含tail的结构fixture执行：增量payload0 / 1,772,928 / 870,912B（100%为从50%继续，并非独立冷读），100%有86未满足页且limited；GPU分配13,795,812B、staging峰784,896B，随后真实90evictions/4reloads。它只证明页工作与字节/容量，无真实GPU毫秒。完整场景提供实际IO/时间与GPU成本，未做同条件resident A/B，因此不存在可报告的精确break-even帧率/秒数；INIT旧13s首帧/45s全mip基线保留，不能与这次AO/SSSR组合直接相减。节省I/O的必要条件是跳过足够细页覆盖目录、gutter、overfetch；运行GPU仍付固定查表/过滤/原子税。性能尚有明确改进空间，后续统一性能工作不能把这一轮写成“初始化已经解决”。
+
+完整Bistro同样1080p/AO/SSSR/Native的额外受限池验证：只用每BC7格式一个256slot层（color/linear各5,308,416B，scalar预算2,654,208B但场景未创建scalar池），VT总分配21,758,436B。224tail全程保留，近景512resident、约997wanted/681missing，实际回退mip2–5，明确`limited`/`complete=false`且`settledAtMs=null`。移动/回访实际26evictions/2reloads，未扩大池/降质量目标/截断身份来假报收敛，最后release纹理/几何owner归零；无GPU validation/uncaptured/loss错误。记录`.local/vt-3-bistro-combined-close-pressure-scene.json`。失败任务含过期view取消，成功receipt字节统计不包含失败途中传输；没有把它写成无失败网络总量。最终Graphics memory已独立列VT owner，mandatory逻辑resident不再为0；全Renderer其他未注册资源仍由前述账目限制约束。
+
+最终检查：内存计数改动后额外重跑原resident `texture-residency`集合9/9通过；`docs-verify`为0 findings/81历史warnings，`document-system`7/7通过，`git diff --check`通过。没有为既有历史warnings修改无关文档。当前模块结束停在Local Reflection Probes细设计边界；没有自动实施Probes/GI，不宣称Runtime Validated/全Renderer Performance Improved或4GB设备资格。

@@ -884,12 +884,24 @@ export class VirtualTextureResidency {
     };
   }
   evidence() {
+    let residentBytes = 0;
+    let pinnedBytes = 0;
+    for (const page of this.resident) {
+      const bytes = 36 * 36 * (page.pool.texture.format === "bc4-r-unorm" ? 8 : 16);
+      residentBytes += bytes;
+      if (page.pinned) {
+        pinnedBytes += bytes;
+      }
+    }
     return {
       ...this.state(),
       sources: this.sources.size,
       pages: this.snapshot.filter(Boolean).length,
       resident: this.resident.size,
       pinned: [...this.resident].filter((page) => page.pinned).length,
+      residentBytes,
+      pinnedBytes,
+      routeBytes: this.routeBytes,
       allocatedBytes:
         VT_PAGE_CAPACITY * 8 +
         [...this.pools.values()].reduce((n, p) => n + p.bytes, 0) +
@@ -927,8 +939,13 @@ export class VirtualTextureResidency {
     }
     this.accounting.length = 0;
     this.sources.clear();
+    this.pools.clear();
+    this.snapshot = [];
+    this.admitted.clear();
     this.readyPages.clear();
     this.resident.clear();
     this.desired.clear();
+    this.cpuBytes = 0;
+    this.routeBytes = 0;
   }
 }

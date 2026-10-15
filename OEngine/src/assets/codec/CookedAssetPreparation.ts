@@ -70,6 +70,9 @@ export class CookedAssetPreparation {
   #textureReads = 0;
   #tiledDirectoryReads = 0;
   #tiledPayloadRanges = 0;
+  #tiledPayloadBytes = 0;
+  #tiledFetchedBytes = 0;
+  #tiledTaskFailures = 0;
   readonly #sessionMetrics = new Map<string, { encodedBytes: number; ranges: number }>();
 
   constructor(
@@ -546,6 +549,10 @@ export class CookedAssetPreparation {
       credit: this.#credit.evidence(),
       io: this.#io.evidence(),
       tiled: {
+        fetchedBytes: this.#tiledFetchedBytes,
+        hashedPayloadBytes: this.#tiledPayloadBytes,
+        overfetchBytes: this.#tiledFetchedBytes - this.#tiledPayloadBytes,
+        failedTasks: this.#tiledTaskFailures,
         metadataBytes: this.#directoryBytes,
         reservedMetadataBytes: this.#directoryReservedBytes,
         directories: this.#tiledDirectories.size,
@@ -627,9 +634,19 @@ export class CookedAssetPreparation {
         this.#tiledDirectoryReads++;
       } else {
         this.#tiledPayloadRanges++;
+        this.#tiledFetchedBytes += result.encodedBytes;
+        this.#tiledPayloadBytes += result.payloads.reduce(
+          (bytes, payload) => bytes + payload.bytes.byteLength,
+          0
+        );
         metrics.ranges++;
       }
       return result;
+    } catch (error) {
+      if (task.kind === "tiled-directory" || task.kind === "tiled-payload") {
+        this.#tiledTaskFailures++;
+      }
+      throw error;
     } finally {
       releaseIo();
     }

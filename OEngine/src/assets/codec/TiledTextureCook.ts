@@ -237,22 +237,55 @@ export class TiledTextureCook {
     height: number
   ): Uint8Array {
     const block = mip.plane.format === "bc4-r-unorm" ? 8 : 16;
-    const entirelyInside = ox >= 0 && oy >= 0 && ox + width <= mip.width && oy + height <= mip.height;
-    let result: Uint8Array;
-    if (entirelyInside) {
-      result = new Uint8Array((((width / 4) * height) / 4) * block);
-    } else {
-      const rgba = tiledTextureGutter(mip.rgba, mip.width, mip.height, ox, oy, width, height, address);
-      result = encodePcTextureMip(
+    const result = new Uint8Array((((width / 4) * height) / 4) * block);
+    if (address === "repeat" && mip.width % 4 === 0 && mip.height % 4 === 0) {
+      // A periodic complete BC block is byte-identical even across the texture
+      // boundary. Preserve the original encoder result instead of re-encoding
+      // those same sixteen source texels for every perimeter tile/tail level.
+      const sourceRow = (mip.width / 4) * block;
+      for (let y = 0; y < height; y += 4) {
+        const sy = (((oy + y) % mip.height) + mip.height) % mip.height;
+        for (let x = 0; x < width; x += 4) {
+          const sx = (((ox + x) % mip.width) + mip.width) % mip.width;
+          const source = (sy / 4) * sourceRow + (sx / 4) * block;
+          result.set(mip.payload.subarray(source, source + block), (((y / 4) * width) / 4 + x / 4) * block);
+        }
+      }
+      return result;
+    }
+    // The pinned BC encoder operates independently on each 4x4 block. Encode
+    // only the rectangular strips whose source block is not already valid;
+    // encoding an entire 144x144 boundary tile and then overwriting its interior
+    // repeats most of the expensive quality-6 work during a tiled upgrade.
+    const left = Math.max(0, Math.min(width, -ox));
+    const top = Math.max(0, Math.min(height, -oy));
+    const right = Math.max(left, Math.min(width, Math.floor((mip.width - ox) / 4) * 4));
+    const bottom = Math.max(top, Math.min(height, Math.floor((mip.height - oy) / 4) * 4));
+    const encode = (x: number, y: number, w: number, h: number): void => {
+      if (!w || !h) {
+        return;
+      }
+      const rgba = tiledTextureGutter(mip.rgba, mip.width, mip.height, ox + x, oy + y, w, h, address);
+      const bytes = encodePcTextureMip(
         this.codecs.basis,
         rgba,
-        width,
-        height,
+        w,
+        h,
         block === 8 ? 4 : 7,
         mip.plane.format.endsWith("srgb"),
         this.channel
       );
-    }
+      for (let row = 0; row < h / 4; row++) {
+        result.set(
+          bytes.subarray(((row * w) / 4) * block, (((row + 1) * w) / 4) * block),
+          (((y / 4 + row) * width) / 4 + x / 4) * block
+        );
+      }
+    };
+    encode(0, 0, width, top);
+    encode(0, bottom, width, height - bottom);
+    encode(0, top, left, bottom - top);
+    encode(right, top, width - right, bottom - top);
     // Exact source blocks are retained wherever all 16 source texels are valid.
     // Boundary/partial blocks come from the existing pinned cold encoder above.
     const sourceRow = Math.ceil(mip.width / 4) * block;

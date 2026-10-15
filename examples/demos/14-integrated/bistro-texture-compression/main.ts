@@ -14,7 +14,7 @@ import {
   type MultiProductSceneHandles,
   type WebCookRuntimeAsset,
   type WebCookSceneCatalogSnapshot,
-  type WebCookProductPublicationTiming,
+  type WebCookProductPublicationTiming
 } from "../../../../OEngine/src/index.ts";
 import { materialTextureLeaves } from "../../../../OEngine/src/assets/PcMaterialTextures.ts";
 import { ShadeTransparencyMode } from "../../../../OEngine/src/material/enums.ts";
@@ -30,7 +30,7 @@ import {
   RotateCw,
   Scan,
   Square,
-  StepForward,
+  StepForward
 } from "lucide";
 import "./style.css";
 import { loadCookedScene } from "../shared/cooked-scene.ts";
@@ -57,31 +57,31 @@ const fixedExposure =
 const exposureSettings = {
   lowPercentile: Number(query.get("exposureLow") ?? 0.6),
   highPercentile: Number(query.get("exposureHigh") ?? 0.95),
-  highlightHeadroom: Number(query.get("exposureHeadroom") ?? 2),
+  highlightHeadroom: Number(query.get("exposureHeadroom") ?? 2)
 };
 let exposureDiagnostic: ExposureDiagnostics | null = null;
 const sunDirection = [0.39036003, 0.8922514, 0.22306285] as const;
 const sunIrradiance = [1.474, 1.8504, 1.91198] as const;
 const cookedBase = new URL(
   fixture ? "/assets/local-bistro/cooked-smoke/" : "/assets/local-bistro/cooked/",
-  location.href,
+  location.href
 ).href;
 const sourceUrl = fixture
   ? "/assets/local-bistro/smoke.glb"
   : "/assets/local-bistro/BistroExterior_static_fixed_occlusion.glb";
 const scope = [
-  ["Virtual Texture", "NOT IMPLEMENTED"],
-  ["Texture Page Table", "NOT IMPLEMENTED"],
-  ["GPU Texture Feedback", "NOT IMPLEMENTED"],
-  ["Physical Texture Page Cache", "NOT IMPLEMENTED"],
-  ["Mip/Page Eviction", "NOT IMPLEMENTED"],
+  ["Virtual Texture", "STREAMING VT"],
+  ["Texture Page Table", "INTEGER MAPPING"],
+  ["GPU Texture Feedback", "DELAYED / BOUNDED"],
+  ["Physical Texture Page Cache", "FORMAT ATLASES"],
+  ["Mip/Page Eviction", "BUDGETED LRU"],
   ["BC5 Normal", "NOT IMPLEMENTED"],
   ["BC6H Environment", "NOT IMPLEMENTED"],
   ["Spark GPU Production Encoder", "DEFERRED"],
   ["ASTC production fallback", "NOT TARGET"],
   ["ETC2 production fallback", "NOT TARGET"],
   ["RGBA material fallback", "REMOVED BY DESIGN"],
-  ["Full BLEND transparency path", "NOT COMPLETE"],
+  ["Full BLEND transparency path", "NOT COMPLETE"]
 ];
 const element = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const canvas = element<HTMLCanvasElement>("viewport");
@@ -151,7 +151,7 @@ function percentile(values: readonly number[]) {
   return {
     n: sorted.length,
     p50: sorted[Math.ceil(sorted.length * 0.5) - 1]!,
-    p95: sorted[Math.ceil(sorted.length * 0.95) - 1]!,
+    p95: sorted[Math.ceil(sorted.length * 0.95) - 1]!
   };
 }
 
@@ -164,24 +164,26 @@ function snapshot() {
   const runtime = renderer?.graphics?.render_world.runtime(scene);
   const texture = renderer?.graphics?.texture_residency_if_created?.evidence() ?? null;
   const leaves = [...new Set(runtime?.materials.flatMap((m) => [...materialTextureLeaves(m)]) ?? [])];
-  const products = new Map(leaves.map((t) => [t.texture_product?.identity, t.texture_product]));
+  const products = new Map(
+    leaves.map((t) => [t.texture_product?.identity ?? t.tiled_source?.identity, t.texture_metadata])
+  );
   const masks =
     runtime?.materials.filter((m) => m.transparency_mode === ShadeTransparencyMode.AlphaTested) ?? [];
   const quality = {
     productCount: [...products.values()].filter(Boolean).length,
     textureLeafCount: leaves.length,
-    allLeavesHaveSchema3: leaves.every((t) => t.texture_product?.metadata.schemaVersion === 3),
+    allLeavesHaveSchema3: leaves.every((t) => t.texture_metadata?.schemaVersion === 3),
     allFullMips: leaves.every((t) => {
-      const m = t.texture_product?.metadata;
+      const m = t.texture_metadata;
       return (
         !!m &&
         m.planes.every(
-          (p) => p.mips.length === Math.floor(Math.log2(Math.max(m.storageWidth, m.storageHeight))) + 1,
+          (p) => p.mips.length === Math.floor(Math.log2(Math.max(m.storageWidth, m.storageHeight))) + 1
         )
       );
     }),
     transferFunctions: leaves.every((t) => {
-      const m = t.texture_product?.metadata;
+      const m = t.texture_metadata;
       if (!m) return false;
       const srgb = m.semantic === "base-color-srgb" || m.semantic === "emissive-srgb";
       const expected = srgb
@@ -196,10 +198,10 @@ function snapshot() {
     maskMaterials: masks.length,
     exactMaskCoverage: masks.every(
       (m) =>
-        m.texture_albedo?.texture_product?.metadata.exactAlpha &&
-        m.texture_albedo.texture_product.metadata.planes.some(
-          (p) => p.role === "coverage" && p.format === "r8unorm",
-        ),
+        m.texture_albedo?.texture_metadata?.exactAlpha &&
+        m.texture_albedo?.texture_metadata?.planes.some(
+          (p) => p.role === "coverage" && p.format === "r8unorm"
+        )
     ),
     nativeMaterialPublication: !!runtime?.nativeMaterials,
     sourceMaterialLimitation: "Known source-material conversion limitation",
@@ -208,7 +210,7 @@ function snapshot() {
       : "NOT MAPPED: specular factors/color/maps are omitted by current WebCook mapper",
     gltfMaterialParserSpecularSupport:
       "Factors saturated to [0,1]; scalar alpha + sRGB RGB textures + UV transforms supported",
-    visualChecks: "NOT YET VERIFIED: base color, normal detail, MASK vegetation, VSM, mips",
+    visualChecks: "NOT YET VERIFIED: base color, normal detail, MASK vegetation, VSM, mips"
   };
   const gpu: number[] = [],
     surface: number[] = [];
@@ -235,7 +237,7 @@ function snapshot() {
   const freeBytes =
     texture?.packageSegments.reduce(
       (sum, s) => sum + (s.freeLayerCount * s.allocatedBytes) / s.allocatedCapacity,
-      0,
+      0
     ) ?? 0;
   const streaming = renderer?.geometryStreamingEvidence(scene) ?? null;
   const sampleElapsedMs = callbacks.length > 1 ? callbacks.at(-1)!.atMs - callbacks[0]!.atMs : 0;
@@ -260,7 +262,7 @@ function snapshot() {
         evicted: sum.evicted + product.evictedPages,
         reloads: sum.reloads + product.reloads,
         thrashBytes: sum.thrashBytes + product.thrashBytes,
-        failed: sum.failed + product.failedPages,
+        failed: sum.failed + product.failedPages
       }),
       {
         resident: 0,
@@ -271,8 +273,8 @@ function snapshot() {
         evicted: 0,
         reloads: 0,
         thrashBytes: 0,
-        failed: 0,
-      },
+        failed: 0
+      }
     ) ?? null;
   return {
     schema: "bistro-texture-compression-demo-v1",
@@ -298,14 +300,14 @@ function snapshot() {
       materials: catalog ? new Set(catalog.primitives.map((p) => p.materialIndex)).size : null,
       textures: catalog?.textures.length ?? null,
       images: catalog?.images.length ?? null,
-      transferMode: catalog?.sourceTransferMode ?? null,
+      transferMode: catalog?.sourceTransferMode ?? null
     },
     texture,
     formats: { bc7: count("bc7"), bc4: count("bc4"), r8Coverage: count("r8unorm") },
     overhead: {
       neutralBytes,
       freeBytes,
-      allocationMinusLiveBytes: texture ? texture.allocatedBytes - texture.residentTextureBytes : null,
+      allocationMinusLiveBytes: texture ? texture.allocatedBytes - texture.residentTextureBytes : null
     },
     preparation: renderer?.texturePreparationEvidence() ?? null,
     upload: texture
@@ -314,6 +316,8 @@ function snapshot() {
           promotionBytes: texture.progressiveMipUploadBytes,
           totalBytes: texture.uploadBytes,
           promotionCount: texture.mipPromotionCount,
+          virtualBytes: texture.virtual?.uploadBytes ?? 0,
+          virtualCopyBytes: texture.virtual?.physicalCopyBytes ?? 0
         }
       : null,
     load: {
@@ -329,17 +333,17 @@ function snapshot() {
         ? "Offline material catalog + OEGPACK ranges + validated TextureProducts; original GLB is not fetched"
         : "Range catalog read+parse are combined in producer catalogMs; no whole 1GB ArrayBuffer read",
       timings: progressTimings,
-      publications,
+      publications
     },
     stable: {
       normal: { cpuFrameMs: percentile(cpu.normal), gpuFrameMs: null, surfaceMs: null },
       profiled: {
         cpuFrameMs: percentile(cpu.profiled),
         gpuCommandSpanMs: percentile(gpu),
-        surfacePassSumMs: percentile(surface),
+        surfacePassSumMs: percentile(surface)
       },
       rafIntervalMs: percentile(
-        rafCallbacks.slice(1).map((sample, index) => sample.atMs - rafCallbacks[index]!.atMs),
+        rafCallbacks.slice(1).map((sample, index) => sample.atMs - rafCallbacks[index]!.atMs)
       ),
       submittedIntervalMs: percentile(intervals),
       submissions: {
@@ -351,15 +355,15 @@ function snapshot() {
         deferred: sampledCallbacks.length - submittedCallbacks,
         framesPerSecond: sampleElapsedMs > 0 ? (submittedCallbacks * 1000) / sampleElapsedMs : null,
         callbacksPerSecond: sampleElapsedMs > 0 ? (sampledCallbacks.length * 1000) / sampleElapsedMs : null,
-        presentedFramesPerSecond: null,
+        presentedFramesPerSecond: null
       },
       completionLatencyMs: {
         normal: percentile(completion.normal),
-        profiled: percentile(completion.profiled),
+        profiled: percentile(completion.profiled)
       },
       submission,
       warmupFrames: 60,
-      visibility: document.visibilityState,
+      visibility: document.visibilityState
     },
     quality,
     memory: renderer?.graphics ? renderer.memoryEvidence() : null,
@@ -387,7 +391,7 @@ function snapshot() {
             movementSpeed: controls.movementSpeed,
             dampingFactor: controls.dampingFactor,
             lookSpeed: controls.lookSpeed,
-            autoForward: controls.autoForward,
+            autoForward: controls.autoForward
           }
         : null,
       temporal: renderer?.temporalHistoryEvidence() ?? null,
@@ -396,17 +400,17 @@ function snapshot() {
         autoExposure,
         fixedExposure,
         settings: exposureSettings,
-        lastRequestedGpuSample: exposureDiagnostic,
+        lastRequestedGpuSample: exposureDiagnostic
       },
       environment: scene.physical_environment.snapshot(),
       sunCalendar: {
         enabled: element<HTMLInputElement>("sun-calendar").checked,
         year: SUN_CALENDAR_YEAR,
-        ...readSunCalendar(),
+        ...readSunCalendar()
       },
       authoredLights: 0,
       authoredHdr: false,
-      ssr: "NOT WIRED IN CURRENT FRAME PROGRAM",
+      ssr: renderer?.screenSpaceReflectionsSettings ?? null,
       screenSpaceGi: "NOT WIRED IN CURRENT FRAME PROGRAM",
       stages: renderer?.mainFrameGraphEvidence()?.program.stages ?? [],
       camera: {
@@ -414,20 +418,20 @@ function snapshot() {
         near: camera.near,
         far: camera.far,
         fov: camera.fov_degrees,
-        forward: [camera.transform.forward.x, camera.transform.forward.y, camera.transform.forward.z],
+        forward: [camera.transform.forward.x, camera.transform.forward.y, camera.transform.forward.z]
       },
       geometryActivity,
       geometryDelta,
       streamingError:
         renderer?.geometryStreamingError() ?? streaming?.lastError ?? streaming?.scheduler.lastError ?? null,
-      visualStability: "NOT VERIFIED: full texture mips do not establish geometry or lighting stability",
+      visualStability: "NOT VERIFIED: full texture mips do not establish geometry or lighting stability"
     },
     diagnostics: renderer?.profiler.diagnostics ?? null,
     scope,
     teardown,
     acceptance: fixture
       ? "SMOKE FIXTURE ONLY"
-      : "NOT PASS: geometry/exposure stability and visual texture/MASK/VSM acceptance unresolved",
+      : "NOT PASS: geometry/exposure stability and visual texture/MASK/VSM acceptance unresolved"
   };
 }
 
@@ -458,7 +462,7 @@ const rows: Array<[string, string]> = [
   ["Load / frame", ""],
   ["Raw preparation", "preparation"],
   ["First completed", "first"],
-  ["Full texture mips", "full"],
+  ["Current-view texture demand", "full"],
   ["Submitted FPS / interval P50", "fps"],
   ["RAF / ready / deferred", "callbacks"],
   ["Normal CPU P50/P95", "cpu"],
@@ -469,7 +473,7 @@ const rows: Array<[string, string]> = [
   ["Completion / publication deferrals", "deferrals"],
   ["Profiled GPU P50/P95", "gpu"],
   ["Profiled Surface P50/P95", "surface"],
-  ["Total software bytes", "total"],
+  ["Total software bytes", "total"]
 ];
 const cells = new Map<string, HTMLElement>();
 for (const [label, key] of rows) {
@@ -506,7 +510,7 @@ for (const [key, label] of [
   ["resolution", "Internal / output"],
   ["jitter", "Raster / FSR jitter (pixels)"],
   ["clip", "Camera near / far"],
-  ["stages", "Frame stages"],
+  ["stages", "Frame stages"]
 ]) {
   const dt = document.createElement("dt"),
     dd = document.createElement("dd");
@@ -542,7 +546,7 @@ function refresh(): void {
       ? {
           uploadedBytes: g.uploadedBytes - lastGeometrySample.uploaded,
           evicted: g.evicted - lastGeometrySample.evicted,
-          reloads: g.reloads - lastGeometrySample.reloads,
+          reloads: g.reloads - lastGeometrySample.reloads
         }
       : { uploadedBytes: 0, evicted: 0, reloads: 0 };
     const changed =
@@ -580,7 +584,7 @@ function refresh(): void {
     clips: String(vsm?.clipLevels ?? 0),
     page: vsm ? `${vsm.pageSize} px + ${vsm.border} px border` : "--",
     slots: String(vsm?.residentSlots ?? 0),
-    filter: renderer.vsmSettings.filterMode,
+    filter: renderer.vsmSettings.filterMode
   }))
     vsmCells.get(key)!.textContent = value;
   const renderValues: Record<string, string> = {
@@ -590,7 +594,7 @@ function refresh(): void {
       state.fsr3 && "FSR3",
       state.bloom && "Bloom",
       state.jitter && "Jitter",
-      "Sun / Sky / IBL / Atmosphere",
+      "Sun / Sky / IBL / Atmosphere"
     ]
       .filter(Boolean)
       .join("\n"),
@@ -612,7 +616,7 @@ function refresh(): void {
     resolution: `${state.resolution?.internal.join(" × ")} → ${state.resolution?.output.join(" × ")}\nCSS ${state.resolution?.css.join(" × ")} / DPR ${state.resolution?.pixelRatio}`,
     jitter: `${state.temporal?.jitter?.committed.map((value) => value.toFixed(3)).join(", ")}\nphase ${state.temporal?.phaseIndex} / ${state.temporal?.jitter?.phaseCount}`,
     clip: `${camera.near.toFixed(3)} / ${camera.far.toFixed(1)}`,
-    stages: state.stages.join("\n"),
+    stages: state.stages.join("\n")
   };
   for (const [key, value] of Object.entries(renderValues)) renderCells.get(key)!.textContent = value;
   if (p?.activeBatches) setPhase(`Preparing BC Texture Products (${p.cookedTasks} cooked)`);
@@ -620,10 +624,13 @@ function refresh(): void {
   else if (renderer?.sceneRefinementEvidence(scene)) {
     const state = renderer.sceneRefinementEvidence(scene)!;
     setPhase(
-      state.phase === "view-settled" ? `View settled (epoch ${state.epoch})` :
-      state.phase === "limited" ? `Capacity limited (epoch ${state.epoch})` :
-      state.firstCompletedAtMs === null ? "Bootstrap ready / waiting for first completed frame" :
-      "Refining geometry / texture mips / valid shadows",
+      state.phase === "view-settled"
+        ? `View settled (epoch ${state.epoch})`
+        : state.phase === "limited"
+          ? `Capacity limited (epoch ${state.epoch})`
+          : state.firstCompletedAtMs === null
+            ? "Bootstrap ready / waiting for first completed frame"
+            : "Refining geometry / visible texture pages / valid shadows"
     );
   }
   const raf = s.stable.submittedIntervalMs;
@@ -640,16 +647,18 @@ function refresh(): void {
     tasks: String(p?.cookedTasks ?? 0),
     products: String(s.quality.productCount),
     formats: `${s.formats.bc7} / ${s.formats.bc4} / ${s.formats.r8Coverage}`,
-    live: bytes(t?.residentTextureBytes),
-    allocated: bytes(t?.allocatedBytes),
-    peak: bytes(t?.allocatedPeakBytes),
+    live: `${bytes(t?.residentTextureBytes)} resident / ${t?.virtual?.resident ?? 0} VT pages (${t?.virtual?.pinned ?? 0} pinned)`,
+    allocated: `${bytes(t?.allocatedBytes)} resident / ${bytes(t?.virtual?.allocatedBytes)} VT`,
+    peak: `${bytes(t?.allocatedPeakBytes)} resident; VT staging ${bytes(t?.virtual?.stagingPeakBytes)}`,
     retiring: bytes(t?.retiringTextureBytes),
-    pending: `${t?.pendingTextureCount ?? 0} / ${t?.pendingPromotionTextureCount ?? 0} textures`,
+    pending: `${t?.pendingTextureCount ?? 0} / ${t?.pendingPromotionTextureCount ?? 0} resident; ${t?.virtual?.pending ?? 0} VT pages${t?.virtual?.limited ? " (capacity limited)" : ""}`,
     segments: String(t?.segmentCount ?? 0),
     overhead: `${bytes(s.overhead.neutralBytes)} / ${bytes(s.overhead.freeBytes)}`,
-    mip: String(t?.maximumResidentMinimumMip ?? "UNKNOWN"),
+    mip: t?.virtual?.sources
+      ? `target ${t.virtual.demand.targetMip} / actual ${t.virtual.demand.actualMip}; missing ${t.virtual.demand.missing}`
+      : String(t?.maximumResidentMinimumMip ?? "UNKNOWN"),
     tail: bytes(s.upload?.tailBytes),
-    promotion: bytes(s.upload?.promotionBytes),
+    promotion: `${bytes(s.upload?.promotionBytes)} resident / ${bytes(s.upload?.virtualBytes)} VT (${bytes(s.upload?.virtualCopyBytes)} padded copy)`,
     preparation: time((p?.wallMs ?? 0) + (p?.activeElapsedMs ?? 0)),
     first: time(firstUsefulMs),
     full: time(fullQualityMs),
@@ -666,7 +675,7 @@ function refresh(): void {
     deferrals: `${s.stable.submission?.completionDeferredTicks ?? 0} / ${s.stable.submission?.publicationDeferredTicks ?? 0}`,
     gpu: pair(s.stable.profiled.gpuCommandSpanMs),
     surface: pair(s.stable.profiled.surfacePassSumMs),
-    total: bytes(s.memory?.allocatedBytes),
+    total: bytes(s.memory?.allocatedBytes)
   };
   for (const [key, value] of Object.entries(values)) cells.get(key)!.textContent = value;
   element("elapsed").textContent = time(performance.now() - started);
@@ -697,7 +706,7 @@ async function start(): Promise<void> {
     autoExposure,
     fixedExposure,
     exposure: exposureSettings,
-    renderScale: 1,
+    renderScale: 1
   });
   await renderer.initialize({ context });
   if (closing) return;
@@ -718,7 +727,7 @@ async function start(): Promise<void> {
       cookedBase,
       abort.signal,
       setPhase,
-      geometryCapacityBytes,
+      geometryCapacityBytes
     ).then((value) => {
       cooked = value;
       sourceBytes = value.manifest.source.bytes;
@@ -738,7 +747,7 @@ async function start(): Promise<void> {
         maxSessionSpillBytes: 2048 * MiB,
         maxTrianglesPerProduct: 128 * 1024,
         maxVerticesPerProduct: 512 * 1024,
-        maxDomainsPerProduct: 64,
+        maxDomainsPerProduct: 64
       }),
       runtimeProfile: profile.selected,
       budgets: {
@@ -746,7 +755,7 @@ async function start(): Promise<void> {
         maxSourceBytes: 128 * MiB,
         maxWasmBytes: 512 * MiB,
         maxOutputBytes: 256 * MiB,
-        maxQueuedEvents: 2048,
+        maxQueuedEvents: 2048
       },
       initialOutputPageCredits: 512,
       maxBufferedPages: 512,
@@ -760,7 +769,7 @@ async function start(): Promise<void> {
       },
       onProgress: (value) => {
         progressTimings = value.timings;
-      },
+      }
     });
     loading = renderer.uploadWebCookedMultiProductScene(scene, asset, {
       signal: abort.signal,
@@ -768,13 +777,13 @@ async function start(): Promise<void> {
       residency: {
         requestedProfile: "HighEnd",
         configuredCapacityBytes: geometryCapacityBytes,
-        configuredBankBytes: geometryCapacityBytes / 4,
+        configuredBankBytes: geometryCapacityBytes / 4
       },
       onMaterials: () => setPhase("Preparing BC Texture Products"),
       onProductPublicationTiming: (value) => {
         publications.push(value);
         setPhase("Tail texture residency ready");
-      },
+      }
     });
   }
   handles = await loading;
@@ -823,7 +832,13 @@ async function start(): Promise<void> {
       const stableView = !cookedMode || renderer.sceneRefinementEvidence(scene)?.phase === "view-settled";
       if (!stableView) stableFrames = 0;
       if (submitted && fullQualityMs !== null && stableView) stableFrames++;
-      if (!paused && stableView && fullQualityMs !== null && stableFrames > 60 && document.visibilityState === "visible") {
+      if (
+        !paused &&
+        stableView &&
+        fullQualityMs !== null &&
+        stableFrames > 60 &&
+        document.visibilityState === "visible"
+      ) {
         callbacks.push({ atMs: now, submitted, source });
         if (callbacks.length > 600) callbacks.shift();
         if (submitted) {
@@ -834,11 +849,7 @@ async function start(): Promise<void> {
       } else {
         lastSubmittedAt = null;
       }
-      if (
-        submitted &&
-        !completionPending &&
-        (firstUsefulMs === null || fullQualityMs === null)
-      ) {
+      if (submitted && !completionPending && (firstUsefulMs === null || fullQualityMs === null)) {
         completionPending = true;
         void renderer.device.queue
           .onSubmittedWorkDone()
@@ -851,12 +862,14 @@ async function start(): Promise<void> {
             const evidence = renderer!.graphics.texture_residency_if_created?.evidence();
             if (
               evidence &&
-              evidence.maximumResidentMinimumMip === 0 &&
+              (evidence.virtual?.sources
+                ? evidence.virtual.complete && !evidence.virtual.limited
+                : evidence.maximumResidentMinimumMip === 0) &&
               !evidence.pendingPromotionTextureCount
             ) {
               fullQualityMs = performance.now() - started;
               fullFrame = renderer!.frame_count;
-              setPhase("Full texture mips ready / geometry and shadows refining");
+              setPhase("Current-view texture demand ready / geometry and shadows refining");
             }
             completionPending = false;
           })
@@ -879,10 +892,13 @@ async function start(): Promise<void> {
   await handles.settled();
   settled = true;
   if (!closing) {
-    setPhase(renderer?.sceneRefinementEvidence(scene)?.phase === "limited"
-      ? "Capacity limited / valid coarse retained" :
-      renderer?.sceneRefinementEvidence(scene)?.phase === "view-settled" ? "Current view settled" :
-      "Source preparation complete / refinement active");
+    setPhase(
+      renderer?.sceneRefinementEvidence(scene)?.phase === "limited"
+        ? "Capacity limited / valid coarse retained"
+        : renderer?.sceneRefinementEvidence(scene)?.phase === "view-settled"
+          ? "Current view settled"
+          : "Source preparation complete / refinement active"
+    );
     refresh();
   }
 }
@@ -909,7 +925,7 @@ function frameScene(): void {
   camera.transform.position.set(
     c[0] + distance * 0.6,
     c[1] + distance * 0.5,
-    c[2] + distance * Math.sqrt(0.39),
+    c[2] + distance * Math.sqrt(0.39)
   );
   camera.transform.lookAt({ x: c[0], y: c[1], z: c[2] });
   controls.setOrientation();
@@ -924,7 +940,7 @@ function fail(error: unknown): void {
     phase,
     atMs: performance.now() - started,
     message: error instanceof Error ? error.message : String(error),
-    stack: error instanceof Error ? error.stack : undefined,
+    stack: error instanceof Error ? error.stack : undefined
   };
   element("error").textContent = `${failure.phase}: ${failure.message}`;
   console.error(error);
@@ -976,12 +992,16 @@ async function release(): Promise<void> {
         texture.residentTextureCount === 0 &&
         texture.retiringTextureCount === 0 &&
         texture.pendingTextureCount === 0 &&
-        texture.quarantinedTextureCount === 0);
+        texture.quarantinedTextureCount === 0 &&
+        (!texture.virtual ||
+          (texture.virtual.sources === 0 &&
+            texture.virtual.resident === 0 &&
+            texture.virtual.stagingBytes === 0)));
     teardown = {
       texture,
       textureOwnerZero: zero,
       geometry: renderer?.device ? geometryProductGpuBudgetEvidence(renderer.device) : null,
-      prior: teardown,
+      prior: teardown
     };
     if (!zero) throw new Error("TextureResidency did not reach zero after release fence");
     element("phase").textContent = "Released";
@@ -1012,7 +1032,7 @@ panelToggle.addEventListener("click", () => {
   panelToggle.title = collapsed ? "Expand panel" : "Collapse panel";
   panelToggle.setAttribute("aria-label", panelToggle.title);
   panelToggle.replaceChildren(
-    createElement(collapsed ? PanelRightOpen : PanelRightClose, { "aria-hidden": "true" }),
+    createElement(collapsed ? PanelRightOpen : PanelRightClose, { "aria-hidden": "true" })
   );
 });
 const vsmCells = new Map<string, HTMLElement>();
@@ -1022,7 +1042,7 @@ for (const [key, label] of [
   ["clips", "Clip levels"],
   ["page", "Page size"],
   ["slots", "Resident slot capacity"],
-  ["filter", "Shadow filter"],
+  ["filter", "Shadow filter"]
 ]) {
   const dt = document.createElement("dt"),
     dd = document.createElement("dd");
@@ -1052,7 +1072,7 @@ const ssrControls = setupSsrControls(
 );
 function diagnosticControlsDisabled(disabled: boolean): void {
   for (const control of document.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>(
-    ".diagnostic-controls input, .diagnostic-controls select, .diagnostic-controls button",
+    ".diagnostic-controls input, .diagnostic-controls select, .diagnostic-controls button"
   )) {
     control.disabled = disabled || (control.id === "step" && !paused);
   }
@@ -1071,7 +1091,7 @@ element<HTMLInputElement>("exposure-headroom").value = String(exposureSettings.h
 function applyLightingDiagnostic(): void {
   scene.physical_environment.setLightingDiagnostic(
     element<HTMLSelectElement>("lighting-contribution").value as PhysicalLightingDiagnostic,
-    element<HTMLInputElement>("aerial-perspective").checked,
+    element<HTMLInputElement>("aerial-perspective").checked
   );
   renderer?.invalidateTemporalHistory();
   resetFrameSamples();
@@ -1118,52 +1138,52 @@ const effectSwitches = [
     "vsm",
     (r: Renderer, v: boolean) => {
       r.shadowVisibilityEnabled = v;
-    },
+    }
   ],
   [
     "gtao",
     (r: Renderer, v: boolean) => {
       r.setAmbientOcclusionSettings({ enabled: v });
       aoControls.sync();
-    },
+    }
   ],
   [
     "sssr",
     (r: Renderer, v: boolean) => {
       r.setScreenSpaceReflectionsSettings({ enabled: v });
       ssrControls.sync();
-    },
+    }
   ],
   [
     "fsr3",
     (r: Renderer, v: boolean) => {
       r.fsr3_enabled = v;
-    },
+    }
   ],
   [
     "bloom",
     (r: Renderer, v: boolean) => {
       r.bloom_enabled = v;
-    },
+    }
   ],
   [
     "jitter",
     (r: Renderer, v: boolean) => {
       r.temporal_jitter_enabled = v;
-    },
+    }
   ],
   [
     "hzb",
     (r: Renderer, v: boolean) => {
       r.packed_visibility_hzb_enabled = v;
-    },
+    }
   ],
   [
     "cone",
     (r: Renderer, v: boolean) => {
       r.packed_visibility_cone_enabled = v;
-    },
-  ],
+    }
+  ]
 ] as const;
 function syncEffectParameters(id: string): void {
   const input = element<HTMLInputElement>(id);
@@ -1202,28 +1222,28 @@ for (const [id, format, apply] of [
         camera.aspect = renderer.aspect_ratio;
         camera.update();
       }
-    },
+    }
   ],
   [
     "move-speed",
     (v: number) => `${v.toFixed(1)} u/s`,
     (v: number) => {
       if (controls) controls.movementSpeed = v;
-    },
+    }
   ],
   [
     "look-speed",
     (v: number) => v.toFixed(2),
     (v: number) => {
       if (controls) controls.lookSpeed = v;
-    },
+    }
   ],
   [
     "damping-factor",
     (v: number) => v.toFixed(2),
     (v: number) => {
       if (controls) controls.dampingFactor = v;
-    },
+    }
   ],
   [
     "fov",
@@ -1231,8 +1251,8 @@ for (const [id, format, apply] of [
     (v: number) => {
       camera.fov_degrees = v;
       camera.update();
-    },
-  ],
+    }
+  ]
 ] as const) {
   const input = element<HTMLInputElement>(id);
   input.addEventListener("input", () => {
@@ -1257,7 +1277,7 @@ function readSunCalendar() {
     dayOfYear: Number(element<HTMLInputElement>("sun-day").value),
     timeOfDay: Number(element<HTMLInputElement>("sun-time").value),
     latitude: Number(element<HTMLInputElement>("sun-latitude").value),
-    longitude: Number(element<HTMLInputElement>("sun-longitude").value),
+    longitude: Number(element<HTMLInputElement>("sun-longitude").value)
   };
 }
 function applySunControls(): void {
@@ -1280,7 +1300,7 @@ function applySunControls(): void {
   const intensity = Number(element<HTMLInputElement>("sun").value);
   scene.physical_environment.setSun(
     position?.direction ?? sunDirection,
-    sunIrradiance.map((value) => value * intensity) as [number, number, number],
+    sunIrradiance.map((value) => value * intensity) as [number, number, number]
   );
 }
 element("sun-calendar").addEventListener("change", () => {
@@ -1305,7 +1325,7 @@ for (const id of ["sun-day", "sun-time", "sun-latitude", "sun-longitude"] as con
   // regenerate the physical sky IBL or restart temporal history each frame.
   element<HTMLInputElement>(id).addEventListener("change", () => {
     const valid = ["sun-day", "sun-time", "sun-latitude", "sun-longitude"].every((parameter) =>
-      element<HTMLInputElement>(parameter).checkValidity(),
+      element<HTMLInputElement>(parameter).checkValidity()
     );
     if (!valid) {
       return;
@@ -1358,7 +1378,7 @@ element("apply-exposure").addEventListener("click", () => {
     }
   }
   low.setCustomValidity(
-    Number(low.value) < Number(high.value) ? "" : "Low percentile must be below high percentile",
+    Number(low.value) < Number(high.value) ? "" : "Low percentile must be below high percentile"
   );
   if (!low.reportValidity()) return;
   url.searchParams.set("fixedExposure", input.value);
@@ -1389,7 +1409,7 @@ element<HTMLInputElement>("profile").addEventListener("change", (event) => {
     gpuTimingMode: profiled ? "full" : "production",
     gpuSampleInterval: 1,
     historyCapacity: 512,
-    warmupFrames: 0,
+    warmupFrames: 0
   });
 });
 function report() {
@@ -1397,7 +1417,7 @@ function report() {
 }
 element("export").addEventListener("click", () => {
   const url = URL.createObjectURL(
-    new Blob([JSON.stringify(report(), null, 2)], { type: "application/json" }),
+    new Blob([JSON.stringify(report(), null, 2)], { type: "application/json" })
   );
   const link = document.createElement("a");
   link.href = url;

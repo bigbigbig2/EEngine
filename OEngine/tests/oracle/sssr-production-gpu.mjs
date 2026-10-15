@@ -584,7 +584,7 @@ export async function runSssrProductionGpuOracle() {
         "all routes share receiver profile"
       );
     }
-    check(widest === 16, "Product compact lit has sixteen storage buffers");
+    check(widest === 15, "merged Native publication leaves fifteen storage buffers without VT feedback");
     await inspectEnergy();
     check(captured.publication.rasterClasses.length > 0, "real MASK raster class");
     const maskedCount = (await receiver()).filter((v, i) => i % 16 === 15 && v & 2).length;

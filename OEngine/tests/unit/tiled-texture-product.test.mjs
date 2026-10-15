@@ -10,7 +10,8 @@ import {
 import { tiledTextureSpans } from "../../.test-dist/assets/codec/TiledTextureTransport.js";
 import { TiledTextureCache } from "../../.test-dist/assets/codec/TiledTextureCache.js";
 
-import { makeTiledFixture } from "../helpers/tiled-texture-fixture.mjs";
+import { codecs, makeTiledFixture } from "../helpers/tiled-texture-fixture.mjs";
+import { encodePcTextureMip, resamplePcTexture } from "../../.test-dist/assets/codec/PcTextureCook.js";
 import { textureProduct } from "../fixtures/texture-product.mjs";
 import { TiledTextureCook } from "../../.test-dist/assets/codec/TiledTextureCook.js";
 
@@ -63,6 +64,80 @@ test("gutter uses source mip with independent negative/wrapped/mirrored/clamped 
       Array.from({ length: 8 }, (_, i) => bytes[i * 4]),
       expected
     );
+  }
+});
+
+test("repeat gutters preserve every periodic complete BC block without re-encoding", async () => {
+  const fixture = await makeTiledFixture({ width: 256, height: 128 });
+  const plane = fixture.directory.metadata.planes[0];
+  for (let level = 0; level < plane.tailFirst; level++) {
+    const mip = plane.mips[level],
+      source = fixture.sourceMips[level].payload;
+    for (let ty = 0; ty < mip.gridHeight; ty++)
+      for (let tx = 0; tx < mip.gridWidth; tx++) {
+        const bytes = fixture.payloads[mip.payloads[ty * mip.gridWidth + tx]];
+        for (let y = 0; y < 36; y++)
+          for (let x = 0; x < 36; x++) {
+            const bx = (((tx * 32 + x - 2) % (mip.width / 4)) + mip.width / 4) % (mip.width / 4);
+            const by = (((ty * 32 + y - 2) % (mip.height / 4)) + mip.height / 4) % (mip.height / 4);
+            const start = ((by * mip.width) / 4 + bx) * 8;
+            assert.deepEqual(
+              bytes.subarray((y * 36 + x) * 8, (y * 36 + x + 1) * 8),
+              source.subarray(start, start + 8)
+            );
+          }
+      }
+  }
+});
+
+test("strip encoding and saved-Product mip replay preserve the original complete-tile bytes", async () => {
+  for (const semantic of ["base-color-srgb", "normal-linear", "occlusion-linear"]) {
+    const f = await makeTiledFixture({
+      width: 133,
+      height: 69,
+      addresses: ["clamp", "repeat", "mirror"],
+      semantic
+    });
+    const block = semantic === "occlusion-linear" ? 8 : 16;
+    for (const profile of f.directory.metadata.planes) {
+      const mip = f.sourceMips[0];
+      const rgba = tiledTextureGutter(mip.rgba, mip.width, mip.height, -8, -8, 144, 144, profile.address);
+      const original = encodePcTextureMip(
+        codecs.basis,
+        rgba,
+        144,
+        144,
+        block === 8 ? 4 : 7,
+        semantic === "base-color-srgb",
+        2
+      );
+      for (let y = 2; y < Math.floor(mip.height / 4) + 2; y++)
+        for (let x = 2; x < Math.floor(mip.width / 4) + 2; x++) {
+          const src = ((y - 2) * Math.ceil(mip.width / 4) + x - 2) * block;
+          original.set(mip.payload.subarray(src, src + block), (y * 36 + x) * block);
+        }
+      assert.deepEqual(f.payloads[profile.mips[0].payloads[0]], original, `${semantic}/${profile.address}`);
+    }
+    // The upgrade uses the saved BC payload and replays exactly the same
+    // resampler sequence, including normal normalization and sRGB conversion.
+    let rgba = f.sourceMips[0].rgba,
+      width = f.sourceMips[0].width,
+      height = f.sourceMips[0].height;
+    for (const mip of f.sourceMips.slice(1)) {
+      rgba = resamplePcTexture(
+        codecs.basis,
+        rgba,
+        width,
+        height,
+        mip.width,
+        mip.height,
+        semantic === "base-color-srgb",
+        semantic === "normal-linear"
+      );
+      width = mip.width;
+      height = mip.height;
+      assert.deepEqual(rgba, mip.rgba);
+    }
   }
 });
 

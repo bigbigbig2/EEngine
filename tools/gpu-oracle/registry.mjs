@@ -11,14 +11,38 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "streaming-vt-feedback",
+    file: "OEngine/tests/oracle/streaming-vt-feedback-gpu.mjs",
+    url: "/OEngine/tests/oracle/streaming-vt-feedback-gpu.mjs",
+    entry: "runStreamingVtFeedbackGpuOracle",
+    timeoutMs: 60000,
+    description:
+      "Real 65537-page overflow, lossless bitset recovery, wanted/used dedup and delayed full ring."
+  }),
+  Object.freeze({
+    name: "streaming-vt-filter",
+    file: "OEngine/tests/oracle/streaming-vt-filter-gpu.mjs",
+    url: "/OEngine/tests/oracle/streaming-vt-filter-gpu.mjs",
+    entry: "runStreamingVtFilterGpuOracle",
+    requiredFeatures: ["texture-compression-bc"],
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16, maxSampledTexturesPerShaderStage: 19 },
+    timeoutMs: 180000,
+    description:
+      "Independent cold-tile reconstruction versus production VT lookup, filtering, wrap and fallback."
+  }),
+  Object.freeze({
     name: "streaming-vt",
     file: "OEngine/tests/oracle/streaming-vt-gpu.mjs",
     url: "/OEngine/tests/oracle/streaming-vt-gpu.mjs",
     entry: "runStreamingVtGpuOracle",
     requiredFeatures: ["texture-compression-bc", "texture-formats-tier1"],
     requiredLimits: { maxStorageBuffersPerShaderStage: 16, maxSampledTexturesPerShaderStage: 19 },
-    allowPrefixes: ["OEngine/src/render/assets/textures/"],
-    timeoutMs: 60000,
+    allowPrefixes: [
+      "OEngine/src/render/assets/textures/",
+      "OEngine/src/render/assets/sssr/",
+      "OEngine/src/assets/web-cook/wasm/vendor/"
+    ],
+    timeoutMs: 180000,
     description: "Small real Native VT bootstrap, feedback, normal-frame refinement and full 16-SSBO shader."
   }),
   Object.freeze({

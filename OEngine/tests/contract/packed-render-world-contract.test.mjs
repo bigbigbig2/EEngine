@@ -911,6 +911,7 @@ function createPackedRegistryFixture() {
     },
     resource_accounting: accounting,
     texture_residency: {
+      async uploadTiled() {},
       stage(materials, command) {
         calls.stages.push("texture");
         command.onAborted.addOne(() => calls.stages.push("texture-abort"));

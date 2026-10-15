@@ -44,6 +44,7 @@ export class VirtualTextureFeedback<T> {
   private overflows = 0;
   private recoveries = 0;
   private lastGapFrame = -1;
+  private lastFrame = -1;
   private readonly accountingHandles: ResourceHandle[] = [];
   constructor(
     private readonly device: GPUDevice,
@@ -145,6 +146,7 @@ export class VirtualTextureFeedback<T> {
     if (this.stopped || this.active) {
       throw new Error("VT feedback owner is stopped or has an unclosed frame");
     }
+    this.lastFrame = frame;
     for (const slot of this.slots) {
       if (slot.state !== "recovery") {
         continue;
@@ -288,12 +290,19 @@ export class VirtualTextureFeedback<T> {
     this.observe({ frame: slot.frame, view: slot.view, snapshot, wanted, used });
   }
   evidence() {
+    let oldestFrame = this.lastFrame;
+    for (const slot of this.slots) {
+      if (slot.state !== "free") {
+        oldestFrame = Math.min(oldestFrame, slot.frame);
+      }
+    }
     return {
       gaps: this.gaps,
       overflows: this.overflows,
       recoveries: this.recoveries,
       lastGapFrame: this.lastGapFrame,
       outstanding: this.slots.filter((slot) => slot.state !== "free").length,
+      oldestOutstandingAgeFrames: this.lastFrame - oldestFrame,
       allocatedBytes:
         this.disabled.size +
         this.slots.reduce((sum, slot) => sum + slot.gpu.size + slot.readback.size + slot.indirect.size, 0)
@@ -309,10 +318,12 @@ export class VirtualTextureFeedback<T> {
     this.stopped = true;
     this.disabled.destroy();
     for (const slot of this.slots) {
+      slot.snapshot = null;
       slot.gpu.destroy();
       slot.readback.destroy();
       slot.indirect.destroy();
     }
+    this.active = undefined;
     for (const handle of this.accountingHandles) {
       this.accounting?.destroyed(handle);
     }

@@ -25,6 +25,7 @@ export function bistroLocalModel(examplesRoot: string): Plugin {
         let source = routes.get(url);
         for (const [prefix, directory] of [
           ["/assets/local-bistro/cooked/", "../.local/models/bistro-cooked"],
+          ["/assets/local-dungeon/cooked/", "../.local/models/dungeon-vt-cooked"],
           ["/assets/local-bistro/cooked-smoke/", "../.local/offline-scene-smoke/cooked"]
         ]) {
           if (!url.startsWith(prefix!)) continue;
@@ -34,7 +35,7 @@ export function bistroLocalModel(examplesRoot: string): Plugin {
           if (
             !path.startsWith("..") &&
             !path.includes(":") &&
-            /\.(?:oegpack|oescene|textureproduct|vtpack|bin|json)$/u.test(path)
+            /\.(?:oegpack|oescene|textureproduct|vtpack|vtdirectory|bin|json)$/u.test(path)
           ) {
             source = candidate;
           }

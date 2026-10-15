@@ -9,7 +9,7 @@ const vendor = new URL("../../src/assets/codec/vendor/pc-texture/", import.meta.
 const identity = JSON.parse(await readFile(new URL("source.json", vendor), "utf8"));
 const binary = await readFile(new URL("basis_bc.wasm", vendor));
 assert.equal(digest(binary), identity.hashes["basis_bc.wasm"]);
-const codecs = {
+export const codecs = {
   basis: await createBasis({
     wasmBinary: binary.buffer.slice(binary.byteOffset, binary.byteOffset + binary.byteLength)
   }),

@@ -344,6 +344,7 @@ export class GraphicsContext {
       (this.currentHzbRecheckValue?.allocatedBytes ?? 0) +
       (this.materialStoreValue?.evidence().allocatedBytes ?? 0) +
       (this.textureResidencyValue?.evidence().allocatedBytes ?? 0) +
+      (this.textureResidencyValue?.virtualTextures?.evidence().allocatedBytes ?? 0) +
       this.buffer_allocator_main.gpu_memory_usage +
       this.buffer_allocator_staging.gpu_memory_usage +
       this.allocator_textures.gpu_memory_usage +
@@ -386,6 +387,7 @@ export class GraphicsContext {
     const appearance = this.renderWorldValue?.appearanceMemoryEvidence();
     const staticAppearance = this.appearanceStaticValue?.evidence();
     const textureResidency = this.textureResidencyValue?.evidence();
+    const virtualTextures = textureResidency?.virtual;
     const buffers = this.buffer_allocator_main.evidence();
     const textures = this.allocator_textures.evidence();
     const residentMaterialBytes =
@@ -405,6 +407,7 @@ export class GraphicsContext {
       (staticAppearance?.allocatedBytes ?? 0) +
       (materials?.allocatedBytes ?? 0) +
       (textureResidency?.allocatedBytes ?? 0) +
+      (virtualTextures?.allocatedBytes ?? 0) +
       0;
     const residentLogicalBytes =
       (assets?.residentBytes ?? 0) +
@@ -412,7 +415,7 @@ export class GraphicsContext {
       (appearance?.residentBytes ?? 0) +
       (staticAppearance?.residentBytes ?? 0) +
       residentMaterialBytes +
-      0;
+      (virtualTextures?.residentBytes ?? 0);
     const retiringBytes =
       (assets?.retiringBytes ?? 0) +
       (scene?.retiringBytes ?? 0) +
@@ -478,6 +481,13 @@ export class GraphicsContext {
           residentTextures: textureResidency?.residentTextureCount ?? 0,
           allocatedPeakBytes: textureResidency?.allocatedPeakBytes ?? 0,
           allocatedBankCount: textureResidency?.segmentCount ?? 0
+        }),
+        virtualTextures: Object.freeze({
+          allocatedBytes: virtualTextures?.allocatedBytes ?? 0,
+          residentBytes: virtualTextures?.residentBytes ?? 0,
+          pinnedBytes: virtualTextures?.pinnedBytes ?? 0,
+          stagingBytes: virtualTextures?.stagingBytes ?? 0,
+          routeBytes: virtualTextures?.routeBytes ?? 0
         }),
         transientBuffers: Object.freeze({ ...buffers }),
         transientTextures: Object.freeze({ ...textures })

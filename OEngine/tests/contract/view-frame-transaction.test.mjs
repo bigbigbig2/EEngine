@@ -4,7 +4,7 @@ import test from "node:test";
 globalThis.GPUShaderStage = { COMPUTE: 1 };
 const [{ GPUViewContext }, { GPUCameraState }] = await Promise.all([
   import("../../.test-dist/render/ViewContext.js"),
-  import("../../.test-dist/render/GPUCameraState.js"),
+  import("../../.test-dist/render/GPUCameraState.js")
 ]);
 
 function signal() {
@@ -15,7 +15,7 @@ function signal() {
     },
     dispatch(...args) {
       for (const handler of handlers.splice(0)) handler(...args);
-    },
+    }
   };
 }
 
@@ -24,10 +24,10 @@ function command(copies) {
     gpu_encoder: {
       copyBufferToBuffer(...args) {
         copies.push(args);
-      },
+      }
     },
     onFinished: signal(),
-    onAborted: signal(),
+    onAborted: signal()
   };
 }
 
@@ -44,7 +44,7 @@ test("View camera mirror, HZB publication and frame index commit only after subm
     copyCpu(source) {
       assert.equal(source, view.camera);
       cpuCopies++;
-    },
+    }
   };
   view.hierarchical_z_buffer = {
     commitHistory(index) {
@@ -54,7 +54,7 @@ test("View camera mirror, HZB publication and frame index commit only after subm
     invalidate(reason) {
       assert.equal(reason, "explicit");
       hzbInvalidations++;
-    },
+    }
   };
   view.frame_index = 3;
   const copies = [];
@@ -87,14 +87,14 @@ test("new View seeds previous camera from the uploaded current camera within its
     buffer: current,
     update() {
       order.push("upload-current");
-    },
+    }
   };
   view.gpu_previous_camera_state = {
     buffer: previous,
     copyCpu(source) {
       assert.equal(source, view.camera);
       order.push("seed-cpu");
-    },
+    }
   };
   view.update_uniforms = () => order.push("upload-view");
   view.graphics = { profiler: { addCounter() {} } };
@@ -117,20 +117,29 @@ test("GPUCameraState can update its CPU mirror without a separate GPU submission
   mirror.cameraValue = {
     copy(value) {
       copiedCamera = value;
-    },
+    }
   };
   mirror.viewportOffset = new Float32Array(2);
   mirror.viewProjection = new Float32Array(16);
   mirror.currentProjection = new Float32Array(16);
+  mirror.currentInverseProjection = new Float32Array(16);
+  mirror.currentInverseView = new Float32Array(16);
+  mirror.currentInverseViewProjection = new Float32Array(16);
   const source = {
     camera: { id: 7 },
     viewportOffset: new Float32Array([0.2, -0.3]),
     viewProjection: Float32Array.from({ length: 16 }, (_, index) => index + 1),
     currentProjection: Float32Array.from({ length: 16 }, (_, index) => index + 17),
+    currentInverseProjection: Float32Array.from({ length: 16 }, (_, index) => index + 33),
+    currentInverseView: Float32Array.from({ length: 16 }, (_, index) => index + 49),
+    currentInverseViewProjection: Float32Array.from({ length: 16 }, (_, index) => index + 65)
   };
   mirror.copyCpu(source);
   assert.equal(copiedCamera, source.camera);
   assert.deepEqual([...mirror.viewportOffset], [...source.viewportOffset]);
   assert.deepEqual([...mirror.view_projection_matrix], [...source.viewProjection]);
   assert.deepEqual([...mirror.projection_matrix], [...source.currentProjection]);
+  assert.deepEqual([...mirror.currentInverseProjection], [...source.currentInverseProjection]);
+  assert.deepEqual([...mirror.currentInverseView], [...source.currentInverseView]);
+  assert.deepEqual([...mirror.currentInverseViewProjection], [...source.currentInverseViewProjection]);
 });
