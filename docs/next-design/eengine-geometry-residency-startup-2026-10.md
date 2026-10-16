@@ -26,7 +26,7 @@ verifies:
 
 ## 1. 决定与范围
 
-2026-10-16，以 `17252477` 为源码基线。VT模块已实施并做追加评审，用户随后授权本轮详细设计；本轮只建立设计和[执行计划](../next-execution/eengine-geometry-residency-startup-execution-2026-10.md)，未实施下述变化。它是Local Reflection Probes之前的独立专项，不恢复全Renderer性能资格，也不重做INIT/VT。
+设计时以2026-10-16的 `17252477` 为源码基线；下节问题盘点保留该基线事实。用户随后授权按本设计实施，当前结果与单元状态只读[执行计划](../next-execution/eengine-geometry-residency-startup-execution-2026-10.md)。它是Local Reflection Probes之前的独立专项，不恢复全Renderer性能资格，也不重做INIT/VT。
 
 选择两个相互配合的改动：
 
@@ -83,7 +83,7 @@ mapping revocation → last-consumer fence → allocation reuse
 
 ### 4.1 完整算法来源与本地适配
 
-选用Sebastian Aaltonen的 **OffsetAllocator**，MIT，固定revision `3610a7377088b1e8c8f1525f458c96038a4e6fc0`。已读取完整`offsetAllocator.hpp/.cpp`、测试、LICENSE和README。移植其SmallFloat分桶、32×8两级bitmask选桶、空闲链、切分、双向物理邻居合并和有界node freelist；**不改成JS对象列表、线性first-fit或二次幂大小分配**。具体来源及本地映射见[porting记录](../porting/next-renderer.md#geometry-residency-startup来源计划2026-10-16)。当前只是planned port，未提升为adopted。
+选用Sebastian Aaltonen的 **OffsetAllocator**，MIT，固定revision `3610a7377088b1e8c8f1525f458c96038a4e6fc0`。已读取完整`offsetAllocator.hpp/.cpp`、测试、LICENSE和README。移植其SmallFloat分桶、32×8两级bitmask选桶、空闲链、切分、双向物理邻居合并和有界node freelist；**不改成JS对象列表、线性first-fit或二次幂大小分配**。具体来源及本地映射见[porting记录](../porting/next-renderer.md#geometry-residency-startup来源计划2026-10-16)。设计时为planned port；实施后的来源核对、独立oracle和真实GPU消费范围以执行记录为准，不能由设计选择直接推导adoption。
 
 TS以TypedArray SoA表达nodes与bin heads，`Math.clz32`实现位搜索，明确u32转换、bit31和shift32边界。零长度Page不发GPU allocation；只迁移本地非零16B unit请求，不声称复制donor零长度行为。每bank一个allocator，最多检查四个bank；按轮转起点选首个能成功分配的bank。桶上取整仅用于找候选，**实际分配长度为请求unit数**，不能额外按桶尺寸预留。
 

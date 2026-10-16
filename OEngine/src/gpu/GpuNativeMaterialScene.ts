@@ -112,7 +112,8 @@ export class GpuNativeMaterialScene {
     private readonly texturePublications: ReadonlyMap<ShadeTexture, TextureSurfacePublication>,
     command: ShadeGPUCommandContext,
     private readonly productGeometry: boolean,
-    private readonly physicalSun: boolean
+    private readonly physicalSun: boolean,
+    initialReflectionProfile: "off" | "sssr-base-coat" = "off"
   ) {
     if (command.closed || command.device !== graphics.device) {
       throw new Error("Native scene publication requires its open upload transaction");
@@ -139,6 +140,7 @@ export class GpuNativeMaterialScene {
       const residency = graphics.texture_residency;
       if (residency?.onPublicationChanged)
         this.detachMutations.push(residency.onPublicationChanged.subscribe(changed));
+      this.reflections = initialReflectionProfile;
       const initial = this.snapshot();
       this.dirty = false;
       this.candidate = initial;

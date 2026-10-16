@@ -20,6 +20,36 @@ globalThis.GPUBufferUsage = { STORAGE: 128, UNIFORM: 64, COPY_DST: 8, COPY_SRC: 
 const { GpuNativeMaterialScene } = await import("../../.test-dist/gpu/GpuNativeMaterialScene.js");
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
+test("initial native reflection output is ready without an off-to-on candidate rebuild", async () => {
+  const f = fixture();
+  const material = new StandardShadeMaterial();
+  const upload = f.command();
+  const scene = new GpuNativeMaterialScene(
+    f.graphics,
+    [{
+      materialSlot: 0, material,
+      graph: compileAppearanceGraph(lowerStandardAppearanceGraph(material, [])),
+      textureBindingSetId: 0, textureRefs: new Map(),
+    }],
+    () => [{ id: 0, generation: 1, textureBanks: [] }],
+    new Map(), new Map(), upload, true, false, "sssr-base-coat",
+  );
+  try {
+    await scene.ready;
+    assert.equal(scene.reflectionProfile, "sssr-base-coat");
+    upload.onBeforeFinish.send1(upload);
+    upload.onFinished.send1(upload);
+    const active = scene.active;
+    scene.setReflectionProfile("sssr-base-coat");
+    assert.equal(scene.canPrepareFrame(), true);
+    assert.equal(scene.active, active);
+    assert.equal(scene.candidate, null);
+  } finally {
+    scene.destroy();
+    f.registry.destroy();
+  }
+});
+
 test("Surface has no alpha evaluator while coverage-only edits remain atomic and versioned", async () => {
   const f = fixture();
   const material = new StandardShadeMaterial();
@@ -113,6 +143,7 @@ function fixture() {
     limits: {
       maxComputeWorkgroupSizeX: 256,
       maxComputeInvocationsPerWorkgroup: 256,
+      maxComputeWorkgroupStorageSize: 16384,
       maxBindGroups: 4,
       maxBindingsPerBindGroup: 1000,
       maxBufferSize: 1e8,

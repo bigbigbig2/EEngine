@@ -306,7 +306,8 @@ export class GpuRenderWorld {
     materials: readonly StandardShadeMaterial[],
     profiles: readonly Readonly<VirtualGeometryGeometryProfile>[],
     command: ShadeGPUCommandContext,
-    physicalSun: boolean
+    physicalSun: boolean,
+    reflectionProfile: "off" | "sssr-base-coat" = "off"
   ): VirtualMaterialPreparation {
     const textures = this.graphics.texture_residency.stage(materials, command);
     const association = createPackedSceneMaterialAssociationPlan(
@@ -335,7 +336,8 @@ export class GpuRenderWorld {
       textures.surfacePublications,
       command,
       true,
-      physicalSun
+      physicalSun,
+      reflectionProfile
     );
     this.nativeMaterialss.add(native);
     native.onDestroyed(() => this.nativeMaterialss.delete(native));
@@ -768,7 +770,8 @@ export class GpuRenderWorld {
   async prepareNativeMaterials(
     handle: GpuRenderWorldHandle,
     command: ShadeGPUCommandContext,
-    physicalSun: boolean
+    physicalSun: boolean,
+    reflectionProfile: "off" | "sssr-base-coat" = "off"
   ): Promise<void> {
     const preparation = this.nativePreparation.get(handle);
     if (preparation === undefined || preparation.command !== command || command.closed) {
@@ -783,7 +786,8 @@ export class GpuRenderWorld {
         preparation.texturePublications,
         command,
         this.stagedRuntimes.get(handle)!.virtualGeometry !== null,
-        physicalSun
+        physicalSun,
+        reflectionProfile
       );
       const publication = preparation.publication;
       this.nativeMaterialss.add(publication);

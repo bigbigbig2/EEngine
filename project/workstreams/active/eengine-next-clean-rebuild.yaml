@@ -27,14 +27,14 @@ goal: >-
 currentSlice:
   id: geometry-residency-startup
   title: Compact geometry residency and exact asynchronous first-frame preparation
-  status: implementing
+  status: completed
   goal: >-
-    The user authorized GRS-1 and then GRS-2 implementation after the completed VT review and design.
+    The user authorized GRS-1, GRS-2 and GRS-3 after the completed VT review and design.
     Follow the selected pair for compact physical geometry allocation, metadata
     capacity and exact asynchronous pipeline readiness. Detailed unit states live
-    only in its execution document; stop before GRS-3 unless separately authorized.
+    only in its execution document. Concentrated GRS-3 validation and repairs are complete.
     Preserve cooked integrity, complete geometry/coverage/VSM and AO/SSSR/VT behavior.
-    Measure on the actual RTX 2060 8GB; legacy 4GB qualification remains separate.
+    Measurements used the actual RTX 2060 SUPER 8GB; legacy 4GB qualification remains separate.
     Do not automatically start Local Probes or whole-renderer qualification.
 
 pausedModules:

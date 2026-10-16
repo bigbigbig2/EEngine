@@ -13,16 +13,21 @@ verifies:
     - OEngine/src/gpu/GPUDatabase.ts
     - OEngine/src/gpu/GPUDescriptorCaches.ts
     - OEngine/src/gpu/GpuNativeMaterialScene.ts
+    - OEngine/src/gpu/GpuRenderWorld.ts
     - OEngine/src/render/pipeline/RendererCore.ts
     - OEngine/src/shaders/virtual_geometry_product.ts
     - OEngine/src/shaders/geometry_source_decode.ts
     - examples/demos/14-integrated/shared/cooked-scene.ts
+    - validation/tools/run-geometry-startup.mjs
+    - OEngine/tests/contract/geometry-compact-capacity.test.mjs
+    - OEngine/tests/oracle/native-surface-production-gpu.mjs
+    - OEngine/tests/oracle/product-attribute-decode-gpu.mjs
     - project/workstreams/active/eengine-next-clean-rebuild.yaml
 ---
 
 # 几何紧凑驻留与首帧准备：执行计划
 
-唯一目标依据为[设计](../next-design/eengine-geometry-residency-startup-2026-10.md)。基线`17252477`；2026-10-16已按用户后续授权实施GRS-1/2；GRS-3尚未启动。模块只设三个工程单元，GRS-1包含一次完整地址/容量切换，不能把其中临时断链提交成稳定的双ABI生产状态。
+唯一目标依据为[设计](../next-design/eengine-geometry-residency-startup-2026-10.md)。基线`17252477`；2026-10-16已按用户后续授权完成GRS-1/2/3及集中返工，实际结果与剩余资格见§8。模块只设三个工程单元，GRS-1包含一次完整地址/容量切换，不能把其中临时断链提交成稳定的双ABI生产状态。
 
 ## 1. 顺序与状态
 
@@ -30,7 +35,7 @@ verifies:
 |---|---|---|
 | GRS-1 紧凑几何驻留闭包 | 已实施并完成单元检查 | 完整OffsetAllocator移植、目录容量计划、ABI6、四bank与metadata增长、所有直接consumer与退休闭合；删除固定槽生产依赖 |
 | GRS-2 准确异步准备与首帧门槛 | 已实施，单元检查见§7 | 真实feature/scene PSO async准备与生产requirePrepared同源；首次图/编码/提交分段诊断；保留正常帧事务和UI响应 |
-| GRS-3 集中验证与文档核对 | 待实施 | 新鲜build与串行GPU、两场景同质量启动/收敛、容量/生命周期/成本复核；按实际事实更新domains与来源状态 |
+| GRS-3 集中验证与文档核对 | 已完成，结果与边界见§8 | 新鲜build与串行GPU、两场景同质量启动/收敛、容量/生命周期/成本复核；按实际事实更新domains与来源状态 |
 
 实施中只更新本文件的状态和实际结果。完成后停在模块边界，Local Probes仍需用户另行启动，不自动恢复F11资格。
 
@@ -156,3 +161,74 @@ Cost Card：本单元新增GPU buffer/texture、bytes/pixel、ALU、samples、at
 最终单元检查：新鲜build:test后上述相关Node合并109/109通过，变更的25份MJS语法检查通过；typecheck和生产build通过（保留既有node:module browser externalization提示）。docs-verify为0 findings / 81条history warnings，document-system 7/7，git diff --check通过。完整场景与GRS-3状态保持未运行/待启动。
 
 最后几何profile准入/loss发布复核后，新鲜build:test、队列与Frame vertices 9/9及真实Native production再次通过，syncMiss/unpreparedUse仍为0，失败保留与显式retry仍通过。该次小fixturelower约8.3ms、scene/view约22.2ms、encode约38.9ms、queue completion约140.4ms；与上次仅是两次诊断观察，不能当作更改前后性能比较。
+
+## 8. GRS-3 集中复核与返工（2026-10-16）
+
+从已提交的`6f9b7865`开始集中验证，没有另造GRS-2空提交。Architecture review再次核对唯一ABI6、全部四bank绑定、generation/有效前缀减法边界、metadata index与绝对地址epoch、候选冻结/abort/retry、共享预算双峰及最后consumer fence。没有保留固定槽适配器、私有submit或同帧GPU→CPU→GPU控制。
+
+### 8.1 实测发现的准备重复与修复
+
+原Native材质预准备固定从反射off开始，即使Renderer已启用SSSR。真实scene发布后才请求`sssr-base-coat`，导致整套Native输出重新准备。修复前六次Bistro的首completed为19.79–22.36s；其中bootstrap到首次scene准备仍有明显等待。该诊断样本保留在`.local/validation/grs-3/`，修复前Dungeon正确配置样本在`.local/validation/grs-3-dungeon/`，不能混入修复后数据。
+
+现在Renderer按实际SSSR设置与lit材质需求，向`GpuNativeMaterialScene`初始snapshot直接传入准确reflection profile。虚拟材质提前准备与四个scene上传/append/replacement入口一致，运行期profile变化继续走原candidate事务。SSSR owner自身仍由真实已发布scene需求创建和退休；没有把后台材质准备变成effect lifetime owner。未增加GPU pass、逐像素工作、submit、shader算法或资源ABI。新增Node与真实SSSR Product检查确认初始就是目标profile，重复设置同profile不会产生candidate重编译。
+
+### 8.2 独立语义、真实消费者与生命周期
+
+- 相关Node最终合并157/157通过。新增pinned全目录在GPU allocation前失败、四bank外碎片但总空闲足够时拒绝连续分配、相邻释放后合并成功、metadata仅page section增长且其他capacity/旧record保持；保留allocator随机/native trace与原publication/abort/retry语义。旧Native场景夹具漏报WebGPU baseline的workgroup storage limit导致五个失败，补齐真实limit后原断言通过，未放宽检查。
+- 原始完整256KiB Page经真实MultiRuntime/Residency验证、分配并上传176B有效前缀，独立CPU从同一原字节解码position/oct normal/half UV，与production WGSL属性读取比较：3顶点最大误差5.224e-8。原1024顶点/20480分量/四bank/32 masks检查保持，最大误差5.961e-8。真实residency需要协商16 storage buffers；首次仅请求默认8的宿主失败保留，修正宿主limits后通过。
+- geometry-budgeted-residency通过40个地址边界（每profile四个合法及stale generation、nonresident、reserved bits、misalignment、past-end、u32 wrap六个非法）与原72帧Main/Shadow需求、lease压力、公平上传、coarse coverage和loss取消。
+- 真实Native Renderer在bank增长中注入Surface abort，确认旧epoch/binding恢复后正常retry；随后第三Product触发metadata搬迁。Main opaque/MASK、Surface HDR与VSM均真实消费新绑定；固定jitter下bank/metadata增长的HDR最大差均为0，保留原0.002容差。增长帧强制真实shadow invalidation，VSM分别134有效页、60/50 caster、overflow0。初次要求稳定帧必须写caster的错误观察条件已保留，修正为增长帧真实需求，未取消caster断言。
+- 增长fixture同时存在的新旧bank峰10,485,760B，metadata峰9,648B，合计10,489,648B；退休后active为6,297,216B。不是仅计新buffer的伪峰值。
+- SSSR production与Streaming VT production通过，保留能量/MASK、AO/Native/FSR、abort/resize、受控loss与释放。VT原测试把准备tick当成24个完成帧，可能在首个真实Native反馈前退出；现按45秒wall deadline等待真实feedback、wanted/resident与收敛，后续断言不变。原失败`.codex-temp/grs3-vt-fixed.json`与通过重跑`grs3-vt-fixed-retry.json`均保留。
+
+上述GPU原始结果在`.codex-temp/grs3-{native,geometry,sssr}-fixed.json`、`grs3-attribute-retry.json`；每份带test build source/output hash与oracle hash。本地artifact不提交。原失败不是通过结果，不升级为已修复的旧数值资格。
+
+### 8.3 完整场景诊断与成本
+
+独立宿主`validation/tools/run-geometry-startup.mjs`以真实examples Vite生产构建运行完整Bistro/Dungeon；1920×1080、internal scale1、AO、balanced SSSR、Native Temporal+jitter、VSM及VT，保留原完整场景/材质/覆盖，Bloom关闭。首次completed后按固定观察相机移动，等待真实view-settled，再记录普通CPU与GPU timestamp短窗、截图及release归零。相机实际姿态和全部quality设置存于raw report，截图不替代数值/生命周期检查。
+
+Cold条件清HTTP及application缓存；warm保留HTTP、清application，均新Document/GPUDevice。独立Chrome155测试context，硬件由nvidia-smi确认**RTX2060 SUPER 8192MiB、driver610.88**。driver cache、OS文件缓存与温度不可控，不能称严格cold-driver实验或正式P95。记录每次温度、revision及引擎/demo/观察宿主源码SHA256。`networkEncodedBytes`只观察主页面CDP，不含Worker，不能当全部资产IO；真实读取/校验/上传成本取各owner/provider计数。
+
+修复后的12次均通过。逐次原始JSON/截图与`summary.json`在`.local/validation/grs-3-final/`；下表依次为第1/2/3次，时间为navigation起的秒数，settled取近景首次真实确认时刻：
+
+| 场景 / HTTP条件（均新device） | 首completed，s | 近景首次view-settled，s |
+|---|---|---|
+| Bistro cold | 15.951 / 11.811 / 15.619 | 31.644 / 22.416 / 32.868 |
+| Bistro warm | 13.388 / 16.713 / 17.313 | 26.972 / 34.437 / 29.835 |
+| Dungeon cold | 8.524 / 9.351 / 7.911 | 12.269 / 15.109 / 11.276 |
+| Dungeon warm | 7.857 / 7.226 / 7.788 | 14.289 / 10.254 / 10.169 |
+
+两场景每次均无page/GPU/browser错误，pinned完整、几何无evict/reload/thrash，最终geometry staged/retiring为0、VT missing为0、VSM valid且无pending/overflow，release后geometry与texture owner归零。Bistro初次缓存准备134个、Dungeon136个；两个descriptor cache的syncMiss/unpreparedUse全部0。截图人工检查了Bistro近景墙面/窗框细节与Dungeon完整场景主视图；不是完整SSR/Temporal主观质量资格。
+
+首次settled不表示之后永久锁定：Bistro cold第2次的普通窗口仍为view-settled，GPU观察末尾为refining，geometryTarget/texturesFull/vsmValid仍true且无缺页；保留原状态。`SceneRefinement`需要两次推进的完整receipt确认，短暂反馈缺口会撤销settled，再以候选帧重新确认；本轮没有放宽该条件。原readback ring的overflow计数也包含无可用slot/重复reserve，并非GPU需求队列溢出；真实scheduler demandOverflow与malformed均0，不把这些计数混称漏页。
+
+| 实际成本（Bistro / Dungeon） | 数值 / 边界 |
+|---|---|
+| 全目录最终resident raw payload及allocated intervals | 253,489,632B / 5,711,264B；本场景有效前缀已16B对齐，两值相等，不代表任意资产都零alignment slack |
+| 四bank实际buffer | 316,862,080B / 7,139,136B |
+| metadata / 几何合计及峰值 | 1,916,896 / 318,778,976B；802,848 / 7,941,984B。两个静态完整场景不触发bank增长；双代峰值另由§8.2真实增长fixture验证 |
+| 共享allocator CPU | 每device19,403,028B，两场景相同，只计一次。Dungeon目录虽小，lease/node默认上界未跟着缩到同等比例 |
+| 几何流送上传 / 在途峰 / verified缓冲峰 | 全部页累计上传同raw payload；非pinned scheduler另计248,111,888B / 4,833,504B。两场景inFlight峰16,777,216B，buffered峰Bistro46,137,344–50,331,648B、Dungeon35,913,728–48,496,640B |
+| VT实际capacity / resident payload | 239,403,492B / 26,272,512–27,703,296B；106,693,092B / 34,463,232–35,271,936B。Bistro224个pinned tail，Dungeon25个 |
+| VT物理copy / staging峰 | 35,030,016–36,937,728B / 6,894,080B；45,950,976–47,029,248B / 2,343,936B。物理行padding与logical upload分别记录，不混称 |
+| VT provider读取 / payload hash | Bistro86,489,730–87,958,658B / 83,521,154–84,018,818B；Dungeon42,653,952–44,727,552B / 34,608,384–35,500,032B；metadata读取另列于provider，不用主页面CDP替代 |
+| 常规纹理capacity / payload / copy | Bistro61,623,527 / 56,025,218 / 56,793,856B，staging峰56,793,856B；Dungeon shading走VT，该常规上传为0 |
+| 已注册owner内存合计 | Bistro989,259,447B；Dungeon469,485,900–469,485,916B。含共享transient和效果owners，非driver实际VRAM，也不是完整进程峰值 |
+
+相较先前固定槽记录，Bistrobank由1,610,612,736降至316,862,080B，metadata由134,217,728降至1,916,896B；这是实际资源表示减少，不是只改occupied统计。Dungeonbank由512MiB降至7,139,136B。历史运行不能作严格startup A/B；同轮修复前后的Bistro首completed范围由19.79–22.36s变为11.81–17.31s，只作为重复准备消除后的诊断观察。driver/温度未锁定，不宣称精确净提速或稳定帧FPS提高。
+
+长任务仍存在：采集到的稳态观察前后buffered longtask，Bistro每次7–14个、单次最大357–813ms；Dungeon每次4–5个、最大152–196ms。首帧并未做到完全无UI停顿。普通CPU短窗各次中位数Bistro2.47–4.65ms、Dungeon2.10–2.62ms；full timestamp窗口GPU command-span各次中位数分别15.52–16.93ms、10.30–32.15ms，样本数46–64和33–40；Surface pass和为7.78–8.04ms、3.06–10.08ms。Dungeon波动明显，温度记录71–83℃且driver调度/频率未控，现有数据不足以归因为某个pass回退或改善；保留逐帧span/pass，禁止stage+pass重复相加。它们是必要粗粒度成本观察，不是整Renderer稳定P50/P95资格。
+
+VT provider累计failedTasks计数Bistro4–13、Dungeon2–11，当前owner error为null且最终missing0；该catch同时累计取消/会话失效等异常，现有计数不分类，不能写成“全部IO零失败”。错误照常上抛到现有调度处理，未为本轮吞异常。为补齐包括Worker的总体IO/credit观察，另用同一生产源码加只读owner evidence运行`.local/validation/grs-3-io/`；结果另列，不替换上述12次。
+
+补充四次均通过：Bistro cold/warm成功Worker receipt累计encoded bytes为298,928,559 / 301,560,841B，geometry批range数577 / 673；Dungeon为50,105,178 / 52,123,930B、80 / 65。它们包含对应目录/几何/VT任务的成功receipt，非所有取消任务的wire字节，也不包含绕过该Worker的主页面读取。四次peakActiveWorkers与IO semaphore峰均4；任务估算在途峰Bistro64,530,752 / 65,814,912B、Dungeon均54,273,026B。共享credit总峰分别107,354,560 / 100,145,864B与94,328,900 / 88,471,410B，ready峰不超过67,108,864B；结束active/queued/estimated-inflight/used-credit/waiting均0、workerFailures0。IO/busy的累计并行wall不得与navigation时间相加。补充Dungeon warm的tiled failedTasks30仍原样保留，当前error为null、missing0，不据此宣称零取消/零失败。
+
+### 8.4 验证收口与边界
+
+最终typecheck、生产build、新鲜build:test通过；受影响Node157/157、变更MJS语法检查通过。新鲜build后串行补查virtual-geometry-handoff 50用例、instance-culling 20帧、product-attribute-decode含完整原始Page均通过；结果在`.codex-temp/grs3-*-final.json`，前述Native/geometry/SSSR/VT结果与同一engine source hash对应。生产build保留既有node:module browser externalization提示，无构建失败。docs-verify为0 findings / 81条既有history warnings，document-system7/7、git diff --check通过。
+
+原预检也保留：`.local/validation/grs-3-preflight-temporal-bypass/`使用了错误的bypass设置；最早Dungeon样本默认internal scale0.667被配置断言拒绝。这些不是1080p Native Temporal通过样本，不能放进上表。最终宿主显式scale1、Native Temporal与jitter，并断言实际renderState；未缩场景或改算法来消除失败。
+
+逐节核对设计：§3所有权与单一帧闭包、§4完整allocator/ABI6/目录初始容量/事务增长/碎片退化、§5准确准备/失败retry/loss/首帧分段、§6实际成本均有实现或上述独立/真实生产检查。没有额外算法简化、A/B bridge或第二条加载路径。文档domains、source map与粗执行只更新已实现事实，authority仍保留本模块唯一一对。GRS在此闭合并停在下一模块边界；Local Reflection Probes仍待用户启动细设计。
+
+未完成且不冒充本模块结论：GTX1650Ti 4GB、整Renderer同条件长窗口P50/P95/尾延迟与最终主观画质资格；启动longtask进一步消除、Dungeon GPU波动归因、默认allocator CPU容量进一步按目录缩放也未实施。保留已完成效果和全部正确性/容量检查，后续由实际需求决定专项或最终集成，不恢复旧架构掩盖成本。

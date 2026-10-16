@@ -378,6 +378,7 @@ function installAppearanceDevice(graphics, failure) {
       maxBindingsPerBindGroup: 1000,
       maxComputeWorkgroupSizeX: 256,
       maxComputeInvocationsPerWorkgroup: 256,
+      maxComputeWorkgroupStorageSize: 16384,
       maxBufferSize: 1e8,
       maxStorageBufferBindingSize: 1e8,
       maxUniformBufferBindingSize: 65536,

@@ -38,7 +38,7 @@ verifies:
 | F2 SSR | 已实施并完成模块集中验证：[设计](../next-design/eengine-sssr-2026-10.md) / [执行及限制](eengine-sssr-execution-2026-10.md#5-ssr-2-生产接入与逐项复核2026-10-15) | 完整SSSR与反射去噪、Native base/coat响应及环境替换已接生产；实际资源/质量覆盖与未做的整Renderer性能资格只读细文档；停在Local Probes模块边界 |
 | 启动可用性专项 | 已实施并复核：[设计](../next-design/eengine-initialization-scheduling-2026-10.md) / [执行结果与限制](eengine-initialization-scheduling-execution-2026-10.md) | 几何帧事务/VSM更新、有界Worker批准备、并行首屏/纹理分块/真实view-settled已接入；启动精化低帧率与4GB/整帧性能资格仍有限，详见唯一执行记录。不恢复F11、不降最终质量；2026-10-16用户随后选择先设计F4 |
 | F4 Streaming VT | 已实施并完成追加复审：[设计](../next-design/eengine-streaming-vt-2026-10.md) / [执行与限制](eengine-streaming-vt-execution-2026-10.md) | shading tile、完整过滤、反馈/背压与VSM完整页调度已接生产；几何固定槽和首帧剩余等待进入下列独立专项；不追认4GB或整Renderer性能资格 |
-| 几何驻留与首帧专项 | 待实施：[设计](../next-design/eengine-geometry-residency-startup-2026-10.md) / [执行](eengine-geometry-residency-startup-execution-2026-10.md) | 2026-10-16用户启动详细设计，置于F3前；紧凑物理区间、metadata/容量增长与准确async PSO准备一次闭合，保留完整质量；设计不自动授权实施 |
+| 几何驻留与首帧专项 | 模块闭合及限制：[设计](../next-design/eengine-geometry-residency-startup-2026-10.md) / [执行§8](eengine-geometry-residency-startup-execution-2026-10.md#8-grs-3-集中复核与返工2026-10-16) | 2026-10-16完成紧凑物理区间、metadata/容量增长、准确async PSO准备与完整场景集中验证；修复Native反射输出重复准备，保留完整质量。长任务、GPU波动及4GB/正式整Renderer资格限制见唯一执行记录；停在F3细设计边界 |
 | F3 Local Reflection Probes | 待细设计；尚无细文档 | 独立完成实际数据来源、预滤波/空间选择/混合/视差校正、容量/生命周期，与 SSR 和 global IBL 正确合成 |
 | F5 Screen-Space Diffuse | 待细设计；尚无细文档 | 选 SSIL/SSGI 的实际能力范围，明确近场 radiance、AO/IBL/world 间接光关系，复用已成立合同而不强制统一算法 |
 | F6 Local Shadows | 待细设计；尚无细文档 | 点/聚光的实际 caster、容量/过滤/更新、Native 消费与 lifecycle；先补直接光遮挡，不把 LocalLightWork 或方向光 VSM 当作已实现 |

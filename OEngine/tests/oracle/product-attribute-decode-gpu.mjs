@@ -5,6 +5,8 @@ import {
 import { GPU_INSTANCE_RECORD_WGSL } from "../../.test-dist/gpu/GpuInstanceAbi.js";
 import { GPU_FRAME_INSTANCE_WGSL } from "../../.test-dist/gpu/GpuFrameInstanceAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../../.test-dist/gpu/GpuMeshletRasterWorkAbi.js";
+import { GeometryProductMultiRuntimeV1 } from "../../.test-dist/gpu/GeometryProductMultiRuntime.js";
+import { triangleProductFixture } from "../helpers/geometry-product-fixture.mjs";
 
 // Decode the production functions, including private format restoration, against
 // independent scalar math. Odd strides and offsets exercise cross-word loads.
@@ -141,6 +143,7 @@ fn probe(@builtin(global_invocation_id) invocation: vec3u) {
         throw new Error(`Product attribute ${i}: ${actual[i]} vs ${expected[i]}`);
     }
     readback.unmap();
+    const rawPage = await checkOriginalPage(device, buffer, oct, halfValue);
     return {
       vertices: count,
       components: expected.length,
@@ -148,9 +151,121 @@ fn probe(@builtin(global_invocation_id) invocation: vec3u) {
       attributeMasks: 32,
       oddStride: 35,
       maximumError,
+      rawPage,
     };
   } finally {
     if (readback.mapState === "mapped") readback.unmap();
     resources.forEach((value) => value.destroy());
+  }
+}
+
+async function checkOriginalPage(device, buffer, oct, halfValue) {
+  const { descriptor, page } = triangleProductFixture();
+  const view = new DataView(page.buffer);
+  const format = new DataView(descriptor.vertexFormats.buffer);
+  // A valid complete logical Page with interleaved float position, oct normal
+  // and half UV. The independent CPU reads the same original bytes that the
+  // real residency owner validates and uploads as a compact prefix.
+  format.setUint16(0, 20, true);
+  format.setUint16(2, 11, true);
+  format.setUint8(7, 16);
+  for (let vertex = 0; vertex < 3; vertex++) {
+    const at = 116 + vertex * 20;
+    for (let axis = 0; axis < 3; axis++) {
+      view.setFloat32(at + axis * 4, (vertex - 1) * (axis + 1) / 8, true);
+    }
+    view.setInt16(at + 12, [-16384, 8192, 24576][vertex], true);
+    view.setInt16(at + 14, [8192, -24576, 16384][vertex], true);
+    view.setUint16(at + 16, [0x3555, 0x3c00, 0x0400][vertex], true);
+    view.setUint16(at + 18, [0xbc00, 0, 0x3800][vertex], true);
+  }
+  const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", page));
+  descriptor.pageRecords.set(hash.subarray(0, 16));
+  const source = {
+    descriptor,
+    async readPage(pageId) {
+      if (pageId !== 0) throw new Error("Unexpected original Page");
+      return {
+        productId: descriptor.productId, revision: descriptor.revision, pageId,
+        bytes: page.slice().buffer,
+        decodedHash128: hash.slice(0, 16), decodedPageHash128: hash.slice(0, 16),
+      };
+    },
+    release() {},
+  };
+  const runtime = new GeometryProductMultiRuntimeV1(device, { descriptors: [descriptor] });
+  try {
+    const handle = await runtime.load(source);
+    const binding = runtime.bindings();
+    const location = handle.residency.pageLocation(0);
+    const result = buffer(3 * 32, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
+    const read = buffer(3 * 32, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
+    const module = device.createShaderModule({
+      label: "Original Page production position/normal/UV oracle",
+      code: `requires unrestricted_pointer_parameters;
+${GPU_INSTANCE_RECORD_WGSL}
+${GPU_FRAME_INSTANCE_WGSL}
+${GPU_MESHLET_RASTER_WORK_WGSL}
+@group(0) @binding(1) var<storage, read> frame_instances: array<OEngineFrameInstanceRecord>;
+${frameGeometrySourceWgsl(true, true)}
+${FRAME_ATTRIBUTE_OCT_DECODE_WGSL}
+@group(0) @binding(0) var<storage, read_write> result: array<vec4f>;
+@compute @workgroup_size(1)
+fn probe(@builtin(global_invocation_id) invocation: vec3u) {
+  let id = invocation.x;
+  frame_vertex_load_format(product_heap[11u]);
+  source_resident_address = ${(location.bankIndex * 2 ** 30 + location.byteOffset + 116) >>> 0}u;
+  let normal = frame_vertex_normal(id);
+  result[id * 2u] = vec4f(frame_vertex_position(id), normal.x);
+  result[id * 2u + 1u] = vec4f(normal.yz, frame_vertex_uv(id, 0u));
+}`,
+    });
+    const info = await module.getCompilationInfo();
+    const errors = info.messages.filter(message => message.type === "error");
+    if (errors.length) throw new Error(errors.map(message => message.message).join("\n"));
+    const pipeline = await device.createComputePipelineAsync({
+      label: "Original Page production decode", layout: "auto",
+      compute: { module, entryPoint: "probe" },
+    });
+    const group = device.createBindGroup({
+      label: "Original Page real residency bindings", layout: pipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: result } },
+        { binding: 8, resource: { buffer: binding.metadata } },
+        ...binding.banks.map((bank, index) => ({ binding: 9 + index, resource: { buffer: bank } })),
+      ],
+    });
+    const encoder = device.createCommandEncoder({ label: "Original Page decode comparison" });
+    const pass = encoder.beginComputePass();
+    pass.setPipeline(pipeline);
+    pass.setBindGroup(0, group);
+    pass.dispatchWorkgroups(3);
+    pass.end();
+    encoder.copyBufferToBuffer(result, 0, read, 0, read.size);
+    device.queue.submit([encoder.finish()]);
+    await read.mapAsync(GPUMapMode.READ);
+    const actual = new Float32Array(read.getMappedRange().slice(0));
+    read.unmap();
+    let maximumError = 0;
+    for (let vertex = 0; vertex < 3; vertex++) {
+      const at = 116 + vertex * 20;
+      const normal = oct(view.getInt16(at + 12, true), view.getInt16(at + 14, true));
+      const expected = [
+        view.getFloat32(at, true), view.getFloat32(at + 4, true), view.getFloat32(at + 8, true),
+        ...normal, halfValue(view.getUint16(at + 16, true)), halfValue(view.getUint16(at + 18, true)),
+      ];
+      for (let component = 0; component < 8; component++) {
+        const value = actual[vertex * 8 + component];
+        const error = Math.abs(value - expected[component]);
+        maximumError = Math.max(maximumError, error);
+        if (!Number.isFinite(value) || error > 2e-6) {
+          throw new Error(`Original Page vertex ${vertex}/${component}: ${value} vs ${expected[component]}`);
+        }
+      }
+    }
+    return { vertices: 3, logicalBytes: page.byteLength, payloadBytes: location.payloadBytes, maximumError };
+  } finally {
+    await device.queue.onSubmittedWorkDone();
+    runtime.destroy();
   }
 }

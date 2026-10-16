@@ -281,3 +281,79 @@ test("metadata growth preserves record indices and payload, retries in ordinary 
   runtime.destroy();
   assert.equal(geometryProductGpuBudgetEvidence(gpu).totalBytes, 0);
 });
+
+test("pinned admission rejects the complete catalog before allocating GPU resources", async () => {
+  const gpu = device();
+  const fixture = await streamingProductFixture(2);
+  fixture.descriptor.activationPageIds = new Uint32Array([0, 1]);
+  assert.throws(() => new GeometryProductMultiRuntimeV1(gpu, {
+    descriptors: [fixture.descriptor],
+    residency: { maxPageLeases: 1 },
+  }), /pinned activation exceeds/);
+  assert.equal(gpu.buffers.length, 0);
+  assert.equal(geometryProductGpuBudgetEvidence(gpu).totalBytes, 0);
+});
+
+test("fragmented banks reject a request even when aggregate free bytes suffice", () => {
+  const gpu = device();
+  const pool = GeometryProductBytePool.retain(gpu,
+    selectGeometryProductResidencyProfileV1(gpu.limits, {
+      configuredCapacityBytes: 1024 * 1024, initialBankBytes: 256, maxPageLeases: 32,
+    }));
+  const leases = Array.from({ length: 16 }, () => pool.allocate(64));
+  assert.ok(leases.every(Boolean));
+  const live = new Set(leases);
+  for (const index of [4, 5, 6, 7, 12, 13, 14, 15]) {
+    pool.release(leases[index]);
+    live.delete(leases[index]);
+  }
+  assert.equal(pool.evidence().freeBytes, 512);
+  assert.equal(pool.allocate(80), undefined);
+  assert.equal(pool.evidence().lastFailure, "bytes-or-fragmentation");
+  for (const index of [8, 9, 10, 11]) {
+    pool.release(leases[index]);
+    live.delete(leases[index]);
+  }
+  const coalesced = pool.allocate(176);
+  assert.ok(coalesced);
+  pool.release(coalesced);
+  for (const lease of live) pool.release(lease);
+  pool.releaseOwner();
+  assert.equal(geometryProductGpuBudgetEvidence(gpu).totalBytes, 0);
+});
+
+test("one metadata section grows without increasing other record capacities", async () => {
+  const gpu = device();
+  const fixture = await streamingProductFixture(3);
+  const runtime = new GeometryProductMultiRuntimeV1(gpu, {
+    slotCapacity: 8,
+    metadataCapacities: { asset: 16, root: 16, hierarchy: 16, group: 16, page: 3, vertexFormat: 16 },
+  });
+  try {
+    const first = await runtime.load(fixture.source);
+    const bindings = runtime.bindings();
+    const before = runtime.evidence();
+    const location = first.residency.pageLocation(0);
+    const pending = runtime.load((await streamingProductFixture(3, 1)).source);
+    await tick();
+    const command = geometryPublicationCommand();
+    GeometryProductBytePool.prepareDeviceFrame(gpu, command);
+    command.submit();
+    await pending;
+    const after = runtime.evidence();
+    for (const name of Object.keys(before.metadataSections)) {
+      if (name === "page") {
+        assert.ok(after.metadataSections[name].capacityRecords > before.metadataSections[name].capacityRecords);
+      } else {
+        assert.equal(after.metadataSections[name].capacityRecords, before.metadataSections[name].capacityRecords);
+      }
+    }
+    assert.deepEqual(first.residency.pageLocation(0), location);
+    const header = new Uint32Array(bindings.metadata.bytes.buffer);
+    assert.equal(header[0], 6);
+    assert.equal(header[12], bindings.banks[0].size);
+  } finally {
+    runtime.destroy();
+  }
+  assert.equal(geometryProductGpuBudgetEvidence(gpu).totalBytes, 0);
+});

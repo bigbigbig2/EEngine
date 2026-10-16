@@ -88,6 +88,7 @@ export const oracles = Object.freeze([
     file: "OEngine/tests/oracle/product-attribute-decode-gpu.mjs",
     url: "/OEngine/tests/oracle/product-attribute-decode-gpu.mjs",
     entry: "runProductAttributeDecodeGpuOracle",
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     description:
       "Production compact Page attributes vs independent CPU scalar math, all masks, banks and cross-word reads."
   }),

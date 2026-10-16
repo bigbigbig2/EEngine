@@ -1162,11 +1162,13 @@ export class Renderer {
     };
     try {
       signal?.throwIfAborted();
+      const reflectionProfile = this.initialReflectionProfile(materials);
       const prepared = this._graphics.render_world.prepareVirtualMaterials(
         materials,
         profiles,
         command,
-        this._environmentRuntime !== null
+        this._environmentRuntime !== null,
+        reflectionProfile
       );
       token = {
         ready: prepared.ready,
@@ -1183,6 +1185,62 @@ export class Renderer {
       cancel();
       throw error;
     }
+  }
+
+  private initialReflectionProfile(
+    materials: readonly StandardShadeMaterial[]
+  ): "off" | "sssr-base-coat" {
+    const settings = this._screenSpaceReflectionsSettings;
+    return settings.enabled && settings.strength > 0 && materials.some((material) => !material.is_unlit)
+      ? "sssr-base-coat"
+      : "off";
+  }
+
+  /** Real SSSR owner creation stays behind scene demand and retirement.
+   * Native material output preparation does not own this effect's lifetime. */
+  private startReflectionPreparation(): void {
+    if (this._reflections !== null || this._reflectionReady !== null || this._reflectionError !== undefined) {
+      return;
+    }
+    const initialization = ++this._reflectionInitialization;
+    const device = this.device;
+    this._reflectionReady = SssrRuntime.create(
+      device,
+      this._initializationConfig?.screenSpaceReflectionsMemory
+    ).then(
+      (owner) => {
+        if (
+          this._destroyed ||
+          this._deviceLost ||
+          this.device !== device ||
+          initialization !== this._reflectionInitialization
+        ) {
+          owner.destroy();
+        } else {
+          this._reflections = owner;
+        }
+      },
+      (error: unknown) => {
+        if (initialization === this._reflectionInitialization) {
+          this._reflectionError = error;
+        }
+      }
+    );
+  }
+
+  private async prepareNativeScenePipelines(
+    handle: GpuRenderWorldHandle,
+    command: ShadeGPUCommandContext
+  ): Promise<void> {
+    const world = this._graphics.render_world;
+    const runtime = world.previewStagedRuntime(handle);
+    const reflectionProfile = this.initialReflectionProfile(runtime.materials);
+    await world.prepareNativeMaterials(
+      handle,
+      command,
+      this._environmentRuntime !== null,
+      reflectionProfile
+    );
   }
 
   /**
@@ -1244,11 +1302,7 @@ export class Renderer {
         false,
         prepared
       );
-      await this._graphics.render_world.prepareNativeMaterials(
-        handle,
-        command,
-        this._environmentRuntime !== null
-      );
+      await this.prepareNativeScenePipelines(handle, command);
       beforeSubmit?.();
       command.finish();
       await command.submitted;
@@ -1695,11 +1749,7 @@ export class Renderer {
         command
       );
       const stagedAt = onTiming ? performance.now() : 0;
-      await this._graphics.render_world.prepareNativeMaterials(
-        handle,
-        command,
-        this._environmentRuntime !== null
-      );
+      await this.prepareNativeScenePipelines(handle, command);
       const preparedAt = onTiming ? performance.now() : 0;
       command.finish();
       await command.submitted;
@@ -1784,11 +1834,7 @@ export class Renderer {
         command,
         true
       );
-      await this._graphics.render_world.prepareNativeMaterials(
-        handle,
-        command,
-        this._environmentRuntime !== null
-      );
+      await this.prepareNativeScenePipelines(handle, command);
       if (next.state !== "ready-to-activate")
         throw new Error("Product replacement was cancelled before Scene submit");
       next.publishGpuRecord();
@@ -1868,11 +1914,7 @@ export class Renderer {
         ordinaryMeshes === undefined
           ? this._graphics.render_world.stage(scene, manifest, handles, command)
           : this._graphics.render_world.stageOrdinaryScene(scene, manifest, handles, ordinaryMeshes, command);
-      await this._graphics.render_world.prepareNativeMaterials(
-        handle,
-        command,
-        this._environmentRuntime !== null
-      );
+      await this.prepareNativeScenePipelines(handle, command);
       command.finish();
       await command.submitted;
       uploadCommitted = true;
@@ -2390,21 +2432,7 @@ export class Renderer {
       );
       if (this._reflectionError !== undefined) throw this._reflectionError;
       if (this._reflections === null) {
-        if (this._reflectionReady === null) {
-          const initialization = ++this._reflectionInitialization;
-          this._reflectionReady = SssrRuntime.create(
-            this.device,
-            this._initializationConfig?.screenSpaceReflectionsMemory
-          ).then(
-            (owner) => {
-              if (this._destroyed || initialization !== this._reflectionInitialization) owner.destroy();
-              else this._reflections = owner;
-            },
-            (error: unknown) => {
-              if (initialization === this._reflectionInitialization) this._reflectionError = error;
-            }
-          );
-        }
+        this.startReflectionPreparation();
         this._lastFrameDeferral = "publication-ready";
         return true;
       }

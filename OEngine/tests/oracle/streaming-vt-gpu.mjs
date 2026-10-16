@@ -207,7 +207,12 @@ export async function runStreamingVtGpuOracle() {
       lastCommand = command;
       return prepareVt(command, ...args);
     };
-    for (let frame = 0; frame < 24 && !vt.state().complete; frame++) {
+    const refinementDeadline = performance.now() + 45000;
+    // A protected tail can report no outstanding demand before the first
+    // Native invocation. Readiness polls are not completed render frames.
+    while (!captured?.virtualFeedback || vt.evidence().demand.wanted === 0 ||
+           vt.evidence().resident <= 1 || !vt.state().complete) {
+      check(performance.now() < refinementDeadline, "Initial real Native VT view did not refine");
       renderer.render(camera, scene);
       if (lastCommand?.wasSubmitted) {
         await lastCommand.gpuDone;

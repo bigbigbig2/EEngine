@@ -1,4 +1,6 @@
 import { GeometryProductMultiRuntimeV1 } from "../../.test-dist/gpu/GeometryProductMultiRuntime.js";
+import { GeometryProductBytePool } from "../../.test-dist/gpu/GeometryProductBytePool.js";
+import { selectGeometryProductResidencyProfileV1 } from "../../.test-dist/gpu/GeometryProductResidencyProfile.js";
 import { FRAME_GEOMETRY_ARENA_VERSION } from "../../.test-dist/gpu/GpuFrameGeometryArenaAbi.js";
 import { FRAME_GEOMETRY_MESHLET_STRIDE } from "../../.test-dist/gpu/GpuWinnerInterpolationAbi.js";
 import { GeometryPageStreamingRuntimeV1 } from "../../.test-dist/gpu/GeometryPageStreamingRuntime.js";
@@ -398,6 +400,9 @@ export async function runNativeSurfaceProductionGpuOracle(
   let actualFrame = null;
   let forcePreparationMiss = false;
   let hdrSnapshot = null;
+  let growthRuntime = null;
+  let growthSource = null;
+  let geometryGrowth = null;
   const occlusionCases = [];
   let arenaOwnerPeakBytes = 0;
   const WorkerClass = globalThis.Worker;
@@ -667,9 +672,20 @@ export async function runNativeSurfaceProductionGpuOracle(
         instance.flags = GPU_INSTANCE_FLAGS.CastsShadow | GPU_INSTANCE_FLAGS.ReceivesShadow;
       }
       if (productGeometry === "multi") {
-        const runtime = new GeometryProductMultiRuntimeV1(device);
+        const runtime = new GeometryProductMultiRuntimeV1(device, { slotCapacity: 2 });
         const original = (await product.provider.revisions()[Symbol.asyncIterator]().next()).value;
         let leases = 2;
+        growthRuntime = runtime;
+        growthSource = () => {
+          leases++;
+          return {
+            descriptor: original.descriptor,
+            readPage: (pageId, signal) => original.readPage(pageId, signal),
+            release() {
+              if (--leases === 0) original.release();
+            },
+          };
+        };
         const parts = [];
         const shards = [];
         for (let shardIndex = 0; shardIndex < 2; shardIndex++) {
@@ -881,6 +897,74 @@ export async function runNativeSurfaceProductionGpuOracle(
     await tick();
     const preparedRestored = await inspect();
     check(preparedRestored.cachedMeshlets > 0, "Restored preparation remained stale");
+    if (growthRuntime) {
+      // Exercise real cached Visibility, Surface and VSM consumers in the same
+      // frame as bank/header replacement. An aborted frame must retain the old
+      // identities; a retry must use a new binding epoch without changing pixels.
+      const binding = growthRuntime.bindings();
+      const pool = GeometryProductBytePool.retain(
+        device, selectGeometryProductResidencyProfileV1(device.limits),
+      );
+      const originalBanks = binding.banks;
+      const originalMetadata = binding.metadata;
+      const originalEpoch = binding.bindingEpoch;
+      const expected = hdrSnapshot.slice();
+      const compare = (observed, label) => {
+        check(observed.visiblePixels === preparedRestored.visiblePixels, `${label} changed MASK/opaque coverage`);
+        let maximumError = 0;
+        for (let i = 0; i < expected.length; i++) {
+          maximumError = Math.max(maximumError,
+            Math.abs(decodeFloat16(expected[i]) - decodeFloat16(hdrSnapshot[i])));
+        }
+        check(maximumError <= 0.002, `${label} changed native HDR: ${maximumError}`);
+        return maximumError;
+      };
+      try {
+        pool.requestGrowth(Math.ceil(pool.bankBytes * 1.5 / 16) * 16);
+        fail = true;
+        let aborted = false;
+        try {
+          await tick();
+        } catch (error) {
+          check(error.message.includes("injected native production abort"), `Unexpected growth failure: ${error}`);
+          aborted = true;
+        } finally {
+          fail = false;
+        }
+        check(aborted, "Bank growth abort was not exercised");
+        check(binding.banks === originalBanks && binding.bindingEpoch === originalEpoch,
+          "Aborted bank growth published its candidate");
+        renderer._vsmGeneration.invalidate();
+        await tick();
+        const bank = await inspect();
+        check(binding.banks !== originalBanks && binding.bindingEpoch !== originalEpoch,
+          "Bank growth failed to replace production bindings");
+        const bankMaximumError = compare(bank, "Bank growth");
+        const bankVsm = await inspectVsm();
+        check(bankVsm.contentValidPages > 0, "Bank growth lost VSM caster output");
+
+        // A third source exceeds the exact two-record Product table. Its IO
+        // resumes only after an ordinary Renderer frame copies the new layout.
+        const pending = growthRuntime.load(growthSource());
+        await new Promise(resolve => setTimeout(resolve, 0));
+        renderer._vsmGeneration.invalidate();
+        await tick();
+        const extra = await pending;
+        check(binding.metadata !== originalMetadata, "Metadata growth did not change the production heap");
+        const metadata = await inspect();
+        const metadataMaximumError = compare(metadata, "Metadata growth");
+        const metadataVsm = await inspectVsm();
+        check(metadataVsm.contentValidPages > 0, "Metadata relocation lost VSM caster output");
+        geometryGrowth = {
+          actualRenderer: true, abortRetainedEpoch: true,
+          bankMaximumError, metadataMaximumError,
+          bankVsm, metadataVsm, peak: geometryProductGpuBudgetEvidence(device),
+        };
+        await growthRuntime.release(extra.productTableSlot, extra.productGeneration);
+      } finally {
+        pool.releaseOwner();
+      }
+    }
     if (productGeometry) {
       // A deliberately stale prediction must recover every candidate from an
       // empty current depth. This exercises the actual production owner and
@@ -1607,6 +1691,7 @@ export async function runNativeSurfaceProductionGpuOracle(
       preparedFixed,
       residentMiss,
       preparedRestored,
+      geometryGrowth,
       nearClipPrepared,
       nearClipResident,
       nearClipMaximumError,

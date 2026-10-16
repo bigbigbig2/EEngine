@@ -564,6 +564,10 @@ export async function runSssrProductionGpuOracle() {
       maxDecodedProductBytes: 32 * 1024 * 1024
     });
     await renderer.uploadCookedSceneProduct(productScene, product);
+    check(
+      renderer.graphics.render_world.runtime(productScene).nativeMaterials.reflectionProfile === "sssr-base-coat",
+      "Enabled SSSR must prepare the actual initial Product material output",
+    );
     currentScene = productScene;
     await tick();
     check(captured.geometry.productHeap, "Product route consumes compact Pages");

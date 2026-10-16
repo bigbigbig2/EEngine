@@ -116,10 +116,22 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
     heapHeader[12] = pool.bankBytes;
     device.queue.writeBuffer(locations, 0, heapHeader);
     try {
-      for (const offset of [0, 176, 512, pool.bankBytes - 16]) {
-        device.queue.writeBuffer(locations, 64, encodeGeometryProductGpuLocationV1({
+      const cases = [
+        ...[0, 176, 512, pool.bankBytes - 16].map(offset => ({ offset, valid: true })),
+        { offset: 0, valid: false, word: 2, value: 20, name: "stale-generation" },
+        { offset: 0, valid: false, absent: true, name: "nonresident" },
+        { offset: 0, valid: false, word: 0, value: 22, name: "reserved-bits" },
+        { offset: 0, valid: false, word: 1, value: 4, name: "unaligned" },
+        { offset: pool.bankBytes - 16, valid: false, word: 3, value: 32, name: "past-bank-end" },
+        { offset: 0, valid: false, word: 1, value: 0xfffffff0, name: "u32-wrap" },
+      ];
+      for (const entry of cases) {
+        const offset = entry.offset;
+        const bytes = encodeGeometryProductGpuLocationV1(entry.absent ? undefined : {
           bankIndex: 2, byteOffset: offset, payloadBytes: 16, productGeneration: 19, flags: 1
-        }));
+        });
+        if (entry.word !== undefined) new DataView(bytes.buffer).setUint32(entry.word * 4, entry.value, true);
+        device.queue.writeBuffer(locations, 64, bytes);
         const marker = 0x12340000 + offset;
         device.queue.writeBuffer(pool.banks[2], offset, new Uint32Array([marker]));
         const encoder = device.createCommandEncoder();
@@ -143,8 +155,13 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
         await read.mapAsync(GPUMapMode.READ);
         const words = new Uint32Array(read.getMappedRange().slice(0));
         read.unmap();
-        assert.deepEqual([...words], [1, offset, offset / 4, marker]);
-        boundaries.push({ profile: plan.profile, capacityBytes: pool.bankBytes * 4, offset, marker: words[3] });
+        assert.equal(words[0], Number(entry.valid), entry.name);
+        if (entry.valid) assert.deepEqual([...words], [1, offset, offset / 4, marker]);
+        else assert.equal(words[3], 0, `${entry.name} must not read the bank`);
+        boundaries.push({
+          profile: plan.profile, capacityBytes: pool.bankBytes * 4, offset,
+          name: entry.name ?? "valid-address", valid: entry.valid, marker: words[3],
+        });
       }
     } finally {
       await device.queue.onSubmittedWorkDone();
