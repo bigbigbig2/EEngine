@@ -547,6 +547,7 @@ export class PackedVisibilityPass {
       visibleClusterCapacity: job.runtime.hierarchyVisibleClusterCapacity,
       virtualProductGeneration: job.virtualGeometry?.productGeneration ?? 0,
       virtualProductBankCount: job.virtualGeometry?.banks.length ?? 0,
+      virtualProductBindingEpoch: job.virtualGeometry?.bindingEpoch ?? "none",
       meshletWorkCandidateCapacity,
       meshletWorkCompactionPath: job.meshletWorkCompactionPath ?? "auto",
       frameGeometryBudget: Object.freeze({

@@ -131,9 +131,10 @@ test("resident feedback protects hot pages without IO and bounds shared-pool evi
     maxUploadBytesPerFrame: 262144
   });
   // Exercise feedback/retirement under pressure independently of page decoding.
-  scheduler.drainStageBudget = () => 0;
-  // The runtime consumes the live pressure getter, not the diagnostic snapshot.
-  Object.defineProperty(scheduler, "blockedUploads", { get: () => 1 });
+  scheduler.drainStageBudget = (sink) => {
+    sink.stagePage({ pageId: 1 }, { productTableSlot: 0, productGeneration: 1 });
+    return 0;
+  };
   const makeResidency = (generation) => {
     const used = new Map();
     return {
@@ -143,6 +144,8 @@ test("resident feedback protects hot pages without IO and bounds shared-pool evi
       stagedPageIds: [],
       productGeneration: generation,
       productTableSlot: generation - 1,
+      tryStagePage() { return false; },
+      uploadCost() { return 262144; },
       descriptor: {
         productId: new Uint8Array(32),
         revision: 0,

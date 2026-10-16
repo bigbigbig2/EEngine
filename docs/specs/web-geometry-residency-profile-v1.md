@@ -5,7 +5,7 @@ verifies:
   files:
     - OEngine/src/gpu/GeometryProductResidencyProfile.ts
     - OEngine/src/gpu/GeometryProductGpuAbiV1.ts
-    - OEngine/src/gpu/GeometryProductSlotPool.ts
+    - OEngine/src/gpu/GeometryProductBytePool.ts
     - OEngine/src/gpu/GeometryProductGpuBudget.ts
     - OEngine/src/gpu/VirtualGeometryResidency.ts
 ---
@@ -13,7 +13,7 @@ verifies:
 
 Status: candidate
 
-Owners: `GeometryProductResidencyProfileV1`, `GeometryProductSlotPool`, `VirtualGeometryResidency`
+Owners: `GeometryProductResidencyProfileV1`, `GeometryProductBytePool`, `VirtualGeometryResidency`
 
 ## Version/Compatibility
 
@@ -26,9 +26,7 @@ format or cache identity.
 
 The profile selects physical bank capacity. Product descriptors, 256 KiB decoded
 pages, PageID identity, hierarchy and cooked bytes remain unchanged; no recook is
-required for a capacity change. Runtime GPU ABI version 5 publishes actual
-`slotsPerBank` in metadata header word 12. Its resident-address namespace uses
-2048 slots per bank; this ceiling is distinct from allocated physical capacity.
+required for a capacity change. Runtime GPU ABI version 6 publishes actual bank byte capacity in metadata header word 12. Page locations carry a 16B-aligned byte offset and effective payload length; packed frame addresses allow up to 1GiB per bank.
 The runtime rebuilds CPU/WGSL locations together; older GPU headers are rejected.
 
 ## Profiles
@@ -42,8 +40,7 @@ are ceilings, not minimum allocations or claims about physical VRAM:
 | `Balanced` | up to 192 MiB | up to 768 MiB | full ceiling requires both buffer limits >= 192 MiB |
 | `HighEnd` | up to 256 MiB | up to 1 GiB | full ceiling requires both buffer limits >= 256 MiB |
 
-`auto` without an explicit budget reserves **4 × 32 MiB = 128 MiB**. An explicit
-profile without a budget may allocate its full ceiling. Actual bank bytes are
+`auto` without an explicit budget has a **128 MiB ceiling**. Initial banks are directory-planned (25% headroom), or a rolling window up to 1MiB per bank for an unknown incremental catalog. Actual ceiling bytes are
 `floor(min(profile ceiling, both buffer limits, configured budget / 4) / 256 KiB)
 * 256 KiB`. Budgets below four pages fail closed; small banks are valid. This
 default is an allocation policy, not a measured optimum for large scenes.
@@ -51,9 +48,9 @@ default is an allocation policy, not a measured optimum for large scenes.
 `configuredBankBytes` can explicitly override the default profile ceiling when
 paired with a finite `configuredCapacityBytes`. Bank bytes are still clamped to
 both device buffer limits, the configured total divided by four, and the GPU
-address namespace (512 MiB per bank), then aligned down to 256 KiB. Default
+address namespace (1 GiB per bank), then aligned down to 256 KiB. Default
 profile selection and ceilings stay as listed above. The selected profile label
-describes the tier; `bankBytes`/`capacityBytes` record the actual allocation.
+describes the tier; `bankBytes`/`capacityBytes` record the capacity ceiling.
 
 All profiles also require the Product consumer's negotiated
 `maxStorageBuffersPerShaderStage >= 16`. The selector reads the post-device
@@ -66,16 +63,14 @@ limits; it never reads or infers physical adapter VRAM.
 `selectGeometryProductResidencyProfileV1(limits, options)` is pure and creates
 no GPU object. `requestedProfile` may be explicit or `auto`. Delayed runtime
 evidence can select a higher ceiling, but cannot exceed the configured budget
-or negotiated limits; it does not resize a live pool. The plan records actual
-bank bytes and slots. If even four pages cannot fit, required storage bindings
+or negotiated limits; it does not resize a live pool. The plan records bank ceiling, initial bytes and maximum live page leases. If even four pages cannot fit, required storage bindings
 are unsupported, or `featureEnabled` is false, the plan is `Disabled`.
 `VirtualGeometryResidency.create` and the multi-runtime constructor reject
 before creating their metadata or page banks. Composition must not then create
 Product demand/readback resources.
 
 The selected plan is device-wide for a shared page-bank pool. All Product
-revisions on one device must use the same bank size and capacity while the pool is alive;
-changing it requires a device/resource lifecycle boundary. A replacement
+revisions on one device must use the same bank ceiling and lease/node contract while the pool is alive; actual banks may grow at a normal-frame transaction. A replacement
 revision reuses the same Product/Page ABI and profile and does not recook.
 
 ## Budget and evidence
@@ -83,7 +78,7 @@ revision reuses the same Product/Page ABI and profile and does not recook.
 The GPU budget ledger records the selected capacity, current/peak bytes, and
 metadata overhead, including retiring ownership. The ledger uses the actual
 configured budget rather than imposing a 512 MiB floor. Profile evidence records negotiated limits, bank count,
-bank bytes, slot capacity, runtime evidence, and the selected/fallback reason.
+bank bytes, page lease capacity, runtime evidence, and the selected/fallback reason.
 The ledger remains bounded during replacement: old and candidate revisions
 share the same physical pool rather than allocating a second profile heap.
 
@@ -102,8 +97,8 @@ Contract coverage is in
 - Portable/Balanced/HighEnd selection from negotiated limits;
 - small budgets, explicit fallback and runtime-pressure ceilings without recook;
 - low-limit and feature-off zero-bank allocation;
-- actual slots versus packed address namespace, including 511/512/767/1023/1024/1535/2047;
-- Balanced residency using four 192 MiB banks with unchanged cooked pages.
+- actual byte offsets versus the packed address namespace, alignment, full generation and payload bounds;
+- Balanced ceiling with compact initial banks and unchanged cooked pages.
 
 Budgeted lifecycle contracts and the `geometry-budgeted-residency` GPU oracle
 also cover capacity negotiation, physical bank-boundary reads, pinned coarse
@@ -112,3 +107,5 @@ execution plan G2.1 record.
 
 This is implementation/contract evidence only. Current-revision `large.glb`
 browser evidence is required for runtime and performance claims.
+
+GRS-1 growth uses four COPY_SRC/COPY_DST banks, a candidate epoch and stable offsets. Active plus candidate plus retired buffer bytes remain inside the same peak budget; failed fences do not authorize reuse. The CPU allocator uses at most four 32×8 segregated-fit allocators; default 65536 live leases costs about 18.5MiB TypedArray metadata, with an 80MiB limit. See the current geometry startup execution for validation scope.

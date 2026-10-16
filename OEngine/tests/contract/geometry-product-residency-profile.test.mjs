@@ -147,7 +147,7 @@ test("an explicit working-set bank target preserves four bindings and obeys both
   const unchanged = selectGeometryProductResidencyProfileV1(limits(512 * MiB), { requestedProfile: "HighEnd" });
   assert.equal(unchanged.capacityBytes, 1024 * MiB);
   const namespaceClamped = selectGeometryProductResidencyProfileV1(limits(1024 * MiB), { ...options, configuredBankBytes: 1024 * MiB, configuredCapacityBytes: 4096 * MiB });
-  assert.equal(namespaceClamped.capacityBytes, 2048 * MiB);
+  assert.equal(namespaceClamped.capacityBytes, 4096 * MiB);
   assert.throws(() => selectGeometryProductResidencyProfileV1(limits(512 * MiB), { configuredBankBytes: 384 * MiB }), /requires finite configuredCapacityBytes/);
   assert.throws(() => selectGeometryProductResidencyProfileV1(limits(512 * MiB), { ...options, configuredCapacityBytes: Infinity }), /requires finite configuredCapacityBytes/);
   assert.throws(() => selectGeometryProductResidencyProfileV1(limits(512 * MiB), { ...options, configuredBankBytes: NaN }), /page-sized integer/);
@@ -194,7 +194,7 @@ test("Phase H creates the same Product ABI with an adapter-sized Balanced heap",
   });
   assert.equal(residency.residencyProfile.profile, "Balanced");
   assert.equal(residency.residencyProfile.bankBytes, 192 * 1024 * 1024);
-  assert.equal(residency.evidence().sharedBankCapacityBytes, 768 * 1024 * 1024);
+  assert.equal(residency.evidence().sharedBankCapacityBytes, 4 * 1024 * 1024);
   assert.equal(residency.bindings().banks.length, 4);
   residency.destroy();
 });

@@ -17,7 +17,7 @@ import { GeometryDemandReadbackRingV1 } from "../../.test-dist/gpu/GeometryDeman
 import { GeometryPageSchedulerV1 } from "../../.test-dist/gpu/GeometryPageScheduler.js";
 import { GeometryPageStreamingRuntimeV1 } from "../../.test-dist/gpu/GeometryPageStreamingRuntime.js";
 
-globalThis.GPUBufferUsage ??= { STORAGE: 128, COPY_DST: 8, MAP_READ: 1 };
+globalThis.GPUBufferUsage ??= { STORAGE: 128, COPY_DST: 8, COPY_SRC: 4, MAP_READ: 1 };
 const MiB = 1024 * 1024;
 function device() {
   const buffers = [];
@@ -217,17 +217,15 @@ test("page tail directory and decoded attributes never overwrite authored geomet
     const residency = handle.residency;
     assert.equal(residency.tryStagePage(await fixture.source.readPage(1)), true);
     publishGeometryPages(residency, [1]);
-    assert.equal(residency.evidence().residentBytes, 2 * 262144);
+    assert.equal(residency.evidence().residentBytes, 2 * 176);
     for (const pageId of [0, 1]) {
       const original = await fixture.source.readPage(pageId);
       const location = residency.pageLocation(pageId);
-      assert.equal(location.residentBankIndex, location.bankIndex);
-      assert.equal(location.residentSlotIndex, location.slotIndex);
-      assert.equal(location.residentByteOffset, 0);
+      assert.equal(location.payloadBytes, 176);
       const buffer = residency.bank(location.bankIndex);
-      const base = location.slotIndex * 262144;
+      const base = location.byteOffset;
       assert.deepEqual(buffer.bytes.slice(base, base + 176), new Uint8Array(original.bytes, 0, 176));
-      assert.deepEqual(buffer.bytes.slice(base + 176, base + 262144), new Uint8Array(262144 - 176));
+      assert.equal(residency.residentPagePhysicalBytes(pageId), 176);
       const view = new DataView(buffer.bytes.buffer, base, 176);
       const vertexDataOffset = view.getUint32(56, true);
       assert.deepEqual(
@@ -241,39 +239,18 @@ test("page tail directory and decoded attributes never overwrite authored geomet
   assert.equal(geometryProductGpuBudgetEvidence(gpu).totalBytes, 0);
 });
 
-test("budget/profile final slots round trip with an explicit physical capacity", () => {
-  const limits = device().limits;
-  for (const [profile, bytes, last] of [
-    ["auto", 128 * MiB, 127],
-    ["Portable", 512 * MiB, 511],
-    ["Balanced", 768 * MiB, 767],
-    ["HighEnd", 1024 * MiB, 1023],
-  ]) {
-    const plan = selectGeometryProductResidencyProfileV1(limits, { requestedProfile: profile });
-    assert.equal(plan.capacityBytes, bytes);
-    for (const slot of new Set([0, Math.min(511, last), Math.min(512, last), Math.min(767, last), last])) {
-      const encoded = encodeGeometryProductGpuLocationV1({
-        bankIndex: 3,
-        slotIndex: slot,
-        residentBankIndex: 2,
-        residentSlotIndex: slot,
-        productGeneration: 19,
-        flags: 1,
-      });
-      assert.equal(validateGeometryProductGpuLocationV1(encoded, 19, plan.slotsPerBank).valid, true);
-      assert.equal(new DataView(encoded.buffer).getUint32(4, true) >>> 16, 2 * 2048 + slot + 1);
-      assert.equal(validateGeometryProductGpuLocationV1(encoded, 20, plan.slotsPerBank).valid, false);
+test("budget/profile byte boundaries round trip with explicit bank capacity", () => {
+  for (const requestedProfile of ["auto", "Portable", "Balanced", "HighEnd"]) {
+    const plan = selectGeometryProductResidencyProfileV1(device().limits, { requestedProfile });
+    for (const byteOffset of [0, 176, plan.bankBytes - 176]) {
+      const encoded = encodeGeometryProductGpuLocationV1({bankIndex: 3, byteOffset, payloadBytes: 176, productGeneration: 19, flags: 1});
+      assert.equal(validateGeometryProductGpuLocationV1(encoded, 19, plan.bankBytes).valid, true);
+      assert.equal(validateGeometryProductGpuLocationV1(encoded, 20, plan.bankBytes).valid, false);
+      assert.equal(new DataView(encoded.buffer).getUint32(4, true), byteOffset);
     }
   }
-  const aboveSmallPool = encodeGeometryProductGpuLocationV1({
-    bankIndex: 0,
-    slotIndex: 128,
-    residentBankIndex: 1,
-    residentSlotIndex: 128,
-    productGeneration: 1,
-    flags: 1,
-  });
-  assert.equal(validateGeometryProductGpuLocationV1(aboveSmallPool, 1, 128).valid, false);
+  const outside = encodeGeometryProductGpuLocationV1({bankIndex: 0, byteOffset: 512, payloadBytes: 176, productGeneration: 1, flags: 1});
+  assert.equal(validateGeometryProductGpuLocationV1(outside, 1, 512).valid, false);
 });
 
 test("metadata reuse exceeds cumulative capacity; one GPU directory and fenced slot retirement", async () => {
@@ -284,7 +261,7 @@ test("metadata reuse exceeds cumulative capacity; one GPU directory and fenced s
   });
   const fixture = await streamingProductFixture(3);
   let handle = await runtime.load(fixture.source);
-  assert.equal(gpu.buffers.length, 5); // scene directory + four banks, no shard heap/table
+  assert.equal(gpu.buffers.filter((buffer) => !buffer.destroyed).length, 5); // scene directory + four banks, no shard heap/table
   assert.equal(handle.residency.evidence().metadataBytes, 0);
   let finish;
   const fence = new Promise((resolve) => {
@@ -311,7 +288,7 @@ test("metadata reuse exceeds cumulative capacity; one GPU directory and fenced s
     await runtime.release(0, replacement.productGeneration);
   }
   assert.equal(runtime.evidence().retiring, 0);
-  assert.equal(geometryProductGpuBudgetEvidence(gpu).metadataBytes, 64 * 1024);
+  assert.ok(geometryProductGpuBudgetEvidence(gpu).metadataBytes < 64 * 1024);
   assert.ok(gpu.fences >= 200);
   runtime.destroy();
   assert.equal(geometryProductGpuBudgetEvidence(gpu).totalBytes, 0);
@@ -517,16 +494,20 @@ test("late cancelled activation and failed replacement cannot republish into a r
   });
   const fixture = await streamingProductFixture(2);
   let finishRead;
+  let startedRead;
+  const reading = new Promise((resolve) => { startedRead = resolve; });
   const source = {
     ...fixture.source,
     readPage: (pageId) =>
       new Promise((resolve) => {
         finishRead = async () => resolve(await fixture.source.readPage(pageId));
+        startedRead();
       }),
   };
   const pending = runtime.load(source, { productTableSlot: 0 });
   const failure = assert.rejects(pending, /released|cancelled|destroyed/);
   const generation = 1;
+  await reading;
   const retirement = runtime.release(0, generation);
   await finishRead();
   await failure;

@@ -115,6 +115,8 @@ export class GeometryPageStreamingRuntimeV1 {
   readonly #publicationSubscriptions = new Map<number, () => void>();
   #pollTail: Promise<unknown> = Promise.resolve();
   #lastError: string | null = null;
+  #allocationBlockedPumps = 0;
+  #allocationPressure: string | null = null;
   #lastPoll: GeometryPageStreamingPollEvidenceV1 | null = null;
   #mainFeedbackFrame = -1;
   #shadowFeedbackFrame = -1;
@@ -144,7 +146,7 @@ export class GeometryPageStreamingRuntimeV1 {
     const scheduler = this.#scheduler.refinementState();
     return {
       ...scheduler,
-      error: this.#lastError ?? scheduler.error,
+      error: this.#lastError ?? scheduler.error ?? this.#allocationPressure,
       mainFrame: this.#mainFeedbackFrame,
       mainComplete: this.#mainFeedbackComplete,
       shadowFrame: this.#shadowFeedbackFrame,
@@ -612,6 +614,8 @@ export class GeometryPageStreamingRuntimeV1 {
       return residency;
     };
     let stagedPages = 0;
+    let blockedAllocationBytes = 0;
+    let blockedAllocationPages = 0;
     const sink = {
       uploadCost: (
         page: import("../assets/geometry-product/GeometryProductV1.js").GeometryPageProductV1,
@@ -621,36 +625,60 @@ export class GeometryPageStreamingRuntimeV1 {
         page: import("../assets/geometry-product/GeometryProductV1.js").GeometryPageProductV1,
         identity: import("./GeometryPageDemandAbiV1.js").GeometryPageDemandV1,
       ) => {
-        const staged = pageResidency(identity).tryStagePage(page);
+        const residency = pageResidency(identity);
+        const staged = residency.tryStagePage(page) !== false;
         if (staged) {
           stagedPages++;
+        } else if (!residency.allocationFrozen) {
+          blockedAllocationBytes += Math.ceil(residency.uploadCost(page) / 16) * 16;
+          blockedAllocationPages++;
         }
         return staged;
       },
     };
     let uploadedBytes = this.#scheduler.drainStageBudget(sink);
     const feedbackFrame = this.evictionFeedbackFrame();
-    if (this.#scheduler.blockedUploads > 0 && feedbackFrame >= 0) {
+    if (blockedAllocationPages > 0 && feedbackFrame >= 0) {
       // This is a frame-between pump, never a current-frame control round trip.
       // The next ordinary frame revokes mappings before its consumers run.
       // Its completion fence also covers every earlier submitted consumer.
       const candidates: Array<{ residency: VirtualGeometryResidency; pages: readonly number[] }> = [];
-      let evictionBytesRemaining = this.#scheduler.budget().maxUploadBytesPerFrame;
+      let evictionBytesRemaining = blockedAllocationBytes;
+      let evictionPagesRemaining = blockedAllocationPages;
       for (const residency of this.#residencies.values()) {
-        if (!residency.publicationActive || evictionBytesRemaining <= 0) {
+        if (!residency.publicationActive || evictionBytesRemaining <= 0 || evictionPagesRemaining <= 0) {
           continue;
         }
-        const pages = residency.selectEvictionCandidates(feedbackFrame, evictionBytesRemaining, 2);
+        const pages = residency.selectEvictionCandidates(
+          feedbackFrame,
+          evictionBytesRemaining,
+          2,
+          evictionPagesRemaining,
+        );
         if (pages.length > 0) {
           candidates.push({ residency, pages });
           for (const pageId of pages) {
             evictionBytesRemaining -= residency.residentPagePhysicalBytes(pageId);
+            evictionPagesRemaining--;
           }
         }
       }
       for (const { residency, pages } of candidates) {
         this.retirePages(pages, residency);
       }
+    }
+    if (stagedPages > 0) {
+      this.#allocationBlockedPumps = 0;
+      this.#allocationPressure = null;
+    } else if (blockedAllocationPages > 0) {
+      this.#allocationBlockedPumps++;
+      if (this.#allocationBlockedPumps >= 120) {
+        this.#allocationPressure =
+          "Geometry current-view allocation remains unserviceable after 120 delayed pumps; inspect byte/node/lease/growth budget and thrash diagnostics";
+      }
+    } else if (this.#scheduler.refinementState().pending === 0) {
+      this.#allocationBlockedPumps = 0;
+      this.#allocationPressure = null;
     }
     this.#lastPoll = Object.freeze({
       completedFrame,

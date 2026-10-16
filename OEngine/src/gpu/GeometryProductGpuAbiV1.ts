@@ -1,8 +1,6 @@
 import type { GeometryPageLocationV1 } from "./VirtualGeometryResidency.js";
 
-export const GEOMETRY_PRODUCT_GPU_ABI_VERSION_V1 = 5;
-/** Location word 3: low two lifecycle flags, bits 2..15 directory offset / 16. */
-const GEOMETRY_PAGE_DIRECTORY_OFFSET_MASK = 0xfffc;
+export const GEOMETRY_PRODUCT_GPU_ABI_VERSION_V1 = 6;
 export const GEOMETRY_PAGE_LOCATION_STRIDE = 16;
 export const GEOMETRY_PAGE_LOCATION_NON_RESIDENT = 0xffffffff;
 export const GEOMETRY_PAGE_LOCATION_RESIDENT = 1;
@@ -10,9 +8,8 @@ export const GEOMETRY_PAGE_LOCATION_PINNED = 2;
 export const GEOMETRY_PRODUCT_GPU_PAGE_SHIFT_V1 = 18;
 export const GEOMETRY_PRODUCT_GPU_PAGE_BYTES_V1 = 1 << GEOMETRY_PRODUCT_GPU_PAGE_SHIFT_V1;
 export const GEOMETRY_PRODUCT_GPU_BANK_COUNT_MAX_V1 = 4;
-/** Address namespace ceiling, NOT the negotiated physical bank capacity.
- * Four banks plus the nonresident sentinel fit the packed high 16 bits. */
-export const GEOMETRY_PRODUCT_GPU_SLOTS_PER_BANK_V1 = 2048;
+/** Low 30 bits of packed frame geometry addresses hold the bank byte offset. */
+export const GEOMETRY_PRODUCT_GPU_BANK_BYTES_MAX_V1 = 0x40000000;
 export const GEOMETRY_PRODUCT_TABLE_RECORD_STRIDE_V1 = 64;
 export const GEOMETRY_PRODUCT_ASSET_REFERENCE_STRIDE_V1 = 16;
 export const GEOMETRY_PRODUCT_TABLE_FLAG_ACTIVE_V1 = 1;
@@ -20,7 +17,7 @@ export const GEOMETRY_PRODUCT_METADATA_HEAP_HEADER_BYTES_V1 = 64;
 
 export interface GeometryProductMetadataHeapHeaderV1 {
   /** Actual physical capacity within the packed resident address namespace. */
-  readonly slotsPerBank: number;
+  readonly bankByteCapacity: number;
   readonly productCount: number;
   readonly productCapacity: number;
   readonly totalWords: number;
@@ -78,14 +75,14 @@ export interface GeometryProductGpuLocationValidationV1 {
   readonly valid: boolean;
   readonly resident: boolean;
   readonly bankIndex: number;
-  readonly slotIndex: number;
   readonly productGeneration: number;
   readonly flags: number;
   readonly byteOffset: number;
+  readonly payloadBytes: number;
 }
 
 export function encodeGeometryProductGpuLocationV1(
-  location: GeometryPageLocationV1 | undefined
+  location: GeometryPageLocationV1 | undefined,
 ): Uint8Array<ArrayBuffer> {
   const bytes = new Uint8Array(GEOMETRY_PAGE_LOCATION_STRIDE);
   const view = new DataView(bytes.buffer);
@@ -94,102 +91,77 @@ export function encodeGeometryProductGpuLocationV1(
     view.setUint32(4, GEOMETRY_PAGE_LOCATION_NON_RESIDENT, true);
     return bytes;
   }
-  if (
-    !Number.isInteger(location.bankIndex) ||
-    location.bankIndex < 0 ||
-    location.bankIndex >= GEOMETRY_PRODUCT_GPU_BANK_COUNT_MAX_V1 ||
-    !Number.isInteger(location.slotIndex) ||
-    location.slotIndex < 0 ||
-    location.slotIndex >= GEOMETRY_PRODUCT_GPU_SLOTS_PER_BANK_V1 ||
-    !Number.isInteger(location.productGeneration) ||
-    location.productGeneration <= 0 ||
-    location.productGeneration === 0xffffffff ||
-    (location.flags & ~3) !== 0 ||
-    (location.flags & GEOMETRY_PAGE_LOCATION_RESIDENT) === 0
-  )
-    throw new RangeError("invalid GeometryPageLocationV1");
-  if (
-    !Number.isInteger(location.residentBankIndex) ||
-    location.residentBankIndex < 0 ||
-    location.residentBankIndex >= GEOMETRY_PRODUCT_GPU_BANK_COUNT_MAX_V1 ||
-    !Number.isInteger(location.residentSlotIndex) ||
-    location.residentSlotIndex < 0 ||
-    location.residentSlotIndex >= GEOMETRY_PRODUCT_GPU_SLOTS_PER_BANK_V1
-  )
-    throw new RangeError("invalid Product resident directory location");
-  const directoryOffset = location.residentByteOffset ?? 0;
-  if (
-    !Number.isInteger(directoryOffset) ||
-    directoryOffset < 0 ||
-    directoryOffset >= GEOMETRY_PRODUCT_GPU_PAGE_BYTES_V1 ||
-    directoryOffset % 16 !== 0
-  ) {
-    throw new RangeError("invalid Product resident directory offset");
+  for (const name of ["bankIndex", "byteOffset", "productGeneration", "flags", "payloadBytes"] as const) {
+    assertU32(location[name], name);
   }
-  view.setUint32(0, location.bankIndex, true);
-  view.setUint32(
-    4,
-    (location.slotIndex |
-      ((location.residentBankIndex * GEOMETRY_PRODUCT_GPU_SLOTS_PER_BANK_V1 +
-        location.residentSlotIndex +
-        1) <<
-        16)) >>>
-      0,
-    true
-  );
+  if (
+    location.bankIndex >= 4 ||
+    location.byteOffset % 16 !== 0 ||
+    location.payloadBytes === 0 ||
+    location.payloadBytes > GEOMETRY_PRODUCT_GPU_PAGE_BYTES_V1 ||
+    location.payloadBytes % 4 !== 0 ||
+    location.flags < 1 ||
+    (location.flags & ~3) !== 0 ||
+    (location.flags & GEOMETRY_PAGE_LOCATION_RESIDENT) === 0 ||
+    location.productGeneration === 0 ||
+    location.productGeneration === 0xffffffff ||
+    location.byteOffset > GEOMETRY_PRODUCT_GPU_BANK_BYTES_MAX_V1 - location.payloadBytes
+  ) {
+    throw new RangeError("Geometry Product byte location is invalid");
+  }
+  view.setUint32(0, location.bankIndex | (location.flags << 2), true);
+  view.setUint32(4, location.byteOffset, true);
   view.setUint32(8, location.productGeneration, true);
-  view.setUint32(12, location.flags | ((directoryOffset / 16) << 2), true);
+  view.setUint32(12, location.payloadBytes, true);
   return bytes;
 }
 
 export function validateGeometryProductGpuLocationV1(
   bytes: Uint8Array,
   expectedGeneration: number,
-  physicalSlotsPerBank = GEOMETRY_PRODUCT_GPU_SLOTS_PER_BANK_V1
+  bankByteCapacity = GEOMETRY_PRODUCT_GPU_BANK_BYTES_MAX_V1,
 ): GeometryProductGpuLocationValidationV1 {
+  assertRange(bytes, 0, GEOMETRY_PAGE_LOCATION_STRIDE);
   if (
-    !Number.isSafeInteger(physicalSlotsPerBank) ||
-    physicalSlotsPerBank < 1 ||
-    physicalSlotsPerBank > GEOMETRY_PRODUCT_GPU_SLOTS_PER_BANK_V1
+    !Number.isSafeInteger(bankByteCapacity) ||
+    bankByteCapacity <= 0 ||
+    bankByteCapacity % 16 !== 0 ||
+    bankByteCapacity > GEOMETRY_PRODUCT_GPU_BANK_BYTES_MAX_V1
   ) {
-    throw new RangeError("invalid physical Product bank capacity");
+    throw new RangeError("Geometry Product bank byte capacity is invalid");
   }
-  if (bytes.byteLength < GEOMETRY_PAGE_LOCATION_STRIDE)
-    throw new RangeError("GeometryPageLocationV1 record is truncated");
-  if (!Number.isInteger(expectedGeneration) || expectedGeneration <= 0 || expectedGeneration === 0xffffffff)
-    throw new RangeError("expected generation is invalid");
-  const view = new DataView(bytes.buffer, bytes.byteOffset, GEOMETRY_PAGE_LOCATION_STRIDE),
-    bankIndex = view.getUint32(0, true),
-    packedSlot = view.getUint32(4, true),
-    slotIndex = packedSlot & 0xffff,
-    directorySlot = (packedSlot >>> 16) - 1,
-    productGeneration = view.getUint32(8, true),
-    packedFlags = view.getUint32(12, true),
-    flags = packedFlags & 3;
-  const resident = (flags & GEOMETRY_PAGE_LOCATION_RESIDENT) !== 0;
-  const validFlags = (packedFlags & ~0xffff) === 0;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, GEOMETRY_PAGE_LOCATION_STRIDE);
+  const packed = view.getUint32(0, true);
+  const bankIndex = packed & 3;
+  const flags = (packed >>> 2) & 3;
+  const byteOffset = view.getUint32(4, true);
+  const productGeneration = view.getUint32(8, true);
+  const payloadBytes = view.getUint32(12, true);
   const valid =
-    resident &&
-    validFlags &&
-    bankIndex < GEOMETRY_PRODUCT_GPU_BANK_COUNT_MAX_V1 &&
-    slotIndex < physicalSlotsPerBank &&
-    directorySlot % GEOMETRY_PRODUCT_GPU_SLOTS_PER_BANK_V1 < physicalSlotsPerBank &&
-    directorySlot >= 0 &&
-    directorySlot < GEOMETRY_PRODUCT_GPU_SLOTS_PER_BANK_V1 * GEOMETRY_PRODUCT_GPU_BANK_COUNT_MAX_V1 &&
-    productGeneration === expectedGeneration;
+    (packed & ~15) === 0 &&
+    (flags & GEOMETRY_PAGE_LOCATION_RESIDENT) !== 0 &&
+    productGeneration !== 0 &&
+    productGeneration !== 0xffffffff &&
+    productGeneration === expectedGeneration &&
+    byteOffset % 16 === 0 &&
+    payloadBytes > 0 &&
+    payloadBytes <= GEOMETRY_PRODUCT_GPU_PAGE_BYTES_V1 &&
+    payloadBytes % 4 === 0 &&
+    payloadBytes <= bankByteCapacity &&
+    byteOffset <= bankByteCapacity - payloadBytes;
   return Object.freeze({
     valid,
-    resident,
+    resident: valid,
     bankIndex,
-    slotIndex,
-    productGeneration,
     flags,
-    byteOffset: valid ? slotIndex * GEOMETRY_PRODUCT_GPU_PAGE_BYTES_V1 : 0
+    productGeneration,
+    byteOffset: valid ? byteOffset : 0,
+    payloadBytes: valid ? payloadBytes : 0,
   });
 }
 
 export function packGeometryProductTableRecordV1(
-  record: GeometryProductTableRecordV1
+  record: GeometryProductTableRecordV1,
 ): Uint8Array<ArrayBuffer> {
   for (const [name, value] of Object.entries(record)) assertU32(value, name);
   if (
@@ -204,7 +176,7 @@ export function packGeometryProductTableRecordV1(
     [record.hierarchyBegin, record.hierarchyCount, "hierarchy"],
     [record.groupBegin, record.groupCount, "group"],
     [record.pageBegin, record.pageCount, "page"],
-    [record.vertexFormatBegin, record.vertexFormatCount, "vertex format"]
+    [record.vertexFormatBegin, record.vertexFormatCount, "vertex format"],
   ] as const)
     if (begin + count > 0x100000000) throw new RangeError(`Geometry Product ${name} range overflows u32`);
   const values = [
@@ -223,20 +195,21 @@ export function packGeometryProductTableRecordV1(
     record.vertexFormatBegin,
     record.vertexFormatCount,
     0,
-    0
+    0,
   ];
   return new Uint8Array(new Uint32Array(values).buffer);
 }
 
 export function packGeometryProductMetadataHeapHeaderV1(
-  header: GeometryProductMetadataHeapHeaderV1
+  header: GeometryProductMetadataHeapHeaderV1,
 ): Uint8Array<ArrayBuffer> {
   for (const [name, value] of Object.entries(header)) assertU32(value, name);
-  const slotsPerBank = header.slotsPerBank;
+  const bankByteCapacity = header.bankByteCapacity;
   if (
-    !Number.isSafeInteger(slotsPerBank) ||
-    slotsPerBank < 1 ||
-    slotsPerBank > GEOMETRY_PRODUCT_GPU_SLOTS_PER_BANK_V1
+    !Number.isSafeInteger(bankByteCapacity) ||
+    bankByteCapacity < 16 ||
+    bankByteCapacity % 16 !== 0 ||
+    bankByteCapacity > GEOMETRY_PRODUCT_GPU_BANK_BYTES_MAX_V1
   ) {
     throw new RangeError("Invalid physical Geometry Product bank capacity");
   }
@@ -250,7 +223,7 @@ export function packGeometryProductMetadataHeapHeaderV1(
     header.hierarchyWordOffset,
     header.groupDirectoryWordOffset,
     header.pageLocationWordOffset,
-    header.vertexFormatWordOffset
+    header.vertexFormatWordOffset,
   ];
   if (
     header.productTableWordOffset < 16 ||
@@ -261,7 +234,7 @@ export function packGeometryProductMetadataHeapHeaderV1(
       header.assetReferenceWordOffset,
       0,
       header.productCapacity,
-      16
+      16,
     )
   )
     throw new RangeError("invalid Geometry Product metadata heap offsets");
@@ -272,22 +245,22 @@ export function packGeometryProductMetadataHeapHeaderV1(
       header.productCapacity,
       header.totalWords,
       ...offsets,
-      slotsPerBank,
+      bankByteCapacity,
       0,
       0,
-      0
-    ]).buffer
+      0,
+    ]).buffer,
   );
 }
 export function unpackGeometryProductMetadataHeapHeaderV1(
   bytes: Uint8Array,
-  byteOffset = 0
+  byteOffset = 0,
 ): GeometryProductMetadataHeapHeaderV1 {
   assertRange(bytes, byteOffset, GEOMETRY_PRODUCT_METADATA_HEAP_HEADER_BYTES_V1);
   const view = new DataView(
     bytes.buffer,
     bytes.byteOffset + byteOffset,
-    GEOMETRY_PRODUCT_METADATA_HEAP_HEADER_BYTES_V1
+    GEOMETRY_PRODUCT_METADATA_HEAP_HEADER_BYTES_V1,
   );
   if (
     view.getUint32(0, true) !== GEOMETRY_PRODUCT_GPU_ABI_VERSION_V1 ||
@@ -295,7 +268,7 @@ export function unpackGeometryProductMetadataHeapHeaderV1(
   )
     throw new RangeError("Geometry Product metadata heap version/reserved fields are invalid");
   const record = {
-    slotsPerBank: view.getUint32(48, true),
+    bankByteCapacity: view.getUint32(48, true),
     productCount: view.getUint32(4, true),
     productCapacity: view.getUint32(8, true),
     totalWords: view.getUint32(12, true),
@@ -306,7 +279,7 @@ export function unpackGeometryProductMetadataHeapHeaderV1(
     hierarchyWordOffset: view.getUint32(32, true),
     groupDirectoryWordOffset: view.getUint32(36, true),
     pageLocationWordOffset: view.getUint32(40, true),
-    vertexFormatWordOffset: view.getUint32(44, true)
+    vertexFormatWordOffset: view.getUint32(44, true),
   };
   packGeometryProductMetadataHeapHeaderV1(record);
   return Object.freeze(record);
@@ -314,13 +287,13 @@ export function unpackGeometryProductMetadataHeapHeaderV1(
 
 export function unpackGeometryProductTableRecordV1(
   bytes: Uint8Array,
-  byteOffset = 0
+  byteOffset = 0,
 ): GeometryProductTableRecordV1 {
   assertRange(bytes, byteOffset, GEOMETRY_PRODUCT_TABLE_RECORD_STRIDE_V1);
   const view = new DataView(
     bytes.buffer,
     bytes.byteOffset + byteOffset,
-    GEOMETRY_PRODUCT_TABLE_RECORD_STRIDE_V1
+    GEOMETRY_PRODUCT_TABLE_RECORD_STRIDE_V1,
   );
   if (view.getUint32(56, true) !== 0 || view.getUint32(60, true) !== 0)
     throw new RangeError("Geometry Product table reserved fields are non-zero");
@@ -338,14 +311,14 @@ export function unpackGeometryProductTableRecordV1(
     pageBegin: view.getUint32(40, true),
     pageCount: view.getUint32(44, true),
     vertexFormatBegin: view.getUint32(48, true),
-    vertexFormatCount: view.getUint32(52, true)
+    vertexFormatCount: view.getUint32(52, true),
   };
   packGeometryProductTableRecordV1(record);
   return Object.freeze(record);
 }
 
 export function packGeometryProductAssetReferenceV1(
-  reference: GeometryProductAssetReferenceV1
+  reference: GeometryProductAssetReferenceV1,
 ): Uint8Array<ArrayBuffer> {
   assertU32(reference.productTableSlot, "productTableSlot");
   assertU32(reference.productGeneration, "productGeneration");
@@ -358,29 +331,25 @@ export function packGeometryProductAssetReferenceV1(
   )
     throw new RangeError("invalid Geometry Product asset reference");
   return new Uint8Array(
-    new Uint32Array([
-      reference.productTableSlot,
-      reference.productGeneration,
-      reference.assetRecordIndex,
-      0
-    ]).buffer
+    new Uint32Array([reference.productTableSlot, reference.productGeneration, reference.assetRecordIndex, 0])
+      .buffer,
   );
 }
 export function unpackGeometryProductAssetReferenceV1(
   bytes: Uint8Array,
-  byteOffset = 0
+  byteOffset = 0,
 ): GeometryProductAssetReferenceV1 {
   assertRange(bytes, byteOffset, GEOMETRY_PRODUCT_ASSET_REFERENCE_STRIDE_V1);
   const view = new DataView(
       bytes.buffer,
       bytes.byteOffset + byteOffset,
-      GEOMETRY_PRODUCT_ASSET_REFERENCE_STRIDE_V1
+      GEOMETRY_PRODUCT_ASSET_REFERENCE_STRIDE_V1,
     ),
     record = {
       productTableSlot: view.getUint32(0, true),
       productGeneration: view.getUint32(4, true),
       assetRecordIndex: view.getUint32(8, true),
-      flags: view.getUint32(12, true) as 0
+      flags: view.getUint32(12, true) as 0,
     };
   packGeometryProductAssetReferenceV1(record);
   return Object.freeze(record);
@@ -389,7 +358,7 @@ export function unpackGeometryProductAssetReferenceV1(
 export function resolveGeometryProductAssetFromHeapV1(
   bytes: Uint8Array,
   geometrySlot: number,
-  expectedGeneration: number
+  expectedGeneration: number,
 ): GeometryProductResolvedAssetV1 | undefined {
   assertU32(geometrySlot, "geometrySlot");
   assertU32(expectedGeneration, "expectedGeneration");
@@ -442,35 +411,35 @@ export function resolveGeometryProductAssetFromHeapV1(
       header.hierarchyWordOffset,
       product.rootBegin,
       product.rootCount,
-      1
+      1,
     ) ||
     !recordRange(
       header.hierarchyWordOffset,
       header.groupDirectoryWordOffset,
       product.hierarchyBegin,
       product.hierarchyCount,
-      12
+      12,
     ) ||
     !recordRange(
       header.groupDirectoryWordOffset,
       header.pageLocationWordOffset,
       product.groupBegin,
       product.groupCount,
-      4
+      4,
     ) ||
     !recordRange(
       header.pageLocationWordOffset,
       header.vertexFormatWordOffset,
       product.pageBegin,
       product.pageCount,
-      4
+      4,
     ) ||
     !recordRange(
       header.vertexFormatWordOffset,
       header.totalWords,
       product.vertexFormatBegin,
       product.vertexFormatCount,
-      4
+      4,
     )
   )
     return undefined;
@@ -501,7 +470,7 @@ export function resolveGeometryProductAssetFromHeapV1(
     pageLocationWordOffset: header.pageLocationWordOffset + product.pageBegin * 4,
     pageCount: product.pageCount,
     vertexFormatWordOffset: header.vertexFormatWordOffset + product.vertexFormatBegin * 4,
-    vertexFormatCount: product.vertexFormatCount
+    vertexFormatCount: product.vertexFormatCount,
   });
 }
 
@@ -513,14 +482,14 @@ const OENGINE_GEOMETRY_PAGE_LOCATION_PINNED_V1: u32 = 2u;
 const OENGINE_GEOMETRY_PAGE_LOCATION_NON_RESIDENT_V1: u32 = 0xffffffffu;
 const OENGINE_GEOMETRY_PAGE_SHIFT_V1: u32 = 18u;
 const OENGINE_GEOMETRY_BANK_COUNT_MAX_V1: u32 = ${GEOMETRY_PRODUCT_GPU_BANK_COUNT_MAX_V1}u;
-const OENGINE_GEOMETRY_SLOTS_PER_BANK_V1: u32 = ${GEOMETRY_PRODUCT_GPU_SLOTS_PER_BANK_V1}u;
-struct OEngineGeometryPageLocationV1 { bank_index: u32, slot_index: u32, product_generation: u32, flags: u32 };
+const OENGINE_GEOMETRY_BANK_BYTES_MAX_V1: u32 = ${GEOMETRY_PRODUCT_GPU_BANK_BYTES_MAX_V1}u;
+struct OEngineGeometryPageLocationV1 { bank_and_flags: u32, byte_offset: u32, product_generation: u32, payload_bytes: u32 };
 struct OEngineGeometryProductMetadataHeapHeaderV1 { abi_version: u32, product_count: u32, product_capacity: u32, total_words: u32, product_table_word_offset: u32, asset_reference_word_offset: u32, asset_record_word_offset: u32, root_node_id_word_offset: u32, hierarchy_word_offset: u32, group_directory_word_offset: u32, page_location_word_offset: u32, vertex_format_word_offset: u32, slots_per_bank: u32, reserved1: u32, reserved2: u32, reserved3: u32 };
 struct OEngineGeometryProductTableRecordV1 { product_generation: u32, flags: u32, asset_begin: u32, asset_count: u32, root_begin: u32, root_count: u32, hierarchy_begin: u32, hierarchy_count: u32, group_begin: u32, group_count: u32, page_begin: u32, page_count: u32, vertex_format_begin: u32, vertex_format_count: u32, reserved0: u32, reserved1: u32 };
 struct OEngineGeometryProductAssetReferenceV1 { product_table_slot: u32, product_generation: u32, asset_record_index: u32, flags: u32 };
 struct OEngineGeometryProductAssetLookupV1 { valid: bool, product_table_slot: u32, product_generation: u32, asset_record_index: u32 };
 struct OEngineGeometryProductResolvedAssetV1 { valid: bool, product_table_slot: u32, product_generation: u32, asset_word_offset: u32, root_word_offset: u32, root_count: u32, hierarchy_word_offset: u32, hierarchy_count: u32, group_word_offset: u32, group_count: u32, page_begin: u32, page_location_word_offset: u32, page_count: u32, vertex_format_word_offset: u32, vertex_format_count: u32 };
-struct OEngineGeometryPageLookupV1 { valid: bool, bank_index: u32, byte_offset: u32, flags: u32, resident_bank: u32, resident_word: u32 };
+struct OEngineGeometryPageLookupV1 { valid: bool, bank_index: u32, byte_offset: u32, flags: u32, payload_bytes: u32 };
 fn oengine_geometry_product_invalid_asset_v1() -> OEngineGeometryProductResolvedAssetV1 { return OEngineGeometryProductResolvedAssetV1(false, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u); }
 fn oengine_geometry_product_record_range_v1(section_begin: u32, section_end: u32, record_begin: u32, record_count: u32, stride_words: u32) -> bool {
   if (stride_words == 0u || section_begin > section_end) { return false; }
@@ -531,7 +500,7 @@ fn oengine_geometry_product_contained_v1(begin: u32, count: u32, outer_begin: u3
   return count != 0u && begin >= outer_begin && outer_count <= 0xffffffffu - outer_begin && begin <= 0xffffffffu - count && begin + count <= outer_begin + outer_count;
 }
 fn oengine_geometry_product_resolve_asset_v1(heap: ptr<storage, array<u32>, read>, geometry_slot: u32, expected_generation: u32) -> OEngineGeometryProductResolvedAssetV1 {
-  if (arrayLength(heap) < 16u || (*heap)[0] != ${GEOMETRY_PRODUCT_GPU_ABI_VERSION_V1}u || ((*heap)[12] == 0u || (*heap)[12] > OENGINE_GEOMETRY_SLOTS_PER_BANK_V1) || (*heap)[13] != 0u || (*heap)[14] != 0u || (*heap)[15] != 0u) { return oengine_geometry_product_invalid_asset_v1(); }
+  if (arrayLength(heap) < 16u || (*heap)[0] != ${GEOMETRY_PRODUCT_GPU_ABI_VERSION_V1}u || ((*heap)[12] == 0u || (*heap)[12] > OENGINE_GEOMETRY_BANK_BYTES_MAX_V1 || ((*heap)[12] & 15u) != 0u) || (*heap)[13] != 0u || (*heap)[14] != 0u || (*heap)[15] != 0u) { return oengine_geometry_product_invalid_asset_v1(); }
   let product_count = (*heap)[1]; let product_capacity = (*heap)[2]; let total_words = (*heap)[3]; if (total_words > arrayLength(heap) || product_capacity == 0u || product_count > product_capacity || expected_generation == 0u || expected_generation == 0xffffffffu) { return oengine_geometry_product_invalid_asset_v1(); }
   let product_table_words = (*heap)[4]; let reference_words = (*heap)[5]; let asset_words = (*heap)[6]; let root_words = (*heap)[7]; let hierarchy_words = (*heap)[8]; let group_words = (*heap)[9]; let location_words = (*heap)[10]; let vertex_format_words = (*heap)[11];
   if (product_table_words < 16u || ((product_table_words | reference_words | asset_words | root_words | hierarchy_words | group_words | location_words | vertex_format_words) & 3u) != 0u || product_table_words > reference_words || reference_words > asset_words || asset_words > root_words || root_words > hierarchy_words || hierarchy_words > group_words || group_words > location_words || location_words > vertex_format_words || vertex_format_words >= total_words || !oengine_geometry_product_record_range_v1(product_table_words, reference_words, 0u, product_capacity, 16u) || !oengine_geometry_product_record_range_v1(reference_words, asset_words, geometry_slot, 1u, 4u)) { return oengine_geometry_product_invalid_asset_v1(); }
@@ -544,41 +513,29 @@ fn oengine_geometry_product_resolve_asset_v1(heap: ptr<storage, array<u32>, read
   if (!oengine_geometry_product_contained_v1(asset_root_begin, asset_root_count, root_begin, root_count) || !oengine_geometry_product_contained_v1(asset_hierarchy_begin, asset_hierarchy_count, hierarchy_begin, hierarchy_count) || !oengine_geometry_product_contained_v1(asset_group_begin, asset_group_count, group_begin, group_count)) { return oengine_geometry_product_invalid_asset_v1(); }
   return OEngineGeometryProductResolvedAssetV1(true, product_slot, generation, asset, root_words + asset_root_begin, asset_root_count, hierarchy_words + asset_hierarchy_begin * 12u, asset_hierarchy_count, group_words + asset_group_begin * 4u, asset_group_count, page_begin, location_words + page_begin * 4u, page_count, vertex_format_words + format_begin * 4u, format_count);
 }
+fn oengine_geometry_product_validate_page_v1(packed: u32, byte_offset: u32, generation: u32, payload: u32, expected: u32, capacity: u32) -> OEngineGeometryPageLookupV1 {
+  let flags = (packed >> 2u) & 3u;
+  let valid = (packed & ~15u) == 0u && (flags & 1u) != 0u &&
+    expected != 0u && expected != 0xffffffffu && generation == expected &&
+    capacity > 0u && capacity <= OENGINE_GEOMETRY_BANK_BYTES_MAX_V1 && (capacity & 15u) == 0u &&
+    (byte_offset & 15u) == 0u && payload > 0u && payload <= 262144u && (payload & 3u) == 0u &&
+    payload <= capacity && byte_offset <= capacity - payload;
+  if (!valid) {
+    return OEngineGeometryPageLookupV1(false, 0u, 0u, 0u, 0u);
+  }
+  return OEngineGeometryPageLookupV1(true, packed & 3u, byte_offset, flags, payload);
+}
 fn oengine_geometry_product_lookup_page_heap_v1(
-  heap: ptr<storage, array<u32>, read>,
-  asset: OEngineGeometryProductResolvedAssetV1,
-  page_id: u32
+  heap: ptr<storage, array<u32>, read>, asset: OEngineGeometryProductResolvedAssetV1, page_id: u32
 ) -> OEngineGeometryPageLookupV1 {
   if (!asset.valid || page_id >= asset.page_count || arrayLength(heap) < 16u) {
-    return OEngineGeometryPageLookupV1(false, 0u, 0u, 0u, 0u, 0u);
+    return OEngineGeometryPageLookupV1(false, 0u, 0u, 0u, 0u);
   }
   let at = asset.page_location_word_offset + page_id * 4u;
   if (at > arrayLength(heap) || arrayLength(heap) - at < 4u) {
-    return OEngineGeometryPageLookupV1(false, 0u, 0u, 0u, 0u, 0u);
+    return OEngineGeometryPageLookupV1(false, 0u, 0u, 0u, 0u);
   }
-  let bank = (*heap)[at];
-  let packed_slot = (*heap)[at + 1u];
-  let slot = packed_slot & 0xffffu;
-  let resident_plus_one = packed_slot >> 16u;
-  let resident = resident_plus_one - 1u;
-  let generation = (*heap)[at + 2u];
-  let packed_flags = (*heap)[at + 3u];
-  let flags = packed_flags & 3u;
-  let directory_word = (packed_flags & ${GEOMETRY_PAGE_DIRECTORY_OFFSET_MASK}u);
-  let physical_slots = (*heap)[12];
-  let resident_bank = resident / OENGINE_GEOMETRY_SLOTS_PER_BANK_V1;
-  let resident_slot = resident % OENGINE_GEOMETRY_SLOTS_PER_BANK_V1;
-  let valid = (flags & OENGINE_GEOMETRY_PAGE_LOCATION_RESIDENT_V1) != 0u &&
-    (packed_flags & ~65535u) == 0u &&
-    physical_slots > 0u && physical_slots <= OENGINE_GEOMETRY_SLOTS_PER_BANK_V1 &&
-    bank < OENGINE_GEOMETRY_BANK_COUNT_MAX_V1 && slot < physical_slots &&
-    resident_plus_one > 0u && resident_bank < OENGINE_GEOMETRY_BANK_COUNT_MAX_V1 &&
-    resident_slot < physical_slots && generation == asset.product_generation;
-  if (!valid) {
-    return OEngineGeometryPageLookupV1(false, 0u, 0u, 0u, 0u, 0u);
-  }
-  return OEngineGeometryPageLookupV1(true, bank, slot << OENGINE_GEOMETRY_PAGE_SHIFT_V1,
-    flags, resident_bank, (resident_slot << (OENGINE_GEOMETRY_PAGE_SHIFT_V1 - 2u)) + directory_word);
+  return oengine_geometry_product_validate_page_v1((*heap)[at], (*heap)[at + 1u], (*heap)[at + 2u], (*heap)[at + 3u], asset.product_generation, (*heap)[12]);
 }
 fn oengine_geometry_product_lookup_asset_v1(products: ptr<storage, array<OEngineGeometryProductTableRecordV1>, read>, refs: ptr<storage, array<OEngineGeometryProductAssetReferenceV1>, read>, geometry_slot: u32, expected_generation: u32) -> OEngineGeometryProductAssetLookupV1 {
   if (geometry_slot >= arrayLength(refs)) { return OEngineGeometryProductAssetLookupV1(false, 0u, 0u, 0u); }
@@ -590,16 +547,14 @@ fn oengine_geometry_product_lookup_page_v1(
   locations: ptr<storage, array<OEngineGeometryPageLocationV1>, read>,
   page_id: u32, page_count: u32, expected_generation: u32
 ) -> OEngineGeometryPageLookupV1 {
-  if (page_id >= page_count) { return OEngineGeometryPageLookupV1(false, 0u, 0u, 0u, 0u, 0u); }
+  if (page_id >= page_count || page_id >= arrayLength(locations)) {
+    return OEngineGeometryPageLookupV1(false, 0u, 0u, 0u, 0u);
+  }
   let location = (*locations)[page_id];
-  let raw_slot = location.slot_index & 0xffffu;
-  let resident_plus_one = location.slot_index >> 16u;
-  let resident = resident_plus_one - 1u;
-  let valid_flags = (location.flags & ~65535u) == 0u;
-  let valid = valid_flags && (location.flags & OENGINE_GEOMETRY_PAGE_LOCATION_RESIDENT_V1) != 0u && location.bank_index < OENGINE_GEOMETRY_BANK_COUNT_MAX_V1 && raw_slot < OENGINE_GEOMETRY_SLOTS_PER_BANK_V1 && location.product_generation == expected_generation && resident_plus_one != 0u && resident < OENGINE_GEOMETRY_BANK_COUNT_MAX_V1 * OENGINE_GEOMETRY_SLOTS_PER_BANK_V1;
-  if (!valid) { return OEngineGeometryPageLookupV1(false, 0u, 0u, 0u, 0u, 0u); }
-  return OEngineGeometryPageLookupV1(true, location.bank_index, raw_slot << OENGINE_GEOMETRY_PAGE_SHIFT_V1, location.flags & 3u, resident / OENGINE_GEOMETRY_SLOTS_PER_BANK_V1, ((resident % OENGINE_GEOMETRY_SLOTS_PER_BANK_V1) << (OENGINE_GEOMETRY_PAGE_SHIFT_V1 - 2u)) + (location.flags & ${GEOMETRY_PAGE_DIRECTORY_OFFSET_MASK}u));
+  return oengine_geometry_product_validate_page_v1(location.bank_and_flags, location.byte_offset,
+    location.product_generation, location.payload_bytes, expected_generation, OENGINE_GEOMETRY_BANK_BYTES_MAX_V1);
 }
+
 `;
 
 function assertU32(value: number, name: string): void {
@@ -615,7 +570,7 @@ function recordRange(
   sectionEnd: number,
   recordBegin: number,
   recordCount: number,
-  stride: number
+  stride: number,
 ): boolean {
   if (stride <= 0 || sectionBegin > sectionEnd) return false;
   const capacity = Math.floor((sectionEnd - sectionBegin) / stride);

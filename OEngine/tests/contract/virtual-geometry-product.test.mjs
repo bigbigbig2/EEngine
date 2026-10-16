@@ -13,8 +13,6 @@ globalThis.GPUBufferUsage ??= Object.freeze({ COPY_DST: 8, STORAGE: 128 });
 const { assertGeometryProductDescriptorV1, validateGeometryProductDescriptorV1 } =
   await import("../../.test-dist/assets/geometry-product/GeometryProductV1.js");
 const { VirtualGeometryResidency } = await import("../../.test-dist/gpu/VirtualGeometryResidency.js");
-const { GEOMETRY_PRODUCT_SHARED_SLOTS_PER_BANK } =
-  await import("../../.test-dist/gpu/GeometryProductSlotPool.js");
 
 function fixture() {
   const page = writeTriangleProductPage(new Uint8Array(262144));
@@ -155,13 +153,11 @@ test("Product-aware residency uploads activation pages with generation-tagged lo
   assert.equal(writes.filter((write) => write.bytes === TRIANGLE_PRODUCT_PAYLOAD_BYTES).length, 1);
   assert.equal(writes.find((write) => write.bytes === TRIANGLE_PRODUCT_PAYLOAD_BYTES).offset, 0);
   assert.equal(writes.filter((write) => write.bytes === 262144).length, 0);
-  assert.equal(residency.residentPagePhysicalBytes(0), 262144);
+  assert.equal(residency.residentPagePhysicalBytes(0), 176);
   assert.deepEqual(residency.pageLocation(0), {
     bankIndex: 0,
-    slotIndex: 0,
-    residentBankIndex: 0,
-    residentSlotIndex: 0,
-    residentByteOffset: 0,
+    byteOffset: 0,
+    payloadBytes: 176,
     productGeneration: 7,
     flags: 3,
   });
@@ -231,7 +227,7 @@ test("Product-aware residency delays reuse of a retiring slot", async () => {
   residency.beginRetirePage(1);
   publishGeometryPages(residency);
   assert.equal(residency.evidence().retiringPages, 1);
-  assert.throws(() => residency.stagePage(demanded), /retiring/);
+  assert.throws(() => residency.stagePage(demanded), /allocation unavailable/);
   await Promise.resolve();
   residency.stagePage(demanded);
   publishGeometryPages(residency, [1]);
@@ -329,7 +325,7 @@ test("Product residency shares four immutable banks across simultaneous revision
   const old = await VirtualGeometryResidency.create(device, source(), 1);
   const next = await VirtualGeometryResidency.create(device, source(), 2);
   assert.equal(old.evidence().bankCount, 4);
-  assert.equal(old.evidence().slotCapacity, 4 * GEOMETRY_PRODUCT_SHARED_SLOTS_PER_BANK);
+  assert.equal(old.evidence().leaseCapacity, 65536);
   assert.equal(next.bindings().banks[0], old.bindings().banks[0]);
   assert.notDeepEqual(next.pageLocation(0), old.pageLocation(0));
   const shared = next.bindings().banks[0];
@@ -388,11 +384,11 @@ test("eviction weighs GPU request/visibility, prediction and refetch cost; recor
   upload(1);
   upload(2);
   residency.recordDemand(2, 10, true, false, 4);
-  assert.equal(residency.residentPagePhysicalBytes(1), 262144);
-  assert.deepEqual(residency.selectEvictionCandidates(12, 262144, 2), [1]);
+  assert.equal(residency.residentPagePhysicalBytes(1), 176);
+  assert.deepEqual(residency.selectEvictionCandidates(12, 176, 2), [1]);
   residency.recordDemand(1, 13, false, true, 1);
-  assert.deepEqual(residency.selectEvictionCandidates(15, 262144, 0), [2]);
-  assert.deepEqual(residency.selectEvictionCandidates(22, 262144, 0), [1]);
+  assert.deepEqual(residency.selectEvictionCandidates(15, 176, 0), [2]);
+  assert.deepEqual(residency.selectEvictionCandidates(22, 176, 0), [1]);
   residency.beginRetirePage(1);
   publishGeometryPages(residency);
   await Promise.resolve();
@@ -401,10 +397,9 @@ test("eviction weighs GPU request/visibility, prediction and refetch cost; recor
   const evidence = residency.evidence();
   assert.equal(evidence.shortTermRerequests, 1);
   assert.equal(evidence.reloads, 1);
-  // Thrash counts re-fetched source bytes; eviction budgets count both
-  // actual physical slots, including attributes packed into page padding.
+  // Thrash counts full source-page refetch bytes; eviction counts compact GPU allocations.
   assert.equal(evidence.thrashBytes, 262144);
   assert.equal(evidence.averagePageLifetimeFrames, 22);
-  assert.deepEqual(residency.selectEvictionCandidates(23, 262144, 0), [2]);
+  assert.deepEqual(residency.selectEvictionCandidates(23, 176, 0), [2]);
   residency.destroy();
 });

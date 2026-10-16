@@ -3,7 +3,7 @@ import { GraphicsContext } from "../../.test-dist/gpu/GraphicsContext.js";
 import { ShadeGPUCommandContext } from "../../.test-dist/framegraph/ShadeGPUCommandContext.js";
 import { streamingProductFixture } from "../helpers/geometry-product-fixture.mjs";
 import { GeometryProductMultiRuntimeV1 } from "../../.test-dist/gpu/GeometryProductMultiRuntime.js";
-import { GeometryProductSlotPool } from "../../.test-dist/gpu/GeometryProductSlotPool.js";
+import { GeometryProductBytePool } from "../../.test-dist/gpu/GeometryProductBytePool.js";
 import { selectGeometryProductResidencyProfileV1 } from "../../.test-dist/gpu/GeometryProductResidencyProfile.js";
 import { GeometryPageStreamingRuntimeV1 } from "../../.test-dist/gpu/GeometryPageStreamingRuntime.js";
 import {
@@ -94,9 +94,9 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
       let location = oengine_geometry_product_lookup_page_heap_v1(&heap, asset, 0u);
       output[0] = select(0u, 1u, location.valid);
       output[1] = location.byte_offset;
-      output[2] = location.resident_word;
+      output[2] = location.byte_offset / 4u;
       output[3] = 0u;
-      if (location.valid) { output[3] = bank[location.resident_word]; }
+      if (location.valid) { output[3] = bank[location.byte_offset / 4u]; }
     }`
   });
   const pipeline = device.createComputePipeline({
@@ -105,7 +105,7 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
   });
   for (const profile of ["auto", "Portable", "Balanced", "HighEnd"]) {
     const plan = selectGeometryProductResidencyProfileV1(device.limits, { requestedProfile: profile });
-    const pool = GeometryProductSlotPool.retainWithProfile(device, plan);
+    const pool = GeometryProductBytePool.retain(device, plan);
     const locations = device.createBuffer({
       size: 80,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
@@ -113,32 +113,15 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
     const output = device.createBuffer({ size: 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
     const read = device.createBuffer({ size: 16, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
     const heapHeader = new Uint32Array(16);
-    heapHeader[12] = plan.slotsPerBank;
+    heapHeader[12] = pool.bankBytes;
     device.queue.writeBuffer(locations, 0, heapHeader);
     try {
-      for (const slot of new Set([
-        0,
-        Math.min(511, plan.slotsPerBank - 1),
-        Math.min(512, plan.slotsPerBank - 1),
-        Math.min(767, plan.slotsPerBank - 1),
-        plan.slotsPerBank - 1
-      ])) {
-        const directoryByteOffset = 176;
-        device.queue.writeBuffer(
-          locations,
-          64,
-          encodeGeometryProductGpuLocationV1({
-            bankIndex: 3,
-            slotIndex: slot,
-            residentBankIndex: 2,
-            residentSlotIndex: slot,
-            residentByteOffset: directoryByteOffset,
-            productGeneration: 19,
-            flags: 1
-          })
-        );
-        const marker = 0x12340000 + slot;
-        device.queue.writeBuffer(pool.banks[2], slot * 262144 + directoryByteOffset, new Uint32Array([marker]));
+      for (const offset of [0, 176, 512, pool.bankBytes - 16]) {
+        device.queue.writeBuffer(locations, 64, encodeGeometryProductGpuLocationV1({
+          bankIndex: 2, byteOffset: offset, payloadBytes: 16, productGeneration: 19, flags: 1
+        }));
+        const marker = 0x12340000 + offset;
+        device.queue.writeBuffer(pool.banks[2], offset, new Uint32Array([marker]));
         const encoder = device.createCommandEncoder();
         const pass = encoder.beginComputePass();
         pass.setPipeline(pipeline);
@@ -160,8 +143,8 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
         await read.mapAsync(GPUMapMode.READ);
         const words = new Uint32Array(read.getMappedRange().slice(0));
         read.unmap();
-        assert.deepEqual([...words], [1, slot * 262144, slot * 65536 + directoryByteOffset / 4, marker]);
-        boundaries.push({ profile: plan.profile, capacityBytes: plan.capacityBytes, slot, marker: words[3] });
+        assert.deepEqual([...words], [1, offset, offset / 4, marker]);
+        boundaries.push({ profile: plan.profile, capacityBytes: pool.bankBytes * 4, offset, marker: words[3] });
       }
     } finally {
       await device.queue.onSubmittedWorkDone();
@@ -172,11 +155,11 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
     }
   }
 
-  // Eight physical slots. Two pinned roots plus one visible six-page chain
+  // Eight exact leases. Two pinned roots plus one visible six-page chain
   // fit after tail reuse; switching instances must reclaim the old fine pages.
   const runtime = new GeometryProductMultiRuntimeV1(device, {
     metadataBytes: 64 * 1024,
-    residency: { configuredCapacityBytes: 2 * MiB }
+    residency: { configuredCapacityBytes: 2 * MiB, maxPageLeases: 8 }
   });
   const hierarchy = new HierarchicalWorkGenerator(device);
   const candidate = new VirtualGeometryMeshletWorkCandidate(device);

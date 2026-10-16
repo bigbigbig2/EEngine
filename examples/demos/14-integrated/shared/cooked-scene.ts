@@ -250,18 +250,18 @@ export async function loadCookedScene(
   };
   try {
     phase("Opening offline Geometry Products (no geometry cook)");
+    const openedAssets = await geometryAssets;
+    assets.push(...openedAssets);
     runtime = new GeometryProductMultiRuntimeV1(renderer.device, {
+      descriptors: openedAssets.map((asset) => asset.descriptor),
       residency: {
         requestedProfile: "HighEnd",
         configuredCapacityBytes: geometryCapacityBytes,
         configuredBankBytes: geometryCapacityBytes / 4
-      },
-      metadataBytes: 128 * 1024 ** 2
+      }
     });
     const parts: VirtualGeometryProductScenePartV1[] = [];
     let first: GeometryProductShardHandleV1 | undefined;
-    const openedAssets = await geometryAssets;
-    assets.push(...openedAssets);
     for (const [packIndex, pack] of geometryManifest.packs.entries()) {
       signal.throwIfAborted();
       const asset = openedAssets[packIndex]!;

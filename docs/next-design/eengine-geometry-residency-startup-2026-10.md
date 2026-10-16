@@ -3,7 +3,7 @@ id: eengine-geometry-residency-startup-2026-10
 state: current
 verifies:
   files:
-    - OEngine/src/gpu/GeometryProductSlotPool.ts
+    - OEngine/src/gpu/GeometryProductBytePool.ts
     - OEngine/src/gpu/GeometryProductResidencyProfile.ts
     - OEngine/src/gpu/GeometryProductGpuBudget.ts
     - OEngine/src/gpu/GeometryProductGpuAbiV1.ts

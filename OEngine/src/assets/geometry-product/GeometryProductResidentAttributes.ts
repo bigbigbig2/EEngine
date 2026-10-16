@@ -8,6 +8,7 @@ import { decodeGeometryProductPageRecordV1, type GeometryProductDescriptorV1 } f
 import { geometryProductWorkload } from "./GeometryProductWorkload.js";
 import type { GeometryPageProductV1 } from "./GeometryProductV1.js";
 import { assertAssetWorkerResult } from "../codec/AssetWorkerPool.js";
+import { geometryPagePayloadBytes } from "./GeometryPagePayload.js";
 
 const preparedPages = new WeakMap<GeometryPageProductV1, ProductResidentPage>();
 const pageCredits = new WeakMap<GeometryPageProductV1, () => void>();
@@ -31,7 +32,6 @@ export function importPreparedResidentPage(
     prepared.rawPayloadBytes < 1 ||
     prepared.rawPayloadBytes > page.bytes.byteLength ||
     prepared.uploadBytes !== prepared.rawPayloadBytes ||
-    prepared.slotCount !== 1 ||
     prepared.refineEdges.length % 2 !== 0 ||
     !Number.isSafeInteger(prepared.triangleCount)
   ) {
@@ -49,7 +49,6 @@ export function preparedResidentPage(page: GeometryPageProductV1): ProductReside
 
 export interface ProductResidentPage {
   readonly rawPayloadBytes: number;
-  readonly slotCount: 1;
   readonly uploadBytes: number;
   readonly triangleCount: number;
   /** Group id covered first by this page. Page groups are a contiguous range. */
@@ -84,7 +83,7 @@ export function prepareProductResidentAttributes(
   if (bytes.byteLength !== OEGPACK_V3_PAGE_BYTES) {
     throw new RangeError("Product resident page must be 256 KiB");
   }
-  let rawPayloadBytes = 0;
+  const rawPayloadBytes = geometryPagePayloadBytes(descriptor, pageId);
   let triangleCount = 0;
   const pageRecord = decodeGeometryProductPageRecordV1(descriptor, pageId);
   const workload = geometryProductWorkload(descriptor);
@@ -93,7 +92,6 @@ export function prepareProductResidentAttributes(
   for (let group = pageRecord.firstGroup; group < pageRecord.firstGroup + pageRecord.groupCount; group++) {
     const offset = directory.getUint32(group * 16 + 4, true);
     const payload = directory.getUint32(group * 16 + 8, true);
-    rawPayloadBytes = Math.max(rawPayloadBytes, offset + payload);
     if (offset + payload > bytes.byteLength) {
       throw new RangeError("Product group exceeds the decoded page");
     }
@@ -205,10 +203,8 @@ export function prepareProductResidentAttributes(
   if (pageRecord.groupCount === 0) {
     throw new RangeError("Product resident page has no groups");
   }
-  rawPayloadBytes = Math.ceil(rawPayloadBytes / 4) * 4;
   return Object.freeze({
     rawPayloadBytes,
-    slotCount: 1 as const,
     uploadBytes: rawPayloadBytes,
     triangleCount,
     groupBegin: pageRecord.firstGroup,

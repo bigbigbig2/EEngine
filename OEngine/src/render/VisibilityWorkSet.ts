@@ -18,6 +18,7 @@ export interface VisibilityWorkSetKey {
   /** Product identity/bank shape participates in prepared bind-group lifetime. */
   readonly virtualProductGeneration: number;
   readonly virtualProductBankCount: number;
+  readonly virtualProductBindingEpoch: string;
   readonly meshletWorkCandidateCapacity: number;
   readonly meshletWorkCompactionPath: "auto" | "portable" | "subgroup";
   readonly frameGeometryBudget: FrameGeometryArenaBudget;
@@ -50,6 +51,7 @@ export function sameVisibilityWorkSetKey(left: VisibilityWorkSetKey, right: Visi
     left.visibleClusterCapacity === right.visibleClusterCapacity &&
     left.virtualProductGeneration === right.virtualProductGeneration &&
     left.virtualProductBankCount === right.virtualProductBankCount &&
+    left.virtualProductBindingEpoch === right.virtualProductBindingEpoch &&
     left.meshletWorkCandidateCapacity === right.meshletWorkCandidateCapacity &&
     left.meshletWorkCompactionPath === right.meshletWorkCompactionPath &&
     left.frameGeometryBudget.workCapacity === right.frameGeometryBudget.workCapacity &&

@@ -21,7 +21,7 @@ Owners: geometry admission/residency owner、`GpuAssetStore`、GPU hierarchy/wor
 
 本规范消费 [Geometry Product V1](./geometry-product-v1.md)，不直接依赖 GLB、WASM Worker、OEGPACK 文件或 cache。V1 只支持 `oengine-vg-v1-v3-decoded`，因此 decoded page 固定 256 KiB，并复用 OEGPACK V3-compatible hierarchy/Group/Meshlet consumer。
 
-本文件定义状态机、queue 和 publication 语义。GPU-visible layout 使用数值 ABI version 5，包括 Product table、asset reference、实际物理容量 header、页内 resident directory offset 与 2048 slots/bank 地址空间；需 TypeScript mirror、WGSL oracle 和 version gate。Cooked Product V1 不变，VisibilityKey 和 native material/HDR 合同不变。运行时目录重建即可更新此 GPU ABI，不要求资产 recook，不保留旧 GPU decoder。
+本文件定义状态机、queue 和 publication 语义。GPU-visible layout 使用数值 ABI version 6，包括 Product table、asset reference、实际 bank byte capacity、16B对齐的紧凑页 byte offset 与有效 payload 长度；需 TypeScript mirror、WGSL oracle 和 version gate。Cooked Product V1 不变，VisibilityKey 和 native material/HDR 合同不变。运行时目录重建即可更新此 GPU ABI，不要求资产 recook，不保留旧 GPU decoder。
 
 ## Nyx Runtime 移植边界
 
@@ -97,12 +97,12 @@ absent -> queued -> producing-or-reading -> verified -> upload-queued
 
 | Byte | 类型 | 字段 |
 | ---: | --- | --- |
-| 0 | `u32` | ABI version = 5 |
+| 0 | `u32` | ABI version = 6 |
 | 4 | `u32` | product count |
 | 8 | `u32` | product capacity |
 | 12 | `u32` | total words |
 | 16..47 | `u32[8]` | product table、asset reference、asset record、root id、hierarchy、Group directory、Page location、VertexFormat 的 word offsets |
-| 48 | `u32` | actual physical `slotsPerBank`，1..2048 |
+| 48 | `u32` | actual physical `bankByteCapacity`，16B对齐，最大1GiB |
 | 52..63 | `u32[3]` | reserved = 0 |
 
 独立单 Product admission 也使用该 heap；multi-Product scene directory 统一发布各 range 和 physical capacity。小型 CPU free-range lists 在末读 fence 后回收 metadata，live ranges 不移动；动态 Page mapping 仅更新 Page location section 的 16-byte record。任何 offset、count 或 stride 组合越过 `totalWords` 均 fail closed。
@@ -134,22 +134,20 @@ GPU-visible `GeometryProductTableRecordV1` 是 64-byte little-endian record。�
 
 Shader 必须验证 Product table slot 范围、active bit、两处 generation 相等、AssetRecord index 小于 product asset count，再访问 descriptor table。失败必须 fail closed 并计入 invalid generation/location；不能退回同 slot 的 V2 `GpuGeometryRecord`。迁移期间 instance flag 显式区分两种 geometry owner，禁止依赖表内容猜测。
 
-- decoded slot 固定 256 KiB；默认 auto budget 为 128 MiB，即四个 32 MiB bank，各128 slots。
-- 同一 GPUDevice 共享四个等大、page-aligned bank；[residency profile](./web-geometry-residency-profile-v1.md) 定义 ceiling、显式 bank target、预算与 limits 下向对齐。每个 Product revision 复用四绑定，不重复创建或追加未绑定 bank。slot 只有在 revoke 后真实 queue completion 证明所有旧 consumer 安全时归还；被拒绝的 fence 不授权复用。metadata 使用独立有界 overhead ledger。GPU heap lookup 与 CPU physical validation 均拒绝 `bankIndex >= 4` 或 raw/resident `slotIndex >= header.slotsPerBank`，不能仅检验地址 namespace2048。
-- bank 数与总 slot 数来自设备 limit、全局 resident budget 和显式配置，不得依赖未协商能力。
-- slot 在 `submitted`/`resident`/`retiring` 状态有唯一 owner；禁止同帧重分配。
-- activation pages 在 revision active 期间 pinned；pinned 总量服从 admission budget。
+- Cooked逻辑页保持256KiB；GPU lease只分配align16(max(group offset + payload))有效前缀。四个等大bank共享device owner，初始容量按目录规划，profile给出ceiling而不是固定分配。
+- OffsetAllocator精确区间分配、split、双邻居合并；pinned activation在IO前整体预留，失败释放全部候选。只有撤映射帧成功fence后才可复用lease。
+- bank增长由正常帧copy到相同offset；metadata按section复制到新基址并保持全局record index。candidate binding epoch使Visibility、VSM、Surface地址缓存同时重建，abort恢复旧绑定，旧buffer按成功fence退役；新旧峰值同时计入ledger。
 
-GPU-visible `GeometryPageLocationV1` 是 16-byte little-endian record：
+GPU-visible GeometryPageLocationV1 是16-byte little-endian record：
 
 | Byte | 类型 | 字段 |
 | ---: | --- | --- |
-| 0 | `u32` | bank index；non-resident 为 `0xffffffff` |
-| 4 | `u32` | low16=raw slot；high16=`residentBank*2048+residentSlot+1`；non-resident 为 `0xffffffff` |
-| 8 | `u32` | product generation；non-resident 为 0 |
-| 12 | `u32` | flags |
+| 0 | u32 | bits0..1=bank；bits2..3=resident/pinned；bits4..31=0；non-resident=0xffffffff |
+| 4 | u32 | 16B对齐的bank byte offset；non-resident=0xffffffff |
+| 8 | u32 | 完整product generation；0与0xffffffff非法 |
+| 12 | u32 | 有效payload bytes，4B对齐，1..262144 |
 
-flags bit 0 为 resident，bit 1 为 pinned；bits 2..15 编码 `residentByteOffset / 16`，bits 16..31 必须为 0。resident directory 起点必须 16-byte aligned 且在 256 KiB 页内。raw/resident 地址都需验证实际 physical capacity。高16为0则 resident directory 无效；减1后用2048除/模取bank/slot。`byteOffset = slotIndex << 18`。Shader 先验证 ABI/header、resident bit、预期 generation 和范围，再读取 raw page/expanded directory；失败视为 non-resident。地址表容量至少等于 descriptor page count，越界 PageID fail closed 并计数。
+CPU/WGSL校验完整generation、保留位、对齐和payload，使用offset <= bankByteCapacity - payload避免溢出；Group范围必须包含在该页有效payload中。地址表越界和旧ABI均fail closed。不保留旧物理slot decoder或resident directory。
 
 `beginRetirePage`和multi-runtime `evictPage`只请求退休。residency在下一个普通帧与新增页一同编码non-resident地址、候选content revision及VSM影响；帧提交前仍保留已提交映射，abort可重试。提交成功后撤CPU映射并进入retiring，只有该撤映射帧的fence成功才允许复用slot（队列顺序覆盖所有旧consumer）；失败保留slot并暴露retirementError。调用者不提供任意completion来授权复用，不增加退休submit或在帧循环await队列。
 

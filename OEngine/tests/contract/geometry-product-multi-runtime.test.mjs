@@ -167,7 +167,7 @@ test("Phase E multi-Product runtime keeps 64 independent shards and rejects stal
   const evidence = runtime.evidence();
   assert.equal(evidence.active, 64);
   assert.equal(evidence.peakActive, 64);
-  assert.equal(evidence.slotCapacity, 64);
+  assert.ok(evidence.slotCapacity >= 64 && evidence.slotCapacity < 96);
   assert.equal(new Set(handles.map((handle) => handle.productTableSlot)).size, 64);
   assert.equal(new Set(handles.map((handle) => handle.productGeneration)).size, 64);
 

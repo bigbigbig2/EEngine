@@ -38,7 +38,8 @@ import {
   geometryProductGpuBudgetEvidence,
   reserveGeometryProductMetadataBytes
 } from "./GeometryProductGpuBudget.js";
-import { GeometryProductSlotPool } from "./GeometryProductSlotPool.js";
+import { GeometryProductBytePool, type GeometryPageLease } from "./GeometryProductBytePool.js";
+import { geometryPagePayloadBytes } from "../assets/geometry-product/GeometryPagePayload.js";
 import {
   GeometryRefineInfluenceV1,
   GEOMETRY_REFINE_INFLUENCE_FLOATS
@@ -59,12 +60,10 @@ export {
 
 export interface GeometryPageLocationV1 {
   readonly bankIndex: number;
-  readonly slotIndex: number;
+  readonly byteOffset: number;
+  readonly payloadBytes: number;
   readonly productGeneration: number;
   readonly flags: number;
-  readonly residentBankIndex: number;
-  readonly residentSlotIndex: number;
-  readonly residentByteOffset?: number;
 }
 
 /** One asset's conservative changed object-space region for the frame that
@@ -119,7 +118,9 @@ export interface VirtualGeometryResidencyEvidenceV1 {
   readonly evictedPages: number;
   readonly uploadedBytes: number;
   readonly bankCount: number;
-  readonly slotCapacity: number;
+  readonly leaseCapacity: number;
+  readonly allocatorCpuBytes: number;
+  readonly allocationFailure: string;
   readonly invalidGeneration: number;
   readonly failedPages: number;
   readonly retiringPages: number;
@@ -145,6 +146,8 @@ export interface VirtualGeometryResidencyOptionsV1 extends GeometryProductReside
 }
 
 export interface GeometryProductGpuBindingsV1 {
+  /** Captured by prepared-resource keys; every capacity candidate gets a unique epoch. */
+  readonly bindingEpoch: string;
   readonly productTableSlot: number;
   readonly productGeneration: number;
   /** Number of Product-local pages used to size the frame demand mask. */
@@ -225,8 +228,8 @@ export class VirtualGeometryResidency {
   }
   /** CPU source registration follows publication; GPU retirement remains fenced. */
   readonly publicationChanged = new Signal<"active" | "inactive" | "destroyed">();
-  readonly #banks: GPUBuffer[] = [];
-  #slotPool: GeometryProductSlotPool | undefined;
+  #bytePool: GeometryProductBytePool | undefined;
+  #removePoolListener?: () => void;
   readonly #releaseReservations: Array<() => void> = [];
   readonly #pageLocations = new Map<number, GeometryPageLocationV1>();
   /** Reserved, payload-complete, still unreachable: the address table is only
@@ -241,11 +244,7 @@ export class VirtualGeometryResidency {
   >();
   readonly #retiringLocations = new Map<number, GeometryPageLocationV1>();
   readonly #requestedRetirements = new Set<number>();
-  readonly #slotOwners = new Map<string, number>();
-  readonly #pageSlots = new Map<
-    number,
-    readonly { readonly bankIndex: number; readonly slotIndex: number }[]
-  >();
+  readonly #pageLeases = new Map<number, GeometryPageLease>();
   readonly #preparedPages = new WeakMap<GeometryPageProductV1, ProductResidentPage>();
   readonly #pagePayloadBytes = new Map<number, number>();
   readonly #pageLastUsed = new Map<number, number>();
@@ -285,6 +284,7 @@ export class VirtualGeometryResidency {
   #shortTermRerequests = 0;
   #thrashBytes = 0;
   #pageLocationSink: GeometryProductPageLocationSinkV1 | undefined;
+  #standaloneBankBytes = 0;
 
   private constructor(
     readonly device: GPUDevice,
@@ -379,7 +379,7 @@ export class VirtualGeometryResidency {
         productGeneration,
         productTableSlot,
         assetCount,
-        profile.slotsPerBank
+        profile.initialBankBytes
       );
       device.queue.writeBuffer(this.#metadata, 0, initial);
     } catch (error) {
@@ -398,6 +398,7 @@ export class VirtualGeometryResidency {
     options: VirtualGeometryResidencyOptionsV1 = {}
   ): Promise<VirtualGeometryResidency> {
     let owner: VirtualGeometryResidency | undefined;
+    const cancel = () => owner?.destroy();
     try {
       if (signal?.aborted) throw signal.reason ?? new Error("Geometry Product admission was cancelled");
       assertGeometryProductDescriptorV1(source.descriptor);
@@ -424,12 +425,15 @@ export class VirtualGeometryResidency {
         signal,
         options.directory
       );
+      signal?.addEventListener("abort", cancel, { once: true });
       await owner.#fillActivationCut();
       return owner;
     } catch (error) {
       if (owner) owner.destroy();
       else source.release();
       throw error;
+    } finally {
+      signal?.removeEventListener("abort", cancel);
     }
   }
 
@@ -437,10 +441,33 @@ export class VirtualGeometryResidency {
     const pages = [...this.#descriptor.activationPageIds];
     // All revisions bind the same four bank objects. Global slot ownership
     // prevents new/old Product overlap while keeping refinement bindings fixed.
-    this.#slotPool = GeometryProductSlotPool.retainWithProfile(this.device, this.#residencyProfile);
-    this.#banks.push(...this.#slotPool.banks);
-    if (pages.length > this.#slotPool.availableSlots)
-      throw new RangeError("Geometry Product activation cut exceeds shared GPU slot capacity");
+    this.#bytePool = GeometryProductBytePool.retain(this.device, {
+      ...this.#residencyProfile,
+      initialBankBytes: Math.min(this.#residencyProfile.bankBytes,
+        Math.max(this.#residencyProfile.initialBankBytes, initialPageBankBytes(this.#descriptor)))
+    });
+    this.#removePoolListener = this.#bytePool.onBindings((command, bankBytes) => {
+      if (this.#metadata !== undefined && bankBytes !== this.#standaloneBankBytes) {
+        command.uploadRegions([{ destination: this.#metadata, destinationOffset: 48,
+          bytes: new Uint8Array(new Uint32Array([bankBytes]).buffer) }]);
+        command.onFinished.addOne(() => { this.#standaloneBankBytes = bankBytes; });
+      }
+    });
+    const activation = await this.#bytePool.reserveActivation(
+      pages.map((pageId) => geometryPagePayloadBytes(this.#descriptor, pageId)), this.#signal,
+      (leases) => {
+        for (let index = 0; index < pages.length; index++) {
+          this.#pageLeases.set(pages[index]!, leases[index]!);
+        }
+      });
+    this.#signal?.throwIfAborted();
+    const unowned = new Set(activation);
+    // Admission owns reserved intervals even while asynchronous IO is pending.
+    // Teardown must be able to return them before the source promise settles.
+    this.#standaloneBankBytes = this.#bytePool.bankBytes;
+    if (this.#metadata !== undefined) {
+      this.device.queue.writeBuffer(this.#metadata, 48, new Uint32Array([this.#bytePool.bankBytes]));
+    }
     let prefetchedPages: (GeometryPageProductV1 | undefined)[] | undefined;
     const bootstrapBatchPages = 64;
     try {
@@ -458,9 +485,7 @@ export class VirtualGeometryResidency {
         if (this.#signal?.aborted)
           throw this.#signal.reason ?? new Error("Geometry Product admission was cancelled");
         const pageId = pages[index]!;
-        const slot = this.#slotPool.allocate();
-        if (!slot) throw new RangeError("Geometry Product activation cut has no shared GPU slot");
-        const { bankIndex, slotIndex } = slot;
+        const lease = activation[index]!;
         try {
           const page = snapshotUnverifiedGeometryPageV1(
             prefetchedPages !== undefined
@@ -487,11 +512,15 @@ export class VirtualGeometryResidency {
             if (!sameBytes(digest.subarray(0, 16), page.decodedPageHash128))
               throw new Error(`page ${pageId} integrity hash mismatch`);
           }
+          while (this.#bytePool.frozen) {
+            await this.#bytePool.waitForGrowth(this.#signal);
+          }
           const location = this.#writeResidentPage(
             page,
-            slot,
+            lease,
             GEOMETRY_PAGE_LOCATION_RESIDENT | GEOMETRY_PAGE_LOCATION_PINNED
           );
+          unowned.delete(lease);
           this.#pageLocations.set(pageId, location);
           this.#pageLastUsed.set(pageId, 0);
           this.#onResident(pageId);
@@ -500,13 +529,19 @@ export class VirtualGeometryResidency {
             prefetchedPages[index % bootstrapBatchPages] = undefined;
           }
         } catch (error) {
-          if (!this.#slotOwners.has(slotKey(bankIndex, slotIndex)))
-            this.#slotPool.release(bankIndex, slotIndex);
           this.#failedPages++;
           throw error;
         }
       }
     } finally {
+      for (let index = 0; index < pages.length; index++) {
+        const lease = activation[index]!;
+        const pageId = pages[index]!;
+        if (unowned.has(lease) && this.#pageLeases.get(pageId) === lease) {
+          this.#bytePool!.release(lease);
+          this.#pageLeases.delete(pageId);
+        }
+      }
       for (const page of prefetchedPages ?? []) {
         if (page) {
           releasePreparedPage(page);
@@ -527,7 +562,7 @@ export class VirtualGeometryResidency {
           Object.freeze({
             ...location,
             byteOffset:
-              location.slotIndex * OEGPACK_V3_PAGE_BYTES + groupView.getUint32(groupId * 16 + 4, true)
+              location.byteOffset + groupView.getUint32(groupId * 16 + 4, true)
           })
         );
     }
@@ -552,9 +587,9 @@ export class VirtualGeometryResidency {
   }
 
   bank(index: number): GPUBuffer {
-    if (this.#destroyed || !Number.isInteger(index) || index < 0 || index >= this.#banks.length)
+    if (this.#destroyed || !Number.isInteger(index) || index < 0 || index >= 4)
       throw new RangeError("geometry bank index is invalid");
-    return this.#banks[index]!;
+    return this.#bytePool!.banks[index]!;
   }
   get descriptor(): GeometryProductDescriptorV1 {
     return this.#descriptor;
@@ -630,7 +665,10 @@ export class VirtualGeometryResidency {
     if (this.#pageLocationSink !== undefined) {
       return this.#pageLocationSink.bindings();
     }
+    this.#bytePool!.exposeBindings();
+    const owner = this;
     return Object.freeze({
+      get bindingEpoch() { return String(owner.#bytePool!.bindingEpoch); },
       productTableSlot: this.#productTableSlot,
       productGeneration: this.#productGeneration,
       pageCount: this.#descriptor.pageRecords.byteLength / GEOMETRY_PRODUCT_PAGE_RECORD_STRIDE,
@@ -639,7 +677,7 @@ export class VirtualGeometryResidency {
       productTableByteOffset: this.#metadataLayout.productRecord,
       pageLocationByteOffset: this.#metadataLayout.pageLocations,
       productTable: this.#metadata!,
-      banks: Object.freeze([...this.#banks])
+      get banks() { return owner.#bytePool!.banks; }
     });
   }
   pageLocationTable(): GPUBuffer {
@@ -724,7 +762,7 @@ export class VirtualGeometryResidency {
    * Selects non-pinned pages using age and a minimum residency cooldown. The
    * caller must call beginRetirePage() and wait for its submission boundary.
    */
-  selectEvictionCandidates(frameIndex: number, maxBytes: number, minimumAge = 2): readonly number[] {
+  selectEvictionCandidates(frameIndex: number, maxBytes: number, minimumAge = 2, maxPages = Infinity): readonly number[] {
     if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed");
     if (
       !Number.isSafeInteger(frameIndex) ||
@@ -758,16 +796,22 @@ export class VirtualGeometryResidency {
     const selected: number[] = [];
     let bytes = 0;
     for (const [pageId] of candidates) {
-      const pageBytes = this.#pageSlots.get(pageId)!.length * OEGPACK_V3_PAGE_BYTES;
-      if (bytes + pageBytes > maxBytes) continue;
+      if (selected.length >= maxPages || bytes >= maxBytes) {
+        break;
+      }
+      const pageBytes = this.#pageLeases.get(pageId)!.allocatedBytes;
+      if (bytes + pageBytes > maxBytes && !Number.isFinite(maxPages)) continue;
       selected.push(pageId);
       bytes += pageBytes;
     }
     return Object.freeze(selected);
   }
+  get allocationFrozen(): boolean {
+    return this.#bytePool?.frozen ?? false;
+  }
   residentPagePhysicalBytes(pageId: number): number {
     this.#assertPageId(pageId);
-    return (this.#pageSlots.get(pageId)?.length ?? 0) * OEGPACK_V3_PAGE_BYTES;
+    return this.#pageLeases.get(pageId)?.allocatedBytes ?? 0;
   }
   groupAddress(groupId: number): (GeometryPageLocationV1 & { readonly byteOffset: number }) | undefined {
     if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed");
@@ -782,43 +826,34 @@ export class VirtualGeometryResidency {
   /** Capacity pressure leaves a verified completion queued; it never stages
    * only a partial page. */
   tryStagePage(page: GeometryPageProductV1): boolean {
-    if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed");
-    if (this.#pageLocations.has(page.pageId) || this.#stagedPages.has(page.pageId)) return true;
-    if (
-      this.#retiringLocations.has(page.pageId) ||
-      this.#slotPool!.availableSlots < this.#prepareResidentPage(page).slotCount
-    )
-      return false;
-    this.stagePage(page);
-    return true;
-  }
-  stagePage(page: GeometryPageProductV1): void {
-    if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed");
+    if (this.#destroyed) { throw new Error("VirtualGeometryResidency is destroyed"); }
     this.#assertPageId(page.pageId);
-    if (
-      page.revision !== this.#descriptor.revision ||
-      page.bytes.byteLength !== OEGPACK_V3_PAGE_BYTES ||
-      !sameBytes(page.productId, this.#descriptor.productId)
-    )
+    if (page.revision !== this.#descriptor.revision || page.bytes.byteLength !== OEGPACK_V3_PAGE_BYTES ||
+        !sameBytes(page.productId, this.#descriptor.productId) ||
+        !sameBytes(page.decodedHash128, decodeGeometryProductPageRecordV1(this.#descriptor, page.pageId).decodedHash128)) {
       throw new Error("Geometry Product page identity or payload is invalid");
-    const expected = decodeGeometryProductPageRecordV1(this.#descriptor, page.pageId);
-    if (!sameBytes(page.decodedHash128, expected.decodedHash128))
-      throw new Error("Geometry Product page identity is invalid");
-    if (this.#pageLocations.has(page.pageId) || this.#stagedPages.has(page.pageId)) return;
-    if (this.#retiringLocations.has(page.pageId))
-      throw new Error("Geometry Product page is retiring and cannot be re-staged yet");
-    if (this.#contentRevision >= 0xfffffffe) throw new RangeError("Geometry content revision exhausted");
-    const slot = this.#acquireSlot();
-    if (!slot) throw new Error("Geometry Product shared resident heap is full; page must remain queued");
+    }
+    if (this.#pageLocations.has(page.pageId) || this.#stagedPages.has(page.pageId)) { return true; }
+    if (this.#retiringLocations.has(page.pageId)) { return false; }
+    if (this.#contentRevision >= 0xfffffffe) { throw new RangeError("Geometry content revision exhausted"); }
+    const prepared = this.#prepareResidentPage(page);
+    const lease = this.#bytePool!.allocate(prepared.rawPayloadBytes);
+    if (lease === undefined) { return false; }
     let location: GeometryPageLocationV1;
     try {
-      location = this.#writeResidentPage(page, slot, GEOMETRY_PAGE_LOCATION_RESIDENT);
+      location = this.#writeResidentPage(page, lease, GEOMETRY_PAGE_LOCATION_RESIDENT);
     } catch (error) {
-      this.#slotPool!.release(slot.bankIndex, slot.slotIndex);
+      this.#bytePool!.release(lease);
       throw error;
     }
     this.#stagedPages.set(page.pageId, Object.freeze({ page, location, stagedAtMs: performance.now() }));
-    this.#pageInfluence.set(page.pageId, this.#prepareResidentPage(page));
+    this.#pageInfluence.set(page.pageId, prepared);
+    return true;
+  }
+  stagePage(page: GeometryPageProductV1): void {
+    if (!this.tryStagePage(page)) {
+      throw new Error("Geometry byte allocation unavailable; completion must remain queued");
+    }
   }
   /** Encodes pending mapping publications into the caller's frame encoder and
    * returns exactly the page ids whose copies were encoded. Staged pages without
@@ -961,7 +996,7 @@ export class VirtualGeometryResidency {
       this.#pageInfluence.delete(pageId);
       this.#pageLastUsed.delete(pageId);
       for (const [groupId, group] of this.#groupLocations) {
-        if (group.bankIndex === location.bankIndex && group.slotIndex === location.slotIndex) {
+        if (group.bankIndex === location.bankIndex && group.byteOffset >= location.byteOffset && group.byteOffset < location.byteOffset + location.payloadBytes) {
           this.#groupLocations.delete(groupId);
         }
       }
@@ -992,13 +1027,10 @@ export class VirtualGeometryResidency {
     return this.#stagedPages.get(pageId)?.stagedAtMs;
   }
   #releaseStagedSlot(pageId: number): void {
-    const slots = this.#pageSlots.get(pageId);
-    if (slots === undefined) return;
-    for (const slot of slots) {
-      this.#slotOwners.delete(slotKey(slot.bankIndex, slot.slotIndex));
-      this.#slotPool?.release(slot.bankIndex, slot.slotIndex);
-    }
-    this.#pageSlots.delete(pageId);
+    const lease = this.#pageLeases.get(pageId);
+    if (lease === undefined) { return; }
+    this.#bytePool!.release(lease);
+    this.#pageLeases.delete(pageId);
     this.#pagePayloadBytes.delete(pageId);
   }
   #pageLocationAddress(
@@ -1032,11 +1064,8 @@ export class VirtualGeometryResidency {
     this.#assertPageId(pageId);
     if (!this.#retiringLocations.has(pageId)) return;
     this.#retiringLocations.delete(pageId);
-    for (const slot of this.#pageSlots.get(pageId)!) {
-      this.#slotOwners.delete(slotKey(slot.bankIndex, slot.slotIndex));
-      this.#slotPool!.release(slot.bankIndex, slot.slotIndex);
-    }
-    this.#pageSlots.delete(pageId);
+    this.#bytePool!.release(this.#pageLeases.get(pageId)!);
+    this.#pageLeases.delete(pageId);
     this.#pagePayloadBytes.delete(pageId);
     const history = this.#history(pageId);
     this.#lifetimeFrames += Math.max(0, this.#frameClock - history.residentSince);
@@ -1087,12 +1116,14 @@ export class VirtualGeometryResidency {
       evictedPages: this.#evictedPages,
       uploadedBytes: this.#uploadedBytes,
       metadataBytes: this.#metadata === undefined ? 0 : this.#metadataLayout.byteLength,
-      bankCount: this.#banks.length,
-      slotCapacity: this.#slotPool?.slotCapacity ?? 0,
+      bankCount: 4,
+      leaseCapacity: this.#residencyProfile.maxPageLeases,
+      allocatorCpuBytes: this.#bytePool?.evidence().allocatorCpuBytes ?? 0,
+      allocationFailure: this.#bytePool?.evidence().lastFailure ?? "none",
       allocatedCapacityBytes:
         (this.#metadata === undefined ? 0 : this.#metadataLayout.byteLength) +
-        this.#banks.length * this.#residencyProfile.bankBytes,
-      sharedBankCapacityBytes: this.#banks.length * this.#residencyProfile.bankBytes,
+        (this.#bytePool?.bankBytes ?? 0) * 4,
+      sharedBankCapacityBytes: (this.#bytePool?.bankBytes ?? 0) * 4,
       globalAllocatedCapacityBytes: global.allocatedBytes,
       globalMetadataBytes: global.metadataBytes,
       globalTotalCapacityBytes: global.totalBytes,
@@ -1109,7 +1140,7 @@ export class VirtualGeometryResidency {
   }
   #pagePhysicalBytes(pages: ReadonlyMap<number, GeometryPageLocationV1>): number {
     let bytes = 0;
-    for (const pageId of pages.keys()) bytes += this.#pageSlots.get(pageId)!.length * OEGPACK_V3_PAGE_BYTES;
+    for (const pageId of pages.keys()) bytes += this.#pageLeases.get(pageId)!.allocatedBytes;
     return bytes;
   }
   #payloadBytes(pages: ReadonlyMap<number, GeometryPageLocationV1>): number {
@@ -1130,6 +1161,9 @@ export class VirtualGeometryResidency {
       value =
         preparedResidentPage(page) ??
         prepareProductResidentAttributes(this.#descriptor, page.pageId, page.bytes);
+      if (value.rawPayloadBytes !== geometryPagePayloadBytes(this.#descriptor, page.pageId)) {
+        throw new Error("Geometry prepared payload differs from its authenticated directory");
+      }
       this.#preparedPages.set(page, value);
       // Edge registration is monotonic: only ever-resident coarse parents can
       // have contributed cached shadow content, and those were validated here.
@@ -1223,33 +1257,23 @@ export class VirtualGeometryResidency {
   get refineInfluenceGroups(): number {
     return this.#refineInfluence.indexedGroups;
   }
-  /** Validate and upload the raw decoded 256 KiB page directly into its single
-   * physical bank slot. GPU shaders decode compact vertex attributes directly
-   * from the raw page, requiring zero extra attribute slots or CPU expansion. */
-  #writeResidentPage(
-    page: GeometryPageProductV1,
-    raw: { bankIndex: number; slotIndex: number },
-    flags: number
-  ): GeometryPageLocationV1 {
+  /** Upload only the validated prefix into an unpublished, exact-length lease. */
+  #writeResidentPage(page: GeometryPageProductV1, lease: GeometryPageLease, flags: number): GeometryPageLocationV1 {
     const prepared = this.#prepareResidentPage(page);
-    this.device.queue.writeBuffer(
-      this.#banks[raw.bankIndex]!,
-      raw.slotIndex * OEGPACK_V3_PAGE_BYTES,
-      new Uint8Array(page.bytes, 0, prepared.rawPayloadBytes)
-    );
-    const slots = Object.freeze([raw]);
-    this.#pageSlots.set(page.pageId, slots);
+    if (prepared.rawPayloadBytes !== geometryPagePayloadBytes(this.#descriptor, page.pageId) ||
+        prepared.rawPayloadBytes > lease.allocatedBytes) {
+      throw new Error("Geometry prepared payload disagrees with its directory allocation");
+    }
+    if (this.#bytePool!.frozen) {
+      throw new Error("Geometry upload cannot write through an unsubmitted bank growth");
+    }
+    this.device.queue.writeBuffer(this.#bytePool!.banks[lease.bankIndex]!, lease.byteOffset,
+      new Uint8Array(page.bytes, 0, prepared.rawPayloadBytes));
+    this.#pageLeases.set(page.pageId, lease);
     this.#pagePayloadBytes.set(page.pageId, prepared.rawPayloadBytes);
-    this.#slotOwners.set(slotKey(raw.bankIndex, raw.slotIndex), page.pageId);
     this.#uploadedBytes += prepared.rawPayloadBytes;
-    return Object.freeze({
-      ...raw,
-      residentBankIndex: raw.bankIndex,
-      residentSlotIndex: raw.slotIndex,
-      residentByteOffset: 0,
-      productGeneration: this.#productGeneration,
-      flags
-    });
+    return Object.freeze({ bankIndex: lease.bankIndex, byteOffset: lease.byteOffset,
+      payloadBytes: prepared.rawPayloadBytes, productGeneration: this.#productGeneration, flags });
   }
   #history(pageId: number): PageEvictionHistory {
     let history = this.#pageHistory.get(pageId);
@@ -1322,9 +1346,6 @@ export class VirtualGeometryResidency {
     };
     for (const root of this.#descriptor.rootNodeIds) walk(root, 0);
   }
-  #acquireSlot(): { bankIndex: number; slotIndex: number } | undefined {
-    return this.#slotPool?.allocate();
-  }
   #publishGroupsForPage(pageId: number, location: GeometryPageLocationV1): void {
     const groupView = new DataView(
       this.#descriptor.groupDirectory.buffer,
@@ -1338,7 +1359,7 @@ export class VirtualGeometryResidency {
           Object.freeze({
             ...location,
             byteOffset:
-              location.slotIndex * OEGPACK_V3_PAGE_BYTES + groupView.getUint32(groupId * 16 + 4, true)
+              location.byteOffset + groupView.getUint32(groupId * 16 + 4, true)
           })
         );
   }
@@ -1375,15 +1396,13 @@ export class VirtualGeometryResidency {
     this.#source.release();
   }
   #destroyGpuResources(): void {
-    for (const key of this.#slotOwners.keys()) {
-      const [bank, slot] = key.split(":").map(Number);
-      this.#slotPool!.release(bank!, slot!);
-    }
-    this.#slotPool?.releaseOwner();
-    this.#slotPool = undefined;
+    this.#bytePool?.abortPendingFrame(new Error("Geometry residency ownership ended during capacity encoding"));
+    this.#removePoolListener?.();
+    for (const lease of this.#pageLeases.values()) { this.#bytePool!.release(lease); }
+    this.#bytePool?.releaseOwner();
+    this.#bytePool = undefined;
     this.#metadata?.destroy();
     for (const release of this.#releaseReservations.splice(0)) release();
-    this.#banks.length = 0;
     this.#pageLocations.clear();
     this.#stagedPages.clear();
     this.#candidateState = undefined;
@@ -1393,8 +1412,7 @@ export class VirtualGeometryResidency {
     this.#retiringLocations.clear();
     this.#requestedRetirements.clear();
     this.#groupLocations.clear();
-    this.#slotOwners.clear();
-    this.#pageSlots.clear();
+    this.#pageLeases.clear();
     this.#pagePayloadBytes.clear();
     this.#pageLastUsed.clear();
     this.#pageHistory.clear();
@@ -1419,9 +1437,6 @@ export class VirtualGeometryResidency {
 // succeed at admission and fail later during shader creation.
 export const VIRTUAL_GEOMETRY_PRODUCT_REQUIRED_STORAGE_BUFFERS_PER_SHADER_STAGE = 16;
 
-function slotKey(bankIndex: number, slotIndex: number): string {
-  return `${bankIndex}:${slotIndex}`;
-}
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
   if (a.byteLength !== b.byteLength) return false;
   for (let i = 0; i < a.byteLength; i++) if (a[i] !== b[i]) return false;
@@ -1512,11 +1527,11 @@ function buildMetadataHeap(
   productGeneration: number,
   productTableSlot: number,
   assetCount: number,
-  slotsPerBank: number
+  bankByteCapacity: number
 ): Uint8Array<ArrayBuffer> {
   const bytes = new Uint8Array(layout.byteLength);
   const header = packGeometryProductMetadataHeapHeaderV1({
-    slotsPerBank,
+    bankByteCapacity,
     productCount: layout.productCapacity,
     productCapacity: layout.productCapacity,
     totalWords: layout.byteLength / 4,
@@ -1571,4 +1586,15 @@ function buildMetadataHeap(
   }
   bytes.set(descriptor.vertexFormats, layout.vertexFormats);
   return bytes;
+}
+
+function initialPageBankBytes(descriptor: GeometryProductDescriptorV1): number {
+  let bytes = 0;
+  let largest = 16;
+  for (let page = 0; page < descriptor.pageRecords.byteLength / 32; page++) {
+    const payload = Math.ceil(geometryPagePayloadBytes(descriptor, page) / 16) * 16;
+    bytes += payload;
+    largest = Math.max(largest, payload);
+  }
+  return Math.max(largest, Math.ceil(bytes * 1.25 / 64) * 16);
 }

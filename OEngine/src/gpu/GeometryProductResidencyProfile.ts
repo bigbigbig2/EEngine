@@ -1,5 +1,5 @@
 import { OEGPACK_V3_PAGE_BYTES } from "../assets/GeometryAbiV3.js";
-import { GEOMETRY_PRODUCT_GPU_SLOTS_PER_BANK_V1 } from "./GeometryProductGpuAbiV1.js";
+import { GEOMETRY_PRODUCT_GPU_BANK_BYTES_MAX_V1 } from "./GeometryProductGpuAbiV1.js";
 
 /** Phase H profile selector ABI. This changes physical capacity only; Product/Page ABI stays V1. */
 export const GEOMETRY_PRODUCT_RESIDENCY_PROFILE_ABI_VERSION_V1 = 1;
@@ -42,6 +42,9 @@ export interface GeometryProductResidencyProfileOptionsV1 {
   /** Explicit per-bank target for an application working set. Defaults retain
    * the profile tier; device limits and configuredCapacityBytes remain caps. */
   readonly configuredBankBytes?: number;
+  /** Initial allocation, independent of the negotiated capacity ceiling. */
+  readonly initialBankBytes?: number;
+  readonly maxPageLeases?: number;
 }
 
 export interface GeometryProductResidencyProfilePlanV1 {
@@ -52,8 +55,8 @@ export interface GeometryProductResidencyProfilePlanV1 {
   readonly reason: "selected" | "feature-off" | "unsupported-limits" | "configured-budget";
   readonly bankCount: number;
   readonly bankBytes: number;
-  readonly slotsPerBank: number;
-  readonly slotCapacity: number;
+  readonly initialBankBytes: number;
+  readonly maxPageLeases: number;
   readonly capacityBytes: number;
   readonly negotiatedLimits: Readonly<GeometryProductResidencyLimitsV1>;
   readonly runtimeEvidence: Readonly<GeometryProductResidencyRuntimeEvidenceV1>;
@@ -63,12 +66,12 @@ export interface GeometryProductResidencyProfilePlanV1 {
 const PROFILE_BANK_BYTES: Readonly<Record<GeometryProductResidencyProfileIdV1, number>> = Object.freeze({
   Portable: GEOMETRY_PRODUCT_PORTABLE_BANK_BYTES_V1,
   Balanced: GEOMETRY_PRODUCT_BALANCED_BANK_BYTES_V1,
-  HighEnd: GEOMETRY_PRODUCT_HIGH_END_BANK_BYTES_V1
+  HighEnd: GEOMETRY_PRODUCT_HIGH_END_BANK_BYTES_V1,
 });
 const PROFILE_ORDER: readonly GeometryProductResidencyProfileIdV1[] = Object.freeze([
   "Portable",
   "Balanced",
-  "HighEnd"
+  "HighEnd",
 ]);
 
 /**
@@ -77,7 +80,7 @@ const PROFILE_ORDER: readonly GeometryProductResidencyProfileIdV1[] = Object.fre
  */
 export function selectGeometryProductResidencyProfileV1(
   limits: GeometryProductResidencyLimitsV1,
-  options: GeometryProductResidencyProfileOptionsV1 = {}
+  options: GeometryProductResidencyProfileOptionsV1 = {},
 ): GeometryProductResidencyProfilePlanV1 {
   const normalizedLimits = normalizeLimits(limits);
   const requestedProfile = options.requestedProfile ?? "auto";
@@ -94,7 +97,8 @@ export function selectGeometryProductResidencyProfileV1(
   }
   if (
     options.configuredBankBytes !== undefined &&
-    (!Number.isSafeInteger(options.configuredBankBytes) || options.configuredBankBytes < OEGPACK_V3_PAGE_BYTES)
+    (!Number.isSafeInteger(options.configuredBankBytes) ||
+      options.configuredBankBytes < OEGPACK_V3_PAGE_BYTES)
   ) {
     throw new RangeError("Geometry Product configuredBankBytes must be a positive page-sized integer");
   }
@@ -109,11 +113,11 @@ export function selectGeometryProductResidencyProfileV1(
   const maximumBankBytes = Math.min(
     normalizedLimits.maxBufferSize,
     normalizedLimits.maxStorageBufferBindingSize,
-    GEOMETRY_PRODUCT_GPU_SLOTS_PER_BANK_V1 * OEGPACK_V3_PAGE_BYTES
+    GEOMETRY_PRODUCT_GPU_BANK_BYTES_MAX_V1,
   );
   const capacityLimit = Math.min(
     configuredCapacityBytes,
-    maximumBankBytes * GEOMETRY_PRODUCT_RESIDENCY_BANK_COUNT_V1
+    maximumBankBytes * GEOMETRY_PRODUCT_RESIDENCY_BANK_COUNT_V1,
   );
   const autoPressure = evidence.pressure ?? derivePressure(evidence);
   const requested =
@@ -132,8 +136,8 @@ export function selectGeometryProductResidencyProfileV1(
       Math.min(
         options.configuredBankBytes ?? PROFILE_BANK_BYTES[requested],
         maximumBankBytes,
-        configuredCapacityBytes / GEOMETRY_PRODUCT_RESIDENCY_BANK_COUNT_V1
-      ) / OEGPACK_V3_PAGE_BYTES
+        configuredCapacityBytes / GEOMETRY_PRODUCT_RESIDENCY_BANK_COUNT_V1,
+      ) / OEGPACK_V3_PAGE_BYTES,
     ) * OEGPACK_V3_PAGE_BYTES;
   if (bankBytes < OEGPACK_V3_PAGE_BYTES) {
     return disabledPlan(normalizedLimits, requestedProfile, evidence, "configured-budget");
@@ -153,22 +157,22 @@ export function selectGeometryProductResidencyProfileV1(
     reason: "selected",
     bankCount: GEOMETRY_PRODUCT_RESIDENCY_BANK_COUNT_V1,
     bankBytes,
-    slotsPerBank: bankBytes / OEGPACK_V3_PAGE_BYTES,
-    slotCapacity: capacityBytes / OEGPACK_V3_PAGE_BYTES,
+    initialBankBytes: initialBankBytes(options.initialBankBytes, bankBytes),
+    maxPageLeases: pageLeases(options.maxPageLeases),
     capacityBytes,
     negotiatedLimits: normalizedLimits,
     runtimeEvidence: evidence,
-    ...(profile === requested ? {} : { fallbackFrom: requested })
+    ...(profile === requested ? {} : { fallbackFrom: requested }),
   });
 }
 
 function normalizeLimits(
-  limits: GeometryProductResidencyLimitsV1
+  limits: GeometryProductResidencyLimitsV1,
 ): Readonly<GeometryProductResidencyLimitsV1> {
   const normalized = {
     maxBufferSize: Number(limits.maxBufferSize),
     maxStorageBufferBindingSize: Number(limits.maxStorageBufferBindingSize),
-    maxStorageBuffersPerShaderStage: Number(limits.maxStorageBuffersPerShaderStage)
+    maxStorageBuffersPerShaderStage: Number(limits.maxStorageBuffersPerShaderStage),
   };
   for (const [name, value] of Object.entries(normalized)) {
     if (!Number.isSafeInteger(value) || value <= 0)
@@ -178,7 +182,7 @@ function normalizeLimits(
 }
 
 function normalizeEvidence(
-  evidence: GeometryProductResidencyRuntimeEvidenceV1 | undefined
+  evidence: GeometryProductResidencyRuntimeEvidenceV1 | undefined,
 ): Readonly<GeometryProductResidencyRuntimeEvidenceV1> {
   const normalized: GeometryProductResidencyRuntimeEvidenceV1 = Object.freeze({
     ...(evidence?.residentBytes === undefined
@@ -193,7 +197,7 @@ function normalizeEvidence(
     ...(evidence?.fallbackGroups === undefined
       ? {}
       : { fallbackGroups: nonNegative(evidence.fallbackGroups, "fallbackGroups") }),
-    ...(evidence?.pressure === undefined ? {} : { pressure: finiteRatio(evidence.pressure, "pressure") })
+    ...(evidence?.pressure === undefined ? {} : { pressure: finiteRatio(evidence.pressure, "pressure") }),
   });
   return normalized;
 }
@@ -209,7 +213,7 @@ function disabledPlan(
   limits: Readonly<GeometryProductResidencyLimitsV1>,
   requestedProfile: GeometryProductResidencyProfileRequestV1,
   runtimeEvidence: Readonly<GeometryProductResidencyRuntimeEvidenceV1>,
-  reason: "feature-off" | "unsupported-limits" | "configured-budget"
+  reason: "feature-off" | "unsupported-limits" | "configured-budget",
 ): GeometryProductResidencyProfilePlanV1 {
   return Object.freeze({
     abiVersion: GEOMETRY_PRODUCT_RESIDENCY_PROFILE_ABI_VERSION_V1,
@@ -219,11 +223,11 @@ function disabledPlan(
     reason,
     bankCount: 0,
     bankBytes: 0,
-    slotsPerBank: 0,
-    slotCapacity: 0,
+    initialBankBytes: 0,
+    maxPageLeases: 0,
     capacityBytes: 0,
     negotiatedLimits: limits,
-    runtimeEvidence
+    runtimeEvidence,
   });
 }
 
@@ -236,5 +240,19 @@ function nonNegative(value: number, label: string): number {
 function finiteRatio(value: number, label: string): number {
   if (!Number.isFinite(value) || value < 0 || value > 1)
     throw new RangeError(`Geometry Product ${label} must be within [0, 1]`);
+  return value;
+}
+
+function initialBankBytes(value: number | undefined, ceiling: number): number {
+  const bytes = value ?? Math.min(ceiling, 1024 * 1024);
+  if (!Number.isSafeInteger(bytes) || bytes < 16 || bytes > ceiling) {
+    throw new RangeError("Geometry initial bank bytes exceed the negotiated capacity");
+  }
+  return Math.ceil(bytes / 16) * 16;
+}
+function pageLeases(value = 65536): number {
+  if (!Number.isSafeInteger(value) || value < 1 || value > 262144) {
+    throw new RangeError("Geometry page lease capacity is invalid");
+  }
   return value;
 }

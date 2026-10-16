@@ -5,106 +5,43 @@ const abi = await import("../../.test-dist/gpu/GeometryProductGpuAbiV1.js");
 const meshletAbi = await import("../../.test-dist/gpu/GpuMeshletRasterWorkAbi.js");
 const { encodeGeometryProductGpuLocationV1, validateGeometryProductGpuLocationV1 } = abi;
 
-test("Geometry Product GPU location mirror encodes generation-tagged resident addresses", () => {
-  const bytes = encodeGeometryProductGpuLocationV1({
-    bankIndex: 2,
-    slotIndex: 7,
-    residentBankIndex: 3,
-    residentSlotIndex: 767,
-    productGeneration: 11,
-    flags: 3,
-  });
-  assert.deepEqual(validateGeometryProductGpuLocationV1(bytes, 11), {
-    valid: true,
-    resident: true,
-    bankIndex: 2,
-    slotIndex: 7,
-    productGeneration: 11,
-    flags: 3,
-    byteOffset: 7 << 18,
-  });
-  assert.equal(validateGeometryProductGpuLocationV1(bytes, 12).valid, false);
-  assert.equal(
-    validateGeometryProductGpuLocationV1(encodeGeometryProductGpuLocationV1(undefined), 11).valid,
-    false,
-  );
-});
-
-test("virtual MeshletWork slot preserves 24-bit GroupID and 7-bit local MeshletID", () => {
-  const slot = meshletAbi.encodeVirtualGeometryMeshletSlot(0x00fedcba, 127);
-  assert.deepEqual(meshletAbi.decodeVirtualGeometryMeshletSlot(slot), {
-    groupId: 0x00fedcba,
-    localMeshlet: 127,
-  });
-  assert.throws(() => meshletAbi.encodeVirtualGeometryMeshletSlot(0x01000000, 0), /invalid/);
-});
-
-test("Geometry Product GPU location mirror rejects reserved flags", () => {
-  const bytes = encodeGeometryProductGpuLocationV1({
-    bankIndex: 0,
-    slotIndex: 0,
-    residentBankIndex: 0,
-    residentSlotIndex: 0,
-    productGeneration: 1,
-    flags: 1,
-  });
-  new DataView(bytes.buffer).setUint32(12, 0x10001, true);
-  assert.equal(validateGeometryProductGpuLocationV1(bytes, 1).valid, false);
-  assert.throws(
-    () => encodeGeometryProductGpuLocationV1({ bankIndex: 4, slotIndex: 0, productGeneration: 1, flags: 1 }),
-    /invalid/,
-  );
-  assert.throws(
-    () =>
-      encodeGeometryProductGpuLocationV1({ bankIndex: 0, slotIndex: 2048, residentBankIndex: 0, residentSlotIndex: 0, productGeneration: 1, flags: 1 }),
-    /invalid/,
-  );
-  const outOfBank = encodeGeometryProductGpuLocationV1({
-    bankIndex: 0,
-    slotIndex: 0,
-    residentBankIndex: 0,
-    residentSlotIndex: 0,
-    productGeneration: 1,
-    flags: 1,
-  });
-  new DataView(outOfBank.buffer).setUint32(0, 4, true);
-  assert.equal(validateGeometryProductGpuLocationV1(outOfBank, 1).valid, false);
-});
-
-test("expanded banks retain raw and resident addresses without truncation", () => {
-  for (const slot of [1023, 1024, 1535, 2047]) {
-    for (let bank = 0; bank < 4; bank++) {
-      const bytes = encodeGeometryProductGpuLocationV1({
-        bankIndex: bank, slotIndex: slot, residentBankIndex: bank, residentSlotIndex: slot,
-        residentByteOffset: 262128, productGeneration: 7, flags: 1,
-      });
-      const packed = new DataView(bytes.buffer).getUint32(4, true);
-      assert.equal(packed & 65535, slot);
-      assert.equal((packed >>> 16) - 1, bank * 2048 + slot);
-      assert.equal(validateGeometryProductGpuLocationV1(bytes, 7, slot + 1).valid, true);
-      assert.equal(validateGeometryProductGpuLocationV1(bytes, 7, slot + 1).byteOffset, slot * 262144);
-      assert.equal(validateGeometryProductGpuLocationV1(bytes, 7, slot).valid, false);
+test("Geometry ABI6 exact byte ranges retain full generation and all banks", () => {
+  for (const bankIndex of [0, 1, 2, 3]) {
+    for (const byteOffset of [0, 16, 176, 0x1fffff00, 0x3ffffff0]) {
+      const location = { bankIndex, byteOffset, payloadBytes: 16, productGeneration: 11, flags: 3 };
+      const bytes = encodeGeometryProductGpuLocationV1(location);
+      assert.deepEqual(validateGeometryProductGpuLocationV1(bytes, 11), { ...location, valid: true, resident: true });
+      assert.equal(validateGeometryProductGpuLocationV1(bytes, 12).valid, false);
+      assert.equal(validateGeometryProductGpuLocationV1(bytes, 11, byteOffset + 16).valid, true);
+      if (byteOffset > 0) assert.equal(validateGeometryProductGpuLocationV1(bytes, 11, byteOffset).valid, false);
     }
   }
+  assert.equal(validateGeometryProductGpuLocationV1(encodeGeometryProductGpuLocationV1(undefined), 11).valid, false);
 });
 
-test("resident directory offset is aligned, bounded and independent of lifecycle flags", () => {
-  const location = {
-    bankIndex: 0, slotIndex: 5, residentBankIndex: 0, residentSlotIndex: 5,
-    residentByteOffset: 176, productGeneration: 2, flags: 3,
-  };
-  const bytes = encodeGeometryProductGpuLocationV1(location);
-  assert.equal(new DataView(bytes.buffer).getUint32(12, true), 47);
-  assert.equal(validateGeometryProductGpuLocationV1(bytes, 2).valid, true);
-  assert.equal(validateGeometryProductGpuLocationV1(bytes, 2).flags, 3);
-  for (const offset of [-16, 4, 262144]) {
-    assert.throws(() => encodeGeometryProductGpuLocationV1({ ...location, residentByteOffset: offset }), /offset/);
+test("Geometry ABI6 rejects reserved bits, misalignment, overflow and stale generations", () => {
+  const location = { bankIndex: 0, byteOffset: 16, payloadBytes: 176, productGeneration: 11, flags: 1 };
+  for (const change of [{bankIndex: 4}, {byteOffset: 4}, {byteOffset: 0x3ffffff0},
+    {payloadBytes: 0}, {payloadBytes: 262148}, {payloadBytes: 175}, {flags: 2}, {flags: 5},
+    {productGeneration: 0}, {productGeneration: 0xffffffff}]) {
+    assert.throws(() => encodeGeometryProductGpuLocationV1({...location, ...change}));
   }
+  for (const [word, value] of [[0, 17], [1, 4], [2, 0], [3, 0], [3, 262148], [3, 175]]) {
+    const bytes = encodeGeometryProductGpuLocationV1(location);
+    new DataView(bytes.buffer).setUint32(word * 4, value, true);
+    assert.equal(validateGeometryProductGpuLocationV1(bytes, 11).valid, false);
+  }
+});
+
+test("virtual MeshletWork preserves 24-bit GroupID and 7-bit local MeshletID", () => {
+  const slot = meshletAbi.encodeVirtualGeometryMeshletSlot(0x00fedcba, 127);
+  assert.deepEqual(meshletAbi.decodeVirtualGeometryMeshletSlot(slot), {groupId: 0x00fedcba, localMeshlet: 127});
+  assert.throws(() => meshletAbi.encodeVirtualGeometryMeshletSlot(0x01000000, 0), /invalid/);
 });
 
 test("Geometry Product GPU metadata records freeze product ranges and asset references", () => {
   const heap = {
-    slotsPerBank: 1024,
+    bankByteCapacity: 1024,
     productCount: 1,
     productCapacity: 2,
     totalWords: 144,
@@ -156,7 +93,7 @@ test("Geometry Product GPU metadata records freeze product ranges and asset refe
 
 test("Geometry Product metadata heap CPU oracle fail-closes generation and resolves table word ranges", () => {
   const heap = {
-    slotsPerBank: 1024,
+    bankByteCapacity: 1024,
     productCount: 1,
     productCapacity: 1,
     totalWords: 128,

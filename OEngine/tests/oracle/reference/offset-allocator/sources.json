@@ -1,0 +1,12 @@
+{
+  "repository": "https://github.com/sebbbi/OffsetAllocator",
+  "revision": "3610a7377088b1e8c8f1525f458c96038a4e6fc0",
+  "license": "MIT",
+  "files": {
+    "LICENSE": "ca618b192cd46bdd230d062c5e407e972ea47b9d98bd16323af1cc2549880858",
+    "offsetAllocator.cpp": "337aedd1d455dc227fa3af1454937a69c88d2cbf0eea9d41ad65e40105307f6c",
+    "offsetAllocator.hpp": "1d1043bc4baa33bf8b385e562b74d2efbb0d70835ad974dc13d7e2b8255a35e6",
+    "offsetAllocatorTests.cpp": "9f0bfd8e2780840624f071bba13e4b9949f3fa8d66cc1ab1403352a9794da7c4",
+    "README.md": "27a53034bc8820e3ab029b5eb633887fc884216df1196b457945931efdf34385"
+  }
+}

@@ -18,7 +18,7 @@ verifies:
     - OEngine/src/gpu/GeometryPageScheduler.ts
     - OEngine/src/gpu/GeometryDemandReadbackRing.ts
     - OEngine/src/gpu/GeometryProductResidencyProfile.ts
-    - OEngine/src/gpu/GeometryProductSlotPool.ts
+    - OEngine/src/gpu/GeometryProductBytePool.ts
     - OEngine/src/gpu/VirtualGeometryResidency.ts
     - OEngine/src/render/surface/SurfaceV4.ts
     - OEngine/src/render/pipeline/RendererCore.ts
@@ -33,7 +33,7 @@ verifies:
 
 ## 当前 owner 与生产连接
 
-2026-10-16 VT复审后的实际接线：VSM候选脏页经`VsmCasterRecordPass`先计数实际保守pair，再选择总量可容纳的完整页，per-page prefix/cursor生成记录；FrameProgram把同一筛选allocation交给clear/raster/commit。未选页继续dirty，最老页先行；单页超过pair容量仍保留完整implicit。VSM回收在原四类内先冷槽、后近期槽，使用已有last_visited的8帧间隔，不永久pin历史需求；当前帧请求仍全部保护。没有CPU同帧控制、额外submit或改变shadow geometry需求。既有72B延迟publication receipt拆出allocation/coarse misses、evictions、pairMode/failure/pending；caster不再擦掉allocator pending。limited不等于已收敛，`SceneRefinement`进入limited会撤销旧settled时间。Graphics device geometry ledger按共享bank+metadata只计一次，固定256KiB单页单槽的slack没有因此消失。具体检查与剩余边界见当前VT执行§9。
+2026-10-16 VT复审后的实际接线：VSM候选脏页经`VsmCasterRecordPass`先计数实际保守pair，再选择总量可容纳的完整页，per-page prefix/cursor生成记录；FrameProgram把同一筛选allocation交给clear/raster/commit。未选页继续dirty，最老页先行；单页超过pair容量仍保留完整implicit。VSM回收在原四类内先冷槽、后近期槽，使用已有last_visited的8帧间隔，不永久pin历史需求；当前帧请求仍全部保护。没有CPU同帧控制、额外submit或改变shadow geometry需求。既有72B延迟publication receipt拆出allocation/coarse misses、evictions、pairMode/failure/pending；caster不再擦掉allocator pending。limited不等于已收敛，`SceneRefinement`进入limited会撤销旧settled时间。Graphics device geometry ledger按共享bank+metadata只计一次，当时固定256KiB单页单槽的slack没有因此消失；后续GRS-1切换见下段。具体检查与剩余边界见当前VT执行§9。
 
 2026-10-15初始化调度切换：HTTP Cooked Product的bootstrap与持续流送共用`CookedAssetPreparation`批读取；`AssetWorkerPool`中的Dedicated Worker执行Range、CRC/LZ4/布局、可选decoded SHA和resident position/UV数值扫描。`GeometryProductResidentAttributes`已迁到CPU assets层；主线程按实际任务receipt重建品牌、检查完整身份/返回域，复用prepared bounds/refine数据，不再次逐顶点扫描。memory/custom provider保留独立的未预验证snapshot/digest边界。完整256KiB逻辑页仍跨线程transfer，GPU只上传已验证payload prefix；没有新的页物理ABI。默认4批×16页候选、全局256MiB临时/32MiB编码/64MiB ready信用，ready直到上传、丢弃或source释放才回收。Worker完成仍不能直接发布位置表，唯一普通帧事务和退休fence继续归residency/runtime。每个revision source独占CPU会话，device loss取消旧runtime读取而保留可重放source；范围计数包含Worker真实IO。
 
@@ -43,11 +43,11 @@ verifies:
 
 Loader/Cooker 提供 Product descriptor/pages；admission 负责验证/激活，multi-runtime 管理 Product/shard slots 与 replacement/release，residency 发布当前页位置。FrameProgramLowering 将 virtual metadata/banks 与选中 frame geometry 传给唯一 SurfaceV4；GPU hierarchy/work/raster 消费当前产品，不由 Loader 长期持有 GPU owner。
 
-当前 GeometryProductGpuAbiV1 的数值 ABI version 为5；16B page-location 的 raw/resident 地址使用每 bank 2048-slot namespace ceiling，64B heap header word12发布实际物理 slotsPerBank，GPU heap lookup 在 bank read 前校验实际范围。目录地址恢复到紧凑原始 Page 内，不再指向常驻 CPU 展开属性。API 名称中的 V1 是 Product 合同名，不是当前 GPU 数值版本；namespace ceiling 也不是实际已分配容量。历史 M1/G2.1 失败与验证保留原快照，不能当作最新 ABI 的验证结果。
+当前 GeometryProductGpuAbiV1 数值版本为6：16B page-location发布bank/flags、16B对齐byte offset、完整generation与有效payload bytes，header word12为实际bankByteCapacity。GeometryProductBytePool使用完整OffsetAllocator移植按有效前缀分配，不再保留物理256KiB slot owner；四bank与metadata初始容量由Cooked目录规划。普通帧扩容保持活页offset和各section record index，候选epoch使Visibility/Temporal Occlusion/VSM及Surface的绑定重建，abort回旧代，成功fence后退旧buffer。逻辑页、hash/LZ4/Worker与原始顶点格式不变。GRS-1实现检查不代表完整场景启动提速，结果与后续集中验证见当前执行。
 
 Web/Offline/procedural Scene mapper 读取完整 immutable descriptor，按真实 asset forest 与 instance multiplicity 发布 depth/队列上界，合并不再 clamp；RenderWorld 在创建 Scene 资源前检查协商 buffer/binding/dispatch 与 Visibility work namespace。Resident decoder 核实实际 group header 的 meshlet count 与 descriptor 一致，防止页内容突破已声明 work 上界。空 instance list 明确拒绝。合法 page fixtures 已覆盖当前 admission/residency/multi-runtime 的 targeted 合同；原失败记录和仍未关闭的缺口保留在执行计划，不能视为完整 streaming 规模验收。
 
-四 bank 按 GPUDevice 共享；auto 无显式预算默认4×32MiB，profile512/768/1024MiB是 ceiling，实际容量按预算/limit/page协商。MultiRuntime scene metadata 默认64MiB，是唯一 GPU directory（Product Table嵌入其中）；各 Product只保CPU descriptor/source与页生命周期。六 section 的 bounded CPU free-range lists 在末读 fence 后回收，不移动live range；单 Product standalone 仍拥有自己唯一 metadata。共享banks/metadata的used、reserved、retiring与peak分别计账，不能将每 Product共享bank evidence相加。
+四 bank 按 GPUDevice 共享；auto无显式预算ceiling为128MiB，profile512/768/1024MiB同为ceiling，初始buffer按目录有效前缀及headroom规划；未知catalog每bank最多1MiB起步。MultiRuntime scene metadata按section实际计数规划，默认256MiB上限，是唯一 GPU directory（Product Table嵌入其中）；各 Product只保CPU descriptor/source与页生命周期。六 section 的 bounded CPU free-range lists 在末读 fence 后回收，不移动live range；单 Product standalone 仍拥有自己唯一 metadata。共享banks/metadata的used、reserved、retiring与peak分别计账，不能将每 Product共享bank evidence相加。
 
 Streaming mainring 由命令提交 commit、abort cancel；延迟map/consume后 exact slot/generation 分发IO/upload，不按同revision首个Product路由。2026-10-15初始化调度（INIT-1）：几何流送解压后先进入`submitted`（隐藏槽写入payload，不公开位置表）；主帧在prepare阶段选择有界候选，经`uploadRegions`一次性编码位置表拷贝，并在本帧同一命令提交成功（`onFinished`）时原子推进`resident`与版本，abort则干净回滚候选状态；退休通过本模块发出的提交Fence批次异步回收，不无条件await整设备队列；Residency维护单调refine依赖反向索引，在几何入驻/退休时向VSM传递紧凑局部变化区，消除整实例AABB导致的无效阴影重绘。Scheduler的in-flight reservation与verified raw pages共预算，read/upload按Product服务次数与本地priority/age公平排序；physical pressure实际接入frame间revoke→真实queue fence→release→upload retry。错误留在runtime/Renderer diagnostics；无本帧readback控制或额外submit。超工作集仍会thrash，不保证任意小预算达到完整fine LOD。
 

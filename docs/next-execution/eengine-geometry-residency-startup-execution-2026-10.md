@@ -4,7 +4,7 @@ state: current
 verifies:
   files:
     - docs/next-design/eengine-geometry-residency-startup-2026-10.md
-    - OEngine/src/gpu/GeometryProductSlotPool.ts
+    - OEngine/src/gpu/GeometryProductBytePool.ts
     - OEngine/src/gpu/GeometryProductGpuAbiV1.ts
     - OEngine/src/gpu/GeometryProductMultiRuntime.ts
     - OEngine/src/gpu/VirtualGeometryResidency.ts
@@ -19,13 +19,13 @@ verifies:
 
 # 几何紧凑驻留与首帧准备：执行计划
 
-唯一目标依据为[设计](../next-design/eengine-geometry-residency-startup-2026-10.md)。基线`17252477`；2026-10-16本轮授权为设计，以下单元**均未实施**。不因计划建立就改生产代码或宣称完成。模块只设三个工程单元，GRS-1包含一次完整地址/容量切换，不能把其中临时断链提交成稳定的双ABI生产状态。
+唯一目标依据为[设计](../next-design/eengine-geometry-residency-startup-2026-10.md)。基线`17252477`；2026-10-16已按用户后续授权实施GRS-1；GRS-2/3尚未启动。模块只设三个工程单元，GRS-1包含一次完整地址/容量切换，不能把其中临时断链提交成稳定的双ABI生产状态。
 
 ## 1. 顺序与状态
 
 | 单元 | 状态 | 完成边界 |
 |---|---|---|
-| GRS-1 紧凑几何驻留闭包 | 待实施 | 完整OffsetAllocator移植、目录容量计划、ABI6、四bank与metadata增长、所有直接consumer与退休闭合；删除固定槽生产依赖 |
+| GRS-1 紧凑几何驻留闭包 | 已实施并完成单元检查 | 完整OffsetAllocator移植、目录容量计划、ABI6、四bank与metadata增长、所有直接consumer与退休闭合；删除固定槽生产依赖 |
 | GRS-2 准确异步准备与首帧门槛 | 待实施 | 真实feature/scene PSO async准备与生产requirePrepared同源；首次图/编码/提交分段诊断；保留正常帧事务和UI响应 |
 | GRS-3 集中验证与文档核对 | 待实施 | 新鲜build与串行GPU、两场景同质量启动/收敛、容量/生命周期/成本复核；按实际事实更新domains与来源状态 |
 
@@ -79,3 +79,25 @@ Renderer/scene readiness必须在进入帧事务前完成，未ready期间不推
 已检查上述源码的分配/地址/publication、metadata布局/relocation、Cooked目录时序及pipeline cache/初始化调用。已研究固定OffsetAllocator完整核心源码、测试和MIT license，以及固定WebGPU规范pipeline创建语义。选择精确区间与同源async准备；没有新增生产文件、资产格式、GPU提交或运行新性能实验。
 
 本轮文档检查：`docs-verify`为0 findings / 81条既有history warnings；document-system 7/7通过；VirtualGeometryResidency的context只返回本模块唯一设计/执行一对，`git diff --check`通过。未运行engine build、browser或GPU，因为本轮只有文档/导航变化。实现与source adoption仍未开始。
+
+## 6. GRS-1 实施与核对（2026-10-16）
+
+设计先提交为`ff491dc7`。本单元一次切换为ABI6并删除GeometryProductSlotPool，无旧物理slot decoder/adapter。
+
+- 完整移植固定OffsetAllocator SmallFloat、32×8 bins、split、双邻居coalesce和node freelist；TypedArray SoA、checked lease、16B单位与稳定扩尾为Local。原源/license/SHA及native trace保留在tests/oracle/reference/offset-allocator。默认65536 leases的四allocator元数据约18.5MiB，最大配置由80MiB CPU限额约束；正常分配最多查四bank，不逐页线性搜索。
+- GeometryPagePayload统一目录容量与读取后payload数值定义；activation在IO前整体预留，IO失败/取消/销毁/迟到结果释放一次。页读取继续并发，只串行容量与metadata range准入。完整256KiB hash/LZ4/Worker和格式保持；GPU只分配/上传有效前缀。demo等已并行打开目录后规划四bank与逐section metadata，不再固定128MiB metadata。
+- ABI6四word为bank+flags、byte offset、完整generation、payload bytes；header word12为实际bank bytes。CPU/WGSL检查保留位、对齐、容量减法边界和Group有效前缀。四bank仍是原生产binding数，最大1GiB/bank，页内offset和Cooked逻辑Page不变。
+- bank候选由普通帧encoder复制旧bank到相同offset；metadata按section复制、record index不动。未暴露binding前可由CPU权威记录重建metadata；暴露后增长必须通过正常帧。candidate期间冻结上传/metadata修改，pending保留；多runtime listener在copy后发布header。Visibility/graph/Temporal Occlusion保存epoch，VSM随main workset重建，frame geometry重新生成绝对地址。abort恢复旧代、retry新epoch；release/dormant/dispose若冲突则abort未提交帧。
+- 新旧bank/metadata都计入真实device峰值；失败fence不退休，永久增长预算不足明确失败且不每帧重复申请。eviction按实际阻塞前缀字节和页数限制，候选冻结不误触逐出；连续120次延迟pump无stage进展仍阻塞会使refinement报告unserviceable，不能伪称settled。pinned与VSM完整页调度不降级。
+
+Architecture review核对了bank/header同帧切换、live binding与缓存epoch、generation与减法边界、abort/retry、预算双峰及最后consumer退休。独立小测试实际读回fake buffer复制内容，未用空copy替代生命周期检查。增长目前复制旧bank完整capacity（四bank合计），非高水位优化；只发生冷增长帧，无逐页GPU dispatch、独立submit或同步GPU控制。
+
+实际验证：typecheck、build、新鲜build:test通过；allocator/ABI/capacity/residency/workload与scheduler/admission/frame-arena相关检查最终合并124/124通过。clang++编译固定donor对照12000步全部决策一致；另有独立12000步interval随机trace含grow。
+
+串行硬件GPU：virtual-geometry-handoff 50用例、virtual-geometry-instance-culling 20帧通过；geometry-budgeted-residency 72帧主/影子需求、lease压力、公平上传、coarse覆盖与loss取消通过；native-surface-multi-product-production真实Renderer的MASK/Native HDR/Temporal/VSM/abort/recovery/release通过（VSM 134 valid pages、50 casters、overflow0）；product-attribute-decode 1024 vertices/20480 components、4bank/32 masks通过，最大误差5.96e-8。Chrome155，adapter报告NVIDIA/Turing；不由此推断精确VRAM或4GB资格。
+
+bootstrap未知catalog若超初始窗口且尚无binding/普通帧，则明确要求先提供完整descriptor目录，不永久等待不存在的首帧。
+
+原失败分类：Node固定slot容量/预算断言随ABI迁移；加载占用槽先等待容量导致挂起、table随section无谓放大、live binding比较漏epoch、未完成activation lease销毁窗口为实际实现问题，已修复并重跑相关检查。handoff首次GPU draw0来自夹具header仍写槽数及旧flags lane，迁到ABI6后50/50通过；未放宽数值容差或减少case。构建保留既有node:module browser externalization提示。
+
+未运行：Bistro/Dungeon完整同条件冷暖启动、三次范围与稳态成本，四bank真实增长后的完整场景画面/成本矩阵，正式4GB/P50/P95/evidence资格；按计划集中到GRS-3。尚不能宣称启动提速秒数或完整模块关闭。GRS-2准确async PSO/首帧gate保持待实施，当前停在该边界。

@@ -102,7 +102,6 @@ test("negotiated binding and dispatch limits reject unsupported scenes without t
 test("resident page validates the hierarchy count before trusting its exact work bound", () => {
   const { descriptor, page } = triangleProductFixture();
   const result = prepareProductResidentAttributes(descriptor, 0, page.buffer);
-  assert.equal(result.slotCount, 1);
   assert.equal(result.rawPayloadBytes, 176);
   assert.equal(result.uploadBytes, 176);
   const invalid = page.slice();
@@ -120,7 +119,7 @@ test("resident page validates the hierarchy count before trusting its exact work
     uvView.setUint16(116 + vertex * 20 + 16, 0x3c00, true);
     uvView.setUint16(116 + vertex * 20 + 18, 0x3c00, true);
   }
-  assert.equal(prepareProductResidentAttributes(uvDescriptor, 0, uvPage.buffer).slotCount, 1);
+  assert.equal(prepareProductResidentAttributes(uvDescriptor, 0, uvPage.buffer).rawPayloadBytes, 176);
   uvView.setUint16(132, 0x7c00, true);
   assert.throws(() => prepareProductResidentAttributes(uvDescriptor, 0, uvPage.buffer), /nonfinite UV/);
   const bad = { ...descriptor, hierarchyNodes: descriptor.hierarchyNodes.slice() };

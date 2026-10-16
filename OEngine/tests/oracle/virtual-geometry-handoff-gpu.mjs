@@ -23,7 +23,7 @@ export async function runVirtualGeometryHandoffGpuOracle(device) {
   const heap = new Uint32Array(124);
   // Deliberately nonzero Product group base (3) AND asset-local group base (2).
   // Payload refine ID=3 resolves to global group 6, not assetBegin+3=8.
-  heap[12] = 2; // Actual two-slot test bank; v3 physical-capacity contract.
+  heap[12] = 2 * 262144; // ABI6 actual bank bytes.
   heap.set([GEOMETRY_PRODUCT_GPU_ABI_VERSION_V1, 1, 1, 124, 16, 32, 36, 68, 72, 84, 112, 120]);
   heap.set([1, 1, 0, 1, 0, 1, 0, 1, 3, 4, 0, 2, 0, 1], 16);
   heap.set([0, 1, 0, 0], 32);
@@ -38,9 +38,7 @@ export async function runVirtualGeometryHandoffGpuOracle(device) {
       new Uint32Array(
         encodeGeometryProductGpuLocationV1({
           bankIndex: 0,
-          slotIndex: slot,
-          residentBankIndex: 0,
-          residentSlotIndex: slot,
+          payloadBytes: 262144,
           productGeneration: 1,
           flags: slot === 0 ? 3 : 1,
           byteOffset: slot * 262144,
@@ -148,7 +146,7 @@ export async function runVirtualGeometryHandoffGpuOracle(device) {
           words[at + 3] = mode === "leaf" || (mode === "mixed" && m % 2 === 0) ? 0xffffffff : 3;
         }
         if (mode === "invalid") words[16 + (count - 1) * 12] = 3 | (129 << 16);
-        heap[116] = mode === "missing" ? 0xffffffff : 0;
+        heap[116] = mode === "missing" ? 0xffffffff : 4;
         viewBytes[2] = mode === "far" ? 100 : 10;
         viewBytes[28] = mode === "equal" ? 1 : 2;
         viewBytes[32] = 100;

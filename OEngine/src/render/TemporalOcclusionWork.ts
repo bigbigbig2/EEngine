@@ -24,6 +24,7 @@ export interface PreparedTemporalOcclusion {
 }
 interface State {
   readonly input: TemporalOcclusionInputs;
+  readonly geometryBindingEpoch: string;
   readonly prepared: PreparedTemporalOcclusion;
   readonly settings: GPUBuffer;
   readonly initialDispatch: GPUBuffer;
@@ -107,9 +108,11 @@ export class TemporalOcclusionWork {
     return bytes;
   }
   matches(prepared: PreparedTemporalOcclusion, input: TemporalOcclusionInputs): boolean {
-    const old = this.states.get(prepared)?.input;
+    const state = this.states.get(prepared);
+    const old = state?.input;
     return (
       !!old &&
+      state!.geometryBindingEpoch === input.virtualGeometry.bindingEpoch &&
       old.sourceQueue === input.sourceQueue &&
       old.capacity === input.capacity &&
       old.camera === input.camera &&
@@ -178,6 +181,7 @@ export class TemporalOcclusionWork {
       const prepared = Object.freeze({ queue: input.sourceQueue, capacity: input.capacity, deferred });
       this.states.set(prepared, {
         input,
+        geometryBindingEpoch: input.virtualGeometry.bindingEpoch,
         prepared,
         settings,
         initialDispatch,

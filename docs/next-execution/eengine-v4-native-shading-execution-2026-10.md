@@ -34,7 +34,7 @@ verifies:
     - OEngine/src/render/MeshletWorkCandidate.ts
     - OEngine/src/gpu/GeometryProductMultiRuntime.ts
     - OEngine/src/gpu/GeometryProductGpuAbiV1.ts
-    - OEngine/src/gpu/GeometryProductSlotPool.ts
+    - OEngine/src/gpu/GeometryProductBytePool.ts
     - OEngine/src/gpu/VirtualGeometryResidency.ts
     - OEngine/src/gpu/GeometryPageStreamingRuntime.ts
     - OEngine/src/gpu/GeometryDemandReadbackRing.ts

@@ -9,7 +9,7 @@ verifies:
     - OEngine/src/shaders/shadow_meshlet_bounds.ts
     - OEngine/src/shaders/vsm_pair_page.ts
     - OEngine/src/gpu/GpuNativeMaterialScene.ts
-    - OEngine/src/gpu/GeometryProductSlotPool.ts
+    - OEngine/src/gpu/GeometryProductBytePool.ts
     - OEngine/src/gpu/GPUDescriptorCaches.ts
     - OEngine/src/render/surface
     - OEngine/src/framegraph/FrameGraph.ts
@@ -1693,11 +1693,13 @@ Local：metadata认证、128+8冷布局、range/shards/hash/credit、page genera
 
 ## Geometry residency startup来源计划（2026-10-16）
 
-本轮为[几何驻留与首帧准备设计](../next-design/eengine-geometry-residency-startup-2026-10.md)的Reference / Planned Port，尚未实施，不是adopted声明。
+本轮对应[几何驻留与首帧准备设计](../next-design/eengine-geometry-residency-startup-2026-10.md)。GRS-1已完成CPU完整移植与新production消费小型检查；GRS-2异步准备仍未实施，完整场景性能未资格化。
 
 | 来源 / 固定revision / license | 已研究入口与拟本地映射 | 保留算法与适配 |
 |---|---|---|
-| [sebbbi/OffsetAllocator](https://github.com/sebbbi/OffsetAllocator/tree/3610a7377088b1e8c8f1525f458c96038a4e6fc0)，`3610a7377088b1e8c8f1525f458c96038a4e6fc0`，MIT，Copyright 2023 Sebastian Aaltonen | 完整`offsetAllocator.hpp`、[`offsetAllocator.cpp`](https://github.com/sebbbi/OffsetAllocator/blob/3610a7377088b1e8c8f1525f458c96038a4e6fc0/offsetAllocator.cpp)、`offsetAllocatorTests.cpp`、README与LICENSE；`SmallFloat::{uintToFloatRoundUp,uintToFloatRoundDown,floatToUint}`、`Allocator::{allocate,free,insertNodeIntoBin,removeNodeFromBin,storageReport}` → 拟替换`GeometryProductSlotPool`的字节区间allocator与独立oracle | 完整32×8两级bins/bitmask、精确长度split、双物理邻居合并、node freelist；TS TypedArrays/u32/16B unit为本地适配，拒绝零长度并新增受控扩尾grow，不复制C++框架。bin报告为近似值，不把12.5%解释为heap碎片保证 |
+| [sebbbi/OffsetAllocator](https://github.com/sebbbi/OffsetAllocator/tree/3610a7377088b1e8c8f1525f458c96038a4e6fc0)，`3610a7377088b1e8c8f1525f458c96038a4e6fc0`，MIT，Copyright 2023 Sebastian Aaltonen | 完整`offsetAllocator.hpp`、[`offsetAllocator.cpp`](https://github.com/sebbbi/OffsetAllocator/blob/3610a7377088b1e8c8f1525f458c96038a4e6fc0/offsetAllocator.cpp)、`offsetAllocatorTests.cpp`、README与LICENSE；`SmallFloat::{uintToFloatRoundUp,uintToFloatRoundDown,floatToUint}`、`Allocator::{allocate,free,insertNodeIntoBin,removeNodeFromBin,storageReport}` → `gpu/OffsetAllocator.ts`、`GeometryProductBytePool.ts`与独立interval/native trace oracle | 完整32×8两级bins/bitmask、精确长度split、双物理邻居合并、node freelist；TS TypedArrays/u32/16B unit为本地适配，拒绝零长度并新增受控扩尾grow，不复制C++框架。bin报告为近似值，不把12.5%解释为heap碎片保证 |
 | [gpuweb/gpuweb](https://github.com/gpuweb/gpuweb/blob/25a5dc4537074c9b3844dd95891f5cfd193f4407/spec/index.bs)，`25a5dc4537074c9b3844dd95891f5cfd193f4407`，规范参考，不复制实现 | `GPUDevice.createRenderPipeline[Async]` / `createComputePipeline[Async]`、pipeline creation、buffer copy/write与limits章节 → `GPUDescriptorCaches`准备语义和bank候选复制合法性 | 同步返回不代表后台编译完成；async promise代表创建完成，真实首次编码/执行成本仍需测量。不假设跨device共享pipeline、可移植binary cache或硬件sparse |
 
 Local / Original：目录前缀容量计划、ABI6四word布局、四bank/metadata增长publication、generation/range检查、pending上传顺序、budget/fence、exact profile readiness与首帧分段诊断。复用现有Worker hash/LZ4、材质async准备、正常帧提交与VSM完整页调度；没有新增VT/VSM donor，也不改变此前LibVT/Wicked/Intel的来源范围。实现时保存固定源文件/license/逐文件hash，完成独立数值/区间oracle与新production GPU消费后才逐项提升来源状态。
+
+GRS-1实际映射：SmallFloat三函数→offsetSizeClass/offsetClassSize；allocate/free/insertNodeIntoBin/removeNodeFromBin→OffsetAllocator.allocate/free/#insert/#remove，storageReport的最大块保持bin下界。固定源与MIT逐文件SHA在tests/oracle/reference/offset-allocator/sources.json；native-trace.cpp以clang++对照12000步，全部分配地址/失败一致，规范化trace SHA256=a0593cdaf7d7eb59960867a6c77e8c01d22e8df930fdea46f163f548cbe0de84。另有12000步独立interval+grow检查。新增generation lease、16B单位、grow、目录计划与帧事务为Local；不是donor原有GPU/JS框架。小型真实主链Geometry pressure + multi-Product Native Renderer检查通过；不据此声明Bistro/Dungeon启动速度或正式性能改进。

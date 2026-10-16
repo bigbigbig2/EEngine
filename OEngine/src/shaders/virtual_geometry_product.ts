@@ -192,9 +192,8 @@ fn oengine_virtual_group_header_v1(
   location: OEngineGeometryPageLookupV1,
   group: OEngineVirtualGroupV1
 ) -> OEngineVirtualGroupHeaderV1 {
-  if (!location.valid || !group.valid ||
-    group.offset_in_page > OENGINE_VIRTUAL_GEOMETRY_PAGE_BYTES_V1 -
-      OENGINE_VIRTUAL_GEOMETRY_GROUP_HEADER_BYTES_V1) {
+  if (!location.valid || !group.valid || group.payload_bytes > location.payload_bytes ||
+    group.offset_in_page > location.payload_bytes - group.payload_bytes) {
     return oengine_virtual_invalid_group_header_v1();
   }
   let byte_at = location.byte_offset + group.offset_in_page;

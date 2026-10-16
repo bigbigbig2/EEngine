@@ -1,5 +1,6 @@
 import { SssrRuntime } from "../reflections/SssrRuntime.js";
 import { SceneRefinement } from "../SceneRefinement.js";
+import { GeometryProductBytePool } from "../../gpu/GeometryProductBytePool.js";
 import type { VirtualMaterialPreparation, VirtualGeometryGeometryProfile } from "../../gpu/GpuRenderWorld.js";
 
 import { SssrDebug } from "../reflections/SssrDebug.js";
@@ -2228,6 +2229,7 @@ export class Renderer {
     let localLightWork: LocalLightWorkFrame | null = null;
     try {
       // Include publication failures in the same frame abort boundary.
+      GeometryProductBytePool.prepareDeviceFrame(this.device, command);
       const publishedGeometryPages = streaming?.preparePublication(command) ?? 0;
       this._profiler.recordCounter("geometry.streaming.pagesPublished", publishedGeometryPages);
       if (
@@ -2663,7 +2665,7 @@ export class Renderer {
       // The compiled Surface recipe captures immutable code/layout ownership.
       // Numeric edits remain late-bound; a replacement publication must never
       // reuse the previous owner's code buffers or liveness capacity.
-      const graphKey = `${program.key}|appearance:${materialPublication.revision}`;
+      const graphKey = `${program.key}|appearance:${materialPublication.revision}|geometry:${runtime.virtualGeometry?.bindingEpoch ?? "none"}`;
       const compiled = this._graphCache.getOrCreate(
         graphKey,
         () => lowerFrameProgram(program, graphBindings, this.frameProgramOwners()),

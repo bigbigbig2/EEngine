@@ -14,6 +14,9 @@
 # rewriting generated modules to satisfy source whitespace checks.
 OEngine/src/assets/web-cook/wasm/vendor/** -text whitespace=-blank-at-eol
 
+# Pinned allocator donor fixtures preserve upstream bytes for SHA256 checks.
+OEngine/tests/oracle/reference/offset-allocator/** -text whitespace=-blank-at-eol
+
 # Binary assets and build outputs must never be normalised.
 *.png binary
 *.jpg binary

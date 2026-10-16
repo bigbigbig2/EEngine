@@ -656,14 +656,14 @@ test("GPUBuffer capacity is device-global while candidate and old revision share
     owners.push(transaction);
   }
   const before = geometryProductGpuBudgetEvidence(device);
-  assert.equal(before.allocations, 4);
+  assert.equal(before.allocations, 1);
   assert.equal(before.metadataAllocations, 3);
-  assert.equal(before.allocatedBytes, 128 * 1024 * 1024);
-  assert.throws(() => reserveGeometryProductGpuBytes(device, 9 * 1024 * 1024, 128 * 1024 * 1024), /capacity budget exceeded/);
+  assert.equal(before.allocatedBytes, 4 * 1024 * 1024);
+  assert.throws(() => reserveGeometryProductGpuBytes(device, 125 * 1024 * 1024, 128 * 1024 * 1024), /capacity budget exceeded/);
   const candidate = new GeometryProductAdmission(device).offer(sourceFor(fixture.descriptor, fixture.page));
   await candidate.activate();
   assert.equal(candidate.residency.bindings().banks[0], owners[0].residency.bindings().banks[0]);
-  assert.equal(geometryProductGpuBudgetEvidence(device).allocations, 4);
+  assert.equal(geometryProductGpuBudgetEvidence(device).allocations, 1);
   candidate.beginRetire();
   candidate.retire();
   owners[0].beginRetire();
