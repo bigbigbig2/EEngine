@@ -26,11 +26,12 @@ goal: >-
 
 currentSlice:
   id: surface-cache-gi
-  title: Complete Surface Cache GI and WebGPU world query design
-  status: design-ready
+  title: Complete Surface Cache GI and WebGPU world query
+  status: implementing
   goal: >-
     Follow the selected mother design with source-backed corrections and the sole
-    detailed design/execution pair. This turn changes documentation only.
+    detailed design/execution pair. Implement only the explicitly authorized unit,
+    validate its concrete lifecycle and stop at the following unit boundary.
     Preserve the complete sparse directional cache, software query, native material,
     alpha, dynamic geometry, full lighting, multi-bounce, filtering and screen gather
     scope. Implementation unit states live only in the execution document.

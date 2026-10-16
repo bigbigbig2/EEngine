@@ -19,13 +19,13 @@ verifies:
 
 唯一详细设计为[SCGI设计](../next-design/eengine-surface-cache-gi-2026-10.md)。需求输入为[母稿](../reviews/EEngine_Surface_Cache_GI_WebGPU_Mother_Design_2026-10-17.md)；设计§17逐项映射母稿，设计§1列明勘误。本文件是细单元状态与实施结果唯一记录，workstream和粗执行不复制细状态。
 
-**当前只完成文档设计，全部代码单元待实施。** 用户本轮要求改文档与详细设计，不构成渲染代码实施。后续动工按此完整目标推进，不把阶段产物宣布为“第一版已完成”。每个单元结束记录实际验证；大模块结束停在下一模块边界，不自动继续Local Specular Cache/ReSTIR等。
+**当前已实施SCGI-1资源/事务/ABI基础设施，生产GI仍未开启。** 本轮授权仅完成SCGI-1；后续动工按完整目标推进，不把阶段产物宣布为完整GI。每个单元结束记录实际验证；大模块结束停在下一模块边界，不自动继续Local Specular Cache/ReSTIR等。
 
 ## 1. 完整范围、依赖与生产切换
 
 | 单元 | 内容 | 依赖 | 状态 |
 |---|---|---|---|
-| SCGI-1 | owner/publication/事务/能力与具体ABI | 源码基线和source map | 待实施 |
+| SCGI-1 | owner/publication/事务/能力与具体ABI | 源码基线和source map | 已完成，见§7 |
 | SCGI-2 | GeometryProduct query section、coverage cut、residency、共享变形publication | 1 | 待实施 |
 | SCGI-3 | cascaded sparse cache、ring/scroll/evict/defrag/rank | 1 | 待实施 |
 | SCGI-4 | half-res anchors、共享identity、screen history seed | 2、3 | 待实施 |
@@ -393,3 +393,62 @@ GPU counters至少包含：requested/claimed/allocated/deferred/failed、evictio
 实际暂存检查：`git diff --cached --check`通过；`node tools/docs-verify.mjs --staged`为0 findings、81 historical warnings、205 documents。与工作区66条的差值15条均为旧archive/performance文档指向未纳入Git的`.local/validation`或诊断产物，已逐项核对；不是当前SCGI断链，不把这些本地产物加入本次提交，也不更改历史证据记录来消警告。
 
 各SCGI代码单元继续为待实施。变更仅AGENTS、docs与workstream；没有生产源码/资产/阈值/依赖变化，因此不运行engine build、browser、GPU或benchmark，也不提升adoption。本轮按用户要求将文档作为一个连贯提交保存，提交ID由Git记录，不在本文制造自引用hash。
+
+## 7. SCGI-1实施与复核（2026-10-17）
+
+本单元基于`b6fbaff6`后的源码实施；提交revision由Git记录，不在本文制造自引用。范围为owner/真实buffer/事务/ABI/能力规划，**没有GI画面、没有query算法、没有提前开启生产stage**。SCGI-2及后续均保持待实施。
+
+### 7.1 交付与设计逐项核对
+
+| 合同 | 实际交付与边界 |
+|---|---|
+| CPU/WGSL ABI | `ScgiAbi.ts`：16种scalar-packed结构，identity48/cell8/patch288/request96/half96/raw64/node64/links8/instance128/ray48/result32/payload32/continuation64/header256等；完整CPU pack/unpack，signed L1 scaled half存储，未依赖shader-f16 |
+| 完整world双bank | `ScgiRuntime.encode`在现有command内copy完整arena，包括map、free slots、allocator/header、patch geometry/stats/A0/A2、bounce requests；新bank clear后用staged copy初始化EMPTY map；A1/raw/requests/update list/query batch独立scratch，不复制到另一bank |
+| active/candidate/frame-readable | prepare不换active；encode后publication仍须真实field writer声明complete才能通过compound fact；commit仅在`wasSubmitted`后更新角色，重复调用无效，无资源分配/外部回调/读回；frame-readable只说明编码依赖，不证明GPU完成 |
+| identity/epoch | 48B语义身份不混地址generation/数值revision；scene epoch不相容拒绝world，view变化拒绝screen，resize保留world；旧device回调不能污染新epoch。u32 generation/sample序号达上界先拒绝，后续owner应换epoch，不能静默wrap |
+| screen/目录 | 双history各自scale与有序96B record分片，resize仅替换screen；完整分片domain验证。directory最多3槽峰值单列、不由GI假造分配；全目录/stripe/work-tile窗口容量planner可执行，VSM/local GPU gather writer及Native读取按原计划在SCGI-8实现 |
+| borrowed/static/dynamic AS | query/material/scene/environment只借lease，带deviceEpoch和最后consumer fence；区分static-as/dynamic-as类型。本单元不创建无consumer的AS或第二scene。真正page pin/AS build在SCGI-2/5实现 |
+| 提交/失败 | `ShadeGPUCommandContext.observeSubmission`在普通通知前结算资源owner；保留原single submit。`ChangeSignal.send1Checked`执行全部listener后传播失败，用于onBeforeFinish/onFinished；普通Signal行为不变。提交前失败abort，提交后observer/fence acquisition错误保留submitted/lease并poison，异步GPU error/fence拒绝停止history，不回滚GPU字节 |
+| 退休/恢复 | old/new allocation重叠计入peak；旧资源等最后consumer成功fence或device teardown后destroy，拒绝fence不会冒充完成。disable/异步configure取消、失败replacement、resize、loss均闭合；恢复创建新deviceEpoch owner，不原地清除poison伪装恢复 |
+| bindings/capability | `ScgiPublication.ts`复用FrameGraphBindingLayout逐帧slot；compound检查field/guide/identity stride、extent、generation、颜色域、scale、全部分片完整写域。`ScgiCapacity.ts`校验完整arena、aligned ranges、finite cluster shards、实际Native descriptor generator及query 15-SSBO inventory；portable/subgroup为有限执行profile，尚无扫描算法adoption |
+| disabled/empty/Unlit-only | configure在分配前排除需求；不建资源/派发。未往FrameProduct枚举加空GI fact，未改RendererCore默认功能，未编造空算法consumer。后续完整producer→Native原子切换仍在SCGI-8 |
+
+来源为Local工程接线与ABI，不宣称Unity/RadeonRays完整移植；source map已追加。新增shading目录路由，workstream只改模块为implementing，不复制单元状态。
+
+### 7.2 实际成本卡
+
+本单元无生产启用，现行Renderer **ADD GPU resources/dispatch/submit = 0**。启用基础设施fixture或后续GI时，稳定分配精确由`planScgiAllocation`返回，所有arena整体满足binding limit，不仅各子range满足。
+
+`Ncell=R³×16×C`；world每bank为256B header+8Ncell+288K+4K free slots+96B bounce requests及range对齐；scratch为48K A1+64U raw+96Q request+4U update list+64B counter/args及对齐；query batch为176B/ray+显式spill及对齐；screen双history为192H。没有AS、gather、light pool或residual占位分配，后续模块新增须独立计账。
+
+以下是**理论分配模型，非GPU时间benchmark**：R24/C3/K65536/Q65536/B8192/U8192/rayBatch16384/spill0，binding128MiB、alignment256B。
+
+| internal extent | 双world MiB | 私有scratch+batch MiB | 双screen MiB | GI owner合计 MiB | 外部全量目录GI段最多3份 MiB | 每role field段数 |
+|---|---:|---:|---:|---:|---:|---:|
+| 1920×1080 | 48.1255 | 12.2813 | 94.9219 | 155.3287 | 142.3828 | 1 |
+| 2560×1440 | 48.1255 | 12.2813 | 168.7500 | 229.1568 | 253.1250 | 1 |
+| 3840×2160 | 48.1255 | 12.2813 | 379.6875 | 440.0943 | 569.5313 | 2 |
+
+4K全量目录不满足128MiB binding，必须走窗口；表中569.53MiB是全量段理论上界，不声称该device创建了非法目录。实际窗口峰值=3×planner.bytes；旧directory、renderer已有资源、AS build/query leases、replacement、upload staging和driver margin另计，绝不拿此表承诺4GB复杂场景。
+
+每稳定帧world copy25,231,616B，读+写约48.1255MiB traffic（60Hz约2.82GiB/s，仅此copy）；scratch clear12.2813MiB，screen candidate clear96H，field writer/copy尚未接入。cold init另外upload完整8Ncell EMPTY map，属于初始化成本，非每帧host写world。bank/header upload经现有fence-held staging，不直接queue.writeBuffer覆盖pending bank。当前初始化无shader samples/ALU/atomics/barriers/新pipeline；steady copy/clear为顺序访问，后续算法随机访问另计。ideal=disabled零工作，expected=一bank copy+私有reset，worst=replacement旧新并存及冷初始化；这一正确性基线没有宣称净提速，不套用优化break-even。
+
+### 7.3 验证、原失败与未运行范围
+
+- CPU独立状态/字节oracle覆盖max u32/nonzero ABI、literal offsets、4K分片、arena整体limit、window/remap/finite shards、全部Native routes和满sampled材质、portable/subgroup、abort/retry、三帧未结fence、提交后多observer错误、allocation同步/异步OOM、resize/replacement abort、scene/view epoch、lease、disable、device loss、拒绝fence及提交后fence acquisition失败。
+- Tier2真实GPU使用Chrome155.0.8059.82、NVIDIA Turing硬件adapter（API未给具体型号），16 storage buffers、128MiB binding；主device没有启用shader-f16/subgroups。16种typed WGSL读写第二record核对stride/offset，f32-only scaled half decode，64种真实Native route pipeline layouts加满sampled material，15-SSBO query tail；真实ShadeGPUCommandContext+staging写已知map/A0/A2/allocator/bounce/field，abort→retry、三帧连续提交、完整copy、cached graph当前publication、resize/replacement/disable退休、提交后observer错误与真实scoped GPU validation错误全部验证。另建真实device分配4K双history分片、检查末段初始化、destroy触发device loss与旧epoch隔离。
+- GPU错误聚合为0；故意validation注入在内层scope捕获后传给owner；没有真的耗尽GPU显存制造OOM，OOM与fence rejection使用CPU受控故障注入，避免将设备耗尽影响其他进程。fixture已知值不是生产GI结果。
+- 保留原失败：①首轮CPU暴露ChangeSignal吞listener异常，属实现接线错误，增加checked命令通知修复；②扩展GPU fixture错误要求异步configure后必有retired bytes，实际旧fence可能已完成，改成“未完成须保留、已完成可释放”，CPU受控fence仍严格断言保留；③尝试requestDevice要求8192B上限并不能把WebGPU默认128MiB能力降低，属平台协商理解错误，改用真实4K超过实际binding上限验证分片。两份GPU原失败保存在`.local/validation/scgi-1-gpu-*-fixture-failure.json`，不提交本地产物。
+- 完整production GI画面、RadeonRays算法、VSM/local窗口gather数学、所有query material shader编译/性能、整Renderer P50/P95与正式browser画质留各后续单元；本单元未假称已通过。SCGI-1所需GPU基础设施验证已运行，不以后续正式验收替代它。
+
+扩大提交接线回归时另发现旧`renderer-submission-count` fixture缺少当前Renderer的pipeline admission/startup字段，在到达原定texture promote故障前先报`publication.bins`/`firstSubmittedAtMs` undefined。归类为测试fixture与现行owner不相容；只补齐admission seam与startup，保留原`encode failure`和提交数断言，没有修改Renderer生产逻辑、跳断言或放宽容差。
+
+最终集中验证：
+
+- `npm run build --prefix OEngine`通过，包含`tsc --noEmit`、Vite和declaration build；保留既有codec `node:module` browser externalization提示，无编译错误。
+- `npm run build:test --prefix OEngine`新鲜构建通过。`node --test`对`scgi`、`command-completion`、`submission-fence`、`framegraph-executor`、`gpu-frame-timing`、`view-frame-transaction`、`renderer-submission-count`七个targeted文件合计 **43/43通过**。
+- `node tools/gpu-oracle.mjs scgi-transaction --json`最终通过，fresh source SHA256 `595a67804198480dea69d19bc763552536a0fa1c52851a81c3e0ecdc026fdda1`，GPU/page errors为0；本地原始结果`.local/validation/scgi-1-gpu.json`。64种Native descriptor profiles含physicalSun组合；4K分片真实分配/编码/末段初始化/device loss通过。主小fixture峰值45,120B不含独立4K设备，不能拿它冒充全效果峰值。
+- 因修改了真实command通知语义，额外串行运行`node tools/gpu-oracle.mjs sssr-production --json`，当前Native/FrameProgram/完整SSSR生产profile、能量和生命周期回归通过，GPU/page errors为0；本地结果`.local/validation/scgi-1-sssr-regression.json`。这不是完整GI画质或整Renderer性能资格。
+- `node tools/docs-verify.mjs`为0 findings、66 historical warnings；`node --test tools/tests/document-system.test.mjs`为7/7通过；`node tools/vibe.mjs doctor`无errors/warnings，registry字节一致。实际暂存17个相关文件，`git diff --cached --check`通过；`node tools/docs-verify.mjs --staged`为0 findings、81 historical warnings，额外15条仍为历史文档指向未提交的本地产物，与前轮一致。
+
+完成SCGI-1，下一边界是SCGI-2，本轮不继续。

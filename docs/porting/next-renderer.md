@@ -1781,3 +1781,5 @@ FidelityFX路径 sdk/include/FidelityFX/gpu/brixelizergi/ffx_brixelizergi_main.h
 本地SCGI-9保留spawn→reproject→directional sampling→project→interpolate的完整选定screen子算法；SDF距离查询改当前世界triangle query/精确screen validation；brick radiance/irradiance改SCGI world prediction；specular分支不属于本模块。diffuse-only无residual反馈源、配对world prediction、δL投影和下一帧field消费是 **Local/Original integration**，不是AMD已有功能。数学需要独立能量/时序oracle与production画面，不以“源于Brixelizer”证明残差正确或更快。
 
 追加核对明确：逆cosine卷积仅恢复moments，半球上的radiance预测还需要`G(ng)=∫YYᵀ`的Gram解；该解析inverse及配对残差是本地推导，非FidelityFX源码移植。常量零残差证明限同支持半球，法线混合/窄亮源须独立画质验证。probe持久history选SH/guide/moments，directional radiance仅临时；world-only field/seed与signed residual严格分开。具体公式和本轮CPU数值核对只在设计§11/13与执行复核记录维护，不复制成另一数学authority。
+
+SCGI-1（2026-10-17）来源映射：`render/gi/ScgiAbi.ts`、`ScgiCapacity.ts`、`ScgiPublication.ts`、`ScgiRuntime.ts`及command checked通知接线均为 **Local**；复用本仓库Float16、ResourceAccounting、FrameGraphBindingLayout、Native descriptor generator与ShadeGPUCommandContext，不宣称移植Unity/RadeonRays算法。本轮真实GPU证据仅覆盖ABI/资源事务/实际descriptor；前述cache/query/estimation/gather来源仍为后续单元Planned Adapt/Reference，不能晋级production adoption。

@@ -199,6 +199,12 @@ export class ChangeSignal<A = any, B = any, C = any, D = any, E = any, F = any, 
     dispatchSignal(this, (node) => node.handle.call(node.context, a));
   }
 
+  /** Command transaction boundaries must observe listener failure. Every
+   * listener still runs so one faulty observer cannot strand other owners. */
+  send1Checked(a: A): void {
+    dispatchSignal(this, (node) => node.handle.call(node.context, a), undefined, true);
+  }
+
   send2(a: A, b: B): void {
     dispatchSignal(this, (node) => node.handle.call(node.context, a, b));
   }
@@ -267,9 +273,12 @@ function dispatchSignal(
   signal: ChangeSignal,
   invoke: (node: ChangeSignalHandlerNode) => unknown,
   originalErrorHandle?: unknown,
+  propagateFailure = false,
 ): void {
   if ((signal.flags & SIGNAL_SILENT) !== 0) return;
   signal.generation++;
+  let failed = false;
+  let firstFailure: unknown;
   for (const head of signal.handlers.values()) {
     let node: ChangeSignalHandlerNode | null = head;
     do {
@@ -279,10 +288,20 @@ function dispatchSignal(
         try {
           invoke(node);
         } catch (error) {
-          console.error("Failed to dispatch handler", originalErrorHandle ?? node.handle, error);
+          if (propagateFailure) {
+            if (!failed) {
+              firstFailure = error;
+              failed = true;
+            }
+          } else {
+            console.error("Failed to dispatch handler", originalErrorHandle ?? node.handle, error);
+          }
         }
       }
       node = next;
     } while (node !== null);
+  }
+  if (failed) {
+    throw firstFailure;
   }
 }

@@ -11,6 +11,15 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "scgi-transaction",
+    file: "OEngine/tests/oracle/scgi-transaction-gpu.mjs",
+    url: "/OEngine/tests/oracle/scgi-transaction-gpu.mjs",
+    entry: "runScgiTransactionGpuOracle",
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    timeoutMs: 180000,
+    description: "SCGI-1 typed ABI, actual Native descriptors and real command double-bank abort/retry/retirement."
+  }),
+  Object.freeze({
     name: "streaming-vt-feedback",
     file: "OEngine/tests/oracle/streaming-vt-feedback-gpu.mjs",
     url: "/OEngine/tests/oracle/streaming-vt-feedback-gpu.mjs",

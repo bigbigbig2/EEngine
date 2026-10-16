@@ -117,6 +117,10 @@ test("production scene encoding abort does not count a submitted frame", () => {
   const { renderer } = harness("none");
   const runtime = { nativeMaterials: { canPrepareFrame: () => true, setReflectionProfile() {} } };
   Object.assign(renderer, {
+    // This fixture targets encoding abort after admission. Pipeline preparation
+    // has its own contracts and needs a real native publication, absent here.
+    canPreparePipelines: () => true,
+    startup: { firstSubmittedAtMs: null },
     pixelRatioOverride: 1,
     appliedPixelRatio: 1,
     _historyRuntime: runtime,

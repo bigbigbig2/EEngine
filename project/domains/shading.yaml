@@ -14,6 +14,7 @@ paths:
   - OEngine/src/render/IblAlignment.ts
   - OEngine/src/render/surface/**
   - OEngine/src/render/ao/**
+  - OEngine/src/render/gi/**
   - OEngine/src/render/reflections/**
   - OEngine/src/render/assets/sssr/**
   - OEngine/src/render/environment/**
@@ -45,6 +46,7 @@ watch:
   - OEngine/src/gpu/NativeMaterialBindings.ts
   - OEngine/src/gpu/NativeMaterialProducts.ts
   - OEngine/src/render/surface/**
+  - OEngine/src/render/gi/**
   - OEngine/src/render/environment/**
   - OEngine/src/render/reflections/**
   - OEngine/src/render/assets/sssr/**

@@ -38,6 +38,14 @@ type ConstructRenderPassOptions = {
   prepared?: boolean;
 };
 
+/** Resource owners settle before fallible public notifications. Callbacks must
+ * not allocate GPU resources or throw; failures still reach every owner. */
+export interface CommandSubmissionObserver {
+  submitted(fence: Promise<void>): void;
+  aborted(cause: unknown): void;
+  failed(cause: unknown): void;
+}
+
 let openContextCount = 0;
 let nextContextId = 0;
 let openContextWarningCount = 0;
@@ -69,6 +77,14 @@ export class ShadeGPUCommandContext {
   #submissionFence: Promise<void> | undefined;
   #abortCause: unknown | undefined;
   #label = "";
+  readonly #submissionObservers: CommandSubmissionObserver[] = [];
+
+  observeSubmission(observer: CommandSubmissionObserver): void {
+    if (this.#finished) {
+      throw new Error("Cannot attach a resource transaction to a closed command");
+    }
+    this.#submissionObservers.push(observer);
+  }
 
   readonly onFinished = new ChangeSignal<this>();
   readonly onAborted = new ChangeSignal<this, unknown>();
@@ -555,8 +571,9 @@ export class ShadeGPUCommandContext {
 
     const encoder = this.#encoder!;
     const timer = this.#gpuTimer;
+    let submissionFailure: unknown;
     try {
-      this.onBeforeFinish.send1(this);
+      this.onBeforeFinish.send1Checked(this);
       if (timer !== undefined) {
         timer.resolve(encoder);
         const evidence = timer.evidence();
@@ -576,13 +593,21 @@ export class ShadeGPUCommandContext {
       this.#finishCpuMs = performance.now() - finishStartedAtMs;
       const submittedAtMs = performance.now();
       submitGpuCommands(this.#graphics.device!, this.#label || "unlabeled-command-context", [commandBuffer]);
+      this.#submitted = true;
       this.#submitCpuMs = performance.now() - submittedAtMs;
+      this.#submittedAtMs = submittedAtMs;
       // Capture before publication callbacks or another command can submit.
       this.#submissionFence = this.device.queue.onSubmittedWorkDone();
-      this.#submittedAtMs = submittedAtMs;
     } catch (cause) {
-      this.abort(cause);
-      throw cause;
+      if (!this.#submitted) {
+        this.abort(cause);
+        throw cause;
+      }
+      // Submission already happened. A fence acquisition error cannot undo it.
+      submissionFailure = cause;
+      this.#submissionFence = Promise.reject(cause);
+      void this.#submissionFence.catch(() => {});
+      this.#notifySubmissionFailure(cause);
     }
 
     openContextCount--;
@@ -595,6 +620,19 @@ export class ShadeGPUCommandContext {
     this.#encoder = undefined;
     this.#timedEncoderFacade = undefined;
     this.#releaseBuffers(this.#submissionFence!);
+
+    let settlementFailure: unknown;
+    for (const observer of this.#submissionObservers) {
+      try {
+        observer.submitted(this.#submissionFence!);
+      } catch (cause) {
+        settlementFailure ??= cause;
+      }
+    }
+    if (settlementFailure !== undefined) {
+      this.#notifySubmissionFailure(settlementFailure);
+      throw settlementFailure;
+    }
 
     if (timer !== undefined) {
       const callbacks = [...this.#debugTimersCallbacks];
@@ -628,7 +666,21 @@ export class ShadeGPUCommandContext {
       this.#gpuTimer = undefined;
     }
 
-    this.onFinished.send1(this);
+    try {
+      this.onFinished.send1Checked(this);
+    } catch (cause) {
+      this.#notifySubmissionFailure(cause);
+      throw cause;
+    }
+    if (submissionFailure !== undefined) {
+      throw submissionFailure;
+    }
+  }
+
+  #notifySubmissionFailure(cause: unknown): void {
+    for (const observer of this.#submissionObservers) {
+      observer.failed(cause);
+    }
   }
 
   /** Discards an unsubmitted encoder and settles asynchronous observers. */
@@ -646,6 +698,9 @@ export class ShadeGPUCommandContext {
     this.#encoder = undefined;
     this.#timedEncoderFacade = undefined;
     this.#releaseBuffers();
+    for (const observer of this.#submissionObservers) {
+      observer.aborted(cause);
+    }
 
     const timer = this.#gpuTimer;
     this.#gpuTimer = undefined;

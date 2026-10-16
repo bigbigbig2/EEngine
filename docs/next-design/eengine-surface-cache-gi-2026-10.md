@@ -546,6 +546,10 @@ confidence可用16-bit unorm，flags16-bit，身份仍完整u32。depth/position
 
 双world banks包括map、288K patch、allocator与**上一代bounce request队列**；更新列表、claim scratch、A1、raw cohort为同command transient，可按不重叠寿命复用。candidate内的历史A2和allocator必须copy，A1不copy。screen双history独立于world bank、由提交role推进；同queue有序GPU覆写可复用，但当前FinalPixel目录仍有最多3个fence-held frame槽。
 
+SCGI-1固定world header为256B、最多4 cascades：0 generation/device/scene/view；16 numeric epochs；32 origin/scale；48 patch/cell/bounce capacity/validity；64 allocator start/end/count/serial；80 bounce count/overflow/status；96四组cascade origin/scale；160四组cascade offset/ring；224 addressGeneration/sampleSerialLo/sampleSerialHi/reserved；240 reserved。将来超过4 cascades须显式版本化，不复用reserved偷扩ABI。allocator free-slot数组另按4K B/bank计入完整world arena。
+
+half field/history是**逻辑完整、物理可分片**的96H产品：按线性half-pixel连续区间分配，每段不拆96B记录，完整binding range满足实际maxBufferSize/maxStorageBufferBindingSize。publication携带有序segments及half extent，各段起点由前段count累加，完整写域校验所有段无遗漏。两history roles具有相同分片布局、各自scale；4K在128MiB binding上必须分片（单role约189.84MiB）。Native仍走§10目录窗口，不能把私有分片误当新增Native binding。compound fact同时约束field/guide/48B identity的stride、extent、generation、颜色域与完整写域。
+
 ### 19.3 query布局与没有bindless时的访问
 
 | 产品 | stride / 字段 | 说明 |
