@@ -27,6 +27,8 @@ verifies:
 
 # 几何紧凑驻留与首帧准备：执行计划
 
+> 后续方向更新（2026-10-17）：本文保留本模块已实现合同与原验证结果；正文中的“下一模块/Local Probes边界”仅指当时停止点。当前模块由workstream导航至[Surface Cache GI设计](../next-design/eengine-surface-cache-gi-2026-10.md)与[执行](../next-execution/eengine-surface-cache-gi-execution-2026-10.md)，不再据旧停止点启动传统GI路线。
+
 唯一目标依据为[设计](../next-design/eengine-geometry-residency-startup-2026-10.md)。基线`17252477`；2026-10-16已按用户后续授权完成GRS-1/2/3及集中返工，实际结果与剩余资格见§8。模块只设三个工程单元，GRS-1包含一次完整地址/容量切换，不能把其中临时断链提交成稳定的双ABI生产状态。
 
 ## 1. 顺序与状态

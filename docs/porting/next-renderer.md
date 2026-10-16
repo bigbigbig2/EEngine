@@ -100,6 +100,8 @@ verifies:
 ---
 # EEngine Next：开源迁移来源与采用边界
 
+> 当前SCGI来源决定只读[2026-10-17记录](#surface-cache-gi-2026-10-17)。本文较早的Atlas DDGI、独立Screen GI、Surface C缓存研究保留原始来源与采用身份，不再作为当前GI施工顺序。研究记录与生产adoption分开，不能据历史候选恢复旧owner。
+
 ## Sky IBL / HDR 自动曝光局部修复（2026-10-10）
 
 用户授权范围是当前天空环境镜面异常灰蓝/泛白、自动曝光爆亮和历史跳变，以及轻量分项诊断。当前生产源码为依据；没有开展 VSM R4、GI/AO、Atmosphere 或 Tone Mapping 重构。
@@ -933,6 +935,8 @@ Reference reuse：Native `GltfImporter.cpp::InstanceShadowFlags`复用项目已�
 
 ### R08 · Atlas：DDGI 与软件 BVH 主候选
 
+本节标题与选型是历史研究记录。2026-10-17世界GI已选SCGI，Atlas不再是主候选或待施工方向；保留原source pin/研究深度，不追认为adoption。
+
 - **Upstream / Revision**：[tippesi/Atlas-Engine](https://github.com/tippesi/Atlas-Engine/tree/76e4916e55706c0f6eac971d17d65bd8feacf70e)，`76e4916e55706c0f6eac971d17d65bd8feacf70e`。
 - **Source**：[DDGI shaders](https://github.com/tippesi/Atlas-Engine/tree/76e4916e55706c0f6eac971d17d65bd8feacf70e/data/shader/ddgi)：`rayGen.csh`、`rayHit.csh`、`probeUpdate.csh`、`probeState.csh`、`copyEdge.csh`、`ddgi.hsh`；host `src/engine/renderer/DDGIRenderer.cpp` 的 `TraceAndUpdateProbes`；`data/shader/raytracer/bvh.hsh` 的软件 `HitClosest` 路径。
 - **检查深度**：已读上述 host、probe update/state/query 和 BVH；BVH 源确有 `#ifndef AE_HARDWARE_RAYTRACING` 软件分支，不是只有硬件 ray query 的包装。
@@ -944,6 +948,8 @@ Reference reuse：Native `GltfImporter.cpp::InstanceShadowFlags`复用项目已�
 - **Local validation**：角落漏光、墙后遮挡、移动光源、场边界与历史收敛；首先证明样本确实来自合法 producer，再评估规模和吞吐。
 
 ### R09 · Speedball：WebGPU DDGI 补充来源
+
+以下为旧DDGI路线的研究背景，不替换当前SCGI authority，也不创建并行probe owner。
 
 - **Upstream / Revision**：[cl0nazepamm/speedball](https://github.com/cl0nazepamm/speedball/tree/a997aee5b0791be61b49719377e811c41720df59)，`a997aee5b0791be61b49719377e811c41720df59`。不是演示站的 `norio/speedball-gi`。
 - **Source**：[js/gi_probes.js](https://github.com/cl0nazepamm/speedball/blob/a997aee5b0791be61b49719377e811c41720df59/js/gi_probes.js)、`js/spectral_traverse.js`、`js/gi_budget.js`、`js/gi_oct.js`。已读 README/LICENSE 和大文件中 probe update、classification、variance/query、BVH 生命周期相关段落；**未逐行审计整份约 292k 字符实现**。
@@ -1073,6 +1079,8 @@ Reference reuse：Native `GltfImporter.cpp::InstanceShadowFlags`复用项目已�
 
 ### R15 · UnitySSGIURP：Screen GI 完整信号链优先候选
 
+以下“优先候选”仅指当时研究顺序；2026-10-17已撤下独立Screen GI模块。当前near-field是SCGI内的配对残差，来源与本地差异见本文件SCGI专节，不继续按R15启动SSGI。
+
 - **Upstream / Revision**：[jiaozi158/UnitySSGIURP](https://github.com/jiaozi158/UnitySSGIURP/tree/8450297537b658218be1abbc973e9240a2aab71c)，`8450297537b658218be1abbc973e9240a2aab71c`；根 `LICENSE.md` 为 MIT。
 - **Source**：[ScreenSpaceGlobalIllumination.shader](https://github.com/jiaozi158/UnitySSGIURP/blob/8450297537b658218be1abbc973e9240a2aab71c/Shaders/ScreenSpaceGlobalIllumination.shader)、`Shaders/SSGI.hlsl`、`Shaders/SSGIDenoise.hlsl`、[ScreenSpaceGlobalIlluminationURP.cs](https://github.com/jiaozi158/UnitySSGIURP/blob/8450297537b658218be1abbc973e9240a2aab71c/Runtime/ScreenSpaceGlobalIlluminationURP.cs)。已核实 host 的 history/fallback 调度和 shader 声明的 direct-light copy、trace、temporal reprojection、spatial denoise、stabilization、history depth、GI combine/upscale 阶段；未逐函数审计所有质量分支。
 - **Local owner / Adoption**：shading/temporal；**not adopted**。替换此前“完全无 Screen GI donor”的判断，作为实施前首个完整算法 profile 候选；不是已经选定的生产移植。
@@ -1123,7 +1131,7 @@ Reference reuse：Native `GltfImporter.cpp::InstanceShadowFlags`复用项目已�
 | 来源 | 本轮核查结果 | 本项目处理 |
 | --- | --- | --- |
 | FidelityFX SDK 最新 v2.3.0，`60f4ea81909200d8542eca14dccb2628b763a9a3` | `Kits/FidelityFX/docs/license.md` 已读，存在默认 binary redistribution 条款与文件级例外；部分 FSR3 header 为 MIT | 不把整个最新 SDK 标成 MIT；本轮采用固定 v1.1.4 的已核查源子集 |
-| [RTXGI-DDGI](https://github.com/NVIDIAGameWorks/RTXGI-DDGI/tree/f33e496ca31b3f0eec1c4e2cbaa8bb620e337fa6)，`f33e496ca31b3f0eec1c4e2cbaa8bb620e337fa6` | 根 `License.txt` 为 NVIDIA RTX SDK LICENSE；已读 `ProbeBlendingCS.hlsl`、`ProbeRelocationCS.hlsl`、`Irradiance.hlsl` | 保留算法对照/条件候选，不作为已批准的 MIT donor；默认先评估 Atlas，不能将 license 风险藏在 migration 里 |
+| [RTXGI-DDGI](https://github.com/NVIDIAGameWorks/RTXGI-DDGI/tree/f33e496ca31b3f0eec1c4e2cbaa8bb620e337fa6)，`f33e496ca31b3f0eec1c4e2cbaa8bb620e337fa6` | 根 `License.txt` 为 NVIDIA RTX SDK LICENSE；已读 `ProbeBlendingCS.hlsl`、`ProbeRelocationCS.hlsl`、`Irradiance.hlsl` | 保留算法对照/条件候选，不作为已批准的 MIT donor；当时优先评估Atlas的决定已由2026-10-17 SCGI取代；不能将license风险藏在migration里 |
 | [NRD](https://github.com/NVIDIA-RTX/NRD/tree/7033ffbc48dbd74713194555abc13da8d7de4bcb)，`7033ffbc48dbd74713194555abc13da8d7de4bcb` | 根 LICENSE.txt 为 NVIDIA RTX SDK LICENSE；目录有 REBLUR/RELAX，不等于完成全文算法核查 | 信号语义参考，当前反射优先 MIT FidelityFX Denoiser；未来按实际文件/条款再选 |
 | [Unity Graphics](https://github.com/Unity-Technologies/Graphics/tree/a7e4c051d256a781ab362c64316b125a1e104694)，`a7e4c051d256a781ab362c64316b125a1e104694` | 根 Unity Companion License 已读；有 HDRP fog/VBuffer 源 | 不作为本外部引擎的默认代码移植来源；局部介质选 Adria 候选 |
 | Unreal Nanite / GPU-Driven Materials / VSM | 技术资料与受 Epic 条款约束的引擎来源，不是普通宽松许可 donor | 借鉴管线思想；不宣称找到可直接移植的开放 Nanite 实现 |
@@ -1158,7 +1166,7 @@ Reference reuse：Native `GltfImporter.cpp::InstanceShadowFlags`复用项目已�
 | [GPUOpen, *FidelityFX SSSR* 技术页](https://gpuopen.com/fidelityfx-sssr/) | 对照分类、追踪、降噪的官方功能边界及适用条件 | R06 的固定源码 revision 仍是实际迁移基准 |
 | [Bitterli 等, *Spatiotemporal Reservoir Resampling for Real-Time Ray Tracing with Dynamic Direct Lighting*（2020）](https://research.nvidia.com/publication/2020-07_spatiotemporal-reservoir-resampling-real-time-ray-tracing-dynamic-direct) | 判断未来 ReSTIR DI 需要的候选生成、重用、可见性与历史语义 | 研究路线储备；当前浏览器 WebGPU 无成熟硬件 RT 管线，不把论文列为 Phase 4 默认 donor |
 
-本次检索后的取舍是：**Screen GI 优先评估 R15 的完整信号链，R16 仅补 compute 执行对照；VT 以 R16 的 GPU 需求链和 R17 的通用采样/资产链共同指导原型。** 两处都还没有可不改写地整套移入 WebGPU 的单一项目。R18/R19 说明“wgpu/WGSL”标签不等于目标设备能力已经成立。Adaptive Compute Shading 仍缺一个经源码核实的完整、WebGPU 可移植 donor；保持本地架构问题，不用 VRS 分类算法冒充解答。
+历史检索取舍（当前GI已由SCGI取代）：**Screen GI 当时优先评估 R15 的完整信号链，R16 仅补 compute 执行对照；VT 以 R16 的 GPU 需求链和 R17 的通用采样/资产链共同指导原型。** 两处都还没有可不改写地整套移入 WebGPU 的单一项目。R18/R19 说明“wgpu/WGSL”标签不等于目标设备能力已经成立。Adaptive Compute Shading 仍缺一个经源码核实的完整、WebGPU 可移植 donor；保持本地架构问题，不用 VRS 分类算法冒充解答。
 R12 的固定源码、60 个文件 digest、十阶段映射、资源/常量 ABI 和 host 时序由 `node tools/fsr3-port/validate.mjs` 检查。对应 WGSL 阶段已进入唯一 Renderer FrameGraph；低频 Surface 先物化颜色与 motion，移动相机使用 full-rate Surface。这里记录的是 production integration，GPU 运行、视觉质量和正式 adoption 仍留给 Next Renderer 最终验收。
 ### R07 Supplement: WebGPU comparison and backend boundary (2026-09-27)
 
@@ -1707,3 +1715,69 @@ GRS-1实际映射：SmallFloat三函数→offsetSizeClass/offsetClassSize；allo
 GRS-2的Local / Reuse：`PipelineCompilationQueue`、`PreparedPipeline`、Compute/Render cache的epoch/in-flight/requirePrepared、各pass准确descriptor准备、Renderer前置gate与初始化诊断，复用固定WebGPU规范语义与既有Appearance/native/SSSR异步实现。没有新增复杂渲染算法或donor移植，不改变AO/FSR3/SSSR/VT的完整算法来源范围；原有shader阶段及数值容差保持。真实Renderer同步创建拦截、失败保留/显式retry、loss恢复及串行GPU结果见GRS执行§7，不能提升为完整场景启动提速声明。
 
 GRS-3集中复核补齐原始完整Page→真实Residency→production WGSL的独立CPU数值对照，以及真Renderer bank/metadata增长的opaque/MASK/Surface/VSM、abort/retry与双代峰值；完整Bistro/Dungeon每种HTTP条件三次启动、精化与release检查也已运行。OffsetAllocator在上述范围内具备固定来源核对、独立native/interval算法oracle和真实新production消费，声明为完整分配核心的TS适配采用；grow/lease/目录与帧事务仍属Local，不把GPU集成归给donor。Native初始reflection profile与实际设置一致是本地准备修复，不是新的SSSR算法移植。实测原始记录与限制只读GRS执行§8，不提升为正式性能、4GB或整Renderer画质资格。
+
+
+## Surface Cache GI 2026-10-17
+
+本节对应[详细设计](../next-design/eengine-surface-cache-gi-2026-10.md)与[执行](../next-execution/eengine-surface-cache-gi-execution-2026-10.md)。状态：**Reference / Planned Adapt / Local Design，尚未实现、未adopt**。本轮下载并核读下列固定源码的算法入口、关键分支/数据布局/宿主调度；未构建第三方工程，不宣称审计整个Unity/FidelityFX工程。论文支持数学判断，生产源码和GPU验证仍由执行单元补齐。
+
+### 固定来源与许可证
+
+| 来源 | 固定版本与许可 | 已核范围 / 本地边界 |
+|---|---|---|
+| [Unity Graphics](https://github.com/Unity-Technologies/Graphics/tree/a7e4c051d256a781ab362c64316b125a1e104694) | revision a7e4c051d256a781ab362c64316b125a1e104694；根LICENSE.md明确Unity Companion License for Unity-dependent projects | core SurfaceCache、URP SCGI的cache/estimate/filter/resolve行为参考；不复制Unity代码、宿主adapter或MaterialPool，也不将逐行HLSL→WGSL翻译伪称独立实现 |
+| [RadeonRays SDK](https://github.com/GPUOpen-LibrariesAndSDKs/RadeonRays_SDK/tree/c8890b96b1f976bedd2cd280cc170dff5d655e0a) | revision c8890b96b1f976bedd2cd280cc170dff5d655e0a；根LICENSE为AMD 2021 MIT文本 | 原始DX C++/HLSL compute build/update/restructure/traverse为代码移植donor；保留notice；不移植D3D/Vulkan设备/描述符/queue抽象 |
+| [FidelityFX SDK v1.1.4](https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/tree/c6efa6bf7f2027b3ec94f28578bb5965eabb9e55) | revision c6efa6bf7f2027b3ec94f28578bb5965eabb9e55；根LICENSE.txt MIT（具体文件notice保留） | brixelizergi的screen probe阶段参考/选定子算法适配；不是完整Brixelizer GI port，不引入SDF/brick/specular管线 |
+| [PBRT-v4](https://github.com/mmp/pbrt-v4/tree/b4ce9687e6c695f5582997c61b0c66cf064bdb4a) | revision b4ce9687e6c695f5582997c61b0c66cf064bdb4a；LICENSE.txt Apache-2.0 | `src/pbrt/wavefront/aggregate.h/.cpp`、`workitems.h`与`cpu/primitive.h/.cpp`的工作分类、closest/shadow、alpha拒绝后继续相交；Reference，不是WebGPU scheduler或本地完整alpha tail的现成移植 |
+| [GPUWeb](https://gpuweb.github.io/gpuweb/) / [WGSL](https://gpuweb.github.io/gpuweb/wgsl/) | 2026-10-17访问的living specification；规范参考，不复制实现 | relaxed atomics、workgroup同步边界、subgroups/size control、immediate API和语言feature/limits分类。实际设备仍需probe，不能由规范存在推导当前浏览器支持 |
+| [Ramamoorthi/Hanrahan irradiance environment maps](https://cseweb.ucsd.edu/~ravir/papers/envmap/envmap.pdf) | SIGGRAPH 2001论文；数学参考 | SH radiance→irradiance convolution与L1 basis/系数归一化，CPU oracle独立推导 |
+
+### Unity机制到本地完整行为映射
+
+下表U-core路径前缀为 Packages/com.unity.render-pipelines.core/Runtime/Lighting/SurfaceCache/；U-URP为 Packages/com.unity.render-pipelines.universal/Runtime/RendererFeatures/SurfaceCacheGIRendererFeature/。所有文件均对应上表固定revision。
+
+| source entry / stage | 输入→输出与关键分支 | 目标本地落点与差异 |
+|---|---|---|
+| U-core SurfaceCache.cs、SurfaceCacheWorld.cs | 设置/volume/资源→cache调度、内部工作表示 | SCGI runtime；复用GpuRenderWorld，不复制Unity world adapter、RenderGraph、MaterialPool |
+| PatchUtil.hlsl::ResolveVolumePosition / GetDirectionIndex / ResolvePatchIndex、RingBuffer.hlsl | position+normal→cascade/16方向cell→sparse patch；环绕/empty/full/rank | SCGI-3 addressing/ring；GPU claim→initialize→publish分dispatch，避免读未初始化patch |
+| Scrolling.compute::Scroll | old/new offsets→退出volume的cell unmap | SCGI-3 signed modulo、slab/整cascade失效；world origin epoch本地扩展 |
+| Eviction.compute::Evict | age→rank0降1→后续evict；关闭bounce可直接evict | SCGI-3保留demotion分支，access与update age独立 |
+| Defrag.compute::Defrag | wave prefix与环边界hazard→move/backreference修补 | SCGI-3两阶段scratch搬迁；不照搬512-thread与固定wave宏及跨invocation原地数据依赖 |
+| U-URP PatchAllocation.compute::Allocate | shuffle screen sample、depth/normal、motion与prev L1→rank0、history seed、rank1提升 | SCGI-4由Visibility重建half anchor；共享Native identity；修正单边plane比较、检查随机映射/所有边界；不恢复full normal GBuffer |
+| U-core PatchAllocation.compute、PatchAllocationRequest.hlsl | bounce请求→rank1，cell dedup/容量 | SCGI-3/6下一代请求消费，严格容量/公平/abort |
+| Estimation.hlsl::Estimate / SampleEnvironmentAndDirectionalBounceAndMultiBounceRadiance | hemisphere/PDF→SH；源invalid分支跳过count与rng.NextSample，最后除validSampleCount | SCGI-6保留光源/SH机制，明确修正归一化：固定cohort N，合法物理零保留，unknown/fault不发布整cohort；每尝试推进序号、pre-submit abort例外；不冒称逐分支同源 |
+| PathTracing.hlsl::OutgoingDirectionalBounceAndMultiBounceRadiance / IsValidSample | hit geometry/material、sun visibility、emission、cache→Lo；inside/backface invalid | SCGI-5/6 Native material projection、真实双面语义；Le不再乘albedo；unknown不当sky |
+| PunctualLightSampling.hlsl::SamplePunctualLights；PathTracing.hlsl::SamplePunctualLightBounceRadiance | light-origin ray→hit sample(PDF/albedo/normal/IDs)→patch reconnection/Jacobian/visibility | SCGI-6完整移植算法行为；LightDatabase为唯一真值；stable instance/primitive/generation+t一致性验证，不用屏幕tile列表 |
+| SurfaceCache.cs::RecordFiltering、TemporalFiltering.hlsl::FilterTemporallyVarianceGuided、Estimation统计、TemporalFiltering.compute | A0估计累计→可选A1空间→独立A2时域后滤波；short mean/variance/count驱动adaptive hysteresis | SCGI-7完整三角色，A0/A2持久、A1 scratch；开关四组合/seed/defrag/reset；仅A0真实cohort增长count；本地dirty/事务 |
+| SpatialFiltering.compute | tangent-plane jitter、voxel尺度、cache lookup→空间滤波L1 | SCGI-7读写分离、plane/normal/cascade rejection，不当全3D平均 |
+| IrradianceCompression.hlsl::Compress / Decompress | 正交SH、L0→逐颜色L1相对归一化 | SCGI-7数学实现；母稿oct压缩描述不成立；零L0/invalid/HDR独立处理 |
+| Common.hlsl::SphericalHarmonics::CosineConvolve / Eval | Y00、Y1与A0=π/A1=2π/3，源y/z/x次序 | 本地显式重排0/x/y/z，保持标准卷积；半球常量ng方向πL，撤销设计中间过程的5πL/4误算及自定义核。signed residual不使用L1/L0压缩 |
+| U-URP ScreenResolveLookup.compute::Lookup | 当前depth/flat normal、cache、rank0邻域→half-res L1+depth | SCGI-7当前anchor guide、full写域与confidence；screen touched stats仅candidate |
+| U-URP ScreenResolveUpsampling.compute::Upsample | 邻居L1、plane/normal权重、shaded normal→full irradiance | SCGI-8默认融合Native；能力route等价重建；修正low-res bounds检查，逐tap解压后混合 |
+
+本地差异包括：两bank事务、query Product/residency leases、native材质分桶与同提交完整alpha tail、固定cohort、coverage/unknown、AO去重、lighting reactivity、共享变形、origin重基、packed lighting-directory容量route与近场residual。这些不是Unity/PBRT既有WebGPU能力的adoption声明。Unity公开性能/稳定性描述不作为EEngine帧时或质量依据。
+
+### RadeonRays原始算法到WGSL映射
+
+R-DX前缀 src/core/src/dx/。已核下列host/kernel的关键执行与数据依赖；实施须保存实际移植文件/notice与本地对应函数，而不是只有本表项目级映射。
+
+| source entry | 本地stage / 保留内容 | 必需平台适配与验证 |
+|---|---|---|
+| hlbvh_builder.cpp；kernels/build_hlbvh_fallback.hlsl::Init / CalculateAabb / CalculateMortonCodes | bounds、Morton、primitive refs | shared Product payload decode；signed float bound reduction/退化轴；CPU brute-force bounds |
+| algorithm/radix_sort.cpp、scan.cpp、kernels/block_scan.hlsl | histogram→exclusive scan→scatter，32bit key的完整digit链 | workgroup/subgroup路径；不固定wave，不用跨组轮询；相同keys stable tie-break |
+| build_hlbvh_fallback.hlsl::EmitTopology | ranges/split/children/parent/leaf | GPU integer addressing、分段arena；0/1/repeated Morton与极端深度 |
+| update_hlbvh.cpp；build_hlbvh_fallback.hlsl::InitUpdateFlags / Refit | leaf更新→完整parent bounds | donor原子flag发布不能逐字译到WGSL；改level-list多dispatch，证明无跨组普通写读竞争 |
+| restructure_hlbvh.cpp；kernels/restructure_bvh.hlsl::InitPrimitiveCounts / FindTreeletRoots / Restructure | treelet cost/reordering、改善tree quality | workgroup内独立treelets，上层另refit；保留完整SAH决策，不省略restructure后宣称全profile |
+| hlbvh_top_level_builder.cpp；kernels/top_level_intersector.hlsl | instances bounds/transform/mask与BLAS directory→TLAS查询 | 共享GpuScene instance identity，非均匀变换保持t意义；page leases与dynamic revision |
+| kernels/intersector.hlsl::TraceRays；intersector_common.hlsl；intersect_structures.hlsl | ray-box/triangle、near-first、closest/any、barycentric、stack | shader调用改GPU work→native coverage/material bins→continuation；batch spill/深alpha不能变成miss |
+| fallback_intersector.cpp / intersector_dispatch.cpp | kernel selection、scratch尺寸/输入输出调度 | TypeScript/EEngine GPU资源与FrameProgram绑定；无第二queue/context/renderer |
+
+WebGPU适配不是“RadeonRays可直接接入浏览器”；它是保留算法闭包、换执行与资源表达。CPU独立oracle→WGSL真实kernel→EEngine production consumer三层齐备后才提升对应算法采用状态。硬件RT未来可替换AS/traverse，但本模块不预建空native backend。
+
+### Near-field screen gather的有限donor范围
+
+FidelityFX路径 sdk/include/FidelityFX/gpu/brixelizergi/ffx_brixelizergi_main.h、ffx_brixelizergi_probe_shading.h 与 docs/techniques/brixelizer-gi.md。已核FfxBrixelizerGISpawnScreenProbes、screen reprojection/fill、SH projection/blend、FfxBrixelizerGIInterpolateScreenProbes的阶段关系，以及其中SDF/brick查询依赖。
+
+本地SCGI-9保留spawn→reproject→directional sampling→project→interpolate的完整选定screen子算法；SDF距离查询改当前世界triangle query/精确screen validation；brick radiance/irradiance改SCGI world prediction；specular分支不属于本模块。diffuse-only无residual反馈源、配对world prediction、δL投影和下一帧field消费是 **Local/Original integration**，不是AMD已有功能。数学需要独立能量/时序oracle与production画面，不以“源于Brixelizer”证明残差正确或更快。
+
+追加核对明确：逆cosine卷积仅恢复moments，半球上的radiance预测还需要`G(ng)=∫YYᵀ`的Gram解；该解析inverse及配对残差是本地推导，非FidelityFX源码移植。常量零残差证明限同支持半球，法线混合/窄亮源须独立画质验证。probe持久history选SH/guide/moments，directional radiance仅临时；world-only field/seed与signed residual严格分开。具体公式和本轮CPU数值核对只在设计§11/13与执行复核记录维护，不复制成另一数学authority。

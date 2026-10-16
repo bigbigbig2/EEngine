@@ -29,6 +29,8 @@ verifies:
 
 # SSSR 执行计划
 
+> 后续方向更新（2026-10-17）：本文保留本模块已实现合同与原验证结果；正文中的“下一模块/Local Probes边界”仅指当时停止点。当前模块由workstream导航至[Surface Cache GI设计](../next-design/eengine-surface-cache-gi-2026-10.md)与[执行](../next-execution/eengine-surface-cache-gi-execution-2026-10.md)，不再据旧停止点启动传统GI路线。
+
 唯一细设计为[SSSR设计](../next-design/eengine-sssr-2026-10.md)，粗路线由workstream.roadmap导航。设计提交为`93fe6822`，SSR-1提交为`cfe39af5`；用户继续授权SSR-2，现已完成生产闭包和本模块集中验证。详细状态与实际结果只在这里维护；停在Local Probes模块边界，不预建Local Probes/SSGI细计划。
 
 ## 1. 两个完整单元

@@ -11,11 +11,11 @@ roadmap:
   execution: docs/next-execution/eengine-feature-expansion-execution-2026-10.md
 # Only the selected module pair is the current authority; roadmap remains stable.
 authority:
-  design: docs/next-design/eengine-geometry-residency-startup-2026-10.md
-  execution: docs/next-execution/eengine-geometry-residency-startup-execution-2026-10.md
+  design: docs/next-design/eengine-surface-cache-gi-2026-10.md
+  execution: docs/next-execution/eengine-surface-cache-gi-execution-2026-10.md
 goal: >-
   Build an extreme-performance GPU-driven WebGPU-native AAA renderer for
-  GTX 1650 Ti 4GB at 1080p and scalable newer GPUs. Follow global V4 invariants
+  scalable GPUs, including measured low-memory profiles without a 4GB large-scene guarantee. Follow global V4 invariants
   and the current module authority through complete producer/product/direct-consumer
   cutovers. Preserve completed foundations and design later modules from actual inputs.
   Follow the user's feature-first direction: complete useful rendering capabilities
@@ -25,17 +25,16 @@ goal: >-
   historical measurements retain their original device and thermal-state identity.
 
 currentSlice:
-  id: geometry-residency-startup
-  title: Compact geometry residency and exact asynchronous first-frame preparation
-  status: completed
+  id: surface-cache-gi
+  title: Complete Surface Cache GI and WebGPU world query design
+  status: design-ready
   goal: >-
-    The user authorized GRS-1, GRS-2 and GRS-3 after the completed VT review and design.
-    Follow the selected pair for compact physical geometry allocation, metadata
-    capacity and exact asynchronous pipeline readiness. Detailed unit states live
-    only in its execution document. Concentrated GRS-3 validation and repairs are complete.
-    Preserve cooked integrity, complete geometry/coverage/VSM and AO/SSSR/VT behavior.
-    Measurements used the actual RTX 2060 SUPER 8GB; legacy 4GB qualification remains separate.
-    Do not automatically start Local Probes or whole-renderer qualification.
+    Follow the selected mother design with source-backed corrections and the sole
+    detailed design/execution pair. This turn changes documentation only.
+    Preserve the complete sparse directional cache, software query, native material,
+    alpha, dynamic geometry, full lighting, multi-bounce, filtering and screen gather
+    scope. Implementation unit states live only in the execution document.
+    Do not claim production adoption or a 4GB complex-scene guarantee.
 
 pausedModules:
   - id: final-pixel-performance-v5
@@ -52,14 +51,10 @@ pausedModules:
     reason: Preserve the implemented directional shadow chain and unresolved R4 qualification; new effect correctness involving VSM remains the responsibility of its current unit.
 
 nextModules:
-  - id: local-reflection-probes
-    title: Local specular radiance sources and screen-space miss coverage
-  - id: screen-space-diffuse
-    title: First bounded screen-space diffuse indirect-lighting capability
+  - id: local-specular-cache
+    title: Local specular radiance and screen-space miss coverage
   - id: local-shadows
-    title: Point and spot shadow capability
-  - id: world-indirect
-    title: World GI representation and radiance chosen from scene needs
+    title: Point and spot primary-surface shadows
   - id: transparency-v4
     title: Transparency and refraction
   - id: media-v4

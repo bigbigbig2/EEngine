@@ -39,6 +39,8 @@ Texture Compression 的现行产品边界按需查 [Texture Design](./next-desig
 
 `state: current` 表示当前使用，包含目标设计；不能据此认定实现或性能通过。旧 next-design/next-execution 文件保留原路径供引用，`state: history`、顶部历史声明和 `supersededBy` 共同表明它们已退出当前路线，其旧指令不继续生效。`generated` 是工具产物。继续遵守根规则的 frontmatter/verifies 要求。
 
+用户提供的母稿作为需求/研究输入保留在`reviews/`，其正文可以与后来源码裁决不同；正式勘误、完整机制映射和施工范围只由workstream指向的模块设计/执行一对维护。母稿不会因保留原文成为第二份authority，当前设计也不会自动变成已实现事实。
+
 `node tools/docs-verify.mjs` 检查真实 YAML、Markdown 链接、全局身份、替代环与当前导航。支持 all/changed/staged；staged 读取 index 快照，changed 包含 untracked。历史断链单列 warnings，不重写原始记录；当前断链和历史文档作为 authority 会失败。
 
 verifies.files 是依赖提示，0 findings 不等于正文为真。检查目标是文件链接与导航，不自动认证正文或全部标题 fragment。generated Markdown 必须有实际 producer，单有 marker 不能通过；Git忽略的旧status文件可能残留在本地，不能作为实现状态依据。browser registry 用 `vibe registry --check` 比较字节，只有 `--write` 更新。

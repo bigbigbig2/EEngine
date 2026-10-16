@@ -35,20 +35,19 @@ verifies:
 |---|---|---|
 | F0 粗计划与文档推进机制 | 已完成本轮融合；检查与既有 finding 见 §5 | 核对真实源码并评审讨论方案，维护粗→细设计/执行一对→实施→收口的唯一导航；不改生产源码 |
 | F1 AO 功能完善 | 已实施并完成模块集中验证：[设计](../next-design/eengine-ao-functionality-2026-10.md) / [执行及限制](eengine-ao-functionality-execution-2026-10.md#5-ao-1-实施与核对2026-10-14) | 已有scalar XeGTAO的settings/quality/debug/场景尺度与恢复；保留完整算法，不捆绑temporal/bent normal；停在SSR细设计边界 |
-| F2 SSR | 已实施并完成模块集中验证：[设计](../next-design/eengine-sssr-2026-10.md) / [执行及限制](eengine-sssr-execution-2026-10.md#5-ssr-2-生产接入与逐项复核2026-10-15) | 完整SSSR与反射去噪、Native base/coat响应及环境替换已接生产；实际资源/质量覆盖与未做的整Renderer性能资格只读细文档；停在Local Probes模块边界 |
+| F2 SSR | 已实施并完成模块集中验证：[设计](../next-design/eengine-sssr-2026-10.md) / [执行及限制](eengine-sssr-execution-2026-10.md#5-ssr-2-生产接入与逐项复核2026-10-15) | 完整SSSR与反射去噪、Native base/coat响应及环境替换已接生产；实际资源/质量覆盖与未做的整Renderer性能资格只读细文档；当时停在Local Probes边界（后续方向以当前粗路线为准） |
 | 启动可用性专项 | 已实施并复核：[设计](../next-design/eengine-initialization-scheduling-2026-10.md) / [执行结果与限制](eengine-initialization-scheduling-execution-2026-10.md) | 几何帧事务/VSM更新、有界Worker批准备、并行首屏/纹理分块/真实view-settled已接入；启动精化低帧率与4GB/整帧性能资格仍有限，详见唯一执行记录。不恢复F11、不降最终质量；2026-10-16用户随后选择先设计F4 |
 | F4 Streaming VT | 已实施并完成追加复审：[设计](../next-design/eengine-streaming-vt-2026-10.md) / [执行与限制](eengine-streaming-vt-execution-2026-10.md) | shading tile、完整过滤、反馈/背压与VSM完整页调度已接生产；几何固定槽和首帧剩余等待进入下列独立专项；不追认4GB或整Renderer性能资格 |
-| 几何驻留与首帧专项 | 模块闭合及限制：[设计](../next-design/eengine-geometry-residency-startup-2026-10.md) / [执行§8](eengine-geometry-residency-startup-execution-2026-10.md#8-grs-3-集中复核与返工2026-10-16) | 2026-10-16完成紧凑物理区间、metadata/容量增长、准确async PSO准备与完整场景集中验证；修复Native反射输出重复准备，保留完整质量。长任务、GPU波动及4GB/正式整Renderer资格限制见唯一执行记录；停在F3细设计边界 |
-| F3 Local Reflection Probes | 待细设计；尚无细文档 | 独立完成实际数据来源、预滤波/空间选择/混合/视差校正、容量/生命周期，与 SSR 和 global IBL 正确合成 |
-| F5 Screen-Space Diffuse | 待细设计；尚无细文档 | 选 SSIL/SSGI 的实际能力范围，明确近场 radiance、AO/IBL/world 间接光关系，复用已成立合同而不强制统一算法 |
+| 几何驻留与首帧专项 | 模块闭合及限制：[设计](../next-design/eengine-geometry-residency-startup-2026-10.md) / [执行§8](eengine-geometry-residency-startup-execution-2026-10.md#8-grs-3-集中复核与返工2026-10-16) | 2026-10-16完成紧凑物理区间、metadata/容量增长、准确async PSO准备与完整场景集中验证；修复Native反射输出重复准备，保留完整质量。长任务、GPU波动及4GB/正式整Renderer资格限制见唯一执行记录；当时停在F3边界；2026-10-17用户选择SCGI |
+| SCGI Surface Cache GI | 详细设计已建立，代码待实施：[设计](../next-design/eengine-surface-cache-gi-2026-10.md) / [执行](eengine-surface-cache-gi-execution-2026-10.md) | 当前唯一模块；合并原F5/F7漫反射方向，完整world query/cache/近场增强；无4GB大场景保证 |
+| F3 Local Specular Cache | 后置待细设计；尚无细文档 | 屏幕外镜面radiance、预滤波/选择/更新与SSSR/global IBL合成，具体表示不预先锁死传统probe |
 | F6 Local Shadows | 待细设计；尚无细文档 | 点/聚光的实际 caster、容量/过滤/更新、Native 消费与 lifecycle；先补直接光遮挡，不把 LocalLightWork 或方向光 VSM 当作已实现 |
-| F7 World GI | 待细设计；尚无细文档 | 比较 SDF/occupancy+probe 等完整候选，先确定动态场景/薄墙/alpha/命中辐射和4GB成本，再选场景表示、生成/更新与合成 |
 | F8 Transparency / Refraction | 待细设计；尚无细文档 | 先明确完整 BLEND，再按场景扩展透射/折射/水面；独立工作与正确合成，不恢复 retired owner |
 | F9 Media | 待细设计；尚无细文档 | 与现有 Sky/Aerial 协调的局部参与介质/体积灯光，覆盖密度、阴影、积分/透射率与history |
 | F10 重建、显示与后处理完善 | 待选择具体模块；尚无细文档 | 在现有 Native/FSR/曝光/LUT 显示上按需补 DRS、Motion Blur、公开调色等；每次只选一个连贯模块，各前序效果的时序正确性不后移 |
-| F11 完整组合、性能与最终验收 | 延期到功能组合稳定 | 统一功能/质量profile，集中整帧归因与优化、长窗口/尾延迟、冷启动与同时峰值、4GB OS驻留和最终画质 |
+| F11 完整组合、性能与最终验收 | 延期到功能组合稳定 | 统一功能/质量profile，集中整帧归因与优化、长窗口/尾延迟、冷启动与同时峰值、实际设备工作集/OS驻留和最终画质，不承诺4GB大场景 |
 
-顺序表达当前默认优先级，不伪造硬依赖；World GI 不成为透明/局部阴影的统一启动门禁。Decals、RVT、ReSTIR、高级 world specular、AI 等作为粗设计中的候选能力，未选当前模块，不预建详案或占位实现。以后按场景选择它们时增加实际模块入口，不藏在 F10 中一次全部实施。
+顺序以当前粗路线为准。原F5/F7已合并到SCGI，不再单独施工；主表面局部阴影与SCGI hit visibility是不同consumer。Decals、RVT、ReSTIR、高级 world specular、AI 等作为粗设计中的候选能力，未选当前模块，不预建详案或占位实现。以后按场景选择它们时增加实际模块入口，不藏在 F10 中一次全部实施。
 
 模块状态只记录待细设计、细设计中、待实施、实施中或模块闭合及其限制；文档链接只在文件实际创建后填写。每个大模块结束停在边界，用当时源码决定下一模块。旧 F0 记录按当时模块编号理解，不据重排追改原结果。
 
@@ -105,3 +104,7 @@ F0 在文档交付边界结束；F1 的详细设计与实现尚未启动，不�
 集中检查：document-system 7/7 通过；vibe doctor 无 errors/warnings、registry 字节一致；roadmap 两个入口均存在且为 current，AO/HZB/TextureResidency/RendererCore 的 context 均只返回一对当前 authority；git diff --check 通过。全库 docs-verify 仍因既有 Git 忽略的 docs/status.generated.md 缺 frontmatter 返回 exit1、1 个 finding，另有81条原历史断链 warnings；没有新增 finding/warning，不宣称全库通过。
 
 本轮未创建模块详案、生产基础设施、资产/ABI、依赖或测试阈值。未运行 engine build、browser、GPU 或 benchmark，原因是只修改文档/导航，没有生产代码或资产变动。本轮粗记录完成，停在任何功能细设计/实现之前。
+
+## 6. SCGI方向切换（2026-10-17）
+
+依据用户选定母稿及当前源码，撤下独立SSGI、SDF/Atlas DDGI/probe优先world GI路线，合并为Surface Cache GI；Local Specular Cache后置。当前细设计/执行已建立，全部代码单元仍待实施，验证结果仅见SCGI执行记录；没有追认任何旧GPU/性能失败。

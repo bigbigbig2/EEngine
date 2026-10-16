@@ -48,7 +48,7 @@ verifies:
 
 本文只定义跨模块持续有效的架构约束。总体粗路线由 [workstream.roadmap](../../project/workstreams/active/eengine-next-clean-rebuild.yaml) 导航，当前模块唯一设计/执行由其中的 authority/currentSlice 导航；真实实现以源码和直接消费者为准，已实现事实见 [domains](../domains/README.md)。本文不维护施工顺序、模块状态或待实现算法。
 
-2026-10-14 起按用户方向先完善功能效果，再集中优化完整组合。V5 已落地实现继续使用，未完成的性能资格保留责任；不以旧性能计划先通过作为 AO、VT 等新功能的统一前置。长期目标仍为 GPU-Driven、WebGPU Native、AAA 画面与可持续扩展，GTX 1650 Ti 4GB / 1080p 是首要约束之一。
+2026-10-14 起按用户方向先完善功能效果，再集中优化完整组合。V5 已落地实现继续使用，未完成的性能资格保留责任；不以旧性能计划先通过作为 AO、VT 等新功能的统一前置。长期目标仍为 GPU-Driven、WebGPU Native、AAA 画面与可持续扩展，低内存设备按实际能力与工作集分档；按2026-10-17用户要求，4GB不是复杂大场景或全部效果的质量承诺。
 
 ## 1. 唯一生产路径与职责
 

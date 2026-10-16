@@ -24,6 +24,8 @@ verifies:
 
 # 几何紧凑驻留与首帧准备
 
+> 后续方向更新（2026-10-17）：本文保留本模块已实现合同与原验证结果；正文中的“下一模块/Local Probes边界”仅指当时停止点。当前模块由workstream导航至[Surface Cache GI设计](../next-design/eengine-surface-cache-gi-2026-10.md)与[执行](../next-execution/eengine-surface-cache-gi-execution-2026-10.md)，不再据旧停止点启动传统GI路线。
+
 ## 1. 决定与范围
 
 设计时以2026-10-16的 `17252477` 为源码基线；下节问题盘点保留该基线事实。用户随后授权按本设计实施，当前结果与单元状态只读[执行计划](../next-execution/eengine-geometry-residency-startup-execution-2026-10.md)。它是Local Reflection Probes之前的独立专项，不恢复全Renderer性能资格，也不重做INIT/VT。

@@ -27,6 +27,8 @@ verifies:
 
 # Streaming VT 执行：产品闭包、生产切换、集中验收
 
+> 后续方向更新（2026-10-17）：本文保留本模块已实现合同与原验证结果；正文中的“下一模块/Local Probes边界”仅指当时停止点。当前模块由workstream导航至[Surface Cache GI设计](../next-design/eengine-surface-cache-gi-2026-10.md)与[执行](../next-execution/eengine-surface-cache-gi-execution-2026-10.md)，不再据旧停止点启动传统GI路线。
+
 唯一设计为 [Streaming VT](../next-design/eengine-streaming-vt-2026-10.md)。2026-10-16 起点 `4a52d400`；用户已依次授权VT-1、VT-2及VT-3，本轮执行至VT验收边界。本文是唯一细单元状态和实施结果入口；粗路线/workstream只负责模块导航，不复制下表状态。
 
 ## 1. 工程量与执行单元

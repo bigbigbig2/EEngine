@@ -41,6 +41,8 @@ verifies:
 
 # Streaming VT：按可见需求流送的压缩材质纹理
 
+> 后续方向更新（2026-10-17）：本文保留本模块已实现合同与原验证结果；正文中的“下一模块/Local Probes边界”仅指当时停止点。当前模块由workstream导航至[Surface Cache GI设计](../next-design/eengine-surface-cache-gi-2026-10.md)与[执行](../next-execution/eengine-surface-cache-gi-execution-2026-10.md)，不再据旧停止点启动传统GI路线。
+
 ## 1. 决定、目标与边界
 
 2026-10-16，以 `4a52d400` 为源码起点建立本设计；用户随后授权实施VT-1。唯一实施状态、结果和后续边界见[执行计划](../next-execution/eengine-streaming-vt-execution-2026-10.md)，本文规定完整模块目标，不能因CPU产品已实现就认为GPU分页已接通。Streaming VT优先于Local Reflection Probes，唯一当前模块入口见workstream；总体方向见[功能粗路线](eengine-feature-expansion-roadmap-2026-10.md)。

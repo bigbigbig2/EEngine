@@ -38,6 +38,8 @@ verifies:
 
 # 初始化调度：并行准备、帧事务发布与 VSM 有界更新
 
+> 后续方向更新（2026-10-17）：本文保留本模块已实现合同与原验证结果；正文中的“下一模块/Local Probes边界”仅指当时停止点。当前模块由workstream导航至[Surface Cache GI设计](../next-design/eengine-surface-cache-gi-2026-10.md)与[执行](../next-execution/eengine-surface-cache-gi-execution-2026-10.md)，不再据旧停止点启动传统GI路线。
+
 ## 1. 本轮决定
 
 源码起点为 `30292e0e`。设计形成后，用户于2026-10-15依次授权INIT-1、INIT-2和INIT-3实施；实施与详细状态唯一入口为[执行计划](../next-execution/eengine-initialization-scheduling-execution-2026-10.md)。这是功能路线中插入的一次真实可用性修复，不启动延期的全 Renderer 性能资格，也不启动 Local Probes、VT 或其他效果。

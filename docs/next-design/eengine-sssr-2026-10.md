@@ -35,6 +35,8 @@ verifies:
 
 # SSSR：Native 材质的屏幕反射与完整反射去噪
 
+> 后续方向更新（2026-10-17）：本文保留本模块已实现合同与原验证结果；正文中的“下一模块/Local Probes边界”仅指当时停止点。当前模块由workstream导航至[Surface Cache GI设计](../next-design/eengine-surface-cache-gi-2026-10.md)与[执行](../next-execution/eengine-surface-cache-gi-execution-2026-10.md)，不再据旧停止点启动传统GI路线。
+
 ## 1. 决定与范围
 
 以 `1d1a67fc` 为源码起点，2026-10-15 完成细设计。唯一实施与结果入口为[执行计划](../next-execution/eengine-sssr-execution-2026-10.md)，总体方向见[功能粗路线](eengine-feature-expansion-roadmap-2026-10.md)。本文规定完整模块合同，实施时依据源码修正输入/调度假设，详细单元状态只读执行文；不把来源阅读、非生产闭包或旧shader的存在算作生产能力。

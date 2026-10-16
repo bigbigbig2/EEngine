@@ -2,7 +2,7 @@
 
 用户2026-10-16的持续协作要求：只使用本仓库 `.agents/skills/` 内的 skill，不调用仓库外 skill；不使用子 agent。参考资料和工具不等同于 skill，仍按下文来源与验证要求使用。
 
-目标是极致 GPU 性能、现代 GPU-Driven、WebGPU Native、AAA 画质与可持续扩展，首要约束之一为 GTX 1650 Ti 4GB、1080p 复杂场景。全局架构不变量依据 [V4 Native Shading 母稿](docs/next-design/eengine-v4-native-shading-2026-10.md)；当前模块唯一设计/执行依据读取 [workstream.authority](project/workstreams/active/eengine-next-clean-rebuild.yaml)，Texture Compression 分别使用 [Texture 设计](docs/next-design/eengine-v4-texture-compression-2026-10.md)与 [Texture 执行计划](docs/next-execution/eengine-v4-texture-compression-execution-2026-10.md)。当前大模块只读 workstream.currentSlice，详细单元状态只读对应执行计划；入口文件不复制状态。
+目标是极致 GPU 性能、现代 GPU-Driven、WebGPU Native、AAA 画质与可持续扩展，低内存设备按实际工作集与能力分档；按用户2026-10-17要求，不承诺 GTX 1650 Ti 4GB 能运行复杂大场景或全效果。全局架构不变量依据 [V4 Native Shading 母稿](docs/next-design/eengine-v4-native-shading-2026-10.md)；当前模块唯一设计/执行依据读取 [workstream.authority](project/workstreams/active/eengine-next-clean-rebuild.yaml)，Texture Compression 分别使用 [Texture 设计](docs/next-design/eengine-v4-texture-compression-2026-10.md)与 [Texture 执行计划](docs/next-execution/eengine-v4-texture-compression-execution-2026-10.md)。当前大模块只读 workstream.currentSlice，详细单元状态只读对应执行计划；入口文件不复制状态。
 
 源码是当前实现事实的最高依据；文档采纳不证明代码切换、性能、claim 或来源 adoption。R3/R4 的 Surface C、General VM、六 signal、全局 closure cache/history、proof/store/reference 规则已退为历史，不再约束未来生产架构。旧数值失败不被追认为修复；存活语义按当前模块执行计划迁移新 owner。
 

@@ -60,7 +60,7 @@ verifies:
 
 ## 1. 目标与本轮边界
 
-用户在 2026-10-14 明确选择：**先完善渲染能力和画面效果，再对完整组合集中优化性能**。长期目标仍为 GPU-Driven、WebGPU Native、AAA 画面方向、GTX 1650 Ti 4GB / 1080p 与可持续扩展，不提前承诺全效果原生 60FPS。
+用户在 2026-10-14 明确选择：**先完善渲染能力和画面效果，再对完整组合集中优化性能**。长期目标仍为 GPU-Driven、WebGPU Native、AAA 画面方向、低端到高端可伸缩与可持续扩展；2026-10-17用户明确不承诺4GB复杂大场景，不提前承诺全效果原生 60FPS。
 
 推进方式为：**粗路线记录目标和次序 → 用户启动一个模块的细设计 → 建立该模块唯一设计/执行一对文档 → 按该轮授权实施与验证 → 模块闭合后停在边界，回到粗路线选择下一模块**。粗路线建立时只完善文档/导航机制，不实现基础设施，也不预建未来模块详案、空类、固定 GPU ABI 或占位资源；用户之后启动的模块按此流程单独细设计。
 
@@ -79,7 +79,7 @@ verifies:
 | HZB | `HierarchicalZBuffer`/`hzb_reduce` 为反向深度 RG16F 保守 min/max，首级从内部尺寸的一半开始，有 current/previous；FrameProgram 目前仅由几何 HZB 需求触发构建，late recheck 后可再构建 final HZB | 可作为 tracing 的候选粗层；SSR 需核对最终可见性版本与精度，裁决是否结合全分辨率 Depth 精细验证或新增必要层级。已有纹理不等于任意效果都拿到了正确版本/精度 |
 | 深度/法线 | XeGTAO 有私有五级 weighted view-depth 和深度重建法线；Native invocation 内有真实材质 normal/roughness/coat | AO weighted depth 与遮挡 HZB 数学不同，不能强行合一；深度法线也不等于 normal-map/coat 法线 |
 | Native 间接光 | `native_surface.native_environment` 已计算 diffuse IBL×AO/material occlusion、DFG-weighted specular IBL、coat 与底层衰减；输出转工作色域并预曝光 | 新 GI/SSR 需要明确替换/补充的光照分量及颜色域，不能直接 HDR 加法；baseline 不自动提供新反射的材质响应 |
-| 颜色金字塔/SSR | SSSR已沿Native base/coat receiver→完整追踪/去噪→baseline replacement接入生产；不需要opaque color pyramid，旧SSR shader已删除。`SharedColorPyramidPass`仍未调度；结果只读[SSSR执行](../next-execution/eengine-sssr-execution-2026-10.md) | 后续SSGI按实际采样需要裁决颜色版本/过滤，不恢复旧owner或把SSSR无金字塔的选择强加给新算法 |
+| 颜色金字塔/SSR | SSSR已沿Native base/coat receiver→完整追踪/去噪→baseline replacement接入生产；不需要opaque color pyramid，旧SSR shader已删除。`SharedColorPyramidPass`仍未调度；结果只读[SSSR执行](../next-execution/eengine-sssr-execution-2026-10.md) | Surface Cache GI的近场gather按实际采样需要裁决颜色版本/过滤，不恢复旧owner或把SSSR无金字塔的选择强加给新算法 |
 | 纹理 | `TextureResidency`保留完整resident类型，`VirtualTextureResidency`已接tiled Product、physical pools、Native过滤、延迟反馈/背压和逐tile淘汰；完整coverage依赖仍resident | VT模块结果只读其执行文；当前剩余几何固定槽与首帧准备进入独立专项，不能再按“尚无VT”重复规划 |
 | Coverage | exact R8 plane 已独立；`nativeMaterialCoverageProgram` 从任意 graph 提取 alpha 子图，Main/VSM 共用语义 | alpha 可能依赖 RGB/其他 sample，VT v1 排除 coverage 时要保护整个依赖闭包，不能只保护标为 alpha-mask 的贴图 |
 | Probes/GI | 旧 `GPULightProbeVolume`/atlas 是可选惰性数据，record 含低阶系数；没有当前局部镜面反射或 world GI 的生产消费链 | 旧 diffuse probe 数据不等于预滤波 specular probe；不能直接宣布 box-projected reflections 已具备，也不能据此选定 GI |
@@ -93,27 +93,23 @@ verifies:
 | 讨论中的建议 | 本轮结论与修正 |
 |---|---|
 | Feature Completion 优先、复用已有 AO | 采纳；新效果允许必要有界 ADD，完整图性能集中优化 |
-| 先独立建设 Screen-Space Effect Foundation | 调整为随 SSR 的真实消费建立有限基础；AO 只补自身需要。首个 consumer 完整闭合后，SSGI 再复用已成立合同，算法确实不同则保留局部实现，不强迫所有效果共用一个 kernel |
+| 先独立建设 Screen-Space Effect Foundation | 调整为随 SSR 的真实消费建立有限基础；AO 只补自身需要。首个 consumer 完整闭合后，SCGI近场层复用已成立合同，算法确实不同则保留局部实现，不强迫所有效果共用一个 kernel |
 | 一张 normal+roughness sidecar 就够 | 仅为候选。它不能完整表达 F0/coat/BRDF response、语义身份与重投影；也可能无需全屏物化。字段、格式、全/半分辨率和重算取舍留细设计裁决 |
 | Surface 顺手固定输出 indirect baseline | 防双计能量的思路采纳，固定全屏 baseline 输出不采纳。SSR/GI 细设计比较发布必要 response/baseline、调整原生合成边界或有限重算，选择合法且成本有界的产品 |
 | 直接选 FidelityFX SSSR 全套 | 粗设计时列为优先参考；后续细模块已选择并适配固定SDK的完整FP32算法profile，来源/差异/结果只读细文档。wave/占用率退出、depth hierarchy、环境采样和denoiser仍须明确平台适配，不能删关键阶段后声称完整SSSR |
-| SSR 顺手完成 Local Probes | 分成相邻完整模块；SSR 可先用现有 Global IBL 合法补缺，随后补局部反射。Probe 的数据来源/预滤波/空间选择和更新成本不能被“顺手”省略 |
+| SSR 顺手完成 Local Probes | 保持独立specular模块；2026-10-17先推进SCGI，之后再设计Local Specular Cache。SSR继续用现有Global IBL补缺。Probe 的数据来源/预滤波/空间选择和更新成本不能被“顺手”省略 |
 | Streaming VT v1 暂不虚拟化 coverage | 采纳保守范围，但明确为 shading VT profile。所有影响 alpha 的样本/坐标依赖保持完整可用，含 custom graph；无法安全分离时保留该依赖为 resident，或显式拒绝不支持输入，不能默改 coverage |
-| SSGI 后直接固定 Cascaded SDF+Probe | 只采纳“近场 screen diffuse→独立 world-space GI”的推进层次。SDF+Probe 是优先候选，尚无足够的动态几何、薄墙、alpha、hit radiance 和 4GB 成本依据作为最终选择 |
-| 先建通用 SceneTraceProvider，未来只换硬件 RT | 延期。screen depth、SDF、occupancy、triangle query 的可见域/命中信息/误差不同；occupancy 也不能直接作为可 sphere-trace 的 SDF。先让实际算法闭合，再按真实公共合同抽取，硬件 RT 不作为当前底座 |
-| 固定一条未来 frame topology | 只保留职责方向；SSGI/SSR 的 radiance 版本、world 更新与主视图的关系、Sky/透明/介质的物理合成、Native/FSR 分辨率域必须在相应模块明确，不能将概念图当可执行无环图 |
+| SSGI 后直接固定 Cascaded SDF+Probe | 该旧选择已撤销。世界漫反射明确选Surface Cache GI；screen gather是其近场残差，不另建SSGI owner；SDF/Atlas DDGI/probe不再是优先施工路线 |
+| 先建通用 SceneTraceProvider，未来只换硬件 RT | 不预建通用框架；本模块实现GI私有、共享Scene Truth的完整compute query。screen depth、SDF、occupancy、triangle query 的可见域/命中信息/误差不同；occupancy 也不能直接作为可 sphere-trace 的 SDF。先让实际算法闭合，再按真实公共合同抽取，硬件 RT 不作为当前底座 |
+| 固定一条未来 frame topology | 只保留职责方向；GI/SSR 的 radiance 版本、world 更新与主视图的关系、Sky/透明/介质的物理合成、Native/FSR 分辨率域必须在相应模块明确，不能将概念图当可执行无环图 |
 
 **间接光合成的必要条件：** `H' = H + w × (S − B)` 只在 `B` 是 H 中实际已有的对应光照贡献、`S` 是同一 lobe、颜色域、预曝光和材质响应下的新贡献时成立。`S` 不能直接是 trace 得到的未加权 incident radiance。base/coat、粗糙度积分/采样 PDF、AO 与材质 occlusion、置信权重及 fp16 减法误差均要在细设计核对；不重复乘 AO，不以 clamp 遮盖数值错误。这个等式表达语义，不规定存储三张全屏纹理。
 
 ## 4. 粗粒度推进顺序
 
-默认顺序调整为 **AO → SSR → Streaming VT → Local Reflection Probes → Screen-Space Diffuse → Local Shadows → World GI → Transparency/Refraction → Media → 重建/显示/后处理 → 集中组合与性能优化**。Decals/RVT 等保留为明确候选扩展。2026-10-16用户基于初始化工作集与纹理流送需求，选择先启动VT详细设计；粗模块F3/F4编号保持以免改写历史，次序以本段及粗执行表为准。
+默认顺序为 **已落地AO/SSSR/Streaming VT与几何驻留基础 → Surface Cache GI → Local Specular Cache → Local Shadows → Transparency/Refraction → Media → 重建/显示/后处理 → 集中组合与性能优化**。旧F3/F4等编号仅用于追溯，不决定当前顺序。
 
-2026-10-15用户基于Bistro真实启动卡顿，在SSR完成后插入[初始化调度设计](eengine-initialization-scheduling-2026-10.md) / [执行结果](../next-execution/eengine-initialization-scheduling-execution-2026-10.md)：并行Cooked准备、几何帧事务发布与VSM有界更新已实施，实际精化低帧率和容量限制保留原记录。该专项没有恢复F11全Renderer性能资格或实现VT。其后用户在2026-10-16选择先详细设计Streaming VT，解决全量shading payload前置与纹理工作集；不是重新实施INIT，也不承诺VT能消除几何/VSM剩余瓶颈。实际测量设备为RTX2060 8GB，历史4GB目标仍需独立资格。
-
-2026-10-16，VT实施及追加复审后，用户启动[几何紧凑驻留与首帧准备设计](eengine-geometry-residency-startup-2026-10.md)。该独立专项置于Local Probes前，解决固定256KiB物理槽/过大初始metadata与bank，以及准确PSO异步准备；保留Cooked逻辑Page、完整算法和全部效果质量。只授权设计，实施状态见其执行计划，不将文档建立当成内存或启动改善，也不重开INIT或全Renderer性能资格。
-
-这是画面收益和工程风险的默认排序，不是硬依赖链。SSR 不需要先完成 VT；SSGI 不强依赖 VT 或局部镜面 probe；VT 在 World GI 前可降低未来采样体系重复改造风险，但不能替 GI 解决场景表示/命中着色。当前只有 Sun 阴影，故将局部阴影置于复杂 World GI 之前，先补常用直接光遮挡和可信的场景光照基线；不宣称所有 GI 都必须消费 local shadow maps。透明或局部阴影若是目标场景主要缺口，可在模块边界进一步提前；不让庞大 World GI 成为它们的统一门禁。每次只细设计和实施一个大模块。
+当前用户已选择[SCGI详细设计](eengine-surface-cache-gi-2026-10.md)和[执行计划](../next-execution/eengine-surface-cache-gi-execution-2026-10.md)。Geometry Residency专项已闭合，原结果和限制保留；本轮只启动SCGI设计及文档重构，不自动编码。SCGI提供自己的hit处world shadow query，不要求先建主表面local shadow maps；两者是不同consumer。4GB为可选低内存profile与实测对象，不承诺任意大场景。
 
 ### 4.1 AO：完善已有 scalar 功能
 
@@ -125,11 +121,9 @@ verifies:
 
 细设计须裁决真实法线/roughness/响应、最终 Depth/HZB、可采样辐射及最小产品、主/coat lobe、trace/resolve/denoise/history/composition 和调试。receiver motion/identity 不能自动解决反射命中物体的运动和遮挡失效；SSR 自己管理可靠性与历史，不借用 Native AA 的内部 history 冒充反射 history。首个消费者所需的配置、需求声明、资源关闭/退休随本模块闭合，不另造基础设施大项目。
 
-### 4.3 Local Reflection Probes：补齐屏幕外反射来源
+### 4.3 Local Specular Cache：后置屏幕外镜面来源
 
-独立设计 authored/baked 或 runtime capture 的实际数据来源、预滤波镜面 mips、影响体/空间选择/混合、视差校正、atlas/容量/更新/退休。box projection、octahedral atlas 是候选，既有 diffuse probe coefficient 不能替代镜面数据。
-
-SSR 高置信结果与 local/global environment 形成明确的混合或替换关系；其补缺方向是 SSR→local probe→global IBL/sky，选择/混合应在实际 GPU 工作中完成，不强制成为三个串行全屏 pass。静态 probe 不宣称覆盖全部动态反射。若选 runtime capture，需计入多视图 VG/VT 驻留、阴影/材质可用性与捕获成本，不能依赖主相机可见域充当完整场景。
+这是SSSR/global IBL之外的镜面radiance能力，后续按届时源码选择capture、local environment或其他可持续方案；不预先强制传统reflection probe阵列，不复用旧diffuse probe充数。其预滤波/视差/容量/动态更新与SSR混合届时完整设计。它不是SCGI前置，不与SCGI竞争diffuse ownership。
 
 ### 4.4 Streaming VT：先做 shading 纹理分页
 
@@ -139,21 +133,19 @@ v1 范围为可与 coverage 安全分离的 baseColor RGB、normal、ORM、emiss
 
 详细选择、算法来源组合、页尺寸/过滤、overflow、预算与生命周期已进入[VT设计](eengine-streaming-vt-2026-10.md) / [执行计划](../next-execution/eengine-streaming-vt-execution-2026-10.md)，本粗记录不重复细布局。内容身份、物理页位置和residency revision分开，不能每tile上传重编材质或全局重置Temporal；设计就绪不代表已切换生产或有性能收益。
 
-### 4.5 Screen-Space Diffuse：有限近场间接光
+### 4.5 Surface Cache GI：唯一动态间接漫反射主线
 
-先明确选 SSIL 式补充照明还是更完整的 SSGI profile，二者不能仅凭名称视为等价。目标是近场动态色溢出/屏幕内发光反馈，承认可见域与方向信息局限；研究取样、响应、radiance 来源、可靠性、去噪/history、上采样及与 AO/diffuse IBL 的关系。半分辨率是待比较配置，不是预定正确性捷径。
+完整能力由[详细设计](eengine-surface-cache-gi-2026-10.md)及[执行](../next-execution/eengine-surface-cache-gi-execution-2026-10.md)定义：camera-follow sparse patches、16方向分桶、完整allocator/scroll/evict/defrag、世界compute query、原生material/alpha/VT、全光源与multi-bounce、估计累计/空间/时域后滤波三角色、L1压缩、half-res field和Native融合。查询派生自当前GeometryProduct/GpuRenderWorld；共享变形、提交事务与满绑定容量route随本模块闭合，不能另建Renderer或复制完整高精geometry。
 
-复用 SSR 已成立的深度/投影/颜色域/资源合同，不强制共用不适合 diffuse 的 traversal 或历史。若未来同时存在 world indirect，screen 项作为替换或补充的哪一部分须说明，避免 AO、IBL 和 GI 重复计能量。
+Screen Radiance Gather属于本模块完整近场增强，采用同源world预测残差和独立history；残差不进入world cache/seed，无同帧radiance环。独立Screen-Space Diffuse模块从待办删除；不叠全量SSGI。4GB按实际working-set/admission处理，双状态、完整身份、目录帧槽、AS、gather与retiring均计入，不承诺80–160MiB就是完整GI成本；详细数值只在模块设计维护。
 
 ### 4.6 Local Shadows：补齐常用直接光遮挡
 
 独立补点/聚光的真实 caster、空间/容量、过滤、更新和采样链。LocalLightWork 分区不等于阴影空间索引已经可直接复用；与 world GI 的查询/辐射更新是否共享真实产品，在对应模块按实际消费者判断。基本直接光遮挡缺口不留给后续 GI 掩盖。
 
-### 4.7 World GI：先选完整可落地的场景表示
+### 4.7 原独立World GI模块：已合并
 
-优先比较 cascaded SDF/occupancy + radiance/irradiance probes 与其他满足目标的方案，按静态场景、移动刚体/变形、薄墙/alpha、动态灯光/发光源、距离/漏光、加载与4GB同时工作集裁决。SDF/occupancy 只解决部分空间查询，仍缺命中处辐射来源、材质/VT采样与照明更新；不能用“cook 少量属性”代替完整光照语义，也不预先修改 GeometryProduct schema。
-
-是否离线生成、运行时体素化、clip/cascade 数量、probe 表示与更新预算，在该模块细设计。明确 screen/world/environment 的合成与可见域，不把它们伪装为一个无差别 miss 链。成熟实现的静态/动态限制必须转成本项目的显式范围；ReSTIR、Lumen Surface Cache、硬件 ray query 均非本阶段预选地基。
+原先“Screen GI之后再比较SDF/occupancy+probe、Atlas DDGI”的模块不再是待执行方向；动态world diffuse已由§4.5 SCGI完整拥有。硬件RT、ReSTIR/PT、Neural Radiance未来按真实场景与当前query/cache再设计，不预建空backend，不作为此次SCGI闭合前置。
 
 ### 4.8 透明与介质
 
@@ -177,7 +169,7 @@ Decals 保留为场景表达扩展，需考虑对 Native 材质/法线及 SSR/GI
 
 **共享合同，按 consumer 物化。** Depth/HZB、材质辅助信息、radiance pyramid 由实际需求声明 producer/consumer、坐标/颜色/分辨率、版本、写域、容量和寿命。现有 culling HZB 能满足精度时复用；不满足时允许有依据的效果专属层级/精细验证，不能为了“只有一份”损失语义。AO weighted depth 保留自己的数学。`surface-effect-data`、`opaque-color-pyramid`、`indirect-specular/diffuse` 仅是语义示例，不是本轮新增 enum、固定格式或统一 SurfaceRecord。
 
-**颜色依赖必须无环。** SSGI/SSR 读取的当前帧 radiance 版本不得包含自身尚在求解的结果。可以选择明确的 opaque baseline、先 diffuse 后 specular 的有限版本，或有曝光/身份/拒绝合同的历史来源，具体在模块细设计裁决。共享 pyramid 只在来源版本/过滤语义相同且收益成立时共享；不能既要求 SSR 看见新 GI，又让 GI 读同一份 SSR 最终输出，或把回灌当作免费多跳。Sky/透明/Media 是否进入被采样的来源也必须明确。
+**颜色依赖必须无环。** GI/SSR 读取的当前帧 radiance 版本不得包含自身尚在求解的结果。可以选择明确的 opaque baseline、先 diffuse 后 specular 的有限版本，或有曝光/身份/拒绝合同的历史来源，具体在模块细设计裁决。共享 pyramid 只在来源版本/过滤语义相同且收益成立时共享；不能既要求 SSR 看见新 GI，又让 GI 读同一份 SSR 最终输出，或把回灌当作免费多跳。Sky/透明/Media 是否进入被采样的来源也必须明确。
 
 **公共基础也要计账。** 1080p 一张8B/pixel目标约15.82MiB；normal/roughness 加 baseline 两张约31.64MiB，尚未包含读写、mips、去噪/历史、同时退休资源。sidecar 不天然便宜，preallocate 不因叫 Foundation 而免费。按真实模块记录必要 ADD 与上界，候选之间比较工作/质量/能力；不以相对关闭效果的净提速为验收条件。history/cache 留各效果；不扩 Surface/TemporalFabric 为统一效果操作系统。
 
@@ -214,7 +206,7 @@ flowchart LR
 
 V5 Phase6/条件Phase7、VSM R4、Minimal GPU Work 未获资格项和 Texture Compression 开放限制仍保持原结论，延期路由见粗执行文。没有新代码/GPU 结果，不提升 adoption、Feature Complete 或性能资格。
 
-本轮对外只做粗路线层面的事实核对，未选择完整 donor/profile、未移植算法；模块细设计时再固定完整源码与来源映射。访问日期为2026-10-14，参考入口和范围如下：
+下表保留2026-10-14粗研究背景，不是当前GI选型。2026-10-17已固定SCGI详细方案及来源，见当前设计和source map；没有实现adoption。
 
 | 来源 | 本轮使用范围 |
 |---|---|
