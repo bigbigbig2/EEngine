@@ -11,6 +11,16 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "scgi-cache",
+    file: "OEngine/tests/oracle/scgi-cache-gpu.mjs",
+    url: "/OEngine/tests/oracle/scgi-cache-gpu.mjs",
+    entry: "runScgiCacheGpuOracle",
+    requiredFeatures: ["timestamp-query"],
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    timeoutMs: 180000,
+    description: "SCGI-3 sparse cache allocation, R24 scroll, rank aging, capacity and transactional retry."
+  }),
+  Object.freeze({
     name: "scgi-transaction",
     file: "OEngine/tests/oracle/scgi-transaction-gpu.mjs",
     url: "/OEngine/tests/oracle/scgi-transaction-gpu.mjs",

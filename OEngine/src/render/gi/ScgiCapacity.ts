@@ -2,6 +2,7 @@ import { FINAL_PIXEL_SOLAR_BYTES } from "../../gpu/FinalPixelAbi.js";
 import { nativeSurfaceBindingGroups } from "../../shaders/native_surface.js";
 import type { NativeSurfaceShaderProfile } from "../../shaders/native_surface.js";
 import { SCGI_ABI, SCGI_MAX_CASCADES } from "./ScgiAbi.js";
+import { scgiCacheScratchParts, SCGI_CACHE_WORKGROUP_SIZE } from "./ScgiCacheLayout.js";
 
 export interface ScgiAllocationProfile {
   readonly width: number;
@@ -47,7 +48,7 @@ export function scgiAlign(bytes: number, alignment: number): number {
 /** Each arena is a single binding; disjoint producers can also bind aligned subranges. */
 export function planScgiArena(
   limits: ScgiBufferLimits,
-  parts: readonly (readonly [name: string, count: number, stride: number])[]
+  parts: readonly (readonly [name: string, count: number, stride: number])[],
 ): ScgiArenaPlan {
   const alignment = scgiInteger(limits.minStorageBufferOffsetAlignment, "storage alignment", 4);
   if (alignment % 4 !== 0) {
@@ -84,6 +85,7 @@ export function planScgiAllocation(limits: ScgiBufferLimits, profile: ScgiAlloca
   scgiInteger(profile.cascades, "cascades", 1, SCGI_MAX_CASCADES);
   if (
     profile.updates > profile.patches ||
+    (profile.requests + profile.bounceRequests) * 2 >= 0xffffffff ||
     profile.patches >= 0xfffffffe ||
     profile.spillBytesPerRay % 4 !== 0
   ) {
@@ -98,34 +100,37 @@ export function planScgiAllocation(limits: ScgiBufferLimits, profile: ScgiAlloca
     ["header", 1, SCGI_ABI.worldHeader.stride],
     ["map", cells, SCGI_ABI.cell.stride],
     ["patches", profile.patches, SCGI_ABI.patch.stride],
+    ["cacheState", profile.patches, SCGI_ABI.cacheState.stride],
     ["freeSlots", profile.patches, 4],
-    ["bounceRequests", profile.bounceRequests, SCGI_ABI.request.stride]
+    ["bounceRequests", profile.bounceRequests, SCGI_ABI.request.stride],
   ]);
   const scratch = planScgiArena(limits, [
     ["a1", profile.patches, 48],
     ["raw", profile.updates, SCGI_ABI.raw.stride],
     ["requests", profile.requests, SCGI_ABI.request.stride],
     ["updateList", profile.updates, 4],
-    ["countersArgs", 16, 4]
+    ["countersArgs", 16, 4],
+    ...scgiCacheScratchParts(cells, profile.patches, profile.requests, profile.bounceRequests),
   ]);
   const batch = planScgiArena(limits, [
     ["rays", profile.rayBatch, SCGI_ABI.ray.stride],
     ["results", profile.rayBatch, SCGI_ABI.result.stride],
     ["payloads", profile.rayBatch, SCGI_ABI.payload.stride],
     ["continuations", profile.rayBatch, SCGI_ABI.continuation.stride],
-    ...(profile.spillBytesPerRay > 0 ? [["spill", profile.rayBatch, profile.spillBytesPerRay] as const] : [])
+    ["cacheIndirect", 16, 4],
+    ...(profile.spillBytesPerRay > 0 ? [["spill", profile.rayBatch, profile.spillBytesPerRay] as const] : []),
   ]);
   const fieldStride = SCGI_ABI.halfField.stride;
   const pixelsPerSegment = Math.floor(
-    Math.min(limits.maxBufferSize, limits.maxStorageBufferBindingSize) / fieldStride
+    Math.min(limits.maxBufferSize, limits.maxStorageBufferBindingSize) / fieldStride,
   );
   scgiInteger(pixelsPerSegment, "field pixels per segment");
   const screen: ScgiArenaPlan[] = [];
   for (let firstPixel = 0; firstPixel < halfPixels; firstPixel += pixelsPerSegment) {
     screen.push(
       planScgiArena(limits, [
-        ["worldField", Math.min(pixelsPerSegment, halfPixels - firstPixel), fieldStride]
-      ])
+        ["worldField", Math.min(pixelsPerSegment, halfPixels - firstPixel), fieldStride],
+      ]),
     );
   }
   const screenRoleBytes = screen.reduce((bytes, segment) => bytes + segment.bytes, 0);
@@ -153,11 +158,30 @@ export function planScgiAllocation(limits: ScgiBufferLimits, profile: ScgiAlloca
     totalBytes,
     // These are external directory slots, not three extra GI-owned histories.
     externalFieldDirectoryPeakBytes: screenRoleBytes * 3,
-    copyBytesPerFrame: world.bytes
+    copyBytesPerFrame: world.bytes,
   });
 }
 
 export type ScgiAllocationPlan = ReturnType<typeof planScgiAllocation>;
+
+/** Validate physical cache dispatches before the runtime allocates any arenas. */
+export function assertScgiCacheCapabilities(limits: GPUSupportedLimits, plan: ScgiAllocationPlan): void {
+  const size = SCGI_CACHE_WORKGROUP_SIZE;
+  if (
+    limits.maxStorageBuffersPerShaderStage < 4 ||
+    limits.maxBindGroups < 1 ||
+    limits.maxComputeInvocationsPerWorkgroup < size ||
+    limits.maxComputeWorkgroupSizeX < size ||
+    limits.maxComputeWorkgroupStorageSize < size * 4 ||
+    Math.ceil(
+      Math.max(plan.cells, plan.profile.patches, plan.profile.requests + plan.profile.bounceRequests) / size,
+    ) > limits.maxComputeWorkgroupsPerDimension ||
+    plan.world.bytes > limits.maxStorageBufferBindingSize ||
+    plan.scratch.bytes > limits.maxStorageBufferBindingSize
+  ) {
+    throw new RangeError("SCGI cache physical arenas/dispatch exceed negotiated capabilities");
+  }
+}
 
 export interface ScgiLightingWindowInput {
   readonly width: number;
@@ -206,7 +230,7 @@ export function planScgiLightingWindow(limits: ScgiBufferLimits, input: ScgiLigh
       windows: 1,
       slots: 3,
       directoryPeakBytes: fullBytes * 3,
-      remapLighting: false
+      remapLighting: false,
     });
   }
   const fit = (width: number, height: number, remap: boolean) => {
@@ -235,7 +259,7 @@ export function planScgiLightingWindow(limits: ScgiBufferLimits, input: ScgiLigh
         const candidate = fit(
           Math.min(input.width, columns * input.tileWidth),
           Math.min(input.height, rows * input.tileHeight),
-          remap
+          remap,
         );
         if (candidate.bytes <= limit && candidate.bytes / 4 <= 0xffffffff) {
           best = rows;
@@ -262,7 +286,7 @@ export function planScgiLightingWindow(limits: ScgiBufferLimits, input: ScgiLigh
         windows: windowColumns * windowRows,
         slots: 3,
         directoryPeakBytes: range.bytes * 3,
-        remapLighting: remap
+        remapLighting: remap,
       });
     }
   }
@@ -274,7 +298,7 @@ export function planScgiLightingWindow(limits: ScgiBufferLimits, input: ScgiLigh
 export function planScgiShards(
   limits: ScgiBufferLimits,
   clusters: readonly { readonly nodes: number; readonly triangles: number }[],
-  maxShards: number
+  maxShards: number,
 ) {
   scgiInteger(maxShards, "max shards");
   const shards: { firstCluster: number; clusterCount: number; arena: ScgiArenaPlan }[] = [];
@@ -285,7 +309,7 @@ export function planScgiShards(
     planScgiArena(limits, [
       ["nodes", n, 64],
       ["links", n, 8],
-      ["references", t, 16]
+      ["references", t, 16],
     ]);
   for (let index = 0; index < clusters.length; index++) {
     const cluster = clusters[index]!;
@@ -314,7 +338,7 @@ export function planScgiShards(
     shards.push({
       firstCluster,
       clusterCount: clusters.length - firstCluster,
-      arena: arena(nodes, triangles)
+      arena: arena(nodes, triangles),
     });
   }
   if (shards.length > maxShards) {
@@ -325,7 +349,7 @@ export function planScgiShards(
 
 export function validateScgiDescriptors(
   limits: GPUSupportedLimits,
-  groups: readonly (readonly GPUBindGroupLayoutEntry[])[]
+  groups: readonly (readonly GPUBindGroupLayoutEntry[])[],
 ) {
   const counts = { storage: 0, uniform: 0, sampled: 0, storageTexture: 0, sampler: 0 };
   if (groups.length > limits.maxBindGroups) {
@@ -378,7 +402,7 @@ export function validateScgiDescriptors(
 export function planScgiNativeDescriptors(
   limits: GPUSupportedLimits,
   profile: NativeSurfaceShaderProfile,
-  materialEntries: readonly GPUBindGroupLayoutEntry[]
+  materialEntries: readonly GPUBindGroupLayoutEntry[],
 ) {
   const groups = nativeSurfaceBindingGroups(materialEntries, profile);
   const counts = validateScgiDescriptors(limits, groups);
@@ -390,17 +414,17 @@ export function planScgiNativeDescriptors(
 export function planScgiQueryDescriptors(
   limits: GPUSupportedLimits,
   materialConstants: readonly GPUBindGroupLayoutEntry[],
-  materialTextures: readonly GPUBindGroupLayoutEntry[]
+  materialTextures: readonly GPUBindGroupLayoutEntry[],
 ) {
   const read = (binding: number): GPUBindGroupLayoutEntry => ({
     binding,
     visibility: GPUShaderStage.COMPUTE,
-    buffer: { type: "read-only-storage" }
+    buffer: { type: "read-only-storage" },
   });
   const write = (binding: number): GPUBindGroupLayoutEntry => ({
     binding,
     visibility: GPUShaderStage.COMPUTE,
-    buffer: { type: "storage" }
+    buffer: { type: "storage" },
   });
   // query: batch, AS arena, instance/directory, bin queue, counters/args.
   const query = [write(0), read(1), read(2), write(3), write(4)];
@@ -413,16 +437,16 @@ export function planScgiQueryDescriptors(
 
 export function scgiExecutionProfile(device: Pick<GPUDevice, "features" | "limits">) {
   if (
-    device.limits.maxComputeInvocationsPerWorkgroup < 64 ||
-    device.limits.maxComputeWorkgroupSizeX < 64 ||
+    device.limits.maxComputeInvocationsPerWorkgroup < 128 ||
+    device.limits.maxComputeWorkgroupSizeX < 128 ||
     device.limits.maxComputeWorkgroupStorageSize < 4096
   ) {
-    throw new RangeError("SCGI portable kernel requires 64 invocations and 4KiB workgroup storage");
+    throw new RangeError("SCGI portable kernel requires 128 invocations and 4KiB workgroup storage");
   }
   return Object.freeze({
-    scan: device.features.has("subgroups") ? "subgroup" : "portable",
+    scan: "portable",
     arithmetic: "f32",
     halfStorage: "pack2x16float",
-    workgroupSize: 64
+    workgroupSize: 128,
   });
 }

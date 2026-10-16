@@ -1719,7 +1719,7 @@ GRS-3集中复核补齐原始完整Page→真实Residency→production WGSL的�
 
 ## Surface Cache GI 2026-10-17
 
-本节对应[详细设计](../next-design/eengine-surface-cache-gi-2026-10.md)与[执行](../next-execution/eengine-surface-cache-gi-execution-2026-10.md)。状态：**Reference / Planned Adapt / Local Design，尚未实现、未adopt**。本轮下载并核读下列固定源码的算法入口、关键分支/数据布局/宿主调度；未构建第三方工程，不宣称审计整个Unity/FidelityFX工程。论文支持数学判断，生产源码和GPU验证仍由执行单元补齐。
+本节对应[详细设计](../next-design/eengine-surface-cache-gi-2026-10.md)与[执行](../next-execution/eengine-surface-cache-gi-execution-2026-10.md)。来源状态：**Reference / Planned Adapt / Local，未production adopt**；SCGI-1事务与SCGI-3缓存本地实现/独立GPU验证见本节末及执行记录，其余部分仍待实施。设计阶段下载并核读下列固定源码的算法入口、关键分支/数据布局/宿主调度；未构建第三方工程，不宣称审计整个Unity/FidelityFX工程。论文支持数学判断，完整生产接线仍由后续执行单元完成。
 
 ### 固定来源与许可证
 
@@ -1783,3 +1783,5 @@ FidelityFX路径 sdk/include/FidelityFX/gpu/brixelizergi/ffx_brixelizergi_main.h
 追加核对明确：逆cosine卷积仅恢复moments，半球上的radiance预测还需要`G(ng)=∫YYᵀ`的Gram解；该解析inverse及配对残差是本地推导，非FidelityFX源码移植。常量零残差证明限同支持半球，法线混合/窄亮源须独立画质验证。probe持久history选SH/guide/moments，directional radiance仅临时；world-only field/seed与signed residual严格分开。具体公式和本轮CPU数值核对只在设计§11/13与执行复核记录维护，不复制成另一数学authority。
 
 SCGI-1（2026-10-17）来源映射：`render/gi/ScgiAbi.ts`、`ScgiCapacity.ts`、`ScgiPublication.ts`、`ScgiRuntime.ts`及command checked通知接线均为 **Local**；复用本仓库Float16、ResourceAccounting、FrameGraphBindingLayout、Native descriptor generator与ShadeGPUCommandContext，不宣称移植Unity/RadeonRays算法。本轮真实GPU证据仅覆盖ABI/资源事务/实际descriptor；前述cache/query/estimation/gather来源仍为后续单元Planned Adapt/Reference，不能晋级production adoption。
+
+SCGI-3（2026-10-17）Local实现映射：固定Unity revision/license同上，已复查U-core `PatchUtil.hlsl`的ResolveVolumePosition/GetDirectionIndex/ResolvePatchIndex、`RingBuffer.hlsl`的LoadConfig/IsPositionInUse、`Scrolling.compute::Scroll`、`Eviction.compute::Evict`、`Defrag.compute::Defrag`、`PatchAllocation.compute::Allocate`和`PatchAllocationRequest.hlsl`；研究cell→slot、两段rank age、bounce请求、wave原地搬迁与ring full/empty边界，不复制UCL源码或任意rotation矩阵。`ScgiCache.ts`/`scgi_cache.ts`本地用普通oct+signed modulo、atomicMin独立claim、下一dispatch初始化、portable hierarchical prefix、free-list+logical active ring、source/destination不交叠snapshot/apply、四类配额轮转、两bank事务与完整identity/plane验证。`ScgiAbi.ts::cacheState`16B及368B move ABI为Local，不改变patch288B的post/cohort状态。与donor差异明确：无固定wave假设、无跨组原地依赖，不要求部分budget完成全部压紧；request经cell解析并拒绝不相容surface，不保留旧slot指针。真实GPU oracle50帧覆盖同格竞争、R24、scroll/eviction/rank、部分defrag、U=1工作、bounce producer/consumer、ABA、abort和64K容量；完整来源/成本/失败记录见执行§7.5。仍未生产GI接线、不宣称Unity代码移植adoption，也未把RadeonRays/estimate/filter/gather提前标完成。

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 globalThis.GPUShaderStage = { VERTEX: 1, FRAGMENT: 2, COMPUTE: 4 };
-globalThis.GPUBufferUsage = { COPY_SRC: 4, COPY_DST: 8, UNIFORM: 64, STORAGE: 128 };
+globalThis.GPUBufferUsage = { COPY_SRC: 4, COPY_DST: 8, UNIFORM: 64, STORAGE: 128, INDIRECT: 256 };
 
 const { SCGI_ABI, packScgiRecord, unpackScgiRecord, packScgiCoefficients, unpackScgiCoefficients } =
   await import("../../.test-dist/render/gi/ScgiAbi.js");
@@ -12,7 +12,7 @@ const {
   planScgiShards,
   planScgiNativeDescriptors,
   planScgiQueryDescriptors,
-  scgiExecutionProfile
+  scgiExecutionProfile,
 } = await import("../../.test-dist/render/gi/ScgiCapacity.js");
 const { ScgiRuntime } = await import("../../.test-dist/render/gi/ScgiRuntime.js");
 const { ResourceAccounting } = await import("../../.test-dist/debug/profiling/ResourceAccounting.js");
@@ -31,7 +31,8 @@ const limits = {
   maxSamplersPerShaderStage: 16,
   maxComputeInvocationsPerWorkgroup: 256,
   maxComputeWorkgroupSizeX: 256,
-  maxComputeWorkgroupStorageSize: 16384
+  maxComputeWorkgroupsPerDimension: 65535,
+  maxComputeWorkgroupStorageSize: 16384,
 };
 const demand = { enabled: true, hasGeometry: true, hasLitMaterials: true };
 
@@ -64,7 +65,7 @@ function fakeDevice() {
         destroyed: false,
         destroy() {
           this.destroyed = true;
-        }
+        },
       };
     },
     createCommandEncoder() {
@@ -78,7 +79,7 @@ function fakeDevice() {
         },
         finish() {
           return actions;
-        }
+        },
       };
     },
     queue: {
@@ -93,7 +94,7 @@ function fakeDevice() {
       },
       onSubmittedWorkDone() {
         return new Promise((resolve, reject) => deferred.push({ resolve, reject }));
-      }
+      },
     },
     created: 0,
     complete() {
@@ -107,7 +108,7 @@ function fakeDevice() {
     },
     error(message) {
       listeners.get("uncapturederror")?.({ error: new Error(message) });
-    }
+    },
   };
   return device;
 }
@@ -120,6 +121,7 @@ test("SCGI exact nonzero/max ABI and literal offsets", () => {
   const expected = {
     identity: 48,
     cell: 8,
+    cacheState: 16,
     patch: 288,
     request: 96,
     halfField: 96,
@@ -133,7 +135,7 @@ test("SCGI exact nonzero/max ABI and literal offsets", () => {
     result: 32,
     payload: 32,
     continuation: 64,
-    worldHeader: 256
+    worldHeader: 256,
   };
   for (const [kind, bytes] of Object.entries(expected)) {
     assert.equal(SCGI_ABI[kind].stride, bytes, kind);
@@ -141,19 +143,19 @@ test("SCGI exact nonzero/max ABI and literal offsets", () => {
       SCGI_ABI[kind].fields.map((field) => [
         field.name,
         Array.from({ length: field.count }, (_, lane) =>
-          field.type === "u32" ? 0xffffffff - lane : -1.25 - lane
-        )
-      ])
+          field.type === "u32" ? 0xffffffff - lane : -1.25 - lane,
+        ),
+      ]),
     );
     assert.deepEqual(unpackScgiRecord(kind, packScgiRecord(kind, values)), values);
   }
   assert.deepEqual(
     SCGI_ABI.patch.fields.map((f) => f.offset),
-    [0, 16, 32, 80, 96, 112, 128, 144, 160, 208, 256, 272]
+    [0, 16, 32, 80, 96, 112, 128, 144, 160, 208, 256, 272],
   );
   assert.deepEqual(
     SCGI_ABI.halfField.fields.map((f) => f.offset),
-    [0, 32, 36, 40, 44, 48]
+    [0, 32, 36, 40, 44, 48],
   );
   assert.equal(SCGI_ABI.continuation.fields.find((f) => f.name === "candidateT").offset, 52);
   assert.throws(() => packScgiRecord("cell", { patchIndex: 2 ** 32, patchSlotGeneration: 1 }));
@@ -170,10 +172,12 @@ test("SCGI capacity: total arena, binding ranges, full/window/remap, finite shar
   assert.equal(plan.halfPixels, 12);
   assert.equal(
     plan.totalBytes,
-    plan.world.bytes * 2 + plan.screenRoleBytes * 2 + plan.scratch.bytes + plan.batch.bytes
+    plan.world.bytes * 2 + plan.screenRoleBytes * 2 + plan.scratch.bytes + plan.batch.bytes,
   );
   assert.equal(plan.batch.ranges.spill, undefined);
   assert.equal(plan.batch.ranges.continuations.bytes, 8 * 64);
+  assert.equal(plan.world.ranges.cacheState.bytes, scgiProfile.patches * 16);
+  assert.equal(plan.scratch.ranges.cacheMoves.bytes, scgiProfile.patches * 368);
   for (const arena of [plan.world, ...plan.screen, plan.scratch, plan.batch]) {
     for (const range of Object.values(arena.ranges)) {
       assert.equal(range.offset % 256, 0);
@@ -187,7 +191,7 @@ test("SCGI capacity: total arena, binding ranges, full/window/remap, finite shar
   assert.equal(fourK.screenRoleBytes, 1920 * 1080 * 96);
   assert.equal(
     fourK.screen.reduce((sum, segment) => sum + segment.ranges.worldField.count, 0),
-    1920 * 1080
+    1920 * 1080,
   );
   const input = {
     width: 1920,
@@ -198,7 +202,7 @@ test("SCGI capacity: total arena, binding ranges, full/window/remap, finite shar
     haloHalfRows: 2,
     tileWidth: 8,
     tileHeight: 8,
-    descriptorCountPerTile: 32
+    descriptorCountPerTile: 32,
   };
   assert.equal(planScgiLightingWindow(limits, input).route, "full");
   const striped = planScgiLightingWindow({ ...limits, maxStorageBufferBindingSize: 2 * 1024 * 1024 }, input);
@@ -206,7 +210,7 @@ test("SCGI capacity: total arena, binding ranges, full/window/remap, finite shar
   assert.ok(striped.windows > 1);
   const remapped = planScgiLightingWindow(
     { ...limits, maxStorageBufferBindingSize: 2 * 1024 * 1024 },
-    { ...input, oldDirectoryBytes: 2 * 1024 * 1024 - 4 }
+    { ...input, oldDirectoryBytes: 2 * 1024 * 1024 - 4 },
   );
   assert.equal(remapped.remapLighting, true);
   assert.ok(remapped.columns * remapped.windowWidth >= input.width);
@@ -216,14 +220,14 @@ test("SCGI capacity: total arena, binding ranges, full/window/remap, finite shar
     [
       { nodes: 10, triangles: 8 },
       { nodes: 10, triangles: 8 },
-      { nodes: 10, triangles: 8 }
+      { nodes: 10, triangles: 8 },
     ],
-    3
+    3,
   );
   assert.ok(shards.length > 1);
   assert.equal(
     shards.reduce((count, shard) => count + shard.clusterCount, 0),
-    3
+    3,
   );
   assert.throws(() => planScgiShards(limits, [{ nodes: 2 ** 28, triangles: 1 }], 4));
 });
@@ -243,7 +247,7 @@ test("SCGI descriptors use actual Native routes and complete query coverage inve
                 unlit,
                 physicalSun,
                 reactive: true,
-                finalPixel: true
+                finalPixel: true,
               };
               const plan = planScgiNativeDescriptors(limits, profile, []);
               assert.equal(plan.addedGiBindings, 0);
@@ -252,7 +256,7 @@ test("SCGI descriptors use actual Native routes and complete query coverage inve
               const material = Array.from({ length: maxTextures }, (_, binding) => ({
                 binding,
                 visibility: 4,
-                texture: { sampleType: "float" }
+                texture: { sampleType: "float" },
               }));
               assert.equal(planScgiNativeDescriptors(limits, profile, material).counts.sampled, 24);
             }
@@ -265,18 +269,18 @@ test("SCGI descriptors use actual Native routes and complete query coverage inve
       reflections: "sssr-base-coat",
       unlit: false,
       reactive: true,
-      finalPixel: true
+      finalPixel: true,
     },
-    []
+    [],
   );
   assert.equal(full.counts.storage, 16);
   const material = [{ binding: 0, visibility: 4, buffer: { type: "read-only-storage" } }];
   assert.equal(planScgiQueryDescriptors(limits, material, []).counts.storage, 15);
   assert.throws(() =>
-    planScgiQueryDescriptors({ ...limits, maxStorageBuffersPerShaderStage: 14 }, material, [])
+    planScgiQueryDescriptors({ ...limits, maxStorageBuffersPerShaderStage: 14 }, material, []),
   );
   assert.equal(scgiExecutionProfile({ limits, features: new Set() }).scan, "portable");
-  assert.equal(scgiExecutionProfile({ limits, features: new Set(["subgroups"]) }).scan, "subgroup");
+  assert.equal(scgiExecutionProfile({ limits, features: new Set(["subgroups"]) }).scan, "portable");
 });
 
 test("SCGI independent submission model: abort/retry, 3 in flight, observer fault and retired fence", async () => {
@@ -290,7 +294,7 @@ test("SCGI independent submission model: abort/retry, 3 in flight, observer faul
     [true, 11],
     [false, 99],
     [true, 22],
-    [true, 33]
+    [true, 33],
   ]) {
     const command = scgiCommand(graphics);
     const tx = runtime.prepare(command, { scene: 3, view: 7 });
@@ -421,10 +425,12 @@ test("SCGI pre-submit checks abort all writes and settlement survives multiple l
 
 test("SCGI segmented histories, epochs, replacement abort and borrowed last-consumer leases", async () => {
   const device = fakeDevice();
-  device.limits = { ...limits, maxStorageBufferBindingSize: 8192 };
+  // Cache scan/claim scratch is now real, so an 8KiB binding cannot admit the
+  // profile. Still force screen segmentation above the complete scratch bound.
+  device.limits = { ...limits, maxStorageBufferBindingSize: 32768 };
   const graphics = scgiGraphics(device);
   const runtime = new ScgiRuntime(device, 1);
-  const profile = { ...scgiProfile, width: 35, height: 35 };
+  const profile = { ...scgiProfile, width: 65, height: 65 };
   const plan = await runtime.configure(demand, profile);
   assert.ok(plan.screen.length > 1);
   let released;
@@ -435,8 +441,8 @@ test("SCGI segmented histories, epochs, replacement abort and borrowed last-cons
       deviceEpoch: 1,
       release(fence) {
         released = fence;
-      }
-    }
+      },
+    },
   ]);
   runtime.encode(tx);
   scgiWriteKnown(tx, 7);
@@ -538,5 +544,14 @@ test("SCGI no-op configuration retains address generation and per-role coefficie
   nextCommand.abort();
   device.complete();
   await flush();
+  runtime.destroy();
+});
+
+test("SCGI cache rejects dispatch limits before allocating any GPU arena", async () => {
+  const device = fakeDevice();
+  device.limits = { ...limits, maxComputeWorkgroupsPerDimension: 1 };
+  const runtime = new ScgiRuntime(device, 1);
+  await assert.rejects(runtime.configure(demand, scgiProfile), /cache physical/);
+  assert.equal(device.created, 0);
   runtime.destroy();
 });

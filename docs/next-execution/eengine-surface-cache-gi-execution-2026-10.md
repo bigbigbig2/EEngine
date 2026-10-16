@@ -19,7 +19,7 @@ verifies:
 
 唯一详细设计为[SCGI设计](../next-design/eengine-surface-cache-gi-2026-10.md)。需求输入为[母稿](../reviews/EEngine_Surface_Cache_GI_WebGPU_Mother_Design_2026-10-17.md)；设计§17逐项映射母稿，设计§1列明勘误。本文件是细单元状态与实施结果唯一记录，workstream和粗执行不复制细状态。
 
-**当前已实施SCGI-1资源/事务/ABI基础设施，生产GI仍未开启。** 当前授权为复核上一单元并完成SCGI-2；按完整目标推进，不把阶段产物宣布为完整GI。每个单元结束记录实际验证；大模块结束停在下一模块边界，不自动继续Local Specular Cache/ReSTIR等。
+**当前已实施SCGI-1资源/事务/ABI与SCGI-3稀疏cache，生产GI仍未开启。** 当前授权为复核前置缺项并完成SCGI-3；按完整目标推进，不把阶段产物宣布为完整GI。每个单元结束记录实际验证；大模块结束停在下一模块边界，不自动继续Local Specular Cache/ReSTIR等。
 
 ## 1. 完整范围、依赖与生产切换
 
@@ -27,7 +27,7 @@ verifies:
 |---|---|---|---|
 | SCGI-1 | owner/publication/事务/能力与具体ABI | 源码基线和source map | 已完成，见§7 |
 | SCGI-2 | GeometryProduct query section、coverage cut、residency、共享变形publication | 1 | 实施中，未关单 |
-| SCGI-3 | cascaded sparse cache、ring/scroll/evict/defrag/rank | 1 | 待实施 |
+| SCGI-3 | cascaded sparse cache、ring/scroll/evict/defrag/rank | 1 | 已完成，见§7.5 |
 | SCGI-4 | half-res anchors、共享identity、screen history seed | 2、3 | 待实施 |
 | SCGI-5 | 完整RadeonRays算法适配、query、material/alpha/VT | 1、2 | 待实施 |
 | SCGI-6 | 全光源估计、punctual重连接、multi-bounce | 3、4、5 | 待实施 |
@@ -458,3 +458,37 @@ GPU counters至少包含：requested/claimed/allocated/deferred/failed、evictio
 源码复核发现SCGI-1的必需依赖缺口：`observeSubmission.submitted`抛错时，后面的legacy `onFinished`未执行；`aborted`抛错时后面的rollback通知也可能未执行；获取提交fence失败时过早poison可能被稍后的publication覆盖。上述不能延期。修复为先执行全部submission/abort observer和legacy通知，再传播第一个错误；已提交失败在全部publication结算后统一poison。错误用显式cause容器保存，包含`throw undefined`；failure observer自身抛错也不阻断其他owner。未增加submit、buffer、pipeline或dispatch，ADD为CPU错误路径中的有界遍历。
 
 新增三个独立command合同案例，GPU fixture补充真实已提交observer异常和未提交rollback异常，检查后续callback确实执行、active状态正确、重试可提交。集中验证：`npm run typecheck --prefix OEngine`、新鲜`npm run build:test --prefix OEngine`通过；七个原targeted文件本次实际发现25个测试，25/25通过（不是沿用旧43项数字）。`node tools/gpu-oracle.mjs scgi-transaction --json`通过，本地结果`.local/validation/scgi-1-followup-final-gpu.json`，GPU/page errors为空；资源403控制台信息保留，不当作GPU验证错误。尚未完成的SCGI-2不在本次前置修复中声明关单。
+
+### 7.5 SCGI-3：稀疏cache与GPU allocator闭合（2026-10-17）
+
+**前置判断。** SCGI-2仍未闭合，不能由已有Product cook或资产测试推断coverage/residency/共享动态变形已完成。本单元依赖表为SCGI-1，可以独立完成cache并延期SCGI-2；SCGI-4/5开始前必须补齐SCGI-2，不能用fixture几何替代生产query。SCGI-1的真实command事务/lease/retire继续作为资源owner，未建立第二提交框架。当前停在SCGI-4边界，未开始anchor、estimator、query或默认GI接线。
+
+**实际代码闭包。** `render/gi/ScgiCache.ts`借用runtime初始化的candidate world、private scratch与batch，一次创建物理layout PSO；encode只上传常量/dirty bounds并记录同command GPU工作。`ScgiCacheLayout.ts`负责scratch容量/scan层级；`shaders/scgi_cache.ts`负责地址、claim、maintain、allocation、defrag、update selection、request生产/解析。`ScgiCapacity.ts`在资源创建前核对dispatch/arena能力，`ScgiAbi.ts`新增cacheState16B，`ScgiRuntime.ts`给scratch/batch增加INDIRECT usage。pipeline不随spp/age/variance/quality组合增长。支持4 cascades、R24 signed modulo、16 oct bins；scroll只移除离开对应cascade者，jump失效不重叠层，保留重叠patch世界位置。
+
+GPU闭包为request producer→cell claim→维护/touch/两段age→free/winner prefix→唯一slot初始化与map发布→live ring→可选snapshot/apply defrag→请求资格检查→四类更新compact/quota/indirect→后续consumer。跨workgroup依赖分dispatch，不用atomic flag后轮询；portable scan为128线程、512B workgroup共享内存、block sums多层scan/add，未实现的subgroup路径不再报告启用。rank0 allocation优先；rank1可见升0；仅被调度rank0产生bounce需求，下一提交generation消费并按cell去重。overflow/无pool/不相容/域外分别记录，request解析invalid，不破坏existing map。access/update/birth、demotion/selection/dirty分离；allocator不伪造radiance/count/update age。
+
+**表示修正。** patch288B的postValid/lastCohort/status保留给滤波/estimator，allocator的live/dirty/selection/demotion独立16B/bank。move record368B：16B源/目标/generation/保留+288B patch+48B A1+16B cacheState；先snapshot全部源，再写free destinations并修map/generation，源/目标不相交，部分budget与链式holes不产生swap环。request保存cell，经最新map解引用。active为4K索引的逻辑环，header start/end/count可wrap并区分full/empty，物理pool live由cacheState判定，不假设holes已完全压紧。frame重启需fresh world；slotGeneration到sentinel前置sticky GPU fault，后续update count置零/lookup拒绝直到新world epoch。
+
+**来源。** 继续使用source map固定Unity `a7e4c051d256a781ab362c64316b125a1e104694`，复查`PatchUtil.hlsl`、`RingBuffer.hlsl`、`Scrolling.compute`、`Eviction.compute`、`Defrag.compute`、`PatchAllocation.compute`和`PatchAllocationRequest.hlsl`。保留cascade/方向、rank两段eviction、bounce下一代、搬迁和有限容量机制。Unity Companion License源码不复制、不逐行翻译；本地调度、独立ABI、两bank事务、hierarchical scan、逻辑ring+free-list、无cycle defrag、完整identity/plane检验为Local。当前不宣称完整Unity port/adoption，RadeonRays仍为SCGI-5 Planned Adapt。oct使用普通映射，不复制donor任意rotation矩阵，分类在本地producer/consumer保持一致。
+
+**实际Cost Card。** 既有Renderer尚未接线，默认ADD GPU resources/dispatch/submit=0。原§7.2为SCGI-1历史实施快照；本轮新增双bank cacheState32K、claims4Ncell、request-cell4T（T=Q+B）、active4K、priority16K、move snapshot368K、八组flags/prefix每层8B/元素、1KiB dirty bounds和settings/control；batch另64B indirect，各range真实对齐。map/patch/A0/A2/bounce/cacheState随bank copy；A1/raw/claims/scan/moves单scratch，不机械双份。
+
+以下为理论分配，非benchmark：R24/C3/K65536/Q65536/B8192/U8192/rayBatch16384/spill0，binding128MiB、alignment256B。
+
+| internal | 双world MiB | scratch+batch MiB | 双screen MiB | owner合计 MiB |
+|---|---:|---:|---:|---:|
+| 1080p | 50.1255 | 43.5064 | 94.9219 | 188.5538 |
+| 1440p | 50.1255 | 43.5064 | 168.7500 | 262.3819 |
+| 4K | 50.1255 | 43.5064 | 379.6875 | 473.3194 |
+
+每稳定帧copy26,280,192B，读写50.1255MiB/frame；scratch/batch clear43.5064MiB，screen clear另96H。外部目录、AS/query新增geometry、renderer已有资源、retiring/replacement、upload/driver另计，不承诺4GB资格。claim每有效请求一次atomicMin；0/50/100%重复仍为D次，减少的是唯一slot init约D/0.5D/1（全相同cell时），不是消掉claim税。winner/free/live/priority按容量scan，map/identity随机读及每patch最多32 dirty AABB测试另计；defrag按move预算snapshot/apply，budget0不编码。全cell clear为Ncell、维护K、请求T，未宣称已有稀疏slab调度。ALU主要为坐标/方向、identity/plane、prefix和quota；无纹理采样，原子竞争集中cell claim与move ticket，scan层间dispatch建立可见性。
+
+R32/C4/K65536/Q8192/B8192/U4096、7×5 screen真实hardware fixture分配117,033,808B，单world37,748,992B、scratch+batch41,533,520B。1728个live patches：无defrag 52 dispatch，有64 move budget（实际0 move）69 dispatch；两次cache首pass到finish GPU timestamp约10.312416ms、8.052096ms，adapter NVIDIA/Turing。这只是两次粗粒度观测，不是稳定帧benchmark/P50/P95或速度提升，且不含外部copy/clear。含诊断readback和CPU oracle的wall约275/178.6ms不冒充shader时间。当前capacity scan成本明显，保留合并分类/多输出、复用scan scratch、按move预算缩scratch、slab/active调度入口；本轮不展开性能战争、不删必要阶段。ideal=disabled零工作，expected=bounded copy/clear+K/T scan，worst=全dirty/竞争/满池+move/replacement；新增功能不伪称优化收益。
+
+**验证。** 新鲜`typecheck`、`build:test`、完整`build`通过；build保留现有Basis/KTX node:module浏览器externalize警告。五个targeted文件（SCGI、command completion、submission fence、submission count、FrameProgram）37/37通过。`scgi-cache`真实GPU oracle通过50个提交帧：独立CPU地址/方向/负模模型逐live比对、逐cell/slot/generation双向检查，覆盖400/16385同格竞争、三层scan/尾组、R24、双薄面/平行面拒绝、rank优先/升降/两段淘汰、full/empty/wrap、scroll/jump、满池恢复、部分defrag链/排除cycle、A0/A1/A2/metadata、U=1实际worklist可达、dirty overflow、origin/scale reset、frame/slot边界、abort/retry、真实GPU request overflow及rank0 consumer→bounce queue→下一代分配。实际radiance更新属SCGI-6，当前不是伪造lighting完成。
+
+`scgi-transaction`同fresh build回归通过，包含新增cacheState typed WGSL stride、真实Native descriptors、三帧in-flight、observer异常、async validation、resize/disable/last-fence、真实4K分片与device loss。两GPU结果pageErrors/gpuErrors为空；资源403控制台信息保留。原始结果在`.local/validation/scgi-3-cache-final.json`、`scgi-3-transaction-final.json`、`scgi-3-targeted-final.txt`、`scgi-3-build-final.txt`；source SHA256 `216f61fca1744a01fc80fbf12efd8eb110dd455c991bf9ed7f1887d703c8342f`。
+
+**失败留痕与未运行项。** 原始失败保留`scgi-3-cache-initial.json`及编号记录：WGSL保留字、binding visibility/indirect读写usage冲突为实现错误，已修正；新增fixture曾使用非法evictionAge=0、disable后未重建新plan的cache，为fixture错误，修复实际输入与物理实例后重跑。审查还发现cacheState缺range、move368B与分配352B不符、post字段被alias、不相容request错误解析等真实问题，本轮已修正并补GPU断言。未放宽容差/跳断言/缩最终场景。完整GI画面、场景和全Renderer P50/P95尚未运行：当前未到SCGI-5～10，不伪称AAA效果或完整GI。SCGI-3基础设施已闭合；文档检查和提交仍按本轮实际结果执行，停在SCGI-4边界，SCGI-2仍需先补齐。
+
+提交前检查：`node tools/docs-verify.mjs`为0 findings/66 historical warnings；暂存区`--staged`为0 findings/81 historical warnings（历史文档对本地未提交产物的引用警告保留）；`git diff --cached --check`通过。新增/修改生产TS格式检查与cache源码style guard均通过。

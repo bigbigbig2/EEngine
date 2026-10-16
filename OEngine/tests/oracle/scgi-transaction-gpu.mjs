@@ -57,6 +57,7 @@ export async function runScgiTransactionGpuOracle(device) {
     const layouts = {
       identity: [48, [0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44]],
       cell: [8, [0, 4]],
+      cacheState: [16, [0, 4, 8, 12]],
       patch: [288, [0, 16, 32, 80, 96, 112, 128, 144, 160, 208, 256, 272]],
       request: [96, [0, 16, 28, 32, 80]],
       halfField: [96, [0, 32, 36, 40, 44, 48]],
@@ -133,7 +134,7 @@ ${assignments.join("\n")}
       for (let word = 0; word < actual.length; word++)
         check(actual[word] === reference[word], `${kind} word ${word}`);
     }
-    results.push("16 typed WGSL ABI records: second-element stride, nonzero/max u32 and signed floats");
+    results.push("17 typed WGSL ABI records: second-element stride, nonzero/max u32 and signed floats");
 
     const coefficients = [1, -2, 3, 0.5, -0.25, 4, 5, 6, -7, 8, 9, 10];
     const packed = buffer(32, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);

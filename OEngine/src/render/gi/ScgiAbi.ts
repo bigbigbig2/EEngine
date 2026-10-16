@@ -38,11 +38,17 @@ export const SCGI_ABI = Object.freeze({
     ["stablePrimitiveId", "u32", 1],
     ["materialHandle", "u32", 1],
     ["materialValueRevision", "u32", 1],
-    ["deformationRevision", "u32", 1]
+    ["deformationRevision", "u32", 1],
   ]),
   cell: layout("ScgiCell", [
     ["patchIndex", "u32", 1],
-    ["patchSlotGeneration", "u32", 1]
+    ["patchSlotGeneration", "u32", 1],
+  ]),
+  cacheState: layout("ScgiCacheState", [
+    ["demotionFrame", "u32", 1],
+    ["dirty", "u32", 1],
+    ["selectionFrame", "u32", 1],
+    ["live", "u32", 1],
   ]),
   patch: layout("ScgiPatch", [
     ["positionRadius", "f32", 4],
@@ -56,14 +62,14 @@ export const SCGI_ABI = Object.freeze({
     ["a0", "f32", 12],
     ["a2", "f32", 12],
     ["numericEpochs", "u32", 4],
-    ["rankPostCohortStatus", "u32", 4]
+    ["rankPostCohortStatus", "u32", 4],
   ]),
   request: layout("ScgiRequest", [
     ["positionRadius", "f32", 4],
     ["normal", "f32", 3],
     ["source", "u32", 1],
     ["identity", "u32", 12],
-    ["cellRankPixelStatus", "u32", 4]
+    ["cellRankPixelStatus", "u32", 4],
   ]),
   halfField: layout("ScgiHalfField", [
     ["packedCoefficients", "u32", 8],
@@ -71,11 +77,11 @@ export const SCGI_ABI = Object.freeze({
     ["octNormal", "u32", 1],
     ["sourcePixel", "u32", 1],
     ["confidenceFlags", "u32", 1],
-    ["identity", "u32", 12]
+    ["identity", "u32", 12],
   ]),
   raw: layout("ScgiRaw", [
     ["coefficients", "f32", 12],
-    ["cohortPlanCompletionFault", "u32", 4]
+    ["cohortPlanCompletionFault", "u32", 4],
   ]),
   node: layout("ScgiNode", [
     ["leftMin", "f32", 3],
@@ -85,36 +91,36 @@ export const SCGI_ABI = Object.freeze({
     ["rightMin", "f32", 3],
     ["rightRef", "u32", 1],
     ["rightMax", "f32", 3],
-    ["rightFlags", "u32", 1]
+    ["rightFlags", "u32", 1],
   ]),
   links: layout("ScgiLinks", [
     ["parent", "u32", 1],
-    ["escape", "u32", 1]
+    ["escape", "u32", 1],
   ]),
   triangle: layout("ScgiTriangle", [["pageGroupTriangleMaterial", "u32", 4]]),
   directory: layout("ScgiDirectory", [
     ["shardRootCountRef", "u32", 4],
-    ["leaseGeometryTopologyFlags", "u32", 4]
+    ["leaseGeometryTopologyFlags", "u32", 4],
   ]),
   instance: layout("ScgiInstance", [
     ["objectToWorld", "f32", 12],
     ["worldToObject", "f32", 12],
     ["slotSetLifetimeRoot", "u32", 4],
-    ["shardGenerationMaskFlags", "u32", 4]
+    ["shardGenerationMaskFlags", "u32", 4],
   ]),
   ray: layout("ScgiRay", [
     ["originTMin", "f32", 4],
     ["directionTMax", "f32", 4],
-    ["idMaskKindSnapshot", "u32", 4]
+    ["idMaskKindSnapshot", "u32", 4],
   ]),
   result: layout("ScgiResult", [
     ["tBarycentric", "f32", 3],
     ["status", "u32", 1],
-    ["instancePrimitiveGenerationFront", "u32", 4]
+    ["instancePrimitiveGenerationFront", "u32", 4],
   ]),
   payload: layout("ScgiPayload", [
     ["patchGenerationCohortSample", "u32", 4],
-    ["pdfPathLightFlags", "u32", 4]
+    ["pdfPathLightFlags", "u32", 4],
   ]),
   continuation: layout("ScgiContinuation", [
     ["shardTlasReturnInstance", "u32", 4],
@@ -123,7 +129,7 @@ export const SCGI_ABI = Object.freeze({
     ["bestInstancePrimitiveStatus", "u32", 3],
     ["candidateRef", "u32", 1],
     ["candidateT", "f32", 1],
-    ["binStackCursor", "u32", 2]
+    ["binStackCursor", "u32", 2],
   ]),
   worldHeader: layout("ScgiWorldHeader", [
     ["generationDeviceSceneView", "u32", 4],
@@ -135,8 +141,8 @@ export const SCGI_ABI = Object.freeze({
     ["cascadeOriginScale", "f32", 16],
     ["cascadeOffsetsRing", "u32", 16],
     ["addressGenerationSampleSerial", "u32", 4],
-    ["reserved", "u32", 4]
-  ])
+    ["reserved", "u32", 4],
+  ]),
 });
 
 export type ScgiRecordKind = keyof typeof SCGI_ABI;
@@ -193,7 +199,7 @@ export function unpackScgiRecord(kind: ScgiRecordKind, bytes: Uint8Array): Recor
 /** Half storage uses pack2x16float, independent of optional shader-f16 arithmetic. */
 export function packScgiCoefficients(
   coefficients: ArrayLike<number>,
-  scale: number
+  scale: number,
 ): Uint32Array<ArrayBuffer> {
   if (coefficients.length !== 12 || !Number.isFinite(scale) || scale <= 0) {
     throw new RangeError("SCGI requires 12 coefficients and positive finite scale");

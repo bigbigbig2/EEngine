@@ -1,15 +1,16 @@
 import type { ResourceAccounting, ResourceHandle } from "../../debug/profiling/ResourceAccounting.js";
 import type {
   CommandSubmissionObserver,
-  ShadeGPUCommandContext
+  ShadeGPUCommandContext,
 } from "../../framegraph/ShadeGPUCommandContext.js";
 import { SCGI_CELL_EMPTY } from "./ScgiAbi.js";
 import {
+  assertScgiCacheCapabilities,
   planScgiAllocation,
   scgiExecutionProfile,
   scgiInteger,
   type ScgiAllocationPlan,
-  type ScgiAllocationProfile
+  type ScgiAllocationProfile,
 } from "./ScgiCapacity.js";
 import type { ScgiBufferProduct, ScgiFieldProduct, ScgiFramePublication } from "./ScgiPublication.js";
 
@@ -67,7 +68,7 @@ export class ScgiFrameTransaction implements CommandSubmissionObserver {
     readonly workset: Workset,
     readonly leases: readonly ScgiBorrowedLease[],
     publication: ScgiFramePublication,
-    replaced: readonly Allocation[]
+    replaced: readonly Allocation[],
   ) {
     this.publication = publication;
     this.replaced = replaced;
@@ -128,7 +129,7 @@ export class ScgiRuntime {
   constructor(
     readonly device: GPUDevice,
     readonly deviceEpoch: number,
-    readonly accounting?: ResourceAccounting
+    readonly accounting?: ResourceAccounting,
   ) {
     scgiInteger(deviceEpoch, "device epoch");
     this.#errorListener = (event) => this.poison(event.error, deviceEpoch);
@@ -167,6 +168,7 @@ export class ScgiRuntime {
     }
     const plan = planScgiAllocation(this.device.limits, profile);
     scgiExecutionProfile(this.device);
+    assertScgiCacheCapabilities(this.device.limits, plan);
     const previous = this.#active;
     const same = (a: ScgiBufferProduct, b: { bytes: number; ranges: unknown }) =>
       a.plan.bytes === b.bytes && JSON.stringify(a.plan.ranges) === JSON.stringify(b.ranges);
@@ -201,7 +203,7 @@ export class ScgiRuntime {
           ? previous.fields
           : [
               { segments: screen.products.slice(0, plan.screen.length) },
-              { segments: screen.products.slice(plan.screen.length) }
+              { segments: screen.products.slice(plan.screen.length) },
             ];
       workset = {
         plan,
@@ -215,7 +217,7 @@ export class ScgiRuntime {
         worldValid: world === previous?.world && previous.worldValid,
         screenValid: screen === previous?.screen && previous.screenValid,
         sceneEpoch: previous?.sceneEpoch ?? 0,
-        viewEpoch: previous?.viewEpoch ?? 0
+        viewEpoch: previous?.viewEpoch ?? 0,
       };
     } catch (cause) {
       failure = cause;
@@ -258,7 +260,7 @@ export class ScgiRuntime {
       fenceComplete: true,
       retired: false,
       accountedRetired: false,
-      destroyed: false
+      destroyed: false,
     };
     created.push(allocation);
     this.#allocations.push(allocation);
@@ -267,7 +269,11 @@ export class ScgiRuntime {
       const buffer = this.device.createBuffer({
         label: `SCGI/${label}/${role}`,
         size: plan.bytes,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
+        usage:
+          GPUBufferUsage.STORAGE |
+          GPUBufferUsage.COPY_SRC |
+          GPUBufferUsage.COPY_DST |
+          (label === "scratch" ? GPUBufferUsage.INDIRECT : 0),
       });
       products.push({ buffer, plan });
       this.#liveBytes += plan.bytes;
@@ -280,10 +286,10 @@ export class ScgiRuntime {
               owner: "SCGI",
               category: label === "screen" ? "history" : label === "world" ? "work-cache" : "transient",
               bytes: plan.bytes,
-              label: buffer.label
+              label: buffer.label,
             },
-            buffer
-          )
+            buffer,
+          ),
         );
       }
     }
@@ -293,7 +299,7 @@ export class ScgiRuntime {
   prepare(
     command: ShadeGPUCommandContext,
     epochs: { readonly scene: number; readonly view: number },
-    leases: readonly ScgiBorrowedLease[] = []
+    leases: readonly ScgiBorrowedLease[] = [],
   ): ScgiFrameTransaction | null {
     if (
       this.#destroyed ||
@@ -341,7 +347,7 @@ export class ScgiRuntime {
           active === null ||
             active.world !== workset.world ||
             active.screen !== workset.screen ||
-            active.scratch !== workset.scratch
+            active.scratch !== workset.scratch,
         ),
       generation: this.#generation + 1,
       sampleSerial: this.#sampleSerial,
@@ -357,7 +363,7 @@ export class ScgiRuntime {
       privateScratch: workset.scratch.products[0]!,
       queryBatch: workset.scratch.products[1]!,
       status: "prepared",
-      fieldComplete: false
+      fieldComplete: false,
     };
     const transaction = new ScgiFrameTransaction(this, command, workset, leases, publication, replaced);
     this.#pending = transaction;
@@ -386,7 +392,7 @@ export class ScgiRuntime {
         this.#releaseLeases(transaction);
         this.#forgetPublication(publication);
         this.collect();
-      }
+      },
     );
     return transaction;
   }
@@ -409,7 +415,11 @@ export class ScgiRuntime {
         initialMap[cell * 2] = SCGI_CELL_EMPTY;
       }
       command.uploadRegions([
-        { destination: world.buffer, destinationOffset: map.offset, bytes: new Uint8Array(initialMap.buffer) }
+        {
+          destination: world.buffer,
+          destinationOffset: map.offset,
+          bytes: new Uint8Array(initialMap.buffer),
+        },
       ]);
     }
     command.clearBuffer(publication.privateScratch.buffer);
@@ -423,14 +433,14 @@ export class ScgiRuntime {
       publication.generation,
       this.deviceEpoch,
       publication.sceneEpoch,
-      publication.viewEpoch
+      publication.viewEpoch,
     ]);
     command.uploadRegions([
-      { destination: world.buffer, destinationOffset: 0, bytes: new Uint8Array(header.buffer) }
+      { destination: world.buffer, destinationOffset: 0, bytes: new Uint8Array(header.buffer) },
     ]);
     const serial = new Uint32Array([publication.addressGeneration, publication.sampleSerial, 0, 0]);
     command.uploadRegions([
-      { destination: world.buffer, destinationOffset: 224, bytes: new Uint8Array(serial.buffer) }
+      { destination: world.buffer, destinationOffset: 224, bytes: new Uint8Array(serial.buffer) },
     ]);
     const ranges = world.plan.ranges;
     if (publication.activeWorld === null) {
@@ -438,14 +448,14 @@ export class ScgiRuntime {
         workset.plan.profile.patches,
         workset.plan.cells,
         workset.plan.profile.bounceRequests,
-        0
+        0,
       ]);
       command.uploadRegions([
         {
           destination: world.buffer,
           destinationOffset: ranges.header!.offset + 48,
-          bytes: new Uint8Array(capacities.buffer)
-        }
+          bytes: new Uint8Array(capacities.buffer),
+        },
       ]);
     }
     transaction.state = "encoded";
@@ -601,7 +611,7 @@ export class ScgiRuntime {
       retiredBytes,
       totalBytes: this.#liveBytes,
       peakBytes: this.#peakBytes,
-      pending: this.#pending?.state ?? null
+      pending: this.#pending?.state ?? null,
     });
   }
 
