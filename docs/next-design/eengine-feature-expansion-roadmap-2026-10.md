@@ -17,6 +17,7 @@ verifies:
     - OEngine/src/assets/PcMaterialTextures.ts
     - OEngine/src/assets/AssetLoadBatch.ts
     - OEngine/src/gpu/TextureResidency.ts
+    - OEngine/src/gpu/VirtualTextureResidency.ts
     - OEngine/src/gpu/NativeMaterialBindings.ts
     - OEngine/src/gpu/NativeMaterialPhysicalBanks.ts
     - OEngine/src/gpu/GpuNativeMaterialScene.ts
@@ -73,13 +74,13 @@ verifies:
 
 | 领域 | 当前源码事实 | 对粗路线的影响 |
 |---|---|---|
-| 主帧与配置 | `RendererCore` 创建 owner；`FrameProgram`/Lowering 形成唯一生产图；`RendererConfig` 已有AO/SSSR初值与运行期独立快照，尚无GI/VT设置；`RenderFeatureRegistry` 不在生产选择链 | 继续扩展真实设置→需求→图/PSO→绑定链，不先加 EffectsManager 或第二个 feature scheduler |
+| 主帧与配置 | `RendererCore` 创建 owner；`FrameProgram`/Lowering 形成唯一生产图；`RendererConfig` 已有AO/SSSR及VT配置，GI尚无完整设置；`RenderFeatureRegistry` 不在生产选择链 | 继续扩展真实设置→需求→图/PSO→绑定链，不先加 EffectsManager 或第二个 feature scheduler |
 | AO | scalar XeGTAO完整链实际进入Native diffuse IBL；七项设置、Medium/High/0..3去噪和独立AO debug已接通，noise仍固定0，原开关已退休；结果只读模块执行文 | 后续按真实画面需求决定专属temporal/bent normal/specular occlusion，不重新发明或再实施一套AO |
 | HZB | `HierarchicalZBuffer`/`hzb_reduce` 为反向深度 RG16F 保守 min/max，首级从内部尺寸的一半开始，有 current/previous；FrameProgram 目前仅由几何 HZB 需求触发构建，late recheck 后可再构建 final HZB | 可作为 tracing 的候选粗层；SSR 需核对最终可见性版本与精度，裁决是否结合全分辨率 Depth 精细验证或新增必要层级。已有纹理不等于任意效果都拿到了正确版本/精度 |
 | 深度/法线 | XeGTAO 有私有五级 weighted view-depth 和深度重建法线；Native invocation 内有真实材质 normal/roughness/coat | AO weighted depth 与遮挡 HZB 数学不同，不能强行合一；深度法线也不等于 normal-map/coat 法线 |
 | Native 间接光 | `native_surface.native_environment` 已计算 diffuse IBL×AO/material occlusion、DFG-weighted specular IBL、coat 与底层衰减；输出转工作色域并预曝光 | 新 GI/SSR 需要明确替换/补充的光照分量及颜色域，不能直接 HDR 加法；baseline 不自动提供新反射的材质响应 |
 | 颜色金字塔/SSR | SSSR已沿Native base/coat receiver→完整追踪/去噪→baseline replacement接入生产；不需要opaque color pyramid，旧SSR shader已删除。`SharedColorPyramidPass`仍未调度；结果只读[SSSR执行](../next-execution/eengine-sssr-execution-2026-10.md) | 后续SSGI按实际采样需要裁决颜色版本/过滤，不恢复旧owner或把SSSR无金字塔的选择强加给新算法 |
-| 纹理 | metadata3 为 plane/mip chunks；`TextureResidency` 创建完整尺寸/mip array segments，支持 tail-first 上传与 promote，并不随细 mip 缺失而释放对应分配 | 已有压缩产品和渐进上传基础，尚无 tiled Product、页表、feedback、逐 tile 淘汰；当前体系不能叫完整 VT |
+| 纹理 | `TextureResidency`保留完整resident类型，`VirtualTextureResidency`已接tiled Product、physical pools、Native过滤、延迟反馈/背压和逐tile淘汰；完整coverage依赖仍resident | VT模块结果只读其执行文；当前剩余几何固定槽与首帧准备进入独立专项，不能再按“尚无VT”重复规划 |
 | Coverage | exact R8 plane 已独立；`nativeMaterialCoverageProgram` 从任意 graph 提取 alpha 子图，Main/VSM 共用语义 | alpha 可能依赖 RGB/其他 sample，VT v1 排除 coverage 时要保护整个依赖闭包，不能只保护标为 alpha-mask 的贴图 |
 | Probes/GI | 旧 `GPULightProbeVolume`/atlas 是可选惰性数据，record 含低阶系数；没有当前局部镜面反射或 world GI 的生产消费链 | 旧 diffuse probe 数据不等于预滤波 specular probe；不能直接宣布 box-projected reflections 已具备，也不能据此选定 GI |
 | 阴影/透明/介质 | LocalLightWork 有点/聚光照明与完整 overflow；当前 VSM 服务 Physical Sun；无透明/局部体积主图 stage，transmission>0 仍拒绝 | 局部阴影是独立能力；BLEND、透射、水面和参与介质分别定范围，不只取消拒绝或接一个旧类 |
@@ -109,6 +110,8 @@ verifies:
 默认顺序调整为 **AO → SSR → Streaming VT → Local Reflection Probes → Screen-Space Diffuse → Local Shadows → World GI → Transparency/Refraction → Media → 重建/显示/后处理 → 集中组合与性能优化**。Decals/RVT 等保留为明确候选扩展。2026-10-16用户基于初始化工作集与纹理流送需求，选择先启动VT详细设计；粗模块F3/F4编号保持以免改写历史，次序以本段及粗执行表为准。
 
 2026-10-15用户基于Bistro真实启动卡顿，在SSR完成后插入[初始化调度设计](eengine-initialization-scheduling-2026-10.md) / [执行结果](../next-execution/eengine-initialization-scheduling-execution-2026-10.md)：并行Cooked准备、几何帧事务发布与VSM有界更新已实施，实际精化低帧率和容量限制保留原记录。该专项没有恢复F11全Renderer性能资格或实现VT。其后用户在2026-10-16选择先详细设计Streaming VT，解决全量shading payload前置与纹理工作集；不是重新实施INIT，也不承诺VT能消除几何/VSM剩余瓶颈。实际测量设备为RTX2060 8GB，历史4GB目标仍需独立资格。
+
+2026-10-16，VT实施及追加复审后，用户启动[几何紧凑驻留与首帧准备设计](eengine-geometry-residency-startup-2026-10.md)。该独立专项置于Local Probes前，解决固定256KiB物理槽/过大初始metadata与bank，以及准确PSO异步准备；保留Cooked逻辑Page、完整算法和全部效果质量。只授权设计，实施状态见其执行计划，不将文档建立当成内存或启动改善，也不重开INIT或全Renderer性能资格。
 
 这是画面收益和工程风险的默认排序，不是硬依赖链。SSR 不需要先完成 VT；SSGI 不强依赖 VT 或局部镜面 probe；VT 在 World GI 前可降低未来采样体系重复改造风险，但不能替 GI 解决场景表示/命中着色。当前只有 Sun 阴影，故将局部阴影置于复杂 World GI 之前，先补常用直接光遮挡和可信的场景光照基线；不宣称所有 GI 都必须消费 local shadow maps。透明或局部阴影若是目标场景主要缺口，可在模块边界进一步提前；不让庞大 World GI 成为它们的统一门禁。每次只细设计和实施一个大模块。
 

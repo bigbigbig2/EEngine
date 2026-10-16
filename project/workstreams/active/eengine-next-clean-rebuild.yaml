@@ -11,8 +11,8 @@ roadmap:
   execution: docs/next-execution/eengine-feature-expansion-execution-2026-10.md
 # Only the selected module pair is the current authority; roadmap remains stable.
 authority:
-  design: docs/next-design/eengine-streaming-vt-2026-10.md
-  execution: docs/next-execution/eengine-streaming-vt-execution-2026-10.md
+  design: docs/next-design/eengine-geometry-residency-startup-2026-10.md
+  execution: docs/next-execution/eengine-geometry-residency-startup-execution-2026-10.md
 goal: >-
   Build an extreme-performance GPU-driven WebGPU-native AAA renderer for
   GTX 1650 Ti 4GB at 1080p and scalable newer GPUs. Follow global V4 invariants
@@ -25,21 +25,17 @@ goal: >-
   historical measurements retain their original device and thermal-state identity.
 
 currentSlice:
-  id: streaming-vt
-  title: Cooked shading tile streaming and Native material sampling
-  status: completed
+  id: geometry-residency-startup
+  title: Compact geometry residency and exact asynchronous first-frame preparation
+  status: planned
   goal: >-
-    Follow the selected Streaming VT design/execution pair; detailed unit states
-    and results live only in its execution document. The user authorized detailed
-    design and VT-1 through VT-3 implementation on 2026-10-16, placing VT before Local
-    Reflection Probes. Preserve complete coverage dependencies, full filtering and
-    AO/SSSR behavior; close products, Worker IO, GPU residency, Native sampling,
-    feedback, bootstrap and current-view convergence as one production system.
+    The user authorized detailed design after the completed VT review on 2026-10-16.
+    Follow the selected pair for compact physical geometry allocation, metadata
+    capacity and exact asynchronous pipeline readiness. Detailed unit states live
+    only in its execution document; design authorization alone does not start code.
+    Preserve cooked integrity, complete geometry/coverage/VSM and AO/SSSR/VT behavior.
     Measure on the actual RTX 2060 8GB; legacy 4GB qualification remains separate.
-    The user additionally authorized post-VT correctness/performance/architecture
-    review integrated with virtual asset streaming and initialization; follow design
-    section 12 and execution section 9. Do not automatically start Local Probes or
-    whole-renderer qualification.
+    Do not automatically start Local Probes or whole-renderer qualification.
 
 pausedModules:
   - id: final-pixel-performance-v5

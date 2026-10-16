@@ -9,6 +9,8 @@ verifies:
     - OEngine/src/shaders/shadow_meshlet_bounds.ts
     - OEngine/src/shaders/vsm_pair_page.ts
     - OEngine/src/gpu/GpuNativeMaterialScene.ts
+    - OEngine/src/gpu/GeometryProductSlotPool.ts
+    - OEngine/src/gpu/GPUDescriptorCaches.ts
     - OEngine/src/render/surface
     - OEngine/src/framegraph/FrameGraph.ts
     - OEngine/src/shaders/surface_geometry_completion.ts
@@ -1688,3 +1690,14 @@ Local：metadata认证、128+8冷布局、range/shards/hash/credit、page genera
 本轮GPU过滤参考从不可变冷payload独立重建完整mip与实际压缩gutter，不读production atlas/page table，验证routing/filter/fallback；它不单独证明冷BC encoder质量。跨不同texture extent/mip-view的driver anisotropic kernel及重新编码边界块可产生差异，原失败保留在VT执行记录。来源adoption范围与验收结论只读当前VT执行，不能由这些映射直接推导初始化或GPU净提速。
 
 2026-10-16后续复审的Original/Local扩展：`virtual_texture::native_vt_record`完整键workgroup mailbox+全局单调首写；`NativeMaterialBindings`固定mip route与Appearance有界异步编译；`VirtualTextureResidency`按可回收物理槽和活跃lease实施IO背压；`VsmCasterRecordPass/vsm_caster_records`沿既有保守相交执行count→完整页选择→per-page prefix/write；`vsm_allocate_pages::collect_slots`在既有候选分类内按已有last_visited优先回收冷槽。同一精确相交/gutter与单页完整implicit保留，没有新增donor或改变LibVT/Wicked/Intel来源范围。GPU oracle独立对照完整pair集合、预算多帧深度/MASK逐像素、单页implicit、冷槽回收、碰撞/overflow、真实生产/生命周期；成本与剩余约束只读VT执行§9。
+
+## Geometry residency startup来源计划（2026-10-16）
+
+本轮为[几何驻留与首帧准备设计](../next-design/eengine-geometry-residency-startup-2026-10.md)的Reference / Planned Port，尚未实施，不是adopted声明。
+
+| 来源 / 固定revision / license | 已研究入口与拟本地映射 | 保留算法与适配 |
+|---|---|---|
+| [sebbbi/OffsetAllocator](https://github.com/sebbbi/OffsetAllocator/tree/3610a7377088b1e8c8f1525f458c96038a4e6fc0)，`3610a7377088b1e8c8f1525f458c96038a4e6fc0`，MIT，Copyright 2023 Sebastian Aaltonen | 完整`offsetAllocator.hpp`、[`offsetAllocator.cpp`](https://github.com/sebbbi/OffsetAllocator/blob/3610a7377088b1e8c8f1525f458c96038a4e6fc0/offsetAllocator.cpp)、`offsetAllocatorTests.cpp`、README与LICENSE；`SmallFloat::{uintToFloatRoundUp,uintToFloatRoundDown,floatToUint}`、`Allocator::{allocate,free,insertNodeIntoBin,removeNodeFromBin,storageReport}` → 拟替换`GeometryProductSlotPool`的字节区间allocator与独立oracle | 完整32×8两级bins/bitmask、精确长度split、双物理邻居合并、node freelist；TS TypedArrays/u32/16B unit为本地适配，拒绝零长度并新增受控扩尾grow，不复制C++框架。bin报告为近似值，不把12.5%解释为heap碎片保证 |
+| [gpuweb/gpuweb](https://github.com/gpuweb/gpuweb/blob/25a5dc4537074c9b3844dd95891f5cfd193f4407/spec/index.bs)，`25a5dc4537074c9b3844dd95891f5cfd193f4407`，规范参考，不复制实现 | `GPUDevice.createRenderPipeline[Async]` / `createComputePipeline[Async]`、pipeline creation、buffer copy/write与limits章节 → `GPUDescriptorCaches`准备语义和bank候选复制合法性 | 同步返回不代表后台编译完成；async promise代表创建完成，真实首次编码/执行成本仍需测量。不假设跨device共享pipeline、可移植binary cache或硬件sparse |
+
+Local / Original：目录前缀容量计划、ABI6四word布局、四bank/metadata增长publication、generation/range检查、pending上传顺序、budget/fence、exact profile readiness与首帧分段诊断。复用现有Worker hash/LZ4、材质async准备、正常帧提交与VSM完整页调度；没有新增VT/VSM donor，也不改变此前LibVT/Wicked/Intel的来源范围。实现时保存固定源文件/license/逐文件hash，完成独立数值/区间oracle与新production GPU消费后才逐项提升来源状态。
