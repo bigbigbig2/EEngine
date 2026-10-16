@@ -163,6 +163,7 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
   });
   const hierarchy = new HierarchicalWorkGenerator(device);
   const candidate = new VirtualGeometryMeshletWorkCandidate(device);
+  await candidate.preparePipelines();
   const frameInstances = new FrameInstanceTransforms(device);
   await frameInstances.ready;
   const shadowOwner = new ShadowGeometryWork({ device, frame_instances: frameInstances });
@@ -232,6 +233,7 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
       },
       { sseThreshold: 1, countersEnabled: true, diagnosticsEnabled: true, rasterExpansionEnabled: false }
     );
+    await hierarchy.prepareWorkPipelines(h);
     const work = candidate.prepare({
       virtualGeometry: runtime.bindings(),
       visibleClusters: h.generated.visibleClusters,
@@ -285,6 +287,7 @@ export async function runGeometryBudgetedResidencyGpuOracle(device) {
       streamingRuntime: streaming,
       shadowFrame: { generation: 1, lightView: identity, clipOriginExtent: [[-2, -2, 4, 1]] }
     };
+    await shadowOwner.preparePipelines({ ...shadowJob.runtime, virtualGeometry: shadowJob.virtualGeometry });
     const shadowPrepared = shadowOwner.prepare(
       shadowJob,
       {

@@ -1,3 +1,4 @@
+import { PreparedComputePipeline } from "../../gpu/PreparedPipeline.js";
 import { GpuBindGroupCache } from "../../gpu/GpuBindGroupResourceCache.js";
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
@@ -43,8 +44,12 @@ ${LINEAR_REC709_TO_REC2020_WGSL}
 `;
 
 export class AerialPerspectivePass {
+  async preparePipelines(): Promise<void> {
+    await Promise.all([this.pipeline.prepare()]);
+  }
+
   private readonly bindGroups = new GpuBindGroupCache();
-  private readonly pipeline: GPUComputePipeline;
+  private readonly pipeline: PreparedComputePipeline;
   private readonly layout: GPUBindGroupLayout;
   private readonly sampler: GPUSampler;
   constructor(private readonly device: GPUDevice) {
@@ -79,7 +84,7 @@ export class AerialPerspectivePass {
         { binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
       ],
     });
-    this.pipeline = device.createComputePipeline({
+    this.pipeline = new PreparedComputePipeline(device, {
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }),
       compute: { module, entryPoint: "main" },
     });
@@ -118,7 +123,7 @@ export class AerialPerspectivePass {
         ],
       });
       const pass = command.beginComputePass({ label: "Environment/Aerial Perspective" });
-      pass.setPipeline(this.pipeline);
+      pass.setPipeline(this.pipeline.requirePrepared());
       pass.setBindGroup(0, bind);
       pass.dispatchWorkgroups(Math.ceil(input.width / 8), Math.ceil(input.height / 8));
       pass.end();

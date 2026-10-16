@@ -109,6 +109,7 @@ export async function runFinalPixelTemporalPullSemanticsGpuOracle(device) {
       device.queue.writeTexture({ texture: response }, flags, { bytesPerRow: width * 4 }, [width, height]);
     };
     owner = new NativeTemporalV2(device);
+    await owner.preparePipelines();
     const command = { writeBuffer: (target, offset, data) => device.queue.writeBuffer(target, offset, data) };
     owner.prepareFrame(command, { width, height, reset: true, jitter: [0, 0] });
     const graph = new FrameGraph("Native Temporal V2 cached pull semantic fixture");

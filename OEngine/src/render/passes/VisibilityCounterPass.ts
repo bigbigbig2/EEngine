@@ -3,6 +3,7 @@ import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { CachedComputePipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
+import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../../gpu/GpuVisibilityKeyAbi.js";
 
 export const VISIBILITY_COUNTER_WORKGROUP_SIZE = 8;
@@ -116,6 +117,9 @@ function createPipeline(
 }
 
 export class VisibilityCounterPass {
+  async preparePipelines(graphics: GraphicsContext): Promise<void> {
+    await graphics.compute_pipelines.prepare(VISIBILITY_COUNTER_PIPELINES["visibility-key"]);
+  }
   addToGraph(
     graph: FrameGraph,
     size: { width: number; height: number },
@@ -131,6 +135,7 @@ export class VisibilityCounterPass {
         if (!sampling.enabled) return;
         const command = requireCommandContext(context.encoder);
         const pass = command.constructComputePass({
+          prepared: true,
           label: "R0 visibility pixel counters",
           pipeline: VISIBILITY_COUNTER_PIPELINES[data.contract],
           bindings: [

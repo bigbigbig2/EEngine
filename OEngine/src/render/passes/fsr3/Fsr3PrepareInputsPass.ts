@@ -1,3 +1,4 @@
+import { PreparedComputePipeline } from "../../../gpu/PreparedPipeline.js";
 import { GpuBindGroupCache } from "../../../gpu/GpuBindGroupResourceCache.js";
 import type { FrameGraph } from "../../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../../framegraph/ResourceHandle.js";
@@ -121,9 +122,13 @@ export interface Fsr3PreparedInputs {
 
 /** First SDK dispatch; the later FSR3 stages consume these GPU products. */
 export class Fsr3PrepareInputsPass {
+  async preparePipelines(): Promise<void> {
+    await Promise.all([this.pipeline.prepare()]);
+  }
+
   private readonly bindGroups = new GpuBindGroupCache();
   private readonly layout: GPUBindGroupLayout;
-  private readonly pipeline: GPUComputePipeline;
+  private readonly pipeline: PreparedComputePipeline;
 
   constructor(private readonly device: GPUDevice) {
     const module = device.createShaderModule({
@@ -160,7 +165,7 @@ export class Fsr3PrepareInputsPass {
         { binding: 9, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
       ],
     });
-    this.pipeline = device.createComputePipeline({
+    this.pipeline = new PreparedComputePipeline(device, {
       label: "FSR3 Prepare Inputs",
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }),
       compute: { module, entryPoint: "main" },
@@ -209,7 +214,7 @@ export class Fsr3PrepareInputsPass {
         ],
       });
       const pass = command.beginComputePass({ label: "FSR3 Prepare Inputs" });
-      pass.setPipeline(this.pipeline);
+      pass.setPipeline(this.pipeline.requirePrepared());
       pass.setBindGroup(0, bind);
       pass.dispatchWorkgroups(Math.ceil(data.width / 8), Math.ceil(data.height / 8));
       pass.end();

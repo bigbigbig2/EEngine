@@ -77,6 +77,7 @@ export async function runVsmR3GpuOracle(device) {
   const bounds = new ShadowMeshletBounds(device, { queue: work, capacity: W }, instances, meshlets);
   owners.push(bounds);
   const pairOwner = new VsmCasterRecordPass(device);
+  await pairOwner.preparePipelines();
   owners.push(pairOwner);
   const pairs = make(32 + C * 16, storage);
   const dirtyCapacity = 128;

@@ -1,3 +1,4 @@
+import { PreparedComputePipeline } from "../gpu/PreparedPipeline.js";
 import type { GeometryHierarchyView } from "../geometry/GeometryHierarchy.js";
 import { counterByteOffset } from "../debug/GpuFrameCounters.js";
 import type {
@@ -487,21 +488,72 @@ const HZB_LEAF_GROUP: GPUBindGroupLayoutDescriptor = {
  * after the caller has established GPU completion for the last use.
  */
 export class HierarchicalWorkGenerator {
+  /** Standalone consumers prepare the implementation selected by the real work
+   * descriptor, including the optional raster expansion and previous-HZB path. */
+  async prepareWorkPipelines(prepared: PreparedHierarchyWork, previousHzb = false): Promise<void> {
+    const state = this.requirePrepared(prepared);
+    if (state.implementation === "fused-leaf") {
+      await this.leafPipeline.prepare();
+      if (previousHzb) {
+        await this.obtainHzbLeafPipeline().prepare();
+      }
+      return;
+    }
+    await this.preparePipelines({
+      product: state.virtualGeometryEnabled,
+      previousHzb,
+      shadow: false,
+      depth: state.scene.maxHierarchyDepth,
+    });
+    if (state.rasterExpansionEnabled) {
+      await Promise.all([this.dispatchPreparationPipeline.prepare(), this.expansionPipeline.prepare()]);
+    }
+  }
+
+  async preparePipelines(profile: {
+    product: boolean;
+    previousHzb: boolean;
+    shadow: boolean;
+    depth: number;
+  }): Promise<void> {
+    const pipelines: PreparedComputePipeline[] = [];
+    if (profile.shadow) {
+      pipelines.push(this.obtainShadowPipeline(profile.product, false));
+      if (profile.depth > 0 || profile.product) {
+        pipelines.push(this.obtainShadowPipeline(profile.product, true));
+      }
+    } else {
+      pipelines.push(profile.product ? this.obtainVirtualRootPipeline() : this.rootPipeline);
+      if (profile.depth > 0 || profile.product) {
+        pipelines.push(profile.product ? this.obtainVirtualTraversalPipeline() : this.traversalPipeline);
+      }
+      if (profile.previousHzb) {
+        pipelines.push(profile.product ? this.obtainHzbVirtualRootPipeline() : this.obtainHzbRootPipeline());
+        if (profile.depth > 0 || profile.product) {
+          pipelines.push(
+            profile.product ? this.obtainHzbVirtualTraversalPipeline() : this.obtainHzbTraversalPipeline(),
+          );
+        }
+      }
+    }
+    await Promise.all(pipelines.map((pipeline) => pipeline.prepare()));
+  }
+
   private shadowLayout?: GPUBindGroupLayout;
-  private readonly shadowPipelines = new Map<string, GPUComputePipeline>();
+  private readonly shadowPipelines = new Map<string, PreparedComputePipeline>();
   private readonly shadowGroups = new WeakMap<GPUBuffer, GPUBindGroup>();
-  private readonly rootPipeline: GPUComputePipeline;
-  private hzbRootPipeline: GPUComputePipeline | null = null;
-  private virtualRootPipeline: GPUComputePipeline | null = null;
-  private hzbVirtualRootPipeline: GPUComputePipeline | null = null;
-  private readonly traversalPipeline: GPUComputePipeline;
-  private hzbTraversalPipeline: GPUComputePipeline | null = null;
-  private virtualTraversalPipeline: GPUComputePipeline | null = null;
-  private hzbVirtualTraversalPipeline: GPUComputePipeline | null = null;
-  private readonly leafPipeline: GPUComputePipeline;
-  private hzbLeafPipeline: GPUComputePipeline | null = null;
-  private readonly expansionPipeline: GPUComputePipeline;
-  private readonly dispatchPreparationPipeline: GPUComputePipeline;
+  private readonly rootPipeline: PreparedComputePipeline;
+  private hzbRootPipeline: PreparedComputePipeline | null = null;
+  private virtualRootPipeline: PreparedComputePipeline | null = null;
+  private hzbVirtualRootPipeline: PreparedComputePipeline | null = null;
+  private readonly traversalPipeline: PreparedComputePipeline;
+  private hzbTraversalPipeline: PreparedComputePipeline | null = null;
+  private virtualTraversalPipeline: PreparedComputePipeline | null = null;
+  private hzbVirtualTraversalPipeline: PreparedComputePipeline | null = null;
+  private readonly leafPipeline: PreparedComputePipeline;
+  private hzbLeafPipeline: PreparedComputePipeline | null = null;
+  private readonly expansionPipeline: PreparedComputePipeline;
+  private readonly dispatchPreparationPipeline: PreparedComputePipeline;
   private readonly instanceLayout: GPUBindGroupLayout;
   private hzbInstanceLayout: GPUBindGroupLayout | null = null;
   private virtualInstanceLayout: GPUBindGroupLayout | null = null;
@@ -537,7 +589,7 @@ export class HierarchicalWorkGenerator {
       label: "R3-B Hierarchy/empty group0",
       entries: []
     });
-    this.rootPipeline = device.createComputePipeline({
+    this.rootPipeline = new PreparedComputePipeline(device, {
       label: "R3-D Hierarchy/fused InstanceCull + root Cluster",
       layout: device.createPipelineLayout({
         label: "R3-D Hierarchy/fused root pipeline layout",
@@ -545,7 +597,7 @@ export class HierarchicalWorkGenerator {
       }),
       compute: { module, entryPoint: "r3_fused_root_cull" }
     });
-    this.traversalPipeline = device.createComputePipeline({
+    this.traversalPipeline = new PreparedComputePipeline(device, {
       label: "R3-B Hierarchy/Cluster Frustum + SSE traversal",
       layout: device.createPipelineLayout({
         label: "R3-B Hierarchy/traversal pipeline layout",
@@ -553,7 +605,7 @@ export class HierarchicalWorkGenerator {
       }),
       compute: { module, entryPoint: "r3_traverse_clusters" }
     });
-    this.leafPipeline = device.createComputePipeline({
+    this.leafPipeline = new PreparedComputePipeline(device, {
       label: "R3-D Hierarchy/depth-0 fused leaf work",
       layout: device.createPipelineLayout({
         label: "R3-D Hierarchy/fused leaf pipeline layout",
@@ -561,7 +613,7 @@ export class HierarchicalWorkGenerator {
       }),
       compute: { module, entryPoint: "r3_fused_leaf_work" }
     });
-    this.expansionPipeline = device.createComputePipeline({
+    this.expansionPipeline = new PreparedComputePipeline(device, {
       label: "R3-C Hierarchy/VisibleCluster → RasterWork",
       layout: device.createPipelineLayout({
         label: "R3-C Hierarchy/RasterWork expansion pipeline layout",
@@ -569,7 +621,7 @@ export class HierarchicalWorkGenerator {
       }),
       compute: { module, entryPoint: "r3_expand_raster_work" }
     });
-    this.dispatchPreparationPipeline = device.createComputePipeline({
+    this.dispatchPreparationPipeline = new PreparedComputePipeline(device, {
       label: "R3-C Hierarchy/prepare RasterWork dispatch",
       layout: device.createPipelineLayout({
         label: "R3-C Hierarchy/RasterWork dispatch preparation layout",
@@ -1082,7 +1134,7 @@ export class HierarchicalWorkGenerator {
       const leafPass = encoder.beginComputePass({
         label: "R3-D/Fused leaf work generation"
       });
-      leafPass.setPipeline(hzbEnabled ? this.obtainHzbLeafPipeline() : this.leafPipeline);
+      leafPass.setPipeline((hzbEnabled ? this.obtainHzbLeafPipeline() : this.leafPipeline).requirePrepared());
       leafPass.setBindGroup(
         3,
         hzbEnabled ? this.obtainHzbLeafBindGroup(state, features.previousHzb!.view) : state.leafBindGroup!
@@ -1102,7 +1154,7 @@ export class HierarchicalWorkGenerator {
         label: "R3-D/Fused root hierarchy work generation"
       });
       rootPass.setPipeline(
-        shadowTiles !== undefined
+        (shadowTiles !== undefined
           ? this.obtainShadowPipeline(state.virtualGeometryEnabled, false)
           : state.virtualGeometryEnabled
             ? hzbEnabled
@@ -1111,6 +1163,7 @@ export class HierarchicalWorkGenerator {
             : hzbEnabled
               ? this.obtainHzbRootPipeline()
               : this.rootPipeline
+        ).requirePrepared(),
       );
       rootPass.setBindGroup(
         0,
@@ -1139,7 +1192,7 @@ export class HierarchicalWorkGenerator {
           label: `R3-B/Hierarchy round ${round}`
         });
         traversalPass.setPipeline(
-          shadowTiles !== undefined
+          (shadowTiles !== undefined
             ? this.obtainShadowPipeline(state.virtualGeometryEnabled, true)
             : state.virtualGeometryEnabled
               ? hzbEnabled
@@ -1148,6 +1201,7 @@ export class HierarchicalWorkGenerator {
               : hzbEnabled
                 ? this.obtainHzbTraversalPipeline()
                 : this.traversalPipeline
+          ).requirePrepared(),
         );
         traversalPass.setBindGroup(1, traversalGroups[inputIndex]!);
         if (shadowTiles !== undefined) {
@@ -1162,14 +1216,14 @@ export class HierarchicalWorkGenerator {
         const dispatchPreparationPass = encoder.beginComputePass({
           label: "R3-C/prepare RasterWork dispatch"
         });
-        dispatchPreparationPass.setPipeline(this.dispatchPreparationPipeline);
+        dispatchPreparationPass.setPipeline(this.dispatchPreparationPipeline.requirePrepared());
         dispatchPreparationPass.setBindGroup(2, state.dispatchPreparationBindGroup!);
         dispatchPreparationPass.dispatchWorkgroups(1, 1, 1);
         dispatchPreparationPass.end();
         const expansionPass = encoder.beginComputePass({
           label: "R3-C/VisibleCluster → RasterWork"
         });
-        expansionPass.setPipeline(this.expansionPipeline);
+        expansionPass.setPipeline(this.expansionPipeline.requirePrepared());
         expansionPass.setBindGroup(2, state.expansionBindGroup!);
         expansionPass.dispatchWorkgroupsIndirect(args[2]!, 0);
         expansionPass.end();
@@ -1546,8 +1600,8 @@ export class HierarchicalWorkGenerator {
     return state;
   }
 
-  private obtainHzbRootPipeline(): GPUComputePipeline {
-    this.hzbRootPipeline ??= this.device.createComputePipeline({
+  private obtainHzbRootPipeline(): PreparedComputePipeline {
+    this.hzbRootPipeline ??= new PreparedComputePipeline(this.device, {
       label: "R3-D Hierarchy/fused root + previous HZB",
       layout: this.device.createPipelineLayout({
         label: "R3-D Hierarchy/fused root HZB pipeline layout",
@@ -1592,8 +1646,8 @@ export class HierarchicalWorkGenerator {
     return this.hzbInstanceLayout;
   }
 
-  private obtainHzbTraversalPipeline(): GPUComputePipeline {
-    this.hzbTraversalPipeline ??= this.device.createComputePipeline({
+  private obtainHzbTraversalPipeline(): PreparedComputePipeline {
+    this.hzbTraversalPipeline ??= new PreparedComputePipeline(this.device, {
       label: "R3-D Hierarchy/Cluster Cone + previous HZB traversal",
       layout: this.device.createPipelineLayout({
         label: "R3-D Hierarchy/HZB traversal pipeline layout",
@@ -1664,8 +1718,8 @@ export class HierarchicalWorkGenerator {
     return this.hzbTraversalLayout;
   }
 
-  private obtainHzbLeafPipeline(): GPUComputePipeline {
-    this.hzbLeafPipeline ??= this.device.createComputePipeline({
+  private obtainHzbLeafPipeline(): PreparedComputePipeline {
+    this.hzbLeafPipeline ??= new PreparedComputePipeline(this.device, {
       label: "R3-D Hierarchy/fused leaf + previous HZB",
       layout: this.device.createPipelineLayout({
         label: "R3-D Hierarchy/fused leaf HZB pipeline layout",
@@ -1704,8 +1758,8 @@ export class HierarchicalWorkGenerator {
     return this.hzbLeafLayout;
   }
 
-  private obtainVirtualRootPipeline(): GPUComputePipeline {
-    this.virtualRootPipeline ??= this.device.createComputePipeline({
+  private obtainVirtualRootPipeline(): PreparedComputePipeline {
+    this.virtualRootPipeline ??= new PreparedComputePipeline(this.device, {
       label: "S1 Geometry Product/fused root",
       layout: this.device.createPipelineLayout({
         label: "S1 Geometry Product/fused root pipeline layout",
@@ -1722,8 +1776,8 @@ export class HierarchicalWorkGenerator {
     return this.virtualRootPipeline;
   }
 
-  private obtainHzbVirtualRootPipeline(): GPUComputePipeline {
-    this.hzbVirtualRootPipeline ??= this.device.createComputePipeline({
+  private obtainHzbVirtualRootPipeline(): PreparedComputePipeline {
+    this.hzbVirtualRootPipeline ??= new PreparedComputePipeline(this.device, {
       label: "S1 Geometry Product/fused root + previous HZB",
       layout: this.device.createPipelineLayout({
         label: "S1 Geometry Product/fused root HZB pipeline layout",
@@ -1740,8 +1794,8 @@ export class HierarchicalWorkGenerator {
     return this.hzbVirtualRootPipeline;
   }
 
-  private obtainVirtualTraversalPipeline(): GPUComputePipeline {
-    this.virtualTraversalPipeline ??= this.device.createComputePipeline({
+  private obtainVirtualTraversalPipeline(): PreparedComputePipeline {
+    this.virtualTraversalPipeline ??= new PreparedComputePipeline(this.device, {
       label: "S1 Geometry Product/hierarchy traversal",
       layout: this.device.createPipelineLayout({
         label: "S1 Geometry Product/traversal pipeline layout",
@@ -1758,8 +1812,8 @@ export class HierarchicalWorkGenerator {
     return this.virtualTraversalPipeline;
   }
 
-  private obtainHzbVirtualTraversalPipeline(): GPUComputePipeline {
-    this.hzbVirtualTraversalPipeline ??= this.device.createComputePipeline({
+  private obtainHzbVirtualTraversalPipeline(): PreparedComputePipeline {
+    this.hzbVirtualTraversalPipeline ??= new PreparedComputePipeline(this.device, {
       label: "S1 Geometry Product/hierarchy traversal + previous HZB",
       layout: this.device.createPipelineLayout({
         label: "S1 Geometry Product/traversal HZB pipeline layout",
@@ -1820,14 +1874,14 @@ export class HierarchicalWorkGenerator {
     return group;
   }
 
-  private obtainShadowPipeline(product: boolean, traversal: boolean): GPUComputePipeline {
+  private obtainShadowPipeline(product: boolean, traversal: boolean): PreparedComputePipeline {
     const key = `${product}/${traversal}`;
     let pipeline = this.shadowPipelines.get(key);
     if (pipeline === undefined) {
       const layouts = traversal
         ? [this.emptyLayout, product ? this.obtainVirtualTraversalLayout() : this.traversalLayout]
         : [product ? this.obtainVirtualInstanceLayout() : this.instanceLayout, this.emptyLayout];
-      pipeline = this.device.createComputePipeline({
+      pipeline = new PreparedComputePipeline(this.device, {
         label: `Shadow geometry/${traversal ? "traversal" : "root"} tile selection`,
         layout: this.device.createPipelineLayout({
           bindGroupLayouts: [...layouts, this.obtainShadowLayout()]

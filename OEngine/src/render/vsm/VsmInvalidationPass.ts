@@ -1,3 +1,4 @@
+import { PreparedComputePipeline } from "../../gpu/PreparedPipeline.js";
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import type { VsmGenerationState } from "./VsmGeneration.js";
@@ -11,9 +12,13 @@ import { packVsmProjection, type VsmDirectionalFrameConstants } from "./VsmProje
  * never maps a GPU buffer and never chooses visible page work on the CPU.
  */
 export class VsmInvalidationPass {
+  async preparePipelines(): Promise<void> {
+    await Promise.all([this.pipeline.prepare()]);
+  }
+
   private readonly constants: GPUBuffer;
   private readonly layout: GPUBindGroupLayout;
-  private readonly pipeline: GPUComputePipeline;
+  private readonly pipeline: PreparedComputePipeline;
   constructor(private readonly device: GPUDevice) {
     this.constants = device.createBuffer({
       label: "VSM/window invalidation constants",
@@ -30,7 +35,7 @@ export class VsmInvalidationPass {
         })),
       ],
     });
-    this.pipeline = device.createComputePipeline({
+    this.pipeline = new PreparedComputePipeline(device, {
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }),
       compute: { module: device.createShaderModule({ code: VSM_INVALIDATION_WGSL }), entryPoint: "main" },
     });
@@ -117,7 +122,7 @@ export class VsmInvalidationPass {
           ],
         });
         const pass = command.beginComputePass({ label: "VSM/revoke departed world pages" });
-        pass.setPipeline(this.pipeline);
+        pass.setPipeline(this.pipeline.requirePrepared());
         pass.setBindGroup(0, group);
         pass.dispatchWorkgroups(Math.ceil(capabilities.virtualEntryCount / 64));
         pass.end();

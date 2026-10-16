@@ -44,6 +44,7 @@ export async function runNativeTemporalV2CostGpuOracle(device) {
     return resource;
   };
   const runtimes = [new BeforeRuntime(device), new NativeTemporalV2(device)];
+  await runtimes[1].preparePipelines();
   try {
     const color = texture("rgba16float", 4, (i, k) => (k === 3 ? 1 : 0.2 + (i % 31) / 19));
     const motion = texture("rg32float", 2, (_i, k) => (k === 0 ? -0.7 / width : 0.6 / height));

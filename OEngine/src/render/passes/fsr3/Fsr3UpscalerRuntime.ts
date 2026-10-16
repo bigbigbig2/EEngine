@@ -1,3 +1,4 @@
+import { PreparedComputePipeline } from "../../../gpu/PreparedPipeline.js";
 import { GpuBindGroupCache } from "../../../gpu/GpuBindGroupResourceCache.js";
 import type { ResourceAccounting, ResourceHandle } from "../../../debug/profiling/ResourceAccounting.js";
 import type { FrameGraph } from "../../../framegraph/FrameGraph.js";
@@ -66,6 +67,22 @@ export type Fsr3GraphResourceBinder = <T extends object>(
 /** True upscaling only. Native 1:1 reconstruction belongs to NativeTemporalV2.
  * Histories are checkpointed until the same Renderer command submits. */
 export class Fsr3UpscalerRuntime {
+  async preparePipelines(width: number, height: number): Promise<void> {
+    await this.lumaPyramid.preparePipelines(width, height);
+    await Promise.all(
+      [
+        this.prepareInputs,
+        this.shadingPyramid,
+        this.shadingChange,
+        this.prepareReactivity,
+        this.lumaInstability,
+        this.accumulate,
+        this.rcas,
+      ].map((owner) => owner.preparePipelines()),
+    );
+    await this.ratioPipeline.prepare();
+  }
+
   private readonly bindGroups = new GpuBindGroupCache();
   private readonly prepareInputs: Fsr3PrepareInputsPass;
   private readonly lumaPyramid: Fsr3LumaPyramidPass;
@@ -77,7 +94,7 @@ export class Fsr3UpscalerRuntime {
   private readonly rcas: Fsr3RcasPass;
   private readonly constants: GPUBuffer;
   private readonly ratioLayout: GPUBindGroupLayout;
-  private readonly ratioPipeline: GPUComputePipeline;
+  private readonly ratioPipeline: PreparedComputePipeline;
   private readonly rcasConstants: GPUBuffer;
   private readonly defaultMask: GPUTexture;
   private histories: Fsr3HistoryTextures | null = null;
@@ -143,7 +160,7 @@ export class Fsr3UpscalerRuntime {
           { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } }
         ]
       });
-      this.ratioPipeline = device.createComputePipeline({
+      this.ratioPipeline = new PreparedComputePipeline(device, {
         label: "FSR3/GPU pre-exposure ratio",
         layout: device.createPipelineLayout({ bindGroupLayouts: [this.ratioLayout] }),
         compute: {
@@ -470,7 +487,7 @@ export class Fsr3UpscalerRuntime {
         ],
       });
       const pass = command.beginComputePass({ label: "FSR3/GPU pre-exposure ratio" });
-      pass.setPipeline(this.ratioPipeline);
+      pass.setPipeline(this.ratioPipeline.requirePrepared());
       pass.setBindGroup(0, group);
       pass.dispatchWorkgroups(1);
       pass.end();

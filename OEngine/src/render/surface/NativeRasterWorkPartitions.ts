@@ -15,6 +15,33 @@ import {
   vsmImplicitDomain,
 } from "../../gpu/GpuVsmPairAbi.js";
 
+function partitionLayouts(caster: boolean) {
+  const layoutDescriptor: GPUBindGroupLayoutDescriptor = {
+    entries: [
+      ...Array.from({ length: 6 }, (_, binding) => ({
+        binding,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: { type: (binding < 3 ? "read-only-storage" : "storage") as GPUBufferBindingType },
+      })),
+      { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+      ...(caster
+        ? [
+            {
+              binding: 7,
+              visibility: GPUShaderStage.COMPUTE,
+              buffer: { type: "read-only-storage" as const },
+            },
+          ]
+        : []),
+    ],
+  };
+  const dispatchDescriptor: GPUBindGroupLayoutDescriptor = {
+    entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }],
+  };
+
+  return { layoutDescriptor, dispatchDescriptor };
+}
+
 export interface NativeVsmRasterInput {
   readonly source: GPUBuffer;
   readonly bounds: GPUBuffer;
@@ -47,6 +74,20 @@ export interface NativeRasterPartitionInput {
  * avoid this management tax; this owner never selects a second shading path.
  */
 export class NativeRasterWorkPartitions {
+  static async preparePipelines(graphics: GraphicsContext, caster: boolean): Promise<void> {
+    const { layoutDescriptor, dispatchDescriptor } = partitionLayouts(caster);
+    await Promise.all(
+      ["begin", "count", "prefix", "scatter"].map((entryPoint, index) =>
+        graphics.compute_pipelines.prepare({
+          layout: {
+            bindGroupLayouts: index === 0 ? [layoutDescriptor, dispatchDescriptor] : [layoutDescriptor],
+          },
+          compute: { module: { code: nativeRasterPartitionsWgsl(caster) }, entryPoint },
+        }),
+      ),
+    );
+  }
+
   readonly ready: Promise<void>;
   readonly indices: GPUBuffer;
   readonly states: GPUBuffer;
@@ -154,29 +195,8 @@ export class NativeRasterWorkPartitions {
       }
       return buffer;
     };
-    const layoutDescriptor: GPUBindGroupLayoutDescriptor = {
-      entries: [
-        ...Array.from({ length: 6 }, (_, binding) => ({
-          binding,
-          visibility: GPUShaderStage.COMPUTE,
-          buffer: { type: (binding < 3 ? "read-only-storage" : "storage") as GPUBufferBindingType },
-        })),
-        { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-        ...(input.caster
-          ? [
-              {
-                binding: 7,
-                visibility: GPUShaderStage.COMPUTE,
-                buffer: { type: "read-only-storage" as const },
-              },
-            ]
-          : []),
-      ],
-    };
+    const { layoutDescriptor, dispatchDescriptor } = partitionLayouts(Boolean(input.caster));
     const layout = device.createBindGroupLayout(layoutDescriptor);
-    const dispatchDescriptor: GPUBindGroupLayoutDescriptor = {
-      entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }],
-    };
     const dispatchLayout = device.createBindGroupLayout(dispatchDescriptor);
     try {
       this.indices = make(
@@ -270,12 +290,9 @@ export class NativeRasterWorkPartitions {
         layout: dispatchLayout,
         entries: [{ binding: 0, resource: { buffer: this.dispatch } }],
       });
-      const module = device.createShaderModule({ code: nativeRasterPartitionsWgsl(Boolean(input.caster)) });
-      const mainLayout = device.createPipelineLayout({ bindGroupLayouts: [layout] });
-      const beginLayout = device.createPipelineLayout({ bindGroupLayouts: [layout, dispatchLayout] });
       if (input.graphics !== undefined) {
         this.pipelines = ["begin", "count", "prefix", "scatter"].map((entryPoint, index) =>
-          input.graphics!.compute_pipelines.obtain({
+          input.graphics!.compute_pipelines.requirePrepared({
             layout: {
               bindGroupLayouts: index === 0 ? [layoutDescriptor, dispatchDescriptor] : [layoutDescriptor],
             },
@@ -284,6 +301,9 @@ export class NativeRasterWorkPartitions {
         );
         this.ready = Promise.resolve();
       } else {
+        const module = device.createShaderModule({ code: nativeRasterPartitionsWgsl(Boolean(input.caster)) });
+        const mainLayout = device.createPipelineLayout({ bindGroupLayouts: [layout] });
+        const beginLayout = device.createPipelineLayout({ bindGroupLayouts: [layout, dispatchLayout] });
         this.ready = Promise.all(
           ["begin", "count", "prefix", "scatter"].map((entryPoint, index) =>
             device.createComputePipelineAsync({

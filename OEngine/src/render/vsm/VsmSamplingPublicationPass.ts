@@ -1,3 +1,4 @@
+import { PreparedComputePipeline } from "../../gpu/PreparedPipeline.js";
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
@@ -25,8 +26,12 @@ export function vsmSamplingDescriptorCount(pages: number, levels: number): numbe
  * Abort cannot publish or advance a cache version: every submitted frame fully
  * overwrites the product after its current page-table/content commit. */
 export class VsmSamplingPublicationPass {
+  async preparePipelines(): Promise<void> {
+    await Promise.all([this.pipeline.prepare()]);
+  }
+
   private readonly layout: GPUBindGroupLayout;
-  private readonly pipeline: GPUComputePipeline;
+  private readonly pipeline: PreparedComputePipeline;
   private readonly groups = new GpuBindGroupCache();
   private destroyed = false;
 
@@ -38,7 +43,7 @@ export class VsmSamplingPublicationPass {
         { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
       ],
     });
-    this.pipeline = device.createComputePipeline({
+    this.pipeline = new PreparedComputePipeline(device, {
       label: "VSM/sampling descriptor publication",
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }),
       compute: {
@@ -109,7 +114,7 @@ export class VsmSamplingPublicationPass {
       const pass = (context.encoder as ShadeGPUCommandContext).beginComputePass({
         label: "VSM/sampling descriptor publication",
       });
-      pass.setPipeline(this.pipeline);
+      pass.setPipeline(this.pipeline.requirePrepared());
       pass.setBindGroup(0, group);
       pass.dispatchWorkgroups(groups);
       pass.end();

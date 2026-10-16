@@ -1,3 +1,4 @@
+import { PreparedComputePipeline } from "../gpu/PreparedPipeline.js";
 import {
   GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE,
   GPU_MESHLET_RASTER_WORK_RECORD_STRIDE
@@ -8,15 +9,87 @@ import type { PreparedMeshletWorkCandidate } from "./MeshletWorkCandidate.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import type { ResourceAccounting, ResourceHandle } from "../debug/profiling/ResourceAccounting.js";
 
+const boundsPipelines = new WeakMap<GPUDevice, Map<boolean, ReturnType<typeof createBoundsPipelines>>>();
+function createBoundsPipelines(device: GPUDevice, product: boolean) {
+  const layout = device.createBindGroupLayout({
+    label: "Shadow Geometry/bounds source layout",
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+      ...[0, 1, 2].map((_, index) => ({
+        binding: index + 1,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: { type: "read-only-storage" as const },
+      })),
+      { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      ...Array.from({ length: product ? 5 : 0 }).map((_, index) => ({
+        binding: index + 5,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: { type: "read-only-storage" as const },
+      })),
+    ],
+  });
+  const dispatchLayout = device.createBindGroupLayout({
+    label: "Shadow Geometry/bounds dispatch layout",
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+    ],
+  });
+  const module = device.createShaderModule({
+    label: "Shadow Geometry/tight bounds",
+    code: shadowMeshletBoundsWgsl(product),
+  });
+  const begin = new PreparedComputePipeline(device, {
+    label: "Shadow Geometry/prepare bounds pipeline",
+    layout: device.createPipelineLayout({
+      label: "Shadow Geometry/prepare bounds pipeline layout",
+      bindGroupLayouts: [layout, dispatchLayout],
+    }),
+    compute: { module, entryPoint: "begin" },
+  });
+  const produce = new PreparedComputePipeline(device, {
+    label: "Shadow Geometry/produce bounds pipeline",
+    layout: device.createPipelineLayout({
+      label: "Shadow Geometry/produce bounds pipeline layout",
+      bindGroupLayouts: [layout],
+    }),
+    compute: { module, entryPoint: "main" },
+  });
+
+  return { layout, dispatchLayout, begin, produce };
+}
+function obtainBoundsPipelines(device: GPUDevice, product: boolean) {
+  let profiles = boundsPipelines.get(device);
+  if (!profiles) {
+    profiles = new Map();
+    boundsPipelines.set(device, profiles);
+  }
+  let pipelines = profiles.get(product);
+  if (!pipelines) {
+    pipelines = createBoundsPipelines(device, product);
+    profiles.set(product, pipelines);
+  }
+  return pipelines;
+}
+
 /** Geometry-owned per-frame bounds of its independent shadow selection.
  * Cost: 32W+112 bytes; two dispatches, actual-count indirect, AABB affine
  * projection/work, one sequential write/work. No vertex payload/history/copy. */
 export class ShadowMeshletBounds {
+  static async preparePipelines(device: GPUDevice, product: boolean): Promise<void> {
+    const { begin, produce } = obtainBoundsPipelines(device, product);
+    await Promise.all([begin.prepare(), produce.prepare()]);
+  }
+
+  async preparePipelines(): Promise<void> {
+    await Promise.all([this.begin.prepare(), this.produce.prepare()]);
+  }
+
   readonly records: GPUBuffer;
   private readonly constants: GPUBuffer;
   private readonly dispatch: GPUBuffer;
-  private readonly begin: GPUComputePipeline;
-  private readonly produce: GPUComputePipeline;
+  private readonly begin: PreparedComputePipeline;
+  private readonly produce: PreparedComputePipeline;
   private readonly group: GPUBindGroup;
   private readonly dispatchLayout: GPUBindGroupLayout;
   private readonly dispatchGroups = new Map<GPUBuffer, GPUBindGroup>();
@@ -83,50 +156,13 @@ export class ShadowMeshletBounds {
       [work.capacity, device.limits.maxComputeWorkgroupsPerDimension, 0, 0],
       16
     );
-    const layout = device.createBindGroupLayout({
-      label: "Shadow Geometry/bounds source layout",
-      entries: [
-        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-        ...borrowed.slice(0, 3).map((_, index) => ({
-          binding: index + 1,
-          visibility: GPUShaderStage.COMPUTE,
-          buffer: { type: "read-only-storage" as const }
-        })),
-        { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-        ...borrowed.slice(3).map((_, index) => ({
-          binding: index + 5,
-          visibility: GPUShaderStage.COMPUTE,
-          buffer: { type: "read-only-storage" as const }
-        }))
-      ]
-    });
-    this.dispatchLayout = device.createBindGroupLayout({
-      label: "Shadow Geometry/bounds dispatch layout",
-      entries: [
-        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } }
-      ]
-    });
-    const module = device.createShaderModule({
-      label: "Shadow Geometry/tight bounds",
-      code: shadowMeshletBoundsWgsl(Boolean(work.productMode))
-    });
-    this.begin = device.createComputePipeline({
-      label: "Shadow Geometry/prepare bounds pipeline",
-      layout: device.createPipelineLayout({
-        label: "Shadow Geometry/prepare bounds pipeline layout",
-        bindGroupLayouts: [layout, this.dispatchLayout]
-      }),
-      compute: { module, entryPoint: "begin" }
-    });
-    this.produce = device.createComputePipeline({
-      label: "Shadow Geometry/produce bounds pipeline",
-      layout: device.createPipelineLayout({
-        label: "Shadow Geometry/produce bounds pipeline layout",
-        bindGroupLayouts: [layout]
-      }),
-      compute: { module, entryPoint: "main" }
-    });
+    const { layout, dispatchLayout, begin, produce } = obtainBoundsPipelines(
+      device,
+      Boolean(work.productMode),
+    );
+    this.dispatchLayout = dispatchLayout;
+    this.begin = begin;
+    this.produce = produce;
     this.group = device.createBindGroup({
       label: "Shadow Geometry/bounds source group",
       layout,
@@ -169,13 +205,13 @@ export class ShadowMeshletBounds {
     this.values.set(lightView, 0);
     command.writeBuffer(this.constants, 0, this.values.buffer, 0, 80);
     const begin = command.beginComputePass({ label: "Shadow Geometry/prepare bounds" });
-    begin.setPipeline(this.begin);
+    begin.setPipeline(this.begin.requirePrepared());
     begin.setBindGroup(0, this.group);
     begin.setBindGroup(1, dispatchGroup);
     begin.dispatchWorkgroups(1);
     begin.end();
     const produce = command.beginComputePass({ label: "Shadow Geometry/meshlet bounds" });
-    produce.setPipeline(this.produce);
+    produce.setPipeline(this.produce.requirePrepared());
     produce.setBindGroup(0, this.group);
     produce.dispatchWorkgroupsIndirect(this.dispatch, 0);
     produce.end();

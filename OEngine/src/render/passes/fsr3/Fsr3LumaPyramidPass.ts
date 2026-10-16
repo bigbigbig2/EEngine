@@ -1,3 +1,4 @@
+import { PreparedComputePipeline } from "../../../gpu/PreparedPipeline.js";
 import { GpuBindGroupCache } from "../../../gpu/GpuBindGroupResourceCache.js";
 import type { FrameGraph } from "../../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../../framegraph/ResourceHandle.js";
@@ -116,7 +117,7 @@ fn main() {
 
 interface PipelinePair {
   readonly layout: GPUBindGroupLayout;
-  readonly pipeline: GPUComputePipeline;
+  readonly pipeline: PreparedComputePipeline;
   readonly outputSide?: number;
 }
 
@@ -126,6 +127,22 @@ export interface Fsr3LumaPyramidOutput {
 }
 
 export class Fsr3LumaPyramidPass {
+  async preparePipelines(width: number, height: number): Promise<void> {
+    const mipCount = Math.min(12, Math.ceil(Math.log2(Math.max(width, height))));
+    const sourceLevels = Math.min(mipCount, 4);
+    const stages = [this.source[sourceLevels - 1]!, this.frameInfo];
+    for (let nextMip = sourceLevels; nextMip < mipCount;) {
+      const levels = Math.min(4, mipCount - nextMip, nextMip <= 5 ? 6 - nextMip : 4);
+      const mip = nextMip + levels - 1;
+      nextMip += levels;
+      stages.push(this.reduceF32[levels - 1]!);
+      if (mip === 5 && mip !== mipCount - 1) {
+        stages.push(this.quantize);
+      }
+    }
+    await Promise.all(stages.map((stage) => stage.pipeline.prepare()));
+  }
+
   private readonly bindGroups = new GpuBindGroupCache();
   private readonly source: readonly PipelinePair[];
   private readonly reduceF32: readonly PipelinePair[];
@@ -153,7 +170,7 @@ export class Fsr3LumaPyramidPass {
       const module = device.createShaderModule({ label, code });
       return {
         layout,
-        pipeline: device.createComputePipeline({
+        pipeline: new PreparedComputePipeline(device, {
           label,
           layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
           compute: { module, entryPoint: "main" },
@@ -346,7 +363,7 @@ export class Fsr3LumaPyramidPass {
       entries: resources.map((resource, binding) => ({ binding, resource })),
     });
     const pass = command.beginComputePass({ label: "FSR3 Luma SPD" });
-    pass.setPipeline(pair.pipeline);
+    pass.setPipeline(pair.pipeline.requirePrepared());
     pass.setBindGroup(0, bind);
     const side = pair.outputSide ?? 8;
     pass.dispatchWorkgroups(Math.ceil(width / side), Math.ceil(height / side));

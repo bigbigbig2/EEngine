@@ -1,3 +1,4 @@
+import { PreparedComputePipeline } from "../../gpu/PreparedPipeline.js";
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import { resolveGpuEncoder } from "../../framegraph/FrameGraph.js";
@@ -51,7 +52,11 @@ export type NativeTemporalSeedGraphBinder = <T extends object>(
  * legal with three submitted frames; resize/destroy retire at last-use fence.
  * Native V2 joins its color/depth histories to the same command transaction. */
 export class NativeTemporalSeed {
-  private readonly pipeline: GPUComputePipeline;
+  async preparePipelines(): Promise<void> {
+    await Promise.all([this.pipeline.prepare()]);
+  }
+
+  private readonly pipeline: PreparedComputePipeline;
   private readonly groups = new GpuBindGroupCache();
   private active: SeedAllocation | null = null;
   private pending: SeedAllocation | null = null;
@@ -99,7 +104,7 @@ export class NativeTemporalSeed {
         },
       ],
     });
-    this.pipeline = device.createComputePipeline({
+    this.pipeline = new PreparedComputePipeline(device, {
       label: "Temporal/Seed classification",
       layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
       compute: {
@@ -372,7 +377,7 @@ export class NativeTemporalSeed {
         throw new Error("Seed classification requires the current producer/consumer command");
       }
       const group = this.groups.create(this.device, {
-        layout: this.pipeline.getBindGroupLayout(0),
+        layout: this.pipeline.requirePrepared().getBindGroupLayout(0),
         entries: [
           { binding: 0, resource: resolveTextureView(resources.get(products.seed)) },
           { binding: 1, resource: resolveTextureView(resources.get(products.response)) },
@@ -382,7 +387,7 @@ export class NativeTemporalSeed {
         ],
       });
       const compute = encoder.beginComputePass({ label: "Temporal/Seed classification" });
-      compute.setPipeline(this.pipeline);
+      compute.setPipeline(this.pipeline.requirePrepared());
       compute.setBindGroup(0, group);
       compute.dispatchWorkgroups(Math.ceil(this.pending!.width / 8), Math.ceil(this.pending!.height / 8));
       compute.end();

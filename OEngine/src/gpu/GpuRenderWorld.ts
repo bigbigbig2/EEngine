@@ -343,8 +343,8 @@ export class GpuRenderWorld {
     const programsReady = Promise.all([
       native.ready,
       this.graphics.frame_instances.ready,
-      this.graphics.frame_vertices.ready,
-      this.graphics.current_hzb_recheck.ready
+      this.graphics.frame_vertices.preparePipelines(true),
+      this.graphics.current_hzb_recheck.ready,
     ]).then(() => undefined);
     const ready = Promise.all([texturesReady, programsReady]).then(() => undefined);
     void ready.catch(() => undefined);

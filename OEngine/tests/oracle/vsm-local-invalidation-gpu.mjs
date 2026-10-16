@@ -18,7 +18,9 @@ export async function runVsmLocalInvalidationGpuOracle(device) {
   const graphics = new GraphicsContext(device);
   const resources = VsmResources.create(device, negotiateVsmCapabilities(device));
   const bounds = new VsmDepthBoundsPass(device);
+  await bounds.preparePipelines();
   const invalidation = new VsmInvalidationPass(device);
+  await invalidation.preparePipelines();
   const generations = new VsmGeneration();
   const retained = [];
   const make = (size, usage) => {

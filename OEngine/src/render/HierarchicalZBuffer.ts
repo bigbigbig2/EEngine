@@ -76,6 +76,12 @@ export type HzbFrameRevision = Partial<
 >;
 
 export class HierarchicalZBuffer {
+  static async preparePipelines(graphics: GraphicsContext): Promise<void> {
+    await Promise.all([
+      graphics.compute_pipelines.prepare(FROM_DEPTH_PIPELINE),
+      graphics.compute_pipelines.prepare(REDUCE_PIPELINE),
+    ]);
+  }
   private readonly device: GPUDevice;
   private readonly graphics: GraphicsContext;
   private readonly textures: readonly [GPUTextureContext, GPUTextureContext];
@@ -288,8 +294,8 @@ export class HierarchicalZBuffer {
   }
 
   private ensurePipelines(): void {
-    this.pipelineFromDepth ??= this.graphics.compute_pipelines.obtain(FROM_DEPTH_PIPELINE);
-    this.pipelineReduce ??= this.graphics.compute_pipelines.obtain(REDUCE_PIPELINE);
+    this.pipelineFromDepth ??= this.graphics.compute_pipelines.requirePrepared(FROM_DEPTH_PIPELINE);
+    this.pipelineReduce ??= this.graphics.compute_pipelines.requirePrepared(REDUCE_PIPELINE);
   }
 
   private dispatchMip(pass: GPUComputePassEncoder, width: number, height: number): void {

@@ -1,3 +1,4 @@
+import { PreparedComputePipeline } from "../../gpu/PreparedPipeline.js";
 import { packVsmProjection, VSM_DEPTH_RANGE_BYTE_OFFSET, VSM_DEPTH_RANGE_BYTES } from "./VsmProjection.js";
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
@@ -69,15 +70,25 @@ function packConstants(input: VsmCasterRecordInputs): ArrayBuffer {
 
 /** GPU-only mapping from bounded MeshletWork to dirty VSM pages. */
 export class VsmCasterRecordPass {
+  async preparePipelines(): Promise<void> {
+    await Promise.all([
+      this.casterPipeline.prepare(),
+      this.countPipeline.prepare(),
+      this.selectPipeline.prepare(),
+      this.preparePipeline.prepare(),
+      this.finalizePipeline.prepare(),
+    ]);
+  }
+
   private readonly constants: GPUBuffer;
   private readonly casterLayout: GPUBindGroupLayout;
   private readonly mainLayout: GPUBindGroupLayout;
-  private readonly preparePipeline: GPUComputePipeline;
-  private readonly casterPipeline: GPUComputePipeline;
-  private readonly countPipeline: GPUComputePipeline;
-  private readonly selectPipeline: GPUComputePipeline;
+  private readonly preparePipeline: PreparedComputePipeline;
+  private readonly casterPipeline: PreparedComputePipeline;
+  private readonly countPipeline: PreparedComputePipeline;
+  private readonly selectPipeline: PreparedComputePipeline;
   private readonly pageCounts: GPUBuffer;
-  private readonly finalizePipeline: GPUComputePipeline;
+  private readonly finalizePipeline: PreparedComputePipeline;
   private bindings: Readonly<{
     buffers: readonly GPUBuffer[];
     full: GPUBindGroup;
@@ -132,27 +143,27 @@ export class VsmCasterRecordPass {
       label: "VSM/caster records WGSL",
       code: VSM_CASTER_RECORDS_WGSL,
     });
-    this.casterPipeline = device.createComputePipeline({
+    this.casterPipeline = new PreparedComputePipeline(device, {
       label: "VSM/caster records",
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.mainLayout] }),
       compute: { module, entryPoint: "main" },
     });
-    this.countPipeline = device.createComputePipeline({
+    this.countPipeline = new PreparedComputePipeline(device, {
       label: "VSM/count complete page pairs",
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.mainLayout] }),
       compute: { module, entryPoint: "main", constants: { count_only: 1 } },
     });
-    this.selectPipeline = device.createComputePipeline({
+    this.selectPipeline = new PreparedComputePipeline(device, {
       label: "VSM/select complete page pairs",
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.casterLayout] }),
       compute: { module, entryPoint: "select_complete_pages" },
     });
-    this.preparePipeline = device.createComputePipeline({
+    this.preparePipeline = new PreparedComputePipeline(device, {
       label: "VSM/prepare actual pair dispatch",
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.casterLayout] }),
       compute: { module, entryPoint: "prepare_pairs" },
     });
-    this.finalizePipeline = device.createComputePipeline({
+    this.finalizePipeline = new PreparedComputePipeline(device, {
       label: "VSM/fixed raster indirect",
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.casterLayout] }),
       compute: { module, entryPoint: "finalize_indirect" },
@@ -265,22 +276,22 @@ export class VsmCasterRecordPass {
         this.pageCounts,
       ]);
       const prepare = command.beginComputePass({ label: "VSM/prepare actual pair dispatch" });
-      prepare.setPipeline(this.preparePipeline);
+      prepare.setPipeline(this.preparePipeline.requirePrepared());
       prepare.setBindGroup(0, groups.full);
       prepare.dispatchWorkgroups(1);
       prepare.end();
       const count = command.beginComputePass({ label: "VSM/count complete page pairs" });
-      count.setPipeline(this.countPipeline);
+      count.setPipeline(this.countPipeline.requirePrepared());
       count.setBindGroup(0, groups.main);
       count.dispatchWorkgroupsIndirect(resolved.get(indirect) as GPUBuffer, 0);
       count.end();
       const select = command.beginComputePass({ label: "VSM/select complete page pairs" });
-      select.setPipeline(this.selectPipeline);
+      select.setPipeline(this.selectPipeline.requirePrepared());
       select.setBindGroup(0, groups.full);
       select.dispatchWorkgroups(1);
       select.end();
       const pass = command.beginComputePass({ label: "VSM/compact pairs" });
-      pass.setPipeline(this.casterPipeline);
+      pass.setPipeline(this.casterPipeline.requirePrepared());
       pass.setBindGroup(0, groups.main);
       pass.dispatchWorkgroupsIndirect(resolved.get(indirect) as GPUBuffer, 0);
       pass.end();
@@ -310,7 +321,7 @@ export class VsmCasterRecordPass {
         this.pageCounts,
       ]);
       const pass = command.beginComputePass({ label: "VSM/finalize raster indirect" });
-      pass.setPipeline(this.finalizePipeline);
+      pass.setPipeline(this.finalizePipeline.requirePrepared());
       pass.setBindGroup(0, groups.full);
       pass.dispatchWorkgroups(1);
       pass.end();

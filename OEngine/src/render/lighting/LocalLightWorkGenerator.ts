@@ -1,3 +1,4 @@
+import { PipelineCompilationQueue } from "../../gpu/PipelineCompilationQueue.js";
 import { GpuBindGroupCache } from "../../gpu/GpuBindGroupResourceCache.js";
 import {
   LOCAL_LIGHT_ABI_VERSION,
@@ -132,7 +133,13 @@ export class LocalLightWorkGenerator {
   private disposed = false;
   private readonly targetIds = new WeakMap<GPUBuffer, number>();
   private nextTargetId = 1;
-  readonly ready: Promise<void>;
+  private readiness: Promise<void> | null = null;
+  get ready(): Promise<void> {
+    return (this.readiness ??= this.createPipelines().catch((error: unknown) => {
+      this.readiness = null;
+      throw error;
+    }));
+  }
 
   constructor(
     private readonly device: GPUDevice,
@@ -150,7 +157,6 @@ export class LocalLightWorkGenerator {
     ) {
       throw new RangeError("LocalLightWork requires the portable scan and five-storage profile");
     }
-    this.ready = this.createPipelines();
     void device.lost.then(() => this.destroy());
   }
 
@@ -215,11 +221,13 @@ export class LocalLightWorkGenerator {
       ],
     });
     for (const entryPoint of stages) {
-      const pipeline = await this.device.createComputePipelineAsync({
-        label: `LocalLightWork/${entryPoint}`,
-        layout: entryPoint === "count" || entryPoint === "scatter" ? pairLayout : pipelineLayout,
-        compute: { module, entryPoint },
-      });
+      const pipeline = await PipelineCompilationQueue.forDevice(this.device).run(() =>
+        this.device.createComputePipelineAsync({
+          label: `LocalLightWork/${entryPoint}`,
+          layout: entryPoint === "count" || entryPoint === "scatter" ? pairLayout : pipelineLayout,
+          compute: { module, entryPoint },
+        }),
+      );
       if (this.disposed) {
         throw new Error("LocalLightWork pipeline initialization cancelled");
       }
@@ -240,11 +248,13 @@ export class LocalLightWorkGenerator {
       ],
     });
     for (const entryPoint of ["scan", "add"]) {
-      const pipeline = await this.device.createComputePipelineAsync({
-        label: `LocalLightWork/${entryPoint}`,
-        layout: scanLayout,
-        compute: { module: scanModule, entryPoint },
-      });
+      const pipeline = await PipelineCompilationQueue.forDevice(this.device).run(() =>
+        this.device.createComputePipelineAsync({
+          label: `LocalLightWork/${entryPoint}`,
+          layout: scanLayout,
+          compute: { module: scanModule, entryPoint },
+        }),
+      );
       if (this.disposed) {
         throw new Error("LocalLightWork scan initialization cancelled");
       }

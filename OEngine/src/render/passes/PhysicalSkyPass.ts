@@ -84,6 +84,9 @@ const PIPELINE: CachedRenderPipelineDescriptor = {
 };
 
 export class PhysicalSkyPass {
+  async preparePipelines(): Promise<void> {
+    await this.graphics.render_pipelines.prepare(PIPELINE);
+  }
   private pipeline: GPURenderPipeline | null = null;
   constructor(private readonly graphics: GraphicsContext) {}
   addToGraph(
@@ -99,7 +102,7 @@ export class PhysicalSkyPass {
       preExposure: ResourceId;
     },
   ): ResourceId {
-    this.pipeline ??= this.graphics.render_pipelines.obtain(PIPELINE);
+    this.pipeline ??= this.graphics.render_pipelines.requirePrepared(PIPELINE);
     const pass = graph.add("Environment/Physical Sky radiance", input, (data, resources, context) => {
       const encoder = context.gpu_encoder;
       if (!encoder || !this.pipeline) throw new Error("PhysicalSkyPass is not initialized");

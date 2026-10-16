@@ -72,9 +72,10 @@ export async function runSkyRadiometryGpuOracle(device) {
       entries: entries.map((resource, binding) => ({ binding, resource })),
     });
   let owner;
-  const resetOwner = () => {
+  const resetOwner = async () => {
     owner?.destroy();
     owner = new GpuRadiometryPass(device);
+    await owner.preparePipelines();
   };
   const step = (dt = 1 / 60, index = 0, abort = false) => {
     owner.prepareFrame(dt);
@@ -136,7 +137,7 @@ export async function runSkyRadiometryGpuOracle(device) {
   try {
     const hdr = [];
     for (const luminance of [1, 4, 16, 100, 1000]) {
-      resetOwner();
+      await resetOwner();
       upload(luminance);
       step();
       const result = await owner.readDiagnostics();
@@ -156,7 +157,7 @@ export async function runSkyRadiometryGpuOracle(device) {
       ["firefly", 1, 1000, 0.0125],
       ["black", 0, 0, 0],
     ]) {
-      resetOwner();
+      await resetOwner();
       upload(low, high, fraction);
       step();
       const result = await owner.readDiagnostics();
@@ -177,7 +178,7 @@ export async function runSkyRadiometryGpuOracle(device) {
     ]) {
       const endpoints = [];
       for (const fps of [30, 60, 120]) {
-        resetOwner();
+        await resetOwner();
         upload(start);
         step();
         const before = await owner.readDiagnostics();
@@ -207,7 +208,7 @@ export async function runSkyRadiometryGpuOracle(device) {
         "30/60/120 FPS adaptation must agree in elapsed time",
       );
     }
-    resetOwner();
+    await resetOwner();
     upload(16);
     step();
     const before = await owner.readDiagnostics();

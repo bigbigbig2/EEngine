@@ -16,7 +16,7 @@ const deferred = () => {
   return { promise, resolve };
 };
 
-function fixture() {
+async function fixture() {
   const loss = deferred();
   const textures = [];
   const buffers = [];
@@ -40,7 +40,7 @@ function fixture() {
     createSampler: (d) => d,
     createBindGroupLayout: (d) => d,
     createPipelineLayout: (d) => d,
-    createComputePipeline: (d) => ({ label: d.label, getBindGroupLayout: () => ({}) }),
+    createComputePipelineAsync: async (d) => ({ label: d.label, getBindGroupLayout: () => ({}) }),
     createBindGroup(d) {
       groups.push(d);
       return d;
@@ -76,6 +76,7 @@ function fixture() {
   };
   const accounting = new ResourceAccounting();
   const owner = new NativeTemporalV2(device, accounting);
+  await owner.preparePipelines();
   const command = {
     writeBuffer(_buffer, _offset, bytes) {
       writes.push(bytes.slice(0));
@@ -164,7 +165,7 @@ function fixture() {
 }
 
 test("inactive Native histories remain accounted until their fence; returning domain allocates invalid history", async () => {
-  const f = fixture();
+  const f = await fixture();
   f.prepare();
   f.build();
   f.encode();
@@ -189,7 +190,7 @@ test("inactive Native histories remain accounted until their fence; returning do
 });
 
 test("unencoded commit is rejected; resize abort retains submitted histories, roles and jitter", async () => {
-  const f = fixture();
+  const f = await fixture();
   f.prepare();
   assert.throws(() => f.owner.commit(Promise.resolve()), /complete encoded/);
   assert.throws(() => f.owner.assertCompleteFrame(), /complete graph/);
@@ -222,9 +223,9 @@ test("unencoded commit is rejected; resize abort retains submitted histories, ro
   assert.equal(f.owner.allocatedBytes, 0);
 });
 
-test("missing shading producer rejects the common history transaction; retry completes the same roles", () => {
+test("missing shading producer rejects the common history transaction; retry completes the same roles", async () => {
   for (const omitPass of ["Native Temporal V2/Shading Pyramid", "Native Temporal V2/Shading Change"]) {
-    const f = fixture();
+    const f = await fixture();
     f.prepare();
     f.build();
     assert.throws(() => f.encode(f.command, omitPass), /complete pyramid|complete shading change/);
@@ -243,7 +244,7 @@ test("missing shading producer rejects the common history transaction; retry com
 });
 
 test("cached graph late binds both roles during three in-flight frames; cut preserves allocation", async () => {
-  const f = fixture();
+  const f = await fixture();
   const fences = [];
   const roleTextures = [];
   f.prepare();
@@ -275,8 +276,8 @@ test("cached graph late binds both roles during three in-flight frames; cut pres
   assert.throws(() => f.prepare(), /unavailable/);
 });
 
-test("invalid extent/role fails before allocation; write failure rolls candidate back", () => {
-  const f = fixture();
+test("invalid extent/role fails before allocation; write failure rolls candidate back", async () => {
+  const f = await fixture();
   const count = f.textures.length;
   for (const width of [0, NaN, 4097]) {
     assert.throws(() => f.prepare(width));
@@ -308,8 +309,8 @@ test("invalid extent/role fails before allocation; write failure rolls candidate
   assert.equal(f.owner.allocatedBytes, 0);
 });
 
-test("cached graph rejects resized domains before dispatch and requires an explicit binder", () => {
-  const f = fixture();
+test("cached graph rejects resized domains before dispatch and requires an explicit binder", async () => {
+  const f = await fixture();
   f.prepare();
   assert.throws(() => f.owner.addToGraph({}, { width: 19, height: 13 }), /explicit frame resource binder/);
   assert.throws(() => f.build(20, 13), /graph domain differs/);
@@ -326,7 +327,7 @@ test("cached graph rejects resized domains before dispatch and requires an expli
 });
 
 test("device loss retires active and pending histories after their last-use fence", async () => {
-  const f = fixture();
+  const f = await fixture();
   f.prepare();
   f.build();
   f.encode();
@@ -351,8 +352,8 @@ test("device loss retires active and pending histories after their last-use fenc
   f.owner.destroy();
 });
 
-test("constructor upload failure releases every allocated permanent buffer", () => {
-  const f = fixture();
+test("constructor upload failure releases every allocated permanent buffer", async () => {
+  const f = await fixture();
   f.owner.destroy();
   const count = f.buffers.length;
   f.device.queue.writeBuffer = () => {
@@ -363,8 +364,8 @@ test("constructor upload failure releases every allocated permanent buffer", () 
   assert.ok(f.buffers.slice(count).every((buffer) => buffer.destroyed));
 });
 
-test("negotiated storage limit is checked before any resource allocation", () => {
-  const f = fixture();
+test("negotiated storage limit is checked before any resource allocation", async () => {
+  const f = await fixture();
   f.owner.destroy();
   const bufferCount = f.buffers.length;
   const textureCount = f.textures.length;
@@ -409,7 +410,7 @@ function jointCommand(f) {
 }
 
 test("Seed and V2 submit and abort their exact history roles together on one cached command graph", async () => {
-  const f = fixture();
+  const f = await fixture();
   const seed = new NativeTemporalSeed(f.device);
   const camera = {
     view: identityMatrix,
@@ -458,8 +459,8 @@ test("Seed and V2 submit and abort their exact history roles together on one cac
   assert.equal(seed.allocatedBytes, 0);
 });
 
-test("joint Seed/V2 rejects incomplete, foreign-command, stale-role and mismatched-frame publication", () => {
-  const f = fixture();
+test("joint Seed/V2 rejects incomplete, foreign-command, stale-role and mismatched-frame publication", async () => {
+  const f = await fixture();
   const seed = new NativeTemporalSeed(f.device);
   const camera = {
     view: identityMatrix,
@@ -498,8 +499,8 @@ test("joint Seed/V2 rejects incomplete, foreign-command, stale-role and mismatch
   assert.equal(seed.allocatedBytes, 0);
 });
 
-test("AA-off Surface proof rejects stale roles and abort never publishes identity", () => {
-  const f = fixture();
+test("AA-off Surface proof rejects stale roles and abort never publishes identity", async () => {
+  const f = await fixture();
   const seed = new NativeTemporalSeed(f.device);
   const camera = {
     view: identityMatrix,

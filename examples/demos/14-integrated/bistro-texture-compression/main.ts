@@ -325,6 +325,7 @@ function snapshot() {
       fullQualityMs,
       providerComplete: settled,
       initialization: cooked?.initialization ?? null,
+      rendererInitialization: renderer?.initializationEvidence(scene) ?? null,
       fullGeometrySettled: renderer?.sceneRefinementEvidence(scene)?.phase === "view-settled",
       refinement: renderer?.sceneRefinementEvidence(scene) ?? null,
       glbReadMs: null,

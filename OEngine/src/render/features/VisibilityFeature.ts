@@ -23,6 +23,18 @@ import {
  * 的生产路径；具体 raster 算法仍由已验证的 PackedVisibilityPass 执行。
  */
 export class VisibilityFeature {
+  async preparePipelines(
+    runtime: GpuRenderWorldRuntime,
+    previousHzb: boolean,
+    lateRecheck: boolean,
+    shadow: boolean,
+  ): Promise<void> {
+    await Promise.all([
+      this.implementation.preparePipelines(runtime, previousHzb, lateRecheck),
+      ...(shadow ? [this.shadow.preparePipelines(runtime)] : []),
+    ]);
+  }
+
   private readonly implementation: PackedVisibilityPass;
   private readonly shadow: ShadowGeometryWork;
 

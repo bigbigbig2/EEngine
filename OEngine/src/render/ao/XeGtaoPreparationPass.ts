@@ -1,3 +1,4 @@
+import { PreparedComputePipeline } from "../../gpu/PreparedPipeline.js";
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
@@ -44,13 +45,21 @@ export interface XeGtaoPreparedFields {
 
 /** Production depth normals and complete source-equivalent weighted depth mips. */
 export class XeGtaoPreparationPass {
+  async preparePipelines(): Promise<void> {
+    await Promise.all([
+      this.normalPipeline.prepare(),
+      this.prefilterPipeline.prepare(),
+      this.reducePipeline.prepare(),
+    ]);
+  }
+
   private readonly constants: GPUBuffer;
   private readonly normalLayout: GPUBindGroupLayout;
-  private readonly normalPipeline: GPUComputePipeline;
+  private readonly normalPipeline: PreparedComputePipeline;
   private readonly prefilterLayout: GPUBindGroupLayout;
-  private readonly prefilterPipeline: GPUComputePipeline;
+  private readonly prefilterPipeline: PreparedComputePipeline;
   private readonly reduceLayout: GPUBindGroupLayout;
-  private readonly reducePipeline: GPUComputePipeline;
+  private readonly reducePipeline: PreparedComputePipeline;
   private readonly firstMipCount: 2 | 4;
 
   constructor(private readonly device: GPUDevice) {
@@ -79,7 +88,7 @@ export class XeGtaoPreparationPass {
       storageTexture: { access: "write-only", format },
     });
     this.normalLayout = device.createBindGroupLayout({ entries: [uniform, depth, storage(2, "r32uint")] });
-    this.normalPipeline = device.createComputePipeline({
+    this.normalPipeline = new PreparedComputePipeline(device, {
       label: "XeGTAO/GenerateNormals",
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.normalLayout] }),
       compute: {
@@ -94,7 +103,7 @@ export class XeGtaoPreparationPass {
         ...Array.from({ length: this.firstMipCount }, (_, mip) => storage(2 + mip, "r32float")),
       ],
     });
-    this.prefilterPipeline = device.createComputePipeline({
+    this.prefilterPipeline = new PreparedComputePipeline(device, {
       label: "XeGTAO/PrefilterDepths16x16",
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.prefilterLayout] }),
       compute: {
@@ -111,7 +120,7 @@ export class XeGtaoPreparationPass {
         storage(2, "r32float"),
       ],
     });
-    this.reducePipeline = device.createComputePipeline({
+    this.reducePipeline = new PreparedComputePipeline(device, {
       label: "XeGTAO/WeightedDepthMIPFilter",
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.reduceLayout] }),
       compute: {
@@ -268,13 +277,13 @@ export class XeGtaoPreparationPass {
   private dispatch(
     command: ShadeGPUCommandContext,
     label: string,
-    pipeline: GPUComputePipeline,
+    pipeline: PreparedComputePipeline,
     group: GPUBindGroup,
     x: number,
     y: number,
   ): void {
     const pass = command.beginComputePass({ label });
-    pass.setPipeline(pipeline);
+    pass.setPipeline(pipeline.requirePrepared());
     pass.setBindGroup(0, group);
     pass.dispatchWorkgroups(x, y);
     pass.end();

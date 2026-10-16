@@ -84,6 +84,7 @@ export async function runNativeTemporalV2GpuOracle(device) {
       entries: [{ binding: 0, resource: sourceDepth.createView() }],
     });
     const runtimes = [new BeforeRuntime(device), new Fsr3UpscalerRuntime(device)];
+    await runtimes[1].preparePipelines(width, height);
     const errors = [[], []],
       outputs = [[], []],
       frameSummaries = [],

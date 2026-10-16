@@ -3,7 +3,7 @@ import { SceneRefinement } from "../SceneRefinement.js";
 import { GeometryProductBytePool } from "../../gpu/GeometryProductBytePool.js";
 import type { VirtualMaterialPreparation, VirtualGeometryGeometryProfile } from "../../gpu/GpuRenderWorld.js";
 
-import { SssrDebug } from "../reflections/SssrDebug.js";
+import { SssrDebug, isSssrDebug } from "../reflections/SssrDebug.js";
 import { planSssrCapacity } from "../reflections/SssrAbi.js";
 import {
   SCREEN_SPACE_REFLECTIONS_DEFAULT_SETTINGS,
@@ -15,6 +15,7 @@ import { VsmDepthBoundsPass } from "../vsm/VsmDepthBoundsPass.js";
 import { ChangeSignal } from "../../core/Signal.js";
 import { Vec2 } from "../../core/math/Vec2.js";
 import { GraphicsContext } from "../../gpu/GraphicsContext.js";
+import { GPUDatabase } from "../../gpu/GPUDatabase.js";
 import { captureWebGpuCapabilityRecord } from "../../gpu/WebGpuCapabilityRecord.js";
 import { preflightResidentSurfaceLimits } from "../../gpu/PhysicalSamplingProfile.js";
 import { GPUSceneEnvironmentManager } from "../../gpu/GPUSceneEnvironmentManager.js";
@@ -35,7 +36,10 @@ import { XeGtaoMainPass } from "../ao/XeGtaoMainPass.js";
 import { XeGtaoDenoisePass } from "../ao/XeGtaoDenoisePass.js";
 import { SurfacePresentPass } from "../surface/SurfacePresentPass.js";
 import { SurfaceV4 } from "../surface/SurfaceV4.js";
-import { planNativeExecutionBins } from "../surface/NativeExecutionBins.js";
+import { NativeExecutionBins, planNativeExecutionBins } from "../surface/NativeExecutionBins.js";
+import { NativeRasterWorkPartitions } from "../surface/NativeRasterWorkPartitions.js";
+import { prepareAuthoredEnvironmentPipelines } from "../../gpu/GpuAuthoredEnvironment.js";
+import { PipelineCompilationQueue } from "../../gpu/PipelineCompilationQueue.js";
 import {
   LocalLightWorkGenerator,
   localLightPublication,
@@ -64,7 +68,7 @@ import {
   type RenderDebugView
 } from "../../debug/RenderDebugView.js";
 import { captureGpuAdapterIdentity, type BenchmarkAdapterIdentity } from "../../debug/EnvironmentManifest.js";
-import type { HierarchicalZBuffer } from "../HierarchicalZBuffer.js";
+import { HierarchicalZBuffer } from "../HierarchicalZBuffer.js";
 import type { PerspectiveCamera } from "../../camera/PerspectiveCamera.js";
 import type { GeometryHierarchyView } from "../../geometry/GeometryHierarchy.js";
 import type { Scene } from "../../scene/Scene.js";
@@ -399,6 +403,208 @@ export interface OegPackSceneOptions extends ProductSceneOptions {
 
 /** Single Renderer composition root; Phase 2 material evaluation is being rebuilt in place. */
 export class Renderer {
+  private readonly startup = {
+    initializeStartedAtMs: null as number | null,
+    initializeReadyAtMs: null as number | null,
+    firstPrepareStartedAtMs: null as number | null,
+    firstPrepareReadyAtMs: null as number | null,
+    firstGraphLowerMs: null as number | null,
+    firstSceneViewPrepareMs: null as number | null,
+    firstEncodeMs: null as number | null,
+    firstFinishMs: null as number | null,
+    firstSubmitMs: null as number | null,
+    firstSubmittedAtMs: null as number | null,
+    firstCompletedAtMs: null as number | null,
+    firstQueueCompletionMs: null as number | null,
+  };
+
+  initializationEvidence(scene?: Scene) {
+    return Object.freeze({
+      ...this.startup,
+      timeOriginMs: performance.timeOrigin,
+      clock: "performance.now; durations are CPU wall/queue observation, not GPU timestamps",
+      pipelines: this.pipelinePreparationEvidence(),
+      refinement: scene ? (this._sceneRefinement.get(scene)?.evidence() ?? null) : null,
+    });
+  }
+
+  private readonly pipelineReadiness = new WeakMap<
+    GpuRenderWorldRuntime,
+    {
+      key: string;
+      ready: boolean;
+      error?: unknown;
+    }
+  >();
+  private initialPipelinePreparation: Promise<unknown> = Promise.resolve();
+
+  /** Preparation uses only actual scene facts and selected owner descriptors.
+   * A pending profile never enters frame/history transactions. */
+  private canPreparePipelines(runtime: GpuRenderWorldRuntime, scene: Scene): boolean {
+    const native = runtime.nativeMaterials!;
+    const lit = native.hasLit;
+    const ao = this._ambientOcclusionSettings;
+    const aoEnabled = lit && ao.enabled && ao.strength > 0 && native.publication.bins.length > 0;
+    const shadow =
+      lit &&
+      this._environmentRuntime !== null &&
+      this._shadowVisibilityEnabled &&
+      this._vsm !== null &&
+      this._vsm.profile !== "shadow-disabled";
+    const policy = frameTemporalPolicy({
+      internalWidth: this._render_resolution.x,
+      internalHeight: this._render_resolution.y,
+      outputWidth: this._output_resolution.x,
+      outputHeight: this._output_resolution.y,
+      fsr3Enabled: this.fsr3_enabled,
+    });
+    const debug = this._render_debug_view;
+    const temporalDebug =
+      debug === RenderDebugViewValue.Velocity ||
+      debug === RenderDebugViewValue.HistoryValidity ||
+      debug === RenderDebugViewValue.Reactive;
+    const reflectionEnabled =
+      lit &&
+      runtime.instanceCount > 0 &&
+      this._screenSpaceReflectionsSettings.enabled &&
+      this._screenSpaceReflectionsSettings.strength > 0;
+    const compact = native.publication.bins.length > 1;
+    const lightRecords = lit && scene.lights.elements.length > 0;
+    const key = `${native.revision}/${this._render_resolution.x}x${this._render_resolution.y}/${lit}/${shadow}/${aoEnabled ? `${ao.quality}/${ao.denoisePasses}` : "off"}/${policy}/${this.bloom_enabled}/${debug}/${reflectionEnabled}/${compact}/${this.packed_visibility_hzb_enabled}/${this.packed_visibility_current_hzb_late_recheck_enabled}/${Boolean(scene.lights.environment)}/${this.perf_gpu_counters_enabled}/${lightRecords}`;
+    const current = this.pipelineReadiness.get(runtime);
+    if (current?.key === key) {
+      if (current.error !== undefined) {
+        throw current.error;
+      }
+      return current.ready;
+    }
+    const candidate = { key, ready: false, error: undefined as unknown };
+    this.pipelineReadiness.set(runtime, candidate);
+    this.startup.firstPrepareStartedAtMs ??= performance.now();
+    const jobs: Promise<unknown>[] = [
+      this.initialPipelinePreparation,
+      this._visibilityFeature.preparePipelines(
+        runtime,
+        this.packed_visibility_hzb_enabled,
+        this.packed_visibility_current_hzb_late_recheck_enabled,
+        shadow,
+      ),
+      NativeRasterWorkPartitions.preparePipelines(this._graphics, false),
+      this._surface.preparePipelines(native.publication.bins.length === 0),
+      this._present.preparePipelines(debug !== RenderDebugViewValue.None),
+      this._gpuRadiometry.preparePipelines(),
+    ];
+    if (
+      this.packed_visibility_hzb_enabled ||
+      (this.packed_visibility_current_hzb_late_recheck_enabled && runtime.virtualGeometry !== null)
+    ) {
+      jobs.push(HierarchicalZBuffer.preparePipelines(this._graphics));
+    }
+    if (compact) {
+      jobs.push(NativeExecutionBins.preparePipelines(this._graphics, true));
+    }
+    if (lit) {
+      jobs.push(this._localLightWork.ready);
+    }
+    if (lightRecords) {
+      jobs.push(GPUDatabase.preparePipelines(this._graphics));
+    }
+    if (aoEnabled) {
+      jobs.push(
+        this._xeGtaoPreparation.preparePipelines(),
+        this._xeGtaoMain.preparePipelines(ao.quality),
+        this._xeGtaoDenoise.preparePipelines(ao.denoisePasses),
+      );
+    }
+    if (policy === "native") {
+      jobs.push(this._nativeTemporal.preparePipelines());
+    }
+    if (policy === "upscale") {
+      jobs.push(this._fsr3.preparePipelines(this._render_resolution.x, this._render_resolution.y));
+    }
+    if (policy === "upscale" || temporalDebug) {
+      jobs.push(this._temporalSeed.preparePipelines());
+    }
+    if (this.bloom_enabled) {
+      jobs.push(this._bloom.preparePipelines());
+    }
+    if (this._environmentRuntime) {
+      jobs.push(
+        this._environmentRuntime.preparePipelines(),
+        this._physicalSky!.preparePipelines(),
+        this._aerialPerspective!.preparePipelines(),
+      );
+    }
+    if (lit && scene.lights.environment) {
+      jobs.push(prepareAuthoredEnvironmentPipelines(this._graphics));
+    }
+    if (shadow) {
+      jobs.push(
+        native.prepareShadowPipelines(),
+        this._vsmDepthBounds.preparePipelines(),
+        this._vsmReceiverDemand.preparePipelines(),
+        this._vsmAllocatePages.preparePipelines(),
+        this._vsmCasterRecords.preparePipelines(),
+        this._vsmAtlasRaster.preparePipelines(),
+        this._vsmInvalidation.preparePipelines(),
+        NativeRasterWorkPartitions.preparePipelines(this._graphics, true),
+      );
+    }
+    if (isSssrDebug(debug)) {
+      jobs.push(
+        this._sssrDebug.preparePipelines(
+          !reflectionEnabled
+            ? 0
+            : debug === RenderDebugViewValue.ScreenSpaceReflectionHitMiss ||
+                debug === RenderDebugViewValue.ScreenSpaceReflectionHistoryConfidence
+              ? 2
+              : 1,
+        ),
+      );
+    } else if (debug !== RenderDebugViewValue.None) {
+      jobs.push(this._renderDebugViewPass.preparePipelines(debug, aoEnabled));
+    }
+    if (this.perf_gpu_counters_enabled) {
+      jobs.push(this._visibilityCounters.preparePipelines(this._graphics));
+    }
+    void Promise.all(jobs).then(
+      () => {
+        if (!this._destroyed && !this._deviceLost && this.pipelineReadiness.get(runtime) === candidate) {
+          candidate.ready = true;
+          this.startup.firstPrepareReadyAtMs ??= performance.now();
+        }
+      },
+      (error: unknown) => {
+        candidate.error = error;
+      },
+    );
+    return false;
+  }
+
+  pipelinePreparationEvidence() {
+    return Object.freeze({
+      ...PipelineCompilationQueue.forDevice(this.device).evidence(),
+      renderCache: this._graphics.render_pipelines.evidence(),
+      computeCache: this._graphics.compute_pipelines.evidence(),
+    });
+  }
+
+  /** Failed work stays failed until the caller explicitly retries. No quality
+   * reduction or history mutation is used to escape a preparation failure. */
+  retryPipelinePreparation(scene: Scene): void {
+    const runtime = this._graphics.render_world.runtime(scene);
+    if (!runtime) {
+      throw new Error("Pipeline retry requires a resident scene");
+    }
+    this.pipelineReadiness.delete(runtime);
+    this.initialPipelinePreparation = Promise.resolve();
+    runtime.nativeMaterials?.retryPreparation();
+    if (this._reflectionError !== undefined) {
+      this._reflectionError = undefined;
+      this._reflectionReady = null;
+      this._reflectionInitialization++;
+    }
+  }
   context!: GPUCanvasContext;
   device!: GPUDevice;
   private _graphics!: GraphicsContext;
@@ -1794,6 +2000,7 @@ export class Renderer {
   }
 
   async initialize(options: RendererInitializeOptions = {}): Promise<void> {
+    this.startup.initializeStartedAtMs ??= performance.now();
     if (this._destroyed) throw new Error("Destroyed Renderer cannot initialize");
     const gpu = navigator.gpu;
     if (!gpu) throw new Error("WebGPU is unavailable");
@@ -1967,7 +2174,6 @@ export class Renderer {
     this._sssrDebug = new SssrDebug(device);
     this._finalPixelLighting = new FinalPixelLightingPublication(device, this._graphics);
     this._localLightWork = new LocalLightWorkGenerator(device, this.deviceEpoch, this._graphics);
-    await this._localLightWork.ready;
     this._temporalSeed = new NativeTemporalSeed(device, this._graphics.resource_accounting);
     this._gpuRadiometry = new GpuRadiometryPass(
       device,
@@ -1989,6 +2195,38 @@ export class Renderer {
     }
     this._renderTargets.initializeDepth(this._graphics.textures, 1, 1);
     this.resize(this._width, this._height, true);
+    // Begin device/profile-only work now so cooked directory/payload IO can
+    // overlap it. Scene-dependent AO/material/geometry variants remain at their
+    // exact scene gate. Retain rejection for that gate rather than retry silently.
+    const initialPolicy = frameTemporalPolicy({
+      internalWidth: this._render_resolution.x,
+      internalHeight: this._render_resolution.y,
+      outputWidth: this._output_resolution.x,
+      outputHeight: this._output_resolution.y,
+      fsr3Enabled: this.fsr3_enabled,
+    });
+    this.initialPipelinePreparation = Promise.all([
+      this._present.preparePipelines(this._render_debug_view !== RenderDebugViewValue.None),
+      this._gpuRadiometry.preparePipelines(),
+      ...(this.bloom_enabled ? [this._bloom.preparePipelines()] : []),
+      ...(this._environmentRuntime
+        ? [
+            this._environmentRuntime.preparePipelines(),
+            this._physicalSky!.preparePipelines(),
+            this._aerialPerspective!.preparePipelines(),
+          ]
+        : []),
+      ...(initialPolicy === "native"
+        ? [this._nativeTemporal.preparePipelines()]
+        : initialPolicy === "upscale"
+          ? [
+              this._fsr3.preparePipelines(this._render_resolution.x, this._render_resolution.y),
+              this._temporalSeed.preparePipelines(),
+            ]
+          : []),
+    ]);
+    void this.initialPipelinePreparation.catch(() => undefined);
+    this.startup.initializeReadyAtMs = performance.now();
   }
 
   resize(width: number, height: number, force = false): void {
@@ -2184,11 +2422,18 @@ export class Renderer {
       this._publicationDeferredTicks++;
       return true;
     }
+    if (!this.canPreparePipelines(runtime, scene)) {
+      this._lastFrameDeferral = "publication-ready";
+      this._publicationDeferredTicks++;
+      return true;
+    }
     if (this._historyRuntime !== runtime) {
       this._historyRuntime = runtime;
       this._sceneHistoryEpoch++;
     }
     const frameIndex = this._frame_count;
+    const firstFrame = this.startup.firstSubmittedAtMs === null;
+    const firstPrepareStartedAt = firstFrame ? performance.now() : 0;
     const streaming = this._virtualProductScenes.get(scene)?.streamingRuntime;
     if (streaming) {
       const previous = this._streamingCameraMatrices.get(scene);
@@ -2630,6 +2875,9 @@ export class Renderer {
         vsmGeneration
       };
       finishViewPrepare();
+      if (firstFrame) {
+        this.startup.firstSceneViewPrepareMs = performance.now() - firstPrepareStartedAt;
+      }
       const program = this._programCache.getOrCreate({
         kind: "scene",
         intent: "present",
@@ -2668,7 +2916,14 @@ export class Renderer {
       const graphKey = `${program.key}|appearance:${materialPublication.revision}|geometry:${runtime.virtualGeometry?.bindingEpoch ?? "none"}`;
       const compiled = this._graphCache.getOrCreate(
         graphKey,
-        () => lowerFrameProgram(program, graphBindings, this.frameProgramOwners()),
+        () => {
+          const startedAt = firstFrame ? performance.now() : 0;
+          const compiled = lowerFrameProgram(program, graphBindings, this.frameProgramOwners());
+          if (firstFrame) {
+            this.startup.firstGraphLowerMs = performance.now() - startedAt;
+          }
+          return compiled;
+        },
         {
           hit: () => this._profiler.recordGraphCacheHit(),
           miss: () => this._profiler.recordGraphCacheMiss(),
@@ -2685,7 +2940,11 @@ export class Renderer {
           bindingRoles: program.bindingRoles
         }
       });
+      const firstEncodeStartedAt = firstFrame ? performance.now() : 0;
       command.encodeCompiledGraph(compiled, graphBindings);
+      if (firstFrame) {
+        this.startup.firstEncodeMs = performance.now() - firstEncodeStartedAt;
+      }
       if (streaming && vsmEnabled) {
         streaming.encodePublicationCostReadback(
           command,
@@ -2752,6 +3011,19 @@ export class Renderer {
         this._committedReflectionColorKey = reflectionColorKey;
       });
       this._profiler.measure("submit", () => this._frameCoordinator.submitFrame(frame));
+      if (firstFrame) {
+        this.startup.firstFinishMs = command.finishCpuMs;
+        this.startup.firstSubmitMs = command.submitCpuMs;
+        this.startup.firstSubmittedAtMs = command.submittedAtMs;
+        void command.gpuDone.then(
+          () => {
+            const now = performance.now();
+            this.startup.firstCompletedAtMs ??= now;
+            this.startup.firstQueueCompletionMs ??= now - command.submittedAtMs!;
+          },
+          () => undefined,
+        );
+      }
       if (temporalPolicy === "upscale") {
         this._fsr3.commit(command.gpuDone);
       }

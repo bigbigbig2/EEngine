@@ -5,7 +5,7 @@ import { PhysicalSkyIblResources } from "../../.test-dist/render/environment/Phy
 globalThis.GPUTextureUsage = { STORAGE_BINDING: 1, TEXTURE_BINDING: 2 };
 globalThis.GPUBufferUsage = { UNIFORM: 1 };
 
-function fixture() {
+async function fixture() {
   const textures = [];
   const passes = [];
   let failTexture = null;
@@ -13,7 +13,7 @@ function fixture() {
     limits: { maxTextureDimension2D: 4096, maxComputeWorkgroupsPerDimension: 65535 },
     createSampler: () => ({}),
     createShaderModule: (descriptor) => descriptor,
-    createComputePipeline: () => ({ getBindGroupLayout: () => ({}) }),
+    createComputePipelineAsync: async () => ({ getBindGroupLayout: () => ({}) }),
     createBindGroup: (descriptor) => descriptor,
     createBuffer(descriptor) {
       const data = new ArrayBuffer(descriptor.size);
@@ -50,6 +50,7 @@ function fixture() {
     skyLuminanceScale: 1
   };
   const owner = new PhysicalSkyIblResources(device);
+  await owner.preparePipelines();
   return {
     owner,
     textures,
@@ -69,7 +70,7 @@ function fixture() {
 }
 
 test("sky revisit publishes immutable output without re-encoding; aborted hits preserve the active probe", async () => {
-  const f = fixture();
+  const f = await fixture();
   assert.equal(f.record([0, 0, 0]), 18);
   const a = f.owner.views;
   f.owner.commit(Promise.resolve());
@@ -90,7 +91,7 @@ test("sky revisit publishes immutable output without re-encoding; aborted hits p
 });
 
 test("sky cache is four-entry LRU; eviction waits for the covering submission fence", async () => {
-  const f = fixture();
+  const f = await fixture();
   const outputs = [];
   for (const x of [0, 25, 50, 75]) {
     f.record([x, 0, 0]);
@@ -118,8 +119,8 @@ test("sky cache is four-entry LRU; eviction waits for the covering submission fe
   f.owner.destroy();
 });
 
-test("sky cache key includes exact producer values, LUT identity and sampler", () => {
-  const f = fixture();
+test("sky cache key includes exact producer values, LUT identity and sampler", async () => {
+  const f = await fixture();
   f.record([0, 0, 0]);
   f.owner.commit(Promise.resolve());
   for (const [position, snapshot, luts, sampler] of [
@@ -139,8 +140,8 @@ test("sky cache key includes exact producer values, LUT identity and sampler", (
   f.owner.destroy();
 });
 
-test("failed sky allocation rolls back partial resources and allows retry", () => {
-  const f = fixture();
+test("failed sky allocation rolls back partial resources and allows retry", async () => {
+  const f = await fixture();
   f.record([0, 0, 0]);
   f.owner.commit(Promise.resolve());
   const active = f.owner.views.specular;
@@ -156,7 +157,7 @@ test("failed sky allocation rolls back partial resources and allows retry", () =
 });
 
 test("destroy includes cached, pending and fence-retired probes exactly once", async () => {
-  const f = fixture();
+  const f = await fixture();
   let complete;
   const done = new Promise((resolve) => {
     complete = resolve;

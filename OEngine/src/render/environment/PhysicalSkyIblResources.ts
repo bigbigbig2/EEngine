@@ -1,3 +1,4 @@
+import { PreparedComputePipeline } from "../../gpu/PreparedPipeline.js";
 import type { AtmosphereLutName } from "./AtmosphereLutResources.js";
 import {
   PHYSICAL_SKY_DFG_WGSL,
@@ -32,12 +33,24 @@ type SkySet = {
 
 /** Device-local sky radiance, Filament GGX prefilter and DFG publication. */
 export class PhysicalSkyIblResources {
+  async preparePipelines(): Promise<void> {
+    await Promise.all(
+      [
+        this.radiancePipeline,
+        this.mipPipeline,
+        this.prefilterPipeline,
+        this.dfgPipeline,
+        this.diffusePipeline,
+      ].map((pipeline) => pipeline.prepare()),
+    );
+  }
+
   readonly sampler: GPUSampler;
-  private readonly radiancePipeline: GPUComputePipeline;
-  private readonly mipPipeline: GPUComputePipeline;
-  private readonly prefilterPipeline: GPUComputePipeline;
-  private readonly dfgPipeline: GPUComputePipeline;
-  private readonly diffusePipeline: GPUComputePipeline;
+  private readonly radiancePipeline: PreparedComputePipeline;
+  private readonly mipPipeline: PreparedComputePipeline;
+  private readonly prefilterPipeline: PreparedComputePipeline;
+  private readonly dfgPipeline: PreparedComputePipeline;
+  private readonly diffusePipeline: PreparedComputePipeline;
   private readonly dfgTexture: GPUTexture;
   private readonly dfgView: GPUTextureView;
   private active: SkySet | null = null;
@@ -69,8 +82,8 @@ export class PhysicalSkyIblResources {
       addressModeU: "clamp-to-edge",
       addressModeV: "clamp-to-edge"
     });
-    const pipeline = (label: string, code: string, entryPoint: string): GPUComputePipeline =>
-      device.createComputePipeline({
+    const pipeline = (label: string, code: string, entryPoint: string): PreparedComputePipeline =>
+      new PreparedComputePipeline(device, {
         label,
         layout: "auto",
         compute: {
@@ -164,17 +177,17 @@ export class PhysicalSkyIblResources {
     };
     const dispatch = (
       label: string,
-      pipeline: GPUComputePipeline,
+      pipeline: PreparedComputePipeline,
       resources: readonly GPUBindingResource[],
       size: number
     ): void => {
       const group = this.device.createBindGroup({
         label,
-        layout: pipeline.getBindGroupLayout(0),
-        entries: resources.map((resource, binding) => ({ binding, resource }))
+        layout: pipeline.requirePrepared().getBindGroupLayout(0),
+        entries: resources.map((resource, binding) => ({ binding, resource })),
       });
       const pass = encoder.beginComputePass({ label });
-      pass.setPipeline(pipeline);
+      pass.setPipeline(pipeline.requirePrepared());
       pass.setBindGroup(0, group);
       pass.dispatchWorkgroups(Math.ceil(size / 8), Math.ceil(size / 8));
       pass.end();
@@ -256,17 +269,31 @@ export class PhysicalSkyIblResources {
     this.active = selected;
     this.pending = null;
     this.dfgReady = true;
-    const evicted = this.cached.length > SKY_CACHE_CAPACITY ? this.cached.shift()! : null;
-    if (evicted !== null) {
-      this.retired.add(evicted);
+    // A LUT replacement retires the prior LUT resources on this fence. Cached
+    // probes must not retain bindings to those destroyed source textures.
+    const evicted: SkySet[] = [];
+    for (let index = this.cached.length - 1; index >= 0; index--) {
+      const cached = this.cached[index]!;
+      if (
+        cached.lutSampler !== selected.lutSampler ||
+        cached.lutViews.some((view, lane) => view !== selected.lutViews[lane])
+      ) {
+        evicted.push(...this.cached.splice(index, 1));
+      }
+    }
+    if (this.cached.length > SKY_CACHE_CAPACITY) {
+      evicted.push(this.cached.shift()!);
+    }
+    for (const set of evicted) {
+      this.retired.add(set);
     }
     // This submission follows all earlier uses on the same queue. Its completion
     // covers the evicted probe even when another frame still sampled it.
     const temporary = selected.temporary.splice(0);
     const release = (): void => {
-      if (evicted !== null) {
-        this.retired.delete(evicted);
-        this.destroySet(evicted);
+      for (const set of evicted) {
+        this.retired.delete(set);
+        this.destroySet(set);
       }
       temporary.forEach((buffer) => buffer.destroy());
     };

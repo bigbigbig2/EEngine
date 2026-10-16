@@ -136,6 +136,32 @@ test("selected vertices borrow the sole arena, await async preparation and reuse
   owner.destroy();
   assert.equal(f.accounting.snapshot().totalBytes, 0);
 });
+test("vertex preparation compiles only the selected geometry profile and rejects an unprepared profile before allocation", async () => {
+  const f = fixture();
+  const compiled = [];
+  f.device.createComputePipelineAsync = async (descriptor) => {
+    compiled.push(descriptor.label);
+    return descriptor;
+  };
+  const owner = new FrameGeometryVertices(f.device, f.accounting);
+  assert.equal(compiled.length, 0);
+  await owner.preparePipelines(false);
+  assert.equal(compiled.length, 5);
+  assert.ok(compiled.every((label) => label.endsWith("/false")));
+  await owner.preparePipelines(false);
+  assert.equal(compiled.length, 5);
+  const work = owner.prepare(f.input);
+  const buffers = f.buffers.length;
+  assert.throws(() => owner.prepare({ ...f.input, product: {} }), /completed scene preparation \(Product\)/);
+  assert.equal(f.buffers.length, buffers);
+  await owner.preparePipelines(true);
+  assert.equal(compiled.length, 10);
+  owner.encode(f.encoder, work);
+  owner.release(work);
+  owner.destroy();
+  f.arenaOwner.destroy();
+  assert.equal(f.accounting.snapshot().totalBytes, 0);
+});
 test("vertex byte/dispatch/capability failure and binding exceptions never leak owned or borrowed storage", async () => {
   const f = fixture(false),
     owner = new FrameGeometryVertices(f.device, f.accounting, false, 95);

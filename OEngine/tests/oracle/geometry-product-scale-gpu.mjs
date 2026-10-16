@@ -28,6 +28,7 @@ export async function runGeometryProductScaleGpuOracle(device) {
   const multi = new GeometryProductMultiRuntimeV1(device, { slotCapacity: 66 });
   const hierarchy = new HierarchicalWorkGenerator(device);
   const candidate = new VirtualGeometryMeshletWorkCandidate(device);
+  await candidate.preparePipelines();
   const buffers = [];
   const buffer = (
     size,
@@ -276,6 +277,7 @@ export async function runGeometryProductScaleGpuOracle(device) {
           traversalWorkCapacity: fault === "traversal" ? 1 : traversal,
         },
       );
+      await hierarchy.prepareWorkPipelines(h);
       const w = candidate.prepare({
         virtualGeometry: multi.bindings(),
         visibleClusters: h.generated.visibleClusters,

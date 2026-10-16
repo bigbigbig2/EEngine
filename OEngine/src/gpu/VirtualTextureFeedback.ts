@@ -1,3 +1,4 @@
+import { PipelineCompilationQueue } from "./PipelineCompilationQueue.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import {
   virtualTextureFeedbackLayout,
@@ -119,16 +120,20 @@ export class VirtualTextureFeedback<T> {
       bindGroupLayouts: [this.bindLayout]
     });
     this.ready = Promise.all([
-      device.createComputePipelineAsync({
-        label: "VT/feedback arguments",
-        layout,
-        compute: { module, entryPoint: "prepare" }
-      }),
-      device.createComputePipelineAsync({
-        label: "VT/feedback flags",
-        layout,
-        compute: { module, entryPoint: "finalize" }
-      }),
+      PipelineCompilationQueue.forDevice(device).run(() =>
+        device.createComputePipelineAsync({
+          label: "VT/feedback arguments",
+          layout,
+          compute: { module, entryPoint: "prepare" },
+        }),
+      ),
+      PipelineCompilationQueue.forDevice(device).run(() =>
+        device.createComputePipelineAsync({
+          label: "VT/feedback flags",
+          layout,
+          compute: { module, entryPoint: "finalize" },
+        }),
+      ),
       module.getCompilationInfo().then((info) => {
         const errors = info.messages.filter((message) => message.type === "error");
         if (errors.length) {

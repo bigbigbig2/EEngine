@@ -1,3 +1,4 @@
+import { PreparedComputePipeline } from "../../gpu/PreparedPipeline.js";
 import { GpuBindGroupCache } from "../../gpu/GpuBindGroupResourceCache.js";
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
@@ -51,7 +52,7 @@ export interface NativeTemporalV2Input {
 
 type Binder = <T extends object>(name: string, resolve: (owner: NativeTemporalV2) => T) => T;
 interface Pipeline {
-  readonly pipeline: GPUComputePipeline;
+  readonly pipeline: PreparedComputePipeline;
   readonly layout: GPUBindGroupLayout;
 }
 
@@ -60,6 +61,15 @@ interface Pipeline {
  * Queue-ordered ping-pong supports three in-flight submissions; the last-use
  * fence owns resize/abort/destroy retirement. */
 export class NativeTemporalV2 {
+  async preparePipelines(): Promise<void> {
+    await Promise.all(
+      [this.measure, this.exposure, this.analyze, this.shadingPyramid, this.shadingChange, this.resolve].map(
+        (stage) => stage.pipeline.prepare(),
+      ),
+    );
+    await this.rcas.preparePipelines();
+  }
+
   private readonly groups = new GpuBindGroupCache();
   private readonly measure: Pipeline;
   private readonly exposure: Pipeline;
@@ -135,7 +145,7 @@ export class NativeTemporalV2 {
       const layout = device.createBindGroupLayout({ label, entries });
       return {
         layout,
-        pipeline: device.createComputePipeline({
+        pipeline: new PreparedComputePipeline(device, {
           label,
           layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
           compute: { module: device.createShaderModule({ label, code }), entryPoint: "main" }
@@ -818,7 +828,7 @@ export class NativeTemporalV2 {
       throw new Error("Native Temporal V2 has no pending frame");
     }
     const pass = command.beginComputePass({ label: owner.pipeline.label });
-    pass.setPipeline(owner.pipeline);
+    pass.setPipeline(owner.pipeline.requirePrepared());
     pass.setBindGroup(0, this.groups.create(this.device, { layout: owner.layout, entries }));
     pass.dispatchWorkgroups(Math.ceil(width / divisor), Math.ceil(height / divisor));
     pass.end();

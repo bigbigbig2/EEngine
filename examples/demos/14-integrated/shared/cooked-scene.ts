@@ -76,10 +76,12 @@ export async function loadCookedScene(
 ) {
   const initialization = {
     catalogStartedAtMs: performance.now(),
+    navigationTimeOriginMs: performance.timeOrigin,
     catalogReadyAtMs: null as number | null,
     textureProductsReadyAtMs: null as number | null,
     materialPreparationStartedAtMs: null as number | null,
     necessaryPipelinesReadyAtMs: null as number | null,
+    materialPipelinesReadyAtMs: null as number | null,
     mandatoryTexturesReadyAtMs: null as number | null,
     rootsReadyAtMs: null as number | null,
     bootstrapReadyAtMs: null as number | null,
@@ -227,6 +229,7 @@ export async function loadCookedScene(
     void prepared.programsReady.then(
       () => {
         initialization.necessaryPipelinesReadyAtMs = performance.now();
+        initialization.materialPipelinesReadyAtMs = initialization.necessaryPipelinesReadyAtMs;
       },
       () => undefined
     );

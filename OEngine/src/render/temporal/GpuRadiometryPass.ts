@@ -1,3 +1,4 @@
+import { PreparedComputePipeline } from "../../gpu/PreparedPipeline.js";
 import { GpuBindGroupCache } from "../../gpu/GpuBindGroupResourceCache.js";
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
@@ -177,11 +178,18 @@ type RadiometryResourceBinder = (
 ) => ResourceId;
 
 export class GpuRadiometryPass {
+  async preparePipelines(): Promise<void> {
+    if (!this.autoExposure) {
+      return;
+    }
+    await Promise.all([this.histogramPipeline.prepare(), this.reducePipeline.prepare()]);
+  }
+
   private readonly bindGroups = new GpuBindGroupCache();
   private readonly layout0: GPUBindGroupLayout;
   private readonly layout1: GPUBindGroupLayout;
-  private readonly histogramPipeline: GPUComputePipeline;
-  private readonly reducePipeline: GPUComputePipeline;
+  private readonly histogramPipeline: PreparedComputePipeline;
+  private readonly reducePipeline: PreparedComputePipeline;
   private readonly buffers: Pair;
   private prepared = false;
   private readIndex: 0 | 1 = 0;
@@ -242,12 +250,12 @@ export class GpuRadiometryPass {
       ],
     });
     const module = device.createShaderModule({ label: "Radiometry GPU P/E", code: WGSL });
-    this.histogramPipeline = device.createComputePipeline({
+    this.histogramPipeline = new PreparedComputePipeline(device, {
       label: "Radiometry/histogram pipeline",
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout0] }),
       compute: { module, entryPoint: "histogram_main" },
     });
-    this.reducePipeline = device.createComputePipeline({
+    this.reducePipeline = new PreparedComputePipeline(device, {
       label: "Radiometry/reduce pipeline",
       layout: device.createPipelineLayout({
         bindGroupLayouts: [device.createBindGroupLayout({ entries: [] }), this.layout1],
@@ -398,7 +406,7 @@ export class GpuRadiometryPass {
         ],
       });
       const pass = command.beginComputePass({ label: "Radiometry/HDR histogram" });
-      pass.setPipeline(this.histogramPipeline);
+      pass.setPipeline(this.histogramPipeline.requirePrepared());
       pass.setBindGroup(0, group);
       pass.dispatchWorkgroups(Math.ceil(data.width / 32), Math.ceil(data.height / 32));
       pass.end();
@@ -424,7 +432,7 @@ export class GpuRadiometryPass {
         ],
       });
       const pass = command.beginComputePass({ label: "Radiometry/adapt exposure" });
-      pass.setPipeline(this.reducePipeline);
+      pass.setPipeline(this.reducePipeline.requirePrepared());
       pass.setBindGroup(1, group);
       pass.dispatchWorkgroups(1);
       pass.end();

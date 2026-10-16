@@ -8,6 +8,9 @@ verifies:
     - OEngine/src/gpu/GeometryProductGpuAbiV1.ts
     - OEngine/src/gpu/GeometryProductMultiRuntime.ts
     - OEngine/src/gpu/VirtualGeometryResidency.ts
+    - OEngine/src/gpu/PipelineCompilationQueue.ts
+    - OEngine/src/gpu/PreparedPipeline.ts
+    - OEngine/src/gpu/GPUDatabase.ts
     - OEngine/src/gpu/GPUDescriptorCaches.ts
     - OEngine/src/gpu/GpuNativeMaterialScene.ts
     - OEngine/src/render/pipeline/RendererCore.ts
@@ -19,14 +22,14 @@ verifies:
 
 # 几何紧凑驻留与首帧准备：执行计划
 
-唯一目标依据为[设计](../next-design/eengine-geometry-residency-startup-2026-10.md)。基线`17252477`；2026-10-16已按用户后续授权实施GRS-1；GRS-2/3尚未启动。模块只设三个工程单元，GRS-1包含一次完整地址/容量切换，不能把其中临时断链提交成稳定的双ABI生产状态。
+唯一目标依据为[设计](../next-design/eengine-geometry-residency-startup-2026-10.md)。基线`17252477`；2026-10-16已按用户后续授权实施GRS-1/2；GRS-3尚未启动。模块只设三个工程单元，GRS-1包含一次完整地址/容量切换，不能把其中临时断链提交成稳定的双ABI生产状态。
 
 ## 1. 顺序与状态
 
 | 单元 | 状态 | 完成边界 |
 |---|---|---|
 | GRS-1 紧凑几何驻留闭包 | 已实施并完成单元检查 | 完整OffsetAllocator移植、目录容量计划、ABI6、四bank与metadata增长、所有直接consumer与退休闭合；删除固定槽生产依赖 |
-| GRS-2 准确异步准备与首帧门槛 | 待实施 | 真实feature/scene PSO async准备与生产requirePrepared同源；首次图/编码/提交分段诊断；保留正常帧事务和UI响应 |
+| GRS-2 准确异步准备与首帧门槛 | 已实施，单元检查见§7 | 真实feature/scene PSO async准备与生产requirePrepared同源；首次图/编码/提交分段诊断；保留正常帧事务和UI响应 |
 | GRS-3 集中验证与文档核对 | 待实施 | 新鲜build与串行GPU、两场景同质量启动/收敛、容量/生命周期/成本复核；按实际事实更新domains与来源状态 |
 
 实施中只更新本文件的状态和实际结果。完成后停在模块边界，Local Probes仍需用户另行启动，不自动恢复F11资格。
@@ -100,4 +103,56 @@ bootstrap未知catalog若超初始窗口且尚无binding/普通帧，则明确�
 
 原失败分类：Node固定slot容量/预算断言随ABI迁移；加载占用槽先等待容量导致挂起、table随section无谓放大、live binding比较漏epoch、未完成activation lease销毁窗口为实际实现问题，已修复并重跑相关检查。handoff首次GPU draw0来自夹具header仍写槽数及旧flags lane，迁到ABI6后50/50通过；未放宽数值容差或减少case。构建保留既有node:module browser externalization提示。
 
-未运行：Bistro/Dungeon完整同条件冷暖启动、三次范围与稳态成本，四bank真实增长后的完整场景画面/成本矩阵，正式4GB/P50/P95/evidence资格；按计划集中到GRS-3。尚不能宣称启动提速秒数或完整模块关闭。GRS-2准确async PSO/首帧gate保持待实施，当前停在该边界。
+未运行：Bistro/Dungeon完整同条件冷暖启动、三次范围与稳态成本，四bank真实增长后的完整场景画面/成本矩阵，正式4GB/P50/P95/evidence资格；按计划集中到GRS-3。尚不能宣称启动提速秒数或完整模块关闭。本记录结束时GRS-2准确async PSO/首帧gate尚未开始；后续授权实施结果见§7。
+
+
+## 7. GRS-2 实施与核对（2026-10-16）
+
+开始时GRS-1已提交为`6b069fd1`，工作树干净，因此没有再制造空提交。按用户后续授权完成本单元，停在GRS-3边界；以下是实现与小型真实检查，不是完整场景性能验收。
+
+### 7.1 准备与生产闭包
+
+`PipelineCompilationQueue`按真实GPUDevice共享最多16个进行中job；Appearance、Native raster/cache、SSSR、Frame instance/vertices、Temporal Occlusion、LocalLightWork、VT feedback与固定pass共用这组credit。FIFO只保存实际请求的descriptor，未增加另一个16路编译池、Worker GPUDevice或额外submit。device loss立即拒绝等待与进行中promise；迟到driver结果不能回填cache或prepared owner。
+
+ComputeCache新增async prepare/in-flight/epoch/requirePrepared，与RenderCache各自原normalization/key和native descriptor生成同源；clear撤销旧epoch且旧finally不删除替代job。成功生产只取已准备对象，miss明确抛错。各pass以`PreparedComputePipeline/PreparedRenderPipeline`保存同一个准确native descriptor，不维护warmup专用shader/常量。失败保留给调用者，显式retry才重新准备；未把异步耗时误计为pipeline API hostCallMs。
+
+| 实际owner/profile | 准备及生产消费 |
+|---|---|
+| Geometry/Visibility | ordinary或Product只准备实际顶点profile；main无raster expansion；previous-HZB、Product late recheck按实际启用，shadow独立wavefront。Shadow bounds/tile pipeline按device/profile复用，workset替换不触发首用同步编译。独立oracle按真实PreparedWork选择wavefront/fused leaf/expansion，没有全variant预编译 |
+| Native Material/Surface | 原Appearance/native异步准备继续保留；main raster先准备，实际lit Physical Sun/VSM启用后再准备shadow。NativeVisibility删除每次生产调用的无用module/layout构造；ExecutionBins/Partitions共享descriptor/layout生成，encode只requirePrepared。背景只在无bin时准备 |
+| AO/Temporal/Present | AO只选实际quality、denoise终级/中间级，生产不准备被裁剪的pack；Native与FSR按实际policy准备，classification只在upscale/相关debug需求中准备。FSR luma pyramid按真实extent选择levels；Bloom、曝光启停及Present/debug选实际分支 |
+| Environment/VSM/lighting | LUT/IBL/Sky/Aerial、VSM demand/allocate/caster/invalidation/atlas/sampling完整闭包；显式layout不依赖假binding。LUT auto-layout bindings在准备完成后首次真实record创建。灯光存在时准备GPUDatabase真实scatter-upload descriptor；生产LightDatabase上传requirePrepared |
+| SSSR/调试/计数 | 复用原SSSR完整async算法owner并纳入共享credit；inactive/signal/diagnostic debug按本帧有效开关选择，不能由旧owner仍在退休推断需求；一般debug与可选counter使用相同生产descriptor |
+
+Renderer初始化发起device/profile-only PSO准备，与Cooked目录及mandatory IO自然重叠。依赖真实scene/material topology的剩余准备由Renderer在history、streaming camera pressure、profiler及FrameCoordinator.beginFrame之前gate。pending/失败不编码、不推进frame identity/history、不发布candidate；最后成功profile/资源保持，desired设置保留，调用`retryPipelinePreparation(scene)`后重试。此处没有为了继续画帧而自动降级profile。
+
+readiness key只比较固定数量的真实feature/extent及Native publication revision，不在稳定帧扫描/哈希全部descriptor。数值材质publication更换可能需要一次已缓存准备的异步确认tick，未重复驱动PSO编译；这不构成逐材质每帧编译。正常帧仍沿原提交、abort/retry、fence和device恢复路径。
+
+### 7.2 诊断与成本
+
+两Demo报告复用原目录、mandatory几何/coverage/VT tail、材质准备、firstUseful与SceneRefinement，再增加Renderer initialization快照及共同timeOrigin。旧`necessaryPipelinesReadyAtMs`只表示材质准备，保留兼容字段并明确增加`materialPipelinesReadyAtMs`；它不代表全部renderer PSO已就绪。`initializationEvidence(scene)`发布首scene/view prepare、graph lower、encode、finish、submit、实际GPU queue completion及firstCompleted，另含共享queued/active/completed/failed与cache async/sync miss、unprepared use。
+
+queueMs/compileMs是所有job的累计wall观察，重叠期间可大于总启动时间；queue completion包含先前queue工作与通知延迟，均不是GPU timestamp。实际第一份completed frame由正常command.gpuDone成功观察，失败不报completed。SceneRefinement的first-completed/view-settled仍是原真实反馈闭包，不以PSO ready替代画面或流送收敛。
+
+Cost Card：本单元新增GPU buffer/texture、bytes/pixel、ALU、samples、atomics/barriers、dispatch与submit均为0；保留完整已有shader算法。增加的是每准确descriptor一个host handle/promise、队列等待项、每runtime一个最新readiness记录及固定计数。共享活跃编译上界16；descriptor数量随真实独立程序/profile增长，不按材质instance复制。稳定帧增加固定fact key比较和已准备handle读取，不保存逐帧event历史。删除的是生产首用同步PSO fallback及重复NativeVisibility模块/layout创建，并减少未选几何/关闭shadow变体的driver编译；不声明shader module/layout本身完全异步，冷owner创建仍有这项CPU工作。未新增CPU可见性决策、GPU→CPU→GPU控制或dummy draw。实际总启动和长任务是否下降留GRS-3测量。
+
+### 7.3 实际检查与原失败
+
+集中typecheck、生产build与新鲜build:test通过；相关cache、队列、AO/环境、Temporal、FrameProgram、Surface publication与owner Node语义检查通过，确切最终数量见本节末。编译队列测试覆盖跨compute/render/material共享16路、准确descriptor复用、epoch撤销、失败retry、loss立即拒绝及迟到结果。独立Frame vertices检查未选profile不编译，未准备profile在分配前明确失败。
+
+串行真实GPU检查：
+
+- `native-surface-multi-product-production`通过。受检真实Renderer render期间拦截同步createComputePipeline/createRenderPipeline，结果0次；首帧共享queue排空，两个descriptor cache的syncMiss/unpreparedUse均0。实测该小fixture首图lower约15.3ms、scene/view约33.3ms、encode约60.9ms、finish记录0ms、submit约0.1ms，提交至queue completion约173.2ms；是单次诊断观察，不是Bistro/Dungeon或GPU timestamp。VSM 134 valid pages、50 casters、overflow0。注入AO medium编译失败，检查frame/history/Seed/committed AO与Native publication均保留、错误不自动消失，显式retry后恰好提交一帧；另保留MASK、HDR、native/upscale、abort/retry、recovery/release原检查。
+- `sssr-production`通过：完整原算法的Native base/coat与unlit、能量、设置/debug、abort/resize、native/FSR、empty、Product MASK、1080p资源边界及受控loss恢复；没有放宽数值容差。
+- `local-light-work`通过：独立灯光消费者先准备同源GPUDatabase scatter PSO，再执行原灯光调度/完整列表GPU对照。
+- `geometry-budgeted-residency`通过：72帧主/影子需求、lease压力、公平上传、coarse覆盖与pending loss取消，使用显式异步准备后的真实Geometry/Shadow consumer。
+
+硬件adapter报告NVIDIA/Turing，Chrome155；用户机器信息为RTX2060 8GB，adapter未暴露精确型号/VRAM，不把该结果推广为4GB资格。
+
+原失败及修复：初轮Node有独立Seed/环境夹具仍依赖构造时同步编译，迁移为显式await并保留原语义断言；LUT替换检查还发现旧Sky缓存持有已退休LUT身份，现于成功commit撤下不匹配缓存并在覆盖fence后释放，abort保留旧角色。SSSR关闭且仍显示debug时误按退休owner存在与否准备分支，改为真实有效开关并进入readiness key，重跑通过。增加同步PSO拦截后原GPU失败为`Production render synchronously created`，调用链为Renderer→GPULightCollection.build→GPUDatabase.encodeElementUploads→ComputePipelineCache.obtain；补齐准确scatter准备与production requirePrepared后通过。未吞异常、恢复同步fallback、降低画质或删减难case。
+
+未运行：Bistro/Dungeon各条件3次完整同质量冷/暖启动、长任务/收敛/稳态窗口、几何增长完整画面成本矩阵及正式P50/P95/4GB资格。它们由GRS-3承担；本单元不能宣称提速N秒、两场景已收敛或整个GRS模块完成。
+
+最终单元检查：新鲜build:test后上述相关Node合并109/109通过，变更的25份MJS语法检查通过；typecheck和生产build通过（保留既有node:module browser externalization提示）。docs-verify为0 findings / 81条history warnings，document-system 7/7，git diff --check通过。完整场景与GRS-3状态保持未运行/待启动。
+
+最后几何profile准入/loss发布复核后，新鲜build:test、队列与Frame vertices 9/9及真实Native production再次通过，syncMiss/unpreparedUse仍为0，失败保留与显式retry仍通过。该次小fixturelower约8.3ms、scene/view约22.2ms、encode约38.9ms、queue completion约140.4ms；与上次仅是两次诊断观察，不能当作更改前后性能比较。

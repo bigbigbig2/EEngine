@@ -66,6 +66,7 @@ export async function runFinalPixelSeedEpochGpuOracle() {
     const errors = [];
     device.addEventListener("uncapturederror", (event) => errors.push(event.error.message));
     const owner = new NativeTemporalSeed(device);
+    await owner.preparePipelines();
     const resources = [];
     try {
       const camera = {
@@ -551,10 +552,13 @@ ${loads}
       const surface = new SurfaceV4(device, true, undefined, true);
       const referenceSurface = new S3Surface(device, true);
       const temporal = new NativeTemporalSeed(device);
+      await temporal.preparePipelines();
       const reconstruction = temporalV2 ? new NativeTemporalV2(device) : null;
+      await reconstruction?.preparePipelines();
       if (reconstruction) owners.push(reconstruction);
       const localOwner = new LocalLightWorkGenerator(device, 51);
       const vsmOwner = new VsmSamplingPublicationPass(device);
+      await vsmOwner.preparePipelines();
       owners.push(surface, referenceSurface, temporal, localOwner, vsmOwner);
       await localOwner.ready;
       let bins = new NativeExecutionBins(device, { width, height, bins: publication.bins, finalPixel: true });

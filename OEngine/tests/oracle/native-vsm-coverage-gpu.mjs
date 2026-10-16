@@ -340,6 +340,7 @@ export async function runNativeVsmCoverageGpuOracle(
       },
     });
     pairOwner = new VsmCasterRecordPass(device);
+    await pairOwner.preparePipelines();
     await seamOwner.ready;
     const seamOutput = make(new Float32Array(264 * 264), GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
     const seamRead = make(new Float32Array(264 * 264), GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ);

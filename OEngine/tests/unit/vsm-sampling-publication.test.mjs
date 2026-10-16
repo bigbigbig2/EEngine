@@ -21,7 +21,7 @@ function fixture() {
     createBindGroupLayout: (value) => value,
     createPipelineLayout: (value) => value,
     createShaderModule: (value) => value,
-    createComputePipeline: (value) => value,
+    createComputePipelineAsync: async (value) => value,
     createBindGroup: (value) => value,
   };
   const reads = [],
@@ -44,9 +44,10 @@ function fixture() {
   return { device, graph, reads, outputs, callbacks, lose };
 }
 
-test("sampling publication covers fine/coarse planes and depends on post-commit content", () => {
+test("sampling publication covers fine/coarse planes and depends on post-commit content", async () => {
   const f = fixture(),
     owner = new VsmSamplingPublicationPass(f.device);
+  await owner.preparePipelines();
   assert.equal(vsmSamplingDescriptorCount(128, 6), 98688);
   assert.equal(vsmSamplingDescriptorCount(17, 2), 2 * (17 * 17 + 4));
   assert.equal(

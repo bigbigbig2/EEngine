@@ -86,6 +86,7 @@ export async function runVirtualGeometryHandoffGpuOracle(device) {
   const lodAnchors = buffer(new Float32Array([0, 0, 10, 0, 0, 0, 0, 0]));
   const counterBuffer = buffer(GPU_COUNTER_BYTE_SIZE);
   const owner = new VirtualGeometryMeshletWorkCandidate(device);
+  await owner.preparePipelines();
   const copyModule = device.createShaderModule({
     code: `
     @group(0) @binding(0) var<storage,read> source: array<u32>;

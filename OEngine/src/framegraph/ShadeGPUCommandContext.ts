@@ -26,6 +26,7 @@ type ConstructComputePassOptions = {
   pipeline: CachedComputePipelineDescriptor;
   label?: string;
   bindings?: GPUBindingResource[][];
+  prepared?: boolean;
 };
 
 type ConstructRenderPassOptions = {
@@ -34,6 +35,7 @@ type ConstructRenderPassOptions = {
   bindings?: GPUBindingResource[][];
   colorAttachments: GPURenderPassColorAttachment[];
   depthStencilAttachment?: GPURenderPassDepthStencilAttachment;
+  prepared?: boolean;
 };
 
 let openContextCount = 0;
@@ -59,6 +61,7 @@ export class ShadeGPUCommandContext {
   #submitted = false;
   #submittedAtMs: number | null = null;
   #submitCpuMs = 0;
+  #finishCpuMs = 0;
   #gpuDonePromise: Promise<void> | undefined;
   #submittedPromise: Promise<void> | undefined;
   #resolveSubmitted: (() => void) | undefined;
@@ -183,6 +186,9 @@ export class ShadeGPUCommandContext {
   }
   get submitCpuMs(): number {
     return this.#submitCpuMs;
+  }
+  get finishCpuMs(): number {
+    return this.#finishCpuMs;
   }
 
   static create(graphics: GraphicsContext, label = ""): ShadeGPUCommandContext {
@@ -359,11 +365,14 @@ export class ShadeGPUCommandContext {
     pipeline,
     label,
     bindings = [],
+    prepared = false,
   }: ConstructComputePassOptions): GPUComputePassEncoder {
     const descriptor: GPUComputePassDescriptor = { label };
     if (label === undefined) descriptor.label = pipeline.label;
     const pass = this.beginComputePass(descriptor);
-    const nativePipeline = this.#graphics.compute_pipelines.obtain(pipeline);
+    const nativePipeline = prepared
+      ? this.#graphics.compute_pipelines.requirePrepared(pipeline)
+      : this.#graphics.compute_pipelines.obtain(pipeline);
     pass.setPipeline(nativePipeline);
     this.#graphics.setPipelineBindings(pass, pipeline, bindings);
     return pass;
@@ -385,6 +394,7 @@ export class ShadeGPUCommandContext {
     bindings,
     colorAttachments,
     depthStencilAttachment,
+    prepared = false,
   }: ConstructRenderPassOptions): GPURenderPassEncoder {
     const descriptor: GPURenderPassDescriptor = {
       label,
@@ -392,7 +402,9 @@ export class ShadeGPUCommandContext {
       depthStencilAttachment,
     };
     if (label === undefined) descriptor.label = pipeline.label;
-    const nativePipeline = this.#graphics.render_pipelines.obtain(pipeline);
+    const nativePipeline = prepared
+      ? this.#graphics.render_pipelines.requirePrepared(pipeline)
+      : this.#graphics.render_pipelines.obtain(pipeline);
     const pass = this.beginRenderPass(descriptor);
     pass.setPipeline(nativePipeline);
     this.#graphics.setPipelineBindings(pass, pipeline, bindings!);
@@ -559,7 +571,9 @@ export class ShadeGPUCommandContext {
           this.#graphics.profiler.recordReadback("gpu-timestamps", readbackByteLength);
         }
       }
+      const finishStartedAtMs = performance.now();
       const commandBuffer = encoder.finish();
+      this.#finishCpuMs = performance.now() - finishStartedAtMs;
       const submittedAtMs = performance.now();
       submitGpuCommands(this.#graphics.device!, this.#label || "unlabeled-command-context", [commandBuffer]);
       this.#submitCpuMs = performance.now() - submittedAtMs;

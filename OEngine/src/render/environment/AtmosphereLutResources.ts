@@ -1,11 +1,8 @@
+import { PreparedComputePipeline } from "../../gpu/PreparedPipeline.js";
 import { atmosphereLutStages } from "../../shaders/atmosphere/lut.js";
 
 export type AtmosphereLutName =
-  | "transmittance"
-  | "multipleScattering"
-  | "scattering"
-  | "higherOrderScattering"
-  | "irradiance";
+  "transmittance" | "multipleScattering" | "scattering" | "higherOrderScattering" | "irradiance";
 export const ATMOSPHERE_LUT_SIZES = Object.freeze({
   transmittance: [256, 64, 1],
   multipleScattering: [64, 64, 1],
@@ -20,8 +17,9 @@ type LutSet = {
   readonly sourceTextures: Readonly<Record<AtmosphereLutName, GPUTexture>>;
   readonly transforms: GPUBuffer;
   readonly stages: ReadonlyArray<{
-    pipeline: GPUComputePipeline;
-    bindings: GPUBindGroup;
+    pipeline: PreparedComputePipeline;
+    bindings: readonly GPUBindingResource[];
+    group?: GPUBindGroup;
     dispatch: readonly [number, number, number];
     name: string;
   }>;
@@ -29,6 +27,10 @@ type LutSet = {
 
 /** Device-local LUT owner with active/pending generation replacement. */
 export class AtmosphereLutResources {
+  async preparePipelines(): Promise<void> {
+    await Promise.all(this.active.stages.map((stage) => stage.pipeline.prepare()));
+  }
+
   private active: LutSet;
   private pending: LutSet | null = null;
   private state: "empty" | "recorded" | "ready" | "destroyed" = "empty";
@@ -71,8 +73,12 @@ export class AtmosphereLutResources {
     const next = this.state === "ready" ? this.createSet() : this.active;
     for (const stage of next.stages) {
       const pass = encoder.beginComputePass({ label: `Atmosphere/${stage.name}` });
-      pass.setPipeline(stage.pipeline);
-      pass.setBindGroup(0, stage.bindings);
+      pass.setPipeline(stage.pipeline.requirePrepared());
+      stage.group ??= this.device.createBindGroup({
+        layout: stage.pipeline.requirePrepared().getBindGroupLayout(0),
+        entries: stage.bindings.map((resource, binding) => ({ binding, resource })),
+      });
+      pass.setBindGroup(0, stage.group);
       pass.dispatchWorkgroups(...stage.dispatch);
       pass.end();
     }
@@ -161,19 +167,17 @@ export class AtmosphereLutResources {
       [views.irradiance, sampler, views.scattering, sampler, views.higherOrderScattering],
     ];
     const stages = atmosphereLutStages.map((stage, index) => {
-      const pipeline = this.device.createComputePipeline({
-        label: `Atmosphere/${stage.name}`,
-        layout: "auto",
-        compute: {
-          module: this.device.createShaderModule({ label: `Takram/${stage.name}`, code: stage.wgsl }),
-          entryPoint: "main",
-        },
-      });
-      const group = this.device.createBindGroup({
-        layout: pipeline.getBindGroupLayout(0),
-        entries: bindings[index]!.map((resource, binding) => ({ binding, resource })),
-      });
-      return { name: stage.name, dispatch: stage.dispatch, pipeline, bindings: group };
+      const pipeline =
+        this.active?.stages[index]?.pipeline ??
+        new PreparedComputePipeline(this.device, {
+          label: `Atmosphere/${stage.name}`,
+          layout: "auto",
+          compute: {
+            module: this.device.createShaderModule({ label: `Takram/${stage.name}`, code: stage.wgsl }),
+            entryPoint: "main",
+          },
+        });
+      return { name: stage.name, dispatch: stage.dispatch, pipeline, bindings: bindings[index]! };
     });
     return {
       views: Object.freeze(views),

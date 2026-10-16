@@ -5,6 +5,9 @@ owner: frame-runtime
 state: current
 verifies:
   files:
+    - OEngine/src/gpu/PipelineCompilationQueue.ts
+    - OEngine/src/gpu/PreparedPipeline.ts
+    - OEngine/src/gpu/GPUDescriptorCaches.ts
     - OEngine/src/render/SceneRefinement.ts
     - OEngine/src/render/FrameCoordinator.ts
     - OEngine/src/render/pipeline/RendererCore.ts
@@ -41,6 +44,8 @@ verifies:
 # Frame Runtime
 
 ## 当前源码接线
+
+2026-10-16：生产PSO由各owner持有准确descriptor并显式异步准备；Appearance、Native raster、SSSR及固定compute/render共享device级最多16个编译credit。Renderer按实际场景与启用profile在history/FrameCoordinator事务前gate，pending不提交帧，失败保留最后已提交状态并由`retryPipelinePreparation(scene)`显式重试；device loss撤销等待和进行中结果，旧代late resolve不回填。生产encode只消费`requirePrepared`，没有同步miss补编译。初始化可与Cooked目录/mandatory IO重叠；`initializationEvidence(scene)`区分真实首completed、scene/view、lower、encode、finish、submit、queue completion与编译/cache统计，queue/compile累计wall观察不是GPU timestamp。准确范围、失败记录与未运行的完整场景测量只读[GRS执行§7](../next-execution/eengine-geometry-residency-startup-execution-2026-10.md#7-grs-2-实施与核对2026-10-16)。
 
 2026-10-13：VSM圆盘滤波的完整64相位STBN及256-entry旋转表存于FinalPixelLighting buffer的不可变tail，复用现有binding；每个fenced allocation创建时上传一次，稳定帧不复制该段。Native采样constants发布当前tail word offset与提交frame相位；AA-off固定相位零。point/gather/零半径/无VSM不分配噪声GPU段；最多3份1,050,624B段，prepare/abort/retry/模式切换/resize/empty/device loss/最后consumer fence退休由共享物理owner闭合。Loader只保留CPU资产，不持有GPU对象。
 

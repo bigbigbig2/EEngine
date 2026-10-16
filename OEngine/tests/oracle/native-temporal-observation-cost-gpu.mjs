@@ -44,6 +44,7 @@ export async function runNativeTemporalObservationCostGpuOracle(device) {
     return resource;
   };
   const runtimes = [new BeforeRuntime(device), new NativeTemporalV2(device)];
+  await runtimes[1].preparePipelines();
   try {
     const color = texture("rgba16float", 4, (i, k) => (k === 3 ? 1 : 0.2 + (i % 31) / 19));
     const motion = texture("rg32float", 2, (_i, k) => (k === 0 ? -0.7 / width : 0.6 / height));
@@ -78,7 +79,16 @@ export async function runNativeTemporalObservationCostGpuOracle(device) {
           renderHeight: height,
           outputWidth: width,
           outputHeight: height,
-          jitter: [[0,-1/6],[-.25,1/6],[.25,-7/18],[-.375,-1/18],[.125,5/18],[-.125,-5/18],[.375,1/18],[-.4375,7/18]][frame % 8],
+          jitter: [
+            [0, -1 / 6],
+            [-0.25, 1 / 6],
+            [0.25, -7 / 18],
+            [-0.375, -1 / 18],
+            [0.125, 5 / 18],
+            [-0.125, -5 / 18],
+            [0.375, 1 / 18],
+            [-0.4375, 7 / 18],
+          ][frame % 8],
           cameraNear: 0.1,
           cameraFar: 1000,
           cameraFovY: Math.PI / 3,

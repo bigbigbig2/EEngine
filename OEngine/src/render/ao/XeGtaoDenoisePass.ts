@@ -1,3 +1,4 @@
+import { PreparedComputePipeline } from "../../gpu/PreparedPipeline.js";
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
@@ -25,12 +26,20 @@ export interface XeGtaoScalarVisibility {
 
 /** Donor edge-aware filtering followed by a single-writer GPU pack. */
 export class XeGtaoDenoisePass {
+  async preparePipelines(passes: 0 | 1 | 2 | 3, packedConsumer = false): Promise<void> {
+    await Promise.all([
+      (passes === 0 ? this.disabledPipeline : this.finalPipeline).prepare(),
+      ...(passes > 1 ? [this.intermediatePipeline.prepare()] : []),
+      ...(packedConsumer ? [this.packPipeline.prepare()] : []),
+    ]);
+  }
+
   private readonly denoiseLayout: GPUBindGroupLayout;
-  private readonly intermediatePipeline: GPUComputePipeline;
-  private readonly finalPipeline: GPUComputePipeline;
-  private readonly disabledPipeline: GPUComputePipeline;
+  private readonly intermediatePipeline: PreparedComputePipeline;
+  private readonly finalPipeline: PreparedComputePipeline;
+  private readonly disabledPipeline: PreparedComputePipeline;
   private readonly packLayout: GPUBindGroupLayout;
-  private readonly packPipeline: GPUComputePipeline;
+  private readonly packPipeline: PreparedComputePipeline;
 
   constructor(private readonly device: GPUDevice) {
     if (!device.features.has("texture-formats-tier1")) {
@@ -58,8 +67,8 @@ export class XeGtaoDenoisePass {
       ]
     });
     const denoiseLayout = device.createPipelineLayout({ bindGroupLayouts: [this.denoiseLayout] });
-    const pipeline = (finalApply: boolean, beta: number): GPUComputePipeline =>
-      device.createComputePipeline({
+    const pipeline = (finalApply: boolean, beta: number): PreparedComputePipeline =>
+      new PreparedComputePipeline(device, {
         label: `XeGTAO/Denoise ${finalApply ? "final" : "intermediate"}`,
         layout: denoiseLayout,
         compute: {
@@ -79,7 +88,7 @@ export class XeGtaoDenoisePass {
         { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }
       ]
     });
-    this.packPipeline = device.createComputePipeline({
+    this.packPipeline = new PreparedComputePipeline(device, {
       label: "XeGTAO/pack scalar visibility",
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.packLayout] }),
       compute: { module: device.createShaderModule({ code: XE_GTAO_PACK_WGSL }), entryPoint: "pack" }
@@ -137,7 +146,7 @@ export class XeGtaoDenoisePass {
           const pass = (context.encoder as ShadeGPUCommandContext).beginComputePass({
             label: `XeGTAO/denoise ${index + 1}`
           });
-          pass.setPipeline(pipeline);
+          pass.setPipeline(pipeline.requirePrepared());
           pass.setBindGroup(0, group);
           pass.dispatchWorkgroups(Math.ceil(width / 8), Math.ceil(height / 8));
           pass.end();
@@ -169,7 +178,7 @@ export class XeGtaoDenoisePass {
       const pass = (context.encoder as ShadeGPUCommandContext).beginComputePass({
         label: "XeGTAO/pack indirect visibility"
       });
-      pass.setPipeline(this.packPipeline);
+      pass.setPipeline(this.packPipeline.requirePrepared());
       pass.setBindGroup(0, group);
       pass.dispatchWorkgroups(groupsX, groupsY);
       pass.end();

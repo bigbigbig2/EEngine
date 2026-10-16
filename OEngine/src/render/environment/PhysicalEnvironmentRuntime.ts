@@ -9,6 +9,9 @@ import { PhysicalSkyIblResources } from "./PhysicalSkyIblResources.js";
 
 /** Production owner for the pinned Takram Earth profile. It never submits. */
 export class PhysicalEnvironmentRuntime {
+  async preparePipelines(): Promise<void> {
+    await Promise.all([this.luts.preparePipelines(), this.ibl.preparePipelines()]);
+  }
   readonly state = new PhysicalEnvironmentState();
   readonly luts: AtmosphereLutResources;
   readonly ibl: PhysicalSkyIblResources;

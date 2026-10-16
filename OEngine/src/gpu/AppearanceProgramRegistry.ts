@@ -1,3 +1,5 @@
+import { PipelineCompilationQueue } from "./PipelineCompilationQueue.js";
+
 /** Explicit compute resource profile; no implicit/auto pipeline layouts. */
 export interface AppearanceProgramDescriptor {
   readonly source: string;
@@ -219,7 +221,8 @@ export class AppearanceProgramRegistry {
       const entry = this.queue.shift()!;
       entry.state = "compiling";
       this.compiling++;
-      void this.compile(entry)
+      void PipelineCompilationQueue.forDevice(this.device)
+        .run(() => this.compile(entry))
         .then(
           (value) => {
             if (this.failure !== null) return;

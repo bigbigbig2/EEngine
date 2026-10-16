@@ -1,3 +1,4 @@
+import { PreparedComputePipeline } from "../../gpu/PreparedPipeline.js";
 import { FrameGraph, type PassBuilder } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
@@ -103,14 +104,23 @@ fn composite_main(@builtin(global_invocation_id) id:vec3u) {
 `;
 
 export class BloomPass {
+  async preparePipelines(): Promise<void> {
+    await Promise.all([
+      this.extractPipeline.prepare(),
+      this.downPipeline.prepare(),
+      this.upPipeline.prepare(),
+      this.compositePipeline.prepare(),
+    ]);
+  }
+
   private readonly sampler: GPUSampler;
   private readonly extractLayout: GPUBindGroupLayout;
   private readonly downLayout: GPUBindGroupLayout;
   private readonly upLayout: GPUBindGroupLayout;
-  private readonly extractPipeline: GPUComputePipeline;
-  private readonly downPipeline: GPUComputePipeline;
-  private readonly upPipeline: GPUComputePipeline;
-  private readonly compositePipeline: GPUComputePipeline;
+  private readonly extractPipeline: PreparedComputePipeline;
+  private readonly downPipeline: PreparedComputePipeline;
+  private readonly upPipeline: PreparedComputePipeline;
+  private readonly compositePipeline: PreparedComputePipeline;
   private readonly compositeLayout: GPUBindGroupLayout;
   constructor(private readonly device: GPUDevice) {
     this.sampler = device.createSampler({
@@ -171,20 +181,20 @@ export class BloomPass {
         { binding: 4, visibility: GPUShaderStage.COMPUTE, sampler: { type: "filtering" } },
       ],
     });
-    this.extractPipeline = device.createComputePipeline({
+    this.extractPipeline = new PreparedComputePipeline(device, {
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.extractLayout] }),
       compute: { module, entryPoint: "extract" },
     });
-    this.downPipeline = device.createComputePipeline({
+    this.downPipeline = new PreparedComputePipeline(device, {
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.downLayout] }),
       compute: { module, entryPoint: "downsample" },
     });
     const emptyLayout = device.createBindGroupLayout({ entries: [] });
-    this.upPipeline = device.createComputePipeline({
+    this.upPipeline = new PreparedComputePipeline(device, {
       layout: device.createPipelineLayout({ bindGroupLayouts: [emptyLayout, this.upLayout] }),
       compute: { module, entryPoint: "upsample" },
     });
-    this.compositePipeline = device.createComputePipeline({
+    this.compositePipeline = new PreparedComputePipeline(device, {
       layout: device.createPipelineLayout({
         bindGroupLayouts: [emptyLayout, emptyLayout, this.compositeLayout],
       }),
@@ -230,7 +240,7 @@ export class BloomPass {
           ],
         });
         const p = c.beginComputePass({ label: "Bloom/extract threshold" });
-        p.setPipeline(this.extractPipeline);
+        p.setPipeline(this.extractPipeline.requirePrepared());
         p.setBindGroup(0, g);
         p.dispatchWorkgroups(Math.ceil(data.width / 8), Math.ceil(data.height / 8));
         p.end();
@@ -262,7 +272,7 @@ export class BloomPass {
             ],
           });
           const p = c.beginComputePass({ label: `Bloom/downsample ${level - 1}` });
-          p.setPipeline(this.downPipeline);
+          p.setPipeline(this.downPipeline.requirePrepared());
           p.setBindGroup(0, g);
           p.dispatchWorkgroups(Math.ceil(data.width / 8), Math.ceil(data.height / 8));
           p.end();
@@ -297,7 +307,7 @@ export class BloomPass {
             ],
           });
           const p = c.beginComputePass({ label: `Bloom/upsample ${level}` });
-          p.setPipeline(this.upPipeline);
+          p.setPipeline(this.upPipeline.requirePrepared());
           p.setBindGroup(1, g);
           p.dispatchWorkgroups(Math.ceil(data.width / 8), Math.ceil(data.height / 8));
           p.end();
@@ -329,7 +339,7 @@ export class BloomPass {
           ],
         });
         const p = c.beginComputePass({ label: "Bloom/composite HDR" });
-        p.setPipeline(this.compositePipeline);
+        p.setPipeline(this.compositePipeline.requirePrepared());
         p.setBindGroup(2, g);
         p.dispatchWorkgroups(Math.ceil(data.width / 8), Math.ceil(data.height / 8));
         p.end();

@@ -3,7 +3,6 @@
  */
 
 import { GPUTextureManager } from "./GPUTextureManager.js";
-import { prepareAuthoredEnvironmentPipelines } from "./GpuAuthoredEnvironment.js";
 import { GPUSamplerCache } from "./GPUSamplerCache.js";
 import { STATIC_GRAPHICS_ENGINE_ASSETS } from "../render/STATIC_GRAPHICS_ENGINE_ASSETS.js";
 import { GPUBufferAllocator, GPUNativeBufferAllocator } from "./GPUBufferAllocator.js";
@@ -307,7 +306,6 @@ export class GraphicsContext {
 
   async initialize(): Promise<void> {
     await STATIC_GRAPHICS_ENGINE_ASSETS.init();
-    await prepareAuthoredEnvironmentPipelines(this);
   }
 
   encodeFrameMaintenance(command: ShadeGPUCommandContext, sampleCollectionLimits = false): void {

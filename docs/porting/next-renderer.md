@@ -1693,7 +1693,7 @@ Local：metadata认证、128+8冷布局、range/shards/hash/credit、page genera
 
 ## Geometry residency startup来源计划（2026-10-16）
 
-本轮对应[几何驻留与首帧准备设计](../next-design/eengine-geometry-residency-startup-2026-10.md)。GRS-1已完成CPU完整移植与新production消费小型检查；GRS-2异步准备仍未实施，完整场景性能未资格化。
+本轮对应[几何驻留与首帧准备设计](../next-design/eengine-geometry-residency-startup-2026-10.md)。GRS-1已完成CPU完整移植与新production消费小型检查；GRS-2已完成本地异步准备工程与生产小型检查，完整场景性能未资格化。
 
 | 来源 / 固定revision / license | 已研究入口与拟本地映射 | 保留算法与适配 |
 |---|---|---|
@@ -1703,3 +1703,5 @@ Local：metadata认证、128+8冷布局、range/shards/hash/credit、page genera
 Local / Original：目录前缀容量计划、ABI6四word布局、四bank/metadata增长publication、generation/range检查、pending上传顺序、budget/fence、exact profile readiness与首帧分段诊断。复用现有Worker hash/LZ4、材质async准备、正常帧提交与VSM完整页调度；没有新增VT/VSM donor，也不改变此前LibVT/Wicked/Intel的来源范围。实现时保存固定源文件/license/逐文件hash，完成独立数值/区间oracle与新production GPU消费后才逐项提升来源状态。
 
 GRS-1实际映射：SmallFloat三函数→offsetSizeClass/offsetClassSize；allocate/free/insertNodeIntoBin/removeNodeFromBin→OffsetAllocator.allocate/free/#insert/#remove，storageReport的最大块保持bin下界。固定源与MIT逐文件SHA在tests/oracle/reference/offset-allocator/sources.json；native-trace.cpp以clang++对照12000步，全部分配地址/失败一致，规范化trace SHA256=a0593cdaf7d7eb59960867a6c77e8c01d22e8df930fdea46f163f548cbe0de84。另有12000步独立interval+grow检查。新增generation lease、16B单位、grow、目录计划与帧事务为Local；不是donor原有GPU/JS框架。小型真实主链Geometry pressure + multi-Product Native Renderer检查通过；不据此声明Bistro/Dungeon启动速度或正式性能改进。
+
+GRS-2的Local / Reuse：`PipelineCompilationQueue`、`PreparedPipeline`、Compute/Render cache的epoch/in-flight/requirePrepared、各pass准确descriptor准备、Renderer前置gate与初始化诊断，复用固定WebGPU规范语义与既有Appearance/native/SSSR异步实现。没有新增复杂渲染算法或donor移植，不改变AO/FSR3/SSSR/VT的完整算法来源范围；原有shader阶段及数值容差保持。真实Renderer同步创建拦截、失败保留/显式retry、loss恢复及串行GPU结果见GRS执行§7，不能提升为完整场景启动提速声明。

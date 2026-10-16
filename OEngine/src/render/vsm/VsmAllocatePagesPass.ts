@@ -1,3 +1,4 @@
+import { PreparedComputePipeline } from "../../gpu/PreparedPipeline.js";
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
@@ -65,8 +66,12 @@ export function packVsmResidencyConstants(input: VsmAllocatePagesInputs): ArrayB
 /** Complete-domain GPU residency. Constant pipelines/bindings, actual request
  * dispatches, and ordered publications in the renderer's single frame submit. */
 export class VsmAllocatePagesPass {
+  async preparePipelines(): Promise<void> {
+    await Promise.all([...this.pipelines.values()].map((pipeline) => pipeline.prepare()));
+  }
+
   private readonly constants: GPUBuffer;
-  private readonly pipelines = new Map<Stage, GPUComputePipeline>();
+  private readonly pipelines = new Map<Stage, PreparedComputePipeline>();
   private readonly bindings = new WeakMap<VsmResources, Map<string, GPUBindGroup>>();
 
   constructor(private readonly device: GPUDevice) {
@@ -91,7 +96,7 @@ export class VsmAllocatePagesPass {
         entryPoint === "scatter";
       this.pipelines.set(
         entryPoint,
-        device.createComputePipeline({
+        new PreparedComputePipeline(device, {
           label: `VSM/${entryPoint}`,
           // Entry-specific layouts retain the portable eight-storage-buffer limit.
           layout: "auto",
@@ -161,7 +166,7 @@ export class VsmAllocatePagesPass {
     }
     const group = this.device.createBindGroup({
       label: `VSM/${name}`,
-      layout: this.pipelines.get(stage)!.getBindGroupLayout(0),
+      layout: this.pipelines.get(stage)!.requirePrepared().getBindGroupLayout(0),
       entries,
     });
     groups.set(name, group);
@@ -209,7 +214,7 @@ export class VsmAllocatePagesPass {
         const wordGroups = Math.ceil(Math.ceil(owner.capabilities.virtualEntryCount / 32) / 64);
         const pass = command.beginComputePass({ label: "VSM/complete demand and ordered residency" });
         const encode = (stage: Stage, misses: boolean, indirect = false) => {
-          pass.setPipeline(this.pipelines.get(stage)!);
+          pass.setPipeline(this.pipelines.get(stage)!.requirePrepared());
           pass.setBindGroup(0, this.group(stage, owner, misses));
           if (indirect) {
             pass.dispatchWorkgroupsIndirect(owner.demandIndirect!, 0);

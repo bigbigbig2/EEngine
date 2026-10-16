@@ -1,3 +1,4 @@
+import { PreparedComputePipeline } from "../../gpu/PreparedPipeline.js";
 import type { FrameProfiler } from "../../debug/FrameProfiler.js";
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
@@ -25,6 +26,14 @@ function f32Bits(value: number): number {
 }
 
 export class VsmDepthBoundsPass {
+  async preparePipelines(): Promise<void> {
+    await Promise.all([
+      this.boundsPipeline.prepare(),
+      this.publishPipeline.prepare(),
+      this.dirtyPipeline.prepare(),
+    ]);
+  }
+
   private readonly constants: GPUBuffer;
   private scratch: GPUBuffer;
   private snapshots: GPUBuffer;
@@ -37,10 +46,10 @@ export class VsmDepthBoundsPass {
   private submittedInstanceCount = -1;
   private readonly dirtyConstants: GPUBuffer;
   private readonly dirtyLayout: GPUBindGroupLayout;
-  private readonly dirtyPipeline: GPUComputePipeline;
+  private readonly dirtyPipeline: PreparedComputePipeline;
   private readonly layout: GPUBindGroupLayout;
-  private readonly boundsPipeline: GPUComputePipeline;
-  private readonly publishPipeline: GPUComputePipeline;
+  private readonly boundsPipeline: PreparedComputePipeline;
+  private readonly publishPipeline: PreparedComputePipeline;
   constructor(
     private readonly device: GPUDevice,
     /** Optional sampled GPU-counter owner. Without it this pass still produces
@@ -89,11 +98,11 @@ export class VsmDepthBoundsPass {
       code: VSM_DEPTH_BOUNDS_WGSL
     });
     const layout = device.createPipelineLayout({ bindGroupLayouts: [this.layout] });
-    this.boundsPipeline = device.createComputePipeline({
+    this.boundsPipeline = new PreparedComputePipeline(device, {
       layout,
       compute: { module, entryPoint: "instance_bounds" }
     });
-    this.publishPipeline = device.createComputePipeline({
+    this.publishPipeline = new PreparedComputePipeline(device, {
       layout,
       compute: { module, entryPoint: "publish_depth" }
     });
@@ -107,7 +116,7 @@ export class VsmDepthBoundsPass {
         }))
       ]
     });
-    this.dirtyPipeline = device.createComputePipeline({
+    this.dirtyPipeline = new PreparedComputePipeline(device, {
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.dirtyLayout] }),
       compute: {
         module: device.createShaderModule({ code: VSM_CASTER_INVALIDATION_WGSL }),
@@ -330,13 +339,13 @@ export class VsmDepthBoundsPass {
         ]
       });
       const bounds = command.beginComputePass({ label: "VSM/complete caster bounds" });
-      bounds.setPipeline(this.boundsPipeline);
+      bounds.setPipeline(this.boundsPipeline.requirePrepared());
       bounds.setBindGroup(0, group);
       bounds.dispatchWorkgroups(groups);
       bounds.end();
       if (rebuildRange) {
         const publish = command.beginComputePass({ label: "VSM/publish stable depth" });
-        publish.setPipeline(this.publishPipeline);
+        publish.setPipeline(this.publishPipeline.requirePrepared());
         publish.setBindGroup(0, group);
         publish.dispatchWorkgroups(1);
         publish.end();
@@ -345,12 +354,15 @@ export class VsmDepthBoundsPass {
       const caps = data.resources.capabilities;
       new Uint32Array(projection).set(
         [caps.virtualPagesPerAxis, caps.atlasPagesPerAxis, caps.pageSize, caps.border],
-        40
+        40,
       );
-      new Uint32Array(projection).set([data.frame.generation, caps.residentSlots, data.state.frameSerial, 0], 44);
+      new Uint32Array(projection).set(
+        [data.frame.generation, caps.residentSlots, data.state.frameSerial, 0],
+        44,
+      );
       command.writeBuffer(this.dirtyConstants, 0, projection, 0, projection.byteLength);
       const dirty = command.beginComputePass({ label: "VSM/dirty changed caster slots" });
-      dirty.setPipeline(this.dirtyPipeline);
+      dirty.setPipeline(this.dirtyPipeline.requirePrepared());
       dirty.setBindGroup(
         0,
         this.device.createBindGroup({

@@ -1,6 +1,7 @@
 import { LocalLightWorkGenerator } from "../../.test-dist/render/lighting/LocalLightWorkGenerator.js";
 import { LOCAL_LIGHT_MODE, localLightId } from "../../.test-dist/gpu/GpuLocalLightWorkAbi.js";
 import { GPULightCollection } from "../../.test-dist/gpu/LightDatabase.js";
+import { GPUDatabase } from "../../.test-dist/gpu/GPUDatabase.js";
 import { Scene } from "../../.test-dist/scene/Scene.js";
 import { PointLight } from "../../.test-dist/light/PointLight.js";
 import { SpotLight } from "../../.test-dist/light/SpotLight.js";
@@ -17,6 +18,7 @@ export async function runLocalLightWorkGpuOracle(device) {
   const graphics = new GraphicsContext(device, new FrameProfiler({ enabled: false }));
   const scene = new Scene();
   const lights = new GPULightCollection(graphics, scene.lights);
+  await GPUDatabase.preparePipelines(graphics);
   const owner = new LocalLightWorkGenerator(device, 17);
   const width = 256,
     height = 128;

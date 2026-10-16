@@ -1,3 +1,4 @@
+import { PreparedRenderPipeline } from "../../gpu/PreparedPipeline.js";
 import { FULLSCREEN_TRIANGLE_VERTEX_WGSL } from "../../shaders/fullscreen_triangle.js";
 import { RenderDebugView } from "../../debug/RenderDebugView.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
@@ -16,10 +17,14 @@ export function isSssrDebug(view: string | undefined): boolean {
 
 /** Debug owns only PSOs. Inputs remain with the effect until the frame fence. */
 export class SssrDebug {
-  private readonly pipelines: readonly GPURenderPipeline[];
+  async preparePipelines(mode: 0 | 1 | 2): Promise<void> {
+    await this.pipelines[mode]!.prepare();
+  }
+
+  private readonly pipelines: readonly PreparedRenderPipeline[];
   private readonly groups = new GpuBindGroupCache(8);
   private readonly views = new WeakMap<GPUTexture, GPUTextureView>();
-  private readonly layouts: readonly GPUBindGroupLayout[];
+
   releaseBindings(): void {
     this.groups.clear();
   }
@@ -47,7 +52,7 @@ ${declarations}
   }
 }`;
       const module = device.createShaderModule({ code, label: `SSSR/debug ${mode}` });
-      return device.createRenderPipeline({
+      return new PreparedRenderPipeline(device, {
         label: `SSSR/debug ${mode}`,
         layout: "auto",
         vertex: { module, entryPoint: "vs_main" },
@@ -55,7 +60,6 @@ ${declarations}
         primitive: { topology: "triangle-list" }
       });
     });
-    this.layouts = this.pipelines.map((pipeline) => pipeline.getBindGroupLayout(0));
   }
 
   encode(
@@ -82,7 +86,7 @@ ${declarations}
       label: "SSSR/debug selected lobe",
       colorAttachments: [{ view: resolveTextureView(output), loadOp: "clear", storeOp: "store" }]
     });
-    pass.setPipeline(pipeline);
+    pass.setPipeline(pipeline.requirePrepared());
     if (signal) {
       let signalView = this.views.get(signal);
       if (!signalView) {
@@ -92,7 +96,7 @@ ${declarations}
       pass.setBindGroup(
         0,
         this.groups.create(command.device, {
-          layout: this.layouts[index]!,
+          layout: pipeline.requirePrepared().getBindGroupLayout(0),
           entries: [
             { binding: 0, resource: signalView },
             ...(diagnostic ? [{ binding: 1, resource: { buffer: diagnostic } }] : [])

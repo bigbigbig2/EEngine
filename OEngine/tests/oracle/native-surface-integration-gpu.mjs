@@ -85,10 +85,14 @@ export async function runNativeSurfaceIntegrationGpuOracle(
   const localOwner = new LocalLightWorkGenerator(device, 37);
   const lightingOwner = new FinalPixelLightingPublication(device);
   const samplingOwner = new VsmSamplingPublicationPass(device);
+  await samplingOwner.preparePipelines();
   await localOwner.ready;
   const surface = new SurfaceV4(device, true, undefined, true);
   const temporal = new NativeTemporalSeed(device),
     fsr = phase3Matrix ? new FrozenPhase3Temporal(device) : new NativeTemporalV2(device);
+  await temporal.preparePipelines();
+  if (!phase3Matrix) await fsr.preparePipelines();
+  await surface.ready;
   const resources = [],
     publications = [],
     materialFixtures = [],

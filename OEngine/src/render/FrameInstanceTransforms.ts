@@ -1,3 +1,4 @@
+import { PipelineCompilationQueue } from "../gpu/PipelineCompilationQueue.js";
 import type { ResourceAccounting, ResourceHandle } from "../debug/profiling/ResourceAccounting.js";
 import { GPU_INSTANCE_RECORD_STRIDE } from "../gpu/GpuInstanceAbi.js";
 import { GPU_FRAME_INSTANCE_STRIDE } from "../gpu/GpuFrameInstanceAbi.js";
@@ -108,11 +109,13 @@ export class FrameInstanceTransforms {
     const finalize = device.createPipelineLayout({ bindGroupLayouts: [this.layout, this.indirectLayout] });
     this.ready = Promise.all(
       ENTRIES.map((entryPoint, i) =>
-        device.createComputePipelineAsync({
-          label: `Geometry/${entryPoint}`,
-          layout: i % 2 === 0 ? finalize : ordinary,
-          compute: { module, entryPoint },
-        }),
+        PipelineCompilationQueue.forDevice(device).run(() =>
+          device.createComputePipelineAsync({
+            label: `Geometry/${entryPoint}`,
+            layout: i % 2 === 0 ? finalize : ordinary,
+            compute: { module, entryPoint },
+          }),
+        ),
       ),
     ).then((pipelines) => {
       if (this.destroyed) throw new Error("Frame instance transforms stopped during preparation");

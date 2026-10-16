@@ -1,3 +1,4 @@
+import { PreparedComputePipeline, PreparedRenderPipeline } from "../../gpu/PreparedPipeline.js";
 import { VSM_PAGE_COMMIT_WGSL } from "../../shaders/vsm_page_commit.js";
 import { packVsmProjection, VSM_DEPTH_RANGE_BYTE_OFFSET, VSM_DEPTH_RANGE_BYTES } from "./VsmProjection.js";
 import { NativeVisibilityPass } from "../surface/NativeVisibilityPass.js";
@@ -67,15 +68,24 @@ function packConstants(input: VsmAtlasRasterInputs): ArrayBuffer {
 
 /** Dirty-slot clear -> finite compiled caster partitions -> content publication. */
 export class VsmAtlasRasterPass {
+  async preparePipelines(): Promise<void> {
+    await Promise.all([
+      this.clearPipeline.prepare(),
+      this.commitPipeline.prepare(),
+      this.contentPipeline.prepare(),
+      this.samplingPublication.preparePipelines(),
+    ]);
+  }
+
   private readonly samplingPublication: VsmSamplingPublicationPass;
   private readonly nativePasses = new Map<GPUBuffer, NativeVisibilityPass>();
   private readonly constants: GPUBuffer;
   private readonly commitConstants: GPUBuffer;
   private readonly clearLayout: GPUBindGroupLayoutDescriptor;
   private readonly commitLayout: GPUBindGroupLayoutDescriptor;
-  private readonly clearPipeline: GPURenderPipeline;
-  private readonly commitPipeline: GPUComputePipeline;
-  private readonly contentPipeline: GPUComputePipeline;
+  private readonly clearPipeline: PreparedRenderPipeline;
+  private readonly commitPipeline: PreparedComputePipeline;
+  private readonly contentPipeline: PreparedComputePipeline;
   private readonly contentLayout: GPUBindGroupLayoutDescriptor;
   constructor(private readonly graphics: GraphicsContext) {
     const device = graphics.device;
@@ -96,10 +106,15 @@ export class VsmAtlasRasterPass {
         { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
       ],
     };
-    const module = { label: "VSM/dirty-slot clear", code: VSM_ATLAS_PAGE_CLEAR_WGSL };
-    this.clearPipeline = graphics.render_pipelines.obtain({
+    const module = device.createShaderModule({
       label: "VSM/dirty-slot clear",
-      layout: { bindGroupLayouts: [this.clearLayout] },
+      code: VSM_ATLAS_PAGE_CLEAR_WGSL,
+    });
+    this.clearPipeline = new PreparedRenderPipeline(device, {
+      label: "VSM/dirty-slot clear",
+      layout: device.createPipelineLayout({
+        bindGroupLayouts: [device.createBindGroupLayout(this.clearLayout)],
+      }),
       vertex: { module, entryPoint: "clear_page" },
       fragment: { module, entryPoint: "clear_depth", targets: [] },
       primitive: { topology: "triangle-list", cullMode: "none" },
@@ -118,10 +133,12 @@ export class VsmAtlasRasterPass {
         })),
       ],
     };
-    this.commitPipeline = graphics.compute_pipelines.obtain({
+    this.commitPipeline = new PreparedComputePipeline(device, {
       label: "VSM/dirty content commit",
-      layout: { bindGroupLayouts: [this.commitLayout] },
-      compute: { module: { code: VSM_PAGE_COMMIT_WGSL }, entryPoint: "main" },
+      layout: device.createPipelineLayout({
+        bindGroupLayouts: [device.createBindGroupLayout(this.commitLayout)],
+      }),
+      compute: { module: device.createShaderModule({ code: VSM_PAGE_COMMIT_WGSL }), entryPoint: "main" },
     });
     this.contentLayout = {
       entries: [
@@ -129,10 +146,15 @@ export class VsmAtlasRasterPass {
         { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
       ],
     };
-    this.contentPipeline = graphics.compute_pipelines.obtain({
+    this.contentPipeline = new PreparedComputePipeline(device, {
       label: "VSM/content version publication",
-      layout: { bindGroupLayouts: [this.contentLayout] },
-      compute: { module: { code: VSM_CONTENT_VERSION_WGSL }, entryPoint: "publish_vsm_content_version" },
+      layout: device.createPipelineLayout({
+        bindGroupLayouts: [device.createBindGroupLayout(this.contentLayout)],
+      }),
+      compute: {
+        module: device.createShaderModule({ code: VSM_CONTENT_VERSION_WGSL }),
+        entryPoint: "publish_vsm_content_version",
+      },
     });
   }
   addToGraph(
@@ -253,7 +275,7 @@ export class VsmAtlasRasterPass {
           depthStoreOp: "store",
         },
       });
-      pass.setPipeline(this.clearPipeline);
+      pass.setPipeline(this.clearPipeline.requirePrepared());
       pass.setBindGroup(0, clearGroup);
       pass.drawIndirect(resolved.get(indirect) as GPUBuffer, 32);
       native.draw(pass);
@@ -315,7 +337,7 @@ export class VsmAtlasRasterPass {
         ],
       });
       const pass = command.beginComputePass({ label: "VSM/content commit" });
-      pass.setPipeline(this.commitPipeline);
+      pass.setPipeline(this.commitPipeline.requirePrepared());
       pass.setBindGroup(0, group);
       pass.dispatchWorkgroups(Math.ceil(data.resources.capabilities.residentSlots / 64));
       pass.end();
@@ -351,7 +373,7 @@ export class VsmAtlasRasterPass {
           ],
         });
         const pass = command.beginComputePass({ label: "VSM/publish sampled content version" });
-        pass.setPipeline(this.contentPipeline);
+        pass.setPipeline(this.contentPipeline.requirePrepared());
         pass.setBindGroup(0, group);
         pass.dispatchWorkgroups(1);
         pass.end();

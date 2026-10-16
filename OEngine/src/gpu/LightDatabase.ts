@@ -761,7 +761,7 @@ export class GPULightCollection {
     this.previousPointCount = pointCount;
     this.previousSpotCount = spotCount;
     this.previousDirectionalCount = directionalCount;
-    this.database.update(command);
+    this.database.update(command, true);
     this.lastSourceVersion = this.source.version;
   }
 

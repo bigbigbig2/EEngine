@@ -1,3 +1,4 @@
+import { PreparedComputePipeline } from "../gpu/PreparedPipeline.js";
 import { GPU_COUNTER_BYTE_SIZE } from "../debug/GpuFrameCounters.js";
 import { HIERARCHY_LOD_ANCHOR_BYTES } from "../shaders/hierarchy_lod.js";
 import type {
@@ -66,15 +67,15 @@ export interface PreparedMeshletWorkCandidate {
 }
 
 interface CandidatePipelines {
-  readonly prepare: GPUComputePipeline;
-  readonly generate: GPUComputePipeline;
-  readonly prepareRisk: GPUComputePipeline;
-  readonly classifyRisk: GPUComputePipeline;
-  readonly finalize: GPUComputePipeline;
-  readonly scatter: GPUComputePipeline;
-  readonly prepareValidation: GPUComputePipeline;
-  readonly validate: GPUComputePipeline;
-  readonly publish: GPUComputePipeline;
+  readonly prepare: PreparedComputePipeline;
+  readonly generate: PreparedComputePipeline;
+  readonly prepareRisk: PreparedComputePipeline;
+  readonly classifyRisk: PreparedComputePipeline;
+  readonly finalize: PreparedComputePipeline;
+  readonly scatter: PreparedComputePipeline;
+  readonly prepareValidation: PreparedComputePipeline;
+  readonly validate: PreparedComputePipeline;
+  readonly publish: PreparedComputePipeline;
 }
 
 interface CandidateState {
@@ -108,6 +109,11 @@ const CANDIDATE_STATE = new WeakMap<object, CandidateState>();
  * validation consumer. Queue records are never mapped or read back by the CPU.
  */
 export class MeshletWorkCandidate {
+  async preparePipelines(path: "auto" | MeshletWorkCompactionPath = "auto"): Promise<void> {
+    const selected = this.pipelines.get(this.resolveCompactionPath(path))!;
+    await Promise.all(Object.values(selected).map((pipeline) => pipeline.prepare()));
+  }
+
   private readonly writeLayout: GPUBindGroupLayout;
   private readonly consumeLayout: GPUBindGroupLayout;
   private readonly riskLayout: GPUBindGroupLayout;
@@ -536,8 +542,8 @@ export class MeshletWorkCandidate {
     module: GPUShaderModule,
     layout: GPUPipelineLayout,
     entryPoint: string,
-  ): GPUComputePipeline {
-    return this.device.createComputePipeline({
+  ): PreparedComputePipeline {
+    return new PreparedComputePipeline(this.device, {
       label: `ADR-0008 MeshletWork candidate/${entryPoint}`,
       layout,
       compute: { module, entryPoint },
@@ -597,14 +603,14 @@ export class MeshletWorkCandidate {
 
   private encodeRisk(
     encoder: GPUCommandEncoder,
-    pipeline: GPUComputePipeline,
+    pipeline: PreparedComputePipeline,
     bindGroup: GPUBindGroup,
     dispatch: GPUBuffer,
   ): void {
     const pass = encoder.beginComputePass({
       label: "ADR-0008 MeshletWork/selective projection-risk classification",
     });
-    pass.setPipeline(pipeline);
+    pass.setPipeline(pipeline.requirePrepared());
     pass.setBindGroup(1, bindGroup);
     pass.dispatchWorkgroupsIndirect(dispatch, 0);
     pass.end();
@@ -656,7 +662,7 @@ export class MeshletWorkCandidate {
   private encodeDirect(
     encoder: GPUCommandEncoder,
     phase: string,
-    pipeline: GPUComputePipeline,
+    pipeline: PreparedComputePipeline,
     bindGroup: GPUBindGroup,
     indirect: boolean,
     dispatch?: GPUBuffer,
@@ -664,7 +670,7 @@ export class MeshletWorkCandidate {
     const pass = encoder.beginComputePass({
       label: `ADR-0008 MeshletWork candidate/${phase}`,
     });
-    pass.setPipeline(pipeline);
+    pass.setPipeline(pipeline.requirePrepared());
     pass.setBindGroup(0, bindGroup);
     if (indirect) pass.dispatchWorkgroupsIndirect(dispatch!, 0);
     else pass.dispatchWorkgroups(1, 1, 1);
@@ -719,12 +725,18 @@ export class MeshletWorkCandidate {
 
 /** S1 Product consumer: one bounded, fixed-width indirect route for decoded Groups. */
 export class VirtualGeometryMeshletWorkCandidate {
+  async preparePipelines(): Promise<void> {
+    await Promise.all(
+      [this.preparePipeline, this.pipeline, this.finalizePipeline].map((pipeline) => pipeline.prepare()),
+    );
+  }
+
   private readonly accountingHandles = new Map<GPUBuffer, AccountingResourceHandle>();
   private readonly layout: GPUBindGroupLayout;
   private readonly dispatchLayout: GPUBindGroupLayout;
-  private readonly preparePipeline: GPUComputePipeline;
-  private readonly finalizePipeline: GPUComputePipeline;
-  private readonly pipeline: GPUComputePipeline;
+  private readonly preparePipeline: PreparedComputePipeline;
+  private readonly finalizePipeline: PreparedComputePipeline;
+  private readonly pipeline: PreparedComputePipeline;
   private readonly prepared = new Set<PreparedMeshletWorkCandidate>();
   private destroyed = false;
 
@@ -790,7 +802,7 @@ export class VirtualGeometryMeshletWorkCandidate {
         { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: 12 } }
       ]
     });
-    this.preparePipeline = device.createComputePipeline({
+    this.preparePipeline = new PreparedComputePipeline(device, {
       label: "Geometry/Product prepare actual dispatch",
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout, this.dispatchLayout] }),
       compute: { module, entryPoint: "prepare_virtual_geometry_work" }
@@ -799,12 +811,12 @@ export class VirtualGeometryMeshletWorkCandidate {
       label: "S1 Product MeshletWork pipeline layout",
       bindGroupLayouts: [this.layout],
     });
-    this.pipeline = device.createComputePipeline({
+    this.pipeline = new PreparedComputePipeline(device, {
       label: "S1 Product MeshletWork pipeline",
       layout: pipelineLayout,
       compute: { module, entryPoint: "generate_virtual_geometry_work" }
     });
-    this.finalizePipeline = device.createComputePipeline({
+    this.finalizePipeline = new PreparedComputePipeline(device, {
       label: "Geometry/Product finalize work",
       layout: pipelineLayout,
       compute: { module, entryPoint: "finalize_virtual_geometry_work" }
@@ -999,13 +1011,13 @@ export class VirtualGeometryMeshletWorkCandidate {
   encode(command: ShadeGPUCommandContext, prepared: PreparedMeshletWorkCandidate): void {
     const state = this.requireState(prepared);
     const pass = command.gpu_encoder.beginComputePass({ label: "S1 Product MeshletWork" });
-    pass.setPipeline(this.preparePipeline);
+    pass.setPipeline(this.preparePipeline.requirePrepared());
     pass.setBindGroup(0, state.bindGroup);
     pass.setBindGroup(1, state.dispatchGroup);
     pass.dispatchWorkgroups(1, 1, 1);
-    pass.setPipeline(this.pipeline);
+    pass.setPipeline(this.pipeline.requirePrepared());
     pass.dispatchWorkgroupsIndirect(state.dispatch, 0);
-    pass.setPipeline(this.finalizePipeline);
+    pass.setPipeline(this.finalizePipeline.requirePrepared());
     pass.dispatchWorkgroups(1, 1, 1);
     pass.end();
   }

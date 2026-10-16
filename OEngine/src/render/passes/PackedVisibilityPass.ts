@@ -195,6 +195,39 @@ export const PACKED_VISIBILITY_FRAGMENT_EVIDENCE = Object.freeze({
 
 /** R3 hierarchy production path. The temporary R2 flat producer was deleted in R3-D. */
 export class PackedVisibilityPass {
+  async preparePipelines(
+    runtime: GpuRenderWorldRuntime,
+    previousHzb: boolean,
+    lateRecheck: boolean,
+  ): Promise<void> {
+    const product = runtime.virtualGeometry !== null;
+    if (!(this.hierarchyGenerator instanceof HierarchicalWorkGenerator)) {
+      throw new Error("Production pipeline preparation requires the hierarchy owner");
+    }
+    const jobs: Promise<unknown>[] = [
+      this.instanceTransforms.ready,
+      this.vertexTransforms.preparePipelines(product),
+      this.hierarchyGenerator.preparePipelines({
+        product,
+        previousHzb: !product && previousHzb,
+        shadow: false,
+        depth: runtime.hierarchyMaxDepth,
+      }),
+    ];
+    if (product) {
+      jobs.push(this.virtualMeshletCandidate.preparePipelines());
+      if (lateRecheck) {
+        this.currentHzbLateRecheck ??= this.graphics.current_hzb_recheck;
+        jobs.push(this.currentHzbLateRecheck.ready);
+      }
+    } else if (this.meshletCandidate instanceof MeshletWorkCandidate) {
+      jobs.push(this.meshletCandidate.preparePipelines());
+    }
+    // Native Product temporal prediction owns camera HZB; hierarchy itself is
+    // intentionally run without camera HZB in this production route.
+    await Promise.all(jobs);
+  }
+
   lastDrawIndirect = false;
   lastMeshletWorkCapacity = 0;
   lastVerticesPerTriangle = 3;

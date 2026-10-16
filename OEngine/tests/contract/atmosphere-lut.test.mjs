@@ -8,7 +8,7 @@ import { PhysicalEnvironmentRuntime } from "../../.test-dist/render/environment/
 globalThis.GPUBufferUsage = { UNIFORM: 1, COPY_DST: 2 };
 globalThis.GPUTextureUsage = { STORAGE_BINDING: 4, TEXTURE_BINDING: 8, COPY_SRC: 16 };
 
-test("Non-Geospatial port has no direct or transitive Takram npm dependency", () => {
+test("Non-Geospatial port has no direct or transitive Takram npm dependency", async () => {
   const lock = JSON.parse(
     readFileSync(new URL("../../../tools/atmosphere-port/package-lock.json", import.meta.url), "utf8"),
   );
@@ -22,7 +22,7 @@ test("Non-Geospatial port has no direct or transitive Takram npm dependency", ()
   assert.ok(manifest.files.some((file) => file.path.endsWith("NonGeospatial-Story.tsx")));
 });
 
-test("Takram copied assets match pinned LFS objects, not pointer files", () => {
+test("Takram copied assets match pinned LFS objects, not pointer files", async () => {
   const root = new URL("../../src/render/assets/takram/", import.meta.url);
   const manifest = JSON.parse(readFileSync(new URL("provenance.json", root), "utf8"));
   for (const file of manifest.files) {
@@ -69,7 +69,7 @@ function harness() {
       destroy: () => destroyed++,
     }),
     createShaderModule: () => ({}),
-    createComputePipeline: () => ({ getBindGroupLayout: () => ({}) }),
+    createComputePipelineAsync: async () => ({ getBindGroupLayout: () => ({}) }),
     createBindGroup: () => ({}),
   };
   const encoder = {
@@ -90,9 +90,10 @@ function harness() {
   };
 }
 
-test("aborted LUT encoding is regenerated; only successful submission publishes the complete generation", () => {
+test("aborted LUT encoding is regenerated; only successful submission publishes the complete generation", async () => {
   const h = harness();
   const luts = new AtmosphereLutResources(h.device);
+  await luts.preparePipelines();
   const first = luts.record(h.encoder);
   assert.equal(luts.ready, false);
   assert.throws(() => luts.record(h.encoder), /recorded/);
@@ -115,16 +116,17 @@ test("aborted LUT encoding is regenerated; only successful submission publishes 
   assert.throws(() => luts.record(h.encoder), /destroyed/);
 });
 
-test("unsupported atmosphere limits fail before allocating resources", () => {
+test("unsupported atmosphere limits fail before allocating resources", async () => {
   const h = harness();
   h.device.limits.maxComputeWorkgroupSizeZ = 32;
   h.device.createTexture = () => assert.fail("allocation before capability check");
   assert.throws(() => new AtmosphereLutResources(h.device), /limits/);
 });
 
-test("sun and sky edits publish parameters without regenerating the fixed Earth LUT", () => {
+test("sun and sky edits publish parameters without regenerating the fixed Earth LUT", async () => {
   const h = harness();
   const environment = new PhysicalEnvironmentRuntime(h.device);
+  await environment.preparePipelines();
   const initial = {
     lutGeneration: 1,
     worldToUnit: 0.001,
@@ -183,6 +185,7 @@ test("replaced LUT generation retires only after the submitted frame completes",
       }),
   };
   const environment = new PhysicalEnvironmentRuntime(h.device);
+  await environment.preparePipelines();
   const snapshot = {
     lutGeneration: 1,
     worldToUnit: 0.001,

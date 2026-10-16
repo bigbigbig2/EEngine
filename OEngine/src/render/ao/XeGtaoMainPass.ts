@@ -1,3 +1,4 @@
+import { PreparedComputePipeline } from "../../gpu/PreparedPipeline.js";
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
@@ -22,8 +23,12 @@ export interface XeGtaoMainProducts {
 
 /** Complete scalar source profiles sharing one device-period Hilbert LUT. */
 export class XeGtaoMainPass {
+  async preparePipelines(quality: XeGtaoScalarQuality): Promise<void> {
+    await this.pipelines[quality].prepare();
+  }
+
   private readonly layout: GPUBindGroupLayout;
-  private readonly pipelines: Readonly<Record<XeGtaoScalarQuality, GPUComputePipeline>>;
+  private readonly pipelines: Readonly<Record<XeGtaoScalarQuality, PreparedComputePipeline>>;
   private readonly hilbertLut: GPUTexture;
 
   constructor(private readonly device: GPUDevice) {
@@ -70,8 +75,8 @@ export class XeGtaoMainPass {
         storage(10)
       ]
     });
-    const pipeline = (quality: XeGtaoScalarQuality): GPUComputePipeline =>
-      device.createComputePipeline({
+    const pipeline = (quality: XeGtaoScalarQuality): PreparedComputePipeline =>
+      new PreparedComputePipeline(device, {
         label: `XeGTAO/Main scalar ${quality}`,
         layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }),
         compute: {
@@ -126,7 +131,7 @@ export class XeGtaoMainPass {
       });
       const command = context.encoder as ShadeGPUCommandContext;
       const encoder = command.beginComputePass({ label: `XeGTAO/Main scalar ${quality}` });
-      encoder.setPipeline(this.pipelines[quality]);
+      encoder.setPipeline(this.pipelines[quality].requirePrepared());
       encoder.setBindGroup(0, group);
       encoder.dispatchWorkgroups(Math.ceil(width / 8), Math.ceil(height / 8));
       encoder.end();

@@ -63,7 +63,7 @@ const dfg = descriptor("AuthoredIBL/DFG", PHYSICAL_SKY_DFG_WGSL, "dfg", {
   ],
 });
 export async function prepareAuthoredEnvironmentPipelines(graphics: GraphicsContext): Promise<void> {
-  [filter, diffuse, mip, dfg].forEach((value) => graphics.compute_pipelines.obtain(value));
+  await Promise.all([filter, diffuse, mip, dfg].map((value) => graphics.compute_pipelines.prepare(value)));
 }
 type AuthoredIblAllocation = {
   readonly texture: GPUTexture;
@@ -251,7 +251,12 @@ export class GpuAuthoredEnvironment {
         bindings: GPUBindingResource[],
         size: number,
       ): void => {
-        const pass = command.constructComputePass({ label: pipeline.label, pipeline, bindings: [bindings] });
+        const pass = command.constructComputePass({
+          prepared: true,
+          label: pipeline.label,
+          pipeline,
+          bindings: [bindings],
+        });
         pass.dispatchWorkgroups(Math.ceil(size / 8), Math.ceil(size / 8));
         pass.end();
       };

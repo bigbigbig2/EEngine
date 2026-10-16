@@ -1,3 +1,4 @@
+import { PreparedComputePipeline } from "../../../gpu/PreparedPipeline.js";
 import { GpuBindGroupCache } from "../../../gpu/GpuBindGroupResourceCache.js";
 import type { FrameGraph } from "../../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../../framegraph/ResourceHandle.js";
@@ -75,9 +76,13 @@ export function packFsr3RcasConstants(sharpness: number): ArrayBuffer {
 }
 
 export class Fsr3RcasPass {
+  async preparePipelines(): Promise<void> {
+    await Promise.all([this.pipeline.prepare()]);
+  }
+
   private readonly bindGroups = new GpuBindGroupCache();
   private readonly layout: GPUBindGroupLayout;
-  private readonly pipeline: GPUComputePipeline;
+  private readonly pipeline: PreparedComputePipeline;
 
   constructor(private readonly device: GPUDevice) {
     const module = device.createShaderModule({ label: "FSR3 RCAS", code: FSR3_RCAS_WGSL });
@@ -93,7 +98,7 @@ export class Fsr3RcasPass {
         },
       ],
     });
-    this.pipeline = device.createComputePipeline({
+    this.pipeline = new PreparedComputePipeline(device, {
       label: "FSR3 RCAS",
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }),
       compute: { module, entryPoint: "main" },
@@ -122,7 +127,7 @@ export class Fsr3RcasPass {
         ],
       });
       const pass = command.beginComputePass({ label: "FSR3 RCAS" });
-      pass.setPipeline(this.pipeline);
+      pass.setPipeline(this.pipeline.requirePrepared());
       pass.setBindGroup(0, bind);
       pass.dispatchWorkgroups(Math.ceil(data.width / 8), Math.ceil(data.height / 8));
       pass.end();

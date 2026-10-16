@@ -1,3 +1,4 @@
+import { PipelineCompilationQueue } from "../gpu/PipelineCompilationQueue.js";
 import type { GpuAssetBindings } from "../gpu/GpuAssetStore.js";
 import type { PreparedFrameGeometryArena } from "./FrameGeometryArena.js";
 import type { PreparedFrameInstances } from "./FrameInstanceTransforms.js";
@@ -44,14 +45,32 @@ const ENTRIES = [
 /** Device owner for selected frame geometry preparation; publication awaits
  * asynchronous PSOs. Arena storage is borrowed and owned/accounted separately. */
 export class FrameGeometryVertices {
-  readonly ready: Promise<void>;
+  private readonly profilePreparation: (Promise<void> | null)[] = [null, null];
+  private readonly profileFactories: (() => Promise<readonly GPUComputePipeline[]>)[];
+  get ready(): Promise<void> {
+    return Promise.all([this.preparePipelines(false), this.preparePipelines(true)]).then(() => undefined);
+  }
+  preparePipelines(product: boolean): Promise<void> {
+    const index = product ? 1 : 0;
+    return (this.profilePreparation[index] ??= this.profileFactories[index]!()
+      .then((pipelines) => {
+        if (this.destroyed) {
+          throw new Error("Frame vertices stopped during preparation");
+        }
+        this.pipelines[index] = pipelines;
+      })
+      .catch((error: unknown) => {
+        this.profilePreparation[index] = null;
+        throw error;
+      }));
+  }
   private readonly states = new Map<PreparedFrameVertices, State>();
   private readonly layouts: readonly GPUBindGroupLayout[];
   private readonly publicationLayout: GPUBindGroupLayout;
   private readonly indirectLayout: GPUBindGroupLayout;
   private readonly recoveryLayout: GPUBindGroupLayout;
   private readonly recoveryGroups = new WeakMap<GPUBuffer, GPUBindGroup>();
-  private pipelines: readonly (readonly GPUComputePipeline[])[] | null = null;
+  private pipelines: (readonly GPUComputePipeline[] | null)[] = [null, null];
   private destroyed = false;
   constructor(
     private readonly device: GPUDevice,
@@ -105,42 +124,38 @@ export class FrameGeometryVertices {
       bindGroupLayouts: [this.publicationLayout, this.indirectLayout],
     });
     const finalizeLayout = device.createPipelineLayout({ bindGroupLayouts: [this.publicationLayout] });
-    this.ready = Promise.all(
-      [false, true].map(async (product, profile) => {
-        const source = frameGeometryVerticesWgsl(product, observe);
-        const module = device.createShaderModule({
-          label: `Geometry selected shared vertices/${product}`,
-          code: source,
-        });
-        const compilation = await module.getCompilationInfo();
-        const diagnostics = compilation.messages.filter((message) => message.type === "error");
-        if (diagnostics.length !== 0) {
-          throw new Error(
-            `Frame geometry WGSL compilation failed: ${diagnostics.map((message) => `${message.lineNum}:${message.linePos} ${message.message} [${source.split("\n")[message.lineNum - 1]?.trim() ?? ""}]`).join(" | ")}`,
-          );
-        }
-        const buildLayout = device.createPipelineLayout({ bindGroupLayouts: [this.layouts[profile]!] });
-        const recoveryBegin = device.createPipelineLayout({
-          bindGroupLayouts: [this.publicationLayout, this.indirectLayout, this.recoveryLayout],
-        });
-        const recoveryBuild = device.createPipelineLayout({
-          bindGroupLayouts: [this.layouts[profile]!, empty, this.recoveryLayout],
-        });
-        return Promise.all(
-          ENTRIES.map((entryPoint, i) =>
+    this.profileFactories = [false, true].map((product, profile) => async () => {
+      const source = frameGeometryVerticesWgsl(product, observe);
+      const module = device.createShaderModule({
+        label: `Geometry selected shared vertices/${product}`,
+        code: source,
+      });
+      const compilation = await module.getCompilationInfo();
+      const diagnostics = compilation.messages.filter((message) => message.type === "error");
+      if (diagnostics.length !== 0) {
+        throw new Error(
+          `Frame geometry WGSL compilation failed: ${diagnostics.map((message) => `${message.lineNum}:${message.linePos} ${message.message} [${source.split("\n")[message.lineNum - 1]?.trim() ?? ""}]`).join(" | ")}`,
+        );
+      }
+      const buildLayout = device.createPipelineLayout({ bindGroupLayouts: [this.layouts[profile]!] });
+      const recoveryBegin = device.createPipelineLayout({
+        bindGroupLayouts: [this.publicationLayout, this.indirectLayout, this.recoveryLayout],
+      });
+      const recoveryBuild = device.createPipelineLayout({
+        bindGroupLayouts: [this.layouts[profile]!, empty, this.recoveryLayout],
+      });
+      return Promise.all(
+        ENTRIES.map((entryPoint, i) =>
+          PipelineCompilationQueue.forDevice(device).run(() =>
             device.createComputePipelineAsync({
               label: `Geometry/${entryPoint}/${product}`,
               layout: [beginLayout, buildLayout, finalizeLayout, recoveryBegin, recoveryBuild][i]!,
               compute: { module, entryPoint },
             }),
           ),
-        );
-      }),
-    ).then((pipelines) => {
-      if (this.destroyed) throw new Error("Frame vertices stopped during preparation");
-      this.pipelines = pipelines;
+        ),
+      );
     });
-    void this.ready.catch(() => undefined);
     void device.lost.then(() => this.destroy());
   }
   get allocatedBytes(): number {
@@ -156,10 +171,10 @@ export class FrameGeometryVertices {
     readonly product?: GeometryProductGpuBindingsV1;
     readonly productBanks?: readonly GPUBuffer[];
   }): PreparedFrameVertices {
-    this.requireReady();
     const { arena, instances, work, assets } = input,
       product = input.product !== undefined,
       l = this.device.limits;
+    this.requireReady(product);
     const fixedBytes =
       FRAME_VERTEX_SETTINGS_SIZE +
       FRAME_VERTEX_CONTROL_SIZE +
@@ -336,11 +351,11 @@ export class FrameGeometryVertices {
     }
   }
   encode(encoder: GPUCommandEncoder, p: PreparedFrameVertices): void {
-    const pipelines = this.requireReady(),
-      s = this.require(p);
+    const s = this.require(p),
+      pipelines = this.requireReady(s.product);
     for (let stage = 0; stage < 3; stage++) {
       const pass = encoder.beginComputePass({ label: `Geometry/${ENTRIES[stage]}` });
-      pass.setPipeline(pipelines[s.product ? 1 : 0]![stage]!);
+      pass.setPipeline(pipelines[stage]!);
       pass.setBindGroup(0, stage === 1 ? s.group : s.publicationGroup);
       if (stage === 0) {
         pass.setBindGroup(1, s.indirectGroup);
@@ -351,8 +366,8 @@ export class FrameGeometryVertices {
     }
   }
   encodeRecovery(encoder: GPUCommandEncoder, p: PreparedFrameVertices, deferred: GPUBuffer): void {
-    const pipelines = this.requireReady(),
-      s = this.require(p);
+    const s = this.require(p),
+      pipelines = this.requireReady(s.product);
     gpuStorageRange(deferred, this.device.limits, 36, "Frame geometry recovery indices");
     let group = this.recoveryGroups.get(deferred);
     if (!group) {
@@ -364,7 +379,7 @@ export class FrameGeometryVertices {
     }
     for (const stage of [3, 4, 2]) {
       const pass = encoder.beginComputePass({ label: `Geometry/${ENTRIES[stage]}` });
-      pass.setPipeline(pipelines[s.product ? 1 : 0]![stage]!);
+      pass.setPipeline(pipelines[stage]!);
       pass.setBindGroup(0, stage === 4 ? s.group : s.publicationGroup);
       if (stage !== 2) pass.setBindGroup(2, group);
       if (stage === 3) {
@@ -386,16 +401,20 @@ export class FrameGeometryVertices {
     if (this.destroyed) return;
     for (const p of this.states.keys()) this.release(p);
     this.destroyed = true;
-    this.pipelines = null;
+    this.pipelines = [null, null];
   }
   private require(p: PreparedFrameVertices): State {
     const s = this.states.get(p);
     if (!s) throw new Error("Frame vertex allocation is stale or foreign");
     return s;
   }
-  private requireReady(): readonly (readonly GPUComputePipeline[])[] {
-    if (this.destroyed || !this.pipelines)
-      throw new Error("Frame vertices require completed scene preparation");
-    return this.pipelines;
+  private requireReady(product: boolean): readonly GPUComputePipeline[] {
+    const pipelines = this.pipelines[product ? 1 : 0];
+    if (this.destroyed || pipelines === null || pipelines === undefined) {
+      throw new Error(
+        `Frame vertices require completed scene preparation (${product ? "Product" : "ordinary"})`,
+      );
+    }
+    return pipelines;
   }
 }

@@ -5,6 +5,7 @@ import { PhysicalEnvironmentRuntime } from "../../.test-dist/render/environment/
 // the production owner still records into its caller's single frame encoder.
 export async function runPhysicalSkyMotionGpuOracle(device) {
   const physical = new PhysicalEnvironmentRuntime(device);
+  await physical.preparePipelines();
   const pixels = 21845 + 32 * 32;
   const bytes = pixels * 16;
   const output = device.createBuffer({

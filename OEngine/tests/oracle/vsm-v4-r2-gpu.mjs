@@ -43,8 +43,11 @@ export async function runVsmR2GpuOracle(device) {
   const profile = resources.capabilities;
   check(profile.profile === "vsm-directional-high", "This full-domain fixture requires high profile");
   const allocate = new VsmAllocatePagesPass(device);
+  await allocate.preparePipelines();
   const receiver = new VsmReceiverDemandPass(device);
+  await receiver.preparePipelines();
   const invalidate = new VsmInvalidationPass(device);
+  await invalidate.preparePipelines();
   const retained = [];
   const make = (size, usage, bytes) => {
     const buffer = device.createBuffer({ size, usage, mappedAtCreation: bytes !== undefined });

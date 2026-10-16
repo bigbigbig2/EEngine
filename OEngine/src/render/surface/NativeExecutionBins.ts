@@ -12,6 +12,64 @@ import {
 } from "../../shaders/native_execution_bins.js";
 import { NATIVE_TEMPORAL_SEED_VIEW_BYTES } from "../../gpu/FinalPixelAbi.js";
 
+function executionLayouts(device: GPUDevice, finalPixel: boolean) {
+  const classifyDescriptor: GPUBindGroupLayoutDescriptor = {
+    label: "SurfaceV4/bins classify layout",
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+      { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } },
+      ...[2, 3, 4, 5].map((binding) => ({
+        binding,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: { type: "read-only-storage" as const },
+      })),
+      ...[6, 7].map((binding) => ({
+        binding,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: { type: "storage" as const },
+      })),
+    ],
+  };
+  if (finalPixel) {
+    if (device.limits.maxStorageTexturesPerShaderStage < 3) {
+      throw new RangeError("Final Pixel bin writer exceeds negotiated storage texture count");
+    }
+    classifyDescriptor.entries = [
+      ...classifyDescriptor.entries,
+      {
+        binding: 8,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: { type: "uniform", minBindingSize: NATIVE_TEMPORAL_SEED_VIEW_BYTES },
+      },
+      {
+        binding: 9,
+        visibility: GPUShaderStage.COMPUTE,
+        storageTexture: { access: "write-only", format: "rgba32float" },
+      },
+      {
+        binding: 10,
+        visibility: GPUShaderStage.COMPUTE,
+        storageTexture: { access: "write-only", format: "rgba8unorm" },
+      },
+      {
+        binding: 11,
+        visibility: GPUShaderStage.COMPUTE,
+        storageTexture: { access: "write-only", format: "rgba32uint" },
+      },
+    ];
+  }
+  const finalizeDescriptor: GPUBindGroupLayoutDescriptor = {
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+      { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+      { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+      { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+    ],
+  };
+
+  return { classifyDescriptor, finalizeDescriptor };
+}
+
 export interface NativeExecutionBin {
   readonly programIndex: number;
   readonly bindingSet: number;
@@ -169,6 +227,20 @@ export interface NativeExecutionBinsBindings {
  * and exact pixel masks replace its Wave/bindless assumptions.
  */
 export class NativeExecutionBins {
+  static async preparePipelines(graphics: GraphicsContext, finalPixel: boolean): Promise<void> {
+    const { classifyDescriptor, finalizeDescriptor } = executionLayouts(graphics.device, finalPixel);
+    await Promise.all([
+      graphics.compute_pipelines.prepare({
+        layout: { bindGroupLayouts: [classifyDescriptor] },
+        compute: { module: { code: nativeExecutionClassifyWgsl(finalPixel) }, entryPoint: "classify" },
+      }),
+      graphics.compute_pipelines.prepare({
+        layout: { bindGroupLayouts: [finalizeDescriptor] },
+        compute: { module: { code: NATIVE_EXECUTION_FINALIZE_WGSL }, entryPoint: "finalize" },
+      }),
+    ]);
+  }
+
   private readonly bindGroups = new GpuBindGroupCache();
   readonly plan: NativeExecutionBinsPlan;
   readonly bins: readonly NativeExecutionBin[];
@@ -217,60 +289,8 @@ export class NativeExecutionBins {
       const known = new Uint32Array(this.bins.length * 2);
       this.bins.forEach((bin, index) => known.set([bin.programIndex, bin.bindingSet], index * 2));
       this.knownBins = this.buffer("known bins", known.byteLength, GPUBufferUsage.STORAGE, known);
-      const classifyDescriptor: GPUBindGroupLayoutDescriptor = {
-        label: "SurfaceV4/bins classify layout",
-        entries: [
-          { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-          { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } },
-          ...[2, 3, 4, 5].map((binding) => ({
-            binding,
-            visibility: GPUShaderStage.COMPUTE,
-            buffer: { type: "read-only-storage" as const },
-          })),
-          ...[6, 7].map((binding) => ({
-            binding,
-            visibility: GPUShaderStage.COMPUTE,
-            buffer: { type: "storage" as const },
-          })),
-        ],
-      };
-      if (this.finalPixel) {
-        if (device.limits.maxStorageTexturesPerShaderStage < 3) {
-          throw new RangeError("Final Pixel bin writer exceeds negotiated storage texture count");
-        }
-        classifyDescriptor.entries = [
-          ...classifyDescriptor.entries,
-          {
-            binding: 8,
-            visibility: GPUShaderStage.COMPUTE,
-            buffer: { type: "uniform", minBindingSize: NATIVE_TEMPORAL_SEED_VIEW_BYTES },
-          },
-          {
-            binding: 9,
-            visibility: GPUShaderStage.COMPUTE,
-            storageTexture: { access: "write-only", format: "rgba32float" },
-          },
-          {
-            binding: 10,
-            visibility: GPUShaderStage.COMPUTE,
-            storageTexture: { access: "write-only", format: "rgba8unorm" },
-          },
-          {
-            binding: 11,
-            visibility: GPUShaderStage.COMPUTE,
-            storageTexture: { access: "write-only", format: "rgba32uint" },
-          },
-        ];
-      }
+      const { classifyDescriptor, finalizeDescriptor } = executionLayouts(device, this.finalPixel);
       this.classifyLayout = device.createBindGroupLayout(classifyDescriptor);
-      const finalizeDescriptor: GPUBindGroupLayoutDescriptor = {
-        entries: [
-          { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-          { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-          { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-          { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-        ],
-      };
       const finalizeLayout = device.createBindGroupLayout(finalizeDescriptor);
       const settings = this.buffer(
         "finalize settings",
@@ -292,23 +312,13 @@ export class NativeExecutionBins {
           { binding: 3, resource: { buffer: this.queue } },
         ],
       });
-      const classify = device.createShaderModule({
-        label: "SurfaceV4/bins classify",
-        code: nativeExecutionClassifyWgsl(this.finalPixel),
-      });
-      const finalize = device.createShaderModule({
-        label: "SurfaceV4/bins finalize",
-        code: NATIVE_EXECUTION_FINALIZE_WGSL,
-      });
-      const classifyPipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [this.classifyLayout] });
-      const finalizePipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [finalizeLayout] });
       if (options.graphics !== undefined) {
         const pipeline = (
           code: string,
           entryPoint: string,
           layout: GPUBindGroupLayoutDescriptor,
         ): GPUComputePipeline =>
-          options.graphics!.compute_pipelines.obtain({
+          options.graphics!.compute_pipelines.requirePrepared({
             layout: { bindGroupLayouts: [layout] },
             compute: { module: { code }, entryPoint },
           });
@@ -321,6 +331,18 @@ export class NativeExecutionBins {
         this.state = "ready";
         this.ready = Promise.resolve();
       } else {
+        const classify = device.createShaderModule({
+          label: "SurfaceV4/bins classify",
+          code: nativeExecutionClassifyWgsl(this.finalPixel),
+        });
+        const finalize = device.createShaderModule({
+          label: "SurfaceV4/bins finalize",
+          code: NATIVE_EXECUTION_FINALIZE_WGSL,
+        });
+        const classifyPipelineLayout = device.createPipelineLayout({
+          bindGroupLayouts: [this.classifyLayout],
+        });
+        const finalizePipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [finalizeLayout] });
         this.ready = Promise.all([
           device.createComputePipelineAsync({
             layout: classifyPipelineLayout,

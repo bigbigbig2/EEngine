@@ -1,3 +1,4 @@
+import { PreparedComputePipeline } from "../../../gpu/PreparedPipeline.js";
 import { GpuBindGroupCache } from "../../../gpu/GpuBindGroupResourceCache.js";
 import type { FrameGraph } from "../../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../../framegraph/ResourceHandle.js";
@@ -40,9 +41,13 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 `;
 
 export class Fsr3ShadingChangePass {
+  async preparePipelines(): Promise<void> {
+    await Promise.all([this.pipeline.prepare()]);
+  }
+
   private readonly bindGroups = new GpuBindGroupCache();
   private readonly layout: GPUBindGroupLayout;
-  private readonly pipeline: GPUComputePipeline;
+  private readonly pipeline: PreparedComputePipeline;
   private readonly sampler: GPUSampler;
 
   constructor(private readonly device: GPUDevice) {
@@ -65,7 +70,7 @@ export class Fsr3ShadingChangePass {
         },
       ],
     });
-    this.pipeline = device.createComputePipeline({
+    this.pipeline = new PreparedComputePipeline(device, {
       label: "FSR3 Shading Change",
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }),
       compute: { module, entryPoint: "main" },
@@ -98,7 +103,7 @@ export class Fsr3ShadingChangePass {
         ],
       });
       const pass = command.beginComputePass({ label: "FSR3 Shading Change" });
-      pass.setPipeline(this.pipeline);
+      pass.setPipeline(this.pipeline.requirePrepared());
       pass.setBindGroup(0, bind);
       pass.dispatchWorkgroups(Math.ceil(width / 8), Math.ceil(height / 8));
       pass.end();

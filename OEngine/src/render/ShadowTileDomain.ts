@@ -1,3 +1,4 @@
+import { PreparedComputePipeline } from "../gpu/PreparedPipeline.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import { SHADOW_TILE_BUILD_WGSL, SHADOW_TILE_DOMAIN_BYTES } from "../shaders/shadow_tile_domain.js";
 import { VSM_VIRTUAL_PAGES_PER_AXIS, VSM_PAGE_SIZE, VSM_BORDER } from "./vsm/VsmCapabilities.js";
@@ -5,11 +6,38 @@ import type { VsmDirectionalFrameConstants } from "./vsm/VsmProjection.js";
 import { VSM_PAGE_WORK_WORDS, vsmEntriesPerClipLevel } from "./vsm/VsmPageState.js";
 import type { ResourceAccounting, ResourceHandle } from "../debug/profiling/ResourceAccounting.js";
 
+const tilePipelines = new WeakMap<GPUDevice, PreparedComputePipeline>();
+function obtainTilePipeline(device: GPUDevice): PreparedComputePipeline {
+  let cached = tilePipelines.get(device);
+  if (cached) {
+    return cached;
+  }
+  const pipeline = new PreparedComputePipeline(device, {
+    label: "Shadow geometry/build tile domains",
+    layout: "auto",
+    compute: {
+      module: device.createShaderModule({ label: "Shadow tile domains", code: SHADOW_TILE_BUILD_WGSL }),
+      entryPoint: "main",
+    },
+  });
+
+  tilePipelines.set(device, pipeline);
+  return pipeline;
+}
+
 /** Frame-local GPU demand/selected domains, rebuilt inside the ordinary frame. */
 export class ShadowTileDomain {
+  static async preparePipelines(device: GPUDevice): Promise<void> {
+    await obtainTilePipeline(device).prepare();
+  }
+
+  async preparePipelines(): Promise<void> {
+    await Promise.all([this.pipeline.prepare()]);
+  }
+
   readonly buffer: GPUBuffer;
   private readonly constants: GPUBuffer;
-  private readonly pipeline: GPUComputePipeline;
+  private readonly pipeline: PreparedComputePipeline;
   private readonly groups = new WeakMap<GPUBuffer, WeakMap<GPUBuffer, GPUBindGroup>>();
   private readonly header = new ArrayBuffer(256);
   private readonly handles: ResourceHandle[] = [];
@@ -37,16 +65,9 @@ export class ShadowTileDomain {
     this.constants = device.createBuffer({
       label: "Shadow geometry/tile domain constants",
       size: 176,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
-    this.pipeline = device.createComputePipeline({
-      label: "Shadow geometry/build tile domains",
-      layout: "auto",
-      compute: {
-        module: device.createShaderModule({ label: "Shadow tile domains", code: SHADOW_TILE_BUILD_WGSL }),
-        entryPoint: "main"
-      }
-    });
+    this.pipeline = obtainTilePipeline(device);
     for (const buffer of [this.buffer, this.constants]) {
       if (accounting)
         this.handles.push(
@@ -91,7 +112,7 @@ export class ShadowTileDomain {
     if (group === undefined) {
       group = this.device.createBindGroup({
         label: "Shadow geometry/tile domain sources",
-        layout: this.pipeline.getBindGroupLayout(0),
+        layout: this.pipeline.requirePrepared().getBindGroupLayout(0),
         entries: [
           { binding: 0, resource: { buffer: this.constants } },
           { binding: 1, resource: { buffer: requested } },
@@ -102,7 +123,7 @@ export class ShadowTileDomain {
       byAllocation.set(allocation, group);
     }
     const pass = command.beginComputePass({ label: "Shadow geometry/build tile domains" });
-    pass.setPipeline(this.pipeline);
+    pass.setPipeline(this.pipeline.requirePrepared());
     pass.setBindGroup(0, group);
     pass.dispatchWorkgroups(
       Math.ceil(Math.max(requested.size / 4, (allocation.size - 16) / (VSM_PAGE_WORK_WORDS * 4)) / 64)

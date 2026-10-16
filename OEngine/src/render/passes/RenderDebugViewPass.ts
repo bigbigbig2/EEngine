@@ -51,13 +51,36 @@ export type RenderDebugViewResources = {
 };
 
 export class RenderDebugViewPass {
+  async preparePipelines(view: RenderDebugView, ambientOcclusion: boolean): Promise<void> {
+    await this.graphics.render_pipelines.prepare(this.selectPipeline(view, ambientOcclusion, true));
+  }
+
+  private selectPipeline(
+    view: RenderDebugView,
+    ambientOcclusion: boolean,
+    packed: boolean,
+  ): CachedRenderPipelineDescriptor {
+    const pipeline =
+      view === RenderDebugViewValue.AmbientOcclusion && !ambientOcclusion
+        ? this.inactiveAmbientOcclusionPipeline
+        : view === RenderDebugViewValue.MeshletId && packed
+          ? this.meshletIdPipeline
+          : packed &&
+              (view === RenderDebugViewValue.VisibilityKey || view === RenderDebugViewValue.MaterialId)
+            ? this.packedVisibilityPipeline
+            : this.pipelines.get(view);
+    if (!pipeline) {
+      throw new Error(`RenderDebugViewPass cannot render '${view}'`);
+    }
+    return pipeline;
+  }
   private readonly pipelines: ReadonlyMap<RenderDebugView, CachedRenderPipelineDescriptor>;
   private readonly packedVisibilityPipeline: CachedRenderPipelineDescriptor;
   private readonly meshletIdPipeline: CachedRenderPipelineDescriptor;
   private readonly inactiveAmbientOcclusionPipeline: CachedRenderPipelineDescriptor;
 
   constructor(
-    graphics: GraphicsContext,
+    private readonly graphics: GraphicsContext,
     surfaceProfile: GpuShadingSurfaceLiteProfile = GPU_SHADING_SURFACE_LITE_PROFILE,
   ) {
     if (graphics.device === null) {
@@ -255,14 +278,11 @@ export class RenderDebugViewPass {
     if (view === RenderDebugViewValue.MeshletId && packedVisibility === null) {
       throw new Error("Meshlet ID debug view requires Packed Visibility work");
     }
-    const pipeline =
-      view === RenderDebugViewValue.AmbientOcclusion && resources.ambientOcclusion === null
-        ? this.inactiveAmbientOcclusionPipeline
-        : view === RenderDebugViewValue.MeshletId && packedVisibility !== null
-          ? this.meshletIdPipeline
-          : packedVisibility === null
-            ? this.pipelines.get(view)
-            : this.packedVisibilityPipeline;
+    const pipeline = this.selectPipeline(
+      view,
+      resources.ambientOcclusion !== null,
+      packedVisibility !== null,
+    );
     if (pipeline === undefined) {
       throw new Error(`RenderDebugViewPass cannot render '${view}'`);
     }
@@ -313,6 +333,7 @@ export class RenderDebugViewPass {
           bindings.push({ buffer: modeBuffer });
         }
         const pass = command.constructRenderPass({
+          prepared: true,
           label: `Render debug/${view}`,
           pipeline,
           bindings: [bindings],

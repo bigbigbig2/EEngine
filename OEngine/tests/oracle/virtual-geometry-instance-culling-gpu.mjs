@@ -107,6 +107,7 @@ export async function runVirtualGeometryInstanceCullingGpuOracle(device) {
     },
     { sseThreshold: 4, countersEnabled: true, diagnosticsEnabled: true, rasterExpansionEnabled: false },
   );
+  await owner.prepareWorkPipelines(prepared);
   const evidence = prepared.generated.evidence;
   const read = buffer(evidence.size, GPUBufferUsage.MAP_READ);
   const camera = new PerspectiveCamera();

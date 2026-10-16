@@ -86,7 +86,7 @@ test("directory retains complete producer domains and rejects capacity overflow 
   );
 });
 
-function fixture() {
+async function fixture() {
   const textures = [],
     loss = deferred();
   const device = {
@@ -100,7 +100,7 @@ function fixture() {
     createBindGroupLayout: (value) => value,
     createPipelineLayout: (value) => value,
     createShaderModule: (value) => value,
-    createComputePipeline: () => ({ getBindGroupLayout: () => ({}) }),
+    createComputePipelineAsync: async () => ({ getBindGroupLayout: () => ({}) }),
     createBindGroup: (value) => value,
     createTexture({ size, format }) {
       const texture = {
@@ -120,6 +120,7 @@ function fixture() {
     },
   };
   const owner = new NativeTemporalSeed(device);
+  await owner.preparePipelines();
   const camera = (z) => {
     const view = [...identity];
     view[14] = z;
@@ -198,7 +199,7 @@ function fixture() {
 }
 
 test("successful submit advances identity/camera together; abort and deferred resize preserve them", async () => {
-  const f = fixture();
+  const f = await fixture();
   const first = f.owner.prepare(19, 13, "native", f.camera(-2));
   assert.equal(first.previousValid, false);
   const a = f.encode(first);
@@ -243,7 +244,7 @@ test("successful submit advances identity/camera together; abort and deferred re
 });
 
 test("empty replacement releases Seed after last consumer and returning scene has no prior identity", async () => {
-  const f = fixture();
+  const f = await fixture();
   const frame = f.owner.prepare(19, 13, "native", f.camera(-2));
   assert.throws(() => f.owner.releaseHistory(), /frame boundary/);
   const submitted = f.encode(frame);
@@ -263,8 +264,8 @@ test("empty replacement releases Seed after last consumer and returning scene ha
   f.owner.destroy();
 });
 
-test("incomplete Seed consumer prevents commit and malformed camera/extent allocates nothing", () => {
-  const f = fixture();
+test("incomplete Seed consumer prevents commit and malformed camera/extent allocates nothing", async () => {
+  const f = await fixture();
   assert.throws(() => f.owner.prepare(0, 13, "native", f.camera(-2)));
   assert.throws(() => f.owner.prepare(19, 13, "native", { ...f.camera(-2), preExposure: 0 }));
   assert.throws(() =>
@@ -282,9 +283,8 @@ test("incomplete Seed consumer prevents commit and malformed camera/extent alloc
   assert.equal(f.owner.allocatedBytes, 0);
 });
 
-
-test("cached Seed graph resolves current roles on every execute and abort preserves submitted camera", () => {
-  const { owner, camera, device } = fixture();
+test("cached Seed graph resolves current roles on every execute and abort preserves submitted camera", async () => {
+  const { owner, camera, device } = await fixture();
   owner.prepare(19, 13, "native", camera(-2));
   const imported = new Map(), callbacks = [];
   let next = 0, groups = [];

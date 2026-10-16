@@ -1,3 +1,4 @@
+import { PreparedComputePipeline } from "../../gpu/PreparedPipeline.js";
 import {
   packVsmProjection,
   VSM_PROJECTION_CONSTANT_BYTES,
@@ -111,10 +112,14 @@ export function packVsmSamplingConstants(input: VsmReceiverDemandInputs): ArrayB
 
 /** GPU receiver demand producer. It never reads demand back or chooses work on CPU. */
 export class VsmReceiverDemandPass {
+  async preparePipelines(): Promise<void> {
+    await Promise.all([this.pipeline.prepare(), this.coarsePipeline.prepare()]);
+  }
+
   private readonly constants: GPUBuffer;
   private readonly layout: GPUBindGroupLayout;
-  private readonly pipeline: GPUComputePipeline;
-  private readonly coarsePipeline: GPUComputePipeline;
+  private readonly pipeline: PreparedComputePipeline;
+  private readonly coarsePipeline: PreparedComputePipeline;
   private readonly bindGroups = new GpuBindGroupCache(8);
   private diagnosticWorkgroups: GPUBuffer | null = null;
 
@@ -139,7 +144,7 @@ export class VsmReceiverDemandPass {
           : []),
       ],
     });
-    this.pipeline = device.createComputePipeline({
+    this.pipeline = new PreparedComputePipeline(device, {
       label: "VSM/receiver demand",
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }),
       compute: {
@@ -149,7 +154,7 @@ export class VsmReceiverDemandPass {
         entryPoint: "main",
       },
     });
-    this.coarsePipeline = device.createComputePipeline({
+    this.coarsePipeline = new PreparedComputePipeline(device, {
       label: "VSM/complete coarse coverage",
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }),
       compute: {
@@ -273,10 +278,10 @@ export class VsmReceiverDemandPass {
         ],
       });
       const pass = command.beginComputePass({ label: "VSM/receiver demand" });
-      pass.setPipeline(this.pipeline);
+      pass.setPipeline(this.pipeline.requirePrepared());
       pass.setBindGroup(0, group);
       pass.dispatchWorkgroups(...vsmReceiverDispatch(input.width, input.height));
-      pass.setPipeline(this.coarsePipeline);
+      pass.setPipeline(this.coarsePipeline.requirePrepared());
       pass.dispatchWorkgroups(profile.clipLevels);
       pass.end();
     });

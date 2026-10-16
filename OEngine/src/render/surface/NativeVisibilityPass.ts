@@ -295,17 +295,21 @@ export class NativeVisibilityPass {
     shader: NativeVisibilityShader,
   ): RouteState | Promise<RouteState> {
     const { device, input } = this;
-    const layouts = shader.groups.map((entries) => device.createBindGroupLayout({ entries }));
-    const layout = device.createPipelineLayout({ bindGroupLayouts: layouts });
-    const module = device.createShaderModule({ code: shader.source });
+    const layouts = shader.groups.map((entries) =>
+      input.graphics
+        ? input.graphics.pipeline_layouts.obtainBindGroupLayout({ entries })
+        : device.createBindGroupLayout({ entries }),
+    );
     if (input.graphics !== undefined) {
       const pipelines = (["back", "none"] as const).map((cullMode) =>
-        input.graphics!.render_pipelines.obtain(
+        input.graphics!.render_pipelines.requirePrepared(
           nativeVisibilityPipelineDescriptor(shader, Boolean(input.shadow || input.vsmAtlas), cullMode),
         ),
       ) as [GPURenderPipeline, GPURenderPipeline];
       return this.bindRoute(route, bin, layouts, pipelines);
     }
+    const layout = device.createPipelineLayout({ bindGroupLayouts: layouts });
+    const module = device.createShaderModule({ code: shader.source });
     return Promise.all(
       (["back", "none"] as const).map((cullMode) =>
         device.createRenderPipelineAsync({

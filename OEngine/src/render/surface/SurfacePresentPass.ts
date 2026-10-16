@@ -1,3 +1,4 @@
+import { PreparedRenderPipeline } from "../../gpu/PreparedPipeline.js";
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
@@ -81,10 +82,14 @@ export const SURFACE_PRESENT_DEBUG_WGSL = /* wgsl */ `
 
 /** Presents the completed Surface/FSR3 radiance; queue overflow is resolved in Surface. */
 export class SurfacePresentPass {
+  async preparePipelines(debug = false): Promise<void> {
+    await (debug ? this.debugPipeline : this.pipeline).prepare();
+  }
+
   private readonly layout: GPUBindGroupLayout;
-  private readonly pipeline: GPURenderPipeline;
+  private readonly pipeline: PreparedRenderPipeline;
   private readonly debugLayout: GPUBindGroupLayout;
-  private readonly debugPipeline: GPURenderPipeline;
+  private readonly debugPipeline: PreparedRenderPipeline;
   private readonly lutTexture: GPUTexture;
   private readonly lutView: GPUTextureView;
   private readonly lutSampler: GPUSampler;
@@ -145,7 +150,7 @@ export class SurfacePresentPass {
     const module = device.createShaderModule({
       code: profile === "hdr" ? SURFACE_PRESENT_HDR_WGSL : SURFACE_PRESENT_WGSL,
     });
-    this.pipeline = device.createRenderPipeline({
+    this.pipeline = new PreparedRenderPipeline(device, {
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }),
       vertex: { module, entryPoint: "vs" },
       fragment: { module, entryPoint: profile === "hdr" ? "fs_hdr" : "fs", targets: [{ format }] },
@@ -158,7 +163,7 @@ export class SurfacePresentPass {
       ],
     });
     const debugModule = device.createShaderModule({ code: SURFACE_PRESENT_DEBUG_WGSL });
-    this.debugPipeline = device.createRenderPipeline({
+    this.debugPipeline = new PreparedRenderPipeline(device, {
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.debugLayout] }),
       vertex: { module: debugModule, entryPoint: "vs" },
       fragment: { module: debugModule, entryPoint: "fs", targets: [{ format }] },
@@ -223,7 +228,7 @@ export class SurfacePresentPass {
             },
           ],
         });
-        pass.setPipeline(debug ? this.debugPipeline : this.pipeline);
+        pass.setPipeline((debug ? this.debugPipeline : this.pipeline).requirePrepared());
         pass.setBindGroup(0, bind);
         pass.draw(3);
         pass.end();

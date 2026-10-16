@@ -26,6 +26,7 @@ import { readWgslValue, writeWgslValue } from "../core/WgslBufferIO.js";
 import { BinaryReader } from "../loaders/BinaryReader.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import type { CachedComputePipelineDescriptor } from "./GPUDescriptorCaches.js";
+import type { GraphicsContext } from "./GraphicsContext.js";
 
 export const GPU_DATABASE_WORD_BYTES = WGSL_u32.size;
 export const GPU_DATABASE_INVALID_PAGE = 0xffffffff;
@@ -958,7 +959,7 @@ const GPU_DATABASE_UPLOAD_GROUP: GPUBindGroupLayoutDescriptor = {
 };
 
 const GPU_DATABASE_UPLOAD_PIPELINE: CachedComputePipelineDescriptor = {
-  label: "",
+  label: "GPU database/scatter uploads",
   layout: { label: "", bindGroupLayouts: [GPU_DATABASE_UPLOAD_GROUP] },
   compute: {
     module: { label: "", code: GPU_DATABASE_UPLOAD_WGSL },
@@ -967,6 +968,9 @@ const GPU_DATABASE_UPLOAD_PIPELINE: CachedComputePipelineDescriptor = {
 };
 
 export class GPUDatabase {
+  static async preparePipelines(graphics: GraphicsContext): Promise<void> {
+    await graphics.compute_pipelines.prepare(GPU_DATABASE_UPLOAD_PIPELINE);
+  }
   readonly definition: GPUDatabaseDefinition;
   readonly tables: GPUTypedTable[];
   buffer: GPUBuffer;
@@ -1052,7 +1056,7 @@ export class GPUDatabase {
     return bytes;
   }
 
-  update(command: ShadeGPUCommandContext): void {
+  update(command: ShadeGPUCommandContext, preparedPipelines = false): void {
     // CPU tables remain authoritative on abort. Retain encoded row bytes until
     // submission and republish their lookup/header state when encoding fails.
     const pending = this.tables.map((table) => ({
@@ -1120,7 +1124,7 @@ export class GPUDatabase {
     this.uploadDirtyLookup(command);
 
     for (const table of this.tables) {
-      this.encodeElementUploads(command, table);
+      this.encodeElementUploads(command, table, preparedPipelines);
     }
     for (const table of this.tables) {
       this.uploadDirtyHeaders(command, table);
@@ -1385,7 +1389,11 @@ export class GPUDatabase {
     this.dirtyLookupEnd = -1;
   }
 
-  private encodeElementUploads(command: ShadeGPUCommandContext, table: GPUTypedTable): void {
+  private encodeElementUploads(
+    command: ShadeGPUCommandContext,
+    table: GPUTypedTable,
+    preparedPipelines: boolean,
+  ): void {
     const upload = table.element_upload_buffer;
     const uploadBytes = upload.position;
     if (uploadBytes === 0) return;
@@ -1433,6 +1441,7 @@ export class GPUDatabase {
 
       const pass = command.constructComputePass({
         pipeline: GPU_DATABASE_UPLOAD_PIPELINE,
+        prepared: preparedPipelines,
         bindings: [[{ buffer: uploadBuffer }, { buffer: this.buffer }, { buffer: settingsBuffer }]],
       });
       pass.dispatchWorkgroups(Math.ceil(batchCount / GPU_DATABASE_UPLOAD_WORKGROUP_SIZE));

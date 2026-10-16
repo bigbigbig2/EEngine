@@ -642,22 +642,47 @@ export class GpuNativeMaterialScene {
   }
 
   private async prepareRasterPrograms(snapshot: Snapshot): Promise<void> {
+    await this.prepareRasterProfile(snapshot, false);
+  }
+
+  async prepareShadowPipelines(): Promise<void> {
+    const snapshot = this.candidate ?? this.active;
+    if (!snapshot || this.stopped) {
+      throw new Error("Native shadow preparation requires a live scene");
+    }
+    await this.prepareRasterProfile(snapshot, true);
+  }
+
+  /** Explicit retry after reporting a candidate error; the committed publication
+   * was never replaced. Rebuild failed leases through their normal owners. */
+  retryPreparation(): void {
+    if (this.prepared || this.stopped) {
+      throw new Error("Native retry requires a live frame boundary");
+    }
+    if (this.error === undefined) {
+      return;
+    }
+    this.candidate?.publication.abort();
+    this.candidate = null;
+    this.error = undefined;
+    this.dirty = true;
+  }
+
+  private async prepareRasterProfile(snapshot: Snapshot, vsmAtlas: boolean): Promise<void> {
     const jobs: Promise<GPURenderPipeline>[] = [];
     for (const rasterClass of snapshot.publication.rasterClasses) {
-      for (const vsmAtlas of [false, true]) {
-        const shader = nativeVisibilityShader(rasterClass.program, rasterClass.layoutEntries, {
-          partitioned: true,
-          productGeometry: this.productGeometry,
-          shadow: vsmAtlas,
-          vsmAtlas
-        });
-        for (const cullMode of ["back", "none"] as const) {
-          jobs.push(
-            this.graphics.render_pipelines.prepare(
-              nativeVisibilityPipelineDescriptor(shader, vsmAtlas, cullMode)
-            )
-          );
-        }
+      const shader = nativeVisibilityShader(rasterClass.program, rasterClass.layoutEntries, {
+        partitioned: true,
+        productGeometry: this.productGeometry,
+        shadow: vsmAtlas,
+        vsmAtlas,
+      });
+      for (const cullMode of ["back", "none"] as const) {
+        jobs.push(
+          this.graphics.render_pipelines.prepare(
+            nativeVisibilityPipelineDescriptor(shader, vsmAtlas, cullMode),
+          ),
+        );
       }
     }
     await Promise.all(jobs);

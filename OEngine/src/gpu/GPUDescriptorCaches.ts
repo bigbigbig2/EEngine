@@ -5,6 +5,7 @@
 import { HashMap } from "../core/HashMap.js";
 import { WeightedCache } from "../core/WeightedCache.js";
 import { hashString } from "../core/memoryUtils.js";
+import { PipelineCompilationQueue } from "./PipelineCompilationQueue.js";
 
 export type CachedShaderModuleDescriptor = GPUShaderModuleDescriptor;
 
@@ -468,6 +469,18 @@ export class RenderPipelineCache {
     Promise<GPURenderPipeline>
   >();
   private preparationEpoch = 0;
+  private asyncMisses = 0;
+  private syncMisses = 0;
+  private unpreparedUses = 0;
+
+  evidence() {
+    return Object.freeze({
+      asyncMisses: this.asyncMisses,
+      syncMisses: this.syncMisses,
+      unpreparedUses: this.unpreparedUses,
+      pending: this.preparing.size,
+    });
+  }
   private firstUsed = new WeakSet<GPURenderPipeline>();
 
   constructor(
@@ -475,7 +488,9 @@ export class RenderPipelineCache {
     readonly layouts: PipelineLayoutCache,
     private readonly shaders: ShaderModuleCache,
     private readonly observer?: PipelineCacheObserver,
-  ) {}
+  ) {
+    void device.lost?.then(() => this.clear());
+  }
 
   obtain(descriptor: CachedRenderPipelineDescriptor, primitive?: GPUPrimitiveState): GPURenderPipeline {
     const resolved = normalizeRenderPipelineDescriptor(primitive ? { ...descriptor, primitive } : descriptor);
@@ -486,6 +501,7 @@ export class RenderPipelineCache {
       this.observeFirstUse(cached);
       return cached;
     }
+    this.syncMisses++;
     this.observer?.onPipelineCacheMiss?.("render");
     const started = typeof performance === "undefined" ? 0 : performance.now();
     const pipeline = this.create(resolved);
@@ -507,18 +523,25 @@ export class RenderPipelineCache {
     if (cached) return Promise.resolve(cached);
     const preparing = this.preparing.get(key);
     if (preparing) return preparing;
-    const epoch = this.preparationEpoch,
-      started = typeof performance === "undefined" ? 0 : performance.now();
+    const epoch = this.preparationEpoch;
+    let hostCallMs = 0;
+    this.asyncMisses++;
     this.observer?.onPipelineCacheMiss?.("render");
-    const promise = this.device
-      .createRenderPipelineAsync(this.nativeDescriptor(resolved))
+    const promise = PipelineCompilationQueue.forDevice(this.device)
+      .run(() => {
+        if (this.preparationEpoch !== epoch) {
+          throw new Error("Render pipeline preparation was revoked");
+        }
+        const descriptor = this.nativeDescriptor(resolved);
+        const started = performance.now();
+        const result = this.device.createRenderPipelineAsync(descriptor);
+        hostCallMs = performance.now() - started;
+        return result;
+      })
       .then((pipeline) => {
         if (this.preparationEpoch !== epoch) throw new Error("Render pipeline preparation was revoked");
         this.cache.set(key, pipeline);
-        this.observer?.onPipelineCreated?.(
-          "render",
-          Math.max(0, (typeof performance === "undefined" ? 0 : performance.now()) - started),
-        );
+        this.observer?.onPipelineCreated?.("render", hostCallMs);
         return pipeline;
       })
       .finally(() => {
@@ -530,8 +553,10 @@ export class RenderPipelineCache {
 
   requirePrepared(descriptor: CachedRenderPipelineDescriptor): GPURenderPipeline {
     const pipeline = this.cache.get(new DescriptorKey(normalizeRenderPipelineDescriptor(descriptor)));
-    if (!pipeline)
+    if (!pipeline) {
+      this.unpreparedUses++;
       throw new Error(`Render pipeline requires completed scene preparation: ${descriptor.label ?? ""}`);
+    }
     this.observer?.onPipelineCacheHit?.("render");
     this.observeFirstUse(pipeline);
     return pipeline;
@@ -592,13 +617,33 @@ export class RenderPipelineCache {
 
 export class ComputePipelineCache {
   private readonly cache = new HashMap<DescriptorKey<CachedComputePipelineDescriptor>, GPUComputePipeline>();
+  private readonly preparing = new HashMap<
+    DescriptorKey<CachedComputePipelineDescriptor>,
+    Promise<GPUComputePipeline>
+  >();
+  private preparationEpoch = 0;
+  private asyncMisses = 0;
+  private syncMisses = 0;
+  private unpreparedUses = 0;
+
+  evidence() {
+    return Object.freeze({
+      asyncMisses: this.asyncMisses,
+      syncMisses: this.syncMisses,
+      unpreparedUses: this.unpreparedUses,
+      pending: this.preparing.size,
+    });
+  }
+  private firstUsed = new WeakSet<GPUComputePipeline>();
 
   constructor(
     private readonly device: GPUDevice,
     readonly layouts: PipelineLayoutCache,
     private readonly shaders: ShaderModuleCache,
     private readonly observer?: PipelineCacheObserver,
-  ) {}
+  ) {
+    void device.lost?.then(() => this.clear());
+  }
 
   obtain(descriptor: CachedComputePipelineDescriptor): GPUComputePipeline {
     const normalized = normalizeComputePipelineDescriptor(descriptor);
@@ -606,29 +651,99 @@ export class ComputePipelineCache {
     const cached = this.cache.get(key);
     if (cached !== undefined) {
       this.observer?.onPipelineCacheHit?.("compute");
+      this.observeFirstUse(cached);
       return cached;
     }
+    this.syncMisses++;
     this.observer?.onPipelineCacheMiss?.("compute");
     const started = typeof performance === "undefined" ? 0 : performance.now();
-    const pipeline = this.device.createComputePipeline({
-      label: normalized.label,
-      layout: this.layouts.obtainPipelineLayout(normalized.layout),
-      compute: {
-        ...normalized.compute,
-        module: this.shaders.obtain(normalized.compute.module),
-      },
-    });
+    const pipeline = this.device.createComputePipeline(this.nativeDescriptor(normalized));
     this.observer?.onPipelineCreated?.(
       "compute",
       Math.max(0, (typeof performance === "undefined" ? 0 : performance.now()) - started),
     );
     this.cache.set(key, pipeline);
-    this.observer?.onPipelineFirstUse?.("compute");
+    this.observeFirstUse(pipeline);
+    return pipeline;
+  }
+
+  prepare(descriptor: CachedComputePipelineDescriptor): Promise<GPUComputePipeline> {
+    const normalized = normalizeComputePipelineDescriptor(descriptor),
+      key = new DescriptorKey(normalized);
+    const cached = this.cache.get(key);
+    if (cached) {
+      return Promise.resolve(cached);
+    }
+    const preparing = this.preparing.get(key);
+    if (preparing) {
+      return preparing;
+    }
+    const epoch = this.preparationEpoch;
+    let hostCallMs = 0;
+    this.asyncMisses++;
+    this.observer?.onPipelineCacheMiss?.("compute");
+    const promise = PipelineCompilationQueue.forDevice(this.device)
+      .run(() => {
+        if (this.preparationEpoch !== epoch) {
+          throw new Error("Compute pipeline preparation was revoked");
+        }
+        const descriptor = this.nativeDescriptor(normalized);
+        const started = performance.now();
+        const result = this.device.createComputePipelineAsync(descriptor);
+        hostCallMs = performance.now() - started;
+        return result;
+      })
+      .then((pipeline) => {
+        if (this.preparationEpoch !== epoch) {
+          throw new Error("Compute pipeline preparation was revoked");
+        }
+        this.cache.set(key, pipeline);
+        this.observer?.onPipelineCreated?.("compute", hostCallMs);
+        return pipeline;
+      })
+      .finally(() => {
+        if (this.preparing.get(key) === promise) {
+          this.preparing.delete(key);
+        }
+      });
+    this.preparing.set(key, promise);
+    return promise;
+  }
+
+  requirePrepared(descriptor: CachedComputePipelineDescriptor): GPUComputePipeline {
+    const pipeline = this.cache.get(new DescriptorKey(normalizeComputePipelineDescriptor(descriptor)));
+    if (!pipeline) {
+      this.unpreparedUses++;
+      throw new Error(
+        `Compute pipeline requires completed scene preparation: ${descriptor.label ?? descriptor.compute.entryPoint ?? ""}`,
+      );
+    }
+    this.observer?.onPipelineCacheHit?.("compute");
+    this.observeFirstUse(pipeline);
     return pipeline;
   }
 
   clear(): void {
+    this.preparationEpoch++;
+    this.preparing.clear();
     this.cache.clear();
+    this.firstUsed = new WeakSet();
+  }
+
+  private observeFirstUse(pipeline: GPUComputePipeline): void {
+    if (this.firstUsed.has(pipeline)) {
+      return;
+    }
+    this.firstUsed.add(pipeline);
+    this.observer?.onPipelineFirstUse?.("compute");
+  }
+
+  private nativeDescriptor(descriptor: CachedComputePipelineDescriptor): GPUComputePipelineDescriptor {
+    return {
+      label: descriptor.label,
+      layout: this.layouts.obtainPipelineLayout(descriptor.layout),
+      compute: { ...descriptor.compute, module: this.shaders.obtain(descriptor.compute.module) },
+    };
   }
 }
 

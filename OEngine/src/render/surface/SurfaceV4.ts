@@ -1,3 +1,4 @@
+import { PreparedComputePipeline } from "../../gpu/PreparedPipeline.js";
 import { createNativeTextureView } from "../../gpu/GPUTextureDescriptors.js";
 import { SSSR_RECEIVER_BYTES } from "../reflections/SssrAbi.js";
 import { GpuBindGroupCache } from "../../gpu/GpuBindGroupResourceCache.js";
@@ -143,7 +144,14 @@ interface ExtentAllocation {
  */
 export class SurfaceV4 {
   private readonly bindGroups = new GpuBindGroupCache();
-  readonly ready: Promise<void>;
+  get ready(): Promise<void> {
+    return this.backgroundSeedPipeline?.prepare() ?? Promise.resolve();
+  }
+  async preparePipelines(background: boolean): Promise<void> {
+    if (background) {
+      await this.ready;
+    }
+  }
   private neutralEntries: readonly GPUBindGroupEntry[] | null = null;
   private neutralEnvironmentEntries: readonly GPUBindGroupEntry[] | null = null;
   private neutralEnvironmentTexture: GPUTexture | null = null;
@@ -161,7 +169,7 @@ export class SurfaceV4 {
   // Attachment changes replace bind groups, not the ordered GPU scratch queue.
   // References include submitted retired states until their exact fences settle.
   private readonly accountingHandles = new Map<GPUBuffer | GPUTexture, ResourceHandle>();
-  private readonly backgroundSeedPipeline?: GPUComputePipeline;
+  private readonly backgroundSeedPipeline?: PreparedComputePipeline;
 
   constructor(
     private readonly device: GPUDevice,
@@ -174,7 +182,7 @@ export class SurfaceV4 {
       if (!reactive || device.limits.maxStorageTexturesPerShaderStage < 4) {
         throw new RangeError("Final Pixel requires HDR and all three Temporal products");
       }
-      this.backgroundSeedPipeline = device.createComputePipeline({
+      this.backgroundSeedPipeline = new PreparedComputePipeline(device, {
         label: "Final Pixel/empty scene Seed",
         layout: "auto",
         compute: {
@@ -183,7 +191,6 @@ export class SurfaceV4 {
         }
       });
     }
-    this.ready = Promise.resolve();
     void device.lost.then(() => this.destroy());
   }
 
@@ -1061,7 +1068,7 @@ export class SurfaceV4 {
         ...(this.finalPixel && bins.plan.mode === "empty"
           ? {
               backgroundSeedGroup: this.device.createBindGroup({
-                layout: this.backgroundSeedPipeline!.getBindGroupLayout(0),
+                layout: this.backgroundSeedPipeline!.requirePrepared().getBindGroupLayout(0),
                 entries: [
                   { binding: 0, resource: { buffer: temporalView! } },
                   { binding: 1, resource: createNativeTextureView(frame.temporal!.seed) },
@@ -1153,7 +1160,7 @@ export class SurfaceV4 {
     }
     if (state.backgroundSeedGroup) {
       const background = encoder.beginComputePass({ label: "Final Pixel/empty scene Seed" });
-      background.setPipeline(this.backgroundSeedPipeline!);
+      background.setPipeline(this.backgroundSeedPipeline!.requirePrepared());
       background.setBindGroup(0, state.backgroundSeedGroup);
       background.dispatchWorkgroups(Math.ceil(state.width / 8), Math.ceil(state.height / 8));
       background.end();

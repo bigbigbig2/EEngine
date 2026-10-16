@@ -1,3 +1,4 @@
+import { PipelineCompilationQueue } from "../gpu/PipelineCompilationQueue.js";
 import type { ResourceAccounting, ResourceHandle } from "../debug/profiling/ResourceAccounting.js";
 import type { GeometryProductGpuBindingsV1 } from "../gpu/VirtualGeometryResidency.js";
 import { gpuStorageRange } from "../gpu/GpuStorageRange.js";
@@ -88,11 +89,13 @@ export class TemporalOcclusionWork {
     const begin = device.createPipelineLayout({ bindGroupLayouts: [this.layout, this.dispatchLayout] });
     this.ready = Promise.all(
       ["begin_prediction", "predict", "begin_recovery", "recover"].map((entryPoint, index) =>
-        device.createComputePipelineAsync({
-          label: `Visibility/${entryPoint}`,
-          layout: index % 2 === 0 ? begin : main,
-          compute: { module, entryPoint },
-        }),
+        PipelineCompilationQueue.forDevice(device).run(() =>
+          device.createComputePipelineAsync({
+            label: `Visibility/${entryPoint}`,
+            layout: index % 2 === 0 ? begin : main,
+            compute: { module, entryPoint },
+          }),
+        ),
       ),
     ).then((pipelines) => {
       if (this.stopped) throw new Error("Temporal occlusion stopped during readiness");

@@ -1,3 +1,4 @@
+import { PipelineCompilationQueue } from "../../gpu/PipelineCompilationQueue.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import { GpuBindGroupCache } from "../../gpu/GpuBindGroupResourceCache.js";
 import { SSSR_CLASSIFY_WGSL } from "../../shaders/sssr_classify.js";
@@ -332,16 +333,18 @@ export class SssrRuntime {
           entries: bindings
         });
         this.stageLayouts.set(stage, layout);
-        const pipeline = await this.device.createComputePipelineAsync({
-          label: `SSSR/${stage}`,
-          layout: this.device.createPipelineLayout({
-            bindGroupLayouts: common ? [this.commonLayout, layout] : [layout]
+        const pipeline = await PipelineCompilationQueue.forDevice(this.device).run(() =>
+          this.device.createComputePipelineAsync({
+            label: `SSSR/${stage}`,
+            layout: this.device.createPipelineLayout({
+              bindGroupLayouts: common ? [this.commonLayout, layout] : [layout],
+            }),
+            compute: {
+              module: this.device.createShaderModule({ label: `SSSR/${stage}`, code }),
+              entryPoint: "main",
+            },
           }),
-          compute: {
-            module: this.device.createShaderModule({ label: `SSSR/${stage}`, code }),
-            entryPoint: "main"
-          }
-        });
+        );
         return [stage, pipeline] as const;
       })
     );

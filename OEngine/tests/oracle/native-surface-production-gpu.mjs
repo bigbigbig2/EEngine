@@ -485,13 +485,32 @@ export async function runNativeSurfaceProductionGpuOracle(
     };
   };
   instrument();
+  const guardedDevices = new WeakSet();
+  let rendering = false;
+  const guardSynchronousPipelines = () => {
+    if (guardedDevices.has(device)) return;
+    guardedDevices.add(device);
+    for (const name of ["createComputePipeline", "createRenderPipeline"]) {
+      const create = device[name].bind(device);
+      device[name] = (descriptor) => {
+        check(!rendering, `Production render synchronously created ${descriptor.label ?? name}`);
+        return create(descriptor);
+      };
+    }
+  };
   const tick = async (renderScene = scene) => {
     const before = renderer.frame_count;
     // A code-class mutation may compile new PSOs. Bound wall time, not 200
     // readiness polls (~1s); the required submitted frame/outputs stay exact.
     const deadline = performance.now() + 60_000;
     while (performance.now() < deadline) {
-      renderer.render(camera, renderScene);
+      guardSynchronousPipelines();
+      rendering = true;
+      try {
+        renderer.render(camera, renderScene);
+      } finally {
+        rendering = false;
+      }
       await device.queue.onSubmittedWorkDone();
       if (renderer.frame_count !== before) {
         check(capture !== null, "Production Surface did not encode");
@@ -707,7 +726,88 @@ export async function runNativeSurfaceProductionGpuOracle(
     }
     await tick();
     const first = await inspect();
+    const initialization = renderer.initializationEvidence(scene);
+    check(
+      initialization.firstSubmittedAtMs !== null &&
+        initialization.firstCompletedAtMs >= initialization.firstSubmittedAtMs,
+      "Initialization must observe the real first completed frame",
+    );
+    check(
+      initialization.firstGraphLowerMs >= 0 &&
+        initialization.firstEncodeMs >= 0 &&
+        initialization.firstFinishMs >= 0 &&
+        initialization.firstSubmitMs >= 0,
+      "Initialization CPU stages are missing",
+    );
+    check(
+      initialization.pipelines.concurrency === 16 &&
+        initialization.pipelines.active === 0 &&
+        initialization.pipelines.queued === 0,
+      "First-frame pipeline preparation is incomplete",
+    );
     const vsm = await inspectVsm();
+    const beforePreparationFailure = {
+      frame: renderer.frame_count,
+      publication: renderer.graphics.render_world.runtime(scene).nativeMaterials.active,
+      temporal: renderer._nativeTemporal.readIndex,
+      seed: renderer._temporalSeed.readIndex,
+      ao: renderer._committedAmbientOcclusionKey,
+    };
+    const createComputeAsync = device.createComputePipelineAsync.bind(device);
+    let rejectedPreparationJobs = 0;
+    device.createComputePipelineAsync = (descriptor) => {
+      if (descriptor.label === "XeGTAO/Main scalar medium") {
+        rejectedPreparationJobs++;
+        return Promise.reject(new Error("injected candidate pipeline failure"));
+      }
+      return createComputeAsync(descriptor);
+    };
+    renderer.setAmbientOcclusionSettings({ quality: "medium" });
+    let preparationFailed = false;
+    try {
+      const deadline = performance.now() + 10_000;
+      while (!preparationFailed && performance.now() < deadline) {
+        try {
+          renderer.render(camera, scene);
+        } catch (error) {
+          check(
+            error.message === "injected candidate pipeline failure",
+            `Unexpected preparation failure: ${error.message}`,
+          );
+          preparationFailed = true;
+        }
+        check(
+          renderer.frame_count === beforePreparationFailure.frame &&
+            renderer._nativeTemporal.readIndex === beforePreparationFailure.temporal &&
+            renderer._temporalSeed.readIndex === beforePreparationFailure.seed &&
+            renderer._committedAmbientOcclusionKey === beforePreparationFailure.ao &&
+            renderer.graphics.render_world.runtime(scene).nativeMaterials.active ===
+              beforePreparationFailure.publication,
+          "Pending/failed pipeline preparation advanced committed frame state",
+        );
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      check(
+        preparationFailed && rejectedPreparationJobs === 1,
+        "Candidate failure was hidden or implicitly retried",
+      );
+      try {
+        renderer.render(camera, scene);
+        throw new Error("Preparation error disappeared without retry");
+      } catch (error) {
+        check(error.message === "injected candidate pipeline failure", error.message);
+      }
+    } finally {
+      device.createComputePipelineAsync = createComputeAsync;
+    }
+    renderer.retryPipelinePreparation(scene);
+    await tick();
+    check(
+      renderer.frame_count === beforePreparationFailure.frame + 1,
+      "Explicit pipeline retry did not submit exactly one frame",
+    );
+    renderer.setAmbientOcclusionSettings({ quality: "high" });
+    await tick();
     materials[4].is_unlit = true;
     await tick();
     const unlitPublication = renderer.graphics.render_world.runtime(scene).nativeMaterials;
@@ -1547,6 +1647,9 @@ export async function runNativeSurfaceProductionGpuOracle(
       nativeLightingMutation: true,
       authoredEnvironment,
       actualRenderer: true,
+      initialization,
+      synchronousFramePipelineCreation: 0,
+      pipelineFailureRetainedStateAndExplicitRetry: preparationFailed,
       cookedTextureWorkerCount: textureWorkerCount,
       textureEvidence,
       productGeometry,
