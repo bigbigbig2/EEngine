@@ -571,7 +571,7 @@ export class ShadeGPUCommandContext {
 
     const encoder = this.#encoder!;
     const timer = this.#gpuTimer;
-    let submissionFailure: unknown;
+    let failure: { cause: unknown } | undefined;
     try {
       this.onBeforeFinish.send1Checked(this);
       if (timer !== undefined) {
@@ -600,14 +600,18 @@ export class ShadeGPUCommandContext {
       this.#submissionFence = this.device.queue.onSubmittedWorkDone();
     } catch (cause) {
       if (!this.#submitted) {
-        this.abort(cause);
+        try {
+          this.abort(cause);
+        } catch (abortFailure) {
+          // Preserve the encoding failure; abort still settles every owner.
+          console.error("GPU command abort observer failed", abortFailure);
+        }
         throw cause;
       }
       // Submission already happened. A fence acquisition error cannot undo it.
-      submissionFailure = cause;
+      failure = { cause };
       this.#submissionFence = Promise.reject(cause);
       void this.#submissionFence.catch(() => {});
-      this.#notifySubmissionFailure(cause);
     }
 
     openContextCount--;
@@ -621,17 +625,12 @@ export class ShadeGPUCommandContext {
     this.#timedEncoderFacade = undefined;
     this.#releaseBuffers(this.#submissionFence!);
 
-    let settlementFailure: unknown;
     for (const observer of this.#submissionObservers) {
       try {
         observer.submitted(this.#submissionFence!);
       } catch (cause) {
-        settlementFailure ??= cause;
+        failure ??= { cause };
       }
-    }
-    if (settlementFailure !== undefined) {
-      this.#notifySubmissionFailure(settlementFailure);
-      throw settlementFailure;
     }
 
     if (timer !== undefined) {
@@ -669,17 +668,27 @@ export class ShadeGPUCommandContext {
     try {
       this.onFinished.send1Checked(this);
     } catch (cause) {
-      this.#notifySubmissionFailure(cause);
-      throw cause;
+      failure ??= { cause };
     }
-    if (submissionFailure !== undefined) {
-      throw submissionFailure;
+    if (failure !== undefined) {
+      this.#notifySubmissionFailure(failure.cause);
+      throw failure.cause;
     }
   }
 
   #notifySubmissionFailure(cause: unknown): void {
+    let notificationFailure: { cause: unknown } | undefined;
     for (const observer of this.#submissionObservers) {
-      observer.failed(cause);
+      try {
+        observer.failed(cause);
+      } catch (error) {
+        notificationFailure ??= { cause: error };
+      }
+    }
+    if (notificationFailure !== undefined) {
+      // The original submission/settlement failure remains the caller's error.
+      // Notification failure is reported after all dependent owners are poisoned.
+      console.error("GPU command failure observer failed", notificationFailure.cause);
     }
   }
 
@@ -698,8 +707,13 @@ export class ShadeGPUCommandContext {
     this.#encoder = undefined;
     this.#timedEncoderFacade = undefined;
     this.#releaseBuffers();
+    let failure: { cause: unknown } | undefined;
     for (const observer of this.#submissionObservers) {
-      observer.aborted(cause);
+      try {
+        observer.aborted(cause);
+      } catch (error) {
+        failure ??= { cause: error };
+      }
     }
 
     const timer = this.#gpuTimer;
@@ -717,7 +731,14 @@ export class ShadeGPUCommandContext {
         console.error("GPU timer abort callback failed", callbackError);
       }
     }
-    this.onAborted.send2(this, cause);
+    try {
+      this.onAborted.send2Checked(this, cause);
+    } catch (error) {
+      failure ??= { cause: error };
+    }
+    if (failure !== undefined) {
+      throw failure.cause;
+    }
   }
 
   #releaseBuffers(reuseAfter?: Promise<void>): void {

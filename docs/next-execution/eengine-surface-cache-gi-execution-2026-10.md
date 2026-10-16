@@ -19,14 +19,14 @@ verifies:
 
 唯一详细设计为[SCGI设计](../next-design/eengine-surface-cache-gi-2026-10.md)。需求输入为[母稿](../reviews/EEngine_Surface_Cache_GI_WebGPU_Mother_Design_2026-10-17.md)；设计§17逐项映射母稿，设计§1列明勘误。本文件是细单元状态与实施结果唯一记录，workstream和粗执行不复制细状态。
 
-**当前已实施SCGI-1资源/事务/ABI基础设施，生产GI仍未开启。** 本轮授权仅完成SCGI-1；后续动工按完整目标推进，不把阶段产物宣布为完整GI。每个单元结束记录实际验证；大模块结束停在下一模块边界，不自动继续Local Specular Cache/ReSTIR等。
+**当前已实施SCGI-1资源/事务/ABI基础设施，生产GI仍未开启。** 当前授权为复核上一单元并完成SCGI-2；按完整目标推进，不把阶段产物宣布为完整GI。每个单元结束记录实际验证；大模块结束停在下一模块边界，不自动继续Local Specular Cache/ReSTIR等。
 
 ## 1. 完整范围、依赖与生产切换
 
 | 单元 | 内容 | 依赖 | 状态 |
 |---|---|---|---|
 | SCGI-1 | owner/publication/事务/能力与具体ABI | 源码基线和source map | 已完成，见§7 |
-| SCGI-2 | GeometryProduct query section、coverage cut、residency、共享变形publication | 1 | 待实施 |
+| SCGI-2 | GeometryProduct query section、coverage cut、residency、共享变形publication | 1 | 实施中，未关单 |
 | SCGI-3 | cascaded sparse cache、ring/scroll/evict/defrag/rank | 1 | 待实施 |
 | SCGI-4 | half-res anchors、共享identity、screen history seed | 2、3 | 待实施 |
 | SCGI-5 | 完整RadeonRays算法适配、query、material/alpha/VT | 1、2 | 待实施 |
@@ -452,3 +452,9 @@ GPU counters至少包含：requested/claimed/allocated/deferred/failed、evictio
 - `node tools/docs-verify.mjs`为0 findings、66 historical warnings；`node --test tools/tests/document-system.test.mjs`为7/7通过；`node tools/vibe.mjs doctor`无errors/warnings，registry字节一致。实际暂存17个相关文件，`git diff --cached --check`通过；`node tools/docs-verify.mjs --staged`为0 findings、81 historical warnings，额外15条仍为历史文档指向未提交的本地产物，与前轮一致。
 
 完成SCGI-1，下一边界是SCGI-2，本轮不继续。
+
+### 7.4 SCGI-2前置复核：异常通知完整结算（2026-10-17）
+
+源码复核发现SCGI-1的必需依赖缺口：`observeSubmission.submitted`抛错时，后面的legacy `onFinished`未执行；`aborted`抛错时后面的rollback通知也可能未执行；获取提交fence失败时过早poison可能被稍后的publication覆盖。上述不能延期。修复为先执行全部submission/abort observer和legacy通知，再传播第一个错误；已提交失败在全部publication结算后统一poison。错误用显式cause容器保存，包含`throw undefined`；failure observer自身抛错也不阻断其他owner。未增加submit、buffer、pipeline或dispatch，ADD为CPU错误路径中的有界遍历。
+
+新增三个独立command合同案例，GPU fixture补充真实已提交observer异常和未提交rollback异常，检查后续callback确实执行、active状态正确、重试可提交。集中验证：`npm run typecheck --prefix OEngine`、新鲜`npm run build:test --prefix OEngine`通过；七个原targeted文件本次实际发现25个测试，25/25通过（不是沿用旧43项数字）。`node tools/gpu-oracle.mjs scgi-transaction --json`通过，本地结果`.local/validation/scgi-1-followup-final-gpu.json`，GPU/page errors为空；资源403控制台信息保留，不当作GPU验证错误。尚未完成的SCGI-2不在本次前置修复中声明关单。

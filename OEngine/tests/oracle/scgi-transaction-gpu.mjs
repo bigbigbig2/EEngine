@@ -384,6 +384,62 @@ ${assignments.join("\n")}
     await drain();
     check(failed.snapshot().totalBytes === 0, "observer fault fence retires");
 
+    const settlementRuntime = createRuntime(20);
+    await settlementRuntime.configure(demand, scgiProfile);
+    const settlementCommand = scgiCommand(graphics);
+    const settlementFailure = new Error("intentional resource settlement exception");
+    settlementCommand.observeSubmission({
+      submitted() { throw settlementFailure; },
+      aborted() { throw new Error("submitted settlement must not abort"); },
+      failed() {}
+    });
+    const settlementFrame = settlementRuntime.prepare(settlementCommand, { scene: 3, view: 7 });
+    settlementRuntime.encode(settlementFrame);
+    scgiWriteKnown(settlementFrame, 61);
+    let legacyCommitted = false;
+    settlementCommand.onFinished.addOne(() => { legacyCommitted = true; });
+    let settlementFailed = false;
+    try {
+      settlementCommand.finish();
+    } catch (cause) {
+      settlementFailed = cause === settlementFailure;
+    }
+    check(settlementFailed && legacyCommitted, "resource observer fault must settle legacy owners");
+    check(settlementRuntime.activeGeneration === 1 && settlementRuntime.poisoned,
+      "all resource observers settle before failure propagation");
+    settlementRuntime.disable();
+    await settlementCommand.gpuDone;
+    await drain();
+    check(settlementRuntime.snapshot().totalBytes === 0, "resource observer fault retirement drains");
+
+    const abortedRuntime = createRuntime(21);
+    await abortedRuntime.configure(demand, scgiProfile);
+    const abortCommand = scgiCommand(graphics);
+    const abortFailure = new Error("intentional resource rollback exception");
+    abortCommand.observeSubmission({
+      submitted() { throw new Error("aborted settlement must not submit"); },
+      aborted() { throw abortFailure; },
+      failed() {}
+    });
+    const abortFrame = abortedRuntime.prepare(abortCommand, { scene: 3, view: 7 });
+    abortedRuntime.encode(abortFrame);
+    scgiWriteKnown(abortFrame, 62);
+    let legacyAborted = false;
+    abortCommand.onAborted.addOne(() => { legacyAborted = true; });
+    let abortFailed = false;
+    try {
+      abortCommand.abort();
+    } catch (cause) {
+      abortFailed = cause === abortFailure;
+    }
+    check(abortFailed && legacyAborted && abortFrame.state === "aborted",
+      "resource rollback fault must settle all other owners");
+    check(abortedRuntime.activeGeneration === 0, "rollback fault cannot publish candidate");
+    await drain();
+    abortedRuntime.destroy();
+    check(abortedRuntime.snapshot().totalBytes === 0, "aborted candidate resources drain");
+    results.push("resource settlement/rollback faults preserve every legacy publication notification");
+
     // Deliberate invalid GPU command is scoped so it cannot contaminate the
     // harness's outer error scope. Feed the actual asynchronous GPUError to owner.
     const validationRuntime = createRuntime(3);

@@ -209,6 +209,10 @@ export class ChangeSignal<A = any, B = any, C = any, D = any, E = any, F = any, 
     dispatchSignal(this, (node) => node.handle.call(node.context, a, b));
   }
 
+  send2Checked(a: A, b: B): void {
+    dispatchSignal(this, (node) => node.handle.call(node.context, a, b), undefined, true);
+  }
+
   send3(a: A, b: B, c: C): void {
     dispatchSignal(this, (node) => node.handle.call(node.context, a, b, c));
   }
