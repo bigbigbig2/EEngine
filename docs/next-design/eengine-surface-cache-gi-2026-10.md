@@ -14,6 +14,7 @@ verifies:
     - OEngine/src/shaders/native_surface.ts
     - OEngine/src/render/lighting
     - OEngine/src/render/gi
+    - OEngine/src/render/FrameInstanceTransforms.ts
     - OEngine/src/shaders/scgi_cache.ts
     - OEngine/src/shaders/scgi_anchor.ts
     - OEngine/src/shaders/primary_surface_identity.ts
@@ -246,6 +247,8 @@ Anchor guide/history保存source pixel、depth、flat normal及§19的完整iden
 resize/renderScale改变重建screen history，保留相容world cache；camera cut拒绝screen seed并scroll世界体积，不能一律清所有world lighting。曝光变化不清未曝光cache；实际environment/灯光变化进入dirty与drift。
 
 SCGI-4物理合同：GpuScene同一instantiate/append/replacement事务批量写16B/physical-instance lineage side table，扩容copy、abort及最后fence退休与instance一致。当前没有local slot独立回收，slot lifetime等于set generation；将来独立回收须推进该lane。Native material精确binding publication变化也推进valueRevision，不能让纹理替换保留旧身份。Native最终重建仍使用已有压缩identity ABI，GI用完整tuple；两者共享primary position/motion数学，不能把最终重建hash当GI严格身份。
+
+场景接线使用`ScgiAnchors.encodeSceneAnchors`：从`GpuScene.queryBindings(command)`获取同command可读的实例/lineage publication，借用`FrameInstanceTransforms`已在本command编码且source/work一致的records，以及真实`NativeSceneQueryLease.publication.data`。编码时捕获buffer身份、high-water、contentRevision、mutationSerial、material current资格与Product binding epoch；提交前再次检查，晚到同buffer修改、扩容、实例替换或material/Product publication替换均拒绝提交，由原command abort/retry。不得仅因旧buffer仍被租用就当作当前场景。GPU同时验证Visibility generation、lineage、work与instance的geometry/material引用、Product generation/table slot及asset group范围；无Product decoder的profile不能把virtual geometry按普通几何解码。裸buffer的`encodeAnchors`保留为内部不可变输入编码及数值隔离入口，不作为场景composition的绕过路径；真实geometry/material资源的fence租约仍由原owner与调用方持有，本入口不另建query AS或场景副本。
 
 当前anchor为128B/H单scratch：position/valid16、flat normal12+sourcePixel u32、previous position/valid16、motion/expected depth/current depth16、identity64，不新增full-res normal GBuffer。完整写所有H，rank0需求使用提交序号驱动的全局循环窗口，Q独立有界，避免前面分片长期抢满queue；abort不推进窗口和2×2 phase。seed按新physical patch唯一writer，source引用随defrag迁移；上一field必须用原guide及scale。previous half坐标为`floor(previousUV*fullExtent)/2`，奇数尺寸不能用`previousUV*halfExtent`。完整identity、双向绝对plane、normal、depth、world/tangent位移及device/scene/numeric/origin/voxel资格全部成立才初始化A0/A2和seed/post validity；真实sample/cohort count仍0，A1当帧重建。
 

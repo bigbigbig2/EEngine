@@ -19,7 +19,7 @@ verifies:
 
 唯一详细设计为[SCGI设计](../next-design/eengine-surface-cache-gi-2026-10.md)。需求输入为[母稿](../reviews/EEngine_Surface_Cache_GI_WebGPU_Mother_Design_2026-10-17.md)；设计§17逐项映射母稿，设计§1列明勘误。本文件是细单元状态与实施结果唯一记录，workstream和粗执行不复制细状态。
 
-**SCGI-1、SCGI-2与SCGI-3的实现及局部验收已闭合；SCGI-4、SCGI-5未闭合，生产GI未开启。** SCGI-2当前交付为静态/刚体、精确coverage、GPU世界域工作集及本地publication，结果与边界见§7.9；完整Renderer集成仍按既定节奏在SCGI-8/10集中完成。用户2026-10-17授权先补齐SCGI-2，再复核关闭SCGI-4，最后完成SCGI-5剩余机制与整体验收。用户确认暂不实现skin/morph；未证保真的raster coarse不当有效遮挡，4GB不作复杂大场景承诺。§7.6～7.8保留此前实施快照，不覆盖本节与§7.9的当前状态。本轮停在SCGI-2边界，不自动提升SCGI-4/5或开始SCGI-6。
+**SCGI-1～SCGI-4的实现及局部验收已闭合；SCGI-5未闭合，生产GI未开启。** SCGI-2当前交付为静态/刚体、精确coverage、GPU世界域工作集及本地publication，结果与边界见§7.9；SCGI-4在当前产品上的复核、接线修复与关单见§7.10。完整Renderer集成仍按既定节奏在SCGI-8/10集中完成。用户2026-10-17授权先补齐SCGI-2，再复核关闭SCGI-4，最后完成SCGI-5剩余机制与整体验收。用户确认暂不实现skin/morph；未证保真的raster coarse不当有效遮挡，4GB不作复杂大场景承诺。§7.6～7.8保留此前实施快照，不覆盖本节与§7.9/7.10的当前状态。本轮停在SCGI-4边界，不自动提升SCGI-5或开始SCGI-6。
 
 ## 1. 完整范围、依赖与生产切换
 
@@ -28,8 +28,8 @@ verifies:
 | SCGI-1 | owner/publication/事务/能力与具体ABI | 源码基线和source map | 已完成，见§7 |
 | SCGI-2 | GeometryProduct query section、coverage cut、residency、共享刚体实例publication | 1 | 当前静态/刚体范围实现及局部验收完成，见§7.9；生产集成归8/10 |
 | SCGI-3 | cascaded sparse cache、ring/scroll/evict/defrag/rank | 1 | 已完成，见§7.5 |
-| SCGI-4 | half-res anchors、共享identity、screen history seed | 2、3 | 基础闭包已实施并验证；待在SCGI-2当前产品上复核关单，本轮不自动关闭 |
-| SCGI-5 | 完整RadeonRays算法适配、query、material/alpha/VT | 1、2 | 实施中，未关单；先返工SCGI-2及SCGI-4，见§7.7 |
+| SCGI-4 | half-res anchors、共享identity、screen history seed | 2、3 | 当前静态/刚体范围实现及局部验收完成，见§7.10；真实world field/composition归7/8 |
+| SCGI-5 | 完整RadeonRays算法适配、query、material/alpha/VT | 1、2 | 实施中，未关单；2/4前置已闭合，剩余机制见§7.7，本轮未推进 |
 | SCGI-6 | 全光源估计、punctual重连接、multi-bounce | 3、4、5 | 待实施 |
 | SCGI-7 | 统计、动态失效、A0/A1/A2过滤、L1 screen field | 6 | 待实施 |
 | SCGI-8 | FrameProgram+Native全部route原子接线、旧owner退休 | 1–7 | 待实施 |
@@ -170,7 +170,7 @@ GPU事务fixture可以写固定值验证真资源/command行为，但不接为�
 
 **关单条件。** GI在Surface前独立完成所需temporal事实，没有GI↔Surface环；history接受必须有正确性证据，不以画面“似乎稳定”替代。
 
-**补充fixture。** 同primitive index不同instance、set/slot重用、material value改变、Product物理搬迁、deform previous有效/缺失分别测试。严格身份用于history重投影；空间upsample按几何/材质相容性，不能要求邻tap同primitive而让所有三角形边缘失效。world/residual共享guide必须同role，不能拿新guide解释旧系数。
+**补充fixture。** 同primitive index不同instance、set/slot重用、material value改变、Product物理搬迁分别测试；deform previous有效输入随共享动画模块验收，当前验证没有共享流时拒绝伪造history，不作为本单元前置。严格身份用于history重投影；空间upsample按几何/材质相容性，不能要求邻tap同primitive而让所有三角形边缘失效。world/residual共享guide必须同role，不能拿新guide解释旧系数。
 
 ### SCGI-5：完整WebGPU compute query与材质命中
 
@@ -613,3 +613,40 @@ stash 暂留作历史恢复点，不是当前实现的依赖，也不表示仍�
 **关单结论。** SCGI-2当前授权静态/刚体范围的实现与局部验收闭合：先前的全Product永久leaf pin、本地cut交换缺失及域变化无法复核已补齐。没有承诺有损coarse生成、skin/morph、默认GI画面或整Renderer性能通过。后续若内容提供新coarse证明/代理，须按Product版本与来源规则扩展，不能把现有flags6直接去critical后用于生产。
 
 **集成边界。** SCGI-8/10 负责全 Renderer activation、组合画面、全部故障/恢复与资源峰值/成本。SCGI-4/5 状态不随本节自动提升。旧全仓未完成 run 与无关 Nyx 审计失败仍按§7.8保存，不改写为本轮通过。
+
+### 7.10 SCGI-4当前产品复核、接线修复与关单（2026-10-17）
+
+**范围与结论。** 对照设计§7、§19和本文件SCGI-4合同，复核当前schema2 / OGQ2 v3 GeometryProduct、GpuScene实例lineage、当前frame records、Native material publication、SCGI双bank/screen roles及全部已存在的anchor直接consumer。SCGI-2前置已按§7.9闭合；skin/morph继续随共享动画模块延期，不恢复此前“必须先建设动画系统”的关单前置。**SCGI-4静态/刚体范围实现及局部验收完成。** SCGI-5仍未关单，本轮未推进其算法，也未开启默认生产GI。
+
+**发现并修复的实际缺口。**
+
+1. 旧anchor入口只有裸buffer，不能校验frame instances、lineage和Native材质是否来自同一当前publication。新增`encodeSceneAnchors`直接借用`GpuScene.queryBindings(command)`、`FrameInstanceTransforms`及`NativeSceneQueryLease`；frame owner校验source/work一致、已在当前encoder完成生产，容量覆盖当前high-water。捕获scene buffer/content/mutation serial、Product metadata/banks/binding epoch及material current资格，提交前再检查；同buffer晚到patch、扩容、实例替换及material/Product publication改变都不可提交旧输入。复用原command abort/retry与调用方fence租约，不增加scene副本、readback、独立submit或query AS前置。
+2. GPU旧入口只校验work generation与instance lineage，未校验work的geometry/material引用是否仍匹配当前instance。现在不相符时完整写invalid；virtual profile在geometry decode前验证Product generation/table slot及asset group区间，普通profile显式拒绝virtual输入。group地址不再允许下溢成巨大asset-local meshlet身份；无效记录保留invalid sourcePixel，不能写rank0需求或seed。
+3. 原数值fixture的work指向普通geometry 0，但手工frame source写geometry 1，碰巧旧shader未检查。只将本SCGI隔离fixture的source修正到实际消费geometry 0，并增加错配拒绝断言；没有恢复旧ABI/owner或给production增加测试fallback。
+
+**实际producer→consumer闭包。**
+
+| 源事实 | 本轮核对的消费 |
+|---|---|
+| VisibilityKey/current meshlet work + 共享frame records + GpuScene lineage + Native material revision | 完整128B anchor及64B精确身份；current/previous刚体位置、负/非均匀缩放、flat normal、motion/depth |
+| 当前anchor | 112B rank0 receiver request→`ScgiCache` claim/allocate→`seedSources`；提交序号控制winner和需求窗口，abort不推进 |
+| 当前Product metadata/resident pages | 按真实raster winner解码；语义身份为Product generation、asset-local meshlet及local primitive，不存query cut局部primitive地址；directory v2 source remap属于query地址合同，不能混充anchor历史身份 |
+| previous committed world-only field + 原role guide/scale | 新physical patch唯一writer验证完整identity、epoch、normal、depth与双向plane/world/tangent距离；初始化A0/A2及seed/post validity，真实query/cohort count仍0 |
+| resize/cut/scene替换/abort | 原runtime交换和退休；resize拒旧screen seed且保留相容world，cut拒seed；同physical instance range复用改变完整lifetime |
+
+SCGI-7尚未实现真实world-only field writer，SCGI-8尚未接FrameProgram；本轮history radiance仍为明确的隔离输入。这是单元依赖顺序，不冒称已经得到GI图像或完整生产接通。SCGI-7/8必须继续用真实writer补组合链验收；空间upsample/残差也不由本单元新增。
+
+**必要验证。**
+
+- `npm run build`通过，含TypeScript检查、Vite与库构建；新鲜`npm run build:test`通过。日志`scgi4-closure-build-01.log`、`scgi4-closure-test-build-final.log`。
+- 精确单文件`scgi-anchor-publication.test.mjs`检查当前owner绑定、同buffer mutation、material/Product替换及错误frame source/work/encoder拒绝，最终build上4/4通过。日志`scgi4-closure-contract-final.log`。
+- 新`scgi-anchor-publication`真实GPU oracle：1×1输入，实际MultiProduct runtime、GpuScene、FrameInstanceTransforms、NativeMaterialScene→anchor→allocator→seed；验证有效负/非均匀刚体、真实material revision、world-only A0/A2及scale、count0、同buffer晚到实例patch提交前abort、重新捕获retry、同physical range lifetime替换拒绝旧seed、晚到材质candidate拒绝提交、真实材质revision改变单独拒绝history。`scgi4-closure-publication-gpu-02.log`通过。
+- `scgi-anchor`真实GPU oracle通过：相同primitive Native seed数学与独立camera投影、刚体current/previous、sky/1×1/1919×1079/细杆/屏边、完整错配invalid写域、Product generation/slot/group拒绝、两个真实Product与物理地址扰动身份不变、严格identity/normal/depth/plane/epoch拒绝、三段anchor/history与跨段seed、循环budget与abort/retry、resize世界保留。日志`scgi4-closure-anchor-gpu-01.log`。
+- 两次GPU成功结果均为NVIDIA Turing硬件、Chrome 155.0.8059.82、16 storage bindings / 128MiB单binding，`gpuErrors`与`scopedGpuErrors`为空。最终源构建SHA256：`1bcec185ba1176df5d0390e97ea752f2c7822b3cb7620ffbaf1e2545a222a3a9`。1919×1079的约160.8ms为完整readback与CPU oracle wall time，不是GPU shader耗时。
+- `node tools/docs-verify.mjs`通过，0 findings / 66 historical warnings；设计/执行、domain事实和source map均同步到当前代码，入口不复制单元状态。
+
+**失败留痕。** `scgi4-closure-contract-01.log`为Node fixture导入时未先定义GPUShaderStage，改为先声明测试环境常量再动态导入；不涉及production。`scgi4-closure-publication-gpu-01.log`的轴向normal断言错误要求f32归一化cross精确等于-1，GPU无validation error；改用与原刚体独立oracle相同的1e-6 f32误差界，同时检查另外两轴为0附近，不改法线方向或production数学。失败记录保留，之后只重跑受影响oracle。
+
+**增量成本与来源。** 本轮scene接线为Local/Original integration，复用已有GpuScene、Product/Native lease、frame transform与command提交合同，没有新增第三方算法移植声明。新增GPU常驻/临时buffer、texture、history、AS、dispatch与pipeline permutation均为0；CPU每次anchor编码/提交前各一次有界owner校验，最多4个bank引用；shader增加geometry/material相等与Product group区间拒绝，既有Product resolve前移，不加全屏pass或额外场景扫描。原128H anchor、224H双field与seed分片组合成本仍按§7.6成本卡，不以本轮正确性结果宣称性能提升。
+
+**关单边界。** 未跑整仓Node、完整Renderer画面、跨GPU/浏览器、benchmark、evidence/claims或SCGI-10故障/峰值组合；与本轮无关的已知失败不改写为通过。默认GI仍off，4GB不承诺复杂大场景。本轮关单后停在SCGI-5剩余机制边界。

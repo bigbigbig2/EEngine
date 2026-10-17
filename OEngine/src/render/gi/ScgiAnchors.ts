@@ -1,4 +1,8 @@
 import { PipelineCompilationQueue } from "../../gpu/PipelineCompilationQueue.js";
+import type { GpuScene } from "../../gpu/GpuScene.js";
+import type { NativeSceneQueryLease } from "../../gpu/GpuNativeMaterialScene.js";
+import type { GeometryProductGpuBindingsV1 } from "../../gpu/VirtualGeometryResidency.js";
+import type { FrameInstanceTransforms, PreparedFrameInstances } from "../FrameInstanceTransforms.js";
 import { scgiAnchorWgsl, scgiSeedWgsl, SCGI_ANCHOR_SETTINGS_BYTES } from "../../shaders/scgi_anchor.js";
 import { assertScgiAnchorCapabilities, type ScgiAllocationPlan } from "./ScgiCapacity.js";
 import type { ScgiFrameTransaction } from "./ScgiRuntime.js";
@@ -16,6 +20,17 @@ export interface ScgiAnchorInputs {
   readonly product?: readonly [GPUBuffer, GPUBuffer, GPUBuffer, GPUBuffer, GPUBuffer];
   readonly source: readonly [number, number, number, number];
   readonly sourcePayload: readonly [number, number, number, number];
+}
+
+/** Scene-backed entry: borrow the same frame records as Visibility/Surface.
+ * The caller retains geometry and material leases through the command fence. */
+export interface ScgiSceneAnchorInputs
+  extends Omit<ScgiAnchorInputs, "instances" | "identities" | "materials" | "product"> {
+  readonly scene: GpuScene;
+  readonly frameOwner: FrameInstanceTransforms;
+  readonly frameInstances: PreparedFrameInstances;
+  readonly materials: NativeSceneQueryLease;
+  readonly product?: GeometryProductGpuBindingsV1;
 }
 
 export interface ScgiAnchorView {
@@ -64,7 +79,7 @@ export class ScgiAnchors {
     readonly plan: ScgiAllocationPlan,
     readonly product: boolean,
     private readonly anchorPipeline: GPUComputePipeline,
-    private readonly seedPipeline: GPUComputePipeline,
+    private readonly seedPipeline: GPUComputePipeline
   ) {}
 
   static async create(device: GPUDevice, plan: ScgiAllocationPlan, product: boolean): Promise<ScgiAnchors> {
@@ -74,7 +89,7 @@ export class ScgiAnchors {
       queue.run(async () => {
         const module = device.createShaderModule({ label, code });
         const errors = (await module.getCompilationInfo()).messages.filter(
-          (message) => message.type === "error",
+          (message) => message.type === "error"
         );
         if (errors.length !== 0) {
           throw new Error(`${label}: ${errors.map((message) => message.message).join("\n")}`);
@@ -82,12 +97,12 @@ export class ScgiAnchors {
         return device.createComputePipelineAsync({
           label,
           layout: "auto",
-          compute: { module, entryPoint: "main" },
+          compute: { module, entryPoint: "main" }
         });
       });
     const [anchor, seed] = await Promise.all([
       compile("SCGI/anchors", scgiAnchorWgsl(plan, product)),
-      compile("SCGI/new-patch-seed", scgiSeedWgsl(plan)),
+      compile("SCGI/new-patch-seed", scgiSeedWgsl(plan))
     ]);
     return new ScgiAnchors(device, plan, product, anchor, seed);
   }
@@ -103,6 +118,61 @@ export class ScgiAnchors {
     }
   }
 
+  /** Capture current owner identities now and recheck immediately before submit.
+   * In-place scene edits change mutationSerial even when buffer identity stays
+   * unchanged. No extra GPU copy, scene representation or query AS is needed. */
+  encodeSceneAnchors(
+    transaction: ScgiFrameTransaction,
+    input: ScgiSceneAnchorInputs,
+    view: ScgiAnchorView
+  ): void {
+    this.check(transaction);
+    const command = transaction.command;
+    const scene = input.scene.queryBindings(command);
+    const materials = input.materials;
+    const product = input.product;
+    const productEpoch = product?.bindingEpoch;
+    const metadata = product?.metadata;
+    const banks = product === undefined ? undefined : [...product.banks];
+    if (input.frameInstances.capacity < scene.highWaterCount || (banks !== undefined && banks.length !== 4)) {
+      throw new RangeError("SCGI anchor inputs do not cover the complete scene/Product binding domain");
+    }
+    const assertCurrent = (): void => {
+      const current = input.scene.queryBindings(command);
+      if (
+        current.instances !== scene.instances ||
+        current.identities !== scene.identities ||
+        current.mutationSerial !== scene.mutationSerial ||
+        current.contentRevision !== scene.contentRevision ||
+        current.highWaterCount !== scene.highWaterCount ||
+        !materials.isCurrent(command) ||
+        (product !== undefined &&
+          (product.bindingEpoch !== productEpoch ||
+            product.metadata !== metadata ||
+            product.banks.some((buffer, index) => buffer !== banks![index])))
+      ) {
+        throw new Error("SCGI anchor scene/material/geometry publication changed before submit");
+      }
+      input.frameOwner.assertSource(input.frameInstances, scene.instances, input.work, command.gpu_encoder);
+    };
+    assertCurrent();
+    this.encodeAnchors(
+      transaction,
+      {
+        ...input,
+        instances: input.frameInstances.records,
+        identities: scene.identities,
+        materials: materials.publication.data,
+        product:
+          product === undefined ? undefined : [metadata!, banks![0]!, banks![1]!, banks![2]!, banks![3]!]
+      },
+      view
+    );
+    command.onBeforeFinish.addOne(assertCurrent);
+  }
+
+  /** Low-level immutable buffer seam, also used by isolated numerical oracles.
+   * Scene composition uses encodeSceneAnchors to validate producer provenance. */
   encodeAnchors(transaction: ScgiFrameTransaction, input: ScgiAnchorInputs, view: ScgiAnchorView): void {
     this.check(transaction);
     if (
@@ -131,7 +201,7 @@ export class ScgiAnchors {
       productGroup = this.device.createBindGroup({
         label: "SCGI/anchor/Product",
         layout: this.anchorPipeline.getBindGroupLayout(1),
-        entries: input.product.map((buffer, binding) => ({ binding, resource: { buffer } })),
+        entries: input.product.map((buffer, binding) => ({ binding, resource: { buffer } }))
       });
     }
     let first = 0;
@@ -152,8 +222,7 @@ export class ScgiAnchors {
       // Commit-only serial drives both subpixel winner selection and bounded
       // demand rotation. Abort retries exactly the same phase.
       const demandStart = Number(
-        (BigInt(publication.sampleSerial) * BigInt(this.plan.profile.requests)) %
-          BigInt(this.plan.halfPixels),
+        (BigInt(publication.sampleSerial) * BigInt(this.plan.profile.requests)) % BigInt(this.plan.halfPixels)
       );
       words.set([publication.sampleSerial % 4, Number(view.previousValid), demandStart, 0], 88);
       const settings = command.allocateTransientBufferAndLoad(bytes);
@@ -165,12 +234,12 @@ export class ScgiAnchors {
         { binding: 6, resource: { buffer: input.identities } },
         { binding: 7, resource: { buffer: input.materials } },
         { binding: 8, resource: { buffer: publication.privateScratch.buffer } },
-        { binding: 9, resource: { buffer: anchor.buffer } },
+        { binding: 9, resource: { buffer: anchor.buffer } }
       ];
       const group = this.device.createBindGroup({
         label: "SCGI/anchor/segment",
         layout: this.anchorPipeline.getBindGroupLayout(0),
-        entries,
+        entries
       });
       const pass = command.beginComputePass({ label: "SCGI/anchors" });
       pass.setPipeline(this.anchorPipeline);
@@ -219,9 +288,9 @@ export class ScgiAnchors {
               thresholds.distance,
               thresholds.normalCosine,
               thresholds.tangentDistance,
-              publication.previousCoefficientScale,
+              publication.previousCoefficientScale
             ],
-            40,
+            40
           );
           words[44] = 1;
           const settings = command.allocateTransientBufferAndLoad(bytes);
@@ -234,8 +303,8 @@ export class ScgiAnchors {
               { binding: 2, resource: { buffer: publication.privateScratch.buffer } },
               { binding: 3, resource: { buffer: anchor.buffer } },
               { binding: 4, resource: { buffer: segment.buffer } },
-              { binding: 5, resource: { buffer: publication.activeWorld.buffer } },
-            ],
+              { binding: 5, resource: { buffer: publication.activeWorld.buffer } }
+            ]
           });
           const pass = command.beginComputePass({ label: "SCGI/new-patch-seed" });
           pass.setPipeline(this.seedPipeline);

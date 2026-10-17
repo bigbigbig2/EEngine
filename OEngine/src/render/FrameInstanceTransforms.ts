@@ -36,6 +36,7 @@ interface State {
   readonly handles: readonly ResourceHandle[];
   camera: GPUBuffer;
   group: GPUBindGroup;
+  encoded: GPUCommandEncoder | null;
 }
 const ENTRIES = [
   "frame_instance_begin",
@@ -238,6 +239,7 @@ export class FrameInstanceTransforms {
         handles,
         camera: input.camera,
         group: null!,
+        encoded: null,
       };
       state.group = this.createGroup(state);
       this.states.set(prepared, state);
@@ -255,6 +257,14 @@ export class FrameInstanceTransforms {
     state.camera = camera;
     state.group = group;
   }
+  /** Direct consumers must pair these records with the scene/work that built
+   * them. Buffer retention alone does not certify a current scene publication. */
+  assertSource(prepared: PreparedFrameInstances, source: GPUBuffer, work: GPUBuffer, encoder: GPUCommandEncoder): void {
+    const state = this.require(prepared);
+    if (state.source !== source || state.work !== work || state.encoded !== encoder) {
+      throw new Error("Frame instance records belong to another scene/work publication");
+    }
+  }
   encode(encoder: GPUCommandEncoder, prepared: PreparedFrameInstances): void {
     const pipelines = this.requireReady(),
       s = this.require(prepared);
@@ -270,6 +280,7 @@ export class FrameInstanceTransforms {
       } else pass.dispatchWorkgroupsIndirect(s.indirect, 0);
       pass.end();
     }
+    s.encoded = encoder;
   }
   release(prepared: PreparedFrameInstances): void {
     // Queue-retirement callbacks can arrive after device-loss disposal.

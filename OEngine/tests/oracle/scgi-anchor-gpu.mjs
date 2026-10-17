@@ -78,6 +78,9 @@ export async function runScgiAnchorGpuOracle(device) {
     // Set dynamic revision zero in the authoritative fixture record. No fake
     // deformation publication is installed; missing-previous rejection is tested below.
     device.queue.writeBuffer(fixture.geometry.instances, 160, new Uint32Array([0]));
+    // This oracle selects geometry zero from the shared source metadata. Keep
+    // the authored frame source consistent with that work record.
+    device.queue.writeBuffer(fixture.geometry.instances, 0, new Uint32Array([0]));
     const input = {
       work: fixture.geometry.meshletWork,
       metadata: fixture.sparseShading.assetMetadataHeap,
@@ -155,6 +158,20 @@ export async function runScgiAnchorGpuOracle(device) {
     }
     const world = new Uint32Array(await getWorld());
     check(world[18] > 0, "real anchor requests feed cache allocation");
+    for (const [offset, label] of [[36, "geometry"], [44, "material"]]) {
+      device.queue.writeBuffer(input.work, offset, new Uint32Array([0xffffffff]));
+      const rejectedCommand = scgiCommand(graphics);
+      const rejected = runtime.prepare(rejectedCommand, { scene: 1, view: 1 });
+      runtime.encode(rejected);
+      anchors.encodeAnchors(rejected, input, view);
+      const getRejected = read(rejectedCommand, rejected.publication.anchors[0].buffer);
+      rejectedCommand.finish();
+      await rejected.completion;
+      const records = new Uint32Array(await getRejected());
+      check(records.every((value, lane) => value === (lane % 32 === 7 ? 0xffffffff : 0)),
+        `stale ${label} work fully overwrites invalid anchors`);
+      device.queue.writeBuffer(input.work, offset, new Uint32Array([0]));
+    }
     await checkNativeParity(device, graphics, runtime, anchors, input, view, storage, resources);
     await checkRigidAnchors(device, graphics, runtime, anchors, input, view, read);
     let frame = 1;
@@ -455,7 +472,7 @@ export async function runScgiAnchorGpuOracle(device) {
         "1x1 and 1919x1079 complete receiver domain, one-pixel rods, resize world retention and bounded deferred requests",
       ],
       dimensions,
-      scope: "SCGI-4 infrastructure; shared SCGI-2 deformation/coverage prerequisite still incomplete",
+      scope: "SCGI-4 anchor/seed numerical and lifecycle checks; full GI field producer/composition belongs to SCGI-7/8",
     };
   } finally {
     runtime.destroy();
@@ -481,6 +498,7 @@ async function checkRigidAnchors(device, graphics, runtime, anchors, input, view
     });
     try {
       device.queue.writeBuffer(fixture.geometry.instances, 160, new Uint32Array([0]));
+      device.queue.writeBuffer(fixture.geometry.instances, 0, new Uint32Array([0]));
       device.queue.writeTexture(
         { texture: fixture.visibility },
         new Uint32Array(64),
@@ -1022,7 +1040,7 @@ async function checkProductAnchors(device, graphics, runtime, plan, fixture, inp
       const binding = products.bindings();
       const product = [binding.metadata, ...binding.banks];
       const productInput = { ...input, instances: storage(frame), work: storage(work), product };
-      const evaluate = async (selected) => {
+      const evaluate = async (selected, expectedValid = true) => {
         const command = scgiCommand(graphics);
         const tx = runtime.prepare(command, { scene: 1, view: 1 });
         runtime.encode(tx);
@@ -1033,6 +1051,11 @@ async function checkProductAnchors(device, graphics, runtime, plan, fixture, inp
         const bytes = await get();
         const u = new Uint32Array(bytes),
           f = new Float32Array(bytes);
+        if (!expectedValid) {
+          check(u.every((value, lane) => value === (lane % 32 === 7 ? 0xffffffff : 0)),
+            "stale Product generation/slot/group fully overwrites invalid anchors");
+          return;
+        }
         check(
           f[3] === 1 && Math.abs(f[2] - 0.5) < 1e-6,
           `real resident Product position ${index}: ${[...f.slice(0, 4)]}, identity ${[...u.slice(16, 32)]}, reference ${handle.assetReferenceBegin}, slot ${handle.productTableSlot}`,
@@ -1047,6 +1070,17 @@ async function checkProductAnchors(device, graphics, runtime, plan, fixture, inp
         return u.slice(16, 32);
       };
       const before = await evaluate(productInput);
+      device.queue.writeBuffer(productInput.instances, 44, new Uint32Array([handle.productGeneration + 100]));
+      await evaluate(productInput, false);
+      device.queue.writeBuffer(productInput.instances, 44, new Uint32Array([handle.productGeneration]));
+      device.queue.writeBuffer(productInput.instances, 168, new Uint32Array([handle.productTableSlot + 100]));
+      await evaluate(productInput, false);
+      device.queue.writeBuffer(productInput.instances, 168, new Uint32Array([handle.productTableSlot]));
+      device.queue.writeBuffer(productInput.work, 40,
+        new Uint32Array([(products.tableRecord(handle.productTableSlot).groupBegin + 1) * 128]));
+      await evaluate(productInput, false);
+      device.queue.writeBuffer(productInput.work, 40,
+        new Uint32Array([products.tableRecord(handle.productTableSlot).groupBegin * 128]));
       // Physical-address perturbation isolates identity from residency. Original
       // pages come from the real owner above; this deliberate address-table input
       // is not evidence for SCGI-2 page-lease/relocation transaction completion.

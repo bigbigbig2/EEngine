@@ -109,9 +109,38 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let entry = native_material_entry(work.material_slot_or_range);
   if instance.generation != meshlet_work.header.generation ||
     !oengine_instance_active(instance.source) || lineage.x == 0u || lineage.y != instance.source.instance_set_generation ||
-    lineage.w == 0u || entry.value_revision == 0u || entry.program_index == 0xffffffffu {
+    lineage.w == 0u || entry.value_revision == 0u || entry.program_index == 0xffffffffu ||
+    work.geometry_slot != instance.source.geometry_record_index ||
+    work.material_slot_or_range != instance.source.material_handle {
     anchors[halfIndex - settings.segment.x] = result;
     return;
+  }
+  ${product ? "" : `if oengine_instance_virtual_geometry(instance.source) {
+    anchors[halfIndex - settings.segment.x] = result;
+    return;
+  }`}
+  var asset = instance.source.geometry_record_index;
+  var meshlet = work.meshlet_slot;
+  ${
+    product
+      ? `if oengine_instance_virtual_geometry(instance.source) {
+    let resolvedAsset = oengine_geometry_product_resolve_asset_v1(&product_heap,
+      work.geometry_slot, oengine_instance_geometry_generation(instance.source));
+    if !resolvedAsset.valid || resolvedAsset.product_table_slot != instance.source.product_table_slot {
+      anchors[halfIndex - settings.segment.x] = result;
+      return;
+    }
+    let reference = product_heap[5u] + work.geometry_slot * 4u;
+    asset = product_heap[reference + 2u];
+    let groupBegin = product_heap[resolvedAsset.asset_word_offset + 22u];
+    let group = work.meshlet_slot >> 7u;
+    if group < groupBegin || group - groupBegin >= resolvedAsset.group_count {
+      anchors[halfIndex - settings.segment.x] = result;
+      return;
+    }
+    meshlet = (group - groupBegin) * 128u + (work.meshlet_slot & 127u);
+  }`
+      : ""
   }
   let geometry = geometry_complete_resolved(decoded, work, instance);
   let interpolation = winner_interpolate(geometry.coefficients, vec2f(pixel) + vec2f(0.5), vec2f(settings.dimensions.xy));
@@ -140,26 +169,6 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   result.sourcePixel = pixel.y * settings.dimensions.x + pixel.x;
   result.previousPositionValid = vec4f(previous, select(0.0, 1.0, motion.valid));
   result.motionDepth = vec4f(motion.motion, motion.expected_depth, motion.current_depth);
-  var asset = instance.source.geometry_record_index;
-  var meshlet = work.meshlet_slot;
-  ${
-    product
-      ? `if oengine_instance_virtual_geometry(instance.source) {
-    // Resolve the actual winner's global reference before extracting the local
-    // asset ID. Metadata relocation must never become part of surface identity.
-    let resolvedAsset = oengine_geometry_product_resolve_asset_v1(&product_heap,
-      work.geometry_slot, oengine_instance_geometry_generation(instance.source));
-    if !resolvedAsset.valid || resolvedAsset.product_table_slot != instance.source.product_table_slot {
-      anchors[halfIndex - settings.segment.x] = PrimaryAnchor();
-      return;
-    }
-    let reference = product_heap[5u] + work.geometry_slot * 4u;
-    asset = product_heap[reference + 2u];
-    let groupBegin = product_heap[resolvedAsset.asset_word_offset + 22u];
-    meshlet = ((work.meshlet_slot >> 7u) - groupBegin) * 128u + (work.meshlet_slot & 127u);
-  }`
-      : ""
-  }
   // Full meshlet/local primitive tuple. No 32-bit hash or truncation.
   if !oengine_instance_virtual_geometry(instance.source) {
     meshlet = work.meshlet_slot - source_geometry.meshlet_begin;
