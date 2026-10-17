@@ -81,6 +81,7 @@ export class ScgiRenderer {
     return {
       runtime,
       queryBytes: query,
+      queryShards: this.scenes.current?.shards.length ?? 0,
       estimator,
       invalidationBytes: invalidation,
       gather: this.gather?.cost,

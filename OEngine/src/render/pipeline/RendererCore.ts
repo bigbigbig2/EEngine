@@ -2389,6 +2389,14 @@ export class Renderer {
     return this._scgiSettings;
   }
 
+  /** On-demand CPU bookkeeping snapshot for debug tools. Does not expose GPU
+   * products, submit commands or read back data. Null before owner creation or
+   * after retirement. Cost bounds are not executed ray counts or GPU timings;
+   * allocation exclusions are reported by the SCGI owner itself. */
+  surfaceCacheGiEvidence() {
+    return this._scgi?.cost ?? null;
+  }
+
   setSurfaceCacheGiSettings(patch: Partial<SurfaceCacheGiSettings>): void {
     this.cancelScgiPreparation();
     this._scgiSettings = surfaceCacheGiSettings(patch, this._scgiSettings);

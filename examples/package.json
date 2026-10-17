@@ -4,6 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "demo:scgi": "vite --config demos/14-integrated/surface-cache-gi-lab/vite.config.ts --host 127.0.0.1 --strictPort --open /demos/14-integrated/surface-cache-gi-lab/index.html",
+    "typecheck:scgi": "tsc --noEmit -p demos/14-integrated/surface-cache-gi-lab/tsconfig.json",
+    "build:scgi": "vite build --config demos/14-integrated/surface-cache-gi-lab/vite.config.ts",
     "demo:zorah": "vite --config demos/14-integrated/zorah-virtual-geometry/vite.config.ts --host 127.0.0.1 --strictPort --open /demos/14-integrated/zorah-virtual-geometry/index.html",
     "typecheck:zorah": "tsc --noEmit -p demos/14-integrated/zorah-virtual-geometry/tsconfig.json",
     "build:zorah": "vite build --config demos/14-integrated/zorah-virtual-geometry/vite.config.ts",

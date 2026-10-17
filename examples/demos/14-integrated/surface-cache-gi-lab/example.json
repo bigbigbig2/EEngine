@@ -1,0 +1,8 @@
+{
+  "id": "surface-cache-gi-lab",
+  "title": "Surface Cache GI · 实验屋",
+  "category": "14-integrated",
+  "order": 17,
+  "description": "程序化连通房间、门窗与离屏遮挡实验、SCGI 与近场残差调试、同条件截图和数据导出。不依赖外部模型。",
+  "tags": ["integrated", "webgpu", "gi", "surface-cache", "debug"]
+}
